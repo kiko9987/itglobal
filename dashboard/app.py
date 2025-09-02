@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 current_data = None
 last_update = None
 _data_cache = {}
-_cache_expiry = 300  # 5분 캐시
+_cache_expiry = 60   # 1분 캐시
 
 # 프로젝트 설정 로드
 def _load_project_config():
@@ -562,6 +562,7 @@ def refresh_data():
         return jsonify({
             'message': '데이터 새로고침 완료',
             'timestamp': last_update.isoformat() if last_update else None,
+            'formatted_time': last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else None,
             'record_count': len(df)
         })
         
