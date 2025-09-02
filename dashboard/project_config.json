@@ -1,0 +1,50 @@
+{
+  "api_key": "itg-dashboard-2025-key",
+  "admin_emails": [
+    "jw@itg-aircon.com",
+    "yg@itg-aircon.com", 
+    "sb@itg-aircon.com",
+    "kiko@itg-aircon.com"
+  ],
+  "slack_webhook_url": "",
+  "sheet_id": "1s2fVTlRDpj-ljgub3noxuPCNlnH8gawuB87WtOxSyk4",
+  "sheet_range": "공사 현황!A1:AM10000",
+  "required_fields": [
+    "프로젝트 코드",
+    "현장 주소"
+  ],
+  "user_alias_map": {
+    "jw@itg-aircon.com": "박정우",
+    "yg@itg-aircon.com": "박용구",
+    "sb@itg-aircon.com": "황샛별",
+    "kiko@itg-aircon.com": "고광일"
+  },
+  "company_prefix_map": {
+    "글로벌": "G",
+    "글로벌그룹": "R", 
+    "플렌트": "P",
+    "아이티": "I"
+  },
+  "owner_suffix_map": {
+    "박정우": "JW",
+    "강성환": "SH",
+    "박용구": "YG",
+    "박민우": "MW",
+    "이근혁": "GH",
+    "아이티": "IT",
+    "김단이": "DN",
+    "권태훈": "TH",
+    "주영민": "YM",
+    "빈승정": "SJ",
+    "심장원": "SJW",
+    "박민재": "MJ",
+    "조성헌": "JSH",
+    "황해승": "HS",
+    "강민석": "MS",
+    "황샛별": "SB"
+  },
+  "enable_overdue_rule": false,
+  "confirm_column": "공사 확정",
+  "deposit_date_column": "계약금 입금일",
+  "created_date_column": "등록일"
+}

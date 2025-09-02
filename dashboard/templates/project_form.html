@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>프로젝트 등록 - 냉난방기 설치 공사 관리</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Flatpickr (날짜 선택) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <style>
+        .form-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        
+        .form-container {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+        
+        .section-header {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+            margin: 2rem 0 1rem 0;
+        }
+        
+        .section-header h5 {
+            margin: 0;
+            color: #495057;
+        }
+        
+        .form-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.5rem;
+        }
+        
+        .required {
+            color: #dc3545;
+        }
+        
+        .form-control, .form-select {
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+        
+        .form-control:focus, .form-select:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 8px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+        }
+        
+        .btn-secondary {
+            border-radius: 8px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+        }
+        
+        .alert {
+            border-radius: 8px;
+        }
+        
+        .auto-calculate {
+            background-color: #f8f9fa;
+            border-style: dashed !important;
+        }
+        
+        .project-code-display {
+            background: #e3f2fd;
+            border: 2px solid #2196f3;
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #1565c0;
+        }
+        
+        .loading {
+            display: none;
+        }
+        
+        .loading.show {
+            display: inline-block;
+        }
+        
+        .field-help {
+            font-size: 0.875rem;
+            color: #6c757d;
+            margin-top: 0.25rem;
+        }
+        
+        .progress-bar-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1050;
+            height: 4px;
+            background: #f8f9fa;
+        }
+        
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <!-- 진행률 표시 -->
+    <div class="progress-bar-container">
+        <div class="progress-bar-fill" id="progressBar"></div>
+    </div>
+
+    <!-- 헤더 -->
+    <div class="form-header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1><i class="fas fa-plus-circle"></i> <span id="formTitle">새 프로젝트 등록</span></h1>
+                    <p class="mb-0">냉난방기 설치 공사 정보를 입력하세요</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <a href="/projects" class="btn btn-light">
+                        <i class="fas fa-list"></i> 프로젝트 목록
+                    </a>
+                    <a href="/" class="btn btn-outline-light ms-2">
+                        <i class="fas fa-chart-bar"></i> 대시보드
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 알림 영역 -->
+        <div id="alertContainer"></div>
+
+        <!-- 프로젝트 폼 -->
+        <form id="projectForm" class="needs-validation" novalidate>
+            <div class="form-container">
+                
+                <!-- 기본 정보 섹션 -->
+                <div class="section-header">
+                    <h5><i class="fas fa-info-circle"></i> 기본 정보</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <label for="projectCode" class="form-label">프로젝트 코드</label>
+                        <input type="text" class="form-control project-code-display" id="projectCode" 
+                               name="projectCode" readonly>
+                        <div class="field-help">자동 생성됩니다</div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="company" class="form-label">사업자 <span class="required">*</span></label>
+                        <select class="form-select" id="company" name="company" required>
+                            <option value="">선택하세요</option>
+                            <option value="그린보일러">그린보일러</option>
+                            <option value="플랫">플랫</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="region" class="form-label">담당 지역 <span class="required">*</span></label>
+                        <select class="form-select" id="region" name="region" required>
+                            <option value="">선택하세요</option>
+                            <option value="양곡" data-code="YG">양곡</option>
+                            <option value="종로" data-code="JW">종로</option>
+                            <option value="서현" data-code="SH">서현</option>
+                            <option value="목동" data-code="MW">목동</option>
+                            <option value="일산" data-code="GH">일산</option>
+                            <option value="호시" data-code="HJ">호시</option>
+                            <option value="아이티" data-code="IT">아이티</option>
+                            <option value="동남" data-code="DN">동남</option>
+                            <option value="태화" data-code="TH">태화</option>
+                            <option value="용문" data-code="YM">용문</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <label for="client" class="form-label">거래처 <span class="required">*</span></label>
+                        <input type="text" class="form-control" id="client" name="client" 
+                               placeholder="거래처명을 입력하세요" required>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <label for="address" class="form-label">현장 주소 <span class="required">*</span></label>
+                        <input type="text" class="form-control" id="address" name="address" 
+                               placeholder="설치 현장 주소를 입력하세요" required>
+                    </div>
+                </div>
+
+                <!-- 공사 정보 섹션 -->
+                <div class="section-header">
+                    <h5><i class="fas fa-tools"></i> 공사 정보</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <label for="workType" class="form-label">공사 구분 <span class="required">*</span></label>
+                        <select class="form-select" id="workType" name="workType" required>
+                            <option value="">선택하세요</option>
+                            <option value="설치">설치</option>
+                            <option value="교체">교체</option>
+                            <option value="수리">수리</option>
+                            <option value="이설">이설</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="equipmentType" class="form-label">기계 분류 <span class="required">*</span></label>
+                        <select class="form-select" id="equipmentType" name="equipmentType" required>
+                            <option value="">선택하세요</option>
+                            <option value="시스템">시스템</option>
+                            <option value="일반형">일반형</option>
+                            <option value="상업용">상업용</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="brand" class="form-label">브랜드 <span class="required">*</span></label>
+                        <select class="form-select" id="brand" name="brand" required>
+                            <option value="">선택하세요</option>
+                            <option value="LG">LG</option>
+                            <option value="삼성">삼성</option>
+                            <option value="캐리어">캐리어</option>
+                            <option value="다이킨">다이킨</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-4">
+                        <label for="startDate" class="form-label">공사 시작일 <span class="required">*</span></label>
+                        <input type="text" class="form-control" id="startDate" name="startDate" 
+                               placeholder="날짜를 선택하세요" required>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="endDate" class="form-label">공사 종료일</label>
+                        <input type="text" class="form-control" id="endDate" name="endDate" 
+                               placeholder="날짜를 선택하세요">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="contractType" class="form-label">도급 구분</label>
+                        <select class="form-select" id="contractType" name="contractType">
+                            <option value="">선택하세요</option>
+                            <option value="원도급">원도급</option>
+                            <option value="하도급">하도급</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-12">
+                        <label for="workDescription" class="form-label">공사 내용 <span class="required">*</span></label>
+                        <textarea class="form-control" id="workDescription" name="workDescription" rows="3" 
+                                  placeholder="공사 내용을 상세히 입력하세요" required></textarea>
+                    </div>
+                </div>
+
+                <!-- 담당자 정보 섹션 -->
+                <div class="section-header">
+                    <h5><i class="fas fa-users"></i> 담당자 정보</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <label for="constructor" class="form-label">시공자</label>
+                        <input type="text" class="form-control" id="constructor" name="constructor" 
+                               placeholder="시공자명을 입력하세요">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="siteManager" class="form-label">현장 담당자</label>
+                        <input type="text" class="form-control" id="siteManager" name="siteManager" 
+                               placeholder="현장 담당자명을 입력하세요">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="managerPhone" class="form-label">담당자 연락처</label>
+                        <input type="tel" class="form-control" id="managerPhone" name="managerPhone" 
+                               placeholder="010-0000-0000">
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <label for="managerEmail" class="form-label">담당자 이메일</label>
+                        <input type="email" class="form-control" id="managerEmail" name="managerEmail" 
+                               placeholder="example@email.com">
+                    </div>
+                </div>
+
+                <!-- 금액 정보 섹션 -->
+                <div class="section-header">
+                    <h5><i class="fas fa-won-sign"></i> 금액 정보</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <label for="amount1" class="form-label">총액 1 <span class="required">*</span></label>
+                        <input type="number" class="form-control" id="amount1" name="amount1" 
+                               placeholder="0" min="0" step="1000" required>
+                        <div class="field-help">부가세 포함 전 금액</div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="vatIncluded" class="form-label">부가세 포함</label>
+                        <select class="form-select" id="vatIncluded" name="vatIncluded">
+                            <option value="false">미포함</option>
+                            <option value="true">포함</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="amount2" class="form-label">총액 2 (부가세 포함)</label>
+                        <input type="number" class="form-control auto-calculate" id="amount2" name="amount2" 
+                               placeholder="0" readonly>
+                        <div class="field-help">자동 계산됩니다</div>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-3">
+                        <label for="downPayment" class="form-label">계약금</label>
+                        <input type="number" class="form-control" id="downPayment" name="downPayment" 
+                               placeholder="0" min="0" step="1000">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="middlePayment" class="form-label">중도금</label>
+                        <input type="number" class="form-control" id="middlePayment" name="middlePayment" 
+                               placeholder="0" min="0" step="1000">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="finalPayment" class="form-label">잔금</label>
+                        <input type="number" class="form-control" id="finalPayment" name="finalPayment" 
+                               placeholder="0" min="0" step="1000">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="outstanding" class="form-label">미수금</label>
+                        <input type="number" class="form-control auto-calculate" id="outstanding" name="outstanding" 
+                               placeholder="0" readonly>
+                        <div class="field-help">자동 계산됩니다</div>
+                    </div>
+                </div>
+
+                <!-- 수금 정보 섹션 -->
+                <div class="section-header">
+                    <h5><i class="fas fa-credit-card"></i> 수금 정보</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4">
+                        <label for="invoice" class="form-label">계산서</label>
+                        <select class="form-select" id="invoice" name="invoice">
+                            <option value="">선택하세요</option>
+                            <option value="세금계산서">세금계산서</option>
+                            <option value="간이영수증">간이영수증</option>
+                            <option value="현금영수증">현금영수증</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="paymentDate" class="form-label">수금 날짜</label>
+                        <input type="text" class="form-control" id="paymentDate" name="paymentDate" 
+                               placeholder="날짜를 선택하세요">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="paymentConfirmed" class="form-label">수금 확인</label>
+                        <select class="form-select" id="paymentConfirmed" name="paymentConfirmed">
+                            <option value="false">미확인</option>
+                            <option value="true">확인완료</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 비용 분석 섹션 -->
+                <div class="section-header">
+                    <h5><i class="fas fa-calculator"></i> 비용 분석</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-3">
+                        <label for="productCost" class="form-label">제품대</label>
+                        <input type="number" class="form-control" id="productCost" name="productCost" 
+                               placeholder="0" min="0" step="1000">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="laborCost" class="form-label">도급비</label>
+                        <input type="number" class="form-control" id="laborCost" name="laborCost" 
+                               placeholder="0" min="0" step="1000">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="materialCost" class="form-label">자재비</label>
+                        <input type="number" class="form-control" id="materialCost" name="materialCost" 
+                               placeholder="0" min="0" step="1000">
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="otherCost" class="form-label">기타비</label>
+                        <input type="number" class="form-control" id="otherCost" name="otherCost" 
+                               placeholder="0" min="0" step="1000">
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <label for="netProfit" class="form-label">순익</label>
+                        <input type="number" class="form-control auto-calculate" id="netProfit" name="netProfit" 
+                               placeholder="0" readonly>
+                        <div class="field-help">자동 계산됩니다</div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <label for="marginRate" class="form-label">마진율 (%)</label>
+                        <input type="number" class="form-control auto-calculate" id="marginRate" name="marginRate" 
+                               placeholder="0" step="0.1" readonly>
+                        <div class="field-help">자동 계산됩니다</div>
+                    </div>
+                </div>
+
+                <!-- 기타 정보 섹션 -->
+                <div class="section-header">
+                    <h5><i class="fas fa-sticky-note"></i> 기타 정보</h5>
+                </div>
+                
+                <div class="row">
+                    <div class="col-12">
+                        <label for="notes" class="form-label">비고</label>
+                        <textarea class="form-control" id="notes" name="notes" rows="3" 
+                                  placeholder="기타 메모사항을 입력하세요"></textarea>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-4">
+                        <label for="downPaymentPayer" class="form-label">계약금 입금자명</label>
+                        <input type="text" class="form-control" id="downPaymentPayer" name="downPaymentPayer" 
+                               placeholder="입금자명을 입력하세요">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="middlePaymentPayer" class="form-label">중도금 입금자명</label>
+                        <input type="text" class="form-control" id="middlePaymentPayer" name="middlePaymentPayer" 
+                               placeholder="입금자명을 입력하세요">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label for="finalPaymentPayer" class="form-label">잔금 입금자명</label>
+                        <input type="text" class="form-control" id="finalPaymentPayer" name="finalPaymentPayer" 
+                               placeholder="입금자명을 입력하세요">
+                    </div>
+                </div>
+
+                <!-- 제출 버튼 -->
+                <div class="row mt-5">
+                    <div class="col-12 text-center">
+                        <button type="button" class="btn btn-secondary me-3" onclick="history.back()">
+                            <i class="fas fa-arrow-left"></i> 취소
+                        </button>
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <span class="loading spinner-border spinner-border-sm me-2" role="status"></span>
+                            <i class="fas fa-save"></i> <span id="submitText">저장하기</span>
+                        </button>
+                    </div>
+                </div>
+                
+            </div>
+        </form>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Flatpickr JS -->
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/ko.js"></script>
+
+    <script>
+        // 전역 변수
+        let isEditMode = false;
+        let currentProjectId = null;
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePage();
+            setupEventListeners();
+            setupDatePickers();
+            loadProjectCode();
+            updateProgress();
+        });
+
+        // 페이지 초기화
+        function initializePage() {
+            // URL에서 프로젝트 ID 확인 (수정 모드인지)
+            const urlParams = new URLSearchParams(window.location.search);
+            const projectId = urlParams.get('id');
+            
+            if (projectId) {
+                isEditMode = true;
+                currentProjectId = projectId;
+                document.getElementById('formTitle').textContent = '프로젝트 수정';
+                document.getElementById('submitText').textContent = '수정하기';
+                loadProjectData(projectId);
+            }
+        }
+
+        // 이벤트 리스너 설정
+        function setupEventListeners() {
+            // 지역 변경 시 프로젝트 코드 업데이트
+            document.getElementById('region').addEventListener('change', function() {
+                if (!isEditMode) {
+                    loadProjectCode();
+                }
+            });
+
+            // 금액 관련 자동 계산
+            ['amount1', 'vatIncluded', 'downPayment', 'middlePayment', 'finalPayment',
+             'productCost', 'laborCost', 'materialCost', 'otherCost'].forEach(field => {
+                const element = document.getElementById(field);
+                if (element) {
+                    element.addEventListener('input', calculateAmounts);
+                    element.addEventListener('change', calculateAmounts);
+                }
+            });
+
+            // 폼 제출 이벤트
+            document.getElementById('projectForm').addEventListener('submit', handleFormSubmit);
+
+            // 입력 필드 변경 시 진행률 업데이트
+            const formFields = document.querySelectorAll('input, select, textarea');
+            formFields.forEach(field => {
+                field.addEventListener('input', updateProgress);
+                field.addEventListener('change', updateProgress);
+            });
+        }
+
+        // 날짜 선택기 설정
+        function setupDatePickers() {
+            const dateConfig = {
+                locale: 'ko',
+                dateFormat: 'Y-m-d',
+                allowInput: true
+            };
+
+            flatpickr('#startDate', dateConfig);
+            flatpickr('#endDate', dateConfig);
+            flatpickr('#paymentDate', dateConfig);
+        }
+
+        // 프로젝트 코드 로드
+        async function loadProjectCode() {
+            const region = document.getElementById('region').value;
+            if (!region) return;
+
+            const regionCode = document.getElementById('region').selectedOptions[0]?.dataset.code || 'IT';
+            
+            try {
+                const response = await fetch(`/api/next-project-code?region=${regionCode}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                document.getElementById('projectCode').value = data.project_code;
+            } catch (error) {
+                console.error('프로젝트 코드 로드 오류:', error);
+                showAlert('프로젝트 코드를 생성할 수 없습니다.', 'warning');
+            }
+        }
+
+        // 금액 자동 계산
+        function calculateAmounts() {
+            const amount1 = parseFloat(document.getElementById('amount1').value) || 0;
+            const vatIncluded = document.getElementById('vatIncluded').value === 'true';
+            const downPayment = parseFloat(document.getElementById('downPayment').value) || 0;
+            const middlePayment = parseFloat(document.getElementById('middlePayment').value) || 0;
+            const finalPayment = parseFloat(document.getElementById('finalPayment').value) || 0;
+
+            // 총액 2 계산 (부가세 포함)
+            const amount2 = vatIncluded ? Math.round(amount1 * 1.1) : amount1;
+            document.getElementById('amount2').value = amount2;
+
+            // 미수금 계산
+            const totalPaid = downPayment + middlePayment + finalPayment;
+            const outstanding = amount2 - totalPaid;
+            document.getElementById('outstanding').value = Math.max(0, outstanding);
+
+            // 비용 계산
+            const productCost = parseFloat(document.getElementById('productCost').value) || 0;
+            const laborCost = parseFloat(document.getElementById('laborCost').value) || 0;
+            const materialCost = parseFloat(document.getElementById('materialCost').value) || 0;
+            const otherCost = parseFloat(document.getElementById('otherCost').value) || 0;
+
+            // 순익 계산
+            const totalCost = productCost + laborCost + materialCost + otherCost;
+            const netProfit = amount2 - totalCost;
+            document.getElementById('netProfit').value = netProfit;
+
+            // 마진율 계산
+            const marginRate = amount2 > 0 ? (netProfit / amount2 * 100) : 0;
+            document.getElementById('marginRate').value = marginRate.toFixed(1);
+        }
+
+        // 진행률 업데이트
+        function updateProgress() {
+            const requiredFields = document.querySelectorAll('[required]');
+            const filledFields = Array.from(requiredFields).filter(field => field.value.trim() !== '');
+            const progress = (filledFields.length / requiredFields.length) * 100;
+            
+            document.getElementById('progressBar').style.width = progress + '%';
+        }
+
+        // 폼 제출 처리
+        async function handleFormSubmit(e) {
+            e.preventDefault();
+            
+            if (!e.target.checkValidity()) {
+                e.target.classList.add('was-validated');
+                showAlert('필수 입력 항목을 확인해주세요.', 'danger');
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitBtn');
+            const loading = submitBtn.querySelector('.loading');
+            
+            // 로딩 상태 표시
+            loading.classList.add('show');
+            submitBtn.disabled = true;
+
+            try {
+                const formData = collectFormData();
+                
+                let url = '/api/projects';
+                let method = 'POST';
+                
+                if (isEditMode) {
+                    url = `/api/projects/${currentProjectId}`;
+                    method = 'PUT';
+                }
+
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                showAlert(
+                    isEditMode ? '프로젝트가 성공적으로 수정되었습니다!' : '새 프로젝트가 등록되었습니다!', 
+                    'success'
+                );
+
+                // 편집 모드에서 iframe 안에 있을 때 부모 창에 메시지 전송
+                if (isEditMode && window.parent !== window) {
+                    setTimeout(() => {
+                        window.parent.postMessage({ type: 'projectUpdated' }, '*');
+                    }, 1000);
+                    return; // iframe에서는 리디렉션하지 않음
+                }
+
+                // 성공 후 목록 페이지로 이동 (3초 후)
+                setTimeout(() => {
+                    window.location.href = '/projects';
+                }, 2000);
+
+            } catch (error) {
+                console.error('폼 제출 오류:', error);
+                showAlert(error.message || '저장 중 오류가 발생했습니다.', 'danger');
+            } finally {
+                // 로딩 상태 해제
+                loading.classList.remove('show');
+                submitBtn.disabled = false;
+            }
+        }
+
+        // 폼 데이터 수집
+        function collectFormData() {
+            const formData = {};
+            const form = document.getElementById('projectForm');
+            const formElements = form.elements;
+
+            for (let element of formElements) {
+                if (element.name && element.type !== 'submit') {
+                    let value = element.value;
+                    
+                    // 숫자 필드 처리
+                    if (element.type === 'number') {
+                        value = parseFloat(value) || 0;
+                    }
+                    
+                    // 불린 필드 처리
+                    if (element.name === 'vatIncluded' || element.name === 'paymentConfirmed') {
+                        value = value === 'true';
+                    }
+                    
+                    formData[element.name] = value;
+                }
+            }
+
+            return formData;
+        }
+
+        // 프로젝트 데이터 로드 (수정 모드)
+        async function loadProjectData(projectId) {
+            try {
+                const response = await fetch(`/api/projects/${projectId}`);
+                const project = await response.json();
+
+                if (project.error) {
+                    throw new Error(project.error);
+                }
+
+                // 폼에 데이터 채우기
+                fillFormData(project);
+                calculateAmounts();
+
+            } catch (error) {
+                console.error('프로젝트 데이터 로드 오류:', error);
+                showAlert('프로젝트 데이터를 불러올 수 없습니다.', 'danger');
+            }
+        }
+
+        // 폼에 데이터 채우기
+        function fillFormData(data) {
+            Object.keys(data).forEach(key => {
+                const element = document.getElementById(key);
+                if (element) {
+                    element.value = data[key] || '';
+                }
+            });
+        }
+
+        // 알림 표시
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertId = 'alert_' + Date.now();
+            
+            const alertHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show" id="${alertId}">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            alertContainer.innerHTML = alertHTML;
+            
+            // 5초 후 자동 제거
+            setTimeout(() => {
+                const alertElement = document.getElementById(alertId);
+                if (alertElement) {
+                    alertElement.remove();
+                }
+            }, 5000);
+
+            // 알림 위치로 스크롤
+            alertContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,2486 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>프로젝트 관리 - 냉난방기 설치 공사 관리</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #f5f6fa 0%, #e3e7f0 100%);
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2.5rem 0;
+            margin-bottom: 2rem;
+            border-radius: 0 0 25px 25px;
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -10%;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .header h1 {
+            font-weight: 700;
+            font-size: 2.5rem;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+            z-index: 1;
+        }
+        
+        .content-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 2.5rem;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .stats-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border-radius: 15px;
+            padding: 2rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            border: 1px solid rgba(0,0,0,0.05);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+        }
+        
+        .stats-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        
+        .stats-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .filter-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            border: 1px solid #dee2e6;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        
+        .filter-section h5 {
+            color: #495057;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .filter-section h5 i {
+            color: #007bff;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 8px;
+        }
+        
+        .table-responsive {
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .table th {
+            background: #667eea;
+            color: white;
+            border: none;
+            font-weight: 600;
+        }
+        
+        .table td {
+            vertical-align: middle;
+        }
+        
+        .status-badge {
+            font-size: 0.8rem;
+            padding: 0.4rem 0.8rem;
+        }
+        
+        .status-completed {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            border-radius: 20px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .status-in-progress {
+            background: linear-gradient(135deg, #ffc107 0%, #ffca2c 100%);
+            color: #212529;
+            border-radius: 20px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .status-pending {
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+            border-radius: 20px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .status-payment-pending {
+            background: linear-gradient(135deg, #fd7e14 0%, #e55a00 100%);
+            color: white;
+            border-radius: 20px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .amount-cell {
+            text-align: right !important;
+            font-weight: 600;
+        }
+        
+        .amount-outstanding {
+            color: #dc3545;
+        }
+        
+        .amount-completed {
+            color: #28a745;
+        }
+        
+        .action-buttons .btn {
+            margin: 0 2px;
+            padding: 0.35rem 0.65rem;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .action-buttons .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        /* 폼 요소 개선 */
+        .form-select, .form-control {
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            padding: 0.5rem 0.75rem;
+            transition: all 0.2s ease;
+        }
+        
+        .form-select:focus, .form-control:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0,123,255,0.25);
+        }
+        
+        .btn {
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .search-highlight {
+            background-color: #fff3cd;
+        }
+        
+        /* 행 상세보기 스타일 */
+        .row-details {
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            padding: 1.5rem;
+            border-left: 4px solid #007bff;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .row-details .card {
+            border: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-radius: 12px;
+            background: white;
+        }
+        
+        .row-details .card-body {
+            padding: 1.5rem;
+        }
+        
+        .detail-group {
+            margin-bottom: 0;
+        }
+        
+        .detail-item {
+            margin-bottom: 8px;
+            padding: 4px 0;
+        }
+        
+        .detail-item strong {
+            color: #495057;
+            min-width: 120px;
+            display: inline-block;
+            font-weight: 600;
+        }
+        
+        .detail-item {
+            border-bottom: 1px solid #f1f3f4;
+        }
+        
+        .detail-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* 확장된 행 스타일 */
+        #projectsTable tbody tr.shown {
+            background-color: #f8f9fa;
+        }
+        
+        /* 테이블 스타일 개선 */
+        .table-responsive {
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            background: white;
+        }
+        
+        #projectsTable {
+            margin-bottom: 0;
+        }
+        
+        #projectsTable thead th {
+            background: linear-gradient(135deg, #495057 0%, #6c757d 100%);
+            color: white;
+            font-weight: 600;
+            border: none;
+            padding: 1rem 0.75rem;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+        
+        #projectsTable tbody td {
+            padding: 0.875rem 0.75rem;
+            vertical-align: middle;
+            border-color: #f8f9fa;
+            text-align: center;
+        }
+        
+        /* 행 호버 효과 */
+        #projectsTable tbody tr:hover {
+            background-color: #f8f9fa;
+            cursor: pointer;
+            transform: translateY(-1px);
+            transition: all 0.2s ease;
+        }
+        
+        #projectsTable tbody tr.shown {
+            background-color: #e3f2fd;
+        }
+        
+        #projectsTable tbody tr.shown:hover {
+            background-color: #bbdefb;
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        
+        .loading-overlay.show {
+            display: flex;
+        }
+        
+        /* 브라우저 기본 캘린더 아이콘 숨기기 */
+        .date-input::-webkit-calendar-picker-indicator {
+            display: none;
+            -webkit-appearance: none;
+        }
+        
+        .date-input::-moz-calendar-picker-indicator {
+            display: none;
+        }
+        
+        /* 날짜 입력 필드 스타일 */
+        .date-input {
+            position: relative;
+        }
+        
+        /* placeholder 텍스트를 더 흐리게 */
+        .form-control::placeholder {
+            color: #b8b8b8 !important;
+            opacity: 0.7;
+        }
+        
+        .form-control::-webkit-input-placeholder {
+            color: #b8b8b8 !important;
+            opacity: 0.7;
+        }
+        
+        .form-control::-moz-placeholder {
+            color: #b8b8b8 !important;
+            opacity: 0.7;
+        }
+        
+        .form-control:-ms-input-placeholder {
+            color: #b8b8b8 !important;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <!-- 로딩 오버레이 -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="text-center">
+            <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
+            <p class="mt-2">데이터를 불러오는 중...</p>
+        </div>
+    </div>
+
+    <!-- 헤더 -->
+    <div class="header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h1><i class="fas fa-list"></i> 프로젝트 관리</h1>
+                    <p class="mb-0">냉난방기 설치 공사 프로젝트 목록</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-light btn-lg me-2" onclick="openNewProjectModal()">
+                        <i class="fas fa-plus"></i> 새 프로젝트
+                    </button>
+                    <a href="/" class="btn btn-outline-light">
+                        <i class="fas fa-chart-bar"></i> 대시보드
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <!-- 알림 영역 -->
+        <div id="alertContainer"></div>
+
+        <div class="content-container">
+            <!-- 통계 카드 -->
+            <div class="row mb-4" id="statsContainer">
+                <!-- JavaScript로 동적 생성 -->
+            </div>
+
+            <!-- 필터 섹션 -->
+            <div class="filter-section">
+                <h5 class="mb-3"><i class="fas fa-filter"></i> 필터 및 검색</h5>
+                <div class="row">
+                    <div class="col-md-3">
+                        <label for="statusFilter" class="form-label">상태</label>
+                        <select class="form-select" id="statusFilter">
+                            <option value="">전체</option>
+                            <option value="completed">완료</option>
+                            <option value="payment-pending">수금대기</option>
+                            <option value="in-progress">진행중</option>
+                            <option value="pending">대기</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="dateRange" class="form-label">기간 (공사 확정 기준)</label>
+                        <select class="form-select" id="dateRange">
+                            <option value="">전체</option>
+                            <option value="today">오늘</option>
+                            <option value="yesterday">어제</option>
+                            <option value="this-week">이번 주</option>
+                            <option value="last-week">지난 주</option>
+                            <option value="recent-14">최근 14일</option>
+                            <option value="this-month">이번 달</option>
+                            <option value="last-month">지난 달</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="outstandingFilter" class="form-label">수금 상태</label>
+                        <select class="form-select" id="outstandingFilter">
+                            <option value="">전체</option>
+                            <option value="collected">수금 완료</option>
+                            <option value="outstanding">미수금 있음</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <!-- 추가 필터 공간 확보 -->
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-8">
+                        <label for="searchInput" class="form-label">키워드 검색</label>
+                        <input type="text" class="form-control" id="searchInput" 
+                               placeholder="프로젝트 코드, 현장 주소, 거래처명, 담당자 등으로 검색...">
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <label class="form-label">&nbsp;</label>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-primary flex-fill" onclick="applyFilters()">
+                                <i class="fas fa-search"></i> 검색
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="clearFilters()">
+                                <i class="fas fa-times"></i> 초기화
+                            </button>
+                            <button class="btn btn-success" onclick="exportData()">
+                                <i class="fas fa-download"></i> 내보내기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 프로젝트 테이블 -->
+            <div class="table-responsive">
+                <table class="table table-hover" id="projectsTable">
+                    <thead>
+                        <tr>
+                            <th>프로젝트 코드</th>
+                            <th>담당자</th>
+                            <th>거래처</th>
+                            <th>현장 주소</th>
+                            <th>공사 내용</th>
+                            <th>공사 시작</th>
+                            <th>공사 종료</th>
+                            <th>총액</th>
+                            <th>미수금</th>
+                            <th>상태</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- JavaScript로 동적 생성 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 삭제 확인 모달 -->
+    <div class="modal fade" id="deleteModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">프로젝트 삭제 확인</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>정말로 이 프로젝트를 삭제하시겠습니까?</p>
+                    <p class="text-danger"><strong>이 작업은 되돌릴 수 없습니다.</strong></p>
+                    <div class="bg-light p-3 rounded" id="deleteProjectInfo">
+                        <!-- 프로젝트 정보 표시 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteBtn">삭제</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 프로젝트 보기 모달 -->
+    <div class="modal fade" id="viewModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">프로젝트 상세 정보</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="viewProjectInfo">
+                        <!-- 프로젝트 정보 표시 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                    <button type="button" class="btn btn-warning" onclick="openEditFromView()">편집</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 프로젝트 편집 모달 -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">프로젝트 편집</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <iframe id="editFrame" src="" style="width: 100%; height: 500px; border: none;"></iframe>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 새 프로젝트 등록 모달 -->
+    <div class="modal fade" id="newProjectModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-plus-circle me-2"></i>새 프로젝트 등록 (자동 코드 생성)
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 모달 전용 알림 컨테이너 -->
+                    <div id="modalAlertContainer"></div>
+                    
+                    <form id="newProjectForm">
+                        <!-- 기본 정보 섹션 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>기본 정보</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label">사업자 <span class="text-danger">*</span></label>
+                                                <select class="form-select" id="company" name="사업자" required>
+                                                    <option value="">사업자 선택</option>
+                                                    <option value="글로벌">글로벌</option>
+                                                    <option value="글로벌그룹">글로벌그룹</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">담당자 <span class="text-danger">*</span></label>
+                                                <select class="form-select" id="owner" name="담당자" required>
+                                                    <option value="">담당자 선택</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">생성될 프로젝트 코드</label>
+                                                <div class="form-control bg-light text-center fw-bold" id="generated-code">
+                                                    사업자와 담당자를 선택하세요
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 현장 정보 섹션 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>현장 정보</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label">거래처 <span class="text-danger">*</span></label>
+                                                <input type="text" class="form-control" id="client" name="거래처" required list="clientList" autocomplete="off" placeholder="거래처명">
+                                                <datalist id="clientList">
+                                                    <!-- 동적으로 채워짐 -->
+                                                </datalist>
+                                            </div>
+                                            <div class="col-md-8">
+                                                <label class="form-label">공사 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <div class="border rounded p-3" style="background-color: #fafafa;">
+                                                    <div class="row g-3">
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="설치" id="work-cat-1">
+                                                                <label class="form-check-label fw-normal" for="work-cat-1">설치</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="이전" id="work-cat-2">
+                                                                <label class="form-check-label fw-normal" for="work-cat-2">이전</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="세척" id="work-cat-3">
+                                                                <label class="form-check-label fw-normal" for="work-cat-3">세척</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="철거" id="work-cat-4">
+                                                                <label class="form-check-label fw-normal" for="work-cat-4">철거</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="A/S" id="work-cat-5">
+                                                                <label class="form-check-label fw-normal" for="work-cat-5">A/S</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="판매" id="work-cat-6">
+                                                                <label class="form-check-label fw-normal" for="work-cat-6">판매</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="매입" id="work-cat-7">
+                                                                <label class="form-check-label fw-normal" for="work-cat-7">매입</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-3">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input work-category-checkbox" type="checkbox" value="렌탈" id="work-cat-8">
+                                                                <label class="form-check-label fw-normal" for="work-cat-8">렌탈</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <input type="hidden" id="work-category" name="공사 구분" value="">
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-12">
+                                                <label class="form-label">현장 주소 <span class="text-danger">*</span> <small class="text-muted">(도로명 주소만 입력해주세요)</small></label>
+                                                <textarea class="form-control" id="address" name="현장 주소" rows="2" required placeholder="강남구 테헤란로 123 여삼빌딩 5층 505호 OO의원"></textarea>
+                                                <div class="form-text text-info d-none" id="address-info">
+                                                    <i class="fas fa-info-circle me-1"></i>주소가 자동으로 정리되었습니다.
+                                                </div>
+                                                <div class="form-text text-warning d-none" id="address-warning">
+                                                    <i class="fas fa-exclamation-triangle me-1"></i>지번 주소가 감지되었습니다. 도로명 주소로 변경해주세요.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 기술 정보 섹션 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-tools me-2"></i>시공 상세</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label">기계 분류 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
+                                                    <div class="row g-3">
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input machine-category-checkbox" type="checkbox" value="신품" id="machine-cat-1">
+                                                                <label class="form-check-label fw-normal" for="machine-cat-1">신품</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input machine-category-checkbox" type="checkbox" value="중고" id="machine-cat-2">
+                                                                <label class="form-check-label fw-normal" for="machine-cat-2">중고</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input machine-category-checkbox" type="checkbox" value="기존제품" id="machine-cat-3">
+                                                                <label class="form-check-label fw-normal" for="machine-cat-3">기존제품</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input machine-category-checkbox" type="checkbox" value="기타" id="machine-cat-4">
+                                                                <label class="form-check-label fw-normal" for="machine-cat-4">기타</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">브랜드 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
+                                                    <div class="row g-3">
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input brand-category-checkbox" type="checkbox" value="LG" id="brand-cat-1">
+                                                                <label class="form-check-label fw-normal" for="brand-cat-1">LG</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input brand-category-checkbox" type="checkbox" value="삼성" id="brand-cat-2">
+                                                                <label class="form-check-label fw-normal" for="brand-cat-2">삼성</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input brand-category-checkbox" type="checkbox" value="캐리어" id="brand-cat-3">
+                                                                <label class="form-check-label fw-normal" for="brand-cat-3">캐리어</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input brand-category-checkbox" type="checkbox" value="FCU" id="brand-cat-4">
+                                                                <label class="form-check-label fw-normal" for="brand-cat-4">FCU</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input brand-category-checkbox" type="checkbox" value="덕트" id="brand-cat-5">
+                                                                <label class="form-check-label fw-normal" for="brand-cat-5">덕트</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input brand-category-checkbox" type="checkbox" value="기타" id="brand-cat-6">
+                                                                <label class="form-check-label fw-normal" for="brand-cat-6">기타</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label">도급 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
+                                                    <div class="row g-3">
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input contract-category-checkbox" type="checkbox" value="외주" id="contract-cat-1">
+                                                                <label class="form-check-label fw-normal" for="contract-cat-1">외주</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input contract-category-checkbox" type="checkbox" value="내부" id="contract-cat-2">
+                                                                <label class="form-check-label fw-normal" for="contract-cat-2">내부</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input contract-category-checkbox" type="checkbox" value="일당" id="contract-cat-3">
+                                                                <label class="form-check-label fw-normal" for="contract-cat-3">일당</label>
+                                                            </div>
+                                                        </div>
+                                                        <div class="col-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input contract-category-checkbox" type="checkbox" value="기타" id="contract-cat-4">
+                                                                <label class="form-check-label fw-normal" for="contract-cat-4">기타</label>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-md-4">
+                                                <label class="form-label">시공자</label>
+                                                <input type="text" class="form-control" id="constructor" name="시공자" placeholder="시공자명">
+                                            </div>
+                                            <div class="col-md-8">
+                                                <label class="form-label">공사 내용</label>
+                                                <textarea class="form-control" id="work-content" name="공사 내용" rows="1" placeholder="냉난방기 설치, 덕트 공사 등"></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 일정 정보 섹션 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-calendar me-2"></i>일정 정보</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label">공사 시작</label>
+                                                <div class="input-group">
+                                                    <input type="date" class="form-control date-input" id="start-date" name="공사 시작" onkeydown="return false" onpaste="return false" onchange="handleStartDateChange()" style="cursor: pointer;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer;">
+                                                        <i class="fas fa-calendar-alt"></i>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">공사 종료</label>
+                                                <div class="input-group">
+                                                    <input type="date" class="form-control date-input" id="end-date" name="공사 종료" onkeydown="return false" onpaste="return false" style="cursor: pointer;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer;">
+                                                        <i class="fas fa-calendar-alt"></i>
+                                                    </span>
+                                                </div>
+                                                <div class="form-check mt-2">
+                                                    <input class="form-check-input" type="checkbox" id="same-date-check">
+                                                    <label class="form-check-label" for="same-date-check">
+                                                        <small class="text-muted">시작일과 동일</small>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 담당자 정보 섹션 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-user me-2"></i>담당자 정보</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label">현장 담당자</label>
+                                                <input type="text" class="form-control" id="site-manager" name="현장 담당자" placeholder="현장 담당자명">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">담당자 연락처</label>
+                                                <input type="tel" class="form-control" id="manager-phone" name="담당자 연락처" placeholder="010-0000-0000">
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-md-6">
+                                                <label class="form-label">담당자 이메일</label>
+                                                <input type="email" class="form-control" id="manager-email" name="담당자 이메일" placeholder="example@email.com">
+                                                <div class="form-text text-danger d-none" id="email-error">
+                                                    <i class="fas fa-exclamation-circle me-1"></i>올바른 이메일 형식을 입력해주세요 (예: user@example.com)
+                                                </div>
+                                                <div class="form-check mt-2">
+                                                    <input class="form-check-input" type="checkbox" id="email-unknown-check">
+                                                    <label class="form-check-label" for="email-unknown-check">
+                                                        <small class="text-muted">이메일 확인 불가</small>
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 금액 정보 섹션 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-won me-2"></i>금액 정보</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label">총액1 <span class="text-danger">*</span></label>
+                                                <input type="text" class="form-control" id="total-amount-display" required placeholder="1,500,000" maxlength="15">
+                                                <input type="hidden" id="total-amount" name="총액1" value="0">
+                                                
+                                                <!-- 금액 버튼들 -->
+                                                <div class="mt-3">
+                                                    <div class="row g-2">
+                                                        <div class="col-4">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000000">일억원</button>
+                                                        </div>
+                                                        <div class="col-4">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="10000000">천만원</button>
+                                                        </div>
+                                                        <div class="col-4">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="1000000">백만원</button>
+                                                        </div>
+                                                        <div class="col-4">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000">십만원</button>
+                                                        </div>
+                                                        <div class="col-4">
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="50000">오만원</button>
+                                                        </div>
+                                                        <div class="col-4">
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="amount-reset-btn">초기화</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <div class="mb-3">
+                                                    <label class="form-label">부가세 포함 여부</label>
+                                                    <div class="form-check form-switch">
+                                                        <input class="form-check-input" type="checkbox" id="vat-included" name="부가세 포함">
+                                                        <label class="form-check-label" for="vat-included">부가세 포함</label>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label class="form-label">총액2</label>
+                                                    <div class="p-2 bg-light rounded">
+                                                        <span id="display-amount" class="fw-bold">0원</span>
+                                                        <span id="amount-korean" class="text-muted ms-2">(금 영원정)</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 문서 정보 섹션 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header bg-light">
+                                        <h6 class="mb-0"><i class="fas fa-folder me-2"></i>문서 정보</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="row">
+                                            <div class="col-12">
+                                                <label class="form-label">견적서 및 계약서 폴더 경로</label>
+                                                <input type="text" class="form-control" id="document-path" name="견적서 및 계약서 폴더 경로" placeholder="C:\Documents\Project\2025\프로젝트명">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary" form="newProjectForm" id="submit-new-project">
+                        <span class="spinner-border spinner-border-sm me-2 d-none" id="submit-loading"></span>
+                        프로젝트 등록
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+    <script>
+        // 전역 변수
+        let projectsData = [];
+        let dataTable = null;
+        let deleteProjectId = null;
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePage();
+        });
+
+        // 페이지 초기화
+        async function initializePage() {
+            showLoading(true);
+            
+            try {
+                await loadProjectsData();
+                await loadStatistics();
+                initializeDataTable();
+                setupEventListeners();
+
+                // URL 파라미터 확인하여 새 프로젝트 모달 자동 열기
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.get('openNewModal') === 'true') {
+                    setTimeout(() => {
+                        openNewProjectModal();
+                        // URL에서 파라미터 제거
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }, 500);
+                }
+            } catch (error) {
+                console.error('페이지 초기화 오류:', error);
+                showAlert('데이터를 불러오는데 실패했습니다.', 'danger');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // 프로젝트 데이터 로드
+        async function loadProjectsData() {
+            try {
+                const response = await fetch('/api/projects/list');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                projectsData = data;
+                console.log('프로젝트 데이터 로드됨:', projectsData.length, '건');
+                
+                // 컬럼명과 샘플 데이터 디버깅
+                if (projectsData.length > 0) {
+                    console.log('사용 가능한 컬럼명:', Object.keys(projectsData[0]));
+                    
+                    // S열과 W열 데이터 확인
+                    const firstRow = projectsData[0];
+                    console.log('S열 관련 데이터:', {
+                        '총액2': firstRow['총액2'],
+                        '총액 2': firstRow['총액 2'],
+                        'S': firstRow['S']
+                    });
+                    console.log('W열 관련 데이터:', {
+                        '미수금W': firstRow['미수금W'],
+                        '미수금 W': firstRow['미수금 W'],
+                        'W': firstRow['W'],
+                        '미수금': firstRow['미수금']
+                    });
+                }
+                
+            } catch (error) {
+                console.error('프로젝트 데이터 로드 오류:', error);
+                throw error;
+            }
+        }
+
+        // 통계 정보 로드
+        async function loadStatistics() {
+            try {
+                const response = await fetch('/api/summary');
+                const stats = await response.json();
+                
+                if (stats.error) {
+                    throw new Error(stats.error);
+                }
+                
+                displayStatistics(stats);
+                
+            } catch (error) {
+                console.error('통계 정보 로드 오류:', error);
+            }
+        }
+
+        // 통계 정보 표시
+        function displayStatistics(stats) {
+            const container = document.getElementById('statsContainer');
+            
+            container.innerHTML = `
+                <div class="col-md-2">
+                    <div class="stats-card">
+                        <div class="stats-number">${stats.total_projects || 0}</div>
+                        <small class="text-muted">전체 프로젝트</small>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="stats-card">
+                        <div class="stats-number">${stats.completed_projects || 0}</div>
+                        <small class="text-muted">완료된 프로젝트</small>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="stats-card">
+                        <div class="stats-number">${stats.in_progress_projects || 0}</div>
+                        <small class="text-muted">진행중 프로젝트</small>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="stats-card">
+                        <div class="stats-number">${formatCurrency(stats.total_amount || 0)}</div>
+                        <small class="text-muted">총 매출</small>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="stats-card">
+                        <div class="stats-number text-warning">${formatCurrency(stats.total_outstanding || 0)}</div>
+                        <small class="text-muted">미수금</small>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="stats-card">
+                        <div class="stats-number text-success">${(stats.collection_rate || 0).toFixed(1)}%</div>
+                        <small class="text-muted">회수율</small>
+                    </div>
+                </div>
+            `;
+        }
+
+        // DataTable 초기화
+        function initializeDataTable() {
+            if (dataTable) {
+                dataTable.destroy();
+            }
+            
+            dataTable = $('#projectsTable').DataTable({
+                data: projectsData,
+                columns: [
+                    { data: '프로젝트 코드' },
+                    { data: '담당자' },
+                    { data: '거래처' },
+                    { 
+                        data: '현장 주소',
+                        render: function(data) {
+                            return data ? (data.length > 25 ? data.substring(0, 25) + '...' : data) : '';
+                        }
+                    },
+                    { 
+                        data: '공사 내용',
+                        render: function(data) {
+                            return data ? (data.length > 15 ? data.substring(0, 15) + '...' : data) : '';
+                        }
+                    },
+                    { 
+                        data: '공사 시작',
+                        render: function(data) {
+                            return data ? formatDate(data) : '';
+                        }
+                    },
+                    { 
+                        data: '공사 종료',
+                        render: function(data) {
+                            return data ? formatDate(data) : '<span class="text-muted">-</span>';
+                        }
+                    },
+                    { 
+                        data: null, // S열 총액2 동적 처리
+                        className: 'amount-cell',
+                        render: function(data, type, row) {
+                            // 다양한 컬럼명 시도
+                            const totalAmount = row['총액2'] || row['총액 2'] || row['S'] || row['총액'] || 0;
+                            const numValue = parseFloat(totalAmount) || 0;
+                            console.log('총액 데이터:', totalAmount, '변환값:', numValue); // 디버깅용
+                            return numValue > 0 ? formatCurrency(numValue) : '-';
+                        }
+                    },
+                    { 
+                        data: null, // W열 미수금 동적 처리
+                        className: 'amount-cell',
+                        render: function(data, type, row) {
+                            // 다양한 컬럼명으로 W열 미수금 데이터 찾기
+                            const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
+                            const outstandingAmount = parseFloat(outstandingData) || 0;
+                            
+                            console.log('미수금 데이터:', outstandingData, '변환값:', outstandingAmount); // 디버깅용
+                            
+                            // 미수금이 0이면 수금 완료로 표시
+                            if (outstandingAmount === 0) {
+                                return '<span class="text-success">수금 완료</span>';
+                            } else if (outstandingAmount > 0) {
+                                return `<span class="amount-outstanding">${formatCurrency(outstandingAmount)}</span>`;
+                            } else {
+                                return '<span class="text-muted">-</span>';
+                            }
+                        }
+                    },
+                    { 
+                        data: null,
+                        render: function(data, type, row) {
+                            return getStatusBadge(row);
+                        }
+                    }
+                ],
+                columnDefs: [
+                    {
+                        targets: 0, // 프로젝트 코드 컬럼 (첫 번째 컬럼)
+                        type: 'num', // 숫자 타입으로 정렬
+                        render: function(data, type, row) {
+                            if (type === 'sort') {
+                                // 정렬할 때는 숫자 부분만 추출하여 정수로 반환
+                                return parseInt(data?.replace(/[^0-9]/g, '') || '0');
+                            }
+                            // 표시할 때는 원래 형태 유지
+                            return `<code>${data || ''}</code>`;
+                        }
+                    }
+                ],
+                order: [[0, 'desc']], // 프로젝트 코드 기준 내림차순
+                pageLength: 25,
+                responsive: true,
+                language: {
+                    url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/Korean.json'
+                },
+                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>' +
+                     '<"row"<"col-sm-12"tr>>' +
+                     '<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
+                drawCallback: function() {
+                    // 테이블 그려진 후 스타일 적용
+                    $('[data-bs-toggle="tooltip"]').tooltip();
+                    
+                    // 행 클릭 이벤트 추가
+                    setupRowClickEvents();
+                }
+            });
+        }
+
+        // 행 클릭 이벤트 설정
+        function setupRowClickEvents() {
+            $('#projectsTable tbody tr').off('click').on('click', function(e) {
+                // 버튼 클릭 시에는 행 이벤트 무시
+                if ($(e.target).closest('.btn, button').length > 0) {
+                    return;
+                }
+                
+                const tr = $(this);
+                const row = dataTable.row(tr);
+                
+                if (row.child.isShown()) {
+                    // 이미 확장된 상태라면 닫기
+                    row.child.hide();
+                    tr.removeClass('shown');
+                } else {
+                    // 먼저 다른 모든 확장된 행들을 닫기
+                    dataTable.rows().every(function() {
+                        if (this.child.isShown()) {
+                            this.child.hide();
+                            $(this.node()).removeClass('shown');
+                        }
+                    });
+                    
+                    // 현재 행 확장
+                    row.child(formatRowDetails(row.data())).show();
+                    tr.addClass('shown');
+                }
+            });
+        }
+
+        // 행 상세 정보 포맷팅
+        function formatRowDetails(rowData) {
+            const projectCode = rowData['프로젝트 코드'] || '';
+            return `
+                <div class="row-details">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <h6 class="text-primary mb-3"><i class="fas fa-info-circle"></i> 추가 정보</h6>
+                                    <div class="detail-group">
+                                        <div class="detail-item">
+                                            <strong>사업자:</strong> ${rowData['사업자'] || '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>브랜드:</strong> ${rowData['브랜드'] || '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>기계 분류:</strong> ${rowData['기계 분류'] || '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>공사 구분:</strong> ${rowData['공사 구분'] || '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>계약 형태:</strong> ${rowData['계약 형태'] || '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>현장 담당자:</strong> ${rowData['현장 담당자'] || '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>연락처:</strong> ${rowData['담당자 연락처'] || '-'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <h6 class="text-success mb-3"><i class="fas fa-calendar-check"></i> 일정 및 금액</h6>
+                                    <div class="detail-group">
+                                        <div class="detail-item">
+                                            <strong>공사 확정:</strong> ${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>총액1:</strong> ${rowData['총액1'] ? formatCurrency(rowData['총액1']) : '-'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>총액2 (S열):</strong> <span class="text-primary fw-bold">${(() => {
+                                                const totalAmount = rowData['총액2'] || rowData['총액 2'] || rowData['S'] || rowData['총액'] || 0;
+                                                const numValue = parseFloat(totalAmount) || 0;
+                                                return numValue > 0 ? formatCurrency(numValue) : '-';
+                                            })()}</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>미수금 (W열):</strong> 
+                                            ${(() => {
+                                                const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
+                                                const outstandingAmount = parseFloat(outstandingData) || 0;
+                                                return outstandingAmount === 0 ? 
+                                                    '<span class="text-success fw-bold">수금 완료</span>' : 
+                                                    `<span class="text-danger fw-bold">${formatCurrency(outstandingAmount)}</span>`;
+                                            })()}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>수금 확인 (Z열):</strong> 
+                                            ${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
+                                                '<span class="badge bg-success">✓ 확인됨</span>' : 
+                                                '<span class="badge bg-warning">미확인</span>'}
+                                        </div>
+                                        <div class="detail-item">
+                                            <strong>VAT 포함:</strong> ${rowData['VAT 포함'] === 'Y' ? '포함' : '별도'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <h6 class="text-warning mb-3"><i class="fas fa-tools"></i> 작업</h6>
+                                    <div class="detail-group">
+                                        <div class="detail-item">
+                                            <div class="d-flex flex-column gap-2">
+                                                <button class="btn btn-primary btn-sm" onclick="viewProject('${projectCode}')" title="상세보기">
+                                                    <i class="fas fa-eye"></i> 상세보기
+                                                </button>
+                                                <button class="btn btn-warning btn-sm" onclick="editProject('${projectCode}')" title="수정">
+                                                    <i class="fas fa-edit"></i> 프로젝트 수정
+                                                </button>
+                                                <button class="btn btn-danger btn-sm" onclick="confirmDelete('${projectCode}')" title="삭제">
+                                                    <i class="fas fa-trash"></i> 프로젝트 삭제
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <hr>
+                                    <h6 class="text-info mb-3"><i class="fas fa-chart-line"></i> 진행 상태</h6>
+                                    <div class="detail-group">
+                                        <div class="detail-item">
+                                            <strong>현재 상태:</strong> ${getStatusBadge(rowData)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 이벤트 리스너 설정
+        function setupEventListeners() {
+            // 필터 변경 이벤트
+            ['statusFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
+                document.getElementById(filterId).addEventListener('change', applyFilters);
+            });
+
+            // 검색 입력 이벤트
+            document.getElementById('searchInput').addEventListener('keyup', function(e) {
+                if (e.key === 'Enter') {
+                    applyFilters();
+                }
+            });
+
+            // 삭제 확인 버튼
+            document.getElementById('confirmDeleteBtn').addEventListener('click', deleteProject);
+            
+            // iframe에서 편집 완료 메시지 수신
+            window.addEventListener('message', function(event) {
+                if (event.data.type === 'projectUpdated') {
+                    // 편집 모달 닫기
+                    const editModal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
+                    if (editModal) {
+                        editModal.hide();
+                    }
+                    
+                    // 성공 메시지 표시
+                    showAlert('프로젝트가 성공적으로 수정되었습니다!', 'success');
+                    
+                    // 데이터 다시 로드
+                    setTimeout(loadProjects, 500);
+                }
+            });
+        }
+
+        // 상태 뱃지 생성 (W열 미수금 기준)
+        function getStatusBadge(row) {
+            const startDate = row['공사 시작'];
+            const endDate = row['공사 종료'];
+            
+            // W열 미수금 데이터 확인
+            const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
+            const outstandingAmount = parseFloat(outstandingData) || 0;
+            
+            if (outstandingAmount === 0) {
+                // 미수금이 0이면 완료
+                return '<span class="badge status-completed">완료</span>';
+            } else if (endDate && outstandingAmount > 0) {
+                // 공사는 끝났지만 미수금이 있음
+                return '<span class="badge status-payment-pending">수금대기</span>';
+            } else if (startDate) {
+                // 공사 진행중 (미수금 있음)
+                return '<span class="badge status-in-progress">진행중</span>';
+            } else {
+                // 공사 시작 전
+                return '<span class="badge status-pending">대기</span>';
+            }
+        }
+
+        // 필터 적용
+        function applyFilters() {
+            if (!dataTable) return;
+
+            let filteredData = [...projectsData];
+
+            // 상태 필터 (W열 미수금 기준)
+            const statusFilter = document.getElementById('statusFilter').value;
+            if (statusFilter) {
+                filteredData = filteredData.filter(row => {
+                    const startDate = row['공사 시작'];
+                    const endDate = row['공사 종료'];
+                    const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
+                    const outstandingAmount = parseFloat(outstandingData) || 0;
+                    
+                    switch (statusFilter) {
+                        case 'completed':
+                            return outstandingAmount === 0;
+                        case 'payment-pending':
+                            return endDate && outstandingAmount > 0;
+                        case 'in-progress':
+                            return startDate && !endDate && outstandingAmount > 0;
+                        case 'pending':
+                            return !startDate;
+                        default:
+                            return true;
+                    }
+                });
+            }
+
+            // 기간 필터 (AL열 공사 확정 기준)
+            const dateRange = document.getElementById('dateRange').value;
+            if (dateRange) {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                
+                filteredData = filteredData.filter(row => {
+                    const confirmDate = row['공사 확정']; // AL열
+                    if (!confirmDate) return false;
+                    
+                    const confirmDateObj = new Date(confirmDate);
+                    confirmDateObj.setHours(0, 0, 0, 0);
+                    
+                    switch (dateRange) {
+                        case 'today':
+                            return confirmDateObj.getTime() === today.getTime();
+                        case 'yesterday':
+                            const yesterday = new Date(today);
+                            yesterday.setDate(yesterday.getDate() - 1);
+                            return confirmDateObj.getTime() === yesterday.getTime();
+                        case 'this-week':
+                            const startOfWeek = new Date(today);
+                            startOfWeek.setDate(today.getDate() - today.getDay());
+                            return confirmDateObj >= startOfWeek && confirmDateObj <= today;
+                        case 'last-week':
+                            const lastWeekStart = new Date(today);
+                            lastWeekStart.setDate(today.getDate() - today.getDay() - 7);
+                            const lastWeekEnd = new Date(today);
+                            lastWeekEnd.setDate(today.getDate() - today.getDay() - 1);
+                            return confirmDateObj >= lastWeekStart && confirmDateObj <= lastWeekEnd;
+                        case 'recent-14':
+                            const fourteenDaysAgo = new Date(today);
+                            fourteenDaysAgo.setDate(today.getDate() - 14);
+                            return confirmDateObj >= fourteenDaysAgo && confirmDateObj <= today;
+                        case 'this-month':
+                            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                            return confirmDateObj >= startOfMonth && confirmDateObj <= today;
+                        case 'last-month':
+                            const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                            const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+                            return confirmDateObj >= lastMonthStart && confirmDateObj <= lastMonthEnd;
+                        default:
+                            return true;
+                    }
+                });
+            }
+
+            // 수금 상태 필터 (W열 미수금 기준)
+            const outstandingFilter = document.getElementById('outstandingFilter').value;
+            if (outstandingFilter) {
+                filteredData = filteredData.filter(row => {
+                    const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
+                    const outstandingAmount = parseFloat(outstandingData) || 0;
+                    
+                    if (outstandingFilter === 'collected') {
+                        // 수금 완료: 미수금이 0인 경우
+                        return outstandingAmount === 0;
+                    } else if (outstandingFilter === 'outstanding') {
+                        // 미수금 있음: 미수금이 0보다 큰 경우
+                        return outstandingAmount > 0;
+                    }
+                    return true;
+                });
+            }
+
+            // 검색어 필터
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+            if (searchInput) {
+                filteredData = filteredData.filter(row => {
+                    const searchFields = [
+                        row['프로젝트 코드'],
+                        row['현장 주소'],
+                        row['거래처'],
+                        row['담당자'],
+                        row['브랜드'],
+                        row['공사 내용']
+                    ];
+                    
+                    return searchFields.some(field => 
+                        field && field.toString().toLowerCase().includes(searchInput)
+                    );
+                });
+            }
+
+            // DataTable 업데이트
+            dataTable.clear().rows.add(filteredData).draw();
+        }
+
+        // 필터 초기화
+        function clearFilters() {
+            ['statusFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
+                document.getElementById(filterId).value = '';
+            });
+            document.getElementById('searchInput').value = '';
+            
+            if (dataTable) {
+                dataTable.clear().rows.add(projectsData).draw();
+            }
+        }
+
+        // 프로젝트 상세보기
+        function viewProject(projectCode) {
+            const project = projectsData.find(p => p['프로젝트 코드'] === projectCode);
+            if (!project) return;
+
+            // 프로젝트 정보를 모달에 표시
+            const viewInfo = document.getElementById('viewProjectInfo');
+            viewInfo.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>기본 정보</h6>
+                        <p><strong>프로젝트 코드:</strong> <code>${project['프로젝트 코드'] || '-'}</code></p>
+                        <p><strong>현장 주소:</strong> ${project['현장 주소'] || '-'}</p>
+                        <p><strong>거래처:</strong> ${project['거래처'] || '-'}</p>
+                        <p><strong>담당자:</strong> ${project['담당자'] || '-'}</p>
+                        <p><strong>브랜드:</strong> ${project['브랜드'] || '-'}</p>
+                        <p><strong>공사 내용:</strong> ${project['공사 내용'] || '-'}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>일정 및 금액</h6>
+                        <p><strong>공사 시작:</strong> ${project['공사 시작'] ? formatDate(project['공사 시작']) : '-'}</p>
+                        <p><strong>공사 종료:</strong> ${project['공사 종료'] ? formatDate(project['공사 종료']) : '-'}</p>
+                        <p><strong>총액:</strong> ${formatCurrency(project['총액 2'] || 0)}</p>
+                        <p><strong>미수금:</strong> <span class="${project['미수금'] && project['미수금'] > 0 ? 'text-danger' : 'text-success'}">${project['미수금'] && project['미수금'] > 0 ? formatCurrency(project['미수금']) : '완납'}</span></p>
+                        <p><strong>상태:</strong> ${getStatusBadge(project)}</p>
+                    </div>
+                </div>
+            `;
+            
+            // 현재 보고 있는 프로젝트 코드 저장
+            window.currentViewProject = projectCode;
+            
+            // 모달 표시
+            const modal = new bootstrap.Modal(document.getElementById('viewModal'));
+            modal.show();
+        }
+
+        // 프로젝트 수정
+        function editProject(projectCode) {
+            // iframe에 편집 페이지 로드
+            document.getElementById('editFrame').src = `/project/edit?code=${projectCode}`;
+            
+            // 모달 표시
+            const modal = new bootstrap.Modal(document.getElementById('editModal'));
+            modal.show();
+            
+            // 편집 완료 후 테이블 새로고침을 위해 프로젝트 코드 저장
+            window.currentEditProject = projectCode;
+        }
+
+        // 보기 모달에서 편집 모달로 전환
+        function openEditFromView() {
+            if (!window.currentViewProject) return;
+            
+            // 보기 모달 닫기
+            const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewModal'));
+            viewModal.hide();
+            
+            // 편집 모달 열기
+            setTimeout(() => {
+                editProject(window.currentViewProject);
+            }, 300); // 모달 닫힘 애니메이션 대기
+        }
+
+        // 새 프로젝트 모달 열기
+        async function openNewProjectModal() {
+            try {
+                // 기존 데이터 로드
+                await loadModalData();
+                
+                // 모달 표시
+                const modal = new bootstrap.Modal(document.getElementById('newProjectModal'));
+                modal.show();
+                
+                // 폼 초기화
+                resetNewProjectForm();
+                
+            } catch (error) {
+                console.error('모달 데이터 로드 오류:', error);
+                showAlert('데이터를 로드하는 중 오류가 발생했습니다.', 'danger');
+            }
+        }
+
+        // 모달용 데이터 로드
+        async function loadModalData() {
+            try {
+                // 옵션 데이터 로드
+                const optionsResponse = await fetch('/api/meta/options');
+                const optionsData = await optionsResponse.json();
+                
+                // 담당자 목록 (제외할 인원 필터링)
+                const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+                const filteredOwners = optionsData.owners.filter(owner => !excludedOwners.includes(owner));
+                
+                // 담당자 드롭다운 채우기
+                const ownerSelect = document.getElementById('owner');
+                ownerSelect.innerHTML = '<option value="">담당자 선택</option>';
+                filteredOwners.forEach(owner => {
+                    const option = document.createElement('option');
+                    option.value = owner;
+                    option.textContent = owner;
+                    ownerSelect.appendChild(option);
+                });
+
+                // 거래처 자동완성 데이터 로드
+                const clientsResponse = await fetch('/api/projects/list');
+                const projectsData = await clientsResponse.json();
+                
+                // 고유한 거래처 목록 추출
+                const uniqueClients = [...new Set(projectsData
+                    .map(p => p['거래처'])
+                    .filter(client => client && client.trim())
+                )].sort();
+                
+                // 거래처 datalist 채우기
+                const clientDatalist = document.getElementById('clientList');
+                clientDatalist.innerHTML = '';
+                uniqueClients.forEach(client => {
+                    const option = document.createElement('option');
+                    option.value = client;
+                    clientDatalist.appendChild(option);
+                });
+
+                // 공사 구분 드롭다운 채우기
+                if (optionsData.work_categories && optionsData.work_categories.length > 0) {
+                    const workCategorySelect = document.getElementById('work-category');
+                    workCategorySelect.innerHTML = '<option value="">선택</option>';
+                    optionsData.work_categories.forEach(category => {
+                        const option = document.createElement('option');
+                        option.value = category;
+                        option.textContent = category;
+                        workCategorySelect.appendChild(option);
+                    });
+                }
+
+                // 기계 분류와 브랜드는 이제 체크박스로 고정 구현됨 (동적 로딩 불필요)
+
+            } catch (error) {
+                console.error('데이터 로드 오류:', error);
+                throw error;
+            }
+        }
+
+        // 새 프로젝트 폼 초기화
+        function resetNewProjectForm() {
+            document.getElementById('newProjectForm').reset();
+            document.getElementById('generated-code').textContent = '사업자와 담당자를 선택하세요';
+            document.getElementById('generated-code').style.backgroundColor = '#f8f9fa';
+            document.getElementById('display-amount').textContent = '0원';
+            document.getElementById('amount-korean').textContent = '금 영원정';
+            
+            // 이벤트 리스너 설정
+            setupNewProjectFormListeners();
+        }
+
+        // 새 프로젝트 폼 이벤트 리스너 설정
+        function setupNewProjectFormListeners() {
+            // 사업자/담당자 변경 시 프로젝트 코드 미리보기
+            document.getElementById('company').addEventListener('change', updateNewProjectCodePreview);
+            document.getElementById('owner').addEventListener('change', updateNewProjectCodePreview);
+            
+            // 공사 구분 다중 선택 처리
+            document.querySelectorAll('.work-category-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', handleWorkCategoryChange);
+            });
+            
+            // 기계 분류 다중 선택 처리
+            document.querySelectorAll('.machine-category-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', handleMachineCategoryChange);
+            });
+            
+            // 브랜드 다중 선택 처리
+            document.querySelectorAll('.brand-category-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', handleBrandCategoryChange);
+            });
+            
+            // 도급 구분 다중 선택 처리
+            document.querySelectorAll('.contract-category-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', handleContractCategoryChange);
+            });
+            
+            // 현장 주소 자동 정리 및 검증
+            document.getElementById('address').addEventListener('input', handleAddressInput);
+            document.getElementById('address').addEventListener('paste', handleAddressPaste);
+            
+            // 총액1 쉼표 표시 및 금액 업데이트
+            document.getElementById('total-amount-display').addEventListener('input', handleAmountInput);
+            document.getElementById('vat-included').addEventListener('change', updateDisplayAmount);
+            
+            // 금액 버튼 이벤트 리스너
+            document.querySelectorAll('.amount-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const amount = parseInt(this.dataset.amount);
+                    addAmountToTotal(amount);
+                });
+            });
+            
+            // 초기화 버튼 이벤트 리스너
+            document.getElementById('amount-reset-btn').addEventListener('click', function() {
+                resetTotalAmount();
+            });
+            
+            // 캘린더 관련 이벤트 처리 함수
+            function openCalendar(dateInput) {
+                if (dateInput && !dateInput.disabled) {
+                    dateInput.focus();
+                    // 브라우저별 호환성을 위한 다중 시도
+                    try {
+                        if (dateInput.showPicker) {
+                            dateInput.showPicker();
+                        }
+                    } catch (e) {
+                        // showPicker가 지원되지 않는 경우 focus로 대체
+                        dateInput.focus();
+                    }
+                }
+            }
+            
+            // 캘린더 아이콘 클릭 이벤트
+            document.querySelectorAll('.calendar-icon').forEach(icon => {
+                icon.addEventListener('click', function() {
+                    const dateInput = this.parentElement.querySelector('input[type="date"]');
+                    openCalendar(dateInput);
+                });
+            });
+            
+            // 날짜 입력 필드 자체 클릭 이벤트
+            document.querySelectorAll('.date-input').forEach(input => {
+                input.addEventListener('click', function() {
+                    openCalendar(this);
+                });
+            });
+            
+            // 동일 날짜 체크박스 이벤트
+            document.getElementById('same-date-check').addEventListener('change', function() {
+                const startDate = document.getElementById('start-date').value;
+                const endDateInput = document.getElementById('end-date');
+                
+                if (this.checked) {
+                    if (startDate) {
+                        endDateInput.value = startDate;
+                        endDateInput.disabled = true;
+                    } else {
+                        // 시작일이 없으면 체크박스 해제
+                        this.checked = false;
+                        alert('먼저 공사 시작일을 선택해주세요.');
+                    }
+                } else {
+                    endDateInput.disabled = false;
+                }
+            });
+            
+            // 이메일 확인 불가 체크박스 이벤트
+            document.getElementById('email-unknown-check').addEventListener('change', function() {
+                const emailInput = document.getElementById('manager-email');
+                const emailError = document.getElementById('email-error');
+                
+                if (this.checked) {
+                    emailInput.value = '-';
+                    emailInput.disabled = true;
+                    emailInput.classList.remove('is-invalid');
+                    emailError.classList.add('d-none');
+                } else {
+                    emailInput.value = '';
+                    emailInput.disabled = false;
+                }
+            });
+            
+            // 이메일 형식 검증
+            document.getElementById('manager-email').addEventListener('input', function() {
+                const emailInput = this;
+                const emailError = document.getElementById('email-error');
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                
+                // 체크박스가 체크되어 있으면 검증 건너뛰기
+                if (document.getElementById('email-unknown-check').checked) {
+                    return;
+                }
+                
+                // 빈 값이면 에러 숨김
+                if (emailInput.value.trim() === '') {
+                    emailInput.classList.remove('is-invalid');
+                    emailError.classList.add('d-none');
+                    return;
+                }
+                
+                // 이메일 형식 검증
+                if (!emailRegex.test(emailInput.value)) {
+                    emailInput.classList.add('is-invalid');
+                    emailError.classList.remove('d-none');
+                } else {
+                    emailInput.classList.remove('is-invalid');
+                    emailError.classList.add('d-none');
+                }
+            });
+            
+            // 이메일 필드 포커스 아웃 시에도 검증
+            document.getElementById('manager-email').addEventListener('blur', function() {
+                const emailInput = this;
+                const emailError = document.getElementById('email-error');
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                
+                // 체크박스가 체크되어 있으면 검증 건너뛰기
+                if (document.getElementById('email-unknown-check').checked) {
+                    return;
+                }
+                
+                // 빈 값이 아닌데 형식이 잘못된 경우
+                if (emailInput.value.trim() !== '' && !emailRegex.test(emailInput.value)) {
+                    emailInput.classList.add('is-invalid');
+                    emailError.classList.remove('d-none');
+                }
+            });
+            
+            // 폼 제출
+            document.getElementById('newProjectForm').addEventListener('submit', submitNewProject);
+        }
+
+        // 모달 전용 알림 함수
+        function showModalAlert(message, type) {
+            const alertContainer = document.getElementById('modalAlertContainer');
+            const alertId = 'modal_alert_' + Date.now();
+            
+            const alertHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show mb-3" id="${alertId}">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            alertContainer.innerHTML = alertHTML;
+            
+            setTimeout(() => {
+                const alertElement = document.getElementById(alertId);
+                if (alertElement) {
+                    alertElement.remove();
+                }
+            }, 3000);
+        }
+
+        // 시작일 변경 시 처리
+        function handleStartDateChange() {
+            const sameDateCheck = document.getElementById('same-date-check');
+            const startDate = document.getElementById('start-date').value;
+            const endDateInput = document.getElementById('end-date');
+            
+            // 체크박스가 체크되어 있으면 종료일도 동일하게 설정
+            if (sameDateCheck.checked && startDate) {
+                endDateInput.value = startDate;
+            }
+        }
+
+        // 새 프로젝트 코드 미리보기 업데이트
+        async function updateNewProjectCodePreview() {
+            const company = document.getElementById('company').value;
+            const owner = document.getElementById('owner').value;
+            const codeDisplay = document.getElementById('generated-code');
+            
+            if (company && owner) {
+                try {
+                    // 실제 프로젝트 코드 미리보기 API 호출
+                    const response = await fetch(`/api/preview-project-code?company=${encodeURIComponent(company)}&owner=${encodeURIComponent(owner)}`);
+                    const result = await response.json();
+                    
+                    if (result.ok) {
+                        codeDisplay.textContent = result.project_code;
+                        codeDisplay.style.backgroundColor = '#e8f5e8';
+                    } else {
+                        codeDisplay.textContent = `오류: ${result.error}`;
+                        codeDisplay.style.backgroundColor = '#f8d7da';
+                    }
+                } catch (error) {
+                    console.error('프로젝트 코드 미리보기 오류:', error);
+                    codeDisplay.textContent = '코드 생성 오류';
+                    codeDisplay.style.backgroundColor = '#f8d7da';
+                }
+            } else {
+                codeDisplay.textContent = '사업자와 담당자를 선택하세요';
+                codeDisplay.style.backgroundColor = '#f8f9fa';
+            }
+        }
+
+        // 표시 금액 업데이트
+        function updateDisplayAmount() {
+            const amount = parseFloat(document.getElementById('total-amount').value) || 0;
+            const vatIncluded = document.getElementById('vat-included').checked;
+            
+            let displayAmount = amount;
+            if (vatIncluded) {
+                displayAmount = amount * 1.1; // 부가세 10% 추가
+            }
+            
+            // 총액2 표시 업데이트 (기존 display-amount span 사용)
+            const displayAmountSpan = document.getElementById('display-amount');
+            const amountKoreanSpan = document.getElementById('amount-korean');
+            
+            if (displayAmountSpan && displayAmount > 0) {
+                const formattedAmount = new Intl.NumberFormat('ko-KR').format(displayAmount);
+                const koreanAmount = numberToKorean(displayAmount);
+                
+                // VAT 정보 추가
+                const vatStatus = vatIncluded ? 'VAT 포함' : 'VAT 별도';
+                
+                // 한글 금액과 VAT 정보를 함께 표시
+                displayAmountSpan.textContent = `${formattedAmount}원 (금 ${koreanAmount}원정) / ${vatStatus}`;
+                
+                // 기존 한글 표시 숨김
+                if (amountKoreanSpan) {
+                    amountKoreanSpan.style.display = 'none';
+                }
+                
+                // 실제 값은 숨겨진 총액2 필드에 저장 (폼 제출용)
+                let hiddenTotal2 = document.getElementById('total2-hidden');
+                if (!hiddenTotal2) {
+                    hiddenTotal2 = document.createElement('input');
+                    hiddenTotal2.type = 'hidden';
+                    hiddenTotal2.id = 'total2-hidden';
+                    hiddenTotal2.name = '총액 2';
+                    document.getElementById('newProjectForm').appendChild(hiddenTotal2);
+                }
+                hiddenTotal2.value = displayAmount;
+                
+            } else if (displayAmountSpan) {
+                displayAmountSpan.textContent = '0원';
+                if (amountKoreanSpan) {
+                    amountKoreanSpan.textContent = '(금 영원정)';
+                    amountKoreanSpan.style.display = 'inline';
+                }
+            }
+        }
+
+        // 공사 구분 다중 선택 처리 (최대 2개)
+        function handleWorkCategoryChange(event) {
+            const checkbox = event.target;
+            const checkboxes = document.querySelectorAll('.work-category-checkbox');
+            const checkedBoxes = document.querySelectorAll('.work-category-checkbox:checked');
+            
+            if (checkedBoxes.length > 2) {
+                checkbox.checked = false;
+                showModalAlert('공사 구분은 최대 2개까지만 선택 가능합니다.', 'warning');
+                return;
+            }
+            
+            // 선택된 값들을 숨겨진 필드에 저장
+            const selectedValues = Array.from(checkedBoxes).map(cb => cb.value);
+            const hiddenInput = document.getElementById('work-category-hidden') || 
+                (() => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.id = 'work-category-hidden';
+                    input.name = '공사 구분';
+                    document.getElementById('newProjectForm').appendChild(input);
+                    return input;
+                })();
+            
+            hiddenInput.value = selectedValues.join(', ');
+        }
+        
+        // 기계 분류 다중 선택 처리 (최대 2개)
+        function handleMachineCategoryChange(event) {
+            const checkbox = event.target;
+            const checkedBoxes = document.querySelectorAll('.machine-category-checkbox:checked');
+            
+            if (checkedBoxes.length > 2) {
+                checkbox.checked = false;
+                showModalAlert('기계 분류는 최대 2개까지만 선택 가능합니다.', 'warning');
+                return;
+            }
+            
+            // 선택된 값들을 숨겨진 필드에 저장
+            const selectedValues = Array.from(checkedBoxes).map(cb => cb.value);
+            const hiddenInput = document.getElementById('machine-category-hidden') || 
+                (() => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.id = 'machine-category-hidden';
+                    input.name = '기계 분류';
+                    document.getElementById('newProjectForm').appendChild(input);
+                    return input;
+                })();
+            
+            hiddenInput.value = selectedValues.join(', ');
+        }
+        
+        // 브랜드 다중 선택 처리 (최대 2개)
+        function handleBrandCategoryChange(event) {
+            const checkbox = event.target;
+            const checkedBoxes = document.querySelectorAll('.brand-category-checkbox:checked');
+            
+            if (checkedBoxes.length > 2) {
+                checkbox.checked = false;
+                showModalAlert('브랜드는 최대 2개까지만 선택 가능합니다.', 'warning');
+                return;
+            }
+            
+            // 선택된 값들을 숨겨진 필드에 저장
+            const selectedValues = Array.from(checkedBoxes).map(cb => cb.value);
+            const hiddenInput = document.getElementById('brand-category-hidden') || 
+                (() => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.id = 'brand-category-hidden';
+                    input.name = '브랜드';
+                    document.getElementById('newProjectForm').appendChild(input);
+                    return input;
+                })();
+            
+            hiddenInput.value = selectedValues.join(', ');
+        }
+        
+        // 도급 구분 다중 선택 처리 (최대 2개)
+        function handleContractCategoryChange(event) {
+            const checkbox = event.target;
+            const checkedBoxes = document.querySelectorAll('.contract-category-checkbox:checked');
+            
+            if (checkedBoxes.length > 2) {
+                checkbox.checked = false;
+                showModalAlert('도급 구분은 최대 2개까지만 선택 가능합니다.', 'warning');
+                return;
+            }
+            
+            // 선택된 값들을 숨겨진 필드에 저장
+            const selectedValues = Array.from(checkedBoxes).map(cb => cb.value);
+            const hiddenInput = document.getElementById('contract-category-hidden') || 
+                (() => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.id = 'contract-category-hidden';
+                    input.name = '도급 구분';
+                    document.getElementById('newProjectForm').appendChild(input);
+                    return input;
+                })();
+            
+            hiddenInput.value = selectedValues.join(', ');
+        }
+        
+        // 현장 주소 입력 처리
+        function handleAddressInput(event) {
+            const address = event.target.value;
+            const validationMsg = document.getElementById('address-validation');
+            
+            // 서울시 관련 문구 자동 정리
+            let cleanedAddress = address
+                .replace(/서울특별시\s?/g, '서울시 ')
+                .replace(/서울시\s?서울시\s?/g, '서울시 ')
+                .replace(/서울\s?서울/g, '서울');
+            
+            if (cleanedAddress !== address) {
+                event.target.value = cleanedAddress;
+            }
+            
+            // 도로명 주소 검증
+            if (cleanedAddress.length > 5) {
+                const hasRoadName = /로\d*번길|로\d*길|로\s\d+|대로\d*번길|대로\d*길|대로\s\d+/.test(cleanedAddress);
+                
+                if (hasRoadName) {
+                    validationMsg.textContent = '✓ 유효한 도로명 주소입니다';
+                    validationMsg.className = 'text-success small mt-1';
+                } else {
+                    validationMsg.textContent = '⚠ 도로명 주소로 입력해 주세요 (예: ○○로 123, ○○길 45)';
+                    validationMsg.className = 'text-warning small mt-1';
+                }
+            } else {
+                validationMsg.textContent = '';
+            }
+        }
+        
+        // 현장 주소 붙여넣기 처리
+        function handleAddressPaste(event) {
+            setTimeout(() => {
+                handleAddressInput(event);
+            }, 10);
+        }
+        
+        // 총액 입력 처리 (3자리마다 쉼표 표시)
+        function handleAmountInput(event) {
+            const input = event.target;
+            let value = input.value.replace(/[^\d]/g, ''); // 숫자만 추출
+            
+            if (value) {
+                // 3자리마다 쉼표 추가
+                const formattedValue = new Intl.NumberFormat('ko-KR').format(value);
+                input.value = formattedValue;
+                
+                // 실제 숫자값을 숨겨진 필드에 저장
+                document.getElementById('total-amount').value = value;
+            } else {
+                input.value = '';
+                document.getElementById('total-amount').value = '';
+            }
+            
+            // 총액2 업데이트
+            updateDisplayAmount();
+        }
+        
+        // 금액을 총액에 합산하는 함수
+        function addAmountToTotal(amount) {
+            const displayInput = document.getElementById('total-amount-display');
+            const hiddenInput = document.getElementById('total-amount');
+            
+            // 현재 금액 가져오기
+            let currentAmount = parseInt(hiddenInput.value) || 0;
+            
+            // 새 금액 합산
+            const newAmount = currentAmount + amount;
+            
+            // 표시용 입력 필드에 포맷된 값 설정
+            const formattedAmount = new Intl.NumberFormat('ko-KR').format(newAmount);
+            displayInput.value = formattedAmount;
+            
+            // 숨겨진 필드에 실제 숫자값 저장
+            hiddenInput.value = newAmount;
+            
+            // 총액2 업데이트
+            updateDisplayAmount();
+        }
+        
+        // 총액 초기화 함수
+        function resetTotalAmount() {
+            const displayInput = document.getElementById('total-amount-display');
+            const hiddenInput = document.getElementById('total-amount');
+            
+            // 필드 초기화
+            displayInput.value = '';
+            hiddenInput.value = '0';
+            
+            // 총액2 업데이트
+            updateDisplayAmount();
+        }
+
+        // 숫자를 한글로 변환하는 함수
+        function numberToKorean(number) {
+            // undefined, null, 빈 문자열, NaN 처리
+            if (number === undefined || number === null || number === '' || isNaN(number)) {
+                return "영";
+            }
+            
+            // 숫자로 변환
+            number = Math.floor(Number(number));
+            
+            if (number === 0) return "영";
+            
+            const units = ['', '만', '억', '조'];
+            const nums = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+            const tens = ['', '십', '백', '천'];
+            
+            let result = '';
+            let unitIndex = 0;
+            
+            while (number > 0) {
+                const part = number % 10000;
+                if (part > 0) {
+                    let partStr = '';
+                    
+                    // 천의 자리
+                    if (Math.floor(part / 1000) > 0) {
+                        const thousand = Math.floor(part / 1000);
+                        if (thousand > 1) partStr += nums[thousand];
+                        partStr += tens[3];
+                    }
+                    
+                    // 백의 자리
+                    if (Math.floor((part % 1000) / 100) > 0) {
+                        const hundred = Math.floor((part % 1000) / 100);
+                        if (hundred > 1) partStr += nums[hundred];
+                        partStr += tens[2];
+                    }
+                    
+                    // 십의 자리
+                    if (Math.floor((part % 100) / 10) > 0) {
+                        const ten = Math.floor((part % 100) / 10);
+                        if (ten > 1) partStr += nums[ten];
+                        partStr += tens[1];
+                    }
+                    
+                    // 일의 자리
+                    if (part % 10 > 0) {
+                        partStr += nums[part % 10];
+                    }
+                    
+                    result = partStr + units[unitIndex] + result;
+                }
+                
+                number = Math.floor(number / 10000);
+                unitIndex++;
+            }
+            
+            return result;
+        }
+
+        // 새 프로젝트 제출 (재시도 로직 포함)
+        async function submitNewProject(e, retryCount = 0) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submit-new-project');
+            const loading = document.getElementById('submit-loading');
+            const maxRetries = 3;
+            
+            // 로딩 상태
+            submitBtn.disabled = true;
+            loading.classList.remove('d-none');
+            
+            try {
+                // 폼 데이터 수집
+                const formData = new FormData(document.getElementById('newProjectForm'));
+                const data = {};
+                for (let [key, value] of formData.entries()) {
+                    data[key] = value;
+                }
+                
+                // 부가세 체크박스 처리
+                data['부가세 포함'] = document.getElementById('vat-included').checked;
+                
+                const response = await fetch('/api/projects/auto', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.ok) {
+                    showAlert(`프로젝트가 성공적으로 등록되었습니다! 프로젝트 코드: ${result.project_code}`, 'success');
+                    
+                    // 모달 닫기
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('newProjectModal'));
+                    modal.hide();
+                    
+                    // 데이터 다시 로드
+                    setTimeout(loadProjects, 500);
+                    
+                } else if (response.status === 409 && retryCount < maxRetries) {
+                    // 409 충돌 오류 시 자동 재시도
+                    console.warn(`프로젝트 코드 충돌, 재시도 중... (${retryCount + 1}/${maxRetries})`);
+                    
+                    // 프로젝트 코드 미리보기 업데이트
+                    await updateNewProjectCodePreview();
+                    
+                    // 잠시 대기 후 재시도
+                    await new Promise(resolve => setTimeout(resolve, 500 * (retryCount + 1)));
+                    return await submitNewProject(e, retryCount + 1);
+                    
+                } else {
+                    const errorMsg = result.error || '알 수 없는 오류가 발생했습니다.';
+                    if (response.status === 409) {
+                        showAlert(`${errorMsg} 다시 시도해주세요.`, 'warning');
+                    } else {
+                        showAlert(`등록 실패: ${errorMsg}`, 'danger');
+                    }
+                }
+                
+            } catch (error) {
+                console.error('등록 오류:', error);
+                if (retryCount < maxRetries) {
+                    console.warn(`네트워크 오류, 재시도 중... (${retryCount + 1}/${maxRetries})`);
+                    await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
+                    return await submitNewProject(e, retryCount + 1);
+                } else {
+                    showAlert('서버 통신 중 오류가 발생했습니다. 다시 시도해주세요.', 'danger');
+                }
+            } finally {
+                // 로딩 상태 해제
+                submitBtn.disabled = false;
+                loading.classList.add('d-none');
+            }
+        }
+
+        // 삭제 확인
+        function confirmDelete(projectCode) {
+            const project = projectsData.find(p => p['프로젝트 코드'] === projectCode);
+            if (!project) return;
+
+            deleteProjectId = projectCode;
+            
+            document.getElementById('deleteProjectInfo').innerHTML = `
+                <strong>프로젝트 코드:</strong> ${project['프로젝트 코드']}<br>
+                <strong>현장 주소:</strong> ${project['현장 주소'] || '-'}<br>
+                <strong>거래처:</strong> ${project['거래처'] || '-'}<br>
+                <strong>총액:</strong> ${formatCurrency(project['총액 2'] || 0)}
+            `;
+            
+            const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+            modal.show();
+        }
+
+        // 프로젝트 삭제
+        async function deleteProject() {
+            if (!deleteProjectId) return;
+
+            try {
+                const response = await fetch(`/api/projects/${deleteProjectId}`, {
+                    method: 'DELETE'
+                });
+
+                const result = await response.json();
+
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+
+                showAlert('프로젝트가 삭제되었습니다.', 'success');
+                
+                // 모달 닫기
+                const modal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
+                modal.hide();
+                
+                // 데이터 다시 로드
+                await loadProjectsData();
+                await loadStatistics();
+                dataTable.clear().rows.add(projectsData).draw();
+
+            } catch (error) {
+                console.error('삭제 오류:', error);
+                showAlert(error.message || '삭제 중 오류가 발생했습니다.', 'danger');
+            }
+        }
+
+        // 데이터 내보내기
+        function exportData() {
+            // 현재 필터된 데이터를 CSV로 내보내기
+            const data = dataTable.rows({ search: 'applied' }).data().toArray();
+            
+            if (data.length === 0) {
+                showAlert('내보낼 데이터가 없습니다.', 'warning');
+                return;
+            }
+
+            const headers = [
+                '프로젝트 코드', '사업자', '담당자', '거래처', '현장 주소', '공사 구분',
+                '기계 분류', '브랜드', '공사 시작', '공사 종료', '공사 내용', '총액 2', '미수금'
+            ];
+
+            let csvContent = headers.join(',') + '\n';
+            
+            data.forEach(row => {
+                const values = headers.map(header => {
+                    const value = row[header] || '';
+                    return `"${value.toString().replace(/"/g, '""')}"`;
+                });
+                csvContent += values.join(',') + '\n';
+            });
+
+            // 파일 다운로드
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            
+            link.setAttribute('href', url);
+            link.setAttribute('download', `프로젝트목록_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 로딩 표시
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (show) {
+                overlay.classList.add('show');
+            } else {
+                overlay.classList.remove('show');
+            }
+        }
+
+        // 유틸리티 함수들
+        function formatCurrency(amount) {
+            if (!amount) return '0원';
+            return new Intl.NumberFormat('ko-KR').format(amount) + '원';
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            // YYYY-MM-DD 형식으로 변환
+            return date.getFullYear() + '-' + 
+                   String(date.getMonth() + 1).padStart(2, '0') + '-' + 
+                   String(date.getDate()).padStart(2, '0');
+        }
+
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertId = 'alert_' + Date.now();
+            
+            const alertHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show" id="${alertId}">
+                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            alertContainer.innerHTML = alertHTML;
+            
+            setTimeout(() => {
+                const alertElement = document.getElementById(alertId);
+                if (alertElement) {
+                    alertElement.remove();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

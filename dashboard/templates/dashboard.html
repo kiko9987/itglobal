@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>냉난방기 설치 공사 대시보드</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.6.2/socket.io.min.js"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+            transition: transform 0.2s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        
+        .chart-container {
+            background: white;
+            border-radius: 10px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+        }
+        
+        .alert-banner {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050;
+            min-width: 300px;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .status-connected {
+            background-color: #28a745;
+        }
+        
+        .status-disconnected {
+            background-color: #dc3545;
+        }
+        
+        .missing-data-item {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .progress-custom {
+            height: 8px;
+            border-radius: 4px;
+        }
+        
+        .table-responsive {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 1040;
+        }
+    </style>
+</head>
+<body>
+    <!-- 헤더 -->
+    <div class="dashboard-header">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h1><i class="fas fa-thermometer-half"></i> 냉난방기 설치 공사 대시보드</h1>
+                    <p class="mb-0">실시간 공사 현황 및 매출 관리</p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <div class="d-flex align-items-center justify-content-end">
+                        <a href="/projects" class="btn btn-light me-3">
+                            <i class="fas fa-list"></i> 프로젝트 관리
+                        </a>
+                        <button class="btn btn-success me-3" onclick="goToNewProject()">
+                            <i class="fas fa-plus"></i> 새 프로젝트
+                        </button>
+                        <div class="d-flex align-items-center">
+                            <span class="status-indicator" id="connectionStatus"></span>
+                            <span id="connectionText">연결 중...</span>
+                            <small class="ms-3" id="lastUpdate">업데이트: -</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 알림 배너 -->
+    <div id="alertContainer" class="alert-banner"></div>
+
+    <!-- 메인 컨테이너 -->
+    <div class="container-fluid">
+        <!-- 요약 통계 -->
+        <div class="row" id="summaryStats">
+            <!-- JavaScript로 동적 생성 -->
+        </div>
+
+        <!-- 차트 섹션 -->
+        <div class="row">
+            <!-- 월별 매출 현황 -->
+            <div class="col-lg-8">
+                <div class="chart-container">
+                    <h5><i class="fas fa-chart-line"></i> 월별 매출 현황</h5>
+                    <canvas id="monthlySalesChart" height="100"></canvas>
+                </div>
+            </div>
+
+            <!-- 지역별 매출 -->
+            <div class="col-lg-4">
+                <div class="chart-container">
+                    <h5><i class="fas fa-map-marker-alt"></i> 지역별 매출</h5>
+                    <canvas id="regionalChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- 미수금 현황 -->
+            <div class="col-lg-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-exclamation-triangle text-warning"></i> 미수금 현황</h5>
+                    <canvas id="outstandingChart" height="150"></canvas>
+                    <div class="mt-3">
+                        <div class="table-responsive">
+                            <table class="table table-sm" id="outstandingTable">
+                                <thead>
+                                    <tr>
+                                        <th>담당자</th>
+                                        <th>미수금</th>
+                                        <th>비율</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 브랜드별 분석 -->
+            <div class="col-lg-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-tags"></i> 브랜드별 분석</h5>
+                    <canvas id="brandChart" height="150"></canvas>
+                    <div class="mt-3">
+                        <div class="table-responsive">
+                            <table class="table table-sm" id="brandTable">
+                                <thead>
+                                    <tr>
+                                        <th>브랜드</th>
+                                        <th>매출</th>
+                                        <th>건수</th>
+                                        <th>마진율</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 누락 데이터 현황 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="chart-container">
+                    <h5><i class="fas fa-exclamation-circle text-danger"></i> 데이터 입력 현황 및 누락 알림</h5>
+                    <div class="row" id="missingDataContainer">
+                        <!-- JavaScript로 동적 생성 -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 새로고침 버튼 -->
+    <button class="btn btn-primary btn-lg rounded-circle refresh-btn" id="refreshBtn" title="데이터 새로고침">
+        <i class="fas fa-sync-alt"></i>
+    </button>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // 전역 변수
+        let socket;
+        let charts = {};
+
+        // 소켓 연결 초기화
+        function initializeSocket() {
+            socket = io();
+            
+            socket.on('connect', function() {
+                updateConnectionStatus(true);
+                showAlert('대시보드에 연결되었습니다.', 'success');
+            });
+            
+            socket.on('disconnect', function() {
+                updateConnectionStatus(false);
+                showAlert('연결이 끊어졌습니다.', 'danger');
+            });
+            
+            socket.on('data_updated', function(data) {
+                showAlert(data.message, 'info');
+                loadAllData();
+            });
+            
+            socket.on('error', function(data) {
+                showAlert(data.message, 'danger');
+            });
+        }
+
+        // 연결 상태 업데이트
+        function updateConnectionStatus(isConnected) {
+            const indicator = document.getElementById('connectionStatus');
+            const text = document.getElementById('connectionText');
+            
+            if (isConnected) {
+                indicator.className = 'status-indicator status-connected';
+                text.textContent = '연결됨';
+            } else {
+                indicator.className = 'status-indicator status-disconnected';
+                text.textContent = '연결 끊김';
+            }
+        }
+
+        // 알림 표시
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertId = 'alert_' + Date.now();
+            
+            const alertHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show" id="${alertId}">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            
+            alertContainer.innerHTML = alertHTML;
+            
+            // 5초 후 자동 제거
+            setTimeout(() => {
+                const alertElement = document.getElementById(alertId);
+                if (alertElement) {
+                    alertElement.remove();
+                }
+            }, 5000);
+        }
+
+        // 숫자 포맷팅
+        function formatNumber(num) {
+            if (num >= 1000000) {
+                return (num / 1000000).toFixed(1) + 'M';
+            } else if (num >= 1000) {
+                return (num / 1000).toFixed(1) + 'K';
+            }
+            return num.toString();
+        }
+
+        function formatCurrency(num) {
+            return new Intl.NumberFormat('ko-KR').format(num) + '원';
+        }
+
+        // 요약 통계 로드
+        async function loadSummaryStats() {
+            try {
+                const response = await fetch('/api/summary');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const container = document.getElementById('summaryStats');
+                container.innerHTML = `
+                    <div class="col-lg-3 col-md-6">
+                        <div class="stat-card">
+                            <div class="stat-number">${data.total_projects || 0}</div>
+                            <div class="stat-label"><i class="fas fa-project-diagram"></i> 총 프로젝트</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <div class="stat-card">
+                            <div class="stat-number">${formatNumber(data.total_amount || 0)}</div>
+                            <div class="stat-label"><i class="fas fa-won-sign"></i> 총 매출</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <div class="stat-card">
+                            <div class="stat-number text-warning">${formatNumber(data.total_outstanding || 0)}</div>
+                            <div class="stat-label"><i class="fas fa-exclamation-triangle"></i> 미수금</div>
+                        </div>
+                    </div>
+                    <div class="col-lg-3 col-md-6">
+                        <div class="stat-card">
+                            <div class="stat-number text-success">${(data.collection_rate || 0).toFixed(1)}%</div>
+                            <div class="stat-label"><i class="fas fa-percentage"></i> 회수율</div>
+                        </div>
+                    </div>
+                `;
+
+                // 마지막 업데이트 시간 표시
+                if (data.last_update) {
+                    const updateTime = new Date(data.last_update).toLocaleString('ko-KR');
+                    document.getElementById('lastUpdate').textContent = `업데이트: ${updateTime}`;
+                }
+
+            } catch (error) {
+                console.error('요약 통계 로드 오류:', error);
+                showAlert('요약 통계를 불러오는데 실패했습니다.', 'danger');
+            }
+        }
+
+        // 월별 매출 차트
+        async function loadMonthlySalesChart() {
+            try {
+                const response = await fetch('/api/monthly-sales');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const ctx = document.getElementById('monthlySalesChart').getContext('2d');
+                
+                if (charts.monthlySales) {
+                    charts.monthlySales.destroy();
+                }
+
+                charts.monthlySales = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.map(item => `${item.월}월`),
+                        datasets: [{
+                            label: '매출',
+                            data: data.map(item => item.총매출 || 0),
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }, {
+                            label: '건수',
+                            data: data.map(item => item.건수 || 0),
+                            borderColor: '#764ba2',
+                            backgroundColor: 'rgba(118, 75, 162, 0.1)',
+                            tension: 0.4,
+                            yAxisID: 'y1'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                        scales: {
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                title: {
+                                    display: true,
+                                    text: '매출 (원)'
+                                }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                title: {
+                                    display: true,
+                                    text: '건수'
+                                },
+                                grid: {
+                                    drawOnChartArea: false,
+                                },
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.datasetIndex === 0) {
+                                            return `매출: ${formatCurrency(context.parsed.y)}`;
+                                        } else {
+                                            return `건수: ${context.parsed.y}건`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('월별 매출 차트 로드 오류:', error);
+            }
+        }
+
+        // 지역별 차트
+        async function loadRegionalChart() {
+            try {
+                const response = await fetch('/api/regional-analysis');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const ctx = document.getElementById('regionalChart').getContext('2d');
+                
+                if (charts.regional) {
+                    charts.regional.destroy();
+                }
+
+                const topRegions = data.slice(0, 8); // 상위 8개 지역만
+
+                charts.regional = new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: topRegions.map(item => item.담당자 || '미지정'),
+                        datasets: [{
+                            data: topRegions.map(item => item.총매출 || 0),
+                            backgroundColor: [
+                                '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0',
+                                '#9966FF', '#FF9F40', '#FF6384', '#C9CBCF'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        return `${context.label}: ${formatCurrency(context.parsed)}`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('지역별 차트 로드 오류:', error);
+            }
+        }
+
+        // 미수금 현황 로드
+        async function loadOutstandingAnalysis() {
+            try {
+                const response = await fetch('/api/outstanding-analysis');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // 차트 생성
+                const ctx = document.getElementById('outstandingChart').getContext('2d');
+                
+                if (charts.outstanding) {
+                    charts.outstanding.destroy();
+                }
+
+                if (data.by_person && data.by_person.length > 0) {
+                    charts.outstanding = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: data.by_person.map(item => item.담당자),
+                            datasets: [{
+                                label: '미수금',
+                                data: data.by_person.map(item => item.미수금),
+                                backgroundColor: 'rgba(255, 99, 132, 0.7)',
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                borderWidth: 1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: '미수금 (원)'
+                                    }
+                                }
+                            },
+                            plugins: {
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            return `미수금: ${formatCurrency(context.parsed.y)}`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // 테이블 업데이트
+                    const tableBody = document.querySelector('#outstandingTable tbody');
+                    const totalOutstanding = data.by_person.reduce((sum, item) => sum + item.미수금, 0);
+                    
+                    tableBody.innerHTML = data.by_person.map(item => `
+                        <tr>
+                            <td>${item.담당자}</td>
+                            <td>${formatCurrency(item.미수금)}</td>
+                            <td>${((item.미수금 / totalOutstanding) * 100).toFixed(1)}%</td>
+                        </tr>
+                    `).join('');
+                }
+
+            } catch (error) {
+                console.error('미수금 분석 로드 오류:', error);
+            }
+        }
+
+        // 브랜드 분석 로드
+        async function loadBrandAnalysis() {
+            try {
+                const response = await fetch('/api/brand-analysis');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                // 차트 생성
+                const ctx = document.getElementById('brandChart').getContext('2d');
+                
+                if (charts.brand) {
+                    charts.brand.destroy();
+                }
+
+                if (data.length > 0) {
+                    const topBrands = data.slice(0, 6); // 상위 6개 브랜드만
+
+                    charts.brand = new Chart(ctx, {
+                        type: 'pie',
+                        data: {
+                            labels: topBrands.map(item => item.브랜드 || '미지정'),
+                            datasets: [{
+                                data: topBrands.map(item => item.총매출 || 0),
+                                backgroundColor: [
+                                    '#36A2EB', '#FF6384', '#FFCE56', '#4BC0C0',
+                                    '#9966FF', '#FF9F40'
+                                ]
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                legend: {
+                                    position: 'bottom'
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            return `${context.label}: ${formatCurrency(context.parsed)}`;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    // 테이블 업데이트
+                    const tableBody = document.querySelector('#brandTable tbody');
+                    tableBody.innerHTML = data.map(item => `
+                        <tr>
+                            <td>${item.브랜드 || '미지정'}</td>
+                            <td>${formatCurrency(item.총매출 || 0)}</td>
+                            <td>${item.건수 || 0}건</td>
+                            <td>${(item.평균마진율 || 0).toFixed(1)}%</td>
+                        </tr>
+                    `).join('');
+                }
+
+            } catch (error) {
+                console.error('브랜드 분석 로드 오류:', error);
+            }
+        }
+
+        // 누락 데이터 분석 로드
+        async function loadMissingDataAnalysis() {
+            try {
+                const response = await fetch('/api/missing-data');
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                const container = document.getElementById('missingDataContainer');
+                
+                if (data.person_analysis) {
+                    let html = '<div class="col-12"><h6>영업사원별 누락 데이터</h6></div>';
+                    
+                    for (const [person, info] of Object.entries(data.person_analysis)) {
+                        if (info.total_missing > 0) {
+                            html += `
+                                <div class="col-lg-4 col-md-6">
+                                    <div class="missing-data-item">
+                                        <div class="d-flex justify-content-between align-items-center">
+                                            <strong>${person}</strong>
+                                            <span class="badge bg-warning">${info.total_missing}개 누락</span>
+                                        </div>
+                                        <div class="mt-2">
+                                            ${info.critical_missing.slice(0, 3).map(missing => `
+                                                <small class="text-muted d-block">
+                                                    • ${missing.field}: ${missing.missing_count}건
+                                                </small>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    }
+                    
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="col-12"><p class="text-muted">누락 데이터가 없습니다.</p></div>';
+                }
+
+            } catch (error) {
+                console.error('누락 데이터 분석 로드 오류:', error);
+            }
+        }
+
+        // 모든 데이터 로드
+        async function loadAllData() {
+            try {
+                await Promise.all([
+                    loadSummaryStats(),
+                    loadMonthlySalesChart(),
+                    loadRegionalChart(),
+                    loadOutstandingAnalysis(),
+                    loadBrandAnalysis(),
+                    loadMissingDataAnalysis()
+                ]);
+            } catch (error) {
+                console.error('데이터 로드 오류:', error);
+                showAlert('일부 데이터를 불러오는데 실패했습니다.', 'warning');
+            }
+        }
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeSocket();
+            loadAllData();
+
+            // 새로고침 버튼 이벤트
+            document.getElementById('refreshBtn').addEventListener('click', async function() {
+                const btn = this;
+                const icon = btn.querySelector('i');
+                
+                // 로딩 상태 표시
+                icon.className = 'fas fa-spinner fa-spin';
+                btn.disabled = true;
+                
+                try {
+                    const response = await fetch('/api/refresh-data');
+                    const result = await response.json();
+                    
+                    if (result.error) {
+                        showAlert(result.error, 'danger');
+                    } else {
+                        showAlert(result.message, 'success');
+                        await loadAllData();
+                    }
+                } catch (error) {
+                    showAlert('새로고침에 실패했습니다.', 'danger');
+                } finally {
+                    // 로딩 상태 해제
+                    icon.className = 'fas fa-sync-alt';
+                    btn.disabled = false;
+                }
+            });
+
+            // 자동 새로고침 (10분마다)
+            setInterval(() => {
+                socket.emit('request_update');
+            }, 600000);
+        });
+
+        // 새 프로젝트 페이지로 이동 및 모달 열기
+        function goToNewProject() {
+            // URL에 모달 플래그 추가하여 프로젝트 관리 페이지로 이동
+            window.location.href = '/projects?openNewModal=true';
+        }
+    </script>
+</body>
+</html>

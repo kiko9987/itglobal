@@ -1,0 +1,67 @@
+# 환경 변수 파일 (민감한 정보 포함)
+.env
+*.env
+
+# Google API 자격증명 파일
+credentials.json
+**/credentials.json
+
+# Python 관련
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 로그 파일
+*.log
+logs/
+
+# 임시 파일
+*.tmp
+*.temp
+*~
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS 생성 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Flask 관련
+instance/
+.webassets-cache
+
+# 데이터베이스 파일
+*.db
+*.sqlite
+*.sqlite3
+
+# 백업 파일
+*.backup
+*.bak
+
+# Excel 임시 파일
+~.xlsx
+~.xls
+
+# 테스트 관련
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js (필요시)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
