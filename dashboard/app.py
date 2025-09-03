@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(project_root))
 
 from dashboard.utils.google_sheets import GoogleSheetsManager
 from dashboard.utils.data_analyzer import DataAnalyzer
+from dashboard.inline_update import register_inline_update_routes
 
 # 환경 변수 로드
 load_dotenv()
@@ -714,17 +715,61 @@ def update_project(project_code):
         
         manager = GoogleSheetsManager()
         
-        # 프로젝트가 있는 행 찾기
-        row_number = manager.find_row_by_project_code(sheet_id, project_code)
+        # 프로젝트가 있는 행 찾기 (직접 구현)
+        search_result = manager.service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range='공사 현황!A:A'
+        ).execute()
+        
+        values = search_result.get('values', [])
+        row_number = None
+        
+        for i, row in enumerate(values):
+            if row and len(row) > 0 and row[0] == project_code:
+                row_number = i + 1  # 1부터 시작
+                break
         
         if not row_number:
             return jsonify({'error': '프로젝트를 찾을 수 없습니다.'}), 404
         
-        # 데이터를 구글 시트 형식으로 변환
-        values = convert_form_data_to_sheet_row(data, manager)
+        # 인라인 편집 데이터인지 확인 (한국어 필드명 포함)
+        korean_fields = ['현장 주소', '사업자', '현장 담당자', '도급 구분', '담당자 연락처', '시공자', '담당자 이메일']
+        is_inline_data = any(field in data for field in korean_fields)
         
-        # 구글 시트 업데이트
-        result = manager.update_row(sheet_id, row_number, values)
+        if is_inline_data:
+            # 인라인 편집 데이터 - 배치 업데이트 방식 사용
+            updates = []
+            field_column_mapping = {
+                '사업자': 'B',
+                '현장 담당자': 'N', 
+                '도급 구분': 'L',
+                '담당자 연락처': 'O',
+                '시공자': 'M',
+                '담당자 이메일': 'P',
+                '현장 주소': 'E'
+            }
+            
+            for field_name, value in data.items():
+                if field_name in field_column_mapping:
+                    column = field_column_mapping[field_name]
+                    updates.append({
+                        'range': f'공사 현황!{column}{row_number}',
+                        'values': [[value]]
+                    })
+            
+            if updates:
+                batch_update_body = {
+                    'valueInputOption': 'USER_ENTERED',
+                    'data': updates
+                }
+                result = manager.service.spreadsheets().values().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body=batch_update_body
+                ).execute()
+        else:
+            # 기존 폼 데이터 - 전체 행 업데이트
+            values = convert_form_data_to_sheet_row(data, manager)
+            result = manager.update_row(sheet_id, row_number, values)
         
         # 로컬 데이터 새로고침
         load_data()
@@ -736,11 +781,11 @@ def update_project(project_code):
             'action': 'update'
         })
         
-        return jsonify({'success': True, 'project_code': project_code})
+        return jsonify({'ok': True, 'success': True, 'project_code': project_code})
         
     except Exception as e:
         logger.error(f"프로젝트 수정 API 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 # 삭제 기능 제거 (사용자 요청에 따라)
 # @app.route('/api/projects/<project_code>', methods=['DELETE'])
@@ -819,6 +864,102 @@ def convert_form_data_to_sheet_row(form_data, manager):
     
     return values
 
+@app.route('/api/update-project-inline', methods=['POST'])
+def update_project_inline():
+    """프로젝트 인라인 편집 API - 구글 시트 직접 업데이트"""
+    try:
+        data = request.get_json()
+        project_code = data.get('projectCode') or data.get('프로젝트 코드')
+        
+        if not project_code:
+            return jsonify({'ok': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+        
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        if not sheet_id:
+            return jsonify({'ok': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
+        
+        manager = GoogleSheetsManager()
+        
+        # 프로젝트가 있는 행 찾기
+        row_number = manager.find_row_by_project_code(sheet_id, project_code)
+        
+        if not row_number:
+            return jsonify({'ok': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
+        
+        # 현재 행의 데이터를 가져오기 (전체 행 데이터 보존을 위해)
+        current_row_range = f'공사 현황!A{row_number}:AM{row_number}'
+        result = manager.service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=current_row_range
+        ).execute()
+        
+        current_values = result.get('values', [[]])[0] if result.get('values') else []
+        
+        # 현재 값을 리스트로 확장 (39개 컬럼)
+        while len(current_values) < 39:
+            current_values.append('')
+        
+        # 컬럼 매핑 가져오기
+        column_mapping = manager.get_column_mapping()
+        
+        # 업데이트할 필드만 변경
+        for field_name, new_value in data.items():
+            if field_name == '프로젝트 코드':
+                continue  # 프로젝트 코드는 변경하지 않음
+            
+            # 필드명에 해당하는 컬럼 인덱스 찾기
+            column_index = None
+            for col_letter, col_name in column_mapping.items():
+                if col_name == field_name:
+                    # 컬럼 문자를 인덱스로 변환
+                    if len(col_letter) == 1:
+                        column_index = ord(col_letter) - ord('A')
+                    else:
+                        column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+                    break
+            
+            if column_index is not None and column_index < len(current_values):
+                # 값 업데이트
+                if new_value == '-' or new_value == '':
+                    current_values[column_index] = ''
+                else:
+                    current_values[column_index] = str(new_value)
+        
+        # 구글 시트 업데이트
+        update_result = manager.update_row(sheet_id, row_number, current_values)
+        
+        # 로컬 데이터 새로고침
+        load_data()
+        
+        # 실시간 업데이트 알림
+        socketio.emit('data_updated', {
+            'message': f"프로젝트가 수정되었습니다: {project_code}",
+            'timestamp': datetime.now().isoformat(),
+            'action': 'inline_update',
+            'project_code': project_code,
+            'updated_fields': list(data.keys())
+        })
+        
+        return jsonify({
+            'ok': True,
+            'message': '성공적으로 업데이트되었습니다.',
+            'project_code': project_code
+        })
+        
+    except Exception as e:
+        logger.error(f"인라인 업데이트 오류: {str(e)}")
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+# 테스트용 간단한 엔드포인트 추가
+@app.route('/api/test-inline', methods=['GET', 'POST'])
+def test_inline_endpoint():
+    """인라인 업데이트 테스트용 엔드포인트"""
+    if request.method == 'GET':
+        return jsonify({'ok': True, 'message': 'API 엔드포인트가 작동 중입니다.'})
+    else:
+        data = request.get_json()
+        return jsonify({'ok': True, 'received_data': data})
+
 @socketio.on('connect')
 def handle_connect():
     """클라이언트 연결 처리"""
@@ -844,7 +985,119 @@ def handle_request_update():
     except Exception as e:
         emit('error', {'message': f'업데이트 오류: {str(e)}'})
 
+@app.route('/api/inline-update', methods=['POST'])
+def inline_update_direct():
+    """간단한 인라인 업데이트 API (직접 구현)"""
+    try:
+        data = request.get_json()
+        logger.info(f"인라인 업데이트 요청: {data}")
+        
+        project_code = data.get('projectCode')
+        if not project_code:
+            return jsonify({'ok': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+        
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        if not sheet_id:
+            return jsonify({'ok': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
+        
+        manager = GoogleSheetsManager()
+        
+        # 프로젝트 코드로 행 찾기
+        logger.info(f"프로젝트 코드 {project_code}의 행 번호를 찾는 중...")
+        
+        # A열에서 프로젝트 코드 검색
+        search_result = manager.service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range='공사 현황!A:A'
+        ).execute()
+        
+        values = search_result.get('values', [])
+        row_number = None
+        
+        for i, row in enumerate(values):
+            if row and len(row) > 0 and row[0] == project_code:
+                row_number = i + 1  # 1부터 시작
+                break
+        
+        if not row_number:
+            return jsonify({'ok': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
+        
+        logger.info(f"프로젝트 {project_code}을 {row_number}행에서 발견")
+        
+        # 업데이트할 셀들
+        updates = []
+        
+        # 필드별로 해당 열에 업데이트
+        field_column_mapping = {
+            '사업자': 'B',
+            '현장 담당자': 'N', 
+            '도급 구분': 'L',
+            '담당자 연락처': 'O',
+            '시공자': 'M',
+            '담당자 이메일': 'P',
+            '현장 주소': 'E'
+        }
+        
+        for field_name, value in data.items():
+            if field_name == 'projectCode':
+                continue
+            
+            if field_name in field_column_mapping:
+                column = field_column_mapping[field_name]
+                updates.append({
+                    'range': f'공사 현황!{column}{row_number}',
+                    'values': [[value]]
+                })
+        
+        # 배치 업데이트 실행
+        if updates:
+            batch_update_body = {
+                'valueInputOption': 'USER_ENTERED',
+                'data': updates
+            }
+            
+            logger.info(f"{len(updates)}개 셀 업데이트 시작...")
+            
+            batch_result = manager.service.spreadsheets().values().batchUpdate(
+                spreadsheetId=sheet_id,
+                body=batch_update_body
+            ).execute()
+            
+            updated_cells = batch_result.get('totalUpdatedCells', 0)
+            logger.info(f"업데이트 완료: {updated_cells}개 셀")
+        
+        # 로컬 데이터 새로고침
+        load_data()
+        
+        # 실시간 알림
+        if socketio:
+            socketio.emit('data_updated', {
+                'message': f"프로젝트가 수정되었습니다: {project_code}",
+                'timestamp': datetime.now().isoformat(),
+                'action': 'inline_update',
+                'project_code': project_code
+            })
+        
+        return jsonify({
+            'ok': True,
+            'message': '성공적으로 업데이트되었습니다.',
+            'project_code': project_code,
+            'updated_cells': updated_cells if updates else 0
+        })
+        
+    except Exception as e:
+        logger.error(f"인라인 업데이트 오류: {str(e)}", exc_info=True)
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 if __name__ == '__main__':
+    # 인라인 업데이트 라우트 등록 (중복 제거를 위해 주석 처리)
+    # register_inline_update_routes(app, socketio, load_data)
+    
+    # 등록된 라우트 확인 (디버깅용)
+    logger.info("등록된 라우트:")
+    for rule in app.url_map.iter_rules():
+        logger.info(f"  {rule.endpoint}: {rule.rule} {rule.methods}")
+    
     # 초기 데이터 로드
     logger.info("초기 데이터 로드 중...")
     load_data()

@@ -567,7 +567,7 @@
         .row-details {
             background-color: var(--gray-50);
             padding: 1.5rem;
-            border-left: 4px solid var(--primary-color);
+            border-left: 4px solid #17a2b8;
             border-radius: 0 var(--border-radius-lg) var(--border-radius-lg) 0;
         }
         
@@ -581,7 +581,7 @@
         /* 아코디언 열린 행 강조 */
         .table tbody tr.accordion-open {
             background-color: #fff3cd !important;
-            border-left: 4px solid var(--primary-color);
+            border-left: 4px solid #17a2b8;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         
@@ -620,9 +620,64 @@
             background: white;
             border: 1px solid var(--gray-200);
             border-radius: var(--border-radius-lg);
-            padding: 1.5rem;
+            padding: 1.2rem;
             height: 100%;
+            min-height: 280px;
             transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* 카드 그리드 레이아웃 */
+        .card-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.8rem;
+            flex: 1;
+        }
+        
+        /* 컴팩트 아이템 스타일 개선 - 가로 정렬 및 구분 */
+        .compact-item {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            min-height: 42px;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid var(--gray-100);
+        }
+        
+        .compact-item:last-child {
+            border-bottom: none;
+        }
+        
+        .compact-item small {
+            font-size: 0.8rem;
+            color: var(--gray-500);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            min-width: 70px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            position: relative;
+        }
+        
+        .compact-item small::after {
+            content: ':';
+            margin-left: 0.2rem;
+            color: var(--gray-400);
+        }
+        
+        .compact-item > div {
+            font-size: 0.9rem;
+            color: var(--gray-800);
+            line-height: 1.3;
+            word-wrap: break-word;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            padding-left: 0.5rem;
         }
         
         .info-card:hover {
@@ -664,6 +719,29 @@
             border-radius: var(--border-radius-xl);
             border: none;
             box-shadow: var(--shadow-xl);
+        }
+
+        /* Form check labels in modals */
+        #newProjectModal .form-check-label {
+            font-size: var(--font-size-sm);
+        }
+
+        /* Placeholder styles - make them lighter */
+        #newProjectModal .form-control::placeholder,
+        #newProjectModal .form-select::placeholder,
+        #newProjectModal textarea::placeholder {
+            color: #bbb !important;
+            opacity: 0.7 !important;
+        }
+
+        /* Hide default date input calendar icon */
+        #newProjectModal input[type="date"]::-webkit-calendar-picker-indicator {
+            display: none;
+            -webkit-appearance: none;
+        }
+        
+        #newProjectModal input[type="date"]::-moz-calendar-picker-indicator {
+            display: none;
         }
         
         .modal-header {
@@ -1264,14 +1342,16 @@
     <!-- 새 프로젝트 등록 모달 -->
     <div class="modal fade" id="newProjectModal" tabindex="-1">
         <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title">
-                        <i class="fas fa-plus-circle me-2"></i>새 프로젝트 등록 (자동 코드 생성)
+            <div class="modal-content" style="border-radius: var(--border-radius-xl); border: none; box-shadow: var(--shadow-xl);">
+                <div class="modal-header" style="background-color: #fafbfc; color: var(--gray-900); border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0; padding: 1.5rem;">
+                    <h5 class="modal-title" style="font-weight: 600; color: var(--gray-900); display: flex; align-items: center;">
+                        <i class="fas fa-plus-circle me-2" style="color: #17a2b8;"></i>
+                        <span>새 프로젝트 등록</span>
+                        <span class="badge ms-2" style="background-color: #d4edda; color: #155724; font-size: var(--font-size-xs); font-weight: 600; border: 1px solid #c3e6cb;">자동 코드 생성</span>
                     </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" style="opacity: 0.8;"></button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body" style="background-color: var(--gray-50); padding: 2rem;">
                     <!-- 모달 전용 알림 컨테이너 -->
                     <div id="modalAlertContainer"></div>
                     
@@ -1279,29 +1359,37 @@
                         <!-- 기본 정보 섹션 -->
                         <div class="row mb-4">
                             <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>기본 정보</h6>
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-info-circle" style="color: #2196f3; font-size: var(--font-size-sm);"></i>기본 정보
+                                        </h6>
                                     </div>
-                                    <div class="card-body">
+                                    <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
                                             <div class="col-md-4">
-                                                <label class="form-label">사업자 <span class="text-danger">*</span></label>
-                                                <select class="form-select" id="company" name="사업자" required>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    사업자 <span class="text-danger">*</span>
+                                                </label>
+                                                <select class="form-select" id="company" name="사업자" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                                     <option value="">사업자 선택</option>
                                                     <option value="글로벌">글로벌</option>
                                                     <option value="글로벌그룹">글로벌그룹</option>
                                                 </select>
                                             </div>
                                             <div class="col-md-4">
-                                                <label class="form-label">담당자 <span class="text-danger">*</span></label>
-                                                <select class="form-select" id="owner" name="담당자" required>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    담당자 <span class="text-danger">*</span>
+                                                </label>
+                                                <select class="form-select" id="owner" name="담당자" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                                     <option value="">담당자 선택</option>
                                                 </select>
                                             </div>
                                             <div class="col-md-4">
-                                                <label class="form-label">생성될 프로젝트 코드</label>
-                                                <div class="form-control bg-light text-center fw-bold" id="generated-code">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    생성될 프로젝트 코드
+                                                </label>
+                                                <div class="form-control text-center fw-bold" id="generated-code" style="background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; border-radius: var(--border-radius); font-size: var(--font-size-sm); height: 38px; display: flex; align-items: center; justify-content: center;">
                                                     사업자와 담당자를 선택하세요
                                                 </div>
                                             </div>
@@ -1314,21 +1402,23 @@
                         <!-- 현장 정보 섹션 -->
                         <div class="row mb-4">
                             <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h6 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>현장 정보</h6>
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-map-marker-alt" style="color: var(--success-color); font-size: var(--font-size-sm);"></i>현장 정보
+                                        </h6>
                                     </div>
-                                    <div class="card-body">
+                                    <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
                                             <div class="col-md-4">
-                                                <label class="form-label">거래처 <span class="text-danger">*</span></label>
-                                                <input type="text" class="form-control" id="client" name="거래처" required list="clientList" autocomplete="off" placeholder="거래처명">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">거래처 <span class="text-danger">*</span></label>
+                                                <input type="text" class="form-control" id="client" name="거래처" required list="clientList" autocomplete="off" placeholder="거래처명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                                 <datalist id="clientList">
                                                     <!-- 동적으로 채워짐 -->
                                                 </datalist>
                                             </div>
                                             <div class="col-md-8">
-                                                <label class="form-label">공사 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
                                                 <div class="border rounded p-3" style="background-color: #fafafa;">
                                                     <div class="row g-3">
                                                         <div class="col-3">
@@ -1386,8 +1476,8 @@
                                         </div>
                                         <div class="row mt-3">
                                             <div class="col-12">
-                                                <label class="form-label">현장 주소 <span class="text-danger">*</span> <small class="text-muted">(도로명 주소만 입력해주세요)</small></label>
-                                                <textarea class="form-control" id="address" name="현장 주소" rows="2" required placeholder="강남구 테헤란로 123 여삼빌딩 5층 505호 OO의원"></textarea>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">현장 주소 <span class="text-danger">*</span> <small class="text-muted">(도로명 주소만 입력해주세요)</small></label>
+                                                <textarea class="form-control" id="address" name="현장 주소" rows="2" required placeholder="강남구 테헤란로 123 여삼빌딩 5층 505호 OO의원" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; transition: all 0.2s ease; resize: vertical;"></textarea>
                                                 <div class="form-text text-info d-none" id="address-info">
                                                     <i class="fas fa-info-circle me-1"></i>주소가 자동으로 정리되었습니다.
                                                 </div>
@@ -1404,14 +1494,14 @@
                         <!-- 기술 정보 섹션 -->
                         <div class="row mb-4">
                             <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h6 class="mb-0"><i class="fas fa-tools me-2"></i>시공 상세</h6>
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-tools" style="color: #9c27b0; font-size: var(--font-size-sm);"></i>시공 상세</h6>
                                     </div>
                                     <div class="card-body">
                                         <div class="row">
                                             <div class="col-md-4">
-                                                <label class="form-label">기계 분류 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">기계 분류 <small class="text-muted">(최대 2개 선택 가능)</small></label>
                                                 <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
                                                     <div class="row g-3">
                                                         <div class="col-6">
@@ -1442,7 +1532,7 @@
                                                 </div>
                                             </div>
                                             <div class="col-md-4">
-                                                <label class="form-label">브랜드 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">브랜드 <small class="text-muted">(최대 2개 선택 가능)</small></label>
                                                 <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
                                                     <div class="row g-3">
                                                         <div class="col-6">
@@ -1485,7 +1575,7 @@
                                                 </div>
                                             </div>
                                             <div class="col-md-4">
-                                                <label class="form-label">도급 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">도급 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
                                                 <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
                                                     <div class="row g-3">
                                                         <div class="col-6">
@@ -1518,12 +1608,12 @@
                                         </div>
                                         <div class="row mt-3">
                                             <div class="col-md-4">
-                                                <label class="form-label">시공자</label>
-                                                <input type="text" class="form-control" id="constructor" name="시공자" placeholder="시공자명">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">시공자</label>
+                                                <input type="text" class="form-control" id="constructor" name="시공자" placeholder="시공자명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                             </div>
                                             <div class="col-md-8">
-                                                <label class="form-label">공사 내용</label>
-                                                <textarea class="form-control" id="work-content" name="공사 내용" rows="1" placeholder="냉난방기 설치, 덕트 공사 등"></textarea>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 내용</label>
+                                                <textarea class="form-control" id="work-content" name="공사 내용" rows="1" placeholder="냉난방기 설치, 덕트 공사 등" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; transition: all 0.2s ease; resize: vertical;"></textarea>
                                             </div>
                                         </div>
                                     </div>
@@ -1534,26 +1624,26 @@
                         <!-- 일정 정보 섹션 -->
                         <div class="row mb-4">
                             <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h6 class="mb-0"><i class="fas fa-calendar me-2"></i>일정 정보</h6>
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-calendar" style="color: #ff9800; font-size: var(--font-size-sm);"></i>일정 정보</h6>
                                     </div>
                                     <div class="card-body">
                                         <div class="row">
                                             <div class="col-md-6">
-                                                <label class="form-label">공사 시작</label>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 시작</label>
                                                 <div class="input-group">
-                                                    <input type="date" class="form-control date-input" id="start-date" name="공사 시작" onkeydown="return false" onpaste="return false" onchange="handleStartDateChange()" style="cursor: pointer;">
-                                                    <span class="input-group-text calendar-icon" style="cursor: pointer;">
+                                                    <input type="date" class="form-control date-input" id="start-date" name="공사 시작" onkeydown="return false" onpaste="return false" onchange="handleStartDateChange()" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
                                                         <i class="fas fa-calendar-alt"></i>
                                                     </span>
                                                 </div>
                                             </div>
                                             <div class="col-md-6">
-                                                <label class="form-label">공사 종료</label>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 종료</label>
                                                 <div class="input-group">
-                                                    <input type="date" class="form-control date-input" id="end-date" name="공사 종료" onkeydown="return false" onpaste="return false" style="cursor: pointer;">
-                                                    <span class="input-group-text calendar-icon" style="cursor: pointer;">
+                                                    <input type="date" class="form-control date-input" id="end-date" name="공사 종료" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
                                                         <i class="fas fa-calendar-alt"></i>
                                                     </span>
                                                 </div>
@@ -1573,25 +1663,25 @@
                         <!-- 담당자 정보 섹션 -->
                         <div class="row mb-4">
                             <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h6 class="mb-0"><i class="fas fa-user me-2"></i>담당자 정보</h6>
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-user" style="color: #00bcd4; font-size: var(--font-size-sm);"></i>담당자 정보</h6>
                                     </div>
-                                    <div class="card-body">
+                                    <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
                                             <div class="col-md-6">
-                                                <label class="form-label">현장 담당자</label>
-                                                <input type="text" class="form-control" id="site-manager" name="현장 담당자" placeholder="현장 담당자명">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">현장 담당자</label>
+                                                <input type="text" class="form-control" id="site-manager" name="현장 담당자" placeholder="현장 담당자명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                             </div>
                                             <div class="col-md-6">
-                                                <label class="form-label">담당자 연락처</label>
-                                                <input type="tel" class="form-control" id="manager-phone" name="담당자 연락처" placeholder="010-0000-0000">
+                                                <label class="form-label" style="font-weight: 500; color: var(--text-primary);">담당자 연락처</label>
+                                                <input type="tel" class="form-control" id="manager-phone" name="담당자 연락처" placeholder="010-0000-0000" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                             </div>
                                         </div>
                                         <div class="row mt-3">
                                             <div class="col-md-6">
-                                                <label class="form-label">담당자 이메일</label>
-                                                <input type="email" class="form-control" id="manager-email" name="담당자 이메일" placeholder="example@email.com">
+                                                <label class="form-label" style="font-weight: 500; color: var(--text-primary);">담당자 이메일</label>
+                                                <input type="email" class="form-control" id="manager-email" name="담당자 이메일" placeholder="example@email.com" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                                 <div class="form-text text-danger d-none" id="email-error">
                                                     <i class="fas fa-exclamation-circle me-1"></i>올바른 이메일 형식을 입력해주세요 (예: user@example.com)
                                                 </div>
@@ -1611,53 +1701,53 @@
                         <!-- 금액 정보 섹션 -->
                         <div class="row mb-4">
                             <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h6 class="mb-0"><i class="fas fa-won me-2"></i>금액 정보</h6>
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-won" style="color: var(--warning-color); font-size: var(--font-size-sm);"></i>금액 정보</h6>
                                     </div>
-                                    <div class="card-body">
+                                    <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
                                             <div class="col-md-6">
-                                                <label class="form-label">총액1 <span class="text-danger">*</span></label>
-                                                <input type="text" class="form-control" id="total-amount-display" required placeholder="1,500,000" maxlength="15">
+                                                <label class="form-label" style="font-weight: 500; color: var(--text-primary);">총액1 <span class="text-danger">*</span></label>
+                                                <input type="text" class="form-control" id="total-amount-display" required placeholder="1,500,000" maxlength="15" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                                 <input type="hidden" id="total-amount" name="총액1" value="0">
                                                 
                                                 <!-- 금액 버튼들 -->
                                                 <div class="mt-3">
                                                     <div class="row g-2">
                                                         <div class="col-4">
-                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000000">일억원</button>
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">일억원</button>
                                                         </div>
                                                         <div class="col-4">
-                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="10000000">천만원</button>
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="10000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">천만원</button>
                                                         </div>
                                                         <div class="col-4">
-                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="1000000">백만원</button>
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="1000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">백만원</button>
                                                         </div>
                                                         <div class="col-4">
-                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000">십만원</button>
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">십만원</button>
                                                         </div>
                                                         <div class="col-4">
-                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="50000">오만원</button>
+                                                            <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="50000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">오만원</button>
                                                         </div>
                                                         <div class="col-4">
-                                                            <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="amount-reset-btn">초기화</button>
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="amount-reset-btn" style="border-color: #dc3545; color: #dc3545; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#f8d7da'" onmouseout="this.style.backgroundColor='transparent'">초기화</button>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div class="col-md-6">
                                                 <div class="mb-3">
-                                                    <label class="form-label">부가세 포함 여부</label>
+                                                    <label class="form-label" style="font-weight: 500; color: var(--text-primary);">부가세 포함 여부</label>
                                                     <div class="form-check form-switch">
-                                                        <input class="form-check-input" type="checkbox" id="vat-included" name="부가세 포함">
-                                                        <label class="form-check-label" for="vat-included">부가세 포함</label>
+                                                        <input class="form-check-input" type="checkbox" id="vat-included" name="부가세 포함" checked>
+                                                        <label class="form-check-label" for="vat-included" style="font-weight: 400;">부가세 포함</label>
                                                     </div>
                                                 </div>
                                                 <div>
-                                                    <label class="form-label">총액2</label>
-                                                    <div class="p-2 bg-light rounded">
-                                                        <span id="display-amount" class="fw-bold">0원</span>
+                                                    <label class="form-label" style="font-weight: 500; color: var(--text-primary);">총액2</label>
+                                                    <div class="p-2 rounded" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border: 1px solid #dee2e6;">
+                                                        <span id="display-amount" class="fw-bold" style="color: #0c5460; font-size: 1.1rem;">0원</span>
                                                         <span id="amount-korean" class="text-muted ms-2">(금 영원정)</span>
                                                     </div>
                                                 </div>
@@ -1671,15 +1761,15 @@
                         <!-- 문서 정보 섹션 -->
                         <div class="row mb-4">
                             <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header bg-light">
-                                        <h6 class="mb-0"><i class="fas fa-folder me-2"></i>문서 정보</h6>
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-folder" style="color: #e91e63; font-size: var(--font-size-sm);"></i>문서 정보</h6>
                                     </div>
-                                    <div class="card-body">
+                                    <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
                                             <div class="col-12">
-                                                <label class="form-label">견적서 및 계약서 폴더 경로</label>
-                                                <input type="text" class="form-control" id="document-path" name="견적서 및 계약서 폴더 경로" placeholder="C:\Documents\Project\2025\프로젝트명">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">견적서 및 계약서 폴더 경로</label>
+                                                <input type="text" class="form-control" id="document-path" name="견적서 및 계약서 폴더 경로" placeholder="C:\Documents\Project\2025\프로젝트명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                             </div>
                                         </div>
                                     </div>
@@ -1688,9 +1778,9 @@
                         </div>
                     </form>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-                    <button type="submit" class="btn btn-primary" form="newProjectForm" id="submit-new-project">
+                <div class="modal-footer" style="background-color: var(--gray-50); border-top: 1px solid var(--gray-200); border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl); padding: 1.5rem;">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;" onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f1b0b7'" onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb'">취소</button>
+                    <button type="submit" class="btn btn-primary" form="newProjectForm" id="submit-new-project" style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #155724;" onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b3d7c1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(21, 87, 36, 0.2)'" onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
                         <span class="spinner-border spinner-border-sm me-2 d-none" id="submit-loading"></span>
                         프로젝트 등록
                     </button>
@@ -2024,109 +2114,108 @@
                 <div class="row-details">
                     <div class="card border-0 shadow-sm">
                         <div class="card-body p-4">
-                            <!-- 간단한 헤더 정보 -->
-                            <div class="accordion-header-info mb-2 p-2 bg-light rounded">
-                                <div class="row align-items-center">
-                                    <div class="col-md-9">
-                                        <small class="text-muted d-flex align-items-center flex-wrap">
-                                            <span class="me-3 fw-bold" style="font-size: 1rem;">${createProjectBadge(rowData['프로젝트 코드'])}</span>
-                                            <span class="me-3">${createCompanyBadge(rowData['거래처'])}</span>
-                                            <span class="me-3">${createManagerBadge(rowData['담당자'])}</span>
-                                            <span>${rowData['현장 주소'] || '-'}</span>
-                                        </small>
-                                    </div>
-                                    <div class="col-md-3 text-end">
-                                        <span class="me-2">${getStatusBadge(rowData)}</span>
-                                        <strong class="text-success">
-                                            ${(() => {
-                                                const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0;
-                                                const numValue = parseFloat(totalAmount) || 0;
-                                                return numValue > 0 ? formatCurrency(numValue) : '-';
-                                            })()}
-                                        </strong>
-                                    </div>
-                                </div>
-                            </div>
 
                             <!-- 모든 정보를 한 행에 가로로 배치 -->
                             <div class="all-info-container">
                                 <div class="row">
-                                    <!-- 기본정보 (연락처 추가) -->
+                                    <!-- 기본정보 -->
                                     <div class="col-lg-3">
-                                        <div class="info-card compact-card">
-                                            <h6 class="text-primary mb-2">
-                                                <i class="fas fa-building me-1"></i>기본정보
-                                            </h6>
-                                            <div class="row">
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>사업자</small>
-                                                        <div>${rowData['사업자'] || '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>도급구분</small>
-                                                        <div>${rowData['도급 구분'] || '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>시공자</small>
-                                                        <div>${rowData['시공자'] || '-'}</div>
-                                                    </div>
+                                        <div class="info-card compact-card" id="card-basic-${projectCode}">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <h6 class="text-primary mb-0">
+                                                    <i class="fas fa-building me-1"></i>기본정보
+                                                </h6>
+                                                <div class="card-edit-buttons">
+                                                    <button class="btn btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', 'basic')" 
+                                                            style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
+                                                            title="수정">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', 'basic')" 
+                                                            style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724;"
+                                                            title="저장">
+                                                        <i class="fas fa-check"></i>
+                                                    </button>
+                                                    <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', 'basic')" 
+                                                            style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px;"
+                                                            title="취소">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
                                                 </div>
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>현장담당자</small>
-                                                        <div class="fw-bold">${rowData['현장 담당자'] || '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>연락처</small>
-                                                        <div class="fw-bold">${rowData['담당자 연락처'] || '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>이메일</small>
-                                                        <div>${rowData['담당자 이메일'] || '-'}</div>
-                                                    </div>
+                                            </div>
+                                            <div class="card-grid">
+                                                <div class="compact-item">
+                                                    <small>사업자</small>
+                                                    <div class="editable-value" data-field="사업자">${rowData['사업자'] || '-'}</div>
                                                 </div>
+                                                <div class="compact-item">
+                                                    <small>현장담당자</small>
+                                                    <div class="editable-value" data-field="현장 담당자">${rowData['현장 담당자'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>도급구분</small>
+                                                    <div class="editable-value" data-field="도급 구분">${rowData['도급 구분'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>연락처</small>
+                                                    <div class="editable-value" data-field="담당자 연락처">${rowData['담당자 연락처'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>시공자</small>
+                                                    <div class="editable-value" data-field="시공자">${rowData['시공자'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>이메일</small>
+                                                    <div class="editable-value" data-field="담당자 이메일">${rowData['담당자 이메일'] || '-'}</div>
+                                                </div>
+                                            </div>
+                                            <div class="compact-item mt-2" style="grid-column: 1/-1; border-top: 1px solid var(--gray-200); padding-top: 0.5rem;">
+                                                <small>현장 주소</small>
+                                                <div class="editable-value" data-field="현장 주소" style="font-size: 0.85rem;">${rowData['현장 주소'] || '-'}</div>
                                             </div>
                                         </div>
                                     </div>
 
                                     <!-- 공사정보 -->
                                     <div class="col-lg-3">
-                                        <div class="info-card compact-card">
-                                            <h6 class="text-success mb-2">
-                                                <i class="fas fa-hammer me-1"></i>공사정보
-                                            </h6>
-                                            <div class="row">
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>공사구분</small>
-                                                        <div>${rowData['공사 구분'] || '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>기계분류</small>
-                                                        <div>${rowData['기계 분류'] || '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>브랜드</small>
-                                                        <div>${rowData['브랜드'] || '-'}</div>
-                                                    </div>
+                                        <div class="info-card compact-card" id="card-construction-${projectCode}">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <h6 class="text-success mb-0">
+                                                    <i class="fas fa-hammer me-1"></i>공사정보
+                                                </h6>
+                                                <button class="btn btn-sm" onclick="editProject('${projectCode}')" 
+                                                        style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
+                                                        title="전체 수정">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                            </div>
+                                            <div class="card-grid">
+                                                <div class="compact-item">
+                                                    <small>공사구분</small>
+                                                    <div>${rowData['공사 구분'] || '-'}</div>
                                                 </div>
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>공사확정</small>
-                                                        <div>${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>공사시작</small>
-                                                        <div>${rowData['공사 시작'] ? formatDate(rowData['공사 시작']) : '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>공사종료</small>
-                                                        <div>${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
-                                                    </div>
+                                                <div class="compact-item">
+                                                    <small>공사확정</small>
+                                                    <div>${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>기계분류</small>
+                                                    <div>${rowData['기계 분류'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>공사시작</small>
+                                                    <div>${rowData['공사 시작'] ? formatDate(rowData['공사 시작']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>브랜드</small>
+                                                    <div>${rowData['브랜드'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>공사종료</small>
+                                                    <div>${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
                                                 </div>
                                             </div>
-                                            <div class="compact-item mt-2">
+                                            <div class="compact-item mt-2" style="grid-column: 1/-1;">
                                                 <small>공사내용</small>
                                                 <div>${rowData['공사 내용'] || '-'}</div>
                                             </div>
@@ -2135,42 +2224,45 @@
 
                                     <!-- 금액정보 -->
                                     <div class="col-lg-3">
-                                        <div class="info-card compact-card">
-                                            <h6 class="text-warning mb-2">
-                                                <i class="fas fa-won-sign me-1"></i>금액정보
-                                            </h6>
-                                            <div class="row">
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>총액1</small>
-                                                        <div class="text-success">${rowData['총액 1'] ? formatCurrency(rowData['총액 1']) : '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>총액2</small>
-                                                        <div class="fw-bold text-primary">${(() => {
-                                                            const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0;
-                                                            const numValue = parseFloat(totalAmount) || 0;
-                                                            return numValue > 0 ? formatCurrency(numValue) : '-';
-                                                        })()}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>부가세</small>
-                                                        <div>${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? '포함' : '별도'}</div>
-                                                    </div>
+                                        <div class="info-card compact-card" id="card-financial-${projectCode}">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <h6 class="text-warning mb-0">
+                                                    <i class="fas fa-won-sign me-1"></i>금액정보
+                                                </h6>
+                                                <button class="btn btn-sm" onclick="editProject('${projectCode}')" 
+                                                        style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
+                                                        title="전체 수정">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                            </div>
+                                            <div class="card-grid">
+                                                <div class="compact-item">
+                                                    <small>총액1</small>
+                                                    <div class="text-success">${rowData['총액 1'] ? formatCurrency(rowData['총액 1']) : '-'}</div>
                                                 </div>
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>순익</small>
-                                                        <div class="fw-bold text-success">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>마진율</small>
-                                                        <div class="fw-bold text-info">${rowData['마진율'] ? parseFloat(rowData['마진율']).toFixed(1) + '%' : '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>제품대</small>
-                                                        <div>${rowData['제품대'] ? formatCurrency(rowData['제품대']) : '-'}</div>
-                                                    </div>
+                                                <div class="compact-item">
+                                                    <small>계산서</small>
+                                                    <div>${rowData['계산서'] || rowData['X'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>부가세</small>
+                                                    <div>${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? '포함' : '별도'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>마진율</small>
+                                                    <div class="text-info">${rowData['마진율'] ? parseFloat(rowData['마진율']).toFixed(1) + '%' : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>총액2</small>
+                                                    <div class="text-primary">${(() => {
+                                                        const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0;
+                                                        const numValue = parseFloat(totalAmount) || 0;
+                                                        return numValue > 0 ? formatCurrency(numValue) : '-';
+                                                    })()}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>순익</small>
+                                                    <div class="text-success">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2178,48 +2270,51 @@
 
                                     <!-- 수금정보 -->
                                     <div class="col-lg-3">
-                                        <div class="info-card compact-card">
-                                            <h6 class="text-danger mb-2">
-                                                <i class="fas fa-credit-card me-1"></i>수금정보
-                                            </h6>
-                                            <div class="row">
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>계약금</small>
-                                                        <div>${rowData['계약금'] ? formatCurrency(rowData['계약금']) : '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>중도금</small>
-                                                        <div>${rowData['중도금'] ? formatCurrency(rowData['중도금']) : '-'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>잔금</small>
-                                                        <div>${rowData['잔금'] ? formatCurrency(rowData['잔금']) : '-'}</div>
-                                                    </div>
+                                        <div class="info-card compact-card" id="card-payment-${projectCode}">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <h6 class="text-danger mb-0">
+                                                    <i class="fas fa-credit-card me-1"></i>수금정보
+                                                </h6>
+                                                <button class="btn btn-sm" onclick="editProject('${projectCode}')" 
+                                                        style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
+                                                        title="전체 수정">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                            </div>
+                                            <div class="card-grid">
+                                                <div class="compact-item">
+                                                    <small>계약금</small>
+                                                    <div>${rowData['계약금'] ? formatCurrency(rowData['계약금']) : '-'}</div>
                                                 </div>
-                                                <div class="col-6">
-                                                    <div class="compact-item">
-                                                        <small>미수금</small>
-                                                        <div class="${(() => {
-                                                            const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
-                                                            const outstandingAmount = parseFloat(outstandingData) || 0;
-                                                            return outstandingAmount === 0 ? 'text-success fw-bold' : 'text-danger fw-bold';
-                                                        })()}">${(() => {
-                                                            const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
-                                                            const outstandingAmount = parseFloat(outstandingData) || 0;
-                                                            return outstandingAmount === 0 ? '완료' : formatCurrency(outstandingAmount);
-                                                        })()}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>수금확인</small>
-                                                        <div>${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
-                                                            '<span class="badge bg-success">수금완료</span>' : 
-                                                            '<span class="badge bg-warning">미수금</span>'}</div>
-                                                    </div>
-                                                    <div class="compact-item">
-                                                        <small>수금날짜</small>
-                                                        <div>${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
-                                                    </div>
+                                                <div class="compact-item">
+                                                    <small>미수금</small>
+                                                    <div class="${(() => {
+                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
+                                                        const outstandingAmount = parseFloat(outstandingData) || 0;
+                                                        return outstandingAmount === 0 ? 'text-success' : 'text-danger';
+                                                    })()}">${(() => {
+                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
+                                                        const outstandingAmount = parseFloat(outstandingData) || 0;
+                                                        return outstandingAmount === 0 ? '완료' : formatCurrency(outstandingAmount);
+                                                    })()}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>중도금</small>
+                                                    <div>${rowData['중도금'] ? formatCurrency(rowData['중도금']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>수금확인</small>
+                                                    <div>${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
+                                                        '<span class="badge bg-success">완료</span>' : 
+                                                        '<span class="badge bg-warning">대기</span>'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>잔금</small>
+                                                    <div>${rowData['잔금'] ? formatCurrency(rowData['잔금']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>수금날짜</small>
+                                                    <div>${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2228,12 +2323,36 @@
                                 </div>
                             </div>
 
-                            <!-- 작업 버튼 -->
-                            <div class="mt-4 pt-3 border-top text-center">
-                                <button class="btn btn-warning btn-sm px-4" onclick="editProject('${projectCode}')" title="수정">
-                                    <i class="fas fa-edit me-2"></i>프로젝트 수정
-                                </button>
-                            </div>
+                            <!-- 문서 폴더 경로 -->
+                            ${(() => {
+                                const folderPath = rowData['견적서 및 계약서 폴더 경로'] || rowData['AK'] || '';
+                                if (folderPath && folderPath.trim() !== '' && folderPath !== '-') {
+                                    return `
+                                    <div class="mt-3 p-3" style="background-color: #f8f9fa; border-radius: var(--border-radius); border: 1px solid var(--gray-200);">
+                                        <div class="d-flex align-items-center">
+                                            <i class="fas fa-folder-open me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
+                                            <small class="text-muted me-2" style="font-weight: 600;">문서 폴더:</small>
+                                            <div class="text-truncate" style="flex: 1;">
+                                                <a href="#" onclick="openFolder('${folderPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" 
+                                                   class="text-decoration-none" 
+                                                   style="color: #17a2b8; font-size: 0.85rem;"
+                                                   title="${folderPath}">
+                                                    ${folderPath}
+                                                </a>
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-secondary ms-2" 
+                                                    onclick="copyToClipboard('${folderPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
+                                                    title="경로 복사"
+                                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+                                                <i class="fas fa-copy"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    `;
+                                }
+                                return '';
+                            })()}
+
                         </div>
                     </div>
                 </div>
@@ -3661,6 +3780,208 @@
                    String(date.getDate()).padStart(2, '0');
         }
 
+        // 카드 인라인 편집 함수들
+        function toggleCardEdit(projectCode, cardType) {
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            const editBtn = card.querySelector('.edit-btn');
+            const saveBtn = card.querySelector('.save-btn');
+            const cancelBtn = card.querySelector('.cancel-btn');
+            const editableValues = card.querySelectorAll('.editable-value');
+            
+            // 편집 모드 활성화
+            editBtn.classList.add('d-none');
+            saveBtn.classList.remove('d-none');
+            cancelBtn.classList.remove('d-none');
+            
+            // 각 필드를 입력 필드로 변경
+            editableValues.forEach(valueDiv => {
+                const currentValue = valueDiv.textContent === '-' ? '' : valueDiv.textContent;
+                const fieldName = valueDiv.dataset.field;
+                
+                // 원본 값 저장
+                valueDiv.dataset.originalValue = currentValue;
+                
+                // input 요소 생성
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentValue;
+                input.className = 'form-control form-control-sm inline-edit-input';
+                input.style.fontSize = '0.85rem';
+                input.style.padding = '0.2rem 0.4rem';
+                input.style.height = 'auto';
+                input.dataset.field = fieldName;
+                
+                // 특정 필드에 대한 입력 유형 설정
+                if (fieldName === '담당자 이메일') {
+                    input.type = 'email';
+                } else if (fieldName === '담당자 연락처') {
+                    input.type = 'tel';
+                    input.pattern = '[0-9]{3}-[0-9]{4}-[0-9]{4}';
+                }
+                
+                valueDiv.innerHTML = '';
+                valueDiv.appendChild(input);
+            });
+            
+            // 첫 번째 입력 필드에 포커스
+            const firstInput = card.querySelector('.inline-edit-input');
+            if (firstInput) firstInput.focus();
+        }
+        
+        function saveCardEdit(projectCode, cardType) {
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            const inputs = card.querySelectorAll('.inline-edit-input');
+            const updatedData = {};
+            
+            // 변경된 데이터 수집 (구글 시트 컬럼명 그대로 사용)
+            inputs.forEach(input => {
+                const fieldName = input.dataset.field;
+                const newValue = input.value.trim() || '';
+                updatedData[fieldName] = newValue;
+            });
+            
+            // 프로젝트 코드 추가
+            updatedData['projectCode'] = projectCode;
+            
+            // 새 API 엔드포인트 호출
+            console.log('인라인 업데이트 요청:', updatedData);
+            
+            fetch('/api/projects/' + encodeURIComponent(projectCode), {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(updatedData)
+            })
+            .then(response => {
+                console.log('응답 상태:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(result => {
+                if (result.ok) {
+                    // 성공적으로 저장됨
+                    showAlert('변경사항이 저장되었습니다.', 'success');
+                    
+                    // UI 업데이트
+                    inputs.forEach(input => {
+                        const valueDiv = input.parentElement;
+                        const newValue = input.value.trim() || '-';
+                        valueDiv.textContent = newValue;
+                        valueDiv.classList.remove('editing');
+                    });
+                    
+                    // 버튼 상태 복원
+                    resetCardEditButtons(card);
+                    
+                    // 테이블 데이터 업데이트
+                    updateProjectDataInMemory(projectCode, updatedData);
+                    
+                } else {
+                    showAlert('저장 중 오류가 발생했습니다: ' + result.error, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('저장 오류:', error);
+                // 네트워크 오류나 서버 오류를 구분하여 표시
+                if (error.message) {
+                    showAlert(`저장 중 오류가 발생했습니다: ${error.message}`, 'danger');
+                } else {
+                    showAlert('저장 중 오류가 발생했습니다. 네트워크 연결을 확인해주세요.', 'danger');
+                }
+            });
+        }
+        
+        function cancelCardEdit(projectCode, cardType) {
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            const inputs = card.querySelectorAll('.inline-edit-input');
+            
+            // 원래 값으로 복원
+            inputs.forEach(input => {
+                const valueDiv = input.parentElement;
+                const originalValue = valueDiv.dataset.originalValue || '-';
+                valueDiv.textContent = originalValue;
+                valueDiv.classList.remove('editing');
+            });
+            
+            // 버튼 상태 복원
+            resetCardEditButtons(card);
+        }
+        
+        function resetCardEditButtons(card) {
+            const editBtn = card.querySelector('.edit-btn');
+            const saveBtn = card.querySelector('.save-btn');
+            const cancelBtn = card.querySelector('.cancel-btn');
+            
+            editBtn.classList.remove('d-none');
+            saveBtn.classList.add('d-none');
+            cancelBtn.classList.add('d-none');
+        }
+        
+        function updateProjectDataInMemory(projectCode, updatedData) {
+            // 메모리에 있는 projectsData 업데이트
+            const projectIndex = projectsData.findIndex(p => p['프로젝트 코드'] === projectCode);
+            if (projectIndex !== -1) {
+                Object.keys(updatedData).forEach(key => {
+                    if (key !== '프로젝트 코드') {
+                        projectsData[projectIndex][key] = updatedData[key];
+                    }
+                });
+            }
+        }
+        
+        // 폴더 열기 함수
+        function openFolder(path) {
+            if (path) {
+                // Windows 경로 형식 확인 및 복사
+                const formattedPath = path.replace(/\//g, '\\');
+                copyToClipboard(formattedPath);
+                showAlert('폴더 경로가 클립보드에 복사되었습니다. Windows 탐색기에 붙여넣기(Ctrl+V) 하세요.', 'info');
+            }
+        }
+        
+        // 클립보드에 복사 함수
+        function copyToClipboard(text) {
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(
+                    () => {
+                        // 복사 버튼 클릭 시 시각적 피드백
+                        event.target.closest('button')?.classList.add('btn-success');
+                        setTimeout(() => {
+                            event.target.closest('button')?.classList.remove('btn-success');
+                        }, 1000);
+                    },
+                    (err) => {
+                        console.error('클립보드 복사 실패:', err);
+                        // 대체 방법 사용
+                        fallbackCopyToClipboard(text);
+                    }
+                );
+            } else {
+                // 대체 방법 사용
+                fallbackCopyToClipboard(text);
+            }
+        }
+        
+        // 대체 클립보드 복사 방법
+        function fallbackCopyToClipboard(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+            } catch (err) {
+                console.error('클립보드 복사 실패:', err);
+            }
+            document.body.removeChild(textArea);
+        }
+        
         function showAlert(message, type) {
             const alertContainer = document.getElementById('alertContainer');
             const alertId = 'alert_' + Date.now();
