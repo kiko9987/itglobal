@@ -79,7 +79,8 @@ def load_data():
         # 로컬 엑셀 파일로 폴백
         try:
             import pandas as pd
-            df = pd.read_excel('data/아이티 공사 현황.xlsx', sheet_name='공사 현황')
+            excel_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', '아이티 공사 현황 (2).xlsx')
+            df = pd.read_excel(excel_path, sheet_name='공사 현황')
             current_data = df
             last_update = datetime.now()
             logger.info(f"로컬 파일에서 데이터 로드: {len(df)}행")

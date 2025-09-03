@@ -293,7 +293,7 @@
             color: white;
             border: none;
             font-weight: 600;
-            font-size: var(--font-size-sm);
+            font-size: 0.9rem;  /* 헤더 폰트 크기 증가 */
             text-transform: uppercase;
             letter-spacing: 0.05em;
             padding: 1rem 0.75rem;
@@ -403,38 +403,50 @@
             border-color: var(--gray-200);
         }
         
+        .table tbody tr {
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        
         .table tbody tr:hover {
             background-color: var(--gray-50);
         }
         
         /* Status Badges */
         .status-badge {
-            font-size: var(--font-size-xs);
-            padding: 0.375rem 0.75rem;
+            font-size: var(--font-size-sm);
+            padding: 0.425rem 0.85rem;
             border-radius: var(--border-radius);
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.025em;
         }
         
+        /* 모든 상태 배지 통일된 스타일 */
+        .status-completed,
+        .status-in-progress,
+        .status-payment-pending,
+        .status-prepaid {
+            color: white;
+            font-size: 0.825rem;
+            padding: 0.45rem 0.9rem;
+            font-weight: 600;
+        }
+        
         .status-completed {
             background-color: var(--success-color);
-            color: white;
         }
         
         .status-in-progress {
             background-color: var(--warning-color);
-            color: white;
-        }
-        
-        .status-pending {
-            background-color: var(--gray-500);
-            color: white;
         }
         
         .status-payment-pending {
             background-color: var(--danger-color);
-            color: white;
+        }
+        
+        .status-prepaid {
+            background-color: #28a745;  /* 선입금 - 녹색 */
         }
         
         /* Amount Styling */
@@ -1009,8 +1021,10 @@
                         <label for="statusFilter" class="form-label">상태</label>
                         <select class="form-select" id="statusFilter">
                             <option value="">전체</option>
-                            <option value="completed">완료</option>
+                            <option value="completed">공사완료</option>
+                            <option value="in-progress">공사진행중</option>
                             <option value="payment-pending">수금대기</option>
+                            <option value="prepaid">선입금</option>
                         </select>
                     </div>
                     
@@ -2115,8 +2129,8 @@
                                                     <div class="compact-item">
                                                         <small>수금확인</small>
                                                         <div>${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
-                                                            '<span class="badge bg-success">확인</span>' : 
-                                                            '<span class="badge bg-warning">대기</span>'}</div>
+                                                            '<span class="badge bg-success">수금완료</span>' : 
+                                                            '<span class="badge bg-warning">미수금</span>'}</div>
                                                     </div>
                                                     <div class="compact-item">
                                                         <small>수금날짜</small>
@@ -2177,8 +2191,8 @@
 
         // 상태 뱃지 생성 (Z열 수금 확인 기준)
         function getStatusBadge(row) {
-            const startDate = row['공사 시작'];
-            const endDate = row['공사 종료'];
+            const startDateStr = row['공사 시작'] || '';
+            const endDateStr = row['공사 종료'] || '';
             
             // Z열 수금 확인 데이터 확인
             const paymentConfirmed = row['수금 확인'] || row['Z'] || '';
@@ -2187,18 +2201,48 @@
                                       paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||
                                       paymentConfirmed === '1' || paymentConfirmed === 1);
             
-            if (isPaymentConfirmed) {
-                // Z열에 체크가 있으면 완료
-                return '<span class="badge status-completed">완료</span>';
-            } else if (!isPaymentConfirmed) {
-                // Z열에 체크가 없으면 공사 종료일 상관없이 수금대기
-                return '<span class="badge status-payment-pending">수금대기</span>';
-            } else if (startDate && !endDate) {
-                // 공사 시작했지만 아직 끝나지 않음
-                return '<span class="badge status-in-progress">진행중</span>';
+            // 날짜 처리
+            const startDate = startDateStr ? new Date(startDateStr) : null;
+            const endDate = endDateStr ? new Date(endDateStr) : null;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // 시간 부분 제거
+            
+            // 공사 종료 날짜가 있는 경우
+            if (endDate) {
+                const endDateOnly = new Date(endDate);
+                endDateOnly.setHours(0, 0, 0, 0);
+                
+                if (endDateOnly < today) {
+                    // 공사 종료 날짜가 지난 경우
+                    if (isPaymentConfirmed) {
+                        return '<span class="badge status-completed">공사완료</span>';
+                    } else {
+                        return '<span class="badge status-payment-pending">수금대기</span>';
+                    }
+                } else {
+                    // 공사 종료 날짜가 아직 안 지난 경우
+                    if (isPaymentConfirmed) {
+                        return '<span class="badge status-prepaid">선입금</span>';
+                    } else {
+                        return '<span class="badge status-in-progress">공사진행중</span>';
+                    }
+                }
             } else {
-                // 공사 시작 전
-                return '<span class="badge status-pending">대기</span>';
+                // 공사 종료 날짜가 없는 경우
+                if (startDate) {
+                    const startDateOnly = new Date(startDate);
+                    startDateOnly.setHours(0, 0, 0, 0);
+                    
+                    // 공사 시작일이 지났고 수금 확인되면 공사완료
+                    if (startDateOnly < today && isPaymentConfirmed) {
+                        return '<span class="badge status-completed">공사완료</span>';
+                    } else {
+                        return '<span class="badge status-in-progress">공사진행중</span>';
+                    }
+                } else {
+                    // 시작일도 없는 경우 진행중으로 처리
+                    return '<span class="badge status-in-progress">공사진행중</span>';
+                }
             }
         }
 
@@ -2214,23 +2258,70 @@
                 filteredData = filteredData.filter(row => row['사업자'] === companyFilter);
             }
 
-            // 상태 필터 (Z열 수금 확인 기준)
+            // 상태 필터 (새로운 로직)
             const statusFilter = document.getElementById('statusFilter').value;
             if (statusFilter) {
                 filteredData = filteredData.filter(row => {
-                    const startDate = row['공사 시작'];
-                    const endDate = row['공사 종료'];
+                    const startDateStr = row['공사 시작'] || '';
+                    const endDateStr = row['공사 종료'] || '';
                     const paymentConfirmed = row['수금 확인'] || row['Z'] || '';
                     const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' || 
                                               paymentConfirmed === '✓' || paymentConfirmed === 'true' || 
                                               paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||
                                               paymentConfirmed === '1' || paymentConfirmed === 1);
                     
+                    const startDate = startDateStr ? new Date(startDateStr) : null;
+                    const endDate = endDateStr ? new Date(endDateStr) : null;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
                     switch (statusFilter) {
                         case 'completed':
-                            return isPaymentConfirmed;
+                            // 공사완료: (종료일 지남 + 수금확인) 또는 (종료일 없고 시작일 지남 + 수금확인)
+                            if (endDate) {
+                                const endDateOnly = new Date(endDate);
+                                endDateOnly.setHours(0, 0, 0, 0);
+                                return endDateOnly < today && isPaymentConfirmed;
+                            } else if (startDate) {
+                                const startDateOnly = new Date(startDate);
+                                startDateOnly.setHours(0, 0, 0, 0);
+                                return startDateOnly < today && isPaymentConfirmed;
+                            }
+                            return false;
+                            
+                        case 'in-progress':
+                            // 공사진행중: 수금미확인이고 (종료일 안지남 또는 종료일 없음)
+                            if (endDate) {
+                                const endDateOnly = new Date(endDate);
+                                endDateOnly.setHours(0, 0, 0, 0);
+                                return endDateOnly >= today && !isPaymentConfirmed;
+                            } else if (startDate) {
+                                // 종료일 없고 시작일 있는 경우
+                                const startDateOnly = new Date(startDate);
+                                startDateOnly.setHours(0, 0, 0, 0);
+                                // 시작일 지났고 수금확인되면 완료, 아니면 진행중
+                                return !(startDateOnly < today && isPaymentConfirmed);
+                            }
+                            return !isPaymentConfirmed; // 날짜 없으면 수금 여부로만 판단
+                            
                         case 'payment-pending':
-                            return !isPaymentConfirmed;
+                            // 수금대기: 종료일 지남 + 수금미확인 (종료일 없으면 해당없음)
+                            if (endDate) {
+                                const endDateOnly = new Date(endDate);
+                                endDateOnly.setHours(0, 0, 0, 0);
+                                return endDateOnly < today && !isPaymentConfirmed;
+                            }
+                            return false; // 종료일 없으면 수금대기 아님
+                            
+                        case 'prepaid':
+                            // 선입금: 종료일 안지남 + 수금확인
+                            if (endDate) {
+                                const endDateOnly = new Date(endDate);
+                                endDateOnly.setHours(0, 0, 0, 0);
+                                return endDateOnly >= today && isPaymentConfirmed;
+                            }
+                            return false; // 종료일 없으면 선입금 아님
+                            
                         default:
                             return true;
                     }
