@@ -11,6 +11,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <!-- DataTables FixedHeader CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.bootstrap5.min.css">
     
     <style>
         /* ===== IT GLOBAL 프리미엄 디자인 시스템 ===== */
@@ -73,21 +75,22 @@
             color: var(--gray-800);
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             line-height: 1.6;
-            min-height: 100vh;
         }
         
-        /* Header - 로고가 돋보이는 어두운 배경 */
+        /* Header - 연한 파스텔 톤 배경 */
         .header {
-            background: linear-gradient(135deg, var(--dark-primary) 0%, var(--dark-secondary) 100%);
-            color: white;
-            padding: 2.5rem 0;
-            margin-bottom: 2rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            color: #495057;
+            padding: 0;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             position: relative;
             overflow: hidden;
+            border-bottom: 3px solid var(--gray-300);
+            min-height: auto;
         }
         
-        /* 오렌지 포인트 요소들 */
+        /* 연한 장식 요소들 */
         .header::before {
             content: '';
             position: absolute;
@@ -95,47 +98,55 @@
             right: -20%;
             width: 300px;
             height: 300px;
-            background: radial-gradient(circle, rgba(255, 107, 53, 0.1) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(255, 107, 53, 0.05) 0%, transparent 70%);
             border-radius: 50%;
-        }
-        
-        .header::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-light) 100%);
         }
         
         .header h1 {
             font-weight: 700;
-            font-size: var(--font-size-4xl);
-            margin-bottom: 0.5rem;
+            font-size: var(--font-size-3xl);
+            margin-bottom: 0.25rem;
             letter-spacing: -0.025em;
             position: relative;
             z-index: 2;
             display: flex;
-            align-items: center;
-            gap: 1rem;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+        
+        .header .d-flex {
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            padding-left: 2rem;
         }
         
         .header .logo {
-            width: 70px;
-            height: 70px;
+            width: 216px;
+            height: 216px;
             object-fit: contain;
-            filter: drop-shadow(0 4px 12px rgba(255,107,53,0.3));
+            filter: drop-shadow(0 4px 12px rgba(0,0,0,0.15));
             transition: all 0.3s ease;
+            transform: translateY(-50px);
         }
         
         .header .logo:hover {
             transform: scale(1.05);
-            filter: drop-shadow(0 6px 16px rgba(255,107,53,0.5));
+            filter: drop-shadow(0 8px 20px rgba(0,0,0,0.25));
+        }
+        
+        .header .logo-subtitle {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #495057;
+            opacity: 0.9;
+            line-height: 1.4;
+            white-space: nowrap;
+            margin: 0;
+            align-self: center;
         }
         
         .header p {
-            font-size: var(--font-size-lg);
+            font-size: var(--font-size-base);
             opacity: 0.95;
             margin-bottom: 0;
             position: relative;
@@ -147,76 +158,118 @@
         .content-container {
             background: white;
             border-radius: var(--border-radius-xl);
-            padding: 2rem;
+            padding: 1.5rem;  /* 2rem → 1.5rem */
             box-shadow: var(--shadow);
             border: 1px solid var(--gray-200);
         }
         
-        /* Statistics Cards - 깔끔한 화이트 + 오렌지 포인트 */
-        .stats-card {
-            background: white;
-            border-radius: var(--border-radius-lg);
-            padding: 1.5rem;
-            text-align: center;
-            margin-bottom: 1rem;
-            border: 1px solid var(--gray-200);
-            box-shadow: var(--shadow-sm);
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
+        /* 구분 뱃지 스타일 - 크기 키움 */
+        .project-badge {
+            padding: 0.3rem 0.6rem;
+            border-radius: 0.3rem;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
         }
         
-        .stats-card::before {
-            content: '';
-            position: absolute;
+        .project-badge.r-type {
+            background-color: #f8d7da; /* 연한 빨간색 */
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .project-badge.g-type {
+            background-color: #d4edda; /* 연한 초록색 */
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .project-badge.p-type {
+            background-color: #e2d9f3; /* 연한 보라색 */
+            color: #4a2c70;
+            border: 1px solid #d1c4e9;
+        }
+        
+        .project-badge.i-type {
+            background-color: #ffe0db; /* 연한 주황색 */
+            color: #8b3d28;
+            border: 1px solid #ffd0c4;
+        }
+        
+        .badge.manager-badge {
+            padding: 0.3rem 0.6rem !important;
+            border-radius: 0.3rem !important;
+            font-size: 0.8rem !important;
+            font-weight: 600 !important;
+            color: #333 !important;
+            border: 1px solid rgba(0,0,0,0.1) !important;
+            display: inline-block !important;
+        }
+        
+        .manager-badge.management {
+            border: 2px solid #ffc107;
+            background-color: #fff3cd;
+            color: #856404;
+            font-weight: 600;
+        }
+        
+        .manager-badge.resigned {
+            background-color: #e9ecef;
+            color: #6c757d;
+            border: 1px solid #dee2e6;
+        }
+        
+        .badge.company-badge {
+            padding: 0.3rem 0.6rem !important;
+            border-radius: 0.3rem !important;
+            font-size: 0.8rem !important;
+            font-weight: 600 !important;
+            color: #333 !important;
+            border: 1px solid rgba(0,0,0,0.1) !important;
+            display: inline-block !important;
+        }
+
+        /* Filter Section - 컨테이너 내에서 고정 */
+        .filter-section-sticky {
+            position: sticky;
             top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: var(--primary-color);
-        }
-        
-        .stats-card:hover {
-            transform: translateY(-3px);
-            box-shadow: var(--shadow-lg);
-            border-color: var(--primary-color);
-        }
-        
-        .stats-number {
-            font-size: var(--font-size-3xl);
-            font-weight: 700;
-            color: var(--primary-color);
-            margin-bottom: 0.5rem;
-        }
-        
-        .stats-label {
-            font-size: var(--font-size-sm);
-            color: var(--gray-600);
-            font-weight: 500;
-        }
-        
-        /* Filter Section - 깔끔한 화이트 */
-        .filter-section {
+            z-index: 1020;
             background: white;
+            margin-bottom: 1.25rem;
+        }
+        
+        .filter-section {
+            background: #fafbfc;
+            padding: 0.75rem;
+            margin: 0;
+            border: 1px solid #e9ecef;
             border-radius: var(--border-radius-lg);
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            border: 1px solid var(--gray-200);
-            box-shadow: var(--shadow-sm);
         }
         
         .filter-section h5 {
             color: var(--gray-800);
             font-weight: 600;
-            margin-bottom: 1.5rem;
+            margin-bottom: 0.5rem;
             display: flex;
             align-items: center;
-            gap: 0.5rem;
-            font-size: var(--font-size-lg);
+            gap: 0.3rem;
+            font-size: 0.9rem;
         }
         
         .filter-section h5 i {
             color: var(--primary-color);
+            font-size: 0.8rem;
+        }
+        
+        .filter-section .form-label {
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+            font-weight: 500;
+            color: var(--gray-700);
+        }
+        
+        .filter-section .row {
+            --bs-gutter-y: 0.25rem;
         }
         
         /* Buttons */
@@ -257,21 +310,40 @@
             font-weight: 500;
         }
         
-        /* 필터 섹션 버튼 높이 통일 */
+        /* 필터 섹션 버튼 높이 통일 (축소) */
         .filter-section .btn {
-            height: 38px;
-            padding: 0.5rem 0.75rem;
-            font-size: var(--font-size-sm);
-            line-height: 1.5;
+            height: 32px;
+            padding: 0.3rem 0.5rem;
+            font-size: 0.8rem;
+            line-height: 1.3;
         }
         
-        /* Form Elements */
+        /* Form Elements (축소) */
+        .filter-section .form-select, 
+        .filter-section .form-control {
+            border-radius: var(--border-radius);
+            border: 1px solid var(--gray-300);
+            font-size: 0.8rem;
+            transition: all 0.2s ease;
+            height: 32px;
+            padding: 0.3rem 0.5rem;
+        }
+        
+        /* 필터 선택 시 강조 스타일 */
+        .filter-section .form-select.filter-selected, 
+        .filter-section .form-control.filter-selected {
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.15) !important;
+            background-color: rgba(255, 107, 53, 0.03) !important;
+        }
+        
+        /* 일반 Form Elements (필터 외부) */
         .form-select, .form-control {
             border-radius: var(--border-radius);
             border: 1px solid var(--gray-300);
             font-size: var(--font-size-sm);
             transition: all 0.2s ease;
-            height: 38px; /* 버튼과 동일한 높이 */
+            height: 38px;
             padding: 0.5rem 0.75rem;
         }
         
@@ -280,25 +352,43 @@
             box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
         }
         
-        /* Table */
-        .table-responsive {
-            border-radius: var(--border-radius-lg);
+        /* Table Section - 컨테이너 내 테이블 영역 */
+        .table-section {
             overflow: hidden;
-            box-shadow: var(--shadow);
+        }
+        
+        .table-wrapper {
+            overflow-y: auto;
+            overflow-x: hidden;
             border: 1px solid var(--gray-200);
+            border-radius: var(--border-radius-lg);
+            box-shadow: var(--shadow);
+            background: white;
+        }
+        
+        .table-wrapper table {
+            width: 100%;
+            margin: 0;
+            table-layout: fixed;  /* 고정 너비 유지 */
+            background: white;
+            min-width: 100%;
         }
         
         .table th {
-            background-color: var(--dark-secondary);
-            color: white;
-            border: none;
+            background-color: #f1f3f4;
+            color: #495057;
+            border: 1px solid #e9ecef;
             font-weight: 600;
-            font-size: 0.9rem;  /* 헤더 폰트 크기 증가 */
+            font-size: 0.85rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             padding: 1rem 0.75rem;
             text-align: center;
             vertical-align: middle;
+            position: sticky;  /* 테이블 내에서 헤더 고정 */
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         }
         
         /* DataTables 정렬 아이콘 스타일 조정 */
@@ -309,45 +399,18 @@
             padding-right: 35px !important;
         }
         
-        .table th.sorting:after,
-        .table th.sorting_asc:after,
-        .table th.sorting_desc:after {
-            position: absolute !important;
-            right: 10px !important;
-            top: 50% !important;
-            transform: translateY(-50%) !important;
-            font-size: 10px !important;
-            opacity: 0.6 !important;
-        }
         
-        /* 정렬 화살표 간격 조정 */
-        .table th.sorting_asc:after {
-            content: "▲" !important;
-        }
-        
-        .table th.sorting_desc:after {
-            content: "▼" !important;
-        }
-        
-        .table th.sorting:after {
-            content: "↕" !important;
-        }
-        
-        /* 헤더 기본 중앙정렬 (정렬 아이콘 고려) */
+        /* 모든 테이블 헤더 중앙정렬 (정렬 아이콘 고려) */
         .table th:nth-child(1),  /* 프로젝트 코드 */
         .table th:nth-child(2),  /* 담당자 */
         .table th:nth-child(3),  /* 거래처 */
+        .table th:nth-child(4),  /* 현장 주소 */
+        .table th:nth-child(5),  /* 공사 내용 */
         .table th:nth-child(6),  /* 공사 시작 */
         .table th:nth-child(7),  /* 공사 종료 */
         .table th:nth-child(8),  /* 총액 */
         .table th:nth-child(9),  /* 미수금 */
         .table th:nth-child(10) { /* 상태 */
-            text-align: center !important;
-        }
-        
-        /* 현장주소, 공사내용 헤더도 중앙정렬 */
-        .table th:nth-child(4),  /* 현장 주소 */
-        .table th:nth-child(5) { /* 공사 내용 */
             text-align: center !important;
             padding-left: 15px !important;
         }
@@ -366,8 +429,7 @@
             padding-left: 15px !important;
         }
         
-        /* 테이블 데이터 셀 정렬 - 헤더와 동일한 패딩 적용 */
-        .table td:nth-child(1),  /* 프로젝트 코드 */
+        /* 테이블 데이터 셀 - 헤더와 정확히 동일한 중앙정렬 (화살표 공간 고려) */
         .table td:nth-child(2),  /* 담당자 */
         .table td:nth-child(3),  /* 거래처 */
         .table td:nth-child(6),  /* 공사 시작 */
@@ -378,10 +440,18 @@
             text-align: center !important;
             vertical-align: middle !important;
             padding-left: 15px !important;
+            padding-right: 35px !important;  /* 헤더와 동일한 오른쪽 패딩 (화살표 공간) */
+        }
+        
+        /* 프로젝트 코드 데이터는 왼쪽 정렬 (뱃지 정렬용) */
+        .table td:nth-child(1) {
+            text-align: left !important;
+            vertical-align: middle !important;
+            padding-left: 15px !important;
             padding-right: 35px !important;
         }
         
-        /* 현장주소, 공사내용 데이터 셀 - 헤더와 동일한 패딩 */
+        /* 현장주소, 공사내용 데이터 셀 - 텍스트 길이 때문에 왼쪽 정렬 유지 */
         .table td:nth-child(4),  /* 현장 주소 */
         .table td:nth-child(5) { /* 공사 내용 */
             text-align: left !important;
@@ -401,6 +471,8 @@
             font-size: var(--font-size-sm);
             padding: 0.75rem;
             border-color: var(--gray-200);
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }
         
         .table tbody tr {
@@ -422,31 +494,37 @@
             letter-spacing: 0.025em;
         }
         
-        /* 모든 상태 배지 통일된 스타일 */
-        .status-completed,
-        .status-in-progress,
-        .status-payment-pending,
-        .status-prepaid {
-            color: white;
-            font-size: 0.825rem;
-            padding: 0.45rem 0.9rem;
-            font-weight: 600;
+        /* 모든 상태 배지 파스텔 톤 스타일 - Bootstrap 오버라이드 */
+        .badge.status-completed,
+        .badge.status-in-progress,
+        .badge.status-payment-pending,
+        .badge.status-prepaid {
+            font-size: 0.8rem !important;
+            padding: 0.3rem 0.6rem !important;
+            font-weight: 600 !important;
+            border-radius: 0.3rem !important;
+            border: 1px solid rgba(0,0,0,0.1) !important;
+            display: inline-block !important;
         }
         
-        .status-completed {
-            background-color: var(--success-color);
+        .badge.status-completed {
+            background-color: #d4edda !important;  /* 연한 초록색 */
+            color: #155724 !important;
         }
         
-        .status-in-progress {
-            background-color: var(--warning-color);
+        .badge.status-in-progress {
+            background-color: #fff3cd !important;  /* 연한 노란색 */
+            color: #856404 !important;
         }
         
-        .status-payment-pending {
-            background-color: var(--danger-color);
+        .badge.status-payment-pending {
+            background-color: #f8d7da !important;  /* 연한 빨간색 */
+            color: #721c24 !important;
         }
         
-        .status-prepaid {
-            background-color: #28a745;  /* 선입금 - 녹색 */
+        .badge.status-prepaid {
+            background-color: #d1ecf1 !important;  /* 연한 청록색 */
+            color: #0c5460 !important;
         }
         
         /* Amount Styling */
@@ -498,6 +576,17 @@
             box-shadow: var(--shadow-sm);
             border-radius: var(--border-radius-lg);
             background: white;
+        }
+        
+        /* 아코디언 열린 행 강조 */
+        .table tbody tr.accordion-open {
+            background-color: #fff3cd !important;
+            border-left: 4px solid var(--primary-color);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .table tbody tr.accordion-open:hover {
+            background-color: #fff3cd !important;
         }
         
         .row-details .card-body {
@@ -578,7 +667,7 @@
         }
         
         .modal-header {
-            background-color: var(--gray-50);
+            background-color: #fafbfc;
             border-bottom: 1px solid var(--gray-200);
             border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0;
             padding: 1.5rem;
@@ -671,10 +760,24 @@
         .dataTables_wrapper .dataTables_paginate .paginate_button.current,
         .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
             color: var(--gray-800) !important;
-            background: transparent !important;
+            background: var(--gray-200) !important;
             font-weight: 600 !important;
+            border: 1px solid var(--gray-300) !important;
+            border-radius: var(--border-radius) !important;
+            text-decoration: none !important;
+        }
+        
+        /* 부트스트랩 기본 페이지네이션 스타일 오버라이드 */
+        .dataTables_wrapper .dataTables_paginate .paginate_button.page-link {
+            color: var(--gray-600) !important;
+            background-color: transparent !important;
             border: none !important;
-            text-decoration: underline !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button.page-link:hover {
+            color: var(--gray-800) !important;
+            background-color: var(--gray-100) !important;
+            border-color: var(--gray-300) !important;
         }
         
         .dataTables_wrapper .dataTables_paginate .paginate_button.disabled,
@@ -692,6 +795,29 @@
             color: var(--gray-600) !important;
             background: transparent !important;
             border: none !important;
+        }
+        
+        /* 모든 페이지네이션 링크 스타일 강제 오버라이드 */
+        .dataTables_wrapper .dataTables_paginate a {
+            color: var(--gray-600) !important;
+            background-color: transparent !important;
+            border: none !important;
+            text-decoration: none !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate a:hover {
+            color: var(--gray-800) !important;
+            background-color: var(--gray-100) !important;
+            border: 1px solid var(--gray-300) !important;
+            border-radius: var(--border-radius) !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate a.current {
+            color: var(--gray-800) !important;
+            background-color: var(--gray-200) !important;
+            border: 1px solid var(--gray-300) !important;
+            border-radius: var(--border-radius) !important;
+            font-weight: 600 !important;
         }
         
         .dataTables_wrapper .dataTables_paginate .previous:hover,
@@ -749,7 +875,7 @@
         }
         
         .dataTables_scrollBody {
-            overflow-x: auto !important;
+            overflow: visible !important;
         }
         
         /* DataTables 정보 텍스트 스타일 */
@@ -804,9 +930,6 @@
                 font-size: var(--font-size-3xl);
             }
             
-            .stats-number {
-                font-size: var(--font-size-2xl);
-            }
         }
         
         @media (max-width: 768px) {
@@ -973,20 +1096,24 @@
 
     <!-- 헤더 -->
     <div class="header">
-        <div class="container">
+        <div class="container-fluid">
             <div class="row align-items-center">
                 <div class="col-md-8">
-                    <h1>
-                        <img src="../data/아이티글로벌-추가최종2-(png)_0001_Vector-Smart-Object.png" alt="IT글로벌 로고" class="logo">
-                        IT글로벌 프로젝트 관리
-                    </h1>
-                    <p class="mb-0">냉난방기 설치공사 통합 관리 시스템</p>
+                    <div class="d-flex align-items-center justify-content-start" style="padding-left: 2rem; height: 120px; overflow: hidden;">
+                        <img src="/data/아이티글로벌-추가최종2-(png)_0000_Vector-Smart-Object.png" alt="IT글로벌 로고" class="logo">
+                        <div class="ms-3" style="display: flex; align-items: center; height: 120px;">
+                            <p class="mb-0 logo-subtitle">냉난방기 설치공사 통합 관리 시스템</p>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-md-4 text-end">
+                    <button class="btn btn-outline-success me-2" id="refreshProjectBtn" onclick="refreshProjectData()">
+                        <i class="fas fa-sync-alt me-1"></i>새로고침
+                    </button>
                     <button class="btn btn-light me-3" onclick="openNewProjectModal()">
                         <i class="fas fa-plus me-2"></i>새 프로젝트 등록
                     </button>
-                    <a href="/" class="btn btn-outline-light">
+                    <a href="/" class="btn btn-outline-secondary">
                         <i class="fas fa-tachometer-alt me-2"></i>대시보드
                     </a>
                 </div>
@@ -999,119 +1126,97 @@
         <div id="alertContainer"></div>
 
         <div class="content-container">
-            <!-- 통계 카드 -->
-            <div class="row mb-4" id="statsContainer">
-                <!-- JavaScript로 동적 생성 -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <h4 class="mb-0">프로젝트 관리</h4>
+                </div>
             </div>
 
-            <!-- 필터 섹션 -->
-            <div class="filter-section">
-                <h5 class="mb-3"><i class="fas fa-filter"></i> 필터 및 검색</h5>
-                <div class="row">
-                    <div class="col-md-3">
-                        <label for="companyFilter" class="form-label">사업자</label>
-                        <select class="form-select" id="companyFilter">
-                            <option value="">전체</option>
-                            <option value="글로벌">글로벌</option>
-                            <option value="글로벌그룹">글로벌그룹</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-3">
-                        <label for="statusFilter" class="form-label">상태</label>
-                        <select class="form-select" id="statusFilter">
-                            <option value="">전체</option>
-                            <option value="completed">공사완료</option>
-                            <option value="in-progress">공사진행중</option>
-                            <option value="payment-pending">수금대기</option>
-                            <option value="prepaid">선입금</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-3">
-                        <label for="managerFilter" class="form-label">담당자</label>
-                        <select class="form-select" id="managerFilter">
-                            <option value="">전체</option>
-                            <!-- 동적으로 담당자 목록이 로드됩니다 -->
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-3">
-                        <label for="dateRange" class="form-label">기간 (공사 확정 기준)</label>
-                        <select class="form-select" id="dateRange">
-                            <option value="">전체</option>
-                            <option value="today">오늘</option>
-                            <option value="yesterday">어제</option>
-                            <option value="this-week">이번 주</option>
-                            <option value="last-week">지난 주</option>
-                            <option value="recent-14">최근 14일</option>
-                            <option value="this-month">이번 달</option>
-                            <option value="last-month">지난 달</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-3">
-                        <label for="outstandingFilter" class="form-label">수금 상태</label>
-                        <select class="form-select" id="outstandingFilter">
-                            <option value="">전체</option>
-                            <option value="collected">수금 완료</option>
-                            <option value="outstanding">미수금 있음</option>
-                        </select>
-                    </div>
-                    
-                    <div class="col-md-3">
-                        <!-- 추가 필터 공간 확보 -->
-                    </div>
-                </div>
-                
-                <div class="row mt-3">
-                    <div class="col-md-8">
-                        <label for="searchInput" class="form-label">키워드 검색</label>
-                        <input type="text" class="form-control" id="searchInput" 
-                               placeholder="프로젝트 코드, 현장 주소, 거래처명, 담당자 등으로 검색...">
-                    </div>
-                    
-                    <div class="col-md-4">
-                        <label class="form-label">&nbsp;</label>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-primary flex-fill" onclick="applyFilters()">
-                                <i class="fas fa-search me-1"></i>검색
-                            </button>
-                            <button class="btn btn-outline-primary me-2" onclick="clearFilters()">
-                                <i class="fas fa-times me-1"></i>초기화
-                            </button>
-                            <button class="btn btn-outline-primary me-2" onclick="refreshProjectData()" id="refreshProjectBtn">
-                                <i class="fas fa-sync-alt me-1"></i>새로고침
-                            </button>
-                            <button class="btn btn-primary" onclick="exportData()">
-                                <i class="fas fa-download me-1"></i>내보내기
-                            </button>
+            <!-- 필터 섹션 (고정) -->
+            <div class="filter-section-sticky">
+                <div class="filter-section">
+                    <div class="row">
+                        <div class="col-md-1">
+                            <label for="companyFilter" class="form-label">사업자</label>
+                            <select class="form-select" id="companyFilter">
+                                <option value="">전체</option>
+                                <option value="글로벌">글로벌</option>
+                                <option value="글로벌그룹">글로벌그룹</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-1">
+                            <label for="statusFilter" class="form-label">상태</label>
+                            <select class="form-select" id="statusFilter">
+                                <option value="">전체</option>
+                                <option value="completed">공사완료</option>
+                                <option value="in-progress">공사진행중</option>
+                                <option value="payment-pending">수금대기</option>
+                                <option value="prepaid">선입금</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-1">
+                            <label for="managerFilter" class="form-label">담당자</label>
+                            <select class="form-select" id="managerFilter">
+                                <option value="">전체</option>
+                                <!-- 동적으로 담당자 목록이 로드됩니다 -->
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-1">
+                            <label for="outstandingFilter" class="form-label">미수금</label>
+                            <select class="form-select" id="outstandingFilter">
+                                <option value="">전체</option>
+                                <option value="collected">수금 완료</option>
+                                <option value="outstanding">미수금 있음</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label for="searchInput" class="form-label">키워드 검색</label>
+                            <input type="text" class="form-control" id="searchInput" 
+                                   placeholder="프로젝트 코드, 주소, 거래처 등...">
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <label class="form-label">&nbsp;</label>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-secondary" onclick="applyFilters()" title="검색">
+                                    <i class="fas fa-search me-1"></i>검색
+                                </button>
+                                <button class="btn btn-outline-secondary" onclick="clearFilters()" title="초기화">
+                                    <i class="fas fa-times me-1"></i>초기화
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 프로젝트 테이블 -->
-            <div class="table-responsive">
-                <table class="table table-hover" id="projectsTable">
-                    <thead>
-                        <tr>
-                            <th>프로젝트 코드</th>
-                            <th>담당자</th>
-                            <th>거래처</th>
-                            <th>현장 주소</th>
-                            <th>공사 내용</th>
-                            <th>공사 시작</th>
-                            <th>공사 종료</th>
-                            <th>총액</th>
-                            <th>미수금</th>
-                            <th>상태</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- JavaScript로 동적 생성 -->
-                    </tbody>
-                </table>
+            <!-- 테이블 섹션 -->
+            <div class="table-section">
+                <div class="table-wrapper">
+                    <table class="table table-hover" id="projectsTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 8%;">프로젝트 코드</th>
+                                <th style="width: 6%;">담당자</th>
+                                <th style="width: 8%;">거래처</th>
+                                <th style="width: 27%;">현장 주소</th>
+                                <th style="width: 21%;">공사 내용</th>
+                                <th style="width: 8%;">공사 시작</th>
+                                <th style="width: 8%;">공사 종료</th>
+                                <th style="width: 8%;">총액</th>
+                                <th style="width: 8%;">미수금</th>
+                                <th style="width: 8%;">상태</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- JavaScript로 동적 생성 -->
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -1600,6 +1705,8 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <!-- DataTables FixedHeader JS -->
+    <script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
 
     <script>
         // 전역 변수
@@ -1625,7 +1732,6 @@
             try {
                 await loadProjectsData();
                 loadManagerFilter(); // 담당자 필터 로드
-                await loadStatistics();
                 initializeDataTable();
                 setupEventListeners();
 
@@ -1649,8 +1755,25 @@
         // 프로젝트 데이터 로드
         async function loadProjectsData() {
             try {
-                const response = await fetch('/api/projects/list');
+                console.log('데이터 로드 시작...');
+                // 캐시 무시하고 최신 데이터 로드
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/projects/list?t=${timestamp}`, {
+                    cache: 'no-cache',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Expires': '0'
+                    }
+                });
+                console.log('API 응답 상태:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const data = await response.json();
+                console.log('데이터 파싱 완료, 타입:', typeof data, '길이:', Array.isArray(data) ? data.length : 'not array');
                 
                 if (data.error) {
                     throw new Error(data.error);
@@ -1680,6 +1803,8 @@
                 
             } catch (error) {
                 console.error('프로젝트 데이터 로드 오류:', error);
+                console.error('오류 세부사항:', error.message);
+                console.error('스택 트레이스:', error.stack);
                 throw error;
             }
         }
@@ -1712,66 +1837,6 @@
             console.log(`담당자 필터 로드 완료: ${managers.size}명`);
         }
 
-        // 통계 정보 로드
-        async function loadStatistics() {
-            try {
-                const response = await fetch('/api/summary');
-                const stats = await response.json();
-                
-                if (stats.error) {
-                    throw new Error(stats.error);
-                }
-                
-                displayStatistics(stats);
-                
-            } catch (error) {
-                console.error('통계 정보 로드 오류:', error);
-            }
-        }
-
-        // 통계 정보 표시
-        function displayStatistics(stats) {
-            const container = document.getElementById('statsContainer');
-            
-            container.innerHTML = `
-                <div class="col-md-2">
-                    <div class="stats-card">
-                        <div class="stats-number">${stats.total_projects || 0}</div>
-                        <small class="text-muted">전체 프로젝트</small>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <div class="stats-card">
-                        <div class="stats-number">${stats.completed_projects || 0}</div>
-                        <small class="text-muted">완료된 프로젝트</small>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <div class="stats-card">
-                        <div class="stats-number">${stats.in_progress_projects || 0}</div>
-                        <small class="text-muted">진행중 프로젝트</small>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <div class="stats-card">
-                        <div class="stats-number">${formatCurrency(stats.total_amount || 0)}</div>
-                        <small class="text-muted">총 매출</small>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <div class="stats-card">
-                        <div class="stats-number text-warning">${formatCurrency(stats.total_outstanding || 0)}</div>
-                        <small class="text-muted">미수금</small>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <div class="stats-card">
-                        <div class="stats-number text-success">${(stats.collection_rate || 0).toFixed(1)}%</div>
-                        <small class="text-muted">회수율</small>
-                    </div>
-                </div>
-            `;
-        }
 
         // DataTable 초기화
         function initializeDataTable() {
@@ -1848,6 +1913,7 @@
                         }
                     }
                 ],
+                // fixedHeader 제거 - CSS sticky 사용
                 columnDefs: [
                     {
                         targets: 0, // 프로젝트 코드 컬럼 (첫 번째 컬럼)
@@ -1857,13 +1923,28 @@
                                 // 정렬할 때는 숫자 부분만 추출하여 정수로 반환
                                 return parseInt(data?.replace(/[^0-9]/g, '') || '0');
                             }
-                            // 표시할 때는 브랜드 색상과 크기 적용
-                            return `<span class="fw-bold" style="color: var(--primary-color); font-size: 1rem;">${data || ''}</span>`;
+                            // 프로젝트 코드 뱃지 적용
+                            return `<span class="fw-bold" style="font-size: 1rem;">${createProjectBadge(data)}</span>`;
+                        }
+                    },
+                    {
+                        targets: 1, // 담당자 컬럼
+                        render: function(data, type, row) {
+                            if (type === 'sort') return data || '';
+                            return createManagerBadge(data);
+                        }
+                    },
+                    {
+                        targets: 2, // 거래처 컬럼 (사업자)
+                        render: function(data, type, row) {
+                            if (type === 'sort') return data || '';
+                            return createCompanyBadge(data);
                         }
                     }
                 ],
                 order: [[0, 'desc']], // 프로젝트 코드 기준 내림차순
-                pageLength: 25,
+                pageLength: 15,
+                lengthMenu: [10, 15, 25, 50, 100],
                 responsive: true,
                 autoWidth: false,
                 scrollX: false,
@@ -1915,19 +1996,22 @@
                 if (row.child.isShown()) {
                     // 이미 확장된 상태라면 닫기
                     row.child.hide();
-                    tr.removeClass('shown');
+                    tr.removeClass('shown accordion-open');
+                    console.log('아코디언 닫음, 클래스 제거됨');
                 } else {
-                    // 먼저 다른 모든 확장된 행들을 닫기
+                    // 먼저 다른 모든 확장된 행들을 닫기 및 강조 해제
+                    $('#projectsTable tbody tr').removeClass('accordion-open');
                     dataTable.rows().every(function() {
                         if (this.child.isShown()) {
                             this.child.hide();
-                            $(this.node()).removeClass('shown');
+                            $(this.node()).removeClass('shown accordion-open');
                         }
                     });
                     
-                    // 현재 행 확장
+                    // 현재 행 확장 및 강조
                     row.child(formatRowDetails(row.data())).show();
-                    tr.addClass('shown');
+                    tr.addClass('shown accordion-open');
+                    console.log('아코디언 열림, 클래스 추가됨:', tr.hasClass('accordion-open'));
                 }
             });
         }
@@ -1945,9 +2029,9 @@
                                 <div class="row align-items-center">
                                     <div class="col-md-9">
                                         <small class="text-muted d-flex align-items-center flex-wrap">
-                                            <span class="me-3 fw-bold" style="color: var(--primary-color); font-size: 1rem;">${rowData['프로젝트 코드'] || '-'}</span>
-                                            <span class="me-3">${rowData['거래처'] || '-'}</span>
-                                            <span class="me-3">${rowData['담당자'] || '-'}</span>
+                                            <span class="me-3 fw-bold" style="font-size: 1rem;">${createProjectBadge(rowData['프로젝트 코드'])}</span>
+                                            <span class="me-3">${createCompanyBadge(rowData['거래처'])}</span>
+                                            <span class="me-3">${createManagerBadge(rowData['담당자'])}</span>
                                             <span>${rowData['현장 주소'] || '-'}</span>
                                         </small>
                                     </div>
@@ -2156,19 +2240,40 @@
             `;
         }
 
+        // 필터 강조 표시 업데이트
+        function updateFilterHighlight(element) {
+            if (element.value && element.value.trim() !== '') {
+                element.classList.add('filter-selected');
+            } else {
+                element.classList.remove('filter-selected');
+            }
+        }
+
         // 이벤트 리스너 설정
         function setupEventListeners() {
             // 필터 변경 이벤트
-            ['companyFilter', 'statusFilter', 'managerFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
-                document.getElementById(filterId).addEventListener('change', applyFilters);
+            ['companyFilter', 'statusFilter', 'managerFilter', 'outstandingFilter'].forEach(filterId => {
+                const element = document.getElementById(filterId);
+                if (element) {
+                    element.addEventListener('change', function() {
+                        updateFilterHighlight(this);
+                        applyFilters();
+                    });
+                } else {
+                    console.warn(`Element with id '${filterId}' not found`);
+                }
             });
 
             // 검색 입력 이벤트
-            document.getElementById('searchInput').addEventListener('keyup', function(e) {
-                if (e.key === 'Enter') {
-                    applyFilters();
-                }
-            });
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.addEventListener('keyup', function(e) {
+                    updateFilterHighlight(this);
+                    if (e.key === 'Enter') {
+                        applyFilters();
+                    }
+                });
+            }
 
             
             // iframe에서 편집 완료 메시지 수신
@@ -2253,13 +2358,13 @@
             let filteredData = [...projectsData];
 
             // 사업자 필터
-            const companyFilter = document.getElementById('companyFilter').value;
+            const companyFilter = document.getElementById('companyFilter')?.value || '';
             if (companyFilter) {
                 filteredData = filteredData.filter(row => row['사업자'] === companyFilter);
             }
 
             // 상태 필터 (새로운 로직)
-            const statusFilter = document.getElementById('statusFilter').value;
+            const statusFilter = document.getElementById('statusFilter')?.value || '';
             if (statusFilter) {
                 filteredData = filteredData.filter(row => {
                     const startDateStr = row['공사 시작'] || '';
@@ -2329,7 +2434,7 @@
             }
 
             // 담당자 필터
-            const managerFilter = document.getElementById('managerFilter').value;
+            const managerFilter = document.getElementById('managerFilter')?.value || '';
             if (managerFilter) {
                 filteredData = filteredData.filter(row => {
                     const manager = row['담당자'] || '';
@@ -2337,55 +2442,8 @@
                 });
             }
 
-            // 기간 필터 (AL열 공사 확정 기준)
-            const dateRange = document.getElementById('dateRange').value;
-            if (dateRange) {
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                
-                filteredData = filteredData.filter(row => {
-                    const confirmDate = row['공사 확정']; // AL열
-                    if (!confirmDate) return false;
-                    
-                    const confirmDateObj = new Date(confirmDate);
-                    confirmDateObj.setHours(0, 0, 0, 0);
-                    
-                    switch (dateRange) {
-                        case 'today':
-                            return confirmDateObj.getTime() === today.getTime();
-                        case 'yesterday':
-                            const yesterday = new Date(today);
-                            yesterday.setDate(yesterday.getDate() - 1);
-                            return confirmDateObj.getTime() === yesterday.getTime();
-                        case 'this-week':
-                            const startOfWeek = new Date(today);
-                            startOfWeek.setDate(today.getDate() - today.getDay());
-                            return confirmDateObj >= startOfWeek && confirmDateObj <= today;
-                        case 'last-week':
-                            const lastWeekStart = new Date(today);
-                            lastWeekStart.setDate(today.getDate() - today.getDay() - 7);
-                            const lastWeekEnd = new Date(today);
-                            lastWeekEnd.setDate(today.getDate() - today.getDay() - 1);
-                            return confirmDateObj >= lastWeekStart && confirmDateObj <= lastWeekEnd;
-                        case 'recent-14':
-                            const fourteenDaysAgo = new Date(today);
-                            fourteenDaysAgo.setDate(today.getDate() - 14);
-                            return confirmDateObj >= fourteenDaysAgo && confirmDateObj <= today;
-                        case 'this-month':
-                            const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-                            return confirmDateObj >= startOfMonth && confirmDateObj <= today;
-                        case 'last-month':
-                            const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-                            const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
-                            return confirmDateObj >= lastMonthStart && confirmDateObj <= lastMonthEnd;
-                        default:
-                            return true;
-                    }
-                });
-            }
-
             // 수금 상태 필터 (W열 미수금 기준)
-            const outstandingFilter = document.getElementById('outstandingFilter').value;
+            const outstandingFilter = document.getElementById('outstandingFilter')?.value || '';
             if (outstandingFilter) {
                 filteredData = filteredData.filter(row => {
                     const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
@@ -2403,7 +2461,7 @@
             }
 
             // 검색어 필터
-            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+            const searchInput = document.getElementById('searchInput')?.value?.toLowerCase() || '';
             if (searchInput) {
                 filteredData = filteredData.filter(row => {
                     const searchFields = [
@@ -2427,10 +2485,18 @@
 
         // 필터 초기화
         function clearFilters() {
-            ['companyFilter', 'statusFilter', 'managerFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
-                document.getElementById(filterId).value = '';
+            ['companyFilter', 'statusFilter', 'managerFilter', 'outstandingFilter'].forEach(filterId => {
+                const element = document.getElementById(filterId);
+                if (element) {
+                    element.value = '';
+                    element.classList.remove('filter-selected');
+                }
             });
-            document.getElementById('searchInput').value = '';
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.value = '';
+                searchInput.classList.remove('filter-selected');
+            }
             
             if (dataTable) {
                 dataTable.clear().rows.add(projectsData).draw();
@@ -2495,11 +2561,11 @@
                     <div class="detail-header mb-4 p-4 bg-light rounded-3">
                         <div class="row align-items-center">
                             <div class="col-md-6">
-                                <h4 class="mb-2 text-primary">
+                                <h4 class="mb-2">
                                     <i class="fas fa-project-diagram me-2"></i>
-                                    ${project['프로젝트 코드'] || '-'}
+                                    ${createProjectBadge(project['프로젝트 코드'])}
                                 </h4>
-                                <h5 class="text-muted mb-0">${project['거래처'] || '-'}</h5>
+                                <h5 class="text-muted mb-0">${createCompanyBadge(project['거래처'])}</h5>
                                 <p class="mb-0 text-secondary">
                                     <i class="fas fa-map-marker-alt me-1"></i>
                                     ${project['현장 주소'] || '-'}
@@ -2565,6 +2631,19 @@
                         else if (field === '부가세' || field === '수금 확인') {
                             const isTrue = value === true || value === 'TRUE' || value === '✓' || value === 'true';
                             displayValue = isTrue ? '<i class="fas fa-check text-success"></i> 확인' : '<i class="fas fa-times text-danger"></i> 미확인';
+                            valueClass = '';
+                        }
+                        // 뱃지 적용 필드들
+                        else if (field === '프로젝트 코드') {
+                            displayValue = createProjectBadge(value);
+                            valueClass = '';
+                        }
+                        else if (field === '담당자') {
+                            displayValue = createManagerBadge(value);
+                            valueClass = '';
+                        }
+                        else if (field === '거래처' || field === '사업자') {
+                            displayValue = createCompanyBadge(value);
                             valueClass = '';
                         }
                         // 일반 텍스트
@@ -2681,6 +2760,13 @@
                     .map(p => p['거래처'])
                     .filter(client => client && client.trim())
                 )].sort();
+                
+                // 디버깅: 피이스 관련 거래처 찾기
+                const psCompanies = uniqueClients.filter(client => 
+                    client.includes('피이스') || client.includes('마케팅') || client.includes('P&S') || client.includes('피')
+                );
+                console.log('피이스 관련 거래처들:', psCompanies);
+                
                 
                 // 거래처 datalist 채우기
                 const clientDatalist = document.getElementById('clientList');
@@ -3421,6 +3507,143 @@
                 overlay.style.display = 'none';
                 overlay.classList.remove('show');
             }
+        }
+
+        // 뱃지 생성 함수들
+        function createProjectBadge(projectCode) {
+            if (!projectCode) return '';
+            const firstChar = projectCode.charAt(0).toUpperCase();
+            let badgeClass = '';
+            let badgeText = '';
+            
+            if (firstChar === 'R') {
+                badgeClass = 'r-type';
+                badgeText = 'R';
+            } else if (firstChar === 'G') {
+                badgeClass = 'g-type';
+                badgeText = 'G';
+            } else if (firstChar === 'P') {
+                badgeClass = 'p-type';
+                badgeText = 'P';
+            } else if (firstChar === 'I') {
+                badgeClass = 'i-type';
+                badgeText = 'I';
+            }
+            
+            if (badgeClass) {
+                return `<span class="project-badge ${badgeClass}">${badgeText}</span><span class="ms-1">${projectCode}</span>`;
+            }
+            return projectCode;
+        }
+
+        function createManagerBadge(manager) {
+            if (!manager) return '';
+            
+            // 경영지원팀 (관리만 하는 사람들)
+            const managementTeam = ['고광일', '황샛별'];
+            // 퇴사자들
+            const resignedTeam = ['심장원', '아이티', '이근혁', '김단이'];
+            
+            // 전체 담당자 파스텔 색상 매핑 - 색상 다양화
+            const colors = {
+                // 영업팀 (현직) - 서로 다른 색상 계열로 구분
+                '박정우': '#cce7ff',      // 연한 파란색
+                '강성환': '#d4edda',      // 연한 초록색
+                '박용구': '#d1ecf1',      // 연한 청록색
+                '박민우': '#fff0e6',      // 연한 살구색 (보라색에서 변경)
+                '권태훈': '#fff3cd',      // 연한 노란색
+                '주영민': '#e8f5e8',      // 연한 민트색 (하늘색에서 변경)
+                '빈승정': '#e2d9f3',      // 연한 보라색 (라벤더에서 변경)
+                '박민재': '#f0d9ff',      // 연한 라벤더색 (민트에서 변경)
+                '조성헌': '#ffeaa7',      // 연한 복숭아색
+                '황해승': '#ffe4e6',      // 연한 핑크색
+                '강민석': '#ccf2ff'       // 연한 시안
+            };
+            
+            const isManagement = managementTeam.includes(manager);
+            const isResigned = resignedTeam.includes(manager);
+            
+            if (isManagement) {
+                return `<span class="badge manager-badge management">${manager} (관리)</span>`;
+            } else if (isResigned) {
+                return `<span class="badge manager-badge resigned">${manager} (퇴사)</span>`;
+            } else {
+                const color = colors[manager] || '#f8f9fa';
+                return `<span class="badge manager-badge" style="background-color: ${color};">${manager}</span>`;
+            }
+        }
+
+        function createCompanyBadge(company) {
+            if (!company) return '';
+            
+            
+            // 실제 데이터의 거래처들에 파스텔 색상 매핑
+            const colors = {};
+            
+            // 색상 팔레트 (예쁜 파스텔 톤만, 회색 제거)
+            const pastelColors = [
+                '#FFE4E1', '#E6E6FA', '#F0F8FF', '#F5FFFA', '#FFF8DC', 
+                '#FFEFD5', '#FFE4B5', '#FFDAB9', '#EEE8AA', '#F0E68C',
+                '#E8F5E8', '#E0F2F1', '#E1F5FE', '#F3E5F5', '#FFE4E6', 
+                '#FFEBEE', '#FFF3E0', '#FFFDE7', '#FFB6C1', '#FFC0CB',
+                '#FFCCCB', '#FFD0DC', '#d4edda', '#fff3cd', '#f8d7da',
+                '#d1ecf1', '#e6f3ff', '#f5e6ff', '#fff0e6', '#e6fff0'
+            ];
+            
+            // 주요 거래처 별도 색상 지정 (신규 프로젝트 자동완성용 대기업들)
+            const majorCompanies = {
+                '인터넷': '#e1f5fe',      // 연한 하늘색 (주요 거래처)
+                '삼성': '#fff3cd',        // 연한 노란색
+                'LG': '#f0f9ff',         // 매우 연한 파란색
+                '현대': '#ffeaa7',       // 연한 복숭아색
+                '롯데': '#ffe4e6',       // 연한 핑크색
+                '포스코': '#e6f3ff',     // 연한 하늘색
+                'SK': '#f5e6ff',         // 연한 라벤더색
+                '한화': '#fff0e6',       // 연한 살구색
+                '효성': '#e6fff0',       // 연한 민트색
+                'GS': '#fff5e6'          // 연한 베이지색
+            };
+            
+            // 실제 거래처별 개별 색상 지정 (구글 시트에 등록된 거래처들)
+            const actualCompanies = {
+                '피이스앤 마케팅': '#e8f5e8',  // 연한 연두색
+                'P&S마케팅': '#e8f5e8',      // 다른 표기 방식
+                '피앤에스마케팅': '#e8f5e8',   // 또 다른 표기 방식
+                '피&에스마케팅': '#e8f5e8'     // 또 다른 표기 방식
+            };
+            
+            // 거래처명이 들어오면 실제 거래처 우선, 주요 거래처 다음, 없으면 해시 기반 색상 할당
+            const getCompanyColor = (company) => {
+                if (!company) return '#f8f9fa';
+                
+                // 공백 제거 및 정규화
+                const normalizedCompany = company.trim();
+                
+                // 실제 거래처 색상이 있으면 최우선 사용
+                if (actualCompanies[normalizedCompany]) {
+                    return actualCompanies[normalizedCompany];
+                }
+                
+                // 주요 거래처 색상이 있으면 사용
+                if (majorCompanies[normalizedCompany]) {
+                    return majorCompanies[normalizedCompany];
+                }
+                
+                // 문자열을 숫자로 변환 (간단한 해시)
+                let hash = 0;
+                for (let i = 0; i < normalizedCompany.length; i++) {
+                    const char = normalizedCompany.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // 32비트 정수로 변환
+                }
+                
+                // 색상 인덱스 결정
+                const colorIndex = Math.abs(hash) % pastelColors.length;
+                return pastelColors[colorIndex];
+            };
+            
+            const color = getCompanyColor(company);
+            return `<span class="badge company-badge" style="background-color: ${color};">${company}</span>`;
         }
 
         // 유틸리티 함수들

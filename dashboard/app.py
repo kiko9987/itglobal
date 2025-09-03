@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 import os
 import sys
@@ -237,6 +237,23 @@ def project_form_edit():
     """프로젝트 수정 페이지"""
     return render_template('project_form.html')
 
+@app.route('/data/<path:filename>')
+def serve_data_files(filename):
+    """data 폴더의 정적 파일 서빙"""
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+    return send_from_directory(data_dir, filename)
+
+def convert_numpy_int64(obj):
+    """numpy int64를 Python int로 변환"""
+    import numpy as np
+    if isinstance(obj, np.int64):
+        return int(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_numpy_int64(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_int64(v) for v in obj]
+    return obj
+
 @app.route('/api/summary')
 def get_summary():
     """요약 통계 API"""
@@ -248,9 +265,12 @@ def get_summary():
         analyzer = DataAnalyzer(df)
         summary = analyzer.get_summary_stats()
         
+        # numpy int64를 Python int로 변환
+        summary = convert_numpy_int64(summary)
+        
         # 추가 정보
         summary['last_update'] = last_update.isoformat() if last_update else None
-        summary['total_records'] = len(df)
+        summary['total_records'] = int(len(df))  # 명시적으로 int로 변환
         
         return jsonify(summary)
         

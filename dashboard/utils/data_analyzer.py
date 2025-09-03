@@ -20,35 +20,42 @@ class DataAnalyzer:
         self.current_date = datetime.now()
     
     def get_summary_stats(self) -> Dict[str, Any]:
-        """전체 요약 통계"""
+        """올해 공사확정 기준 요약 통계"""
         try:
-            total_projects = len(self.df)
-            completed_projects = len(self.df[self.df['공사 종료'].notna()])
-            in_progress_projects = len(self.df[
-                (self.df['공사 시작'].notna()) & 
-                (self.df['공사 종료'].isna())
+            # 올해 공사확정 기준으로 필터링
+            current_year = datetime.now().year
+            this_year_projects = self.df[
+                (self.df['공사 확정'].notna()) & 
+                (pd.to_datetime(self.df['공사 확정'], errors='coerce').dt.year == current_year)
+            ]
+            
+            total_projects = len(this_year_projects)
+            completed_projects = len(this_year_projects[this_year_projects['공사 종료'].notna()])
+            in_progress_projects = len(this_year_projects[
+                (this_year_projects['공사 시작'].notna()) & 
+                (this_year_projects['공사 종료'].isna())
             ])
             
-            # 금액 관련 통계
-            total_amount = self.df['총액 2'].sum()
-            total_received = self.df['계약금'].fillna(0).sum() + \
-                           self.df['중도금'].fillna(0).sum() + \
-                           self.df['잔금'].fillna(0).sum()
-            total_outstanding = self.df['미수금'].sum()
+            # 금액 관련 통계 (올해 공사확정 기준)
+            total_amount = this_year_projects['총액 2'].fillna(0).sum()
+            total_received = this_year_projects['계약금'].fillna(0).sum() + \
+                           this_year_projects['중도금'].fillna(0).sum() + \
+                           this_year_projects['잔금'].fillna(0).sum()
+            total_outstanding = this_year_projects['미수금'].fillna(0).sum()
             
             # 평균 프로젝트 금액
-            avg_project_amount = self.df['총액 2'].mean()
+            avg_project_amount = this_year_projects['총액 2'].fillna(0).mean()
             
             return {
                 'total_projects': total_projects,
                 'completed_projects': completed_projects,
                 'in_progress_projects': in_progress_projects,
                 'pending_projects': total_projects - completed_projects - in_progress_projects,
-                'total_amount': total_amount,
-                'total_received': total_received,
-                'total_outstanding': total_outstanding,
-                'avg_project_amount': avg_project_amount,
-                'collection_rate': (total_received / total_amount * 100) if total_amount > 0 else 0
+                'total_amount': float(total_amount),
+                'total_received': float(total_received),
+                'total_outstanding': float(total_outstanding),
+                'avg_project_amount': float(avg_project_amount),
+                'collection_rate': float((total_received / total_amount * 100) if total_amount > 0 else 0)
             }
         except Exception as e:
             logger.error(f"요약 통계 계산 오류: {str(e)}")
