@@ -13,367 +13,946 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     
     <style>
+        /* ===== IT GLOBAL 프리미엄 디자인 시스템 ===== */
+        :root {
+            /* Brand Colors - 로고가 돋보이는 어두운 베이스 + 오렌지 포인트 */
+            --primary-color: #FF6B35;
+            --primary-dark: #E55A2B;
+            --primary-light: #FF8A65;
+            
+            /* Dark Theme Base Colors */
+            --dark-primary: #1a1a1a;
+            --dark-secondary: #2d2d2d;
+            --dark-accent: #3a3a3a;
+            
+            /* Status Colors */
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --info-color: #06b6d4;
+            
+            /* Neutral Colors */
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-400: #94a3b8;
+            --gray-500: #64748b;
+            --gray-600: #475569;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --gray-900: #0f172a;
+            
+            /* Typography */
+            --font-size-xs: 0.75rem;
+            --font-size-sm: 0.875rem;
+            --font-size-base: 1rem;
+            --font-size-lg: 1.125rem;
+            --font-size-xl: 1.25rem;
+            --font-size-2xl: 1.5rem;
+            --font-size-3xl: 1.875rem;
+            --font-size-4xl: 2.25rem;
+            
+            /* Spacing */
+            --border-radius-sm: 6px;
+            --border-radius: 8px;
+            --border-radius-lg: 12px;
+            --border-radius-xl: 16px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        /* Base Styles */
         body {
-            background: linear-gradient(135deg, #f5f6fa 0%, #e3e7f0 100%);
+            background-color: var(--gray-50);
+            color: var(--gray-800);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
             min-height: 100vh;
         }
         
+        /* Header - 로고가 돋보이는 어두운 배경 */
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--dark-primary) 0%, var(--dark-secondary) 100%);
             color: white;
             padding: 2.5rem 0;
             margin-bottom: 2rem;
-            border-radius: 0 0 25px 25px;
-            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
             position: relative;
             overflow: hidden;
         }
         
+        /* 오렌지 포인트 요소들 */
         .header::before {
             content: '';
             position: absolute;
             top: -50%;
-            right: -10%;
-            width: 200px;
-            height: 200px;
+            right: -20%;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(255, 107, 53, 0.1) 0%, transparent 70%);
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-light) 100%);
         }
         
         .header h1 {
             font-weight: 700;
-            font-size: 2.5rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+            font-size: var(--font-size-4xl);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.025em;
             position: relative;
-            z-index: 1;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
         }
         
-        .content-container {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            padding: 2.5rem;
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-        
-        .stats-card {
-            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-            border-radius: 15px;
-            padding: 2rem;
-            text-align: center;
-            margin-bottom: 1rem;
-            border: 1px solid rgba(0,0,0,0.05);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        .header .logo {
+            width: 70px;
+            height: 70px;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 12px rgba(255,107,53,0.3));
             transition: all 0.3s ease;
         }
         
+        .header .logo:hover {
+            transform: scale(1.05);
+            filter: drop-shadow(0 6px 16px rgba(255,107,53,0.5));
+        }
+        
+        .header p {
+            font-size: var(--font-size-lg);
+            opacity: 0.95;
+            margin-bottom: 0;
+            position: relative;
+            z-index: 2;
+            font-weight: 400;
+        }
+        
+        /* Content Container */
+        .content-container {
+            background: white;
+            border-radius: var(--border-radius-xl);
+            padding: 2rem;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--gray-200);
+        }
+        
+        /* Statistics Cards - 깔끔한 화이트 + 오렌지 포인트 */
+        .stats-card {
+            background: white;
+            border-radius: var(--border-radius-lg);
+            padding: 1.5rem;
+            text-align: center;
+            margin-bottom: 1rem;
+            border: 1px solid var(--gray-200);
+            box-shadow: var(--shadow-sm);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .stats-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--primary-color);
+        }
+        
         .stats-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-lg);
+            border-color: var(--primary-color);
         }
         
         .stats-number {
-            font-size: 2.5rem;
+            font-size: var(--font-size-3xl);
             font-weight: 700;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
         }
         
+        .stats-label {
+            font-size: var(--font-size-sm);
+            color: var(--gray-600);
+            font-weight: 500;
+        }
+        
+        /* Filter Section - 깔끔한 화이트 */
         .filter-section {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 12px;
-            padding: 2rem;
+            background: white;
+            border-radius: var(--border-radius-lg);
+            padding: 1.5rem;
             margin-bottom: 2rem;
-            border: 1px solid #dee2e6;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border: 1px solid var(--gray-200);
+            box-shadow: var(--shadow-sm);
         }
         
         .filter-section h5 {
-            color: #495057;
+            color: var(--gray-800);
             font-weight: 600;
             margin-bottom: 1.5rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            font-size: var(--font-size-lg);
         }
         
         .filter-section h5 i {
-            color: #007bff;
+            color: var(--primary-color);
         }
         
+        /* Buttons */
         .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            border-radius: 8px;
-        }
-        
-        .table-responsive {
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        
-        .table th {
-            background: #667eea;
-            color: white;
-            border: none;
-            font-weight: 600;
-        }
-        
-        .table td {
-            vertical-align: middle;
-        }
-        
-        .status-badge {
-            font-size: 0.8rem;
-            padding: 0.4rem 0.8rem;
-        }
-        
-        .status-completed {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-            border-radius: 20px;
-            padding: 0.4rem 0.8rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .status-in-progress {
-            background: linear-gradient(135deg, #ffc107 0%, #ffca2c 100%);
-            color: #212529;
-            border-radius: 20px;
-            padding: 0.4rem 0.8rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .status-pending {
-            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
-            border-radius: 20px;
-            padding: 0.4rem 0.8rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .status-payment-pending {
-            background: linear-gradient(135deg, #fd7e14 0%, #e55a00 100%);
-            color: white;
-            border-radius: 20px;
-            padding: 0.4rem 0.8rem;
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .amount-cell {
-            text-align: right !important;
-            font-weight: 600;
-        }
-        
-        .amount-outstanding {
-            color: #dc3545;
-        }
-        
-        .amount-completed {
-            color: #28a745;
-        }
-        
-        .action-buttons .btn {
-            margin: 0 2px;
-            padding: 0.35rem 0.65rem;
-            border-radius: 6px;
-            transition: all 0.2s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .action-buttons .btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-        }
-        
-        /* 폼 요소 개선 */
-        .form-select, .form-control {
-            border-radius: 8px;
-            border: 1px solid #dee2e6;
-            padding: 0.5rem 0.75rem;
-            transition: all 0.2s ease;
-        }
-        
-        .form-select:focus, .form-control:focus {
-            border-color: #007bff;
-            box-shadow: 0 0 0 0.2rem rgba(0,123,255,0.25);
-        }
-        
-        .btn {
-            border-radius: 8px;
-            padding: 0.5rem 1rem;
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+            border-radius: var(--border-radius);
             font-weight: 500;
             transition: all 0.2s ease;
         }
         
-        .search-highlight {
-            background-color: #fff3cd;
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            border-color: var(--primary-dark);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
         }
         
-        /* 행 상세보기 스타일 */
+        .btn-warning {
+            background-color: var(--warning-color);
+            border-color: var(--warning-color);
+            color: white;
+            border-radius: var(--border-radius);
+            font-weight: 500;
+        }
+        
+        .btn-danger {
+            background-color: var(--danger-color);
+            border-color: var(--danger-color);
+            border-radius: var(--border-radius);
+            font-weight: 500;
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            border-color: var(--success-color);
+            border-radius: var(--border-radius);
+            font-weight: 500;
+        }
+        
+        /* 필터 섹션 버튼 높이 통일 */
+        .filter-section .btn {
+            height: 38px;
+            padding: 0.5rem 0.75rem;
+            font-size: var(--font-size-sm);
+            line-height: 1.5;
+        }
+        
+        /* Form Elements */
+        .form-select, .form-control {
+            border-radius: var(--border-radius);
+            border: 1px solid var(--gray-300);
+            font-size: var(--font-size-sm);
+            transition: all 0.2s ease;
+            height: 38px; /* 버튼과 동일한 높이 */
+            padding: 0.5rem 0.75rem;
+        }
+        
+        .form-select:focus, .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
+        }
+        
+        /* Table */
+        .table-responsive {
+            border-radius: var(--border-radius-lg);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--gray-200);
+        }
+        
+        .table th {
+            background-color: var(--dark-secondary);
+            color: white;
+            border: none;
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 1rem 0.75rem;
+            text-align: center;
+            vertical-align: middle;
+        }
+        
+        /* DataTables 정렬 아이콘 스타일 조정 */
+        .table th.sorting,
+        .table th.sorting_asc, 
+        .table th.sorting_desc {
+            position: relative !important;
+            padding-right: 35px !important;
+        }
+        
+        .table th.sorting:after,
+        .table th.sorting_asc:after,
+        .table th.sorting_desc:after {
+            position: absolute !important;
+            right: 10px !important;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            font-size: 10px !important;
+            opacity: 0.6 !important;
+        }
+        
+        /* 정렬 화살표 간격 조정 */
+        .table th.sorting_asc:after {
+            content: "▲" !important;
+        }
+        
+        .table th.sorting_desc:after {
+            content: "▼" !important;
+        }
+        
+        .table th.sorting:after {
+            content: "↕" !important;
+        }
+        
+        /* 헤더 기본 중앙정렬 (정렬 아이콘 고려) */
+        .table th:nth-child(1),  /* 프로젝트 코드 */
+        .table th:nth-child(2),  /* 담당자 */
+        .table th:nth-child(3),  /* 거래처 */
+        .table th:nth-child(6),  /* 공사 시작 */
+        .table th:nth-child(7),  /* 공사 종료 */
+        .table th:nth-child(8),  /* 총액 */
+        .table th:nth-child(9),  /* 미수금 */
+        .table th:nth-child(10) { /* 상태 */
+            text-align: center !important;
+        }
+        
+        /* 현장주소, 공사내용 헤더도 중앙정렬 */
+        .table th:nth-child(4),  /* 현장 주소 */
+        .table th:nth-child(5) { /* 공사 내용 */
+            text-align: center !important;
+            padding-left: 15px !important;
+        }
+        
+        /* 중앙정렬 헤더의 텍스트 위치 조정 (정렬 아이콘 공간 확보) */
+        .table th:nth-child(1).sorting,
+        .table th:nth-child(2).sorting,
+        .table th:nth-child(3).sorting,
+        .table th:nth-child(4).sorting,  /* 현장 주소 추가 */
+        .table th:nth-child(5).sorting,  /* 공사 내용 추가 */
+        .table th:nth-child(6).sorting,
+        .table th:nth-child(7).sorting,
+        .table th:nth-child(8).sorting,
+        .table th:nth-child(9).sorting,
+        .table th:nth-child(10).sorting {
+            padding-left: 15px !important;
+        }
+        
+        /* 테이블 데이터 셀 정렬 - 헤더와 동일한 패딩 적용 */
+        .table td:nth-child(1),  /* 프로젝트 코드 */
+        .table td:nth-child(2),  /* 담당자 */
+        .table td:nth-child(3),  /* 거래처 */
+        .table td:nth-child(6),  /* 공사 시작 */
+        .table td:nth-child(7),  /* 공사 종료 */
+        .table td:nth-child(8),  /* 총액 */
+        .table td:nth-child(9),  /* 미수금 */
+        .table td:nth-child(10) {  /* 상태 */
+            text-align: center !important;
+            vertical-align: middle !important;
+            padding-left: 15px !important;
+            padding-right: 35px !important;
+        }
+        
+        /* 현장주소, 공사내용 데이터 셀 - 헤더와 동일한 패딩 */
+        .table td:nth-child(4),  /* 현장 주소 */
+        .table td:nth-child(5) { /* 공사 내용 */
+            text-align: left !important;
+            vertical-align: middle !important;
+            padding-left: 15px !important;
+        }
+        
+        /* 금액 셀도 중앙정렬로 변경 */
+        .table td.amount-cell {
+            text-align: center !important;
+            padding-left: 15px !important;
+            padding-right: 35px !important;
+        }
+        
+        .table td {
+            vertical-align: middle;
+            font-size: var(--font-size-sm);
+            padding: 0.75rem;
+            border-color: var(--gray-200);
+        }
+        
+        .table tbody tr:hover {
+            background-color: var(--gray-50);
+        }
+        
+        /* Status Badges */
+        .status-badge {
+            font-size: var(--font-size-xs);
+            padding: 0.375rem 0.75rem;
+            border-radius: var(--border-radius);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+        
+        .status-completed {
+            background-color: var(--success-color);
+            color: white;
+        }
+        
+        .status-in-progress {
+            background-color: var(--warning-color);
+            color: white;
+        }
+        
+        .status-pending {
+            background-color: var(--gray-500);
+            color: white;
+        }
+        
+        .status-payment-pending {
+            background-color: var(--danger-color);
+            color: white;
+        }
+        
+        /* Amount Styling */
+        .amount-cell {
+            text-align: right !important;
+            font-weight: 600;
+            font-feature-settings: 'tnum';
+        }
+        
+        .amount-outstanding {
+            color: var(--danger-color);
+        }
+        
+        .amount-completed {
+            color: var(--success-color);
+        }
+        
+        /* Action Buttons */
+        .action-buttons .btn {
+            margin: 0 0.125rem;
+            padding: 0.375rem 0.75rem;
+            border-radius: var(--border-radius-sm);
+            transition: all 0.2s ease;
+            font-size: var(--font-size-xs);
+            font-weight: 500;
+        }
+        
+        .action-buttons .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        /* Search Highlight */
+        .search-highlight {
+            background-color: #fef3c7;
+            color: var(--gray-800);
+        }
+        
+        /* Accordion Row Details */
         .row-details {
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            background-color: var(--gray-50);
             padding: 1.5rem;
-            border-left: 4px solid #007bff;
-            border-radius: 0 8px 8px 0;
+            border-left: 4px solid var(--primary-color);
+            border-radius: 0 var(--border-radius-lg) var(--border-radius-lg) 0;
         }
         
         .row-details .card {
-            border: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            border-radius: 12px;
+            border: 1px solid var(--gray-200);
+            box-shadow: var(--shadow-sm);
+            border-radius: var(--border-radius-lg);
             background: white;
         }
         
         .row-details .card-body {
-            padding: 1.5rem;
+            padding: 2rem;
         }
         
-        .detail-group {
-            margin-bottom: 0;
+        /* Accordion Header Info */
+        .accordion-header-info {
+            background-color: white !important;
+            border: 1px solid var(--gray-200);
+            border-left: 3px solid var(--primary-color);
+            border-radius: var(--border-radius);
+            margin-bottom: 1.5rem;
+            padding: 1.25rem 1rem;
+            min-height: auto;
+            line-height: 1.5;
         }
         
-        .detail-item {
-            margin-bottom: 8px;
-            padding: 4px 0;
+        .accordion-header-info small {
+            color: var(--gray-600);
+            font-size: var(--font-size-sm);
         }
         
-        .detail-item strong {
-            color: #495057;
-            min-width: 120px;
-            display: inline-block;
+        .accordion-header-info .fw-bold {
+            color: var(--gray-900);
             font-weight: 600;
         }
         
-        .detail-item {
-            border-bottom: 1px solid #f1f3f4;
-        }
-        
-        .detail-item:last-child {
-            border-bottom: none;
-        }
-        
-        /* 확장된 행 스타일 */
-        #projectsTable tbody tr.shown {
-            background-color: #f8f9fa;
-        }
-        
-        /* 테이블 스타일 개선 */
-        .table-responsive {
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        /* Info Cards in Accordion - 깔끔한 디자인 */
+        .info-card {
             background: white;
-        }
-        
-        #projectsTable {
-            margin-bottom: 0;
-        }
-        
-        #projectsTable thead th {
-            background: linear-gradient(135deg, #495057 0%, #6c757d 100%);
-            color: white;
-            font-weight: 600;
-            border: none;
-            padding: 1rem 0.75rem;
-            text-align: center;
-            font-size: 0.9rem;
-        }
-        
-        #projectsTable tbody td {
-            padding: 0.875rem 0.75rem;
-            vertical-align: middle;
-            border-color: #f8f9fa;
-            text-align: center;
-        }
-        
-        /* 행 호버 효과 */
-        #projectsTable tbody tr:hover {
-            background-color: #f8f9fa;
-            cursor: pointer;
-            transform: translateY(-1px);
+            border: 1px solid var(--gray-200);
+            border-radius: var(--border-radius-lg);
+            padding: 1.5rem;
+            height: 100%;
             transition: all 0.2s ease;
         }
         
+        .info-card:hover {
+            box-shadow: var(--shadow-md);
+            border-color: var(--gray-300);
+        }
+        
+        .info-card h6 {
+            margin-bottom: 1rem;
+            font-weight: 600;
+            font-size: var(--font-size-base);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .info-card h6 i {
+            font-size: var(--font-size-sm);
+        }
+        
+        .info-card h6.text-primary {
+            color: var(--primary-color) !important;
+        }
+        
+        .info-card h6.text-success {
+            color: var(--success-color) !important;
+        }
+        
+        .info-card h6.text-warning {
+            color: var(--warning-color) !important;
+        }
+        
+        .info-card h6.text-danger {
+            color: var(--danger-color) !important;
+        }
+        
+        /* Modal Styles */
+        .modal-content {
+            border-radius: var(--border-radius-xl);
+            border: none;
+            box-shadow: var(--shadow-xl);
+        }
+        
+        .modal-header {
+            background-color: var(--gray-50);
+            border-bottom: 1px solid var(--gray-200);
+            border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0;
+            padding: 1.5rem;
+        }
+        
+        .modal-title {
+            font-weight: 600;
+            color: var(--gray-900);
+        }
+        
+        .modal-body {
+            padding: 2rem;
+        }
+        
+        .modal-footer {
+            background-color: var(--gray-50);
+            border-top: 1px solid var(--gray-200);
+            border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl);
+            padding: 1.5rem;
+        }
+        
+        /* Project Detail View */
+        .project-detail-view {
+            font-size: var(--font-size-sm);
+        }
+        
+        .project-detail-view .card {
+            transition: all 0.2s ease;
+            border-radius: var(--border-radius-lg);
+            border: 1px solid var(--gray-200);
+            box-shadow: var(--shadow-sm);
+        }
+        
+        .project-detail-view .card:hover {
+            box-shadow: var(--shadow-md);
+            border-color: var(--gray-300);
+        }
+        
+        .project-detail-view .card-header {
+            background-color: var(--gray-50);
+            border-bottom: 1px solid var(--gray-200);
+            border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0 !important;
+            padding: 1rem 1.5rem;
+            font-weight: 600;
+        }
+        
+        .project-detail-view .card-body {
+            padding: 1.5rem;
+        }
+        
+        /* Color Utilities */
+        .text-primary { color: var(--primary-color) !important; }
+        .text-success { color: var(--success-color) !important; }
+        .text-warning { color: var(--warning-color) !important; }
+        .text-danger { color: var(--danger-color) !important; }
+        .text-info { color: var(--info-color) !important; }
+        
+        /* DataTables 페이지네이션 스타일 - 테두리 완전 제거 */
+        .dataTables_wrapper .dataTables_paginate .paginate_button,
+        .dataTables_wrapper .dataTables_paginate .paginate_button:link,
+        .dataTables_wrapper .dataTables_paginate .paginate_button:visited,
+        .dataTables_wrapper .dataTables_paginate .paginate_button:active {
+            color: var(--gray-600) !important;
+            background: transparent !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 2px !important;
+            padding: 0.25rem 0.5rem !important;
+            text-decoration: none !important;
+            box-shadow: none !important;
+            font-size: 12px !important;
+            font-weight: 400 !important;
+            line-height: 1.2 !important;
+            min-width: 24px !important;
+            text-align: center !important;
+            transition: none !important;
+            outline: none !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button:hover,
+        .dataTables_wrapper .dataTables_paginate .paginate_button:focus {
+            color: var(--gray-600) !important;
+            background: transparent !important;
+            border: none !important;
+            transform: none !important;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current,
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+            color: var(--gray-800) !important;
+            background: transparent !important;
+            font-weight: 600 !important;
+            border: none !important;
+            text-decoration: underline !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .paginate_button.disabled,
+        .dataTables_wrapper .dataTables_paginate .paginate_button.disabled:hover {
+            color: var(--gray-400) !important;
+            background: transparent !important;
+            opacity: 0.5 !important;
+            cursor: not-allowed !important;
+            border: none !important;
+        }
+        
+        /* Previous/Next 버튼도 동일하게 적용 */
+        .dataTables_wrapper .dataTables_paginate .previous,
+        .dataTables_wrapper .dataTables_paginate .next {
+            color: var(--gray-600) !important;
+            background: transparent !important;
+            border: none !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .previous:hover,
+        .dataTables_wrapper .dataTables_paginate .next:hover {
+            color: var(--gray-600) !important;
+            background: transparent !important;
+            border: none !important;
+        }
+        
+        /* DataTables 페이지네이션 컨테이너 정렬 */
+        .dataTables_wrapper .dataTables_paginate {
+            float: right !important;
+            text-align: right !important;
+            margin-top: 0 !important;
+            padding-right: 1rem !important;
+        }
+        
+        /* DataTables 하단 정보와 페이지네이션 높이 정렬 */
+        .dataTables_wrapper .row:last-child {
+            display: flex !important;
+            align-items: center !important;
+            margin-top: 1rem !important;
+        }
+        
+        .dataTables_wrapper .dataTables_info {
+            display: flex !important;
+            align-items: center !important;
+            margin-bottom: 0 !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate {
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-end !important;
+        }
+        
+        .dataTables_wrapper .dataTables_filter input {
+            border: 1px solid var(--gray-300) !important;
+            border-radius: var(--border-radius) !important;
+        }
+        
+        .dataTables_wrapper .dataTables_filter input:focus {
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.2) !important;
+        }
+        
+        /* 테이블 컨테이너 스타일 개선 */
+        .dataTables_wrapper {
+            width: 100% !important;
+        }
+        
+        .dataTables_wrapper table {
+            width: 100% !important;
+            table-layout: fixed !important;
+        }
+        
+        .dataTables_scrollBody {
+            overflow-x: auto !important;
+        }
+        
+        /* DataTables 정보 텍스트 스타일 */
+        .dataTables_wrapper .dataTables_info {
+            color: var(--gray-600) !important;
+            font-size: var(--font-size-sm) !important;
+            padding: 0.5rem 0 !important;
+            margin-left: 1rem !important;
+        }
+        
+        .dataTables_wrapper .dataTables_length {
+            color: var(--gray-600) !important;
+            font-size: var(--font-size-sm) !important;
+            margin-left: 0.5rem !important;
+            margin-top: 0.5rem !important;
+        }
+        
+        /* DataTables 길이 선택 드롭다운 스타일 */
+        .dataTables_wrapper .dataTables_length select {
+            padding: 0.25rem 1.5rem 0.25rem 0.5rem !important;
+            margin: 0 0.25rem !important;
+            border: 1px solid var(--gray-300) !important;
+            border-radius: var(--border-radius-sm) !important;
+            background-color: white !important;
+            font-size: var(--font-size-sm) !important;
+            min-width: 60px !important;
+        }
+        
+        
+        
+        /* Badge Colors */
+        .badge.bg-success { background-color: var(--success-color) !important; }
+        .badge.bg-warning { background-color: var(--warning-color) !important; }
+        .badge.bg-primary { background-color: var(--primary-color) !important; }
+        .badge.bg-danger { background-color: var(--danger-color) !important; }
+        
+        /* Responsive Design */
+        @media (max-width: 1200px) {
+            .content-container {
+                padding: 1.5rem;
+            }
+        }
+        
+        @media (max-width: 992px) {
+            .all-info-container .col-lg-3 {
+                flex: 0 0 50%;
+                max-width: 50%;
+                margin-bottom: 1rem;
+            }
+            
+            .header h1 {
+                font-size: var(--font-size-3xl);
+            }
+            
+            .stats-number {
+                font-size: var(--font-size-2xl);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header {
+                padding: 2rem 0;
+                text-align: center;
+            }
+            
+            .content-container {
+                padding: 1rem;
+            }
+            
+            .all-info-container .col-lg-3 {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+            
+            .filter-section {
+                padding: 1rem;
+            }
+            
+            .info-card {
+                padding: 1rem;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .header h1 {
+                font-size: var(--font-size-2xl);
+            }
+            
+            .compact-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.25rem;
+            }
+            
+            .compact-item small {
+                min-width: auto;
+                margin-right: 0;
+            }
+        /* Accordion Animations */
+        .all-info-container {
+            animation: fadeIn 0.3s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        /* Compact Card Specific Styles */
+        .compact-card {
+            padding: 1rem !important;
+            margin-bottom: 0 !important;
+            min-height: 140px;
+        }
+
+        .compact-card h6 {
+            margin-bottom: 1rem !important;
+            padding-bottom: 0.5rem !important;
+            font-size: var(--font-size-sm);
+            border-bottom: 1px solid var(--gray-200) !important;
+        }
+
+        .compact-item {
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: flex-start;
+            min-height: 1.5rem;
+        }
+
+        .compact-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .compact-item small {
+            font-size: var(--font-size-xs);
+            font-weight: 500;
+            line-height: 1.2;
+            color: var(--gray-600);
+            flex-shrink: 0;
+            min-width: 70px;
+            margin-right: 0.75rem;
+        }
+
+        .compact-item div {
+            font-size: var(--font-size-sm);
+            line-height: 1.3;
+            word-break: break-word;
+            flex: 1;
+            color: var(--gray-800);
+        }
+
+        .compact-item .fw-bold {
+            font-weight: 600;
+            color: var(--gray-900);
+        }
+        
+        /* Expanded Row */
         #projectsTable tbody tr.shown {
-            background-color: #e3f2fd;
+            background-color: var(--gray-50);
         }
         
-        #projectsTable tbody tr.shown:hover {
-            background-color: #bbdefb;
-        }
-        
+        /* Loading Overlay - 기본적으로 숨김 */
         .loading-overlay {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(255, 255, 255, 0.8);
-            display: none;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(3px);
+            display: none !important;
             justify-content: center;
             align-items: center;
             z-index: 9999;
         }
         
         .loading-overlay.show {
-            display: flex;
+            display: flex !important;
         }
         
-        /* 브라우저 기본 캘린더 아이콘 숨기기 */
-        .date-input::-webkit-calendar-picker-indicator {
-            display: none;
-            -webkit-appearance: none;
+        .loading-overlay .spinner-border {
+            color: var(--primary-color) !important;
         }
         
-        .date-input::-moz-calendar-picker-indicator {
-            display: none;
-        }
-        
-        /* 날짜 입력 필드 스타일 */
-        .date-input {
-            position: relative;
-        }
-        
-        /* placeholder 텍스트를 더 흐리게 */
+        /* Form Input Styling */
         .form-control::placeholder {
-            color: #b8b8b8 !important;
-            opacity: 0.7;
+            color: var(--gray-400) !important;
+            opacity: 1;
         }
         
         .form-control::-webkit-input-placeholder {
-            color: #b8b8b8 !important;
-            opacity: 0.7;
+            color: var(--gray-400) !important;
+            opacity: 1;
         }
         
         .form-control::-moz-placeholder {
-            color: #b8b8b8 !important;
-            opacity: 0.7;
+            color: var(--gray-400) !important;
+            opacity: 1;
         }
         
         .form-control:-ms-input-placeholder {
-            color: #b8b8b8 !important;
-            opacity: 0.7;
+            color: var(--gray-400) !important;
+            opacity: 1;
         }
     </style>
 </head>
 <body>
-    <!-- 로딩 오버레이 -->
-    <div class="loading-overlay" id="loadingOverlay">
+    <!-- 로딩 오버레이 - 숨김 처리 -->
+    <div class="loading-overlay" id="loadingOverlay" style="display: none !important;">
         <div class="text-center">
             <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
             <p class="mt-2">데이터를 불러오는 중...</p>
@@ -385,15 +964,18 @@
         <div class="container">
             <div class="row align-items-center">
                 <div class="col-md-8">
-                    <h1><i class="fas fa-list"></i> 프로젝트 관리</h1>
-                    <p class="mb-0">냉난방기 설치 공사 프로젝트 목록</p>
+                    <h1>
+                        <img src="../data/아이티글로벌-추가최종2-(png)_0001_Vector-Smart-Object.png" alt="IT글로벌 로고" class="logo">
+                        IT글로벌 프로젝트 관리
+                    </h1>
+                    <p class="mb-0">냉난방기 설치공사 통합 관리 시스템</p>
                 </div>
                 <div class="col-md-4 text-end">
-                    <button class="btn btn-light btn-lg me-2" onclick="openNewProjectModal()">
-                        <i class="fas fa-plus"></i> 새 프로젝트
+                    <button class="btn btn-light me-3" onclick="openNewProjectModal()">
+                        <i class="fas fa-plus me-2"></i>새 프로젝트 등록
                     </button>
                     <a href="/" class="btn btn-outline-light">
-                        <i class="fas fa-chart-bar"></i> 대시보드
+                        <i class="fas fa-tachometer-alt me-2"></i>대시보드
                     </a>
                 </div>
             </div>
@@ -415,13 +997,28 @@
                 <h5 class="mb-3"><i class="fas fa-filter"></i> 필터 및 검색</h5>
                 <div class="row">
                     <div class="col-md-3">
+                        <label for="companyFilter" class="form-label">사업자</label>
+                        <select class="form-select" id="companyFilter">
+                            <option value="">전체</option>
+                            <option value="글로벌">글로벌</option>
+                            <option value="글로벌그룹">글로벌그룹</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
                         <label for="statusFilter" class="form-label">상태</label>
                         <select class="form-select" id="statusFilter">
                             <option value="">전체</option>
                             <option value="completed">완료</option>
                             <option value="payment-pending">수금대기</option>
-                            <option value="in-progress">진행중</option>
-                            <option value="pending">대기</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <label for="managerFilter" class="form-label">담당자</label>
+                        <select class="form-select" id="managerFilter">
+                            <option value="">전체</option>
+                            <!-- 동적으로 담당자 목록이 로드됩니다 -->
                         </select>
                     </div>
                     
@@ -464,13 +1061,16 @@
                         <label class="form-label">&nbsp;</label>
                         <div class="d-flex gap-2">
                             <button class="btn btn-primary flex-fill" onclick="applyFilters()">
-                                <i class="fas fa-search"></i> 검색
+                                <i class="fas fa-search me-1"></i>검색
                             </button>
-                            <button class="btn btn-outline-secondary" onclick="clearFilters()">
-                                <i class="fas fa-times"></i> 초기화
+                            <button class="btn btn-outline-primary me-2" onclick="clearFilters()">
+                                <i class="fas fa-times me-1"></i>초기화
                             </button>
-                            <button class="btn btn-success" onclick="exportData()">
-                                <i class="fas fa-download"></i> 내보내기
+                            <button class="btn btn-outline-primary me-2" onclick="refreshProjectData()" id="refreshProjectBtn">
+                                <i class="fas fa-sync-alt me-1"></i>새로고침
+                            </button>
+                            <button class="btn btn-primary" onclick="exportData()">
+                                <i class="fas fa-download me-1"></i>내보내기
                             </button>
                         </div>
                     </div>
@@ -502,28 +1102,6 @@
         </div>
     </div>
 
-    <!-- 삭제 확인 모달 -->
-    <div class="modal fade" id="deleteModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">프로젝트 삭제 확인</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p>정말로 이 프로젝트를 삭제하시겠습니까?</p>
-                    <p class="text-danger"><strong>이 작업은 되돌릴 수 없습니다.</strong></p>
-                    <div class="bg-light p-3 rounded" id="deleteProjectInfo">
-                        <!-- 프로젝트 정보 표시 -->
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-                    <button type="button" class="btn btn-danger" id="confirmDeleteBtn">삭제</button>
-                </div>
-            </div>
-        </div>
-    </div>
 
     <!-- 프로젝트 보기 모달 -->
     <div class="modal fade" id="viewModal" tabindex="-1">
@@ -1013,10 +1591,16 @@
         // 전역 변수
         let projectsData = [];
         let dataTable = null;
-        let deleteProjectId = null;
 
         // 페이지 로드 시 초기화
         document.addEventListener('DOMContentLoaded', function() {
+            // 스피너 즉시 숨김 처리
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none !important';
+                loadingOverlay.classList.remove('show');
+            }
+            
             initializePage();
         });
 
@@ -1026,6 +1610,7 @@
             
             try {
                 await loadProjectsData();
+                loadManagerFilter(); // 담당자 필터 로드
                 await loadStatistics();
                 initializeDataTable();
                 setupEventListeners();
@@ -1083,6 +1668,34 @@
                 console.error('프로젝트 데이터 로드 오류:', error);
                 throw error;
             }
+        }
+
+        // 담당자 필터 로드
+        function loadManagerFilter() {
+            if (!projectsData || projectsData.length === 0) return;
+            
+            // 담당자 목록 추출
+            const managers = new Set();
+            projectsData.forEach(project => {
+                const manager = project['담당자'];
+                if (manager && manager.toString().trim()) {
+                    managers.add(manager.toString().trim());
+                }
+            });
+            
+            // 담당자 드롭다운 업데이트
+            const managerSelect = document.getElementById('managerFilter');
+            managerSelect.innerHTML = '<option value="">전체</option>';
+            
+            // 담당자 목록을 정렬하여 추가
+            Array.from(managers).sort().forEach(manager => {
+                const option = document.createElement('option');
+                option.value = manager;
+                option.textContent = manager;
+                managerSelect.appendChild(option);
+            });
+            
+            console.log(`담당자 필터 로드 완료: ${managers.size}명`);
         }
 
         // 통계 정보 로드
@@ -1155,29 +1768,27 @@
             dataTable = $('#projectsTable').DataTable({
                 data: projectsData,
                 columns: [
-                    { data: '프로젝트 코드' },
-                    { data: '담당자' },
-                    { data: '거래처' },
+                    { data: '프로젝트 코드', width: '8%' },
+                    { data: '담당자', width: '6%' },
+                    { data: '거래처', width: '8%' },
                     { 
                         data: '현장 주소',
-                        render: function(data) {
-                            return data ? (data.length > 25 ? data.substring(0, 25) + '...' : data) : '';
-                        }
+                        width: '27%'
                     },
                     { 
                         data: '공사 내용',
-                        render: function(data) {
-                            return data ? (data.length > 15 ? data.substring(0, 15) + '...' : data) : '';
-                        }
+                        width: '21%'
                     },
                     { 
                         data: '공사 시작',
+                        width: '8%',
                         render: function(data) {
                             return data ? formatDate(data) : '';
                         }
                     },
                     { 
                         data: '공사 종료',
+                        width: '8%',
                         render: function(data) {
                             return data ? formatDate(data) : '<span class="text-muted">-</span>';
                         }
@@ -1185,9 +1796,10 @@
                     { 
                         data: null, // S열 총액2 동적 처리
                         className: 'amount-cell',
+                        width: '8%',
                         render: function(data, type, row) {
-                            // 다양한 컬럼명 시도
-                            const totalAmount = row['총액2'] || row['총액 2'] || row['S'] || row['총액'] || 0;
+                            // 다양한 컬럼명 시도 (API 응답 기준)
+                            const totalAmount = row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0;
                             const numValue = parseFloat(totalAmount) || 0;
                             console.log('총액 데이터:', totalAmount, '변환값:', numValue); // 디버깅용
                             return numValue > 0 ? formatCurrency(numValue) : '-';
@@ -1196,9 +1808,10 @@
                     { 
                         data: null, // W열 미수금 동적 처리
                         className: 'amount-cell',
+                        width: '8%',
                         render: function(data, type, row) {
                             // 다양한 컬럼명으로 W열 미수금 데이터 찾기
-                            const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
+                            const outstandingData = row['미수금'] || row['미수금W'] || row['미수금 W'] || row['W'] || 0;
                             const outstandingAmount = parseFloat(outstandingData) || 0;
                             
                             console.log('미수금 데이터:', outstandingData, '변환값:', outstandingAmount); // 디버깅용
@@ -1215,6 +1828,7 @@
                     },
                     { 
                         data: null,
+                        width: '8%',
                         render: function(data, type, row) {
                             return getStatusBadge(row);
                         }
@@ -1229,18 +1843,38 @@
                                 // 정렬할 때는 숫자 부분만 추출하여 정수로 반환
                                 return parseInt(data?.replace(/[^0-9]/g, '') || '0');
                             }
-                            // 표시할 때는 원래 형태 유지
-                            return `<code>${data || ''}</code>`;
+                            // 표시할 때는 브랜드 색상과 크기 적용
+                            return `<span class="fw-bold" style="color: var(--primary-color); font-size: 1rem;">${data || ''}</span>`;
                         }
                     }
                 ],
                 order: [[0, 'desc']], // 프로젝트 코드 기준 내림차순
                 pageLength: 25,
                 responsive: true,
+                autoWidth: false,
+                scrollX: false,
                 language: {
-                    url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/Korean.json'
+                    "emptyTable": "데이터가 없습니다.",
+                    "info": "_START_번째부터 _END_번째까지 (전체 _TOTAL_개)",
+                    "infoEmpty": "0개 데이터",
+                    "infoFiltered": "(전체 _MAX_개에서 필터링됨)",
+                    "lengthMenu": "_MENU_개씩 보기",
+                    "loadingRecords": "로딩 중...",
+                    "processing": "처리 중...",
+                    "search": "검색:",
+                    "zeroRecords": "검색 결과가 없습니다.",
+                    "paginate": {
+                        "first": "처음",
+                        "last": "마지막", 
+                        "next": "다음",
+                        "previous": "이전"
+                    },
+                    "aria": {
+                        "sortAscending": ": 오름차순 정렬",
+                        "sortDescending": ": 내림차순 정렬"
+                    }
                 },
-                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6"f>>' +
+                dom: '<"row"<"col-sm-12 col-md-6"l><"col-sm-12 col-md-6">>' +
                      '<"row"<"col-sm-12"tr>>' +
                      '<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
                 drawCallback: function() {
@@ -1287,99 +1921,220 @@
         // 행 상세 정보 포맷팅
         function formatRowDetails(rowData) {
             const projectCode = rowData['프로젝트 코드'] || '';
+            
             return `
                 <div class="row-details">
-                    <div class="card">
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-4">
-                                    <h6 class="text-primary mb-3"><i class="fas fa-info-circle"></i> 추가 정보</h6>
-                                    <div class="detail-group">
-                                        <div class="detail-item">
-                                            <strong>사업자:</strong> ${rowData['사업자'] || '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>브랜드:</strong> ${rowData['브랜드'] || '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>기계 분류:</strong> ${rowData['기계 분류'] || '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>공사 구분:</strong> ${rowData['공사 구분'] || '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>계약 형태:</strong> ${rowData['계약 형태'] || '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>현장 담당자:</strong> ${rowData['현장 담당자'] || '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>연락처:</strong> ${rowData['담당자 연락처'] || '-'}
-                                        </div>
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-body p-4">
+                            <!-- 간단한 헤더 정보 -->
+                            <div class="accordion-header-info mb-2 p-2 bg-light rounded">
+                                <div class="row align-items-center">
+                                    <div class="col-md-9">
+                                        <small class="text-muted d-flex align-items-center flex-wrap">
+                                            <span class="me-3 fw-bold" style="color: var(--primary-color); font-size: 1rem;">${rowData['프로젝트 코드'] || '-'}</span>
+                                            <span class="me-3">${rowData['거래처'] || '-'}</span>
+                                            <span class="me-3">${rowData['담당자'] || '-'}</span>
+                                            <span>${rowData['현장 주소'] || '-'}</span>
+                                        </small>
                                     </div>
-                                </div>
-                                <div class="col-md-4">
-                                    <h6 class="text-success mb-3"><i class="fas fa-calendar-check"></i> 일정 및 금액</h6>
-                                    <div class="detail-group">
-                                        <div class="detail-item">
-                                            <strong>공사 확정:</strong> ${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>총액1:</strong> ${rowData['총액1'] ? formatCurrency(rowData['총액1']) : '-'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>총액2 (S열):</strong> <span class="text-primary fw-bold">${(() => {
-                                                const totalAmount = rowData['총액2'] || rowData['총액 2'] || rowData['S'] || rowData['총액'] || 0;
+                                    <div class="col-md-3 text-end">
+                                        <span class="me-2">${getStatusBadge(rowData)}</span>
+                                        <strong class="text-success">
+                                            ${(() => {
+                                                const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0;
                                                 const numValue = parseFloat(totalAmount) || 0;
                                                 return numValue > 0 ? formatCurrency(numValue) : '-';
-                                            })()}</span>
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>미수금 (W열):</strong> 
-                                            ${(() => {
-                                                const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
-                                                const outstandingAmount = parseFloat(outstandingData) || 0;
-                                                return outstandingAmount === 0 ? 
-                                                    '<span class="text-success fw-bold">수금 완료</span>' : 
-                                                    `<span class="text-danger fw-bold">${formatCurrency(outstandingAmount)}</span>`;
                                             })()}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>수금 확인 (Z열):</strong> 
-                                            ${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
-                                                '<span class="badge bg-success">✓ 확인됨</span>' : 
-                                                '<span class="badge bg-warning">미확인</span>'}
-                                        </div>
-                                        <div class="detail-item">
-                                            <strong>VAT 포함:</strong> ${rowData['VAT 포함'] === 'Y' ? '포함' : '별도'}
-                                        </div>
+                                        </strong>
                                     </div>
                                 </div>
-                                <div class="col-md-4">
-                                    <h6 class="text-warning mb-3"><i class="fas fa-tools"></i> 작업</h6>
-                                    <div class="detail-group">
-                                        <div class="detail-item">
-                                            <div class="d-flex flex-column gap-2">
-                                                <button class="btn btn-primary btn-sm" onclick="viewProject('${projectCode}')" title="상세보기">
-                                                    <i class="fas fa-eye"></i> 상세보기
-                                                </button>
-                                                <button class="btn btn-warning btn-sm" onclick="editProject('${projectCode}')" title="수정">
-                                                    <i class="fas fa-edit"></i> 프로젝트 수정
-                                                </button>
-                                                <button class="btn btn-danger btn-sm" onclick="confirmDelete('${projectCode}')" title="삭제">
-                                                    <i class="fas fa-trash"></i> 프로젝트 삭제
-                                                </button>
+                            </div>
+
+                            <!-- 모든 정보를 한 행에 가로로 배치 -->
+                            <div class="all-info-container">
+                                <div class="row">
+                                    <!-- 기본정보 (연락처 추가) -->
+                                    <div class="col-lg-3">
+                                        <div class="info-card compact-card">
+                                            <h6 class="text-primary mb-2">
+                                                <i class="fas fa-building me-1"></i>기본정보
+                                            </h6>
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>사업자</small>
+                                                        <div>${rowData['사업자'] || '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>도급구분</small>
+                                                        <div>${rowData['도급 구분'] || '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>시공자</small>
+                                                        <div>${rowData['시공자'] || '-'}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>현장담당자</small>
+                                                        <div class="fw-bold">${rowData['현장 담당자'] || '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>연락처</small>
+                                                        <div class="fw-bold">${rowData['담당자 연락처'] || '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>이메일</small>
+                                                        <div>${rowData['담당자 이메일'] || '-'}</div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <hr>
-                                    <h6 class="text-info mb-3"><i class="fas fa-chart-line"></i> 진행 상태</h6>
-                                    <div class="detail-group">
-                                        <div class="detail-item">
-                                            <strong>현재 상태:</strong> ${getStatusBadge(rowData)}
+
+                                    <!-- 공사정보 -->
+                                    <div class="col-lg-3">
+                                        <div class="info-card compact-card">
+                                            <h6 class="text-success mb-2">
+                                                <i class="fas fa-hammer me-1"></i>공사정보
+                                            </h6>
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>공사구분</small>
+                                                        <div>${rowData['공사 구분'] || '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>기계분류</small>
+                                                        <div>${rowData['기계 분류'] || '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>브랜드</small>
+                                                        <div>${rowData['브랜드'] || '-'}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>공사확정</small>
+                                                        <div>${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>공사시작</small>
+                                                        <div>${rowData['공사 시작'] ? formatDate(rowData['공사 시작']) : '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>공사종료</small>
+                                                        <div>${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="compact-item mt-2">
+                                                <small>공사내용</small>
+                                                <div>${rowData['공사 내용'] || '-'}</div>
+                                            </div>
                                         </div>
                                     </div>
+
+                                    <!-- 금액정보 -->
+                                    <div class="col-lg-3">
+                                        <div class="info-card compact-card">
+                                            <h6 class="text-warning mb-2">
+                                                <i class="fas fa-won-sign me-1"></i>금액정보
+                                            </h6>
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>총액1</small>
+                                                        <div class="text-success">${rowData['총액 1'] ? formatCurrency(rowData['총액 1']) : '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>총액2</small>
+                                                        <div class="fw-bold text-primary">${(() => {
+                                                            const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0;
+                                                            const numValue = parseFloat(totalAmount) || 0;
+                                                            return numValue > 0 ? formatCurrency(numValue) : '-';
+                                                        })()}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>부가세</small>
+                                                        <div>${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? '포함' : '별도'}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>순익</small>
+                                                        <div class="fw-bold text-success">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>마진율</small>
+                                                        <div class="fw-bold text-info">${rowData['마진율'] ? parseFloat(rowData['마진율']).toFixed(1) + '%' : '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>제품대</small>
+                                                        <div>${rowData['제품대'] ? formatCurrency(rowData['제품대']) : '-'}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 수금정보 -->
+                                    <div class="col-lg-3">
+                                        <div class="info-card compact-card">
+                                            <h6 class="text-danger mb-2">
+                                                <i class="fas fa-credit-card me-1"></i>수금정보
+                                            </h6>
+                                            <div class="row">
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>계약금</small>
+                                                        <div>${rowData['계약금'] ? formatCurrency(rowData['계약금']) : '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>중도금</small>
+                                                        <div>${rowData['중도금'] ? formatCurrency(rowData['중도금']) : '-'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>잔금</small>
+                                                        <div>${rowData['잔금'] ? formatCurrency(rowData['잔금']) : '-'}</div>
+                                                    </div>
+                                                </div>
+                                                <div class="col-6">
+                                                    <div class="compact-item">
+                                                        <small>미수금</small>
+                                                        <div class="${(() => {
+                                                            const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
+                                                            const outstandingAmount = parseFloat(outstandingData) || 0;
+                                                            return outstandingAmount === 0 ? 'text-success fw-bold' : 'text-danger fw-bold';
+                                                        })()}">${(() => {
+                                                            const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
+                                                            const outstandingAmount = parseFloat(outstandingData) || 0;
+                                                            return outstandingAmount === 0 ? '완료' : formatCurrency(outstandingAmount);
+                                                        })()}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>수금확인</small>
+                                                        <div>${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
+                                                            '<span class="badge bg-success">확인</span>' : 
+                                                            '<span class="badge bg-warning">대기</span>'}</div>
+                                                    </div>
+                                                    <div class="compact-item">
+                                                        <small>수금날짜</small>
+                                                        <div>${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
                                 </div>
+                            </div>
+
+                            <!-- 작업 버튼 -->
+                            <div class="mt-4 pt-3 border-top text-center">
+                                <button class="btn btn-warning btn-sm px-4" onclick="editProject('${projectCode}')" title="수정">
+                                    <i class="fas fa-edit me-2"></i>프로젝트 수정
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1390,7 +2145,7 @@
         // 이벤트 리스너 설정
         function setupEventListeners() {
             // 필터 변경 이벤트
-            ['statusFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
+            ['companyFilter', 'statusFilter', 'managerFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
                 document.getElementById(filterId).addEventListener('change', applyFilters);
             });
 
@@ -1401,8 +2156,6 @@
                 }
             });
 
-            // 삭제 확인 버튼
-            document.getElementById('confirmDeleteBtn').addEventListener('click', deleteProject);
             
             // iframe에서 편집 완료 메시지 수신
             window.addEventListener('message', function(event) {
@@ -1422,23 +2175,26 @@
             });
         }
 
-        // 상태 뱃지 생성 (W열 미수금 기준)
+        // 상태 뱃지 생성 (Z열 수금 확인 기준)
         function getStatusBadge(row) {
             const startDate = row['공사 시작'];
             const endDate = row['공사 종료'];
             
-            // W열 미수금 데이터 확인
-            const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
-            const outstandingAmount = parseFloat(outstandingData) || 0;
+            // Z열 수금 확인 데이터 확인
+            const paymentConfirmed = row['수금 확인'] || row['Z'] || '';
+            const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' || 
+                                      paymentConfirmed === '✓' || paymentConfirmed === 'true' || 
+                                      paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||
+                                      paymentConfirmed === '1' || paymentConfirmed === 1);
             
-            if (outstandingAmount === 0) {
-                // 미수금이 0이면 완료
+            if (isPaymentConfirmed) {
+                // Z열에 체크가 있으면 완료
                 return '<span class="badge status-completed">완료</span>';
-            } else if (endDate && outstandingAmount > 0) {
-                // 공사는 끝났지만 미수금이 있음
+            } else if (!isPaymentConfirmed) {
+                // Z열에 체크가 없으면 공사 종료일 상관없이 수금대기
                 return '<span class="badge status-payment-pending">수금대기</span>';
-            } else if (startDate) {
-                // 공사 진행중 (미수금 있음)
+            } else if (startDate && !endDate) {
+                // 공사 시작했지만 아직 끝나지 않음
                 return '<span class="badge status-in-progress">진행중</span>';
             } else {
                 // 공사 시작 전
@@ -1452,27 +2208,41 @@
 
             let filteredData = [...projectsData];
 
-            // 상태 필터 (W열 미수금 기준)
+            // 사업자 필터
+            const companyFilter = document.getElementById('companyFilter').value;
+            if (companyFilter) {
+                filteredData = filteredData.filter(row => row['사업자'] === companyFilter);
+            }
+
+            // 상태 필터 (Z열 수금 확인 기준)
             const statusFilter = document.getElementById('statusFilter').value;
             if (statusFilter) {
                 filteredData = filteredData.filter(row => {
                     const startDate = row['공사 시작'];
                     const endDate = row['공사 종료'];
-                    const outstandingData = row['미수금W'] || row['미수금 W'] || row['W'] || row['미수금'] || 0;
-                    const outstandingAmount = parseFloat(outstandingData) || 0;
+                    const paymentConfirmed = row['수금 확인'] || row['Z'] || '';
+                    const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' || 
+                                              paymentConfirmed === '✓' || paymentConfirmed === 'true' || 
+                                              paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||
+                                              paymentConfirmed === '1' || paymentConfirmed === 1);
                     
                     switch (statusFilter) {
                         case 'completed':
-                            return outstandingAmount === 0;
+                            return isPaymentConfirmed;
                         case 'payment-pending':
-                            return endDate && outstandingAmount > 0;
-                        case 'in-progress':
-                            return startDate && !endDate && outstandingAmount > 0;
-                        case 'pending':
-                            return !startDate;
+                            return !isPaymentConfirmed;
                         default:
                             return true;
                     }
+                });
+            }
+
+            // 담당자 필터
+            const managerFilter = document.getElementById('managerFilter').value;
+            if (managerFilter) {
+                filteredData = filteredData.filter(row => {
+                    const manager = row['담당자'] || '';
+                    return manager.toString().trim() === managerFilter;
                 });
             }
 
@@ -1566,7 +2336,7 @@
 
         // 필터 초기화
         function clearFilters() {
-            ['statusFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
+            ['companyFilter', 'statusFilter', 'managerFilter', 'dateRange', 'outstandingFilter'].forEach(filterId => {
                 document.getElementById(filterId).value = '';
             });
             document.getElementById('searchInput').value = '';
@@ -1581,29 +2351,160 @@
             const project = projectsData.find(p => p['프로젝트 코드'] === projectCode);
             if (!project) return;
 
-            // 프로젝트 정보를 모달에 표시
+            // 프로젝트 정보를 모달에 표시 (모든 데이터)
             const viewInfo = document.getElementById('viewProjectInfo');
-            viewInfo.innerHTML = `
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>기본 정보</h6>
-                        <p><strong>프로젝트 코드:</strong> <code>${project['프로젝트 코드'] || '-'}</code></p>
-                        <p><strong>현장 주소:</strong> ${project['현장 주소'] || '-'}</p>
-                        <p><strong>거래처:</strong> ${project['거래처'] || '-'}</p>
-                        <p><strong>담당자:</strong> ${project['담당자'] || '-'}</p>
-                        <p><strong>브랜드:</strong> ${project['브랜드'] || '-'}</p>
-                        <p><strong>공사 내용:</strong> ${project['공사 내용'] || '-'}</p>
+            
+            // 아코디언 상위 메뉴 데이터와 통합한 포괄적인 카테고리 분류
+            const categories = {
+                '기본정보': {
+                    icon: 'fas fa-info-circle',
+                    color: 'primary',
+                    fields: ['프로젝트 코드', '거래처', '담당자', '현장 주소', '사업자', '담당자 연락처', '담당자 이메일', '현장 담당자', '도급 구분', '시공자']
+                },
+                '공사정보': {
+                    icon: 'fas fa-hammer',
+                    color: 'success',
+                    fields: ['공사 내용', '공사 시작', '공사 종료', '공사 확정', '브랜드', '기계 분류', '공사 구분', '계약 형태']
+                },
+                '금액정보': {
+                    icon: 'fas fa-won-sign',
+                    color: 'warning',
+                    fields: ['총액 1', '총액 2', '계약금', '중도금', '잔금', '제품대', '도급비', '자재비', '기타비', '순익', '마진율']
+                },
+                '수금정보': {
+                    icon: 'fas fa-credit-card',
+                    color: 'info',
+                    fields: ['미수금', '미수금W', '부가세', '수금 날짜', '수금 확인', '계약금 입금자명', '중도금 입금자명', '잔금 입금자명', '계산서']
+                },
+                '파일 및 기타': {
+                    icon: 'fas fa-folder',
+                    color: 'secondary',
+                    fields: ['견적서 및 계약서 폴더 경로', '비고', 'Airtable Record ID']
+                }
+            };
+            
+            // 상태 정보 계산
+            const getStatusInfo = () => {
+                const paymentConfirmed = project['수금 확인'] || project['Z'] || '';
+                const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' || 
+                                          paymentConfirmed === '✓' || paymentConfirmed === 'true' || 
+                                          paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||
+                                          paymentConfirmed === '1' || paymentConfirmed === 1);
+                
+                if (isPaymentConfirmed) {
+                    return '<span class="badge bg-success fs-6 px-3 py-2"><i class="fas fa-check-circle me-1"></i>수금 완료</span>';
+                } else {
+                    return '<span class="badge bg-warning fs-6 px-3 py-2"><i class="fas fa-clock me-1"></i>수금 대기</span>';
+                }
+            };
+            
+            let html = `
+                <div class="project-detail-view">
+                    <!-- 헤더 정보 -->
+                    <div class="detail-header mb-4 p-4 bg-light rounded-3">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <h4 class="mb-2 text-primary">
+                                    <i class="fas fa-project-diagram me-2"></i>
+                                    ${project['프로젝트 코드'] || '-'}
+                                </h4>
+                                <h5 class="text-muted mb-0">${project['거래처'] || '-'}</h5>
+                                <p class="mb-0 text-secondary">
+                                    <i class="fas fa-map-marker-alt me-1"></i>
+                                    ${project['현장 주소'] || '-'}
+                                </p>
+                            </div>
+                            <div class="col-md-6 text-end">
+                                <div class="mb-3">${getStatusInfo()}</div>
+                                <h4 class="text-success mb-1">
+                                    ${(() => {
+                                        const totalAmount = project['총액 2'] || project['총액2'] || project['S'] || project['총액'] || 0;
+                                        const numValue = parseFloat(totalAmount) || 0;
+                                        return numValue > 0 ? formatCurrency(numValue) : '-';
+                                    })()}
+                                </h4>
+                                <small class="text-muted">총 계약금액</small>
+                            </div>
+                        </div>
                     </div>
-                    <div class="col-md-6">
-                        <h6>일정 및 금액</h6>
-                        <p><strong>공사 시작:</strong> ${project['공사 시작'] ? formatDate(project['공사 시작']) : '-'}</p>
-                        <p><strong>공사 종료:</strong> ${project['공사 종료'] ? formatDate(project['공사 종료']) : '-'}</p>
-                        <p><strong>총액:</strong> ${formatCurrency(project['총액 2'] || 0)}</p>
-                        <p><strong>미수금:</strong> <span class="${project['미수금'] && project['미수금'] > 0 ? 'text-danger' : 'text-success'}">${project['미수금'] && project['미수금'] > 0 ? formatCurrency(project['미수금']) : '완납'}</span></p>
-                        <p><strong>상태:</strong> ${getStatusBadge(project)}</p>
+                    
+                    <!-- 상세 정보 카드들 -->
+                    <div class="row">`;
+            
+            Object.entries(categories).forEach(([categoryName, categoryInfo]) => {
+                html += `
+                    <div class="col-lg-6 mb-4">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-header bg-${categoryInfo.color} bg-opacity-10 border-0">
+                                <h6 class="mb-0 text-${categoryInfo.color}">
+                                    <i class="${categoryInfo.icon} me-2"></i>
+                                    ${categoryName}
+                                </h6>
+                            </div>
+                            <div class="card-body">`;
+                
+                categoryInfo.fields.forEach(field => {
+                    let value = project[field];
+                    let displayValue = '-';
+                    let valueClass = 'text-muted';
+                    
+                    if (value !== undefined && value !== null && value !== '') {
+                        // 날짜 필드 처리
+                        if (field.includes('날짜') || field.includes('시작') || field.includes('종료') || field.includes('확정')) {
+                            displayValue = formatDate(value) || '-';
+                            valueClass = 'text-dark';
+                        }
+                        // 금액 필드 처리
+                        else if (field.includes('총액') || field.includes('금') || field.includes('비') || field.includes('익') || field === '제품대' || field === '도급비' || field === '자재비' || field === '기타비' || field === '순익' || field === '미수금W' || field === '미수금') {
+                            const numValue = parseFloat(value) || 0;
+                            if (numValue > 0) {
+                                displayValue = formatCurrency(numValue);
+                                valueClass = field.includes('미수금') ? 'text-danger fw-bold' : 'text-success fw-bold';
+                            }
+                        }
+                        // 마진율 처리
+                        else if (field === '마진율') {
+                            const numValue = parseFloat(value) || 0;
+                            if (numValue !== 0) {
+                                displayValue = numValue.toFixed(2) + '%';
+                                valueClass = numValue > 0 ? 'text-success fw-bold' : 'text-danger fw-bold';
+                            }
+                        }
+                        // 불린 필드 처리
+                        else if (field === '부가세' || field === '수금 확인') {
+                            const isTrue = value === true || value === 'TRUE' || value === '✓' || value === 'true';
+                            displayValue = isTrue ? '<i class="fas fa-check text-success"></i> 확인' : '<i class="fas fa-times text-danger"></i> 미확인';
+                            valueClass = '';
+                        }
+                        // 일반 텍스트
+                        else {
+                            displayValue = String(value);
+                            valueClass = 'text-dark';
+                        }
+                    }
+                    
+                    html += `
+                        <div class="row mb-2 align-items-center">
+                            <div class="col-5">
+                                <small class="fw-semibold text-secondary">${field}</small>
+                            </div>
+                            <div class="col-7">
+                                <span class="${valueClass}">${displayValue}</span>
+                            </div>
+                        </div>`;
+                });
+                
+                html += `
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            
+            html += `
                     </div>
-                </div>
-            `;
+                </div>`;
+            
+            viewInfo.innerHTML = html;
             
             // 현재 보고 있는 프로젝트 코드 저장
             window.currentViewProject = projectCode;
@@ -2346,55 +3247,6 @@
             }
         }
 
-        // 삭제 확인
-        function confirmDelete(projectCode) {
-            const project = projectsData.find(p => p['프로젝트 코드'] === projectCode);
-            if (!project) return;
-
-            deleteProjectId = projectCode;
-            
-            document.getElementById('deleteProjectInfo').innerHTML = `
-                <strong>프로젝트 코드:</strong> ${project['프로젝트 코드']}<br>
-                <strong>현장 주소:</strong> ${project['현장 주소'] || '-'}<br>
-                <strong>거래처:</strong> ${project['거래처'] || '-'}<br>
-                <strong>총액:</strong> ${formatCurrency(project['총액 2'] || 0)}
-            `;
-            
-            const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
-            modal.show();
-        }
-
-        // 프로젝트 삭제
-        async function deleteProject() {
-            if (!deleteProjectId) return;
-
-            try {
-                const response = await fetch(`/api/projects/${deleteProjectId}`, {
-                    method: 'DELETE'
-                });
-
-                const result = await response.json();
-
-                if (result.error) {
-                    throw new Error(result.error);
-                }
-
-                showAlert('프로젝트가 삭제되었습니다.', 'success');
-                
-                // 모달 닫기
-                const modal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
-                modal.hide();
-                
-                // 데이터 다시 로드
-                await loadProjectsData();
-                await loadStatistics();
-                dataTable.clear().rows.add(projectsData).draw();
-
-            } catch (error) {
-                console.error('삭제 오류:', error);
-                showAlert(error.message || '삭제 중 오류가 발생했습니다.', 'danger');
-            }
-        }
 
         // 데이터 내보내기
         function exportData() {
@@ -2435,12 +3287,47 @@
             document.body.removeChild(link);
         }
 
-        // 로딩 표시
+        // 프로젝트 데이터 새로고침
+        async function refreshProjectData() {
+            const btn = document.getElementById('refreshProjectBtn');
+            const icon = btn.querySelector('i');
+            
+            // 로딩 상태
+            icon.className = 'fas fa-spinner fa-spin';
+            btn.disabled = true;
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/api/refresh-data');
+                const result = await response.json();
+                
+                if (result.error) {
+                    showAlert(result.error, 'danger');
+                } else {
+                    showAlert(`데이터를 성공적으로 새로고침했습니다. (${result.record_count}건)`, 'success');
+                    
+                    // 페이지 새로고침으로 데이터 반영
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                }
+            } catch (error) {
+                console.error('새로고침 오류:', error);
+                showAlert('데이터 새로고침에 실패했습니다.', 'danger');
+            } finally {
+                // 버튼 복원
+                icon.className = 'fas fa-sync-alt';
+                btn.disabled = false;
+                showLoading(false);
+            }
+        }
+
+        // 로딩 표시 - 완전히 비활성화
         function showLoading(show) {
+            // 로딩 오버레이를 완전히 비활성화
             const overlay = document.getElementById('loadingOverlay');
-            if (show) {
-                overlay.classList.add('show');
-            } else {
+            if (overlay) {
+                overlay.style.display = 'none';
                 overlay.classList.remove('show');
             }
         }

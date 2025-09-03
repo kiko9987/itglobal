@@ -122,6 +122,9 @@
                         <button class="btn btn-success me-3" onclick="goToNewProject()">
                             <i class="fas fa-plus"></i> 새 프로젝트
                         </button>
+                        <button class="btn btn-info me-3" onclick="refreshData()" id="refreshBtn">
+                            <i class="fas fa-sync-alt"></i> 데이터 새로고침
+                        </button>
                         <div class="d-flex align-items-center">
                             <span class="status-indicator" id="connectionStatus"></span>
                             <span id="connectionText">연결 중...</span>
@@ -742,6 +745,45 @@
         function goToNewProject() {
             // URL에 모달 플래그 추가하여 프로젝트 관리 페이지로 이동
             window.location.href = '/projects?openNewModal=true';
+        }
+
+        // 데이터 수동 새로고침
+        async function refreshData() {
+            const btn = document.getElementById('refreshBtn');
+            const icon = btn.querySelector('i');
+            
+            // 로딩 상태
+            icon.className = 'fas fa-spinner fa-spin';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/refresh-data');
+                const result = await response.json();
+                
+                if (result.error) {
+                    showAlert(result.error, 'danger');
+                } else {
+                    showAlert(`데이터를 성공적으로 새로고침했습니다. (${result.record_count}건)`, 'success');
+                    
+                    // 마지막 업데이트 시간 표시 (서버 시간 사용)
+                    if (result.formatted_time) {
+                        document.getElementById('lastUpdate').textContent = 
+                            '업데이트: ' + result.formatted_time;
+                    }
+                    
+                    // 페이지 새로고침으로 데이터 반영
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                }
+            } catch (error) {
+                console.error('새로고침 오류:', error);
+                showAlert('데이터 새로고침에 실패했습니다.', 'danger');
+            } finally {
+                // 버튼 복원
+                icon.className = 'fas fa-sync-alt';
+                btn.disabled = false;
+            }
         }
     </script>
 </body>

@@ -108,6 +108,15 @@ class GoogleSheetsManager:
         # 빈 행 제거
         df = df.dropna(how='all')
         
+        # 프로젝트 코드가 있는 행만 필터링 (실제 데이터만)
+        if '프로젝트 코드' in df.columns:
+            original_count = len(df)
+            df = df[df['프로젝트 코드'].notna() & (df['프로젝트 코드'].astype(str).str.strip() != '')]
+            filtered_count = len(df)
+            logger.info(f"프로젝트 코드 필터링: {original_count}행 → {filtered_count}행")
+        else:
+            logger.warning("프로젝트 코드 컬럼을 찾을 수 없습니다.")
+        
         # 날짜 컬럼 처리
         date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
         for col in date_columns:
