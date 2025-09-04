@@ -15,7 +15,6 @@ sys.path.insert(0, os.path.dirname(project_root))
 
 from dashboard.utils.google_sheets import GoogleSheetsManager
 from dashboard.utils.data_analyzer import DataAnalyzer
-from dashboard.inline_update import register_inline_update_routes
 
 # 환경 변수 로드
 load_dotenv()
@@ -1020,7 +1019,24 @@ def inline_update_direct():
                 break
         
         if not row_number:
-            return jsonify({'ok': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
+            logger.error(f"프로젝트 코드 {project_code}를 찾을 수 없습니다. 데이터 새로고침 후 재시도...")
+            # 데이터를 새로 로드하고 재시도
+            load_data()
+            
+            # 다시 검색 시도
+            search_result = manager.service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range='공사 현황!A:A'
+            ).execute()
+            
+            values = search_result.get('values', [])
+            for i, row in enumerate(values):
+                if row and len(row) > 0 and row[0] == project_code:
+                    row_number = i + 1
+                    break
+            
+            if not row_number:
+                return jsonify({'ok': False, 'error': f'프로젝트 코드 {project_code}를 찾을 수 없습니다.'}), 404
         
         logger.info(f"프로젝트 {project_code}을 {row_number}행에서 발견")
         
@@ -1044,27 +1060,77 @@ def inline_update_direct():
             
             if field_name in field_column_mapping:
                 column = field_column_mapping[field_name]
+                range_name = f'공사 현황!{column}{row_number}'
+                logger.info(f"업데이트 대상: {field_name} -> {range_name} = {value}")
                 updates.append({
-                    'range': f'공사 현황!{column}{row_number}',
+                    'range': range_name,
                     'values': [[value]]
                 })
         
         # 배치 업데이트 실행
         if updates:
-            batch_update_body = {
-                'valueInputOption': 'USER_ENTERED',
-                'data': updates
-            }
-            
-            logger.info(f"{len(updates)}개 셀 업데이트 시작...")
-            
-            batch_result = manager.service.spreadsheets().values().batchUpdate(
-                spreadsheetId=sheet_id,
-                body=batch_update_body
-            ).execute()
-            
-            updated_cells = batch_result.get('totalUpdatedCells', 0)
-            logger.info(f"업데이트 완료: {updated_cells}개 셀")
+            try:
+                batch_update_body = {
+                    'valueInputOption': 'USER_ENTERED',
+                    'data': updates
+                }
+                
+                logger.info(f"{len(updates)}개 셀 업데이트 시작...")
+                
+                batch_result = manager.service.spreadsheets().values().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body=batch_update_body
+                ).execute()
+                
+                updated_cells = batch_result.get('totalUpdatedCells', 0)
+                logger.info(f"업데이트 완료: {updated_cells}개 셀")
+                
+            except Exception as api_error:
+                if "protected cell" in str(api_error):
+                    logger.warning("보호된 셀 감지 - 단일 셀 업데이트로 재시도")
+                    
+                    # 단일 셀씩 개별 업데이트 시도
+                    updated_cells = 0
+                    failed_updates = []
+                    
+                    for update in updates:
+                        try:
+                            single_update_body = {
+                                'valueInputOption': 'USER_ENTERED',
+                                'data': [update]
+                            }
+                            
+                            single_result = manager.service.spreadsheets().values().batchUpdate(
+                                spreadsheetId=sheet_id,
+                                body=single_update_body
+                            ).execute()
+                            
+                            updated_cells += single_result.get('totalUpdatedCells', 0)
+                            logger.info(f"개별 셀 업데이트 성공: {update['range']}")
+                            
+                        except Exception as single_error:
+                            logger.error(f"개별 셀 업데이트 실패: {update['range']} - {str(single_error)}")
+                            failed_updates.append({
+                                'range': update['range'], 
+                                'error': str(single_error)
+                            })
+                    
+                    if updated_cells > 0:
+                        logger.info(f"부분 업데이트 완료: {updated_cells}개 셀")
+                        # 일부라도 성공했으면 성공으로 처리하되, 실패한 것들을 알림
+                        message = f"일부 업데이트 완료: {updated_cells}개 셀"
+                        if failed_updates:
+                            message += f" (실패: {len(failed_updates)}개)"
+                    else:
+                        # 모든 업데이트 실패
+                        return jsonify({
+                            'ok': False, 
+                            'error': f'모든 셀이 보호되어 있습니다. 서비스 계정 {manager.service_account_email}에게 편집 권한을 부여해주세요.',
+                            'service_account': 'sheets-manager@smooth-unison-470801-p5.iam.gserviceaccount.com',
+                            'failed_ranges': failed_updates
+                        }), 400
+                else:
+                    raise api_error
         
         # 로컬 데이터 새로고침
         load_data()
@@ -1078,10 +1144,29 @@ def inline_update_direct():
                 'project_code': project_code
             })
         
+        # 업데이트 후 새로운 프로젝트 코드 확인 (수식으로 변경될 수 있음)
+        try:
+            updated_row_range = f'공사 현황!A{row_number}:A{row_number}'
+            updated_result = manager.service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range=updated_row_range
+            ).execute()
+            
+            updated_values = updated_result.get('values', [[]])
+            new_project_code = updated_values[0][0] if updated_values and updated_values[0] else project_code
+            
+            logger.info(f"업데이트 후 프로젝트 코드: {project_code} -> {new_project_code}")
+            
+        except Exception as e:
+            logger.warning(f"새 프로젝트 코드 확인 실패: {e}")
+            new_project_code = project_code
+        
         return jsonify({
             'ok': True,
             'message': '성공적으로 업데이트되었습니다.',
             'project_code': project_code,
+            'new_project_code': new_project_code,
+            'project_code_changed': new_project_code != project_code,
             'updated_cells': updated_cells if updates else 0
         })
         
@@ -1103,7 +1188,7 @@ if __name__ == '__main__':
     load_data()
     
     # 서버 시작
-    port = int(os.getenv('PORT', 5000))
+    port = int(os.getenv('PORT', 8000))
     debug = os.getenv('DEBUG', 'True').lower() == 'true'
     
     logger.info(f"대시보드 서버 시작: http://localhost:{port}")

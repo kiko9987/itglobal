@@ -2880,11 +2880,7 @@
                     .filter(client => client && client.trim())
                 )].sort();
                 
-                // 디버깅: 피이스 관련 거래처 찾기
-                const psCompanies = uniqueClients.filter(client => 
-                    client.includes('피이스') || client.includes('마케팅') || client.includes('P&S') || client.includes('피')
-                );
-                console.log('피이스 관련 거래처들:', psCompanies);
+                // 디버깅 로그 제거됨
                 
                 
                 // 거래처 datalist 채우기
@@ -3629,6 +3625,38 @@
         }
 
         // 뱃지 생성 함수들
+        // 날짜 형식 변환 함수
+        function formatDateForTable(dateValue) {
+            if (!dateValue || dateValue === '-' || dateValue === '') return '-';
+            try {
+                // 이미 문자열로 포맷된 경우 그대로 반환
+                if (typeof dateValue === 'string' && dateValue.includes('/')) {
+                    return dateValue;
+                }
+                // Date 객체인 경우 변환
+                const date = new Date(dateValue);
+                if (isNaN(date.getTime())) return '-';
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                return `${year}/${month}/${day}`;
+            } catch (e) {
+                return '-';
+            }
+        }
+        
+        // 금액 형식 변환 함수
+        function formatAmountForTable(amount) {
+            if (!amount || amount === '-' || amount === '') return '-';
+            try {
+                const num = typeof amount === 'string' ? parseFloat(amount.replace(/[^0-9.-]/g, '')) : amount;
+                if (isNaN(num) || num === 0) return '-';
+                return num.toLocaleString('ko-KR') + '원';
+            } catch (e) {
+                return '-';
+            }
+        }
+
         function createProjectBadge(projectCode) {
             if (!projectCode) return '';
             const firstChar = projectCode.charAt(0).toUpperCase();
@@ -3780,6 +3808,15 @@
                    String(date.getDate()).padStart(2, '0');
         }
 
+        // 드롭다운 필드 옵션 정의
+        const dropdownOptions = {
+            '사업자': ['글로벌', '글로벌그룹'],
+            '도급 구분': ['도급', '직영'],
+            '시공자': ['ITG', '하도급', '외주', '직영'],
+            '현장 담당자': ['김기오', '김경태', '김우영', '최영호', '이용호', '조시훈', '김상일', '김민석', '김종원', '윤상록', '홍길동', '이순신'],
+            // 필요에 따라 더 추가할 수 있습니다
+        };
+        
         // 카드 인라인 편집 함수들
         function toggleCardEdit(projectCode, cardType) {
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
@@ -3801,26 +3838,67 @@
                 // 원본 값 저장
                 valueDiv.dataset.originalValue = currentValue;
                 
-                // input 요소 생성
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = currentValue;
-                input.className = 'form-control form-control-sm inline-edit-input';
-                input.style.fontSize = '0.85rem';
-                input.style.padding = '0.2rem 0.4rem';
-                input.style.height = 'auto';
-                input.dataset.field = fieldName;
+                let inputElement;
                 
-                // 특정 필드에 대한 입력 유형 설정
-                if (fieldName === '담당자 이메일') {
-                    input.type = 'email';
-                } else if (fieldName === '담당자 연락처') {
-                    input.type = 'tel';
-                    input.pattern = '[0-9]{3}-[0-9]{4}-[0-9]{4}';
+                // 드롭다운 필드인지 확인
+                if (dropdownOptions[fieldName]) {
+                    // select 요소 생성 (드롭다운)
+                    inputElement = document.createElement('select');
+                    inputElement.className = 'form-select form-select-sm inline-edit-input';
+                    
+                    // 빈 옵션 추가 (선택 안함)
+                    const emptyOption = document.createElement('option');
+                    emptyOption.value = '';
+                    emptyOption.textContent = '-- 선택하세요 --';
+                    inputElement.appendChild(emptyOption);
+                    
+                    // 드롭다운 옵션들 추가
+                    dropdownOptions[fieldName].forEach(option => {
+                        const optionElement = document.createElement('option');
+                        optionElement.value = option;
+                        optionElement.textContent = option;
+                        
+                        // 현재 값과 일치하면 선택
+                        if (option === currentValue) {
+                            optionElement.selected = true;
+                        }
+                        
+                        inputElement.appendChild(optionElement);
+                    });
+                    
+                    // 현재 값이 옵션에 없는 경우 추가
+                    if (currentValue && !dropdownOptions[fieldName].includes(currentValue)) {
+                        const customOption = document.createElement('option');
+                        customOption.value = currentValue;
+                        customOption.textContent = currentValue + ' (현재값)';
+                        customOption.selected = true;
+                        inputElement.appendChild(customOption);
+                    }
+                    
+                } else {
+                    // input 요소 생성 (일반 텍스트)
+                    inputElement = document.createElement('input');
+                    inputElement.type = 'text';
+                    inputElement.value = currentValue;
+                    inputElement.className = 'form-control form-control-sm inline-edit-input';
+                    
+                    // 특정 필드에 대한 입력 유형 설정
+                    if (fieldName === '담당자 이메일') {
+                        inputElement.type = 'email';
+                    } else if (fieldName === '담당자 연락처') {
+                        inputElement.type = 'tel';
+                        inputElement.pattern = '[0-9]{3}-[0-9]{4}-[0-9]{4}';
+                    }
                 }
                 
+                // 공통 스타일 적용
+                inputElement.style.fontSize = '0.85rem';
+                inputElement.style.padding = '0.2rem 0.4rem';
+                inputElement.style.height = 'auto';
+                inputElement.dataset.field = fieldName;
+                
                 valueDiv.innerHTML = '';
-                valueDiv.appendChild(input);
+                valueDiv.appendChild(inputElement);
             });
             
             // 첫 번째 입력 필드에 포커스
@@ -3836,18 +3914,26 @@
             // 변경된 데이터 수집 (구글 시트 컬럼명 그대로 사용)
             inputs.forEach(input => {
                 const fieldName = input.dataset.field;
-                const newValue = input.value.trim() || '';
+                let newValue;
+                
+                // select 요소와 input 요소를 구분하여 값 가져오기
+                if (input.tagName.toLowerCase() === 'select') {
+                    newValue = input.value || '';
+                } else {
+                    newValue = input.value.trim() || '';
+                }
+                
                 updatedData[fieldName] = newValue;
             });
             
             // 프로젝트 코드 추가
             updatedData['projectCode'] = projectCode;
             
-            // 새 API 엔드포인트 호출
+            // 인라인 편집 전용 API 엔드포인트 호출
             console.log('인라인 업데이트 요청:', updatedData);
             
-            fetch('/api/projects/' + encodeURIComponent(projectCode), {
-                method: 'PUT',
+            fetch('/api/inline-update', {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
@@ -3863,12 +3949,39 @@
             .then(result => {
                 if (result.ok) {
                     // 성공적으로 저장됨
-                    showAlert('변경사항이 저장되었습니다.', 'success');
+                    let message = '변경사항이 저장되었습니다.';
+                    
+                    // 프로젝트 코드가 변경되었는지 확인
+                    if (result.project_code_changed && result.new_project_code) {
+                        message += ` (프로젝트 코드: ${projectCode} → ${result.new_project_code})`;
+                        
+                        // 카드의 ID와 관련 요소들을 새로운 프로젝트 코드로 업데이트
+                        card.id = `card-${cardType}-${result.new_project_code}`;
+                        
+                        // 버튼들의 onclick 속성도 업데이트
+                        const editBtn = card.querySelector('.edit-btn');
+                        const saveBtn = card.querySelector('.save-btn');
+                        const cancelBtn = card.querySelector('.cancel-btn');
+                        
+                        if (editBtn) editBtn.setAttribute('onclick', `toggleCardEdit('${result.new_project_code}', '${cardType}')`);
+                        if (saveBtn) saveBtn.setAttribute('onclick', `saveCardEdit('${result.new_project_code}', '${cardType}')`);
+                        if (cancelBtn) cancelBtn.setAttribute('onclick', `cancelCardEdit('${result.new_project_code}', '${cardType}')`);
+                    }
+                    
+                    showAlert(message, 'success');
                     
                     // UI 업데이트
                     inputs.forEach(input => {
                         const valueDiv = input.parentElement;
-                        const newValue = input.value.trim() || '-';
+                        let newValue;
+                        
+                        // select와 input 구분하여 값 가져오기
+                        if (input.tagName.toLowerCase() === 'select') {
+                            newValue = input.value || '-';
+                        } else {
+                            newValue = input.value.trim() || '-';
+                        }
+                        
                         valueDiv.textContent = newValue;
                         valueDiv.classList.remove('editing');
                     });
@@ -3876,8 +3989,9 @@
                     // 버튼 상태 복원
                     resetCardEditButtons(card);
                     
-                    // 테이블 데이터 업데이트
-                    updateProjectDataInMemory(projectCode, updatedData);
+                    // 테이블 데이터 업데이트 (새 프로젝트 코드 사용)
+                    const finalProjectCode = result.new_project_code || projectCode;
+                    updateProjectDataInMemory(projectCode, updatedData, result.new_project_code);
                     
                 } else {
                     showAlert('저장 중 오류가 발생했습니다: ' + result.error, 'danger');
@@ -3920,15 +4034,72 @@
             cancelBtn.classList.add('d-none');
         }
         
-        function updateProjectDataInMemory(projectCode, updatedData) {
+        function updateProjectDataInMemory(projectCode, updatedData, newProjectCode = null) {
             // 메모리에 있는 projectsData 업데이트
             const projectIndex = projectsData.findIndex(p => p['프로젝트 코드'] === projectCode);
             if (projectIndex !== -1) {
+                // 메모리 데이터 업데이트
                 Object.keys(updatedData).forEach(key => {
-                    if (key !== '프로젝트 코드') {
+                    if (key !== 'projectCode') {
                         projectsData[projectIndex][key] = updatedData[key];
                     }
                 });
+                
+                // 프로젝트 코드가 변경된 경우
+                if (newProjectCode && newProjectCode !== projectCode) {
+                    projectsData[projectIndex]['프로젝트 코드'] = newProjectCode;
+                }
+                
+                // DataTables에서 해당 행 찾기 - 메모리 데이터 인덱스를 직접 사용
+                if (typeof dataTable !== 'undefined' && dataTable && projectIndex < dataTable.data().length) {
+                    // 업데이트된 프로젝트 데이터를 그대로 사용 (객체 형태)
+                    const updatedProject = projectsData[projectIndex];
+                    
+                    // DataTables 행 업데이트 (다시 그리기 없이) - projectIndex를 직접 사용하고 객체 데이터 전달
+                    dataTable.row(projectIndex).data(updatedProject).draw(false);
+                    
+                    // 프로젝트 코드가 변경된 경우 행 클릭 이벤트도 업데이트
+                    if (newProjectCode && newProjectCode !== projectCode) {
+                        const updatedRow = dataTable.row(projectIndex).node();
+                        if (updatedRow) {
+                            // 기존 이벤트 리스너 제거하고 새로운 프로젝트 코드로 다시 설정
+                            $(updatedRow).off('click').on('click', function(e) {
+                                if ($(e.target).closest('.btn, button').length > 0) {
+                                    return;
+                                }
+                                
+                                const tr = $(this);
+                                const row = dataTable.row(tr);
+                                
+                                if (row.child.isShown()) {
+                                    row.child.hide();
+                                    tr.removeClass('shown accordion-open');
+                                } else {
+                                    $('#projectsTable tbody tr').removeClass('accordion-open');
+                                    dataTable.rows().every(function() {
+                                        if (this.child.isShown()) {
+                                            this.child.hide();
+                                            $(this.node()).removeClass('shown accordion-open');
+                                        }
+                                    });
+                                    
+                                    const rowData = row.data();
+                                    const projectCodeFromRow = extractProjectCodeFromBadge(rowData[0]);
+                                    const project = projectsData.find(p => p['프로젝트 코드'] === projectCodeFromRow);
+                                    
+                                    if (project) {
+                                        row.child(createDetailedCard(project)).show();
+                                        tr.addClass('shown accordion-open');
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    
+                    console.log('테이블 행 업데이트 완료:', newProjectCode || projectCode);
+                }
+            } else {
+                console.warn('프로젝트를 찾을 수 없습니다:', projectCode);
             }
         }
         
