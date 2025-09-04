@@ -732,20 +732,31 @@ def update_project(project_code):
             return jsonify({'error': '프로젝트를 찾을 수 없습니다.'}), 404
         
         # 인라인 편집 데이터인지 확인 (한국어 필드명 포함)
-        korean_fields = ['현장 주소', '사업자', '현장 담당자', '도급 구분', '담당자 연락처', '시공자', '담당자 이메일']
+        korean_fields = ['현장 주소', '사업자', '현장 담당자', '도급 구분', '담당자 연락처', '시공자', '담당자 이메일', '견적서 및 계약서 폴더 경로']
         is_inline_data = any(field in data for field in korean_fields)
         
         if is_inline_data:
             # 인라인 편집 데이터 - 배치 업데이트 방식 사용
             updates = []
             field_column_mapping = {
+                # 기본정보
                 '사업자': 'B',
                 '현장 담당자': 'N', 
                 '도급 구분': 'L',
                 '담당자 연락처': 'O',
                 '시공자': 'M',
                 '담당자 이메일': 'P',
-                '현장 주소': 'E'
+                '현장 주소': 'E',
+                # 공사정보
+                '공사 구분': 'F',
+                '기계 분류': 'G',
+                '브랜드': 'H',
+                '공사 시작': 'I',
+                '공사 종료': 'J',
+                '공사 내용': 'K',
+                '공사 확정': 'AL',
+                # 문서 정보
+                '견적서 및 계약서 폴더 경로': 'AK'
             }
             
             for field_name, value in data.items():
@@ -984,6 +995,48 @@ def handle_request_update():
     except Exception as e:
         emit('error', {'message': f'업데이트 오류: {str(e)}'})
 
+@app.route('/api/debug/headers', methods=['GET'])
+def debug_headers():
+    """Google Sheets 헤더 확인용 디버깅 엔드포인트"""
+    try:
+        df = current_data if current_data is not None else load_data()
+        if df is None:
+            return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
+            
+        headers = df.columns.tolist()
+        
+        # 샘플 데이터에서 날짜 문제 해결
+        if not df.empty:
+            sample_df = df.head(3).copy()
+            # NaT 값을 None으로 변환
+            for col in sample_df.columns:
+                if sample_df[col].dtype == 'datetime64[ns]':
+                    sample_df[col] = sample_df[col].dt.strftime('%Y-%m-%d').replace('NaT', None)
+            sample_data = sample_df.to_dict('records')
+        else:
+            sample_data = []
+        
+        # 컬럼별 인덱스 정보
+        column_mapping = {}
+        for i, col in enumerate(headers):
+            # A=0, B=1, C=2... -> A, B, C...
+            column_letter = chr(ord('A') + i) if i < 26 else f"A{chr(ord('A') + i - 26)}"
+            column_mapping[col] = {
+                'index': i,
+                'letter': column_letter
+            }
+        
+        return jsonify({
+            'headers': headers,
+            'column_mapping': column_mapping,
+            'sample_data': sample_data,
+            'total_columns': len(headers)
+        })
+        
+    except Exception as e:
+        logger.error(f"디버깅 엔드포인트 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/inline-update', methods=['POST'])
 def inline_update_direct():
     """간단한 인라인 업데이트 API (직접 구현)"""
@@ -1045,13 +1098,22 @@ def inline_update_direct():
         
         # 필드별로 해당 열에 업데이트
         field_column_mapping = {
+            # 기본정보
             '사업자': 'B',
             '현장 담당자': 'N', 
             '도급 구분': 'L',
             '담당자 연락처': 'O',
             '시공자': 'M',
             '담당자 이메일': 'P',
-            '현장 주소': 'E'
+            '현장 주소': 'E',
+            # 공사정보
+            '공사 구분': 'F',
+            '기계 분류': 'G',
+            '브랜드': 'H',
+            '공사 시작': 'I',
+            '공사 종료': 'J',
+            '공사 내용': 'K',
+            '공사 확정': 'AL'
         }
         
         for field_name, value in data.items():
@@ -1190,6 +1252,11 @@ if __name__ == '__main__':
     # 서버 시작
     port = int(os.getenv('PORT', 8000))
     debug = os.getenv('DEBUG', 'True').lower() == 'true'
+    
+    # 파비콘 처리 (404 오류 방지)
+    @app.route('/favicon.ico')
+    def favicon():
+        return '', 204  # No Content 응답
     
     logger.info(f"대시보드 서버 시작: http://localhost:{port}")
     socketio.run(app, debug=debug, host='0.0.0.0', port=port)

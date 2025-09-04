@@ -1065,6 +1065,24 @@
             }
         }
         
+        /* 버튼 효과 애니메이션 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        /* 버튼 전환 효과 */
+        .btn {
+            transition: all 0.2s ease-in-out;
+        }
+        
         /* Compact Card Specific Styles */
         .compact-card {
             padding: 1rem !important;
@@ -1200,13 +1218,12 @@
     </div>
 
     <div class="container-fluid">
-        <!-- 알림 영역 -->
-        <div id="alertContainer"></div>
-
         <div class="content-container">
             <div class="row mb-4">
-                <div class="col-12">
+                <div class="col-12 d-flex align-items-center" style="min-height: 2.5rem;">
                     <h4 class="mb-0">프로젝트 관리</h4>
+                    <!-- 헤더 옆 메시지 영역 -->
+                    <div id="headerAlertContainer" class="ms-4" style="height: 2rem; display: flex; align-items: center;"></div>
                 </div>
             </div>
 
@@ -2126,20 +2143,24 @@
                                                     <i class="fas fa-building me-1"></i>기본정보
                                                 </h6>
                                                 <div class="card-edit-buttons">
-                                                    <button class="btn btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', 'basic')" 
-                                                            style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
+                                                    <button class="btn btn-outline-secondary btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', 'basic')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
                                                             title="수정">
-                                                        <i class="fas fa-edit"></i>
+                                                        <i class="fas fa-edit me-1"></i>수정
                                                     </button>
                                                     <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', 'basic')" 
-                                                            style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724;"
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b8d4c7';"
+                                                            onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb';"
                                                             title="저장">
-                                                        <i class="fas fa-check"></i>
+                                                        <i class="fas fa-check me-1"></i>저장
                                                     </button>
                                                     <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', 'basic')" 
-                                                            style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px;"
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
+                                                            onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
                                                             title="취소">
-                                                        <i class="fas fa-times"></i>
+                                                        <i class="fas fa-times me-1"></i>취소
                                                     </button>
                                                 </div>
                                             </div>
@@ -2183,41 +2204,57 @@
                                                 <h6 class="text-success mb-0">
                                                     <i class="fas fa-hammer me-1"></i>공사정보
                                                 </h6>
-                                                <button class="btn btn-sm" onclick="editProject('${projectCode}')" 
-                                                        style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
-                                                        title="전체 수정">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
+                                                <div class="card-edit-buttons">
+                                                    <button class="btn btn-outline-secondary btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', 'construction')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                                            title="수정">
+                                                        <i class="fas fa-edit me-1"></i>수정
+                                                    </button>
+                                                    <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', 'construction')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b8d4c7';"
+                                                            onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb';"
+                                                            title="저장">
+                                                        <i class="fas fa-check me-1"></i>저장
+                                                    </button>
+                                                    <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', 'construction')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
+                                                            onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
+                                                            title="취소">
+                                                        <i class="fas fa-times me-1"></i>취소
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div class="card-grid">
                                                 <div class="compact-item">
                                                     <small>공사구분</small>
-                                                    <div>${rowData['공사 구분'] || '-'}</div>
+                                                    <div class="editable-value" data-field="공사 구분">${rowData['공사 구분'] || '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>공사확정</small>
-                                                    <div>${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}</div>
+                                                    <div class="editable-value" data-field="공사 확정">${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>기계분류</small>
-                                                    <div>${rowData['기계 분류'] || '-'}</div>
+                                                    <div class="editable-value" data-field="기계 분류">${rowData['기계 분류'] || '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>공사시작</small>
-                                                    <div>${rowData['공사 시작'] ? formatDate(rowData['공사 시작']) : '-'}</div>
+                                                    <div class="editable-value" data-field="공사 시작">${rowData['공사 시작'] ? formatDate(rowData['공사 시작']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>브랜드</small>
-                                                    <div>${rowData['브랜드'] || '-'}</div>
+                                                    <div class="editable-value" data-field="브랜드">${rowData['브랜드'] || '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>공사종료</small>
-                                                    <div>${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
+                                                    <div class="editable-value" data-field="공사 종료">${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
                                                 </div>
                                             </div>
                                             <div class="compact-item mt-2" style="grid-column: 1/-1;">
                                                 <small>공사내용</small>
-                                                <div>${rowData['공사 내용'] || '-'}</div>
+                                                <div class="editable-value" data-field="공사 내용">${rowData['공사 내용'] || '-'}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -2229,40 +2266,97 @@
                                                 <h6 class="text-warning mb-0">
                                                     <i class="fas fa-won-sign me-1"></i>금액정보
                                                 </h6>
-                                                <button class="btn btn-sm" onclick="editProject('${projectCode}')" 
-                                                        style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
-                                                        title="전체 수정">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
+                                                <div class="btn-group" role="group">
+                                                    <button class="btn btn-outline-warning btn-sm" onclick="toggleCardEdit('${projectCode}', 'financial')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                                            title="인라인 편집">
+                                                        <i class="fas fa-edit me-1"></i>편집
+                                                    </button>
+                                                    <button class="btn btn-outline-secondary btn-sm" onclick="editProject('${projectCode}')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                                            title="전체 수정">
+                                                        <i class="fas fa-external-link-alt"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="card-edit-buttons" style="display: none;">
+                                                <div class="d-flex gap-2 mt-2">
+                                                    <button class="btn btn-success btn-sm save-btn flex-fill" 
+                                                            onclick="saveCardEdit('${projectCode}', 'financial')"
+                                                            title="저장">
+                                                        <i class="fas fa-check me-1"></i>저장
+                                                    </button>
+                                                    <button class="btn btn-secondary btn-sm cancel-btn flex-fill" 
+                                                            onclick="cancelCardEdit('${projectCode}', 'financial')"
+                                                            title="취소">
+                                                        <i class="fas fa-times me-1"></i>취소
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div class="card-grid">
                                                 <div class="compact-item">
                                                     <small>총액1</small>
-                                                    <div class="text-success">${rowData['총액 1'] ? formatCurrency(rowData['총액 1']) : '-'}</div>
-                                                </div>
-                                                <div class="compact-item">
-                                                    <small>계산서</small>
-                                                    <div>${rowData['계산서'] || rowData['X'] || '-'}</div>
+                                                    <div class="text-success editable-value" data-field="총액 1" data-original-value="${rowData['총액 1'] || ''}">${rowData['총액 1'] ? formatCurrency(rowData['총액 1']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>부가세</small>
-                                                    <div>${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? '포함' : '별도'}</div>
-                                                </div>
-                                                <div class="compact-item">
-                                                    <small>마진율</small>
-                                                    <div class="text-info">${rowData['마진율'] ? parseFloat(rowData['마진율']).toFixed(1) + '%' : '-'}</div>
+                                                    <div class="editable-value" data-field="부가세" data-original-value="${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? 'true' : 'false'}">${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? '포함' : '별도'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>총액2</small>
-                                                    <div class="text-primary">${(() => {
+                                                    <div class="text-primary editable-value" data-field="총액 2" data-original-value="${(() => {
+                                                        const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || '';
+                                                        return totalAmount;
+                                                    })()}">${(() => {
                                                         const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0;
                                                         const numValue = parseFloat(totalAmount) || 0;
                                                         return numValue > 0 ? formatCurrency(numValue) : '-';
                                                     })()}</div>
                                                 </div>
                                                 <div class="compact-item">
+                                                    <small>계산서</small>
+                                                    <div class="editable-value" data-field="계산서" data-original-value="${(() => {
+                                                        const billValue = rowData['계산서'] || rowData['X'] || '';
+                                                        if (billValue === true || billValue === 'TRUE' || billValue === '✓' || billValue === 'true') return 'true';
+                                                        if (billValue === false || billValue === 'FALSE' || billValue === '' || billValue === '-') return 'false';
+                                                        return 'false';
+                                                    })()}">${(() => {
+                                                        const billValue = rowData['계산서'] || rowData['X'] || '';
+                                                        if (billValue === true || billValue === 'TRUE' || billValue === '✓' || billValue === 'true') return '발행완료';
+                                                        return '미발행';
+                                                    })()}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>계약금</small>
+                                                    <div class="editable-value" data-field="계약금" data-original-value="${rowData['계약금'] || ''}">${rowData['계약금'] ? formatCurrency(rowData['계약금']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>마진율</small>
+                                                    <div class="text-info editable-value" data-field="마진율" data-original-value="${rowData['마진율'] || ''}">${rowData['마진율'] ? parseFloat(rowData['마진율']).toFixed(1) + '%' : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>중도금</small>
+                                                    <div class="editable-value" data-field="중도금" data-original-value="${rowData['중도금'] || ''}">${rowData['중도금'] ? formatCurrency(rowData['중도금']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>잔금</small>
+                                                    <div class="editable-value" data-field="잔금" data-original-value="${rowData['잔금'] || ''}">${rowData['잔금'] ? formatCurrency(rowData['잔금']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>제품대</small>
+                                                    <div class="editable-value" data-field="제품대" data-original-value="${rowData['제품대'] || ''}">${rowData['제품대'] ? formatCurrency(rowData['제품대']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>도급비</small>
+                                                    <div class="editable-value" data-field="도급비" data-original-value="${rowData['도급비'] || ''}">${rowData['도급비'] ? formatCurrency(rowData['도급비']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>자재비</small>
+                                                    <div class="editable-value" data-field="자재비" data-original-value="${rowData['자재비'] || ''}">${rowData['자재비'] ? formatCurrency(rowData['자재비']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
                                                     <small>순익</small>
-                                                    <div class="text-success">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
+                                                    <div class="text-success editable-value" data-field="순익" data-original-value="${rowData['순익'] || ''}">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2275,23 +2369,43 @@
                                                 <h6 class="text-danger mb-0">
                                                     <i class="fas fa-credit-card me-1"></i>수금정보
                                                 </h6>
-                                                <button class="btn btn-sm" onclick="editProject('${projectCode}')" 
-                                                        style="padding: 0.2rem 0.4rem; font-size: 0.7rem; background-color: #ffeaa7; border: 1px solid #fdcb6e; color: #6c5ce7;"
-                                                        title="전체 수정">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
+                                                <div class="btn-group" role="group">
+                                                    <button class="btn btn-outline-danger btn-sm" onclick="toggleCardEdit('${projectCode}', 'payment')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                                            title="인라인 편집">
+                                                        <i class="fas fa-edit me-1"></i>편집
+                                                    </button>
+                                                    <button class="btn btn-outline-secondary btn-sm" onclick="editProject('${projectCode}')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                                            title="전체 수정">
+                                                        <i class="fas fa-external-link-alt"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="card-edit-buttons" style="display: none;">
+                                                <div class="d-flex gap-2 mt-2">
+                                                    <button class="btn btn-success btn-sm save-btn flex-fill" 
+                                                            onclick="saveCardEdit('${projectCode}', 'payment')"
+                                                            title="저장">
+                                                        <i class="fas fa-check me-1"></i>저장
+                                                    </button>
+                                                    <button class="btn btn-secondary btn-sm cancel-btn flex-fill" 
+                                                            onclick="cancelCardEdit('${projectCode}', 'payment')"
+                                                            title="취소">
+                                                        <i class="fas fa-times me-1"></i>취소
+                                                    </button>
+                                                </div>
                                             </div>
                                             <div class="card-grid">
                                                 <div class="compact-item">
-                                                    <small>계약금</small>
-                                                    <div>${rowData['계약금'] ? formatCurrency(rowData['계약금']) : '-'}</div>
-                                                </div>
-                                                <div class="compact-item">
                                                     <small>미수금</small>
-                                                    <div class="${(() => {
+                                                    <div class="editable-value ${(() => {
                                                         const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
                                                         const outstandingAmount = parseFloat(outstandingData) || 0;
                                                         return outstandingAmount === 0 ? 'text-success' : 'text-danger';
+                                                    })()}" data-field="미수금W" data-original-value="${(() => {
+                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || '';
+                                                        return outstandingData;
                                                     })()}">${(() => {
                                                         const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
                                                         const outstandingAmount = parseFloat(outstandingData) || 0;
@@ -2299,22 +2413,29 @@
                                                     })()}</div>
                                                 </div>
                                                 <div class="compact-item">
-                                                    <small>중도금</small>
-                                                    <div>${rowData['중도금'] ? formatCurrency(rowData['중도금']) : '-'}</div>
-                                                </div>
-                                                <div class="compact-item">
                                                     <small>수금확인</small>
-                                                    <div>${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
+                                                    <div class="editable-value" data-field="수금 확인" data-original-value="${(() => {
+                                                        const paymentConfirmed = rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true';
+                                                        return paymentConfirmed ? 'true' : 'false';
+                                                    })()}">${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
                                                         '<span class="badge bg-success">완료</span>' : 
                                                         '<span class="badge bg-warning">대기</span>'}</div>
                                                 </div>
                                                 <div class="compact-item">
-                                                    <small>잔금</small>
-                                                    <div>${rowData['잔금'] ? formatCurrency(rowData['잔금']) : '-'}</div>
+                                                    <small>수금날짜</small>
+                                                    <div class="editable-value" data-field="수금 날짜" data-original-value="${rowData['수금 날짜'] || ''}">${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
-                                                    <small>수금날짜</small>
-                                                    <div>${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
+                                                    <small>계약금입금자명</small>
+                                                    <div class="editable-value" data-field="계약금 입금자명" data-original-value="${rowData['계약금 입금자명'] || ''}">${rowData['계약금 입금자명'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>중도금입금자명</small>
+                                                    <div class="editable-value" data-field="중도금 입금자명" data-original-value="${rowData['중도금 입금자명'] || ''}">${rowData['중도금 입금자명'] || '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>잔금입금자명</small>
+                                                    <div class="editable-value" data-field="잔금 입금자명" data-original-value="${rowData['잔금 입금자명'] || ''}">${rowData['잔금 입금자명'] || '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2332,19 +2453,29 @@
                                         <div class="d-flex align-items-center">
                                             <i class="fas fa-folder-open me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
                                             <small class="text-muted me-2" style="font-weight: 600;">문서 폴더:</small>
-                                            <div class="text-truncate" style="flex: 1;">
-                                                <a href="#" onclick="openFolder('${folderPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" 
+                                            <div class="text-truncate d-flex align-items-center" style="flex: 1;">
+                                                <a href="#" onclick="showUnifiedFolderMessage(this, '${folderPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')" 
                                                    class="text-decoration-none" 
                                                    style="color: #17a2b8; font-size: 0.85rem;"
                                                    title="${folderPath}">
                                                     ${folderPath}
                                                 </a>
+                                                <button class="btn btn-sm ms-2 copy-folder-btn" 
+                                                        onclick="showUnifiedFolderMessage(this, '${folderPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
+                                                        title="경로 복사"
+                                                        style="padding: 0.2rem 0.6rem; font-size: 0.7rem; border: 1px solid #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.15s ease-in-out;"
+                                                        onmouseover="this.style.backgroundColor='#17a2b8'; this.style.color='white';"
+                                                        onmouseout="this.style.backgroundColor='transparent'; this.style.color='#17a2b8';">
+                                                    <i class="fas fa-copy me-1"></i>복사
+                                                </button>
+                                                <!-- 통합 메시지 영역 -->
+                                                <div class="unified-folder-message ms-3" style="display: none;"></div>
                                             </div>
-                                            <button class="btn btn-sm btn-outline-secondary ms-2" 
-                                                    onclick="copyToClipboard('${folderPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
-                                                    title="경로 복사"
-                                                    style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
-                                                <i class="fas fa-copy"></i>
+                                            <button class="btn btn-outline-secondary btn-sm edit-folder-btn" 
+                                                    onclick="editFolderPath(this, '${folderPath.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
+                                                    title="수정"
+                                                    style="padding: 0.2rem 0.6rem; font-size: 0.7rem;">
+                                                <i class="fas fa-edit me-1"></i>수정
                                             </button>
                                         </div>
                                     </div>
@@ -2404,8 +2535,7 @@
                         editModal.hide();
                     }
                     
-                    // 성공 메시지 표시
-                    showAlert('프로젝트가 성공적으로 수정되었습니다!', 'success');
+                    // 성공 메시지 제거 - 인라인 편집은 버튼 피드백으로 충분
                     
                     // 데이터 다시 로드
                     setTimeout(loadProjects, 500);
@@ -3596,7 +3726,7 @@
                 if (result.error) {
                     showAlert(result.error, 'danger');
                 } else {
-                    showAlert(`데이터를 성공적으로 새로고침했습니다. (${result.record_count}건)`, 'success');
+                    // 성공 메시지 제거 - 새로고침은 백그라운드 작업으로 성공이 당연
                     
                     // 페이지 새로고침으로 데이터 반영
                     setTimeout(() => {
@@ -3681,6 +3811,24 @@
                 return `<span class="project-badge ${badgeClass}">${badgeText}</span><span class="ms-1">${projectCode}</span>`;
             }
             return projectCode;
+        }
+
+        // 프로젝트 뱃지 HTML에서 프로젝트 코드를 추출하는 함수
+        function extractProjectCodeFromBadge(badgeHtml) {
+            if (!badgeHtml) return '';
+            
+            // HTML 문자열에서 프로젝트 코드 추출
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = badgeHtml;
+            
+            // 뱃지가 있는 경우 (span.ms-1에서 추출)
+            const codeSpan = tempDiv.querySelector('.ms-1');
+            if (codeSpan) {
+                return codeSpan.textContent.trim();
+            }
+            
+            // 뱃지가 없는 경우 전체 텍스트를 프로젝트 코드로 사용
+            return tempDiv.textContent.trim();
         }
 
         function createManagerBadge(manager) {
@@ -3811,12 +3959,88 @@
         // 드롭다운 필드 옵션 정의
         const dropdownOptions = {
             '사업자': ['글로벌', '글로벌그룹'],
-            '도급 구분': ['도급', '직영'],
-            '시공자': ['ITG', '하도급', '외주', '직영'],
-            '현장 담당자': ['김기오', '김경태', '김우영', '최영호', '이용호', '조시훈', '김상일', '김민석', '김종원', '윤상록', '홍길동', '이순신'],
-            // 필요에 따라 더 추가할 수 있습니다
+            '도급 구분': ['외주', '내부', '협업', '기타'],
+            '공사 구분': ['설치', '이전', '세척', '철거', 'A/S', '판매', '매입', '렌탈'],
+            '기계 분류': ['신품', '중고', '기존제품', '기타'],
+            '브랜드': ['LG', '삼성', '캐리어', 'FCU', '덕트', '기타']
         };
         
+        // 도급구분별 시공자 옵션 정의
+        const contractorOptions = {
+            '외주': ['남진열', '노성현', '최태식', '한현규', '현재호'],
+            '내부': ['아이티', '아이티 (김종연)', '아이티 (김태현)', '강민석']
+        };
+        
+        // 도급구분 변경 시 시공자 필드 업데이트 함수
+        function updateContractorField(projectCode, contractType) {
+            const card = document.getElementById(`card-basic-${projectCode}`);
+            if (!card) return;
+            
+            const contractorField = card.querySelector('[data-field="시공자"]');
+            if (!contractorField) return;
+            
+            const currentValue = contractorField.value || '';
+            let newInputElement;
+            
+            if (contractType === '기타') {
+                // 기타인 경우 텍스트 입력
+                newInputElement = document.createElement('input');
+                newInputElement.type = 'text';
+                newInputElement.value = currentValue;
+                newInputElement.className = 'form-control form-control-sm inline-edit-input';
+                newInputElement.placeholder = '시공자를 입력하세요';
+            } else if (contractorOptions[contractType]) {
+                // 외주/내부인 경우 드롭다운
+                newInputElement = document.createElement('select');
+                newInputElement.className = 'form-select form-select-sm inline-edit-input';
+                
+                // 빈 옵션 추가
+                const emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.textContent = '-- 선택하세요 --';
+                newInputElement.appendChild(emptyOption);
+                
+                // 도급구분에 따른 옵션들 추가
+                contractorOptions[contractType].forEach(option => {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option;
+                    optionElement.textContent = option;
+                    
+                    if (option === currentValue) {
+                        optionElement.selected = true;
+                    }
+                    
+                    newInputElement.appendChild(optionElement);
+                });
+                
+                // 현재 값이 옵션에 없는 경우 추가
+                if (currentValue && currentValue !== '-' && currentValue.trim() !== '' && !contractorOptions[contractType].includes(currentValue)) {
+                    console.log(`Adding custom contractor option in updateContractorField for ${contractType}: "${currentValue}"`);
+                    const customOption = document.createElement('option');
+                    customOption.value = currentValue;
+                    customOption.textContent = currentValue + ' (현재값)';
+                    customOption.selected = true;
+                    newInputElement.appendChild(customOption);
+                }
+            } else {
+                // 협업이거나 도급구분이 없는 경우 텍스트 입력
+                newInputElement = document.createElement('input');
+                newInputElement.type = 'text';
+                newInputElement.value = currentValue;
+                newInputElement.className = 'form-control form-control-sm inline-edit-input';
+                newInputElement.placeholder = '시공자를 입력하세요';
+            }
+            
+            // 공통 스타일 및 속성 적용
+            newInputElement.style.fontSize = '0.85rem';
+            newInputElement.style.padding = '0.2rem 0.4rem';
+            newInputElement.style.height = 'auto';
+            newInputElement.dataset.field = '시공자';
+            
+            // 기존 요소 교체
+            contractorField.parentElement.replaceChild(newInputElement, contractorField);
+        }
+
         // 카드 인라인 편집 함수들
         function toggleCardEdit(projectCode, cardType) {
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
@@ -3840,8 +4064,69 @@
                 
                 let inputElement;
                 
-                // 드롭다운 필드인지 확인
-                if (dropdownOptions[fieldName]) {
+                // 시공자 필드의 경우 도급구분에 따라 동적 처리
+                if (fieldName === '시공자') {
+                    // 현재 프로젝트의 도급구분 값 찾기
+                    let contractType = '';
+                    const projectData = projectsData.find(p => p['프로젝트 코드'] === projectCode);
+                    if (projectData) {
+                        contractType = projectData['도급 구분'] || '';
+                    }
+                    
+                    if (contractType === '기타') {
+                        // 기타인 경우 텍스트 입력
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'text';
+                        inputElement.value = currentValue;
+                        inputElement.className = 'form-control form-control-sm inline-edit-input';
+                        inputElement.placeholder = '시공자를 입력하세요';
+                    } else if (contractorOptions[contractType]) {
+                        // 외주/내부인 경우 드롭다운
+                        inputElement = document.createElement('select');
+                        inputElement.className = 'form-select form-select-sm inline-edit-input';
+                        
+                        // 빈 옵션 추가
+                        const emptyOption = document.createElement('option');
+                        emptyOption.value = '';
+                        emptyOption.textContent = '-- 선택하세요 --';
+                        inputElement.appendChild(emptyOption);
+                        
+                        // 도급구분에 따른 옵션들 추가
+                        contractorOptions[contractType].forEach(option => {
+                            const optionElement = document.createElement('option');
+                            optionElement.value = option;
+                            optionElement.textContent = option;
+                            
+                            if (option === currentValue) {
+                                optionElement.selected = true;
+                            }
+                            
+                            inputElement.appendChild(optionElement);
+                        });
+                        
+                        // 현재 값이 옵션에 없는 경우 추가
+                        if (currentValue && currentValue !== '-' && currentValue.trim() !== '' && !contractorOptions[contractType].includes(currentValue)) {
+                            console.log(`Adding custom contractor option for ${contractType}: "${currentValue}"`);
+                            const customOption = document.createElement('option');
+                            customOption.value = currentValue;
+                            customOption.textContent = currentValue + ' (현재값)';
+                            customOption.selected = true;
+                            inputElement.appendChild(customOption);
+                        }
+                    } else {
+                        // 협업이거나 도급구분이 없는 경우 텍스트 입력
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'text';
+                        inputElement.value = currentValue;
+                        inputElement.className = 'form-control form-control-sm inline-edit-input';
+                        inputElement.placeholder = '시공자를 입력하세요';
+                    }
+                }
+                // 일반 드롭다운 필드인지 확인
+                else if (dropdownOptions[fieldName]) {
+                    console.log(`Processing dropdown field: ${fieldName}, currentValue: "${currentValue}", type: ${typeof currentValue}`);
+                    console.log(`Available options:`, dropdownOptions[fieldName]);
+                    console.log(`Includes check:`, dropdownOptions[fieldName].includes(currentValue));
                     // select 요소 생성 (드롭다운)
                     inputElement = document.createElement('select');
                     inputElement.className = 'form-select form-select-sm inline-edit-input';
@@ -3867,7 +4152,8 @@
                     });
                     
                     // 현재 값이 옵션에 없는 경우 추가
-                    if (currentValue && !dropdownOptions[fieldName].includes(currentValue)) {
+                    if (currentValue && currentValue !== '-' && currentValue.trim() !== '' && !dropdownOptions[fieldName].includes(currentValue)) {
+                        console.log(`Adding custom option for ${fieldName}: "${currentValue}"`);
                         const customOption = document.createElement('option');
                         customOption.value = currentValue;
                         customOption.textContent = currentValue + ' (현재값)';
@@ -3876,18 +4162,124 @@
                     }
                     
                 } else {
-                    // input 요소 생성 (일반 텍스트)
-                    inputElement = document.createElement('input');
-                    inputElement.type = 'text';
-                    inputElement.value = currentValue;
-                    inputElement.className = 'form-control form-control-sm inline-edit-input';
-                    
-                    // 특정 필드에 대한 입력 유형 설정
-                    if (fieldName === '담당자 이메일') {
-                        inputElement.type = 'email';
-                    } else if (fieldName === '담당자 연락처') {
-                        inputElement.type = 'tel';
-                        inputElement.pattern = '[0-9]{3}-[0-9]{4}-[0-9]{4}';
+                    // 체크박스 필드 (부가세, 계산서, 수금 확인)
+                    if (fieldName === '부가세' || fieldName === '계산서' || fieldName === '수금 확인') {
+                        // 체크박스 컨테이너 생성
+                        const checkboxContainer = document.createElement('div');
+                        checkboxContainer.className = 'form-check form-switch';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.className = 'form-check-input inline-edit-input';
+                        checkbox.id = `checkbox-${fieldName}-${projectCode}`;
+                        
+                        // 원본값에서 체크 상태 결정
+                        const originalValue = valueDiv.dataset.originalValue;
+                        const isChecked = originalValue === 'true' || originalValue === true;
+                        checkbox.checked = isChecked;
+                        
+                        // 라벨 생성
+                        const label = document.createElement('label');
+                        label.className = 'form-check-label';
+                        label.htmlFor = checkbox.id;
+                        
+                        if (fieldName === '부가세') {
+                            label.textContent = isChecked ? '포함' : '별도';
+                            // 체크박스 변경 시 라벨 업데이트
+                            checkbox.addEventListener('change', function() {
+                                label.textContent = this.checked ? '포함' : '별도';
+                            });
+                        } else if (fieldName === '계산서') {
+                            label.textContent = isChecked ? '발행완료' : '미발행';
+                            checkbox.addEventListener('change', function() {
+                                label.textContent = this.checked ? '발행완료' : '미발행';
+                            });
+                        } else if (fieldName === '수금 확인') {
+                            label.textContent = isChecked ? '완료' : '대기';
+                            checkbox.addEventListener('change', function() {
+                                label.textContent = this.checked ? '완료' : '대기';
+                            });
+                        }
+                        
+                        checkboxContainer.appendChild(checkbox);
+                        checkboxContainer.appendChild(label);
+                        
+                        // 체크박스 컨테이너를 inputElement로 사용
+                        inputElement = checkboxContainer;
+                    }
+                    // 숫자 필드 (금액 관련)
+                    else if (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || fieldName.includes('익') || 
+                             fieldName === '제품대' || fieldName === '도급비' || fieldName === '자재비' || fieldName === '기타비' || 
+                             fieldName === '순익' || fieldName === '미수금W' || fieldName === '미수금' || fieldName === '마진율') {
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'number';
+                        inputElement.className = 'form-control form-control-sm inline-edit-input';
+                        inputElement.step = fieldName === '마진율' ? '0.1' : '1000';
+                        
+                        // 현재 값에서 숫자만 추출 (쉼표, 원화 기호 제거)
+                        let numValue = '';
+                        if (currentValue && currentValue !== '-') {
+                            if (fieldName === '마진율') {
+                                numValue = currentValue.replace('%', '').trim();
+                            } else {
+                                numValue = currentValue.replace(/[^0-9.-]/g, '');
+                            }
+                        }
+                        inputElement.value = numValue;
+                        
+                        if (fieldName === '마진율') {
+                            inputElement.placeholder = '마진율 (%)';
+                        } else {
+                            inputElement.placeholder = '금액을 입력하세요';
+                        }
+                    }
+                    // 날짜 필드 (수금 날짜)
+                    else if (fieldName === '수금 날짜') {
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'date';
+                        inputElement.className = 'form-control form-control-sm inline-edit-input';
+                        
+                        // 현재 값이 있으면 YYYY-MM-DD 형식으로 변환
+                        if (currentValue && currentValue !== '-' && currentValue.trim() !== '') {
+                            const dateParts = currentValue.split('/');
+                            if (dateParts.length === 3) {
+                                const year = dateParts[0];
+                                const month = dateParts[1].padStart(2, '0');
+                                const day = dateParts[2].padStart(2, '0');
+                                inputElement.value = `${year}-${month}-${day}`;
+                            }
+                        }
+                    }
+                    else {
+                        // input 요소 생성 (일반 텍스트)
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'text';
+                        inputElement.value = currentValue;
+                        inputElement.className = 'form-control form-control-sm inline-edit-input';
+                        
+                        // 특정 필드에 대한 입력 유형 설정
+                        if (fieldName === '담당자 이메일') {
+                            inputElement.type = 'email';
+                        } else if (fieldName === '담당자 연락처') {
+                            inputElement.type = 'tel';
+                            inputElement.pattern = '[0-9]{3}-[0-9]{4}-[0-9]{4}';
+                        } else if (fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료') {
+                            inputElement.type = 'date';
+                            // 날짜 값 형식 변환 (YYYY/MM/DD -> YYYY-MM-DD)
+                            if (currentValue && currentValue.includes('/')) {
+                                const dateParts = currentValue.split('/');
+                                if (dateParts.length === 3) {
+                                    inputElement.value = `${dateParts[0]}-${dateParts[1].padStart(2, '0')}-${dateParts[2].padStart(2, '0')}`;
+                                }
+                            }
+                        // 입력 박스 전체 클릭 시 캘린더 열기
+                        inputElement.addEventListener('click', function() {
+                            try {
+                                this.showPicker();
+                            } catch (e) {
+                                console.log('showPicker not supported or gesture required');
+                            }
+                        });
                     }
                 }
                 
@@ -3896,6 +4288,14 @@
                 inputElement.style.padding = '0.2rem 0.4rem';
                 inputElement.style.height = 'auto';
                 inputElement.dataset.field = fieldName;
+                inputElement.dataset.originalValue = currentValue;
+                
+                // 도급구분 필드가 변경될 때 시공자 필드 업데이트
+                if (fieldName === '도급 구분') {
+                    inputElement.addEventListener('change', function() {
+                        updateContractorField(projectCode, this.value);
+                    });
+                }
                 
                 valueDiv.innerHTML = '';
                 valueDiv.appendChild(inputElement);
@@ -3906,31 +4306,142 @@
             if (firstInput) firstInput.focus();
         }
         
+        // 진행 중인 저장 작업 추적
+        let savingCards = new Set();
+        
         function saveCardEdit(projectCode, cardType) {
+            const cardKey = `${projectCode}-${cardType}`;
+            
+            // 이미 저장 중인 카드인지 확인
+            if (savingCards.has(cardKey)) {
+                console.log('이미 저장 중인 카드입니다:', cardKey);
+                return;
+            }
+            
+            // 저장 중 카드로 등록
+            savingCards.add(cardKey);
+            
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
             const inputs = card.querySelectorAll('.inline-edit-input');
             const updatedData = {};
             
-            // 변경된 데이터 수집 (구글 시트 컬럼명 그대로 사용)
-            inputs.forEach(input => {
-                const fieldName = input.dataset.field;
-                let newValue;
+            // 변경 감지를 위해 원본 데이터와 비교
+            let hasChanges = false;
+            
+            // 저장 버튼 찾기 및 시각적 피드백 적용
+            const saveBtn = card.querySelector('.save-btn');
+            if (saveBtn) {
+                // 버튼 비활성화 및 로딩 상태로 변경
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중...';
+                saveBtn.classList.remove('btn-success');
+                saveBtn.classList.add('btn-secondary');
                 
-                // select 요소와 input 요소를 구분하여 값 가져오기
-                if (input.tagName.toLowerCase() === 'select') {
-                    newValue = input.value || '';
-                } else {
-                    newValue = input.value.trim() || '';
+                // 버튼 클릭 효과 (살짝 눌린 느낌)
+                saveBtn.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    saveBtn.style.transform = 'scale(1)';
+                }, 100);
+            }
+            
+            // 날짜 형식 정규화 함수
+            function normalizeDateFormat(dateStr) {
+                if (!dateStr || dateStr === '-') return '';
+                
+                // YYYY/M/D 형식을 YYYY-MM-DD로 변환
+                if (dateStr.includes('/')) {
+                    const parts = dateStr.split('/');
+                    if (parts.length === 3) {
+                        const year = parts[0];
+                        const month = parts[1].padStart(2, '0');
+                        const day = parts[2].padStart(2, '0');
+                        return `${year}-${month}-${day}`;
+                    }
                 }
                 
-                updatedData[fieldName] = newValue;
+                // YYYY-MM-DD 형식은 그대로 반환
+                if (dateStr.includes('-') && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    return dateStr;
+                }
+                
+                return dateStr;
+            }
+
+            // 변경된 데이터 수집 및 변경 감지 (구글 시트 컬럼명 그대로 사용)
+            inputs.forEach(input => {
+                const fieldName = input.dataset.field;
+                let originalValue = input.dataset.originalValue || '';
+                
+                // 원본값이 '-'인 경우 빈 문자열로 통일
+                if (originalValue === '-') {
+                    originalValue = '';
+                }
+                
+                let newValue;
+                
+                // select 요소, input 요소, 체크박스 구분하여 값 가져오기
+                if (input.tagName.toLowerCase() === 'select') {
+                    newValue = input.value || '';
+                } else if (input.type === 'checkbox') {
+                    // 체크박스인 경우 true/false 문자열로 변환
+                    newValue = input.checked ? 'true' : 'false';
+                } else {
+                    newValue = input.value.trim() || '';
+                    
+                    // 날짜 필드인 경우 YYYY-MM-DD -> YYYY/MM/DD 형식으로 변환
+                    if ((fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
+                        newValue && input.type === 'date') {
+                        const dateParts = newValue.split('-');
+                        if (dateParts.length === 3) {
+                            const convertedValue = `${dateParts[0]}/${parseInt(dateParts[1])}/${parseInt(dateParts[2])}`;
+                            newValue = convertedValue;
+                        }
+                    }
+                }
+                
+                // 변경 감지 (원본값과 새 값 비교)
+                let normalizedOriginal = originalValue;
+                let normalizedNew = newValue;
+                
+                // 날짜 필드인 경우 형식 정규화하여 비교
+                const isDateField = ['공사 시작', '공사 종료', '공사 확정', '수금 날짜'].includes(fieldName);
+                if (isDateField) {
+                    normalizedOriginal = normalizeDateFormat(originalValue);
+                    normalizedNew = normalizeDateFormat(newValue);
+                }
+                
+                if (normalizedOriginal !== normalizedNew) {
+                    hasChanges = true;
+                    updatedData[fieldName] = newValue;
+                }
             });
+            
+            // 변경사항이 없으면 저장하지 않음
+            if (!hasChanges) {
+                // 저장 상태 해제
+                savingCards.delete(cardKey);
+                
+                // 사용자에게 변경사항 없음 알림
+                if (saveBtn) {
+                    // 잠시 "변경사항 없음" 메시지 표시
+                    saveBtn.disabled = true;
+                    saveBtn.innerHTML = '<i class="fas fa-info-circle me-1"></i>변경사항 없음';
+                    saveBtn.classList.remove('btn-success');
+                    saveBtn.classList.add('btn-info');
+                    
+                    setTimeout(() => {
+                        // 직접 편집 모드 종료 (toggleCardEdit 대신 cancelCardEdit 사용)
+                        cancelCardEdit(projectCode, cardType);
+                    }, 1000);
+                }
+                
+                return;
+            }
             
             // 프로젝트 코드 추가
             updatedData['projectCode'] = projectCode;
             
             // 인라인 편집 전용 API 엔드포인트 호출
-            console.log('인라인 업데이트 요청:', updatedData);
             
             fetch('/api/inline-update', {
                 method: 'POST',
@@ -3968,43 +4479,172 @@
                         if (cancelBtn) cancelBtn.setAttribute('onclick', `cancelCardEdit('${result.new_project_code}', '${cardType}')`);
                     }
                     
-                    showAlert(message, 'success');
                     
                     // UI 업데이트
                     inputs.forEach(input => {
-                        const valueDiv = input.parentElement;
+                        let valueDiv = input.parentElement;
+                        const fieldName = input.dataset ? input.dataset.field : valueDiv.dataset.field;
                         let newValue;
                         
-                        // select와 input 구분하여 값 가져오기
-                        if (input.tagName.toLowerCase() === 'select') {
-                            newValue = input.value || '-';
-                        } else {
-                            newValue = input.value.trim() || '-';
+                        // 체크박스 컨테이너인 경우 부모의 부모가 실제 valueDiv
+                        if (valueDiv.classList.contains('form-check')) {
+                            valueDiv = valueDiv.parentElement;
                         }
                         
-                        valueDiv.textContent = newValue;
+                        // select, input, checkbox 구분하여 값 가져오기
+                        if (input.tagName.toLowerCase() === 'select') {
+                            newValue = input.value || '-';
+                        } else if (input.type === 'checkbox') {
+                            // 체크박스인 경우 표시용 값 생성
+                            if (fieldName === '부가세') {
+                                newValue = input.checked ? '포함' : '별도';
+                            } else if (fieldName === '계산서') {
+                                newValue = input.checked ? '발행완료' : '미발행';
+                            } else if (fieldName === '수금 확인') {
+                                newValue = input.checked ? '<span class="badge bg-success">완료</span>' : '<span class="badge bg-warning">대기</span>';
+                            }
+                        } else {
+                            newValue = input.value.trim() || '-';
+                            
+                            // 날짜 필드인 경우 표시 형식 변환 (YYYY-MM-DD -> YYYY/MM/DD)
+                            if ((fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
+                                newValue !== '-' && input.type === 'date') {
+                                const dateParts = newValue.split('-');
+                                if (dateParts.length === 3) {
+                                    newValue = `${dateParts[0]}/${parseInt(dateParts[1])}/${parseInt(dateParts[2])}`;
+                                }
+                            }
+                            
+                            // 금액 필드인 경우 formatCurrency 적용
+                            if (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
+                                fieldName.includes('익') || fieldName === '제품대' || fieldName === '도급비' || 
+                                fieldName === '자재비' || fieldName === '기타비' || fieldName === '순익' || 
+                                fieldName === '미수금W' || fieldName === '미수금') {
+                                const numValue = parseFloat(newValue) || 0;
+                                if (numValue > 0) {
+                                    newValue = formatCurrency(numValue);
+                                } else {
+                                    newValue = '-';
+                                }
+                            } else if (fieldName === '마진율') {
+                                const numValue = parseFloat(newValue) || 0;
+                                newValue = numValue ? numValue.toFixed(1) + '%' : '-';
+                            }
+                        }
+                        
+                        // input 요소 제거 (체크박스 컨테이너도 포함)
+                        if (input.parentElement.classList.contains('form-check')) {
+                            input.parentElement.remove();
+                        } else {
+                            input.remove();
+                        }
+                        
+                        // HTML이 포함된 경우 innerHTML, 아니면 textContent 사용
+                        if (fieldName === '수금 확인' && newValue.includes('<span')) {
+                            valueDiv.innerHTML = newValue;
+                        } else {
+                            valueDiv.textContent = newValue;
+                        }
                         valueDiv.classList.remove('editing');
                     });
                     
-                    // 버튼 상태 복원
-                    resetCardEditButtons(card);
+                    // 저장 버튼 성공 효과 (먼저 표시)
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>완료!';
+                        saveBtn.classList.remove('btn-secondary', 'btn-success');
+                        // 연한 녹색 스타일 적용
+                        saveBtn.style.backgroundColor = '#d4edda';
+                        saveBtn.style.border = '1px solid #c3e6cb';
+                        saveBtn.style.color = '#155724';
+                        
+                        // 성공 효과 애니메이션
+                        saveBtn.style.transform = 'scale(1.05)';
+                        setTimeout(() => {
+                            saveBtn.style.transform = 'scale(1)';
+                        }, 200);
+                        
+                        // 1초 후 버튼을 원래 상태로 복원하고 편집 모드 종료
+                        setTimeout(() => {
+                            // 저장 버튼을 원래 상태로 초기화
+                            saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                            saveBtn.classList.remove('btn-secondary', 'btn-danger', 'btn-warning');
+                            saveBtn.classList.add('btn-success');
+                            saveBtn.style.transform = '';
+                            saveBtn.style.animation = '';
+                            
+                            // 그 다음 편집 모드 종료
+                            resetCardEditButtons(card);
+                            
+                            // 저장 중 상태에서 제거
+                            savingCards.delete(cardKey);
+                        }, 1000);
+                    } else {
+                        // saveBtn이 없는 경우 즉시 편집 모드 종료
+                        resetCardEditButtons(card);
+                        // 저장 중 상태에서 제거
+                        savingCards.delete(cardKey);
+                    }
                     
                     // 테이블 데이터 업데이트 (새 프로젝트 코드 사용)
                     const finalProjectCode = result.new_project_code || projectCode;
                     updateProjectDataInMemory(projectCode, updatedData, result.new_project_code);
                     
                 } else {
-                    showAlert('저장 중 오류가 발생했습니다: ' + result.error, 'danger');
+                    
+                    // 실패 시 버튼 상태 복원
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = '<i class="fas fa-exclamation-triangle me-1"></i>실패';
+                        saveBtn.classList.remove('btn-secondary');
+                        saveBtn.classList.add('btn-danger');
+                        
+                        // 실패 효과 (흔들림)
+                        saveBtn.style.animation = 'shake 0.5s';
+                        setTimeout(() => {
+                            saveBtn.style.animation = '';
+                            saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                            saveBtn.classList.remove('btn-danger');
+                            // 원래 연한 녹색으로 복원
+                            saveBtn.style.backgroundColor = '#d4edda';
+                            saveBtn.style.border = '1px solid #c3e6cb';
+                            saveBtn.style.color = '#155724';
+                            // 저장 중 상태에서 제거
+                            savingCards.delete(cardKey);
+                        }, 2000);
+                    }
                 }
             })
             .catch(error => {
                 console.error('저장 오류:', error);
-                // 네트워크 오류나 서버 오류를 구분하여 표시
-                if (error.message) {
-                    showAlert(`저장 중 오류가 발생했습니다: ${error.message}`, 'danger');
-                } else {
-                    showAlert('저장 중 오류가 발생했습니다. 네트워크 연결을 확인해주세요.', 'danger');
+                
+                // 네트워크 오류 시 버튼 상태 복원
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="fas fa-wifi me-1"></i>재시도';
+                    saveBtn.classList.remove('btn-secondary');
+                    saveBtn.classList.add('btn-warning');
+                    
+                    // 경고 효과
+                    saveBtn.style.animation = 'pulse 1s';
+                    setTimeout(() => {
+                        saveBtn.style.animation = '';
+                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                        saveBtn.classList.remove('btn-warning');
+                        // 원래 연한 녹색으로 복원
+                        saveBtn.style.backgroundColor = '#d4edda';
+                        saveBtn.style.border = '1px solid #c3e6cb';
+                        saveBtn.style.color = '#155724';
+                        // 저장 중 상태에서 제거
+                        savingCards.delete(cardKey);
+                    }, 3000);
                 }
+            })
+            .finally(() => {
+                // 어떤 경우에든 저장 상태 해제 (보험)
+                setTimeout(() => {
+                    savingCards.delete(cardKey);
+                }, 5000); // 5초 후 강제 해제
             });
         }
         
@@ -4014,11 +4654,61 @@
             
             // 원래 값으로 복원
             inputs.forEach(input => {
-                const valueDiv = input.parentElement;
-                const originalValue = valueDiv.dataset.originalValue || '-';
-                valueDiv.textContent = originalValue;
+                let valueDiv = input.parentElement;
+                const fieldName = valueDiv.dataset.field;
+                const originalValue = valueDiv.dataset.originalValue || '';
+                
+                // 체크박스 컨테이너인 경우 부모의 부모가 실제 valueDiv
+                if (valueDiv.classList.contains('form-check')) {
+                    valueDiv = valueDiv.parentElement;
+                }
+                
+                // input 요소를 제거하고 원래 표시 값으로 복원
+                input.parentElement.remove ? input.parentElement.remove() : input.remove();
+                
+                // 필드 타입에 따라 원래 표시 형식으로 복원
+                let displayValue = originalValue === '' ? '-' : originalValue;
+                
+                if (fieldName === '부가세') {
+                    displayValue = originalValue === 'true' ? '포함' : '별도';
+                } else if (fieldName === '계산서') {
+                    displayValue = originalValue === 'true' ? '발행완료' : '미발행';
+                } else if (fieldName === '수금 확인') {
+                    if (originalValue === 'true') {
+                        displayValue = '<span class="badge bg-success">완료</span>';
+                    } else {
+                        displayValue = '<span class="badge bg-warning">대기</span>';
+                    }
+                } else if (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
+                          fieldName.includes('익') || fieldName === '제품대' || fieldName === '도급비' || 
+                          fieldName === '자재비' || fieldName === '기타비' || fieldName === '순익' || 
+                          fieldName === '미수금W' || fieldName === '미수금') {
+                    // 금액 필드는 formatCurrency 적용
+                    const numValue = parseFloat(originalValue) || 0;
+                    if (numValue > 0) {
+                        displayValue = formatCurrency(numValue);
+                    } else {
+                        displayValue = '-';
+                    }
+                } else if (fieldName === '마진율') {
+                    const numValue = parseFloat(originalValue) || 0;
+                    displayValue = numValue ? numValue.toFixed(1) + '%' : '-';
+                } else if (fieldName === '수금 날짜' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '공사 확정') {
+                    // 날짜 필드는 formatDate 적용
+                    displayValue = originalValue ? formatDate(originalValue) : '-';
+                }
+                
+                if (fieldName === '수금 확인') {
+                    valueDiv.innerHTML = displayValue;
+                } else {
+                    valueDiv.textContent = displayValue;
+                }
                 valueDiv.classList.remove('editing');
             });
+            
+            // 저장 중 상태 해제 (저장이 진행 중인 경우)
+            const cardKey = `${projectCode}-${cardType}`;
+            savingCards.delete(cardKey);
             
             // 버튼 상태 복원
             resetCardEditButtons(card);
@@ -4029,9 +4719,23 @@
             const saveBtn = card.querySelector('.save-btn');
             const cancelBtn = card.querySelector('.cancel-btn');
             
+            // 편집 버튼 표시, 저장/취소 버튼 숨김
             editBtn.classList.remove('d-none');
             saveBtn.classList.add('d-none');
             cancelBtn.classList.add('d-none');
+            
+            // 저장 버튼을 원래 상태로 완전 초기화
+            if (saveBtn) {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                saveBtn.classList.remove('btn-secondary', 'btn-danger', 'btn-warning', 'btn-success');
+                // 원래 연한 녹색 스타일로 복원
+                saveBtn.style.backgroundColor = '#d4edda';
+                saveBtn.style.border = '1px solid #c3e6cb';
+                saveBtn.style.color = '#155724';
+                saveBtn.style.transform = '';
+                saveBtn.style.animation = '';
+            }
         }
         
         function updateProjectDataInMemory(projectCode, updatedData, newProjectCode = null) {
@@ -4058,11 +4762,11 @@
                     // DataTables 행 업데이트 (다시 그리기 없이) - projectIndex를 직접 사용하고 객체 데이터 전달
                     dataTable.row(projectIndex).data(updatedProject).draw(false);
                     
-                    // 프로젝트 코드가 변경된 경우 행 클릭 이벤트도 업데이트
-                    if (newProjectCode && newProjectCode !== projectCode) {
+                    // 행 업데이트 후 클릭 이벤트를 다시 설정 (행이 다시 렌더링되면서 이벤트가 제거되기 때문)
+                    setTimeout(() => {
                         const updatedRow = dataTable.row(projectIndex).node();
                         if (updatedRow) {
-                            // 기존 이벤트 리스너 제거하고 새로운 프로젝트 코드로 다시 설정
+                            // 기존 이벤트 리스너 제거하고 다시 설정
                             $(updatedRow).off('click').on('click', function(e) {
                                 if ($(e.target).closest('.btn, button').length > 0) {
                                     return;
@@ -4084,17 +4788,14 @@
                                     });
                                     
                                     const rowData = row.data();
-                                    const projectCodeFromRow = extractProjectCodeFromBadge(rowData[0]);
-                                    const project = projectsData.find(p => p['프로젝트 코드'] === projectCodeFromRow);
-                                    
-                                    if (project) {
-                                        row.child(createDetailedCard(project)).show();
-                                        tr.addClass('shown accordion-open');
-                                    }
+                                    row.child(formatRowDetails(rowData)).show();
+                                    tr.addClass('shown accordion-open');
                                 }
                             });
+                            
+                            console.log('행 클릭 이벤트 재설정 완료:', newProjectCode || projectCode);
                         }
-                    }
+                    }, 100); // 100ms 후에 이벤트 재설정
                     
                     console.log('테이블 행 업데이트 완료:', newProjectCode || projectCode);
                 }
@@ -4103,26 +4804,343 @@
             }
         }
         
-        // 폴더 열기 함수
-        function openFolder(path) {
+        // 폴더 경로 통합 메시지 함수 (텍스트 클릭, 버튼 클릭 모두)
+        function showUnifiedFolderMessage(element, path) {
             if (path) {
                 // Windows 경로 형식 확인 및 복사
                 const formattedPath = path.replace(/\//g, '\\');
                 copyToClipboard(formattedPath);
-                showAlert('폴더 경로가 클립보드에 복사되었습니다. Windows 탐색기에 붙여넣기(Ctrl+V) 하세요.', 'info');
+                
+                // 통합 메시지 영역 찾기
+                const folderContainer = element.closest('.text-truncate') || element.parentElement;
+                const messageDiv = folderContainer.querySelector('.unified-folder-message');
+                
+                if (messageDiv) {
+                    // 통합 배지 형태로 메시지 표시
+                    messageDiv.innerHTML = `
+                        <span class="badge px-2 py-1 fade show" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; font-size: 0.75rem; font-weight: normal;">
+                            <i class="fas fa-check me-1"></i>복사됨
+                        </span>
+                    `;
+                    messageDiv.style.display = 'inline-block';
+                    
+                    // 2.5초 후 메시지 숨기기
+                    setTimeout(() => {
+                        messageDiv.style.display = 'none';
+                    }, 2500);
+                }
             }
         }
         
+        // 현재 프로젝트 코드 가져오기 함수
+        function getCurrentProjectCode(element) {
+            // 가장 가까운 행 세부정보 컨테이너 찾기
+            const rowDetails = element.closest('.row-details');
+            if (!rowDetails) return null;
+            
+            // 프로젝트 코드를 포함한 카드의 ID에서 추출
+            const cardBasic = rowDetails.querySelector('[id^="card-basic-"]');
+            if (cardBasic) {
+                const match = cardBasic.id.match(/card-basic-(.+)/);
+                return match ? match[1] : null;
+            }
+            
+            return null;
+        }
+        
+        // 폴더 경로 수정 함수
+        function editFolderPath(buttonElement, currentPath) {
+            // 현재 버튼이 포함된 폴더 컨테이너 찾기
+            const folderContainer = buttonElement.closest('.d-flex');
+            const pathLink = folderContainer.querySelector('a');
+            const messageDiv = folderContainer.querySelector('.inline-folder-message');
+            
+            // 현재 경로 가져오기
+            const projectCode = getCurrentProjectCode(buttonElement);
+            if (!projectCode) {
+                console.warn('프로젝트 코드를 찾을 수 없습니다.');
+                return;
+            }
+            
+            // 입력 필드로 변경
+            const inputElement = document.createElement('input');
+            inputElement.type = 'text';
+            inputElement.value = currentPath;
+            inputElement.className = 'form-control form-control-sm';
+            inputElement.style.cssText = `
+                flex: 1;
+                max-width: 70%;
+                font-size: 0.85rem;
+                border: 2px solid #007bff;
+                box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+                margin-right: 0.75rem;
+            `;
+            
+            // 저장/취소 버튼 생성 (카드 편집과 동일한 파스텔 스타일)
+            const saveBtn = document.createElement('button');
+            saveBtn.className = 'btn btn-sm';
+            saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+            saveBtn.title = '저장';
+            saveBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;';
+            saveBtn.onmouseover = () => { saveBtn.style.backgroundColor = '#c3e6cb'; saveBtn.style.borderColor = '#b8d4c7'; };
+            saveBtn.onmouseout = () => { saveBtn.style.backgroundColor = '#d4edda'; saveBtn.style.borderColor = '#c3e6cb'; };
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'btn btn-sm';
+            cancelBtn.innerHTML = '<i class="fas fa-times me-1"></i>취소';
+            cancelBtn.title = '취소';
+            cancelBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; transition: all 0.15s ease-in-out;';
+            cancelBtn.onmouseover = () => { cancelBtn.style.backgroundColor = '#f5c6cb'; cancelBtn.style.borderColor = '#f2b6bb'; };
+            cancelBtn.onmouseout = () => { cancelBtn.style.backgroundColor = '#f8d7da'; cancelBtn.style.borderColor = '#f5c6cb'; };
+            
+            // 기존 요소들 임시 저장
+            const originalPathLink = pathLink.outerHTML;
+            const originalEditBtn = buttonElement.outerHTML;
+            
+            // 편집 모드로 변경
+            const pathContainer = pathLink.closest('.text-truncate');
+            pathContainer.innerHTML = '';
+            pathContainer.style.display = 'flex';
+            pathContainer.style.alignItems = 'center';
+            pathContainer.appendChild(inputElement);
+            
+            // 기존 편집 버튼을 저장/취소 버튼으로 교체
+            const buttonGroup = document.createElement('div');
+            buttonGroup.style.display = 'flex';
+            buttonGroup.style.gap = '0.25rem';
+            buttonGroup.style.flexShrink = '0';
+            buttonGroup.appendChild(saveBtn);
+            buttonGroup.appendChild(cancelBtn);
+            
+            buttonElement.replaceWith(buttonGroup);
+            
+            // 입력 필드에 포커스
+            inputElement.focus();
+            inputElement.select();
+            
+            // 저장 함수
+            const saveFolderPath = async () => {
+                const newPath = inputElement.value.trim();
+                if (newPath === '') {
+                    alert('경로를 입력해주세요.');
+                    return;
+                }
+                
+                // 변경사항 감지
+                if (newPath === currentPath) {
+                    console.log('폴더 경로가 변경되지 않았습니다. 저장을 건너뜁니다.');
+                    
+                    // 사용자에게 변경사항 없음 알림
+                    saveBtn.disabled = true;
+                    saveBtn.innerHTML = '<i class="fas fa-info-circle me-1"></i>변경사항 없음';
+                    saveBtn.style.backgroundColor = '#17a2b8';
+                    saveBtn.style.borderColor = '#17a2b8';
+                    saveBtn.style.color = 'white';
+                    
+                    setTimeout(() => {
+                        // 편집 모드 종료
+                        cancelEdit();
+                    }, 1000);
+                    
+                    return;
+                }
+                
+                // 이중 클릭 방지
+                const folderKey = `${projectCode}-folder`;
+                if (savingCards.has(folderKey)) {
+                    return;
+                }
+                
+                // 저장 중 상태 등록
+                savingCards.add(folderKey);
+                
+                try {
+                    // 저장 중 상태로 변경 (카드 탭과 동일하게)
+                    saveBtn.disabled = true;
+                    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중';
+                    
+                    const response = await fetch(`/api/projects/${projectCode}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            '견적서 및 계약서 폴더 경로': newPath
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        // 성공 - 원래 형태로 복원하되 새로운 경로로
+                        const pathContainer = document.createElement('div');
+                        pathContainer.className = 'text-truncate d-flex align-items-center';
+                        pathContainer.style.flex = '1';
+                        
+                        const newPathLink = document.createElement('a');
+                        newPathLink.href = '#';
+                        newPathLink.className = 'text-decoration-none';
+                        newPathLink.style.cssText = 'color: #17a2b8; font-size: 0.85rem;';
+                        newPathLink.title = newPath;
+                        newPathLink.textContent = newPath;
+                        newPathLink.onclick = (e) => {
+                            e.preventDefault();
+                            showUnifiedFolderMessage(newPathLink, newPath);
+                        };
+                        
+                        const newCopyBtn = document.createElement('button');
+                        newCopyBtn.className = 'btn btn-sm ms-2 copy-folder-btn';
+                        newCopyBtn.innerHTML = '<i class="fas fa-copy me-1"></i>복사';
+                        newCopyBtn.title = '경로 복사';
+                        newCopyBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; border: 1px solid #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.15s ease-in-out;';
+                        newCopyBtn.onmouseover = () => { newCopyBtn.style.backgroundColor = '#17a2b8'; newCopyBtn.style.color = 'white'; };
+                        newCopyBtn.onmouseout = () => { newCopyBtn.style.backgroundColor = 'transparent'; newCopyBtn.style.color = '#17a2b8'; };
+                        newCopyBtn.onclick = () => showUnifiedFolderMessage(newCopyBtn, newPath);
+                        
+                        const messageDiv = document.createElement('div');
+                        messageDiv.className = 'unified-folder-message ms-3';
+                        messageDiv.style.display = 'none';
+                        
+                        pathContainer.appendChild(newPathLink);
+                        pathContainer.appendChild(newCopyBtn);
+                        pathContainer.appendChild(messageDiv);
+                        
+                        const newEditBtn = document.createElement('button');
+                        newEditBtn.className = 'btn btn-outline-secondary btn-sm edit-folder-btn';
+                        newEditBtn.innerHTML = '<i class="fas fa-edit me-1"></i>수정';
+                        newEditBtn.title = '수정';
+                        newEditBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem;';
+                        newEditBtn.onclick = () => editFolderPath(newEditBtn, newPath);
+                        
+                        // 요소들 교체
+                        inputElement.replaceWith(pathContainer);
+                        saveBtn.replaceWith(newEditBtn);
+                        cancelBtn.remove();
+                        
+                        // 성공 메시지 표시
+                        messageDiv.innerHTML = `
+                            <span class="badge px-2 py-1 fade show" style="background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; font-size: 0.75rem; font-weight: normal;">
+                                <i class="fas fa-check me-1"></i>저장됨
+                            </span>
+                        `;
+                        messageDiv.style.display = 'inline-block';
+                        setTimeout(() => {
+                            messageDiv.style.display = 'none';
+                        }, 2500);
+                        
+                        // 메모리 데이터 업데이트
+                        updateProjectDataInMemory(projectCode, {'견적서 및 계약서 폴더 경로': newPath});
+                        
+                    } else {
+                        throw new Error('저장에 실패했습니다.');
+                    }
+                } catch (error) {
+                    console.error('폴더 경로 저장 오류:', error);
+                    alert('폴더 경로 저장 중 오류가 발생했습니다.');
+                    
+                    // 에러 시 원래 상태로 복원
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                } finally {
+                    // 저장 상태 해제
+                    savingCards.delete(folderKey);
+                }
+            };
+            
+            // 취소 함수
+            const cancelEdit = () => {
+                // 폴더 컨테이너 다시 생성
+                folderContainer.innerHTML = '';
+                
+                // 폴더 아이콘
+                const folderIcon = document.createElement('i');
+                folderIcon.className = 'fas fa-folder-open me-2';
+                folderIcon.style.cssText = 'color: #ffc107; font-size: 1.1rem;';
+                
+                // 라벨
+                const label = document.createElement('small');
+                label.className = 'text-muted me-2';
+                label.style.fontWeight = '600';
+                label.textContent = '문서 폴더:';
+                
+                // 패스 컨테이너
+                const pathContainer = document.createElement('div');
+                pathContainer.className = 'text-truncate d-flex align-items-center';
+                pathContainer.style.flex = '1';
+                
+                // 패스 링크
+                const pathLink = document.createElement('a');
+                pathLink.href = '#';
+                pathLink.className = 'text-decoration-none';
+                pathLink.style.cssText = 'color: #17a2b8; font-size: 0.85rem;';
+                pathLink.title = currentPath;
+                pathLink.textContent = currentPath;
+                pathLink.onclick = (e) => {
+                    e.preventDefault();
+                    showUnifiedFolderMessage(pathLink, currentPath);
+                };
+                
+                // 복사 버튼
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'btn btn-sm ms-2 copy-folder-btn';
+                copyBtn.title = '경로 복사';
+                copyBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; border: 1px solid #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.15s ease-in-out;';
+                copyBtn.innerHTML = '<i class="fas fa-copy me-1"></i>복사';
+                copyBtn.onmouseover = () => { copyBtn.style.backgroundColor = '#17a2b8'; copyBtn.style.color = 'white'; };
+                copyBtn.onmouseout = () => { copyBtn.style.backgroundColor = 'transparent'; copyBtn.style.color = '#17a2b8'; };
+                copyBtn.onclick = () => showUnifiedFolderMessage(copyBtn, currentPath);
+                
+                // 메시지 영역
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'unified-folder-message ms-3';
+                messageDiv.style.display = 'none';
+                
+                // 편집 버튼
+                const editBtn = document.createElement('button');
+                editBtn.className = 'btn btn-outline-secondary btn-sm edit-folder-btn';
+                editBtn.title = '수정';
+                editBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem;';
+                editBtn.innerHTML = '<i class="fas fa-edit me-1"></i>수정';
+                editBtn.onclick = () => editFolderPath(editBtn, currentPath);
+                
+                // 요소들 조합
+                pathContainer.appendChild(pathLink);
+                pathContainer.appendChild(copyBtn);
+                pathContainer.appendChild(messageDiv);
+                
+                folderContainer.appendChild(folderIcon);
+                folderContainer.appendChild(label);
+                folderContainer.appendChild(pathContainer);
+                folderContainer.appendChild(editBtn);
+            };
+            
+            // 이벤트 리스너 추가
+            saveBtn.addEventListener('click', saveFolderPath);
+            cancelBtn.addEventListener('click', cancelEdit);
+            
+            // Enter 키로 저장, Escape 키로 취소
+            inputElement.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveFolderPath();
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    cancelEdit();
+                }
+            });
+        }
+        
+        
         // 클립보드에 복사 함수
-        function copyToClipboard(text) {
+        function copyToClipboard(text, event = null) {
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(text).then(
                     () => {
-                        // 복사 버튼 클릭 시 시각적 피드백
-                        event.target.closest('button')?.classList.add('btn-success');
-                        setTimeout(() => {
-                            event.target.closest('button')?.classList.remove('btn-success');
-                        }, 1000);
+                        // 복사 버튼 클릭 시 시각적 피드백 (event가 있는 경우만)
+                        if (event && event.target) {
+                            event.target.closest('button')?.classList.add('btn-success');
+                            setTimeout(() => {
+                                event.target.closest('button')?.classList.remove('btn-success');
+                            }, 1000);
+                        }
                     },
                     (err) => {
                         console.error('클립보드 복사 실패:', err);
@@ -4153,15 +5171,37 @@
             document.body.removeChild(textArea);
         }
         
+
         function showAlert(message, type) {
-            const alertContainer = document.getElementById('alertContainer');
+            const alertContainer = document.getElementById('headerAlertContainer');
             const alertId = 'alert_' + Date.now();
             
+            // 타입별 색상과 아이콘 설정
+            let bgColor, textColor, icon;
+            switch(type) {
+                case 'success':
+                    bgColor = '#d1f2eb';
+                    textColor = '#0d5345';
+                    icon = 'fa-check-circle';
+                    break;
+                case 'danger':
+                    bgColor = '#f8d7da';
+                    textColor = '#721c24';
+                    icon = 'fa-exclamation-triangle';
+                    break;
+                case 'info':
+                default:
+                    bgColor = '#cce7ff';
+                    textColor = '#0c4a73';
+                    icon = 'fa-info-circle';
+                    break;
+            }
+            
             const alertHTML = `
-                <div class="alert alert-${type} alert-dismissible fade show" id="${alertId}">
-                    <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-triangle' : 'info-circle'}"></i>
-                    ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                <div class="alert-message px-2 py-1 rounded-2 fade show d-flex align-items-center" id="${alertId}"
+                     style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${textColor}20; font-size: 0.8rem; white-space: nowrap; height: 2rem;">
+                    <i class="fas ${icon} me-2" style="font-size: 0.75rem;"></i>
+                    <span>${message}</span>
                 </div>
             `;
             
@@ -4170,9 +5210,13 @@
             setTimeout(() => {
                 const alertElement = document.getElementById(alertId);
                 if (alertElement) {
-                    alertElement.remove();
+                    alertElement.style.opacity = '0';
+                    alertElement.style.transition = 'opacity 0.3s ease-out';
+                    setTimeout(() => {
+                        alertElement.remove();
+                    }, 300);
                 }
-            }, 5000);
+            }, 4000);
         }
     </script>
 </body>
