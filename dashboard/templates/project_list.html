@@ -496,9 +496,10 @@
         
         /* 모든 상태 배지 파스텔 톤 스타일 - Bootstrap 오버라이드 */
         .badge.status-completed,
+        .badge.status-payment-needed,
+        .badge.status-review,
         .badge.status-in-progress,
-        .badge.status-payment-pending,
-        .badge.status-prepaid {
+        .badge.status-waiting {
             font-size: 0.8rem !important;
             padding: 0.3rem 0.6rem !important;
             font-weight: 600 !important;
@@ -508,23 +509,28 @@
         }
         
         .badge.status-completed {
-            background-color: #d4edda !important;  /* 연한 초록색 */
+            background-color: #d4edda !important;  /* 연한 초록색 - 공사완료 */
             color: #155724 !important;
         }
         
-        .badge.status-in-progress {
-            background-color: #fff3cd !important;  /* 연한 노란색 */
-            color: #856404 !important;
-        }
-        
-        .badge.status-payment-pending {
-            background-color: #f8d7da !important;  /* 연한 빨간색 */
+        .badge.status-payment-needed {
+            background-color: #f8d7da !important;  /* 연한 빨간색 - 수금필요 */
             color: #721c24 !important;
         }
         
-        .badge.status-prepaid {
-            background-color: #d1ecf1 !important;  /* 연한 청록색 */
+        .badge.status-review {
+            background-color: #ffe6cc !important;  /* 연한 주황색 - 확인필요 */
+            color: #cc6600 !important;
+        }
+        
+        .badge.status-in-progress {
+            background-color: #d1ecf1 !important;  /* 연한 청록색 - 공사진행 */
             color: #0c5460 !important;
+        }
+        
+        .badge.status-waiting {
+            background-color: #f0f0f0 !important;  /* 연한 회색 - 공사대기 */
+            color: #666666 !important;
         }
         
         /* Amount Styling */
@@ -647,6 +653,11 @@
         }
         
         .compact-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* 카드 그리드에서는 하단 행의 모든 항목에서 구분선 제거 */
+        .card-grid .compact-item:nth-last-child(-n+2) {
             border-bottom: none;
         }
         
@@ -1034,6 +1045,35 @@
             }
         }
         
+        /* 5개 카드 레이아웃 */
+        @media (min-width: 1400px) {
+            .card-column-five {
+                flex: 0 0 20% !important;
+                max-width: 20% !important;
+            }
+        }
+        
+        @media (max-width: 1399px) {
+            .card-column-five {
+                flex: 0 0 25% !important;
+                max-width: 25% !important;
+            }
+        }
+        
+        @media (max-width: 1199px) {
+            .card-column-five {
+                flex: 0 0 33.333333% !important;
+                max-width: 33.333333% !important;
+            }
+        }
+        
+        @media (max-width: 991px) {
+            .card-column-five {
+                flex: 0 0 50% !important;
+                max-width: 50% !important;
+            }
+        }
+
         @media (max-width: 576px) {
             .header h1 {
                 font-size: var(--font-size-2xl);
@@ -1244,10 +1284,11 @@
                             <label for="statusFilter" class="form-label">상태</label>
                             <select class="form-select" id="statusFilter">
                                 <option value="">전체</option>
-                                <option value="completed">공사완료</option>
-                                <option value="in-progress">공사진행중</option>
-                                <option value="payment-pending">수금대기</option>
-                                <option value="prepaid">선입금</option>
+                                <option value="공사완료">공사완료</option>
+                                <option value="수금필요">수금필요</option>
+                                <option value="확인필요">확인필요</option>
+                                <option value="공사진행">공사진행</option>
+                                <option value="공사대기">공사대기</option>
                             </select>
                         </div>
                         
@@ -1296,15 +1337,16 @@
                         <thead>
                             <tr>
                                 <th style="width: 8%;">프로젝트 코드</th>
-                                <th style="width: 6%;">담당자</th>
-                                <th style="width: 8%;">거래처</th>
-                                <th style="width: 27%;">현장 주소</th>
-                                <th style="width: 21%;">공사 내용</th>
-                                <th style="width: 8%;">공사 시작</th>
-                                <th style="width: 8%;">공사 종료</th>
-                                <th style="width: 8%;">총액</th>
-                                <th style="width: 8%;">미수금</th>
-                                <th style="width: 8%;">상태</th>
+                                <th style="width: 5%;">담당자</th>
+                                <th style="width: 7%;">거래처</th>
+                                <th style="width: 26%;">현장 주소</th>
+                                <th style="width: 19%;">공사 내용</th>
+                                <th style="width: 7%;">공사 시작</th>
+                                <th style="width: 7%;">공사 종료</th>
+                                <th style="width: 7%;">총액</th>
+                                <th style="width: 7%;">미수금</th>
+                                <th style="width: 9%;">상태</th>
+                                <th style="width: 4%;">데이터</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1955,57 +1997,95 @@
                 data: projectsData,
                 columns: [
                     { data: '프로젝트 코드', width: '8%' },
-                    { data: '담당자', width: '6%' },
-                    { data: '거래처', width: '8%' },
+                    { data: '담당자', width: '5%' },
+                    { data: '거래처', width: '7%' },
                     { 
                         data: '현장 주소',
-                        width: '27%'
+                        width: '26%',
+                        render: function(data) {
+                            if (data && data.trim() !== '') {
+                                return data;
+                            } else {
+                                return '<i class="fas fa-exclamation-circle text-danger me-2" title="데이터가 비어 있습니다. 현장 주소를 입력해주세요." style="cursor: help;"></i><span class="text-muted">주소 정보 없음</span>';
+                            }
+                        }
                     },
                     { 
                         data: '공사 내용',
-                        width: '21%'
+                        width: '19%',
+                        render: function(data) {
+                            if (data && data.trim() !== '') {
+                                return data;
+                            } else {
+                                return '<i class="fas fa-exclamation-circle text-danger me-2" title="데이터가 비어 있습니다. 공사 내용을 입력해주세요." style="cursor: help;"></i><span class="text-muted">공사내용 없음</span>';
+                            }
+                        }
                     },
                     { 
                         data: '공사 시작',
-                        width: '8%',
+                        width: '7%',
                         render: function(data) {
-                            return data ? formatDate(data) : '';
+                            if (data) {
+                                return formatDate(data);
+                            } else {
+                                return '<i class="fas fa-exclamation-triangle text-warning" title="데이터가 비어 있습니다. 공사 시작일을 입력해주세요." style="cursor: help; font-size: 1.2rem;"></i>';
+                            }
                         }
                     },
                     { 
                         data: '공사 종료',
-                        width: '8%',
+                        width: '7%',
                         render: function(data) {
-                            return data ? formatDate(data) : '<span class="text-muted">-</span>';
+                            if (data) {
+                                return formatDate(data);
+                            } else {
+                                return '<i class="fas fa-exclamation-triangle text-warning" title="데이터가 비어 있습니다. 공사 종료일을 입력해주세요." style="cursor: help; font-size: 1.2rem;"></i>';
+                            }
                         }
                     },
                     { 
                         data: null, // S열 총액2 동적 처리
                         className: 'amount-cell',
-                        width: '8%',
+                        width: '7%',
                         render: function(data, type, row) {
                             // 다양한 컬럼명 시도 (API 응답 기준)
                             const totalAmount = row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0;
                             const numValue = parseFloat(totalAmount) || 0;
                             console.log('총액 데이터:', totalAmount, '변환값:', numValue); // 디버깅용
-                            return numValue > 0 ? formatCurrency(numValue) : '-';
+                            
+                            if (numValue > 0) {
+                                return formatCurrency(numValue);
+                            } else {
+                                return '<i class="fas fa-exclamation-triangle text-warning" title="데이터가 비어 있습니다. 총액을 입력해주세요." style="cursor: help; font-size: 1.2rem;"></i>';
+                            }
                         }
                     },
                     { 
                         data: null, // W열 미수금 동적 처리
                         className: 'amount-cell',
-                        width: '8%',
+                        width: '7%',
                         render: function(data, type, row) {
                             // 다양한 컬럼명으로 W열 미수금 데이터 찾기
                             const outstandingData = row['미수금'] || row['미수금W'] || row['미수금 W'] || row['W'] || 0;
                             const outstandingAmount = parseFloat(outstandingData) || 0;
                             
+                            // 총액 데이터 확인
+                            const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0);
+                            
                             console.log('미수금 데이터:', outstandingData, '변환값:', outstandingAmount); // 디버깅용
                             
-                            // 미수금이 0이면 수금 완료로 표시
-                            if (outstandingAmount === 0) {
-                                return '<span class="text-success">수금 완료</span>';
-                            } else if (outstandingAmount > 0) {
+                            if (outstandingAmount >= 0) {
+                                // 총액이 없는데 미수금이 0원인 경우 - 경고 아이콘 표시
+                                if (totalAmount === 0 && outstandingAmount === 0) {
+                                    return '<i class="fas fa-exclamation-triangle text-warning" title="데이터가 비어 있습니다. 총액을 입력해주세요." style="cursor: help; font-size: 1.2rem;"></i>';
+                                }
+                                
+                                // 공사 완료된 경우 (미수금 0원) - 부모 테이블에서는 '-' 표시
+                                if (outstandingAmount === 0) {
+                                    return '<span class="text-muted">-</span>';
+                                }
+                                
+                                // 미수금이 있는 경우만 금액 표시
                                 return `<span class="amount-outstanding">${formatCurrency(outstandingAmount)}</span>`;
                             } else {
                                 return '<span class="text-muted">-</span>';
@@ -2014,9 +2094,25 @@
                     },
                     { 
                         data: null,
-                        width: '8%',
+                        width: '9%',
                         render: function(data, type, row) {
                             return getStatusBadge(row);
+                        }
+                    },
+                    { 
+                        data: null,
+                        title: '데이터',
+                        width: '4%',
+                        className: 'text-center',
+                        render: function(data, type, row) {
+                            const completeness = checkDataCompleteness(row);
+                            
+                            if (completeness.missingCount === 0) {
+                                return '<i class="fas fa-check-circle text-success" title="모든 필수 데이터가 입력되었습니다" style="font-size: 1.2rem;"></i>';
+                            } else {
+                                const missingList = completeness.missingFields.join(', ');
+                                return `<i class="fas fa-exclamation-triangle text-warning" title="누락된 필드: ${missingList}" style="font-size: 1.2rem;"></i>`;
+                            }
                         }
                     }
                 ],
@@ -2132,11 +2228,30 @@
                     <div class="card border-0 shadow-sm">
                         <div class="card-body p-4">
 
+                            <!-- 프로젝트 정보 타이틀 -->
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <div class="project-title-section" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 0.75rem 1rem; border-left: 4px solid #007bff;">
+                                        <div style="display: flex; align-items: center; gap: 1.5rem;">
+                                            <div style="font-weight: 700; color: #007bff; font-size: 0.95rem; flex-shrink: 0;">
+                                                <i class="fas fa-tag me-2"></i>${projectCode}
+                                            </div>
+                                            <div style="font-size: 0.85rem; color: #6c757d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <i class="fas fa-map-marker-alt me-2"></i>${rowData['현장 주소'] || '주소 정보 없음'}
+                                            </div>
+                                            <div style="font-size: 0.8rem; color: #495057; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                <i class="fas fa-tools me-2"></i>${rowData['공사 내용'] || '공사내용 없음'}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                             <!-- 모든 정보를 한 행에 가로로 배치 -->
                             <div class="all-info-container">
-                                <div class="row">
+                                <div class="row" style="--bs-gutter-x: 0.75rem;">
                                     <!-- 기본정보 -->
-                                    <div class="col-lg-3">
+                                    <div class="col-xxl-2 col-xl-3 col-lg-4 col-md-6" style="flex: 0 0 20%; max-width: 20%;" class="card-column-five">
                                         <div class="info-card compact-card" id="card-basic-${projectCode}">
                                             <div class="d-flex justify-content-between align-items-center mb-3">
                                                 <h6 class="text-primary mb-0">
@@ -2190,15 +2305,11 @@
                                                     <div class="editable-value" data-field="담당자 이메일">${rowData['담당자 이메일'] || '-'}</div>
                                                 </div>
                                             </div>
-                                            <div class="compact-item mt-2" style="grid-column: 1/-1; border-top: 1px solid var(--gray-200); padding-top: 0.5rem;">
-                                                <small>현장 주소</small>
-                                                <div class="editable-value" data-field="현장 주소" style="font-size: 0.85rem;">${rowData['현장 주소'] || '-'}</div>
-                                            </div>
                                         </div>
                                     </div>
 
                                     <!-- 공사정보 -->
-                                    <div class="col-lg-3">
+                                    <div class="col-xxl-2 col-xl-3 col-lg-4 col-md-6" style="flex: 0 0 20%; max-width: 20%;" class="card-column-five">
                                         <div class="info-card compact-card" id="card-construction-${projectCode}">
                                             <div class="d-flex justify-content-between align-items-center mb-3">
                                                 <h6 class="text-success mb-0">
@@ -2252,42 +2363,33 @@
                                                     <div class="editable-value" data-field="공사 종료">${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
                                                 </div>
                                             </div>
-                                            <div class="compact-item mt-2" style="grid-column: 1/-1;">
-                                                <small>공사내용</small>
-                                                <div class="editable-value" data-field="공사 내용">${rowData['공사 내용'] || '-'}</div>
-                                            </div>
                                         </div>
                                     </div>
 
                                     <!-- 금액정보 -->
-                                    <div class="col-lg-3">
+                                    <div class="col-xxl-2 col-xl-3 col-lg-4 col-md-6" style="flex: 0 0 20%; max-width: 20%;" class="card-column-five">
                                         <div class="info-card compact-card" id="card-financial-${projectCode}">
                                             <div class="d-flex justify-content-between align-items-center mb-3">
                                                 <h6 class="text-warning mb-0">
                                                     <i class="fas fa-won-sign me-1"></i>금액정보
                                                 </h6>
-                                                <div class="btn-group" role="group">
-                                                    <button class="btn btn-outline-warning btn-sm" onclick="toggleCardEdit('${projectCode}', 'financial')" 
+                                                <div class="card-edit-buttons">
+                                                    <button class="btn btn-outline-secondary btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', 'financial')" 
                                                             style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
-                                                            title="인라인 편집">
-                                                        <i class="fas fa-edit me-1"></i>편집
+                                                            title="수정">
+                                                        <i class="fas fa-edit me-1"></i>수정
                                                     </button>
-                                                    <button class="btn btn-outline-secondary btn-sm" onclick="editProject('${projectCode}')" 
-                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
-                                                            title="전체 수정">
-                                                        <i class="fas fa-external-link-alt"></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="card-edit-buttons" style="display: none;">
-                                                <div class="d-flex gap-2 mt-2">
-                                                    <button class="btn btn-success btn-sm save-btn flex-fill" 
-                                                            onclick="saveCardEdit('${projectCode}', 'financial')"
+                                                    <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', 'financial')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b8d4c7';"
+                                                            onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb';"
                                                             title="저장">
                                                         <i class="fas fa-check me-1"></i>저장
                                                     </button>
-                                                    <button class="btn btn-secondary btn-sm cancel-btn flex-fill" 
-                                                            onclick="cancelCardEdit('${projectCode}', 'financial')"
+                                                    <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', 'financial')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
+                                                            onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
                                                             title="취소">
                                                         <i class="fas fa-times me-1"></i>취소
                                                     </button>
@@ -2326,22 +2428,114 @@
                                                         return '미발행';
                                                     })()}</div>
                                                 </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 수금정보 -->
+                                    <div class="col-xxl-2 col-xl-3 col-lg-4 col-md-6" style="flex: 0 0 20%; max-width: 20%;" class="card-column-five">
+                                        <div class="info-card compact-card" id="card-payment-${projectCode}">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <h6 class="text-danger mb-0">
+                                                    <i class="fas fa-credit-card me-1"></i>수금정보
+                                                </h6>
+                                                <div class="card-edit-buttons">
+                                                    <button class="btn btn-outline-secondary btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', 'payment')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                                            title="수정">
+                                                        <i class="fas fa-edit me-1"></i>수정
+                                                    </button>
+                                                    <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', 'payment')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b8d4c7';"
+                                                            onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb';"
+                                                            title="저장">
+                                                        <i class="fas fa-check me-1"></i>저장
+                                                    </button>
+                                                    <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', 'payment')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
+                                                            onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
+                                                            title="취소">
+                                                        <i class="fas fa-times me-1"></i>취소
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="card-grid">
                                                 <div class="compact-item">
                                                     <small>계약금</small>
                                                     <div class="editable-value" data-field="계약금" data-original-value="${rowData['계약금'] || ''}">${rowData['계약금'] ? formatCurrency(rowData['계약금']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
-                                                    <small>마진율</small>
-                                                    <div class="text-info editable-value" data-field="마진율" data-original-value="${rowData['마진율'] || ''}">${rowData['마진율'] ? parseFloat(rowData['마진율']).toFixed(1) + '%' : '-'}</div>
+                                                    <small>미수금</small>
+                                                    <div class="editable-value ${(() => {
+                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
+                                                        const outstandingAmount = parseFloat(outstandingData) || 0;
+                                                        return outstandingAmount === 0 ? 'text-success' : 'text-danger';
+                                                    })()}" data-field="미수금W" data-original-value="${(() => {
+                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || '';
+                                                        return outstandingData;
+                                                    })()}">${(() => {
+                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
+                                                        const outstandingAmount = parseFloat(outstandingData) || 0;
+                                                        return formatCurrency(outstandingAmount);
+                                                    })()}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>중도금</small>
                                                     <div class="editable-value" data-field="중도금" data-original-value="${rowData['중도금'] || ''}">${rowData['중도금'] ? formatCurrency(rowData['중도금']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
+                                                    <small>수금확인</small>
+                                                    <div class="editable-value" data-field="수금 확인" data-original-value="${(() => {
+                                                        const paymentConfirmed = rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true';
+                                                        return paymentConfirmed ? 'true' : 'false';
+                                                    })()}">${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
+                                                        '<span class="badge bg-success">완료</span>' : 
+                                                        '<span class="badge bg-warning">대기</span>'}</div>
+                                                </div>
+                                                <div class="compact-item">
                                                     <small>잔금</small>
                                                     <div class="editable-value" data-field="잔금" data-original-value="${rowData['잔금'] || ''}">${rowData['잔금'] ? formatCurrency(rowData['잔금']) : '-'}</div>
                                                 </div>
+                                                <div class="compact-item">
+                                                    <small>수금날짜</small>
+                                                    <div class="editable-value" data-field="수금 날짜" data-original-value="${rowData['수금 날짜'] || ''}">${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- 손익정보 -->
+                                    <div class="col-xxl-2 col-xl-3 col-lg-4 col-md-6" style="flex: 0 0 20%; max-width: 20%;" class="card-column-five">
+                                        <div class="info-card compact-card" id="card-profit-${projectCode}">
+                                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                                <h6 class="text-info mb-0">
+                                                    <i class="fas fa-chart-line me-1"></i>손익정보
+                                                </h6>
+                                                <div class="card-edit-buttons">
+                                                    <button class="btn btn-outline-secondary btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', 'profit')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                                            title="수정">
+                                                        <i class="fas fa-edit me-1"></i>수정
+                                                    </button>
+                                                    <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', 'profit')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b8d4c7';"
+                                                            onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb';"
+                                                            title="저장">
+                                                        <i class="fas fa-check me-1"></i>저장
+                                                    </button>
+                                                    <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', 'profit')" 
+                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
+                                                            onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
+                                                            onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
+                                                            title="취소">
+                                                        <i class="fas fa-times me-1"></i>취소
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div class="card-grid">
                                                 <div class="compact-item">
                                                     <small>제품대</small>
                                                     <div class="editable-value" data-field="제품대" data-original-value="${rowData['제품대'] || ''}">${rowData['제품대'] ? formatCurrency(rowData['제품대']) : '-'}</div>
@@ -2355,87 +2549,16 @@
                                                     <div class="editable-value" data-field="자재비" data-original-value="${rowData['자재비'] || ''}">${rowData['자재비'] ? formatCurrency(rowData['자재비']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
+                                                    <small>기타비</small>
+                                                    <div class="editable-value" data-field="기타비" data-original-value="${rowData['기타비'] || ''}">${rowData['기타비'] ? formatCurrency(rowData['기타비']) : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
+                                                    <small>마진율</small>
+                                                    <div class="text-info editable-value" data-field="마진율" data-original-value="${rowData['마진율'] || ''}">${rowData['마진율'] ? parseFloat(rowData['마진율']).toFixed(1) + '%' : '-'}</div>
+                                                </div>
+                                                <div class="compact-item">
                                                     <small>순익</small>
                                                     <div class="text-success editable-value" data-field="순익" data-original-value="${rowData['순익'] || ''}">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- 수금정보 -->
-                                    <div class="col-lg-3">
-                                        <div class="info-card compact-card" id="card-payment-${projectCode}">
-                                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                                <h6 class="text-danger mb-0">
-                                                    <i class="fas fa-credit-card me-1"></i>수금정보
-                                                </h6>
-                                                <div class="btn-group" role="group">
-                                                    <button class="btn btn-outline-danger btn-sm" onclick="toggleCardEdit('${projectCode}', 'payment')" 
-                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
-                                                            title="인라인 편집">
-                                                        <i class="fas fa-edit me-1"></i>편집
-                                                    </button>
-                                                    <button class="btn btn-outline-secondary btn-sm" onclick="editProject('${projectCode}')" 
-                                                            style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
-                                                            title="전체 수정">
-                                                        <i class="fas fa-external-link-alt"></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="card-edit-buttons" style="display: none;">
-                                                <div class="d-flex gap-2 mt-2">
-                                                    <button class="btn btn-success btn-sm save-btn flex-fill" 
-                                                            onclick="saveCardEdit('${projectCode}', 'payment')"
-                                                            title="저장">
-                                                        <i class="fas fa-check me-1"></i>저장
-                                                    </button>
-                                                    <button class="btn btn-secondary btn-sm cancel-btn flex-fill" 
-                                                            onclick="cancelCardEdit('${projectCode}', 'payment')"
-                                                            title="취소">
-                                                        <i class="fas fa-times me-1"></i>취소
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="card-grid">
-                                                <div class="compact-item">
-                                                    <small>미수금</small>
-                                                    <div class="editable-value ${(() => {
-                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
-                                                        const outstandingAmount = parseFloat(outstandingData) || 0;
-                                                        return outstandingAmount === 0 ? 'text-success' : 'text-danger';
-                                                    })()}" data-field="미수금W" data-original-value="${(() => {
-                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || '';
-                                                        return outstandingData;
-                                                    })()}">${(() => {
-                                                        const outstandingData = rowData['미수금W'] || rowData['미수금 W'] || rowData['W'] || rowData['미수금'] || 0;
-                                                        const outstandingAmount = parseFloat(outstandingData) || 0;
-                                                        return outstandingAmount === 0 ? '완료' : formatCurrency(outstandingAmount);
-                                                    })()}</div>
-                                                </div>
-                                                <div class="compact-item">
-                                                    <small>수금확인</small>
-                                                    <div class="editable-value" data-field="수금 확인" data-original-value="${(() => {
-                                                        const paymentConfirmed = rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true';
-                                                        return paymentConfirmed ? 'true' : 'false';
-                                                    })()}">${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
-                                                        '<span class="badge bg-success">완료</span>' : 
-                                                        '<span class="badge bg-warning">대기</span>'}</div>
-                                                </div>
-                                                <div class="compact-item">
-                                                    <small>수금날짜</small>
-                                                    <div class="editable-value" data-field="수금 날짜" data-original-value="${rowData['수금 날짜'] || ''}">${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
-                                                </div>
-                                                <div class="compact-item">
-                                                    <small>계약금입금자명</small>
-                                                    <div class="editable-value" data-field="계약금 입금자명" data-original-value="${rowData['계약금 입금자명'] || ''}">${rowData['계약금 입금자명'] || '-'}</div>
-                                                </div>
-                                                <div class="compact-item">
-                                                    <small>중도금입금자명</small>
-                                                    <div class="editable-value" data-field="중도금 입금자명" data-original-value="${rowData['중도금 입금자명'] || ''}">${rowData['중도금 입금자명'] || '-'}</div>
-                                                </div>
-                                                <div class="compact-item">
-                                                    <small>잔금입금자명</small>
-                                                    <div class="editable-value" data-field="잔금 입금자명" data-original-value="${rowData['잔금 입금자명'] || ''}">${rowData['잔금 입금자명'] || '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -2548,56 +2671,75 @@
             const startDateStr = row['공사 시작'] || '';
             const endDateStr = row['공사 종료'] || '';
             
-            // Z열 수금 확인 데이터 확인
+            // 금액 정보
+            const contractAmount = parseFloat(row['계약금'] || 0);
+            const midAmount = parseFloat(row['중도금'] || 0);
+            const finalAmount = parseFloat(row['잔금'] || 0);
+            const outstandingAmount = parseFloat(row['미수금'] || row['미수금W'] || row['W'] || 0);
+            const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0);
+            
+            // 수금 확인 (Z열)
             const paymentConfirmed = row['수금 확인'] || row['Z'] || '';
             const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' || 
                                       paymentConfirmed === '✓' || paymentConfirmed === 'true' || 
                                       paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||
                                       paymentConfirmed === '1' || paymentConfirmed === 1);
+
+            // 총 입금액 계산
+            const totalPaidAmount = contractAmount + midAmount + finalAmount;
             
-            // 날짜 처리
-            const startDate = startDateStr ? new Date(startDateStr) : null;
-            const endDate = endDateStr ? new Date(endDateStr) : null;
-            const today = new Date();
-            today.setHours(0, 0, 0, 0); // 시간 부분 제거
+            // 날짜 정보 처리
+            let startDate = null, endDate = null, today = new Date();
+            today.setHours(0, 0, 0, 0);
             
-            // 공사 종료 날짜가 있는 경우
-            if (endDate) {
-                const endDateOnly = new Date(endDate);
-                endDateOnly.setHours(0, 0, 0, 0);
-                
-                if (endDateOnly < today) {
-                    // 공사 종료 날짜가 지난 경우
-                    if (isPaymentConfirmed) {
-                        return '<span class="badge status-completed">공사완료</span>';
-                    } else {
-                        return '<span class="badge status-payment-pending">수금대기</span>';
-                    }
-                } else {
-                    // 공사 종료 날짜가 아직 안 지난 경우
-                    if (isPaymentConfirmed) {
-                        return '<span class="badge status-prepaid">선입금</span>';
-                    } else {
-                        return '<span class="badge status-in-progress">공사진행중</span>';
-                    }
-                }
-            } else {
-                // 공사 종료 날짜가 없는 경우
-                if (startDate) {
-                    const startDateOnly = new Date(startDate);
-                    startDateOnly.setHours(0, 0, 0, 0);
-                    
-                    // 공사 시작일이 지났고 수금 확인되면 공사완료
-                    if (startDateOnly < today && isPaymentConfirmed) {
-                        return '<span class="badge status-completed">공사완료</span>';
-                    } else {
-                        return '<span class="badge status-in-progress">공사진행중</span>';
-                    }
-                } else {
-                    // 시작일도 없는 경우 진행중으로 처리
-                    return '<span class="badge status-in-progress">공사진행중</span>';
+            if (startDateStr) {
+                try {
+                    startDate = new Date(startDateStr);
+                    startDate.setHours(0, 0, 0, 0);
+                } catch (e) {
+                    console.warn('시작일 파싱 오류:', e);
                 }
             }
+            
+            if (endDateStr) {
+                try {
+                    endDate = new Date(endDateStr);
+                    endDate.setHours(0, 0, 0, 0);
+                } catch (e) {
+                    console.warn('종료일 파싱 오류:', e);
+                }
+            }
+
+            // 1. 🔴 수금필요: 공사 종료일 지났는데 입금 완료 안됨 (최우선)
+            if (endDate && today > endDate) {
+                if ((totalAmount > 0 && totalPaidAmount < totalAmount) ||
+                    (totalAmount === 0 && outstandingAmount > 0)) {
+                    return '<span class="badge status-payment-needed">수금필요</span>';
+                }
+            }
+            
+            // 2. 🟢 공사완료: 모든 입금 완료
+            if ((totalAmount > 0 && totalPaidAmount === totalAmount && outstandingAmount === 0) ||
+                (totalAmount === 0 && outstandingAmount === 0 && finalAmount > 0)) {
+                return '<span class="badge status-completed">공사완료</span>';
+            }
+            
+            // 3. 🟠 확인필요: 이상한 상황들 + 데이터 부족
+            if ((totalAmount > 0 && totalPaidAmount === totalAmount && outstandingAmount > 0) ||
+                (totalAmount > 0 && totalPaidAmount < totalAmount && contractAmount > 0 && midAmount > 0 && finalAmount > 0) ||
+                (totalAmount === 0 && outstandingAmount > 0 && contractAmount > 0 && midAmount > 0 && finalAmount > 0) ||
+                (totalPaidAmount === 0 && outstandingAmount === 0) || // 모든 금액 정보 없음
+                (!startDateStr && !endDateStr)) { // 날짜 정보 없음
+                return '<span class="badge status-review">확인필요</span>';
+            }
+            
+            // 4. ⚫ 공사대기: 오직 공사 시작 전만
+            if (startDate && today < startDate) {
+                return '<span class="badge status-waiting">공사대기</span>';
+            }
+            
+            // 5. 🔵 공사진행: 나머지 모든 경우 (입금이 있거나 공사가 시작됨)
+            return '<span class="badge status-in-progress">공사진행</span>';
         }
 
         // 필터 적용
@@ -2612,73 +2754,14 @@
                 filteredData = filteredData.filter(row => row['사업자'] === companyFilter);
             }
 
-            // 상태 필터 (새로운 로직)
+            // 상태 필터 (배지 텍스트 기반)
             const statusFilter = document.getElementById('statusFilter')?.value || '';
             if (statusFilter) {
                 filteredData = filteredData.filter(row => {
-                    const startDateStr = row['공사 시작'] || '';
-                    const endDateStr = row['공사 종료'] || '';
-                    const paymentConfirmed = row['수금 확인'] || row['Z'] || '';
-                    const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' || 
-                                              paymentConfirmed === '✓' || paymentConfirmed === 'true' || 
-                                              paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||
-                                              paymentConfirmed === '1' || paymentConfirmed === 1);
-                    
-                    const startDate = startDateStr ? new Date(startDateStr) : null;
-                    const endDate = endDateStr ? new Date(endDateStr) : null;
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    
-                    switch (statusFilter) {
-                        case 'completed':
-                            // 공사완료: (종료일 지남 + 수금확인) 또는 (종료일 없고 시작일 지남 + 수금확인)
-                            if (endDate) {
-                                const endDateOnly = new Date(endDate);
-                                endDateOnly.setHours(0, 0, 0, 0);
-                                return endDateOnly < today && isPaymentConfirmed;
-                            } else if (startDate) {
-                                const startDateOnly = new Date(startDate);
-                                startDateOnly.setHours(0, 0, 0, 0);
-                                return startDateOnly < today && isPaymentConfirmed;
-                            }
-                            return false;
-                            
-                        case 'in-progress':
-                            // 공사진행중: 수금미확인이고 (종료일 안지남 또는 종료일 없음)
-                            if (endDate) {
-                                const endDateOnly = new Date(endDate);
-                                endDateOnly.setHours(0, 0, 0, 0);
-                                return endDateOnly >= today && !isPaymentConfirmed;
-                            } else if (startDate) {
-                                // 종료일 없고 시작일 있는 경우
-                                const startDateOnly = new Date(startDate);
-                                startDateOnly.setHours(0, 0, 0, 0);
-                                // 시작일 지났고 수금확인되면 완료, 아니면 진행중
-                                return !(startDateOnly < today && isPaymentConfirmed);
-                            }
-                            return !isPaymentConfirmed; // 날짜 없으면 수금 여부로만 판단
-                            
-                        case 'payment-pending':
-                            // 수금대기: 종료일 지남 + 수금미확인 (종료일 없으면 해당없음)
-                            if (endDate) {
-                                const endDateOnly = new Date(endDate);
-                                endDateOnly.setHours(0, 0, 0, 0);
-                                return endDateOnly < today && !isPaymentConfirmed;
-                            }
-                            return false; // 종료일 없으면 수금대기 아님
-                            
-                        case 'prepaid':
-                            // 선입금: 종료일 안지남 + 수금확인
-                            if (endDate) {
-                                const endDateOnly = new Date(endDate);
-                                endDateOnly.setHours(0, 0, 0, 0);
-                                return endDateOnly >= today && isPaymentConfirmed;
-                            }
-                            return false; // 종료일 없으면 선입금 아님
-                            
-                        default:
-                            return true;
-                    }
+                    const statusBadge = getStatusBadge(row);
+                    // HTML에서 텍스트 추출 (예: '<span class="badge bg-success">공사완료</span>' → '공사완료')
+                    const statusText = statusBadge.replace(/<[^>]*>/g, '');
+                    return statusText === statusFilter;
                 });
             }
 
@@ -2765,22 +2848,27 @@
                 '기본정보': {
                     icon: 'fas fa-info-circle',
                     color: 'primary',
-                    fields: ['프로젝트 코드', '거래처', '담당자', '현장 주소', '사업자', '담당자 연락처', '담당자 이메일', '현장 담당자', '도급 구분', '시공자']
+                    fields: ['프로젝트 코드', '거래처', '담당자', '사업자', '담당자 연락처', '담당자 이메일', '현장 담당자', '도급 구분', '시공자']
                 },
                 '공사정보': {
                     icon: 'fas fa-hammer',
                     color: 'success',
-                    fields: ['공사 내용', '공사 시작', '공사 종료', '공사 확정', '브랜드', '기계 분류', '공사 구분', '계약 형태']
+                    fields: ['공사 시작', '공사 종료', '공사 확정', '브랜드', '기계 분류', '공사 구분', '계약 형태']
                 },
                 '금액정보': {
                     icon: 'fas fa-won-sign',
                     color: 'warning',
-                    fields: ['총액 1', '총액 2', '계약금', '중도금', '잔금', '제품대', '도급비', '자재비', '기타비', '순익', '마진율']
+                    fields: ['총액 1', '총액 2']
                 },
                 '수금정보': {
                     icon: 'fas fa-credit-card',
+                    color: 'danger',
+                    fields: ['계약금', '중도금', '잔금', '미수금W', '수금 확인', '수금 날짜']
+                },
+                '손익정보': {
+                    icon: 'fas fa-chart-line',
                     color: 'info',
-                    fields: ['미수금', '미수금W', '부가세', '수금 날짜', '수금 확인', '계약금 입금자명', '중도금 입금자명', '잔금 입금자명', '계산서']
+                    fields: ['제품대', '도급비', '자재비', '기타비', '마진율', '순익']
                 },
                 '파일 및 기타': {
                     icon: 'fas fa-folder',
@@ -2863,9 +2951,13 @@
                         // 금액 필드 처리
                         else if (field.includes('총액') || field.includes('금') || field.includes('비') || field.includes('익') || field === '제품대' || field === '도급비' || field === '자재비' || field === '기타비' || field === '순익' || field === '미수금W' || field === '미수금') {
                             const numValue = parseFloat(value) || 0;
-                            if (numValue > 0) {
+                            if (numValue >= 0) {
                                 displayValue = formatCurrency(numValue);
-                                valueClass = field.includes('미수금') ? 'text-danger fw-bold' : 'text-success fw-bold';
+                                if (field.includes('미수금')) {
+                                    valueClass = numValue === 0 ? 'text-success fw-bold' : 'text-danger fw-bold';
+                                } else {
+                                    valueClass = 'text-success fw-bold';
+                                }
                             }
                         }
                         // 마진율 처리
@@ -3530,6 +3622,32 @@
             updateDisplayAmount();
         }
 
+        // 데이터 완성도 체크 함수
+        function checkDataCompleteness(rowData) {
+            const requiredFields = [
+                '사업자', '현장 담당자', '담당자 연락처', '현장 주소', '공사 내용',
+                '공사 시작', '공사 종료', '총액 1', '총액 2', '기계 분류', '브랜드'
+            ];
+            
+            let missingCount = 0;
+            const missingFields = [];
+            
+            requiredFields.forEach(field => {
+                const value = rowData[field];
+                if (!value || value === '' || value === '-' || (typeof value === 'number' && value === 0)) {
+                    missingCount++;
+                    missingFields.push(field);
+                }
+            });
+            
+            return {
+                totalFields: requiredFields.length,
+                missingCount: missingCount,
+                missingFields: missingFields,
+                completionRate: Math.round(((requiredFields.length - missingCount) / requiredFields.length) * 100)
+            };
+        }
+
         // 숫자를 한글로 변환하는 함수
         function numberToKorean(number) {
             // undefined, null, 빈 문자열, NaN 처리
@@ -4059,8 +4177,9 @@
                 const currentValue = valueDiv.textContent === '-' ? '' : valueDiv.textContent;
                 const fieldName = valueDiv.dataset.field;
                 
-                // 원본 값 저장
-                valueDiv.dataset.originalValue = currentValue;
+                // 원본 값 저장 - HTML에 이미 저장된 originalValue를 우선 사용
+                const originalValue = valueDiv.dataset.originalValue || currentValue;
+                valueDiv.dataset.originalValue = originalValue;
                 
                 let inputElement;
                 
@@ -4207,30 +4326,76 @@
                         // 체크박스 컨테이너를 inputElement로 사용
                         inputElement = checkboxContainer;
                     }
-                    // 숫자 필드 (금액 관련)
-                    else if (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || fieldName.includes('익') || 
+                    // 숫자 필드 (금액 관련) - 수금 날짜 제외
+                    else if ((fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || fieldName.includes('익') || 
                              fieldName === '제품대' || fieldName === '도급비' || fieldName === '자재비' || fieldName === '기타비' || 
-                             fieldName === '순익' || fieldName === '미수금W' || fieldName === '미수금' || fieldName === '마진율') {
+                             fieldName === '순익' || fieldName === '미수금W' || fieldName === '미수금' || fieldName === '마진율') &&
+                             fieldName !== '수금 날짜') {
                         inputElement = document.createElement('input');
-                        inputElement.type = 'number';
+                        inputElement.type = 'text'; // number에서 text로 변경하여 쉼표 표시 가능
                         inputElement.className = 'form-control form-control-sm inline-edit-input';
-                        inputElement.step = fieldName === '마진율' ? '0.1' : '1000';
                         
                         // 현재 값에서 숫자만 추출 (쉼표, 원화 기호 제거)
                         let numValue = '';
                         if (currentValue && currentValue !== '-') {
                             if (fieldName === '마진율') {
                                 numValue = currentValue.replace('%', '').trim();
+                                inputElement.type = 'number';
+                                inputElement.step = '0.1';
                             } else {
                                 numValue = currentValue.replace(/[^0-9.-]/g, '');
+                                // 금액 필드는 쉼표 포맷팅 적용
+                                if (numValue && !isNaN(numValue)) {
+                                    inputElement.value = parseInt(numValue).toLocaleString('ko-KR');
+                                }
                             }
                         }
-                        inputElement.value = numValue;
                         
                         if (fieldName === '마진율') {
+                            inputElement.value = numValue;
                             inputElement.placeholder = '마진율 (%)';
                         } else {
-                            inputElement.placeholder = '금액을 입력하세요';
+                            if (!inputElement.value) {
+                                inputElement.value = '';
+                            }
+                            inputElement.placeholder = '금액을 입력하세요 (예: 1,000,000)';
+                            
+                            // 금액 필드에 실시간 쉼표 포맷팅 이벤트 추가
+                            inputElement.addEventListener('input', function(e) {
+                                let cursorPosition = e.target.selectionStart;
+                                let value = e.target.value.replace(/[^0-9]/g, ''); // 숫자만 추출
+                                let originalLength = e.target.value.length;
+                                
+                                if (value) {
+                                    let formattedValue = parseInt(value).toLocaleString('ko-KR');
+                                    e.target.value = formattedValue;
+                                    
+                                    // 커서 위치 조정 (쉼표 추가로 인한 위치 변경 보정)
+                                    let newLength = formattedValue.length;
+                                    let lengthDiff = newLength - originalLength;
+                                    e.target.setSelectionRange(cursorPosition + lengthDiff, cursorPosition + lengthDiff);
+                                } else {
+                                    e.target.value = '';
+                                }
+                            });
+                            
+                            // keyup 이벤트로도 처리 (더 안정적)
+                            inputElement.addEventListener('keyup', function(e) {
+                                let value = e.target.value.replace(/[^0-9]/g, '');
+                                if (value && value !== '0') {
+                                    e.target.value = parseInt(value).toLocaleString('ko-KR');
+                                }
+                            });
+                            
+                            // 붙여넣기 이벤트 처리
+                            inputElement.addEventListener('paste', function(e) {
+                                setTimeout(() => {
+                                    let value = e.target.value.replace(/[^0-9]/g, '');
+                                    if (value) {
+                                        e.target.value = parseInt(value).toLocaleString('ko-KR');
+                                    }
+                                }, 10);
+                            });
                         }
                     }
                     // 날짜 필드 (수금 날짜)
@@ -4241,12 +4406,19 @@
                         
                         // 현재 값이 있으면 YYYY-MM-DD 형식으로 변환
                         if (currentValue && currentValue !== '-' && currentValue.trim() !== '') {
-                            const dateParts = currentValue.split('/');
-                            if (dateParts.length === 3) {
-                                const year = dateParts[0];
-                                const month = dateParts[1].padStart(2, '0');
-                                const day = dateParts[2].padStart(2, '0');
-                                inputElement.value = `${year}-${month}-${day}`;
+                            // 슬래시 형식인 경우 (YYYY/M/D -> YYYY-MM-DD)
+                            if (currentValue.includes('/')) {
+                                const dateParts = currentValue.split('/');
+                                if (dateParts.length === 3) {
+                                    const year = dateParts[0];
+                                    const month = dateParts[1].padStart(2, '0');
+                                    const day = dateParts[2].padStart(2, '0');
+                                    inputElement.value = `${year}-${month}-${day}`;
+                                }
+                            }
+                            // 하이픈 형식인 경우 (YYYY-MM-DD) - formatDate 결과
+                            else if (currentValue.includes('-')) {
+                                inputElement.value = currentValue;
                             }
                         }
                     }
@@ -4280,6 +4452,7 @@
                                 console.log('showPicker not supported or gesture required');
                             }
                         });
+                        }
                     }
                 }
                 
@@ -4288,7 +4461,7 @@
                 inputElement.style.padding = '0.2rem 0.4rem';
                 inputElement.style.height = 'auto';
                 inputElement.dataset.field = fieldName;
-                inputElement.dataset.originalValue = currentValue;
+                inputElement.dataset.originalValue = originalValue;
                 
                 // 도급구분 필드가 변경될 때 시공자 필드 업데이트
                 if (fieldName === '도급 구분') {
@@ -4387,6 +4560,14 @@
                     newValue = input.checked ? 'true' : 'false';
                 } else {
                     newValue = input.value.trim() || '';
+                    
+                    // 금액 필드인 경우 쉼표 제거 (저장용)
+                    if ((fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || fieldName.includes('익') || 
+                         fieldName === '제품대' || fieldName === '도급비' || fieldName === '자재비' || fieldName === '기타비' || 
+                         fieldName === '순익' || fieldName === '미수금W' || fieldName === '미수금') && 
+                         fieldName !== '수금 날짜') {
+                        newValue = newValue.replace(/[^0-9]/g, ''); // 숫자만 추출
+                    }
                     
                     // 날짜 필드인 경우 YYYY-MM-DD -> YYYY/MM/DD 형식으로 변환
                     if ((fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
@@ -4656,15 +4837,16 @@
             inputs.forEach(input => {
                 let valueDiv = input.parentElement;
                 const fieldName = valueDiv.dataset.field;
-                const originalValue = valueDiv.dataset.originalValue || '';
+                // input 요소에서 originalValue를 가져오기 (더 정확함)
+                const originalValue = input.dataset.originalValue || valueDiv.dataset.originalValue || '';
                 
                 // 체크박스 컨테이너인 경우 부모의 부모가 실제 valueDiv
                 if (valueDiv.classList.contains('form-check')) {
                     valueDiv = valueDiv.parentElement;
                 }
                 
-                // input 요소를 제거하고 원래 표시 값으로 복원
-                input.parentElement.remove ? input.parentElement.remove() : input.remove();
+                // input 요소만 제거 (valueDiv는 유지)
+                input.remove();
                 
                 // 필드 타입에 따라 원래 표시 형식으로 복원
                 let displayValue = originalValue === '' ? '-' : originalValue;
