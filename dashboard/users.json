@@ -1,0 +1,46 @@
+{
+  "kiko@itg-aircon.com": {
+    "name": "고광일",
+    "email": "kiko@itg-aircon.com",
+    "password_hash": "6673aecb9b6971ed571530f8d7245799:4a50b769cdd25573423a32ee50db83a368abd110995e782aa9cc91b5a0e0e4a7",
+    "permission_level": "admin",
+    "is_active": true,
+    "created_at": "2025-09-08T10:02:23.114716",
+    "last_login": "2025-09-08T15:24:42.233341",
+    "picture": "https://lh3.googleusercontent.com/a-/ALV-UjUrkxyrR-oQmh854CDF1-XvWhGEJ23BH9YtuyOVXs9eg9iDNbjni9xNiOCUL2l6ppxmiS6sOwbhz3s2uLETXeu-AbL87JGqfPu4voW0Yf9GHbQ8yy9eaAS7qd4-w48rO868ofJ9GUWpCGTNkcV6wcEqgVI7f7G2PmejOdqUgPbCIVaXSLTdL_GAhNVnoNUMNaNN5_yZaVljRq9Ziqo6d0R4_4KQJJK4hyGIC1ByhZTBRQXFZwPrcVYTi6CG8mvDbJrdB_GFTtv6fJLbbCT6otCTQAXatWMFXQQxOAhF9ZgVeHZ8DUhYcg4Pa2FJdLjMpgAHqeVKEFrVZCdtO8qXpDOCdgs3BPrNYdVSc2ZyBrskQClOfULBQGdo_Z0H0Qa3Jio0A2-M81QHCxm_683rzhTHJa_k2dWSx0EDriUOlOupUasACyf5qukBIKykDySQbke_T5rtrntkAA6aRpvVupMD6QyG7gI94Wqw6pSAhmcN_URCz7rC17APEdI3e9dpBeMOIE6QJxvNEW4cbNqr57x-_nJyRntMGGYPPju-c8wCC175FqNe7wj_Ott7gGOofV7ubip-3DrRmQoikR3D-BhLyPIMIESiWI_D7sD32Bsp3zQvfxLaUyzrMUnzxByWdXzh6wq3lPlx8VEuxWRanhnFzBK_dit_Bl_J63VlwVD8J3ACsZ8FuRJkb0nIw5hsoCKYXzUbCmxK_NW_c9y-7CSUbiLijg57OT7ry3tmF03hjVa4sVStlEIzz9_SBoOrtqXul-8a6nrpUNSy4NO4CO_rN8a-Uo-2p-d7gOIbj4LxztO0ndxO0_CeWI9wfCyCDTzBsh-TeF4q-DRFPVCucCg6fcE9DVMPR7Ode-tOzH1Jtl_dpg08dAqV8a6Obbs4ZaUzUvj36otSlWkk05h8CKPLs4aHuR1KVY9Ht9E0dPhYfxBIn9iapb-tT6pvE3q3FHhpF3lM0xxtoMzKOL7RjgNH8kBaV3FQoQ=s96-c",
+    "auth_method": "google_oauth"
+  },
+  "test.editor@example.com": {
+    "name": "테스트 에디터",
+    "email": "test.editor@example.com",
+    "password_hash": "",
+    "permission_level": "viewer",
+    "is_active": true,
+    "created_at": "2025-09-08T17:30:00.000000",
+    "last_login": "2025-09-08T17:30:00.000000",
+    "picture": "",
+    "auth_method": "google_oauth"
+  },
+  "test.viewer@example.com": {
+    "name": "테스트 뷰어",
+    "email": "test.viewer@example.com",
+    "password_hash": "",
+    "permission_level": "viewer",
+    "is_active": true,
+    "created_at": "2025-09-08T17:30:00.000000",
+    "last_login": "2025-09-08T17:30:00.000000",
+    "picture": "",
+    "auth_method": "google_oauth"
+  },
+  "test.inactive@example.com": {
+    "name": "테스트 비활성",
+    "email": "test.inactive@example.com",
+    "password_hash": "",
+    "permission_level": "admin",
+    "is_active": true,
+    "created_at": "2025-09-08T17:30:00.000000",
+    "last_login": null,
+    "picture": "",
+    "auth_method": "google_oauth"
+  }
+}

@@ -5,6 +5,9 @@
 # Google API 자격증명 파일
 credentials.json
 **/credentials.json
+**/google_oauth_credentials.json
+client_secret_*.json
+**/client_secret_*.json
 
 # Python 관련
 __pycache__/
@@ -50,6 +53,13 @@ instance/
 # 백업 파일
 *.backup
 *.bak
+backup_current/
+backup*/
+*_backup/
+
+# 테스트/디버깅 파일
+test_*.py
+debug_*.py
 
 # Excel 임시 파일
 ~.xlsx

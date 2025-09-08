@@ -2024,12 +2024,33 @@
             font-size: 1.25rem;
             font-weight: 600;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            -moz-user-select: none !important;
+            -ms-user-select: none !important;
         }
         
         #userManagementModal .modal-body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
             font-size: 0.9rem;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            -moz-user-select: none !important;
+            -ms-user-select: none !important;
         }
+        
+        /* 모달 제목과 텍스트만 사용자 선택 금지 */
+        #userManagementModal .modal-title,
+        #userManagementModal .modal-header,
+        #userManagementModal th,
+        #userManagementModal .badge,
+        #userManagementModal .text-muted {
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            -moz-user-select: none !important;
+            -ms-user-select: none !important;
+        }
+        
         
         #userManagementModal .table {
             font-size: 0.9rem;
@@ -2037,12 +2058,12 @@
         }
         
         /* 사용자 관리 모달 테이블 - 단순화된 정렬 */
-        #userManagementModal table {
+        #userManagementModal #usersTable {
             table-layout: fixed !important;
             width: 100% !important;
-            border-collapse: separate !important;
-            border-spacing: 0 !important;
+            border-collapse: collapse !important;
         }
+        
         
         #userManagementModal th,
         #userManagementModal td {
@@ -2051,51 +2072,131 @@
             border-bottom: 1px solid #dee2e6 !important;
         }
         
-        /* 칼럼 너비 강제 설정 */
-        #userManagementModal th:nth-child(1),
-        #userManagementModal td:nth-child(1) {
-            width: 15% !important;
-            text-align: left !important;
-        }
-        
-        #userManagementModal th:nth-child(2),
-        #userManagementModal td:nth-child(2) {
-            width: 30% !important;
-            text-align: left !important;
-        }
-        
-        #userManagementModal th:nth-child(3),
-        #userManagementModal td:nth-child(3) {
-            width: 12% !important;
+        /* 사용자 관리 모달 테이블 - 모든 CSS 우선순위 무시하고 강제 적용 */
+        .modal#userManagementModal table#usersTable td,
+        .modal#userManagementModal table#usersTable th,
+        div#userManagementModal table#usersTable td,
+        div#userManagementModal table#usersTable th,
+        #userManagementModal table#usersTable tbody td,
+        #userManagementModal table#usersTable thead th {
             text-align: center !important;
+            vertical-align: middle !important;
+            padding: 0.75rem 0.5rem !important;
+            border: 1px solid #dee2e6 !important;
         }
         
-        #userManagementModal th:nth-child(4),
-        #userManagementModal td:nth-child(4) {
-            width: 10% !important;
-            text-align: center !important;
+        /* 테이블 행별 테두리 강화 */
+        #userManagementModal #usersTable tbody tr {
+            border: 1px solid #dee2e6 !important;
         }
         
-        #userManagementModal th:nth-child(5),
-        #userManagementModal td:nth-child(5) {
-            width: 18% !important;
-            text-align: center !important;
+        /* 줄무늬 행에도 테두리 적용 */
+        #userManagementModal #usersTable tbody tr:nth-child(even) td {
+            border-left: 1px solid #dee2e6 !important;
+            border-right: 1px solid #dee2e6 !important;
+            border-top: 1px solid #dee2e6 !important;
+            border-bottom: 1px solid #dee2e6 !important;
         }
         
-        #userManagementModal th:nth-child(6),
-        #userManagementModal td:nth-child(6) {
-            width: 15% !important;
-            text-align: center !important;
+        #userManagementModal #usersTable tbody tr:nth-child(odd) td {
+            border-left: 1px solid #dee2e6 !important;
+            border-right: 1px solid #dee2e6 !important;
+            border-top: 1px solid #dee2e6 !important;
+            border-bottom: 1px solid #dee2e6 !important;
+        }
+        
+        /* 컬럼 너비 설정 - 작업 컬럼 확장 */
+        #userManagementModal #usersTable th:nth-child(1) { width: 12% !important; }
+        #userManagementModal #usersTable th:nth-child(2) { width: 24% !important; }
+        #userManagementModal #usersTable th:nth-child(3) { width: 14% !important; }
+        #userManagementModal #usersTable th:nth-child(4) { width: 10% !important; }
+        #userManagementModal #usersTable th:nth-child(5) { width: 22% !important; }
+        #userManagementModal #usersTable th:nth-child(6) { width: 18% !important; }
+        
+        /* 상태 배지 크기 확대 */
+        #userManagementModal #usersTable .badge {
+            font-size: 0.85rem !important;
+            padding: 0.4rem 0.7rem !important;
+            min-width: 50px !important;
+        }
+        
+        /* 작업 컬럼 버튼 스타일 축소 */
+        #userManagementModal #usersTable .user-status-btn {
+            font-size: 0.75rem !important;
+            padding: 0.25rem 0.5rem !important;
+            white-space: nowrap !important;
+            min-width: 60px !important;
+        }
+        
+        /* 본인 텍스트 스타일 */
+        #userManagementModal #usersTable .text-muted {
+            font-size: 0.8rem !important;
+            font-weight: 500 !important;
+        }
+        
+        /* 테이블 행 정렬 문제 해결 */
+        #userManagementModal table tr {
+            display: table-row !important;
         }
         
         /* 사용자 관리 모달의 권한 드롭다운 스타일 */
-        #userManagementModal .user-permission-select {
-            width: 90px !important;
+        #userManagementModal .user-permission-select,
+        #userManagementModal select {
+            width: 130px !important;
             text-align: center !important;
             text-align-last: center !important;
             margin: 0 auto !important;
             display: block !important;
-            font-size: 0.85rem !important;
+            font-size: 0.9rem !important;
+            padding: 0.4rem 0.75rem !important;
+            padding-right: 2rem !important; /* 화살표 공간 확보 */
+            background-position: right 0.75rem center !important; /* 화살표 위치 조정 */
+            cursor: pointer !important;
+            pointer-events: auto !important;
+            position: relative !important;
+            z-index: 1000 !important;
+            border: 1px solid #ced4da !important;
+            background-color: #fff !important;
+            user-select: auto !important;
+            -webkit-user-select: auto !important;
+            -moz-user-select: auto !important;
+            -ms-user-select: auto !important;
+        }
+        
+        /* 테이블 셀 기본 설정 */
+        #userManagementModal table td {
+            display: table-cell !important;
+            cursor: default !important;
+        }
+        
+        /* 버튼만 pointer 커서 */
+        #userManagementModal table td button {
+            cursor: pointer !important;
+        }
+        
+        #userManagementModal .user-permission-select:focus,
+        #userManagementModal .user-permission-select:active {
+            outline: 0 !important;
+            box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25) !important;
+            border-color: #80bdff !important;
+        }
+        
+        #userManagementModal .user-permission-select option {
+            background-color: #fff !important;
+            color: #212529 !important;
+            padding: 0.375rem 0.75rem !important;
+        }
+
+        /* 드롭다운 클릭 가능하도록 강제 설정 */
+        #userManagementModal td select,
+        #userManagementModal tbody select,
+        #userManagementModal table select {
+            pointer-events: auto !important;
+            user-select: auto !important;
+            -webkit-user-select: auto !important;
+            -moz-user-select: auto !important;
+            -ms-user-select: auto !important;
+            cursor: pointer !important;
         }
         
         /* 상태 배지 중앙 정렬 */
@@ -2931,31 +3032,34 @@
 
     <!-- 사용자 관리 모달 -->
     <div class="modal fade" id="userManagementModal" tabindex="-1" aria-labelledby="userManagementModalLabel" data-bs-backdrop="true" data-bs-keyboard="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog" style="max-width: 900px;">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="userManagementModalLabel">
-                        <i class="fas fa-users-cog me-2"></i>사용자 관리
-                    </h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <div class="d-flex align-items-center flex-grow-1">
+                        <h5 class="modal-title mb-0" id="userManagementModalLabel">
+                            <i class="fas fa-users-cog me-2"></i>사용자 관리
+                        </h5>
+                        <div id="userManagementAlert" class="ms-3" style="min-height: 24px;"></div>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <button class="btn btn-sm me-2" id="refreshUsersBtn" onclick="loadUsers()" style="background-color: rgba(40, 167, 69, 0.1) !important; border: 1px solid rgba(40, 167, 69, 0.2) !important; color: #28a745 !important; font-size: 0.8rem; padding: 0.3rem 0.6rem;">
+                            <i class="fas fa-sync-alt me-1"></i>새로고침
+                        </button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
                 </div>
                 <div class="modal-body">
-                    <div class="mb-3">
-                        <button class="btn" id="refreshUsersBtn" onclick="loadUsers()" style="background-color: rgba(40, 167, 69, 0.1) !important; border: 1px solid rgba(40, 167, 69, 0.2) !important; color: #28a745 !important;">
-                            <i class="fas fa-sync-alt me-2"></i>새로고침
-                        </button>
-                    </div>
                     
                     <div class="table-responsive">
                         <table class="table table-striped" id="usersTable">
                             <thead class="table-light">
                                 <tr>
-                                    <th style="width: 15%; text-align: left; vertical-align: middle;">이름</th>
-                                    <th style="width: 30%; text-align: left; vertical-align: middle;">이메일</th>
-                                    <th style="width: 12%; text-align: center; vertical-align: middle;">권한</th>
-                                    <th style="width: 10%; text-align: center; vertical-align: middle;">상태</th>
-                                    <th style="width: 18%; text-align: center; vertical-align: middle;">마지막 로그인</th>
-                                    <th style="width: 15%; text-align: center; vertical-align: middle;">작업</th>
+                                    <th>이름</th>
+                                    <th>이메일</th>
+                                    <th>권한</th>
+                                    <th>상태</th>
+                                    <th>마지막 로그인</th>
+                                    <th>작업</th>
                                 </tr>
                             </thead>
                             <tbody id="usersTableBody">
@@ -2989,30 +3093,26 @@
         let projectsData = [];
         let dataTable = null;
         
-        // 사용자 권한 정보
+        // 사용자 권한 정보 (서버에서 전달받음)
         const userPermission = '{{ session.user.permission_level }}';
         const userName = '{{ session.user.name }}';
+        const userRole = '{{ user_role }}';  // 서버에서 계산된 최종 역할
         
-        // 관리자 목록 (하드코딩된 이름들)
-        const adminUsers = ['고광일', '박정우', '박용구', '황샛별'];
-        
-        // 편집자 목록 (하드코딩된 이름들)
-        const editorUsers = ['강민석', '강성환', '권태훈', '박민우', '박민재', '빈승정', '조성헌', '주영민', '황해승'];
-        
-        // 사용자 권한 등급 결정 (DB 권한을 우선으로 하되, 하드코딩된 목록도 체크)
-        function getUserRole() {
-            // DB에서 가져온 실제 권한 레벨 확인
-            const dbPermission = userPermission.toLowerCase();
-            
-            if (dbPermission === 'admin' || adminUsers.includes(userName)) {
-                return 'Admin';
-            } else if (dbPermission === 'editor' || editorUsers.includes(userName)) {
-                return 'Editor';
+        // 개발자용 임시 권한 변경 함수 (테스트용)
+        function changeTestPermission(role) {
+            if (confirm(`테스트를 위해 임시로 권한을 ${role}로 변경하시겠습니까? (새로고침하면 원래대로 돌아옵니다)`)) {
+                window.testUserRole = role;
+                location.reload();
             }
-            return 'Viewer';
         }
         
-        const userRole = getUserRole();
+        // 테스트 모드 감지
+        const isTestMode = window.testUserRole || false;
+        
+        // getUserRole 함수는 이제 서버에서 계산된 값을 반환
+        function getUserRole() {
+            return userRole;
+        }
         
         // 편집자가 수정 가능한 필드 정의
         const editorAllowedFields = {
@@ -3146,7 +3246,6 @@
         // 프로젝트 데이터 로드
         async function loadProjectsData() {
             try {
-                console.log('데이터 로드 시작...');
                 // 캐시 무시하고 최신 데이터 로드
                 const timestamp = new Date().getTime();
                 const response = await fetch(`/api/projects/list?t=${timestamp}`, {
@@ -3157,39 +3256,21 @@
                         'Expires': '0'
                     }
                 });
-                console.log('API 응답 상태:', response.status);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
                 const data = await response.json();
-                console.log('데이터 파싱 완료, 타입:', typeof data, '길이:', Array.isArray(data) ? data.length : 'not array');
                 
                 if (data.error) {
                     throw new Error(data.error);
                 }
                 
                 projectsData = data;
-                console.log('프로젝트 데이터 로드됨:', projectsData.length, '건');
                 
-                // 컬럼명과 샘플 데이터 디버깅
+                // 데이터 로드 완료
                 if (projectsData.length > 0) {
-                    console.log('사용 가능한 컬럼명:', Object.keys(projectsData[0]));
-                    
-                    // S열과 W열 데이터 확인
-                    const firstRow = projectsData[0];
-                    console.log('S열 관련 데이터:', {
-                        '총액2': firstRow['총액2'],
-                        '총액 2': firstRow['총액 2'],
-                        'S': firstRow['S']
-                    });
-                    console.log('W열 관련 데이터:', {
-                        '미수금W': firstRow['미수금W'],
-                        '미수금 W': firstRow['미수금 W'],
-                        'W': firstRow['W'],
-                        '미수금': firstRow['미수금']
-                    });
                 }
                 
             } catch (error) {
@@ -3287,7 +3368,6 @@
                 managerSelect.appendChild(option);
             });
             
-            console.log(`담당자 필터 로드 완료: ${managers.size}명`);
         }
 
 
@@ -3355,7 +3435,6 @@
                             // 다양한 컬럼명 시도 (API 응답 기준)
                             const totalAmount = row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0;
                             const numValue = parseFloat(totalAmount) || 0;
-                            console.log('총액 데이터:', totalAmount, '변환값:', numValue); // 디버깅용
                             
                             if (numValue > 0) {
                                 return formatCurrency(numValue);
@@ -3376,7 +3455,6 @@
                             // 총액 데이터 확인
                             const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0);
                             
-                            console.log('미수금 데이터:', outstandingData, '변환값:', outstandingAmount); // 디버깅용
                             
                             if (outstandingAmount >= 0) {
                                 // 총액이 없는데 미수금이 0원인 경우 - 경고 아이콘 표시
@@ -3504,7 +3582,6 @@
                     // 이미 확장된 상태라면 닫기
                     row.child.hide();
                     tr.removeClass('shown accordion-open');
-                    console.log('아코디언 닫음, 클래스 제거됨');
                 } else {
                     // 먼저 다른 모든 확장된 행들을 닫기 및 강조 해제
                     $('#projectsTable tbody tr').removeClass('accordion-open');
@@ -3518,7 +3595,6 @@
                     // 현재 행 확장 및 강조
                     row.child(formatRowDetails(row.data())).show();
                     tr.addClass('shown accordion-open');
-                    console.log('아코디언 열림, 클래스 추가됨:', tr.hasClass('accordion-open'));
                 }
             });
         }
@@ -6428,11 +6504,9 @@
                                 }
                             });
                             
-                            console.log('행 클릭 이벤트 재설정 완료:', newProjectCode || projectCode);
                         }
                     }, 100); // 100ms 후에 이벤트 재설정
                     
-                    console.log('테이블 행 업데이트 완료:', newProjectCode || projectCode);
                 }
             } else {
                 console.warn('프로젝트를 찾을 수 없습니다:', projectCode);
@@ -6982,22 +7056,81 @@
         });
 
         // 사용자 관리 함수들
+        function handleModalHidden() {
+            // 모달이 완전히 숨겨진 후 포커스를 안전한 위치로 이동
+            setTimeout(() => {
+                const userManagementBtn = document.querySelector('a[onclick="openUserManagement()"]');
+                if (userManagementBtn) {
+                    userManagementBtn.focus();
+                } else {
+                    document.body.focus();
+                }
+            }, 100);
+        }
+        
         function openUserManagement() {
             const modalElement = document.getElementById('userManagementModal');
             const modal = new bootstrap.Modal(modalElement);
+            
+            // 모달 이벤트 리스너 (한 번만 추가하도록 기존 리스너 제거)
+            modalElement.removeEventListener('hidden.bs.modal', handleModalHidden);
+            modalElement.addEventListener('hidden.bs.modal', handleModalHidden);
+            
+            // 모달 숨겨지기 전 포커스 해제
+            modalElement.addEventListener('hide.bs.modal', function () {
+                // 포커스된 요소가 모달 내부에 있으면 포커스 해제
+                const activeElement = document.activeElement;
+                if (modalElement.contains(activeElement)) {
+                    activeElement.blur();
+                }
+            });
+            
             modal.show();
             loadUsers();
+        }
+        
+        // 사용자 관리 모달 전용 알림 함수
+        function showUserManagementAlert(message, type = 'success') {
+            const alertContainer = document.getElementById('userManagementAlert');
+            if (!alertContainer) return;
+            
+            // 기존 알림 제거
+            alertContainer.innerHTML = '';
+            
+            // 새 알림 생성
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type === 'error' ? 'danger' : type} py-1 px-2 mb-0 d-inline-flex align-items-center`;
+            alertDiv.style.fontSize = '0.8rem';
+            alertDiv.innerHTML = `
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-1"></i>
+                ${message}
+            `;
+            
+            alertContainer.appendChild(alertDiv);
+            
+            // 3초 후 자동 제거
+            setTimeout(() => {
+                if (alertDiv.parentElement) {
+                    alertDiv.remove();
+                }
+            }, 3000);
         }
         
         async function loadUsers() {
             try {
                 const response = await fetch('/api/users');
+                
                 if (!response.ok) {
-                    throw new Error('Failed to load users');
+                    throw new Error('Failed to load users - status: ' + response.status);
                 }
                 
-                const users = await response.json();
-                renderUsersTable(users);
+                const data = await response.json();
+                
+                if (data.success) {
+                    renderUsersTable(data.users);
+                } else {
+                    throw new Error(data.message || 'Failed to load users');
+                }
             } catch (error) {
                 console.error('사용자 목록 로드 실패:', error);
                 document.getElementById('usersTableBody').innerHTML = `
@@ -7011,7 +7144,9 @@
         }
         
         function renderUsersTable(users) {
+            
             const tbody = document.getElementById('usersTableBody');
+            
             if (!users || users.length === 0) {
                 tbody.innerHTML = `
                     <tr>
@@ -7023,39 +7158,162 @@
                 return;
             }
             
-            tbody.innerHTML = users.map(user => `
-                <tr>
-                    <td>${user.name}</td>
-                    <td>${user.email}</td>
-                    <td>
-                        <select class="form-select form-select-sm user-permission-select" onchange="updateUserPermission('${user.email}', this.value)" 
-                                ${user.email === '{{ session.user.email }}' ? 'disabled' : ''}>
-                            <option value="viewer" ${user.permission_level === 'viewer' ? 'selected' : ''}>Viewer</option>
-                            <option value="editor" ${user.permission_level === 'editor' ? 'selected' : ''}>Editor</option>
-                            <option value="admin" ${user.permission_level === 'admin' ? 'selected' : ''}>Admin</option>
-                        </select>
-                    </td>
-                    <td>
-                        <span class="badge bg-${user.is_active ? 'success' : 'warning'}">
-                            ${user.is_active ? '활성' : '대기'}
-                        </span>
-                    </td>
-                    <td>${user.last_login ? new Date(user.last_login).toLocaleString() : '없음'}</td>
-                    <td>
-                        ${user.email !== '{{ session.user.email }}' ? `
-                            <button class="btn btn-sm btn-${user.is_active ? 'warning' : 'success'}" 
-                                    onclick="toggleUserStatus('${user.email}', ${!user.is_active})">
-                                <i class="fas fa-${user.is_active ? 'pause' : 'play'}"></i>
-                                ${user.is_active ? '비활성화' : '활성화'}
-                            </button>
-                        ` : '<span class="text-muted">본인</span>'}
-                    </td>
-                </tr>
-            `).join('');
+            // 현재 세션 사용자 이메일 가져오기
+            const currentUserEmail = '{{ session.user.email }}';
+            
+            const htmlContent = users.map(user => {
+                const isCurrentUser = user.email === currentUserEmail;
+                const userEmailEscaped = user.email.replace(/['"]/g, '\\$&'); // 이메일 내 특수문자 이스케이프
+                
+                let html = '<tr>';
+                html += '<td>' + user.name + '</td>';
+                html += '<td>' + user.email + '</td>';
+                html += '<td>';
+                
+                // 이벤트 위임을 위해 data 속성 사용 (인라인 이벤트 제거)
+                html += '<select class="user-permission-select" ';
+                html += 'data-user-email="' + userEmailEscaped + '" ';
+                html += 'style="cursor: pointer; width: 120px; text-align: center; background-color: white;" ';
+                html += (isCurrentUser ? 'disabled' : '') + '>';
+                html += '<option value="admin"' + (user.permission_level === 'admin' ? ' selected' : '') + '>관리자</option>';
+                html += '<option value="editor"' + (user.permission_level === 'editor' ? ' selected' : '') + '>편집자</option>';
+                html += '<option value="viewer"' + (user.permission_level === 'viewer' ? ' selected' : '') + '>뷰어</option>';
+                html += '</select>';
+                
+                html += '</td>';
+                html += '<td>';
+                html += '<span class="badge bg-' + (user.is_active ? 'success' : 'warning') + '">';
+                html += (user.is_active ? '활성' : '대기');
+                html += '</span>';
+                html += '</td>';
+                html += '<td>' + (user.last_login ? new Date(user.last_login).toLocaleString() : '없음') + '</td>';
+                html += '<td>';
+                if (!isCurrentUser) {
+                    html += '<button class="btn btn-sm btn-' + (user.is_active ? 'warning' : 'success') + ' user-status-btn" ';
+                    html += 'data-user-email="' + userEmailEscaped + '" ';
+                    html += 'data-target-status="' + (!user.is_active) + '" ';
+                    html += 'title="' + (user.is_active ? '사용자 비활성화' : '사용자 활성화') + '">';
+                    html += '<i class="fas fa-' + (user.is_active ? 'pause' : 'play') + ' me-1"></i>';
+                    html += (user.is_active ? '중지' : '활성');
+                    html += '</button>';
+                } else {
+                    html += '<span class="text-muted">본인</span>';
+                }
+                html += '</td>';
+                html += '</tr>';
+                return html;
+            }).join('');
+            
+            
+            tbody.innerHTML = htmlContent;
+            
+            // 모든 테이블 셀에 중앙 정렬 및 크기 조정 적용
+            setTimeout(() => {
+                const usersTable = document.getElementById('usersTable');
+                if (usersTable) {
+                    const allTds = usersTable.querySelectorAll('td');
+                    const allThs = usersTable.querySelectorAll('th');
+                    
+                    allTds.forEach(td => {
+                        td.style.setProperty('text-align', 'center', 'important');
+                        td.style.setProperty('vertical-align', 'middle', 'important');
+                        td.style.setProperty('padding', '0.75rem 0.5rem', 'important');
+                        td.style.setProperty('border', '1px solid #dee2e6', 'important');
+                    });
+                    
+                    allThs.forEach(th => {
+                        th.style.setProperty('text-align', 'center', 'important');
+                        th.style.setProperty('vertical-align', 'middle', 'important');
+                        th.style.setProperty('padding', '0.75rem 0.5rem', 'important');
+                        th.style.setProperty('border', '1px solid #dee2e6', 'important');
+                    });
+                    
+                    // 상태 배지 크기 조정
+                    const badges = usersTable.querySelectorAll('.badge');
+                    badges.forEach(badge => {
+                        badge.style.setProperty('font-size', '0.85rem', 'important');
+                        badge.style.setProperty('padding', '0.4rem 0.7rem', 'important');
+                        badge.style.setProperty('min-width', '50px', 'important');
+                    });
+                    
+                    // 작업 버튼 크기 조정
+                    const statusBtns = usersTable.querySelectorAll('.user-status-btn');
+                    statusBtns.forEach(btn => {
+                        btn.style.setProperty('font-size', '0.75rem', 'important');
+                        btn.style.setProperty('padding', '0.25rem 0.5rem', 'important');
+                        btn.style.setProperty('min-width', '60px', 'important');
+                    });
+                    
+                    // 본인 텍스트 스타일 조정
+                    const mutedTexts = usersTable.querySelectorAll('.text-muted');
+                    mutedTexts.forEach(text => {
+                        if (text.textContent.trim() === '본인') {
+                            text.style.setProperty('font-size', '0.8rem', 'important');
+                            text.style.setProperty('font-weight', '500', 'important');
+                        }
+                    });
+                }
+            }, 100);
+            
+            // 드롭다운 이벤트 위임 설정 (한 번만 실행)
+            setupUserManagementEventDelegation();
         }
+        
+        // 사용자 관리 이벤트 위임 설정 (한 번만 실행)
+        let eventDelegationSetup = false;
+        function setupUserManagementEventDelegation() {
+            if (eventDelegationSetup) return; // 이미 설정된 경우 건너뛰기
+            
+            const userTableBody = document.getElementById('usersTableBody');
+            if (!userTableBody) return;
+            
+            // 드롭다운 변경 이벤트 위임
+            userTableBody.addEventListener('change', function(e) {
+                if (e.target.matches('.user-permission-select')) {
+                    const selectElement = e.target;
+                    const userEmail = selectElement.dataset.userEmail;
+                    const newPermission = selectElement.value;
+                    
+                    if (!selectElement.disabled) {
+                        updateUserPermission(userEmail, newPermission);
+                    }
+                }
+            });
+            
+            // 버튼 클릭 이벤트 위임
+            userTableBody.addEventListener('click', function(e) {
+                if (e.target.matches('.user-status-btn') || e.target.closest('.user-status-btn')) {
+                    const button = e.target.matches('.user-status-btn') ? e.target : e.target.closest('.user-status-btn');
+                    const userEmail = button.dataset.userEmail;
+                    const targetStatus = button.dataset.targetStatus === 'true';
+                    
+                    toggleUserStatus(userEmail, targetStatus);
+                }
+            });
+            
+            eventDelegationSetup = true;
+        }
+        
+        // 기존 testDropdown 함수 (호환성 유지)
+        function testDropdown(selectElement, email) {
+            const newPermission = selectElement.value;
+            
+            if (selectElement.disabled) {
+                return;
+            }
+            
+            // 권한 업데이트 함수 호출
+            updateUserPermission(email, newPermission);
+        }
+        
         
         async function updateUserPermission(email, permission) {
             try {
+                
+                // 사용자 이름 찾기
+                const userRow = document.querySelector(`select[data-user-email="${email}"]`).closest('tr');
+                const userName = userRow ? userRow.cells[0].textContent.trim() : '사용자';
+                
                 const response = await fetch('/api/users/permission', {
                     method: 'POST',
                     headers: {
@@ -7068,19 +7326,27 @@
                 });
                 
                 if (response.ok) {
-                    showAlert(`권한이 ${permission}으로 변경되었습니다.`, 'success');
+                    const result = await response.json();
+                    const permissionKorean = permission === 'admin' ? '관리자' : permission === 'editor' ? '편집자' : '뷰어';
+                    showUserManagementAlert(`"${userName}"님의 권한이 "${permissionKorean}"로 변경되었습니다.`, 'success');
                 } else {
-                    throw new Error('Failed to update permission');
+                    const error = await response.json();
+                    console.error('권한 업데이트 실패 (응답):', error);
+                    throw new Error(error.message || 'Failed to update permission');
                 }
             } catch (error) {
-                console.error('권한 업데이트 실패:', error);
-                showAlert('권한 변경에 실패했습니다.', 'error');
+                console.error('권한 업데이트 실패 (예외):', error);
+                showUserManagementAlert('권한 변경에 실패했습니다.', 'error');
                 loadUsers(); // 실패 시 원래 상태로 복원
             }
         }
         
         async function toggleUserStatus(email, activate) {
             try {
+                // 사용자 이름 찾기
+                const userRow = document.querySelector(`button[data-user-email="${email}"]`).closest('tr');
+                const userName = userRow ? userRow.cells[0].textContent.trim() : '사용자';
+                
                 const response = await fetch('/api/users/status', {
                     method: 'POST',
                     headers: {
@@ -7093,14 +7359,15 @@
                 });
                 
                 if (response.ok) {
-                    showAlert(`사용자가 ${activate ? '활성화' : '비활성화'}되었습니다.`, 'success');
+                    const statusText = activate ? '활성화' : '비활성화';
+                    showUserManagementAlert(`"${userName}"님이 ${statusText}되었습니다.`, 'success');
                     loadUsers();
                 } else {
                     throw new Error('Failed to update user status');
                 }
             } catch (error) {
                 console.error('사용자 상태 변경 실패:', error);
-                showAlert('사용자 상태 변경에 실패했습니다.', 'error');
+                showUserManagementAlert('사용자 상태 변경에 실패했습니다.', 'error');
             }
         }
     </script>

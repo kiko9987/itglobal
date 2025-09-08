@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, session, redirect, url_for
 from flask_socketio import SocketIO, emit
 import os
 import sys
@@ -9,12 +9,16 @@ import re
 from collections import Counter, defaultdict
 from dotenv import load_dotenv
 
+# 인증 시스템 import
+from auth import user_manager, login_required, admin_required, get_user_role
+from google_oauth import google_oauth, is_oauth_configured
+
 # 프로젝트 루트 경로를 시스템 경로에 추가
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(project_root))
 
-from dashboard.utils.google_sheets import GoogleSheetsManager
-from dashboard.utils.data_analyzer import DataAnalyzer
+from utils.google_sheets import GoogleSheetsManager
+from utils.data_analyzer import DataAnalyzer
 
 # 환경 변수 로드
 load_dotenv()
@@ -22,13 +26,23 @@ load_dotenv()
 # Flask 앱 초기화
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # 7일 세션 유지
 
 # SocketIO 초기화 (실시간 업데이트용)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # 로깅 설정
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Google API 캐시 경고 억제
+logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 
 # 전역 변수 (캐싱 개선)
 current_data = None
@@ -214,13 +228,109 @@ def _auto_project_code(df, company: str, owner: str) -> str:
 
 @app.route('/')
 def dashboard():
-    """메인 대시보드 페이지"""
-    return render_template('dashboard.html')
+    """메인 페이지 - 프로젝트 관리로 리다이렉트"""
+    from flask import redirect, url_for
+    return redirect(url_for('project_list'))
+
+@app.route('/login')
+def login_page():
+    """로그인 페이지 (Google OAuth 전용)"""
+    if 'user' in session:
+        return redirect(url_for('project_list'))
+    
+    # OAuth가 설정되지 않은 경우 오류 표시
+    oauth_enabled = is_oauth_configured()
+    if not oauth_enabled:
+        logger.error("Google OAuth가 설정되지 않았습니다.")
+    
+    return render_template('login.html', oauth_enabled=oauth_enabled)
+
+
+@app.route('/auth/google')
+def google_login():
+    """구글 OAuth 로그인 시작"""
+    try:
+        if not is_oauth_configured():
+            return redirect(url_for('login_page', message='oauth_not_configured'))
+        
+        authorization_url, state = google_oauth.get_authorization_url(
+            redirect_uri=url_for('google_callback', _external=True)
+        )
+        
+        if not authorization_url:
+            return redirect(url_for('login_page', message='oauth_error'))
+        
+        session['oauth_state'] = state
+        return redirect(authorization_url)
+        
+    except Exception as e:
+        logger.error(f"Google OAuth 시작 오류: {str(e)}")
+        return redirect(url_for('login_page', message='oauth_error'))
+
+@app.route('/auth/callback')
+def google_callback():
+    """구글 OAuth 콜백"""
+    try:
+        if not is_oauth_configured():
+            return redirect(url_for('login_page', message='oauth_not_configured'))
+        
+        # 상태 검증
+        state = request.args.get('state')
+        if state != session.get('oauth_state'):
+            logger.warning("OAuth state 불일치")
+            return redirect(url_for('login_page', message='oauth_error'))
+        
+        # 에러 체크
+        error = request.args.get('error')
+        if error:
+            logger.warning(f"OAuth 에러: {error}")
+            return redirect(url_for('login_page', message='oauth_cancelled'))
+        
+        # 인증 코드 가져오기
+        code = request.args.get('code')
+        if not code:
+            return redirect(url_for('login_page', message='oauth_error'))
+        
+        # 사용자 정보 가져오기
+        user_info = google_oauth.get_user_info(
+            code, state, 
+            redirect_uri=url_for('google_callback', _external=True)
+        )
+        
+        if not user_info:
+            return redirect(url_for('login_page', message='domain_not_allowed'))
+        
+        # 사용자 인증 및 자동 등록
+        user = user_manager.authenticate_google_user(user_info)
+        if not user:
+            return redirect(url_for('login_page', message='login_failed'))
+        
+        # 세션 생성
+        session['user'] = user
+        session.permanent = True
+        
+        # OAuth state 정리
+        session.pop('oauth_state', None)
+        
+        logger.info(f"Google OAuth 로그인 성공: {user['email']}")
+        return redirect(url_for('project_list'))
+        
+    except Exception as e:
+        logger.error(f"Google OAuth 콜백 오류: {str(e)}")
+        return redirect(url_for('login_page', message='oauth_error'))
+
+@app.route('/logout')
+def logout():
+    """로그아웃 처리"""
+    session.clear()
+    return redirect(url_for('login_page', message='logout_success'))
 
 @app.route('/projects')
+@login_required
 def project_list():
     """프로젝트 목록 페이지"""
-    return render_template('project_list.html')
+    user_role = get_user_role()
+    return render_template('project_list.html', user_role=user_role)
 
 @app.route('/project/new')
 def project_form_new():
@@ -1250,9 +1360,96 @@ if __name__ == '__main__':
     load_data()
     
     # 서버 시작
-    port = int(os.getenv('PORT', 8000))
+    port = int(os.getenv('PORT', 5001))
     debug = os.getenv('DEBUG', 'True').lower() == 'true'
     
+    # 사용자 관리 API 엔드포인트
+    @app.route('/api/users', methods=['GET'])
+    @admin_required
+    def get_users():
+        """사용자 목록 조회 (관리자만)"""
+        try:
+            users = user_manager.get_all_users()
+            return jsonify({'success': True, 'users': users})
+        except Exception as e:
+            logger.error(f"사용자 목록 조회 오류: {str(e)}")
+            return jsonify({'success': False, 'message': '사용자 목록을 불러올 수 없습니다.'}), 500
+
+    @app.route('/api/users/permission', methods=['POST'])
+    @admin_required
+    def update_user_permission():
+        """사용자 권한 업데이트 (관리자만)"""
+        try:
+            data = request.get_json()
+            email = data.get('email')
+            permission = data.get('permission')
+            
+            if not email or not permission:
+                return jsonify({'success': False, 'message': '이메일과 권한이 필요합니다.'}), 400
+            
+            success, message = user_manager.update_user_permission(email, permission)
+            return jsonify({'success': success, 'message': message})
+            
+        except Exception as e:
+            logger.error(f"권한 업데이트 오류: {str(e)}")
+            return jsonify({'success': False, 'message': '권한 업데이트에 실패했습니다.'}), 500
+
+    @app.route('/api/users/status', methods=['POST'])
+    @admin_required
+    def toggle_user_status():
+        """사용자 상태 변경 (관리자만)"""
+        try:
+            data = request.get_json()
+            email = data.get('email')
+            is_active = data.get('is_active')
+            
+            if email is None or is_active is None:
+                return jsonify({'success': False, 'message': '이메일과 상태가 필요합니다.'}), 400
+            
+            success, message = user_manager.toggle_user_status(email, is_active)
+            return jsonify({'success': success, 'message': message})
+            
+        except Exception as e:
+            logger.error(f"사용자 상태 변경 오류: {str(e)}")
+            return jsonify({'success': False, 'message': '사용자 상태 변경에 실패했습니다.'}), 500
+
+    @app.route('/api/users', methods=['POST'])
+    @admin_required
+    def create_user():
+        """새 사용자 생성 (관리자만)"""
+        try:
+            data = request.get_json()
+            name = data.get('name', '').strip()
+            email = data.get('email', '').strip().lower()
+            password = data.get('password', '')
+            permission = data.get('permission', 'viewer')
+            
+            if not name or not email or not password:
+                return jsonify({'success': False, 'message': '이름, 이메일, 비밀번호가 필요합니다.'}), 400
+            
+            success, message = user_manager.create_user(name, email, password, permission)
+            return jsonify({'success': success, 'message': message})
+            
+        except Exception as e:
+            logger.error(f"사용자 생성 오류: {str(e)}")
+            return jsonify({'success': False, 'message': '사용자 생성에 실패했습니다.'}), 500
+
+    @app.route('/api/users/<email>', methods=['DELETE'])
+    @admin_required
+    def delete_user(email):
+        """사용자 삭제 (관리자만)"""
+        try:
+            # 본인 계정 삭제 방지
+            if session['user']['email'] == email:
+                return jsonify({'success': False, 'message': '본인 계정은 삭제할 수 없습니다.'}), 400
+            
+            success, message = user_manager.delete_user(email)
+            return jsonify({'success': success, 'message': message})
+            
+        except Exception as e:
+            logger.error(f"사용자 삭제 오류: {str(e)}")
+            return jsonify({'success': False, 'message': '사용자 삭제에 실패했습니다.'}), 500
+
     # 파비콘 처리 (404 오류 방지)
     @app.route('/favicon.ico')
     def favicon():
