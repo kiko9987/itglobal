@@ -1648,6 +1648,18 @@
             }
         }
         
+        /* 데스크톱에서는 테이블 표시 */
+        @media (min-width: 769px) {
+            #projectsTable {
+                display: table !important;
+                width: 100% !important;
+            }
+            
+            .mobile-card-container {
+                display: none !important;
+            }
+        }
+        
         @media (max-width: 768px) {
             .header {
                 padding: 1rem 0;
@@ -1724,9 +1736,11 @@
             .table-responsive {
                 border: none;
                 box-shadow: none;
+                width: 100%;
             }
             
             #projectsTable {
+                width: 100% !important;
                 display: none;
             }
             
@@ -3531,8 +3545,8 @@
                 pageLength: 15,
                 lengthMenu: [10, 15, 25, 50, 100],
                 responsive: false,
-                autoWidth: false,
-                scrollX: true,
+                autoWidth: true,
+                scrollX: false,
                 language: {
                     "emptyTable": "데이터가 없습니다.",
                     "info": "_START_번째부터 _END_번째까지 (전체 _TOTAL_개)",
