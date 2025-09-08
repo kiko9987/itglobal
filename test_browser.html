@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test 2806</title>
+</head>
+<body>
+    <h1>Testing Project 2806</h1>
+    <div id="result"></div>
+    
+    <script>
+        fetch('http://localhost:5000/api/projects/list')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Total projects:', data.length);
+                
+                // Find 2806
+                const found2806 = data.filter(p => {
+                    const code = p['프로젝트 코드'] || p['프로젝트코드'] || '';
+                    return code.includes('2806');
+                });
+                
+                // Find last few projects with codes
+                const withCodes = data.filter(p => {
+                    const code = p['프로젝트 코드'] || p['프로젝트코드'] || '';
+                    return code && code.startsWith('G');
+                });
+                
+                const lastProjects = withCodes.slice(-10);
+                
+                let html = `
+                    <p>Total projects: ${data.length}</p>
+                    <p>Projects with codes: ${withCodes.length}</p>
+                    <h2>2806 Search:</h2>
+                `;
+                
+                if (found2806.length > 0) {
+                    html += '<ul>';
+                    found2806.forEach(p => {
+                        const code = p['프로젝트 코드'] || p['프로젝트코드'] || '';
+                        const addr = p['현장 주소'] || p['현장주소'] || '';
+                        html += `<li>${code}: ${addr}</li>`;
+                    });
+                    html += '</ul>';
+                } else {
+                    html += '<p>Not found!</p>';
+                }
+                
+                html += '<h2>Last 10 projects:</h2><ul>';
+                lastProjects.forEach(p => {
+                    const code = p['프로젝트 코드'] || p['프로젝트코드'] || '';
+                    const addr = p['현장 주소'] || p['현장주소'] || '';
+                    html += `<li>${code}: ${addr}</li>`;
+                });
+                html += '</ul>';
+                
+                document.getElementById('result').innerHTML = html;
+            })
+            .catch(error => {
+                document.getElementById('result').innerHTML = 'Error: ' + error;
+            });
+    </script>
+</body>
+</html>

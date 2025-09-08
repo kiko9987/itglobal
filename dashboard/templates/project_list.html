@@ -1489,6 +1489,60 @@
         .badge.bg-primary { background-color: var(--primary-color) !important; }
         .badge.bg-danger { background-color: var(--danger-color) !important; }
         
+        /* Pastel Badge Colors */
+        .badge.bg-pastel-success { 
+            background-color: rgba(16, 185, 129, 0.15) !important; 
+            color: #059669 !important; 
+            border: 1px solid rgba(16, 185, 129, 0.3) !important;
+            font-size: 0.75rem !important;
+            padding: 0.25rem 0.5rem !important;
+            min-width: 40px !important;
+        }
+        .badge.bg-pastel-warning { 
+            background-color: rgba(245, 158, 11, 0.15) !important; 
+            color: #d97706 !important; 
+            border: 1px solid rgba(245, 158, 11, 0.3) !important;
+            font-size: 0.75rem !important;
+            padding: 0.25rem 0.5rem !important;
+            min-width: 40px !important;
+        }
+        
+        /* Pastel Button Colors */
+        .btn.btn-pastel-success,
+        .user-status-btn.btn-pastel-success {
+            background-color: rgba(16, 185, 129, 0.15) !important;
+            border-color: rgba(16, 185, 129, 0.3) !important;
+            color: #059669 !important;
+            font-size: 0.75rem !important;
+            padding: 0.25rem 0.5rem !important;
+            min-width: 55px !important;
+            height: auto !important;
+            line-height: 1.2 !important;
+        }
+        .btn.btn-pastel-success:hover,
+        .user-status-btn.btn-pastel-success:hover {
+            background-color: rgba(16, 185, 129, 0.25) !important;
+            border-color: rgba(16, 185, 129, 0.4) !important;
+            color: #047857 !important;
+        }
+        .btn.btn-pastel-warning,
+        .user-status-btn.btn-pastel-warning {
+            background-color: rgba(245, 158, 11, 0.15) !important;
+            border-color: rgba(245, 158, 11, 0.3) !important;
+            color: #d97706 !important;
+            font-size: 0.75rem !important;
+            padding: 0.25rem 0.5rem !important;
+            min-width: 55px !important;
+            height: auto !important;
+            line-height: 1.2 !important;
+        }
+        .btn.btn-pastel-warning:hover,
+        .user-status-btn.btn-pastel-warning:hover {
+            background-color: rgba(245, 158, 11, 0.25) !important;
+            border-color: rgba(245, 158, 11, 0.4) !important;
+            color: #b45309 !important;
+        }
+        
         /* Responsive Design */
         @media (max-width: 1200px) {
             .content-container {
@@ -7196,14 +7250,14 @@
                 
                 html += '</td>';
                 html += '<td>';
-                html += '<span class="badge bg-' + (user.is_active ? 'success' : 'warning') + '">';
+                html += '<span class="badge bg-pastel-' + (user.is_active ? 'success' : 'warning') + '">';
                 html += (user.is_active ? '활성' : '대기');
                 html += '</span>';
                 html += '</td>';
                 html += '<td>' + (user.last_login ? new Date(user.last_login).toLocaleString() : '없음') + '</td>';
                 html += '<td>';
                 if (!isCurrentUser) {
-                    html += '<button class="btn btn-sm btn-' + (user.is_active ? 'warning' : 'success') + ' user-status-btn" ';
+                    html += '<button class="btn btn-sm btn-pastel-' + (user.is_active ? 'warning' : 'success') + ' user-status-btn" ';
                     html += 'data-user-email="' + userEmailEscaped + '" ';
                     html += 'data-target-status="' + (!user.is_active) + '" ';
                     html += 'title="' + (user.is_active ? '사용자 비활성화' : '사용자 활성화') + '">';
@@ -7245,17 +7299,17 @@
                     // 상태 배지 크기 조정
                     const badges = usersTable.querySelectorAll('.badge');
                     badges.forEach(badge => {
-                        badge.style.setProperty('font-size', '0.85rem', 'important');
-                        badge.style.setProperty('padding', '0.4rem 0.7rem', 'important');
-                        badge.style.setProperty('min-width', '50px', 'important');
+                        badge.style.setProperty('font-size', '0.75rem', 'important');
+                        badge.style.setProperty('padding', '0.25rem 0.5rem', 'important');
+                        badge.style.setProperty('min-width', '40px', 'important');
                     });
                     
-                    // 작업 버튼 크기 조정
+                    // 작업 버튼 크기 조정 - 상태 뱃지와 동일하게
                     const statusBtns = usersTable.querySelectorAll('.user-status-btn');
                     statusBtns.forEach(btn => {
                         btn.style.setProperty('font-size', '0.75rem', 'important');
                         btn.style.setProperty('padding', '0.25rem 0.5rem', 'important');
-                        btn.style.setProperty('min-width', '60px', 'important');
+                        btn.style.setProperty('min-width', '55px', 'important');
                     });
                     
                     // 본인 텍스트 스타일 조정

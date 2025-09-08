@@ -1360,7 +1360,7 @@ if __name__ == '__main__':
     load_data()
     
     # 서버 시작
-    port = int(os.getenv('PORT', 5001))
+    port = int(os.getenv('PORT', 5000))
     debug = os.getenv('DEBUG', 'True').lower() == 'true'
     
     # 사용자 관리 API 엔드포인트

@@ -245,7 +245,14 @@
       "Bash(sed:*)",
       "Bash(node:*)",
       "Bash(git rm:*)",
-      "Bash(git reset:*)"
+      "Bash(git reset:*)",
+      "Bash(git stash:*)",
+      "Bash(set PORT=8000)",
+      "Bash(set DEBUG=False)",
+      "Bash(tasklist:*)",
+      "Bash(start http://localhost:8080)",
+      "Bash(set PORT=8080)",
+      "Bash(start http://localhost:5000)"
     ],
     "deny": [],
     "ask": []
