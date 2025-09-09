@@ -622,6 +622,7 @@ def add_project_auto():
     """신규 프로젝트 자동 코드 생성 및 추가"""
     try:
         data = request.get_json()
+        logger.info(f"add_project_auto에서 받은 데이터: {data}")
         
         company = str(data.get("사업자", "")).strip()
         owner = str(data.get("담당자", "")).strip()
@@ -634,11 +635,17 @@ def add_project_auto():
         if df is None:
             return jsonify({"ok": False, "error": "데이터를 불러올 수 없습니다"}), 500
         
-        # 안전한 자동 프로젝트 코드 생성 (동시성 대응)
-        try:
-            code = _safe_next_running_number_with_retry(company, owner)
-        except Exception as e:
-            return jsonify({"ok": False, "error": str(e)}), 400
+        # 프로젝트 코드 처리 - 폼에서 전송된 코드가 있으면 우선 사용
+        if "프로젝트 코드" in data and str(data["프로젝트 코드"]).strip():
+            code = str(data["프로젝트 코드"]).strip()
+            logger.info(f"폼에서 받은 프로젝트 코드 사용: {code}")
+        else:
+            # 안전한 자동 프로젝트 코드 생성 (동시성 대응)
+            try:
+                code = _safe_next_running_number_with_retry(company, owner)
+                logger.info(f"자동 생성된 프로젝트 코드: {code}")
+            except Exception as e:
+                return jsonify({"ok": False, "error": str(e)}), 400
         
         data["프로젝트 코드"] = code
         
@@ -862,8 +869,10 @@ def get_next_project_code():
 @app.route('/api/projects', methods=['POST'])
 def create_project():
     """새 프로젝트 생성 API"""
+    global current_data
     try:
         data = request.get_json()
+        logger.info(f"받은 폼 데이터: {data}")
         
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
         if not sheet_id:
@@ -873,21 +882,99 @@ def create_project():
         
         # 데이터를 구글 시트 형식으로 변환
         values = convert_form_data_to_sheet_row(data, manager)
+        logger.info(f"변환된 values 배열: {values[:10]}... (총 {len(values)}개)")
         
-        # 구글 시트에 추가
+        # 구글 시트에 추가 시도
         result = manager.append_row(sheet_id, values)
         
-        # 로컬 데이터 새로고침
-        load_data()
+        # 구글 시트 쓰기 실패 여부 확인 (로컬 전용 모드인지 체크)
+        is_local_only = False
+        if result and result.get('updates', {}).get('updatedRange', '').endswith('9999:AM9999'):
+            is_local_only = True
+            logger.info("로컬 전용 모드: 새 프로젝트를 로컬 DataFrame에 직접 추가")
+            
+            # 로컬 DataFrame에 새 데이터 직접 추가
+            try:
+                # 컬럼 매핑 가져오기
+                column_mapping = manager.get_column_mapping()
+                
+                # values 배열을 DataFrame 행으로 변환
+                new_row_data = {}
+                for column_letter, column_name in column_mapping.items():
+                    column_index = ord(column_letter) - ord('A') if len(column_letter) == 1 else \
+                                  (ord(column_letter[0]) - ord('A') + 1) * 26 + (ord(column_letter[1]) - ord('A'))
+                    
+                    if column_index < len(values):
+                        value = values[column_index]
+                        
+                        # 데이터 타입 변환 (GoogleSheetsManager의 _preprocess_data와 일치)
+                        if column_name in ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']:
+                            if value and value != '':
+                                try:
+                                    new_row_data[column_name] = pd.to_datetime(value, errors='coerce')
+                                except:
+                                    new_row_data[column_name] = pd.NaType()
+                            else:
+                                new_row_data[column_name] = pd.NaType()
+                        elif column_name in ['총액 1', '총액 2', '총액2', '계약금', '중도금', '잔금', 
+                                            '미수금', '미수금W', '제품대', '도급비', '자재비', '기타비']:
+                            if value and value != '':
+                                try:
+                                    # 쉼표, 원화기호 제거 후 숫자 변환
+                                    clean_value = str(value).replace(',', '').replace('￦', '').replace('₩', '').replace('-', '').strip()
+                                    new_row_data[column_name] = pd.to_numeric(clean_value, errors='coerce') if clean_value else pd.NA
+                                except:
+                                    new_row_data[column_name] = pd.NA
+                            else:
+                                new_row_data[column_name] = pd.NA
+                        elif column_name in ['부가세', '수금 확인']:
+                            if value == 'TRUE':
+                                new_row_data[column_name] = True
+                            elif value == 'FALSE':
+                                new_row_data[column_name] = False
+                            else:
+                                new_row_data[column_name] = False
+                        else:
+                            new_row_data[column_name] = value if value != '' else None
+                    else:
+                        new_row_data[column_name] = None
+                
+                # 현재 데이터가 있으면 새 행 추가, 없으면 새 DataFrame 생성
+                if current_data is not None and not current_data.empty:
+                    # 새 행을 DataFrame에 추가
+                    import pandas as pd
+                    new_row_df = pd.DataFrame([new_row_data])
+                    current_data = pd.concat([current_data, new_row_df], ignore_index=True)
+                else:
+                    # 현재 데이터가 없으면 구글 시트에서 다시 로드 시도
+                    load_data()
+                    if current_data is not None and not current_data.empty:
+                        new_row_df = pd.DataFrame([new_row_data])
+                        current_data = pd.concat([current_data, new_row_df], ignore_index=True)
+                
+                logger.info(f"로컬 DataFrame에 새 프로젝트 추가 완료: {data.get('projectCode', '')}")
+                
+            except Exception as local_error:
+                logger.error(f"로컬 DataFrame 업데이트 오류: {str(local_error)}")
+                # 실패해도 기존 로드 방식으로 폴백
+                load_data()
+        else:
+            # 구글 시트 쓰기 성공 - 일반적인 데이터 새로고침
+            load_data()
         
         # 실시간 업데이트 알림
         socketio.emit('data_updated', {
             'message': f"새 프로젝트가 등록되었습니다: {data.get('projectCode', '')}",
             'timestamp': datetime.now().isoformat(),
-            'action': 'create'
+            'action': 'create',
+            'local_only': is_local_only
         })
         
-        return jsonify({'success': True, 'project_code': data.get('projectCode', '')})
+        return jsonify({
+            'success': True, 
+            'project_code': data.get('projectCode', ''),
+            'local_only': is_local_only
+        })
         
     except Exception as e:
         logger.error(f"프로젝트 생성 API 오류: {str(e)}")
@@ -1048,10 +1135,13 @@ def update_project(project_code):
 
 def convert_form_data_to_sheet_row(form_data, manager):
     """폼 데이터를 구글 시트 행 형식으로 변환"""
+    logger.info(f"convert_form_data_to_sheet_row 호출됨. 입력 데이터: {form_data}")
+    
     column_mapping = manager.get_column_mapping()
     
-    # 폼 필드명을 구글 시트 컬럼명으로 매핑
+    # 폼 필드명을 구글 시트 컬럼명으로 매핑 (영문명과 한글명 모두 지원)
     field_mapping = {
+        # 영문 필드명 (기존 호환성)
         'projectCode': '프로젝트 코드',
         'company': '사업자',
         'region': '담당자',
@@ -1087,7 +1177,43 @@ def convert_form_data_to_sheet_row(form_data, manager):
         'notes': '비고',
         'downPaymentPayer': '계약금 입금자명',
         'middlePaymentPayer': '중도금 입금자명',
-        'finalPaymentPayer': '잔금 입금자명'
+        'finalPaymentPayer': '잔금 입금자명',
+        
+        # 한글 필드명 (project_list.html의 새 프로젝트 폼)
+        '사업자': '사업자',
+        '담당자': '담당자',
+        '거래처': '거래처',
+        '현장 주소': '현장 주소',
+        '공사 구분': '공사 구분',
+        '기계 분류': '기계 분류',
+        '브랜드': '브랜드',
+        '공사 시작': '공사 시작',
+        '공사 종료': '공사 종료',
+        '공사 내용': '공사 내용',
+        '도급 구분': '도급 구분',
+        '시공자': '시공자',
+        '현장 담당자': '현장 담당자',
+        '담당자 연락처': '담당자 연락처',
+        '담당자 이메일': '담당자 이메일',
+        '총액1': '총액 1',
+        '총액 1': '총액 1', 
+        '부가세 포함': '부가세',
+        # '총액2': '총액 2',  # 제거: 총액2는 무조건 수식으로만 처리
+        # '총액 2': '총액 2',  # 제거: 총액2는 무조건 수식으로만 처리
+        '계약금': '계약금',
+        '중도금': '중도금',
+        '잔금': '잔금',
+        '미수금': '미수금',
+        '계산서': '계산서',
+        '수금 날짜': '수금 날짜',
+        '수금 확인': '수금 확인',
+        '제품대': '제품대',
+        '도급비': '도급비',
+        '자재비': '자재비',
+        '기타비': '기타비',
+        '순익': '순익',
+        '마진율': '마진율',
+        '비고': '비고'
     }
     
     # 39개 컬럼에 맞춰 빈 리스트 생성
@@ -1098,33 +1224,211 @@ def convert_form_data_to_sheet_row(form_data, manager):
         column_index = ord(column_letter) - ord('A') if len(column_letter) == 1 else \
                       (ord(column_letter[0]) - ord('A') + 1) * 26 + (ord(column_letter[1]) - ord('A'))
         
+        # 프로젝트 코드가 없는 경우 자동 생성
+        if column_name == '프로젝트 코드':
+            if 'project_code' in form_data:
+                values[column_index] = str(form_data['project_code'])
+            elif '프로젝트 코드' in form_data and form_data['프로젝트 코드'].strip():
+                values[column_index] = str(form_data['프로젝트 코드'])
+                logger.info(f"폼에서 받은 프로젝트 코드: {form_data['프로젝트 코드']}")
+            else:
+                # 자동 생성: 담당자 정보를 기반으로 프로젝트 코드 생성
+                region_code = 'IT'  # 기본값
+                if '담당자' in form_data:
+                    manager_name = form_data['담당자']
+                    if manager_name in ['박정우', '정우']:
+                        region_code = 'JW'
+                    elif manager_name in ['박용구', '용구']:
+                        region_code = 'YG' 
+                    elif manager_name in ['황샛별', '샛별']:
+                        region_code = 'SB'
+                    elif manager_name in ['고광일', '광일']:
+                        region_code = 'IT'
+                
+                # 프로젝트 코드 생성
+                next_code = manager.get_next_project_code(os.getenv('GOOGLE_SHEET_ID'), region_code)
+                values[column_index] = next_code
+                logger.info(f"자동 생성된 프로젝트 코드: {next_code}")
+            continue
+            
         # 공사 확정 필드에 자동으로 등록 날짜 저장
         if column_name == '공사 확정':
             from datetime import datetime
             values[column_index] = datetime.now().strftime('%Y-%m-%d')
             continue
         
-        # 폼 데이터에서 해당 값 찾기
+        # 폼 데이터에서 해당 값 찾기 - 다단계 매칭 전략
         form_field = None
-        for form_key, sheet_column in field_mapping.items():
-            if sheet_column == column_name:
-                form_field = form_key
-                break
+        value = None
         
-        if form_field and form_field in form_data:
-            value = form_data[form_field]
+        # 1단계: 직접 매칭 (컬럼명이 폼 데이터에 그대로 있는 경우)
+        if column_name in form_data:
+            form_field = column_name
+            value = form_data[column_name]
+            logger.info(f"직접 매핑 성공: '{column_name}' -> 폼 데이터에서 직접 발견")
+        
+        # 2단계: 매핑 테이블을 통한 매칭
+        if not form_field:
+            for form_key, sheet_column in field_mapping.items():
+                if sheet_column == column_name and form_key in form_data:
+                    form_field = form_key
+                    value = form_data[form_key]
+                    logger.info(f"매핑 테이블 매칭 성공: '{form_key}' -> '{column_name}'")
+                    break
+        
+        # 3단계: 특별한 한글 필드들을 위한 직접 매핑
+        if not form_field:
+            # 총액 관련 필드들
+            if column_name == '총액 1':
+                if '총액1' in form_data:
+                    form_field = '총액1'
+                    value = form_data['총액1']
+                    logger.info(f"특별 매핑 성공: '총액1' -> '총액 1'")
+                elif 'amount1' in form_data:
+                    form_field = 'amount1'
+                    value = form_data['amount1']
+                    logger.info(f"특별 매핑 성공: 'amount1' -> '총액 1'")
+# 총액 2 특별 처리 제거 - 강제 기본값에서만 처리함
+            elif column_name == '부가세':
+                if '부가세 포함' in form_data:
+                    form_field = '부가세 포함'
+                    value = form_data['부가세 포함']
+                    logger.info(f"특별 매핑 성공: '부가세 포함' -> '부가세' (값: {value})")
+                elif 'vatIncluded' in form_data:
+                    form_field = 'vatIncluded'
+                    value = form_data['vatIncluded']
+                    logger.info(f"특별 매핑 성공: 'vatIncluded' -> '부가세' (값: {value})")
+                else:
+                    # 부가세 기본값 설정 (폼에서 체크박스가 기본적으로 체크된 상태)
+                    form_field = 'default_vat'
+                    value = True  # 기본값: 부가세 포함
+                    logger.info(f"부가세 기본값 설정: True (체크됨)")
+        
+        # 매핑 실패 시 기본값 설정
+        if not form_field:
+            logger.info(f"매핑 실패: '{column_name}', 폼 데이터 키들: {list(form_data.keys())}")
+            
+            # 폼에서 보내지 않는 필드들에 대한 기본값 설정
+            if column_name == '계약금':
+                form_field = 'default_downPayment'
+                value = '₩0'
+                logger.info(f"기본값 설정: '계약금' -> '₩0'")
+            elif column_name == '중도금':
+                form_field = 'default_middlePayment'  
+                value = '₩0'
+                logger.info(f"기본값 설정: '중도금' -> '₩0'")
+            elif column_name == '잔금':
+                form_field = 'default_finalPayment'
+                value = '₩0'
+                logger.info(f"기본값 설정: '잔금' -> '₩0'")
+            elif column_name == '미수금':
+                form_field = 'default_outstanding'
+                value = '=0-(S:S-(T:T+U:U+V:V))'
+                logger.info(f"기본값 설정: '미수금' -> 수식 '{value}'")
+            elif column_name == '계산서':
+                form_field = 'default_invoice'
+                value = '미발행'
+                logger.info(f"기본값 설정: '계산서' -> '미발행'")
+            elif column_name == '수금 확인':
+                form_field = 'default_paymentConfirmed'
+                value = False
+                logger.info(f"기본값 설정: '수금 확인' -> False (체크박스 해제)")
+            elif column_name == '순익':
+                form_field = 'default_netProfit'
+                value = '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'
+                logger.info(f"기본값 설정: '순익' -> 수식 '{value}'")
+            elif column_name == '마진율':
+                form_field = 'default_marginRate'
+                value = '=(($AE:AE)/($Q:Q))'
+                logger.info(f"기본값 설정: '마진율' -> 수식 '{value}'")
+        
+        if form_field and value is not None:
+            logger.info(f"최종 매핑 발견: {form_field} -> {column_name} (인덱스 {column_index}): '{value}'")
             
             # 데이터 타입별 처리
             if isinstance(value, bool):
+                # 체크박스 필드들은 TRUE/FALSE로 처리
                 values[column_index] = 'TRUE' if value else 'FALSE'
             elif isinstance(value, (int, float)):
-                values[column_index] = str(value) if value != 0 else ''
+                # 금액 필드인 경우 포맷팅 적용
+                if column_name in ['총액 1', '계약금', '중도금', '잔금', '제품대', '도급비', '자재비', '기타비', '순익']:
+                    if value != 0:
+                        # 숫자를 원화 형태로 포맷팅
+                        formatted_value = f"₩{int(value):,}"
+                        values[column_index] = formatted_value
+                    else:
+                        values[column_index] = ''
+                else:
+                    values[column_index] = str(value) if value != 0 else ''
             else:
-                # 이메일 필드인 경우 빈 값일 때 '-' 표시
-                if column_name == '담당자 이메일':
-                    values[column_index] = str(value) if value else '-'
+                # 문자열 타입 처리
+                # 수식인 경우 (=로 시작하는 경우) 그대로 전달
+                if str(value).startswith('='):
+                    values[column_index] = str(value)
+                    logger.info(f"수식 전달: '{value}' -> '{values[column_index]}'")
+                # 금액 필드 확인
+                elif column_name in ['총액 1', '계약금', '중도금', '잔금', '제품대', '도급비', '자재비', '기타비', '순익']:
+                    try:
+                        # 문자열에서 숫자만 추출하여 포맷팅
+                        numeric_value = float(str(value).replace(',', '').replace('₩', '').strip())
+                        if numeric_value != 0:
+                            formatted_value = f"₩{int(numeric_value):,}"
+                            values[column_index] = formatted_value
+                        else:
+                            values[column_index] = ''
+                    except (ValueError, TypeError):
+                        values[column_index] = str(value) if value else ''
                 else:
                     values[column_index] = str(value) if value else ''
+                    
+                # 디버깅: 문자열 변환 확인
+                logger.info(f"문자열 변환: '{value}' -> '{values[column_index]}' (타입: {type(value)})")
+        else:
+            if form_field:
+                logger.info(f"매핑 없음: {form_field} -> {column_name} (필드가 폼 데이터에 없음)")
+    
+    # 강제로 기본값 설정 - 폼에서 보내지 않는 필수 필드들
+    for column_letter, column_name in column_mapping.items():
+        column_index = ord(column_letter) - ord('A') if len(column_letter) == 1 else \
+                      (ord(column_letter[0]) - ord('A') + 1) * 26 + (ord(column_letter[1]) - ord('A'))
+        
+        # 필수 필드들에 대한 강제 설정 (값이 있어도 덮어쓰는 필드들)
+        if column_name == '총액 2':
+            # 총액 2는 항상 수식으로 덮어쓰기 (기존 값 무시)
+            values[column_index] = '=IF($R:R=TRUE,($Q:Q*1.1),$Q:Q)'
+            logger.info(f"강제 수식 덮어쓰기: '총액 2' -> 수식")
+        
+        # 빈 값인 필드들에 대해 기본값 강제 설정
+        elif not values[column_index] or str(values[column_index]).strip() == '':
+            if column_name == '계약금':
+                values[column_index] = '₩0'
+                logger.info(f"강제 기본값 설정: '계약금' -> '₩0'")
+            elif column_name == '중도금':
+                values[column_index] = '₩0'
+                logger.info(f"강제 기본값 설정: '중도금' -> '₩0'")
+            elif column_name == '잔금':
+                values[column_index] = '₩0'
+                logger.info(f"강제 기본값 설정: '잔금' -> '₩0'")
+            elif column_name == '미수금':
+                values[column_index] = '=0-(S:S-(T:T+U:U+V:V))'
+                logger.info(f"강제 수식 설정: '미수금' -> 수식")
+            elif column_name == '계산서':
+                values[column_index] = '미발행'
+                logger.info(f"강제 기본값 설정: '계산서' -> '미발행'")
+            elif column_name == '순익':
+                values[column_index] = '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'
+                logger.info(f"강제 수식 설정: '순익' -> 수식")
+            elif column_name == '마진율':
+                values[column_index] = '=(($AE:AE)/($Q:Q))'
+                logger.info(f"강제 수식 설정: '마진율' -> 수식")
+            elif column_name == '수금 확인':
+                values[column_index] = 'FALSE'
+                logger.info(f"강제 기본값 설정: '수금 확인' -> 'FALSE'")
+
+    # 최종 변환 결과 디버깅
+    logger.info(f"최종 변환 결과 (처음 10개): {values[:10]}")
+    non_empty_count = sum(1 for v in values if v and str(v).strip())
+    logger.info(f"비어있지 않은 필드 수: {non_empty_count}/{len(values)}")
     
     return values
 
@@ -1338,7 +1642,6 @@ def get_card_type_for_field(field_name):
         
         # 손익정보
         '제품대': 'profit', '도급비': 'profit', '자재비': 'profit', '기타비': 'profit',
-        '순익': 'profit', '마진율': 'profit',
         
         # 문서정보
         '견적서 및 계약서 폴더 경로': 'documents'
@@ -1691,7 +1994,7 @@ def inline_update_direct():
                     # Google Sheets 컬럼 매핑 (Q부터 AM까지)
                     all_field_mapping = [
                         '총액 1', '부가세', '총액 2', '계약금', '중도금', '잔금', '미수금', '계산서',
-                        '수금 날짜', '수금 확인', '제품대', '도급비', '자재비', '기타비', '순익', '마진율',
+                        '수금 날짜', '수금 확인', '제품대', '도급비', '자재비', '기타비',
                         '비고', '계약금 입금자명', '중도금 입금자명', '잔금 입금자명', '견적서 및 계약서 폴더 경로',
                         '공사 확정', 'Airtable Record ID'
                     ]

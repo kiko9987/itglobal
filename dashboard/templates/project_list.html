@@ -4483,7 +4483,7 @@
                     // 성공 메시지 제거 - 인라인 편집은 버튼 피드백으로 충분
                     
                     // 데이터 다시 로드
-                    setTimeout(loadProjects, 500);
+                    setTimeout(loadProjectsData, 500);
                 }
             });
         }
@@ -4975,48 +4975,69 @@
 
         // 새 프로젝트 폼 이벤트 리스너 설정
         function setupNewProjectFormListeners() {
+            // 기존 이벤트 리스너 제거를 위해 요소를 복제하고 교체
+            function removeAllEventListeners(element) {
+                if (element) {
+                    const newElement = element.cloneNode(true);
+                    element.parentNode.replaceChild(newElement, element);
+                    return newElement;
+                }
+                return null;
+            }
+            
             // 사업자/담당자 변경 시 프로젝트 코드 미리보기
-            document.getElementById('company').addEventListener('change', updateNewProjectCodePreview);
-            document.getElementById('owner').addEventListener('change', updateNewProjectCodePreview);
+            const company = removeAllEventListeners(document.getElementById('company'));
+            const owner = removeAllEventListeners(document.getElementById('owner'));
+            company.addEventListener('change', updateNewProjectCodePreview);
+            owner.addEventListener('change', updateNewProjectCodePreview);
             
             // 공사 구분 다중 선택 처리
             document.querySelectorAll('.work-category-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', handleWorkCategoryChange);
+                const newCheckbox = removeAllEventListeners(checkbox);
+                newCheckbox.addEventListener('change', handleWorkCategoryChange);
             });
             
             // 기계 분류 다중 선택 처리
             document.querySelectorAll('.machine-category-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', handleMachineCategoryChange);
+                const newCheckbox = removeAllEventListeners(checkbox);
+                newCheckbox.addEventListener('change', handleMachineCategoryChange);
             });
             
             // 브랜드 다중 선택 처리
             document.querySelectorAll('.brand-category-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', handleBrandCategoryChange);
+                const newCheckbox = removeAllEventListeners(checkbox);
+                newCheckbox.addEventListener('change', handleBrandCategoryChange);
             });
             
             // 도급 구분 다중 선택 처리
             document.querySelectorAll('.contract-category-checkbox').forEach(checkbox => {
-                checkbox.addEventListener('change', handleContractCategoryChange);
+                const newCheckbox = removeAllEventListeners(checkbox);
+                newCheckbox.addEventListener('change', handleContractCategoryChange);
             });
             
             // 현장 주소 자동 정리 및 검증
-            document.getElementById('address').addEventListener('input', handleAddressInput);
-            document.getElementById('address').addEventListener('paste', handleAddressPaste);
+            const address = removeAllEventListeners(document.getElementById('address'));
+            address.addEventListener('input', handleAddressInput);
+            address.addEventListener('paste', handleAddressPaste);
             
             // 총액1 쉼표 표시 및 금액 업데이트
-            document.getElementById('total-amount-display').addEventListener('input', handleAmountInput);
-            document.getElementById('vat-included').addEventListener('change', updateDisplayAmount);
+            const totalAmountDisplay = removeAllEventListeners(document.getElementById('total-amount-display'));
+            const vatIncluded = removeAllEventListeners(document.getElementById('vat-included'));
+            totalAmountDisplay.addEventListener('input', handleAmountInput);
+            vatIncluded.addEventListener('change', updateDisplayAmount);
             
-            // 금액 버튼 이벤트 리스너
+            // 금액 버튼 이벤트 리스너 (중복 방지)
             document.querySelectorAll('.amount-btn').forEach(btn => {
-                btn.addEventListener('click', function() {
+                const newBtn = removeAllEventListeners(btn);
+                newBtn.addEventListener('click', function() {
                     const amount = parseInt(this.dataset.amount);
                     addAmountToTotal(amount);
                 });
             });
             
             // 초기화 버튼 이벤트 리스너
-            document.getElementById('amount-reset-btn').addEventListener('click', function() {
+            const resetBtn = removeAllEventListeners(document.getElementById('amount-reset-btn'));
+            resetBtn.addEventListener('click', function() {
                 resetTotalAmount();
             });
             
@@ -5482,7 +5503,8 @@
         // 현장 주소 입력 처리
         function handleAddressInput(event) {
             const address = event.target.value;
-            const validationMsg = document.getElementById('address-validation');
+            const addressWarning = document.getElementById('address-warning');
+            const addressInfo = document.getElementById('address-info');
             
             // 서울시 관련 문구 자동 정리
             let cleanedAddress = address
@@ -5492,21 +5514,28 @@
             
             if (cleanedAddress !== address) {
                 event.target.value = cleanedAddress;
+                // 주소가 자동 정리되었음을 알림
+                if (addressInfo) {
+                    addressInfo.classList.remove('d-none');
+                    setTimeout(() => {
+                        addressInfo.classList.add('d-none');
+                    }, 3000);
+                }
             }
             
             // 도로명 주소 검증
-            if (cleanedAddress.length > 5) {
-                const hasRoadName = /로\d*번길|로\d*길|로\s\d+|대로\d*번길|대로\d*길|대로\s\d+/.test(cleanedAddress);
-                
-                if (hasRoadName) {
-                    validationMsg.textContent = '✓ 유효한 도로명 주소입니다';
-                    validationMsg.className = 'text-success small mt-1';
+            if (addressWarning) {
+                if (cleanedAddress.length > 5) {
+                    const hasRoadName = /로\d*번길|로\d*길|로\s\d+|대로\d*번길|대로\d*길|대로\s\d+/.test(cleanedAddress);
+                    
+                    if (!hasRoadName) {
+                        addressWarning.classList.remove('d-none');
+                    } else {
+                        addressWarning.classList.add('d-none');
+                    }
                 } else {
-                    validationMsg.textContent = '⚠ 도로명 주소로 입력해 주세요 (예: ○○로 123, ○○길 45)';
-                    validationMsg.className = 'text-warning small mt-1';
+                    addressWarning.classList.add('d-none');
                 }
-            } else {
-                validationMsg.textContent = '';
             }
         }
         
@@ -5688,8 +5717,32 @@
                     data[key] = value;
                 }
                 
+                // 생성된 프로젝트 코드 추가
+                const generatedCode = document.getElementById('generated-code').textContent.trim();
+                if (generatedCode && generatedCode !== '사업자와 담당자를 선택하세요') {
+                    data['프로젝트 코드'] = generatedCode;
+                }
+                
                 // 부가세 체크박스 처리
                 data['부가세 포함'] = document.getElementById('vat-included').checked;
+                
+                // 종료일 처리 (disabled 된 필드는 FormData에 포함되지 않으므로)
+                const endDateInput = document.getElementById('end-date');
+                if (endDateInput.value) {
+                    data['공사 종료'] = endDateInput.value;
+                }
+                
+                // 담당자 이메일 처리 (disabled 된 필드는 FormData에 포함되지 않으므로)
+                const emailInput = document.getElementById('manager-email');
+                if (emailInput.value) {
+                    data['담당자 이메일'] = emailInput.value;
+                }
+                
+                // 총액2는 수식으로만 처리 - 데이터를 전혀 보내지 않음
+                // 백엔드에서 자동으로 수식을 삽입함
+                
+                // 디버깅: 전송할 데이터 로그 출력
+                console.log('전송할 폼 데이터:', data);
                 
                 const response = await fetch('/api/projects/auto', {
                     method: 'POST',
@@ -5709,7 +5762,7 @@
                     modal.hide();
                     
                     // 데이터 다시 로드
-                    setTimeout(loadProjects, 500);
+                    setTimeout(loadProjectsData, 500);
                     
                 } else if (response.status === 409 && retryCount < maxRetries) {
                     // 409 충돌 오류 시 자동 재시도
