@@ -1431,6 +1431,209 @@
             justify-content: flex-end !important;
         }
         
+        /* 감사 로그 모달 페이지네이션 스타일 - DataTables와 동일하게 */
+        #auditLogsPagination .page-link {
+            color: var(--gray-600) !important;
+            background: transparent !important;
+            border: none !important;
+            border-radius: var(--border-radius) !important;
+            margin: 0 2px !important;
+            padding: 0.375rem 0.75rem !important;
+            font-size: 0.875rem !important;
+            line-height: 1.5 !important;
+            text-decoration: none !important;
+            cursor: pointer !important;
+            display: inline-block !important;
+            text-align: center !important;
+            transition: none !important;
+            outline: none !important;
+        }
+        
+        #auditLogsPagination .page-link:hover,
+        #auditLogsPagination .page-link:focus {
+            color: var(--gray-800) !important;
+            background-color: var(--gray-100) !important;
+            border: 1px solid var(--gray-300) !important;
+            border-radius: var(--border-radius) !important;
+            transform: none !important;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+        
+        #auditLogsPagination .page-item.active .page-link {
+            color: var(--gray-800) !important;
+            background: var(--gray-200) !important;
+            font-weight: 600 !important;
+            border: 1px solid var(--gray-300) !important;
+            border-radius: var(--border-radius) !important;
+            text-decoration: none !important;
+        }
+        
+        #auditLogsPagination .page-item.disabled .page-link {
+            color: var(--gray-400) !important;
+            background: transparent !important;
+            opacity: 0.5 !important;
+            cursor: not-allowed !important;
+            border: none !important;
+            border-radius: var(--border-radius) !important;
+        }
+        
+        #auditLogsPagination .page-item.disabled .page-link:hover {
+            color: var(--gray-400) !important;
+            background: transparent !important;
+            border: none !important;
+        }
+        
+        /* 감사 로그 테이블 정렬 스타일 - 사용자 관리와 동일한 강력한 우선순위 */
+        .modal#auditLogsModal table td,
+        .modal#auditLogsModal table th,
+        div#auditLogsModal table td,
+        div#auditLogsModal table th,
+        #auditLogsModal table tbody td,
+        #auditLogsModal table thead th,
+        #auditLogsModal .table th,
+        #auditLogsModal .table td {
+            text-align: center !important;
+            vertical-align: middle !important;
+            padding: 0.5rem !important;
+            border: 1px solid #dee2e6 !important;
+        }
+        
+        #auditLogsModal .table thead th {
+            border-bottom: 2px solid #dee2e6 !important;
+            font-weight: 600 !important;
+            background-color: #f8f9fa !important;
+        }
+        
+        #auditLogsModal .table tbody td {
+            border-top: 1px solid #dee2e6 !important;
+        }
+        
+        /* 테이블 행별 테두리 강화 */
+        #auditLogsModal .table tbody tr {
+            border: 1px solid #dee2e6 !important;
+        }
+        
+        /* 테이블 행 정렬 문제 해결 */
+        #auditLogsModal table tr {
+            display: table-row !important;
+        }
+        
+        /* 테이블 셀 기본 설정 */
+        #auditLogsModal table td {
+            display: table-cell !important;
+            cursor: default !important;
+        }
+        
+        /* 감사 로그 테이블 고정 레이아웃 - 긴 텍스트로 인한 레이아웃 붕괴 방지 */
+        #auditLogsModal .table {
+            table-layout: fixed !important;
+            width: 100% !important;
+        }
+        
+        /* 각 컬럼별 고정 너비 설정 - 이전값/새값 컬럼 확대 */
+        #auditLogsModal .table th:nth-child(1),
+        #auditLogsModal .table td:nth-child(1) { width: 12% !important; } /* 시간 */
+        #auditLogsModal .table th:nth-child(2),
+        #auditLogsModal .table td:nth-child(2) { width: 8% !important; }  /* 사용자 */
+        #auditLogsModal .table th:nth-child(3),
+        #auditLogsModal .table td:nth-child(3) { width: 7% !important; }  /* 권한 */
+        #auditLogsModal .table th:nth-child(4),
+        #auditLogsModal .table td:nth-child(4) { width: 8% !important; }  /* 작업 */
+        #auditLogsModal .table th:nth-child(5),
+        #auditLogsModal .table td:nth-child(5) { width: 9% !important; }  /* 프로젝트 */
+        #auditLogsModal .table th:nth-child(6),
+        #auditLogsModal .table td:nth-child(6) { width: 10% !important; } /* 필드명 */
+        #auditLogsModal .table th:nth-child(7),
+        #auditLogsModal .table td:nth-child(7) { width: 23% !important; } /* 이전값 - 확대 */
+        #auditLogsModal .table th:nth-child(8),
+        #auditLogsModal .table td:nth-child(8) { width: 23% !important; } /* 새값 - 확대 */
+        
+        /* 긴 텍스트 오버플로우 처리 강화 */
+        #auditLogsModal .table td {
+            word-break: break-all !important;
+            word-wrap: break-word !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            white-space: nowrap !important;
+        }
+        
+        /* 감사 로그 모달 폰트 통일 */
+        #auditLogsModal .modal-title {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        }
+        
+        #auditLogsModal .modal-body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        }
+        
+        #auditLogsModal .table {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        }
+        
+        #auditLogsModal .btn {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        }
+        
+        #auditLogsModal .modal-footer {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        }
+        
+        /* Custom 툴팁 스타일 - 하단에 길게 표시 */
+        .custom-tooltip {
+            position: relative;
+        }
+        
+        .custom-tooltip .custom-tooltiptext {
+            visibility: hidden;
+            background-color: #ffffe1;
+            color: #333;
+            text-align: left;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 8px 12px;
+            position: absolute;
+            z-index: 99999;
+            top: 100%; /* 텍스트 하단에 표시 */
+            left: 0;
+            right: 0;
+            min-width: 300px;
+            max-width: 600px;
+            font-size: 12px;
+            line-height: 1.4;
+            word-wrap: break-word;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            margin-top: 5px;
+            white-space: pre-wrap;
+        }
+        
+        .custom-tooltip .custom-tooltiptext::before {
+            content: "";
+            position: absolute;
+            bottom: 100%;
+            left: 20px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: transparent transparent #ffffe1 transparent;
+        }
+        
+        .custom-tooltip:hover .custom-tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        
+        /* 툴팁이 있는 셀의 overflow 재정의 */
+        #auditLogsModal .table td.custom-tooltip {
+            overflow: visible !important;
+            position: relative;
+        }
+        
+        .tooltip-changed {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        
+        
         .dataTables_wrapper .dataTables_filter input {
             border: 1px solid var(--gray-300) !important;
             border-radius: var(--border-radius) !important;
@@ -1711,6 +1914,49 @@
             
             .mobile-card-container {
                 display: none !important;
+            }
+        }
+        
+        /* 계산된 필드 업데이트 애니메이션 - 체크 아이콘 효과 (미수금, 순익, 마진율) */
+        .calculated-field-update {
+            position: relative !important;
+        }
+
+        .calculated-field-update::after {
+            content: ' ✓';
+            position: relative;
+            display: inline-block;
+            margin-left: 8px;
+            background: #4CAF50;
+            color: white;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            text-align: center;
+            line-height: 16px;
+            font-size: 10px;
+            font-weight: bold;
+            vertical-align: middle;
+            transform: scale(0);
+            animation: check-icon-pop 1.5s ease-out forwards;
+            z-index: 10;
+        }
+
+        @keyframes check-icon-pop {
+            0% { 
+                opacity: 0; 
+                transform: scale(0) rotate(-180deg); 
+            }
+            30% { 
+                opacity: 1; 
+                transform: scale(1.2) rotate(0deg); 
+            }
+            50% { 
+                transform: scale(1) rotate(0deg); 
+            }
+            100% { 
+                opacity: 0; 
+                transform: scale(0.8) rotate(0deg); 
             }
         }
         
@@ -2422,22 +2668,18 @@
                     <div class="d-flex align-items-center justify-content-start" style="padding-left: 0; margin-left: -0.5rem; overflow: visible;">
                         <img src="/data/아이티글로벌-추가최종2-(png)_0000_Vector-Smart-Object.png" alt="IT글로벌 로고" class="logo">
                         <div class="ms-4" style="padding-top: 50px;">
-                            <p class="mb-0 logo-subtitle">냉난방기 설치공사 통합 관리 시스템</p>
+                            <p class="mb-0 logo-subtitle">프로젝트 통합 관리 시스템</p>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-4 d-flex align-items-center justify-content-end" style="overflow: visible;">
-                    <div class="d-flex gap-2" style="padding-top: 50px; padding-right: 1rem; white-space: nowrap; flex-wrap: nowrap; min-width: 450px;">
+                    <div class="d-flex gap-2" style="padding-top: 50px; padding-right: 1rem; white-space: nowrap; flex-wrap: nowrap; min-width: 290px;">
                         <button class="btn btn-soft-success" id="refreshProjectBtn" onclick="refreshProjectData()" style="min-width: 90px; white-space: nowrap; background-color: rgba(40, 167, 69, 0.1) !important; border: 1px solid rgba(40, 167, 69, 0.2) !important; color: #28a745 !important;">
                             <i class="fas fa-sync-alt me-1"></i>새로고침
-                        </button>
-                        <button class="btn btn-soft-primary" onclick="openNewProjectModal()" style="min-width: 110px; white-space: nowrap;">
-                            <i class="fas fa-plus me-1"></i>새 프로젝트
                         </button>
                         <a href="/stats" class="btn btn-soft-info" style="min-width: 90px; white-space: nowrap;">
                             <i class="fas fa-chart-bar me-1"></i>통계
                         </a>
-                        
                         <!-- 구분선 -->
                         <div style="height: 24px; width: 1px; background: #dee2e6; margin: 0 8px;"></div>
                         
@@ -2468,6 +2710,12 @@
                                     </a>
                                 </li>
                                 <li>
+                                    <a class="dropdown-item" href="#" onclick="openAuditLogs()" 
+                                       style="font-size: 0.85rem !important; font-weight: 400 !important; padding: 0.7rem 1rem !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif !important;">
+                                        <i class="fas fa-history me-2" style="font-size: 0.8rem !important; width: 14px !important; margin-right: 0.5rem !important;"></i>작업 로그
+                                    </a>
+                                </li>
+                                <li>
                                     <a class="dropdown-item logout-item" href="/logout">
                                         <i class="fas fa-sign-out-alt me-2"></i>로그아웃
                                     </a>
@@ -2483,10 +2731,17 @@
     <div class="container-fluid">
         <div class="content-container">
             <div class="row mb-4">
-                <div class="col-12 d-flex align-items-center" style="min-height: 2.5rem;">
-                    <h4 class="mb-0">프로젝트 관리</h4>
-                    <!-- 헤더 옆 메시지 영역 -->
-                    <div id="headerAlertContainer" class="ms-4" style="height: 2rem; display: flex; align-items: center;"></div>
+                <div class="col-12 d-flex align-items-center justify-content-between" style="min-height: 2.5rem;">
+                    <div class="d-flex align-items-center">
+                        <h4 class="mb-0">프로젝트 관리</h4>
+                        <!-- 헤더 옆 메시지 영역 -->
+                        <div id="headerAlertContainer" class="ms-4" style="height: 2rem; display: flex; align-items: center;"></div>
+                    </div>
+                    
+                    <!-- 새 프로젝트 버튼만 헤더에 -->
+                    <button class="btn btn-soft-primary" onclick="openNewProjectModal()" style="min-width: 110px; white-space: nowrap;">
+                        <i class="fas fa-plus me-1"></i>새 프로젝트
+                    </button>
                 </div>
             </div>
 
@@ -3113,7 +3368,6 @@
                         <button class="btn btn-sm me-2" id="refreshUsersBtn" onclick="loadUsers()" style="background-color: rgba(40, 167, 69, 0.1) !important; border: 1px solid rgba(40, 167, 69, 0.2) !important; color: #28a745 !important; font-size: 0.8rem; padding: 0.3rem 0.6rem;">
                             <i class="fas fa-sync-alt me-1"></i>새로고침
                         </button>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                 </div>
                 <div class="modal-body">
@@ -3147,6 +3401,90 @@
         </div>
     </div>
 
+    <!-- 감사 로그 모달 -->
+    <div class="modal fade" id="auditLogsModal" tabindex="-1" aria-labelledby="auditLogsModalLabel" data-bs-backdrop="true" data-bs-keyboard="true">
+        <div class="modal-dialog" style="max-width: 75%; width: 75%;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="d-flex align-items-center flex-grow-1">
+                        <h5 class="modal-title mb-0" id="auditLogsModalLabel">
+                            <i class="fas fa-history me-2"></i>작업 로그
+                        </h5>
+                        <div id="auditLogsAlert" class="ms-3" style="min-height: 24px;"></div>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <select id="auditLogsDays" class="form-select form-select-sm me-2" style="width: 120px;" onchange="loadAuditLogs()">
+                            <option value="1">오늘</option>
+                            <option value="3">3일</option>
+                            <option value="7" selected>7일</option>
+                            <option value="14">14일</option>
+                            <option value="30">30일</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover table-striped" style="margin-bottom: 0;">
+                            <thead class="table-light" style="position: sticky; top: 0; z-index: 10;">
+                                <tr>
+                                    <th style="width: 16%;">시간</th>
+                                    <th style="width: 11%;">사용자</th>
+                                    <th style="width: 9%;">권한</th>
+                                    <th style="width: 10%;">작업</th>
+                                    <th style="width: 11%;">프로젝트</th>
+                                    <th style="width: 11%;">필드명</th>
+                                    <th style="width: 16%;">이전값</th>
+                                    <th style="width: 16%;">새값</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auditLogsTableBody">
+                                <tr>
+                                    <td colspan="8" class="text-center">
+                                        <i class="fas fa-spinner fa-spin"></i> 로딩 중...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <!-- 한 줄에 좌측(로그 정보) - 중앙(페이지네이션) - 우측(닫기 버튼) -->
+                    <div class="d-flex align-items-center w-100" style="position: relative;">
+                        <!-- 좌측: 로그 정보 -->
+                        <div class="d-flex align-items-center" style="flex: 1;">
+                            <small class="text-muted me-3" id="auditLogsCount">로그 개수: 0개</small>
+                            <small class="text-muted" id="auditLogsPageInfo">페이지 정보</small>
+                        </div>
+                        
+                        <!-- 중앙: 페이지네이션 (절대 중앙 배치) -->
+                        <div style="position: absolute; left: 50%; transform: translateX(-50%);">
+                            <nav aria-label="감사 로그 페이지네이션">
+                                <ul class="pagination pagination-sm mb-0" id="auditLogsPagination">
+                                    <li class="page-item disabled" id="auditLogsPrevPage">
+                                        <a class="page-link" href="#" onclick="changePage(currentPage - 1)">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </a>
+                                    </li>
+                                    <!-- 페이지 번호들이 여기에 동적으로 추가됩니다 -->
+                                    <li class="page-item disabled" id="auditLogsNextPage">
+                                        <a class="page-link" href="#" onclick="changePage(currentPage + 1)">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </nav>
+                        </div>
+                        
+                        <!-- 우측: 닫기 버튼 -->
+                        <div style="flex: 1; display: flex; justify-content: flex-end;">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <!-- DataTables JS -->
@@ -3161,6 +3499,11 @@
         let projectsData = [];
         let dataTable = null;
         
+        // 감사 로그 페이지네이션 변수
+        let currentPage = 1;
+        let totalPages = 1;
+        let perPage = 20;  // 페이지당 로그 개수
+        
         // 사용자 권한 정보 (서버에서 전달받음)
         const userPermission = '{{ session.user.permission_level }}';
         const userName = '{{ session.user.name }}';
@@ -3168,8 +3511,40 @@
         
         // 개발자용 임시 권한 변경 함수 (테스트용)
         function changeTestPermission(role) {
-            if (confirm(`테스트를 위해 임시로 권한을 ${role}로 변경하시겠습니까? (새로고침하면 원래대로 돌아옵니다)`)) {
+            if (confirm(`테스트를 위해 임시로 권한을 ${role}로 변경하시겠습니다?`)) {
                 window.testUserRole = role;
+                
+                // 권한 뱃지 즉시 업데이트
+                const roleBadge = document.getElementById('user-role-badge');
+                if (roleBadge) {
+                    roleBadge.textContent = `${role} (테스트)`;
+                    roleBadge.style.backgroundColor = '#f59e0b';
+                    roleBadge.style.color = 'white';
+                    roleBadge.style.animation = 'pulse 2s infinite';
+                }
+                
+                // 관리자 메뉴 표시/숨김
+                const adminMenuItem = document.getElementById('admin-menu-item');
+                if (adminMenuItem) {
+                    adminMenuItem.style.display = role === 'Admin' ? 'block' : 'none';
+                }
+                
+                // 테스트 모드 알림
+                console.log(`🧪 테스트 모드 활성화: ${role} 권한으로 변경됨`);
+                
+                // 페이지의 모든 편집 버튼 다시 생성
+                setTimeout(() => {
+                    if (dataTable) {
+                        dataTable.draw(false); // 테이블 다시 그리기
+                    }
+                }, 100);
+            }
+        }
+        
+        // 테스트 모드 초기화
+        function resetTestMode() {
+            if (window.testUserRole) {
+                delete window.testUserRole;
                 location.reload();
             }
         }
@@ -3177,9 +3552,9 @@
         // 테스트 모드 감지
         const isTestMode = window.testUserRole || false;
         
-        // getUserRole 함수는 이제 서버에서 계산된 값을 반환
+        // getUserRole 함수는 이제 서버에서 계산된 값을 반환 (테스트 모드 지원)
         function getUserRole() {
-            return userRole;
+            return window.testUserRole || userRole;
         }
         
         // 편집자가 수정 가능한 필드 정의
@@ -3188,50 +3563,64 @@
             'construction': 'all', // 공사정보는 모든 필드 수정 가능
             'financial': [], // 금액정보 수정 불가
             'payment': [], // 수금정보 수정 불가
-            'profit': ['제품대', '도급비', '자재비', '기타비'] // 특정 필드만 수정 가능
+            'profit': ['제품대', '도급비', '자재비', '기타비'], // 특정 필드만 수정 가능
+            'documents': ['견적서 및 계약서 폴더 경로'] // 문서 경로만 수정 가능
         };
         
         // 현재 사용자가 특정 카드를 수정할 수 있는지 확인
         function canEditCard(cardType) {
-            if (userRole === 'Admin') {
+            const currentRole = getUserRole();
+            if (window.testUserRole) {
+                console.log(`🧪 테스트 모드: ${cardType} 카드 편집 권한 확인 - 역할: ${currentRole}`);
+            }
+            
+            if (currentRole === 'Admin') {
                 return true; // 관리자는 모든 카드 수정 가능
-            } else if (userRole === 'Editor') {
-                return editorAllowedFields.hasOwnProperty(cardType);
+            } else if (currentRole === 'Editor') {
+                const canEdit = editorAllowedFields.hasOwnProperty(cardType);
+                if (window.testUserRole) {
+                    console.log(`🧪 편집자 권한: ${cardType} 카드 - ${canEdit ? '편집 가능' : '편집 불가'}`);
+                }
+                return canEdit;
             }
             return false;
         }
         
         // 편집자가 특정 필드를 수정할 수 있는지 확인
         function canEditField(cardType, fieldName) {
-            if (userRole === 'Admin') {
+            const currentRole = getUserRole();
+            if (currentRole === 'Admin') {
                 return true; // 관리자는 모든 필드 수정 가능
-            } else if (userRole === 'Editor') {
+            } else if (currentRole === 'Editor') {
                 const allowedFields = editorAllowedFields[cardType];
+                let canEdit = false;
+                
                 if (allowedFields === 'all') {
-                    return true;
+                    canEdit = true;
                 } else if (Array.isArray(allowedFields)) {
-                    return allowedFields.includes(fieldName);
+                    canEdit = allowedFields.includes(fieldName);
                 }
+                
+                if (window.testUserRole && !canEdit) {
+                    console.log(`🚫 편집자 제한: ${cardType}.${fieldName} - 편집 불가`);
+                }
+                
+                return canEdit;
             }
             return false;
         }
         
         // 권한에 따른 수정 버튼 HTML 생성
         function generateEditButtons(projectCode, cardType) {
-            if (canEditCard(cardType)) {
-                // 편집자의 제한적 권한 표시
-                const limitedAccess = (userRole === 'Editor' && 
-                    editorAllowedFields[cardType] !== 'all' && 
-                    Array.isArray(editorAllowedFields[cardType]) && 
-                    editorAllowedFields[cardType].length > 0);
-                
-                const titleText = limitedAccess ? "일부 필드만 수정 가능" : "수정";
-                
+            const currentRole = getUserRole();
+            
+            // 관리자는 항상 일반 수정 버튼
+            if (currentRole === 'Admin') {
                 return `
                     <button class="btn btn-outline-secondary btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', '${cardType}')" 
                             style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
-                            title="${titleText}">
-                        <i class="fas fa-edit me-1"></i>수정${limitedAccess ? '*' : ''}
+                            title="수정">
+                        <i class="fas fa-edit me-1"></i>수정
                     </button>
                     <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', '${cardType}')" 
                             style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;"
@@ -3248,13 +3637,62 @@
                         <i class="fas fa-times me-1"></i>취소
                     </button>
                 `;
-            } else {
-                return `
-                    <span class="text-muted" style="font-size: 0.7rem;">
-                        <i class="fas fa-lock me-1"></i>수정 권한 없음
-                    </span>
-                `;
             }
+            
+            // 편집자 권한 확인
+            if (currentRole === 'Editor') {
+                const allowedFields = editorAllowedFields[cardType];
+                
+                // 완전히 수정 불가능한 경우 (빈 배열)
+                if (Array.isArray(allowedFields) && allowedFields.length === 0) {
+                    return `
+                        <button class="btn btn-outline-danger btn-sm" disabled 
+                                style="padding: 0.2rem 0.6rem; font-size: 0.7rem; cursor: not-allowed; opacity: 0.7; pointer-events: none;"
+                                title="수정 권한이 없습니다"
+                                onclick="event.preventDefault(); event.stopPropagation(); return false;">
+                            <i class="fas fa-lock me-1"></i>잠김
+                        </button>
+                    `;
+                }
+                
+                // 부분 수정 가능하거나 모든 필드 수정 가능한 경우
+                if (allowedFields === 'all' || (Array.isArray(allowedFields) && allowedFields.length > 0)) {
+                    const limitedAccess = Array.isArray(allowedFields) && allowedFields.length > 0;
+                    const titleText = limitedAccess ? "일부 필드만 수정 가능" : "수정";
+                    
+                    return `
+                        <button class="btn btn-outline-secondary btn-sm edit-btn" onclick="toggleCardEdit('${projectCode}', '${cardType}')" 
+                                style="padding: 0.2rem 0.6rem; font-size: 0.7rem;"
+                                title="${titleText}">
+                            <i class="fas fa-edit me-1"></i>수정${limitedAccess ? '*' : ''}
+                        </button>
+                        <button class="btn btn-sm save-btn d-none" onclick="saveCardEdit('${projectCode}', '${cardType}')" 
+                                style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;"
+                                onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b8d4c7';"
+                                onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb';"
+                                title="저장">
+                            <i class="fas fa-check me-1"></i>저장
+                        </button>
+                        <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', '${cardType}')" 
+                                style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
+                                onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
+                                onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
+                                title="취소">
+                            <i class="fas fa-times me-1"></i>취소
+                        </button>
+                    `;
+                }
+            }
+            
+            // 뷰어나 권한이 없는 경우
+            return `
+                <button class="btn btn-outline-danger btn-sm" disabled 
+                        style="padding: 0.2rem 0.6rem; font-size: 0.7rem; cursor: not-allowed; opacity: 0.7; pointer-events: none;"
+                        title="수정 권한이 없습니다"
+                        onclick="event.preventDefault(); event.stopPropagation(); return false;">
+                    <i class="fas fa-lock me-1"></i>잠김
+                </button>
+            `;
         }
 
         // 페이지 로드 시 초기화
@@ -3262,11 +3700,19 @@
             // 권한 뱃지 설정
             const roleBadge = document.getElementById('user-role-badge');
             if (roleBadge) {
-                roleBadge.textContent = userRole;
+                const currentRole = getUserRole();
+                roleBadge.textContent = window.testUserRole ? `${currentRole} (테스트)` : currentRole;
+                
+                // 테스트 모드일 때 뱃지 스타일 변경
+                if (window.testUserRole) {
+                    roleBadge.style.backgroundColor = '#f59e0b';
+                    roleBadge.style.color = 'white';
+                    roleBadge.style.animation = 'pulse 2s infinite';
+                }
             }
             
             // 관리자 메뉴 표시
-            if (userRole === 'Admin') {
+            if (getUserRole() === 'Admin') {
                 const adminMenuItem = document.getElementById('admin-menu-item');
                 if (adminMenuItem) {
                     adminMenuItem.style.display = 'block';
@@ -3916,7 +4362,7 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>순익</small>
-                                                    <div class="text-success editable-value" data-field="순익" data-original-value="${rowData['순익'] || ''}">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
+                                                    <div class="${getProfitStyle(rowData)} editable-value calculated-field" data-field="순익" data-original-value="${rowData['순익'] || ''}">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -3925,7 +4371,7 @@
                                 </div>
                             </div>
 
-                            <!-- 문서 폴더 경로 -->
+                            <!-- 견적서 및 계약서 폴더 경로 경로 -->
                             ${(() => {
                                 const folderPath = rowData['견적서 및 계약서 폴더 경로'] || rowData['AK'] || '';
                                 if (folderPath && folderPath.trim() !== '' && folderPath !== '-') {
@@ -3962,7 +4408,7 @@
                                     </div>
                                     `;
                                 } else {
-                                    // 문서 폴더 경로가 없을 때도 기본 정보 표시
+                                    // 견적서 및 계약서 폴더 경로 경로가 없을 때도 기본 정보 표시
                                     return `
                                     <div class="mt-3 p-3" style="background-color: #fff3cd; border-radius: var(--border-radius); border: 1px solid #ffc107;">
                                         <div class="d-flex align-items-center">
@@ -5142,7 +5588,7 @@
                 let value = rowData[field];
                 let displayFieldName = field;
                 
-                // 문서 폴더 경로의 경우 AK 컬럼도 확인하고 표시명 변경
+                // 견적서 및 계약서 폴더 경로 경로의 경우 AK 컬럼도 확인하고 표시명 변경
                 if (field === '견적서 및 계약서 폴더 경로') {
                     value = value || rowData['AK'] || '';
                     displayFieldName = '폴더 경로';
@@ -5579,6 +6025,197 @@
             return new Intl.NumberFormat('ko-KR').format(amount) + '원';
         }
 
+        function calculateProfitAndMargin(projectCode, cardType) {
+            /**
+             * 손익정보 카드의 값들을 기반으로 순익과 마진율을 자동 계산
+             * @param {string} projectCode - 프로젝트 코드
+             * @param {string} cardType - 카드 타입
+             */
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            if (!card) {
+                console.warn('카드를 찾을 수 없습니다:', projectCode);
+                return;
+            }
+            
+            // 총액 2 가져오기 (매출)
+            const totalAmountElement = document.querySelector(`[data-project-code="${projectCode}"] [data-field="총액 2"]`);
+            let totalAmount = 0;
+            if (totalAmountElement) {
+                const totalAmountText = totalAmountElement.textContent || totalAmountElement.innerText || '';
+                totalAmount = parseFloat(totalAmountText.replace(/[^\d.-]/g, '')) || 0;
+            }
+            
+            // 비용 항목들 가져오기
+            const costFields = ['제품대', '도급비', '자재비', '기타비'];
+            let totalCosts = 0;
+            
+            costFields.forEach(fieldName => {
+                const valueElement = card.querySelector(`[data-field="${fieldName}"]`);
+                if (valueElement) {
+                    const valueText = valueElement.textContent || valueElement.innerText || '';
+                    const cost = parseFloat(valueText.replace(/[^\d.-]/g, '')) || 0;
+                    totalCosts += cost;
+                }
+            });
+            
+            // 순익 계산 (매출 - 총 비용)
+            const netProfit = totalAmount - totalCosts;
+            
+            // 마진율 계산 (순익 / 매출 * 100)
+            let marginRate = 0;
+            if (totalAmount > 0) {
+                marginRate = (netProfit / totalAmount) * 100;
+            }
+            
+            // 계산된 값들을 UI에 업데이트 (체크 표시와 함께)
+            const calculatedFields = {
+                '순익': netProfit,
+                '마진율': marginRate
+            };
+            
+            updateCalculatedFieldsInUI(projectCode, calculatedFields, cardType);
+            
+            console.log(`순익/마진율 계산 완료 - 순익: ${netProfit}, 마진율: ${marginRate}%`);
+        }
+
+        function updateCalculatedFieldsInUI(projectCode, calculatedFields, cardType) {
+            /**
+             * 계산된 필드들을 UI에서 직접 업데이트 (새로고침 없이)
+             * @param {string} projectCode - 프로젝트 코드
+             * @param {object} calculatedFields - 계산된 필드 값들 {fieldName: value}
+             * @param {string} cardType - 카드 타입
+             */
+            console.log('계산된 필드 업데이트:', calculatedFields);
+            
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            if (!card) {
+                console.warn('카드를 찾을 수 없습니다:', projectCode);
+                return;
+            }
+            
+            // 계산된 필드들 업데이트
+            Object.entries(calculatedFields).forEach(([fieldName, newValue]) => {
+                let valueDiv;
+                let displayValue;
+                
+                if (fieldName === '미수금') {
+                    // 실제 HTML에서는 data-field="미수금W"로 되어 있음
+                    valueDiv = card.querySelector(`[data-field="미수금W"]`);
+                    
+                    // 미수금 포맷팅
+                    const numValue = parseFloat(newValue.toString().replace(/[^\d.-]/g, ''));
+                    
+                    if (!isNaN(numValue)) {
+                        if (numValue === 0) {
+                            displayValue = '-';  // 0인 경우 - 표시
+                        } else {
+                            displayValue = formatCurrency(Math.abs(numValue));  // 절댓값으로 표시
+                            if (numValue < 0) {
+                                displayValue = `-${displayValue}`;  // 음수인 경우 마이너스 기호
+                            }
+                        }
+                    } else {
+                        displayValue = '-';
+                    }
+                } else if (fieldName === '순익') {
+                    valueDiv = card.querySelector(`[data-field="순익"]`);
+                    
+                    // 순익 포맷팅
+                    const numValue = parseFloat(newValue.toString().replace(/[^\d.-]/g, ''));
+                    
+                    if (!isNaN(numValue)) {
+                        if (numValue === 0) {
+                            displayValue = '-';
+                        } else {
+                            displayValue = formatCurrency(Math.abs(numValue));
+                            if (numValue < 0) {
+                                displayValue = `-${displayValue}`;
+                            }
+                        }
+                    } else {
+                        displayValue = '-';
+                    }
+                } else if (fieldName === '마진율') {
+                    valueDiv = card.querySelector(`[data-field="마진율"]`);
+                    
+                    // 마진율 포맷팅 (% 표시)
+                    const numValue = parseFloat(newValue.toString().replace(/[^\d.-]/g, ''));
+                    
+                    if (!isNaN(numValue)) {
+                        if (numValue === 0) {
+                            displayValue = '-';
+                        } else {
+                            displayValue = `${numValue.toFixed(1)}%`;
+                        }
+                    } else {
+                        displayValue = '-';
+                    }
+                }
+                
+                if (valueDiv && displayValue !== undefined) {
+                    // UI 업데이트
+                    valueDiv.innerHTML = displayValue;
+                    
+                    // 시각적 효과 - 체크 아이콘 효과
+                    valueDiv.classList.add('calculated-field-update');
+                    setTimeout(() => {
+                        valueDiv.classList.remove('calculated-field-update');
+                    }, 1500);
+                    
+                    console.log(`${fieldName} 업데이트: ${newValue} -> ${displayValue}`);
+                } else if (fieldName === '미수금' || fieldName === '순익' || fieldName === '마진율') {
+                    console.warn(`${fieldName} 필드를 찾을 수 없습니다`);
+                }
+            });
+        }
+
+        function updateActualValuesInUI(projectCode, actualValues, cardType) {
+            /**
+             * Google Sheets에서 실제 저장된 값들을 UI에 반영 (동기화 문제 해결)
+             * @param {string} projectCode - 프로젝트 코드
+             * @param {object} actualValues - 실제 저장된 값들 {fieldName: value}
+             * @param {string} cardType - 카드 타입
+             */
+            console.log('실제 저장된 값 동기화:', actualValues);
+            
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            if (!card) {
+                console.warn('카드를 찾을 수 없습니다:', projectCode);
+                return;
+            }
+            
+            Object.entries(actualValues).forEach(([fieldName, actualValue]) => {
+                const valueDiv = card.querySelector(`[data-field="${fieldName}"]`);
+                if (valueDiv) {
+                    // 기존 표시된 값과 실제 값 비교
+                    const currentDisplayValue = valueDiv.textContent.trim();
+                    let expectedDisplayValue;
+                    
+                    // 필드 타입에 따른 포맷팅 (모든 금액 필드 포함)
+                    const moneyFields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'];
+                    if (moneyFields.includes(fieldName)) {
+                        console.log(`실제 값 처리: ${fieldName} = "${actualValue}" (타입: ${typeof actualValue})`);
+                        
+                        // 원화 기호, 콤마, 원 단위 제거 후 숫자 추출
+                        let cleanValue = String(actualValue || '').replace(/[₩,원]/g, '').trim();
+                        const numValue = parseFloat(cleanValue) || 0;
+                        
+                        expectedDisplayValue = numValue > 0 ? formatCurrency(numValue) : '-';
+                        console.log(`정리된 값: "${cleanValue}" -> 숫자: ${numValue} -> 포맷팅: "${expectedDisplayValue}"`);
+                    } else {
+                        expectedDisplayValue = actualValue || '-';
+                    }
+                    
+                    // 값이 다르면 실제 값으로 업데이트 (빨간색 효과 제거)
+                    if (currentDisplayValue !== expectedDisplayValue) {
+                        console.log(`값 동기화: ${fieldName} "${currentDisplayValue}" -> "${expectedDisplayValue}"`);
+                        valueDiv.innerHTML = expectedDisplayValue;
+                        // 빨간색 효과 제거 - 조용히 업데이트
+                    }
+                }
+            });
+        }
+
         function formatDate(dateString) {
             if (!dateString) return '';
             const date = new Date(dateString);
@@ -5625,6 +6262,20 @@
                 return 'text-danger';  // 빨간색
             } else {
                 return 'text-muted';   // 회색 (0%)
+            }
+        }
+
+        // 순익 스타일 클래스 반환 함수
+        function getProfitStyle(rowData) {
+            const profitData = rowData['순익'] || '';
+            const profitAmount = parseFloat(profitData) || 0;
+            
+            if (profitAmount > 0) {
+                return 'text-success'; // 녹색 (이익)
+            } else if (profitAmount < 0) {
+                return 'text-danger';  // 빨간색 (손실)
+            } else {
+                return 'text-muted';   // 회색 (0원)
             }
         }
 
@@ -5881,6 +6532,7 @@
                         checkbox.type = 'checkbox';
                         checkbox.className = 'form-check-input inline-edit-input';
                         checkbox.id = `checkbox-${fieldName}-${projectCode}`;
+                        checkbox.dataset.field = fieldName;  // data-field 속성 추가
                         
                         // 원본값에서 체크 상태 결정
                         const originalValue = valueDiv.dataset.originalValue;
@@ -5897,6 +6549,7 @@
                             isChecked = originalValue === 'true' || originalValue === true;
                         }
                         checkbox.checked = isChecked;
+                        checkbox.dataset.originalValue = isChecked ? 'true' : 'false';  // data-original-value 추가
                         
                         // 라벨 생성
                         const label = document.createElement('label');
@@ -6001,6 +6654,11 @@
                         inputElement.type = 'date';
                         inputElement.className = 'form-control form-control-sm inline-edit-input';
                         
+                        // 날짜 필드 클릭 시 캘린더 열기 강제
+                        inputElement.addEventListener('click', function() {
+                            this.showPicker(); // 캘린더 강제 열기
+                        });
+                        
                         // 현재 값이 있으면 YYYY-MM-DD 형식으로 변환
                         if (currentValue && currentValue !== '-' && currentValue.trim() !== '') {
                             // 슬래시 형식인 경우 (YYYY/M/D -> YYYY-MM-DD)
@@ -6034,6 +6692,12 @@
                             inputElement.pattern = '[0-9]{3}-[0-9]{4}-[0-9]{4}';
                         } else if (fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료') {
                             inputElement.type = 'date';
+                            
+                            // 날짜 필드 클릭 시 캘린더 열기 강제
+                            inputElement.addEventListener('click', function() {
+                                this.showPicker(); // 캘린더 강제 열기
+                            });
+                            
                             // 날짜 값 형식 변환 (YYYY/MM/DD -> YYYY-MM-DD)
                             if (currentValue && currentValue.includes('/')) {
                                 const dateParts = currentValue.split('/');
@@ -6142,6 +6806,12 @@
                 const fieldName = input.dataset.field;
                 let originalValue = input.dataset.originalValue || '';
                 
+                // fieldName이 undefined인 경우 건너뛰기
+                if (!fieldName) {
+                    console.warn('fieldName이 undefined인 input 발견, 건너뜀:', input);
+                    return;
+                }
+                
                 // 원본값이 '-'인 경우 빈 문자열로 통일
                 if (originalValue === '-') {
                     originalValue = '';
@@ -6188,6 +6858,20 @@
                     normalizedNew = normalizeDateFormat(newValue);
                 }
                 
+                // 금액 필드인 경우 숫자로 변환하여 비교
+                const isMoneyField = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'].includes(fieldName);
+                if (isMoneyField) {
+                    // 숫자만 추출하여 비교
+                    normalizedOriginal = (originalValue || '').toString().replace(/[^0-9]/g, '');
+                    normalizedNew = (newValue || '').toString().replace(/[^0-9]/g, '');
+                }
+                
+                // 디버그 로그
+                console.log(`필드 변경 감지: ${fieldName}`);
+                console.log(`  원본: "${originalValue}" -> 정규화: "${normalizedOriginal}"`);
+                console.log(`  새값: "${newValue}" -> 정규화: "${normalizedNew}"`);
+                console.log(`  변경됨: ${normalizedOriginal !== normalizedNew}`);
+                
                 if (normalizedOriginal !== normalizedNew) {
                     hasChanges = true;
                     updatedData[fieldName] = newValue;
@@ -6195,6 +6879,7 @@
             });
             
             // 변경사항이 없으면 저장하지 않음
+            console.log(`전체 변경사항 확인: hasChanges = ${hasChanges}`);
             if (!hasChanges) {
                 // 저장 상태 해제
                 savingCards.delete(cardKey);
@@ -6231,6 +6916,12 @@
             .then(response => {
                 console.log('응답 상태:', response.status);
                 if (!response.ok) {
+                    // 권한 에러인 경우 특별 처리
+                    if (response.status === 403) {
+                        return response.json().then(errorData => {
+                            throw new Error(`권한 없음: ${errorData.error}`);
+                        });
+                    }
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 return response.json();
@@ -6258,7 +6949,10 @@
                     }
                     
                     
-                    // UI 업데이트
+                    // UI 업데이트 (actual_values로 처리될 금액 필드는 제외)
+                    const moneyFields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'];
+                    const hasActualValues = result.actual_values && Object.keys(result.actual_values).length > 0;
+                    
                     inputs.forEach(input => {
                         let valueDiv = input.parentElement;
                         const fieldName = input.dataset ? input.dataset.field : valueDiv.dataset.field;
@@ -6267,6 +6961,18 @@
                         // 체크박스 컨테이너인 경우 부모의 부모가 실제 valueDiv
                         if (valueDiv.classList.contains('form-check')) {
                             valueDiv = valueDiv.parentElement;
+                        }
+                        
+                        // actual_values가 있는 경우 금액 필드는 건너뛰기 (더 정확한 값으로 나중에 업데이트됨)
+                        if (hasActualValues && moneyFields.includes(fieldName)) {
+                            // input만 제거하고 값 업데이트는 건너뛰기
+                            if (input.parentElement.classList.contains('form-check')) {
+                                input.parentElement.remove();
+                            } else {
+                                input.remove();
+                            }
+                            valueDiv.classList.remove('editing');
+                            return;
                         }
                         
                         // select, input, checkbox 구분하여 값 가져오기
@@ -6293,11 +6999,11 @@
                                 }
                             }
                             
-                            // 금액 필드인 경우 formatCurrency 적용
-                            if (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
+                            // 금액 필드 처리 (actual_values가 없는 경우만)
+                            if (!hasActualValues && (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
                                 fieldName.includes('익') || fieldName === '제품대' || fieldName === '도급비' || 
                                 fieldName === '자재비' || fieldName === '기타비' || fieldName === '순익' || 
-                                fieldName === '미수금W' || fieldName === '미수금') {
+                                fieldName === '미수금W' || fieldName === '미수금')) {
                                 const numValue = parseFloat(newValue) || 0;
                                 if (numValue > 0) {
                                     newValue = formatCurrency(numValue);
@@ -6351,6 +7057,25 @@
                             saveBtn.style.transform = '';
                             saveBtn.style.animation = '';
                             
+                            // 저장 완료 후 data-original-value 업데이트
+                            const allEditableValues = card.querySelectorAll('.editable-value');
+                            allEditableValues.forEach(valueDiv => {
+                                const currentValue = valueDiv.textContent.trim();
+                                const fieldName = valueDiv.dataset.field;
+                                
+                                if (fieldName && currentValue !== '-') {
+                                    // 금액 필드인 경우 숫자만 추출해서 저장
+                                    const moneyFields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'];
+                                    if (moneyFields.includes(fieldName)) {
+                                        const numericValue = currentValue.replace(/[^0-9]/g, '');
+                                        valueDiv.dataset.originalValue = numericValue || '';
+                                    } else {
+                                        valueDiv.dataset.originalValue = currentValue;
+                                    }
+                                    console.log(`data-original-value 업데이트: ${fieldName} = "${valueDiv.dataset.originalValue}"`);
+                                }
+                            });
+                            
                             // 그 다음 편집 모드 종료
                             resetCardEditButtons(card);
                             
@@ -6367,6 +7092,32 @@
                     // 테이블 데이터 업데이트 (새 프로젝트 코드 사용)
                     const finalProjectCode = result.new_project_code || projectCode;
                     updateProjectDataInMemory(projectCode, updatedData, result.new_project_code);
+                    
+                    // 자동 계산된 필드들이 있는 경우 UI에서 직접 업데이트
+                    if (result.calculated_fields && Object.keys(result.calculated_fields).length > 0) {
+                        updateCalculatedFieldsInUI(finalProjectCode, result.calculated_fields, cardType);
+                    }
+                    
+                    // 손익정보 카드에서 비용 관련 필드가 변경된 경우 순익과 마진율 자동 계산
+                    if (cardType === 'profit') {
+                        const profitRelatedFields = ['제품대', '도급비', '자재비', '기타비'];
+                        const hasRelatedFieldChanges = Object.keys(updatedData).some(field => 
+                            profitRelatedFields.includes(field)
+                        );
+                        
+                        if (hasRelatedFieldChanges) {
+                            // 약간의 지연 후 계산 (UI 업데이트 완료 후)
+                            setTimeout(() => {
+                                calculateProfitAndMargin(finalProjectCode, cardType);
+                            }, 200);
+                        }
+                    }
+                    
+                    // 실제 저장된 값들로 UI 동기화 (Google Sheets 동기화 문제 해결) - 임시 비활성화
+                    // 실제 저장된 값으로 UI 업데이트 (입력값 손실 방지)
+                    if (result.actual_values && Object.keys(result.actual_values).length > 0) {
+                        updateActualValuesInUI(finalProjectCode, result.actual_values, cardType);
+                    }
                     
                 } else {
                     
@@ -6396,10 +7147,25 @@
             .catch(error => {
                 console.error('저장 오류:', error);
                 
+                // 권한 오류인지 확인
+                const isPermissionError = error.message.includes('권한 없음');
+                
+                // 알림 표시
+                if (isPermissionError) {
+                    showNotification(error.message, 'error');
+                } else {
+                    showNotification('저장 중 오류가 발생했습니다: ' + error.message, 'error');
+                }
+                
                 // 네트워크 오류 시 버튼 상태 복원
                 if (saveBtn) {
                     saveBtn.disabled = false;
-                    saveBtn.innerHTML = '<i class="fas fa-wifi me-1"></i>재시도';
+                    if (isPermissionError) {
+                        saveBtn.innerHTML = '<i class="fas fa-lock me-1"></i>권한없음';
+                        saveBtn.classList.add('btn-warning');
+                    } else {
+                        saveBtn.innerHTML = '<i class="fas fa-wifi me-1"></i>재시도';
+                    }
                     saveBtn.classList.remove('btn-secondary');
                     saveBtn.classList.add('btn-warning');
                     
@@ -6446,14 +7212,16 @@
                 input.remove();
                 
                 // 필드 타입에 따라 원래 표시 형식으로 복원
-                let displayValue = originalValue === '' ? '-' : originalValue;
+                // 빈 값 정규화 (undefined, null, '', 'undefined', 'null' 모두 빈 문자열로 처리)
+                const normalizedOriginalValue = (!originalValue || originalValue === 'undefined' || originalValue === 'null') ? '' : originalValue;
+                let displayValue = normalizedOriginalValue === '' ? '-' : normalizedOriginalValue;
                 
                 if (fieldName === '부가세') {
-                    displayValue = originalValue === 'true' ? '포함' : '별도';
+                    displayValue = normalizedOriginalValue === 'true' ? '포함' : '별도';
                 } else if (fieldName === '계산서') {
-                    displayValue = originalValue === 'true' ? '발행완료' : '미발행';
+                    displayValue = normalizedOriginalValue === 'true' ? '발행완료' : '미발행';
                 } else if (fieldName === '수금 확인') {
-                    if (originalValue === 'true') {
+                    if (normalizedOriginalValue === 'true') {
                         displayValue = '<span class="badge bg-success">완료</span>';
                     } else {
                         displayValue = '<span class="badge bg-warning">대기</span>';
@@ -6463,18 +7231,26 @@
                           fieldName === '자재비' || fieldName === '기타비' || fieldName === '순익' || 
                           fieldName === '미수금W' || fieldName === '미수금') {
                     // 금액 필드는 formatCurrency 적용
-                    const numValue = parseFloat(originalValue) || 0;
-                    if (numValue > 0) {
-                        displayValue = formatCurrency(numValue);
-                    } else {
+                    if (normalizedOriginalValue === '') {
                         displayValue = '-';
+                    } else {
+                        const numValue = parseFloat(normalizedOriginalValue);
+                        if (!isNaN(numValue) && numValue > 0) {
+                            displayValue = formatCurrency(numValue);
+                        } else {
+                            displayValue = '-';
+                        }
                     }
                 } else if (fieldName === '마진율') {
-                    const numValue = parseFloat(originalValue) || 0;
-                    displayValue = numValue ? numValue.toFixed(1) + '%' : '-';
+                    if (normalizedOriginalValue === '') {
+                        displayValue = '-';
+                    } else {
+                        const numValue = parseFloat(normalizedOriginalValue);
+                        displayValue = (!isNaN(numValue) && numValue > 0) ? numValue.toFixed(1) + '%' : '-';
+                    }
                 } else if (fieldName === '수금 날짜' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '공사 확정') {
                     // 날짜 필드는 formatDate 적용
-                    displayValue = originalValue ? formatDate(originalValue) : '-';
+                    displayValue = normalizedOriginalValue ? formatDate(normalizedOriginalValue) : '-';
                 }
                 
                 if (fieldName === '수금 확인') {
@@ -6483,6 +7259,28 @@
                     valueDiv.textContent = displayValue;
                 }
                 valueDiv.classList.remove('editing');
+                
+                // 편집 모드에서 추가된 스타일 제거 (회색 배경, 자물쇠 아이콘 등)
+                valueDiv.style.backgroundColor = '';
+                valueDiv.style.color = '';
+                valueDiv.style.position = '';
+                // 자물쇠 아이콘이 포함된 HTML 제거하고 원래 텍스트만 유지
+                if (valueDiv.innerHTML.includes('<span style="position: absolute')) {
+                    valueDiv.textContent = displayValue;
+                }
+            });
+            
+            // 편집 불가능했던 필드들도 원래 상태로 복원
+            const lockedFields = card.querySelectorAll('.editable-value[style*="background-color: rgb(248, 249, 250)"]');
+            lockedFields.forEach(field => {
+                field.style.backgroundColor = '';
+                field.style.color = '';
+                field.style.position = '';
+                // 자물쇠 아이콘 제거
+                const lockIcon = field.querySelector('span[style*="position: absolute"]');
+                if (lockIcon) {
+                    lockIcon.remove();
+                }
             });
             
             // 저장 중 상태 해제 (저장이 진행 중인 경우)
@@ -6648,6 +7446,9 @@
                 return;
             }
             
+            // 원본 경로 값을 안전하게 보관
+            const originalPath = currentPath || '';
+            
             // 입력 필드로 변경
             const inputElement = document.createElement('input');
             inputElement.type = 'text';
@@ -6679,9 +7480,8 @@
             cancelBtn.onmouseover = () => { cancelBtn.style.backgroundColor = '#f5c6cb'; cancelBtn.style.borderColor = '#f2b6bb'; };
             cancelBtn.onmouseout = () => { cancelBtn.style.backgroundColor = '#f8d7da'; cancelBtn.style.borderColor = '#f5c6cb'; };
             
-            // 기존 요소들 임시 저장
-            const originalPathLink = pathLink ? pathLink.outerHTML : null;
-            const originalEditBtn = buttonElement.outerHTML;
+            // 편집 전 전체 폴더 컨테이너 HTML 저장
+            const originalFolderHTML = folderContainer.innerHTML;
             
             // 편집 모드로 변경
             let pathContainer;
@@ -6843,109 +7643,8 @@
             
             // 취소 함수
             const cancelEdit = () => {
-                // 폴더 컨테이너 다시 생성
-                folderContainer.innerHTML = '';
-                
-                if (currentPath && currentPath.trim() !== '') {
-                    // 기존 경로가 있는 경우
-                    // 폴더 아이콘
-                    const folderIcon = document.createElement('i');
-                    folderIcon.className = 'fas fa-folder-open me-2';
-                    folderIcon.style.cssText = 'color: #ffc107; font-size: 1.1rem;';
-                    
-                    // 라벨
-                    const label = document.createElement('small');
-                    label.className = 'text-muted me-2';
-                    label.style.fontWeight = '600';
-                    label.textContent = '문서 폴더:';
-                    
-                    // 패스 컨테이너
-                    const pathContainer = document.createElement('div');
-                    pathContainer.className = 'text-truncate d-flex align-items-center';
-                    pathContainer.style.flex = '1';
-                    
-                    // 패스 링크
-                    const pathLink = document.createElement('a');
-                    pathLink.href = '#';
-                    pathLink.className = 'text-decoration-none';
-                    pathLink.style.cssText = 'color: #17a2b8; font-size: 0.85rem;';
-                    pathLink.title = currentPath;
-                    pathLink.textContent = currentPath;
-                    pathLink.onclick = (e) => {
-                        e.preventDefault();
-                        showUnifiedFolderMessage(pathLink, currentPath);
-                    };
-                } else {
-                    // 경로가 없었던 경우 - 원래 상태로 복원
-                    // 폴더 아이콘
-                    const folderIcon = document.createElement('i');
-                    folderIcon.className = 'fas fa-folder me-2';
-                    folderIcon.style.cssText = 'color: #ffc107; font-size: 1.1rem;';
-                    
-                    // 라벨
-                    const label = document.createElement('small');
-                    label.className = 'text-muted me-2';
-                    label.style.fontWeight = '600';
-                    label.textContent = '문서 폴더:';
-                    
-                    // "경로가 설정되지 않음" 텍스트
-                    const noPathText = document.createElement('span');
-                    noPathText.style.cssText = 'color: #856404; font-size: 0.85rem; font-style: italic;';
-                    noPathText.textContent = '경로가 설정되지 않음';
-                    
-                    // 메시지 영역
-                    const messageDiv = document.createElement('div');
-                    messageDiv.className = 'unified-folder-message ms-3';
-                    messageDiv.style.display = 'none';
-                    
-                    // 편집 버튼
-                    const editBtn = document.createElement('button');
-                    editBtn.className = 'btn btn-outline-warning btn-sm ms-auto edit-folder-btn';
-                    editBtn.innerHTML = '<i class="fas fa-plus me-1"></i>경로 설정';
-                    editBtn.title = '경로 설정';
-                    editBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem;';
-                    editBtn.onclick = () => editFolderPath(editBtn, '');
-                    
-                    folderContainer.appendChild(folderIcon);
-                    folderContainer.appendChild(label);
-                    folderContainer.appendChild(noPathText);
-                    folderContainer.appendChild(messageDiv);
-                    folderContainer.appendChild(editBtn);
-                    return; // 일찍 반환
-                }
-                
-                // 복사 버튼
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'btn btn-sm ms-2 copy-folder-btn';
-                copyBtn.title = '경로 복사';
-                copyBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; border: 1px solid #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.15s ease-in-out;';
-                copyBtn.innerHTML = '<i class="fas fa-copy me-1"></i>복사';
-                copyBtn.onmouseover = () => { copyBtn.style.backgroundColor = '#17a2b8'; copyBtn.style.color = 'white'; };
-                copyBtn.onmouseout = () => { copyBtn.style.backgroundColor = 'transparent'; copyBtn.style.color = '#17a2b8'; };
-                copyBtn.onclick = () => showUnifiedFolderMessage(copyBtn, currentPath);
-                
-                // 메시지 영역
-                const messageDiv = document.createElement('div');
-                messageDiv.className = 'unified-folder-message ms-3';
-                messageDiv.style.display = 'none';
-                
-                // 편집 버튼
-                const editBtn = document.createElement('button');
-                editBtn.className = 'btn btn-outline-secondary btn-sm edit-folder-btn';
-                editBtn.title = '수정';
-                editBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem;';
-                editBtn.innerHTML = '<i class="fas fa-edit me-1"></i>수정';
-                editBtn.onclick = () => editFolderPath(editBtn, currentPath);
-                
-                // 요소들 조합
-                pathContainer.appendChild(pathLink);
-                pathContainer.appendChild(copyBtn);
-                pathContainer.appendChild(messageDiv);
-                
-                folderContainer.appendChild(folderIcon);
-                folderContainer.appendChild(label);
-                folderContainer.appendChild(pathContainer);
-                folderContainer.appendChild(editBtn);
+                // 원본 HTML로 간단히 복원
+                folderContainer.innerHTML = originalFolderHTML;
             };
             
             // 이벤트 리스너 추가
@@ -7182,6 +7881,365 @@
                     alertDiv.remove();
                 }
             }, 3000);
+        }
+        
+        // 감사 로그 관련 함수들
+        function openAuditLogs() {
+            const modalElement = document.getElementById('auditLogsModal');
+            const modal = new bootstrap.Modal(modalElement);
+            
+            // 페이지네이션 초기화
+            currentPage = 1;
+            totalPages = 1;
+            
+            // 모달 이벤트 리스너
+            modalElement.removeEventListener('hidden.bs.modal', handleModalHidden);
+            modalElement.addEventListener('hidden.bs.modal', handleModalHidden);
+            
+            modal.show();
+            loadAuditLogs(1);  // 첫 페이지부터 시작
+        }
+        
+        function loadAuditLogs(page = 1) {
+            currentPage = page;
+            const days = document.getElementById('auditLogsDays').value;
+            const tableBody = document.getElementById('auditLogsTableBody');
+            const countElement = document.getElementById('auditLogsCount');
+            const pageInfoElement = document.getElementById('auditLogsPageInfo');
+            
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center">
+                        <i class="fas fa-spinner fa-spin"></i> 로딩 중...
+                    </td>
+                </tr>
+            `;
+            
+            fetch(`/api/audit-logs?days=${days}&page=${currentPage}&per_page=${perPage}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        displayAuditLogs(data.logs);
+                        
+                        // 페이지네이션 정보 업데이트
+                        const pagination = data.pagination;
+                        totalPages = pagination.total_pages;
+                        
+                        countElement.textContent = `총 로그: ${pagination.total_count}개`;
+                        pageInfoElement.textContent = `${currentPage}/${totalPages} 페이지 (${pagination.per_page}개씩)`;
+                        
+                        // 페이지네이션 UI 업데이트
+                        updatePaginationUI(pagination);
+                    } else {
+                        showAuditLogsAlert(data.message || '로그를 불러오는데 실패했습니다.', 'error');
+                        tableBody.innerHTML = `
+                            <tr>
+                                <td colspan="8" class="text-center text-danger">
+                                    <i class="fas fa-exclamation-triangle"></i> 로그를 불러오지 못했습니다.
+                                </td>
+                            </tr>
+                        `;
+                        resetPaginationUI();
+                    }
+                })
+                .catch(error => {
+                    console.error('감사 로그 로딩 오류:', error);
+                    showAuditLogsAlert('네트워크 오류가 발생했습니다.', 'error');
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="8" class="text-center text-danger">
+                                <i class="fas fa-wifi"></i> 네트워크 오류
+                            </td>
+                        </tr>
+                    `;
+                    resetPaginationUI();
+                });
+        }
+        
+        function displayAuditLogs(logs) {
+            const tableBody = document.getElementById('auditLogsTableBody');
+            
+            if (logs.length === 0) {
+                tableBody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center text-muted">
+                            <i class="fas fa-info-circle"></i> 표시할 로그가 없습니다.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            tableBody.innerHTML = logs.map(log => {
+                const timestamp = new Date(log.timestamp);
+                const formattedTime = timestamp.toLocaleString('ko-KR', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+                
+                const actionBadge = getActionBadge(log.action);
+                const roleBadge = getRoleBadge(log.user_role);
+                
+                // 긴 값들을 스마트하게 처리
+                const oldValueDisplay = formatLogValue(log.old_value, log.field_name);
+                const newValueDisplay = formatLogValue(log.new_value, log.field_name);
+                
+                return `
+                    <tr>
+                        <td>${formattedTime}</td>
+                        <td title="${log.user_email}">${log.user_name}</td>
+                        <td>${roleBadge}</td>
+                        <td>${actionBadge}</td>
+                        <td>${log.project_code || '-'}</td>
+                        <td>${getDisplayFieldName(log.field_name) || '-'}</td>
+                        <td ${createTooltipAttribute(log.old_value, log.old_value, log.field_name, true)}>${oldValueDisplay}</td>
+                        <td ${createTooltipAttribute(log.old_value, log.new_value, log.field_name)}>${newValueDisplay}</td>
+                    </tr>
+                `;
+            }).join('');
+            
+            // Custom 툴팁 생성
+            setTimeout(() => {
+                createCustomTooltips();
+            }, 100);
+        }
+        
+        // 필드명 표시명 매핑 함수 (로그에서만 사용)
+        function getDisplayFieldName(fieldName) {
+            if (!fieldName) return '-';
+            
+            // 로그 표시용 필드명 매핑
+            const displayFieldNames = {
+                '견적서 및 계약서 폴더 경로': '문서 폴더'
+                // 필요하면 다른 필드들도 여기에 추가
+            };
+            
+            return displayFieldNames[fieldName] || fieldName;
+        }
+        
+        // 툴팁 속성 생성 함수
+        function createTooltipAttribute(oldValue, newValue, fieldName, isOldValue = false) {
+            // 값이 없는 경우 처리
+            if (!oldValue && !newValue) return '';
+            if (!oldValue) return '';
+            if (!newValue) return '';
+            
+            const oldStr = String(oldValue);
+            const newStr = String(newValue);
+            const displayValue = isOldValue ? oldStr : newStr;
+            
+            // 폴더 경로 필드가 아닌 경우 툴팁 없음
+            if (!fieldName || (!fieldName.includes('폴더') && !fieldName.includes('경로'))) {
+                return '';
+            }
+            
+            // 이전값 컬럼이거나 값이 동일한 경우 - 변경 강조 없이 표시
+            if (isOldValue || oldStr === newStr) {
+                return `class="custom-tooltip" data-tooltip-content="${displayValue.replace(/"/g, '&quot;')}" data-old-value="" data-common-start="-1"`;
+            }
+            
+            // 새값 컬럼에서 변경사항이 있는 경우 - 차이점 찾기
+            let commonStart = 0;
+            while (commonStart < Math.min(oldStr.length, newStr.length) && 
+                   oldStr[commonStart] === newStr[commonStart]) {
+                commonStart++;
+            }
+            
+            // Custom 툴팁용 클래스와 데이터 속성 추가
+            return `class="custom-tooltip" data-tooltip-content="${newStr.replace(/"/g, '&quot;')}" data-old-value="${oldStr.replace(/"/g, '&quot;')}" data-common-start="${commonStart}"`;
+        }
+        
+        // Custom 툴팁 생성 함수
+        function createCustomTooltips() {
+            const tooltipElements = document.querySelectorAll('.custom-tooltip');
+            
+            tooltipElements.forEach(element => {
+                // 기존 툴팁 제거
+                const existingTooltip = element.querySelector('.custom-tooltiptext');
+                if (existingTooltip) {
+                    existingTooltip.remove();
+                }
+                
+                const content = element.getAttribute('data-tooltip-content');
+                const oldValue = element.getAttribute('data-old-value');
+                const commonStart = parseInt(element.getAttribute('data-common-start'));
+                
+                if (content) {
+                    const tooltipDiv = document.createElement('div');
+                    tooltipDiv.className = 'custom-tooltiptext';
+                    
+                    // 이전값이거나 변경사항 없는 경우 (commonStart === -1)
+                    if (!oldValue || commonStart === -1) {
+                        tooltipDiv.textContent = content;
+                    } else if (commonStart >= 0) {
+                        // 새값에서 변경사항이 있는 경우
+                        const unchangedPart = content.substring(0, commonStart);
+                        const changedPart = content.substring(commonStart);
+                        tooltipDiv.innerHTML = unchangedPart + '<span class="tooltip-changed">' + changedPart + '</span>';
+                    } else {
+                        tooltipDiv.textContent = content;
+                    }
+                    
+                    element.appendChild(tooltipDiv);
+                }
+            });
+        }
+
+        // 로그 값 포맷팅 함수 (고정 레이아웃에서 안전한 길이로 처리)
+        function formatLogValue(value, fieldName) {
+            if (!value || value === 'null' || value === 'undefined') {
+                return '-';
+            }
+            
+            const strValue = String(value);
+            
+            // 폴더 경로인 경우 특별 처리 (컬럼이 23%로 넓어졌으므로 더 많이 표시)
+            if (fieldName && (fieldName.includes('폴더') || fieldName.includes('경로'))) {
+                if (strValue.length > 60) {
+                    // 경로를 앞부분과 끝부분만 보여주기
+                    const parts = strValue.split(/[\\\/]/);
+                    if (parts.length > 2) {
+                        const firstPart = parts[0];
+                        const lastPart = parts[parts.length-1];
+                        // 첫 부분과 마지막 부분을 합쳐서 55자 이내로 제한
+                        if ((firstPart + lastPart).length > 50) {
+                            return `${firstPart.substring(0, 20)}/.../${lastPart.substring(0, 25)}...`;
+                        }
+                        return `${firstPart}/.../${lastPart}...`;
+                    } else {
+                        return strValue.substring(0, 55) + '...';
+                    }
+                }
+                return strValue;
+            }
+            
+            // 일반 긴 텍스트 처리 (컬럼이 23%로 넓어졌으므로 더 많이 표시)
+            if (strValue.length > 55) {
+                return strValue.substring(0, 50) + '...';
+            }
+            
+            return strValue;
+        }
+        
+        function getActionBadge(action) {
+            const actionMap = {
+                'UPDATE_FIELD': { text: '필드 수정', style: 'background-color: #e3f2fd; color: #1976d2; border: 1px solid #bbdefb;' },
+                'CREATE_PROJECT': { text: '프로젝트 생성', style: 'background-color: #e8f5e8; color: #388e3c; border: 1px solid #c8e6c8;' },
+                'LOGIN': { text: '로그인', style: 'background-color: #e0f2f1; color: #00796b; border: 1px solid #b2dfdb;' },
+                'LOGOUT': { text: '로그아웃', style: 'background-color: #f3e5f5; color: #7b1fa2; border: 1px solid #e1bee7;' }
+            };
+            
+            const actionInfo = actionMap[action] || { text: action, style: 'background-color: #f5f5f5; color: #666; border: 1px solid #ddd;' };
+            return `<span class="badge" style="font-size: 0.7rem; ${actionInfo.style}">${actionInfo.text}</span>`;
+        }
+        
+        function getRoleBadge(role) {
+            const roleMap = {
+                'admin': { text: '관리자', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
+                'editor': { text: '편집자', style: 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' },
+                'viewer': { text: '뷰어', style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' }
+            };
+            
+            const roleInfo = roleMap[role] || { text: role, style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' };
+            return `<span class="badge" style="font-size: 0.7rem; ${roleInfo.style}">${roleInfo.text}</span>`;
+        }
+        
+        function showAuditLogsAlert(message, type = 'success') {
+            const alertContainer = document.getElementById('auditLogsAlert');
+            if (!alertContainer) return;
+            
+            // 기존 알림 제거
+            alertContainer.innerHTML = '';
+            
+            // 새 알림 생성
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type === 'error' ? 'danger' : type} py-1 px-2 mb-0 d-inline-flex align-items-center`;
+            alertDiv.style.fontSize = '0.8rem';
+            alertDiv.innerHTML = `
+                <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-triangle'} me-1"></i>
+                ${message}
+            `;
+            
+            alertContainer.appendChild(alertDiv);
+            
+            // 3초 후 자동 제거
+            setTimeout(() => {
+                if (alertDiv.parentElement) {
+                    alertDiv.remove();
+                }
+            }, 3000);
+        }
+        
+        // 페이지네이션 UI 업데이트 함수
+        function updatePaginationUI(pagination) {
+            const paginationContainer = document.getElementById('auditLogsPagination');
+            const prevButton = document.getElementById('auditLogsPrevPage');
+            const nextButton = document.getElementById('auditLogsNextPage');
+            
+            // 이전/다음 버튼 활성화/비활성화
+            if (pagination.has_prev) {
+                prevButton.classList.remove('disabled');
+            } else {
+                prevButton.classList.add('disabled');
+            }
+            
+            if (pagination.has_next) {
+                nextButton.classList.remove('disabled');
+            } else {
+                nextButton.classList.add('disabled');
+            }
+            
+            // 기존 페이지 번호들 제거
+            const existingPages = paginationContainer.querySelectorAll('.page-number');
+            existingPages.forEach(page => page.remove());
+            
+            // 새 페이지 번호들 생성
+            const maxPagesToShow = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxPagesToShow / 2));
+            let endPage = Math.min(pagination.total_pages, startPage + maxPagesToShow - 1);
+            
+            if (endPage - startPage + 1 < maxPagesToShow) {
+                startPage = Math.max(1, endPage - maxPagesToShow + 1);
+            }
+            
+            // 페이지 번호 생성
+            for (let i = startPage; i <= endPage; i++) {
+                const pageItem = document.createElement('li');
+                pageItem.className = `page-item page-number ${i === currentPage ? 'active' : ''}`;
+                pageItem.innerHTML = `<a class="page-link" href="#" onclick="changePage(${i})">${i}</a>`;
+                
+                // 이전 버튼 다음에 삽입
+                nextButton.parentNode.insertBefore(pageItem, nextButton);
+            }
+        }
+        
+        // 페이지네이션 UI 초기화 함수
+        function resetPaginationUI() {
+            const paginationContainer = document.getElementById('auditLogsPagination');
+            const prevButton = document.getElementById('auditLogsPrevPage');
+            const nextButton = document.getElementById('auditLogsNextPage');
+            const pageInfoElement = document.getElementById('auditLogsPageInfo');
+            
+            // 모든 페이지 번호 제거
+            const existingPages = paginationContainer.querySelectorAll('.page-number');
+            existingPages.forEach(page => page.remove());
+            
+            // 버튼 비활성화
+            prevButton.classList.add('disabled');
+            nextButton.classList.add('disabled');
+            
+            // 페이지 정보 초기화
+            pageInfoElement.textContent = '페이지 정보';
+        }
+        
+        // 페이지 변경 함수
+        function changePage(page) {
+            if (page < 1 || page > totalPages || page === currentPage) {
+                return;
+            }
+            loadAuditLogs(page);
         }
         
         async function loadUsers() {

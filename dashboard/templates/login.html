@@ -466,6 +466,12 @@
                 showAlert('로그인에 실패했습니다. 다시 시도해주세요.', 'danger');
             } else if (message === 'domain_not_allowed') {
                 showAlert('@itg-aircon.com 도메인 계정만 접속 가능합니다.', 'warning');
+            } else if (message === 'session_expired') {
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+            } else if (message === 'access_denied') {
+                showAlert('로그인이 필요합니다.', 'info');
+            } else if (message === 'logout_success') {
+                showAlert('정상적으로 로그아웃되었습니다.', 'success');
             }
         }
     </script>

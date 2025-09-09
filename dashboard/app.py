@@ -3,6 +3,7 @@ from flask_socketio import SocketIO, emit
 import os
 import sys
 import logging
+import time
 from datetime import datetime, timedelta
 import json
 import re
@@ -26,7 +27,7 @@ load_dotenv()
 # Flask 앱 초기화
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)  # 7일 세션 유지
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)  # 8시간 세션 유지
 
 # SocketIO 초기화 (실시간 업데이트용)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -49,6 +50,107 @@ current_data = None
 last_update = None
 _data_cache = {}
 _cache_expiry = 60   # 1분 캐시
+
+# 감사 로그 시스템
+AUDIT_LOG_DIR = os.path.join(os.path.dirname(__file__), 'audit_logs')
+if not os.path.exists(AUDIT_LOG_DIR):
+    os.makedirs(AUDIT_LOG_DIR)
+
+def normalize_log_value(value, field_name):
+    """감사 로그 값을 정규화 (표기법 통일)"""
+    if not value or value == 'null' or value == 'undefined':
+        return '-'
+    
+    # 금액 필드인 경우 화폐 기호 제거하고 숫자에 쉼표 추가
+    money_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익']
+    if field_name in money_fields:
+        # 화폐 기호와 쉼표 제거
+        cleaned_value = str(value).replace('₩', '').replace('\\', '').replace(',', '').strip()
+        try:
+            # 숫자로 변환 가능한지 확인
+            float_val = float(cleaned_value)
+            if float_val.is_integer():
+                # 정수인 경우 쉼표 추가
+                return f"{int(float_val):,}"
+            else:
+                # 소수인 경우도 쉼표 추가
+                return f"{float_val:,.2f}".rstrip('0').rstrip('.')
+        except ValueError:
+            return str(value)
+    
+    return str(value)
+
+def log_user_action(action, details, project_code=None, field_name=None, old_value=None, new_value=None):
+    """사용자 행동을 감사 로그에 기록"""
+    try:
+        user_info = session.get('user', {})
+        
+        # 값 정규화
+        normalized_old_value = normalize_log_value(old_value, field_name)
+        normalized_new_value = normalize_log_value(new_value, field_name)
+        
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'user_name': user_info.get('name', 'Unknown'),
+            'user_email': user_info.get('email', 'Unknown'),
+            'user_role': user_info.get('permission_level', 'Unknown'),
+            'action': action,
+            'details': details,
+            'project_code': project_code,
+            'field_name': field_name,
+            'old_value': normalized_old_value,
+            'new_value': normalized_new_value,
+            'ip_address': request.remote_addr if request else 'Unknown'
+        }
+        
+        # 날짜별 로그 파일 생성
+        log_date = datetime.now().strftime('%Y-%m-%d')
+        log_file = os.path.join(AUDIT_LOG_DIR, f'audit_{log_date}.json')
+        
+        # 기존 로그 읽기
+        logs = []
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    logs = json.load(f)
+            except:
+                logs = []
+        
+        # 새 로그 추가
+        logs.append(log_entry)
+        
+        # 로그 파일 저장
+        with open(log_file, 'w', encoding='utf-8') as f:
+            json.dump(logs, f, ensure_ascii=False, indent=2)
+            
+        logger.info(f"Audit log recorded: {action} by {user_info.get('name', 'Unknown')}")
+        
+    except Exception as e:
+        logger.error(f"Failed to log user action: {e}")
+
+def get_audit_logs(days=7):
+    """감사 로그 조회 (최근 N일)"""
+    try:
+        all_logs = []
+        for i in range(days):
+            log_date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+            log_file = os.path.join(AUDIT_LOG_DIR, f'audit_{log_date}.json')
+            
+            if os.path.exists(log_file):
+                try:
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        daily_logs = json.load(f)
+                        all_logs.extend(daily_logs)
+                except:
+                    continue
+        
+        # 최신순으로 정렬
+        all_logs.sort(key=lambda x: x['timestamp'], reverse=True)
+        return all_logs
+        
+    except Exception as e:
+        logger.error(f"Failed to get audit logs: {e}")
+        return []
 
 # 프로젝트 설정 로드
 def _load_project_config():
@@ -307,6 +409,7 @@ def google_callback():
         
         # 세션 생성
         session['user'] = user
+        session['login_time'] = datetime.now().isoformat()
         session.permanent = True
         
         # OAuth state 정리
@@ -877,6 +980,21 @@ def update_project(project_code):
                         'values': [[value]]
                     })
             
+            # 업데이트 전에 현재 값들을 조회해서 이전 값으로 기록
+            old_values = {}
+            try:
+                for field_name in data.keys():
+                    if field_name in field_column_mapping:
+                        column = field_column_mapping[field_name]
+                        current_value_result = manager.service.spreadsheets().values().get(
+                            spreadsheetId=sheet_id,
+                            range=f'공사 현황!{column}{row_number}'
+                        ).execute()
+                        current_values = current_value_result.get('values', [['']])
+                        old_values[field_name] = current_values[0][0] if current_values and current_values[0] else ''
+            except Exception as e:
+                logger.warning(f"이전 값 조회 실패: {e}")
+            
             if updates:
                 batch_update_body = {
                     'valueInputOption': 'USER_ENTERED',
@@ -886,6 +1004,22 @@ def update_project(project_code):
                     spreadsheetId=sheet_id,
                     body=batch_update_body
                 ).execute()
+                
+                # 감사 로그 기록 (실제 이전 값 포함)
+                try:
+                    for field_name, new_value in data.items():
+                        if field_name in field_column_mapping and field_name.strip() != '':
+                            old_value = old_values.get(field_name, '')
+                            log_user_action(
+                                action='UPDATE_FIELD',
+                                details=f'프로젝트 필드 수정: {field_name}',
+                                project_code=project_code,
+                                field_name=field_name,
+                                old_value=old_value if old_value else '-',
+                                new_value=str(new_value) if new_value else '-'
+                            )
+                except Exception as log_error:
+                    logger.warning(f"감사 로그 기록 실패: {log_error}")
         else:
             # 기존 폼 데이터 - 전체 행 업데이트
             values = convert_form_data_to_sheet_row(data, manager)
@@ -964,6 +1098,12 @@ def convert_form_data_to_sheet_row(form_data, manager):
         column_index = ord(column_letter) - ord('A') if len(column_letter) == 1 else \
                       (ord(column_letter[0]) - ord('A') + 1) * 26 + (ord(column_letter[1]) - ord('A'))
         
+        # 공사 확정 필드에 자동으로 등록 날짜 저장
+        if column_name == '공사 확정':
+            from datetime import datetime
+            values[column_index] = datetime.now().strftime('%Y-%m-%d')
+            continue
+        
         # 폼 데이터에서 해당 값 찾기
         form_field = None
         for form_key, sheet_column in field_mapping.items():
@@ -980,7 +1120,11 @@ def convert_form_data_to_sheet_row(form_data, manager):
             elif isinstance(value, (int, float)):
                 values[column_index] = str(value) if value != 0 else ''
             else:
-                values[column_index] = str(value) if value else ''
+                # 이메일 필드인 경우 빈 값일 때 '-' 표시
+                if column_name == '담당자 이메일':
+                    values[column_index] = str(value) if value else '-'
+                else:
+                    values[column_index] = str(value) if value else ''
     
     return values
 
@@ -1147,7 +1291,63 @@ def debug_headers():
         logger.error(f"디버깅 엔드포인트 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+def can_edit_field_server(user_role, card_type, field_name):
+    """서버 사이드에서 필드 편집 권한 체크"""
+    # 관리자는 모든 필드 편집 가능
+    if user_role == 'Admin':
+        return True
+    
+    # 편집자 권한 정의 (클라이언트와 동일하게 유지)
+    editor_allowed_fields = {
+        'basic': ['현장 담당자', '도급 구분', '담당자 연락처', '시공자', '담당자 이메일'],
+        'construction': 'all',  # 공사정보는 모든 필드 수정 가능
+        'financial': [],  # 금액정보 수정 불가
+        'payment': [],  # 수금정보 수정 불가
+        'profit': ['제품대', '도급비', '자재비', '기타비'],  # 특정 필드만 수정 가능
+        'documents': ['견적서 및 계약서 폴더 경로']  # 문서 경로만 수정 가능
+    }
+    
+    if user_role == 'Editor':
+        allowed_fields = editor_allowed_fields.get(card_type, [])
+        if allowed_fields == 'all':
+            return True
+        elif isinstance(allowed_fields, list):
+            return field_name in allowed_fields
+    
+    # 뷰어는 편집 불가
+    return False
+
+def get_card_type_for_field(field_name):
+    """필드명으로 카드 타입을 판단"""
+    field_to_card_mapping = {
+        # 기본정보
+        '현장 담당자': 'basic', '도급 구분': 'basic', '담당자 연락처': 'basic', 
+        '시공자': 'basic', '담당자 이메일': 'basic', '사업자': 'basic', '현장 주소': 'basic',
+        
+        # 공사정보
+        '공사 구분': 'construction', '기계 분류': 'construction', '브랜드': 'construction',
+        '공사 시작': 'construction', '공사 종료': 'construction', '공사 내용': 'construction',
+        '공사 확정': 'construction',
+        
+        # 금액정보
+        '총액 1': 'financial', '부가세': 'financial', '총액 2': 'financial',
+        
+        # 수금정보
+        '계약금': 'payment', '중도금': 'payment', '잔금': 'payment', 
+        '미수금': 'payment', '미수금W': 'payment', '수금 확인': 'payment', '수금 날짜': 'payment',
+        
+        # 손익정보
+        '제품대': 'profit', '도급비': 'profit', '자재비': 'profit', '기타비': 'profit',
+        '순익': 'profit', '마진율': 'profit',
+        
+        # 문서정보
+        '견적서 및 계약서 폴더 경로': 'documents'
+    }
+    
+    return field_to_card_mapping.get(field_name, 'unknown')
+
 @app.route('/api/inline-update', methods=['POST'])
+@login_required
 def inline_update_direct():
     """간단한 인라인 업데이트 API (직접 구현)"""
     try:
@@ -1157,6 +1357,30 @@ def inline_update_direct():
         project_code = data.get('projectCode')
         if not project_code:
             return jsonify({'ok': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+        
+        # 사용자 권한 확인
+        current_user_role = get_user_role()
+        logger.info(f"사용자 권한 확인: {current_user_role}")
+        
+        # 권한별로 필드 수정 가능 여부 체크
+        forbidden_fields = []
+        for field_name, value in data.items():
+            if field_name == 'projectCode':
+                continue
+                
+            card_type = get_card_type_for_field(field_name)
+            can_edit = can_edit_field_server(current_user_role, card_type, field_name)
+            logger.info(f"필드 권한 체크: {field_name} ({card_type}) - {current_user_role} - {'허용' if can_edit else '거부'}")
+            
+            if not can_edit:
+                forbidden_fields.append(field_name)
+        
+        if forbidden_fields:
+            return jsonify({
+                'ok': False, 
+                'error': f'권한이 없습니다. 편집 불가 필드: {", ".join(forbidden_fields)}',
+                'forbidden_fields': forbidden_fields
+            }), 403
         
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
         if not sheet_id:
@@ -1206,6 +1430,9 @@ def inline_update_direct():
         # 업데이트할 셀들
         updates = []
         
+        # 업데이트 전에 현재 값들을 조회해서 이전 값으로 기록
+        old_values = {}
+        
         # 필드별로 해당 열에 업데이트
         field_column_mapping = {
             # 기본정보
@@ -1223,7 +1450,29 @@ def inline_update_direct():
             '공사 시작': 'I',
             '공사 종료': 'J',
             '공사 내용': 'K',
-            '공사 확정': 'AL'
+            '공사 확정': 'AL',
+            # 금액정보
+            '총액 1': 'Q',
+            '부가세': 'R',
+            '총액 2': 'S',
+            '계약금': 'T',
+            '중도금': 'U',
+            '잔금': 'V',
+            '미수금': 'W',
+            '계산서': 'X',
+            '수금 날짜': 'Y',
+            '수금 확인': 'Z',
+            '제품대': 'AA',
+            '도급비': 'AB',
+            '자재비': 'AC',
+            '기타비': 'AD',
+            '순익': 'AE',
+            '마진율': 'AF',
+            '비고': 'AG',
+            '계약금 입금자명': 'AH',
+            '중도금 입금자명': 'AI',
+            '잔금 입금자명': 'AJ',
+            '견적서 및 계약서 폴더 경로': 'AK'
         }
         
         for field_name, value in data.items():
@@ -1233,10 +1482,60 @@ def inline_update_direct():
             if field_name in field_column_mapping:
                 column = field_column_mapping[field_name]
                 range_name = f'공사 현황!{column}{row_number}'
-                logger.info(f"업데이트 대상: {field_name} -> {range_name} = {value}")
+                
+                # 업데이트 전 이전 값 조회
+                try:
+                    current_value_result = manager.service.spreadsheets().values().get(
+                        spreadsheetId=sheet_id,
+                        range=range_name
+                    ).execute()
+                    current_values = current_value_result.get('values', [['']])
+                    old_values[field_name] = current_values[0][0] if current_values and current_values[0] else ''
+                except Exception as e:
+                    logger.warning(f"이전 값 조회 실패 ({field_name}): {e}")
+                    old_values[field_name] = ''
+                
+                # 숫자 필드인 경우 처리 개선 (콤마 뒤 0 손실 방지)
+                processed_value = value
+                if field_name in ['총액 1', '총액 2', '총액2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익']:
+                    try:
+                        # 원본 값 보존을 위해 조심스럽게 처리
+                        original_value = str(value).strip()
+                        logger.info(f"원본 입력값: {field_name} = '{original_value}'")
+                        
+                        if original_value and original_value != '-':
+                            # 숫자가 아닌 문자들만 제거 (콤마는 보존)
+                            clean_value = original_value.replace('₩', '').replace('원', '').strip()
+                            
+                            # 콤마가 포함된 숫자인지 확인
+                            if ',' in clean_value:
+                                # 콤마 형식 숫자 → 순수 숫자로 변환
+                                try:
+                                    # 콤마 제거 후 숫자로 파싱해서 유효성 확인
+                                    numeric_value = float(clean_value.replace(',', ''))
+                                    # 정수인 경우 .0 제거
+                                    if numeric_value.is_integer():
+                                        processed_value = str(int(numeric_value))
+                                    else:
+                                        processed_value = str(numeric_value)
+                                    logger.info(f"콤마 형식 처리: '{clean_value}' → '{processed_value}'")
+                                except ValueError:
+                                    logger.warning(f"콤마 형식 파싱 실패: '{clean_value}'")
+                                    processed_value = clean_value.replace(',', '')
+                            else:
+                                # 콤마가 없는 경우 그대로 사용
+                                processed_value = clean_value
+                        else:
+                            processed_value = ''
+                            
+                    except Exception as e:
+                        logger.warning(f"숫자 값 처리 실패 ({field_name}): {e}")
+                        processed_value = value
+                
+                logger.info(f"업데이트 대상: {field_name} -> {range_name} = '{value}' -> '{processed_value}'")
                 updates.append({
                     'range': range_name,
-                    'values': [[value]]
+                    'values': [[processed_value]]
                 })
         
         # 배치 업데이트 실행
@@ -1333,18 +1632,193 @@ def inline_update_direct():
             logger.warning(f"새 프로젝트 코드 확인 실패: {e}")
             new_project_code = project_code
         
+        # 감사 로그 기록 (실제 이전 값 포함)
+        try:
+            for field_name, new_value in data.items():
+                # 유효한 필드만 로그 기록 (빈 문자열, None, 'projectCode' 제외)
+                if (field_name and 
+                    field_name != 'projectCode' and 
+                    field_name.strip() != '' and 
+                    field_name != 'undefined' and
+                    field_name in field_column_mapping):
+                    
+                    old_value = old_values.get(field_name, '')
+                    logger.info(f"필드 업데이트 성공 확인: {field_name} = {old_value} -> {new_value}")
+                    log_user_action(
+                        action='UPDATE_FIELD',
+                        details=f'프로젝트 필드 수정: {field_name}',
+                        project_code=project_code,
+                        field_name=field_name,
+                        old_value=old_value if old_value else '-',
+                        new_value=str(new_value) if new_value else '-'
+                    )
+        except Exception as log_error:
+            logger.warning(f"감사 로그 기록 실패: {log_error}")
+        
+        # 금액 관련 필드가 수정된 경우 나중에 미수금을 계산하기 위해 표시만 해둠
+        amount_fields = ['총액 2', '총액2', '계약금', '중도금', '잔금']  # '총액2' (공백없음)도 포함
+        updated_amount_fields = [field for field in data.keys() if field in amount_fields]
+        calculated_fields = {}
+        
+        logger.info(f"수정된 데이터: {data}")
+        logger.info(f"금액 관련 필드 체크: {updated_amount_fields}")
+        
+        # 각 수정된 필드의 원본 값과 타입 상세 로깅
+        for field_name, value in data.items():
+            if field_name != 'projectCode':
+                logger.info(f"필드별 상세정보: {field_name} = '{value}' (타입: {type(value)}, 길이: {len(str(value))})")
+        
+        # 미수금 계산은 업데이트 후에 수행
+        
+        # 업데이트 후 실제 저장된 값 확인 (동기화 문제 해결)
+        actual_values = {}
+        if updated_amount_fields:
+            try:
+                # 방금 업데이트한 필드들의 실제 값을 Google Sheets에서 확인
+                import time
+                time.sleep(0.3)  # Google Sheets 업데이트 시간 대기 (단축)
+                # 더 넓은 범위로 확장 (금액 관련 모든 필드 포함)
+                verify_range = f'공사 현황!Q{row_number}:AM{row_number}'
+                verify_result = manager.service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range=verify_range,
+                    valueRenderOption='FORMATTED_VALUE'
+                ).execute()
+                
+                verify_values = verify_result.get('values', [[]])
+                if verify_values and verify_values[0]:
+                    verify_row = verify_values[0]
+                    # Google Sheets 컬럼 매핑 (Q부터 AM까지)
+                    all_field_mapping = [
+                        '총액 1', '부가세', '총액 2', '계약금', '중도금', '잔금', '미수금', '계산서',
+                        '수금 날짜', '수금 확인', '제품대', '도급비', '자재비', '기타비', '순익', '마진율',
+                        '비고', '계약금 입금자명', '중도금 입금자명', '잔금 입금자명', '견적서 및 계약서 폴더 경로',
+                        '공사 확정', 'Airtable Record ID'
+                    ]
+                    
+                    for i, field in enumerate(all_field_mapping):
+                        if i < len(verify_row) and field in updated_amount_fields:
+                            actual_values[field] = verify_row[i]
+                            logger.info(f"실제 저장된 값 확인: {field} = {verify_row[i]}")
+                            
+            except Exception as verify_error:
+                logger.warning(f"실제 값 확인 실패: {verify_error}")
+        
+        # 업데이트 완료 후 미수금 계산 (실제 저장된 값 기준)
+        if updated_amount_fields:
+            try:
+                # 업데이트 완료 후 다시 Google Sheets에서 최신 값들을 가져와서 미수금 계산
+                import time
+                time.sleep(0.2)  # 잠시 대기
+                amount_range = f'공사 현황!S{row_number}:V{row_number}'  # 총액2(S), 계약금(T), 중도금(U), 잔금(V)
+                amount_result = manager.service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range=amount_range,
+                    valueRenderOption='UNFORMATTED_VALUE'  # 숫자 값으로 가져오기
+                ).execute()
+                
+                amount_values = amount_result.get('values', [[]])
+                if amount_values and amount_values[0]:
+                    amount_row = amount_values[0]
+                    
+                    # 각 값을 안전하게 파싱
+                    def safe_float(val):
+                        if val is None or val == '':
+                            return 0.0
+                        try:
+                            return float(str(val).replace(',', '').replace('₩', '').strip())
+                        except (ValueError, TypeError):
+                            return 0.0
+                    
+                    # Google Sheets에서 가져온 최신 값들 (업데이트 완료 후)
+                    total_amount_2 = safe_float(amount_row[0] if len(amount_row) > 0 else 0)  # 총액2
+                    contract_amount = safe_float(amount_row[1] if len(amount_row) > 1 else 0)  # 계약금
+                    interim_amount = safe_float(amount_row[2] if len(amount_row) > 2 else 0)   # 중도금
+                    final_amount = safe_float(amount_row[3] if len(amount_row) > 3 else 0)     # 잔금
+                    
+                    # 미수금 계산: 총액2 - (계약금 + 중도금 + 잔금)
+                    outstanding_amount = total_amount_2 - (contract_amount + interim_amount + final_amount)
+                    
+                    # 계산된 미수금을 반환할 필드에 추가 (항상 포함, 0이어도)
+                    calculated_fields['미수금'] = int(outstanding_amount) if outstanding_amount.is_integer() else outstanding_amount
+                    
+                    logger.info(f"업데이트 후 미수금 계산: 총액2({total_amount_2}) - 계약금({contract_amount}) - 중도금({interim_amount}) - 잔금({final_amount}) = {outstanding_amount}")
+                
+            except Exception as calc_error:
+                logger.warning(f"업데이트 후 미수금 계산 실패: {calc_error}")
+        
         return jsonify({
             'ok': True,
             'message': '성공적으로 업데이트되었습니다.',
             'project_code': project_code,
             'new_project_code': new_project_code,
             'project_code_changed': new_project_code != project_code,
-            'updated_cells': updated_cells if updates else 0
+            'updated_cells': updated_cells if updates else 0,
+            'auto_calculated': len(updated_amount_fields) > 0,
+            'calculated_fields': calculated_fields,  # 계산된 필드 값들 반환
+            'actual_values': actual_values  # 실제 저장된 값들 반환
         })
         
     except Exception as e:
         logger.error(f"인라인 업데이트 오류: {str(e)}", exc_info=True)
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+# 감사 로그 API
+@app.route('/api/audit-logs', methods=['GET'])
+@login_required
+def get_audit_logs_api():
+    """감사 로그 조회 API (페이지네이션 지원)"""
+    try:
+        # 쿼리 파라미터 처리
+        days = int(request.args.get('days', 7))  # 기본 7일
+        page = int(request.args.get('page', 1))  # 페이지 번호 (1부터 시작)
+        per_page = int(request.args.get('per_page', 50))  # 페이지당 항목 수 (기본 50개)
+        
+        # 전체 로그 조회
+        all_logs = get_audit_logs(days)
+        
+        # 관리자가 아닌 경우 본인 로그만 조회
+        user_email = session['user']['email']
+        user_role = session['user'].get('permission_level', 'viewer')
+        
+        if user_role != 'admin':
+            all_logs = [log for log in all_logs if log.get('user_email') == user_email]
+        
+        # 최신순 정렬 (timestamp 기준 내림차순)
+        all_logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        # 페이지네이션 계산
+        total_count = len(all_logs)
+        total_pages = (total_count + per_page - 1) // per_page  # 올림 계산
+        start_index = (page - 1) * per_page
+        end_index = start_index + per_page
+        
+        # 해당 페이지의 로그만 추출
+        paginated_logs = all_logs[start_index:end_index]
+        
+        return jsonify({
+            'success': True, 
+            'logs': paginated_logs,
+            'pagination': {
+                'current_page': page,
+                'per_page': per_page,
+                'total_count': total_count,
+                'total_pages': total_pages,
+                'has_prev': page > 1,
+                'has_next': page < total_pages,
+                'prev_page': page - 1 if page > 1 else None,
+                'next_page': page + 1 if page < total_pages else None
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"감사 로그 조회 오류: {str(e)}")
+        return jsonify({'success': False, 'message': '로그 조회에 실패했습니다.'}), 500
+
+# 파비콘 처리 (404 오류 방지)
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204  # No Content 응답
 
 if __name__ == '__main__':
     # 인라인 업데이트 라우트 등록 (중복 제거를 위해 주석 처리)
@@ -1450,10 +1924,5 @@ if __name__ == '__main__':
             logger.error(f"사용자 삭제 오류: {str(e)}")
             return jsonify({'success': False, 'message': '사용자 삭제에 실패했습니다.'}), 500
 
-    # 파비콘 처리 (404 오류 방지)
-    @app.route('/favicon.ico')
-    def favicon():
-        return '', 204  # No Content 응답
-    
     logger.info(f"대시보드 서버 시작: http://localhost:{port}")
     socketio.run(app, debug=debug, host='0.0.0.0', port=port)

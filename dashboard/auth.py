@@ -216,6 +216,32 @@ def login_required(f):
             if request.is_json:
                 return jsonify({'error': '로그인이 필요합니다.', 'redirect': '/login'}), 401
             return redirect(url_for('login_page', message='access_denied'))
+        
+        # 세션 유효성 검사 추가
+        user = session['user']
+        if not user.get('email') or not user.get('name'):
+            session.clear()
+            if request.is_json:
+                return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+            return redirect(url_for('login_page', message='session_expired'))
+        
+        # 로그인 시간 기반 세션 검증 (추가 보안)
+        login_time_str = session.get('login_time')
+        if login_time_str:
+            from datetime import datetime, timedelta
+            try:
+                login_time = datetime.fromisoformat(login_time_str)
+                if datetime.now() - login_time > timedelta(hours=8):
+                    session.clear()
+                    if request.is_json:
+                        return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+                    return redirect(url_for('login_page', message='session_expired'))
+            except:
+                session.clear()
+                if request.is_json:
+                    return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+                return redirect(url_for('login_page', message='session_expired'))
+        
         return f(*args, **kwargs)
     return decorated_function
 
@@ -227,6 +253,31 @@ def admin_required(f):
             if request.is_json:
                 return jsonify({'error': '로그인이 필요합니다.', 'redirect': '/login'}), 401
             return redirect(url_for('login_page', message='access_denied'))
+        
+        # 세션 유효성 검사 추가
+        user = session['user']
+        if not user.get('email') or not user.get('name'):
+            session.clear()
+            if request.is_json:
+                return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+            return redirect(url_for('login_page', message='session_expired'))
+        
+        # 로그인 시간 기반 세션 검증 (추가 보안)
+        login_time_str = session.get('login_time')
+        if login_time_str:
+            from datetime import datetime, timedelta
+            try:
+                login_time = datetime.fromisoformat(login_time_str)
+                if datetime.now() - login_time > timedelta(hours=8):
+                    session.clear()
+                    if request.is_json:
+                        return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+                    return redirect(url_for('login_page', message='session_expired'))
+            except:
+                session.clear()
+                if request.is_json:
+                    return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+                return redirect(url_for('login_page', message='session_expired'))
         
         if session['user'].get('permission_level') != 'admin':
             if request.is_json:

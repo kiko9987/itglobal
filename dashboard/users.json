@@ -6,15 +6,15 @@
     "permission_level": "admin",
     "is_active": true,
     "created_at": "2025-09-08T10:02:23.114716",
-    "last_login": "2025-09-09T03:14:18.276688",
-    "picture": "https://lh3.googleusercontent.com/a-/ALV-UjV2rP5KpcFN0not6cMpSL6xV1QqNvQbWYQ87suTFy3Q5irrXOZ-oifYzgS3N6TI4WSHlpoaYXpcOM_H4N8AYxmiCVsxBjFwfH0aAxH_FEHRkIjy9vL2umgbRttjXiCuztC62eU1IVuO83KQH60n4thcBWQlGrcFSYmb_-CLuxvJRPI4Viz-OgauduqyHAshXD_qwGZqFXGYmkID22fppX9Wt2zaZO2s6Rz5myevxjJgp3lBuj9_2YeOlnCwzz8JiD9efn84OGYYCJC-zGZxVnFqVahkuA_jPD7-1QVsM3klBAvk7Hi1N87ikxuCGgfsw5Mm5PArlXy-3w6H06xweN0B9jpuUttM50Lx0PXJkh8ZKc4JbKVganZJWY3qmsZAayBlZbDN-tr4uHVc7fmSmNRkC-dn7nZHIokKrwGL-dgQoVp1uTHQlOCA26FX_lxAnwswMzkXqLWsHDeAZ4pHOFGPD0NRdw0DewOeChNBsvzCnzq4pDgULksbD1H0wVwAD3uuW2gRG3mA2CvaQWIbrV6Oa15at98XwD9BBaYdMClj57Ghz5OHN7EX8AuxsDz6HclhYudWQGRJc6J9hL-eSPVsNmvqcFJN3KzHyRvPEAOJo1zPyUX556Z5BDkZpE0l6WA-hRN_VsTfRKXZ3Si018EL0U7lNn2_5k1CjSyDZ2Lx2hmaSSOBG6Oq1Dix3o5JRAg3sinuG2rrC_iSCy3Zx2v-gjfzyLrkzTDIf5DIAeWHt_xIS0BStzRq_ie1i5-26m4D-92Klz6fBw8faKbr0DTIGtRdWNhafKqb8ELmKNMAY2ysU-kVvQVQrDm7FUQsW_5x8s6QUKqGgZOxKkPeITU565vTy995Wumc8okaHyse3LByrN_0fInMDlI6itkIxpWvl1oBdvzDnAoP6fYetm6XCVzpRQUJlyN095byr4Y9DwkowuuWXgoTFijcpbtqejlAR7hgo_dAclYa1xzAyqQ-yPo3lgqZeA=s96-c",
+    "last_login": "2025-09-09T17:16:45.078902",
+    "picture": "https://lh3.googleusercontent.com/a-/ALV-UjV9Tvy1-ov4La0sLwyQnhCW5HHFyneSG8Ldc4Xy2GCyPm98QrHoWSaBM60Vnq9xS218gBeSq2XkU_7kxOemkcNuaVT3M_VeK4K_69zHaSm5bwt13-bVFtBrfBO-tJ1oHY3kT92wLR94wr0p4skvFmMGL9FxqoniyM4Du-jyslHrO7aYLvfEvfQ1kdgbTzE38iXjA8zps59KowuFDctgGl4rU1vIDj_OM_t9D4Qjpo-4U8Ytz50QL7pIsVBVwMJ6DHhXOOLdayr2hWC4jQlLaQifZb_M1cJSy8iMDzkInBTILPcLbvB2glTQghF2NT-FW6fZbWGWs8rAcXB22WLkqePwdC44XvrARsyLa-VIgzTnsbi3TeOHuUSBszAjPdrCsm-Au53PviJ6iHje7h-6UNlMN_n-WGPG2inWwnCFWR5Kuwb648YUrvMXJtR51QAOBkF2NbVpA_42o4tDrSCLatLmeE56nMzwBMgsILihlB_lK0NNH3z71Lfsm72pqNwGdDKX1p89aJ6wlyP_MiaJrp0VajkwA3rMUP5ha7wZzcKPjeWFU3CSur1vXRSDzaD0jsXU3vrSxkKd_yM542qKCvztxCzvLy4DQWgBwRxhT9HpQDZWmP73bmvTp9IG3cicfnl6ImEMSB7aIa6YxpT_fsn8s7m-Hx0Yz6NfR6dcoG1S8MbEVv_g_QuNCh-8WnOGSzOdCfD_uF06hsRQPRVe8cxzTJV_5xS7k9qYlwoK1EUX3qtNcwsHV2gRkoJx6JW4fQwMFy5Ios-UU86bIlIYiCvnDdcQ_BC62FiXdB3W1RlmEwede0L19GDd9amh0_OmUAtXir4CZn8csBqS-QhvEXbpYRsjnQlrwcfsA-T07XIwp9V2CXEZU7O5hemQxNyj_TBGEZBSHYCL69BG6oqqP4hh7GxtTaHGx4aNEtz02X2dTa24wEMpgLgBhlm_foE3_8fupxbRhUJ7GuOJlXZjfwZ5gvveJx8DWg=s96-c",
     "auth_method": "google_oauth"
   },
   "test.editor@example.com": {
     "name": "테스트 에디터",
     "email": "test.editor@example.com",
     "password_hash": "",
-    "permission_level": "viewer",
+    "permission_level": "editor",
     "is_active": true,
     "created_at": "2025-09-08T17:30:00.000000",
     "last_login": "2025-09-08T17:30:00.000000",
