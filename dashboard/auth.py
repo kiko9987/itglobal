@@ -208,40 +208,52 @@ class UserManager:
 # 전역 사용자 매니저 인스턴스
 user_manager = UserManager()
 
-def login_required(f):
-    """로그인 필수 데코레이터"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            if request.is_json:
-                return jsonify({'error': '로그인이 필요합니다.', 'redirect': '/login'}), 401
-            return redirect(url_for('login_page', message='access_denied'))
-        
-        # 세션 유효성 검사 추가
-        user = session['user']
-        if not user.get('email') or not user.get('name'):
-            session.clear()
-            if request.is_json:
-                return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
-            return redirect(url_for('login_page', message='session_expired'))
-        
-        # 로그인 시간 기반 세션 검증 (추가 보안)
-        login_time_str = session.get('login_time')
-        if login_time_str:
-            from datetime import datetime, timedelta
-            try:
-                login_time = datetime.fromisoformat(login_time_str)
-                if datetime.now() - login_time > timedelta(hours=8):
-                    session.clear()
-                    if request.is_json:
-                        return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
-                    return redirect(url_for('login_page', message='session_expired'))
-            except:
+def _validate_session(require_admin=False):
+    """세션 검증 공통 로직"""
+    if 'user' not in session:
+        if request.is_json:
+            return jsonify({'error': '로그인이 필요합니다.', 'redirect': '/login'}), 401
+        return redirect(url_for('login_page', message='access_denied'))
+    
+    # 세션 유효성 검사
+    user = session['user']
+    if not user.get('email') or not user.get('name'):
+        session.clear()
+        if request.is_json:
+            return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+        return redirect(url_for('login_page', message='session_expired'))
+    
+    # 로그인 시간 기반 세션 검증
+    login_time_str = session.get('login_time')
+    if login_time_str:
+        try:
+            login_time = datetime.fromisoformat(login_time_str)
+            if datetime.now() - login_time > timedelta(hours=8):
                 session.clear()
                 if request.is_json:
                     return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
                 return redirect(url_for('login_page', message='session_expired'))
-        
+        except:
+            session.clear()
+            if request.is_json:
+                return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+            return redirect(url_for('login_page', message='session_expired'))
+    
+    # 관리자 권한 검사
+    if require_admin and session['user'].get('permission_level') != 'admin':
+        if request.is_json:
+            return jsonify({'error': '관리자 권한이 필요합니다.'}), 403
+        return redirect(url_for('project_list'))
+    
+    return None
+
+def login_required(f):
+    """로그인 필수 데코레이터"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        validation_result = _validate_session()
+        if validation_result:
+            return validation_result
         return f(*args, **kwargs)
     return decorated_function
 
@@ -249,46 +261,23 @@ def admin_required(f):
     """관리자 권한 필수 데코레이터"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            if request.is_json:
-                return jsonify({'error': '로그인이 필요합니다.', 'redirect': '/login'}), 401
-            return redirect(url_for('login_page', message='access_denied'))
-        
-        # 세션 유효성 검사 추가
-        user = session['user']
-        if not user.get('email') or not user.get('name'):
-            session.clear()
-            if request.is_json:
-                return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
-            return redirect(url_for('login_page', message='session_expired'))
-        
-        # 로그인 시간 기반 세션 검증 (추가 보안)
-        login_time_str = session.get('login_time')
-        if login_time_str:
-            from datetime import datetime, timedelta
-            try:
-                login_time = datetime.fromisoformat(login_time_str)
-                if datetime.now() - login_time > timedelta(hours=8):
-                    session.clear()
-                    if request.is_json:
-                        return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
-                    return redirect(url_for('login_page', message='session_expired'))
-            except:
-                session.clear()
-                if request.is_json:
-                    return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
-                return redirect(url_for('login_page', message='session_expired'))
-        
-        if session['user'].get('permission_level') != 'admin':
-            if request.is_json:
-                return jsonify({'error': '관리자 권한이 필요합니다.'}), 403
-            return redirect(url_for('project_list'))
-        
+        validation_result = _validate_session(require_admin=True)
+        if validation_result:
+            return validation_result
         return f(*args, **kwargs)
     return decorated_function
 
+def _load_user_permissions():
+    """사용자 권한 설정 로드"""
+    try:
+        permissions_file = os.path.join(os.path.dirname(__file__), 'user_permissions.json')
+        with open(permissions_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {"admin_users": [], "editor_users": []}
+
 def get_user_role():
-    """사용자 역할 결정 (HTML에서 사용하던 로직)"""
+    """사용자 역할 결정 (설정 파일 기반)"""
     if 'user' not in session:
         return 'viewer'
     
@@ -296,14 +285,15 @@ def get_user_role():
     permission = user.get('permission_level', 'viewer')
     name = user.get('name', '')
     
-    # 하드코딩된 관리자 목록
-    admin_users = ['고광일', '박정우', '박용구', '황샛별']
-    editor_users = ['강민석', '강성환', '권태훈', '박민우', '박민재', '빈승정', '조성헌', '주영민', '황해승']
+    # 설정 파일에서 권한 목록 로드
+    permissions = _load_user_permissions()
+    admin_users = permissions.get('admin_users', [])
+    editor_users = permissions.get('editor_users', [])
     
-    # DB 권한을 우선으로 하되, 하드코딩된 목록도 체크
+    # DB 권한을 우선으로 하되, 설정 파일의 목록도 체크
     if permission == 'admin' or name in admin_users:
-        return 'Admin'  # 대문자로 변경하여 JavaScript와 일치
+        return 'Admin'
     elif permission == 'editor' or name in editor_users:
-        return 'Editor'  # 대문자로 변경
+        return 'Editor'
     else:
-        return 'Viewer'  # 대문자로 변경
+        return 'Viewer'

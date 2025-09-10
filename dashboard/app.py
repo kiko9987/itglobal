@@ -9,6 +9,7 @@ import json
 import re
 from collections import Counter, defaultdict
 from dotenv import load_dotenv
+import pandas as pd
 
 # 인증 시스템 import
 from auth import user_manager, login_required, admin_required, get_user_role
@@ -20,19 +21,21 @@ sys.path.insert(0, os.path.dirname(project_root))
 
 from utils.google_sheets import GoogleSheetsManager
 from utils.data_analyzer import DataAnalyzer
+from utils.cache_manager import cached, cache_get, cache_set, cache_clear, cache_delete
+from utils.env_validator import validate_dashboard_env, check_environment_health
+from utils.error_handler import (
+    handle_error, ErrorCategory, setup_flask_error_handlers, 
+    get_error_handler, safe_execute
+)
+from utils.security import init_security, csrf_protect, validate_input, get_csrf_token
+from utils.jwt_auth import init_jwt_manager, jwt_required, create_jwt_tokens
+from utils.api_response import APIResponse, APIErrorCode, api_response
+from utils.database import init_database, get_user_repository, get_audit_repository
 
 # 환경 변수 로드
 load_dotenv()
 
-# Flask 앱 초기화
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)  # 8시간 세션 유지
-
-# SocketIO 초기화 (실시간 업데이트용)
-socketio = SocketIO(app, cors_allowed_origins="*")
-
-# 로깅 설정
+# 로깅 설정 (먼저 설정)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -42,6 +45,32 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 환경변수 검증
+env_result = validate_dashboard_env()
+if not env_result['valid']:
+    logger.error("환경변수 검증 실패!")
+    for error in env_result['errors']:
+        logger.error(f"  - {error}")
+    # 치명적인 오류가 아닌 경우 경고만 표시하고 계속 진행
+else:
+    logger.info("환경변수 검증 성공")
+
+# Flask 앱 초기화
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)  # 8시간 세션 유지
+
+# SocketIO 초기화 (실시간 업데이트용)
+socketio = SocketIO(app, cors_allowed_origins="*")
+
+# 보안 시스템 초기화
+init_security(app)
+init_jwt_manager(app.config['SECRET_KEY'])
+init_database()
+
+# Flask 에러 핸들러 설정
+setup_flask_error_handlers(app)
+
 # Google API 캐시 경고 억제
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 
@@ -49,7 +78,17 @@ logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 current_data = None
 last_update = None
 _data_cache = {}
-_cache_expiry = 60   # 1분 캐시
+_cache_expiry = 30   # 30초 캐시 (빠른 데이터 반영)
+
+# Google Sheets Manager 싱글톤 인스턴스
+_sheets_manager = None
+
+def get_sheets_manager():
+    """Google Sheets Manager 싱글톤 인스턴스 반환"""
+    global _sheets_manager
+    if _sheets_manager is None:
+        _sheets_manager = GoogleSheetsManager()
+    return _sheets_manager
 
 # 감사 로그 시스템
 AUDIT_LOG_DIR = os.path.join(os.path.dirname(__file__), 'audit_logs')
@@ -81,7 +120,7 @@ def normalize_log_value(value, field_name):
     return str(value)
 
 def log_user_action(action, details, project_code=None, field_name=None, old_value=None, new_value=None):
-    """사용자 행동을 감사 로그에 기록"""
+    """사용자 행동을 감사 로그에 기록 (비동기 처리)"""
     try:
         user_info = session.get('user', {})
         
@@ -103,30 +142,40 @@ def log_user_action(action, details, project_code=None, field_name=None, old_val
             'ip_address': request.remote_addr if request else 'Unknown'
         }
         
-        # 날짜별 로그 파일 생성
-        log_date = datetime.now().strftime('%Y-%m-%d')
-        log_file = os.path.join(AUDIT_LOG_DIR, f'audit_{log_date}.json')
-        
-        # 기존 로그 읽기
-        logs = []
-        if os.path.exists(log_file):
+        # 비동기 로그 저장 처리
+        def save_log_async():
             try:
-                with open(log_file, 'r', encoding='utf-8') as f:
-                    logs = json.load(f)
-            except:
+                # 날짜별 로그 파일 생성
+                log_date = datetime.now().strftime('%Y-%m-%d')
+                log_file = os.path.join(AUDIT_LOG_DIR, f'audit_{log_date}.json')
+                
+                # 기존 로그 읽기
                 logs = []
+                if os.path.exists(log_file):
+                    try:
+                        with open(log_file, 'r', encoding='utf-8') as f:
+                            logs = json.load(f)
+                    except:
+                        logs = []
+                
+                # 새 로그 추가
+                logs.append(log_entry)
+                
+                # 로그 파일 저장
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    json.dump(logs, f, ensure_ascii=False, indent=2)
+                    
+                logger.debug(f"Audit log saved: {action} by {user_info.get('name', 'Unknown')}")
+                
+            except Exception as e:
+                logger.error(f"Failed to save audit log: {e}")
         
-        # 새 로그 추가
-        logs.append(log_entry)
-        
-        # 로그 파일 저장
-        with open(log_file, 'w', encoding='utf-8') as f:
-            json.dump(logs, f, ensure_ascii=False, indent=2)
-            
-        logger.info(f"Audit log recorded: {action} by {user_info.get('name', 'Unknown')}")
+        # 백그라운드에서 로그 저장
+        import threading
+        threading.Thread(target=save_log_async, daemon=True).start()
         
     except Exception as e:
-        logger.error(f"Failed to log user action: {e}")
+        logger.error(f"Failed to prepare audit log: {e}")
 
 def get_audit_logs(days=7):
     """감사 로그 조회 (최근 N일)"""
@@ -165,9 +214,21 @@ def _load_project_config():
 
 _project_config = _load_project_config()
 
-def load_data():
-    """구글 시트에서 데이터 로드"""
+@handle_error(category=ErrorCategory.HIGH, reraise=False, fallback_value=None)
+@cached(ttl=30, key_prefix="sheet_data")
+def load_data(force_refresh=False):
+    """구글 시트에서 데이터 로드 (개선된 캐싱 시스템 적용)"""
     global current_data, last_update
+    
+    cache_key = "current_sheet_data"
+    
+    # 강제 새로고침이 아닌 경우 캐시 확인
+    if not force_refresh:
+        cached_data = cache_get(cache_key)
+        if cached_data is not None:
+            current_data = cached_data
+            logger.debug("캐시된 데이터 사용")
+            return current_data
     
     try:
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
@@ -175,8 +236,8 @@ def load_data():
             logger.error("GOOGLE_SHEET_ID가 설정되지 않았습니다.")
             return None
         
-        # 구글 시트에서 데이터 가져오기
-        manager = GoogleSheetsManager()
+        # 구글 시트에서 데이터 가져오기 (싱글톤 인스턴스 사용)
+        manager = get_sheets_manager()
         df = manager.get_sheet_data(sheet_id)
         
         if df.empty:
@@ -186,7 +247,11 @@ def load_data():
         current_data = df
         last_update = datetime.now()
         
+        # 새 캐싱 시스템에 저장
+        cache_set(cache_key, df, ttl=30)
+        
         logger.info(f"데이터 로드 완료: {len(df)}행, 업데이트 시간: {last_update}")
+        logger.debug(f"글로벌 current_data 업데이트됨: {len(current_data)}행")
         return df
         
     except Exception as e:
@@ -435,20 +500,6 @@ def project_list():
     user_role = get_user_role()
     return render_template('project_list.html', user_role=user_role)
 
-@app.route('/project/new')
-def project_form_new():
-    """새 프로젝트 등록 페이지 (기존)"""
-    return render_template('project_form.html')
-
-@app.route('/project/new-auto')
-def project_form_auto():
-    """새 프로젝트 등록 페이지 (자동 코드 생성)"""
-    return render_template('project_form_auto.html')
-
-@app.route('/project/edit')
-def project_form_edit():
-    """프로젝트 수정 페이지"""
-    return render_template('project_form.html')
 
 @app.route('/data/<path:filename>')
 def serve_data_files(filename):
@@ -618,6 +669,7 @@ def get_brand_analysis():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/projects/auto', methods=['POST'])
+@login_required
 def add_project_auto():
     """신규 프로젝트 자동 코드 생성 및 추가"""
     try:
@@ -630,7 +682,7 @@ def add_project_auto():
         if not company or not owner:
             return jsonify({"ok": False, "error": "사업자/담당자는 필수입니다"}), 400
 
-        # 현재 데이터 로드
+        # 현재 데이터 로드 (한 번만)
         df = current_data if current_data is not None else load_data()
         if df is None:
             return jsonify({"ok": False, "error": "데이터를 불러올 수 없습니다"}), 500
@@ -639,10 +691,17 @@ def add_project_auto():
         if "프로젝트 코드" in data and str(data["프로젝트 코드"]).strip():
             code = str(data["프로젝트 코드"]).strip()
             logger.info(f"폼에서 받은 프로젝트 코드 사용: {code}")
+            
+            # 폼에서 받은 코드의 중복 확인
+            if '프로젝트 코드' in df.columns:
+                existing_codes = df['프로젝트 코드'].astype(str).tolist()
+                if code in existing_codes:
+                    logger.error(f"프로젝트 코드 중복: {code}")
+                    return jsonify({"ok": False, "error": f"프로젝트 코드가 중복됩니다: {code}"}), 409
         else:
-            # 안전한 자동 프로젝트 코드 생성 (동시성 대응)
+            # 안전한 자동 프로젝트 코드 생성 (현재 df 사용)
             try:
-                code = _safe_next_running_number_with_retry(company, owner)
+                code = _auto_project_code(df, company, owner)
                 logger.info(f"자동 생성된 프로젝트 코드: {code}")
             except Exception as e:
                 return jsonify({"ok": False, "error": str(e)}), 400
@@ -657,27 +716,46 @@ def add_project_auto():
         if missing_fields:
             return jsonify({"ok": False, "error": f"필수 필드 누락: {', '.join(missing_fields)}"}), 400
 
-        # Google Sheets에 추가 (최종 중복 확인 포함)
+        # Google Sheets에 추가 (중복 확인 생략 - 이미 했음)
         try:
             sheet_id = os.getenv('GOOGLE_SHEET_ID')
             if not sheet_id:
                 return jsonify({"ok": False, "error": "GOOGLE_SHEET_ID가 설정되지 않았습니다"}), 500
             
-            manager = GoogleSheetsManager()
+            manager = get_sheets_manager()
             
-            # 등록 직전 최종 중복 확인
-            latest_df = load_data()
-            if latest_df is not None and '프로젝트 코드' in latest_df.columns:
-                existing_codes = latest_df['프로젝트 코드'].astype(str).tolist()
-                if code in existing_codes:
-                    logger.error(f"등록 직전 프로젝트 코드 중복 감지: {code}")
-                    return jsonify({"ok": False, "error": f"프로젝트 코드가 중복됩니다: {code}. 다시 시도해주세요."}), 409
-            
+            # 바로 데이터 추가 (중복 확인 생략)
             values = convert_form_data_to_sheet_row(data, manager)
-            manager.append_row(sheet_id, values)
+            result = manager.append_row(sheet_id, values)
             
-            # 로컬 데이터 새로고침
-            load_data()
+            # 구글 시트 쓰기 성공 시 즉시 캐시 삭제
+            if result:
+                cache_delete("current_sheet_data")
+            
+            # 감사 로그 기록
+            try:
+                log_user_action(
+                    action='CREATE_PROJECT',
+                    details=f'새 프로젝트 등록: {code}',
+                    project_code=code,
+                    field_name='전체',
+                    old_value='-',
+                    new_value='새 프로젝트 생성'
+                )
+            except Exception as log_error:
+                logger.warning(f"감사 로그 기록 실패: {log_error}")
+            
+            # 비동기로 로컬 데이터 새로고침 (백그라운드)
+            def refresh_data_async():
+                try:
+                    time.sleep(0.5)  # 구글 시트 반영 대기
+                    load_data(force_refresh=True)  # 강제 새로고침
+                    logger.info("백그라운드 데이터 새로고침 완료")
+                except Exception as e:
+                    logger.warning(f"백그라운드 데이터 새로고침 실패: {e}")
+            
+            import threading
+            threading.Thread(target=refresh_data_async, daemon=True).start()
             
             # 실시간 업데이트 알림
             socketio.emit('data_updated', {
@@ -789,7 +867,7 @@ def get_meta_options():
 def refresh_data():
     """데이터 새로고침 API"""
     try:
-        df = load_data()
+        df = load_data(force_refresh=True)  # 강제 새로고침으로 캐시 무시
         if df is None:
             return jsonify({'error': '데이터 새로고침 실패'}), 500
         
@@ -833,11 +911,31 @@ def get_projects_list():
         # DataFrame을 dict 리스트로 변환 (NaN 값 처리)
         df = df.fillna('')  # NaN 값을 빈 문자열로 변환
         
-        # 날짜 컬럼들을 문자열로 변환
+        # 날짜 컬럼들을 올바르게 처리
         date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
         for col in date_columns:
             if col in df.columns:
-                df[col] = df[col].astype(str).replace('NaT', '').replace('nan', '')
+                logger.info(f"날짜 컬럼 처리 시작: {col}")
+                
+                # 원본 데이터 샘플 확인 (최근 5개)
+                recent_samples = df.tail(5)[col].tolist()
+                logger.info(f"{col} 원본 데이터 샘플: {recent_samples}")
+                
+                # 다양한 날짜 형식 지원 (YYYY-MM-DD, YYYY/MM/DD 등)
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+                
+                # 변환 후 샘플 확인
+                converted_samples = df.tail(5)[col].tolist()
+                logger.info(f"{col} 변환 후 샘플: {converted_samples}")
+                
+                # 유효한 날짜는 YYYY/M/D 형식으로, 무효한 날짜는 빈 문자열로
+                df[col] = df[col].apply(lambda x: 
+                    x.strftime('%Y/%m/%d') if pd.notna(x) else ''
+                )
+                
+                # 최종 결과 샘플
+                final_samples = df.tail(5)[col].tolist()
+                logger.info(f"{col} 최종 결과 샘플: {final_samples}")
         
         projects = df.to_dict('records')
         
@@ -857,7 +955,7 @@ def get_next_project_code():
         if not sheet_id:
             return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
-        manager = GoogleSheetsManager()
+        manager = get_sheets_manager()
         project_code = manager.get_next_project_code(sheet_id, region_code)
         
         return jsonify({'project_code': project_code})
@@ -867,6 +965,7 @@ def get_next_project_code():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/projects', methods=['POST'])
+@login_required
 def create_project():
     """새 프로젝트 생성 API"""
     global current_data
@@ -878,102 +977,87 @@ def create_project():
         if not sheet_id:
             return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
-        manager = GoogleSheetsManager()
+        manager = get_sheets_manager()
         
         # 데이터를 구글 시트 형식으로 변환
         values = convert_form_data_to_sheet_row(data, manager)
         logger.info(f"변환된 values 배열: {values[:10]}... (총 {len(values)}개)")
         
-        # 구글 시트에 추가 시도
-        result = manager.append_row(sheet_id, values)
+        # 구글 시트에 추가 시도 (자동 재시도 포함)
+        max_retries = 3
+        final_project_code = data.get('projectCode', '')
         
-        # 구글 시트 쓰기 실패 여부 확인 (로컬 전용 모드인지 체크)
-        is_local_only = False
-        if result and result.get('updates', {}).get('updatedRange', '').endswith('9999:AM9999'):
-            is_local_only = True
-            logger.info("로컬 전용 모드: 새 프로젝트를 로컬 DataFrame에 직접 추가")
-            
-            # 로컬 DataFrame에 새 데이터 직접 추가
+        for attempt in range(max_retries):
             try:
-                # 컬럼 매핑 가져오기
-                column_mapping = manager.get_column_mapping()
+                # 현재 프로젝트 코드가 이미 존재하는지 확인
+                existing_row = manager.find_row_by_project_code(sheet_id, final_project_code)
                 
-                # values 배열을 DataFrame 행으로 변환
-                new_row_data = {}
-                for column_letter, column_name in column_mapping.items():
-                    column_index = ord(column_letter) - ord('A') if len(column_letter) == 1 else \
-                                  (ord(column_letter[0]) - ord('A') + 1) * 26 + (ord(column_letter[1]) - ord('A'))
+                if existing_row:
+                    # 충돌 발생 - 다음 프로젝트 코드 생성
+                    logger.info(f"프로젝트 코드 충돌 감지: {final_project_code} (시도 {attempt + 1})")
                     
-                    if column_index < len(values):
-                        value = values[column_index]
-                        
-                        # 데이터 타입 변환 (GoogleSheetsManager의 _preprocess_data와 일치)
-                        if column_name in ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']:
-                            if value and value != '':
-                                try:
-                                    new_row_data[column_name] = pd.to_datetime(value, errors='coerce')
-                                except:
-                                    new_row_data[column_name] = pd.NaType()
-                            else:
-                                new_row_data[column_name] = pd.NaType()
-                        elif column_name in ['총액 1', '총액 2', '총액2', '계약금', '중도금', '잔금', 
-                                            '미수금', '미수금W', '제품대', '도급비', '자재비', '기타비']:
-                            if value and value != '':
-                                try:
-                                    # 쉼표, 원화기호 제거 후 숫자 변환
-                                    clean_value = str(value).replace(',', '').replace('￦', '').replace('₩', '').replace('-', '').strip()
-                                    new_row_data[column_name] = pd.to_numeric(clean_value, errors='coerce') if clean_value else pd.NA
-                                except:
-                                    new_row_data[column_name] = pd.NA
-                            else:
-                                new_row_data[column_name] = pd.NA
-                        elif column_name in ['부가세', '수금 확인']:
-                            if value == 'TRUE':
-                                new_row_data[column_name] = True
-                            elif value == 'FALSE':
-                                new_row_data[column_name] = False
-                            else:
-                                new_row_data[column_name] = False
-                        else:
-                            new_row_data[column_name] = value if value != '' else None
-                    else:
-                        new_row_data[column_name] = None
+                    # 지역 코드 추출 (G2829-IT -> IT)
+                    region_code = final_project_code.split('-')[-1] if '-' in final_project_code else 'IT'
+                    final_project_code = manager.get_next_project_code(sheet_id, region_code)
+                    
+                    # values 배열의 프로젝트 코드(A열) 업데이트
+                    values[0] = final_project_code
+                    logger.info(f"새로운 프로젝트 코드로 변경: {final_project_code}")
                 
-                # 현재 데이터가 있으면 새 행 추가, 없으면 새 DataFrame 생성
-                if current_data is not None and not current_data.empty:
-                    # 새 행을 DataFrame에 추가
-                    import pandas as pd
-                    new_row_df = pd.DataFrame([new_row_data])
-                    current_data = pd.concat([current_data, new_row_df], ignore_index=True)
-                else:
-                    # 현재 데이터가 없으면 구글 시트에서 다시 로드 시도
-                    load_data()
-                    if current_data is not None and not current_data.empty:
-                        new_row_df = pd.DataFrame([new_row_data])
-                        current_data = pd.concat([current_data, new_row_df], ignore_index=True)
+                # 구글 시트에 데이터 추가
+                result = manager.append_row(sheet_id, values)
                 
-                logger.info(f"로컬 DataFrame에 새 프로젝트 추가 완료: {data.get('projectCode', '')}")
+                # 구글 시트 쓰기 성공 여부 확인
+                if not result or not result.get('updatedCells', 0):
+                    raise Exception("구글 시트에 데이터 추가 실패")
                 
-            except Exception as local_error:
-                logger.error(f"로컬 DataFrame 업데이트 오류: {str(local_error)}")
-                # 실패해도 기존 로드 방식으로 폴백
-                load_data()
+                logger.info(f"구글 시트에 성공적으로 추가: {final_project_code} ({result.get('updatedCells', 0)}셀)")
+                sheets_write_success = True
+                break  # 성공시 루프 종료
+                
+            except Exception as sheets_error:
+                logger.error(f"구글 시트 쓰기 시도 {attempt + 1} 실패: {str(sheets_error)}")
+                
+                if attempt == max_retries - 1:  # 마지막 시도
+                    return jsonify({
+                        'error': f'구글 시트에 데이터를 저장할 수 없습니다: {str(sheets_error)}'
+                    }), 500
+                
+                # 재시도 전 잠시 대기
+                import time
+                time.sleep(0.5)
+        
+        # 구글 시트 쓰기 성공 시에만 로컬 캐시 새로고침 (강제)
+        cache_delete("current_sheet_data")  # 기존 캐시 삭제
+        load_data(force_refresh=True)
+        
+        # 프로젝트 코드 변경 여부 확인
+        original_code = data.get('projectCode', '')
+        code_changed = (final_project_code != original_code)
+        
+        # 성공 메시지 생성
+        if code_changed:
+            success_message = f"프로젝트 코드 {original_code}가 사용중이어서 {final_project_code}로 등록되었습니다"
         else:
-            # 구글 시트 쓰기 성공 - 일반적인 데이터 새로고침
-            load_data()
+            success_message = f"새 프로젝트가 등록되었습니다: {final_project_code}"
         
         # 실시간 업데이트 알림
         socketio.emit('data_updated', {
-            'message': f"새 프로젝트가 등록되었습니다: {data.get('projectCode', '')}",
+            'message': success_message,
             'timestamp': datetime.now().isoformat(),
             'action': 'create',
-            'local_only': is_local_only
+            'code_changed': code_changed,
+            'original_code': original_code,
+            'final_code': final_project_code
         })
         
         return jsonify({
-            'success': True, 
-            'project_code': data.get('projectCode', ''),
-            'local_only': is_local_only
+            'success': True,
+            'ok': True,  # 기존 프론트엔드 호환성
+            'project_code': final_project_code,
+            'original_code': original_code,
+            'code_changed': code_changed,
+            'message': success_message
         })
         
     except Exception as e:
@@ -1012,12 +1096,12 @@ def update_project(project_code):
         if not sheet_id:
             return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
-        manager = GoogleSheetsManager()
+        manager = get_sheets_manager()
         
         # 프로젝트가 있는 행 찾기 (직접 구현)
         search_result = manager.service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range='공사 현황!A:A'
+            range='공사 현황의 사본!A:A'
         ).execute()
         
         values = search_result.get('values', [])
@@ -1063,7 +1147,7 @@ def update_project(project_code):
                 if field_name in field_column_mapping:
                     column = field_column_mapping[field_name]
                     updates.append({
-                        'range': f'공사 현황!{column}{row_number}',
+                        'range': f'공사 현황의 사본!{column}{row_number}',
                         'values': [[value]]
                     })
             
@@ -1075,7 +1159,7 @@ def update_project(project_code):
                         column = field_column_mapping[field_name]
                         current_value_result = manager.service.spreadsheets().values().get(
                             spreadsheetId=sheet_id,
-                            range=f'공사 현황!{column}{row_number}'
+                            range=f'공사 현황의 사본!{column}{row_number}'
                         ).execute()
                         current_values = current_value_result.get('values', [['']])
                         old_values[field_name] = current_values[0][0] if current_values and current_values[0] else ''
@@ -1112,8 +1196,9 @@ def update_project(project_code):
             values = convert_form_data_to_sheet_row(data, manager)
             result = manager.update_row(sheet_id, row_number, values)
         
-        # 로컬 데이터 새로고침
-        load_data()
+        # 로컬 데이터 새로고침 (강제)
+        cache_delete("current_sheet_data")
+        load_data(force_refresh=True)
         
         # 실시간 업데이트 알림
         socketio.emit('data_updated', {
@@ -1323,7 +1408,7 @@ def convert_form_data_to_sheet_row(form_data, manager):
                 logger.info(f"기본값 설정: '잔금' -> '₩0'")
             elif column_name == '미수금':
                 form_field = 'default_outstanding'
-                value = '=0-(S:S-(T:T+U:U+V:V))'
+                value = '=0-($S:S-($T:T+$U:U+$V:V))'
                 logger.info(f"기본값 설정: '미수금' -> 수식 '{value}'")
             elif column_name == '계산서':
                 form_field = 'default_invoice'
@@ -1433,6 +1518,7 @@ def convert_form_data_to_sheet_row(form_data, manager):
     return values
 
 @app.route('/api/update-project-inline', methods=['POST'])
+@login_required
 def update_project_inline():
     """프로젝트 인라인 편집 API - 구글 시트 직접 업데이트"""
     try:
@@ -1446,7 +1532,7 @@ def update_project_inline():
         if not sheet_id:
             return jsonify({'ok': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
-        manager = GoogleSheetsManager()
+        manager = get_sheets_manager()
         
         # 프로젝트가 있는 행 찾기
         row_number = manager.find_row_by_project_code(sheet_id, project_code)
@@ -1455,7 +1541,7 @@ def update_project_inline():
             return jsonify({'ok': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
         
         # 현재 행의 데이터를 가져오기 (전체 행 데이터 보존을 위해)
-        current_row_range = f'공사 현황!A{row_number}:AM{row_number}'
+        current_row_range = f'공사 현황의 사본!A{row_number}:AM{row_number}'
         result = manager.service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
             range=current_row_range
@@ -1496,8 +1582,9 @@ def update_project_inline():
         # 구글 시트 업데이트
         update_result = manager.update_row(sheet_id, row_number, current_values)
         
-        # 로컬 데이터 새로고침
-        load_data()
+        # 로컬 데이터 새로고침 (강제)
+        cache_delete("current_sheet_data")
+        load_data(force_refresh=True)
         
         # 실시간 업데이트 알림
         socketio.emit('data_updated', {
@@ -1689,7 +1776,7 @@ def inline_update_direct():
         if not sheet_id:
             return jsonify({'ok': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
-        manager = GoogleSheetsManager()
+        manager = get_sheets_manager()
         
         # 프로젝트 코드로 행 찾기
         logger.info(f"프로젝트 코드 {project_code}의 행 번호를 찾는 중...")
@@ -1697,7 +1784,7 @@ def inline_update_direct():
         # A열에서 프로젝트 코드 검색
         search_result = manager.service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range='공사 현황!A:A'
+            range='공사 현황의 사본!A:A'
         ).execute()
         
         values = search_result.get('values', [])
@@ -1716,7 +1803,7 @@ def inline_update_direct():
             # 다시 검색 시도
             search_result = manager.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range='공사 현황!A:A'
+                range='공사 현황의 사본!A:A'
             ).execute()
             
             values = search_result.get('values', [])
@@ -1784,7 +1871,7 @@ def inline_update_direct():
             
             if field_name in field_column_mapping:
                 column = field_column_mapping[field_name]
-                range_name = f'공사 현황!{column}{row_number}'
+                range_name = f'공사 현황의 사본!{column}{row_number}'
                 
                 # 업데이트 전 이전 값 조회
                 try:
@@ -1906,8 +1993,9 @@ def inline_update_direct():
                 else:
                     raise api_error
         
-        # 로컬 데이터 새로고침
-        load_data()
+        # 로컬 데이터 새로고침 (강제)
+        cache_delete("current_sheet_data")
+        load_data(force_refresh=True)
         
         # 실시간 알림
         if socketio:
@@ -1920,7 +2008,7 @@ def inline_update_direct():
         
         # 업데이트 후 새로운 프로젝트 코드 확인 (수식으로 변경될 수 있음)
         try:
-            updated_row_range = f'공사 현황!A{row_number}:A{row_number}'
+            updated_row_range = f'공사 현황의 사본!A{row_number}:A{row_number}'
             updated_result = manager.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
                 range=updated_row_range
@@ -1981,7 +2069,7 @@ def inline_update_direct():
                 import time
                 time.sleep(0.3)  # Google Sheets 업데이트 시간 대기 (단축)
                 # 더 넓은 범위로 확장 (금액 관련 모든 필드 포함)
-                verify_range = f'공사 현황!Q{row_number}:AM{row_number}'
+                verify_range = f'공사 현황의 사본!Q{row_number}:AM{row_number}'
                 verify_result = manager.service.spreadsheets().values().get(
                     spreadsheetId=sheet_id,
                     range=verify_range,
@@ -2013,7 +2101,7 @@ def inline_update_direct():
                 # 업데이트 완료 후 다시 Google Sheets에서 최신 값들을 가져와서 미수금 계산
                 import time
                 time.sleep(0.2)  # 잠시 대기
-                amount_range = f'공사 현황!S{row_number}:V{row_number}'  # 총액2(S), 계약금(T), 중도금(U), 잔금(V)
+                amount_range = f'공사 현황의 사본!S{row_number}:V{row_number}'  # 총액2(S), 계약금(T), 중도금(U), 잔금(V)
                 amount_result = manager.service.spreadsheets().values().get(
                     spreadsheetId=sheet_id,
                     range=amount_range,

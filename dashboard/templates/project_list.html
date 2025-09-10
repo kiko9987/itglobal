@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <!-- DataTables FixedHeader CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.bootstrap5.min.css">
+    <!-- Animate.css -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     
     <style>
         /* ===== IT GLOBAL 프리미엄 디자인 시스템 ===== */
@@ -1293,123 +1295,104 @@
         .text-danger { color: var(--danger-color) !important; }
         .text-info { color: var(--info-color) !important; }
         
-        /* DataTables 페이지네이션 스타일 - 테두리 완전 제거 */
-        .dataTables_wrapper .dataTables_paginate .paginate_button,
-        .dataTables_wrapper .dataTables_paginate .paginate_button:link,
-        .dataTables_wrapper .dataTables_paginate .paginate_button:visited,
-        .dataTables_wrapper .dataTables_paginate .paginate_button:active {
+        
+        /* DataTables Bootstrap 페이지네이션 스타일 - 로그 모달과 동일하게 */
+        .dataTables_wrapper .dataTables_paginate .page-link,
+        #projectsTable_paginate .page-link {
             color: var(--gray-600) !important;
             background: transparent !important;
+            background-color: transparent !important;
             border: none !important;
+            border-color: transparent !important;
             border-radius: var(--border-radius) !important;
             margin: 0 2px !important;
-            padding: 0.25rem 0.5rem !important;
+            padding: 0.375rem 0.75rem !important;
+            font-size: 0.875rem !important;
+            line-height: 1.5 !important;
             text-decoration: none !important;
-            box-shadow: none !important;
-            font-size: 12px !important;
-            font-weight: 400 !important;
-            line-height: 1.2 !important;
-            min-width: 24px !important;
+            cursor: pointer !important;
+            display: inline-block !important;
             text-align: center !important;
             transition: none !important;
             outline: none !important;
+            box-shadow: none !important;
         }
         
-        .dataTables_wrapper .dataTables_paginate .paginate_button:hover,
-        .dataTables_wrapper .dataTables_paginate .paginate_button:focus {
-            color: var(--gray-600) !important;
-            background: transparent !important;
-            border: none !important;
+        /* href 제거된 페이지네이션 링크도 포인터 커서 유지 */
+        .dataTables_wrapper .dataTables_paginate .page-link:not([href]),
+        #projectsTable_paginate .page-link:not([href]) {
+            cursor: pointer !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .page-link:hover,
+        .dataTables_wrapper .dataTables_paginate .page-link:focus,
+        #projectsTable_paginate .page-link:hover,
+        #projectsTable_paginate .page-link:focus {
+            color: var(--gray-800) !important;
+            background: var(--gray-100) !important;
+            background-color: var(--gray-100) !important;
+            border: 1px solid var(--gray-300) !important;
+            border-color: var(--gray-300) !important;
             border-radius: var(--border-radius) !important;
             transform: none !important;
             box-shadow: none !important;
             outline: none !important;
         }
         
-        .dataTables_wrapper .dataTables_paginate .paginate_button.current,
-        .dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+        .dataTables_wrapper .dataTables_paginate .page-item.active .page-link,
+        #projectsTable_paginate .page-item.active .page-link,
+        .dataTables_wrapper .dataTables_paginate .page-item.active > .page-link,
+        #projectsTable_paginate .page-item.active > .page-link {
             color: var(--gray-800) !important;
             background: var(--gray-200) !important;
+            background-color: var(--gray-200) !important;
             font-weight: 600 !important;
             border: 1px solid var(--gray-300) !important;
-            border-radius: var(--border-radius) !important;
-            text-decoration: none !important;
-        }
-        
-        /* 부트스트랩 기본 페이지네이션 스타일 오버라이드 */
-        .dataTables_wrapper .dataTables_paginate .paginate_button.page-link {
-            color: var(--gray-600) !important;
-            background-color: transparent !important;
-            border: none !important;
-            border-radius: var(--border-radius) !important;
-        }
-        
-        .dataTables_wrapper .dataTables_paginate .paginate_button.page-link:hover {
-            color: var(--gray-800) !important;
-            background-color: var(--gray-100) !important;
             border-color: var(--gray-300) !important;
             border-radius: var(--border-radius) !important;
+            text-decoration: none !important;
+            box-shadow: none !important;
         }
         
-        .dataTables_wrapper .dataTables_paginate .paginate_button.disabled,
-        .dataTables_wrapper .dataTables_paginate .paginate_button.disabled:hover {
+        /* 다른 상태들은 기본 스타일 적용 */
+        .dataTables_wrapper .dataTables_paginate .page-item:not(.active) .page-link,
+        #projectsTable_paginate .page-item:not(.active) .page-link {
+            color: var(--gray-600) !important;
+            background: transparent !important;
+            background-color: transparent !important;
+            border: none !important;
+            border-color: transparent !important;
+        }
+        
+        .dataTables_wrapper .dataTables_paginate .page-item.disabled .page-link,
+        #projectsTable_paginate .page-item.disabled .page-link {
             color: var(--gray-400) !important;
             background: transparent !important;
+            background-color: transparent !important;
             opacity: 0.5 !important;
             cursor: not-allowed !important;
             border: none !important;
-            border-radius: var(--border-radius) !important;
-        }
-
-        /* 추가: 모든 페이지네이션 버튼에 일관된 둥근 모서리 적용 */
-        .dataTables_wrapper .dataTables_paginate a {
+            border-color: transparent !important;
             border-radius: var(--border-radius) !important;
         }
         
-        /* Previous/Next 버튼도 동일하게 적용 */
-        .dataTables_wrapper .dataTables_paginate .previous,
-        .dataTables_wrapper .dataTables_paginate .next {
-            color: var(--gray-600) !important;
+        .dataTables_wrapper .dataTables_paginate .page-item.disabled .page-link:hover,
+        #projectsTable_paginate .page-item.disabled .page-link:hover {
+            color: var(--gray-400) !important;
             background: transparent !important;
-            border: none !important;
-        }
-        
-        /* 모든 페이지네이션 링크 스타일 강제 오버라이드 */
-        .dataTables_wrapper .dataTables_paginate a {
-            color: var(--gray-600) !important;
             background-color: transparent !important;
             border: none !important;
-            text-decoration: none !important;
+            border-color: transparent !important;
         }
-        
-        .dataTables_wrapper .dataTables_paginate a:hover {
-            color: var(--gray-800) !important;
-            background-color: var(--gray-100) !important;
-            border: 1px solid var(--gray-300) !important;
-            border-radius: var(--border-radius) !important;
-        }
-        
-        .dataTables_wrapper .dataTables_paginate a.current {
-            color: var(--gray-800) !important;
-            background-color: var(--gray-200) !important;
-            border: 1px solid var(--gray-300) !important;
-            border-radius: var(--border-radius) !important;
-            font-weight: 600 !important;
-        }
-        
-        .dataTables_wrapper .dataTables_paginate .previous:hover,
-        .dataTables_wrapper .dataTables_paginate .next:hover {
-            color: var(--gray-600) !important;
-            background: transparent !important;
-            border: none !important;
-        }
-        
+
         /* DataTables 페이지네이션 컨테이너 정렬 */
         .dataTables_wrapper .dataTables_paginate {
             float: right !important;
             text-align: right !important;
             margin-top: 0 !important;
-            padding-right: 1rem !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: flex-end !important;
         }
         
         /* DataTables 하단 정보와 페이지네이션 높이 정렬 */
@@ -1417,6 +1400,9 @@
             display: flex !important;
             align-items: center !important;
             margin-top: 1rem !important;
+            margin-bottom: 1rem !important;
+            padding-top: 0.5rem !important;
+            padding-bottom: 0.5rem !important;
         }
         
         .dataTables_wrapper .dataTables_info {
@@ -1425,11 +1411,6 @@
             margin-bottom: 0 !important;
         }
         
-        .dataTables_wrapper .dataTables_paginate {
-            display: flex !important;
-            align-items: center !important;
-            justify-content: flex-end !important;
-        }
         
         /* 감사 로그 모달 페이지네이션 스타일 - DataTables와 동일하게 */
         #auditLogsPagination .page-link {
@@ -2687,7 +2668,7 @@
                         <div class="dropdown" style="position: relative; z-index: 99999;">
                             <button class="btn btn-user-menu dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="min-width: 120px; white-space: nowrap;">
                                 <i class="fas fa-user me-2"></i>
-                                <span>{{ session.user.name }}</span>
+                                <span>{{ session.user.name if session.user else '관리자' }}</span>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end user-dropdown">
                                 <li class="dropdown-header">
@@ -2695,10 +2676,10 @@
                                         <i class="fas fa-user-circle"></i>
                                         <div>
                                             <div class="user-name">
-                                                {{ session.user.name }}
+                                                {{ session.user.name if session.user else '관리자' }}
                                                 <span class="user-permission-badge" id="user-role-badge"></span>
                                             </div>
-                                            <div class="user-email">{{ session.user.email }}</div>
+                                            <div class="user-email">{{ session.user.email if session.user else 'admin@test.com' }}</div>
                                         </div>
                                     </div>
                                 </li>
@@ -3206,7 +3187,7 @@
                                             <div class="col-md-6">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 종료</label>
                                                 <div class="input-group">
-                                                    <input type="date" class="form-control date-input" id="end-date" name="공사 종료" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                    <input type="date" class="form-control date-input" id="end-date" name="공사 종료" onkeydown="return false" onpaste="return false" onchange="handleEndDateChange()" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                                     <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
                                                         <i class="fas fa-calendar-alt"></i>
                                                     </span>
@@ -3505,8 +3486,8 @@
         let perPage = 20;  // 페이지당 로그 개수
         
         // 사용자 권한 정보 (서버에서 전달받음)
-        const userPermission = '{{ session.user.permission_level }}';
-        const userName = '{{ session.user.name }}';
+        const userPermission = '{{ session.user.permission_level if session.user else "Admin" }}';
+        const userName = '{{ session.user.name if session.user else "관리자" }}';
         const userRole = '{{ user_role }}';  // 서버에서 계산된 최종 역할
         
         // 개발자용 임시 권한 변경 함수 (테스트용)
@@ -3736,7 +3717,7 @@
             try {
                 await loadProjectsData();
                 loadManagerFilter(); // 담당자 필터 로드
-                initializeDataTable();
+                initializeDataTable(); // 초기 페이지 로드용
                 generateMobileCards(); // 모바일 카드 생성
                 setupEventListeners();
 
@@ -3759,9 +3740,11 @@
 
         // 프로젝트 데이터 로드
         async function loadProjectsData() {
+            console.log('[테이블] loadProjectsData 함수 시작');
             try {
                 // 캐시 무시하고 최신 데이터 로드
                 const timestamp = new Date().getTime();
+                console.log('[테이블] API 호출 시작:', `/api/projects/list?t=${timestamp}`);
                 const response = await fetch(`/api/projects/list?t=${timestamp}`, {
                     cache: 'no-cache',
                     headers: {
@@ -3771,26 +3754,87 @@
                     }
                 });
                 
+                console.log('[테이블] API 응답 상태:', response.status);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
                 const data = await response.json();
+                console.log('[테이블] API 응답 데이터 길이:', data.length);
                 
                 if (data.error) {
                     throw new Error(data.error);
                 }
                 
                 projectsData = data;
+                console.log('[테이블] 데이터 projectsData에 할당 완료');
                 
                 // 데이터 로드 완료
                 if (projectsData.length > 0) {
+                    console.log('[테이블] 프로젝트 데이터 로드 성공, 총', projectsData.length, '개 프로젝트');
+                }
+                
+                // 테이블과 모바일 카드 업데이트
+                console.log('[테이블] 테이블 새로고침 시작');
+                try {
+                    // 기존 테이블이 있는지 확인하고 제거
+                    if ($.fn.DataTable.isDataTable('#projectsTable')) {
+                        console.log('[테이블] 기존 DataTable 제거');
+                        $('#projectsTable').DataTable().destroy();
+                    }
+                    
+                    console.log('[테이블] 테이블 재초기화 실행');
+                    console.log('[테이블] 전달할 데이터 확인:', projectsData ? projectsData.length : 'null');
+                    initializeDataTable(projectsData);
+                    console.log('[테이블] DataTable 재초기화 완료');
+                    
+                } catch (error) {
+                    console.error('[테이블] 테이블 업데이트 오류:', error);
+                    console.log('[테이블] 오류 발생, 페이지 새로고침으로 해결 시도');
+                    
+                    // DataTable 초기화 실패 시 페이지 새로고침
+                    setTimeout(() => {
+                        console.log('[테이블] 페이지 새로고침 실행');
+                        window.location.reload();
+                    }, 1000);
+                    
+                    // HTML 테이블 직접 업데이트 (fallback)  
+                    try {
+                        console.log('[테이블] HTML 테이블 직접 업데이트 시도');
+                        const tbody = document.querySelector('#projectsTable tbody');
+                        if (tbody && projectsData && projectsData.length > 0) {
+                            // 테이블 내용 지우고 새로 생성
+                            tbody.innerHTML = '';
+                            
+                            // 최신 프로젝트 (마지막 하나)만 추가
+                            const latestProject = projectsData[projectsData.length - 1];
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td>${latestProject['프로젝트 코드'] || ''}</td>
+                                <td>${latestProject['담당자'] || ''}</td>
+                                <td>${latestProject['거래처'] || ''}</td>
+                                <td>${latestProject['현장 주소'] || ''}</td>
+                                <td>새 프로젝트</td>
+                            `;
+                            tbody.appendChild(row);
+                            console.log('[테이블] 새 프로젝트 행 추가 완료:', latestProject['프로젝트 코드']);
+                        }
+                    } catch (directError) {
+                        console.error('[테이블] 직접 업데이트도 실패:', directError);
+                    }
+                }
+                // 모바일 카드는 필요 시에만 업데이트 (데스크톱에서는 불필요)
+                if (window.innerWidth <= 768) {
+                    console.log('[테이블] 모바일 환경 감지 - 모바일 카드 업데이트');
+                    generateMobileCards();
+                } else {
+                    console.log('[테이블] 데스크톱 환경 - 모바일 카드 업데이트 생략');
                 }
                 
             } catch (error) {
-                console.error('프로젝트 데이터 로드 오류:', error);
-                console.error('오류 세부사항:', error.message);
-                console.error('스택 트레이스:', error.stack);
+                console.error('[테이블] 프로젝트 데이터 로드 오류:', error);
+                console.error('[테이블] 오류 세부사항:', error.message);
+                console.error('[테이블] 스택 트레이스:', error.stack);
                 throw error;
             }
         }
@@ -3886,13 +3930,51 @@
 
 
         // DataTable 초기화
-        function initializeDataTable() {
+        function initializeDataTable(data = projectsData) {
+            console.log('[DataTable초기화] initializeDataTable 시작');
+            console.log('[DataTable초기화] 받은 데이터 개수:', data ? data.length : 'undefined');
+            console.log('[DataTable초기화] 전역 projectsData 개수:', projectsData ? projectsData.length : 'undefined');
+            
             if (dataTable) {
+                console.log('[DataTable초기화] 기존 dataTable 제거');
                 dataTable.destroy();
             }
             
-            dataTable = $('#projectsTable').DataTable({
-                data: projectsData,
+            console.log('[DataTable초기화] 새 DataTable 생성 시작');
+            console.log('[DataTable초기화] 전달할 데이터:', data ? data.length : 'null', '개');
+            if (data && data.length > 0) {
+                console.log('[DataTable초기화] 첫 번째 프로젝트 샘플:', data[0]);
+                
+                // 공사 종료 날짜 관련 필드 확인
+                const dateFields = Object.keys(data[0]).filter(key => 
+                    key.includes('종료') || key.includes('완료') || key.includes('끝')
+                );
+                console.log('[DataTable초기화] 날짜 관련 필드들:', dateFields);
+                
+                // 실제 공사 종료 데이터 값 확인
+                console.log('[DataTable초기화] 공사 종료 값:', data[0]['공사 종료']);
+                console.log('[DataTable초기화] 공사 시작 값:', data[0]['공사 시작']);
+                
+                // 공사 종료가 있는 프로젝트 찾기
+                const projectsWithEndDate = data.filter(project => 
+                    project['공사 종료'] && project['공사 종료'] !== '' && project['공사 종료'] !== 'nan'
+                );
+                console.log('[DataTable초기화] 공사 종료 날짜가 있는 프로젝트:', projectsWithEndDate.length, '개');
+                if (projectsWithEndDate.length > 0) {
+                    console.log('[DataTable초기화] 공사 종료 날짜 샘플:', projectsWithEndDate[0]['프로젝트 코드'], projectsWithEndDate[0]['공사 종료']);
+                }
+                
+                // 최근 프로젝트들(뒤쪽 10개)의 공사 종료 날짜 확인
+                const recentProjects = data.slice(-10);
+                console.log('[DataTable초기화] 최근 10개 프로젝트의 공사 종료 날짜:');
+                recentProjects.forEach(project => {
+                    console.log(`  - ${project['프로젝트 코드']}: 공사종료="${project['공사 종료']}", 공사시작="${project['공사 시작']}"`);
+                });
+            }
+            
+            try {
+                dataTable = $('#projectsTable').DataTable({
+                    data: data || [],
                 columns: [
                     { data: '프로젝트 코드', width: '8%' },
                     { data: '담당자', width: '5%' },
@@ -4012,6 +4094,14 @@
                         }
                     }
                 ],
+                // 성능 최적화 설정
+                pageLength: 25,              // 한 페이지당 25개 항목 (기본 10개에서 증가)
+                processing: true,           // 처리 중 표시
+                deferRender: true,          // 지연 렌더링 (보이는 행만 렌더링)
+                scroller: false,            // 무한 스크롤 비활성화 (페이지네이션 사용)
+                stateSave: false,           // 상태 저장 비활성화 (성능 향상)
+                order: [[0, 'desc']],       // 프로젝트 코드 역순 정렬 (최신 순)
+                lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "전체"]],
                 // fixedHeader 제거 - CSS sticky 사용
                 columnDefs: [
                     {
@@ -4047,9 +4137,13 @@
                 responsive: false,
                 autoWidth: true,
                 scrollX: false,
+                // 페이지네이션 설정 개선
+                pagingType: "full_numbers",  // 모든 페이지 번호 표시
+                pageLength: 15,  // 페이지당 항목 수
+                displayLength: 15,  // 표시 길이
                 language: {
                     "emptyTable": "데이터가 없습니다.",
-                    "info": "_START_번째부터 _END_번째까지 (전체 _TOTAL_개)",
+                    "info": "_START_~_END_ / 전체 _TOTAL_개 (페이지 _PAGE_ / _PAGES_)",
                     "infoEmpty": "0개 데이터",
                     "infoFiltered": "(전체 _MAX_개에서 필터링됨)",
                     "lengthMenu": "_MENU_개씩 보기",
@@ -4075,8 +4169,189 @@
                     // 테이블 그려진 후 스타일 적용
                     $('[data-bs-toggle="tooltip"]').tooltip();
                     
+                    // 페이지네이션 링크 href 제거 (브라우저 하단 링크 표시 방지)
+                    $('.dataTables_paginate .page-link').each(function() {
+                        $(this).removeAttr('href');
+                    });
+                    
+                    // 페이지네이션 버튼 개수를 5개로 조정 (약간의 지연으로 DataTables 처리 완료 후 실행)
+                    setTimeout(function() {
+                        customizePagination();
+                    }, 10);
+                    
                     // 행 클릭 이벤트 추가
                     setupRowClickEvents();
+                }
+            });
+            
+            console.log('[DataTable초기화] DataTable 생성 성공');
+            
+            // DataTable 생성 후 상태 확인
+            const rowCount = dataTable.data().length;
+            const visibleRows = dataTable.rows().count();
+            console.log('[DataTable초기화] 데이터 행 수:', rowCount);
+            console.log('[DataTable초기화] 표시되는 행 수:', visibleRows);
+            
+            // 테이블이 비어있으면 강제로 다시 그리기
+            if (visibleRows === 0 && data && data.length > 0) {
+                console.log('[DataTable초기화] 테이블이 비어있음, 강제 새로고침 시도');
+                console.log('[DataTable초기화] 사용할 데이터:', data.length, '개');
+                console.log('[DataTable초기화] 데이터 컬럼 확인:', Object.keys(data[0]));
+                
+                // DataTable 오류 시 페이지 새로고침
+                console.log('[DataTable초기화] 데이터가 있으나 표시되지 않음 - 페이지 새로고침');
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            }
+            
+        } catch (error) {
+            console.error('[DataTable초기화] DataTable 생성 실패:', error);
+            console.log('[DataTable초기화] 기본 HTML 테이블로 폴백');
+            
+            // DataTable 생성 실패 시 기본 HTML 테이블 유지
+            const tableBody = document.querySelector('#projectsTable tbody');
+            if (tableBody && projectsData && projectsData.length > 0) {
+                tableBody.innerHTML = '<tr><td colspan="10" class="text-center">테이블을 새로고침하고 있습니다...</td></tr>';
+                
+                // 1초 후 페이지 새로고침
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            }
+        }
+        }
+
+        // 페이지네이션 커스터마이즈 (5개 페이지 표시)
+        function customizePagination() {
+            const table = $('#projectsTable').DataTable();
+            const info = table.page.info();
+            const currentPage = info.page;
+            const totalPages = info.pages;
+            
+            // 페이지네이션 컨테이너 찾기
+            const paginationContainer = $('.dataTables_paginate .pagination');
+            if (paginationContainer.length === 0) return;
+            
+            // 기존 페이지 번호들 제거 (처음, 이전, 다음, 마지막 제외)
+            paginationContainer.find('.page-item').not('.first, .previous, .next, .last').remove();
+            
+            // 모든 버튼에서 active 클래스와 aria-current 제거 (DataTables와 충돌 방지)
+            paginationContainer.find('.page-item').removeClass('active');
+            paginationContainer.find('.page-link').removeAttr('aria-current');
+            
+            // 5개 페이지 번호 범위 계산
+            let startPage = Math.max(0, currentPage - 2);
+            let endPage = Math.min(totalPages - 1, startPage + 4);
+            
+            // 끝에서 5개가 안 되면 앞으로 조정
+            if (endPage - startPage < 4) {
+                startPage = Math.max(0, endPage - 4);
+            }
+            
+            // 페이지 번호 버튼들 생성
+            const nextButton = paginationContainer.find('.next');
+            
+            // 시작 부분에 ellipsis 추가 (첫 페이지가 표시 범위에 없는 경우)
+            if (startPage > 0) {
+                // 첫 페이지 추가
+                const firstPageItem = $('<li class="paginate_button page-item"></li>');
+                if (currentPage === 0) {
+                    firstPageItem.addClass('active');
+                }
+                const firstPageLink = $('<a class="page-link" tabindex="0"></a>')
+                    .text('1')
+                    .attr('data-dt-idx', 0)
+                    .attr('aria-controls', 'projectsTable')
+                    .attr('role', 'link');
+                if (currentPage === 0) {
+                    firstPageLink.attr('aria-current', 'page');
+                }
+                firstPageItem.append(firstPageLink);
+                nextButton.before(firstPageItem);
+                
+                // 첫 페이지와 표시 범위 사이에 간격이 있으면 ellipsis 추가
+                if (startPage > 1) {
+                    const ellipsisItem = $('<li class="paginate_button page-item disabled"></li>');
+                    const ellipsisLink = $('<a class="page-link" aria-disabled="true" role="link" data-dt-idx="ellipsis" tabindex="-1">…</a>');
+                    ellipsisItem.append(ellipsisLink);
+                    nextButton.before(ellipsisItem);
+                }
+            }
+            
+            // 중간 페이지 번호들 추가
+            for (let i = startPage; i <= endPage; i++) {
+                const pageItem = $('<li class="paginate_button page-item"></li>');
+                if (i === currentPage) {
+                    pageItem.addClass('active');
+                }
+                
+                const pageLink = $('<a class="page-link" tabindex="0"></a>')
+                    .text(i + 1)
+                    .attr('data-dt-idx', i)
+                    .attr('aria-controls', 'projectsTable')
+                    .attr('role', 'link');
+                
+                if (i === currentPage) {
+                    pageLink.attr('aria-current', 'page');
+                }
+                
+                pageItem.append(pageLink);
+                nextButton.before(pageItem);
+            }
+            
+            // 끝 부분에 ellipsis 추가 (마지막 페이지가 표시 범위에 없는 경우)
+            if (endPage < totalPages - 1) {
+                // 표시 범위와 마지막 페이지 사이에 간격이 있으면 ellipsis 추가
+                if (endPage < totalPages - 2) {
+                    const ellipsisItem = $('<li class="paginate_button page-item disabled"></li>');
+                    const ellipsisLink = $('<a class="page-link" aria-disabled="true" role="link" data-dt-idx="ellipsis" tabindex="-1">…</a>');
+                    ellipsisItem.append(ellipsisLink);
+                    nextButton.before(ellipsisItem);
+                }
+                
+                // 마지막 페이지 추가
+                const lastPageItem = $('<li class="paginate_button page-item"></li>');
+                if (currentPage === totalPages - 1) {
+                    lastPageItem.addClass('active');
+                }
+                const lastPageLink = $('<a class="page-link" tabindex="0"></a>')
+                    .text(totalPages)
+                    .attr('data-dt-idx', totalPages - 1)
+                    .attr('aria-controls', 'projectsTable')
+                    .attr('role', 'link');
+                if (currentPage === totalPages - 1) {
+                    lastPageLink.attr('aria-current', 'page');
+                }
+                lastPageItem.append(lastPageLink);
+                nextButton.before(lastPageItem);
+            }
+            
+            // href 속성 제거
+            paginationContainer.find('.page-link').removeAttr('href');
+            
+            // 페이지 클릭 이벤트 핸들러 추가
+            paginationContainer.find('.page-item:not(.disabled) .page-link').off('click').on('click', function(e) {
+                e.preventDefault();
+                const pageIdx = $(this).attr('data-dt-idx');
+                
+                if (pageIdx && pageIdx !== 'ellipsis') {
+                    // 특수 버튼들 처리
+                    if (pageIdx === 'first') {
+                        table.page('first').draw('page');
+                    } else if (pageIdx === 'previous') {
+                        table.page('previous').draw('page');
+                    } else if (pageIdx === 'next') {
+                        table.page('next').draw('page');
+                    } else if (pageIdx === 'last') {
+                        table.page('last').draw('page');
+                    } else {
+                        // 숫자 페이지
+                        const pageNum = parseInt(pageIdx);
+                        if (!isNaN(pageNum)) {
+                            table.page(pageNum).draw('page');
+                        }
+                    }
                 }
             });
         }
@@ -4473,19 +4748,103 @@
             
             // iframe에서 편집 완료 메시지 수신
             window.addEventListener('message', function(event) {
+                console.log('[부모창] iframe에서 메시지 수신:', event.data);
+                
                 if (event.data.type === 'projectUpdated') {
+                    console.log('[부모창] projectUpdated 메시지 수신');
                     // 편집 모달 닫기
                     const editModal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
                     if (editModal) {
                         editModal.hide();
                     }
                     
-                    // 성공 메시지 제거 - 인라인 편집은 버튼 피드백으로 충분
-                    
                     // 데이터 다시 로드
                     setTimeout(loadProjectsData, 500);
+                } else if (event.data.type === 'projectCreated') {
+                    // 새 프로젝트 생성 시 데이터 새로고침 (서버 캐시 새로고침 대기)
+                    console.log('[부모창] 새 프로젝트 생성됨:', event.data.projectCode);
+                    console.log('[부모창] 1.5초 후 loadProjectsData 호출 예정');
+                    setTimeout(() => {
+                        console.log('[부모창] loadProjectsData 호출 시작');
+                        loadProjectsData();
+                    }, 1500);
                 }
             });
+
+            // localStorage 변화 감지 (직접 페이지 접근 시)
+            window.addEventListener('storage', function(event) {
+                console.log('[localStorage] 변화 감지:', event.key);
+                if (event.key === 'newProjectCreated' && event.newValue) {
+                    const data = JSON.parse(event.newValue);
+                    console.log('[localStorage] 새 프로젝트 생성됨:', data.projectCode);
+                    console.log('[localStorage] 1.5초 후 테이블 새로고침');
+                    setTimeout(() => {
+                        console.log('[localStorage] loadProjectsData 호출 시작');
+                        loadProjectsData();
+                        // 사용 후 삭제
+                        localStorage.removeItem('newProjectCreated');
+                    }, 1500);
+                }
+            });
+
+            // 페이지 로드 시 localStorage 확인 (같은 탭에서 새로고침된 경우)
+            function checkForNewProject() {
+                console.log('[checkForNewProject] localStorage 확인 시작');
+                const newProjectData = localStorage.getItem('newProjectCreated');
+                console.log('[checkForNewProject] localStorage 데이터:', newProjectData);
+                
+                if (newProjectData) {
+                    console.log('[checkForNewProject] localStorage에서 데이터 발견!');
+                    const data = JSON.parse(newProjectData);
+                    const timeDiff = Date.now() - data.timestamp;
+                    
+                    console.log('[checkForNewProject] 파싱된 데이터:', data);
+                    console.log('[checkForNewProject] 시간 차이:', timeDiff, 'ms');
+                    
+                    // 5초 이내에 생성된 프로젝트면 테이블 새로고침
+                    if (timeDiff < 5000) {
+                        console.log('[checkForNewProject] 최근 생성된 프로젝트 감지:', data.projectCode);
+                        console.log('[checkForNewProject] 0.5초 후 테이블 새로고침 시작');
+                        setTimeout(() => {
+                            console.log('[checkForNewProject] 지연 후 loadProjectsData 호출');
+                            loadProjectsData();
+                        }, 500);
+                    } else {
+                        console.log('[checkForNewProject] 데이터가 너무 오래됨 (5초 이상), 무시');
+                    }
+                    // 사용 후 삭제
+                    console.log('[checkForNewProject] localStorage에서 데이터 삭제');
+                    localStorage.removeItem('newProjectCreated');
+                } else {
+                    console.log('[checkForNewProject] localStorage에 데이터 없음');
+                }
+            }
+
+            // 페이지 로드 완료 후 확인
+            setTimeout(checkForNewProject, 1000);
+
+            // URL에 refresh 파라미터가 있으면 강제 데이터 새로고침
+            console.log('[페이지로딩] 현재 URL:', window.location.href);
+            console.log('[페이지로딩] URL search params:', window.location.search);
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const hasRefresh = urlParams.has('refresh');
+            const refreshValue = urlParams.get('refresh');
+            
+            console.log('[URL파라미터] refresh 파라미터 확인:', hasRefresh, refreshValue);
+            
+            if (hasRefresh) {
+                console.log('[URL파라미터] refresh 감지 - 강제 데이터 새로고침 시작!');
+                setTimeout(() => {
+                    console.log('[URL파라미터] 0.5초 지연 후 데이터 새로고침 실행');
+                    loadProjectsData();
+                    // URL에서 파라미터 제거
+                    console.log('[URL파라미터] URL에서 파라미터 제거');
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }, 500);
+            } else {
+                console.log('[URL파라미터] refresh 파라미터 없음 - 일반 로딩');
+            }
         }
 
         // 상태 뱃지 생성 (Z열 수금 확인 기준)
@@ -5190,15 +5549,56 @@
             if (sameDateCheck.checked && startDate) {
                 endDateInput.value = startDate;
             }
+            
+            // 종료일 최소값을 시작일로 설정
+            if (startDate) {
+                endDateInput.min = startDate;
+                
+                // 현재 종료일이 시작일보다 과거라면 시작일로 조정
+                if (endDateInput.value && endDateInput.value < startDate) {
+                    endDateInput.value = startDate;
+                    showModalAlert('공사 종료일을 시작일과 동일하게 조정했습니다.', 'info');
+                }
+            }
+        }
+
+        // 종료일 변경 시 처리
+        function handleEndDateChange() {
+            const startDate = document.getElementById('start-date').value;
+            const endDate = document.getElementById('end-date').value;
+            
+            if (startDate && endDate && endDate < startDate) {
+                document.getElementById('end-date').value = startDate;
+                showModalAlert('공사 종료일은 시작일보다 과거일 수 없습니다.', 'warning');
+            }
         }
 
         // 새 프로젝트 코드 미리보기 업데이트
+        // 디바운싱 타이머
+        let previewCodeTimeout = null;
+        
         async function updateNewProjectCodePreview() {
+            // 이전 타이머 취소
+            if (previewCodeTimeout) {
+                clearTimeout(previewCodeTimeout);
+            }
+            
             const company = document.getElementById('company').value;
             const owner = document.getElementById('owner').value;
             const codeDisplay = document.getElementById('generated-code');
             
-            if (company && owner) {
+            if (!company || !owner) {
+                codeDisplay.textContent = '사업자와 담당자를 선택하세요';
+                codeDisplay.style.backgroundColor = '#f8f9fa';
+                return;
+            }
+            
+            // 로딩 상태 표시
+            codeDisplay.textContent = '코드 생성 중...';
+            codeDisplay.style.backgroundColor = '#fff3cd';
+            
+            // 500ms 디바운싱 적용
+            previewCodeTimeout = setTimeout(async () => {
                 try {
                     // 실제 프로젝트 코드 미리보기 API 호출
                     const response = await fetch(`/api/preview-project-code?company=${encodeURIComponent(company)}&owner=${encodeURIComponent(owner)}`);
@@ -5216,10 +5616,7 @@
                     codeDisplay.textContent = '코드 생성 오류';
                     codeDisplay.style.backgroundColor = '#f8d7da';
                 }
-            } else {
-                codeDisplay.textContent = '사업자와 담당자를 선택하세요';
-                codeDisplay.style.backgroundColor = '#f8f9fa';
-            }
+            }, 500);
         }
 
         // 표시 금액 업데이트
@@ -5699,6 +6096,7 @@
 
         // 새 프로젝트 제출 (재시도 로직 포함)
         async function submitNewProject(e, retryCount = 0) {
+            console.log('[모달등록] 프로젝트 등록 시작!', { retryCount });
             e.preventDefault();
             
             const submitBtn = document.getElementById('submit-new-project');
@@ -5706,16 +6104,19 @@
             const maxRetries = 3;
             
             // 로딩 상태
+            console.log('[모달등록] 로딩 상태 설정');
             submitBtn.disabled = true;
             loading.classList.remove('d-none');
             
             try {
                 // 폼 데이터 수집
+                console.log('[모달등록] 폼 데이터 수집 시작');
                 const formData = new FormData(document.getElementById('newProjectForm'));
                 const data = {};
                 for (let [key, value] of formData.entries()) {
                     data[key] = value;
                 }
+                console.log('[모달등록] 폼 데이터 수집 완료:', data);
                 
                 // 생성된 프로젝트 코드 추가
                 const generatedCode = document.getElementById('generated-code').textContent.trim();
@@ -5725,6 +6126,16 @@
                 
                 // 부가세 체크박스 처리
                 data['부가세 포함'] = document.getElementById('vat-included').checked;
+
+                // 날짜 검증
+                const startDate = data['공사 시작'];
+                const endDate = data['공사 종료'];
+                
+                if (startDate && endDate && endDate < startDate) {
+                    showModalAlert('공사 종료일은 시작일보다 과거일 수 없습니다. 날짜를 다시 확인해주세요.', 'danger');
+                    document.getElementById('end-date').focus();
+                    return;
+                }
                 
                 // 종료일 처리 (disabled 된 필드는 FormData에 포함되지 않으므로)
                 const endDateInput = document.getElementById('end-date');
@@ -5742,7 +6153,8 @@
                 // 백엔드에서 자동으로 수식을 삽입함
                 
                 // 디버깅: 전송할 데이터 로그 출력
-                console.log('전송할 폼 데이터:', data);
+                console.log('[모달등록] 전송할 폼 데이터:', data);
+                console.log('[모달등록] API 호출 시작: /api/projects/auto');
                 
                 const response = await fetch('/api/projects/auto', {
                     method: 'POST',
@@ -5752,17 +6164,43 @@
                     body: JSON.stringify(data)
                 });
                 
+                console.log('[모달등록] API 응답 상태:', response.status);
+                
+                // HTTP 상태 코드 확인
+                if (!response.ok && response.status === 401) {
+                    // 인증 필요
+                    showAlert('로그인이 필요합니다. 로그인 페이지로 이동합니다.', 'warning');
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 2000);
+                    return;
+                } else if (!response.ok && response.status === 403) {
+                    showAlert('접근 권한이 없습니다.', 'danger');
+                    return;
+                }
+                
                 const result = await response.json();
+                console.log('[모달등록] API 응답 데이터:', result);
+                console.log('[모달등록] result.ok 값:', result.ok, typeof result.ok);
                 
                 if (result.ok) {
-                    showAlert(`프로젝트가 성공적으로 등록되었습니다! 프로젝트 코드: ${result.project_code}`, 'success');
+                    console.log('[모달등록] 등록 성공! 프로젝트 코드:', result.project_code);
+                    // 서버에서 제공하는 메시지 사용 (코드 변경 알림 포함)
+                    const message = result.message || `프로젝트가 성공적으로 등록되었습니다! 프로젝트 코드: ${result.project_code}`;
+                    const alertType = result.code_changed ? 'warning' : 'success';  // 코드 변경시 경고색
+                    showAlert(message, alertType);
                     
-                    // 모달 닫기
+                    // 모달 즉시 닫기 (빠른 반응)
+                    console.log('[모달등록] 모달 닫기 시작');
                     const modal = bootstrap.Modal.getInstance(document.getElementById('newProjectModal'));
                     modal.hide();
                     
-                    // 데이터 다시 로드
-                    setTimeout(loadProjectsData, 500);
+                    // 즉시 데이터 새로고침 (구글 시트 동기화 완료)
+                    console.log('[모달등록] 0.5초 후 테이블 새로고침 예약');
+                    setTimeout(() => {
+                        console.log('[모달등록] 테이블 새로고침 실행 - loadProjectsData() 호출');
+                        loadProjectsData();
+                    }, 500);  // 서버 처리 시간 고려
                     
                 } else if (response.status === 409 && retryCount < maxRetries) {
                     // 409 충돌 오류 시 자동 재시도
@@ -6073,9 +6511,12 @@
         }
 
         // 유틸리티 함수들
+        // 통화 포맷터 인스턴스 재사용 (성능 최적화)
+        const currencyFormatter = new Intl.NumberFormat('ko-KR');
+        
         function formatCurrency(amount) {
             if (!amount) return '0원';
-            return new Intl.NumberFormat('ko-KR').format(amount) + '원';
+            return currencyFormatter.format(amount) + '원';
         }
 
         function calculateProfitAndMargin(projectCode, cardType) {
@@ -7761,50 +8202,108 @@
         
 
         function showAlert(message, type) {
-            const alertContainer = document.getElementById('headerAlertContainer');
             const alertId = 'alert_' + Date.now();
             
-            // 타입별 색상과 아이콘 설정
-            let bgColor, textColor, icon;
+            // 타입별 색상과 아이콘 설정 (파스텔 톤 IT GLOBAL 스타일)
+            let bgColor, textColor, icon, borderColor;
             switch(type) {
                 case 'success':
-                    bgColor = '#d1f2eb';
-                    textColor = '#0d5345';
+                    bgColor = '#d4edda';  // 파스텔 초록
+                    textColor = '#155724';
                     icon = 'fa-check-circle';
+                    borderColor = '#c3e6cb';
                     break;
                 case 'danger':
-                    bgColor = '#f8d7da';
+                    bgColor = '#f8d7da';  // 파스텔 빨강
                     textColor = '#721c24';
                     icon = 'fa-exclamation-triangle';
+                    borderColor = '#f5c6cb';
+                    break;
+                case 'warning':
+                    bgColor = '#fff3cd';  // 파스텔 노랑
+                    textColor = '#856404';
+                    icon = 'fa-exclamation-circle';
+                    borderColor = '#ffeaa7';
                     break;
                 case 'info':
                 default:
-                    bgColor = '#cce7ff';
-                    textColor = '#0c4a73';
+                    bgColor = '#d1ecf1';  // 파스텔 파랑
+                    textColor = '#0c5460';
                     icon = 'fa-info-circle';
+                    borderColor = '#bee5eb';
                     break;
             }
             
-            const alertHTML = `
-                <div class="alert-message px-2 py-1 rounded-2 fade show d-flex align-items-center" id="${alertId}"
-                     style="background-color: ${bgColor}; color: ${textColor}; border: 1px solid ${textColor}20; font-size: 0.8rem; white-space: nowrap; height: 2rem;">
-                    <i class="fas ${icon} me-2" style="font-size: 0.75rem;"></i>
-                    <span>${message}</span>
-                </div>
-            `;
+            // 헤더 알림과 플로팅 알림 중 선택
+            const useHeaderAlert = true; // 프로젝트 관리 옆에 표시
             
-            alertContainer.innerHTML = alertHTML;
+            if (useHeaderAlert) {
+                // 기존 헤더 알림 제거
+                const alertContainer = document.getElementById('headerAlertContainer');
+                alertContainer.innerHTML = '';
+                
+                const alertHTML = `
+                    <div class="alert-message animate__animated animate__fadeInRight px-3 py-2 rounded-2 d-flex align-items-center ms-3" id="${alertId}"
+                         style="background: ${bgColor}; color: ${textColor}; 
+                                border: 2px solid ${borderColor};
+                                font-size: 14px; font-weight: 500;
+                                white-space: nowrap; height: auto; min-height: 2.5rem;">
+                        <i class="fas ${icon} me-2" style="font-size: 16px;"></i>
+                        <span>${message}</span>
+                        <button onclick="document.getElementById('${alertId}').remove()" 
+                                style="background: none; border: none; color: ${textColor}; 
+                                       font-size: 14px; margin-left: 8px; cursor: pointer; 
+                                       opacity: 0.7; padding: 0;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                `;
+                
+                alertContainer.innerHTML = alertHTML;
+            } else {
+                // 플로팅 알림 (기존 방식)
+                const existingAlerts = document.querySelectorAll('.floating-alert');
+                existingAlerts.forEach(alert => alert.remove());
+                
+                const alertHTML = `
+                    <div class="floating-alert animate__animated animate__slideInDown" id="${alertId}"
+                         style="position: fixed; top: 80px; right: 20px; z-index: 9999; 
+                                background: ${bgColor}; color: ${textColor}; 
+                                border: 2px solid ${borderColor};
+                                padding: 15px 20px; border-radius: 8px; 
+                                font-size: 14px; font-weight: 500;
+                                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                                max-width: 400px; min-width: 300px;
+                                backdrop-filter: blur(10px);">
+                        <div class="d-flex align-items-center">
+                            <i class="fas ${icon} me-3" style="font-size: 18px;"></i>
+                            <span style="flex: 1; line-height: 1.4;">${message}</span>
+                            <button onclick="document.getElementById('${alertId}').remove()" 
+                                    style="background: none; border: none; color: ${textColor}; 
+                                           font-size: 16px; margin-left: 10px; cursor: pointer; 
+                                           opacity: 0.8; padding: 0;">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.insertAdjacentHTML('beforeend', alertHTML);
+            }
             
+            // 자동 제거 (7초 후)
             setTimeout(() => {
                 const alertElement = document.getElementById(alertId);
                 if (alertElement) {
-                    alertElement.style.opacity = '0';
-                    alertElement.style.transition = 'opacity 0.3s ease-out';
+                    alertElement.classList.remove('animate__slideInDown');
+                    alertElement.classList.add('animate__slideOutUp');
                     setTimeout(() => {
-                        alertElement.remove();
-                    }, 300);
+                        if (alertElement && alertElement.parentNode) {
+                            alertElement.remove();
+                        }
+                    }, 500);
                 }
-            }, 4000);
+            }, 7000);
         }
         
         // 체크박스 라벨 클릭 처리 - 이벤트 위임 방식
@@ -8338,7 +8837,7 @@
             }
             
             // 현재 세션 사용자 이메일 가져오기
-            const currentUserEmail = '{{ session.user.email }}';
+            const currentUserEmail = '{{ session.user.email if session.user else "admin@test.com" }}';
             
             const htmlContent = users.map(user => {
                 const isCurrentUser = user.email === currentUserEmail;

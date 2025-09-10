@@ -6,23 +6,16 @@
 import os
 import sys
 import logging
-from flask import Flask, render_template, redirect, url_for, request, session
-from dotenv import load_dotenv
+from flask import render_template, redirect, url_for, request, session
 
-# 환경 변수 로드
-load_dotenv()
+# 프로젝트 루트 경로 추가
+sys.path.append(os.path.dirname(__file__))
+from utils.server_config import setup_basic_app, get_server_config
 
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
 logger = logging.getLogger(__name__)
 
-# 간단한 Flask 앱 생성
-app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'simple-key-for-testing')
+# 공통 설정으로 앱 생성
+app = setup_basic_app("Minimal Dashboard")
 
 @app.route('/')
 def index():
@@ -40,31 +33,16 @@ def login_page():
 def projects():
     return "프로젝트 페이지 (임시)"
 
-@app.errorhandler(404)
-def not_found(error):
-    return "페이지를 찾을 수 없습니다", 404
-
-@app.errorhandler(500)  
-def internal_error(error):
-    logger.error(f"서버 내부 오류: {str(error)}")
-    return "서버 내부 오류가 발생했습니다", 500
-
-@app.errorhandler(Exception)
-def handle_exception(e):
-    logger.error(f"처리되지 않은 예외: {str(e)}", exc_info=True)
-    return "예상치 못한 오류가 발생했습니다", 500
-
 def main():
     try:
-        host = '127.0.0.1'
-        port = int(os.getenv('PORT', 5000))
+        config = get_server_config()
         
-        logger.info(f"최소 기능 서버 시작: http://localhost:{port}")
+        logger.info(f"최소 기능 서버 시작: http://localhost:{config['port']}")
         logger.info("종료하려면 Ctrl+C를 누르세요")
         
         app.run(
-            host=host,
-            port=port,
+            host=config['host'],
+            port=config['port'],
             debug=False,
             use_reloader=False,
             threaded=True

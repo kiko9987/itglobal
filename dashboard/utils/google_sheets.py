@@ -10,20 +10,38 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class GoogleSheetsManager:
-    """구글 시트 연동 관리 클래스"""
+    """구글 시트 연동 관리 클래스 (Thread-Safe 싱글톤)"""
     
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    _instance = None
+    _lock = None
+    
+    def __new__(cls, credentials_file='credentials.json'):
+        """Thread-Safe 싱글톤 구현"""
+        if cls._lock is None:
+            import threading
+            cls._lock = threading.Lock()
+        
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(GoogleSheetsManager, cls).__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
     
     def __init__(self, credentials_file='credentials.json'):
         """
-        구글 시트 매니저 초기화
+        구글 시트 매니저 초기화 (한 번만 실행)
         
         Args:
             credentials_file: 구글 API 서비스 계정 자격증명 파일 경로
         """
+        if self._initialized:
+            return
+            
         self.credentials_file = credentials_file
         self.service = None
         self._authenticate()
+        self._initialized = True
     
     def _authenticate(self):
         """구글 API 인증 처리 (서비스 계정 방식)"""
@@ -47,7 +65,7 @@ class GoogleSheetsManager:
             logger.error(f"구글 API 인증 실패: {str(e)}")
             raise
     
-    def get_sheet_data(self, sheet_id, range_name='공사 현황!A:AM'):
+    def get_sheet_data(self, sheet_id, range_name='공사 현황의 사본!A:AM'):
         """
         구글 시트에서 데이터 가져오기 (에러 처리 강화)
         
@@ -83,6 +101,16 @@ class GoogleSheetsManager:
             # DataFrame 생성
             df = pd.DataFrame(values[1:], columns=values[0])
             
+            # 공사 종료 날짜 원시 데이터 재확인 (사용자 입력 데이터 확인)
+            if '공사 종료' in df.columns:
+                logger.info("=== 최근 10개 프로젝트의 공사 종료 원시 데이터 재확인 ===")
+                recent_projects = df.tail(10)
+                for i, (idx, row) in enumerate(recent_projects.iterrows()):
+                    project_code = row.get('프로젝트 코드', 'N/A')
+                    start_date = row.get('공사 시작', 'N/A')
+                    end_date = row.get('공사 종료', 'N/A') 
+                    logger.info(f"  프로젝트 {project_code}: 시작='{start_date}' 종료='{end_date}' (종료타입:{type(end_date)})")
+            
             # 데이터 전처리
             df = self._preprocess_data(df)
             
@@ -117,21 +145,30 @@ class GoogleSheetsManager:
         else:
             logger.warning("프로젝트 코드 컬럼을 찾을 수 없습니다.")
         
-        # 날짜 컬럼 처리
+        # 날짜 컬럼 처리 (빈 값은 빈 문자열로 유지)
         date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
         for col in date_columns:
             if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
+                # 빈 값이 아닌 경우에만 날짜 변환 시도
+                df[col] = df[col].apply(lambda x: 
+                    pd.to_datetime(x, errors='coerce') if x and str(x).strip() and str(x).strip().lower() != 'none' 
+                    else pd.NaT
+                )
         
-        # 숫자 컬럼 처리 (함수 계산 결과 포함)
+        # 숫자 컬럼 처리 (함수 계산 결과 포함) - 성능 최적화
         numeric_columns = ['총액 1', '총액 2', '총액2', '계약금', '중도금', '잔금', 
                           '미수금', '미수금W', '제품대', '도급비', '자재비', '기타비', '순익', '마진율']
-        for col in numeric_columns:
-            if col in df.columns:
-                # 쉼표, 원화기호, 공백 제거 후 숫자 변환 (구글 시트 포맷된 값 처리)
-                df[col] = df[col].astype(str).str.replace(',', '').str.replace('￦', '').str.replace('₩', '').str.replace('-', '').str.strip()
-                # 빈 문자열이나 'nan'을 NaN으로 처리
-                df[col] = df[col].replace(['', 'nan', 'None'], pd.NA)
+        
+        # 존재하는 숫자 컬럼만 필터링하여 처리 속도 향상
+        existing_numeric_columns = [col for col in numeric_columns if col in df.columns]
+        
+        if existing_numeric_columns:
+            # 벡터화된 일괄 처리로 성능 대폭 향상
+            for col in existing_numeric_columns:
+                df[col] = (df[col].astype(str, copy=False)
+                          .str.replace(r'[,￦₩\-]', '', regex=True)
+                          .str.strip()
+                          .replace(['', 'nan', 'None', 'NaN'], pd.NA))
                 df[col] = pd.to_numeric(df[col], errors='coerce')
         
         # 불린 컬럼 처리
@@ -170,63 +207,76 @@ class GoogleSheetsManager:
             logger.error(f"구글 시트 연결 테스트 오류: {str(e)}")
             return False
 
-def test_google_sheets_connection():
-    """구글 시트 연결 테스트 함수"""
-    from dotenv import load_dotenv
-    load_dotenv()
-    
-    sheet_id = os.getenv('GOOGLE_SHEET_ID')
-    if not sheet_id:
-        print("GOOGLE_SHEET_ID가 .env 파일에 설정되지 않았습니다.")
-        return
-    
-    try:
-        manager = GoogleSheetsManager()
-        if manager.validate_connection(sheet_id):
-            print("✅ 구글 시트 연결 성공!")
-            
-            # 샘플 데이터 가져오기
-            df = manager.get_sheet_data(sheet_id)
-            print(f"📊 데이터 크기: {df.shape}")
-            print(f"📋 컬럼 수: {len(df.columns)}")
-        else:
-            print("❌ 구글 시트 연결 실패")
-    except Exception as e:
-        print(f"❌ 오류 발생: {str(e)}")
-
-    def append_row(self, sheet_id, values, range_name='공사 현황!A:AM'):
+    def find_next_empty_row(self, sheet_id, range_name='공사 현황의 사본!A:A'):
         """
-        구글 시트에 새 행 추가
+        다음 빈 행 번호 찾기 (수식이 미리 설정된 행에 데이터 추가용)
+        
+        Returns:
+            int: 다음 빈 행 번호 (1부터 시작)
+        """
+        try:
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range=range_name,
+                valueRenderOption='FORMATTED_VALUE'
+            ).execute()
+            
+            values = result.get('values', [])
+            
+            # 프로젝트 코드(A열)가 비어있는 첫 번째 행 찾기
+            for i, row in enumerate(values):
+                if i == 0:  # 헤더 행 스킵
+                    continue
+                    
+                if not row or len(row) == 0 or not row[0] or not row[0].strip():
+                    return i + 1  # 행 번호는 1부터 시작
+            
+            # 빈 행을 찾지 못한 경우 마지막 다음 행 반환
+            return len(values) + 1
+            
+        except Exception as e:
+            logger.error(f"빈 행 찾기 오류: {str(e)}")
+            return None
+
+    def append_row(self, sheet_id, values, range_name='공사 현황의 사본!A:AM'):
+        """
+        구글 시트의 다음 빈 행에 데이터 추가 (수식이 미리 설정된 행에 덮어쓰기)
         
         Args:
             sheet_id: 구글 시트 ID
             values: 추가할 데이터 리스트
-            range_name: 데이터 범위
+            range_name: 데이터 범위 (사용하지 않음, 호환성용)
             
         Returns:
             dict: 추가 결과
         """
         try:
+            # 다음 빈 행 번호 찾기
+            next_row = self.find_next_empty_row(sheet_id)
+            if not next_row:
+                raise Exception("다음 빈 행을 찾을 수 없습니다")
+            
+            # 특정 행에 데이터 업데이트 (수식이 있는 빈 행에 덮어쓰기)
+            actual_range = f'공사 현황의 사본!A{next_row}:AM{next_row}'
             body = {
                 'values': [values]
             }
             
-            result = self.service.spreadsheets().values().append(
+            result = self.service.spreadsheets().values().update(
                 spreadsheetId=sheet_id,
-                range=range_name,
+                range=actual_range,
                 valueInputOption='USER_ENTERED',
-                insertDataOption='INSERT_ROWS',
                 body=body
             ).execute()
             
-            logger.info(f"새 행 추가 성공: {result.get('updates', {}).get('updatedRows', 0)}행")
+            logger.info(f"빈 행({next_row})에 데이터 추가 성공: {result.get('updatedCells', 0)}셀 업데이트")
             return result
             
         except Exception as e:
-            logger.error(f"행 추가 오류: {str(e)}")
+            logger.error(f"빈 행 데이터 추가 오류: {str(e)}")
             raise
     
-    def update_row(self, sheet_id, row_number, values, range_name='공사 현황!A{row}:AM{row}'):
+    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AM{row}'):
         """
         구글 시트의 특정 행 업데이트
         
@@ -376,6 +426,30 @@ def test_google_sheets_connection():
             'AL': '공사 확정',
             'AM': 'Airtable Record ID'
         }
+
+def test_google_sheets_connection():
+    """구글 시트 연결 테스트 함수"""
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    if not sheet_id:
+        print("GOOGLE_SHEET_ID가 .env 파일에 설정되지 않았습니다.")
+        return
+    
+    try:
+        manager = GoogleSheetsManager()
+        if manager.validate_connection(sheet_id):
+            print("✅ 구글 시트 연결 성공!")
+            
+            # 샘플 데이터 가져오기
+            df = manager.get_sheet_data(sheet_id)
+            print(f"📊 데이터 크기: {df.shape}")
+            print(f"📋 컬럼 수: {len(df.columns)}")
+        else:
+            print("❌ 구글 시트 연결 실패")
+    except Exception as e:
+        print(f"❌ 오류 발생: {str(e)}")
 
 if __name__ == "__main__":
     test_google_sheets_connection()

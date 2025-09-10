@@ -256,7 +256,14 @@
       "Bash(set PORT=5001)",
       "Bash(wmic process where \"ProcessId=30152\" call terminate)",
       "Read(//c/Users/KiKO/OneDrive/Desktop/**)",
-      "Bash(start http://localhost:5000/projects)"
+      "Bash(start http://localhost:5000/projects)",
+      "Bash(/bashes)",
+      "Bash(wmic process where:*)",
+      "Bash(start http://localhost:5000/login)",
+      "Bash(del project_form.html)",
+      "Bash(del \"temp_projects.html\")",
+      "Bash(del \"nul\")",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
