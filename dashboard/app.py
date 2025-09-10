@@ -904,7 +904,19 @@ def handle_disconnect():
 def get_projects_list():
     """프로젝트 목록 API"""
     try:
-        df = current_data if current_data is not None else load_data()
+        # refresh 파라미터가 있으면 강제로 구글시트에서 최신 데이터 로드
+        refresh = request.args.get('refresh', 'false').lower() == 'true'
+        
+        if refresh:
+            logger.info('[API] 강제 새로고침 요청 - 구글시트에서 최신 데이터 로드')
+            df = load_data()  # 구글시트에서 최신 데이터 로드
+            if df is not None:
+                global current_data
+                current_data = df  # 메모리의 데이터도 업데이트
+                logger.info('[API] 메모리 데이터 업데이트 완료')
+        else:
+            df = current_data if current_data is not None else load_data()
+            
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -1041,7 +1053,29 @@ def create_project():
         else:
             success_message = f"새 프로젝트가 등록되었습니다: {final_project_code}"
         
-        # 실시간 업데이트 알림
+        # 구글시트 업데이트 완료 후 메모리 데이터도 강제 업데이트
+        try:
+            logger.info('[프로젝트생성] 구글시트 저장 완료 후 메모리 데이터 업데이트 시작')
+            updated_df = load_data()  # 구글시트에서 최신 데이터 로드
+            if updated_df is not None:
+                global current_data
+                current_data = updated_df  # 메모리 데이터 업데이트
+                logger.info('[프로젝트생성] 메모리 데이터 업데이트 완료')
+                
+                # 새로 추가된 프로젝트 데이터를 찾아서 Socket.IO로 전송
+                new_project_row = updated_df[updated_df['프로젝트 코드'] == final_project_code]
+                if not new_project_row.empty:
+                    new_project_data = new_project_row.iloc[0].to_dict()
+                    
+                    # 실시간 새 프로젝트 추가 알림 (새로운 이벤트)
+                    socketio.emit('new_project_added', new_project_data)
+                    logger.info(f'[Socket.IO] 새 프로젝트 데이터 전송 완료: {final_project_code}')
+            else:
+                logger.warning('[프로젝트생성] 메모리 데이터 업데이트 실패 - 데이터 로드 불가')
+        except Exception as memory_error:
+            logger.error(f'[프로젝트생성] 메모리 데이터 업데이트 오류: {memory_error}')
+        
+        # 실시간 업데이트 알림 (기존 방식 유지)
         socketio.emit('data_updated', {
             'message': success_message,
             'timestamp': datetime.now().isoformat(),
@@ -2137,6 +2171,19 @@ def inline_update_direct():
                 
             except Exception as calc_error:
                 logger.warning(f"업데이트 후 미수금 계산 실패: {calc_error}")
+        
+        # 구글시트 업데이트 완료 후 메모리 데이터도 강제 업데이트
+        try:
+            logger.info('[인라인업데이트] 구글시트 저장 완료 후 메모리 데이터 업데이트 시작')
+            updated_df = load_data()  # 구글시트에서 최신 데이터 로드
+            if updated_df is not None:
+                global current_data
+                current_data = updated_df  # 메모리 데이터 업데이트
+                logger.info('[인라인업데이트] 메모리 데이터 업데이트 완료')
+            else:
+                logger.warning('[인라인업데이트] 메모리 데이터 업데이트 실패 - 데이터 로드 불가')
+        except Exception as memory_error:
+            logger.error(f'[인라인업데이트] 메모리 데이터 업데이트 오류: {memory_error}')
         
         return jsonify({
             'ok': True,
