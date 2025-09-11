@@ -263,7 +263,10 @@
       "Bash(del project_form.html)",
       "Bash(del \"temp_projects.html\")",
       "Bash(del \"nul\")",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(del \"dashboard/audit_logs/audit_2025-09-11.json\")",
+      "Bash(git show:*)",
+      "Bash(netstat:*)"
     ],
     "deny": [],
     "ask": []

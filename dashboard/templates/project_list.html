@@ -3610,7 +3610,7 @@
                             title="저장">
                         <i class="fas fa-check me-1"></i>저장
                     </button>
-                    <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', '${cardType}')" 
+                    <button class="btn btn-sm cancel-btn d-none" onclick="event.preventDefault(); event.stopPropagation(); if(!this.disabled){this.disabled=true; cancelCardEdit('${projectCode}', '${cardType}'); setTimeout(()=>this.disabled=false, 1000);}" 
                             style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
                             onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
                             onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
@@ -3654,7 +3654,7 @@
                                 title="저장">
                             <i class="fas fa-check me-1"></i>저장
                         </button>
-                        <button class="btn btn-sm cancel-btn d-none" onclick="cancelCardEdit('${projectCode}', '${cardType}')" 
+                        <button class="btn btn-sm cancel-btn d-none" onclick="event.preventDefault(); event.stopPropagation(); if(!this.disabled){this.disabled=true; cancelCardEdit('${projectCode}', '${cardType}'); setTimeout(()=>this.disabled=false, 1000);}" 
                                 style="padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; margin-left: 2px; transition: all 0.15s ease-in-out;"
                                 onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f2b6bb';"
                                 onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb';"
@@ -3740,11 +3740,9 @@
 
         // 프로젝트 데이터 로드
         async function loadProjectsData() {
-            console.log('[테이블] loadProjectsData 함수 시작');
             try {
                 // 캐시 무시하고 최신 데이터 로드
                 const timestamp = new Date().getTime();
-                console.log('[테이블] API 호출 시작:', `/api/projects/list?t=${timestamp}`);
                 const response = await fetch(`/api/projects/list?t=${timestamp}`, {
                     cache: 'no-cache',
                     headers: {
@@ -3754,24 +3752,21 @@
                     }
                 });
                 
-                console.log('[테이블] API 응답 상태:', response.status);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 
                 const data = await response.json();
-                console.log('[테이블] API 응답 데이터 길이:', data.length);
                 
                 if (data.error) {
                     throw new Error(data.error);
                 }
                 
                 projectsData = data;
-                console.log('[테이블] 데이터 projectsData에 할당 완료');
                 
                 // 데이터 로드 완료
                 if (projectsData.length > 0) {
-                    console.log('[테이블] 프로젝트 데이터 로드 성공, 총', projectsData.length, '개 프로젝트');
+                    // 프로젝트 데이터 로드 성공
                 }
                 
                 // 테이블과 모바일 카드 업데이트
@@ -3788,13 +3783,11 @@
                     
                     // DataTable 초기화 실패 시 페이지 새로고침
                     setTimeout(() => {
-                        console.log('[테이블] 페이지 새로고침 실행');
                         window.location.reload();
                     }, 1000);
                     
                     // HTML 테이블 직접 업데이트 (fallback)  
                     try {
-                        console.log('[테이블] HTML 테이블 직접 업데이트 시도');
                         const tbody = document.querySelector('#projectsTable tbody');
                         if (tbody && projectsData && projectsData.length > 0) {
                             // 테이블 내용 지우고 새로 생성
@@ -3811,7 +3804,6 @@
                                 <td>새 프로젝트</td>
                             `;
                             tbody.appendChild(row);
-                            console.log('[테이블] 새 프로젝트 행 추가 완료:', latestProject['프로젝트 코드']);
                         }
                     } catch (directError) {
                         console.error('[테이블] 직접 업데이트도 실패:', directError);
@@ -3819,10 +3811,7 @@
                 }
                 // 모바일 카드는 필요 시에만 업데이트 (데스크톱에서는 불필요)
                 if (window.innerWidth <= 768) {
-                    console.log('[테이블] 모바일 환경 감지 - 모바일 카드 업데이트');
                     generateMobileCards();
-                } else {
-                    console.log('[테이블] 데스크톱 환경 - 모바일 카드 업데이트 생략');
                 }
                 
             } catch (error) {
@@ -4436,6 +4425,13 @@
                     // 현재 행 확장 및 강조
                     row.child(formatRowDetails(row.data())).show();
                     tr.addClass('shown accordion-open');
+                    
+                    // 아코디언 펼친 후 계산 필드들 즉시 재계산 (정확한 값 표시)
+                    const projectCode = row.data()['프로젝트 코드'] || '';
+                    if (projectCode) {
+                        updateCollectionStatus(projectCode, 'accordion-expand', true);
+                        calculateAmountFields(projectCode);
+                    }
                 }
             });
         }
@@ -4529,7 +4525,7 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>공사확정</small>
-                                                    <div class="editable-value" data-field="공사 확정">${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}</div>
+                                                    <div class="readonly-value">${rowData['공사 확정'] ? formatDate(rowData['공사 확정']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>기계분류</small>
@@ -4651,8 +4647,8 @@
                                                         const paymentConfirmed = rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true';
                                                         return paymentConfirmed ? 'true' : 'false';
                                                     })()}">${(rowData['수금 확인'] === true || rowData['수금 확인'] === 'TRUE' || rowData['수금 확인'] === '✓' || rowData['수금 확인'] === 'true') ? 
-                                                        '<span class="badge bg-success">완료</span>' : 
-                                                        '<span class="badge bg-warning">대기</span>'}</div>
+                                                        '<span class="badge bg-success" style="cursor: pointer;">완료</span>' : 
+                                                        '<span class="badge bg-warning" style="cursor: pointer;">대기</span>'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>잔금</small>
@@ -4660,7 +4656,21 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>수금날짜</small>
-                                                    <div class="editable-value" data-field="수금 날짜" data-original-value="${rowData['수금 날짜'] || ''}">${rowData['수금 날짜'] ? formatDate(rowData['수금 날짜']) : '-'}</div>
+                                                    <div class="editable-value" data-field="수금 날짜" data-original-value="${rowData['수금 날짜'] || ''}">
+                                                        ${(() => {
+                                                            const dateValue = rowData['수금 날짜'] || '';
+                                                            if (dateValue) {
+                                                                // 날짜가 있으면 날짜입력기로 표시
+                                                                const formattedDate = dateValue.includes('/') ? 
+                                                                    dateValue.split('/').map(p => p.padStart(2, '0')).join('-') : 
+                                                                    dateValue;
+                                                                return `<input type="date" value="${formattedDate}" class="form-control form-control-sm" style="border:none;background:transparent;padding:0" disabled>`;
+                                                            } else {
+                                                                // 날짜가 없으면 빈 날짜입력기로 표시
+                                                                return `<input type="date" value="" class="form-control form-control-sm" style="border:none;background:transparent;padding:0" disabled>`;
+                                                            }
+                                                        })()}
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
@@ -4811,10 +4821,10 @@
             
             // iframe에서 편집 완료 메시지 수신
             window.addEventListener('message', function(event) {
-                console.log('[부모창] iframe에서 메시지 수신:', event.data);
+                // iframe 메시지 수신 처리
                 
                 if (event.data.type === 'projectUpdated') {
-                    console.log('[부모창] projectUpdated 메시지 수신');
+                    // projectUpdated 메시지 처리
                     // 편집 모달 닫기
                     const editModal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
                     if (editModal) {
@@ -4825,10 +4835,9 @@
                     setTimeout(loadProjectsData, 500);
                 } else if (event.data.type === 'projectCreated') {
                     // 새 프로젝트 생성 시 데이터 새로고침 (서버 캐시 새로고침 대기)
-                    console.log('[부모창] 새 프로젝트 생성됨:', event.data.projectCode);
-                    console.log('[부모창] 1.5초 후 loadProjectsData 호출 예정');
+                    // 새 프로젝트 생성됨 - 1.5초 후 데이터 새로고침
                     setTimeout(() => {
-                        console.log('[부모창] loadProjectsData 호출 시작');
+                        // 데이터 새로고침 시작
                         loadProjectsData();
                     }, 1500);
                 }
@@ -4836,13 +4845,12 @@
 
             // localStorage 변화 감지 (직접 페이지 접근 시)
             window.addEventListener('storage', function(event) {
-                console.log('[localStorage] 변화 감지:', event.key);
+                // localStorage 변화 감지
                 if (event.key === 'newProjectCreated' && event.newValue) {
                     const data = JSON.parse(event.newValue);
-                    console.log('[localStorage] 새 프로젝트 생성됨:', data.projectCode);
-                    console.log('[localStorage] 1.5초 후 테이블 새로고침');
+                    // 새 프로젝트 생성됨 - 1.5초 후 테이블 새로고침
                     setTimeout(() => {
-                        console.log('[localStorage] loadProjectsData 호출 시작');
+                        // 테이블 데이터 새로고침 시작
                         loadProjectsData();
                         // 사용 후 삭제
                         localStorage.removeItem('newProjectCreated');
@@ -5072,7 +5080,7 @@
                 '공사정보': {
                     icon: 'fas fa-hammer',
                     color: 'success',
-                    fields: ['공사 시작', '공사 종료', '공사 확정', '브랜드', '기계 분류', '공사 구분', '계약 형태']
+                    fields: ['공사 시작', '공사 종료', '브랜드', '기계 분류', '공사 구분', '계약 형태']
                 },
                 '금액정보': {
                     icon: 'fas fa-won-sign',
@@ -5082,7 +5090,7 @@
                 '수금정보': {
                     icon: 'fas fa-credit-card',
                     color: 'danger',
-                    fields: ['계약금', '중도금', '잔금', '미수금W', '수금 확인', '수금 날짜']
+                    fields: ['계약금', '중도금', '잔금', '수금 확인', '수금 날짜']
                 },
                 '손익정보': {
                     icon: 'fas fa-chart-line',
@@ -6817,94 +6825,47 @@
             '브랜드': ['LG', '삼성', '캐리어', 'FCU', '덕트', '기타']
         };
         
-        // 도급구분별 시공자 옵션 정의
-        const contractorOptions = {
-            '외주': ['남진열', '노성현', '최태식', '한현규', '현재호'],
-            '내부': ['아이티', '아이티 (김종연)', '아이티 (김태현)', '강민석']
-        };
-        
-        // 도급구분 변경 시 시공자 필드 업데이트 함수
-        function updateContractorField(projectCode, contractType) {
-            const card = document.getElementById(`card-basic-${projectCode}`);
-            if (!card) return;
-            
-            const contractorField = card.querySelector('[data-field="시공자"]');
-            if (!contractorField) return;
-            
-            const currentValue = contractorField.value || '';
-            let newInputElement;
-            
-            if (contractType === '기타') {
-                // 기타인 경우 텍스트 입력
-                newInputElement = document.createElement('input');
-                newInputElement.type = 'text';
-                newInputElement.value = currentValue;
-                newInputElement.className = 'form-control form-control-sm inline-edit-input';
-                newInputElement.placeholder = '시공자를 입력하세요';
-            } else if (contractorOptions[contractType]) {
-                // 외주/내부인 경우 드롭다운
-                newInputElement = document.createElement('select');
-                newInputElement.className = 'form-select form-select-sm inline-edit-input';
-                
-                // 빈 옵션 추가
-                const emptyOption = document.createElement('option');
-                emptyOption.value = '';
-                emptyOption.textContent = '-- 선택하세요 --';
-                newInputElement.appendChild(emptyOption);
-                
-                // 도급구분에 따른 옵션들 추가
-                contractorOptions[contractType].forEach(option => {
-                    const optionElement = document.createElement('option');
-                    optionElement.value = option;
-                    optionElement.textContent = option;
-                    
-                    if (option === currentValue) {
-                        optionElement.selected = true;
-                    }
-                    
-                    newInputElement.appendChild(optionElement);
-                });
-                
-                // 현재 값이 옵션에 없는 경우 추가
-                if (currentValue && currentValue !== '-' && currentValue.trim() !== '' && !contractorOptions[contractType].includes(currentValue)) {
-                    console.log(`Adding custom contractor option in updateContractorField for ${contractType}: "${currentValue}"`);
-                    const customOption = document.createElement('option');
-                    customOption.value = currentValue;
-                    customOption.textContent = currentValue + ' (현재값)';
-                    customOption.selected = true;
-                    newInputElement.appendChild(customOption);
-                }
-            } else {
-                // 협업이거나 도급구분이 없는 경우 텍스트 입력
-                newInputElement = document.createElement('input');
-                newInputElement.type = 'text';
-                newInputElement.value = currentValue;
-                newInputElement.className = 'form-control form-control-sm inline-edit-input';
-                newInputElement.placeholder = '시공자를 입력하세요';
-            }
-            
-            // 공통 스타일 및 속성 적용
-            newInputElement.style.fontSize = '0.85rem';
-            newInputElement.style.padding = '0.2rem 0.4rem';
-            newInputElement.style.height = 'auto';
-            newInputElement.dataset.field = '시공자';
-            
-            // 기존 요소 교체
-            contractorField.parentElement.replaceChild(newInputElement, contractorField);
-        }
 
         // 카드 인라인 편집 함수들
         function toggleCardEdit(projectCode, cardType) {
-            // 먼저 카드 잠금 시도
+            
+            // 강력한 중복 호출 방지 - 전역 Set 사용
+            const cardKey = `${projectCode}-${cardType}`;
+            if (processingCards.has(cardKey)) {
+                return;
+            }
+            processingCards.add(cardKey);
+            
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            
+            // UI를 먼저 즉시 변경 (응답성 향상)
+            const editBtn = card.querySelector('.edit-btn');
+            const saveBtn = card.querySelector('.save-btn');
+            const cancelBtn = card.querySelector('.cancel-btn');
+            
+            editBtn.classList.add('d-none');
+            saveBtn.classList.remove('d-none');
+            cancelBtn.classList.remove('d-none');
+            
+            // 입력창도 즉시 생성 (더 빠른 응답성)
+            activateEditMode(projectCode, cardType);
+            
+            // 백그라운드에서 잠금 처리
             acquireCardLock(projectCode, cardType).then(result => {
                 if (!result.success) {
-                    alert(`'${result.lockedBy}'님이 수정 중입니다.`);
+                    // 본인이 이미 잠금을 보유한 경우는 이미 편집 모드가 활성화되어 있음
+                    if (result.lockedBy && result.lockedBy.includes(currentUserEmail.split('@')[0])) {
+                        return;
+                    }
+                    // 잠금 실패 시 UI 복원 및 처리 상태 해제 (편집 모드 취소)
+                    cancelCardEdit(projectCode, cardType);
                     return;
                 }
                 
-                // 잠금 획득 성공 - 편집 모드 활성화
-                activateEditMode(projectCode, cardType);
+                // 잠금 획득 성공 - 편집 모드는 이미 활성화되어 있음
             }).catch(error => {
+                // 오류 발생 시 편집 모드 취소
+                cancelCardEdit(projectCode, cardType);
                 console.error('카드 잠금 중 오류:', error);
                 alert('편집 모드 활성화 중 오류가 발생했습니다.');
             });
@@ -6916,6 +6877,8 @@
             const saveBtn = card.querySelector('.save-btn');
             const cancelBtn = card.querySelector('.cancel-btn');
             const editableValues = card.querySelectorAll('.editable-value:not(.calculated-field)');
+            
+            
             
             // 편집 모드 UI 활성화
             editBtn.classList.add('d-none');
@@ -6951,71 +6914,19 @@
                 const originalValue = valueDiv.dataset.originalValue || currentValue;
                 valueDiv.dataset.originalValue = originalValue;
                 
+                
                 let inputElement;
                 
-                // 시공자 필드의 경우 도급구분에 따라 동적 처리
+                // 시공자 필드는 일반 텍스트 입력으로 처리
                 if (fieldName === '시공자') {
-                    // 현재 프로젝트의 도급구분 값 찾기
-                    let contractType = '';
-                    const projectData = projectsData.find(p => p['프로젝트 코드'] === projectCode);
-                    if (projectData) {
-                        contractType = projectData['도급 구분'] || '';
-                    }
-                    
-                    if (contractType === '기타') {
-                        // 기타인 경우 텍스트 입력
-                        inputElement = document.createElement('input');
-                        inputElement.type = 'text';
-                        inputElement.value = currentValue;
-                        inputElement.className = 'form-control form-control-sm inline-edit-input';
-                        inputElement.placeholder = '시공자를 입력하세요';
-                    } else if (contractorOptions[contractType]) {
-                        // 외주/내부인 경우 드롭다운
-                        inputElement = document.createElement('select');
-                        inputElement.className = 'form-select form-select-sm inline-edit-input';
-                        
-                        // 빈 옵션 추가
-                        const emptyOption = document.createElement('option');
-                        emptyOption.value = '';
-                        emptyOption.textContent = '-- 선택하세요 --';
-                        inputElement.appendChild(emptyOption);
-                        
-                        // 도급구분에 따른 옵션들 추가
-                        contractorOptions[contractType].forEach(option => {
-                            const optionElement = document.createElement('option');
-                            optionElement.value = option;
-                            optionElement.textContent = option;
-                            
-                            if (option === currentValue) {
-                                optionElement.selected = true;
-                            }
-                            
-                            inputElement.appendChild(optionElement);
-                        });
-                        
-                        // 현재 값이 옵션에 없는 경우 추가
-                        if (currentValue && currentValue !== '-' && currentValue.trim() !== '' && !contractorOptions[contractType].includes(currentValue)) {
-                            console.log(`Adding custom contractor option for ${contractType}: "${currentValue}"`);
-                            const customOption = document.createElement('option');
-                            customOption.value = currentValue;
-                            customOption.textContent = currentValue + ' (현재값)';
-                            customOption.selected = true;
-                            inputElement.appendChild(customOption);
-                        }
-                    } else {
-                        // 협업이거나 도급구분이 없는 경우 텍스트 입력
-                        inputElement = document.createElement('input');
-                        inputElement.type = 'text';
-                        inputElement.value = currentValue;
-                        inputElement.className = 'form-control form-control-sm inline-edit-input';
-                        inputElement.placeholder = '시공자를 입력하세요';
-                    }
+                    inputElement = document.createElement('input');
+                    inputElement.type = 'text';
+                    inputElement.value = currentValue;
+                    inputElement.className = 'form-control form-control-sm inline-edit-input';
+                    inputElement.placeholder = '시공자를 입력하세요';
                 }
                 // 일반 드롭다운 필드인지 확인
                 else if (dropdownOptions[fieldName]) {
-                    console.log(`Processing dropdown field: ${fieldName}, currentValue: "${currentValue}", type: ${typeof currentValue}`);
-                    console.log(`Available options:`, dropdownOptions[fieldName]);
-                    console.log(`Includes check:`, dropdownOptions[fieldName].includes(currentValue));
                     // select 요소 생성 (드롭다운)
                     inputElement = document.createElement('select');
                     inputElement.className = 'form-select form-select-sm inline-edit-input';
@@ -7042,7 +6953,6 @@
                     
                     // 현재 값이 옵션에 없는 경우 추가
                     if (currentValue && currentValue !== '-' && currentValue.trim() !== '' && !dropdownOptions[fieldName].includes(currentValue)) {
-                        console.log(`Adding custom option for ${fieldName}: "${currentValue}"`);
                         const customOption = document.createElement('option');
                         customOption.value = currentValue;
                         customOption.textContent = currentValue + ' (현재값)';
@@ -7134,9 +7044,9 @@
                             });
                         } else if (fieldName === '수금 확인') {
                             // 수금 확인은 배지 형태로 표시
-                            label.innerHTML = isChecked ? '<span class="badge bg-success">완료</span>' : '<span class="badge bg-warning">대기</span>';
+                            label.innerHTML = isChecked ? '<span class="badge bg-success" style="cursor: pointer;">완료</span>' : '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
                             checkbox.addEventListener('change', function() {
-                                label.innerHTML = this.checked ? '<span class="badge bg-success">완료</span>' : '<span class="badge bg-warning">대기</span>';
+                                label.innerHTML = this.checked ? '<span class="badge bg-success" style="cursor: pointer;">완료</span>' : '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
                             });
                         }
                         
@@ -7146,11 +7056,11 @@
                         // 체크박스 컨테이너를 inputElement로 사용
                         inputElement = checkboxContainer;
                     }
-                    // 숫자 필드 (금액 관련) - 수금 날짜 제외
+                    // 숫자 필드 (금액 관련) - 수금 날짜, 수금 확인 제외
                     else if ((fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || fieldName.includes('익') || 
                              fieldName === '제품대' || fieldName === '도급비' || fieldName === '자재비' || fieldName === '기타비' || 
                              fieldName === '순익' || fieldName === '미수금W' || fieldName === '미수금' || fieldName === '마진율') &&
-                             fieldName !== '수금 날짜') {
+                             fieldName !== '수금 날짜' && fieldName !== '수금 확인') {
                         inputElement = document.createElement('input');
                         inputElement.type = 'text'; // number에서 text로 변경하여 쉼표 표시 가능
                         inputElement.className = 'form-control form-control-sm inline-edit-input';
@@ -7220,9 +7130,21 @@
                     }
                     // 날짜 필드 (수금 날짜)
                     else if (fieldName === '수금 날짜') {
-                        inputElement = document.createElement('input');
-                        inputElement.type = 'date';
-                        inputElement.className = 'form-control form-control-sm inline-edit-input';
+                        // 기존 날짜 input이 있는지 확인
+                        const existingInput = valueDiv.querySelector('input[type="date"]');
+                        if (existingInput) {
+                            // 기존 input을 활용하여 편집 가능하게 만들기
+                            existingInput.disabled = false;
+                            existingInput.style.border = '1px solid #ced4da';
+                            existingInput.style.background = '#fff';
+                            existingInput.className = 'form-control form-control-sm inline-edit-input';
+                            inputElement = existingInput;
+                        } else {
+                            // 기존 input이 없으면 새로 생성
+                            inputElement = document.createElement('input');
+                            inputElement.type = 'date';
+                            inputElement.className = 'form-control form-control-sm inline-edit-input';
+                        }
                         
                         // 날짜 필드 클릭 시 캘린더 열기 강제
                         inputElement.addEventListener('click', function() {
@@ -7260,7 +7182,7 @@
                         } else if (fieldName === '담당자 연락처') {
                             inputElement.type = 'tel';
                             inputElement.pattern = '[0-9]{3}-[0-9]{4}-[0-9]{4}';
-                        } else if (fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료') {
+                        } else if (fieldName === '공사 시작' || fieldName === '공사 종료') {
                             inputElement.type = 'date';
                             
                             // 날짜 필드 클릭 시 캘린더 열기 강제
@@ -7294,10 +7216,14 @@
                 inputElement.dataset.field = fieldName;
                 inputElement.dataset.originalValue = originalValue;
                 
-                // 도급구분 필드가 변경될 때 시공자 필드 업데이트
-                if (fieldName === '도급 구분') {
-                    inputElement.addEventListener('change', function() {
-                        updateContractorField(projectCode, this.value);
+                // 수금정보 카드의 금액 필드에 실시간 미수금 계산 이벤트 리스너 추가
+                if (card.id.includes('payment') && ['계약금', '중도금', '잔금'].includes(fieldName)) {
+                    inputElement.addEventListener('input', function() {
+                        const projectCodeMatch = card.id.match(/card-payment-(.+)/);
+                        if (projectCodeMatch) {
+                            const projectCode = projectCodeMatch[1];
+                            updateCollectionStatus(projectCode, fieldName);
+                        }
                     });
                 }
                 
@@ -7309,6 +7235,12 @@
             const firstInput = card.querySelector('.inline-edit-input');
             if (firstInput) firstInput.focus();
         }
+        
+        // 현재 사용자 이메일 정보
+        const currentUserEmail = '{{ session.user.email if session.user else "admin@test.com" }}';
+        
+        // 현재 처리 중인 카드 추적 (중복 호출 방지)
+        const processingCards = new Set();
         
         // 카드 잠금 관련 함수들
         async function acquireCardLock(projectCode, cardType) {
@@ -7501,7 +7433,7 @@
                     }
                     
                     // 날짜 필드인 경우 YYYY-MM-DD -> YYYY/MM/DD 형식으로 변환
-                    if ((fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
+                    if ((fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
                         newValue && input.type === 'date') {
                         const dateParts = newValue.split('-');
                         if (dateParts.length === 3) {
@@ -7516,7 +7448,7 @@
                 let normalizedNew = newValue;
                 
                 // 날짜 필드인 경우 형식 정규화하여 비교
-                const isDateField = ['공사 시작', '공사 종료', '공사 확정', '수금 날짜'].includes(fieldName);
+                const isDateField = ['공사 시작', '공사 종료', '수금 날짜'].includes(fieldName);
                 if (isDateField) {
                     normalizedOriginal = normalizeDateFormat(originalValue);
                     normalizedNew = normalizeDateFormat(newValue);
@@ -7625,7 +7557,7 @@
                         
                         if (editBtn) editBtn.setAttribute('onclick', `toggleCardEdit('${result.new_project_code}', '${cardType}')`);
                         if (saveBtn) saveBtn.setAttribute('onclick', `saveCardEdit('${result.new_project_code}', '${cardType}')`);
-                        if (cancelBtn) cancelBtn.setAttribute('onclick', `cancelCardEdit('${result.new_project_code}', '${cardType}')`);
+                        if (cancelBtn) cancelBtn.setAttribute('onclick', `event.preventDefault(); event.stopPropagation(); if(!this.disabled){this.disabled=true; cancelCardEdit('${result.new_project_code}', '${cardType}'); setTimeout(()=>this.disabled=false, 1000);}`);
                     }
                     
                     
@@ -7643,17 +7575,7 @@
                             valueDiv = valueDiv.parentElement;
                         }
                         
-                        // actual_values가 있는 경우 금액 필드는 건너뛰기 (더 정확한 값으로 나중에 업데이트됨)
-                        if (hasActualValues && moneyFields.includes(fieldName)) {
-                            // input만 제거하고 값 업데이트는 건너뛰기
-                            if (input.parentElement.classList.contains('form-check')) {
-                                input.parentElement.remove();
-                            } else {
-                                input.remove();
-                            }
-                            valueDiv.classList.remove('editing');
-                            return;
-                        }
+                        // 모든 필드를 일반적인 방식으로 처리 (actual_values 로직 제거)
                         
                         // select, input, checkbox 구분하여 값 가져오기
                         if (input.tagName.toLowerCase() === 'select') {
@@ -7663,13 +7585,13 @@
                             if (fieldName === '부가세') {
                                 newValue = input.checked ? '포함' : '포함안됨';
                             } else if (fieldName === '수금 확인') {
-                                newValue = input.checked ? '<span class="badge bg-success">완료</span>' : '<span class="badge bg-warning">대기</span>';
+                                newValue = input.checked ? '<span class="badge bg-success" style="cursor: pointer;">완료</span>' : '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
                             }
                         } else {
                             newValue = input.value.trim() || '-';
                             
                             // 날짜 필드인 경우 표시 형식 변환 (YYYY-MM-DD -> YYYY/MM/DD)
-                            if ((fieldName === '공사 확정' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
+                            if ((fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
                                 newValue !== '-' && input.type === 'date') {
                                 const dateParts = newValue.split('-');
                                 if (dateParts.length === 3) {
@@ -7753,9 +7675,35 @@
                                 } else {
                                     valueDiv.dataset.originalValue = currentValue;
                                 }
-                                console.log(`data-original-value 업데이트: ${fieldName} = "${valueDiv.dataset.originalValue}"`);
                             }
                         });
+                        
+                        // 수금정보 카드인 경우 미수금 즉시 재계산 및 메모리 업데이트
+                        if (cardType === 'payment') {
+                            updateCollectionStatus(projectCode, 'save-complete', true);
+                            
+                            // 재계산 후 즉시 메모리 데이터도 업데이트 
+                            const paymentCard = document.querySelector(`#card-payment-${projectCode}`);
+                            if (paymentCard) {
+                                const currentOutstanding = extractFieldValue(paymentCard, '미수금W') || '0';
+                                updateProjectDataInMemory(projectCode, {'미수금W': currentOutstanding, '미수금': currentOutstanding});
+                            }
+                        }
+                        
+                        // 금액정보 카드인 경우 총액2 즉시 재계산 및 메모리 업데이트
+                        if (cardType === 'financial') {
+                            calculateAmountFields(projectCode);
+                            
+                            // 재계산 후 즉시 메모리 데이터도 업데이트
+                            setTimeout(() => {
+                                const financialCard = document.querySelector(`#card-financial-${projectCode}`);
+                                if (financialCard) {
+                                    const currentTotal2 = extractFieldValue(financialCard, '총액 2') || extractFieldValue(financialCard, '총액2') || '0';
+                                    const numValue = parseFloat(currentTotal2.replace(/[^0-9.-]/g, '')) || 0;
+                                    updateProjectDataInMemory(projectCode, {'총액 2': numValue, '총액2': numValue, 'S': numValue});
+                                }
+                            }, 50);
+                        }
                         
                         // 카드 잠금 해제 후 편집 모드 종료
                         releaseCardLock(projectCode, cardType).then(() => {
@@ -7877,9 +7825,15 @@
         
         function cancelCardEdit(projectCode, cardType) {
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            
+            // 이미 취소 처리 중인 경우 중복 실행 방지
+            if (card.dataset.cancelling === 'true') {
+                return;
+            }
+            
             const inputs = card.querySelectorAll('.inline-edit-input');
             
-            // 취소 중임을 표시하는 플래그 설정 (실시간 계산 차단용)
+            // 취소 중임을 표시하는 플래그 설정 (실시간 계산 차단용 및 중복 방지용)
             card.dataset.cancelling = 'true';
             
             // 편집 시작 시점의 값들을 저장할 변수들
@@ -7890,8 +7844,10 @@
             inputs.forEach(input => {
                 let valueDiv = input.parentElement;
                 const fieldName = valueDiv.dataset.field;
+                
                 // input 요소에서 originalValue를 가져오기 (더 정확함)
                 const originalValue = input.dataset.originalValue || valueDiv.dataset.originalValue || '';
+                
                 
                 // 편집 시작 시점의 총액1과 부가세 값 수집
                 if (fieldName === '총액1' || fieldName === '총액 1') {
@@ -7920,9 +7876,9 @@
                     displayValue = normalizedOriginalValue || '미발행';
                 } else if (fieldName === '수금 확인') {
                     if (normalizedOriginalValue === 'true') {
-                        displayValue = '<span class="badge bg-success">완료</span>';
+                        displayValue = '<span class="badge bg-success" style="cursor: pointer;">완료</span>';
                     } else {
-                        displayValue = '<span class="badge bg-warning">대기</span>';
+                        displayValue = '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
                     }
                 } else if (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
                           fieldName.includes('익') || fieldName === '제품대' || fieldName === '도급비' || 
@@ -7946,7 +7902,7 @@
                         const numValue = parseFloat(normalizedOriginalValue);
                         displayValue = (!isNaN(numValue) && numValue > 0) ? numValue.toFixed(1) + '%' : '-';
                     }
-                } else if (fieldName === '수금 날짜' || fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '공사 확정') {
+                } else if (fieldName === '수금 날짜' || fieldName === '공사 시작' || fieldName === '공사 종료') {
                     // 날짜 필드는 formatDate 적용
                     displayValue = normalizedOriginalValue ? formatDate(normalizedOriginalValue) : '-';
                 }
@@ -7985,61 +7941,33 @@
             const cardKey = `${projectCode}-${cardType}`;
             savingCards.delete(cardKey);
             
-            // 금액정보 카드의 경우 편집 전 시점의 총액1과 부가세로 총액2 재계산
-            if (cardType === 'financial' && originalTotal1Value !== null) {
-                // 취소 플래그를 임시로 해제하여 계산 허용
-                delete card.dataset.cancelling;
-                
-                // 편집 시작 시점의 값들로 총액2 재계산
-                const total1Value = parseFloat(originalTotal1Value.replace(/[^0-9.-]/g, '')) || 0;
-                const vatIncluded = originalVatValue === 'true';
-                
-                // 국내 부가세 계산법 적용
-                let total2;
-                if (vatIncluded) {
-                    const vat = Math.round(total1Value * 0.1);
-                    total2 = total1Value + vat;
-                } else {
-                    total2 = total1Value;
-                }
-                
-                // 총액2 필드 업데이트
-                updateFieldValue(card, '총액2', total2);
-                updateFieldValue(card, '총액 2', total2);
-                
-                // 순익과 마진율도 편집 전 값으로 재계산
-                const productCost = parseFloat(extractFieldValue(card, '제품대') || '0') || 0;
-                const contractCost = parseFloat(extractFieldValue(card, '도급비') || '0') || 0;
-                const materialCost = parseFloat(extractFieldValue(card, '자재비') || '0') || 0;
-                const otherCost = parseFloat(extractFieldValue(card, '기타비') || '0') || 0;
-                
-                const profit = Math.max(0, total2 - productCost - contractCost - materialCost - otherCost);
-                const marginRate = total2 > 0 ? (profit / total2 * 100) : 0;
-                
-                updateFieldValue(card, '순익', profit);
-                
-                const marginField = card.querySelector('[data-field="마진율"]');
-                if (marginField) {
-                    marginField.setAttribute('data-original-value', marginRate.toString());
-                    marginField.textContent = marginRate.toFixed(2) + '%';
-                }
-                
-                console.log(`[cancelCardEdit] 편집 전 값으로 총액2 재계산 완료: 총액1=${total1Value}, 부가세=${vatIncluded}, 총액2=${total2}`);
-                
-                // 취소 플래그 다시 설정
-                card.dataset.cancelling = 'true';
-            }
-            
-            // 취소 플래그 제거
+            // 취소 플래그 해제
             delete card.dataset.cancelling;
             
-            // 카드 잠금 해제 후 버튼 상태 복원
-            releaseCardLock(projectCode, cardType).then(() => {
-                resetCardEditButtons(card);
-            }).catch(error => {
+            // 버튼 상태를 즉시 복원하고 백그라운드에서 잠금 해제
+            resetCardEditButtons(card);
+            
+            // Socket.IO 이벤트와 경쟁을 방지하기 위해 강제로 버튼 상태 유지
+            setTimeout(() => {
+                const editBtn = card.querySelector('.edit-btn');
+                if (editBtn && (editBtn.innerHTML.includes('수정 중') || editBtn.classList.contains('btn-locked'))) {
+                    resetCardEditButtons(card);
+                }
+            }, 100);
+            
+            releaseCardLock(projectCode, cardType).catch(error => {
                 console.error('취소 시 카드 잠금 해제 중 오류:', error);
-                resetCardEditButtons(card); // 오류가 있어도 편집 모드는 종료
             });
+            
+            // 수금정보 카드인 경우 미수금 다시 계산 (취소 후 정확한 값 표시)
+            if (cardType === 'payment') {
+                updateCollectionStatus(projectCode, 'cancel', true);
+            }
+            
+            // 금액정보 카드인 경우 총액2 다시 계산 (취소 후 정확한 값 표시)
+            if (cardType === 'financial') {
+                calculateAmountFields(projectCode);
+            }
         }
         
         function resetCardEditButtons(card) {
@@ -8047,10 +7975,35 @@
             const saveBtn = card.querySelector('.save-btn');
             const cancelBtn = card.querySelector('.cancel-btn');
             
+            // 카드에서 프로젝트 코드와 카드 타입 추출
+            const cardId = card.id; // card-{cardType}-{projectCode} 형식
+            const parts = cardId.split('-');
+            const cardType = parts[1];
+            const projectCode = parts.slice(2).join('-');
+            const cardKey = `${projectCode}-${cardType}`;
+            
+            // 모든 편집 관련 플래그와 처리 상태 완전 해제
+            delete card.dataset.cancelling;
+            delete card.dataset.editing;
+            processingCards.delete(cardKey);
+            
             // 편집 버튼 표시, 저장/취소 버튼 숨김
             editBtn.classList.remove('d-none');
             saveBtn.classList.add('d-none');
             cancelBtn.classList.add('d-none');
+            
+            // 편집 버튼의 잠금 상태 완전 제거 (Socket.IO 덮어쓰기 방지)
+            if (editBtn) {
+                editBtn.disabled = false;
+                editBtn.classList.remove('btn-locked');
+                editBtn.innerHTML = '<i class="fas fa-edit me-1"></i>수정';
+                editBtn.style.backgroundColor = '';
+                editBtn.style.borderColor = '';
+                editBtn.style.color = '';
+                editBtn.title = '수정';
+            }
+            
+            
             
             // 저장 버튼을 원래 상태로 완전 초기화
             if (saveBtn) {
@@ -8064,6 +8017,15 @@
                 saveBtn.style.transform = '';
                 saveBtn.style.animation = '';
             }
+            
+            // 날짜 input 필드를 비활성화 상태로 되돌리기
+            const dateInputs = card.querySelectorAll('[data-field="수금 날짜"] input[type="date"]');
+            dateInputs.forEach(input => {
+                input.disabled = true;
+                input.style.border = 'none';
+                input.style.background = 'transparent';
+                input.style.padding = '0';
+            });
         }
         
         function updateProjectDataInMemory(projectCode, updatedData, newProjectCode = null) {
@@ -8118,6 +8080,13 @@
                                     const rowData = row.data();
                                     row.child(formatRowDetails(rowData)).show();
                                     tr.addClass('shown accordion-open');
+                                    
+                                    // 아코디언 펼친 후 계산 필드들 즉시 재계산 (정확한 값 표시)
+                                    const projectCode = rowData['프로젝트 코드'] || '';
+                                    if (projectCode) {
+                                        updateCollectionStatus(projectCode, 'accordion-expand', true);
+                                        calculateAmountFields(projectCode);
+                                    }
                                 }
                             });
                             
@@ -8610,6 +8579,14 @@
         document.addEventListener('click', function(e) {
             let targetElement = e.target;
             let handled = false;
+            
+            // 편집/취소/저장 버튼 및 모든 버튼 클릭은 무시
+            if (targetElement.matches('button') || 
+                targetElement.closest('button') ||
+                targetElement.matches('.edit-btn, .save-btn, .cancel-btn') || 
+                targetElement.closest('.edit-btn, .save-btn, .cancel-btn')) {
+                return;
+            }
             
             // 클릭된 요소가 체크박스 라벨인지 확인 (직접 클릭 또는 하위 요소 클릭)
             if (targetElement.matches('.form-check-label') || 
@@ -9355,102 +9332,114 @@
         
         // 실시간 미수금 계산 및 수금 상태 업데이트 함수
         function updateCollectionStatus(projectCode, triggeredByField, immediateUpdate = false) {
-            console.log(`[updateCollectionStatus] 시작: ${projectCode}, 트리거 필드: ${triggeredByField}`);
-            
             // 수금정보 카드에서 현재 금액 값들 읽기
             const paymentCard = document.querySelector(`#card-payment-${projectCode}`);
-            if (!paymentCard) {
-                console.log(`[updateCollectionStatus] 수금정보 카드를 찾을 수 없음: ${projectCode}`);
-                return;
-            }
+            if (!paymentCard) return;
 
-            // 각 금액 필드 값 추출
-            const totalAmount = parseFloat(extractFieldValue(paymentCard, '총액 2') || extractFieldValue(paymentCard, '총액2') || '0') || 0;
+            // 금액정보 카드에서 총액2 값 가져오기
+            const financialCard = document.querySelector(`#card-financial-${projectCode}`);
+            if (!financialCard) return;
+            
+            const totalAmount = parseFloat(extractFieldValue(financialCard, '총액 2') || extractFieldValue(financialCard, '총액2') || '0') || 0;
+            
+            // 수금정보 카드에서 계약금, 중도금, 잔금 가져오기
             const contractAmount = parseFloat(extractFieldValue(paymentCard, '계약금') || '0') || 0;
             const midAmount = parseFloat(extractFieldValue(paymentCard, '중도금') || '0') || 0;
             const finalAmount = parseFloat(extractFieldValue(paymentCard, '잔금') || '0') || 0;
-
-            // 미수금 계산 (총액 - 계약금 - 중도금 - 잔금)
-            const outstandingAmount = Math.max(0, totalAmount - contractAmount - midAmount - finalAmount);
             
-            console.log(`[updateCollectionStatus] 금액 정보: 총액=${totalAmount}, 계약금=${contractAmount}, 중도금=${midAmount}, 잔금=${finalAmount}, 미수금=${outstandingAmount}`);
+            // 미수금 계산 (총액 - 계약금 - 중도금 - 잔금)
+            const outstandingAmount = totalAmount - contractAmount - midAmount - finalAmount;
 
             // 미수금 필드 업데이트
             updateFieldValue(paymentCard, '미수금W', outstandingAmount);
 
-            // 수금확인 상태 결정
-            const shouldBeConfirmed = outstandingAmount === 0;
-            const checkboxUpdated = updateCollectionCheckbox(paymentCard, shouldBeConfirmed);
-            
-            console.log(`[updateCollectionStatus] 체크박스 업데이트: ${checkboxUpdated}`);
-
-            // 조건부 수금날짜 처리
-            if (shouldBeConfirmed && outstandingAmount === 0) {
-                // 미수금이 0이 된 경우
-                if (triggeredByField === '잔금' || immediateUpdate) {
-                    // 잔금 변경 시에는 체크박스 + 수금날짜 모두 업데이트
+            // 수금확인 토글은 오직 잔금 입력시에만 작동
+            if (triggeredByField === '잔금') {
+                const shouldBeConfirmed = outstandingAmount === 0;
+                const checkboxUpdated = updateCollectionCheckbox(paymentCard, shouldBeConfirmed);
+                
+                if (outstandingAmount === 0) {
+                    // 잔금 입력으로 미수금이 0이 된 경우 - 수금확인 완료 + 수금날짜 설정
                     setCollectionDateToToday(projectCode);
-                    console.log(`[updateCollectionStatus] 미수금 0 -> 수금날짜를 오늘로 설정: ${outstandingAmount}원`);
                 } else {
-                    // 계약금/중도금 변경 시에는 체크박스만 업데이트
-                    console.log(`[updateCollectionStatus] 미수금 0 -> 체크박스만 업데이트 (${triggeredByField} 트리거)`);
+                    // 잔금 입력했지만 미수금이 남은 경우 - 수금확인 대기 + 수금날짜 초기화
+                    resetCollectionDate(projectCode);
                 }
-            } else if (outstandingAmount > 0) {
-                // 미수금이 0보다 큰 경우 - 수금날짜 초기화
-                resetCollectionDate(projectCode);
-                console.log(`[updateCollectionStatus] 미수금이 0보다 큼 -> 수금날짜 초기화 시도: ${outstandingAmount}원`);
             }
         }
 
-        // 수금날짜를 오늘로 설정하는 함수
+        // 수금날짜를 오늘로 설정하는 함수 (날짜입력기 유지)
         function setCollectionDateToToday(projectCode) {
-            console.log(`[setCollectionDateToToday] 함수 시작: ${projectCode}`);
-            
             const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
             const paymentCard = document.querySelector(`#card-payment-${projectCode}`);
             
             if (paymentCard) {
                 const dateField = paymentCard.querySelector('[data-field="수금 날짜"]');
                 if (dateField) {
-                    // 데이터 값과 화면 표시 모두 업데이트
-                    dateField.setAttribute('data-original-value', today);
-                    dateField.textContent = formatDate(today);
-                    console.log(`[setCollectionDateToToday] 수금날짜를 오늘로 설정: ${today}`);
+                    // 현재 편집 모드인지 확인
+                    const isEditing = paymentCard.classList.contains('editing');
+                    
+                    if (isEditing) {
+                        // 편집 모드: input 요소의 값 업데이트
+                        const input = dateField.querySelector('input[type="date"]');
+                        if (input) {
+                            input.value = today;
+                            input.setAttribute('data-original-value', today);
+                        }
+                    } else {
+                        // 보기 모드: 기존 날짜입력기 값 설정
+                        dateField.setAttribute('data-original-value', today);
+                        
+                        // 기존 날짜 input 찾아서 값 설정
+                        const existingInput = dateField.querySelector('input[type="date"]');
+                        if (existingInput) {
+                            existingInput.value = today;
+                        }
+                        
+                        // 서버에 자동 저장 (임시 비활성화 - SSL 이슈로 인해)
+                        console.log(`수금날짜 자동 설정: ${projectCode} -> ${today} (로컬에서만 적용, 서버 동기화는 수동 저장 필요)`);
+                    }
                 }
             }
         }
 
-        // 수금날짜를 초기화하는 함수  
+        // 수금날짜를 초기화하는 함수 (날짜입력기 유지)
         function resetCollectionDate(projectCode) {
-            console.log(`[resetCollectionDate] 함수 시작: ${projectCode}`);
+            const paymentCard = document.querySelector(`#card-payment-${projectCode}`);
             
-            const dateFields = document.querySelectorAll(`[data-field="수금 날짜"]`);
-            console.log(`[resetCollectionDate] 찾은 수금 날짜 필드 개수: ${dateFields.length}`);
-            
-            dateFields.forEach((field, index) => {
-                console.log(`[resetCollectionDate] 필드 확인 중...`);
-                
-                const cardElement = field.closest('[id*="card-payment-"]');
-                console.log(`[resetCollectionDate] cardElement 찾기 결과: ${cardElement ? cardElement.id : 'null'}`);
-                
-                if (cardElement && cardElement.id.includes(projectCode)) {
-                    console.log(`[resetCollectionDate] 타겟 필드 찾음: ${cardElement.id}`);
+            if (paymentCard) {
+                const dateField = paymentCard.querySelector('[data-field="수금 날짜"]');
+                if (dateField) {
+                    // 현재 편집 모드인지 확인
+                    const isEditing = paymentCard.classList.contains('editing');
                     
-                    // 현재 수금날짜 값 확인
-                    const currentOriginalValue = field.getAttribute('data-original-value') || '';
-                    const currentDisplayValue = field.textContent.trim();
-                    console.log(`[resetCollectionDate] 현재 수금날짜 값: data-original-value="${currentOriginalValue}", 화면표시="${currentDisplayValue}"`);
-                    
-                    // 값이 설정되어 있는 경우에만 초기화
-                    if (currentOriginalValue && currentOriginalValue !== '' && currentOriginalValue !== '-') {
-                        field.setAttribute('data-original-value', '');
-                        field.textContent = '-';
-                        console.log(`[resetCollectionDate] 수금날짜 초기화 완료: "${currentOriginalValue}" -> ""`);
+                    if (isEditing) {
+                        // 편집 모드: input 요소의 값 초기화
+                        const input = dateField.querySelector('input[type="date"]');
+                        if (input) {
+                            input.value = '';
+                            input.setAttribute('data-original-value', '');
+                        }
                     } else {
-                        console.log(`[resetCollectionDate] 수금 날짜가 설정되어 있지 않음 또는 이미 빈 값임: data-original-value="${currentOriginalValue}", 화면표시="${currentDisplayValue}"`);
+                        // 보기 모드: 데이터 값과 화면 표시 모두 초기화
+                        const currentOriginalValue = dateField.getAttribute('data-original-value') || '';
+                        
+                        // 값이 설정되어 있는 경우에만 초기화
+                        if (currentOriginalValue && currentOriginalValue !== '' && currentOriginalValue !== '-') {
+                            dateField.setAttribute('data-original-value', '');
+                            
+                            // 기존 날짜 input 찾아서 값 초기화
+                            const existingInput = dateField.querySelector('input[type="date"]');
+                            if (existingInput) {
+                                existingInput.value = '';
+                            }
+                            
+                            // 서버에 자동 저장 (임시 비활성화 - SSL 이슈로 인해)
+                            console.log(`수금날짜 자동 초기화: ${projectCode} (로컬에서만 적용, 서버 동기화는 수동 저장 필요)`);
+                        }
                     }
                 }
-            });
+            }
         }
 
         // 수금확인 체크박스 업데이트 함수
@@ -9458,17 +9447,41 @@
             const checkboxField = card.querySelector('[data-field="수금 확인"]');
             if (!checkboxField) return false;
 
-            const currentValue = checkboxField.getAttribute('data-original-value');
-            const isCurrentlyConfirmed = currentValue === 'true' || checkboxField.innerHTML.includes('완료');
+            // 편집 모드인지 확인
+            const checkbox = checkboxField.querySelector('input[type="checkbox"]');
+            let isCurrentlyConfirmed;
+            
+            if (checkbox) {
+                // 편집 모드 - 실제 체크박스 상태 확인
+                isCurrentlyConfirmed = checkbox.checked;
+            } else {
+                // 일반 모드 - data-original-value 또는 HTML 내용 확인
+                const currentValue = checkboxField.getAttribute('data-original-value');
+                isCurrentlyConfirmed = currentValue === 'true' || checkboxField.innerHTML.includes('완료');
+            }
 
             if (shouldBeConfirmed !== isCurrentlyConfirmed) {
-                // 상태 변경 필요
-                checkboxField.setAttribute('data-original-value', shouldBeConfirmed ? 'true' : 'false');
-                checkboxField.innerHTML = shouldBeConfirmed ? 
-                    '<span class="badge bg-success">완료</span>' : 
-                    '<span class="badge bg-warning">대기</span>';
+                // 편집 모드가 아닐 때만 data-original-value 변경 (편집 중에는 원래 값 보존)
+                if (!checkbox) {
+                    checkboxField.setAttribute('data-original-value', shouldBeConfirmed ? 'true' : 'false');
+                }
                 
-                console.log(`[updateCollectionCheckbox] 수금확인 상태 변경: ${isCurrentlyConfirmed} -> ${shouldBeConfirmed}`);
+                if (checkbox) {
+                    // 편집 모드 중 - 체크박스 상태만 변경
+                    checkbox.checked = shouldBeConfirmed;
+                    const label = checkboxField.querySelector('label');
+                    if (label) {
+                        label.innerHTML = shouldBeConfirmed ? 
+                            '<span class="badge bg-success" style="cursor: pointer;">완료</span>' : 
+                            '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
+                    }
+                } else {
+                    // 일반 모드 - 배지로 교체
+                    checkboxField.innerHTML = shouldBeConfirmed ? 
+                        '<span class="badge bg-success" style="cursor: pointer;">완료</span>' : 
+                        '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
+                }
+                
                 return true;
             }
             
@@ -9480,7 +9493,15 @@
             const field = card.querySelector(`[data-field="${fieldName}"]`);
             if (!field) return '';
             
-            const value = field.getAttribute('data-original-value') || field.textContent || '';
+            // 편집 모드인 경우 input 값 우선 확인
+            const input = field.querySelector('input');
+            let value;
+            if (input) {
+                value = input.value || '';
+            } else {
+                value = field.getAttribute('data-original-value') || field.textContent || '';
+            }
+            
             return value.toString().replace(/[^\d.-]/g, ''); // 숫자만 추출
         }
 
@@ -9493,15 +9514,26 @@
             if (fieldName === '미수금W' || fieldName === '미수금' || fieldName === '총액2' || fieldName === '총액 2' || fieldName === '순익') {
                 field.setAttribute('data-original-value', value.toString());
                 
-                // 총액2 필드는 "원" 표시 포함하여 포맷팅
-                if (fieldName === '총액2' || fieldName === '총액 2') {
+                // 미수금과 총액2 필드는 "원" 표시 포함하여 포맷팅
+                if (fieldName === '미수금W' || fieldName === '미수금') {
+                    // 미수금은 항상 표시 (음수 포함)
+                    field.textContent = `${value.toLocaleString('ko-KR')}원`;
+                    // 미수금 색상 로직: 0이면 녹색, 0보다 크면 빨간색, 0보다 작으면 파란색
+                    if (value === 0) {
+                        field.className = field.className.replace(/text-\w+/g, '') + ' text-success';
+                    } else if (value > 0) {
+                        field.className = field.className.replace(/text-\w+/g, '') + ' text-danger';
+                    } else {
+                        field.className = field.className.replace(/text-\w+/g, '') + ' text-primary';
+                    }
+                } else if (fieldName === '총액2' || fieldName === '총액 2') {
                     field.textContent = value > 0 ? `${value.toLocaleString('ko-KR')}원` : '';
                 } else {
                     field.textContent = value > 0 ? value.toLocaleString('ko-KR') : '';
                 }
                 
-                // 총액2는 애니메이션 효과 제외, 다른 필드만 애니메이션 적용
-                if (fieldName !== '총액2' && fieldName !== '총액 2') {
+                // 미수금은 애니메이션 효과 제외, 순익만 애니메이션 적용
+                if (fieldName === '순익') {
                     showCalculationAnimation(field);
                 }
             }
@@ -9520,35 +9552,6 @@
             }, 1000);
         }
 
-        // 도급구분 변경 시 시공자 필드 자동 업데이트 함수
-        function updateContractorField(projectCode, contractType) {
-            console.log(`[updateContractorField] 시작: ${projectCode}, 도급구분: ${contractType}`);
-            
-            const basicCard = document.querySelector(`#card-basic-${projectCode}`);
-            if (!basicCard) return;
-
-            const contractorField = basicCard.querySelector('[data-field="시공자"]');
-            if (!contractorField) return;
-
-            // 도급구분에 따른 시공자 자동 설정 로직
-            let contractorValue = '';
-            switch(contractType) {
-                case '직영':
-                    contractorValue = 'ITG에어컨';
-                    break;
-                case '외주':
-                    contractorValue = ''; // 외주의 경우 빈값으로 설정하여 수동 입력 유도
-                    break;
-                default:
-                    contractorValue = contractType; // 기타 값은 그대로 사용
-            }
-
-            // 시공자 필드 업데이트
-            contractorField.setAttribute('data-original-value', contractorValue);
-            contractorField.textContent = contractorValue || '-';
-            
-            console.log(`[updateContractorField] 시공자 필드 업데이트: ${contractorValue}`);
-        }
 
         // 이벤트 리스너 중복 등록 방지용 플래그
         let vatToggleListenerAdded = false;
@@ -9600,17 +9603,9 @@
 
                 // 수금정보 카드의 금액 필드들에 대해 실시간 계산 적용
                 if (card.id.includes('payment') && ['계약금', '중도금', '잔금', '총액 2', '총액2'].includes(fieldName)) {
-                    // 디바운싱을 위한 타이머 설정
-                    clearTimeout(input.calculationTimer);
-                    input.calculationTimer = setTimeout(() => {
-                        updateCollectionStatus(projectCode, fieldName, fieldName === '잔금');
-                    }, fieldName === '잔금' ? 0 : 300); // 잔금은 즉시, 다른 필드는 300ms 지연
+                    updateCollectionStatus(projectCode, fieldName);
                 }
 
-                // 도급구분 변경 시 시공자 업데이트
-                if (card.id.includes('basic') && fieldName === '도급 구분') {
-                    updateContractorField(projectCode, input.value);
-                }
             });
 
             // 기존 금액정보 자동 계산 기능도 추가
@@ -9635,10 +9630,13 @@
                     // 총액1 변경 시에는 즉시 단순 계산 (딜레이 없음)
                     if (['총액1', '총액 1'].includes(fieldName)) {
                         calculateTotal2FromTotal1Input(projectCode);
+                        // 총액2 변경 후 미수금도 즉시 업데이트
+                        updateCollectionStatus(projectCode, 'total2_change');
                     } else {
-                        // 다른 필드는 200ms 딜레이
+                        // 다른 필드는 200ms 딜레이 (순익 계산만)
                         input.amountCalculationTimer = setTimeout(() => {
                             calculateAmountFields(projectCode);
+                            // 제품대, 도급비, 자재비, 기타비는 순익에만 영향, 미수금에는 영향 없음
                         }, 200);
                     }
                 }
@@ -10040,7 +10038,6 @@
             initializeFolderPathFeatures();
             enhanceButtonStates();
             
-            console.log('[기능 복원] 모든 실시간 기능 활성화 완료');
             
             // CSS 애니메이션 추가
             const style = document.createElement('style');

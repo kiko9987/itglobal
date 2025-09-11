@@ -2269,13 +2269,8 @@ def inline_update_direct():
                     interim_amount = safe_float(amount_row[2] if len(amount_row) > 2 else 0)   # 중도금
                     final_amount = safe_float(amount_row[3] if len(amount_row) > 3 else 0)     # 잔금
                     
-                    # 미수금 계산: 총액2 - (계약금 + 중도금 + 잔금)
-                    outstanding_amount = total_amount_2 - (contract_amount + interim_amount + final_amount)
-                    
-                    # 계산된 미수금을 반환할 필드에 추가 (항상 포함, 0이어도)
-                    calculated_fields['미수금'] = int(outstanding_amount) if outstanding_amount.is_integer() else outstanding_amount
-                    
-                    logger.info(f"업데이트 후 미수금 계산: 총액2({total_amount_2}) - 계약금({contract_amount}) - 중도금({interim_amount}) - 잔금({final_amount}) = {outstanding_amount}")
+                    # 미수금은 클라이언트에서만 계산 (서버에서는 계산하지 않음)
+                    logger.info(f"업데이트 완료: 총액2({total_amount_2}), 계약금({contract_amount}), 중도금({interim_amount}), 잔금({final_amount}) - 미수금은 클라이언트에서 계산")
                 
             except Exception as calc_error:
                 logger.warning(f"업데이트 후 미수금 계산 실패: {calc_error}")
