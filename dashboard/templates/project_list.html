@@ -562,7 +562,7 @@
         
         .table-wrapper {
             overflow-y: auto;
-            overflow-x: hidden;
+            overflow-x: auto;
             border: 1px solid var(--gray-200);
             border-radius: var(--border-radius-lg);
             box-shadow: var(--shadow);
@@ -572,9 +572,9 @@
         .table-wrapper table {
             width: 100%;
             margin: 0;
-            table-layout: fixed;  /* 고정 너비 유지 */
+            table-layout: auto;  /* 반응형을 위해 auto로 변경 */
             background: white;
-            min-width: 100%;
+            min-width: 800px;  /* 최소 너비 설정 */
         }
         
         .table th {
@@ -1632,7 +1632,7 @@
         
         .dataTables_wrapper table {
             width: 100% !important;
-            table-layout: fixed !important;
+            table-layout: auto !important;
         }
         
         .dataTables_scrollBody {
@@ -3775,22 +3775,16 @@
                 }
                 
                 // 테이블과 모바일 카드 업데이트
-                console.log('[테이블] 테이블 새로고침 시작');
                 try {
                     // 기존 테이블이 있는지 확인하고 제거
                     if ($.fn.DataTable.isDataTable('#projectsTable')) {
-                        console.log('[테이블] 기존 DataTable 제거');
                         $('#projectsTable').DataTable().destroy();
                     }
                     
-                    console.log('[테이블] 테이블 재초기화 실행');
-                    console.log('[테이블] 전달할 데이터 확인:', projectsData ? projectsData.length : 'null');
                     initializeDataTable(projectsData);
-                    console.log('[테이블] DataTable 재초기화 완료');
                     
                 } catch (error) {
-                    console.error('[테이블] 테이블 업데이트 오류:', error);
-                    console.log('[테이블] 오류 발생, 페이지 새로고침으로 해결 시도');
+                    console.error('테이블 업데이트 오류:', error);
                     
                     // DataTable 초기화 실패 시 페이지 새로고침
                     setTimeout(() => {
@@ -3931,45 +3925,8 @@
 
         // DataTable 초기화
         function initializeDataTable(data = projectsData) {
-            console.log('[DataTable초기화] initializeDataTable 시작');
-            console.log('[DataTable초기화] 받은 데이터 개수:', data ? data.length : 'undefined');
-            console.log('[DataTable초기화] 전역 projectsData 개수:', projectsData ? projectsData.length : 'undefined');
-            
             if (dataTable) {
-                console.log('[DataTable초기화] 기존 dataTable 제거');
                 dataTable.destroy();
-            }
-            
-            console.log('[DataTable초기화] 새 DataTable 생성 시작');
-            console.log('[DataTable초기화] 전달할 데이터:', data ? data.length : 'null', '개');
-            if (data && data.length > 0) {
-                console.log('[DataTable초기화] 첫 번째 프로젝트 샘플:', data[0]);
-                
-                // 공사 종료 날짜 관련 필드 확인
-                const dateFields = Object.keys(data[0]).filter(key => 
-                    key.includes('종료') || key.includes('완료') || key.includes('끝')
-                );
-                console.log('[DataTable초기화] 날짜 관련 필드들:', dateFields);
-                
-                // 실제 공사 종료 데이터 값 확인
-                console.log('[DataTable초기화] 공사 종료 값:', data[0]['공사 종료']);
-                console.log('[DataTable초기화] 공사 시작 값:', data[0]['공사 시작']);
-                
-                // 공사 종료가 있는 프로젝트 찾기
-                const projectsWithEndDate = data.filter(project => 
-                    project['공사 종료'] && project['공사 종료'] !== '' && project['공사 종료'] !== 'nan'
-                );
-                console.log('[DataTable초기화] 공사 종료 날짜가 있는 프로젝트:', projectsWithEndDate.length, '개');
-                if (projectsWithEndDate.length > 0) {
-                    console.log('[DataTable초기화] 공사 종료 날짜 샘플:', projectsWithEndDate[0]['프로젝트 코드'], projectsWithEndDate[0]['공사 종료']);
-                }
-                
-                // 최근 프로젝트들(뒤쪽 10개)의 공사 종료 날짜 확인
-                const recentProjects = data.slice(-10);
-                console.log('[DataTable초기화] 최근 10개 프로젝트의 공사 종료 날짜:');
-                recentProjects.forEach(project => {
-                    console.log(`  - ${project['프로젝트 코드']}: 공사종료="${project['공사 종료']}", 공사시작="${project['공사 시작']}"`);
-                });
             }
             
             try {
@@ -4134,9 +4091,12 @@
                 order: [[0, 'desc']], // 프로젝트 코드 기준 내림차순
                 pageLength: 15,
                 lengthMenu: [10, 15, 25, 50, 100],
-                responsive: false,
-                autoWidth: true,
-                scrollX: false,
+                responsive: true,
+                autoWidth: false,
+                scrollX: true,
+                scrollCollapse: true,
+                fixedHeader: false,  // 헤더 고정 비활성화
+                sScrollX: "100%",    // 스크롤 너비 명시적 설정
                 // 페이지네이션 설정 개선
                 pagingType: "full_numbers",  // 모든 페이지 번호 표시
                 pageLength: 15,  // 페이지당 항목 수
@@ -4174,6 +4134,15 @@
                         $(this).removeAttr('href');
                     });
                     
+                    // 컬럼 너비 강제 동기화
+                    setTimeout(() => {
+                        if (dataTable) {
+                            dataTable.columns.adjust();
+                            // 새로운 동기화 함수 사용
+                            syncTableColumnWidths();
+                        }
+                    }, 5);
+                    
                     // 페이지네이션 버튼 개수를 5개로 조정 (약간의 지연으로 DataTables 처리 완료 후 실행)
                     setTimeout(function() {
                         customizePagination();
@@ -4184,30 +4153,28 @@
                 }
             });
             
-            console.log('[DataTable초기화] DataTable 생성 성공');
+            
+            // 초기화 직후 컬럼 너비 조정
+            setTimeout(() => {
+                dataTable.columns.adjust();
+                // 헤더와 바디 컬럼 너비 동기화 강제 수행
+                syncTableColumnWidths();
+            }, 100);
             
             // DataTable 생성 후 상태 확인
             const rowCount = dataTable.data().length;
             const visibleRows = dataTable.rows().count();
-            console.log('[DataTable초기화] 데이터 행 수:', rowCount);
-            console.log('[DataTable초기화] 표시되는 행 수:', visibleRows);
             
             // 테이블이 비어있으면 강제로 다시 그리기
             if (visibleRows === 0 && data && data.length > 0) {
-                console.log('[DataTable초기화] 테이블이 비어있음, 강제 새로고침 시도');
-                console.log('[DataTable초기화] 사용할 데이터:', data.length, '개');
-                console.log('[DataTable초기화] 데이터 컬럼 확인:', Object.keys(data[0]));
-                
                 // DataTable 오류 시 페이지 새로고침
-                console.log('[DataTable초기화] 데이터가 있으나 표시되지 않음 - 페이지 새로고침');
                 setTimeout(() => {
                     window.location.reload();
                 }, 1000);
             }
             
         } catch (error) {
-            console.error('[DataTable초기화] DataTable 생성 실패:', error);
-            console.log('[DataTable초기화] 기본 HTML 테이블로 폴백');
+            console.error('DataTable 생성 실패:', error);
             
             // DataTable 생성 실패 시 기본 HTML 테이블 유지
             const tableBody = document.querySelector('#projectsTable tbody');
@@ -4221,6 +4188,91 @@
             }
         }
         }
+
+        // DataTable 헤더와 바디 컬럼 너비 동기화 함수
+        function syncTableColumnWidths() {
+            try {
+                if (typeof dataTable === 'undefined' || !dataTable) {
+                    console.warn('DataTable이 초기화되지 않았습니다.');
+                    return;
+                }
+
+                // DataTable의 헤더와 바디 테이블 요소 찾기
+                const headerTable = $('.dataTables_scrollHead table');
+                const bodyTable = $('.dataTables_scrollBody table');
+                
+                if (headerTable.length && bodyTable.length) {
+                    // DataTable 자체 컬럼 조정 먼저 실행
+                    dataTable.columns.adjust();
+                    
+                    // 즉시 실행으로 딜레이 제거
+                    const headerTableWidth = headerTable.outerWidth();
+                    const bodyTableWidth = bodyTable.outerWidth();
+                    
+                    // 더 작은 쪽에 맞춤 (불필요한 확장 방지)
+                    const targetWidth = Math.min(headerTableWidth, bodyTableWidth);
+                    
+                    // 동시에 적용하여 타이밍 일치시킴
+                    headerTable.css('width', targetWidth + 'px');
+                    bodyTable.css('width', targetWidth + 'px');
+                    
+                    // 강제 리플로우로 즉시 반영
+                    headerTable[0].offsetHeight;
+                    bodyTable[0].offsetHeight;
+                    
+                } else {
+                    console.warn('DataTable의 헤더나 바디 테이블을 찾을 수 없습니다.');
+                }
+            } catch (error) {
+                console.error('컬럼 너비 동기화 중 오류:', error);
+            }
+        }
+
+        // 브라우저 크기 변경 시 DataTable 반응형 조정
+        let resizeTimeout;
+        let immediateTimeout;
+        
+        window.addEventListener('resize', function() {
+            // 브라우저 렌더링과 완전 동기화된 즉시 실행
+            requestAnimationFrame(function() {
+                if (typeof dataTable !== 'undefined' && dataTable) {
+                    try {
+                        dataTable.columns.adjust();
+                        syncTableColumnWidths();
+                    } catch (error) {
+                        console.warn('즉시 조정 중 오류:', error);
+                    }
+                }
+            });
+            
+            // 디바운싱으로 최종 조정 (연속 resize 완료 후)
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(function() {
+                if (typeof dataTable !== 'undefined' && dataTable) {
+                    try {
+                        // 기본 컬럼 조정만 수행 (가장 안전한 방법)
+                        dataTable.columns.adjust();
+                        
+                        // responsive가 정의되고 recalc 메서드가 있는 경우에만 호출
+                        if (dataTable.responsive && typeof dataTable.responsive.recalc === 'function') {
+                            dataTable.responsive.recalc();
+                        }
+                        
+                        // 컬럼 너비 동기화 즉시 실행
+                        syncTableColumnWidths();
+                        
+                    } catch (error) {
+                        console.warn('DataTable 조정 중 오류:', error);
+                        // 오류가 발생해도 기본적인 조정은 시도
+                        try {
+                            dataTable.columns.adjust();
+                        } catch (adjustError) {
+                            console.warn('기본 컬럼 조정도 실패:', adjustError);
+                        }
+                    }
+                }
+            }, 100); // 디바운싱 시간을 200ms에서 100ms로 단축
+        });
 
         // 페이지네이션 커스터마이즈 (5개 페이지 표시)
         function customizePagination() {
@@ -4517,7 +4569,7 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>부가세</small>
-                                                    <div class="editable-value" data-field="부가세" data-original-value="${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? 'true' : 'false'}">${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? '포함' : '별도'}</div>
+                                                    <div class="editable-value" data-field="부가세" data-original-value="${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? 'true' : 'false'}">${rowData['부가세'] === true || rowData['부가세'] === 'TRUE' ? '포함' : '포함안됨'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>총액2</small>
@@ -4534,12 +4586,23 @@
                                                     <small>계산서</small>
                                                     <div class="editable-value" data-field="계산서" data-original-value="${(() => {
                                                         const billValue = rowData['계산서'] || rowData['X'] || '';
-                                                        if (billValue === true || billValue === 'TRUE' || billValue === '✓' || billValue === 'true') return 'true';
-                                                        if (billValue === false || billValue === 'FALSE' || billValue === '' || billValue === '-') return 'false';
-                                                        return 'false';
+                                                        // 기존 true/false 값들을 텍스트로 변환
+                                                        if (billValue === true || billValue === 'TRUE' || billValue === '✓' || billValue === 'true') return '발행완료';
+                                                        if (billValue === false || billValue === 'FALSE' || billValue === '' || billValue === '-') return '미발행';
+                                                        // 이미 텍스트 값인 경우 그대로 사용
+                                                        if (typeof billValue === 'string' && billValue.trim() && !['true', 'false', 'TRUE', 'FALSE'].includes(billValue)) {
+                                                            return billValue;
+                                                        }
+                                                        return '미발행';
                                                     })()}">${(() => {
                                                         const billValue = rowData['계산서'] || rowData['X'] || '';
+                                                        // 기존 true/false 값들을 텍스트로 변환
                                                         if (billValue === true || billValue === 'TRUE' || billValue === '✓' || billValue === 'true') return '발행완료';
+                                                        if (billValue === false || billValue === 'FALSE' || billValue === '' || billValue === '-') return '미발행';
+                                                        // 이미 텍스트 값인 경우 그대로 사용
+                                                        if (typeof billValue === 'string' && billValue.trim() && !['true', 'false', 'TRUE', 'FALSE'].includes(billValue)) {
+                                                            return billValue;
+                                                        }
                                                         return '미발행';
                                                     })()}</div>
                                                 </div>
@@ -4651,7 +4714,7 @@
                                 const folderPath = rowData['견적서 및 계약서 폴더 경로'] || rowData['AK'] || '';
                                 if (folderPath && folderPath.trim() !== '' && folderPath !== '-') {
                                     return `
-                                    <div class="mt-3 p-3" style="background-color: #f8f9fa; border-radius: var(--border-radius); border: 1px solid var(--gray-200);">
+                                    <div id="card-document-${projectCode}" class="mt-3 p-3" style="background-color: #f8f9fa; border-radius: var(--border-radius); border: 1px solid var(--gray-200);">
                                         <div class="d-flex align-items-center">
                                             <i class="fas fa-folder-open me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
                                             <small class="text-muted me-2" style="font-weight: 600;">문서 폴더:</small>
@@ -4685,7 +4748,7 @@
                                 } else {
                                     // 견적서 및 계약서 폴더 경로 경로가 없을 때도 기본 정보 표시
                                     return `
-                                    <div class="mt-3 p-3" style="background-color: #fff3cd; border-radius: var(--border-radius); border: 1px solid #ffc107;">
+                                    <div id="card-document-${projectCode}" class="mt-3 p-3" style="background-color: #fff3cd; border-radius: var(--border-radius); border: 1px solid #ffc107;">
                                         <div class="d-flex align-items-center">
                                             <i class="fas fa-folder me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
                                             <small class="text-muted me-2" style="font-weight: 600;">문서 폴더:</small>
@@ -4789,34 +4852,20 @@
 
             // 페이지 로드 시 localStorage 확인 (같은 탭에서 새로고침된 경우)
             function checkForNewProject() {
-                console.log('[checkForNewProject] localStorage 확인 시작');
                 const newProjectData = localStorage.getItem('newProjectCreated');
-                console.log('[checkForNewProject] localStorage 데이터:', newProjectData);
                 
                 if (newProjectData) {
-                    console.log('[checkForNewProject] localStorage에서 데이터 발견!');
                     const data = JSON.parse(newProjectData);
                     const timeDiff = Date.now() - data.timestamp;
                     
-                    console.log('[checkForNewProject] 파싱된 데이터:', data);
-                    console.log('[checkForNewProject] 시간 차이:', timeDiff, 'ms');
-                    
                     // 5초 이내에 생성된 프로젝트면 테이블 새로고침
                     if (timeDiff < 5000) {
-                        console.log('[checkForNewProject] 최근 생성된 프로젝트 감지:', data.projectCode);
-                        console.log('[checkForNewProject] 0.5초 후 테이블 새로고침 시작');
                         setTimeout(() => {
-                            console.log('[checkForNewProject] 지연 후 loadProjectsData 호출');
                             loadProjectsData();
                         }, 500);
-                    } else {
-                        console.log('[checkForNewProject] 데이터가 너무 오래됨 (5초 이상), 무시');
                     }
                     // 사용 후 삭제
-                    console.log('[checkForNewProject] localStorage에서 데이터 삭제');
                     localStorage.removeItem('newProjectCreated');
-                } else {
-                    console.log('[checkForNewProject] localStorage에 데이터 없음');
                 }
             }
 
@@ -4824,26 +4873,15 @@
             setTimeout(checkForNewProject, 1000);
 
             // URL에 refresh 파라미터가 있으면 강제 데이터 새로고침
-            console.log('[페이지로딩] 현재 URL:', window.location.href);
-            console.log('[페이지로딩] URL search params:', window.location.search);
-            
             const urlParams = new URLSearchParams(window.location.search);
             const hasRefresh = urlParams.has('refresh');
-            const refreshValue = urlParams.get('refresh');
-            
-            console.log('[URL파라미터] refresh 파라미터 확인:', hasRefresh, refreshValue);
             
             if (hasRefresh) {
-                console.log('[URL파라미터] refresh 감지 - 강제 데이터 새로고침 시작!');
                 setTimeout(() => {
-                    console.log('[URL파라미터] 0.5초 지연 후 데이터 새로고침 실행');
                     loadProjectsData();
                     // URL에서 파라미터 제거
-                    console.log('[URL파라미터] URL에서 파라미터 제거');
                     window.history.replaceState({}, document.title, window.location.pathname);
                 }, 500);
-            } else {
-                console.log('[URL파라미터] refresh 파라미터 없음 - 일반 로딩');
             }
         }
 
@@ -6688,14 +6726,11 @@
                     // 필드 타입에 따른 포맷팅 (모든 금액 필드 포함)
                     const moneyFields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'];
                     if (moneyFields.includes(fieldName)) {
-                        console.log(`실제 값 처리: ${fieldName} = "${actualValue}" (타입: ${typeof actualValue})`);
-                        
                         // 원화 기호, 콤마, 원 단위 제거 후 숫자 추출
                         let cleanValue = String(actualValue || '').replace(/[₩,원]/g, '').trim();
                         const numValue = parseFloat(cleanValue) || 0;
                         
                         expectedDisplayValue = numValue > 0 ? formatCurrency(numValue) : '-';
-                        console.log(`정리된 값: "${cleanValue}" -> 숫자: ${numValue} -> 포맷팅: "${expectedDisplayValue}"`);
                     } else {
                         expectedDisplayValue = actualValue || '-';
                     }
@@ -6860,21 +6895,42 @@
 
         // 카드 인라인 편집 함수들
         function toggleCardEdit(projectCode, cardType) {
+            // 먼저 카드 잠금 시도
+            acquireCardLock(projectCode, cardType).then(result => {
+                if (!result.success) {
+                    alert(`'${result.lockedBy}'님이 수정 중입니다.`);
+                    return;
+                }
+                
+                // 잠금 획득 성공 - 편집 모드 활성화
+                activateEditMode(projectCode, cardType);
+            }).catch(error => {
+                console.error('카드 잠금 중 오류:', error);
+                alert('편집 모드 활성화 중 오류가 발생했습니다.');
+            });
+        }
+        
+        function activateEditMode(projectCode, cardType) {
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
             const editBtn = card.querySelector('.edit-btn');
             const saveBtn = card.querySelector('.save-btn');
             const cancelBtn = card.querySelector('.cancel-btn');
             const editableValues = card.querySelectorAll('.editable-value:not(.calculated-field)');
             
-            // 편집 모드 활성화
+            // 편집 모드 UI 활성화
             editBtn.classList.add('d-none');
             saveBtn.classList.remove('d-none');
             cancelBtn.classList.remove('d-none');
             
             // 각 필드를 입력 필드로 변경
             editableValues.forEach(valueDiv => {
-                const currentValue = valueDiv.textContent === '-' ? '' : valueDiv.textContent;
-                const fieldName = valueDiv.dataset.field;
+                    const currentValue = valueDiv.textContent === '-' ? '' : valueDiv.textContent;
+                    const fieldName = valueDiv.dataset.field;
+                
+                // 총액2는 계산 필드로 편집 불가능 (시각적 변경 없이 그냥 건드리지 않음)
+                if (fieldName === '총액2' || fieldName === '총액 2') {
+                    return; // 이 필드는 건드리지 않음
+                }
                 
                 // 편집자가 해당 필드를 수정할 수 있는지 확인
                 if (!canEditField(cardType, fieldName)) {
@@ -6999,13 +7055,13 @@
                     inputElement = document.createElement('select');
                     inputElement.className = 'form-select form-select-sm inline-edit-input';
                     
-                    // 계산서 드롭다운 옵션들 (데이터에서 확인된 값들)
-                    const invoiceOptions = ['', '잔금', 'N대금', '이미발행', '카드결제', '현금', '혼합', '중도금'];
+                    // 계산서 드롭다운 옵션들 (업무 프로세스 기반)
+                    const invoiceOptions = ['미발행', '계약금', '중도금', '잔금', 'N입금', '카드결제', '혼합', '발행완료'];
                     
                     invoiceOptions.forEach(optionValue => {
                         const option = document.createElement('option');
                         option.value = optionValue;
-                        option.textContent = optionValue || '선택';
+                        option.textContent = optionValue;
                         
                         // 현재 값과 일치하면 선택
                         if (optionValue === currentValue) {
@@ -7014,6 +7070,15 @@
                         
                         inputElement.appendChild(option);
                     });
+                    
+                    // 현재 값이 옵션에 없는 경우 (기존 데이터와의 호환성)
+                    if (currentValue && currentValue !== '-' && currentValue.trim() !== '' && !invoiceOptions.includes(currentValue)) {
+                        const customOption = document.createElement('option');
+                        customOption.value = currentValue;
+                        customOption.textContent = currentValue;
+                        customOption.selected = true;
+                        inputElement.appendChild(customOption);
+                    }
                     
                 } else {
                     // 체크박스 필드 (부가세, 수금 확인)
@@ -7039,6 +7104,17 @@
                                 originalValue === 'true' || 
                                 originalValue === true
                             );
+                        } else if (fieldName === '부가세') {
+                            // 부가세는 data-original-value를 우선 사용하고, 없으면 텍스트에서 판단
+                            if (originalValue === 'true' || originalValue === true) {
+                                isChecked = true;
+                            } else if (originalValue === 'false' || originalValue === false) {
+                                isChecked = false;
+                            } else {
+                                // 텍스트 값으로 판단
+                                const currentText = currentValue;
+                                isChecked = currentText && currentText.includes('포함') && !currentText.includes('포함안됨');
+                            }
                         } else {
                             isChecked = originalValue === 'true' || originalValue === true;
                         }
@@ -7051,10 +7127,10 @@
                         label.htmlFor = checkbox.id;
                         
                         if (fieldName === '부가세') {
-                            label.textContent = isChecked ? '포함' : '별도';
+                            label.textContent = isChecked ? '포함' : '포함안됨';
                             // 체크박스 변경 시 라벨 업데이트
                             checkbox.addEventListener('change', function() {
-                                label.textContent = this.checked ? '포함' : '별도';
+                                label.textContent = this.checked ? '포함' : '포함안됨';
                             });
                         } else if (fieldName === '수금 확인') {
                             // 수금 확인은 배지 형태로 표시
@@ -7234,6 +7310,100 @@
             if (firstInput) firstInput.focus();
         }
         
+        // 카드 잠금 관련 함수들
+        async function acquireCardLock(projectCode, cardType) {
+            try {
+                const response = await fetch('/api/card-lock/acquire', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        project_code: projectCode,
+                        card_type: cardType
+                    })
+                });
+                
+                const result = await response.json();
+                return {
+                    success: result.success,
+                    lockedBy: result.locked_by || result.lock_info?.user_name,
+                    message: result.message
+                };
+                
+            } catch (error) {
+                console.error('카드 잠금 획득 오류:', error);
+                return {
+                    success: false,
+                    error: error.message
+                };
+            }
+        }
+        
+        async function releaseCardLock(projectCode, cardType) {
+            try {
+                const response = await fetch('/api/card-lock/release', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        project_code: projectCode,
+                        card_type: cardType
+                    })
+                });
+                
+                const result = await response.json();
+                return {
+                    success: result.success,
+                    message: result.message
+                };
+                
+            } catch (error) {
+                console.error('카드 잠금 해제 오류:', error);
+                return {
+                    success: false,
+                    error: error.message
+                };
+            }
+        }
+        
+        // 카드 잠금 표시 함수들
+        function showCardLocked(projectCode, cardType, userName) {
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            if (card) {
+                // 수정 버튼 찾기 (문서 폴더는 .edit-folder-btn 클래스 사용)
+                const editBtn = card.querySelector('.edit-btn, .btn-edit, .edit-folder-btn');
+                if (editBtn) {
+                    // 버튼 내용 변경하여 잠금 상태 표시
+                    editBtn.innerHTML = `<i class="fas fa-lock me-2"></i>'${userName}'님이 수정 중`;
+                    editBtn.disabled = true;
+                    editBtn.classList.add('btn-locked');
+                    editBtn.style.backgroundColor = '#6c757d';
+                    editBtn.style.borderColor = '#6c757d';
+                    editBtn.style.color = 'white';
+                    editBtn.title = `'${userName}'님이 수정 중`;
+                }
+            }
+        }
+        
+        function hideCardLocked(projectCode, cardType) {
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            if (card) {
+                // 수정 버튼 원상 복구 (문서 폴더는 .edit-folder-btn 클래스 사용)
+                const editBtn = card.querySelector('.edit-btn, .btn-edit, .edit-folder-btn');
+                if (editBtn && editBtn.classList.contains('btn-locked')) {
+                    editBtn.innerHTML = '<i class="fas fa-edit me-2"></i>수정';
+                    editBtn.disabled = false;
+                    editBtn.classList.remove('btn-locked');
+                    editBtn.style.backgroundColor = '';
+                    editBtn.style.borderColor = '';
+                    editBtn.style.color = '';
+                    editBtn.title = '';
+                }
+            }
+        }
+        
         // 진행 중인 저장 작업 추적
         let savingCards = new Set();
         
@@ -7366,15 +7536,25 @@
                 console.log(`  새값: "${newValue}" -> 정규화: "${normalizedNew}"`);
                 console.log(`  변경됨: ${normalizedOriginal !== normalizedNew}`);
                 
+                // 부가세 필드 특별 디버그
+                if (fieldName === '부가세') {
+                    console.log(`[부가세 디버그] input.checked: ${input.checked}, input.type: ${input.type}`);
+                    console.log(`[부가세 디버그] input.dataset.originalValue: ${input.dataset.originalValue}`);
+                }
+                
                 if (normalizedOriginal !== normalizedNew) {
                     hasChanges = true;
-                    updatedData[fieldName] = newValue;
+                    // 총액2 필드는 서버로 전송하지 않음 (실시간 계산 전용)
+                    if (fieldName !== '총액2' && fieldName !== '총액 2') {
+                        updatedData[fieldName] = newValue;
+                    }
                 }
             });
             
-            // 변경사항이 없으면 저장하지 않음
-            console.log(`전체 변경사항 확인: hasChanges = ${hasChanges}`);
-            if (!hasChanges) {
+            // 변경사항이 없거나 총액2만 변경된 경우 저장하지 않음
+            const hasActualUpdates = Object.keys(updatedData).filter(key => key !== 'projectCode').length > 0;
+            console.log(`전체 변경사항 확인: hasChanges = ${hasChanges}, 실제 업데이트 필드 수: ${Object.keys(updatedData).length}`);
+            if (!hasChanges || !hasActualUpdates) {
                 // 저장 상태 해제
                 savingCards.delete(cardKey);
                 
@@ -7398,8 +7578,14 @@
             // 프로젝트 코드 추가
             updatedData['projectCode'] = projectCode;
             
-            // 인라인 편집 전용 API 엔드포인트 호출
+            console.log('서버로 전송할 데이터:', updatedData);
             
+            // 부가세 데이터 특별 확인
+            if (updatedData['부가세'] !== undefined) {
+                console.log(`[부가세 전송] 값: "${updatedData['부가세']}", 타입: ${typeof updatedData['부가세']}`);
+            }
+            
+            // 인라인 편집 전용 API 엔드포인트 호출
             fetch('/api/inline-update', {
                 method: 'POST',
                 headers: {
@@ -7475,9 +7661,7 @@
                         } else if (input.type === 'checkbox') {
                             // 체크박스인 경우 표시용 값 생성
                             if (fieldName === '부가세') {
-                                newValue = input.checked ? '포함' : '별도';
-                            } else if (fieldName === '계산서') {
-                                newValue = input.checked ? '발행완료' : '미발행';
+                                newValue = input.checked ? '포함' : '포함안됨';
                             } else if (fieldName === '수금 확인') {
                                 newValue = input.checked ? '<span class="badge bg-success">완료</span>' : '<span class="badge bg-warning">대기</span>';
                             }
@@ -7498,14 +7682,18 @@
                                 fieldName.includes('익') || fieldName === '제품대' || fieldName === '도급비' || 
                                 fieldName === '자재비' || fieldName === '기타비' || fieldName === '순익' || 
                                 fieldName === '미수금W' || fieldName === '미수금')) {
-                                const numValue = parseFloat(newValue) || 0;
+                                // 콤마와 기타 특수문자 제거 후 숫자로 변환
+                                const cleanValue = newValue.replace(/[^0-9.-]/g, '');
+                                const numValue = parseFloat(cleanValue) || 0;
                                 if (numValue > 0) {
                                     newValue = formatCurrency(numValue);
                                 } else {
                                     newValue = '-';
                                 }
                             } else if (fieldName === '마진율') {
-                                const numValue = parseFloat(newValue) || 0;
+                                // 퍼센트 기호와 기타 특수문자 제거 후 숫자로 변환
+                                const cleanValue = newValue.replace(/[^0-9.-]/g, '');
+                                const numValue = parseFloat(cleanValue) || 0;
                                 newValue = numValue ? numValue.toFixed(1) + '%' : '-';
                             }
                         }
@@ -7542,40 +7730,43 @@
                             saveBtn.style.transform = 'scale(1)';
                         }, 200);
                         
-                        // 1초 후 버튼을 원래 상태로 복원하고 편집 모드 종료
-                        setTimeout(() => {
-                            // 저장 버튼을 원래 상태로 초기화
-                            saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
-                            saveBtn.classList.remove('btn-secondary', 'btn-danger', 'btn-warning');
-                            saveBtn.classList.add('btn-success');
-                            saveBtn.style.transform = '';
-                            saveBtn.style.animation = '';
+                        // 즉시 버튼을 원래 상태로 복원하고 편집 모드 종료
+                        // 저장 버튼을 원래 상태로 초기화
+                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                        saveBtn.classList.remove('btn-secondary', 'btn-danger', 'btn-warning');
+                        saveBtn.classList.add('btn-success');
+                        saveBtn.style.transform = '';
+                        saveBtn.style.animation = '';
+                        
+                        // 저장 완료 후 data-original-value 업데이트
+                        const allEditableValues = card.querySelectorAll('.editable-value');
+                        allEditableValues.forEach(valueDiv => {
+                            const currentValue = valueDiv.textContent.trim();
+                            const fieldName = valueDiv.dataset.field;
                             
-                            // 저장 완료 후 data-original-value 업데이트
-                            const allEditableValues = card.querySelectorAll('.editable-value');
-                            allEditableValues.forEach(valueDiv => {
-                                const currentValue = valueDiv.textContent.trim();
-                                const fieldName = valueDiv.dataset.field;
-                                
-                                if (fieldName && currentValue !== '-') {
-                                    // 금액 필드인 경우 숫자만 추출해서 저장
-                                    const moneyFields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'];
-                                    if (moneyFields.includes(fieldName)) {
-                                        const numericValue = currentValue.replace(/[^0-9]/g, '');
-                                        valueDiv.dataset.originalValue = numericValue || '';
-                                    } else {
-                                        valueDiv.dataset.originalValue = currentValue;
-                                    }
-                                    console.log(`data-original-value 업데이트: ${fieldName} = "${valueDiv.dataset.originalValue}"`);
+                            if (fieldName && currentValue !== '-') {
+                                // 금액 필드인 경우 숫자만 추출해서 저장
+                                const moneyFields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'];
+                                if (moneyFields.includes(fieldName)) {
+                                    const numericValue = currentValue.replace(/[^0-9]/g, '');
+                                    valueDiv.dataset.originalValue = numericValue || '';
+                                } else {
+                                    valueDiv.dataset.originalValue = currentValue;
                                 }
-                            });
-                            
-                            // 그 다음 편집 모드 종료
+                                console.log(`data-original-value 업데이트: ${fieldName} = "${valueDiv.dataset.originalValue}"`);
+                            }
+                        });
+                        
+                        // 카드 잠금 해제 후 편집 모드 종료
+                        releaseCardLock(projectCode, cardType).then(() => {
                             resetCardEditButtons(card);
-                            
-                            // 저장 중 상태에서 제거
-                            savingCards.delete(cardKey);
-                        }, 1000);
+                        }).catch(error => {
+                            console.error('카드 잠금 해제 중 오류:', error);
+                            resetCardEditButtons(card); // 오류가 있어도 편집 모드는 종료
+                        });
+                        
+                        // 저장 중 상태에서 제거
+                        savingCards.delete(cardKey);
                     } else {
                         // saveBtn이 없는 경우 즉시 편집 모드 종료
                         resetCardEditButtons(card);
@@ -7624,17 +7815,16 @@
                         
                         // 실패 효과 (흔들림)
                         saveBtn.style.animation = 'shake 0.5s';
-                        setTimeout(() => {
-                            saveBtn.style.animation = '';
-                            saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
-                            saveBtn.classList.remove('btn-danger');
-                            // 원래 연한 녹색으로 복원
-                            saveBtn.style.backgroundColor = '#d4edda';
-                            saveBtn.style.border = '1px solid #c3e6cb';
-                            saveBtn.style.color = '#155724';
-                            // 저장 중 상태에서 제거
-                            savingCards.delete(cardKey);
-                        }, 2000);
+                        // 즉시 원래 상태로 복원
+                        saveBtn.style.animation = '';
+                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                        saveBtn.classList.remove('btn-danger');
+                        // 원래 연한 녹색으로 복원
+                        saveBtn.style.backgroundColor = '#d4edda';
+                        saveBtn.style.border = '1px solid #c3e6cb';
+                        saveBtn.style.color = '#155724';
+                        // 저장 중 상태에서 제거
+                        savingCards.delete(cardKey);
                     }
                 }
             })
@@ -7665,24 +7855,23 @@
                     
                     // 경고 효과
                     saveBtn.style.animation = 'pulse 1s';
-                    setTimeout(() => {
-                        saveBtn.style.animation = '';
-                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
-                        saveBtn.classList.remove('btn-warning');
-                        // 원래 연한 녹색으로 복원
-                        saveBtn.style.backgroundColor = '#d4edda';
-                        saveBtn.style.border = '1px solid #c3e6cb';
-                        saveBtn.style.color = '#155724';
-                        // 저장 중 상태에서 제거
-                        savingCards.delete(cardKey);
-                    }, 3000);
+                    // 즉시 원래 상태로 복원
+                    saveBtn.style.animation = '';
+                    saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                    saveBtn.classList.remove('btn-warning');
+                    // 원래 연한 녹색으로 복원
+                    saveBtn.style.backgroundColor = '#d4edda';
+                    saveBtn.style.border = '1px solid #c3e6cb';
+                    saveBtn.style.color = '#155724';
+                    // 저장 중 상태에서 제거
+                    savingCards.delete(cardKey);
                 }
             })
             .finally(() => {
-                // 어떤 경우에든 저장 상태 해제 (보험)
+                // 어떤 경우에든 저장 상태 해제 (보험) - 1초로 단축
                 setTimeout(() => {
                     savingCards.delete(cardKey);
-                }, 5000); // 5초 후 강제 해제
+                }, 1000);
             });
         }
         
@@ -7690,12 +7879,26 @@
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
             const inputs = card.querySelectorAll('.inline-edit-input');
             
+            // 취소 중임을 표시하는 플래그 설정 (실시간 계산 차단용)
+            card.dataset.cancelling = 'true';
+            
+            // 편집 시작 시점의 값들을 저장할 변수들
+            let originalTotal1Value = null;
+            let originalVatValue = null;
+            
             // 원래 값으로 복원
             inputs.forEach(input => {
                 let valueDiv = input.parentElement;
                 const fieldName = valueDiv.dataset.field;
                 // input 요소에서 originalValue를 가져오기 (더 정확함)
                 const originalValue = input.dataset.originalValue || valueDiv.dataset.originalValue || '';
+                
+                // 편집 시작 시점의 총액1과 부가세 값 수집
+                if (fieldName === '총액1' || fieldName === '총액 1') {
+                    originalTotal1Value = originalValue;
+                } else if (fieldName === '부가세') {
+                    originalVatValue = originalValue;
+                }
                 
                 // 체크박스 컨테이너인 경우 부모의 부모가 실제 valueDiv
                 if (valueDiv.classList.contains('form-check')) {
@@ -7711,9 +7914,10 @@
                 let displayValue = normalizedOriginalValue === '' ? '-' : normalizedOriginalValue;
                 
                 if (fieldName === '부가세') {
-                    displayValue = normalizedOriginalValue === 'true' ? '포함' : '별도';
+                    displayValue = normalizedOriginalValue === 'true' ? '포함' : '포함안됨';
                 } else if (fieldName === '계산서') {
-                    displayValue = normalizedOriginalValue === 'true' ? '발행완료' : '미발행';
+                    // 계산서는 원본값 그대로 복원
+                    displayValue = normalizedOriginalValue || '미발행';
                 } else if (fieldName === '수금 확인') {
                     if (normalizedOriginalValue === 'true') {
                         displayValue = '<span class="badge bg-success">완료</span>';
@@ -7770,7 +7974,7 @@
                 field.style.backgroundColor = '';
                 field.style.color = '';
                 field.style.position = '';
-                // 자물쇠 아이콘 제거
+                // 자물쇠 아이콘이나 계산기 아이콘 제거
                 const lockIcon = field.querySelector('span[style*="position: absolute"]');
                 if (lockIcon) {
                     lockIcon.remove();
@@ -7781,8 +7985,61 @@
             const cardKey = `${projectCode}-${cardType}`;
             savingCards.delete(cardKey);
             
-            // 버튼 상태 복원
-            resetCardEditButtons(card);
+            // 금액정보 카드의 경우 편집 전 시점의 총액1과 부가세로 총액2 재계산
+            if (cardType === 'financial' && originalTotal1Value !== null) {
+                // 취소 플래그를 임시로 해제하여 계산 허용
+                delete card.dataset.cancelling;
+                
+                // 편집 시작 시점의 값들로 총액2 재계산
+                const total1Value = parseFloat(originalTotal1Value.replace(/[^0-9.-]/g, '')) || 0;
+                const vatIncluded = originalVatValue === 'true';
+                
+                // 국내 부가세 계산법 적용
+                let total2;
+                if (vatIncluded) {
+                    const vat = Math.round(total1Value * 0.1);
+                    total2 = total1Value + vat;
+                } else {
+                    total2 = total1Value;
+                }
+                
+                // 총액2 필드 업데이트
+                updateFieldValue(card, '총액2', total2);
+                updateFieldValue(card, '총액 2', total2);
+                
+                // 순익과 마진율도 편집 전 값으로 재계산
+                const productCost = parseFloat(extractFieldValue(card, '제품대') || '0') || 0;
+                const contractCost = parseFloat(extractFieldValue(card, '도급비') || '0') || 0;
+                const materialCost = parseFloat(extractFieldValue(card, '자재비') || '0') || 0;
+                const otherCost = parseFloat(extractFieldValue(card, '기타비') || '0') || 0;
+                
+                const profit = Math.max(0, total2 - productCost - contractCost - materialCost - otherCost);
+                const marginRate = total2 > 0 ? (profit / total2 * 100) : 0;
+                
+                updateFieldValue(card, '순익', profit);
+                
+                const marginField = card.querySelector('[data-field="마진율"]');
+                if (marginField) {
+                    marginField.setAttribute('data-original-value', marginRate.toString());
+                    marginField.textContent = marginRate.toFixed(2) + '%';
+                }
+                
+                console.log(`[cancelCardEdit] 편집 전 값으로 총액2 재계산 완료: 총액1=${total1Value}, 부가세=${vatIncluded}, 총액2=${total2}`);
+                
+                // 취소 플래그 다시 설정
+                card.dataset.cancelling = 'true';
+            }
+            
+            // 취소 플래그 제거
+            delete card.dataset.cancelling;
+            
+            // 카드 잠금 해제 후 버튼 상태 복원
+            releaseCardLock(projectCode, cardType).then(() => {
+                resetCardEditButtons(card);
+            }).catch(error => {
+                console.error('취소 시 카드 잠금 해제 중 오류:', error);
+                resetCardEditButtons(card); // 오류가 있어도 편집 모드는 종료
+            });
         }
         
         function resetCardEditButtons(card) {
@@ -7919,6 +8176,31 @@
         
         // 폴더 경로 수정 함수
         function editFolderPath(buttonElement, currentPath) {
+            // 현재 경로 가져오기
+            const projectCode = getCurrentProjectCode(buttonElement);
+            
+            if (!projectCode) {
+                console.warn('프로젝트 코드를 찾을 수 없습니다.');
+                return;
+            }
+            
+            // 먼저 카드 잠금 시도 (document 카드 타입 사용)
+            acquireCardLock(projectCode, 'document').then(result => {
+                if (!result.success) {
+                    alert(`'${result.lockedBy}'님이 수정 중입니다.`);
+                    return;
+                }
+                
+                // 잠금 획득 성공 - 편집 모드 활성화
+                activateFolderEditMode(buttonElement, currentPath, projectCode);
+            }).catch(error => {
+                console.error('카드 잠금 중 오류:', error);
+                alert('편집 모드 활성화 중 오류가 발생했습니다.');
+            });
+        }
+        
+        function activateFolderEditMode(buttonElement, currentPath, projectCode) {
+            try {
             // 현재 버튼이 포함된 폴더 컨테이너 찾기
             const folderContainer = buttonElement.closest('.d-flex');
             const pathLink = folderContainer.querySelector('a');
@@ -7929,50 +8211,44 @@
                 messageDiv = document.createElement('div');
                 messageDiv.className = 'unified-folder-message ms-3';
                 messageDiv.style.display = 'none';
-                // 버튼 앞에 삽입
                 folderContainer.insertBefore(messageDiv, buttonElement);
-            }
-            
-            // 현재 경로 가져오기
-            const projectCode = getCurrentProjectCode(buttonElement);
-            if (!projectCode) {
-                console.warn('프로젝트 코드를 찾을 수 없습니다.');
-                return;
             }
             
             // 원본 경로 값을 안전하게 보관
             const originalPath = currentPath || '';
             
-            // 입력 필드로 변경
+            // 입력 필드 생성
             const inputElement = document.createElement('input');
             inputElement.type = 'text';
             inputElement.value = currentPath;
             inputElement.className = 'form-control form-control-sm';
-            inputElement.style.cssText = `
-                flex: 1;
-                max-width: 70%;
-                font-size: 0.85rem;
-                border: 2px solid #007bff;
-                box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
-                margin-right: 0.75rem;
-            `;
             
-            // 저장/취소 버튼 생성 (카드 편집과 동일한 파스텔 스타일)
+            // 스타일 설정
+            inputElement.style.flex = '1';
+            inputElement.style.maxWidth = '70%';
+            inputElement.style.fontSize = '0.85rem';
+            inputElement.style.border = '2px solid #007bff';
+            inputElement.style.boxShadow = '0 0 0 0.2rem rgba(0, 123, 255, 0.25)';
+            inputElement.style.marginRight = '0.75rem';
+            
+            // 저장/취소 버튼 생성
             const saveBtn = document.createElement('button');
             saveBtn.className = 'btn btn-sm';
             saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
             saveBtn.title = '저장';
             saveBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out;';
-            saveBtn.onmouseover = () => { saveBtn.style.backgroundColor = '#c3e6cb'; saveBtn.style.borderColor = '#b8d4c7'; };
-            saveBtn.onmouseout = () => { saveBtn.style.backgroundColor = '#d4edda'; saveBtn.style.borderColor = '#c3e6cb'; };
+            
+            saveBtn.onmouseover = function() { saveBtn.style.backgroundColor = '#c3e6cb'; saveBtn.style.borderColor = '#b8d4c7'; };
+            saveBtn.onmouseout = function() { saveBtn.style.backgroundColor = '#d4edda'; saveBtn.style.borderColor = '#c3e6cb'; };
             
             const cancelBtn = document.createElement('button');
             cancelBtn.className = 'btn btn-sm';
             cancelBtn.innerHTML = '<i class="fas fa-times me-1"></i>취소';
             cancelBtn.title = '취소';
             cancelBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; transition: all 0.15s ease-in-out;';
-            cancelBtn.onmouseover = () => { cancelBtn.style.backgroundColor = '#f5c6cb'; cancelBtn.style.borderColor = '#f2b6bb'; };
-            cancelBtn.onmouseout = () => { cancelBtn.style.backgroundColor = '#f8d7da'; cancelBtn.style.borderColor = '#f5c6cb'; };
+            
+            cancelBtn.onmouseover = function() { cancelBtn.style.backgroundColor = '#f5c6cb'; cancelBtn.style.borderColor = '#f2b6bb'; };
+            cancelBtn.onmouseout = function() { cancelBtn.style.backgroundColor = '#f8d7da'; cancelBtn.style.borderColor = '#f5c6cb'; };
             
             // 편집 전 전체 폴더 컨테이너 HTML 저장
             const originalFolderHTML = folderContainer.innerHTML;
@@ -8028,7 +8304,7 @@
                     saveBtn.style.color = 'white';
                     
                     setTimeout(() => {
-                        // 편집 모드 종료
+                        // 편집 모드 종료 (카드 잠금도 해제됨)
                         cancelEdit();
                     }, 1000);
                     
@@ -8119,6 +8395,11 @@
                         // 메모리 데이터 업데이트
                         updateProjectDataInMemory(projectCode, {'견적서 및 계약서 폴더 경로': newPath});
                         
+                        // 카드 잠금 해제
+                        releaseCardLock(projectCode, 'document').catch(error => {
+                            console.error('카드 잠금 해제 중 오류:', error);
+                        });
+                        
                     } else {
                         throw new Error('저장에 실패했습니다.');
                     }
@@ -8129,6 +8410,11 @@
                     // 에러 시 원래 상태로 복원
                     saveBtn.disabled = false;
                     saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                    
+                    // 오류 시에도 카드 잠금 해제
+                    releaseCardLock(projectCode, 'document').catch(lockError => {
+                        console.error('카드 잠금 해제 중 오류:', lockError);
+                    });
                 } finally {
                     // 저장 상태 해제
                     savingCards.delete(folderKey);
@@ -8139,6 +8425,11 @@
             const cancelEdit = () => {
                 // 원본 HTML로 간단히 복원
                 folderContainer.innerHTML = originalFolderHTML;
+                
+                // 카드 잠금 해제
+                releaseCardLock(projectCode, 'document').catch(error => {
+                    console.error('카드 잠금 해제 중 오류:', error);
+                });
             };
             
             // 이벤트 리스너 추가
@@ -8155,6 +8446,15 @@
                     cancelEdit();
                 }
             });
+        } catch (error) {
+            console.error('activateFolderEditMode 에러:', error);
+            alert('편집 모드 활성화 중 오류가 발생했습니다: ' + error.message);
+            
+            // 에러 발생 시 카드 잠금 해제
+            releaseCardLock(projectCode, 'document').catch(releaseError => {
+                console.error('카드 잠금 해제 중 오류:', releaseError);
+            });
+        }
         }
         
         
@@ -9189,13 +9489,21 @@
             const field = card.querySelector(`[data-field="${fieldName}"]`);
             if (!field) return;
 
-            // 미수금 필드의 경우 금액 포맷팅
-            if (fieldName === '미수금W' || fieldName === '미수금') {
+            // 금액 관련 필드의 경우 포맷팅 적용
+            if (fieldName === '미수금W' || fieldName === '미수금' || fieldName === '총액2' || fieldName === '총액 2' || fieldName === '순익') {
                 field.setAttribute('data-original-value', value.toString());
-                field.textContent = formatCurrency(value);
                 
-                // 미수금 애니메이션 효과
-                showCalculationAnimation(field);
+                // 총액2 필드는 "원" 표시 포함하여 포맷팅
+                if (fieldName === '총액2' || fieldName === '총액 2') {
+                    field.textContent = value > 0 ? `${value.toLocaleString('ko-KR')}원` : '';
+                } else {
+                    field.textContent = value > 0 ? value.toLocaleString('ko-KR') : '';
+                }
+                
+                // 총액2는 애니메이션 효과 제외, 다른 필드만 애니메이션 적용
+                if (fieldName !== '총액2' && fieldName !== '총액 2') {
+                    showCalculationAnimation(field);
+                }
             }
         }
 
@@ -9242,8 +9550,39 @@
             console.log(`[updateContractorField] 시공자 필드 업데이트: ${contractorValue}`);
         }
 
+        // 이벤트 리스너 중복 등록 방지용 플래그
+        let vatToggleListenerAdded = false;
+
         // 기존 편집 함수에 실시간 계산 기능 통합
         function addRealTimeCalculationToInputs() {
+            // 부가세 버튼 클릭 이벤트 리스너 추가 (중복 방지)
+            if (!vatToggleListenerAdded) {
+                vatToggleListenerAdded = true;
+                document.addEventListener('click', function(event) {
+                const target = event.target;
+                
+                // 부가세 관련 버튼이나 토글 클릭 감지
+                if (target.getAttribute('data-field') === '부가세' || 
+                    target.closest('[data-field="부가세"]') ||
+                    target.classList.contains('vat-toggle') ||
+                    target.closest('.vat-toggle')) {
+                    
+                    const card = target.closest('[id^="card-financial-"]');
+                    if (card) {
+                        const projectCodeMatch = card.id.match(/card-financial-(.+)/);
+                        if (projectCodeMatch) {
+                            const projectCode = projectCodeMatch[1];
+                            
+                            // 부가세 토글 후 50ms 대기 후 단순 계산
+                            setTimeout(() => {
+                                calculateTotal2FromTotal1Input(projectCode);
+                            }, 50);
+                        }
+                    }
+                }
+                });
+            }
+
             // 금액 필드 입력 이벤트 리스너 추가
             document.addEventListener('input', function(event) {
                 const input = event.target;
@@ -9281,37 +9620,151 @@
                 if (!editableValue) return;
 
                 const fieldName = editableValue.getAttribute('data-field');
-                const card = input.closest('[id^="card-amount-"]'); // 금액정보 카드
+                const card = input.closest('[id^="card-financial-"]'); // 금액정보 카드
                 if (!card) return;
 
-                const projectCodeMatch = card.id.match(/card-amount-(.+)/);
+                const projectCodeMatch = card.id.match(/card-financial-(.+)/);
                 if (!projectCodeMatch) return;
                 
                 const projectCode = projectCodeMatch[1];
 
-                // 금액정보 카드의 자동 계산
-                if (['총액1', '총액 1', '부가세', '제품대', '도급비', '자재비', '기타비'].includes(fieldName)) {
+                // 금액정보 카드의 자동 계산 - 총액1 변경 시 즉시 총액2 업데이트
+                if (['총액1', '총액 1', '제품대', '도급비', '자재비', '기타비'].includes(fieldName)) {
                     clearTimeout(input.amountCalculationTimer);
-                    input.amountCalculationTimer = setTimeout(() => {
-                        calculateAmountFields(projectCode);
-                    }, 200);
+                    
+                    // 총액1 변경 시에는 즉시 단순 계산 (딜레이 없음)
+                    if (['총액1', '총액 1'].includes(fieldName)) {
+                        calculateTotal2FromTotal1Input(projectCode);
+                    } else {
+                        // 다른 필드는 200ms 딜레이
+                        input.amountCalculationTimer = setTimeout(() => {
+                            calculateAmountFields(projectCode);
+                        }, 200);
+                    }
                 }
             });
         }
 
         // 금액정보 카드 자동 계산 함수
-        function calculateAmountFields(projectCode) {
-            const amountCard = document.querySelector(`#card-amount-${projectCode}`);
+        // 단순한 총액2 계산 함수: 총액1 input 값 + 부가세 상태만 확인
+        function calculateTotal2FromTotal1Input(projectCode) {
+            const amountCard = document.querySelector(`#card-financial-${projectCode}`);
             if (!amountCard) return;
-
-            // 총액1과 부가세 정보로 총액2 계산
-            const total1 = parseFloat(extractFieldValue(amountCard, '총액1') || extractFieldValue(amountCard, '총액 1') || '0') || 0;
-            const taxIncluded = extractFieldValue(amountCard, '부가세') === 'true' || 
-                              amountCard.querySelector('[data-field="부가세"]')?.innerHTML?.includes('포함');
             
-            const total2 = taxIncluded ? total1 * 1.1 : total1;
+            // 편집 중인 총액1 input 값 가져오기
+            const total1Input = amountCard.querySelector('[data-field="총액1"] input, [data-field="총액 1"] input');
+            if (!total1Input) return;
+            
+            const total1Value = parseFloat(total1Input.value.replace(/[^0-9.-]/g, '')) || 0;
+            
+            // 현재 부가세 상태 확인
+            const vatField = amountCard.querySelector('[data-field="부가세"]');
+            let vatIncluded = false;
+            if (vatField) {
+                const vatText = vatField.textContent || vatField.innerHTML || '';
+                vatIncluded = (vatText.includes('포함') && !vatText.includes('포함안됨')) || vatText.includes('VAT 포함') || vatField.classList.contains('vat-included');
+            }
+            
+            // 단순 계산: 부가세 포함이면 +10%, 아니면 그대로
+            const total2Value = vatIncluded ? total1Value + Math.round(total1Value * 0.1) : total1Value;
             
             // 총액2 필드 업데이트
+            updateFieldValue(amountCard, '총액2', total2Value);
+            updateFieldValue(amountCard, '총액 2', total2Value);
+        }
+
+        // 부가세 상태를 직접 받아서 계산하는 함수
+        function calculateAmountFieldsWithVatState(projectCode, rawTotal1Value, vatState) {
+            const amountCard = document.querySelector(`#card-financial-${projectCode}`);
+            if (!amountCard) return;
+            
+            // 취소 중인 경우 계산하지 않음
+            if (amountCard.dataset.cancelling === 'true') {
+                console.log(`[calculateAmountFieldsWithVatState] 취소 중이므로 계산 건너뜀: ${projectCode}`);
+                return;
+            }
+
+            const total1 = parseFloat(rawTotal1Value) || 0;
+            console.log(`[calculateAmountFieldsWithVatState] 총액1: ${total1}, 부가세 상태: ${vatState}`);
+            
+            // 한국 회계 실무 방식으로 총액2 계산
+            let total2;
+            if (vatState) {
+                // 부가세 = ROUND(공급가액 × 0.1, 0)
+                const vat = Math.round(total1 * 0.1);
+                // 총액2 = 공급가액 + 부가세
+                total2 = total1 + vat;
+                console.log(`[calculateAmountFieldsWithVatState] 부가세 포함: ${total1} + ${vat} = ${total2}`);
+            } else {
+                // 부가세 미포함 시 공급가액 그대로
+                total2 = total1;
+                console.log(`[calculateAmountFieldsWithVatState] 부가세 미포함: ${total2}`);
+            }
+            
+            // 총액2 필드 업데이트 (실시간 화면 반영)
+            updateFieldValue(amountCard, '총액2', total2);
+            updateFieldValue(amountCard, '총액 2', total2);
+
+            // 순익 계산도 업데이트
+            const productCost = parseFloat(extractFieldValue(amountCard, '제품대') || '0') || 0;
+            const contractCost = parseFloat(extractFieldValue(amountCard, '도급비') || '0') || 0;
+            const materialCost = parseFloat(extractFieldValue(amountCard, '자재비') || '0') || 0;
+            const otherCost = parseFloat(extractFieldValue(amountCard, '기타비') || '0') || 0;
+            
+            const profit = Math.max(0, total2 - productCost - contractCost - materialCost - otherCost);
+            updateFieldValue(amountCard, '순익', profit);
+            
+            const marginRate = total2 > 0 ? (profit / total2 * 100) : 0;
+            const marginField = amountCard.querySelector('[data-field="마진율"]');
+            if (marginField) {
+                marginField.textContent = `${marginRate.toFixed(1)}%`;
+            }
+        }
+
+        function calculateAmountFields(projectCode, rawTotal1Value = null) {
+            const amountCard = document.querySelector(`#card-financial-${projectCode}`);
+            if (!amountCard) return;
+            
+            // 취소 중인 경우 계산하지 않음
+            if (amountCard.dataset.cancelling === 'true') {
+                console.log(`[calculateAmountFields] 취소 중이므로 계산 건너뜀: ${projectCode}`);
+                return;
+            }
+
+            // 총액1과 부가세 정보로 총액2 계산
+            // rawTotal1Value가 있으면 사용, 없으면 기존 방식
+            const total1 = rawTotal1Value !== null ? 
+                parseFloat(rawTotal1Value) || 0 :
+                parseFloat(extractFieldValue(amountCard, '총액1') || extractFieldValue(amountCard, '총액 1') || '0') || 0;
+            
+            // 부가세 포함 여부 확인 (다양한 방식으로 체크)
+            const vatField = amountCard.querySelector('[data-field="부가세"]');
+            let taxIncluded = false;
+            
+            if (vatField) {
+                const vatValue = extractFieldValue(amountCard, '부가세');
+                const vatText = vatField.textContent || vatField.innerHTML || '';
+                
+                // 값이 'true'이거나 텍스트에 '포함'이 있으면 부가세 포함 (단, '포함안됨' 제외)
+                taxIncluded = vatValue === 'true' || 
+                             (vatText.includes('포함') && !vatText.includes('포함안됨')) || 
+                             vatText.includes('VAT 포함') ||
+                             vatField.classList.contains('vat-included');
+            }
+            
+            // 한국 회계 실무 방식: 총액1(공급가액) → 총액2(부가세 포함 합계)
+            let total2;
+            if (taxIncluded) {
+                // 부가세 = ROUND(공급가액 × 0.1, 0)
+                const vat = Math.round(total1 * 0.1);
+                // 총액2 = 공급가액 + 부가세
+                total2 = total1 + vat;
+            } else {
+                // 부가세 미포함 시 공급가액 그대로
+                total2 = total1;
+            }
+            
+            // 총액2 필드 업데이트 (실시간 화면 반영)
             updateFieldValue(amountCard, '총액2', total2);
             updateFieldValue(amountCard, '총액 2', total2);
 
@@ -9345,6 +9798,15 @@
         function initializeRealTimeProjectUpdates() {
             if (typeof io !== 'undefined') {
                 const socket = io();
+                
+                // 실시간 카드 잠금 상태 처리
+                socket.on('card_locked', function(data) {
+                    showCardLocked(data.project_code, data.card_type, data.user_name);
+                });
+                
+                socket.on('card_unlocked', function(data) {
+                    hideCardLocked(data.project_code, data.card_type);
+                });
                 
                 // 새 프로젝트가 추가되었을 때
                 socket.on('new_project_added', function(projectData) {
@@ -9615,6 +10077,6 @@
         });
 
     </script>
-    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
 </body>
 </html>

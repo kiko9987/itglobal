@@ -31,6 +31,7 @@ from utils.security import init_security, csrf_protect, validate_input, get_csrf
 from utils.jwt_auth import init_jwt_manager, jwt_required, create_jwt_tokens
 from utils.api_response import APIResponse, APIErrorCode, api_response
 from utils.database import init_database, get_user_repository, get_audit_repository
+from utils.field_lock_manager import field_lock_manager
 
 # 환경 변수 로드
 load_dotenv()
@@ -1769,6 +1770,113 @@ def get_card_type_for_field(field_name):
     }
     
     return field_to_card_mapping.get(field_name, 'unknown')
+
+@app.route('/api/card-lock/acquire', methods=['POST'])
+@login_required
+def acquire_card_lock():
+    """카드 잠금 획득"""
+    try:
+        data = request.get_json()
+        project_code = data.get('project_code')
+        card_type = data.get('card_type')
+        
+        if not project_code or not card_type:
+            return jsonify({'success': False, 'error': '프로젝트 코드와 카드 타입이 필요합니다.'}), 400
+        
+        # 현재 사용자 정보 (테스트용 헤더 우선 확인)
+        test_user_id = request.headers.get('X-Test-User-Id')
+        if test_user_id:
+            user_email = f'{test_user_id}@test.com'
+            user_name = test_user_id  # 테스트시에는 간단하게
+        else:
+            # 세션에서 사용자 정보 가져오기
+            user_data = session.get('user', {})
+            user_email = user_data.get('email', 'unknown@example.com')
+            # 이메일에서 @ 앞부분만 추출
+            user_name = user_email.split('@')[0] if '@' in user_email else user_email
+        
+        # 카드 전체를 하나의 "필드"로 취급
+        card_key = f"{card_type}_card"
+        result = field_lock_manager.acquire_lock(project_code, card_key, user_email, user_name)
+        
+        # 잠금 상태 변경을 실시간으로 알림
+        if result['success']:
+            socketio.emit('card_locked', {
+                'project_code': project_code,
+                'card_type': card_type,
+                'user_name': user_name,
+                'user_email': user_email,
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"필드 잠금 획득 오류: {str(e)}")
+        return jsonify({'success': False, 'error': '잠금 획득 중 오류가 발생했습니다.'}), 500
+
+@app.route('/api/card-lock/release', methods=['POST'])
+@login_required
+def release_card_lock():
+    """카드 잠금 해제"""
+    try:
+        data = request.get_json()
+        project_code = data.get('project_code')
+        card_type = data.get('card_type')
+        
+        if not project_code or not card_type:
+            return jsonify({'success': False, 'error': '프로젝트 코드와 카드 타입이 필요합니다.'}), 400
+        
+        # 현재 사용자 정보 (테스트용 헤더 우선 확인)
+        test_user_id = request.headers.get('X-Test-User-Id')
+        if test_user_id:
+            user_email = f'{test_user_id}@test.com'
+        else:
+            # 세션에서 사용자 정보 가져오기
+            user_data = session.get('user', {})
+            user_email = user_data.get('email', 'unknown@example.com')
+        
+        card_key = f"{card_type}_card"
+        result = field_lock_manager.release_lock(project_code, card_key, user_email)
+        
+        # 잠금 해제를 실시간으로 알림
+        if result['success']:
+            socketio.emit('card_unlocked', {
+                'project_code': project_code,
+                'card_type': card_type,
+                'user_email': user_email,
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"필드 잠금 해제 오류: {str(e)}")
+        return jsonify({'success': False, 'error': '잠금 해제 중 오류가 발생했습니다.'}), 500
+
+@app.route('/api/field-lock/status/<project_code>', methods=['GET'])
+@login_required
+def get_project_lock_status(project_code):
+    """프로젝트의 잠금 상태 조회"""
+    try:
+        locks = field_lock_manager.get_project_locks(project_code)
+        return jsonify({'success': True, 'locks': locks})
+        
+    except Exception as e:
+        logger.error(f"잠금 상태 조회 오류: {str(e)}")
+        return jsonify({'success': False, 'error': '잠금 상태 조회 중 오류가 발생했습니다.'}), 500
+
+@app.route('/api/debug/session', methods=['GET'])
+@login_required 
+def debug_session():
+    """세션 정보 디버깅"""
+    user_data = session.get('user', {})
+    return jsonify({
+        'session_keys': list(session.keys()),
+        'user_data': user_data,
+        'user_email': user_data.get('email', 'NOT_FOUND'),
+        'user_name': user_data.get('email', '').split('@')[0] if user_data.get('email') else 'NO_EMAIL'
+    })
 
 @app.route('/api/inline-update', methods=['POST'])
 @login_required

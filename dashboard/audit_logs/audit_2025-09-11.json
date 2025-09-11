@@ -1,0 +1,15 @@
+[
+  {
+    "timestamp": "2025-09-11T14:44:24.725454",
+    "user_name": "고광일",
+    "user_email": "kiko@itg-aircon.com",
+    "user_role": "admin",
+    "action": "UPDATE_FIELD",
+    "details": "프로젝트 필드 수정: 계산서",
+    "project_code": "G2849-MS",
+    "field_name": "계산서",
+    "old_value": "카드결제",
+    "new_value": "계약금",
+    "ip_address": "127.0.0.1"
+  }
+]
