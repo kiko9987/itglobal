@@ -2351,6 +2351,23 @@ def get_audit_logs_api():
         logger.error(f"감사 로그 조회 오류: {str(e)}")
         return jsonify({'success': False, 'message': '로그 조회에 실패했습니다.'}), 500
 
+# 통계 페이지 라우트
+@app.route('/stats')
+@login_required
+def stats_page():
+    """통계 페이지"""
+    try:
+        user_role = get_user_role()
+        user_email = session.get('user', {}).get('email', '')
+        
+        return render_template('stats.html', 
+                               user_role=user_role,
+                               user_email=user_email,
+                               user=session.get('user', {}))
+    except Exception as e:
+        logger.error(f"통계 페이지 로드 오류: {str(e)}")
+        return f"통계 페이지를 로드할 수 없습니다: {str(e)}", 500
+
 # 파비콘 처리 (404 오류 방지)
 @app.route('/favicon.ico')
 def favicon():
@@ -2459,6 +2476,8 @@ if __name__ == '__main__':
         except Exception as e:
             logger.error(f"사용자 삭제 오류: {str(e)}")
             return jsonify({'success': False, 'message': '사용자 삭제에 실패했습니다.'}), 500
+
+
 
     logger.info(f"대시보드 서버 시작: http://localhost:{port}")
     socketio.run(app, debug=debug, host='0.0.0.0', port=port)
