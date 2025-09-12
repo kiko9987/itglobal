@@ -2795,17 +2795,17 @@
                     <table class="table table-hover" id="projectsTable">
                         <thead>
                             <tr>
-                                <th style="width: 8%;">프로젝트 코드</th>
-                                <th style="width: 5%;">담당자</th>
-                                <th style="width: 7%;">거래처</th>
-                                <th style="width: 26%;">현장 주소</th>
-                                <th style="width: 19%;">공사 내용</th>
-                                <th style="width: 7%;">공사 시작</th>
-                                <th style="width: 7%;">공사 종료</th>
-                                <th style="width: 7%;">총액</th>
-                                <th style="width: 7%;">미수금</th>
-                                <th style="width: 9%;">상태</th>
-                                <th style="width: 4%;">데이터</th>
+                                <th style="width: 10%;">프로젝트 코드</th>
+                                <th style="width: 8%;">담당자</th>
+                                <th style="width: 10%;">거래처</th>
+                                <th style="width: 22%;">현장 주소</th>
+                                <th style="width: 18%;">공사 내용</th>
+                                <th style="width: 8%;">공사 시작</th>
+                                <th style="width: 8%;">공사 종료</th>
+                                <th style="width: 8%;">총액</th>
+                                <th style="width: 8%;">미수금</th>
+                                <th style="width: 8%;">상태</th>
+                                <th style="width: 6%;">데이터</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -3923,12 +3923,12 @@
                 dataTable = $('#projectsTable').DataTable({
                     data: data || [],
                 columns: [
-                    { data: '프로젝트 코드', width: '8%' },
-                    { data: '담당자', width: '5%' },
-                    { data: '거래처', width: '7%' },
+                    { data: '프로젝트 코드', width: '10%' },
+                    { data: '담당자', width: '8%' },
+                    { data: '거래처', width: '10%' },
                     { 
                         data: '현장 주소',
-                        width: '26%',
+                        width: '22%',
                         render: function(data) {
                             if (data && data.trim() !== '') {
                                 return data;
@@ -3939,7 +3939,7 @@
                     },
                     { 
                         data: '공사 내용',
-                        width: '19%',
+                        width: '18%',
                         render: function(data) {
                             if (data && data.trim() !== '') {
                                 return data;
@@ -3950,7 +3950,7 @@
                     },
                     { 
                         data: '공사 시작',
-                        width: '7%',
+                        width: '8%',
                         render: function(data) {
                             if (data) {
                                 return formatDate(data);
@@ -3961,7 +3961,7 @@
                     },
                     { 
                         data: '공사 종료',
-                        width: '7%',
+                        width: '8%',
                         render: function(data) {
                             if (data) {
                                 return formatDate(data);
@@ -3973,7 +3973,7 @@
                     { 
                         data: null, // S열 총액2 동적 처리
                         className: 'amount-cell',
-                        width: '7%',
+                        width: '8%',
                         render: function(data, type, row) {
                             // 다양한 컬럼명 시도 (API 응답 기준)
                             const totalAmount = row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0;
@@ -3989,7 +3989,7 @@
                     { 
                         data: null, // W열 미수금 동적 처리
                         className: 'amount-cell',
-                        width: '7%',
+                        width: '8%',
                         render: function(data, type, row) {
                             // 다양한 컬럼명으로 W열 미수금 데이터 찾기
                             const outstandingData = row['미수금'] || row['미수금W'] || row['미수금 W'] || row['W'] || 0;
@@ -4027,7 +4027,7 @@
                     { 
                         data: null,
                         title: '데이터',
-                        width: '4%',
+                        width: '6%',
                         className: 'text-center',
                         render: function(data, type, row) {
                             const completeness = checkDataCompleteness(row);
