@@ -3489,6 +3489,7 @@
         const userPermission = '{{ session.user.permission_level if session.user else "Admin" }}';
         const userName = '{{ session.user.name if session.user else "관리자" }}';
         const userRole = '{{ user_role }}';  // 서버에서 계산된 최종 역할
+        window.currentUserEmail = '{{ user_email }}';  // 현재 로그인한 사용자 이메일
         
         // 개발자용 임시 권한 변경 함수 (테스트용)
         function changeTestPermission(role) {
@@ -4139,6 +4140,14 @@
                     
                     // 행 클릭 이벤트 추가
                     setupRowClickEvents();
+                    
+                    // 첫 번째 draw 후에만 잠금 상태 복원 (중복 실행 방지)
+                    if (!window.lockStatesRestored) {
+                        window.lockStatesRestored = true;
+                        setTimeout(() => {
+                            restoreAllLockStates();
+                        }, 100);
+                    }
                 }
             });
             
@@ -4429,8 +4438,19 @@
                     // 아코디언 펼친 후 계산 필드들 즉시 재계산 (정확한 값 표시)
                     const projectCode = row.data()['프로젝트 코드'] || '';
                     if (projectCode) {
+                        // 🚀 캐싱된 잠금 상태를 즉시 적용 (지연 없음)
+                        applyPendingLocks(projectCode);
+                        
+                        // 테이블 행의 잠금 상태를 카드에 동기화 (백업용)
+                        setTimeout(() => {
+                            syncRowLocksToCards(projectCode);
+                        }, 50);
+                        
                         updateCollectionStatus(projectCode, 'accordion-expand', true);
                         calculateAmountFields(projectCode);
+                        
+                        // 🚀 손익정보 카드 계산도 실행
+                        calculateProfitFields(projectCode);
                     }
                 }
             });
@@ -4533,7 +4553,15 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>공사시작</small>
-                                                    <div class="editable-value" data-field="공사 시작">${rowData['공사 시작'] ? formatDate(rowData['공사 시작']) : '-'}</div>
+                                                    <div class="editable-value" data-field="공사 시작" data-original-value="${(() => {
+                                                        const dateValue = rowData['공사 시작'] || '';
+                                                        if (dateValue && dateValue !== '-' && !(/^\d+$/.test(dateValue.toString()))) {
+                                                            return dateValue.includes('/') ? 
+                                                                dateValue.split('/').map(p => p.padStart(2, '0')).join('-') : 
+                                                                dateValue;
+                                                        }
+                                                        return dateValue;
+                                                    })()}">${rowData['공사 시작'] ? formatDate(rowData['공사 시작']) : '-'}</div>
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>브랜드</small>
@@ -4541,7 +4569,15 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>공사종료</small>
-                                                    <div class="editable-value" data-field="공사 종료">${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
+                                                    <div class="editable-value" data-field="공사 종료" data-original-value="${(() => {
+                                                        const dateValue = rowData['공사 종료'] || '';
+                                                        if (dateValue && dateValue !== '-' && !(/^\d+$/.test(dateValue.toString()))) {
+                                                            return dateValue.includes('/') ? 
+                                                                dateValue.split('/').map(p => p.padStart(2, '0')).join('-') : 
+                                                                dateValue;
+                                                        }
+                                                        return dateValue;
+                                                    })()}">${rowData['공사 종료'] ? formatDate(rowData['공사 종료']) : '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -4656,11 +4692,25 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>수금날짜</small>
-                                                    <div class="editable-value" data-field="수금 날짜" data-original-value="${rowData['수금 날짜'] || ''}">
+                                                    <div class="editable-value" data-field="수금 날짜" data-original-value="${(() => {
+                                                        const dateValue = rowData['수금 날짜'] || '';
+                                                        if (dateValue && dateValue !== '-' && !(/^\d+$/.test(dateValue.toString()))) {
+                                                            // 날짜 형식 정규화 적용
+                                                            return dateValue.includes('/') ? 
+                                                                dateValue.split('/').map(p => p.padStart(2, '0')).join('-') : 
+                                                                dateValue;
+                                                        }
+                                                        return dateValue;
+                                                    })()}">
                                                         ${(() => {
                                                             const dateValue = rowData['수금 날짜'] || '';
-                                                            if (dateValue) {
-                                                                // 날짜가 있으면 날짜입력기로 표시
+                                                            if (dateValue && dateValue !== '-') {
+                                                                // 숫자만 있는 경우 (예: "2025") 처리
+                                                                if (/^\d+$/.test(dateValue.toString())) {
+                                                                    return `<span style="color: #6c757d; font-style: italic;">잘못된 날짜 형식</span>`;
+                                                                }
+                                                                
+                                                                // 정상적인 날짜 처리
                                                                 const formattedDate = dateValue.includes('/') ? 
                                                                     dateValue.split('/').map(p => p.padStart(2, '0')).join('-') : 
                                                                     dateValue;
@@ -4710,7 +4760,7 @@
                                                 </div>
                                                 <div class="compact-item">
                                                     <small>순익</small>
-                                                    <div class="${getProfitStyle(rowData)} editable-value calculated-field" data-field="순익" data-original-value="${rowData['순익'] || ''}">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
+                                                    <div class="${getProfitStyle(rowData)} calculated-field" data-field="순익" title="자동 계산된 값 (수정 불가)" data-original-value="${rowData['순익'] || ''}">${rowData['순익'] ? formatCurrency(rowData['순익']) : '-'}</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -6838,34 +6888,26 @@
             
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
             
-            // UI를 먼저 즉시 변경 (응답성 향상)
-            const editBtn = card.querySelector('.edit-btn');
-            const saveBtn = card.querySelector('.save-btn');
-            const cancelBtn = card.querySelector('.cancel-btn');
-            
-            editBtn.classList.add('d-none');
-            saveBtn.classList.remove('d-none');
-            cancelBtn.classList.remove('d-none');
-            
-            // 입력창도 즉시 생성 (더 빠른 응답성)
-            activateEditMode(projectCode, cardType);
-            
-            // 백그라운드에서 잠금 처리
+            // 🚀 잠금 요청을 먼저 수행하고, 성공 시에만 UI 변경
             acquireCardLock(projectCode, cardType).then(result => {
                 if (!result.success) {
-                    // 본인이 이미 잠금을 보유한 경우는 이미 편집 모드가 활성화되어 있음
+                    // 본인이 이미 잠금을 보유한 경우 편집 모드 활성화
                     if (result.lockedBy && result.lockedBy.includes(currentUserEmail.split('@')[0])) {
+                        activateEditMode(projectCode, cardType);
                         return;
                     }
-                    // 잠금 실패 시 UI 복원 및 처리 상태 해제 (편집 모드 취소)
-                    cancelCardEdit(projectCode, cardType);
+                    // 다른 사용자가 잠금 중이면 알림 표시
+                    alert(result.message || '다른 사용자가 편집 중입니다.');
+                    processingCards.delete(cardKey);
                     return;
                 }
                 
-                // 잠금 획득 성공 - 편집 모드는 이미 활성화되어 있음
+                // 🎯 잠금 획득 성공 - 이제 안전하게 편집 모드 활성화
+                activateEditMode(projectCode, cardType);
+                
             }).catch(error => {
-                // 오류 발생 시 편집 모드 취소
-                cancelCardEdit(projectCode, cardType);
+                // 오류 발생 시 처리 상태 해제
+                processingCards.delete(cardKey);
                 console.error('카드 잠금 중 오류:', error);
                 alert('편집 모드 활성화 중 오류가 발생했습니다.');
             });
@@ -7234,6 +7276,13 @@
             // 첫 번째 입력 필드에 포커스
             const firstInput = card.querySelector('.inline-edit-input');
             if (firstInput) firstInput.focus();
+            
+            // 🚀 편집 모드 활성화 완료 - 처리 상태 해제
+            const cardKey = `${projectCode}-${cardType}`;
+            processingCards.delete(cardKey);
+            
+            // 📝 편집 중인 카드 추적 시작
+            trackEditingCard(projectCode, cardType);
         }
         
         // 현재 사용자 이메일 정보
@@ -7302,10 +7351,15 @@
         
         // 카드 잠금 표시 함수들
         function showCardLocked(projectCode, cardType, userName) {
+            // 1. 프로젝트 테이블 행에 즉시 잠금 표시 (아코디언 상관없이)
+            showProjectRowLocked(projectCode, cardType, userName);
+            
+            // 2. 카드가 존재하면 카드에도 잠금 표시
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
             if (card) {
                 // 수정 버튼 찾기 (문서 폴더는 .edit-folder-btn 클래스 사용)
                 const editBtn = card.querySelector('.edit-btn, .btn-edit, .edit-folder-btn');
+                
                 if (editBtn) {
                     // 버튼 내용 변경하여 잠금 상태 표시
                     editBtn.innerHTML = `<i class="fas fa-lock me-2"></i>'${userName}'님이 수정 중`;
@@ -7319,7 +7373,53 @@
             }
         }
         
+        // 프로젝트 테이블 행에 잠금 상태 표시
+        function showProjectRowLocked(projectCode, cardType, userName) {
+            const projectRow = document.querySelector(`tr[data-project-code="${projectCode}"]`);
+            if (!projectRow) return;
+            
+            // 기존 잠금 표시 제거
+            const existingLockBadge = projectRow.querySelector(`.lock-badge-${cardType}`);
+            if (existingLockBadge) {
+                existingLockBadge.remove();
+            }
+            
+            // 프로젝트 코드 셀 (첫 번째 셀)
+            const projectCodeCell = projectRow.querySelector('td:first-child');
+            if (projectCodeCell) {
+                // 카드 타입별 색상 설정
+                const cardTypeColors = {
+                    'construction': '#28a745', // 초록색
+                    'financial': '#007bff',    // 파란색
+                    'payment': '#ffc107',      // 노란색
+                    'document': '#6f42c1'      // 보라색
+                };
+                
+                const cardTypeNames = {
+                    'construction': '시공',
+                    'financial': '재무',
+                    'payment': '수금',
+                    'document': '문서'
+                };
+                
+                // 잠금 뱃지 생성
+                console.log(`[뱃지생성] 프로젝트 ${projectCode}의 ${cardType} 뱃지 생성 중`);
+                const lockBadge = document.createElement('span');
+                lockBadge.className = `badge ms-2 lock-badge-${cardType}`;
+                lockBadge.style.backgroundColor = cardTypeColors[cardType] || '#6c757d';
+                lockBadge.style.fontSize = '10px';
+                lockBadge.title = `${userName}님이 ${cardTypeNames[cardType]} 카드를 수정 중입니다`;
+                lockBadge.innerHTML = `<i class="fas fa-lock me-1"></i>${cardTypeNames[cardType]} 수정중`;
+                
+                projectCodeCell.appendChild(lockBadge);
+            }
+        }
+        
         function hideCardLocked(projectCode, cardType) {
+            // 1. 프로젝트 테이블 행의 잠금 표시 제거
+            hideProjectRowLocked(projectCode, cardType);
+            
+            // 2. 카드의 잠금 표시 제거
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
             if (card) {
                 // 수정 버튼 원상 복구 (문서 폴더는 .edit-folder-btn 클래스 사용)
@@ -7334,6 +7434,96 @@
                     editBtn.title = '';
                 }
             }
+        }
+        
+        // 프로젝트 테이블 행의 잠금 상태 제거
+        function hideProjectRowLocked(projectCode, cardType) {
+            const projectRow = document.querySelector(`tr[data-project-code="${projectCode}"]`);
+            if (!projectRow) return;
+            
+            // 해당 카드 타입의 잠금 표시 제거
+            const lockBadge = projectRow.querySelector(`.lock-badge-${cardType}`);
+            if (lockBadge) {
+                lockBadge.remove();
+            }
+        }
+        
+        // 아코디언이 열릴 때 테이블 행의 잠금 상태를 카드에 동기화
+        function syncRowLocksToCards(projectCode) {
+            const projectRow = document.querySelector(`tr[data-project-code="${projectCode}"]`);
+            if (!projectRow) return;
+            
+            // 모든 잠금 뱃지 찾기
+            const lockBadges = projectRow.querySelectorAll('[class*="lock-badge-"]');
+            
+            lockBadges.forEach(badge => {
+                // 클래스에서 카드 타입 추출 (예: lock-badge-construction)
+                const cardType = badge.className.match(/lock-badge-(\w+)/)?.[1];
+                if (!cardType) return;
+                
+                // 뱃지 제목에서 사용자 이름 추출
+                const userName = badge.title.match(/(.+?)님이/)?.[1];
+                if (!userName) return;
+                
+                // 해당 카드에 잠금 표시
+                const card = document.getElementById(`card-${cardType}-${projectCode}`);
+                if (card) {
+                    const editBtn = card.querySelector('.edit-btn, .btn-edit, .edit-folder-btn');
+                    if (editBtn && !editBtn.classList.contains('btn-locked')) {
+                        editBtn.innerHTML = `<i class="fas fa-lock me-2"></i>'${userName}'님이 수정 중`;
+                        editBtn.disabled = true;
+                        editBtn.classList.add('btn-locked');
+                        editBtn.style.backgroundColor = '#6c757d';
+                        editBtn.style.borderColor = '#6c757d';
+                        editBtn.style.color = 'white';
+                        editBtn.title = `'${userName}'님이 수정 중`;
+                    }
+                }
+            });
+        }
+        
+        // 실시간 WebSocket에서 즉시 카드 잠금 (충돌 방지)
+        function showCardLockedImmediate(projectCode, cardType, userName) {
+            // 1. 즉시 모든 존재하는 카드에 잠금 적용
+            const card = document.getElementById(`card-${cardType}-${projectCode}`);
+            if (card) {
+                const editBtn = card.querySelector('.edit-btn, .btn-edit, .edit-folder-btn');
+                if (editBtn) {
+                    editBtn.innerHTML = `<i class="fas fa-lock me-2"></i>'${userName}'님이 수정 중`;
+                    editBtn.disabled = true;
+                    editBtn.classList.add('btn-locked');
+                    editBtn.style.backgroundColor = '#6c757d';
+                    editBtn.style.borderColor = '#6c757d';
+                    editBtn.style.color = 'white';
+                    editBtn.title = `'${userName}'님이 수정 중`;
+                }
+            }
+            
+            // 2. 향후 생성될 카드를 위한 잠금 상태 캐싱
+            if (!window.pendingLocks) window.pendingLocks = {};
+            if (!window.pendingLocks[projectCode]) window.pendingLocks[projectCode] = {};
+            window.pendingLocks[projectCode][cardType] = userName;
+        }
+        
+        // 아코디언 열 때 캐싱된 잠금 상태를 즉시 적용 (충돌 방지)
+        function applyPendingLocks(projectCode) {
+            if (!window.pendingLocks || !window.pendingLocks[projectCode]) return;
+            
+            Object.entries(window.pendingLocks[projectCode]).forEach(([cardType, userName]) => {
+                const card = document.getElementById(`card-${cardType}-${projectCode}`);
+                if (card) {
+                    const editBtn = card.querySelector('.edit-btn, .btn-edit, .edit-folder-btn');
+                    if (editBtn && !editBtn.classList.contains('btn-locked')) {
+                        editBtn.innerHTML = `<i class="fas fa-lock me-2"></i>'${userName}'님이 수정 중`;
+                        editBtn.disabled = true;
+                        editBtn.classList.add('btn-locked');
+                        editBtn.style.backgroundColor = '#6c757d';
+                        editBtn.style.borderColor = '#6c757d';
+                        editBtn.style.color = 'white';
+                        editBtn.title = `'${userName}'님이 수정 중`;
+                    }
+                }
+            });
         }
         
         // 진행 중인 저장 작업 추적
@@ -7405,6 +7595,11 @@
                 // fieldName이 undefined인 경우 건너뛰기
                 if (!fieldName) {
                     console.warn('fieldName이 undefined인 input 발견, 건너뜀:', input);
+                    return;
+                }
+                
+                // 🚀 손익정보 카드의 계산 필드는 구글 시트로 전송하지 않음 (프론트엔드 계산용)
+                if (cardType === 'profit' && (fieldName === '순익' || fieldName === '마진율')) {
                     return;
                 }
                 
@@ -7590,20 +7785,15 @@
                         } else {
                             newValue = input.value.trim() || '-';
                             
-                            // 날짜 필드인 경우 표시 형식 변환 (YYYY-MM-DD -> YYYY/MM/DD)
-                            if ((fieldName === '공사 시작' || fieldName === '공사 종료' || fieldName === '수금 날짜') && 
-                                newValue !== '-' && input.type === 'date') {
-                                const dateParts = newValue.split('-');
-                                if (dateParts.length === 3) {
-                                    newValue = `${dateParts[0]}/${parseInt(dateParts[1])}/${parseInt(dateParts[2])}`;
-                                }
-                            }
+                            // 날짜 필드는 YYYY-MM-DD 형식 유지 (변환하지 않음)
+                            // 날짜 input에서 받은 YYYY-MM-DD 형식을 그대로 사용
                             
-                            // 금액 필드 처리 (actual_values가 없는 경우만)
+                            // 금액 필드 처리 (actual_values가 없는 경우만, 날짜 필드 제외)
                             if (!hasActualValues && (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
                                 fieldName.includes('익') || fieldName === '제품대' || fieldName === '도급비' || 
                                 fieldName === '자재비' || fieldName === '기타비' || fieldName === '순익' || 
-                                fieldName === '미수금W' || fieldName === '미수금')) {
+                                fieldName === '미수금W' || fieldName === '미수금') && 
+                                !(fieldName === '수금 날짜' || fieldName === '수금 확인')) {
                                 // 콤마와 기타 특수문자 제거 후 숫자로 변환
                                 const cleanValue = newValue.replace(/[^0-9.-]/g, '');
                                 const numValue = parseFloat(cleanValue) || 0;
@@ -7741,7 +7931,7 @@
                         if (hasRelatedFieldChanges) {
                             // 약간의 지연 후 계산 (UI 업데이트 완료 후)
                             setTimeout(() => {
-                                calculateProfitAndMargin(finalProjectCode, cardType);
+                                calculateProfitFields(finalProjectCode);
                             }, 200);
                         }
                     }
@@ -7880,10 +8070,11 @@
                     } else {
                         displayValue = '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
                     }
-                } else if (fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
+                } else if ((fieldName.includes('총액') || fieldName.includes('금') || fieldName.includes('비') || 
                           fieldName.includes('익') || fieldName === '제품대' || fieldName === '도급비' || 
                           fieldName === '자재비' || fieldName === '기타비' || fieldName === '순익' || 
-                          fieldName === '미수금W' || fieldName === '미수금') {
+                          fieldName === '미수금W' || fieldName === '미수금') && 
+                          !(fieldName === '수금 날짜' || fieldName === '수금 확인')) {
                     // 금액 필드는 formatCurrency 적용
                     if (normalizedOriginalValue === '') {
                         displayValue = '-';
@@ -7903,11 +8094,38 @@
                         displayValue = (!isNaN(numValue) && numValue > 0) ? numValue.toFixed(1) + '%' : '-';
                     }
                 } else if (fieldName === '수금 날짜' || fieldName === '공사 시작' || fieldName === '공사 종료') {
-                    // 날짜 필드는 formatDate 적용
-                    displayValue = normalizedOriginalValue ? formatDate(normalizedOriginalValue) : '-';
+                    // 날짜 필드 유효성 검사 후 YYYY-MM-DD 형식으로 정규화
+                    if (!normalizedOriginalValue || normalizedOriginalValue === '-') {
+                        displayValue = '-';
+                    } else if (/^\d+$/.test(normalizedOriginalValue.toString())) {
+                        // 순수 숫자인 경우 (잘못된 데이터) 원본값 그대로 유지하고 경고
+                        displayValue = `<span style="color: #6c757d; font-style: italic;">잘못된 날짜 형식 (${normalizedOriginalValue})</span>`;
+                    } else {
+                        // 날짜 형식 정규화 적용 (YYYY/M/D -> YYYY-MM-DD)
+                        try {
+                            const normalizedDate = normalizeDateFormat(normalizedOriginalValue);
+                            if (normalizedDate && normalizedDate !== normalizedOriginalValue) {
+                                displayValue = normalizedDate; // 정규화된 형식 사용
+                            } else if (normalizedOriginalValue.includes('-') || normalizedOriginalValue.includes('/')) {
+                                // 유효한 날짜 형식인 경우 formatDate로 YYYY-MM-DD 보장
+                                const testDate = new Date(normalizedOriginalValue);
+                                if (!isNaN(testDate.getTime())) {
+                                    displayValue = formatDate(normalizedOriginalValue);
+                                } else {
+                                    displayValue = normalizedOriginalValue;
+                                }
+                            } else {
+                                displayValue = normalizedOriginalValue;
+                            }
+                        } catch (e) {
+                            displayValue = normalizedOriginalValue;
+                        }
+                    }
                 }
                 
                 if (fieldName === '수금 확인') {
+                    valueDiv.innerHTML = displayValue;
+                } else if ((fieldName === '수금 날짜' || fieldName === '공사 시작' || fieldName === '공사 종료') && displayValue.includes('<span')) {
                     valueDiv.innerHTML = displayValue;
                 } else {
                     valueDiv.textContent = displayValue;
@@ -7943,6 +8161,13 @@
             
             // 취소 플래그 해제
             delete card.dataset.cancelling;
+            
+            // 🚀 손익정보 카드 취소 후 계산 필드 복원
+            if (cardType === 'profit') {
+                setTimeout(() => {
+                    calculateProfitFields(projectCode);
+                }, 100);
+            }
             
             // 버튼 상태를 즉시 복원하고 백그라운드에서 잠금 해제
             resetCardEditButtons(card);
@@ -7987,6 +8212,9 @@
             delete card.dataset.editing;
             processingCards.delete(cardKey);
             
+            // 📝 편집 중인 카드 추적 해제
+            untrackEditingCard(projectCode, cardType);
+            
             // 편집 버튼 표시, 저장/취소 버튼 숨김
             editBtn.classList.remove('d-none');
             saveBtn.classList.add('d-none');
@@ -8002,6 +8230,11 @@
                 editBtn.style.color = '';
                 editBtn.title = '수정';
             }
+            
+            // 🚀 서버에 잠금 해제 요청 (누락된 부분 추가)
+            releaseCardLock(projectCode, cardType).catch(error => {
+                console.error('카드 잠금 해제 중 오류:', error);
+            });
             
             
             
@@ -9532,24 +9765,24 @@
                     field.textContent = value > 0 ? value.toLocaleString('ko-KR') : '';
                 }
                 
-                // 미수금은 애니메이션 효과 제외, 순익만 애니메이션 적용
-                if (fieldName === '순익') {
-                    showCalculationAnimation(field);
-                }
+                // 모든 계산 필드에서 애니메이션 제거 (부드러운 UX를 위해)
+                // if (fieldName === '순익') {
+                //     showCalculationAnimation(field);
+                // }
             }
         }
 
-        // 계산 완료 애니메이션 효과
+        // 계산 완료 애니메이션 효과 (순익/마진율 전용 - 부드러운 전환)
         function showCalculationAnimation(field) {
             if (!field) return;
             
-            // 체크 아이콘 효과
-            const originalContent = field.innerHTML;
-            field.innerHTML = `<i class="fas fa-check text-success" style="animation: pulse 0.5s;"></i> ${originalContent}`;
+            // 부드러운 하이라이트 효과만 적용
+            field.style.transition = 'background-color 0.3s ease';
+            field.style.backgroundColor = 'rgba(40, 167, 69, 0.1)'; // 연한 녹색 배경
             
             setTimeout(() => {
-                field.innerHTML = originalContent;
-            }, 1000);
+                field.style.backgroundColor = '';
+            }, 600);
         }
 
 
@@ -9586,6 +9819,31 @@
                 });
             }
 
+            // 🚀 손익정보 카드 전용 이벤트 리스너 추가 (더 구체적)
+            document.addEventListener('input', function(event) {
+                const input = event.target;
+                
+                // 손익정보 카드 필드인지 확인
+                if (input.matches('.inline-edit-input')) {
+                    const fieldName = input.dataset.field;
+                    const card = input.closest('[id^="card-profit-"]');
+                    
+                    if (card && ['제품대', '도급비', '자재비', '기타비'].includes(fieldName)) {
+                        const projectCode = card.id.replace('card-profit-', '');
+                        console.log(`[손익정보] 직접 감지: ${fieldName} = ${input.value}, 프로젝트: ${projectCode}`);
+                        
+                        // 기존 타이머 클리어
+                        if (input.profitCalculationTimer) {
+                            clearTimeout(input.profitCalculationTimer);
+                        }
+                        
+                        input.profitCalculationTimer = setTimeout(() => {
+                            calculateProfitFields(projectCode);
+                        }, 200);
+                    }
+                }
+            });
+            
             // 금액 필드 입력 이벤트 리스너 추가
             document.addEventListener('input', function(event) {
                 const input = event.target;
@@ -9632,11 +9890,19 @@
                         calculateTotal2FromTotal1Input(projectCode);
                         // 총액2 변경 후 미수금도 즉시 업데이트
                         updateCollectionStatus(projectCode, 'total2_change');
-                    } else {
+                    } 
+                    // 🚀 손익정보 카드의 비용 필드가 변경된 경우 실시간 순익/마진율 계산
+                    else if (['제품대', '도급비', '자재비', '기타비'].includes(fieldName)) {
+                        console.log(`[디버깅] 손익정보 필드 변경 감지: ${fieldName} = ${input.value}`);
+                        input.amountCalculationTimer = setTimeout(() => {
+                            console.log(`[디버깅] calculateProfitFields 실행 중... 프로젝트: ${projectCode}`);
+                            calculateProfitFields(projectCode);
+                        }, 200);
+                    }
+                    else {
                         // 다른 필드는 200ms 딜레이 (순익 계산만)
                         input.amountCalculationTimer = setTimeout(() => {
                             calculateAmountFields(projectCode);
-                            // 제품대, 도급비, 자재비, 기타비는 순익에만 영향, 미수금에는 영향 없음
                         }, 200);
                     }
                 }
@@ -9669,6 +9935,9 @@
             // 총액2 필드 업데이트
             updateFieldValue(amountCard, '총액2', total2Value);
             updateFieldValue(amountCard, '총액 2', total2Value);
+            
+            // 🚀 총액2가 변경되었으므로 손익정보 카드의 순익/마진율도 함께 업데이트
+            calculateProfitFields(projectCode);
         }
 
         // 부가세 상태를 직접 받아서 계산하는 함수
@@ -9717,6 +9986,9 @@
             if (marginField) {
                 marginField.textContent = `${marginRate.toFixed(1)}%`;
             }
+            
+            // 🚀 총액2가 변경되었으므로 손익정보 카드의 순익/마진율도 함께 업데이트
+            calculateProfitFields(projectCode);
         }
 
         function calculateAmountFields(projectCode, rawTotal1Value = null) {
@@ -9782,12 +10054,132 @@
             if (marginField) {
                 marginField.setAttribute('data-original-value', marginRate.toString());
                 marginField.textContent = marginRate.toFixed(2) + '%';
-                showCalculationAnimation(marginField);
+                // showCalculationAnimation(marginField); // 애니메이션 제거
             }
 
             console.log(`[calculateAmountFields] 금액 계산 완료: 총액1=${total1}, 총액2=${total2}, 순익=${profit}, 마진율=${marginRate.toFixed(2)}%`);
+            
+            // 🚀 총액2가 변경되었으므로 손익정보 카드의 순익/마진율도 함께 업데이트
+            calculateProfitFields(projectCode);
+        }
+        
+        // 🚀 손익정보 카드 전용 실시간 계산 함수
+        function calculateProfitFields(projectCode) {
+            console.log(`[디버깅] calculateProfitFields 시작: ${projectCode}`);
+            
+            // 손익정보 카드 찾기
+            const profitCard = document.querySelector(`#card-profit-${projectCode}`);
+            if (!profitCard) {
+                console.log(`[디버깅] 손익정보 카드를 찾을 수 없음: card-profit-${projectCode}`);
+                return;
+            }
+            
+            // 재무정보 카드에서 총액2 가져오기
+            const financialCard = document.querySelector(`#card-financial-${projectCode}`);
+            let totalAmount = 0;
+            
+            if (financialCard) {
+                const totalField = financialCard.querySelector('[data-field="총액 2"], [data-field="총액2"]');
+                if (totalField) {
+                    const totalValue = totalField.textContent || totalField.dataset.originalValue || '0';
+                    totalAmount = parseFloat(totalValue.replace(/[^0-9]/g, '')) || 0;
+                }
+            }
+            
+            // 손익정보 카드에서 비용 필드들 가져오기
+            const getFieldValue = (fieldName) => {
+                const field = profitCard.querySelector(`[data-field="${fieldName}"]`);
+                if (!field) return 0;
+                
+                // 편집 중인 경우 input 값 사용
+                const input = field.querySelector('.inline-edit-input');
+                if (input) {
+                    return parseFloat(input.value.replace(/[^0-9]/g, '')) || 0;
+                }
+                
+                // 일반 상태인 경우 원래 값 사용
+                const value = field.dataset.originalValue || field.textContent || '0';
+                return parseFloat(value.replace(/[^0-9]/g, '')) || 0;
+            };
+            
+            const productCost = getFieldValue('제품대');
+            const contractCost = getFieldValue('도급비');
+            const materialCost = getFieldValue('자재비');
+            const otherCost = getFieldValue('기타비');
+            
+            console.log(`[디버깅] 계산 값들:`);
+            console.log(`- 총액2: ${totalAmount}`);
+            console.log(`- 제품대: ${productCost}`);
+            console.log(`- 도급비: ${contractCost}`);
+            console.log(`- 자재비: ${materialCost}`);
+            console.log(`- 기타비: ${otherCost}`);
+            
+            // 순익 계산 (총액2 - 모든 비용)
+            const netProfit = totalAmount - (productCost + contractCost + materialCost + otherCost);
+            
+            // 마진율 계산 (순익 / 총액2 * 100)
+            const marginRate = totalAmount > 0 ? (netProfit / totalAmount) * 100 : 0;
+            
+            console.log(`[디버깅] 계산 결과: 순익=${netProfit}, 마진율=${marginRate}%`);
+            
+            // UI 업데이트
+            updateProfitFieldInUI(profitCard, '순익', netProfit);
+            updateProfitFieldInUI(profitCard, '마진율', marginRate);
+        }
+        
+        // 손익정보 카드의 계산 필드 UI 업데이트
+        function updateProfitFieldInUI(card, fieldName, value) {
+            const field = card.querySelector(`[data-field="${fieldName}"]`);
+            if (!field) return;
+            
+            let displayValue, colorClass;
+            
+            if (fieldName === '순익') {
+                displayValue = value >= 0 ? formatCurrency(value) : `-${formatCurrency(Math.abs(value))}`;
+                colorClass = value > 0 ? 'text-success' : value < 0 ? 'text-danger' : 'text-muted';
+            } else if (fieldName === '마진율') {
+                displayValue = `${value.toFixed(1)}%`;
+                colorClass = value > 0 ? 'text-success' : value < 0 ? 'text-danger' : 'text-muted';
+            }
+            
+            // 색상 클래스 업데이트
+            field.className = field.className.replace(/text-(success|danger|muted|info|warning)/g, '');
+            field.classList.add(colorClass, 'calculated-field');
+            
+            // 값 업데이트
+            field.textContent = displayValue;
+            field.dataset.originalValue = value.toString();
+            
+            // 손익정보는 실시간 반영이므로 애니메이션 생략 (부드러운 UX를 위해)
+            // showCalculationAnimation(field);
         }
 
+        // 🚀 모든 잠금 상태 강제 해제 함수 (디버깅용)
+        function forceReleaseAllLocks() {
+            // 모든 테이블 행의 잠금 뱃지 제거
+            document.querySelectorAll('[class*="lock-badge-"]').forEach(badge => badge.remove());
+            
+            // 모든 카드의 수정 버튼 잠금 해제
+            document.querySelectorAll('.edit-btn').forEach(btn => {
+                if (btn.classList.contains('btn-locked')) {
+                    btn.disabled = false;
+                    btn.classList.remove('btn-locked');
+                    btn.innerHTML = '<i class="fas fa-edit me-1"></i>수정';
+                    btn.style.backgroundColor = '';
+                    btn.style.borderColor = '';
+                    btn.style.color = '';
+                    btn.title = '수정';
+                }
+            });
+            
+            // 캐싱된 잠금 상태도 제거
+            if (window.pendingLocks) {
+                window.pendingLocks = {};
+            }
+            
+            console.log('모든 잠금 상태가 강제로 해제되었습니다.');
+        }
+        
         // =================================================================
         // 실시간 새 프로젝트 추가 기능 (Socket.IO)
         // =================================================================
@@ -9799,16 +10191,40 @@
                 
                 // 실시간 카드 잠금 상태 처리
                 socket.on('card_locked', function(data) {
-                    showCardLocked(data.project_code, data.card_type, data.user_name);
+                    // 즉시 테이블 행에 잠금 표시 (아코디언 상관없이)
+                    showProjectRowLocked(data.project_code, data.card_type, data.user_name);
+                    
+                    // 🚀 즉시 모든 관련 카드에 잠금 표시 (아코디언 열림 상태 무관)
+                    showCardLockedImmediate(data.project_code, data.card_type, data.user_name);
                 });
                 
                 socket.on('card_unlocked', function(data) {
-                    hideCardLocked(data.project_code, data.card_type);
+                    // 즉시 테이블 행 잠금 표시 제거
+                    hideProjectRowLocked(data.project_code, data.card_type);
+                    
+                    // 아코디언이 열려있으면 카드 잠금도 해제
+                    const card = document.getElementById(`card-${data.card_type}-${data.project_code}`);
+                    if (card) {
+                        const editBtn = card.querySelector('.edit-btn, .btn-edit, .edit-folder-btn');
+                        if (editBtn && editBtn.classList.contains('btn-locked')) {
+                            editBtn.innerHTML = '<i class="fas fa-edit me-2"></i>수정';
+                            editBtn.disabled = false;
+                            editBtn.classList.remove('btn-locked');
+                            editBtn.style.backgroundColor = '';
+                            editBtn.style.borderColor = '';
+                            editBtn.style.color = '';
+                            editBtn.title = '';
+                        }
+                    }
+                    
+                    // 🚀 캐싱된 잠금 상태도 제거
+                    if (window.pendingLocks && window.pendingLocks[data.project_code]) {
+                        delete window.pendingLocks[data.project_code][data.card_type];
+                    }
                 });
                 
                 // 새 프로젝트가 추가되었을 때
                 socket.on('new_project_added', function(projectData) {
-                    console.log('[Socket.IO] 새 프로젝트 수신:', projectData);
                     
                     // DataTable에 새 프로젝트 추가
                     if (typeof dataTable !== 'undefined' && dataTable) {
@@ -9829,7 +10245,6 @@
                             }, 3000);
                         }
                         
-                        console.log('[Socket.IO] 새 프로젝트 테이블에 추가 완료:', projectData['프로젝트 코드']);
                         
                         // 성공 알림 표시
                         showRealTimeNotification('새 프로젝트가 추가되었습니다: ' + projectData['프로젝트 코드'], 'success');
@@ -9858,7 +10273,6 @@
                     }
                 });
                 
-                console.log('[Socket.IO] 실시간 업데이트 기능 활성화');
             } else {
                 console.warn('[Socket.IO] Socket.IO가 로드되지 않았습니다. CDN 확인 필요');
             }
@@ -10031,12 +10445,168 @@
             }, 600);
         }
         
+        // 페이지 로드 시 모든 프로젝트의 잠금 상태 복원
+        async function restoreAllLockStates() {
+            try {
+                // 🚀 프로젝트 코드 수집 불필요! 서버에서 모든 잠금 상태를 한번에 조회
+                const response = await fetch('/api/field-lock/status/all');
+                
+                if (!response.ok) {
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (!data.success || !data.locks) {
+                    return;
+                }
+                
+                // 프로젝트별로 잠금 정보 그룹화
+                const projectLocks = {};
+                
+                Object.entries(data.locks).forEach(([lockKey, lockInfo]) => {
+                    // lockKey 형식: "프로젝트코드:필드명"
+                    const [projectCode, fieldName] = lockKey.split(':', 2);
+                    if (!projectCode || !fieldName) return;
+                    
+                    if (!projectLocks[projectCode]) {
+                        projectLocks[projectCode] = [];
+                    }
+                    
+                    const lockedBy = lockInfo.locked_by || lockInfo.user_name;
+                    if (lockedBy) {
+                        const cardType = fieldName.replace('_card', '');
+                        projectLocks[projectCode].push({ cardType, lockedBy, fieldName });
+                    }
+                });
+                
+                // 각 프로젝트의 잠금 상태를 즉시 테이블 행에 표시 + 캐싱
+                Object.entries(projectLocks).forEach(([projectCode, lockedCards]) => {
+                    lockedCards.forEach(card => {
+                        // 테이블 행에 뱃지 표시
+                        showProjectRowLocked(projectCode, card.cardType, card.lockedBy);
+                        
+                        // 🚀 잠금 상태 캐싱 (향후 아코디언 열 때 즉시 적용용)
+                        if (!window.pendingLocks) window.pendingLocks = {};
+                        if (!window.pendingLocks[projectCode]) window.pendingLocks[projectCode] = {};
+                        window.pendingLocks[projectCode][card.cardType] = card.lockedBy;
+                    });
+                });
+                
+                
+            } catch (error) {
+                console.error('잠금 상태 복원 중 오류:', error);
+            }
+        }
+        
+        // 현재 사용자 이메일 가져오기
+        function getCurrentUserEmail() {
+            // 세션에서 사용자 정보 가져오기 (서버에서 렌더링 시 설정)
+            return window.currentUserEmail || '';
+        }
+        
+        // 프로젝트 카드가 DOM에 존재하는지 확인하고, 없으면 생성
+        function ensureProjectCardExists(projectCode, cardType, callback) {
+            const cardId = `card-${cardType}-${projectCode}`;
+            let card = document.getElementById(cardId);
+            
+            if (card) {
+                callback();
+                return;
+            }
+            
+            // 아코디언이 이미 열려있는지 확인 (프로젝트 상세 영역 존재 여부와 visibility 모두 체크)
+            const projectDetail = document.querySelector(`#project-${projectCode}`);
+            const isAccordionOpen = projectDetail && 
+                                  projectDetail.style.display !== 'none' && 
+                                  projectDetail.offsetHeight > 0;
+            
+            if (isAccordionOpen) {
+                // 아코디언이 이미 열려있으면 카드가 렌더링될 때까지 기다림
+                let attempts = 0;
+                const maxAttempts = 10;
+                
+                const checkCard = () => {
+                    card = document.getElementById(cardId);
+                    attempts++;
+                    
+                    if (card) {
+                        callback();
+                    } else if (attempts < maxAttempts) {
+                        setTimeout(checkCard, 100);
+                    }
+                };
+                
+                checkCard();
+                return;
+            }
+            
+            // 아코디언이 닫혀있거나 존재하지 않으면 프로젝트 행을 찾아서 클릭
+            // DataTable의 현재 상태에서 행을 찾기
+            let projectRow = null;
+            
+            // 1차: data-project-code 속성으로 찾기
+            projectRow = document.querySelector(`tr[data-project-code="${projectCode}"]`);
+            
+            // 2차: DataTable API를 통해 찾기 (DataTable이 초기화된 경우)
+            if (!projectRow && typeof dataTable !== 'undefined' && dataTable) {
+                try {
+                    const rows = dataTable.rows().nodes();
+                    for (let row of rows) {
+                        if (row.getAttribute('data-project-code') === projectCode) {
+                            projectRow = row;
+                            break;
+                        }
+                    }
+                } catch (e) {
+                    // DataTable API 오류 무시
+                }
+            }
+            
+            // 3차: 테이블 내 모든 행을 순회하며 프로젝트 코드 찾기
+            if (!projectRow) {
+                const allRows = document.querySelectorAll('#projects-table tbody tr');
+                for (let row of allRows) {
+                    const firstCell = row.querySelector('td:first-child');
+                    if (firstCell && firstCell.textContent.trim() === projectCode) {
+                        projectRow = row;
+                        break;
+                    }
+                }
+            }
+            
+            if (projectRow) {
+                // 프로젝트 행 클릭하여 아코디언 열기
+                projectRow.click();
+                
+                // 아코디언이 열린 후 카드가 렌더링될 때까지 기다림
+                let attempts = 0;
+                const maxAttempts = 15;
+                
+                const checkCard = () => {
+                    card = document.getElementById(cardId);
+                    attempts++;
+                    
+                    if (card) {
+                        callback();
+                    } else if (attempts < maxAttempts) {
+                        setTimeout(checkCard, 200);
+                    }
+                };
+                
+                // 아코디언 애니메이션 완료를 위한 초기 지연
+                setTimeout(checkCard, 300);
+            }
+        }
+        
         // 페이지 로드 시 모든 기능 활성화
         document.addEventListener('DOMContentLoaded', function() {
             addRealTimeCalculationToInputs();
             initializeRealTimeProjectUpdates();
             initializeFolderPathFeatures();
             enhanceButtonStates();
+            
+            // 잠금 상태 복원은 DataTable drawCallback에서 실행됩니다
             
             
             // CSS 애니메이션 추가
@@ -10072,6 +10642,153 @@
             `;
             document.head.appendChild(style);
         });
+
+        // 🚀 페이지 종료/새로고침 시 자동 잠금 해제 시스템
+        let currentEditingCards = new Set(); // 현재 편집 중인 카드들 추적
+        
+        // 편집 모드 시작 시 추적 목록에 추가
+        function trackEditingCard(projectCode, cardType) {
+            currentEditingCards.add(`${projectCode}-${cardType}`);
+        }
+        
+        // 편집 모드 종료 시 추적 목록에서 제거  
+        function untrackEditingCard(projectCode, cardType) {
+            currentEditingCards.delete(`${projectCode}-${cardType}`);
+        }
+        
+        // 모든 현재 편집 중인 카드의 잠금 해제
+        async function releaseAllCurrentLocks() {
+            const promises = [];
+            for (const cardKey of currentEditingCards) {
+                const [projectCode, cardType] = cardKey.split('-');
+                promises.push(
+                    releaseCardLock(projectCode, cardType).catch(error => {
+                        console.error(`잠금 해제 실패: ${cardKey}`, error);
+                    })
+                );
+            }
+            await Promise.all(promises);
+            currentEditingCards.clear();
+        }
+        
+        // 🚀 페이지 떠나기 전 즉시 잠금 해제 (새로고침/닫기 시)
+        window.addEventListener('beforeunload', function(event) {
+            // Blob을 사용해 올바른 Content-Type으로 전송
+            const data = JSON.stringify({ user_email: currentUserEmail, reason: 'beforeunload' });
+            const blob = new Blob([data], { type: 'application/json' });
+            navigator.sendBeacon('/api/release-all-user-locks', blob);
+        });
+        
+        // 🚀 페이지 로드 시 해당 사용자 잠금 정리 (다중 사용자 환경 최적화)
+        document.addEventListener('DOMContentLoaded', function() {
+            // 새로고침/페이지 로드 시 해당 사용자의 잠금 해제
+            fetch('/api/release-all-user-locks', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 
+                    user_email: currentUserEmail,
+                    reason: 'page_load'
+                })
+            }).then(response => {
+                if (response.ok) {
+                    return response.json();
+                }
+            }).then(result => {
+                if (result && result.released_count > 0) {
+                    console.log(`[사용자잠금] ${currentUserEmail} 페이지 로드 시 ${result.released_count}개 잠금 해제`);
+                }
+            }).catch(error => {
+                console.error('[사용자잠금] 페이지 로드 시 잠금 해제 실패:', error);
+            });
+        });
+        
+        // 🚀 다른 브라우저들에게 잠금 상태 업데이트 알림
+        function broadcastLockUpdate() {
+            try {
+                // localStorage를 이용한 브라우저 간 통신
+                localStorage.setItem('lockUpdateTrigger', Date.now().toString());
+                console.log('[브로드캐스트] localStorage 업데이트 알림 전송');
+            } catch (e) {
+                console.warn('[브로드캐스트] localStorage 접근 실패:', e);
+            }
+        }
+        
+        // 🚀 다른 브라우저에서 잠금 업데이트 감지 (localStorage)
+        window.addEventListener('storage', function(event) {
+            if (event.key === 'lockUpdateTrigger') {
+                setTimeout(updateLockBadges, 100);
+            }
+        });
+        
+        // 🚀 현재 페이지의 잠금 뱃지들 업데이트 (상세 디버깅)
+        async function updateLockBadges() {
+            try {
+                const response = await fetch('/api/field-lock/status/all');
+                if (response.ok) {
+                    const data = await response.json();
+                    const allLocks = data.locks || {};
+                    
+                    // 디버깅 로그 제거 (너무 자주 출력됨)
+                    
+                    // 현재 페이지의 모든 수정중 뱃지 확인
+                    const badges = document.querySelectorAll('[class*="lock-badge-"]');
+                    
+                    badges.forEach(badge => {
+                        const badgeText = badge.textContent || '';
+                        
+                        const match = badgeText.match(/(\S+)-(\w+) 수정중/);
+                        if (match) {
+                            const [, projectCode, cardType] = match;
+                            const lockKey = `${projectCode}:${cardType}`;
+                            
+                            console.log(`[디버깅] 체크 중인 잠금: ${lockKey}, 서버에 있음: ${!!allLocks[lockKey]}`);
+                            
+                            // 서버에 해당 잠금이 없으면 뱃지 제거
+                            if (!allLocks[lockKey]) {
+                                badge.remove();
+                                console.log(`[잠금동기화] ✅ 만료된 뱃지 제거: ${lockKey}`);
+                            }
+                        } else {
+                            console.log(`[디버깅] ⚠️ 뱃지 패턴 매칭 실패: "${badgeText}"`);
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('[잠금동기화] 뱃지 업데이트 실패:', error);
+            }
+        }
+
+        // 🚀 주기적 잠금 상태 동기화 (WebSocket 백업용)
+        let lockCheckInterval = setInterval(() => {
+            updateLockBadges();
+        }, 10000); // 10초마다 체크 (WebSocket이 있으므로 백업용)
+        
+        // 🚀 편집 중일 때는 체크 빈도 낮추기 (성능 최적화)
+        function adjustLockCheckFrequency() {
+            const hasEditingCards = currentEditingCards && currentEditingCards.size > 0;
+            const hasLockBadges = document.querySelectorAll('[class*="lock-badge-"]').length > 0;
+            
+            if (hasEditingCards || hasLockBadges) {
+                // 잠금 활동이 있으면 빈번하게 체크 (3초)
+                if (lockCheckInterval._frequency !== 'high') {
+                    clearInterval(lockCheckInterval);
+                    lockCheckInterval = setInterval(updateLockBadges, 3000);
+                    lockCheckInterval._frequency = 'high';
+                }
+            } else {
+                // 잠금 활동이 없으면 느리게 체크 (30초)
+                if (lockCheckInterval._frequency !== 'low') {
+                    clearInterval(lockCheckInterval);
+                    lockCheckInterval = setInterval(updateLockBadges, 30000);
+                    lockCheckInterval._frequency = 'low';
+                }
+            }
+        }
+        
+        // 10초마다 체크 빈도 조정
+        setInterval(adjustLockCheckFrequency, 10000);
 
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>

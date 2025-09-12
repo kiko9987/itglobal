@@ -499,7 +499,8 @@ def logout():
 def project_list():
     """프로젝트 목록 페이지"""
     user_role = get_user_role()
-    return render_template('project_list.html', user_role=user_role)
+    user_email = session.get('user', {}).get('email', '')
+    return render_template('project_list.html', user_role=user_role, user_email=user_email)
 
 
 @app.route('/data/<path:filename>')
@@ -1865,6 +1866,65 @@ def get_project_lock_status(project_code):
     except Exception as e:
         logger.error(f"잠금 상태 조회 오류: {str(e)}")
         return jsonify({'success': False, 'error': '잠금 상태 조회 중 오류가 발생했습니다.'}), 500
+
+@app.route('/api/field-lock/status/all', methods=['GET'])
+@login_required
+def get_all_lock_status():
+    """모든 프로젝트의 잠금 상태 한 번에 조회 (성능 최적화)"""
+    try:
+        all_locks = field_lock_manager.get_all_locks()
+        return jsonify({'success': True, 'locks': all_locks})
+        
+    except Exception as e:
+        logger.error(f"전체 잠금 상태 조회 오류: {str(e)}")
+        return jsonify({'success': False, 'error': '전체 잠금 상태 조회 중 오류가 발생했습니다.'}), 500
+
+@app.route('/api/release-all-user-locks', methods=['POST'])
+@login_required
+def release_all_user_locks():
+    """특정 사용자의 모든 잠금 강제 해제 (페이지 새로고침/종료 시)"""
+    try:
+        data = request.get_json()
+        if not data:
+            data = {}
+            
+        # 사용자 이메일 확인
+        user_email = data.get('user_email')
+        if not user_email:
+            user_data = session.get('user', {})
+            user_email = user_data.get('email', 'unknown@test.com')
+        
+        reason = data.get('reason', 'manual_cleanup')
+        
+        # 해제할 잠금들을 먼저 조회 (WebSocket 이벤트를 위해)
+        user_locks = []
+        for lock_key, lock in field_lock_manager.locks.items():
+            if lock.user_email == user_email:
+                user_locks.append((lock.project_code, lock.field_name.replace('_card', '')))
+        
+        # 해당 사용자의 모든 잠금 해제
+        released_count = field_lock_manager.force_release_user_locks(user_email)
+        
+        # 해제된 각 잠금에 대해 WebSocket 이벤트 발생
+        for project_code, card_type in user_locks:
+            socketio.emit('card_unlocked', {
+                'project_code': project_code,
+                'card_type': card_type,
+                'user_email': user_email,
+                'timestamp': datetime.now().isoformat()
+            })
+        
+        logger.info(f"사용자 {user_email}의 {released_count}개 잠금 해제 완료 (사유: {reason}), WebSocket 이벤트 {len(user_locks)}개 발생")
+        
+        return jsonify({
+            'success': True, 
+            'message': f'{released_count}개의 잠금이 해제되었습니다.',
+            'released_count': released_count
+        })
+        
+    except Exception as e:
+        logger.error(f"사용자 잠금 해제 오류: {str(e)}")
+        return jsonify({'success': False, 'error': '잠금 해제 중 오류가 발생했습니다.'}), 500
 
 @app.route('/api/debug/session', methods=['GET'])
 @login_required 
