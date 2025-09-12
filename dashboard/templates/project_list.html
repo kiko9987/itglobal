@@ -10357,30 +10357,13 @@
                         }).catch(err => {
                             console.error('[폴더 경로] 클립보드 복사 실패:', err);
                             // 대체 복사 방법 시도
-                            fallbackCopyTextToClipboard(windowsPath);
+                            fallbackCopyToClipboard(windowsPath);
                         });
                     }
                 }
             });
         }
         
-        // 클립보드 복사 대체 함수 (구버전 브라우저 지원)
-        function fallbackCopyTextToClipboard(text) {
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            
-            try {
-                const successful = document.execCommand('copy');
-                console.log('[폴더 경로] 대체 복사 방법:', successful ? '성공' : '실패');
-            } catch (err) {
-                console.error('[폴더 경로] 대체 복사 방법 실패:', err);
-            }
-            
-            document.body.removeChild(textArea);
-        }
         
         // =================================================================
         // 카드 편집 버튼 상태 및 로딩 애니메이션 개선

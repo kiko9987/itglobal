@@ -891,17 +891,6 @@ def refresh_data():
         logger.error(f"데이터 새로고침 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@socketio.on('connect')
-def handle_connect():
-    """클라이언트 연결 처리"""
-    logger.info('클라이언트가 연결되었습니다.')
-    emit('connected', {'message': '대시보드에 연결되었습니다.'})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    """클라이언트 연결 해제 처리"""
-    logger.info('클라이언트 연결이 해제되었습니다.')
-
 @app.route('/api/projects/list')
 def get_projects_list():
     """프로젝트 목록 API"""
@@ -1641,15 +1630,6 @@ def update_project_inline():
         logger.error(f"인라인 업데이트 오류: {str(e)}")
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-# 테스트용 간단한 엔드포인트 추가
-@app.route('/api/test-inline', methods=['GET', 'POST'])
-def test_inline_endpoint():
-    """인라인 업데이트 테스트용 엔드포인트"""
-    if request.method == 'GET':
-        return jsonify({'ok': True, 'message': 'API 엔드포인트가 작동 중입니다.'})
-    else:
-        data = request.get_json()
-        return jsonify({'ok': True, 'received_data': data})
 
 @socketio.on('connect')
 def handle_connect():
@@ -1676,47 +1656,6 @@ def handle_request_update():
     except Exception as e:
         emit('error', {'message': f'업데이트 오류: {str(e)}'})
 
-@app.route('/api/debug/headers', methods=['GET'])
-def debug_headers():
-    """Google Sheets 헤더 확인용 디버깅 엔드포인트"""
-    try:
-        df = current_data if current_data is not None else load_data()
-        if df is None:
-            return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
-            
-        headers = df.columns.tolist()
-        
-        # 샘플 데이터에서 날짜 문제 해결
-        if not df.empty:
-            sample_df = df.head(3).copy()
-            # NaT 값을 None으로 변환
-            for col in sample_df.columns:
-                if sample_df[col].dtype == 'datetime64[ns]':
-                    sample_df[col] = sample_df[col].dt.strftime('%Y-%m-%d').replace('NaT', None)
-            sample_data = sample_df.to_dict('records')
-        else:
-            sample_data = []
-        
-        # 컬럼별 인덱스 정보
-        column_mapping = {}
-        for i, col in enumerate(headers):
-            # A=0, B=1, C=2... -> A, B, C...
-            column_letter = chr(ord('A') + i) if i < 26 else f"A{chr(ord('A') + i - 26)}"
-            column_mapping[col] = {
-                'index': i,
-                'letter': column_letter
-            }
-        
-        return jsonify({
-            'headers': headers,
-            'column_mapping': column_mapping,
-            'sample_data': sample_data,
-            'total_columns': len(headers)
-        })
-        
-    except Exception as e:
-        logger.error(f"디버깅 엔드포인트 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
 def can_edit_field_server(user_role, card_type, field_name):
     """서버 사이드에서 필드 편집 권한 체크"""
@@ -1926,17 +1865,6 @@ def release_all_user_locks():
         logger.error(f"사용자 잠금 해제 오류: {str(e)}")
         return jsonify({'success': False, 'error': '잠금 해제 중 오류가 발생했습니다.'}), 500
 
-@app.route('/api/debug/session', methods=['GET'])
-@login_required 
-def debug_session():
-    """세션 정보 디버깅"""
-    user_data = session.get('user', {})
-    return jsonify({
-        'session_keys': list(session.keys()),
-        'user_data': user_data,
-        'user_email': user_data.get('email', 'NOT_FOUND'),
-        'user_name': user_data.get('email', '').split('@')[0] if user_data.get('email') else 'NO_EMAIL'
-    })
 
 @app.route('/api/inline-update', methods=['POST'])
 @login_required
