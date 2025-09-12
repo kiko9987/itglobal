@@ -24,7 +24,7 @@ class UIManager {
                 // DataTable 컬럼 조정
                 dataTable.columns.adjust();
                 
-                // 컬럼 너비 동기화
+                // 컬럼 너비 동기화 (스크롤 비활성화 시에도 안전하게 처리)
                 window.dataTableManager.syncTableColumnWidths();
                 
                 // 모바일 화면에서는 DataTable 숨김

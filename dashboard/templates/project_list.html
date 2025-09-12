@@ -103,6 +103,13 @@
             overflow-x: hidden;
             max-width: 100vw;
             line-height: 1.6;
+            padding-top: 0 !important; /* Bootstrap 기본 body padding 제거 */
+        }
+        
+        /* 전체 컨테이너 여백 최적화 */
+        .container-fluid {
+            padding-top: 0.3rem !important; /* 상단 패딩 조정 */
+            padding-bottom: 0.5rem !important; /* 하단 패딩 축소 */
         }
         
         /* Header - 연한 파스텔 톤 배경 */
@@ -110,7 +117,7 @@
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
             color: #495057;
             padding: 0;
-            margin-bottom: 1.5rem;
+            margin-bottom: 0.5rem; /* 헤더 하단 여백 조정 */
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             position: relative;
             overflow: visible;
@@ -661,11 +668,11 @@
             padding-right: 35px !important;  /* 헤더와 동일한 오른쪽 패딩 (화살표 공간) */
         }
         
-        /* 프로젝트 코드 데이터는 왼쪽 정렬 (뱃지 정렬용) */
+        /* 프로젝트 코드 데이터는 왼쪽 정렬 + 앞쪽 여백으로 시각 균형 */
         .table td:nth-child(1) {
             text-align: left !important;
             vertical-align: middle !important;
-            padding-left: 15px !important;
+            padding-left: 25px !important;  /* 기본 15px보다 10px 더 추가 */
             padding-right: 35px !important;
         }
         
@@ -1404,11 +1411,21 @@
         .dataTables_wrapper .dataTables_paginate {
             float: right !important;
             text-align: right !important;
-            margin-top: 0 !important;
+            margin-top: -6px !important; /* 페이지네이션 상단 여백 더 줄임 */
+            margin-bottom: -2px !important; /* 페이지네이션 하단 여백도 음수로 */
+            padding: 2px 0 !important; /* 페이지네이션 내부 패딩 최소화 */
             display: flex !important;
             align-items: center !important;
             justify-content: flex-end !important;
         }
+        
+        /* 페이지네이션 버튼 크기 축소 */
+        .dataTables_wrapper .dataTables_paginate .page-link {
+            padding: 0.25rem 0.5rem !important; /* 기본 0.375rem 0.75rem에서 축소 */
+            font-size: 0.8rem !important;
+            line-height: 1.2 !important;
+        }
+        
         
         /* DataTables 하단 정보와 페이지네이션 높이 정렬 */
         .dataTables_wrapper .row:last-child {
@@ -1678,6 +1695,7 @@
             font-size: var(--font-size-sm) !important;
             margin-left: 0.5rem !important;
             margin-top: 0.5rem !important;
+            margin-bottom: 12px !important; /* 드랍박스 하단 여백 추가 */
         }
         
         /* DataTables 길이 선택 드롭다운 스타일 */
@@ -2737,7 +2755,7 @@
 
     <div class="container-fluid">
         <div class="content-container">
-            <div class="row mb-4">
+            <div class="row mb-2">
                 <div class="col-12 d-flex align-items-center justify-content-between" style="min-height: 2.5rem;">
                     <div class="d-flex align-items-center">
                         <h4 class="mb-0">프로젝트 관리</h4>
@@ -2906,7 +2924,7 @@
                     
                     <form id="newProjectForm">
                         <!-- 기본 정보 섹션 -->
-                        <div class="row mb-4">
+                        <div class="row mb-2">
                             <div class="col-12">
                                 <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
                                     <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
@@ -2949,7 +2967,7 @@
                         </div>
 
                         <!-- 현장 정보 섹션 -->
-                        <div class="row mb-4">
+                        <div class="row mb-2">
                             <div class="col-12">
                                 <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
                                     <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
@@ -3048,7 +3066,7 @@
                         </div>
 
                         <!-- 기술 정보 섹션 -->
-                        <div class="row mb-4">
+                        <div class="row mb-2">
                             <div class="col-12">
                                 <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
                                     <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
@@ -3193,7 +3211,7 @@
                         </div>
 
                         <!-- 일정 정보 섹션 -->
-                        <div class="row mb-4">
+                        <div class="row mb-2">
                             <div class="col-12">
                                 <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
                                     <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
@@ -3232,7 +3250,7 @@
                         </div>
 
                         <!-- 담당자 정보 섹션 -->
-                        <div class="row mb-4">
+                        <div class="row mb-2">
                             <div class="col-12">
                                 <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
                                     <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
@@ -3270,7 +3288,7 @@
                         </div>
 
                         <!-- 금액 정보 섹션 -->
-                        <div class="row mb-4">
+                        <div class="row mb-2">
                             <div class="col-12">
                                 <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
                                     <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
@@ -3330,7 +3348,7 @@
                         </div>
 
                         <!-- 문서 정보 섹션 -->
-                        <div class="row mb-4">
+                        <div class="row mb-2">
                             <div class="col-12">
                                 <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
                                     <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
@@ -4217,38 +4235,29 @@
         function syncTableColumnWidths() {
             try {
                 if (typeof dataTable === 'undefined' || !dataTable) {
-                    console.warn('DataTable이 초기화되지 않았습니다.');
                     return;
                 }
 
-                // DataTable의 헤더와 바디 테이블 요소 찾기
+                // 스크롤이 비활성화된 경우 기본 컬럼 조정만 수행
+                dataTable.columns.adjust();
+                
+                // 스크롤 요소가 있는 경우에만 동기화 수행
                 const headerTable = $('.dataTables_scrollHead table');
                 const bodyTable = $('.dataTables_scrollBody table');
                 
                 if (headerTable.length && bodyTable.length) {
-                    // DataTable 자체 컬럼 조정 먼저 실행
-                    dataTable.columns.adjust();
-                    
-                    // 즉시 실행으로 딜레이 제거
                     const headerTableWidth = headerTable.outerWidth();
                     const bodyTableWidth = bodyTable.outerWidth();
-                    
-                    // 더 작은 쪽에 맞춤 (불필요한 확장 방지)
                     const targetWidth = Math.min(headerTableWidth, bodyTableWidth);
                     
-                    // 동시에 적용하여 타이밍 일치시킴
                     headerTable.css('width', targetWidth + 'px');
                     bodyTable.css('width', targetWidth + 'px');
                     
-                    // 강제 리플로우로 즉시 반영
                     headerTable[0].offsetHeight;
                     bodyTable[0].offsetHeight;
-                    
-                } else {
-                    console.warn('DataTable의 헤더나 바디 테이블을 찾을 수 없습니다.');
                 }
             } catch (error) {
-                console.error('컬럼 너비 동기화 중 오류:', error);
+                // 컬럼 너비 동기화 실패 - 무시
             }
         }
 
@@ -9919,9 +9928,7 @@
                     } 
                     // 🚀 손익정보 카드의 비용 필드가 변경된 경우 실시간 순익/마진율 계산
                     else if (['제품대', '도급비', '자재비', '기타비'].includes(fieldName)) {
-                        console.log(`[디버깅] 손익정보 필드 변경 감지: ${fieldName} = ${input.value}`);
                         input.amountCalculationTimer = setTimeout(() => {
-                            console.log(`[디버깅] calculateProfitFields 실행 중... 프로젝트: ${projectCode}`);
                             calculateProfitFields(projectCode);
                         }, 200);
                     }
@@ -10083,7 +10090,6 @@
                 // showCalculationAnimation(marginField); // 애니메이션 제거
             }
 
-            console.log(`[calculateAmountFields] 금액 계산 완료: 총액1=${total1}, 총액2=${total2}, 순익=${profit}, 마진율=${marginRate.toFixed(2)}%`);
             
             // 🚀 총액2가 변경되었으므로 손익정보 카드의 순익/마진율도 함께 업데이트
             calculateProfitFields(projectCode);
@@ -10091,12 +10097,10 @@
         
         // 🚀 손익정보 카드 전용 실시간 계산 함수
         function calculateProfitFields(projectCode) {
-            console.log(`[디버깅] calculateProfitFields 시작: ${projectCode}`);
             
             // 손익정보 카드 찾기
             const profitCard = document.querySelector(`#card-profit-${projectCode}`);
             if (!profitCard) {
-                console.log(`[디버깅] 손익정보 카드를 찾을 수 없음: card-profit-${projectCode}`);
                 return;
             }
             
@@ -10133,12 +10137,6 @@
             const materialCost = getFieldValue('자재비');
             const otherCost = getFieldValue('기타비');
             
-            console.log(`[디버깅] 계산 값들:`);
-            console.log(`- 총액2: ${totalAmount}`);
-            console.log(`- 제품대: ${productCost}`);
-            console.log(`- 도급비: ${contractCost}`);
-            console.log(`- 자재비: ${materialCost}`);
-            console.log(`- 기타비: ${otherCost}`);
             
             // 순익 계산 (총액2 - 모든 비용)
             const netProfit = totalAmount - (productCost + contractCost + materialCost + otherCost);
@@ -10146,7 +10144,6 @@
             // 마진율 계산 (순익 / 총액2 * 100)
             const marginRate = totalAmount > 0 ? (netProfit / totalAmount) * 100 : 0;
             
-            console.log(`[디버깅] 계산 결과: 순익=${netProfit}, 마진율=${marginRate}%`);
             
             // UI 업데이트
             updateProfitFieldInUI(profitCard, '순익', netProfit);
@@ -10752,7 +10749,6 @@
                             const [, projectCode, cardType] = match;
                             const lockKey = `${projectCode}:${cardType}`;
                             
-                            console.log(`[디버깅] 체크 중인 잠금: ${lockKey}, 서버에 있음: ${!!allLocks[lockKey]}`);
                             
                             // 서버에 해당 잠금이 없으면 뱃지 제거
                             if (!allLocks[lockKey]) {
@@ -10760,7 +10756,6 @@
                                 console.log(`[잠금동기화] ✅ 만료된 뱃지 제거: ${lockKey}`);
                             }
                         } else {
-                            console.log(`[디버깅] ⚠️ 뱃지 패턴 매칭 실패: "${badgeText}"`);
                         }
                     });
                 }

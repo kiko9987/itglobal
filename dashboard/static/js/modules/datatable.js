@@ -256,12 +256,14 @@ class DataTableManager {
                 return;
             }
 
+            // 스크롤이 비활성화된 경우 기본 컬럼 조정만 수행
+            this.dataTable.columns.adjust();
+            
+            // 스크롤 요소가 있는 경우에만 동기화 수행
             const headerTable = $('.dataTables_scrollHead table');
             const bodyTable = $('.dataTables_scrollBody table');
             
             if (headerTable.length && bodyTable.length) {
-                this.dataTable.columns.adjust();
-                
                 const headerTableWidth = headerTable.outerWidth();
                 const bodyTableWidth = bodyTable.outerWidth();
                 const targetWidth = Math.min(headerTableWidth, bodyTableWidth);
@@ -270,7 +272,7 @@ class DataTableManager {
                 bodyTable.css('width', targetWidth + 'px');
             }
         } catch (error) {
-            // 컬럼 너비 동기화 실패
+            // 컬럼 너비 동기화 실패 - 무시
         }
     }
 
