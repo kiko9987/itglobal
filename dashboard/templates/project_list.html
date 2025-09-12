@@ -561,20 +561,22 @@
         }
         
         .table-wrapper {
-            overflow-y: auto;
-            overflow-x: auto;
+            overflow-y: visible;
+            overflow-x: visible;
             border: 1px solid var(--gray-200);
             border-radius: var(--border-radius-lg);
             box-shadow: var(--shadow);
             background: white;
+            padding: 0 !important;
+            margin: 0 !important;
         }
         
         .table-wrapper table {
             width: 100%;
             margin: 0;
-            table-layout: auto;  /* 반응형을 위해 auto로 변경 */
+            table-layout: auto;
             background: white;
-            min-width: 800px;  /* 최소 너비 설정 */
+            min-width: 100%;  /* 비율 기반으로 변경 */
         }
         
         .table th {
@@ -613,10 +615,21 @@
         .table th:nth-child(7),  /* 공사 종료 */
         .table th:nth-child(8),  /* 총액 */
         .table th:nth-child(9),  /* 미수금 */
-        .table th:nth-child(10) { /* 상태 */
+        .table th:nth-child(10), /* 상태 */
+        .table th:nth-child(11) { /* 데이터 */
             text-align: center !important;
             padding-left: 15px !important;
         }
+        
+        /* 데이터 칼럼 헤더 텍스트 줄바꿈 방지 */
+        .table th:nth-child(11),
+        .table td:nth-child(11) {
+            white-space: nowrap !important;
+            overflow: hidden !important;
+        }
+        
+        /* 정확히 100% 비율 맞추기 - 근본적 해결 */
+        
         
         /* 중앙정렬 헤더의 텍스트 위치 조정 (정렬 아이콘 공간 확보) */
         .table th:nth-child(1).sorting,
@@ -628,7 +641,8 @@
         .table th:nth-child(7).sorting,
         .table th:nth-child(8).sorting,
         .table th:nth-child(9).sorting,
-        .table th:nth-child(10).sorting {
+        .table th:nth-child(10).sorting,
+        .table th:nth-child(11).sorting {
             padding-left: 15px !important;
         }
         
@@ -639,7 +653,8 @@
         .table td:nth-child(7),  /* 공사 종료 */
         .table td:nth-child(8),  /* 총액 */
         .table td:nth-child(9),  /* 미수금 */
-        .table td:nth-child(10) {  /* 상태 */
+        .table td:nth-child(10),  /* 상태 */
+        .table td:nth-child(11) {  /* 데이터 */
             text-align: center !important;
             vertical-align: middle !important;
             padding-left: 15px !important;
@@ -1628,15 +1643,26 @@
         /* 테이블 컨테이너 스타일 개선 */
         .dataTables_wrapper {
             width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
         }
         
         .dataTables_wrapper table {
             width: 100% !important;
             table-layout: auto !important;
+            margin: 0 !important;
         }
         
         .dataTables_scrollBody {
             overflow: visible !important;
+            width: 100% !important;
+        }
+        
+        /* DataTables 스크롤 헤드도 100% 너비 강제 */
+        .dataTables_scrollHead table,
+        .dataTables_scrollBody table {
+            width: 100% !important;
+            table-layout: auto !important;
         }
         
         /* DataTables 정보 텍스트 스타일 */
@@ -2795,17 +2821,17 @@
                     <table class="table table-hover" id="projectsTable">
                         <thead>
                             <tr>
-                                <th style="width: 10%;">프로젝트 코드</th>
-                                <th style="width: 8%;">담당자</th>
-                                <th style="width: 10%;">거래처</th>
-                                <th style="width: 22%;">현장 주소</th>
-                                <th style="width: 18%;">공사 내용</th>
+                                <th style="width: 8%;">프로젝트 코드</th>
+                                <th style="width: 6%;">담당자</th>
+                                <th style="width: 8%;">거래처</th>
+                                <th style="width: 21%;">현장 주소</th>
+                                <th style="width: 17%;">공사 내용</th>
                                 <th style="width: 8%;">공사 시작</th>
                                 <th style="width: 8%;">공사 종료</th>
                                 <th style="width: 8%;">총액</th>
-                                <th style="width: 8%;">미수금</th>
-                                <th style="width: 8%;">상태</th>
-                                <th style="width: 6%;">데이터</th>
+                                <th style="width: 7%;">미수금</th>
+                                <th style="width: 7%;">상태</th>
+                                <th style="width: 8%;">데이터</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -3923,12 +3949,12 @@
                 dataTable = $('#projectsTable').DataTable({
                     data: data || [],
                 columns: [
-                    { data: '프로젝트 코드', width: '10%' },
-                    { data: '담당자', width: '8%' },
-                    { data: '거래처', width: '10%' },
+                    { data: '프로젝트 코드', width: '8%' },
+                    { data: '담당자', width: '6%' },
+                    { data: '거래처', width: '8%' },
                     { 
                         data: '현장 주소',
-                        width: '22%',
+                        width: '21%',
                         render: function(data) {
                             if (data && data.trim() !== '') {
                                 return data;
@@ -3939,7 +3965,7 @@
                     },
                     { 
                         data: '공사 내용',
-                        width: '18%',
+                        width: '17%',
                         render: function(data) {
                             if (data && data.trim() !== '') {
                                 return data;
@@ -3989,7 +4015,7 @@
                     { 
                         data: null, // W열 미수금 동적 처리
                         className: 'amount-cell',
-                        width: '8%',
+                        width: '7%',
                         render: function(data, type, row) {
                             // 다양한 컬럼명으로 W열 미수금 데이터 찾기
                             const outstandingData = row['미수금'] || row['미수금W'] || row['미수금 W'] || row['W'] || 0;
@@ -4019,7 +4045,7 @@
                     },
                     { 
                         data: null,
-                        width: '9%',
+                        width: '7%',
                         render: function(data, type, row) {
                             return getStatusBadge(row);
                         }
@@ -4027,7 +4053,7 @@
                     { 
                         data: null,
                         title: '데이터',
-                        width: '6%',
+                        width: '8%',
                         className: 'text-center',
                         render: function(data, type, row) {
                             const completeness = checkDataCompleteness(row);
@@ -4083,8 +4109,8 @@
                 lengthMenu: [10, 15, 25, 50, 100],
                 responsive: true,
                 autoWidth: false,
-                scrollX: true,
-                scrollCollapse: true,
+                scrollX: false,
+                scrollCollapse: false,
                 fixedHeader: false,  // 헤더 고정 비활성화
                 sScrollX: "100%",    // 스크롤 너비 명시적 설정
                 // 페이지네이션 설정 개선
