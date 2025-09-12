@@ -266,7 +266,12 @@
       "Bash(rm:*)",
       "Bash(del \"dashboard/audit_logs/audit_2025-09-11.json\")",
       "Bash(git show:*)",
-      "Bash(netstat:*)"
+      "Bash(netstat:*)",
+      "Bash(start http://localhost:8080/projects)",
+      "Bash(start http://localhost:8081)",
+      "Bash(start http://localhost:8082)",
+      "Bash(start http://localhost:8083/projects)",
+      "Bash(start http://localhost:8083/)"
     ],
     "deny": [],
     "ask": []

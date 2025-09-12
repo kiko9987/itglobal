@@ -249,7 +249,9 @@ class UIManager {
             this.hideLoading();
             
         } catch (error) {
-            this.showError('데이터 로드에 실패했습니다. 페이지를 새로고침해주세요.');
+            console.error('페이지 초기화 오류:', error);
+            const errorMsg = error.message || '알 수 없는 오류가 발생했습니다';
+            this.showError(`데이터 로드 실패: ${errorMsg}\n페이지를 새로고침해주세요.`);
         }
     }
 

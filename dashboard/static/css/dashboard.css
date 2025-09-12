@@ -1,12 +1,5 @@
 /* ===== IT GLOBAL 프리미엄 대시보드 - 최적화된 CSS ===== */
 
-/* CSS 모듈 import */
-@import url('utils/variables.css');
-@import url('layouts/base.css');
-@import url('components/forms.css');
-@import url('components/datatable.css');
-@import url('utils/utilities.css');
-
 /* 프로젝트 특화 스타일 */
 
 /* 로고 및 헤더 영역 */

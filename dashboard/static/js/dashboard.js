@@ -115,6 +115,16 @@ function checkModulesLoaded() {
 // 모듈 로딩 완료 후 초기화
 window.addEventListener('load', function() {
     setTimeout(() => {
-        checkModulesLoaded();
+        if (checkModulesLoaded()) {
+            console.log('모든 모듈 로딩 완료 - 페이지 초기화 시작');
+            // UI Manager를 통해 페이지 초기화
+            if (window.uiManager && typeof window.uiManager.initializePage === 'function') {
+                window.uiManager.initializePage();
+            } else {
+                console.error('UIManager 또는 initializePage 함수를 찾을 수 없습니다');
+            }
+        } else {
+            console.error('일부 모듈이 로드되지 않았습니다');
+        }
     }, 100);
 });

@@ -10,7 +10,7 @@ class ApiManager {
     // 프로젝트 데이터 로드
     async loadProjectsData() {
         try {
-            const response = await fetch('/api/get-projects-data', {
+            const response = await fetch('/api/projects/list', {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -19,27 +19,41 @@ class ApiManager {
             });
 
             if (!response.ok) {
+                console.error(`API 요청 실패: ${response.status} ${response.statusText}`);
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
             const result = await response.json();
+            console.log('API 응답 받음:', typeof result, Array.isArray(result) ? `배열 길이: ${result.length}` : result);
             
-            if (result.success && Array.isArray(result.data)) {
-                this.projectsData = result.data;
-                
-                // 데이터 로드 후 UI 업데이트
-                if (window.dataTableManager) {
-                    window.dataTableManager.initializeDataTable(this.projectsData);
-                }
-                
-                this.loadManagerFilter();
-                this.generateMobileCards();
-                
-                return this.projectsData;
+            // API 응답이 배열이거나 success 속성이 있는 객체인 경우 처리
+            let projectsArray = [];
+            if (Array.isArray(result)) {
+                projectsArray = result;
+            } else if (result && result.success && Array.isArray(result.data)) {
+                projectsArray = result.data;
+            } else if (result && Array.isArray(result.projects)) {
+                projectsArray = result.projects;
             } else {
-                throw new Error(result.message || '데이터 로드 실패');
+                console.error('예상하지 못한 API 응답 형식:', result);
+                throw new Error('API 응답 형식이 올바르지 않습니다');
             }
+
+            this.projectsData = projectsArray;
+            console.log(`프로젝트 데이터 로드 완료: ${this.projectsData.length}개`);
+            
+            // 데이터 로드 후 UI 업데이트
+            if (window.dataTableManager) {
+                window.dataTableManager.initializeDataTable(this.projectsData);
+            }
+            
+            this.loadManagerFilter();
+            this.generateMobileCards();
+            
+            return this.projectsData;
+            
         } catch (error) {
+            console.error('데이터 로드 중 오류:', error);
             throw error;
         }
     }
