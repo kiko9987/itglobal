@@ -56,6 +56,13 @@ if not env_result['valid']:
 else:
     logger.info("환경변수 검증 성공")
 
+# 공통 에러 처리 헬퍼 함수
+def handle_api_error(error, status_code=500, context="API"):
+    """API 에러 처리를 위한 공통 함수"""
+    error_message = str(error)
+    logger.error(f"{context} 오류: {error_message}")
+    return jsonify({'error': error_message}), status_code
+
 # Flask 앱 초기화
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
@@ -216,7 +223,7 @@ def _load_project_config():
 _project_config = _load_project_config()
 
 @handle_error(category=ErrorCategory.HIGH, reraise=False, fallback_value=None)
-@cached(ttl=30, key_prefix="sheet_data")
+@cached(ttl=300, key_prefix="sheet_data")
 def load_data(force_refresh=False):
     """구글 시트에서 데이터 로드 (개선된 캐싱 시스템 적용)"""
     global current_data, last_update
@@ -249,7 +256,7 @@ def load_data(force_refresh=False):
         last_update = datetime.now()
         
         # 새 캐싱 시스템에 저장
-        cache_set(cache_key, df, ttl=30)
+        cache_set(cache_key, df, ttl=300)
         
         logger.info(f"데이터 로드 완료: {len(df)}행, 업데이트 시간: {last_update}")
         logger.debug(f"글로벌 current_data 업데이트됨: {len(current_data)}행")
