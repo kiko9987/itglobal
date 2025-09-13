@@ -14,6 +14,7 @@
     
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Cache buster: v2024091104 -->
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     
     <!-- jQuery -->
@@ -49,10 +50,10 @@
         }
         
         :root {
-            /* Brand Colors - 로고가 돋보이는 어두운 베이스 + 오렌지 포인트 */
-            --primary-color: #FF6B35;
-            --primary-dark: #E55A2B;
-            --primary-light: #FF8A65;
+            /* Brand Colors - 로고가 돋보이는 어두운 베이스 + 파스텔 포인트 */
+            --primary-color: #FF8A95;
+            --primary-dark: #E6707A;
+            --primary-light: #FFB3B3;
             
             /* Dark Theme Base Colors */
             --dark-primary: #1a1a1a;
@@ -456,11 +457,23 @@
             height: 600px; /* 도넛 차트는 더 높게 */
         }
 
+        /* 작은 차트 컨테이너 */
+        .chart-container.small-chart {
+            height: 350px; /* 작은 차트 높이 */
+            margin-bottom: 1.5rem;
+        }
+
         .chart-title {
             font-size: 1.1rem;
             font-weight: 600;
             margin-bottom: 0.75rem;
             color: var(--gray-700);
+        }
+
+        /* 작은 차트 제목 */
+        .small-chart .chart-title {
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
         }
 
         /* 차트 캔버스 컨테이너 */
@@ -472,6 +485,11 @@
         /* 도넛 차트 래퍼는 더 높게 설정 */
         .chart-wrapper.doughnut-wrapper {
             height: 520px; /* 도넛 차트는 더 높게 */
+        }
+
+        /* 작은 차트 래퍼 */
+        .chart-wrapper.small-wrapper {
+            height: 280px; /* 작은 차트 래퍼 높이 */
         }
 
         /* 로딩 스피너 */
@@ -584,40 +602,72 @@
                 </div>
             </div>
 
-            <!-- 차트 영역 -->
+            <!-- 차트 영역 - 8개 섹션 -->
             <div class="row">
-                <div class="col-md-6">
-                    <div class="chart-container">
-                        <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2024년 월별 총매출 현황</h3>
-                        <div class="chart-wrapper">
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2024년 월별 총매출</h3>
+                        <div class="chart-wrapper small-wrapper">
                             <canvas id="monthly2024Chart"></canvas>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-6">
-                    <div class="chart-container">
-                        <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2025년 월별 총매출 현황</h3>
-                        <div class="chart-wrapper">
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2025년 월별 총매출</h3>
+                        <div class="chart-wrapper small-wrapper">
                             <canvas id="monthly2025Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2024년 개인별 매출</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="personal2024Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2025년 개인별 매출</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="personal2025Chart"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="row">
-                <div class="col-md-6">
-                    <div class="chart-container doughnut-chart">
-                        <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2024년 개인별 총매출 비율</h3>
-                        <div class="chart-wrapper doughnut-wrapper">
-                            <canvas id="personal2024Chart"></canvas>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-building me-2"></i>2024년 월별 매출 - 사업자별</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="company2024Chart"></canvas>
                         </div>
                     </div>
                 </div>
-                <div class="col-md-6">
-                    <div class="chart-container doughnut-chart">
-                        <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2025년 개인별 총매출 비율</h3>
-                        <div class="chart-wrapper doughnut-wrapper">
-                            <canvas id="personal2025Chart"></canvas>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-building me-2"></i>2025년 월별 매출 - 사업자별</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="company2025Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-line me-2"></i>사업자별 총매출 비교</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="companyCompareChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-area me-2"></i>월별 총매출 트렌드</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="trendChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -787,10 +837,10 @@
             return 'unknown';
         }
 
-        // 전역 색상 매핑 설정
+        // 전역 색상 매핑 설정 - 적당한 진하기의 색상
         const managerColorMap = {};
-        const baseColors = ['#FF6B35', '#4A90E2', '#50C878', '#FFD700', '#FF69B4', '#8A2BE2', '#20B2AA', '#DC143C'];
-        const additionalColors = ['#32CD32', '#FF4500', '#9370DB', '#00CED1', '#FFA07A', '#98FB98', '#F0E68C', '#DDA0DD'];
+        const baseColors = ['#FF7F7F', '#FF9999', '#FFCC99', '#D4E6B7', '#99E6CC', '#B3C6DB', '#FF9999', '#FF6B6B'];
+        const additionalColors = ['#99D6B7', '#FFCCBB', '#D6E6E6', '#A6D1E6', '#E6D199', '#E6C299', '#E6B899', '#E6B3B3'];
         let colorIndex = 0;
         let additionalColorIndex = 0;
         
@@ -802,6 +852,10 @@
             createMonthly2025Chart();
             createPersonal2024Chart();
             createPersonal2025Chart();
+            createCompany2024Chart();
+            createCompany2025Chart();
+            createCompanyCompareChart();
+            createTrendChart();
         }
         
         // 담당자 색상 매핑 설정
@@ -869,8 +923,8 @@
                     labels: monthNames,
                     datasets: [{
                         data: monthlyData.map(amount => amount / 100000000),
-                        backgroundColor: '#4A90E2',
-                        borderColor: '#357ABD',
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
                         borderWidth: 1
                     }]
                 },
@@ -896,7 +950,7 @@
                             ticks: {
                                 stepSize: 1,
                                 callback: function(value) {
-                                    return '₩' + value.toLocaleString() + '억';
+                                    return Math.floor(value) + '억';
                                 }
                             },
                             grid: {
@@ -943,8 +997,8 @@
                     labels: monthNames,
                     datasets: [{
                         data: monthlyData.map(amount => amount / 100000000),
-                        backgroundColor: '#4A90E2',
-                        borderColor: '#357ABD',
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
                         borderWidth: 1
                     }]
                 },
@@ -970,7 +1024,7 @@
                             ticks: {
                                 stepSize: 1,
                                 callback: function(value) {
-                                    return '₩' + value.toLocaleString() + '억';
+                                    return Math.floor(value) + '억';
                                 }
                             },
                             grid: {
@@ -988,14 +1042,13 @@
         }
 
 
-        // 2024년 개인별 매출 비율 차트
+        // 2024년 개인별 매출 막대 차트
         function createPersonal2024Chart() {
             const ctx = document.getElementById('personal2024Chart').getContext('2d');
             
             const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
             
             const managerRevenue = {};
-            let totalRevenue = 0;
             
             projectsData.forEach(project => {
                 const confirmDate = project['공사 확정'];
@@ -1006,30 +1059,32 @@
                         if (manager && !excludedOwners.includes(manager)) {
                             const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
                             managerRevenue[manager] = (managerRevenue[manager] || 0) + amount;
-                            totalRevenue += amount;
                         }
                     }
                 }
             });
             
-            // 비율 계산 및 정렬
+            // 매출 기준으로 정렬 (큰 값부터)
             const sortedManagers = Object.entries(managerRevenue)
-                .map(([name, revenue]) => [name, (revenue / totalRevenue * 100)])
                 .sort(([,a], [,b]) => b - a);
             
+            const managerNames = sortedManagers.map(([name]) => name);
+            const managerAmounts = sortedManagers.map(([, amount]) => amount / 100000000); // 억 단위로 변환
+            
             // 담당자별 색상 매핑
-            const managerColors = sortedManagers.map(([name]) => managerColorMap[name] || '#999999');
+            const managerColors = managerNames.map(name => managerColorMap[name] || '#7BB3FF');
             
             if (charts.personal2024) charts.personal2024.destroy();
             
             charts.personal2024 = new Chart(ctx, {
-                type: 'pie',
+                type: 'bar',
                 data: {
-                    labels: sortedManagers.map(([name]) => name),
+                    labels: managerNames,
                     datasets: [{
-                        data: sortedManagers.map(([, percentage]) => percentage),
+                        data: managerAmounts,
                         backgroundColor: managerColors,
-                        borderWidth: 0
+                        borderColor: managerColors.map(color => color.replace('FF', 'CC')),
+                        borderWidth: 1
                     }]
                 },
                 options: {
@@ -1042,85 +1097,66 @@
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    return context.label + ': ' + context.parsed.toFixed(1) + '%';
+                                    return context.label + ': ' + context.parsed.y.toFixed(1) + '억원';
                                 }
                             }
                         }
                     },
-                    onHover: (event, activeElements) => {
-                        event.native.target.style.cursor = activeElements.length > 0 ? 'pointer' : 'default';
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 0,
+                                minRotation: 0
+                            }
+                        }
                     }
                 },
                 plugins: [{
-                    id: 'doughnutLabels',
+                    id: 'datalabels',
                     afterDatasetsDraw: function(chart) {
                         const ctx = chart.ctx;
                         const data = chart.data;
-                        const centerX = chart.getDatasetMeta(0).data[0].x;
-                        const centerY = chart.getDatasetMeta(0).data[0].y;
-                        const radius = chart.getDatasetMeta(0).data[0].outerRadius;
-                        const innerRadius = chart.getDatasetMeta(0).data[0].innerRadius;
                         
-                        ctx.save();
-                        ctx.font = 'bold 12px Arial';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        
-                        // 각 섬터에 레이블 그리기
-                        data.datasets[0].data.forEach((value, index) => {
-                            const meta = chart.getDatasetMeta(0).data[index];
-                            const startAngle = meta.startAngle;
-                            const endAngle = meta.endAngle;
-                            const midAngle = (startAngle + endAngle) / 2;
+                        chart.data.datasets.forEach((dataset, datasetIndex) => {
+                            const meta = chart.getDatasetMeta(datasetIndex);
                             
-                            const labelRadius = radius * 0.7;
-                            const x = centerX + Math.cos(midAngle) * labelRadius;
-                            const y = centerY + Math.sin(midAngle) * labelRadius;
-                            
-                            const name = data.labels[index];
-                            const percentage = value.toFixed(1) + '%';
-                            
-                            // 비율이 크면 파이 안에, 작으면 바깥에 표시
-                            if (value > 12) {
-                                // 파이 안에 표시
-                                ctx.fillStyle = '#fff';
-                                ctx.fillText(name, x, y - 6);
-                                ctx.fillText(percentage, x, y + 6);
-                            } else {
-                                // 도너츠 바깥에 선과 함께 표시
-                                const outerX = centerX + Math.cos(midAngle) * (radius + 50);
-                                const outerY = centerY + Math.sin(midAngle) * (radius + 50);
-                                
-                                // 선 그리기
-                                ctx.strokeStyle = data.datasets[0].backgroundColor[index];
-                                ctx.lineWidth = 2;
-                                ctx.beginPath();
-                                ctx.moveTo(centerX + Math.cos(midAngle) * radius, centerY + Math.sin(midAngle) * radius);
-                                ctx.lineTo(outerX, outerY);
-                                ctx.stroke();
-                                
-                                // 레이블 그리기
-                                ctx.fillStyle = data.datasets[0].backgroundColor[index];
-                                ctx.font = 'bold 11px Arial';
-                                ctx.textAlign = outerX > centerX ? 'left' : 'right';
-                                ctx.fillText(`${name} ${percentage}`, outerX + (outerX > centerX ? 10 : -10), outerY);
-                            }
+                            meta.data.forEach((bar, index) => {
+                                const value = dataset.data[index];
+                                if (value > 0) {
+                                    ctx.save();
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    ctx.fillStyle = '#7A7A7A';
+                                    ctx.font = 'bold 10px Arial';
+                                    
+                                    const x = bar.x;
+                                    const y = bar.y - 5;
+                                    
+                                    ctx.fillText(value.toFixed(1) + '억', x, y);
+                                    ctx.restore();
+                                }
+                            });
                         });
-                        
-                        ctx.restore();
                     }
                 }]
             });
         }
 
-        // 2025년 개인별 매출 비율 차트
+        // 2025년 개인별 매출 막대 차트
         function createPersonal2025Chart() {
             const ctx = document.getElementById('personal2025Chart').getContext('2d');
             
             const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
             
             const managerRevenue = {};
-            let totalRevenue = 0;
             
             projectsData.forEach(project => {
                 const confirmDate = project['공사 확정'];
@@ -1131,30 +1167,30 @@
                         if (manager && !excludedOwners.includes(manager)) {
                             const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
                             managerRevenue[manager] = (managerRevenue[manager] || 0) + amount;
-                            totalRevenue += amount;
                         }
                     }
                 }
             });
             
-            // 비율 계산 및 정렬
+            // 매출 금액순으로 정렬
             const sortedManagers = Object.entries(managerRevenue)
-                .map(([name, revenue]) => [name, (revenue / totalRevenue * 100)])
                 .sort(([,a], [,b]) => b - a);
             
-            // 담당자별 색상 매핑
+            const managerNames = sortedManagers.map(([name]) => name);
+            const managerAmounts = sortedManagers.map(([, amount]) => amount / 100000000);
             const managerColors = sortedManagers.map(([name]) => managerColorMap[name] || '#999999');
             
             if (charts.personal2025) charts.personal2025.destroy();
             
             charts.personal2025 = new Chart(ctx, {
-                type: 'pie',
+                type: 'bar',
                 data: {
-                    labels: sortedManagers.map(([name]) => name),
+                    labels: managerNames,
                     datasets: [{
-                        data: sortedManagers.map(([, percentage]) => percentage),
+                        data: managerAmounts,
                         backgroundColor: managerColors,
-                        borderWidth: 0
+                        borderColor: managerColors.map(color => color.replace('FF', 'CC')),
+                        borderWidth: 1
                     }]
                 },
                 options: {
@@ -1167,74 +1203,428 @@
                         tooltip: {
                             callbacks: {
                                 label: function(context) {
-                                    return context.label + ': ' + context.parsed.toFixed(1) + '%';
+                                    return context.label + ': ' + context.parsed.y.toFixed(1) + '억원';
                                 }
                             }
                         }
                     },
-                    onHover: (event, activeElements) => {
-                        event.native.target.style.cursor = activeElements.length > 0 ? 'pointer' : 'default';
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: {
+                                font: { size: 9 },
+                                maxRotation: 0,
+                                minRotation: 0
+                            },
+                            grid: { display: false }
+                        }
                     }
                 },
                 plugins: [{
-                    id: 'doughnutLabels',
+                    id: 'datalabels',
                     afterDatasetsDraw: function(chart) {
                         const ctx = chart.ctx;
                         const data = chart.data;
-                        const centerX = chart.getDatasetMeta(0).data[0].x;
-                        const centerY = chart.getDatasetMeta(0).data[0].y;
-                        const radius = chart.getDatasetMeta(0).data[0].outerRadius;
-                        const innerRadius = chart.getDatasetMeta(0).data[0].innerRadius;
                         
-                        ctx.save();
-                        ctx.font = 'bold 12px Arial';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        
-                        // 각 섬터에 레이블 그리기
-                        data.datasets[0].data.forEach((value, index) => {
-                            const meta = chart.getDatasetMeta(0).data[index];
-                            const startAngle = meta.startAngle;
-                            const endAngle = meta.endAngle;
-                            const midAngle = (startAngle + endAngle) / 2;
+                        chart.data.datasets.forEach((dataset, datasetIndex) => {
+                            const meta = chart.getDatasetMeta(datasetIndex);
                             
-                            const labelRadius = radius * 0.7;
-                            const x = centerX + Math.cos(midAngle) * labelRadius;
-                            const y = centerY + Math.sin(midAngle) * labelRadius;
-                            
-                            const name = data.labels[index];
-                            const percentage = value.toFixed(1) + '%';
-                            
-                            // 비율이 크면 파이 안에, 작으면 바깥에 표시
-                            if (value > 12) {
-                                // 파이 안에 표시
-                                ctx.fillStyle = '#fff';
-                                ctx.fillText(name, x, y - 6);
-                                ctx.fillText(percentage, x, y + 6);
-                            } else {
-                                // 도너츠 바깥에 선과 함께 표시
-                                const outerX = centerX + Math.cos(midAngle) * (radius + 50);
-                                const outerY = centerY + Math.sin(midAngle) * (radius + 50);
-                                
-                                // 선 그리기
-                                ctx.strokeStyle = data.datasets[0].backgroundColor[index];
-                                ctx.lineWidth = 2;
-                                ctx.beginPath();
-                                ctx.moveTo(centerX + Math.cos(midAngle) * radius, centerY + Math.sin(midAngle) * radius);
-                                ctx.lineTo(outerX, outerY);
-                                ctx.stroke();
-                                
-                                // 레이블 그리기
-                                ctx.fillStyle = data.datasets[0].backgroundColor[index];
-                                ctx.font = 'bold 11px Arial';
-                                ctx.textAlign = outerX > centerX ? 'left' : 'right';
-                                ctx.fillText(`${name} ${percentage}`, outerX + (outerX > centerX ? 10 : -10), outerY);
-                            }
+                            meta.data.forEach((bar, index) => {
+                                const value = dataset.data[index];
+                                if (value > 0) {
+                                    ctx.save();
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    ctx.fillStyle = '#7A7A7A';
+                                    ctx.font = 'bold 10px Arial';
+                                    
+                                    const x = bar.x;
+                                    const y = bar.y - 5;
+                                    
+                                    ctx.fillText(value.toFixed(1) + '억', x, y);
+                                    ctx.restore();
+                                }
+                            });
                         });
-                        
-                        ctx.restore();
                     }
                 }]
+            });
+        }
+
+        // 아이티 2024년 차트
+        function createCompany2024Chart() {
+            const ctx = document.getElementById('company2024Chart').getContext('2d');
+            
+            // 글로벌과 글로벌그룹 구분하여 데이터 수집
+            const globalData = {};
+            const globalGroupData = {};
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                const company = project['사업자'] || '';
+                
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    if (confirmDateObj.getFullYear() === 2024) {
+                        const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                        
+                        if (company === '글로벌') {
+                            const month = confirmDateObj.getMonth();
+                            globalData[month] = (globalData[month] || 0) + amount;
+                        } else if (company === '글로벌그룹') {
+                            const month = confirmDateObj.getMonth();
+                            globalGroupData[month] = (globalGroupData[month] || 0) + amount;
+                        }
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            const globalMonthlyData = Array(12).fill(0);
+            const globalGroupMonthlyData = Array(12).fill(0);
+            
+            for (let i = 0; i < 12; i++) {
+                globalMonthlyData[i] = (globalData[i] || 0) / 100000000;
+                globalGroupMonthlyData[i] = (globalGroupData[i] || 0) / 100000000;
+            }
+            
+            if (charts.company2024) charts.company2024.destroy();
+            
+            charts.company2024 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        label: '글로벌',
+                        data: globalMonthlyData,
+                        backgroundColor: '#FF8A95',
+                        borderColor: '#E6707A',
+                        borderWidth: 1
+                    }, {
+                        label: '글로벌그룹',
+                        data: globalGroupMonthlyData,
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 사업자별 월별 총매출 2025년 차트
+        function createCompany2025Chart() {
+            const ctx = document.getElementById('company2025Chart').getContext('2d');
+            
+            // 글로벌과 글로벌그룹 구분하여 데이터 수집
+            const globalData = {};
+            const globalGroupData = {};
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                const company = project['사업자'] || '';
+                
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    if (confirmDateObj.getFullYear() === 2025) {
+                        const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                        
+                        if (company === '글로벌') {
+                            const month = confirmDateObj.getMonth();
+                            globalData[month] = (globalData[month] || 0) + amount;
+                        } else if (company === '글로벌그룹') {
+                            const month = confirmDateObj.getMonth();
+                            globalGroupData[month] = (globalGroupData[month] || 0) + amount;
+                        }
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            const globalMonthlyData = Array(12).fill(0);
+            const globalGroupMonthlyData = Array(12).fill(0);
+            
+            for (let i = 0; i < 12; i++) {
+                globalMonthlyData[i] = (globalData[i] || 0) / 100000000;
+                globalGroupMonthlyData[i] = (globalGroupData[i] || 0) / 100000000;
+            }
+            
+            if (charts.company2025) charts.company2025.destroy();
+            
+            charts.company2025 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        label: '글로벌',
+                        data: globalMonthlyData,
+                        backgroundColor: '#FF8A95',
+                        borderColor: '#E6707A',
+                        borderWidth: 1
+                    }, {
+                        label: '글로벌그룹',
+                        data: globalGroupMonthlyData,
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 회사별 비교 차트
+        function createCompanyCompareChart() {
+            const ctx = document.getElementById('companyCompareChart').getContext('2d');
+            
+            let global2024 = 0, globalGroup2024 = 0, global2025 = 0, globalGroup2025 = 0;
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                const company = project['사업자'] || '';
+                
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    const year = confirmDateObj.getFullYear();
+                    const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                    
+                    if (company === '글로벌') {
+                        if (year === 2024) global2024 += amount;
+                        if (year === 2025) global2025 += amount;
+                    } else if (company === '글로벌그룹') {
+                        if (year === 2024) globalGroup2024 += amount;
+                        if (year === 2025) globalGroup2025 += amount;
+                    }
+                }
+            });
+            
+            if (charts.companyCompare) charts.companyCompare.destroy();
+            
+            charts.companyCompare = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['2024년', '2025년'],
+                    datasets: [{
+                        label: '글로벌',
+                        data: [global2024/100000000, global2025/100000000],
+                        backgroundColor: '#FF8A95',
+                        borderColor: '#E6707A',
+                        borderWidth: 1
+                    }, {
+                        label: '글로벌그룹',
+                        data: [globalGroup2024/100000000, globalGroup2025/100000000],
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            ticks: {
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 월별 총매출 트렌드 차트
+        function createTrendChart() {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            
+            const monthlyData2024 = Array(12).fill(0);
+            const monthlyData2025 = Array(12).fill(0);
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    const year = confirmDateObj.getFullYear();
+                    const month = confirmDateObj.getMonth();
+                    const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                    
+                    if (year === 2024) {
+                        monthlyData2024[month] += amount;
+                    } else if (year === 2025) {
+                        monthlyData2025[month] += amount;
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            
+            if (charts.trend) charts.trend.destroy();
+            
+            charts.trend = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        label: '2024년',
+                        data: monthlyData2024.map(amount => amount / 100000000),
+                        borderColor: '#FF6B35',
+                        backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                        borderWidth: 2,
+                        fill: false
+                    }, {
+                        label: '2025년',
+                        data: monthlyData2025.map(amount => amount / 100000000),
+                        borderColor: '#4A90E2',
+                        backgroundColor: 'rgba(74, 144, 226, 0.1)',
+                        borderWidth: 2,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
             });
         }
 
@@ -1250,7 +1640,11 @@
             
             try {
                 // 기존 차트 삭제
-                Object.values(charts).forEach(chart => chart.destroy());
+                Object.values(charts).forEach(chart => {
+                    if (chart && typeof chart.destroy === 'function') {
+                        chart.destroy();
+                    }
+                });
                 charts = {};
                 
                 await loadStatsData();

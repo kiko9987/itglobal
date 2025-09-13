@@ -2368,6 +2368,18 @@ def stats_page():
         logger.error(f"통계 페이지 로드 오류: {str(e)}")
         return f"통계 페이지를 로드할 수 없습니다: {str(e)}", 500
 
+# 사용자 역할 API
+@app.route('/api/user/role')
+@login_required
+def get_user_role_api():
+    """사용자 역할 정보 반환"""
+    try:
+        user_role = get_user_role()
+        return jsonify({'success': True, 'role': user_role})
+    except Exception as e:
+        logger.error(f"사용자 역할 조회 오류: {str(e)}")
+        return jsonify({'success': False, 'role': 'user'}), 500
+
 # 파비콘 처리 (404 오류 방지)
 @app.route('/favicon.ico')
 def favicon():
