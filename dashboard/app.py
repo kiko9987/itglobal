@@ -983,6 +983,30 @@ def create_project():
         data = request.get_json()
         logger.info(f"받은 폼 데이터: {data}")
         
+        # 폴더 경로에서 구글 드라이브 ID 자동 추출 및 저장
+        folder_path_field = '견적서 및 계약서 폴더 경로'
+        if folder_path_field in data and data[folder_path_field]:
+            original_path = data[folder_path_field]
+            logger.info(f"💼 새 프로젝트 폴더 경로 처리: {original_path}")
+            
+            # 1. 구글 드라이브 URL에서 ID 추출 (우클릭으로 링크 복사한 경우)
+            folder_id = get_folder_id_from_url(original_path)
+            
+            # 2. URL이 아닌 로컬 경로인 경우, 경로에서 ID 추출 시도
+            if not folder_id and os.path.exists(original_path):
+                folder_id = extract_folder_id_from_path(original_path)
+            
+            # 3. 추출된 ID가 있으면 AK 컬럼에 저장 (경로 대신 ID 저장)
+            if folder_id:
+                logger.info(f"✅ 폴더 ID 추출 성공: {folder_id}")
+                # AK 컬럼에 경로 대신 ID를 저장
+                data['견적서 및 계약서 폴더 경로'] = folder_id
+                logger.info(f"💾 폴더 ID를 AK 컬럼에 저장: {folder_id} (원본 경로: {original_path})")
+            else:
+                logger.warning(f"⚠️ 폴더 ID 추출 실패, 원본 경로 저장: {original_path}")
+                # ID 추출 실패 시 원본 경로 저장
+                data['견적서 및 계약서 폴더 경로'] = original_path
+        
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
         if not sheet_id:
             return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
@@ -1040,6 +1064,12 @@ def create_project():
         # 구글 시트 쓰기 성공 시에만 로컬 캐시 새로고침 (강제)
         cache_delete("current_sheet_data")  # 기존 캐시 삭제
         load_data(force_refresh=True)
+        
+        # 폴더 ID가 추출되었으면 캐시에 저장 (프로젝트 코드와 연결)
+        if data.get('_google_drive_folder_id'):
+            folder_id_cache_key = f"folder_id_{final_project_code}"
+            cache_set(folder_id_cache_key, data['_google_drive_folder_id'], expire=86400*30)  # 30일 캐시
+            logger.info(f"📁 프로젝트 {final_project_code}의 폴더 ID 캐시 저장 완료: {data['_google_drive_folder_id']}")
         
         # 프로젝트 코드 변경 여부 확인
         original_code = data.get('projectCode', '')
@@ -1147,6 +1177,24 @@ def update_project(project_code):
         if not row_number:
             return jsonify({'error': '프로젝트를 찾을 수 없습니다.'}), 404
         
+        # 폴더 경로 수정 시 폴더 ID 자동 추출
+        if '견적서 및 계약서 폴더 경로' in data:
+            folder_path = data['견적서 및 계약서 폴더 경로']
+            if folder_path and folder_path.strip():
+                # 구글 드라이브 URL에서 ID 추출
+                folder_id = get_folder_id_from_url(folder_path)
+                if not folder_id and os.path.exists(folder_path):
+                    # 로컬 경로에서 ID 추출 시도
+                    folder_id = extract_folder_id_from_path(folder_path)
+                
+                # 추출된 ID가 있으면 AK 컬럼에 ID로 저장
+                if folder_id:
+                    logger.info(f"✅ 기존 프로젝트 폴더 ID 추출 성공: {folder_id}")
+                    data['견적서 및 계약서 폴더 경로'] = folder_id
+                else:
+                    logger.info(f"⚠️ 기존 프로젝트 폴더 ID 추출 실패: {folder_path}")
+                    # ID 추출 실패 시 원본 경로 유지
+
         # 인라인 편집 데이터인지 확인 (한국어 필드명 포함)
         korean_fields = ['현장 주소', '사업자', '현장 담당자', '도급 구분', '담당자 연락처', '시공자', '담당자 이메일', '견적서 및 계약서 폴더 경로']
         is_inline_data = any(field in data for field in korean_fields)
@@ -2379,6 +2427,973 @@ def get_user_role_api():
     except Exception as e:
         logger.error(f"사용자 역할 조회 오류: {str(e)}")
         return jsonify({'success': False, 'role': 'user'}), 500
+
+# =================================================================
+# 스마트 폴더 추적 시스템
+# =================================================================
+
+def get_user_drive_settings(user_email):
+    """사용자별 드라이브 설정 조회"""
+    try:
+        users_data = user_manager._load_users()
+        user_data = users_data.get(user_email, {})
+        return user_data.get('drive_settings', {})
+    except Exception as e:
+        logger.error(f"드라이브 설정 조회 오류 ({user_email}): {str(e)}")
+        return {}
+
+def save_user_drive_settings(user_email, drive_settings):
+    """사용자별 드라이브 설정 저장"""
+    try:
+        users_data = user_manager._load_users()
+        if user_email not in users_data:
+            return False
+        
+        users_data[user_email]['drive_settings'] = drive_settings
+        user_manager._save_users(users_data)
+        logger.info(f"드라이브 설정 저장 완료 ({user_email}): {drive_settings}")
+        return True
+    except Exception as e:
+        logger.error(f"드라이브 설정 저장 오류 ({user_email}): {str(e)}")
+        return False
+
+# 기존 복잡한 폴더 추적 함수들 제거됨 - 폴더 ID 방식으로 대체
+
+def get_folder_id_from_url(url_or_path):
+    """URL이나 경로에서 구글 드라이브 폴더 ID 추출"""
+    import re
+    
+    # 구글 드라이브 URL에서 ID 추출
+    if 'drive.google.com' in str(url_or_path):
+        # https://drive.google.com/drive/folders/1AbC2dEf3GhI4jKl5MnO6pQr7StU8vWx9
+        folder_id_pattern = r'folders/([a-zA-Z0-9-_]+)'
+        match = re.search(folder_id_pattern, url_or_path)
+        if match:
+            return match.group(1)
+        
+        # https://drive.google.com/open?id=1AtqkF8Vz48-mdVtnXanWXvCi6TDFqvAN&usp=drive_fs
+        id_param_pattern = r'[?&]id=([a-zA-Z0-9-_]+)'
+        match = re.search(id_param_pattern, url_or_path)
+        if match:
+            return match.group(1)
+    
+    # 이미 폴더 ID인 경우 (28자 정도의 영숫자 문자열)
+    if isinstance(url_or_path, str) and re.match(r'^[a-zA-Z0-9-_]{25,35}$', url_or_path.strip()):
+        return url_or_path.strip()
+    
+    return None
+
+def extract_folder_id_from_path(folder_path):
+    """윈도우 로컬 경로에서 구글 드라이브 폴더 ID 자동 추출"""
+    import os
+    import time
+    
+    logger.info(f"📂 경로에서 폴더 ID 추출 시도: {folder_path}")
+    
+    if not folder_path or not os.path.exists(folder_path):
+        logger.warning(f"경로가 존재하지 않음: {folder_path}")
+        return None
+    
+    start_time = time.time()
+    
+    try:
+        # 해당 폴더와 상위 폴더들에서 .shortcut 파일이나 desktop.ini 파일 검색
+        search_paths = [folder_path]
+        
+        # 상위 몇 개 폴더도 확인 (구글 드라이브 메타데이터가 상위에 있을 수 있음)
+        current_path = folder_path
+        for _ in range(3):
+            parent_path = os.path.dirname(current_path)
+            if parent_path != current_path:  # 더 이상 상위 폴더가 없으면 중단
+                search_paths.append(parent_path)
+                current_path = parent_path
+            else:
+                break
+        
+        for search_path in search_paths:
+            if time.time() - start_time > 3:  # 3초 제한
+                break
+                
+            try:
+                for file_name in os.listdir(search_path):
+                    if file_name.endswith('.shortcut') or file_name == 'desktop.ini':
+                        file_path = os.path.join(search_path, file_name)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                                # 구글 드라이브 ID 패턴 검색
+                                import re
+                                id_patterns = [
+                                    r'[?&]id=([a-zA-Z0-9-_]{25,35})',
+                                    r'folders/([a-zA-Z0-9-_]{25,35})',
+                                    r'([a-zA-Z0-9-_]{25,35})'
+                                ]
+                                
+                                for pattern in id_patterns:
+                                    matches = re.findall(pattern, content)
+                                    for match in matches:
+                                        if len(match) >= 25:  # 구글 드라이브 ID는 보통 25자 이상
+                                            logger.info(f"✅ 폴더 ID 발견: {match} (파일: {file_path})")
+                                            return match
+                        except Exception as e:
+                            continue
+            except Exception as e:
+                continue
+        
+        logger.warning(f"경로에서 폴더 ID를 찾을 수 없음: {folder_path}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"폴더 ID 추출 중 오류: {str(e)}")
+        return None
+
+
+def extract_folder_id_from_gdrive_path(gdrive_path):
+    """구글 드라이브 for Desktop 경로에서 폴더 ID 추출 (Google Drive API 사용)"""
+    if not gdrive_path or not isinstance(gdrive_path, str):
+        return None
+    
+    try:
+        # Google Drive for Desktop 경로 패턴 확인
+        gdrive_patterns = [
+            r"^[G-Z]:\\공유 드라이브\\(.+)",  # G:\공유 드라이브\...
+            r"^[G-Z]:\\내 드라이브\\(.+)",     # G:\내 드라이브\...
+            r"^[G-Z]:\\My Drive\\(.+)",        # G:\My Drive\...
+            r"^[G-Z]:\\Google Drive\\(.+)",    # G:\Google Drive\...
+            r"^[G-Z]:\\Shared drives\\(.+)",   # G:\Shared drives\...
+        ]
+        
+        relative_path = None
+        is_shared_drive = False
+        
+        for pattern in gdrive_patterns:
+            match = re.match(pattern, gdrive_path, re.IGNORECASE)
+            if match:
+                relative_path = match.group(1)
+                is_shared_drive = "공유" in pattern or "Shared" in pattern
+                logger.info(f"🔍 Google Drive 경로 감지: {relative_path} (공유드라이브: {is_shared_drive})")
+                logger.info(f"🔍 원본 경로: {gdrive_path}")
+                break
+        
+        if not relative_path:
+            logger.info(f"Google Drive for Desktop 경로가 아님: {gdrive_path}")
+            return None
+        
+        # 경로를 폴더명들로 분리
+        folder_names = [name.strip() for name in relative_path.split('\\') if name.strip()]
+        
+        if not folder_names:
+            logger.warning("폴더 이름을 추출할 수 없음")
+            return None
+        
+        logger.info(f"🗂️ 추출된 폴더 구조: {' > '.join(folder_names)}")
+        
+        # Google Drive API를 사용해 폴더 ID 검색
+        folder_id = search_folder_by_path_api(folder_names, is_shared_drive)
+        
+        if folder_id:
+            logger.info(f"✅ Google Drive API로 폴더 ID 찾음: {folder_id}")
+            return folder_id
+        else:
+            logger.warning(f"⚠️ Google Drive API에서 폴더를 찾을 수 없음: {' > '.join(folder_names)}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Google Drive 경로 처리 중 오류: {str(e)}")
+        return None
+
+
+def search_folder_by_path_api(folder_names, is_shared_drive=False):
+    """Google Drive API를 사용해 폴더 경로로 ID 검색"""
+    try:
+        from googleapiclient.discovery import build
+        from google.oauth2.service_account import Credentials
+        
+        # 서비스 계정 인증 (기존 Google Sheets 인증과 동일)
+        credentials_file = 'credentials.json'
+        if not os.path.exists(credentials_file):
+            logger.error("Google API 인증 파일이 없습니다")
+            return None
+        
+        # Google Drive API 권한 추가
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive.readonly'
+        ]
+        
+        credentials = Credentials.from_service_account_file(credentials_file, scopes=scopes)
+        drive_service = build('drive', 'v3', credentials=credentials)
+        
+        # 루트에서 시작해서 각 폴더를 순차적으로 찾기
+        current_parent = 'root'
+        
+        # 공유 드라이브인 경우 공유 드라이브 목록에서 찾기
+        if is_shared_drive and folder_names:
+            shared_drive_name = folder_names[0]
+            logger.info(f"🔍 공유 드라이브 검색: {shared_drive_name}")
+            
+            # 공유 드라이브 목록 조회
+            drives_result = drive_service.drives().list().execute()
+            drives = drives_result.get('drives', [])
+            
+            for drive in drives:
+                if drive['name'] == shared_drive_name:
+                    current_parent = drive['id']
+                    folder_names = folder_names[1:]  # 첫 번째 폴더명(공유드라이브명) 제거
+                    logger.info(f"✅ 공유 드라이브 발견: {shared_drive_name} (ID: {current_parent})")
+                    break
+            else:
+                logger.warning(f"❌ 공유 드라이브를 찾을 수 없음: {shared_drive_name}")
+                return None
+        
+        # 각 폴더를 순차적으로 찾기
+        for folder_name in folder_names:
+            logger.info(f"🔍 폴더 검색: {folder_name} (부모: {current_parent})")
+            
+            # 현재 부모 폴더 내에서 해당 이름의 폴더 검색
+            query = f"name = '{folder_name}' and parents in '{current_parent}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            
+            if is_shared_drive and current_parent != 'root':
+                # 공유 드라이브 내 검색
+                results = drive_service.files().list(
+                    q=query,
+                    spaces='drive',
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                    corpora='allDrives'
+                ).execute()
+            else:
+                # 일반 드라이브 검색
+                results = drive_service.files().list(q=query).execute()
+            
+            files = results.get('files', [])
+            
+            if not files:
+                logger.warning(f"❌ 폴더를 찾을 수 없음: {folder_name}")
+                return None
+            
+            if len(files) > 1:
+                logger.warning(f"⚠️ 동일한 이름의 폴더가 여러 개 발견: {folder_name} (첫 번째 선택)")
+            
+            current_parent = files[0]['id']
+            logger.info(f"✅ 폴더 발견: {folder_name} (ID: {current_parent})")
+        
+        return current_parent
+        
+    except Exception as e:
+        logger.error(f"Google Drive API 검색 중 오류: {str(e)}")
+        return None
+
+
+def find_folder_in_shared_drives(shared_drives_path, target_folder_name):
+    """공유 드라이브에서 특정 폴더명으로 실제 경로 찾기 (성능 최적화)"""
+    import os
+    import time
+
+    start_time = time.time()
+    max_search_time = 5  # 검색 시간을 5초로 단축
+    max_dirs_to_check = 200  # 최대 확인할 디렉토리 수 제한
+
+    try:
+        logger.info(f"🔍 공유 드라이브에서 '{target_folder_name}' 폴더 검색 중...")
+
+        dirs_checked = 0
+
+        for root, dirs, files in os.walk(shared_drives_path):
+            # 검색 시간 제한
+            if time.time() - start_time > max_search_time:
+                logger.warning(f"공유 드라이브 검색 시간 초과 ({max_search_time}초)")
+                break
+
+            # 검색 디렉토리 수 제한
+            if dirs_checked >= max_dirs_to_check:
+                logger.warning(f"검색 디렉토리 수 초과 ({max_dirs_to_check}개)")
+                break
+
+            # 너무 깊은 디렉토리는 건너뛰기 (8단계 제한)
+            depth = root.replace(shared_drives_path, '').count(os.sep)
+            if depth > 8:
+                continue
+
+            for dir_name in dirs[:20]:  # 각 레벨당 최대 20개 폴더만 확인
+                dirs_checked += 1
+                if dir_name == target_folder_name:
+                    found_path = os.path.join(root, dir_name)
+                    elapsed_time = time.time() - start_time
+                    logger.info(f"✅ 실제 경로 발견 (소요시간: {elapsed_time:.2f}초): {found_path}")
+                    return found_path
+
+    except Exception as e:
+        logger.error(f"공유 드라이브 검색 오류: {str(e)}")
+
+    elapsed_time = time.time() - start_time
+    logger.warning(f"'{target_folder_name}' 폴더를 찾을 수 없습니다 (소요시간: {elapsed_time:.2f}초)")
+    return None
+
+
+# 폴더 ID → 실제 경로 캐시
+folder_path_cache = {}
+
+def find_folder_path_by_drive_id(folder_id, search_drives=['G:', 'F:', 'E:', 'D:', 'C:']):
+    """구글 드라이브 폴더 ID를 사용해 로컬 경로 찾기 (성능 최적화)"""
+    import os
+    import time
+
+    logger.info(f"🔍 폴더 ID로 경로 검색 시작: {folder_id}")
+    start_time = time.time()
+
+    if not folder_id:
+        logger.warning("폴더 ID가 제공되지 않았습니다.")
+        return None
+
+    # 1. 캐시에서 먼저 확인
+    if folder_id in folder_path_cache:
+        cached_path = folder_path_cache[folder_id]
+        logger.info(f"📋 캐시에서 경로 발견: {cached_path}")
+
+        # 캐시된 경로가 여전히 유효한지 확인
+        if os.path.exists(cached_path):
+            logger.info(f"✅ 캐시된 경로 유효, 즉시 반환: {cached_path}")
+            return cached_path
+        else:
+            logger.warning(f"❌ 캐시된 경로 무효, 캐시에서 제거: {cached_path}")
+            del folder_path_cache[folder_id]
+
+    # 구글 드라이브 for Desktop의 바로가기 파일들 검색 (G: 드라이브 우선)
+    for drive in search_drives:
+        logger.info(f"드라이브 {drive} 검색 중...")
+
+        # 1. .shortcut-targets-by-id 폴더에서 직접 검색 (가장 빠른 방법)
+        shortcut_targets_path = f"{drive}\\.shortcut-targets-by-id"
+        if os.path.exists(shortcut_targets_path):
+            logger.info(f"📁 바로가기 타겟 폴더 발견: {shortcut_targets_path}")
+            folder_target_path = os.path.join(shortcut_targets_path, folder_id)
+            if os.path.exists(folder_target_path):
+                logger.info(f"✅ 폴더 ID 직접 매치 발견: {folder_target_path}")
+
+                # 바로가기 타겟에서 실제 경로 찾기
+                try:
+                    # 폴더 이름 가져오기
+                    folder_contents = os.listdir(folder_target_path)
+                    if folder_contents:
+                        target_folder_name = folder_contents[0]  # 첫 번째 폴더명
+                        logger.info(f"🔍 대상 폴더명: {target_folder_name}")
+
+                        # 공유 드라이브에서 해당 폴더명 검색
+                        shared_drives_path = f"{drive}\\공유 드라이브"
+                        if os.path.exists(shared_drives_path):
+                            real_path = find_folder_in_shared_drives(shared_drives_path, target_folder_name)
+                            if real_path:
+                                logger.info(f"✅ 실제 경로 발견: {real_path}")
+                                # 캐시에 저장
+                                folder_path_cache[folder_id] = real_path
+                                logger.info(f"💾 경로를 캐시에 저장: {folder_id} → {real_path}")
+                                return real_path
+
+                        # 실제 경로를 찾지 못한 경우, 바로가기 경로 안의 실제 폴더 반환
+                        logger.warning(f"실제 경로를 찾지 못함, 바로가기 경로 내부 확인: {folder_target_path}")
+
+                        # 바로가기 타겟 폴더 안의 실제 폴더로 이동
+                        try:
+                            folder_contents = os.listdir(folder_target_path)
+                            if folder_contents:
+                                # 첫 번째 폴더(실제 프로젝트 폴더)의 전체 경로
+                                actual_folder_path = os.path.join(folder_target_path, folder_contents[0])
+                                if os.path.isdir(actual_folder_path):
+                                    logger.info(f"✅ 바로가기 내부 실제 폴더 반환: {actual_folder_path}")
+                                    folder_path_cache[folder_id] = actual_folder_path
+                                    elapsed_time = time.time() - start_time
+                                    logger.info(f"💾 실제 내부 경로를 캐시에 저장 (소요시간: {elapsed_time:.2f}초): {folder_id} → {actual_folder_path}")
+                                    return actual_folder_path
+                        except Exception as inner_e:
+                            logger.error(f"바로가기 내부 폴더 접근 오류: {str(inner_e)}")
+
+                        # 내부 폴더도 접근할 수 없으면 바로가기 경로 반환
+                        folder_path_cache[folder_id] = folder_target_path
+                        elapsed_time = time.time() - start_time
+                        logger.info(f"💾 바로가기 경로를 캐시에 저장 (소요시간: {elapsed_time:.2f}초): {folder_id} → {folder_target_path}")
+                        return folder_target_path
+                except Exception as e:
+                    logger.error(f"바로가기 경로 처리 오류: {str(e)}")
+                    return folder_target_path
+
+        # 2. 일반적인 구글 드라이브 경로들에서 제한적 검색 (성능 개선)
+        google_drive_paths = [
+            f"{drive}\\공유 드라이브",  # 우선순위 높음
+            f"{drive}\\Shared drives",
+            f"{drive}\\내 드라이브",
+            f"{drive}\\My Drive",
+            f"{drive}\\Google Drive",
+            f"{drive}\\GoogleDrive",
+        ]
+
+        for base_path in google_drive_paths:
+            if not os.path.exists(base_path):
+                continue
+
+            logger.info(f"경로 검색: {base_path}")
+
+            # 시간 제한을 더 엄격하게 설정 (5초)
+            search_timeout = 5
+
+            # .shortcut 파일들과 desktop.ini 파일들을 제한적으로 검색
+            try:
+                search_count = 0
+                max_search_files = 100  # 최대 검색 파일 수 제한
+
+                for root, dirs, files in os.walk(base_path):
+                    # 검색 시간 및 파일 수 제한
+                    if time.time() - start_time > search_timeout:
+                        logger.warning(f"검색 시간 초과 ({search_timeout}초), 중단")
+                        break
+
+                    if search_count >= max_search_files:
+                        logger.warning(f"검색 파일 수 초과 ({max_search_files}개), 중단")
+                        break
+
+                    # 너무 깊은 디렉토리는 건너뛰기 (성능 개선)
+                    depth = root.replace(base_path, '').count(os.sep)
+                    if depth > 10:  # 10단계로 증가
+                        continue
+
+                    for file in files[:10]:  # 각 디렉토리당 최대 10개 파일만 검사
+                        if file.endswith('.shortcut') or file == 'desktop.ini':
+                            search_count += 1
+                            file_path = os.path.join(root, file)
+                            try:
+                                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    content = f.read(1000)  # 파일 내용 1000자만 읽기
+                                    if folder_id in content:
+                                        logger.info(f"✅ 폴더 ID 매치 발견: {file_path}")
+                                        # 파일이 있는 디렉토리가 실제 폴더 경로
+                                        folder_path_cache[folder_id] = root
+                                        elapsed_time = time.time() - start_time
+                                        logger.info(f"💾 경로를 캐시에 저장 (소요시간: {elapsed_time:.2f}초): {folder_id} → {root}")
+                                        return root
+                            except Exception as e:
+                                continue
+
+            except Exception as e:
+                logger.error(f"경로 검색 중 오류: {base_path} - {str(e)}")
+                continue
+
+        # G: 드라이브에서 찾았다면 다른 드라이브는 건너뛰기 (성능 개선)
+        if drive == 'G:':
+            logger.info("G: 드라이브 검색 완료, 다른 드라이브 건너뛰기")
+            break
+
+    logger.warning(f"폴더 ID {folder_id}에 해당하는 로컬 경로를 찾을 수 없습니다.")
+    return None
+
+
+def find_project_folder_simple(folder_path):
+    """단순한 폴더 찾기 - 기본 경로 확인만"""
+    try:
+        if not folder_path:
+            return None
+        
+        # 1. 원본 경로 그대로 확인
+        if os.path.exists(folder_path):
+            logger.info(f"✅ 원본 경로 유효: {folder_path}")
+            return folder_path
+        
+        logger.warning(f"❌ 경로가 존재하지 않음: {folder_path}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"폴더 찾기 오류: {str(e)}")
+        return None
+
+# 프로젝트 폴더 ID 조회 API
+@app.route('/api/projects/<project_code>/folder_id')
+@login_required
+def get_project_folder_id(project_code):
+    """프로젝트의 Google Drive 폴더 ID 반환"""
+    try:
+        # 캐시에서 폴더 ID 확인
+        folder_id_cache_key = f"folder_id_{project_code}"
+        cached_folder_id = cache_get(folder_id_cache_key)
+        
+        if cached_folder_id:
+            return jsonify({'success': True, 'folder_id': cached_folder_id})
+        
+        # 캐시에 없으면 현재 폴더 경로에서 ID 추출 시도
+        project_data = get_project_by_code(project_code)
+        if not project_data:
+            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다'})
+        
+        folder_path = project_data.get('견적서 및 계약서 폴더 경로', '')
+        if not folder_path or folder_path.strip() == '':
+            return jsonify({'success': False, 'error': '폴더 경로가 설정되지 않았습니다'})
+        
+        # URL에서 ID 추출 시도
+        folder_id = get_folder_id_from_url(folder_path)
+        
+        # 로컬 경로에서도 시도
+        if not folder_id and os.path.exists(folder_path):
+            folder_id = extract_folder_id_from_path(folder_path)
+        
+        if folder_id:
+            # 캐시에 저장
+            cache_set(folder_id_cache_key, folder_id, expire=86400*30)  # 30일 캐시
+            logger.info(f"📁 프로젝트 {project_code}의 폴더 ID 동적 추출 및 캐시 저장: {folder_id}")
+            return jsonify({'success': True, 'folder_id': folder_id})
+        
+        return jsonify({'success': False, 'error': '폴더 ID를 추출할 수 없습니다'})
+        
+    except Exception as e:
+        logger.error(f"폴더 ID 조회 오류: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# 프로젝트 폴더 열기 API
+@app.route('/api/folder/convert-paths-to-ids', methods=['POST'])
+@admin_required
+def convert_folder_paths_to_ids():
+    """기존 프로젝트들의 폴더 경로를 Google Drive ID로 일괄 변환"""
+    try:
+        logger.info("=== 폴더 경로 → ID 일괄 변환 시작 ===")
+        
+        # Google Sheets에서 직접 최신 데이터 읽기 (캐시 무시)
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        manager = get_sheets_manager()
+        
+        # 모든 캐시 삭제하여 완전히 새로운 데이터 보장
+        cache_delete("current_sheet_data")
+        cache_delete("project_data_cache")
+        logger.info("🗑️ 모든 캐시 삭제 완료")
+        
+        # Google Sheets에서 직접 데이터 읽기
+        fresh_df = manager.get_sheet_data(sheet_id, '공사 현황의 사본!A:AS')
+        if fresh_df.empty:
+            return jsonify({'error': 'Google Sheets에서 데이터를 불러올 수 없습니다.'}), 500
+        
+        # 빈 행 제거
+        fresh_df = fresh_df.dropna(subset=['프로젝트 코드'])
+        fresh_df = fresh_df[fresh_df['프로젝트 코드'].astype(str).str.strip() != '']
+        
+        logger.info(f"🔄 Google Sheets에서 직접 읽은 데이터: {len(fresh_df)}개 프로젝트")
+        projects_data = fresh_df.to_dict('records')
+        
+        # 변환이 필요한 프로젝트들 찾기
+        conversion_candidates = []
+        failed_projects_found = 0
+        gdrive_id_projects = 0
+        
+        for project in projects_data:
+            folder_path = project.get('견적서 및 계약서 폴더 경로', '')
+            project_code = project.get('프로젝트 코드', '')
+            
+            if folder_path and folder_path.strip() and folder_path != '-':
+                # 이미 Google Drive ID인 경우 카운트
+                if re.match(r'^[a-zA-Z0-9_-]{25,35}$', folder_path.strip()):
+                    gdrive_id_projects += 1
+                else:
+                    # 이미 변환 실패로 표시된 프로젝트 카운트
+                    if folder_path.strip() == 'FAILED_CONVERT':
+                        failed_projects_found += 1
+                        logger.info(f"⏭️ 이전에 변환 실패한 프로젝트 건너뜀: {project_code}")
+                        continue
+                    
+                    # Google Drive 경로인지 확인 (G:\ 또는 drive.google.com이 포함된 경우만)
+                    if ('G:\\' in folder_path or 'drive.google.com' in folder_path or 
+                        '공유 드라이브' in folder_path or 'My Drive' in folder_path or 'Google Drive' in folder_path):
+                        conversion_candidates.append({
+                            'project_code': project_code,
+                            'original_path': folder_path,
+                            'row_number': None
+                        })
+                        logger.info(f"📁 Google Drive 경로 발견: {project_code} - {folder_path[:100]}...")
+        
+        logger.info(f"📊 데이터 현황: 전체 프로젝트 {len(projects_data)}개 중 Google Drive ID 보유 {gdrive_id_projects}개, 실패 마킹 {failed_projects_found}개")
+        
+        logger.info(f"📋 변환 후보 프로젝트 수: {len(conversion_candidates)}개")
+        
+        if not conversion_candidates:
+            return jsonify({
+                'success': True, 
+                'message': '변환이 필요한 프로젝트가 없습니다.',
+                'converted': 0,
+                'failed': 0,
+                'total': 0
+            })
+        
+        # 테이블과 동일한 정렬 순서로 처리 (프로젝트 코드의 숫자 부분 기준 역순)
+        def extract_project_number(project_code):
+            """프로젝트 코드에서 숫자 부분만 추출하여 정수로 반환 (테이블 정렬과 동일)"""
+            import re
+            numbers = re.findall(r'\d+', project_code or '')
+            return int(numbers[0]) if numbers else 0
+        
+        # 정렬 전 후보들 로깅
+        before_sort = [f"{c['project_code']}({extract_project_number(c['project_code'])})" for c in conversion_candidates[:10]]
+        logger.info(f"📋 정렬 전 변환 후보들: {before_sort}")
+        
+        conversion_candidates.sort(key=lambda x: extract_project_number(x['project_code']), reverse=True)
+        
+        # 정렬 후 후보들 로깅
+        after_sort = [f"{c['project_code']}({extract_project_number(c['project_code'])})" for c in conversion_candidates[:10]]
+        logger.info(f"🔢 정렬 후 변환 후보들: {after_sort}")
+        
+        # 배치 크기 제한 (API 할당량 보호) - 실패 건너뛰기로 효율성 증가
+        BATCH_SIZE = 15  # 실패 프로젝트 건너뛰기 시스템으로 배치 크기 증가
+        if len(conversion_candidates) > BATCH_SIZE:
+            conversion_candidates = conversion_candidates[:BATCH_SIZE]
+            logger.info(f"⚠️ 최근 프로젝트 우선으로 처리 대상을 {BATCH_SIZE}개로 제한합니다.")
+            logger.info(f"🔄 처리할 프로젝트: {[c['project_code'] for c in conversion_candidates]}... (총 {len(conversion_candidates)}개)")
+        
+        # Google Sheets 매니저 준비
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        manager = get_sheets_manager()
+        
+        # 각 프로젝트의 행 번호 찾기
+        for candidate in conversion_candidates:
+            row_number = manager.find_row_by_project_code(sheet_id, candidate['project_code'], '공사 현황의 사본!A:A')
+            candidate['row_number'] = row_number
+        
+        # 변환 실행
+        converted_count = 0
+        failed_count = 0
+        conversion_results = []
+        
+        for candidate in conversion_candidates:
+            project_code = candidate['project_code']
+            original_path = candidate['original_path']
+            row_number = candidate['row_number']
+            
+            if not row_number:
+                logger.warning(f"⚠️ 프로젝트 {project_code}의 행을 찾을 수 없음")
+                failed_count += 1
+                conversion_results.append({
+                    'project_code': project_code,
+                    'status': 'failed',
+                    'reason': '행 번호를 찾을 수 없음',
+                    'original_path': original_path
+                })
+                continue
+            
+            try:
+                # 폴더 ID 추출 시도
+                folder_id = None
+                
+                # 1. Google Drive URL에서 ID 추출
+                folder_id = get_folder_id_from_url(original_path)
+                
+                # 2. Google Drive for Desktop 경로에서 ID 추출 (API 사용)
+                if not folder_id:
+                    folder_id = extract_folder_id_from_gdrive_path(original_path)
+                
+                # 3. 로컬 경로에서 ID 추출 시도 (기존 방식)
+                if not folder_id and os.path.exists(original_path):
+                    folder_id = extract_folder_id_from_path(original_path)
+                
+                if folder_id:
+                    # ID 추출 성공 - Google Sheets 업데이트
+                    success = manager.batch_update_cells(sheet_id, [{
+                        'range': f'공사 현황의 사본!AK{row_number}',
+                        'values': [[folder_id]]
+                    }])
+                    
+                    if success:
+                        converted_count += 1
+                        conversion_results.append({
+                            'project_code': project_code,
+                            'status': 'success',
+                            'folder_id': folder_id,
+                            'original_path': original_path
+                        })
+                        logger.info(f"✅ {project_code}: {original_path} → {folder_id}")
+                    else:
+                        failed_count += 1
+                        conversion_results.append({
+                            'project_code': project_code,
+                            'status': 'failed',
+                            'reason': 'Google Sheets 업데이트 실패',
+                            'original_path': original_path
+                        })
+                        logger.error(f"❌ {project_code}: Google Sheets 업데이트 실패")
+                else:
+                    # ID 추출 실패 - 실패 마킹하여 다음에 건너뛰도록 함
+                    failed_count += 1
+                    
+                    # Google Sheets에 실패 표시
+                    try:
+                        manager.batch_update_cells(sheet_id, [{
+                            'range': f'공사 현황의 사본!AK{row_number}',
+                            'values': [['FAILED_CONVERT']]
+                        }])
+                        logger.info(f"📌 {project_code}: 실패 마킹 완료 (다음에 건너뜀)")
+                    except Exception as mark_error:
+                        logger.error(f"❌ {project_code}: 실패 마킹 중 오류 - {mark_error}")
+                    
+                    conversion_results.append({
+                        'project_code': project_code,
+                        'status': 'failed',
+                        'reason': 'Google Drive ID 추출 실패 (다음 실행시 건너뜀)',
+                        'original_path': original_path
+                    })
+                    logger.warning(f"⚠️ {project_code}: ID 추출 실패 - {original_path}")
+                    
+            except Exception as e:
+                failed_count += 1
+                
+                # 예외 발생시에도 실패 마킹
+                try:
+                    manager.batch_update_cells(sheet_id, [{
+                        'range': f'공사 현황의 사본!AK{row_number}',
+                        'values': [['FAILED_CONVERT']]
+                    }])
+                    logger.info(f"📌 {project_code}: 예외 발생으로 실패 마킹 완료")
+                except Exception as mark_error:
+                    logger.error(f"❌ {project_code}: 예외 실패 마킹 중 오류 - {mark_error}")
+                
+                conversion_results.append({
+                    'project_code': project_code,
+                    'status': 'failed',
+                    'reason': f'처리 중 오류 (다음 실행시 건너뜀): {str(e)}',
+                    'original_path': original_path
+                })
+                logger.error(f"❌ {project_code} 처리 중 오류: {str(e)}")
+        
+        # 캐시 삭제 및 데이터 새로고침
+        if converted_count > 0:
+            cache_delete("current_sheet_data")
+            load_data(force_refresh=True)
+        
+        logger.info(f"=== 폴더 경로 → ID 변환 완료 ===")
+        logger.info(f"📊 총 {len(conversion_candidates)}개 중 {converted_count}개 성공, {failed_count}개 실패")
+        
+        # 배치 제한 메시지 추가
+        batch_message = ""
+        if len(conversion_candidates) == BATCH_SIZE:
+            batch_message = f" (배치 크기 {BATCH_SIZE}개로 제한됨)"
+        
+        return jsonify({
+            'success': True,
+            'message': f'변환 완료: {converted_count}개 성공, {failed_count}개 실패{batch_message}',
+            'converted': converted_count,
+            'failed': failed_count,
+            'total': len(conversion_candidates),
+            'batch_limited': len(conversion_candidates) == BATCH_SIZE,
+            'batch_size': BATCH_SIZE,
+            'results': conversion_results
+        })
+        
+    except Exception as e:
+        logger.error(f"폴더 경로 → ID 변환 중 오류: {str(e)}")
+        return jsonify({'error': f'변환 중 오류가 발생했습니다: {str(e)}'}), 500
+
+@app.route('/api/folder/name/<project_code>')
+@login_required
+def get_folder_name(project_code):
+    """프로젝트 폴더명 가져오기"""
+    try:
+        logger.info(f"폴더명 API 호출됨 - 프로젝트 코드: {project_code}")
+        user_data = session.get('user', {})
+        user_email = user_data.get('email', '')
+        logger.info(f"사용자 이메일: {user_email}")
+        if not user_email:
+            logger.error("로그인되지 않은 사용자의 폴더명 API 접근")
+            return jsonify({'success': False, 'error': '로그인 필요'}), 401
+
+        # 프로젝트 데이터 조회
+        df = load_data()
+        if df is None:
+            return jsonify({'success': False, 'error': '데이터를 불러올 수 없습니다'}), 500
+
+        # DataFrame을 딕셔너리 리스트로 변환
+        df = df.fillna('')  # NaN 값을 빈 문자열로 변환
+        projects_data = df.to_dict('records')
+
+        project_data = None
+        for project in projects_data:
+            if project.get('프로젝트 코드') == project_code:
+                project_data = project
+                break
+
+        if not project_data:
+            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다'})
+
+        # 폴더 경로 가져오기
+        original_path = project_data.get('견적서 및 계약서 폴더 경로', '')
+        if not original_path or original_path.strip() == '':
+            return jsonify({'success': False, 'error': '폴더 경로가 설정되지 않았습니다'})
+
+        # 구글 드라이브 폴더 ID인지 확인
+        folder_id = get_folder_id_from_url(original_path)
+        if folder_id:
+            # 폴더 ID를 사용해 실제 경로와 폴더명 찾기
+            actual_path = find_folder_path_by_drive_id(folder_id)
+            if actual_path:
+                folder_name = os.path.basename(actual_path)
+                return jsonify({
+                    'success': True,
+                    'folder_name': folder_name,
+                    'is_google_drive': True,
+                    'folder_id': folder_id,
+                    'path': actual_path
+                })
+            else:
+                # 캐시나 검색으로 찾을 수 없는 경우 바로가기에서 폴더명 추출
+                try:
+                    shortcut_path = f"G:\\.shortcut-targets-by-id\\{folder_id}"
+                    if os.path.exists(shortcut_path):
+                        folder_contents = os.listdir(shortcut_path)
+                        if folder_contents:
+                            folder_name = folder_contents[0]
+                            return jsonify({
+                                'success': True,
+                                'folder_name': folder_name,
+                                'is_google_drive': True,
+                                'folder_id': folder_id
+                            })
+                except:
+                    pass
+
+                return jsonify({
+                    'success': True,
+                    'folder_name': f"폴더 ID: {folder_id[:8]}...",
+                    'is_google_drive': True,
+                    'folder_id': folder_id
+                })
+        else:
+            # 기존 경로 방식
+            folder_name = os.path.basename(original_path) if original_path else "경로 없음"
+            return jsonify({
+                'success': True,
+                'folder_name': folder_name,
+                'is_google_drive': False,
+                'path': original_path
+            })
+
+    except Exception as e:
+        logger.error(f"폴더명 가져오기 오류 ({project_code}): {str(e)}")
+        return jsonify({'success': False, 'error': f'오류가 발생했습니다: {str(e)}'}), 500
+
+
+@app.route('/api/folder/open/<project_code>')
+@login_required
+def open_project_folder(project_code):
+    """프로젝트 폴더를 윈도우 탐색기로 열기"""
+    try:
+        user_data = session.get('user', {})
+        user_email = user_data.get('email', '')
+        if not user_email:
+            return jsonify({'success': False, 'error': '로그인 필요'}), 401
+        
+        # 프로젝트 데이터 조회
+        df = load_data()
+        if df is None:
+            return jsonify({'success': False, 'error': '데이터를 불러올 수 없습니다'}), 500
+            
+        # DataFrame을 딕셔너리 리스트로 변환
+        df = df.fillna('')  # NaN 값을 빈 문자열로 변환
+        projects_data = df.to_dict('records')
+        
+        project_data = None
+        for project in projects_data:
+            if project.get('프로젝트 코드') == project_code:
+                project_data = project
+                break
+        
+        if not project_data:
+            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다'})
+        
+        # 폴더 경로 가져오기
+        original_path = project_data.get('견적서 및 계약서 폴더 경로', '')
+        if not original_path or original_path.strip() == '':
+            return jsonify({'success': False, 'error': '폴더 경로가 설정되지 않았습니다'})
+        
+        # 구글 드라이브 폴더 ID인지 확인
+        folder_id = get_folder_id_from_url(original_path)
+        if folder_id:
+            logger.info(f"🆔 구글 드라이브 폴더 ID 감지: {folder_id}")
+            # 폴더 ID를 사용해 로컬 경로 찾기
+            actual_path = find_folder_path_by_drive_id(folder_id)
+            if not actual_path:
+                return jsonify({
+                    'success': False, 
+                    'error': f'폴더 ID {folder_id}에 해당하는 로컬 경로를 찾을 수 없습니다. 구글 드라이브가 동기화되어 있는지 확인해주세요.'
+                })
+        else:
+            # 기존 경로 방식
+            logger.info(f"📁 기존 경로 방식 사용: {original_path}")
+            
+            # 간단한 폴더 찾기 (fallback)
+            actual_path = find_project_folder_simple(original_path)
+        
+        if actual_path and os.path.exists(actual_path):
+            # 윈도우 탐색기를 전면으로 열기
+            import subprocess
+            import platform
+
+            if platform.system() == 'Windows':
+                try:
+                    # 방법 1: explorer /n (새 창으로 열기) + 전면 가져오기
+                    subprocess.Popen(['explorer', '/n,', actual_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    logger.info(f"✅ 윈도우 탐색기 새 창으로 실행: {actual_path}")
+
+                    # 방법 2: 약간의 딜레이 후 PowerShell로 전면 가져오기 시도
+                    import time
+                    time.sleep(0.2)
+
+                    try:
+                        # PowerShell 명령으로 Explorer 창을 전면으로 가져오기
+                        ps_command = f'''
+                        Add-Type -AssemblyName Microsoft.VisualBasic
+                        [Microsoft.VisualBasic.Interaction]::AppActivate("File Explorer")
+                        '''
+                        subprocess.run(['powershell', '-Command', ps_command],
+                                     capture_output=True, text=True, timeout=2)
+                    except Exception as ps_error:
+                        logger.debug(f"PowerShell 전면 가져오기 실패: {str(ps_error)}")
+
+                except Exception as e:
+                    logger.warning(f"explorer 새 창 실행 실패, os.startfile 대체 사용: {str(e)}")
+                    # 대체 방법: 기존 os.startfile 방식
+                    os.startfile(actual_path)
+            else:
+                # Mac/Linux 대응 (필요시)
+                subprocess.run(['open', actual_path])
+            
+            # 경로가 바뀌었으면 업데이트
+            if actual_path != original_path:
+                # 프로젝트 데이터 업데이트
+                for i, project in enumerate(projects_data):
+                    if project.get('프로젝트 코드') == project_code:
+                        projects_data[i]['견적서 및 계약서 폴더 경로'] = actual_path
+                        break
+                
+                # 폴더 경로 변경 로그만 남기기 (데이터는 Google Sheets에서 관리되므로 별도 저장 불필요)
+                logger.info(f"폴더 경로 업데이트 ({project_code}): {original_path} -> {actual_path}")
+            
+            return jsonify({
+                'success': True, 
+                'path': actual_path,
+                'updated': actual_path != original_path
+            })
+        else:
+            # 폴더를 찾을 수 없는 경우, 구글 드라이브 ID라면 웹에서 열어주기
+            if folder_id:
+                # 구글 드라이브 웹 URL로 브라우저에서 열기
+                import webbrowser
+                google_drive_url = f"https://drive.google.com/drive/folders/{folder_id}"
+                webbrowser.open(google_drive_url)
+
+                return jsonify({
+                    'success': True,
+                    'path': google_drive_url,
+                    'web_fallback': True,
+                    'message': '로컬 폴더를 찾을 수 없어 구글 드라이브 웹에서 열었습니다.'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': f'폴더를 찾을 수 없습니다: {original_path}'
+                })
+            
+    except Exception as e:
+        logger.error(f"프로젝트 폴더 열기 오류 ({project_code}): {str(e)}")
+        return jsonify({'success': False, 'error': f'오류가 발생했습니다: {str(e)}'}), 500
 
 # 파비콘 처리 (404 오류 방지)
 @app.route('/favicon.ico')
