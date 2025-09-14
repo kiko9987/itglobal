@@ -155,16 +155,19 @@ class SecurityHeaders:
         """보안 헤더 반환"""
         return {
             'X-Content-Type-Options': 'nosniff',
-            'X-Frame-Options': 'DENY',
+            'X-Frame-Options': 'SAMEORIGIN',
             'X-XSS-Protection': '1; mode=block',
             'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
             'Content-Security-Policy': (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://code.jquery.com https://cdn.socket.io https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.datatables.net; "
-                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.datatables.net; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://code.jquery.com https://cdn.socket.io https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.datatables.net https://accounts.google.com https://apis.google.com https://www.gstatic.com https://ssl.gstatic.com; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.datatables.net https://accounts.google.com; "
                 "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
-                "img-src 'self' data: https:; "
-                "connect-src 'self' wss: ws: https://code.jquery.com https://cdn.socket.io https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://cdn.datatables.net https://fonts.googleapis.com https://fonts.gstatic.com;"
+                "img-src 'self' data: https: blob:; "
+                "connect-src 'self' wss: ws: https:; "
+                "frame-src 'self' https://accounts.google.com; "
+                "object-src 'none'; "
+                "base-uri 'self';"
             ),
             'Referrer-Policy': 'strict-origin-when-cross-origin',
             'Permissions-Policy': (

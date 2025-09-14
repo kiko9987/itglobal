@@ -187,12 +187,7 @@ def validate_dashboard_env() -> Dict[str, Any]:
     if os.getenv('CALLBACK_URL'):
         validator.validate_url('CALLBACK_URL', ['http', 'https'])
     
-    # 관리자 이메일 검증
-    admin_emails = os.getenv('ADMIN_EMAILS', '').split(',')
-    for email in admin_emails:
-        if email.strip():
-            validator.validate_email('ADMIN_EMAILS')
-            break
+    # OAuth 인증으로 관리자 권한 관리 (ADMIN_EMAILS 더 이상 불필요)
     
     # 결과 반환
     result = validator.get_validation_result()

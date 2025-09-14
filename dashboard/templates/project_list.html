@@ -1066,6 +1066,13 @@
             margin-left: 0.2rem;
             color: var(--gray-400);
         }
+
+        /* 폴더 섹션 라벨에도 콜론 추가 */
+        .folder-label::after {
+            content: ':';
+            margin-left: 0.2rem;
+            color: var(--gray-400);
+        }
         
         .compact-item > div {
             font-size: 0.9rem;
@@ -4830,89 +4837,100 @@
                                 </div>
                             </div>
 
-                            <!-- 견적서 및 계약서 폴더 경로 경로 -->
-                            ${(() => {
-                                const folderValue = rowData['견적서 및 계약서 폴더 경로'] || rowData['AK'] || '';
+                            <!-- 문서 폴더 및 수금 특이사항 섹션 -->
+                            <div class="mt-3 d-flex gap-3">
+                                <!-- 좌측: 문서 폴더 (50% 크기) -->
+                                <div style="flex: 1;">
+                                    ${(() => {
+                                        const folderValue = rowData['견적서 및 계약서 폴더 경로'] || rowData['AK'] || '';
 
-                                // 폴더명 추출 함수
-                                const getFolderDisplayName = (folderPath) => {
-                                    if (!folderPath || folderPath.trim() === '' || folderPath === '-') return '폴더';
+                                        // 폴더명 추출 함수
+                                        const getFolderDisplayName = (folderPath) => {
+                                            if (!folderPath || folderPath.trim() === '' || folderPath === '-') return '폴더';
 
-                                    const googleDriveRegex = /^[a-zA-Z0-9_-]{25,35}$/;
-                                    if (googleDriveRegex.test(folderPath.trim())) {
-                                        return '구글 드라이브 폴더';
-                                    } else {
-                                        const pathParts = folderPath.split(/[\\\/]/);
-                                        return pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2] || '폴더';
-                                    }
-                                };
+                                            const googleDriveRegex = /^[a-zA-Z0-9_-]{25,35}$/;
+                                            if (googleDriveRegex.test(folderPath.trim())) {
+                                                return '구글 드라이브 폴더';
+                                            } else {
+                                                const pathParts = folderPath.split(/[\\\/]/);
+                                                return pathParts[pathParts.length - 1] || pathParts[pathParts.length - 2] || '폴더';
+                                            }
+                                        };
 
-                                if (folderValue && folderValue.trim() !== '' && folderValue !== '-') {
-                                    // 폴더 값이 Google Drive ID인지 확인 (영숫자와 언더바, 하이픈으로 구성된 28자 정도)
-                                    const isGoogleDriveId = /^[a-zA-Z0-9_-]{25,35}$/.test(folderValue.trim());
-                                    const folderDisplayName = getFolderDisplayName(folderValue);
+                                        if (folderValue && folderValue.trim() !== '' && folderValue !== '-') {
+                                            // 폴더 값이 Google Drive ID인지 확인 (영숫자와 언더바, 하이픈으로 구성된 28자 정도)
+                                            const isGoogleDriveId = /^[a-zA-Z0-9_-]{25,35}$/.test(folderValue.trim());
+                                            const folderDisplayName = getFolderDisplayName(folderValue);
 
-                                    return `
-                                    <div id="card-document-${projectCode}" class="mt-3 p-3" style="background-color: #f8f9fa; border-radius: var(--border-radius); border: 1px solid var(--gray-200);">
-                                        <div class="d-flex align-items-center">
-                                            <i class="fas fa-folder-open me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
-                                            <small class="text-muted me-2" style="font-weight: 600;">문서 폴더:</small>
-                                            <div class="text-truncate d-flex align-items-center" style="flex: 1;">
-                                                <!-- Google Drive 링크 또는 기존 경로 -->
-                                                ${isGoogleDriveId ? `
-                                                    <a href="#" onclick="openProjectFolder('${projectCode}', '${folderValue.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
-                                                       id="folder-display-${projectCode}" class="text-decoration-none folder-link"
-                                                       style="color: #17a2b8; font-size: 0.85rem; cursor: pointer !important; display: inline-block;">
-                                                        <i class="fab fa-google-drive me-1" style="color: #4285f4; cursor: pointer !important;"></i><span class="folder-name-display" style="cursor: pointer !important;">${folderDisplayName}</span>
-                                                    </a>
-                                                ` : `
-                                                    <a href="#" onclick="openProjectFolder('${projectCode}', '${folderValue.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
-                                                       id="folder-display-${projectCode}" class="text-decoration-none folder-link"
-                                                       style="color: #17a2b8; font-size: 0.85rem; cursor: pointer !important; display: inline-block;">
-                                                        <i class="fas fa-folder me-1" style="color: #ffc107; cursor: pointer !important;"></i><span style="cursor: pointer !important;">${folderDisplayName}</span>
-                                                    </a>
-                                                `}
-                                                <button class="btn btn-sm ms-2 copy-folder-btn" 
-                                                        onclick="copyFolderPath(this, '${folderValue.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
-                                                        title="경로 복사"
-                                                        style="padding: 0.2rem 0.6rem; font-size: 0.7rem; border: 1px solid #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.15s ease-in-out;"
-                                                        onmouseover="this.style.backgroundColor='#17a2b8'; this.style.color='white';"
-                                                        onmouseout="this.style.backgroundColor='transparent'; this.style.color='#17a2b8';">
-                                                    <i class="fas fa-copy me-1"></i>복사
-                                                </button>
-                                                <!-- 통합 메시지 영역 -->
-                                                <div class="unified-folder-message ms-3" style="display: none;"></div>
+                                            return `
+                                            <div id="card-document-${projectCode}" style="background-color: #f8f9fa; border-radius: var(--border-radius); border: 1px solid var(--gray-200); padding: 0.75rem 1rem; min-height: 52px; display: flex; align-items: center;">
+                                                <div class="d-flex align-items-center">
+                                                    <i class="fas fa-folder-open me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
+                                                    <small class="text-muted me-2 folder-label" style="font-weight: 600;">문서 폴더</small>
+                                                    <div class="text-truncate d-flex align-items-center" style="flex: 1;">
+                                                        <!-- Google Drive 링크 또는 기존 경로 -->
+                                                        ${isGoogleDriveId ? `
+                                                            <a href="#" onclick="openProjectFolder('${projectCode}', '${folderValue.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
+                                                               id="folder-display-${projectCode}" class="text-decoration-none folder-link"
+                                                               style="color: #17a2b8; font-size: 0.85rem; cursor: pointer !important; display: inline-block;">
+                                                                <i class="fab fa-google-drive me-1" style="color: #4285f4; cursor: pointer !important;"></i><span class="folder-name-display" style="cursor: pointer !important;">${folderDisplayName}</span>
+                                                            </a>
+                                                        ` : `
+                                                            <a href="#" onclick="openProjectFolder('${projectCode}', '${folderValue.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
+                                                               id="folder-display-${projectCode}" class="text-decoration-none folder-link"
+                                                               style="color: #17a2b8; font-size: 0.85rem; cursor: pointer !important; display: inline-block;">
+                                                                <i class="fas fa-folder me-1" style="color: #ffc107; cursor: pointer !important;"></i><span style="cursor: pointer !important;">${folderDisplayName}</span>
+                                                            </a>
+                                                        `}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <button class="btn btn-outline-secondary btn-sm edit-folder-btn" 
-                                                    onclick="editFolderPath(this, '${folderValue.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
-                                                    title="수정"
-                                                    style="padding: 0.2rem 0.6rem; font-size: 0.7rem;">
-                                                <i class="fas fa-edit me-1"></i>수정
-                                            </button>
+                                            `;
+                                        } else {
+                                            // 견적서 및 계약서 폴더 경로 경로가 없을 때도 기본 정보 표시
+                                            return `
+                                            <div id="card-document-${projectCode}" style="background-color: #fff3cd; border-radius: var(--border-radius); border: 1px solid #ffc107; padding: 0.75rem 1rem; min-height: 52px; display: flex; align-items: center;">
+                                                <div class="d-flex align-items-center">
+                                                    <i class="fas fa-folder me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
+                                                    <small class="text-muted me-2 folder-label" style="font-weight: 600;">문서 폴더</small>
+                                                    <span style="color: #856404; font-size: 0.85rem; font-style: italic;">경로가 설정되지 않음</span>
+                                                </div>
+                                            </div>
+                                            `;
+                                        }
+                                    })()}
+                                </div>
+
+                                <!-- 우측: 수금 관련 특이사항 (50% 크기) -->
+                                <div style="flex: 1;">
+                                    ${(() => {
+                                        const specialNotesValue = rowData['AG'] || rowData['수금 관련 특이사항'] || '';
+
+                                        return `
+                                        <div id="card-payment-notes-${projectCode}" style="background-color: #f8f9fa; border-radius: var(--border-radius); border: 1px solid var(--gray-200); padding: 0.75rem 1rem; min-height: 52px;">
+                                            <div class="d-flex align-items-center justify-content-between">
+                                                <div class="d-flex align-items-center" style="flex: 1;">
+                                                    <i class="fas fa-clipboard-list me-2" style="color: #6c757d; font-size: 1.1rem;"></i>
+                                                    <small class="text-muted me-2 folder-label" style="font-weight: 600;">수금 특이사항</small>
+                                                    <div class="text-truncate" style="flex: 1;">
+                                                        <span class="editable-value" data-field="AG" data-original-value="${specialNotesValue}"
+                                                              style="color: ${specialNotesValue ? '#333' : '#6c757d'}; font-size: 0.85rem; ${!specialNotesValue ? 'font-style: italic;' : ''}">
+                                                            ${specialNotesValue || '특이사항 없음'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <button class="btn btn-outline-secondary btn-sm edit-notes-btn"
+                                                        onclick="editPaymentNotes(this, '${specialNotesValue.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')"
+                                                        title="수정"
+                                                        style="padding: 0.2rem 0.6rem; font-size: 0.7rem; margin-left: 0.5rem;">
+                                                    <i class="fas fa-edit me-1"></i>수정
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
-                                    `;
-                                } else {
-                                    // 견적서 및 계약서 폴더 경로 경로가 없을 때도 기본 정보 표시
-                                    return `
-                                    <div id="card-document-${projectCode}" class="mt-3 p-3" style="background-color: #fff3cd; border-radius: var(--border-radius); border: 1px solid #ffc107;">
-                                        <div class="d-flex align-items-center">
-                                            <i class="fas fa-folder me-2" style="color: #ffc107; font-size: 1.1rem;"></i>
-                                            <small class="text-muted me-2" style="font-weight: 600;">문서 폴더:</small>
-                                            <span style="color: #856404; font-size: 0.85rem; font-style: italic;">경로가 설정되지 않음</span>
-                                            <!-- 메시지 영역 추가 -->
-                                            <div class="unified-folder-message ms-3" style="display: none;"></div>
-                                            <button class="btn btn-outline-warning btn-sm ms-auto edit-folder-btn" 
-                                                    onclick="editFolderPath(this, '')"
-                                                    title="경로 설정"
-                                                    style="padding: 0.2rem 0.6rem; font-size: 0.7rem;">
-                                                <i class="fas fa-plus me-1"></i>경로 설정
-                                            </button>
-                                        </div>
-                                    </div>
-                                    `;
-                                }
-                            })()}
+                                        `;
+                                    })()}
+                                </div>
+                            </div>
 
                         </div>
                     </div>
@@ -7890,11 +7908,6 @@
                     normalizedNew = (newValue || '').toString().replace(/[^0-9]/g, '');
                 }
                 
-                // 디버그 로그
-                console.log(`필드 변경 감지: ${fieldName}`);
-                console.log(`  원본: "${originalValue}" -> 정규화: "${normalizedOriginal}"`);
-                console.log(`  새값: "${newValue}" -> 정규화: "${normalizedNew}"`);
-                console.log(`  변경됨: ${normalizedOriginal !== normalizedNew}`);
                 
                 // 부가세 필드 특별 디버그
                 if (fieldName === '부가세') {
@@ -7913,7 +7926,6 @@
             
             // 변경사항이 없거나 총액2만 변경된 경우 저장하지 않음
             const hasActualUpdates = Object.keys(updatedData).filter(key => key !== 'projectCode').length > 0;
-            console.log(`전체 변경사항 확인: hasChanges = ${hasChanges}, 실제 업데이트 필드 수: ${Object.keys(updatedData).length}`);
             if (!hasChanges || !hasActualUpdates) {
                 // 저장 상태 해제
                 savingCards.delete(cardKey);
@@ -7938,7 +7950,6 @@
             // 프로젝트 코드 추가
             updatedData['projectCode'] = projectCode;
             
-            console.log('서버로 전송할 데이터:', updatedData);
             
             // 부가세 데이터 특별 확인
             if (updatedData['부가세'] !== undefined) {
@@ -8754,30 +8765,22 @@
             }, 4000);
         }
         
-        // 현재 프로젝트 코드 가져오기 함수
+        // 현재 프로젝트 코드 가져오기 함수 (기존 카드 편집 방식과 동일)
         function getCurrentProjectCode(element) {
-            console.log('getCurrentProjectCode 호출됨, element:', element);
-            
             // 가장 가까운 행 세부정보 컨테이너 찾기
             const rowDetails = element.closest('.row-details');
-            console.log('rowDetails 찾기:', rowDetails);
             if (!rowDetails) {
-                console.warn('rowDetails를 찾을 수 없음');
                 return null;
             }
-            
+
             // 프로젝트 코드를 포함한 카드의 ID에서 추출
             const cardBasic = rowDetails.querySelector('[id^="card-basic-"]');
-            console.log('cardBasic 찾기:', cardBasic);
             if (cardBasic) {
-                console.log('cardBasic.id:', cardBasic.id);
                 const match = cardBasic.id.match(/card-basic-(.+)/);
                 const projectCode = match ? match[1] : null;
-                console.log('추출된 프로젝트 코드:', projectCode);
                 return projectCode;
             }
-            
-            console.warn('card-basic 요소를 찾을 수 없음');
+
             return null;
         }
         
@@ -9106,7 +9109,262 @@
             }
             document.body.removeChild(textArea);
         }
-        
+
+        // 수금 관련 특이사항 수정 함수
+        function editPaymentNotes(buttonElement, currentNotes) {
+            // 현재 프로젝트 코드 가져오기
+            const projectCode = getCurrentProjectCode(buttonElement);
+
+            if (!projectCode) {
+                console.warn('프로젝트 코드를 찾을 수 없습니다.');
+                return;
+            }
+
+            // 먼저 카드 잠금 시도 (payment-notes 카드 타입 사용)
+            acquireCardLock(projectCode, 'payment-notes').then(result => {
+                if (!result.success) {
+                    alert(`'${result.lockedBy}'님이 수정 중입니다.`);
+                    return;
+                }
+
+                // 잠금 획득 성공 - 편집 모드 활성화
+                activatePaymentNotesEditMode(buttonElement, currentNotes, projectCode);
+            }).catch(error => {
+                console.error('카드 잠금 중 오류:', error);
+                alert('편집 모드 활성화 중 오류가 발생했습니다.');
+            });
+        }
+
+        function activatePaymentNotesEditMode(buttonElement, currentNotes, projectCode) {
+            try {
+                // 현재 버튼이 포함된 컨테이너 찾기
+                const notesContainer = buttonElement.closest('.d-flex');
+                const notesSpan = notesContainer.querySelector('.editable-value');
+                const paymentNotesCard = buttonElement.closest('#card-payment-notes-' + projectCode);
+
+                if (!notesSpan) {
+                    console.error('수정할 텍스트 요소를 찾을 수 없습니다.');
+                    releaseCardLock(projectCode, 'payment-notes');
+                    return;
+                }
+
+                // 원본 텍스트 값을 안전하게 보관
+                const originalNotes = currentNotes || '';
+
+                // 섹션 높이 고정 (레이아웃 변경 방지)
+                if (paymentNotesCard) {
+                    const originalHeight = paymentNotesCard.offsetHeight;
+                    paymentNotesCard.style.minHeight = originalHeight + 'px';
+                    paymentNotesCard.dataset.originalHeight = originalHeight;
+                }
+
+                // 입력 필드 생성 (카드 인라인 편집과 동일한 스타일)
+                const inputElement = document.createElement('input');
+                inputElement.type = 'text';
+                inputElement.value = currentNotes || '';
+                inputElement.className = 'form-control form-control-sm';
+                inputElement.placeholder = '수금 관련 특이사항을 입력하세요.';
+
+                // 스타일 설정 (카드 편집과 동일한 스타일)
+                inputElement.style.flex = '1';
+                inputElement.style.maxWidth = '65%';
+                inputElement.style.fontSize = '0.85rem';
+                inputElement.style.borderColor = 'var(--primary-color)';
+                inputElement.style.backgroundColor = '#ffffff';
+                inputElement.style.boxShadow = '0 0 0 3px rgba(255, 107, 53, 0.1)';
+                inputElement.style.marginRight = '0.5rem';
+                inputElement.style.height = '1.9rem'; // 높이 조금 증가
+                inputElement.style.minHeight = '1.9rem';
+                inputElement.style.maxHeight = '1.9rem';
+
+                // 저장/취소 버튼 생성 (문서 폴더와 동일한 스타일)
+                const saveBtn = document.createElement('button');
+                saveBtn.className = 'btn btn-sm';
+                saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                saveBtn.title = '저장';
+                saveBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; transition: all 0.15s ease-in-out; margin-right: 0.25rem; height: 1.9rem; display: flex; align-items: center;';
+
+                saveBtn.onmouseover = function() { saveBtn.style.backgroundColor = '#c3e6cb'; saveBtn.style.borderColor = '#b8d4c7'; };
+                saveBtn.onmouseout = function() { saveBtn.style.backgroundColor = '#d4edda'; saveBtn.style.borderColor = '#c3e6cb'; };
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.className = 'btn btn-sm';
+                cancelBtn.innerHTML = '<i class="fas fa-times me-1"></i>취소';
+                cancelBtn.title = '취소';
+                cancelBtn.style.cssText = 'padding: 0.2rem 0.6rem; font-size: 0.7rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; transition: all 0.15s ease-in-out; height: 1.9rem; display: flex; align-items: center;';
+
+                cancelBtn.onmouseover = function() { cancelBtn.style.backgroundColor = '#f5c6cb'; cancelBtn.style.borderColor = '#f2b6bb'; };
+                cancelBtn.onmouseout = function() { cancelBtn.style.backgroundColor = '#f8d7da'; cancelBtn.style.borderColor = '#f5c6cb'; };
+
+                // 기존 텍스트 숨기기
+                const originalText = notesSpan.innerHTML;
+                notesSpan.style.display = 'none';
+
+                // 기존 수정 버튼을 저장/취소 버튼으로 교체
+                buttonElement.style.display = 'none';
+
+                // 버튼 컨테이너 찾기 (수정 버튼이 있는 곳)
+                const buttonContainer = notesContainer.querySelector('.edit-notes-btn').parentNode;
+
+                // 입력 필드를 텍스트 자리에 배치
+                const textContainer = notesSpan.parentNode;
+                textContainer.insertBefore(inputElement, notesSpan);
+
+                // 저장/취소 버튼을 기존 수정 버튼 자리에 배치
+                buttonContainer.appendChild(saveBtn);
+                buttonContainer.appendChild(cancelBtn);
+
+                // 입력 필드에 포커스
+                inputElement.focus();
+                inputElement.select();
+
+                // 저장 버튼 이벤트
+                saveBtn.addEventListener('click', function() {
+                    const newNotes = inputElement.value.trim();
+                    savePaymentNotes(projectCode, newNotes, {
+                        notesSpan: notesSpan,
+                        inputElement: inputElement,
+                        saveBtn: saveBtn,
+                        cancelBtn: cancelBtn,
+                        editButton: buttonElement,
+                        originalText: originalText,
+                        paymentNotesCard: paymentNotesCard
+                    });
+                });
+
+                // 취소 버튼 이벤트
+                cancelBtn.addEventListener('click', function() {
+                    cancelPaymentNotesEdit({
+                        notesSpan: notesSpan,
+                        inputElement: inputElement,
+                        saveBtn: saveBtn,
+                        cancelBtn: cancelBtn,
+                        editButton: buttonElement,
+                        originalText: originalText,
+                        paymentNotesCard: paymentNotesCard
+                    }, projectCode);
+                });
+
+                // Enter 키로 저장, Escape로 취소
+                inputElement.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveBtn.click();
+                    }
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelBtn.click();
+                    }
+                });
+
+            } catch (error) {
+                console.error('편집 모드 활성화 오류:', error);
+                releaseCardLock(projectCode, 'payment-notes');
+            }
+        }
+
+        function savePaymentNotes(projectCode, newNotes, elements) {
+            // 저장 버튼 로딩 상태로 변경 (기존 카드 편집과 동일)
+            const saveBtn = elements.saveBtn;
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중...';
+                saveBtn.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    saveBtn.style.transform = 'scale(1)';
+                }, 150);
+            }
+
+            // 기존 카드 편집과 동일한 방식으로 데이터 준비
+            const updatedData = {};
+            updatedData['수금 관련 특이사항'] = newNotes;
+            updatedData['projectCode'] = projectCode;
+
+            // 인라인 편집 전용 API 엔드포인트 호출 (기존 방식과 동일)
+            fetch('/api/inline-update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(updatedData)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(result => {
+                if (result.ok) {
+                    // 성공 시 UI 업데이트
+                    elements.notesSpan.textContent = newNotes || '특이사항 없음';
+                    elements.notesSpan.style.color = newNotes ? '#333' : '#6c757d';
+                    elements.notesSpan.style.fontStyle = newNotes ? 'normal' : 'italic';
+                    elements.notesSpan.dataset.originalValue = newNotes;
+
+                    // 기존 카드 편집과 동일하게 버튼만 복원 (편집 모드 유지)
+                    if (saveBtn) {
+                        // 성공 효과 애니메이션
+                        saveBtn.style.transform = 'scale(1.05)';
+                        setTimeout(() => {
+                            saveBtn.style.transform = 'scale(1)';
+                        }, 200);
+
+                        // 저장 버튼을 원래 상태로 초기화
+                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                        saveBtn.disabled = false;
+                    }
+
+                    // 카드 잠금 해제
+                    releaseCardLock(projectCode, 'payment-notes');
+                } else {
+                    // 버튼 원상복구
+                    if (saveBtn) {
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                    }
+                    alert('저장 실패: ' + (result.error || result.message || '알 수 없는 오류'));
+                    // 카드 잠금 해제
+                    releaseCardLock(projectCode, 'payment-notes');
+                }
+            })
+            .catch(error => {
+                // 버튼 원상복구
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
+                }
+                console.error('저장 오류:', error);
+                alert('저장 중 오류가 발생했습니다.');
+                // 카드 잠금 해제
+                releaseCardLock(projectCode, 'payment-notes');
+            });
+        }
+
+        function cancelPaymentNotesEdit(elements, projectCode) {
+            exitPaymentNotesEditMode(elements);
+            releaseCardLock(projectCode, 'payment-notes');
+        }
+
+        function exitPaymentNotesEditMode(elements) {
+            // 입력 필드와 버튼들 제거
+            if (elements.inputElement) elements.inputElement.remove();
+            if (elements.saveBtn) elements.saveBtn.remove();
+            if (elements.cancelBtn) elements.cancelBtn.remove();
+
+            // 원본 텍스트 복원
+            elements.notesSpan.style.display = '';
+
+            // 수정 버튼 다시 표시
+            elements.editButton.style.display = '';
+
+            // 섹션 높이 제한 해제
+            const paymentNotesCard = elements.editButton.closest('[id^="card-payment-notes-"]');
+            if (paymentNotesCard) {
+                paymentNotesCard.style.minHeight = '';
+                delete paymentNotesCard.dataset.originalHeight;
+            }
+        }
 
         function showAlert(message, type) {
             const alertId = 'alert_' + Date.now();

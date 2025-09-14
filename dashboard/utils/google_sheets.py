@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 class GoogleSheetsManager:
     """구글 시트 연동 관리 클래스 (Thread-Safe 싱글톤)"""
     
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    SCOPES = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.readonly'
+    ]
     _instance = None
     _lock = None
     
@@ -311,6 +314,44 @@ class GoogleSheetsManager:
             logger.error(f"행 업데이트 오류: {str(e)}")
             raise
     
+    def batch_update_cells(self, sheet_id, updates):
+        """
+        구글 시트의 여러 셀을 일괄 업데이트
+        
+        Args:
+            sheet_id: 구글 시트 ID
+            updates: 업데이트할 데이터 리스트 [{'range': 'A1', 'values': [['data']]}]
+            
+        Returns:
+            bool: 성공 여부
+        """
+        try:
+            # batchUpdate API를 사용하여 여러 셀 일괄 업데이트
+            data = []
+            for update in updates:
+                data.append({
+                    'range': update['range'],
+                    'values': update['values']
+                })
+            
+            body = {
+                'valueInputOption': 'USER_ENTERED',
+                'data': data
+            }
+            
+            result = self.service.spreadsheets().values().batchUpdate(
+                spreadsheetId=sheet_id,
+                body=body
+            ).execute()
+            
+            updated_cells = result.get('totalUpdatedCells', 0)
+            logger.info(f"배치 업데이트 성공: {updated_cells}개 셀 업데이트")
+            return True
+            
+        except Exception as e:
+            logger.error(f"배치 업데이트 오류: {str(e)}")
+            return False
+    
     def find_row_by_project_code(self, sheet_id, project_code, range_name='공사 현황!A:A'):
         """
         프로젝트 코드로 행 번호 찾기
@@ -418,7 +459,7 @@ class GoogleSheetsManager:
             'AD': '기타비',
             'AE': '순익',
             'AF': '마진율',
-            'AG': '비고',
+            'AG': '수금 관련 특이사항',
             'AH': '계약금 입금자명',
             'AI': '중도금 입금자명',
             'AJ': '잔금 입금자명',
