@@ -3551,6 +3551,128 @@
     <script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
 
     <script>
+        // ========================================
+        // 공통 유틸리티 함수들 (리팩토링)
+        // ========================================
+        
+        /**
+         * 버튼 상태 관리 유틸리티
+         */
+        const ButtonStateManager = {
+            // 버튼을 로딩 상태로 변경
+            setLoading: function(button, text = '저장중...') {
+                if (!button) return;
+                
+                button.disabled = true;
+                button.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>${text}`;
+                button.classList.remove('btn-success', 'btn-danger', 'btn-warning');
+                button.classList.add('btn-secondary');
+                
+                // 클릭 효과
+                button.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    button.style.transform = 'scale(1)';
+                }, 100);
+            },
+            
+            // 버튼을 성공 상태로 변경
+            setSuccess: function(button, text = '저장', callback = null) {
+                if (!button) return;
+                
+                button.disabled = false;
+                button.innerHTML = `<i class="fas fa-check me-1"></i>${text}`;
+                button.classList.remove('btn-secondary', 'btn-danger', 'btn-warning');
+                button.classList.add('btn-success');
+                
+                // 성공 애니메이션
+                button.style.transform = 'scale(1.05)';
+                setTimeout(() => {
+                    button.style.transform = 'scale(1)';
+                    if (callback) callback();
+                }, 200);
+            },
+            
+            // 버튼을 실패 상태로 변경
+            setError: function(button, text = '실패', originalText = '저장') {
+                if (!button) return;
+                
+                button.disabled = false;
+                button.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i>${text}`;
+                button.classList.remove('btn-secondary', 'btn-success');
+                button.classList.add('btn-danger');
+                
+                // 실패 애니메이션 (흔들림)
+                button.style.animation = 'shake 0.5s';
+                
+                // 1.5초 후 원래 상태로 복원
+                setTimeout(() => {
+                    button.style.animation = '';
+                    button.innerHTML = `<i class="fas fa-check me-1"></i>${originalText}`;
+                    button.classList.remove('btn-danger');
+                    button.classList.add('btn-success');
+                }, 1500);
+            },
+            
+            // 버튼을 기본 상태로 복원
+            reset: function(button, text = '저장') {
+                if (!button) return;
+                
+                button.disabled = false;
+                button.innerHTML = `<i class="fas fa-check me-1"></i>${text}`;
+                button.classList.remove('btn-secondary', 'btn-danger', 'btn-warning');
+                button.classList.add('btn-success');
+                button.style.transform = 'scale(1)';
+                button.style.animation = '';
+            }
+        };
+        
+        /**
+         * 공통 데이터 검증 유틸리티
+         */
+        const DataValidator = {
+            // 날짜 형식 정규화
+            normalizeDate: function(dateStr) {
+                if (!dateStr || dateStr === '-') return '';
+                
+                // YYYY/M/D 형식을 YYYY-MM-DD로 변환
+                if (dateStr.includes('/')) {
+                    const parts = dateStr.split('/');
+                    if (parts.length === 3) {
+                        const year = parts[0];
+                        const month = parts[1].padStart(2, '0');
+                        const day = parts[2].padStart(2, '0');
+                        return `${year}-${month}-${day}`;
+                    }
+                }
+                
+                return dateStr;
+            },
+            
+            // 숫자 형식 정규화 (금액 필드용)
+            normalizeNumber: function(value) {
+                return (value || '').toString().replace(/[^0-9]/g, '');
+            },
+            
+            // 필드별 검증
+            validateField: function(fieldName, originalValue, newValue) {
+                const dateFields = ['공사 시작', '공사 종료', '수금 날짜'];
+                const moneyFields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익'];
+                
+                let normalizedOriginal = originalValue;
+                let normalizedNew = newValue;
+                
+                if (dateFields.includes(fieldName)) {
+                    normalizedOriginal = this.normalizeDate(originalValue);
+                    normalizedNew = this.normalizeDate(newValue);
+                } else if (moneyFields.includes(fieldName)) {
+                    normalizedOriginal = this.normalizeNumber(originalValue);
+                    normalizedNew = this.normalizeNumber(newValue);
+                }
+                
+                return normalizedOriginal !== normalizedNew;
+            }
+        };
+        
         // 전역 변수
         let projectsData = [];
         let dataTable = null;
@@ -8923,9 +9045,8 @@
                 savingCards.add(folderKey);
                 
                 try {
-                    // 저장 중 상태로 변경 (카드 탭과 동일하게)
-                    saveBtn.disabled = true;
-                    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중';
+                    // 리팩토링: 공통 버튼 상태 관리 유틸리티 사용
+                    ButtonStateManager.setLoading(saveBtn, '저장중');
                     
                     const response = await fetch(`/api/projects/${projectCode}`, {
                         method: 'PUT',
@@ -9264,16 +9385,9 @@
         }
 
         function savePaymentNotes(projectCode, newNotes, elements) {
-            // 저장 버튼 로딩 상태로 변경 (기존 카드 편집과 동일)
+            // 리팩토링: 공통 버튼 상태 관리 유틸리티 사용
             const saveBtn = elements.saveBtn;
-            if (saveBtn) {
-                saveBtn.disabled = true;
-                saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중...';
-                saveBtn.style.transform = 'scale(0.95)';
-                setTimeout(() => {
-                    saveBtn.style.transform = 'scale(1)';
-                }, 150);
-            }
+            ButtonStateManager.setLoading(saveBtn, '저장중...');
 
             // 기존 카드 편집과 동일한 방식으로 데이터 준비
             const updatedData = {};
@@ -9302,39 +9416,24 @@
                     elements.notesSpan.style.fontStyle = newNotes ? 'normal' : 'italic';
                     elements.notesSpan.dataset.originalValue = newNotes;
 
-                    // 저장 성공 후 편집 모드 종료
-                    if (saveBtn) {
-                        // 성공 효과 애니메이션
-                        saveBtn.style.transform = 'scale(1.05)';
-                        setTimeout(() => {
-                            saveBtn.style.transform = 'scale(1)';
-                            // 애니메이션 완료 후 편집 모드 종료
-                            exitPaymentNotesEditMode(elements);
-                        }, 200);
-                    } else {
-                        // saveBtn이 없으면 즉시 편집 모드 종료
+                    // 리팩토링: 공통 성공 처리 유틸리티 사용
+                    ButtonStateManager.setSuccess(saveBtn, '저장', () => {
                         exitPaymentNotesEditMode(elements);
-                    }
+                    });
 
                     // 카드 잠금 해제
                     releaseCardLock(projectCode, 'payment-notes');
                 } else {
-                    // 버튼 원상복구
-                    if (saveBtn) {
-                        saveBtn.disabled = false;
-                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
-                    }
+                    // 리팩토링: 공통 실패 처리 유틸리티 사용
+                    ButtonStateManager.setError(saveBtn, '실패', '저장');
                     alert('저장 실패: ' + (result.error || result.message || '알 수 없는 오류'));
                     // 카드 잠금 해제
                     releaseCardLock(projectCode, 'payment-notes');
                 }
             })
             .catch(error => {
-                // 버튼 원상복구
-                if (saveBtn) {
-                    saveBtn.disabled = false;
-                    saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
-                }
+                // 리팩토링: 공통 실패 처리 유틸리티 사용
+                ButtonStateManager.setError(saveBtn, '네트워크 오류', '저장');
                 console.error('저장 오류:', error);
                 alert('저장 중 오류가 발생했습니다.');
                 // 카드 잠금 해제
