@@ -272,7 +272,8 @@
       "Bash(start http://localhost:8082)",
       "Bash(start http://localhost:8083/projects)",
       "Bash(start http://localhost:8083/)",
-      "Bash(start http://localhost:5555/projects)"
+      "Bash(start http://localhost:5555/projects)",
+      "Bash(del nul)"
     ],
     "deny": [],
     "ask": []

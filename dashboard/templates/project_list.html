@@ -3673,6 +3673,150 @@
             }
         };
         
+        /**
+         * 데이터 동기화 관리 유틸리티
+         */
+        const DataSyncManager = {
+            // 로딩 상태 관리
+            isLoading: false,
+            loadingQueue: new Set(),
+            
+            // 통합 데이터 로드 (모든 곳에서 사용)
+            async loadProjectData(forceRefresh = true, source = 'unknown') {
+                if (this.isLoading && !forceRefresh) {
+                    console.log(`[DataSync] 이미 로딩 중이므로 건너뜀 (source: ${source})`);
+                    return projectsData;
+                }
+                
+                this.isLoading = true;
+                console.log(`[DataSync] 데이터 로드 시작 (source: ${source}, refresh: ${forceRefresh})`);
+                
+                try {
+                    const timestamp = new Date().getTime();
+                    const refreshParam = forceRefresh ? 'refresh=true&' : '';
+                    const response = await fetch(`/api/projects/list?${refreshParam}t=${timestamp}`, {
+                        cache: 'no-cache',
+                        headers: {
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache',
+                            'Expires': '0'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    
+                    // 전역 데이터 업데이트
+                    projectsData = data;
+                    console.log(`[DataSync] 데이터 로드 완료: ${data.length}개 프로젝트 (source: ${source})`);
+                    
+                    return data;
+                    
+                } catch (error) {
+                    console.error(`[DataSync] 데이터 로드 실패 (source: ${source}):`, error);
+                    throw error;
+                } finally {
+                    this.isLoading = false;
+                }
+            },
+            
+            // 메모리 데이터 업데이트 (통합)
+            updateMemoryData(projectCode, updatedFields, newProjectCode = null) {
+                console.log(`[DataSync] 메모리 업데이트: ${projectCode}`, updatedFields);
+                
+                const projectIndex = projectsData.findIndex(p => p['프로젝트 코드'] === projectCode);
+                if (projectIndex === -1) {
+                    console.warn(`[DataSync] 프로젝트를 찾을 수 없음: ${projectCode}`);
+                    return false;
+                }
+                
+                // 메모리 데이터 업데이트
+                Object.keys(updatedFields).forEach(key => {
+                    if (key !== 'projectCode') {
+                        projectsData[projectIndex][key] = updatedFields[key];
+                    }
+                });
+                
+                // 프로젝트 코드 변경 처리
+                if (newProjectCode && newProjectCode !== projectCode) {
+                    projectsData[projectIndex]['프로젝트 코드'] = newProjectCode;
+                    console.log(`[DataSync] 프로젝트 코드 변경: ${projectCode} → ${newProjectCode}`);
+                }
+                
+                // DataTables 업데이트
+                this.updateDataTable(projectIndex);
+                
+                return true;
+            },
+            
+            // DataTables 업데이트
+            updateDataTable(projectIndex) {
+                if (typeof dataTable !== 'undefined' && dataTable && projectIndex < dataTable.data().length) {
+                    const updatedProject = projectsData[projectIndex];
+                    dataTable.row(projectIndex).data(updatedProject).draw(false);
+                    
+                    // 행 클릭 이벤트 재설정
+                    setTimeout(() => {
+                        const updatedRow = dataTable.row(projectIndex).node();
+                        if (updatedRow) {
+                            $(updatedRow).off('click').on('click', function(e) {
+                                if ($(e.target).closest('.btn, button').length > 0) {
+                                    return;
+                                }
+                                const rowData = dataTable.row(this).data();
+                                if (rowData && rowData['프로젝트 코드']) {
+                                    showProjectDetails(rowData['프로젝트 코드']);
+                                }
+                            });
+                        }
+                    }, 10);
+                }
+            },
+            
+            // 지연된 새로고침 (여러 곳에서 사용되는 패턴 통합)
+            scheduleRefresh(delay = 500, source = 'unknown') {
+                console.log(`[DataSync] ${delay}ms 후 새로고침 예약 (source: ${source})`);
+                setTimeout(() => {
+                    this.refreshUI(source);
+                }, delay);
+            },
+            
+            // UI 새로고침 (테이블 + 모바일 카드)
+            async refreshUI(source = 'unknown') {
+                try {
+                    console.log(`[DataSync] UI 새로고침 시작 (source: ${source})`);
+                    
+                    await this.loadProjectData(true, source);
+                    
+                    // 테이블 새로고침
+                    if (dataTable) {
+                        // 기존 테이블 제거
+                        if ($.fn.DataTable.isDataTable('#projectsTable')) {
+                            $('#projectsTable').DataTable().destroy();
+                        }
+                        
+                        initializeDataTable(projectsData);
+                    }
+                    
+                    // 모바일 카드 새로고침
+                    generateMobileCards();
+                    populateFolderDisplays();
+                    
+                    console.log(`[DataSync] UI 새로고침 완료 (source: ${source})`);
+                    
+                } catch (error) {
+                    console.error(`[DataSync] UI 새로고침 실패 (source: ${source}):`, error);
+                }
+            }
+        };
+        
         // 전역 변수
         let projectsData = [];
         let dataTable = null;
@@ -3938,37 +4082,13 @@
             }
         }
 
-        // 프로젝트 데이터 로드
+        // 프로젝트 데이터 로드 (리팩토링: DataSyncManager 사용)
         async function loadProjectsData() {
             try {
-                // 캐시 무시하고 최신 데이터 로드 (백엔드 강제 새로고침 포함)
-                const timestamp = new Date().getTime();
-                const response = await fetch(`/api/projects/list?refresh=true&t=${timestamp}`, {
-                    cache: 'no-cache',
-                    headers: {
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache',
-                        'Expires': '0'
-                    }
-                });
+                // 리팩토링: 통합 데이터 동기화 유틸리티 사용
+                await DataSyncManager.loadProjectData(true, 'loadProjectsData');
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                projectsData = data;
-                
-                // 데이터 로드 완료
-                if (projectsData.length > 0) {
-                    // 프로젝트 데이터 로드 성공
-                }
-                
+                // 리팩토링: DataSyncManager의 UI 새로고침 로직 사용
                 // 테이블과 모바일 카드 업데이트
                 try {
                     // 기존 테이블이 있는지 확인하고 제거
@@ -5237,14 +5357,11 @@
                     }
                     
                     // 데이터 다시 로드
-                    setTimeout(loadProjectsData, 500);
+                    DataSyncManager.scheduleRefresh(500, 'window-message-event');
                 } else if (event.data.type === 'projectCreated') {
                     // 새 프로젝트 생성 시 데이터 새로고침 (서버 캐시 새로고침 대기)
                     // 새 프로젝트 생성됨 - 1.5초 후 데이터 새로고침
-                    setTimeout(() => {
-                        // 데이터 새로고침 시작
-                        loadProjectsData();
-                    }, 1500);
+                    DataSyncManager.scheduleRefresh(1500, 'project-created-1.5s');
                 }
             });
 
@@ -5256,7 +5373,7 @@
                     // 새 프로젝트 생성됨 - 1.5초 후 테이블 새로고침
                     setTimeout(() => {
                         // 테이블 데이터 새로고침 시작
-                        loadProjectsData();
+                        DataSyncManager.refreshUI('localStorage-change');
                         // 사용 후 삭제
                         localStorage.removeItem('newProjectCreated');
                     }, 1500);
@@ -5273,9 +5390,7 @@
                     
                     // 5초 이내에 생성된 프로젝트면 테이블 새로고침
                     if (timeDiff < 5000) {
-                        setTimeout(() => {
-                            loadProjectsData();
-                        }, 500);
+                        DataSyncManager.scheduleRefresh(500, 'localStorage-load-check');
                     }
                     // 사용 후 삭제
                     localStorage.removeItem('newProjectCreated');
@@ -5290,11 +5405,7 @@
             const hasRefresh = urlParams.has('refresh');
             
             if (hasRefresh) {
-                setTimeout(() => {
-                    loadProjectsData();
-                    // URL에서 파라미터 제거
-                    window.history.replaceState({}, document.title, window.location.pathname);
-                }, 500);
+                DataSyncManager.scheduleRefresh(500, 'url-refresh-param');
             }
         }
 
@@ -5729,9 +5840,8 @@
                     ownerSelect.appendChild(option);
                 });
 
-                // 거래처 자동완성 데이터 로드
-                const clientsResponse = await fetch('/api/projects/list');
-                const projectsData = await clientsResponse.json();
+                // 거래처 자동완성 데이터 로드 (리팩토링: 일관된 데이터 로드)
+                const projectsData = await DataSyncManager.loadProjectData(false, 'loadModalData');
                 
                 // 고유한 거래처 목록 추출
                 const uniqueClients = [...new Set(projectsData
@@ -6648,10 +6758,7 @@
                     
                     // 즉시 데이터 새로고침 (구글 시트 동기화 완료)
                     console.log('[모달등록] 0.5초 후 테이블 새로고침 예약');
-                    setTimeout(() => {
-                        console.log('[모달등록] 테이블 새로고침 실행 - loadProjectsData() 호출');
-                        loadProjectsData();
-                    }, 500);  // 서버 처리 시간 고려
+                    DataSyncManager.scheduleRefresh(500, 'modal-project-create');  // 서버 처리 시간 고려
                     
                 } else if (response.status === 409 && retryCount < maxRetries) {
                     // 409 충돌 오류 시 자동 재시도
@@ -8234,7 +8341,7 @@
                             const paymentCard = document.querySelector(`#card-payment-${projectCode}`);
                             if (paymentCard) {
                                 const currentOutstanding = extractFieldValue(paymentCard, '미수금W') || '0';
-                                updateProjectDataInMemory(projectCode, {'미수금W': currentOutstanding, '미수금': currentOutstanding});
+                                DataSyncManager.updateMemoryData(projectCode, {'미수금W': currentOutstanding, '미수금': currentOutstanding});
                             }
                         }
                         
@@ -8248,7 +8355,7 @@
                                 if (financialCard) {
                                     const currentTotal2 = extractFieldValue(financialCard, '총액 2') || extractFieldValue(financialCard, '총액2') || '0';
                                     const numValue = parseFloat(currentTotal2.replace(/[^0-9.-]/g, '')) || 0;
-                                    updateProjectDataInMemory(projectCode, {'총액 2': numValue, '총액2': numValue, 'S': numValue});
+                                    DataSyncManager.updateMemoryData(projectCode, {'총액 2': numValue, '총액2': numValue, 'S': numValue});
                                 }
                             }, 50);
                         }
@@ -8272,7 +8379,7 @@
                     
                     // 테이블 데이터 업데이트 (새 프로젝트 코드 사용)
                     const finalProjectCode = result.new_project_code || projectCode;
-                    updateProjectDataInMemory(projectCode, updatedData, result.new_project_code);
+                    DataSyncManager.updateMemoryData(projectCode, updatedData, result.new_project_code);
                     
                     // 자동 계산된 필드들이 있는 경우 UI에서 직접 업데이트
                     if (result.calculated_fields && Object.keys(result.calculated_fields).length > 0) {
@@ -9116,7 +9223,7 @@
                         }, 2500);
                         
                         // 메모리 데이터 업데이트
-                        updateProjectDataInMemory(projectCode, {'견적서 및 계약서 폴더 경로': newPath});
+                        DataSyncManager.updateMemoryData(projectCode, {'견적서 및 계약서 폴더 경로': newPath});
                         
                         // 카드 잠금 해제
                         releaseCardLock(projectCode, 'document').catch(error => {
