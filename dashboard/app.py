@@ -3524,4 +3524,5 @@ if __name__ == '__main__':
 
 
     logger.info(f"대시보드 서버 시작: http://localhost:{port}")
-    socketio.run(app, debug=debug, host='0.0.0.0', port=port)
+    # use_reloader=False로 설정하여 자동 재로딩 비활성화 (다중 프로세스 방지)
+    socketio.run(app, debug=debug, host='0.0.0.0', port=port, use_reloader=False)
