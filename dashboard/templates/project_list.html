@@ -3941,9 +3941,9 @@
         // 프로젝트 데이터 로드
         async function loadProjectsData() {
             try {
-                // 캐시 무시하고 최신 데이터 로드
+                // 캐시 무시하고 최신 데이터 로드 (백엔드 강제 새로고침 포함)
                 const timestamp = new Date().getTime();
-                const response = await fetch(`/api/projects/list?t=${timestamp}`, {
+                const response = await fetch(`/api/projects/list?refresh=true&t=${timestamp}`, {
                     cache: 'no-cache',
                     headers: {
                         'Cache-Control': 'no-cache, no-store, must-revalidate',
