@@ -1997,8 +1997,8 @@ def inline_update_direct():
         
         if not row_number:
             logger.error(f"프로젝트 코드 {project_code}를 찾을 수 없습니다. 데이터 새로고침 후 재시도...")
-            # 데이터를 새로 로드하고 재시도
-            load_data()
+            # 데이터를 새로 로드하고 재시도 (강제 새로고침)
+            load_data(force_refresh=True)
             
             # 다시 검색 시도
             search_result = manager.service.spreadsheets().values().get(
