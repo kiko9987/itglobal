@@ -88,20 +88,33 @@ class EnvValidator:
             self.warnings.append(f"환경변수 {var_name} 불명확한 불린 값: {value_str}")
             return default
     
-    def validate_file_exists(self, var_name: str, description: str = "") -> bool:
-        """파일 존재 여부 검증"""
+    def validate_file_exists(self, var_name: str, description: str = "", 
+                           fallback_paths: List[str] = None) -> bool:
+        """파일 존재 여부 검증 (여러 경로 시도)"""
         file_path = os.getenv(var_name)
         
+        # 환경변수가 설정되어 있으면 해당 경로 확인
+        if file_path:
+            if os.path.exists(file_path):
+                return True
+            else:
+                self.warnings.append(f"환경변수 경로에서 파일을 찾을 수 없음: {file_path} (환경변수: {var_name})")
+        
+        # fallback 경로들 시도
+        if fallback_paths:
+            for fallback_path in fallback_paths:
+                if os.path.exists(fallback_path):
+                    self.warnings.append(f"대체 경로에서 파일 발견: {fallback_path}")
+                    return True
+        
+        # 모든 경로에서 파일을 찾지 못함
         if not file_path:
             self.errors.append(f"환경변수 누락: {var_name}" + 
                              (f" ({description})" if description else ""))
-            return False
-        
-        if not os.path.exists(file_path):
+        else:
             self.errors.append(f"파일을 찾을 수 없음: {file_path} (환경변수: {var_name})")
-            return False
         
-        return True
+        return False
     
     def validate_url(self, var_name: str, schemes: List[str] = None) -> Optional[str]:
         """URL 형식 검증"""
@@ -170,7 +183,16 @@ def validate_dashboard_env() -> Dict[str, Any]:
     
     # 필수 환경변수
     validator.validate_required('GOOGLE_SHEET_ID', '구글 시트 ID')
-    validator.validate_file_exists('GOOGLE_APPLICATION_CREDENTIALS', '구글 서비스 계정 키 파일')
+    
+    # credentials 파일 경로 (여러 위치 시도)
+    credentials_fallback_paths = [
+        'credentials.json',  # 프로젝트 루트
+        'dashboard/credentials.json',  # dashboard 폴더
+        '../credentials.json',  # 상위 폴더
+        os.path.join(os.path.dirname(__file__), '..', '..', 'credentials.json'),  # 상대 경로
+    ]
+    validator.validate_file_exists('GOOGLE_APPLICATION_CREDENTIALS', '구글 서비스 계정 키 파일', 
+                                  credentials_fallback_paths)
     
     # 선택적 환경변수
     validator.validate_optional('FLASK_SECRET_KEY', 'default-secret-key', 'Flask 비밀 키')

@@ -1159,11 +1159,12 @@ def update_project(project_code):
             return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
         manager = get_sheets_manager()
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
         
         # 프로젝트가 있는 행 찾기 (직접 구현)
         search_result = manager.service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range='공사 현황의 사본!A:A'
+            range=f'{sheet_name}!A:A'
         ).execute()
         
         values = search_result.get('values', [])
@@ -1227,7 +1228,7 @@ def update_project(project_code):
                 if field_name in field_column_mapping:
                     column = field_column_mapping[field_name]
                     updates.append({
-                        'range': f'공사 현황의 사본!{column}{row_number}',
+                        'range': f'{sheet_name}!{column}{row_number}',
                         'values': [[value]]
                     })
             
@@ -1239,7 +1240,7 @@ def update_project(project_code):
                         column = field_column_mapping[field_name]
                         current_value_result = manager.service.spreadsheets().values().get(
                             spreadsheetId=sheet_id,
-                            range=f'공사 현황의 사본!{column}{row_number}'
+                            range=f'{sheet_name}!{column}{row_number}'
                         ).execute()
                         current_values = current_value_result.get('values', [['']])
                         old_values[field_name] = current_values[0][0] if current_values and current_values[0] else ''
@@ -1612,6 +1613,8 @@ def update_project_inline():
         if not sheet_id:
             return jsonify({'ok': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
+        
         manager = get_sheets_manager()
         
         # 프로젝트가 있는 행 찾기
@@ -1621,7 +1624,7 @@ def update_project_inline():
             return jsonify({'ok': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
         
         # 현재 행의 데이터를 가져오기 (전체 행 데이터 보존을 위해)
-        current_row_range = f'공사 현황의 사본!A{row_number}:AM{row_number}'
+        current_row_range = f'{sheet_name}!A{row_number}:AM{row_number}'
         result = manager.service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
             range=current_row_range
@@ -1966,10 +1969,11 @@ def inline_update_direct():
         # 프로젝트 코드로 행 찾기
         logger.info(f"프로젝트 코드 {project_code}의 행 번호를 찾는 중...")
         
-        # A열에서 프로젝트 코드 검색
+        # A열에서 프로젝트 코드 검색 (환경변수 시트명 사용)
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
         search_result = manager.service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range='공사 현황의 사본!A:A'
+            range=f'{sheet_name}!A:A'
         ).execute()
         
         values = search_result.get('values', [])
@@ -1988,7 +1992,7 @@ def inline_update_direct():
             # 다시 검색 시도
             search_result = manager.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range='공사 현황의 사본!A:A'
+                range=f'{sheet_name}!A:A'
             ).execute()
             
             values = search_result.get('values', [])
@@ -2056,7 +2060,7 @@ def inline_update_direct():
             
             if field_name in field_column_mapping:
                 column = field_column_mapping[field_name]
-                range_name = f'공사 현황의 사본!{column}{row_number}'
+                range_name = f'{sheet_name}!{column}{row_number}'
                 
                 # 업데이트 전 이전 값 조회
                 try:
@@ -2193,7 +2197,7 @@ def inline_update_direct():
         
         # 업데이트 후 새로운 프로젝트 코드 확인 (수식으로 변경될 수 있음)
         try:
-            updated_row_range = f'공사 현황의 사본!A{row_number}:A{row_number}'
+            updated_row_range = f'{sheet_name}!A{row_number}:A{row_number}'
             updated_result = manager.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
                 range=updated_row_range
@@ -2254,7 +2258,7 @@ def inline_update_direct():
                 import time
                 time.sleep(0.3)  # Google Sheets 업데이트 시간 대기 (단축)
                 # 더 넓은 범위로 확장 (금액 관련 모든 필드 포함)
-                verify_range = f'공사 현황의 사본!Q{row_number}:AM{row_number}'
+                verify_range = f'{sheet_name}!Q{row_number}:AM{row_number}'
                 verify_result = manager.service.spreadsheets().values().get(
                     spreadsheetId=sheet_id,
                     range=verify_range,
@@ -2286,7 +2290,7 @@ def inline_update_direct():
                 # 업데이트 완료 후 다시 Google Sheets에서 최신 값들을 가져와서 미수금 계산
                 import time
                 time.sleep(0.2)  # 잠시 대기
-                amount_range = f'공사 현황의 사본!S{row_number}:V{row_number}'  # 총액2(S), 계약금(T), 중도금(U), 잔금(V)
+                amount_range = f'{sheet_name}!S{row_number}:V{row_number}'  # 총액2(S), 계약금(T), 중도금(U), 잔금(V)
                 amount_result = manager.service.spreadsheets().values().get(
                     spreadsheetId=sheet_id,
                     range=amount_range,
@@ -2955,6 +2959,7 @@ def convert_folder_paths_to_ids():
         
         # Google Sheets에서 직접 최신 데이터 읽기 (캐시 무시)
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
         manager = get_sheets_manager()
         
         # 모든 캐시 삭제하여 완전히 새로운 데이터 보장
@@ -2963,7 +2968,7 @@ def convert_folder_paths_to_ids():
         logger.info("🗑️ 모든 캐시 삭제 완료")
         
         # Google Sheets에서 직접 데이터 읽기
-        fresh_df = manager.get_sheet_data(sheet_id, '공사 현황의 사본!A:AS')
+        fresh_df = manager.get_sheet_data(sheet_id, f'{sheet_name}!A:AS')
         if fresh_df.empty:
             return jsonify({'error': 'Google Sheets에서 데이터를 불러올 수 없습니다.'}), 500
         
@@ -3043,11 +3048,12 @@ def convert_folder_paths_to_ids():
         
         # Google Sheets 매니저 준비
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
         manager = get_sheets_manager()
         
         # 각 프로젝트의 행 번호 찾기
         for candidate in conversion_candidates:
-            row_number = manager.find_row_by_project_code(sheet_id, candidate['project_code'], '공사 현황의 사본!A:A')
+            row_number = manager.find_row_by_project_code(sheet_id, candidate['project_code'], f'{sheet_name}!A:A')
             candidate['row_number'] = row_number
         
         # 변환 실행
@@ -3089,7 +3095,7 @@ def convert_folder_paths_to_ids():
                 if folder_id:
                     # ID 추출 성공 - Google Sheets 업데이트
                     success = manager.batch_update_cells(sheet_id, [{
-                        'range': f'공사 현황의 사본!AK{row_number}',
+                        'range': f'{sheet_name}!AK{row_number}',
                         'values': [[folder_id]]
                     }])
                     
@@ -3118,7 +3124,7 @@ def convert_folder_paths_to_ids():
                     # Google Sheets에 실패 표시
                     try:
                         manager.batch_update_cells(sheet_id, [{
-                            'range': f'공사 현황의 사본!AK{row_number}',
+                            'range': f'{sheet_name}!AK{row_number}',
                             'values': [['FAILED_CONVERT']]
                         }])
                         logger.info(f"📌 {project_code}: 실패 마킹 완료 (다음에 건너뜀)")
@@ -3139,7 +3145,7 @@ def convert_folder_paths_to_ids():
                 # 예외 발생시에도 실패 마킹
                 try:
                     manager.batch_update_cells(sheet_id, [{
-                        'range': f'공사 현황의 사본!AK{row_number}',
+                        'range': f'{sheet_name}!AK{row_number}',
                         'values': [['FAILED_CONVERT']]
                     }])
                     logger.info(f"📌 {project_code}: 예외 발생으로 실패 마킹 완료")

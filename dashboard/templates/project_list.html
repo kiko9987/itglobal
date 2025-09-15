@@ -7909,11 +7909,6 @@
                 }
                 
                 
-                // 부가세 필드 특별 디버그
-                if (fieldName === '부가세') {
-                    console.log(`[부가세 디버그] input.checked: ${input.checked}, input.type: ${input.type}`);
-                    console.log(`[부가세 디버그] input.dataset.originalValue: ${input.dataset.originalValue}`);
-                }
                 
                 if (normalizedOriginal !== normalizedNew) {
                     hasChanges = true;
@@ -7952,9 +7947,6 @@
             
             
             // 부가세 데이터 특별 확인
-            if (updatedData['부가세'] !== undefined) {
-                console.log(`[부가세 전송] 값: "${updatedData['부가세']}", 타입: ${typeof updatedData['부가세']}`);
-            }
             
             // 인라인 편집 전용 API 엔드포인트 호출
             fetch('/api/inline-update', {
@@ -9120,6 +9112,14 @@
                 return;
             }
 
+            // 실제 현재 값을 DOM에서 가져오기 (업데이트된 값 반영)
+            const notesContainer = buttonElement.closest('.d-flex');
+            const notesSpan = notesContainer.querySelector('.editable-value');
+            const actualCurrentNotes = notesSpan ? notesSpan.dataset.originalValue || notesSpan.textContent : currentNotes;
+            
+            // '특이사항 없음' 텍스트인 경우 빈 문자열로 처리
+            const cleanCurrentNotes = (actualCurrentNotes === '특이사항 없음') ? '' : actualCurrentNotes;
+
             // 먼저 카드 잠금 시도 (payment-notes 카드 타입 사용)
             acquireCardLock(projectCode, 'payment-notes').then(result => {
                 if (!result.success) {
@@ -9127,8 +9127,8 @@
                     return;
                 }
 
-                // 잠금 획득 성공 - 편집 모드 활성화
-                activatePaymentNotesEditMode(buttonElement, currentNotes, projectCode);
+                // 잠금 획득 성공 - 편집 모드 활성화 (실제 현재 값 사용)
+                activatePaymentNotesEditMode(buttonElement, cleanCurrentNotes, projectCode);
             }).catch(error => {
                 console.error('카드 잠금 중 오류:', error);
                 alert('편집 모드 활성화 중 오류가 발생했습니다.');
@@ -9302,17 +9302,18 @@
                     elements.notesSpan.style.fontStyle = newNotes ? 'normal' : 'italic';
                     elements.notesSpan.dataset.originalValue = newNotes;
 
-                    // 기존 카드 편집과 동일하게 버튼만 복원 (편집 모드 유지)
+                    // 저장 성공 후 편집 모드 종료
                     if (saveBtn) {
                         // 성공 효과 애니메이션
                         saveBtn.style.transform = 'scale(1.05)';
                         setTimeout(() => {
                             saveBtn.style.transform = 'scale(1)';
+                            // 애니메이션 완료 후 편집 모드 종료
+                            exitPaymentNotesEditMode(elements);
                         }, 200);
-
-                        // 저장 버튼을 원래 상태로 초기화
-                        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장';
-                        saveBtn.disabled = false;
+                    } else {
+                        // saveBtn이 없으면 즉시 편집 모드 종료
+                        exitPaymentNotesEditMode(elements);
                     }
 
                     // 카드 잠금 해제
@@ -10613,7 +10614,6 @@
             }
 
             const total1 = parseFloat(rawTotal1Value) || 0;
-            console.log(`[calculateAmountFieldsWithVatState] 총액1: ${total1}, 부가세 상태: ${vatState}`);
             
             // 한국 회계 실무 방식으로 총액2 계산
             let total2;
@@ -10622,11 +10622,9 @@
                 const vat = Math.round(total1 * 0.1);
                 // 총액2 = 공급가액 + 부가세
                 total2 = total1 + vat;
-                console.log(`[calculateAmountFieldsWithVatState] 부가세 포함: ${total1} + ${vat} = ${total2}`);
             } else {
                 // 부가세 미포함 시 공급가액 그대로
                 total2 = total1;
-                console.log(`[calculateAmountFieldsWithVatState] 부가세 미포함: ${total2}`);
             }
             
             // 총액2 필드 업데이트 (실시간 화면 반영)
