@@ -223,7 +223,6 @@ def _load_project_config():
 _project_config = _load_project_config()
 
 @handle_error(category=ErrorCategory.HIGH, reraise=False, fallback_value=None)
-@cached(ttl=300, key_prefix="sheet_data")
 def load_data(force_refresh=False):
     """구글 시트에서 데이터 로드 (개선된 캐싱 시스템 적용)"""
     global current_data, last_update
@@ -508,6 +507,14 @@ def project_list():
     user_role = get_user_role()
     user_email = session.get('user', {}).get('email', '')
     return render_template('project_list.html', user_role=user_role, user_email=user_email)
+
+@app.route('/receivables')
+@login_required
+def receivables_page():
+    """미수금 관리 페이지"""
+    user_role = get_user_role()
+    user_email = session.get('user', {}).get('email', '')
+    return render_template('receivables.html', user_role=user_role, user_email=user_email)
 
 
 @app.route('/data/<path:filename>')
@@ -874,29 +881,203 @@ def get_meta_options():
 
 @app.route('/api/refresh-data')
 def refresh_data():
-    """데이터 새로고침 API"""
+    """데이터 새로고침 API (강제 새로고침)"""
     try:
+        # 모든 캐시 클리어 (메모리 캐시 + 데코레이터 캐시)
+        cache_clear()
+
+        # 글로벌 current_data도 클리어하여 다음 로드 시 새로 가져오도록 함
+        global current_data
+        current_data = None
+
         df = load_data(force_refresh=True)  # 강제 새로고침으로 캐시 무시
         if df is None:
             return jsonify({'error': '데이터 새로고침 실패'}), 500
-        
+
         # 실시간 업데이트 알림
         socketio.emit('data_updated', {
             'message': '데이터가 업데이트되었습니다.',
             'timestamp': last_update.isoformat() if last_update else None,
             'record_count': len(df)
         })
-        
+
         return jsonify({
             'message': '데이터 새로고침 완료',
             'timestamp': last_update.isoformat() if last_update else None,
             'formatted_time': last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else None,
             'record_count': len(df)
         })
+
+    except Exception as e:
+        logger.error(f"데이터 새로고침 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/quick-refresh')
+def quick_refresh_data():
+    """빠른 데이터 새로고침 API (캐시 우선 사용)"""
+    try:
+        # 캐시된 데이터를 먼저 시도
+        df = load_data(force_refresh=False)
+        if df is None:
+            return jsonify({'error': '데이터 로드 실패'}), 500
+
+        # 캐시에서 로드되었는지 확인
+        cache_key = "current_sheet_data"
+        is_cached = cache_get(cache_key) is not None
+
+        # 실시간 업데이트 알림 (캐시 사용 여부 포함)
+        socketio.emit('data_updated', {
+            'message': '데이터가 업데이트되었습니다.' + (' (캐시 사용)' if is_cached else ' (새로 로드)'),
+            'timestamp': last_update.isoformat() if last_update else None,
+            'record_count': len(df),
+            'from_cache': is_cached
+        })
+
+        return jsonify({
+            'message': '빠른 새로고침 완료' + (' (캐시 사용)' if is_cached else ' (새로 로드)'),
+            'timestamp': last_update.isoformat() if last_update else None,
+            'formatted_time': last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else None,
+            'record_count': len(df),
+            'from_cache': is_cached
+        })
         
     except Exception as e:
         logger.error(f"데이터 새로고침 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/receivables')
+@login_required
+def get_receivables():
+    """미수금 관리용 데이터 API"""
+    try:
+        # refresh 파라미터가 있으면 강제로 구글시트에서 최신 데이터 로드
+        refresh = request.args.get('refresh', 'false').lower() == 'true'
+
+        if refresh:
+            logger.info('[API] 수금 관리 강제 새로고침 요청 - 구글시트에서 최신 데이터 로드')
+            df = load_data()  # 구글시트에서 최신 데이터 로드
+            if df is not None:
+                global current_data
+                current_data = df  # 메모리의 데이터도 업데이트
+                logger.info('[API] 수금 관리 메모리 데이터 업데이트 완료')
+        else:
+            df = current_data if current_data is not None else load_data()
+
+        if df is None:
+            return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
+
+        print(f"[RECEIVABLES DEBUG] 데이터 로드 완료: {len(df)}행")
+
+        # 미수금 관리에 필요한 컬럼만 선택하고 처리
+        receivables_columns = [
+            '프로젝트 코드', '담당자', '거래처', '현장 주소', '공사 내용',
+            '공사 시작', '공사 종료', '총액 1', '총액 2', '총액2', 'S', '부가세', '부가세 포함',
+            '미수금', '미수금W', '미수금 W', 'W', '수금 관련 특이사항', '수금 확인'
+        ]
+
+        # 수금 회차 컬럼 추가 (미수금 계산용)
+        payment_columns = [f'수금 {i}회차' for i in range(1, 11)]
+        receivables_columns.extend(payment_columns)
+
+        # 존재하는 컬럼만 선택
+        existing_columns = [col for col in receivables_columns if col in df.columns]
+        receivables_df = df[existing_columns].copy()
+
+        # 디버깅: 전체 컬럼명 확인
+        print(f"전체 데이터프레임 컬럼명: {list(df.columns)}")
+        print(f"수금 관련 컬럼들: {[col for col in df.columns if '수금' in col]}")
+
+        # 수금 확인이 체크되지 않은 데이터만 필터링
+        if '수금 확인' in receivables_df.columns:
+            # 디버깅: 수금 확인 컬럼의 실제 값들 확인
+            unique_values = receivables_df['수금 확인'].unique()
+            print(f"수금 확인 컬럼의 고유값들: {unique_values}")
+            print(f"수금 확인 컬럼의 데이터 타입들: {[type(val) for val in unique_values]}")
+
+            # 필터링 전 데이터 개수
+            before_count = len(receivables_df)
+            print(f"필터링 전 데이터 개수: {before_count}")
+
+            # 체크박스가 체크된 경우를 모두 제외 (다양한 형태의 true 값들)
+            # pandas에서 체크박스는 True/False boolean 또는 'TRUE'/'FALSE' 문자열로 저장될 수 있음
+            mask = ~(
+                (receivables_df['수금 확인'] == True) |
+                (receivables_df['수금 확인'] == 'TRUE') |
+                (receivables_df['수금 확인'] == 'true') |
+                (receivables_df['수금 확인'] == 'True') |
+                (receivables_df['수금 확인'] == 1) |
+                (receivables_df['수금 확인'] == '1') |
+                (receivables_df['수금 확인'] == 'Y') |
+                (receivables_df['수금 확인'] == 'y') |
+                (receivables_df['수금 확인'] == 'YES') |
+                (receivables_df['수금 확인'] == 'yes')
+            )
+            receivables_df = receivables_df[mask]
+
+            # 필터링 후 데이터 개수
+            after_count = len(receivables_df)
+            print(f"필터링 후 데이터 개수: {after_count}")
+            print(f"제외된 데이터 개수: {before_count - after_count}")
+        else:
+            print("'수금 확인' 컬럼을 찾을 수 없습니다.")
+
+        # NaN 값을 빈 문자열로 변환
+        receivables_df = receivables_df.fillna('')
+
+        # 날짜 컬럼들을 올바르게 처리 (NaT 값 처리)
+        date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+        for col in date_columns:
+            if col in receivables_df.columns:
+                # pd.NaT 값들을 빈 문자열로 변환
+                receivables_df[col] = receivables_df[col].apply(lambda x:
+                    x.strftime('%Y/%m/%d') if pd.notna(x) and x is not pd.NaT else ''
+                )
+
+        # 딕셔너리 형태로 변환
+        receivables_data = receivables_df.to_dict('records')
+
+        # 각 프로젝트의 데이터 정규화
+        for project in receivables_data:
+            # 총액 정규화 (총액 2 우선, 그 다음 총액2, S, 총액 1 순)
+            total_amount = project.get('총액 2') or project.get('총액2') or project.get('S') or project.get('총액 1') or ''
+            project['총액'] = total_amount
+
+            # 부가세 여부 정규화 (부가세 포함 또는 부가세 컬럼)
+            vat_status = project.get('부가세 포함') or project.get('부가세') or ''
+            project['부가세 여부'] = vat_status
+
+            # 미수금 정규화 (미수금W 우선, 그 다음 미수금 W, W, 미수금 순)
+            outstanding = project.get('미수금W') or project.get('미수금 W') or project.get('W') or project.get('미수금') or ''
+            project['미수금'] = outstanding
+
+            # 원본 컬럼들 제거 (프론트엔드에서 불필요)
+            columns_to_remove = ['총액 1', '총액 2', '총액2', 'S', '부가세', '부가세 포함', '미수금W', '미수금 W', 'W']
+            for col in columns_to_remove:
+                project.pop(col, None)
+
+            # 수금 회차 컬럼은 응답에서 제거 (프론트엔드에서 불필요)
+            for i in range(1, 11):
+                project.pop(f'수금 {i}회차', None)
+
+        return jsonify(receivables_data)
+
+    except Exception as e:
+        logger.error(f"미수금 데이터 조회 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def parse_amount(amount_str):
+    """금액 문자열을 숫자로 변환"""
+    if not amount_str:
+        return 0
+
+    # 문자열에서 숫자와 소수점, 음수 부호만 추출
+    import re
+    cleaned = re.sub(r'[^\d.-]', '', str(amount_str))
+
+    try:
+        return float(cleaned) if cleaned else 0
+    except ValueError:
+        return 0
 
 @app.route('/api/projects/list')
 def get_projects_list():
@@ -939,8 +1120,8 @@ def get_projects_list():
                 logger.info(f"{col} 변환 후 샘플: {converted_samples}")
                 
                 # 유효한 날짜는 YYYY/M/D 형식으로, 무효한 날짜는 빈 문자열로
-                df[col] = df[col].apply(lambda x: 
-                    x.strftime('%Y/%m/%d') if pd.notna(x) else ''
+                df[col] = df[col].apply(lambda x:
+                    x.strftime('%Y/%m/%d') if pd.notna(x) and x is not pd.NaT else ''
                 )
                 
                 # 최종 결과 샘플
