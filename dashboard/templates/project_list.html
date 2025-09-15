@@ -11188,10 +11188,10 @@
             const materialCost = parseFloat(extractFieldValue(amountCard, '자재비') || '0') || 0;
             const otherCost = parseFloat(extractFieldValue(amountCard, '기타비') || '0') || 0;
             
-            const profit = Math.max(0, total2 - productCost - contractCost - materialCost - otherCost);
+            const profit = Math.max(0, total1 - productCost - contractCost - materialCost - otherCost);
             updateFieldValue(amountCard, '순익', profit);
             
-            const marginRate = total2 > 0 ? (profit / total2 * 100) : 0;
+            const marginRate = total1 > 0 ? (profit / total1 * 100) : 0;
             const marginField = amountCard.querySelector('[data-field="마진율"]');
             if (marginField) {
                 marginField.textContent = `${marginRate.toFixed(1)}%`;
@@ -11248,14 +11248,14 @@
             updateFieldValue(amountCard, '총액2', total2);
             updateFieldValue(amountCard, '총액 2', total2);
 
-            // 순익 계산 (총액2 - 제품대 - 도급비 - 자재비 - 기타비)
+            // 순익 계산 (총액1 - 제품대 - 도급비 - 자재비 - 기타비)
             const productCost = parseFloat(extractFieldValue(amountCard, '제품대') || '0') || 0;
             const contractCost = parseFloat(extractFieldValue(amountCard, '도급비') || '0') || 0;
             const materialCost = parseFloat(extractFieldValue(amountCard, '자재비') || '0') || 0;
             const otherCost = parseFloat(extractFieldValue(amountCard, '기타비') || '0') || 0;
             
-            const profit = Math.max(0, total2 - productCost - contractCost - materialCost - otherCost);
-            const marginRate = total2 > 0 ? (profit / total2 * 100) : 0;
+            const profit = Math.max(0, total1 - productCost - contractCost - materialCost - otherCost);
+            const marginRate = total1 > 0 ? (profit / total1 * 100) : 0;
 
             // 순익과 마진율 업데이트
             updateFieldValue(amountCard, '순익', profit);
@@ -11281,12 +11281,12 @@
                 return;
             }
             
-            // 재무정보 카드에서 총액2 가져오기
+            // 재무정보 카드에서 총액1 가져오기 (부가세 제외 순매출)
             const financialCard = document.querySelector(`#card-financial-${projectCode}`);
             let totalAmount = 0;
             
             if (financialCard) {
-                const totalField = financialCard.querySelector('[data-field="총액 2"], [data-field="총액2"]');
+                const totalField = financialCard.querySelector('[data-field="총액 1"], [data-field="총액1"]');
                 if (totalField) {
                     const totalValue = totalField.textContent || totalField.dataset.originalValue || '0';
                     totalAmount = parseFloat(totalValue.replace(/[^0-9]/g, '')) || 0;
@@ -11315,10 +11315,10 @@
             const otherCost = getFieldValue('기타비');
             
             
-            // 순익 계산 (총액2 - 모든 비용)
+            // 순익 계산 (총액1 - 모든 비용)
             const netProfit = totalAmount - (productCost + contractCost + materialCost + otherCost);
             
-            // 마진율 계산 (순익 / 총액2 * 100)
+            // 마진율 계산 (순익 / 총액1 * 100)
             const marginRate = totalAmount > 0 ? (netProfit / totalAmount) * 100 : 0;
             
             
