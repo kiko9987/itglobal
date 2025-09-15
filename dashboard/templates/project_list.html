@@ -3884,7 +3884,7 @@
                 
                 // 실시간 알림 표시
                 if (typeof showRealTimeNotification === 'function') {
-                    showRealTimeNotification(`새 프로젝트가 추가되었습니다: ${projectData['프로젝트 코드']}`, 'success');
+                    showHeaderAlert(`새 프로젝트가 추가되었습니다: ${projectData['프로젝트 코드']}`, 'success');
                 }
                 
                 console.log(`[DataSync] 실시간 프로젝트 추가 완료`);
@@ -6093,7 +6093,7 @@
                     } else {
                         // 시작일이 없으면 체크박스 해제
                         this.checked = false;
-                        alert('먼저 공사 시작일을 선택해주세요.');
+                        showHeaderAlert('먼저 공사 시작일을 선택해주세요.', 'warning');
                     }
                 } else {
                     endDateInput.disabled = false;
@@ -7520,7 +7520,7 @@
                         return;
                     }
                     // 다른 사용자가 잠금 중이면 알림 표시
-                    alert(result.message || '다른 사용자가 편집 중입니다.');
+                    showHeaderAlert(result.message || '다른 사용자가 편집 중입니다.', 'warning');
                     processingCards.delete(cardKey);
                     return;
                 }
@@ -9054,7 +9054,7 @@
             
             try {
                 // 즉시 폴더 열기 시도 중 알림 표시
-                showToast('폴더를 열고 있습니다...', 'info');
+                showHeaderAlert('폴더를 열고 있습니다...', 'info');
 
                 // 로딩 상태 표시 (안전하게 처리)
                 loadingElement = document.querySelector(`a[onclick*="${projectCode}"]`);
@@ -9085,11 +9085,11 @@
                 
                 if (result.success) {
                     // 성공 메시지
-                    showToast('폴더가 열렸습니다', 'success');
+                    showHeaderAlert('폴더가 열렸습니다', 'success');
                     
                     // 경로가 업데이트된 경우에도 간단한 성공 메시지만 표시
                     if (!result.updated) {
-                        showToast('폴더를 열었습니다', 'success');
+                        showHeaderAlert('폴더를 열었습니다', 'success');
                     }
                 } else {
                     // 실패 시 복사 기능으로 대체
@@ -9098,7 +9098,7 @@
                     // Windows 경로 형식으로 복사
                     const formattedPath = path.replace(/\//g, '\\');
                     copyToClipboard(formattedPath);
-                    showToast('폴더를 찾을 수 없어 경로를 복사했습니다', 'warning');
+                    showHeaderAlert('폴더를 찾을 수 없어 경로를 복사했습니다', 'warning');
                 }
                 
             } catch (error) {
@@ -9115,12 +9115,12 @@
                     copyToClipboard(formattedPath);
                     
                     if (error.message.includes('401') || error.message.includes('UNAUTHORIZED')) {
-                        showToast('로그인이 필요합니다. 경로를 복사했습니다.', 'warning');
+                        showHeaderAlert('로그인이 필요합니다. 경로를 복사했습니다.', 'warning');
                     } else {
-                        showToast('폴더 열기 중 오류가 발생했습니다. 경로를 복사했습니다.', 'error');
+                        showHeaderAlert('폴더 열기 중 오류가 발생했습니다. 경로를 복사했습니다.', 'error');
                     }
                 } else {
-                    showToast('폴더 경로가 설정되지 않았습니다.', 'error');
+                    showHeaderAlert('폴더 경로가 설정되지 않았습니다.', 'error');
                 }
             }
         }
@@ -9233,6 +9233,74 @@
                 }, 300);
             }, 4000);
         }
+
+        // 헤더 알림 표시 함수 (프로젝트 관리 옆 공간)
+        function showHeaderAlert(message, type = 'info', duration = 4000) {
+            const alertContainer = document.getElementById('headerAlertContainer');
+            if (!alertContainer) return;
+            
+            // 기존 헤더 알림 제거
+            alertContainer.innerHTML = '';
+            
+            // 타입별 색상 및 아이콘 설정
+            let bgColor, textColor, borderColor, icon;
+            switch (type) {
+                case 'success':
+                    bgColor = '#d4edda';
+                    textColor = '#155724';
+                    borderColor = '#c3e6cb';
+                    icon = 'fa-check-circle';
+                    break;
+                case 'warning':
+                    bgColor = '#fff3cd';
+                    textColor = '#856404';
+                    borderColor = '#ffeaa7';
+                    icon = 'fa-exclamation-triangle';
+                    break;
+                case 'error':
+                    bgColor = '#f8d7da';
+                    textColor = '#721c24';
+                    borderColor = '#f1aeb5';
+                    icon = 'fa-exclamation-circle';
+                    break;
+                default:
+                    bgColor = '#d1ecf1';
+                    textColor = '#0c5460';
+                    icon = 'fa-info-circle';
+                    borderColor = '#bee5eb';
+                    break;
+            }
+            
+            const alertId = 'header-alert-' + Date.now();
+            const alertHTML = `
+                <div class="alert-message animate__animated animate__fadeInRight px-3 py-2 rounded-2 d-flex align-items-center" id="${alertId}"
+                     style="background: ${bgColor}; color: ${textColor}; 
+                            border: 2px solid ${borderColor};
+                            font-size: 14px; font-weight: 500;
+                            white-space: nowrap; height: auto; min-height: 2.5rem;">
+                    <i class="fas ${icon} me-2" style="font-size: 16px;"></i>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            alertContainer.innerHTML = alertHTML;
+            
+            // 자동 제거 (duration이 0이면 제거하지 않음)
+            if (duration > 0) {
+                setTimeout(() => {
+                    const alertElement = document.getElementById(alertId);
+                    if (alertElement) {
+                        alertElement.classList.remove('animate__fadeInRight');
+                        alertElement.classList.add('animate__fadeOutRight');
+                        setTimeout(() => {
+                            if (alertElement.parentNode) {
+                                alertElement.parentNode.removeChild(alertElement);
+                            }
+                        }, 500);
+                    }
+                }, duration);
+            }
+        }
         
         // 현재 프로젝트 코드 가져오기 함수 (기존 카드 편집 방식과 동일)
         function getCurrentProjectCode(element) {
@@ -9266,7 +9334,7 @@
             // 먼저 카드 잠금 시도 (document 카드 타입 사용)
             acquireCardLock(projectCode, 'document').then(result => {
                 if (!result.success) {
-                    alert(`'${result.lockedBy}'님이 수정 중입니다.`);
+                    showHeaderAlert(`'${result.lockedBy}'님이 수정 중입니다.`, 'warning');
                     return;
                 }
                 
@@ -9367,7 +9435,7 @@
             const saveFolderPath = async () => {
                 const newPath = inputElement.value.trim();
                 if (newPath === '') {
-                    alert('경로를 입력해주세요.');
+                    showHeaderAlert('경로를 입력해주세요.', 'warning');
                     return;
                 }
                 
@@ -9599,7 +9667,7 @@
             // 먼저 카드 잠금 시도 (payment-notes 카드 타입 사용)
             acquireCardLock(projectCode, 'payment-notes').then(result => {
                 if (!result.success) {
-                    alert(`'${result.lockedBy}'님이 수정 중입니다.`);
+                    showHeaderAlert(`'${result.lockedBy}'님이 수정 중입니다.`, 'warning');
                     return;
                 }
 
@@ -11448,7 +11516,7 @@
                             dataTable.row(rowIndex).data(projectsData[rowIndex]).draw(false);
                             
                             console.log('[Socket.IO] 프로젝트 업데이트 완료:', projectCode);
-                            showRealTimeNotification('프로젝트가 업데이트되었습니다: ' + projectCode, 'info');
+                            showHeaderAlert('프로젝트가 업데이트되었습니다: ' + projectCode, 'info');
                         }
                     }
                 });
@@ -12117,7 +12185,7 @@
                 detailedDiv.textContent = detailsHtml;
                 
                 // 성공 메시지
-                showToast(data.message, 'success');
+                showHeaderAlert(data.message, 'success');
                 
                 // 자동 새로고침 제거 - 사용자가 직접 모달을 닫도록 함
                 
@@ -12125,7 +12193,7 @@
                 console.error('폴더 경로 변환 실패:', error);
                 statusDiv.style.display = 'none';
                 startBtn.style.display = 'inline-block';
-                showToast('변환 중 오류가 발생했습니다: ' + error.message, 'error');
+                showHeaderAlert('변환 중 오류가 발생했습니다: ' + error.message, 'error');
             }
         }
 
