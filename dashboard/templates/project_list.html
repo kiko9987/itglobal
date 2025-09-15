@@ -3687,12 +3687,10 @@
             // 통합 데이터 로드 (모든 곳에서 사용)
             async loadProjectData(forceRefresh = true, source = 'unknown') {
                 if (this.isLoading && !forceRefresh) {
-                    console.log(`[DataSync] 이미 로딩 중이므로 건너뜀 (source: ${source})`);
                     return projectsData;
                 }
                 
                 this.isLoading = true;
-                console.log(`[DataSync] 데이터 로드 시작 (source: ${source}, refresh: ${forceRefresh})`);
                 
                 try {
                     const timestamp = new Date().getTime();
@@ -3718,12 +3716,11 @@
                     
                     // 전역 데이터 업데이트
                     projectsData = data;
-                    console.log(`[DataSync] 데이터 로드 완료: ${data.length}개 프로젝트 (source: ${source})`);
                     
                     return data;
                     
                 } catch (error) {
-                    console.error(`[DataSync] 데이터 로드 실패 (source: ${source}):`, error);
+                    console.error('데이터 로드 실패:', error);
                     throw error;
                 } finally {
                     this.isLoading = false;
@@ -3732,11 +3729,9 @@
             
             // 메모리 데이터 업데이트 (통합)
             updateMemoryData(projectCode, updatedFields, newProjectCode = null) {
-                console.log(`[DataSync] 메모리 업데이트: ${projectCode}`, updatedFields);
                 
                 const projectIndex = projectsData.findIndex(p => p['프로젝트 코드'] === projectCode);
                 if (projectIndex === -1) {
-                    console.warn(`[DataSync] 프로젝트를 찾을 수 없음: ${projectCode}`);
                     return false;
                 }
                 
@@ -3750,7 +3745,6 @@
                 // 프로젝트 코드 변경 처리
                 if (newProjectCode && newProjectCode !== projectCode) {
                     projectsData[projectIndex]['프로젝트 코드'] = newProjectCode;
-                    console.log(`[DataSync] 프로젝트 코드 변경: ${projectCode} → ${newProjectCode}`);
                 }
                 
                 // DataTables 업데이트
@@ -4229,9 +4223,26 @@
         // 모바일 카드 생성
         function generateMobileCards() {
             const container = document.getElementById('mobileCardContainer');
-            if (!container || !projectsData || projectsData.length === 0) return;
+            if (!container) {
+                console.warn('📱 모바일 카드 컨테이너를 찾을 수 없습니다');
+                return;
+            }
             
-            container.innerHTML = projectsData.map(project => {
+            if (!projectsData || projectsData.length === 0) {
+                console.log('📱 프로젝트 데이터가 없어서 모바일 카드를 생성하지 않습니다');
+                container.innerHTML = '<div class="text-center p-4">표시할 프로젝트가 없습니다.</div>';
+                return;
+            }
+            
+            console.log('📱 모바일 카드 생성 시작:', projectsData.length, '개 프로젝트');
+            
+            // 기존 카드 완전 제거
+            container.innerHTML = '';
+            
+            // DOM 강제 업데이트
+            container.offsetHeight;
+            
+            const cardsHTML = projectsData.map(project => {
                 const projectCode = project['프로젝트 코드'] || '';
                 const manager = project['담당자'] || '';
                 const client = project['거래처'] || '';
@@ -4286,6 +4297,11 @@
                     </div>
                 `;
             }).join('');
+            
+            // 생성된 HTML을 DOM에 삽입
+            container.innerHTML = cardsHTML;
+            
+            console.log('✅ 모바일 카드 생성 완료:', projectsData.length, '개 카드 생성됨');
         }
 
         // 담당자 필터 로드
@@ -6044,16 +6060,9 @@
             // 캘린더 관련 이벤트 처리 함수
             function openCalendar(dateInput) {
                 if (dateInput && !dateInput.disabled) {
+                    // 가장 안전한 방법: focus만 사용
                     dateInput.focus();
-                    // 브라우저별 호환성을 위한 다중 시도
-                    try {
-                        if (dateInput.showPicker) {
-                            dateInput.showPicker();
-                        }
-                    } catch (e) {
-                        // showPicker가 지원되지 않는 경우 focus로 대체
-                        dateInput.focus();
-                    }
+                    // showPicker는 브라우저 호환성 문제로 제거
                 }
             }
             
@@ -6924,8 +6933,9 @@
             document.body.removeChild(link);
         }
 
-        // 프로젝트 데이터 새로고침
+        // 프로젝트 데이터 새로고침 (DataSyncManager 사용)
         async function refreshProjectData() {
+            console.log('🔄 새로고침 버튼 클릭됨 - 강력한 UI 업데이트 시작');
             const btn = document.getElementById('refreshProjectBtn');
             const icon = btn.querySelector('i');
             
@@ -6935,27 +6945,88 @@
             showLoading(true);
             
             try {
-                const response = await fetch('/api/refresh-data');
-                const result = await response.json();
+                console.log('📡 서버에서 최신 데이터 로드 중...');
+                // 강제 캐시 무효화하여 최신 데이터 로드
+                const data = await DataSyncManager.loadProjectData(true, 'refresh_button');
+                console.log('✅ 데이터 로드 완료:', data ? data.length : 0, '개 프로젝트');
                 
-                if (result.error) {
-                    showAlert(result.error, 'danger');
-                } else {
-                    // 성공 메시지 제거 - 새로고침은 백그라운드 작업으로 성공이 당연
-                    
-                    // 페이지 새로고침으로 데이터 반영
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1500);
+                // 글로벌 데이터 업데이트
+                projectsData = data;
+                
+                // 1. DataTable 완전 재초기화
+                console.log('🔄 DataTable 완전 재초기화 중...');
+                if (dataTable && $.fn.DataTable.isDataTable('#projectsTable')) {
+                    dataTable.destroy();
+                    dataTable = null;
                 }
+                // 새로운 DataTable 생성
+                initializeDataTable(data);
+                console.log('✅ DataTable 재초기화 완료');
+                
+                // 2. 모바일 카드 완전 재생성
+                console.log('📱 모바일 아코디언 카드 완전 재생성 중...');
+                const mobileContainer = document.getElementById('mobileCardContainer');
+                if (mobileContainer) {
+                    // DOM 완전 클리어
+                    mobileContainer.innerHTML = '';
+                    // 강제 DOM 업데이트
+                    mobileContainer.offsetHeight;
+                }
+                generateMobileCards();
+                console.log('✅ 모바일 카드 재생성 완료');
+                
+                // 3. 필터 및 기타 UI 컴포넌트 업데이트
+                console.log('🔍 필터 및 UI 컴포넌트 업데이트 중...');
+                loadManagerFilter();
+                populateFolderDisplays();
+                
+                // 4. 통계 정보 업데이트 (있다면)
+                if (typeof updateStatistics === 'function') {
+                    updateStatistics();
+                }
+                
+                console.log('✅ 모든 UI 컴포넌트 업데이트 완료');
+                
+                // 성공 애니메이션
+                icon.className = 'fas fa-check me-1';
+                showAlert('💪 강력한 새로고침 완료! 모든 데이터가 최신 상태로 업데이트되었습니다.', 'success');
+                setTimeout(() => {
+                    icon.className = 'fas fa-sync-alt me-1';
+                }, 1500);
+                
             } catch (error) {
-                console.error('새로고침 오류:', error);
-                showAlert('데이터 새로고침에 실패했습니다.', 'danger');
+                console.error('❌ 새로고침 오류:', error);
+                showAlert('데이터 새로고침에 실패했습니다: ' + error.message, 'danger');
+                
+                // 오류 시에도 아이콘 복원
+                icon.className = 'fas fa-sync-alt me-1';
             } finally {
                 // 버튼 복원
-                icon.className = 'fas fa-sync-alt me-1';
                 btn.disabled = false;
                 showLoading(false);
+                console.log('🏁 강력한 새로고침 프로세스 완료');
+            }
+        }
+
+        // 프로젝트 상세 보기 (테이블 행 클릭 시)
+        function showProjectDetails(projectCode) {
+            // 해당 프로젝트 코드의 아코디언 카드 찾기
+            const targetCard = document.querySelector(`[data-project-code="${projectCode}"]`);
+            if (targetCard) {
+                // 아코디언 카드로 스크롤
+                targetCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // 잠시 후 하이라이트 효과
+                setTimeout(() => {
+                    targetCard.style.boxShadow = '0 0 20px rgba(0, 123, 255, 0.5)';
+                    targetCard.style.transition = 'box-shadow 0.3s ease';
+                    
+                    setTimeout(() => {
+                        targetCard.style.boxShadow = '';
+                    }, 2000);
+                }, 100);
+            } else {
+                showAlert(`프로젝트 ${projectCode}를 찾을 수 없습니다.`, 'warning');
             }
         }
 
@@ -7177,13 +7248,15 @@
                 return;
             }
             
-            // 총액 2 가져오기 (매출)
-            const totalAmountElement = document.querySelector(`[data-project-code="${projectCode}"] [data-field="총액 2"]`);
+            // 순매출 계산을 위해 총액 1 (부가세 제외 순매출) 가져오기
+            const totalAmount1Element = document.querySelector(`[data-project-code="${projectCode}"] [data-field="총액 1"]`);
             let totalAmount = 0;
-            if (totalAmountElement) {
-                const totalAmountText = totalAmountElement.textContent || totalAmountElement.innerText || '';
+            if (totalAmount1Element) {
+                const totalAmountText = totalAmount1Element.textContent || totalAmount1Element.innerText || '';
                 totalAmount = parseFloat(totalAmountText.replace(/[^\d.-]/g, '')) || 0;
             }
+            
+            console.log(`📊 순매출(총액 1) 기준으로 마진율 계산: ${totalAmount.toLocaleString()}원`);
             
             // 비용 항목들 가져오기
             const costFields = ['제품대', '도급비', '자재비', '기타비'];
@@ -7364,7 +7437,7 @@
 
         // 마진율 계산 함수
         function calculateMarginRate(rowData) {
-            const totalAmount = parseFloat(rowData['총액 2'] || rowData['총액'] || 0);
+            const totalAmount = parseFloat(rowData['총액 1'] || rowData['총액'] || 0);
             const productCost = parseFloat(rowData['제품대'] || 0);
             const contractCost = parseFloat(rowData['도급비'] || 0);
             const materialCost = parseFloat(rowData['자재비'] || 0);
@@ -7381,7 +7454,7 @@
 
         // 마진율 스타일 클래스 반환 함수
         function getMarginRateStyle(rowData) {
-            const totalAmount = parseFloat(rowData['총액 2'] || rowData['총액'] || 0);
+            const totalAmount = parseFloat(rowData['총액 1'] || rowData['총액'] || 0);
             const productCost = parseFloat(rowData['제품대'] || 0);
             const contractCost = parseFloat(rowData['도급비'] || 0);
             const materialCost = parseFloat(rowData['자재비'] || 0);
@@ -7464,6 +7537,7 @@
         }
         
         function activateEditMode(projectCode, cardType) {
+            console.log(`[편집모드] activateEditMode 호출: ${projectCode}, ${cardType}`);
             const card = document.getElementById(`card-${cardType}-${projectCode}`);
             const editBtn = card.querySelector('.edit-btn');
             const saveBtn = card.querySelector('.save-btn');
@@ -7585,6 +7659,7 @@
                 } else {
                     // 체크박스 필드 (부가세, 수금 확인)
                     if (fieldName === '부가세' || fieldName === '수금 확인') {
+                        console.log(`[체크박스] 생성 시작: ${fieldName} for ${projectCode}`);
                         // 체크박스 컨테이너 생성
                         const checkboxContainer = document.createElement('div');
                         checkboxContainer.className = 'form-check form-switch';
@@ -7630,10 +7705,37 @@
                         
                         if (fieldName === '부가세') {
                             label.textContent = isChecked ? '포함' : '포함안됨';
-                            // 체크박스 변경 시 라벨 업데이트
-                            checkbox.addEventListener('change', function() {
-                                label.textContent = this.checked ? '포함' : '포함안됨';
-                            });
+                            // 부가세 체크박스 이벤트 처리 함수
+                            function handleVatCheckboxChange() {
+                                label.textContent = checkbox.checked ? '포함' : '포함안됨';
+                                console.log(`[부가세] 체크박스 상태 변경: ${checkbox.checked}`);
+                                
+                                // 프로젝트 코드 추출
+                                const card = checkbox.closest('[id^="card-financial-"]');
+                                if (card) {
+                                    const projectCodeMatch = card.id.match(/card-financial-(.+)/);
+                                    if (projectCodeMatch) {
+                                        const projectCode = projectCodeMatch[1];
+                                        console.log(`[부가세] 프로젝트 코드: ${projectCode}`);
+                                        
+                                        // 부가세 변경 시 총액2와 미수금 실시간 업데이트
+                                        setTimeout(() => {
+                                            calculateTotal2FromTotal1Input(projectCode);
+                                            // DOM 업데이트 후 미수금 계산
+                                            setTimeout(() => {
+                                                updateCollectionStatus(projectCode, 'vat_checkbox_change');
+                                                console.log(`[부가세] 체크박스 변경으로 미수금 업데이트 완료: ${projectCode}`);
+                                            }, 10);
+                                        }, 10);
+                                    }
+                                }
+                            }
+                            
+                            // 다양한 이벤트로 감지
+                            console.log(`[체크박스] 이벤트 리스너 등록: ${fieldName} for ${projectCode}`);
+                            checkbox.addEventListener('change', handleVatCheckboxChange);
+                            checkbox.addEventListener('click', handleVatCheckboxChange);
+                            console.log(`[체크박스] 이벤트 리스너 등록 완료: ${checkbox.id}`);
                         } else if (fieldName === '수금 확인') {
                             // 수금 확인은 배지 형태로 표시
                             label.innerHTML = isChecked ? '<span class="badge bg-success" style="cursor: pointer;">완료</span>' : '<span class="badge bg-warning" style="cursor: pointer;">대기</span>';
@@ -7738,9 +7840,9 @@
                             inputElement.className = 'form-control form-control-sm inline-edit-input';
                         }
                         
-                        // 날짜 필드 클릭 시 캘린더 열기 강제
+                        // 날짜 필드 클릭 시 포커스 (안전한 방법)
                         inputElement.addEventListener('click', function() {
-                            this.showPicker(); // 캘린더 강제 열기
+                            this.focus();
                         });
                         
                         // 현재 값이 있으면 YYYY-MM-DD 형식으로 변환
@@ -7777,9 +7879,9 @@
                         } else if (fieldName === '공사 시작' || fieldName === '공사 종료') {
                             inputElement.type = 'date';
                             
-                            // 날짜 필드 클릭 시 캘린더 열기 강제
+                            // 날짜 필드 클릭 시 포커스 (안전한 방법)
                             inputElement.addEventListener('click', function() {
-                                this.showPicker(); // 캘린더 강제 열기
+                                this.focus();
                             });
                             
                             // 날짜 값 형식 변환 (YYYY/MM/DD -> YYYY-MM-DD)
@@ -7789,13 +7891,9 @@
                                     inputElement.value = `${dateParts[0]}-${dateParts[1].padStart(2, '0')}-${dateParts[2].padStart(2, '0')}`;
                                 }
                             }
-                        // 입력 박스 전체 클릭 시 캘린더 열기
+                        // 입력 박스 클릭 시 포커스 (안전한 방법)
                         inputElement.addEventListener('click', function() {
-                            try {
-                                this.showPicker();
-                            } catch (e) {
-                                console.log('showPicker not supported or gesture required');
-                            }
+                            this.focus();
                         });
                         }
                     }
@@ -8259,8 +8357,32 @@
                 return;
             }
             
-            // 프로젝트 코드 추가
-            updatedData['projectCode'] = projectCode;
+            // 🚀 사업자 변경 시 클라이언트에서 프로젝트 코드 자동 업데이트
+            let finalProjectCode = projectCode;
+            
+            if (updatedData['사업자']) {
+                const companyPrefixMap = {
+                    '글로벌': 'G',
+                    '글로벌그룹': 'R', 
+                    '플렌트': 'P',
+                    '아이티': 'I'
+                };
+                
+                const newPrefix = companyPrefixMap[updatedData['사업자']];
+                if (newPrefix) {
+                    // 현재 프로젝트 코드에서 숫자와 접미사 추출 (예: R2851-JW에서 2851-JW)
+                    const codeMatch = projectCode.match(/^[A-Z](\d+-.+)$/);
+                    if (codeMatch) {
+                        const numberAndSuffix = codeMatch[1]; // 2851-JW
+                        finalProjectCode = newPrefix + numberAndSuffix; // G2851-JW
+                        console.log(`🔄 사업자 변경으로 프로젝트 코드 업데이트: ${projectCode} → ${finalProjectCode}`);
+                    }
+                }
+            }
+            
+            // 최종 프로젝트 코드로 요청
+            updatedData['projectCode'] = finalProjectCode;
+            updatedData['originalProjectCode'] = projectCode;  // 🔑 원본 프로젝트 코드 전송
             
             
             // 부가세 데이터 특별 확인
@@ -8291,21 +8413,49 @@
                     // 성공적으로 저장됨
                     let message = '변경사항이 저장되었습니다.';
                     
-                    // 프로젝트 코드가 변경되었는지 확인
-                    if (result.project_code_changed && result.new_project_code) {
-                        message += ` (프로젝트 코드: ${projectCode} → ${result.new_project_code})`;
+                    // 클라이언트에서 프로젝트 코드가 변경되었는지 확인
+                    const newProjectCode = result.new_project_code || finalProjectCode;
+                    if (newProjectCode !== projectCode) {
+                        message += ` (프로젝트 코드: ${projectCode} → ${newProjectCode})`;
                         
-                        // 카드의 ID와 관련 요소들을 새로운 프로젝트 코드로 업데이트
-                        card.id = `card-${cardType}-${result.new_project_code}`;
+                        // 🎯 카드의 ID와 모든 관련 요소들을 새로운 프로젝트 코드로 업데이트
+                        const oldCardId = card.id;
+                        card.id = `card-${cardType}-${newProjectCode}`;
+                        card.setAttribute('data-project-code', newProjectCode);
+                        
+                        // 카드 제목 업데이트
+                        const cardTitle = card.querySelector('.card-title');
+                        if (cardTitle) {
+                            cardTitle.textContent = cardTitle.textContent.replace(projectCode, newProjectCode);
+                        }
                         
                         // 버튼들의 onclick 속성도 업데이트
                         const editBtn = card.querySelector('.edit-btn');
                         const saveBtn = card.querySelector('.save-btn');
                         const cancelBtn = card.querySelector('.cancel-btn');
                         
-                        if (editBtn) editBtn.setAttribute('onclick', `toggleCardEdit('${result.new_project_code}', '${cardType}')`);
-                        if (saveBtn) saveBtn.setAttribute('onclick', `saveCardEdit('${result.new_project_code}', '${cardType}')`);
-                        if (cancelBtn) cancelBtn.setAttribute('onclick', `event.preventDefault(); event.stopPropagation(); if(!this.disabled){this.disabled=true; cancelCardEdit('${result.new_project_code}', '${cardType}'); setTimeout(()=>this.disabled=false, 1000);}`);
+                        if (editBtn) editBtn.setAttribute('onclick', `toggleCardEdit('${newProjectCode}', '${cardType}')`);
+                        if (saveBtn) saveBtn.setAttribute('onclick', `saveCardEdit('${newProjectCode}', '${cardType}')`);
+                        if (cancelBtn) cancelBtn.setAttribute('onclick', `event.preventDefault(); event.stopPropagation(); if(!this.disabled){this.disabled=true; cancelCardEdit('${newProjectCode}', '${cardType}'); setTimeout(()=>this.disabled=false, 1000);}`);
+                        
+                        // 🎯 자식 탭(row detail)이 열려있다면 헤드의 프로젝트 코드도 업데이트
+                        const rowDetailSelector = `.row-details .project-title-section`;
+                        const projectTitleSections = document.querySelectorAll(rowDetailSelector);
+                        projectTitleSections.forEach(section => {
+                            const projectCodeElement = section.querySelector('div[style*="font-weight: 700"]');
+                            if (projectCodeElement && projectCodeElement.textContent.includes(projectCode)) {
+                                projectCodeElement.innerHTML = `<i class="fas fa-tag me-2"></i>${newProjectCode}`;
+                                console.log(`🔄 자식 탭 헤드 코드 업데이트: ${projectCode} → ${newProjectCode}`);
+                            }
+                        });
+                        
+                        // 🔧 프로젝트 코드 변경으로 인한 아코디언 이벤트 재설정
+                        setTimeout(() => {
+                            setupRowClickEvents();
+                            console.log(`🔧 아코디언 이벤트 재설정 완료`);
+                        }, 100);
+                        
+                        console.log(`✅ UI 업데이트 완료: ${oldCardId} → card-${cardType}-${newProjectCode}`);
                     }
                     
                     
@@ -8437,6 +8587,9 @@
                         if (cardType === 'financial') {
                             calculateAmountFields(projectCode);
                             
+                            // 부가세 필드가 변경되었는지 확인
+                            const hasVatChange = updatedData.hasOwnProperty('부가세');
+                            
                             // 재계산 후 즉시 메모리 데이터도 업데이트
                             setTimeout(() => {
                                 const financialCard = document.querySelector(`#card-financial-${projectCode}`);
@@ -8444,6 +8597,13 @@
                                     const currentTotal2 = extractFieldValue(financialCard, '총액 2') || extractFieldValue(financialCard, '총액2') || '0';
                                     const numValue = parseFloat(currentTotal2.replace(/[^0-9.-]/g, '')) || 0;
                                     DataSyncManager.updateMemoryData(projectCode, {'총액 2': numValue, '총액2': numValue, 'S': numValue});
+                                    
+                                    // 부가세가 변경된 경우 미수금도 업데이트
+                                    if (hasVatChange) {
+                                        setTimeout(() => {
+                                            updateCollectionStatus(projectCode, 'financial_save_vat_change');
+                                        }, 10);
+                                    }
                                 }
                             }, 50);
                         }
@@ -9765,6 +9925,30 @@
                 }
             }, 7000);
         }
+
+        // showNotification 함수 (기존 호환성을 위해)
+        function showNotification(message, type) {
+            // 타입 매핑: error -> danger, success -> success, warning -> warning, info -> info
+            let alertType;
+            switch(type) {
+                case 'error':
+                    alertType = 'danger';
+                    break;
+                case 'success':
+                    alertType = 'success';
+                    break;
+                case 'warning':
+                    alertType = 'warning';
+                    break;
+                case 'info':
+                default:
+                    alertType = 'info';
+                    break;
+            }
+            
+            // showAlert 함수를 호출
+            showAlert(message, alertType);
+        }
         
         // 체크박스 라벨 클릭 처리 - 이벤트 위임 방식
         document.addEventListener('click', function(e) {
@@ -9803,6 +9987,28 @@
                         checkbox.dispatchEvent(changeEvent);
                         
                         console.log('라벨 클릭 - 체크박스 토글:', forAttr, checkbox.checked);
+                        
+                        // 부가세 체크박스인 경우 미수금 업데이트
+                        if (forAttr.includes('부가세')) {
+                            const card = checkbox.closest('[id^="card-financial-"]');
+                            if (card) {
+                                const projectCodeMatch = card.id.match(/card-financial-(.+)/);
+                                if (projectCodeMatch) {
+                                    const projectCode = projectCodeMatch[1];
+                                    console.log(`[부가세] 라벨 클릭으로 토글: ${projectCode}, 상태: ${checkbox.checked}`);
+                                    
+                                    // 부가세 변경 시 총액2와 미수금 실시간 업데이트
+                                    setTimeout(() => {
+                                        calculateTotal2FromTotal1Input(projectCode);
+                                        setTimeout(() => {
+                                            updateCollectionStatus(projectCode, 'vat_label_click');
+                                            console.log(`[부가세] 라벨 클릭으로 미수금 업데이트 완료: ${projectCode}`);
+                                        }, 10);
+                                    }, 10);
+                                }
+                            }
+                        }
+                        
                         handled = true;
                     }
                 }
@@ -9824,6 +10030,27 @@
                     checkbox.dispatchEvent(changeEvent);
                     
                     console.log('컨테이너 클릭 - 체크박스 토글:', checkbox.id, checkbox.checked);
+                    
+                    // 부가세 체크박스인 경우 미수금 업데이트
+                    if (checkbox.id.includes('부가세')) {
+                        const card = checkbox.closest('[id^="card-financial-"]');
+                        if (card) {
+                            const projectCodeMatch = card.id.match(/card-financial-(.+)/);
+                            if (projectCodeMatch) {
+                                const projectCode = projectCodeMatch[1];
+                                console.log(`[부가세] 컨테이너 클릭으로 토글: ${projectCode}, 상태: ${checkbox.checked}`);
+                                
+                                // 부가세 변경 시 총액2와 미수금 실시간 업데이트
+                                setTimeout(() => {
+                                    calculateTotal2FromTotal1Input(projectCode);
+                                    setTimeout(() => {
+                                        updateCollectionStatus(projectCode, 'vat_container_click');
+                                        console.log(`[부가세] 컨테이너 클릭으로 미수금 업데이트 완료: ${projectCode}`);
+                                    }, 10);
+                                }, 10);
+                            }
+                        }
+                    }
                 }
             }
         }, true); // 캡처 단계에서 처리
@@ -10523,26 +10750,34 @@
         
         // 실시간 미수금 계산 및 수금 상태 업데이트 함수
         function updateCollectionStatus(projectCode, triggeredByField, immediateUpdate = false) {
+            console.log(`[미수금계산] updateCollectionStatus 호출: ${projectCode}, 트리거: ${triggeredByField}`);
             // 수금정보 카드에서 현재 금액 값들 읽기
             const paymentCard = document.querySelector(`#card-payment-${projectCode}`);
-            if (!paymentCard) return;
+            if (!paymentCard) {
+                console.log(`[미수금계산] 수금카드를 찾을 수 없음: card-payment-${projectCode}`);
+                return;
+            }
 
             // 금액정보 카드에서 총액2 값 가져오기
             const financialCard = document.querySelector(`#card-financial-${projectCode}`);
             if (!financialCard) return;
             
             const totalAmount = parseFloat(extractFieldValue(financialCard, '총액 2') || extractFieldValue(financialCard, '총액2') || '0') || 0;
+            console.log(`[미수금계산] 총액2 추출 결과: ${totalAmount}`);
             
             // 수금정보 카드에서 계약금, 중도금, 잔금 가져오기
             const contractAmount = parseFloat(extractFieldValue(paymentCard, '계약금') || '0') || 0;
             const midAmount = parseFloat(extractFieldValue(paymentCard, '중도금') || '0') || 0;
             const finalAmount = parseFloat(extractFieldValue(paymentCard, '잔금') || '0') || 0;
+            console.log(`[미수금계산] 계약금: ${contractAmount}, 중도금: ${midAmount}, 잔금: ${finalAmount}`);
             
             // 미수금 계산 (총액 - 계약금 - 중도금 - 잔금)
             const outstandingAmount = totalAmount - contractAmount - midAmount - finalAmount;
+            console.log(`[미수금계산] 미수금 계산: ${totalAmount} - ${contractAmount} - ${midAmount} - ${finalAmount} = ${outstandingAmount}`);
 
             // 미수금 필드 업데이트
             updateFieldValue(paymentCard, '미수금W', outstandingAmount);
+            console.log(`[미수금계산] 미수금 필드 업데이트 완료: ${outstandingAmount}`);
 
             // 수금확인 토글은 오직 잔금 입력시에만 작동
             if (triggeredByField === '잔금') {
@@ -10682,18 +10917,27 @@
         // 필드 값 추출 유틸리티 함수
         function extractFieldValue(card, fieldName) {
             const field = card.querySelector(`[data-field="${fieldName}"]`);
-            if (!field) return '';
+            if (!field) {
+                console.log(`[필드추출] 필드를 찾을 수 없음: ${fieldName}`);
+                return '';
+            }
             
             // 편집 모드인 경우 input 값 우선 확인
             const input = field.querySelector('input');
             let value;
             if (input) {
                 value = input.value || '';
+                console.log(`[필드추출] ${fieldName} - input 값: "${value}"`);
             } else {
-                value = field.getAttribute('data-original-value') || field.textContent || '';
+                const dataValue = field.getAttribute('data-original-value');
+                const textValue = field.textContent;
+                value = dataValue || textValue || '';
+                console.log(`[필드추출] ${fieldName} - data-original-value: "${dataValue}", textContent: "${textValue}", 최종값: "${value}"`);
             }
             
-            return value.toString().replace(/[^\d.-]/g, ''); // 숫자만 추출
+            const cleanValue = value.toString().replace(/[^\d.-]/g, '');
+            console.log(`[필드추출] ${fieldName} - 정리된 값: "${cleanValue}"`);
+            return cleanValue; // 숫자만 추출
         }
 
         // 필드 값 업데이트 유틸리티 함수
@@ -10767,9 +11011,14 @@
                         if (projectCodeMatch) {
                             const projectCode = projectCodeMatch[1];
                             
-                            // 부가세 토글 후 50ms 대기 후 단순 계산
+                            // 부가세 토글 후 단순 계산 및 미수금 업데이트 (순차 실행)
                             setTimeout(() => {
                                 calculateTotal2FromTotal1Input(projectCode);
+                                // DOM 업데이트 완료 후 미수금 계산
+                                setTimeout(() => {
+                                    updateCollectionStatus(projectCode, 'vat_field_click');
+                                    console.log(`[부가세] 필드 클릭으로 미수금 업데이트: ${projectCode}`);
+                                }, 10);
                             }, 50);
                         }
                     }
@@ -10868,8 +11117,12 @@
         // 금액정보 카드 자동 계산 함수
         // 단순한 총액2 계산 함수: 총액1 input 값 + 부가세 상태만 확인
         function calculateTotal2FromTotal1Input(projectCode) {
+            console.log(`[총액2계산] calculateTotal2FromTotal1Input 호출: ${projectCode}`);
             const amountCard = document.querySelector(`#card-financial-${projectCode}`);
-            if (!amountCard) return;
+            if (!amountCard) {
+                console.log(`[총액2계산] 카드를 찾을 수 없음: card-financial-${projectCode}`);
+                return;
+            }
             
             // 편집 중인 총액1 input 값 가져오기
             const total1Input = amountCard.querySelector('[data-field="총액1"] input, [data-field="총액 1"] input');
@@ -10883,10 +11136,14 @@
             if (vatField) {
                 const vatText = vatField.textContent || vatField.innerHTML || '';
                 vatIncluded = (vatText.includes('포함') && !vatText.includes('포함안됨')) || vatText.includes('VAT 포함') || vatField.classList.contains('vat-included');
+                console.log(`[총액2계산] 부가세 상태 - 텍스트: "${vatText}", 포함여부: ${vatIncluded}`);
+            } else {
+                console.log(`[총액2계산] 부가세 필드를 찾을 수 없음`);
             }
             
             // 단순 계산: 부가세 포함이면 +10%, 아니면 그대로
             const total2Value = vatIncluded ? total1Value + Math.round(total1Value * 0.1) : total1Value;
+            console.log(`[총액2계산] 총액1: ${total1Value}, 부가세: ${vatIncluded}, 총액2: ${total2Value}`);
             
             // 총액2 필드 업데이트
             updateFieldValue(amountCard, '총액2', total2Value);
