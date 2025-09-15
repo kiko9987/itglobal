@@ -1113,13 +1113,24 @@ def create_project():
             'final_code': final_project_code
         })
         
+        # 반환할 프로젝트 데이터 준비
+        project_data = None
+        try:
+            if updated_df is not None:
+                new_project_row = updated_df[updated_df['프로젝트 코드'] == final_project_code]
+                if not new_project_row.empty:
+                    project_data = new_project_row.iloc[0].to_dict()
+        except:
+            logger.warning('[프로젝트생성] 반환용 프로젝트 데이터 준비 실패')
+        
         return jsonify({
             'success': True,
             'ok': True,  # 기존 프론트엔드 호환성
             'project_code': final_project_code,
             'original_code': original_code,
             'code_changed': code_changed,
-            'message': success_message
+            'message': success_message,
+            'project_data': project_data  # 실시간 추가용 프로젝트 데이터
         })
         
     except Exception as e:

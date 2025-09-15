@@ -3681,6 +3681,9 @@
             isLoading: false,
             loadingQueue: new Set(),
             
+            // 실시간 업데이트 활성화 여부
+            isRealTimeEnabled: false,
+            
             // 통합 데이터 로드 (모든 곳에서 사용)
             async loadProjectData(forceRefresh = true, source = 'unknown') {
                 if (this.isLoading && !forceRefresh) {
@@ -3814,6 +3817,83 @@
                 } catch (error) {
                     console.error(`[DataSync] UI 새로고침 실패 (source: ${source}):`, error);
                 }
+            },
+            
+            // 실시간 프로젝트 추가 (Socket.IO 사용)
+            addProjectRealTime(projectData) {
+                console.log(`[DataSync] 실시간 프로젝트 추가:`, projectData['프로젝트 코드']);
+                
+                // 메모리 데이터에 추가
+                if (projectsData && Array.isArray(projectsData)) {
+                    // 맨 앞에 추가 (최신 프로젝트가 위에 오도록)
+                    projectsData.unshift(projectData);
+                }
+                
+                // DataTable에 실시간 추가
+                if (dataTable) {
+                    // 현재 정렬 상태 저장
+                    const currentOrder = dataTable.order();
+                    
+                    // 새 행을 테이블에 추가
+                    const newRow = dataTable.row.add(projectData);
+                    
+                    // 프로젝트 코드 기준 내림차순 정렬 (최신 프로젝트가 위에)
+                    dataTable.order([[0, 'desc']]).draw(false);
+                    
+                    // 새로 추가된 행 찾기 (프로젝트 코드로 찾기)
+                    const allRows = dataTable.rows().nodes();
+                    let targetRowNode = null;
+                    
+                    $(allRows).each(function() {
+                        const rowData = dataTable.row(this).data();
+                        if (rowData && rowData['프로젝트 코드'] === projectData['프로젝트 코드']) {
+                            targetRowNode = this;
+                            return false; // break
+                        }
+                    });
+                    
+                    if (targetRowNode) {
+                        // 하이라이트 효과
+                        $(targetRowNode).addClass('table-success');
+                        setTimeout(() => {
+                            $(targetRowNode).removeClass('table-success');
+                        }, 3000);
+                        
+                        // 행 클릭 이벤트 설정
+                        $(targetRowNode).off('click').on('click', function(e) {
+                            if ($(e.target).closest('.btn, button').length > 0) {
+                                return;
+                            }
+                            const rowData = dataTable.row(this).data();
+                            if (rowData && rowData['프로젝트 코드']) {
+                                showProjectDetails(rowData['프로젝트 코드']);
+                            }
+                        });
+                        
+                        // 새 행으로 스크롤 (부드럽게)
+                        setTimeout(() => {
+                            targetRowNode.scrollIntoView({ 
+                                behavior: 'smooth', 
+                                block: 'center' 
+                            });
+                        }, 100);
+                    }
+                }
+                
+                // 모바일 카드 업데이트
+                try {
+                    generateMobileCards();
+                    populateFolderDisplays();
+                } catch (error) {
+                    console.warn('[DataSync] 모바일 카드 업데이트 실패:', error);
+                }
+                
+                // 실시간 알림 표시
+                if (typeof showRealTimeNotification === 'function') {
+                    showRealTimeNotification(`새 프로젝트가 추가되었습니다: ${projectData['프로젝트 코드']}`, 'success');
+                }
+                
+                console.log(`[DataSync] 실시간 프로젝트 추가 완료`);
             }
         };
         
@@ -6756,9 +6836,17 @@
                     const modal = bootstrap.Modal.getInstance(document.getElementById('newProjectModal'));
                     modal.hide();
                     
-                    // 즉시 데이터 새로고침 (구글 시트 동기화 완료)
-                    console.log('[모달등록] 0.5초 후 테이블 새로고침 예약');
-                    DataSyncManager.scheduleRefresh(500, 'modal-project-create');  // 서버 처리 시간 고려
+                    // 실시간 프로젝트 추가 (새로고침 없이)
+                    console.log('[모달등록] 실시간 프로젝트 추가 시작');
+                    
+                    // 서버에서 반환된 프로젝트 데이터를 실시간으로 테이블에 추가
+                    if (result.project_data) {
+                        DataSyncManager.addProjectRealTime(result.project_data);
+                    } else {
+                        // 백업: 서버 데이터가 없으면 제한적 새로고침
+                        console.warn('[모달등록] 서버 응답에 project_data 없음, 백업 새로고침 실행');
+                        DataSyncManager.scheduleRefresh(500, 'modal-project-create-fallback');
+                    }
                     
                 } else if (response.status === 409 && retryCount < maxRetries) {
                     // 409 충돌 오류 시 자동 재시도
@@ -11078,32 +11166,12 @@
                     }
                 });
                 
-                // 새 프로젝트가 추가되었을 때
+                // 새 프로젝트가 추가되었을 때 (DataSyncManager 통합)
                 socket.on('new_project_added', function(projectData) {
+                    console.log('[Socket.IO] 실시간 새 프로젝트 수신:', projectData['프로젝트 코드']);
                     
-                    // DataTable에 새 프로젝트 추가
-                    if (typeof dataTable !== 'undefined' && dataTable) {
-                        // 프로젝트 데이터를 메모리에 추가
-                        if (typeof projectsData !== 'undefined' && projectsData) {
-                            projectsData.push(projectData);
-                        }
-                        
-                        // DataTable에 새 행 추가
-                        const newRow = dataTable.row.add(projectData).draw(false);
-                        
-                        // 새로 추가된 행에 하이라이트 효과
-                        const rowNode = newRow.node();
-                        if (rowNode) {
-                            $(rowNode).addClass('table-success');
-                            setTimeout(() => {
-                                $(rowNode).removeClass('table-success');
-                            }, 3000);
-                        }
-                        
-                        
-                        // 성공 알림 표시
-                        showRealTimeNotification('새 프로젝트가 추가되었습니다: ' + projectData['프로젝트 코드'], 'success');
-                    }
+                    // DataSyncManager의 실시간 추가 기능 사용
+                    DataSyncManager.addProjectRealTime(projectData);
                 });
                 
                 // 프로젝트 업데이트
