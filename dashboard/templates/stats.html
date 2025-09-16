@@ -249,6 +249,28 @@
             text-decoration: none;
             transform: translateY(-1px);
         }
+
+        .btn-soft-warning {
+            background-color: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+
+        .btn-soft-warning:hover {
+            background-color: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: #d97706;
+            text-decoration: none;
+            transform: translateY(-1px);
+        }
         
         /* User Menu Button */
         .btn-user-menu {
@@ -517,12 +539,15 @@
                         </div>
                     </div>
                     <div class="col-md-4 d-flex align-items-center justify-content-end" style="overflow: visible;">
-                        <div class="d-flex gap-2" style="padding-top: 50px; white-space: nowrap; flex-wrap: nowrap; min-width: 290px;">
+                        <div class="d-flex gap-2" style="padding-top: 50px; padding-right: 1rem; white-space: nowrap; flex-wrap: nowrap; min-width: 290px;">
                             <button class="btn btn-soft-success" id="refreshProjectBtn" onclick="refreshStats()" style="min-width: 90px; white-space: nowrap; background-color: rgba(40, 167, 69, 0.1) !important; border: 1px solid rgba(40, 167, 69, 0.2) !important; color: #28a745 !important;">
                                 <i class="fas fa-sync-alt me-1"></i>새로고침
                             </button>
                             <a href="/projects" class="btn btn-soft-info" style="min-width: 90px; white-space: nowrap;">
                                 <i class="fas fa-table me-1"></i>프로젝트
+                            </a>
+                            <a href="/receivables" class="btn btn-soft-info" style="min-width: 90px; white-space: nowrap;">
+                                <i class="fas fa-hand-holding-usd me-1"></i>수금관리
                             </a>
                             <!-- 구분선 -->
                             <div style="height: 24px; width: 1px; background: #dee2e6; margin: 0 8px;"></div>
