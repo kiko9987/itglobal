@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- 페이지 헤더 -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/projects">프로젝트</a></li>
+                    <li class="breadcrumb-item active">{{ project.project_code }}</li>
+                </ol>
+            </nav>
+            <h1>
+                <i class="fas fa-project-diagram me-2"></i>
+                {{ project.project_code }}
+                {% if project.is_cancelled %}
+                <span class="badge bg-danger ms-2">취소됨</span>
+                {% else %}
+                <span class="badge bg-success ms-2">진행중</span>
+                {% endif %}
+            </h1>
+        </div>
+        <div>
+            {% if user.role in ['admin', 'editor'] %}
+                {% if not project.is_cancelled %}
+                <a href="/projects/{{ project.project_code }}/edit" class="btn btn-primary">
+                    <i class="fas fa-edit me-1"></i>편집
+                </a>
+                <form method="POST" action="/projects/{{ project.project_code }}/cancel"
+                      class="d-inline ms-2" onsubmit="return confirm('정말 취소하시겠습니까?')">
+                    <button type="submit" class="btn btn-outline-danger">
+                        <i class="fas fa-ban me-1"></i>취소
+                    </button>
+                </form>
+                {% else %}
+                <form method="POST" action="/projects/{{ project.project_code }}/resume"
+                      class="d-inline" onsubmit="return confirm('프로젝트를 재개하시겠습니까?')">
+                    <button type="submit" class="btn btn-outline-success">
+                        <i class="fas fa-play me-1"></i>재개
+                    </button>
+                </form>
+                {% endif %}
+            {% endif %}
+            <a href="/projects" class="btn btn-outline-secondary ms-2">
+                <i class="fas fa-arrow-left me-1"></i>목록
+            </a>
+        </div>
+    </div>
+
+    <!-- 취소된 프로젝트 워터마크 -->
+    {% if project.is_cancelled %}
+    <div class="alert alert-warning position-relative">
+        <div class="watermark-overlay">
+            <span class="watermark-text">취소됨</span>
+        </div>
+        <h5 class="alert-heading">
+            <i class="fas fa-exclamation-triangle me-2"></i>취소된 프로젝트
+        </h5>
+        <p class="mb-0">이 프로젝트는 취소되었습니다. 정보는 읽기 전용으로만 제공됩니다.</p>
+    </div>
+    {% endif %}
+
+    <div class="row">
+        <!-- 기본 정보 -->
+        <div class="col-lg-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-info-circle me-2"></i>기본 정보</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">프로젝트 코드</label>
+                                <div class="fw-bold">{{ project.project_code }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">시공일자</label>
+                                <div>
+                                    {% if project.creation_date %}
+                                    {{ project.creation_date.strftime('%Y년 %m월 %d일') }}
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">현장명</label>
+                                <div class="fw-bold">{{ project.site_name or '-' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">공사업종</label>
+                                <div>{{ project.business or '-' }}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">현장주소</label>
+                                <div>{{ project.site_address or '-' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">현장담당자</label>
+                                <div>{{ project.manager or '-' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">담당자 이메일</label>
+                                <div>
+                                    {% if project.manager_email %}
+                                    <a href="mailto:{{ project.manager_email }}">{{ project.manager_email }}</a>
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 공사 금액 정보 -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-won-sign me-2"></i>공사 금액</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">총 공사금액 1</label>
+                                <div class="h5 text-primary">
+                                    {% if project.total_amount_1 %}
+                                    {{ "{:,}".format(project.total_amount_1) }}원
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">계약금</label>
+                                <div>
+                                    {% if project.contract_deposit %}
+                                    {{ "{:,}".format(project.contract_deposit) }}원
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">중도금</label>
+                                <div>
+                                    {% if project.mid_payment %}
+                                    {{ "{:,}".format(project.mid_payment) }}원
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">총 공사금액 2</label>
+                                <div class="h5">
+                                    {% if project.total_amount_2 %}
+                                    {{ "{:,}".format(project.total_amount_2) }}원
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">잔금</label>
+                                <div>
+                                    {% if project.final_payment %}
+                                    {{ "{:,}".format(project.final_payment) }}원
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 수금 현황 -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>수금 현황</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">수금현황 1</label>
+                                <div>{{ project.collection_status_1 or '-' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">수금현황 2</label>
+                                <div>{{ project.collection_status_2 or '-' }}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">수금현황 3</label>
+                                <div>{{ project.collection_status_3 or '-' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">수금현황 4</label>
+                                <div>{{ project.collection_status_4 or '-' }}</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label text-muted">수금현황 5</label>
+                                <div>{{ project.collection_status_5 or '-' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted">수금현황 6</label>
+                                <div>{{ project.collection_status_6 or '-' }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if project.collection_notes %}
+                    <div class="mt-3">
+                        <label class="form-label text-muted">수금 비고</label>
+                        <div class="alert alert-info">
+                            {{ project.collection_notes }}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 사이드바 -->
+        <div class="col-lg-4">
+            <!-- 프로젝트 상태 -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-info me-2"></i>프로젝트 상태</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label text-muted">현재 상태</label>
+                        <div>
+                            {% if project.is_cancelled %}
+                            <span class="badge bg-danger fs-6">취소됨</span>
+                            {% else %}
+                            <span class="badge bg-success fs-6">진행중</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted">생성일</label>
+                        <div>{{ project.created_at.strftime('%Y-%m-%d %H:%M') if project.created_at else '-' }}</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted">수정일</label>
+                        <div>{{ project.updated_at.strftime('%Y-%m-%d %H:%M') if project.updated_at else '-' }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 빠른 액션 -->
+            {% if user.role in ['admin', 'editor'] and not project.is_cancelled %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-bolt me-2"></i>빠른 액션</h5>
+                </div>
+                <div class="card-body">
+                    <div class="d-grid gap-2">
+                        <a href="/projects/{{ project.project_code }}/edit" class="btn btn-outline-primary">
+                            <i class="fas fa-edit me-1"></i>프로젝트 편집
+                        </a>
+                        <button class="btn btn-outline-info" onclick="copyProjectCode()">
+                            <i class="fas fa-copy me-1"></i>코드 복사
+                        </button>
+                        <button class="btn btn-outline-success" onclick="window.print()">
+                            <i class="fas fa-print me-1"></i>인쇄
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- 추가 정보 -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>추가 정보</h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        프로젝트에 대한 추가 정보나 문서가 있는 경우 여기에 표시됩니다.
+                    </p>
+
+                    {% if user.role in ['admin', 'editor'] %}
+                    <div class="d-grid">
+                        <button class="btn btn-outline-secondary btn-sm" disabled>
+                            <i class="fas fa-paperclip me-1"></i>파일 첨부 (개발 예정)
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+.watermark-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.watermark-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    font-size: 4rem;
+    font-weight: bold;
+    color: rgba(220, 53, 69, 0.1);
+    white-space: nowrap;
+    z-index: 1;
+}
+
+.card-body {
+    position: relative;
+    z-index: 2;
+}
+</style>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function copyProjectCode() {
+    const projectCode = '{{ project.project_code }}';
+    navigator.clipboard.writeText(projectCode).then(function() {
+        alert('프로젝트 코드가 복사되었습니다: ' + projectCode);
+    }, function(err) {
+        console.error('복사 실패: ', err);
+    });
+}
+
+// 인쇄 시 워터마크 표시
+window.addEventListener('beforeprint', function() {
+    if (document.querySelector('.watermark-text')) {
+        document.querySelector('.watermark-text').style.color = 'rgba(220, 53, 69, 0.3)';
+    }
+});
+
+window.addEventListener('afterprint', function() {
+    if (document.querySelector('.watermark-text')) {
+        document.querySelector('.watermark-text').style.color = 'rgba(220, 53, 69, 0.1)';
+    }
+});
+</script>
+{% endblock %}

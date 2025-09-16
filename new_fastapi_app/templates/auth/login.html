@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로그인 - ITG 대시보드</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+
+    <!-- 커스텀 CSS -->
+    <link href="/static/css/app.css" rel="stylesheet">
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .login-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: none;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .login-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 2rem 1.5rem 1rem;
+            margin-bottom: 0;
+        }
+
+        .login-header .logo {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .login-body {
+            padding: 2rem 1.5rem;
+        }
+
+        .form-control {
+            border-radius: 25px;
+            padding: 0.75rem 1rem;
+            border: 2px solid #e9ecef;
+            transition: all 0.3s ease;
+        }
+
+        .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+
+        .btn-login {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 25px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .dev-login-section {
+            border-top: 1px solid #e9ecef;
+            padding-top: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .floating-shapes {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .floating-shapes::before,
+        .floating-shapes::after {
+            content: '';
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .floating-shapes::before {
+            top: 10%;
+            left: 10%;
+            animation-delay: 0s;
+        }
+
+        .floating-shapes::after {
+            bottom: 10%;
+            right: 10%;
+            animation-delay: 3s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-20px); }
+        }
+
+        .alert {
+            border-radius: 15px;
+            border: none;
+        }
+
+        .footer-links {
+            text-align: center;
+            margin-top: 2rem;
+        }
+
+        .footer-links a {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            margin: 0 1rem;
+            transition: color 0.3s ease;
+        }
+
+        .footer-links a:hover {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="floating-shapes"></div>
+
+    <div class="login-container">
+        <div class="card login-card">
+            <div class="login-header">
+                <div class="logo">
+                    <i class="fas fa-building"></i>
+                </div>
+                <h2 class="mb-0">ITG 대시보드</h2>
+                <p class="mb-0 opacity-75">프로젝트 관리 시스템</p>
+            </div>
+
+            <div class="login-body">
+                <!-- 메시지 표시 -->
+                {% if message %}
+                <div class="alert alert-info alert-dismissible fade show" role="alert">
+                    <i class="fas fa-info-circle me-2"></i>
+                    {% if message == 'logout_success' %}
+                        성공적으로 로그아웃되었습니다.
+                    {% else %}
+                        {{ message }}
+                    {% endif %}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+                {% endif %}
+
+                <!-- OAuth 로그인 (추후 구현) -->
+                <div class="text-center mb-4">
+                    <h5 class="text-muted mb-3">로그인</h5>
+
+                    <!-- Google OAuth 버튼 (비활성화됨) -->
+                    <button class="btn btn-outline-secondary w-100 mb-2" disabled>
+                        <i class="fab fa-google me-2"></i>Google로 로그인 (준비 중)
+                    </button>
+
+                    <!-- GitHub OAuth 버튼 (비활성화됨) -->
+                    <button class="btn btn-outline-secondary w-100 mb-3" disabled>
+                        <i class="fab fa-github me-2"></i>GitHub로 로그인 (준비 중)
+                    </button>
+
+                    <div class="text-muted small mb-3">
+                        <i class="fas fa-info-circle me-1"></i>
+                        OAuth 인증은 현재 개발 중입니다.
+                    </div>
+                </div>
+
+                <!-- 개발용 로그인 -->
+                <div class="dev-login-section">
+                    <div class="text-center mb-3">
+                        <h6 class="text-warning">
+                            <i class="fas fa-exclamation-triangle me-1"></i>
+                            개발용 로그인
+                        </h6>
+                        <p class="text-muted small">개발 및 테스트 목적으로만 사용하세요</p>
+                    </div>
+
+                    <form method="POST" action="/auth/dev-login">
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-login btn-primary">
+                                <i class="fas fa-sign-in-alt me-2"></i>
+                                관리자로 로그인
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="text-center mt-3">
+                        <small class="text-muted">
+                            <i class="fas fa-shield-alt me-1"></i>
+                            운영 환경에서는 OAuth 인증을 사용합니다
+                        </small>
+                    </div>
+                </div>
+
+                <!-- 시스템 정보 -->
+                <div class="text-center mt-4">
+                    <div class="text-muted small">
+                        <div>버전 2.0.0 - FastAPI 기반</div>
+                        <div class="mt-1">
+                            <span class="badge bg-success">
+                                <i class="fas fa-circle me-1" style="font-size: 0.5rem;"></i>
+                                시스템 정상
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 푸터 링크 -->
+        <div class="footer-links">
+            <a href="#" onclick="showHelp()">도움말</a>
+            <a href="#" onclick="showAbout()">정보</a>
+            <a href="#" onclick="showContact()">문의</a>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // 페이지 로드 애니메이션
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelector('.login-card').style.opacity = '0';
+            document.querySelector('.login-card').style.transform = 'translateY(50px)';
+
+            setTimeout(() => {
+                document.querySelector('.login-card').style.transition = 'all 0.8s ease';
+                document.querySelector('.login-card').style.opacity = '1';
+                document.querySelector('.login-card').style.transform = 'translateY(0)';
+            }, 100);
+        });
+
+        // 개발용 로그인 확인
+        document.querySelector('form').addEventListener('submit', function(e) {
+            // 개발 환경에서만 작동하도록 하는 확인 (실제로는 서버에서 처리)
+            if (!confirm('개발용 로그인을 사용하시겠습니까?\n\n이 기능은 개발 및 테스트 목적으로만 사용해야 합니다.')) {
+                e.preventDefault();
+            }
+        });
+
+        // 도움말 표시
+        function showHelp() {
+            alert('도움말:\n\n1. 현재 OAuth 인증 시스템을 개발 중입니다.\n2. 개발용 로그인은 테스트 목적으로만 사용하세요.\n3. 문제가 있으시면 관리자에게 문의하세요.');
+        }
+
+        // 정보 표시
+        function showAbout() {
+            alert('ITG 대시보드 v2.0\n\n냉난방기 설치 공사 관리 시스템\nFastAPI 기반으로 새롭게 구축\n\n© 2024 ITG Corporation');
+        }
+
+        // 문의 정보
+        function showContact() {
+            alert('문의처:\n\n개발팀: dev@itg.com\n관리자: admin@itg.com\n\n시스템 관련 문의사항이 있으시면 언제든 연락주세요.');
+        }
+
+        // 키보드 단축키
+        document.addEventListener('keydown', function(e) {
+            // Ctrl + Enter로 로그인
+            if (e.ctrlKey && e.key === 'Enter') {
+                document.querySelector('form').submit();
+            }
+        });
+
+        // 로딩 상태 표시
+        document.querySelector('form').addEventListener('submit', function() {
+            const button = this.querySelector('button[type="submit"]');
+            const originalText = button.innerHTML;
+
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>로그인 중...';
+
+            // 실패 시 복원을 위한 타이머 (실제로는 서버 응답에 따라 처리)
+            setTimeout(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            }, 10000);
+        });
+
+        // 마우스 따라다니는 효과
+        document.addEventListener('mousemove', function(e) {
+            const cards = document.querySelectorAll('.login-card');
+            cards.forEach(card => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+
+                const rotateX = (y - rect.height / 2) / 20;
+                const rotateY = (x - rect.width / 2) / 20;
+
+                card.style.transform = `perspective(1000px) rotateX(${-rotateX}deg) rotateY(${rotateY}deg)`;
+            });
+        });
+
+        // 마우스가 떠날 때 원래대로
+        document.addEventListener('mouseleave', function() {
+            const cards = document.querySelectorAll('.login-card');
+            cards.forEach(card => {
+                card.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- 페이지 헤더 -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/admin">관리</a></li>
+                    <li class="breadcrumb-item active">시스템 상태</li>
+                </ol>
+            </nav>
+            <h1><i class="fas fa-heartbeat me-2"></i>시스템 상태 확인</h1>
+        </div>
+        <div>
+            <button class="btn btn-primary" onclick="refreshStatus()">
+                <i class="fas fa-sync me-1"></i>새로고침
+            </button>
+            <a href="/admin" class="btn btn-outline-secondary ms-2">
+                <i class="fas fa-arrow-left me-1"></i>돌아가기
+            </a>
+        </div>
+    </div>
+
+    <!-- 전체 상태 개요 -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body text-center">
+                    {% if db_health and db_health.status == 'healthy' %}
+                    <div class="text-success">
+                        <i class="fas fa-check-circle fa-3x mb-3"></i>
+                        <h3>시스템 정상</h3>
+                        <p class="text-muted">모든 시스템이 정상적으로 작동 중입니다.</p>
+                    </div>
+                    {% else %}
+                    <div class="text-danger">
+                        <i class="fas fa-exclamation-triangle fa-3x mb-3"></i>
+                        <h3>시스템 이상</h3>
+                        <p class="text-muted">일부 시스템에 문제가 발생했습니다.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 상세 상태 정보 -->
+    <div class="row">
+        <!-- 데이터베이스 상태 -->
+        <div class="col-lg-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-database me-2"></i>데이터베이스
+                        {% if db_health and db_health.status == 'healthy' %}
+                        <span class="badge bg-success ms-2">정상</span>
+                        {% else %}
+                        <span class="badge bg-danger ms-2">오류</span>
+                        {% endif %}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if db_health %}
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">연결 상태</label>
+                                <div>
+                                    {% if db_health.status == 'healthy' %}
+                                    <span class="badge bg-success">연결됨</span>
+                                    {% else %}
+                                    <span class="badge bg-danger">연결 실패</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">응답 시간</label>
+                                <div>{{ db_health.response_time_ms }}ms</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">마지막 확인</label>
+                                <div>{{ db_health.checked_at.strftime('%Y-%m-%d %H:%M:%S') if db_health.checked_at else '-' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">버전</label>
+                                <div>{{ db_health.version or '알 수 없음' }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if db_health.error %}
+                    <div class="alert alert-danger">
+                        <h6>오류 정보:</h6>
+                        <code>{{ db_health.error }}</code>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    <div class="alert alert-warning">
+                        데이터베이스 상태 정보를 가져올 수 없습니다.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- 애플리케이션 상태 -->
+        <div class="col-lg-6">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-server me-2"></i>애플리케이션
+                        <span class="badge bg-success ms-2">정상</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">가동 시간</label>
+                                <div id="uptime">계산 중...</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">메모리 사용량</label>
+                                <div>{{ memory_usage or '알 수 없음' }}</div>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">CPU 사용량</label>
+                                <div>{{ cpu_usage or '알 수 없음' }}</div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label text-muted small">활성 연결</label>
+                                <div>{{ active_connections or '0' }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 성능 모니터링 -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>성능 모니터링</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <div class="h2 text-primary">{{ total_requests or 0 }}</div>
+                                <div class="text-muted">총 요청 수</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <div class="h2 text-success">{{ avg_response_time or 0 }}ms</div>
+                                <div class="text-muted">평균 응답 시간</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <div class="h2 text-info">{{ error_rate or 0 }}%</div>
+                                <div class="text-muted">오류율</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <!-- 차트 영역 (추후 구현) -->
+                    <div class="text-center text-muted">
+                        <i class="fas fa-chart-line fa-3x mb-3 opacity-25"></i>
+                        <p>성능 차트는 추후 구현 예정입니다.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 최근 오류 로그 -->
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>최근 오류 로그</h5>
+                </div>
+                <div class="card-body">
+                    {% if recent_errors %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>시간</th>
+                                    <th>레벨</th>
+                                    <th>메시지</th>
+                                    <th>상세</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for error in recent_errors %}
+                                <tr>
+                                    <td>{{ error.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                                    <td>
+                                        <span class="badge bg-{{ 'danger' if error.level == 'ERROR' else 'warning' }}">
+                                            {{ error.level }}
+                                        </span>
+                                    </td>
+                                    <td>{{ error.message }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-info" onclick="showErrorDetail('{{ error.id }}')">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center text-muted">
+                        <i class="fas fa-check-circle fa-2x mb-3 text-success"></i>
+                        <p>최근 24시간 동안 오류가 없습니다.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// 가동 시간 계산 및 표시
+function updateUptime() {
+    const startTime = new Date('{{ start_time or "2024-01-01T00:00:00" }}');
+    const now = new Date();
+    const uptime = now - startTime;
+
+    const days = Math.floor(uptime / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((uptime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((uptime % (1000 * 60 * 60)) / (1000 * 60));
+
+    document.getElementById('uptime').textContent = `${days}일 ${hours}시간 ${minutes}분`;
+}
+
+// 상태 새로고침
+function refreshStatus() {
+    ITG.ui.showToast('상태를 새로고침하는 중...', 'info');
+    setTimeout(() => {
+        window.location.reload();
+    }, 1000);
+}
+
+// 오류 상세 정보 표시
+function showErrorDetail(errorId) {
+    // 실제 구현에서는 API를 호출하여 상세 정보를 가져와야 함
+    alert('오류 상세 정보 (ID: ' + errorId + ')');
+}
+
+// 실시간 업데이트
+setInterval(updateUptime, 60000); // 1분마다 업데이트
+updateUptime(); // 초기 실행
+
+// 자동 새로고침 (5분마다)
+setInterval(() => {
+    console.log('자동 상태 체크 중...');
+    // 실제로는 AJAX로 상태만 업데이트하는 것이 좋음
+}, 300000);
+
+// 페이지 로드 시 상태 확인
+document.addEventListener('DOMContentLoaded', function() {
+    // 데이터베이스 연결 테스트
+    setTimeout(() => {
+        const dbStatus = document.querySelector('.card-header .badge');
+        if (dbStatus && dbStatus.textContent.includes('정상')) {
+            ITG.ui.showToast('시스템 상태가 정상입니다', 'success');
+        }
+    }, 1000);
+});
+</script>
+{% endblock %}

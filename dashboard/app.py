@@ -265,6 +265,51 @@ def _load_project_config():
 
 _project_config = _load_project_config()
 
+def can_user_edit_project(project, user_email, user_role):
+    """사용자가 프로젝트를 편집할 수 있는지 확인"""
+    try:
+        # 취소된 프로젝트는 편집 불가
+        if project.get('수금 관련 특이사항') == '공사취소':
+            return False
+
+        # 관리자는 모든 프로젝트 편집 가능
+        if user_role == 'admin':
+            return True
+
+        # 프로젝트 소유자 확인
+        project_owner_email = project.get('담당자 이메일', '')
+        if project_owner_email == user_email:
+            return True
+
+        # 편집자 권한 확인
+        if user_role in ['editor', 'user']:
+            return True
+
+        return False
+    except Exception as e:
+        logger.error(f"편집 권한 확인 오류: {e}")
+        return False
+
+def check_overdue_status(project):
+    """프로젝트 연체 상태 확인"""
+    try:
+        # 공사 확정일과 계약금 입금일 확인
+        confirm_date = project.get('공사 확정')
+        deposit_date = project.get('계약금 입금일')
+
+        if not confirm_date or not deposit_date:
+            # 확정되었으나 입금일이 없으면 연체 가능성
+            if confirm_date and not deposit_date:
+                confirm_dt = pd.to_datetime(confirm_date, errors='coerce')
+                if pd.notna(confirm_dt):
+                    days_passed = (datetime.now() - confirm_dt.to_pydatetime()).days
+                    return days_passed > _project_config.get('overdue_confirm_days', 2)
+
+        return False
+    except Exception as e:
+        logger.error(f"연체 상태 확인 오류: {e}")
+        return False
+
 @handle_error(category=ErrorCategory.HIGH, reraise=False, fallback_value=None)
 def load_data(force_refresh=False):
     """구글 시트에서 데이터 로드 (스마트 캐싱 시스템 적용)"""
@@ -549,10 +594,249 @@ def logout():
 @app.route('/projects')
 @login_required
 def project_list():
-    """프로젝트 목록 페이지"""
+    """프로젝트 목록 페이지 (서버사이드 렌더링)"""
     user_role = get_user_role()
     user_email = session.get('user', {}).get('email', '')
-    return render_template('project_list_new.html', user_role=user_role, user_email=user_email)
+
+    # 서버에서 프로젝트 데이터와 상태 완전 계산
+    try:
+        projects_data = load_data()
+        if projects_data:
+            # 각 프로젝트의 상태를 서버에서 계산
+            for project in projects_data:
+                # 취소 상태 확인
+                project['is_cancelled'] = project.get('수금 관련 특이사항') == '공사취소'
+
+                # 편집 권한 확인
+                project['can_edit'] = can_user_edit_project(project, user_email, user_role)
+
+                # 잠금 상태 확인
+                project_code = project.get('프로젝트 코드')
+                if project_code:
+                    lock_info = field_lock_manager.get_project_lock_status(project_code)
+                    project['lock_status'] = lock_info
+
+                # 연체 상태 확인 (예시)
+                project['is_overdue'] = check_overdue_status(project)
+
+        else:
+            projects_data = []
+
+    except Exception as e:
+        logger.error(f"프로젝트 데이터 로드 실패: {e}")
+        projects_data = []
+
+    return render_template('project_list_server.html',
+                         projects=projects_data,
+                         user_role=user_role,
+                         user_email=user_email,
+                         timestamp=datetime.now())
+
+@app.route('/projects/cancel/<project_code>', methods=['POST'])
+@login_required
+def cancel_project_server(project_code):
+    """서버사이드 프로젝트 취소 처리"""
+    try:
+        user_email = session.get('user', {}).get('email', '')
+        user_name = session.get('user', {}).get('name', '')
+
+        # 권한 확인
+        projects_data = load_data()
+        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+
+        if not project:
+            logger.warning(f"프로젝트를 찾을 수 없음: {project_code}")
+            return redirect(url_for('project_list', error='프로젝트를 찾을 수 없습니다.'))
+
+        # 이미 취소된 프로젝트인지 확인
+        if project.get('수금 관련 특이사항') == '공사취소':
+            return redirect(url_for('project_list', error='이미 취소된 프로젝트입니다.'))
+
+        # 서버에서 직접 구글 시트 업데이트
+        manager = get_sheets_manager()
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
+
+        # 업데이트 데이터 준비
+        update_data = {
+            'projectCode': project_code,
+            '수금 관련 특이사항': '공사취소'
+        }
+
+        # 구글 시트 업데이트
+        result = manager.update_project_data(sheet_id, sheet_range, update_data)
+
+        if result['success']:
+            # 감사 로그 기록
+            save_audit_log(
+                user_name, user_email, get_user_role(),
+                'CANCEL_PROJECT',
+                f'프로젝트 취소: {project_code}',
+                project_code,
+                '수금 관련 특이사항',
+                project.get('수금 관련 특이사항', ''),
+                '공사취소'
+            )
+
+            # 캐시 무효화
+            smart_invalidate([
+                "current_sheet_data",
+                f"project_{project_code}",
+                "projects_list"
+            ])
+
+            logger.info(f"프로젝트 취소 완료: {project_code} by {user_name}")
+            return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 취소되었습니다.'))
+
+        else:
+            logger.error(f"프로젝트 취소 실패: {project_code} - {result.get('error')}")
+            return redirect(url_for('project_list', error='프로젝트 취소에 실패했습니다.'))
+
+    except Exception as e:
+        logger.error(f"프로젝트 취소 처리 오류: {e}")
+        return redirect(url_for('project_list', error='서버 오류가 발생했습니다.'))
+
+@app.route('/projects/resume/<project_code>', methods=['POST'])
+@login_required
+def resume_project_server(project_code):
+    """서버사이드 프로젝트 재개 처리"""
+    try:
+        user_email = session.get('user', {}).get('email', '')
+        user_name = session.get('user', {}).get('name', '')
+
+        # 권한 확인
+        projects_data = load_data()
+        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+
+        if not project:
+            return redirect(url_for('project_list', error='프로젝트를 찾을 수 없습니다.'))
+
+        # 취소되지 않은 프로젝트인지 확인
+        if project.get('수금 관련 특이사항') != '공사취소':
+            return redirect(url_for('project_list', error='취소되지 않은 프로젝트입니다.'))
+
+        # 서버에서 직접 구글 시트 업데이트
+        manager = get_sheets_manager()
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
+
+        # 업데이트 데이터 준비
+        update_data = {
+            'projectCode': project_code,
+            '수금 관련 특이사항': '-'  # 또는 빈 값
+        }
+
+        # 구글 시트 업데이트
+        result = manager.update_project_data(sheet_id, sheet_range, update_data)
+
+        if result['success']:
+            # 감사 로그 기록
+            save_audit_log(
+                user_name, user_email, get_user_role(),
+                'RESUME_PROJECT',
+                f'프로젝트 재개: {project_code}',
+                project_code,
+                '수금 관련 특이사항',
+                '공사취소',
+                '-'
+            )
+
+            # 캐시 무효화
+            smart_invalidate([
+                "current_sheet_data",
+                f"project_{project_code}",
+                "projects_list"
+            ])
+
+            logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
+            return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 재개되었습니다.'))
+
+        else:
+            logger.error(f"프로젝트 재개 실패: {project_code} - {result.get('error')}")
+            return redirect(url_for('project_list', error='프로젝트 재개에 실패했습니다.'))
+
+    except Exception as e:
+        logger.error(f"프로젝트 재개 처리 오류: {e}")
+        return redirect(url_for('project_list', error='서버 오류가 발생했습니다.'))
+
+@app.route('/projects/update/<project_code>', methods=['POST'])
+@login_required
+def update_project_server(project_code):
+    """서버사이드 프로젝트 업데이트 처리"""
+    try:
+        user_email = session.get('user', {}).get('email', '')
+        user_name = session.get('user', {}).get('name', '')
+
+        # 권한 확인
+        projects_data = load_data()
+        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+
+        if not project:
+            return redirect(url_for('project_list', error='프로젝트를 찾을 수 없습니다.'))
+
+        # 취소된 프로젝트는 편집 불가
+        if project.get('수금 관련 특이사항') == '공사취소':
+            return redirect(url_for('project_list', error='취소된 프로젝트는 편집할 수 없습니다.'))
+
+        # 편집 권한 확인
+        if not can_user_edit_project(project, user_email, get_user_role()):
+            return redirect(url_for('project_list', error='편집 권한이 없습니다.'))
+
+        # 폼 데이터 수집
+        update_data = {'projectCode': project_code}
+        changes = []
+
+        for field_name, new_value in request.form.items():
+            if field_name != 'projectCode':
+                old_value = project.get(field_name, '')
+                if str(old_value) != str(new_value):
+                    update_data[field_name] = new_value
+                    changes.append({
+                        'field': field_name,
+                        'old': old_value,
+                        'new': new_value
+                    })
+
+        if not changes:
+            return redirect(url_for('project_list', info='변경사항이 없습니다.'))
+
+        # 서버에서 직접 구글 시트 업데이트
+        manager = get_sheets_manager()
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
+
+        result = manager.update_project_data(sheet_id, sheet_range, update_data)
+
+        if result['success']:
+            # 감사 로그 기록
+            for change in changes:
+                save_audit_log(
+                    user_name, user_email, get_user_role(),
+                    'UPDATE_PROJECT',
+                    f'프로젝트 필드 수정: {change["field"]}',
+                    project_code,
+                    change['field'],
+                    change['old'],
+                    change['new']
+                )
+
+            # 캐시 무효화
+            smart_invalidate([
+                "current_sheet_data",
+                f"project_{project_code}",
+                "projects_list"
+            ])
+
+            logger.info(f"프로젝트 업데이트 완료: {project_code} by {user_name}")
+            return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 업데이트되었습니다.'))
+
+        else:
+            logger.error(f"프로젝트 업데이트 실패: {project_code} - {result.get('error')}")
+            return redirect(url_for('project_list', error='프로젝트 업데이트에 실패했습니다.'))
+
+    except Exception as e:
+        logger.error(f"프로젝트 업데이트 처리 오류: {e}")
+        return redirect(url_for('project_list', error='서버 오류가 발생했습니다.'))
 
 @app.route('/receivables')
 @login_required
@@ -2528,6 +2812,30 @@ def inline_update_direct():
         smart_invalidate("current_sheet_data")
         load_data(force_refresh=True)
         
+        # 🎨 공사취소 상태에 따른 행 색상 변경
+        if '수금 관련 특이사항' in data:
+            try:
+                special_note = data['수금 관련 특이사항']
+                color_type = 'cancelled' if special_note == '공사취소' else 'normal'
+
+                logger.info(f"🎨 행 색상 변경 시도: {project_code} -> {color_type} (특이사항: {special_note})")
+
+                # 행 색상 변경
+                color_success = manager.update_row_background_color(
+                    spreadsheet_id=sheet_id,
+                    sheet_name=sheet_name,
+                    row_number=row_number,
+                    color_type=color_type
+                )
+
+                if color_success:
+                    logger.info(f"✅ 행 색상 변경 성공: {project_code} 행{row_number} -> {color_type}")
+                else:
+                    logger.warning(f"⚠️ 행 색상 변경 실패: {project_code}")
+
+            except Exception as color_error:
+                logger.error(f"❌ 행 색상 변경 오류: {color_error}")
+
         # 실시간 알림
         if socketio:
             socketio.emit('data_updated', {

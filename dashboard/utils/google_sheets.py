@@ -188,13 +188,94 @@ class GoogleSheetsManager:
             result = self.service.spreadsheets().get(spreadsheetId=sheet_id).execute()
             return {
                 'title': result.get('properties', {}).get('title', ''),
-                'sheets': [sheet.get('properties', {}).get('title', '') 
+                'sheets': [{'title': sheet.get('properties', {}).get('title', ''),
+                           'sheetId': sheet.get('properties', {}).get('sheetId', 0)}
                           for sheet in result.get('sheets', [])],
-                'last_updated': datetime.now().isoformat()
+                'last_updated': datetime.now().isoformat(),
+                'raw_sheets': result.get('sheets', [])
             }
         except Exception as e:
             logger.error(f"시트 메타데이터 가져오기 오류: {str(e)}")
             return {}
+
+    def get_sheet_id_by_name(self, spreadsheet_id, sheet_name):
+        """시트 이름으로 시트 ID(숫자) 가져오기"""
+        try:
+            metadata = self.get_sheet_metadata(spreadsheet_id)
+            for sheet in metadata.get('sheets', []):
+                if sheet['title'] == sheet_name:
+                    return sheet['sheetId']
+            logger.warning(f"시트 '{sheet_name}'을 찾을 수 없습니다.")
+            return 0  # 기본값
+        except Exception as e:
+            logger.error(f"시트 ID 조회 오류: {str(e)}")
+            return 0
+
+    def update_row_background_color(self, spreadsheet_id, sheet_name, row_number, color_type='normal'):
+        """
+        구글 시트 특정 행의 배경색 변경
+
+        Args:
+            spreadsheet_id: 스프레드시트 ID
+            sheet_name: 시트 이름
+            row_number: 행 번호 (1부터 시작)
+            color_type: 'cancelled' (연한 빨간색) 또는 'normal' (흰색)
+        """
+        try:
+            # 시트 ID 가져오기
+            sheet_id = self.get_sheet_id_by_name(spreadsheet_id, sheet_name)
+
+            # 색상 설정
+            if color_type == 'cancelled':
+                # 연한 빨간색 (#ffeaea)
+                background_color = {
+                    "red": 1.0,
+                    "green": 0.918,
+                    "blue": 0.918
+                }
+            else:
+                # 기본 흰색 (#ffffff)
+                background_color = {
+                    "red": 1.0,
+                    "green": 1.0,
+                    "blue": 1.0
+                }
+
+            # batchUpdate 요청 생성
+            request = {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": row_number - 1,  # 0-based index
+                        "endRowIndex": row_number,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": 50  # A부터 AX 컬럼까지 (충분히 넓게)
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": background_color
+                        }
+                    },
+                    "fields": "userEnteredFormat.backgroundColor"
+                }
+            }
+
+            batch_update_request = {
+                "requests": [request]
+            }
+
+            # API 호출
+            result = self.service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body=batch_update_request
+            ).execute()
+
+            logger.info(f"✅ 행 {row_number} 배경색 변경 완료: {color_type}")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ 행 배경색 변경 실패: {str(e)}")
+            return False
     
     def validate_connection(self, sheet_id):
         """구글 시트 연결 테스트"""

@@ -1,0 +1,105 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: itglobal-dashboard
+  labels:
+    app: itglobal-dashboard
+    environment: production
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/execution-environment: gen2
+spec:
+  template:
+    metadata:
+      labels:
+        app: itglobal-dashboard
+        version: "2.0.0"
+      annotations:
+        # CPU allocation: always allocated for consistent performance
+        run.googleapis.com/cpu-throttling: "false"
+        # Memory limit
+        run.googleapis.com/memory: "2Gi"
+        # CPU limit (2 vCPU)
+        run.googleapis.com/cpu: "2"
+        # Maximum instances for cost control
+        autoscaling.knative.dev/maxScale: "10"
+        # Minimum instances for faster cold starts
+        autoscaling.knative.dev/minScale: "1"
+        # VPC connector for private resources
+        run.googleapis.com/vpc-access-connector: "itglobal-vpc-connector"
+        # Cloud SQL connection
+        run.googleapis.com/cloudsql-instances: "PROJECT_ID:REGION:itglobal-main"
+    spec:
+      # Service account for GCP resource access
+      serviceAccountName: "itglobal-dashboard-sa@PROJECT_ID.iam.gserviceaccount.com"
+
+      # Container configuration
+      containers:
+      - name: dashboard
+        image: gcr.io/PROJECT_ID/itglobal-dashboard:latest
+        ports:
+        - containerPort: 8080
+          name: http1
+
+        # Environment variables
+        env:
+        - name: PORT
+          value: "8080"
+        - name: FLASK_ENV
+          value: "production"
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "PROJECT_ID"
+        - name: INSTANCE_ID
+          valueFrom:
+            configMapKeyRef:
+              name: instance-config
+              key: instance-id
+        - name: ZONE
+          valueFrom:
+            configMapKeyRef:
+              name: instance-config
+              key: zone
+
+        # Resource limits
+        resources:
+          limits:
+            cpu: "2"
+            memory: "2Gi"
+          requests:
+            cpu: "1"
+            memory: "1Gi"
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          timeoutSeconds: 10
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        # Startup probe for slower cold starts
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 12  # 2 minutes max startup time
+
+      # Container concurrency for optimal performance
+      containerConcurrency: 80
+
+      # Request timeout (15 minutes max for Cloud Run)
+      timeoutSeconds: 900
