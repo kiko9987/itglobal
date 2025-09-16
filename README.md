@@ -101,8 +101,10 @@ python start_dashboard.py
 
 #### 알림 시스템 시작 (별도 터미널)
 ```bash
-python start_notifications.py
+python -m dashboard.utils.notification_system
 ```
+이 명령은 매일 09:00과 18:00에 알림을 보내는 스케줄러를 실행합니다. 장기 실행이 필요하면 별도 터미널에서 백그라운드로 유지하세요.
+
 
 ## 📁 프로젝트 구조
 
@@ -118,7 +120,6 @@ python start_notifications.py
 │       └── notification_system.py # 알림 시스템
 ├── data/                      # 엑셀 데이터 파일 (폴백용)
 ├── start_dashboard.py         # 대시보드 시작 스크립트
-├── start_notifications.py     # 알림 시스템 시작 스크립트
 ├── requirements.txt           # Python 패키지 의존성
 ├── .env                       # 환경 변수 설정
 ├── credentials.json          # 구글 API 자격증명

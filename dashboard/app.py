@@ -368,6 +368,27 @@ def load_data(force_refresh=False):
             logger.error(f"로컬 파일 로드도 실패: {str(e2)}")
             return None
 
+
+
+def get_project_records(force_refresh=False):
+    """load_data() 결과를 dict 리스트로 변환"""
+    df = load_data(force_refresh=force_refresh)
+    if df is None:
+        return []
+    if isinstance(df, pd.DataFrame):
+        normalized_df = df.where(pd.notna(df), None)
+        return normalized_df.to_dict("records")
+    return df
+
+
+def invalidate_project_cache(project_code=None):
+    """프로젝트 관련 캐시 키 무효화"""
+    smart_invalidate("current_sheet_data")
+    smart_invalidate("projects_list")
+    if project_code:
+        smart_invalidate(f"project_{project_code}")
+
+
 # 프로젝트 코드 자동 생성 함수들
 def _extract_number(code: str):
     """프로젝트 코드에서 숫자 부분 추출"""
@@ -600,7 +621,7 @@ def project_list():
 
     # 서버에서 프로젝트 데이터와 상태 완전 계산
     try:
-        projects_data = load_data()
+        projects_data = get_project_records()
         if projects_data:
             # 각 프로젝트의 상태를 서버에서 계산
             for project in projects_data:
@@ -613,7 +634,7 @@ def project_list():
                 # 잠금 상태 확인
                 project_code = project.get('프로젝트 코드')
                 if project_code:
-                    lock_info = field_lock_manager.get_project_lock_status(project_code)
+                    lock_info = field_lock_manager.get_project_locks(project_code)
                     project['lock_status'] = lock_info
 
                 # 연체 상태 확인 (예시)
@@ -641,7 +662,7 @@ def cancel_project_server(project_code):
         user_name = session.get('user', {}).get('name', '')
 
         # 권한 확인
-        projects_data = load_data()
+        projects_data = get_project_records()
         project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
 
         if not project:
@@ -679,11 +700,7 @@ def cancel_project_server(project_code):
             )
 
             # 캐시 무효화
-            smart_invalidate([
-                "current_sheet_data",
-                f"project_{project_code}",
-                "projects_list"
-            ])
+            invalidate_project_cache(project_code)
 
             logger.info(f"프로젝트 취소 완료: {project_code} by {user_name}")
             return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 취소되었습니다.'))
@@ -705,7 +722,7 @@ def resume_project_server(project_code):
         user_name = session.get('user', {}).get('name', '')
 
         # 권한 확인
-        projects_data = load_data()
+        projects_data = get_project_records()
         project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
 
         if not project:
@@ -742,11 +759,7 @@ def resume_project_server(project_code):
             )
 
             # 캐시 무효화
-            smart_invalidate([
-                "current_sheet_data",
-                f"project_{project_code}",
-                "projects_list"
-            ])
+            invalidate_project_cache(project_code)
 
             logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
             return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 재개되었습니다.'))
@@ -768,7 +781,7 @@ def update_project_server(project_code):
         user_name = session.get('user', {}).get('name', '')
 
         # 권한 확인
-        projects_data = load_data()
+        projects_data = get_project_records()
         project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
 
         if not project:
@@ -821,11 +834,7 @@ def update_project_server(project_code):
                 )
 
             # 캐시 무효화
-            smart_invalidate([
-                "current_sheet_data",
-                f"project_{project_code}",
-                "projects_list"
-            ])
+            invalidate_project_cache(project_code)
 
             logger.info(f"프로젝트 업데이트 완료: {project_code} by {user_name}")
             return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 업데이트되었습니다.'))

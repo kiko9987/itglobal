@@ -6,17 +6,19 @@
 
 ---
 
+- **구현 (예시)**: utils/enhanced_permission_manager.py *(현재 저장소에는 포함되지 않음)*
+
 ## 🚨 해결된 문제점
 
 ### 1. **데이터 동시성 문제** ✅
 - **문제**: 여러 사용자 동시 편집 시 데이터 손실
 - **해결**: Redis 기반 분산 잠금 시스템
-- **구현**: `utils/distributed_lock_manager.py`
+- **구현 (예시)**: utils/distributed_lock_manager.py *(현재 저장소에는 포함되지 않음)*
 
 ### 2. **권한 시스템 취약점** ✅
 - **문제**: 필드별 세분화된 권한 부재
 - **해결**: 역할 기반 접근 제어 (RBAC)
-- **구현**: `utils/enhanced_permission_manager.py`
+- **구현 (예시)**: utils/enhanced_permission_manager.py *(현재 저장소에는 포함되지 않음)*
 
 ### 3. **보안 취약점** ✅
 - **문제**: CSRF, XSS, SQL Injection 위험
