@@ -12,31 +12,31 @@ from dotenv import load_dotenv
 import pandas as pd
 
 # 인증 시스템 import
-from auth import user_manager, login_required, admin_required, get_user_role
-from google_oauth import google_oauth, is_oauth_configured
+from .auth import user_manager, login_required, admin_required, get_user_role
+from .google_oauth import google_oauth, is_oauth_configured
 
 # 프로젝트 루트 경로를 시스템 경로에 추가
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(project_root))
 
-from utils.data_analyzer import DataAnalyzer
-from utils.cache_manager import cached, cache_get, cache_set, cache_clear, cache_delete
-from utils.smart_cache_manager import (
+from .utils.data_analyzer import DataAnalyzer
+from .utils.cache_manager import cached, cache_get, cache_set, cache_clear, cache_delete
+from .utils.smart_cache_manager import (
     CacheStrategy, smart_get, smart_set, smart_delete, smart_invalidate,
     smart_clear_strategy, get_smart_cache
 )
-from utils.env_validator import validate_dashboard_env, check_environment_health
-from utils.error_handler import (
+from .utils.env_validator import validate_dashboard_env, check_environment_health
+from .utils.error_handler import (
     handle_error, ErrorCategory, setup_flask_error_handlers, 
     get_error_handler, safe_execute
 )
-from utils.security import init_security, csrf_protect, validate_input, get_csrf_token
-from utils.jwt_auth import init_jwt_manager, jwt_required, create_jwt_tokens
-from utils.api_response import APIResponse, APIErrorCode, api_response
-from utils.database import init_database, get_user_repository, get_audit_repository
-from utils.field_lock_manager import field_lock_manager
+from .utils.security import init_security, csrf_protect, validate_input, get_csrf_token
+from .utils.jwt_auth import init_jwt_manager, jwt_required, create_jwt_tokens
+from .utils.api_response import APIResponse, APIErrorCode, api_response
+from .utils.database import init_database, get_user_repository, get_audit_repository
+from .utils.field_lock_manager import field_lock_manager
 
-from services.project_service import (
+from .services.project_service import (
     load_data,
     get_project_records,
     invalidate_project_cache,
@@ -57,7 +57,7 @@ from services.project_service import (
 
 PROJECT_CONFIG = get_project_config()
 
-from blueprints.projects import projects_bp
+from .blueprints.projects import projects_bp
 
 # 환경 변수 로드
 load_dotenv()

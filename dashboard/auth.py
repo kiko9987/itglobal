@@ -243,7 +243,7 @@ def _validate_session(require_admin=False):
     if require_admin and session['user'].get('permission_level') != 'admin':
         if request.is_json:
             return jsonify({'error': '관리자 권한이 필요합니다.'}), 403
-        return redirect(url_for('project_list'))
+        return redirect(url_for('projects.project_list'))
     
     return None
 

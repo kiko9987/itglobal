@@ -4,9 +4,9 @@ from datetime import datetime
 
 from flask import Blueprint, render_template, redirect, url_for, request, session, jsonify
 
-from auth import login_required, get_user_role
+from ..auth import login_required, get_user_role
 
-from dashboard.services.project_service import (
+from ..services.project_service import (
     can_user_edit_project,
     check_overdue_status,
     get_project_records,
@@ -15,7 +15,7 @@ from dashboard.services.project_service import (
     get_current_data,
     load_data,
 )
-from dashboard.utils.field_lock_manager import field_lock_manager
+from ..utils.field_lock_manager import field_lock_manager
 
 logger = logging.getLogger(__name__)
 
