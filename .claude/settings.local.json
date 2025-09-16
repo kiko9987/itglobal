@@ -273,7 +273,11 @@
       "Bash(start http://localhost:8083/projects)",
       "Bash(start http://localhost:8083/)",
       "Bash(start http://localhost:5555/projects)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(start http://localhost:5001)",
+      "Bash(start http://localhost:5002)",
+      "Bash(set PORT=5000)",
+      "Bash(cd:*)"
     ],
     "deny": [],
     "ask": []

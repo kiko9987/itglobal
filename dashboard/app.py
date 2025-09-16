@@ -246,7 +246,10 @@ def load_data(force_refresh=False):
         
         # 구글 시트에서 데이터 가져오기 (싱글톤 인스턴스 사용)
         manager = get_sheets_manager()
-        df = manager.get_sheet_data(sheet_id)
+        # 프로젝트 설정에서 범위 가져오기
+        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
+        logger.info(f"데이터 로드 범위: {sheet_range}")
+        df = manager.get_sheet_data(sheet_id, sheet_range)
         
         if df.empty:
             logger.warning("구글 시트에서 데이터를 가져올 수 없습니다.")
@@ -1170,7 +1173,7 @@ def update_project(project_code):
             return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
         manager = get_sheets_manager()
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
         
         # 프로젝트가 있는 행 찾기 (직접 구현)
         search_result = manager.service.spreadsheets().values().get(
@@ -1624,7 +1627,7 @@ def update_project_inline():
         if not sheet_id:
             return jsonify({'ok': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
         
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
         
         manager = get_sheets_manager()
         
@@ -1939,11 +1942,14 @@ def release_all_user_locks():
 @login_required
 def inline_update_direct():
     """간단한 인라인 업데이트 API (직접 구현)"""
+    global current_data
+    
     try:
         data = request.get_json()
         logger.info(f"인라인 업데이트 요청: {data}")
         
         project_code = data.get('projectCode')
+        original_project_code = data.get('originalProjectCode', project_code)  # 원본 프로젝트 코드
         if not project_code:
             return jsonify({'ok': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
         
@@ -1977,48 +1983,86 @@ def inline_update_direct():
         
         manager = get_sheets_manager()
         
-        # 프로젝트 코드로 행 찾기
-        logger.info(f"프로젝트 코드 {project_code}의 행 번호를 찾는 중...")
+        # 프로젝트 코드로 행 찾기 (원본 프로젝트 코드 사용)
+        search_project_code = original_project_code  # 원본 코드로 먼저 검색
+        logger.info(f"프로젝트 코드 {search_project_code}의 행 번호를 찾는 중... (원본: {original_project_code}, 신규: {project_code})")
         
         # A열에서 프로젝트 코드 검색 (환경변수 시트명 사용)
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        # 더 넓은 범위로 검색 (최대 10000행까지) - 빈 셀도 포함하도록 수정
         search_result = manager.service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range=f'{sheet_name}!A:A'
+            range=f'{sheet_name}!A1:A3000',
+            valueRenderOption='FORMATTED_VALUE',
+            majorDimension='ROWS'
         ).execute()
         
         values = search_result.get('values', [])
         row_number = None
         
-        for i, row in enumerate(values):
-            if row and len(row) > 0 and row[0] == project_code:
-                row_number = i + 1  # 1부터 시작
-                break
+        logger.info(f"총 {len(values)}개의 행을 검색 중...")
+        logger.info(f"첫 5개 행: {values[:5] if values else '없음'}")
+        
+        # 🔍 직접 2852행 확인
+        if search_project_code == 'R2851-JW':
+            try:
+                direct_check = manager.service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range=f'{sheet_name}!A2852'
+                ).execute()
+                direct_value = direct_check.get('values', [])
+                logger.info(f"🎯 직접 2852행 확인: {direct_value}")
+                if direct_value and direct_value[0] and direct_value[0][0] == search_project_code:
+                    logger.info(f"✅ 2852행에서 {search_project_code} 발견!")
+                    row_number = 2852
+            except Exception as e:
+                logger.warning(f"직접 행 확인 실패: {e}")
         
         if not row_number:
-            logger.error(f"프로젝트 코드 {project_code}를 찾을 수 없습니다. 데이터 새로고침 후 재시도...")
+            for i, row in enumerate(values):
+                if row and len(row) > 0:
+                    if row[0] == search_project_code:
+                        row_number = i + 1  # 1부터 시작
+                        logger.info(f"✅ 일반 검색에서 {search_project_code}를 {row_number}행에서 발견!")
+                        break
+        
+        if not row_number:
+            logger.error(f"프로젝트 코드 {search_project_code}를 찾을 수 없습니다. 데이터 새로고침 후 재시도...")
             # 데이터를 새로 로드하고 재시도 (강제 새로고침)
             load_data(force_refresh=True)
             
-            # 다시 검색 시도
+            # 다시 검색 시도 (전체 시트 범위로)
             search_result = manager.service.spreadsheets().values().get(
                 spreadsheetId=sheet_id,
-                range=f'{sheet_name}!A:A'
+                range=f'{sheet_name}'
             ).execute()
             
             values = search_result.get('values', [])
+            logger.info(f"전체 시트 재검색: {len(values)}개 행 발견")
             for i, row in enumerate(values):
-                if row and len(row) > 0 and row[0] == project_code:
-                    row_number = i + 1
-                    break
+                if row and len(row) > 0:
+                    if row[0] == search_project_code:
+                        row_number = i + 1
+                        logger.info(f"🎯 전체 시트에서 {search_project_code}를 {row_number}행에서 발견!")
+                        break
             
             if not row_number:
-                return jsonify({'ok': False, 'error': f'프로젝트 코드 {project_code}를 찾을 수 없습니다.'}), 404
+                return jsonify({'ok': False, 'error': f'프로젝트 코드 {search_project_code}를 찾을 수 없습니다.'}), 404
         
-        logger.info(f"프로젝트 {project_code}을 {row_number}행에서 발견")
+        logger.info(f"프로젝트 {search_project_code}을 {row_number}행에서 발견")
         
         # 업데이트할 셀들
         updates = []
+        
+        # 프로젝트 코드가 변경되었다면 A열도 업데이트
+        new_project_code = None
+        if project_code != original_project_code:
+            logger.info(f"🔄 프로젝트 코드 변경 감지: {original_project_code} → {project_code}")
+            new_project_code = project_code
+            updates.append({
+                'range': f'{sheet_name}!A{row_number}',
+                'values': [[project_code]]
+            })
         
         # 업데이트 전에 현재 값들을 조회해서 이전 값으로 기록
         old_values = {}
@@ -2206,7 +2250,90 @@ def inline_update_direct():
                 'project_code': project_code
             })
         
-        # 업데이트 후 새로운 프로젝트 코드 확인 (수식으로 변경될 수 있음)
+        # 🚀 사업자 또는 담당자 변경 시 프로젝트 코드 자동 업데이트
+        new_project_code = project_code
+        
+        # 사업자나 담당자가 변경되었는지 확인
+        business_entity_changed = '사업자' in data
+        owner_changed = '담당자' in data
+        
+        if business_entity_changed or owner_changed:
+            try:
+                logger.info("🔄 사업자/담당자 변경 감지 - 프로젝트 코드 재생성 시작")
+                
+                # 현재 행의 사업자와 담당자 정보 조회
+                row_range = f'{sheet_name}!A{row_number}:D{row_number}'  # A=프로젝트코드, B=사업자, C=담당자, D=거래처
+                current_row_result = manager.service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range=row_range
+                ).execute()
+                
+                current_row_values = current_row_result.get('values', [[]])[0]
+                
+                # 현재 값들 가져오기 (업데이트 후 값)
+                current_business = data.get('사업자', current_row_values[1] if len(current_row_values) > 1 else '')
+                current_owner = data.get('담당자', current_row_values[2] if len(current_row_values) > 2 else '')
+                
+                logger.info(f"📊 현재 정보: 사업자={current_business}, 담당자={current_owner}")
+                
+                # 프로젝트 코드에서 숫자 부분 추출 (예: G2851-JW에서 2851)
+                import re
+                code_match = re.match(r'[A-Z](\d+)-[A-Z]+', project_code)
+                if code_match:
+                    number_part = code_match.group(1)
+                    
+                    # 새로운 프로젝트 코드 생성
+                    comp_map = _build_company_prefix_map(current_data if current_data is not None else pd.DataFrame())
+                    own_map = _build_owner_suffix_map(current_data if current_data is not None else pd.DataFrame())
+                    
+                    new_prefix = comp_map.get(current_business.strip(), 'G')  # 기본값 G
+                    new_suffix = own_map.get(current_owner.strip(), 'XX')   # 기본값 XX
+                    
+                    potential_new_code = f"{new_prefix}{number_part}-{new_suffix}"
+                    
+                    logger.info(f"🎯 새 프로젝트 코드 후보: {project_code} -> {potential_new_code}")
+                    
+                    # 프로젝트 코드가 실제로 변경되었다면 A열도 업데이트
+                    if potential_new_code != project_code:
+                        project_code_update = {
+                            'range': f'{sheet_name}!A{row_number}',
+                            'values': [[potential_new_code]]
+                        }
+                        
+                        # 프로젝트 코드 업데이트 실행
+                        code_update_body = {
+                            'valueInputOption': 'USER_ENTERED',
+                            'data': [project_code_update]
+                        }
+                        
+                        manager.service.spreadsheets().values().batchUpdate(
+                            spreadsheetId=sheet_id,
+                            body=code_update_body
+                        ).execute()
+                        
+                        new_project_code = potential_new_code
+                        logger.info(f"✅ 프로젝트 코드 자동 업데이트 완료: {project_code} -> {new_project_code}")
+                        
+                        # 감사 로그에 프로젝트 코드 변경 기록
+                        log_user_action(
+                            action='UPDATE_PROJECT_CODE',
+                            details=f'사업자/담당자 변경으로 인한 프로젝트 코드 자동 업데이트',
+                            project_code=project_code,
+                            field_name='프로젝트 코드',
+                            old_value=project_code,
+                            new_value=new_project_code
+                        )
+                    else:
+                        logger.info("💡 프로젝트 코드 변경 불필요 (동일한 코드)")
+                        
+                else:
+                    logger.warning(f"⚠️ 프로젝트 코드 형식 인식 실패: {project_code}")
+                    
+            except Exception as code_update_error:
+                logger.error(f"❌ 프로젝트 코드 자동 업데이트 실패: {code_update_error}")
+                new_project_code = project_code
+        
+        # 업데이트 후 최종 프로젝트 코드 확인 (기존 로직 유지)
         try:
             updated_row_range = f'{sheet_name}!A{row_number}:A{row_number}'
             updated_result = manager.service.spreadsheets().values().get(
@@ -2215,13 +2342,14 @@ def inline_update_direct():
             ).execute()
             
             updated_values = updated_result.get('values', [[]])
-            new_project_code = updated_values[0][0] if updated_values and updated_values[0] else project_code
+            final_project_code = updated_values[0][0] if updated_values and updated_values[0] else new_project_code
             
-            logger.info(f"업데이트 후 프로젝트 코드: {project_code} -> {new_project_code}")
+            if final_project_code != new_project_code:
+                logger.info(f"📋 최종 프로젝트 코드 확인: {new_project_code} -> {final_project_code}")
+                new_project_code = final_project_code
             
         except Exception as e:
             logger.warning(f"새 프로젝트 코드 확인 실패: {e}")
-            new_project_code = project_code
         
         # 감사 로그 기록 (실제 이전 값 포함)
         try:
@@ -2338,7 +2466,6 @@ def inline_update_direct():
             logger.info('[인라인업데이트] 구글시트 저장 완료 후 메모리 데이터 업데이트 시작')
             updated_df = load_data()  # 구글시트에서 최신 데이터 로드
             if updated_df is not None:
-                global current_data
                 current_data = updated_df  # 메모리 데이터 업데이트
                 logger.info('[인라인업데이트] 메모리 데이터 업데이트 완료')
             else:
@@ -2970,7 +3097,7 @@ def convert_folder_paths_to_ids():
         
         # Google Sheets에서 직접 최신 데이터 읽기 (캐시 무시)
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
         manager = get_sheets_manager()
         
         # 모든 캐시 삭제하여 완전히 새로운 데이터 보장
@@ -3059,7 +3186,7 @@ def convert_folder_paths_to_ids():
         
         # Google Sheets 매니저 준비
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
         manager = get_sheets_manager()
         
         # 각 프로젝트의 행 번호 찾기
