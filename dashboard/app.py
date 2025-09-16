@@ -19,7 +19,6 @@ from google_oauth import google_oauth, is_oauth_configured
 project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(project_root))
 
-from utils.google_sheets import GoogleSheetsManager
 from utils.data_analyzer import DataAnalyzer
 from utils.cache_manager import cached, cache_get, cache_set, cache_clear, cache_delete
 from utils.smart_cache_manager import (
@@ -36,6 +35,29 @@ from utils.jwt_auth import init_jwt_manager, jwt_required, create_jwt_tokens
 from utils.api_response import APIResponse, APIErrorCode, api_response
 from utils.database import init_database, get_user_repository, get_audit_repository
 from utils.field_lock_manager import field_lock_manager
+
+from services.project_service import (
+    load_data,
+    get_project_records,
+    invalidate_project_cache,
+    get_sheets_manager,
+    get_project_config,
+    get_current_data,
+    get_last_update,
+    set_current_data,
+    clear_current_data,
+    can_user_edit_project,
+    check_overdue_status,
+    _build_company_prefix_map,
+    _build_owner_suffix_map,
+    _next_running_number,
+    _safe_next_running_number_with_retry,
+    _auto_project_code,
+)
+
+PROJECT_CONFIG = get_project_config()
+
+from blueprints.projects import projects_bp
 
 # 환경 변수 로드
 load_dotenv()
@@ -116,6 +138,8 @@ def after_request(response):
 # SocketIO 초기화 (실시간 업데이트용)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
+app.register_blueprint(projects_bp)
+
 # 보안 시스템 초기화
 init_security(app)
 init_jwt_manager(app.config['SECRET_KEY'])
@@ -128,19 +152,6 @@ setup_flask_error_handlers(app)
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 
 # 전역 변수 (스마트 캐싱 적용)
-current_data = None
-last_update = None
-
-# Google Sheets Manager 싱글톤 인스턴스
-_sheets_manager = None
-
-def get_sheets_manager():
-    """Google Sheets Manager 싱글톤 인스턴스 반환"""
-    global _sheets_manager
-    if _sheets_manager is None:
-        _sheets_manager = GoogleSheetsManager()
-    return _sheets_manager
-
 # 감사 로그 시스템
 AUDIT_LOG_DIR = os.path.join(os.path.dirname(__file__), 'audit_logs')
 if not os.path.exists(AUDIT_LOG_DIR):
@@ -252,144 +263,7 @@ def get_audit_logs(days=7):
         logger.error(f"Failed to get audit logs: {e}")
         return []
 
-# 프로젝트 설정 로드
-def _load_project_config():
-    """project_config.json에서 설정 로드"""
-    try:
-        config_path = os.path.join(os.path.dirname(__file__), 'project_config.json')
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.warning(f"프로젝트 설정 로드 실패: {e}")
-        return {}
 
-_project_config = _load_project_config()
-
-def can_user_edit_project(project, user_email, user_role):
-    """사용자가 프로젝트를 편집할 수 있는지 확인"""
-    try:
-        # 취소된 프로젝트는 편집 불가
-        if project.get('수금 관련 특이사항') == '공사취소':
-            return False
-
-        # 관리자는 모든 프로젝트 편집 가능
-        if user_role == 'admin':
-            return True
-
-        # 프로젝트 소유자 확인
-        project_owner_email = project.get('담당자 이메일', '')
-        if project_owner_email == user_email:
-            return True
-
-        # 편집자 권한 확인
-        if user_role in ['editor', 'user']:
-            return True
-
-        return False
-    except Exception as e:
-        logger.error(f"편집 권한 확인 오류: {e}")
-        return False
-
-def check_overdue_status(project):
-    """프로젝트 연체 상태 확인"""
-    try:
-        # 공사 확정일과 계약금 입금일 확인
-        confirm_date = project.get('공사 확정')
-        deposit_date = project.get('계약금 입금일')
-
-        if not confirm_date or not deposit_date:
-            # 확정되었으나 입금일이 없으면 연체 가능성
-            if confirm_date and not deposit_date:
-                confirm_dt = pd.to_datetime(confirm_date, errors='coerce')
-                if pd.notna(confirm_dt):
-                    days_passed = (datetime.now() - confirm_dt.to_pydatetime()).days
-                    return days_passed > _project_config.get('overdue_confirm_days', 2)
-
-        return False
-    except Exception as e:
-        logger.error(f"연체 상태 확인 오류: {e}")
-        return False
-
-@handle_error(category=ErrorCategory.HIGH, reraise=False, fallback_value=None)
-def load_data(force_refresh=False):
-    """구글 시트에서 데이터 로드 (스마트 캐싱 시스템 적용)"""
-    global current_data, last_update
-
-    cache_key = "current_sheet_data"
-
-    # 강제 새로고침이 아닌 경우 스마트 캐시 확인
-    if not force_refresh:
-        cached_data = smart_get(cache_key, CacheStrategy.CRITICAL_DATA)
-        if cached_data is not None:
-            current_data = cached_data
-            logger.debug("스마트 캐시된 데이터 사용")
-            return current_data
-    
-    try:
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        if not sheet_id:
-            logger.error("GOOGLE_SHEET_ID가 설정되지 않았습니다.")
-            return None
-        
-        # 구글 시트에서 데이터 가져오기 (싱글톤 인스턴스 사용)
-        manager = get_sheets_manager()
-        # 프로젝트 설정에서 범위 가져오기
-        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
-        logger.info(f"데이터 로드 범위: {sheet_range}")
-        df = manager.get_sheet_data(sheet_id, sheet_range)
-        
-        if df.empty:
-            logger.warning("구글 시트에서 데이터를 가져올 수 없습니다.")
-            return None
-        
-        current_data = df
-        last_update = datetime.now()
-
-        # 스마트 캐시에 저장 (중요 데이터 전략 사용)
-        smart_set(cache_key, df, CacheStrategy.CRITICAL_DATA)
-        
-        logger.info(f"데이터 로드 완료: {len(df)}행, 업데이트 시간: {last_update}")
-        logger.debug(f"글로벌 current_data 업데이트됨: {len(current_data)}행")
-        return df
-        
-    except Exception as e:
-        logger.error(f"데이터 로드 오류: {str(e)}")
-        
-        # 로컬 엑셀 파일로 폴백
-        try:
-            import pandas as pd
-            excel_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data', '아이티 공사 현황 (2).xlsx')
-            df = pd.read_excel(excel_path, sheet_name='공사 현황')
-            current_data = df
-            last_update = datetime.now()
-            logger.info(f"로컬 파일에서 데이터 로드: {len(df)}행")
-            return df
-        except Exception as e2:
-            logger.error(f"로컬 파일 로드도 실패: {str(e2)}")
-            return None
-
-
-
-def get_project_records(force_refresh=False):
-    """load_data() 결과를 dict 리스트로 변환"""
-    df = load_data(force_refresh=force_refresh)
-    if df is None:
-        return []
-    if isinstance(df, pd.DataFrame):
-        normalized_df = df.where(pd.notna(df), None)
-        return normalized_df.to_dict("records")
-    return df
-
-
-def invalidate_project_cache(project_code=None):
-    """프로젝트 관련 캐시 키 무효화"""
-    smart_invalidate("current_sheet_data")
-    smart_invalidate("projects_list")
-    if project_code:
-        smart_invalidate(f"project_{project_code}")
-
-
-# 프로젝트 코드 자동 생성 함수들
 def _extract_number(code: str):
     """프로젝트 코드에서 숫자 부분 추출"""
     m = re.match(r'[A-Z](\d{4})-', str(code))
@@ -413,7 +287,7 @@ def _build_company_prefix_map(df):
                 m[comp] = mm.group(1)
     
     # 설정 파일에서 로드
-    config_map = _project_config.get('company_prefix_map', {})
+    config_map = PROJECT_CONFIG.get('company_prefix_map', {})
     for k, v in config_map.items():
         m.setdefault(k, v)
     
@@ -422,7 +296,7 @@ def _build_company_prefix_map(df):
 def _build_owner_suffix_map(df):
     """담당자-접미사 매핑 구축"""
     # 설정 파일에서 기본 매핑 로드
-    m = {k: str(v).upper() for k, v in _project_config.get('owner_suffix_map', {}).items()}
+    m = {k: str(v).upper() for k, v in PROJECT_CONFIG.get('owner_suffix_map', {}).items()}
     
     # 기존 데이터에서 학습
     if '프로젝트 코드' in df.columns and '담당자' in df.columns:
@@ -516,13 +390,13 @@ def _auto_project_code(df, company: str, owner: str) -> str:
 def dashboard():
     """메인 페이지 - 프로젝트 관리로 리다이렉트"""
     from flask import redirect, url_for
-    return redirect(url_for('project_list'))
+    return redirect(url_for('projects.project_list'))
 
 @app.route('/login')
 def login_page():
     """로그인 페이지 (Google OAuth 전용)"""
     if 'user' in session:
-        return redirect(url_for('project_list'))
+        return redirect(url_for('projects.project_list'))
     
     # OAuth가 설정되지 않은 경우 오류 표시
     oauth_enabled = is_oauth_configured()
@@ -600,7 +474,7 @@ def google_callback():
         session.pop('oauth_state', None)
         
         logger.info(f"Google OAuth 로그인 성공: {user['email']}")
-        return redirect(url_for('project_list'))
+        return redirect(url_for('projects.project_list'))
         
     except Exception as e:
         logger.error(f"Google OAuth 콜백 오류: {str(e)}")
@@ -611,241 +485,6 @@ def logout():
     """로그아웃 처리"""
     session.clear()
     return redirect(url_for('login_page', message='logout_success'))
-
-@app.route('/projects')
-@login_required
-def project_list():
-    """프로젝트 목록 페이지 (서버사이드 렌더링)"""
-    user_role = get_user_role()
-    user_email = session.get('user', {}).get('email', '')
-
-    # 서버에서 프로젝트 데이터와 상태 완전 계산
-    try:
-        projects_data = get_project_records()
-        if projects_data:
-            # 각 프로젝트의 상태를 서버에서 계산
-            for project in projects_data:
-                # 취소 상태 확인
-                project['is_cancelled'] = project.get('수금 관련 특이사항') == '공사취소'
-
-                # 편집 권한 확인
-                project['can_edit'] = can_user_edit_project(project, user_email, user_role)
-
-                # 잠금 상태 확인
-                project_code = project.get('프로젝트 코드')
-                if project_code:
-                    lock_info = field_lock_manager.get_project_locks(project_code)
-                    project['lock_status'] = lock_info
-
-                # 연체 상태 확인 (예시)
-                project['is_overdue'] = check_overdue_status(project)
-
-        else:
-            projects_data = []
-
-    except Exception as e:
-        logger.error(f"프로젝트 데이터 로드 실패: {e}")
-        projects_data = []
-
-    return render_template('project_list_server.html',
-                         projects=projects_data,
-                         user_role=user_role,
-                         user_email=user_email,
-                         timestamp=datetime.now())
-
-@app.route('/projects/cancel/<project_code>', methods=['POST'])
-@login_required
-def cancel_project_server(project_code):
-    """서버사이드 프로젝트 취소 처리"""
-    try:
-        user_email = session.get('user', {}).get('email', '')
-        user_name = session.get('user', {}).get('name', '')
-
-        # 권한 확인
-        projects_data = get_project_records()
-        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
-
-        if not project:
-            logger.warning(f"프로젝트를 찾을 수 없음: {project_code}")
-            return redirect(url_for('project_list', error='프로젝트를 찾을 수 없습니다.'))
-
-        # 이미 취소된 프로젝트인지 확인
-        if project.get('수금 관련 특이사항') == '공사취소':
-            return redirect(url_for('project_list', error='이미 취소된 프로젝트입니다.'))
-
-        # 서버에서 직접 구글 시트 업데이트
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
-
-        # 업데이트 데이터 준비
-        update_data = {
-            'projectCode': project_code,
-            '수금 관련 특이사항': '공사취소'
-        }
-
-        # 구글 시트 업데이트
-        result = manager.update_project_data(sheet_id, sheet_range, update_data)
-
-        if result['success']:
-            # 감사 로그 기록
-            save_audit_log(
-                user_name, user_email, get_user_role(),
-                'CANCEL_PROJECT',
-                f'프로젝트 취소: {project_code}',
-                project_code,
-                '수금 관련 특이사항',
-                project.get('수금 관련 특이사항', ''),
-                '공사취소'
-            )
-
-            # 캐시 무효화
-            invalidate_project_cache(project_code)
-
-            logger.info(f"프로젝트 취소 완료: {project_code} by {user_name}")
-            return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 취소되었습니다.'))
-
-        else:
-            logger.error(f"프로젝트 취소 실패: {project_code} - {result.get('error')}")
-            return redirect(url_for('project_list', error='프로젝트 취소에 실패했습니다.'))
-
-    except Exception as e:
-        logger.error(f"프로젝트 취소 처리 오류: {e}")
-        return redirect(url_for('project_list', error='서버 오류가 발생했습니다.'))
-
-@app.route('/projects/resume/<project_code>', methods=['POST'])
-@login_required
-def resume_project_server(project_code):
-    """서버사이드 프로젝트 재개 처리"""
-    try:
-        user_email = session.get('user', {}).get('email', '')
-        user_name = session.get('user', {}).get('name', '')
-
-        # 권한 확인
-        projects_data = get_project_records()
-        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
-
-        if not project:
-            return redirect(url_for('project_list', error='프로젝트를 찾을 수 없습니다.'))
-
-        # 취소되지 않은 프로젝트인지 확인
-        if project.get('수금 관련 특이사항') != '공사취소':
-            return redirect(url_for('project_list', error='취소되지 않은 프로젝트입니다.'))
-
-        # 서버에서 직접 구글 시트 업데이트
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
-
-        # 업데이트 데이터 준비
-        update_data = {
-            'projectCode': project_code,
-            '수금 관련 특이사항': '-'  # 또는 빈 값
-        }
-
-        # 구글 시트 업데이트
-        result = manager.update_project_data(sheet_id, sheet_range, update_data)
-
-        if result['success']:
-            # 감사 로그 기록
-            save_audit_log(
-                user_name, user_email, get_user_role(),
-                'RESUME_PROJECT',
-                f'프로젝트 재개: {project_code}',
-                project_code,
-                '수금 관련 특이사항',
-                '공사취소',
-                '-'
-            )
-
-            # 캐시 무효화
-            invalidate_project_cache(project_code)
-
-            logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
-            return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 재개되었습니다.'))
-
-        else:
-            logger.error(f"프로젝트 재개 실패: {project_code} - {result.get('error')}")
-            return redirect(url_for('project_list', error='프로젝트 재개에 실패했습니다.'))
-
-    except Exception as e:
-        logger.error(f"프로젝트 재개 처리 오류: {e}")
-        return redirect(url_for('project_list', error='서버 오류가 발생했습니다.'))
-
-@app.route('/projects/update/<project_code>', methods=['POST'])
-@login_required
-def update_project_server(project_code):
-    """서버사이드 프로젝트 업데이트 처리"""
-    try:
-        user_email = session.get('user', {}).get('email', '')
-        user_name = session.get('user', {}).get('name', '')
-
-        # 권한 확인
-        projects_data = get_project_records()
-        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
-
-        if not project:
-            return redirect(url_for('project_list', error='프로젝트를 찾을 수 없습니다.'))
-
-        # 취소된 프로젝트는 편집 불가
-        if project.get('수금 관련 특이사항') == '공사취소':
-            return redirect(url_for('project_list', error='취소된 프로젝트는 편집할 수 없습니다.'))
-
-        # 편집 권한 확인
-        if not can_user_edit_project(project, user_email, get_user_role()):
-            return redirect(url_for('project_list', error='편집 권한이 없습니다.'))
-
-        # 폼 데이터 수집
-        update_data = {'projectCode': project_code}
-        changes = []
-
-        for field_name, new_value in request.form.items():
-            if field_name != 'projectCode':
-                old_value = project.get(field_name, '')
-                if str(old_value) != str(new_value):
-                    update_data[field_name] = new_value
-                    changes.append({
-                        'field': field_name,
-                        'old': old_value,
-                        'new': new_value
-                    })
-
-        if not changes:
-            return redirect(url_for('project_list', info='변경사항이 없습니다.'))
-
-        # 서버에서 직접 구글 시트 업데이트
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_range = _project_config.get('sheet_range', '공사 현황!A:AM')
-
-        result = manager.update_project_data(sheet_id, sheet_range, update_data)
-
-        if result['success']:
-            # 감사 로그 기록
-            for change in changes:
-                save_audit_log(
-                    user_name, user_email, get_user_role(),
-                    'UPDATE_PROJECT',
-                    f'프로젝트 필드 수정: {change["field"]}',
-                    project_code,
-                    change['field'],
-                    change['old'],
-                    change['new']
-                )
-
-            # 캐시 무효화
-            invalidate_project_cache(project_code)
-
-            logger.info(f"프로젝트 업데이트 완료: {project_code} by {user_name}")
-            return redirect(url_for('project_list', success=f'프로젝트 {project_code}가 업데이트되었습니다.'))
-
-        else:
-            logger.error(f"프로젝트 업데이트 실패: {project_code} - {result.get('error')}")
-            return redirect(url_for('project_list', error='프로젝트 업데이트에 실패했습니다.'))
-
-    except Exception as e:
-        logger.error(f"프로젝트 업데이트 처리 오류: {e}")
-        return redirect(url_for('project_list', error='서버 오류가 발생했습니다.'))
 
 @app.route('/receivables')
 @login_required
@@ -883,7 +522,7 @@ def convert_numpy_int64(obj):
 def get_summary():
     """요약 통계 API"""
     try:
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -894,7 +533,8 @@ def get_summary():
         summary = convert_numpy_int64(summary)
         
         # 추가 정보
-        summary['last_update'] = last_update.isoformat() if last_update else None
+        last_ts = get_last_update()
+        summary['last_update'] = last_ts.isoformat() if last_ts else None
         summary['total_records'] = int(len(df))  # 명시적으로 int로 변환
         
         return jsonify(summary)
@@ -909,7 +549,7 @@ def get_monthly_sales():
     try:
         year = request.args.get('year', datetime.now().year, type=int)
         
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -929,7 +569,7 @@ def get_monthly_sales():
 def get_regional_analysis():
     """지역별 분석 API"""
     try:
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -947,7 +587,7 @@ def get_regional_analysis():
 def get_outstanding_analysis():
     """미수금 분석 API"""
     try:
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -1029,7 +669,7 @@ def clear_cache():
 def get_missing_data():
     """누락 데이터 분석 API"""
     try:
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -1072,7 +712,7 @@ def get_missing_data():
 def get_brand_analysis():
     """브랜드별 분석 API"""
     try:
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -1101,7 +741,7 @@ def add_project_auto():
             return jsonify({"ok": False, "error": "사업자/담당자는 필수입니다"}), 400
 
         # 현재 데이터 로드 (한 번만)
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({"ok": False, "error": "데이터를 불러올 수 없습니다"}), 500
         
@@ -1127,7 +767,7 @@ def add_project_auto():
         data["프로젝트 코드"] = code
         
         # 필수 필드 검증
-        required_fields = _project_config.get("required_fields", ["프로젝트 코드", "현장 주소"])
+        required_fields = PROJECT_CONFIG.get("required_fields", ["프로젝트 코드", "현장 주소"])
         missing_fields = [field for field in required_fields 
                          if field not in data or str(data.get(field, "")).strip() == ""]
         
@@ -1203,7 +843,7 @@ def preview_project_code():
             return jsonify({"ok": False, "error": "사업자와 담당자가 필요합니다"})
 
         # 현재 데이터 로드
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({"ok": False, "error": "데이터를 불러올 수 없습니다"})
         
@@ -1222,7 +862,7 @@ def preview_project_code():
 def get_meta_options():
     """드롭다운용 옵션 API (사업자, 담당자 목록)"""
     try:
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -1239,8 +879,8 @@ def get_meta_options():
                               if x.strip() and x.strip() not in ("-", "없음", "N/A", "n/a")))
         
         # 설정 파일에서도 추가
-        config_companies = list(_project_config.get('company_prefix_map', {}).keys())
-        config_owners = list(_project_config.get('owner_suffix_map', {}).keys())
+        config_companies = list(PROJECT_CONFIG.get('company_prefix_map', {}).keys())
+        config_owners = list(PROJECT_CONFIG.get('owner_suffix_map', {}).keys())
         
         companies = sorted(set(companies + config_companies))
         owners = sorted(set(owners + config_owners))
@@ -1281,32 +921,29 @@ def get_meta_options():
         logger.error(f"옵션 API 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/refresh-data')
 def refresh_data():
     """데이터 새로고침 API (강제 새로고침)"""
     try:
-        # 모든 캐시 클리어 (메모리 캐시 + 데코레이터 캐시)
         cache_clear()
+        clear_current_data()
 
-        # 글로벌 current_data도 클리어하여 다음 로드 시 새로 가져오도록 함
-        global current_data
-        current_data = None
-
-        df = load_data(force_refresh=True)  # 강제 새로고침으로 캐시 무시
+        df = load_data(force_refresh=True)
         if df is None:
             return jsonify({'error': '데이터 새로고침 실패'}), 500
 
-        # 실시간 업데이트 알림
+        last_ts = get_last_update()
         socketio.emit('data_updated', {
-            'message': '데이터가 업데이트되었습니다.',
-            'timestamp': last_update.isoformat() if last_update else None,
+            'message': '데이터가 업데이트되었습니다',
+            'timestamp': last_ts.isoformat() if last_ts else None,
             'record_count': len(df)
         })
 
         return jsonify({
             'message': '데이터 새로고침 완료',
-            'timestamp': last_update.isoformat() if last_update else None,
-            'formatted_time': last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else None,
+            'timestamp': last_ts.isoformat() if last_ts else None,
+            'formatted_time': last_ts.strftime('%Y-%m-%d %H:%M:%S') if last_ts else None,
             'record_count': len(df)
         })
 
@@ -1314,35 +951,34 @@ def refresh_data():
         logger.error(f"데이터 새로고침 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/quick-refresh')
 def quick_refresh_data():
     """빠른 데이터 새로고침 API (캐시 우선 사용)"""
     try:
-        # 캐시된 데이터를 먼저 시도
         df = load_data(force_refresh=False)
         if df is None:
             return jsonify({'error': '데이터 로드 실패'}), 500
 
-        # 캐시에서 로드되었는지 확인
         cache_key = "current_sheet_data"
         is_cached = cache_get(cache_key) is not None
+        last_ts = get_last_update()
 
-        # 실시간 업데이트 알림 (캐시 사용 여부 포함)
         socketio.emit('data_updated', {
-            'message': '데이터가 업데이트되었습니다.' + (' (캐시 사용)' if is_cached else ' (새로 로드)'),
-            'timestamp': last_update.isoformat() if last_update else None,
+            'message': '빠른 새로고침 완료' + (' (캐시 사용)' if is_cached else ' (직접 로드)'),
+            'timestamp': last_ts.isoformat() if last_ts else None,
             'record_count': len(df),
             'from_cache': is_cached
         })
 
         return jsonify({
-            'message': '빠른 새로고침 완료' + (' (캐시 사용)' if is_cached else ' (새로 로드)'),
-            'timestamp': last_update.isoformat() if last_update else None,
-            'formatted_time': last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else None,
+            'message': '빠른 새로고침 완료' + (' (캐시 사용)' if is_cached else ' (직접 로드)'),
+            'timestamp': last_ts.isoformat() if last_ts else None,
+            'formatted_time': last_ts.strftime('%Y-%m-%d %H:%M:%S') if last_ts else None,
             'record_count': len(df),
             'from_cache': is_cached
         })
-        
+
     except Exception as e:
         logger.error(f"데이터 새로고침 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -1359,11 +995,10 @@ def get_receivables():
             logger.info('[API] 수금 관리 강제 새로고침 요청 - 구글시트에서 최신 데이터 로드')
             df = load_data()  # 구글시트에서 최신 데이터 로드
             if df is not None:
-                global current_data
-                current_data = df  # 메모리의 데이터도 업데이트
+                set_current_data(df, update_timestamp=False)  # 메모리 데이터 업데이트
                 logger.info('[API] 수금 관리 메모리 데이터 업데이트 완료')
         else:
-            df = current_data if current_data is not None else load_data()
+            df = get_current_data() or load_data()
 
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
@@ -1492,11 +1127,10 @@ def get_projects_list():
             logger.info('[API] 강제 새로고침 요청 - 구글시트에서 최신 데이터 로드')
             df = load_data()  # 구글시트에서 최신 데이터 로드
             if df is not None:
-                global current_data
-                current_data = df  # 메모리의 데이터도 업데이트
+                set_current_data(df, update_timestamp=False)  # 메모리 데이터 업데이트
                 logger.info('[API] 메모리 데이터 업데이트 완료')
         else:
-            df = current_data if current_data is not None else load_data()
+            df = get_current_data() or load_data()
             
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
@@ -1561,7 +1195,6 @@ def get_next_project_code():
 @login_required
 def create_project():
     """새 프로젝트 생성 API"""
-    global current_data
     try:
         data = request.get_json()
         logger.info(f"받은 폼 데이터: {data}")
@@ -1669,8 +1302,7 @@ def create_project():
             logger.info('[프로젝트생성] 구글시트 저장 완료 후 메모리 데이터 업데이트 시작')
             updated_df = load_data()  # 구글시트에서 최신 데이터 로드
             if updated_df is not None:
-                global current_data
-                current_data = updated_df  # 메모리 데이터 업데이트
+                set_current_data(updated_df, update_timestamp=False)  # 메모리 데이터 업데이트
                 logger.info('[프로젝트생성] 메모리 데이터 업데이트 완료')
                 
                 # 새로 추가된 프로젝트 데이터를 찾아서 Socket.IO로 전송
@@ -1724,7 +1356,7 @@ def create_project():
 def get_project(project_code):
     """프로젝트 상세 정보 API"""
     try:
-        df = current_data if current_data is not None else load_data()
+        df = get_current_data() or load_data()
         if df is None:
             return jsonify({'error': '데이터를 불러올 수 없습니다.'}), 500
         
@@ -2296,17 +1928,20 @@ def handle_disconnect():
 
 @socketio.on('request_update')
 def handle_request_update():
-    """실시간 업데이트 요청 처리"""
+    """실시간 데이터 요청 처리"""
     try:
         df = load_data()
         if df is not None:
+            last_ts = get_last_update()
             emit('data_updated', {
-                'message': '데이터가 업데이트되었습니다.',
-                'timestamp': last_update.isoformat() if last_update else None,
+                'message': '데이터가 업데이트되었습니다',
+                'timestamp': last_ts.isoformat() if last_ts else None,
                 'record_count': len(df)
             })
     except Exception as e:
-        emit('error', {'message': f'업데이트 오류: {str(e)}'})
+        emit('error', {'message': f'데이터 오류: {str(e)}'})
+
+
 
 
 def can_edit_field_server(user_role, card_type, field_name):
@@ -2522,7 +2157,6 @@ def release_all_user_locks():
 @login_required
 def inline_update_direct():
     """간단한 인라인 업데이트 API (직접 구현)"""
-    global current_data
     
     try:
         data = request.get_json()
@@ -2887,8 +2521,8 @@ def inline_update_direct():
                     number_part = code_match.group(1)
                     
                     # 새로운 프로젝트 코드 생성
-                    comp_map = _build_company_prefix_map(current_data if current_data is not None else pd.DataFrame())
-                    own_map = _build_owner_suffix_map(current_data if current_data is not None else pd.DataFrame())
+                    comp_map = _build_company_prefix_map(get_current_data() or pd.DataFrame())
+                    own_map = _build_owner_suffix_map(get_current_data() or pd.DataFrame())
                     
                     new_prefix = comp_map.get(current_business.strip(), 'G')  # 기본값 G
                     new_suffix = own_map.get(current_owner.strip(), 'XX')   # 기본값 XX
@@ -3070,7 +2704,7 @@ def inline_update_direct():
             logger.info('[인라인업데이트] 구글시트 저장 완료 후 메모리 데이터 업데이트 시작')
             updated_df = load_data()  # 구글시트에서 최신 데이터 로드
             if updated_df is not None:
-                current_data = updated_df  # 메모리 데이터 업데이트
+                set_current_data(updated_df, update_timestamp=False)  # 메모리 데이터 업데이트
                 logger.info('[인라인업데이트] 메모리 데이터 업데이트 완료')
             else:
                 logger.warning('[인라인업데이트] 메모리 데이터 업데이트 실패 - 데이터 로드 불가')
