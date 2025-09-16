@@ -4,6 +4,9 @@
 
 **영업사원들을 위한 쉬운 데이터 입력과 관리자를 위한 통합 대시보드**
 
+**구조 안내**: 프로젝트 라우트는 `dashboard/blueprints/`, 데이터 연동 및 캐시는 `dashboard/services/` 모듈에서 관리합니다.
+
+
 ## 🌟 주요 기능
 
 ### 🖥️ **웹 기반 데이터 입력 시스템 (구글 시트 GUI)**
@@ -48,6 +51,8 @@
 ```bash
 pip install -r requirements.txt
 ```
+> 신규 구조: 프로젝트 관련 라우트는 `dashboard/blueprints/`, 데이터 연동 로직은 `dashboard/services/`에서 관리합니다.
+
 
 #### 구글 API 설정
 1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 생성
@@ -86,6 +91,9 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
 NOTIFICATION_INTERVAL_HOURS=24
 MISSING_FIELDS_THRESHOLD=3
 ```
+
+새로운 구조: `dashboard/blueprints/`에는 Flask Blueprint가, `dashboard/services/`에는 데이터 로직이 배치되어 있습니다.
+
 
 ### 3. 실행
 

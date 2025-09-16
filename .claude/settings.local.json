@@ -281,7 +281,8 @@
       "Bash(start http://localhost:5000/receivables)",
       "Bash(start http://localhost:5002/projects)",
       "Bash(start http://localhost:5003/projects)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

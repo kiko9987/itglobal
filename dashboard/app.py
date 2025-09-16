@@ -508,13 +508,17 @@ def serve_data_files(filename):
     return send_from_directory(data_dir, filename)
 
 def convert_numpy_int64(obj):
-    """numpy int64를 Python int로 변환"""
+    """numpy 자료형을 Python 기본형으로 변환"""
     import numpy as np
-    if isinstance(obj, np.int64):
+    if isinstance(obj, (np.integer,)):
         return int(obj)
-    elif isinstance(obj, dict):
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, dict):
         return {k: convert_numpy_int64(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
+    if isinstance(obj, list):
         return [convert_numpy_int64(v) for v in obj]
     return obj
 
