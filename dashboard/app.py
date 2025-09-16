@@ -22,6 +22,10 @@ sys.path.insert(0, os.path.dirname(project_root))
 from utils.google_sheets import GoogleSheetsManager
 from utils.data_analyzer import DataAnalyzer
 from utils.cache_manager import cached, cache_get, cache_set, cache_clear, cache_delete
+from utils.smart_cache_manager import (
+    CacheStrategy, smart_get, smart_set, smart_delete, smart_invalidate,
+    smart_clear_strategy, get_smart_cache
+)
 from utils.env_validator import validate_dashboard_env, check_environment_health
 from utils.error_handler import (
     handle_error, ErrorCategory, setup_flask_error_handlers, 
@@ -68,6 +72,47 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'your-secret-key-here')
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)  # 8시간 세션 유지
 
+# 개발 모드에서 캐시 방지 (정적 파일)
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+
+@app.after_request
+def after_request(response):
+    """스마트 캐시 전략 적용"""
+    path = request.path
+
+    # API 엔드포인트별 캐시 전략
+    if path.startswith('/api/'):
+        if 'refresh' in path or 'update' in path or 'save' in path:
+            # 데이터 변경 API: 캐시 금지
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        elif 'data' in path:
+            # 데이터 조회 API: 짧은 캐시 (30초)
+            response.headers["Cache-Control"] = "public, max-age=30"
+        else:
+            # 기타 API: 기본 캐시 (5분)
+            response.headers["Cache-Control"] = "public, max-age=300"
+
+    # 정적 자원별 캐시 전략
+    elif path.startswith('/static/'):
+        if path.endswith(('.js', '.css')):
+            # JS/CSS: 1시간 캐시 + 버전 체크
+            response.headers["Cache-Control"] = "public, max-age=3600"
+        elif path.endswith(('.png', '.jpg', '.jpeg', '.gif', '.ico')):
+            # 이미지: 1일 캐시
+            response.headers["Cache-Control"] = "public, max-age=86400"
+        else:
+            # 기타 정적 파일: 30분 캐시
+            response.headers["Cache-Control"] = "public, max-age=1800"
+
+    # 개발 모드에서만 HTML 캐시 방지
+    elif app.debug or os.getenv('DEBUG', 'False').lower() == 'true':
+        if response.content_type and 'text/html' in response.content_type:
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+
+    return response
+
 # SocketIO 초기화 (실시간 업데이트용)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -82,11 +127,9 @@ setup_flask_error_handlers(app)
 # Google API 캐시 경고 억제
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 
-# 전역 변수 (캐싱 개선)
+# 전역 변수 (스마트 캐싱 적용)
 current_data = None
 last_update = None
-_data_cache = {}
-_cache_expiry = 30   # 30초 캐시 (빠른 데이터 반영)
 
 # Google Sheets Manager 싱글톤 인스턴스
 _sheets_manager = None
@@ -224,17 +267,17 @@ _project_config = _load_project_config()
 
 @handle_error(category=ErrorCategory.HIGH, reraise=False, fallback_value=None)
 def load_data(force_refresh=False):
-    """구글 시트에서 데이터 로드 (개선된 캐싱 시스템 적용)"""
+    """구글 시트에서 데이터 로드 (스마트 캐싱 시스템 적용)"""
     global current_data, last_update
-    
+
     cache_key = "current_sheet_data"
-    
-    # 강제 새로고침이 아닌 경우 캐시 확인
+
+    # 강제 새로고침이 아닌 경우 스마트 캐시 확인
     if not force_refresh:
-        cached_data = cache_get(cache_key)
+        cached_data = smart_get(cache_key, CacheStrategy.CRITICAL_DATA)
         if cached_data is not None:
             current_data = cached_data
-            logger.debug("캐시된 데이터 사용")
+            logger.debug("스마트 캐시된 데이터 사용")
             return current_data
     
     try:
@@ -256,9 +299,9 @@ def load_data(force_refresh=False):
         
         current_data = df
         last_update = datetime.now()
-        
-        # 새 캐싱 시스템에 저장
-        cache_set(cache_key, df, ttl=300)
+
+        # 스마트 캐시에 저장 (중요 데이터 전략 사용)
+        smart_set(cache_key, df, CacheStrategy.CRITICAL_DATA)
         
         logger.info(f"데이터 로드 완료: {len(df)}행, 업데이트 시간: {last_update}")
         logger.debug(f"글로벌 current_data 업데이트됨: {len(current_data)}행")
@@ -509,7 +552,7 @@ def project_list():
     """프로젝트 목록 페이지"""
     user_role = get_user_role()
     user_email = session.get('user', {}).get('email', '')
-    return render_template('project_list.html', user_role=user_role, user_email=user_email)
+    return render_template('project_list_new.html', user_role=user_role, user_email=user_email)
 
 @app.route('/receivables')
 @login_required
@@ -518,6 +561,12 @@ def receivables_page():
     user_role = get_user_role()
     user_email = session.get('user', {}).get('email', '')
     return render_template('receivables.html', user_role=user_role, user_email=user_email)
+
+@app.route('/admin/cache-monitor')
+@admin_required
+def cache_monitor_page():
+    """캐시 모니터링 페이지 (관리자 전용)"""
+    return render_template('cache_monitor.html')
 
 
 @app.route('/data/<path:filename>')
@@ -624,6 +673,63 @@ def get_outstanding_analysis():
         
     except Exception as e:
         logger.error(f"미수금 분석 API 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cache-stats')
+@login_required
+def get_cache_stats():
+    """캐시 상태 모니터링 API"""
+    try:
+        # 기본 캐시 통계
+        basic_stats = cache_stats()
+
+        # 스마트 캐시 통계
+        smart_cache = get_smart_cache()
+        smart_stats = smart_cache.get_cache_info()
+
+        return jsonify({
+            'basic_cache': basic_stats,
+            'smart_cache': smart_stats,
+            'timestamp': datetime.now().isoformat(),
+            'status': 'healthy'
+        })
+
+    except Exception as e:
+        logger.error(f"캐시 통계 API 오류: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/cache-clear', methods=['POST'])
+@admin_required
+def clear_cache():
+    """캐시 전체 삭제 API (관리자 전용)"""
+    try:
+        # 기본 캐시 삭제
+        cache_clear()
+
+        # 스마트 캐시 삭제
+        smart_cache = get_smart_cache()
+        smart_cache.clear()
+
+        # 감사 로그 기록
+        try:
+            log_user_action(
+                action='CACHE_CLEAR',
+                details='전체 캐시 삭제',
+                field_name='cache',
+                old_value='전체 캐시',
+                new_value='삭제됨'
+            )
+        except Exception as log_error:
+            logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+        return jsonify({
+            'success': True,
+            'message': '로전체 캐시가 삭제되었습니다',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"캐시 삭제 API 오류: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/missing-data')
@@ -747,9 +853,9 @@ def add_project_auto():
             values = convert_form_data_to_sheet_row(data, manager)
             result = manager.append_row(sheet_id, values)
             
-            # 구글 시트 쓰기 성공 시 즉시 캐시 삭제
+            # 구글 시트 쓰기 성공 시 스마트 캐시 무효화
             if result:
-                cache_delete("current_sheet_data")
+                smart_invalidate("current_sheet_data")
             
             # 감사 로그 기록
             try:
@@ -1245,8 +1351,8 @@ def create_project():
                 import time
                 time.sleep(0.5)
         
-        # 구글 시트 쓰기 성공 시에만 로컬 캐시 새로고침 (강제)
-        cache_delete("current_sheet_data")  # 기존 캐시 삭제
+        # 구글 시트 쓰기 성공 시에만 스마트 캐시 무효화
+        smart_invalidate("current_sheet_data")  # 기존 캐시 삭제
         load_data(force_refresh=True)
         
         # 폴더 ID가 추출되었으면 캐시에 저장 (프로젝트 코드와 연결)
@@ -1473,7 +1579,7 @@ def update_project(project_code):
             result = manager.update_row(sheet_id, row_number, values)
         
         # 로컬 데이터 새로고침 (강제)
-        cache_delete("current_sheet_data")
+        smart_invalidate("current_sheet_data")
         load_data(force_refresh=True)
         
         # 실시간 업데이트 알림
@@ -1861,7 +1967,7 @@ def update_project_inline():
         update_result = manager.update_row(sheet_id, row_number, current_values)
         
         # 로컬 데이터 새로고침 (강제)
-        cache_delete("current_sheet_data")
+        smart_invalidate("current_sheet_data")
         load_data(force_refresh=True)
         
         # 실시간 업데이트 알림
@@ -2419,7 +2525,7 @@ def inline_update_direct():
                     raise api_error
         
         # 로컬 데이터 새로고침 (강제)
-        cache_delete("current_sheet_data")
+        smart_invalidate("current_sheet_data")
         load_data(force_refresh=True)
         
         # 실시간 알림

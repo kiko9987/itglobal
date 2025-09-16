@@ -3717,13 +3717,14 @@
                 try {
                     const timestamp = new Date().getTime();
                     const refreshParam = forceRefresh ? 'refresh=true&' : '';
+                    // 스마트 캐싱 전략: 강제 새로고침시만 no-cache 사용
+                    const cacheMode = forceRefresh ? 'no-cache' : 'default';
                     const response = await fetch(`/api/projects/list?${refreshParam}t=${timestamp}`, {
-                        cache: 'no-cache',
-                        headers: {
+                        cache: cacheMode,
+                        headers: forceRefresh ? {
                             'Cache-Control': 'no-cache, no-store, must-revalidate',
-                            'Pragma': 'no-cache',
-                            'Expires': '0'
-                        }
+                            'Pragma': 'no-cache'
+                        } : {}
                     });
                     
                     if (!response.ok) {
@@ -4114,6 +4115,374 @@
             `;
         }
 
+        // 공사취소/재개 버튼 생성
+        function generateCancelResumeButton(projectCode, rowData) {
+            // 공사취소 상태 확인 (공사상태 필드나 별도 필드 사용)
+            const isCancelled = rowData['공사상태'] === '취소' || rowData['취소여부'] === 'Y';
+            
+            if (isCancelled) {
+                // 공사재개 버튼
+                const resumeButton = `
+                    <button class="btn btn-sm construction-resume-btn" onclick="resumeConstruction('${projectCode}')" 
+                            style="padding: 0.3rem 0.8rem; font-size: 0.75rem; background-color: #28a745; border: 1px solid #28a745; color: white; transition: all 0.15s ease-in-out;"
+                            onmouseover="this.style.backgroundColor='#218838'; this.style.borderColor='#1e7e34';"
+                            onmouseout="this.style.backgroundColor='#28a745'; this.style.borderColor='#28a745';"
+                            title="공사재개">
+                        <i class="fas fa-play me-1"></i>공사재개
+                    </button>
+                `;
+                return resumeButton;
+            } else {
+                // 공사취소 버튼
+                const cancelButton = `
+                    <button class="btn btn-sm construction-cancel-btn" onclick="cancelConstruction('${projectCode}')" 
+                            style="padding: 0.3rem 0.8rem; font-size: 0.75rem; background-color: #dc3545; border: 1px solid #dc3545; color: white; transition: all 0.15s ease-in-out;"
+                            onmouseover="this.style.backgroundColor='#c82333'; this.style.borderColor='#bd2130';"
+                            onmouseout="this.style.backgroundColor='#dc3545'; this.style.borderColor='#dc3545';"
+                            title="공사취소">
+                        <i class="fas fa-ban me-1"></i>공사취소
+                    </button>
+                `;
+                return cancelButton;
+            }
+        }
+
+        // 공사취소 함수
+        async function cancelConstruction(projectCode) {
+            if (!confirm(`정말로 프로젝트 ${projectCode}의 공사를 취소하시겠습니까?\n\n취소하면 모든 편집 기능이 비활성화됩니다.`)) {
+                return;
+            }
+
+            try {
+                showHeaderAlert('공사를 취소하고 있습니다...', 'info');
+
+                // 서버에 공사취소 상태 업데이트
+                const response = await fetch('/api/inline-update', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        projectCode: projectCode,
+                        공사상태: '취소'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.ok) {
+                    console.log('✅ 공사취소 서버 응답 성공');
+                    // showHeaderAlert(`프로젝트 ${projectCode}의 공사가 취소되었습니다.`, 'warning');
+                    
+                    console.log('🎨 스타일 적용 시작');
+                    // UI 업데이트
+                    applyCancelledProjectStyles(projectCode);
+                    
+                    console.log('🔄 버튼 업데이트 시작');
+                    console.log('📞 updateCancelResumeButton 함수 호출 직전 - projectCode:', projectCode);
+                    console.log('🔍 함수 정의 확인:', typeof updateCancelResumeButton);
+                    
+                    // 버튼 업데이트 (취소 → 재개)
+                    try {
+                        updateCancelResumeButton(projectCode, true);
+                        console.log('✅ updateCancelResumeButton 함수 호출 성공');
+                    } catch (error) {
+                        console.error('❌ updateCancelResumeButton 함수 오류:', error);
+                    }
+                    
+                    console.log('✅ 공사취소 처리 완료');
+                    
+                } else {
+                    throw new Error(result.error || '공사취소 처리 중 오류가 발생했습니다.');
+                }
+                
+            } catch (error) {
+                console.error('공사취소 오류:', error);
+                alert('공사취소 처리 중 오류가 발생했습니다: ' + error.message);
+            }
+        }
+
+        // 공사재개 함수
+        async function resumeConstruction(projectCode) {
+            if (!confirm(`프로젝트 ${projectCode}의 공사를 재개하시겠습니까?\n\n재개하면 편집 기능이 다시 활성화됩니다.`)) {
+                return;
+            }
+
+            try {
+                showHeaderAlert('공사를 재개하고 있습니다...', 'info');
+
+                // 서버에 공사재개 상태 업데이트  
+                const response = await fetch('/api/inline-update', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        projectCode: projectCode,
+                        공사상태: '진행중'
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.ok) {
+                    showHeaderAlert(`프로젝트 ${projectCode}의 공사가 재개되었습니다.`, 'success');
+                    
+                    // UI 복원
+                    removeCancelledProjectStyles(projectCode);
+                    
+                    // 버튼 업데이트 (재개 → 취소)
+                    updateCancelResumeButton(projectCode, false);
+                    
+                } else {
+                    throw new Error(result.error || '공사재개 처리 중 오류가 발생했습니다.');
+                }
+                
+            } catch (error) {
+                console.error('공사재개 오류:', error);
+                alert('공사재개 처리 중 오류가 발생했습니다: ' + error.message);
+            }
+        }
+
+        // 취소/재개 버튼 업데이트
+        function updateCancelResumeButton(projectCode, isCancelled) {
+            console.log('🔍 버튼 컨테이너 찾는 중...', projectCode);
+            const buttonContainer = document.querySelector(`[data-project-code="${projectCode}"] .project-title-section div[style*="flex-shrink: 0"]`);
+            console.log('📦 버튼 컨테이너:', buttonContainer);
+            
+            if (!buttonContainer) {
+                // 대안 셀렉터 시도
+                console.log('🔄 대안 셀렉터 시도 중...');
+                const alternativeContainer = document.querySelector(`[data-project-code="${projectCode}"] .construction-cancel-btn, [data-project-code="${projectCode}"] .construction-resume-btn`);
+                console.log('🔄 대안 컨테이너:', alternativeContainer);
+                if (alternativeContainer) {
+                    const parentDiv = alternativeContainer.parentElement;
+                    console.log('👨‍👩‍👧‍👦 부모 요소:', parentDiv);
+                    if (parentDiv) {
+                        updateButtonInContainer(parentDiv, projectCode, isCancelled);
+                        return;
+                    }
+                }
+                console.log('❌ 버튼 컨테이너를 찾을 수 없습니다');
+                return;
+            }
+            
+            updateButtonInContainer(buttonContainer, projectCode, isCancelled);
+        }
+
+        // 버튼 컨테이너에서 버튼 업데이트
+        function updateButtonInContainer(container, projectCode, isCancelled) {
+            console.log('🔧 버튼 업데이트 실행 중...', { container, projectCode, isCancelled });
+            if (container) {
+                if (isCancelled) {
+                    // 공사재개 버튼으로 변경
+                    console.log('🟢 공사재개 버튼으로 변경');
+                    container.innerHTML = `
+                        <button class="btn btn-sm construction-resume-btn" onclick="resumeConstruction('${projectCode}')" 
+                                style="padding: 0.3rem 0.8rem; font-size: 0.75rem; background-color: #28a745; border: 1px solid #28a745; color: white; transition: all 0.15s ease-in-out;"
+                                onmouseover="this.style.backgroundColor='#218838'; this.style.borderColor='#1e7e34';"
+                                onmouseout="this.style.backgroundColor='#28a745'; this.style.borderColor='#28a745';"
+                                title="공사재개">
+                            <i class="fas fa-play me-1"></i>공사재개
+                        </button>
+                    `;
+                } else {
+                    // 공사취소 버튼으로 변경
+                    console.log('🔴 공사취소 버튼으로 변경');
+                    container.innerHTML = `
+                        <button class="btn btn-sm construction-cancel-btn" onclick="cancelConstruction('${projectCode}')" 
+                                style="padding: 0.3rem 0.8rem; font-size: 0.75rem; background-color: #dc3545; border: 1px solid #dc3545; color: white; transition: all 0.15s ease-in-out;"
+                                onmouseover="this.style.backgroundColor='#c82333'; this.style.borderColor='#bd2130';"
+                                onmouseout="this.style.backgroundColor='#dc3545'; this.style.borderColor='#dc3545';"
+                                title="공사취소">
+                            <i class="fas fa-ban me-1"></i>공사취소
+                        </button>
+                    `;
+                }
+                console.log('✅ 버튼 업데이트 완료');
+            } else {
+                console.log('❌ 컨테이너가 없어 버튼 업데이트 실패');
+            }
+        }
+
+        // 취소된 프로젝트 스타일 적용
+        function applyCancelledProjectStyles(projectCode) {
+            // 부모탭(테이블 행) 스타일 적용
+            const tableRows = document.querySelectorAll(`tr[data-project-code="${projectCode}"]`);
+            tableRows.forEach(row => {
+                row.classList.add('project-cancelled');
+                row.style.position = 'relative';
+                
+                // 회색 반투명 오버레이 추가
+                if (!row.querySelector('.cancelled-overlay')) {
+                    const overlay = document.createElement('div');
+                    overlay.className = 'cancelled-overlay';
+                    overlay.style.cssText = `
+                        position: absolute;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: rgba(108, 117, 125, 0.3);
+                        z-index: 1;
+                        pointer-events: none;
+                    `;
+                    row.appendChild(overlay);
+                }
+                
+                // "취소됨" 뱃지 추가
+                if (!row.querySelector('.cancelled-badge')) {
+                    const badge = document.createElement('span');
+                    badge.className = 'cancelled-badge';
+                    badge.innerHTML = '<i class="fas fa-ban me-1"></i>취소됨';
+                    badge.style.cssText = `
+                        position: absolute;
+                        top: 50%;
+                        right: 10px;
+                        transform: translateY(-50%);
+                        background: #dc3545;
+                        color: white;
+                        padding: 2px 8px;
+                        border-radius: 4px;
+                        font-size: 0.7rem;
+                        font-weight: 500;
+                        z-index: 2;
+                    `;
+                    row.appendChild(badge);
+                }
+            });
+
+            // 자식탭 스타일 적용
+            const rowDetails = document.querySelector(`.row-details [data-project-code="${projectCode}"]`);
+            if (rowDetails) {
+                const rowDetailsContainer = rowDetails.closest('.row-details');
+                if (rowDetailsContainer) {
+                    rowDetailsContainer.classList.add('project-cancelled');
+                    rowDetailsContainer.style.filter = 'grayscale(50%)';
+                    rowDetailsContainer.style.opacity = '0.8';
+                    
+                    // 모든 편집 버튼 비활성화
+                    const editButtons = rowDetailsContainer.querySelectorAll('.edit-btn, .save-btn, .cancel-btn');
+                    editButtons.forEach(btn => {
+                        btn.disabled = true;
+                        btn.style.opacity = '0.5';
+                        btn.style.pointerEvents = 'none';
+                    });
+                    
+                    // "취소된 공사" 워터마크 추가
+                    if (!rowDetailsContainer.querySelector('.cancelled-watermark')) {
+                        const watermark = document.createElement('div');
+                        watermark.className = 'cancelled-watermark';
+                        watermark.textContent = '취소된 공사';
+                        watermark.style.cssText = `
+                            position: absolute;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%) rotate(-15deg);
+                            font-size: 2rem;
+                            font-weight: bold;
+                            color: rgba(220, 53, 69, 0.2);
+                            z-index: 10;
+                            pointer-events: none;
+                        `;
+                        rowDetailsContainer.style.position = 'relative';
+                        rowDetailsContainer.appendChild(watermark);
+                    }
+                }
+            }
+        }
+
+        // 취소된 프로젝트 스타일 제거
+        function removeCancelledProjectStyles(projectCode) {
+            // 부모탭 스타일 제거
+            const tableRows = document.querySelectorAll(`tr[data-project-code="${projectCode}"]`);
+            tableRows.forEach(row => {
+                row.classList.remove('project-cancelled');
+                row.style.position = '';
+                
+                // 오버레이와 뱃지 제거
+                const overlay = row.querySelector('.cancelled-overlay');
+                const badge = row.querySelector('.cancelled-badge');
+                if (overlay) overlay.remove();
+                if (badge) badge.remove();
+            });
+
+            // 자식탭 스타일 제거
+            const rowDetails = document.querySelector(`.row-details [data-project-code="${projectCode}"]`);
+            if (rowDetails) {
+                const rowDetailsContainer = rowDetails.closest('.row-details');
+                if (rowDetailsContainer) {
+                    rowDetailsContainer.classList.remove('project-cancelled');
+                    rowDetailsContainer.style.filter = '';
+                    rowDetailsContainer.style.opacity = '';
+                    
+                    // 편집 버튼 활성화
+                    const editButtons = rowDetailsContainer.querySelectorAll('.edit-btn, .save-btn, .cancel-btn');
+                    editButtons.forEach(btn => {
+                        btn.disabled = false;
+                        btn.style.opacity = '';
+                        btn.style.pointerEvents = '';
+                    });
+                    
+                    // 워터마크 제거
+                    const watermark = rowDetailsContainer.querySelector('.cancelled-watermark');
+                    if (watermark) watermark.remove();
+                }
+            }
+        }
+
+        // 프로젝트 데이터 새로고침
+        function refreshProjectData() {
+            // 간단한 페이지 새로고침 또는 데이터테이블 리로드
+            setTimeout(() => {
+                location.reload();
+            }, 1000);
+        }
+
+        // 페이지 로드시 취소된 프로젝트 스타일 적용
+        function initializeCancelledProjects() {
+            console.log('🔄 취소된 프로젝트 초기화 시작');
+            
+            // 여러 방법으로 데이터 소스 확인
+            console.log('📊 window.projectsData 존재:', !!window.projectsData);
+            console.log('📊 projectsData 존재:', typeof projectsData !== 'undefined' ? true : false);
+            
+            let dataSource = null;
+            
+            // DataTable에서 직접 데이터 가져오기
+            if (window.dataTable && window.dataTable.data()) {
+                dataSource = window.dataTable.data().toArray();
+                console.log('📊 DataTable에서 데이터 가져옴:', dataSource.length + '개');
+            } 
+            // window.projectsData 사용
+            else if (window.projectsData) {
+                dataSource = window.projectsData;
+                console.log('📊 window.projectsData 사용:', dataSource.length + '개');
+            }
+            // 전역 projectsData 사용
+            else if (typeof projectsData !== 'undefined') {
+                dataSource = projectsData;
+                console.log('📊 전역 projectsData 사용:', dataSource.length + '개');
+            }
+            
+            if (dataSource && dataSource.length > 0) {
+                let cancelledCount = 0;
+                dataSource.forEach(project => {
+                    const projectCode = project['프로젝트 코드'];
+                    const isCancelled = project['공사상태'] === '취소' || project['취소여부'] === 'Y';
+                    
+                    if (isCancelled && projectCode) {
+                        console.log('🚫 취소된 프로젝트 발견:', projectCode);
+                        applyCancelledProjectStyles(projectCode);
+                        cancelledCount++;
+                    }
+                });
+                console.log('✅ 취소된 프로젝트 초기화 완료:', cancelledCount + '개');
+            } else {
+                console.log('❌ 사용 가능한 프로젝트 데이터 없음');
+            }
+        }
+
         // 페이지 로드 시 초기화
         document.addEventListener('DOMContentLoaded', function() {
             // 권한 뱃지 설정
@@ -4146,11 +4515,26 @@
             }
             
             
+            console.log('📄 DOMContentLoaded 완료 - initializePage 호출 중');
             initializePage();
+        });
+
+        // 추가: window.onload에서도 시도
+        window.addEventListener('load', () => {
+            console.log('🌍 window.onload 완료 - 5초 후 강제 초기화');
+            setTimeout(() => {
+                console.log('🔄 강제 취소 프로젝트 초기화 시작');
+                if (typeof initializeCancelledProjects === 'function') {
+                    initializeCancelledProjects();
+                } else {
+                    console.error('❌ initializeCancelledProjects 함수가 정의되지 않음');
+                }
+            }, 5000);
         });
 
         // 페이지 초기화
         async function initializePage() {
+            console.log('🚀 initializePage 함수 시작!');
             showLoading(true);
             
             try {
@@ -4160,6 +4544,18 @@
                 generateMobileCards(); // 모바일 카드 생성
                 populateFolderDisplays(); // 폴더 표시 업데이트
                 setupEventListeners();
+                
+                // 페이지 로드 완료 후 취소된 프로젝트 스타일 적용
+                console.log('⏰ 0.5초 후 initializeCancelledProjects 함수 호출 예정');
+                setTimeout(() => {
+                    console.log('🚀 initializeCancelledProjects 함수 호출 시작');
+                    try {
+                        initializeCancelledProjects();
+                        console.log('✅ initializeCancelledProjects 함수 호출 완료');
+                    } catch (error) {
+                        console.error('❌ initializeCancelledProjects 함수 오류:', error);
+                    }
+                }, 500);
 
                 // URL 파라미터 확인하여 새 프로젝트 모달 자동 열기
                 const urlParams = new URLSearchParams(window.location.search);
@@ -4233,6 +4629,12 @@
                     // 데스크톱에서도 기존 폴더 표시 업데이트
                     populateFolderDisplays();
                 }
+                
+                // 데이터 로드 완료 후 취소된 프로젝트 초기화
+                console.log('📊 데이터 로드 완료 - 취소 프로젝트 초기화 시작');
+                setTimeout(() => {
+                    initializeCancelledProjects();
+                }, 1000);
                 
             } catch (error) {
                 console.error('[테이블] 프로젝트 데이터 로드 오류:', error);
@@ -4559,6 +4961,9 @@
                 drawCallback: function() {
                     // 테이블 그려진 후 스타일 적용
                     $('[data-bs-toggle="tooltip"]').tooltip();
+                    
+                    // 취소된 프로젝트 초기화
+                    initializeCancelledProjects();
                     
                     // 페이지네이션 링크 href 제거 (브라우저 하단 링크 표시 방지)
                     $('.dataTables_paginate .page-link').each(function() {
@@ -4896,16 +5301,21 @@
                             <!-- 프로젝트 정보 타이틀 -->
                             <div class="row mb-3">
                                 <div class="col-12">
-                                    <div class="project-title-section" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 0.75rem 1rem; border-left: 4px solid #007bff;">
-                                        <div style="display: flex; align-items: center; gap: 1.5rem;">
-                                            <div style="font-weight: 700; color: #007bff; font-size: 0.95rem; flex-shrink: 0;">
-                                                <i class="fas fa-tag me-2"></i>${projectCode}
+                                    <div class="project-title-section" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; padding: 0.75rem 1rem; border-left: 4px solid #007bff;" data-project-code="${projectCode}">
+                                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                                            <div style="display: flex; align-items: center; gap: 1.5rem; flex: 1; min-width: 0;">
+                                                <div style="font-weight: 700; color: #007bff; font-size: 0.95rem; flex-shrink: 0;">
+                                                    <i class="fas fa-tag me-2"></i>${projectCode}
+                                                </div>
+                                                <div style="font-size: 0.85rem; color: #6c757d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                    <i class="fas fa-map-marker-alt me-2"></i>${rowData['현장 주소'] || '주소 정보 없음'}
+                                                </div>
+                                                <div style="font-size: 0.8rem; color: #495057; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                                    <i class="fas fa-tools me-2"></i>${rowData['공사 내용'] || '공사내용 없음'}
+                                                </div>
                                             </div>
-                                            <div style="font-size: 0.85rem; color: #6c757d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                <i class="fas fa-map-marker-alt me-2"></i>${rowData['현장 주소'] || '주소 정보 없음'}
-                                            </div>
-                                            <div style="font-size: 0.8rem; color: #495057; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                                <i class="fas fa-tools me-2"></i>${rowData['공사 내용'] || '공사내용 없음'}
+                                            <div style="flex-shrink: 0; margin-left: 1rem;">
+                                                ${generateCancelResumeButton(projectCode, rowData)}
                                             </div>
                                         </div>
                                     </div>
