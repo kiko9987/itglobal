@@ -2,7 +2,7 @@
 데이터베이스 모델 정의
 """
 
-from sqlalchemy import Column, Integer, String, Text, Decimal, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Numeric
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -36,13 +36,13 @@ class Project(Base):
     customer_email = Column(String(200))  # 고객 이메일
 
     # 금액 정보 (17-23)
-    total_amount_1 = Column(Decimal(15, 2))  # 총액1
-    tax_amount = Column(Decimal(15, 2))  # 부가세
-    total_amount_2 = Column(Decimal(15, 2))  # 총액2
-    contract_deposit = Column(Decimal(15, 2))  # 계약금
-    mid_payment = Column(Decimal(15, 2))  # 중도금
-    final_payment = Column(Decimal(15, 2))  # 잔금
-    outstanding_amount = Column(Decimal(15, 2))  # 미수금
+    total_amount_1 = Column(Numeric(15, 2))  # 총액1
+    tax_amount = Column(Numeric(15, 2))  # 부가세
+    total_amount_2 = Column(Numeric(15, 2))  # 총액2
+    contract_deposit = Column(Numeric(15, 2))  # 계약금
+    mid_payment = Column(Numeric(15, 2))  # 중도금
+    final_payment = Column(Numeric(15, 2))  # 잔금
+    outstanding_amount = Column(Numeric(15, 2))  # 미수금
 
     # 일정 정보 (24-32)
     construction_confirmed = Column(String(50))  # 공사확정
@@ -179,7 +179,7 @@ class SyncLog(Base):
     records_successful = Column(Integer, default=0)
     records_failed = Column(Integer, default=0)
     error_message = Column(Text)
-    processing_time = Column(Decimal(10, 3))  # 처리 시간 (초)
+    processing_time = Column(Numeric(10, 3))  # 처리 시간 (초)
 
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 

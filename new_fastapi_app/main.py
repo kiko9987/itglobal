@@ -22,16 +22,16 @@ from config import settings
 async def lifespan(app: FastAPI):
     """애플리케이션 시작/종료 시 실행되는 함수"""
     # 시작 시
-    print("🚀 ITG 대시보드 FastAPI 애플리케이션 시작")
+    print("ITG Dashboard FastAPI Application Starting...")
 
     # 데이터베이스 테이블 생성
     create_tables()
-    print("✅ 데이터베이스 테이블 초기화 완료")
+    print("Database tables initialized successfully")
 
     yield
 
     # 종료 시
-    print("🔄 ITG 대시보드 애플리케이션 종료")
+    print("ITG Dashboard FastAPI Application Shutting Down...")
 
 # FastAPI 애플리케이션 생성
 app = FastAPI(
