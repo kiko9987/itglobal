@@ -1,0 +1,15 @@
+[
+  {
+    "timestamp": "2025-09-14T14:32:56.279194",
+    "user_name": "고광일",
+    "user_email": "kiko@itg-aircon.com",
+    "user_role": "admin",
+    "action": "CREATE_PROJECT",
+    "details": "새 프로젝트 등록: G2851-JW",
+    "project_code": "G2851-JW",
+    "field_name": "전체",
+    "old_value": "-",
+    "new_value": "새 프로젝트 생성",
+    "ip_address": "127.0.0.1"
+  }
+]

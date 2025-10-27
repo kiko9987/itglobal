@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ITG 대시보드{% endblock %}</title>
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <!-- DataTables FixedHeader CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/fixedheader/3.4.0/css/fixedHeader.bootstrap5.min.css">
+    <!-- Animate.css -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+
+    {% block additional_css %}{% endblock %}
+</head>
+<body>
+    <!-- 로딩 오버레이 - 숨김 처리 -->
+    <div class="loading-overlay" id="loadingOverlay" style="display: none !important;">
+        <div class="text-center">
+            <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
+            <p class="mt-2">데이터를 불러오는 중...</p>
+        </div>
+    </div>
+
+    <!-- 헤더 -->
+    <div class="header">
+        <div class="container-fluid">
+            <div class="row" style="height: 120px; position: relative; z-index: 1000;">
+                <div class="col-md-8 d-flex align-items-center">
+                    <div class="d-flex align-items-center justify-content-start" style="padding-left: 0; margin-left: -0.5rem; overflow: visible;">
+                        <img src="/data/아이티글로벌-추가최종2-(png)_0000_Vector-Smart-Object.png" alt="IT글로벌 로고" class="logo">
+                        <div class="ms-4" style="padding-top: 50px;">
+                            <p class="mb-0 logo-subtitle">프로젝트 통합 관리 시스템</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-4 d-flex align-items-center justify-content-end" style="overflow: visible;">
+                    <div class="d-flex gap-2" style="padding-top: 50px; padding-right: 1rem; white-space: nowrap; flex-wrap: nowrap; min-width: 290px;">
+                        <button class="btn btn-soft-success" id="refreshProjectBtn" onclick="refreshProjectData(true)" style="min-width: 90px; white-space: nowrap; background-color: rgba(40, 167, 69, 0.1) !important; border: 1px solid rgba(40, 167, 69, 0.2) !important; color: #28a745 !important;" title="새로운 데이터 로드 (구글 시트에서 직접)">
+                            <i class="fas fa-sync-alt me-1"></i>새로고침
+                        </button>
+                        <a href="/stats" class="btn btn-soft-info" style="min-width: 90px; white-space: nowrap;">
+                            <i class="fas fa-chart-bar me-1"></i>매출통계
+                        </a>
+                        <a href="/receivables" class="btn btn-soft-info" style="min-width: 90px; white-space: nowrap;">
+                            <i class="fas fa-hand-holding-usd me-1"></i>수금관리
+                        </a>
+                        <!-- 구분선 -->
+                        <div style="height: 24px; width: 1px; background: #dee2e6; margin: 0 8px;"></div>
+
+                        <!-- 사용자 정보 (맨 오른쪽) -->
+                        <div class="dropdown" style="position: relative; z-index: 99999;">
+                            <button class="btn btn-user-menu dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="min-width: 120px; white-space: nowrap;">
+                                <i class="fas fa-user me-2"></i>
+                                <span>{{ session.user.name if session.user else '관리자' }}</span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end user-dropdown">
+                                <li class="dropdown-header">
+                                    <div class="user-info-header">
+                                        <i class="fas fa-user-circle"></i>
+                                        <div>
+                                            <div class="user-name">
+                                                {{ session.user.name if session.user else '관리자' }}
+                                                <span class="user-permission-badge" id="user-role-badge"></span>
+                                            </div>
+                                            <div class="user-email">{{ session.user.email if session.user else 'admin@test.com' }}</div>
+                                        </div>
+                                    </div>
+                                </li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li id="admin-menu-item" style="display: none;">
+                                    <a class="dropdown-item" href="#" onclick="openUserManagement()"
+                                       style="font-size: 0.85rem !important; font-weight: 400 !important; padding: 0.7rem 1rem !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif !important;">
+                                        <i class="fas fa-users-cog me-2" style="font-size: 0.8rem !important; width: 14px !important; margin-right: 0.5rem !important;"></i>사용자 관리
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="openAuditLogs()"
+                                       style="font-size: 0.85rem !important; font-weight: 400 !important; padding: 0.7rem 1rem !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif !important;">
+                                        <i class="fas fa-history me-2" style="font-size: 0.8rem !important; width: 14px !important; margin-right: 0.5rem !important;"></i>작업 로그
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" onclick="showConvertPathsModal()"
+                                       style="font-size: 0.85rem !important; font-weight: 400 !important; padding: 0.7rem 1rem !important; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif !important;">
+                                        <i class="fas fa-sync-alt me-2" style="font-size: 0.8rem !important; width: 14px !important; margin-right: 0.5rem !important;"></i>폴더 경로 변환
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item logout-item" href="/logout">
+                                        <i class="fas fa-sign-out-alt me-2"></i>로그아웃
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 페이지 콘텐츠 -->
+    {% block content %}{% endblock %}
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <!-- DataTables FixedHeader JS -->
+    <script src="https://cdn.datatables.net/fixedheader/3.4.0/js/dataTables.fixedHeader.min.js"></script>
+
+    {% block additional_js %}{% endblock %}
+</body>
+</html>

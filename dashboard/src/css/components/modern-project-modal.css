@@ -1,0 +1,155 @@
+/**
+ * Modern Project Modal - 레거시와 동일한 스타일
+ */
+
+/* Modal size - same as legacy */
+#modernProjectModal .modal-dialog.modal-xl {
+    max-width: 900px;
+}
+
+/* Placeholder styles - make them lighter */
+#modernProjectModal .form-control::placeholder,
+#modernProjectModal .form-select::placeholder,
+#modernProjectModal textarea::placeholder {
+    color: #bbb !important;
+    opacity: 0.7 !important;
+}
+
+/* 드롭다운 커스텀 스타일 - 좌측 정렬 유지 */
+#modernProjectModal .form-select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") !important;
+    background-repeat: no-repeat !important;
+    background-position: right .75rem center !important;
+    background-size: 16px 12px !important;
+    padding: .375rem 2.25rem .375rem .75rem !important;
+    border-radius: var(--bs-border-radius) !important;
+    text-align: left !important;
+    text-align-last: left !important;
+}
+
+/* Hide default date input calendar icon */
+#modernProjectModal input[type="date"]::-webkit-calendar-picker-indicator {
+    display: none;
+    -webkit-appearance: none;
+}
+
+#modernProjectModal input[type="date"]::-moz-calendar-picker-indicator {
+    display: none;
+}
+
+/* Form check labels */
+#modernProjectModal .form-check-label {
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
+#modernProjectModal .form-check-input {
+    cursor: pointer;
+}
+
+/* Calendar icon clickable */
+#modernProjectModal .calendar-icon {
+    cursor: pointer;
+}
+
+#modernProjectModal .calendar-icon:hover {
+    background-color: #e9ecef !important;
+}
+
+/* Amount buttons hover effects */
+#modernProjectModal .modern-amount-btn {
+    transition: all 0.2s ease;
+}
+
+#modernProjectModal .modern-amount-btn:active {
+    transform: scale(0.95);
+}
+
+/* Generated code styles */
+#modernProjectModal .generated-code {
+    user-select: none !important;
+    cursor: default !important;
+    pointer-events: none;
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+}
+
+#modernProjectModal .generated-code.loading {
+    background-color: #fff3cd !important;
+    color: #856404 !important;
+}
+
+/* 전역 .loading::after 스피너 비활성화 */
+#modernProjectModal .generated-code.loading::after {
+    content: none !important;
+    display: none !important;
+}
+
+#modernProjectModal .generated-code.success {
+    background-color: #d1e7dd !important;
+    color: #0f5132 !important;
+}
+
+#modernProjectModal .generated-code.error {
+    background-color: #f8d7da !important;
+    color: #842029 !important;
+}
+
+/* Error message animations */
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideOutRight {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+}
+
+.error-message-slide-in {
+    animation: slideInRight 0.3s ease forwards;
+}
+
+.error-message-slide-out {
+    animation: slideOutRight 0.3s ease forwards;
+}
+
+/* Modal alert container */
+#modernModalAlertContainer {
+    margin-bottom: 1rem;
+}
+
+#modernModalAlertContainer .alert {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-radius: 6px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #modernProjectModal .modal-dialog {
+        margin: 0.5rem;
+    }
+
+    #modernProjectModal .card-body {
+        padding: 1rem !important;
+    }
+
+    #modernProjectModal .row.g-2 {
+        gap: 0.5rem !important;
+    }
+}

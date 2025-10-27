@@ -1,0 +1,311 @@
+/* ===== 알림 시스템 - Toast, 에러, 성공 메시지 ===== */
+
+/* Toast 컨테이너 */
+#toast-container {
+  z-index: var(--z-tooltip);
+  max-width: 400px;
+}
+
+/* Toast 기본 스타일 */
+.toast {
+  border: none;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(10px);
+  animation: slideInRight var(--duration-medium) var(--easing-ease-out);
+  margin-bottom: var(--spacing-sm);
+}
+
+.toast.hide {
+  animation: slideOutRight var(--duration-medium) var(--easing-ease-in);
+}
+
+/* Toast 헤더 */
+.toast-header {
+  border-bottom: 1px solid var(--gray-200);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-weight: 600;
+}
+
+.toast-body {
+  padding: var(--spacing-md);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* Toast 타입별 스타일 */
+.toast.success {
+  background: linear-gradient(135deg, var(--success-alpha-15) 0%, var(--success-alpha-10) 100%);
+  border-left: 4px solid var(--success-color);
+}
+
+.toast.success .toast-header {
+  color: var(--success-color);
+  background: var(--success-alpha-10);
+}
+
+.toast.error,
+.toast.danger {
+  background: linear-gradient(135deg, var(--danger-alpha-15) 0%, var(--danger-alpha-10) 100%);
+  border-left: 4px solid var(--danger-color);
+}
+
+.toast.error .toast-header,
+.toast.danger .toast-header {
+  color: var(--danger-color);
+  background: var(--danger-alpha-10);
+}
+
+.toast.warning {
+  background: linear-gradient(135deg, var(--warning-alpha-15) 0%, var(--warning-alpha-10) 100%);
+  border-left: 4px solid var(--warning-color);
+}
+
+.toast.warning .toast-header {
+  color: var(--warning-color);
+  background: var(--warning-alpha-10);
+}
+
+.toast.info {
+  background: linear-gradient(135deg, var(--info-alpha-15) 0%, var(--info-alpha-10) 100%);
+  border-left: 4px solid var(--info-color);
+}
+
+.toast.info .toast-header {
+  color: var(--info-color);
+  background: var(--info-alpha-10);
+}
+
+/* 에러 메시지 */
+.error-message {
+  background: linear-gradient(135deg, var(--danger-alpha-10) 0%, var(--danger-alpha-15) 100%);
+  border: 1px solid var(--danger-alpha-20);
+  border-left: 4px solid var(--danger-color);
+  color: var(--danger-color);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.error-message-slide-in {
+  animation: slideInRight var(--duration-medium) var(--easing-ease-out);
+}
+
+.error-message-slide-out {
+  animation: slideOutRight var(--duration-medium) var(--easing-ease-in);
+}
+
+/* 성공 메시지 */
+.success-message {
+  background: linear-gradient(135deg, var(--success-alpha-10) 0%, var(--success-alpha-15) 100%);
+  border: 1px solid var(--success-alpha-20);
+  border-left: 4px solid var(--success-color);
+  color: var(--success-color);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-md);
+  animation: slideInRight var(--duration-medium) var(--easing-ease-out);
+}
+
+/* 경고 메시지 */
+.warning-message {
+  background: linear-gradient(135deg, var(--warning-alpha-10) 0%, var(--warning-alpha-15) 100%);
+  border: 1px solid var(--warning-alpha-20);
+  border-left: 4px solid var(--warning-color);
+  color: var(--warning-color);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-md);
+  animation: slideInRight var(--duration-medium) var(--easing-ease-out);
+}
+
+/* 정보 메시지 */
+.info-message {
+  background: linear-gradient(135deg, var(--info-alpha-10) 0%, var(--info-alpha-15) 100%);
+  border: 1px solid var(--info-alpha-20);
+  border-left: 4px solid var(--info-color);
+  color: var(--info-color);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-md);
+  animation: slideInRight var(--duration-medium) var(--easing-ease-out);
+}
+
+/* 애니메이션 정의 */
+/* 통합 애니메이션 시스템 사용 - animations.css에서 import됨 */
+
+/* 실시간 계산 하이라이트 */
+.calculation-highlight {
+  background: linear-gradient(90deg, var(--success-alpha-20), var(--success-alpha-10)) !important;
+  border: 1px solid var(--success-alpha-30) !important;
+  border-radius: var(--radius-sm) !important;
+  animation: calculation-glow 1.5s ease-in-out;
+  transition: var(--transition-base) !important;
+}
+
+/* 실시간 계산 전용 애니메이션 */
+@keyframes calculation-glow {
+  0% {
+    background: var(--success-alpha-30);
+    transform: scale(1);
+  }
+  50% {
+    background: var(--success-alpha-20);
+    transform: scale(1.02);
+  }
+  100% {
+    background: var(--success-alpha-10);
+    transform: scale(1);
+  }
+}
+
+/* 계산된 필드 표시 */
+.calculated-field {
+  font-weight: normal;
+  position: relative;
+}
+
+/* 계산 필드 아이콘 제거됨 */
+
+/* 알림 아이콘 */
+.notification-icon {
+  width: var(--size-lg);
+  height: var(--size-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-right: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.notification-icon.success {
+  background: var(--success-alpha-15);
+  color: var(--success-color);
+}
+
+.notification-icon.error,
+.notification-icon.danger {
+  background: var(--danger-alpha-15);
+  color: var(--danger-color);
+}
+
+.notification-icon.warning {
+  background: var(--warning-alpha-15);
+  color: var(--warning-color);
+}
+
+.notification-icon.info {
+  background: var(--info-alpha-15);
+  color: var(--info-color);
+}
+
+/* 진행률 표시 */
+.progress-notification {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.progress-bar-container {
+  background: var(--gray-200);
+  height: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-top: var(--spacing-sm);
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-light) 100%);
+  border-radius: var(--radius-sm);
+  transition: width var(--transition-slow);
+}
+
+/* 닫기 버튼 */
+.notification-close {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
+  background: none;
+  border: none;
+  color: var(--gray-500);
+  cursor: pointer;
+  padding: var(--spacing-xs);
+  border-radius: var(--radius-sm);
+  transition: var(--transition-base);
+}
+
+.notification-close:hover {
+  background: var(--gray-100);
+  color: var(--gray-700);
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  #toast-container {
+    max-width: calc(100vw - 2rem);
+    right: 1rem !important;
+    left: 1rem !important;
+  }
+
+  .toast {
+    width: 100%;
+  }
+
+  .error-message,
+  .success-message,
+  .warning-message,
+  .info-message {
+    margin-left: var(--spacing-sm);
+    margin-right: var(--spacing-sm);
+  }
+}
+
+/* 접근성 개선 */
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .error-message,
+  .success-message,
+  .warning-message,
+  .info-message,
+  .calculation-highlight {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .calculation-highlight {
+    transform: none !important;
+  }
+}
+
+/* 다크모드 지원 */
+@media (prefers-color-scheme: dark) {
+  .toast {
+    background: var(--dark-secondary);
+    color: var(--gray-200);
+  }
+
+  .toast-header {
+    border-bottom-color: var(--gray-700);
+    background: var(--dark-accent);
+  }
+
+  .progress-notification {
+    background: var(--dark-secondary);
+    border-color: var(--gray-700);
+    color: var(--gray-200);
+  }
+
+  .progress-bar-container {
+    background: var(--gray-700);
+  }
+}

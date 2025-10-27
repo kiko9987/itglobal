@@ -1,0 +1,31 @@
+# FastAPI 기본 패키지
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+jinja2==3.1.2
+python-multipart==0.0.6
+
+# 데이터베이스
+sqlalchemy==2.0.23
+alembic==1.12.1
+sqlite3
+
+# 기존 시스템 호환
+pandas==2.1.4
+google-api-python-client==2.179.0
+google-auth-oauthlib==1.2.2
+google-auth-httplib2==0.2.0
+python-dotenv==1.1.1
+
+# 인증
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# 유틸리티
+pydantic==2.5.0
+python-dateutil==2.8.2
+typing-extensions==4.8.0
+
+# 개발 도구
+pytest==7.4.3
+black==23.11.0
+isort==5.12.0

@@ -1,0 +1,497 @@
+/* ===== Project List Page Specific Styles ===== */
+
+/* 레거시 스타일: 전체 컨테이너 여백 최소화 */
+.container-fluid {
+  padding-left: 15px !important;
+  padding-right: 15px !important;
+  padding-top: 0.8rem !important;
+  padding-bottom: 0px !important; /* 하단 패딩 제거하여 좌우와 균형 맞춤 */
+  max-width: 100% !important;
+}
+
+/* Content Container - 레거시 스타일: 큰 둥근 바디 섹션이 모든 것을 감쌈 */
+.content-container {
+  background: white;
+  border-radius: var(--radius-xl);
+  padding: 1rem 1.5rem;  /* 위아래 1rem, 좌우 1.5rem */
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--gray-200);
+  margin-bottom: 15px;
+}
+
+/* Header Section */
+.project-header {
+  min-height: calc(var(--spacing-xl) + var(--spacing-sm));
+}
+
+.header-alert-container {
+  height: var(--spacing-xl);
+  display: flex;
+  align-items: center;
+}
+
+.cache-status-container {
+  height: var(--spacing-xl);
+  display: flex;
+  align-items: center;
+}
+
+.cache-status {
+  font-size: var(--font-size-sm);
+}
+
+.cache-refresh-btn {
+  display: inline-block;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-xs);
+}
+
+.new-project-btn {
+  min-width: var(--width-btn-min);
+  white-space: nowrap;
+}
+
+/* Table Wrapper */
+.table-wrapper {
+  width: 100%;
+}
+
+/* Modal Styles */
+.edit-iframe {
+  width: 100%;
+  height: 500px;
+  border: none;
+}
+
+#userManagementModal .modal-dialog.user-management-modal {
+  max-width: 1300px;
+}
+
+.user-management-alert {
+  min-height: var(--spacing-lg);
+}
+
+.user-refresh-btn {
+  background-color: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: var(--success-color);
+  font-size: var(--font-size-sm);
+  padding: calc(var(--spacing-xs) + 0.05rem) calc(var(--spacing-sm) + 0.1rem);
+  transition: all 0.2s ease;
+}
+
+.user-refresh-btn:hover:not(:disabled) {
+  background-color: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.3);
+  transform: translateY(-1px);
+}
+
+.user-refresh-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.user-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.audit-logs-modal {
+  max-width: var(--width-modal-lg);
+  width: var(--width-modal-lg);
+}
+
+.audit-logs-alert {
+  min-height: var(--spacing-lg);
+}
+
+.audit-logs-days-select {
+  width: var(--width-select-sm);
+}
+
+.audit-logs-body {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.audit-logs-table {
+  margin-bottom: 0;
+  border: 1px solid #dee2e6; /* 연한 회색 테두리 */
+}
+
+/* 감사 로그 테이블 헤더 - 메인 테이블과 동일한 스타일 */
+.audit-logs-thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f1f3f4 !important;
+}
+
+.audit-logs-thead th {
+  text-align: center;
+  font-size: 0.85rem !important;
+  font-weight: 600 !important;
+  color: #495057 !important;
+  padding: var(--legacy-table-cell-padding) !important;
+  background: #f1f3f4 !important;
+}
+
+/* 감사 로그 테이블 데이터 셀 - 메인 테이블과 동일한 폰트 크기 */
+.audit-logs-table tbody td {
+  font-size: var(--legacy-table-cell-font) !important;
+  padding: var(--legacy-table-cell-padding) !important;
+  vertical-align: middle !important;
+  background-color: transparent !important; /* 기본 배경색 제거 */
+}
+
+/* Bootstrap table-hover 효과 제거 */
+.audit-logs-table.table-hover tbody tr:hover td {
+  background-color: inherit !important;
+}
+
+/* 줄무늬 순서 변경 - 첫 번째 행은 흰색, 두 번째 행부터 회색 교차 */
+/* Bootstrap의 모든 기본 스타일을 완전히 덮어쓰기 */
+#auditLogsModal .audit-logs-table tbody tr,
+#auditLogsModal tbody tr,
+#auditLogsTableContainer tbody tr,
+.modal .audit-logs-table tbody tr {
+  background-color: transparent !important;
+}
+
+/* 홀수 행 - 흰색 */
+#auditLogsModal .audit-logs-table tbody tr:nth-child(odd),
+#auditLogsModal tbody tr:nth-child(odd),
+#auditLogsTableContainer tbody tr:nth-child(odd),
+.modal .audit-logs-table tbody tr:nth-child(odd) {
+  background-color: #ffffff !important;
+}
+
+/* 짝수 행 - 회색 */
+#auditLogsModal .audit-logs-table tbody tr:nth-child(even),
+#auditLogsModal tbody tr:nth-child(even),
+#auditLogsTableContainer tbody tr:nth-child(even),
+.modal .audit-logs-table tbody tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* 호버 효과도 줄무늬를 유지하도록 */
+#auditLogsModal .audit-logs-table tbody tr:nth-child(odd):hover,
+#auditLogsModal tbody tr:nth-child(odd):hover {
+  background-color: rgba(0, 0, 0, 0.075) !important;
+}
+
+#auditLogsModal .audit-logs-table tbody tr:nth-child(even):hover,
+#auditLogsModal tbody tr:nth-child(even):hover {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Audit Log Table Column Widths - 고정 너비 설정 */
+.audit-logs-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+/* 각 열 너비 설정 */
+.audit-logs-table th:nth-child(1),
+.audit-logs-table td:nth-child(1) { width: 14%; } /* 시간 */
+
+.audit-logs-table th:nth-child(2),
+.audit-logs-table td:nth-child(2) { width: 10%; } /* 사용자 */
+
+.audit-logs-table th:nth-child(3),
+.audit-logs-table td:nth-child(3) { width: 10%; } /* 권한 */
+
+.audit-logs-table th:nth-child(4),
+.audit-logs-table td:nth-child(4) { width: 10%; } /* 작업 */
+
+.audit-logs-table th:nth-child(5),
+.audit-logs-table td:nth-child(5) { width: 10%; } /* 프로젝트 */
+
+.audit-logs-table th:nth-child(6),
+.audit-logs-table td:nth-child(6) { width: 10%; } /* 필드명 */
+
+.audit-logs-table th:nth-child(7),
+.audit-logs-table td:nth-child(7) { width: 18%; } /* 이전값 */
+
+.audit-logs-table th:nth-child(8),
+.audit-logs-table td:nth-child(8) { width: 18%; } /* 새값 */
+
+.audit-logs-footer {
+  position: relative;
+}
+
+.audit-logs-info {
+  flex: 1;
+}
+
+.audit-logs-pagination-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.audit-logs-close {
+  flex: 1 1 0%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* 사용자 관리 모달 footer 레이아웃 (작업 로그와 동일) */
+.user-management-footer {
+  position: relative;
+}
+
+.user-management-info {
+  flex: 1;
+}
+
+.user-management-pagination-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.user-management-close {
+  flex: 1 1 0%;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* Conversion Modal */
+.conversion-status {
+  display: none;
+}
+
+.conversion-results {
+  display: none;
+}
+
+.conversion-detailed-results {
+  max-height: calc(var(--spacing-xl) * 5);
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: var(--font-size-sm);
+}
+
+/* Mobile card container - 데스크톱에서 숨김 */
+@media (min-width: 769px) {
+  .mobile-card-container {
+    display: none !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden !important;
+  }
+}
+
+/* ===== 사용자 관리 모달 테이블 스타일 (작업 로그와 동일) ===== */
+/* 사용자 관리 테이블 기본 스타일 */
+#usersTable {
+  table-layout: fixed;
+  width: 100%;
+  border: 1px solid #dee2e6;
+  margin-bottom: 0;
+}
+
+/* 사용자 관리 테이블 헤더 - 작업 로그와 동일한 스타일 */
+#usersTable thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #f1f3f4 !important;
+}
+
+#usersTable thead th {
+  text-align: center;
+  font-size: 0.85rem !important;
+  font-weight: 600 !important;
+  color: #495057 !important;
+  padding: var(--legacy-table-cell-padding) !important;
+  background: #f1f3f4 !important;
+}
+
+/* 사용자 관리 테이블 데이터 셀 - 작업 로그와 동일한 폰트 */
+#usersTable tbody td {
+  font-size: var(--legacy-table-cell-font) !important;
+  padding: var(--legacy-table-cell-padding) !important;
+  vertical-align: middle !important;
+  background-color: transparent !important;
+}
+
+/* Bootstrap table-hover 효과 제거 */
+#usersTable.table-hover tbody tr:hover td {
+  background-color: inherit !important;
+}
+
+/* 줄무늬 - 첫 번째 행은 흰색, 두 번째 행부터 회색 교차 */
+#userManagementModal #usersTable tbody tr,
+#userManagementModal tbody tr {
+  background-color: transparent !important;
+}
+
+/* 홀수 행 - 흰색 */
+#userManagementModal #usersTable tbody tr:nth-child(odd),
+#userManagementModal tbody tr:nth-child(odd) {
+  background-color: #ffffff !important;
+}
+
+/* 짝수 행 - 회색 */
+#userManagementModal #usersTable tbody tr:nth-child(even),
+#userManagementModal tbody tr:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.015) !important;
+}
+
+/* 호버 효과 - 줄무늬 유지 */
+#userManagementModal #usersTable tbody tr:nth-child(odd):hover {
+  background-color: rgba(0, 0, 0, 0.025) !important;
+}
+
+#userManagementModal #usersTable tbody tr:nth-child(even):hover {
+  background-color: rgba(0, 0, 0, 0.025) !important;
+}
+
+/* 사용자 권한/상태 드롭다운 스타일 (새 프로젝트 모달과 동일) */
+#userManagementModal .user-permission-select.form-select,
+#usersTable .user-permission-select.form-select,
+.user-permission-select.form-select,
+#userManagementModal .user-status-select.form-select,
+#usersTable .user-status-select.form-select,
+.user-status-select.form-select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right .75rem center !important;
+  background-size: 16px 12px !important;
+  padding: .375rem 2.25rem .375rem .75rem !important;
+  border-radius: 0.375rem !important;
+  border: 1px solid #dee2e6 !important;
+  font-size: 0.875rem !important;
+  height: 38px !important;
+  transition: all 0.2s ease !important;
+  line-height: 1.5 !important;
+  background-color: #fff !important;
+  color: #212529 !important;
+  text-align: left !important;
+  text-align-last: left !important;
+  display: inline-block !important;
+  width: auto !important;
+}
+
+#userManagementModal .user-permission-select.form-select:focus,
+#usersTable .user-permission-select.form-select:focus,
+.user-permission-select.form-select:focus,
+#userManagementModal .user-status-select.form-select:focus,
+#usersTable .user-status-select.form-select:focus,
+.user-status-select.form-select:focus {
+  border-color: #86b7fe !important;
+  outline: 0 !important;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
+}
+
+/* ===== 감사 로그 페이지네이션 스타일 (메인 테이블과 동일) ===== */
+/* 페이지네이션 기본 링크 스타일 */
+#auditLogsPagination .page-link,
+.audit-logs-footer .pagination .page-link,
+#usersPagination .page-link,
+.user-management-footer .pagination .page-link {
+  color: var(--gray-600);
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.375rem 0.55rem; /* 정사각형에 가깝게 조정 */
+  margin: 0 0.2rem; /* 버튼들 사이 간격 추가 */
+  font-size: 0.875rem;
+  line-height: 1.2;
+  transition: none;
+  outline: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+/* 페이지네이션 호버 스타일 */
+#auditLogsPagination .page-link:hover,
+#auditLogsPagination .page-link:focus,
+.audit-logs-footer .pagination .page-link:hover,
+.audit-logs-footer .pagination .page-link:focus,
+#usersPagination .page-link:hover,
+#usersPagination .page-link:focus,
+.user-management-footer .pagination .page-link:hover,
+.user-management-footer .pagination .page-link:focus {
+  color: var(--gray-800);
+  background: var(--gray-100);
+  background-color: var(--gray-100);
+  border: none;
+  transform: none;
+  box-shadow: none;
+  outline: none;
+}
+
+/* 활성 페이지 스타일 */
+#auditLogsPagination .page-item.active .page-link,
+#auditLogsPagination .page-item.active > .page-link,
+.audit-logs-footer .pagination .page-item.active .page-link,
+.audit-logs-footer .pagination .page-item.active > .page-link,
+#usersPagination .page-item.active .page-link,
+#usersPagination .page-item.active > .page-link,
+.user-management-footer .pagination .page-item.active .page-link,
+.user-management-footer .pagination .page-item.active > .page-link {
+  color: var(--gray-800);
+  background: var(--gray-200);
+  background-color: var(--gray-200);
+  font-weight: 600;
+  border: 1px solid var(--gray-300);
+  transform: none;
+  box-shadow: none;
+  outline: none;
+}
+
+/* 비활성화된 페이지 스타일 */
+#auditLogsPagination .page-item.disabled .page-link,
+.audit-logs-footer .pagination .page-item.disabled .page-link,
+#usersPagination .page-item.disabled .page-link,
+.user-management-footer .pagination .page-item.disabled .page-link {
+  color: var(--gray-400);
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  cursor: not-allowed;
+}
+
+#auditLogsPagination .page-item.disabled .page-link:hover,
+.audit-logs-footer .pagination .page-item.disabled .page-link:hover,
+#usersPagination .page-item.disabled .page-link:hover,
+.user-management-footer .pagination .page-item.disabled .page-link:hover {
+  color: var(--gray-400);
+  background: transparent;
+  background-color: transparent;
+  border: none;
+}
+
+/* href 제거된 페이지네이션 링크도 포인터 커서 유지 */
+#auditLogsPagination .page-link:not([href]),
+.audit-logs-footer .pagination .page-link:not([href]),
+#usersPagination .page-link:not([href]),
+.user-management-footer .pagination .page-link:not([href]) {
+  cursor: pointer;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .new-project-btn {
+    min-width: auto;
+    font-size: var(--font-size-xs);
+  }
+
+  .cache-status {
+    font-size: var(--font-size-xs);
+  }
+
+  .cache-refresh-btn {
+    font-size: calc(var(--font-size-xs) - 0.1rem);
+    padding: calc(var(--spacing-xs) - 0.05rem) calc(var(--spacing-sm) - 0.1rem);
+  }
+}

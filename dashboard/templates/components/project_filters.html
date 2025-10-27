@@ -1,0 +1,74 @@
+<!-- 현대화된 필터 섹션 (고정) -->
+<div class="filter-section-sticky">
+    <div class="filter-section">
+        <div class="row">
+            <div class="col-md-1">
+                <label for="companyFilter" class="form-label">사업자</label>
+                <select class="form-select" id="companyFilter">
+                    <option value="">전체</option>
+                    <!-- 동적으로 사업자 목록이 로드됩니다 -->
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="managerFilter" class="form-label">담당자</label>
+                <select class="form-select" id="managerFilter">
+                    <option value="">전체</option>
+                    <!-- 동적으로 담당자 목록이 로드됩니다 -->
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="clientFilter" class="form-label">거래처</label>
+                <select class="form-select" id="clientFilter">
+                    <option value="">전체</option>
+                    <!-- 동적으로 거래처 목록이 로드됩니다 -->
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="statusFilter" class="form-label">상태</label>
+                <select class="form-select" id="statusFilter">
+                    <option value="">전체</option>
+                    <!-- 동적으로 상태 목록이 로드됩니다 -->
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="outstandingFilter" class="form-label">미수금</label>
+                <select class="form-select" id="outstandingFilter">
+                    <option value="">전체</option>
+                    <option value="collected">수금 완료</option>
+                    <option value="outstanding">미수금 있음</option>
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="dataFilter" class="form-label">데이터</label>
+                <select class="form-select" id="dataFilter">
+                    <option value="">전체</option>
+                    <option value="complete">완료</option>
+                    <option value="incomplete">미완료</option>
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label for="searchInput" class="form-label">키워드 검색</label>
+                <input type="text" class="form-control" id="searchInput"
+                       placeholder="프로젝트 코드, 주소, 거래처 등">
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label" style="margin-bottom: 0; visibility: hidden;">&nbsp;</label>
+                <div class="d-flex gap-2 filter-actions-row" style="margin-top: 0.25rem;">
+                    <button class="btn btn-outline-secondary" onclick="modernFilters.resetFilters()" title="초기화">
+                        <i class="fas fa-times me-1"></i>초기화
+                    </button>
+                    <div class="filter-result-display">
+                        <span class="filter-result-count" id="filterResultCount">로딩 중...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

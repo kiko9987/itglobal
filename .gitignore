@@ -1,0 +1,96 @@
+# 환경 변수 파일 (민감한 정보 포함)
+.env
+*.env
+
+# Google API 자격증명 파일
+credentials.json
+**/credentials.json
+**/google_oauth_credentials.json
+**/google_calendar_client_secret.json
+**/google_calendar_token.json
+client_secret_*.json
+**/client_secret_*.json
+
+# 사용자 계정 정보 파일 (민감 정보 포함)
+users.json
+**/users.json
+users.db
+**/users.db
+users.json.backup
+**/users.json.backup
+
+# Python 관련
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# 로그 파일
+*.log
+logs/
+
+# 임시 파일
+*.tmp
+*.temp
+*~
+
+# IDE 설정
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS 생성 파일
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Flask 관련
+instance/
+.webassets-cache
+
+# 데이터베이스 파일
+*.db
+*.sqlite
+*.sqlite3
+
+# 백업 파일
+*.backup
+*.bak
+backup_current/
+backup*/
+*_backup/
+
+# 예외: 프론트엔드 백업 폴더는 포함
+!dashboard/frontend_backups/
+
+# 테스트/디버깅 파일
+test_*.py
+debug_*.py
+
+# Excel 임시 파일
+~.xlsx
+~.xls
+
+# 테스트 관련
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js (필요시)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+nul
+.claude/settings.local.json
+
+# 큰 압축 파일 (GitHub 100MB 제한)
+*.zip
+Claude Project*.zip

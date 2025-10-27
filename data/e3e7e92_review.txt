@@ -1,0 +1,47 @@
+> 치명 문제
+
+  - dashboard/src/js/pages/project-list.js:273에서 소켓 이벤트를 project_updated로 듣지만 서버는 전부 'data_updated'만 쏩니다 (dashboard/app.py:967, 1089,
+  1119, 1478, 1669, 2057, 2642). 실시간 갱신이 전혀 동작하지 않아 다른 사용자는 편집 후에도 오래된 데이터를 봅니다.
+  - ProjectFilters는 메서드만 있고 콜백 등록이나 실제 데이터 전달이 없습니다 (dashboard/src/js/components/ProjectFilters.js:17-87). 초기화 때 테이블에 데이터
+  가 들어가지만 필터를 바꿔도 새 목록을 뿌릴 경로가 없어서 화면이 변하지 않습니다.
+  - modern_build_available가 템플릿에 함수 객체로 주입 돼서 (dashboard/utils/frontend_helpers.py:182-214) 항상 truthy로 평가됩니다. Vite 번들이 없어도
+  modern_base.html이 모듈 버전을 로드하려다가 실패하고, 오류가 터진 뒤에야 레거시 스크립트를 붙입니다.
+  - 모니터링 블루프린트가 psutil을 쓰는데 (dashboard/blueprints/monitoring.py:15, dashboard/utils/metrics_collector.py:8) requirements.txt에 없습니다. 관련
+  API를 호출하면 ImportError로 죽습니다.
+  - /api/projects/list가 Flask 전역과 프로젝트 블루프린트 양쪽에서 정의되어 있고 (dashboard/app.py:1274, dashboard/blueprints/projects.py:218) 반환 타입도 다
+  릅니다. 등록 순서에 따라 어떤 버전이 쓰일지 달라져서 유지보수가 어렵습니다.
+
+  중요 이슈
+
+  - 서버 캐시 TTL은 30초 (dashboard/utils/smart_cache_manager.py:37), 프론트는 localStorage에 5분 보관 (dashboard/src/js/pages/project-list.js:299-312), 소켓
+  이벤트도 refreshData(false)라 캐시를 그대로 씁니다. 편집 후 최소 5분간 목록이 갱신되지 않을 수 있습니다.
+  - smart_cache_manager는 auto_refresh 플래그를 세팅만 하고 실제 갱신 로직이 없어 auto refresh가 작동하지 않습니다.
+  - Vite 빌드를 꺼두면서도 modern_project_list.html에서 9천 줄 레거시 JS를 항상 붙입니다 (dashboard/templates/modern_project_list.html:322). 새 모듈이 있어도
+  쓸 수가 없고, 레거시와 모듈이 혼재한 부작용만 남습니다.
+  - get_js_bundle가 번들을 못 찾으면 /static/js/<bundle>.js를 돌려주는데 그런 파일이 없습니다 (dashboard/utils/frontend_helpers.py:138-146). dist가 비어 있으
+  면 404가 나고 폴백이 실질적으로 작동하지 않습니다.
+  - modern_base.html은 /static/sw.js 등록을 시도하지만 실제 파일이 없어 404를 계속 뿜습니다 (dashboard/templates/modern_base.html:270).
+
+  보완 필요
+
+  - project_list()의 요약 숫자는 문자열에서 replace만 하고 있어 통화 기호·공백·빈 문자열에 취약합니다 (dashboard/blueprints/projects.py:70-71).
+  - ProjectFilters.applyFilters()가 인자로 받은 배열을 그대로 필터링하는 구조인데, 기본값 []을 쓰는 경로가 많아 쉽게 빈 목록이 됩니다. 필터 호출 시 데이터를
+  확실히 전달하도록 흐름 정리가 필요합니다.
+  - Vite manifest에서 엔트리와 동적 import가 얽혀 있어 project-list.js를 두 번 로드합니다 (dashboard/static/dist/.vite/manifest.json). 번들 구성 재정리가 필
+  요합니다.
+  - localStorage 캐시는 네임스페이스나 버저닝이 없어 스키마가 바뀌면 JSON.parse가 실패하고, 대용량 시 5MB 한도를 넘어갑니다 (dashboard/src/js/pages/project-
+  list.js:311-312).
+
+  캐시·아키텍처 관점
+
+  - 소켓 이벤트 이름부터 통일하고 서버/클라이언트 캐시 TTL을 맞추거나 아예 한쪽만 남기는 편이 낫습니다. 지금처럼 세 군데에서 캐시가 따로 돌아가면 실시간 편집
+  과 충돌할 수밖에 없습니다.
+  - smart_cache_manager는 설계만 요란하고 쓰이는 곳이 current_sheet_data 정도입니다. 복잡한 캐시 전략 대신 간단한 TTL 캐시나 단일 레이어로 정리하는 게 디버깅
+  에 더 도움이 됩니다.
+  - Vite/레거시 하이브리드 구조가 절반만 구현돼 있어 어느 쪽도 제대로 못 쓰는 상태입니다. 현대식 빌드로 갈 거면 레거시 include를 걷어내고, 기존 JS로 유지할
+  거면 Vite 파일과 헬퍼를 정리하는 식으로 방향을 명확히 해야 합니다.
+  - 로깅·모니터링·PWA 같은 부가 기능은 스캐폴딩만 있고 테스트도 없어서 지금 상태로는 오류만 늘립니다. 가동하려면 의존성 추가·엔드포인트 정리·테스트 확보 를 먼
+  저 진행하세요.
+
+  전체적으로 e3e7e92는 현대화 시도를 했지만 코드 경로가 이중 삼중으로 겹치고, 캐시와 실시간 기능이 제대로 연결되지 않은 상태입니다. 이벤트 명세·캐시 전략· 자
+  산 파이프라인을 우선 정리하고, 사용하지 않는 서브시스템을 정리한 뒤 단계적으로 기능을 되살리는 것이 좋겠습니다.

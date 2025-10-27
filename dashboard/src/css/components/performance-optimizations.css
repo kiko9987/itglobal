@@ -1,0 +1,371 @@
+/* ===== Performance Optimizations for Modern Table v2.0 ===== */
+/* GPU Acceleration, CSS Containment, and Animation Optimizations */
+
+/* ===== BASE PERFORMANCE OPTIMIZATIONS ===== */
+
+/* CSS Containment - Isolate Table Rendering - DISABLED FOR WIDTH ALIGNMENT */
+/* .table-section {
+  contain: style paint;
+  isolation: isolate;
+} */
+
+.table-wrapper {
+  /* contain: layout style; */ /* Disabled to fix width alignment */
+  will-change: scroll-position;
+}
+
+.table thead {
+  /* contain: layout style paint; */ /* Disabled to fix width alignment */
+}
+
+.table tbody {
+  /* contain: layout; */ /* Disabled to fix width alignment */
+}
+
+/* ===== GPU ACCELERATION ===== */
+
+/* Hardware Acceleration for Table Elements */
+.table-wrapper,
+.table th,
+.table tbody tr {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Smooth Scrolling with Hardware Acceleration */
+.table-wrapper {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* GPU-Accelerated Hover Effects - 자연스러운 hover를 위해 transform 제거 */
+.table tbody tr {
+  transition: background-color var(--transition-fast);
+}
+
+.table tbody tr:hover {
+  /* transform 효과 제거 - 자연스러운 hover 경험을 위해 */
+  will-change: auto;
+}
+
+.table tbody tr:hover td {
+  will-change: auto;
+}
+
+/* ===== OPTIMIZED ANIMATIONS ===== */
+
+/* Spinner Animation with GPU Acceleration */
+@keyframes spin-optimized {
+  0% {
+    transform: rotate3d(0, 0, 1, 0deg);
+  }
+  100% {
+    transform: rotate3d(0, 0, 1, 360deg);
+  }
+}
+
+.loading-spinner {
+  animation: spin-optimized var(--duration-1000) linear infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
+/* Skeleton Loading with Optimized Animation */
+@keyframes skeleton-loading-optimized {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  animation: skeleton-loading-optimized var(--skeleton-animation-duration) ease-in-out infinite;
+  will-change: background-position;
+  transform: translateZ(0);
+}
+
+/* CRITICAL FIX: Force override any inline contain styles from JavaScript */
+.table-wrapper {
+  contain: none !important;
+  width: 100% !important;
+}
+
+.table-virtual-container {
+  contain: none !important;
+  width: 100% !important;
+}
+
+/* Fade-in Animation for New Rows */
+@keyframes fadeInUp {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 20px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.table tbody tr.new-row {
+  animation: fadeInUp var(--duration-300) ease-out;
+}
+
+/* ===== VIRTUAL SCROLLING OPTIMIZATIONS ===== */
+
+/* Virtual Scrolling Container - CONTAIN STRICT DISABLED FOR WIDTH ALIGNMENT */
+.table-virtual-container {
+  height: 400px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* contain: strict; */
+  scroll-behavior: smooth;
+  will-change: scroll-position;
+}
+
+/* Virtual Row Optimization */
+.table-virtual-row {
+  height: var(--virtual-item-height);
+  contain: layout style paint;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* Viewport Intersection Observer Optimization */
+.table-row-observer {
+  height: 1px;
+  pointer-events: none;
+  contain: layout;
+}
+
+/* ===== RESPONSIVE PERFORMANCE ===== */
+
+/* Container Query Performance Optimization */
+@container (max-width: 48rem) {
+  .table-wrapper {
+    /* contain: layout; */ /* Disabled to fix width alignment */
+  }
+
+  .table th,
+  .table td {
+    will-change: auto; /* Disable will-change on mobile */
+  }
+}
+
+/* Reduce Motion Performance */
+@media (prefers-reduced-motion: reduce) {
+  .table tbody tr,
+  .table th,
+  .table td,
+  .skeleton {
+    will-change: auto;
+    transform: none;
+    animation: none;
+    transition: none;
+  }
+}
+
+/* ===== MEMORY MANAGEMENT ===== */
+
+/* Clean up will-change after animations */
+.table tbody tr:not(:hover) {
+  will-change: auto;
+}
+
+.table th:not(:focus):not(:hover) {
+  will-change: auto;
+}
+
+/* ===== PAINT OPTIMIZATION ===== */
+
+/* Isolate Complex Elements */
+.project-badge,
+.status-badge,
+.manager-badge,
+.company-badge {
+  contain: layout style;
+  isolation: isolate;
+}
+
+/* amount-cell에서 containment 제거하여 border 렌더링 문제 해결 */
+.amount-cell {
+  /* contain: layout style; - 제거 */
+  /* isolation: isolate; - 제거 */
+}
+
+/* Optimize Badge Rendering */
+.badge {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* ===== LAYOUT THRASHING PREVENTION ===== */
+
+/* Prevent Layout Shifts */
+.table th,
+.table td {
+  box-sizing: border-box;
+  min-height: var(--virtual-item-height);
+}
+
+/* Grid Layout Stability */
+.grid-modern-table {
+  grid-template-rows: auto 1fr;
+  min-height: 200px;
+}
+
+/* ===== CRITICAL RENDERING PATH OPTIMIZATION ===== */
+
+/* Above-the-fold Content - DISABLED FOR WIDTH ALIGNMENT */
+/* .table-section {
+  content-visibility: visible;
+  contain-intrinsic-size: auto 400px;
+} */
+
+/* Below-the-fold Optimization */
+.table tbody tr:nth-child(n+16) {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 var(--virtual-item-height);
+}
+
+/* ===== JAVASCRIPT PERFORMANCE HELPERS ===== */
+
+/* Marks for JavaScript to identify optimized elements */
+.performance-optimized {
+  --optimized: true;
+}
+
+.table-wrapper.performance-optimized {
+  --gpu-accelerated: true;
+  --container-queries: true;
+  --virtual-scrolling: true;
+}
+
+/* ===== ACCESSIBILITY PERFORMANCE ===== */
+
+/* Focus Performance */
+.table th:focus-visible {
+  transition: outline-color var(--transition-fast);
+  will-change: outline-color;
+}
+
+/* Screen Reader Performance */
+@media (prefers-reduced-motion: reduce) {
+  .sr-only {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ===== DEVELOPMENT & DEBUG HELPERS ===== */
+
+/* Performance Monitoring Markers */
+.performance-debug .table-wrapper::before {
+  content: 'GPU: ' attr(data-gpu-enabled) ' | CQ: ' attr(data-container-queries) ' | VS: ' attr(data-virtual-scrolling);
+  position: fixed;
+  top: 0;
+  right: 0;
+  background: var(--primary-color);
+  color: white;
+  padding: var(--spacing-xs);
+  font-size: var(--font-size-xs);
+  z-index: var(--z-tooltip);
+  pointer-events: none;
+}
+
+/* ===== BROWSER-SPECIFIC OPTIMIZATIONS ===== */
+
+/* Chrome/Webkit Optimizations */
+@supports (-webkit-appearance: none) {
+  .table-wrapper {
+    -webkit-transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+  }
+}
+
+/* Firefox Optimizations */
+@supports (-moz-appearance: none) {
+  .table tbody tr {
+    will-change: transform;
+  }
+}
+
+/* Safari Optimizations */
+@supports (-webkit-overflow-scrolling: touch) {
+  .table-wrapper {
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: y proximity;
+  }
+
+  .table tbody tr {
+    scroll-snap-align: start;
+  }
+}
+
+/* ===== CRITICAL PATH CSS ===== */
+
+/* Essential styles that must load first */
+.table-critical {
+  display: grid;
+  grid-template-columns: var(--grid-template-project-table);
+  /* contain: layout; */ /* Disabled to fix width alignment */
+  min-height: 100px;
+}
+
+/* Non-critical enhancements */
+.table-enhanced {
+  /* contain: layout style paint; */ /* Disabled to fix width alignment */
+  will-change: scroll-position;
+  transform: translateZ(0);
+}
+
+/* ===== PERFORMANCE UTILITY CLASSES ===== */
+
+/* Enable/Disable Performance Features */
+.perf-gpu-on {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.perf-gpu-off {
+  transform: none;
+  will-change: auto;
+}
+
+.perf-contain-strict {
+  contain: strict;
+}
+
+.perf-contain-layout {
+  contain: layout;
+}
+
+.perf-isolate {
+  isolation: isolate;
+}
+
+/* ===== FINAL OPTIMIZATIONS ===== */
+
+/* Composite Layer Promotion for Heavy Elements - CONTAIN STRICT DISABLED */
+.table-wrapper.heavy-dataset {
+  /* contain: strict; */
+  will-change: transform, scroll-position;
+  transform: translate3d(0, 0, 0);
+}
+
+/* Memory Management for Large Tables */
+.table-wrapper.memory-optimized .table tbody tr:not(.visible) {
+  content-visibility: hidden;
+  contain-intrinsic-size: 0 var(--virtual-item-height);
+}
+
+/* Final Performance Validation */
+.modern-table-ready {
+  --performance-optimized: true;
+  --accessibility-compliant: true;
+  --responsive-design: true;
+  --modern-features: true;
+}

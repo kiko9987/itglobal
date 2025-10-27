@@ -1,0 +1,273 @@
+/* ===== 필터 시스템 - 레거시에서 현대화 ===== */
+
+/* 필터 컨테이너 */
+.filter-section-sticky {
+  /* 레거시 스타일: content-container 안에 있으므로 wrapper는 투명하게 */
+  position: sticky;
+  top: var(--header-height);
+  z-index: var(--z-sticky);
+  background: transparent;
+  border-bottom: none;
+  box-shadow: none;
+  margin-bottom: 0;
+}
+
+.filter-section {
+  /* 레거시 스타일: 회색 배경에 둥근 테두리로 별도 섹션 */
+  background: #fafbfc;
+  padding: 0.75rem;
+  margin: 0;
+  border: 1px solid #e9ecef;
+  border-radius: var(--radius-lg);
+  margin-bottom: 1rem;
+}
+
+/* 필터 폼 요소들 */
+.filter-section .form-label {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--gray-700);
+  margin-bottom: var(--spacing-xs);
+  white-space: nowrap; /* 라벨이 줄바꿈되지 않도록 */
+  overflow: hidden;
+  text-overflow: ellipsis; /* 너무 길면 ... 처리 */
+}
+
+.filter-section .form-select,
+.filter-section .form-control {
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-sm);
+  transition: var(--transition-base);
+}
+
+.filter-section .form-select:focus,
+.filter-section .form-control:focus {
+  border-color: var(--primary-color);
+  box-shadow: none !important;  /* 그림자 제거 */
+  outline: none;
+}
+
+/* 필터 버튼들 - 검색창과 동일한 높이로 컴팩트하게 */
+.filter-section .btn {
+  padding: 0.25rem 0.5rem;
+  font-size: var(--font-size-sm);
+  border-radius: var(--radius-md);
+  border-width: 1px;
+  transition: var(--transition-base);
+  min-width: 80px;
+  line-height: 1.2;
+  height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -1px;
+}
+
+.filter-section .btn:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* 필터 선택된 상태 */
+.filter-selected {
+  border-color: var(--primary-color) !important;
+  box-shadow: none !important;  /* 그림자 제거 */
+  background-color: transparent !important;  /* 배경색 제거 */
+}
+
+.filter-selected:hover {
+  border-color: var(--primary-dark) !important;
+  box-shadow: none !important;  /* 그림자 제거 */
+}
+
+/* 필터 초기화 버튼 */
+.filter-clear-btn {
+  border-color: var(--gray-400) !important;
+  color: var(--gray-600) !important;
+  background: transparent !important;
+}
+
+.filter-clear-btn:hover {
+  border-color: var(--gray-600) !important;
+  color: var(--gray-800) !important;
+  background: var(--gray-50) !important;
+}
+
+/* 빠른 필터 (모바일용) */
+.quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-md);
+}
+
+.quick-filter {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--gray-100);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  color: var(--gray-700);
+  cursor: pointer;
+  transition: var(--transition-base);
+  user-select: none;
+}
+
+.quick-filter:hover {
+  background: var(--gray-200);
+  border-color: var(--gray-400);
+}
+
+.quick-filter.active {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+}
+
+/* 필터 카운터 */
+.filter-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: var(--danger-color);
+  color: white;
+  border-radius: 50%;
+  width: 18px;
+  height: 18px;
+  font-size: var(--font-size-2xs);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+/* 활성 필터 표시 섹션 */
+.filter-section.has-active-filters {
+  background: linear-gradient(135deg, rgba(255, 107, 53, 0.05) 0%, rgba(255, 107, 53, 0.1) 100%);
+  border-color: var(--primary-alpha-20);
+  box-shadow: 0 2px 8px var(--primary-alpha-15);
+}
+
+/* 활성 필터 카운터 배지 */
+.active-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--primary-color);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-md);
+  margin-left: 0;
+  line-height: 1.2;
+  height: 30px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* 초기화 버튼 강조 (필터 활성시) */
+.filter-section.has-active-filters .btn {
+  border-color: var(--primary-color) !important;
+  color: var(--primary-color) !important;
+  background: rgba(255, 107, 53, 0.05) !important;
+}
+
+.filter-section.has-active-filters .btn:hover {
+  background: var(--primary-color) !important;
+  color: white !important;
+}
+
+/* 필터 결과 표시 */
+.filter-result-display {
+  min-width: fit-content;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.filter-result-count {
+  font-size: var(--font-size-sm) !important;
+  font-weight: 600 !important;
+  color: var(--gray-600) !important;
+  background: var(--gray-50) !important;
+  padding: 0.25rem 0.75rem !important;
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--gray-200) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  transition: var(--transition-base) !important;
+  line-height: 1.2 !important;
+  height: 33px !important;
+  margin-top: -1px !important;
+}
+
+.filter-result-count::before {
+  content: "📊";
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+/* 필터 활성시 결과 표시 강조 */
+.filter-section.has-active-filters .filter-result-count {
+  background: var(--primary-alpha-10);
+  border-color: var(--primary-alpha-20);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.filter-section.has-active-filters .filter-result-count::before {
+  content: "🎯";
+  opacity: 1;
+}
+
+/* 초기화 버튼/결과 박스 정렬 - 특정 row에만 적용 */
+.filter-actions-row {
+  align-items: center !important;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+  .filter-section-sticky {
+    top: 80px; /* 모바일 헤더 높이 */
+  }
+
+  .filter-section {
+    padding: var(--spacing-md);
+  }
+
+  .filter-section .form-select,
+  .filter-section .form-control {
+    font-size: 16px; /* iOS 줌 방지 */
+  }
+
+  .filter-section .btn {
+    font-size: var(--font-size-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
+}
+
+@media (max-width: 576px) {
+  .filter-section .row > div {
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .filter-section .d-flex.gap-2 {
+    flex-direction: row !important;
+    gap: var(--spacing-sm) !important;
+    align-items: flex-end !important;
+    flex-wrap: nowrap;
+  }
+
+  .filter-result-count {
+    text-align: center;
+    justify-content: center;
+  }
+}

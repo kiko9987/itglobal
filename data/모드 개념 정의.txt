@@ -1,0 +1,163 @@
+모드 개념 정의
+아코디언 내부을 열었을때 -> 일반모드
+아코디언 내부를 열고 편집 모드를 눌렀을때 -> 편집모드
+메인 테이블 일반 화면 -> 프로젝트 일반 관리 모드
+메일 테이블 수금 관리 모드 토글 -> 프로젝트 수금 관리 모드
+
+주요 내용:
+
+  1. 테이블 레벨 모드 (TABLE_MODE)
+
+  TABLE_MODE.NORMAL      // 프로젝트 일반 관리 모드
+  TABLE_MODE.RECEIVABLES // 프로젝트 수금 관리 모드
+
+  2. 아코디언 레벨 모드 (ACCORDION_MODE)
+
+  ACCORDION_MODE.VIEW // 아코디언 일반 모드 (조회만)
+  ACCORDION_MODE.EDIT // 아코디언 편집 모드 (편집 가능)
+
+  3. 가능한 4가지 조합 (MODE_COMBINATION)
+
+  MODE_COMBINATION.NORMAL_VIEW       // 일반 관리 + 뷰
+  MODE_COMBINATION.NORMAL_EDIT       // 일반 관리 + 편집
+  MODE_COMBINATION.RECEIVABLES_VIEW  // 수금 관리 + 뷰
+  MODE_COMBINATION.RECEIVABLES_EDIT  // 수금 관리 + 편집
+
+  4. 헬퍼 함수
+
+  - getTableMode(isReceivablesMode) - boolean → TABLE_MODE 변환
+  - getAccordionMode(isUnifiedEditMode) - boolean → ACCORDION_MODE 변환
+  - getCurrentModeCombination() - 현재 조합 상태 조회
+  - getModeDescription() - 디버깅용 설명 문자열  
+
+ /**
+      * ViewModes 상수 사용 예시
+      *
+      * 기존 코드에서 ViewModes 상수를 어떻게 적용하는지 보여주는 예시 파일
+      * 실제 적용 시 이 패턴을 따라 기존 코드를 리팩토링하면 됩니다.
+      */
+     import {
+       TABLE_MODE,
+       ACCORDION_MODE, 
+
+ 생성된 파일들
+
+  1. ViewModes.js - 모드 상수 정의
+
+  - 테이블 레벨 모드 (TABLE_MODE)
+  - 아코디언 레벨 모드 (ACCORDION_MODE)
+  - 가능한 4가지 조합 (MODE_COMBINATION)
+  - 헬퍼 함수들
+
+  2. ViewModes_USAGE_EXAMPLE.js - 실제 적용 예시
+
+  9가지 사용 패턴:
+
+  1. Constructor 초기화 - boolean → 명확한 상수로 변경
+  2. 로깅 개선 - "ON/OFF" → "일반 관리 + 뷰 모드" 같은 명확한 설명
+  3. Getter/Setter - 기존 코드 호환성 유지하면서 내부는 상수 사용
+  4. 모드 전환 검증 - 편집 중 모드 전환 방지
+  5. 디버깅 로그 - 현재 모드 조합을 한눈에 파악
+  6. UI 상태 결정 - switch 문으로 명확한 모드별 처리
+  7. 모드 조합 체크 - 특정 조합에서만 기능 실행
+  8. beforeunload - 명확한 모드 비교
+  9. 모드 전환 함수 - 유효성 검증 포함
+
+  주요 개선점
+
+  Before (기존)
+
+  this.isReceivablesMode = false;
+  this.isUnifiedEditMode = false;
+  console.log(`수금 모드: ${this.isReceivablesMode ? 'ON' : 'OFF'}`);
+
+  After (개선)
+
+  this.tableMode = TABLE_MODE.NORMAL;
+  this.accordionMode = ACCORDION_MODE.VIEW;
+  console.log(`현재 모드: ${getModeDescription(...)}`); // "일반 관리 + 뷰 모드"
+
+  실제 적용 시 장점
+
+  1. 가독성 - "일반 관리 + 편집 모드" 같은 명확한 표현
+  2. 타입 안전성 - 문자열 상수로 오타 방지
+  3. 유지보수성 - 모드 개념이 한 곳에 정의됨
+  4. 디버깅 - 로그만 봐도 현재 상태 파악 가능 
+
+완료 요약
+
+  생성된 파일
+
+  1. ViewModes.js - 모드 상수 정의
+    - TABLE_MODE: NORMAL, RECEIVABLES
+    - ACCORDION_MODE: VIEW, EDIT
+    - MODE_COMBINATION: 4가지 조합 정의
+    - 헬퍼 함수 5개
+  2. ViewModes_USAGE_EXAMPLE.js - 실제 적용 예시
+    - 9가지 사용 패턴
+    - Before/After 비교
+    - 실전 예제 코드
+
+모드 상태 관리 개선 계획
+
+  현재 문제점
+
+  1. 분산된 상태 관리
+    - ProjectTable.isReceivablesMode (테이블 모드)
+    - ProjectRowAccordion.isUnifiedEditMode (아코디언 모드)
+    - 두 컴포넌트가 독립적으로 상태 관리 → 동기화 문제 가능
+  2. 직접 할당
+  this.isReceivablesMode = e.target.checked;  // 검증 없이 직접 변경
+  this.isUnifiedEditMode = true;              // 부수 효과 없이 변경
+  3. 모드 전환 로직 중복
+    - 모드 변경 시마다 같은 검증 로직 반복
+    - 로깅, 이벤트 발생 등이 산재
+
+  개선 방향
+
+  중앙 집중식 모드 관리 클래스 생성 → ModeManager.js
+
+  이 클래스가 담당할 역할:
+  1. ✅ 상태 저장 - 현재 테이블/아코디언 모드
+  2. ✅ 상태 변경 - setter를 통한 안전한 변경
+  3. ✅ 검증 로직 - 유효하지 않은 전환 방지
+  4. ✅ 이벤트 발생 - 모드 변경 시 리스너에게 알림
+  5. ✅ 로깅 - 모든 모드 변경 추적
+  6. ✅ 상태 조회 - 현재 조합, 설명 등
+
+  구조는 이렇게 됩니다:
+
+  Before (분산):
+  ┌─────────────────┐         ┌──────────────────────┐
+  │ ProjectTable    │         │ ProjectRowAccordion  │
+  │                 │         │                      │
+  │ isReceivables   │         │ isUnifiedEditMode    │
+  │ Mode = false    │         │ = false              │
+  └─────────────────┘         └──────────────────────┘
+
+  After (중앙 집중):
+           ┌─────────────────────┐
+           │   ModeManager       │
+           │                     │
+           │ tableMode: NORMAL   │
+           │ accordionMode: VIEW │
+           │                     │
+           │ + setTableMode()    │
+           │ + setAccordionMode()│
+           │ + validate()        │
+           │ + emit events       │
+           └─────────────────────┘
+                   ↑       ↑
+                   │       │
+       ┌───────────┘       └──────────┐
+       │                              │
+  ┌────┴──────┐              ┌────────┴─────┐
+  │ Project   │              │ ProjectRow   │
+  │ Table     │              │ Accordion    │
+  └───────────┘              └──────────────┘
+
+  이렇게 하면:
+  - 단일 진실 공급원 (Single Source of Truth)
+  - 일관된 검증 로직
+  - 중앙 집중식 로깅
+  - 이벤트 기반 동기화

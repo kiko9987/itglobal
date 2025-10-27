@@ -1,0 +1,1763 @@
+/**
+ * ProjectRowAccordion 모던 CSS 시스템
+ * 인라인 스타일을 체계적인 CSS 클래스로 대체
+ * 레거시와 동일한 Inter 폰트 통합
+ */
+
+/* ===== 레거시 수준 폰트 시스템 통일 ===== */
+.project-accordion-container,
+.project-title-section,
+.info-card,
+.legacy-card,
+.folder-path,
+.collection-notes,
+.legacy-card-text,
+.legacy-card-value,
+.legacy-card-label,
+.project-code-badge,
+.project-address-info,
+.project-content-info {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ===== 아코디언 컨테이너 ===== */
+.project-accordion-container {
+  display: none;
+}
+
+.project-accordion-container.show {
+  display: block;
+}
+
+/* ===== 아코디언 행 ===== */
+.accordion-row td {
+  padding: 0 !important;
+  border: none !important;
+  background: white !important;
+}
+
+/* 아코디언 행 호버 효과 제거 - Bootstrap .table-hover와 DataTables 덮어쓰기 */
+.table-hover > tbody > tr.accordion-row:hover > *,
+.table-hover > tbody > tr.accordion-row:hover > td,
+table.table.dataTable.table-hover > tbody > tr.accordion-row:hover > *,
+table.dataTable.table-hover > tbody > tr.accordion-row:hover > * {
+  --bs-table-hover-bg: transparent !important;
+  background: white !important;
+  background-color: white !important;
+  box-shadow: none !important; /* DataTables 호버 효과 제거 */
+}
+
+/* row-details 내부 요소 호버 효과 제거 */
+.table-hover > tbody > tr.accordion-row:hover .row-details,
+table.table.dataTable.table-hover > tbody > tr.accordion-row:hover .row-details,
+table.dataTable.table-hover > tbody > tr.accordion-row:hover .row-details {
+  background-color: var(--gray-50) !important;
+  box-shadow: none !important; /* DataTables 호버 효과 제거 */
+}
+
+.accordion-content {
+  padding: 0;
+}
+
+/* ===== 행 세부사항 ===== */
+.row-details {
+  position: relative;
+  background-color: rgba(241, 245, 249, 0.96);
+  padding: 1.5rem;
+  margin: 1rem 2rem 1rem !important;
+  border-radius: 0 var(--border-radius-lg) var(--border-radius-lg) 0;
+}
+
+.row-details::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6366f1, #93c5fd);
+}
+
+.accordion-shell.project-cancelled .row-details::before {
+  background: linear-gradient(180deg, #9ca3af, #d1d5db);
+  box-shadow: 0 0 0 1px rgba(156, 163, 175, 0.45);
+}
+
+/* .row-details는 hover 상태와 동일한 색상을 유지 */
+.row-details,
+.row-details:hover,
+tr.accordion-row:hover .row-details,
+.accordion-row:hover .row-details {
+  background-color: rgba(241, 245, 249, 0.96) !important;
+}
+
+/* ===== 프로젝트 타이틀 섹션 ===== */
+.project-title-section {
+  background: #f8f9fa;
+  border: 1px solid var(--gray-200);
+  border-left: 4px solid #007bff;
+  border-radius: var(--border-radius, 8px);
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  min-height: auto;
+  line-height: 1.5;
+}
+
+/* 통합 편집 버튼 스타일 */
+
+.unified-edit-buttons .btn,
+.construction-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  padding: 0.36rem 0.72rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  border-radius: 0.3rem;
+  border-width: 1px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.unified-edit-buttons .btn:hover,
+.construction-action-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(148, 163, 184, 0.16);
+}
+
+.unified-edit-buttons .btn i,
+.construction-action-btn i {
+  font-size: 0.85rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+
+.unified-edit-buttons .btn span,
+.construction-action-btn span {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+/* 공사 취소 버튼 - 붉은 파스텔 톤 */
+.construction-cancel-btn {
+  background-color: #FFEBEE !important;
+  border-color: #FFCDD2 !important;
+  color: #C62828 !important;
+}
+
+.construction-cancel-btn:hover {
+  background-color: #FFCDD2 !important;
+  border-color: #EF9A9A !important;
+  color: #B71C1C !important;
+}
+
+.construction-cancel-btn i {
+  color: #C62828 !important;
+}
+
+.construction-cancel-btn:hover i {
+  color: #B71C1C !important;
+}
+
+.construction-resume-btn i {
+  color: #2563eb;
+}
+
+.accordion-shell.project-cancelled .resume-construction-btn {
+  filter: none !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  background-color: #2563eb !important;
+  border-color: #1d4ed8 !important;
+  color: #fff !important;
+}
+
+.accordion-shell.project-cancelled .resume-construction-btn .fas {
+  color: #fff !important;
+}
+
+.project-title-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.project-title-info {
+  display: flex;
+  flex-wrap: wrap;  /* 줄바꿈 허용 */
+  align-items: center;  /* 중앙 정렬 */
+  gap: 1.5rem;  /* 고정 간격 */
+  flex: 1;
+  min-width: 0;
+}
+
+/* 헤더 편집 모드 스타일 */
+.project-title-info.editing {
+  gap: 1.5rem;  /* 통일된 간격 */
+}
+
+.project-code-badge {
+  font-weight: 700;
+  color: #007bff;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+/* 프로젝트 코드 변경 애니메이션 */
+.project-code-badge.code-changed {
+  animation: codeChange 1s ease;
+}
+
+@keyframes codeChange {
+  0%, 100% {
+    color: #007bff;
+  }
+  50% {
+    color: #FF6B35;
+    transform: scale(1.05);
+  }
+}
+
+/* 헤더 담당자 정보 */
+.project-manager-info {
+  font-size: 0.85rem;
+  color: #6c757d;
+  display: flex;
+  align-items: center;
+  /* gap 제거: me-2로 충분, 다른 항목과 일관성 유지 */
+  flex-shrink: 0;
+}
+
+.project-manager-info.editable {
+  flex: 0 1 auto;
+}
+
+.project-address-info {
+  font-size: 0.85rem;
+  color: #6c757d;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.project-address-info.editable {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.project-content-info {
+  font-size: 0.85rem;
+  color: #6c757d;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.project-content-info.editable {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/* 넓은 입력 필드 (현장주소, 공사내용) */
+.project-title-info .wide-field {
+  flex: 0 1 500px;   /* 기본 500px, 화면이 작으면 줄어듦 */
+  max-width: 100%;   /* 최대 100% */
+  min-width: 180px;  /* 최소 크기를 더 줄임 */
+  display: flex;
+  align-items: center;
+}
+
+.wide-field .header-edit-input {
+  width: 100%;
+  min-width: 0;
+}
+
+/* 좁은 화면에서 입력 필드 아래로 정렬 */
+@media (max-width: 768px) {
+  .project-title-info .wide-field {
+    flex: 1 1 100%;
+  }
+}
+
+/* 헤더 편집 드롭다운 스타일 */
+.header-edit-select {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--gray-300, #cbd5e1);
+  border-radius: 4px;
+  background: white;
+  color: #495057;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  min-width: 100px;
+  max-width: 150px;
+}
+
+.header-edit-select:hover {
+  border-color: var(--primary-color, #FF6B35);
+  box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1);
+}
+
+.header-edit-select:focus {
+  outline: none;
+  border-color: var(--primary-color, #FF6B35);
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.2);
+}
+
+/* 헤더 편집 텍스트 입력 스타일 */
+.header-edit-input {
+  font-size: 0.85rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--gray-300, #cbd5e1);
+  border-radius: 4px;
+  background: white;
+  color: #495057;
+  transition: all 0.2s ease;
+  /* 너비는 부모(.wide-field)가 제어 */
+}
+
+.header-edit-input:hover {
+  border-color: var(--primary-color, #FF6B35);
+  box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1);
+}
+
+.header-edit-input:focus {
+  outline: none;
+  border-color: var(--primary-color, #FF6B35);
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.2);
+}
+
+.header-edit-input::placeholder {
+  color: #adb5bd;
+  font-style: italic;
+}
+
+/* 프로젝트 타이틀 섹션 내부 요소들 */
+.project-title-section .badge {
+  color: #007bff;
+}
+
+.project-title-section i {
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+.project-title-section .text-muted {
+  color: #6c757d !important;
+  font-size: 0.85rem;
+}
+
+.project-actions-container {
+  flex-shrink: 0;
+  margin-left: var(--spacing-md, 1rem);
+  display: flex;
+  gap: var(--spacing-xs, 0.5rem);
+  align-items: center;
+}
+
+/* ===== 정보 카드 그리드 ===== */
+.all-info-container {
+  margin-bottom: 1rem;
+}
+
+.all-info-container .row {
+  --bs-gutter-x: 0.75rem;
+}
+
+.info-card-column {
+  flex: 0 0 20%;
+  max-width: 20%;
+}
+
+/* ===== 아코디언 열린 메인 행 강조 - 모든 가능한 선택자로 절대 우선순위 확보 ===== */
+.table-wrapper .table tbody tr.table-active,
+.table-wrapper table tbody tr.table-active,
+.table-wrapper .dataTable tbody tr.table-active,
+.table-wrapper table.dataTable tbody tr.table-active,
+.table-wrapper .projects-table tbody tr.table-active,
+.projects-table tbody tr.table-active,
+tbody tr.table-active,
+table tbody tr.table-active,
+.table-hover tbody tr.table-active,
+.table.table-hover tbody tr.table-active,
+table.dataTable tbody tr.table-active,
+table.projects-table tbody tr.table-active,
+table.table.dataTable.projects-table tbody tr.table-active,
+div.table-wrapper table.table.projects-table tbody tr.table-active,
+div.table-wrapper table.dataTable.projects-table tbody tr.table-active,
+#projectsTable tbody tr.table-active,
+table#projectsTable tbody tr.table-active,
+.table-wrapper table#projectsTable tbody tr.table-active {
+  background: rgba(255, 107, 53, 0.05) !important;
+  background-color: rgba(255, 107, 53, 0.05) !important;
+  background-image: none !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+}
+
+/* 아코디언 열린 메인 행의 모든 셀에도 동일한 배경 - 모든 가능한 선택자로 절대 우선순위 확보 */
+.table-wrapper .table tbody tr.table-active td,
+.table-wrapper table tbody tr.table-active td,
+.table-wrapper .dataTable tbody tr.table-active td,
+.table-wrapper table.dataTable tbody tr.table-active td,
+.table-wrapper .projects-table tbody tr.table-active td,
+.projects-table tbody tr.table-active td,
+.table tbody tr.table-active td,
+tbody tr.table-active td,
+tr.table-active td,
+table tbody tr.table-active td,
+.table-hover tbody tr.table-active td,
+.table.table-hover tbody tr.table-active td,
+table.dataTable tbody tr.table-active td,
+table.projects-table tbody tr.table-active td,
+table.table.dataTable.projects-table tbody tr.table-active td,
+div.table-wrapper table.table.projects-table tbody tr.table-active td,
+div.table-wrapper table.dataTable.projects-table tbody tr.table-active td,
+#projectsTable tbody tr.table-active td,
+table#projectsTable tbody tr.table-active td,
+.table-wrapper table#projectsTable tbody tr.table-active td {
+  background: rgba(255, 107, 53, 0.05) !important;
+  background-color: rgba(255, 107, 53, 0.05) !important;
+  background-image: none !important;
+  border-color: #dee2e6 !important;
+}
+
+/* ===== 활성 아코디언 행 스타일 (Bootstrap 변수 제어 방식) ===== */
+
+/* 활성 행(.table-active)의 기본 배경색을 오렌지 계열로 지정 */
+.table > tbody > tr.table-active {
+    --bs-table-bg: rgba(255, 107, 53, 0.05); /* 행 배경색 변수 재정의 */
+    --bs-table-striped-bg: rgba(255, 107, 53, 0.05); /* 줄무늬 테이블일 경우도 재정의 */
+    color: #37474F !important;
+}
+
+/* 활성 행에 마우스를 올렸을 때(hover) 회색 오버레이가 나타나지 않도록 변수 자체를 제어 */
+.table > tbody > tr.table-active:hover {
+    --bs-table-hover-bg: rgba(255, 107, 53, 0.05); /* 호버 시 배경색 변수를 동일한 색으로 지정 */
+    color: #37474F !important;
+}
+
+/* ✅ 중복 제거 완료 - 위의 우선순위 규칙으로 통합 */
+
+/* ===== 정보 카드 스타일 ===== */
+.info-card {
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--border-radius-lg);
+  padding: 1.2rem;
+  height: 100%;
+  min-height: 280px;
+  transition: all 0.2s ease;
+}
+
+/* 편집 모드일 때만 카드 호버 효과 */
+.editing.info-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--box-shadow-md);
+  border-color: var(--gray-300);
+}
+
+.row-details .card {
+  border: 1px solid var(--gray-200);
+  box-shadow: var(--shadow-sm);
+  border-radius: var(--border-radius-lg);
+  background: white;
+  margin: 0 2rem;
+}
+
+.row-details .card-body {
+  padding: 2rem;
+}
+
+/* ===== 액션 버튼 스타일 ===== */
+.cancel-project-btn,
+.resume-project-btn {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.7rem;
+  transition: var(--transition-base, all 0.15s ease-in-out);
+}
+
+.resume-project-btn {
+  background-color: var(--success-alpha-10, rgba(16, 185, 129, 0.1));
+  border: 1px solid var(--success-alpha-30, rgba(16, 185, 129, 0.3));
+  color: var(--success-dark, #155724);
+}
+
+.cancel-project-btn {
+  background-color: var(--danger-alpha-10, rgba(239, 68, 68, 0.1));
+  border: 1px solid var(--danger-alpha-30, rgba(239, 68, 68, 0.3));
+  color: var(--danger-dark, #721c24);
+  margin-left: 2px;
+}
+
+/* ===== 문서 폴더 블록 (레거시 스타일) ===== */
+.document-folder-block {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: var(--border-radius, 8px);
+}
+
+.document-folder-block.no-path {
+  background: #fff3cd;
+}
+
+.document-folder-block h6 {
+  margin-bottom: 0.5rem;
+  color: var(--gray-900);
+  font-weight: 600;
+}
+
+/* ===== 폴더 경로 표시 ===== */
+.folder-path {
+  background: var(--gray-50, #f8f9fa);
+  padding: var(--spacing-xs, 0.5rem);
+  border-radius: var(--border-radius-sm, 4px);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.85rem;
+}
+
+.folder-path-empty {
+  font-style: italic;
+  color: var(--gray-500, #6b7280);
+}
+
+/* ===== 수금 관련 특이사항 ===== */
+.collection-notes {
+  background: transparent;
+  padding: var(--spacing-xs, 0.5rem);
+}
+
+/* ===== 인라인 편집 요소 ===== */
+.inline-edit-input.text-input,
+.inline-edit-input[type="text"],
+.inline-edit-input[type="number"] {
+  min-width: 80px; /* 더 유연한 최소 넓이 */
+}
+
+.inline-edit-input.input-manager.text-input {
+  min-width: 90px; /* 담당자 필드 최소 넓이 줄이기 */
+}
+
+.inline-edit-input.input-readonly.text-input {
+  min-width: 80px; /* 읽기 전용 필드도 줄이기 */
+  border: 1px solid var(--gray-300, #cbd5e1);
+  background: var(--gray-50, #f8fafc);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+/* ===== 편집 모드 입력창 통합 크기 관리 ===== */
+
+/* 드롭박스(select)만 내용에 맞게 자동 조정 */
+.inline-edit-input.form-select,
+.inline-edit-input.form-select-sm,
+.inline-editor.form-select,
+.inline-editor.form-select-sm {
+  width: auto; /* 옵션 텍스트에 맞게 조정 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+  flex: none;
+  display: inline-block;
+}
+
+/* 멀티셀렉트 드롭다운 래퍼 - form-select와 완전히 동일 */
+.inline-edit-input.multi-select-dropdown {
+  width: auto; /* form-select와 동일 */
+  max-width: 100%; /* form-select와 동일 */
+  flex: none; /* form-select와 동일 */
+  display: inline-block;
+}
+
+/* 멀티셀렉트 버튼도 동일 */
+.inline-edit-input.multi-select-dropdown .multi-select-btn {
+  width: 100%; /* 부모 크기를 따름 */
+}
+
+/* 일반 입력창(input)들은 적당한 고정 크기 */
+.inline-edit-input.form-control,
+.inline-edit-input.form-control-sm,
+.inline-editor.form-control,
+.inline-editor.form-control-sm {
+  width: 100px; /* 기본 크기 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+  flex: none;
+  display: inline-block;
+}
+
+/* 크기별 세분화 override */
+.inline-edit-input.input-small.form-control,
+.inline-edit-input.input-small.form-control-sm {
+  width: 80px; /* 작은 입력창 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* input-manager 클래스 제거 - 카드별 레이아웃 시스템 사용 */
+
+.inline-edit-input.money-field.form-control,
+.inline-edit-input.money-field.form-control-sm {
+  width: 110px; /* 금액 입력창 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 문서 폴더/수금 특이사항 - editable-value가 flex로 늘어나도록 */
+.document-card .legacy-card-main .editable-value,
+.collection-card .legacy-card-main .editable-value {
+  flex: 1 1 100% !important;
+  min-width: 0 !important;
+  display: flex !important;
+}
+
+/* 문서 폴더/수금 특이사항 입력창 - 부모 폭에 맞춰 꽉 차게 */
+.document-card .legacy-card-main .editable-value .inline-edit-input,
+.collection-card .legacy-card-main .editable-value .inline-edit-input {
+  width: 100% !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 이메일 입력창 - 기본값 (카드별 override 가능) */
+input[type="email"].inline-edit-input.form-control,
+input[type="email"].inline-edit-input.form-control-sm {
+  width: 130px; /* 기본 이메일 필드 크기 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 연락처 입력창 - 기본값 (카드별 override 가능) */
+input[type="tel"].inline-edit-input.form-control,
+input[type="tel"].inline-edit-input.form-control-sm {
+  width: 120px; /* 기본 전화번호 필드 크기 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 텍스트 영역 */
+.inline-edit-textarea.form-control {
+  width: 200px; /* 텍스트 영역은 좀 더 넓게 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+  min-height: 60px;
+}
+
+/* 날짜 입력 필드 - 적절한 크기 설정 */
+input[type="date"].inline-edit-input.form-control,
+input[type="date"].inline-edit-input.form-control-sm,
+input[type="date"].inline-editor.form-control,
+input[type="date"].inline-editor.form-control-sm {
+  width: 110px; /* 날짜 표시 + 아이콘에 적절한 크기 */
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+  cursor: pointer;
+}
+
+.inline-edit-input.input-readonly.text-input:hover {
+  border-color: var(--primary-color, #FF6B35);
+  background: white;
+  box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.1);
+}
+
+.inline-edit-input.input-readonly.text-input:focus {
+  border-color: var(--primary-color, #FF6B35);
+  background: white;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.2);
+}
+
+.inline-edit-input.input-small.text-input {
+  min-width: 60px; /* 작은 입력 필드 더 줄이기 */
+}
+
+.inline-edit-textarea {
+  min-width: 150px; /* 텍스트 영역 줄이기 */
+  min-height: 60px;
+}
+
+.inline-edit-select {
+  min-width: 80px; /* 드롭다운 넓이 줄이기 */
+}
+
+/* ===== 체크박스 스타일 ===== */
+.form-check-label {
+  cursor: pointer;
+}
+
+/* 토글 스위치 통합 스타일 - 다른 editable-value와 동일한 시작점 */
+.compact-item .editable-value .form-check.form-switch {
+  margin: 0;
+  padding: 0;
+  /* 다른 editable-value들과 동일한 시작 위치 확보 */
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* 토글 버튼 자체 크기 - Bootstrap 기본값보다 작게 */
+.compact-item .editable-value .form-check.form-switch .form-check-input {
+  width: 2.5rem;
+  height: 1.25rem;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* 토글 스위치 라벨 */
+.compact-item .editable-value .form-check.form-switch .form-check-label {
+  font-size: 0.875rem;
+  margin-left: 0.5rem;
+  padding-left: 0;
+  cursor: pointer;
+}
+
+/* 수금확인 뱃지 레이아웃 */
+.compact-item .editable-value .form-check.form-switch .collection-status-badge {
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  cursor: pointer;
+}
+
+
+.collection-complete-checkbox {
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.collection-complete-input {
+  min-width: 100px;
+}
+
+/* ===== 배지 스타일 ===== */
+.collection-status-badge {
+  cursor: pointer;
+}
+
+.collection-status-complete {
+  background-color: var(--success-color, #10b981) !important;
+}
+
+.collection-status-pending {
+  background-color: var(--warning-color, #f59e0b) !important;
+}
+
+/* ===== 도움말 아이콘 ===== */
+.help-icon {
+  cursor: help;
+  font-size: 0.8rem;
+}
+
+/* ===== 카드 스타일 편집 아이콘 ===== */
+.card-edit-icon {
+  background: none;
+  border: none;
+  color: var(--gray-500, #6b7280);
+  font-size: 0.875rem;
+  padding: 0.25rem;
+  border-radius: 4px;
+  transition: var(--transition-base, all 0.15s ease-in-out);
+  cursor: pointer;
+}
+
+.card-edit-icon:hover {
+  background-color: var(--gray-100, #f3f4f6);
+  color: var(--gray-700, #374151);
+  transform: scale(1.1);
+}
+
+.card-edit-icon:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-alpha-30, rgba(59, 130, 246, 0.3));
+}
+
+/* ===== 호버 효과 ===== */
+.cancel-project-btn:hover,
+.resume-project-btn:hover {
+  transform: scale(1.05);
+  opacity: 0.9;
+}
+
+/* .collection-status-badge:hover removed - 사용자 요청으로 뱃지 호버 효과 제거 */
+
+/* ===== 반응형 디자인 ===== */
+@media (max-width: 1199.98px) {
+  .info-card-column {
+    flex: 0 0 33.333333%;
+    max-width: 33.333333%;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .info-card-column {
+    flex: 0 0 50%;
+    max-width: 50%;
+  }
+
+  .project-title-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs, 0.5rem);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .info-card-column {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  .project-title-flex {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-sm, 0.5rem);
+  }
+
+  .project-actions-container {
+    margin-left: 0;
+    justify-content: center;
+  }
+
+  .accordion-content {
+    padding: 0;
+  }
+}
+
+/* ===== 애니메이션 ===== */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 1;
+    max-height: 2000px;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(0);
+  }
+}
+
+.accordion-slide-down {
+  animation: slideDown var(--duration-300, 300ms) ease-out;
+}
+
+.accordion-slide-up {
+  animation: slideUp var(--duration-300, 300ms) ease-out;
+}
+
+/* ===== 포커스 스타일 ===== */
+.inline-edit-input.text-input:focus,
+.inline-edit-input[type="text"]:focus,
+.inline-edit-input[type="number"]:focus,
+.inline-edit-input[type="date"]:focus,
+.inline-edit-textarea:focus,
+.inline-edit-select:focus {
+  outline: none;
+  border-color: var(--primary-color, #007bff);
+  box-shadow: none !important;  /* 그림자 제거 */
+  background-color: white !important;  /* 배경색 제거 */
+}
+
+/* 인라인 편집 요소 호버 시 주황색 테두리 효과 */
+.inline-edit-input.text-input:hover,
+.inline-edit-input[type="text"]:hover,
+.inline-edit-input[type="number"]:hover,
+.inline-edit-input[type="date"]:hover,
+.inline-edit-input[type="tel"]:hover,
+.inline-edit-input[type="email"]:hover,
+.inline-edit-textarea:hover,
+.inline-edit-select:hover {
+  background-color: white !important;
+  border-color: var(--primary-color, #FF6B35) !important;
+  transition: border-color 0.15s ease-in-out !important;
+}
+
+
+/* ===== 로딩 스타일 ===== */
+.accordion-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--spacing-xl, 2rem);
+  color: var(--gray-600, #6b7280);
+}
+
+.accordion-loading::before {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--gray-300, #d1d5db);
+  border-top-color: var(--primary-color, #007bff);
+  border-radius: 50%;
+  animation: spin var(--duration-1000, 1000ms) linear infinite;
+  margin-right: var(--spacing-sm, 0.5rem);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===== 레거시 카드 시스템 ===== */
+.legacy-card {
+  background: var(--gray-50, #f8f9fa);
+  border: 1px solid var(--gray-200, #e2e8f0);
+  border-radius: var(--border-radius, 8px);
+  padding: 0.5rem 1rem;
+  margin-top: 1rem;
+}
+
+.legacy-card-empty {
+  background: #fff3cd;
+  border-color: #ffc107;
+  color: #856404;
+}
+
+/* ===== 레거시 인라인 행 레이아웃 ===== */
+.legacy-card-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  column-gap: 0.75rem;
+  flex-wrap: nowrap;
+  margin-bottom: 0.25rem;
+  min-height: 32px;
+}
+
+.legacy-card-main {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.legacy-card-label {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+  color: var(--gray-700, #495057);
+  flex-shrink: 0;
+}
+.legacy-card-label::after {
+  content: ':';
+  margin-left: 0.25rem;
+}
+
+.legacy-card-value {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.legacy-card-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
+  color: var(--gray-700, #374151);
+  padding: 0;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.legacy-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.legacy-card-edit {
+  display: none;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.legacy-card-edit input,
+.legacy-card-edit textarea {
+  flex: 1;
+  min-width: 0; /* 유연하게 줄어들도록 */
+}
+
+/* ===== 레거시 카드 기본 스타일 (이전 호환성) ===== */
+.legacy-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--gray-800, #343a40);
+  margin-bottom: 0.75rem;
+}
+
+.legacy-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.legacy-card-value {
+  padding: 0.5rem;
+  border-radius: var(--border-radius-sm, 4px);
+  background: #fff;
+  border: 1px solid var(--gray-200, #e2e8f0);
+  font-size: 0.85rem;
+}
+
+.legacy-card-placeholder {
+  font-style: italic;
+  color: var(--gray-600, #6c757d);
+}
+
+.collection-card .collection-notes {
+  background: transparent;
+  padding: 0.5rem 0.75rem;
+}
+
+/* ===== 다크모드 지원 ===== */
+@media (prefers-color-scheme: dark) {
+  .project-title-section {
+    background: linear-gradient(135deg, var(--dark-secondary, #2d2d2d) 0%, var(--dark-accent, #3a3a3a) 100%);
+    border-left-color: var(--primary-color, #007bff);
+  }
+
+  .folder-path,
+  .collection-notes {
+    background: var(--dark-secondary, #2d2d2d);
+    color: var(--gray-200, #e5e7eb);
+  }
+
+  .accordion-row td {
+    background: var(--dark-secondary, #2d2d2d) !important;
+  }
+
+  .legacy-card {
+    background: var(--dark-secondary, #2d2d2d);
+    border-color: var(--gray-600, #4b5563);
+    color: var(--gray-200, #e5e7eb);
+  }
+
+  .legacy-card-value,
+  .collection-card .collection-notes {
+    background: var(--dark-accent, #3a3a3a);
+    border-color: var(--gray-600, #4b5563);
+    color: var(--gray-200, #e5e7eb);
+  }
+}
+
+/* ===== LEGACY-LEVEL TEXT OVERFLOW HANDLING ===== */
+/* Using proper CSS specificity to naturally override competing styles */
+
+/* Document folder path overflow handling */
+.legacy-card .folder-path,
+.document-card .folder-path {
+  word-break: break-all;
+  word-wrap: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+
+/* Legacy card text content overflow handling */
+.legacy-card .legacy-card-text,
+.legacy-card-main .legacy-card-text,
+.document-card .legacy-card-text {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  word-wrap: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Legacy card value overflow handling */
+.legacy-card .legacy-card-value,
+.legacy-card-main .legacy-card-value,
+.document-card .legacy-card-value {
+  word-break: break-all;
+  word-wrap: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+
+/* ===== 카드 값 텍스트 오버플로우 처리 ===== */
+/* 모든 카드 항목들의 텍스트 오버플로우 방지 */
+.compact-item .editable-value,
+.info-card .editable-value,
+.legacy-card-value,
+.project-address-info,
+.project-content-info,
+.folder-link {
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  /* 카드 경계를 벗어나지 않도록 제한 */
+  box-sizing: border-box;
+}
+
+/* 이메일과 URL같은 긴 텍스트에 특화된 처리 */
+.compact-item .editable-value[data-field*="메일"],
+.compact-item .editable-value[data-field*="email"],
+.compact-item .editable-value[data-field*="링크"],
+.compact-item .editable-value[data-field*="url"],
+.folder-link,
+a[id^="folder-display-"] {
+  word-break: break-all;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  /* 긴 URL이나 이메일의 경우 줄바꿈 허용 */
+}
+
+/* 특별히 긴 텍스트 필드 (주소, 내용 등) */
+.project-address-info,
+.project-content-info {
+  line-height: 1.4;
+  word-spacing: -0.1em;
+  /* 약간의 자간 조정으로 더 많은 텍스트 수용 */
+}
+
+/* 컴팩트 카드의 그리드 아이템들이 카드를 벗어나지 않도록 */
+.compact-card .card-grid .compact-item {
+  min-width: 0;
+  /* flexbox의 기본 min-width:auto를 무력화 */
+  overflow: hidden;
+}
+
+/* 뱃지가 포함된 값들도 오버플로우 처리 */
+.compact-item .editable-value .badge,
+.compact-item .editable-value .status-badge,
+.compact-item .editable-value .collection-status-badge {
+  max-width: 100%;
+  word-wrap: break-word;
+  white-space: normal;
+  /* 필요시 뱃지 텍스트도 줄바꿈 허용 */
+}
+
+/* ===== 카드별 레이아웃 시스템 V2 (충돌 해결) ===== */
+
+/* === 우선순위 높은 카드별 특화 규칙 === */
+
+/* 1. 기본정보 카드: 드롭박스 필드들 - 공사정보 카드와 크기 통일 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="사업자"] .inline-edit-input.form-select,
+[id^="card-basic-"] .compact-item .editable-value[data-field="도급 구분"] .inline-edit-input.form-select {
+  width: 130px !important; /* 공사정보 카드와 동일한 크기로 통일 */
+  min-width: 80px !important; /* 최소 크기 조정 - 반응형 지원 */
+  max-width: 100% !important; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 도급 구분 멀티셀렉트 - 사업자 select와 완전히 동일한 규칙 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="도급 구분"] .inline-edit-input.multi-select-dropdown {
+  width: 130px !important; /* 사업자와 동일 */
+  min-width: 80px !important; /* 사업자와 동일 */
+  max-width: 100% !important; /* 사업자와 동일 */
+}
+
+/* 도급 구분 멀티셀렉트 버튼도 동일 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="도급 구분"] .inline-edit-input.multi-select-dropdown .multi-select-btn {
+  width: 130px !important;
+  min-width: 80px !important;
+  max-width: 100% !important;
+}
+
+/* 기본정보 카드: 시공자 입력 필드 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="시공자"] .inline-edit-input.form-control {
+  width: 130px !important; /* 드롭박스와 동일한 크기로 통일 */
+  min-width: 80px !important; /* 최소 크기 조정 - 반응형 지원 */
+  max-width: 100% !important; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 시공자 멀티셀렉트 - 사업자, 도급 구분 select와 완전히 동일한 규칙 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="시공자"] .inline-edit-input.multi-select-dropdown {
+  width: 130px !important; /* 사업자, 도급 구분과 동일 */
+  min-width: 80px !important; /* 사업자, 도급 구분과 동일 */
+  max-width: 100% !important; /* 사업자, 도급 구분과 동일 */
+}
+
+/* 시공자 멀티셀렉트 버튼도 동일 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="시공자"] .inline-edit-input.multi-select-dropdown .multi-select-btn {
+  width: 130px !important;
+  min-width: 80px !important;
+  max-width: 100% !important;
+}
+
+/* 기본정보 카드: 현장담당자 입력 필드 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="현장 담당자"] .inline-edit-input.form-control {
+  width: 126px !important; /* 드롭박스보다 4px 작게 */
+  min-width: 80px !important; /* 최소 크기 조정 - 반응형 지원 */
+  max-width: 100% !important; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 연락처/이메일 일반모드 위치 조정 */
+[id^="card-basic-"] .compact-item .editable-value[data-field="담당자 연락처"],
+[id^="card-basic-"] .compact-item .editable-value[data-field="담당자 이메일"] {
+  margin-left: -22px;
+}
+
+/* 연락처/이메일 편집모드 위치 및 크기 조정 */
+input[type="tel"].inline-edit-input.input-manager,
+input[type="tel"].inline-edit-input,
+input[type="email"].inline-edit-input.form-control,
+input[type="email"].inline-edit-input {
+  margin-left: -2px; /* 일반모드에서 이미 -22px 적용되어 있으므로 -2px로 총 -22px */
+  width: 150px;
+  max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 2. 공사정보 카드: 기계분류를 기준으로 select 크기 통일 */
+[id^="card-construction-"] .compact-item .editable-value[data-field="기계 분류"] .inline-edit-input.form-select,
+[id^="card-construction-"] .compact-item .editable-value[data-field="공사 구분"] .inline-edit-input.form-select,
+[id^="card-construction-"] .compact-item .editable-value[data-field="브랜드"] .inline-edit-input.form-select {
+  width: 130px !important; /* 공사정보 카드 표준 select */
+  min-width: 80px !important; /* 최소 크기 조정 - 반응형 지원 */
+  max-width: 100% !important; /* 부모 컨테이너 넘지 않도록 */
+}
+
+/* 공사정보 카드: 멀티셀렉트 - 일반 select와 완전히 동일한 규칙 */
+[id^="card-construction-"] .compact-item .editable-value[data-field="기계 분류"] .inline-edit-input.multi-select-dropdown,
+[id^="card-construction-"] .compact-item .editable-value[data-field="공사 구분"] .inline-edit-input.multi-select-dropdown,
+[id^="card-construction-"] .compact-item .editable-value[data-field="브랜드"] .inline-edit-input.multi-select-dropdown {
+  width: 130px !important; /* 일반 select와 동일 */
+  min-width: 80px !important; /* 일반 select와 동일 */
+  max-width: 100% !important; /* 일반 select와 동일 */
+}
+
+/* 공사정보 카드: 멀티셀렉트 버튼도 동일 */
+[id^="card-construction-"] .compact-item .editable-value[data-field="기계 분류"] .inline-edit-input.multi-select-dropdown .multi-select-btn,
+[id^="card-construction-"] .compact-item .editable-value[data-field="공사 구분"] .inline-edit-input.multi-select-dropdown .multi-select-btn,
+[id^="card-construction-"] .compact-item .editable-value[data-field="브랜드"] .inline-edit-input.multi-select-dropdown .multi-select-btn {
+  width: 130px !important;
+  min-width: 80px !important;
+  max-width: 100% !important;
+}
+
+/* 3. 금액정보/수금정보/손익정보 카드는 기존 글로벌 설정 유지 */
+/* 별도 override 없음 - 기존 100px 등 글로벌 설정 적용 */
+
+/* === 유지보수 가이드 (V2) === */
+/*
+📋 카드별 레이아웃 시스템 가이드:
+
+🎯 설계 원칙:
+  - 카드별 특화 > 전역 설정 (높은 특이성 + !important)
+  - .editable-value[data-field="정확한필드명"] 패턴 사용
+  - CSS 충돌 방지를 위한 체계적 선택자 설계
+
+🏢 기본정보 카드 (card-basic-*):
+  ✅ SELECT 필드들 (드롭박스): 130px 통일
+    - 사업자, 도급구분 (공사정보 카드와 동일)
+  ✅ TEXT INPUT 필드들 (텍스트 입력): 130px 통일
+    - 시공자, 현장담당자 (드롭박스와 동일)
+  ✅ 특별 처리:
+    - 연락처: 150px(편집) + 왼쪽 20px 이동(표시/편집 공통)
+    - 이메일: 150px(편집) + 왼쪽 20px 이동(표시/편집 공통)
+
+🔨 공사정보 카드 (card-construction-*):
+  ✅ SELECT 필드들: 130px 통일
+    - 기계분류, 공사구분, 브랜드
+
+💰 금액/수금/손익정보 카드:
+  ✅ 기존 전역 설정 유지
+    - SELECT: auto width
+    - INPUT: 100px
+    - 날짜: 110px
+    - 금액: 110px + 우측정렬
+
+🔧 CSS 특이성 계층:
+  1. 카드별 특화 (!important) ← 최고 우선순위
+  2. 타입별 전역 (email, tel, date 등)
+  3. 일반 전역 (.inline-edit-input)
+  4. Bootstrap 기본값
+
+🛠️ 새 카드 추가 방법:
+  1. [id^="card-새이름-"] 패턴 사용
+  2. .editable-value[data-field="정확한필드명"] 지정
+  3. !important로 우선순위 확보
+  4. 이 가이드 업데이트
+
+⚠️ 주의사항:
+  - !important는 카드별 특화에만 사용
+  - data-field 값은 JS의 실제 필드명과 정확히 일치해야 함
+  - 새 설정 추가 전 기존 전역 설정과 충돌 여부 확인
+*/
+
+/* ===== 최후 수단: 아코디언 활성화 행 절대 우선순위 보장 ===== */
+/* 이 규칙들이 가장 마지막에 로드되어 모든 외부 CSS를 오버라이드합니다 */
+*[class*="table"] tbody tr.table-active,
+table.dataTable tbody tr.table-active,
+table.projects-table tbody tr.table-active,
+#projectsTable tbody tr.table-active,
+tbody tr.table-active.border-danger,
+tr.table-active.border-danger.border-3,
+.border-danger.border-3.table-active {
+  background: rgba(255, 107, 53, 0.05) !important;
+  background-color: rgba(255, 107, 53, 0.05) !important;
+  background-image: none !important;
+}
+
+*[class*="table"] tbody tr.table-active td,
+table.dataTable tbody tr.table-active td,
+table.projects-table tbody tr.table-active td,
+#projectsTable tbody tr.table-active td,
+tbody tr.table-active.border-danger td,
+tr.table-active.border-danger.border-3 td,
+.border-danger.border-3.table-active td {
+  background: rgba(255, 107, 53, 0.05) !important;
+  background-color: rgba(255, 107, 53, 0.05) !important;
+  background-image: none !important;
+}
+
+*[class*="table"] tbody tr.table-active:hover,
+table.dataTable tbody tr.table-active:hover,
+table.projects-table tbody tr.table-active:hover,
+#projectsTable tbody tr.table-active:hover,
+tbody tr.table-active.border-danger:hover,
+tr.table-active.border-danger.border-3:hover,
+.border-danger.border-3.table-active:hover {
+  background: rgba(255, 107, 53, 0.05) !important;
+  background-color: rgba(255, 107, 53, 0.05) !important;
+  background-image: none !important;
+}
+
+*[class*="table"] tbody tr.table-active:hover td,
+table.dataTable tbody tr.table-active:hover td,
+table.projects-table tbody tr.table-active:hover td,
+#projectsTable tbody tr.table-active:hover td,
+tbody tr.table-active.border-danger:hover td,
+tr.table-active.border-danger.border-3:hover td,
+.border-danger.border-3.table-active:hover td {
+  background: rgba(255, 107, 53, 0.05) !important;
+  background-color: rgba(255, 107, 53, 0.05) !important;
+  background-image: none !important;
+}
+
+/* ===== 읽기 전용 카드 워터마크 효과 ===== */
+.info-card.readonly-card {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(156, 163, 175, 0.15) !important; /* 취소 공사처럼 회색조 배경 */
+}
+
+.readonly-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.2; /* 0.08 → 0.2로 증가하여 더 잘 보이게 */
+  pointer-events: none;
+  z-index: 1;
+  user-select: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.readonly-watermark i {
+  font-size: 4.5rem;
+  color: #dc3545; /* 회색 → 붉은색 */
+  margin-bottom: 0.5rem;
+}
+
+.readonly-watermark span {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #dc3545; /* 회색 → 붉은색 */
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+/* 읽기 전용 카드 컨텐츠가 워터마크 위에 표시되도록 */
+.readonly-card > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* ===== 아코디언 열림 상태 배경색 강제 오버라이드 ===== */
+/* 아코디언 행은 배경 없음, 아코디언 열림 메인 행은 옅은 주황색 유지 */
+#projectsTable tbody tr.accordion-row td {
+  background-color: white !important;
+  box-shadow: none !important;
+}
+
+/* ===== 최종 호버 효과 제거 (모든 충돌 규칙 덮어쓰기) ===== */
+/* global-ux.css와 project-table.css의 호버 규칙을 완전히 덮어씀 */
+
+/* accordion-row는 항상 흰색 배경 유지 (호버해도 변화 없음) */
+.table-wrapper table tbody tr.accordion-row,
+.table tbody tr.accordion-row,
+tr.accordion-row {
+  background-color: white !important;
+}
+
+.table-wrapper table tbody tr.accordion-row:hover,
+.table tbody tr.accordion-row:hover,
+tr.accordion-row:hover {
+  background-color: white !important;
+  cursor: default !important;
+}
+
+.table-wrapper table tbody tr.accordion-row:hover td,
+.table tbody tr.accordion-row:hover td,
+tr.accordion-row:hover td {
+  background-color: white !important;
+}
+
+/* project-table.css의 ::before 가상 요소 제거 */
+.table-wrapper table tbody tr.accordion-row:hover td::before,
+.table tbody tr.accordion-row:hover td::before,
+tr.accordion-row:hover td::before {
+  display: none !important;
+  content: none !important;
+}
+
+/* row-details는 항상 회색 배경 유지 (호버해도 변화 없음) */
+#projectsTable tbody tr.accordion-open .row-details,
+.row-details {
+  background-color: var(--gray-50) !important;
+}
+
+.table-wrapper table tbody tr.accordion-row:hover .row-details,
+.table tbody tr.accordion-row:hover .row-details,
+tr.accordion-row:hover .row-details,
+.row-details:hover {
+  background-color: var(--gray-50) !important;
+  cursor: default !important;
+}
+
+/* ============================================
+   Tom Select 멀티셀렉트 스타일 (아코디언 카드 내부)
+   ============================================ */
+
+/* Tom Select 컨테이너 */
+.info-card.editing .ts-wrapper {
+  width: 100% !important;
+}
+
+/* Tom Select 컨트롤 (입력 영역) */
+.info-card.editing .ts-control {
+  min-height: 34px !important;
+  border: 1px solid var(--gray-300) !important;
+  border-radius: var(--border-radius) !important;
+  padding: 4px !important;
+  font-size: 0.875rem !important;
+  background-color: white !important;
+}
+
+/* Tom Select 포커스 스타일 */
+.info-card.editing .ts-control.focus {
+  border-color: var(--primary-color) !important;
+  box-shadow: 0 0 0 0.2rem rgba(255, 107, 53, 0.25) !important;
+}
+
+/* 체크박스 드롭다운 멀티셀렉트 - form-select과 완전히 동일한 스타일 */
+.info-card.editing .multi-select-dropdown.inline-edit-input {
+  position: relative !important;
+  display: inline-block !important;
+}
+
+/* 버튼을 select처럼 보이게 - Bootstrap form-select-sm과 완전히 동일 */
+.info-card.editing .multi-select-dropdown .multi-select-btn {
+  display: block !important;
+  width: 100% !important;
+  padding: 0.25rem 2.25rem 0.25rem 0.5rem !important; /* left: 0.75rem → 0.5rem */
+  font-size: 0.875rem !important;
+  font-weight: 400 !important;
+  line-height: 1.5 !important;
+  color: var(--bs-body-color) !important;
+  background-color: var(--bs-body-bg) !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.75rem center !important;
+  background-size: 16px 12px !important;
+  border: 1px solid #dee2e6 !important;
+  border-radius: 0.375rem !important;
+  appearance: none !important;
+  text-align: left !important;
+}
+
+/* Bootstrap 드롭다운 기본 화살표 숨김 */
+.info-card.editing .multi-select-dropdown .multi-select-btn::after {
+  display: none !important;
+}
+
+.info-card.editing .multi-select-dropdown .multi-select-btn:hover {
+  border-color: var(--primary-color) !important;
+}
+
+.info-card.editing .multi-select-dropdown .multi-select-btn:focus {
+  border-color: var(--primary-color) !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+/* 드롭다운 메뉴 */
+.info-card.editing .multi-select-dropdown .dropdown-menu {
+  z-index: 9999 !important;
+  position: absolute !important;
+  padding: 0.5rem 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  border: 1px solid rgba(0,0,0,.15) !important;
+  border-radius: 0.375rem !important;
+  box-shadow: 0 0.5rem 1rem rgba(0,0,0,.175) !important;
+}
+
+.info-card.editing .multi-select-dropdown .dropdown-menu li {
+  list-style: none !important;
+}
+
+.info-card.editing .multi-select-dropdown .dropdown-menu label {
+  cursor: pointer !important;
+  transition: background-color 0.15s ease-in-out !important;
+  display: flex !important;
+}
+
+.info-card.editing .multi-select-dropdown .dropdown-menu label:hover {
+  background-color: #f8f9fa !important;
+}
+
+.info-card.editing .multi-select-dropdown .dropdown-menu label span {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* 시공자 필드 전용: 드롭다운 항목을 가로로 배치 */
+/* .show 클래스가 있을 때만 flex 레이아웃 적용 (드롭다운이 열렸을 때) */
+.multi-select-dropdown[data-field="시공자"] .dropdown-menu.show {
+  width: 450px !important;
+  min-width: 450px !important;
+  padding: 0.75rem !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: wrap !important;
+  gap: 0.5rem !important;
+  max-height: none !important;
+  overflow-y: visible !important;
+}
+
+.multi-select-dropdown[data-field="시공자"] .dropdown-menu.show li {
+  flex: 0 0 calc(25% - 0.5rem) !important;
+  width: calc(25% - 0.5rem) !important;
+  list-style: none !important;
+  padding: 0 !important;
+  display: block !important;
+}
+
+.multi-select-dropdown[data-field="시공자"] .dropdown-menu.show label {
+  justify-content: space-between !important;
+  width: 100% !important;
+  padding: 0.4rem 0.6rem !important;
+  margin: 0 !important;
+  display: flex !important;
+}
+
+.cursor-pointer {
+  cursor: pointer !important;
+}
+
+/* Tom Select 드롭다운 */
+.ts-dropdown {
+  border: 1px solid var(--gray-300) !important;
+  border-radius: var(--border-radius) !important;
+  box-shadow: var(--shadow-lg) !important;
+  font-size: 0.875rem !important;
+  background-color: white !important;
+  z-index: 9999 !important;
+}
+
+/* Tom Select 드롭다운 옵션 */
+.ts-dropdown .option {
+  padding: 8px 12px !important;
+  font-size: 0.875rem !important;
+  cursor: pointer !important;
+}
+
+.ts-dropdown .option:hover,
+.ts-dropdown .option.active {
+  background-color: var(--gray-100) !important;
+  color: var(--gray-900) !important;
+}
+
+.ts-dropdown .option.selected {
+  background-color: var(--primary-color) !important;
+  color: white !important;
+}
+
+/* Tom Select placeholder */
+.ts-control input::placeholder {
+  color: var(--gray-500) !important;
+  font-size: 0.875rem !important;
+}
+
+/* Tom Select 입력 필드 */
+.ts-control input {
+  font-size: 0.875rem !important;
+  color: var(--gray-900) !important;
+}
+
+/* No results 메시지 */
+.ts-dropdown .no-results {
+  padding: 8px 12px !important;
+  color: var(--gray-500) !important;
+  font-size: 0.875rem !important;
+  text-align: center !important;
+}
+
+/* ===== Choices.js 멀티셀렉트 스타일 ===== */
+
+/* 컨테이너 - 드롭다운 화살표 추가 */
+.choices {
+  position: relative !important;
+  margin-bottom: 0 !important;
+  font-size: 0.875rem !important;
+}
+
+/* 드롭다운 화살표 추가 */
+.choices[data-type*="select-multiple"]::after {
+  content: "" !important;
+  position: absolute !important;
+  right: 11.5px !important;
+  top: 50% !important;
+  margin-top: -2.5px !important;
+  border-style: solid !important;
+  border-width: 5px 5px 0 5px !important;
+  border-color: #333 transparent transparent transparent !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+/* 드롭다운 열렸을 때 화살표 회전 */
+.choices.is-open::after {
+  margin-top: -7.5px !important;
+  border-width: 0 5px 5px 5px !important;
+  border-color: transparent transparent #333 transparent !important;
+}
+
+/* 내부 컨테이너 */
+.choices__inner {
+  display: flex !important;
+  align-items: center !important;
+  padding: 0.375rem 2rem 0.375rem 0.75rem !important;
+  background-color: white !important;
+  border: 1px solid #ced4da !important;
+  border-radius: 0.375rem !important;
+  min-height: 31px !important;
+  font-size: 0.875rem !important;
+}
+
+/* 포커스 상태 */
+.choices.is-focused .choices__inner {
+  border-color: #86b7fe !important;
+  outline: 0 !important;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
+}
+
+/* 선택된 항목 (태그) */
+.choices__list--multiple .choices__item {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 2px 8px !important;
+  margin: 2px 4px 2px 0 !important;
+  background-color: #0d6efd !important;
+  color: white !important;
+  border-radius: 0.25rem !important;
+  font-size: 0.875rem !important;
+  line-height: 1.2 !important;
+}
+
+/* 제거 버튼 */
+.choices__list--multiple .choices__item .choices__button {
+  margin-left: 6px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: white !important;
+  font-size: 1rem !important;
+  line-height: 1 !important;
+  opacity: 0.8 !important;
+  cursor: pointer !important;
+}
+
+.choices__list--multiple .choices__item .choices__button:hover {
+  opacity: 1 !important;
+}
+
+/* 드롭다운 리스트 */
+.choices__list--dropdown {
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 1050 !important;
+  margin-top: 2px !important;
+  background-color: white !important;
+  border: 1px solid #ced4da !important;
+  border-radius: 0.375rem !important;
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+  max-height: 300px !important;
+  overflow-y: auto !important;
+  width: 100% !important;
+}
+
+/* 드롭다운 항목 */
+.choices__list--dropdown .choices__item {
+  padding: 0.5rem 0.75rem !important;
+  font-size: 0.875rem !important;
+  cursor: pointer !important;
+}
+
+/* 드롭다운 항목 호버 */
+.choices__list--dropdown .choices__item--selectable:hover,
+.choices__list--dropdown .choices__item.is-highlighted {
+  background-color: #f8f9fa !important;
+}
+
+/* 선택된 항목 표시 */
+.choices__list--dropdown .choices__item--selected {
+  background-color: #e7f3ff !important;
+  color: #0d6efd !important;
+}
+
+/* 입력 필드 숨김 (검색 비활성화) */
+.choices__input {
+  display: none !important;
+}
+
+/* 카드 내부의 Choices 컨테이너 */
+.info-card .choices,
+.legacy-card .choices {
+  width: 100% !important;
+}
+
+/* ===== 폴더 ID 검증 스타일 ===== */
+/* 유효한 폴더 ID일 때 hover 효과 제거 (초록색 유지) */
+.folder-path-input.valid-folder-id:hover,
+.folder-path-input.valid-folder-id:focus {
+  border-color: #23923c !important;
+}
+
+/* 잘못된 폴더 ID는 일반 hover 효과 유지 (주황색) */
+.folder-path-input:not(.valid-folder-id):hover {
+  border-color: #fd7e14 !important;
+}

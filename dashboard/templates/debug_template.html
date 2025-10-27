@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container-fluid">
+    <h2>[SEARCH] Template Context 디버깅</h2>
+
+    <div class="card">
+        <div class="card-body">
+            <h5>Frontend Helpers 함수 테스트</h5>
+
+            <p><strong>modern_build_available 존재:</strong>
+                {% if modern_build_available %}[OK] 있음{% else %}[NO] 없음{% endif %}
+            </p>
+
+            <p><strong>get_css_bundle 존재:</strong>
+                {% if get_css_bundle %}[OK] 있음{% else %}[NO] 없음{% endif %}
+            </p>
+
+            <p><strong>get_js_bundle 존재:</strong>
+                {% if get_js_bundle %}[OK] 있음{% else %}[NO] 없음{% endif %}
+            </p>
+
+            {% if modern_build_available %}
+                <p><strong>modern_build_available() 결과:</strong>
+                    {% if modern_build_available() %}[OK] True{% else %}[NO] False{% endif %}
+                </p>
+            {% endif %}
+
+            {% if get_css_bundle %}
+                <p><strong>get_css_bundle('main') 결과:</strong>
+                    <code>{{ get_css_bundle('main') }}</code>
+                </p>
+            {% endif %}
+
+            {% if get_js_bundle %}
+                <p><strong>get_js_bundle('project-list') 결과:</strong>
+                    <code>{{ get_js_bundle('project-list') }}</code>
+                </p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

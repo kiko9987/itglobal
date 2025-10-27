@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>메모 아이콘 미리보기</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 40px;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 30px;
+    }
+    .icon-row {
+      display: flex;
+      align-items: center;
+      padding: 20px;
+      margin: 10px 0;
+      background: #f8f9fa;
+      border-radius: 6px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .icon-row:hover {
+      background: #e9ecef;
+      transform: translateX(5px);
+    }
+    .icon-preview {
+      font-size: 24px;
+      color: #0d6efd;
+      width: 60px;
+      text-align: center;
+    }
+    .icon-info {
+      flex: 1;
+    }
+    .icon-name {
+      font-weight: 600;
+      color: #212529;
+      margin-bottom: 4px;
+    }
+    .icon-code {
+      font-family: 'Courier New', monospace;
+      color: #6c757d;
+      font-size: 13px;
+    }
+    .current {
+      border: 2px solid #0d6efd;
+      background: #e7f1ff;
+    }
+    .badge {
+      background: #0d6efd;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-left: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📝 메모 아이콘 선택하기</h1>
+
+    <h2 style="margin-top: 40px; margin-bottom: 20px; color: #495057;">🎨 색상 옵션</h2>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 40px; padding: 20px; background: #f8f9fa; border-radius: 6px;">
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #0d6efd;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">파란색 (현재)</div>
+        <code style="font-size: 10px;">text-primary</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #6c757d;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">회색</div>
+        <code style="font-size: 10px;">text-secondary</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #198754;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">초록색</div>
+        <code style="font-size: 10px;">text-success</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #dc3545;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">빨간색</div>
+        <code style="font-size: 10px;">text-danger</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #ffc107;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">노란색</div>
+        <code style="font-size: 10px;">text-warning</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #0dcaf0;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">하늘색</div>
+        <code style="font-size: 10px;">text-info</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #212529;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">검은색</div>
+        <code style="font-size: 10px;">text-dark</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #6f42c1;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">보라색</div>
+        <code style="font-size: 10px;">text-purple</code>
+      </div>
+      <div style="text-align: center;">
+        <i class="fas fa-sticky-note" style="font-size: 28px; color: #fd7e14;"></i>
+        <div style="margin-top: 5px; font-size: 12px;">주황색</div>
+        <code style="font-size: 10px;">text-orange</code>
+      </div>
+    </div>
+
+    <h2 style="margin-bottom: 20px; color: #495057;">📌 아이콘 모양</h2>
+
+    <div style="padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; margin-bottom: 20px; border-radius: 4px;">
+      <strong>📝 이모지와 비슷한 아이콘:</strong> 아래의 file-pen, pen-to-square, edit 등을 확인해보세요!
+    </div>
+
+    <div class="icon-row current">
+      <div class="icon-preview">
+        <i class="fas fa-sticky-note"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Sticky Note (정사각형 메모지) <span class="badge">현재</span></div>
+        <div class="icon-code">fa-sticky-note</div>
+      </div>
+    </div>
+
+    <div class="icon-row" style="border: 2px dashed #ffc107;">
+      <div class="icon-preview">
+        <i class="fas fa-file-pen"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">File Pen (문서에 펜) <span class="badge" style="background: #ffc107;">📝 비슷!</span></div>
+        <div class="icon-code">fa-file-pen</div>
+      </div>
+    </div>
+
+    <div class="icon-row" style="border: 2px dashed #ffc107;">
+      <div class="icon-preview">
+        <i class="fas fa-square-pen"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Square Pen (네모 펜) <span class="badge" style="background: #ffc107;">📝 비슷!</span></div>
+        <div class="icon-code">fa-square-pen</div>
+      </div>
+    </div>
+
+    <div class="icon-row" style="border: 2px dashed #ffc107;">
+      <div class="icon-preview">
+        <i class="fas fa-file-signature"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">File Signature (서명 문서) <span class="badge" style="background: #ffc107;">📝 비슷!</span></div>
+        <div class="icon-code">fa-file-signature</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-comment"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Comment (기본 말풍선)</div>
+        <div class="icon-code">fa-comment</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-comment-dots"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Comment Dots (점 3개 말풍선)</div>
+        <div class="icon-code">fa-comment-dots</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-file-lines"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">File Lines (줄 있는 문서)</div>
+        <div class="icon-code">fa-file-lines</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-note-sticky"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Note Sticky (접착식 메모지)</div>
+        <div class="icon-code">fa-note-sticky</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-circle-info"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Circle Info (원형 정보 아이콘)</div>
+        <div class="icon-code">fa-circle-info</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-message"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Message (메시지 말풍선)</div>
+        <div class="icon-code">fa-message</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-pen-to-square"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Pen to Square (편집 아이콘)</div>
+        <div class="icon-code">fa-pen-to-square</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-clipboard"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Clipboard (클립보드)</div>
+        <div class="icon-code">fa-clipboard</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-clipboard-list"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Clipboard List (리스트 클립보드)</div>
+        <div class="icon-code">fa-clipboard-list</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-edit"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Edit (수정 아이콘)</div>
+        <div class="icon-code">fa-edit</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-pencil"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Pencil (연필)</div>
+        <div class="icon-code">fa-pencil</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-book"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Book (책)</div>
+        <div class="icon-code">fa-book</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-bookmark"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Bookmark (북마크)</div>
+        <div class="icon-code">fa-bookmark</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="far fa-comment"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Comment Outline (빈 말풍선)</div>
+        <div class="icon-code">fa-comment (far)</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="far fa-sticky-note"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Sticky Note Outline (빈 메모지)</div>
+        <div class="icon-code">fa-sticky-note (far)</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-inbox"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Inbox (받은편지함)</div>
+        <div class="icon-code">fa-inbox</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-envelope"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Envelope (편지봉투)</div>
+        <div class="icon-code">fa-envelope</div>
+      </div>
+    </div>
+
+    <div class="icon-row">
+      <div class="icon-preview">
+        <i class="fas fa-thumbtack"></i>
+      </div>
+      <div class="icon-info">
+        <div class="icon-name">Thumbtack (압정)</div>
+        <div class="icon-code">fa-thumbtack</div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

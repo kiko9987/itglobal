@@ -1,0 +1,202 @@
+/* ===== IT GLOBAL Button Extensions ===== */
+
+/* Soft Button Variants - 레거시 btn-soft-* 현대화 */
+/* Bootstrap Outline Button Extensions - 백업본과 같은 소프트 스타일 */
+
+.btn-outline-primary,
+.btn-soft-primary {
+  background-color: var(--primary-alpha-10);
+  border-color: var(--primary-alpha-20);
+  color: var(--primary-color);
+  transition: var(--transition-base);
+}
+
+.btn-outline-primary:hover,
+.btn-soft-primary:hover {
+  background-color: var(--primary-alpha-15);
+  border-color: var(--primary-alpha-30);
+  color: var(--primary-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline-primary:focus,
+.btn-soft-primary:focus {
+  box-shadow: var(--focus-ring-primary);
+}
+
+.btn-outline-success,
+.btn-soft-success {
+  background-color: var(--success-alpha-10);
+  border-color: var(--success-alpha-20);
+  color: var(--success-color);
+  transition: var(--transition-base);
+}
+
+.btn-outline-success:hover,
+.btn-soft-success:hover {
+  background-color: var(--success-alpha-15);
+  border-color: var(--success-alpha-30);
+  color: var(--success-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline-success:focus,
+.btn-soft-success:focus {
+  box-shadow: var(--focus-ring-success);
+}
+
+.btn-outline-info,
+.btn-soft-info {
+  background-color: var(--info-alpha-10);
+  border-color: var(--info-alpha-20);
+  color: var(--info-color);
+  transition: var(--transition-base);
+}
+
+.btn-outline-info:hover,
+.btn-soft-info:hover {
+  background-color: var(--info-alpha-15);
+  border-color: var(--info-alpha-30);
+  color: var(--info-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline-info:focus,
+.btn-soft-info:focus {
+  box-shadow: var(--focus-ring-info);
+}
+
+.btn-outline-warning,
+.btn-soft-warning {
+  background-color: var(--warning-alpha-10);
+  border-color: var(--warning-alpha-20);
+  color: var(--warning-color);
+  transition: var(--transition-base);
+}
+
+.btn-outline-warning:hover,
+.btn-soft-warning:hover {
+  background-color: var(--warning-alpha-15);
+  border-color: var(--warning-alpha-30);
+  color: var(--warning-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline-warning:focus,
+.btn-soft-warning:focus {
+  box-shadow: var(--focus-ring-warning);
+}
+
+.btn-outline-danger,
+.btn-soft-danger {
+  background-color: var(--danger-alpha-10);
+  border-color: var(--danger-alpha-20);
+  color: var(--danger-color);
+  transition: var(--transition-base);
+}
+
+.btn-outline-danger:hover,
+.btn-soft-danger:hover {
+  background-color: var(--danger-alpha-15);
+  border-color: var(--danger-alpha-30);
+  color: var(--danger-color);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline-danger:focus,
+.btn-soft-danger:focus {
+  box-shadow: var(--focus-ring-danger);
+}
+
+.btn-outline-secondary,
+.btn-soft-secondary {
+  background-color: var(--secondary-alpha-10);
+  border-color: var(--secondary-alpha-20);
+  color: var(--gray-700);
+  transition: var(--transition-base);
+}
+
+.btn-outline-secondary:hover,
+.btn-soft-secondary:hover {
+  background-color: var(--secondary-alpha-15);
+  border-color: var(--secondary-alpha-30);
+  color: var(--gray-900);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline-secondary:focus,
+.btn-soft-secondary:focus {
+  box-shadow: var(--secondary-alpha-25);
+}
+
+.btn-outline-dark,
+.btn-soft-dark {
+  background-color: var(--dark-alpha-10);
+  border-color: var(--dark-alpha-20);
+  color: var(--gray-900);
+  transition: var(--transition-base);
+}
+
+.btn-outline-dark:hover,
+.btn-soft-dark:hover {
+  background-color: var(--dark-alpha-15);
+  border-color: var(--dark-alpha-30);
+  color: var(--gray-900);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline-dark:focus,
+.btn-soft-dark:focus {
+  box-shadow: var(--dark-alpha-25);
+}
+
+/* Button States */
+.btn.loading {
+  position: relative;
+  pointer-events: none;
+  opacity: var(--black-alpha-70);
+}
+
+.btn.loading .fas {
+  animation: spin var(--duration-1000) linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Modern Button Improvements */
+.btn {
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  padding: var(--btn-padding-sm);
+  transition: var(--transition-base);
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+/* Icon Spacing */
+.btn .fas + span,
+.btn .far + span {
+  margin-left: var(--spacing-xs);
+}
+
+.btn span + .fas,
+.btn span + .far {
+  margin-left: var(--spacing-xs);
+}

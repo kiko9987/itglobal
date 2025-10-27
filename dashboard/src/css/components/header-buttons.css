@@ -1,0 +1,185 @@
+/**
+ * Header Buttons Component
+ * 헤더 버튼 파스텔 톤 스타일
+ */
+
+/* 공통 버튼 스타일 */
+.btn-refresh,
+.btn-projects,
+.btn-leads,
+.btn-stats,
+.btn-receivables {
+  font-size: 0.8rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--border-radius, 8px);
+  font-weight: 500;
+  transition: var(--transition-base, all 0.2s ease);
+  display: inline-flex;
+  align-items: baseline;
+  text-decoration: none;
+  border: 1px solid;
+}
+
+/* 새로고침 버튼 - 연한 초록색 */
+.btn-refresh {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #059669;
+}
+
+.btn-refresh:hover {
+  background-color: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #047857;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(16, 185, 129, 0.2);
+}
+
+.btn-refresh:active,
+.btn-refresh:focus {
+  background-color: rgba(16, 185, 129, 0.2);
+  border-color: rgba(16, 185, 129, 0.5);
+  color: #047857;
+  box-shadow: 0 0 0 0.2rem rgba(16, 185, 129, 0.25);
+  transform: none;
+  outline: none;
+}
+
+/* 프로젝트 버튼 - 연한 주황색 */
+.btn-projects {
+  background-color: rgba(251, 146, 60, 0.1);
+  border-color: rgba(251, 146, 60, 0.3);
+  color: #ea580c;
+}
+
+.btn-projects:hover {
+  background-color: rgba(251, 146, 60, 0.2);
+  border-color: rgba(251, 146, 60, 0.5);
+  color: #c2410c;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(251, 146, 60, 0.2);
+  text-decoration: none;
+}
+
+.btn-projects:active,
+.btn-projects:focus {
+  background-color: rgba(251, 146, 60, 0.2);
+  border-color: rgba(251, 146, 60, 0.5);
+  color: #c2410c;
+  box-shadow: 0 0 0 0.2rem rgba(251, 146, 60, 0.25);
+  transform: none;
+  outline: none;
+  text-decoration: none;
+}
+
+/* 고객 리드 버튼 - 연한 핑크/자주색 */
+.btn-leads {
+  background-color: rgba(236, 72, 153, 0.1);
+  border-color: rgba(236, 72, 153, 0.3);
+  color: #db2777;
+}
+
+.btn-leads:hover {
+  background-color: rgba(236, 72, 153, 0.2);
+  border-color: rgba(236, 72, 153, 0.5);
+  color: #be185d;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(236, 72, 153, 0.2);
+  text-decoration: none;
+}
+
+.btn-leads:active,
+.btn-leads:focus {
+  background-color: rgba(236, 72, 153, 0.2);
+  border-color: rgba(236, 72, 153, 0.5);
+  color: #be185d;
+  box-shadow: 0 0 0 0.2rem rgba(236, 72, 153, 0.25);
+  transform: none;
+  outline: none;
+  text-decoration: none;
+}
+
+/* 매출통계 버튼 - 연한 파란색 */
+.btn-stats {
+  background-color: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #2563eb;
+}
+
+.btn-stats:hover {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #1d4ed8;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+  text-decoration: none;
+}
+
+.btn-stats:active,
+.btn-stats:focus {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #1d4ed8;
+  box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.25);
+  transform: none;
+  outline: none;
+  text-decoration: none;
+}
+
+/* 수금관리 버튼 - 연한 보라색 */
+.btn-receivables {
+  background-color: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: #7c3aed;
+}
+
+.btn-receivables:hover {
+  background-color: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #6d28d9;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(139, 92, 246, 0.2);
+  text-decoration: none;
+}
+
+.btn-receivables:active,
+.btn-receivables:focus {
+  background-color: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.5);
+  color: #6d28d9;
+  box-shadow: 0 0 0 0.2rem rgba(139, 92, 246, 0.25);
+  transform: none;
+  outline: none;
+  text-decoration: none;
+}
+
+/* 반응형 */
+@media (max-width: 767.98px) {
+  .btn-refresh,
+  .btn-projects,
+  .btn-leads,
+  .btn-stats,
+  .btn-receivables {
+    padding: 0.4rem 0.8rem;
+    font-size: var(--font-size-xs, 0.75rem);
+  }
+}
+
+/* 접근성 개선 */
+@media (prefers-reduced-motion: reduce) {
+  .btn-refresh,
+  .btn-projects,
+  .btn-leads,
+  .btn-stats,
+  .btn-receivables {
+    transition: none;
+  }
+
+  .btn-refresh:hover,
+  .btn-projects:hover,
+  .btn-leads:hover,
+  .btn-stats:hover,
+  .btn-receivables:hover {
+    transform: none;
+  }
+}

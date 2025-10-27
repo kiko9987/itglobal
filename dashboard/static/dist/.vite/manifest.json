@@ -1,0 +1,96 @@
+{
+  "_components.5F_JC1vE.js": {
+    "file": "js/components.5F_JC1vE.js",
+    "name": "components",
+    "isDynamicEntry": true,
+    "imports": [
+      "_utils.DONu-eW4.js",
+      "_vendor.D_Rgbpud.js"
+    ]
+  },
+  "_utils.DONu-eW4.js": {
+    "file": "js/utils.DONu-eW4.js",
+    "name": "utils",
+    "imports": [
+      "_components.5F_JC1vE.js"
+    ]
+  },
+  "_vendor.!~{009}~.js": {
+    "file": "css/vendor.DSPJqFx4.css",
+    "src": "_vendor.!~{009}~.js"
+  },
+  "_vendor.D_Rgbpud.js": {
+    "file": "js/vendor.D_Rgbpud.js",
+    "name": "vendor",
+    "css": [
+      "css/vendor.DSPJqFx4.css"
+    ]
+  },
+  "css/main.css": {
+    "file": "css/main.Dcm4hV0K.css",
+    "src": "css/main.css",
+    "isEntry": true
+  },
+  "css/pages/stats.css": {
+    "file": "css/stats.BazUEL0X.css",
+    "src": "css/pages/stats.css",
+    "isEntry": true
+  },
+  "js/pages/leads.js": {
+    "file": "js/leads.BVYNmh4R.js",
+    "name": "leads",
+    "src": "js/pages/leads.js",
+    "isEntry": true,
+    "imports": [
+      "_vendor.D_Rgbpud.js",
+      "_utils.DONu-eW4.js",
+      "_components.5F_JC1vE.js"
+    ],
+    "css": [
+      "css/leads.tn0RQdqM.css"
+    ]
+  },
+  "js/pages/project-list.js": {
+    "file": "js/project-list.DcEbRIxg.js",
+    "name": "project-list",
+    "src": "js/pages/project-list.js",
+    "isEntry": true,
+    "imports": [
+      "_components.5F_JC1vE.js",
+      "_utils.DONu-eW4.js",
+      "_vendor.D_Rgbpud.js"
+    ],
+    "dynamicImports": [
+      "_components.5F_JC1vE.js",
+      "_components.5F_JC1vE.js",
+      "_components.5F_JC1vE.js",
+      "_components.5F_JC1vE.js",
+      "_components.5F_JC1vE.js",
+      "_components.5F_JC1vE.js",
+      "_components.5F_JC1vE.js",
+      "_components.5F_JC1vE.js"
+    ]
+  },
+  "js/pages/stats-page.js": {
+    "file": "js/stats-page.BwDwS3rY.js",
+    "name": "stats-page",
+    "src": "js/pages/stats-page.js",
+    "isEntry": true,
+    "imports": [
+      "_utils.DONu-eW4.js",
+      "_components.5F_JC1vE.js",
+      "_vendor.D_Rgbpud.js"
+    ]
+  },
+  "js/utils/authInterceptor.js": {
+    "file": "js/authInterceptor.B6t3dZ1p.js",
+    "name": "authInterceptor",
+    "src": "js/utils/authInterceptor.js",
+    "isEntry": true,
+    "imports": [
+      "_utils.DONu-eW4.js",
+      "_components.5F_JC1vE.js",
+      "_vendor.D_Rgbpud.js"
+    ]
+  }
+}

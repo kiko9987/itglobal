@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>매출 통계 - IT글로벌 에어컨</title>
+    
+    <!-- Bootstrap 5.3.0 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Cache buster: v2024091104 -->
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+    <!-- 로고 이미지 미리 로드 -->
+    <link rel="preload" href="/data/아이티글로벌-추가최종2-(png)_0000_Vector-Smart-Object.png" as="image">
+
+    <style>
+        /* ===== IT GLOBAL 프리미엄 디자인 시스템 ===== */
+        
+        /* 전체 페이지에서 텍스트 선택 허용, 입력 커서만 숨김 */
+        * {
+            user-select: text;
+            caret-color: transparent !important;
+        }
+        
+        /* 입력 필드에는 커서 표시 */
+        input[type="text"]:focus,
+        input[type="email"]:focus, 
+        input[type="tel"]:focus,
+        input[type="number"]:focus,
+        input[type="date"]:focus,
+        input[type="password"]:focus,
+        textarea:focus,
+        select:focus {
+            caret-color: auto !important;
+        }
+        
+        /* 인라인 에디트 입력 필드에도 커서 표시 */
+        .inline-edit-input:focus {
+            caret-color: auto !important;
+        }
+        
+        :root {
+            /* Brand Colors - 로고가 돋보이는 어두운 베이스 + 파스텔 포인트 */
+            --primary-color: #FF8A95;
+            --primary-dark: #E6707A;
+            --primary-light: #FFB3B3;
+            
+            /* Dark Theme Base Colors */
+            --dark-primary: #1a1a1a;
+            --dark-secondary: #2d2d2d;
+            --dark-accent: #3a3a3a;
+            
+            /* Status Colors */
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --info-color: #06b6d4;
+            
+            /* Neutral Colors */
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-400: #94a3b8;
+            --gray-500: #64748b;
+            --gray-600: #475569;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --gray-900: #0f172a;
+            
+            /* Typography */
+            --font-size-xs: 0.75rem;
+            --font-size-sm: 0.875rem;
+            --font-size-base: 1rem;
+            --font-size-lg: 1.125rem;
+            --font-size-xl: 1.25rem;
+            --font-size-2xl: 1.5rem;
+            --font-size-3xl: 1.875rem;
+            --font-size-4xl: 2.25rem;
+            
+            /* Spacing */
+            --border-radius-sm: 6px;
+            --border-radius: 8px;
+            --border-radius-lg: 12px;
+            --border-radius-xl: 16px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        /* Base Styles */
+        body {
+            background-color: var(--gray-50);
+            color: var(--gray-800);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow-x: hidden;
+            max-width: 100vw;
+            line-height: 1.6;
+            padding-top: 0 !important; /* Bootstrap 기본 body padding 제거 */
+        }
+        
+        /* 전체 컨테이너 여백 최적화 */
+        .container-fluid {
+            padding-top: 0.3rem !important; /* 상단 패딩 조정 */
+            padding-bottom: 0.5rem !important; /* 하단 패딩 축소 */
+        }
+        
+        /* Header - 연한 파스텔 톤 배경 */
+        .header {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            color: #495057;
+            padding: 0;
+            margin-bottom: 0.5rem; /* 헤더 하단 여백 조정 */
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: visible;
+            border-bottom: 3px solid var(--gray-300);
+            min-height: auto;
+        }
+        
+        /* 연한 장식 요소들 */
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(255, 107, 53, 0.05) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        
+        .header h1 {
+            font-weight: 700;
+            font-size: var(--font-size-3xl);
+            margin-bottom: 0.25rem;
+            letter-spacing: -0.025em;
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+        
+        .header .d-flex {
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            padding-left: 2rem;
+        }
+        
+        .header .logo {
+            width: 216px;
+            height: 216px;
+            object-fit: contain;
+            filter: drop-shadow(0 4px 12px rgba(0,0,0,0.15));
+            transform: translateY(-50px);
+        }
+        
+        
+        .header .logo-subtitle {
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: #495057;
+            opacity: 0.9;
+            line-height: 1.4;
+            white-space: nowrap;
+            margin: 0;
+            align-self: center;
+        }
+        
+        .header p {
+            font-size: var(--font-size-base);
+            opacity: 0.95;
+            margin-bottom: 0;
+            position: relative;
+            z-index: 2;
+            font-weight: 400;
+        }
+        
+        /* Soft Button Styles */
+        .btn-soft-success {
+            background-color: rgba(40, 167, 69, 0.1);
+            border: 1px solid rgba(40, 167, 69, 0.2);
+            color: #28a745;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-soft-success:hover {
+            background-color: rgba(40, 167, 69, 0.15);
+            border-color: rgba(40, 167, 69, 0.3);
+            color: #1e7e34;
+            transform: translateY(-1px);
+        }
+        
+        .btn-soft-primary {
+            background-color: rgba(0, 123, 255, 0.1);
+            border: 1px solid rgba(0, 123, 255, 0.2);
+            color: #007bff;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-soft-primary:hover {
+            background-color: rgba(0, 123, 255, 0.15);
+            border-color: rgba(0, 123, 255, 0.3);
+            color: #0056b3;
+            transform: translateY(-1px);
+        }
+        
+        .btn-soft-info {
+            background-color: rgba(23, 162, 184, 0.1);
+            border: 1px solid rgba(23, 162, 184, 0.2);
+            color: #17a2b8;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+        
+        .btn-soft-info:hover {
+            background-color: rgba(23, 162, 184, 0.15);
+            border-color: rgba(23, 162, 184, 0.3);
+            color: #117a8b;
+            text-decoration: none;
+            transform: translateY(-1px);
+        }
+
+        .btn-soft-warning {
+            background-color: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+
+        .btn-soft-warning:hover {
+            background-color: rgba(245, 158, 11, 0.15);
+            border-color: rgba(245, 158, 11, 0.3);
+            color: #d97706;
+            text-decoration: none;
+            transform: translateY(-1px);
+        }
+        
+        /* User Menu Button */
+        .btn-user-menu {
+            background-color: rgba(108, 117, 125, 0.1);
+            border: 1px solid rgba(108, 117, 125, 0.2);
+            color: #495057;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+        }
+        
+        .btn-user-menu:hover {
+            background-color: rgba(108, 117, 125, 0.15);
+            border-color: rgba(108, 117, 125, 0.3);
+            color: #343a40;
+            transform: translateY(-1px);
+        }
+        
+        .btn-user-menu:focus {
+            box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.25);
+        }
+        
+        /* User Dropdown Styling */
+        .user-dropdown {
+            min-width: 280px;
+            padding: 0;
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            background: white;
+            z-index: 2147483647;
+            position: relative;
+        }
+        
+        .user-dropdown .dropdown-header {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 1rem;
+            border-radius: 12px 12px 0 0;
+            border-bottom: none;
+            position: relative;
+        }
+        
+        .user-info-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .user-info-header i {
+            font-size: 2rem;
+            color: #6c757d;
+        }
+        
+        .user-name {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #212529;
+            margin-bottom: 0.125rem;
+        }
+        
+        .user-email {
+            font-size: 0.8rem;
+            color: #6c757d;
+            line-height: 1;
+        }
+        
+        .user-permission-badge {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .user-dropdown .dropdown-divider {
+            margin: 0;
+            border-color: #e9ecef;
+        }
+        
+        .logout-item {
+            padding: 0.75rem 1rem;
+            font-size: 0.875rem;
+            color: #dc3545;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            transition: all 0.2s ease;
+        }
+        
+        .logout-item:hover {
+            background-color: #fff5f5;
+            color: #c82333;
+        }
+        
+        .logout-item i {
+            color: #dc3545;
+        }
+        
+        /* Dropdown menu styling */
+        .header .dropdown-menu {
+            z-index: 2147483647;
+            position: absolute;
+        }
+        
+        /* 드롭다운 부모 요소도 높은 z-index 적용 */
+        .header .dropdown {
+            z-index: 2147483647;
+            position: relative !important;
+        }
+
+        /* 헤더 로고 섹션 패딩 - project_list.html과 동일하게 */
+        .header .d-flex {
+            align-items: flex-start !important;
+            justify-content: flex-start !important;
+            padding-left: 2rem;
+        }
+
+        /* 데스크톱에서 헤더 버튼 위치 조정 - project_list.html과 동일하게 */
+        @media (min-width: 769px) {
+            .header .col-md-4 {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+            }
+            
+            .header .col-md-4 .d-flex {
+                justify-content: flex-end !important;
+                align-items: center !important;
+                padding-top: 20px !important;
+                padding-bottom: 40px !important;
+                padding-right: 1rem !important;
+                transform: translateY(-20px) !important;
+                overflow: visible !important;
+            }
+            
+            /* 데스크톱에서 버튼 크기 조정 */
+            .header .btn {
+                white-space: nowrap !important;
+                padding: 0.4rem 0.6rem !important;
+                font-size: 0.8rem !important;
+                min-width: auto !important;
+                flex-shrink: 0 !important;
+            }
+        }
+
+        /* 통계 카드 스타일 */
+        .stats-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem 1.25rem; /* 패딩 축소 */
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--gray-200);
+            transition: all 0.3s ease;
+            height: 100%;
+            min-height: 100px; /* 최소 높이 제한 */
+        }
+
+        .stats-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+
+        .stats-card h3 {
+            font-size: 1.1rem; /* 폰트 크기 축소 */
+            font-weight: 600;
+            margin-bottom: 0.5rem; /* 마진 축소 */
+            color: var(--gray-700);
+        }
+
+        .stats-value {
+            font-size: 1.75rem; /* 폰트 크기 약간 축소 */
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 0.25rem; /* 마진 축소 */
+        }
+
+        .stats-label {
+            font-size: 0.8rem; /* 폰트 크기 축소 */
+            color: var(--gray-600);
+        }
+
+        /* 차트 컨테이너 */
+        .chart-container {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem;
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--gray-200);
+            margin-bottom: 1rem;
+            height: 500px; /* 막대 차트 높이 */
+            overflow: hidden;
+        }
+
+        /* 도넛 차트 컨테이너는 더 높게 설정 */
+        .chart-container.doughnut-chart {
+            height: 600px; /* 도넛 차트는 더 높게 */
+        }
+
+        /* 작은 차트 컨테이너 - 크기 증가 */
+        .chart-container.small-chart {
+            height: 420px; /* 차트 높이 증가 */
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: var(--gray-700);
+        }
+
+        /* 작은 차트 제목 */
+        .small-chart .chart-title {
+            font-size: 0.95rem;
+            margin-bottom: 0.5rem;
+        }
+
+        /* 차트 캔버스 컨테이너 */
+        .chart-wrapper {
+            height: 420px; /* 막대 차트 높이 */
+            position: relative;
+        }
+
+        /* 도넛 차트 래퍼는 더 높게 설정 */
+        .chart-wrapper.doughnut-wrapper {
+            height: 520px; /* 도넛 차트는 더 높게 */
+        }
+
+        /* 작은 차트 래퍼 - 크기 증가 */
+        .chart-wrapper.small-wrapper {
+            height: 340px; /* 차트 래퍼 높이 증가 */
+        }
+
+        /* 로딩 스피너 */
+        .loading-spinner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 200px;
+        }
+
+    </style>
+</head>
+<body>
+    <!-- 헤더 -->
+    <div class="header">
+        <div class="container-fluid">
+            <div class="row" style="height: 120px; position: relative; z-index: 1000;">
+                    <div class="col-md-8 d-flex align-items-center">
+                        <div class="d-flex align-items-center justify-content-start" style="padding-left: 0; margin-left: -0.5rem; overflow: visible;">
+                            <img src="/data/아이티글로벌-추가최종2-(png)_0000_Vector-Smart-Object.png" alt="IT글로벌 로고" class="logo">
+                            <div class="ms-4" style="padding-top: 50px;">
+                                <p class="mb-0 logo-subtitle">프로젝트 통합 관리 시스템</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 d-flex align-items-center justify-content-end" style="overflow: visible;">
+                        <div class="d-flex gap-2" style="padding-top: 50px; padding-right: 1rem; white-space: nowrap; flex-wrap: nowrap; min-width: 290px;">
+                            <button class="btn btn-soft-success" id="refreshProjectBtn" onclick="refreshStats()" style="min-width: 90px; white-space: nowrap; background-color: rgba(40, 167, 69, 0.1) !important; border: 1px solid rgba(40, 167, 69, 0.2) !important; color: #28a745 !important;">
+                                <i class="fas fa-sync-alt me-1"></i>새로고침
+                            </button>
+                            <a href="/projects" class="btn btn-soft-info" style="min-width: 90px; white-space: nowrap;">
+                                <i class="fas fa-table me-1"></i>프로젝트
+                            </a>
+                            <a href="/receivables" class="btn btn-soft-info" style="min-width: 90px; white-space: nowrap;">
+                                <i class="fas fa-hand-holding-usd me-1"></i>수금관리
+                            </a>
+                            <!-- 구분선 -->
+                            <div style="height: 24px; width: 1px; background: #dee2e6; margin: 0 8px;"></div>
+                            
+                            <!-- 사용자 정보 (맨 오른쪽) -->
+                            <div class="dropdown" style="position: relative; z-index: 99999;">
+                                <button class="btn btn-user-menu dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="min-width: 120px; white-space: nowrap;">
+                                    <i class="fas fa-user me-2"></i>
+                                    <span>{{ session.user.name if session.user else '관리자' }}</span>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end user-dropdown">
+                                    <li class="dropdown-header">
+                                        <div class="user-info-header">
+                                            <i class="fas fa-user-circle"></i>
+                                            <div>
+                                                <div class="user-name">
+                                                    {{ session.user.name if session.user else '관리자' }}
+                                                    <span class="user-permission-badge" id="user-role-badge"></span>
+                                                </div>
+                                                <div class="user-email">{{ session.user.email if session.user else 'admin@test.com' }}</div>
+                                            </div>
+                                        </div>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li>
+                                        <a class="dropdown-item logout-item" href="/logout">
+                                            <i class="fas fa-sign-out-alt"></i>로그아웃
+                                        </a>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <!-- 로딩 인디케이터 -->
+        <div id="loadingIndicator" class="loading-spinner" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">로딩 중...</span>
+            </div>
+        </div>
+
+        <!-- 통계 대시보드 -->
+        <div id="statsContent" style="display: none;">
+            <!-- 요약 통계 카드 -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h3><i class="fas fa-project-diagram me-2"></i>총 프로젝트</h3>
+                        <div class="stats-value" id="totalProjects" style="font-size: 1.3rem;">-</div>
+                        <div class="stats-label">공사 확정 기준</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h3><i class="fas fa-won-sign me-2"></i>총 매출</h3>
+                        <div class="stats-value" id="totalRevenue" style="font-size: 1.3rem;">-</div>
+                        <div class="stats-label">공사 확정 기준</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h3><i class="fas fa-calendar-alt me-2"></i>월 평균 매출</h3>
+                        <div class="stats-value" id="inProgressProjects" style="font-size: 1.3rem;">-</div>
+                        <div class="stats-label">공사 확정 기준</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stats-card">
+                        <h3><i class="fas fa-exclamation-triangle me-2"></i>미수금</h3>
+                        <div class="stats-value" id="outstandingAmount" style="font-size: 1.3rem;">-</div>
+                        <div class="stats-label">공사 확정 기준</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 차트 영역 - 8개 섹션 -->
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2024년 월별 총매출</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="monthly2024Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2025년 월별 총매출</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="monthly2025Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2024년 개인별 매출</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="personal2024Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2025년 개인별 매출</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="personal2025Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-building me-2"></i>2024년 월별 매출 - 사업자별</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="company2024Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-building me-2"></i>2025년 월별 매출 - 사업자별</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="company2025Chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-line me-2"></i>사업자별 총매출 비교</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="companyCompareChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="chart-container small-chart">
+                        <h3 class="chart-title"><i class="fas fa-chart-area me-2"></i>월별 총매출 트렌드</h3>
+                        <div class="chart-wrapper small-wrapper">
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 전역 변수
+        let projectsData = [];
+        let charts = {};
+
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStatsData();
+        });
+
+        // 통계 데이터 로드
+        async function loadStatsData() {
+            try {
+                showLoading(true);
+                
+                // 기존 프로젝트 데이터 가져오기
+                const response = await fetch('/api/projects/list');
+                const result = await response.json();
+                
+                if (result.success || Array.isArray(result)) {
+                    projectsData = result.success ? result.data : result;
+                    generateStatistics();
+                    createCharts();
+                    showContent();
+                } else {
+                    throw new Error(result.error || '데이터 로드 실패');
+                }
+            } catch (error) {
+                console.error('통계 데이터 로드 오류:', error);
+                alert('통계 데이터를 불러올 수 없습니다: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+
+        // 통계 생성
+        function generateStatistics() {
+            // 2024년 프로젝트 수 계산
+            const projects2024Count = projectsData.filter(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const year = new Date(confirmDate).getFullYear();
+                    return year === 2024;
+                }
+                return false;
+            }).length;
+            
+            // 2025년 프로젝트 수 계산
+            const projects2025Count = projectsData.filter(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const year = new Date(confirmDate).getFullYear();
+                    return year === 2025;
+                }
+                return false;
+            }).length;
+            
+            // 총 프로젝트 표시 (2024년 / 2025년)
+            document.getElementById('totalProjects').innerHTML = 
+                `2024년 : ${projects2024Count}건 (1월~12월)<br>2025년 : ${projects2025Count}건 (1월~현재)`;
+            
+            // 2024년 매출 계산
+            const revenue2024 = projectsData
+                .filter(project => {
+                    const confirmDate = project['공사 확정'];
+                    if (confirmDate) {
+                        const year = new Date(confirmDate).getFullYear();
+                        return year === 2024;
+                    }
+                    return false;
+                })
+                .reduce((sum, project) => {
+                    const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                    return sum + amount;
+                }, 0);
+                
+            // 2025년 매출 계산
+            const revenue2025 = projectsData
+                .filter(project => {
+                    const confirmDate = project['공사 확정'];
+                    if (confirmDate) {
+                        const year = new Date(confirmDate).getFullYear();
+                        return year === 2025;
+                    }
+                    return false;
+                })
+                .reduce((sum, project) => {
+                    const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                    return sum + amount;
+                }, 0);
+                
+            // 총 매출 표시 (2024년 / 2025년)
+            const currentMonth = new Date().getMonth() + 1; // 1-12
+            document.getElementById('totalRevenue').innerHTML = 
+                `2024년 : ${formatCurrency(revenue2024)} (1월~12월)<br>2025년 : ${formatCurrency(revenue2025)} (1월~현재)`;
+            
+            // 2024년 미수금 계산
+            const outstanding2024 = projectsData
+                .filter(project => {
+                    const confirmDate = project['공사 확정'];
+                    if (confirmDate) {
+                        const year = new Date(confirmDate).getFullYear();
+                        return year === 2024;
+                    }
+                    return false;
+                })
+                .reduce((sum, project) => {
+                    const outstanding = parseFloat(project['미수금'] || project['미수금W'] || project['미수금 W'] || project['W'] || 0);
+                    return sum + Math.max(0, outstanding);
+                }, 0);
+                
+            // 2025년 미수금 계산
+            const outstanding2025 = projectsData
+                .filter(project => {
+                    const confirmDate = project['공사 확정'];
+                    if (confirmDate) {
+                        const year = new Date(confirmDate).getFullYear();
+                        return year === 2025;
+                    }
+                    return false;
+                })
+                .reduce((sum, project) => {
+                    const outstanding = parseFloat(project['미수금'] || project['미수금W'] || project['미수금 W'] || project['W'] || 0);
+                    return sum + Math.max(0, outstanding);
+                }, 0);
+                
+            // 미수금 표시 (2024년 / 2025년)
+            document.getElementById('outstandingAmount').innerHTML = 
+                `2024년 : ${formatCurrency(outstanding2024)} (1월~12월)<br>2025년 : ${formatCurrency(outstanding2025)} (1월~현재)`;
+                
+            // 월 평균 매출 계산
+            const avg2024 = revenue2024 > 0 ? revenue2024 / 12 : 0; // 12개월
+            const avg2025 = revenue2025 > 0 ? revenue2025 / currentMonth : 0; // 현재까지
+            
+            // 월 평균 매출 표시
+            document.getElementById('inProgressProjects').innerHTML = 
+                `2024년 : ${formatCurrency(avg2024)} (12개월)<br>2025년 : ${formatCurrency(avg2025)} (${currentMonth}개월)`;
+        }
+
+        // 프로젝트 상태 확인 함수
+        function getCurrentStatus(project) {
+            const startDate = project['공사 시작'];
+            const endDate = project['공사 종료'];
+            const totalAmount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+            const outstandingAmount = parseFloat(project['미수금'] || project['미수금W'] || project['미수금 W'] || project['W'] || 0);
+            
+            const today = new Date();
+            const start = startDate ? new Date(startDate) : null;
+            const end = endDate ? new Date(endDate) : null;
+            
+            if (!start || !end) return 'unknown';
+            
+            if (outstandingAmount <= 0 && totalAmount > 0) return 'completed';
+            if (today < start) return 'scheduled';
+            if (today >= start && today <= end) return 'in_progress';
+            if (today > end && outstandingAmount > 0) return 'outstanding';
+            if (today > end) return 'completed';
+            
+            return 'unknown';
+        }
+
+        // 전역 색상 매핑 설정 - 적당한 진하기의 색상
+        const managerColorMap = {};
+        const baseColors = ['#FF7F7F', '#FF9999', '#FFCC99', '#D4E6B7', '#99E6CC', '#B3C6DB', '#FF9999', '#FF6B6B'];
+        const additionalColors = ['#99D6B7', '#FFCCBB', '#D6E6E6', '#A6D1E6', '#E6D199', '#E6C299', '#E6B899', '#E6B3B3'];
+        let colorIndex = 0;
+        let additionalColorIndex = 0;
+        
+        // 차트 생성
+        function createCharts() {
+            // 전체 담당자 목록 수집 (색상 매핑을 위해)
+            setupManagerColors();
+            createMonthly2024Chart();
+            createMonthly2025Chart();
+            createPersonal2024Chart();
+            createPersonal2025Chart();
+            createCompany2024Chart();
+            createCompany2025Chart();
+            createCompanyCompareChart();
+            createTrendChart();
+        }
+        
+        // 담당자 색상 매핑 설정
+        function setupManagerColors() {
+            const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+            const managers2024 = new Set();
+            const managers2025 = new Set();
+            
+            // 2024년 담당자 수집
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const year = new Date(confirmDate).getFullYear();
+                    const manager = project['담당자'];
+                    if (manager && !excludedOwners.includes(manager)) {
+                        if (year === 2024) managers2024.add(manager);
+                        if (year === 2025) managers2025.add(manager);
+                    }
+                }
+            });
+            
+            // 2024년 담당자에게 기본 색상 할당
+            Array.from(managers2024).sort().forEach(manager => {
+                if (colorIndex < baseColors.length) {
+                    managerColorMap[manager] = baseColors[colorIndex++];
+                }
+            });
+            
+            // 2025년 신규 담당자에게 추가 색상 할당
+            Array.from(managers2025).sort().forEach(manager => {
+                if (!managerColorMap[manager]) {
+                    if (additionalColorIndex < additionalColors.length) {
+                        managerColorMap[manager] = additionalColors[additionalColorIndex++];
+                    }
+                }
+            });
+        }
+
+        // 2024년 월별 매출 차트
+        function createMonthly2024Chart() {
+            const ctx = document.getElementById('monthly2024Chart').getContext('2d');
+            
+            const monthlyData = Array(12).fill(0);
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate);
+                    if (confirmDateObj.getFullYear() === 2024) {
+                        const month = confirmDateObj.getMonth();
+                        const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                        monthlyData[month] += amount;
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            
+            
+            if (charts.monthly2024) charts.monthly2024.destroy();
+            
+            charts.monthly2024 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        data: monthlyData.map(amount => amount / 100000000),
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: {
+                                color: '#e0e0e0'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 2025년 월별 매출 차트
+        function createMonthly2025Chart() {
+            const ctx = document.getElementById('monthly2025Chart').getContext('2d');
+            
+            const monthlyData = Array(12).fill(0);
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate);
+                    if (confirmDateObj.getFullYear() === 2025) {
+                        const month = confirmDateObj.getMonth();
+                        const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                        monthlyData[month] += amount;
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            
+            console.log('2025 Monthly Data (억원):', monthlyData.map(amount => (amount / 1000000000).toFixed(1)));
+            
+            if (charts.monthly2025) charts.monthly2025.destroy();
+            
+            charts.monthly2025 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        data: monthlyData.map(amount => amount / 100000000),
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: {
+                                color: '#e0e0e0'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+
+        // 2024년 개인별 매출 막대 차트
+        function createPersonal2024Chart() {
+            const ctx = document.getElementById('personal2024Chart').getContext('2d');
+            
+            const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+            
+            const managerRevenue = {};
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate);
+                    if (confirmDateObj.getFullYear() === 2024) {
+                        const manager = project['담당자'];
+                        if (manager && !excludedOwners.includes(manager)) {
+                            const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                            managerRevenue[manager] = (managerRevenue[manager] || 0) + amount;
+                        }
+                    }
+                }
+            });
+            
+            // 매출 기준으로 정렬 (큰 값부터)
+            const sortedManagers = Object.entries(managerRevenue)
+                .sort(([,a], [,b]) => b - a);
+            
+            const managerNames = sortedManagers.map(([name]) => name);
+            const managerAmounts = sortedManagers.map(([, amount]) => amount / 100000000); // 억 단위로 변환
+            
+            // 담당자별 색상 매핑
+            const managerColors = managerNames.map(name => managerColorMap[name] || '#7BB3FF');
+            
+            if (charts.personal2024) charts.personal2024.destroy();
+            
+            charts.personal2024 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: managerNames,
+                    datasets: [{
+                        data: managerAmounts,
+                        backgroundColor: managerColors,
+                        borderColor: managerColors.map(color => color.replace('FF', 'CC')),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.parsed.y.toFixed(1) + '억원';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 0,
+                                minRotation: 0
+                            }
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'datalabels',
+                    afterDatasetsDraw: function(chart) {
+                        const ctx = chart.ctx;
+                        const data = chart.data;
+                        
+                        chart.data.datasets.forEach((dataset, datasetIndex) => {
+                            const meta = chart.getDatasetMeta(datasetIndex);
+                            
+                            meta.data.forEach((bar, index) => {
+                                const value = dataset.data[index];
+                                if (value > 0) {
+                                    ctx.save();
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    ctx.fillStyle = '#7A7A7A';
+                                    ctx.font = 'bold 10px Arial';
+                                    
+                                    const x = bar.x;
+                                    const y = bar.y - 5;
+                                    
+                                    ctx.fillText(value.toFixed(1) + '억', x, y);
+                                    ctx.restore();
+                                }
+                            });
+                        });
+                    }
+                }]
+            });
+        }
+
+        // 2025년 개인별 매출 막대 차트
+        function createPersonal2025Chart() {
+            const ctx = document.getElementById('personal2025Chart').getContext('2d');
+            
+            const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+            
+            const managerRevenue = {};
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate);
+                    if (confirmDateObj.getFullYear() === 2025) {
+                        const manager = project['담당자'];
+                        if (manager && !excludedOwners.includes(manager)) {
+                            const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                            managerRevenue[manager] = (managerRevenue[manager] || 0) + amount;
+                        }
+                    }
+                }
+            });
+            
+            // 매출 금액순으로 정렬
+            const sortedManagers = Object.entries(managerRevenue)
+                .sort(([,a], [,b]) => b - a);
+            
+            const managerNames = sortedManagers.map(([name]) => name);
+            const managerAmounts = sortedManagers.map(([, amount]) => amount / 100000000);
+            const managerColors = sortedManagers.map(([name]) => managerColorMap[name] || '#999999');
+            
+            if (charts.personal2025) charts.personal2025.destroy();
+            
+            charts.personal2025 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: managerNames,
+                    datasets: [{
+                        data: managerAmounts,
+                        backgroundColor: managerColors,
+                        borderColor: managerColors.map(color => color.replace('FF', 'CC')),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.parsed.y.toFixed(1) + '억원';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: {
+                                font: { size: 9 },
+                                maxRotation: 0,
+                                minRotation: 0
+                            },
+                            grid: { display: false }
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'datalabels',
+                    afterDatasetsDraw: function(chart) {
+                        const ctx = chart.ctx;
+                        const data = chart.data;
+                        
+                        chart.data.datasets.forEach((dataset, datasetIndex) => {
+                            const meta = chart.getDatasetMeta(datasetIndex);
+                            
+                            meta.data.forEach((bar, index) => {
+                                const value = dataset.data[index];
+                                if (value > 0) {
+                                    ctx.save();
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    ctx.fillStyle = '#7A7A7A';
+                                    ctx.font = 'bold 10px Arial';
+                                    
+                                    const x = bar.x;
+                                    const y = bar.y - 5;
+                                    
+                                    ctx.fillText(value.toFixed(1) + '억', x, y);
+                                    ctx.restore();
+                                }
+                            });
+                        });
+                    }
+                }]
+            });
+        }
+
+        // 아이티 2024년 차트
+        function createCompany2024Chart() {
+            const ctx = document.getElementById('company2024Chart').getContext('2d');
+            
+            // 글로벌과 글로벌그룹 구분하여 데이터 수집
+            const globalData = {};
+            const globalGroupData = {};
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                const company = project['사업자'] || '';
+                
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    if (confirmDateObj.getFullYear() === 2024) {
+                        const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                        
+                        if (company === '글로벌') {
+                            const month = confirmDateObj.getMonth();
+                            globalData[month] = (globalData[month] || 0) + amount;
+                        } else if (company === '글로벌그룹') {
+                            const month = confirmDateObj.getMonth();
+                            globalGroupData[month] = (globalGroupData[month] || 0) + amount;
+                        }
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            const globalMonthlyData = Array(12).fill(0);
+            const globalGroupMonthlyData = Array(12).fill(0);
+            
+            for (let i = 0; i < 12; i++) {
+                globalMonthlyData[i] = (globalData[i] || 0) / 100000000;
+                globalGroupMonthlyData[i] = (globalGroupData[i] || 0) / 100000000;
+            }
+            
+            if (charts.company2024) charts.company2024.destroy();
+            
+            charts.company2024 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        label: '글로벌',
+                        data: globalMonthlyData,
+                        backgroundColor: '#FF8A95',
+                        borderColor: '#E6707A',
+                        borderWidth: 1
+                    }, {
+                        label: '글로벌그룹',
+                        data: globalGroupMonthlyData,
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 사업자별 월별 총매출 2025년 차트
+        function createCompany2025Chart() {
+            const ctx = document.getElementById('company2025Chart').getContext('2d');
+            
+            // 글로벌과 글로벌그룹 구분하여 데이터 수집
+            const globalData = {};
+            const globalGroupData = {};
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                const company = project['사업자'] || '';
+                
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    if (confirmDateObj.getFullYear() === 2025) {
+                        const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                        
+                        if (company === '글로벌') {
+                            const month = confirmDateObj.getMonth();
+                            globalData[month] = (globalData[month] || 0) + amount;
+                        } else if (company === '글로벌그룹') {
+                            const month = confirmDateObj.getMonth();
+                            globalGroupData[month] = (globalGroupData[month] || 0) + amount;
+                        }
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            const globalMonthlyData = Array(12).fill(0);
+            const globalGroupMonthlyData = Array(12).fill(0);
+            
+            for (let i = 0; i < 12; i++) {
+                globalMonthlyData[i] = (globalData[i] || 0) / 100000000;
+                globalGroupMonthlyData[i] = (globalGroupData[i] || 0) / 100000000;
+            }
+            
+            if (charts.company2025) charts.company2025.destroy();
+            
+            charts.company2025 = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        label: '글로벌',
+                        data: globalMonthlyData,
+                        backgroundColor: '#FF8A95',
+                        borderColor: '#E6707A',
+                        borderWidth: 1
+                    }, {
+                        label: '글로벌그룹',
+                        data: globalGroupMonthlyData,
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 회사별 비교 차트
+        function createCompanyCompareChart() {
+            const ctx = document.getElementById('companyCompareChart').getContext('2d');
+            
+            let global2024 = 0, globalGroup2024 = 0, global2025 = 0, globalGroup2025 = 0;
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                const company = project['사업자'] || '';
+                
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    const year = confirmDateObj.getFullYear();
+                    const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                    
+                    if (company === '글로벌') {
+                        if (year === 2024) global2024 += amount;
+                        if (year === 2025) global2025 += amount;
+                    } else if (company === '글로벌그룹') {
+                        if (year === 2024) globalGroup2024 += amount;
+                        if (year === 2025) globalGroup2025 += amount;
+                    }
+                }
+            });
+            
+            if (charts.companyCompare) charts.companyCompare.destroy();
+            
+            charts.companyCompare = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['2024년', '2025년'],
+                    datasets: [{
+                        label: '글로벌',
+                        data: [global2024/100000000, global2025/100000000],
+                        backgroundColor: '#FF8A95',
+                        borderColor: '#E6707A',
+                        borderWidth: 1
+                    }, {
+                        label: '글로벌그룹',
+                        data: [globalGroup2024/100000000, globalGroup2025/100000000],
+                        backgroundColor: '#7BB3FF',
+                        borderColor: '#5A9BD4',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            ticks: {
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 월별 총매출 트렌드 차트
+        function createTrendChart() {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            
+            const monthlyData2024 = Array(12).fill(0);
+            const monthlyData2025 = Array(12).fill(0);
+            
+            projectsData.forEach(project => {
+                const confirmDate = project['공사 확정'];
+                if (confirmDate) {
+                    const confirmDateObj = new Date(confirmDate.replace('/', '-'));
+                    const year = confirmDateObj.getFullYear();
+                    const month = confirmDateObj.getMonth();
+                    const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
+                    
+                    if (year === 2024) {
+                        monthlyData2024[month] += amount;
+                    } else if (year === 2025) {
+                        monthlyData2025[month] += amount;
+                    }
+                }
+            });
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+            
+            if (charts.trend) charts.trend.destroy();
+            
+            charts.trend = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: monthNames,
+                    datasets: [{
+                        label: '2024년',
+                        data: monthlyData2024.map(amount => amount / 100000000),
+                        borderColor: '#FF6B35',
+                        backgroundColor: 'rgba(255, 107, 53, 0.1)',
+                        borderWidth: 2,
+                        fill: false
+                    }, {
+                        label: '2025년',
+                        data: monthlyData2025.map(amount => amount / 100000000),
+                        borderColor: '#4A90E2',
+                        backgroundColor: 'rgba(74, 144, 226, 0.1)',
+                        borderWidth: 2,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '억';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 10,
+                            ticks: {
+                                stepSize: 1,
+                                font: { size: 10 },
+                                callback: function(value) {
+                                    return Math.floor(value) + '억';
+                                }
+                            },
+                            grid: { color: '#e0e0e0' }
+                        },
+                        x: {
+                            ticks: { font: { size: 10 } },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+        }
+
+
+        // 새로고침 함수
+        async function refreshStats() {
+            const btn = document.getElementById('refreshProjectBtn');
+            const icon = btn.querySelector('i');
+            
+            // 로딩 상태
+            icon.className = 'fas fa-spinner fa-spin me-1';
+            btn.disabled = true;
+            
+            try {
+                // 기존 차트 삭제
+                Object.values(charts).forEach(chart => {
+                    if (chart && typeof chart.destroy === 'function') {
+                        chart.destroy();
+                    }
+                });
+                charts = {};
+                
+                await loadStatsData();
+            } finally {
+                // 버튼 복원
+                icon.className = 'fas fa-sync-alt me-1';
+                btn.disabled = false;
+            }
+        }
+
+
+        // 사용자 권한 확인
+        function getUserRole() {
+            return fetch('/api/user/role')
+                .then(response => response.json())
+                .then(data => data.role)
+                .catch(() => 'user');
+        }
+
+        // 페이지 로드 시 사용자 권한 표시
+        getUserRole().then(role => {
+            const badge = document.getElementById('user-role-badge');
+            if (badge) {
+                badge.textContent = role === 'admin' ? '관리자' : '사용자';
+                badge.className = `user-permission-badge ${role === 'admin' ? 'bg-primary' : 'bg-secondary'} text-white`;
+            }
+        });
+
+
+        // 금액 포맷 함수
+        function formatCurrency(amount) {
+            if (!amount || amount === 0) return '0원';
+            
+            const numAmount = Math.abs(amount);
+            let formatted;
+            
+            if (numAmount >= 100000000) {
+                formatted = (numAmount / 100000000).toFixed(1) + '억';
+            } else if (numAmount >= 10000) {
+                formatted = (numAmount / 10000).toFixed(0) + '만';
+            } else {
+                formatted = numAmount.toLocaleString() + '원';
+            }
+            
+            return amount < 0 ? '-' + formatted : formatted;
+        }
+
+        // UI 제어 함수들
+        function showLoading(show) {
+            document.getElementById('loadingIndicator').style.display = show ? 'flex' : 'none';
+        }
+
+        function showContent() {
+            document.getElementById('statsContent').style.display = 'block';
+        }
+    </script>
+</body>
+</html>

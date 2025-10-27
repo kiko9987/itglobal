@@ -1,0 +1,1029 @@
+openapi: 3.0.3
+info:
+  title: IT Global Dashboard API
+  description: |
+    Comprehensive API for IT Global business management dashboard.
+
+    ## Features
+    - Project management and tracking
+    - Sales and financial analytics
+    - Real-time monitoring and metrics
+    - User management and authentication
+    - Cache and system management
+
+    ## Authentication
+    This API supports multiple authentication methods:
+    - Session-based authentication (web interface)
+    - Bearer token authentication (API access)
+    - Google OAuth 2.0 (web interface)
+
+    ## Response Format
+    All API responses follow a standard format:
+    ```json
+    {
+      "success": true|false,
+      "data": any,
+      "error": {...},
+      "meta": {...}
+    }
+    ```
+
+  version: "1.0.0"
+  contact:
+    name: IT Global Development Team
+    email: dev@itglobal.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Development server
+  - url: https://dashboard.itglobal.com/api/v1
+    description: Production server
+
+paths:
+  # Projects API
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List all projects
+      description: Retrieve a paginated list of all projects with optional filtering
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/SortParam'
+        - $ref: '#/components/parameters/OrderParam'
+        - name: status
+          in: query
+          description: Filter by project status
+          schema:
+            type: string
+            enum: [active, completed, cancelled, on_hold]
+        - name: search
+          in: query
+          description: Search projects by name or description
+          schema:
+            type: string
+            minLength: 2
+      responses:
+        '200':
+          $ref: '#/components/responses/ProjectListResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Projects]
+      summary: Create a new project
+      description: Create a new project with the provided information
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/ProjectResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{projectCode}:
+    get:
+      tags: [Projects]
+      summary: Get project details
+      description: Retrieve detailed information about a specific project
+      parameters:
+        - $ref: '#/components/parameters/ProjectCodeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProjectResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    put:
+      tags: [Projects]
+      summary: Update project (full)
+      description: Update all fields of a project
+      parameters:
+        - $ref: '#/components/parameters/ProjectCodeParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProjectResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    patch:
+      tags: [Projects]
+      summary: Update project (partial)
+      description: Update specific fields of a project
+      parameters:
+        - $ref: '#/components/parameters/ProjectCodeParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchProjectRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProjectResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{projectCode}/cancel:
+    post:
+      tags: [Projects]
+      summary: Cancel project
+      description: Cancel an active project
+      parameters:
+        - $ref: '#/components/parameters/ProjectCodeParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Reason for cancellation
+                  maxLength: 500
+              required: [reason]
+      responses:
+        '200':
+          $ref: '#/components/responses/ProjectResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{projectCode}/resume:
+    post:
+      tags: [Projects]
+      summary: Resume project
+      description: Resume a cancelled or on-hold project
+      parameters:
+        - $ref: '#/components/parameters/ProjectCodeParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/ProjectResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # Analytics API
+  /analytics/sales/monthly:
+    get:
+      tags: [Analytics]
+      summary: Monthly sales analysis
+      description: Get monthly sales data with trends and comparisons
+      parameters:
+        - name: year
+          in: query
+          description: Year for analysis
+          schema:
+            type: integer
+            minimum: 2020
+            maximum: 2030
+        - name: month
+          in: query
+          description: Specific month (1-12)
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+      responses:
+        '200':
+          $ref: '#/components/responses/MonthlySalesResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /analytics/regions:
+    get:
+      tags: [Analytics]
+      summary: Regional analysis
+      description: Get regional performance analysis
+      responses:
+        '200':
+          $ref: '#/components/responses/RegionalAnalysisResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # System Management API
+  /system/health:
+    get:
+      tags: [System]
+      summary: Health check
+      description: Get system health status
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthResponse'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
+  /system/cache:
+    get:
+      tags: [System]
+      summary: Cache statistics
+      description: Get cache performance statistics
+      responses:
+        '200':
+          $ref: '#/components/responses/CacheStatsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    delete:
+      tags: [System]
+      summary: Clear cache
+      description: Clear application cache
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # User Management API
+  /users:
+    get:
+      tags: [Users]
+      summary: List users
+      description: Get list of all users (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/UserListResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+    post:
+      tags: [Users]
+      summary: Create user
+      description: Create a new user (admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/UserResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: session
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number for pagination
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    LimitParam:
+      name: limit
+      in: query
+      description: Number of items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    SortParam:
+      name: sort
+      in: query
+      description: Field to sort by
+      schema:
+        type: string
+        default: created_at
+
+    OrderParam:
+      name: order
+      in: query
+      description: Sort order
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+
+    ProjectCodeParam:
+      name: projectCode
+      in: path
+      required: true
+      description: Unique project code
+      schema:
+        type: string
+        pattern: '^[A-Z0-9]{3,10}$'
+        example: 'PRJ001'
+
+  schemas:
+    # Standard Response Schemas
+    StandardResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Indicates if the request was successful
+        data:
+          type: object
+          description: Response data (null for errors)
+        error:
+          $ref: '#/components/schemas/ErrorDetails'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+      required: [success, data, error, meta]
+
+    ErrorDetails:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Error code identifier
+          example: 'VALIDATION_ERROR'
+        message:
+          type: string
+          description: Human-readable error message
+          example: 'Request validation failed'
+        details:
+          type: object
+          description: Additional error details
+      required: [code, message]
+
+    ResponseMeta:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Response timestamp in ISO 8601 format
+        version:
+          type: string
+          description: API version
+          example: 'v1'
+        request_id:
+          type: string
+          format: uuid
+          description: Unique request identifier
+        pagination:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Current page number
+        limit:
+          type: integer
+          description: Items per page
+        total:
+          type: integer
+          description: Total number of items
+        pages:
+          type: integer
+          description: Total number of pages
+        has_next:
+          type: boolean
+          description: Whether there is a next page
+        has_prev:
+          type: boolean
+          description: Whether there is a previous page
+        next_page:
+          type: integer
+          nullable: true
+          description: Next page number
+        prev_page:
+          type: integer
+          nullable: true
+          description: Previous page number
+
+    # Project Schemas
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique project identifier
+          example: 'PRJ001'
+        name:
+          type: string
+          description: Project name
+          example: 'Website Redesign'
+        description:
+          type: string
+          description: Project description
+          example: 'Complete redesign of company website'
+        status:
+          type: string
+          enum: [active, completed, cancelled, on_hold]
+          description: Current project status
+        start_date:
+          type: string
+          format: date
+          description: Project start date
+        end_date:
+          type: string
+          format: date
+          nullable: true
+          description: Project end date
+        budget:
+          type: number
+          format: decimal
+          description: Project budget
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Project completion percentage
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+        created_by:
+          type: string
+          description: User who created the project
+      required: [id, name, status, start_date, created_at, updated_at, created_by]
+
+    CreateProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Project name
+        description:
+          type: string
+          maxLength: 500
+          description: Project description
+        start_date:
+          type: string
+          format: date
+          description: Project start date
+        end_date:
+          type: string
+          format: date
+          description: Project end date
+        budget:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Project budget
+      required: [name, start_date]
+
+    UpdateProjectRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateProjectRequest'
+        - type: object
+          properties:
+            status:
+              type: string
+              enum: [active, completed, cancelled, on_hold]
+              description: Project status
+
+    PatchProjectRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        status:
+          type: string
+          enum: [active, completed, cancelled, on_hold]
+        end_date:
+          type: string
+          format: date
+        budget:
+          type: number
+          format: decimal
+          minimum: 0
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    # User Schemas
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique user identifier
+        email:
+          type: string
+          format: email
+          description: User email address
+        name:
+          type: string
+          description: Full name
+        role:
+          type: string
+          enum: [admin, manager, user]
+          description: User role
+        status:
+          type: string
+          enum: [active, inactive, suspended]
+          description: User status
+        last_login:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last login timestamp
+        created_at:
+          type: string
+          format: date-time
+          description: Account creation timestamp
+      required: [id, email, name, role, status, created_at]
+
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Full name
+        role:
+          type: string
+          enum: [admin, manager, user]
+          description: User role
+          default: user
+      required: [email, name]
+
+  responses:
+    # Success Responses
+    SuccessResponse:
+      description: Operation successful
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: 'Operation completed successfully'
+
+    ProjectResponse:
+      description: Project data
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Project'
+
+    ProjectListResponse:
+      description: List of projects
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      projects:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Project'
+                      summary:
+                        type: object
+                        properties:
+                          total_projects:
+                            type: integer
+                          active_projects:
+                            type: integer
+                          completed_projects:
+                            type: integer
+
+    UserResponse:
+      description: User data
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/User'
+
+    UserListResponse:
+      description: List of users
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      users:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+
+    MonthlySalesResponse:
+      description: Monthly sales analysis data
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      sales_data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            month:
+                              type: string
+                            revenue:
+                              type: number
+                            growth_rate:
+                              type: number
+
+    RegionalAnalysisResponse:
+      description: Regional analysis data
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      regions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            region:
+                              type: string
+                            revenue:
+                              type: number
+                            performance:
+                              type: string
+
+    HealthResponse:
+      description: System health status
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: 'healthy'
+                      uptime:
+                        type: number
+                      version:
+                        type: string
+                      checks:
+                        type: object
+                        properties:
+                          database:
+                            type: string
+                          cache:
+                            type: string
+                          storage:
+                            type: string
+
+    CacheStatsResponse:
+      description: Cache statistics
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      hit_rate:
+                        type: number
+                      total_requests:
+                        type: integer
+                      cache_size:
+                        type: string
+
+    # Error Responses
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  data:
+                    type: object
+                    nullable: true
+                    example: null
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: 'VALIDATION_ERROR'
+                      message:
+                        type: string
+                        example: 'Request validation failed'
+                      details:
+                        type: object
+                        example:
+                          name: ['This field is required']
+                          email: ['Invalid email format']
+
+    UnauthorizedError:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: 'UNAUTHORIZED'
+                      message:
+                        type: string
+                        example: 'Authentication required'
+
+    ForbiddenError:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: 'FORBIDDEN'
+                      message:
+                        type: string
+                        example: 'Insufficient permissions'
+
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: 'RESOURCE_NOT_FOUND'
+                      message:
+                        type: string
+                        example: 'Requested resource was not found'
+
+    ConflictError:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: 'CONFLICT'
+                      message:
+                        type: string
+                        example: 'Resource already exists or is in use'
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: 'INTERNAL_ERROR'
+                      message:
+                        type: string
+                        example: 'An internal server error occurred'
+
+    ServiceUnavailableError:
+      description: Service temporarily unavailable
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/StandardResponse'
+              - type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: object
+                    properties:
+                      code:
+                        type: string
+                        example: 'SERVICE_UNAVAILABLE'
+                      message:
+                        type: string
+                        example: 'Service is temporarily unavailable'
+
+tags:
+  - name: Projects
+    description: Project management operations
+  - name: Analytics
+    description: Business analytics and reporting
+  - name: System
+    description: System management and monitoring
+  - name: Users
+    description: User management (admin only)
+  - name: Authentication
+    description: Authentication and authorization

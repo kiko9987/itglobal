@@ -1,0 +1,172 @@
+/**
+ * Global Cursor & Text Selection Settings
+ * 글로벌 커서 및 텍스트 선택 설정
+ *
+ * 레거시 시스템에서 중요한 UX 설정들을 모던 시스템으로 이전
+ */
+
+/* 전체 페이지에서 텍스트 선택 허용, 입력 커서는 숨김 */
+* {
+  user-select: text;
+  caret-color: transparent !important;
+}
+
+/* 입력 필드에는 커서 표시 */
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="tel"]:focus,
+input[type="number"]:focus,
+input[type="date"]:focus,
+input[type="password"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+textarea:focus,
+select:focus {
+  caret-color: auto !important;
+}
+
+/* 인라인 에디트 입력 필드에도 커서 표시 */
+.inline-edit-input:focus,
+.inline-editor:focus {
+  caret-color: auto !important;
+}
+
+/* 특정 편집 가능한 요소들에 커서 표시 */
+[contenteditable="true"]:focus,
+.editable-field:focus,
+.form-control:focus,
+.form-select:focus {
+  caret-color: auto !important;
+}
+
+/* 드래그 앤 드롭 지원 */
+.draggable {
+  cursor: grab;
+  user-select: none;
+}
+
+.draggable:active {
+  cursor: grabbing;
+}
+
+/* 비활성화된 요소들 */
+.disabled,
+[disabled],
+.readonly,
+[readonly] {
+  cursor: not-allowed;
+  user-select: none;
+}
+
+/* 링크 및 버튼 요소들 */
+a,
+button,
+.btn,
+.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 로딩 상태 */
+.loading,
+.spinner {
+  cursor: wait;
+  user-select: none;
+}
+
+/* 도움말 텍스트 */
+.help-text,
+.tooltip-trigger {
+  cursor: help;
+}
+
+/* 크기 조절 가능한 요소들 */
+.resizable {
+  cursor: resize;
+}
+
+.resizable-h {
+  cursor: ew-resize;
+}
+
+.resizable-v {
+  cursor: ns-resize;
+}
+
+/* 텍스트 선택 방지가 필요한 UI 요소들 */
+.no-select,
+.table-header,
+.nav-tabs,
+.nav-pills,
+.pagination,
+.breadcrumb,
+.btn-group,
+.dropdown-menu {
+  user-select: none;
+}
+
+/* 모바일에서 터치 최적화 */
+@media (hover: none) and (pointer: coarse) {
+  /* 터치 디바이스에서는 기본 터치 동작 허용 */
+  .touch-optimized {
+    touch-action: manipulation;
+  }
+
+  /* 터치 디바이스에서 텍스트 선택 제한 */
+  .mobile-no-select {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* 접근성 개선 */
+@media (prefers-reduced-motion: reduce) {
+  /* 모션 감소 설정 시 커서 애니메이션 제거 */
+  * {
+    cursor: auto;
+  }
+
+  input:focus,
+  textarea:focus,
+  .inline-edit-input:focus {
+    cursor: text !important;
+  }
+
+  a,
+  button,
+  .btn,
+  tbody tr:hover,
+  .has-field-memo {
+    cursor: pointer !important;
+  }
+}
+
+/* 고대비 모드 지원 */
+@media (prefers-contrast: high) {
+  .cursor-indicator {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+}
+
+/* 포커스 표시기 개선 */
+.focus-visible {
+  outline: 2px solid var(--primary-color, #FF6B35);
+  outline-offset: 2px;
+}
+
+/* 커서 상태 표시기 (디버깅용) */
+.debug-cursor::after {
+  content: attr(data-cursor-state);
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 9999;
+}

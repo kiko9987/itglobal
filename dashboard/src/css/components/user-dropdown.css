@@ -1,0 +1,354 @@
+/**
+ * User Dropdown Component
+ * 사용자 메뉴 및 드롭다운 시스템
+ *
+ * 레거시 시스템에서 사용자 메뉴 관련 스타일들을 모던 시스템으로 이전
+ */
+
+/* User Menu Button */
+.btn-user-menu {
+  background-color: rgba(108, 117, 125, 0.1) !important;
+  border: 1px solid rgba(108, 117, 125, 0.3) !important;
+  color: #495057 !important;
+  font-size: 0.8rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--border-radius, 8px);
+  font-weight: 500;
+  transition: var(--transition-base, all 0.2s ease);
+  display: inline-flex;
+  align-items: baseline;
+  text-decoration: none;
+}
+
+.btn-user-menu:hover {
+  background-color: rgba(108, 117, 125, 0.2) !important;
+  border-color: rgba(108, 117, 125, 0.5) !important;
+  color: #343a40 !important;
+  text-decoration: none;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(108, 117, 125, 0.2);
+}
+
+.btn-user-menu:active,
+.btn-user-menu:focus {
+  background-color: rgba(108, 117, 125, 0.2) !important;
+  border-color: rgba(108, 117, 125, 0.5) !important;
+  color: #343a40 !important;
+  box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.25);
+  transform: none;
+  outline: none;
+  transition: none;
+}
+
+.btn-user-menu .fas {
+  margin-right: var(--spacing-xs, 0.25rem);
+}
+
+/* 드롭다운 화살표 위치 조정 */
+.btn-user-menu::after {
+  align-self: center;
+  margin-left: 0.35rem;
+  transform: translateY(2px);
+}
+
+/* 드롭다운이 열렸을 때 버튼 활성화 상태 - 진한 회색 + glowing 효과 유지 */
+.dropdown.show > .btn-user-menu,
+.dropdown.show > .btn-user-menu:hover,
+.dropdown.show > .btn-user-menu:focus,
+.dropdown.show > .btn-user-menu:active,
+.dropdown.show > .btn-user-menu:focus-visible,
+.dropdown.show > .btn-user-menu:focus-within {
+  background-color: rgba(108, 117, 125, 0.2) !important;
+  border-color: rgba(108, 117, 125, 0.5) !important;
+  color: #343a40 !important;
+  box-shadow: 0 0 0 0.2rem rgba(108, 117, 125, 0.25) !important;
+  transform: none !important;
+}
+
+/* User Dropdown Styling */
+.user-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+/* 드롭다운 컨테이너를 고정된 크기로 만들어 flexbox 깨짐 방지 */
+.dropdown {
+  position: relative;
+}
+
+.user-dropdown.dropdown-menu,
+.dropdown-menu.user-dropdown,
+.user-dropdown .dropdown-menu,
+.dropdown-menu-end.user-dropdown {
+  background: var(--gray-50, #f8fafc);
+  border: 1px solid var(--gray-200, #e2e8f0);
+  border-radius: var(--border-radius, 8px);
+  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1));
+  padding: var(--spacing-sm, 0.5rem) 0;
+  min-width: 200px !important;
+  max-width: 250px !important;
+  width: auto !important;
+  z-index: var(--zindex-dropdown, 1000);
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: auto;
+}
+
+.user-dropdown .dropdown-item,
+.dropdown-menu.user-dropdown .dropdown-item {
+  padding: var(--spacing-sm, 0.5rem) var(--spacing-sm, 0.5rem);
+  color: var(--gray-700, #374151);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+  transition: var(--transition-base, all 0.2s ease);
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.user-dropdown .dropdown-item:hover {
+  background-color: rgba(108, 117, 125, 0.15);
+  color: #343a40;
+}
+
+.user-dropdown .dropdown-item:focus {
+  background-color: rgba(108, 117, 125, 0.15);
+  color: #343a40;
+  outline: none;
+}
+
+.user-dropdown .dropdown-item.active {
+  background-color: rgba(108, 117, 125, 0.2);
+  color: #343a40;
+}
+
+.user-dropdown .dropdown-item .fas {
+  margin-right: var(--spacing-sm, 0.5rem);
+  width: 16px;
+  text-align: center;
+}
+
+/* User Profile Section in Dropdown */
+.user-profile-section {
+  padding: var(--spacing-md, 1rem);
+  border-bottom: 1px solid var(--gray-200, #e2e8f0);
+  margin-bottom: var(--spacing-xs, 0.25rem);
+}
+
+.user-profile-info {
+  display: flex;
+  align-items: center;
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--primary-color, #FF6B35);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  margin-right: var(--spacing-sm, 0.5rem);
+  font-size: var(--font-size-lg, 1.125rem);
+}
+
+.user-details {
+  flex: 1;
+}
+
+.user-name {
+  font-weight: 600;
+  color: var(--gray-800, #1f2937);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.user-email {
+  color: var(--gray-500, #6b7280);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.user-role {
+  background: var(--primary-alpha-10, rgba(255, 107, 53, 0.1));
+  color: var(--primary-color, #FF6B35);
+  padding: 2px 6px;
+  border-radius: var(--border-radius-sm, 6px);
+  font-size: var(--font-size-xs, 0.75rem);
+  font-weight: 500;
+  margin-top: 2px;
+  display: inline-block;
+}
+
+/* Dropdown Divider */
+.user-dropdown .dropdown-divider {
+  height: 1px;
+  background: var(--gray-200, #e2e8f0);
+  margin: var(--spacing-xs, 0.25rem) 0;
+  border: none;
+}
+
+/* Enhanced Dropdown Menu Styling */
+.dropdown-menu {
+  background: var(--gray-50, #f8fafc);
+  border: 1px solid var(--gray-200, #e2e8f0);
+  border-radius: var(--border-radius, 8px);
+  box-shadow: var(--shadow-lg, 0 10px 15px -3px rgb(0 0 0 / 0.1));
+  padding: var(--spacing-xs, 0.25rem) 0;
+  min-width: 140px;
+  z-index: var(--zindex-dropdown, 1000);
+  display: none; /* Bootstrap 기본 동작 유지 */
+}
+
+.dropdown-menu.show {
+  display: block; /* Bootstrap .show 클래스에서만 표시 */
+}
+
+.dropdown-item {
+  padding: var(--spacing-xs, 0.25rem) var(--spacing-sm, 0.5rem);
+  color: var(--gray-700, #374151);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  font-size: var(--font-size-sm, 0.875rem);
+  transition: var(--transition-base, all 0.2s ease);
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  border-radius: var(--border-radius-sm, 6px);
+  margin: 0 var(--spacing-xs, 0.25rem);
+}
+
+.dropdown-item:hover {
+  background-color: rgba(108, 117, 125, 0.15);
+  color: #343a40;
+}
+
+.dropdown-item:focus {
+  background-color: rgba(108, 117, 125, 0.15);
+  color: #343a40;
+  outline: none;
+}
+
+.dropdown-item.active {
+  background-color: rgba(108, 117, 125, 0.2);
+  color: #343a40;
+}
+
+.dropdown-item .fas,
+.dropdown-item .far {
+  margin-right: var(--spacing-xs, 0.25rem);
+  width: 14px;
+  text-align: center;
+}
+
+/* Dropdown parent elements also get high z-index */
+.dropdown,
+.nav-item.dropdown {
+  z-index: var(--zindex-dropdown, 1000);
+}
+
+/* Ensure dropdown container doesn't interfere with Bootstrap */
+.dropdown {
+  position: relative;
+}
+
+/* Mobile optimizations */
+@media (max-width: 767.98px) {
+  .user-dropdown .dropdown-menu {
+    position: fixed !important;
+    top: auto !important;
+    left: 1rem !important;
+    right: 1rem !important;
+    bottom: 1rem !important;
+    width: auto !important;
+    max-width: none !important;
+    transform: none !important;
+    border-radius: var(--border-radius-lg, 12px);
+  }
+
+  .user-profile-section {
+    padding: var(--spacing-lg, 1.5rem);
+  }
+
+  .user-avatar {
+    width: 48px;
+    height: 48px;
+    font-size: var(--font-size-xl, 1.25rem);
+  }
+
+  .dropdown-item {
+    padding: var(--spacing-sm, 0.5rem) var(--spacing-lg, 1.5rem);
+    font-size: var(--font-size-base, 1rem);
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .user-dropdown .dropdown-menu {
+    background: var(--dark-secondary, #2d2d2d);
+    border-color: var(--dark-accent, #3a3a3a);
+  }
+
+  .user-dropdown .dropdown-item {
+    color: var(--gray-300, #d1d5db);
+  }
+
+  .user-dropdown .dropdown-item:hover {
+    background-color: var(--primary-alpha-20, rgba(255, 107, 53, 0.2));
+  }
+
+  .user-name {
+    color: var(--gray-100, #f3f4f6);
+  }
+
+  .user-email {
+    color: var(--gray-400, #9ca3af);
+  }
+}
+
+/* Header divider */
+.header-divider {
+  height: 24px;
+  width: 1px;
+  background: var(--gray-300, #d1d5db);
+  margin: 0 1rem;
+  flex-shrink: 0;
+}
+
+.header-divider-narrow {
+  margin: 0 0.5rem;
+  width: 1px !important;
+  min-width: 1px;
+  max-width: 1px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .user-dropdown .dropdown-item,
+  .btn-user-menu {
+    transition: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .user-dropdown .dropdown-menu {
+    border-width: 2px;
+  }
+
+  .user-dropdown .dropdown-item:focus {
+    outline: 2px solid currentColor;
+    outline-offset: -2px;
+  }
+}

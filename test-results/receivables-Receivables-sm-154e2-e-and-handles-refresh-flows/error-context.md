@@ -1,0 +1,58 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e6]:
+      - img "IT글로벌 로고" [ref=e7]
+      - paragraph [ref=e9]: 프로젝트 통합 관리 시스템
+    - generic [ref=e11]:
+      - button " 새로고침" [ref=e12] [cursor=pointer]:
+        - generic [ref=e13] [cursor=pointer]: 
+        - text: 새로고침
+      - link " 프로젝트" [ref=e14] [cursor=pointer]:
+        - /url: /projects
+        - generic [ref=e15] [cursor=pointer]: 
+        - text: 프로젝트
+      - link " 매출통계" [ref=e16] [cursor=pointer]:
+        - /url: /stats
+        - generic [ref=e17] [cursor=pointer]: 
+        - text: 매출통계
+      - generic [ref=e18]:
+        - button " Playwright Tester" [ref=e19] [cursor=pointer]:
+          - generic [ref=e20] [cursor=pointer]: 
+          - generic [ref=e21] [cursor=pointer]: Playwright Tester
+        - text:   
+  - generic [ref=e23]:
+    - heading "수금 관리" [level=4] [ref=e27]
+    - generic [ref=e30]:
+      - generic [ref=e31]:
+        - generic [ref=e32]: 사업자
+        - combobox "사업자" [ref=e33]:
+          - option "전체" [selected]
+          - option "글로벌"
+          - option "글로벌그룹"
+      - generic [ref=e34]:
+        - generic [ref=e35]: 담당자
+        - combobox "담당자" [ref=e36]:
+          - option "전체" [selected]
+      - generic [ref=e37]:
+        - generic [ref=e38]: 키워드 검색
+        - textbox "키워드 검색" [ref=e39]
+      - button " 초기화" [ref=e43] [cursor=pointer]:
+        - generic [ref=e44] [cursor=pointer]: 
+        - text: 초기화
+    - table [ref=e47]:
+      - rowgroup [ref=e48]:
+        - row "프로젝트 코드 담당자 거래처 현장주소 공사 내용 공사 종료 총액 미수금 수금 특이사항" [ref=e49]:
+          - cell "프로젝트 코드" [ref=e50]
+          - cell "담당자" [ref=e51]
+          - cell "거래처" [ref=e52]
+          - cell "현장주소" [ref=e53]
+          - cell "공사 내용" [ref=e54]
+          - cell "공사 종료" [ref=e55]
+          - cell "총액" [ref=e56]
+          - cell "미수금" [ref=e57]
+          - cell "수금 특이사항" [ref=e58]
+      - rowgroup
+```

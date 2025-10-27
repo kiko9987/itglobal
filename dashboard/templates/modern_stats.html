@@ -1,0 +1,191 @@
+{% extends "modern_base.html" %}
+
+{% block title %}매출 통계{% endblock %}
+
+{% block additional_css %}
+<!-- Stats Page CSS -->
+{% set stats_css = get_css_bundle('css/pages/stats') %}
+{% if stats_css %}
+    <link rel="stylesheet" href="{{ stats_css }}">
+{% endif %}
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+{% endblock %}
+
+{% block page_title %}매출 통계{% endblock %}
+{% block page_subtitle %}프로젝트 매출 데이터 분석{% endblock %}
+
+{% block header_buttons %}
+<button class="btn btn-refresh"
+        id="refreshStatsBtn"
+        onclick="refreshStats?.()"
+        aria-label="데이터 새로고침"
+        title="통계 데이터 새로고침">
+    <i class="fas fa-sync-alt me-1" aria-hidden="true"></i>
+    <span class="d-none d-sm-inline">새로고침</span>
+</button>
+
+<a href="/projects" class="btn btn-projects">
+    <i class="fas fa-folder-open me-1" aria-hidden="true"></i>
+    <span class="d-none d-sm-inline">프로젝트</span>
+</a>
+
+<a href="/stats" class="btn btn-stats">
+    <i class="fas fa-chart-bar me-1" aria-hidden="true"></i>
+    <span class="d-none d-sm-inline">매출통계</span>
+</a>
+
+<a href="/receivables" class="btn btn-receivables">
+    <i class="fas fa-hand-holding-usd me-1" aria-hidden="true"></i>
+    <span class="d-none d-sm-inline">수금관리</span>
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="content-container">
+        <div class="row mb-3">
+            <div class="col-12 d-flex align-items-center justify-content-between project-header">
+                <div class="d-flex align-items-center">
+                    <h4 class="mb-0">매출 통계</h4>
+                </div>
+            </div>
+        </div>
+
+    <!-- 로딩 인디케이터 -->
+    <div id="loadingIndicator" class="loading-spinner" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">로딩 중...</span>
+        </div>
+    </div>
+
+    <!-- 통계 대시보드 -->
+    <div id="statsContent" style="display: block;">
+        <!-- 요약 통계 카드 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <h3><i class="fas fa-project-diagram me-2"></i>총 프로젝트 (공사 확정 기준)</h3>
+                    <div class="stats-value" id="totalProjects">-</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <h3><i class="fas fa-won-sign me-2"></i>총 매출 (공사 확정 기준)</h3>
+                    <div class="stats-value" id="totalRevenue">-</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <h3><i class="fas fa-calendar-alt me-2"></i>월 평균 매출 (공사 확정 기준)</h3>
+                    <div class="stats-value" id="avgMonthlyRevenue">-</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <h3><i class="fas fa-exclamation-triangle me-2"></i>미수금 (공사 확정 기준)</h3>
+                    <div class="stats-value" id="outstandingAmount">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 차트 영역 - 8개 섹션 -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2024년 월별 총매출</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="monthly2024Chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-chart-bar me-2"></i>2025년 월별 총매출</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="monthly2025Chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2024년 개인별 매출</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="personal2024Chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-chart-pie me-2"></i>2025년 개인별 매출</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="personal2025Chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-building me-2"></i>2024년 월별 매출 - 사업자별</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="company2024Chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-building me-2"></i>2025년 월별 매출 - 사업자별</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="company2025Chart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-chart-line me-2"></i>사업자별 총매출 비교</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="companyCompareChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="chart-container small-chart">
+                    <h3 class="chart-title"><i class="fas fa-chart-area me-2"></i>월별 총매출 트렌드</h3>
+                    <div class="chart-wrapper small-wrapper">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+{% set stats_js = get_js_bundle('js/pages/stats-page') %}
+<script>
+    console.log('🔍 Stats page script block loaded');
+    console.log('🔍 Chart.js available:', typeof Chart !== 'undefined');
+    console.log('🔍 Stats JS URL:', '{{ stats_js }}');
+</script>
+{% if stats_js %}
+<script type="module" src="{{ stats_js }}"></script>
+<script>
+    // 모듈 로드 확인
+    setTimeout(() => {
+        console.log('🔍 statsManager available:', typeof window.statsManager !== 'undefined');
+        console.log('🔍 refreshStats available:', typeof window.refreshStats !== 'undefined');
+    }, 1000);
+</script>
+{% else %}
+<script>
+    console.error('❌ Stats JS bundle not found!');
+</script>
+{% endif %}
+    </div> <!-- .content-container -->
+</div> <!-- .container-fluid -->
+{% endblock %}

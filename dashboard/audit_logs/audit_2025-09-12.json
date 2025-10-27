@@ -1,0 +1,41 @@
+[
+  {
+    "timestamp": "2025-09-12T13:17:17.417443",
+    "user_name": "고광일",
+    "user_email": "kiko@itg-aircon.com",
+    "user_role": "admin",
+    "action": "UPDATE_FIELD",
+    "details": "프로젝트 필드 수정: 제품대",
+    "project_code": "G2849-MS",
+    "field_name": "제품대",
+    "old_value": "-",
+    "new_value": "1,000,000",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "timestamp": "2025-09-12T13:22:54.794348",
+    "user_name": "고광일",
+    "user_email": "kiko@itg-aircon.com",
+    "user_role": "admin",
+    "action": "UPDATE_FIELD",
+    "details": "프로젝트 필드 수정: 총액 1",
+    "project_code": "G2849-MS",
+    "field_name": "총액 1",
+    "old_value": "3,000,000",
+    "new_value": "6,000,000",
+    "ip_address": "127.0.0.1"
+  },
+  {
+    "timestamp": "2025-09-12T18:33:04.713370",
+    "user_name": "고광일",
+    "user_email": "kiko@itg-aircon.com",
+    "user_role": "admin",
+    "action": "CREATE_PROJECT",
+    "details": "새 프로젝트 등록: G2850-MJ",
+    "project_code": "G2850-MJ",
+    "field_name": "전체",
+    "old_value": "-",
+    "new_value": "새 프로젝트 생성",
+    "ip_address": "127.0.0.1"
+  }
+]

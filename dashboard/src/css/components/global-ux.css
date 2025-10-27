@@ -1,0 +1,401 @@
+/* ===== 전역 UX 동작 - 사용자 경험 통일 ===== */
+
+/* 전역 사용자 선택 및 커서 설정 */
+* {
+  user-select: text;
+  caret-color: var(--primary-color);
+}
+
+/* 특정 요소들은 선택 불가 */
+.btn,
+.nav-link,
+.dropdown-toggle,
+.badge,
+.card-header,
+.modal-header,
+.alert,
+button,
+[role="button"] {
+  user-select: none;
+}
+
+/* 코드/텍스트 영역은 모든 텍스트 선택 가능 */
+code,
+pre,
+.form-control,
+.form-select,
+textarea,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+.text-selectable {
+  user-select: text;
+  caret-color: var(--primary-color);
+}
+
+/* 폴더 링크 커서 강제 설정 */
+.folder-link,
+.folder-link *,
+a[id^="folder-display-"],
+a[id^="folder-display-"] * {
+  cursor: pointer !important;
+}
+
+.folder-link:hover,
+a[id^="folder-display-"]:hover {
+  opacity: 0.8;
+  transition: opacity var(--transition-base);
+}
+
+/* 드롭다운 Z-index 관리 (현대화된 체계적 접근) */
+.dropdown-menu,
+.dropdown-menu.dropdown-menu-end,
+.user-dropdown,
+ul.dropdown-menu.dropdown-menu-end.user-dropdown,
+.dropdown-menu.show {
+  z-index: var(--z-dropdown);
+}
+
+.dropdown.show .dropdown-menu {
+  z-index: var(--z-dropdown);
+}
+
+/* 모달 오버레이 Z-index */
+.modal-backdrop {
+  z-index: var(--z-modal-backdrop);
+}
+
+.modal {
+  z-index: var(--z-modal);
+}
+
+/* Form Input 플레이스홀더 통일 */
+.form-control::placeholder,
+.form-control::-webkit-input-placeholder,
+.form-control::-moz-placeholder,
+.form-control:-ms-input-placeholder {
+  color: var(--gray-400) !important;
+  opacity: 1;
+}
+
+/* 포커스 상태 통일 - select 제외 */
+.form-control:focus:not(.form-select) {
+  border-color: var(--primary-color);
+  box-shadow: none;
+  outline: none;
+}
+
+/* select 요소만 별도 처리 - 화살표 유지 */
+.form-select:focus,
+.form-select:hover {
+  border-color: var(--primary-color);
+  box-shadow: none;
+  outline: none;
+}
+
+/* 인풋 요소만 호버 시 배경색 변경 방지 (select는 완전 제외) */
+input:not([type]):hover,
+input:not([type]):focus,
+input[type="text"]:hover,
+input[type="text"]:focus,
+input[type="email"]:hover,
+input[type="email"]:focus,
+input[type="password"]:hover,
+input[type="password"]:focus,
+input[type="number"]:hover,
+input[type="number"]:focus,
+input[type="tel"]:hover,
+input[type="tel"]:focus,
+input[type="url"]:hover,
+input[type="url"]:focus,
+input[type="search"]:hover,
+input[type="search"]:focus,
+input[type="date"]:hover,
+input[type="date"]:focus,
+textarea:hover,
+textarea:focus {
+  background-color: #fff;
+  background-image: none;
+}
+
+/* 버튼 호버 효과 통일 */
+.btn:not(:disabled):not(.disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn:not(:disabled):not(.disabled):active {
+  transform: translateY(0);
+}
+
+/* 카드 호버 효과 제거 - 레거시 스타일과 일치 */
+
+/* 테이블 행 호버 효과 (table-active가 없는 행만) */
+.table tbody tr:hover:not(.table-active) {
+  background-color: var(--gray-50);
+  cursor: pointer;
+}
+
+/* 링크 스타일 통일 */
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: var(--transition-base);
+}
+
+a:hover {
+  color: var(--primary-dark);
+  text-decoration: underline;
+}
+
+a:focus {
+  outline: 2px solid var(--primary-alpha-25);
+  outline-offset: 2px;
+}
+
+/* 스크롤바 전역 스타일 (Webkit 기반 브라우저) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--gray-100);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-400);
+  border-radius: var(--radius-sm);
+  transition: var(--transition-base);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-500);
+}
+
+/* 선택 텍스트 스타일 */
+::selection {
+  background-color: var(--primary-alpha-25);
+  color: var(--gray-900);
+}
+
+::-moz-selection {
+  background-color: var(--primary-alpha-25);
+  color: var(--gray-900);
+}
+
+/* 로딩 상태 표시 */
+.loading {
+  position: relative;
+  pointer-events: none;
+  opacity: var(--black-alpha-70);
+}
+
+.loading::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--size-lg);
+  height: var(--size-lg);
+  border: 2px solid var(--gray-300);
+  border-top: 2px solid var(--primary-color);
+  border-radius: 50%;
+  animation: spin var(--duration-1000) linear infinite;
+  z-index: 1;
+}
+
+@keyframes spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+/* 비활성화 상태 */
+.disabled,
+[disabled] {
+  opacity: var(--black-alpha-70);
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+/* 숨김 유틸리티 */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* 터치 인터랙션 개선 */
+@media (pointer: coarse) {
+  .btn,
+  .form-control,
+  .form-select,
+  .nav-link {
+    min-height: 44px; /* iOS 권장 터치 타겟 크기 */
+    min-width: 44px;
+  }
+
+
+  .table tbody tr {
+    min-height: 44px;
+  }
+}
+
+/* 프린트 최적화 */
+@media print {
+  * {
+    user-select: text !important;
+    caret-color: initial !important;
+  }
+
+  .btn:hover,
+  .card:hover,
+  .table tbody tr:hover:not(.table-active) {
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  a {
+    color: var(--gray-900) !important;
+    text-decoration: underline !important;
+  }
+
+  .loading::after {
+    display: none;
+  }
+}
+
+/* 접근성 개선 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .btn:hover,
+  .card:hover {
+    transform: none !important;
+  }
+}
+
+/* 고대비 모드 지원 */
+@media (prefers-contrast: high) {
+  .btn,
+  .form-control,
+  .form-select,
+  .card {
+    border-width: 2px !important;
+  }
+
+  a {
+    text-decoration: underline !important;
+  }
+
+  .dropdown-menu {
+    border-width: 2px !important;
+  }
+}
+
+/* 다크모드 UX 조정 */
+@media (prefers-color-scheme: dark) {
+  * {
+    caret-color: var(--primary-light);
+  }
+
+  ::selection {
+    background-color: var(--primary-alpha-30);
+    color: var(--gray-100);
+  }
+
+  ::-moz-selection {
+    background-color: var(--primary-alpha-30);
+    color: var(--gray-100);
+  }
+
+  .form-control::placeholder,
+  .form-control::-webkit-input-placeholder,
+  .form-control::-moz-placeholder,
+  .form-control:-ms-input-placeholder {
+    color: var(--gray-500) !important;
+  }
+
+  .table tbody tr:hover:not(.table-active) {
+    background-color: var(--gray-800);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--gray-800);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--gray-600);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--gray-500);
+  }
+}
+
+/* 키보드 네비게이션 지원 */
+*:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* Skip link (접근성) */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 6px;
+  background: var(--primary-color);
+  color: white;
+  padding: 8px;
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  z-index: var(--z-tooltip);
+}
+
+.skip-link:focus {
+  top: 6px;
+}
+
+/* 상호작용 피드백 */
+.clickable {
+  cursor: pointer;
+  transition: var(--transition-base);
+}
+
+.clickable:hover {
+  opacity: 0.8;
+}
+
+.clickable:active {
+  transform: scale(0.98);
+}
+
+/* 읽기 전용 필드 시각적 표시 */
+.readonly {
+  background-color: var(--gray-100) !important;
+  cursor: not-allowed !important;
+  opacity: var(--black-alpha-70);
+}
+
+/* 필수 필드 표시 */
+.required::after {
+  content: " *";
+  color: var(--danger-color);
+  font-weight: bold;
+}

@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>로그인 - IT Global 프로젝트 관리</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root {
+            /* Brand Colors - 프로젝트 관리 페이지와 동일한 컬러 시스템 */
+            --primary-color: #FF6B35;
+            --primary-dark: #E55A2B;
+            --primary-light: #FF8A65;
+            
+            /* Dark Theme Base Colors */
+            --dark-primary: #1a1a1a;
+            --dark-secondary: #2d2d2d;
+            --dark-accent: #3a3a3a;
+            
+            /* Status Colors */
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --info-color: #06b6d4;
+            
+            /* Neutral Colors */
+            --gray-50: #f8fafc;
+            --gray-100: #f1f5f9;
+            --gray-200: #e2e8f0;
+            --gray-300: #cbd5e1;
+            --gray-400: #94a3b8;
+            --gray-500: #64748b;
+            --gray-600: #475569;
+            --gray-700: #334155;
+            --gray-800: #1e293b;
+            --gray-900: #0f172a;
+            
+            /* Typography */
+            --font-size-xs: 0.75rem;
+            --font-size-sm: 0.875rem;
+            --font-size-base: 1rem;
+            --font-size-lg: 1.125rem;
+            --font-size-xl: 1.25rem;
+            --font-size-2xl: 1.5rem;
+            --font-size-3xl: 1.875rem;
+            --font-size-4xl: 2.25rem;
+            
+            /* Spacing */
+            --border-radius-sm: 6px;
+            --border-radius: 8px;
+            --border-radius-lg: 12px;
+            --border-radius-xl: 16px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            background-color: var(--gray-50);
+            color: var(--gray-800);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: default;
+        }
+        
+        .logo {
+            max-width: 280px;
+            height: auto;
+            transition: transform 0.3s ease;
+            margin-bottom: 1.5rem;
+        }
+        
+        .logo-subtitle {
+            font-size: var(--font-size-2xl);
+            color: var(--gray-700);
+            font-weight: 600;
+            margin: 0;
+            line-height: 1.4;
+        }
+        
+        /* Login Container */
+        .login-container {
+            width: 100%;
+            max-width: 580px;
+            padding: 2rem;
+        }
+        
+        .login-card {
+            background: white;
+            border-radius: var(--border-radius-xl);
+            box-shadow: var(--shadow-xl);
+            border: 1px solid var(--gray-200);
+            padding: 4rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, rgba(255, 107, 53, 0.3), rgba(255, 138, 101, 0.4));
+        }
+        
+        .brand-section {
+            text-align: center;
+            margin-bottom: 2.5rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid var(--gray-200);
+        }
+        
+        .brand-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .welcome-section {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        
+        .welcome-title {
+            font-size: var(--font-size-3xl);
+            font-weight: 700;
+            color: var(--gray-900);
+            margin-bottom: 0.5rem;
+        }
+        
+        .welcome-subtitle {
+            color: var(--gray-600);
+            font-size: var(--font-size-lg);
+            margin-bottom: 0;
+        }
+        
+        /* Soft Button Styles - 회색조 버전 */
+        .btn-soft-primary {
+            background-color: var(--gray-50);
+            border: 1px solid var(--gray-300);
+            color: var(--gray-700);
+            font-size: var(--font-size-base);
+            padding: 1rem 1.5rem;
+            border-radius: var(--border-radius);
+            font-weight: 500;
+            transition: all 0.2s ease;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            text-decoration: none;
+        }
+        
+        .btn-soft-primary:hover {
+            background-color: white;
+            border-color: var(--gray-400);
+            color: var(--gray-800);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+            text-decoration: none;
+        }
+        
+        .google-icon {
+            width: 20px;
+            height: 20px;
+            background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTIyLjU2IDEyLjI1QzIyLjU2IDExLjQ3IDIyLjQ5IDEwLjcyIDIyLjM2IDEwSDEyVjE0LjI2SDE4LjEyQzE3Ljk0IDE1LjMgMTcuMzggMTYuMTUgMTYuNTUgMTYuNzhWMTkuNTdIMTkuNzFDMjEuMzYgMTguMiAyMi41NiAxNS40NCAyMi41NiAxMi4yNVoiIGZpbGw9IiM0Mjg1RjQiLz4KPHBhdGggZD0iTTEyIDIyQzE0Ljk3IDIyIDE3LjQ2IDIwLjkyIDE5LjcxIDE5LjU3TDE2LjU1IDE2Ljc4QzE1LjY2IDE3LjI5IDE0LjQ4IDE3LjYyIDEyIDE3LjYyQzguOTEgMTcuNjIgNi4zMiAxNS4zIDUuNDkgMTIuMThIMi4wOVYxNS4xOEM0LjQzIDEzLjU4IDcuOTIgMjIgMTIgMjJaIiBmaWxsPSIjMzRBODUzIi8+CjxwYXRoIGQ9Ik01LjQ5IDEyLjE4QzUuMTYgMTEuMjYgNS4xNiAxMC4yMyA1LjQ5IDkuNTJWNi41M0gyLjA5QzAuOTEgOC44NSAwLjkxIDEzLjY2IDIuMDkgMTUuOThMNS40OSAxMi4xOFoiIGZpbGw9IiNGQkJDMDQiLz4KPHBhdGggZD0iTTEyIDYuMzhDMTQuNzQgNi4zOCAxNy4zMiA3LjQgMTkuMzIgOS4wM0wyMi4wNiA2LjY4QzE5LjcxIDIuOTcgMTUuNzYgMS4wNyAxMiAxLjA3QzcuOTIgMS4wNyA0LjQzIDMuNDkgMi4wOSA2LjUzTDUuNDkgOS41MkM2LjMyIDYuMyA4LjkxIDYuMzggMTIgNi4zOFoiIGZpbGw9IiNFQTQzMzUiLz4KPC9zdmc+');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+        
+        .security-info {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: var(--gray-50);
+            border-radius: var(--border-radius);
+            border: 1px solid var(--gray-200);
+            text-align: center;
+        }
+        
+        .security-info p {
+            color: var(--gray-600);
+            font-size: var(--font-size-sm);
+            margin: 0;
+            line-height: 1.6;
+            display: inline-flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+        }
+        
+        .security-info i {
+            color: var(--success-color);
+            flex-shrink: 0;
+            font-size: 0.9rem;
+            margin-top: 0.25rem;
+        }
+        
+        /* 텍스트 선택 가능하지만 입력 커서 제거 */
+        .login-card, .security-info, .welcome-section, .brand-section {
+            cursor: default !important;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+            user-select: text !important;
+        }
+        
+        /* 모든 텍스트 요소에서 입력 커서 완전 제거 */
+        .login-card *, 
+        p, span, h1, h2, h3, h4, h5, h6, 
+        .logo-subtitle, .welcome-title, .welcome-subtitle,
+        .security-info *, .brand-section *,
+        strong, div, section {
+            cursor: default !important;
+        }
+        
+        /* 전역적으로 텍스트 커서 방지 */
+        *, *::before, *::after {
+            cursor: default !important;
+        }
+        
+        /* 텍스트 선택 허용하지만 커서는 기본값 유지 */
+        .login-card, .login-card * {
+            cursor: default !important;
+        }
+        
+        /* 버튼과 링크에만 손가락 커서 */
+        .btn, .btn *, a, button, 
+        input[type="submit"], input[type="button"] {
+            cursor: pointer !important;
+        }
+        
+        /* 신규 가입자 안내 스타일 */
+        .signup-info {
+            margin-top: 1.5rem;
+            text-align: center;
+        }
+        
+        .signup-text {
+            color: var(--gray-600);
+            font-size: var(--font-size-sm);
+            margin: 0;
+            line-height: 1.5;
+        }
+        
+        /* 추가 정보 섹션 */
+        .additional-info {
+            margin-top: 1.5rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--gray-200);
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            justify-items: center;
+        }
+        
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            color: var(--gray-600);
+            font-size: var(--font-size-sm);
+            padding: 0.75rem;
+            text-align: center;
+            justify-content: center;
+            width: 100%;
+        }
+        
+        .info-item i {
+            color: var(--primary-color);
+            width: 16px;
+            text-align: center;
+            font-size: 0.875rem;
+            flex-shrink: 0;
+        }
+        
+        /* Alert Styles - 에러 메시지용 */
+        .alert {
+            border-radius: var(--border-radius);
+            border: none;
+            padding: 1rem 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .alert-danger {
+            background-color: rgba(239, 68, 68, 0.1);
+            color: #dc2626;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+        
+        .alert-warning {
+            background-color: rgba(245, 158, 11, 0.1);
+            color: #d97706;
+            border: 1px solid rgba(245, 158, 11, 0.2);
+        }
+        
+        .alert-info {
+            background-color: rgba(6, 182, 212, 0.1);
+            color: #0891b2;
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 576px) {
+            .login-container {
+                padding: 1rem;
+            }
+            
+            .login-card {
+                padding: 2rem 1.5rem;
+            }
+            
+            .welcome-title {
+                font-size: var(--font-size-2xl);
+            }
+            
+            .logo {
+                max-width: 200px;
+            }
+            
+            .login-card {
+                padding: 3rem 2rem;
+            }
+            
+            .additional-info {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Container -->
+    <div class="login-container">
+        <div class="login-card">
+            <!-- Brand Section -->
+            <div class="brand-section">
+                <div class="brand-header">
+                    <img src="/data/logo.png" alt="IT글로벌 로고" class="logo">
+                    <p class="logo-subtitle">프로젝트 통합 관리 시스템</p>
+                </div>
+            </div>
+            
+            <!-- Auth Section -->
+            <div class="auth-section">
+                {% if error %}
+                <div class="alert alert-danger" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>{{ error }}
+                </div>
+                {% endif %}
+                
+                {% if oauth_enabled %}
+                <a href="{{ url_for('google_login') }}" class="btn btn-soft-primary">
+                    <div class="google-icon"></div>
+                    Google 계정으로 로그인
+                </a>
+                
+                <div class="signup-info">
+                    <p class="signup-text">신규 가입자는 구글 로그인 시 자동으로 계정이 생성됩니다</p>
+                </div>
+                
+                <!-- Additional Info Section -->
+                <div class="additional-info">
+                    <div class="info-item">
+                        <i class="fas fa-project-diagram"></i>
+                        <span>프로젝트 현황 관리</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-chart-line"></i>
+                        <span>실시간 데이터 분석</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-calendar-alt"></i>
+                        <span>공사 스케줄 연동</span>
+                    </div>
+                    <div class="info-item">
+                        <i class="fas fa-money-check-alt"></i>
+                        <span>도급비 & 수금 관리</span>
+                    </div>
+                </div>
+                {% else %}
+                <!-- 개발 모드: 간단 로그인 -->
+                <form method="POST" action="/dev-login">
+                    <div class="mb-3">
+                        <select name="user_email" class="form-select" required style="border: 1px solid var(--gray-300); border-radius: var(--border-radius);">
+                            <option value="">개발자 계정 선택</option>
+                            <option value="kiko@itg-aircon.com">고광일 (Admin)</option>
+                            <option value="jw@itg-aircon.com">박정우 (Admin)</option>
+                            <option value="yg@itg-aircon.com">박용구 (Admin)</option>
+                            <option value="sb@itg-aircon.com">황샛별 (Admin)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-soft-primary">
+                        <i class="fas fa-code"></i>
+                        개발 모드 로그인
+                    </button>
+                </form>
+                
+                <div class="text-center mt-3">
+                    <small class="text-muted">Google OAuth 설정 후 위 옵션이 비활성화됩니다.</small>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="security-info">
+                <p>
+                    <i class="fas fa-shield-alt"></i>
+                    <span>내부 보안을 위해 <strong>@itg-aircon.com</strong><br>구글 계정으로만 접근 가능합니다.</span>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Alert Messages -->
+    <script>
+        // URL 파라미터에서 메시지 확인 (에러가 실제로 발생한 경우만 표시)
+        const urlParams = new URLSearchParams(window.location.search);
+        const message = urlParams.get('message');
+        
+        function showAlert(message, type) {
+            const alertContainer = document.querySelector('.auth-section');
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    ${message}
+                </div>
+            `;
+            alertContainer.insertAdjacentHTML('afterbegin', alertHtml);
+            
+            // 5초 후 자동 제거
+            setTimeout(() => {
+                const alertElement = alertContainer.querySelector('.alert');
+                if (alertElement) {
+                    alertElement.remove();
+                }
+            }, 5000);
+        }
+        
+        // 실제 오류 발생시만 알림 표시
+        if (message) {
+            if (message === 'oauth_error') {
+                showAlert('구글 로그인 중 오류가 발생했습니다. 다시 시도해주세요.', 'danger');
+            } else if (message === 'oauth_cancelled') {
+                showAlert('구글 로그인이 취소되었습니다.', 'info');
+            } else if (message === 'oauth_not_configured') {
+                showAlert('구글 로그인이 설정되지 않았습니다. 관리자에게 문의하세요.', 'warning');
+            } else if (message === 'login_failed') {
+                showAlert('로그인에 실패했습니다. 다시 시도해주세요.', 'danger');
+            } else if (message === 'domain_not_allowed') {
+                showAlert('@itg-aircon.com 도메인 계정만 접속 가능합니다.', 'warning');
+            } else if (message === 'session_expired') {
+                showAlert('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
+            } else if (message === 'access_denied') {
+                showAlert('로그인이 필요합니다.', 'info');
+            } else if (message === 'logout_success') {
+                showAlert('정상적으로 로그아웃되었습니다.', 'success');
+            }
+        }
+    </script>
+</body>
+</html>

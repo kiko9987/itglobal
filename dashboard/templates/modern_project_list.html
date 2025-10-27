@@ -1,0 +1,551 @@
+{% extends "modern_base.html" %}
+
+{% block title %}프로젝트 관리 - 냉난방기 설치 공사 관리 v2{% endblock %}
+
+{% block additional_css %}
+    <!-- DataTables CSS (Bootstrap 5 테마) -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
+
+    <!-- Vite CSS 번들 사용 -->
+    {% if get_css_bundle('main') %}
+        <link rel="stylesheet" href="{{ get_css_bundle('main') }}">
+    {% endif %}
+
+    <!-- 헤더 스타일 수정 -->
+    <style>
+        /* 로고 시작 위치 조정 - 더 구체적인 셀렉터 */
+        header.header .container-fluid .d-flex.align-items-center.justify-content-between .d-flex.align-items-center:first-child {
+            padding-left: 15px;
+        }
+
+        /* 프로젝트 통합 관리 시스템 텍스트 크기 증가 - 더 구체적인 셀렉터 */
+        header.header .container-fluid h1.logo-subtitle.h6.mb-0 {
+            font-size: 1.3rem;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+
+    <!-- 헤더 스타일 - 컨텐츠 시작 부분에서 다시 적용 -->
+    <style>
+        /* 로고 시작 위치 조정 */
+        header.header .container-fluid .d-flex.align-items-center.justify-content-between .d-flex.align-items-center:first-child {
+            padding-left: 15px;
+        }
+
+        /* 프로젝트 통합 관리 시스템 텍스트 크기 증가 */
+        header.header .container-fluid h1.logo-subtitle.h6.mb-0 {
+            font-size: 1.3rem;
+        }
+    </style>
+
+    <div class="container-fluid">
+        <div class="content-container">
+            <!-- 프로젝트 관리 헤더 -->
+            <div class="row mb-3">
+                <div class="col-12 d-flex align-items-center justify-content-between" style="min-height: 2.5rem;">
+                    <div class="d-flex align-items-center">
+                        <h4 class="mb-0">프로젝트 관리</h4>
+                        <!-- 헤더 옆 메시지 영역 -->
+                        <div id="headerAlertContainer" class="ms-4" style="height: 2rem; display: flex; align-items: center;"></div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <!-- 새로고침 버튼 -->
+                        <button class="btn btn-soft-success" onclick="fullRefresh()" id="fullRefreshBtn" style="min-width: 110px; white-space: nowrap;">
+                            <i class="fas fa-sync-alt me-1"></i>새로고침
+                        </button>
+
+                        <!-- 캘린더 동기화 버튼 -->
+                        <button class="btn btn-soft-success" onclick="syncCalendar()" id="calendarSyncBtn" style="min-width: 130px; white-space: nowrap;">
+                            <i class="fas fa-calendar-check me-1"></i>캘린더 동기화
+                        </button>
+
+                        <!-- 새 프로젝트 버튼 -->
+                        <button class="btn btn-soft-primary" onclick="openNewProjectModal()" style="min-width: 110px; white-space: nowrap;">
+                            <i class="fas fa-plus me-1"></i>새 프로젝트
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {% include 'components/project_filters.html' %}
+
+            <!-- Modern Table Section with Semantic HTML -->
+            <section class="table-section" aria-labelledby="table-heading" role="region" style="position: relative; min-height: 400px;">
+                <h2 id="table-heading" class="sr-only">프로젝트 목록 테이블</h2>
+
+                <!-- Loading Overlay (테이블 영역만 덮음) -->
+                <div id="tableLoadingOverlay" class="table-loading-overlay" style="display: flex;">
+                    <div class="loading-content">
+                        <div class="custom-spinner" role="status">
+                            <span class="visually-hidden">로딩 중...</span>
+                        </div>
+                        <p class="loading-text mt-3">데이터 로딩 중</p>
+                    </div>
+                </div>
+
+                <div class="table-wrapper" role="table" aria-label="프로젝트 관리 테이블" style="visibility: hidden; opacity: 0;">
+                    <table class="table projects-table display responsive nowrap"
+                           id="projectsTable"
+                           style="width:100%;"
+                           role="grid"
+                           aria-labelledby="table-heading"
+                           aria-rowcount="-1"
+                           aria-colcount="16">
+                        <thead role="rowgroup">
+                            <tr role="row">
+                                <th class="sorting"
+                                    data-sort-type="project-code"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="프로젝트 코드 정렬"
+                                    style="width: 8%;">
+                                    프로젝트 코드
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="담당자 정렬"
+                                    style="width: 6%;">
+                                    담당자
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="거래처 정렬"
+                                    style="width: 8%;">
+                                    거래처
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="현장 주소 정렬"
+                                    style="width: 22%;">
+                                    현장 주소
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="공사 내용 정렬"
+                                    style="width: 17%;">
+                                    공사 내용
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="공사 시작일 정렬"
+                                    style="width: 8%;">
+                                    공사 시작
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="공사 종료일 정렬"
+                                    style="width: 8%;">
+                                    공사 종료
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="총액 정렬"
+                                    style="width: 8%;">
+                                    총액
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="미수금 정렬"
+                                    style="width: 7%;">
+                                    미수금
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="상태 정렬"
+                                    style="width: 7%;">
+                                    상태
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="데이터 완성도 정렬"
+                                    style="width: 8%;">
+                                    데이터
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="계약금 정렬"
+                                    style="width: 8%; display: none;">
+                                    계약금
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="중도금 정렬"
+                                    style="width: 8%; display: none;">
+                                    중도금
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="잔금 정렬"
+                                    style="width: 8%; display: none;">
+                                    잔금
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="미수금 정렬"
+                                    style="width: 8%; display: none;">
+                                    미수금
+                                </th>
+                                <th class="sorting"
+                                    role="columnheader"
+                                    aria-sort="none"
+                                    tabindex="0"
+                                    aria-label="수금 특이사항 정렬"
+                                    style="width: 12%; display: none;">
+                                    수금 특이사항
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody role="rowgroup">
+                            <!-- JavaScript로 동적 생성 -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Modern Mobile Card Layout -->
+            <section class="mobile-card-container"
+                     id="mobileCardContainer"
+                     aria-label="반응형 모바일 카드 레이아웃"
+                     role="region"
+                     style="display: none;">
+                <h2 class="sr-only">모바일 디바이스용 프로젝트 카드</h2>
+                <!-- JavaScript로 동적 생성 -->
+            </section>
+        </div>
+    </div>
+
+
+    <!-- 프로젝트 보기 모달 -->
+    <div class="modal fade" id="viewModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">프로젝트 상세 정보</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="viewProjectInfo">
+                        <!-- 프로젝트 정보 표시 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                    <button type="button" class="btn btn-warning" onclick="openEditFromView()">편집</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 프로젝트 편집 모달 -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">프로젝트 편집</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <iframe id="editFrame" src="" class="edit-iframe"></iframe>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 새 프로젝트 등록 모달 (레거시) -->
+    {% include 'components/new_project_modal.html' %}
+
+    <!-- 새 프로젝트 등록 모달 (현대화 버전) -->
+    {% include 'components/modern_project_modal.html' %}
+
+    <!-- 사용자 관리 모달 (JavaScript에서 동적 생성) -->
+
+    <!-- 감사 로그 모달 -->
+    <div class="modal fade" id="auditLogsModal" tabindex="-1" aria-labelledby="auditLogsModalLabel" data-bs-backdrop="true" data-bs-keyboard="true">
+        <div class="modal-dialog audit-logs-modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div class="d-flex align-items-center flex-grow-1">
+                        <h5 class="modal-title mb-0" id="auditLogsModalLabel">
+                            <i class="fas fa-history me-2"></i>작업 로그
+                        </h5>
+                        <div id="auditLogsAlert" class="ms-3 audit-logs-alert"></div>
+                    </div>
+                    <div class="d-flex align-items-center">
+                        <select id="auditLogsDays" class="form-select form-select-sm me-2 audit-logs-days-select" onchange="loadAuditLogs()">
+                            <option value="1">오늘</option>
+                            <option value="3">3일</option>
+                            <option value="7" selected>7일</option>
+                            <option value="14">14일</option>
+                            <option value="30">30일</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-body audit-logs-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover table-striped audit-logs-table">
+                            <thead class="table-light audit-logs-thead">
+                                <tr>
+                                    <th>시간</th>
+                                    <th>사용자</th>
+                                    <th>권한</th>
+                                    <th>작업</th>
+                                    <th>프로젝트</th>
+                                    <th>필드명</th>
+                                    <th>이전값</th>
+                                    <th>새값</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auditLogsTableBody">
+                                <tr>
+                                    <td colspan="8" class="text-center">
+                                        <i class="fas fa-spinner fa-spin"></i> 로딩 중...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <!-- 한 줄에 좌측(로그 정보) - 중앙(페이지네이션) - 우측(닫기 버튼) -->
+                    <div class="d-flex align-items-center w-100 audit-logs-footer">
+                        <!-- 좌측: 로그 정보 -->
+                        <div class="d-flex align-items-center audit-logs-info">
+                            <small class="text-muted me-3" id="auditLogsCount">로그 개수: 0개</small>
+                            <small class="text-muted" id="auditLogsPageInfo">페이지 정보</small>
+                        </div>
+
+                        <!-- 중앙: 페이지네이션 (절대 중앙 배치) -->
+                        <div class="audit-logs-pagination-center">
+                            <nav aria-label="감사 로그 페이지네이션">
+                                <ul class="pagination pagination-sm mb-0" id="auditLogsPagination">
+                                    <li class="page-item disabled" id="auditLogsPrevPage">
+                                        <a class="page-link" href="#" onclick="changePage(currentPage - 1)">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </a>
+                                    </li>
+                                    <!-- 페이지 번호들이 여기에 동적으로 추가됩니다 -->
+                                    <li class="page-item disabled" id="auditLogsNextPage">
+                                        <a class="page-link" href="#" onclick="changePage(currentPage + 1)">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </a>
+                                    </li>
+                                </ul>
+                            </nav>
+                        </div>
+
+                        <!-- 우측: 닫기 버튼 -->
+                        <div class="audit-logs-close">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- 폴더 경로 → ID 변환 모달 -->
+    <div class="modal fade" id="convertPathsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-sync-alt me-2 text-warning"></i>
+                        폴더 경로 → Google Drive ID 변환
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>변환 작업 안내</strong>
+                        <ul class="mt-2 mb-0">
+                            <li>기존 프로젝트들의 폴더 경로를 Google Drive ID로 일괄 변환합니다.</li>
+                            <li>변환 후에는 폴더 위치가 변경되어도 추적이 가능합니다.</li>
+                            <li>관리자 권한이 필요한 작업입니다.</li>
+                        </ul>
+                    </div>
+
+                    <div id="conversion-status" class="conversion-status">
+                        <div class="d-flex align-items-center mb-3">
+                            <div class="spinner-border spinner-border-sm text-warning me-2" role="status"></div>
+                            <span>변환 작업을 진행 중입니다...</span>
+                        </div>
+                    </div>
+
+                    <div id="conversion-results" class="conversion-results">
+                        <h6>변환 결과</h6>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card border-success">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title text-success mb-0" id="success-count">0</h5>
+                                        <small class="text-muted">성공</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-danger">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title text-danger mb-0" id="failed-count">0</h5>
+                                        <small class="text-muted">실패</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card border-primary">
+                                    <div class="card-body text-center">
+                                        <h5 class="card-title text-primary mb-0" id="total-count">0</h5>
+                                        <small class="text-muted">총 개수</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <h6>상세 결과</h6>
+                            <div id="detailed-results" class="bg-light p-3 rounded conversion-detailed-results">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-warning" id="start-conversion-btn" onclick="startFolderPathConversion()">
+                        <i class="fas fa-play me-2"></i>변환 시작
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block additional_js %}
+    <!-- DataTables JavaScript -->
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+
+    <!-- Modern Page Metadata with Schema.org -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "냉난방기 설치 공사 관리 시스템",
+      "description": "프로젝트 관리 및 추적 시스템",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Web Browser"
+    }
+    </script>
+
+    <!-- 전문가 리뷰: "초기 페이지에서는 최소 메타 정보만 제공하고 상세 데이터는 API로만 받도록" -->
+    <script type="application/json" id="page-metadata">
+        {{ page_metadata | tojson }}
+    </script>
+
+    <!-- 프로젝트 리스트 JavaScript (Vite 모듈 우선, 레거시 폴백) -->
+    <script>
+        // 레거시 호환성 유지 (점진적 마이그레이션)
+        window.userRole = '{{ session.user.permission_level if session.user else "viewer" }}';
+        window.userEmail = '{{ user_email }}';
+        window.currentUserEmail = '{{ user_email }}';  // UserModal에서 사용
+        window.userName = '{{ user_name }}';
+        window.userDisplayName = '{{ user_display_name }}';  // 실제 사용자 이름
+        window.userCanCreate = {{ user_can_create | tojson }};
+
+        // DOMContentLoaded 이벤트에서 스크립트 로드
+        document.addEventListener('DOMContentLoaded', function() {
+            {% if config.DEBUG %}
+            console.log('[LOAD] modern_project_list.html - DOM 로드 완료');
+            {% endif %}
+
+            // 모던 아키텍처 전용 - 레거시 폴백 제거
+            {% if modern_build_available() %}
+                {% set js_url = get_vite_js_url() %}
+                {% if js_url %}
+                    {% if config.DEBUG %}
+                    console.log('[VITE] 순수 모던 Vite 모듈 로드: {{ js_url }}');
+                    {% endif %}
+                    loadModernScript('{{ js_url }}');
+                {% else %}
+                    console.error('[ERROR] Vite 번들이 없습니다. npm run build를 실행하세요.');
+                {% endif %}
+            {% else %}
+                console.error('[ERROR] 모던 빌드가 비활성화되었습니다.');
+            {% endif %}
+        });
+
+        // 순수 모던 스크립트 로드 (레거시 폴백 없음)
+        function loadModernScript(jsUrl) {
+            const script = document.createElement('script');
+            script.type = 'module';
+            script.src = jsUrl;
+
+            script.onload = function() {
+                {% if config.DEBUG %}
+                console.log('[SUCCESS] 순수 모던 아키텍처 로드 완료 - 레거시 의존성 없음');
+                {% endif %}
+                window.modernModuleLoaded = true;
+            };
+
+            script.onerror = function() {
+                console.error('[ERROR] 모던 모듈 로드 실패 - 레거시 폴백 제거됨');
+                console.error('해결방법: npm run build 실행 후 서버 재시작');
+            };
+
+            document.head.appendChild(script);
+        }
+
+        // 레거시 코드 완전 제거 - 순수 모던 아키텍처
+
+        // 전역 에러 핸들링
+        window.addEventListener('error', function(e) {
+            console.error('JavaScript 오류:', e.error);
+        });
+
+        window.addEventListener('unhandledrejection', function(e) {
+            console.error('Promise 거부:', e.reason);
+        });
+    </script>
+{% endblock %}

@@ -1,0 +1,30 @@
+  해결된 사항
+
+  - /api/projects/list 이중 정의는 이제 dashboard/blueprints/projects.py:218 하나로 정리됐습니다.
+  - project_list() 요약 계산은 safe_parse_currency()를 추가해 숫자 파싱이 훨씬 견고해졌습니다.
+  - psutil 누락 지적 후 requirements.txt에 추가했습니다만…
+
+  아직 남아 있는 문제
+
+  - 여전히 레거시 JS만 실행: dashboard/templates/modern_project_list.html:334에서 항상 /static/js/project-list.js를 로드하고, modern_base.html은 1초 뒤
+  loadLegacyScript()를 무조건 호출합니다. Vite 모듈(src/js/pages/project-list.js)은 실제로 쓰이지 못합니다.
+  - 실시간 이벤트 불일치: 실행되는 레거시 스크립트가 지금도 socket.on('project_updated', …)만 등록합니다 (dashboard/static/js/project-list.js:8378). 서버는
+  계속 'data_updated'만 발송하므로 실시간 새로고침이 안 됩니다.
+  - 캐시 TTL/필터 개선 미반영: 새 모듈에 30초 TTL·필터 콜백·clearLocalCache() 등이 들어가 있지만, 레거시 스크립트가 돌아가기 때문에 개선 효과가 없습니다.
+  - psutil==7.1.0: PyPI에 존재하지 않는 버전입니다. 새 환경에서 설치하면 pip가 실패합니다.
+  - Stats 페이지 응답 포맷: dashboard/templates/stats.html:720은 여전히 result.success/result.data 형태를 가정합니다. /api/projects/list가 리스트를 직접 내보
+  내면 그대로 깨집니다.
+  - 자산 로딩 구조: 함수 호출(modern_build_available())은 고쳤지만, 설정이 항상 레거시 경로로 돌아가니 모듈/레거시 혼재 문제가 남아 있습니다.
+
+  보조적으로 확인할 내용
+
+  - Service Worker 파일은 추가됐지만, 아직 기본 CDN 자원까지 캐시에 넣고 있어 버전 관리가 필요합니다.
+  - 레거시 JS에 남은 localStorage 캐시 정책(5분 TTL 등) 때문에 최신 데이터 반영이 느릴 수 있습니다.
+
+  즉, 부분적인 손보기는 있었지만, 이번 버전에서 기대했던 “레거시 코드 → Vite 모듈” 전환과 실시간 이슈 해결은 실제로 적용되지 않았습니다. Priority는 다음  순서
+  로 잡는 것을 권합니다:
+
+  1. 템플릿에서 레거시 스크립트 기본 로드를 제거하고, fallback 로직이 정말 필요할 때만 실행되게 정리.
+  2. 모듈 쪽 socket.on('data_updated'), 캐시 TTL, 필터 콜백 등이 실제로 돌도록 확인.
+  3. psutil 버전 교정(예: 5.9.x 등 유효한 릴리스).
+  4. Stats 페이지·진단 스크립트에서 /api/projects/list의 새 응답 형태를 사용하도록 보완.

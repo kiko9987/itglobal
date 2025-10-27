@@ -1,0 +1,553 @@
+{% extends "modern_base.html" %}
+
+{% block title %}고객 리드 관리 - 냉난방기 설치 공사 관리 v2{% endblock %}
+
+{% block additional_css %}
+    <!-- FullCalendar CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
+    {% set leads_css_url = get_css_bundle('leads') %}
+    {% if leads_css_url %}
+    <link rel="stylesheet" href="{{ leads_css_url }}?v={{ cache_buster() }}">
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+
+    <div class="container-fluid">
+        <div class="content-container">
+            <!-- 고객 리드 관리 헤더 -->
+            <div class="row mb-3">
+                <div class="col-12 d-flex align-items-center justify-content-between" style="min-height: 2.5rem;">
+                    <div class="d-flex align-items-center">
+                        <h4 class="mb-0">고객 리드 관리</h4>
+                        <!-- 헤더 옆 메시지 영역 -->
+                        <div id="headerAlertContainer" class="ms-4" style="height: 2rem; display: flex; align-items: center;"></div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <!-- 뷰 전환 버튼 -->
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-primary active" id="tableViewBtn">
+                                <i class="fas fa-table me-1"></i>테이블
+                            </button>
+                            <button type="button" class="btn btn-outline-primary" id="calendarViewBtn">
+                                <i class="fas fa-calendar-alt me-1"></i>캘린더
+                            </button>
+                        </div>
+
+                        <!-- 새 리드 등록 버튼 -->
+                        <button class="btn btn-soft-primary" id="newLeadBtn" style="min-width: 110px; white-space: nowrap;">
+                            <i class="fas fa-plus me-1"></i>새 리드 등록
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 필터 섹션 (프로젝트 관리와 동일한 스타일) -->
+            <div id="filterSection">
+                <div class="filter-section-sticky">
+                    <div class="filter-section">
+                        <div class="row">
+                            <!-- 상태 필터 -->
+                            <div class="col-md-2">
+                                <label for="statusFilter" class="form-label">상태</label>
+                                <select class="form-select" id="statusFilter">
+                                    <option value="">전체</option>
+                                    <option value="유선 상담">유선 상담</option>
+                                    <option value="방문 예약">방문 예약</option>
+                                    <option value="견적 제출">견적 제출</option>
+                                    <option value="방문 취소">방문 취소</option>
+                                    <option value="공사 확정">공사 확정</option>
+                                    <option value="공사 드랍">공사 드랍</option>
+                                </select>
+                            </div>
+
+                            <!-- 거래처 필터 -->
+                            <div class="col-md-2">
+                                <label for="companyFilter" class="form-label">거래처</label>
+                                <select class="form-select" id="companyFilter">
+                                    <option value="">전체</option>
+                                    <!-- JavaScript로 동적 생성 -->
+                                </select>
+                            </div>
+
+                            <!-- 담당자 필터 -->
+                            <div class="col-md-2">
+                                <label for="ownerFilter" class="form-label">담당자</label>
+                                <select class="form-select" id="ownerFilter">
+                                    <option value="">전체</option>
+                                    <!-- JavaScript로 동적 생성 -->
+                                </select>
+                            </div>
+
+                            <!-- 키워드 검색 -->
+                            <div class="col-md-2">
+                                <label for="searchInput" class="form-label">키워드 검색</label>
+                                <input type="text" class="form-control" id="searchInput"
+                                       placeholder="고객명, 연락처, 주소...">
+                            </div>
+
+                            <!-- 필터 액션 -->
+                            <div class="col-md-4">
+                                <label class="form-label" style="margin-bottom: 0; visibility: hidden;">&nbsp;</label>
+                                <div class="d-flex gap-2 filter-actions-row" style="margin-top: 0.25rem;">
+                                    <button class="btn btn-outline-secondary" id="resetFiltersBtn" title="초기화">
+                                        <i class="fas fa-times me-1"></i>초기화
+                                    </button>
+                                    <div class="filter-result-display">
+                                        <span class="filter-result-count" id="filterResultCount">로딩 중...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 테이블 뷰 -->
+            <div id="tableView" class="table-section">
+                <div class="table-wrapper">
+                    <table class="table table-hover" id="leadsTable" style="visibility: hidden;">
+                        <thead>
+                            <tr>
+                                <th style="width: 8%;">리드 No</th>
+                                <th style="width: 8%;">거래처</th>
+                                <th style="width: 8%;">상태</th>
+                                <th style="width: 10%;">방문 예정일</th>
+                                <th style="width: 8%;">담당자</th>
+                                <th style="width: 12%;">연락처</th>
+                                <th style="width: 10%;">고객명</th>
+                                <th style="width: 18%;">방문 주소</th>
+                                <th style="width: 10%;">마지막 연락일</th>
+                                <th style="width: 8%;">작업</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- JavaScript로 동적 생성 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 캘린더 뷰 (초기에는 숨김) -->
+            <div id="calendarView" style="display: none;">
+                <div class="calendar-wrapper">
+                    <div id="calendar"></div>
+                </div>
+            </div>
+
+            <!-- 모바일 카드 레이아웃 (768px 이하에서만 표시) -->
+            <div class="mobile-card-container" id="mobileCardContainer">
+                <!-- JavaScript로 동적 생성 -->
+            </div>
+        </div>
+    </div>
+
+    <!-- 새 리드 등록 모달 -->
+    <div class="modal fade" id="newLeadModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content" style="border-radius: var(--border-radius-xl); border: none; box-shadow: var(--shadow-xl);">
+                <div class="modal-header" style="background-color: #fafbfc; color: var(--gray-900); border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0; padding: 1.5rem;">
+                    <h5 class="modal-title" style="font-weight: 600; color: var(--gray-900); display: flex; align-items: center;">
+                        <i class="fas fa-user-tie me-2" style="color: #ec4899;"></i>
+                        <span>새 리드 등록</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"
+                            onclick="this.blur();"
+                            style="background: none; opacity: 1; padding: 0.5rem; width: auto; height: auto; margin: 0; outline: none; box-shadow: none !important;">
+                        <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; transition: color 0.2s;"
+                           onmouseover="this.style.color='#dc3545'"
+                           onmouseout="this.style.color='#6c757d'"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="background-color: var(--gray-50); padding: 2rem;">
+                    <form id="newLeadForm">
+                        <!-- 기본 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-info-circle" style="color: #2196f3; font-size: var(--font-size-sm);"></i>기본 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    거래처 <span class="text-danger">*</span>
+                                                </label>
+                                                <select class="form-select" id="newLeadCompany" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                    <option value="">선택하세요</option>
+                                                    <!-- JavaScript로 동적 생성 -->
+                                                </select>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    담당자
+                                                </label>
+                                                <select class="form-select" id="newLeadOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                    <option value="">선택하세요</option>
+                                                    <!-- JavaScript로 동적 생성 -->
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 고객 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-user" style="color: #00bcd4; font-size: var(--font-size-sm);"></i>고객 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    고객명 <span class="text-danger">*</span>
+                                                </label>
+                                                <input type="text" class="form-control" id="newLeadCustomerName" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    연락처 <span class="text-danger">*</span>
+                                                </label>
+                                                <input type="tel" class="form-control" id="newLeadPhone" placeholder="010-1234-5678" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    방문 주소
+                                                </label>
+                                                <input type="text" class="form-control" id="newLeadAddress" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 일정 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-calendar" style="color: #ff9800; font-size: var(--font-size-sm);"></i>일정 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    방문 예정일
+                                                </label>
+                                                <div class="input-group">
+                                                    <input type="date" class="form-control date-input" id="newLeadVisitDate" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                        <i class="fas fa-calendar-alt"></i>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    마지막 연락일
+                                                </label>
+                                                <div class="input-group">
+                                                    <input type="date" class="form-control date-input" id="newLeadLastContact" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                        <i class="fas fa-calendar-alt"></i>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 상담 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-comments" style="color: #9c27b0; font-size: var(--font-size-sm);"></i>상담 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    상담 내용
+                                                </label>
+                                                <textarea class="form-control" id="newLeadContent" rows="4" placeholder="고객이 원하는 공사 내용, 요청 사항 등을 기재하세요" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    비고
+                                                </label>
+                                                <input type="text" class="form-control" id="newLeadNote" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer" style="background-color: var(--gray-50); border-top: 1px solid var(--gray-200); border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl); padding: 1.5rem;">
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;" onmouseover="this.style.backgroundColor='#f5c6cb'" onmouseout="this.style.backgroundColor='#f8d7da'">취소</button>
+                        <button type="button" class="btn btn-primary" id="saveNewLeadBtn" style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; color: #155724;" onmouseover="this.style.backgroundColor='#c3e6cb'" onmouseout="this.style.backgroundColor='#d4edda'">
+                            <i class="fas fa-save me-1"></i>저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 리드 편집 모달 (통합 편집) -->
+    <div class="modal fade" id="editLeadModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content" style="border-radius: var(--border-radius-xl); border: none; box-shadow: var(--shadow-xl);">
+                <div class="modal-header" style="background-color: #fafbfc; color: var(--gray-900); border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0; padding: 1.5rem;">
+                    <h5 class="modal-title" style="font-weight: 600; color: var(--gray-900); display: flex; align-items: center;">
+                        <i class="fas fa-edit me-2" style="color: #ec4899;"></i>
+                        <span>리드 편집</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"
+                            onclick="this.blur();"
+                            style="background: none; opacity: 1; padding: 0.5rem; width: auto; height: auto; margin: 0; outline: none; box-shadow: none !important;">
+                        <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; transition: color 0.2s;"
+                           onmouseover="this.style.color='#dc3545'"
+                           onmouseout="this.style.color='#6c757d'"></i>
+                    </button>
+                </div>
+                <div class="modal-body" style="background-color: var(--gray-50); padding: 2rem;">
+                    <form id="editLeadForm">
+                        <input type="hidden" id="editLeadNo">
+
+                        <!-- 기본 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-info-circle" style="color: #2196f3; font-size: var(--font-size-sm);"></i>기본 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-md-4">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    리드 No
+                                                </label>
+                                                <input type="text" class="form-control" id="editLeadNoDisplay" readonly style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; background-color: #e9ecef;">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    상태
+                                                </label>
+                                                <select class="form-select" id="editLeadStatus" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                    <option value="유선 상담">유선 상담</option>
+                                                    <option value="방문 예약">방문 예약</option>
+                                                    <option value="견적 제출">견적 제출</option>
+                                                    <option value="방문 취소">방문 취소</option>
+                                                    <option value="공사 확정">공사 확정</option>
+                                                    <option value="공사 드랍">공사 드랍</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    거래처
+                                                </label>
+                                                <select class="form-select" id="editLeadCompany" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                    <!-- JavaScript로 동적 생성 -->
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-md-4">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    담당자
+                                                </label>
+                                                <select class="form-select" id="editLeadOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                    <!-- JavaScript로 동적 생성 -->
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 고객 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-user" style="color: #00bcd4; font-size: var(--font-size-sm);"></i>고객 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    고객명
+                                                </label>
+                                                <input type="text" class="form-control" id="editLeadCustomerName" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    연락처
+                                                </label>
+                                                <input type="tel" class="form-control" id="editLeadPhone" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    방문 주소
+                                                </label>
+                                                <input type="text" class="form-control" id="editLeadAddress" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 일정 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-calendar" style="color: #ff9800; font-size: var(--font-size-sm);"></i>일정 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    방문 예정일
+                                                </label>
+                                                <div class="input-group">
+                                                    <input type="date" class="form-control date-input" id="editLeadVisitDate" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                        <i class="fas fa-calendar-alt"></i>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    마지막 연락일
+                                                </label>
+                                                <div class="input-group">
+                                                    <input type="date" class="form-control date-input" id="editLeadLastContact" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                                    <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                        <i class="fas fa-calendar-alt"></i>
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 상담 정보 섹션 -->
+                        <div class="row mb-2">
+                            <div class="col-12">
+                                <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                    <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                        <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-comments" style="color: #9c27b0; font-size: var(--font-size-sm);"></i>상담 정보
+                                        </h6>
+                                    </div>
+                                    <div class="card-body" style="padding: 1.5rem;">
+                                        <div class="row">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    상담 내용
+                                                </label>
+                                                <textarea class="form-control" id="editLeadContent" rows="4" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    비고
+                                                </label>
+                                                <input type="text" class="form-control" id="editLeadNote" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer" style="background-color: var(--gray-50); border-top: 1px solid var(--gray-200); border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl); padding: 1.5rem;">
+                    <div class="d-flex justify-content-end gap-2">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;" onmouseover="this.style.backgroundColor='#f5c6cb'" onmouseout="this.style.backgroundColor='#f8d7da'">취소</button>
+                        <button type="button" class="btn btn-primary" id="saveEditLeadBtn" style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; color: #155724;" onmouseover="this.style.backgroundColor='#c3e6cb'" onmouseout="this.style.backgroundColor='#d4edda'">
+                            <i class="fas fa-save me-1"></i>저장
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+{% endblock %}
+
+{% block additional_js %}
+    <!-- FullCalendar JS -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales/ko.global.min.js"></script>
+
+    <!-- Leads Page JavaScript -->
+    {% set leads_js_url = get_js_bundle("leads") %}
+    {% if leads_js_url %}
+    <script>
+        // DataTables 로드 확인 후 스크립트 로드
+        function waitForDataTables(callback) {
+            if (window.$ && $.fn && $.fn.dataTable) {
+                callback();
+            } else {
+                setTimeout(() => waitForDataTables(callback), 50);
+            }
+        }
+
+        waitForDataTables(() => {
+            const script = document.createElement('script');
+            script.type = 'module';
+            script.src = '{{ leads_js_url }}?v={{ cache_buster() }}';
+            script.onload = function() {
+                console.log('[SUCCESS] 리드 관리 스크립트 로드 완료');
+            };
+            script.onerror = function() {
+                console.error('[ERROR] 리드 관리 스크립트 로드 실패');
+            };
+            document.head.appendChild(script);
+        });
+    </script>
+    {% else %}
+    <script>
+        console.warn('[WARN] 리드 관리 JS 번들 없음 - npm run build 실행 필요');
+    </script>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,229 @@
+/**
+ * Field Memo Component Styles
+ * 필드 메모 버튼 및 팝오버 스타일
+ */
+
+/* 메모 버튼 스타일 - 기본적으로 숨김 */
+.field-memo-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-left: 6px;
+  border: none;
+  background: transparent;
+  color: #6c757d;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+  vertical-align: middle;
+}
+
+/* 편집 모드일 때만 메모 버튼 표시 */
+.info-card.editing .field-memo-btn {
+  display: inline-flex;
+}
+
+.field-memo-btn:hover {
+  background-color: #f8f9fa;
+  color: #495057;
+  transform: scale(1.1);
+}
+
+.field-memo-btn.has-memo {
+  color: #0d6efd;
+}
+
+.field-memo-btn.has-memo:hover {
+  color: #0a58ca;
+  background-color: #e7f1ff;
+}
+
+.field-memo-btn:active {
+  transform: scale(0.95);
+}
+
+/* 팝오버 스타일 */
+.field-memo-popover {
+  position: fixed;
+  z-index: 9999;
+  width: 300px;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  animation: popoverFadeIn 0.2s ease;
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.memo-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+  border-radius: 8px 8px 0 0;
+}
+
+.memo-field-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #212529;
+}
+
+.memo-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #6c757d;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.memo-close-btn:hover {
+  background-color: #e9ecef;
+  color: #495057;
+}
+
+.memo-popover-body {
+  padding: 12px 16px;
+}
+
+.memo-textarea {
+  width: 100%;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.5;
+  border-color: #ced4da;
+}
+
+.memo-textarea:focus {
+  border-color: #86b7fe;
+  box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* 읽기 전용 모드 스타일 */
+.memo-textarea.readonly {
+  background-color: #f8f9fa;
+  cursor: default;
+  border-color: #dee2e6;
+}
+
+.memo-textarea.readonly:focus {
+  border-color: #dee2e6;
+  box-shadow: none;
+}
+
+.memo-popover-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid #dee2e6;
+  background-color: #f8f9fa;
+  border-radius: 0 0 8px 8px;
+  gap: 8px;
+}
+
+.memo-popover-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+/* 툴팁 스타일 (읽기 전용) */
+.field-memo-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: 300px;
+  padding: 8px 12px;
+  background-color: #212529;
+  color: white;
+  font-size: 12px;
+  line-height: 1.5;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  animation: tooltipFadeIn 0.2s ease;
+  pointer-events: none;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.95;
+  }
+}
+
+/* 수금 관리 테이블용 메모 인디케이터 - HTML 아이콘으로 직접 처리 */
+/* .has-field-memo::after는 사용하지 않음 (JS에서 직접 아이콘 삽입) */
+
+/* 수금 테이블 아이콘 hover 영역 확대 - 깜빡임 방지 */
+.has-field-memo i {
+  padding: 5px;
+  margin: -5px;
+  transition: none !important;
+}
+
+/* 아코디언 내부 아이콘도 hover 영역 확대 */
+.info-card i.fa-sticky-note,
+.info-card i.fa-receipt,
+.info-card i.fa-sack-dollar,
+.info-card i.fa-credit-card {
+  padding: 5px;
+  margin: -5px;
+  transition: none !important;
+}
+
+/* 편집 모드 메모 버튼도 hover 영역 확대 */
+.field-memo-btn {
+  padding: 5px !important;
+  margin: -5px 1px !important; /* 좌우 마진은 1px로 유지 */
+}
+
+/* 편집 모드 - 입력 필드 옆 메모 버튼 정렬 */
+.editable-value-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editable-value-wrapper .field-memo-btn {
+  flex-shrink: 0;
+}
+
+/* 반응형 */
+@media (max-width: 576px) {
+  .field-memo-popover {
+    width: calc(100vw - 40px);
+    left: 20px !important;
+    right: 20px;
+  }
+
+  .memo-textarea {
+    font-size: 14px;
+  }
+}

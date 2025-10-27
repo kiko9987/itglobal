@@ -1,0 +1,336 @@
+/* ===== 모바일 퍼스트 반응형 디자인 ===== */
+
+/* 기본 (모바일) 스타일 */
+.container-fluid {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+/* 헤더 반응형 */
+.header {
+  min-height: 80px;
+  height: auto;
+}
+
+/* 헤더 row 스타일 제거 - 새로운 flex 레이아웃 사용 */
+/* .header .row {
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem 0;
+  height: auto !important;
+} */
+
+.logo {
+  height: 50px;
+}
+
+.logo-subtitle {
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+/* 버튼 그룹 모바일 최적화 */
+.btn-group-mobile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.btn-group-mobile .btn {
+  min-width: auto !important;
+  white-space: normal !important;
+  text-align: center;
+}
+
+/* 테이블 반응형 */
+.table-responsive-mobile {
+  font-size: 0.8rem;
+}
+
+.table-responsive-mobile th,
+.table-responsive-mobile td {
+  padding: 0.5rem 0.25rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+/* 카드 레이아웃 모바일 */
+.card-mobile {
+  margin-bottom: 1rem;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+}
+
+.card-mobile .card-body {
+  padding: 1rem;
+}
+
+/* 폼 요소 모바일 최적화 */
+.form-control-mobile {
+  font-size: 16px; /* iOS 줌 방지 */
+  padding: 0.75rem;
+}
+
+.form-group-mobile {
+  margin-bottom: 1rem;
+}
+
+.form-group-mobile label {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+/* 모달 모바일 최적화 */
+.modal-mobile .modal-dialog {
+  margin: 0.5rem;
+  max-width: calc(100% - 1rem);
+}
+
+.modal-mobile .modal-content {
+  border-radius: var(--border-radius);
+}
+
+.modal-mobile .modal-body {
+  padding: 1rem;
+}
+
+/* 네비게이션 모바일 */
+.nav-mobile {
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.nav-mobile .nav-link {
+  padding: 0.75rem 1rem;
+  border-radius: var(--border-radius);
+  text-align: center;
+}
+
+/* 통계 카드 모바일 */
+.stats-grid-mobile {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-card-mobile {
+  background: white;
+  padding: 1rem;
+  border-radius: var(--border-radius);
+  box-shadow: var(--box-shadow);
+  text-align: center;
+}
+
+.stat-card-mobile .stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--primary-color);
+  display: block;
+}
+
+.stat-card-mobile .stat-label {
+  font-size: 0.75rem;
+  color: var(--gray-600);
+  margin-top: 0.25rem;
+}
+
+/* 태블릿 (768px 이상) */
+@media (min-width: 768px) {
+  .container-fluid {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .header {
+    height: var(--header-height);
+  }
+
+  /* .header .row {
+    flex-direction: row;
+    align-items: center;
+    padding: 0;
+    height: var(--header-height) !important;
+  } */
+
+  .logo {
+    height: 80px;
+  }
+
+  .logo-subtitle {
+    font-size: 0.9rem;
+    text-align: left;
+  }
+
+  .btn-group-mobile {
+    flex-direction: row;
+    flex-wrap: wrap;
+    width: auto;
+  }
+
+  .table-responsive-mobile {
+    font-size: 0.9rem;
+  }
+
+  .table-responsive-mobile th,
+  .table-responsive-mobile td {
+    padding: 0.75rem;
+    max-width: none;
+  }
+
+  .stats-grid-mobile {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+  }
+
+  .modal-mobile .modal-dialog {
+    margin: 1.75rem auto;
+    max-width: 600px;
+  }
+
+  .nav-mobile {
+    flex-direction: row;
+  }
+}
+
+/* 데스크톱 (992px 이상) */
+@media (min-width: 992px) {
+  .container-fluid {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+
+  .table-responsive-mobile {
+    font-size: 1rem;
+  }
+
+  .table-responsive-mobile th,
+  .table-responsive-mobile td {
+    padding: 0.75rem;
+  }
+
+  .modal-mobile .modal-dialog {
+    max-width: 800px;
+  }
+
+  .stats-grid-mobile {
+    gap: 1.5rem;
+  }
+
+  .stat-card-mobile .stat-value {
+    font-size: 1.5rem;
+  }
+}
+
+/* 대형 데스크톱 (1200px 이상) */
+@media (min-width: 1200px) {
+  .container-fluid {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+
+  .modal-mobile .modal-dialog {
+    max-width: 900px;
+  }
+
+  .stats-grid-mobile {
+    gap: 2rem;
+  }
+}
+
+/* 터치 디바이스 최적화 */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 44px; /* iOS 권장 터치 타겟 크기 */
+    min-width: 44px;
+  }
+
+  .form-control {
+    min-height: 44px;
+  }
+
+  .nav-link {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+/* 가로 방향 모바일 (landscape) */
+@media (orientation: landscape) and (max-height: 500px) {
+  .header {
+    min-height: 60px;
+  }
+
+  .logo {
+    height: 40px;
+  }
+
+  .logo-subtitle {
+    display: none;
+  }
+}
+
+/* 다크모드 반응형 */
+@media (prefers-color-scheme: dark) {
+  .card-mobile,
+  .stat-card-mobile {
+    background: var(--gray-800);
+    color: var(--gray-100);
+  }
+
+  .table-responsive-mobile {
+    color: var(--gray-100);
+  }
+
+  .form-control-mobile {
+    background: var(--gray-700);
+    color: var(--gray-100);
+    border-color: var(--gray-600);
+  }
+}
+
+/* 고대비 모드 지원 */
+@media (prefers-contrast: high) {
+  .btn {
+    border-width: 2px;
+  }
+
+  .card-mobile,
+  .stat-card-mobile {
+    border: 2px solid var(--gray-300);
+  }
+}
+
+/* 애니메이션 감소 선호 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 인쇄 최적화 */
+@media print {
+  .header,
+  .btn,
+  .modal,
+  .nav-mobile {
+    display: none !important;
+  }
+
+  .table-responsive-mobile {
+    font-size: 10pt;
+  }
+
+  .card-mobile {
+    box-shadow: none;
+    border: 1px solid var(--gray-900);
+  }
+}

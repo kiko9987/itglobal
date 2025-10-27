@@ -1,0 +1,59 @@
+<!-- 필터 섹션 (고정) -->
+<div class="filter-section-sticky">
+    <div class="filter-section">
+        <div class="row">
+            <div class="col-md-1">
+                <label for="companyFilter" class="form-label">사업자</label>
+                <select class="form-select" id="companyFilter">
+                    <option value="">전체</option>
+                    <option value="글로벌">글로벌</option>
+                    <option value="글로벌그룹">글로벌그룹</option>
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="statusFilter" class="form-label">상태</label>
+                <select class="form-select" id="statusFilter">
+                    <option value="">전체</option>
+                    <option value="공사완료">공사완료</option>
+                    <option value="수금필요">수금필요</option>
+                    <option value="확인필요">확인필요</option>
+                    <option value="공사진행">공사진행</option>
+                    <option value="공사대기">공사대기</option>
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="managerFilter" class="form-label">담당자</label>
+                <select class="form-select" id="managerFilter">
+                    <option value="">전체</option>
+                    <!-- 동적으로 담당자 목록이 로드됩니다 -->
+                </select>
+            </div>
+
+            <div class="col-md-1">
+                <label for="outstandingFilter" class="form-label">미수금</label>
+                <select class="form-select" id="outstandingFilter">
+                    <option value="">전체</option>
+                    <option value="collected">수금 완료</option>
+                    <option value="outstanding">미수금 있음</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label for="searchInput" class="form-label">키워드 검색</label>
+                <input type="text" class="form-control" id="searchInput"
+                       placeholder="프로젝트 코드, 주소, 거래처 등...">
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">&nbsp;</label>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary" onclick="clearFilters()" title="초기화">
+                        <i class="fas fa-times me-1"></i>초기화
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

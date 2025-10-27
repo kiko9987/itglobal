@@ -1,0 +1,54 @@
+{
+  "generated_files": {
+    "OpenAPI JSON": "C:\\Users\\KiKO\\OneDrive\\Desktop\\Claude Project\\dashboard\\docs\\generated\\openapi.json",
+    "OpenAPI YAML": "C:\\Users\\KiKO\\OneDrive\\Desktop\\Claude Project\\dashboard\\docs\\generated\\openapi.yaml",
+    "Markdown": "C:\\Users\\KiKO\\OneDrive\\Desktop\\Claude Project\\dashboard\\docs\\generated\\api_documentation.md",
+    "Postman Collection": "C:\\Users\\KiKO\\OneDrive\\Desktop\\Claude Project\\dashboard\\docs\\generated\\postman_collection.json",
+    "Developer Guide": "C:\\Users\\KiKO\\OneDrive\\Desktop\\Claude Project\\dashboard\\docs\\generated\\developer_guide.md"
+  },
+  "stats": {
+    "total_paths": 52,
+    "total_schemas": 4,
+    "total_tags": 19,
+    "generation_timestamp": "2025-09-19T07:46:29.240213",
+    "route_analysis": {
+      "total_routes": 81,
+      "api_routes": 57,
+      "version_stats": {
+        "unversioned": 65,
+        "v1": 16
+      },
+      "method_stats": {
+        "GET": 61,
+        "POST": 17,
+        "PATCH": 1,
+        "PUT": 3
+      },
+      "tag_stats": {
+        "Projects v1": 6,
+        "name: page": 1,
+        "name: limit": 1,
+        "name: sort": 1,
+        "name: order": 1,
+        "name: status": 1,
+        "name: search": 1,
+        "name: body": 3,
+        "name": 1,
+        "start_date": 1,
+        "name: project_code": 3,
+        "status": 1,
+        "Documentation": 7,
+        "name: file_type": 2,
+        "API Versioning": 2
+      },
+      "deprecated_routes": 0,
+      "analysis_timestamp": "2025-09-19T07:46:29.240374"
+    },
+    "schema_analysis": {
+      "total_schemas": 0,
+      "schemas_summary": {},
+      "analysis_timestamp": "2025-09-19T07:46:29.240391"
+    }
+  },
+  "timestamp": "2025-09-19T07:46:29.240401"
+}

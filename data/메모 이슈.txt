@@ -1,0 +1,81 @@
+현재 구현 흐름
+
+  - ProjectRowAccordion.generateCollectionInfoCard() (dashboard/src/js/components/ProjectRowAccordion.js:552-571)에서 해
+    당 프로젝트 데이터의 메모 컬럼({프로젝트코드}_계약금_메모, {프로젝트코드}_중도금_메모, {프로젝트코드}_잔금_메모)을 읽어
+    FieldMemoButton이 사용할 원본 객체를 만든 뒤, 각 금액 옆에 field-memo-btn 버튼을 렌더링합니다. DOM이 그려진 직후 setTimeout으로
+    fieldMemoButton.attachButtonListeners()를 호출해 버튼마다 클릭 이벤트를 심습니다.
+  - FieldMemoButton (dashboard/src/js/components/FieldMemoButton.js):
+      - 생성자에서 메모 가능한 필드를 ['계약금','중도금','잔금']으로 제한하고, 전역 popover DOM을 미리 만들어 document.body에 숨긴 상
+        태로 붙입니다(14-60행).
+      - createButton()(94-121행)에서 버튼 HTML을 만들 때 data-field, data-project-code, data-field-key(=프로젝트코드_필드_메모)를
+        dataset으로 심어 둡니다.
+      - attachButtonListeners()(128-148행)에서 버튼 클릭 시 memoData[fieldKey] 값을 찾아 popover를 띄우고, showPopover()(150-173행)에
+        서 textarea를 기존 메모로 채운 뒤 memo-delete 버튼 표출 여부를 결정합니다.
+        textarea를 빈 값으로 만든 뒤 saveMemo()를 재호출합니다(282-288행). 지금 구조에선 메모를 “프로젝트별 개별 컬럼(예: G0001_계약금_메모)"로 붙이고 있어서, 새 프로젝트가 생길 때마다 열이 하나씩 늘어나는
+  형태입니다. 따라서 각 행(프로젝트)에 공통으로 쓰일 메모 컬럼이 실질적으로 존재하지 않는 셈이죠.
+
+  구글 시트에 행 단위로 메모를 안정적으로 저장하려면 다음 중 하나로 구조를 바꿔야 합니다.
+
+  - 동일 시트에 공통 컬럼 추가: 계약금_메모, 중도금_메모, 잔금_메모를 시트 헤더에 미리 만들어두고 모든 프로젝트 행이 이 세 컬럼을 공
+    유하도록 합니다.
+      - 프런트엔드에서는 field_key를 정적 컬럼명(계약금_메모)으로 고정하고, 백엔드는 해당 컬럼만 업데이트하면 됩니다.
+      - load_data()로 가져온 DataFrame에도 이 컬럼들이 항상 있으므로 추후 정렬/필터/캐시 로직이 훨씬 단순해집니다.
+  - 별도 메모 시트 운영: “Project Memos” 같은 별도 탭을 만들고, 프로젝트 코드, 계약금 메모, 중도금 메모, 잔금 메모, 업데이트 시각 등
+    을 기록한 후 애플리케이션이 두 시트를 join해서 사용하게 할 수도 있습니다. 다만 이 경우 load_data() 계층에 추가 join 로직이 필요합
+    니다.
+
+  현재처럼 프로젝트 코드가 필드명에 박혀 있는 방식은:
+
+  - 구글 시트 열이 프로젝트 수만큼 증가해 관리가 어렵고,
+  - set_current_data(df)가 새 컬럼마다 메모리 데이터 구조를 바꾸기 때문에 캐시/프런트에서도 새 키가 계속 생기며
+  - 나중에 필터/정렬/통계 작성 시 컬럼 목록이 고정돼 있지 않아 유지 보수가 사실상 불가능합니다.
+
+  따라서 행 단위 저장을 하려면 시트 구조부터 정규화해야 합니다. 공통 메모 컬럼을 추가하고
+  FieldMemoButton·ProjectTable·ProjectRowAccordion에서 참조하는 컬럼명을 그에 맞춰 정리해 주면, 메모는 각 프로젝트 행에 자연스럽게 저
+  장될 수 있습니다.
+  - 백엔드 /field-memo API (dashboard/blueprints/projects.py:904-975)는
+      1. 현재 메모리 데이터프레임을 불러오고,
+      2. field_key 컬럼이 없으면 새 컬럼을 추가한 뒤,
+         따라서 다음 /api/projects/list 호출 때 새 컬럼이 JSON으로 내려오게 설계돼 있습니다.
+  - 리스트 테이블에서도 ProjectTable이 같은 메모 컬럼을 찾아 툴팁을 띄우고, 값이 있는 셀은 밑줄과 title 속성으로 강조합니다
+    (dashboard/src/js/components/ProjectTable.js:372-433).
+
+  - fieldMemoButton.attachButtonListeners()에 넘기는 memoData는 setTimeout 시점에 만든 얕은 객체입니다. saveMemo()가 성공해도 이 객
+    체는 갱신되지 않아, 즉시 다시 버튼을 누르면 memoData[fieldKey]가 여전히 undefined라 textarea가 비어 보입니다. 사용자는 “저장
+    이 안 됐다”고 느끼게 됩니다. fieldMemoUpdated 커스텀 이벤트를 발행하지만 이를 구독하는 코드가 어디에도 없어(프로젝트 전역에서
+    반영되지 않습니다. 사용자가 페이지를 새로 고치거나 데이터를 다시 받아오기 전까진 변화를 확인할 수 없습니다.
+  - FieldMemoButton.positionPopover()는 popover를 display:none 상태에서 getBoundingClientRect()로 계산하기 때문에 실제 높이 0 기준으
+    로 배치됩니다(174-206행). 편집 카드가 뷰포트 하단에 있을 때 popover가 화면 밖으로 벗어나도 보정이 되지 않아 “버튼을 눌러도 아무것
+    도 안 뜬다”는 착시가 발생합니다.
+  - Google Sheets에 {프로젝트코드}_계약금_메모처럼 프로젝트별로 새로운 헤더를 계속 만든다는 구조 자체가 확장성에 취약합니다. 프로젝트
+    수만큼 열이 늘어나고, 하나의 행을 제외한 나머지 행은 대부분 빈 값을 갖습니다. 실무에선 계약금_메모처럼 공통 컬럼을 쓰고 행별로 값
+    을 저장하는 편이 유지보수와 시트 관리에 안전합니다.
+  - 현재 버튼을 DOM에 붙이는 setTimeout(() => …, 50) 패턴은 카드가 재렌더링될 때 중복으로 리스너를 붙이거나, 렌더링이 느린 경우(예:
+    모바일) 원하는 요소를 찾지 못할 가능성이 있습니다. 명시적으로 MutationObserver 혹은 렌더링 완료 후 콜백을 받아 처리하는 편이 안정
+    적입니다.
+
+  이상의 이유로 “편집 모드에서 메모가 안 남는다”는 현상은 실제 저장은 되지만 UI가 곧바로 갱신되지 않아서 발생하는 체감 이슈입니다. 해
+  결하려면 fieldMemoUpdated 이벤트를 수신해 memoData와 현재 열려 있는 카드/테이블 행의 데이터를 즉시 업데이트하거나, 메모 저장 후 해
+  당 프로젝트 데이터를 재조회해 UI를 재렌더링해야 합니다.
+
+구글 시트 “행” 안에 바로 메모를 넣으려면, 시트의 노트(Note) 기능을 써서 같은 셀에 메모를 붙이는 방식이 필요합니다. API 레벨에서는
+  spreadsheets().batchUpdate의 updateCells 요청으로 CellData.note를 설정하면 가능합니다.
+
+  다만 현재 대시보드의 데이터 파이프라인은 spreadsheets().values().get → pandas DataFrame → /api/projects/list 형태로 값만 가져오고
+  저장합니다. 이 경로는 셀의 노트나 댓글 정보를 전혀 다루지 않기 때문에,
+
+  - 기존 코드에선 노트를 읽어오지도 못하고
+  - save_dataframe() 역시 Values API 기반이라 노트를 쓸 수 없습니다.
+
+  따라서 “기존 구조 그대로 두고 노트만 이용”은 구현이 불가능합니다. 노트를 쓰려면 GoogleSheetsManager 단계에서
+
+  1. spreadsheets().get(..., includeGridData=True)로 노트를 함께 읽어오는 로직,
+  2. 메모 저장 시 updateCells 요청을 만드는 로직,
+  3. DataFrame 대신 노트 데이터를 별도로 들고 다니는 캐시/시리얼라이즈 방식을 추가
+
+  등을 모두 손봐야 합니다.
+
+  정리하면, 열을 추가하지 않고 동일 셀에 메모를 저장하려면 현재 파이프라인을 대폭 손봐야 하므로 현실적으로 어렵다는 게 결론입니다. 지
+  금 구조에선 공통 메모 컬럼을 두거나 별도 시트로 메모를 관리하는 편이 유지보수나 구현 난이도 면에서 훨씬 현실적입니다.
+
+

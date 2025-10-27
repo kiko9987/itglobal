@@ -1,0 +1,36 @@
+> 잘하고 있는 점 (낮은 위험도)
+
+  - dashboard/src/css/main.css:13-16이 디자인 토큰과 공통 컴포넌트를 순차적으로 가져오기 때문에 모던 프로젝트 리스트 화
+  면이 design-system 기반으로 깨끗하게 구성됩니다.
+  - templates/modern_project_list.html:18-40에서 대부분의 인라인 스타일을 제거하고 project-header, cache-status-
+  container 등 클래스를 붙여 components/project-list-page.css와 자연스럽게 연동됩니다.
+  - utils/frontend_helpers.py:138-204의 폴백 로직이 모니터링/프로젝트 두 그룹만 남기도록 정리돼 유지 보수가 크게 단순해
+  졌습니다.
+
+  아쉬운 점 (중간 위험도)
+
+  - src/css/components/project-list-page.css:22-111에 열 너비·px 기반 레이아웃이 그대로 남아 있어 테이블 구조가 바뀌면
+  계속 수동으로 맞춰야 합니다. 디자인 토큰을 쓰거나 DataTables 옵션으로 위임하면 더 유연해집니다.
+  - 레거시 CSS/JS 폴백은 여전히 project-list.css, monitoring-dashboard.css 두 파일에 집중돼 있습니다. 실제로 모던 번들만
+  사용하는 페이지까지 모든 요청이 이 파일들을 요구하는 구조라, 레거시 삭제 시점까지 이 의존성이 계속 남습니다.
+  - 토큰 기반 컬러/타이포는 대부분 정리됐지만, project-table.css 등 일부 컴포넌트에 하드코딩된 색상이 남아 있어 향후 테
+  마 변경 시 누락 위험이 있습니다.
+
+  고쳐야 할 점 (높음 → 낮음 순)
+
+  1. 높음 – 레거시 폴백 축소
+      - frontend_helpers._get_fallback_url가 모든 CSS/JS를 project 또는 monitoring 폴백으로 돌리는 구조입니다. 모던 페이
+  지에서 실제로 레거시가 필요한지 다시 점검하고, 필요 없는 매핑은 제거하거나 모던 번들 생성 실패 시에만 사용하도록 제한
+  하세요.
+  2. 중간 – 페이지 전용 스타일의 토큰화
+      - project-list-page.css의 고정 폭과 버튼 색상 등을 design-system 토큰으로 바꾸고, 가능하면 CSS Grid/Flex 유틸로 대
+  체해 재사용성을 높이세요.
+  3. 낮음 – 컴포넌트 색상 정리
+      - 테이블/모바일 카드 CSS에 남아 있는 하드코딩 색상(#f8f9fa 등)을 토큰으로 치환하면 컬러 체계를 한 곳에서 관리할 수
+  있습니다.
+
+  추천 작업 순서
+
+  1. 레거시 CSS/JS 의존도를 각 페이지별로 확인해, 실제 필요하지 않다면 _get_fallback_url 매핑에서 제외합니다.
+  2. project-list-page.css와 관련 컴포넌트 스타일을 토큰·유틸 기반으로 리팩터링해 확장성을 높입니다.
+  3. 컴포넌트 내 하드코딩된 색상/간격을 토큰으로 교체하면서 디자인 시스템 일관성을 확보합니다.

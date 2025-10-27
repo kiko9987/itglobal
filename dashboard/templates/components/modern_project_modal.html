@@ -1,0 +1,622 @@
+<!-- 현대화된 프로젝트 모달 (레거시와 동일한 기능) -->
+<div class="modal fade" id="modernProjectModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content" style="border-radius: var(--border-radius-xl); border: none; box-shadow: var(--shadow-xl);">
+            <div class="modal-header" style="background-color: #fafbfc; color: var(--gray-900); border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0; padding: 1.5rem;">
+                <h5 class="modal-title" style="font-weight: 600; color: var(--gray-900); display: flex; align-items: center;">
+                    <i class="fas fa-plus-circle me-2" style="color: #17a2b8;"></i>
+                    <span>새 프로젝트 등록</span>
+                    <span class="badge ms-2" style="background-color: #d4edda; color: #155724; font-size: var(--font-size-xs); font-weight: 600; border: 1px solid #c3e6cb;">자동 코드 생성</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"
+                        onclick="this.blur();"
+                        style="background: none; opacity: 1; padding: 0.5rem; width: auto; height: auto; margin: 0; outline: none; box-shadow: none !important;">
+                    <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; transition: color 0.2s;"
+                       onmouseover="this.style.color='#dc3545'"
+                       onmouseout="this.style.color='#6c757d'"></i>
+                </button>
+            </div>
+            <div class="modal-body" style="background-color: var(--gray-50); padding: 2rem;">
+                <!-- 모달 전용 알림 컨테이너 -->
+                <div id="modernModalAlertContainer"></div>
+
+                <form id="modernProjectForm">
+                    <!-- 기본 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                        <i class="fas fa-info-circle" style="color: #2196f3; font-size: var(--font-size-sm);"></i>기본 정보
+                                    </h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                사업자 <span class="text-danger">*</span>
+                                            </label>
+                                            <select class="form-select" id="modern-company" name="사업자" required>
+                                                <option value="">사업자 선택</option>
+                                                <option value="글로벌">글로벌</option>
+                                                <option value="글로벌그룹">글로벌그룹</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                담당자 <span class="text-danger">*</span>
+                                            </label>
+                                            <select class="form-select" id="modern-owner" name="담당자" required>
+                                                <option value="">담당자 선택</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                생성될 프로젝트 코드
+                                            </label>
+                                            <div class="text-center fw-bold" id="modern-generated-code" style="background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; border-radius: var(--border-radius); font-size: 0.9rem; height: 38px; display: flex; align-items: center; justify-content: center; user-select: none !important; cursor: default !important; pointer-events: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; letter-spacing: normal;">
+                                                사업자와 담당자를 선택하세요
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 현장 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                        <i class="fas fa-map-marker-alt" style="color: var(--success-color); font-size: var(--font-size-sm);"></i>현장 정보
+                                    </h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">거래처 <span class="text-danger">*</span></label>
+                                            <input type="text" class="form-control" id="modern-client" name="거래처" required list="modernClientList" autocomplete="off" placeholder="거래처명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <datalist id="modernClientList">
+                                                <!-- 동적으로 채워짐 -->
+                                            </datalist>
+                                        </div>
+                                        <div class="col-md-8">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <label class="form-label mb-0" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm);">공사 구분</label>
+                                                <!-- 공사 구분 에러 메시지 -->
+                                                <small class="d-none text-danger" id="modern-work-category-error" style="font-size: 0.75rem; white-space: nowrap;">
+                                                    <i class="fas fa-exclamation-triangle me-1"></i>최대 2개만 선택 가능
+                                                </small>
+                                            </div>
+                                            <div class="border rounded p-3" style="background-color: #fafafa;">
+                                                <div class="row g-3">
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="설치" id="modern-work-cat-1">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-1">설치</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="이전" id="modern-work-cat-2">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-2">이전</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="세척" id="modern-work-cat-3">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-3">세척</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="철거" id="modern-work-cat-4">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-4">철거</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="A/S" id="modern-work-cat-5">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-5">A/S</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="판매" id="modern-work-cat-6">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-6">판매</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="매입" id="modern-work-cat-7">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-7">매입</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-work-category-checkbox" type="checkbox" value="렌탈" id="modern-work-cat-8">
+                                                            <label class="form-check-label fw-normal" for="modern-work-cat-8">렌탈</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <input type="hidden" id="modern-work-category" name="공사 구분" value="">
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-12">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">현장 주소 <span class="text-danger">*</span> <small class="text-muted">(도로명 주소만 입력해주세요)</small></label>
+                                            <input type="text" class="form-control" id="modern-address" name="현장 주소" required placeholder="강남구 테헤란로 123 여삼빌딩 5층 505호 OO의원" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <div class="form-text text-info d-none" id="modern-address-info">
+                                                <i class="fas fa-info-circle me-1"></i>주소가 자동으로 정리되었습니다.
+                                            </div>
+                                            <div class="form-text text-warning d-none" id="modern-address-warning">
+                                                <i class="fas fa-exclamation-triangle me-1"></i>지번 주소가 감지되었습니다. 도로명 주소로 변경해주세요.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 기술 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-tools" style="color: #9c27b0; font-size: var(--font-size-sm);"></i>시공 상세</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <label class="form-label mb-0" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm);">기계 분류</label>
+                                                <small class="d-none text-danger" id="modern-machine-category-error" style="font-size: 0.75rem; white-space: nowrap;">
+                                                    <i class="fas fa-exclamation-triangle me-1"></i>최대 2개만 선택 가능
+                                                </small>
+                                            </div>
+                                            <div class="border rounded p-3" style="background-color: #fafafa; min-height: 150px;">
+                                                <div class="row g-3">
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-machine-category-checkbox" type="checkbox" value="신품" id="modern-machine-cat-1">
+                                                            <label class="form-check-label fw-normal" for="modern-machine-cat-1">신품</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-machine-category-checkbox" type="checkbox" value="중고" id="modern-machine-cat-2">
+                                                            <label class="form-check-label fw-normal" for="modern-machine-cat-2">중고</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-machine-category-checkbox" type="checkbox" value="기존제품" id="modern-machine-cat-3">
+                                                            <label class="form-check-label fw-normal" for="modern-machine-cat-3">기존제품</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-machine-category-checkbox" type="checkbox" value="기타" id="modern-machine-cat-4">
+                                                            <label class="form-check-label fw-normal" for="modern-machine-cat-4">기타</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <label class="form-label mb-0" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm);">브랜드</label>
+                                                <small class="d-none text-danger" id="modern-brand-category-error" style="font-size: 0.75rem; white-space: nowrap;">
+                                                    <i class="fas fa-exclamation-triangle me-1"></i>최대 2개만 선택 가능
+                                                </small>
+                                            </div>
+                                            <div class="border rounded p-3" style="background-color: #fafafa; min-height: 150px;">
+                                                <div class="row g-3">
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-brand-category-checkbox" type="checkbox" value="LG" id="modern-brand-cat-1">
+                                                            <label class="form-check-label fw-normal" for="modern-brand-cat-1">LG</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-brand-category-checkbox" type="checkbox" value="삼성" id="modern-brand-cat-2">
+                                                            <label class="form-check-label fw-normal" for="modern-brand-cat-2">삼성</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-brand-category-checkbox" type="checkbox" value="캐리어" id="modern-brand-cat-3">
+                                                            <label class="form-check-label fw-normal" for="modern-brand-cat-3">캐리어</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-brand-category-checkbox" type="checkbox" value="FCU" id="modern-brand-cat-4">
+                                                            <label class="form-check-label fw-normal" for="modern-brand-cat-4">FCU</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-brand-category-checkbox" type="checkbox" value="덕트" id="modern-brand-cat-5">
+                                                            <label class="form-check-label fw-normal" for="modern-brand-cat-5">덕트</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-brand-category-checkbox" type="checkbox" value="기타" id="modern-brand-cat-6">
+                                                            <label class="form-check-label fw-normal" for="modern-brand-cat-6">기타</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <label class="form-label mb-0" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm);">도급 구분</label>
+                                                <small class="d-none text-danger" id="modern-contract-category-error" style="font-size: 0.75rem; white-space: nowrap;">
+                                                    <i class="fas fa-exclamation-triangle me-1"></i>최대 2개만 선택 가능
+                                                </small>
+                                            </div>
+                                            <div class="border rounded p-3" style="background-color: #fafafa; min-height: 150px;">
+                                                <div class="row g-3">
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-contract-category-checkbox" type="checkbox" value="외주" id="modern-contract-cat-1">
+                                                            <label class="form-check-label fw-normal" for="modern-contract-cat-1">외주</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-contract-category-checkbox" type="checkbox" value="내부" id="modern-contract-cat-2">
+                                                            <label class="form-check-label fw-normal" for="modern-contract-cat-2">내부</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-contract-category-checkbox" type="checkbox" value="일당" id="modern-contract-cat-3">
+                                                            <label class="form-check-label fw-normal" for="modern-contract-cat-3">일당</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-contract-category-checkbox" type="checkbox" value="기타" id="modern-contract-cat-4">
+                                                            <label class="form-check-label fw-normal" for="modern-contract-cat-4">기타</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- 시공자 체크박스 섹션 -->
+                                    <div class="row mt-3">
+                                        <div class="col-12">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <label class="form-label mb-0" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm);">시공자</label>
+                                                <small class="d-none text-danger" id="modern-constructor-error" style="font-size: 0.75rem; white-space: nowrap;">
+                                                    <i class="fas fa-exclamation-triangle me-1"></i>최대 3개만 선택 가능
+                                                </small>
+                                            </div>
+                                            <div class="border rounded p-3" style="background-color: #fafafa;">
+                                                <div class="row g-3">
+                                                    <!-- 1줄: 메인 시공자 -->
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="구상모" id="modern-constructor-1">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-1">구상모</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="노성현" id="modern-constructor-2">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-2">노성현</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="남진열" id="modern-constructor-3">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-3">남진열</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="최태식" id="modern-constructor-4">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-4">최태식</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="한현규" id="modern-constructor-5">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-5">한현규</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="현재호" id="modern-constructor-6">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-6">현재호</label>
+                                                        </div>
+                                                    </div>
+                                                    <!-- 줄바꿈 -->
+                                                    <div class="w-100"></div>
+                                                    <!-- 2줄: 서브 시공자 -->
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김석홍" id="modern-constructor-7">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-7">김석홍 (세척)</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김재광" id="modern-constructor-8">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-8">김재광</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="박성준" id="modern-constructor-9">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-9">박성준</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="우성덕트" id="modern-constructor-10">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-10">우성덕트</label>
+                                                        </div>
+                                                    </div>
+                                                    <!-- 줄바꿈 -->
+                                                    <div class="w-100"></div>
+                                                    <!-- 3줄: 내부 시공자 -->
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="아이티" id="modern-constructor-11">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-11">아이티</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김종연" id="modern-constructor-12">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-12">김종연</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김태현" id="modern-constructor-13">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-13">김태현</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-2">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="일당" id="modern-constructor-14">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-14">일당</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-4 d-flex align-items-center gap-2">
+                                                        <div class="form-check mb-0" style="flex-shrink: 0;">
+                                                            <input class="form-check-input" type="checkbox" id="modern-constructor-other-check">
+                                                            <label class="form-check-label fw-normal" for="modern-constructor-other-check">기타</label>
+                                                        </div>
+                                                        <input type="text" class="form-control form-control-sm d-none" id="modern-constructor-other-input" placeholder="이름 입력" style="font-size: 0.8125rem; height: 24px; padding: 0.25rem 0.5rem; flex: 1; min-width: 0;">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- 선택된 값을 저장할 hidden input -->
+                                            <input type="hidden" id="modern-constructor" name="시공자" value="">
+                                        </div>
+                                    </div>
+                                    <!-- 공사 내용 섹션 -->
+                                    <div class="row mt-3">
+                                        <div class="col-12">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 내용</label>
+                                            <input type="text" class="form-control" id="modern-work-content" name="공사 내용" placeholder="냉난방기 설치, 덕트 공사 등" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 일정 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-calendar" style="color: #ff9800; font-size: var(--font-size-sm);"></i>일정 정보</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 시작</label>
+                                            <div class="input-group">
+                                                <input type="date" class="form-control date-input" id="modern-start-date" name="공사 시작" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                    <i class="fas fa-calendar-alt"></i>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 종료</label>
+                                            <div class="input-group">
+                                                <input type="date" class="form-control date-input" id="modern-end-date" name="공사 종료" onkeydown="return false" onpaste="return false" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                    <i class="fas fa-calendar-alt"></i>
+                                                </span>
+                                            </div>
+                                            <div class="form-check mt-2">
+                                                <input class="form-check-input" type="checkbox" id="modern-same-date-check">
+                                                <label class="form-check-label" for="modern-same-date-check">
+                                                    <small class="text-muted">시작일과 동일</small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 담당자 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-user" style="color: #00bcd4; font-size: var(--font-size-sm);"></i>담당자 정보</h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                현장 담당자 (고객명)
+                                                <small class="text-muted">- 리드 자동완성</small>
+                                            </label>
+                                            <div style="position: relative;">
+                                                <input type="text" class="form-control" id="modern-site-manager" name="현장 담당자" placeholder="고객명 입력 시 리드 검색" autocomplete="off" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <!-- 자동완성 드롭다운 -->
+                                                <div id="lead-autocomplete-dropdown" class="list-group" style="position: absolute; z-index: 1050; width: 100%; max-height: 200px; overflow-y: auto; display: none; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: var(--border-radius); margin-top: 2px;"></div>
+                                            </div>
+                                            <!-- 리드 연동 표시 -->
+                                            <input type="hidden" id="modern-lead-no" name="lead_no" value="">
+                                            <small class="text-info d-none" id="lead-linked-badge" style="font-size: 0.75rem;">
+                                                <i class="fas fa-link me-1"></i>리드 연동됨: <span id="lead-linked-text"></span>
+                                            </small>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">담당자 연락처</label>
+                                            <input type="tel" class="form-control" id="modern-manager-phone" name="담당자 연락처" placeholder="010-0000-0000" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">담당자 이메일</label>
+                                            <input type="email" class="form-control" id="modern-manager-email" name="담당자 이메일" placeholder="example@email.com" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <div class="form-text text-danger d-none" id="modern-email-error">
+                                                <i class="fas fa-exclamation-circle me-1"></i>올바른 이메일 형식을 입력해주세요 (예: user@example.com)
+                                            </div>
+                                            <div class="form-check mt-2">
+                                                <input class="form-check-input" type="checkbox" id="modern-email-unknown-check">
+                                                <label class="form-check-label" for="modern-email-unknown-check">
+                                                    <small class="text-muted">이메일 확인 불가</small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 금액 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-won" style="color: var(--warning-color); font-size: var(--font-size-sm);"></i>금액 정보</h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">총액1 <span class="text-danger">*</span></label>
+                                            <input type="text" class="form-control" id="modern-total-amount-display" required placeholder="1,500,000" maxlength="15" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <input type="hidden" id="modern-total-amount" name="총액 1" value="0">
+
+                                            <!-- 금액 버튼들 -->
+                                            <div class="mt-3">
+                                                <div class="row g-2">
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 modern-amount-btn" data-amount="100000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">일억원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 modern-amount-btn" data-amount="10000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">천만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 modern-amount-btn" data-amount="1000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">백만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 modern-amount-btn" data-amount="100000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">십만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 modern-amount-btn" data-amount="50000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">오만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="modern-amount-reset-btn" style="border-color: #dc3545; color: #dc3545; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#f8d7da'" onmouseout="this.style.backgroundColor='transparent'">초기화</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">부가세 포함 여부</label>
+                                                <div class="form-check form-switch">
+                                                    <input class="form-check-input" type="checkbox" id="modern-vat-included" name="부가세 포함" checked>
+                                                    <label class="form-check-label" for="modern-vat-included" style="font-weight: 400;">부가세 포함</label>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">총액2</label>
+                                                <div class="p-2 rounded" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border: 1px solid #dee2e6;">
+                                                    <span id="modern-display-amount" class="fw-bold" style="color: #0c5460; font-size: 1.1rem;">0원</span>
+                                                    <span id="modern-amount-korean" class="fw-bold ms-2" style="color: #0c5460; font-size: 1.1rem;">(금 영원정)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 문서 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-folder" style="color: #e91e63; font-size: var(--font-size-sm);"></i>문서 정보</h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-12">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                견적서 및 계약서 폴더 경로
+                                            </label>
+                                            <input type="text" class="form-control" id="modern-document-path" name="견적서 및 계약서 폴더 경로" placeholder="폴더 경로 또는 구글 드라이브 링크를 입력하세요" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <div class="mt-3 p-3" style="background-color: #e7f3ff; border-left: 4px solid #2196f3; border-radius: 0.25rem; font-size: 0.875rem;">
+                                                <div style="display: flex; align-items: flex-start; gap: 0.5rem;">
+                                                    <span style="font-size: 1.25rem; line-height: 1; flex-shrink: 0;">💡</span>
+                                                    <div style="color: #0c5460;">
+                                                        <strong>권장방법:</strong> 윈도우 탐색기에서 폴더 우클릭 → "링크를 클립보드로 복사" → 위 입력창에 붙여넣기
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer" style="background-color: var(--gray-50); border-top: 1px solid var(--gray-200); border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl); padding: 1.5rem; flex-direction: column; align-items: stretch;">
+                <!-- 진행 상황 표시 배너 -->
+                <div id="modernModalProgressBanner" class="d-none" style="margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: var(--border-radius); background-color: #cfe2ff; border: 1px solid #b6d4fe; color: #084298;">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-2" role="status" style="width: 1rem; height: 1rem; border-width: 0.15em;">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span id="modernModalProgressMessage" style="font-size: var(--font-size-sm); font-weight: 500;">서버에 저장 중입니다...</span>
+                    </div>
+                </div>
+                <!-- 버튼 영역 -->
+                <div class="d-flex justify-content-end gap-2">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;" onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f1b0b7'" onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb'">취소</button>
+                    <button type="submit" class="btn btn-primary" form="modernProjectForm" id="modern-submit-new-project" style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #155724;" onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b3d7c1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(21, 87, 36, 0.2)'" onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                        <span class="spinner-border spinner-border-sm me-2 d-none" id="modern-submit-loading"></span>
+                        프로젝트 등록
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

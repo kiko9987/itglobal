@@ -1,0 +1,267 @@
+/* ===== IT GLOBAL Badge System ===== */
+
+/* Base Badge Improvements */
+.badge {
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  padding: var(--badge-padding-lg);
+  border: 1px solid var(--black-alpha-10);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+
+/* Project Type Badges */
+.project-badge {
+  display: inline-block;
+  font-size: var(--legacy-project-badge-size); /* 토큰 기반: 0.8rem (레거시와 동일) */
+  font-weight: 700;
+  padding: var(--legacy-project-badge-padding); /* 토큰 기반: 0.3rem 0.6rem (레거시와 동일한 크기) */
+  border-radius: 0.3rem; /* 레거시와 동일 */
+  margin-right: var(--spacing-xs);
+  text-align: center;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.project-badge.r-type {
+  background-color: var(--project-r-type);
+  color: var(--project-r-type-text);
+  border: 1px solid var(--black-alpha-10);
+}
+
+.project-badge.g-type {
+  background-color: var(--project-g-type);
+  color: var(--project-g-type-text);
+  border: 1px solid var(--black-alpha-10);
+}
+
+.project-badge.p-type {
+  background-color: var(--project-p-type);
+  color: var(--project-p-type-text);
+  border: 1px solid var(--black-alpha-10);
+}
+
+.project-badge.i-type {
+  background-color: var(--project-i-type);
+  color: var(--project-i-type-text);
+  border: 1px solid var(--black-alpha-10);
+}
+
+/* Status Badges */
+.badge.status-completed {
+  background-color: var(--status-completed-bg) !important;
+  color: var(--status-completed-text) !important;
+  border: 1px solid var(--black-alpha-10) !important;
+}
+
+.badge.status-payment-needed {
+  background-color: var(--status-payment-bg) !important;
+  color: var(--status-payment-text) !important;
+  border: 1px solid var(--black-alpha-10) !important;
+}
+
+.badge.status-review {
+  background-color: var(--status-review-bg) !important;
+  color: var(--status-review-text) !important;
+  border: 1px solid var(--black-alpha-10) !important;
+}
+
+.badge.status-in-progress {
+  background-color: var(--status-progress-bg) !important;
+  color: var(--status-progress-text) !important;
+  border: 1px solid var(--black-alpha-10) !important;
+}
+
+.badge.status-waiting {
+  background-color: var(--status-waiting-bg) !important;
+  color: var(--status-waiting-text) !important;
+  border: 1px solid var(--black-alpha-10) !important;
+}
+
+/* Cancelled row styling */
+.project-cancelled-row td:not(.status-column-cell) .badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none !important;
+  color: #6b7280 !important;
+  border-color: rgba(107, 114, 128, 0.35) !important;
+  background-color: rgba(229, 231, 235, 0.65) !important;
+}
+
+.project-cancelled-row td:not(.status-column-cell) .badge::after {
+  content: '';
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: 50%;
+  border-top: 2px solid rgba(107, 114, 128, 0.75);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.project-cancelled-row td:first-child .project-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: #6b7280 !important;
+  background-color: rgba(229, 231, 235, 0.7) !important;
+  border-color: rgba(107, 114, 128, 0.35) !important;
+  text-decoration: none !important;
+}
+
+.project-cancelled-row td:first-child .project-badge::after {
+  content: '';
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  top: 50%;
+  border-top: 2px solid rgba(107, 114, 128, 0.75);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.project-cancelled-row td.status-column-cell .badge {
+  color: var(--status-cancelled-text, #FFE5D9) !important;
+  background-color: var(--status-cancelled-bg, #8B7E7D) !important;
+  border: 1px solid rgba(139, 126, 125, 0.5) !important;
+  text-decoration: none !important;
+}
+
+/* Data Completeness Icons in Cancelled Rows */
+.project-cancelled-row td .fa-check-circle,
+.project-cancelled-row td .fa-exclamation-triangle {
+  position: relative;
+  color: rgba(107, 114, 128, 0.6) !important;
+  display: inline-block;
+}
+
+.project-cancelled-row td .fa-check-circle::after,
+.project-cancelled-row td .fa-exclamation-triangle::after {
+  content: '';
+  position: absolute;
+  left: -5%;
+  right: -5%;
+  top: 50%;
+  border-top: 2px solid rgba(107, 114, 128, 0.75);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Manager Badges */
+.manager-badge {
+  font-size: var(--font-size-xs) !important;
+  padding: var(--badge-padding-md) !important;
+  font-weight: 600 !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--black-alpha-10);
+  color: var(--gray-700);
+  background-color: var(--gray-100);
+}
+
+.manager-badge.management {
+  background-color: var(--management-bg) !important;
+  color: var(--primary-dark) !important;
+  border-color: var(--management-border) !important;
+}
+
+.manager-badge.resigned {
+  background-color: var(--gray-100) !important;
+  color: var(--gray-500) !important;
+  border-color: var(--gray-300) !important;
+  opacity: var(--black-alpha-70);
+}
+
+/* Manager Badge Color Tokens (레거시 색상 유지) */
+:root {
+  --manager-박정우-bg: #cce7ff;
+  --manager-강성환-bg: #d4edda;
+  --manager-박용구-bg: #d1ecf1;
+  --manager-박민우-bg: #fff0e6;
+  --manager-권태훈-bg: #fff3cd;
+  --manager-주영민-bg: #e8f5e8;
+  --manager-빈승정-bg: #e2d9f3;
+  --manager-박민재-bg: #f0d9ff;
+  --manager-조성헌-bg: #ffeaa7;
+  --manager-황해승-bg: #ffe4e6;
+  --manager-강민석-bg: #ccf2ff;
+}
+
+/* Manager Badge CSS Classes (토큰 기반) */
+.manager-badge.manager-박정우 { background-color: var(--manager-박정우-bg) !important; }
+.manager-badge.manager-강성환 { background-color: var(--manager-강성환-bg) !important; }
+.manager-badge.manager-박용구 { background-color: var(--manager-박용구-bg) !important; }
+.manager-badge.manager-박민우 { background-color: var(--manager-박민우-bg) !important; }
+.manager-badge.manager-권태훈 { background-color: var(--manager-권태훈-bg) !important; }
+.manager-badge.manager-주영민 { background-color: var(--manager-주영민-bg) !important; }
+.manager-badge.manager-빈승정 { background-color: var(--manager-빈승정-bg) !important; }
+.manager-badge.manager-박민재 { background-color: var(--manager-박민재-bg) !important; }
+.manager-badge.manager-조성헌 { background-color: var(--manager-조성헌-bg) !important; }
+.manager-badge.manager-황해승 { background-color: var(--manager-황해승-bg) !important; }
+.manager-badge.manager-강민석 { background-color: var(--manager-강민석-bg) !important; }
+
+/* Company Badges */
+.company-badge {
+  font-size: var(--font-size-xs) !important;
+  padding: var(--badge-padding-md) !important;
+  font-weight: 600 !important;
+  border-radius: var(--radius-sm) !important;
+  border: 1px solid var(--black-alpha-10);
+  color: var(--gray-700);
+  background-color: var(--gray-50);
+}
+
+/* Company badges now use hash-based colors directly from JavaScript */
+
+/* Badge Groups */
+.badge-group {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.badge-group .badge {
+  margin: 0;
+}
+
+/* Interactive Badges */
+.badge.clickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.badge.clickable:active {
+  transform: translateY(0);
+}
+
+/* Badge with Icons */
+.badge .fas,
+.badge .far {
+  margin-right: var(--spacing-xs);
+  font-size: 0.75em;
+}
+
+.badge .fas:last-child,
+.badge .far:last-child {
+  margin-right: 0;
+  margin-left: var(--spacing-xs);
+}
+
+/* Responsive Badges */
+@media (max-width: 768px) {
+  .badge {
+    font-size: 0.65rem;
+    padding: var(--badge-padding-sm);
+  }
+
+  .project-badge {
+    font-size: 0.6rem;
+    padding: var(--badge-padding-xs);
+  }
+}

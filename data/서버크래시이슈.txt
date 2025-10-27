@@ -1,0 +1,70 @@
+● 좋은 지적입니다. 맞습니다, 실서버에서도 동일한 문제가 발생할 수 있습니다.
+
+ - Exit code 139 = Segmentation fault (SSL/메모리 관련)
+  - SocketIO 세션 에러 다수 발생
+  - 이것은 우리가 수정한 백엔드 계산 코드와는 무관한 이전부터 있던 SocketIO/SSL 관련 문제입니다
+  - 실제로 중도금 변경 요청 처리는 성공했고, 백그라운드 리프레시가 시작된 후 크래시 발생
+
+  문제 분석
+
+  크래시 원인
+
+  [SSL: DECRYPTION_FAILED_OR_BAD_RECORD_MAC] decryption failed or bad record mac
+  → Segmentation fault (exit code: 139)
+
+  Segmentation fault는 심각한 문제로, Python 프로세스 자체가 죽는 것입니다.
+
+  가능한 원인
+
+  1. SSL/TLS 라이브러리 문제
+    - OpenSSL 버전 충돌
+    - requests 또는 urllib3 라이브러리의 C 확장 모듈 버그
+  2. Google API 클라이언트 라이브러리
+    - google-api-python-client의 멀티스레딩 문제
+    - SSL 에러 핸들링 중 메모리 오류
+  3. 재시도 로직 중 메모리 누수
+    - 에러 발생 시 재시도하면서 메모리 문제 발생
+
+  해결 방안
+
+  1. 즉시 적용 가능한 방법
+
+  에러 핸들링 강화:
+  # google_sheets.py의 재시도 로직에 추가
+  try:
+      # API 호출
+  except SSLError as e:
+      logger.error(f"[SSL_ERROR] {e}")
+      # 프로세스 재시작 트리거
+      sys.exit(1)  # systemd/supervisor가 자동 재시작
+
+  2. 근본적 해결책
+
+  라이브러리 업데이트 및 격리:
+  pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib urllib3 requests
+
+  Process Manager 사용 (실서버 필수):
+  # systemd, supervisor, PM2 등으로 자동 재시작
+  # 크래시 발생 시 자동으로 서버 재시작
+
+  3. 모니터링 추가
+
+  Healthcheck 엔드포인트:
+  @app.route('/health')
+  def health():
+      return {'status': 'ok', 'timestamp': datetime.now()}
+
+  외부 모니터링 (실서버 권장):
+  - UptimeRobot, Pingdom 등으로 서버 다운 감지
+  - 크래시 시 알림 + 자동 재시작
+
+  실서버 배포 전 체크리스트
+
+  - Process Manager 설정 (PM2, systemd 등)
+  - 자동 재시작 정책 구성
+  - 에러 로깅 강화 (Sentry, CloudWatch 등)
+  - Healthcheck 엔드포인트 추가
+  - SSL 라이브러리 최신 버전 확인
+  - 메모리 누수 테스트
+
+  지금 당장 조치가 필요한가요? Process Manager 설정이나 에러 핸들링 강화를 먼저 적용할까요?

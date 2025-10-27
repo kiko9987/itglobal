@@ -1,0 +1,713 @@
+
+
+/**
+ * ===== 통합 애니메이션 시스템 =====
+ * 레거시 애니메이션과 모던 애니메이션의 완전한 마이그레이션
+ * 논리적 문제 해결 및 범용성 확보
+ */
+
+/* ===== 애니메이션 토큰 시스템 ===== */
+:root {
+  /* Duration Tokens (이미 존재하지만 애니메이션용 추가) */
+  --duration-instant: 0ms;
+  --duration-fast: 150ms;
+  --duration-medium: 300ms;
+  --duration-slow: 500ms;
+  --duration-slower: 750ms;
+  --duration-slowest: 1000ms;
+
+  /* Easing Tokens */
+  --easing-linear: linear;
+  --easing-ease: ease;
+  --easing-ease-in: ease-in;
+  --easing-ease-out: ease-out;
+  --easing-ease-in-out: ease-in-out;
+  --easing-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --easing-smooth: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --easing-sharp: cubic-bezier(0.4, 0.0, 0.6, 1);
+
+  /* Distance Tokens */
+  --distance-sm: 8px;
+  --distance-md: 16px;
+  --distance-lg: 24px;
+  --distance-xl: 32px;
+  --distance-full: 100%;
+}
+
+/* ===== Core Animation Keyframes ===== */
+
+/* Slide Animations - 4방향 완전 지원 */
+@keyframes slideInRight {
+  from {
+    transform: translateX(var(--distance-full));
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutRight {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(var(--distance-full));
+    opacity: 0;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    transform: translateX(calc(-1 * var(--distance-full)));
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutLeft {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(calc(-1 * var(--distance-full)));
+    opacity: 0;
+  }
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(var(--distance-full));
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutUp {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(calc(-1 * var(--distance-full)));
+    opacity: 0;
+  }
+}
+
+@keyframes slideInDown {
+  from {
+    transform: translateY(calc(-1 * var(--distance-full)));
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(var(--distance-full));
+    opacity: 0;
+  }
+}
+
+/* ===== 레거시 호환성: 작은 거리 슬라이드 (픽셀값 기반) ===== */
+@keyframes slideInRightSmall {
+  from {
+    transform: translateX(var(--distance-md));
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutRightSmall {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(var(--distance-md));
+    opacity: 0;
+  }
+}
+
+@keyframes slideInLeftSmall {
+  from {
+    transform: translateX(calc(-1 * var(--distance-md)));
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutLeftSmall {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(calc(-1 * var(--distance-md)));
+    opacity: 0;
+  }
+}
+
+/* Fade Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    transform: translateY(var(--distance-lg));
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOutDown {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(var(--distance-lg));
+    opacity: 0;
+  }
+}
+
+@keyframes fadeInDown {
+  from {
+    transform: translateY(calc(-1 * var(--distance-lg)));
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOutUp {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(calc(-1 * var(--distance-lg)));
+    opacity: 0;
+  }
+}
+
+/* Scale Animations */
+@keyframes scaleIn {
+  from {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleOut {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+}
+
+@keyframes zoomIn {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes zoomOut {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(0);
+    opacity: 0;
+  }
+}
+
+/* Rotation Animations */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bounce {
+  0%, 20%, 53%, 80%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  40%, 43% {
+    transform: translate3d(0, -8px, 0);
+  }
+  70% {
+    transform: translate3d(0, -4px, 0);
+  }
+  90% {
+    transform: translate3d(0, -2px, 0);
+  }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Special Effect Animations */
+@keyframes shake {
+  10%, 90% {
+    transform: translateX(-1px);
+  }
+  20%, 80% {
+    transform: translateX(2px);
+  }
+  30%, 50%, 70% {
+    transform: translateX(-4px);
+  }
+  40%, 60% {
+    transform: translateX(4px);
+  }
+}
+
+@keyframes flash {
+  0%, 50%, 100% {
+    opacity: 1;
+  }
+  25%, 75% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes glow {
+  0%, 100% {
+    box-shadow: 0 0 5px var(--primary-alpha-30, rgba(255, 107, 53, 0.3));
+  }
+  50% {
+    box-shadow: 0 0 20px var(--primary-alpha-50, rgba(255, 107, 53, 0.5)),
+                0 0 30px var(--primary-alpha-30, rgba(255, 107, 53, 0.3));
+  }
+}
+
+/* ===== 범용 애니메이션 클래스 시스템 ===== */
+
+/* Slide Animations - 전체 거리 */
+.anim-slide-in-right {
+  animation: slideInRight var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-slide-out-right {
+  animation: slideOutRight var(--duration-medium) var(--easing-ease-in);
+}
+
+.anim-slide-in-left {
+  animation: slideInLeft var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-slide-out-left {
+  animation: slideOutLeft var(--duration-medium) var(--easing-ease-in);
+}
+
+.anim-slide-in-up {
+  animation: slideInUp var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-slide-out-up {
+  animation: slideOutUp var(--duration-medium) var(--easing-ease-in);
+}
+
+.anim-slide-in-down {
+  animation: slideInDown var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-slide-out-down {
+  animation: slideOutDown var(--duration-medium) var(--easing-ease-in);
+}
+
+/* Slide Animations - 작은 거리 (레거시 호환성) */
+.anim-slide-in-right-small {
+  animation: slideInRightSmall var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-slide-out-right-small {
+  animation: slideOutRightSmall var(--duration-medium) var(--easing-ease-in);
+}
+
+.anim-slide-in-left-small {
+  animation: slideInLeftSmall var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-slide-out-left-small {
+  animation: slideOutLeftSmall var(--duration-medium) var(--easing-ease-in);
+}
+
+/* Fade Animations */
+.anim-fade-in {
+  animation: fadeIn var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-fade-out {
+  animation: fadeOut var(--duration-medium) var(--easing-ease-in);
+}
+
+.anim-fade-in-up {
+  animation: fadeInUp var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-fade-out-down {
+  animation: fadeOutDown var(--duration-medium) var(--easing-ease-in);
+}
+
+.anim-fade-in-down {
+  animation: fadeInDown var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-fade-out-up {
+  animation: fadeOutUp var(--duration-medium) var(--easing-ease-in);
+}
+
+/* Scale Animations */
+.anim-scale-in {
+  animation: scaleIn var(--duration-medium) var(--easing-ease-out);
+}
+
+.anim-scale-out {
+  animation: scaleOut var(--duration-medium) var(--easing-ease-in);
+}
+
+.anim-zoom-in {
+  animation: zoomIn var(--duration-medium) var(--easing-bounce);
+}
+
+.anim-zoom-out {
+  animation: zoomOut var(--duration-medium) var(--easing-ease-in);
+}
+
+/* Continuous Animations */
+.anim-spin {
+  animation: spin var(--duration-slowest) var(--easing-linear) infinite;
+}
+
+.anim-bounce {
+  animation: bounce var(--duration-slowest) var(--easing-ease-in-out) infinite;
+}
+
+.anim-pulse {
+  animation: pulse var(--duration-slower) var(--easing-ease-in-out) infinite;
+}
+
+/* Special Effects */
+.anim-shake {
+  animation: shake var(--duration-slow) var(--easing-ease-in-out);
+}
+
+.anim-flash {
+  animation: flash var(--duration-slow) var(--easing-ease-in-out);
+}
+
+.anim-glow {
+  animation: glow var(--duration-slower) var(--easing-ease-in-out) infinite;
+}
+
+/* ===== 레거시 호환성 클래스 (정확한 1:1 매핑) ===== */
+
+/* 에러 메시지 애니메이션 - 레거시와 정확히 동일한 동작 */
+.error-message-slide-in {
+  animation: slideInRightSmall var(--duration-medium) var(--easing-ease) forwards;
+}
+
+.error-message-slide-out {
+  animation: slideOutRightSmall var(--duration-medium) var(--easing-ease) forwards;
+}
+
+/* ===== 모달 애니메이션 (레거시 모달 지원) ===== */
+.modal-slide-down {
+  animation: slideInDown var(--duration-medium) var(--easing-ease-out);
+}
+
+.modal-fade-in {
+  animation: fadeIn var(--duration-medium) var(--easing-ease-out);
+}
+
+.modal-scale-in {
+  animation: scaleIn var(--duration-medium) var(--easing-bounce);
+}
+
+/* ===== 성능 최적화 ===== */
+
+/* GPU 가속을 위한 will-change 자동 적용 */
+[class*="anim-"],
+.error-message-slide-in,
+.error-message-slide-out {
+  will-change: transform, opacity;
+}
+
+/* 애니메이션 완료 후 will-change 제거 */
+[class*="anim-"]:not(:hover):not(:focus):not(:active),
+.error-message-slide-in:not(:hover):not(:focus):not(:active),
+.error-message-slide-out:not(:hover):not(:focus):not(:active) {
+  will-change: auto;
+}
+
+/* ===== 접근성 지원 ===== */
+
+/* reduced motion 선호 사용자를 위한 애니메이션 비활성화 */
+@media (prefers-reduced-motion: reduce) {
+  [class*="anim-"],
+  .error-message-slide-in,
+  .error-message-slide-out {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* 즉시 최종 상태로 표시 */
+  .anim-fade-in,
+  .error-message-slide-in {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .anim-fade-out,
+  .error-message-slide-out {
+    opacity: 0 !important;
+    transform: none !important;
+  }
+}
+
+/* ===== 유틸리티 클래스 ===== */
+
+/* 애니메이션 속도 변형자 */
+.anim-duration-fast {
+  animation-duration: var(--duration-fast) !important;
+}
+
+.anim-duration-slow {
+  animation-duration: var(--duration-slow) !important;
+}
+
+.anim-duration-slower {
+  animation-duration: var(--duration-slower) !important;
+}
+
+/* 애니메이션 지연 */
+.anim-delay-sm {
+  animation-delay: var(--duration-fast);
+}
+
+.anim-delay-md {
+  animation-delay: var(--duration-medium);
+}
+
+.anim-delay-lg {
+  animation-delay: var(--duration-slow);
+}
+
+/* 애니메이션 반복 */
+.anim-infinite {
+  animation-iteration-count: infinite;
+}
+
+.anim-once {
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+}
+
+/* 애니메이션 일시정지/재생 */
+.anim-paused {
+  animation-play-state: paused;
+}
+
+.anim-running {
+  animation-play-state: running;
+}
+
+/* ===== 디버깅 지원 (개발 모드) ===== */
+[data-debug="animation"] [class*="anim-"],
+[data-debug="animation"] .error-message-slide-in,
+[data-debug="animation"] .error-message-slide-out {
+  outline: 2px dashed var(--warning-500, #f59e0b);
+  outline-offset: 2px;
+}
+
+[data-debug="animation"] [class*="anim-"]::before,
+[data-debug="animation"] .error-message-slide-in::before,
+[data-debug="animation"] .error-message-slide-out::before {
+  content: attr(class);
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 10px;
+  background: var(--warning-500, #f59e0b);
+  color: white;
+  padding: 2px 4px;
+  border-radius: 2px;
+  white-space: nowrap;
+  z-index: 1000;
+}
+
+/* ===== 신규 행 하이라이트 애니메이션 ===== */
+
+/* 새 행 셀의 padding 확장/축소 애니메이션 */
+@keyframes expandCell {
+  0% {
+    padding-top: 80px;
+    padding-bottom: 80px;
+    opacity: 0;
+  }
+  40% {
+    opacity: 1;
+  }
+  100% {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    opacity: 1;
+  }
+}
+
+/* 배경색 페이드 애니메이션 */
+@keyframes fadeBackground {
+  0% {
+    background-color: rgba(255, 107, 53, 0.35);
+  }
+  70% {
+    background-color: rgba(255, 107, 53, 0.25);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* 새 행 확장/축소 애니메이션 클래스 */
+.new-row-pulse {
+  animation: fadeBackground 2s ease-out forwards;
+}
+
+.new-row-pulse td {
+  animation: expandCell 1.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+/* 접근성: reduced motion 사용자를 위한 대체 */
+@media (prefers-reduced-motion: reduce) {
+  .new-row-pulse,
+  .new-row-pulse td {
+    animation: none !important;
+  }
+  .new-row-pulse {
+    background-color: rgba(255, 107, 53, 0.15) !important;
+    transition: background-color 1s ease-out;
+  }
+}
+
+/* ===== 취소된 프로젝트 행 스타일 ===== */
+
+/* 취소된 프로젝트 행 - 은은한 비활성 + 취소선 */
+.project-cancelled-row td {
+  background-color: #f5f6fa;
+  color: #6b7280;
+}
+
+.project-cancelled-row td:not(.status-column-cell) {
+  text-decoration: line-through;
+  text-decoration-color: rgba(107, 114, 128, 0.85);
+}
+
+.project-cancelled-row td:first-child {
+  color: #4b5563;
+}
+
+.project-cancelled-row td:first-child::before {
+  content: none;
+  background: none;
+}
+
+.project-cancelled-row td.status-column-cell,
+.project-cancelled-row td.status-column-cell * {
+  text-decoration: none !important;
+}
+
+/* 행 업데이트 플래시 효과 */
+@keyframes rowFlash {
+  0%, 100% {
+    background-color: transparent;
+  }
+  50% {
+    background-color: rgba(255, 107, 53, 0.2);
+  }
+}
+
+.row-flash {
+  animation: rowFlash var(--duration-slowest) var(--easing-ease-in-out);
+}
+
+/* 접근성: reduced motion 사용자를 위한 대체 */
+@media (prefers-reduced-motion: reduce) {
+  .row-flash {
+    animation: none !important;
+    background-color: rgba(255, 107, 53, 0.1) !important;
+    transition: background-color var(--duration-fast);
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "env": {
+    "browser": true,
+    "es2021": true,
+    "node": true
+  },
+  "extends": [
+    "eslint:recommended"
+  ],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": "warn",
+    "no-undef": "warn",
+    "no-useless-escape": "warn"
+  },
+  "globals": {
+    "fetch": "readonly",
+    "window": "readonly",
+    "document": "readonly",
+    "localStorage": "readonly",
+    "sessionStorage": "readonly",
+    "location": "readonly",
+    "history": "readonly",
+    "FileReader": "readonly",
+    "FormData": "readonly",
+    "XMLHttpRequest": "readonly",
+    "CustomEvent": "readonly",
+    "Event": "readonly",
+    "EventTarget": "readonly",
+    "NodeJS": "readonly",
+    "bootstrap": "readonly",
+    "io": "readonly",
+    "$": "readonly",
+    "jQuery": "readonly"
+  }
+}

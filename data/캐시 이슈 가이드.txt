@@ -1,0 +1,162 @@
+ `smart_cache_manager.py` 수정 가이드 (FileSystemCache 사용)
+
+  이 가이드의 목표는 여러 서버 프로세스가 캐시를 공유하지 못하는 문제를 해결하기 위해, 현재의
+  인메모리(In-Memory) 캐시를 파일 기반(File-based) 공유 캐시로 전환하는 것입니다.
+
+  1단계: 필요한 라이브러리 가져오기
+
+  werkzeug 라이브러리에서 FileSystemCache를 가져와야 합니다. 파일 상단에 다음 import 구문을 추가하거나
+  수정합니다.
+
+   1 import os
+   2 import time
+   3 import logging
+   4 from typing import Any, Optional
+   5 from enum import Enum
+   6 from werkzeug.cache import FileSystemCache # 이 부분을 추가합니다.
+   7
+   8 logger = logging.getLogger(__name__)
+
+  2단계: `SimpleCache` 클래스 제거 및 `FileSystemCache` 인스턴스 생성
+
+  기존의 SimpleCache 클래스는 더 이상 필요 없으므로 클래스 전체를 삭제합니다. 그리고 그 자리에 모든 프로세스가
+  공유할 캐시 폴더를 지정하여 FileSystemCache의 전역 인스턴스를 생성합니다.
+
+    1 # (SimpleCache 클래스는 여기에서 삭제)
+    2
+    3 # --- 전역 캐시 인스턴스 생성 ---
+    4
+    5 # 프로젝트 루트에 .cache 폴더를 생성하여 캐시 저장소로 사용
+    6 # __file__은 현재 파일(smart_cache_manager.py)의 경로입니다.
+    7 # os.path.dirname을 세 번 사용하여 프로젝트 루트로 이동합니다.
+    8 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    9 _cache_dir = os.path.join(_project_root, '.cache')
+   10
+   11 # 캐시 디렉토리가 없으면 생성
+   12 if not os.path.exists(_cache_dir):
+   13     os.makedirs(_cache_dir)
+   14
+   15 # FileSystemCache 인스턴스 생성
+   16 # threshold: 캐시 파일 개수 한도. 넘어가면 오래된 파일부터 자동 삭제.
+   17 _cache = FileSystemCache(_cache_dir, threshold=500, default_timeout=300)
+   18
+   19 logger.info(f"파일 시스템 캐시 초기화 완료. 저장 경로: {_cache_dir}")
+
+  3단계: 기존 캐시 함수들을 `FileSystemCache`에 맞게 수정
+
+  기존의 smart_get, smart_set, smart_delete 등의 헬퍼 함수들이 새로운 _cache 인스턴스를 사용하도록 내부 구현을
+  교체합니다. FileSystemCache는 get, set, delete, clear와 같은 표준 메서드를 제공합니다.
+
+  TTL_MAP과 CacheStrategy는 그대로 유지하여 TTL(Time-To-Live) 관리를 계속 활용합니다.
+
+  ---
+
+  전체 수정된 코드 (`smart_cache_manager.py`)
+
+  아래는 위 가이드를 모두 적용한 smart_cache_manager.py의 전체 코드입니다. 기존 파일을 이 내용으로 덮어쓰면
+  됩니다.
+
+    1 import os
+    2 import time
+    3 import logging
+    4 from typing import Any, Optional
+    5 from enum import Enum
+    6 from werkzeug.cache import FileSystemCache
+    7
+    8 logger = logging.getLogger(__name__)
+    9
+   10 class CacheStrategy(Enum):
+   11     """캐시 전략 유형 (호환성 유지)"""
+   12     CRITICAL_DATA = "critical_data"
+   13     STATIC_CONFIG = "static_config"
+   14     FOLDER_MAPPING = "folder_mapping"
+   15     UI_STATE = "ui_state"
+   16     TEMPORARY = "temporary"
+   17
+   18 # 전략별 TTL (초)
+   19 TTL_MAP = {
+   20     CacheStrategy.CRITICAL_DATA: 300,
+   21     CacheStrategy.STATIC_CONFIG: 3600,
+   22     CacheStrategy.FOLDER_MAPPING: 86400,
+   23     CacheStrategy.UI_STATE: 300,
+   24     CacheStrategy.TEMPORARY: 60
+   25 }
+   26
+   27 # --- 전역 FileSystemCache 인스턴스 생성 ---
+   28 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+   29 _cache_dir = os.path.join(_project_root, '.cache')
+   30
+   31 if not os.path.exists(_cache_dir):
+   32     try:
+   33         os.makedirs(_cache_dir)
+   34     except OSError as e:
+   35         logger.error(f"캐시 디렉토리 생성 실패: {_cache_dir}, 오류: {e}")
+   36
+   37 _cache = FileSystemCache(_cache_dir, threshold=1000, default_timeout=300)
+   38 logger.info(f"파일 시스템 캐시가 초기화되었습니다. 경로: {_cache_dir}")
+   39
+   40
+   41 # --- 편의 함수들 (기존 인터페이스 유지) ---
+   42
+   43 def get_smart_cache() -> FileSystemCache:
+   44     """캐시 인스턴스 반환 (호환성 유지)"""
+   45     return _cache
+   46
+   47 def smart_get(key: str, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA) -> Optional[Any]:
+   48     """캐시에서 값 가져오기"""
+   49     logger.debug(f"캐시 GET: {key}")
+   50     return _cache.get(key)
+   51
+   52 def smart_set(key: str, value: Any, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA, ttl:
+      Optional[int] = None) -> None:
+   53     """캐시에 값 저장"""
+   54     timeout = ttl or TTL_MAP.get(strategy, 300)
+   55     logger.debug(f"캐시 SET: {key}, TTL: {timeout}초")
+   56     _cache.set(key, value, timeout=timeout)
+   57
+   58 def smart_delete(key: str) -> bool:
+   59     """캐시에서 키 삭제"""
+   60     logger.debug(f"캐시 DELETE: {key}")
+   61     return _cache.delete(key)
+   62
+   63 def smart_delete_many(*keys: str) -> bool:
+   64     """여러 키를 한 번에 삭제"""
+   65     logger.debug(f"캐시 DELETE_MANY: {keys}")
+   66     return _cache.delete_many(*keys)
+   67
+   68 def smart_clear() -> bool:
+   69     """캐시 전체 삭제"""
+   70     logger.info("캐시 전체 삭제 (CLEAR)")
+   71     return _cache.clear()
+   72
+   73 # 패턴 기반 삭제는 FileSystemCache에서 직접 지원하지 않으므로,
+   74 # 필요 시 전체 삭제(clear) 또는 개별 삭제(delete)를 조합하여 사용해야 합니다.
+   75 # 아래 함수는 호환성을 위해 유지하되, 실제 패턴 매칭은 수행하지 않습니다.
+   76 def smart_invalidate(pattern: str) -> int:
+   77     """패턴 기반 캐시 무효화 (주의: 현재 구현에서는 전체 캐시를 비웁니다)"""
+   78     logger.warning(f"패턴 기반 무효화 시도 ('{pattern}'). FileSystemCache는 이 기능을 지원하지
+      않아 전체 캐시를 비웁니다.")
+   79     smart_clear()
+   80     return -1 # -1을 반환하여 전체 삭제되었음을 알림
+   81
+   82 def smart_get_timestamp(key: str) -> Optional[float]:
+   83     """
+   84     FileSystemCache는 파일의 mtime으로 TTL을 관리하므로,
+   85     정확한 생성 시각을 알기 어렵습니다. 여기서는 None을 반환하여 호환성을 유지합니다.
+   86     """
+   87     # 이 기능이 꼭 필요하다면, set 할 때 (value, timestamp) 튜플로 저장하고
+   88     # get 할 때 튜플을 풀어 사용하는 방식으로 구현할 수 있습니다.
+   89     return None
+
+  4단계: `.gitignore` 파일에 캐시 디렉토리 추가
+
+  프로젝트의 .gitignore 파일을 열어 맨 아래에 다음 한 줄을 추가해 주세요. 이렇게 하면 생성된 캐시 파일들이 Git
+  저장소에 포함되지 않습니다.
+
+   1 # Cache directory
+   2 .cache/
+
+  ---
+
+  위와 같이 수정하고 개발 서버를 다시 시작하면, 모든 서버 프로세스가 .cache 폴더를 공유하게 되어 더 이상 캐시
+  불일치 문제가 발생하지 않을 것입니다.

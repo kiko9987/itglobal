@@ -1,0 +1,746 @@
+/* ===== IT GLOBAL Design System Tokens v2.0 ===== */
+/* Modern Table Column System with CSS Grid & Container Queries */
+/* Primitive + Semantic Token Architecture */
+
+:root {
+  /* Brand Colors */
+  --primary-color: #FF6B35;
+  --primary-dark: #E55A2B;
+  --primary-light: #FF8A65;
+
+  /* Semantic Colors */
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
+  --danger-color: #ef4444;
+  --info-color: #06b6d4;
+
+  /* Neutral Colors */
+  --gray-50: #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+
+  /* Project Type Colors */
+  --project-r-type: #f8d7da;
+  --project-r-type-text: #721c24;
+  --project-g-type: #c8e6c9;
+  --project-g-type-text: #2e7d32;
+  --project-p-type: #d1c4e9;
+  --project-p-type-text: #512da8;
+  --project-i-type: #b3e5fc;
+  --project-i-type-text: #0277bd;
+
+  /* Status Colors */
+  --status-completed-bg: #d4edda;
+  --status-completed-text: #155724;
+  --status-payment-bg: #f8d7da;
+  --status-payment-text: #721c24;
+  --status-review-bg: #ffe6cc;
+  --status-review-text: #cc6600;
+  --status-progress-bg: #d1ecf1;
+  --status-progress-text: #0c5460;
+  --status-waiting-bg: #f0f0f0;
+  --status-waiting-text: #666666;
+  --status-cancelled-bg: #6b7280;
+  --status-cancelled-text: #fafaf9;
+
+  /* Gradient Support Colors */
+  --success-dark: #0f9160;
+  --danger-dark: #c53030;
+  --warning-dark: #d69e2e;
+  --info-dark: #0987a0;
+  --white: #ffffff;
+
+  /* Management Badge Colors */
+  --management-bg: rgba(21, 101, 192, 0.1);
+  --management-border: rgba(21, 101, 192, 0.2);
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+
+  /* Component Widths */
+  --width-btn-min: calc(var(--spacing-xl) * 3.5);
+  --width-select-sm: calc(var(--spacing-xl) * 3.75);
+  --width-modal-md: 56.25rem;
+  --width-modal-lg: 75%;
+
+  /* Opacity Colors */
+  --white-alpha-20: rgba(255, 255, 255, 0.2);
+  --white-alpha-30: rgba(255, 255, 255, 0.3);
+  --white-alpha-80: rgba(255, 255, 255, 0.8);
+  --black-alpha-05: rgba(0, 0, 0, 0.05);
+
+  /* Border Radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* Typography */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+
+  /* Transitions */
+  --transition-fast: 0.15s ease-in-out;
+  --transition-base: 0.2s ease-in-out;
+  --transition-slow: 0.3s ease-in-out;
+
+  /* Extended Spacing */
+  --spacing-2xs: 0.125rem;
+  --spacing-3xs: 0.0625rem;
+  --spacing-2xl: 2.5rem;
+  --spacing-3xl: 3rem;
+
+  /* Color RGB Values (for rgba usage) */
+  --primary-rgb: 255, 107, 53;
+  --success-rgb: 16, 185, 129;
+  --warning-rgb: 245, 158, 11;
+  --danger-rgb: 239, 68, 68;
+  --info-rgb: 6, 182, 212;
+  --secondary-rgb: 108, 117, 125;
+  --dark-rgb: 33, 37, 41;
+
+  /* Extended Opacity Colors */
+  --primary-alpha-05: rgba(var(--primary-rgb), 0.05);
+  --primary-alpha-10: rgba(var(--primary-rgb), 0.1);
+  --primary-alpha-15: rgba(var(--primary-rgb), 0.15);
+  --primary-alpha-20: rgba(var(--primary-rgb), 0.2);
+  --primary-alpha-25: rgba(var(--primary-rgb), 0.25);
+  --primary-alpha-30: rgba(var(--primary-rgb), 0.3);
+
+  --success-alpha-10: rgba(var(--success-rgb), 0.1);
+  --success-alpha-15: rgba(var(--success-rgb), 0.15);
+  --success-alpha-20: rgba(var(--success-rgb), 0.2);
+  --success-alpha-25: rgba(var(--success-rgb), 0.25);
+  --success-alpha-30: rgba(var(--success-rgb), 0.3);
+
+  --warning-alpha-10: rgba(var(--warning-rgb), 0.1);
+  --warning-alpha-15: rgba(var(--warning-rgb), 0.15);
+  --warning-alpha-20: rgba(var(--warning-rgb), 0.2);
+  --warning-alpha-25: rgba(var(--warning-rgb), 0.25);
+  --warning-alpha-30: rgba(var(--warning-rgb), 0.3);
+
+  --danger-alpha-10: rgba(var(--danger-rgb), 0.1);
+  --danger-alpha-15: rgba(var(--danger-rgb), 0.15);
+  --danger-alpha-20: rgba(var(--danger-rgb), 0.2);
+  --danger-alpha-25: rgba(var(--danger-rgb), 0.25);
+  --danger-alpha-30: rgba(var(--danger-rgb), 0.3);
+
+  --info-alpha-10: rgba(var(--info-rgb), 0.1);
+  --info-alpha-15: rgba(var(--info-rgb), 0.15);
+  --info-alpha-20: rgba(var(--info-rgb), 0.2);
+  --info-alpha-25: rgba(var(--info-rgb), 0.25);
+  --info-alpha-30: rgba(var(--info-rgb), 0.3);
+
+  --secondary-alpha-10: rgba(var(--secondary-rgb), 0.1);
+  --secondary-alpha-15: rgba(var(--secondary-rgb), 0.15);
+  --secondary-alpha-20: rgba(var(--secondary-rgb), 0.2);
+  --secondary-alpha-25: rgba(var(--secondary-rgb), 0.25);
+  --secondary-alpha-30: rgba(var(--secondary-rgb), 0.3);
+
+  --dark-alpha-10: rgba(var(--dark-rgb), 0.1);
+  --dark-alpha-15: rgba(var(--dark-rgb), 0.15);
+  --dark-alpha-20: rgba(var(--dark-rgb), 0.2);
+  --dark-alpha-25: rgba(var(--dark-rgb), 0.25);
+  --dark-alpha-30: rgba(var(--dark-rgb), 0.3);
+
+  --black-alpha-10: rgba(0, 0, 0, 0.1);
+  --black-alpha-15: rgba(0, 0, 0, 0.15);
+  --black-alpha-20: rgba(0, 0, 0, 0.2);
+  --black-alpha-70: rgba(0, 0, 0, 0.7);
+
+  /* Component Sizes */
+  --size-xs: 0.625rem;   /* 10px */
+  --size-sm: 0.75rem;    /* 12px */
+  --size-md: 1rem;       /* 16px */
+  --size-lg: 1.25rem;    /* 20px */
+  --size-xl: 1.5rem;     /* 24px */
+  --size-2xl: 2rem;      /* 32px */
+  --size-3xl: 3rem;      /* 48px */
+  --size-4xl: 4rem;      /* 64px */
+  --size-5xl: 5rem;      /* 80px */
+
+  /* ===== PRIMITIVE TOKENS - Table Layout System ===== */
+
+  /* Base Grid Units */
+  --grid-unit: 1fr;
+  --grid-gap-base: 0.75rem;    /* 12px */
+  --grid-gap-compact: 0.5rem;  /* 8px */
+  --grid-gap-spacious: 1rem;   /* 16px */
+
+  /* Column Width Primitives */
+  --col-width-2xs: 4rem;       /* 64px */
+  --col-width-xs: 6.25rem;     /* 100px */
+  --col-width-sm: 7.5rem;      /* 120px */
+  --col-width-md: 9.375rem;    /* 150px */
+  --col-width-lg: 12.5rem;     /* 200px */
+  --col-width-xl: 15.625rem;   /* 250px */
+  --col-width-2xl: 18.75rem;   /* 300px */
+  --col-width-3xl: 25rem;      /* 400px */
+
+  /* Flexible Width Primitives */
+  --col-flex-min: minmax(var(--col-width-xs), 1fr);
+  --col-flex-content: max-content;
+  --col-flex-auto: auto;
+
+  /* ===== SEMANTIC TOKENS - Table Columns ===== */
+
+  /* Project Table Specific Columns (레거시 호환 비율) */
+  --col-project-code: minmax(100px, 7%);      /* 프로젝트 코드 - 7% */
+  --col-manager: minmax(80px, 6%);             /* 담당자 - 6% */
+  --col-company: minmax(100px, 7%);            /* 거래처 - 7% */
+  --col-address: minmax(200px, 20%);           /* 현장 주소 - 20% (조정) */
+  --col-content: minmax(150px, 16%);           /* 공사 내용 - 16% (조정) */
+  --col-date: minmax(90px, 7%);                /* 날짜 - 7% 각각 */
+  --col-amount: minmax(100px, 7%);             /* 금액 - 7% */
+  --col-status: minmax(80px, 7%);              /* 상태 - 7% (유지) */
+  --col-data: minmax(80px, 5%);                /* 데이터 완성도 - 5% (3% 감소) */
+  --col-actions: var(--col-width-xs);          /* 액션 버튼 */
+
+  /* Grid Template Definitions */
+  --grid-template-project-table:
+    8% 6% 7% 20% 16% 8% 8% 8% 7% 7% 5%;
+
+  /* Responsive Grid Templates */
+  --grid-template-mobile:
+    var(--col-project-code)
+    var(--col-manager)
+    var(--col-status);
+
+  --grid-template-tablet:
+    var(--col-project-code)
+    var(--col-manager)
+    var(--col-company)
+    var(--col-date)
+    var(--col-amount)
+    var(--col-status);
+
+  /* Legacy Table Column Widths (Deprecated) */
+  --table-col-xs: var(--col-width-xs);    /* 100px */
+  --table-col-sm: var(--col-width-sm);    /* 120px */
+  --table-col-md: var(--col-width-md);    /* 150px */
+  --table-col-lg: var(--col-width-lg);    /* 200px */
+  --table-col-xl: var(--col-width-xl);    /* 250px */
+
+  /* Animation Durations */
+  --duration-150: 150ms;
+  --duration-300: 300ms;
+  --duration-500: 500ms;
+  --duration-1000: 1000ms;
+  --duration-1500: 1500ms;
+
+  /* Focus States */
+  --focus-ring-primary: none;
+  --focus-ring-success: 0 0 0 0.2rem var(--success-alpha-25);
+  --focus-ring-warning: 0 0 0 0.2rem var(--warning-alpha-25);
+  --focus-ring-danger: 0 0 0 0.2rem var(--danger-alpha-25);
+  --focus-ring-info: 0 0 0 0.2rem var(--info-alpha-25);
+
+  /* Responsive Breakpoints */
+  --breakpoint-sm: 576px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 992px;
+  --breakpoint-xl: 1200px;
+
+  /* Badge Sizes */
+  --badge-padding-xs: 0.15rem 0.3rem;
+  --badge-padding-sm: 0.2rem 0.4rem;
+  --badge-padding-md: 0.25rem 0.5rem;
+  --badge-padding-lg: 0.3rem 0.6rem;
+
+  /* Button Sizes */
+  --btn-padding-xs: 0.25rem 0.5rem;
+  --btn-padding-sm: 0.375rem 0.75rem;
+  --btn-padding-md: 0.5rem 1rem;
+  --btn-padding-lg: 0.75rem 1.5rem;
+
+  /* Z-index Scale */
+  --z-dropdown: 1000;
+  --z-sticky: 1020;
+  --z-fixed: 1030;
+  --z-modal-backdrop: 1040;
+  --z-modal: 1050;
+  --z-popover: 1060;
+  --z-tooltip: 1070;
+
+  /* Legacy Z-index Support */
+  --zindex-sticky: var(--z-sticky);
+  --zindex-modal: var(--z-modal);
+  --zindex-dropdown: var(--z-modal-backdrop); /* 1040 - fixed보다도 높게 설정 */
+
+  /* Layout Heights */
+  --header-height: 80px;
+
+  /* Loading States */
+  --loading-overlay-bg: rgba(255, 255, 255, 0.8);
+
+  /* Extended Component Sizes */
+  --size-10: 0.625rem;   /* 10px - alias for --size-xs */
+  --size-12: 0.75rem;    /* 12px - alias for --size-sm */
+  --size-16: 1rem;       /* 16px - alias for --size-md */
+  --size-20: 1.25rem;    /* 20px - alias for --size-lg */
+  --size-24: 1.5rem;     /* 24px - alias for --size-xl */
+  --size-60: 3.75rem;    /* 60px */
+  --size-80: 5rem;       /* 80px */
+  --size-200: 12.5rem;   /* 200px */
+  --size-250: 15.625rem; /* 250px */
+  --size-280: 17.5rem;   /* 280px */
+
+  /* Extended Spacing */
+  --spacing-0-1: 0.1rem;   /* 1.6px */
+  --spacing-0-125: 0.125rem; /* 2px */
+  --spacing-0-25: 0.25rem;   /* 4px */
+  --spacing-0-375: 0.375rem; /* 6px */
+  --spacing-0-4: 0.4rem;     /* 6.4px */
+  --spacing-0-5: 0.5rem;     /* 8px */
+  --spacing-0-75: 0.75rem;   /* 12px */
+  --spacing-1-5: 1.5rem;     /* 24px */
+  --spacing-2: 2rem;         /* 32px */
+
+  /* Extended Font Sizes */
+  --font-size-2xs: 0.65rem;  /* 10.4px */
+  --font-size-0-8: 0.8rem;   /* 12.8px */
+  --font-size-0-85: 0.85rem; /* 13.6px */
+  --font-size-0-875: 0.875rem; /* 14px */
+  --font-size-0-9: 0.9rem;   /* 14.4px */
+
+  /* Extended Border Radius */
+  --radius-xs: 0.125rem;     /* 2px */
+  --radius-0-25: 0.25rem;    /* 4px */
+  --radius-0-375: 0.375rem;  /* 6px */
+
+  /* ===== CONTAINER QUERY TOKENS ===== */
+
+  /* Container Query Breakpoints */
+  --container-xs: 20rem;     /* 320px */
+  --container-sm: 36rem;     /* 576px */
+  --container-md: 48rem;     /* 768px */
+  --container-lg: 62rem;     /* 992px */
+  --container-xl: 75rem;     /* 1200px */
+  --container-2xl: 87.5rem;  /* 1400px */
+
+  /* Table Container Query States */
+  --table-layout-mobile: block;
+  --table-layout-desktop: grid;
+
+  /* Performance Tokens */
+  --contain-layout: layout;
+  --contain-style: style;
+  --contain-size: size;
+  --contain-paint: paint;
+  --contain-strict: strict;
+
+  /* GPU Acceleration */
+  --transform-gpu: translateZ(0);
+  --will-change-transform: transform;
+  --will-change-auto: auto;
+
+  /* Extended Transitions */
+  --transition-all-fast: all 0.2s ease-in-out;
+  --transition-opacity: opacity 0.3s ease-in-out;
+
+  /* Animation Durations */
+  --duration-1500ms: 1.5s;
+
+  /* Legacy Variable Mappings */
+  --primary-color-rgb: var(--primary-rgb);
+  --box-shadow: var(--shadow-sm);
+  --box-shadow-md: var(--shadow-md);
+  --box-shadow-lg: var(--shadow-lg);
+  --border-radius: var(--radius-md);
+  --border-radius-sm: var(--radius-sm);
+  --border-radius-lg: var(--radius-lg);
+
+  /* Dark Mode Variables (Placeholders) */
+  --dark-secondary: var(--gray-800);
+  --dark-accent: var(--gray-700);
+
+  /* Surface Colors */
+  --surface-primary: var(--white);
+  --surface-secondary: var(--gray-50);
+  --surface-alt: var(--gray-100);
+  --surface-accent: var(--gray-200);
+  --surface-hover: var(--gray-100);
+
+  /* Text Colors */
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-tertiary: var(--gray-400);
+
+  /* Border Colors */
+  --border-light: var(--gray-200);
+  --border-medium: var(--gray-300);
+  --border-dark: var(--gray-400);
+
+  /* Overlay Colors */
+  --overlay-backdrop: rgba(0, 0, 0, 0.5);
+
+  /* Easing Functions */
+  --easing-linear: linear;
+  --easing-ease: ease;
+  --easing-ease-in: ease-in;
+  --easing-ease-out: ease-out;
+  --easing-ease-in-out: ease-in-out;
+
+  /* Animation Durations */
+  --duration-fastest: 100ms;
+  --duration-fast: 150ms;
+  --duration-medium: 300ms;
+  --duration-slow: 500ms;
+  --duration-slowest: 1000ms;
+
+  /* Scrollbar Colors */
+  --scrollbar-track: var(--gray-100);
+  --scrollbar-thumb: var(--gray-300);
+  --scrollbar-thumb-hover: var(--gray-400);
+
+  /* Extended Shadows */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 10px 10px -5px rgb(0 0 0 / 0.04);
+
+  /* Border Radius Extensions */
+  --radius-full: 9999px;
+
+  /* ===== LEGACY COMPATIBILITY TOKENS ===== */
+  /* 🔄 회사 안정화 버전과의 호환성을 위한 명시적 매핑 */
+
+  /* 프로젝트 뱃지 레거시 값들 (badges.css와 매핑) */
+  --legacy-project-badge-size: var(--font-size-0-8);     /* 0.8rem */
+  --legacy-project-badge-padding: var(--badge-padding-lg); /* 0.3rem 0.6rem */
+
+  /* 테이블 셀 레거시 값들 (project-table.css와 매핑) */
+  --legacy-table-cell-padding: var(--spacing-0-75);      /* 0.75rem */
+  --legacy-table-cell-font: var(--font-size-sm);         /* 0.875rem */
+
+  /* 📋 사용 예시:
+   * 기존: font-size: 0.8rem;
+   * 개선: font-size: var(--legacy-project-badge-size);
+   *
+   * 기존: padding: 0.75rem !important;
+   * 개선: padding: var(--legacy-table-cell-padding) !important;
+   */
+
+  /* ===== MODERN TABLE SYSTEM TOKENS ===== */
+
+  /* Table Performance */
+  --table-scroll-behavior: smooth;
+  --table-user-select: none;
+
+  /* Virtual Scrolling */
+  --virtual-item-height: 2.5rem;     /* 40px - 레거시 행 높이 복원 */
+  --virtual-buffer-size: 5;
+
+  /* Table States */
+  --table-row-hover-transform: translateY(-1px);
+  --table-row-active-scale: 1.01;
+
+  /* Accessibility */
+  --focus-outline-width: 2px;
+  --focus-outline-style: solid;
+  --focus-outline-offset: 2px;
+
+  /* Data Density */
+  --density-compact-padding: var(--spacing-0-25) var(--spacing-0-375);
+  --density-normal-padding: var(--spacing-0-5) var(--spacing-0-75);
+  --density-comfortable-padding: var(--spacing-0-75) var(--spacing-1);
+
+  /* Column Resize */
+  --resize-handle-width: 4px;
+  --resize-handle-color: var(--gray-300);
+  --resize-handle-hover-color: var(--primary-color);
+
+  /* Sort Indicators */
+  --sort-icon-size: 0.75rem;
+  --sort-icon-opacity: 0.6;
+  --sort-icon-active-opacity: 1;
+
+  /* Loading States */
+  --skeleton-base-color: var(--gray-200);
+  --skeleton-highlight-color: var(--gray-100);
+  --skeleton-animation-duration: 1.5s;
+}
+
+/* ===== BASE TYPOGRAPHY ===== */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  line-height: 1.6;
+  color: var(--text-primary);
+  background-color: var(--surface-secondary);
+  scroll-behavior: var(--table-scroll-behavior);
+}
+
+/* Modern Font Stack */
+.font-system {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+}
+
+.font-mono {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', 'Source Code Pro', monospace;
+}
+
+/* Typography Scale */
+.text-2xs {
+  font-size: var(--font-size-2xs);
+}
+
+.text-xs {
+  font-size: var(--font-size-xs);
+}
+
+.text-sm {
+  font-size: var(--font-size-sm);
+}
+
+.text-base {
+  font-size: var(--font-size-base);
+}
+
+.text-lg {
+  font-size: var(--font-size-lg);
+}
+
+.text-xl {
+  font-size: var(--font-size-xl);
+}
+
+/* Font Weights */
+.font-light {
+  font-weight: 300;
+}
+
+.font-normal {
+  font-weight: 400;
+}
+
+.font-medium {
+  font-weight: 500;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+/* ===== UTILITY CLASSES ===== */
+
+/* Transitions */
+.transition-base {
+  transition: var(--transition-base);
+}
+
+.transition-fast {
+  transition: var(--transition-fast);
+}
+
+.transition-slow {
+  transition: var(--transition-slow);
+}
+
+/* Shadows */
+.shadow-soft {
+  box-shadow: var(--shadow-sm);
+}
+
+.shadow-elegant {
+  box-shadow: var(--shadow-md);
+}
+
+.shadow-dramatic {
+  box-shadow: var(--shadow-lg);
+}
+
+/* Text Utilities */
+.text-truncate-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.text-truncate-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Performance Utilities */
+.gpu-accelerated {
+  transform: var(--transform-gpu);
+  will-change: var(--will-change-transform);
+}
+
+.contain-layout {
+  contain: var(--contain-layout);
+}
+
+.contain-strict {
+  contain: var(--contain-strict);
+}
+
+/* Focus Management */
+.focus-visible-only:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.focus-visible-only:focus-visible {
+  outline: var(--focus-outline-width) var(--focus-outline-style) var(--primary-color);
+  outline-offset: var(--focus-outline-offset);
+}
+
+/* Container Query Support - Disabled to fix width alignment */
+.container-query-enabled {
+  /* container-type: inline-size; */
+}
+
+/* Grid Utilities */
+.grid-modern-table {
+  display: grid;
+  grid-template-columns: var(--grid-template-project-table);
+  grid-gap: var(--grid-gap-base);
+}
+
+@container (max-width: 768px) {
+  .grid-modern-table {
+    grid-template-columns: var(--grid-template-mobile);
+  }
+}
+
+@container (min-width: 769px) and (max-width: 1024px) {
+  .grid-modern-table {
+    grid-template-columns: var(--grid-template-tablet);
+  }
+}
+
+/* Skeleton Loading */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-base-color) 25%,
+    var(--skeleton-highlight-color) 50%,
+    var(--skeleton-base-color) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading var(--skeleton-animation-duration) infinite ease-in-out;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Table Density Classes */
+.table-density-compact {
+  --table-cell-padding: var(--density-compact-padding);
+}
+
+.table-density-normal {
+  --table-cell-padding: var(--density-normal-padding);
+}
+
+.table-density-comfortable {
+  --table-cell-padding: var(--density-comfortable-padding);
+}
+
+/* ===== ACCESSIBILITY & MODERN FEATURES ===== */
+
+/* Mobile Card Skeleton */
+.mobile-card-skeleton {
+  height: 120px;
+  width: 100%;
+  margin-bottom: var(--spacing-md);
+  border-radius: var(--radius-lg);
+}
+
+.mobile-loading {
+  display: none;
+}
+
+@container (max-width: 48rem) {
+  .mobile-loading {
+    display: block;
+  }
+}
+
+/* Screen Reader Only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* High Contrast Mode Support */
+@media (prefers-contrast: high) {
+  .table th,
+  .table td {
+    border-color: ButtonText;
+  }
+
+  .skeleton {
+    background: ButtonShadow;
+  }
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+
+  .table tbody tr:hover:not(.table-active) td {
+    transform: none;
+  }
+
+  .transition-fast,
+  .transition-base,
+  .transition-slow {
+    transition: none;
+  }
+}
+
+/* Focus Indicators for Better Accessibility */
+.table th:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
+/* Loading States */
+.skeleton-loading {
+  pointer-events: none;
+}
+
+.skeleton-loading[aria-hidden="true"] {
+  opacity: 0.6;
+}

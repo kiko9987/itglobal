@@ -1,0 +1,17 @@
+> Findings
+
+  - dashboard/blueprints/main.py:56 새 /data/<path:filename> 라우트가 아무 인증 없이 프로젝트 루트 바깥(../data) 내
+  용을 그대로 노출합니다. 이 디렉터리에 민감한 자료가 들어 있으면 누구나 다운로드할 수 있어 즉시 막아야 합니다(최소
+  login_required 적용 또는 서빙 자체 금지).
+  - dashboard/utils/frontend_helpers.py:148-164 폴백 URL 생성이 디렉터리명을 포함한 키를 처리하지 못합니다. 예를 들
+  어 get_asset_url('css/main.css')는 /static/css/css/main.css로, get_asset_url('js/pages/project-list.js')는 /static/
+  legacy/js/js/pages/project-list.js로 변환돼 모두 404가 납니다. manifest가 없을 때 화면이 완전히 깨지므로 경로 조합을
+  반드시 수정하세요.
+  - dashboard/utils/frontend_helpers.py:326-327에서 asset_manager.get_js_bundle('js/pages/project-list.js')처럼 전체 경
+  로를 넘겨 .js가 두 번 붙고(js/pages/project-list.js.js) 결과가 항상 None/폴백으로 떨어집니다. get_css_bundle에도 같은
+  문제가 있습니다. 레거시 템플릿/디버그 페이지가 새 헬퍼를 쓰면 즉시 실패하므로 인자 값을 단일 엔트리 이름으로 되돌려 주
+  세요.
+  - dashboard/blueprints/projects.py:557-561의 캐시 상태 API가 {status, cache_enabled, last_updated}만 돌려주는데, 프런
+  트 CacheStatusManager는 cache_health, prefetch_running, last_successful_update를 기준으로 UI를 구성합니다(dashboard/
+  src/js/services/CacheStatusManager.js:127-175). 지금 구조로는 항상 스피너/경고가 떠 있고 수동 새로고침 버튼도 나타나지
+  않으니, 백엔드 응답 필드를 프런트 기대치에 맞추거나 프런트 로직을 함께 업데이트해야 합니다.

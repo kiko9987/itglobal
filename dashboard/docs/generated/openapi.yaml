@@ -1,0 +1,3300 @@
+components:
+  parameters:
+    LimitParam:
+      description: 페이지당 항목 수
+      in: query
+      name: limit
+      schema:
+        default: 20
+        maximum: 100
+        minimum: 1
+        type: integer
+    PageParam:
+      description: 페이지 번호
+      in: query
+      name: page
+      schema:
+        default: 1
+        minimum: 1
+        type: integer
+  responses: {}
+  schemas:
+    ErrorDetails:
+      properties:
+        code:
+          description: 에러 코드
+          type: string
+        details:
+          description: 추가 에러 정보
+          type: object
+        message:
+          description: 에러 메시지
+          type: string
+      required:
+      - code
+      - message
+      type: object
+    ErrorResponse:
+      allOf:
+      - $ref: '#/components/schemas/StandardResponse'
+      - properties:
+          data:
+            type: 'null'
+          success:
+            example: false
+            type: boolean
+        type: object
+    ResponseMeta:
+      properties:
+        request_id:
+          description: 요청 ID
+          format: uuid
+          type: string
+        timestamp:
+          description: 응답 시간
+          format: date-time
+          type: string
+        version:
+          description: API 버전
+          type: string
+      required:
+      - timestamp
+      - version
+      - request_id
+      type: object
+    StandardResponse:
+      properties:
+        data:
+          description: 응답 데이터
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/ErrorDetails'
+          - type: 'null'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+        success:
+          description: 요청 성공 여부
+          type: boolean
+      required:
+      - success
+      - data
+      - error
+      - meta
+      type: object
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      scheme: bearer
+      type: http
+    sessionAuth:
+      in: cookie
+      name: session
+      type: apiKey
+info:
+  contact:
+    email: dev@itglobal.com
+    name: IT Global Development Team
+  description: "IT Global 비즈니스 관리 대시보드를 위한 종합 API입니다.\n\n## 주요 기능\n- 프로젝트 관리 및 추적\n\
+    - 매출 및 재무 분석\n- 실시간 모니터링 및 메트릭\n- 사용자 관리 및 인증\n- 캐시 및 시스템 관리\n\n## 인증 방식\n이 API는\
+    \ 여러 인증 방법을 지원합니다:\n- 세션 기반 인증 (웹 인터페이스)\n- Bearer 토큰 인증 (API 접근)\n- Google OAuth\
+    \ 2.0 (웹 인터페이스)\n\n## 표준 응답 형식\n모든 API 응답은 다음과 같은 표준 형식을 따릅니다:\n```json\n{\n \
+    \ \"success\": true|false,\n  \"data\": any,\n  \"error\": {...},\n  \"meta\"\
+    : {...}\n}\n```\n\n## 버전 관리\nAPI는 URL 경로 기반 버전 관리를 사용합니다 (/api/v1/, /api/v2/ 등)."
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: IT Global Dashboard API
+  version: 1.0.0
+openapi: 3.0.3
+paths:
+  /api/audit-logs:
+    get:
+      description: /api/audit-logs 경로에서 데이터를 조회합니다.
+      operationId: get_audit_logs_api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 감사 로그 조회 API (페이지네이션 지원)
+      tags:
+      - General
+  /api/brand-analysis:
+    get:
+      description: /api/brand-analysis 경로에서 데이터를 조회합니다.
+      operationId: get_brand_analysis
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 브랜드별 분석 API
+      tags:
+      - General
+  /api/cache-clear:
+    post:
+      description: /api/cache-clear 경로에서 새로운 데이터를 생성합니다.
+      operationId: clear_cache
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 캐시 전체 삭제 API (관리자 전용)
+      tags:
+      - General
+  /api/cache-stats:
+    get:
+      description: /api/cache-stats 경로에서 데이터를 조회합니다.
+      operationId: get_cache_stats
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 캐시 상태 모니터링 API
+      tags:
+      - General
+  /api/card-lock/acquire:
+    post:
+      description: /api/card-lock/acquire 경로에서 새로운 데이터를 생성합니다.
+      operationId: acquire_card_lock
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 카드 잠금 획득
+      tags:
+      - General
+  /api/card-lock/release:
+    post:
+      description: /api/card-lock/release 경로에서 새로운 데이터를 생성합니다.
+      operationId: release_card_lock
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 카드 잠금 해제
+      tags:
+      - General
+  /api/docs:
+    get:
+      description: /api/docs 경로에서 데이터를 조회합니다.
+      operationId: api_docs_landing
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: API Documentation Landing Page
+      tags:
+      - General
+  /api/docs/:
+    get:
+      description: /api/docs/ 경로에서 데이터를 조회합니다.
+      operationId: flasgger.apidocs
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: The /apidocs
+      tags:
+      - General
+  /api/field-lock/status/<project_code>:
+    get:
+      description: /api/field-lock/status/<project_code> 경로에서 데이터를 조회합니다.
+      operationId: get_project_lock_status
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트의 잠금 상태 조회
+      tags:
+      - General
+  /api/field-lock/status/all:
+    get:
+      description: /api/field-lock/status/all 경로에서 데이터를 조회합니다.
+      operationId: get_all_lock_status
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 모든 프로젝트의 잠금 상태 한 번에 조회 (성능 최적화)
+      tags:
+      - General
+  /api/folder/convert-paths-to-ids:
+    post:
+      description: /api/folder/convert-paths-to-ids 경로에서 새로운 데이터를 생성합니다.
+      operationId: convert_folder_paths_to_ids
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 기존 프로젝트들의 폴더 경로를 Google Drive ID로 일괄 변환
+      tags:
+      - General
+  /api/folder/name/<project_code>:
+    get:
+      description: /api/folder/name/<project_code> 경로에서 데이터를 조회합니다.
+      operationId: get_folder_name
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 폴더명 가져오기
+      tags:
+      - General
+  /api/folder/open/<project_code>:
+    get:
+      description: /api/folder/open/<project_code> 경로에서 데이터를 조회합니다.
+      operationId: open_project_folder
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 폴더를 윈도우 탐색기로 열기
+      tags:
+      - General
+  /api/health:
+    get:
+      description: /api/health 경로에서 데이터를 조회합니다.
+      operationId: monitoring.health_check
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      summary: 간단한 헬스체크 API
+      tags:
+      - General
+  /api/inline-update:
+    post:
+      description: /api/inline-update 경로에서 새로운 데이터를 생성합니다.
+      operationId: inline_update_direct
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 간단한 인라인 업데이트 API (직접 구현)
+      tags:
+      - General
+  /api/meta/options:
+    get:
+      description: /api/meta/options 경로에서 데이터를 조회합니다.
+      operationId: get_meta_options
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 드롭다운용 옵션 API (사업자, 담당자 목록)
+      tags:
+      - General
+  /api/missing-data:
+    get:
+      description: /api/missing-data 경로에서 데이터를 조회합니다.
+      operationId: get_missing_data
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 누락 데이터 분석 API
+      tags:
+      - General
+  /api/monitoring/prefetch:
+    get:
+      description: /api/monitoring/prefetch 경로에서 데이터를 조회합니다.
+      operationId: get_prefetch_stats
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 백그라운드 프리패치 통계 조회 (관리자 전용)
+      tags:
+      - Monitoring
+  /api/monitoring/usage:
+    get:
+      description: /api/monitoring/usage 경로에서 데이터를 조회합니다.
+      operationId: get_api_usage
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: API 사용량 통계 조회 (관리자 전용)
+      tags:
+      - Monitoring
+  /api/monthly-sales:
+    get:
+      description: /api/monthly-sales 경로에서 데이터를 조회합니다.
+      operationId: get_monthly_sales
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 월별 매출 API
+      tags:
+      - General
+  /api/next-project-code:
+    get:
+      description: /api/next-project-code 경로에서 데이터를 조회합니다.
+      operationId: get_next_project_code
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 다음 프로젝트 코드 생성 API
+      tags:
+      - General
+  /api/outstanding-analysis:
+    get:
+      description: /api/outstanding-analysis 경로에서 데이터를 조회합니다.
+      operationId: get_outstanding_analysis
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 미수금 분석 API
+      tags:
+      - General
+  /api/preview-project-code:
+    get:
+      description: /api/preview-project-code 경로에서 데이터를 조회합니다.
+      operationId: preview_project_code
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 코드 미리보기 생성
+      tags:
+      - General
+  /api/projects:
+    post:
+      description: /api/projects 경로에서 새로운 데이터를 생성합니다.
+      operationId: create_project
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectSchema'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 새 프로젝트 생성 API
+      tags:
+      - Projects
+  /api/projects/<project_code>:
+    get:
+      description: /api/projects/<project_code> 경로에서 데이터를 조회합니다.
+      operationId: get_project
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 상세 정보 API
+      tags:
+      - Projects
+    put:
+      description: /api/projects/<project_code> 경로에서 데이터를 업데이트합니다.
+      operationId: update_project
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 수정 API
+      tags:
+      - Projects
+  /api/projects/<project_code>/folder_id:
+    get:
+      description: /api/projects/<project_code>/folder_id 경로에서 데이터를 조회합니다.
+      operationId: get_project_folder_id
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트의 Google Drive 폴더 ID 반환
+      tags:
+      - Projects
+  /api/projects/auto:
+    post:
+      description: /api/projects/auto 경로에서 새로운 데이터를 생성합니다.
+      operationId: add_project_auto
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 신규 프로젝트 자동 코드 생성 및 추가
+      tags:
+      - Projects
+  /api/projects/list:
+    get:
+      description: /api/projects/list 경로에서 데이터를 조회합니다.
+      operationId: projects.get_projects_list
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 목록 API
+      tags:
+      - Projects
+  /api/quick-refresh:
+    get:
+      description: /api/quick-refresh 경로에서 데이터를 조회합니다.
+      operationId: quick_refresh_data
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 빠른 데이터 새로고침 API (캐시 우선 사용)
+      tags:
+      - General
+  /api/receivables:
+    get:
+      description: /api/receivables 경로에서 데이터를 조회합니다.
+      operationId: get_receivables
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 미수금 관리용 데이터 API
+      tags:
+      - General
+  /api/refresh-data:
+    get:
+      description: /api/refresh-data 경로에서 데이터를 조회합니다.
+      operationId: refresh_data
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 데이터 새로고침 API (강제 새로고침)
+      tags:
+      - General
+  /api/regional-analysis:
+    get:
+      description: /api/regional-analysis 경로에서 데이터를 조회합니다.
+      operationId: get_regional_analysis
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 지역별 분석 API
+      tags:
+      - General
+  /api/release-all-user-locks:
+    post:
+      description: /api/release-all-user-locks 경로에서 새로운 데이터를 생성합니다.
+      operationId: release_all_user_locks
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 특정 사용자의 모든 잠금 강제 해제 (페이지 새로고침/종료 시)
+      tags:
+      - General
+  /api/summary:
+    get:
+      description: /api/summary 경로에서 데이터를 조회합니다.
+      operationId: get_summary
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 요약 통계 API
+      tags:
+      - General
+  /api/update-project-inline:
+    post:
+      description: /api/update-project-inline 경로에서 새로운 데이터를 생성합니다.
+      operationId: update_project_inline
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 인라인 편집 API - 구글 시트 직접 업데이트
+      tags:
+      - General
+  /api/user/role:
+    get:
+      description: /api/user/role 경로에서 데이터를 조회합니다.
+      operationId: get_user_role_api
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 사용자 역할 정보 반환
+      tags:
+      - General
+  /api/v1/docs/analytics:
+    get:
+      description: 'summary: API 문서 분석 및 통계 정보
+
+        description: 현재 API의 구조 분석 결과와 문서화 통계를 반환합니다
+
+        responses:
+
+        200:
+
+        description: 분석 정보 조회 성공'
+      operationId: docs_api.get_documentation_analytics
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 문서 분석 정보 조회
+      tags:
+      - Documentation
+  /api/v1/docs/config:
+    get: &id001
+      description: 'summary: 문서 생성 시스템 설정 조회/변경
+
+        description: 자동 문서 생성 시스템의 설정을 조회하거나 변경합니다'
+      operationId: docs_api.manage_documentation_config
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 문서 시스템 설정 관리
+      tags:
+      - Documentation
+    put: *id001
+  /api/v1/docs/download/<file_type>:
+    get:
+      description: 'summary: 생성된 문서 파일 다운로드
+
+        description: 지정된 형식의 문서 파일을 다운로드합니다
+
+        parameters:
+
+        in: path
+
+        required: true
+
+        schema:
+
+        type: string
+
+        enum: [json, yaml, markdown, postman, guide, all]
+
+        responses:
+
+        200:
+
+        description: 파일 다운로드 성공
+
+        404:
+
+        description: 파일을 찾을 수 없음'
+      operationId: docs_api.download_documentation
+      parameters:
+      - description: file_type 파라미터
+        in: path
+        name: file_type
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 문서 파일 다운로드
+      tags:
+      - Documentation
+      - 'name: file_type'
+  /api/v1/docs/generate:
+    post:
+      description: 'summary: API 문서 자동 생성
+
+        description: 현재 애플리케이션 상태를 분석하여 모든 형태의 API 문서를 생성합니다
+
+        requestBody:
+
+        content:
+
+        application/json:
+
+        schema:
+
+        type: object
+
+        properties:
+
+        formats:
+
+        type: array
+
+        items:
+
+        type: string
+
+        enum: [json, yaml, markdown, postman, guide]
+
+        description: 생성할 문서 형식 (미지정시 모든 형식)
+
+        force:
+
+        type: boolean
+
+        description: 강제 재생성 여부
+
+        default: false
+
+        responses:
+
+        200:
+
+        description: 문서 생성 성공
+
+        500:
+
+        description: 문서 생성 실패'
+      operationId: docs_api.generate_documentation
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: API 문서 생성
+      tags:
+      - Documentation
+  /api/v1/docs/preview/<file_type>:
+    get:
+      description: 'summary: 생성된 문서 파일 미리보기
+
+        description: 지정된 형식의 문서 내용을 JSON으로 반환합니다
+
+        parameters:
+
+        in: path
+
+        required: true
+
+        schema:
+
+        type: string
+
+        enum: [json, yaml, markdown, postman, guide]
+
+        responses:
+
+        200:
+
+        description: 미리보기 성공
+
+        404:
+
+        description: 파일을 찾을 수 없음'
+      operationId: docs_api.preview_documentation
+      parameters:
+      - description: file_type 파라미터
+        in: path
+        name: file_type
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 문서 미리보기
+      tags:
+      - Documentation
+      - 'name: file_type'
+  /api/v1/docs/status:
+    get:
+      description: 'summary: 문서 생성 시스템 상태 확인
+
+        description: 현재 문서 생성 시스템의 상태와 통계 정보를 반환합니다
+
+        responses:
+
+        200:
+
+        description: 상태 조회 성공'
+      operationId: docs_api.get_documentation_status
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 문서 생성 상태 조회
+      tags:
+      - Documentation
+  /api/v1/docs/validate:
+    post:
+      description: 'summary: 생성된 문서의 유효성 검증
+
+        description: 현재 애플리케이션 상태와 생성된 문서의 일치성을 검증합니다
+
+        responses:
+
+        200:
+
+        description: 검증 완료'
+      operationId: docs_api.validate_documentation
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 문서 유효성 검증
+      tags:
+      - Documentation
+  /api/v1/projects:
+    get:
+      description: 'summary: 프로젝트 목록 조회
+
+        description: 페이지네이션과 필터링을 지원하는 프로젝트 목록 조회
+
+        parameters:
+
+        in: query
+
+        type: integer
+
+        minimum: 1
+
+        default: 1
+
+        description: 페이지 번호
+
+        in: query
+
+        type: integer
+
+        minimum: 1
+
+        maximum: 100
+
+        default: 20
+
+        description: 페이지당 항목 수
+
+        in: query
+
+        type: string
+
+        default: created_at
+
+        description: 정렬 필드
+
+        in: query
+
+        type: string
+
+        enum: [asc, desc]
+
+        default: desc
+
+        description: 정렬 순서
+
+        in: query
+
+        type: string
+
+        enum: [active, completed, cancelled, on_hold]
+
+        description: 상태별 필터링
+
+        in: query
+
+        type: string
+
+        description: 프로젝트명 검색
+
+        responses:
+
+        200:
+
+        description: 프로젝트 목록 조회 성공
+
+        schema:
+
+        $ref: ''#/definitions/StandardResponse'''
+      operationId: projects_v1.list_projects
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 목록 조회 (페이지네이션 지원)
+      tags:
+      - Projects v1
+      - 'name: page'
+      - 'name: limit'
+      - 'name: sort'
+      - 'name: order'
+      - 'name: status'
+      - 'name: search'
+    post:
+      description: 'summary: 프로젝트 생성
+
+        description: 새로운 프로젝트를 생성합니다
+
+        parameters:
+
+        in: body
+
+        required: true
+
+        schema:
+
+        type: object
+
+        properties:
+
+        name:
+
+        type: string
+
+        description: 프로젝트명 (필수)
+
+        example: "웹사이트 리뉴얼"
+
+        description:
+
+        type: string
+
+        description: 프로젝트 설명
+
+        example: "회사 홈페이지 전면 리뉴얼 프로젝트"
+
+        start_date:
+
+        type: string
+
+        format: date
+
+        description: 시작일 (필수)
+
+        example: "2025-01-01"
+
+        end_date:
+
+        type: string
+
+        format: date
+
+        description: 종료일
+
+        example: "2025-06-30"
+
+        budget:
+
+        type: number
+
+        description: 예산
+
+        example: 50000000
+
+        required:
+
+        responses:
+
+        201:
+
+        description: 프로젝트 생성 성공
+
+        400:
+
+        description: 입력 데이터 유효성 검사 실패
+
+        409:
+
+        description: 중복된 프로젝트명'
+      operationId: projects_v1.create_project
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectSchema'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 새 프로젝트 생성
+      tags:
+      - Projects v1
+      - 'name: body'
+      - name
+      - start_date
+  /api/v1/projects/<project_code>:
+    get:
+      description: 'summary: 프로젝트 상세 조회
+
+        description: 프로젝트 코드로 특정 프로젝트의 상세 정보를 조회합니다
+
+        parameters:
+
+        in: path
+
+        required: true
+
+        type: string
+
+        description: 프로젝트 코드
+
+        example: "PRJ001"
+
+        responses:
+
+        200:
+
+        description: 프로젝트 조회 성공
+
+        404:
+
+        description: 프로젝트를 찾을 수 없음'
+      operationId: projects_v1.get_project
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 특정 프로젝트 조회
+      tags:
+      - Projects v1
+      - 'name: project_code'
+    patch:
+      description: 'summary: 프로젝트 업데이트
+
+        description: 프로젝트의 특정 필드만 업데이트합니다
+
+        parameters:
+
+        in: path
+
+        required: true
+
+        type: string
+
+        description: 프로젝트 코드
+
+        in: body
+
+        required: true
+
+        schema:
+
+        type: object
+
+        properties:
+
+        name:
+
+        type: string
+
+        description: 프로젝트명
+
+        description:
+
+        type: string
+
+        description: 프로젝트 설명
+
+        status:
+
+        type: string
+
+        enum: [active, completed, cancelled, on_hold]
+
+        description: 프로젝트 상태
+
+        end_date:
+
+        type: string
+
+        format: date
+
+        description: 종료일
+
+        budget:
+
+        type: number
+
+        description: 예산
+
+        progress:
+
+        type: integer
+
+        minimum: 0
+
+        maximum: 100
+
+        description: 진행률
+
+        responses:
+
+        200:
+
+        description: 프로젝트 업데이트 성공
+
+        404:
+
+        description: 프로젝트를 찾을 수 없음
+
+        400:
+
+        description: 입력 데이터 유효성 검사 실패'
+      operationId: projects_v1.update_project
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 부분 업데이트
+      tags:
+      - Projects v1
+      - 'name: project_code'
+      - 'name: body'
+  /api/v1/projects/<project_code>/status:
+    put:
+      description: 'summary: 프로젝트 상태 변경
+
+        description: 프로젝트의 상태를 변경합니다
+
+        parameters:
+
+        in: path
+
+        required: true
+
+        type: string
+
+        description: 프로젝트 코드
+
+        in: body
+
+        required: true
+
+        schema:
+
+        type: object
+
+        properties:
+
+        status:
+
+        type: string
+
+        enum: [active, completed, cancelled, on_hold]
+
+        description: 새로운 상태
+
+        reason:
+
+        type: string
+
+        description: 상태 변경 사유
+
+        required:
+
+        responses:
+
+        200:
+
+        description: 상태 변경 성공
+
+        404:
+
+        description: 프로젝트를 찾을 수 없음
+
+        400:
+
+        description: 잘못된 상태 변경 요청'
+      operationId: projects_v1.change_project_status
+      parameters:
+      - description: project_code 파라미터
+        in: path
+        name: project_code
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 상태 변경
+      tags:
+      - Projects v1
+      - 'name: project_code'
+      - 'name: body'
+      - status
+  /api/v1/projects/summary:
+    get:
+      description: 'summary: 프로젝트 요약 통계
+
+        description: 전체 프로젝트의 요약 통계 정보를 조회합니다
+
+        responses:
+
+        200:
+
+        description: 요약 통계 조회 성공'
+      operationId: projects_v1.get_projects_summary
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 프로젝트 요약 통계
+      tags:
+      - Projects v1
+  /api/v1/test:
+    get:
+      description: /api/v1/test 경로에서 데이터를 조회합니다.
+      operationId: test_api.test_endpoint
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 테스트용 API 엔드포인트
+      tags:
+      - Test
+  /api/v1/test/echo:
+    post:
+      description: /api/v1/test/echo 경로에서 새로운 데이터를 생성합니다.
+      operationId: test_api.echo
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 생성됨
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      summary: 에코 테스트 엔드포인트
+      tags:
+      - Test
+  /api/v1/test/health:
+    get:
+      description: /api/v1/test/health 경로에서 데이터를 조회합니다.
+      operationId: test_api.health_check
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      summary: 헬스 체크 엔드포인트
+      tags:
+      - Test
+  /api/version/current:
+    get:
+      description: 'summary: Get current API version
+
+        description: Get information about the API version being used for this request
+
+        responses:
+
+        200:
+
+        description: Current API version information'
+      operationId: current_api_version
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 인증 필요
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 권한 없음
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      summary: 현재 요청의 API 버전 정보
+      tags:
+      - API Versioning
+  /api/versions:
+    get:
+      description: 'summary: List all API versions
+
+        description: Get information about all available API versions
+
+        responses:
+
+        200:
+
+        description: List of API versions'
+      operationId: list_api_versions
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StandardResponse'
+          description: 성공
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 잘못된 요청
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 찾을 수 없음
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: 서버 오류
+      summary: 모든 API 버전 목록 조회
+      tags:
+      - API Versioning
+servers:
+- description: Development server
+  url: http://localhost:5000
+- description: Production server
+  url: https://dashboard.itglobal.com
+tags:
+- description: 기타 API
+  name: General
+- description: 프로젝트 관리 관련 API
+  name: Projects
+- description: 테스트 및 데모용 API
+  name: Test
+- description: Projects v1 관련 API
+  name: Projects v1
+- description: 'name: page 관련 API'
+  name: 'name: page'
+- description: 'name: limit 관련 API'
+  name: 'name: limit'
+- description: 'name: sort 관련 API'
+  name: 'name: sort'
+- description: 'name: order 관련 API'
+  name: 'name: order'
+- description: 'name: status 관련 API'
+  name: 'name: status'
+- description: 'name: search 관련 API'
+  name: 'name: search'
+- description: 'name: body 관련 API'
+  name: 'name: body'
+- description: name 관련 API
+  name: name
+- description: start_date 관련 API
+  name: start_date
+- description: 'name: project_code 관련 API'
+  name: 'name: project_code'
+- description: status 관련 API
+  name: status
+- description: Documentation 관련 API
+  name: Documentation
+- description: 'name: file_type 관련 API'
+  name: 'name: file_type'
+- description: API Versioning 관련 API
+  name: API Versioning
+- description: 시스템 모니터링 관련 API
+  name: Monitoring

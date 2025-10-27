@@ -1,0 +1,40 @@
+> Status Check
+
+  - Vite 감지·캐시가 _vite_server_cache로 묶여 있어 반복 새로고침이 즉시 반환됩니다(dashboard/app.py:4051). USE_VITE_DEV_SERVER를 끄면 바로 Fallback으로 떨 어
+  지도록 안내 로그도 추가됐습니다(dashboard/app.py:4064).
+  - 구글시트 API 호출이 모니터링 래퍼로 감싸져 호출 수·응답시간을 추적합니다(dashboard/utils/google_sheets.py:85, dashboard/utils/api_usage_monitor.py:18).
+  - 데이터 캐시 TTL이 5분으로 늘어나고 배경 프리패치 훅(등록+쓰레드)이 도입돼 반복 조회가 덜 막힙니다(dashboard/utils/smart_cache_manager.py:26, dashboard/
+  utils/background_prefetch.py:21, dashboard/services/project_service.py:92).
+  - 사용자 관리는 SQLite 기반으로 이관되고, 기존 users.json은 자동 백업/마이그레이션됩니다(dashboard/auth.py:11, dashboard/utils/user_database.py:15,
+  dashboard/utils/user_database.py:182).
+
+  High Priority Risks
+
+  - 배경 프리패치 초기화가 if __name__ == '__main__': 블록 안에만 있어(dashboard/app.py:3979), WSGI나 run_server.py(Socket.IO)처럼 모듈을 임포트해 돌리는 경
+  우엔 전혀 실행되지 않습니다. before_first_request 혹은 앱 팩토리에서 항상 켜도록 옮겨야 합니다.
+  - /api/users 계열 관리용 라우트도 동일 블록에 있어 실제 서버에선 등록되지 않습니다(dashboard/app.py:3986, dashboard/app.py:4035). 배포 환경에 따라 기능이
+  사라지는 치명적 버그라 블록 밖으로 이동해야 합니다.
+  - logging.basicConfig(level=logging.INFO)가 구글시트 래퍼 안에서 실행돼(dashboard/utils/google_sheets.py:10) 전역 로깅 설정을 덮어씁니다. 공용 세팅은
+  setup_logging과 충돌하므로 제거하거나 모듈 로거 수준만 조정하세요.
+  - 프리패치 쓰레드 라이프사이클이 Flask와 분리돼 있어(dashboard/utils/background_prefetch.py:48), 워커 재기동 시 중복 쓰레드가 남거나 종료 시 정리되지 않을
+  수 있습니다. teardown_appcontext 등에서 stop()을 호출하도록 연결해야 안전합니다.
+
+  Further Improvements
+
+  - 4천 줄에 달하는 dashboard/app.py는 여전히 뷰·서비스·관리 API가 한 곳에 몰려 유지보수 리스크가 큽니다. 블루프린트/팩토리 패턴으로 모듈을 분할하고 설정, 모
+  니터링, 인증 등 각 서브시스템을 전용 파일로 이동하는 리팩터링을 권장합니다.
+  - 구글시트 로더가 매 호출마다 최근 10개 레코드를 INFO 로그로 출력해 (dashboard/utils/google_sheets.py:114) 운영 로그가 급증할 수 있습니다. DEBUG 레벨로 내
+  리거나 샘플링하도록 조정하세요.
+  - 캐시 TTL을 5분으로 늘린 만큼 프리패치가 실제로 데이터를 갱신했는지 UI에 노출하거나, 실패 시 폴백 전략을 넣어야 합니다. 현재는 백그라운드 쓰레드 오류가 로
+  그에만 남습니다(dashboard/utils/background_prefetch.py:107).
+  - 프런트엔드 진입점은 여전히 Vite/정적 혼합 구조입니다(dashboard/templates/modern_base.html). 빌드 간소화를 위해 Vite 출력을 기본으로 하고 레거시 번들을 서
+  브패스로 분리하거나, CDN/서비스워커 전략을 재정리해 불필요한 로딩 로직을 줄이세요.
+  - users.db가 소스 트리 내부(dashboard/utils/user_database.py:16)에 생성되므로 배포 환경에서는 경로를 instance/ 또는 외부 볼륨으로 옮기고 백업 전략을 문서화
+  하는 것이 좋습니다.
+  - API 사용량 모니터(dashboard/app.py:3920 일대)가 생겼지만 알림·대시보드가 없어 수치만 반환합니다. 임계치 초과 시 Slack/Webhook 등과 연동하면 운영 대응이
+  쉬워집니다.
+
+  추천 후속 작업
+
+  1. 프리패치/관리 API를 애플리케이션 초기화 시점으로 옮기고, 쓰레드 종료 훅을 붙인 뒤 기본 실행 플로에서 재검증하세요.
+  2. 로깅 레벨/출력 정리를 포함한 운영 모드 테스트(새로고침 속도, 구글시트 호출, 사용자 CRUD)를 한 번 더 돌려 실제 환경에서의 행동을 확인하세요

@@ -1,0 +1,633 @@
+/* ===== ProjectTable Component Styles v2.0 - Modernized & Stabilized ===== */
+
+/* Table Section Container - 레거시와 동일 */
+.table-section {
+  overflow: hidden;
+}
+
+/* Table Wrapper - dt-container와 함께 이동 */
+.table-wrapper {
+  position: relative;
+  overflow: visible;
+  border-radius: 12px; /* modern border-radius */
+  border: 1px solid #e9ecef; /* gray-200 */
+  background: white;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  padding: 0;
+  width: 100% !important;
+  display: block !important;
+}
+
+/* 테이블 래퍼 호버 제거 */
+
+/* Main Table Styling - 픽셀 완벽 렌더링을 위한 강력한 설정 */
+.table-wrapper table {
+  margin-bottom: 0;
+  border-collapse: separate; /* separate로 변경하여 렌더링 문제 해결 */
+  border-spacing: 0; /* 셀 간격 완전 제거 */
+  width: 100%;
+  table-layout: fixed; /* 고정 레이아웃으로 픽셀 안정성 향상 */
+  position: relative;
+  min-width: 100%;
+
+  /* 브라우저 렌더링 최적화 */
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: auto;
+}
+
+/* Table 구조 요소 기본값 복원 (DataTables 호환) */
+.table-wrapper table thead,
+.table-wrapper table tbody,
+.table-wrapper table tr {
+  display: table-row-group; /* 기본값으로 복원 */
+}
+.table-wrapper table tr {
+  display: table-row; /* 기본값으로 복원 */
+}
+
+/* Bootstrap .table 클래스 기본 스타일 설정 */
+/* 모든 테이블 셀 기본 스타일 (첫 번째 열 제외) */
+.table-wrapper .table th:not(:nth-child(1)),
+.table-wrapper .table td:not(:nth-child(1)),
+.table-wrapper table.table th:not(:nth-child(1)),
+.table-wrapper table.table td:not(:nth-child(1)),
+.table-wrapper table th:not(:nth-child(1)),
+.table-wrapper table td:not(:nth-child(1)) {
+  display: table-cell !important;
+  padding: var(--legacy-table-cell-padding) !important;
+  vertical-align: middle !important;
+  font-size: var(--legacy-table-cell-font) !important;
+  line-height: 1.5 !important;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* 첫 번째 열(프로젝트 코드) 전용 스타일 */
+.table-wrapper .table th:nth-child(1),
+.table-wrapper .table td:nth-child(1),
+.table-wrapper table.table th:nth-child(1),
+.table-wrapper table.table td:nth-child(1),
+.table-wrapper table th:nth-child(1),
+.table-wrapper table td:nth-child(1) {
+  display: table-cell !important;
+  vertical-align: middle !important;
+  font-size: var(--legacy-table-cell-font) !important;
+  line-height: 1.5 !important;
+  white-space: normal !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+
+  /* 세로 경계선 제거, 하단 구분선 유지 */
+  border-left: 0 !important;
+  border-right: 0 !important;
+  border-top: 0 !important;
+  border-bottom: 1px solid #dee2e6 !important;
+
+  /* 렌더링 최적화 */
+  transform: translateZ(0);
+}
+
+/* 전역 badges.css에서 inline-flex 처리 */
+
+/* 메인 테이블 뱃지 약간 상향 조정 (시각적 중앙 정렬) */
+.table-wrapper table td .badge {
+  position: relative;
+  top: -1px;
+}
+
+/* 수금 특이사항 열 기본 숨김 (FOUC 방지) */
+.table-wrapper .table th:nth-child(12),
+.table-wrapper .table td:nth-child(12),
+.table-wrapper table.table th:nth-child(12),
+.table-wrapper table.table td:nth-child(12),
+.table-wrapper table th:nth-child(12),
+.table-wrapper table td:nth-child(12) {
+  display: none !important;
+}
+
+/* 테이블 헤더 스타일 */
+.table-wrapper table th {
+  position: sticky;
+  top: 0;
+  background: #f1f3f4 !important; /* 레거시의 따뜻한 회색 배경 */
+  font-weight: 600;
+  text-align: center !important; /* 중앙 정렬 강제 적용 */
+  color: #495057;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05); /* 헤더 그림자 */
+  z-index: 10; /* sticky 헤더가 다른 요소 위에 오도록 */
+  height: calc(var(--legacy-table-cell-padding) * 4.5); /* 기존 패딩 기반으로 행 높이 설정 (0.75rem * 4.5 = 3.375rem) */
+}
+
+/* 헤더 중앙 정렬 - DataTables 기본 left 정렬 오버라이드 (높은 특이성 사용) */
+.table-wrapper table.dataTable thead th:nth-child(1),  /* 프로젝트 코드 */
+.table-wrapper table.dataTable thead th:nth-child(2),  /* 담당자 */
+.table-wrapper table.dataTable thead th:nth-child(3),  /* 거래처 */
+.table-wrapper table.dataTable thead th:nth-child(4),  /* 현장 주소 */
+.table-wrapper table.dataTable thead th:nth-child(5),  /* 공사 내용 */
+.table-wrapper table.dataTable thead th:nth-child(6),  /* 공사 시작 */
+.table-wrapper table.dataTable thead th:nth-child(7),  /* 공사 종료 */
+.table-wrapper table.dataTable thead th:nth-child(8),  /* 총액 */
+.table-wrapper table.dataTable thead th:nth-child(9),  /* 미수금 */
+.table-wrapper table.dataTable thead th:nth-child(10), /* 상태 */
+.table-wrapper table.dataTable thead th:nth-child(11)  /* 데이터 */ {
+  text-align: center;
+}
+
+/* 개별 컬럼 너비 설정 (필요시 조정) */
+.table-wrapper table th:nth-child(1), .table-wrapper table td:nth-child(1) { width: 8%; }
+.table-wrapper table th:nth-child(2), .table-wrapper table td:nth-child(2) { width: 6%; }
+.table-wrapper table th:nth-child(3), .table-wrapper table td:nth-child(3) { width: 8%; }
+.table-wrapper table th:nth-child(4), .table-wrapper table td:nth-child(4) { width: 20%; }
+.table-wrapper table th:nth-child(5), .table-wrapper table td:nth-child(5) { width: 16%; }
+.table-wrapper table th:nth-child(6), .table-wrapper table td:nth-child(6) { width: 8%; }
+.table-wrapper table th:nth-child(7), .table-wrapper table td:nth-child(7) { width: 8%; }
+.table-wrapper table th:nth-child(8), .table-wrapper table td:nth-child(8) { width: 8%; }
+.table-wrapper table th:nth-child(9), .table-wrapper table td:nth-child(9) { width: 7%; }
+.table-wrapper table th:nth-child(10), .table-wrapper table td:nth-child(10) { width: 7%; }
+.table-wrapper table th:nth-child(11), .table-wrapper table td:nth-child(11) { width: 6%; }
+
+
+/* '프로젝트 코드' 열 데이터 셀 패딩 조정 - 헤더와 시각적 균형 맞추기 */
+.table-wrapper .table td:nth-child(1),
+.table-wrapper table.table td:nth-child(1),
+.table-wrapper table td:nth-child(1) {
+    padding: var(--legacy-table-cell-padding) 1rem var(--legacy-table-cell-padding) 2rem; /* top right bottom left */
+    text-align: left;
+}
+
+/* 프로젝트 코드 셀 내 뱃지와 텍스트 정렬 통일 */
+.table-wrapper table td:nth-child(1) .project-badge {
+    vertical-align: middle;
+}
+
+.table-wrapper table td:nth-child(1) .ms-1 {
+    vertical-align: middle;
+}
+
+/* 테이블 데이터 셀 텍스트 정렬 (기존 규칙 유지) */
+.table-wrapper table td:nth-child(2),  /* 담당자 */
+.table-wrapper table td:nth-child(3),  /* 거래처 */
+.table-wrapper table td:nth-child(6),  /* 공사 시작 */
+.table-wrapper table td:nth-child(7),  /* 공사 종료 */
+.table-wrapper table td:nth-child(10), /* 상태 */
+.table-wrapper table td:nth-child(11) { /* 데이터 */
+    text-align: center;
+}
+
+
+.table-wrapper table td:nth-child(4),  /* 현장 주소 */
+.table-wrapper table td:nth-child(5) { /* 공사 내용 */
+    text-align: left;
+}
+
+/* 테이블 바디 행 호버 효과 */
+.table-wrapper table tbody tr {
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+/* 일반 행 호버 (table-active가 없는 행만) */
+.table-wrapper table tbody tr:hover:not(.table-active) {
+  background-color: #f8fafc; /* 원래 hover 색상 */
+}
+
+/* 복잡한 ::before 호버 효과 제거됨 - 단순 호버로 통합 */
+
+/* 테이블 래퍼 자체는 호버 효과 없음 */
+.table-wrapper:hover {
+  background: white !important;
+}
+
+/* DataTables 컨트롤 영역 여백 설정 - 컴팩트하게 */
+.dt-container .dt-length {
+  background-color: transparent !important;
+  margin: 0.5rem 0 0.5rem 0.5rem;
+}
+
+/* "개씩 보기" 텍스트 크기 조정 - 테이블 셀과 동일한 크기 */
+.table-wrapper .dt-container .dt-length label {
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: normal;
+}
+
+/* "내 공사만 보기" 체크박스를 "개씩 보기" 우측에 배치 */
+.dt-container .dt-length {
+  display: flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+}
+
+/* 간단한 세로 구분선 추가 */
+.my-projects-filter::before {
+  content: '|';
+  color: #dee2e6;
+  margin: 0 10px 0 6px;
+  font-size: 19px;
+  line-height: 1;
+  display: inline-block;
+  transform: translateY(-3px);
+}
+
+.my-projects-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-sm, 0.875rem);
+  font-weight: normal;
+  white-space: nowrap;
+  margin-left: 8px;
+}
+
+.my-projects-filter input[type="checkbox"] {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.my-projects-filter label {
+  margin: 0;
+  cursor: pointer;
+}
+
+/* 15개씩 보기 선택박스 크기 조정 - Bootstrap 클래스 포함 (특이성으로 해결) */
+.table-wrapper .dt-container .dt-length select.form-select.form-select-sm,
+.table-wrapper .dt-container .dt-length select.form-select,
+.table-wrapper select.form-select-sm[aria-controls="projectsTable"] {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px;
+  padding: 0.1rem 0 0.1rem 0.5rem;
+  font-size: 0.875rem;
+}
+
+.dt-container .dt-info,
+.dt-container .dt-paging {
+  background-color: transparent !important;
+}
+
+.dt-container .dt-length:hover,
+.dt-container .dt-info:hover,
+.dt-container .dt-paging:hover {
+  background-color: transparent !important;
+}
+
+/* 테이블이 래퍼를 완전히 채우도록 보장 - 중복 제거됨 */
+
+/* 호버 시 마지막 셀의 우측까지 완전히 채우도록 */
+.table-wrapper table tbody tr:hover:not(.table-active) td:last-child {
+  background-color: #f8fafc !important; /* 원래 hover 색상 */
+  border-right: none !important;
+}
+
+/* 통합된 세로 경계선 제거 규칙 - 모든 선택자 조합 */
+.table-wrapper table tbody tr td,
+.table-wrapper table.table tbody tr td,
+.table-wrapper table.table.dataTable tbody tr td,
+.table-wrapper .table tbody tr td,
+.table-wrapper .table.dataTable tbody tr td,
+.table-wrapper table tbody tr:hover:not(.table-active) td,
+.table-wrapper table.table tbody tr:hover:not(.table-active) td,
+.table-wrapper table.table.dataTable tbody tr:hover:not(.table-active) td,
+.table-wrapper .table tbody tr:hover:not(.table-active) td,
+.table-wrapper .table.dataTable tbody tr:hover:not(.table-active) td {
+  /* 세로 경계선만 완전 제거 */
+  border-left: 0 !important;
+  border-right: 0 !important;
+  border-top: 0 !important;
+
+  /* 하단 구분선은 유지 */
+  border-bottom: 1px solid #dee2e6 !important;
+
+  /* 픽셀 정렬을 위한 렌더링 최적화 */
+  transform: translateZ(0);
+}
+
+/* 호버 시 추가 스타일 제거 (table-active가 없는 행만) */
+.table-wrapper table tbody tr:hover:not(.table-active) td,
+.table-wrapper table.table tbody tr:hover:not(.table-active) td,
+.table-wrapper table.table.dataTable tbody tr:hover:not(.table-active) td,
+.table-wrapper .table tbody tr:hover:not(.table-active) td,
+.table-wrapper .table.dataTable tbody tr:hover:not(.table-active) td {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* 테이블 마지막 행의 하단 테두리 제거 */
+.table-wrapper table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* DataTables 관련 오버라이드 (기존 코드에서 필요한 부분만 유지) */
+.dataTables_wrapper table {
+  width: 100% !important;
+  table-layout: auto !important; /* DataTables의 기본값으로 복원 */
+  margin: 0 !important;
+}
+.dataTables_scrollHead table,
+.dataTables_scrollBody table {
+    width: 100% !important;
+    table-layout: auto !important;
+}
+
+/* DataTables 정렬 아이콘 스타일 조정 */
+.table th.sorting,
+.table th.sorting_asc,
+.table th.sorting_desc {
+    position: relative !important;
+    padding-right: 35px !important;
+}
+table.dataTable thead span.dt-column-order {
+    position: absolute !important;
+    right: 0.5rem !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 12px !important;
+    height: 24px !important;
+    display: inline-block !important;
+    pointer-events: none !important;
+}
+table.dataTable thead > tr > th::before,
+table.dataTable thead > tr > th::after,
+table.dataTable thead > tr > td::before,
+table.dataTable thead > tr > td::after {
+  display: none !important;
+}
+
+/* 기타 필요한 스타일 (badges.css 등에서 가져와 통합) */
+/* project-badge, status-badge 등은 별도 파일에서 관리되므로 여기서는 제외 */
+/* 필요한 경우 badges.css 내용을 여기에 통합하거나, 해당 파일이 올바르게 로드되는지 확인 */
+
+/* Performance Optimizations (기존 코드에서 필요한 부분만 유지) */
+.table-wrapper {
+  transform: none;
+  will-change: auto;
+}
+.table th, .table td {
+  will-change: auto;
+}
+.table tbody tr, .table tbody tr td, .table thead th {
+    transform: none !important;
+    will-change: auto !important;
+    backface-visibility: visible !important;
+    perspective: none !important;
+}
+
+/* DataTables 하단 영역 여백 설정 */
+div.dt-container div.dt-info,
+div.dt-container div.dt-paging {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  min-height: 2.5rem !important;
+}
+
+/* dt-info (좌측 정보) 여백 - dt-length와 동일하게 */
+div.dt-container div.dt-info {
+  margin-left: 1rem;
+  /* 페이지네이션 버튼과 동일한 스타일 적용 */
+  color: var(--gray-600) !important;
+  font-size: 0.875rem !important;
+  line-height: 1.2 !important;
+}
+
+/* dt-paging (우측 페이지네이션) 여백 */
+.table-wrapper .dt-container .bottom .paging-right,
+.table-wrapper div.dt-container div.paging-right {
+  margin-right: 1rem;
+}
+
+/* DataTables 컨테이너 상하 여백 설정 */
+div.dt-container {
+  margin-bottom: 0.5rem !important;
+}
+
+
+/* 페이지네이션 컨테이너(.bottom) 상하 여백 추가 */
+div.dt-container .bottom {
+  margin-top: 1rem !important;
+  margin-bottom: 1rem !important;
+}
+
+/* ===== DataTables 페이지네이션 스타일 (레거시 호환) ===== */
+/* Bootstrap 기본 파란색 대신 회색 베이스 컴팩트 디자인 */
+
+/* 페이지네이션 기본 링크 스타일 */
+.table-wrapper .dt-container .paging-right .page-link,
+.table-wrapper .dt-container .bottom .paging-right .page-link {
+  color: var(--gray-600);
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.375rem 0.55rem; /* 정사각형에 가깝게 조정 */
+  margin: 0 0.2rem; /* 버튼들 사이 간격 추가 */
+  font-size: 0.875rem;
+  line-height: 1.2;
+  transition: none;
+  outline: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+/* 페이지네이션 호버 스타일 */
+.table-wrapper .dt-container .paging-right .page-link:hover,
+.table-wrapper .dt-container .paging-right .page-link:focus,
+.table-wrapper .dt-container .bottom .paging-right .page-link:hover,
+.table-wrapper .dt-container .bottom .paging-right .page-link:focus {
+  color: var(--gray-800);
+  background: var(--gray-100);
+  background-color: var(--gray-100);
+  border: none;
+  transform: none;
+  box-shadow: none;
+  outline: none;
+}
+
+/* 활성 페이지 스타일 */
+.table-wrapper .dt-container .paging-right .page-item.active .page-link,
+.table-wrapper .dt-container .paging-right .page-item.active > .page-link,
+.table-wrapper .dt-container .bottom .paging-right .page-item.active .page-link,
+.table-wrapper .dt-container .bottom .paging-right .page-item.active > .page-link {
+  color: var(--gray-800);
+  background: var(--gray-200);
+  background-color: var(--gray-200);
+  font-weight: 600;
+  border: 1px solid var(--gray-300);
+  transform: none;
+  box-shadow: none;
+  outline: none;
+}
+
+/* 비활성화된 페이지 스타일 */
+.table-wrapper .dt-container .paging-right .page-item.disabled .page-link,
+.table-wrapper .dt-container .bottom .paging-right .page-item.disabled .page-link {
+  color: var(--gray-400);
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  cursor: not-allowed;
+}
+
+.table-wrapper .dt-container .paging-right .page-item.disabled .page-link:hover,
+.table-wrapper .dt-container .bottom .paging-right .page-item.disabled .page-link:hover {
+  color: var(--gray-400);
+  background: transparent;
+  background-color: transparent;
+  border: none;
+}
+
+/* href 제거된 페이지네이션 링크도 포인터 커서 유지 */
+.table-wrapper .dt-container .paging-right .page-link:not([href]),
+.table-wrapper .dt-container .bottom .paging-right .page-link:not([href]) {
+  cursor: pointer;
+}
+
+
+/* ===== Loading Overlay Styles ===== */
+.table-loading-overlay {
+  /* absolute 포지션으로 테이블 영역만 덮음 */
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000; /* 테이블 위에 표시 */
+  transition: opacity 0.3s ease, visibility 0.3s ease;
+  pointer-events: auto; /* 클릭 차단 */
+  border-radius: 12px; /* 테이블과 동일한 border-radius */
+  border: 1px solid #dee2e6; /* 더 연한 회색 테두리 */
+}
+
+.table-loading-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.table-loading-overlay .loading-content {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.table-loading-overlay .spinner-border {
+  width: 3rem;
+  height: 3rem;
+  border-width: 0.3rem;
+}
+
+.table-loading-overlay .loading-text {
+  font-size: 1.3rem;
+  font-weight: 500;
+  color: #495057;
+  margin: 0;
+}
+
+/* Media Queries (기존 코드에서 필요한 부분만 유지) */
+@media (max-width: 48rem) {
+  .table-wrapper table {
+    /* 모바일 반응형 스타일 */
+  }
+  .table th:nth-child(n+4),
+  .table td:nth-child(n+4) {
+    display: none; /* 모바일에서 불필요한 컬럼 숨기기 */
+  }
+
+  /* 로딩 오버레이 모바일 최적화 */
+  .table-loading-overlay .spinner-border {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .table-loading-overlay .loading-text {
+    font-size: 1rem;
+  }
+}
+
+/* ===== 수금 토글용 스켈레톤 행 ===== */
+/* design system의 .skeleton 클래스 사용 (tokens.css에 정의됨) */
+
+/* ... (다른 미디어 쿼리도 필요한 부분만 유지) ... */
+
+/* [최종 수정] DataTables 호버 클래스와의 충돌 해결 */
+/* 행에 .hover 클래스가 있든 없든, 아이콘 래퍼의 커서는 항상 pointer로 고정 */
+.table-wrapper table tbody tr td span[style*="cursor: pointer !important"] {
+  cursor: pointer !important;
+}
+/* ===== 수금 관리 모드 금액 필드 정렬 (Flexbox) ===== */
+.payment-field-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.payment-amount {
+  min-width: 100px;
+  text-align: right;
+  display: inline-block;
+}
+
+.payment-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 60px;
+}
+
+.payment-icons i {
+  flex-shrink: 0;
+}
+
+.memo-value-wrapper {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 1px 2px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.memo-value-wrapper .memo-amount-text {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.memo-value-wrapper .memo-tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  line-height: 1;
+}
+
+.memo-tooltip-trigger.bill-status {
+  margin-left: 6px;
+}
+
+.memo-value-wrapper i {
+  pointer-events: none;
+  line-height: 1;
+}
+
+
+
+.memo-tooltip-trigger.bill-status {
+  margin-left: 6px;
+}

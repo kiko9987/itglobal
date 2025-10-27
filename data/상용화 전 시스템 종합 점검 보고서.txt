@@ -1,0 +1,238 @@
+● 📋 상용화 전 시스템 종합 점검 보고서
+
+  🔴 Critical Issues (즉시 수정 필요)
+
+  1. Session Management - 401 재로그인 무한 루프 위험
+
+  위치: dashboard/src/js/utils/authInterceptor.js
+
+  문제점:
+  - 401 응답 시 /login으로 리다이렉트하지만, 이미 로그인 페이지에 있을 때도 계속 리다이렉트 시도
+  - 백그라운드 polling(예: 자동 새로고침)이 401을 받으면 사용자가 편집 중이어도 강제 리다이렉트
+  - 세션 만료 전 사용자에게 경고 없음
+
+  영향도: 높음 - 사용자가 편집 중인 데이터를 잃을 수 있음
+
+  현재 코드:
+  if (error.response?.status === 401) {
+      console.warn('[Auth] 인증 실패, 로그인 페이지로 이동');
+      window.location.href = '/login';
+  }
+
+  2. Google Sheets API Rate Limiting 처리 없음
+
+  위치: dashboard/blueprints/projects.py (lines 409-598)
+
+  문제점:
+  - Google Sheets API quota: 300 requests/minute, 60 requests/user/minute
+  - 동시에 여러 사용자가 편집 시 rate limit 초과 가능
+  - Rate limit 에러 발생 시 재시도 로직 없음
+  - 데이터 손실 가능성
+
+  현재 에러 처리:
+  except Exception as e:
+      logger.error(f"[PUT] 프로젝트 업데이트 실패: {project_code}, 오류: {str(e)}")
+      return jsonify({'error': str(e)}), 500
+
+  영향도: 높음 - 프로덕션 환경에서 여러 사용자 사용 시 필수
+
+  3. Field Lock 만료 후 충돌 가능성
+
+  위치: dashboard/utils/field_lock_manager.py (line 25)
+
+  문제점:
+  - Lock timeout 5분 (300초) 후 자동 해제
+  - 사용자 A가 5분 이상 편집 → Lock 만료 → 사용자 B가 같은 필드 편집 → 둘 다 저장 시도 → 데이터 충돌
+
+  현재 코드:
+  self.lock_timeout = 300  # 5분 타임아웃
+
+  영향도: 중간 - 긴 시간 편집하는 사용자가 있을 경우
+
+  4. DataTables State 복원 Race Condition
+
+  위치: dashboard/src/js/components/ProjectTable.js (lines 643-659)
+
+  문제점:
+  - requestAnimationFrame() 사용하지만 DOM 렌더링 완료 보장 안 됨
+  - DataTables의 draw() 완료 콜백 없이 바로 accordion 복원 시도
+  - 빠르게 여러 번 새로고침 시 이전 복원 작업이 완료 안 된 상태에서 다음 작업 시작 가능
+
+  현재 코드:
+  this.table.draw();
+
+  this.restoreReceivablesMode();
+
+  // 아코디언 상태 복원 (draw 완료 후)
+  if (wasOpen && openAccordionCode) {
+      requestAnimationFrame(() => {
+          // ... 복원 로직
+      });
+  }
+
+  개선 필요: DataTables의 draw.dt 이벤트 리스너 사용 권장
+
+  🟡 High Priority Issues (곧 수정 필요)
+
+  5. 계산 필드 값 검증 없음
+
+  위치: dashboard/src/js/components/ProjectRowAccordion.js (lines 2180-2265)
+
+  문제점:
+  - NaN, Infinity, 음수 검증 없음
+  - 총액1이 0이거나 null일 때 마진율 계산 시 Infinity 가능
+  - 잘못된 계산 결과가 그대로 화면에 표시됨
+
+  예시:
+  // 총액1 = 0일 때
+  const profitRate = (profit / total1) * 100;  // Infinity 또는 NaN
+
+  6. 동시 저장 요청 처리 없음
+
+  위치: dashboard/src/js/components/ProjectRowAccordion.js (lines 3253-3400)
+
+  문제점:
+  - 사용자가 빠르게 여러 필드 편집 시 동시에 여러 saveAllPendingChanges() 호출 가능
+  - 이전 저장이 완료되기 전 다음 저장 시작 가능
+  - isSaving 플래그는 있지만 pending changes 큐와 동기화 안 됨
+
+  현재 코드:
+  if (this.isSaving) {
+      console.log('[통합 저장] 이미 저장 중...');
+      return;
+  }
+
+  7. 에러 메시지가 사용자 친화적이지 않음
+
+  위치: 전역 (모든 에러 처리)
+
+  문제점:
+  - 대부분 기술적 에러 메시지 그대로 표시: "HTTP 500: INTERNAL SERVER ERROR"
+  - 사용자가 어떤 액션을 취해야 할지 모름
+  - 한국어/영어 혼재
+
+  예시:
+  alert(`프로젝트 저장 실패: ${error.message}`);
+  // → "프로젝트 저장 실패: HTTP 500: INTERNAL SERVER ERROR"
+
+  8. Google Sheets 연결 실패 시 시스템 마비
+
+  위치: dashboard/blueprints/projects.py (lines 23-78)
+
+  문제점:
+  - Google Sheets 인증 실패 시 모든 프로젝트 API 실패
+  - 로컬 캐시나 대체 데이터 소스 없음
+  - 네트워크 문제 시 전체 시스템 사용 불가
+
+  🟢 Medium Priority Issues (개선 권장)
+
+  9. Memory Leak 가능성 - Event Listener 정리 없음
+
+  위치: dashboard/src/js/components/ProjectRowAccordion.js
+
+  문제점:
+  - SPA는 아니지만, 동적으로 생성된 DOM 요소에 이벤트 리스너 등록
+  - 페이지 새로고침 없이 DataTables draw() 반복 시 메모리 누적 가능
+  - destroy() 메서드는 있지만 명시적으로 호출되지 않음
+
+  10. TODO/FIXME 코멘트 68개
+
+  위치: 17개 Python 파일
+
+  주요 항목들:
+  # TODO: 세션 보안 강화 필요
+  # FIXME: 에러 처리 개선
+  # HACK: 임시 해결책, 추후 리팩토링 필요
+  # TODO: 트랜잭션 처리 추가
+
+  영향도: 낮음~중간 - 하지만 상용화 전 검토 필요
+
+  11. 날짜 형식 변환이 일관적이지 않음
+
+  위치: dashboard/blueprints/projects.py (lines 504-512)
+
+  문제점:
+  - 백엔드에서 / → - 변환만 처리
+  - 프론트엔드에서 날짜 입력 시 형식 검증 없음
+  - 사용자가 잘못된 형식 입력 가능: 2025.01.01, 2025-1-1 등
+
+  12. 로깅 레벨이 프로덕션에 부적합
+
+  위치: 전역 (모든 logger 사용)
+
+  문제점:
+  - 많은 logger.info() 호출로 로그 파일 크기 급증 가능
+  - 민감한 데이터가 로그에 기록될 가능성
+  - 프로덕션 환경에서 DEBUG 레벨 로그 제거 필요
+
+  예시:
+  logger.info(f"[PUT] 업데이트할 데이터: {data}")  # 전체 데이터 로깅
+
+  🔵 Low Priority Issues (시간 되면 개선)
+
+  13. 프론트엔드 번들 크기 최적화 없음
+
+  위치: Vite 빌드 설정
+
+  문제점:
+  - Code splitting 없음
+  - Tree shaking 최적화 확인 필요
+  - 모든 JS가 하나의 번들로 로드
+
+  14. 캐싱 전략 없음
+
+  위치: 전역
+
+  문제점:
+  - Google Sheets 데이터를 매번 새로 가져옴
+  - 변경되지 않은 데이터도 반복 로드
+  - 서버 부하 증가
+
+  15. 접근성(Accessibility) 고려 부족
+
+  위치: 프론트엔드 전역
+
+  문제점:
+  - ARIA 레이블 부족
+  - 키보드 네비게이션 일부 지원 안 됨
+  - 스크린 리더 최적화 없음
+
+  📊 통계 요약
+
+  - 전체 코드 파일: 7,783개
+  - JavaScript 컴포넌트: 17개
+  - Python 블루프린트: 14개
+  - TODO/FIXME 코멘트: 68개 (17개 파일)
+  - Lock 관련 코드: 362회 (33개 파일)
+
+  🎯 상용화 전 필수 조치 사항
+
+  Immediate (이번 주 내):
+
+  1. ✅ Session timeout warning 추가 - 401 전에 사용자에게 경고
+  2. ✅ Google Sheets API rate limiting 처리 - 재시도 로직 + exponential backoff
+  3. ✅ 계산 필드 NaN/Infinity 검증 - 잘못된 값 방지
+
+  Short-term (다음 주):
+
+  4. ✅ Field lock 연장 메커니즘 - 5분 전 자동 연장
+  5. ✅ 에러 메시지 사용자 친화적으로 변경 - 한국어 + 액션 가이드
+  6. ✅ Google Sheets 연결 실패 대비책 - 로컬 캐시 또는 에러 페이지
+
+  Medium-term (이번 달):
+
+  7. ✅ TODO/FIXME 코멘트 검토 및 해결
+  8. ✅ 로깅 레벨 프로덕션 최적화
+  9. ✅ 날짜 형식 프론트엔드 검증 추가
+
+  💡 권장 사항
+
+  1. Staging 환경 구축: 프로덕션 배포 전 실제 사용자 데이터로 테스트
+  2. 모니터링 도구 추가: Sentry, LogRocket 등으로 프로덕션 에러 추적
+  3. 부하 테스트: 동시 사용자 10명+ 시나리오 테스트
+  4. 백업 전략: Google Sheets 데이터 정기 백업 (현재 백업 없음)
+  5. 문서화: 사용자 매뉴얼 + 관리자 가이드
+
+  ---
+  전반적 평가: 현재 시스템은 기본 기능은 잘 작동하지만, 다중 사용자 동시 접속 환경과 외부 API 의존성(Google Sheets)
+  부분에서 상용화 전 보강 필요. Critical Issues 3개는 반드시 수정 후 배포 권장.

@@ -1,0 +1,481 @@
+<!-- 새 프로젝트 등록 모달 -->
+<div class="modal fade" id="newProjectModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content" style="border-radius: var(--border-radius-xl); border: none; box-shadow: var(--shadow-xl);">
+            <div class="modal-header" style="background-color: #fafbfc; color: var(--gray-900); border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0; padding: 1.5rem;">
+                <h5 class="modal-title" style="font-weight: 600; color: var(--gray-900); display: flex; align-items: center;">
+                    <i class="fas fa-plus-circle me-2" style="color: #17a2b8;"></i>
+                    <span>새 프로젝트 등록</span>
+                    <span class="badge ms-2" style="background-color: #d4edda; color: #155724; font-size: var(--font-size-xs); font-weight: 600; border: 1px solid #c3e6cb;">자동 코드 생성</span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" style="opacity: 0.8;"></button>
+            </div>
+            <div class="modal-body" style="background-color: var(--gray-50); padding: 2rem;">
+                <!-- 모달 전용 알림 컨테이너 -->
+                <div id="modalAlertContainer"></div>
+
+                <form id="newProjectForm">
+                    <!-- 기본 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                        <i class="fas fa-info-circle" style="color: #2196f3; font-size: var(--font-size-sm);"></i>기본 정보
+                                    </h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                사업자 <span class="text-danger">*</span>
+                                            </label>
+                                            <select class="form-select" id="company" name="사업자" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <option value="">사업자 선택</option>
+                                                <option value="글로벌">글로벌</option>
+                                                <option value="글로벌그룹">글로벌그룹</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                담당자 <span class="text-danger">*</span>
+                                            </label>
+                                            <select class="form-select" id="owner" name="담당자" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <option value="">담당자 선택</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                생성될 프로젝트 코드
+                                            </label>
+                                            <div class="text-center fw-bold" id="generated-code" style="background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; border-radius: var(--border-radius); font-size: var(--font-size-sm); height: 38px; display: flex; align-items: center; justify-content: center; user-select: none !important; cursor: default !important; pointer-events: none;">
+                                                사업자와 담당자를 선택하세요
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 현장 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;">
+                                        <i class="fas fa-map-marker-alt" style="color: var(--success-color); font-size: var(--font-size-sm);"></i>현장 정보
+                                    </h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">거래처 <span class="text-danger">*</span></label>
+                                            <input type="text" class="form-control" id="client" name="거래처" required list="clientList" autocomplete="off" placeholder="거래처명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <datalist id="clientList">
+                                                <!-- 동적으로 채워짐 -->
+                                            </datalist>
+                                        </div>
+                                        <div class="col-md-8">
+                                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                                <label class="form-label mb-0" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm);">공사 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                                <!-- 공사 구분 에러 메시지 -->
+                                                <div class="d-none" id="work-category-error" style="padding: 0.5rem 0.75rem; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 0.25rem; font-size: 0.75rem; display: flex; align-items: center; gap: 0.25rem;">
+                                                    <i class="fas fa-exclamation-triangle"></i>
+                                                    <span>최대 2개만 선택 가능</span>
+                                                </div>
+                                            </div>
+                                            <div class="border rounded p-3" style="background-color: #fafafa;">
+                                                <div class="row g-3">
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="설치" id="work-cat-1">
+                                                            <label class="form-check-label fw-normal" for="work-cat-1">설치</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="이전" id="work-cat-2">
+                                                            <label class="form-check-label fw-normal" for="work-cat-2">이전</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="세척" id="work-cat-3">
+                                                            <label class="form-check-label fw-normal" for="work-cat-3">세척</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="철거" id="work-cat-4">
+                                                            <label class="form-check-label fw-normal" for="work-cat-4">철거</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="A/S" id="work-cat-5">
+                                                            <label class="form-check-label fw-normal" for="work-cat-5">A/S</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="판매" id="work-cat-6">
+                                                            <label class="form-check-label fw-normal" for="work-cat-6">판매</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="매입" id="work-cat-7">
+                                                            <label class="form-check-label fw-normal" for="work-cat-7">매입</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-3">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input work-category-checkbox" type="checkbox" value="렌탈" id="work-cat-8">
+                                                            <label class="form-check-label fw-normal" for="work-cat-8">렌탈</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <input type="hidden" id="work-category" name="공사 구분" value="">
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-12">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">현장 주소 <span class="text-danger">*</span> <small class="text-muted">(도로명 주소만 입력해주세요)</small></label>
+                                            <textarea class="form-control" id="address" name="현장 주소" rows="2" required placeholder="강남구 테헤란로 123 여삼빌딩 5층 505호 OO의원" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; transition: all 0.2s ease; resize: vertical;"></textarea>
+                                            <div class="form-text text-info d-none" id="address-info">
+                                                <i class="fas fa-info-circle me-1"></i>주소가 자동으로 정리되었습니다.
+                                            </div>
+                                            <div class="form-text text-warning d-none" id="address-warning">
+                                                <i class="fas fa-exclamation-triangle me-1"></i>지번 주소가 감지되었습니다. 도로명 주소로 변경해주세요.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 기술 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-tools" style="color: #9c27b0; font-size: var(--font-size-sm);"></i>시공 상세</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">기계 분류 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                            <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
+                                                <div class="row g-3">
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input machine-category-checkbox" type="checkbox" value="신품" id="machine-cat-1">
+                                                            <label class="form-check-label fw-normal" for="machine-cat-1">신품</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input machine-category-checkbox" type="checkbox" value="중고" id="machine-cat-2">
+                                                            <label class="form-check-label fw-normal" for="machine-cat-2">중고</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input machine-category-checkbox" type="checkbox" value="기존제품" id="machine-cat-3">
+                                                            <label class="form-check-label fw-normal" for="machine-cat-3">기존제품</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input machine-category-checkbox" type="checkbox" value="기타" id="machine-cat-4">
+                                                            <label class="form-check-label fw-normal" for="machine-cat-4">기타</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- 기계 분류 에러 메시지 -->
+                                            <div class="d-none mt-2" id="machine-category-error" style="padding: 0.5rem 0.75rem; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 0.25rem; font-size: 0.75rem; display: flex; align-items: center; gap: 0.25rem;">
+                                                <i class="fas fa-exclamation-triangle"></i>
+                                                <span>최대 2개만 선택 가능</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">브랜드 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                            <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
+                                                <div class="row g-3">
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input brand-category-checkbox" type="checkbox" value="LG" id="brand-cat-1">
+                                                            <label class="form-check-label fw-normal" for="brand-cat-1">LG</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input brand-category-checkbox" type="checkbox" value="삼성" id="brand-cat-2">
+                                                            <label class="form-check-label fw-normal" for="brand-cat-2">삼성</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input brand-category-checkbox" type="checkbox" value="캐리어" id="brand-cat-3">
+                                                            <label class="form-check-label fw-normal" for="brand-cat-3">캐리어</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input brand-category-checkbox" type="checkbox" value="FCU" id="brand-cat-4">
+                                                            <label class="form-check-label fw-normal" for="brand-cat-4">FCU</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input brand-category-checkbox" type="checkbox" value="덕트" id="brand-cat-5">
+                                                            <label class="form-check-label fw-normal" for="brand-cat-5">덕트</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input brand-category-checkbox" type="checkbox" value="기타" id="brand-cat-6">
+                                                            <label class="form-check-label fw-normal" for="brand-cat-6">기타</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- 브랜드 에러 메시지 -->
+                                            <div class="d-none mt-2" id="brand-category-error" style="padding: 0.5rem 0.75rem; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 0.25rem; font-size: 0.75rem; display: flex; align-items: center; gap: 0.25rem;">
+                                                <i class="fas fa-exclamation-triangle"></i>
+                                                <span>최대 2개만 선택 가능</span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">도급 구분 <small class="text-muted">(최대 2개 선택 가능)</small></label>
+                                            <div class="border rounded p-3" style="background-color: #fafafa; min-height: 80px;">
+                                                <div class="row g-3">
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input contract-category-checkbox" type="checkbox" value="외주" id="contract-cat-1">
+                                                            <label class="form-check-label fw-normal" for="contract-cat-1">외주</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input contract-category-checkbox" type="checkbox" value="내부" id="contract-cat-2">
+                                                            <label class="form-check-label fw-normal" for="contract-cat-2">내부</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input contract-category-checkbox" type="checkbox" value="일당" id="contract-cat-3">
+                                                            <label class="form-check-label fw-normal" for="contract-cat-3">일당</label>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-6">
+                                                        <div class="form-check">
+                                                            <input class="form-check-input contract-category-checkbox" type="checkbox" value="기타" id="contract-cat-4">
+                                                            <label class="form-check-label fw-normal" for="contract-cat-4">기타</label>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <!-- 도급 구분 에러 메시지 -->
+                                            <div class="d-none mt-2" id="contract-category-error" style="padding: 0.5rem 0.75rem; background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; border-radius: 0.25rem; font-size: 0.75rem; display: flex; align-items: center; gap: 0.25rem;">
+                                                <i class="fas fa-exclamation-triangle"></i>
+                                                <span>최대 2개만 선택 가능</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">시공자</label>
+                                            <input type="text" class="form-control" id="constructor" name="시공자" placeholder="시공자명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                        </div>
+                                        <div class="col-md-8">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 내용</label>
+                                            <textarea class="form-control" id="work-content" name="공사 내용" rows="1" placeholder="냉난방기 설치, 덕트 공사 등" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; transition: all 0.2s ease; resize: vertical;"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 일정 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-calendar" style="color: #ff9800; font-size: var(--font-size-sm);"></i>일정 정보</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 시작</label>
+                                            <div class="input-group">
+                                                <input type="date" class="form-control date-input" id="start-date" name="공사 시작" onkeydown="return false" onpaste="return false" onchange="handleStartDateChange()" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                    <i class="fas fa-calendar-alt"></i>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">공사 종료</label>
+                                            <div class="input-group">
+                                                <input type="date" class="form-control date-input" id="end-date" name="공사 종료" onkeydown="return false" onpaste="return false" onchange="handleEndDateChange()" style="cursor: pointer; border-radius: var(--border-radius) 0 0 var(--border-radius); border: 1px solid var(--gray-300); border-right: none; font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <span class="input-group-text calendar-icon" style="cursor: pointer; background-color: #f8f9fa; border: 1px solid var(--gray-300); border-left: none; color: #6c757d; border-radius: 0 var(--border-radius) var(--border-radius) 0;">
+                                                    <i class="fas fa-calendar-alt"></i>
+                                                </span>
+                                            </div>
+                                            <div class="form-check mt-2">
+                                                <input class="form-check-input" type="checkbox" id="same-date-check">
+                                                <label class="form-check-label" for="same-date-check">
+                                                    <small class="text-muted">시작일과 동일</small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 담당자 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-user" style="color: #00bcd4; font-size: var(--font-size-sm);"></i>담당자 정보</h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">현장 담당자</label>
+                                            <input type="text" class="form-control" id="site-manager" name="현장 담당자" placeholder="현장 담당자명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">담당자 연락처</label>
+                                            <input type="tel" class="form-control" id="manager-phone" name="담당자 연락처" placeholder="010-0000-0000" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                        </div>
+                                    </div>
+                                    <div class="row mt-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">담당자 이메일</label>
+                                            <input type="email" class="form-control" id="manager-email" name="담당자 이메일" placeholder="example@email.com" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <div class="form-text text-danger d-none" id="email-error">
+                                                <i class="fas fa-exclamation-circle me-1"></i>올바른 이메일 형식을 입력해주세요 (예: user@example.com)
+                                            </div>
+                                            <div class="form-check mt-2">
+                                                <input class="form-check-input" type="checkbox" id="email-unknown-check">
+                                                <label class="form-check-label" for="email-unknown-check">
+                                                    <small class="text-muted">이메일 확인 불가</small>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 금액 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-won" style="color: var(--warning-color); font-size: var(--font-size-sm);"></i>금액 정보</h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">총액1 <span class="text-danger">*</span></label>
+                                            <input type="text" class="form-control" id="total-amount-display" required placeholder="1,500,000" maxlength="15" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <input type="hidden" id="total-amount" name="총액1" value="0">
+
+                                            <!-- 금액 버튼들 -->
+                                            <div class="mt-3">
+                                                <div class="row g-2">
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">일억원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="10000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">천만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="1000000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">백만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="100000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">십만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-primary btn-sm w-100 amount-btn" data-amount="50000" style="border-color: #17a2b8; color: #17a2b8; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#d1ecf1'" onmouseout="this.style.backgroundColor='transparent'">오만원</button>
+                                                    </div>
+                                                    <div class="col-4">
+                                                        <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="amount-reset-btn" style="border-color: #dc3545; color: #dc3545; background-color: transparent; transition: all 0.2s ease;" onmouseover="this.style.backgroundColor='#f8d7da'" onmouseout="this.style.backgroundColor='transparent'">초기화</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="mb-3">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">부가세 포함 여부</label>
+                                                <div class="form-check form-switch">
+                                                    <input class="form-check-input" type="checkbox" id="vat-included" name="부가세 포함" checked>
+                                                    <label class="form-check-label" for="vat-included" style="font-weight: 400;">부가세 포함</label>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">총액2</label>
+                                                <div class="p-2 rounded" style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border: 1px solid #dee2e6;">
+                                                    <span id="display-amount" class="fw-bold" style="color: #0c5460; font-size: 1.1rem;">0원</span>
+                                                    <span id="amount-korean" class="fw-bold ms-2" style="color: #0c5460; font-size: 1.1rem;">(금 영원정)</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 문서 정보 섹션 -->
+                    <div class="row mb-2">
+                        <div class="col-12">
+                            <div class="card" style="border: 1px solid var(--gray-200); box-shadow: var(--shadow-sm); border-radius: var(--border-radius-lg); background: white;">
+                                <div class="card-header" style="background-color: #fafbfc; border-bottom: 1px solid var(--gray-200); border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0; padding: 1rem 1.5rem;">
+                                    <h6 class="mb-0" style="color: var(--gray-900); font-weight: 600; font-size: var(--font-size-base); display: flex; align-items: center; gap: 0.5rem;"><i class="fas fa-folder" style="color: #e91e63; font-size: var(--font-size-sm);"></i>문서 정보</h6>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="row">
+                                        <div class="col-12">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                견적서 및 계약서 폴더 경로
+                                            </label>
+                                            <input type="text" class="form-control" id="document-path" name="견적서 및 계약서 폴더 경로" placeholder="폴더 경로 또는 구글 드라이브 링크를 입력하세요" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <div class="mt-3 p-3" style="background-color: #e7f3ff; border-left: 4px solid #2196f3; border-radius: 0.25rem; font-size: 0.875rem;">
+                                                <div style="display: flex; align-items: flex-start; gap: 0.5rem;">
+                                                    <span style="font-size: 1.25rem; line-height: 1; flex-shrink: 0;">💡</span>
+                                                    <div style="color: #0c5460;">
+                                                        <strong>권장방법:</strong> 윈도우 탐색기에서 폴더 우클릭 → "링크를 클립보드로 복사" → 위 입력창에 붙여넣기
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer" style="background-color: var(--gray-50); border-top: 1px solid var(--gray-200); border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl); padding: 1.5rem;">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24;" onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f1b0b7'" onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb'">취소</button>
+                <button type="submit" class="btn btn-primary" form="newProjectForm" id="submit-new-project" style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #155724;" onmouseover="this.style.backgroundColor='#c3e6cb'; this.style.borderColor='#b3d7c1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(21, 87, 36, 0.2)'" onmouseout="this.style.backgroundColor='#d4edda'; this.style.borderColor='#c3e6cb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                    <span class="spinner-border spinner-border-sm me-2 d-none" id="submit-loading"></span>
+                    프로젝트 등록
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

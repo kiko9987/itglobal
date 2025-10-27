@@ -1,0 +1,499 @@
+================================================================================
+프로젝트 코드 자동 업데이트 구현 완료
+================================================================================
+
+작성일: 2025-10-06
+기능: 사업자/담당자 변경 시 프로젝트 코드 자동 업데이트
+
+================================================================================
+1. 문제점
+================================================================================
+
+## 사용자 요청
+"2851 프로젝트가 사업자가 글로벌이고 담당자가 강성환인데 왜 G2851-JW야?"
+
+## Google Sheets 규칙
+```
+=IF($B2890="플렌트","P"&TEXT(ROW()-1,"0000"),
+   IF($B2890="글로벌","G"&TEXT(ROW()-1,"0000"),
+      IF($B2890="글로벌그룹","R"&TEXT(ROW()-1,"0000"),)))
+&SWITCH($C2890,
+   "박용구","-YG","박정우","-JW","강성환","-SH","박민우","-MW",
+   "이근혁","-GH","김호중","-HJ","아이티","-IT","김단이","-DN",
+   "권태훈","-TH","주영민","-YM","심장원","-SJW","빈승정","-SJ",
+   "박민재","-MJ","조성헌","-JSH","황해승","-HS","강민석","-MS","")
+```
+
+## 기대 동작
+- 사업자: 글로벌 → `G`
+- 행번호: 2890 → `2890`
+- 담당자: 강성환 → `-SH`
+- **최종 코드: `G2890-SH`**
+
+## 요구사항
+1. 새 프로젝트 등록 시: 자동 생성
+2. 아코디언 편집 시: 사업자/담당자 변경 시 실시간 재생성
+
+================================================================================
+2. 구현 내용
+================================================================================
+
+## 2.1 백엔드: 프로젝트 코드 생성 유틸리티
+
+**파일: `dashboard/utils/project_code_generator.py`**
+
+### 함수 1: `generate_project_code(row_number, company, manager)`
+Google Sheets 규칙과 100% 동일하게 프로젝트 코드 생성
+
+```python
+def generate_project_code(row_number, company, manager):
+    # 1. 사업자 → Prefix
+    company_prefix = {
+        '플렌트': 'P',
+        '글로벌': 'G',
+        '글로벌그룹': 'R'
+    }
+    prefix = company_prefix.get(company, '')
+
+    # 2. 행번호 4자리
+    number_part = f"{row_number:04d}"
+
+    # 3. 담당자 → Suffix
+    manager_suffix = {
+        '박용구': '-YG', '박정우': '-JW', '강성환': '-SH',
+        '박민우': '-MW', '이근혁': '-GH', '김호중': '-HJ',
+        '아이티': '-IT', '김단이': '-DN', '권태훈': '-TH',
+        '주영민': '-YM', '심장원': '-SJW', '빈승정': '-SJ',
+        '박민재': '-MJ', '조성헌': '-JSH', '황해승': '-HS',
+        '강민석': '-MS'
+    }
+    suffix = manager_suffix.get(manager, '')
+
+    # 4. 조합
+    return f"{prefix}{number_part}{suffix}"
+```
+
+**예시:**
+- `generate_project_code(2890, '글로벌', '강성환')` → `G2890-SH`
+- `generate_project_code(1234, '플렌트', '박용구')` → `P1234-YG`
+- `generate_project_code(5678, '글로벌그룹', '심장원')` → `R5678-SJW`
+
+### 함수 2: `parse_project_code(project_code)`
+프로젝트 코드 → 구성 요소 분해
+
+```python
+parse_project_code('G2890-SH')
+# 결과:
+{
+    'prefix': 'G',
+    'number': 2890,
+    'suffix': '-SH',
+    'company': '글로벌',
+    'manager': '강성환'
+}
+```
+
+### 함수 3: `should_update_project_code(current_code, row_number, company, manager)`
+프로젝트 코드 업데이트 필요 여부 확인
+
+```python
+should_update_project_code('G2851-JW', 2890, '글로벌', '강성환')
+# True (담당자가 박정우→강성환으로 변경)
+
+should_update_project_code('G2890-SH', 2890, '글로벌', '강성환')
+# False (변경 없음)
+```
+
+## 2.2 백엔드: PUT API 자동 업데이트 로직
+
+**파일: `dashboard/blueprints/projects.py`**
+
+### Line 490-514: 프로젝트 코드 자동 업데이트
+
+```python
+from dashboard.utils.project_code_generator import generate_project_code, should_update_project_code
+
+# 현재 또는 새로운 사업자/담당자 값 가져오기
+company = data.get('사업자') or current_values[field_to_index.get('사업자', 1)]
+manager = data.get('담당자') or current_values[field_to_index.get('담당자', 2)]
+
+# 최종 프로젝트 코드 추적
+final_project_code = project_code
+
+# 사업자 또는 담당자가 변경되었는지 확인
+if should_update_project_code(project_code, row_number, company, manager):
+    new_project_code = generate_project_code(row_number, company, manager)
+    if new_project_code and new_project_code != project_code:
+        logger.info(f"[PUT] 프로젝트 코드 자동 업데이트: {project_code} → {new_project_code}")
+
+        # 1. 구글 시트 업데이트
+        current_values[0] = new_project_code
+
+        # 2. 감사 로그 기록
+        field_changes.append({
+            'field_name': '프로젝트 코드',
+            'old_value': project_code,
+            'new_value': new_project_code
+        })
+
+        # 3. 클라이언트 응답용
+        data['프로젝트 코드'] = new_project_code
+        final_project_code = new_project_code
+```
+
+### Line 585-610: 응답 데이터 수정
+
+**Before (버그):**
+```python
+# 잘못된 검색 - OLD 코드로 찾음
+updated_project = next((p for p in projects_list
+                        if p.get('프로젝트 코드') == project_code), None)
+
+return jsonify({
+    'project_code': project_code,  # 변경 전 코드 반환 (버그!)
+    'project': updated_project
+})
+```
+
+**After (수정):**
+```python
+# 올바른 검색 - NEW 코드로 찾음
+updated_project = next((p for p in projects_list
+                        if p.get('프로젝트 코드') == final_project_code), None)
+
+return jsonify({
+    'project_code': final_project_code,  # 최종 코드 반환
+    'old_project_code': project_code if final_project_code != project_code else None,
+    'project': updated_project
+})
+```
+
+## 2.3 프론트엔드: 프로젝트 코드 변경 처리
+
+**파일: `dashboard/src/js/components/ProjectRowAccordion.js`**
+
+### Line 3396-3402: 프로젝트 코드 변경 감지
+
+```javascript
+// 서버 응답에서 프로젝트 코드 변경 확인
+const finalProjectCode = result.project_code || projectCode;
+const projectCodeChanged = result.old_project_code &&
+                          result.old_project_code !== finalProjectCode;
+
+if (projectCodeChanged) {
+    console.log(`🔄 [프로젝트 코드 변경] ${result.old_project_code} → ${finalProjectCode}`);
+}
+```
+
+### Line 3411-3418: 서버 데이터로 업데이트
+
+```javascript
+// 서버에서 반환된 전체 프로젝트 데이터로 업데이트 (계산 필드 포함)
+if (result.project) {
+    Object.assign(this.currentProject, result.project);
+    console.log(`📊 [통합 저장] 서버 데이터로 업데이트`, result.project);
+} else {
+    // Fallback: 변경사항만 업데이트
+    Object.assign(this.currentProject, allChanges);
+}
+```
+
+### Line 3420-3432: 프로젝트 코드 변경 시 전체 새로고침
+
+```javascript
+// 프로젝트 코드가 변경된 경우 전체 페이지 새로고침 (URL 변경 필요)
+if (projectCodeChanged) {
+    console.log(`🔄 [통합 저장] 프로젝트 코드 변경됨 - 페이지 새로고침`);
+    window.dispatchEvent(new CustomEvent('projectUpdated', {
+        detail: {
+            fullRefresh: true,
+            project: this.currentProject,
+            projectCode: finalProjectCode,
+            oldProjectCode: result.old_project_code
+        }
+    }));
+    return;  // 편집 모드 해제 스킵 (페이지가 새로고침됨)
+}
+```
+
+**왜 전체 새로고침?**
+- 프로젝트 코드가 변경되면 DataTable의 행 ID도 변경됨
+- 아코디언의 모든 `data-project-code` 속성 업데이트 필요
+- 감사 로그 등 프로젝트 코드 참조하는 모든 컴포넌트 동기화 필요
+
+================================================================================
+3. 테스트 시나리오
+================================================================================
+
+## 시나리오 1: 담당자 변경
+1. 프로젝트 G2851-JW 선택 (사업자: 글로벌, 담당자: 박정우)
+2. 아코디언 열기 → 편집 모드
+3. 담당자를 "박정우" → "강성환"으로 변경
+4. 저장 버튼 클릭
+
+**예상 결과:**
+- 서버: `G2851-JW` → `G2851-SH` 자동 업데이트
+- 응답:
+  ```json
+  {
+    "success": true,
+    "project_code": "G2851-SH",
+    "old_project_code": "G2851-JW",
+    "project": { ... }
+  }
+  ```
+- 클라이언트: `fullRefresh` 이벤트 발송 → DataTable 새로고침
+- 감사 로그: "프로젝트 G2851-JW의 프로젝트 코드 필드를 'G2851-JW'에서 'G2851-SH'로 변경"
+
+## 시나리오 2: 사업자 변경
+1. 프로젝트 G2890-SH 선택 (사업자: 글로벌, 담당자: 강성환)
+2. 사업자를 "글로벌" → "플렌트"로 변경
+3. 저장
+
+**예상 결과:**
+- `G2890-SH` → `P2890-SH`
+
+## 시나리오 3: 사업자 + 담당자 동시 변경
+1. 프로젝트 G2890-SH 선택
+2. 사업자: "글로벌" → "글로벌그룹"
+3. 담당자: "강성환" → "심장원"
+4. 저장
+
+**예상 결과:**
+- `G2890-SH` → `R2890-SJW`
+
+## 시나리오 4: 변경 없음
+1. 프로젝트 G2890-SH 선택
+2. 다른 필드만 수정 (예: 총액1, 공사 시작)
+3. 저장
+
+**예상 결과:**
+- 프로젝트 코드 유지: `G2890-SH`
+- `old_project_code: null`
+- 부분 업데이트 (페이지 새로고침 안 함)
+
+================================================================================
+4. 데이터 흐름
+================================================================================
+
+## 편집 → 저장 → 응답 → UI 업데이트 흐름
+
+```
+[1] 사용자 편집
+    ↓
+    사업자: 글로벌
+    담당자: 강성환 → 박정우 (변경)
+
+[2] Frontend: collectAllChanges()
+    ↓
+    { "담당자": "박정우" }
+
+[3] PUT /api/projects/G2890-SH
+    ↓
+    Body: { "담당자": "박정우" }
+
+[4] Backend: projects.py
+    ↓
+    company = data.get('사업자') or current_values[1]  # '글로벌'
+    manager = data.get('담당자')  # '박정우'
+    ↓
+    should_update_project_code('G2890-SH', 2890, '글로벌', '박정우')
+    → True (담당자 변경됨)
+    ↓
+    new_code = generate_project_code(2890, '글로벌', '박정우')
+    → 'G2890-JW'
+    ↓
+    current_values[0] = 'G2890-JW'  # 구글 시트 업데이트
+    final_project_code = 'G2890-JW'
+
+[5] 구글 시트 API 호출
+    ↓
+    range: A2890:AM2890
+    values: ['G2890-JW', '글로벌', '박정우', ...]
+
+[6] 데이터 새로고침
+    ↓
+    projects_df = load_data(force_refresh=True)
+    updated_project = find('G2890-JW')  # ← NEW 코드로 검색!
+
+[7] Response
+    ↓
+    {
+      "success": true,
+      "project_code": "G2890-JW",
+      "old_project_code": "G2890-SH",
+      "project": {
+        "프로젝트 코드": "G2890-JW",
+        "사업자": "글로벌",
+        "담당자": "박정우",
+        "총액2": 11000000,  # 구글 시트 수식 계산 결과
+        "미수금": 5500000,
+        "마진율": 15.2,
+        ...
+      }
+    }
+
+[8] Frontend: _executeSave()
+    ↓
+    finalProjectCode = 'G2890-JW'
+    projectCodeChanged = true
+    ↓
+    Object.assign(this.currentProject, result.project)
+    ↓
+    window.dispatchEvent('projectUpdated', {
+      fullRefresh: true,
+      projectCode: 'G2890-JW',
+      oldProjectCode: 'G2890-SH'
+    })
+
+[9] DataTable 새로고침
+    ↓
+    - 기존 행 'G2890-SH' 제거
+    - 새 행 'G2890-JW' 추가
+    - 정렬/필터 재적용
+    - 아코디언 닫힘
+```
+
+================================================================================
+5. 감사 로그
+================================================================================
+
+프로젝트 코드 변경 시 감사 로그에 다음과 같이 기록됨:
+
+```json
+{
+  "timestamp": "2025-10-06T14:32:15.123Z",
+  "user_email": "user@example.com",
+  "action": "UPDATE_FIELD",
+  "details": "프로젝트 G2890-SH의 프로젝트 코드 필드를 'G2890-SH'에서 'G2890-JW'로 변경",
+  "project_code": "G2890-SH",
+  "field_name": "프로젝트 코드",
+  "old_value": "G2890-SH",
+  "new_value": "G2890-JW",
+  "ip_address": "127.0.0.1"
+}
+```
+
+**주의:**
+- `project_code` 필드는 OLD 코드 사용 (감사 로그 연속성 유지)
+- `old_value` / `new_value`로 변경 내역 추적 가능
+
+================================================================================
+6. 빌드 및 배포
+================================================================================
+
+## 수정된 파일
+1. `dashboard/utils/project_code_generator.py` (신규)
+2. `dashboard/blueprints/projects.py` (수정)
+3. `dashboard/src/js/components/ProjectRowAccordion.js` (수정)
+
+## 빌드 결과
+```
+✓ 49 modules transformed.
+✓ built in 2.01s
+
+[생성 파일]
+- components.BDtyH3AK.js (204.67 kB → 48.06 kB gzipped)
+- main.Cj_xbmWH.css (377.52 kB → 56.88 kB gzipped)
+```
+
+## 테스트 방법
+1. 브라우저 새로고침 (Ctrl + F5)
+2. 프로젝트 목록 확인
+3. G2851-JW 프로젝트 선택 (사업자: 글로벌, 담당자: 박정우)
+4. 아코디언 열기 → 편집 모드
+5. 담당자를 "강성환"으로 변경
+6. 저장 버튼 클릭
+7. **예상 결과:**
+   - 저장 성공 애니메이션
+   - 1초 후 페이지 새로고침
+   - 프로젝트 코드가 `G2851-SH`로 변경됨
+   - DataTable에서 새 코드로 표시됨
+
+================================================================================
+7. 향후 개선 사항
+================================================================================
+
+## 7.1 프로젝트 코드 변경 시 부분 업데이트
+현재는 전체 새로고침(`fullRefresh`)하지만, 향후 개선 가능:
+
+```javascript
+// 부분 업데이트 - 행 ID만 변경
+if (projectCodeChanged) {
+    const row = dataTable.row(`#row-${result.old_project_code}`);
+    row.id(`row-${finalProjectCode}`);  // ID 업데이트
+    row.data(result.project).draw(false);  // 데이터 업데이트
+
+    // 아코디언 유지
+    this.currentProjectCode = finalProjectCode;
+    this.reopenAccordion(finalProjectCode, result.project);
+}
+```
+
+**장점:**
+- 페이지 새로고침 없이 프로젝트 코드 변경
+- 아코디언 열린 상태 유지
+- 더 나은 사용자 경험
+
+**단점:**
+- DataTable row ID 변경 로직 복잡
+- 모든 DOM 참조 업데이트 필요
+- 테스트 복잡도 증가
+
+## 7.2 프로젝트 코드 미리보기
+편집 중 실시간으로 새 프로젝트 코드 표시:
+
+```javascript
+// 사업자/담당자 변경 시
+onCompanyOrManagerChange(company, manager) {
+    const newCode = this.previewProjectCode(row_number, company, manager);
+    const preview = document.querySelector('.project-code-preview');
+    if (newCode !== this.currentProject['프로젝트 코드']) {
+        preview.innerHTML = `변경 후: <strong>${newCode}</strong>`;
+        preview.style.display = 'block';
+    } else {
+        preview.style.display = 'none';
+    }
+}
+```
+
+## 7.3 일괄 프로젝트 코드 재생성
+관리자 기능: 모든 프로젝트 코드를 규칙에 맞게 재생성
+
+```python
+@projects_bp.route('/api/admin/regenerate-codes', methods=['POST'])
+@admin_required
+def regenerate_all_codes():
+    updated_count = 0
+    for row_number, project in enumerate(projects, start=2):
+        company = project['사업자']
+        manager = project['담당자']
+        new_code = generate_project_code(row_number, company, manager)
+        if new_code != project['프로젝트 코드']:
+            # 업데이트 로직
+            updated_count += 1
+
+    return jsonify({'updated': updated_count})
+```
+
+================================================================================
+결론
+================================================================================
+
+✅ Google Sheets 프로젝트 코드 생성 규칙 완벽 복제
+✅ 사업자/담당자 변경 시 자동 업데이트
+✅ 서버 응답에 계산 필드 포함하여 반환
+✅ 프론트엔드에서 프로젝트 코드 변경 감지 및 처리
+✅ 감사 로그 자동 기록
+✅ 빌드 완료 및 배포 준비 완료
+
+**현재 상태:**
+- 백엔드 수정 완료 (서버 재시작 불필요 - Flask 자동 리로드)
+- 프론트엔드 빌드 완료 (components.BDtyH3AK.js)
+- 테스트 권장: http://localhost:5000/projects
+
+**다음 단계:**
+1. 브라우저 새로고침 (Ctrl + F5)
+2. 실제 프로젝트에서 사업자/담당자 변경 테스트
+3. 프로젝트 코드 자동 업데이트 확인
+4. 페이지 새로고침 후 새 코드로 표시 확인

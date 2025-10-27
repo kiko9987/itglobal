@@ -1,0 +1,631 @@
+/* ===== IT GLOBAL 메인 스타일시트 ===== */
+/*
+ 🏗️ CSS 아키텍처 가이드 (v2.0 - 회사 안정화 버전 기반)
+
+ 📋 1. 현재 상태 (2024년 기준)
+   ✅ 레거시 버튼/뱃지 크기 복원 완료 (회사 작업)
+   ✅ 테이블 셀 패딩/폰트 크기 복원 완료 (회사 작업)
+   ✅ 기본 토큰 시스템 구축 완료 (tokens.css)
+
+ 🎯 2. 토큰 활용 권장사항
+   • 하드코딩 대신 기존 토큰 활용: var(--badge-padding-lg), var(--font-size-xs) 등
+   • fallback 패턴 사용: var(--font-size-xs, 0.75rem)
+   • 새 값 추가 시 tokens.css에서 중앙 관리
+
+ 🚨 3. 주의사항
+   • 현재 작동하는 스타일 건드리지 말 것 (!important 포함)
+   • 새 기능 추가 시에만 토큰 시스템 적용
+   • npm run build 후 테스트 필수
+
+ 📞 도움이 필요할 때: 기존 패턴 참고 후 tokens.css 확인
+*/
+
+/* 1. 기본 프레임워크 */
+@import 'bootstrap/dist/css/bootstrap.min.css';
+
+/* 2. Design System 토큰 & 기초 */
+@import 'design-system/tokens.css';
+@import 'design-system/utilities.css';
+@import 'design-system/animations.css';
+@import 'design-system/buttons.css';
+@import 'design-system/badges.css';
+@import 'components/unified-badge-system.css';
+
+/* 3. 핵심 시스템 모듈 (Priority 1) */
+@import 'components/global-cursor.css';
+@import 'components/global-ux.css';
+@import 'components/filter-system.css';
+@import 'components/notification-system.css';
+
+/* 4. 기능별 컴포넌트 모듈 */
+@import 'components/header-buttons.css';
+@import 'components/user-dropdown.css';
+@import 'components/project-table.css';
+@import 'components/performance-optimizations.css';
+@import 'components/project-list-page.css';
+@import 'components/base.css';
+@import 'components/accordion-system.css'; /* 모던 아코디언 시스템 */
+@import 'components/mobile-card-view.css';
+@import 'components/modal-system.css';
+@import 'components/modern-project-modal.css'; /* 현대화된 프로젝트 모달 */
+@import 'components/field-memo.css'; /* 필드 메모 시스템 */
+
+/* 5. 반응형 시스템 */
+@import 'components/responsive.css';
+
+/* 전역 스타일 */
+:root {
+  /* 애플리케이션 특화 변수 (tokens.css에 없는 고유 변수들) */
+  --header-height: 120px;
+
+  /* Z-index 레이어 관리 */
+  --zindex-sticky: 1020;
+  --zindex-modal: 1050;
+  --zindex-overlay: 9999;
+
+  /* 로딩 오버레이 */
+  --loading-overlay-bg: rgba(255, 255, 255, 0.9);
+}
+
+/* 기본 설정 - 중복 제거됨 (global-ux.css에서 처리) */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+}
+
+body {
+  /* 기본 타이포그래피는 tokens.css에서 정의됨 */
+  font-size: 1rem; /* 애플리케이션 특화 폰트 크기 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 접근성 개선 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 유틸리티 클래스는 tokens.css에서 정의됨 */
+
+/* 반응형 유틸리티 */
+@media (max-width: 767.98px) {
+  .mobile-hidden {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .desktop-hidden {
+    display: none !important;
+  }
+}
+
+/* 기존 부가세 토글 관련 CSS 제거됨 - 이제 커스텀 토글 사용 */
+
+/* 다크모드 준비 */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+
+  /* 다크모드 스타일은 추후 구현 */
+}
+
+/* ===== 긴급 수정: 아코디언 카드 레이아웃 및 인풋 크기 문제 해결 ===== */
+
+/* 1. 인라인 인풋 크기 강제 조정 - 백업본 크기로 */
+.inline-edit-input.text-input,
+.inline-edit-input[type="text"],
+.inline-edit-input[type="number"],
+.inline-edit-input[type="date"],
+.inline-edit-textarea,
+.inline-edit-select {
+  font-size: 0.85rem !important;
+  padding: 0.25rem 0.5rem !important;
+  min-height: 28px !important;
+  height: auto !important;
+  /* min-width 제거 - 컨텐츠에 맞게 자동 조정 */
+}
+
+.inline-edit-input.input-manager.text-input {
+  min-width: 55px !important;
+}
+
+.inline-edit-input.input-small.text-input {
+  min-width: 40px !important;
+}
+
+
+/* 2. 컴팩트 아이템 레이아웃 완전 수정 - 백업본 방식 */
+.compact-item {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  min-width: 0 !important;
+  min-height: 42px !important;
+  padding: 0.4rem 0 !important;
+  border-bottom: 1px solid var(--gray-100) !important;
+}
+
+/* 3. 레이블 고정 크기 */
+.compact-item small {
+  flex-shrink: 0 !important;
+  min-width: 70px !important;
+  max-width: 70px !important;
+  margin-top: 0.125rem !important;
+}
+
+/* 4. 값 컨테이너 완전한 flex 속성 - 핵심! */
+.compact-item .editable-value,
+.compact-item .readonly-value,
+.compact-item .calculated-field,
+.compact-item > div {
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  font-size: 0.9rem !important;
+  color: var(--gray-800) !important;
+  line-height: 1.3 !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+  flex-wrap: wrap !important;
+}
+
+/* 아코디언 내부 모든 input과 텍스트는 왼쪽 정렬 */
+.project-accordion-container .compact-item input,
+.project-accordion-container .compact-item .editable-value,
+.project-accordion-container .compact-item .readonly-value,
+.project-accordion-container .compact-item > div,
+.project-accordion-container .compact-item [data-field] {
+  text-align: left;
+}
+
+/* 카드 내 모든 값 필드 공통 스타일 - Universal Padding */
+html body div.project-accordion-container div.compact-item > div:not(small) {
+  padding: 4px 0px;
+  text-align: left;
+  direction: ltr;
+  display: flex;
+  align-items: center;
+  min-height: 1.5rem;
+}
+
+/* 편집 가능한 필드의 input 스타일 */
+html body div.project-accordion-container div.compact-item input[type="text"],
+html body div.project-accordion-container div.compact-item input[type="number"],
+html body div.project-accordion-container div.compact-item input.inline-edit-input {
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  direction: ltr;
+}
+
+
+/* 5. 카드 그리드 2열 레이아웃 */
+.card-grid {
+  grid-template-columns: 1fr 1fr !important;
+  gap: 0.8rem !important;
+  overflow: hidden !important;
+  min-width: 0 !important;
+}
+
+/* 6. 반응형: 화면 축소시 세로 레이아웃 */
+@media (max-width: 768px) {
+  .compact-item {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.25rem !important;
+  }
+
+  .compact-item small {
+    min-width: auto !important;
+    margin-right: 0 !important;
+  }
+
+  .card-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* 7. 아코디언 텍스트 오버플로우 처리 */
+.folder-path,
+.legacy-card-value,
+.legacy-card-text {
+  word-break: break-all !important;
+  word-wrap: break-word !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* Status badges - 이제 badges.css에서 정의됨 (중복 제거됨) */
+
+/* Badge styles - 이제 design-system/badges.css에서 정의됨 (중복 제거됨) */
+
+/* 프린트 스타일 */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+  }
+
+  .btn {
+    border: 1px solid var(--gray-900) !important;
+  }
+}
+
+/* ===== 편집 버튼 크기 최적화 - 백업본 스타일 복원 ===== */
+
+/* 백업본에서 가져온 액션 버튼 스타일 */
+.btn-group .btn,
+.card-edit-buttons .btn,
+.card-actions .btn,
+.action-buttons .btn {
+  margin: 0 0.125rem !important;
+  padding: 0.2rem 0.6rem !important;
+  border-radius: var(--border-radius-sm, 0.25rem) !important;
+  transition: all 0.2s ease !important;
+  font-size: var(--font-size-xs, 0.75rem) !important;
+  font-weight: 500 !important;
+}
+
+/* 백업본의 호버 효과 */
+.btn-group .btn:hover,
+.card-edit-buttons .btn:hover,
+.card-actions .btn:hover,
+.action-buttons .btn:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.15) !important;
+}
+
+/* 아이콘 크기 조정 */
+.btn-group .btn i,
+.card-edit-buttons .btn i,
+.card-actions .btn i {
+  font-size: 0.7rem !important;
+}
+
+/* 드롭다운 "더보기" 버튼 */
+.btn-more-actions {
+  min-width: 32px !important;
+  padding: 0.375rem 0.5rem !important;
+}
+
+/* 편집 상태일 때 - 백업본과 동일하게 */
+.editing .btn-group .btn,
+.editing .card-edit-buttons .btn {
+  font-size: var(--font-size-xs, 0.75rem) !important;
+  padding: 0.2rem 0.6rem !important;
+}
+
+/* 로딩 상태 스피너 */
+.btn.loading i.fa-spinner {
+  font-size: 0.7rem !important;
+}
+
+/* ===== 아코디언 편집 버튼 - 진짜 투명 배경 ===== */
+
+/* 카드 편집 버튼 그룹 레이아웃 */
+.card-edit-buttons {
+  gap: 0.25rem !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* 아코디언 카드 편집 버튼 - Bootstrap 기본 동작으로 복원 */
+
+/* Design System의 덮어쓰기를 무력화하고 Bootstrap 기본 스타일로 되돌림 */
+.card-edit-buttons .btn-outline-secondary {
+  background-color: transparent !important;
+  border-color: var(--bs-secondary, #6c757d) !important;
+  color: var(--bs-secondary, #6c757d) !important;
+}
+
+.card-edit-buttons .btn-outline-secondary:hover {
+  background-color: var(--bs-secondary, #6c757d) !important;
+  border-color: var(--bs-secondary, #6c757d) !important;
+  color: #fff !important;
+}
+
+.card-edit-buttons .btn-outline-success {
+  background-color: transparent !important;
+  border-color: var(--bs-success, #198754) !important;
+  color: var(--bs-success, #198754) !important;
+}
+
+.card-edit-buttons .btn-outline-success:hover {
+  background-color: var(--bs-success, #198754) !important;
+  border-color: var(--bs-success, #198754) !important;
+  color: #fff !important;
+}
+
+.card-edit-buttons .btn-outline-danger {
+  background-color: transparent !important;
+  border-color: var(--bs-danger, #dc3545) !important;
+  color: var(--bs-danger, #dc3545) !important;
+}
+
+.card-edit-buttons .btn-outline-danger:hover {
+  background-color: var(--bs-danger, #dc3545) !important;
+  border-color: var(--bs-danger, #dc3545) !important;
+  color: #fff !important;
+}
+
+/* ===== 폴더 편집 버튼 스타일 ===== */
+
+/* 폴더 편집 버튼 */
+.legacy-card-actions .edit-folder-btn {
+  padding: 0.25rem 0.5rem !important;
+  font-size: 0.7rem !important;
+  background-color: rgba(248, 249, 250, 0.6) !important;
+  border: 1px solid rgba(108, 117, 125, 0.3) !important;
+  color: rgba(108, 117, 125, 0.8) !important;
+  opacity: 0.8 !important;
+  transition: all 0.2s ease !important;
+}
+
+.legacy-card-actions .edit-folder-btn:hover {
+  background-color: rgba(248, 249, 250, 0.9) !important;
+  border-color: rgba(108, 117, 125, 0.5) !important;
+  color: rgba(108, 117, 125, 1) !important;
+  opacity: 1 !important;
+  transform: translateY(-1px) !important;
+}
+
+/* 폴더 저장/취소 버튼 */
+.legacy-card-edit .save-folder-btn {
+  padding: 0.25rem 0.5rem !important;
+  font-size: 0.7rem !important;
+  background-color: rgba(209, 231, 221, 0.8) !important;
+  border: 1px solid rgba(25, 135, 84, 0.3) !important;
+  color: rgba(25, 135, 84, 0.9) !important;
+  transition: all 0.2s ease !important;
+}
+
+.legacy-card-edit .cancel-folder-btn {
+  padding: 0.25rem 0.5rem !important;
+  font-size: 0.7rem !important;
+  background-color: rgba(248, 215, 218, 0.8) !important;
+  border: 1px solid rgba(220, 53, 69, 0.3) !important;
+  color: rgba(220, 53, 69, 0.9) !important;
+  transition: all 0.2s ease !important;
+}
+
+/* ===== 노트 편집 버튼 스타일 ===== */
+
+/* 노트 편집 버튼 */
+.legacy-card-actions .edit-notes-btn {
+  padding: 0.25rem 0.5rem !important;
+  font-size: 0.7rem !important;
+  background-color: rgba(248, 249, 250, 0.6) !important;
+  border: 1px solid rgba(108, 117, 125, 0.3) !important;
+  color: rgba(108, 117, 125, 0.8) !important;
+  opacity: 0.8 !important;
+  transition: all 0.2s ease !important;
+}
+
+.legacy-card-actions .edit-notes-btn:hover {
+  background-color: rgba(248, 249, 250, 0.9) !important;
+  border-color: rgba(108, 117, 125, 0.5) !important;
+  color: rgba(108, 117, 125, 1) !important;
+  opacity: 1 !important;
+  transform: translateY(-1px) !important;
+}
+
+/* 노트 저장/취소 버튼 */
+.legacy-card-edit .save-notes-btn {
+  padding: 0.25rem 0.5rem !important;
+  font-size: 0.7rem !important;
+  background-color: rgba(209, 231, 221, 0.8) !important;
+  border: 1px solid rgba(25, 135, 84, 0.3) !important;
+  color: rgba(25, 135, 84, 0.9) !important;
+  transition: all 0.2s ease !important;
+}
+
+.legacy-card-edit .cancel-notes-btn {
+  padding: 0.25rem 0.5rem !important;
+  font-size: 0.7rem !important;
+  background-color: rgba(248, 215, 218, 0.8) !important;
+  border: 1px solid rgba(220, 53, 69, 0.3) !important;
+  color: rgba(220, 53, 69, 0.9) !important;
+  transition: all 0.2s ease !important;
+}
+
+/* 모든 편집 관련 버튼 아이콘 크기 통일 */
+.legacy-card-actions .edit-folder-btn i,
+.legacy-card-actions .edit-notes-btn i,
+.legacy-card-edit .save-folder-btn i,
+.legacy-card-edit .cancel-folder-btn i,
+.legacy-card-edit .save-notes-btn i,
+.legacy-card-edit .cancel-notes-btn i {
+  font-size: 0.6rem !important;
+  margin-right: 0.25rem !important;
+}
+
+/* Bootstrap form-switch 작은 크기 적용 */
+.info-card .form-check.form-switch {
+  font-size: 0.75rem;
+  min-height: auto;
+  padding-left: 0;
+  width: auto !important;
+  height: auto !important;
+}
+
+/* 부가세 토글은 accordion-system.css에서 관리 */
+
+/*
+  테이블 행 스타일 제어 (최종 방어 코드)
+  - 현재의 '회색 오버레이' 문제와 미래의 '노란색 배경' 문제를 모두 해결
+*/
+
+/* 1. 비활성 행의 호버 효과만 처리 */
+.table-wrapper table.dataTable tbody tr:not(.table-active):hover > td {
+    background-color: #f5f5f5 !important;
+    box-shadow: none !important; /* 다른 그림자 효과 방지 */
+}
+
+/*
+  2. 활성 행(.table-active)의 스타일 지정 (가장 중요!)
+  - 다른 모든 스타일(줄무늬, 상태 클래스 등)을 덮어쓰고
+    항상 이 스타일이 우선적으로 적용되도록 함
+*/
+.table-wrapper table.dataTable tbody tr.table-active > td,
+.table-wrapper table.dataTable tbody tr.table-active:hover > td {
+    background-color: #FFF3E0 !important; /* 연한 오렌지색 */
+    color: #37474F !important;
+    box-shadow: none !important; /* 모든 그림자 효과 제거 */
+}
+
+/* ===== 커스텀 로딩 스피너 ===== */
+.custom-spinner {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  position: relative;
+  animation: rotate 1s linear infinite;
+}
+
+.custom-spinner::before {
+  content: '';
+  box-sizing: border-box;
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 5px solid transparent;
+  border-top-color: #94a3b8;
+  border-right-color: #94a3b8;
+  animation: prixClipFix 2s linear infinite;
+}
+
+@keyframes rotate {
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes prixClipFix {
+  0% { clip-path: polygon(50% 50%, 0 0, 0 0, 0 0, 0 0, 0 0); }
+  25% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 0, 100% 0, 100% 0); }
+  50% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 100% 100%, 100% 100%); }
+  75% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 0 100%, 0 100%); }
+  100% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 0 100%, 0 0); }
+}
+
+/* ===== 취소된 프로젝트 스타일 ===== */
+
+/* 아코디언 활성 행 하이라이트 */
+.table-wrapper table.dataTable tbody tr.table-active > td {
+  position: relative;
+  background-color: #eef2ff;
+  color: #1f2937;
+}
+
+.table-wrapper table.dataTable tbody tr.table-active > td:first-child::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #6366f1, #93c5fd);
+}
+
+.project-cancelled-row.table-active > td {
+  background-color: #f1f3f5;
+  color: #4b5563;
+}
+
+.project-cancelled-row.table-active > td:first-child::before {
+  background: linear-gradient(180deg, #9ca3af, #d1d5db) !important;
+}
+
+/* 아코디언 취소 스타일 */
+.accordion-shell {
+  position: relative;
+}
+
+.accordion-shell {
+  position: relative;
+}
+
+.accordion-shell.project-cancelled {
+  padding: 1rem 2rem;
+}
+
+.accordion-shell.project-cancelled::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(229, 231, 235, 0.32);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.accordion-shell.project-cancelled > * {
+  position: relative;
+  z-index: 1;
+}
+
+.accordion-shell.project-cancelled .row-details {
+  margin: 0 !important;
+  background-color: transparent !important;
+}
+
+.accordion-shell.project-cancelled .row-details::before {
+  position: absolute;
+  z-index: 4;
+}
+
+/* 취소된 아코디언의 row-details는 호버 색상(var(--gray-50))으로 고정 */
+.accordion-shell.project-cancelled .row-details,
+.accordion-shell.project-cancelled .row-details:hover {
+  background-color: var(--gray-50) !important;
+  cursor: default !important;
+}
+
+.accordion-shell.project-cancelled .resume-construction-btn,
+.accordion-shell.project-cancelled .resume-construction-btn .fas {
+  position: relative;
+  z-index: 5;
+}
+
+/* 취소 상태에서 편집 관련 요소만 비활성화 (재개 버튼은 제외) */
+.accordion-shell.project-cancelled .editable-value,
+.accordion-shell.project-cancelled .inline-edit-input,
+.accordion-shell.project-cancelled .unified-edit-btn,
+.accordion-shell.project-cancelled .edit-card-btn,
+.accordion-shell.project-cancelled .save-card-btn {
+  pointer-events: none !important;
+  user-select: none !important;
+}
+
+/* 워터마크 */
+.cancelled-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-30deg);
+  font-size: 4rem;
+  font-weight: bold;
+  color: rgba(220, 53, 69, 0.35);
+  pointer-events: none;
+  z-index: 10;
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* 취소 상태 배지는 tokens.css와 badges.css에서 관리 */
+
