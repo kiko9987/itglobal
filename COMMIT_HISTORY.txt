@@ -1,0 +1,4069 @@
+8b3c150 Initial commit: ITG Sheets Dashboard for HVAC project management
+b23e625 Update dashboard UI/UX with comprehensive improvements
+836ff40 Add SETUP.md guide for home setup
+2afa1f5 Merge branch 'main' of https://github.com/kiko9987/itglobal
+4b0daa0 Enhance project management UI and status handling
+87e2379 Fix dashboard data analyzer JSON serialization issues and enhance UI
+eb9bc03 Implement inline editing functionality for project management
+0a278b6 Fix parent tab real-time update issues and improve inline editing
+2c622f3 Implement comprehensive inline editing for financial and payment cards
+2cf9aaf Fix payment date input format and enhance amount field UX
+d671eb6 Fix construction details section layout and restore horizontal alignment
+5b93f90 Fix user management modal table alignment and refresh button styling
+5f92253 Add Google OAuth authentication system and clean up codebase
+69c65b9 Fix project management table column width to fill entire screen
+f6401ed Enhance UI/UX with comprehensive login screen redesign and user management improvements
+5621314 프로젝트 통합 관리 시스템 개선 및 기능 추가
+a5eb7f7 이메일 확인 불가 체크박스 기능 완성 및 폼 데이터 전송 개선
+cef4d26 새 프로젝트 모달 날짜 관리 개선 및 중복 파일 정리
+5a05b9d 실시간 계산 및 자동화 기능 완전 복원
+5d73ea5 실시간 카드 잠금 시스템 및 DataTable 반응형 최적화 완료
+566fc8b 수금 날짜 입력기 유지 및 자동 처리 시스템 완성
+eb1900c 손익정보 실시간 계산 시스템 및 다중 사용자 잠금 시스템 완성
+773e208 코드 정리 1단계: 불필요한 파일 및 중복 코드 제거
+36d0d74 코드 최적화 2단계: 캐싱 및 에러 처리 개선
+11a71aa 코드 최적화 3단계: HTML/CSS/JS 분리 및 모듈화 완성
+739abd9 원본 상태로 복구: 모듈화 실험 이전 안정된 버전
+7e8c7c4 Claude Code 설정 파일 업데이트
+f8354da WebSocket 실시간 업데이트 문제 해결 및 테이블 컬럼 너비 최적화
+16c5e1c 메인테이블 칼럼 너비 최적화 및 스크롤 문제 해결
+719d740 테이블 레이아웃 최적화 및 여백 조정
+0d60666 통계 페이지 추가 및 차트 최적화
+7e9abd0 매출통계 차트 완전 개편 및 UI 개선
+b39e407 Google Drive 폴더 추적 시스템 완전 구현
+fe26464 수금 관련 특이사항 기능 및 환경설정 최적화
+385227b 수정 버튼 로직 완전 검증 및 버그 수정
+bd449a5 수정 버튼 로직 리팩토링 및 공통 유틸리티 구현
+36da1b1 데이터 동기화 문제 완전 해결 - 새로고침 시 최신 데이터 반영
+58b9f15 DataSyncManager 리팩토링으로 데이터 동기화 코드 통합
+105fcfe 실시간 프로젝트 추가 기능 구현 (새로고침 없는 테이블 업데이트)
+454be22 다중 서버 프로세스 문제 해결 및 시스템 최적화
+e1869c7 카드 데이터 저장 문제 해결 (강제 새로고침 적용)
+5a2fcd3 손익 마진율 계산 로직 수정
+ed73dbd 모든 손익 계산 함수에서 총액1 기준으로 수정 완료
+c5b50a4 시스템 알림 통합 및 분류 완성
+4590815 수금관리 시스템 구현 및 UI 개선
+380cd02 WIP: 로컬 변경사항 임시 커밋
+a5e7773 Merge branch 'main' of https://github.com/kiko9987/itglobal
+68e07da 캐시 시스템 전면 개선 및 성능 최적화
+0327cb4 FastAPI 기반 시스템 완전 재구축 완료
+670d4a4 Cleanup legacy modules and fix project data handling
+c2189f2 Refactor project data handling into service and add projects blueprint
+5d89f8e Document new layout and add service helper tests
+d72989d Fix Blueprint URL routing issues and resolve 500 server errors
+f8f6541 GitHub Actions 워크플로우 비활성화
+0c97d9c Merge branch 'main' of https://github.com/kiko9987/itglobal
+32e4cbe Phase 3A: Comprehensive test coverage expansion
+9a3c588 Phase 3B: Complete observability system infrastructure
+9c948b6 Complete Phase 4A: API Standardization & Auto Documentation System
+5173f67 Add comprehensive project roadmap and next session guide
+e3e7e92 Frontend modernization attempt with Vite infrastructure
+5ec1528 Update project search capabilities and session management
+2e1547c Complete systematic resolution of all 16 issues from e3e7e92_review.txt
+2464407 Fix JavaScript loading and permission issues, clean up debug logs
+1bf440c Merge remote changes and resolve settings conflict
+10d37c8 Resolve all issues from e3e7e92_review_ver2 document
+04624e3 Complete Phase 5: 10-단계 레거시 시스템 현대화 완료
+3b17869 Remove action column and complete data completeness implementation
+9c41847 Fix Vite build file name mismatch and preserve all previous session modifications
+49ccad8 Implement code_review_ver9: Complete system-wide improvements
+db9b446 Fix code_review_ver10 critical issues: Flask 2.2+ compatibility
+7859bcd Implement code_review_ver10 cleanup work: App factory pattern and asset organization
+975476e Complete configuration system and blueprint architecture implementation
+259d2e9 Complete code_review_ver10 architectural improvements
+389057b Fix background prefetcher and logging system improvements
+7c27e1a Add code_review_ver11 expert review document
+6818f0e Complete code_review_ver11 expert feedback implementation
+73e0562 Fix critical architecture issues from expert review
+46900af Fix KPI calculation and permission system issues
+bfba6af Complete Vite integration and fix global function issues
+ec018ac Add expert review documentation and development tools
+4e85866 Complete Phase 1 legacy API migration: Implement modular blueprint architecture
+a9760ab Complete Phase 2 legacy API migration: Add 6 specialized blueprints
+e4db08a Complete legacy/modern mode validation and CSS infrastructure updates
+344695a Complete Phase 1 jQuery modernization: 14 conversions with zero errors
+c8c44d7 Complete Phase 2 jQuery modernization: 20 conversions milestone achieved
+5a0b906 Achieve 25 jQuery conversions milestone: 54% completion reached
+4c06bfd Reach 30 jQuery conversions milestone: 65% completion achieved
+031fee1 🎯 COMPLETE jQuery Elimination: 52 patterns → 100% Vanilla JS
+423af65 📊 jQuery 완전 제거 프로젝트 최종 성과 보고서
+aa48285 ✅ localhost 모던 CSS 강제 활성화
+c2d4637 Restore visual parity with legacy: Add project status badges and page length selector
+3c3ba17 Add comprehensive legacy style elements to modern system
+3958777 Fix status badge styling: Replace StatusBadge component with direct CSS classes
+140f11d Implement comprehensive Legacy Badge System with vanilla JavaScript
+357196f Complete legacy badge system implementation with full StatusBadge removal
+88760b0 완성: 담당자/거래처 뱃지 레거시 호환성 구현
+5374957 혁신: 모든 뱃지 시스템을 현대적 CSS 클래스 기반으로 통일화
+7a353fe Complete table improvements and badge system modernization
+1ce98c8 Add comprehensive development setup guide for office work continuation
+556bb28 회사 작업 내역 복원: ProjectRowAccordion.js 개선사항 적용
+b8ebdf2 레거시 레이아웃 구조 완전 복원: 필터와 테이블 섹션 너비 통일
+922c94f chore: align project table layout with legacy
+a8cbfa4 Implement modern project filters with data completeness filtering
+64ed8e3 Remove legacy ProjectFilters.js file
+f415b4e Integrate superior table styling from backup CSS with modern architecture
+4877ac6 Modernize accordion system with legacy superior styling
+3fcfdee Clean up old CSS build artifact
+29a67e2 Revert accordion image styling experiment and restore stable layout
+8886f71 fix: 문서폴더 UI 개선 및 아코디언 위치 문제 해결
+bc64991 Fix accordion card header styling and button alignment
+c66ee37 Include frontend_backups folder in git repository
+5588a66 Add frontend backup reference files to repository
+a930b31 Fix CSS styling issues: restore legacy badge sizes and table row heights
+f50a6fa Fix table header alignment and project code column spacing
+a38682a feat: DataTables 레이아웃 최적화 및 15개씩 보기 컴팩트 디자인
+7129570 feat: 헤더 스타일링 개선 - 로고 및 텍스트 정렬 최적화
+271cd3b fix: 페이지네이션 정보 텍스트와 버튼 스타일 통일
+3a472cb fix: 아코디언 카드 편집 취소 시 스타일 복원 문제 해결
+0f79975 feat: 아코디언 카드 금액 입력 필드 플레이스홀더 간소화
+cf84581 fix: 아코디언 UI 개선 및 편집 시스템 최적화
+7b12d04 fix: 공사확정 필드 회색 박스 제거
+c71b201 feat: 부가세 토글 크기 및 애니메이션 최적화
+83de99a feat: 날짜 필드 UX 개선 - 캘린더 아이콘 및 간격 최적화
+21448fb feat: 수금확인 필드 토글버튼 구현 및 CSS 아키텍처 개선
+5688494 feat: 뱃지 시스템 통합 완료 - 파스텔 색상 일관성 구현
+404be2c feat: 연락처/이메일 필드 정렬 및 편집모드 크기 최적화
+c8a0f52 chore: 빌드 산출물 정리 - 오래된 파일 삭제
+56e2a1f feat: 프로젝트 필드 용어 표준화 - '이윤'을 '마진율'로 수정
+996f18c fix: 테이블 아코디언 호버 스타일 완전 해결
+d6c5b90 fix: 테이블 호버 스타일 최종 방어 코드 적용
+0167a79 fix: 페이지네이션 여백 조정 및 아코디언 깜빡임 현상 해결
+fa500cb feat: 테이블 헤더 높이 증가
+9252961 fix: 뱃지 호버 효과 완전 제거 및 테두리 통일
+d18111d feat: 내 프로젝트만 보기 체크박스 및 금액 표시 개선
+1ee6905 fix: 페이지네이션 드롭다운 크기 조정 및 구분선 추가, 총액/미수금 볼드 제거
+d0e2dfb fix: 테이블 하단선 문제 해결 시도 후 원래 상태로 복구
+8391bc8 fix: 총액/미수금 열 하단선 렌더링 문제 해결
+f899f26 fix: 데이터 완성도 체크 아이콘 색상을 중간 톤으로 조정
+1c4342f fix: 새로고침 버튼 동기화 문제 해결 및 UI 개선
+86eff2f fix: 드롭다운 자동 열림 문제 해결 및 사용자 버튼 위치 수정
+231af17 fix: 관리팀 뱃지 로직을 회사 정책에 맞게 수정
+f06b2de feat: 레거시 방식 batchUpdate 시스템 구현 완료
+023a656 fix: 통합 편집 저장 완료 후 수정된 값 정상 표시 수정
+186a58f chore: 불필요한 디버그 로그 제거 및 코드 정리
+2f63419 style: 사용자 드롭다운 UI 개선
+13a8385 feat: 권한 시스템 개선 및 최고관리자 등급 추가
+67cc493 style: 헤더 버튼 UI 개선 및 사용자 드롭다운 최적화
+fdeee55 fix: 사용자 드롭다운 버튼 상태 안정화
+d64978e feat: 프로젝트 관리 페이지에 수금 관리 모드 토글 추가
+fac0fb2 refactor: 수금 관리 페이지 제거 및 필터 뱃지 크기 개선
+25224c6 fix: 수금 관리 모드 컬럼 구조 개선 및 너비 최적화
+73fc8a6 fix: 미수금 필터 로직 개선 - 수금 확인 필드 연동
+20ebba7 fix: 수금 관리 모드 상태 유지 기능 추가
+ab5a9e5 style: 헤더 사용자 드롭다운 UI 개선
+cae4e0f style: 매출 통계 페이지 레이아웃 최적화
+9b71eee fix: 헤더 버튼 아이콘 및 드롭다운 화살표 수직 정렬 개선
+7ac0496 refactor: 권한 뱃지 표시 방식 개선
+e297a71 feat: editor 권한 사용자를 위한 읽기 전용 카드 워터마크 추가
+51c00f2 fix: 필터 섹션 요소 정렬 개선
+e07333d style: 필터 섹션 요소 크기 및 정렬 최적화
+ef8977f style: 테이블 및 입력창 반응형 개선
+a1f9da3 feat: 새 프로젝트 모달 완전 현대화
+a1da33b fix: 모달 UI 개선 및 프로젝트 코드 생성 로직 수정
+4758b15 fix: 모던 프로젝트 모달 UI 개선
+12f09f8 fix: 모던 프로젝트 모달 UI 개선
+62ce6de fix: 모달 스피너, 드롭다운, 프로젝트 코드 생성 및 세션 타임아웃 처리 개선
+c8b9d25 fix: DataTables 컬럼 정렬 및 FOUC 문제 해결
+8aa0bfa feat: 핫 리로드 및 Vite 개발 서버 통합, 아코디언 호버 효과 제거
+a624bb2 fix: 계산 필드 처리 및 UI 새로고침 최적화
+bacec57 fix: 계산 필드 실시간 업데이트, 부가세 값 형식, 수금확인 자동 토글, 날짜 형식, 아코디언 버그 수정
+d78f141 feat: 상용화 전 시스템 안정성 개선 (Critical Issues 해결)
+4814857 feat: 사용자 경험 개선 - 에러 메시지, DataTables 콜백, 저장 큐잉
+65bded3 feat: 날짜 검증, 메모리 누수 방지, 로깅 최적화
+bc7493a feat: Vite 번들 최적화 및 접근성(A11y) 개선
+e705e19 docs: QA 테스트 완료 및 최종 보고서 작성
+747820b fix: 아코디언 저장 기능 안정화 및 성능 최적화
+0ca3134 fix: 프로젝트 코드 변경 시 DOM 동기화 및 통합 편집 안정화
+f0d364d fix: 프로젝트 코드 생성 로직 수정 (ROW()-1 구현)
+6857cda fix: 순익/마진율 계산 로직 Google Sheets와 일치
+3aae616 fix: 아코디언 헤더 편집 UI 개선
+107f8c9 feat: ModernProjectModal 신규 프로젝트 등록 완전 구현
+f148cb9 feat: 신규 프로젝트 모달 자동 생성 기능 완성 및 레거시 코드 정리
+539db0b refactor: 뱃지 시스템 최적화 및 레거시 코드 제거
+25f3dd1 refactor: CSS 마이그레이션 시스템 전체 제거 (100% 현대화 완료)
+16d46c9 refactor: 프로덕션 준비 - 디버그 로그 정리
+dd6cedf refactor: project-list.js 디버그 로그 제거
+44d13a0 refactor: ProjectTable, StateManager 디버그 로그 일괄 제거
+e272b33 chore: ProjectRowAccordion.js에서 모든 디버그 로그 제거
+24a435d chore: 임시 Python 스크립트 제거
+f2efa48 fix: DataTables 컬럼 데이터 누락 오류 해결
+c7849c0 fix: 프로젝트 제출 후 테이블 갱신 로직 개선
+17a8027 fix: 프로젝트 제출 후 부드러운 행 추가 및 하이라이트 구현
+ac72081 refactor: 불완전한 폴백 데이터 제거 및 전체 새로고침으로 변경
+6d46eb6 fix: 모달 제출 시 부가세 포함 토글 값이 백엔드로 전송되지 않는 문제 해결
+02bf6d2 fix: DataTable 초기화 전 row.add() 호출로 인한 "unknown parameter" 오류 해결
+4adc8ab fix: refreshData() 호출 시 테이블이 영문 기본 설정으로 초기화되는 문제 해결
+49aeb7f fix: 부가세 포함 필드명 불일치로 Google Sheets에 값이 저장되지 않는 문제 해결
+ebe6b0e feat: 즉시 project_data 구성으로 부드러운 행 추가 개선
+7c22440 fix: 이메일 확인 불가 시 '-'로 표시 및 저장
+33caa3a fix: project_data에 담당자 이메일 필드 추가
+d30228d fix: 캐시로 인한 새 프로젝트 미표시 문제 해결
+aa9c45e feat: 아코디언 편집 모드에 Select2 멀티셀렉트 구현
+c3572e1 fix: Select2 초기화 타이밍 및 디버깅 개선
+1f9a5e2 fix: jQuery를 전역으로 노출하여 Select2 초기화 문제 해결
+0a207de feat: 체크박스 기반 멀티셀렉트 드롭다운 구현
+bef5d81 fix: 프로젝트 저장 후 DataTable 행 업데이트 개선
+1b766d9 fix: 이메일 확인 불가 체크 시 구글 시트에 '-' 값이 저장되지 않는 문제 수정
+74ec9a3 fix: 멀티셀렉트 저장 및 서버 안정성 개선
+1d51295 feat: 테이블 로딩 스피너 추가 및 UX 개선
+da97596 fix: 아코디언 메모리 누수 및 프로젝트 코드 동기화 개선
+87d70a3 fix: 통화 파싱 및 수금 완료 필터 로직 개선
+66f81a7 improve: 프로젝트 추가 모달 UX 및 스켈레톤 로딩 개선
+b0d047b improve: Google Sheets 연동 오류 처리 개선
+15274b4 fix: 스켈레톤 로딩 중 로딩 오버레이 제거
+7375ec7 refactor: 프로젝트 생성 UX를 스켈레톤에서 펄스 애니메이션으로 전환
+451d023 refactor: 로딩 UX 개선 및 인스턴스 중복 생성 문제 해결
+e6a451d fix: 인스턴스 관리 크리티컬 이슈 수정
+63c1aec fix: 로딩 UX 개선 및 Alt+Tab 스피너 이슈 해결
+1705de1 fix: 다른 페이지 신규 행 하이라이트 애니메이션 수정
+c97ca16 fix: 신규 행 펄스 애니메이션을 텍스트 크기 변화로 개선
+cf52699 refactor: 신규 행 애니메이션을 텍스트 크기에서 테두리로 변경
+16f1771 fix: DataTables 행 인덱싱 방식 수정으로 DOM 노드 탐색 개선
+56961ed fix: 신규 행 애니메이션 및 하이라이트 로직 개선
+a8b5994 fix: 신규 행 애니메이션 개선 및 프로젝트 생성 데이터 완성
+ee50a74 feat: 수금 모드 토글 시 스켈레톤 로더 구현
+612463d fix: Ctrl+F5 하드 새로고침 시 WebSocket 오류 해결
+4de537a chore: eventlet 의존성 추가
+3a60dfd feat: 메모 기능 및 UI 개선 통합
+8c0ea92 feat: 서버 측 검증 및 Google Sheets 에러 처리 개선
+b28ef93 docs: 리팩토링 백로그 문서 추가
+9d1ce80 fix: 메모 기능 크래시 및 캐시 동기화 문제 해결
+74792cb refactor: 전역 변수 캐시 제거 및 smart_cache 통합
+fc64ac1 fix: get_last_update() 함수 사용 제거
+61eead1 feat: 캐시 기반 last_update 시간 추적 기능 추가
+3f8ec74 feat: 핫리로드(Hot Reload) 활성화
+a9a53f4 fix: SIGSEGV 서버 크래시 완전 수정 - Lock을 RLock으로 변경
+306c1f0 fix: 수금 모드 전환 시 캐시 동기화 및 스켈레톤 로더 개선
+a1d0272 feat: 수금 정보 저장 시 StateManager 동기화로 성능 최적화
+35e824a fix: 프로젝트 코드 변경 시 메모 저장 및 StateManager 동기화 개선
+6106a1c feat: 감사 로그 UI 개선 및 날짜 형식 수정
+0fe46d3 feat: 감사 로그 모달 UI 개선
+bc8a13e feat: 감사 로그 모달 및 UI 개선
+aed3da0 refactor: 사용자 관리 모달 완전 모듈화 및 UI 개선
+82a9a9c feat: stats 페이지에서 사용자/작업로그 모달 지원 및 UI 통일
+4fb74d2 feat: 새 프로젝트 모달에 폴더 경로 입력 검증 추가
+857ac2e feat: 새 프로젝트 모달에 공사 종료일 검증 추가
+2d68645 perf: 감사 로그 배치 처리로 저장 성능 최적화
+19ddd91 feat: 시공자 필드를 멀티셀렉트로 변경 (진행중)
+0ba3827 fix: UserModal fetch에 credentials 추가
+da46e3e fix: super_admin 권한을 Admin으로 통일 표시
+96d9f77 docs: 개발 환경 설정 가이드 추가
+2b30c11 feat: Google Drive 폴더 ID 처리 및 서버 관리 스크립트 추가
+7467009 fix: folders.py explorer 명령을 start로 변경 (URL 브라우저 열기 수정)
+0c3bcfe Merge remote-tracking branch 'origin/main' into main
+a2cb837 fix: 작업 로그에 폴더 열기 액션 한글 표시 추가
+a1c0171 fix: 수금 모드 및 아코디언 아이콘 툴팁 깜빡임 해결
+9326c6d feat: 아코디언 내부 계산서 필드에 아이콘 표시 추가
+f56ce6f fix: 아코디언 안정성 개선 및 오류 처리 강화
+ccebc56 perf: 필터 시스템 검색 성능 대폭 개선
+8022da8 feat: 새 프로젝트 등록 시스템 안정성 대폭 강화
+33bca54 docs: ProjectRowAccordion.js 리팩토링 계획서 추가
+cd28215 feat: 공사 취소/재개 기능 구현
+f7d1fc1 fix: 정확한 구글 시트 칼럼 매핑으로 공사 취소 기능 수정
+cd0b866 refactor: 공사중단 상태 제거, 공사취소만 유지
+09cb070 fix: 상태 뱃지 '취소'를 '공사취소'로 변경
+eea328e style: 공사 취소/재개 버튼 크기를 편집 버튼과 통일
+b2321cd feat: 공사 취소/재개 흐름 개선
+f495b5d fix: stabilize project resume batch update
+96f8fd1 style: improve cancelled row and accordion highlights
+a4ebdca style: refine accordion highlight and cancelled row styling
+3761bee style: align accordion detail bar with parent highlight
+2973252 style: extend accordion detail accent full height
+0fe8675 style: desaturate accordion highlights for cancelled projects
+82f8e82 style: sync cancelled row accents across table and accordion
+e398c48 style: prevent cancelled rows from showing base color bar
+f48d7a6 style: ensure cancelled status badges show strikethrough
+7280b26 style: add cancelled badge strikethrough in badge system
+8d5ee24 style: target cancelled status badge class for strikethrough
+a274715 style: apply strike to manager and company badges on cancelled rows
+be9f1a3 style: restore cancelled status badge colors
+50b6b2e fix: detect status column cells and limit badge strikethrough
+0fb2875 fix: guard project code parsing and mute cancelled badges
+724e8fb style: align cancelled row badges vertically
+1e08db7 style: unify badge vertical alignment in table
+374f2b3 fix: mark badge types for table alignment
+38bc97a style: handle badge layout at base level
+a2a3f1a style: ensure badges align vertically with cell content
+17aae42 style: adjust badge layout centering
+896940e style: restore badge vertical alignment
+6799a70 style: normalize badge line height for table alignment
+e449887 style: offset table badges for visual centering
+2438396 style: align accordion action buttons with edit controls
+be037a8 style: fine-tune accordion action button sizing
+1f60b57 style: scale accordion buttons proportionally
+8f1d947 style: tighten accordion button spacing
+e4af7e4 style: balance accordion button padding
+a78a7cb style: nudge cancel icon for visual centering
+51d2e3d fix: prevent cancelled accordion color flicker
+c44f7f1 fix: stabilize cancelled accordion visuals
+681d76c fix: restore helper methods inside accordion class
+2737607 style: restore cancelled accordion dimming overlay
+263ca18 style: soften cancelled accordion overlay
+7d47e9b style: apply cancelled overlay at accordion row level
+d1315fc Revert: restore original cancelled accordion styling
+2ac8e17 fix: avoid flicker when opening cancelled accordion
+93f7d17 refactor: stabilize cancelled accordion rendering
+4931057 feat: improve environment validation and config management
+7542c9a refactor: remove unused CSS feature flag system and fix UTF-8 encoding
+5766347 fix: Windows 콘솔 CP949 인코딩 에러 해결
+5b3d963 fix: 취소된 아코디언 스타일 및 호버 동작 개선
+4e21868 feat: 공사 취소 UI 개선 및 정규식 적용
+afdd296 feat: 공사 취소 프로젝트 통합 편집 버튼 숨김
+3fbf906 feat: 공사 취소 버튼 UI 개선 및 편집 모드 버튼 제어
+bb71aaf style: 마진율 폰트 두께 일관성 개선
+cd2fc85 fix: align payment fields vertically in receivables mode
+1310a92 refactor: improve cancel construction alert message
+6dd5478 fix: add cancelled status to filter and status calculator
+10db9ad refactor: reorder status filter dropdown for better UX
+8d50a8a feat: 프로젝트 단위 잠금 시스템 구현
+33dcc22 fix: Windows UTF-8 인코딩 및 프로젝트 모달 총액 실시간 업데이트 개선
+433ab3a refactor: remove unused components and fix amount calculation
+155d080 fix: address expert review issues from commit 8d50a8a
+9d14405 chore: remove accidentally added itglobal submodule
+de477ee fix: prevent heartbeat memory leak in destroy()
+f9cb3cc feat: enhance project lock stability for production
+477f416 리팩토링: 잠금 해제 로직 중앙화 및 읽기 전용 워터마크 개선
+4b8f581 feat: 사용자 상태 관리 기능 추가 (활성/비활성/퇴사 드롭다운)
+e764e4e chore: 퇴사자 마이그레이션 스크립트 추가
+c11320f feat: 작업 로그 액션 및 필드명 한글화
+fded693 fix: 사용자 상태 변경 시 메인 테이블 담당자 뱃지 자동 업데이트
+0f5afbc feat: 사용자 상태 변경 시 담당자 뱃지 실시간 업데이트 (새로고침 불필요)
+f3cfba2 security: /test-login 엔드포인트 제거 및 viewer 권한 정책 명시
+8c7c779 fix: resolve console errors and optimize initialization
+228def0 fix: apply singleton pattern to FieldLockManager
+b6c46c5 fix(critical): resolve double password hashing bug
+a9d3151 refactor: remove password-based authentication (Google OAuth only)
+cacd137 fix(critical): unify user database to single source of truth
+1f11e33 fix: complete database unification and remove broken dev-login
+a100d6f fix: prevent DoS attacks in audit logs API with input validation
+1d800f8 fix: critical security improvements - session invalidation and duplicate name handling
+ea6f6d1 perf: optimize audit logs and add user list pagination
+66ab638 fix: complete session invalidation and document duplicate name limitation
+531bf00 build: update Vite build output with latest frontend changes
+57096d6 feat: add pagination to user management modal
+c7cec4a fix: update user modal pagination to 15 items and add proper styling
+7071223 feat: add refresh button animation and interaction feedback to user modal
+7e14942 feat: add success/failure visual feedback to user modal refresh button
+0a15edb fix: show refresh feedback only when refresh button is clicked
+caea500 fix: show actual previous values in audit logs instead of hardcoded strings
+8c55ecc fix: convert status values to Korean in audit logs
+3b1a885 refactor: remove legacy routes using non-existent update_project_data method
+92ac67b fix: export socketio instance for real-time notifications
+95dbc4c refactor: remove unused InlineEditor and FieldLockManager dead code
+8d50f9f refactor: improve data consistency in collectAllChanges with debugging
+cad7174 feat: complete EditState integration for unified edit mode
+5521409 fix: complete EditState integration - fix critical field tracking issues
+4988118 fix: integrate valueNormalizer into EditState and clean up debug logs
+de43c03 fix: resolve expert feedback - fix bill dropdown hardcoding and add DEBUG flags
+b3be0de fix: complete unified edit mode - remove individual card editing
+8b8c5fa refactor: remove legacy InlineEditor references
+0fa0d16 fix: EditState가 메모, 수금 날짜, 수금 확인 변경사항을 추적하도록 수정
+ad64480 refactor: remove debug logs from row switching confirmation
+b052289 fix: complete EditState integration with change event listeners
+3c63b87 feat: exclude resigned managers from filter dropdown list
+227bc15 fix: API response format for resigned managers
+ff7d545 fix: correct resigned manager badge rendering
+af6df52 feat: real-time filter dropdown update on user status change
+af4e3ee fix: cancel edit mode on receivables mode toggle
+27720a7 fix: properly handle edit mode cancellation on receivables mode toggle
+533cff6 feat: maintain accordion state across receivables mode toggle
+4b73b7a fix: include memo changes in mode toggle confirmation
+42df7e4 fix: correct accordion instance reference in FieldMemoButton
+6ce62c2 fix: restore original memo values when discarding changes on mode toggle
+0d0dd8a fix: track memo changes in pendingMemoChanges during edit mode
+5101551 fix: critical bugs in edit mode lock management and state synchronization
+30c9216 fix: websocket event handlers using non-existent window.stateManager
+9f41bdf feat: implement A안 - EditState system hardening with initialization validation
+48677c2 feat: add three UX improvements for edit mode safety and transparency
+83a8e05 fix: eliminate duplicate error messages and improve UX feedback
+e1bb8ab feat: 모드 상수 정의 및 사용 예시 추가
+cdbbad6 refactor: ModeManager 중앙 집중식 모드 관리 시스템 도입 및 메모리 누수 수정
+0a1a719 perf: 프로젝트 락 시스템 성능 개선 및 다중 탭 편집 차단
+350f0ca feat: 탭 ID 기반 다중 탭 차단 시스템 구현
+54dacc5 fix: 잠금 해제 시 탭 ID 검증 추가로 완전한 탭 단위 격리 구현
+35add50 chore: 개발용 테스트 파일 제거
+af43cda fix: 공사 취소/재개 시 필터링된 프로젝트를 찾지 못하는 버그 수정
+351cec2 security: 보안 미들웨어 활성화 및 캐시 TTL 최적화
+13dd2b2 perf: 캐시 TTL 30초→60초로 조정하여 API 호출 50% 절감
+9d13aec 통합: 사용자 DB 이중화 문제 해결 - instance/users.db로 단일화
+a1b4a10 통합: 프로젝트 코드 중복 생성 위험 해결 - DB 시퀀스 방식
+b58305c 수정: 프로젝트 코드 번호 규칙을 기존 방식으로 복원
+3fb2996 정리: 미사용 회사 prefix 제거 (아이티)
+0896d68 Fix critical project code sequence and database reference issues
+ffba3be Improve Google Sheets API consistency and remove OAuth hardcoding
+8fa2996 Fix OAuth redirect_uris type safety issue
+87403a4 Fix remaining security and configuration issues
+cf2ba38 Critical 이슈 3건 수정 및 종합 검토 보고서 업데이트
+8b7d5e4 Critical 이슈 4건 추가 수정 완료 (67% 감소: 12건 → 4건)
+1df6cac HIGH Priority 이슈 11건 해결 (Phase 1 & 2 완료)
+38cd491 HIGH Priority 이슈 해결 (Phase 3): 보안 모듈 통합, API 응답/에러 핸들러 문서화
+7924a26 API 응답 포맷 표준 준수: api/v1/auth 엔드포인트 'ok' → 'success' 변경
+213e3c6 종합 검토 보고서 업데이트: api/v1/auth 응답 포맷 표준화 항목 추가
+f0e5131 보고서 커밋 해시 완전 업데이트: 모든 '[진행 중]' 항목 해결
+2b2e0cc Medium Priority 11건 해결 (Phase 4): API 표준화, 하드코딩 상수화, TEMP 코드 정리
+43d7f62 Critical 이슈 100% 완료: 백업 파일 14개 전체 삭제 (Phase 5)
+6009c95 로그인 페이지 UI 개선 및 CSP 정책 수정
+9f3ca51 보안 미들웨어 개선: Rate limiting 완화 및 CSP 정책 수정
+f2d6ac4 Windows 예약 파일명 제거 (nul)
+5ab24b9 전역 로거 유틸리티 추가 및 개발 모드 전용 로그 적용
+e4ea8d4 보고서 업데이트: 2025-10-21 작업 내용 추가
+1c19857 보고서 수정: 어제(2025-10-20) 작업 내용 추가
+0a7c1d5 HIGH: 캐시 모듈 정리 완료 (cache_manager → smart_cache_manager 통합)
+54cb1b2 MEDIUM: bare except 구문 10개 수정 (보안 강화)
+ac84094 MEDIUM: API 응답 포맷 통일 ('ok' → 'success')
+8d64620 refactor: TODO 코멘트 정리 및 JS logger 적용
+ea8db5d fix: 캐시 모듈 통합 버그 수정 및 API 응답 포맷 완료
+5bc0e6a fix: 프론트엔드 API 응답 포맷 동기화 및 logger 확대 적용
+f7604f2 fix: DEBUG_PROJECT_ACCORDION 정의되지 않은 참조 오류 수정
+e66de18 refactor: console → logger 전면 전환 및 예제 파일 정리
+ffdc091 fix: logger.js 순환 참조 제거 및 경로 수정
+bb03149 docs: 보고서 업데이트 (35-39번 항목 추가)
+babced9 fix: logger.js window 의존성 개선 (Node.js/SSR 환경 호환)
+168b7a8 docs: 보고서 업데이트 (40번 항목 추가)
+c675d3b fix: 전문가 피드백 반영 - 6대 보안/안정성 개선
+f1652ea feat: 전문가 피드백 반영 - 추가 개선사항 (3건 + 이중 리다이렉트 수정)
+357835c fix: authInterceptor의 isRedirecting 참조 오류 수정
+7ae60bf docs: 코드베이스 재검토 보고서 완료 상태 업데이트
+a22c626 docs: 전체 코드베이스 종합 검토 보고서 통합 (10-20 + 10-21)
+0fdee75 refactor: 코드 품질 개선 (MEDIUM Priority 이슈 4건 해결)
+d4f1032 fix(StateManager): 읽기 전용 window.projectsData 재할당 오류 수정
+4b0bd52 improve(ModernProjectModal): 닫기 버튼 UI 및 접근성 개선
+59ead76 fix: authInterceptor ES Module 로드 오류 수정
+1bd7ecb fix: WebSocket 오류 수정 및 UI/접근성 개선
+b3639e2 fix: 아코디언 저장 후 null reference 오류 수정
+01be21b fix: 프로젝트 코드 변경 시 편집 모드 정리 및 통화 파싱 개선
+7a9863d 전문가 피드백 대응 완료: 3건의 CRITICAL/HIGH 버그 수정 및 개발환경 개선
+6509ecb 전문가 피드백 추가 대응: CRITICAL/LOW 버그 2건 수정
+5b252e5 background_prefetch: future.cancel() 명시적 호출 추가
+aa0bea8 requirements.txt에 pytest 추가
+b3dc42e 보고서 업데이트: 전문가 피드백 2차 대응 4건 추가
+44c66ee 테스트 정리: 오래된/망가진 테스트 제거 및 개선
+d15fa38 테스트 정리: 100% 통과율 달성 (48개 테스트)
+e7bb60f 테스트 환경 개선: PyJWT 추가 및 GoogleSheetsManager 모킹
+81c2565 테스트 경고 제거: test_sheet_write.py 이름 변경
+f4a6a42 SecurityMiddleware 수정: 아코디언 편집 저장 오류 해결 (ERR_CONNECTION_RESET 수정)
+ac4a37a 보안 및 에러 처리 개선: 허용 필드 패턴화 및 Google Sheets 에러 메시지 강화
+dbed891 프론트엔드 보안 수정: 8개 API 호출에 credentials 추가
+9b95130 고객 리드 관리 시스템 백엔드 구현 (Phase 1/3)
+84bb824 고객 리드 관리 프론트엔드 구현 (Phase 2/3)
+81dc094 헤더 메뉴 개선: 프로젝트 ↔ 고객 리드 전환 버튼 추가
+1c697c6 프로젝트-리드 통합: 리드 자동완성 및 상태 자동 업데이트 구현
+af9590b 헤더 UI 개선: 새로고침 버튼 추가
+4bf3e2f 공용 헤더에 고객 리드 버튼 추가 (파스텔 핑크 스타일)
+3ee983f 버그 수정: RequestContextLogger exc_info 파라미터 처리 오류 해결
+aa8d2ec 버그 수정: leads 블루프린트 에러 핸들링 개선
+d49f9b4 버그 수정: Google Sheets 불완전한 행 처리 및 리드 캐시 전략 수정
+780a1e9 build: leads 페이지 번들 생성 및 manifest 업데이트
+ef163bd fix: leads.js 동적 로드 시 초기화 실행되도록 수정
+4c9bca0 fix: leads.py API 응답 함수 수정
+8a93e27 fix: CSP에 cdn.datatables.net 추가
+74055b7 refactor: DataTables 한국어 설정을 인라인으로 변경
+16ceb4c fix: leads.js API 응답 구조에 맞게 데이터 접근 경로 수정
+c62a2ea feat: integrate Google Calendar with project lifecycle
+df16ea2 fix: Google Calendar OAuth state 관리 로직 단순화
+8fc2bae feat: integrate Google Calendar OAuth with login flow
+3b17570 perf: 모달 로딩 성능 최적화 - API 호출 제거 및 데이터 재사용
+278c32e perf: 신규 프로젝트 모달 성능 최적화 - API 호출 완전 제거
+aeeb3c1 feat: 프로젝트 코드 시퀀스 자동 동기화 구현
+c47da78 편집 UX 개선: 드롭다운 줄바꿈 및 편집 중 새로고침 차단
+e81d8b7 리드 페이지 DataTables 컬럼 불일치 오류 수정
+3a89d88 리드 모달 UI 개선: 프로젝트 모달과 동일한 스타일 적용
+9a4238d fix: stateManager.currentData도 실시간 업데이트하도록 수정
+9ef7df8 fix: 세션 연장 기능 개선 - login_time 실제 갱신
+d727b09 config: 무활동 세션 타임아웃 30분 → 1시간 변경
+5962ab3 fix: 리드 페이지 FullCalendar 초기화 오류 수정
+2683153 fix: 리드 페이지 불필요한 CSS 번들 경고 제거
+4ca8c22 fix: 리드 페이지 캘린더 초기화 에러 방어 코드 추가
+8c9fa0c refactor: 코드 리뷰 지적사항 4개 수정 (보안/안정성/접근성)
+20c4ccf refactor: 리드 관리 필터 시스템 프로젝트 관리 패턴으로 통일
+abfce2f fix: 리드 페이지 세션 만료 처리 및 inline 핸들러 수정
+ffc7850 frontend_helpers 개선: CSS 번들 찾기 로직 추가
+48dedcb 보안 강화: OAuth Client Secret을 .env에서 제거하고 JSON 파일로 이관
+9251ea8 UX 개선: 색상 통일 및 버튼 디자인 파스텔 톤 적용
+dde5d30 Google Calendar 이벤트 형식 개선
+a593549 통합편집 최적화: Batch Update API + 행 찾기 캐싱
+f94a7e2 통합편집 메모 저장 Batch Update 적용 - 최대 75% 속도 개선
+8469bf1 WIP: 통합편집 저장 후 화면 깜빡임 개선 작업
+0224653 Revert: setTimeout(500ms) 복구 - UX 피드백 유지
+f2e4520 Fix: Vite Flask 포트를 5000으로 복구
+e8b30b8 fix: 전문가 코드 리뷰 지적사항 2개 수정
+e59ab1c refactor: range_name 형식 정규화 방어 로직 추가
+e39501e fix: 하드코딩된 시트명을 환경 변수로 변경
+b3569e1 fix: 통합 편집 저장 후 메모 아이콘 오류 수정
+cb3091a fix: 금액 없을 때 메모 아이콘 표시 안 되도록 수정
+9652640 fix: 메모 아이콘 색상 일관성 개선 (초록색 통일)
+4e6b5ac refactor: 인라인 스타일을 Bootstrap 클래스로 변경
+6aa0bc6 fix: 메모 아이콘 금액 판별 로직 개선 및 툴팁 추가
+e7eeff4 perf: Google Sheets API 호출 최적화 (3가지 개선사항)
+6c3978d fix: 메모 필드 저장 시 깜빡임 제거 (fallback 로직)
+aed3253 fix: ?? → || 연산자 변경으로 빈 문자열 fallback 처리
+9b06928 fix: 저장 후 1초 딜레이 제거로 깜빡임 완전 차단
+ec9873e perf: 통합 편집 모드 저장 후 setTimeout 500ms 딜레이 제거
+14a3d37 fix: DOM 업데이트 순서 수정하여 null.classList 오류 방지
+7eb20c9 feat: 통합 저장 실패 시 상세 에러 로그 추가
+e6fa7fd feat: Google Calendar 역방향 동기화 스케줄러 구현
+71bba2f 수금 관리 모드 아이콘 간격 및 툴팁 영역 정리
+8bdf563 아코디언 메모 아이콘 툴팁 일관화
+565db1e 아코디언 뷰 계산서 아이콘 툴팁 정렬 및 여백 조정
+77347dc WIP: 아코디언 뷰 메모 아이콘 여백 조정 (미완료)
+41c9422 수금 메모 아이콘 여백 및 정렬 보정
+36e8f51 Revert "수금 메모 아이콘 여백 및 정렬 보정"
+f497431 수금 메모 아이콘 여백 및 정렬 개선
+eba117e 아코디언 편집 취소 후 툴팁 재초기화
+fd4592d Revert "아코디언 편집 취소 후 툴팁 재초기화"
+2be9a3c 아코디언 편집 취소 후 툴팁 재초기화
+d45ec02 fix: 캘린더 날짜 하루 앞당겨짐 버그 및 캐시 무효화 추가
+311cade feat: 공사 시작/종료일 양방향 동기화 구현 (시트 master 정책)
+c76b7d8 fix: 양방향 동기화 런타임 오류 수정 (ImportError, AttributeError)
+6d1840e perf: 양방향 동기화 성능 최적화 - 시트 데이터 중복 로드 제거
+3a2dab6 perf: 프로젝트 조회를 O(N)에서 O(1)로 최적화 - dict 사용
+dc3fe4c fix: dict 생성 시 KeyError 방지 로직 추가
+58ca0cf feat: 공사 날짜 양방향 동기화 구현 (캘린더 ↔ 시트)
+a2319f7 fix: DB 매핑 손상 버그 수정 - calendar_id 올바르게 유지
+bc0e0b4 fix: naive vs aware datetime 비교 오류 수정 - 양방향 동기화 복구
+4cd2c55 refactor: DB 시간 파싱에 Z 포맷 대비 추가 (방어적 코딩)
+e781ecd refactor: 캘린더 삭제 시 날짜 필드를 빈 값 대신 '-'로 저장
+bfc27e4 revert: 날짜 필드 '-' 저장 취소 - 빈 문자열로 복원
+40f4b1c fix: OAuth refresh token 검증 + 자동 갱신 로직 추가
+83ed0e8 feat: 수동 캘린더 동기화 버튼 추가
+1ff0be7 fix: ProjectRowAccordion.js 중복 변수 선언 제거
+1026435 fix: 캘린더 동기화 버튼을 modern_project_list.html에 추가
+147e9f7 fix: 캘린더 동기화 버튼 위치 조정 및 새로고침 버튼 수정
+0adb0db refactor: CalendarSyncScheduler 공개 API 추가 및 전역 인스턴스 사용
+d9cd287 새로고침 버튼 강화: 2단계 캐시 클리어 (서버 + 클라이언트) 구현
+3dcd124 Fix: fullRefresh() 서버 캐시 삭제 실제 동작하도록 수정
+aa8dba8 Fix: 보안 미들웨어 통과를 위한 JSON 헤더 추가
+cfb7c32 UX 개선: 새로고침 버튼에 로딩 애니메이션 및 시각적 피드백 추가
+e7864e5 Fix: ButtonStateManager 통합하여 성공 시 초록색 피드백 추가
+5841d02 Style: 버튼 색상을 원래 초록색으로 복원
+474b171 UX 일관성 개선: 캘린더 동기화 버튼도 ButtonStateManager 적용
+03ff4ca sync_sequence.py: DB 시퀀스 강제 동기화 기능 추가
+fbe7122 ProjectRowAccordion: cardTypes 변수 참조 오류 수정
+ac0a488 ProjectRowAccordion: projectChanges 스코프 오류 수정
+acf44d0 security_middleware: 금액 필드 빈 문자열 허용
+183d4a7 보안 미들웨어 개선: Boolean 필드 검증 지원
+e0d03db gitignore: .claude/settings.local.json 추가
+425a2c1 fix: 수금 날짜 필드 금액 검증 제외
+823a6bd refactor: 보안 미들웨어 정책 완화로 사용성 개선
+db96fce fix: 전화번호 검증 패턴을 9자리로 완화하여 서울 02번호 허용
+948ffaa feat: 검증 실패 시 구체적인 에러 메시지 표시로 UX 개선
+b66c89b fix: 전문가 피드백 반영 - thread-safety 및 에러 메시지 UX 개선
+8d69c8a perf: Flask-Compress 및 응답 캐시 헤더 최적화
+6b3cfae fix: 브라우저 캐시가 작동하도록 timestamp 파라미터 조건부 사용
+0c59466 refactor: 아코디언 저장 시 깜빡임 제거 및 렌더링 최적화
+a894244 perf: 프로젝트 저장 API 성능 최적화 (1분 → 2-3초)
+61d38e4 fix: 프로젝트 저장 후 계산 필드 값 정확성 보장
+e904914 fix: fresh_values 컬럼 패딩 추가 (IndexError 방지)
+cbeabb9 fix: 아코디언 저장 시 편집 모드 정리 순서 수정
+5e1785c fix: 저장 시에도 editing 클래스 제거 추가
+c2f711a fix: 수금 카드 값이 "-"로 표시되는 문제 수정
+f8ccabb build: 수금 카드 버그 수정 반영
+f5976e4 fix: 아코디언 저장 시 깜빡임 완전 제거 - DOM 직접 업데이트 방식 적용
+389b81d refactor: DOM 직접 업데이트 제거, draw + reopenAccordion 방식으로 전환
+06fee01 fix: 메모 아이콘 색상 로직 수정 - 금액이 있으면 항상 초록색 표시
+4584168 fix: 수금 확인 뱃지 저장 후 깜빡임 제거 - normalizeStatus 적용
+11325df fix: 아코디언 체크박스 동기화 로직에 normalizeStatus 적용
+d3f50b6 refactor: 부가세 필드도 createBadge로 통일하여 일관성 강화
+59b911a fix: 내 프로젝트만 보기 필터를 이메일 기반으로 수정하여 정확성 개선
+affca96 fix: 폴백 로직에 실제 사용자 이름(userDisplayName) 추가하여 레거시 호환성 완성
+6207826 레이스 컨디션 수정: 무효화 마커 시스템 + 백그라운드 리프레시
+e16b3e6 레이스 컨디션 완전 수정: fetched_at 파라미터로 모든 경로 보호
+56cc41f 저장 후 음수/빈 값 표시 문제 해결
+e11e2b1 백그라운드 리프레시를 스마트 재시도 로직으로 개선
+9d10e2b 스마트 재시도 로직 완전 수정: skip_cache 플래그 추가
+0aa3c2e 백엔드 계산으로 단순화: 미수금/순익/마진율 직접 계산
+1d6726b 마진율 소수점 1자리로 제한
+109d9b5 백엔드 계산 완전 독립: Google Sheets 수식 의존성 제거
+b3b98c7 부가세 플래그 기반 총액2 계산으로 수정
+f873375 백엔드 응답 포맷 수정: 숫자 그대로 전달
+a2e9265 일관성 수정: 미수금/순익 볼드 처리 fw-semibold로 통일
+fbe6be4 큰 zip 파일 제외 설정 추가
+# 상세 히스토리
+
+커밋: 8b3c150cdbbb279eff6885211433652eb7b56c2a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-02 18:22:53
+메시지: Initial commit: ITG Sheets Dashboard for HVAC project management
+
+
+커밋: b23e6259acf3b4dfdd0181e99541ce2c7451f870
+작성자: ITGlobal Developer <dev@itglobal.com>
+날짜: 2025-09-03 03:00:14
+메시지: Update dashboard UI/UX with comprehensive improvements
+
+
+커밋: 836ff4086ee5890e4c55a39975e282f11889fa43
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-03 09:02:41
+메시지: Add SETUP.md guide for home setup
+
+
+커밋: 2afa1f5394ca0d66d4406cdc732d96ad752c0111
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-03 09:02:57
+메시지: Merge branch 'main' of https://github.com/kiko9987/itglobal
+
+
+커밋: 4b0daa0a33ad4c864488535b90f37abe914e1159
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-03 10:38:41
+메시지: Enhance project management UI and status handling
+
+
+커밋: 87e23790047d7e8e77e53116aa74cb04e8e4f7b4
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-03 18:33:09
+메시지: Fix dashboard data analyzer JSON serialization issues and enhance UI
+
+
+커밋: eb9bc039493fd25c83156cb64ce5392ebe79f903
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-04 02:24:15
+메시지: Implement inline editing functionality for project management
+
+
+커밋: 0a278b67b706505902379c5a72954d502a8bcfc1
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-04 10:19:57
+메시지: Fix parent tab real-time update issues and improve inline editing
+
+
+커밋: 2c622f3197c1f0726fcf59c0f315f01ecdffee78
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-04 18:33:08
+메시지: Implement comprehensive inline editing for financial and payment cards
+
+
+커밋: 2cf9aafe3b5344003277718e72fbce5affff8e96
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-05 18:16:10
+메시지: Fix payment date input format and enhance amount field UX
+
+
+커밋: d671eb6c7cd533ff1732f084784e0779025689ba
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-06 02:29:41
+메시지: Fix construction details section layout and restore horizontal alignment
+
+
+커밋: 5b93f90568f3e568c5f5cc1b5f8e0034dda00f62
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-08 07:22:22
+메시지: Fix user management modal table alignment and refresh button styling
+
+
+커밋: 5f92253b55e33b1687fd4da26049b3384fd4e42a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-08 18:35:40
+메시지: Add Google OAuth authentication system and clean up codebase
+
+
+커밋: 69c65b993db0984fb3ae99cca9396c116593c340
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-08 19:13:25
+메시지: Fix project management table column width to fill entire screen
+
+
+커밋: f6401ed6702d978d51699e2473d0cdcbe3a1d3f2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-09 03:35:48
+메시지: Enhance UI/UX with comprehensive login screen redesign and user management improvements
+
+
+커밋: 5621314b26ea893c189c6239d441dd3a09da0299
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-09 18:46:26
+메시지: 프로젝트 통합 관리 시스템 개선 및 기능 추가
+
+
+커밋: a5eb7f7acb7d01c10cebddac78f19b53f125ed60
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-10 04:41:36
+메시지: 이메일 확인 불가 체크박스 기능 완성 및 폼 데이터 전송 개선
+
+
+커밋: cef4d26147d1a95589b5120468da771ebe26c024
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-10 18:13:16
+메시지: 새 프로젝트 모달 날짜 관리 개선 및 중복 파일 정리
+
+
+커밋: 5a05b9d8551c0d489c20734231a4b76e41dbfd8d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-11 04:29:04
+메시지: 실시간 계산 및 자동화 기능 완전 복원
+
+
+커밋: 5d73ea5f78c8f52a46adff413b0f9034d513d0f7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-11 18:28:24
+메시지: 실시간 카드 잠금 시스템 및 DataTable 반응형 최적화 완료
+
+
+커밋: 566fc8b5ed9589f69086a489163015e8a534a430
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-12 03:16:27
+메시지: 수금 날짜 입력기 유지 및 자동 처리 시스템 완성
+
+
+커밋: eb1900c86a4c0ffba0937aba5d83131f31bfd778
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-12 16:17:40
+메시지: 손익정보 실시간 계산 시스템 및 다중 사용자 잠금 시스템 완성
+
+
+커밋: 773e208a1b1653f45c4754bff3dcac0f5d150107
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-12 16:44:27
+메시지: 코드 정리 1단계: 불필요한 파일 및 중복 코드 제거
+
+
+커밋: 36d0d74840cd6627754a8e4f79abd332ffe80117
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-12 16:55:04
+메시지: 코드 최적화 2단계: 캐싱 및 에러 처리 개선
+
+
+커밋: 11a71aa4f13defc18c0796c3be71becbdc36beb6
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-12 17:18:21
+메시지: 코드 최적화 3단계: HTML/CSS/JS 분리 및 모듈화 완성
+
+
+커밋: 739abd9107c4e2b565beac2615b24e86165725bb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-12 17:40:14
+메시지: 원본 상태로 복구: 모듈화 실험 이전 안정된 버전
+
+
+커밋: 7e8c7c454f0533a0f0704c8c61752aa2ebc2e83a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-12 18:04:06
+메시지: Claude Code 설정 파일 업데이트
+
+
+커밋: f8354daa1441f6146470b9b820332ba66a9a389c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-12 18:57:13
+메시지: WebSocket 실시간 업데이트 문제 해결 및 테이블 컬럼 너비 최적화
+
+
+커밋: 16c5e1c5835e04e259267460b7bb9d0c522a19a4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-12 20:56:25
+메시지: 메인테이블 칼럼 너비 최적화 및 스크롤 문제 해결
+
+
+커밋: 719d740a12341cc61296bcba42fc71248e84553a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-12 21:35:22
+메시지: 테이블 레이아웃 최적화 및 여백 조정
+
+
+커밋: 0d60666851523feff4a7d8ae8e8c4de1798dc0af
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-13 02:44:02
+메시지: 통계 페이지 추가 및 차트 최적화
+
+
+커밋: 7e9abd05dbfbda2fa1119da48874fa024e0e9b46
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-14 04:34:35
+메시지: 매출통계 차트 완전 개편 및 UI 개선
+
+
+커밋: b39e4075e2de1d951de74c0537d78679abb4bbb4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-15 01:39:57
+메시지: Google Drive 폴더 추적 시스템 완전 구현
+
+
+커밋: fe264645499de3fc9a517b9b8da9a1b10bd2b24b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-15 03:01:49
+메시지: 수금 관련 특이사항 기능 및 환경설정 최적화
+
+
+커밋: 385227b64b74e9312ae9b1fe6bb7648525afb73d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 11:30:18
+메시지: 수정 버튼 로직 완전 검증 및 버그 수정
+
+
+커밋: bd449a58efeeea3ced7af44fa08ee6f71372e800
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 11:34:10
+메시지: 수정 버튼 로직 리팩토링 및 공통 유틸리티 구현
+
+
+커밋: 36da1b1523d0d0f3c256bbbab4f2b80bf0db4708
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 11:55:01
+메시지: 데이터 동기화 문제 완전 해결 - 새로고침 시 최신 데이터 반영
+
+
+커밋: 58b9f1511f54cfeb42b7501071eea14c8f41eb00
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 12:04:27
+메시지: DataSyncManager 리팩토링으로 데이터 동기화 코드 통합
+
+
+커밋: 105fcfe7cdbf0f3cf7e04ab71fa572cfa10df6d5
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 12:09:51
+메시지: 실시간 프로젝트 추가 기능 구현 (새로고침 없는 테이블 업데이트)
+
+
+커밋: 454be228911432500efc6958ee98ff1c964043b2
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 12:28:31
+메시지: 다중 서버 프로세스 문제 해결 및 시스템 최적화
+
+
+커밋: e1869c7d45780e9d375f4ba365e0b8961e4acf64
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 12:49:42
+메시지: 카드 데이터 저장 문제 해결 (강제 새로고침 적용)
+
+
+커밋: 5a2fcd355badb4126a0d40845f85908770f95f5e
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 17:28:53
+메시지: 손익 마진율 계산 로직 수정
+
+
+커밋: ed73dbd8d9e1e6bd645039bad5538bdbf6260aa6
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 17:40:47
+메시지: 모든 손익 계산 함수에서 총액1 기준으로 수정 완료
+
+
+커밋: c5b50a4685d6ab33170e4193f8026e357cbe391f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-15 18:06:44
+메시지: 시스템 알림 통합 및 분류 완성
+
+
+커밋: 4590815c3c3cca6294a0a6d568ed66f328313b51
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-16 01:37:54
+메시지: 수금관리 시스템 구현 및 UI 개선
+
+
+커밋: 380cd026488cba3a75bf0a34afc8a7fe9f0d2042
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-16 09:16:28
+메시지: WIP: 로컬 변경사항 임시 커밋
+
+
+커밋: a5e7773c049cc76e28ee7e34302374c1066ea646
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-16 09:17:14
+메시지: Merge branch 'main' of https://github.com/kiko9987/itglobal
+
+
+커밋: 68e07dad5d16e38b0bf4f41edd02fb2b8299c9d9
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-16 12:15:44
+메시지: 캐시 시스템 전면 개선 및 성능 최적화
+
+
+커밋: 0327cb429ab29fe311df291943128f14df8f6930
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-16 18:17:01
+메시지: FastAPI 기반 시스템 완전 재구축 완료
+
+
+커밋: 670d4a428817711d3cc3a6003002c386ac184d8e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-16 20:39:35
+메시지: Cleanup legacy modules and fix project data handling
+
+
+커밋: c2189f27c76555e4bddab75a771a785bd5ea27fa
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-16 23:01:33
+메시지: Refactor project data handling into service and add projects blueprint
+
+
+커밋: 5d89f8ec962b0453a669c429667dc42aa961017a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-16 23:17:55
+메시지: Document new layout and add service helper tests
+
+
+커밋: d72989dc8ed344c318f08a2f5d8445563ef29cf3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-17 02:02:59
+메시지: Fix Blueprint URL routing issues and resolve 500 server errors
+
+
+커밋: f8f65411c7021774a4dc39d248f560c08beaad9f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-17 09:36:24
+메시지: GitHub Actions 워크플로우 비활성화
+
+
+커밋: 0c97d9ca2ae63badf9a364fa5d17817a92b98157
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-17 09:36:41
+메시지: Merge branch 'main' of https://github.com/kiko9987/itglobal
+
+
+커밋: 32e4cbe56aa39b195610889c8aaceef4ddfe86bc
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-17 22:27:45
+메시지: Phase 3A: Comprehensive test coverage expansion
+
+
+커밋: 9a3c58866dfd54e95d0bc48f2a7c3f82685f4995
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-17 22:39:06
+메시지: Phase 3B: Complete observability system infrastructure
+
+
+커밋: 9c948b6179e5e087985899430ef9d8b6eea65187
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-17 23:40:29
+메시지: Complete Phase 4A: API Standardization & Auto Documentation System
+
+
+커밋: 5173f675092550ebc6c4441d2923ab7fb0eb46ce
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-17 23:47:35
+메시지: Add comprehensive project roadmap and next session guide
+
+
+커밋: e3e7e929f1ae73b5160b4fd9ef3923b8e2475ae0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-18 03:10:38
+메시지: Frontend modernization attempt with Vite infrastructure
+
+
+커밋: 5ec15288eb3e290d45d25cf21f3c1d85241d7473
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-18 09:31:00
+메시지: Update project search capabilities and session management
+
+
+커밋: 2e1547c9d451592b89ab7d29fcca36cdc9f95b9c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-18 11:12:41
+메시지: Complete systematic resolution of all 16 issues from e3e7e92_review.txt
+
+
+커밋: 246440716f6146411a986c89e32ef8a6ce7a3626
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-18 12:46:53
+메시지: Fix JavaScript loading and permission issues, clean up debug logs
+
+
+커밋: 1bf440c896a0083c639ac3dd9ad571f4d43662b4
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-18 12:50:49
+메시지: Merge remote changes and resolve settings conflict
+
+
+커밋: 10d37c8910344ab403cf7fe3184870e3881cc2af
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-18 13:21:33
+메시지: Resolve all issues from e3e7e92_review_ver2 document
+
+
+커밋: 04624e38a122c86ac1012fcd7ef48e2fba83d171
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-18 14:53:39
+메시지: Complete Phase 5: 10-단계 레거시 시스템 현대화 완료
+
+
+커밋: 3b17869691193396860b5321e2ced0c8c011b3f5
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-18 18:36:20
+메시지: Remove action column and complete data completeness implementation
+
+
+커밋: 9c4184784729ea43fac2701d79b9b608c9f5fbfd
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-19 01:32:23
+메시지: Fix Vite build file name mismatch and preserve all previous session modifications
+
+
+커밋: 49ccad885c65a86508c3c5c4db6495354ad10bef
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-19 18:02:06
+메시지: Implement code_review_ver9: Complete system-wide improvements
+
+
+커밋: db9b4465c4bb11ede1358dfacd92784bfb791c12
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-19 18:21:52
+메시지: Fix code_review_ver10 critical issues: Flask 2.2+ compatibility
+
+
+커밋: 7859bcdc5f6cdb08e844360b483fdb5b109b4e55
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-19 18:32:01
+메시지: Implement code_review_ver10 cleanup work: App factory pattern and asset organization
+
+
+커밋: 975476e74fcc4266fa4aebcf8f5ba28ab7f7bbbf
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-19 18:43:37
+메시지: Complete configuration system and blueprint architecture implementation
+
+
+커밋: 259d2e99ee966aa0327ed960b934b691aa7683ab
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-19 18:59:51
+메시지: Complete code_review_ver10 architectural improvements
+
+
+커밋: 389057b926c2e4bf7be363da76a45b8268a82feb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-19 19:14:50
+메시지: Fix background prefetcher and logging system improvements
+
+
+커밋: 7c27e1a0e62e80fad5f05217f1c457eee52549f3
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-19 19:31:02
+메시지: Add code_review_ver11 expert review document
+
+
+커밋: 6818f0e78011460d8efaf429ec34fed04a543443
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-20 00:34:36
+메시지: Complete code_review_ver11 expert feedback implementation
+
+
+커밋: 73e056260aabc163920db9872898d0e8cc99b02c
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-20 03:12:33
+메시지: Fix critical architecture issues from expert review
+
+
+커밋: 46900af5e3f58cb1f8065638b7bc0a9740d71a9b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-20 03:12:56
+메시지: Fix KPI calculation and permission system issues
+
+
+커밋: bfba6af3b4e6bc9d0affe2375b5bcfec67b7d81e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-20 03:13:15
+메시지: Complete Vite integration and fix global function issues
+
+
+커밋: ec018ac3864f98d7966fe4bba7ba374092f74545
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-20 03:13:36
+메시지: Add expert review documentation and development tools
+
+
+커밋: 4e858664748d8c3bbea3c0bb77364a75c3b7a19f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-20 03:42:22
+메시지: Complete Phase 1 legacy API migration: Implement modular blueprint architecture
+
+
+커밋: a9760abefe3c3a14df9ca1bdb6834a61a36724d7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-20 04:11:16
+메시지: Complete Phase 2 legacy API migration: Add 6 specialized blueprints
+
+
+커밋: e4db08a2a59a14add2d95676ad2113517b74d915
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 02:41:29
+메시지: Complete legacy/modern mode validation and CSS infrastructure updates
+
+
+커밋: 344695a776ae4f893f16fecd06465f44edd8a394
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 03:39:57
+메시지: Complete Phase 1 jQuery modernization: 14 conversions with zero errors
+
+
+커밋: c8c44d7df8d4b0bbb339806f98d721272ddcd7b4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 04:06:27
+메시지: Complete Phase 2 jQuery modernization: 20 conversions milestone achieved
+
+
+커밋: 5a0b9069f3f3e168a9a259977dd8aded63c129a0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 04:09:41
+메시지: Achieve 25 jQuery conversions milestone: 54% completion reached
+
+
+커밋: 4c06bfd3da2e3fecae1c90c086401f005ca63e96
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 04:11:54
+메시지: Reach 30 jQuery conversions milestone: 65% completion achieved
+
+
+커밋: 031fee1803433e2e0069745062c9b8757f6f211f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 04:22:34
+메시지: 🎯 COMPLETE jQuery Elimination: 52 patterns → 100% Vanilla JS
+
+
+커밋: 423af656ac0730a63577c98135bf9088132878a6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 07:34:37
+메시지: 📊 jQuery 완전 제거 프로젝트 최종 성과 보고서
+
+
+커밋: aa4828506d495e2d47384987207a9fcaec7e7cd1
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 19:41:47
+메시지: ✅ localhost 모던 CSS 강제 활성화
+
+
+커밋: c2d4637f167e56292758fe2e0aac83637c57f78d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 21:53:39
+메시지: Restore visual parity with legacy: Add project status badges and page length selector
+
+
+커밋: 3c3ba17937c7cbae26ec81bc34399b02ae42ef53
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 21:57:05
+메시지: Add comprehensive legacy style elements to modern system
+
+
+커밋: 3958777e3aac7b26e0f777310f6b1dce76e8b666
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 21:59:51
+메시지: Fix status badge styling: Replace StatusBadge component with direct CSS classes
+
+
+커밋: 140f11de3394e5c18fb56460eb46d4fbb9d69d7d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 22:05:42
+메시지: Implement comprehensive Legacy Badge System with vanilla JavaScript
+
+
+커밋: 357196f7c757da0deb50386e954cec12f36a64a0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 22:10:48
+메시지: Complete legacy badge system implementation with full StatusBadge removal
+
+
+커밋: 88760b07b6a473d4f481f2652dc3992a915a1186
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 22:16:38
+메시지: 완성: 담당자/거래처 뱃지 레거시 호환성 구현
+
+
+커밋: 5374957d656a146c6bd22e7386776b6030986928
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 22:23:10
+메시지: 혁신: 모든 뱃지 시스템을 현대적 CSS 클래스 기반으로 통일화
+
+
+커밋: 7a353fe56d79d6b878ac87b81f782120616a35f5
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 23:41:13
+메시지: Complete table improvements and badge system modernization
+
+
+커밋: 1ce98c86cdd8b77bb179824c590e21860b799d03
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-22 23:42:47
+메시지: Add comprehensive development setup guide for office work continuation
+
+
+커밋: 556bb28303b3966b55e7c6a00510f1bed05d7c1d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-23 09:17:50
+메시지: 회사 작업 내역 복원: ProjectRowAccordion.js 개선사항 적용
+
+
+커밋: b8ebdf2259ac9361f6b8a161b792d4ed9f4ab29c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-23 18:16:20
+메시지: 레거시 레이아웃 구조 완전 복원: 필터와 테이블 섹션 너비 통일
+
+
+커밋: 922c94f2a4285e27d9bf7a619142a0ac8f9db3ba
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-23 22:51:52
+메시지: chore: align project table layout with legacy
+
+
+커밋: a8cbfa4ecf02790e4bd6ad755700bdfe98810bf8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-24 23:17:07
+메시지: Implement modern project filters with data completeness filtering
+
+
+커밋: 64ed8e3671db55da693926d4435092092a186819
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-24 23:20:28
+메시지: Remove legacy ProjectFilters.js file
+
+
+커밋: f415b4ec0964fd74f354663fa4b7972c055ab955
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-25 00:45:17
+메시지: Integrate superior table styling from backup CSS with modern architecture
+
+
+커밋: 4877ac681fdf0a4f196f89d2cb4aa38487783589
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-25 01:12:50
+메시지: Modernize accordion system with legacy superior styling
+
+
+커밋: 3fcfdee868c66cfb663458129c3ac2e9310dd341
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-25 01:13:15
+메시지: Clean up old CSS build artifact
+
+
+커밋: 29a67e287d9ec64762ab69e5fa18d2c1e7ab7ded
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-25 13:46:41
+메시지: Revert accordion image styling experiment and restore stable layout
+
+
+커밋: 8886f71ea60dc66b5c7e8912c1abd2a746cdb11e
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-25 17:55:59
+메시지: fix: 문서폴더 UI 개선 및 아코디언 위치 문제 해결
+
+
+커밋: bc64991bd162ac4e989230a3b736c59d6e8979db
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-25 23:56:54
+메시지: Fix accordion card header styling and button alignment
+
+
+커밋: c66ee377b0cc59042de66c5a557f3dc711a61fa9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-26 00:01:20
+메시지: Include frontend_backups folder in git repository
+
+
+커밋: 5588a66cc3cce9e11ec80002ee7f464e187e37fa
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-26 00:01:51
+메시지: Add frontend backup reference files to repository
+
+
+커밋: a930b31a9978b0143c786987d6c88e4ffa1aa949
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-26 18:23:36
+메시지: Fix CSS styling issues: restore legacy badge sizes and table row heights
+
+
+커밋: f50a6fa21ea6c6c4860179e8d3e0d56d3c771c6f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-26 21:34:16
+메시지: Fix table header alignment and project code column spacing
+
+
+커밋: a38682aba50b7ff550590509788add81d08e47dc
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-27 00:40:59
+메시지: feat: DataTables 레이아웃 최적화 및 15개씩 보기 컴팩트 디자인
+
+
+커밋: 71295709d663a33e95a128cb1f1ceac6f26dae14
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-27 03:17:22
+메시지: feat: 헤더 스타일링 개선 - 로고 및 텍스트 정렬 최적화
+
+
+커밋: 271cd3b1d7c0f4598e16fc8a0f39c8e6bdb9b951
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-27 23:52:30
+메시지: fix: 페이지네이션 정보 텍스트와 버튼 스타일 통일
+
+
+커밋: 3a472cb4903938d8add20896a7101442cac0bbbb
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 05:03:05
+메시지: fix: 아코디언 카드 편집 취소 시 스타일 복원 문제 해결
+
+
+커밋: 0f79975505da85e90ddefc71dbd22a99553ce807
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 05:07:45
+메시지: feat: 아코디언 카드 금액 입력 필드 플레이스홀더 간소화
+
+
+커밋: cf845810254bd91e567569e5a7e400faab3bb956
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 05:26:00
+메시지: fix: 아코디언 UI 개선 및 편집 시스템 최적화
+
+
+커밋: 7b12d04a702a9ea02e149fe9e3ec6b0dbb725349
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 05:29:33
+메시지: fix: 공사확정 필드 회색 박스 제거
+
+
+커밋: c71b201967fc2661e5290f1e17ecbfeba97a4815
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 13:55:44
+메시지: feat: 부가세 토글 크기 및 애니메이션 최적화
+
+
+커밋: 83de99ab186ff3cf481686a0d6fc2e0a99402b79
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 14:13:43
+메시지: feat: 날짜 필드 UX 개선 - 캘린더 아이콘 및 간격 최적화
+
+
+커밋: 21448fb744127ae57aede3d2c440816bdd5faaa6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 15:52:57
+메시지: feat: 수금확인 필드 토글버튼 구현 및 CSS 아키텍처 개선
+
+
+커밋: 5688494b3cedba44b78264a3df5871c8b2f0bff9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 17:15:19
+메시지: feat: 뱃지 시스템 통합 완료 - 파스텔 색상 일관성 구현
+
+
+커밋: 404be2c4e45ad35ae42503ccb5f697af8f5a7534
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 20:55:55
+메시지: feat: 연락처/이메일 필드 정렬 및 편집모드 크기 최적화
+
+
+커밋: c8a0f5241c8d98bc8351e78e7768193d94669d5f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 20:56:09
+메시지: chore: 빌드 산출물 정리 - 오래된 파일 삭제
+
+
+커밋: 56e2a1f0b231789c6eb7b606da4f39a5384dab25
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 21:07:52
+메시지: feat: 프로젝트 필드 용어 표준화 - '이윤'을 '마진율'로 수정
+
+
+커밋: 996f18ce31b986fb074f9a22d17dfc7ffcfdedcd
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-28 23:45:30
+메시지: fix: 테이블 아코디언 호버 스타일 완전 해결
+
+
+커밋: d6c5b90328d92ea07121a5b7e2ad556399aaa848
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-29 03:16:09
+메시지: fix: 테이블 호버 스타일 최종 방어 코드 적용
+
+
+커밋: 0167a79d26bfe0af33e7d6bb8497a415e9aa29c4
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-29 12:59:48
+메시지: fix: 페이지네이션 여백 조정 및 아코디언 깜빡임 현상 해결
+
+
+커밋: fa500cbfea139f8298ea2b835accfef8162e14bd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-29 13:19:44
+메시지: feat: 테이블 헤더 높이 증가
+
+
+커밋: 9252961f77c9051b3e849e95b4cda673900337e1
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-29 16:28:09
+메시지: fix: 뱃지 호버 효과 완전 제거 및 테두리 통일
+
+
+커밋: d18111d7cbf6725e22a33af331e820c78139569a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-29 18:25:07
+메시지: feat: 내 프로젝트만 보기 체크박스 및 금액 표시 개선
+
+
+커밋: 1ee6905191100db6cf77145f58ee87e0cbb1b91d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-30 00:13:51
+메시지: fix: 페이지네이션 드롭다운 크기 조정 및 구분선 추가, 총액/미수금 볼드 제거
+
+
+커밋: d0e2dfb5d5af48b662f74694ae9d3009dd23f955
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-30 00:28:23
+메시지: fix: 테이블 하단선 문제 해결 시도 후 원래 상태로 복구
+
+
+커밋: 8391bc8f79fee56f905d883ec1896022a15b20a7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-30 00:38:59
+메시지: fix: 총액/미수금 열 하단선 렌더링 문제 해결
+
+
+커밋: f899f2685cc5fb9e95a3dbd926c587facad9176d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-09-30 01:29:37
+메시지: fix: 데이터 완성도 체크 아이콘 색상을 중간 톤으로 조정
+
+
+커밋: 1c4342f605bd777f6e42a6c1324c37982a71cc25
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-30 10:48:33
+메시지: fix: 새로고침 버튼 동기화 문제 해결 및 UI 개선
+
+
+커밋: 86eff2f506587c52143c7b71499d92da3b63a7f8
+작성자: KiKO <kiko@company.com>
+날짜: 2025-09-30 18:36:48
+메시지: fix: 드롭다운 자동 열림 문제 해결 및 사용자 버튼 위치 수정
+
+
+커밋: 231af17238b44757779e85f6fed1df02010b3e2f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-01 00:41:40
+메시지: fix: 관리팀 뱃지 로직을 회사 정책에 맞게 수정
+
+
+커밋: f06b2de78067b23881b7adf0459eb4b112a9157d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-01 03:04:37
+메시지: feat: 레거시 방식 batchUpdate 시스템 구현 완료
+
+
+커밋: 023a656951730e162e45f522c5d767d99d11f328
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-01 17:48:05
+메시지: fix: 통합 편집 저장 완료 후 수정된 값 정상 표시 수정
+
+
+커밋: 186a58f8723781fe9383790425f4584be64b251a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-01 18:16:04
+메시지: chore: 불필요한 디버그 로그 제거 및 코드 정리
+
+
+커밋: 2f634195dc32f01fc57910fb7d999dc838d306bd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-01 18:40:47
+메시지: style: 사용자 드롭다운 UI 개선
+
+
+커밋: 13a83858f5fa7ea594cf2ca2c2a18ac39597e9da
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-01 19:51:41
+메시지: feat: 권한 시스템 개선 및 최고관리자 등급 추가
+
+
+커밋: 67cc493f56f98b36fe9d4fa4e500edd48b13cbf5
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-01 22:43:53
+메시지: style: 헤더 버튼 UI 개선 및 사용자 드롭다운 최적화
+
+
+커밋: fdeee55a7e516a71bb1f0d8f5b910381ce69ef81
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-01 22:49:09
+메시지: fix: 사용자 드롭다운 버튼 상태 안정화
+
+
+커밋: d64978e8669b4d3e4b9cee7b45068efea7eac601
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-02 02:13:05
+메시지: feat: 프로젝트 관리 페이지에 수금 관리 모드 토글 추가
+
+
+커밋: fac0fb2a4959a207f170656b64b813dbc3a59cb5
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 09:34:33
+메시지: refactor: 수금 관리 페이지 제거 및 필터 뱃지 크기 개선
+
+
+커밋: 25224c61e565b5788001ae2d645202571ecef054
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 10:33:13
+메시지: fix: 수금 관리 모드 컬럼 구조 개선 및 너비 최적화
+
+
+커밋: 73fc8a6448b194550381b2dc09221a1c19810d9c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 11:36:30
+메시지: fix: 미수금 필터 로직 개선 - 수금 확인 필드 연동
+
+
+커밋: 20ebba7d970487112b0b3a0f80dd0e4720c6247c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 11:43:05
+메시지: fix: 수금 관리 모드 상태 유지 기능 추가
+
+
+커밋: ab5a9e54e91814f6cb628a87571cf75f225a02b8
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 12:53:56
+메시지: style: 헤더 사용자 드롭다운 UI 개선
+
+
+커밋: cae4e0f23c6b3f0e6bec75abbbfd023e7f534b9a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 14:44:43
+메시지: style: 매출 통계 페이지 레이아웃 최적화
+
+
+커밋: 9b71eee7af6ffd357d26ffe8b9f83e315c2e51dd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 15:51:52
+메시지: fix: 헤더 버튼 아이콘 및 드롭다운 화살표 수직 정렬 개선
+
+
+커밋: 7ac0496a6ea01d29382aaea84dfd2cb45dc50072
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 16:27:44
+메시지: refactor: 권한 뱃지 표시 방식 개선
+
+
+커밋: e297a71caab45a3eecf3f807db68f05d8fa18faa
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 17:08:40
+메시지: feat: editor 권한 사용자를 위한 읽기 전용 카드 워터마크 추가
+
+
+커밋: 51c00f23d740c4f5b21a1e5bdcce0bf53b1bd6dd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-02 17:40:29
+메시지: fix: 필터 섹션 요소 정렬 개선
+
+
+커밋: e07333de4639a200ac8a4a0720aac4962b325c11
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-02 21:17:00
+메시지: style: 필터 섹션 요소 크기 및 정렬 최적화
+
+
+커밋: ef8977f5b33b34a06c4938e951f6c6ddd0063685
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-03 02:02:08
+메시지: style: 테이블 및 입력창 반응형 개선
+
+
+커밋: a1f9da3bade6dd7d94b076e1fa17b951387e9dde
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-03 13:38:53
+메시지: feat: 새 프로젝트 모달 완전 현대화
+
+
+커밋: a1da33bfb8452ff751224c0fa608c488f1cf1931
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-03 23:54:57
+메시지: fix: 모달 UI 개선 및 프로젝트 코드 생성 로직 수정
+
+
+커밋: 4758b15636bacbe7c67711e5322251f23e824802
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-04 04:53:13
+메시지: fix: 모던 프로젝트 모달 UI 개선
+
+
+커밋: 12f09f8cf32158459b45a16560108b7b39dd1de6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-04 05:15:27
+메시지: fix: 모던 프로젝트 모달 UI 개선
+
+
+커밋: 62ce6de536870a1774e3dd992bafb35e3daad2bd
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-04 14:55:38
+메시지: fix: 모달 스피너, 드롭다운, 프로젝트 코드 생성 및 세션 타임아웃 처리 개선
+
+
+커밋: c8b9d25f0fd6fddbb778e3b7ff93045d4b898bdb
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-04 17:17:57
+메시지: fix: DataTables 컬럼 정렬 및 FOUC 문제 해결
+
+
+커밋: 8aa0bfa4f56618cddb7e32b761671ccd8d420839
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-05 15:27:43
+메시지: feat: 핫 리로드 및 Vite 개발 서버 통합, 아코디언 호버 효과 제거
+
+
+커밋: a624bb22a219f7d425dc578c80b078bdc10fa4d3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-05 18:30:13
+메시지: fix: 계산 필드 처리 및 UI 새로고침 최적화
+
+
+커밋: bacec5790adc66a1dd850a4db28ae86fa5bc0177
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 08:11:12
+메시지: fix: 계산 필드 실시간 업데이트, 부가세 값 형식, 수금확인 자동 토글, 날짜 형식, 아코디언 버그 수정
+
+
+커밋: d78f1418193815ff774dd4dd7f7da04c6aa1ad52
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 08:17:01
+메시지: feat: 상용화 전 시스템 안정성 개선 (Critical Issues 해결)
+
+
+커밋: 481485779a0ecd5f239a5b0c9198d887e6101691
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 08:35:36
+메시지: feat: 사용자 경험 개선 - 에러 메시지, DataTables 콜백, 저장 큐잉
+
+
+커밋: 65bded3d537afa5f91b2b96359e3def70e5d372b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 08:45:07
+메시지: feat: 날짜 검증, 메모리 누수 방지, 로깅 최적화
+
+
+커밋: bc7493a97047e3a1728651df544125441e383a0f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 08:51:30
+메시지: feat: Vite 번들 최적화 및 접근성(A11y) 개선
+
+
+커밋: e705e1944bdb736eeeba9f22003ebe405c2f4222
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 09:08:52
+메시지: docs: QA 테스트 완료 및 최종 보고서 작성
+
+
+커밋: 747820be69b5911b5d3513da82e50c8464cfe0f2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 17:51:28
+메시지: fix: 아코디언 저장 기능 안정화 및 성능 최적화
+
+
+커밋: 0ca3134cca3a6957c22c569ee1d1f5cba5781a55
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 20:35:17
+메시지: fix: 프로젝트 코드 변경 시 DOM 동기화 및 통합 편집 안정화
+
+
+커밋: f0d364d8815bc5a71e07602549f1e2fa1702bea4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 20:48:37
+메시지: fix: 프로젝트 코드 생성 로직 수정 (ROW()-1 구현)
+
+
+커밋: 6857cda19567f60f790447ca9905cb65c3012acd
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 21:18:43
+메시지: fix: 순익/마진율 계산 로직 Google Sheets와 일치
+
+
+커밋: 3aae61614574d15f416312b841d7a0f576b227ec
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-06 23:13:56
+메시지: fix: 아코디언 헤더 편집 UI 개선
+
+
+커밋: 107f8c99075447088139545a2720a593a9a01d47
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 02:27:26
+메시지: feat: ModernProjectModal 신규 프로젝트 등록 완전 구현
+
+
+커밋: f148cb939a0070e33653987c2695ecd2b20f9727
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:05:14
+메시지: feat: 신규 프로젝트 모달 자동 생성 기능 완성 및 레거시 코드 정리
+
+
+커밋: 539db0b073ef574377347d92fd38f6ba433602d5
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:12:19
+메시지: refactor: 뱃지 시스템 최적화 및 레거시 코드 제거
+
+
+커밋: 25f3dd1632ea91080f17035192de0f629320dec4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:24:37
+메시지: refactor: CSS 마이그레이션 시스템 전체 제거 (100% 현대화 완료)
+
+
+커밋: 16d46c96b0cbcfe32ce714fda02b45be6ecf7deb
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:35:35
+메시지: refactor: 프로덕션 준비 - 디버그 로그 정리
+
+
+커밋: dd6cedf0d21a774aed069a45f193ac8a271a5257
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:38:13
+메시지: refactor: project-list.js 디버그 로그 제거
+
+
+커밋: 44d13a07e23203f639605cc63aae1beef105a7c2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:40:43
+메시지: refactor: ProjectTable, StateManager 디버그 로그 일괄 제거
+
+
+커밋: e272b33d15179955f2d9a92bfa5b0a8bd48496af
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:50:01
+메시지: chore: ProjectRowAccordion.js에서 모든 디버그 로그 제거
+
+
+커밋: 24a435da80504be76e916bf93a5ac9794c4fc1ec
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 18:50:13
+메시지: chore: 임시 Python 스크립트 제거
+
+
+커밋: f2efa48150e26270dbfad41320c6682cc2f295ce
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:07:53
+메시지: fix: DataTables 컬럼 데이터 누락 오류 해결
+
+
+커밋: c7849c033711a08cab6d1181423cfe75d628a1c3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:09:52
+메시지: fix: 프로젝트 제출 후 테이블 갱신 로직 개선
+
+
+커밋: 17a80276e3307833e4eaecc0c5461cbaa05d66ff
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:12:00
+메시지: fix: 프로젝트 제출 후 부드러운 행 추가 및 하이라이트 구현
+
+
+커밋: ac720818baa6cf140a309faf704ef705da128b62
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:14:51
+메시지: refactor: 불완전한 폴백 데이터 제거 및 전체 새로고침으로 변경
+
+
+커밋: 6d46eb6c0cef46a672171e881df22488a4190683
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:17:57
+메시지: fix: 모달 제출 시 부가세 포함 토글 값이 백엔드로 전송되지 않는 문제 해결
+
+
+커밋: 02bf6d26c7dd88efb17f92f36e35d693d4b7c69a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:33:52
+메시지: fix: DataTable 초기화 전 row.add() 호출로 인한 "unknown parameter" 오류 해결
+
+
+커밋: 4adc8ab2f3c2adc9bd637dacacd26c71b58d304e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:35:59
+메시지: fix: refreshData() 호출 시 테이블이 영문 기본 설정으로 초기화되는 문제 해결
+
+
+커밋: 49aeb7f6e526f8fc80ccedf33f4249a7f567a4c5
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:38:51
+메시지: fix: 부가세 포함 필드명 불일치로 Google Sheets에 값이 저장되지 않는 문제 해결
+
+
+커밋: ebe6b0e6b331141fc708084f9a2a2ae8a6ec67f7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:44:06
+메시지: feat: 즉시 project_data 구성으로 부드러운 행 추가 개선
+
+
+커밋: 7c22440d0098f337c2907d7a3419b380d1d8f66f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 19:47:07
+메시지: fix: 이메일 확인 불가 시 '-'로 표시 및 저장
+
+
+커밋: 33caa3a7061ab5b78e2d97a21568c819e7daf322
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 20:02:20
+메시지: fix: project_data에 담당자 이메일 필드 추가
+
+
+커밋: d30228df2251217029b7df9eb356deb438e543ef
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 20:04:20
+메시지: fix: 캐시로 인한 새 프로젝트 미표시 문제 해결
+
+
+커밋: aa9c45e500c3baee0127fc95e01473c71ea778a7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 20:18:07
+메시지: feat: 아코디언 편집 모드에 Select2 멀티셀렉트 구현
+
+
+커밋: c3572e1bd07261bb6405bf3b231a20c639f03205
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 20:24:22
+메시지: fix: Select2 초기화 타이밍 및 디버깅 개선
+
+
+커밋: 1f9a5e2100dbc30ccece9d4e794ba442f71c3acd
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 20:25:51
+메시지: fix: jQuery를 전역으로 노출하여 Select2 초기화 문제 해결
+
+
+커밋: 0a207de78accd8912b5da4771be5e98fcea86b02
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-07 23:50:54
+메시지: feat: 체크박스 기반 멀티셀렉트 드롭다운 구현
+
+
+커밋: bef5d8178188f27100d5eeb25d97e854908194b3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-08 03:19:30
+메시지: fix: 프로젝트 저장 후 DataTable 행 업데이트 개선
+
+
+커밋: 1b766d9d07d5b5ba293368fdddeb750d2e3df603
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-08 03:29:59
+메시지: fix: 이메일 확인 불가 체크 시 구글 시트에 '-' 값이 저장되지 않는 문제 수정
+
+
+커밋: 74ec9a39a0f6026ffa1fa993b3e54b104dc0b25b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-08 04:46:12
+메시지: fix: 멀티셀렉트 저장 및 서버 안정성 개선
+
+
+커밋: 1d51295b14bc73a7e8a0cd934e07cf9be9f240e6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-10 00:29:28
+메시지: feat: 테이블 로딩 스피너 추가 및 UX 개선
+
+
+커밋: da975962572da444c00765b1fde8dc8dcd953a41
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-10 03:54:12
+메시지: fix: 아코디언 메모리 누수 및 프로젝트 코드 동기화 개선
+
+
+커밋: 87d70a3149b636cb1cd0d13495a8df68961c8f48
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-10 04:18:56
+메시지: fix: 통화 파싱 및 수금 완료 필터 로직 개선
+
+
+커밋: 66f81a7298b77d747246720862612638f0483b20
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 10:44:49
+메시지: improve: 프로젝트 추가 모달 UX 및 스켈레톤 로딩 개선
+
+
+커밋: b0d047bfdeb6e2e5c3b048f86024a88412ba376c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 10:54:47
+메시지: improve: Google Sheets 연동 오류 처리 개선
+
+
+커밋: 15274b49ada206f1691fd8c268ba72948137d426
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 11:12:51
+메시지: fix: 스켈레톤 로딩 중 로딩 오버레이 제거
+
+
+커밋: 7375ec7b9abe064d899c0bafeed93477da35380a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 15:41:22
+메시지: refactor: 프로젝트 생성 UX를 스켈레톤에서 펄스 애니메이션으로 전환
+
+
+커밋: 451d02347f184ca3aaf823f4d2fe3a95d5badd0b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 16:24:02
+메시지: refactor: 로딩 UX 개선 및 인스턴스 중복 생성 문제 해결
+
+
+커밋: e6a451d5d23714dc7c1fa82f8f6e5c8ce38fcaff
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 16:51:50
+메시지: fix: 인스턴스 관리 크리티컬 이슈 수정
+
+
+커밋: 63c1aec39ef8c91b8e935f29d1cedd2545ebba3d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 18:29:58
+메시지: fix: 로딩 UX 개선 및 Alt+Tab 스피너 이슈 해결
+
+
+커밋: 1705de1d3adb219ebbd251126ec9f61f6e3b3e8f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 18:37:11
+메시지: fix: 다른 페이지 신규 행 하이라이트 애니메이션 수정
+
+
+커밋: c97ca16c5c35676ee14017244d2d98b0f3a049cf
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 18:52:49
+메시지: fix: 신규 행 펄스 애니메이션을 텍스트 크기 변화로 개선
+
+
+커밋: cf52699e9f528d82555d87b54b57b26fd8d9d644
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 18:58:27
+메시지: refactor: 신규 행 애니메이션을 텍스트 크기에서 테두리로 변경
+
+
+커밋: 16f17710355f2b088a1ecf6641f55126d35eccc2
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-10 19:16:21
+메시지: fix: DataTables 행 인덱싱 방식 수정으로 DOM 노드 탐색 개선
+
+
+커밋: 56961eda888604668723abac000d142eabce4b4e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-11 04:04:57
+메시지: fix: 신규 행 애니메이션 및 하이라이트 로직 개선
+
+
+커밋: a8b59942426e28522752c439da4d98afc70a53da
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-11 04:29:05
+메시지: fix: 신규 행 애니메이션 개선 및 프로젝트 생성 데이터 완성
+
+
+커밋: ee50a74a1809e95f3aa565a1fc4689c4aa0b8624
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-12 00:05:46
+메시지: feat: 수금 모드 토글 시 스켈레톤 로더 구현
+
+
+커밋: 612463d75bdb27aac6a83b83eddb2945f454f9aa
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-12 20:04:22
+메시지: fix: Ctrl+F5 하드 새로고침 시 WebSocket 오류 해결
+
+
+커밋: 4de537ac0432f2568c8bf99e531e41704e1b0f49
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-12 20:05:11
+메시지: chore: eventlet 의존성 추가
+
+
+커밋: 3a60dfdfbd68775a843814997c33646604d73fca
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-12 20:16:14
+메시지: feat: 메모 기능 및 UI 개선 통합
+
+
+커밋: 8c0ea927702d6f8ac2ae1b7c4ee95b784706bf77
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-12 20:31:07
+메시지: feat: 서버 측 검증 및 Google Sheets 에러 처리 개선
+
+
+커밋: b28ef93e352e2bbe43994de4caafb445a40d96fb
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-12 20:43:47
+메시지: docs: 리팩토링 백로그 문서 추가
+
+
+커밋: 9d1ce801930c2a7be74d86c256c276316a518561
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-13 02:21:30
+메시지: fix: 메모 기능 크래시 및 캐시 동기화 문제 해결
+
+
+커밋: 74792cb111a9c34a3ecd8eb9354fb545b86b4c7b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-13 02:29:23
+메시지: refactor: 전역 변수 캐시 제거 및 smart_cache 통합
+
+
+커밋: fc64ac15fa539a1b171afcc2d52be34122cb7da2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-13 02:35:06
+메시지: fix: get_last_update() 함수 사용 제거
+
+
+커밋: 61eead17e5aa1034bc34adbcbeaa740fab2909e4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-13 02:44:51
+메시지: feat: 캐시 기반 last_update 시간 추적 기능 추가
+
+
+커밋: 3f8ec74214d8444d6f64cf1d03a46e8f1028d38a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-13 03:52:33
+메시지: feat: 핫리로드(Hot Reload) 활성화
+
+
+커밋: a9a53f465314c734840a88168a8c5e7c4ca4952b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-13 04:29:06
+메시지: fix: SIGSEGV 서버 크래시 완전 수정 - Lock을 RLock으로 변경
+
+
+커밋: 306c1f079cbea56285d1151ac9e388e504dcc12b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-13 05:51:08
+메시지: fix: 수금 모드 전환 시 캐시 동기화 및 스켈레톤 로더 개선
+
+
+커밋: a1d02720a42be8d9ee7e827cf880a53867497cfd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-13 10:36:52
+메시지: feat: 수금 정보 저장 시 StateManager 동기화로 성능 최적화
+
+
+커밋: 35e824a3ea3a012eddf2281190cf0d066ce3493e
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-13 11:43:39
+메시지: fix: 프로젝트 코드 변경 시 메모 저장 및 StateManager 동기화 개선
+
+
+커밋: 6106a1c0433a8963adf32a0aaae60896ad6095b4
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-13 14:41:08
+메시지: feat: 감사 로그 UI 개선 및 날짜 형식 수정
+
+
+커밋: 0fe46d380f4ab8fb4c7440c6781710f226ff181b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-13 17:07:42
+메시지: feat: 감사 로그 모달 UI 개선
+
+
+커밋: bc8a13e6f9b69b9a55443cba0047d4f10083d6bf
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-13 17:17:53
+메시지: feat: 감사 로그 모달 및 UI 개선
+
+
+커밋: aed3da0957cd05ff10e83e3f9513ae1ec4d4a155
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-13 18:34:01
+메시지: refactor: 사용자 관리 모달 완전 모듈화 및 UI 개선
+
+
+커밋: 82a9a9cd997bfd71361aacec658c954bfc880931
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-14 15:17:23
+메시지: feat: stats 페이지에서 사용자/작업로그 모달 지원 및 UI 통일
+
+
+커밋: 4fb74d2aa05f65fc214188aca6f2e551cbd36f97
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-14 16:42:51
+메시지: feat: 새 프로젝트 모달에 폴더 경로 입력 검증 추가
+
+
+커밋: 857ac2e24fb780dd6ae73d3598b069d8c106adc0
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-14 16:53:00
+메시지: feat: 새 프로젝트 모달에 공사 종료일 검증 추가
+
+
+커밋: 2d68645edc9ffdfc12aa48b9659ac4467b1b6843
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-14 17:43:53
+메시지: perf: 감사 로그 배치 처리로 저장 성능 최적화
+
+
+커밋: 19ddd9186e4598af40640c78a45e5e77e9736ff6
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-14 18:26:48
+메시지: feat: 시공자 필드를 멀티셀렉트로 변경 (진행중)
+
+
+커밋: 0ba38279c69117ac7d1b4eefae61763aead9bd32
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-14 20:03:20
+메시지: fix: UserModal fetch에 credentials 추가
+
+
+커밋: da46e3e8fb8dd45bc9044b58c51a180f3d7f9264
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-14 20:33:13
+메시지: fix: super_admin 권한을 Admin으로 통일 표시
+
+
+커밋: 96d9f772e5f0a5002fe613cb8d646ba3f88448ec
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-14 20:34:35
+메시지: docs: 개발 환경 설정 가이드 추가
+
+
+커밋: 2b30c111d45ac872df85d248a361a96b1093b52a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 00:03:39
+메시지: feat: Google Drive 폴더 ID 처리 및 서버 관리 스크립트 추가
+
+
+커밋: 7467009649b26d4cebe8bce6712188bb651f9210
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-15 09:17:24
+메시지: fix: folders.py explorer 명령을 start로 변경 (URL 브라우저 열기 수정)
+
+
+커밋: 0c3bcfe3d0a207ce06c16a248cd86d508cef4a4a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-15 09:18:21
+메시지: Merge remote-tracking branch 'origin/main' into main
+
+
+커밋: a2cb8375f3f8797500c65984b35e4bf5be47ee74
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-15 09:31:57
+메시지: fix: 작업 로그에 폴더 열기 액션 한글 표시 추가
+
+
+커밋: a1c017139fb1c0a2386b5a7e6bb96225f583c10e
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-15 18:23:07
+메시지: fix: 수금 모드 및 아코디언 아이콘 툴팁 깜빡임 해결
+
+
+커밋: 9326c6d65dc90de4e3fa86a20d34ae70f27a574f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-15 18:53:42
+메시지: feat: 아코디언 내부 계산서 필드에 아이콘 표시 추가
+
+
+커밋: f56ce6fd95b1281ad1ab657290755e15c1a38fd7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 20:12:16
+메시지: fix: 아코디언 안정성 개선 및 오류 처리 강화
+
+
+커밋: ccebc5616bfcc4e2e628cb3ecd58b43e276431b0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 20:15:55
+메시지: perf: 필터 시스템 검색 성능 대폭 개선
+
+
+커밋: 8022da8293b6e3093b77917f4b2a5841f80337d9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 20:31:07
+메시지: feat: 새 프로젝트 등록 시스템 안정성 대폭 강화
+
+
+커밋: 33bca548e67c2813297dfa9c5b7b4f3edcbd0324
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 21:20:45
+메시지: docs: ProjectRowAccordion.js 리팩토링 계획서 추가
+
+
+커밋: cd2821527fba508dfc47d12901dad3fab69e0bba
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 21:53:17
+메시지: feat: 공사 취소/재개 기능 구현
+
+
+커밋: f7d1fc18f4ecc0395e3a15df8d80a949736befaa
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 22:05:30
+메시지: fix: 정확한 구글 시트 칼럼 매핑으로 공사 취소 기능 수정
+
+
+커밋: cd0b8663d309570de7dc3c31f599f1aae3c0a2bd
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 22:09:24
+메시지: refactor: 공사중단 상태 제거, 공사취소만 유지
+
+
+커밋: 09cb07075226ed1ded5bb4799f8bf675976ae83e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 22:12:17
+메시지: fix: 상태 뱃지 '취소'를 '공사취소'로 변경
+
+
+커밋: eea328e2cc12e52f5d632baecfda4eab7df49bc3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-15 22:14:32
+메시지: style: 공사 취소/재개 버튼 크기를 편집 버튼과 통일
+
+
+커밋: b2321cd24f762efca4ca35effc485d92a661e794
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 10:09:57
+메시지: feat: 공사 취소/재개 흐름 개선
+
+
+커밋: f495b5d9429ef2ed5973021fee8e6efdf29f4917
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:13:51
+메시지: fix: stabilize project resume batch update
+
+
+커밋: 96f8fd1a1c679d3dcdd89d1562d48e19484e8796
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:30:36
+메시지: style: improve cancelled row and accordion highlights
+
+
+커밋: a4ebdcad0045b22d8664da18f069245d365a3613
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:39:07
+메시지: style: refine accordion highlight and cancelled row styling
+
+
+커밋: 3761bee393d39c51bcc949aef2e5e94de336849b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:42:08
+메시지: style: align accordion detail bar with parent highlight
+
+
+커밋: 29732528ad2d0f2a87033f66e8df003001b8eefd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:45:57
+메시지: style: extend accordion detail accent full height
+
+
+커밋: 0fe86756f8fe4641899504ba4e3260caf952b747
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:47:36
+메시지: style: desaturate accordion highlights for cancelled projects
+
+
+커밋: 82f8e82987571581ebedb91ec6a861f62d0cbaa7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:50:40
+메시지: style: sync cancelled row accents across table and accordion
+
+
+커밋: e398c489f8978365bc974db9ed34aef4f4e74346
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:52:52
+메시지: style: prevent cancelled rows from showing base color bar
+
+
+커밋: f48d7a62dd5d661b9c3f56fed04aab54e791e833
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 12:56:41
+메시지: style: ensure cancelled status badges show strikethrough
+
+
+커밋: 7280b26a44866e9a03b5da41603095332fa08cea
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:13:23
+메시지: style: add cancelled badge strikethrough in badge system
+
+
+커밋: 8d5ee244e67057fbaa0a91ac1670c1485f9d2f7f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:15:17
+메시지: style: target cancelled status badge class for strikethrough
+
+
+커밋: a274715733b608738450cfaeab5d6b7874e38368
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:17:58
+메시지: style: apply strike to manager and company badges on cancelled rows
+
+
+커밋: be9f1a379ff6a01e89b337512f350d1088228809
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:20:16
+메시지: style: restore cancelled status badge colors
+
+
+커밋: 50b6b2ec2fd4954fe34e5b68ed912baf3eec1887
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:22:09
+메시지: fix: detect status column cells and limit badge strikethrough
+
+
+커밋: 0fb2875c6e2c97ae672b8c9ea178832601052bcf
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:35:17
+메시지: fix: guard project code parsing and mute cancelled badges
+
+
+커밋: 724e8fb4d5b90a432a089f6ca56d5f22564b5da0
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:45:28
+메시지: style: align cancelled row badges vertically
+
+
+커밋: 1e08db7aa006720e10d3335ebb4fbaa7e72e8028
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:51:19
+메시지: style: unify badge vertical alignment in table
+
+
+커밋: 374f2b35b6b8116019586707a89de20b5fae2e0a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 13:57:02
+메시지: fix: mark badge types for table alignment
+
+
+커밋: 38bc97abe239ee14de8fab5632f4fef13bcb5879
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 14:13:44
+메시지: style: handle badge layout at base level
+
+
+커밋: a2a3f1a05b205c740414ec1ef47cb26c5cf361e7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 14:22:38
+메시지: style: ensure badges align vertically with cell content
+
+
+커밋: 17aae4285f28154f4a15b9a2bdcbd18f54788757
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 14:25:08
+메시지: style: adjust badge layout centering
+
+
+커밋: 896940ee332ddd07bc2a4b6100de787a927e721f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 14:26:02
+메시지: style: restore badge vertical alignment
+
+
+커밋: 6799a70c2b266fe72a2f12cd3585bfb5534e69f3
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 14:28:52
+메시지: style: normalize badge line height for table alignment
+
+
+커밋: e44988702eb49dba7b4becfda8c031e7af488d17
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 14:44:14
+메시지: style: offset table badges for visual centering
+
+
+커밋: 243839688cfbf06066c47ed25afd376afcc1bdbb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:07:35
+메시지: style: align accordion action buttons with edit controls
+
+
+커밋: be037a88e5cef86187c20c31ee3268edd3882863
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:14:57
+메시지: style: fine-tune accordion action button sizing
+
+
+커밋: 1f60b574642669cc23a60c138bd380b8e78822df
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:19:49
+메시지: style: scale accordion buttons proportionally
+
+
+커밋: 8f1d947639d2cb1af51da8f8ace89c8a7ff16f01
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:23:52
+메시지: style: tighten accordion button spacing
+
+
+커밋: e4af7e493a302160878df9346d5e647bdb8348dd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:25:57
+메시지: style: balance accordion button padding
+
+
+커밋: a78a7cbb4802b26024f326dae5feaef916bacf3d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:29:30
+메시지: style: nudge cancel icon for visual centering
+
+
+커밋: 51d2e3d6f2c77b1e8c5337d895a80f3351afaf6d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:33:43
+메시지: fix: prevent cancelled accordion color flicker
+
+
+커밋: c44f7f1e93cc467673ead95790306b4edf5da9a1
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:35:52
+메시지: fix: stabilize cancelled accordion visuals
+
+
+커밋: 681d76c107474c1da874c53cc95776d3f8b4f59b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:40:11
+메시지: fix: restore helper methods inside accordion class
+
+
+커밋: 2737607b6643daf8f90a5b540f1cd1f730207ad2
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:44:17
+메시지: style: restore cancelled accordion dimming overlay
+
+
+커밋: 263ca18cadd2f7637e564dfdebcfa16ea933d641
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:50:02
+메시지: style: soften cancelled accordion overlay
+
+
+커밋: 7d47e9b3a311520c4caf93c14054d0cfb2c30136
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:54:15
+메시지: style: apply cancelled overlay at accordion row level
+
+
+커밋: d1315fc1b0e1028b852a7fbc094060500617f600
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:57:29
+메시지: Revert: restore original cancelled accordion styling
+
+
+커밋: 2ac8e1777de9a8a1985c72feb22c2a378ebb8129
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 15:59:41
+메시지: fix: avoid flicker when opening cancelled accordion
+
+
+커밋: 93f7d17dc396dd1fa86a477168564b2f79ca3558
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-16 17:18:06
+메시지: refactor: stabilize cancelled accordion rendering
+
+
+커밋: 4931057232cb41095fabde46b7dafeade856e268
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-16 23:37:39
+메시지: feat: improve environment validation and config management
+
+
+커밋: 7542c9a765859b01f6d5aad7f2663b7bffbc092f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 00:17:21
+메시지: refactor: remove unused CSS feature flag system and fix UTF-8 encoding
+
+
+커밋: 57663476e8278d3f81efbe11bdbf0f17e9d2ee59
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 00:34:36
+메시지: fix: Windows 콘솔 CP949 인코딩 에러 해결
+
+
+커밋: 5b3d9636df9c23186184c9d704f378e5c75fbd42
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 02:24:55
+메시지: fix: 취소된 아코디언 스타일 및 호버 동작 개선
+
+
+커밋: 4e2186844b0e3db8cd740eff0e6ed1aa565d6a52
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 02:49:43
+메시지: feat: 공사 취소 UI 개선 및 정규식 적용
+
+
+커밋: afdd296ddce77e65be553fe7f74efd91c1747ae9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 02:52:43
+메시지: feat: 공사 취소 프로젝트 통합 편집 버튼 숨김
+
+
+커밋: 3fbf9064cca0ded77a766d9f0d2cf04289645d41
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 03:05:00
+메시지: feat: 공사 취소 버튼 UI 개선 및 편집 모드 버튼 제어
+
+
+커밋: bb71aaff5eae64ceee4cb60d858911025cef814c
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 03:08:48
+메시지: style: 마진율 폰트 두께 일관성 개선
+
+
+커밋: cd2fc85125e44d4b9a60acb7c4e1d169f8827769
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 03:14:38
+메시지: fix: align payment fields vertically in receivables mode
+
+
+커밋: 1310a9217f10353bd11ab52e1ea4d078f3d21eb4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 03:27:53
+메시지: refactor: improve cancel construction alert message
+
+
+커밋: 6dd547887b4ef2992034fca7c2fb006ce198cc76
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 03:33:47
+메시지: fix: add cancelled status to filter and status calculator
+
+
+커밋: 10db9ada88d0825941a6cad60554633098a8ac49
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 03:35:52
+메시지: refactor: reorder status filter dropdown for better UX
+
+
+커밋: 8d50a8acb169ae43000e093653a20bf4699b7c48
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 05:25:53
+메시지: feat: 프로젝트 단위 잠금 시스템 구현
+
+
+커밋: 33dcc22f6fc76a6f996ea95a7145f4e8047fab8f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 10:29:53
+메시지: fix: Windows UTF-8 인코딩 및 프로젝트 모달 총액 실시간 업데이트 개선
+
+
+커밋: 433ab3aba2ae07276615ee8a46961edb66d18bca
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 11:13:50
+메시지: refactor: remove unused components and fix amount calculation
+
+
+커밋: 155d080289068c5dacb4cd64941e0eeb019e98fb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 11:23:05
+메시지: fix: address expert review issues from commit 8d50a8a
+
+
+커밋: 9d14405e402d991ae9c6323c96b7f34a2a6e06e7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 11:27:01
+메시지: chore: remove accidentally added itglobal submodule
+
+
+커밋: de477ee28f97456c9751e4951b7e6621947a6c99
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 11:31:44
+메시지: fix: prevent heartbeat memory leak in destroy()
+
+
+커밋: f9cb3cca753e5df77dfa1d1bd46c62c4a97877b1
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 11:45:58
+메시지: feat: enhance project lock stability for production
+
+
+커밋: 477f4163f7652d56d3d861eca59ac03a9d9c9284
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 14:16:42
+메시지: 리팩토링: 잠금 해제 로직 중앙화 및 읽기 전용 워터마크 개선
+
+
+커밋: 4b8f5819ef7fd32d9e7b991a38cc6ef9bfdbdda7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 18:03:59
+메시지: feat: 사용자 상태 관리 기능 추가 (활성/비활성/퇴사 드롭다운)
+
+
+커밋: e764e4ea673ee0716a25d0793eb747402c3bede0
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 18:09:50
+메시지: chore: 퇴사자 마이그레이션 스크립트 추가
+
+
+커밋: c11320f007ee591c7ae756dda79b3b3cfeb83ea7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 18:31:30
+메시지: feat: 작업 로그 액션 및 필드명 한글화
+
+
+커밋: fded693e3fbd964e396293e3995a7de9363126e3
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 18:38:29
+메시지: fix: 사용자 상태 변경 시 메인 테이블 담당자 뱃지 자동 업데이트
+
+
+커밋: 0f5afbcd8cb6b775ce7c1493f6050cc92ca2c2a7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-17 18:55:04
+메시지: feat: 사용자 상태 변경 시 담당자 뱃지 실시간 업데이트 (새로고침 불필요)
+
+
+커밋: f3cfba2c13dfe4c55b0de60c8d94e6de1221db57
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 21:49:06
+메시지: security: /test-login 엔드포인트 제거 및 viewer 권한 정책 명시
+
+
+커밋: 8c7c779b0cc2db4c853d1d73759fc8f1fde3e3f5
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 23:14:20
+메시지: fix: resolve console errors and optimize initialization
+
+
+커밋: 228def0a11b620b25d642e68bb54122748b980ad
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 23:16:13
+메시지: fix: apply singleton pattern to FieldLockManager
+
+
+커밋: b6c46c50ea80cf992232dde8073e20c3e1e753a7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 23:22:08
+메시지: fix(critical): resolve double password hashing bug
+
+
+커밋: a9d3151b55ac7c4e2aee0afddc458eea50ea65b9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-17 23:58:57
+메시지: refactor: remove password-based authentication (Google OAuth only)
+
+
+커밋: cacd1370e981f122873cc7382188daea0fb00e17
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 00:10:15
+메시지: fix(critical): unify user database to single source of truth
+
+
+커밋: 1f11e33d31785807d3e5fe32d68b10448fd1b7a4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 00:35:55
+메시지: fix: complete database unification and remove broken dev-login
+
+
+커밋: a100d6fdf283bc5eab718f3e865e35be2fa23b78
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 00:59:59
+메시지: fix: prevent DoS attacks in audit logs API with input validation
+
+
+커밋: 1d800f8b86aad86c1d2c3cec0f38a5b25f7b04e4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 01:54:59
+메시지: fix: critical security improvements - session invalidation and duplicate name handling
+
+
+커밋: ea6f6d153b4b8efc280d520297d23e4fab7c7010
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 02:02:25
+메시지: perf: optimize audit logs and add user list pagination
+
+
+커밋: 66ab638cf6a265265e0fa2cfd1110c79b19ec226
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 02:22:27
+메시지: fix: complete session invalidation and document duplicate name limitation
+
+
+커밋: 531bf0082ddbd1364632bd5083bd736913fe0848
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 05:44:00
+메시지: build: update Vite build output with latest frontend changes
+
+
+커밋: 57096d6ec3d641559efc679545aa29120e520c5d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 05:54:09
+메시지: feat: add pagination to user management modal
+
+
+커밋: c7cec4a000ba8d9a05672266437b37d4afcc1847
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 21:25:10
+메시지: fix: update user modal pagination to 15 items and add proper styling
+
+
+커밋: 7071223d48165b56c1a61e9ccc2a648653f13fe4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 21:37:57
+메시지: feat: add refresh button animation and interaction feedback to user modal
+
+
+커밋: 7e149423fd30d199f612f3eb2745e0f56648463e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 21:54:38
+메시지: feat: add success/failure visual feedback to user modal refresh button
+
+
+커밋: 0a15edb3653d309d4224baa4a6df0fe7b82dd3d4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 22:39:40
+메시지: fix: show refresh feedback only when refresh button is clicked
+
+
+커밋: caea500855912d745a67df93fc6749ed4590cc9a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 22:50:43
+메시지: fix: show actual previous values in audit logs instead of hardcoded strings
+
+
+커밋: 8c55ecc4031429cd2c4c0023381cf69915cfefe0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-18 23:36:41
+메시지: fix: convert status values to Korean in audit logs
+
+
+커밋: 3b1a885c59fd48ac1ecf984635a31f6bf30854b8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 00:09:02
+메시지: refactor: remove legacy routes using non-existent update_project_data method
+
+
+커밋: 92ac67b8c30946a5d09b51e93e09f4bf058379bd
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 00:25:37
+메시지: fix: export socketio instance for real-time notifications
+
+
+커밋: 95dbc4c75aa45e1cacc5372a16d06ed754424f73
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 01:20:56
+메시지: refactor: remove unused InlineEditor and FieldLockManager dead code
+
+
+커밋: 8d50f9fed99ae5cc8566340f4a617e4c1e92734a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 04:48:54
+메시지: refactor: improve data consistency in collectAllChanges with debugging
+
+
+커밋: cad7174af0fa9a27a7eb0affb1ba4049861f8ec1
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 04:59:35
+메시지: feat: complete EditState integration for unified edit mode
+
+
+커밋: 5521409e0fc679d391c8221583fd7d35414a6d2c
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 05:14:38
+메시지: fix: complete EditState integration - fix critical field tracking issues
+
+
+커밋: 4988118335f5f3e45af1181a09b7e15a5eab074d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 05:30:17
+메시지: fix: integrate valueNormalizer into EditState and clean up debug logs
+
+
+커밋: de43c030a0bc871361ec8a6d2e9c0766a7f9648a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 05:44:28
+메시지: fix: resolve expert feedback - fix bill dropdown hardcoding and add DEBUG flags
+
+
+커밋: b3be0de07f84ca8c8b8f84000d90fc241ce633a1
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 06:30:32
+메시지: fix: complete unified edit mode - remove individual card editing
+
+
+커밋: 8b8c5fa260142712c6ba11969bbe5740fe995e92
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 06:45:54
+메시지: refactor: remove legacy InlineEditor references
+
+
+커밋: 0fa0d16473aa2ef0a802c9cc79ab59fc3ee71f2d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 07:02:06
+메시지: fix: EditState가 메모, 수금 날짜, 수금 확인 변경사항을 추적하도록 수정
+
+
+커밋: ad64480cbdce681955348d4ec261e54126a501f5
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 07:02:59
+메시지: refactor: remove debug logs from row switching confirmation
+
+
+커밋: b052289fdb1f734c319d97b26ca0aff50d9204db
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 07:15:40
+메시지: fix: complete EditState integration with change event listeners
+
+
+커밋: 3c63b87a3da60854f9f59796517a23a9dbd61c4b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 18:27:29
+메시지: feat: exclude resigned managers from filter dropdown list
+
+
+커밋: 227bc15ac5df3d6e3d04dca4a992441e747d8795
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 18:32:10
+메시지: fix: API response format for resigned managers
+
+
+커밋: ff7d545a4521920afb7416d65010797a42f2f05e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 18:38:17
+메시지: fix: correct resigned manager badge rendering
+
+
+커밋: af6df52d6d00812c8cc86eb29aca4d9b834d1bf2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 18:43:51
+메시지: feat: real-time filter dropdown update on user status change
+
+
+커밋: af4e3eec93595e2811c3c27a8bfa4d3bc8c0e8b9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 19:12:24
+메시지: fix: cancel edit mode on receivables mode toggle
+
+
+커밋: 27720a73c00cedf6736d525f2cf0b6e6b306c3d8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 19:17:51
+메시지: fix: properly handle edit mode cancellation on receivables mode toggle
+
+
+커밋: 533cff6dacf4e20974b01b3ac2f94e1766646445
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 19:23:08
+메시지: feat: maintain accordion state across receivables mode toggle
+
+
+커밋: 4b73b7a3bc537aebde807116c0f00e23d0eaf406
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 19:29:04
+메시지: fix: include memo changes in mode toggle confirmation
+
+
+커밋: 42df7e4ef3734f452eb40eb0ed1893c600d3e92f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 19:44:35
+메시지: fix: correct accordion instance reference in FieldMemoButton
+
+
+커밋: 6ce62c22945d5845679abf703163c85994b94bc0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 19:50:37
+메시지: fix: restore original memo values when discarding changes on mode toggle
+
+
+커밋: 0d0dd8a6ddea466e2d5a0835ed00ab7e5f646513
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 20:00:48
+메시지: fix: track memo changes in pendingMemoChanges during edit mode
+
+
+커밋: 51015516e911cbe4fba9c7d6e4defd60f34c5bd8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 20:59:41
+메시지: fix: critical bugs in edit mode lock management and state synchronization
+
+
+커밋: 30c92164f1dcd40279f5a465c02e38ab6db885dc
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 21:58:55
+메시지: fix: websocket event handlers using non-existent window.stateManager
+
+
+커밋: 9f41bdffefcc2b26b389a5e679f386958cf3f0a0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 23:08:09
+메시지: feat: implement A안 - EditState system hardening with initialization validation
+
+
+커밋: 48677c2e780091d91b7ddac330455f233279a74a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 23:25:33
+메시지: feat: add three UX improvements for edit mode safety and transparency
+
+
+커밋: 83a8e05e53e8861df91f7fed89609be0d48f3cda
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-19 23:37:07
+메시지: fix: eliminate duplicate error messages and improve UX feedback
+
+
+커밋: e1bb8ab406d1e6239d62ed178f44e234e6e84121
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-20 03:24:07
+메시지: feat: 모드 상수 정의 및 사용 예시 추가
+
+
+커밋: cdbbad69d1334791be0c53b7f5c3f0e28a10af28
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-20 03:56:27
+메시지: refactor: ModeManager 중앙 집중식 모드 관리 시스템 도입 및 메모리 누수 수정
+
+
+커밋: 0a1a719c137a45da4a8a8764f9c1c5e2231fdbe9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-20 04:18:04
+메시지: perf: 프로젝트 락 시스템 성능 개선 및 다중 탭 편집 차단
+
+
+커밋: 350f0ca0fa98215c723bb7715c10db6337b160e3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-20 04:31:28
+메시지: feat: 탭 ID 기반 다중 탭 차단 시스템 구현
+
+
+커밋: 54dacc599136f937abaf053b6f63d6d9154c81d0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-20 04:36:13
+메시지: fix: 잠금 해제 시 탭 ID 검증 추가로 완전한 탭 단위 격리 구현
+
+
+커밋: 35add505dcd733feb20735fdce772357f61171e8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-20 04:45:03
+메시지: chore: 개발용 테스트 파일 제거
+
+
+커밋: af43cda919e42cfcf35b30a6c238d8ee99bd463f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-20 04:49:08
+메시지: fix: 공사 취소/재개 시 필터링된 프로젝트를 찾지 못하는 버그 수정
+
+
+커밋: 351cec2d9ceb5bbe3ae99550b1f24ed957db90ea
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 10:36:42
+메시지: security: 보안 미들웨어 활성화 및 캐시 TTL 최적화
+
+
+커밋: 13dd2b2a23106e4a2c98f1c0b2e560691b87fffe
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 11:01:50
+메시지: perf: 캐시 TTL 30초→60초로 조정하여 API 호출 50% 절감
+
+
+커밋: 9d13aec49cc63ec5087ff88180c5aac2a8defece
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 11:41:16
+메시지: 통합: 사용자 DB 이중화 문제 해결 - instance/users.db로 단일화
+
+
+커밋: a1b4a1095b84b5145a8200c1ff771e4b7383cb17
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 11:48:20
+메시지: 통합: 프로젝트 코드 중복 생성 위험 해결 - DB 시퀀스 방식
+
+
+커밋: b58305c3df4e3206c8543237ba941a6f29e538d6
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 11:53:14
+메시지: 수정: 프로젝트 코드 번호 규칙을 기존 방식으로 복원
+
+
+커밋: 3fb2996b93f4b288c7a19daa8747cb9c5135bf57
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 11:57:59
+메시지: 정리: 미사용 회사 prefix 제거 (아이티)
+
+
+커밋: 0896d6865ec91240786f40e5afefc2591307cd38
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 12:29:53
+메시지: Fix critical project code sequence and database reference issues
+
+
+커밋: ffba3be1b57781ec1cfe8337a91911d6670c186c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 12:42:51
+메시지: Improve Google Sheets API consistency and remove OAuth hardcoding
+
+
+커밋: 8fa2996af09a201643fed610024bf3bca8b0cf8a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 12:49:46
+메시지: Fix OAuth redirect_uris type safety issue
+
+
+커밋: 87403a41a75a9df3cc01e79f0e596da5caa7ed32
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 13:24:52
+메시지: Fix remaining security and configuration issues
+
+
+커밋: cf2ba38587da3e6069bbef528d6272b6d8d12178
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 14:04:57
+메시지: Critical 이슈 3건 수정 및 종합 검토 보고서 업데이트
+
+
+커밋: 8b7d5e4965e67b4424f972c25e3a3d781f5d79b3
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 14:49:50
+메시지: Critical 이슈 4건 추가 수정 완료 (67% 감소: 12건 → 4건)
+
+
+커밋: 1df6cac7be2bb17746b8d6d74445a0ca0ed62d77
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 15:11:39
+메시지: HIGH Priority 이슈 11건 해결 (Phase 1 & 2 완료)
+
+
+커밋: 38cd4915fbbd27c7b2e46245e346abd46e6af010
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 15:46:02
+메시지: HIGH Priority 이슈 해결 (Phase 3): 보안 모듈 통합, API 응답/에러 핸들러 문서화
+
+
+커밋: 7924a26931c464864df501c38f276973091122a7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 16:05:14
+메시지: API 응답 포맷 표준 준수: api/v1/auth 엔드포인트 'ok' → 'success' 변경
+
+
+커밋: 213e3c675b91a38a0e96489dc91252c74561dd57
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 16:35:36
+메시지: 종합 검토 보고서 업데이트: api/v1/auth 응답 포맷 표준화 항목 추가
+
+
+커밋: f0e51317d686d1e67d46a0c0458950d87351f297
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 16:41:57
+메시지: 보고서 커밋 해시 완전 업데이트: 모든 '[진행 중]' 항목 해결
+
+
+커밋: 2b2e0cc3130bddc728c8ef4b144af11ef877e184
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 17:05:02
+메시지: Medium Priority 11건 해결 (Phase 4): API 표준화, 하드코딩 상수화, TEMP 코드 정리
+
+
+커밋: 43d7f62a5d5b8d10f19fdf52f91eb244a349adb3
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 17:22:12
+메시지: Critical 이슈 100% 완료: 백업 파일 14개 전체 삭제 (Phase 5)
+
+
+커밋: 6009c9555616d00bbb14c173774637e17a8419cb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 18:35:50
+메시지: 로그인 페이지 UI 개선 및 CSP 정책 수정
+
+
+커밋: 9f3ca51e7c8414080a9a36270e5af689e92e9a36
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-20 19:01:06
+메시지: 보안 미들웨어 개선: Rate limiting 완화 및 CSP 정책 수정
+
+
+커밋: f2d6ac4bd0fc1ef524d058d3cf2611875f0b043c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 09:05:54
+메시지: Windows 예약 파일명 제거 (nul)
+
+
+커밋: 5ab24b97c97e393d964bab31709b9d8bc6897178
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 09:20:33
+메시지: 전역 로거 유틸리티 추가 및 개발 모드 전용 로그 적용
+
+
+커밋: e4ea8d4e72af46987428cae580acdbc65729e093
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 09:29:23
+메시지: 보고서 업데이트: 2025-10-21 작업 내용 추가
+
+
+커밋: 1c1985783b23be92d991ddedb5a894af0afb4d91
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 09:31:45
+메시지: 보고서 수정: 어제(2025-10-20) 작업 내용 추가
+
+
+커밋: 0a7c1d5fdcbfe21995dbf4c67b7de93519202d87
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 11:12:26
+메시지: HIGH: 캐시 모듈 정리 완료 (cache_manager → smart_cache_manager 통합)
+
+
+커밋: 54cb1b283321954a258d6f570ceb760e29cc18f3
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 11:13:14
+메시지: MEDIUM: bare except 구문 10개 수정 (보안 강화)
+
+
+커밋: ac840948a57decbc5b3ff823804757a72d517b5f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 11:14:56
+메시지: MEDIUM: API 응답 포맷 통일 ('ok' → 'success')
+
+
+커밋: 8d64620670e78d9153c267800ce54db9216c4512
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 11:22:10
+메시지: refactor: TODO 코멘트 정리 및 JS logger 적용
+
+
+커밋: ea8db5d5b33646e6230bf90946c80fc81337495c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 11:47:47
+메시지: fix: 캐시 모듈 통합 버그 수정 및 API 응답 포맷 완료
+
+
+커밋: 5bc0e6a2691abdbdbca4cb110d89d1f5bd8c5a5c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 12:07:42
+메시지: fix: 프론트엔드 API 응답 포맷 동기화 및 logger 확대 적용
+
+
+커밋: f7604f2938a17fefd27681379eb86a8fe604f33d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 12:45:36
+메시지: fix: DEBUG_PROJECT_ACCORDION 정의되지 않은 참조 오류 수정
+
+
+커밋: e66de1863b61fd331dcc7b6e8a46e8d4efb3ba2f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 12:56:16
+메시지: refactor: console → logger 전면 전환 및 예제 파일 정리
+
+
+커밋: ffdc0919efa220d7a1ebbd71772d2db8ce048ad3
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 13:02:31
+메시지: fix: logger.js 순환 참조 제거 및 경로 수정
+
+
+커밋: bb0314966c7f46819d5607d902d79200081907a5
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 13:06:02
+메시지: docs: 보고서 업데이트 (35-39번 항목 추가)
+
+
+커밋: babced9f04c39a5cbd2eb877b03a4a15ca094c6f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 13:46:29
+메시지: fix: logger.js window 의존성 개선 (Node.js/SSR 환경 호환)
+
+
+커밋: 168b7a8ebca813cb3a218e204eec04a6d87d7849
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 13:49:59
+메시지: docs: 보고서 업데이트 (40번 항목 추가)
+
+
+커밋: c675d3bfd7605c70e75913dfb63b3c8706153241
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 14:25:01
+메시지: fix: 전문가 피드백 반영 - 6대 보안/안정성 개선
+
+
+커밋: f1652ea84801bd38ec3516832f2c54f96103b744
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 15:03:04
+메시지: feat: 전문가 피드백 반영 - 추가 개선사항 (3건 + 이중 리다이렉트 수정)
+
+
+커밋: 357835cdfa3a924430afda830dc0a18ff28f9193
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 15:14:45
+메시지: fix: authInterceptor의 isRedirecting 참조 오류 수정
+
+
+커밋: 7ae60bf28d8da6fda9d59cf677b74ce5afdf42ab
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 15:27:32
+메시지: docs: 코드베이스 재검토 보고서 완료 상태 업데이트
+
+
+커밋: a22c626bd80893a268361df123cae2838b396820
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 15:39:28
+메시지: docs: 전체 코드베이스 종합 검토 보고서 통합 (10-20 + 10-21)
+
+
+커밋: 0fdee757020cdb4b8445d1d10cd71d03a0b1c170
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 16:00:28
+메시지: refactor: 코드 품질 개선 (MEDIUM Priority 이슈 4건 해결)
+
+
+커밋: d4f10326964ef03c6d8ed566ec5084363afb5471
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 16:23:02
+메시지: fix(StateManager): 읽기 전용 window.projectsData 재할당 오류 수정
+
+
+커밋: 4b0bd521f8081dffed291997292d9752b179a387
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 16:49:50
+메시지: improve(ModernProjectModal): 닫기 버튼 UI 및 접근성 개선
+
+
+커밋: 59ead76755503d25bbcf119ee33731337365c80e
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 17:00:05
+메시지: fix: authInterceptor ES Module 로드 오류 수정
+
+
+커밋: 1bd7ecbeaa161a483fb5a407894e5fd59d0de700
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 18:02:51
+메시지: fix: WebSocket 오류 수정 및 UI/접근성 개선
+
+
+커밋: b3639e2829f58a488e4bc09a5750fa7ae0e3b3db
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 18:11:31
+메시지: fix: 아코디언 저장 후 null reference 오류 수정
+
+
+커밋: 01be21b38b5348ef8234ef23b8cf40b3961b50bb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-21 18:33:24
+메시지: fix: 프로젝트 코드 변경 시 편집 모드 정리 및 통화 파싱 개선
+
+
+커밋: 7a9863d7c64669a687624dd4c65ee0f10783843a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 20:46:55
+메시지: 전문가 피드백 대응 완료: 3건의 CRITICAL/HIGH 버그 수정 및 개발환경 개선
+
+
+커밋: 6509ecb1e28b967d1478c378b25eaff836541a1a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 20:56:37
+메시지: 전문가 피드백 추가 대응: CRITICAL/LOW 버그 2건 수정
+
+
+커밋: 5b252e568b29275e71ef34ea08f09130989a64e9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 21:00:39
+메시지: background_prefetch: future.cancel() 명시적 호출 추가
+
+
+커밋: aa0bea81d1a571620e5b2464d57ebcdab933122d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 21:04:54
+메시지: requirements.txt에 pytest 추가
+
+
+커밋: b3dc42e8d455a26d11b3538329ca58ba62ebd38d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 21:12:31
+메시지: 보고서 업데이트: 전문가 피드백 2차 대응 4건 추가
+
+
+커밋: 44c66ee7ceac4f9cd1151e1ec10ef032e55cb7f8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 21:35:19
+메시지: 테스트 정리: 오래된/망가진 테스트 제거 및 개선
+
+
+커밋: d15fa38761d7449013a17b96118b57ee196b0c9b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 21:50:03
+메시지: 테스트 정리: 100% 통과율 달성 (48개 테스트)
+
+
+커밋: e7bb60f90ba9535008e99daad9ec4870309fcd0a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 22:12:29
+메시지: 테스트 환경 개선: PyJWT 추가 및 GoogleSheetsManager 모킹
+
+
+커밋: 81c256521acb14220ad8824f7660c5f958d191eb
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 22:16:05
+메시지: 테스트 경고 제거: test_sheet_write.py 이름 변경
+
+
+커밋: f4a6a429f336f27c8f75a899f2e8dc5191e4fb60
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 22:44:10
+메시지: SecurityMiddleware 수정: 아코디언 편집 저장 오류 해결 (ERR_CONNECTION_RESET 수정)
+
+
+커밋: ac4a37af6612bcf164f3bc463bc9df057f01f8f1
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 23:15:22
+메시지: 보안 및 에러 처리 개선: 허용 필드 패턴화 및 Google Sheets 에러 메시지 강화
+
+
+커밋: dbed89129249e97b2a57149f4260e5452af06185
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-21 23:40:34
+메시지: 프론트엔드 보안 수정: 8개 API 호출에 credentials 추가
+
+
+커밋: 9b95130fd02096032776b55c3d8c8c60e5ae6f2f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:30:41
+메시지: 고객 리드 관리 시스템 백엔드 구현 (Phase 1/3)
+
+
+커밋: 84bb824161ea21582553f1190309eeb6facc2be7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:37:01
+메시지: 고객 리드 관리 프론트엔드 구현 (Phase 2/3)
+
+
+커밋: 81dc0942e65451d359f03118805681a749e14b7d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:37:28
+메시지: 헤더 메뉴 개선: 프로젝트 ↔ 고객 리드 전환 버튼 추가
+
+
+커밋: 1c697c6fddef791e37b64de91aa11abf0d3e2456
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:45:24
+메시지: 프로젝트-리드 통합: 리드 자동완성 및 상태 자동 업데이트 구현
+
+
+커밋: af9590bc27447eaf237f01e5bf6656df5ed7ba2e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:47:58
+메시지: 헤더 UI 개선: 새로고침 버튼 추가
+
+
+커밋: 4bf3e2fdf3aa21522cf89f2d0f8996819f996f50
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:50:20
+메시지: 공용 헤더에 고객 리드 버튼 추가 (파스텔 핑크 스타일)
+
+
+커밋: 3ee983fdbc791f8c4b404151eaaac7e25f2d3851
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:56:10
+메시지: 버그 수정: RequestContextLogger exc_info 파라미터 처리 오류 해결
+
+
+커밋: aa8d2ecc27b1a55f5ad6ebfa314b97c9b329cbb4
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 03:59:37
+메시지: 버그 수정: leads 블루프린트 에러 핸들링 개선
+
+
+커밋: d49f9b4833b0bfe87a5477a683327c0f87a5d7b3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 04:13:49
+메시지: 버그 수정: Google Sheets 불완전한 행 처리 및 리드 캐시 전략 수정
+
+
+커밋: 780a1e98447499d88947908b2f5f8ee3a8fd4e09
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 09:08:32
+메시지: build: leads 페이지 번들 생성 및 manifest 업데이트
+
+
+커밋: ef163bdbdce242c41c316ae1ad03452149e10d4c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 09:14:07
+메시지: fix: leads.js 동적 로드 시 초기화 실행되도록 수정
+
+
+커밋: 4c9bca0f3a5a0b80d4c092e7b22aeab50101003d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 09:19:43
+메시지: fix: leads.py API 응답 함수 수정
+
+
+커밋: 8a93e27fbdc8766ef3d7f5db05c92c93b5e46a78
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 09:21:01
+메시지: fix: CSP에 cdn.datatables.net 추가
+
+
+커밋: 74055b7f29b139ef28a063ade188536c41bb6b75
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 09:24:40
+메시지: refactor: DataTables 한국어 설정을 인라인으로 변경
+
+
+커밋: 16ceb4cfcdec33e79fa35581fc232a0a09dff63c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 09:28:33
+메시지: fix: leads.js API 응답 구조에 맞게 데이터 접근 경로 수정
+
+
+커밋: c62a2ea5c0dab2b08a38d9d260dd08d57db6484f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 14:28:51
+메시지: feat: integrate Google Calendar with project lifecycle
+
+
+커밋: df16ea2cb25c4c00e0a4b36eec1d3aec3228d665
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 14:41:59
+메시지: fix: Google Calendar OAuth state 관리 로직 단순화
+
+
+커밋: 8fc2bae58c610919e4bc2d84ccd723f9e5b83439
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 15:07:27
+메시지: feat: integrate Google Calendar OAuth with login flow
+
+
+커밋: 3b175707ba14b6425bcdab36697f2dfa3b8b7f83
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 16:31:27
+메시지: perf: 모달 로딩 성능 최적화 - API 호출 제거 및 데이터 재사용
+
+
+커밋: 278c32e005a7f94a063609d32188b67ac13b983b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 17:29:54
+메시지: perf: 신규 프로젝트 모달 성능 최적화 - API 호출 완전 제거
+
+
+커밋: aeeb3c1fe7604c319b2a39bb5aeb0a5cbe13b8c1
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-22 18:21:34
+메시지: feat: 프로젝트 코드 시퀀스 자동 동기화 구현
+
+
+커밋: c47da789b1601d16ed1ec26edbe4c7ac3ec829eb
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-22 23:49:05
+메시지: 편집 UX 개선: 드롭다운 줄바꿈 및 편집 중 새로고침 차단
+
+
+커밋: e81d8b741e00ad8eeeafbb9d067d76974587df77
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-23 00:44:39
+메시지: 리드 페이지 DataTables 컬럼 불일치 오류 수정
+
+
+커밋: 3a89d887c627b86366fc71a05c1e9ea7c581630d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-23 03:19:34
+메시지: 리드 모달 UI 개선: 프로젝트 모달과 동일한 스타일 적용
+
+
+커밋: 9a4238d914b5b170063ab4df16f45ef9dcb2cf0c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 09:15:51
+메시지: fix: stateManager.currentData도 실시간 업데이트하도록 수정
+
+
+커밋: 9ef7df84b51d5bbceabcd82a592438f5a1c3bab0
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 09:57:32
+메시지: fix: 세션 연장 기능 개선 - login_time 실제 갱신
+
+
+커밋: d727b09283b3cc7be633632165f26afc3543a1a2
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 10:08:49
+메시지: config: 무활동 세션 타임아웃 30분 → 1시간 변경
+
+
+커밋: 5962ab3708e9f47b05006f8f14f568c6f7aa7a6c
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 10:12:47
+메시지: fix: 리드 페이지 FullCalendar 초기화 오류 수정
+
+
+커밋: 26831533fc1324e9c10b1a8ec61384aac8d99459
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 10:17:13
+메시지: fix: 리드 페이지 불필요한 CSS 번들 경고 제거
+
+
+커밋: 4ca8c22d0d99b53365baa4165f2dd27578371a27
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 10:22:07
+메시지: fix: 리드 페이지 캘린더 초기화 에러 방어 코드 추가
+
+
+커밋: 8c9fa0c353d9ea835f3121da419943a56844f757
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 11:24:32
+메시지: refactor: 코드 리뷰 지적사항 4개 수정 (보안/안정성/접근성)
+
+
+커밋: 20c4ccfc697ba9ea5667e0e2851d060f355d94ba
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 11:46:35
+메시지: refactor: 리드 관리 필터 시스템 프로젝트 관리 패턴으로 통일
+
+
+커밋: abfce2f436c8999b3a8338db183cb587c267773b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-23 17:45:10
+메시지: fix: 리드 페이지 세션 만료 처리 및 inline 핸들러 수정
+
+
+커밋: ffc78509b6e4598a39ae57d5b8ea5cfbdda50dc3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-23 19:28:57
+메시지: frontend_helpers 개선: CSS 번들 찾기 로직 추가
+
+
+커밋: 48dedcbe3fe244670838a0e839af4ec7110508fe
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-23 20:36:43
+메시지: 보안 강화: OAuth Client Secret을 .env에서 제거하고 JSON 파일로 이관
+
+
+커밋: 9251ea8375c8e2fa4af7c067b8fc085d16ea6dd6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-23 23:24:53
+메시지: UX 개선: 색상 통일 및 버튼 디자인 파스텔 톤 적용
+
+
+커밋: dde5d30b120b226ad58ce8f9ae216a45555ca0f2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 01:43:40
+메시지: Google Calendar 이벤트 형식 개선
+
+
+커밋: a593549afe70f8421d49689c1602215509d8a6a8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 01:46:33
+메시지: 통합편집 최적화: Batch Update API + 행 찾기 캐싱
+
+
+커밋: f94a7e2f8b3558d4a9e953cfe51b4ebd47f3f89b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 02:17:38
+메시지: 통합편집 메모 저장 Batch Update 적용 - 최대 75% 속도 개선
+
+
+커밋: 8469bf144e16c7d2923da9c3298e78e08e26c44d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 05:01:10
+메시지: WIP: 통합편집 저장 후 화면 깜빡임 개선 작업
+
+
+커밋: 02246532483ea8840ad3e7771fc072a2cc98f542
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 05:03:40
+메시지: Revert: setTimeout(500ms) 복구 - UX 피드백 유지
+
+
+커밋: f2e452004055cc1e0423e703e38346a0f6629e5e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 05:06:48
+메시지: Fix: Vite Flask 포트를 5000으로 복구
+
+
+커밋: e8b30b8808afac440797ceb036e716738d1918cc
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 10:33:30
+메시지: fix: 전문가 코드 리뷰 지적사항 2개 수정
+
+
+커밋: e59ab1cf0dccb19a19acf6a53398f9967e8f653d
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 10:41:46
+메시지: refactor: range_name 형식 정규화 방어 로직 추가
+
+
+커밋: e39501ef33db420aaa15b743d1348028ced8a552
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 10:45:31
+메시지: fix: 하드코딩된 시트명을 환경 변수로 변경
+
+
+커밋: b3569e1e8fb8d02e7628dfa99c3adf9622a29875
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 11:01:58
+메시지: fix: 통합 편집 저장 후 메모 아이콘 오류 수정
+
+
+커밋: cb3091a780a925a965d849e936e59bcf04dd87ef
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 11:13:33
+메시지: fix: 금액 없을 때 메모 아이콘 표시 안 되도록 수정
+
+
+커밋: 9652640928ad362c330cd2273c406891b2fa17cb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 11:15:53
+메시지: fix: 메모 아이콘 색상 일관성 개선 (초록색 통일)
+
+
+커밋: 4e6b5ac0fa320204bcaaf942acc32fd71880eaf7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 11:18:08
+메시지: refactor: 인라인 스타일을 Bootstrap 클래스로 변경
+
+
+커밋: 6aa0bc67f3635892a094d83e06d7d3de03f3d05b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 11:27:29
+메시지: fix: 메모 아이콘 금액 판별 로직 개선 및 툴팁 추가
+
+
+커밋: e7eeff4e61c90ea924eabfd934ca6549fd9bebe8
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 12:02:34
+메시지: perf: Google Sheets API 호출 최적화 (3가지 개선사항)
+
+
+커밋: 6c3978d50604677e61319f4245a72b90b23b685b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 13:34:39
+메시지: fix: 메모 필드 저장 시 깜빡임 제거 (fallback 로직)
+
+
+커밋: aed325384808a5c438c1d8822c1183563b690628
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 13:41:52
+메시지: fix: ?? → || 연산자 변경으로 빈 문자열 fallback 처리
+
+
+커밋: 9b06928021ff5861806fd03333193a6324e5f845
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 14:06:21
+메시지: fix: 저장 후 1초 딜레이 제거로 깜빡임 완전 차단
+
+
+커밋: ec9873e4b68f9a3277a184adc8c63171a92a10a4
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 14:23:45
+메시지: perf: 통합 편집 모드 저장 후 setTimeout 500ms 딜레이 제거
+
+
+커밋: 14a3d37b4bb7176b91facbedac25ea23fa458546
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 14:58:57
+메시지: fix: DOM 업데이트 순서 수정하여 null.classList 오류 방지
+
+
+커밋: 7eb20c96accb77e252490216de0696e058e571c6
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 15:28:16
+메시지: feat: 통합 저장 실패 시 상세 에러 로그 추가
+
+
+커밋: e6fa7fda50653bad3f946d67b51934172586b27a
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 16:59:30
+메시지: feat: Google Calendar 역방향 동기화 스케줄러 구현
+
+
+커밋: 71bba2f1fbc8216b9435fd1160d8cf1aa826ee79
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 18:12:46
+메시지: 수금 관리 모드 아이콘 간격 및 툴팁 영역 정리
+
+
+커밋: 8bdf563ecb4529e88dfe053b6afde24eb6ba07b6
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 18:24:13
+메시지: 아코디언 메모 아이콘 툴팁 일관화
+
+
+커밋: 565db1e6698d68788ae498fc1295423b155ec063
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 18:45:02
+메시지: 아코디언 뷰 계산서 아이콘 툴팁 정렬 및 여백 조정
+
+
+커밋: 77347dc6190273d7ac24c2635779c93b8eb6c93f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-24 19:10:59
+메시지: WIP: 아코디언 뷰 메모 아이콘 여백 조정 (미완료)
+
+
+커밋: 41c9422f63f48b29665d6242023f4c353833cea6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 22:36:16
+메시지: 수금 메모 아이콘 여백 및 정렬 보정
+
+
+커밋: 36e8f516727a86c3cd73d072ef8188f2856cb8ae
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 22:36:46
+메시지: Revert "수금 메모 아이콘 여백 및 정렬 보정"
+
+
+커밋: f497431e9b9ce9b4c579cba8c28a5fae431532fc
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 22:37:51
+메시지: 수금 메모 아이콘 여백 및 정렬 개선
+
+
+커밋: eba117ea0dca686eef05854be54f1659023fc808
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 23:36:38
+메시지: 아코디언 편집 취소 후 툴팁 재초기화
+
+
+커밋: fd4592d13e925af8635bad6c01986739b4a70034
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 23:37:09
+메시지: Revert "아코디언 편집 취소 후 툴팁 재초기화"
+
+
+커밋: 2be9a3cb81fbf145bd82dc9d4cea098b6cdb39f0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-24 23:38:19
+메시지: 아코디언 편집 취소 후 툴팁 재초기화
+
+
+커밋: d45ec0295049e98cdea1f1cc355a1d4bb4ed13d6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-25 02:12:58
+메시지: fix: 캘린더 날짜 하루 앞당겨짐 버그 및 캐시 무효화 추가
+
+
+커밋: 311cadead8ed2f1696dd205061f813e5f6a76d1f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 04:27:27
+메시지: feat: 공사 시작/종료일 양방향 동기화 구현 (시트 master 정책)
+
+
+커밋: c76b7d8ee519a6ad5cca529202880c2345654e7e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 04:37:10
+메시지: fix: 양방향 동기화 런타임 오류 수정 (ImportError, AttributeError)
+
+
+커밋: 6d1840e58e4e303e155d54e66a81a905d6657bb0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 04:40:18
+메시지: perf: 양방향 동기화 성능 최적화 - 시트 데이터 중복 로드 제거
+
+
+커밋: 3a2dab6d47d8109fe6ec5596673b806de0dc0f99
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 04:47:42
+메시지: perf: 프로젝트 조회를 O(N)에서 O(1)로 최적화 - dict 사용
+
+
+커밋: dc3fe4c8b6cba361666afffef0d29bdbbdf6342d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 04:49:37
+메시지: fix: dict 생성 시 KeyError 방지 로직 추가
+
+
+커밋: 58ca0cf249307f739aa7b81c1ef36169d78af198
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 04:57:32
+메시지: feat: 공사 날짜 양방향 동기화 구현 (캘린더 ↔ 시트)
+
+
+커밋: a2319f7df56675f098b013411513f8f46116261a
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 05:01:44
+메시지: fix: DB 매핑 손상 버그 수정 - calendar_id 올바르게 유지
+
+
+커밋: bc0e0b471ccb91d6b95f46bc46c09afaf44a1097
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 05:04:46
+메시지: fix: naive vs aware datetime 비교 오류 수정 - 양방향 동기화 복구
+
+
+커밋: 4cd2c55bcb10417bfe1ccf504eea5c43ab48717d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 05:07:27
+메시지: refactor: DB 시간 파싱에 Z 포맷 대비 추가 (방어적 코딩)
+
+
+커밋: e781ecd0c66d85aabaeef895146abef941d07a92
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 05:11:28
+메시지: refactor: 캘린더 삭제 시 날짜 필드를 빈 값 대신 '-'로 저장
+
+
+커밋: bfc27e446713ea71ea8cb9cc3d066794c0867cf2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 05:14:16
+메시지: revert: 날짜 필드 '-' 저장 취소 - 빈 문자열로 복원
+
+
+커밋: 40f4b1caa7f41cea6a9e90ff2727754a1b3c138d
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 17:51:56
+메시지: fix: OAuth refresh token 검증 + 자동 갱신 로직 추가
+
+
+커밋: 83ed0e81d100a3ebb209d03347bc8b730f53f058
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 18:49:42
+메시지: feat: 수동 캘린더 동기화 버튼 추가
+
+
+커밋: 1ff0be70c49f2cfb464ed70653ce5f77b44e6782
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 19:10:23
+메시지: fix: ProjectRowAccordion.js 중복 변수 선언 제거
+
+
+커밋: 102643587f28b289d8c520f31b9896d00eff2a1e
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 19:20:04
+메시지: fix: 캘린더 동기화 버튼을 modern_project_list.html에 추가
+
+
+커밋: 147e9f7e18a609865a1168f16ef170847bf85296
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 19:58:00
+메시지: fix: 캘린더 동기화 버튼 위치 조정 및 새로고침 버튼 수정
+
+
+커밋: 0adb0db972619f5e0b049f0ca587a81e1eb05af1
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-26 20:29:59
+메시지: refactor: CalendarSyncScheduler 공개 API 추가 및 전역 인스턴스 사용
+
+
+커밋: d9cd2875a858aad645380b74d5e3c19230affe9b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 03:14:36
+메시지: 새로고침 버튼 강화: 2단계 캐시 클리어 (서버 + 클라이언트) 구현
+
+
+커밋: 3dcd1241700090b809b944f7ff51492ed8424821
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 03:17:58
+메시지: Fix: fullRefresh() 서버 캐시 삭제 실제 동작하도록 수정
+
+
+커밋: aa8dba8c4744e44c68bc8c463f4bf635231fa6d6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 03:21:02
+메시지: Fix: 보안 미들웨어 통과를 위한 JSON 헤더 추가
+
+
+커밋: cfb7c32c88964f29b99e20d57a4d1e2e7fbb9aed
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 03:23:59
+메시지: UX 개선: 새로고침 버튼에 로딩 애니메이션 및 시각적 피드백 추가
+
+
+커밋: e7864e5948abe66b6202a4567f51db2296d155a3
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 03:35:03
+메시지: Fix: ButtonStateManager 통합하여 성공 시 초록색 피드백 추가
+
+
+커밋: 5841d0258132d42998c48bb321af3cbfdd3e10f8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 03:36:45
+메시지: Style: 버튼 색상을 원래 초록색으로 복원
+
+
+커밋: 474b17124b8b17b0283363c8cca0ab4d8fc63e04
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 03:38:58
+메시지: UX 일관성 개선: 캘린더 동기화 버튼도 ButtonStateManager 적용
+
+
+커밋: 03ff4cad047405d7ac4ff8a9ecf9e4956f5d2bd2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 04:04:55
+메시지: sync_sequence.py: DB 시퀀스 강제 동기화 기능 추가
+
+
+커밋: fbe71221992a52bd4508eda56c1bf31d77decc65
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 04:08:42
+메시지: ProjectRowAccordion: cardTypes 변수 참조 오류 수정
+
+
+커밋: ac0a48826f0d44c83302998f885930504cc0cffb
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 04:12:41
+메시지: ProjectRowAccordion: projectChanges 스코프 오류 수정
+
+
+커밋: acf44d07c31b9387dcf6b308b19b0d0338eafa01
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 04:17:54
+메시지: security_middleware: 금액 필드 빈 문자열 허용
+
+
+커밋: 183d4a78b3c207bbc3c45c4d780059f36b5c26a0
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 04:39:34
+메시지: 보안 미들웨어 개선: Boolean 필드 검증 지원
+
+
+커밋: e0d03db7991485901f21eb6d1adf8b3cfab2f317
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 09:06:11
+메시지: gitignore: .claude/settings.local.json 추가
+
+
+커밋: 425a2c11021d6f40ba850e0b84721bee3b33cdb7
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 10:31:00
+메시지: fix: 수금 날짜 필드 금액 검증 제외
+
+
+커밋: 823a6bd795cf423f3659a46ffaeed3f77cfea290
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 10:44:59
+메시지: refactor: 보안 미들웨어 정책 완화로 사용성 개선
+
+
+커밋: db96fce660468e54636b486bc11090c8cc069bff
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 10:59:03
+메시지: fix: 전화번호 검증 패턴을 9자리로 완화하여 서울 02번호 허용
+
+
+커밋: 948ffaa2c315ddc4a1eedceaa62397ee828b1a55
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 11:32:11
+메시지: feat: 검증 실패 시 구체적인 에러 메시지 표시로 UX 개선
+
+
+커밋: b66c89bac50749230ac71ec0ed5a0747e8bbae1f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 11:43:59
+메시지: fix: 전문가 피드백 반영 - thread-safety 및 에러 메시지 UX 개선
+
+
+커밋: 8d69c8aee400c378cba72c854f4c4741b81642cb
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 13:28:49
+메시지: perf: Flask-Compress 및 응답 캐시 헤더 최적화
+
+
+커밋: 6b3cfae2dcca5252a5637f8b1cc9b71cc54ae2be
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 13:43:52
+메시지: fix: 브라우저 캐시가 작동하도록 timestamp 파라미터 조건부 사용
+
+
+커밋: 0c594666138817c0388289245074929af80bf843
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 15:05:56
+메시지: refactor: 아코디언 저장 시 깜빡임 제거 및 렌더링 최적화
+
+
+커밋: a894244394a67396f5a54b0fe2cdfb2faa4cbe05
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 16:26:35
+메시지: perf: 프로젝트 저장 API 성능 최적화 (1분 → 2-3초)
+
+
+커밋: 61d38e42e306f6eb1f4aedecd7116d47702bb6dd
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 16:37:42
+메시지: fix: 프로젝트 저장 후 계산 필드 값 정확성 보장
+
+
+커밋: e90491460eb4c6f2cc1b76a7957e85eed2b487ee
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 16:41:25
+메시지: fix: fresh_values 컬럼 패딩 추가 (IndexError 방지)
+
+
+커밋: cbeabb9131c90fb5971ec5711c924dd0e6a71bda
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 16:56:45
+메시지: fix: 아코디언 저장 시 편집 모드 정리 순서 수정
+
+
+커밋: 5e1785ca23b3160f2cf49f8c9bb9ed5352ddcf9b
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 17:07:29
+메시지: fix: 저장 시에도 editing 클래스 제거 추가
+
+
+커밋: c2f711aab12b760785090ff08bd8dd6161410e8f
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 18:37:50
+메시지: fix: 수금 카드 값이 "-"로 표시되는 문제 수정
+
+
+커밋: f8ccabbacc7261a9a24184b1c77e5ce9f9f7bfee
+작성자: KiKO <kiko@company.com>
+날짜: 2025-10-27 18:44:34
+메시지: build: 수금 카드 버그 수정 반영
+
+
+커밋: f5976e4d6bdb551d3b8e4bf873efe41bceba9965
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-27 20:16:15
+메시지: fix: 아코디언 저장 시 깜빡임 완전 제거 - DOM 직접 업데이트 방식 적용
+
+
+커밋: 389b81dc37b8fe5d84e036dea1cb44da92d8cf88
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 00:11:47
+메시지: refactor: DOM 직접 업데이트 제거, draw + reopenAccordion 방식으로 전환
+
+
+커밋: 06fee011721348e724ca45217e9c976ded6f5ce2
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 02:11:32
+메시지: fix: 메모 아이콘 색상 로직 수정 - 금액이 있으면 항상 초록색 표시
+
+
+커밋: 45841687109f0279b689b97d4a1750577c981397
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 02:22:23
+메시지: fix: 수금 확인 뱃지 저장 후 깜빡임 제거 - normalizeStatus 적용
+
+
+커밋: 11325df7e70723b1eeb58273f7035c922e8124a9
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 02:25:46
+메시지: fix: 아코디언 체크박스 동기화 로직에 normalizeStatus 적용
+
+
+커밋: d3f50b6765fd7ef575c6f7ec0b887582e175a38c
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 02:28:18
+메시지: refactor: 부가세 필드도 createBadge로 통일하여 일관성 강화
+
+
+커밋: 59b911a661fb6489672cab26b87c135913a6b271
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 02:44:31
+메시지: fix: 내 프로젝트만 보기 필터를 이메일 기반으로 수정하여 정확성 개선
+
+
+커밋: affca9605be92fbc3227029d6149dcaad0dc1f2b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 02:48:11
+메시지: fix: 폴백 로직에 실제 사용자 이름(userDisplayName) 추가하여 레거시 호환성 완성
+
+
+커밋: 620782643c9321378186acdb7eedabdb1d6b3f2f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 03:14:01
+메시지: 레이스 컨디션 수정: 무효화 마커 시스템 + 백그라운드 리프레시
+
+
+커밋: e16b3e6c5f59470b8ee9671aef8c5ed03b199e2f
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 03:23:51
+메시지: 레이스 컨디션 완전 수정: fetched_at 파라미터로 모든 경로 보호
+
+
+커밋: 56cc41ff571ac785302aa497e064e7ecf55c4907
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 03:46:07
+메시지: 저장 후 음수/빈 값 표시 문제 해결
+
+
+커밋: e11e2b118a67d851f0f7bfaac2aa7a91946564c7
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 03:50:56
+메시지: 백그라운드 리프레시를 스마트 재시도 로직으로 개선
+
+
+커밋: 9d10e2b90be68d145da5b545816b9e57bc2e9faa
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 03:55:24
+메시지: 스마트 재시도 로직 완전 수정: skip_cache 플래그 추가
+
+
+커밋: 0aa3c2e3f58a655e82cf05e04c2b96ce24f4f46b
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 04:10:05
+메시지: 백엔드 계산으로 단순화: 미수금/순익/마진율 직접 계산
+
+
+커밋: 1d6726b53e6e453a75f6a233a206fe8d35614a5c
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 04:14:33
+메시지: 마진율 소수점 1자리로 제한
+
+
+커밋: 109d9b59506300436a9850230b0bb9407c2ecd17
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 04:24:14
+메시지: 백엔드 계산 완전 독립: Google Sheets 수식 의존성 제거
+
+
+커밋: b3b98c72c185813055b94e554de3899875a943d6
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 04:32:12
+메시지: 부가세 플래그 기반 총액2 계산으로 수정
+
+
+커밋: f8733757f47e81aecd54d9e8f249e8bdf565d864
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 04:36:46
+메시지: 백엔드 응답 포맷 수정: 숫자 그대로 전달
+
+
+커밋: a2e9265a94d85a83136bb7be6c6578a03e0937d8
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 04:51:06
+메시지: 일관성 수정: 미수금/순익 볼드 처리 fw-semibold로 통일
+
+
+커밋: fbe6be4f63dbfc69a1f952738589437ff0154b24
+작성자: KiKO <kiko9987@gmail.com>
+날짜: 2025-10-28 05:03:42
+메시지: 큰 zip 파일 제외 설정 추가
+
+
