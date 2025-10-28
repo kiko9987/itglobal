@@ -45,6 +45,11 @@ class SimpleCache:
     - TTL은 Redis가 자동 관리
     - 무효화 마커도 Redis에 저장
     - 인터페이스는 그대로 유지
+
+    개선사항 (Priority 4):
+    - 캐시 히트/미스 메트릭 추가 (Redis 기반)
+    - 배치 연산 지원 (pipeline)
+    - 캐시 워밍 기능 추가
     """
 
     # 전략별 TTL (초) - 실시간성과 API 효율성 균형
@@ -57,9 +62,40 @@ class SimpleCache:
         CacheStrategy.METADATA: 600        # 10분 (메타데이터 - 담당자, 사업자, 거래처)
     }
 
+    # 메트릭 키 (Redis에 저장)
+    METRIC_HIT_KEY = "cache:metrics:hits"
+    METRIC_MISS_KEY = "cache:metrics:misses"
+    METRIC_RESET_KEY = "cache:metrics:reset_at"
+
     def __init__(self):
         self.redis = get_redis_client()
         self._lock = threading.RLock()  # 로컬 동기화용 (Redis는 자체적으로 원자적)
+        self._initialize_metrics()
+
+    def _initialize_metrics(self) -> None:
+        """메트릭 초기화 (최초 1회만)"""
+        try:
+            if not self.redis.redis.exists(self.METRIC_RESET_KEY):
+                self.redis.redis.set(self.METRIC_HIT_KEY, 0)
+                self.redis.redis.set(self.METRIC_MISS_KEY, 0)
+                self.redis.redis.set(self.METRIC_RESET_KEY, str(time.time()))
+                logger.info("캐시 메트릭 초기화 완료")
+        except Exception as e:
+            logger.warning(f"메트릭 초기화 실패 (무시): {e}")
+
+    def _record_hit(self) -> None:
+        """캐시 히트 기록"""
+        try:
+            self.redis.redis.incr(self.METRIC_HIT_KEY)
+        except Exception:
+            pass  # 메트릭 실패는 무시
+
+    def _record_miss(self) -> None:
+        """캐시 미스 기록"""
+        try:
+            self.redis.redis.incr(self.METRIC_MISS_KEY)
+        except Exception:
+            pass  # 메트릭 실패는 무시
 
     def get(self, key: str, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA) -> Optional[Any]:
         """캐시에서 값 가져오기
@@ -83,6 +119,7 @@ class SimpleCache:
 
             if value is None:
                 logger.debug(f"캐시 미스: {key}")
+                self._record_miss()
                 return None
 
             # bytes이면 pickle 역직렬화 시도
@@ -90,13 +127,16 @@ class SimpleCache:
                 try:
                     deserialized = pickle.loads(value)
                     logger.debug(f"캐시 히트 (pickle): {key}")
+                    self._record_hit()
                     return deserialized
                 except (pickle.PickleError, Exception) as e:
                     logger.warning(f"pickle 역직렬화 실패: {key}, error={e}")
                     # 실패 시 None 반환
+                    self._record_miss()
                     return None
 
             logger.debug(f"캐시 히트: {key}")
+            self._record_hit()
             return value
 
         except ServiceUnavailable:
@@ -306,21 +346,199 @@ class SimpleCache:
             logger.error(f"Redis 장애로 캐시 정보 조회 실패: {key}")
             return None
 
+    def get_metrics(self) -> Dict[str, Any]:
+        """캐시 메트릭 조회
+
+        Returns:
+            메트릭 딕셔너리 (hits, misses, hit_rate, reset_at)
+        """
+        try:
+            hits = int(self.redis.redis.get(self.METRIC_HIT_KEY) or 0)
+            misses = int(self.redis.redis.get(self.METRIC_MISS_KEY) or 0)
+            reset_at_str = self.redis.redis.get(self.METRIC_RESET_KEY)
+
+            total = hits + misses
+            hit_rate = (hits / total * 100) if total > 0 else 0.0
+
+            return {
+                'hits': hits,
+                'misses': misses,
+                'total': total,
+                'hit_rate': round(hit_rate, 2),
+                'reset_at': reset_at_str,
+                'timestamp': time.time()
+            }
+
+        except Exception as e:
+            logger.error(f"메트릭 조회 실패: {e}")
+            return {
+                'hits': 0,
+                'misses': 0,
+                'total': 0,
+                'hit_rate': 0.0,
+                'reset_at': None,
+                'timestamp': time.time()
+            }
+
+    def reset_metrics(self) -> None:
+        """메트릭 초기화"""
+        try:
+            self.redis.redis.set(self.METRIC_HIT_KEY, 0)
+            self.redis.redis.set(self.METRIC_MISS_KEY, 0)
+            self.redis.redis.set(self.METRIC_RESET_KEY, str(time.time()))
+            logger.info("캐시 메트릭 초기화 완료")
+        except Exception as e:
+            logger.error(f"메트릭 초기화 실패: {e}")
+
+    def mget(self, keys: list, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA) -> Dict[str, Any]:
+        """여러 키를 한 번에 조회 (배치 연산)
+
+        Args:
+            keys: 조회할 키 리스트
+            strategy: 캐시 전략 (사용 안 함, 하위 호환성)
+
+        Returns:
+            {key: value} 딕셔너리 (존재하지 않는 키는 제외)
+        """
+        if not keys:
+            return {}
+
+        try:
+            cache_keys = [f"cache:{key}" for key in keys]
+            values = self.redis.redis.mget(cache_keys)
+
+            result = {}
+            for key, value in zip(keys, values):
+                if value is not None:
+                    # pickle 역직렬화 시도
+                    if isinstance(value, bytes):
+                        try:
+                            result[key] = pickle.loads(value)
+                            self._record_hit()
+                        except (pickle.PickleError, Exception):
+                            self._record_miss()
+                    else:
+                        result[key] = value
+                        self._record_hit()
+                else:
+                    self._record_miss()
+
+            logger.debug(f"배치 조회: {len(keys)}개 요청, {len(result)}개 히트")
+            return result
+
+        except ServiceUnavailable:
+            logger.error(f"Redis 장애로 배치 조회 실패")
+            raise
+
+    def mset(self, items: Dict[str, Any], strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA,
+             custom_ttl: Optional[int] = None) -> None:
+        """여러 키를 한 번에 저장 (배치 연산)
+
+        Args:
+            items: {key: value} 딕셔너리
+            strategy: 캐시 전략
+            custom_ttl: 커스텀 TTL (선택사항)
+
+        Note:
+            모든 키에 동일한 TTL이 적용됩니다.
+            Redis Pipeline을 사용하여 성능 향상
+        """
+        if not items:
+            return
+
+        try:
+            ttl = custom_ttl or self.TTL_MAP[strategy]
+
+            # Redis pipeline 사용 (원자적 배치 연산)
+            pipe = self.redis.redis.pipeline()
+
+            for key, value in items.items():
+                cache_key = f"cache:{key}"
+
+                # DataFrame은 pickle로 직렬화
+                if HAS_PANDAS and isinstance(value, pd.DataFrame):
+                    try:
+                        serialized_value = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+                        pipe.set(cache_key, serialized_value, ex=ttl)
+                    except (pickle.PickleError, Exception) as e:
+                        logger.error(f"DataFrame pickle 직렬화 실패: {key}, error={e}")
+                        continue
+                else:
+                    pipe.set(cache_key, value, ex=ttl)
+
+            pipe.execute()
+            logger.debug(f"배치 저장: {len(items)}개 항목, 전략: {strategy.value}, TTL: {ttl}초")
+
+        except ServiceUnavailable:
+            logger.error("Redis 장애로 배치 저장 실패")
+            raise
+
+    def warm_cache(self, warm_items: Dict[str, tuple]) -> int:
+        """캐시 워밍 (애플리케이션 시작 시 미리 데이터 로드)
+
+        Args:
+            warm_items: {key: (value, strategy)} 딕셔너리
+
+        Returns:
+            성공적으로 캐시된 항목 수
+
+        Example:
+            cache.warm_cache({
+                'user_list': (get_users(), CacheStrategy.METADATA),
+                'config': (load_config(), CacheStrategy.STATIC_CONFIG)
+            })
+        """
+        success_count = 0
+
+        try:
+            pipe = self.redis.redis.pipeline()
+
+            for key, (value, strategy) in warm_items.items():
+                ttl = self.TTL_MAP.get(strategy, 300)
+                cache_key = f"cache:{key}"
+
+                # DataFrame은 pickle로 직렬화
+                if HAS_PANDAS and isinstance(value, pd.DataFrame):
+                    try:
+                        serialized_value = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+                        pipe.set(cache_key, serialized_value, ex=ttl)
+                        success_count += 1
+                    except (pickle.PickleError, Exception) as e:
+                        logger.error(f"캐시 워밍 실패 (pickle): {key}, error={e}")
+                        continue
+                else:
+                    pipe.set(cache_key, value, ex=ttl)
+                    success_count += 1
+
+            pipe.execute()
+            logger.info(f"캐시 워밍 완료: {success_count}/{len(warm_items)}개 항목")
+            return success_count
+
+        except ServiceUnavailable:
+            logger.error("Redis 장애로 캐시 워밍 실패")
+            return success_count
+
     def get_cache_info(self) -> Dict[str, Any]:
         """캐시 상태 정보
 
         Note:
             Redis 전환 후 expired_items 정보 없음 (Redis가 자동 삭제)
+            메트릭 정보 포함
         """
         try:
             cache_keys = self.redis.keys("cache:*")
+            # 메트릭 키 제외
+            cache_keys = [k for k in cache_keys if not k.startswith("cache:metrics:")]
+
             marker_keys = self.redis.keys("invalidation:*")
+            metrics = self.get_metrics()
 
             return {
                 'total_items': len(cache_keys),
                 'active_items': len(cache_keys),  # Redis는 만료된 키를 자동 삭제
                 'expired_items': 0,  # Redis가 자동 관리
-                'invalidation_markers': len(marker_keys)
+                'invalidation_markers': len(marker_keys),
+                'metrics': metrics
             }
 
         except ServiceUnavailable:
@@ -329,7 +547,13 @@ class SimpleCache:
                 'total_items': 0,
                 'active_items': 0,
                 'expired_items': 0,
-                'invalidation_markers': 0
+                'invalidation_markers': 0,
+                'metrics': {
+                    'hits': 0,
+                    'misses': 0,
+                    'total': 0,
+                    'hit_rate': 0.0
+                }
             }
 
     def set_invalidation_marker(self, key: str, timestamp: Optional[float] = None) -> None:

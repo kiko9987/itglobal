@@ -319,3 +319,39 @@ def enqueue_test_task():
     except Exception as e:
         logger.error(f"테스트 작업 추가 오류: {e}")
         return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/monitoring/cache/stats')
+@admin_required
+def get_cache_stats():
+    """캐시 통계 및 메트릭 조회 (관리자 전용)"""
+    try:
+        from dashboard.utils.smart_cache_manager import get_smart_cache
+
+        cache = get_smart_cache()
+        info = cache.get_cache_info()
+
+        return jsonify({
+            'cache_info': info,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"캐시 통계 조회 오류: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/monitoring/cache/metrics/reset', methods=['POST'])
+@admin_required
+def reset_cache_metrics():
+    """캐시 메트릭 초기화 (관리자 전용)"""
+    try:
+        from dashboard.utils.smart_cache_manager import get_smart_cache
+
+        cache = get_smart_cache()
+        cache.reset_metrics()
+
+        return jsonify({
+            'success': True,
+            'message': '캐시 메트릭이 초기화되었습니다.'
+        })
+    except Exception as e:
+        logger.error(f"캐시 메트릭 초기화 오류: {e}")
+        return jsonify({'error': str(e)}), 500
