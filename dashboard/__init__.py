@@ -105,11 +105,13 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
 
         # Redis 클라이언트 가져오기
         redis_client = get_redis_client()
-        app.config['SESSION_REDIS'] = redis_client.redis
+        # ⚠️ 중요: Flask-Session은 pickle 직렬화를 사용하므로 decode_responses=False 연결 필요
+        app.config['SESSION_REDIS'] = redis_client.redis_binary
 
         # Flask-Session 초기화
         Session(app)
         logger.info("Flask-Session 초기화 완료 (Redis 세션 저장소, 멀티 워커 지원)")
+        logger.info("  - 바이너리 연결 사용 (pickle 직렬화 지원)")
     except Exception as e:
         logger.error(f"Flask-Session 초기화 실패: {e}")
         logger.warning("기본 세션 저장소(파일)로 폴백")

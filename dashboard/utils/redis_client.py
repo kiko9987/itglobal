@@ -54,22 +54,36 @@ class RedisClient:
             if redis_password == '':
                 redis_password = None
 
-            # Redis 연결
+            # 공통 연결 설정
+            common_config = {
+                'host': redis_host,
+                'port': redis_port,
+                'db': redis_db,
+                'password': redis_password,
+                'socket_timeout': socket_timeout,
+                'socket_connect_timeout': socket_connect_timeout,
+                'socket_keepalive': True,
+                'health_check_interval': 30
+            }
+
+            # Redis 연결 #1: 문자열용 (캐시, 일반 데이터)
             self.redis = redis.Redis(
-                host=redis_host,
-                port=redis_port,
-                db=redis_db,
-                password=redis_password,
-                decode_responses=True,  # 문자열로 자동 디코딩
-                socket_timeout=socket_timeout,
-                socket_connect_timeout=socket_connect_timeout,
-                socket_keepalive=True,
-                health_check_interval=30  # 30초마다 연결 확인
+                **common_config,
+                decode_responses=True  # 문자열로 자동 디코딩
+            )
+
+            # Redis 연결 #2: 바이너리용 (Flask-Session, RQ 등)
+            self.redis_binary = redis.Redis(
+                **common_config,
+                decode_responses=False  # bytes 그대로 반환 (pickle 직렬화 지원)
             )
 
             # Fail Fast: 부팅 시 연결 확인
             self.redis.ping()
+            self.redis_binary.ping()
             logger.info(f"Redis 연결 성공: {redis_host}:{redis_port} (DB: {redis_db})")
+            logger.info("  - 문자열용 연결 (decode_responses=True): 캐시, 일반 데이터")
+            logger.info("  - 바이너리용 연결 (decode_responses=False): Flask-Session, RQ")
 
             self._initialized = True
 

@@ -49,22 +49,23 @@ def get_task_queue(priority: str = 'default') -> Queue:
 
     try:
         redis_client = get_redis_client()
-        redis_conn = redis_client.redis
+        # ⚠️ 중요: RQ는 pickle 직렬화를 사용하므로 decode_responses=False 연결 필요
+        redis_conn = redis_client.redis_binary
 
         if priority == 'high':
             if _high_priority_queue is None:
                 _high_priority_queue = Queue('high', connection=redis_conn, default_timeout=600)
-                logger.info("High priority 작업 큐 초기화 완료")
+                logger.info("High priority 작업 큐 초기화 완료 (바이너리 연결)")
             return _high_priority_queue
         elif priority == 'low':
             if _low_priority_queue is None:
                 _low_priority_queue = Queue('low', connection=redis_conn, default_timeout=1800)
-                logger.info("Low priority 작업 큐 초기화 완료")
+                logger.info("Low priority 작업 큐 초기화 완료 (바이너리 연결)")
             return _low_priority_queue
         else:
             if _default_queue is None:
                 _default_queue = Queue('default', connection=redis_conn, default_timeout=1200)
-                logger.info("Default 작업 큐 초기화 완료")
+                logger.info("Default 작업 큐 초기화 완료 (바이너리 연결)")
             return _default_queue
 
     except Exception as e:
@@ -128,7 +129,8 @@ def get_job(job_id: str) -> Optional[Job]:
     """
     try:
         redis_client = get_redis_client()
-        job = Job.fetch(job_id, connection=redis_client.redis)
+        # ⚠️ 중요: RQ Job 조회 시에도 바이너리 연결 사용
+        job = Job.fetch(job_id, connection=redis_client.redis_binary)
         return job
     except Exception as e:
         logger.warning(f"작업 조회 실패: {job_id} - {e}")
@@ -236,7 +238,8 @@ def start_worker(queues: list = None, burst: bool = False) -> Worker:
 
     try:
         redis_client = get_redis_client()
-        redis_conn = redis_client.redis
+        # ⚠️ 중요: RQ 워커도 바이너리 연결 사용
+        redis_conn = redis_client.redis_binary
 
         queue_objects = [Queue(q, connection=redis_conn) for q in queues]
 
