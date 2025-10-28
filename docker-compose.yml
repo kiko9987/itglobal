@@ -94,6 +94,33 @@ services:
       - ./monitoring/grafana:/etc/grafana/provisioning
     restart: unless-stopped
 
+  # RQ 워커 서비스 (백그라운드 작업 처리)
+  rq-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: itg-rq-worker
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./dashboard:/app/dashboard
+      - app_logs:/app/logs
+    command: python -m rq.cli worker high default low --url redis://redis:6379/0 --with-scheduler
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "rq.cli"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+
 volumes:
   redis_data:
   postgres_data:

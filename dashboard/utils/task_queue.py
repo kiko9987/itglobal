@@ -80,6 +80,9 @@ def enqueue_task(
     job_timeout: Optional[int] = None,
     result_ttl: int = 3600,
     failure_ttl: int = 86400,
+    retry: Optional[int] = None,
+    on_success: Optional[Callable] = None,
+    on_failure: Optional[Callable] = None,
     **kwargs
 ) -> Job:
     """
@@ -92,6 +95,9 @@ def enqueue_task(
         job_timeout: 작업 타임아웃 (초)
         result_ttl: 결과 보관 시간 (초, 기본 1시간)
         failure_ttl: 실패 기록 보관 시간 (초, 기본 24시간)
+        retry: 실패 시 재시도 횟수 (None이면 재시도 안함)
+        on_success: 성공 시 콜백 함수
+        on_failure: 실패 시 콜백 함수
         **kwargs: 함수 키워드 인자
 
     Returns:
@@ -100,16 +106,26 @@ def enqueue_task(
     try:
         queue = get_task_queue(priority)
 
+        # Retry 정책 설정
+        retry_instance = None
+        if retry is not None and retry > 0:
+            from rq import Retry
+            # Exponential backoff: 1분, 2분, 4분, 8분...
+            retry_instance = Retry(max=retry, interval=[60 * (2 ** i) for i in range(retry)])
+
         job = queue.enqueue(
             func,
             *args,
             **kwargs,
             job_timeout=job_timeout,
             result_ttl=result_ttl,
-            failure_ttl=failure_ttl
+            failure_ttl=failure_ttl,
+            retry=retry_instance,
+            on_success=on_success,
+            on_failure=on_failure
         )
 
-        logger.info(f"작업 큐 추가 완료: {func.__name__} (job_id={job.id}, priority={priority})")
+        logger.info(f"작업 큐 추가 완료: {func.__name__} (job_id={job.id}, priority={priority}, retry={retry})")
         return job
 
     except Exception as e:
@@ -257,6 +273,59 @@ def start_worker(queues: list = None, burst: bool = False) -> Worker:
     except Exception as e:
         logger.error(f"워커 시작 실패: {e}")
         raise
+
+
+# ===== 작업 완료 콜백 함수들 =====
+
+def notify_job_success(job, connection, result):
+    """
+    작업 성공 시 알림 (SocketIO를 통한 실시간 알림)
+
+    Args:
+        job: 완료된 Job 인스턴스
+        connection: Redis 연결
+        result: 작업 결과
+    """
+    try:
+        logger.info(f"작업 성공: {job.id} - {job.func_name}")
+
+        # SocketIO로 실시간 알림 전송 (실제 구현 시)
+        # from dashboard import socketio
+        # socketio.emit('job_completed', {
+        #     'job_id': job.id,
+        #     'status': 'success',
+        #     'result': result
+        # })
+
+    except Exception as e:
+        logger.error(f"작업 성공 알림 실패: {job.id} - {e}")
+
+
+def notify_job_failure(job, connection, type, value, traceback):
+    """
+    작업 실패 시 알림
+
+    Args:
+        job: 실패한 Job 인스턴스
+        connection: Redis 연결
+        type: 예외 타입
+        value: 예외 값
+        traceback: 트레이스백
+    """
+    try:
+        logger.error(f"작업 실패: {job.id} - {job.func_name}")
+        logger.error(f"예외: {type.__name__}: {value}")
+
+        # SocketIO로 실시간 알림 전송 (실제 구현 시)
+        # from dashboard import socketio
+        # socketio.emit('job_failed', {
+        #     'job_id': job.id,
+        #     'status': 'failed',
+        #     'error': str(value)
+        # })
+
+    except Exception as e:
+        logger.error(f"작업 실패 알림 실패: {job.id} - {e}")
 
 
 # ===== 예제 백그라운드 작업들 =====
