@@ -149,8 +149,8 @@ export default class ModeManager {
       currentCombination: this.getCurrentCombination()
     });
 
-    // 8. 로깅
-    this.#log('info', `[ModeManager] 테이블 모드 변경: ${oldMode} → ${newMode}`);
+    // 8. 로깅 (운영 환경에서는 debug 레벨로 억제)
+    this.#log('debug', `[ModeManager] 테이블 모드 변경: ${oldMode} → ${newMode}`);
 
     return true;
   }
@@ -204,8 +204,8 @@ export default class ModeManager {
       currentCombination: this.getCurrentCombination()
     });
 
-    // 8. 로깅
-    this.#log('info', `[ModeManager] 아코디언 모드 변경: ${oldMode} → ${newMode}`);
+    // 8. 로깅 (운영 환경에서는 debug 레벨로 억제)
+    this.#log('debug', `[ModeManager] 아코디언 모드 변경: ${oldMode} → ${newMode}`);
 
     return true;
   }

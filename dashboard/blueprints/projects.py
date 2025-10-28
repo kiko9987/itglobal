@@ -1305,15 +1305,13 @@ def save_field_memo():
         )
 
         if success:
-            # 캐시 무효화 (포괄적)
-            invalidate_project_cache(project_code)
-
-            # 셀 노트 캐시도 명시적으로 무효화
+            # 셀 노트 캐시만 무효화 (성능 최적화)
+            # 메모는 셀 노트에만 저장되고 프로젝트 데이터에 영향 없음
+            # 따라서 전체 프로젝트 캐시 무효화는 불필요
             notes_cache_key = f"cell_notes_{sheet_id}"
             invalidated_notes = smart_invalidate(notes_cache_key)
 
-            logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 캐시 무효화 완료:")
-            logger.info(f"  - 프로젝트 캐시: {project_code}")
+            logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 셀 노트 캐시 무효화 완료:")
             logger.info(f"  - {notes_cache_key}: {invalidated_notes}개 항목")
 
             # 감사 로그 기록
