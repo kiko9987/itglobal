@@ -313,6 +313,14 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
     if enable_socketio:
         try:
             from flask_socketio import SocketIO
+            from dashboard.utils.redis_client import get_redis_client
+
+            # Redis URL 구성 (멀티 워커 지원)
+            redis_host = os.getenv('REDIS_HOST', 'localhost')
+            redis_port = int(os.getenv('REDIS_PORT', 6379))
+            redis_db = int(os.getenv('REDIS_DB', 0))
+            redis_url = f'redis://{redis_host}:{redis_port}/{redis_db}'
+
             # 긴급 조치: eventlet 메모리 크래시 방지 (SIGSEGV 해결)
             # threading 모드로 강제 설정하여 안정성 확보
             # eventlet의 greenlet 메모리 관리 버그를 우회
@@ -323,11 +331,13 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                 ping_interval=SOCKETIO_PING_INTERVAL,
                 async_mode='threading',  # threading 모드로 강제 (메모리 크래시 방지)
                 max_http_buffer_size=SOCKETIO_MAX_HTTP_BUFFER_SIZE,
+                message_queue=redis_url,  # Redis Pub/Sub for multi-worker support
                 engineio_logger=False,  # 로그 부하 감소
                 logger=False,           # 로그 부하 감소
                 transports=['polling']  # WebSocket 비활성화 (개발 환경 Werkzeug 호환성)
             )
-            logger.info(f"SocketIO 초기화 완료 (async_mode={socketio_instance.async_mode}, ping_timeout={SOCKETIO_PING_TIMEOUT}s, ping_interval={SOCKETIO_PING_INTERVAL}s)")
+            logger.info(f"SocketIO 초기화 완료 (async_mode={socketio_instance.async_mode}, message_queue={redis_url}, ping_timeout={SOCKETIO_PING_TIMEOUT}s, ping_interval={SOCKETIO_PING_INTERVAL}s)")
+            logger.info("SocketIO Redis Pub/Sub 활성화 (멀티 워커 간 실시간 이벤트 브로드캐스트)")
 
             # 전역 socketio 변수에 할당 (블루프린트에서 import 가능)
             global socketio
