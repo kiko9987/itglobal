@@ -2119,7 +2119,13 @@ def resume_project_api():
 
         # 취소된 프로젝트인지 확인 (띄어쓰기 무시)
         if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
-            return jsonify({'success': False, 'error': '취소되지 않은 프로젝트입니다.'}), 400
+            logger.info(f"프로젝트 재개 시도 - 이미 정상 상태: {project_code}")
+            return jsonify({
+                'success': True,  # 이미 정상 상태이므로 성공으로 처리
+                'message': '이미 정상 상태입니다. (취소되지 않은 프로젝트)',
+                'project_code': project_code,
+                'already_active': True
+            }), 200
 
         # Google Sheets 업데이트
         manager = get_sheets_manager()

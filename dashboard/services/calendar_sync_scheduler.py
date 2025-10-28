@@ -415,24 +415,24 @@ class CalendarSyncScheduler:
 
             if calendar_is_newer:
                 # 캘린더가 최신 → 시트 업데이트
-                logger.info(f"  → 캘린더가 최신: 시트를 캘린더 날짜로 업데이트")
+                logger.debug(f"  → 캘린더가 최신: 시트를 캘린더 날짜로 업데이트")
                 success = self._update_sheet_dates(project_code, cal_start, cal_end or cal_start)
                 if success:
                     # DB 업데이트 시간 갱신 (기존 calendar_id와 event_id 유지)
                     event_id = calendar_event.get('id')
                     if event_id:
                         repo.upsert_event(project_code, calendar_id, event_id)
-                    logger.info(f"✅ [CALENDAR_SYNC] 시트를 캘린더 날짜로 동기화 완료: {project_code}")
+                    logger.debug(f"✅ [CALENDAR_SYNC] 시트를 캘린더 날짜로 동기화 완료: {project_code}")
                     return True
                 else:
                     logger.error(f"[CALENDAR_SYNC] 시트 업데이트 실패: {project_code}")
                     return False
             else:
                 # 시트가 최신 또는 시간 비교 불가 → 캘린더 업데이트
-                logger.info(f"  → 시트가 최신: 캘린더를 시트 날짜로 업데이트")
+                logger.debug(f"  → 시트가 최신: 캘린더를 시트 날짜로 업데이트")
                 from dashboard.services.calendar_service import update_project_calendar_event
                 update_project_calendar_event(sheet_project)
-                logger.info(f"✅ [CALENDAR_SYNC] 캘린더를 시트 날짜로 동기화 완료: {project_code}")
+                logger.debug(f"✅ [CALENDAR_SYNC] 캘린더를 시트 날짜로 동기화 완료: {project_code}")
                 return True
 
         except Exception as e:

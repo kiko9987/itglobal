@@ -1301,7 +1301,7 @@ class GoogleSheetsManager:
                 logger.debug(f"[MEMO_SAVE_STEP_3] 요청 생성 완료")
 
                 # 4단계: Google Sheets API 호출 (크래시 가능 지점)
-                logger.info(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 시작 (CRITICAL SECTION)")
+                logger.debug(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 시작 (CRITICAL SECTION)")
                 request = self.service.spreadsheets().batchUpdate(
                     spreadsheetId=sheet_id,
                     body={'requests': requests}
@@ -1319,7 +1319,7 @@ class GoogleSheetsManager:
                 memory_increase = post_api_memory - pre_api_memory
                 logger.debug(f"[MEMO_SAVE_STEP_4] API 호출 후 메모리: {post_api_memory:.1f}MB (증가: {memory_increase:+.1f}MB)")
 
-                logger.info(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 성공")
+                logger.debug(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 성공")
 
                 # 5단계: 완료 처리
                 elapsed_time = time.time() - start_time
