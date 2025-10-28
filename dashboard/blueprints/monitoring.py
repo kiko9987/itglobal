@@ -32,10 +32,11 @@ def health_check():
 
         # Redis 연결 체크 (안전하게 처리, sys.exit 방지)
         try:
+            import redis as redis_lib
             from dashboard.utils.redis_client import RedisClient
-            # 이미 초기화된 인스턴스가 있는지 확인
+
+            # 이미 초기화된 인스턴스가 있으면 재사용
             if RedisClient._instance is not None and hasattr(RedisClient._instance, '_initialized'):
-                # 기존 인스턴스 사용 (재초기화 방지)
                 redis = RedisClient._instance
                 if redis.ping():
                     health_status['services']['redis'] = 'up'
@@ -43,9 +44,29 @@ def health_check():
                     health_status['services']['redis'] = 'down'
                     health_status['status'] = 'degraded'
             else:
-                # 아직 초기화되지 않음 - 헬스체크에서는 down으로 처리
-                health_status['services']['redis'] = 'not_initialized'
-                health_status['status'] = 'degraded'
+                # 아직 초기화되지 않음 - 헬스체크에서 직접 연결 시도 (싱글톤 우회)
+                redis_host = os.getenv('REDIS_HOST', 'localhost')
+                redis_port = int(os.getenv('REDIS_PORT', 6379))
+                redis_db = int(os.getenv('REDIS_DB', 0))
+                redis_password = os.getenv('REDIS_PASSWORD', None)
+                if redis_password == '':
+                    redis_password = None
+
+                # 임시 연결로 헬스체크 (싱글톤 초기화 없이)
+                temp_redis = redis_lib.Redis(
+                    host=redis_host,
+                    port=redis_port,
+                    db=redis_db,
+                    password=redis_password,
+                    socket_timeout=2,
+                    socket_connect_timeout=2
+                )
+                if temp_redis.ping():
+                    health_status['services']['redis'] = 'up'
+                else:
+                    health_status['services']['redis'] = 'down'
+                    health_status['status'] = 'degraded'
+                temp_redis.close()
         except Exception as e:
             logger.warning(f"Redis 헬스체크 실패: {e}")
             health_status['services']['redis'] = 'down'
