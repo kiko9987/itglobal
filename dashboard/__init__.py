@@ -197,8 +197,8 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             register_default_preload_tasks
         )
 
-        # 프리로더 인스턴스 생성 (1시간 갱신 주기)
-        preloader = get_cache_preloader(refresh_interval=3600)
+        # 프리로더 인스턴스 생성 (4분 갱신 주기 - TTL 5분과 조화)
+        preloader = get_cache_preloader(refresh_interval=240)
 
         # 기본 프리로드 작업 등록
         register_default_preload_tasks(preloader)
@@ -209,7 +209,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         # 주기적 갱신 시작
         if app.config.get('CACHE_PRELOADER_ENABLED', True):
             preloader.start_periodic_refresh()
-            logger.info("캐시 프리로더 초기화 완료 (1시간 주기 자동 갱신)")
+            logger.info("캐시 프리로더 초기화 완료 (4분 주기 자동 갱신 - TTL 만료 전 갱신)")
         else:
             logger.info("CACHE_PRELOADER_ENABLED=False - 주기적 갱신 비활성화")
 

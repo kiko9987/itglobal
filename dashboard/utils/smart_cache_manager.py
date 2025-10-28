@@ -55,7 +55,7 @@ class SimpleCache:
 
     # 전략별 TTL (초) - 실시간성과 API 효율성 균형
     TTL_MAP = {
-        CacheStrategy.CRITICAL_DATA: 60,   # 60초 (협업 환경 최적 - 프리패치 75회/시간)
+        CacheStrategy.CRITICAL_DATA: 300,  # 5분 (프리로더와 조화 - API 호출 75% 감소)
         CacheStrategy.STATIC_CONFIG: 3600, # 1시간 (설정 데이터)
         CacheStrategy.FOLDER_MAPPING: 86400, # 1일 (폴더 매핑)
         CacheStrategy.UI_STATE: 300,       # 5분 (UI 상태)
