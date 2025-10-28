@@ -448,3 +448,149 @@ def release_user_locks_api(user_email):
     except Exception as e:
         logger.error(f"사용자 락 해제 오류: {user_email} - {e}")
         return jsonify({'error': str(e)}), 500
+
+# ===== 세션 관리 API (Stage 4) =====
+
+@monitoring_bp.route('/api/admin/sessions')
+@admin_required
+def get_all_sessions():
+    """모든 활성 세션 조회 (관리자 전용)"""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        import pickle
+
+        redis_client = get_redis_client()
+        sessions = []
+
+        # Redis에서 모든 세션 키 조회 (session:* 패턴)
+        session_keys = redis_client.redis_binary.keys('session:*')
+
+        for key in session_keys:
+            try:
+                # 세션 데이터는 pickle로 직렬화되어 있음 (Flask-Session 표준)
+                session_data = redis_client.redis_binary.get(key)
+                if session_data:
+                    # pickle 역직렬화
+                    data = pickle.loads(session_data)
+
+                    # 세션 ID 추출 (session: 접두사 제거)
+                    session_id = key.decode('utf-8').replace('session:', '')
+
+                    # 사용자 정보 추출
+                    user_info = data.get('user', {})
+
+                    # TTL 조회
+                    ttl = redis_client.redis_binary.ttl(key)
+
+                    sessions.append({
+                        'session_id': session_id,
+                        'user_email': user_info.get('email', 'Unknown'),
+                        'user_name': user_info.get('name', 'Unknown'),
+                        'permission_level': user_info.get('permission_level', 'viewer'),
+                        'ttl_seconds': ttl,
+                        'expires_in': f"{ttl // 60}분 {ttl % 60}초" if ttl > 0 else "만료됨"
+                    })
+            except Exception as e:
+                logger.debug(f"세션 파싱 오류 ({key}): {e}")
+                continue
+
+        # 사용자 이메일 기준 정렬
+        sessions.sort(key=lambda x: x.get('user_email', ''))
+
+        return jsonify({
+            'success': True,
+            'sessions': sessions,
+            'total_count': len(sessions),
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logger.error(f"세션 목록 조회 오류: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/admin/sessions/<session_id>', methods=['DELETE'])
+@admin_required
+def force_logout_session(session_id):
+    """특정 세션 강제 로그아웃 (관리자 전용)"""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        import pickle
+
+        redis_client = get_redis_client()
+        admin_user = session.get('user', {})
+
+        # 세션 키 구성
+        session_key = f'session:{session_id}'
+
+        # 세션 데이터 조회 (로그용)
+        session_data = redis_client.redis_binary.get(session_key.encode('utf-8'))
+        target_user_email = 'Unknown'
+
+        if session_data:
+            try:
+                data = pickle.loads(session_data)
+                target_user_email = data.get('user', {}).get('email', 'Unknown')
+            except:
+                pass
+
+        # 세션 삭제
+        deleted = redis_client.redis_binary.delete(session_key.encode('utf-8'))
+
+        if deleted > 0:
+            logger.warning(f"[ADMIN] 세션 강제 로그아웃: {target_user_email} (session_id={session_id}) by {admin_user.get('email')}")
+            return jsonify({
+                'success': True,
+                'message': f'{target_user_email} 사용자가 강제 로그아웃되었습니다.',
+                'session_id': session_id
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': '세션을 찾을 수 없습니다.'
+            }), 404
+
+    except Exception as e:
+        logger.error(f"세션 강제 로그아웃 오류: {session_id} - {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/admin/sessions/user/<user_email>', methods=['DELETE'])
+@admin_required
+def logout_user_all_sessions(user_email):
+    """특정 사용자의 모든 세션 로그아웃 (관리자 전용)"""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        import pickle
+
+        redis_client = get_redis_client()
+        admin_user = session.get('user', {})
+
+        # 모든 세션 조회
+        session_keys = redis_client.redis_binary.keys('session:*')
+        deleted_count = 0
+
+        for key in session_keys:
+            try:
+                session_data = redis_client.redis_binary.get(key)
+                if session_data:
+                    data = pickle.loads(session_data)
+                    session_user_email = data.get('user', {}).get('email', '')
+
+                    # 해당 사용자 세션이면 삭제
+                    if session_user_email == user_email:
+                        redis_client.redis_binary.delete(key)
+                        deleted_count += 1
+            except Exception as e:
+                logger.debug(f"세션 삭제 중 오류 ({key}): {e}")
+                continue
+
+        logger.warning(f"[ADMIN] 사용자 전체 세션 로그아웃: {user_email} ({deleted_count}개) by {admin_user.get('email')}")
+
+        return jsonify({
+            'success': True,
+            'message': f'{user_email} 사용자의 {deleted_count}개 세션이 로그아웃되었습니다.',
+            'deleted_count': deleted_count
+        })
+
+    except Exception as e:
+        logger.error(f"사용자 전체 세션 로그아웃 오류: {user_email} - {e}")
+        return jsonify({'error': str(e)}), 500
