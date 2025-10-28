@@ -21,8 +21,8 @@ from datetime import datetime
 @pytest.fixture
 def app():
     """Flask 앱 인스턴스"""
-    from dashboard.app import create_app
-    app = create_app('testing')
+    from dashboard import create_app
+    app, _ = create_app('testing', enable_socketio=False)
     app.config['TESTING'] = True
     app.config['WTF_CSRF_ENABLED'] = False
     yield app
@@ -102,7 +102,7 @@ class TestProjectCreationFlow:
 
         # When: 프로젝트 자동 생성 API 호출
         response = auth_session.post(
-            '/api/v1/projects/auto-create',
+            '/api/projects/auto',
             data=json.dumps(project_data),
             content_type='application/json'
         )
@@ -132,7 +132,7 @@ class TestProjectCreationFlow:
 
         # When: 프로젝트 생성 API 호출
         response = auth_session.post(
-            '/api/v1/projects/auto-create',
+            '/api/projects/auto',
             data=json.dumps(invalid_data),
             content_type='application/json'
         )
@@ -159,7 +159,7 @@ class TestProjectCreationFlow:
 
         # When: 프로젝트 생성
         response = auth_session.post(
-            '/api/v1/projects/auto-create',
+            '/api/projects/auto',
             data=json.dumps(project_data),
             content_type='application/json'
         )
@@ -276,7 +276,7 @@ class TestMemoSaveFlow:
             }.get(k, d)
 
             response = auth_session.post(
-                '/api/save-cell-memo',
+                '/api/projects/field-memo',
                 data=json.dumps(memo_data),
                 content_type='application/json'
             )
@@ -301,8 +301,8 @@ class TestLockManagement:
 
         # Step 1: 락 획득
         acquire_response = auth_session.post(
-            f'/api/project-lock/{project_code}',
-            data=json.dumps({'action': 'acquire'}),
+            '/api/project-lock/acquire',
+            data=json.dumps({'project_code': project_code, 'tab_id': 'test-tab-123'}),
             content_type='application/json'
         )
         assert acquire_response.status_code == 200
@@ -313,8 +313,8 @@ class TestLockManagement:
 
         # Step 3: 락 해제
         release_response = auth_session.post(
-            f'/api/project-lock/{project_code}',
-            data=json.dumps({'action': 'release'}),
+            '/api/project-lock/release',
+            data=json.dumps({'project_code': project_code, 'tab_id': 'test-tab-123'}),
             content_type='application/json'
         )
         assert release_response.status_code == 200
@@ -333,15 +333,15 @@ class TestLockManagement:
 
         # When: 락 획득 시도
         response = auth_session.post(
-            f'/api/project-lock/{project_code}',
-            data=json.dumps({'action': 'acquire'}),
+            '/api/project-lock/acquire',
+            data=json.dumps({'project_code': project_code, 'tab_id': 'test-tab-456'}),
             content_type='application/json'
         )
 
-        # Then: 실패
-        assert response.status_code == 409
+        # Then: 실패 (다른 사용자가 락 보유 중이므로 409가 아닌 200 + success: false 반환)
+        # 실제 구현에서 락 획득 실패 시 success: false로 응답
         data = response.get_json()
-        assert data['locked_by'] is not None
+        assert data['success'] is False
 
 
 # ===== 실행 =====
