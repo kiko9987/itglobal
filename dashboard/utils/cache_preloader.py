@@ -203,11 +203,11 @@ def preload_project_data():
     try:
         from dashboard.services.project_service import load_data
 
-        # 프로젝트 데이터 로드 (자동으로 캐시에 저장됨)
-        df = load_data(force_refresh=False, skip_cache=False)
+        # 프로젝트 데이터 로드 (force_refresh=True로 TTL 갱신)
+        df = load_data(force_refresh=True, skip_cache=False)
 
         if df is not None and not df.empty:
-            logger.info(f"프로젝트 데이터 프리로드 성공: {len(df)}개 프로젝트")
+            logger.info(f"프로젝트 데이터 프리로드 성공: {len(df)}개 프로젝트 (TTL 갱신됨)")
             return True
         else:
             logger.warning("프로젝트 데이터 프리로드 실패: 데이터 없음")
