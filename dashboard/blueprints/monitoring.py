@@ -30,12 +30,22 @@ def health_check():
             'services': {}
         }
 
-        # Redis 연결 체크
+        # Redis 연결 체크 (안전하게 처리, sys.exit 방지)
         try:
-            from dashboard.utils.redis_client import get_redis_client
-            redis = get_redis_client()
-            redis.ping()
-            health_status['services']['redis'] = 'up'
+            from dashboard.utils.redis_client import RedisClient
+            # 이미 초기화된 인스턴스가 있는지 확인
+            if RedisClient._instance is not None and hasattr(RedisClient._instance, '_initialized'):
+                # 기존 인스턴스 사용 (재초기화 방지)
+                redis = RedisClient._instance
+                if redis.ping():
+                    health_status['services']['redis'] = 'up'
+                else:
+                    health_status['services']['redis'] = 'down'
+                    health_status['status'] = 'degraded'
+            else:
+                # 아직 초기화되지 않음 - 헬스체크에서는 down으로 처리
+                health_status['services']['redis'] = 'not_initialized'
+                health_status['status'] = 'degraded'
         except Exception as e:
             logger.warning(f"Redis 헬스체크 실패: {e}")
             health_status['services']['redis'] = 'down'
@@ -54,17 +64,17 @@ def health_check():
             health_status['services']['filesystem'] = 'error'
             health_status['status'] = 'degraded'
 
-        # 데이터베이스 체크
+        # 데이터베이스 체크 (가벼운 쿼리 사용)
         try:
             from dashboard.utils.user_database import get_user_database
             db = get_user_database()
-            # 간단한 쿼리로 DB 연결 확인
-            users = db.get_all_users()
-            if isinstance(users, list):
-                health_status['services']['database'] = 'up'
-            else:
-                health_status['services']['database'] = 'down'
-                health_status['status'] = 'degraded'
+            # 가벼운 쿼리로 DB 연결 확인 (전체 사용자 조회 대신)
+            with db._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                cursor.close()
+            health_status['services']['database'] = 'up'
         except Exception as e:
             logger.warning(f"Database 헬스체크 실패: {e}")
             health_status['services']['database'] = 'down'
