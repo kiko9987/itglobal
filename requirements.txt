@@ -1,6 +1,7 @@
 flask==3.1.2
 flask-socketio==5.5.1
 flask-compress==1.14
+flask-session==0.8.0
 eventlet==0.40.3
 tenacity==9.1.2
 google-api-python-client==2.179.0

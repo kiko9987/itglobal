@@ -19,6 +19,13 @@ class BaseConfig:
     SESSION_COOKIE_SAMESITE = 'Lax'
     PERMANENT_SESSION_LIFETIME = timedelta(hours=24)
 
+    # Redis 세션 설정
+    SESSION_TYPE = 'redis'
+    SESSION_PERMANENT = True
+    SESSION_USE_SIGNER = True  # 세션 쿠키 서명
+    SESSION_KEY_PREFIX = 'itg_session:'  # Redis 키 prefix
+    SESSION_REDIS = None  # 런타임에 설정됨 (__init__.py에서)
+
     # 보안 설정
     SESSION_COOKIE_SECURE = False  # HTTPS에서만 True로 설정
 

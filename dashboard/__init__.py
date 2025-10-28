@@ -98,6 +98,22 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         logger.error(f"Flask-Compress 초기화 실패: {e}")
         logger.warning("압축 없이 계속 진행")
 
+    # 4-2. Flask-Session 초기화 (Redis 세션 저장소)
+    try:
+        from flask_session import Session
+        from dashboard.utils.redis_client import get_redis_client
+
+        # Redis 클라이언트 가져오기
+        redis_client = get_redis_client()
+        app.config['SESSION_REDIS'] = redis_client.redis
+
+        # Flask-Session 초기화
+        Session(app)
+        logger.info("Flask-Session 초기화 완료 (Redis 세션 저장소, 멀티 워커 지원)")
+    except Exception as e:
+        logger.error(f"Flask-Session 초기화 실패: {e}")
+        logger.warning("기본 세션 저장소(파일)로 폴백")
+
     # 5. 데이터베이스 초기화 (통합)
     # 사용자 DB와 감사 로그가 instance/users.db로 통합됨
     # dashboard/utils/user_database.py에서 자동 초기화됨
