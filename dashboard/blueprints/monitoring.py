@@ -16,29 +16,64 @@ monitoring_bp = Blueprint('monitoring', __name__)
 
 @monitoring_bp.route('/api/health')
 def health_check():
-    """간단한 헬스체크 API"""
+    """
+    상세한 Readiness Probe
+    서비스가 트래픽을 받을 준비가 되었는지 확인
+    Redis, 파일시스템 등 중요 서비스 체크
+    """
     try:
         health_status = {
             'status': 'healthy',
             'timestamp': datetime.now().isoformat(),
             'version': '1.0',
-            'service': 'ITG Dashboard'
+            'service': 'ITG Dashboard',
+            'services': {}
         }
 
-        # 기본적인 환경 체크
+        # Redis 연결 체크
         try:
-            # 로그 디렉토리 확인
-            log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
-            if os.path.exists(log_dir):
-                health_status['filesystem'] = 'accessible'
-            else:
-                health_status['filesystem'] = 'limited'
-
+            from dashboard.utils.redis_client import get_redis_client
+            redis = get_redis_client()
+            redis.ping()
+            health_status['services']['redis'] = 'up'
         except Exception as e:
-            logger.warning(f"헬스체크 경고: {e}")
+            logger.warning(f"Redis 헬스체크 실패: {e}")
+            health_status['services']['redis'] = 'down'
             health_status['status'] = 'degraded'
 
-        return jsonify(health_status)
+        # 파일시스템 체크
+        try:
+            log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+            if os.path.exists(log_dir):
+                health_status['services']['filesystem'] = 'accessible'
+            else:
+                health_status['services']['filesystem'] = 'limited'
+                health_status['status'] = 'degraded'
+        except Exception as e:
+            logger.warning(f"파일시스템 헬스체크 경고: {e}")
+            health_status['services']['filesystem'] = 'error'
+            health_status['status'] = 'degraded'
+
+        # 데이터베이스 체크
+        try:
+            from dashboard.utils.user_database import get_user_database
+            db = get_user_database()
+            # 간단한 쿼리로 DB 연결 확인
+            users = db.get_all_users()
+            if isinstance(users, list):
+                health_status['services']['database'] = 'up'
+            else:
+                health_status['services']['database'] = 'down'
+                health_status['status'] = 'degraded'
+        except Exception as e:
+            logger.warning(f"Database 헬스체크 실패: {e}")
+            health_status['services']['database'] = 'down'
+            health_status['status'] = 'degraded'
+
+        # HTTP 상태 코드 결정
+        status_code = 200 if health_status['status'] == 'healthy' else 503
+
+        return jsonify(health_status), status_code
 
     except Exception as e:
         logger.error(f"헬스체크 실패: {e}")

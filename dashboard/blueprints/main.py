@@ -3,15 +3,28 @@
 루트 라우트와 기본 페이지들
 """
 
-from flask import Blueprint, redirect, url_for, render_template, session
+from flask import Blueprint, redirect, url_for, render_template, session, jsonify
 
 main_bp = Blueprint('main', __name__)
 
 
 @main_bp.route('/')
 def dashboard():
-    """메인 페이지 - 프로젝트 관리로 리다이렉트"""
-    return redirect(url_for('projects.project_list'))
+    """메인 페이지 - 로그인 상태에 따라 리다이렉트"""
+    # 로그인 상태 확인
+    if 'user' in session:
+        return redirect(url_for('projects.project_list'))
+    else:
+        return redirect(url_for('auth.login_page'))
+
+
+@main_bp.route('/health')
+def health():
+    """
+    간단한 Liveness Probe
+    프로세스가 살아있는지만 확인 (빠른 응답)
+    """
+    return jsonify({'status': 'ok'}), 200
 
 
 @main_bp.route('/test-vite')
