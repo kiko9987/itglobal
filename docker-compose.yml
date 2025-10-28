@@ -111,7 +111,7 @@ services:
     volumes:
       - ./dashboard:/app/dashboard
       - app_logs:/app/logs
-    command: python -m rq.cli worker high default low --url redis://redis:6379/0 --with-scheduler
+    command: python -m rq.cli worker high default low --url redis://redis:6379/0
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "pgrep", "-f", "rq.cli"]
