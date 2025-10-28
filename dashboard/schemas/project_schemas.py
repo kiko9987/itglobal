@@ -3,6 +3,65 @@
 """
 from marshmallow import Schema, fields, validate, validates, ValidationError, EXCLUDE
 from datetime import datetime
+import re
+
+
+class MoneyField(fields.Field):
+    """
+    금액 필드 (통화 기호와 콤마를 자동으로 처리)
+
+    지원 형식:
+    - "₩1,000,000" → 1000000.0
+    - "$1,000.00" → 1000.0
+    - "1000000" → 1000000.0
+    - 1000000 → 1000000.0
+
+    ₩ 기호만 허용하며, 다른 통화는 거부합니다.
+    """
+
+    def _deserialize(self, value, attr, data, **kwargs):
+        if value is None or value == '':
+            return None
+
+        # 이미 숫자인 경우
+        if isinstance(value, (int, float)):
+            if value < 0:
+                raise ValidationError("금액은 0 이상이어야 합니다")
+            return float(value)
+
+        # 문자열 처리
+        if isinstance(value, str):
+            value = value.strip()
+
+            # 빈 문자열
+            if not value:
+                return None
+
+            # 통화 기호 검증 (₩만 허용)
+            if any(symbol in value for symbol in ['$', '€', '£', '¥', '元', '¢']):
+                raise ValidationError("₩ 기호만 사용할 수 있습니다 (다른 통화는 지원하지 않습니다)")
+
+            # ₩ 기호와 콤마, 공백 제거
+            clean_value = re.sub(r'[₩,\s]', '', value)
+
+            # 숫자만 남았는지 확인
+            if not re.match(r'^\d+(\.\d+)?$', clean_value):
+                raise ValidationError(f"올바르지 않은 금액 형식입니다: {value}")
+
+            try:
+                amount = float(clean_value)
+                if amount < 0:
+                    raise ValidationError("금액은 0 이상이어야 합니다")
+                return amount
+            except ValueError:
+                raise ValidationError(f"숫자로 변환할 수 없습니다: {value}")
+
+        raise ValidationError(f"지원하지 않는 타입입니다: {type(value)}")
+
+    def _serialize(self, value, attr, obj, **kwargs):
+        if value is None:
+            return None
+        return float(value)
 
 
 class ProjectCreateSchema(Schema):
@@ -39,23 +98,11 @@ class ProjectCreateSchema(Schema):
     start_date = fields.Str(allow_none=True)
     end_date = fields.Str(allow_none=True)
 
-    # 금액 필드
-    down_payment = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="계약금은 0 이상이어야 합니다")
-    )
-    mid_payment = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="중도금은 0 이상이어야 합니다")
-    )
-    final_payment = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="잔금은 0 이상이어야 합니다")
-    )
-    total_amount = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="총액은 0 이상이어야 합니다")
-    )
+    # 금액 필드 (커스텀 MoneyField 사용 - ₩ 기호와 콤마 자동 처리)
+    down_payment = MoneyField(allow_none=True)
+    mid_payment = MoneyField(allow_none=True)
+    final_payment = MoneyField(allow_none=True)
+    total_amount = MoneyField(allow_none=True)
 
     @validates('start_date')
     def validate_start_date(self, value, **kwargs):
@@ -106,23 +153,11 @@ class ProjectAutoCreateSchema(Schema):
     start_date = fields.Str(allow_none=True)
     end_date = fields.Str(allow_none=True)
 
-    # 금액 필드
-    down_payment = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="계약금은 0 이상이어야 합니다")
-    )
-    mid_payment = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="중도금은 0 이상이어야 합니다")
-    )
-    final_payment = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="잔금은 0 이상이어야 합니다")
-    )
-    total_amount = fields.Float(
-        allow_none=True,
-        validate=validate.Range(min=0, error="총액은 0 이상이어야 합니다")
-    )
+    # 금액 필드 (커스텀 MoneyField 사용 - ₩ 기호와 콤마 자동 처리)
+    down_payment = MoneyField(allow_none=True)
+    mid_payment = MoneyField(allow_none=True)
+    final_payment = MoneyField(allow_none=True)
+    total_amount = MoneyField(allow_none=True)
 
     @validates('start_date')
     def validate_start_date(self, value, **kwargs):

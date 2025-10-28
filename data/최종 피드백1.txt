@@ -1,0 +1,76 @@
+프로젝트 생성/저장
+
+  - dashboard/blueprints/projects.py:1628 경로의 자동 생성 흐름이 입력 검증 → 코드 생성 → Sheets 반영 → 캐시 무효화까지 잘 묶여 있습
+    니다. 다만 신규 행에는 버전 컬럼(AN)이 비어 있으므로 첫 인라인 편집 시 _version을 반드시 0으로 보내야 충돌이 안 납니다. 프론트 요
+    청에 기본값을 확실히 세팅했는지 점검해 주세요.
+  - 금액 필드가 공백일 때 ₩0 문자열로 강제되는데 (dashboard/blueprints/projects.py:1664), 이후 숫자 계산은 parse_amount로 처리되고 있
+    습니다. 프론트에서도 동일 포맷을 기대해야 하고, 다른 통화 표현이 들어오면 실패하므로 입력 단계에서 포맷을 통일하는 것이 좋습니다.
+  - 프로젝트 취소/재개 API(dashboard/blueprints/projects.py:1953, 2097)는 Sheets 업데이트와 감사 로그, SocketIO 브로드캐스트를 포함해
+    일관성 있게 동작합니다. 재개 시에도 “이미 재개된 상태”에 대한 빠른 응답이 들어가면 UX가 더 선명해집니다.
+
+  아코디언 인라인 편집
+
+  - Optimistic Lock을 AN 컬럼으로 구현해 충돌을 감지합니다 (dashboard/blueprints/projects.py:857). 락 불일치 시 최신 데이터를 내려주
+    도록 되어 있으니 프론트에서 409 응답을 병합 UI로 연결하도록 확인하세요.
+  - 변경 필드를 추적해 감사 로그에 기록하지만 (dashboard/blueprints/projects.py:989), 계산 필드나 날짜 필드 외에 특정 필드를 건너뛰고
+    싶으면 calculated_fields·date_fields 목록을 별도 설정 파일로 분리하는 것이 유지보수에 유리합니다.
+  - 업데이트 후 invalidate_project_cache(project_code)를 호출해 백그라운드 리프레시가 동작합니다 (dashboard/blueprints/
+    projects.py:1025). 다만 편집 직후 프론트가 바로 목록을 새로고침하면 캐시 재적재가 완료되기 전일 수 있으니, 성공 응답에 최신 row
+    데이터를 포함시키는 현재 구조를 계속 활용하세요.
+
+  캐시/프리로더/필터 응답
+
+  - SimpleCache가 TTL 5분으로 설정되고 (dashboard/utils/smart_cache_manager.py:55), 프리로더가 4분마다 load_data(force_refresh=True)
+    를 호출해 TTL을 갱신합니다 (dashboard/utils/cache_preloader.py:203, dashboard/__init__.py:201). 이로 인해 목록 API (dashboard/
+    blueprints/projects.py:252) 대부분은 캐시 히트로 빠르게 응답합니다.
+  - Redis 장애 시 fallback 캐시로 무효화까지 처리되도록 정리돼 있습니다 (dashboard/utils/smart_cache_manager.py:343). 패턴 무효화를
+    자주 호출하는 경로(필터 갱신, 메모 저장 등)를 Fallback 모드에서 한 번 QA해 보는 것이 좋습니다.
+  - 필터/정렬 로직은 대부분 프런트 JS에서 실행됩니다. 백엔드 캐시 구조가 바뀌었으니, dashboard/src/js/services/DataManager.js의 데이
+    터 병합 시점이 바뀌었는지 regression 테스트를 권장합니다.
+
+  모드 전환 및 프론트 반영
+
+  - 전역 ModeManager 싱글톤 (dashboard/src/js/utils/globalModeManager.js:14)으로 표/아코디언/수금관리 모드를 관리하며, 각 컴
+    포넌트가 공통 이벤트를 듣고 있습니다 (dashboard/src/js/components/ProjectTable.js:218, dashboard/src/js/components/
+    ProjectRowAccordion.js:67). 모드 변경 시 서버에 추가 호출이 필요 없다면, 불필요한 fetch가 남아 있지 않은지 확인해 주세요.
+  - 모드 상태가 변경되면 modeChanged 이벤트를 브로드캐스트하므로 전역 상태 디버그에는 window.modeManager를 활용할 수 있습니다. 실제
+    운영에서 로그가 과도하게 쌓이지 않도록 ModeManager.#log 레벨을 조정하는 것도 고려하세요.
+
+  메모 저장/취소
+
+  - 셀 노트를 업데이트할 때 필수 필드 검증 → 컬럼 매핑 → 캐시/감사 로그가 포함돼 있습니다 (dashboard/blueprints/projects.py:1213). 공
+    백 메모는 삭제로 처리하며, smart_invalidate로 셀 노트 캐시도 제거합니다 (dashboard/blueprints/projects.py:1280).
+  - 메모 저장 후 invalidate_project_cache가 다시 호출되므로, 같은 사용자가 연속 편집할 때 캐시가 반복 무효화됩니다. 메모 전용 캐시 키
+    (cell_notes_{sheet_id})만 무효화하고 프로젝트 전체 프리로드는 건너뛰어도 되는지 검토해 볼 수 있습니다.
+
+  편집 잠금 및 다중 사용자
+
+  - Redis 기반 ProjectLockManager가 동일 탭·동일 사용자 연장을 허용하고, 다른 탭/사용자는 차단합니다 (dashboard/utils/
+    project_lock_manager.py:88 이하). 락 정보 조회/해제 API도 노출돼 있어 관리자가 상황을 파악할 수 있습니다 (dashboard/blueprints/
+    monitoring.py:354~420).
+      - Redis 장애 시에도 fallback 캐시에서 잠금을 저장·조회할 수 있지만, 다중 워커 간 공유는 안 되므로 장애 알림이 필수입니다.
+      - 강제 해제 시 감사 로그를 남기지 않으므로(release_user_locks_api 등), 관리자 액션이 감사 대상이면 로그 추가를 검토하세요.
+
+  Google Sheets/캘린더 연동
+
+  - 모든 Sheets 호출이 GoogleSheetsManager._execute_with_retry를 거쳐 SSL 에러 시 프로세스를 즉시 종료하도록 되어 있어 안정적입니다
+    (dashboard/utils/google_sheets.py:188). Docker compose가 restart: unless-stopped라면 재시작이 자동으로 이루어집니다.
+  - 캘린더 동기화는 스케줄러와 수동 실행 두 경로가 동일 함수를 호출합니다 (dashboard/services/calendar_sync_scheduler.py:52,
+    dashboard/blueprints/projects.py:2230). 시트 데이터를 한 번만 로드하고 dict로 변환하므로 퍼포먼스도 괜찮습니다. 다만 Google API
+    쿼터를 위해 로그 레벨을 상황에 따라 낮춰두는 것이 좋습니다.
+
+  다중 사용자 & 백엔드 서비스
+
+  - Redis 세션/SocketIO message queue/RQ 작업 큐가 모두 하나의 Redis 인스턴스를 사용합니다. redis.conf에서 파라미터를 조정하거나
+    Sentinel 환경을 사용할 때는 세 서비스 모두 동일 sentinel 설정을 사용하도록 .env를 정리하는 것이 필요합니다.
+  - RQ 워커에 rq-scheduler를 추가 설치했으니, 실제로 스케줄링이 필요 없다면 --with-scheduler를 제거해 의존성과 부하를 줄일 수 있습니
+    다. 반대로 패스 유지 시 /app/dashboard/utils/task_queue.py에서 예약 작업을 넣는 코드가 준비돼 있는지 확인하세요.
+
+  종합 피드백
+
+  - 주요 기능 흐름은 모두 레디스와 연동돼 정상적으로 맞물리고 있습니다. 아직 자동 테스트 커버리지는 부족하므로, 최소한 프로젝트 생성/
+    편집/메모 저장/모드 변경/락 획득 등을 포함한 통합 테스트를 추가하면 회귀 리스크가 크게 줄어듭니다.
+  - 장애 모드를 대비해 Redis·Google API·Calendar API 각각에 대한 모니터링이나 간단한 헬스 페이지를 마련해 두면 20명 규모 내부 사용에
+    도 충분히 안정적으로 운용할 수 있을 것입니다.
+
+  큰 구조 문제는 발견되지 않았고, 위 항목만 보완하면 운영 준비 상태로 봐도 무방합니다.

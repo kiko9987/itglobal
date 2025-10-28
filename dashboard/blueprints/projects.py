@@ -1695,7 +1695,7 @@ def add_project_auto():
 
         # 폼 데이터를 시트 행으로 변환
         column_mapping = manager.get_column_mapping()
-        values = [''] * 39  # 39개 컬럼
+        values = [''] * 40  # 40개 컬럼 (AN까지)
 
         # 기본값 처리: 공사 종료일이 없으면 공사 시작일과 동일하게
         if '공사 시작' in data and data['공사 시작']:
@@ -1737,6 +1737,9 @@ def add_project_auto():
         from datetime import datetime
         if '공사 확정' not in data or not data.get('공사 확정'):
             data['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
+
+        # 기본값 처리: Optimistic Lock 버전 초기화
+        data['_version'] = '0'
 
         # 총액 1 포맷팅: 숫자만 들어온 경우 원화 형식으로 변환
         if '총액 1' in data and data['총액 1']:

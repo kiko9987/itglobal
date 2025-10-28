@@ -694,18 +694,32 @@ class SimpleCache:
             key: 캐시 키
             timestamp: 무효화 시각 (기본값: 현재 시각)
 
-        Raises:
-            ServiceUnavailable: Redis 장애 시
+        Note:
+            Redis 장애 시 Fallback 캐시로 전환합니다.
         """
         try:
             marker_time = timestamp or time.time()
             marker_key = f"invalidation:{key}"
-            self.redis.set(marker_key, str(marker_time), ex=10)  # 10초 TTL
-            logger.debug(f"무효화 마커 설정: {key} = {marker_time}")
+
+            # Fallback 모드 체크
+            if self._use_fallback and self._fallback_cache:
+                self._fallback_cache.set(marker_key, str(marker_time), ex=10)
+                logger.debug(f"Fallback 무효화 마커 설정: {key} = {marker_time}")
+            else:
+                self.redis.set(marker_key, str(marker_time), ex=10)  # 10초 TTL
+                logger.debug(f"무효화 마커 설정: {key} = {marker_time}")
 
         except ServiceUnavailable:
-            logger.error(f"Redis 장애로 무효화 마커 설정 실패: {key}")
-            raise
+            logger.error(f"Redis 장애 감지 - Fallback 캐시로 무효화 마커 설정: {key}")
+            self._enable_fallback()
+
+            if self._fallback_cache:
+                marker_time = timestamp or time.time()
+                marker_key = f"invalidation:{key}"
+                self._fallback_cache.set(marker_key, str(marker_time), ex=10)
+                logger.debug(f"Fallback 무효화 마커 설정: {key} = {marker_time}")
+            else:
+                logger.warning(f"Fallback 캐시 사용 불가 - 무효화 마커 설정 실패: {key}")
 
     def clear_invalidation_marker(self, key: str) -> bool:
         """무효화 마커 제거
@@ -716,21 +730,40 @@ class SimpleCache:
         Returns:
             제거 성공 여부
 
-        Raises:
-            ServiceUnavailable: Redis 장애 시
+        Note:
+            Redis 장애 시 Fallback 캐시로 전환합니다.
         """
         try:
             marker_key = f"invalidation:{key}"
-            deleted_count = self.redis.delete(marker_key)
 
-            if deleted_count > 0:
-                logger.debug(f"무효화 마커 제거: {key}")
-                return True
-            return False
+            # Fallback 모드 체크
+            if self._use_fallback and self._fallback_cache:
+                deleted_count = self._fallback_cache.delete(marker_key)
+                if deleted_count > 0:
+                    logger.debug(f"Fallback 무효화 마커 제거: {key}")
+                    return True
+                return False
+            else:
+                deleted_count = self.redis.delete(marker_key)
+                if deleted_count > 0:
+                    logger.debug(f"무효화 마커 제거: {key}")
+                    return True
+                return False
 
         except ServiceUnavailable:
-            logger.error(f"Redis 장애로 무효화 마커 제거 실패: {key}")
-            raise
+            logger.error(f"Redis 장애 감지 - Fallback 캐시로 무효화 마커 제거: {key}")
+            self._enable_fallback()
+
+            if self._fallback_cache:
+                marker_key = f"invalidation:{key}"
+                deleted_count = self._fallback_cache.delete(marker_key)
+                if deleted_count > 0:
+                    logger.debug(f"Fallback 무효화 마커 제거: {key}")
+                    return True
+                return False
+            else:
+                logger.warning(f"Fallback 캐시 사용 불가 - 무효화 마커 제거 실패: {key}")
+                return False
 
     def get_invalidation_marker(self, key: str) -> Optional[float]:
         """무효화 마커 조회
@@ -741,12 +774,17 @@ class SimpleCache:
         Returns:
             무효화 시각 (Unix timestamp), 없으면 None
 
-        Raises:
-            ServiceUnavailable: Redis 장애 시
+        Note:
+            Redis 장애 시 Fallback 캐시로 전환합니다.
         """
         try:
             marker_key = f"invalidation:{key}"
-            value = self.redis.get(marker_key)
+
+            # Fallback 모드 체크
+            if self._use_fallback and self._fallback_cache:
+                value = self._fallback_cache.get(marker_key)
+            else:
+                value = self.redis.get(marker_key)
 
             if value is None:
                 return None
@@ -758,8 +796,24 @@ class SimpleCache:
                 return None
 
         except ServiceUnavailable:
-            logger.error(f"Redis 장애로 무효화 마커 조회 실패: {key}")
-            raise
+            logger.error(f"Redis 장애 감지 - Fallback 캐시로 무효화 마커 조회: {key}")
+            self._enable_fallback()
+
+            if self._fallback_cache:
+                marker_key = f"invalidation:{key}"
+                value = self._fallback_cache.get(marker_key)
+
+                if value is None:
+                    return None
+
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    logger.warning(f"Fallback 무효화 마커 파싱 실패: {key}")
+                    return None
+            else:
+                logger.warning(f"Fallback 캐시 사용 불가 - 무효화 마커 조회 실패: {key}")
+                return None
 
 # 전역 간단 캐시 인스턴스 (Lazy Loading)
 _simple_cache: Optional[SimpleCache] = None
