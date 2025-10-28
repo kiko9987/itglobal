@@ -188,51 +188,28 @@ def get_cache_preloader(refresh_interval: int = 3600) -> CachePreloader:
 
 # ========== 프리로드 작업 예시 ==========
 
-def preload_metadata():
+def preload_example_data():
     """
-    메타데이터 프리로드 (담당자, 사업자, 거래처 등)
+    예시 데이터 프리로드
 
     Returns:
         bool: 성공 여부
+
+    Note:
+        실제 프로젝트에 맞는 프리로드 작업으로 교체해야 합니다.
+        예: 사용자 목록, 설정 데이터, 자주 사용하는 쿼리 결과 등
     """
     try:
-        from dashboard.utils.metadata_manager import get_metadata_manager
+        # 실제 프리로드 작업은 프로젝트에 맞게 구현
+        # 예시: from dashboard.utils.user_database import get_user_database
+        #       db = get_user_database()
+        #       db.get_all_users()  # 사용자 목록 캐싱
 
-        metadata_manager = get_metadata_manager()
-
-        # 각 메타데이터 조회 (캐시 로드)
-        metadata_manager.get_managers()  # 담당자 목록
-        metadata_manager.get_subs()  # 사업자 목록
-        metadata_manager.get_traders()  # 거래처 목록
-
-        logger.debug("메타데이터 프리로드 완료")
+        logger.debug("예시 데이터 프리로드 완료 (실제 구현 필요)")
         return True
 
     except Exception as e:
-        logger.error(f"메타데이터 프리로드 실패: {e}")
-        return False
-
-
-def preload_folder_mapping():
-    """
-    폴더 ID 매핑 프리로드
-
-    Returns:
-        bool: 성공 여부
-    """
-    try:
-        from dashboard.utils.metadata_manager import get_metadata_manager
-
-        metadata_manager = get_metadata_manager()
-
-        # 폴더 매핑 조회 (캐시 로드)
-        metadata_manager.get_folder_ids()
-
-        logger.debug("폴더 매핑 프리로드 완료")
-        return True
-
-    except Exception as e:
-        logger.error(f"폴더 매핑 프리로드 실패: {e}")
+        logger.error(f"예시 데이터 프리로드 실패: {e}")
         return False
 
 
@@ -242,21 +219,17 @@ def register_default_preload_tasks(preloader: CachePreloader):
 
     Args:
         preloader: CachePreloader 인스턴스
+
+    Note:
+        실제 프로젝트에 맞는 프리로드 작업으로 교체해야 합니다.
+        예: 사용자 목록, 설정 데이터, 메타데이터, 자주 사용하는 쿼리 결과 등
     """
-    # 우선순위 1: 핵심 메타데이터 (담당자, 사업자, 거래처)
+    # 우선순위 1: 예시 데이터 프리로드 (실제 구현 필요)
     preloader.register_task(
-        task_name="metadata_preload",
-        task_func=preload_metadata,
+        task_name="example_data_preload",
+        task_func=preload_example_data,
         priority=1,
         enabled=True
     )
 
-    # 우선순위 2: 폴더 ID 매핑
-    preloader.register_task(
-        task_name="folder_mapping_preload",
-        task_func=preload_folder_mapping,
-        priority=2,
-        enabled=True
-    )
-
-    logger.info("기본 프리로드 작업 등록 완료")
+    logger.info("기본 프리로드 작업 등록 완료 (실제 프로젝트에 맞게 구현 필요)")

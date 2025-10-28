@@ -113,7 +113,7 @@ class SimpleCache:
                 # 특정 키 무효화
                 keys = message.get("keys", [])
                 for key in keys:
-                    self.delete(key, set_marker=False)  # 마커 중복 설정 방지
+                    self.delete(key, set_marker=False, broadcast=False)  # 무한 루프 방지
                 logger.debug(f"Pub/Sub 무효화 처리: {len(keys)}개 키")
 
             elif action == "invalidate_pattern":
@@ -278,8 +278,17 @@ class SimpleCache:
                         f"생성시간: {current_time}, 수집시각: {data_timestamp}")
 
         except ServiceUnavailable:
-            logger.error(f"Redis 장애로 캐시 저장 실패: {key}")
-            raise
+            # Redis 장애 시 Fallback 메모리 캐시로 전환
+            logger.error(f"Redis 장애 감지 - Fallback 캐시로 저장: {key}")
+            self._enable_fallback()
+
+            # Fallback 캐시에 저장 (DataFrame은 그대로 저장 가능)
+            if self._fallback_cache:
+                self._fallback_cache.set(f"cache:{key}", value, ex=ttl)
+                logger.debug(f"Fallback 캐시 저장 완료: {key}, TTL: {ttl}초")
+            else:
+                logger.error(f"Fallback 캐시 사용 불가: {key}")
+                raise
 
     def delete(self, key: str, set_marker: bool = True, broadcast: bool = True) -> bool:
         """캐시에서 키 삭제 (무효화 마커 설정 옵션 + Pub/Sub 브로드캐스트)
@@ -318,8 +327,18 @@ class SimpleCache:
             return deleted_count > 0
 
         except ServiceUnavailable:
-            logger.error(f"Redis 장애로 캐시 삭제 실패: {key}")
-            raise
+            # Redis 장애 시 Fallback 메모리 캐시에서 삭제
+            logger.error(f"Redis 장애 감지 - Fallback 캐시에서 삭제: {key}")
+            self._enable_fallback()
+
+            # Fallback 캐시에서 삭제
+            if self._fallback_cache:
+                deleted_count = self._fallback_cache.delete(f"cache:{key}")
+                logger.debug(f"Fallback 캐시 삭제 완료: {key}")
+                return deleted_count > 0
+            else:
+                logger.error(f"Fallback 캐시 사용 불가: {key}")
+                return False
 
     def invalidate_by_pattern(self, pattern: str, set_marker: bool = True, broadcast: bool = True) -> int:
         """패턴에 맞는 캐시 무효화 (무효화 마커 설정 옵션 + Pub/Sub 브로드캐스트)
