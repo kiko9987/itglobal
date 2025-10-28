@@ -240,6 +240,20 @@ class BackgroundPrefetch:
                     new_data = future.result(timeout=30)
                 except FutureTimeoutError:
                     future.cancel()  # 명시적으로 future 취소
+
+                    # 🔧 타임아웃 발생 시 Google Sheets 서비스 재초기화
+                    # OpenSSL 세션이 손상되었을 수 있으므로 서비스 객체 재생성
+                    logger.warning(f"[PREFETCH] 타임아웃 발생 ({cache_key}), Google Sheets 서비스 재초기화 시도")
+                    try:
+                        from dashboard.utils.google_sheets import GoogleSheetsManager
+                        sheets_manager = GoogleSheetsManager()
+                        if sheets_manager.reset_service():
+                            logger.info("[PREFETCH] Google Sheets 서비스 재초기화 성공")
+                        else:
+                            logger.error("[PREFETCH] Google Sheets 서비스 재초기화 실패")
+                    except Exception as reset_err:
+                        logger.error(f"[PREFETCH] 서비스 재초기화 중 오류: {reset_err}")
+
                     raise TimeoutError(f"프리패치 타임아웃: {cache_key}")
 
                 # 데이터 유효성 검증

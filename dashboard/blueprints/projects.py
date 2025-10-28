@@ -1894,16 +1894,8 @@ def cancel_project_api():
         ]
 
         try:
-            # 배치 업데이트 실행
-            batch_update_body = {
-                'valueInputOption': 'USER_ENTERED',
-                'data': updates
-            }
-
-            batch_result = manager.service.spreadsheets().values().batchUpdate(
-                spreadsheetId=sheet_id,
-                body=batch_update_body
-            ).execute()
+            # 배치 업데이트 실행 (Thread-Safe: batch_update_cells는 _execute_with_retry 사용)
+            batch_result = manager.batch_update_cells(sheet_id, updates)
 
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 취소 - {updated_cells}개 셀 업데이트 완료")

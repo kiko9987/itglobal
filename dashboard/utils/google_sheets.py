@@ -2,6 +2,8 @@ import os
 import logging
 import pandas as pd
 import time
+import ssl
+import sys
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -16,6 +18,13 @@ from tenacity import (
 )
 from .logging_config import get_logger
 from .api_usage_monitor import get_api_monitor
+
+# SSL 에러 처리를 위한 import
+try:
+    import requests.exceptions
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
 
 # 전역 로깅 설정을 사용하는 로거
 logger = get_logger(__name__)
@@ -132,9 +141,40 @@ class GoogleSheetsManager:
             logger.error(f"구글 API 인증 실패: {str(e)}")
             raise
 
+    def reset_service(self):
+        """
+        서비스 객체 재초기화 (타임아웃/에러 후 복구용)
+
+        Thread-Safe: _lock을 사용하여 동시 재초기화 방지
+        """
+        with self._lock:
+            try:
+                logger.warning("[SERVICE_RESET] Google Sheets 서비스 객체 재초기화 시작")
+
+                # 기존 서비스 객체 정리
+                if self.service:
+                    try:
+                        # HTTP 연결 정리 시도
+                        if hasattr(self.service, '_http'):
+                            self.service._http.close()
+                    except Exception as cleanup_err:
+                        logger.debug(f"[SERVICE_RESET] 기존 연결 정리 중 경고: {cleanup_err}")
+
+                # 새로운 서비스 객체 생성
+                self._authenticate()
+
+                logger.info("[SERVICE_RESET] Google Sheets 서비스 객체 재초기화 완료")
+                return True
+
+            except Exception as e:
+                logger.error(f"[SERVICE_RESET] 서비스 재초기화 실패: {e}")
+                return False
+
     def _execute_with_retry(self, request, operation_name="API 호출"):
         """
         Exponential Backoff를 사용한 Google Sheets API 호출 재시도 로직
+
+        Thread-Safe: _lock을 사용하여 동시 API 호출 방지 (OpenSSL race condition 해결)
 
         Args:
             request: Google API 요청 객체
@@ -148,13 +188,37 @@ class GoogleSheetsManager:
         """
         for attempt in range(self.MAX_RETRIES):
             try:
-                result = request.execute()
+                # 🔒 스레드 안전성 확보: Google API service 객체 동시 접근 방지
+                # OpenSSL TLS 세션 race condition 방지
+                with self._lock:
+                    result = request.execute()
+
                 if attempt > 0:
                     logger.info(
                         f"[재시도 성공] {operation_name} - "
                         f"{attempt + 1}번째 시도에서 성공 (소요 시간: 약 {sum([self.INITIAL_BACKOFF * (2 ** i) for i in range(attempt)])}초)"
                     )
                 return result
+
+            except ssl.SSLError as ssl_err:
+                # SSL 에러는 즉시 로그 남기고 graceful shutdown
+                logger.critical(
+                    f"[SSL_ERROR] {operation_name} - SSL/TLS 에러 발생: {ssl_err}\n"
+                    f"프로세스를 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
+                )
+                # 프로세스 매니저(systemd, supervisor 등)가 재시작하도록 exit
+                sys.exit(1)
+
+            except Exception as requests_ssl_err:
+                # requests 라이브러리의 SSL 에러 처리
+                if HAS_REQUESTS and isinstance(requests_ssl_err, requests.exceptions.SSLError):
+                    logger.critical(
+                        f"[REQUESTS_SSL_ERROR] {operation_name} - Requests SSL 에러 발생: {requests_ssl_err}\n"
+                        f"프로세스를 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
+                    )
+                    sys.exit(1)
+                # SSL이 아닌 다른 Exception은 아래 로직으로 전달
+                raise
 
             except HttpError as e:
                 error_code = e.resp.status

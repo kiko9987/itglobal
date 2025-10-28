@@ -212,6 +212,8 @@ class CalendarSyncScheduler:
         """
         Google Sheets에서 프로젝트의 날짜 필드를 비웁니다.
 
+        Thread-Safe: GoogleSheetsManager.batch_update_cells를 사용하여 락 보호 적용
+
         Args:
             project_code: 프로젝트 코드
 
@@ -220,7 +222,6 @@ class CalendarSyncScheduler:
         """
         try:
             sheets_manager = GoogleSheetsManager()
-            sheets_service = sheets_manager.service
 
             # 환경 변수에서 시트 정보 가져오기
             import os
@@ -231,27 +232,21 @@ class CalendarSyncScheduler:
                 logger.error("[CALENDAR_SYNC] GOOGLE_SHEET_ID 환경 변수가 설정되지 않았습니다.")
                 return False
 
-            # 프로젝트 코드로 행 찾기
-            row_index = self._find_project_row(sheets_service, sheet_id, sheet_name, project_code)
+            # 프로젝트 코드로 행 찾기 (find_row_by_project_code는 이미 락 보호됨)
+            row_index = sheets_manager.find_row_by_project_code(sheet_id, project_code, f"{sheet_name}!A:A")
 
             if row_index is None:
                 logger.warning(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
                 return False
 
-            # 날짜 필드 비우기 (공사 시작, 공사 종료)
-            # 컬럼 인덱스는 google_sheets.py의 COLUMN_MAPPING 참고
-            # 공사 시작: T열 (20번째), 공사 종료: U열 (21번째)
-            start_date_col = 'T'
-            end_date_col = 'U'
+            # 날짜 필드 비우기 (공사 시작: I열, 공사 종료: J열)
+            # batch_update_cells 사용하여 락 보호 적용
+            updates = [
+                {'range': f"{sheet_name}!I{row_index}", 'values': [['']]},  # 공사 시작
+                {'range': f"{sheet_name}!J{row_index}", 'values': [['']]}   # 공사 종료
+            ]
 
-            range_name = f"{sheet_name}!{start_date_col}{row_index}:{end_date_col}{row_index}"
-
-            sheets_service.spreadsheets().values().update(
-                spreadsheetId=sheet_id,
-                range=range_name,
-                valueInputOption='RAW',
-                body={'values': [['', '']]}  # 빈 문자열 (데이터 레이어)
-            ).execute()
+            sheets_manager.batch_update_cells(sheet_id, updates)
 
             logger.info(f"[CALENDAR_SYNC] 프로젝트 {project_code} (행 {row_index})의 날짜 필드를 비웠습니다.")
 
@@ -272,6 +267,8 @@ class CalendarSyncScheduler:
         """
         Google Sheets의 프로젝트 날짜 필드를 업데이트합니다.
 
+        Thread-Safe: GoogleSheetsManager.batch_update_cells를 사용하여 락 보호 적용
+
         Args:
             project_code: 프로젝트 코드
             start_date: 공사 시작일 (YYYY-MM-DD)
@@ -282,7 +279,6 @@ class CalendarSyncScheduler:
         """
         try:
             sheets_manager = GoogleSheetsManager()
-            sheets_service = sheets_manager.service
 
             # 환경 변수에서 시트 정보 가져오기
             import os
@@ -293,25 +289,21 @@ class CalendarSyncScheduler:
                 logger.error("[CALENDAR_SYNC] GOOGLE_SHEET_ID 환경 변수가 설정되지 않았습니다.")
                 return False
 
-            # 프로젝트 코드로 행 찾기
-            row_index = self._find_project_row(sheets_service, sheet_id, sheet_name, project_code)
+            # 프로젝트 코드로 행 찾기 (find_row_by_project_code는 이미 락 보호됨)
+            row_index = sheets_manager.find_row_by_project_code(sheet_id, project_code, f"{sheet_name}!A:A")
 
             if row_index is None:
                 logger.warning(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
                 return False
 
-            # 날짜 필드 업데이트 (공사 시작: T열, 공사 종료: U열)
-            start_date_col = 'T'
-            end_date_col = 'U'
+            # 날짜 필드 업데이트 (공사 시작: I열, 공사 종료: J열)
+            # batch_update_cells 사용하여 락 보호 적용
+            updates = [
+                {'range': f"{sheet_name}!I{row_index}", 'values': [[start_date]]},  # 공사 시작
+                {'range': f"{sheet_name}!J{row_index}", 'values': [[end_date]]}     # 공사 종료
+            ]
 
-            range_name = f"{sheet_name}!{start_date_col}{row_index}:{end_date_col}{row_index}"
-
-            sheets_service.spreadsheets().values().update(
-                spreadsheetId=sheet_id,
-                range=range_name,
-                valueInputOption='RAW',
-                body={'values': [[start_date, end_date]]}
-            ).execute()
+            sheets_manager.batch_update_cells(sheet_id, updates)
 
             logger.info(
                 f"[CALENDAR_SYNC] 프로젝트 {project_code} (행 {row_index}) 날짜 업데이트: "
@@ -446,34 +438,6 @@ class CalendarSyncScheduler:
         except Exception as e:
             logger.error(f"[CALENDAR_SYNC] 양방향 동기화 실패 ({project_code}): {e}", exc_info=True)
             return False
-
-    def _find_project_row(self, sheets_service, sheet_id: str, sheet_name: str, project_code: str) -> Optional[int]:
-        """
-        프로젝트 코드로 시트에서 행 번호 찾기
-
-        Returns:
-            행 번호 (1-based index) 또는 None
-        """
-        try:
-            # A열 (프로젝트 코드) 전체 읽기
-            range_name = f"{sheet_name}!A:A"
-            result = sheets_service.spreadsheets().values().get(
-                spreadsheetId=sheet_id,
-                range=range_name
-            ).execute()
-
-            values = result.get('values', [])
-
-            for idx, row in enumerate(values, start=1):
-                if row and row[0] == project_code:
-                    return idx
-
-            return None
-
-        except Exception as e:
-            logger.error(f"[CALENDAR_SYNC] 프로젝트 행 찾기 실패: {e}")
-            return None
-
 
 # 전역 스케줄러 인스턴스
 _scheduler_instance: Optional[CalendarSyncScheduler] = None
