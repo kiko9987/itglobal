@@ -4896,25 +4896,45 @@ export default class ProjectRowAccordion {
         const endTime = performance.now();
         logger.debug(`⏱️ [통합 저장] 프로젝트 필드 저장 API 소요 시간: ${(endTime - startTime).toFixed(0)}ms`);
 
-        // 🔒 Optimistic Lock: 409 Conflict 처리
+        // 🔒 Optimistic Lock: 409 Conflict 처리 (병합 UI)
         if (response.status === 409) {
           const conflictResult = await response.json();
           logger.warn(`[Optimistic Lock] 버전 충돌 감지: ${conflictResult.message}`);
-
-          // 사용자에게 알림
-          this.showMessage(
-            '다른 사용자가 이 프로젝트를 먼저 수정했습니다.\n페이지를 새로고침하여 최신 데이터를 확인해주세요.',
-            'warning',
-            5000
-          );
-
-          // 편집 모드 해제
-          this.disableUnifiedEditMode(projectCode);
 
           // 최신 데이터로 UI 업데이트 (서버에서 current_data 반환)
           if (conflictResult.current_data) {
             this.updateAllCardsWithProjectData(projectCode, conflictResult.current_data);
             this.currentProject = conflictResult.current_data;
+            logger.info('[409 병합] 최신 데이터로 UI 업데이트 완료');
+          }
+
+          // 병합 UI: 사용자에게 선택권 제공
+          const userChoice = confirm(
+            '⚠️ 다른 사용자가 이 프로젝트를 먼저 수정했습니다.\n\n' +
+            '최신 버전으로 업데이트되었습니다.\n' +
+            '계속 편집하시겠습니까?\n\n' +
+            '[확인] 계속 편집 (최신 데이터 기준)\n' +
+            '[취소] 편집 모드 종료'
+          );
+
+          if (userChoice) {
+            // 계속 편집: 편집 모드 유지, 최신 데이터로 작업
+            this.showMessage(
+              '최신 버전으로 업데이트되었습니다. 계속 편집할 수 있습니다.',
+              'info',
+              3000
+            );
+            logger.info('[409 병합] 사용자가 계속 편집 선택');
+            // 편집 모드 유지 - 아무것도 하지 않음
+          } else {
+            // 편집 종료: 편집 모드 해제
+            this.disableUnifiedEditMode(projectCode);
+            this.showMessage(
+              '편집 모드가 종료되었습니다.',
+              'info',
+              3000
+            );
+            logger.info('[409 병합] 사용자가 편집 종료 선택');
           }
 
           // 충돌 에러를 throw하여 저장 프로세스 중단
