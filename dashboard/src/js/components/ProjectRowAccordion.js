@@ -4879,6 +4879,12 @@ export default class ProjectRowAccordion {
       let result = null;
       if (Object.keys(projectChanges).length > 0) {
         const apiProjectCode = this.originalProjectCode || projectCode;
+
+        // 🔒 Optimistic Lock: 현재 버전 추가
+        const currentVersion = this.currentProject?._version || '0';
+        projectChanges._version = currentVersion;
+        logger.debug(`[Optimistic Lock] 버전 포함 저장 요청: ${currentVersion}`);
+
         const startTime = performance.now();
         const response = await fetch(`/api/projects/${apiProjectCode}`, {
           method: 'PUT',
@@ -4889,6 +4895,31 @@ export default class ProjectRowAccordion {
 
         const endTime = performance.now();
         logger.debug(`⏱️ [통합 저장] 프로젝트 필드 저장 API 소요 시간: ${(endTime - startTime).toFixed(0)}ms`);
+
+        // 🔒 Optimistic Lock: 409 Conflict 처리
+        if (response.status === 409) {
+          const conflictResult = await response.json();
+          logger.warn(`[Optimistic Lock] 버전 충돌 감지: ${conflictResult.message}`);
+
+          // 사용자에게 알림
+          this.showMessage(
+            '다른 사용자가 이 프로젝트를 먼저 수정했습니다.\n페이지를 새로고침하여 최신 데이터를 확인해주세요.',
+            'warning',
+            5000
+          );
+
+          // 편집 모드 해제
+          this.disableUnifiedEditMode(projectCode);
+
+          // 최신 데이터로 UI 업데이트 (서버에서 current_data 반환)
+          if (conflictResult.current_data) {
+            this.updateAllCardsWithProjectData(projectCode, conflictResult.current_data);
+            this.currentProject = conflictResult.current_data;
+          }
+
+          // 충돌 에러를 throw하여 저장 프로세스 중단
+          throw new Error('version_conflict');
+        }
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);

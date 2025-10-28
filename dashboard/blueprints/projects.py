@@ -445,13 +445,68 @@ def update_project(project_code):
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AM',
+            end_col='AN',  # AN 컬럼까지 읽기 (_version 포함)
             value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
         )
 
-        # 현재 값을 리스트로 확장 (39개 컬럼)
-        while len(current_values) < 39:
+        # 현재 값을 리스트로 확장 (40개 컬럼, AN까지)
+        while len(current_values) < 40:
             current_values.append('')
+
+        # 🔒 Optimistic Lock: 버전 검증
+        expected_version = data.get('_version')
+        current_version = current_values[39]  # AN 컬럼 (index 39)
+
+        # 버전 값 정규화 (빈 문자열/None → '0')
+        if not current_version or current_version == '':
+            current_version = '0'
+        if not expected_version or expected_version == '':
+            expected_version = '0'
+
+        # 버전 불일치 → 409 Conflict
+        if str(current_version) != str(expected_version):
+            logger.warning(f"[OPTIMISTIC_LOCK] 버전 충돌 감지: {project_code}, expected={expected_version}, current={current_version}")
+
+            # 현재 최신 데이터를 반환하여 클라이언트가 병합할 수 있도록 함
+            # 최신 데이터 다시 읽기 (FORMATTED_VALUE로 사용자가 보는 형식으로)
+            fresh_values = manager.get_row_values(
+                sheet_id=sheet_id,
+                sheet_name=sheet_name,
+                row_number=row_number,
+                start_col='A',
+                end_col='AN',
+                value_render_option='FORMATTED_VALUE'
+            )
+
+            # 컬럼 매핑 임시 생성
+            temp_column_mapping = manager.get_column_mapping()
+            temp_field_to_index = {}
+            for col_letter, field_name in temp_column_mapping.items():
+                if len(col_letter) == 1:
+                    column_index = ord(col_letter) - ord('A')
+                else:
+                    column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+                temp_field_to_index[field_name] = column_index
+
+            # 최신 데이터를 딕셔너리로 변환
+            current_data = {}
+            for field_name, index in temp_field_to_index.items():
+                if index < len(fresh_values):
+                    value = fresh_values[index]
+                    current_data[field_name] = '' if value is None or value == '' else str(value)
+
+            return jsonify({
+                'success': False,
+                'error': 'conflict',
+                'message': '다른 사용자가 먼저 수정했습니다. 페이지를 새로고침한 후 다시 시도하세요.',
+                'current_data': current_data,
+                'current_version': str(current_version)
+            }), 409
+
+        # 버전 일치 → 버전 증가
+        new_version = int(current_version) + 1
+        current_values[39] = str(new_version)
+        logger.info(f"[OPTIMISTIC_LOCK] 버전 업데이트: {project_code}, {current_version} → {new_version}")
 
         # 컬럼 매핑 가져오기 (컬럼 문자 -> 필드명)
         column_mapping = manager.get_column_mapping()
@@ -504,8 +559,8 @@ def update_project(project_code):
 
         # 업데이트할 필드만 변경
         for field_name, new_value in data.items():
-            if field_name in ['projectCode', '프로젝트 코드']:
-                continue  # 프로젝트 코드는 위에서 이미 처리
+            if field_name in ['projectCode', '프로젝트 코드', '_version']:
+                continue  # 프로젝트 코드와 버전은 위에서 이미 처리
 
             # 계산 필드는 건너뛰기 (구글 시트 수식 보존)
             if field_name in calculated_fields:
@@ -532,7 +587,7 @@ def update_project(project_code):
                 logger.warning(f"[PUT] 알 수 없는 필드명: {field_name}")
 
         # 구글 시트 업데이트 (단일 행 업데이트 - 1번의 API 호출)
-        range_name = f'{sheet_name}!A{row_number}:AM{row_number}'
+        range_name = f'{sheet_name}!A{row_number}:AN{row_number}'
         update_result = manager.update_row(sheet_id, row_number, current_values, range_name)
 
         logger.info(f"[PUT] 전체 행 업데이트 완료: {project_code}, {len(field_changes)}개 필드 변경")
@@ -794,12 +849,66 @@ def update_project_inline():
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AM'
+            end_col='AN'  # AN 컬럼까지 읽기 (_version 포함)
         )
 
-        # 현재 값을 리스트로 확장 (39개 컬럼)
-        while len(current_values) < 39:
+        # 현재 값을 리스트로 확장 (40개 컬럼, AN까지)
+        while len(current_values) < 40:
             current_values.append('')
+
+        # 🔒 Optimistic Lock: 버전 검증
+        expected_version = data.get('_version')
+        current_version = current_values[39]  # AN 컬럼 (index 39)
+
+        # 버전 값 정규화 (빈 문자열/None → '0')
+        if not current_version or current_version == '':
+            current_version = '0'
+        if not expected_version or expected_version == '':
+            expected_version = '0'
+
+        # 버전 불일치 → 409 Conflict
+        if str(current_version) != str(expected_version):
+            logger.warning(f"[OPTIMISTIC_LOCK][INLINE] 버전 충돌 감지: {project_code}, expected={expected_version}, current={current_version}")
+
+            # 현재 최신 데이터를 반환하여 클라이언트가 병합할 수 있도록 함
+            fresh_values = manager.get_row_values(
+                sheet_id=sheet_id,
+                sheet_name=sheet_name,
+                row_number=row_number,
+                start_col='A',
+                end_col='AN',
+                value_render_option='FORMATTED_VALUE'
+            )
+
+            # 컬럼 매핑 임시 생성
+            temp_column_mapping = manager.get_column_mapping()
+            temp_field_to_index = {}
+            for col_letter, field_name in temp_column_mapping.items():
+                if len(col_letter) == 1:
+                    column_index = ord(col_letter) - ord('A')
+                else:
+                    column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+                temp_field_to_index[field_name] = column_index
+
+            # 최신 데이터를 딕셔너리로 변환
+            current_data = {}
+            for field_name, index in temp_field_to_index.items():
+                if index < len(fresh_values):
+                    value = fresh_values[index]
+                    current_data[field_name] = '' if value is None or value == '' else str(value)
+
+            return jsonify({
+                'success': False,
+                'error': 'conflict',
+                'message': '다른 사용자가 먼저 수정했습니다. 페이지를 새로고침한 후 다시 시도하세요.',
+                'current_data': current_data,
+                'current_version': str(current_version)
+            }), 409
+
+        # 버전 일치 → 버전 증가
+        new_version = int(current_version) + 1
+        current_values[39] = str(new_version)
+        logger.info(f"[OPTIMISTIC_LOCK][INLINE] 버전 업데이트: {project_code}, {current_version} → {new_version}")
 
         # 감사 로그를 위한 원본 값 복사
         original_values = current_values.copy()
@@ -818,8 +927,8 @@ def update_project_inline():
 
         # 업데이트할 필드만 변경
         for field_name, new_value in data.items():
-            if field_name == '프로젝트 코드':
-                continue  # 프로젝트 코드는 변경하지 않음
+            if field_name in ['프로젝트 코드', '_version', 'projectCode']:
+                continue  # 프로젝트 코드와 버전은 변경하지 않음
 
             # 계산 필드는 건너뛰기 (구글 시트 수식 보존)
             if field_name in calculated_fields:
@@ -887,8 +996,9 @@ def update_project_inline():
             except Exception as log_error:
                 logger.warning(f"감사 로그 기록 실패: {log_error}")
 
-        # 구글 시트 업데이트
-        update_result = manager.update_row(sheet_id, row_number, current_values)
+        # 구글 시트 업데이트 (AN 컬럼까지 포함)
+        range_name = f'{sheet_name}!A{row_number}:AN{row_number}'
+        update_result = manager.update_row(sheet_id, row_number, current_values, range_name)
 
         logger.info(f"[인라인] 프로젝트 업데이트 완료: {project_code}")
 
