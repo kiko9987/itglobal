@@ -358,9 +358,16 @@ class SimpleCache:
             KEYS 명령은 O(N)이므로 대량 키가 있을 때 주의
         """
         try:
-            # Redis KEYS 명령으로 패턴 검색
-            search_pattern = f"cache:*{pattern}*"
-            matching_keys = self.redis.keys(search_pattern)
+            # Fallback 모드 체크
+            if self._use_fallback and self._fallback_cache:
+                # Fallback 캐시에서 패턴 검색
+                search_pattern = f"cache:*{pattern}*"
+                matching_keys = self._fallback_cache.keys(search_pattern)
+                logger.debug(f"Fallback 캐시에서 패턴 검색: {pattern} ({len(matching_keys)}개 발견)")
+            else:
+                # Redis KEYS 명령으로 패턴 검색
+                search_pattern = f"cache:*{pattern}*"
+                matching_keys = self.redis.keys(search_pattern)
 
             # cache: 접두사 제거하여 원래 키 복원
             original_keys = [key.replace("cache:", "", 1) for key in matching_keys]
@@ -381,8 +388,23 @@ class SimpleCache:
             return len(original_keys)
 
         except ServiceUnavailable:
-            logger.error(f"Redis 장애로 패턴 무효화 실패: {pattern}")
-            raise
+            logger.error(f"Redis 장애 감지 - Fallback 캐시에서 패턴 무효화: {pattern}")
+            self._enable_fallback()
+
+            if self._fallback_cache:
+                # Fallback 캐시에서 패턴 검색 및 삭제
+                search_pattern = f"cache:*{pattern}*"
+                matching_keys = self._fallback_cache.keys(search_pattern)
+                original_keys = [key.replace("cache:", "", 1) for key in matching_keys]
+
+                for key in original_keys:
+                    self.delete(key, set_marker=set_marker, broadcast=False)
+
+                logger.info(f"Fallback에서 패턴 '{pattern}'으로 {len(original_keys)}개 캐시 무효화")
+                return len(original_keys)
+            else:
+                logger.error(f"Fallback 캐시 사용 불가: {pattern}")
+                return 0
 
     def clear_by_strategy(self, strategy: CacheStrategy) -> int:
         """특정 전략의 캐시만 삭제
