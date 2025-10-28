@@ -355,3 +355,96 @@ def reset_cache_metrics():
     except Exception as e:
         logger.error(f"캐시 메트릭 초기화 오류: {e}")
         return jsonify({'error': str(e)}), 500
+
+# ===== 분산 락 모니터링 API =====
+
+@monitoring_bp.route('/api/monitoring/locks')
+@admin_required
+def get_all_locks():
+    """모든 활성 락 조회 (관리자 전용)"""
+    try:
+        from dashboard.utils.project_lock_manager import get_project_lock_manager
+
+        lock_manager = get_project_lock_manager()
+        locks = lock_manager.get_all_locks()
+
+        return jsonify({
+            'success': True,
+            'locks': locks,
+            'total_count': len(locks),
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"락 목록 조회 오류: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/monitoring/locks/<project_code>')
+@login_required
+def get_lock_status_api(project_code):
+    """단일 프로젝트 락 상태 조회"""
+    try:
+        from dashboard.utils.project_lock_manager import get_project_lock_manager
+
+        lock_manager = get_project_lock_manager()
+        lock_info = lock_manager.get_lock_status(project_code)
+
+        if lock_info:
+            return jsonify({
+                'success': True,
+                'locked': True,
+                'lock_info': lock_info
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'locked': False,
+                'message': '잠금이 없습니다.'
+            })
+    except Exception as e:
+        logger.error(f"락 상태 조회 오류: {project_code} - {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/admin/locks/<project_code>', methods=['DELETE'])
+@admin_required
+def force_release_lock_api(project_code):
+    """관리자 강제 락 해제"""
+    try:
+        from dashboard.utils.project_lock_manager import get_project_lock_manager
+
+        lock_manager = get_project_lock_manager()
+        user = session.get('user', {})
+
+        result = lock_manager.force_release_lock(
+            project_code=project_code,
+            admin_email=user.get('email', ''),
+            admin_permission=user.get('permission_level', '')
+        )
+
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"강제 락 해제 오류: {project_code} - {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/admin/locks/user/<user_email>', methods=['DELETE'])
+@admin_required
+def release_user_locks_api(user_email):
+    """특정 사용자의 모든 락 해제 (관리자 전용)"""
+    try:
+        from dashboard.utils.project_lock_manager import get_project_lock_manager
+
+        lock_manager = get_project_lock_manager()
+        admin_user = session.get('user', {})
+        reason = request.args.get('reason', 'admin_forced_release')
+
+        released_count = lock_manager.release_all_user_locks(user_email, reason)
+
+        logger.warning(f"[ADMIN] 사용자 잠금 일괄 해제: {user_email} ({released_count}개) by {admin_user.get('email')}")
+
+        return jsonify({
+            'success': True,
+            'message': f'{released_count}개의 잠금이 해제되었습니다.',
+            'released_count': released_count
+        })
+    except Exception as e:
+        logger.error(f"사용자 락 해제 오류: {user_email} - {e}")
+        return jsonify({'error': str(e)}), 500
