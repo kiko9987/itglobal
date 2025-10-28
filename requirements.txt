@@ -20,3 +20,4 @@ requests==2.31.0
 pytest==8.4.2
 PyJWT==2.8.0
 redis==5.2.1
+rq==2.2.0

@@ -262,3 +262,60 @@ def get_prefetch_stats():
     except Exception as e:
         logger.error(f"프리패치 통계 조회 오류: {e}")
         return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/monitoring/task-queue/stats')
+@admin_required
+def get_task_queue_stats():
+    """RQ 작업 큐 통계 조회 (관리자 전용)"""
+    try:
+        from dashboard.utils.task_queue import get_queue_stats
+
+        stats = {
+            'high': get_queue_stats('high'),
+            'default': get_queue_stats('default'),
+            'low': get_queue_stats('low'),
+            'timestamp': datetime.now().isoformat()
+        }
+
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"작업 큐 통계 조회 오류: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/monitoring/task-queue/job/<job_id>')
+@admin_required
+def get_job_status_api(job_id):
+    """작업 상태 조회 (관리자 전용)"""
+    try:
+        from dashboard.utils.task_queue import get_job_status
+
+        status = get_job_status(job_id)
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"작업 상태 조회 오류: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@monitoring_bp.route('/api/monitoring/task-queue/test', methods=['POST'])
+@admin_required
+def enqueue_test_task():
+    """테스트 작업 큐에 추가 (관리자 전용)"""
+    try:
+        from dashboard.utils.task_queue import enqueue_task, example_generate_report
+
+        # 테스트 작업 추가
+        job = enqueue_task(
+            example_generate_report,
+            'TEST-001',
+            session.get('user', {}).get('email', 'test@example.com'),
+            priority='default'
+        )
+
+        return jsonify({
+            'success': True,
+            'job_id': job.id,
+            'status': job.get_status(),
+            'message': '테스트 작업이 큐에 추가되었습니다.'
+        })
+    except Exception as e:
+        logger.error(f"테스트 작업 추가 오류: {e}")
+        return jsonify({'error': str(e)}), 500
