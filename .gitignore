@@ -70,9 +70,9 @@ backup*/
 # 예외: 프론트엔드 백업 폴더는 포함
 !dashboard/frontend_backups/
 
-# 테스트/디버깅 파일
-test_*.py
-debug_*.py
+# 테스트/디버깅 파일 (루트 디렉토리만)
+/test_*.py
+/debug_*.py
 
 # Excel 임시 파일
 ~.xlsx

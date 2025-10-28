@@ -366,17 +366,20 @@ class SimpleCache:
             logger.error(f"Redis 장애로 무효화 마커 조회 실패: {key}")
             raise
 
-# 전역 간단 캐시 인스턴스
-_simple_cache = SimpleCache()
+# 전역 간단 캐시 인스턴스 (Lazy Loading)
+_simple_cache: Optional[SimpleCache] = None
 
 def get_smart_cache() -> SimpleCache:
-    """캐시 인스턴스 반환 (호환성 유지)"""
+    """캐시 인스턴스 반환 (Lazy Loading - 첫 호출 시 초기화)"""
+    global _simple_cache
+    if _simple_cache is None:
+        _simple_cache = SimpleCache()
     return _simple_cache
 
 # 편의 함수들 (기존 인터페이스 유지)
 def smart_get(key: str, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA) -> Optional[Any]:
     """캐시에서 값 가져오기"""
-    return _simple_cache.get(key, strategy)
+    return get_smart_cache().get(key, strategy)
 
 def smart_set(key: str, value: Any, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA,
               ttl: Optional[int] = None, fetched_at: Optional[float] = None) -> None:
@@ -389,19 +392,19 @@ def smart_set(key: str, value: Any, strategy: CacheStrategy = CacheStrategy.CRIT
         ttl: 커스텀 TTL (선택사항)
         fetched_at: 데이터 수집 시작 시각 (Unix timestamp) - 레이스 컨디션 방지용
     """
-    _simple_cache.set(key, value, strategy, ttl, fetched_at)
+    get_smart_cache().set(key, value, strategy, ttl, fetched_at)
 
 def smart_delete(key: str) -> bool:
     """캐시에서 키 삭제"""
-    return _simple_cache.delete(key)
+    return get_smart_cache().delete(key)
 
 def smart_invalidate(pattern: str) -> int:
     """패턴 기반 캐시 무효화"""
-    return _simple_cache.invalidate_by_pattern(pattern)
+    return get_smart_cache().invalidate_by_pattern(pattern)
 
 def smart_clear_strategy(strategy: CacheStrategy) -> int:
     """전략별 캐시 삭제"""
-    return _simple_cache.clear_by_strategy(strategy)
+    return get_smart_cache().clear_by_strategy(strategy)
 
 def smart_register_refresh_callback(key: str, callback: callable) -> None:
     """자동 새로고침 콜백 함수 등록 (호환성 유지, 실제 동작 안함)"""
@@ -421,8 +424,9 @@ def smart_get_timestamp(key: str) -> Optional[float]:
         TTL 기반으로 대략적인 생성 시간 추정
     """
     try:
+        cache = get_smart_cache()
         cache_key = f"cache:{key}"
-        ttl = _simple_cache.redis.ttl(cache_key)
+        ttl = cache.redis.ttl(cache_key)
 
         # -2: 키 없음, -1: 만료 없음
         if ttl < 0:
@@ -439,11 +443,11 @@ def smart_get_timestamp(key: str) -> Optional[float]:
 
 def cache_clear() -> int:
     """전체 캐시 삭제 (레거시 호환)"""
-    return _simple_cache.clear()
+    return get_smart_cache().clear()
 
 def cache_stats() -> Dict[str, Any]:
     """캐시 통계 (레거시 호환)"""
-    return _simple_cache.get_cache_info()
+    return get_smart_cache().get_cache_info()
 
 # 무효화 마커 관리 편의 함수들
 def smart_set_invalidation_marker(key: str, timestamp: Optional[float] = None) -> None:
@@ -453,7 +457,7 @@ def smart_set_invalidation_marker(key: str, timestamp: Optional[float] = None) -
         key: 캐시 키
         timestamp: 무효화 시각 (기본값: 현재 시각)
     """
-    _simple_cache.set_invalidation_marker(key, timestamp)
+    get_smart_cache().set_invalidation_marker(key, timestamp)
 
 def smart_clear_invalidation_marker(key: str) -> bool:
     """무효화 마커 제거
@@ -464,7 +468,7 @@ def smart_clear_invalidation_marker(key: str) -> bool:
     Returns:
         제거 성공 여부
     """
-    return _simple_cache.clear_invalidation_marker(key)
+    return get_smart_cache().clear_invalidation_marker(key)
 
 def smart_get_invalidation_marker(key: str) -> Optional[float]:
     """무효화 마커 조회
@@ -475,4 +479,4 @@ def smart_get_invalidation_marker(key: str) -> Optional[float]:
     Returns:
         무효화 시각 (Unix timestamp), 없으면 None
     """
-    return _simple_cache.get_invalidation_marker(key)
+    return get_smart_cache().get_invalidation_marker(key)
