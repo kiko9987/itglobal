@@ -410,15 +410,29 @@ def force_release_lock_api(project_code):
     """관리자 강제 락 해제"""
     try:
         from dashboard.utils.project_lock_manager import get_project_lock_manager
+        from dashboard.utils.user_database import get_audit_repository
 
         lock_manager = get_project_lock_manager()
+        audit_repo = get_audit_repository()
         user = session.get('user', {})
+        admin_email = user.get('email', '')
 
         result = lock_manager.force_release_lock(
             project_code=project_code,
-            admin_email=user.get('email', ''),
+            admin_email=admin_email,
             admin_permission=user.get('permission_level', '')
         )
+
+        # 감사 로그 기록
+        if result.get('success'):
+            audit_repo.log_action(
+                user_email=admin_email,
+                action='force_release_lock',
+                details=f'관리자가 프로젝트 잠금을 강제 해제했습니다.',
+                project_code=project_code,
+                ip_address=request.remote_addr
+            )
+            logger.info(f"[AUDIT] 강제 락 해제: {project_code} by {admin_email} from {request.remote_addr}")
 
         return jsonify(result)
     except Exception as e:
@@ -431,14 +445,26 @@ def release_user_locks_api(user_email):
     """특정 사용자의 모든 락 해제 (관리자 전용)"""
     try:
         from dashboard.utils.project_lock_manager import get_project_lock_manager
+        from dashboard.utils.user_database import get_audit_repository
 
         lock_manager = get_project_lock_manager()
+        audit_repo = get_audit_repository()
         admin_user = session.get('user', {})
+        admin_email = admin_user.get('email', '')
         reason = request.args.get('reason', 'admin_forced_release')
 
         released_count = lock_manager.release_all_user_locks(user_email, reason)
 
-        logger.warning(f"[ADMIN] 사용자 잠금 일괄 해제: {user_email} ({released_count}개) by {admin_user.get('email')}")
+        logger.warning(f"[ADMIN] 사용자 잠금 일괄 해제: {user_email} ({released_count}개) by {admin_email}")
+
+        # 감사 로그 기록
+        audit_repo.log_action(
+            user_email=admin_email,
+            action='release_all_user_locks',
+            details=f'관리자가 사용자의 모든 잠금을 일괄 해제했습니다. (대상: {user_email}, {released_count}개)',
+            ip_address=request.remote_addr
+        )
+        logger.info(f"[AUDIT] 사용자 잠금 일괄 해제: {user_email} ({released_count}개) by {admin_email} from {request.remote_addr}")
 
         return jsonify({
             'success': True,
