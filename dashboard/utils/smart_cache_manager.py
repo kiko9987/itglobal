@@ -70,7 +70,25 @@ class SimpleCache:
     def __init__(self):
         self.redis = get_redis_client()
         self._lock = threading.RLock()  # 로컬 동기화용 (Redis는 자체적으로 원자적)
+        self._use_fallback = False  # Fallback 모드 플래그
+        self._fallback_cache = None  # Lazy loading
         self._initialize_metrics()
+
+        # Redis 연결 확인
+        try:
+            if not self.redis.ping():
+                logger.warning("Redis 연결 불가 - Fallback 메모리 캐시로 전환")
+                self._enable_fallback()
+        except Exception as e:
+            logger.error(f"Redis 연결 오류 - Fallback 메모리 캐시로 전환: {e}")
+            self._enable_fallback()
+
+    def _enable_fallback(self):
+        """Fallback 메모리 캐시 활성화"""
+        from dashboard.utils.fallback_cache import get_fallback_cache
+        self._use_fallback = True
+        self._fallback_cache = get_fallback_cache()
+        logger.warning("⚠️ Fallback 메모리 캐시 모드 활성화 - 성능 저하 및 멀티 워커 비공유")
 
     def _initialize_metrics(self) -> None:
         """메트릭 초기화 (최초 1회만)"""
@@ -98,7 +116,7 @@ class SimpleCache:
             pass  # 메트릭 실패는 무시
 
     def get(self, key: str, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA) -> Optional[Any]:
-        """캐시에서 값 가져오기
+        """캐시에서 값 가져오기 (Fallback 지원)
 
         Args:
             key: 캐시 키
@@ -108,11 +126,22 @@ class SimpleCache:
             캐시된 값, 없으면 None
 
         Raises:
-            ServiceUnavailable: Redis 장애 시
+            ServiceUnavailable: Redis 장애 시 (Fallback 없을 때)
 
         Note:
             bytes 타입이면 pickle 역직렬화 시도 (DataFrame 등)
+            Redis 실패 시 자동으로 Fallback 메모리 캐시 사용
         """
+        # Fallback 모드일 때
+        if self._use_fallback and self._fallback_cache:
+            cache_key = f"cache:{key}"
+            value = self._fallback_cache.get(cache_key)
+            if value is None:
+                self._record_miss()
+            else:
+                self._record_hit()
+            return value
+
         try:
             cache_key = f"cache:{key}"
             value = self.redis.get(cache_key)
@@ -140,8 +169,11 @@ class SimpleCache:
             return value
 
         except ServiceUnavailable:
-            logger.error(f"Redis 장애로 캐시 조회 실패: {key}")
-            raise
+            # Redis 장애 시 Fallback으로 전환
+            logger.error(f"Redis 장애 감지 - Fallback 모드로 전환: {key}")
+            self._enable_fallback()
+            # Fallback으로 재시도
+            return self.get(key, strategy)
 
     def set(self, key: str, value: Any, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA,
             custom_ttl: Optional[int] = None, fetched_at: Optional[float] = None) -> None:

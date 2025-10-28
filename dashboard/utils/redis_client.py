@@ -9,10 +9,18 @@ import os
 import sys
 import json
 import logging
+import time
 from typing import Any, Optional
 
 import redis
 from redis.exceptions import RedisError, ConnectionError, TimeoutError
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
 
 from dashboard.utils.exceptions import ServiceUnavailable
 
@@ -92,18 +100,35 @@ class RedisClient:
             logger.critical("서비스를 시작할 수 없습니다. Redis 서버를 확인하세요.")
             sys.exit(1)  # 프로세스 종료
 
+    @retry(
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        stop=stop_after_attempt(3),
+        before_sleep=before_sleep_log(logger, logging.WARNING)
+    )
     def ping(self) -> bool:
         """
-        Redis 연결 확인
+        Redis 연결 확인 (재연결 로직 포함)
 
         Returns:
             bool: 연결 성공 시 True, 실패 시 False
+
+        Note:
+            - 최대 3회 재시도 (1초, 2초, 4초 간격)
+            - ConnectionError, TimeoutError 시 자동 재시도
         """
         try:
             return self.redis.ping()
-        except RedisError:
+        except RedisError as e:
+            logger.error(f"Redis ping 실패: {e}")
             return False
 
+    @retry(
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        stop=stop_after_attempt(3),
+        before_sleep=before_sleep_log(logger, logging.WARNING)
+    )
     def get(self, key: str) -> Optional[Any]:
         """
         값 조회 (JSON 자동 역직렬화 또는 bytes 복원)
@@ -121,6 +146,7 @@ class RedisClient:
             - __BYTES__: 접두사가 있으면 base64 디코딩하여 bytes 반환
             - JSON: 역직렬화 시도
             - 기타: 문자열 그대로 반환
+            - 재연결: 최대 3회 재시도 (exponential backoff)
         """
         try:
             value = self.redis.get(key)
@@ -140,10 +166,19 @@ class RedisClient:
                 # JSON이 아니면 문자열 그대로 반환
                 return value
 
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"Redis 연결 오류 (재시도 중): key={key}, error={e}")
+            raise  # tenacity가 재시도 처리
         except RedisError as e:
             logger.error(f"Redis get 실패: key={key}, error={e}")
             raise ServiceUnavailable(f"Cache unavailable: {e}")
 
+    @retry(
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        stop=stop_after_attempt(3),
+        before_sleep=before_sleep_log(logger, logging.WARNING)
+    )
     def set(self, key: str, value: Any, ex: int = None, nx: bool = False) -> bool:
         """
         값 저장 (JSON 자동 직렬화 또는 bytes 그대로 저장)

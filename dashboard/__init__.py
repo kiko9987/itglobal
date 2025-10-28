@@ -98,23 +98,35 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         logger.error(f"Flask-Compress 초기화 실패: {e}")
         logger.warning("압축 없이 계속 진행")
 
-    # 4-2. Flask-Session 초기화 (Redis 세션 저장소)
+    # 4-2. Flask-Session 초기화 (Redis 세션 저장소 + Graceful Fallback)
     try:
         from flask_session import Session
         from dashboard.utils.redis_client import get_redis_client
 
         # Redis 클라이언트 가져오기
         redis_client = get_redis_client()
-        # ⚠️ 중요: Flask-Session은 pickle 직렬화를 사용하므로 decode_responses=False 연결 필요
-        app.config['SESSION_REDIS'] = redis_client.redis_binary
+
+        # Redis 연결 확인
+        if redis_client.ping():
+            # ⚠️ 중요: Flask-Session은 pickle 직렬화를 사용하므로 decode_responses=False 연결 필요
+            app.config['SESSION_REDIS'] = redis_client.redis_binary
+            app.config['SESSION_TYPE'] = 'redis'
+            logger.info("Flask-Session 초기화 완료 (Redis 세션 저장소, 멀티 워커 지원)")
+            logger.info("  - 바이너리 연결 사용 (pickle 직렬화 지원)")
+        else:
+            # Redis 실패 시 filesystem fallback
+            app.config['SESSION_TYPE'] = 'filesystem'
+            logger.warning("Redis 연결 실패 - filesystem 세션으로 폴백")
+            logger.warning("  ⚠️ 멀티 워커 환경에서는 세션 공유 불가")
 
         # Flask-Session 초기화
         Session(app)
-        logger.info("Flask-Session 초기화 완료 (Redis 세션 저장소, 멀티 워커 지원)")
-        logger.info("  - 바이너리 연결 사용 (pickle 직렬화 지원)")
+
     except Exception as e:
         logger.error(f"Flask-Session 초기화 실패: {e}")
-        logger.warning("기본 세션 저장소(파일)로 폴백")
+        # 최종 폴백: filesystem
+        app.config['SESSION_TYPE'] = 'filesystem'
+        logger.warning("기본 세션 저장소(filesystem)로 폴백")
 
     # 5. 데이터베이스 초기화 (통합)
     # 사용자 DB와 감사 로그가 instance/users.db로 통합됨
