@@ -3,7 +3,6 @@ import logging
 import pandas as pd
 import time
 import ssl
-import sys
 from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -201,24 +200,13 @@ class GoogleSheetsManager:
                 return result
 
             except ssl.SSLError as ssl_err:
-                # SSL 에러는 즉시 로그 남기고 graceful shutdown
+                # SSL 에러는 즉시 로그 남기고 프로세스 강제 종료
                 logger.critical(
                     f"[SSL_ERROR] {operation_name} - SSL/TLS 에러 발생: {ssl_err}\n"
-                    f"프로세스를 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
+                    f"프로세스를 즉시 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
                 )
-                # 프로세스 매니저(systemd, supervisor 등)가 재시작하도록 exit
-                sys.exit(1)
-
-            except Exception as requests_ssl_err:
-                # requests 라이브러리의 SSL 에러 처리
-                if HAS_REQUESTS and isinstance(requests_ssl_err, requests.exceptions.SSLError):
-                    logger.critical(
-                        f"[REQUESTS_SSL_ERROR] {operation_name} - Requests SSL 에러 발생: {requests_ssl_err}\n"
-                        f"프로세스를 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
-                    )
-                    sys.exit(1)
-                # SSL이 아닌 다른 Exception은 아래 로직으로 전달
-                raise
+                # os._exit(1): 모든 스레드를 즉시 강제 종료 (sys.exit과 달리 프로세스 전체 종료)
+                os._exit(1)
 
             except HttpError as e:
                 error_code = e.resp.status
@@ -273,6 +261,15 @@ class GoogleSheetsManager:
                     raise Exception(error_msg) from e
 
             except Exception as e:
+                # requests 라이브러리의 SSL 에러 체크 (HttpError보다 나중에 체크)
+                if HAS_REQUESTS and isinstance(e, requests.exceptions.SSLError):
+                    logger.critical(
+                        f"[REQUESTS_SSL_ERROR] {operation_name} - Requests SSL 에러 발생: {e}\n"
+                        f"프로세스를 즉시 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
+                    )
+                    # os._exit(1): 모든 스레드를 즉시 강제 종료
+                    os._exit(1)
+
                 # HttpError가 아닌 다른 예외 (네트워크 에러 등)
                 if attempt < self.MAX_RETRIES - 1:
                     import random
