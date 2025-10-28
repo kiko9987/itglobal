@@ -17,6 +17,7 @@ from enum import Enum
 
 from dashboard.utils.redis_client import get_redis_client
 from dashboard.utils.exceptions import ServiceUnavailable
+from dashboard.utils.cache_invalidation import get_cache_invalidation_service
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +84,51 @@ class SimpleCache:
             logger.error(f"Redis 연결 오류 - Fallback 메모리 캐시로 전환: {e}")
             self._enable_fallback()
 
+        # 캐시 무효화 서비스 등록 (Pub/Sub)
+        try:
+            invalidation_service = get_cache_invalidation_service()
+            invalidation_service.register_handler(self._handle_invalidation_message)
+            logger.info("캐시 무효화 Pub/Sub 핸들러 등록 완료")
+        except Exception as e:
+            logger.error(f"캐시 무효화 서비스 등록 실패: {e}")
+
     def _enable_fallback(self):
         """Fallback 메모리 캐시 활성화"""
         from dashboard.utils.fallback_cache import get_fallback_cache
         self._use_fallback = True
         self._fallback_cache = get_fallback_cache()
         logger.warning("⚠️ Fallback 메모리 캐시 모드 활성화 - 성능 저하 및 멀티 워커 비공유")
+
+    def _handle_invalidation_message(self, message: dict):
+        """
+        Pub/Sub 무효화 메시지 처리 (다른 워커에서 발행)
+
+        Args:
+            message: 무효화 메시지 (dict)
+        """
+        action = message.get("action")
+
+        try:
+            if action == "invalidate":
+                # 특정 키 무효화
+                keys = message.get("keys", [])
+                for key in keys:
+                    self.delete(key, set_marker=False)  # 마커 중복 설정 방지
+                logger.debug(f"Pub/Sub 무효화 처리: {len(keys)}개 키")
+
+            elif action == "invalidate_pattern":
+                # 패턴 기반 무효화
+                pattern = message.get("pattern", "")
+                self.invalidate_by_pattern(pattern, set_marker=False, broadcast=False)
+                logger.debug(f"Pub/Sub 패턴 무효화 처리: {pattern}")
+
+            elif action == "clear_all":
+                # 전체 캐시 무효화
+                self.clear(broadcast=False)
+                logger.warning("Pub/Sub 전체 캐시 무효화 처리")
+
+        except Exception as e:
+            logger.error(f"Pub/Sub 무효화 메시지 처리 오류: {e}")
 
     def _initialize_metrics(self) -> None:
         """메트릭 초기화 (최초 1회만)"""
@@ -241,12 +281,13 @@ class SimpleCache:
             logger.error(f"Redis 장애로 캐시 저장 실패: {key}")
             raise
 
-    def delete(self, key: str, set_marker: bool = True) -> bool:
-        """캐시에서 키 삭제 (무효화 마커 설정 옵션)
+    def delete(self, key: str, set_marker: bool = True, broadcast: bool = True) -> bool:
+        """캐시에서 키 삭제 (무효화 마커 설정 옵션 + Pub/Sub 브로드캐스트)
 
         Args:
             key: 캐시 키
             set_marker: True이면 무효화 마커를 설정하여 레이스 컨디션 방지
+            broadcast: True이면 Pub/Sub으로 다른 워커에게 무효화 메시지 발행
 
         Returns:
             삭제 성공 여부
@@ -266,18 +307,27 @@ class SimpleCache:
             else:
                 logger.debug(f"캐시 삭제: {key}")
 
+            # Pub/Sub 브로드캐스트 (다른 워커에게 무효화 알림)
+            if broadcast:
+                try:
+                    invalidation_service = get_cache_invalidation_service()
+                    invalidation_service.publish_invalidation([key], reason="cache_delete")
+                except Exception as e:
+                    logger.debug(f"Pub/Sub 브로드캐스트 실패 (무시): {e}")
+
             return deleted_count > 0
 
         except ServiceUnavailable:
             logger.error(f"Redis 장애로 캐시 삭제 실패: {key}")
             raise
 
-    def invalidate_by_pattern(self, pattern: str, set_marker: bool = True) -> int:
-        """패턴에 맞는 캐시 무효화 (무효화 마커 설정 옵션)
+    def invalidate_by_pattern(self, pattern: str, set_marker: bool = True, broadcast: bool = True) -> int:
+        """패턴에 맞는 캐시 무효화 (무효화 마커 설정 옵션 + Pub/Sub 브로드캐스트)
 
         Args:
             pattern: 캐시 키 패턴
             set_marker: True이면 무효화 마커를 설정하여 레이스 컨디션 방지
+            broadcast: True이면 Pub/Sub으로 다른 워커에게 무효화 메시지 발행
 
         Returns:
             삭제된 키 개수
@@ -296,9 +346,17 @@ class SimpleCache:
             # cache: 접두사 제거하여 원래 키 복원
             original_keys = [key.replace("cache:", "", 1) for key in matching_keys]
 
-            # 각 키 삭제
+            # Pub/Sub 브로드캐스트 (다른 워커에게 패턴 무효화 알림)
+            if broadcast and pattern:
+                try:
+                    invalidation_service = get_cache_invalidation_service()
+                    invalidation_service.publish_pattern_invalidation(pattern, reason="pattern_invalidation")
+                except Exception as e:
+                    logger.debug(f"Pub/Sub 브로드캐스트 실패 (무시): {e}")
+
+            # 각 키 삭제 (broadcast=False로 중복 방지)
             for key in original_keys:
-                self.delete(key, set_marker=set_marker)
+                self.delete(key, set_marker=set_marker, broadcast=False)
 
             logger.info(f"패턴 '{pattern}'으로 {len(original_keys)}개 캐시 무효화 (마커: {set_marker})")
             return len(original_keys)

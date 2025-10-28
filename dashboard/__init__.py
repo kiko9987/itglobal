@@ -178,6 +178,18 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         # 필수 시스템이 아니므로 앱 시작 차단하지 않음
         logger.warning("Calendar 동기화 스케줄러 없이 계속 진행")
 
+    # 7-3. 캐시 무효화 Pub/Sub 구독자 시작 (멀티 워커 캐시 일관성)
+    try:
+        from dashboard.utils.cache_invalidation import get_cache_invalidation_service
+
+        # Pub/Sub 구독자 시작 (백그라운드 스레드)
+        invalidation_service = get_cache_invalidation_service()
+        invalidation_service.start_subscriber()
+        logger.info("캐시 무효화 Pub/Sub 구독자 시작 (멀티 워커 캐시 일관성 보장)")
+    except Exception as e:
+        logger.error(f"캐시 무효화 Pub/Sub 초기화 실패: {e}")
+        logger.warning("캐시 무효화 Pub/Sub 없이 계속 진행 - 멀티 워커 일관성 제한적")
+
     # 7-1. 보안 미들웨어 초기화 (CSRF, Rate Limiting, XSS 방어)
     try:
         from dashboard.utils.security_middleware import init_security_middleware
@@ -235,6 +247,14 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             logger.info("Calendar 동기화 스케줄러가 정상적으로 종료되었습니다.")
         except Exception as e:
             logger.debug(f"Calendar 동기화 스케줄러 정리 중 오류: {e}")
+
+        try:
+            from dashboard.utils.cache_invalidation import get_cache_invalidation_service
+            invalidation_service = get_cache_invalidation_service()
+            invalidation_service.stop_subscriber()
+            logger.info("캐시 무효화 Pub/Sub 구독자가 정상적으로 종료되었습니다.")
+        except Exception as e:
+            logger.debug(f"캐시 무효화 Pub/Sub 정리 중 오류: {e}")
 
     # 프로세스 종료 시에만 정리
     atexit.register(cleanup_background_services)
