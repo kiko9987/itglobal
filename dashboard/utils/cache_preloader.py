@@ -186,30 +186,67 @@ def get_cache_preloader(refresh_interval: int = 3600) -> CachePreloader:
     return _cache_preloader
 
 
-# ========== 프리로드 작업 예시 ==========
+# ========== 프리로드 작업 구현 ==========
 
-def preload_example_data():
+def preload_project_data():
     """
-    예시 데이터 프리로드
+    프로젝트 데이터 프리로드 (우선순위 1: 핵심)
 
     Returns:
         bool: 성공 여부
 
     Note:
-        실제 프로젝트에 맞는 프리로드 작업으로 교체해야 합니다.
-        예: 사용자 목록, 설정 데이터, 자주 사용하는 쿼리 결과 등
+        - 가장 자주 조회되는 핵심 데이터
+        - Google Sheets에서 프로젝트 목록 로드
+        - 캐시 키: "current_sheet_data"
     """
     try:
-        # 실제 프리로드 작업은 프로젝트에 맞게 구현
-        # 예시: from dashboard.utils.user_database import get_user_database
-        #       db = get_user_database()
-        #       db.get_all_users()  # 사용자 목록 캐싱
+        from dashboard.services.project_service import load_data
 
-        logger.debug("예시 데이터 프리로드 완료 (실제 구현 필요)")
+        # 프로젝트 데이터 로드 (자동으로 캐시에 저장됨)
+        df = load_data(force_refresh=False, skip_cache=False)
+
+        if df is not None and not df.empty:
+            logger.info(f"프로젝트 데이터 프리로드 성공: {len(df)}개 프로젝트")
+            return True
+        else:
+            logger.warning("프로젝트 데이터 프리로드 실패: 데이터 없음")
+            return False
+
+    except Exception as e:
+        logger.error(f"프로젝트 데이터 프리로드 실패: {e}")
+        return False
+
+
+def preload_user_data():
+    """
+    사용자 정보 프리로드 (우선순위 2: 중요)
+
+    Returns:
+        bool: 성공 여부
+
+    Note:
+        - 활성 사용자 목록
+        - 퇴사자 목록
+        - 관리 페이지, 담당자 선택 등에서 사용
+    """
+    try:
+        from dashboard.utils.user_database import get_user_database
+
+        db = get_user_database()
+
+        # 전체 사용자 목록 조회 (자주 사용됨)
+        all_users = db.get_all_users()
+        logger.info(f"사용자 목록 프리로드 성공: {len(all_users)}명")
+
+        # 퇴사자 목록 조회 (담당자 선택 시 필요)
+        resigned_managers = db.get_resigned_managers()
+        logger.info(f"퇴사자 목록 프리로드 성공: {len(resigned_managers)}명")
+
         return True
 
     except Exception as e:
-        logger.error(f"예시 데이터 프리로드 실패: {e}")
+        logger.error(f"사용자 정보 프리로드 실패: {e}")
         return False
 
 
@@ -221,15 +258,23 @@ def register_default_preload_tasks(preloader: CachePreloader):
         preloader: CachePreloader 인스턴스
 
     Note:
-        실제 프로젝트에 맞는 프리로드 작업으로 교체해야 합니다.
-        예: 사용자 목록, 설정 데이터, 메타데이터, 자주 사용하는 쿼리 결과 등
+        우선순위 1, 2는 주기적으로 자동 갱신됩니다 (1시간마다).
+        우선순위 3은 앱 시작 시에만 1회 실행됩니다.
     """
-    # 우선순위 1: 예시 데이터 프리로드 (실제 구현 필요)
+    # 우선순위 1: 프로젝트 데이터 (핵심)
     preloader.register_task(
-        task_name="example_data_preload",
-        task_func=preload_example_data,
+        task_name="project_data_preload",
+        task_func=preload_project_data,
         priority=1,
         enabled=True
     )
 
-    logger.info("기본 프리로드 작업 등록 완료 (실제 프로젝트에 맞게 구현 필요)")
+    # 우선순위 2: 사용자 정보 (중요)
+    preloader.register_task(
+        task_name="user_data_preload",
+        task_func=preload_user_data,
+        priority=2,
+        enabled=True
+    )
+
+    logger.info("기본 프리로드 작업 등록 완료: 프로젝트 데이터(P1), 사용자 정보(P2)")
