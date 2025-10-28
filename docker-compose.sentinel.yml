@@ -1,0 +1,156 @@
+# Redis Sentinel 고가용성 구성
+# 1 Master + 2 Replicas + 3 Sentinels
+#
+# 사용법:
+#   docker-compose -f docker-compose.sentinel.yml up -d
+#
+# 특징:
+#   - 자동 Failover (Master 장애 시 Replica → Master 승격)
+#   - Quorum=2 (최소 2개 Sentinel 동의 시 Failover)
+#   - 데이터 영속성 (AOF + RDB)
+
+version: '3.8'
+
+services:
+  # Redis Master
+  redis-master:
+    image: redis:7-alpine
+    container_name: itg-redis-master
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_master_data:/data
+    networks:
+      - redis_ha
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Redis Replica 1
+  redis-replica-1:
+    image: redis:7-alpine
+    container_name: itg-redis-replica-1
+    command: >
+      redis-server
+      --appendonly yes
+      --replicaof redis-master 6379
+      --masterauth ${REDIS_PASSWORD:-}
+      --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_replica_1_data:/data
+    networks:
+      - redis_ha
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Redis Replica 2
+  redis-replica-2:
+    image: redis:7-alpine
+    container_name: itg-redis-replica-2
+    command: >
+      redis-server
+      --appendonly yes
+      --replicaof redis-master 6379
+      --masterauth ${REDIS_PASSWORD:-}
+      --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_replica_2_data:/data
+    networks:
+      - redis_ha
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Sentinel 1
+  sentinel-1:
+    image: redis:7-alpine
+    container_name: itg-sentinel-1
+    command: >
+      redis-sentinel /etc/redis/sentinel.conf
+      --sentinel announce-ip ${SENTINEL_ANNOUNCE_IP:-127.0.0.1}
+      --sentinel announce-port 26379
+    ports:
+      - "26379:26379"
+    volumes:
+      - ./redis-sentinel.conf:/etc/redis/sentinel.conf
+      - sentinel_1_data:/data
+    networks:
+      - redis_ha
+    depends_on:
+      - redis-master
+      - redis-replica-1
+      - redis-replica-2
+    restart: unless-stopped
+
+  # Sentinel 2
+  sentinel-2:
+    image: redis:7-alpine
+    container_name: itg-sentinel-2
+    command: >
+      redis-sentinel /etc/redis/sentinel.conf
+      --sentinel announce-ip ${SENTINEL_ANNOUNCE_IP:-127.0.0.1}
+      --sentinel announce-port 26380
+    ports:
+      - "26380:26379"
+    volumes:
+      - ./redis-sentinel.conf:/etc/redis/sentinel.conf
+      - sentinel_2_data:/data
+    networks:
+      - redis_ha
+    depends_on:
+      - redis-master
+      - redis-replica-1
+      - redis-replica-2
+    restart: unless-stopped
+
+  # Sentinel 3
+  sentinel-3:
+    image: redis:7-alpine
+    container_name: itg-sentinel-3
+    command: >
+      redis-sentinel /etc/redis/sentinel.conf
+      --sentinel announce-ip ${SENTINEL_ANNOUNCE_IP:-127.0.0.1}
+      --sentinel announce-port 26381
+    ports:
+      - "26381:26379"
+    volumes:
+      - ./redis-sentinel.conf:/etc/redis/sentinel.conf
+      - sentinel_3_data:/data
+    networks:
+      - redis_ha
+    depends_on:
+      - redis-master
+      - redis-replica-1
+      - redis-replica-2
+    restart: unless-stopped
+
+networks:
+  redis_ha:
+    driver: bridge
+
+volumes:
+  redis_master_data:
+  redis_replica_1_data:
+  redis_replica_2_data:
+  sentinel_1_data:
+  sentinel_2_data:
+  sentinel_3_data:

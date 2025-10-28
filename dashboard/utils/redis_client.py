@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import redis
 from redis.exceptions import RedisError, ConnectionError, TimeoutError
+from redis.sentinel import Sentinel
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -51,47 +52,100 @@ class RedisClient:
 
         try:
             # 환경 변수에서 Redis 설정 읽기
-            redis_host = os.getenv('REDIS_HOST', 'localhost')
-            redis_port = int(os.getenv('REDIS_PORT', 6379))
-            redis_db = int(os.getenv('REDIS_DB', 0))
+            use_sentinel = os.getenv('REDIS_USE_SENTINEL', 'false').lower() == 'true'
             redis_password = os.getenv('REDIS_PASSWORD', None)
             socket_timeout = int(os.getenv('REDIS_SOCKET_TIMEOUT', 5))
             socket_connect_timeout = int(os.getenv('REDIS_SOCKET_CONNECT_TIMEOUT', 5))
+            redis_db = int(os.getenv('REDIS_DB', 0))
 
             # 비밀번호가 빈 문자열이면 None으로 처리
             if redis_password == '':
                 redis_password = None
 
-            # 공통 연결 설정
-            common_config = {
-                'host': redis_host,
-                'port': redis_port,
-                'db': redis_db,
-                'password': redis_password,
-                'socket_timeout': socket_timeout,
-                'socket_connect_timeout': socket_connect_timeout,
-                'socket_keepalive': True,
-                'health_check_interval': 30
-            }
+            # Sentinel 모드 vs 단일 인스턴스 모드
+            if use_sentinel:
+                # Sentinel 모드 (고가용성)
+                sentinel_hosts = os.getenv('REDIS_SENTINEL_HOSTS', 'localhost:26379,localhost:26380,localhost:26381')
+                master_name = os.getenv('REDIS_MASTER_NAME', 'mymaster')
 
-            # Redis 연결 #1: 문자열용 (캐시, 일반 데이터)
-            self.redis = redis.Redis(
-                **common_config,
-                decode_responses=True  # 문자열로 자동 디코딩
-            )
+                # Sentinel 호스트 파싱 (예: "host1:port1,host2:port2,host3:port3")
+                sentinel_list = []
+                for host_port in sentinel_hosts.split(','):
+                    host, port = host_port.strip().split(':')
+                    sentinel_list.append((host, int(port)))
 
-            # Redis 연결 #2: 바이너리용 (Flask-Session, RQ 등)
-            self.redis_binary = redis.Redis(
-                **common_config,
-                decode_responses=False  # bytes 그대로 반환 (pickle 직렬화 지원)
-            )
+                logger.info(f"Redis Sentinel 모드로 연결 중: {sentinel_list}, master={master_name}")
 
-            # Fail Fast: 부팅 시 연결 확인
-            self.redis.ping()
-            self.redis_binary.ping()
-            logger.info(f"Redis 연결 성공: {redis_host}:{redis_port} (DB: {redis_db})")
-            logger.info("  - 문자열용 연결 (decode_responses=True): 캐시, 일반 데이터")
-            logger.info("  - 바이너리용 연결 (decode_responses=False): Flask-Session, RQ")
+                # Sentinel 연결 생성
+                sentinel = Sentinel(
+                    sentinel_list,
+                    socket_timeout=socket_timeout,
+                    socket_connect_timeout=socket_connect_timeout,
+                    password=redis_password
+                )
+
+                # Master 연결 가져오기 (자동 Failover 지원)
+                self.redis = sentinel.master_for(
+                    master_name,
+                    socket_timeout=socket_timeout,
+                    socket_connect_timeout=socket_connect_timeout,
+                    password=redis_password,
+                    db=redis_db,
+                    decode_responses=True
+                )
+
+                self.redis_binary = sentinel.master_for(
+                    master_name,
+                    socket_timeout=socket_timeout,
+                    socket_connect_timeout=socket_connect_timeout,
+                    password=redis_password,
+                    db=redis_db,
+                    decode_responses=False
+                )
+
+                # 연결 확인
+                self.redis.ping()
+                self.redis_binary.ping()
+                logger.info(f"Redis Sentinel 연결 성공: master={master_name} (DB: {redis_db})")
+                logger.info("  - 자동 Failover 활성화 (Master 장애 시 자동 전환)")
+                logger.info("  - 문자열용 연결 (decode_responses=True): 캐시, 일반 데이터")
+                logger.info("  - 바이너리용 연결 (decode_responses=False): Flask-Session, RQ")
+
+            else:
+                # 단일 인스턴스 모드 (기본)
+                redis_host = os.getenv('REDIS_HOST', 'localhost')
+                redis_port = int(os.getenv('REDIS_PORT', 6379))
+
+                # 공통 연결 설정
+                common_config = {
+                    'host': redis_host,
+                    'port': redis_port,
+                    'db': redis_db,
+                    'password': redis_password,
+                    'socket_timeout': socket_timeout,
+                    'socket_connect_timeout': socket_connect_timeout,
+                    'socket_keepalive': True,
+                    'health_check_interval': 30
+                }
+
+                # Redis 연결 #1: 문자열용 (캐시, 일반 데이터)
+                self.redis = redis.Redis(
+                    **common_config,
+                    decode_responses=True  # 문자열로 자동 디코딩
+                )
+
+                # Redis 연결 #2: 바이너리용 (Flask-Session, RQ 등)
+                self.redis_binary = redis.Redis(
+                    **common_config,
+                    decode_responses=False  # bytes 그대로 반환 (pickle 직렬화 지원)
+                )
+
+                # Fail Fast: 부팅 시 연결 확인
+                self.redis.ping()
+                self.redis_binary.ping()
+                logger.info(f"Redis 연결 성공: {redis_host}:{redis_port} (DB: {redis_db})")
+                logger.info("  - 문자열용 연결 (decode_responses=True): 캐시, 일반 데이터")
+                logger.info("  - 바이너리용 연결 (decode_responses=False): Flask-Session, RQ")
 
             self._initialized = True
 
