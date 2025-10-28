@@ -1,0 +1,300 @@
+ 코덱스 제안을 검토했습니다. 매우 구조화되고 실용적인 플랜이지만, 몇 가지 리스크와 대안을 제시하겠습니다.
+
+● 🔍 코덱스 SQLite 기반 플랜 분석
+
+  ✅ 장점 (코덱스 제안이 우수한 이유)
+
+  1. 비용 제로: Redis/Cloud 서비스 불필요
+  2. 단일 서버 최적화: 사내 PC 1대로 충분
+  3. 구조적 해결: 락/캐시 외부화로 근본 문제 해결
+  4. 실행 가능성: 매우 구체적인 단계별 가이드
+
+  ---
+  ⚠️ 내가 발견한 리스크 (비판적 검토)
+
+  1. SQLite 동시성 한계 ⚠️
+
+  코덱스 제안:
+  # project_locks.db로 락 관리
+  INSERT INTO project_locks ...
+
+  문제점:
+  SQLite 동시성 모델:
+  - 기본 모드: 1 writer OR N readers (exclusive lock)
+  - WAL 모드: N readers + 1 writer (개선)
+
+  20명이 동시에 락 획득 시도:
+  User 1: BEGIN TRANSACTION → INSERT → 성공
+  User 2: BEGIN TRANSACTION → ❌ "database is locked" (5초 타임아웃)
+  User 3: BEGIN TRANSACTION → ❌ "database is locked"
+  ...
+  User 20: BEGIN TRANSACTION → ❌ "database is locked"
+
+  증상:
+  - 저장 버튼 클릭 → 5초 대기 → "database is locked" 에러
+  - 사용자 경험 악화
+
+  전문가도 알고 있을 가능성: 높음 (하지만 명시 안 함)
+
+  ---
+  2. 단일 서버 SPOF 🔴
+
+  전문가 제안:
+  내부 PC 한 대에 Flask 앱 띄우고
+
+  리스크:
+  시나리오 1: PC 재부팅 필요
+  → 전체 서비스 중단 (20명 작업 불가)
+
+  시나리오 2: 네트워크 문제
+  → 사내망 접근 불가
+
+  시나리오 3: 디스크 손상
+  → project_locks.db 손실 (모든 락 초기화)
+
+  필수 대응:
+  - systemd/Windows Service 자동 재시작 ✅ (전문가 언급)
+  - 일일 백업 ✅ (전문가 언급)
+  - 추가 필요: 모니터링, 알림 시스템
+
+  ---
+  3. 구현 복잡도 vs 효과 📊
+
+  전문가 제안 구현 범위:
+  수정 파일: 7개
+  - project_lock_manager.py (DB 이관)
+  - smart_cache_manager.py (DB 이관)
+  - projects.py (API 검증)
+  - locks.py (API 검증)
+  - project_service.py (버전 포함)
+  - calendar_sync_scheduler.py (리더 선출)
+  - ProjectRowAccordion.js (프론트엔드)
+
+  신규 작성:
+  - DB 마이그레이션 스크립트
+  - 테스트 스크립트
+  - 배포 스크립트
+
+  예상 공수: 2-3주 (1인 기준)
+
+  효과:
+  - 다중 사용자 충돌 방지 ✅
+  - 데이터 손실 방지 ✅
+
+  질문: 더 간단한 방법은 없을까?
+
+  ---
+  💡 내 대안 제안 (단계별 접근)
+
+  📌 Option A: 최소 구현 (1주) ← 내 추천
+
+  핵심 아이디어:
+  단일 워커 강제 + Optimistic Lock만 구현
+
+  구현:
+  # 1. Gunicorn 설정 (즉시 적용)
+  # gunicorn.conf.py
+  workers = 1  # 단일 프로세스 강제
+  threads = 4  # 스레드로 동시성 처리
+  worker_class = "gthread"
+
+  # 2. Optimistic Lock만 추가 (1주)
+  # dashboard/blueprints/projects.py
+  def update_project(project_code):
+      data = request.get_json()
+      expected_version = data.get('_version')
+
+      # 현재 행 조회
+      current_values = manager.get_row_values(...)
+      current_version = current_values[38]  # AM열 (Airtable Record ID 다음)
+
+      # 버전 불일치 검증
+      if str(current_version) != str(expected_version):
+          return jsonify({
+              'success': False,
+              'error': 'conflict',
+              'message': '다른 사용자가 먼저 수정했습니다.',
+              'current_data': row_to_dict(current_values)
+          }), 409
+
+      # 버전 증가
+      new_version = int(current_version or 0) + 1
+      current_values[38] = str(new_version)
+
+      # 업데이트
+      manager.update_row(sheet_id, row_number, current_values)
+
+  프론트엔드:
+  // ProjectRowAccordion.js
+  saveAllChanges() {
+      const data = {
+          ...this.editedData,
+          _version: this.currentVersion  // 현재 버전 포함
+      };
+
+      fetch(`/api/projects/${projectCode}`, {
+          method: 'PUT',
+          body: JSON.stringify(data)
+      }).then(res => {
+          if (res.status === 409) {  // Conflict
+              alert('다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.');
+              location.reload();
+          }
+      });
+  }
+
+  장점:
+  - ✅ 구현 간단 (1주)
+  - ✅ 데이터 손실 방지 (핵심 목표 달성)
+  - ✅ SQLite lock contention 없음 (단일 워커)
+  - ✅ 메모리 기반 락/캐시 그대로 사용 (안정성)
+
+  단점:
+  - ⚠️ 수평 확장 불가 (workers=1 고정)
+  - ⚠️ 단일 프로세스 CPU 병목 가능
+
+  적합한 경우:
+  - 20명 동시 사용 (충분)
+  - 빠른 배포 필요
+  - 개발 리소스 부족
+
+  ---
+  📌 Option B: 전문가 제안 (2-3주) ← 장기 안정성
+
+  전문가 플랜 그대로 실행
+
+  장점:
+  - ✅ 다중 워커 지원 가능
+  - ✅ 구조적 해결
+  - ✅ 향후 확장성
+
+  단점:
+  - ⚠️ SQLite lock contention 리스크
+  - ⚠️ 구현 복잡도 높음
+  - ⚠️ 테스트/검증 필요
+
+  개선 사항 추가:
+  # SQLite WAL 모드 + PRAGMA 최적화
+  import sqlite3
+
+  conn = sqlite3.connect('project_locks.db')
+  conn.execute('PRAGMA journal_mode=WAL')  # Write-Ahead Logging
+  conn.execute('PRAGMA synchronous=NORMAL')  # 성능 개선
+  conn.execute('PRAGMA busy_timeout=5000')  # 5초 대기
+
+  적합한 경우:
+  - 향후 50명+ 확장 계획
+  - 다중 서버 고려
+  - 개발 시간 충분
+
+  ---
+  📌 Option C: 하이브리드 (1-2주) ← 균형점
+
+  조합:
+  1. 단일 워커 (workers=1) ✅
+  2. Optimistic Lock ✅
+  3. 캘린더 스케줄러만 DB 리더 선출 ✅
+
+  구현:
+  # dashboard/services/calendar_sync_scheduler.py
+  def start(self):
+      # DB 리더 선출 (단일 실행 보장)
+      conn = sqlite3.connect('scheduler.db')
+      try:
+          # 트랜잭션으로 리더 선출
+          cursor = conn.execute('''
+              INSERT OR REPLACE INTO scheduler_leader
+              (name, pid, started_at)
+              VALUES ('calendar_sync', ?, datetime('now'))
+          ''', (os.getpid(),))
+          conn.commit()
+
+          # 리더만 스케줄러 시작
+          self._start_scheduler()
+      finally:
+          conn.close()
+
+  장점:
+  - ✅ 캘린더 중복 실행 방지
+  - ✅ 락/캐시는 메모리 유지 (안정성)
+  - ✅ 구현 난이도 중간
+
+  ---
+  🎯 내 최종 추천
+
+  Phase 1 (즉시 배포, 1주)
+
+  전략: Option A (최소 구현)
+
+  조치:
+  1. workers=1 설정 (1줄)
+  2. Optimistic Lock 구현 (1주)
+  3. 배포
+
+  효과:
+  - 데이터 손실 방지 ✅
+  - 20명 동시 사용 안전 ✅
+  - 구현 부담 최소 ✅
+
+  Phase 2 (필요 시, 2-3개월 후)
+
+  조건: 다음 중 하나 발생 시
+  - 사용자 50명+ 증가
+  - 단일 워커 CPU 병목
+  - 다중 서버 필요
+
+  조치:
+  - 전문가 제안 실행 (Option B)
+  - 또는 Redis 도입
+
+  ---
+  📊 비교표
+
+  | 항목         | Option A (내 추천) | Option B (전문가) | Option C (하이브리드) |
+  |------------|-----------------|----------------|------------------|
+  | 구현 기간      | 1주              | 2-3주           | 1-2주             |
+  | 데이터 안전성    | ✅ 높음            | ✅ 높음           | ✅ 높음             |
+  | 수평 확장      | ❌ 불가            | ✅ 가능           | ⚠️ 제한적           |
+  | SQLite 리스크 | ✅ 없음            | ⚠️ 있음          | ⚠️ 낮음            |
+  | 복잡도        | 🟢 낮음           | 🔴 높음          | 🟡 중간            |
+  | 20명 적합성    | ✅ 충분            | ✅ 충분           | ✅ 충분             |
+
+  ---
+  💬 솔직한 의견
+
+  전문가 제안은 기술적으로 우수하지만, 과도할 수 있습니다.
+
+  이유:
+  1. 20명 규모는 단일 워커로 충분
+    - workers=1 + threads=4 = 동시 4개 요청 처리
+    - 20명이 정확히 동시에 저장할 확률 낮음
+    - 순차 처리해도 체감 지연 거의 없음
+  2. SQLite lock contention은 실제 문제
+    - 전문가 제안대로 하면 락 획득/해제가 매우 빈번
+    - 20명이 5초 내 동시 저장 → "database is locked" 에러 가능
+    - WAL 모드로 완화 가능하지만 완전 해결 어려움
+  3. 구현 복잡도 대비 효과 불균형
+    - 7개 파일 수정 + DB 마이그레이션 + 테스트
+    - vs. workers=1 설정 + Optimistic Lock
+    - 효과는 거의 동일 (데이터 손실 방지)
+
+  따라서:
+  - 즉시: Option A (최소 구현)
+  - 필요 시: Redis 도입 (Option B보다 나음)
+
+  ---
+  ❓ 반론 환영
+
+  제 분석이 틀렸을 수도 있습니다. 다음을 고려해주세요:
+
+  전문가 제안을 선택해야 하는 경우:
+  1. 향후 확장 계획 확실
+  2. 다중 서버 필요
+  3. 개발 시간 충분
+  4. SQLite 최적화 경험 있음
+
+  제 제안을 선택해야 하는 경우:
+  1. 빠른 배포 필요
+  2. 20명 규모 유지 예상
+  3. 개발 리소스 부족
+  4. 안정성 우선

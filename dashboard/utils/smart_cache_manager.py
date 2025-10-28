@@ -4,10 +4,12 @@ Redis 기반 TTL 캐시 관리자
 
 변경 이력:
 - 2025-01: Dict → Redis 전환 (다중 프로세스 지원)
+- 2025-01: pandas.DataFrame pickle 직렬화 지원 추가
 - 인터페이스 유지 (호출부 수정 불필요)
 """
 
 import time
+import pickle
 import threading
 from typing import Any, Optional, Dict
 import logging
@@ -17,6 +19,14 @@ from dashboard.utils.redis_client import get_redis_client
 from dashboard.utils.exceptions import ServiceUnavailable
 
 logger = logging.getLogger(__name__)
+
+# pandas import (선택적 - 없어도 동작)
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+    pd = None
 
 class CacheStrategy(Enum):
     """캐시 전략 유형 (실시간성과 API 효율성 균형)"""
@@ -63,6 +73,9 @@ class SimpleCache:
 
         Raises:
             ServiceUnavailable: Redis 장애 시
+
+        Note:
+            bytes 타입이면 pickle 역직렬화 시도 (DataFrame 등)
         """
         try:
             cache_key = f"cache:{key}"
@@ -71,6 +84,17 @@ class SimpleCache:
             if value is None:
                 logger.debug(f"캐시 미스: {key}")
                 return None
+
+            # bytes이면 pickle 역직렬화 시도
+            if isinstance(value, bytes):
+                try:
+                    deserialized = pickle.loads(value)
+                    logger.debug(f"캐시 히트 (pickle): {key}")
+                    return deserialized
+                except (pickle.PickleError, Exception) as e:
+                    logger.warning(f"pickle 역직렬화 실패: {key}, error={e}")
+                    # 실패 시 None 반환
+                    return None
 
             logger.debug(f"캐시 히트: {key}")
             return value
@@ -85,13 +109,16 @@ class SimpleCache:
 
         Args:
             key: 캐시 키
-            value: 저장할 값
+            value: 저장할 값 (DataFrame은 자동으로 pickle 직렬화)
             strategy: 캐시 전략
             custom_ttl: 커스텀 TTL (선택사항)
             fetched_at: 데이터 수집 시작 시각 (Unix timestamp) - 없으면 현재 시각 사용
 
         Raises:
             ServiceUnavailable: Redis 장애 시
+
+        Note:
+            pandas.DataFrame은 pickle로 자동 직렬화됩니다.
         """
         try:
             ttl = custom_ttl or self.TTL_MAP[strategy]
@@ -118,7 +145,20 @@ class SimpleCache:
                 except (ValueError, TypeError):
                     logger.warning(f"무효화 마커 파싱 실패: {key}")
 
-            # Redis에 저장 (TTL 자동 관리)
+            # DataFrame은 pickle로 직렬화
+            if HAS_PANDAS and isinstance(value, pd.DataFrame):
+                logger.debug(f"DataFrame 감지 - pickle 직렬화: {key} (shape: {value.shape})")
+                try:
+                    serialized_value = pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+                    cache_key = f"cache:{key}"
+                    self.redis.set(cache_key, serialized_value, ex=ttl)
+                    logger.debug(f"캐시 저장 (pickle): {key}, 전략: {strategy.value}, TTL: {ttl}초")
+                    return
+                except (pickle.PickleError, Exception) as e:
+                    logger.error(f"DataFrame pickle 직렬화 실패: {key}, error={e}")
+                    raise ServiceUnavailable(f"DataFrame serialization failed: {e}")
+
+            # 일반 값은 Redis client가 자동 처리 (JSON 직렬화)
             cache_key = f"cache:{key}"
             self.redis.set(cache_key, value, ex=ttl)
 

@@ -92,7 +92,7 @@ class RedisClient:
 
     def get(self, key: str) -> Optional[Any]:
         """
-        값 조회 (JSON 자동 역직렬화)
+        값 조회 (JSON 자동 역직렬화 또는 bytes 복원)
 
         Args:
             key: Redis 키
@@ -102,11 +102,22 @@ class RedisClient:
 
         Raises:
             ServiceUnavailable: Redis 에러 시
+
+        Note:
+            - __BYTES__: 접두사가 있으면 base64 디코딩하여 bytes 반환
+            - JSON: 역직렬화 시도
+            - 기타: 문자열 그대로 반환
         """
         try:
             value = self.redis.get(key)
             if value is None:
                 return None
+
+            # bytes로 저장된 값 복원 (base64 디코딩)
+            if isinstance(value, str) and value.startswith("__BYTES__:"):
+                import base64
+                encoded = value[len("__BYTES__:"):]
+                return base64.b64decode(encoded.encode('ascii'))
 
             # JSON 역직렬화 시도
             try:
@@ -121,11 +132,11 @@ class RedisClient:
 
     def set(self, key: str, value: Any, ex: int = None, nx: bool = False) -> bool:
         """
-        값 저장 (JSON 자동 직렬화)
+        값 저장 (JSON 자동 직렬화 또는 bytes 그대로 저장)
 
         Args:
             key: Redis 키
-            value: 저장할 값 (JSON 직렬화 가능한 객체)
+            value: 저장할 값 (JSON 직렬화 가능한 객체 또는 bytes)
             ex: TTL (초 단위, None이면 만료 없음)
             nx: True이면 키가 없을 때만 설정 (SET NX)
 
@@ -134,11 +145,24 @@ class RedisClient:
 
         Raises:
             ServiceUnavailable: Redis 에러 시
+
+        Note:
+            - bytes 타입: 그대로 저장 (pickle 결과 등)
+            - str 타입: 그대로 저장
+            - 기타: JSON 직렬화
         """
         try:
-            # JSON 직렬화 (문자열이면 그대로)
-            if isinstance(value, str):
+            # bytes는 그대로 저장 (pickle 등)
+            if isinstance(value, bytes):
+                # Redis는 decode_responses=True이므로 bytes를 직접 저장하려면
+                # decode_responses=False인 별도 연결 필요
+                # 임시 방안: base64 인코딩하여 문자열로 저장
+                import base64
+                serialized_value = f"__BYTES__:{base64.b64encode(value).decode('ascii')}"
+            # 문자열은 그대로
+            elif isinstance(value, str):
                 serialized_value = value
+            # 기타는 JSON 직렬화
             else:
                 serialized_value = json.dumps(value, ensure_ascii=False)
 
