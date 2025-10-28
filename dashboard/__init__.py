@@ -190,6 +190,33 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         logger.error(f"캐시 무효화 Pub/Sub 초기화 실패: {e}")
         logger.warning("캐시 무효화 Pub/Sub 없이 계속 진행 - 멀티 워커 일관성 제한적")
 
+    # 7-4. 캐시 프리로더 초기화 (Cold Start 제거)
+    try:
+        from dashboard.utils.cache_preloader import (
+            get_cache_preloader,
+            register_default_preload_tasks
+        )
+
+        # 프리로더 인스턴스 생성 (1시간 갱신 주기)
+        preloader = get_cache_preloader(refresh_interval=3600)
+
+        # 기본 프리로드 작업 등록
+        register_default_preload_tasks(preloader)
+
+        # 앱 시작 시 즉시 캐시 워밍
+        preloader.warmup_cache()
+
+        # 주기적 갱신 시작
+        if app.config.get('CACHE_PRELOADER_ENABLED', True):
+            preloader.start_periodic_refresh()
+            logger.info("캐시 프리로더 초기화 완료 (1시간 주기 자동 갱신)")
+        else:
+            logger.info("CACHE_PRELOADER_ENABLED=False - 주기적 갱신 비활성화")
+
+    except Exception as e:
+        logger.error(f"캐시 프리로더 초기화 실패: {e}")
+        logger.warning("캐시 프리로더 없이 계속 진행 - Cold Start 가능")
+
     # 7-1. 보안 미들웨어 초기화 (CSRF, Rate Limiting, XSS 방어)
     try:
         from dashboard.utils.security_middleware import init_security_middleware
@@ -255,6 +282,14 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             logger.info("캐시 무효화 Pub/Sub 구독자가 정상적으로 종료되었습니다.")
         except Exception as e:
             logger.debug(f"캐시 무효화 Pub/Sub 정리 중 오류: {e}")
+
+        try:
+            from dashboard.utils.cache_preloader import get_cache_preloader
+            preloader = get_cache_preloader()
+            preloader.stop_periodic_refresh()
+            logger.info("캐시 프리로더가 정상적으로 종료되었습니다.")
+        except Exception as e:
+            logger.debug(f"캐시 프리로더 정리 중 오류: {e}")
 
     # 프로세스 종료 시에만 정리
     atexit.register(cleanup_background_services)
