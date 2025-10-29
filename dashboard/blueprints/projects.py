@@ -2108,7 +2108,12 @@ def save_field_memos_batch():
         # 5. 감사 로그 저장 및 캐시 무효화
         _finalize_batch_memo_save(audit_actions, sheet_id, success_count)
 
-        # 6. 결과 반환
+        # 6. 내부용 필드 제거 (프론트엔드 계약 준수)
+        for result_item in results:
+            result_item.pop('memo_index', None)  # 내부 인덱스 제거
+            result_item.pop('cell_address', None)  # 내부 셀 주소 제거
+
+        # 7. 결과 반환
         overall_success = failed_count == 0
         message = f"{len(memos)}개 중 {success_count}개 메모 저장 성공"
         if failed_count > 0:
