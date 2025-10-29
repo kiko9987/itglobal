@@ -1658,6 +1658,271 @@ def save_field_memo():
         }), 500
 
 
+# ===== 헬퍼 함수 1: 기본 검증 및 행 조회 =====
+def _validate_and_find_memo_batch_row(project_code, memos):
+    """
+    메모 배치 요청 검증 및 프로젝트 행 조회
+
+    Returns:
+        tuple: (manager, sheet_id, sheet_name, row_number) or (None, error_response, status_code)
+    """
+    # 기본 검증
+    if not project_code:
+        return None, jsonify({
+            'success': False,
+            'message': '프로젝트 코드가 필요합니다.'
+        }), 400
+
+    if not memos or not isinstance(memos, list):
+        return None, jsonify({
+            'success': False,
+            'message': '메모 배열이 필요합니다.'
+        }), 400
+
+    # Google Sheets Manager 초기화
+    manager = get_sheets_manager()
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+
+    # 프로젝트 행 번호 조회
+    row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+
+    if not row_number:
+        return None, jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['project_not_found']
+        }), 404
+
+    logger.info(f"[BATCH_MEMO] 일괄 저장 시작: {project_code}, {len(memos)}개 메모")
+    return manager, sheet_id, sheet_name, row_number
+
+
+# ===== 헬퍼 함수 2: 메모 업데이트 준비 =====
+def _prepare_batch_memo_updates(memos, row_number, manager, sheet_id, sheet_name, project_code):
+    """
+    메모 업데이트 준비: 검증, 매핑, 기존 메모 조회
+
+    Returns:
+        tuple: (results, failed_count, cell_notes_to_update, old_memos)
+    """
+    results = []
+    failed_count = 0
+    cell_notes_to_update = {}  # {cell_address: note_text}
+    old_memos = {}  # {cell_address: old_memo}
+
+    for memo_data in memos:
+        field_name = memo_data.get('field_name')
+        memo = memo_data.get('memo')
+
+        try:
+            # 필드명 검증
+            if field_name not in MEMOABLE_FIELDS:
+                results.append({
+                    'field_name': field_name,
+                    'success': False,
+                    'message': f'잘못된 필드명: {field_name}'
+                })
+                failed_count += 1
+                continue
+
+            # 컬럼 매핑
+            column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
+            if not column:
+                results.append({
+                    'field_name': field_name,
+                    'success': False,
+                    'message': f'컬럼 매핑 없음: {field_name}'
+                })
+                failed_count += 1
+                continue
+
+            # 셀 주소 구성
+            cell_address = f"{column}{row_number}"
+
+            # 기존 메모 값 조회 (감사 로그용)
+            old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
+            old_memos[cell_address] = old_memo
+
+            # Batch 업데이트 대상에 추가
+            cell_notes_to_update[cell_address] = memo if memo else None
+
+            # 결과 목록에 추가 (아직 성공은 아님)
+            results.append({
+                'field_name': field_name,
+                'success': None,  # 나중에 업데이트
+                'message': '대기 중',
+                'cell_address': cell_address,
+                'memo_index': len(results)  # 원본 memos 배열의 인덱스 추적
+            })
+
+        except Exception as memo_error:
+            logger.error(f"[BATCH_MEMO] 메모 준비 오류 ({field_name}): {str(memo_error)}")
+            results.append({
+                'field_name': field_name,
+                'success': False,
+                'message': f'오류: {str(memo_error)}'
+            })
+            failed_count += 1
+
+    return results, failed_count, cell_notes_to_update, old_memos
+
+
+# ===== 헬퍼 함수 3: Batch Update 실행 =====
+def _execute_batch_memo_update(cell_notes_to_update, manager, sheet_id, sheet_name):
+    """
+    Google Sheets Batch Update API로 메모 일괄 업데이트
+
+    Returns:
+        bool: 성공 여부
+    """
+    if not cell_notes_to_update:
+        return True
+
+    try:
+        # 시트 ID 조회
+        numeric_sheet_id = manager.get_sheet_id_by_name(sheet_id, sheet_name)
+
+        # batchUpdate 요청 구성
+        batch_requests = []
+        for cell_address, note_text in cell_notes_to_update.items():
+            col_letter = ''.join(filter(str.isalpha, cell_address))
+            row_num = int(''.join(filter(str.isdigit, cell_address)))
+            col_index = manager._column_letter_to_number(col_letter)
+            row_index = row_num - 1  # 0-based
+
+            batch_requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': numeric_sheet_id,
+                        'startRowIndex': row_index,
+                        'endRowIndex': row_index + 1,
+                        'startColumnIndex': col_index,
+                        'endColumnIndex': col_index + 1
+                    },
+                    'cell': {
+                        'note': note_text if note_text else None
+                    },
+                    'fields': 'note'
+                }
+            })
+
+        # Batch Update 실행
+        body = {'requests': batch_requests}
+        request_obj = manager.service.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body=body
+        )
+        batch_result = manager._execute_with_retry(
+            request_obj,
+            f"batch_update_memos({len(batch_requests)} notes)"
+        )
+
+        # API 절감 효과 로깅
+        individual_api_calls = len(batch_requests) * 2
+        saved_api_calls = individual_api_calls - 1
+        logger.info(
+            f"[BATCH_MEMO] Batch Update 완료: {len(batch_requests)}개 메모 → "
+            f"Batch 1회 (개별 대비 {saved_api_calls}회 절감)"
+        )
+
+        return True
+
+    except Exception as batch_error:
+        logger.error(f"[BATCH_MEMO] Batch Update 실패: {str(batch_error)}")
+        return False
+
+
+# ===== 헬퍼 함수 4: 결과 업데이트 및 감사 로그 준비 =====
+def _build_batch_audit_logs(results, memos, old_memos, project_code, batch_success):
+    """
+    Batch Update 결과에 따라 results 업데이트 및 감사 로그 준비
+
+    Returns:
+        tuple: (success_count, failed_count, audit_actions)
+    """
+    success_count = 0
+    failed_count = 0
+    audit_actions = []
+
+    for result_item in results:
+        if result_item.get('success') is None:  # 대기 중이던 항목
+            if batch_success:
+                result_item['success'] = True
+                result_item['message'] = '저장 완료'
+                success_count += 1
+
+                # 감사 로그 데이터 수집
+                cell_address = result_item['cell_address']
+                memo_index = result_item['memo_index']
+                field_name = memos[memo_index]['field_name']
+                memo = memos[memo_index]['memo']
+                old_memo = old_memos.get(cell_address, '')
+
+                action_desc = "삭제" if not memo else "저장"
+                old_value_display = (
+                    old_memo[:50] + '...' if old_memo and len(old_memo) > 50
+                    else (old_memo or '-')
+                )
+                new_value_display = (
+                    memo[:50] + '...' if memo and len(memo) > 50
+                    else (memo or '삭제')
+                )
+
+                audit_actions.append({
+                    'user_email': session.get('user', {}).get('email', 'unknown'),
+                    'action': 'UPDATE_FIELD_MEMO',
+                    'details': f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
+                    'project_code': project_code,
+                    'field_name': f"{field_name}_메모",
+                    'old_value': old_value_display,
+                    'new_value': new_value_display,
+                    'ip_address': request.remote_addr
+                })
+            else:
+                result_item['success'] = False
+                result_item['message'] = 'Batch 업데이트 실패'
+                failed_count += 1
+        elif result_item.get('success') is False:
+            # 이미 실패 처리된 항목 (검증 실패 등)
+            failed_count += 1
+
+    return success_count, failed_count, audit_actions
+
+
+# ===== 헬퍼 함수 5: 감사 로그 저장 및 캐시 무효화 =====
+def _finalize_batch_memo_save(audit_actions, sheet_id, success_count):
+    """
+    감사 로그 배치 저장 및 캐시 무효화
+    """
+    # 감사 로그 배치 저장
+    if audit_actions:
+        try:
+            from dashboard.utils.user_database import get_audit_repository
+            audit_repo = get_audit_repository()
+            batch_success, batch_count = audit_repo.log_actions_batch(audit_actions)
+            if batch_success:
+                logger.info(
+                    f"[BATCH_MEMO] 감사 로그 배치 기록 완료: "
+                    f"{batch_count}개 메모 (1회 트랜잭션)"
+                )
+            else:
+                logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패")
+        except Exception as log_error:
+            logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패: {log_error}")
+
+    # 캐시 무효화
+    if success_count > 0:
+        notes_cache_key = f"cell_notes_{sheet_id}"
+        invalidated_notes = smart_invalidate(notes_cache_key)
+        invalidated_data = smart_invalidate("current_sheet_data")
+
+        logger.info(
+            f"[BATCH_MEMO] 캐시 무효화 완료: "
+            f"notes={invalidated_notes}개, data={invalidated_data}개"
+        )
+
+
+# ===== 메인 함수: save_field_memos_batch (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memos/batch', methods=['POST'])
 @login_required
 @track_business_operation("api_field_memo_batch_save")
@@ -1669,8 +1934,8 @@ def save_field_memos_batch():
         {
             "project_code": "G0001-IT",
             "memos": [
-                {"field_name": "계약금", "memo": "입금일: 2025-01-10\n입금자: 홍길동"},
-                {"field_name": "중도금", "memo": "입금일: 2025-02-15\n입금자: 김철수"},
+                {"field_name": "계약금", "memo": "입금일: 2025-01-10\\n입금자: 홍길동"},
+                {"field_name": "중도금", "memo": "입금일: 2025-02-15\\n입금자: 김철수"},
                 {"field_name": "잔금", "memo": null}
             ]
         }
@@ -1679,11 +1944,7 @@ def save_field_memos_batch():
         {
             "success": true,
             "message": "3개 중 3개 메모 저장 성공",
-            "results": [
-                {"field_name": "계약금", "success": true, "message": "저장 완료"},
-                {"field_name": "중도금", "success": true, "message": "저장 완료"},
-                {"field_name": "잔금", "success": true, "message": "저장 완료"}
-            ],
+            "results": [...],
             "failed_count": 0,
             "success_count": 3
         }
@@ -1693,202 +1954,32 @@ def save_field_memos_batch():
         project_code = data.get('project_code')
         memos = data.get('memos', [])
 
-        # 1. 기본 검증
-        if not project_code:
-            return jsonify({
-                'success': False,
-                'message': '프로젝트 코드가 필요합니다.'
-            }), 400
+        # 1. 기본 검증 및 행 조회
+        result = _validate_and_find_memo_batch_row(project_code, memos)
+        if result[0] is None:
+            return result[1], result[2]  # 에러 응답 반환
 
-        if not memos or not isinstance(memos, list):
-            return jsonify({
-                'success': False,
-                'message': '메모 배열이 필요합니다.'
-            }), 400
+        manager, sheet_id, sheet_name, row_number = result
 
-        # 2. Google Sheets Manager 초기화 (한 번만)
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        # 2. 메모 업데이트 준비
+        results, failed_count, cell_notes_to_update, old_memos = _prepare_batch_memo_updates(
+            memos, row_number, manager, sheet_id, sheet_name, project_code
+        )
 
-        # 3. 프로젝트 행 번호 조회 (한 번만)
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+        # 3. Batch Update 실행
+        batch_success = _execute_batch_memo_update(
+            cell_notes_to_update, manager, sheet_id, sheet_name
+        )
 
-        if not row_number:
-            return jsonify({
-                'success': False,
-                'message': ERROR_MESSAGES['memo']['project_not_found']
-            }), 404
+        # 4. 결과 업데이트 및 감사 로그 준비
+        success_count, failed_count, audit_actions = _build_batch_audit_logs(
+            results, memos, old_memos, project_code, batch_success
+        )
 
-        logger.info(f"[BATCH_MEMO] 일괄 저장 시작: {project_code}, {len(memos)}개 메모")
+        # 5. 감사 로그 저장 및 캐시 무효화
+        _finalize_batch_memo_save(audit_actions, sheet_id, success_count)
 
-        # 4. 검증 및 셀 주소 매핑 준비
-        results = []
-        success_count = 0
-        failed_count = 0
-        audit_actions = []  # 감사 로그 배치 저장용
-        cell_notes_to_update = {}  # {cell_address: note_text}
-        old_memos = {}  # {cell_address: old_memo} - 감사 로그용
-
-        for memo_data in memos:
-            field_name = memo_data.get('field_name')
-            memo = memo_data.get('memo')
-
-            try:
-                # 필드명 검증
-                if field_name not in MEMOABLE_FIELDS:
-                    results.append({
-                        'field_name': field_name,
-                        'success': False,
-                        'message': f'잘못된 필드명: {field_name}'
-                    })
-                    failed_count += 1
-                    continue
-
-                # 컬럼 매핑
-                column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
-                if not column:
-                    results.append({
-                        'field_name': field_name,
-                        'success': False,
-                        'message': f'컬럼 매핑 없음: {field_name}'
-                    })
-                    failed_count += 1
-                    continue
-
-                # 셀 주소 구성
-                cell_address = f"{column}{row_number}"
-
-                # 기존 메모 값 조회 (감사 로그용)
-                old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
-                old_memos[cell_address] = old_memo
-
-                # Batch 업데이트 대상에 추가
-                cell_notes_to_update[cell_address] = memo if memo else None
-
-                # 결과 목록에 추가 (아직 성공은 아님)
-                results.append({
-                    'field_name': field_name,
-                    'success': None,  # 나중에 업데이트
-                    'message': '대기 중',
-                    'cell_address': cell_address
-                })
-
-            except Exception as memo_error:
-                logger.error(f"[BATCH_MEMO] 메모 준비 오류 ({field_name}): {str(memo_error)}")
-                results.append({
-                    'field_name': field_name,
-                    'success': False,
-                    'message': f'오류: {str(memo_error)}'
-                })
-                failed_count += 1
-
-        # 5. Batch Update API로 모든 메모를 한 번에 업데이트 ⚡
-        if cell_notes_to_update:
-            try:
-                # 시트 ID 조회
-                numeric_sheet_id = manager.get_sheet_id_by_name(sheet_id, sheet_name)
-
-                # batchUpdate 요청 구성
-                batch_requests = []
-                for cell_address, note_text in cell_notes_to_update.items():
-                    col_letter = ''.join(filter(str.isalpha, cell_address))
-                    row_num = int(''.join(filter(str.isdigit, cell_address)))
-                    col_index = manager._column_letter_to_number(col_letter)
-                    row_index = row_num - 1  # 0-based
-
-                    batch_requests.append({
-                        'repeatCell': {
-                            'range': {
-                                'sheetId': numeric_sheet_id,
-                                'startRowIndex': row_index,
-                                'endRowIndex': row_index + 1,
-                                'startColumnIndex': col_index,
-                                'endColumnIndex': col_index + 1
-                            },
-                            'cell': {
-                                'note': note_text if note_text else None
-                            },
-                            'fields': 'note'
-                        }
-                    })
-
-                # Batch Update 실행 (1번 API 호출로 모든 메모 처리)
-                body = {'requests': batch_requests}
-                request_obj = manager.service.spreadsheets().batchUpdate(
-                    spreadsheetId=sheet_id,
-                    body=body
-                )
-                batch_result = manager._execute_with_retry(
-                    request_obj,
-                    f"batch_update_memos({len(batch_requests)} notes)"
-                )
-
-                # 개별 API 호출 시: len(batch_requests) * 2 (각 메모당 읽기 + 쓰기)
-                # Batch API 사용 시: 1회
-                individual_api_calls = len(batch_requests) * 2
-                saved_api_calls = individual_api_calls - 1
-                logger.info(f"[BATCH_MEMO] Batch Update 완료: {len(batch_requests)}개 메모 → Batch 1회 (개별 대비 {saved_api_calls}회 절감)")
-
-                # 결과 업데이트 및 감사 로그 생성
-                for i, result_item in enumerate(results):
-                    if result_item['success'] is None:  # 대기 중이던 항목
-                        result_item['success'] = True
-                        result_item['message'] = '저장 완료'
-                        success_count += 1
-
-                        # 감사 로그 데이터 수집
-                        cell_address = result_item['cell_address']
-                        field_name = memos[i]['field_name']
-                        memo = memos[i]['memo']
-                        old_memo = old_memos.get(cell_address, '')
-
-                        action_desc = "삭제" if not memo else "저장"
-                        old_value_display = old_memo[:50] + '...' if old_memo and len(old_memo) > 50 else (old_memo or '-')
-                        new_value_display = memo[:50] + '...' if memo and len(memo) > 50 else (memo or '삭제')
-
-                        audit_actions.append({
-                            'user_email': session.get('user', {}).get('email', 'unknown'),
-                            'action': 'UPDATE_FIELD_MEMO',
-                            'details': f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
-                            'project_code': project_code,
-                            'field_name': f"{field_name}_메모",
-                            'old_value': old_value_display,
-                            'new_value': new_value_display,
-                            'ip_address': request.remote_addr
-                        })
-
-            except Exception as batch_error:
-                logger.error(f"[BATCH_MEMO] Batch Update 실패: {str(batch_error)}")
-                # 모든 대기 중인 항목을 실패로 마킹
-                for result_item in results:
-                    if result_item['success'] is None:
-                        result_item['success'] = False
-                        result_item['message'] = f'Batch 업데이트 실패: {str(batch_error)}'
-                        failed_count += 1
-
-        # 6. 감사 로그 배치 저장 (한 번의 트랜잭션으로 처리)
-        if audit_actions:
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                batch_success, batch_count = audit_repo.log_actions_batch(audit_actions)
-                if batch_success:
-                    logger.info(f"[BATCH_MEMO] 감사 로그 배치 기록 완료: {batch_count}개 메모 (1회 트랜잭션)")
-                else:
-                    logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패")
-            except Exception as log_error:
-                logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패: {log_error}")
-
-        # 7. 캐시 무효화 (한 번만)
-        if success_count > 0:
-            notes_cache_key = f"cell_notes_{sheet_id}"
-            invalidated_notes = smart_invalidate(notes_cache_key)
-            invalidated_data = smart_invalidate("current_sheet_data")
-
-            logger.info(f"[BATCH_MEMO] 캐시 무효화 완료: notes={invalidated_notes}개, data={invalidated_data}개")
-
-        # 8. 결과 반환
+        # 6. 결과 반환
         overall_success = failed_count == 0
         message = f"{len(memos)}개 중 {success_count}개 메모 저장 성공"
         if failed_count > 0:
@@ -1903,12 +1994,12 @@ def save_field_memos_batch():
             'success_count': success_count,
             'failed_count': failed_count,
             'total_count': len(memos)
-        }), 200 if overall_success else 207  # 207 Multi-Status (일부 실패)
+        }), 200 if overall_success else 207  # 207 Multi-Status
 
     except Exception as e:
         logger.error(f"[BATCH_MEMO] 일괄 저장 오류: {str(e)}")
         import traceback
-        logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
+        logger.error(f"스택 트레이스:\\n{traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'일괄 메모 저장 중 오류 발생: {str(e)}'
