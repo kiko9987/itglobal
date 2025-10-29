@@ -378,23 +378,21 @@ def _validate_update_request(data, project_code):
     """요청 데이터 검증 (Marshmallow 스키마)
 
     Returns:
-        tuple: (validated_data, error_response)
-        - success: (dict, None)
-        - failure: (None, JsonResponse)
+        JsonResponse or None: 검증 실패 시 에러 응답, 성공 시 None
     """
     # 디버그 로깅
     logger.info(f"[PUT] 받은 데이터 타입: {type(data)}")
     logger.info(f"[PUT] 받은 데이터: {data}")
 
     if not project_code:
-        return None, (jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400)
+        return jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
 
     if not data:
-        return None, (jsonify({'success': False, 'error': '업데이트할 데이터가 없습니다.'}), 400)
+        return jsonify({'success': False, 'error': '업데이트할 데이터가 없습니다.'}), 400
 
     if not isinstance(data, dict):
         logger.error(f"[PUT] 데이터가 dict가 아닙니다: {type(data)}")
-        return None, (jsonify({'success': False, 'error': '잘못된 데이터 형식입니다.'}), 400)
+        return jsonify({'success': False, 'error': '잘못된 데이터 형식입니다.'}), 400
 
     # Marshmallow 스키마로 데이터 검증 (업데이트는 모든 필드 선택)
     # 한글 필드명을 영문 스키마 필드로 매핑
@@ -420,13 +418,14 @@ def _validate_update_request(data, project_code):
     if errors:
         error_messages = format_validation_errors(errors)
         logger.warning(f"[VALIDATION] 프로젝트 업데이트 검증 실패: {error_messages}")
-        return None, (jsonify({
+        return jsonify({
             'success': False,
             'error': '입력 데이터 검증 실패',
             'validation_errors': error_messages
-        }), 400)
+        }), 400
 
-    return validated_data, None
+    # 검증 성공
+    return None
 
 
 def _load_project_row(manager, sheet_id, sheet_name, project_code):
@@ -794,7 +793,7 @@ def update_project(project_code):
         data = request.get_json()
 
         # 1. 요청 검증
-        validated_data, error_response = _validate_update_request(data, project_code)
+        error_response = _validate_update_request(data, project_code)
         if error_response:
             return error_response
 
@@ -851,7 +850,7 @@ def update_project(project_code):
 
         # 8. Google Sheets 업데이트
         range_name = f'{sheet_name}!A{row_number}:AN{row_number}'
-        update_result = manager.update_row(sheet_id, row_number, current_values, range_name)
+        manager.update_row(sheet_id, row_number, current_values, range_name)
         logger.info(f"[PUT] 전체 행 업데이트 완료: {project_code}, {len(field_changes)}개 필드 변경")
 
         # 9. 금액 필드 자동 댓글 처리
