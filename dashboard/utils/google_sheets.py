@@ -1017,6 +1017,128 @@ class GoogleSheetsManager:
             '담당자': 'C'
         }
 
+    def _fetch_current_cell_value(self, sheet_id, sheet_name, column, row_number, field_name):
+        """
+        단일 셀의 현재 값을 조회 (예외 처리 포함)
+
+        Args:
+            sheet_id: 구글 시트 ID
+            sheet_name: 시트 이름
+            column: 컬럼 (A, B, C 등)
+            row_number: 행 번호
+            field_name: 필드명 (로깅용)
+
+        Returns:
+            str: 현재 값 (실패 시 빈 문자열)
+        """
+        try:
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range=f'{sheet_name}!{column}{row_number}'
+            ).execute()
+            values = result.get('values', [['']])
+            return values[0][0] if values and values[0] else ''
+        except Exception as e:
+            logger.warning(f"현재 값 조회 실패 ({field_name}): {e}")
+            return ''
+
+    def _collect_field_updates(self, sheet_id, sheet_name, row_number, field_data, field_column_mapping):
+        """
+        필드 데이터에서 변경사항을 수집하고 updates 배열 구성
+
+        Args:
+            sheet_id: 구글 시트 ID
+            sheet_name: 시트 이름
+            row_number: 행 번호
+            field_data: 필드 데이터 딕셔너리
+            field_column_mapping: 필드-컬럼 매핑
+
+        Returns:
+            tuple: (updates, old_values, changes)
+        """
+        updates = []
+        old_values = {}
+        changes = []
+
+        for field_name, new_value in field_data.items():
+            if field_name not in field_column_mapping:
+                continue
+
+            column = field_column_mapping[field_name]
+            old_value = self._fetch_current_cell_value(
+                sheet_id, sheet_name, column, row_number, field_name
+            )
+            old_values[field_name] = old_value
+
+            # 변경사항이 있는 경우에만 업데이트 추가
+            if str(old_value) != str(new_value):
+                changes.append({
+                    'field_name': field_name,
+                    'old_value': old_value,
+                    'new_value': new_value,
+                    'column': column
+                })
+                updates.append({
+                    'range': f'{sheet_name}!{column}{row_number}',
+                    'values': [[new_value]]
+                })
+            # 값 조회가 실패했을 경우에도 업데이트 진행
+            elif old_value == '' and new_value != '':
+                updates.append({
+                    'range': f'{sheet_name}!{column}{row_number}',
+                    'values': [[new_value]]
+                })
+
+        return updates, old_values, changes
+
+    def _execute_batch_update_request(self, sheet_id, updates):
+        """
+        batchUpdate API를 실행하고 업데이트된 셀 개수 반환
+
+        Args:
+            sheet_id: 구글 시트 ID
+            updates: 업데이트할 데이터 배열
+
+        Returns:
+            int: 업데이트된 셀 개수
+
+        Raises:
+            Exception: API 호출 실패 시
+        """
+        batch_update_body = {
+            'valueInputOption': 'USER_ENTERED',
+            'data': updates
+        }
+        result = self.service.spreadsheets().values().batchUpdate(
+            spreadsheetId=sheet_id,
+            body=batch_update_body
+        ).execute()
+        return result.get('totalUpdatedCells', 0)
+
+    def _build_batch_update_response(self, success, updated_cells, old_values, changes, error=None):
+        """
+        batch_update_fields의 응답 구조 생성
+
+        Args:
+            success: 성공 여부
+            updated_cells: 업데이트된 셀 개수
+            old_values: 이전 값 딕셔너리
+            changes: 변경사항 배열
+            error: 에러 메시지 (선택)
+
+        Returns:
+            dict: 응답 딕셔너리
+        """
+        response = {
+            'success': success,
+            'updated_cells': updated_cells,
+            'old_values': old_values,
+            'changes': changes
+        }
+        if error:
+            response['error'] = error
+        return response
+
     def batch_update_fields(self, sheet_id, sheet_name, row_number, field_data, project_code=None):
         """
         레거시 방식의 개별 필드 배치 업데이트 (batchUpdate API 사용)
@@ -1037,97 +1159,28 @@ class GoogleSheetsManager:
             }
         """
         try:
+            # 1. 필드 매핑 조회
             field_column_mapping = self.get_field_column_mapping()
-            updates = []
-            old_values = {}
-            changes = []
 
-            # 1. 업데이트할 셀들의 현재 값을 먼저 조회 (감사 로깅용)
-            for field_name, new_value in field_data.items():
-                if field_name in field_column_mapping:
-                    column = field_column_mapping[field_name]
+            # 2. 변경사항 수집
+            updates, old_values, changes = self._collect_field_updates(
+                sheet_id, sheet_name, row_number, field_data, field_column_mapping
+            )
 
-                    # 현재 값 조회
-                    try:
-                        current_value_result = self.service.spreadsheets().values().get(
-                            spreadsheetId=sheet_id,
-                            range=f'{sheet_name}!{column}{row_number}'
-                        ).execute()
-                        current_values = current_value_result.get('values', [['']])
-                        old_value = current_values[0][0] if current_values and current_values[0] else ''
-                        old_values[field_name] = old_value
-
-                        # 변경사항 기록
-                        if str(old_value) != str(new_value):
-                            changes.append({
-                                'field_name': field_name,
-                                'old_value': old_value,
-                                'new_value': new_value,
-                                'column': column
-                            })
-
-                            # 업데이트할 셀 추가
-                            updates.append({
-                                'range': f'{sheet_name}!{column}{row_number}',
-                                'values': [[new_value]]
-                            })
-
-                    except Exception as e:
-                        logger.warning(f"현재 값 조회 실패 ({field_name}): {e}")
-                        old_values[field_name] = ''
-
-                        # 값 조회가 실패해도 업데이트는 진행
-                        updates.append({
-                            'range': f'{sheet_name}!{column}{row_number}',
-                            'values': [[new_value]]
-                        })
-                        changes.append({
-                            'field_name': field_name,
-                            'old_value': '',
-                            'new_value': new_value,
-                            'column': column
-                        })
-
-            # 2. 업데이트할 항목이 없으면 성공으로 반환
+            # 3. 업데이트할 항목이 없으면 성공으로 반환
             if not updates:
                 logger.info(f"업데이트할 변경사항이 없습니다: {project_code}")
-                return {
-                    'success': True,
-                    'updated_cells': 0,
-                    'old_values': old_values,
-                    'changes': []
-                }
+                return self._build_batch_update_response(True, 0, old_values, [])
 
-            # 3. batchUpdate API로 일괄 업데이트
-            batch_update_body = {
-                'valueInputOption': 'USER_ENTERED',
-                'data': updates
-            }
-
-            result = self.service.spreadsheets().values().batchUpdate(
-                spreadsheetId=sheet_id,
-                body=batch_update_body
-            ).execute()
-
-            updated_cells = result.get('totalUpdatedCells', 0)
+            # 4. batchUpdate API로 일괄 업데이트
+            updated_cells = self._execute_batch_update_request(sheet_id, updates)
             logger.info(f"[SUCCESS] 필드 배치 업데이트 완료: {project_code}, {updated_cells}개 셀 업데이트")
 
-            return {
-                'success': True,
-                'updated_cells': updated_cells,
-                'old_values': old_values,
-                'changes': changes
-            }
+            return self._build_batch_update_response(True, updated_cells, old_values, changes)
 
         except Exception as e:
             logger.error(f"[ERROR] 필드 배치 업데이트 실패: {project_code}, {str(e)}")
-            return {
-                'success': False,
-                'updated_cells': 0,
-                'old_values': {},
-                'changes': [],
-                'error': str(e)
-            }
+            return self._build_batch_update_response(False, 0, {}, [], error=str(e))
 
     def get_single_cell_value(self, sheet_id, sheet_name, column, row_number):
         """
