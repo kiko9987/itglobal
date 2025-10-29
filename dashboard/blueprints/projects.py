@@ -32,7 +32,7 @@ from ..services.calendar_service import (
 )
 from ..services.calendar_sync_scheduler import CalendarSyncScheduler
 from ..utils.error_handler import handle_error, ErrorCategory
-from ..utils.api_response import APIResponse, APIErrorCode, api_response
+from ..api.responses import APIResponse, APIErrorCode, api_response
 from ..utils.smart_cache_manager import smart_invalidate, smart_get, CacheStrategy
 from ..utils.logging_config import get_logger
 from ..utils.request_middleware import track_business_operation, log_external_api_call
@@ -247,28 +247,123 @@ def project_list():
 
 # ===== API 엔드포인트들 =====
 
+def _load_projects_data(refresh):
+    """
+    데이터 로드 전략 (refresh 파라미터에 따라 캐시 또는 강제 새로고침)
+
+    Args:
+        refresh: True면 강제 새로고침, False면 캐시 사용
+
+    Returns:
+        DataFrame or None
+    """
+    logger.info(f'[API][PID:{os.getpid()}] 프로젝트 목록 요청 (refresh={refresh})')
+
+    if refresh:
+        logger.info(f'[API][PID:{os.getpid()}] 강제 새로고침 - 구글시트 로드')
+        return load_data(force_refresh=True)
+    else:
+        df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
+        logger.info(f'[API][PID:{os.getpid()}] 캐시에서 데이터 조회 - {"있음" if df is not None and not df.empty else "없음"}')
+        if df is None or (df is not None and len(df) == 0):
+            logger.info(f'[API][PID:{os.getpid()}] 캐시 없음 - 구글시트에서 로드')
+            return load_data(force_refresh=False)
+        return df
+
+
+def _process_date_columns(df):
+    """
+    DataFrame의 날짜 컬럼들을 YYYY-MM-DD 형식으로 변환
+
+    Args:
+        df: DataFrame
+
+    Returns:
+        DataFrame (날짜 컬럼 변환 완료)
+    """
+    date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+    for col in date_columns:
+        if col in df.columns:
+            logger.info(f"날짜 컬럼 처리 시작: {col}")
+
+            # 원본 데이터 샘플 확인 (최근 5개)
+            recent_samples = df.tail(5)[col].tolist()
+            logger.info(f"{col} 원본 데이터 샘플: {recent_samples}")
+
+            # 다양한 날짜 형식 지원 (YYYY-MM-DD, YYYY/MM/DD 등)
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+
+            # 변환 후 샘플 확인
+            converted_samples = df.tail(5)[col].tolist()
+            logger.info(f"{col} 변환 후 샘플: {converted_samples}")
+
+            # 유효한 날짜는 YYYY-MM-DD 형식으로, 무효한 날짜는 빈 문자열로
+            df[col] = df[col].apply(lambda x:
+                x.strftime('%Y-%m-%d') if pd.notna(x) and x is not pd.NaT else ''
+            )
+
+            # 최종 결과 샘플
+            final_samples = df.tail(5)[col].tolist()
+            logger.info(f"{col} 최종 결과 샘플: {final_samples}")
+
+    return df
+
+
+def _build_projects_response(projects):
+    """
+    프로젝트 목록 응답 구조 생성
+
+    Args:
+        projects: 프로젝트 dict 리스트
+
+    Returns:
+        dict: 응답 구조
+    """
+    return {
+        'success': True,
+        'data': projects,
+        'meta': {
+            'total': len(projects),
+            'timestamp': datetime.now().isoformat()
+        }
+    }
+
+
+def _set_cache_headers(response, refresh):
+    """
+    응답에 캐시 헤더 설정
+
+    Args:
+        response: Flask Response 객체
+        refresh: refresh 파라미터 여부
+
+    Returns:
+        Response: 헤더가 설정된 응답
+    """
+    if not refresh:
+        # 일반 조회: 30초 동안 브라우저 캐시 허용
+        response.headers['Cache-Control'] = 'private, max-age=30'
+    else:
+        # 강제 새로고침: 캐시 사용 안함
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
 @projects_bp.route('/api/projects/list')
 @login_required
 @track_business_operation("api_projects_list")
 def get_projects_list():
     """프로젝트 목록 API"""
     try:
-        # refresh 파라미터가 있으면 강제로 구글시트에서 최신 데이터 로드
+        # 1. 파라미터 파싱
         refresh = request.args.get('refresh', 'false').lower() == 'true'
 
-        logger.info(f'[API][PID:{os.getpid()}] 프로젝트 목록 요청 (refresh={refresh})')
+        # 2. 데이터 로드 (캐시 또는 강제 새로고침)
+        df = _load_projects_data(refresh)
 
-        if refresh:
-            logger.info(f'[API][PID:{os.getpid()}] 강제 새로고침 - 구글시트 로드')
-            df = load_data(force_refresh=True)
-            # set_current_data() 제거 - load_data()가 캐시에 저장함
-        else:
-            df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
-            logger.info(f'[API][PID:{os.getpid()}] 캐시에서 데이터 조회 - {"있음" if df is not None and not df.empty else "없음"}')
-            if df is None or (df is not None and len(df) == 0):
-                logger.info(f'[API][PID:{os.getpid()}] 캐시 없음 - 구글시트에서 로드')
-                df = load_data(force_refresh=False)
-
+        # 3. 데이터 없을 때 에러 반환
         if df is None or (df is not None and len(df) == 0):
             return jsonify({
                 'success': False,
@@ -279,35 +374,11 @@ def get_projects_list():
                 }
             }), 500
 
-        # DataFrame을 dict 리스트로 변환 (NaN 값 처리)
-        df = df.fillna('')  # NaN 값을 빈 문자열로 변환
+        # 4. DataFrame 전처리 (NaN 처리 + 날짜 변환)
+        df = df.fillna('')
+        df = _process_date_columns(df)
 
-        # 날짜 컬럼들을 올바르게 처리
-        date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
-        for col in date_columns:
-            if col in df.columns:
-                logger.info(f"날짜 컬럼 처리 시작: {col}")
-
-                # 원본 데이터 샘플 확인 (최근 5개)
-                recent_samples = df.tail(5)[col].tolist()
-                logger.info(f"{col} 원본 데이터 샘플: {recent_samples}")
-
-                # 다양한 날짜 형식 지원 (YYYY-MM-DD, YYYY/MM/DD 등)
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-
-                # 변환 후 샘플 확인
-                converted_samples = df.tail(5)[col].tolist()
-                logger.info(f"{col} 변환 후 샘플: {converted_samples}")
-
-                # 유효한 날짜는 YYYY-MM-DD 형식으로, 무효한 날짜는 빈 문자열로
-                df[col] = df[col].apply(lambda x:
-                    x.strftime('%Y-%m-%d') if pd.notna(x) and x is not pd.NaT else ''
-                )
-
-                # 최종 결과 샘플
-                final_samples = df.tail(5)[col].tolist()
-                logger.info(f"{col} 최종 결과 샘플: {final_samples}")
-
+        # 5. dict 변환
         projects = df.to_dict('records')
 
         # Google Sheets에서 이미 계산된 순익, 마진율 값을 그대로 사용
@@ -317,24 +388,10 @@ def get_projects_list():
         # - 전체 프로젝트 조회 가능 (검색, 학습 목적)
         # - 수정/삭제는 불가 (각 API 엔드포인트에서 권한 체크)
 
-        response = jsonify({
-            'success': True,
-            'data': projects,
-            'meta': {
-                'total': len(projects),
-                'timestamp': datetime.now().isoformat()
-            }
-        })
-
-        # 캐시 헤더 설정 (성능 최적화)
-        if not refresh:
-            # 일반 조회: 30초 동안 브라우저 캐시 허용
-            response.headers['Cache-Control'] = 'private, max-age=30'
-        else:
-            # 강제 새로고침: 캐시 사용 안함
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
+        # 6. 응답 생성 및 캐시 헤더 설정
+        response_data = _build_projects_response(projects)
+        response = jsonify(response_data)
+        response = _set_cache_headers(response, refresh)
 
         return response
 
@@ -1502,6 +1559,177 @@ def get_project_statistics():
         }), 500
 
 
+# ===== 헬퍼 함수 1: 기본 검증 및 컬럼 매핑 =====
+def _validate_single_memo_request(data):
+    """
+    단일 메모 저장 요청 기본 검증
+    - 필수 필드 검증
+    - 필드명 유효성 검증
+    - 컬럼 매핑 조회
+
+    Returns:
+        tuple: (project_code, field_name, memo, column) or (None, error_response_tuple)
+    """
+    project_code = data.get('project_code')
+    field_name = data.get('field_name')
+    memo = data.get('memo')
+
+    # 1. 기본 필수 필드 검증
+    if not project_code or not field_name:
+        return None, (jsonify({
+            'success': False,
+            'message': '프로젝트 코드와 필드명이 필요합니다.'
+        }), 400)
+
+    # 2. 필드명 유효성 검증
+    if field_name not in MEMOABLE_FIELDS:
+        return None, (jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['invalid_field']
+        }), 400)
+
+    # 3. 컬럼 매핑
+    column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
+    if not column:
+        return None, (jsonify({
+            'success': False,
+            'message': f'컬럼 매핑을 찾을 수 없습니다: {field_name}'
+        }), 500)
+
+    return project_code, field_name, memo, column
+
+
+# ===== 헬퍼 함수 2: Manager 초기화 및 행 조회 =====
+def _find_memo_project_row(project_code):
+    """
+    Google Sheets Manager 초기화 및 프로젝트 행 조회
+
+    Returns:
+        tuple: (manager, sheet_id, sheet_name, row_number) or (None, error_response_tuple)
+    """
+    # Google Sheets Manager 및 설정 초기화
+    manager = get_sheets_manager()
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+
+    # 프로젝트 행 번호 조회
+    row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+
+    if not row_number:
+        return None, (jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['project_not_found']
+        }), 404)
+
+    return manager, sheet_id, sheet_name, row_number
+
+
+# ===== 헬퍼 함수 3: Marshmallow 스키마 검증 =====
+def _validate_memo_schema(memo, row_number, column, project_code, field_name):
+    """
+    Marshmallow 스키마로 메모 상세 검증 (메모가 있는 경우에만)
+
+    Returns:
+        tuple: (validated_data, None) or (None, error_response_tuple)
+    """
+    # 메모가 없으면 검증 건너뛰기 (삭제 요청)
+    if not memo:
+        return None, None
+
+    validation_data = {
+        'row': row_number,
+        'column': column,
+        'memo': memo,
+        'project_code': project_code,
+        'field_name': field_name
+    }
+
+    validated_data, errors = validate_request_data(CellMemoSchema, validation_data)
+
+    if errors:
+        error_messages = format_validation_errors(errors)
+        logger.warning(f"[VALIDATION] 필드 메모 검증 실패: {error_messages}")
+        return None, (jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['validation_failed'],
+            'validation_errors': error_messages
+        }), 400)
+
+    return validated_data, None
+
+
+# ===== 헬퍼 함수 4: 메모 저장, 캐시 무효화, 감사 로그 =====
+def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name):
+    """
+    메모 저장 + 캐시 무효화 + 감사 로그 기록
+
+    Returns:
+        tuple: (success, response_data or error_response)
+    """
+    logger.info(f"[FIELD_MEMO] 셀 노트 저장 시작: {project_code} / {cell_address}")
+
+    # 기존 메모 값 조회 (감사 로그용)
+    old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
+
+    # 구글 시트 셀 노트에 저장
+    success = manager.update_cell_note(
+        sheet_id,
+        sheet_name,
+        cell_address,
+        memo if memo else None  # 빈 메모는 삭제
+    )
+
+    if not success:
+        return False, (jsonify({
+            'success': False,
+            'message': '메모 저장에 실패했습니다.'
+        }), 500)
+
+    # 셀 노트 캐시만 무효화 (선택적 캐시 무효화 - MED-4 피드백)
+    notes_cache_key = f"cell_notes_{sheet_id}"
+    invalidated_notes = smart_invalidate(notes_cache_key)
+
+    logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 셀 노트 캐시 무효화 완료:")
+    logger.info(f"  - {notes_cache_key}: {invalidated_notes}개 항목")
+
+    # 감사 로그 기록
+    try:
+        from dashboard.utils.user_database import get_audit_repository
+        audit_repo = get_audit_repository()
+        user_email = session.get('user', {}).get('email', 'unknown')
+
+        action_desc = "삭제" if not memo else "저장"
+        old_value_display = old_memo[:50] + '...' if old_memo and len(old_memo) > 50 else (old_memo or '-')
+        new_value_display = memo[:50] + '...' if memo and len(memo) > 50 else (memo or '삭제')
+
+        audit_repo.log_action(
+            user_email=user_email,
+            action='UPDATE_FIELD_MEMO',
+            details=f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
+            project_code=project_code,
+            field_name=f"{field_name}_메모",
+            old_value=old_value_display,
+            new_value=new_value_display,
+            ip_address=request.remote_addr
+        )
+    except Exception as log_error:
+        logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+    logger.info(f"[SUCCESS] 필드 메모 저장: {project_code} / {field_name}")
+
+    return True, {
+        'success': True,
+        'message': '메모가 저장되었습니다.',
+        'data': {
+            'project_code': project_code,
+            'field_name': field_name,
+            'memo': memo,
+            'cell_address': cell_address
+        }
+    }
+
+
+# ===== 메인 함수: save_field_memo (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memo', methods=['POST'])
 @login_required
 @track_business_operation("api_field_memo_save")
@@ -1518,135 +1746,36 @@ def save_field_memo():
     """
     try:
         data = request.get_json()
-        project_code = data.get('project_code')
-        field_name = data.get('field_name')  # '계약금', '중도금', '잔금'
-        memo = data.get('memo')  # None이면 메모 삭제
 
-        # 1. 기본 필수 필드 검증
-        if not project_code or not field_name:
-            return jsonify({
-                'success': False,
-                'message': '프로젝트 코드와 필드명이 필요합니다.'
-            }), 400
+        # 1. 기본 검증 및 컬럼 매핑
+        result = _validate_single_memo_request(data)
+        if result[0] is None:
+            return result[1]
+        project_code, field_name, memo, column = result
 
-        # 2. 필드명 유효성 검증 (상수 사용)
-        if field_name not in MEMOABLE_FIELDS:
-            return jsonify({
-                'success': False,
-                'message': ERROR_MESSAGES['memo']['invalid_field']
-            }), 400
+        # 2. Manager 초기화 및 행 조회
+        result = _find_memo_project_row(project_code)
+        if result[0] is None:
+            return result[1]
+        manager, sheet_id, sheet_name, row_number = result
 
-        # 3. 컬럼 매핑 (상수 사용)
-        column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
-        if not column:
-            return jsonify({
-                'success': False,
-                'message': f'컬럼 매핑을 찾을 수 없습니다: {field_name}'
-            }), 500
+        # 3. Marshmallow 스키마 검증 (메모가 있는 경우)
+        validated_data, error = _validate_memo_schema(memo, row_number, column, project_code, field_name)
+        if error:
+            return error
 
-        # 4. Google Sheets Manager 및 설정 초기화 (한 번만)
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
-
-        # 5. 프로젝트 행 번호 조회 (한 번만 - 중복 제거)
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
-
-        if not row_number:
-            return jsonify({
-                'success': False,
-                'message': ERROR_MESSAGES['memo']['project_not_found']
-            }), 404
-
-        # 6. Marshmallow 스키마로 상세 검증 (메모가 있는 경우에만)
-        if memo:
-            # 이미 조회된 row_number 재사용
-            validation_data = {
-                'row': row_number,
-                'column': column,
-                'memo': memo,
-                'project_code': project_code,
-                'field_name': field_name
-            }
-
-            validated_data, errors = validate_request_data(CellMemoSchema, validation_data)
-
-            if errors:
-                error_messages = format_validation_errors(errors)
-                logger.warning(f"[VALIDATION] 필드 메모 검증 실패: {error_messages}")
-                return jsonify({
-                    'success': False,
-                    'message': ERROR_MESSAGES['memo']['validation_failed'],
-                    'validation_errors': error_messages
-                }), 400
-
-        # 셀 주소 구성 (예: 'T5')
+        # 4. 셀 주소 구성
         cell_address = f"{column}{row_number}"
 
-        logger.info(f"[FIELD_MEMO] 셀 노트 저장 시작: {project_code} / {cell_address}")
-
-        # 기존 메모 값 조회 (old_value 기록용)
-        old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
-
-        # 구글 시트 셀 노트에 저장
-        success = manager.update_cell_note(
-            sheet_id,
-            sheet_name,
-            cell_address,
-            memo if memo else None  # 빈 메모는 삭제
+        # 5. 메모 저장, 캐시 무효화, 감사 로그
+        success, response = _save_memo_and_audit(
+            manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name
         )
 
         if success:
-            # 셀 노트 캐시만 무효화 (성능 최적화)
-            # 메모는 셀 노트에만 저장되고 프로젝트 데이터에 영향 없음
-            # 따라서 전체 프로젝트 캐시 무효화는 불필요
-            notes_cache_key = f"cell_notes_{sheet_id}"
-            invalidated_notes = smart_invalidate(notes_cache_key)
-
-            logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 셀 노트 캐시 무효화 완료:")
-            logger.info(f"  - {notes_cache_key}: {invalidated_notes}개 항목")
-
-            # 감사 로그 기록
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                user_email = session.get('user', {}).get('email', 'unknown')
-
-                action_desc = "삭제" if not memo else "저장"
-                # 이전 값 포맷팅
-                old_value_display = old_memo[:50] + '...' if old_memo and len(old_memo) > 50 else (old_memo or '-')
-                new_value_display = memo[:50] + '...' if memo and len(memo) > 50 else (memo or '삭제')
-
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='UPDATE_FIELD_MEMO',
-                    details=f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
-                    project_code=project_code,
-                    field_name=f"{field_name}_메모",
-                    old_value=old_value_display,
-                    new_value=new_value_display,
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
-
-            logger.info(f"[SUCCESS] 필드 메모 저장: {project_code} / {field_name}")
-
-            return jsonify({
-                'success': True,
-                'message': '메모가 저장되었습니다.',
-                'data': {
-                    'project_code': project_code,
-                    'field_name': field_name,
-                    'memo': memo,
-                    'cell_address': cell_address
-                }
-            })
+            return jsonify(response)
         else:
-            return jsonify({
-                'success': False,
-                'message': '메모 저장에 실패했습니다.'
-            }), 500
+            return response
 
     except Exception as e:
         logger.error(f"[ERROR] 필드 메모 저장 오류: {str(e)}")
@@ -1658,6 +1787,271 @@ def save_field_memo():
         }), 500
 
 
+# ===== 헬퍼 함수 1: 기본 검증 및 행 조회 =====
+def _validate_and_find_memo_batch_row(project_code, memos):
+    """
+    메모 배치 요청 검증 및 프로젝트 행 조회
+
+    Returns:
+        tuple: (manager, sheet_id, sheet_name, row_number) or (None, error_response, status_code)
+    """
+    # 기본 검증
+    if not project_code:
+        return None, jsonify({
+            'success': False,
+            'message': '프로젝트 코드가 필요합니다.'
+        }), 400
+
+    if not memos or not isinstance(memos, list):
+        return None, jsonify({
+            'success': False,
+            'message': '메모 배열이 필요합니다.'
+        }), 400
+
+    # Google Sheets Manager 초기화
+    manager = get_sheets_manager()
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+
+    # 프로젝트 행 번호 조회
+    row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+
+    if not row_number:
+        return None, jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['project_not_found']
+        }), 404
+
+    logger.info(f"[BATCH_MEMO] 일괄 저장 시작: {project_code}, {len(memos)}개 메모")
+    return manager, sheet_id, sheet_name, row_number
+
+
+# ===== 헬퍼 함수 2: 메모 업데이트 준비 =====
+def _prepare_batch_memo_updates(memos, row_number, manager, sheet_id, sheet_name, project_code):
+    """
+    메모 업데이트 준비: 검증, 매핑, 기존 메모 조회
+
+    Returns:
+        tuple: (results, failed_count, cell_notes_to_update, old_memos)
+    """
+    results = []
+    failed_count = 0
+    cell_notes_to_update = {}  # {cell_address: note_text}
+    old_memos = {}  # {cell_address: old_memo}
+
+    for memo_data in memos:
+        field_name = memo_data.get('field_name')
+        memo = memo_data.get('memo')
+
+        try:
+            # 필드명 검증
+            if field_name not in MEMOABLE_FIELDS:
+                results.append({
+                    'field_name': field_name,
+                    'success': False,
+                    'message': f'잘못된 필드명: {field_name}'
+                })
+                failed_count += 1
+                continue
+
+            # 컬럼 매핑
+            column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
+            if not column:
+                results.append({
+                    'field_name': field_name,
+                    'success': False,
+                    'message': f'컬럼 매핑 없음: {field_name}'
+                })
+                failed_count += 1
+                continue
+
+            # 셀 주소 구성
+            cell_address = f"{column}{row_number}"
+
+            # 기존 메모 값 조회 (감사 로그용)
+            old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
+            old_memos[cell_address] = old_memo
+
+            # Batch 업데이트 대상에 추가
+            cell_notes_to_update[cell_address] = memo if memo else None
+
+            # 결과 목록에 추가 (아직 성공은 아님)
+            results.append({
+                'field_name': field_name,
+                'success': None,  # 나중에 업데이트
+                'message': '대기 중',
+                'cell_address': cell_address,
+                'memo_index': len(results)  # 원본 memos 배열의 인덱스 추적
+            })
+
+        except Exception as memo_error:
+            logger.error(f"[BATCH_MEMO] 메모 준비 오류 ({field_name}): {str(memo_error)}")
+            results.append({
+                'field_name': field_name,
+                'success': False,
+                'message': f'오류: {str(memo_error)}'
+            })
+            failed_count += 1
+
+    return results, failed_count, cell_notes_to_update, old_memos
+
+
+# ===== 헬퍼 함수 3: Batch Update 실행 =====
+def _execute_batch_memo_update(cell_notes_to_update, manager, sheet_id, sheet_name):
+    """
+    Google Sheets Batch Update API로 메모 일괄 업데이트
+
+    Returns:
+        bool: 성공 여부
+    """
+    if not cell_notes_to_update:
+        return True
+
+    try:
+        # 시트 ID 조회
+        numeric_sheet_id = manager.get_sheet_id_by_name(sheet_id, sheet_name)
+
+        # batchUpdate 요청 구성
+        batch_requests = []
+        for cell_address, note_text in cell_notes_to_update.items():
+            col_letter = ''.join(filter(str.isalpha, cell_address))
+            row_num = int(''.join(filter(str.isdigit, cell_address)))
+            col_index = manager._column_letter_to_number(col_letter)
+            row_index = row_num - 1  # 0-based
+
+            batch_requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': numeric_sheet_id,
+                        'startRowIndex': row_index,
+                        'endRowIndex': row_index + 1,
+                        'startColumnIndex': col_index,
+                        'endColumnIndex': col_index + 1
+                    },
+                    'cell': {
+                        'note': note_text if note_text else None
+                    },
+                    'fields': 'note'
+                }
+            })
+
+        # Batch Update 실행
+        body = {'requests': batch_requests}
+        request_obj = manager.service.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body=body
+        )
+        batch_result = manager._execute_with_retry(
+            request_obj,
+            f"batch_update_memos({len(batch_requests)} notes)"
+        )
+
+        # API 절감 효과 로깅
+        individual_api_calls = len(batch_requests) * 2
+        saved_api_calls = individual_api_calls - 1
+        logger.info(
+            f"[BATCH_MEMO] Batch Update 완료: {len(batch_requests)}개 메모 → "
+            f"Batch 1회 (개별 대비 {saved_api_calls}회 절감)"
+        )
+
+        return True
+
+    except Exception as batch_error:
+        logger.error(f"[BATCH_MEMO] Batch Update 실패: {str(batch_error)}")
+        return False
+
+
+# ===== 헬퍼 함수 4: 결과 업데이트 및 감사 로그 준비 =====
+def _build_batch_audit_logs(results, memos, old_memos, project_code, batch_success):
+    """
+    Batch Update 결과에 따라 results 업데이트 및 감사 로그 준비
+
+    Returns:
+        tuple: (success_count, failed_count, audit_actions)
+    """
+    success_count = 0
+    failed_count = 0
+    audit_actions = []
+
+    for result_item in results:
+        if result_item.get('success') is None:  # 대기 중이던 항목
+            if batch_success:
+                result_item['success'] = True
+                result_item['message'] = '저장 완료'
+                success_count += 1
+
+                # 감사 로그 데이터 수집
+                cell_address = result_item['cell_address']
+                memo_index = result_item['memo_index']
+                field_name = memos[memo_index]['field_name']
+                memo = memos[memo_index]['memo']
+                old_memo = old_memos.get(cell_address, '')
+
+                action_desc = "삭제" if not memo else "저장"
+                old_value_display = (
+                    old_memo[:50] + '...' if old_memo and len(old_memo) > 50
+                    else (old_memo or '-')
+                )
+                new_value_display = (
+                    memo[:50] + '...' if memo and len(memo) > 50
+                    else (memo or '삭제')
+                )
+
+                audit_actions.append({
+                    'user_email': session.get('user', {}).get('email', 'unknown'),
+                    'action': 'UPDATE_FIELD_MEMO',
+                    'details': f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
+                    'project_code': project_code,
+                    'field_name': f"{field_name}_메모",
+                    'old_value': old_value_display,
+                    'new_value': new_value_display,
+                    'ip_address': request.remote_addr
+                })
+            else:
+                result_item['success'] = False
+                result_item['message'] = 'Batch 업데이트 실패'
+                failed_count += 1
+        elif result_item.get('success') is False:
+            # 이미 실패 처리된 항목 (검증 실패 등)
+            failed_count += 1
+
+    return success_count, failed_count, audit_actions
+
+
+# ===== 헬퍼 함수 5: 감사 로그 저장 및 캐시 무효화 =====
+def _finalize_batch_memo_save(audit_actions, sheet_id, success_count):
+    """
+    감사 로그 배치 저장 및 캐시 무효화
+    """
+    # 감사 로그 배치 저장
+    if audit_actions:
+        try:
+            from dashboard.utils.user_database import get_audit_repository
+            audit_repo = get_audit_repository()
+            batch_success, batch_count = audit_repo.log_actions_batch(audit_actions)
+            if batch_success:
+                logger.info(
+                    f"[BATCH_MEMO] 감사 로그 배치 기록 완료: "
+                    f"{batch_count}개 메모 (1회 트랜잭션)"
+                )
+            else:
+                logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패")
+        except Exception as log_error:
+            logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패: {log_error}")
+
+    # 캐시 무효화
+    if success_count > 0:
+        notes_cache_key = f"cell_notes_{sheet_id}"
+        invalidated_notes = smart_invalidate(notes_cache_key)
+        invalidated_data = smart_invalidate("current_sheet_data")
+
+        logger.info(
+            f"[BATCH_MEMO] 캐시 무효화 완료: "
+            f"notes={invalidated_notes}개, data={invalidated_data}개"
+        )
+
+
+# ===== 메인 함수: save_field_memos_batch (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memos/batch', methods=['POST'])
 @login_required
 @track_business_operation("api_field_memo_batch_save")
@@ -1669,8 +2063,8 @@ def save_field_memos_batch():
         {
             "project_code": "G0001-IT",
             "memos": [
-                {"field_name": "계약금", "memo": "입금일: 2025-01-10\n입금자: 홍길동"},
-                {"field_name": "중도금", "memo": "입금일: 2025-02-15\n입금자: 김철수"},
+                {"field_name": "계약금", "memo": "입금일: 2025-01-10\\n입금자: 홍길동"},
+                {"field_name": "중도금", "memo": "입금일: 2025-02-15\\n입금자: 김철수"},
                 {"field_name": "잔금", "memo": null}
             ]
         }
@@ -1679,11 +2073,7 @@ def save_field_memos_batch():
         {
             "success": true,
             "message": "3개 중 3개 메모 저장 성공",
-            "results": [
-                {"field_name": "계약금", "success": true, "message": "저장 완료"},
-                {"field_name": "중도금", "success": true, "message": "저장 완료"},
-                {"field_name": "잔금", "success": true, "message": "저장 완료"}
-            ],
+            "results": [...],
             "failed_count": 0,
             "success_count": 3
         }
@@ -1693,202 +2083,37 @@ def save_field_memos_batch():
         project_code = data.get('project_code')
         memos = data.get('memos', [])
 
-        # 1. 기본 검증
-        if not project_code:
-            return jsonify({
-                'success': False,
-                'message': '프로젝트 코드가 필요합니다.'
-            }), 400
+        # 1. 기본 검증 및 행 조회
+        result = _validate_and_find_memo_batch_row(project_code, memos)
+        if result[0] is None:
+            return result[1], result[2]  # 에러 응답 반환
 
-        if not memos or not isinstance(memos, list):
-            return jsonify({
-                'success': False,
-                'message': '메모 배열이 필요합니다.'
-            }), 400
+        manager, sheet_id, sheet_name, row_number = result
 
-        # 2. Google Sheets Manager 초기화 (한 번만)
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        # 2. 메모 업데이트 준비
+        results, failed_count, cell_notes_to_update, old_memos = _prepare_batch_memo_updates(
+            memos, row_number, manager, sheet_id, sheet_name, project_code
+        )
 
-        # 3. 프로젝트 행 번호 조회 (한 번만)
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+        # 3. Batch Update 실행
+        batch_success = _execute_batch_memo_update(
+            cell_notes_to_update, manager, sheet_id, sheet_name
+        )
 
-        if not row_number:
-            return jsonify({
-                'success': False,
-                'message': ERROR_MESSAGES['memo']['project_not_found']
-            }), 404
+        # 4. 결과 업데이트 및 감사 로그 준비
+        success_count, failed_count, audit_actions = _build_batch_audit_logs(
+            results, memos, old_memos, project_code, batch_success
+        )
 
-        logger.info(f"[BATCH_MEMO] 일괄 저장 시작: {project_code}, {len(memos)}개 메모")
+        # 5. 감사 로그 저장 및 캐시 무효화
+        _finalize_batch_memo_save(audit_actions, sheet_id, success_count)
 
-        # 4. 검증 및 셀 주소 매핑 준비
-        results = []
-        success_count = 0
-        failed_count = 0
-        audit_actions = []  # 감사 로그 배치 저장용
-        cell_notes_to_update = {}  # {cell_address: note_text}
-        old_memos = {}  # {cell_address: old_memo} - 감사 로그용
+        # 6. 내부용 필드 제거 (프론트엔드 계약 준수)
+        for result_item in results:
+            result_item.pop('memo_index', None)  # 내부 인덱스 제거
+            result_item.pop('cell_address', None)  # 내부 셀 주소 제거
 
-        for memo_data in memos:
-            field_name = memo_data.get('field_name')
-            memo = memo_data.get('memo')
-
-            try:
-                # 필드명 검증
-                if field_name not in MEMOABLE_FIELDS:
-                    results.append({
-                        'field_name': field_name,
-                        'success': False,
-                        'message': f'잘못된 필드명: {field_name}'
-                    })
-                    failed_count += 1
-                    continue
-
-                # 컬럼 매핑
-                column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
-                if not column:
-                    results.append({
-                        'field_name': field_name,
-                        'success': False,
-                        'message': f'컬럼 매핑 없음: {field_name}'
-                    })
-                    failed_count += 1
-                    continue
-
-                # 셀 주소 구성
-                cell_address = f"{column}{row_number}"
-
-                # 기존 메모 값 조회 (감사 로그용)
-                old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
-                old_memos[cell_address] = old_memo
-
-                # Batch 업데이트 대상에 추가
-                cell_notes_to_update[cell_address] = memo if memo else None
-
-                # 결과 목록에 추가 (아직 성공은 아님)
-                results.append({
-                    'field_name': field_name,
-                    'success': None,  # 나중에 업데이트
-                    'message': '대기 중',
-                    'cell_address': cell_address
-                })
-
-            except Exception as memo_error:
-                logger.error(f"[BATCH_MEMO] 메모 준비 오류 ({field_name}): {str(memo_error)}")
-                results.append({
-                    'field_name': field_name,
-                    'success': False,
-                    'message': f'오류: {str(memo_error)}'
-                })
-                failed_count += 1
-
-        # 5. Batch Update API로 모든 메모를 한 번에 업데이트 ⚡
-        if cell_notes_to_update:
-            try:
-                # 시트 ID 조회
-                numeric_sheet_id = manager.get_sheet_id_by_name(sheet_id, sheet_name)
-
-                # batchUpdate 요청 구성
-                batch_requests = []
-                for cell_address, note_text in cell_notes_to_update.items():
-                    col_letter = ''.join(filter(str.isalpha, cell_address))
-                    row_num = int(''.join(filter(str.isdigit, cell_address)))
-                    col_index = manager._column_letter_to_number(col_letter)
-                    row_index = row_num - 1  # 0-based
-
-                    batch_requests.append({
-                        'repeatCell': {
-                            'range': {
-                                'sheetId': numeric_sheet_id,
-                                'startRowIndex': row_index,
-                                'endRowIndex': row_index + 1,
-                                'startColumnIndex': col_index,
-                                'endColumnIndex': col_index + 1
-                            },
-                            'cell': {
-                                'note': note_text if note_text else None
-                            },
-                            'fields': 'note'
-                        }
-                    })
-
-                # Batch Update 실행 (1번 API 호출로 모든 메모 처리)
-                body = {'requests': batch_requests}
-                request_obj = manager.service.spreadsheets().batchUpdate(
-                    spreadsheetId=sheet_id,
-                    body=body
-                )
-                batch_result = manager._execute_with_retry(
-                    request_obj,
-                    f"batch_update_memos({len(batch_requests)} notes)"
-                )
-
-                # 개별 API 호출 시: len(batch_requests) * 2 (각 메모당 읽기 + 쓰기)
-                # Batch API 사용 시: 1회
-                individual_api_calls = len(batch_requests) * 2
-                saved_api_calls = individual_api_calls - 1
-                logger.info(f"[BATCH_MEMO] Batch Update 완료: {len(batch_requests)}개 메모 → Batch 1회 (개별 대비 {saved_api_calls}회 절감)")
-
-                # 결과 업데이트 및 감사 로그 생성
-                for i, result_item in enumerate(results):
-                    if result_item['success'] is None:  # 대기 중이던 항목
-                        result_item['success'] = True
-                        result_item['message'] = '저장 완료'
-                        success_count += 1
-
-                        # 감사 로그 데이터 수집
-                        cell_address = result_item['cell_address']
-                        field_name = memos[i]['field_name']
-                        memo = memos[i]['memo']
-                        old_memo = old_memos.get(cell_address, '')
-
-                        action_desc = "삭제" if not memo else "저장"
-                        old_value_display = old_memo[:50] + '...' if old_memo and len(old_memo) > 50 else (old_memo or '-')
-                        new_value_display = memo[:50] + '...' if memo and len(memo) > 50 else (memo or '삭제')
-
-                        audit_actions.append({
-                            'user_email': session.get('user', {}).get('email', 'unknown'),
-                            'action': 'UPDATE_FIELD_MEMO',
-                            'details': f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
-                            'project_code': project_code,
-                            'field_name': f"{field_name}_메모",
-                            'old_value': old_value_display,
-                            'new_value': new_value_display,
-                            'ip_address': request.remote_addr
-                        })
-
-            except Exception as batch_error:
-                logger.error(f"[BATCH_MEMO] Batch Update 실패: {str(batch_error)}")
-                # 모든 대기 중인 항목을 실패로 마킹
-                for result_item in results:
-                    if result_item['success'] is None:
-                        result_item['success'] = False
-                        result_item['message'] = f'Batch 업데이트 실패: {str(batch_error)}'
-                        failed_count += 1
-
-        # 6. 감사 로그 배치 저장 (한 번의 트랜잭션으로 처리)
-        if audit_actions:
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                batch_success, batch_count = audit_repo.log_actions_batch(audit_actions)
-                if batch_success:
-                    logger.info(f"[BATCH_MEMO] 감사 로그 배치 기록 완료: {batch_count}개 메모 (1회 트랜잭션)")
-                else:
-                    logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패")
-            except Exception as log_error:
-                logger.warning(f"[BATCH_MEMO] 감사 로그 배치 기록 실패: {log_error}")
-
-        # 7. 캐시 무효화 (한 번만)
-        if success_count > 0:
-            notes_cache_key = f"cell_notes_{sheet_id}"
-            invalidated_notes = smart_invalidate(notes_cache_key)
-            invalidated_data = smart_invalidate("current_sheet_data")
-
-            logger.info(f"[BATCH_MEMO] 캐시 무효화 완료: notes={invalidated_notes}개, data={invalidated_data}개")
-
-        # 8. 결과 반환
+        # 7. 결과 반환
         overall_success = failed_count == 0
         message = f"{len(memos)}개 중 {success_count}개 메모 저장 성공"
         if failed_count > 0:
@@ -1903,16 +2128,381 @@ def save_field_memos_batch():
             'success_count': success_count,
             'failed_count': failed_count,
             'total_count': len(memos)
-        }), 200 if overall_success else 207  # 207 Multi-Status (일부 실패)
+        }), 200 if overall_success else 207  # 207 Multi-Status
 
     except Exception as e:
         logger.error(f"[BATCH_MEMO] 일괄 저장 오류: {str(e)}")
         import traceback
-        logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
+        logger.error(f"스택 트레이스:\\n{traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'일괄 메모 저장 중 오류 발생: {str(e)}'
         }), 500
+
+
+
+# ===== 헬퍼 함수 1: 데이터 검증 =====
+def _validate_project_auto_data(data):
+    """
+    프로젝트 자동 생성 데이터 검증 (Marshmallow + 기본 체크)
+
+    Returns:
+        tuple: (validated_data, None) or (None, error_response_tuple)
+    """
+    # Marshmallow 스키마 검증
+    validation_data = {
+        'manager': data.get('담당자', ''),
+        'company': data.get('사업자', ''),
+        'address': data.get('현장 주소'),
+        'work_content': data.get('공사 내용'),
+        'start_date': data.get('공사 시작'),
+        'end_date': data.get('공사 종료'),
+        'down_payment': data.get('계약금'),
+        'mid_payment': data.get('중도금'),
+        'final_payment': data.get('잔금'),
+        'total_amount': data.get('총액 1'),
+    }
+
+    validated_data, errors = validate_request_data(ProjectAutoCreateSchema, validation_data)
+
+    if errors:
+        error_messages = format_validation_errors(errors)
+        logger.warning(f"[VALIDATION] 프로젝트 생성 검증 실패: {error_messages}")
+        return None, (jsonify({
+            "success": False,
+            "error": "입력 데이터 검증 실패",
+            "validation_errors": error_messages
+        }), 400)
+
+    # 기본 검증 (호환성 유지)
+    company = str(data.get("사업자", "")).strip()
+    owner = str(data.get("담당자", "")).strip()
+
+    if not company or not owner:
+        return None, (jsonify({
+            "success": False,
+            "error": "사업자/담당자는 필수입니다",
+            "code": "REQUIRED_FIELDS_MISSING"
+        }), 400)
+
+    return validated_data, None
+
+
+# ===== 헬퍼 함수 2: 프로젝트 코드 생성 =====
+def _generate_project_code(data):
+    """
+    현재 데이터를 로드하고 프로젝트 코드 생성
+
+    Returns:
+        tuple: (code, df) or (None, error_response_tuple)
+    """
+    # 현재 데이터 로드
+    df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
+    if df is None:
+        df = load_data()
+    if df is None:
+        return None, (jsonify({
+            "success": False,
+            "error": "데이터를 불러올 수 없습니다",
+            "code": "DATA_LOAD_FAILED"
+        }), 500)
+
+    # 프로젝트 코드 생성
+    company = str(data.get("사업자", "")).strip()
+    owner = str(data.get("담당자", "")).strip()
+    code = _auto_project_code(df, company, owner)
+    logger.info(f"자동 생성된 프로젝트 코드: {code}")
+
+    return code, df
+
+
+# ===== 헬퍼 함수 3: Sheets Manager 초기화 =====
+def _initialize_sheets_manager():
+    """
+    Google Sheets Manager 초기화 및 검증
+
+    Returns:
+        tuple: (manager, sheet_id) or (None, error_response_tuple)
+    """
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    if not sheet_id:
+        return None, (jsonify({
+            "success": False,
+            "error": "GOOGLE_SHEET_ID가 설정되지 않았습니다",
+            "code": "CONFIG_ERROR"
+        }), 500)
+
+    manager = get_sheets_manager()
+    if manager is None:
+        logger.error("Google Sheets Manager를 초기화할 수 없습니다")
+        return None, (jsonify({
+            "success": False,
+            "error": "Google Sheets 연동이 비활성화되어 있습니다. 관리자에게 문의하세요."
+        }), 503)
+
+    return manager, sheet_id
+
+
+# ===== 헬퍼 함수 4: 기본값 설정 =====
+def _prepare_project_defaults(data):
+    """
+    프로젝트 데이터에 기본값 설정 (금액, 수식, 날짜, VAT 등)
+
+    Args:
+        data: 원본 데이터 딕셔너리 (in-place 수정됨)
+    """
+    from datetime import datetime
+
+    # 공사 종료일 기본값
+    if '공사 시작' in data and data['공사 시작']:
+        if not data.get('공사 종료') or data.get('공사 종료').strip() == '':
+            data['공사 종료'] = data['공사 시작']
+
+    # 금액 필드 기본값
+    money_fields = ['총액 1', '제품대', '도급비', '자재비', '기타비', '계약금', '중도금', '잔금']
+    for field in money_fields:
+        value = data.get(field, '')
+        if value is None or str(value).strip() == '':
+            data[field] = '₩0'
+
+    # 수식 필드 자동 삽입
+    data['총액 2'] = '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'
+    data['미수금'] = '=0-($S:S-($T:T+$U:U+$V:V))'
+    data['순익'] = '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'
+    data['마진율'] = '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))'
+
+    # 기타 필드 기본값
+    if '계산서' not in data or not data.get('계산서'):
+        data['계산서'] = '미발행'
+    if '수금 확인' not in data:
+        data['수금 확인'] = 'FALSE'
+
+    # 부가세 포함 여부 (boolean → TRUE/FALSE 문자열)
+    if '부가세' in data:
+        vat_included = data.get('부가세')
+        if isinstance(vat_included, bool):
+            data['부가세'] = 'TRUE' if vat_included else 'FALSE'
+        elif isinstance(vat_included, str):
+            data['부가세'] = vat_included.upper()
+    else:
+        data['부가세'] = 'FALSE'
+
+    # 공사 확정 날짜 기본값
+    if '공사 확정' not in data or not data.get('공사 확정'):
+        data['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
+
+    # Optimistic Lock 버전 초기화
+    data['_version'] = '0'
+
+    # 총액 1 포맷팅
+    if '총액 1' in data and data['총액 1']:
+        total_amount = str(data['총액 1']).strip()
+        if total_amount.isdigit():
+            data['총액 1'] = f"₩{int(total_amount):,}"
+        elif total_amount.replace('₩', '').replace(',', '').isdigit():
+            clean_number = total_amount.replace('₩', '').replace(',', '').strip()
+            if clean_number:
+                data['총액 1'] = f"₩{int(clean_number):,}"
+
+
+# ===== 헬퍼 함수 5: 행 값 배열 구성 =====
+def _build_row_values(data, manager):
+    """
+    데이터를 Google Sheets 행 배열로 변환 (40 컬럼)
+
+    Returns:
+        list: 40개 요소의 값 배열
+    """
+    column_mapping = manager.get_column_mapping()
+    values = [''] * 40  # AN 컬럼까지
+
+    # 컬럼 매핑에 따라 값 채우기
+    for col_letter, field_name in column_mapping.items():
+        if len(col_letter) == 1:
+            column_index = ord(col_letter) - ord('A')
+        else:
+            column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+
+        if field_name in data:
+            value = data[field_name]
+            if value is None:
+                values[column_index] = ''
+            elif isinstance(value, str) and value.strip() == '':
+                values[column_index] = ''
+            else:
+                values[column_index] = str(value)
+
+    # 수식 필드 강제 삽입 (컬럼 매핑에 없어도 삽입)
+    formula_fields = {
+        'S': data.get('총액 2', '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'),
+        'W': data.get('미수금', '=0-($S:S-($T:T+$U:U+$V:V))'),
+        'AE': data.get('순익', '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'),
+        'AF': data.get('마진율', '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))')
+    }
+
+    for col_letter, formula in formula_fields.items():
+        if len(col_letter) == 1:
+            column_index = ord(col_letter) - ord('A')
+        else:
+            column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+        values[column_index] = formula
+
+    return values
+
+
+# ===== 헬퍼 함수 6: 생성 후처리 (캐시, 로그, 캘린더, 리드) =====
+def _finalize_project_creation(code, data, project_data):
+    """
+    프로젝트 생성 후 후처리 작업
+    - 캐시 무효화
+    - 감사 로그 기록
+    - 캘린더 이벤트 생성
+    - 리드 연동
+
+    Returns:
+        dict: 추가 응답 데이터 {'lead_linked': bool}
+    """
+    # 1. 캐시 무효화
+    invalidate_project_cache(code)
+    logger.info(f"[CREATE_PROJECT] 서버 캐시 무효화 완료: {code}")
+
+    # 2. 감사 로그 기록
+    try:
+        from ..utils.user_database import get_audit_repository
+        audit_repo = get_audit_repository()
+        user_email = session.get('user', {}).get('email', 'unknown')
+        audit_repo.log_action(
+            user_email=user_email,
+            action='CREATE_PROJECT',
+            details=f'새 프로젝트 등록: {code}',
+            project_code=code,
+            field_name='전체',
+            old_value='-',
+            new_value='새 프로젝트 생성',
+            ip_address=request.remote_addr
+        )
+    except Exception as log_error:
+        logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+    # 3. 캘린더 이벤트 생성
+    try:
+        logger.info(f"[CALENDAR] 이벤트 생성 시도: {code}")
+        event_id = create_project_calendar_event(project_data)
+        if event_id:
+            logger.info(f"[CALENDAR] 이벤트 생성 성공: {code} -> {event_id}")
+        else:
+            logger.info(f"[CALENDAR] 이벤트 생성 건너뜀 (조건 미충족): {code}")
+    except Exception as calendar_error:
+        logger.warning(f"[CALENDAR] 이벤트 생성 실패 ({code}): {calendar_error}", exc_info=True)
+
+    # 4. 리드 연동
+    lead_no = data.get('lead_no')
+    if lead_no:
+        try:
+            from ..services.lead_service import update_lead_status
+            lead_update_result = update_lead_status(lead_no, '공사 확정')
+            if lead_update_result.get('success'):
+                logger.info(f"[LEAD_LINKED] 리드 {lead_no} 상태를 '공사 확정'으로 업데이트 완료")
+            else:
+                logger.warning(f"[LEAD_LINKED] 리드 {lead_no} 상태 업데이트 실패: {lead_update_result.get('error')}")
+        except Exception as lead_error:
+            logger.warning(f"[LEAD_LINKED] 리드 상태 업데이트 중 오류 (프로젝트 생성은 성공): {lead_error}")
+
+    return {'lead_linked': bool(lead_no)}
+
+
+# ===== 헬퍼 함수 7: 응답 데이터 구성 (금액 계산 포함) =====
+def _build_project_response_data(code, data):
+    """
+    프로젝트 생성 응답 데이터 구성 (금액 계산 포함)
+
+    Returns:
+        dict: 프로젝트 데이터
+    """
+    from datetime import datetime
+
+    # 금액 파싱 함수
+    def parse_amount(value):
+        """₩1,000 형식의 문자열을 숫자로 변환"""
+        if not value:
+            return 0
+        clean = str(value).replace('₩', '').replace(',', '').strip()
+        try:
+            return int(clean) if clean else 0
+        except ValueError:
+            return 0
+
+    # 총액 1 파싱
+    total_1 = parse_amount(data.get('총액 1', '₩0'))
+
+    # 총액 2 계산 (부가세 포함 여부)
+    vat_included = data.get('부가세', 'FALSE')
+    if vat_included == 'TRUE':
+        total_2 = total_1 + round(total_1 * 0.1)
+    else:
+        total_2 = total_1
+
+    # 입금액 계산
+    contract = parse_amount(data.get('계약금', '₩0'))
+    interim = parse_amount(data.get('중도금', '₩0'))
+    final = parse_amount(data.get('잔금', '₩0'))
+    total_paid = contract + interim + final
+
+    # 미수금 계산
+    receivable = total_2 - total_paid
+
+    # 비용 필드
+    product_cost = parse_amount(data.get('제품대', '₩0'))
+    contract_cost = parse_amount(data.get('도급비', '₩0'))
+    material_cost = parse_amount(data.get('자재비', '₩0'))
+    other_cost = parse_amount(data.get('기타비', '₩0'))
+    total_cost = product_cost + contract_cost + material_cost + other_cost
+
+    # 순익 계산
+    net_profit = total_1 - total_cost
+
+    # 마진율 계산
+    margin_rate = (net_profit / total_1 * 100) if total_1 > 0 else 0
+
+    project_data = {
+        '프로젝트 코드': code,
+        '사업자': data.get('사업자', ''),
+        '거래처': data.get('거래처', ''),
+        '담당자': data.get('담당자', ''),
+        '담당자 연락처': data.get('담당자 연락처', ''),
+        '담당자 이메일': data.get('담당자 이메일', ''),
+        '현장 주소': data.get('현장 주소', ''),
+        '시공자': data.get('시공자', ''),
+        '현장 담당자': data.get('현장 담당자', ''),
+        '공사 내용': data.get('공사 내용', ''),
+        '공사 시작': data.get('공사 시작', ''),
+        '공사 종료': data.get('공사 종료', ''),
+        '공사 확정': data.get('공사 확정', datetime.now().strftime('%Y-%m-%d')),
+        '총액 1': total_1,
+        '부가세': data.get('부가세', 'FALSE'),
+        '총액 2': total_2,
+        '계약금': contract,
+        '중도금': interim,
+        '잔금': final,
+        '미수금': receivable,
+        '수금 확인': data.get('수금 확인', 'FALSE'),
+        '계산서': data.get('계산서', '미발행'),
+        '공사 구분': data.get('공사 구분', ''),
+        '기계 분류': data.get('기계 분류', ''),
+        '브랜드': data.get('브랜드', ''),
+        '도급 구분': data.get('도급 구분', ''),
+        '제품대': product_cost,
+        '도급비': contract_cost,
+        '자재비': material_cost,
+        '기타비': other_cost,
+        '순익': net_profit,
+        '마진율': margin_rate,
+        '견적서 및 계약서 폴더 경로': data.get('견적서 및 계약서 폴더 경로', ''),
+    }
+
+    logger.info(f"프로젝트 데이터 구성 완료: {code}")
+    return project_data
+
 
 
 @projects_bp.route('/api/projects/auto', methods=['POST'])
@@ -1924,314 +2514,63 @@ def add_project_auto():
         data = request.get_json()
         logger.info(f"[POST /api/projects/auto] 받은 데이터: {data}")
 
-        # 1. Marshmallow 스키마로 데이터 검증
-        # ProjectAutoCreateSchema 사용 (프로젝트 코드 자동 생성용)
-        validation_data = {
-            'manager': data.get('담당자', ''),
-            'company': data.get('사업자', ''),
-            'address': data.get('현장 주소'),
-            'work_content': data.get('공사 내용'),
-            'start_date': data.get('공사 시작'),
-            'end_date': data.get('공사 종료'),
-            'down_payment': data.get('계약금'),
-            'mid_payment': data.get('중도금'),
-            'final_payment': data.get('잔금'),
-            'total_amount': data.get('총액 1'),
-        }
+        # 1. 데이터 검증
+        validated_data, error = _validate_project_auto_data(data)
+        if error:
+            return error
 
-        validated_data, errors = validate_request_data(ProjectAutoCreateSchema, validation_data)
-
-        if errors:
-            error_messages = format_validation_errors(errors)
-            logger.warning(f"[VALIDATION] 프로젝트 생성 검증 실패: {error_messages}")
-            return jsonify({
-                "success": False,
-                "error": "입력 데이터 검증 실패",
-                "validation_errors": error_messages
-            }), 400
-
-        # 2. 기존 검증 로직 (호환성 유지)
-        company = str(data.get("사업자", "")).strip()
-        owner = str(data.get("담당자", "")).strip()
-
-        if not company or not owner:
-            return jsonify({"success": False, "error": "사업자/담당자는 필수입니다", "code": "REQUIRED_FIELDS_MISSING"}), 400
-
-        # 현재 데이터 로드
-        df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
-        if df is None:
-            df = load_data()
-        if df is None:
-            return jsonify({"success": False, "error": "데이터를 불러올 수 없습니다", "code": "DATA_LOAD_FAILED"}), 500
-
-        # 프로젝트 코드 생성
-        code = _auto_project_code(df, company, owner)
-        logger.info(f"자동 생성된 프로젝트 코드: {code}")
-
+        # 2. 프로젝트 코드 생성
+        code, df = _generate_project_code(data)
+        if not code:
+            return df  # 에러 응답
         data["프로젝트 코드"] = code
 
-        # Google Sheets에 추가
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        if not sheet_id:
-            return jsonify({"success": False, "error": "GOOGLE_SHEET_ID가 설정되지 않았습니다", "code": "CONFIG_ERROR"}), 500
+        # 3. Sheets Manager 초기화
+        manager, sheet_id = _initialize_sheets_manager()
+        if not manager:
+            return sheet_id  # 에러 응답
 
-        manager = get_sheets_manager()
-        if manager is None:
-            logger.error("Google Sheets Manager를 초기화할 수 없습니다")
-            return jsonify({
-                "success": False,
-                "error": "Google Sheets 연동이 비활성화되어 있습니다. 관리자에게 문의하세요."
-            }), 503
+        # 4. 기본값 설정
+        _prepare_project_defaults(data)
 
-        # 폼 데이터를 시트 행으로 변환
-        column_mapping = manager.get_column_mapping()
-        values = [''] * 40  # 40개 컬럼 (AN까지)
+        # 5. 행 값 배열 구성
+        values = _build_row_values(data, manager)
 
-        # 기본값 처리: 공사 종료일이 없으면 공사 시작일과 동일하게
-        if '공사 시작' in data and data['공사 시작']:
-            if not data.get('공사 종료') or data.get('공사 종료').strip() == '':
-                data['공사 종료'] = data['공사 시작']
-
-        # 기본값 처리: 금액 필드는 비어있으면 ₩0으로
-        money_fields = ['총액 1', '제품대', '도급비', '자재비', '기타비', '계약금', '중도금', '잔금']
-        for field in money_fields:
-            value = data.get(field, '')
-            # 값이 None이거나, 빈 문자열인 경우만 ₩0으로 설정 ('0'은 유효한 입력으로 간주하지 않음)
-            if value is None or str(value).strip() == '':
-                data[field] = '₩0'
-
-        # 기본값 처리: 계산 수식 자동 삽입 (레거시 개선)
-        data['총액 2'] = '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'
-        data['미수금'] = '=0-($S:S-($T:T+$U:U+$V:V))'
-        data['순익'] = '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'
-        data['마진율'] = '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))'  # 제로 나누기 방지
-
-        # 기본값 처리: 기타 필드
-        if '계산서' not in data or not data.get('계산서'):
-            data['계산서'] = '미발행'
-        if '수금 확인' not in data:
-            data['수금 확인'] = 'FALSE'
-
-        # 부가세 포함 여부 처리 (boolean을 TRUE/FALSE 문자열로 변환)
-        # 필드명: '부가세' (column_mapping의 R열과 일치)
-        if '부가세' in data:
-            vat_included = data.get('부가세')
-            if isinstance(vat_included, bool):
-                data['부가세'] = 'TRUE' if vat_included else 'FALSE'
-            elif isinstance(vat_included, str):
-                # 이미 문자열인 경우 대문자로 정규화
-                data['부가세'] = vat_included.upper()
-        else:
-            data['부가세'] = 'FALSE'
-
-        from datetime import datetime
-        if '공사 확정' not in data or not data.get('공사 확정'):
-            data['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
-
-        # 기본값 처리: Optimistic Lock 버전 초기화
-        data['_version'] = '0'
-
-        # 총액 1 포맷팅: 숫자만 들어온 경우 원화 형식으로 변환
-        if '총액 1' in data and data['총액 1']:
-            total_amount = str(data['총액 1']).strip()
-            # 숫자만 있는 경우 (콤마 없이)
-            if total_amount.isdigit():
-                formatted_amount = f"₩{int(total_amount):,}"
-                data['총액 1'] = formatted_amount
-            # ₩0 같은 기본값이 아니고 숫자가 포함된 경우
-            elif total_amount.replace('₩', '').replace(',', '').isdigit():
-                clean_number = total_amount.replace('₩', '').replace(',', '').strip()
-                if clean_number:
-                    formatted_amount = f"₩{int(clean_number):,}"
-                    data['총액 1'] = formatted_amount
-
-        # 컬럼 매핑에 따라 값 채우기
-        for col_letter, field_name in column_mapping.items():
-            if len(col_letter) == 1:
-                column_index = ord(col_letter) - ord('A')
-            else:
-                column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-
-            if field_name in data:
-                value = data[field_name]
-                # None, 빈 문자열, 공백만 있는 경우 빈 문자열로 처리
-                # 단, '-'는 유효한 값으로 간주 (이메일 확인 불가 등)
-                if value is None:
-                    values[column_index] = ''
-                elif isinstance(value, str) and value.strip() == '':
-                    values[column_index] = ''
-                else:
-                    values[column_index] = str(value)
-
-        # 수식 필드는 data에 없어도 무조건 삽입 (Google Sheets 템플릿에 의존하지 않음)
-        # 컬럼 인덱스를 직접 계산하여 강제 삽입
-        formula_fields = {
-            'S': data.get('총액 2', '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'),
-            'W': data.get('미수금', '=0-($S:S-($T:T+$U:U+$V:V))'),
-            'AE': data.get('순익', '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'),
-            'AF': data.get('마진율', '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))')  # 제로 나누기 방지
-        }
-
-        for col_letter, formula in formula_fields.items():
-            if len(col_letter) == 1:
-                column_index = ord(col_letter) - ord('A')
-            else:
-                column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-            values[column_index] = formula
-
+        # 6. Google Sheets에 추가
         result = manager.append_row(sheet_id, values)
 
         if result:
-            # 캐시 무효화 (포괄적)
-            invalidate_project_cache(code)
-            logger.info(f"[CREATE_PROJECT] 서버 캐시 무효화 완료: {code}")
+            # 7. 응답 데이터 구성 (금액 계산)
+            project_data = _build_project_response_data(code, data)
 
-            # 감사 로그 기록
-            try:
-                from ..utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                user_email = session.get('user', {}).get('email', 'unknown')
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='CREATE_PROJECT',
-                    details=f'새 프로젝트 등록: {code}',
-                    project_code=code,
-                    field_name='전체',
-                    old_value='-',
-                    new_value='새 프로젝트 생성',
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
+            # 8. 후처리 (캐시, 로그, 캘린더, 리드)
+            finalization_data = _finalize_project_creation(code, data, project_data)
 
-            # Google Sheets 동기화 지연으로 즉시 조회가 어려우므로
-            # 추가한 데이터를 바로 구성하여 반환 (부드러운 UX)
-            logger.info(f"프로젝트 생성 성공: {code}. 추가된 데이터 구성 중...")
-
-            # 계산 필드 처리를 위한 금액 파싱 함수
-            def parse_amount(value):
-                """₩1,000 형식의 문자열을 숫자로 변환"""
-                if not value:
-                    return 0
-                # ₩와 콤마 제거 후 정수 변환
-                clean = str(value).replace('₩', '').replace(',', '').strip()
-                try:
-                    return int(clean) if clean else 0
-                except ValueError:
-                    return 0
-
-            def format_amount(value):
-                """숫자를 ₩1,000 형식으로 변환"""
-                return f"₩{value:,}"
-
-            # 총액 1 파싱
-            total_1 = parse_amount(data.get('총액 1', '₩0'))
-
-            # 총액 2 계산 (부가세 포함 여부)
-            vat_included = data.get('부가세', 'FALSE')
-            if vat_included == 'TRUE':
-                total_2 = total_1 + round(total_1 * 0.1)
-            else:
-                total_2 = total_1
-
-            # 입금액 계산
-            contract = parse_amount(data.get('계약금', '₩0'))
-            interim = parse_amount(data.get('중도금', '₩0'))
-            final = parse_amount(data.get('잔금', '₩0'))
-            total_paid = contract + interim + final
-
-            # 미수금 계산 (총액2 - 입금액)
-            receivable = total_2 - total_paid
-
-            # 비용 필드
-            product_cost = parse_amount(data.get('제품대', '₩0'))
-            contract_cost = parse_amount(data.get('도급비', '₩0'))
-            material_cost = parse_amount(data.get('자재비', '₩0'))
-            other_cost = parse_amount(data.get('기타비', '₩0'))
-            total_cost = product_cost + contract_cost + material_cost + other_cost
-
-            # 순익 계산
-            net_profit = total_1 - total_cost
-
-            # 마진율 계산
-            margin_rate = (net_profit / total_1 * 100) if total_1 > 0 else 0
-
-            project_data = {
-                '프로젝트 코드': code,
-                '사업자': data.get('사업자', ''),
-                '거래처': data.get('거래처', ''),
-                '담당자': data.get('담당자', ''),
-                '담당자 연락처': data.get('담당자 연락처', ''),
-                '담당자 이메일': data.get('담당자 이메일', ''),
-                '현장 주소': data.get('현장 주소', ''),
-                '시공자': data.get('시공자', ''),
-                '현장 담당자': data.get('현장 담당자', ''),
-                '공사 내용': data.get('공사 내용', ''),
-                '공사 시작': data.get('공사 시작', ''),
-                '공사 종료': data.get('공사 종료', ''),
-                '공사 확정': data.get('공사 확정', datetime.now().strftime('%Y-%m-%d')),
-                '총액 1': total_1,  # 순수 숫자로 반환 (프론트엔드에서 포맷팅)
-                '부가세': data.get('부가세', 'FALSE'),
-                '총액 2': total_2,  # 순수 숫자로 반환
-                '계약금': contract,
-                '중도금': interim,
-                '잔금': final,
-                '미수금': receivable,
-                '수금 확인': data.get('수금 확인', 'FALSE'),
-                '계산서': data.get('계산서', '미발행'),
-                '공사 구분': data.get('공사 구분', ''),
-                '기계 분류': data.get('기계 분류', ''),
-                '브랜드': data.get('브랜드', ''),
-                '도급 구분': data.get('도급 구분', ''),
-                '제품대': product_cost,
-                '도급비': contract_cost,
-                '자재비': material_cost,
-                '기타비': other_cost,
-                '순익': net_profit,
-                '마진율': margin_rate,  # 순수 숫자로 반환 (프론트엔드에서 % 처리)
-                '견적서 및 계약서 폴더 경로': data.get('견적서 및 계약서 폴더 경로', ''),
-            }
-
-            logger.info(f"프로젝트 데이터 구성 완료: {code}")
-            logger.info(f"[CREATE_PROJECT] 반환 데이터 샘플 - 프로젝트 코드: {project_data.get('프로젝트 코드')}, 거래처: {project_data.get('거래처')}, 총액1: {project_data.get('총액 1')}")
-
-            try:
-                logger.info(f"[CALENDAR] 이벤트 생성 시도: {code}, 공사 시작: {project_data.get('공사 시작')}")
-                event_id = create_project_calendar_event(project_data)
-                if event_id:
-                    logger.info(f"[CALENDAR] 이벤트 생성 성공: {code} -> {event_id}")
-                else:
-                    logger.info(f"[CALENDAR] 이벤트 생성 건너뜀 (조건 미충족): {code}")
-            except Exception as calendar_error:
-                logger.warning(f"[CALENDAR] 이벤트 생성 실패 ({code}): {calendar_error}", exc_info=True)
-
-            # 리드 연동: lead_no가 있으면 리드 상태를 "공사 확정"으로 업데이트
-            lead_no = data.get('lead_no')
-            if lead_no:
-                try:
-                    from ..services.lead_service import update_lead_status
-                    lead_update_result = update_lead_status(lead_no, '공사 확정')
-                    if lead_update_result.get('success'):
-                        logger.info(f"[LEAD_LINKED] 리드 {lead_no} 상태를 '공사 확정'으로 업데이트 완료")
-                    else:
-                        logger.warning(f"[LEAD_LINKED] 리드 {lead_no} 상태 업데이트 실패: {lead_update_result.get('error')}")
-                except Exception as lead_error:
-                    logger.warning(f"[LEAD_LINKED] 리드 상태 업데이트 중 오류 (프로젝트 생성은 성공): {lead_error}")
+            logger.info(f"[CREATE_PROJECT] 프로젝트 생성 완료: {code}")
 
             return jsonify({
                 "success": True,
                 "project_code": code,
-                "project_data": project_data,  # None이면 프론트엔드에서 refreshData() 호출
-                "lead_linked": bool(lead_no)  # 리드 연동 여부
+                "project_data": project_data,
+                "lead_linked": finalization_data['lead_linked']
             })
         else:
-            return jsonify({"success": False, "error": "Google Sheets 추가 실패", "code": "SHEETS_APPEND_FAILED"}), 500
+            return jsonify({
+                "success": False,
+                "error": "Google Sheets 추가 실패",
+                "code": "SHEETS_APPEND_FAILED"
+            }), 500
 
     except Exception as e:
         logger.error(f"프로젝트 자동 생성 API 오류: {str(e)}")
         import traceback
         logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
-        return jsonify({"success": False, "error": str(e), "code": "INTERNAL_ERROR"}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "code": "INTERNAL_ERROR"
+        }), 500
+
 
 
 # 임시 디버깅 라우트 (추후 제거 예정)
@@ -2242,7 +2581,233 @@ def debug_frontend():
     return render_template('debug_template.html')
 
 
-# 공사 취소/재개 JSON API
+# ============================================
+# 공통 헬퍼 함수 (Shared Helpers)
+# ============================================
+
+def _validate_status_change_request(data):
+    """공사 상태 변경 요청 기본 검증 및 사용자 정보 추출
+
+    Returns:
+        tuple: (project_code, user_email, user_name) 또는 (None, response, status_code)
+    """
+    project_code = data.get('projectCode')
+
+    if not project_code:
+        return None, jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+
+    user_email = session.get('user', {}).get('email', '')
+    user_name = session.get('user', {}).get('name', '')
+
+    return project_code, user_email, user_name
+
+
+def _find_project_and_row(project_code):
+    """프로젝트 조회 및 Google Sheets 행 번호 찾기
+
+    Returns:
+        tuple: (project, manager, sheet_id, sheet_name, row_number) 또는 (None, response, status_code)
+    """
+    # 프로젝트 존재 여부 확인
+    projects_data = get_project_records()
+    project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+
+    if not project:
+        return None, jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
+
+    # Google Sheets Manager 초기화
+    manager = get_sheets_manager()
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+
+    # 프로젝트 코드로 행 찾기
+    row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+
+    if not row_number:
+        return None, jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
+
+    return project, manager, sheet_id, sheet_name, row_number
+
+
+def _update_project_background_color(manager, sheet_id, sheet_name, row_number, color_type, action_name):
+    """프로젝트 행 배경색 업데이트 (에러 처리 포함)
+
+    Args:
+        color_type: 'dark_grey' (취소) 또는 'normal' (재개)
+        action_name: '취소' 또는 '재개' (로그용)
+    """
+    try:
+        success = manager.update_row_background_color(
+            spreadsheet_id=sheet_id,
+            sheet_name=sheet_name,
+            row_number=row_number,
+            color_type=color_type
+        )
+        if success:
+            color_desc = '진한 회색' if color_type == 'dark_grey' else '흰색'
+            logger.info(f"행 {row_number} 배경색을 {color_desc}으로 변경 완료")
+        else:
+            logger.warning(f"행 {row_number} 배경색 변경 실패")
+    except Exception as color_error:
+        logger.error(f"배경색 변경 오류: {str(color_error)}")
+        # 색상 변경 실패해도 공사 상태 변경은 진행
+
+
+def _log_project_status_change(project_code, project, user_email, action, field_name, old_value, new_value):
+    """프로젝트 상태 변경 감사 로그 기록"""
+    try:
+        from dashboard.utils.user_database import get_audit_repository
+
+        # action에 따른 한국어 메시지 생성
+        if action == 'CANCEL_PROJECT':
+            details = f'프로젝트 공사 취소: {project_code} (수금확인=FALSE, 공사확정일 초기화)'
+        elif action == 'RESUME_PROJECT':
+            details = f'프로젝트 공사 재개: {project_code}'
+        else:
+            details = f'프로젝트 상태 변경: {project_code} (action={action})'
+
+        audit_repo = get_audit_repository()
+        audit_repo.log_action(
+            user_email=user_email,
+            action=action,
+            details=details,
+            project_code=project_code,
+            field_name=field_name,
+            old_value=old_value,
+            new_value=new_value,
+            ip_address=request.remote_addr
+        )
+    except Exception as log_error:
+        logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+
+def _get_and_sanitize_updated_project(project_code):
+    """업데이트된 프로젝트 데이터 가져오기 및 JSON 직렬화 가능하게 변환
+
+    Returns:
+        dict or None: 직렬화된 프로젝트 데이터
+    """
+    updated_projects = get_project_records()
+    updated_project = next((p for p in updated_projects if p.get('프로젝트 코드') == project_code), None)
+    return sanitize_project_for_json(updated_project) if updated_project else None
+
+
+def _emit_project_status_change(event_name, message, project_code, user_name, sanitized_project):
+    """프로젝트 상태 변경 실시간 알림 (SocketIO)
+
+    Args:
+        event_name: 'project_cancelled' 또는 'project_resumed'
+    """
+    try:
+        socketio = current_app.extensions.get('socketio')
+        if socketio:
+            # 프론트엔드 계약: event_name → action 매핑
+            action_map = {
+                'project_cancelled': 'cancel_project',
+                'project_resumed': 'resume_project'
+            }
+            socketio.emit(event_name, {
+                'message': message,
+                'timestamp': datetime.now().isoformat(),
+                'action': action_map.get(event_name, event_name),
+                'project_code': project_code,
+                'user': user_name,
+                'updated_project': sanitized_project
+            })
+        else:
+            logger.warning("SocketIO 인스턴스를 찾을 수 없습니다.")
+    except Exception as socket_error:
+        logger.warning(f"SocketIO 알림 실패: {socket_error}")
+
+
+# ============================================
+# cancel_project_api() 전용 헬퍼
+# ============================================
+
+def _check_already_cancelled(project):
+    """프로젝트가 이미 취소되었는지 확인
+
+    Returns:
+        tuple: (is_cancelled: bool, response or None, status_code or None)
+    """
+    if re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
+        return True, jsonify({'success': False, 'error': '이미 취소된 프로젝트입니다.'}), 400
+    return False, None, None
+
+
+def _prepare_cancel_updates(sheet_name, row_number):
+    """공사 취소 배치 업데이트 준비
+
+    Returns:
+        list: Batch update requests (AG: 공사 취소, Z: FALSE, AL: '')
+    """
+    return [
+        {
+            'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
+            'values': [['공사 취소']]
+        },
+        {
+            'range': f'{sheet_name}!Z{row_number}',  # Z: 수금 확인
+            'values': [['FALSE']]
+        },
+        {
+            'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
+            'values': [['']]
+        }
+    ]
+
+
+def _delete_calendar_event(project_code):
+    """프로젝트 캘린더 이벤트 삭제 (에러 처리 포함)"""
+    try:
+        delete_project_calendar_event(project_code)
+    except Exception as calendar_error:
+        logger.warning(f"[CALENDAR] 이벤트 삭제 실패 ({project_code}): {calendar_error}")
+
+
+# ============================================
+# resume_project_api() 전용 헬퍼
+# ============================================
+
+def _check_already_active(project, project_code):
+    """프로젝트가 이미 활성 상태(취소되지 않음)인지 확인
+
+    Returns:
+        tuple: (is_active: bool, response or None, status_code or None)
+    """
+    if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
+        logger.info(f"프로젝트 재개 시도 - 이미 정상 상태: {project_code}")
+        return True, jsonify({
+            'success': True,
+            'message': '이미 정상 상태입니다. (취소되지 않은 프로젝트)',
+            'project_code': project_code,
+            'already_active': True
+        }), 200
+    return False, None, None
+
+
+def _prepare_resume_updates(sheet_name, row_number):
+    """공사 재개 배치 업데이트 준비
+
+    Returns:
+        list: Batch update requests (AG: '', AL: 현재 날짜)
+    """
+    return [
+        {
+            'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
+            'values': [['']]
+        },
+        {
+            'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
+            'values': [[datetime.now().strftime('%Y-%m-%d')]]
+        }
+    ]
+
+
+# ============================================
+# 메인 함수 (Refactored Main Functions)
+# ============================================
+
 @projects_bp.route('/api/project/cancel', methods=['POST'])
 @login_required
 @track_business_operation("api_project_cancel")
@@ -2250,126 +2815,69 @@ def cancel_project_api():
     """공사 취소 API - JSON 응답"""
     try:
         data = request.get_json()
-        project_code = data.get('projectCode')
 
-        if not project_code:
-            return jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+        # 1. 기본 검증 및 사용자 정보
+        result = _validate_status_change_request(data)
+        if result[0] is None:
+            return result[1], result[2]
+        project_code, user_email, user_name = result
 
-        user_email = session.get('user', {}).get('email', '')
-        user_name = session.get('user', {}).get('name', '')
+        # 2. 프로젝트 조회 및 행 번호 찾기
+        result = _find_project_and_row(project_code)
+        if result[0] is None:
+            return result[1], result[2]
+        project, manager, sheet_id, sheet_name, row_number = result
 
-        # 프로젝트 존재 여부 확인
-        projects_data = get_project_records()
-        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+        # 3. 이미 취소된 프로젝트인지 확인
+        is_cancelled, response, status_code = _check_already_cancelled(project)
+        if is_cancelled:
+            return response, status_code
 
-        if not project:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # 이미 취소된 프로젝트인지 확인 (띄어쓰기 무시)
-        if re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
-            return jsonify({'success': False, 'error': '이미 취소된 프로젝트입니다.'}), 400
-
-        # Google Sheets 업데이트
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
-
-        # 프로젝트 코드로 행 찾기
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
-
-        if not row_number:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # 배치 업데이트: AG(수금 관련 특이사항), Z(수금 확인), AL(공사 확정일)
-        updates = [
-            {
-                'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
-                'values': [['공사 취소']]
-            },
-            {
-                'range': f'{sheet_name}!Z{row_number}',  # Z: 수금 확인
-                'values': [['FALSE']]
-            },
-            {
-                'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
-                'values': [['']]
-            }
-        ]
+        # 4. 배치 업데이트 준비 및 실행
+        updates = _prepare_cancel_updates(sheet_name, row_number)
 
         try:
-            # 배치 업데이트 실행 (Thread-Safe: batch_update_cells는 _execute_with_retry 사용)
             batch_result = manager.batch_update_cells(sheet_id, updates)
-
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 취소 - {updated_cells}개 셀 업데이트 완료")
 
-            # Google Sheets 행 배경색을 진한 회색으로 변경
-            try:
-                success = manager.update_row_background_color(
-                    spreadsheet_id=sheet_id,
-                    sheet_name=sheet_name,
-                    row_number=row_number,
-                    color_type='dark_grey'
-                )
-                if success:
-                    logger.info(f"행 {row_number} 배경색을 진한 회색으로 변경 완료")
-                else:
-                    logger.warning(f"행 {row_number} 배경색 변경 실패")
-            except Exception as color_error:
-                logger.error(f"배경색 변경 오류: {str(color_error)}")
-                # 색상 변경 실패해도 공사 취소는 진행
+            # 5. 배경색 변경 (진한 회색)
+            _update_project_background_color(
+                manager, sheet_id, sheet_name, row_number, 'dark_grey', '취소'
+            )
 
-            # 캐시 무효화 (invalidate_project_cache 내부에서 current_sheet_data도 무효화)
+            # 6. 캐시 무효화
             invalidate_project_cache(project_code)
 
-            # 감사 로그 기록
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='CANCEL_PROJECT',
-                    details=f'프로젝트 공사 취소: {project_code} (수금확인=FALSE, 공사확정일 초기화)',
-                    project_code=project_code,
-                    field_name='수금 관련 특이사항',
-                    old_value=project.get('수금 관련 특이사항', '-'),
-                    new_value='공사 취소',
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
+            # 7. 감사 로그 기록
+            _log_project_status_change(
+                project_code=project_code,
+                project=project,
+                user_email=user_email,
+                action='CANCEL_PROJECT',
+                field_name='수금 관련 특이사항',
+                old_value=project.get('수금 관련 특이사항', '-'),
+                new_value='공사 취소'
+            )
 
-            # 업데이트된 프로젝트 데이터 가져오기
-            updated_projects = get_project_records()
-            updated_project = next((p for p in updated_projects if p.get('프로젝트 코드') == project_code), None)
+            # 8. 업데이트된 프로젝트 데이터 가져오기
+            sanitized_project = _get_and_sanitize_updated_project(project_code)
 
-            # JSON 직렬화 가능하도록 변환
-            sanitized_project = sanitize_project_for_json(updated_project) if updated_project else None
+            # 9. 캘린더 이벤트 삭제
+            _delete_calendar_event(project_code)
 
-            try:
-                delete_project_calendar_event(project_code)
-            except Exception as calendar_error:
-                logger.warning(f"[CALENDAR] 이벤트 삭제 실패 ({project_code}): {calendar_error}")
-
-            # 실시간 알림 (SocketIO)
-            try:
-                socketio = current_app.extensions.get('socketio')
-                if socketio:
-                    socketio.emit('project_cancelled', {
-                        'message': f'프로젝트 공사가 취소되었습니다: {project_code}',
-                        'timestamp': datetime.now().isoformat(),
-                        'action': 'cancel_project',
-                        'project_code': project_code,
-                        'user': user_name,
-                        'updated_project': sanitized_project
-                    })
-                else:
-                    logger.warning("SocketIO 인스턴스를 찾을 수 없습니다.")
-            except Exception as socket_error:
-                logger.warning(f"SocketIO 알림 실패: {socket_error}")
+            # 10. 실시간 알림 (SocketIO)
+            _emit_project_status_change(
+                event_name='project_cancelled',
+                message=f'프로젝트 공사가 취소되었습니다: {project_code}',
+                project_code=project_code,
+                user_name=user_name,
+                sanitized_project=sanitized_project
+            )
 
             logger.info(f"프로젝트 취소 완료: {project_code} by {user_name}")
 
+            # 11. 성공 응답 반환
             return jsonify({
                 'success': True,
                 'message': '공사가 취소되었습니다.',
@@ -2394,121 +2902,66 @@ def resume_project_api():
     """공사 재개 API - JSON 응답"""
     try:
         data = request.get_json()
-        project_code = data.get('projectCode')
 
-        if not project_code:
-            return jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+        # 1. 기본 검증 및 사용자 정보
+        result = _validate_status_change_request(data)
+        if result[0] is None:
+            return result[1], result[2]
+        project_code, user_email, user_name = result
 
-        user_email = session.get('user', {}).get('email', '')
-        user_name = session.get('user', {}).get('name', '')
+        # 2. 프로젝트 조회 및 행 번호 찾기
+        result = _find_project_and_row(project_code)
+        if result[0] is None:
+            return result[1], result[2]
+        project, manager, sheet_id, sheet_name, row_number = result
 
-        # 프로젝트 존재 여부 확인
-        projects_data = get_project_records()
-        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+        # 3. 이미 활성 상태인지 확인 (취소되지 않음)
+        is_active, response, status_code = _check_already_active(project, project_code)
+        if is_active:
+            return response, status_code
 
-        if not project:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # 취소된 프로젝트인지 확인 (띄어쓰기 무시)
-        if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
-            logger.info(f"프로젝트 재개 시도 - 이미 정상 상태: {project_code}")
-            return jsonify({
-                'success': True,  # 이미 정상 상태이므로 성공으로 처리
-                'message': '이미 정상 상태입니다. (취소되지 않은 프로젝트)',
-                'project_code': project_code,
-                'already_active': True
-            }), 200
-
-        # Google Sheets 업데이트
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
-
-        # 프로젝트 코드로 행 찾기
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
-
-        if not row_number:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # AG 칼럼(수금 관련 특이사항)을 빈 문자열로 초기화하고 공사 확정일을 현재 날짜로 재설정
-        updates = [
-            {
-                'range': f'{sheet_name}!AG{row_number}',
-                'values': [['']]
-            },
-            {
-                'range': f'{sheet_name}!AL{row_number}',
-                'values': [[datetime.now().strftime('%Y-%m-%d')]]
-            }
-        ]
+        # 4. 배치 업데이트 준비 및 실행
+        updates = _prepare_resume_updates(sheet_name, row_number)
 
         try:
             batch_result = manager.batch_update_cells(sheet_id, updates)
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 재개 - 배치 업데이트 완료 ({updated_cells}개 셀)")
 
-            # Google Sheets 행 배경색을 흰색으로 복원
-            try:
-                success = manager.update_row_background_color(
-                    spreadsheet_id=sheet_id,
-                    sheet_name=sheet_name,
-                    row_number=row_number,
-                    color_type='normal'
-                )
-                if success:
-                    logger.info(f"행 {row_number} 배경색을 흰색으로 복원 완료")
-                else:
-                    logger.warning(f"행 {row_number} 배경색 복원 실패")
-            except Exception as color_error:
-                logger.error(f"배경색 복원 오류: {str(color_error)}")
-                # 색상 복원 실패해도 공사 재개는 진행
+            # 5. 배경색 복원 (흰색)
+            _update_project_background_color(
+                manager, sheet_id, sheet_name, row_number, 'normal', '재개'
+            )
 
-            # 캐시 무효화 (invalidate_project_cache 내부에서 current_sheet_data도 무효화)
+            # 6. 캐시 무효화
             invalidate_project_cache(project_code)
 
-            # 감사 로그 기록
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='RESUME_PROJECT',
-                    details=f'프로젝트 공사 재개: {project_code}',
-                    project_code=project_code,
-                    field_name='수금 관련 특이사항',
-                    old_value=project.get('수금 관련 특이사항', '-'),
-                    new_value='',
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
+            # 7. 감사 로그 기록
+            _log_project_status_change(
+                project_code=project_code,
+                project=project,
+                user_email=user_email,
+                action='RESUME_PROJECT',
+                field_name='수금 관련 특이사항',
+                old_value=project.get('수금 관련 특이사항', '-'),
+                new_value=''
+            )
 
-            # 업데이트된 프로젝트 데이터 가져오기
-            updated_projects = get_project_records()
-            updated_project = next((p for p in updated_projects if p.get('프로젝트 코드') == project_code), None)
+            # 8. 업데이트된 프로젝트 데이터 가져오기
+            sanitized_project = _get_and_sanitize_updated_project(project_code)
 
-            # JSON 직렬화 가능하도록 변환
-            sanitized_project = sanitize_project_for_json(updated_project) if updated_project else None
-
-            # 실시간 알림 (SocketIO)
-            try:
-                socketio = current_app.extensions.get('socketio')
-                if socketio:
-                    socketio.emit('project_resumed', {
-                        'message': f'프로젝트 공사가 재개되었습니다: {project_code}',
-                        'timestamp': datetime.now().isoformat(),
-                        'action': 'resume_project',
-                        'project_code': project_code,
-                        'user': user_name,
-                        'updated_project': sanitized_project
-                    })
-                else:
-                    logger.warning("SocketIO 인스턴스를 찾을 수 없습니다.")
-            except Exception as socket_error:
-                logger.warning(f"SocketIO 알림 실패: {socket_error}")
+            # 9. 실시간 알림 (SocketIO)
+            _emit_project_status_change(
+                event_name='project_resumed',
+                message=f'프로젝트 공사가 재개되었습니다: {project_code}',
+                project_code=project_code,
+                user_name=user_name,
+                sanitized_project=sanitized_project
+            )
 
             logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
 
+            # 10. 성공 응답 반환
             return jsonify({
                 'success': True,
                 'message': '공사가 재개되었습니다.',
@@ -2524,6 +2977,8 @@ def resume_project_api():
     except Exception as e:
         logger.error(f"프로젝트 재개 처리 오류: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
 
 
 @projects_bp.route('/api/projects/calendar/sync', methods=['POST'])
