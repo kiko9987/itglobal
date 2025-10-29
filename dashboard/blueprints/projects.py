@@ -2576,12 +2576,6 @@ def debug_frontend():
     return render_template('debug_template.html')
 
 
-# 공사 취소/재개 JSON API
-@projects_bp.route('/api/project/cancel', methods=['POST'])
-@login_required
-@track_business_operation("api_project_cancel")
-
-
 # ============================================
 # 공통 헬퍼 함수 (Shared Helpers)
 # ============================================
@@ -2658,11 +2652,20 @@ def _log_project_status_change(project_code, project, user_email, action, field_
     """프로젝트 상태 변경 감사 로그 기록"""
     try:
         from dashboard.utils.user_database import get_audit_repository
+
+        # action에 따른 한국어 메시지 생성
+        if action == 'CANCEL_PROJECT':
+            details = f'프로젝트 공사 취소: {project_code} (수금확인=FALSE, 공사확정일 초기화)'
+        elif action == 'RESUME_PROJECT':
+            details = f'프로젝트 공사 재개: {project_code}'
+        else:
+            details = f'프로젝트 상태 변경: {project_code} (action={action})'
+
         audit_repo = get_audit_repository()
         audit_repo.log_action(
             user_email=user_email,
             action=action,
-            details=f'프로젝트 공사 {action.lower().replace("_project", "")}: {project_code}',
+            details=details,
             project_code=project_code,
             field_name=field_name,
             old_value=old_value,
