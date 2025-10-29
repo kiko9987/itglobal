@@ -2006,6 +2006,371 @@ def save_field_memos_batch():
         }), 500
 
 
+
+# ===== 헬퍼 함수 1: 데이터 검증 =====
+def _validate_project_auto_data(data):
+    """
+    프로젝트 자동 생성 데이터 검증 (Marshmallow + 기본 체크)
+
+    Returns:
+        tuple: (validated_data, None) or (None, error_response_tuple)
+    """
+    # Marshmallow 스키마 검증
+    validation_data = {
+        'manager': data.get('담당자', ''),
+        'company': data.get('사업자', ''),
+        'address': data.get('현장 주소'),
+        'work_content': data.get('공사 내용'),
+        'start_date': data.get('공사 시작'),
+        'end_date': data.get('공사 종료'),
+        'down_payment': data.get('계약금'),
+        'mid_payment': data.get('중도금'),
+        'final_payment': data.get('잔금'),
+        'total_amount': data.get('총액 1'),
+    }
+
+    validated_data, errors = validate_request_data(ProjectAutoCreateSchema, validation_data)
+
+    if errors:
+        error_messages = format_validation_errors(errors)
+        logger.warning(f"[VALIDATION] 프로젝트 생성 검증 실패: {error_messages}")
+        return None, (jsonify({
+            "success": False,
+            "error": "입력 데이터 검증 실패",
+            "validation_errors": error_messages
+        }), 400)
+
+    # 기본 검증 (호환성 유지)
+    company = str(data.get("사업자", "")).strip()
+    owner = str(data.get("담당자", "")).strip()
+
+    if not company or not owner:
+        return None, (jsonify({
+            "success": False,
+            "error": "사업자/담당자는 필수입니다",
+            "code": "REQUIRED_FIELDS_MISSING"
+        }), 400)
+
+    return validated_data, None
+
+
+# ===== 헬퍼 함수 2: 프로젝트 코드 생성 =====
+def _generate_project_code(data):
+    """
+    현재 데이터를 로드하고 프로젝트 코드 생성
+
+    Returns:
+        tuple: (code, df) or (None, error_response_tuple)
+    """
+    # 현재 데이터 로드
+    df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
+    if df is None:
+        df = load_data()
+    if df is None:
+        return None, (jsonify({
+            "success": False,
+            "error": "데이터를 불러올 수 없습니다",
+            "code": "DATA_LOAD_FAILED"
+        }), 500)
+
+    # 프로젝트 코드 생성
+    company = str(data.get("사업자", "")).strip()
+    owner = str(data.get("담당자", "")).strip()
+    code = _auto_project_code(df, company, owner)
+    logger.info(f"자동 생성된 프로젝트 코드: {code}")
+
+    return code, df
+
+
+# ===== 헬퍼 함수 3: Sheets Manager 초기화 =====
+def _initialize_sheets_manager():
+    """
+    Google Sheets Manager 초기화 및 검증
+
+    Returns:
+        tuple: (manager, sheet_id) or (None, error_response_tuple)
+    """
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    if not sheet_id:
+        return None, (jsonify({
+            "success": False,
+            "error": "GOOGLE_SHEET_ID가 설정되지 않았습니다",
+            "code": "CONFIG_ERROR"
+        }), 500)
+
+    manager = get_sheets_manager()
+    if manager is None:
+        logger.error("Google Sheets Manager를 초기화할 수 없습니다")
+        return None, (jsonify({
+            "success": False,
+            "error": "Google Sheets 연동이 비활성화되어 있습니다. 관리자에게 문의하세요."
+        }), 503)
+
+    return manager, sheet_id
+
+
+# ===== 헬퍼 함수 4: 기본값 설정 =====
+def _prepare_project_defaults(data):
+    """
+    프로젝트 데이터에 기본값 설정 (금액, 수식, 날짜, VAT 등)
+
+    Args:
+        data: 원본 데이터 딕셔너리 (in-place 수정됨)
+    """
+    from datetime import datetime
+
+    # 공사 종료일 기본값
+    if '공사 시작' in data and data['공사 시작']:
+        if not data.get('공사 종료') or data.get('공사 종료').strip() == '':
+            data['공사 종료'] = data['공사 시작']
+
+    # 금액 필드 기본값
+    money_fields = ['총액 1', '제품대', '도급비', '자재비', '기타비', '계약금', '중도금', '잔금']
+    for field in money_fields:
+        value = data.get(field, '')
+        if value is None or str(value).strip() == '':
+            data[field] = '₩0'
+
+    # 수식 필드 자동 삽입
+    data['총액 2'] = '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'
+    data['미수금'] = '=0-($S:S-($T:T+$U:U+$V:V))'
+    data['순익'] = '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'
+    data['마진율'] = '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))'
+
+    # 기타 필드 기본값
+    if '계산서' not in data or not data.get('계산서'):
+        data['계산서'] = '미발행'
+    if '수금 확인' not in data:
+        data['수금 확인'] = 'FALSE'
+
+    # 부가세 포함 여부 (boolean → TRUE/FALSE 문자열)
+    if '부가세' in data:
+        vat_included = data.get('부가세')
+        if isinstance(vat_included, bool):
+            data['부가세'] = 'TRUE' if vat_included else 'FALSE'
+        elif isinstance(vat_included, str):
+            data['부가세'] = vat_included.upper()
+    else:
+        data['부가세'] = 'FALSE'
+
+    # 공사 확정 날짜 기본값
+    if '공사 확정' not in data or not data.get('공사 확정'):
+        data['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
+
+    # Optimistic Lock 버전 초기화
+    data['_version'] = '0'
+
+    # 총액 1 포맷팅
+    if '총액 1' in data and data['총액 1']:
+        total_amount = str(data['총액 1']).strip()
+        if total_amount.isdigit():
+            data['총액 1'] = f"₩{int(total_amount):,}"
+        elif total_amount.replace('₩', '').replace(',', '').isdigit():
+            clean_number = total_amount.replace('₩', '').replace(',', '').strip()
+            if clean_number:
+                data['총액 1'] = f"₩{int(clean_number):,}"
+
+
+# ===== 헬퍼 함수 5: 행 값 배열 구성 =====
+def _build_row_values(data, manager):
+    """
+    데이터를 Google Sheets 행 배열로 변환 (40 컬럼)
+
+    Returns:
+        list: 40개 요소의 값 배열
+    """
+    column_mapping = manager.get_column_mapping()
+    values = [''] * 40  # AN 컬럼까지
+
+    # 컬럼 매핑에 따라 값 채우기
+    for col_letter, field_name in column_mapping.items():
+        if len(col_letter) == 1:
+            column_index = ord(col_letter) - ord('A')
+        else:
+            column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+
+        if field_name in data:
+            value = data[field_name]
+            if value is None:
+                values[column_index] = ''
+            elif isinstance(value, str) and value.strip() == '':
+                values[column_index] = ''
+            else:
+                values[column_index] = str(value)
+
+    # 수식 필드 강제 삽입 (컬럼 매핑에 없어도 삽입)
+    formula_fields = {
+        'S': data.get('총액 2', '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'),
+        'W': data.get('미수금', '=0-($S:S-($T:T+$U:U+$V:V))'),
+        'AE': data.get('순익', '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'),
+        'AF': data.get('마진율', '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))')
+    }
+
+    for col_letter, formula in formula_fields.items():
+        if len(col_letter) == 1:
+            column_index = ord(col_letter) - ord('A')
+        else:
+            column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+        values[column_index] = formula
+
+    return values
+
+
+# ===== 헬퍼 함수 6: 생성 후처리 (캐시, 로그, 캘린더, 리드) =====
+def _finalize_project_creation(code, data, project_data):
+    """
+    프로젝트 생성 후 후처리 작업
+    - 캐시 무효화
+    - 감사 로그 기록
+    - 캘린더 이벤트 생성
+    - 리드 연동
+
+    Returns:
+        dict: 추가 응답 데이터 {'lead_linked': bool}
+    """
+    # 1. 캐시 무효화
+    invalidate_project_cache(code)
+    logger.info(f"[CREATE_PROJECT] 서버 캐시 무효화 완료: {code}")
+
+    # 2. 감사 로그 기록
+    try:
+        from ..utils.user_database import get_audit_repository
+        audit_repo = get_audit_repository()
+        user_email = session.get('user', {}).get('email', 'unknown')
+        audit_repo.log_action(
+            user_email=user_email,
+            action='CREATE_PROJECT',
+            details=f'새 프로젝트 등록: {code}',
+            project_code=code,
+            field_name='전체',
+            old_value='-',
+            new_value='새 프로젝트 생성',
+            ip_address=request.remote_addr
+        )
+    except Exception as log_error:
+        logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+    # 3. 캘린더 이벤트 생성
+    try:
+        logger.info(f"[CALENDAR] 이벤트 생성 시도: {code}")
+        event_id = create_project_calendar_event(project_data)
+        if event_id:
+            logger.info(f"[CALENDAR] 이벤트 생성 성공: {code} -> {event_id}")
+        else:
+            logger.info(f"[CALENDAR] 이벤트 생성 건너뜀 (조건 미충족): {code}")
+    except Exception as calendar_error:
+        logger.warning(f"[CALENDAR] 이벤트 생성 실패 ({code}): {calendar_error}", exc_info=True)
+
+    # 4. 리드 연동
+    lead_no = data.get('lead_no')
+    if lead_no:
+        try:
+            from ..services.lead_service import update_lead_status
+            lead_update_result = update_lead_status(lead_no, '공사 확정')
+            if lead_update_result.get('success'):
+                logger.info(f"[LEAD_LINKED] 리드 {lead_no} 상태를 '공사 확정'으로 업데이트 완료")
+            else:
+                logger.warning(f"[LEAD_LINKED] 리드 {lead_no} 상태 업데이트 실패: {lead_update_result.get('error')}")
+        except Exception as lead_error:
+            logger.warning(f"[LEAD_LINKED] 리드 상태 업데이트 중 오류 (프로젝트 생성은 성공): {lead_error}")
+
+    return {'lead_linked': bool(lead_no)}
+
+
+# ===== 헬퍼 함수 7: 응답 데이터 구성 (금액 계산 포함) =====
+def _build_project_response_data(code, data):
+    """
+    프로젝트 생성 응답 데이터 구성 (금액 계산 포함)
+
+    Returns:
+        dict: 프로젝트 데이터
+    """
+    from datetime import datetime
+
+    # 금액 파싱 함수
+    def parse_amount(value):
+        """₩1,000 형식의 문자열을 숫자로 변환"""
+        if not value:
+            return 0
+        clean = str(value).replace('₩', '').replace(',', '').strip()
+        try:
+            return int(clean) if clean else 0
+        except ValueError:
+            return 0
+
+    # 총액 1 파싱
+    total_1 = parse_amount(data.get('총액 1', '₩0'))
+
+    # 총액 2 계산 (부가세 포함 여부)
+    vat_included = data.get('부가세', 'FALSE')
+    if vat_included == 'TRUE':
+        total_2 = total_1 + round(total_1 * 0.1)
+    else:
+        total_2 = total_1
+
+    # 입금액 계산
+    contract = parse_amount(data.get('계약금', '₩0'))
+    interim = parse_amount(data.get('중도금', '₩0'))
+    final = parse_amount(data.get('잔금', '₩0'))
+    total_paid = contract + interim + final
+
+    # 미수금 계산
+    receivable = total_2 - total_paid
+
+    # 비용 필드
+    product_cost = parse_amount(data.get('제품대', '₩0'))
+    contract_cost = parse_amount(data.get('도급비', '₩0'))
+    material_cost = parse_amount(data.get('자재비', '₩0'))
+    other_cost = parse_amount(data.get('기타비', '₩0'))
+    total_cost = product_cost + contract_cost + material_cost + other_cost
+
+    # 순익 계산
+    net_profit = total_1 - total_cost
+
+    # 마진율 계산
+    margin_rate = (net_profit / total_1 * 100) if total_1 > 0 else 0
+
+    project_data = {
+        '프로젝트 코드': code,
+        '사업자': data.get('사업자', ''),
+        '거래처': data.get('거래처', ''),
+        '담당자': data.get('담당자', ''),
+        '담당자 연락처': data.get('담당자 연락처', ''),
+        '담당자 이메일': data.get('담당자 이메일', ''),
+        '현장 주소': data.get('현장 주소', ''),
+        '시공자': data.get('시공자', ''),
+        '현장 담당자': data.get('현장 담당자', ''),
+        '공사 내용': data.get('공사 내용', ''),
+        '공사 시작': data.get('공사 시작', ''),
+        '공사 종료': data.get('공사 종료', ''),
+        '공사 확정': data.get('공사 확정', datetime.now().strftime('%Y-%m-%d')),
+        '총액 1': total_1,
+        '부가세': data.get('부가세', 'FALSE'),
+        '총액 2': total_2,
+        '계약금': contract,
+        '중도금': interim,
+        '잔금': final,
+        '미수금': receivable,
+        '수금 확인': data.get('수금 확인', 'FALSE'),
+        '계산서': data.get('계산서', '미발행'),
+        '공사 구분': data.get('공사 구분', ''),
+        '기계 분류': data.get('기계 분류', ''),
+        '브랜드': data.get('브랜드', ''),
+        '도급 구분': data.get('도급 구분', ''),
+        '제품대': product_cost,
+        '도급비': contract_cost,
+        '자재비': material_cost,
+        '기타비': other_cost,
+        '순익': net_profit,
+        '마진율': margin_rate,
+        '견적서 및 계약서 폴더 경로': data.get('견적서 및 계약서 폴더 경로', ''),
+    }
+
+    logger.info(f"프로젝트 데이터 구성 완료: {code}")
+    return project_data
+
+
+
 @projects_bp.route('/api/projects/auto', methods=['POST'])
 @login_required
 @track_business_operation("api_project_create_auto")
@@ -2015,314 +2380,63 @@ def add_project_auto():
         data = request.get_json()
         logger.info(f"[POST /api/projects/auto] 받은 데이터: {data}")
 
-        # 1. Marshmallow 스키마로 데이터 검증
-        # ProjectAutoCreateSchema 사용 (프로젝트 코드 자동 생성용)
-        validation_data = {
-            'manager': data.get('담당자', ''),
-            'company': data.get('사업자', ''),
-            'address': data.get('현장 주소'),
-            'work_content': data.get('공사 내용'),
-            'start_date': data.get('공사 시작'),
-            'end_date': data.get('공사 종료'),
-            'down_payment': data.get('계약금'),
-            'mid_payment': data.get('중도금'),
-            'final_payment': data.get('잔금'),
-            'total_amount': data.get('총액 1'),
-        }
+        # 1. 데이터 검증
+        validated_data, error = _validate_project_auto_data(data)
+        if error:
+            return error
 
-        validated_data, errors = validate_request_data(ProjectAutoCreateSchema, validation_data)
-
-        if errors:
-            error_messages = format_validation_errors(errors)
-            logger.warning(f"[VALIDATION] 프로젝트 생성 검증 실패: {error_messages}")
-            return jsonify({
-                "success": False,
-                "error": "입력 데이터 검증 실패",
-                "validation_errors": error_messages
-            }), 400
-
-        # 2. 기존 검증 로직 (호환성 유지)
-        company = str(data.get("사업자", "")).strip()
-        owner = str(data.get("담당자", "")).strip()
-
-        if not company or not owner:
-            return jsonify({"success": False, "error": "사업자/담당자는 필수입니다", "code": "REQUIRED_FIELDS_MISSING"}), 400
-
-        # 현재 데이터 로드
-        df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
-        if df is None:
-            df = load_data()
-        if df is None:
-            return jsonify({"success": False, "error": "데이터를 불러올 수 없습니다", "code": "DATA_LOAD_FAILED"}), 500
-
-        # 프로젝트 코드 생성
-        code = _auto_project_code(df, company, owner)
-        logger.info(f"자동 생성된 프로젝트 코드: {code}")
-
+        # 2. 프로젝트 코드 생성
+        code, df = _generate_project_code(data)
+        if not code:
+            return df  # 에러 응답
         data["프로젝트 코드"] = code
 
-        # Google Sheets에 추가
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        if not sheet_id:
-            return jsonify({"success": False, "error": "GOOGLE_SHEET_ID가 설정되지 않았습니다", "code": "CONFIG_ERROR"}), 500
+        # 3. Sheets Manager 초기화
+        manager, sheet_id = _initialize_sheets_manager()
+        if not manager:
+            return sheet_id  # 에러 응답
 
-        manager = get_sheets_manager()
-        if manager is None:
-            logger.error("Google Sheets Manager를 초기화할 수 없습니다")
-            return jsonify({
-                "success": False,
-                "error": "Google Sheets 연동이 비활성화되어 있습니다. 관리자에게 문의하세요."
-            }), 503
+        # 4. 기본값 설정
+        _prepare_project_defaults(data)
 
-        # 폼 데이터를 시트 행으로 변환
-        column_mapping = manager.get_column_mapping()
-        values = [''] * 40  # 40개 컬럼 (AN까지)
+        # 5. 행 값 배열 구성
+        values = _build_row_values(data, manager)
 
-        # 기본값 처리: 공사 종료일이 없으면 공사 시작일과 동일하게
-        if '공사 시작' in data and data['공사 시작']:
-            if not data.get('공사 종료') or data.get('공사 종료').strip() == '':
-                data['공사 종료'] = data['공사 시작']
-
-        # 기본값 처리: 금액 필드는 비어있으면 ₩0으로
-        money_fields = ['총액 1', '제품대', '도급비', '자재비', '기타비', '계약금', '중도금', '잔금']
-        for field in money_fields:
-            value = data.get(field, '')
-            # 값이 None이거나, 빈 문자열인 경우만 ₩0으로 설정 ('0'은 유효한 입력으로 간주하지 않음)
-            if value is None or str(value).strip() == '':
-                data[field] = '₩0'
-
-        # 기본값 처리: 계산 수식 자동 삽입 (레거시 개선)
-        data['총액 2'] = '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'
-        data['미수금'] = '=0-($S:S-($T:T+$U:U+$V:V))'
-        data['순익'] = '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'
-        data['마진율'] = '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))'  # 제로 나누기 방지
-
-        # 기본값 처리: 기타 필드
-        if '계산서' not in data or not data.get('계산서'):
-            data['계산서'] = '미발행'
-        if '수금 확인' not in data:
-            data['수금 확인'] = 'FALSE'
-
-        # 부가세 포함 여부 처리 (boolean을 TRUE/FALSE 문자열로 변환)
-        # 필드명: '부가세' (column_mapping의 R열과 일치)
-        if '부가세' in data:
-            vat_included = data.get('부가세')
-            if isinstance(vat_included, bool):
-                data['부가세'] = 'TRUE' if vat_included else 'FALSE'
-            elif isinstance(vat_included, str):
-                # 이미 문자열인 경우 대문자로 정규화
-                data['부가세'] = vat_included.upper()
-        else:
-            data['부가세'] = 'FALSE'
-
-        from datetime import datetime
-        if '공사 확정' not in data or not data.get('공사 확정'):
-            data['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
-
-        # 기본값 처리: Optimistic Lock 버전 초기화
-        data['_version'] = '0'
-
-        # 총액 1 포맷팅: 숫자만 들어온 경우 원화 형식으로 변환
-        if '총액 1' in data and data['총액 1']:
-            total_amount = str(data['총액 1']).strip()
-            # 숫자만 있는 경우 (콤마 없이)
-            if total_amount.isdigit():
-                formatted_amount = f"₩{int(total_amount):,}"
-                data['총액 1'] = formatted_amount
-            # ₩0 같은 기본값이 아니고 숫자가 포함된 경우
-            elif total_amount.replace('₩', '').replace(',', '').isdigit():
-                clean_number = total_amount.replace('₩', '').replace(',', '').strip()
-                if clean_number:
-                    formatted_amount = f"₩{int(clean_number):,}"
-                    data['총액 1'] = formatted_amount
-
-        # 컬럼 매핑에 따라 값 채우기
-        for col_letter, field_name in column_mapping.items():
-            if len(col_letter) == 1:
-                column_index = ord(col_letter) - ord('A')
-            else:
-                column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-
-            if field_name in data:
-                value = data[field_name]
-                # None, 빈 문자열, 공백만 있는 경우 빈 문자열로 처리
-                # 단, '-'는 유효한 값으로 간주 (이메일 확인 불가 등)
-                if value is None:
-                    values[column_index] = ''
-                elif isinstance(value, str) and value.strip() == '':
-                    values[column_index] = ''
-                else:
-                    values[column_index] = str(value)
-
-        # 수식 필드는 data에 없어도 무조건 삽입 (Google Sheets 템플릿에 의존하지 않음)
-        # 컬럼 인덱스를 직접 계산하여 강제 삽입
-        formula_fields = {
-            'S': data.get('총액 2', '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'),
-            'W': data.get('미수금', '=0-($S:S-($T:T+$U:U+$V:V))'),
-            'AE': data.get('순익', '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'),
-            'AF': data.get('마진율', '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))')  # 제로 나누기 방지
-        }
-
-        for col_letter, formula in formula_fields.items():
-            if len(col_letter) == 1:
-                column_index = ord(col_letter) - ord('A')
-            else:
-                column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-            values[column_index] = formula
-
+        # 6. Google Sheets에 추가
         result = manager.append_row(sheet_id, values)
 
         if result:
-            # 캐시 무효화 (포괄적)
-            invalidate_project_cache(code)
-            logger.info(f"[CREATE_PROJECT] 서버 캐시 무효화 완료: {code}")
+            # 7. 응답 데이터 구성 (금액 계산)
+            project_data = _build_project_response_data(code, data)
 
-            # 감사 로그 기록
-            try:
-                from ..utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                user_email = session.get('user', {}).get('email', 'unknown')
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='CREATE_PROJECT',
-                    details=f'새 프로젝트 등록: {code}',
-                    project_code=code,
-                    field_name='전체',
-                    old_value='-',
-                    new_value='새 프로젝트 생성',
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
+            # 8. 후처리 (캐시, 로그, 캘린더, 리드)
+            finalization_data = _finalize_project_creation(code, data, project_data)
 
-            # Google Sheets 동기화 지연으로 즉시 조회가 어려우므로
-            # 추가한 데이터를 바로 구성하여 반환 (부드러운 UX)
-            logger.info(f"프로젝트 생성 성공: {code}. 추가된 데이터 구성 중...")
-
-            # 계산 필드 처리를 위한 금액 파싱 함수
-            def parse_amount(value):
-                """₩1,000 형식의 문자열을 숫자로 변환"""
-                if not value:
-                    return 0
-                # ₩와 콤마 제거 후 정수 변환
-                clean = str(value).replace('₩', '').replace(',', '').strip()
-                try:
-                    return int(clean) if clean else 0
-                except ValueError:
-                    return 0
-
-            def format_amount(value):
-                """숫자를 ₩1,000 형식으로 변환"""
-                return f"₩{value:,}"
-
-            # 총액 1 파싱
-            total_1 = parse_amount(data.get('총액 1', '₩0'))
-
-            # 총액 2 계산 (부가세 포함 여부)
-            vat_included = data.get('부가세', 'FALSE')
-            if vat_included == 'TRUE':
-                total_2 = total_1 + round(total_1 * 0.1)
-            else:
-                total_2 = total_1
-
-            # 입금액 계산
-            contract = parse_amount(data.get('계약금', '₩0'))
-            interim = parse_amount(data.get('중도금', '₩0'))
-            final = parse_amount(data.get('잔금', '₩0'))
-            total_paid = contract + interim + final
-
-            # 미수금 계산 (총액2 - 입금액)
-            receivable = total_2 - total_paid
-
-            # 비용 필드
-            product_cost = parse_amount(data.get('제품대', '₩0'))
-            contract_cost = parse_amount(data.get('도급비', '₩0'))
-            material_cost = parse_amount(data.get('자재비', '₩0'))
-            other_cost = parse_amount(data.get('기타비', '₩0'))
-            total_cost = product_cost + contract_cost + material_cost + other_cost
-
-            # 순익 계산
-            net_profit = total_1 - total_cost
-
-            # 마진율 계산
-            margin_rate = (net_profit / total_1 * 100) if total_1 > 0 else 0
-
-            project_data = {
-                '프로젝트 코드': code,
-                '사업자': data.get('사업자', ''),
-                '거래처': data.get('거래처', ''),
-                '담당자': data.get('담당자', ''),
-                '담당자 연락처': data.get('담당자 연락처', ''),
-                '담당자 이메일': data.get('담당자 이메일', ''),
-                '현장 주소': data.get('현장 주소', ''),
-                '시공자': data.get('시공자', ''),
-                '현장 담당자': data.get('현장 담당자', ''),
-                '공사 내용': data.get('공사 내용', ''),
-                '공사 시작': data.get('공사 시작', ''),
-                '공사 종료': data.get('공사 종료', ''),
-                '공사 확정': data.get('공사 확정', datetime.now().strftime('%Y-%m-%d')),
-                '총액 1': total_1,  # 순수 숫자로 반환 (프론트엔드에서 포맷팅)
-                '부가세': data.get('부가세', 'FALSE'),
-                '총액 2': total_2,  # 순수 숫자로 반환
-                '계약금': contract,
-                '중도금': interim,
-                '잔금': final,
-                '미수금': receivable,
-                '수금 확인': data.get('수금 확인', 'FALSE'),
-                '계산서': data.get('계산서', '미발행'),
-                '공사 구분': data.get('공사 구분', ''),
-                '기계 분류': data.get('기계 분류', ''),
-                '브랜드': data.get('브랜드', ''),
-                '도급 구분': data.get('도급 구분', ''),
-                '제품대': product_cost,
-                '도급비': contract_cost,
-                '자재비': material_cost,
-                '기타비': other_cost,
-                '순익': net_profit,
-                '마진율': margin_rate,  # 순수 숫자로 반환 (프론트엔드에서 % 처리)
-                '견적서 및 계약서 폴더 경로': data.get('견적서 및 계약서 폴더 경로', ''),
-            }
-
-            logger.info(f"프로젝트 데이터 구성 완료: {code}")
-            logger.info(f"[CREATE_PROJECT] 반환 데이터 샘플 - 프로젝트 코드: {project_data.get('프로젝트 코드')}, 거래처: {project_data.get('거래처')}, 총액1: {project_data.get('총액 1')}")
-
-            try:
-                logger.info(f"[CALENDAR] 이벤트 생성 시도: {code}, 공사 시작: {project_data.get('공사 시작')}")
-                event_id = create_project_calendar_event(project_data)
-                if event_id:
-                    logger.info(f"[CALENDAR] 이벤트 생성 성공: {code} -> {event_id}")
-                else:
-                    logger.info(f"[CALENDAR] 이벤트 생성 건너뜀 (조건 미충족): {code}")
-            except Exception as calendar_error:
-                logger.warning(f"[CALENDAR] 이벤트 생성 실패 ({code}): {calendar_error}", exc_info=True)
-
-            # 리드 연동: lead_no가 있으면 리드 상태를 "공사 확정"으로 업데이트
-            lead_no = data.get('lead_no')
-            if lead_no:
-                try:
-                    from ..services.lead_service import update_lead_status
-                    lead_update_result = update_lead_status(lead_no, '공사 확정')
-                    if lead_update_result.get('success'):
-                        logger.info(f"[LEAD_LINKED] 리드 {lead_no} 상태를 '공사 확정'으로 업데이트 완료")
-                    else:
-                        logger.warning(f"[LEAD_LINKED] 리드 {lead_no} 상태 업데이트 실패: {lead_update_result.get('error')}")
-                except Exception as lead_error:
-                    logger.warning(f"[LEAD_LINKED] 리드 상태 업데이트 중 오류 (프로젝트 생성은 성공): {lead_error}")
+            logger.info(f"[CREATE_PROJECT] 프로젝트 생성 완료: {code}")
 
             return jsonify({
                 "success": True,
                 "project_code": code,
-                "project_data": project_data,  # None이면 프론트엔드에서 refreshData() 호출
-                "lead_linked": bool(lead_no)  # 리드 연동 여부
+                "project_data": project_data,
+                "lead_linked": finalization_data['lead_linked']
             })
         else:
-            return jsonify({"success": False, "error": "Google Sheets 추가 실패", "code": "SHEETS_APPEND_FAILED"}), 500
+            return jsonify({
+                "success": False,
+                "error": "Google Sheets 추가 실패",
+                "code": "SHEETS_APPEND_FAILED"
+            }), 500
 
     except Exception as e:
         logger.error(f"프로젝트 자동 생성 API 오류: {str(e)}")
         import traceback
         logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
-        return jsonify({"success": False, "error": str(e), "code": "INTERNAL_ERROR"}), 500
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "code": "INTERNAL_ERROR"
+        }), 500
+
 
 
 # 임시 디버깅 라우트 (추후 제거 예정)
