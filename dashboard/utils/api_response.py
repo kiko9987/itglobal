@@ -165,3 +165,50 @@ class ApiResponse:
         }
 
         return mapping.get(code_str, 500)
+
+
+# ===== 하위 호환성 래퍼 (Backward Compatibility) =====
+# 기존 코드에서 사용 중인 레거시 이름을 지원합니다.
+# 점진적으로 새 이름(ApiResponse, ErrorCode)으로 마이그레이션하되,
+# 기존 임포트가 깨지지 않도록 보장합니다.
+
+# 레거시 클래스 alias
+APIResponse = ApiResponse
+APIErrorCode = ErrorCode
+
+
+def api_response(
+    success: bool = True,
+    data: Any = None,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    status_code: int = 200
+):
+    """
+    레거시 api_response 함수 래퍼 (하위 호환성)
+
+    기존 코드에서 사용 중인 api_response() 함수 호출을 지원합니다.
+    새 코드에서는 ApiResponse.success() 또는 ApiResponse.error()를 직접 사용하세요.
+
+    Args:
+        success: 성공 여부
+        data: 응답 데이터
+        message: 메시지
+        error: 에러 메시지 (success=False일 때)
+        status_code: HTTP 상태 코드
+
+    Returns:
+        Flask jsonify response, status_code
+    """
+    if success:
+        return ApiResponse.success(
+            data=data,
+            message=message,
+            status_code=status_code
+        )
+    else:
+        return ApiResponse.error(
+            ErrorCode.INTERNAL_ERROR,
+            message=error or message or "An error occurred",
+            status_code=status_code
+        )
