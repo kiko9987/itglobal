@@ -1502,6 +1502,177 @@ def get_project_statistics():
         }), 500
 
 
+# ===== 헬퍼 함수 1: 기본 검증 및 컬럼 매핑 =====
+def _validate_single_memo_request(data):
+    """
+    단일 메모 저장 요청 기본 검증
+    - 필수 필드 검증
+    - 필드명 유효성 검증
+    - 컬럼 매핑 조회
+
+    Returns:
+        tuple: (project_code, field_name, memo, column) or (None, error_response_tuple)
+    """
+    project_code = data.get('project_code')
+    field_name = data.get('field_name')
+    memo = data.get('memo')
+
+    # 1. 기본 필수 필드 검증
+    if not project_code or not field_name:
+        return None, (jsonify({
+            'success': False,
+            'message': '프로젝트 코드와 필드명이 필요합니다.'
+        }), 400)
+
+    # 2. 필드명 유효성 검증
+    if field_name not in MEMOABLE_FIELDS:
+        return None, (jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['invalid_field']
+        }), 400)
+
+    # 3. 컬럼 매핑
+    column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
+    if not column:
+        return None, (jsonify({
+            'success': False,
+            'message': f'컬럼 매핑을 찾을 수 없습니다: {field_name}'
+        }), 500)
+
+    return project_code, field_name, memo, column
+
+
+# ===== 헬퍼 함수 2: Manager 초기화 및 행 조회 =====
+def _find_memo_project_row(project_code):
+    """
+    Google Sheets Manager 초기화 및 프로젝트 행 조회
+
+    Returns:
+        tuple: (manager, sheet_id, sheet_name, row_number) or (None, error_response_tuple)
+    """
+    # Google Sheets Manager 및 설정 초기화
+    manager = get_sheets_manager()
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+
+    # 프로젝트 행 번호 조회
+    row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+
+    if not row_number:
+        return None, (jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['project_not_found']
+        }), 404)
+
+    return manager, sheet_id, sheet_name, row_number
+
+
+# ===== 헬퍼 함수 3: Marshmallow 스키마 검증 =====
+def _validate_memo_schema(memo, row_number, column, project_code, field_name):
+    """
+    Marshmallow 스키마로 메모 상세 검증 (메모가 있는 경우에만)
+
+    Returns:
+        tuple: (validated_data, None) or (None, error_response_tuple)
+    """
+    # 메모가 없으면 검증 건너뛰기 (삭제 요청)
+    if not memo:
+        return None, None
+
+    validation_data = {
+        'row': row_number,
+        'column': column,
+        'memo': memo,
+        'project_code': project_code,
+        'field_name': field_name
+    }
+
+    validated_data, errors = validate_request_data(CellMemoSchema, validation_data)
+
+    if errors:
+        error_messages = format_validation_errors(errors)
+        logger.warning(f"[VALIDATION] 필드 메모 검증 실패: {error_messages}")
+        return None, (jsonify({
+            'success': False,
+            'message': ERROR_MESSAGES['memo']['validation_failed'],
+            'validation_errors': error_messages
+        }), 400)
+
+    return validated_data, None
+
+
+# ===== 헬퍼 함수 4: 메모 저장, 캐시 무효화, 감사 로그 =====
+def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name):
+    """
+    메모 저장 + 캐시 무효화 + 감사 로그 기록
+
+    Returns:
+        tuple: (success, response_data or error_response)
+    """
+    logger.info(f"[FIELD_MEMO] 셀 노트 저장 시작: {project_code} / {cell_address}")
+
+    # 기존 메모 값 조회 (감사 로그용)
+    old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
+
+    # 구글 시트 셀 노트에 저장
+    success = manager.update_cell_note(
+        sheet_id,
+        sheet_name,
+        cell_address,
+        memo if memo else None  # 빈 메모는 삭제
+    )
+
+    if not success:
+        return False, (jsonify({
+            'success': False,
+            'message': '메모 저장에 실패했습니다.'
+        }), 500)
+
+    # 셀 노트 캐시만 무효화 (선택적 캐시 무효화 - MED-4 피드백)
+    notes_cache_key = f"cell_notes_{sheet_id}"
+    invalidated_notes = smart_invalidate(notes_cache_key)
+
+    logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 셀 노트 캐시 무효화 완료:")
+    logger.info(f"  - {notes_cache_key}: {invalidated_notes}개 항목")
+
+    # 감사 로그 기록
+    try:
+        from dashboard.utils.user_database import get_audit_repository
+        audit_repo = get_audit_repository()
+        user_email = session.get('user', {}).get('email', 'unknown')
+
+        action_desc = "삭제" if not memo else "저장"
+        old_value_display = old_memo[:50] + '...' if old_memo and len(old_memo) > 50 else (old_memo or '-')
+        new_value_display = memo[:50] + '...' if memo and len(memo) > 50 else (memo or '삭제')
+
+        audit_repo.log_action(
+            user_email=user_email,
+            action='UPDATE_FIELD_MEMO',
+            details=f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
+            project_code=project_code,
+            field_name=f"{field_name}_메모",
+            old_value=old_value_display,
+            new_value=new_value_display,
+            ip_address=request.remote_addr
+        )
+    except Exception as log_error:
+        logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+    logger.info(f"[SUCCESS] 필드 메모 저장: {project_code} / {field_name}")
+
+    return True, {
+        'success': True,
+        'message': '메모가 저장되었습니다.',
+        'data': {
+            'project_code': project_code,
+            'field_name': field_name,
+            'memo': memo,
+            'cell_address': cell_address
+        }
+    }
+
+
+# ===== 메인 함수: save_field_memo (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memo', methods=['POST'])
 @login_required
 @track_business_operation("api_field_memo_save")
@@ -1518,135 +1689,36 @@ def save_field_memo():
     """
     try:
         data = request.get_json()
-        project_code = data.get('project_code')
-        field_name = data.get('field_name')  # '계약금', '중도금', '잔금'
-        memo = data.get('memo')  # None이면 메모 삭제
 
-        # 1. 기본 필수 필드 검증
-        if not project_code or not field_name:
-            return jsonify({
-                'success': False,
-                'message': '프로젝트 코드와 필드명이 필요합니다.'
-            }), 400
+        # 1. 기본 검증 및 컬럼 매핑
+        result = _validate_single_memo_request(data)
+        if result[0] is None:
+            return result[1]
+        project_code, field_name, memo, column = result
 
-        # 2. 필드명 유효성 검증 (상수 사용)
-        if field_name not in MEMOABLE_FIELDS:
-            return jsonify({
-                'success': False,
-                'message': ERROR_MESSAGES['memo']['invalid_field']
-            }), 400
+        # 2. Manager 초기화 및 행 조회
+        result = _find_memo_project_row(project_code)
+        if result[0] is None:
+            return result[1]
+        manager, sheet_id, sheet_name, row_number = result
 
-        # 3. 컬럼 매핑 (상수 사용)
-        column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
-        if not column:
-            return jsonify({
-                'success': False,
-                'message': f'컬럼 매핑을 찾을 수 없습니다: {field_name}'
-            }), 500
+        # 3. Marshmallow 스키마 검증 (메모가 있는 경우)
+        validated_data, error = _validate_memo_schema(memo, row_number, column, project_code, field_name)
+        if error:
+            return error
 
-        # 4. Google Sheets Manager 및 설정 초기화 (한 번만)
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
-
-        # 5. 프로젝트 행 번호 조회 (한 번만 - 중복 제거)
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
-
-        if not row_number:
-            return jsonify({
-                'success': False,
-                'message': ERROR_MESSAGES['memo']['project_not_found']
-            }), 404
-
-        # 6. Marshmallow 스키마로 상세 검증 (메모가 있는 경우에만)
-        if memo:
-            # 이미 조회된 row_number 재사용
-            validation_data = {
-                'row': row_number,
-                'column': column,
-                'memo': memo,
-                'project_code': project_code,
-                'field_name': field_name
-            }
-
-            validated_data, errors = validate_request_data(CellMemoSchema, validation_data)
-
-            if errors:
-                error_messages = format_validation_errors(errors)
-                logger.warning(f"[VALIDATION] 필드 메모 검증 실패: {error_messages}")
-                return jsonify({
-                    'success': False,
-                    'message': ERROR_MESSAGES['memo']['validation_failed'],
-                    'validation_errors': error_messages
-                }), 400
-
-        # 셀 주소 구성 (예: 'T5')
+        # 4. 셀 주소 구성
         cell_address = f"{column}{row_number}"
 
-        logger.info(f"[FIELD_MEMO] 셀 노트 저장 시작: {project_code} / {cell_address}")
-
-        # 기존 메모 값 조회 (old_value 기록용)
-        old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
-
-        # 구글 시트 셀 노트에 저장
-        success = manager.update_cell_note(
-            sheet_id,
-            sheet_name,
-            cell_address,
-            memo if memo else None  # 빈 메모는 삭제
+        # 5. 메모 저장, 캐시 무효화, 감사 로그
+        success, response = _save_memo_and_audit(
+            manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name
         )
 
         if success:
-            # 셀 노트 캐시만 무효화 (성능 최적화)
-            # 메모는 셀 노트에만 저장되고 프로젝트 데이터에 영향 없음
-            # 따라서 전체 프로젝트 캐시 무효화는 불필요
-            notes_cache_key = f"cell_notes_{sheet_id}"
-            invalidated_notes = smart_invalidate(notes_cache_key)
-
-            logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 셀 노트 캐시 무효화 완료:")
-            logger.info(f"  - {notes_cache_key}: {invalidated_notes}개 항목")
-
-            # 감사 로그 기록
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                user_email = session.get('user', {}).get('email', 'unknown')
-
-                action_desc = "삭제" if not memo else "저장"
-                # 이전 값 포맷팅
-                old_value_display = old_memo[:50] + '...' if old_memo and len(old_memo) > 50 else (old_memo or '-')
-                new_value_display = memo[:50] + '...' if memo and len(memo) > 50 else (memo or '삭제')
-
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='UPDATE_FIELD_MEMO',
-                    details=f"프로젝트 {project_code}의 {field_name} 메모 {action_desc}",
-                    project_code=project_code,
-                    field_name=f"{field_name}_메모",
-                    old_value=old_value_display,
-                    new_value=new_value_display,
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
-
-            logger.info(f"[SUCCESS] 필드 메모 저장: {project_code} / {field_name}")
-
-            return jsonify({
-                'success': True,
-                'message': '메모가 저장되었습니다.',
-                'data': {
-                    'project_code': project_code,
-                    'field_name': field_name,
-                    'memo': memo,
-                    'cell_address': cell_address
-                }
-            })
+            return jsonify(response)
         else:
-            return jsonify({
-                'success': False,
-                'message': '메모 저장에 실패했습니다.'
-            }), 500
+            return response
 
     except Exception as e:
         logger.error(f"[ERROR] 필드 메모 저장 오류: {str(e)}")
