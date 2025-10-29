@@ -169,6 +169,127 @@ class GoogleSheetsManager:
                 logger.error(f"[SERVICE_RESET] 서비스 재초기화 실패: {e}")
                 return False
 
+
+
+    def _calculate_backoff_time(self, attempt):
+        """Exponential backoff 시간 계산 (지터 포함)
+
+        Args:
+            attempt: 현재 시도 횟수 (0부터 시작)
+
+        Returns:
+            float: Backoff 시간 (초)
+        """
+        import random
+        return min(
+            self.INITIAL_BACKOFF * (2 ** attempt) + random.uniform(self.JITTER_MIN, self.JITTER_MAX),
+            self.MAX_BACKOFF
+        )
+
+
+    def _handle_ssl_error(self, operation_name, error, is_requests_ssl=False):
+        """SSL 에러 처리: Critical 로그 후 프로세스 강제 종료
+
+        Args:
+            operation_name: 작업 이름
+            error: SSL 에러 객체
+            is_requests_ssl: requests 라이브러리 SSL 에러 여부
+        """
+        error_type = "REQUESTS_SSL_ERROR" if is_requests_ssl else "SSL_ERROR"
+        logger.critical(
+            f"[{error_type}] {operation_name} - SSL/TLS 에러 발생: {error}\n"
+            f"프로세스를 즉시 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
+        )
+        # os._exit(1): 모든 스레드를 즉시 강제 종료
+        os._exit(1)
+
+
+    def _should_retry_http_error(self, error_code):
+        """HTTP 에러가 재시도 가능한지 확인
+
+        Args:
+            error_code: HTTP 에러 코드
+
+        Returns:
+            bool: 재시도 가능 여부 (Rate Limit 또는 Server Error)
+        """
+        return error_code in self.RATE_LIMIT_ERROR_CODES
+
+
+    def _log_and_sleep_for_retry(self, operation_name, attempt, error_info, is_http_error=False):
+        """재시도를 위한 로깅 및 대기
+
+        Args:
+            operation_name: 작업 이름
+            attempt: 현재 시도 횟수
+            error_info: dict with 'code', 'reason', 'user_message' (HTTP) or 'type', 'message' (General)
+            is_http_error: HTTP 에러 여부
+        """
+        backoff_time = self._calculate_backoff_time(attempt)
+
+        if is_http_error:
+            logger.warning(
+                f"[Rate Limit/Server Error] {operation_name} - "
+                f"HTTP {error_info['code']}: {error_info['reason']} | "
+                f"시도 {attempt + 1}/{self.MAX_RETRIES} | "
+                f"{backoff_time:.2f}초 후 재시도 | "
+                f"사용자 메시지: {error_info['user_message']}"
+            )
+        else:
+            logger.warning(
+                f"[일반 에러] {operation_name} - "
+                f"{error_info['type']}: {error_info['message']} | "
+                f"시도 {attempt + 1}/{self.MAX_RETRIES} | "
+                f"{backoff_time:.2f}초 후 재시도"
+            )
+
+        time.sleep(backoff_time)
+
+
+    def _raise_max_retries_error(self, operation_name, attempt, error_info, is_http_error=False):
+        """최대 재시도 횟수 초과 시 에러 발생
+
+        Args:
+            operation_name: 작업 이름
+            attempt: 마지막 시도 횟수
+            error_info: dict with error details
+            is_http_error: HTTP 에러 여부
+
+        Raises:
+            Exception: 사용자 친화적 에러 메시지
+        """
+        total_time = sum([self.INITIAL_BACKOFF * (2 ** i) for i in range(self.MAX_RETRIES)])
+
+        if is_http_error:
+            error_msg = (
+                f"Google Sheets API 오류: {error_info['user_message']}\n"
+                f"최대 재시도 횟수({self.MAX_RETRIES}회)를 초과했습니다. "
+                f"잠시 후 다시 시도해주세요."
+            )
+            logger.error(
+                f"[재시도 실패] {operation_name} - "
+                f"최대 재시도 횟수 {self.MAX_RETRIES}회 초과 | "
+                f"HTTP {error_info['code']}: {error_info['reason']} | "
+                f"총 소요 시간: 약 {total_time}초"
+            )
+        else:
+            error_msg = (
+                f"Google Sheets 연결 오류: {error_info['type']} - {error_info['message']}\n"
+                f"네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요."
+            )
+            logger.error(
+                f"[재시도 실패] {operation_name} - "
+                f"최대 재시도 횟수 {self.MAX_RETRIES}회 초과 | "
+                f"{error_info['type']}: {error_info['message']}"
+            )
+
+        raise Exception(error_msg)
+
+
+# ============================================
+# 메인 함수 (Refactored Main Function)
+# ============================================
+
     def _execute_with_retry(self, request, operation_name="API 호출"):
         """
         Exponential Backoff를 사용한 Google Sheets API 호출 재시도 로직
@@ -188,69 +309,47 @@ class GoogleSheetsManager:
         for attempt in range(self.MAX_RETRIES):
             try:
                 # 🔒 스레드 안전성 확보: Google API service 객체 동시 접근 방지
-                # OpenSSL TLS 세션 race condition 방지
                 with self._lock:
                     result = request.execute()
 
+                # 재시도 성공 로그
                 if attempt > 0:
+                    total_time = sum([self.INITIAL_BACKOFF * (2 ** i) for i in range(attempt)])
                     logger.info(
                         f"[재시도 성공] {operation_name} - "
-                        f"{attempt + 1}번째 시도에서 성공 (소요 시간: 약 {sum([self.INITIAL_BACKOFF * (2 ** i) for i in range(attempt)])}초)"
+                        f"{attempt + 1}번째 시도에서 성공 (소요 시간: 약 {total_time}초)"
                     )
                 return result
 
             except ssl.SSLError as ssl_err:
-                # SSL 에러는 즉시 로그 남기고 프로세스 강제 종료
-                logger.critical(
-                    f"[SSL_ERROR] {operation_name} - SSL/TLS 에러 발생: {ssl_err}\n"
-                    f"프로세스를 즉시 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
-                )
-                # os._exit(1): 모든 스레드를 즉시 강제 종료 (sys.exit과 달리 프로세스 전체 종료)
-                os._exit(1)
+                # SSL 에러 → 프로세스 강제 종료
+                self._handle_ssl_error(operation_name, ssl_err, is_requests_ssl=False)
 
             except HttpError as e:
                 error_code = e.resp.status
                 error_reason = e._get_reason()
-
-                # 사용자 친화적 에러 메시지 생성
                 user_friendly_message = self._get_user_friendly_error_message(error_code, error_reason)
 
-                # Rate Limit 또는 서버 에러인 경우 재시도
-                if error_code in self.RATE_LIMIT_ERROR_CODES:
+                # Rate Limit 또는 Server Error → 재시도
+                if self._should_retry_http_error(error_code):
                     if attempt < self.MAX_RETRIES - 1:
-                        # Exponential Backoff 계산 (지터 추가)
-                        import random
-                        backoff_time = min(
-                            self.INITIAL_BACKOFF * (2 ** attempt) + random.uniform(self.JITTER_MIN, self.JITTER_MAX),
-                            self.MAX_BACKOFF
-                        )
-
-                        logger.warning(
-                            f"[Rate Limit/Server Error] {operation_name} - "
-                            f"HTTP {error_code}: {error_reason} | "
-                            f"시도 {attempt + 1}/{self.MAX_RETRIES} | "
-                            f"{backoff_time:.2f}초 후 재시도 | "
-                            f"사용자 메시지: {user_friendly_message}"
-                        )
-
-                        time.sleep(backoff_time)
+                        error_info = {
+                            'code': error_code,
+                            'reason': error_reason,
+                            'user_message': user_friendly_message
+                        }
+                        self._log_and_sleep_for_retry(operation_name, attempt, error_info, is_http_error=True)
                         continue
                     else:
-                        # 최대 재시도 횟수 초과
-                        error_msg = (
-                            f"Google Sheets API 오류: {user_friendly_message}\n"
-                            f"최대 재시도 횟수({self.MAX_RETRIES}회)를 초과했습니다. "
-                            f"잠시 후 다시 시도해주세요."
-                        )
-                        logger.error(
-                            f"[재시도 실패] {operation_name} - "
-                            f"최대 재시도 횟수 {self.MAX_RETRIES}회 초과 | "
-                            f"HTTP {error_code}: {error_reason} | "
-                            f"총 소요 시간: 약 {sum([self.INITIAL_BACKOFF * (2 ** i) for i in range(self.MAX_RETRIES)])}초"
-                        )
-                        raise Exception(error_msg) from e
+                        # 최대 재시도 초과
+                        error_info = {
+                            'code': error_code,
+                            'reason': error_reason,
+                            'user_message': user_friendly_message
+                        }
+                        self._raise_max_retries_error(operation_name, attempt, error_info, is_http_error=True)
 
-                # Rate Limit이 아닌 다른 에러는 즉시 raise
+                # Rate Limit이 아닌 다른 HTTP 에러 → 즉시 raise
                 else:
                     error_msg = f"Google Sheets API 오류: {user_friendly_message}"
                     logger.error(
@@ -261,47 +360,30 @@ class GoogleSheetsManager:
                     raise Exception(error_msg) from e
 
             except Exception as e:
-                # requests 라이브러리의 SSL 에러 체크 (HttpError보다 나중에 체크)
+                # requests 라이브러리의 SSL 에러 체크
                 if HAS_REQUESTS and isinstance(e, requests.exceptions.SSLError):
-                    logger.critical(
-                        f"[REQUESTS_SSL_ERROR] {operation_name} - Requests SSL 에러 발생: {e}\n"
-                        f"프로세스를 즉시 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
-                    )
-                    # os._exit(1): 모든 스레드를 즉시 강제 종료
-                    os._exit(1)
+                    self._handle_ssl_error(operation_name, e, is_requests_ssl=True)
 
-                # HttpError가 아닌 다른 예외 (네트워크 에러 등)
+                # 일반 에러 → 재시도
                 if attempt < self.MAX_RETRIES - 1:
-                    import random
-                    backoff_time = min(
-                        self.INITIAL_BACKOFF * (2 ** attempt) + random.uniform(self.JITTER_MIN, self.JITTER_MAX),
-                        self.MAX_BACKOFF
-                    )
-
-                    logger.warning(
-                        f"[일반 에러] {operation_name} - "
-                        f"{type(e).__name__}: {str(e)} | "
-                        f"시도 {attempt + 1}/{self.MAX_RETRIES} | "
-                        f"{backoff_time:.2f}초 후 재시도"
-                    )
-
-                    time.sleep(backoff_time)
+                    error_info = {
+                        'type': type(e).__name__,
+                        'message': str(e)
+                    }
+                    self._log_and_sleep_for_retry(operation_name, attempt, error_info, is_http_error=False)
                     continue
                 else:
-                    # 사용자 친화적 에러 메시지
-                    error_msg = (
-                        f"Google Sheets 연결 오류: {type(e).__name__} - {str(e)}\n"
-                        f"네트워크 연결을 확인하거나 잠시 후 다시 시도해주세요."
-                    )
-                    logger.error(
-                        f"[재시도 실패] {operation_name} - "
-                        f"최대 재시도 횟수 {self.MAX_RETRIES}회 초과 | "
-                        f"{type(e).__name__}: {str(e)}"
-                    )
-                    raise Exception(error_msg) from e
+                    # 최대 재시도 초과
+                    error_info = {
+                        'type': type(e).__name__,
+                        'message': str(e)
+                    }
+                    self._raise_max_retries_error(operation_name, attempt, error_info, is_http_error=False)
 
         # 이 라인에 도달하면 안 되지만, 안전을 위해
         raise Exception(f"{operation_name} 실패: 알 수 없는 에러")
+
+
 
     def _get_user_friendly_error_message(self, error_code, error_reason):
         """
