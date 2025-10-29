@@ -2696,10 +2696,15 @@ def _emit_project_status_change(event_name, message, project_code, user_name, sa
     try:
         socketio = current_app.extensions.get('socketio')
         if socketio:
+            # 프론트엔드 계약: event_name → action 매핑
+            action_map = {
+                'project_cancelled': 'cancel_project',
+                'project_resumed': 'resume_project'
+            }
             socketio.emit(event_name, {
                 'message': message,
                 'timestamp': datetime.now().isoformat(),
-                'action': event_name.replace('project_', '') + '_project',
+                'action': action_map.get(event_name, event_name),
                 'project_code': project_code,
                 'user': user_name,
                 'updated_project': sanitized_project
