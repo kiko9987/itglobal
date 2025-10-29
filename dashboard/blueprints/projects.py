@@ -247,28 +247,123 @@ def project_list():
 
 # ===== API 엔드포인트들 =====
 
+def _load_projects_data(refresh):
+    """
+    데이터 로드 전략 (refresh 파라미터에 따라 캐시 또는 강제 새로고침)
+
+    Args:
+        refresh: True면 강제 새로고침, False면 캐시 사용
+
+    Returns:
+        DataFrame or None
+    """
+    logger.info(f'[API][PID:{os.getpid()}] 프로젝트 목록 요청 (refresh={refresh})')
+
+    if refresh:
+        logger.info(f'[API][PID:{os.getpid()}] 강제 새로고침 - 구글시트 로드')
+        return load_data(force_refresh=True)
+    else:
+        df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
+        logger.info(f'[API][PID:{os.getpid()}] 캐시에서 데이터 조회 - {"있음" if df is not None and not df.empty else "없음"}')
+        if df is None or (df is not None and len(df) == 0):
+            logger.info(f'[API][PID:{os.getpid()}] 캐시 없음 - 구글시트에서 로드')
+            return load_data(force_refresh=False)
+        return df
+
+
+def _process_date_columns(df):
+    """
+    DataFrame의 날짜 컬럼들을 YYYY-MM-DD 형식으로 변환
+
+    Args:
+        df: DataFrame
+
+    Returns:
+        DataFrame (날짜 컬럼 변환 완료)
+    """
+    date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+    for col in date_columns:
+        if col in df.columns:
+            logger.info(f"날짜 컬럼 처리 시작: {col}")
+
+            # 원본 데이터 샘플 확인 (최근 5개)
+            recent_samples = df.tail(5)[col].tolist()
+            logger.info(f"{col} 원본 데이터 샘플: {recent_samples}")
+
+            # 다양한 날짜 형식 지원 (YYYY-MM-DD, YYYY/MM/DD 등)
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+
+            # 변환 후 샘플 확인
+            converted_samples = df.tail(5)[col].tolist()
+            logger.info(f"{col} 변환 후 샘플: {converted_samples}")
+
+            # 유효한 날짜는 YYYY-MM-DD 형식으로, 무효한 날짜는 빈 문자열로
+            df[col] = df[col].apply(lambda x:
+                x.strftime('%Y-%m-%d') if pd.notna(x) and x is not pd.NaT else ''
+            )
+
+            # 최종 결과 샘플
+            final_samples = df.tail(5)[col].tolist()
+            logger.info(f"{col} 최종 결과 샘플: {final_samples}")
+
+    return df
+
+
+def _build_projects_response(projects):
+    """
+    프로젝트 목록 응답 구조 생성
+
+    Args:
+        projects: 프로젝트 dict 리스트
+
+    Returns:
+        dict: 응답 구조
+    """
+    return {
+        'success': True,
+        'data': projects,
+        'meta': {
+            'total': len(projects),
+            'timestamp': datetime.now().isoformat()
+        }
+    }
+
+
+def _set_cache_headers(response, refresh):
+    """
+    응답에 캐시 헤더 설정
+
+    Args:
+        response: Flask Response 객체
+        refresh: refresh 파라미터 여부
+
+    Returns:
+        Response: 헤더가 설정된 응답
+    """
+    if not refresh:
+        # 일반 조회: 30초 동안 브라우저 캐시 허용
+        response.headers['Cache-Control'] = 'private, max-age=30'
+    else:
+        # 강제 새로고침: 캐시 사용 안함
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    return response
+
+
 @projects_bp.route('/api/projects/list')
 @login_required
 @track_business_operation("api_projects_list")
 def get_projects_list():
     """프로젝트 목록 API"""
     try:
-        # refresh 파라미터가 있으면 강제로 구글시트에서 최신 데이터 로드
+        # 1. 파라미터 파싱
         refresh = request.args.get('refresh', 'false').lower() == 'true'
 
-        logger.info(f'[API][PID:{os.getpid()}] 프로젝트 목록 요청 (refresh={refresh})')
+        # 2. 데이터 로드 (캐시 또는 강제 새로고침)
+        df = _load_projects_data(refresh)
 
-        if refresh:
-            logger.info(f'[API][PID:{os.getpid()}] 강제 새로고침 - 구글시트 로드')
-            df = load_data(force_refresh=True)
-            # set_current_data() 제거 - load_data()가 캐시에 저장함
-        else:
-            df = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
-            logger.info(f'[API][PID:{os.getpid()}] 캐시에서 데이터 조회 - {"있음" if df is not None and not df.empty else "없음"}')
-            if df is None or (df is not None and len(df) == 0):
-                logger.info(f'[API][PID:{os.getpid()}] 캐시 없음 - 구글시트에서 로드')
-                df = load_data(force_refresh=False)
-
+        # 3. 데이터 없을 때 에러 반환
         if df is None or (df is not None and len(df) == 0):
             return jsonify({
                 'success': False,
@@ -279,35 +374,11 @@ def get_projects_list():
                 }
             }), 500
 
-        # DataFrame을 dict 리스트로 변환 (NaN 값 처리)
-        df = df.fillna('')  # NaN 값을 빈 문자열로 변환
+        # 4. DataFrame 전처리 (NaN 처리 + 날짜 변환)
+        df = df.fillna('')
+        df = _process_date_columns(df)
 
-        # 날짜 컬럼들을 올바르게 처리
-        date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
-        for col in date_columns:
-            if col in df.columns:
-                logger.info(f"날짜 컬럼 처리 시작: {col}")
-
-                # 원본 데이터 샘플 확인 (최근 5개)
-                recent_samples = df.tail(5)[col].tolist()
-                logger.info(f"{col} 원본 데이터 샘플: {recent_samples}")
-
-                # 다양한 날짜 형식 지원 (YYYY-MM-DD, YYYY/MM/DD 등)
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-
-                # 변환 후 샘플 확인
-                converted_samples = df.tail(5)[col].tolist()
-                logger.info(f"{col} 변환 후 샘플: {converted_samples}")
-
-                # 유효한 날짜는 YYYY-MM-DD 형식으로, 무효한 날짜는 빈 문자열로
-                df[col] = df[col].apply(lambda x:
-                    x.strftime('%Y-%m-%d') if pd.notna(x) and x is not pd.NaT else ''
-                )
-
-                # 최종 결과 샘플
-                final_samples = df.tail(5)[col].tolist()
-                logger.info(f"{col} 최종 결과 샘플: {final_samples}")
-
+        # 5. dict 변환
         projects = df.to_dict('records')
 
         # Google Sheets에서 이미 계산된 순익, 마진율 값을 그대로 사용
@@ -317,24 +388,10 @@ def get_projects_list():
         # - 전체 프로젝트 조회 가능 (검색, 학습 목적)
         # - 수정/삭제는 불가 (각 API 엔드포인트에서 권한 체크)
 
-        response = jsonify({
-            'success': True,
-            'data': projects,
-            'meta': {
-                'total': len(projects),
-                'timestamp': datetime.now().isoformat()
-            }
-        })
-
-        # 캐시 헤더 설정 (성능 최적화)
-        if not refresh:
-            # 일반 조회: 30초 동안 브라우저 캐시 허용
-            response.headers['Cache-Control'] = 'private, max-age=30'
-        else:
-            # 강제 새로고침: 캐시 사용 안함
-            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-            response.headers['Pragma'] = 'no-cache'
-            response.headers['Expires'] = '0'
+        # 6. 응답 생성 및 캐시 헤더 설정
+        response_data = _build_projects_response(projects)
+        response = jsonify(response_data)
+        response = _set_cache_headers(response, refresh)
 
         return response
 
