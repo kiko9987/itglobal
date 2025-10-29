@@ -2523,130 +2523,291 @@ def debug_frontend():
 @projects_bp.route('/api/project/cancel', methods=['POST'])
 @login_required
 @track_business_operation("api_project_cancel")
+
+
+# ============================================
+# 공통 헬퍼 함수 (Shared Helpers)
+# ============================================
+
+def _validate_status_change_request(data):
+    """공사 상태 변경 요청 기본 검증 및 사용자 정보 추출
+
+    Returns:
+        tuple: (project_code, user_email, user_name) 또는 (None, response, status_code)
+    """
+    project_code = data.get('projectCode')
+
+    if not project_code:
+        return None, jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+
+    user_email = session.get('user', {}).get('email', '')
+    user_name = session.get('user', {}).get('name', '')
+
+    return project_code, user_email, user_name
+
+
+def _find_project_and_row(project_code):
+    """프로젝트 조회 및 Google Sheets 행 번호 찾기
+
+    Returns:
+        tuple: (project, manager, sheet_id, sheet_name, row_number) 또는 (None, response, status_code)
+    """
+    # 프로젝트 존재 여부 확인
+    projects_data = get_project_records()
+    project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+
+    if not project:
+        return None, jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
+
+    # Google Sheets Manager 초기화
+    manager = get_sheets_manager()
+    sheet_id = os.getenv('GOOGLE_SHEET_ID')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+
+    # 프로젝트 코드로 행 찾기
+    row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+
+    if not row_number:
+        return None, jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
+
+    return project, manager, sheet_id, sheet_name, row_number
+
+
+def _update_project_background_color(manager, sheet_id, sheet_name, row_number, color_type, action_name):
+    """프로젝트 행 배경색 업데이트 (에러 처리 포함)
+
+    Args:
+        color_type: 'dark_grey' (취소) 또는 'normal' (재개)
+        action_name: '취소' 또는 '재개' (로그용)
+    """
+    try:
+        success = manager.update_row_background_color(
+            spreadsheet_id=sheet_id,
+            sheet_name=sheet_name,
+            row_number=row_number,
+            color_type=color_type
+        )
+        if success:
+            color_desc = '진한 회색' if color_type == 'dark_grey' else '흰색'
+            logger.info(f"행 {row_number} 배경색을 {color_desc}으로 변경 완료")
+        else:
+            logger.warning(f"행 {row_number} 배경색 변경 실패")
+    except Exception as color_error:
+        logger.error(f"배경색 변경 오류: {str(color_error)}")
+        # 색상 변경 실패해도 공사 상태 변경은 진행
+
+
+def _log_project_status_change(project_code, project, user_email, action, field_name, old_value, new_value):
+    """프로젝트 상태 변경 감사 로그 기록"""
+    try:
+        from dashboard.utils.user_database import get_audit_repository
+        audit_repo = get_audit_repository()
+        audit_repo.log_action(
+            user_email=user_email,
+            action=action,
+            details=f'프로젝트 공사 {action.lower().replace("_project", "")}: {project_code}',
+            project_code=project_code,
+            field_name=field_name,
+            old_value=old_value,
+            new_value=new_value,
+            ip_address=request.remote_addr
+        )
+    except Exception as log_error:
+        logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+
+def _get_and_sanitize_updated_project(project_code):
+    """업데이트된 프로젝트 데이터 가져오기 및 JSON 직렬화 가능하게 변환
+
+    Returns:
+        dict or None: 직렬화된 프로젝트 데이터
+    """
+    updated_projects = get_project_records()
+    updated_project = next((p for p in updated_projects if p.get('프로젝트 코드') == project_code), None)
+    return sanitize_project_for_json(updated_project) if updated_project else None
+
+
+def _emit_project_status_change(event_name, message, project_code, user_name, sanitized_project):
+    """프로젝트 상태 변경 실시간 알림 (SocketIO)
+
+    Args:
+        event_name: 'project_cancelled' 또는 'project_resumed'
+    """
+    try:
+        socketio = current_app.extensions.get('socketio')
+        if socketio:
+            socketio.emit(event_name, {
+                'message': message,
+                'timestamp': datetime.now().isoformat(),
+                'action': event_name.replace('project_', '') + '_project',
+                'project_code': project_code,
+                'user': user_name,
+                'updated_project': sanitized_project
+            })
+        else:
+            logger.warning("SocketIO 인스턴스를 찾을 수 없습니다.")
+    except Exception as socket_error:
+        logger.warning(f"SocketIO 알림 실패: {socket_error}")
+
+
+# ============================================
+# cancel_project_api() 전용 헬퍼
+# ============================================
+
+def _check_already_cancelled(project):
+    """프로젝트가 이미 취소되었는지 확인
+
+    Returns:
+        tuple: (is_cancelled: bool, response or None, status_code or None)
+    """
+    if re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
+        return True, jsonify({'success': False, 'error': '이미 취소된 프로젝트입니다.'}), 400
+    return False, None, None
+
+
+def _prepare_cancel_updates(sheet_name, row_number):
+    """공사 취소 배치 업데이트 준비
+
+    Returns:
+        list: Batch update requests (AG: 공사 취소, Z: FALSE, AL: '')
+    """
+    return [
+        {
+            'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
+            'values': [['공사 취소']]
+        },
+        {
+            'range': f'{sheet_name}!Z{row_number}',  # Z: 수금 확인
+            'values': [['FALSE']]
+        },
+        {
+            'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
+            'values': [['']]
+        }
+    ]
+
+
+def _delete_calendar_event(project_code):
+    """프로젝트 캘린더 이벤트 삭제 (에러 처리 포함)"""
+    try:
+        delete_project_calendar_event(project_code)
+    except Exception as calendar_error:
+        logger.warning(f"[CALENDAR] 이벤트 삭제 실패 ({project_code}): {calendar_error}")
+
+
+# ============================================
+# resume_project_api() 전용 헬퍼
+# ============================================
+
+def _check_already_active(project, project_code):
+    """프로젝트가 이미 활성 상태(취소되지 않음)인지 확인
+
+    Returns:
+        tuple: (is_active: bool, response or None, status_code or None)
+    """
+    if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
+        logger.info(f"프로젝트 재개 시도 - 이미 정상 상태: {project_code}")
+        return True, jsonify({
+            'success': True,
+            'message': '이미 정상 상태입니다. (취소되지 않은 프로젝트)',
+            'project_code': project_code,
+            'already_active': True
+        }), 200
+    return False, None, None
+
+
+def _prepare_resume_updates(sheet_name, row_number):
+    """공사 재개 배치 업데이트 준비
+
+    Returns:
+        list: Batch update requests (AG: '', AL: 현재 날짜)
+    """
+    return [
+        {
+            'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
+            'values': [['']]
+        },
+        {
+            'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
+            'values': [[datetime.now().strftime('%Y-%m-%d')]]
+        }
+    ]
+
+
+# ============================================
+# 메인 함수 (Refactored Main Functions)
+# ============================================
+
+@projects_bp.route('/api/project/cancel', methods=['POST'])
+@login_required
+@track_business_operation("api_project_cancel")
 def cancel_project_api():
     """공사 취소 API - JSON 응답"""
     try:
         data = request.get_json()
-        project_code = data.get('projectCode')
 
-        if not project_code:
-            return jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+        # 1. 기본 검증 및 사용자 정보
+        result = _validate_status_change_request(data)
+        if result[0] is None:
+            return result[1], result[2]
+        project_code, user_email, user_name = result
 
-        user_email = session.get('user', {}).get('email', '')
-        user_name = session.get('user', {}).get('name', '')
+        # 2. 프로젝트 조회 및 행 번호 찾기
+        result = _find_project_and_row(project_code)
+        if result[0] is None:
+            return result[1], result[2]
+        project, manager, sheet_id, sheet_name, row_number = result
 
-        # 프로젝트 존재 여부 확인
-        projects_data = get_project_records()
-        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+        # 3. 이미 취소된 프로젝트인지 확인
+        is_cancelled, response, status_code = _check_already_cancelled(project)
+        if is_cancelled:
+            return response, status_code
 
-        if not project:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # 이미 취소된 프로젝트인지 확인 (띄어쓰기 무시)
-        if re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
-            return jsonify({'success': False, 'error': '이미 취소된 프로젝트입니다.'}), 400
-
-        # Google Sheets 업데이트
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
-
-        # 프로젝트 코드로 행 찾기
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
-
-        if not row_number:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # 배치 업데이트: AG(수금 관련 특이사항), Z(수금 확인), AL(공사 확정일)
-        updates = [
-            {
-                'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
-                'values': [['공사 취소']]
-            },
-            {
-                'range': f'{sheet_name}!Z{row_number}',  # Z: 수금 확인
-                'values': [['FALSE']]
-            },
-            {
-                'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
-                'values': [['']]
-            }
-        ]
+        # 4. 배치 업데이트 준비 및 실행
+        updates = _prepare_cancel_updates(sheet_name, row_number)
 
         try:
-            # 배치 업데이트 실행 (Thread-Safe: batch_update_cells는 _execute_with_retry 사용)
             batch_result = manager.batch_update_cells(sheet_id, updates)
-
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 취소 - {updated_cells}개 셀 업데이트 완료")
 
-            # Google Sheets 행 배경색을 진한 회색으로 변경
-            try:
-                success = manager.update_row_background_color(
-                    spreadsheet_id=sheet_id,
-                    sheet_name=sheet_name,
-                    row_number=row_number,
-                    color_type='dark_grey'
-                )
-                if success:
-                    logger.info(f"행 {row_number} 배경색을 진한 회색으로 변경 완료")
-                else:
-                    logger.warning(f"행 {row_number} 배경색 변경 실패")
-            except Exception as color_error:
-                logger.error(f"배경색 변경 오류: {str(color_error)}")
-                # 색상 변경 실패해도 공사 취소는 진행
+            # 5. 배경색 변경 (진한 회색)
+            _update_project_background_color(
+                manager, sheet_id, sheet_name, row_number, 'dark_grey', '취소'
+            )
 
-            # 캐시 무효화 (invalidate_project_cache 내부에서 current_sheet_data도 무효화)
+            # 6. 캐시 무효화
             invalidate_project_cache(project_code)
 
-            # 감사 로그 기록
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='CANCEL_PROJECT',
-                    details=f'프로젝트 공사 취소: {project_code} (수금확인=FALSE, 공사확정일 초기화)',
-                    project_code=project_code,
-                    field_name='수금 관련 특이사항',
-                    old_value=project.get('수금 관련 특이사항', '-'),
-                    new_value='공사 취소',
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
+            # 7. 감사 로그 기록
+            _log_project_status_change(
+                project_code=project_code,
+                project=project,
+                user_email=user_email,
+                action='CANCEL_PROJECT',
+                field_name='수금 관련 특이사항',
+                old_value=project.get('수금 관련 특이사항', '-'),
+                new_value='공사 취소'
+            )
 
-            # 업데이트된 프로젝트 데이터 가져오기
-            updated_projects = get_project_records()
-            updated_project = next((p for p in updated_projects if p.get('프로젝트 코드') == project_code), None)
+            # 8. 업데이트된 프로젝트 데이터 가져오기
+            sanitized_project = _get_and_sanitize_updated_project(project_code)
 
-            # JSON 직렬화 가능하도록 변환
-            sanitized_project = sanitize_project_for_json(updated_project) if updated_project else None
+            # 9. 캘린더 이벤트 삭제
+            _delete_calendar_event(project_code)
 
-            try:
-                delete_project_calendar_event(project_code)
-            except Exception as calendar_error:
-                logger.warning(f"[CALENDAR] 이벤트 삭제 실패 ({project_code}): {calendar_error}")
-
-            # 실시간 알림 (SocketIO)
-            try:
-                socketio = current_app.extensions.get('socketio')
-                if socketio:
-                    socketio.emit('project_cancelled', {
-                        'message': f'프로젝트 공사가 취소되었습니다: {project_code}',
-                        'timestamp': datetime.now().isoformat(),
-                        'action': 'cancel_project',
-                        'project_code': project_code,
-                        'user': user_name,
-                        'updated_project': sanitized_project
-                    })
-                else:
-                    logger.warning("SocketIO 인스턴스를 찾을 수 없습니다.")
-            except Exception as socket_error:
-                logger.warning(f"SocketIO 알림 실패: {socket_error}")
+            # 10. 실시간 알림 (SocketIO)
+            _emit_project_status_change(
+                event_name='project_cancelled',
+                message=f'프로젝트 공사가 취소되었습니다: {project_code}',
+                project_code=project_code,
+                user_name=user_name,
+                sanitized_project=sanitized_project
+            )
 
             logger.info(f"프로젝트 취소 완료: {project_code} by {user_name}")
 
+            # 11. 성공 응답 반환
             return jsonify({
                 'success': True,
                 'message': '공사가 취소되었습니다.',
@@ -2671,121 +2832,66 @@ def resume_project_api():
     """공사 재개 API - JSON 응답"""
     try:
         data = request.get_json()
-        project_code = data.get('projectCode')
 
-        if not project_code:
-            return jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+        # 1. 기본 검증 및 사용자 정보
+        result = _validate_status_change_request(data)
+        if result[0] is None:
+            return result[1], result[2]
+        project_code, user_email, user_name = result
 
-        user_email = session.get('user', {}).get('email', '')
-        user_name = session.get('user', {}).get('name', '')
+        # 2. 프로젝트 조회 및 행 번호 찾기
+        result = _find_project_and_row(project_code)
+        if result[0] is None:
+            return result[1], result[2]
+        project, manager, sheet_id, sheet_name, row_number = result
 
-        # 프로젝트 존재 여부 확인
-        projects_data = get_project_records()
-        project = next((p for p in projects_data if p.get('프로젝트 코드') == project_code), None)
+        # 3. 이미 활성 상태인지 확인 (취소되지 않음)
+        is_active, response, status_code = _check_already_active(project, project_code)
+        if is_active:
+            return response, status_code
 
-        if not project:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # 취소된 프로젝트인지 확인 (띄어쓰기 무시)
-        if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
-            logger.info(f"프로젝트 재개 시도 - 이미 정상 상태: {project_code}")
-            return jsonify({
-                'success': True,  # 이미 정상 상태이므로 성공으로 처리
-                'message': '이미 정상 상태입니다. (취소되지 않은 프로젝트)',
-                'project_code': project_code,
-                'already_active': True
-            }), 200
-
-        # Google Sheets 업데이트
-        manager = get_sheets_manager()
-        sheet_id = os.getenv('GOOGLE_SHEET_ID')
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
-
-        # 프로젝트 코드로 행 찾기
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
-
-        if not row_number:
-            return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다.'}), 404
-
-        # AG 칼럼(수금 관련 특이사항)을 빈 문자열로 초기화하고 공사 확정일을 현재 날짜로 재설정
-        updates = [
-            {
-                'range': f'{sheet_name}!AG{row_number}',
-                'values': [['']]
-            },
-            {
-                'range': f'{sheet_name}!AL{row_number}',
-                'values': [[datetime.now().strftime('%Y-%m-%d')]]
-            }
-        ]
+        # 4. 배치 업데이트 준비 및 실행
+        updates = _prepare_resume_updates(sheet_name, row_number)
 
         try:
             batch_result = manager.batch_update_cells(sheet_id, updates)
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 재개 - 배치 업데이트 완료 ({updated_cells}개 셀)")
 
-            # Google Sheets 행 배경색을 흰색으로 복원
-            try:
-                success = manager.update_row_background_color(
-                    spreadsheet_id=sheet_id,
-                    sheet_name=sheet_name,
-                    row_number=row_number,
-                    color_type='normal'
-                )
-                if success:
-                    logger.info(f"행 {row_number} 배경색을 흰색으로 복원 완료")
-                else:
-                    logger.warning(f"행 {row_number} 배경색 복원 실패")
-            except Exception as color_error:
-                logger.error(f"배경색 복원 오류: {str(color_error)}")
-                # 색상 복원 실패해도 공사 재개는 진행
+            # 5. 배경색 복원 (흰색)
+            _update_project_background_color(
+                manager, sheet_id, sheet_name, row_number, 'normal', '재개'
+            )
 
-            # 캐시 무효화 (invalidate_project_cache 내부에서 current_sheet_data도 무효화)
+            # 6. 캐시 무효화
             invalidate_project_cache(project_code)
 
-            # 감사 로그 기록
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                audit_repo.log_action(
-                    user_email=user_email,
-                    action='RESUME_PROJECT',
-                    details=f'프로젝트 공사 재개: {project_code}',
-                    project_code=project_code,
-                    field_name='수금 관련 특이사항',
-                    old_value=project.get('수금 관련 특이사항', '-'),
-                    new_value='',
-                    ip_address=request.remote_addr
-                )
-            except Exception as log_error:
-                logger.warning(f"감사 로그 기록 실패: {log_error}")
+            # 7. 감사 로그 기록
+            _log_project_status_change(
+                project_code=project_code,
+                project=project,
+                user_email=user_email,
+                action='RESUME_PROJECT',
+                field_name='수금 관련 특이사항',
+                old_value=project.get('수금 관련 특이사항', '-'),
+                new_value=''
+            )
 
-            # 업데이트된 프로젝트 데이터 가져오기
-            updated_projects = get_project_records()
-            updated_project = next((p for p in updated_projects if p.get('프로젝트 코드') == project_code), None)
+            # 8. 업데이트된 프로젝트 데이터 가져오기
+            sanitized_project = _get_and_sanitize_updated_project(project_code)
 
-            # JSON 직렬화 가능하도록 변환
-            sanitized_project = sanitize_project_for_json(updated_project) if updated_project else None
-
-            # 실시간 알림 (SocketIO)
-            try:
-                socketio = current_app.extensions.get('socketio')
-                if socketio:
-                    socketio.emit('project_resumed', {
-                        'message': f'프로젝트 공사가 재개되었습니다: {project_code}',
-                        'timestamp': datetime.now().isoformat(),
-                        'action': 'resume_project',
-                        'project_code': project_code,
-                        'user': user_name,
-                        'updated_project': sanitized_project
-                    })
-                else:
-                    logger.warning("SocketIO 인스턴스를 찾을 수 없습니다.")
-            except Exception as socket_error:
-                logger.warning(f"SocketIO 알림 실패: {socket_error}")
+            # 9. 실시간 알림 (SocketIO)
+            _emit_project_status_change(
+                event_name='project_resumed',
+                message=f'프로젝트 공사가 재개되었습니다: {project_code}',
+                project_code=project_code,
+                user_name=user_name,
+                sanitized_project=sanitized_project
+            )
 
             logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
 
+            # 10. 성공 응답 반환
             return jsonify({
                 'success': True,
                 'message': '공사가 재개되었습니다.',
@@ -2801,6 +2907,8 @@ def resume_project_api():
     except Exception as e:
         logger.error(f"프로젝트 재개 처리 오류: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
 
 
 @projects_bp.route('/api/projects/calendar/sync', methods=['POST'])
