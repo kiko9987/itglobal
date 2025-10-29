@@ -370,58 +370,434 @@ def get_next_project_code():
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# 헬퍼 함수: update_project() 리팩토링
+# ============================================================================
+
+def _validate_update_request(data, project_code):
+    """요청 데이터 검증 (Marshmallow 스키마)
+
+    Returns:
+        JsonResponse or None: 검증 실패 시 에러 응답, 성공 시 None
+    """
+    # 디버그 로깅
+    logger.info(f"[PUT] 받은 데이터 타입: {type(data)}")
+    logger.info(f"[PUT] 받은 데이터: {data}")
+
+    if not project_code:
+        return jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
+
+    if not data:
+        return jsonify({'success': False, 'error': '업데이트할 데이터가 없습니다.'}), 400
+
+    if not isinstance(data, dict):
+        logger.error(f"[PUT] 데이터가 dict가 아닙니다: {type(data)}")
+        return jsonify({'success': False, 'error': '잘못된 데이터 형식입니다.'}), 400
+
+    # Marshmallow 스키마로 데이터 검증 (업데이트는 모든 필드 선택)
+    # 한글 필드명을 영문 스키마 필드로 매핑
+    validation_data = {
+        'project_code': data.get('프로젝트 코드', project_code),
+        'manager': data.get('담당자'),
+        'company': data.get('사업자'),
+        'address': data.get('현장 주소'),
+        'work_content': data.get('공사 내용'),
+        'start_date': data.get('공사 시작'),
+        'end_date': data.get('공사 종료'),
+        'down_payment': data.get('계약금'),
+        'mid_payment': data.get('중도금'),
+        'final_payment': data.get('잔금'),
+        'total_amount': data.get('총액 1'),
+    }
+
+    # None 값 제거 (업데이트되지 않는 필드)
+    validation_data = {k: v for k, v in validation_data.items() if v is not None}
+
+    validated_data, errors = validate_request_data(ProjectUpdateSchema, validation_data)
+
+    if errors:
+        error_messages = format_validation_errors(errors)
+        logger.warning(f"[VALIDATION] 프로젝트 업데이트 검증 실패: {error_messages}")
+        return jsonify({
+            'success': False,
+            'error': '입력 데이터 검증 실패',
+            'validation_errors': error_messages
+        }), 400
+
+    # 검증 성공
+    return None
+
+
+def _load_project_row(manager, sheet_id, sheet_name, project_code):
+    """프로젝트 행 조회 및 현재 값 로드
+
+    Returns:
+        tuple: (row_number, current_values, error_response)
+        - success: (int, list, None)
+        - failure: (None, None, JsonResponse)
+    """
+    # 프로젝트가 있는 행 찾기
+    row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
+
+    if not row_number:
+        logger.error(f"[PUT] 프로젝트 코드 '{project_code}'를 시트에서 찾을 수 없습니다. Sheet: {sheet_name}, ID: {sheet_id}")
+        return None, None, (jsonify({'success': False, 'error': f'프로젝트 {project_code}를 찾을 수 없습니다.'}), 404)
+
+    logger.info(f"[PUT] 프로젝트 업데이트 시작: {project_code}, 행번호: {row_number}")
+
+    # 현재 행의 전체 데이터 조회 (수식 포함하여 읽기)
+    # get_row_values 헬퍼 메서드 사용 (재시도/로깅/모니터링 포함)
+    current_values = manager.get_row_values(
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
+        row_number=row_number,
+        start_col='A',
+        end_col='AN',  # AN 컬럼까지 읽기 (_version 포함)
+        value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
+    )
+
+    # 현재 값을 리스트로 확장 (40개 컬럼, AN까지)
+    while len(current_values) < 40:
+        current_values.append('')
+
+    return row_number, current_values, None
+
+
+def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, row_number, current_values, expected_version):
+    """Optimistic Lock 버전 검증
+
+    Returns:
+        tuple: (new_version, error_response)
+        - success: (int, None)
+        - failure: (None, JsonResponse with 409)
+    """
+    current_version = current_values[39]  # AN 컬럼 (index 39)
+
+    # 버전 값 정규화 (빈 문자열/None → '0')
+    if not current_version or current_version == '':
+        current_version = '0'
+    if not expected_version or expected_version == '':
+        expected_version = '0'
+
+    # 버전 불일치 → 409 Conflict
+    if str(current_version) != str(expected_version):
+        logger.warning(f"[OPTIMISTIC_LOCK] 버전 충돌 감지: {project_code}, expected={expected_version}, current={current_version}")
+
+        # 현재 최신 데이터를 반환하여 클라이언트가 병합할 수 있도록 함
+        # 최신 데이터 다시 읽기 (FORMATTED_VALUE로 사용자가 보는 형식으로)
+        fresh_values = manager.get_row_values(
+            sheet_id=sheet_id,
+            sheet_name=sheet_name,
+            row_number=row_number,
+            start_col='A',
+            end_col='AN',
+            value_render_option='FORMATTED_VALUE'
+        )
+
+        # 컬럼 매핑 임시 생성
+        temp_column_mapping = manager.get_column_mapping()
+        temp_field_to_index = {}
+        for col_letter, field_name in temp_column_mapping.items():
+            if len(col_letter) == 1:
+                column_index = ord(col_letter) - ord('A')
+            else:
+                column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+            temp_field_to_index[field_name] = column_index
+
+        # 최신 데이터를 딕셔너리로 변환
+        current_data = {}
+        for field_name, index in temp_field_to_index.items():
+            if index < len(fresh_values):
+                value = fresh_values[index]
+                current_data[field_name] = '' if value is None or value == '' else str(value)
+
+        return None, (jsonify({
+            'success': False,
+            'error': 'conflict',
+            'message': '다른 사용자가 먼저 수정했습니다. 페이지를 새로고침한 후 다시 시도하세요.',
+            'current_data': current_data,
+            'current_version': str(current_version)
+        }), 409)
+
+    # 버전 일치 → 버전 증가
+    new_version = int(current_version) + 1
+    logger.info(f"[OPTIMISTIC_LOCK] 버전 업데이트: {project_code}, {current_version} → {new_version}")
+
+    return new_version, None
+
+
+def _update_project_code_if_needed(data, current_values, row_number, manager, project_code, field_to_index):
+    """사업자/담당자 변경 시 프로젝트 코드 자동 재산출
+
+    Returns:
+        tuple: (final_project_code, code_change_dict or None)
+    """
+    from dashboard.utils.project_code_generator import generate_project_code, should_update_project_code
+
+    company = data.get('사업자') or current_values[field_to_index.get('사업자', 1)]
+    manager_field = data.get('담당자') or current_values[field_to_index.get('담당자', 2)]
+
+    # 사업자 또는 담당자가 변경되었는지 확인하고 프로젝트 코드 재생성
+    if should_update_project_code(project_code, row_number, company, manager_field):
+        new_project_code = generate_project_code(row_number, company, manager_field)
+        if new_project_code and new_project_code != project_code:
+            logger.info(f"[PUT] 프로젝트 코드 자동 업데이트: {project_code} → {new_project_code}")
+            # 프로젝트 코드 업데이트
+            current_values[0] = new_project_code
+            code_change = {
+                'field_name': '프로젝트 코드',
+                'old_value': project_code,
+                'new_value': new_project_code
+            }
+            # 클라이언트에도 반환할 수 있도록 data 업데이트
+            data['프로젝트 코드'] = new_project_code
+
+            return new_project_code, code_change
+
+    return project_code, None
+
+
+def _apply_field_updates(data, current_values, field_to_index, project_code):
+    """필드 업데이트 적용 및 변경사항 추적
+
+    Returns:
+        list: field_changes (list of dict)
+    """
+    field_changes = []
+
+    # 계산 필드 목록 (프론트엔드에서 계산, 백엔드는 그대로 저장)
+    calculated_fields = ['총액 2', '총액2', '미수금', '마진율', '순익']
+
+    # 업데이트할 필드만 변경
+    for field_name, new_value in data.items():
+        if field_name in ['projectCode', '프로젝트 코드', '_version']:
+            continue  # 프로젝트 코드와 버전은 이미 처리됨
+
+        # 계산 필드는 건너뛰기 (구글 시트 수식 보존)
+        if field_name in calculated_fields:
+            logger.info(f"[PUT] 계산 필드 건너뛰기: {field_name} (구글 시트 수식 사용)")
+            continue
+
+        if field_name in field_to_index:
+            column_index = field_to_index[field_name]
+            old_value = current_values[column_index] if column_index < len(current_values) else ''
+
+            # 값이 실제로 변경된 경우에만 기록
+            if str(old_value) != str(new_value):
+                field_changes.append({
+                    'field_name': field_name,
+                    'old_value': str(old_value),
+                    'new_value': str(new_value)
+                })
+                current_values[column_index] = str(new_value)
+        else:
+            logger.warning(f"[PUT] 알 수 없는 필드명: {field_name}")
+
+    return field_changes
+
+
+def _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, field_changes):
+    """금액 필드 변경 시 자동 댓글 생성/삭제 (Apps Script onEdit 로직 재현)"""
+    payment_fields_to_check = MEMOABLE_FIELDS
+    field_to_column_map = PAYMENT_FIELD_TO_COLUMN
+
+    for change in field_changes:
+        field_name = change['field_name']
+        new_value = change['new_value']
+
+        if field_name in payment_fields_to_check:
+            try:
+                # 금액 파싱
+                amount = safe_parse_currency(new_value)
+                column = field_to_column_map[field_name]
+                cell_address = f"{column}{row_number}"
+
+                logger.info(f"[AUTO_COMMENT] {field_name} 변경 감지: {amount}원 → 셀 {cell_address}")
+
+                if amount > 0:
+                    # 자동 템플릿 생성 제거: 사용자가 직접 메모를 작성하도록 유도
+                    logger.debug(f"[AUTO_COMMENT] {cell_address} 금액 입력됨: {amount}원 (메모는 사용자가 직접 작성)")
+
+                else:
+                    # 금액이 0 이하면 댓글 삭제 (Apps Script와 동일)
+                    manager.update_cell_note(sheet_id, sheet_name, cell_address, None)
+                    logger.info(f"[AUTO_COMMENT] {cell_address} 댓글 삭제 완료 (금액 0 이하)")
+
+            except Exception as comment_error:
+                logger.warning(f"[AUTO_COMMENT] {field_name} 자동 댓글 처리 실패: {comment_error}")
+
+
+def _record_update_audit_logs(field_changes, project_code):
+    """감사 로그 배치 기록 (변경된 필드만)"""
+    if not field_changes:
+        return
+
+    try:
+        from dashboard.utils.user_database import get_audit_repository
+        audit_repo = get_audit_repository()
+        user_email = session.get('user', {}).get('email', 'unknown')
+
+        # 날짜 필드 목록
+        date_fields = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+
+        # 모든 감사 로그를 리스트에 수집 (배치 저장용)
+        audit_actions = []
+        for change in field_changes:
+            # 날짜 필드인 경우 Excel 시리얼 번호를 YYYY-MM-DD 형식으로 변환
+            old_value_display = change['old_value']
+            new_value_display = change['new_value']
+
+            if change['field_name'] in date_fields:
+                old_value_display = convert_excel_serial_to_date(old_value_display)
+                new_value_display = convert_excel_serial_to_date(new_value_display)
+
+            audit_actions.append({
+                'user_email': user_email,
+                'action': 'UPDATE_FIELD',
+                'details': f"프로젝트 {project_code}의 {change['field_name']} 필드를 '{old_value_display}'에서 '{new_value_display}'로 변경",
+                'project_code': project_code,
+                'field_name': change['field_name'],
+                'old_value': old_value_display,
+                'new_value': new_value_display,
+                'ip_address': request.remote_addr
+            })
+
+        # 배치로 한 번에 저장 (1회 트랜잭션)
+        success, count = audit_repo.log_actions_batch(audit_actions)
+        if success:
+            logger.info(f"[PUT] 감사 로그 배치 기록 완료: {count}개 변경사항 (1회 트랜잭션)")
+        else:
+            logger.warning(f"[PUT] 감사 로그 배치 기록 실패")
+
+    except Exception as log_error:
+        logger.warning(f"[PUT] 감사 로그 기록 실패: {log_error}")
+
+
+def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_number, field_to_index):
+    """저장된 행을 다시 조회하고 계산 필드 재계산
+
+    Returns:
+        dict: updated_project (계산 필드 포함)
+    """
+    import pandas as pd
+    from dashboard.services.project_service import (
+        _safe_parse_amount,
+        _parse_vat_flag,
+        _calculate_total2,
+        _calculate_outstanding_amount,
+        _calculate_net_profit,
+        _calculate_margin_rate
+    )
+
+    # 저장된 행을 FORMATTED_VALUE로 다시 조회 (계산 필드의 값을 가져오기 위해)
+    fresh_values = manager.get_row_values(
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
+        row_number=row_number,
+        start_col='A',
+        end_col='AM',
+        value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
+    )
+
+    # fresh_values를 39개 컬럼으로 패딩 (마지막 열이 비어있을 경우 대비)
+    while len(fresh_values) < 39:
+        fresh_values.append('')
+
+    # [디버깅] fresh_values 내용 확인
+    logger.info(f"[PUT] fresh_values 길이: {len(fresh_values)}")
+    logger.info(f"[PUT] 수금 관련 필드 값들 - 중도금[U/20]:{fresh_values[20] if len(fresh_values) > 20 else 'N/A'}, 잔금[V/21]:{fresh_values[21] if len(fresh_values) > 21 else 'N/A'}, 총액2[S/18]:{fresh_values[18] if len(fresh_values) > 18 else 'N/A'}, 미수금[W/22]:{fresh_values[22] if len(fresh_values) > 22 else 'N/A'}, 마진율[AF/31]:{fresh_values[31] if len(fresh_values) > 31 else 'N/A'}")
+
+    # 업데이트된 행을 딕셔너리로 직접 변환
+    updated_project = {}
+    if fresh_values:
+        # fresh_values를 딕셔너리로 변환
+        for field_name, index in field_to_index.items():
+            if index < len(fresh_values):
+                value = fresh_values[index]
+                # 빈 값 처리
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    updated_project[field_name] = ''
+                else:
+                    updated_project[field_name] = str(value)
+
+        # 날짜 필드 형식 변환 (Excel serial → YYYY-MM-DD)
+        date_fields = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+        for field_name in date_fields:
+            if field_name in updated_project:
+                date_value = updated_project[field_name]
+                if date_value and date_value != '':
+                    try:
+                        # pd.to_datetime으로 다양한 형식 지원
+                        parsed_date = pd.to_datetime(date_value, errors='coerce')
+                        if pd.notna(parsed_date):
+                            updated_project[field_name] = parsed_date.strftime('%Y-%m-%d')
+                        else:
+                            updated_project[field_name] = ''
+                    except:
+                        updated_project[field_name] = ''
+                else:
+                    updated_project[field_name] = ''
+
+        logger.info(f"[PUT] 업데이트된 프로젝트 데이터 생성")
+        logger.info(f"[PUT] updated_project 수금 필드 - 중도금:{updated_project.get('중도금', 'N/A')}, 잔금:{updated_project.get('잔금', 'N/A')}, 총액2:{updated_project.get('총액 2', 'N/A')}, 미수금:{updated_project.get('미수금', 'N/A')}, 마진율:{updated_project.get('마진율', 'N/A')}")
+
+        # ✨ 백엔드에서 계산 필드 재계산
+        # 저장 직후 fresh_values는 수식 재계산 전이라 잘못된 값일 수 있음
+        row_series = pd.Series(updated_project)
+
+        # 총액2 계산 (부가세 플래그 기반)
+        total1 = _safe_parse_amount(updated_project.get('총액 1', 0))
+        vat_flag = _parse_vat_flag(updated_project.get('부가세'))
+        total2 = _calculate_total2(total1, vat_flag)
+
+        # 미수금, 순익, 마진율 계산
+        outstanding = _calculate_outstanding_amount(row_series)
+        net_profit = _calculate_net_profit(row_series)
+        margin_rate = _calculate_margin_rate(row_series, net_profit)
+
+        # 계산된 값을 updated_project에 덮어쓰기
+        updated_project['총액 2'] = str(int(total2)) if total2 != 0 else ""
+        updated_project['미수금'] = str(int(outstanding)) if outstanding != 0 else ""
+        updated_project['순익'] = str(int(net_profit)) if net_profit != 0 else ""
+        updated_project['마진율'] = str(round(margin_rate, 1)) if margin_rate != 0 else "0"
+
+        logger.info(f"[PUT] 백엔드 계산 완료 - 부가세:{vat_flag}, 총액2:{updated_project['총액 2']}, 미수금:{updated_project['미수금']}, 순익:{updated_project['순익']}, 마진율:{updated_project['마진율']}")
+    else:
+        logger.warning(f"[PUT] fresh_values가 비어있음 (저장 후 조회 실패)")
+
+    return updated_project
+
+
+def _update_calendar_if_needed(updated_project, project_code, final_project_code):
+    """구글 캘린더 이벤트 업데이트"""
+    if updated_project:
+        try:
+            update_project_calendar_event(
+                updated_project,
+                old_project_code=project_code if project_code != final_project_code else None
+            )
+        except Exception as calendar_error:
+            logger.warning(f"[CALENDAR] 이벤트 업데이트 실패 ({final_project_code}): {calendar_error}")
+
+
+# ============================================================================
+# 메인 함수: update_project() - 리팩토링됨
+# ============================================================================
+
 @projects_bp.route('/api/projects/<project_code>', methods=['PUT'])
 @login_required
 @track_business_operation("api_project_update")
 def update_project(project_code):
-    """프로젝트 업데이트 API (통합 편집 방식 - 전체 행 업데이트)"""
+    """프로젝트 업데이트 API (통합 편집 방식 - 전체 행 업데이트) - 리팩토링됨"""
     try:
         data = request.get_json()
 
-        # 디버그 로깅
-        logger.info(f"[PUT] 받은 데이터 타입: {type(data)}")
-        logger.info(f"[PUT] 받은 데이터: {data}")
+        # 1. 요청 검증
+        error_response = _validate_update_request(data, project_code)
+        if error_response:
+            return error_response
 
-        if not project_code:
-            return jsonify({'success': False, 'error': '프로젝트 코드가 필요합니다.'}), 400
-
-        if not data:
-            return jsonify({'success': False, 'error': '업데이트할 데이터가 없습니다.'}), 400
-
-        if not isinstance(data, dict):
-            logger.error(f"[PUT] 데이터가 dict가 아닙니다: {type(data)}")
-            return jsonify({'success': False, 'error': '잘못된 데이터 형식입니다.'}), 400
-
-        # 1. Marshmallow 스키마로 데이터 검증 (업데이트는 모든 필드 선택)
-        # 한글 필드명을 영문 스키마 필드로 매핑
-        validation_data = {
-            'project_code': data.get('프로젝트 코드', project_code),
-            'manager': data.get('담당자'),
-            'company': data.get('사업자'),
-            'address': data.get('현장 주소'),
-            'work_content': data.get('공사 내용'),
-            'start_date': data.get('공사 시작'),
-            'end_date': data.get('공사 종료'),
-            'down_payment': data.get('계약금'),
-            'mid_payment': data.get('중도금'),
-            'final_payment': data.get('잔금'),
-            'total_amount': data.get('총액 1'),
-        }
-
-        # None 값 제거 (업데이트되지 않는 필드)
-        validation_data = {k: v for k, v in validation_data.items() if v is not None}
-
-        validated_data, errors = validate_request_data(ProjectUpdateSchema, validation_data)
-
-        if errors:
-            error_messages = format_validation_errors(errors)
-            logger.warning(f"[VALIDATION] 프로젝트 업데이트 검증 실패: {error_messages}")
-            return jsonify({
-                'success': False,
-                'error': '입력 데이터 검증 실패',
-                'validation_errors': error_messages
-            }), 400
-
+        # 2. 환경 설정
         sheet_id = os.getenv('GOOGLE_SHEET_ID')
         if not sheet_id:
             return jsonify({'success': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
@@ -429,355 +805,81 @@ def update_project(project_code):
         sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
         manager = get_sheets_manager()
 
-        # 프로젝트가 있는 행 찾기
-        row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
-
-        if not row_number:
-            logger.error(f"[PUT] 프로젝트 코드 '{project_code}'를 시트에서 찾을 수 없습니다. Sheet: {sheet_name}, ID: {sheet_id}")
-            return jsonify({'success': False, 'error': f'프로젝트 {project_code}를 찾을 수 없습니다.'}), 404
-
-        logger.info(f"[PUT] 프로젝트 업데이트 시작: {project_code}, 행번호: {row_number}")
-
-        # 현재 행의 전체 데이터 조회 (수식 포함하여 읽기)
-        # get_row_values 헬퍼 메서드 사용 (재시도/로깅/모니터링 포함)
-        current_values = manager.get_row_values(
-            sheet_id=sheet_id,
-            sheet_name=sheet_name,
-            row_number=row_number,
-            start_col='A',
-            end_col='AN',  # AN 컬럼까지 읽기 (_version 포함)
-            value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
+        # 3. 프로젝트 행 로드
+        row_number, current_values, error_response = _load_project_row(
+            manager, sheet_id, sheet_name, project_code
         )
+        if error_response:
+            return error_response
 
-        # 현재 값을 리스트로 확장 (40개 컬럼, AN까지)
-        while len(current_values) < 40:
-            current_values.append('')
-
-        # 🔒 Optimistic Lock: 버전 검증
+        # 4. Optimistic Lock 버전 검증
         expected_version = data.get('_version')
-        current_version = current_values[39]  # AN 컬럼 (index 39)
+        new_version, error_response = _check_optimistic_lock_update(
+            manager, sheet_id, sheet_name, project_code, row_number,
+            current_values, expected_version
+        )
+        if error_response:
+            return error_response
 
-        # 버전 값 정규화 (빈 문자열/None → '0')
-        if not current_version or current_version == '':
-            current_version = '0'
-        if not expected_version or expected_version == '':
-            expected_version = '0'
-
-        # 버전 불일치 → 409 Conflict
-        if str(current_version) != str(expected_version):
-            logger.warning(f"[OPTIMISTIC_LOCK] 버전 충돌 감지: {project_code}, expected={expected_version}, current={current_version}")
-
-            # 현재 최신 데이터를 반환하여 클라이언트가 병합할 수 있도록 함
-            # 최신 데이터 다시 읽기 (FORMATTED_VALUE로 사용자가 보는 형식으로)
-            fresh_values = manager.get_row_values(
-                sheet_id=sheet_id,
-                sheet_name=sheet_name,
-                row_number=row_number,
-                start_col='A',
-                end_col='AN',
-                value_render_option='FORMATTED_VALUE'
-            )
-
-            # 컬럼 매핑 임시 생성
-            temp_column_mapping = manager.get_column_mapping()
-            temp_field_to_index = {}
-            for col_letter, field_name in temp_column_mapping.items():
-                if len(col_letter) == 1:
-                    column_index = ord(col_letter) - ord('A')
-                else:
-                    column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-                temp_field_to_index[field_name] = column_index
-
-            # 최신 데이터를 딕셔너리로 변환
-            current_data = {}
-            for field_name, index in temp_field_to_index.items():
-                if index < len(fresh_values):
-                    value = fresh_values[index]
-                    current_data[field_name] = '' if value is None or value == '' else str(value)
-
-            return jsonify({
-                'success': False,
-                'error': 'conflict',
-                'message': '다른 사용자가 먼저 수정했습니다. 페이지를 새로고침한 후 다시 시도하세요.',
-                'current_data': current_data,
-                'current_version': str(current_version)
-            }), 409
-
-        # 버전 일치 → 버전 증가
-        new_version = int(current_version) + 1
+        # 버전 업데이트
         current_values[39] = str(new_version)
-        logger.info(f"[OPTIMISTIC_LOCK] 버전 업데이트: {project_code}, {current_version} → {new_version}")
 
-        # 컬럼 매핑 가져오기 (컬럼 문자 -> 필드명)
+        # 5. 필드 매핑 생성
         column_mapping = manager.get_column_mapping()
-
-        # 필드명 -> 컬럼 인덱스로 역변환
         field_to_index = {}
         for col_letter, field_name in column_mapping.items():
-            # 컬럼 문자를 인덱스로 변환
             if len(col_letter) == 1:
                 column_index = ord(col_letter) - ord('A')
             else:
                 column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
             field_to_index[field_name] = column_index
 
-        # 변경사항 추적을 위한 리스트
-        field_changes = []
-
-        # 계산 필드 목록 (프론트엔드에서 계산, 백엔드는 그대로 저장)
-        # 구글 시트는 단순 DB 역할이므로 수식이 아닌 값으로 저장됨
-        calculated_fields = ['총액 2', '총액2', '미수금', '마진율', '순익']
-
-        # 날짜 필드 목록
-        date_fields = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
-
-        # 프로젝트 코드 자동 업데이트 확인 (사업자/담당자 변경 시)
-        from dashboard.utils.project_code_generator import generate_project_code, should_update_project_code
-
-        company = data.get('사업자') or current_values[field_to_index.get('사업자', 1)]
-        manager_field = data.get('담당자') or current_values[field_to_index.get('담당자', 2)]
-
-        # 업데이트된 프로젝트 코드 추적 (응답 시 사용)
-        final_project_code = project_code
-
-        # 사업자 또는 담당자가 변경되었는지 확인하고 프로젝트 코드 재생성
-        if should_update_project_code(project_code, row_number, company, manager_field):
-            new_project_code = generate_project_code(row_number, company, manager_field)
-            if new_project_code and new_project_code != project_code:
-                logger.info(f"[PUT] 프로젝트 코드 자동 업데이트: {project_code} → {new_project_code}")
-                # 프로젝트 코드 업데이트
-                current_values[0] = new_project_code
-                field_changes.append({
-                    'field_name': '프로젝트 코드',
-                    'old_value': project_code,
-                    'new_value': new_project_code
-                })
-                # 클라이언트에도 반환할 수 있도록 data 업데이트
-                data['프로젝트 코드'] = new_project_code
-                # 최종 프로젝트 코드 업데이트
-                final_project_code = new_project_code
-
-        # 업데이트할 필드만 변경
-        for field_name, new_value in data.items():
-            if field_name in ['projectCode', '프로젝트 코드', '_version']:
-                continue  # 프로젝트 코드와 버전은 위에서 이미 처리
-
-            # 계산 필드는 건너뛰기 (구글 시트 수식 보존)
-            if field_name in calculated_fields:
-                logger.info(f"[PUT] 계산 필드 건너뛰기: {field_name} (구글 시트 수식 사용)")
-                continue
-
-            if field_name in field_to_index:
-                column_index = field_to_index[field_name]
-                old_value = current_values[column_index] if column_index < len(current_values) else ''
-
-                # 날짜 필드는 구글 시트가 자동 변환하지 않도록 그대로 저장
-                # (구글 시트는 YYYY-MM-DD를 자동으로 날짜 타입으로 변환함)
-                # 프론트엔드에서는 YYYY-MM-DD 형식을 유지해야 하므로 그대로 저장
-
-                # 값이 실제로 변경된 경우에만 기록
-                if str(old_value) != str(new_value):
-                    field_changes.append({
-                        'field_name': field_name,
-                        'old_value': str(old_value),
-                        'new_value': str(new_value)
-                    })
-                    current_values[column_index] = str(new_value)
-            else:
-                logger.warning(f"[PUT] 알 수 없는 필드명: {field_name}")
-
-        # 구글 시트 업데이트 (단일 행 업데이트 - 1번의 API 호출)
-        range_name = f'{sheet_name}!A{row_number}:AN{row_number}'
-        update_result = manager.update_row(sheet_id, row_number, current_values, range_name)
-
-        logger.info(f"[PUT] 전체 행 업데이트 완료: {project_code}, {len(field_changes)}개 필드 변경")
-
-        # 금액 수정 시 자동 댓글 생성 (Apps Script onEdit 로직 재현)
-        payment_fields_to_check = MEMOABLE_FIELDS
-        field_to_column_map = PAYMENT_FIELD_TO_COLUMN
-
-        for change in field_changes:
-            field_name = change['field_name']
-            new_value = change['new_value']
-
-            if field_name in payment_fields_to_check:
-                try:
-                    # 금액 파싱
-                    amount = safe_parse_currency(new_value)
-                    column = field_to_column_map[field_name]
-                    cell_address = f"{column}{row_number}"
-
-                    logger.info(f"[AUTO_COMMENT] {field_name} 변경 감지: {amount}원 → 셀 {cell_address}")
-
-                    if amount > 0:
-                        # 자동 템플릿 생성 제거: 사용자가 직접 메모를 작성하도록 유도
-                        logger.debug(f"[AUTO_COMMENT] {cell_address} 금액 입력됨: {amount}원 (메모는 사용자가 직접 작성)")
-
-                    else:
-                        # 금액이 0 이하면 댓글 삭제 (Apps Script와 동일)
-                        manager.update_cell_note(sheet_id, sheet_name, cell_address, None)
-                        logger.info(f"[AUTO_COMMENT] {cell_address} 댓글 삭제 완료 (금액 0 이하)")
-
-                except Exception as comment_error:
-                    logger.warning(f"[AUTO_COMMENT] {field_name} 자동 댓글 처리 실패: {comment_error}")
-
-        # 감사 로그 기록 (변경된 필드만) - 배치 처리로 성능 최적화
-        if field_changes:
-            try:
-                from dashboard.utils.user_database import get_audit_repository
-                audit_repo = get_audit_repository()
-                user_email = session.get('user', {}).get('email', 'unknown')
-
-                # 모든 감사 로그를 리스트에 수집 (배치 저장용)
-                audit_actions = []
-                for change in field_changes:
-                    # 날짜 필드인 경우 Excel 시리얼 번호를 YYYY-MM-DD 형식으로 변환
-                    old_value_display = change['old_value']
-                    new_value_display = change['new_value']
-
-                    if change['field_name'] in date_fields:
-                        old_value_display = convert_excel_serial_to_date(old_value_display)
-                        new_value_display = convert_excel_serial_to_date(new_value_display)
-
-                    audit_actions.append({
-                        'user_email': user_email,
-                        'action': 'UPDATE_FIELD',
-                        'details': f"프로젝트 {project_code}의 {change['field_name']} 필드를 '{old_value_display}'에서 '{new_value_display}'로 변경",
-                        'project_code': project_code,
-                        'field_name': change['field_name'],
-                        'old_value': old_value_display,
-                        'new_value': new_value_display,
-                        'ip_address': request.remote_addr
-                    })
-
-                # 배치로 한 번에 저장 (1회 트랜잭션)
-                success, count = audit_repo.log_actions_batch(audit_actions)
-                if success:
-                    logger.info(f"[PUT] 감사 로그 배치 기록 완료: {count}개 변경사항 (1회 트랜잭션)")
-                else:
-                    logger.warning(f"[PUT] 감사 로그 배치 기록 실패")
-
-            except Exception as log_error:
-                logger.warning(f"[PUT] 감사 로그 기록 실패: {log_error}")
-
-        # 캐시 무효화 (포괄적)
-        invalidate_project_cache(final_project_code)
-
-        # 저장 후 전체 리프레시하지 않음 (성능 최적화)
-        # - Background Prefetch가 주기적으로 리프레시
-        # - 저장된 행만 다시 조회해서 응답 (계산 필드 포함)
-        logger.info(f"[PUT] 프로젝트 업데이트 완료: {final_project_code}")
-
-        # 저장된 행을 FORMATTED_VALUE로 다시 조회 (계산 필드의 값을 가져오기 위해)
-        # current_values는 FORMULA 모드라 계산 필드가 수식 문자열로 반환됨
-        fresh_values = manager.get_row_values(
-            sheet_id=sheet_id,
-            sheet_name=sheet_name,
-            row_number=row_number,
-            start_col='A',
-            end_col='AM',
-            value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
+        # 6. 프로젝트 코드 자동 업데이트 (사업자/담당자 변경 시)
+        final_project_code, code_change = _update_project_code_if_needed(
+            data, current_values, row_number, manager, project_code, field_to_index
         )
 
-        # fresh_values를 39개 컬럼으로 패딩 (마지막 열이 비어있을 경우 대비)
-        while len(fresh_values) < 39:
-            fresh_values.append('')
+        # 프로젝트 코드 변경사항 추적
+        field_changes = []
+        if code_change:
+            field_changes.append(code_change)
 
-        # [디버깅] fresh_values 내용 확인 (수금 관련 필드: U=20, V=21, S=18, W=22, AF=31)
-        logger.info(f"[PUT] fresh_values 길이: {len(fresh_values)}")
-        logger.info(f"[PUT] 수금 관련 필드 값들 - 중도금[U/20]:{fresh_values[20] if len(fresh_values) > 20 else 'N/A'}, 잔금[V/21]:{fresh_values[21] if len(fresh_values) > 21 else 'N/A'}, 총액2[S/18]:{fresh_values[18] if len(fresh_values) > 18 else 'N/A'}, 미수금[W/22]:{fresh_values[22] if len(fresh_values) > 22 else 'N/A'}, 마진율[AF/31]:{fresh_values[31] if len(fresh_values) > 31 else 'N/A'}")
+        # 7. 필드 업데이트 적용
+        update_changes = _apply_field_updates(data, current_values, field_to_index, project_code)
+        field_changes.extend(update_changes)
 
-        # 업데이트된 행을 딕셔너리로 직접 변환 (DataFrame 없이 빠르게 처리)
-        updated_project = {}
-        if fresh_values:
-            # fresh_values를 딕셔너리로 변환
-            for field_name, index in field_to_index.items():
-                if index < len(fresh_values):
-                    value = fresh_values[index]
-                    # 빈 값 처리
-                    if value is None or (isinstance(value, float) and pd.isna(value)):
-                        updated_project[field_name] = ''
-                    else:
-                        updated_project[field_name] = str(value)
+        # 8. Google Sheets 업데이트
+        range_name = f'{sheet_name}!A{row_number}:AN{row_number}'
+        manager.update_row(sheet_id, row_number, current_values, range_name)
+        logger.info(f"[PUT] 전체 행 업데이트 완료: {project_code}, {len(field_changes)}개 필드 변경")
 
-            # 날짜 필드 형식 변환 (Excel serial → YYYY-MM-DD)
-            date_fields = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
-            for field_name in date_fields:
-                if field_name in updated_project:
-                    date_value = updated_project[field_name]
-                    if date_value and date_value != '':
-                        try:
-                            # pd.to_datetime으로 다양한 형식 지원
-                            parsed_date = pd.to_datetime(date_value, errors='coerce')
-                            if pd.notna(parsed_date):
-                                updated_project[field_name] = parsed_date.strftime('%Y-%m-%d')
-                            else:
-                                updated_project[field_name] = ''
-                        except:
-                            updated_project[field_name] = ''
-                    else:
-                        updated_project[field_name] = ''
+        # 9. 금액 필드 자동 댓글 처리
+        _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, field_changes)
 
-            logger.info(f"[PUT] 업데이트된 프로젝트 데이터 생성: {final_project_code}")
-            # [디버깅] updated_project 딕셔너리의 수금 관련 필드 확인
-            logger.info(f"[PUT] updated_project 수금 필드 - 중도금:{updated_project.get('중도금', 'N/A')}, 잔금:{updated_project.get('잔금', 'N/A')}, 총액2:{updated_project.get('총액 2', 'N/A')}, 미수금:{updated_project.get('미수금', 'N/A')}, 마진율:{updated_project.get('마진율', 'N/A')}")
+        # 10. 감사 로그 배치 기록
+        _record_update_audit_logs(field_changes, project_code)
 
-            # ✨ 백엔드에서 계산 필드 재계산 (Google Sheets 수식 재계산 대기 불필요)
-            # 저장 직후 fresh_values는 수식 재계산 전이라 잘못된 값일 수 있음
-            # 백엔드에서 직접 계산하여 정확한 값 반환
-            from dashboard.services.project_service import (
-                _safe_parse_amount,
-                _parse_vat_flag,
-                _calculate_total2,
-                _calculate_outstanding_amount,
-                _calculate_net_profit,
-                _calculate_margin_rate
-            )
-            import pandas as pd
+        # 11. 캐시 무효화
+        invalidate_project_cache(final_project_code)
+        logger.info(f"[PUT] 프로젝트 업데이트 완료: {final_project_code}")
 
-            # updated_project를 pandas Series로 변환하여 계산 함수에 전달
-            row_series = pd.Series(updated_project)
+        # 12. 최신 데이터 조회 및 계산 필드 재계산
+        updated_project = _fetch_and_calculate_updated_project(
+            manager, sheet_id, sheet_name, row_number, field_to_index
+        )
 
-            # 총액2 계산 (부가세 플래그 기반)
-            total1 = _safe_parse_amount(updated_project.get('총액 1', 0))
-            vat_flag = _parse_vat_flag(updated_project.get('부가세'))
-            total2 = _calculate_total2(total1, vat_flag)
+        # 13. 구글 캘린더 이벤트 업데이트
+        _update_calendar_if_needed(updated_project, project_code, final_project_code)
 
-            # 미수금, 순익, 마진율 계산
-            outstanding = _calculate_outstanding_amount(row_series)
-            net_profit = _calculate_net_profit(row_series)
-            margin_rate = _calculate_margin_rate(row_series, net_profit)
-
-            # 계산된 값을 updated_project에 덮어쓰기 (숫자 그대로 - UI에서 포맷팅)
-            # 프론트엔드에서 parseFloat()를 사용하므로 숫자로 전달해야 함
-            updated_project['총액 2'] = str(int(total2)) if total2 != 0 else ""
-            updated_project['미수금'] = str(int(outstanding)) if outstanding != 0 else ""
-            updated_project['순익'] = str(int(net_profit)) if net_profit != 0 else ""
-            updated_project['마진율'] = str(round(margin_rate, 1)) if margin_rate != 0 else "0"
-
-            logger.info(f"[PUT] 백엔드 계산 완료 - 부가세:{vat_flag}, 총액2:{updated_project['총액 2']}, 미수금:{updated_project['미수금']}, 순익:{updated_project['순익']}, 마진율:{updated_project['마진율']}")
-        else:
-            logger.warning(f"[PUT] fresh_values가 비어있음 (저장 후 조회 실패)")
-
-        if updated_project:
-            try:
-                update_project_calendar_event(
-                    updated_project,
-                    old_project_code=project_code if project_code != final_project_code else None
-                )
-            except Exception as calendar_error:
-                logger.warning(f"[CALENDAR] 이벤트 업데이트 실패 ({final_project_code}): {calendar_error}")
-
-        # 업데이트된 전체 프로젝트 데이터 반환 (계산 필드 포함)
-        # [디버깅] 최종 응답 데이터 확인
+        # 14. 최종 응답 반환
         logger.info(f"[PUT] 최종 응답 - project 필드 존재: {updated_project is not None}, 필드 개수: {len(updated_project) if updated_project else 0}")
 
         return jsonify({
             'success': True,
             'message': '성공적으로 업데이트되었습니다.',
-            'project_code': final_project_code,  # 최종 프로젝트 코드 반환
-            'old_project_code': project_code if final_project_code != project_code else None,  # 변경 전 코드 (변경된 경우만)
-            'project': updated_project  # 구글 시트에서 계산된 최신 데이터
+            'project_code': final_project_code,
+            'old_project_code': project_code if final_project_code != project_code else None,
+            'project': updated_project
         })
 
     except Exception as e:
