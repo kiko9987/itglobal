@@ -1553,6 +1553,124 @@ class GoogleSheetsManager:
             logger.warning(f"셀 노트 조회 실패 ({cell_address}): {e}")
             return None
 
+
+
+    def _execute_row_update(self, sheet_id, sheet_name, row_number, row_values):
+        """행 데이터 업데이트 실행
+
+        Args:
+            sheet_id: 구글 시트 ID
+            sheet_name: 시트 이름
+            row_number: 행 번호 (1부터 시작)
+            row_values: 행 데이터 리스트
+
+        Returns:
+            int: 업데이트된 셀 수
+        """
+        range_name = f'{sheet_name}!A{row_number}:AM{row_number}'
+        body = {'values': [row_values]}
+
+        request = self.service.spreadsheets().values().update(
+            spreadsheetId=sheet_id,
+            range=range_name,
+            valueInputOption='USER_ENTERED',
+            body=body
+        )
+        row_result = self._execute_with_retry(request, f"update_row_batch(row={row_number})")
+
+        updated_cells = row_result.get('updatedCells', 0)
+        logger.info(f"[BATCH_UPDATE] 행 업데이트 완료: {row_number}행, {updated_cells}셀")
+
+        return updated_cells
+
+
+    def _build_cell_notes_batch_requests(self, cell_notes, numeric_sheet_id):
+        """셀 노트 배치 업데이트 요청 리스트 생성
+
+        Args:
+            cell_notes: 셀 노트 딕셔너리 {cell_address: note_text}
+            numeric_sheet_id: 시트의 숫자 ID
+
+        Returns:
+            list: batchUpdate 요청 리스트
+        """
+        batch_requests = []
+
+        for cell_address, note_text in cell_notes.items():
+            # 셀 주소 파싱
+            col_letter = ''.join(filter(str.isalpha, cell_address))
+            row_num = int(''.join(filter(str.isdigit, cell_address)))
+            col_index = self._column_letter_to_number(col_letter)
+            row_index = row_num - 1  # 0-based
+
+            # 메모 업데이트 요청 생성
+            batch_requests.append({
+                'repeatCell': {
+                    'range': {
+                        'sheetId': numeric_sheet_id,
+                        'startRowIndex': row_index,
+                        'endRowIndex': row_index + 1,
+                        'startColumnIndex': col_index,
+                        'endColumnIndex': col_index + 1
+                    },
+                    'cell': {
+                        'note': note_text if note_text else None
+                    },
+                    'fields': 'note'
+                }
+            })
+
+        return batch_requests
+
+
+    def _execute_cell_notes_batch(self, sheet_id, batch_requests):
+        """셀 노트 배치 업데이트 실행
+
+        Args:
+            sheet_id: 구글 시트 ID
+            batch_requests: batchUpdate 요청 리스트
+
+        Returns:
+            int: 업데이트된 메모 수
+        """
+        if not batch_requests:
+            return 0
+
+        body = {'requests': batch_requests}
+        request = self.service.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body=body
+        )
+        self._execute_with_retry(
+            request,
+            f"update_notes_batch({len(batch_requests)} notes)"
+        )
+
+        notes_count = len(batch_requests)
+        logger.info(f"[BATCH_UPDATE] 메모 업데이트 완료: {notes_count}개 메모")
+
+        return notes_count
+
+
+    def _log_batch_update_summary(self, row_number, notes_updated, api_calls, elapsed_time):
+        """배치 업데이트 완료 요약 로그
+
+        Args:
+            row_number: 업데이트된 행 번호
+            notes_updated: 업데이트된 메모 수
+            api_calls: 총 API 호출 수
+            elapsed_time: 소요 시간 (초)
+        """
+        logger.info(
+            f"[BATCH_UPDATE] 완료: 행 {row_number} + {notes_updated}개 메모, "
+            f"API 호출 {api_calls}회, 소요시간 {elapsed_time:.2f}초"
+        )
+
+
+    # ============================================
+    # 메인 함수 (Refactored Main Function)
+    # ============================================
+
     def update_row_with_notes_batch(self, sheet_id, sheet_name, row_number, row_values, cell_notes=None):
         """
         행 데이터와 여러 셀 노트를 Batch로 업데이트 (통합편집 최적화)
@@ -1586,75 +1704,27 @@ class GoogleSheetsManager:
         api_calls = 0
 
         try:
-            # 1. 행 데이터 업데이트 (1번 API 호출)
-            range_name = f'{sheet_name}!A{row_number}:AM{row_number}'
-            body = {'values': [row_values]}
-
-            request = self.service.spreadsheets().values().update(
-                spreadsheetId=sheet_id,
-                range=range_name,
-                valueInputOption='USER_ENTERED',
-                body=body
-            )
-            row_result = self._execute_with_retry(request, f"update_row_batch(row={row_number})")
+            # 1. 행 데이터 업데이트
+            self._execute_row_update(sheet_id, sheet_name, row_number, row_values)
             api_calls += 1
 
-            updated_cells = row_result.get('updatedCells', 0)
-            logger.info(f"[BATCH_UPDATE] 행 업데이트 완료: {row_number}행, {updated_cells}셀")
-
-            # 2. 셀 노트 Batch 업데이트 (1번 API 호출로 모든 메모 처리)
+            # 2. 셀 노트 Batch 업데이트
             notes_updated = 0
             if cell_notes:
                 # 시트 ID 조회
                 numeric_sheet_id = self.get_sheet_id_by_name(sheet_id, sheet_name)
 
-                # batchUpdate 요청 구성
-                batch_requests = []
-                for cell_address, note_text in cell_notes.items():
-                    # 셀 주소 파싱
-                    col_letter = ''.join(filter(str.isalpha, cell_address))
-                    row_num = int(''.join(filter(str.isdigit, cell_address)))
-                    col_index = self._column_letter_to_number(col_letter)
-                    row_index = row_num - 1  # 0-based
+                # Batch 요청 생성
+                batch_requests = self._build_cell_notes_batch_requests(cell_notes, numeric_sheet_id)
 
-                    # 메모 업데이트 요청 생성
-                    batch_requests.append({
-                        'repeatCell': {
-                            'range': {
-                                'sheetId': numeric_sheet_id,
-                                'startRowIndex': row_index,
-                                'endRowIndex': row_index + 1,
-                                'startColumnIndex': col_index,
-                                'endColumnIndex': col_index + 1
-                            },
-                            'cell': {
-                                'note': note_text if note_text else None
-                            },
-                            'fields': 'note'
-                        }
-                    })
-                    notes_updated += 1
-
-                # Batch Update 실행 (1번 API 호출로 모든 메모 처리)
+                # Batch 실행
+                notes_updated = self._execute_cell_notes_batch(sheet_id, batch_requests)
                 if batch_requests:
-                    body = {'requests': batch_requests}
-                    request = self.service.spreadsheets().batchUpdate(
-                        spreadsheetId=sheet_id,
-                        body=body
-                    )
-                    notes_result = self._execute_with_retry(
-                        request,
-                        f"update_notes_batch({len(batch_requests)} notes)"
-                    )
                     api_calls += 1
 
-                    logger.info(f"[BATCH_UPDATE] 메모 업데이트 완료: {notes_updated}개 메모")
-
+            # 3. 완료 로그 및 결과 반환
             elapsed_time = time.time() - start_time
-            logger.info(
-                f"[BATCH_UPDATE] 완료: 행 {row_number} + {notes_updated}개 메모, "
-                f"API 호출 {api_calls}회, 소요시간 {elapsed_time:.2f}초"
-            )
+            self._log_batch_update_summary(row_number, notes_updated, api_calls, elapsed_time)
 
             return {
                 'row_updated': True,
@@ -1665,6 +1735,8 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.error(f"[BATCH_UPDATE] 실패: {str(e)}")
             raise
+
+
 
     def clear_row_cache(self):
         """프로젝트 코드 → 행번호 캐시 초기화"""
