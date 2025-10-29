@@ -2,6 +2,9 @@
 
 이 문서는 시스템 전체 API의 표준 규칙을 정의합니다.
 
+> **참고**: 이전 `dashboard/docs/API_RESPONSE_STANDARDS.md` 문서는 이 문서로 통합되었습니다.
+> 모든 API 응답 표준은 이 문서를 참고하세요.
+
 ---
 
 ## 📋 HTTP 상태 코드 규칙
