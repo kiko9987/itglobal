@@ -989,8 +989,8 @@ def _apply_inline_field_changes(data, current_values, original_values, manager, 
                 break
 
         if column_index is not None and column_index < len(current_values):
-            # 기존 값 저장
-            old_value = current_values[column_index] if column_index < len(original_values) else ''
+            # 기존 값 저장 (감사 로그용 - 원본 값 사용)
+            old_value = original_values[column_index] if column_index < len(original_values) else ''
 
             # 새 값 준비
             if new_value == '-' or new_value == '':
