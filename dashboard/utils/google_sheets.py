@@ -1236,9 +1236,140 @@ class GoogleSheetsManager:
             logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
             return {}
 
+    # ========================================================================
+    # 헬퍼 함수: update_cell_note() 리팩토링
+    # ========================================================================
+
+    def _parse_cell_address_for_note(self, cell_address):
+        """
+        셀 주소 파싱 (예: 'T5' → col_letter='T', row_number=5)
+
+        Args:
+            cell_address: 셀 주소 (예: 'T5', 'U10', 'V20')
+
+        Returns:
+            tuple: (col_letter, row_number, col_index, row_index)
+        """
+        logger.debug(f"[MEMO_SAVE_STEP_2] 셀 주소 파싱 시작: {cell_address}")
+        col_letter = ''.join(filter(str.isalpha, cell_address))
+        row_number = int(''.join(filter(str.isdigit, cell_address)))
+        col_index = self._column_letter_to_number(col_letter)
+        row_index = row_number - 1  # 0-based
+        logger.debug(f"[MEMO_SAVE_STEP_2] 파싱 완료: 행={row_index}, 열={col_index}")
+        return col_letter, row_number, col_index, row_index
+
+    def _create_note_batch_request(self, numeric_sheet_id, row_index, col_index, note_text):
+        """
+        셀 노트 업데이트를 위한 batchUpdate 요청 생성
+
+        Args:
+            numeric_sheet_id: 시트 ID (숫자)
+            row_index: 행 인덱스 (0-based)
+            col_index: 열 인덱스 (0-based)
+            note_text: 메모 내용 (None이면 삭제)
+
+        Returns:
+            list: batchUpdate requests
+        """
+        logger.debug(f"[MEMO_SAVE_STEP_3] batchUpdate 요청 생성 시작")
+        requests = [{
+            'updateCells': {
+                'range': {
+                    'sheetId': numeric_sheet_id,
+                    'startRowIndex': row_index,
+                    'endRowIndex': row_index + 1,
+                    'startColumnIndex': col_index,
+                    'endColumnIndex': col_index + 1
+                },
+                'rows': [{
+                    'values': [{
+                        'note': note_text if note_text else None
+                    }]
+                }],
+                'fields': 'note'
+            }
+        }]
+        logger.debug(f"[MEMO_SAVE_STEP_3] 요청 생성 완료")
+        return requests
+
+    def _execute_note_api_with_monitoring(self, sheet_id, requests, cell_address, process):
+        """
+        Google Sheets API 호출 (메모리 모니터링 포함)
+
+        Args:
+            sheet_id: 구글 시트 ID
+            requests: batchUpdate 요청 리스트
+            cell_address: 셀 주소 (로깅용)
+            process: psutil.Process 객체
+
+        Returns:
+            result: API 응답 객체
+        """
+        logger.debug(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 시작 (CRITICAL SECTION)")
+        request = self.service.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={'requests': requests}
+        )
+        logger.debug(f"[MEMO_SAVE_STEP_4] Request 객체 생성 완료, execute() 호출 직전")
+
+        # API 호출 전 메모리 체크
+        pre_api_memory = process.memory_info().rss / 1024 / 1024
+        logger.debug(f"[MEMO_SAVE_STEP_4] API 호출 전 메모리: {pre_api_memory:.1f}MB")
+
+        result = self._execute_with_retry(request, f"update_cell_note({cell_address})")
+
+        # API 호출 후 메모리 체크
+        post_api_memory = process.memory_info().rss / 1024 / 1024
+        memory_increase = post_api_memory - pre_api_memory
+        logger.debug(f"[MEMO_SAVE_STEP_4] API 호출 후 메모리: {post_api_memory:.1f}MB (증가: {memory_increase:+.1f}MB)")
+
+        logger.debug(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 성공")
+        return result
+
+
+    def _log_note_operation_error(self, e, cell_address, elapsed_time, memory_change, process):
+        """
+        셀 노트 저장 실패 시 상세 에러 로깅
+
+        Args:
+            e: 발생한 예외
+            cell_address: 셀 주소
+            elapsed_time: 소요 시간
+            memory_change: 메모리 변화량
+            process: psutil.Process 객체
+        """
+        import sys
+        import traceback
+
+        logger.error(f"[MEMO_SAVE_ERROR] 셀: {cell_address}")
+        logger.error(f"[MEMO_SAVE_ERROR] 에러 타입: {type(e).__name__}")
+        logger.error(f"[MEMO_SAVE_ERROR] 에러 메시지: {str(e)}")
+        logger.error(f"[MEMO_SAVE_ERROR] 소요시간: {elapsed_time:.2f}초")
+        logger.error(f"[MEMO_SAVE_ERROR] 메모리 변화: {memory_change:+.1f}MB")
+
+        import threading
+        logger.error(f"[MEMO_SAVE_ERROR] 스레드: {threading.current_thread().name}")
+        logger.error(f"[MEMO_SAVE_ERROR] Python 버전: {sys.version}")
+
+        stack_trace = traceback.format_exc()
+        logger.error(f"[MEMO_SAVE_ERROR] 스택 트레이스:\n{stack_trace}")
+
+        # 시스템 리소스 정보 덤프
+        try:
+            cpu_percent = process.cpu_percent(interval=0.1)
+            open_files = len(process.open_files())
+            num_threads = process.num_threads()
+            logger.error(f"[MEMO_SAVE_ERROR] 시스템 상태: CPU={cpu_percent}%, 열린파일={open_files}, 스레드수={num_threads}")
+        except Exception as resource_error:
+            logger.warning(f"처리 중 오류 무시: {resource_error}")
+
+    # ========================================================================
+    # 메인 함수 (리팩토링됨)
+    # ========================================================================
+
     def update_cell_note(self, sheet_id, sheet_name, cell_address, note_text):
         """
-        특정 셀에 노트(댓글) 추가/수정/삭제 (스레드 안전, 상세 로깅)
+        특정 셀에 노트(댓글) 추가/수정/삭제 (스레드 안전, 상세 로깅) - 리팩토링됨
 
         Args:
             sheet_id: 구글 시트 ID
@@ -1253,7 +1384,6 @@ class GoogleSheetsManager:
             manager.update_cell_note(sheet_id, '공사 현황의 사본', 'T5', '입금일: 2025-01-10\\n입금자: 홍길동')
             manager.update_cell_note(sheet_id, '공사 현황의 사본', 'U10', None)  # 댓글 삭제
         """
-        import sys
         import psutil
         import threading
 
@@ -1272,54 +1402,13 @@ class GoogleSheetsManager:
                 logger.debug(f"[MEMO_SAVE_STEP_1] 시트 ID 조회 완료: {numeric_sheet_id}")
 
                 # 2단계: 셀 주소 파싱
-                logger.debug(f"[MEMO_SAVE_STEP_2] 셀 주소 파싱 시작: {cell_address}")
-                col_letter = ''.join(filter(str.isalpha, cell_address))
-                row_number = int(''.join(filter(str.isdigit, cell_address)))
-                col_index = self._column_letter_to_number(col_letter)
-                row_index = row_number - 1  # 0-based
-                logger.debug(f"[MEMO_SAVE_STEP_2] 파싱 완료: 행={row_index}, 열={col_index}")
+                col_letter, row_number, col_index, row_index = self._parse_cell_address_for_note(cell_address)
 
                 # 3단계: batchUpdate 요청 생성
-                logger.debug(f"[MEMO_SAVE_STEP_3] batchUpdate 요청 생성 시작")
-                requests = [{
-                    'updateCells': {
-                        'range': {
-                            'sheetId': numeric_sheet_id,
-                            'startRowIndex': row_index,
-                            'endRowIndex': row_index + 1,
-                            'startColumnIndex': col_index,
-                            'endColumnIndex': col_index + 1
-                        },
-                        'rows': [{
-                            'values': [{
-                                'note': note_text if note_text else None
-                            }]
-                        }],
-                        'fields': 'note'
-                    }
-                }]
-                logger.debug(f"[MEMO_SAVE_STEP_3] 요청 생성 완료")
+                requests = self._create_note_batch_request(numeric_sheet_id, row_index, col_index, note_text)
 
-                # 4단계: Google Sheets API 호출 (크래시 가능 지점)
-                logger.debug(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 시작 (CRITICAL SECTION)")
-                request = self.service.spreadsheets().batchUpdate(
-                    spreadsheetId=sheet_id,
-                    body={'requests': requests}
-                )
-                logger.debug(f"[MEMO_SAVE_STEP_4] Request 객체 생성 완료, execute() 호출 직전")
-
-                # API 호출 전 메모리 체크
-                pre_api_memory = process.memory_info().rss / 1024 / 1024
-                logger.debug(f"[MEMO_SAVE_STEP_4] API 호출 전 메모리: {pre_api_memory:.1f}MB")
-
-                result = self._execute_with_retry(request, f"update_cell_note({cell_address})")
-
-                # API 호출 후 메모리 체크
-                post_api_memory = process.memory_info().rss / 1024 / 1024
-                memory_increase = post_api_memory - pre_api_memory
-                logger.debug(f"[MEMO_SAVE_STEP_4] API 호출 후 메모리: {post_api_memory:.1f}MB (증가: {memory_increase:+.1f}MB)")
-
-                logger.debug(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 성공")
+                # 4단계: Google Sheets API 호출 (메모리 모니터링 포함)
+                result = self._execute_note_api_with_monitoring(sheet_id, requests, cell_address, process)
 
                 # 5단계: 완료 처리
                 elapsed_time = time.time() - start_time
@@ -1335,7 +1424,6 @@ class GoogleSheetsManager:
                 # 메모리 크래시 방지: API 응답 객체 명시적 정리
                 try:
                     del result
-                    del request
                     import gc
                     gc.collect()
                     logger.debug(f"[MEMO_SAVE_CLEANUP] API 응답 객체 정리 완료, 가비지 컬렉션 실행")
@@ -1349,28 +1437,7 @@ class GoogleSheetsManager:
                 final_memory = process.memory_info().rss / 1024 / 1024
                 memory_change = final_memory - initial_memory
 
-                logger.error(f"[MEMO_SAVE_ERROR] 셀: {cell_address}")
-                logger.error(f"[MEMO_SAVE_ERROR] 에러 타입: {type(e).__name__}")
-                logger.error(f"[MEMO_SAVE_ERROR] 에러 메시지: {str(e)}")
-                logger.error(f"[MEMO_SAVE_ERROR] 소요시간: {elapsed_time:.2f}초")
-                logger.error(f"[MEMO_SAVE_ERROR] 메모리 변화: {memory_change:+.1f}MB")
-                logger.error(f"[MEMO_SAVE_ERROR] 스레드: {threading.current_thread().name}")
-                logger.error(f"[MEMO_SAVE_ERROR] Python 버전: {sys.version}")
-
-                import traceback
-                stack_trace = traceback.format_exc()
-                logger.error(f"[MEMO_SAVE_ERROR] 스택 트레이스:\n{stack_trace}")
-
-                # 시스템 리소스 정보 덤프
-                try:
-                    cpu_percent = process.cpu_percent(interval=0.1)
-                    open_files = len(process.open_files())
-                    num_threads = process.num_threads()
-                    logger.error(f"[MEMO_SAVE_ERROR] 시스템 상태: CPU={cpu_percent}%, 열린파일={open_files}, 스레드수={num_threads}")
-                except Exception as e:
-                    logger.warning(f"처리 중 오류 무시: {e}")
-                    pass
-
+                self._log_note_operation_error(e, cell_address, elapsed_time, memory_change, process)
                 return False
 
     def get_cell_note(self, sheet_id, sheet_name, cell_address):
