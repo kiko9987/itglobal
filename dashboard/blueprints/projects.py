@@ -944,6 +944,55 @@ def _check_optimistic_lock_inline(data, current_values, project_code, manager, s
     return new_version, None
 
 
+def _check_and_update_project_code(data, current_values, row_number, manager, project_code):
+    """
+    사업자/담당자 변경 시 프로젝트 코드 자동 재산출
+
+    Args:
+        data: 요청 데이터
+        current_values: 현재 행 값 (수정됨)
+        row_number: 행 번호
+        manager: GoogleSheetsManager 인스턴스
+        project_code: 원본 프로젝트 코드
+
+    Returns:
+        tuple: (updated_project_code, field_change_dict or None)
+    """
+    from dashboard.utils.project_code_generator import generate_project_code, should_update_project_code
+
+    # 컬럼 매핑에서 field_to_index 생성
+    column_mapping = manager.get_column_mapping()
+    field_to_index = {}
+    for col_letter, field_name in column_mapping.items():
+        if len(col_letter) == 1:
+            column_index = ord(col_letter) - ord('A')
+        else:
+            column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+        field_to_index[field_name] = column_index
+
+    # 사업자/담당자 값 가져오기 (변경된 값 또는 기존 값)
+    company = data.get('사업자') or current_values[field_to_index.get('사업자', 1)]
+    manager_field = data.get('담당자') or current_values[field_to_index.get('담당자', 2)]
+
+    # 프로젝트 코드 재산출 필요 여부 확인
+    if should_update_project_code(project_code, row_number, company, manager_field):
+        new_project_code = generate_project_code(row_number, company, manager_field)
+        if new_project_code and new_project_code != project_code:
+            logger.info(f"[인라인] 프로젝트 코드 자동 업데이트: {project_code} → {new_project_code}")
+
+            # 프로젝트 코드 업데이트
+            current_values[0] = new_project_code
+
+            # field_changes에 추가할 딕셔너리 반환
+            return new_project_code, {
+                'field_name': '프로젝트 코드',
+                'old_value': project_code,
+                'new_value': new_project_code
+            }
+
+    return project_code, None
+
+
 def _apply_inline_field_changes(data, current_values, original_values, manager, project_code):
     """
     필드 변경사항을 current_values에 적용하고 감사 로그 기록
@@ -956,7 +1005,9 @@ def _apply_inline_field_changes(data, current_values, original_values, manager, 
         project_code: 프로젝트 코드
 
     Returns:
-        list: field_changes (감사 로그용)
+        tuple: (field_changes, final_project_code)
+            - field_changes: 감사 로그용 변경 목록
+            - final_project_code: 최종 프로젝트 코드 (자동 변경된 경우 새 코드)
     """
     column_mapping = manager.get_column_mapping()
     field_changes = []
@@ -1038,7 +1089,8 @@ def _apply_inline_field_changes(data, current_values, original_values, manager, 
         except Exception as log_error:
             logger.warning(f"감사 로그 기록 실패: {log_error}")
 
-    return field_changes
+    # 최종 프로젝트 코드 반환 (변경되지 않았으면 원본 그대로)
+    return field_changes, project_code
 
 
 def _save_and_return_inline_result(manager, sheet_id, sheet_name, row_number, current_values, project_code):
@@ -1151,15 +1203,43 @@ def update_project_inline():
         # 버전 업데이트
         current_values[39] = str(new_version)
 
-        # 5. 필드 변경사항 적용 및 감사 로그
+        # 5. 프로젝트 코드 자동 재산출 (사업자/담당자 변경 시)
         original_values = current_values.copy()
-        field_changes = _apply_inline_field_changes(
-            data, current_values, original_values, manager, project_code
+        final_project_code, code_change = _check_and_update_project_code(
+            data, current_values, row_number, manager, project_code
         )
 
-        # 6. 구글 시트 업데이트 및 결과 반환
+        # 6. 필드 변경사항 적용 및 감사 로그
+        field_changes, _ = _apply_inline_field_changes(
+            data, current_values, original_values, manager, final_project_code
+        )
+
+        # 프로젝트 코드가 자동 변경된 경우 field_changes 및 감사 로그 추가
+        if code_change:
+            field_changes.insert(0, code_change)  # 맨 앞에 추가
+
+            # 프로젝트 코드 변경 감사 로그 기록
+            try:
+                from dashboard.utils.user_database import get_audit_repository
+                audit_repo = get_audit_repository()
+                user_email = session.get('user', {}).get('email', 'unknown')
+
+                audit_repo.log_action(
+                    user_email=user_email,
+                    action='UPDATE_FIELD',
+                    details=f"프로젝트 {project_code}의 프로젝트 코드 필드를 '{code_change['old_value']}'에서 '{code_change['new_value']}'로 변경 (자동)",
+                    project_code=final_project_code,
+                    field_name='프로젝트 코드',
+                    old_value=code_change['old_value'],
+                    new_value=code_change['new_value'],
+                    ip_address=request.remote_addr
+                )
+            except Exception as log_error:
+                logger.warning(f"프로젝트 코드 변경 감사 로그 기록 실패: {log_error}")
+
+        # 7. 구글 시트 업데이트 및 결과 반환
         return _save_and_return_inline_result(
-            manager, sheet_id, sheet_name, row_number, current_values, project_code
+            manager, sheet_id, sheet_name, row_number, current_values, final_project_code
         )
 
     except Exception as e:
