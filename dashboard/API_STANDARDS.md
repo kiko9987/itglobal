@@ -319,6 +319,37 @@ return ApiResponse.partial_success(
 2. 수정이 필요한 기존 API 점진적 전환
 3. 레거시 응답 구조는 당분간 유지 (하위 호환성)
 
+### 하위 호환성 (Backward Compatibility)
+
+기존 코드에서 사용 중인 레거시 이름은 계속 지원됩니다:
+
+**레거시 이름 (계속 작동)**:
+```python
+from dashboard.utils.api_response import APIResponse, APIErrorCode, api_response
+
+# 레거시 클래스 사용 (여전히 작동)
+APIResponse.success(data=projects)
+APIErrorCode.VALIDATION_ERROR
+
+# 레거시 함수 사용 (여전히 작동)
+api_response(success=True, data=projects)
+```
+
+**새 표준 이름 (권장)**:
+```python
+from dashboard.utils.api_response import ApiResponse, ErrorCode
+
+# 새 표준 클래스 사용 (권장)
+ApiResponse.success(data=projects)
+ErrorCode.VALIDATION_ERROR
+```
+
+**마이그레이션 전략**:
+- ✅ 기존 코드는 수정 없이 계속 작동
+- ✅ 신규 코드는 `ApiResponse`, `ErrorCode` 사용
+- ✅ 기존 코드 수정 시 점진적으로 새 이름으로 전환
+- ⚠️ `api_response()` 함수는 제한적 기능만 제공 (에러 코드 자동 매핑 불가)
+
 **예시**:
 
 **Before (레거시)**:
