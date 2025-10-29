@@ -1,6 +1,33 @@
 """
-Standard API Response Format Implementation
-Following the API standardization strategy for consistent response formatting
+표준 API 응답 구조 (Standard API Response Format)
+
+이 모듈은 시스템 전체의 표준 API 응답 구조를 정의합니다.
+API_STANDARDS.md 문서를 준수합니다.
+
+주요 클래스:
+- APIResponse: 표준 응답 생성기 (success, error, created, validation_error 등)
+- APIErrorCode: 표준 에러 코드 Enum
+- PaginationHelper: 페이지네이션 헬퍼
+- APIException: API 예외 기본 클래스
+
+Usage:
+    from dashboard.api.responses import APIResponse, APIErrorCode
+
+    # 성공 응답
+    return APIResponse.success(data=projects)
+
+    # 생성 성공 (201)
+    return APIResponse.created(data=new_project)
+
+    # 검증 오류 (400)
+    return APIResponse.validation_error(details=errors)
+
+    # 리소스 없음 (404)
+    return APIResponse.not_found(resource="프로젝트", resource_id=code)
+
+참고 문서:
+    - dashboard/API_STANDARDS.md: HTTP 상태 코드 규칙, 사용 예시
+    - dashboard/tests/test_api_response.py: 테스트 예시
 """
 
 from datetime import datetime

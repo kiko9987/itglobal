@@ -17,7 +17,7 @@ from ..services.lead_service import (
     search_leads_by_customer
 )
 from ..utils.logging_config import get_logger
-from ..utils.api_response import APIResponse, APIErrorCode
+from ..api.responses import APIResponse, APIErrorCode
 
 logger = get_logger(__name__)
 

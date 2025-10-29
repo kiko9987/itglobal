@@ -99,16 +99,16 @@
 
 ## 🔧 사용 방법
 
-### 1. ApiResponse 헬퍼 사용 (권장)
+### 1. APIResponse 헬퍼 사용 (권장)
 
 ```python
-from dashboard.utils.api_response import ApiResponse, ErrorCode
+from dashboard.api.responses import APIResponse, APIErrorCode
 
 # 성공 응답 (200)
 @app.route('/api/projects/list')
 def get_projects():
     projects = get_all_projects()
-    return ApiResponse.success(
+    return APIResponse.success(
         data=projects,
         meta={'total': len(projects)}
     )
@@ -117,43 +117,40 @@ def get_projects():
 @app.route('/api/projects', methods=['POST'])
 def create_project():
     project = create_new_project(request.json)
-    return ApiResponse.success(
+    return APIResponse.created(
         data=project,
-        message="프로젝트가 생성되었습니다",
-        status_code=201
+        message="프로젝트가 생성되었습니다"
     )
 
 # 검증 오류 (400)
 @app.route('/api/projects/<code>')
 def get_project(code):
     if not code:
-        return ApiResponse.error(
-            ErrorCode.MISSING_REQUIRED_FIELD,
-            "프로젝트 코드가 필요합니다",
-            details={'field': 'project_code'}
+        return APIResponse.validation_error(
+            details={'field': 'project_code'},
+            message="프로젝트 코드가 필요합니다"
         )
 
 # 리소스 없음 (404)
     project = find_project(code)
     if not project:
-        return ApiResponse.error(
-            ErrorCode.RESOURCE_NOT_FOUND,
-            "프로젝트를 찾을 수 없습니다",
-            details={'project_code': code}
+        return APIResponse.not_found(
+            resource="프로젝트",
+            resource_id=code
         )
 
-    return ApiResponse.success(data=project)
+    return APIResponse.success(data=project)
 
 # 부분 성공 (207)
 @app.route('/api/memos/batch', methods=['POST'])
 def save_memos_batch():
     results = process_batch(request.json)
-    return ApiResponse.partial_success(
-        results=results,
-        success_count=5,
-        failed_count=2,
-        total_count=7
-    )
+    # Note: 부분 성공은 수동으로 구현 (APIResponse에 partial_success 없음)
+    return jsonify({
+        'success': True,
+        'data': {'results': results},
+        'meta': {'timestamp': datetime.now().isoformat()}
+    }), 207
 
 # 외부 서비스 오류 (503)
 @app.route('/api/sync')
@@ -161,10 +158,8 @@ def sync_sheets():
     try:
         sync_with_sheets()
     except SheetsAPIError as e:
-        return ApiResponse.error(
-            ErrorCode.SHEETS_API_ERROR,
-            "Google Sheets 동기화에 실패했습니다",
-            details={'error': str(e)}
+        return APIResponse.service_unavailable(
+            message="Google Sheets 동기화에 실패했습니다"
         )
 ```
 
@@ -188,12 +183,13 @@ return jsonify({
 | 코드 | HTTP | 설명 | 사용 예시 |
 |------|------|------|----------|
 | `VALIDATION_ERROR` | 400 | 입력 검증 실패 | Marshmallow 검증 실패 |
+| `BAD_REQUEST` | 400 | 잘못된 요청 | 필수 필드 누락, 형식 오류 |
 | `MISSING_REQUIRED_FIELD` | 400 | 필수 필드 누락 | project_code 없음 |
-| `INVALID_FORMAT` | 400 | 형식 오류 | 날짜 형식 틀림 |
-| `ALREADY_EXISTS` | 400 | 이미 존재 | 중복 프로젝트 코드 |
-| `AUTHENTICATION_REQUIRED` | 401 | 인증 필요 | 로그인 필요 |
-| `PERMISSION_DENIED` | 403 | 권한 없음 | viewer가 수정 시도 |
+| `UNAUTHORIZED` | 401 | 인증 필요 | 로그인 필요 |
+| `FORBIDDEN` | 403 | 권한 없음 | viewer가 수정 시도 |
 | `RESOURCE_NOT_FOUND` | 404 | 리소스 없음 | 프로젝트 없음 |
+| `CONFLICT` | 409 | 리소스 충돌 | 중복 프로젝트 코드 |
+| `RATE_LIMITED` | 429 | 요청 제한 | API 호출 초과 |
 
 ### 서버 에러 (5xx)
 
@@ -201,15 +197,19 @@ return jsonify({
 |------|------|------|----------|
 | `INTERNAL_ERROR` | 500 | 내부 서버 오류 | Python Exception |
 | `DATABASE_ERROR` | 500 | 데이터베이스 오류 | SQLite 오류 |
+| `SERVICE_UNAVAILABLE` | 503 | 서비스 불가 | 외부 서비스 장애 |
 | `EXTERNAL_SERVICE_ERROR` | 503 | 외부 서비스 장애 | 일반 외부 API 오류 |
-| `SHEETS_API_ERROR` | 503 | Google Sheets 오류 | Sheets API 장애 |
-| `CALENDAR_API_ERROR` | 503 | Calendar 오류 | Calendar API 장애 |
+| `TIMEOUT_ERROR` | 504 | 타임아웃 | API 응답 지연 |
 
-### 특수 (2xx)
+### 비즈니스 로직 에러
 
 | 코드 | HTTP | 설명 | 사용 예시 |
 |------|------|------|----------|
-| `PARTIAL_SUCCESS` | 207 | 부분 성공 | 배치 작업에서 일부 실패 |
+| `PROJECT_NOT_FOUND` | 404 | 프로젝트 없음 | 존재하지 않는 프로젝트 조회 |
+| `PROJECT_ALREADY_EXISTS` | 409 | 프로젝트 중복 | 동일한 코드로 생성 시도 |
+| `PROJECT_LOCKED` | 423 | 프로젝트 잠김 | 수정 불가 상태 |
+| `INSUFFICIENT_PERMISSIONS` | 403 | 권한 부족 | 담당자 아닌 사용자의 수정 시도 |
+| `INVALID_PROJECT_STATUS` | 400 | 잘못된 상태 | 진행중인 프로젝트를 삭제 시도 |
 
 ---
 
@@ -220,25 +220,25 @@ return jsonify({
 ✅ **좋은 예**:
 ```python
 # 프로젝트 생성 → 201
-return ApiResponse.success(data=project, status_code=201)
+return APIResponse.created(data=project)
 
 # 프로젝트 삭제 → 204
-return ApiResponse.success(status_code=204)
+return APIResponse.no_content()
 
 # 검증 실패 → 400
-return ApiResponse.error(ErrorCode.VALIDATION_ERROR, "...")
+return APIResponse.validation_error(details=errors)
 
 # 리소스 없음 → 404
-return ApiResponse.error(ErrorCode.RESOURCE_NOT_FOUND, "...")
+return APIResponse.not_found(resource="프로젝트", resource_id=code)
 ```
 
 ❌ **나쁜 예**:
 ```python
 # 생성 성공인데 200 (201이 맞음)
-return ApiResponse.success(data=project)  # status_code=200 (기본값)
+return APIResponse.success(data=project)  # status_code=200 (기본값)
 
 # 검증 실패인데 500 (400이 맞음)
-return ApiResponse.error(ErrorCode.INTERNAL_ERROR, "검증 실패")
+return APIResponse.error(APIErrorCode.INTERNAL_ERROR, "검증 실패")
 ```
 
 ### 2. 에러 메시지 작성
@@ -246,8 +246,8 @@ return ApiResponse.error(ErrorCode.INTERNAL_ERROR, "검증 실패")
 ✅ **좋은 예**:
 ```python
 # 사용자 친화적 + 개발자 상세 정보
-return ApiResponse.error(
-    ErrorCode.VALIDATION_ERROR,
+return APIResponse.error(
+    APIErrorCode.VALIDATION_ERROR,
     message="프로젝트 코드는 영문, 숫자, 하이픈만 사용 가능합니다",
     details={
         'field': 'project_code',
@@ -260,8 +260,8 @@ return ApiResponse.error(
 ❌ **나쁜 예**:
 ```python
 # 너무 기술적이거나 불친절
-return ApiResponse.error(
-    ErrorCode.VALIDATION_ERROR,
+return APIResponse.error(
+    APIErrorCode.VALIDATION_ERROR,
     message="Regex match failed: ^[A-Z0-9-]+$"
 )
 ```
@@ -270,42 +270,40 @@ return ApiResponse.error(
 
 ✅ **좋은 예**:
 ```python
-# 페이지네이션 정보
-return ApiResponse.success(
-    data=projects,
-    meta={
-        'total': 100,
-        'page': 1,
-        'per_page': 20,
-        'total_pages': 5
-    }
+# 페이지네이션 정보 (PaginationHelper 사용)
+from dashboard.api.responses import PaginationHelper
+
+pagination = PaginationHelper.create_pagination_meta(
+    page=1, limit=20, total=100, items=projects
 )
+return APIResponse.success(data={'items': projects}, pagination=pagination)
 
 # 필터 정보
-return ApiResponse.success(
+return APIResponse.success(
     data=filtered_projects,
-    meta={
-        'total': 30,
-        'filters': {'status': 'active', 'manager': '홍길동'}
-    }
+    total_filtered=30,
+    filters={'status': 'active', 'manager': '홍길동'}
 )
 ```
 
-### 4. 부분 성공 처리
+### 4. 헬퍼 메서드 활용
 
 ✅ **좋은 예**:
 ```python
-# 배치 작업에서 개별 결과 제공
-return ApiResponse.partial_success(
-    results=[
-        {'field': '계약금', 'success': True, 'message': '저장 완료'},
-        {'field': '중도금', 'success': False, 'message': '필드명 오류'},
-        {'field': '잔금', 'success': True, 'message': '저장 완료'}
-    ],
-    success_count=2,
-    failed_count=1,
-    total_count=3
-)
+# 생성: created() 사용
+return APIResponse.created(data=new_project)
+
+# 검증 오류: validation_error() 사용
+return APIResponse.validation_error(details=errors)
+
+# 리소스 없음: not_found() 사용
+return APIResponse.not_found(resource="프로젝트", resource_id=code)
+
+# 충돌: conflict() 사용
+return APIResponse.conflict(resource="프로젝트")
+
+# 권한 없음: forbidden() 사용
+return APIResponse.forbidden(message="담당자만 수정할 수 있습니다")
 ```
 
 ---
@@ -319,36 +317,23 @@ return ApiResponse.partial_success(
 2. 수정이 필요한 기존 API 점진적 전환
 3. 레거시 응답 구조는 당분간 유지 (하위 호환성)
 
-### 하위 호환성 (Backward Compatibility)
+### 표준 API 응답 구조
 
-기존 코드에서 사용 중인 레거시 이름은 계속 지원됩니다:
-
-**레거시 이름 (계속 작동)**:
+**표준 임포트**:
 ```python
-from dashboard.utils.api_response import APIResponse, APIErrorCode, api_response
-
-# 레거시 클래스 사용 (여전히 작동)
-APIResponse.success(data=projects)
-APIErrorCode.VALIDATION_ERROR
-
-# 레거시 함수 사용 (여전히 작동)
-api_response(success=True, data=projects)
+from dashboard.api.responses import APIResponse, APIErrorCode
 ```
 
-**새 표준 이름 (권장)**:
-```python
-from dashboard.utils.api_response import ApiResponse, ErrorCode
-
-# 새 표준 클래스 사용 (권장)
-ApiResponse.success(data=projects)
-ErrorCode.VALIDATION_ERROR
-```
+**주요 클래스**:
+- `APIResponse`: 표준 응답 생성기
+- `APIErrorCode`: 표준 에러 코드 Enum
+- `PaginationHelper`: 페이지네이션 헬퍼
+- `APIException`: API 예외 기본 클래스
 
 **마이그레이션 전략**:
-- ✅ 기존 코드는 수정 없이 계속 작동
-- ✅ 신규 코드는 `ApiResponse`, `ErrorCode` 사용
-- ✅ 기존 코드 수정 시 점진적으로 새 이름으로 전환
-- ⚠️ `api_response()` 함수는 제한적 기능만 제공 (에러 코드 자동 매핑 불가)
+- ✅ 기존 코드는 계속 작동 (dashboard.api.responses 사용 중)
+- ✅ 신규 API는 헬퍼 메서드 활용 (created, validation_error 등)
+- ✅ 레거시 수동 jsonify 응답은 점진적으로 APIResponse로 전환
 
 **예시**:
 
@@ -371,20 +356,20 @@ def get_projects():
 
 **After (표준)**:
 ```python
+from dashboard.api.responses import APIResponse, APIErrorCode
+
 @app.route('/api/projects')
 def get_projects():
     try:
         projects = load_projects()
-        return ApiResponse.success(
+        return APIResponse.success(
             data=projects,
-            meta={'total': len(projects)}
+            total=len(projects)
         )
     except Exception as e:
         logger.error(f"프로젝트 목록 조회 오류: {e}")
-        return ApiResponse.error(
-            ErrorCode.INTERNAL_ERROR,
-            "프로젝트 목록을 불러올 수 없습니다",
-            details={'exception': str(e)}
+        return APIResponse.internal_error(
+            message="프로젝트 목록을 불러올 수 없습니다"
         )
 ```
 
@@ -393,44 +378,60 @@ def get_projects():
 ## 🧪 테스트 예시
 
 ```python
-def test_api_response_success():
-    response, status_code = ApiResponse.success(data={'name': 'test'})
-    assert status_code == 200
-    assert response.json['success'] is True
-    assert response.json['data']['name'] == 'test'
-    assert 'timestamp' in response.json['meta']
+from dashboard.api.responses import APIResponse, APIErrorCode
 
-def test_api_response_error():
-    response, status_code = ApiResponse.error(
-        ErrorCode.VALIDATION_ERROR,
-        "테스트 에러"
+def test_api_response_success():
+    response, status_code = APIResponse.success(data={'name': 'test'})
+    assert status_code == 200
+    data = response.get_json()
+    assert data['success'] is True
+    assert data['data']['name'] == 'test'
+    assert 'timestamp' in data['meta']
+
+def test_api_response_created():
+    response, status_code = APIResponse.created(data={'id': 123})
+    assert status_code == 201
+    data = response.get_json()
+    assert data['success'] is True
+
+def test_api_response_validation_error():
+    response, status_code = APIResponse.validation_error(
+        details={'field': 'email'},
+        message="이메일 형식이 올바르지 않습니다"
     )
     assert status_code == 400
-    assert response.json['success'] is False
-    assert response.json['error']['code'] == 'VALIDATION_ERROR'
+    data = response.get_json()
+    assert data['success'] is False
+    assert data['error']['code'] == 'VALIDATION_ERROR'
 
-def test_api_response_partial_success():
-    response, status_code = ApiResponse.partial_success(
-        results=[{'item': 1, 'success': True}],
-        success_count=1,
-        failed_count=0,
-        total_count=1
+def test_api_response_not_found():
+    response, status_code = APIResponse.not_found(
+        resource="프로젝트",
+        resource_id="IT-2024-001"
     )
-    assert status_code == 207
-    assert response.json['data']['summary']['success_count'] == 1
+    assert status_code == 404
+    data = response.get_json()
+    assert data['error']['code'] == 'RESOURCE_NOT_FOUND'
 ```
 
 ---
 
 ## 📚 참고 문서
 
-- `dashboard/utils/api_response.py` - 표준 응답 헬퍼 구현
+- `dashboard/api/responses.py` - 표준 응답 헬퍼 구현
+- `dashboard/tests/test_api_response.py` - API 응답 테스트 예시
 - REST API HTTP 상태 코드: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
 - RFC 4918 (WebDAV) - 207 Multi-Status: https://tools.ietf.org/html/rfc4918#section-11.1
 
 ---
 
 ## 🔄 변경 이력
+
+### 2025-10-30
+- 기존 api/responses.py를 표준으로 채택
+- 모든 임포트 경로 수정 (utils → api)
+- 에러 코드 목록 확장 (비즈니스 로직 에러 추가)
+- 헬퍼 메서드 활용 예시 추가
 
 ### 2025-10-29
 - 초기 문서 작성

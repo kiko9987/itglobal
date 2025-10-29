@@ -32,7 +32,7 @@ from ..services.calendar_service import (
 )
 from ..services.calendar_sync_scheduler import CalendarSyncScheduler
 from ..utils.error_handler import handle_error, ErrorCategory
-from ..utils.api_response import APIResponse, APIErrorCode, api_response
+from ..api.responses import APIResponse, APIErrorCode, api_response
 from ..utils.smart_cache_manager import smart_invalidate, smart_get, CacheStrategy
 from ..utils.logging_config import get_logger
 from ..utils.request_middleware import track_business_operation, log_external_api_call
