@@ -381,6 +381,23 @@ def get_projects_list():
         # 5. dict 변환
         projects = df.to_dict('records')
 
+        # 5-1. 금액 필드 정규화 (₩300,000 → 300000)
+        # FORMATTED_VALUE로 읽은 금액이 통화 기호 포함되어 있으면 프론트엔드 parseFloat()가 NaN 반환
+        currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금']
+        for project in projects:
+            for field_name in currency_fields:
+                if field_name in project:
+                    currency_value = project[field_name]
+                    if currency_value and currency_value != '':
+                        parsed_amount = safe_parse_currency(currency_value)
+                        # 정수로 표현 가능하면 정수로, 아니면 float로
+                        if parsed_amount == int(parsed_amount):
+                            project[field_name] = str(int(parsed_amount))
+                        else:
+                            project[field_name] = str(parsed_amount)
+                    else:
+                        project[field_name] = ''
+
         # Google Sheets에서 이미 계산된 순익, 마진율 값을 그대로 사용
         # 재계산하지 않음 - 시트의 수식이 정확한 단일 소스(Single Source of Truth)
 
