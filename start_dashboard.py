@@ -98,13 +98,11 @@ def main():
     
     try:
         # 대시보드 앱 실행
-        from dashboard.app import app, socketio, load_data
-        
-        # 초기 데이터 로드
-        logger.info("초기 데이터 로드 중...")
-        if load_data() is None:
-            logger.warning("초기 데이터 로드에 실패했지만 서버를 시작합니다.")
-        
+        from dashboard.app import app, socketio
+
+        # 초기 데이터는 캐시 프리로더가 자동으로 로드합니다
+        logger.info("캐시 프리로더가 데이터를 자동 로드합니다...")
+
         # 서버 설정
         host = os.getenv('HOST', '0.0.0.0')
         port = int(os.getenv('PORT', 5000))
