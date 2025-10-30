@@ -31,7 +31,7 @@ class SSLErrorMonitor:
     }
 
     def __init__(self):
-        self.redis = get_redis_client()
+        self.redis = get_redis_client().redis  # 실제 redis.Redis 객체 사용
 
     def record_ssl_error(self, operation_name: str, error_type: str = "SSLError"):
         """
