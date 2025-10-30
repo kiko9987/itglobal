@@ -1,0 +1,70 @@
+ 리팩토링 필요 함수 분석 보고서
+
+  🔴 High Priority (즉시 리팩토링 권장) - 3개
+
+  1. save_field_memos_batch() - 256줄 ⚠️ 가장 긴 함수
+    - 위치: projects.py:1664-1920
+    - 문제: 검증/매핑/API호출/로깅/감사가 한 함수에 집중
+    - 예상: 256줄 → 60줄 + 헬퍼 5개
+  2. add_project_auto() - 190줄
+    - 위치: projects.py:1921-2111
+    - 문제: 검증/코드생성/기본값/수식/계산/캘린더 연동 과다
+    - 예상: 190줄 → 50줄 + 헬퍼 6개
+  3. save_field_memo() - 155줄
+    - 위치: projects.py:1508-1663
+    - 문제: 검증/API호출/캐시/감사 로그 혼재
+    - 예상: 155줄 → 40줄 + 헬퍼 4개
+
+  ---
+  🟡 Medium Priority (리팩토링 권장) - 8개
+
+  4. cancel_project_api() - 143줄
+  5. resume_project_api() - 137줄 (cancel과 중복 코드 많음)
+  6. _execute_with_retry() - 133줄 (google_sheets.py)
+  7. update_row_with_notes_batch() - 112줄 (google_sheets.py)
+  8. batch_update_fields() - 111줄 (google_sheets.py)
+  9. update_project() - 105줄 (이미 리팩토링했지만 여전히 김)
+  10. get_projects_list() - 100줄
+  11. 기타 - 90-99줄 함수들
+
+  ---
+  🟢 Low Priority (개선 가능) - 5개
+
+  12-16. 80-99줄 범위 함수들
+
+  ---
+  📊 통계 요약
+
+  | 우선순위   | 함수 개수 | 평균 줄 수 | 예상 작업 시간 |
+  |--------|-------|--------|----------|
+  | High   | 3개    | 200줄   | 15-20시간  |
+  | Medium | 8개    | 118줄   | 20-30시간  |
+  | Low    | 5개    | 90줄    | 5-10시간   |
+  | 합계     | 16개   | 132줄   | 40-60시간  |
+
+  ---
+  🎯 권장 리팩토링 순서
+
+  1단계 (최우선)
+
+  - save_field_memos_batch() (256줄) - 가장 긴 함수
+  - add_project_auto() (190줄) - 복잡도 매우 높음
+  - save_field_memo() (155줄) - 중복 로직 많음
+
+  2단계
+
+  - cancel_project_api() + resume_project_api() - 중복 제거 가능
+  - update_project() 추가 정리
+
+  3단계 (여유 시)
+
+  - Google Sheets 유틸리티 함수들
+  - _execute_with_retry(), batch_update_fields() 등
+
+  ---
+  ⚠️ 주의사항
+
+  1. 리팩토링 전 단위 테스트 작성 필수
+  2. 한 번에 하나씩, 점진적으로 진행
+  3. 기존 API 시그니처 변경 최소화
+  4. 리팩토링 후 성능 모니터링

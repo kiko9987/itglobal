@@ -39,6 +39,7 @@ logs/
 *.tmp
 *.temp
 *~
+temp*.txt
 
 # IDE 설정
 .vscode/
@@ -94,3 +95,17 @@ nul
 # 큰 압축 파일 (GitHub 100MB 제한)
 *.zip
 Claude Project*.zip
+
+# Data 폴더 바이너리 파일 (문서 및 개발 산출물)
+data/*.xlsx
+data/*.xls
+data/*.png
+data/*.jpg
+data/*.jpeg
+data/*.zip
+data/*_review*.txt
+data/*_qa*.txt
+data/code_review*.txt
+
+# Archive 디렉토리 (오래된 파일 보관소)
+archive/
