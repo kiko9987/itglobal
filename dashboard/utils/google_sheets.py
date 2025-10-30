@@ -279,14 +279,16 @@ class GoogleSheetsManager:
 # 메인 함수 (Refactored Main Function)
 # ============================================
 
-    def _execute_with_retry(self, request, operation_name="API 호출"):
+    def _execute_with_retry(self, request_factory, operation_name="API 호출"):
         """
         Exponential Backoff를 사용한 Google Sheets API 호출 재시도 로직
 
         Thread-Safe: _lock을 사용하여 동시 API 호출 방지 (OpenSSL race condition 해결)
 
         Args:
-            request: Google API 요청 객체
+            request_factory: Google API 요청 객체를 생성하는 callable (람다 또는 함수)
+                            SSL 에러 후 reset_service()를 통해 세션이 재초기화되면
+                            새 요청 객체를 생성하여 유휴 세션 문제 해결
             operation_name: 로깅용 작업 이름
 
         Returns:
@@ -297,6 +299,9 @@ class GoogleSheetsManager:
         """
         for attempt in range(self.MAX_RETRIES):
             try:
+                # 매 시도마다 새 request 생성 (SSL 에러 후 reset_service() 효과 반영)
+                request = request_factory()
+
                 # 🔒 스레드 안전성 확보: Google API service 객체 동시 접근 방지
                 with self._lock:
                     result = request.execute()
@@ -470,13 +475,15 @@ class GoogleSheetsManager:
                 raise ValueError("시트 ID가 제공되지 않았습니다.")
 
             # 시트 데이터 가져오기 (함수 계산 결과 포함) - Rate Limiting 처리 포함
-            request = self.service.spreadsheets().values().get(
-                spreadsheetId=sheet_id,
-                range=range_name,
-                valueRenderOption='FORMATTED_VALUE',  # 함수 계산 결과를 포맷된 값으로
-                dateTimeRenderOption='FORMATTED_STRING'  # 날짜 포맷된 문자열로
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range=range_name,
+                    valueRenderOption='FORMATTED_VALUE',  # 함수 계산 결과를 포맷된 값으로
+                    dateTimeRenderOption='FORMATTED_STRING'  # 날짜 포맷된 문자열로
+                ),
+                f"get_sheet_data({range_name})"
             )
-            result = self._execute_with_retry(request, f"get_sheet_data({range_name})")
             
             values = result.get('values', [])
             
@@ -593,8 +600,10 @@ class GoogleSheetsManager:
     def get_sheet_metadata(self, sheet_id):
         """시트 메타데이터 가져오기 - Rate Limiting 처리 포함"""
         try:
-            request = self.service.spreadsheets().get(spreadsheetId=sheet_id)
-            result = self._execute_with_retry(request, f"get_sheet_metadata({sheet_id})")
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().get(spreadsheetId=sheet_id),
+                f"get_sheet_metadata({sheet_id})"
+            )
             return {
                 'title': result.get('properties', {}).get('title', ''),
                 'sheets': [{'title': sheet.get('properties', {}).get('title', ''),
@@ -681,11 +690,13 @@ class GoogleSheetsManager:
             }
 
             # API 호출 - Rate Limiting 처리 포함
-            request = self.service.spreadsheets().batchUpdate(
-                spreadsheetId=spreadsheet_id,
-                body=batch_update_request
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body=batch_update_request
+                ),
+                f"update_row_background_color(row={row_number})"
             )
-            result = self._execute_with_retry(request, f"update_row_background_color(row={row_number})")
 
             logger.debug(f"[SUCCESS] 행 {row_number} 배경색 변경 완료: {color_type}")
             return True
@@ -716,12 +727,14 @@ class GoogleSheetsManager:
             int: 다음 빈 행 번호 (1부터 시작)
         """
         try:
-            request = self.service.spreadsheets().values().get(
-                spreadsheetId=sheet_id,
-                range=range_name,
-                valueRenderOption='FORMATTED_VALUE'
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range=range_name,
+                    valueRenderOption='FORMATTED_VALUE'
+                ),
+                f"find_next_empty_row({range_name})"
             )
-            result = self._execute_with_retry(request, f"find_next_empty_row({range_name})")
             
             values = result.get('values', [])
             
@@ -764,13 +777,15 @@ class GoogleSheetsManager:
                 'values': [values]
             }
             
-            request = self.service.spreadsheets().values().update(
-                spreadsheetId=sheet_id,
-                range=actual_range,
-                valueInputOption='USER_ENTERED',
-                body=body
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range=actual_range,
+                    valueInputOption='USER_ENTERED',
+                    body=body
+                ),
+                f"append_row(row={next_row})"
             )
-            result = self._execute_with_retry(request, f"append_row(row={next_row})")
 
             logger.debug(f"빈 행({next_row})에 데이터 추가 성공: {result.get('updatedCells', 0)}셀 업데이트")
             return result
@@ -800,13 +815,15 @@ class GoogleSheetsManager:
                 'values': [values]
             }
             
-            request = self.service.spreadsheets().values().update(
-                spreadsheetId=sheet_id,
-                range=actual_range,
-                valueInputOption='USER_ENTERED',
-                body=body
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().values().update(
+                    spreadsheetId=sheet_id,
+                    range=actual_range,
+                    valueInputOption='USER_ENTERED',
+                    body=body
+                ),
+                f"update_row(row={row_number})"
             )
-            result = self._execute_with_retry(request, f"update_row(row={row_number})")
 
             logger.debug(f"행 업데이트 성공: {row_number}행, {result.get('updatedCells', 0)}셀")
             return result
@@ -1348,12 +1365,14 @@ class GoogleSheetsManager:
             logger.info(f"[GET_CELL_NOTES] 셀 노트 읽기 시작: {range_name}")
 
             # includeGridData=True로 셀 데이터와 노트 함께 가져오기
-            request = self.service.spreadsheets().get(
-                spreadsheetId=sheet_id,
-                ranges=[range_name],
-                includeGridData=True
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().get(
+                    spreadsheetId=sheet_id,
+                    ranges=[range_name],
+                    includeGridData=True
+                ),
+                f"get_cell_notes({range_name})"
             )
-            result = self._execute_with_retry(request, f"get_cell_notes({range_name})")
 
             notes_by_row = {}
             sheets = result.get('sheets', [])
@@ -1478,17 +1497,18 @@ class GoogleSheetsManager:
             result: API 응답 객체
         """
         logger.debug(f"[MEMO_SAVE_STEP_4] Google Sheets API 호출 시작 (CRITICAL SECTION)")
-        request = self.service.spreadsheets().batchUpdate(
-            spreadsheetId=sheet_id,
-            body={'requests': requests}
-        )
-        logger.debug(f"[MEMO_SAVE_STEP_4] Request 객체 생성 완료, execute() 호출 직전")
 
         # API 호출 전 메모리 체크
         pre_api_memory = process.memory_info().rss / 1024 / 1024
         logger.debug(f"[MEMO_SAVE_STEP_4] API 호출 전 메모리: {pre_api_memory:.1f}MB")
 
-        result = self._execute_with_retry(request, f"update_cell_note({cell_address})")
+        result = self._execute_with_retry(
+            lambda: self.service.spreadsheets().batchUpdate(
+                spreadsheetId=sheet_id,
+                body={'requests': requests}
+            ),
+            f"update_cell_note({cell_address})"
+        )
 
         # API 호출 후 메모리 체크
         post_api_memory = process.memory_info().rss / 1024 / 1024
@@ -1660,13 +1680,15 @@ class GoogleSheetsManager:
         range_name = f'{sheet_name}!A{row_number}:AM{row_number}'
         body = {'values': [row_values]}
 
-        request = self.service.spreadsheets().values().update(
-            spreadsheetId=sheet_id,
-            range=range_name,
-            valueInputOption='USER_ENTERED',
-            body=body
+        row_result = self._execute_with_retry(
+            lambda: self.service.spreadsheets().values().update(
+                spreadsheetId=sheet_id,
+                range=range_name,
+                valueInputOption='USER_ENTERED',
+                body=body
+            ),
+            f"update_row_batch(row={row_number})"
         )
-        row_result = self._execute_with_retry(request, f"update_row_batch(row={row_number})")
 
         updated_cells = row_result.get('updatedCells', 0)
         logger.info(f"[BATCH_UPDATE] 행 업데이트 완료: {row_number}행, {updated_cells}셀")
