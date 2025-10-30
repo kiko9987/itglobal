@@ -752,12 +752,12 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AM',
+        end_col='AN',  # AN 컬럼까지 조회 (_version 포함)
         value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
     )
 
-    # fresh_values를 39개 컬럼으로 패딩 (마지막 열이 비어있을 경우 대비)
-    while len(fresh_values) < 39:
+    # fresh_values를 40개 컬럼으로 패딩 (AN 컬럼까지, 마지막 열이 비어있을 경우 대비)
+    while len(fresh_values) < 40:
         fresh_values.append('')
 
     # [디버깅] fresh_values 내용 확인
@@ -1937,12 +1937,11 @@ def _execute_batch_memo_update(cell_notes_to_update, manager, sheet_id, sheet_na
 
         # Batch Update 실행
         body = {'requests': batch_requests}
-        request_obj = manager.service.spreadsheets().batchUpdate(
-            spreadsheetId=sheet_id,
-            body=body
-        )
         batch_result = manager._execute_with_retry(
-            request_obj,
+            lambda: manager.service.spreadsheets().batchUpdate(
+                spreadsheetId=sheet_id,
+                body=body
+            ),
             f"batch_update_memos({len(batch_requests)} notes)"
         )
 
