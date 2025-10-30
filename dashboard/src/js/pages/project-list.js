@@ -844,7 +844,7 @@ if (window.__projectListAppModuleLoaded) {
   window.addEventListener('beforeunload', handlePageUnload);
   window.addEventListener('pagehide', handlePageUnload);  // iOS Safari 및 Ctrl+F5 대응
 
-  // 페이지가 다시 보일 때 5분 이상 경과 시에만 새로고침 (아코디언 열려있으면 건너뜀)
+  // 페이지가 다시 보일 때 5분 이상 경과 시에만 새로고침 (세밀한 상태 제어)
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && app.isInitialized) {
       const now = Date.now();
@@ -855,6 +855,17 @@ if (window.__projectListAppModuleLoaded) {
 
       if (timeSinceLastChange < REFRESH_THRESHOLD) {
         logger.debug(`🔒 [새로고침 차단] 마지막 변경 후 ${Math.round(timeSinceLastChange / 1000)}초만 지남 (최소 ${REFRESH_THRESHOLD / 1000}초 필요)`);
+        app.lastVisibilityChange = now;
+        return;
+      }
+
+      // 편집 모드 체크 (여러 방법으로 확인)
+      const isEditingMode = document.querySelector('.editing-mode') ||
+                            document.querySelector('.accordion-row.open.editing') ||
+                            document.querySelector('input:focus, textarea:focus, select:focus');
+
+      if (isEditingMode) {
+        logger.debug('🔒 [새로고침 차단] 편집 중이라 자동 새로고침 건너뜀');
         app.lastVisibilityChange = now;
         return;
       }
@@ -873,8 +884,16 @@ if (window.__projectListAppModuleLoaded) {
       // 자동 새로고침 (오버레이 없이)
       app.refreshData(false, false);
 
-      // 사용자 알림
-      app.showToast('최신 데이터로 갱신되었습니다', 'info');
+      // 수금 관리 모드에서는 토스트를 덜 방해되게 표시
+      const isCollectionMode = app.components?.filters?.filters?.outstanding === 'outstanding';
+
+      if (isCollectionMode) {
+        // 수금 관리 모드에서는 간단한 메시지만 로그에 기록
+        logger.debug('ℹ️ [수금 모드] 자동 갱신 완료 (토스트 생략)');
+      } else {
+        // 일반 모드에서는 토스트 표시
+        app.showToast('최신 데이터로 갱신되었습니다', 'info');
+      }
     }
   });
 }
