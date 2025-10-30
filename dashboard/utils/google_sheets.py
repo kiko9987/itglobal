@@ -17,6 +17,7 @@ from tenacity import (
 )
 from .logging_config import get_logger
 from .api_usage_monitor import get_api_monitor
+from .ssl_monitor import get_ssl_monitor
 
 # SSL 에러 처리를 위한 import
 try:
@@ -297,6 +298,10 @@ class GoogleSheetsManager:
         Raises:
             Exception: 최대 재시도 후에도 실패 시 (사용자 친화적 메시지 포함)
         """
+        start_time = time.time()
+        ssl_monitor = get_ssl_monitor()
+        ssl_error_occurred = False
+
         for attempt in range(self.MAX_RETRIES):
             try:
                 # 매 시도마다 새 request 생성 (SSL 에러 후 reset_service() 효과 반영)
@@ -313,9 +318,19 @@ class GoogleSheetsManager:
                         f"[재시도 성공] {operation_name} - "
                         f"{attempt + 1}번째 시도에서 성공 (소요 시간: 약 {total_time}초)"
                     )
+
+                    # SSL 에러에서 복구한 경우 모니터링 기록
+                    if ssl_error_occurred:
+                        recovery_time_ms = (time.time() - start_time) * 1000
+                        ssl_monitor.record_ssl_recovery(operation_name, attempt + 1, recovery_time_ms)
+
                 return result
 
             except ssl.SSLError as ssl_err:
+                # SSL 에러 발생 기록
+                ssl_error_occurred = True
+                ssl_monitor.record_ssl_error(operation_name, "SSLError")
+
                 # SSL 에러 → 재시도 (일시적 네트워크/TLS 세션 문제일 수 있음)
                 logger.warning(
                     f"[SSL_ERROR] {operation_name} - SSL/TLS 에러 발생: {ssl_err} | "
@@ -338,7 +353,8 @@ class GoogleSheetsManager:
                     self._log_and_sleep_for_retry(operation_name, attempt, error_info, is_http_error=False)
                     continue
                 else:
-                    # 최대 재시도 초과 → 전용 예외 raise
+                    # 최대 재시도 초과 → 실패 기록 및 전용 예외 raise
+                    ssl_monitor.record_ssl_failure(operation_name)
                     error_msg = f"SSL/TLS 연결 오류가 지속됩니다. 네트워크 연결 또는 인증서를 확인하세요: {ssl_err}"
                     logger.error(f"[SSL_ERROR] {operation_name} - 최대 재시도 초과: {error_msg}")
                     raise SSLRetryFailedError(error_msg) from ssl_err
@@ -380,6 +396,10 @@ class GoogleSheetsManager:
             except Exception as e:
                 # requests 라이브러리의 SSL 에러 체크 → 재시도
                 if HAS_REQUESTS and isinstance(e, requests.exceptions.SSLError):
+                    # SSL 에러 발생 기록
+                    ssl_error_occurred = True
+                    ssl_monitor.record_ssl_error(operation_name, "requests.SSLError")
+
                     logger.warning(
                         f"[REQUESTS_SSL_ERROR] {operation_name} - SSL/TLS 에러 발생: {e} | "
                         f"시도 {attempt + 1}/{self.MAX_RETRIES}"
@@ -401,7 +421,8 @@ class GoogleSheetsManager:
                         self._log_and_sleep_for_retry(operation_name, attempt, error_info, is_http_error=False)
                         continue
                     else:
-                        # 최대 재시도 초과 → 전용 예외 raise
+                        # 최대 재시도 초과 → 실패 기록 및 전용 예외 raise
+                        ssl_monitor.record_ssl_failure(operation_name)
                         error_msg = f"SSL/TLS 연결 오류가 지속됩니다 (requests 라이브러리): {e}"
                         logger.error(f"[REQUESTS_SSL_ERROR] {operation_name} - 최대 재시도 초과: {error_msg}")
                         raise SSLRetryFailedError(error_msg) from e
@@ -1749,12 +1770,11 @@ class GoogleSheetsManager:
             return 0
 
         body = {'requests': batch_requests}
-        request = self.service.spreadsheets().batchUpdate(
-            spreadsheetId=sheet_id,
-            body=body
-        )
         self._execute_with_retry(
-            request,
+            lambda: self.service.spreadsheets().batchUpdate(
+                spreadsheetId=sheet_id,
+                body=body
+            ),
             f"update_notes_batch({len(batch_requests)} notes)"
         )
 
