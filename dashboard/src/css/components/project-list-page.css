@@ -351,7 +351,7 @@
   background-color: rgba(0, 0, 0, 0.025) !important;
 }
 
-/* 사용자 권한/상태 드롭다운 스타일 (새 프로젝트 모달과 동일) */
+/* 사용자 권한/상태 드롭다운 스타일 (컴팩트 버전) */
 #userManagementModal .user-permission-select.form-select,
 #usersTable .user-permission-select.form-select,
 .user-permission-select.form-select,
@@ -363,13 +363,14 @@
   -moz-appearance: none !important;
   background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") !important;
   background-repeat: no-repeat !important;
-  background-position: right .75rem center !important;
-  background-size: 16px 12px !important;
-  padding: .375rem 2.25rem .375rem .75rem !important;
+  background-position: right .5rem center !important;
+  background-size: 14px 10px !important;
+  padding: .25rem 1.5rem .25rem .5rem !important;
   border-radius: 0.375rem !important;
   border: 1px solid #dee2e6 !important;
   font-size: 0.875rem !important;
-  height: 38px !important;
+  height: auto !important;
+  min-height: 32px !important;
   transition: all 0.2s ease !important;
   line-height: 1.5 !important;
   background-color: #fff !important;
@@ -377,7 +378,7 @@
   text-align: left !important;
   text-align-last: left !important;
   display: inline-block !important;
-  width: auto !important;
+  width: 110px !important;
 }
 
 #userManagementModal .user-permission-select.form-select:focus,
