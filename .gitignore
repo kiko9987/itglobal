@@ -77,6 +77,24 @@ backup*/
 # 테스트/디버깅 파일 (루트 디렉토리만)
 /test_*.py
 /debug_*.py
+/check_*.py
+/verify_*.py
+/reset_*.py
+/final_check.py
+
+# 중복 서버 스크립트 (루트 디렉토리만)
+/dashboard_no_socketio.py
+/dev_server_manager.py
+/dev-start.py
+/flask_app.py
+/run_dashboard.py
+/run_server.py
+/simple_server.py
+/start_dev_server.py
+/start_original.py
+/start_server.py
+/clean_server.py
+/stop_server.py
 
 # Excel 임시 파일
 ~.xlsx
