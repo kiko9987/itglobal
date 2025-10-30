@@ -187,23 +187,6 @@ class GoogleSheetsManager:
         )
 
 
-    def _handle_ssl_error(self, operation_name, error, is_requests_ssl=False):
-        """SSL 에러 처리: Critical 로그 후 프로세스 강제 종료
-
-        Args:
-            operation_name: 작업 이름
-            error: SSL 에러 객체
-            is_requests_ssl: requests 라이브러리 SSL 에러 여부
-        """
-        error_type = "REQUESTS_SSL_ERROR" if is_requests_ssl else "SSL_ERROR"
-        logger.critical(
-            f"[{error_type}] {operation_name} - SSL/TLS 에러 발생: {error}\n"
-            f"프로세스를 즉시 종료하여 추가 손상을 방지합니다. 프로세스 매니저가 자동으로 재시작합니다."
-        )
-        # os._exit(1): 모든 스레드를 즉시 강제 종료
-        os._exit(1)
-
-
     def _should_retry_http_error(self, error_code):
         """HTTP 에러가 재시도 가능한지 확인
 
@@ -322,8 +305,23 @@ class GoogleSheetsManager:
                 return result
 
             except ssl.SSLError as ssl_err:
-                # SSL 에러 → 프로세스 강제 종료
-                self._handle_ssl_error(operation_name, ssl_err, is_requests_ssl=False)
+                # SSL 에러 → 재시도 (일시적 네트워크/TLS 세션 문제일 수 있음)
+                logger.warning(
+                    f"[SSL_ERROR] {operation_name} - SSL/TLS 에러 발생: {ssl_err} | "
+                    f"시도 {attempt + 1}/{self.MAX_RETRIES}"
+                )
+                if attempt < self.MAX_RETRIES - 1:
+                    error_info = {
+                        'type': 'SSLError',
+                        'message': str(ssl_err)
+                    }
+                    self._log_and_sleep_for_retry(operation_name, attempt, error_info, is_http_error=False)
+                    continue
+                else:
+                    # 최대 재시도 초과 → 에러 raise
+                    error_msg = f"SSL/TLS 연결 오류가 지속됩니다. 네트워크 연결 또는 인증서를 확인하세요: {ssl_err}"
+                    logger.error(f"[SSL_ERROR] {operation_name} - 최대 재시도 초과: {error_msg}")
+                    raise Exception(error_msg) from ssl_err
 
             except HttpError as e:
                 error_code = e.resp.status
@@ -360,9 +358,24 @@ class GoogleSheetsManager:
                     raise Exception(error_msg) from e
 
             except Exception as e:
-                # requests 라이브러리의 SSL 에러 체크
+                # requests 라이브러리의 SSL 에러 체크 → 재시도
                 if HAS_REQUESTS and isinstance(e, requests.exceptions.SSLError):
-                    self._handle_ssl_error(operation_name, e, is_requests_ssl=True)
+                    logger.warning(
+                        f"[REQUESTS_SSL_ERROR] {operation_name} - SSL/TLS 에러 발생: {e} | "
+                        f"시도 {attempt + 1}/{self.MAX_RETRIES}"
+                    )
+                    if attempt < self.MAX_RETRIES - 1:
+                        error_info = {
+                            'type': 'requests.SSLError',
+                            'message': str(e)
+                        }
+                        self._log_and_sleep_for_retry(operation_name, attempt, error_info, is_http_error=False)
+                        continue
+                    else:
+                        # 최대 재시도 초과 → 에러 raise
+                        error_msg = f"SSL/TLS 연결 오류가 지속됩니다 (requests 라이브러리): {e}"
+                        logger.error(f"[REQUESTS_SSL_ERROR] {operation_name} - 최대 재시도 초과: {error_msg}")
+                        raise Exception(error_msg) from e
 
                 # 일반 에러 → 재시도
                 if attempt < self.MAX_RETRIES - 1:
