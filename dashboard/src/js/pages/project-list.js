@@ -872,6 +872,9 @@ if (window.__projectListAppModuleLoaded) {
 
       // 자동 새로고침 (오버레이 없이)
       app.refreshData(false, false);
+
+      // 사용자 알림
+      app.showToast('최신 데이터로 갱신되었습니다', 'info');
     }
   });
 }
