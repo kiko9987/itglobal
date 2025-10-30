@@ -859,10 +859,10 @@ if (window.__projectListAppModuleLoaded) {
         return;
       }
 
-      // 편집 모드 체크 (여러 방법으로 확인)
-      const isEditingMode = document.querySelector('.editing-mode') ||
-                            document.querySelector('.accordion-row.open.editing') ||
-                            document.querySelector('input:focus, textarea:focus, select:focus');
+      // 편집 모드 체크 (실제 편집 상태 확인)
+      const isEditingMode = document.querySelector('.accordion-row.open .editing') || // 아코디언 내부 편집 중인 카드
+                            document.querySelector('.accordion-content .editing') ||   // 아코디언 내 편집 요소
+                            document.querySelector('input:focus, textarea:focus, select:focus'); // 포커스된 입력 필드
 
       if (isEditingMode) {
         logger.debug('🔒 [새로고침 차단] 편집 중이라 자동 새로고침 건너뜀');
