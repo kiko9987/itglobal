@@ -345,7 +345,7 @@ export default class UserModal {
       const isAdmin = user.permission_level === 'admin' || user.permission_level === 'super_admin';
       const currentPermission = isAdmin ? 'admin' : user.permission_level;
       html += `
-        <select class="form-select user-permission-select"
+        <select class="form-select form-select-sm user-permission-select"
                 data-user-email="${userEmailEscaped}"
                 data-original-value="${currentPermission}">
           <option value="admin" ${isAdmin ? 'selected' : ''}>Admin</option>
@@ -374,7 +374,7 @@ export default class UserModal {
       html += '<td class="text-center">';
       const currentStatus = user.is_resigned ? 'resigned' : (user.is_active ? 'active' : 'inactive');
       html += `
-        <select class="form-select user-status-select"
+        <select class="form-select form-select-sm user-status-select"
                 data-user-email="${userEmailEscaped}"
                 data-original-value="${currentStatus}">
           <option value="active" ${user.is_active && !user.is_resigned ? 'selected' : ''}>활성</option>
