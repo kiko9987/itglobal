@@ -118,7 +118,9 @@ class APIResponse:
             if isinstance(response_data["data"], dict):
                 response_data["data"]["message"] = message
 
-        return jsonify(response_data), status_code
+        resp = jsonify(response_data)
+        resp.status_code = status_code
+        return resp
 
     @staticmethod
     def error(
@@ -147,7 +149,9 @@ class APIResponse:
             "meta": APIResponse._create_meta(**meta_extra)
         }
 
-        return jsonify(response_data), status_code
+        resp = jsonify(response_data)
+        resp.status_code = status_code
+        return resp
 
     @staticmethod
     def created(data: Any = None, message: str = "Resource created successfully", **meta_extra):
