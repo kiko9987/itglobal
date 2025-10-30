@@ -426,6 +426,8 @@ export default class ProjectTable {
       ordering: true, // 정렬 기능 활성화
       orderMulti: false, // 여러 열을 동시에 정렬하지 않음
       searching: false, // 테이블 내장 검색 기능 비활성화 (상단 필터 사용)
+      stateSave: true, // 페이지 상태 저장 (페이지 번호, 정렬, 페이지당 표시 개수)
+      stateDuration: -1, // 브라우저 세션이 유지되는 동안 상태 저장
 
       // DOM 구조 설정 - 겹침 문제 근본 해결, 한 줄에 나란히 배치
       dom: '<"top"l>rt<"bottom d-flex justify-content-between"<"info-left"i><"paging-right"p>><"clear">',
