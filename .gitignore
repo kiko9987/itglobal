@@ -10,6 +10,9 @@ credentials.json
 **/google_calendar_token.json
 client_secret_*.json
 **/client_secret_*.json
+# 자격증명 백업 파일
+*credentials*.backup*
+**/credentials*.backup*
 
 # 사용자 계정 정보 파일 (민감 정보 포함)
 users.json
