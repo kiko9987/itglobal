@@ -880,12 +880,11 @@ class GoogleSheetsManager:
                 'data': data
             }
 
-            request = self.service.spreadsheets().values().batchUpdate(
-                spreadsheetId=sheet_id,
-                body=body
-            )
             result = self._execute_with_retry(
-                request,
+                lambda: self.service.spreadsheets().values().batchUpdate(
+                    spreadsheetId=sheet_id,
+                    body=body
+                ),
                 f"batch_update_cells({len(data)} ranges)"
             )
 
@@ -1305,14 +1304,12 @@ class GoogleSheetsManager:
         row_range = f'{sheet_name}!{start_col}{row_number}:{end_col}{row_number}'
 
         # _execute_with_retry를 사용하여 재시도/로깅/모니터링 적용
-        request = self.service.spreadsheets().values().get(
-            spreadsheetId=sheet_id,
-            range=row_range,
-            valueRenderOption=value_render_option
-        )
-
         result = self._execute_with_retry(
-            request,
+            lambda: self.service.spreadsheets().values().get(
+                spreadsheetId=sheet_id,
+                range=row_range,
+                valueRenderOption=value_render_option
+            ),
             operation_name=f"행 값 조회 (Sheet: {sheet_name}, Row: {row_number}, Range: {start_col}-{end_col})"
         )
 
