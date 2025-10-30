@@ -389,7 +389,8 @@ def get_projects_list():
             for field_name in currency_fields:
                 if field_name in project:
                     currency_value = project[field_name]
-                    if currency_value and currency_value != '':
+                    # 0 값은 유효한 금액이므로 None과 빈 문자열만 필터링
+                    if currency_value is not None and currency_value != '':
                         parsed_amount = safe_parse_currency(currency_value)
                         # 정수로 표현 가능하면 정수로, 아니면 float로
                         if parsed_amount == int(parsed_amount):
@@ -820,7 +821,8 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         for field_name in currency_fields:
             if field_name in updated_project:
                 currency_value = updated_project[field_name]
-                if currency_value and currency_value != '':
+                # 0 값은 유효한 금액이므로 None과 빈 문자열만 필터링
+                if currency_value is not None and currency_value != '':
                     parsed_amount = safe_parse_currency(currency_value)
                     # 정수로 표현 가능하면 정수로, 아니면 float로
                     if parsed_amount == int(parsed_amount):
