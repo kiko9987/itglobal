@@ -130,3 +130,9 @@ data/code_review*.txt
 
 # Archive 디렉토리 (오래된 파일 보관소)
 archive/
+
+# 실험적/미완성 프로젝트
+new_fastapi_app/
+
+# 테스트 결과 아티팩트
+test-results/
