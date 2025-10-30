@@ -383,7 +383,8 @@ def get_projects_list():
 
         # 5-1. 금액 필드 정규화 (₩300,000 → 300000)
         # FORMATTED_VALUE로 읽은 금액이 통화 기호 포함되어 있으면 프론트엔드 parseFloat()가 NaN 반환
-        currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금']
+        # 마진율/순익 계산에 사용되는 비용 필드도 포함 (ProjectRowAccordion.js 참조)
+        currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비']
         for project in projects:
             for field_name in currency_fields:
                 if field_name in project:
@@ -814,7 +815,8 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
 
         # 금액 필드 정규화 (₩300,000 → 300000)
         # FORMATTED_VALUE로 읽은 금액이 통화 기호 포함되어 있으면 프론트엔드 parseFloat()가 NaN 반환
-        currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금']
+        # 마진율/순익 계산에 사용되는 비용 필드도 포함 (ProjectRowAccordion.js 참조)
+        currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비']
         for field_name in currency_fields:
             if field_name in updated_project:
                 currency_value = updated_project[field_name]
