@@ -795,6 +795,22 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
                 else:
                     updated_project[field_name] = ''
 
+        # 금액 필드 정규화 (₩300,000 → 300000)
+        # FORMATTED_VALUE로 읽은 금액이 통화 기호 포함되어 있으면 프론트엔드 parseFloat()가 NaN 반환
+        currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금']
+        for field_name in currency_fields:
+            if field_name in updated_project:
+                currency_value = updated_project[field_name]
+                if currency_value and currency_value != '':
+                    parsed_amount = safe_parse_currency(currency_value)
+                    # 정수로 표현 가능하면 정수로, 아니면 float로
+                    if parsed_amount == int(parsed_amount):
+                        updated_project[field_name] = str(int(parsed_amount))
+                    else:
+                        updated_project[field_name] = str(parsed_amount)
+                else:
+                    updated_project[field_name] = ''
+
         logger.info(f"[PUT] 업데이트된 프로젝트 데이터 생성")
         logger.info(f"[PUT] updated_project 수금 필드 - 중도금:{updated_project.get('중도금', 'N/A')}, 잔금:{updated_project.get('잔금', 'N/A')}, 총액2:{updated_project.get('총액 2', 'N/A')}, 미수금:{updated_project.get('미수금', 'N/A')}, 마진율:{updated_project.get('마진율', 'N/A')}")
 
