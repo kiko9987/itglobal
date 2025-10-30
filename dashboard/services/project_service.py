@@ -98,7 +98,11 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
 
             # 행 번호 기준으로 메모 매핑
             for row_num, notes in notes_by_row.items():
-                df_index = row_num - 2  # 헤더 제외, 0-based 인덱스
+                # Redis 캐시에서 row_num이 문자열로 올 수 있으므로 정수로 변환
+                try:
+                    df_index = int(row_num) - 2  # 헤더 제외, 0-based 인덱스
+                except (ValueError, TypeError):
+                    continue  # 숫자로 변환할 수 없으면 건너뛰기
 
                 if 0 <= df_index < len(df):
                     if 'T' in notes:
@@ -404,7 +408,11 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 # 구글 시트: 1행(헤더), 2행(데이터0), 3행(데이터1), ...
                 mapped_count = 0
                 for row_num, notes in notes_by_row.items():
-                    df_index = row_num - 2  # 헤더 제외, 0-based 인덱스
+                    # Redis 캐시에서 row_num이 문자열로 올 수 있으므로 정수로 변환
+                    try:
+                        df_index = int(row_num) - 2  # 헤더 제외, 0-based 인덱스
+                    except (ValueError, TypeError):
+                        continue  # 숫자로 변환할 수 없으면 건너뛰기
 
                     # 디버깅: 첫 3개 매핑 로그
                     if mapped_count < 3:
