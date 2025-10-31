@@ -488,12 +488,38 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
 
 
 def get_project_records(force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """
+    프로젝트 레코드 조회 (dict 리스트 반환)
+
+    Note:
+        날짜 필드(공사 시작, 공사 종료, 수금 날짜, 공사 확정)는
+        pandas Timestamp 객체를 문자열('YYYY-MM-DD')로 변환하여 반환
+    """
     df = load_data(force_refresh=force_refresh)
     if df is None:
         return []
     if isinstance(df, pd.DataFrame):
         normalized = df.where(pd.notna(df), None)
-        return normalized.to_dict('records')
+        projects = normalized.to_dict('records')
+
+        # 날짜 필드 후처리: Timestamp/NaT 객체를 문자열로 변환
+        # (calendar_sync_scheduler에서 문자열 비교 시 TypeError 방지)
+        date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+        for project in projects:
+            for date_col in date_columns:
+                if date_col in project:
+                    value = project[date_col]
+                    # Timestamp 객체인 경우 문자열로 변환
+                    if pd.notna(value) and hasattr(value, 'strftime'):
+                        try:
+                            project[date_col] = value.strftime('%Y-%m-%d')
+                        except:
+                            project[date_col] = ''
+                    # NaT, None, 빈 문자열은 모두 빈 문자열로 통일
+                    elif pd.isna(value) or value == '':
+                        project[date_col] = ''
+
+        return projects
     return df
 
 
