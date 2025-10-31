@@ -290,38 +290,79 @@ def _process_date_columns(df):
     """
     DataFrame의 날짜 컬럼들을 YYYY-MM-DD 형식으로 변환
 
+    잘못된 날짜 형식을 감지하고 경고 로그를 출력하여
+    사용자 입력 오류를 추적할 수 있도록 개선
+
     Args:
         df: DataFrame
 
     Returns:
-        DataFrame (날짜 컬럼 변환 완료)
+        tuple: (DataFrame (날짜 컬럼 변환 완료), invalid_dates 리스트)
     """
     date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+    all_invalid_dates = []  # 모든 잘못된 날짜 수집
+
     for col in date_columns:
-        if col in df.columns:
-            logger.info(f"날짜 컬럼 처리 시작: {col}")
+        if col not in df.columns:
+            continue
 
-            # 원본 데이터 샘플 확인 (최근 5개)
-            recent_samples = df.tail(5)[col].tolist()
-            logger.info(f"{col} 원본 데이터 샘플: {recent_samples}")
+        logger.info(f"날짜 컬럼 처리 시작: {col}")
 
-            # 다양한 날짜 형식 지원 (YYYY-MM-DD, YYYY/MM/DD 등)
-            df[col] = pd.to_datetime(df[col], errors='coerce')
+        # 원본 데이터 샘플 확인 (최근 5개)
+        recent_samples = df.tail(5)[col].tolist()
+        logger.info(f"{col} 원본 데이터 샘플: {recent_samples}")
 
-            # 변환 후 샘플 확인
-            converted_samples = df.tail(5)[col].tolist()
-            logger.info(f"{col} 변환 후 샘플: {converted_samples}")
+        # 잘못된 날짜 추적
+        invalid_dates_in_column = []
 
-            # 유효한 날짜는 YYYY-MM-DD 형식으로, 무효한 날짜는 빈 문자열로
-            df[col] = df[col].apply(lambda x:
-                x.strftime('%Y-%m-%d') if pd.notna(x) and x is not pd.NaT else ''
+        for idx in df.index:
+            value = df.at[idx, col]
+
+            # 빈 값은 건너뛰기
+            if pd.isna(value) or value == '' or value == '-':
+                df.at[idx, col] = ''
+                continue
+
+            try:
+                # 명시적 날짜 파싱 시도
+                parsed_date = pd.to_datetime(value, errors='raise')
+                df.at[idx, col] = parsed_date.strftime('%Y-%m-%d')
+            except Exception as parse_error:
+                # 파싱 실패 시 기록
+                invalid_dates_in_column.append({
+                    'row': idx,
+                    'column': col,
+                    'value': str(value),
+                    'error': str(parse_error)
+                })
+                df.at[idx, col] = ''  # 빈 문자열로 설정
+
+        # 잘못된 날짜가 있으면 경고 로그
+        if invalid_dates_in_column:
+            logger.warning(
+                f"⚠️ '{col}' 컬럼에서 잘못된 날짜 형식 발견: {len(invalid_dates_in_column)}개"
             )
+            # 처음 3개만 로그에 출력 (너무 많으면 로그 비대화)
+            for invalid in invalid_dates_in_column[:3]:
+                logger.warning(
+                    f"   행 {invalid['row']}: '{invalid['value']}' → 빈 문자열로 변환"
+                )
+            if len(invalid_dates_in_column) > 3:
+                logger.warning(f"   (외 {len(invalid_dates_in_column) - 3}개)")
 
-            # 최종 결과 샘플
-            final_samples = df.tail(5)[col].tolist()
-            logger.info(f"{col} 최종 결과 샘플: {final_samples}")
+            all_invalid_dates.extend(invalid_dates_in_column)
 
-    return df
+        # 최종 결과 샘플
+        final_samples = df.tail(5)[col].tolist()
+        logger.info(f"{col} 최종 결과 샘플: {final_samples}")
+
+    # 전체 잘못된 날짜 요약
+    if all_invalid_dates:
+        logger.warning(
+            f"⚠️ 총 {len(all_invalid_dates)}개의 잘못된 날짜가 빈 문자열로 변환되었습니다"
+        )
+
+    return df, all_invalid_dates
 
 
 def _build_projects_response(projects):
@@ -391,7 +432,11 @@ def get_projects_list():
 
         # 4. DataFrame 전처리 (NaN 처리 + 날짜 변환)
         df = df.fillna('')
-        df = _process_date_columns(df)
+        df, invalid_dates = _process_date_columns(df)
+
+        # 잘못된 날짜가 있으면 로그에 기록 (이미 함수 내부에서 경고 출력됨)
+        if invalid_dates:
+            logger.info(f"[DATA] 잘못된 날짜 {len(invalid_dates)}개가 감지되었습니다")
 
         # 5. dict 변환
         projects = df.to_dict('records')
