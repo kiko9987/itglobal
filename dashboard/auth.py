@@ -193,11 +193,12 @@ def editor_required(f):
     """편집자 이상 권한 필수 데코레이터 (editor, admin, super_admin)"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            if request.is_json:
-                return jsonify({'error': '로그인이 필요합니다.', 'redirect': '/login'}), 401
-            return redirect(url_for('auth.login_page', message='access_denied'))
+        # 먼저 기본 세션 검증 수행 (로그인, 만료, 활성화 상태 등)
+        validation_result = _validate_session(require_admin=False)
+        if validation_result:
+            return validation_result
 
+        # 세션 검증 통과 후 추가로 편집 권한 검사
         permission = session['user'].get('permission_level', 'viewer')
         if permission not in ['editor', 'admin', 'super_admin']:
             if request.is_json:
