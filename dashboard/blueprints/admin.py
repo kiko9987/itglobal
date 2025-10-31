@@ -241,7 +241,7 @@ def sync_all_projects_to_calendar():
     try:
         from dashboard.services.project_service import get_project_records
         from dashboard.services.calendar_service import create_project_calendar_event, is_calendar_enabled
-        from dashboard.utils.calendar_event_repository import get_calendar_event_repository
+        from dashboard.utils.user_database import get_calendar_event_repository
         from flask import session
         import threading
 
