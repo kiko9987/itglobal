@@ -199,6 +199,10 @@ class RedisClient:
             - 최대 3회 재시도 (1초, 2초, 4초 간격)
             - ConnectionError, TimeoutError 시 자동 재시도
         """
+        # Fallback 모드일 때는 항상 False 반환 (Redis 연결 없음)
+        if getattr(self, '_use_fallback', False):
+            return False
+
         try:
             return self.redis.ping()
         except RedisError as e:
@@ -229,7 +233,17 @@ class RedisClient:
             - JSON: 역직렬화 시도
             - 기타: 문자열 그대로 반환
             - 재연결: 최대 3회 재시도 (exponential backoff)
+            - Fallback 모드: 메모리 캐시 사용
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            value = self._fallback_cache.get(key)
+            if value is None:
+                return None
+
+            # Fallback 캐시는 JSON 직렬화 없이 저장하므로 그대로 반환
+            return value
+
         try:
             value = self.redis.get(key)
             if value is None:
@@ -281,7 +295,16 @@ class RedisClient:
             - bytes 타입: 그대로 저장 (pickle 결과 등)
             - str 타입: 그대로 저장
             - 기타: JSON 직렬화
+            - Fallback 모드: 메모리 캐시 사용
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            # nx 옵션 처리 (키가 없을 때만 설정)
+            if nx and self._fallback_cache.exists(key) > 0:
+                return False
+            # Fallback 캐시는 JSON 직렬화 없이 저장 (Python 객체 그대로)
+            return self._fallback_cache.set(key, value, ex=ex)
+
         try:
             # bytes는 그대로 저장 (pickle 등)
             if isinstance(value, bytes):
@@ -316,6 +339,10 @@ class RedisClient:
         Raises:
             ServiceUnavailable: Redis 에러 시
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            return self._fallback_cache.delete(*keys)
+
         try:
             return self.redis.delete(*keys)
         except RedisError as e:
@@ -335,6 +362,10 @@ class RedisClient:
         Raises:
             ServiceUnavailable: Redis 에러 시
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            return self._fallback_cache.exists(*keys)
+
         try:
             return self.redis.exists(*keys)
         except RedisError as e:
@@ -355,6 +386,10 @@ class RedisClient:
         Raises:
             ServiceUnavailable: Redis 에러 시
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            return self._fallback_cache.expire(key, seconds)
+
         try:
             return self.redis.expire(key, seconds)
         except RedisError as e:
@@ -374,6 +409,10 @@ class RedisClient:
         Raises:
             ServiceUnavailable: Redis 에러 시
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            return self._fallback_cache.ttl(key)
+
         try:
             return self.redis.ttl(key)
         except RedisError as e:
@@ -396,6 +435,10 @@ class RedisClient:
         Warning:
             KEYS 명령은 O(N)이므로 프로덕션에서는 주의해서 사용
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            return self._fallback_cache.keys(pattern)
+
         try:
             return self.redis.keys(pattern)
         except RedisError as e:
@@ -415,6 +458,10 @@ class RedisClient:
         Warning:
             프로덕션에서는 절대 사용하지 마세요!
         """
+        # Fallback 모드일 때 메모리 캐시 사용
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            return self._fallback_cache.flushdb()
+
         try:
             return self.redis.flushdb()
         except RedisError as e:
@@ -438,6 +485,14 @@ class RedisClient:
         Raises:
             ServiceUnavailable: Redis 에러 시
         """
+        # Fallback 모드일 때 메모리 캐시 사용 (단, 분산 락 기능은 제한적)
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            logger.warning(f"⚠️ Fallback 모드: 분산 락이 단일 프로세스로 제한됨 - key={key}")
+            # nx 옵션 처리 (키가 없을 때만 설정)
+            if self._fallback_cache.exists(key) > 0:
+                return False
+            return self._fallback_cache.set(key, value, ex=timeout)
+
         try:
             return self.redis.set(key, value, nx=True, ex=timeout)
         except RedisError as e:
@@ -457,6 +512,7 @@ class RedisClient:
         Raises:
             ServiceUnavailable: Redis 에러 시
         """
+        # delete() 메서드가 이미 fallback을 처리하므로 그대로 위임
         return self.delete(key)
 
     def extend_lock(self, key: str, additional_time: int) -> bool:
@@ -473,6 +529,7 @@ class RedisClient:
         Raises:
             ServiceUnavailable: Redis 에러 시
         """
+        # ttl() 과 expire() 메서드가 이미 fallback을 처리하므로 그대로 사용
         try:
             current_ttl = self.ttl(key)
             if current_ttl > 0:
