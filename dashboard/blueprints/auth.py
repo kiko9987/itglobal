@@ -3,6 +3,7 @@ Authentication Blueprint
 사용자 인증 관련 라우트들을 관리하는 블루프린트
 """
 
+import os
 import uuid
 from datetime import datetime
 from flask import Blueprint, render_template, redirect, url_for, session, request, jsonify
@@ -111,6 +112,10 @@ def google_callback():
         session['session_id'] = str(uuid.uuid4())  # CSRF 토큰 생성을 위한 세션 ID
         session.permanent = True
 
+        # 세션 타임아웃 설정 (프론트엔드와 동기화)
+        session_timeout_hours = int(os.getenv('SESSION_TIMEOUT_HOURS', 4))
+        session['session_timeout_minutes'] = session_timeout_hours * 60
+
         # OAuth state 정리
         session.pop('oauth_state', None)
 
@@ -145,7 +150,21 @@ def refresh_session():
         session['login_time'] = datetime.now().isoformat()
         session.modified = True
         logger.debug(f"세션 연장: {session.get('user', {}).get('email', 'unknown')}")
-        return jsonify({'success': True, 'message': '세션이 연장되었습니다'})
+
+        # 세션 타임아웃 정보를 프론트엔드에 전달
+        session_timeout_minutes = session.get('session_timeout_minutes')
+        if not session_timeout_minutes:
+            # 세션에 없으면 환경변수에서 계산
+            session_timeout_hours = int(os.getenv('SESSION_TIMEOUT_HOURS', 4))
+            session_timeout_minutes = session_timeout_hours * 60
+            session['session_timeout_minutes'] = session_timeout_minutes
+            session.modified = True
+
+        return jsonify({
+            'success': True,
+            'message': '세션이 연장되었습니다',
+            'session_timeout_minutes': session_timeout_minutes
+        })
     except Exception as e:
         error_id = generate_error_id()
         logger.error(f"[{error_id}] 세션 연장 실패: {str(e)}", exc_info=True)

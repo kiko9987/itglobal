@@ -8,13 +8,55 @@ import logger from '../utils/logger.js';
 // 원본 fetch를 백업
 const originalFetch = window.fetch;
 
-// 세션 타임아웃 설정 (Flask 기본: 31일, 하지만 실제로는 브라우저 닫을 때까지)
-const SESSION_WARNING_TIME = 55 * 60 * 1000; // 55분 (1시간 세션의 5분 전)
-const SESSION_TIMEOUT = 60 * 60 * 1000; // 1시간
+// 세션 타임아웃 설정 (서버에서 동적으로 가져옴)
 const REDIRECT_LOCK_DURATION = 5000; // 5초 (다중 탭 리다이렉트 방지)
+
+// 동적 타임아웃 설정 (기본값: 4시간 = 240분)
+let SESSION_TIMEOUT_MINUTES = 240; // 서버 기본값과 동일
+let SESSION_WARNING_TIME = (SESSION_TIMEOUT_MINUTES - 5) * 60 * 1000; // 5분 전 경고
+let SESSION_TIMEOUT = SESSION_TIMEOUT_MINUTES * 60 * 1000;
 
 let lastActivityTime = Date.now();
 let sessionWarningShown = false;
+
+/**
+ * 서버에서 세션 타임아웃 설정을 가져와서 동적으로 적용
+ */
+async function initializeSessionTimeout() {
+  try {
+    // localStorage에서 먼저 확인 (페이지 새로고침 시 빠른 초기화)
+    const storedTimeout = localStorage.getItem('session_timeout_minutes');
+    if (storedTimeout) {
+      updateSessionTimeout(parseInt(storedTimeout, 10));
+    }
+
+    // 서버에서 최신 값 가져오기 (비동기)
+    const response = await originalFetch('/api/auth/ping', { method: 'POST' });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.session_timeout_minutes) {
+        updateSessionTimeout(data.session_timeout_minutes);
+        localStorage.setItem('session_timeout_minutes', data.session_timeout_minutes);
+      }
+    }
+  } catch (error) {
+    // 초기화 실패 시 기본값 사용 (로그인 전이거나 네트워크 오류)
+    logger.debug('[Auth] 세션 타임아웃 초기화 실패, 기본값 사용:', error);
+  }
+}
+
+/**
+ * 세션 타임아웃 값 업데이트
+ */
+function updateSessionTimeout(timeoutMinutes) {
+  SESSION_TIMEOUT_MINUTES = timeoutMinutes;
+  SESSION_WARNING_TIME = (timeoutMinutes - 5) * 60 * 1000; // 5분 전 경고
+  SESSION_TIMEOUT = timeoutMinutes * 60 * 1000;
+  logger.debug(`[Auth] 세션 타임아웃 업데이트: ${timeoutMinutes}분 (경고: ${timeoutMinutes - 5}분)`);
+}
+
+// 초기화 실행 (페이지 로드 시)
+initializeSessionTimeout();
 
 /**
  * 이중 리다이렉트 방지 (다중 탭 대응)
@@ -118,7 +160,15 @@ function showSessionWarning() {
   document.getElementById('session-refresh-btn').addEventListener('click', async () => {
     try {
       // 세션 연장을 위한 ping 요청 (login_time 갱신)
-      await fetch('/api/auth/ping', { method: 'POST' });
+      const response = await originalFetch('/api/auth/ping', { method: 'POST' });
+      const data = await response.json();
+
+      // 서버에서 받은 타임아웃 값으로 업데이트
+      if (data.session_timeout_minutes) {
+        updateSessionTimeout(data.session_timeout_minutes);
+        localStorage.setItem('session_timeout_minutes', data.session_timeout_minutes);
+      }
+
       updateActivity();
 
       // 성공 메시지 표시
@@ -168,14 +218,14 @@ function showSessionWarning() {
 setInterval(() => {
   const timeSinceLastActivity = Date.now() - lastActivityTime;
 
-  // 25분 경과 시 경고
+  // 타임아웃 5분 전 경고
   if (timeSinceLastActivity >= SESSION_WARNING_TIME && !sessionWarningShown) {
     showSessionWarning();
   }
 
-  // 30분 경과 시 자동 로그아웃 (서버 세션 만료 전에 클라이언트에서 미리 처리)
+  // 타임아웃 도달 시 자동 로그아웃 (서버 세션 만료와 동기화)
   if (timeSinceLastActivity >= SESSION_TIMEOUT && !isAlreadyRedirecting()) {
-    logger.warn('[Auth] 세션 타임아웃 - 자동 로그아웃');
+    logger.warn(`[Auth] 세션 타임아웃 (${SESSION_TIMEOUT_MINUTES}분) - 자동 로그아웃`);
     setRedirectingState();
 
     const currentPath = window.location.pathname + window.location.search;
