@@ -352,17 +352,18 @@ def _process_date_columns(df):
     return df, all_invalid_dates
 
 
-def _build_projects_response(projects):
+def _build_projects_response(projects, invalid_dates=None):
     """
     프로젝트 목록 응답 구조 생성
 
     Args:
         projects: 프로젝트 dict 리스트
+        invalid_dates: 잘못된 날짜 목록 (선택사항)
 
     Returns:
         dict: 응답 구조
     """
-    return {
+    response = {
         'success': True,
         'data': projects,
         'meta': {
@@ -370,6 +371,29 @@ def _build_projects_response(projects):
             'timestamp': datetime.now().isoformat()
         }
     }
+
+    # 잘못된 날짜 정보가 있으면 메타데이터에 추가
+    if invalid_dates:
+        response['meta']['date_parsing_warnings'] = {
+            'count': len(invalid_dates),
+            'message': f'{len(invalid_dates)}개의 날짜가 잘못된 형식으로 빈 문자열로 변환되었습니다',
+            'details': [
+                {
+                    'row': invalid['row'],
+                    'column': invalid['column'],
+                    'value': invalid['value'],
+                    'error': invalid['error']
+                }
+                for invalid in invalid_dates[:10]  # 처음 10개만 (응답 크기 제한)
+            ]
+        }
+
+        # 더 많은 오류가 있으면 표시
+        if len(invalid_dates) > 10:
+            response['meta']['date_parsing_warnings']['has_more'] = True
+            response['meta']['date_parsing_warnings']['total_hidden'] = len(invalid_dates) - 10
+
+    return response
 
 
 def _set_cache_headers(response, refresh):
@@ -454,8 +478,8 @@ def get_projects_list():
         # - 전체 프로젝트 조회 가능 (검색, 학습 목적)
         # - 수정/삭제는 불가 (각 API 엔드포인트에서 권한 체크)
 
-        # 6. 응답 생성 및 캐시 헤더 설정
-        response_data = _build_projects_response(projects)
+        # 6. 응답 생성 및 캐시 헤더 설정 (날짜 파싱 오류 정보 포함)
+        response_data = _build_projects_response(projects, invalid_dates)
         response = jsonify(response_data)
         response = _set_cache_headers(response, refresh)
 
