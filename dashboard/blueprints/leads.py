@@ -6,7 +6,7 @@
 import logging
 from flask import Blueprint, render_template, redirect, url_for, request, session, jsonify
 
-from ..auth import login_required, get_user_role
+from ..auth import login_required, get_user_role, editor_required
 from ..services.lead_service import (
     get_lead_records,
     get_lead_by_no,
@@ -32,7 +32,7 @@ def index():
     리드 관리 메인 페이지
     """
     try:
-        user_email = session.get('user_email', 'Unknown')
+        user_email = session.get('user', {}).get('email', 'Unknown')
         user_role = get_user_role()
 
         return render_template(
@@ -86,7 +86,7 @@ def api_list_leads():
 
 
 @leads_bp.route('/api/create', methods=['POST'])
-@login_required
+@editor_required
 def api_create_lead():
     """
     새 리드 생성 API
@@ -145,7 +145,7 @@ def api_create_lead():
 
 
 @leads_bp.route('/api/update/<lead_no>', methods=['PUT'])
-@login_required
+@editor_required
 def api_update_lead(lead_no):
     """
     리드 정보 업데이트 API
@@ -200,7 +200,7 @@ def api_update_lead(lead_no):
 
 
 @leads_bp.route('/api/status/<lead_no>', methods=['PATCH'])
-@login_required
+@editor_required
 def api_update_lead_status(lead_no):
     """
     리드 상태 변경 API (빠른 업데이트)

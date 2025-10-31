@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 import pandas as pd
 from flask import Blueprint, render_template, redirect, url_for, request, session, jsonify, current_app
 
-from ..auth import login_required, get_user_role, admin_required
+from ..auth import login_required, get_user_role, admin_required, editor_required
 from ..services.project_service import (
     can_user_edit_project,
     check_overdue_status,
@@ -974,7 +974,7 @@ def _update_calendar_if_needed(updated_project, project_code, final_project_code
 # ============================================================================
 
 @projects_bp.route('/api/projects/<project_code>', methods=['PUT'])
-@login_required
+@editor_required
 @track_business_operation("api_project_update")
 def update_project(project_code):
     """프로젝트 업데이트 API (통합 편집 방식 - 전체 행 업데이트) - 리팩토링됨"""
@@ -1458,7 +1458,7 @@ def _save_and_return_inline_result(manager, sheet_id, sheet_name, row_number, cu
 # ============================================================================
 
 @projects_bp.route('/api/update-project-inline', methods=['POST'])
-@login_required
+@editor_required
 @track_business_operation("api_project_inline_update")
 def update_project_inline():
     """
@@ -1889,7 +1889,7 @@ def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, proj
 
 # ===== 메인 함수: save_field_memo (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memo', methods=['POST'])
-@login_required
+@editor_required
 @track_business_operation("api_field_memo_save")
 def save_field_memo():
     """
@@ -2210,7 +2210,7 @@ def _finalize_batch_memo_save(audit_actions, sheet_id, success_count):
 
 # ===== 메인 함수: save_field_memos_batch (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memos/batch', methods=['POST'])
-@login_required
+@editor_required
 @track_business_operation("api_field_memo_batch_save")
 def save_field_memos_batch():
     """
@@ -2663,7 +2663,7 @@ def _build_project_response_data(code, data):
 
 
 @projects_bp.route('/api/projects/auto', methods=['POST'])
-@login_required
+@editor_required
 @track_business_operation("api_project_create_auto")
 def add_project_auto():
     """신규 프로젝트 자동 코드 생성 및 추가"""
@@ -2966,7 +2966,7 @@ def _prepare_resume_updates(sheet_name, row_number):
 # ============================================
 
 @projects_bp.route('/api/project/cancel', methods=['POST'])
-@login_required
+@editor_required
 @track_business_operation("api_project_cancel")
 def cancel_project_api():
     """공사 취소 API - JSON 응답"""
@@ -3063,7 +3063,7 @@ def cancel_project_api():
 
 
 @projects_bp.route('/api/project/resume', methods=['POST'])
-@login_required
+@editor_required
 @track_business_operation("api_project_resume")
 def resume_project_api():
     """공사 재개 API - JSON 응답"""

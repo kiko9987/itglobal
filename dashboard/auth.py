@@ -189,6 +189,24 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def editor_required(f):
+    """편집자 이상 권한 필수 데코레이터 (editor, admin, super_admin)"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            if request.is_json:
+                return jsonify({'error': '로그인이 필요합니다.', 'redirect': '/login'}), 401
+            return redirect(url_for('auth.login_page', message='access_denied'))
+
+        permission = session['user'].get('permission_level', 'viewer')
+        if permission not in ['editor', 'admin', 'super_admin']:
+            if request.is_json:
+                return jsonify({'error': '편집 권한이 필요합니다.'}), 403
+            return redirect(url_for('projects.project_list'))
+
+        return f(*args, **kwargs)
+    return decorated_function
+
 def get_user_role():
     """사용자 역할 결정 (DB 기반)"""
     if 'user' not in session:
