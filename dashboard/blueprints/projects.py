@@ -2494,7 +2494,8 @@ def _build_row_values(data, manager):
         'S': data.get('총액 2', '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'),
         'W': data.get('미수금', '=0-($S:S-($T:T+$U:U+$V:V))'),
         'AE': data.get('순익', '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'),
-        'AF': data.get('마진율', '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))')
+        'AF': data.get('마진율', '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))'),
+        'AN': '0'  # _version 초기값 (낙관적 잠금용)
     }
 
     for col_letter, formula in formula_fields.items():
