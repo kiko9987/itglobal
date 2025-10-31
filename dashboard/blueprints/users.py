@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request, session
 from dashboard.auth import admin_required, login_required, get_user_role
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.user_database import get_user_database
+from dashboard.utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 
@@ -101,8 +102,13 @@ def get_users():
             }
         })
     except Exception as e:
-        logger.error(f"사용자 목록 조회 오류: {str(e)}")
-        return jsonify({'success': False, 'message': '사용자 목록을 불러올 수 없습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 사용자 목록 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '사용자 목록을 불러올 수 없습니다.',
+            'error_id': error_id
+        }), 500
 
 @users_bp.route('/resigned-managers', methods=['GET'])
 @login_required
@@ -115,8 +121,14 @@ def get_resigned_managers():
         logger.info(f"[API] 퇴사자 {len(resigned_data)}명 조회됨: {[user['name'] for user in resigned_data]}")
         return jsonify({'success': True, 'resigned_managers': resigned_data})
     except Exception as e:
-        logger.error(f"퇴사자 목록 조회 오류: {str(e)}")
-        return jsonify({'success': False, 'message': '퇴사자 목록을 불러올 수 없습니다.', 'resigned_managers': []}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 퇴사자 목록 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '퇴사자 목록을 불러올 수 없습니다.',
+            'resigned_managers': [],
+            'error_id': error_id
+        }), 500
 
 @users_bp.route('/users/permission', methods=['POST'])
 @admin_required
@@ -391,9 +403,10 @@ def release_all_user_locks():
             })
 
     except Exception as e:
-        logger.error(f"사용자 잠금 해제 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 사용자 잠금 해제 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'message': '잠금 해제 중 오류가 발생했습니다.',
-            'error': str(e)
+            'error_id': error_id
         }), 500

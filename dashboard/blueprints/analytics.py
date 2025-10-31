@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify
 from dashboard.auth import login_required
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.smart_cache_manager import smart_get, CacheStrategy
+from dashboard.utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 
@@ -43,8 +44,13 @@ def get_summary():
         return jsonify(summary)
 
     except Exception as e:
-        logger.error(f"요약 통계 API 오류: {str(e)}")
-        return jsonify({'error': '요약 통계를 생성할 수 없습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 요약 통계 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '요약 통계를 생성할 수 없습니다.',
+            'error_id': error_id
+        }), 500
 
 @analytics_bp.route('/regional-analysis')
 @login_required
@@ -67,8 +73,13 @@ def get_regional_analysis():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"지역별 분석 API 오류: {str(e)}")
-        return jsonify({'error': '지역별 분석을 수행할 수 없습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 지역별 분석 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '지역별 분석을 수행할 수 없습니다.',
+            'error_id': error_id
+        }), 500
 
 @analytics_bp.route('/outstanding-analysis')
 @login_required
@@ -98,8 +109,13 @@ def get_outstanding_analysis():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"미수금 분석 API 오류: {str(e)}")
-        return jsonify({'error': '미수금 분석을 수행할 수 없습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 미수금 분석 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '미수금 분석을 수행할 수 없습니다.',
+            'error_id': error_id
+        }), 500
 
 @analytics_bp.route('/brand-analysis')
 @login_required
@@ -122,8 +138,13 @@ def get_brand_analysis():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"브랜드별 분석 API 오류: {str(e)}")
-        return jsonify({'error': '브랜드별 분석을 수행할 수 없습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 브랜드별 분석 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '브랜드별 분석을 수행할 수 없습니다.',
+            'error_id': error_id
+        }), 500
 
 @analytics_bp.route('/monthly-sales')
 @login_required
@@ -146,5 +167,10 @@ def get_monthly_sales():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"월별 매출 API 오류: {str(e)}")
-        return jsonify({'error': '월별 매출 분석을 수행할 수 없습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 월별 매출 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '월별 매출 분석을 수행할 수 없습니다.',
+            'error_id': error_id
+        }), 500

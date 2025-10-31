@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 from flask import Blueprint, render_template, redirect, url_for, session, request, jsonify
 from dashboard.utils.logging_config import get_logger
+from dashboard.utils.error_helpers import generate_error_id
 
 # 인증 시스템 import
 from dashboard.auth import user_manager, login_required, admin_required, get_user_role
@@ -54,7 +55,8 @@ def google_login():
         return redirect(authorization_url)
 
     except Exception as e:
-        logger.error(f"Google OAuth 시작 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] Google OAuth 시작 오류: {str(e)}", exc_info=True)
         return redirect(url_for('auth.login_page', message='oauth_error'))
 
 @auth_bp.route('/auth/callback')
@@ -124,7 +126,8 @@ def google_callback():
         return redirect(url_for('projects.project_list'))
 
     except Exception as e:
-        logger.error(f"Google OAuth 콜백 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] Google OAuth 콜백 오류: {str(e)}", exc_info=True)
         return redirect(url_for('auth.login_page', message='oauth_error'))
 
 @auth_bp.route('/logout')
@@ -144,8 +147,13 @@ def refresh_session():
         logger.debug(f"세션 연장: {session.get('user', {}).get('email', 'unknown')}")
         return jsonify({'success': True, 'message': '세션이 연장되었습니다'})
     except Exception as e:
-        logger.error(f"세션 연장 실패: {str(e)}")
-        return jsonify({'success': False, 'message': '세션 연장에 실패했습니다'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 세션 연장 실패: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '세션을 연장할 수 없습니다',
+            'error_id': error_id
+        }), 500
 
 
 @auth_bp.route('/auth/google/calendar')

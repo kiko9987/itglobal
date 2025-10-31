@@ -6,6 +6,7 @@ Stats Blueprint - 매출 통계 페이지
 from flask import Blueprint, render_template, jsonify, session
 from functools import wraps
 import logging
+from dashboard.utils.error_helpers import generate_error_id
 
 # Blueprint 생성
 stats_bp = Blueprint('stats', __name__, url_prefix='')
@@ -61,5 +62,10 @@ def get_user_role_api():
         user_role = get_user_role()
         return jsonify({'success': True, 'role': user_role})
     except Exception as e:
-        logger.error(f"사용자 역할 조회 오류: {str(e)}")
-        return jsonify({'success': False, 'role': 'user'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 사용자 역할 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'role': 'user',
+            'error_id': error_id
+        }), 500

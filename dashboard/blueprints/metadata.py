@@ -10,6 +10,7 @@ from flask import Blueprint, jsonify, request
 from dashboard.auth import login_required
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.smart_cache_manager import smart_get, CacheStrategy
+from dashboard.utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 
@@ -123,8 +124,13 @@ def preview_project_code():
             })
 
     except Exception as e:
-        logger.error(f"프로젝트 코드 미리보기 오류: {str(e)}")
-        return jsonify({"ok": False, "error": "서버 오류가 발생했습니다"})
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 코드 미리보기 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            "ok": False,
+            "error": "프로젝트 코드 생성 중 오류가 발생했습니다.",
+            "error_id": error_id
+        })
 
 @metadata_bp.route('/meta/options', methods=['GET'])
 @login_required
@@ -239,8 +245,13 @@ def get_meta_options():
         return jsonify(metadata_response)
 
     except Exception as e:
-        logger.error(f"메타 옵션 조회 오류: {str(e)}")
-        return jsonify({'error': '메타 옵션 조회 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 메타 옵션 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '메타 옵션 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @metadata_bp.route('/system-info')
 @login_required
@@ -269,5 +280,10 @@ def get_system_info():
         })
 
     except Exception as e:
-        logger.error(f"시스템 정보 조회 오류: {str(e)}")
-        return jsonify({'error': '시스템 정보 조회 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 시스템 정보 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '시스템 정보 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500

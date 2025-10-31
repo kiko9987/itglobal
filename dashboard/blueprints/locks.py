@@ -8,6 +8,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 from dashboard.auth import login_required
 from dashboard.utils.logging_config import get_logger
+from dashboard.utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 
@@ -60,8 +61,13 @@ def acquire_project_lock():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"프로젝트 잠금 획득 오류: {str(e)}")
-        return jsonify({'success': False, 'message': '잠금 획득 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 잠금 획득 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '잠금 획득 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @locks_bp.route('/project-lock/release', methods=['POST'])
 @login_required
@@ -108,8 +114,13 @@ def release_project_lock():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"프로젝트 잠금 해제 오류: {str(e)}")
-        return jsonify({'success': False, 'message': '잠금 해제 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 잠금 해제 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '잠금 해제 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @locks_bp.route('/project-lock/status/<project_code>')
 @login_required
@@ -128,10 +139,12 @@ def get_project_lock_status(project_code):
         })
 
     except Exception as e:
-        logger.error(f"잠금 상태 조회 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 잠금 상태 조회 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': '잠금 상태 조회 중 오류가 발생했습니다.'
+            'message': '잠금 상태 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500
 
 @locks_bp.route('/project-lock/force-release', methods=['POST'])
@@ -194,10 +207,12 @@ def force_release_project_lock():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"강제 잠금 해제 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 강제 잠금 해제 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': '강제 잠금 해제 중 오류가 발생했습니다.'
+            'message': '강제 잠금 해제 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500
 
 @locks_bp.route('/project-lock/heartbeat', methods=['POST'])
@@ -238,8 +253,13 @@ def project_lock_heartbeat():
         return jsonify(result)
 
     except Exception as e:
-        logger.error(f"프로젝트 잠금 연장 오류: {str(e)}")
-        return jsonify({'success': False, 'message': '잠금 연장 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 잠금 연장 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '잠금 연장 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @locks_bp.route('/project-lock/release-all-user-locks', methods=['POST'])
 @login_required
@@ -309,11 +329,12 @@ def release_all_user_project_locks():
         })
 
     except Exception as e:
-        logger.error(f"사용자 잠금 해제 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 사용자 잠금 해제 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'message': '잠금 해제 중 오류가 발생했습니다.',
-            'error': str(e)
+            'error_id': error_id
         }), 500
 
 @locks_bp.route('/project-lock/all-locks')
@@ -333,8 +354,10 @@ def get_all_project_locks():
         })
 
     except Exception as e:
-        logger.error(f"모든 잠금 조회 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 모든 잠금 조회 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': '잠금 목록 조회 중 오류가 발생했습니다.'
+            'message': '잠금 목록 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500

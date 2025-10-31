@@ -9,6 +9,7 @@ from flask import Blueprint, jsonify, request, session
 from dashboard.auth import admin_required, login_required
 
 from ..utils.logging_config import get_logger
+from ..utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 monitoring_bp = Blueprint('monitoring', __name__)
@@ -227,8 +228,13 @@ def get_audit_logs_api():
         })
 
     except Exception as e:
-        logger.error(f"감사 로그 조회 오류: {str(e)}")
-        return jsonify({'success': False, 'message': '감사 로그를 불러올 수 없습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 감사 로그 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '감사 로그를 불러올 수 없습니다.',
+            'error_id': error_id
+        }), 500
 
 @monitoring_bp.route('/api/monitoring/usage')
 @admin_required

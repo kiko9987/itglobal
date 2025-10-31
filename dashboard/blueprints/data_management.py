@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, session
 from dashboard.auth import login_required, admin_required
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.smart_cache_manager import smart_get, CacheStrategy
+from dashboard.utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 
@@ -59,8 +60,13 @@ def refresh_data():
         })
 
     except Exception as e:
-        logger.error(f"데이터 새로고침 오류: {str(e)}")
-        return jsonify({'success': False, 'error': '데이터 새로고침 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 데이터 새로고침 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '데이터 새로고침 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @data_management_bp.route('/quick-refresh')
 @login_required
@@ -102,8 +108,13 @@ def quick_refresh_data():
         })
 
     except Exception as e:
-        logger.error(f"빠른 새로고침 오류: {str(e)}")
-        return jsonify({'success': False, 'error': '빠른 새로고침 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 빠른 새로고침 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '빠른 새로고침 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @data_management_bp.route('/cache/refresh', methods=['POST'])
 @login_required
@@ -136,10 +147,12 @@ def manual_cache_refresh():
         })
 
     except Exception as e:
-        logger.error(f"수동 캐시 새로고침 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 수동 캐시 새로고침 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'error': '캐시 새로고침 중 오류가 발생했습니다.'
+            'error': '캐시 새로고침 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500
 
 @data_management_bp.route('/data-status')
@@ -168,10 +181,12 @@ def get_data_status():
         })
 
     except Exception as e:
-        logger.error(f"데이터 상태 조회 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 데이터 상태 조회 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'error': '데이터 상태 조회 중 오류가 발생했습니다.'
+            'error': '데이터 상태 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500
 
 @data_management_bp.route('/refresh-async', methods=['POST'])
@@ -236,10 +251,12 @@ def refresh_data_async():
         # 오류 발생 시 플래그 해제
         with _refresh_lock:
             _refresh_in_progress = False
-        logger.error(f"비동기 새로고침 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 비동기 새로고침 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'error': '비동기 새로고침 시작 중 오류가 발생했습니다.'
+            'error': '비동기 새로고침 시작 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500
 
 def parse_amount(amount_str):

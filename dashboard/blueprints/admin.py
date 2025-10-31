@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, render_template, jsonify, request
 from dashboard.auth import admin_required, login_required
 from dashboard.utils.logging_config import get_logger
+from dashboard.utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 
@@ -48,8 +49,13 @@ def get_cache_stats():
         })
 
     except Exception as e:
-        logger.error(f"캐시 통계 API 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캐시 통계 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캐시 통계를 조회할 수 없습니다',
+            'error_id': error_id
+        }), 500
 
 @admin_bp.route('/api/cache-clear', methods=['POST'])
 @admin_required
@@ -90,8 +96,13 @@ def clear_cache():
         })
 
     except Exception as e:
-        logger.error(f"캐시 삭제 API 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캐시 삭제 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캐시를 삭제할 수 없습니다',
+            'error_id': error_id
+        }), 500
 
 @admin_bp.route('/api/cache/status')
 @login_required
@@ -145,8 +156,13 @@ def get_cache_status():
         })
 
     except Exception as e:
-        logger.error(f"캐시 상태 조회 오류: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캐시 상태 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캐시 상태를 조회할 수 없습니다',
+            'error_id': error_id
+        }), 500
 
 @admin_bp.route('/api/cache/refresh', methods=['POST'])
 @login_required
@@ -196,5 +212,10 @@ def manual_cache_refresh():
         })
 
     except Exception as e:
-        logger.error(f"캐시 새로고침 API 오류: {e}")
-        return jsonify({'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캐시 새로고침 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캐시를 새로고침할 수 없습니다',
+            'error_id': error_id
+        }), 500

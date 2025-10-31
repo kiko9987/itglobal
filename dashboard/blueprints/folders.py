@@ -10,6 +10,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 from dashboard.auth import login_required, admin_required
 from dashboard.utils.logging_config import get_logger
+from dashboard.utils.error_helpers import generate_error_id
 
 logger = get_logger(__name__)
 
@@ -83,8 +84,13 @@ def get_project_folder_id(project_code):
         })
 
     except Exception as e:
-        logger.error(f"폴더 ID 조회 오류: {str(e)}")
-        return jsonify({'success': False, 'error': '폴더 ID 조회 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 폴더 ID 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '폴더 ID 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @folders_bp.route('/folder/convert-paths-to-ids', methods=['POST'])
 @admin_required
@@ -187,8 +193,13 @@ def convert_folder_paths_to_ids():
         })
 
     except Exception as e:
-        logger.error(f"폴더 경로 변환 오류: {str(e)}")
-        return jsonify({'success': False, 'error': f'변환 중 오류가 발생했습니다: {str(e)}'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 폴더 경로 변환 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '폴더 경로 변환 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @folders_bp.route('/folder/name/<project_code>')
 @login_required
@@ -249,8 +260,13 @@ def get_folder_name(project_code):
         })
 
     except Exception as e:
-        logger.error(f"폴더명 조회 오류: {str(e)}")
-        return jsonify({'success': False, 'error': '폴더명 조회 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 폴더명 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '폴더명 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 @folders_bp.route('/folder/open/<project_code>')
 @login_required
@@ -454,5 +470,10 @@ def open_project_folder(project_code):
             })
 
     except Exception as e:
-        logger.error(f"폴더 열기 오류: {str(e)}")
-        return jsonify({'success': False, 'error': '폴더 열기 중 오류가 발생했습니다.'}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 폴더 열기 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '폴더 열기 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500

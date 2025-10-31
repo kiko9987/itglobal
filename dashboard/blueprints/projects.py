@@ -37,6 +37,7 @@ from ..api.responses import APIResponse, APIErrorCode, api_response
 from ..utils.smart_cache_manager import smart_invalidate, smart_get, CacheStrategy
 from ..utils.logging_config import get_logger
 from ..utils.request_middleware import track_business_operation, log_external_api_call
+from ..utils.error_helpers import generate_error_id
 
 # Marshmallow 검증 스키마 임포트
 from ..schemas import ProjectCreateSchema, ProjectUpdateSchema, CellMemoSchema
@@ -196,20 +197,6 @@ def sanitize_project_for_json(project):
             sanitized[key] = value
 
     return sanitized
-
-
-def generate_error_id() -> str:
-    """
-    에러 추적용 고유 ID 생성
-
-    Returns:
-        str: 8자리 고유 ID (예: "a3f5d9c2")
-
-    Note:
-        - 로그 추적용으로만 사용
-        - 사용자에게는 이 ID만 노출하고 상세 에러는 서버 로그에만 기록
-    """
-    return str(uuid.uuid4())[:8]
 
 
 projects_bp = Blueprint('projects', __name__)
@@ -475,10 +462,12 @@ def get_projects_list():
         return response
 
     except Exception as e:
-        logger.error(f"프로젝트 목록 API 오류: {str(e)}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 목록 API 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'error': str(e),
+            'error': '프로젝트 목록을 불러올 수 없습니다.',
+            'error_id': error_id,
             'data': None,
             'meta': {
                 'timestamp': datetime.now().isoformat()
@@ -1663,11 +1652,12 @@ def get_project_statistics():
         })
 
     except Exception as e:
-        logger.error(f"프로젝트 통계 로드 실패: {e}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 통계 로드 실패: {e}", exc_info=True)
         return jsonify({
             'success': False,
             'error': '통계 정보를 불러올 수 없습니다.',
-            'message': str(e)
+            'error_id': error_id
         }), 500
 
 
@@ -1890,12 +1880,12 @@ def save_field_memo():
             return response
 
     except Exception as e:
-        logger.error(f"[ERROR] 필드 메모 저장 오류: {str(e)}")
-        import traceback
-        logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 필드 메모 저장 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': f'메모 저장 중 오류가 발생했습니다: {str(e)}'
+            'message': '메모 저장 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500
 
 
@@ -2242,12 +2232,12 @@ def save_field_memos_batch():
         }), 200 if overall_success else 207  # 207 Multi-Status
 
     except Exception as e:
-        logger.error(f"[BATCH_MEMO] 일괄 저장 오류: {str(e)}")
-        import traceback
-        logger.error(f"스택 트레이스:\\n{traceback.format_exc()}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] [BATCH_MEMO] 일괄 저장 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': f'일괄 메모 저장 중 오류 발생: {str(e)}'
+            'message': '일괄 메모 저장 중 오류가 발생했습니다.',
+            'error_id': error_id
         }), 500
 
 
@@ -2673,12 +2663,12 @@ def add_project_auto():
             }), 500
 
     except Exception as e:
-        logger.error(f"프로젝트 자동 생성 API 오류: {str(e)}")
-        import traceback
-        logger.error(f"스택 트레이스:\n{traceback.format_exc()}")
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 자동 생성 API 오류: {str(e)}", exc_info=True)
         return jsonify({
             "success": False,
-            "error": str(e),
+            "error": "프로젝트 생성 중 오류가 발생했습니다.",
+            "error_id": error_id,
             "code": "INTERNAL_ERROR"
         }), 500
 
@@ -2998,8 +2988,13 @@ def cancel_project_api():
             })
 
         except Exception as e:
-            logger.error(f"Google Sheets 업데이트 실패: {str(e)}")
-            return jsonify({'success': False, 'error': '프로젝트 취소에 실패했습니다.'}), 500
+            error_id = generate_error_id()
+            logger.error(f"[{error_id}] Google Sheets 업데이트 실패: {str(e)}", exc_info=True)
+            return jsonify({
+                'success': False,
+                'error': '프로젝트 취소에 실패했습니다.',
+                'error_id': error_id
+            }), 500
 
     except Exception as e:
         error_id = generate_error_id()
@@ -3087,8 +3082,13 @@ def resume_project_api():
             })
 
         except Exception as e:
-            logger.error(f"Google Sheets 업데이트 실패: {str(e)}")
-            return jsonify({'success': False, 'error': '프로젝트 재개에 실패했습니다.'}), 500
+            error_id = generate_error_id()
+            logger.error(f"[{error_id}] Google Sheets 업데이트 실패: {str(e)}", exc_info=True)
+            return jsonify({
+                'success': False,
+                'error': '프로젝트 재개에 실패했습니다.',
+                'error_id': error_id
+            }), 500
 
     except Exception as e:
         error_id = generate_error_id()
