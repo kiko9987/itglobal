@@ -4,6 +4,7 @@ import json
 import re
 import time
 import threading
+import uuid
 from datetime import datetime
 from collections import Counter, defaultdict
 
@@ -195,6 +196,20 @@ def sanitize_project_for_json(project):
             sanitized[key] = value
 
     return sanitized
+
+
+def generate_error_id() -> str:
+    """
+    에러 추적용 고유 ID 생성
+
+    Returns:
+        str: 8자리 고유 ID (예: "a3f5d9c2")
+
+    Note:
+        - 로그 추적용으로만 사용
+        - 사용자에게는 이 ID만 노출하고 상세 에러는 서버 로그에만 기록
+    """
+    return str(uuid.uuid4())[:8]
 
 
 projects_bp = Blueprint('projects', __name__)
@@ -442,8 +457,12 @@ def get_next_project_code():
         return jsonify({'project_code': project_code})
 
     except Exception as e:
-        logger.error(f"프로젝트 코드 생성 API 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 코드 생성 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': '프로젝트 코드 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+            'error_id': error_id
+        }), 500
 
 
 # ============================================================================
@@ -977,11 +996,13 @@ def update_project(project_code):
         })
 
     except Exception as e:
-        import traceback
-        error_traceback = traceback.format_exc()
-        logger.error(f"[PUT] 프로젝트 업데이트 오류: {project_code}, {str(e)}")
-        logger.error(f"[PUT] 스택 트레이스:\n{error_traceback}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] [PUT] 프로젝트 업데이트 오류: {project_code}, {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '프로젝트 업데이트 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+            'error_id': error_id
+        }), 500
 
 # ============================================================================
 # 헬퍼 함수: update_project_inline() 리팩토링
@@ -1439,8 +1460,13 @@ def update_project_inline():
         )
 
     except Exception as e:
-        logger.error(f"인라인 업데이트 오류: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 인라인 업데이트 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '인라인 업데이트 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+            'error_id': error_id
+        }), 500
 
 # 서비스 워커 라우트
 @projects_bp.route('/sw.js')
@@ -1532,8 +1558,12 @@ def get_cache_status():
             'message': 'Cache status retrieved successfully'
         })
     except Exception as e:
-        logger.error(f"캐시 상태 조회 오류: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캐시 상태 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'error': '캐시 상태 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
 
 # 전문가 리뷰: "초기 페이지에서는 최소 메타 정보만 제공하고 상세 데이터는 API로만 받도록"
 @projects_bp.route('/api/projects/statistics')
@@ -2927,8 +2957,13 @@ def cancel_project_api():
             return jsonify({'success': False, 'error': '프로젝트 취소에 실패했습니다.'}), 500
 
     except Exception as e:
-        logger.error(f"프로젝트 취소 처리 오류: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 취소 처리 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '프로젝트 취소 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+            'error_id': error_id
+        }), 500
 
 
 @projects_bp.route('/api/project/resume', methods=['POST'])
@@ -3011,8 +3046,13 @@ def resume_project_api():
             return jsonify({'success': False, 'error': '프로젝트 재개에 실패했습니다.'}), 500
 
     except Exception as e:
-        logger.error(f"프로젝트 재개 처리 오류: {e}", exc_info=True)
-        return jsonify({'success': False, 'error': str(e)}), 500
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 재개 처리 오류: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '프로젝트 재개 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+            'error_id': error_id
+        }), 500
 
 
 
