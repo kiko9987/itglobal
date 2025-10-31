@@ -174,7 +174,16 @@ function showSessionWarning() {
   document.body.appendChild(warningDiv);
 
   // 연장하기 버튼 이벤트
-  document.getElementById('session-refresh-btn').addEventListener('click', async () => {
+  document.getElementById('session-refresh-btn').addEventListener('click', async (e) => {
+    const btn = e.target;
+
+    // 버튼 비활성화 및 로딩 상태 표시
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.style.cursor = 'not-allowed';
+    const originalText = btn.textContent;
+    btn.textContent = '연장 중...';
+
     try {
       // 세션 연장을 위한 ping 요청 (login_time 갱신)
       // window.fetch를 사용하여 전역 401 처리 흐름을 타도록 함
@@ -217,6 +226,22 @@ function showSessionWarning() {
       }, 2000);
     } catch (error) {
       logger.error('[Auth] 세션 연장 실패:', error);
+
+      // 실패 시 버튼 복원
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.textContent = originalText;
+
+      // 에러 메시지 표시
+      warningDiv.style.background = 'linear-gradient(135deg, #F8D7DA 0%, #FFE5E8 100%)';
+      warningDiv.style.borderBottomColor = '#DC3545';
+      warningDiv.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; gap: 16px;">
+          <span style="font-size: 20px;">❌</span>
+          <span style="color: #721C24; font-weight: 600;">세션 연장 실패. 다시 시도해주세요.</span>
+        </div>
+      `;
     }
   });
 
