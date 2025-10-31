@@ -140,19 +140,47 @@ class RedisClient:
                     decode_responses=False  # bytes 그대로 반환 (pickle 직렬화 지원)
                 )
 
-                # Fail Fast: 부팅 시 연결 확인
-                self.redis.ping()
-                self.redis_binary.ping()
-                logger.info(f"Redis 연결 성공: {redis_host}:{redis_port} (DB: {redis_db})")
-                logger.info("  - 문자열용 연결 (decode_responses=True): 캐시, 일반 데이터")
-                logger.info("  - 바이너리용 연결 (decode_responses=False): Flask-Session, RQ")
+                # Graceful Degradation: 재시도 후 연결 확인
+                connection_success = False
+                max_retries = 3
+
+                for attempt in range(max_retries):
+                    try:
+                        self.redis.ping()
+                        self.redis_binary.ping()
+                        logger.info(f"Redis 연결 성공: {redis_host}:{redis_port} (DB: {redis_db})")
+                        logger.info("  - 문자열용 연결 (decode_responses=True): 캐시, 일반 데이터")
+                        logger.info("  - 바이너리용 연결 (decode_responses=False): Flask-Session, RQ")
+                        connection_success = True
+                        break
+                    except (ConnectionError, TimeoutError, RedisError) as retry_error:
+                        wait_time = 2 ** attempt  # 1초, 2초, 4초
+                        logger.warning(f"Redis 연결 실패 (시도 {attempt + 1}/{max_retries}): {retry_error}")
+                        if attempt < max_retries - 1:
+                            logger.info(f"{wait_time}초 후 재시도...")
+                            import time
+                            time.sleep(wait_time)
+                        else:
+                            logger.error(f"Redis 연결 최종 실패 ({max_retries}회 시도)")
+
+                if not connection_success:
+                    # Fallback 모드로 전환 (서버는 계속 실행)
+                    logger.warning("⚠️ Redis 연결 불가 - Fallback 메모리 캐시로 전환")
+                    logger.warning("⚠️ 다중 워커 환경에서 캐시가 공유되지 않습니다")
+                    from dashboard.utils.fallback_cache import get_fallback_cache
+                    self._use_fallback = True
+                    self._fallback_cache = get_fallback_cache()
 
             self._initialized = True
 
-        except (ConnectionError, TimeoutError, RedisError) as e:
-            logger.critical(f"Redis 연결 실패: {e}")
-            logger.critical("서비스를 시작할 수 없습니다. Redis 서버를 확인하세요.")
-            sys.exit(1)  # 프로세스 종료
+        except Exception as e:
+            # 예상치 못한 에러 발생 시에도 Fallback으로 전환
+            logger.error(f"Redis 초기화 중 예상치 못한 오류: {e}")
+            logger.warning("⚠️ Fallback 메모리 캐시로 전환")
+            from dashboard.utils.fallback_cache import get_fallback_cache
+            self._use_fallback = True
+            self._fallback_cache = get_fallback_cache()
+            self._initialized = True
 
     @retry(
         retry=retry_if_exception_type((ConnectionError, TimeoutError)),
