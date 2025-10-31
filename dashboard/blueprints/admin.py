@@ -292,11 +292,14 @@ def sync_all_projects_to_calendar():
                     if p.get('프로젝트 코드') not in registered_codes
                 ]
 
+                # 역순으로 정렬 (최근 프로젝트부터)
+                projects_to_sync = list(reversed(projects_to_sync))
+
                 # limit 적용 (최근 프로젝트부터)
                 total_candidates = len(projects_to_sync)
                 if limit is not None and limit < total_candidates:
                     projects_to_sync = projects_to_sync[:limit]
-                    logger.info(f"[CALENDAR_SYNC_ALL] 등록 대상: {total_candidates}개 중 {limit}개만 등록")
+                    logger.info(f"[CALENDAR_SYNC_ALL] 등록 대상: {total_candidates}개 중 최근 {limit}개만 등록")
                 else:
                     logger.info(f"[CALENDAR_SYNC_ALL] 등록 대상: {len(projects_to_sync)}개")
 
