@@ -162,6 +162,11 @@
                                         <i class="fas fa-users-cog me-2"></i>사용자 관리
                                     </a>
                                 </li>
+                                <li id="sequence-menu-item" style="display: none;">
+                                    <a class="dropdown-item" href="#" onclick="openSequenceManagement()">
+                                        <i class="fas fa-sort-numeric-up me-2"></i>시퀀스 관리
+                                    </a>
+                                </li>
                                 <li>
                                     <a class="dropdown-item" href="#" onclick="openAuditLogs()">
                                         <i class="fas fa-history me-2"></i>작업 로그
@@ -194,7 +199,104 @@
     <div id="toast-container" class="position-fixed top-0 end-0 p-3" style="z-index: 11000;"></div>
 
     <!-- Modal Container -->
-    <div id="modal-container"></div>
+    <div id="modal-container">
+        <!-- 시퀀스 관리 모달 -->
+        <div class="modal fade" id="sequenceManagementModal" tabindex="-1" aria-labelledby="sequenceManagementModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 400px;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="sequenceManagementModalLabel">
+                            <i class="fas fa-sort-numeric-up me-2"></i>프로젝트 시퀀스 관리
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"
+                                onclick="this.blur();"
+                                style="background: none; opacity: 1; padding: 0.5rem; width: auto; height: auto; margin: 0; outline: none; box-shadow: none !important;">
+                            <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; transition: color 0.2s;"
+                               onmouseover="this.style.color='#dc3545'"
+                               onmouseout="this.style.color='#6c757d'"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <!-- 안내 메시지 -->
+                        <div class="alert alert-info" style="border-left: 4px solid #0d6efd;">
+                            <h6 class="mb-2"><i class="fas fa-info-circle me-2"></i>프로젝트 시퀀스란?</h6>
+                            <p class="mb-2 small">
+                                프로젝트 코드(예: <strong>G2833-SH</strong>)의 <strong>숫자 부분(2833)</strong>을 자동으로 생성하는 시스템입니다.<br>
+                                새 프로젝트를 등록할 때마다 DB에서 다음 번호를 자동으로 부여합니다.
+                            </p>
+                            <p class="mb-0 small">
+                                <strong>💡 차이(Gap)란?</strong><br>
+                                DB 시퀀스와 실제 Google Sheets에 저장된 최대 번호의 차이입니다.<br>
+                                • <strong>차이 = 0</strong>: 정상 (번호가 연속됨)<br>
+                                • <strong>차이 > 0</strong>: 프로젝트 등록 실패로 번호가 건너뛰어진 상태<br>
+                                → "시퀀스 리셋" 버튼으로 DB를 Sheets 최댓값에 맞춰 동기화할 수 있습니다.
+                            </p>
+                        </div>
+
+                        <!-- 로딩 스피너 -->
+                        <div class="text-center py-4" id="sequenceLoadingSpinner">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">로딩 중...</span>
+                            </div>
+                            <p class="mt-2">데이터 로딩 중...</p>
+                        </div>
+
+                        <!-- 시퀀스 데이터 -->
+                        <div id="sequenceData" style="display: none;">
+                            <table class="table table-sm">
+                                <tbody>
+                                    <tr>
+                                        <td class="text-muted">DB 시퀀스 현재값</td>
+                                        <td class="text-end fw-bold text-primary" id="dbSequenceValue">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">Google Sheets 최댓값</td>
+                                        <td class="text-end fw-bold text-primary" id="sheetMaxValue">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">차이 (Gap)</td>
+                                        <td class="text-end">
+                                            <span class="badge bg-success" id="gapBadge">0</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">마지막 업데이트</td>
+                                        <td class="text-end text-muted small" id="lastUpdatedValue">-</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            <!-- 경고 메시지 (Gap > 0일 때만 표시) -->
+                            <div class="alert alert-warning" id="sequenceWarning" style="display: none; border-left: 4px solid #ffc107;">
+                                <h6 class="mb-2"><i class="fas fa-exclamation-triangle me-2"></i>주의사항</h6>
+                                <p class="mb-0 small">
+                                    시퀀스 리셋은 DB 시퀀스를 Google Sheets 최댓값으로 되돌립니다.
+                                    이 작업은 되돌릴 수 없으며, 리셋 후 다음 프로젝트 번호는 <strong id="nextNumberValue">-</strong>가 됩니다.
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- 알림 메시지 영역 -->
+                        <div id="sequenceAlertContainer"></div>
+                    </div>
+                    <div class="modal-footer justify-content-center">
+                        <button type="button" class="btn" onclick="loadSequenceStatus()"
+                                style="background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #0c5460;"
+                                onmouseover="this.style.backgroundColor='#bee5eb'; this.style.borderColor='#abdde5'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(12, 84, 96, 0.2)'"
+                                onmouseout="this.style.backgroundColor='#d1ecf1'; this.style.borderColor='#bee5eb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                            <i class="fas fa-sync-alt me-1"></i>새로고침
+                        </button>
+                        <button type="button" class="btn" id="sequenceResetBtn" onclick="resetSequence()" disabled
+                                style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #721c24;"
+                                onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f1b0b7'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(114, 28, 36, 0.2)'"
+                                onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                            <i class="fas fa-redo me-1"></i>시퀀스 리셋
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Scripts -->
     <!-- Bootstrap JS (필수, 즉시 로드) -->
@@ -335,20 +437,172 @@
             alert('폴더 경로 변환 기능은 현재 개발 중입니다.');
         };
 
+        // 시퀀스 관리 모달 열기
+        window.openSequenceManagement = function() {
+            const modal = new bootstrap.Modal(document.getElementById('sequenceManagementModal'));
+            modal.show();
+            loadSequenceStatus();
+        };
+
+        // 시퀀스 상태 조회
+        window.loadSequenceStatus = async function() {
+            const spinner = document.getElementById('sequenceLoadingSpinner');
+            const data = document.getElementById('sequenceData');
+
+            spinner.style.display = 'block';
+            data.style.display = 'none';
+
+            try {
+                const response = await fetch('/admin/api/sequence/status');
+                const result = await response.json();
+
+                if (result.success) {
+                    // 데이터 표시
+                    document.getElementById('dbSequenceValue').textContent = result.db_sequence;
+                    document.getElementById('sheetMaxValue').textContent = result.sheet_max;
+
+                    const gap = result.gap;
+                    const gapBadge = document.getElementById('gapBadge');
+                    gapBadge.textContent = gap;
+
+                    // Gap에 따른 뱃지 색상 변경
+                    gapBadge.className = 'badge ';
+                    if (gap === 0) {
+                        gapBadge.className += 'bg-success';
+                    } else if (gap <= 2) {
+                        gapBadge.className += 'bg-warning';
+                    } else {
+                        gapBadge.className += 'bg-danger';
+                    }
+
+                    // 마지막 업데이트 시간
+                    const lastUpdated = result.last_updated || '-';
+                    document.getElementById('lastUpdatedValue').textContent = lastUpdated;
+
+                    // 리셋 버튼 - 항상 활성화 (Gap 값을 data attribute에 저장)
+                    const resetBtn = document.getElementById('sequenceResetBtn');
+                    const warningSection = document.getElementById('sequenceWarning');
+
+                    // 버튼 항상 활성화
+                    resetBtn.disabled = false;
+
+                    // Gap 값을 버튼에 저장 (resetSequence에서 사용)
+                    resetBtn.dataset.currentGap = gap;
+                    resetBtn.dataset.sheetMax = result.sheet_max;
+
+                    if (gap > 0) {
+                        warningSection.style.display = 'block';
+                        document.getElementById('nextNumberValue').textContent = result.sheet_max + 1;
+                    } else {
+                        warningSection.style.display = 'none';
+                    }
+
+                    spinner.style.display = 'none';
+                    data.style.display = 'block';
+                } else {
+                    showSequenceAlert('오류', result.error || '시퀀스 상태를 조회할 수 없습니다.', 'danger');
+                    spinner.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('시퀀스 상태 조회 실패:', error);
+                showSequenceAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
+                spinner.style.display = 'none';
+            }
+        };
+
+        // 시퀀스 리셋
+        window.resetSequence = async function() {
+            const resetBtn = document.getElementById('sequenceResetBtn');
+            const currentGap = parseInt(resetBtn.dataset.currentGap || '0');
+
+            // Gap = 0일 때: 피드백 후 리턴 (아코디언 방식)
+            if (currentGap === 0) {
+                resetBtn.innerHTML = '<i class="fas fa-check me-1"></i>동기화 완료';
+                setTimeout(() => {
+                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+                }, 2000);
+                return;
+            }
+
+            // Gap > 0일 때: 확인 후 실제 리셋 진행
+            if (!confirm('정말로 시퀀스를 리셋하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+                return;
+            }
+
+            resetBtn.disabled = true;
+            resetBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>리셋 중...';
+
+            try {
+                const response = await fetch('/admin/api/sequence/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ confirm: true })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSequenceAlert('성공', result.message, 'success');
+                    // 버튼 복원
+                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+                    // 1.5초 후 자동 새로고침
+                    setTimeout(() => {
+                        loadSequenceStatus();
+                    }, 1500);
+                } else {
+                    showSequenceAlert('실패', result.message || '시퀀스 리셋에 실패했습니다.', 'danger');
+                    resetBtn.disabled = false;
+                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+                }
+            } catch (error) {
+                console.error('시퀀스 리셋 실패:', error);
+                showSequenceAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
+                resetBtn.disabled = false;
+                resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+            }
+        };
+
+        // 시퀀스 모달 알림 메시지 표시
+        function showSequenceAlert(title, message, type = 'info') {
+            const container = document.getElementById('sequenceAlertContainer');
+            const alertId = 'sequenceAlert_' + Date.now();
+
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert" id="${alertId}">
+                    <strong>${title}:</strong> ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+
+            container.innerHTML = alertHtml;
+
+            // 5초 후 자동 제거
+            setTimeout(() => {
+                const alert = document.getElementById(alertId);
+                if (alert) {
+                    alert.remove();
+                }
+            }, 5000);
+        }
+
         // 관리자 권한 체크 및 메뉴 표시
         function checkAdminPermissions() {
             const adminMenuItem = document.getElementById('admin-menu-item');
+            const sequenceMenuItem = document.getElementById('sequence-menu-item');
             const roleBadge = document.getElementById('user-role-badge');
 
+            const isAdmin = window.userRole === 'admin' || window.userRole === 'super_admin';
+
             if (adminMenuItem) {
-                // 현재 사용자가 관리자인지 확인
-                if (window.userRole === 'admin' || window.userRole === 'super_admin') {
-                    adminMenuItem.style.display = 'block';
-                    console.log('[ADMIN] 사용자 관리 메뉴 표시됨');
-                } else {
-                    adminMenuItem.style.display = 'none';
-                    console.log('[ADMIN] 사용자 관리 메뉴 숨김 (권한 없음)');
-                }
+                adminMenuItem.style.display = isAdmin ? 'block' : 'none';
+                console.log(`[ADMIN] 사용자 관리 메뉴 ${isAdmin ? '표시됨' : '숨김'}`);
+            }
+
+            if (sequenceMenuItem) {
+                sequenceMenuItem.style.display = isAdmin ? 'block' : 'none';
+                console.log(`[ADMIN] 시퀀스 관리 메뉴 ${isAdmin ? '표시됨' : '숨김'}`);
             }
 
             // 권한 뱃지 업데이트

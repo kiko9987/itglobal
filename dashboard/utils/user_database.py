@@ -588,6 +588,116 @@ class UserDatabase:
                 logger.error(f"[SEQUENCE] 시퀀스 생성 실패: {e}")
                 raise
 
+    def get_sequence_status(self, pattern: str = "GLOBAL") -> dict:
+        """
+        프로젝트 시퀀스 현재 상태 조회
+
+        Args:
+            pattern: 시퀀스 패턴 (기본값: "GLOBAL")
+
+        Returns:
+            dict: {
+                'pattern': str,
+                'current_number': int,
+                'last_updated': str
+            }
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT pattern, current_number, last_updated
+                FROM project_code_sequences
+                WHERE pattern = ?
+            ''', (pattern,))
+
+            result = cursor.fetchone()
+
+            if result:
+                return {
+                    'pattern': result['pattern'],
+                    'current_number': result['current_number'],
+                    'last_updated': result['last_updated']
+                }
+            else:
+                return {
+                    'pattern': pattern,
+                    'current_number': 0,
+                    'last_updated': None
+                }
+
+    def reset_sequence_to_sheet_max(self, pattern: str, sheet_max: int) -> dict:
+        """
+        프로젝트 시퀀스를 Google Sheets 최댓값으로 리셋
+
+        Args:
+            pattern: 시퀀스 패턴 (기본값: "GLOBAL")
+            sheet_max: Google Sheets의 현재 최대 프로젝트 번호
+
+        Returns:
+            dict: {
+                'success': bool,
+                'message': str,
+                'old_value': int,
+                'new_value': int
+            }
+        """
+        with self._get_connection() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+
+            try:
+                # 현재 시퀀스 값 조회
+                cursor = conn.execute('''
+                    SELECT current_number FROM project_code_sequences
+                    WHERE pattern = ?
+                ''', (pattern,))
+
+                result = cursor.fetchone()
+                old_value = result['current_number'] if result else 0
+
+                # 안전성 검증: sheet_max보다 큰 값으로는 리셋 불가
+                if old_value <= sheet_max:
+                    conn.rollback()
+                    return {
+                        'success': False,
+                        'message': f'시퀀스({old_value})가 Sheet max({sheet_max})보다 작거나 같습니다. 리셋이 필요하지 않습니다.',
+                        'old_value': old_value,
+                        'new_value': old_value
+                    }
+
+                # 시퀀스 업데이트
+                if result:
+                    conn.execute('''
+                        UPDATE project_code_sequences
+                        SET current_number = ?, last_updated = CURRENT_TIMESTAMP
+                        WHERE pattern = ?
+                    ''', (sheet_max, pattern))
+                else:
+                    # 시퀀스가 없으면 생성
+                    conn.execute('''
+                        INSERT INTO project_code_sequences (pattern, current_number)
+                        VALUES (?, ?)
+                    ''', (pattern, sheet_max))
+
+                conn.commit()
+
+                logger.info(f"[SEQUENCE_RESET] pattern={pattern}, {old_value} → {sheet_max}")
+
+                return {
+                    'success': True,
+                    'message': f'시퀀스가 {old_value}에서 {sheet_max}로 리셋되었습니다.',
+                    'old_value': old_value,
+                    'new_value': sheet_max
+                }
+
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"[SEQUENCE_RESET] 실패: {e}")
+                return {
+                    'success': False,
+                    'message': f'시퀀스 리셋 실패: {str(e)}',
+                    'old_value': old_value if 'old_value' in locals() else 0,
+                    'new_value': 0
+                }
+
 
 # 싱글톤 패턴으로 데이터베이스 인스턴스 관리
 _user_db_instance = None
