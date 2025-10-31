@@ -219,3 +219,128 @@ def manual_cache_refresh():
             'error': '캐시를 새로고침할 수 없습니다',
             'error_id': error_id
         }), 500
+
+@admin_bp.route('/api/calendar/sync-all', methods=['POST'])
+@admin_required
+def sync_all_projects_to_calendar():
+    """
+    기존 프로젝트를 캘린더에 일괄 등록 (관리자 전용)
+
+    - 공사 시작일이 있는 모든 프로젝트 조회
+    - 아직 캘린더에 등록되지 않은 프로젝트만 필터링
+    - 백그라운드에서 순차 등록
+    - 진행 상황을 로그로 출력
+
+    Returns:
+        JSON: 등록 시작 확인 메시지 (비동기 실행)
+    """
+    try:
+        from dashboard.services.project_service import get_project_records
+        from dashboard.services.calendar_service import create_project_calendar_event, is_calendar_enabled
+        from dashboard.utils.calendar_event_repository import get_calendar_event_repository
+        from flask import session
+        import threading
+
+        # 캘린더 활성화 확인
+        if not is_calendar_enabled():
+            return jsonify({
+                'success': False,
+                'error': 'Google Calendar 연동이 설정되지 않았습니다.'
+            }), 400
+
+        def background_sync():
+            """백그라운드 동기화 작업"""
+            try:
+                logger.info("[CALENDAR_SYNC_ALL] 일괄 동기화 시작")
+
+                # 모든 프로젝트 조회
+                all_projects = get_project_records()
+                logger.info(f"[CALENDAR_SYNC_ALL] 전체 프로젝트: {len(all_projects)}개")
+
+                # 공사 시작일이 있는 프로젝트만 필터링
+                projects_with_date = [
+                    p for p in all_projects
+                    if p.get('공사 시작') and str(p.get('공사 시작')).strip()
+                ]
+                logger.info(f"[CALENDAR_SYNC_ALL] 공사 시작일 있음: {len(projects_with_date)}개")
+
+                # 이미 등록된 프로젝트 확인
+                repo = get_calendar_event_repository()
+                registered_codes = set()
+                for project in projects_with_date:
+                    code = project.get('프로젝트 코드')
+                    if code and repo.get_event(code):
+                        registered_codes.add(code)
+
+                logger.info(f"[CALENDAR_SYNC_ALL] 이미 등록됨: {len(registered_codes)}개")
+
+                # 등록되지 않은 프로젝트만 추출
+                projects_to_sync = [
+                    p for p in projects_with_date
+                    if p.get('프로젝트 코드') not in registered_codes
+                ]
+
+                logger.info(f"[CALENDAR_SYNC_ALL] 등록 대상: {len(projects_to_sync)}개")
+
+                # 순차 등록
+                success_count = 0
+                error_count = 0
+
+                for i, project in enumerate(projects_to_sync, 1):
+                    project_code = project.get('프로젝트 코드')
+                    try:
+                        event_id = create_project_calendar_event(project)
+                        if event_id:
+                            success_count += 1
+                            logger.info(f"[CALENDAR_SYNC_ALL] [{i}/{len(projects_to_sync)}] 등록 성공: {project_code}")
+                        else:
+                            error_count += 1
+                            logger.warning(f"[CALENDAR_SYNC_ALL] [{i}/{len(projects_to_sync)}] 등록 실패: {project_code} (이벤트 ID 없음)")
+                    except Exception as e:
+                        error_count += 1
+                        logger.error(f"[CALENDAR_SYNC_ALL] [{i}/{len(projects_to_sync)}] 등록 오류: {project_code} - {e}")
+
+                logger.info(
+                    f"[CALENDAR_SYNC_ALL] 일괄 동기화 완료 - "
+                    f"성공: {success_count}개, 실패: {error_count}개, "
+                    f"이미 등록: {len(registered_codes)}개"
+                )
+
+            except Exception as e:
+                logger.error(f"[CALENDAR_SYNC_ALL] 백그라운드 동기화 오류: {e}", exc_info=True)
+
+        # 백그라운드 스레드로 실행
+        sync_thread = threading.Thread(target=background_sync, daemon=True)
+        sync_thread.start()
+
+        # 감사 로그 기록
+        try:
+            from dashboard.utils.user_database import get_audit_repository
+            audit_repo = get_audit_repository()
+            user_email = session.get('user', {}).get('email', 'unknown')
+            audit_repo.log_action(
+                user_email=user_email,
+                action='CALENDAR_SYNC_ALL',
+                details='기존 프로젝트 캘린더 일괄 등록 시작',
+                field_name='calendar',
+                old_value='미등록',
+                new_value='일괄 등록 시작',
+                ip_address=request.remote_addr
+            )
+        except Exception as log_error:
+            logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+        return jsonify({
+            'success': True,
+            'message': '캘린더 일괄 동기화를 시작했습니다. 서버 로그에서 진행 상황을 확인하세요.',
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캘린더 일괄 동기화 API 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캘린더 일괄 동기화를 시작할 수 없습니다',
+            'error_id': error_id
+        }), 500
