@@ -339,7 +339,7 @@ class SecurityMiddleware:
 
         # 2. CSRF/인증 검사 (상태 변경 요청)
         if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
-            if request.path.startswith('/api/'):
+            if request.path.startswith('/api/') or request.path.startswith('/admin/api/'):
                 # API 엔드포인트: 세션 기반 인증 검증
                 if not self._validate_api_auth():
                     self._log_security_event('API_AUTH_FAILED', request.remote_addr)
@@ -432,7 +432,7 @@ class SecurityMiddleware:
     def _check_csrf_token(self) -> bool:
         """CSRF 토큰 확인"""
         # API 요청은 별도 검증 (JWT 토큰 등)
-        if request.path.startswith('/api/'):
+        if request.path.startswith('/api/') or request.path.startswith('/admin/api/'):
             return self._validate_api_auth()
 
         # 폼 요청은 CSRF 토큰 검증
