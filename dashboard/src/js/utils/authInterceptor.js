@@ -32,16 +32,25 @@ async function initializeSessionTimeout() {
 
     // 서버에서 최신 값 가져오기 (비동기)
     const response = await originalFetch('/api/auth/ping', { method: 'POST' });
-    if (response.ok) {
-      const data = await response.json();
-      if (data.session_timeout_minutes) {
-        updateSessionTimeout(data.session_timeout_minutes);
-        localStorage.setItem('session_timeout_minutes', data.session_timeout_minutes);
-      }
+
+    // 401 또는 HTML 응답 시 조용히 스킵 (로그인 전 상태)
+    if (!response.ok) {
+      return; // 로그인 전이므로 기본값 유지
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('text/html')) {
+      return; // HTML 응답 = 로그인 페이지 리다이렉트, 기본값 유지
+    }
+
+    const data = await response.json();
+    if (data.session_timeout_minutes) {
+      updateSessionTimeout(data.session_timeout_minutes);
+      localStorage.setItem('session_timeout_minutes', data.session_timeout_minutes);
     }
   } catch (error) {
-    // 초기화 실패 시 기본값 사용 (로그인 전이거나 네트워크 오류)
-    logger.debug('[Auth] 세션 타임아웃 초기화 실패, 기본값 사용:', error);
+    // 네트워크 오류 시 기본값 사용 (에러 로그 생략)
+    // 로그인 전 상태에서는 정상적인 동작이므로 조용히 처리
   }
 }
 
@@ -160,7 +169,21 @@ function showSessionWarning() {
   document.getElementById('session-refresh-btn').addEventListener('click', async () => {
     try {
       // 세션 연장을 위한 ping 요청 (login_time 갱신)
-      const response = await originalFetch('/api/auth/ping', { method: 'POST' });
+      // window.fetch를 사용하여 전역 401 처리 흐름을 타도록 함
+      const response = await window.fetch('/api/auth/ping', { method: 'POST' });
+
+      // 401 응답 시 전역 인터셉터가 로그인 페이지로 리다이렉트
+      if (!response.ok) {
+        return; // 401 처리는 전역 인터셉터가 담당
+      }
+
+      // HTML 응답 체크 (세션 만료로 로그인 페이지 HTML 반환)
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/html')) {
+        // 세션 만료 상태 - 전역 인터셉터가 리다이렉트 처리
+        return;
+      }
+
       const data = await response.json();
 
       // 서버에서 받은 타임아웃 값으로 업데이트
