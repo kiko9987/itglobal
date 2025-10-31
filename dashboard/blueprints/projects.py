@@ -452,6 +452,24 @@ def get_projects_list():
         # 5. dict 변환
         projects = df.to_dict('records')
 
+        # 5-0. 날짜 필드 후처리: Timestamp/NaT 객체를 문자열로 변환
+        # pandas의 to_dict()는 datetime64 컬럼을 Timestamp 객체로 변환하므로
+        # JSON 직렬화 가능한 문자열로 최종 변환
+        date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+        for project in projects:
+            for date_col in date_columns:
+                if date_col in project:
+                    value = project[date_col]
+                    # Timestamp 객체인 경우 문자열로 변환
+                    if pd.notna(value) and hasattr(value, 'strftime'):
+                        try:
+                            project[date_col] = value.strftime('%Y-%m-%d')
+                        except:
+                            project[date_col] = ''
+                    # NaT, None, 빈 문자열은 모두 빈 문자열로 통일
+                    elif pd.isna(value) or value == '':
+                        project[date_col] = ''
+
         # 5-1. 금액 필드 정규화 (₩300,000 → 300000)
         # FORMATTED_VALUE로 읽은 금액이 통화 기호 포함되어 있으면 프론트엔드 parseFloat()가 NaN 반환
         # 마진율/순익 계산에 사용되는 비용 필드도 포함 (ProjectRowAccordion.js 참조)
