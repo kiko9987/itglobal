@@ -182,5 +182,6 @@ def get_fallback_cache() -> FallbackMemoryCache:
     """Fallback 캐시 싱글톤 인스턴스 반환"""
     global _fallback_cache
     if _fallback_cache is None:
-        _fallback_cache = FallbackMemoryCache(max_size=1000)
+        # max_size를 2000으로 증가 (프로젝트 2830개 + 메타데이터 고려)
+        _fallback_cache = FallbackMemoryCache(max_size=2000)
     return _fallback_cache
