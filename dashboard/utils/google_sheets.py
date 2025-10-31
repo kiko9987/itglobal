@@ -793,7 +793,7 @@ class GoogleSheetsManager:
                 raise Exception("다음 빈 행을 찾을 수 없습니다")
             
             # 특정 행에 데이터 업데이트 (수식이 있는 빈 행에 덮어쓰기)
-            actual_range = f'공사 현황의 사본!A{next_row}:AM{next_row}'
+            actual_range = f'공사 현황의 사본!A{next_row}:AN{next_row}'
             body = {
                 'values': [values]
             }
@@ -815,7 +815,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 데이터 추가 오류: {str(e)}")
             raise
     
-    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AM{row}'):
+    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AN{row}'):
         """
         구글 시트의 특정 행 업데이트
         
