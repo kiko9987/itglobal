@@ -1081,7 +1081,8 @@ def update_project(project_code):
         }), 500
 
 # ============================================================================
-# 헬퍼 함수: update_project_inline() 리팩토링
+# [DEPRECATED] 헬퍼 함수: update_project_inline() 리팩토링
+# ⚠️ 레거시 코드 - 더 이상 사용되지 않음 (통합편집 API 사용)
 # ============================================================================
 
 def _validate_inline_update_request(data):
@@ -1452,14 +1453,27 @@ def _save_and_return_inline_result(manager, sheet_id, sheet_name, row_number, cu
 
 
 # ============================================================================
-# 메인 API 엔드포인트 (리팩토링됨)
+# [DEPRECATED] 인라인 편집 API 엔드포인트
+# ⚠️ 레거시 코드 - 더 이상 사용되지 않음
 # ============================================================================
 
 @projects_bp.route('/api/update-project-inline', methods=['POST'])
 @login_required
 @track_business_operation("api_project_inline_update")
 def update_project_inline():
-    """프로젝트 인라인 편집 API - 구글 시트 직접 업데이트 (리팩토링됨)"""
+    """
+    [DEPRECATED] 프로젝트 인라인 편집 API - 더 이상 사용되지 않음
+
+    ⚠️ 레거시 코드: 프론트엔드에서 이 API를 호출하지 않음
+    - 현재는 통합편집 API (PUT /api/projects/<project_code>)만 사용
+    - 캘린더 연동 미지원
+    - 향후 삭제 예정
+
+    Note:
+        구글 시트 직접 업데이트 방식 (리팩토링됨)
+    """
+    logger.warning(f"[DEPRECATED] 인라인 편집 API 호출됨 (더 이상 사용되지 않음)")
+
     try:
         data = request.get_json()
 
