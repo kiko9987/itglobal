@@ -33,14 +33,21 @@ async function initializeSessionTimeout() {
     // 서버에서 최신 값 가져오기 (비동기)
     const response = await originalFetch('/api/auth/ping', { method: 'POST' });
 
-    // 401 또는 HTML 응답 시 조용히 스킵 (로그인 전 상태)
-    if (!response.ok) {
+    // 401 응답 시 조용히 스킵 (로그인 전 상태)
+    if (response.status === 401) {
       return; // 로그인 전이므로 기본값 유지
     }
 
+    // HTML 응답 체크 (세션 만료로 로그인 페이지 HTML 반환)
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('text/html')) {
       return; // HTML 응답 = 로그인 페이지 리다이렉트, 기본값 유지
+    }
+
+    // 401 외 오류 응답은 경고 로그 (500/429 등 실제 서버 오류)
+    if (!response.ok) {
+      logger.warn(`[Auth] 세션 타임아웃 초기화 실패: HTTP ${response.status}`);
+      return; // 기본값 유지
     }
 
     const data = await response.json();
@@ -49,8 +56,9 @@ async function initializeSessionTimeout() {
       localStorage.setItem('session_timeout_minutes', data.session_timeout_minutes);
     }
   } catch (error) {
-    // 네트워크 오류 시 기본값 사용 (에러 로그 생략)
-    // 로그인 전 상태에서는 정상적인 동작이므로 조용히 처리
+    // 네트워크 장애, CORS 오류 등 추적을 위한 디버그 로그
+    logger.debug('[Auth] 세션 타임아웃 초기화 중 예외 발생 (네트워크 오류 또는 CORS):', error.message);
+    // 기본값 유지하고 계속 진행
   }
 }
 
