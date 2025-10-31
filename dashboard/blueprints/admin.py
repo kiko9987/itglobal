@@ -231,6 +231,10 @@ def sync_all_projects_to_calendar():
     - 백그라운드에서 순차 등록
     - 진행 상황을 로그로 출력
 
+    Query Parameters:
+        limit (int, optional): 등록할 최대 개수 (기본값: 제한 없음)
+            예: ?limit=10 (최근 10개만 등록)
+
     Returns:
         JSON: 등록 시작 확인 메시지 (비동기 실행)
     """
@@ -240,6 +244,14 @@ def sync_all_projects_to_calendar():
         from dashboard.utils.calendar_event_repository import get_calendar_event_repository
         from flask import session
         import threading
+
+        # Query parameter로 limit 받기
+        limit = request.args.get('limit', type=int)
+        if limit is not None and limit <= 0:
+            return jsonify({
+                'success': False,
+                'error': 'limit 값은 1 이상이어야 합니다.'
+            }), 400
 
         # 캘린더 활성화 확인
         if not is_calendar_enabled():
@@ -280,7 +292,13 @@ def sync_all_projects_to_calendar():
                     if p.get('프로젝트 코드') not in registered_codes
                 ]
 
-                logger.info(f"[CALENDAR_SYNC_ALL] 등록 대상: {len(projects_to_sync)}개")
+                # limit 적용 (최근 프로젝트부터)
+                total_candidates = len(projects_to_sync)
+                if limit is not None and limit < total_candidates:
+                    projects_to_sync = projects_to_sync[:limit]
+                    logger.info(f"[CALENDAR_SYNC_ALL] 등록 대상: {total_candidates}개 중 {limit}개만 등록")
+                else:
+                    logger.info(f"[CALENDAR_SYNC_ALL] 등록 대상: {len(projects_to_sync)}개")
 
                 # 순차 등록
                 success_count = 0
@@ -330,9 +348,14 @@ def sync_all_projects_to_calendar():
         except Exception as log_error:
             logger.warning(f"감사 로그 기록 실패: {log_error}")
 
+        message = '캘린더 일괄 동기화를 시작했습니다. 서버 로그에서 진행 상황을 확인하세요.'
+        if limit is not None:
+            message = f'캘린더 일괄 동기화를 시작했습니다 (최대 {limit}개). 서버 로그에서 진행 상황을 확인하세요.'
+
         return jsonify({
             'success': True,
-            'message': '캘린더 일괄 동기화를 시작했습니다. 서버 로그에서 진행 상황을 확인하세요.',
+            'message': message,
+            'limit': limit,
             'timestamp': datetime.now().isoformat()
         })
 
