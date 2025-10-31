@@ -154,7 +154,8 @@ def update_project_calendar_event(project: dict, old_project_code: Optional[str]
             repo.update_project_code(old_project_code, project_code)
 
     if not entry:
-        logger.debug(f"[CALENDAR] 등록된 이벤트가 없어 업데이트를 건너뜁니다: {project_code}")
+        logger.info(f"[CALENDAR] 등록된 이벤트가 없어 새로 생성합니다: {project_code}")
+        create_project_calendar_event(project)
         return
 
     event_body = _build_event_body(project)

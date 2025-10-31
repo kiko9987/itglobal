@@ -78,6 +78,138 @@ def get_sequence_status():
         }), 500
 
 
+@sequence_bp.route('/api/calendar/mapping/status', methods=['GET'])
+@admin_required
+def get_calendar_mapping_status():
+    """
+    캘린더 매핑 상태 조회
+
+    Returns:
+        {
+            "success": true,
+            "total_mappings": 150,
+            "orphaned_mappings": 3,
+            "orphaned_codes": ["G2833-SH", "G2800-XX", ...]
+        }
+    """
+    try:
+        from dashboard.utils.user_database import get_calendar_event_repository
+
+        db = get_user_database()
+        repo = get_calendar_event_repository()
+
+        # Google Sheets의 모든 프로젝트 코드 조회
+        df = load_data()
+        sheet_codes = set()
+        if '프로젝트 코드' in df.columns:
+            sheet_codes = set(df['프로젝트 코드'].astype(str).tolist())
+
+        # DB의 모든 캘린더 매핑 조회
+        import sqlite3
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT project_code FROM project_calendar_events")
+        all_mappings = cursor.fetchall()
+        conn.close()
+
+        # 고아 매핑 찾기 (Sheets에 없는 매핑)
+        orphaned = []
+        for (code,) in all_mappings:
+            if code not in sheet_codes:
+                orphaned.append(code)
+
+        return jsonify({
+            'success': True,
+            'total_mappings': len(all_mappings),
+            'orphaned_mappings': len(orphaned),
+            'orphaned_codes': orphaned[:10],  # 최대 10개만 표시
+            'message': f'총 {len(all_mappings)}개 매핑 중 {len(orphaned)}개 고아 매핑 발견'
+        })
+
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캘린더 매핑 상태 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캘린더 매핑 상태 조회 중 오류가 발생했습니다',
+            'error_id': error_id
+        }), 500
+
+
+@sequence_bp.route('/api/calendar/mapping/cleanup', methods=['POST'])
+@admin_required
+def cleanup_calendar_mappings():
+    """
+    고아 캘린더 매핑 정리 (Sheets에 없는 매핑 삭제)
+
+    Request Body:
+        {
+            "confirm": true
+        }
+
+    Returns:
+        {
+            "success": true,
+            "deleted_count": 3,
+            "deleted_codes": ["G2833-SH", ...]
+        }
+    """
+    try:
+        data = request.get_json()
+
+        if not data or not data.get('confirm'):
+            return jsonify({
+                'success': False,
+                'error': '확인(confirm)이 필요합니다'
+            }), 400
+
+        from dashboard.utils.user_database import get_calendar_event_repository
+
+        db = get_user_database()
+        repo = get_calendar_event_repository()
+
+        # Google Sheets의 모든 프로젝트 코드 조회
+        df = load_data()
+        sheet_codes = set()
+        if '프로젝트 코드' in df.columns:
+            sheet_codes = set(df['프로젝트 코드'].astype(str).tolist())
+
+        # DB의 모든 캘린더 매핑 조회
+        import sqlite3
+        conn = sqlite3.connect(db.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT project_code FROM project_calendar_events")
+        all_mappings = cursor.fetchall()
+
+        # 고아 매핑 삭제
+        deleted = []
+        for (code,) in all_mappings:
+            if code not in sheet_codes:
+                cursor.execute("DELETE FROM project_calendar_events WHERE project_code = ?", (code,))
+                deleted.append(code)
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"[ADMIN_CALENDAR_CLEANUP] 관리자가 {len(deleted)}개의 고아 매핑을 정리했습니다: {deleted}")
+
+        return jsonify({
+            'success': True,
+            'deleted_count': len(deleted),
+            'deleted_codes': deleted,
+            'message': f'{len(deleted)}개의 고아 매핑을 정리했습니다'
+        })
+
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캘린더 매핑 정리 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캘린더 매핑 정리 중 오류가 발생했습니다',
+            'error_id': error_id
+        }), 500
+
+
 @sequence_bp.route('/api/sequence/reset', methods=['POST'])
 @admin_required
 def reset_sequence():

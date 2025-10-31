@@ -202,7 +202,7 @@
     <div id="modal-container">
         <!-- 시퀀스 관리 모달 -->
         <div class="modal fade" id="sequenceManagementModal" tabindex="-1" aria-labelledby="sequenceManagementModalLabel" aria-hidden="true">
-            <div class="modal-dialog modal-dialog-centered" style="max-width: 400px;">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 600px;">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="sequenceManagementModalLabel">
@@ -260,6 +260,16 @@
                                         </td>
                                     </tr>
                                     <tr>
+                                        <td class="text-muted">캘린더 매핑 수</td>
+                                        <td class="text-end fw-bold text-primary" id="totalMappingsInline">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">불일치 매핑 수</td>
+                                        <td class="text-end">
+                                            <span class="badge bg-success" id="orphanedMappingsBadge">0</span>
+                                        </td>
+                                    </tr>
+                                    <tr>
                                         <td class="text-muted">마지막 업데이트</td>
                                         <td class="text-end text-muted small" id="lastUpdatedValue">-</td>
                                     </tr>
@@ -272,6 +282,19 @@
                                 <p class="mb-0 small">
                                     시퀀스 리셋은 DB 시퀀스를 Google Sheets 최댓값으로 되돌립니다.
                                     이 작업은 되돌릴 수 없으며, 리셋 후 다음 프로젝트 번호는 <strong id="nextNumberValue">-</strong>가 됩니다.
+                                </p>
+                            </div>
+
+                            <!-- 불일치 매핑 경고 (불일치 매핑 > 0일 때만 표시) -->
+                            <div class="alert alert-warning" id="orphanedMappingWarning" style="display: none; border-left: 4px solid #ffc107;">
+                                <h6 class="mb-2"><i class="fas fa-exclamation-triangle me-2"></i>불일치 매핑 발견</h6>
+                                <p class="mb-2 small">
+                                    Google Sheets에 없는 <strong id="orphanedCountText">0</strong>개의 프로젝트 코드가 DB에 매핑되어 있습니다:
+                                </p>
+                                <ul class="small mb-2" id="orphanedCodesList" style="max-height: 100px; overflow-y: auto;">
+                                </ul>
+                                <p class="mb-0 small">
+                                    <strong>"매핑 정리"</strong> 버튼으로 이러한 불일치 매핑을 자동으로 삭제할 수 있습니다.
                                 </p>
                             </div>
                         </div>
@@ -291,6 +314,12 @@
                                 onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f1b0b7'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(114, 28, 36, 0.2)'"
                                 onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
                             <i class="fas fa-redo me-1"></i>시퀀스 리셋
+                        </button>
+                        <button type="button" class="btn" id="calendarCleanupBtn" onclick="cleanupCalendarMappings()"
+                                style="background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #856404;"
+                                onmouseover="this.style.backgroundColor='#ffeeba'; this.style.borderColor='#ffe8a1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(133, 100, 4, 0.2)'"
+                                onmouseout="this.style.backgroundColor='#fff3cd'; this.style.borderColor='#ffeeba'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
+                            <i class="fas fa-broom me-1"></i>매핑 정리
                         </button>
                     </div>
                 </div>
@@ -499,6 +528,9 @@
 
                     spinner.style.display = 'none';
                     data.style.display = 'block';
+
+                    // 캘린더 매핑 상태도 함께 로드
+                    loadCalendarMappingStatus();
                 } else {
                     showSequenceAlert('오류', result.error || '시퀀스 상태를 조회할 수 없습니다.', 'danger');
                     spinner.style.display = 'none';
@@ -561,6 +593,119 @@
                 showSequenceAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
                 resetBtn.disabled = false;
                 resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+            }
+        };
+
+        // 캘린더 매핑 상태 조회
+        window.loadCalendarMappingStatus = async function() {
+            try {
+                const response = await fetch('/admin/api/calendar/mapping/status');
+                const result = await response.json();
+
+                if (result.success) {
+                    // 총 매핑 수
+                    document.getElementById('totalMappingsInline').textContent = result.total_mappings;
+
+                    // 불일치 매핑 수
+                    const orphanedCount = result.orphaned_mappings;
+                    const orphanedBadge = document.getElementById('orphanedMappingsBadge');
+                    orphanedBadge.textContent = orphanedCount;
+
+                    // 불일치 매핑에 따른 뱃지 색상 변경
+                    orphanedBadge.className = 'badge ';
+                    if (orphanedCount === 0) {
+                        orphanedBadge.className += 'bg-success';
+                    } else if (orphanedCount <= 2) {
+                        orphanedBadge.className += 'bg-warning';
+                    } else {
+                        orphanedBadge.className += 'bg-danger';
+                    }
+
+                    // 불일치 매핑 경고 표시 (불일치 매핑 > 0일 때만)
+                    const orphanedWarning = document.getElementById('orphanedMappingWarning');
+                    const orphanedCodesList = document.getElementById('orphanedCodesList');
+                    const orphanedCountText = document.getElementById('orphanedCountText');
+
+                    if (orphanedCount > 0) {
+                        orphanedWarning.style.display = 'block';
+                        orphanedCountText.textContent = orphanedCount;
+                        orphanedCodesList.innerHTML = '';
+
+                        result.orphaned_codes.forEach(code => {
+                            const li = document.createElement('li');
+                            li.textContent = code;
+                            orphanedCodesList.appendChild(li);
+                        });
+
+                        // 더 많은 항목이 있는 경우 표시
+                        if (orphanedCount > result.orphaned_codes.length) {
+                            const li = document.createElement('li');
+                            li.textContent = `... 외 ${orphanedCount - result.orphaned_codes.length}개`;
+                            li.style.fontStyle = 'italic';
+                            orphanedCodesList.appendChild(li);
+                        }
+                    } else {
+                        orphanedWarning.style.display = 'none';
+                    }
+                } else {
+                    console.error('캘린더 매핑 상태 조회 실패:', result.error);
+                }
+            } catch (error) {
+                console.error('캘린더 매핑 상태 조회 실패:', error);
+            }
+        };
+
+        // 캘린더 매핑 정리
+        window.cleanupCalendarMappings = async function() {
+            const cleanupBtn = document.getElementById('calendarCleanupBtn');
+            const orphanedBadge = document.getElementById('orphanedMappingsBadge');
+            const orphanedCount = parseInt(orphanedBadge.textContent || '0');
+
+            // 불일치 매핑 = 0일 때: 피드백 후 리턴 (아코디언 방식)
+            if (orphanedCount === 0) {
+                cleanupBtn.innerHTML = '<i class="fas fa-check me-1"></i>정리 완료';
+                setTimeout(() => {
+                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
+                }, 2000);
+                return;
+            }
+
+            // 불일치 매핑 > 0일 때: 확인 후 실제 정리 진행
+            if (!confirm('불일치 매핑을 정리하시겠습니까?\n\nGoogle Sheets에 없는 프로젝트 코드의 캘린더 매핑이 삭제됩니다.')) {
+                return;
+            }
+
+            cleanupBtn.disabled = true;
+            cleanupBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>정리 중...';
+
+            try {
+                const response = await fetch('/admin/api/calendar/mapping/cleanup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ confirm: true })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showSequenceAlert('성공', result.message, 'success');
+                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
+                    // 1.5초 후 자동 새로고침
+                    setTimeout(() => {
+                        loadCalendarMappingStatus();
+                    }, 1500);
+                } else {
+                    showSequenceAlert('실패', result.message || '매핑 정리에 실패했습니다.', 'danger');
+                    cleanupBtn.disabled = false;
+                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
+                }
+            } catch (error) {
+                console.error('캘린더 매핑 정리 실패:', error);
+                showSequenceAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
+                cleanupBtn.disabled = false;
+                cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
             }
         };
 
