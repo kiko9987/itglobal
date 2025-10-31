@@ -64,7 +64,7 @@ def _build_event_description(project: dict) -> str:
         f"사업자: {project.get('사업자') or '-'}",
         f"담당자: {project.get('담당자') or '-'}",
         f"현장 주소: {project.get('현장 주소') or '-'}",
-        f"고객명: {project.get('현장담당자') or '-'}",
+        f"고객명: {project.get('현장 담당자') or '-'}",
         f"연락처: {project.get('담당자 연락처') or '-'}",
     ]
     return '\n'.join(lines)
