@@ -153,6 +153,7 @@ def _validate_session(require_admin=False):
         db_permission = current_user.get('permission_level', 'viewer')
         if session['user'].get('permission_level') != db_permission:
             session['user']['permission_level'] = db_permission
+            session.modified = True  # nested dict 변경 시 필수!
 
     except Exception as e:
         # DB 조회 실패 시 경고 로그만 남기고 계속 진행 (DB 장애 시 전체 서비스 중단 방지)
