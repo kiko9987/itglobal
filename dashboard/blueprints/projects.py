@@ -2401,12 +2401,13 @@ def _initialize_sheets_manager():
 
 
 # ===== 헬퍼 함수 4: 기본값 설정 =====
-def _prepare_project_defaults(data):
+def _prepare_project_defaults(data, row_number):
     """
     프로젝트 데이터에 기본값 설정 (금액, 수식, 날짜, VAT 등)
 
     Args:
         data: 원본 데이터 딕셔너리 (in-place 수정됨)
+        row_number: Google Sheets에 삽입될 행 번호 (수식에 사용)
     """
     from datetime import datetime
 
@@ -2422,11 +2423,12 @@ def _prepare_project_defaults(data):
         if value is None or str(value).strip() == '':
             data[field] = '₩0'
 
-    # 수식 필드 자동 삽입
-    data['총액 2'] = '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'
-    data['미수금'] = '=0-($S:S-($T:T+$U:U+$V:V))'
-    data['순익'] = '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'
-    data['마진율'] = '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))'
+    # 수식 필드 자동 삽입 (행 번호 동적 삽입 - 성능 최적화 및 가독성 개선)
+    # 총액2는 끝자리 1/9원만 보정 (깔끔한 금액 유지)
+    data['총액 2'] = f'=IF(R{row_number}=TRUE, Q{row_number}+FLOOR(Q{row_number}*0.1,1) + IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=1, -1, IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=9, 1, 0)), Q{row_number})'
+    data['미수금'] = f'=($T{row_number}+$U{row_number}+$V{row_number})-$S{row_number}'
+    data['순익'] = f'=$Q{row_number}-(($AA{row_number})+($AB{row_number})+($AC{row_number})+($AD{row_number}))'
+    data['마진율'] = f'=IF(OR($Q{row_number}=0, $AE{row_number}=0), 0, ($AE{row_number}/$Q{row_number}))'
 
     # 기타 필드 기본값
     if '계산서' not in data or not data.get('계산서'):
@@ -2463,9 +2465,12 @@ def _prepare_project_defaults(data):
 
 
 # ===== 헬퍼 함수 5: 행 값 배열 구성 =====
-def _build_row_values(data, manager):
+def _build_row_values(data, manager, row_number):
     """
     데이터를 Google Sheets 행 배열로 변환 (40 컬럼)
+
+    Args:
+        row_number: Google Sheets에 삽입될 행 번호 (기본값 수식 생성용)
 
     Returns:
         list: 40개 요소의 값 배열
@@ -2490,11 +2495,12 @@ def _build_row_values(data, manager):
                 values[column_index] = str(value)
 
     # 수식 필드 강제 삽입 (컬럼 매핑에 없어도 삽입)
+    # 부가세 계산: 절사(FLOOR) 방식 + 끝자리 1/9원 보정 (실무 표준, 행 번호 동적 삽입)
     formula_fields = {
-        'S': data.get('총액 2', '=IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)'),
-        'W': data.get('미수금', '=0-($S:S-($T:T+$U:U+$V:V))'),
-        'AE': data.get('순익', '=$Q:Q-(($AA:AA)+($AB:AB)+($AC:AC)+($AD:AD))'),
-        'AF': data.get('마진율', '=IF(OR($Q:Q=0, $AE:AE=0), 0, ($AE:AE/$Q:Q))'),
+        'S': data.get('총액 2', f'=IF(R{row_number}=TRUE, Q{row_number}+FLOOR(Q{row_number}*0.1,1) + IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=1, -1, IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=9, 1, 0)), Q{row_number})'),
+        'W': data.get('미수금', f'=($T{row_number}+$U{row_number}+$V{row_number})-$S{row_number}'),
+        'AE': data.get('순익', f'=$Q{row_number}-(($AA{row_number})+($AB{row_number})+($AC{row_number})+($AD{row_number}))'),
+        'AF': data.get('마진율', f'=IF(OR($Q{row_number}=0, $AE{row_number}=0), 0, ($AE{row_number}/$Q{row_number}))'),
         'AN': '0'  # _version 초기값 (낙관적 잠금용)
     }
 
@@ -2578,6 +2584,7 @@ def _build_project_response_data(code, data):
         dict: 프로젝트 데이터
     """
     from datetime import datetime
+    from decimal import Decimal, ROUND_HALF_UP
 
     # 금액 파싱 함수
     def parse_amount(value):
@@ -2594,9 +2601,18 @@ def _build_project_response_data(code, data):
     total_1 = parse_amount(data.get('총액 1', '₩0'))
 
     # 총액 2 계산 (부가세 포함 여부)
+    # Google Sheets 수식과 동일하게: =Q:Q+FLOOR(Q:Q*0.1,1)
+    # 절사 방식 (실무 표준)
     vat_included = data.get('부가세', 'FALSE')
     if vat_included == 'TRUE':
-        total_2 = total_1 + round(total_1 * 0.1)
+        # FLOOR/ROUNDDOWN (절사)
+        from decimal import ROUND_DOWN
+        total_1_decimal = Decimal(str(total_1))
+        vat_amount = (total_1_decimal * Decimal('0.1')).quantize(
+            Decimal('1'),
+            rounding=ROUND_DOWN  # 절사
+        )
+        total_2 = int(total_1_decimal + vat_amount)
     else:
         total_2 = total_1
 
@@ -2688,11 +2704,14 @@ def add_project_auto():
         if not manager:
             return sheet_id  # 에러 응답
 
-        # 4. 기본값 설정
-        _prepare_project_defaults(data)
+        # 3-1. 다음 행 번호 계산 (헤더=1행, 데이터는 2행부터)
+        next_row = len(df) + 2
 
-        # 5. 행 값 배열 구성
-        values = _build_row_values(data, manager)
+        # 4. 기본값 설정 (행 번호 전달)
+        _prepare_project_defaults(data, next_row)
+
+        # 5. 행 값 배열 구성 (행 번호 전달)
+        values = _build_row_values(data, manager, next_row)
 
         # 6. Google Sheets에 추가
         result = manager.append_row(sheet_id, values)

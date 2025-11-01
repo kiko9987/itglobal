@@ -196,6 +196,13 @@ def _parse_vat_flag(vat_value: Any) -> bool:
 def _calculate_total2(total1: float, vat_flag: bool) -> float:
     """총액2 계산: 부가세 플래그에 따라 총액1에 10% 부가세 적용 여부 결정
 
+    Google Sheets 수식과 동일한 절사 + 끝자리 1/9원 보정 방식 사용:
+    =IF(R:R=TRUE, Q:Q+FLOOR(Q:Q*0.1,1) + IF(MOD(Q:Q+FLOOR(Q:Q*0.1,1), 10)=1, -1, IF(MOD(Q:Q+FLOOR(Q:Q*0.1,1), 10)=9, 1, 0)), Q:Q)
+
+    세법 근거: 부가가치세법 시행령 제61조 (세액 계산 시 원 단위 미만 절사)
+    FLOOR/ROUNDDOWN 사용 (0.5 이상도 내림)
+    Python round()는 은행가 반올림 → 사용 금지
+
     Args:
         total1: 총액1 (공급가액)
         vat_flag: 부가세 포함 여부 (True = 포함, False = 미포함)
@@ -204,9 +211,27 @@ def _calculate_total2(total1: float, vat_flag: bool) -> float:
         총액2 (부가세 포함 금액)
     """
     if vat_flag:
-        # 부가세 포함: 총액2 = 총액1 + ROUND(총액1 × 0.1)
-        vat_amount = round(total1 * 0.1)
-        return total1 + vat_amount
+        # 부가세 포함: 총액2 = 총액1 + FLOOR(총액1 × 0.1, 1) + 끝자리 1/9원 보정
+        # 절사 (FLOOR/ROUNDDOWN) - 실무 표준
+        from decimal import Decimal, ROUND_DOWN
+
+        total1_decimal = Decimal(str(total1))
+        vat_amount = (total1_decimal * Decimal('0.1')).quantize(
+            Decimal('1'),
+            rounding=ROUND_DOWN  # 절사
+        )
+        base_total = int(total1_decimal + vat_amount)
+
+        # 끝자리 1/9원 보정 (Google Sheets 수식과 일치)
+        last_digit = base_total % 10
+        if last_digit == 1:
+            adjustment = -1
+        elif last_digit == 9:
+            adjustment = 1
+        else:
+            adjustment = 0
+
+        return float(base_total + adjustment)
     else:
         # 부가세 미포함: 총액2 = 총액1
         return total1
