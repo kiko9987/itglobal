@@ -2585,6 +2585,7 @@ def _build_project_response_data(code, data):
     """
     from datetime import datetime
     from decimal import Decimal, ROUND_HALF_UP
+    from dashboard.services.project_service import _calculate_total2
 
     # 금액 파싱 함수
     def parse_amount(value):
@@ -2600,21 +2601,9 @@ def _build_project_response_data(code, data):
     # 총액 1 파싱
     total_1 = parse_amount(data.get('총액 1', '₩0'))
 
-    # 총액 2 계산 (부가세 포함 여부)
-    # Google Sheets 수식과 동일하게: =Q:Q+FLOOR(Q:Q*0.1,1)
-    # 절사 방식 (실무 표준)
+    # 총액 2 계산: _calculate_total2() 재사용 (FLOOR + 끝자리 1/9원 보정)
     vat_included = data.get('부가세', 'FALSE')
-    if vat_included == 'TRUE':
-        # FLOOR/ROUNDDOWN (절사)
-        from decimal import ROUND_DOWN
-        total_1_decimal = Decimal(str(total_1))
-        vat_amount = (total_1_decimal * Decimal('0.1')).quantize(
-            Decimal('1'),
-            rounding=ROUND_DOWN  # 절사
-        )
-        total_2 = int(total_1_decimal + vat_amount)
-    else:
-        total_2 = total_1
+    total_2 = int(_calculate_total2(float(total_1), vat_included == 'TRUE'))
 
     # 입금액 계산
     contract = parse_amount(data.get('계약금', '₩0'))
