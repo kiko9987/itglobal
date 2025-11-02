@@ -2428,7 +2428,7 @@ def _prepare_project_defaults(data, row_number):
     data['총액 2'] = f'=IF(R{row_number}=TRUE, Q{row_number}+FLOOR(Q{row_number}*0.1,1) + IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=1, -1, IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=9, 1, 0)), Q{row_number})'
     data['미수금'] = f'=($T{row_number}+$U{row_number}+$V{row_number})-$S{row_number}'
     data['순익'] = f'=Q{row_number}-(AA{row_number}+AB{row_number}+AC{row_number}+AD{row_number})'
-    data['마진율'] = f'=IF(OR($Q{row_number}=0, $AE{row_number}=0), 0, ($AE{row_number}/$Q{row_number}))'
+    data['마진율'] = f'=IF(OR(Q{row_number}=0, AE{row_number}=0), 0, AE{row_number}/Q{row_number})'
 
     # 기타 필드 기본값
     if '계산서' not in data or not data.get('계산서'):
@@ -2500,7 +2500,7 @@ def _build_row_values(data, manager, row_number):
         'S': data.get('총액 2', f'=IF(R{row_number}=TRUE, Q{row_number}+FLOOR(Q{row_number}*0.1,1) + IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=1, -1, IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=9, 1, 0)), Q{row_number})'),
         'W': data.get('미수금', f'=($T{row_number}+$U{row_number}+$V{row_number})-$S{row_number}'),
         'AE': data.get('순익', f'=Q{row_number}-(AA{row_number}+AB{row_number}+AC{row_number}+AD{row_number})'),
-        'AF': data.get('마진율', f'=IF(OR($Q{row_number}=0, $AE{row_number}=0), 0, ($AE{row_number}/$Q{row_number}))'),
+        'AF': data.get('마진율', f'=IF(OR(Q{row_number}=0, AE{row_number}=0), 0, AE{row_number}/Q{row_number})'),
         'AN': '0'  # _version 초기값 (낙관적 잠금용)
     }
 
