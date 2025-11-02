@@ -2584,7 +2584,6 @@ def _build_project_response_data(code, data):
         dict: 프로젝트 데이터
     """
     from datetime import datetime
-    from decimal import Decimal, ROUND_HALF_UP
     from dashboard.services.project_service import _calculate_total2
 
     # 금액 파싱 함수
