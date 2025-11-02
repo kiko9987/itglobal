@@ -4082,10 +4082,8 @@ export default class ProjectRowAccordion {
     const vatValue = rowData['부가세'];
     const vatIncluded = vatValue && typeof vatValue === 'string' && vatValue.includes('포함');
 
-    if (vatIncluded) {
-      return total1 * 1.1; // 부가세 10% 포함
-    }
-    return total1;
+    // AmountCalculator 사용 (FLOOR + 끝자리 1/9원 보정 적용)
+    return AmountCalculator.calculateWithVAT(total1, vatIncluded);
   }
 
   calculateOutstandingAmountValue(rowData) {
