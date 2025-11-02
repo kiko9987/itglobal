@@ -74,14 +74,37 @@ export default class AmountCalculator {
   }
 
   /**
-   * 부가세 포함 금액 계산
-   * @param {number} amount - 원금
+   * 부가세 포함 금액 계산 (FLOOR + 끝자리 1/9원 보정)
+   *
+   * Google Sheets 수식과 동일:
+   * =IF(R=TRUE, Q+FLOOR(Q*0.1,1) + IF(MOD(Q+FLOOR(Q*0.1,1), 10)=1, -1, IF(MOD(Q+FLOOR(Q*0.1,1), 10)=9, 1, 0)), Q)
+   *
+   * @param {number} amount - 원금 (총액1)
    * @param {boolean} includeVAT - 부가세 포함 여부
-   * @returns {number} 계산된 금액
+   * @returns {number} 계산된 금액 (총액2)
    */
   static calculateWithVAT(amount, includeVAT) {
     if (!amount) return 0;
-    return includeVAT ? amount * 1.1 : amount;
+
+    if (!includeVAT) {
+      return amount;
+    }
+
+    // 부가세 계산: FLOOR(amount * 0.1) - 절사
+    const vat = Math.floor(amount * 0.1);
+    const baseTotal = amount + vat;
+
+    // 끝자리 1/9원 보정
+    const lastDigit = baseTotal % 10;
+    let adjustment = 0;
+
+    if (lastDigit === 1) {
+      adjustment = -1;  // 끝자리 1원 → -1원 보정
+    } else if (lastDigit === 9) {
+      adjustment = 1;   // 끝자리 9원 → +1원 보정
+    }
+
+    return baseTotal + adjustment;
   }
 
   /**
