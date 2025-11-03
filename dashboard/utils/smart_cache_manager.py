@@ -93,11 +93,37 @@ class SimpleCache:
             logger.error(f"캐시 무효화 서비스 등록 실패: {e}")
 
     def _enable_fallback(self):
-        """Fallback 메모리 캐시 활성화"""
+        """Fallback 메모리 캐시 활성화
+
+        ⚠️ CRITICAL: 이 메서드는 Redis 장애 시 자동 호출됩니다.
+        다중 워커 환경에서는 각 워커가 독립적인 캐시를 가지게 되므로
+        캐시 동기화가 불가능해집니다.
+        """
         from dashboard.utils.fallback_cache import get_fallback_cache
+
         self._use_fallback = True
         self._fallback_cache = get_fallback_cache()
-        logger.warning("⚠️ Fallback 메모리 캐시 모드 활성화 - 성능 저하 및 멀티 워커 비공유")
+
+        # 🚨 CRITICAL 레벨 로그 - 관리자가 즉시 확인해야 함
+        logger.critical(
+            "🚨🚨🚨 REDIS FALLBACK MODE ACTIVATED 🚨🚨🚨\n"
+            "Redis 연결 실패로 인해 폴백 메모리 캐시로 전환되었습니다.\n"
+            "⚠️ 영향:\n"
+            "  - 각 워커 프로세스가 독립적인 캐시를 유지\n"
+            "  - 워커 간 캐시 동기화 불가 (데이터 불일치 발생 가능)\n"
+            "  - 캐시 무효화 Pub/Sub 동작 불가\n"
+            "📋 조치 사항:\n"
+            "  1. Redis 서버 상태 확인 (redis-cli ping)\n"
+            "  2. Redis 서버 재시작\n"
+            "  3. 애플리케이션 재시작 권장\n"
+            "  4. Gunicorn 다중 워커 사용 중이면 workers=1로 축소 고려\n"
+            "💡 헬스 체크 API에서 상태 확인 가능: /api/health"
+        )
+
+        # 환경 정보 추가 로깅
+        import os
+        workers = os.getenv('GUNICORN_WORKERS', '1')
+        logger.critical(f"현재 Gunicorn 워커 설정: {workers}개 (다중 워커일 경우 심각한 문제)")
 
     def _handle_invalidation_message(self, message: dict):
         """

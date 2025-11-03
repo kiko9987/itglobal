@@ -845,15 +845,26 @@ export default class UserModal {
       let updatedCount = 0;
 
       // 모든 행을 순회하면서 담당자 컬럼(인덱스 1) 확인
-      // ⚠️ KNOWN LIMITATION: 프로젝트 데이터에는 담당자 이메일이 없고 이름만 있어서
-      //    이름으로만 매칭합니다. 동명이인이 있는 경우 모든 동명이인의 뱃지가 업데이트됩니다.
-      //    완전한 해결을 위해서는 프로젝트 데이터에 담당자 이메일 필드 추가가 필요합니다.
+      // ✅ IMPROVED: 이메일 우선 매칭 → 이름 폴백 방식으로 동명이인 문제 완화
+      //    - 담당자 이메일이 있으면: 이메일로 정확히 매칭 (동명이인 문제 해결)
+      //    - 담당자 이메일이 없으면: 이름으로 매칭 (기존 방식 유지)
       table.rows().every(function() {
         const rowData = this.data();
         const managerName = rowData['담당자'];
+        const managerEmail = rowData['담당자 이메일'];
 
-        // 해당 담당자가 변경된 사용자인 경우 (이름 기준 매칭)
-        if (managerName === userName) {
+        // 우선순위 매칭: 이메일 → 이름
+        let isMatch = false;
+        if (managerEmail && managerEmail.trim() && managerEmail !== '-') {
+          // 이메일 데이터가 있으면 이메일로 정확히 매칭
+          isMatch = (managerEmail === userEmail);
+        } else {
+          // 이메일 데이터가 없으면 이름으로 매칭 (fallback)
+          isMatch = (managerName === userName);
+        }
+
+        // 해당 담당자가 변경된 사용자인 경우
+        if (isMatch) {
           // 새로운 뱃지 HTML 생성
           const newBadgeHtml = badgeSystem.createManagerBadge(userName);
 

@@ -102,6 +102,30 @@ def health_check():
             health_status['services']['database'] = 'down'
             health_status['status'] = 'degraded'
 
+        # ⚠️ 캐시 폴백 모드 체크 (CRITICAL)
+        try:
+            from dashboard.utils.smart_cache_manager import get_smart_cache
+            cache = get_smart_cache()
+
+            if cache._use_fallback:
+                # 🚨 폴백 모드 활성화 - 다중 워커에서 심각한 문제
+                health_status['services']['cache'] = 'fallback_mode'
+                health_status['status'] = 'critical'  # degraded → critical로 변경
+                health_status['warnings'] = health_status.get('warnings', [])
+                health_status['warnings'].append({
+                    'type': 'CRITICAL',
+                    'service': 'cache',
+                    'message': 'Redis 폴백 모드 활성화 - 다중 워커 환경에서 캐시 동기화 불가',
+                    'impact': '프로세스별 독립 캐시로 인한 데이터 불일치 위험',
+                    'action': 'Redis 서버 상태 확인 및 재시작 필요'
+                })
+                logger.critical("⚠️⚠️⚠️ FALLBACK MODE ACTIVE - Multi-worker cache desync possible! ⚠️⚠️⚠️")
+            else:
+                health_status['services']['cache'] = 'redis'
+        except Exception as e:
+            logger.warning(f"캐시 모드 체크 실패: {e}")
+            health_status['services']['cache'] = 'unknown'
+
         # HTTP 상태 코드 결정
         status_code = 200 if health_status['status'] == 'healthy' else 503
 
