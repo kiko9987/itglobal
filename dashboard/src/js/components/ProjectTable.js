@@ -686,18 +686,38 @@ export default class ProjectTable {
       ],
       columnDefs: [
         {
-          // 첫 3개 컬럼 (프로젝트 코드, 담당자, 거래처)은 왼쪽 정렬
-          targets: [0, 1, 2],
+          // 프로젝트 코드: 넓이 증가
+          targets: [0],
+          width: '140px',
           className: 'text-left'
         },
         {
-          // 주소와 공사 내용은 왼쪽 정렬
+          // 담당자, 거래처: 넓이 줄임
+          targets: [1, 2],
+          width: '90px',
+          className: 'text-left'
+        },
+        {
+          // 주소와 공사 내용: 넓이 유지 (왼쪽 정렬)
           targets: [3, 4],
           className: 'text-left'
         },
         {
-          // 날짜, 금액, 미수금, 상태, 데이터 컬럼은 가운데 정렬
-          targets: [5, 6, 7, 8, 9, 10],
+          // 날짜: 넓이 줄임
+          targets: [5, 6],
+          width: '90px',
+          className: 'text-center'
+        },
+        {
+          // 금액, 미수금: 넓이 줄임
+          targets: [7, 8],
+          width: '100px',
+          className: 'text-center'
+        },
+        {
+          // 상태, 데이터 완성도: 넓이 줄임
+          targets: [9, 10],
+          width: '80px',
           className: 'text-center'
         }
         // visible 설정은 각 컬럼 정의에서 직접 설정됨 (중복 방지)
