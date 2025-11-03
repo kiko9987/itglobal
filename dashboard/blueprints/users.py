@@ -14,6 +14,40 @@ logger = get_logger(__name__)
 
 users_bp = Blueprint('users', __name__, url_prefix='/api')
 
+def _get_user_suffix(user_email, user_name):
+    """
+    사용자의 프로젝트 코드 접미사 조회 (내부 헬퍼 함수)
+
+    Args:
+        user_email: 사용자 이메일
+        user_name: 사용자 이름
+
+    Returns:
+        str or None: 프로젝트 코드 접미사 (없으면 None)
+    """
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        from dashboard.services import project_service
+
+        # Redis에서 조회
+        redis_client = get_redis_client()
+        redis_key = f"user:project_code_suffix:{user_email}"
+        suffix = redis_client.get(redis_key)
+
+        if suffix:
+            return suffix
+
+        # Redis에 없으면 project_config.json에서 조회
+        config_suffix = project_service.PROJECT_CONFIG.get('owner_suffix_map', {}).get(user_name, '')
+
+        if config_suffix:
+            return config_suffix
+
+        return None
+    except Exception as e:
+        logger.error(f"프로젝트 코드 접미사 조회 오류 (user: {user_email}): {str(e)}")
+        return None
+
 @users_bp.route('/user/role')
 @login_required
 def get_user_role_api():
@@ -88,6 +122,12 @@ def get_users():
 
         # 페이지 데이터 추출
         page_users = all_users[start_index:end_index]
+
+        # 각 사용자에 프로젝트 코드 접미사 추가
+        for user in page_users:
+            user_email = user.get('email', '')
+            user_name = user.get('name', '')
+            user['project_code_suffix'] = _get_user_suffix(user_email, user_name)
 
         return jsonify({
             'success': True,

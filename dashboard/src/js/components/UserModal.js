@@ -476,61 +476,40 @@ export default class UserModal {
 
   /**
    * 프로젝트 코드 접미사 로드
+   * 이제 사용자 데이터에 이미 포함되어 있으므로 별도의 API 호출 없이 직접 설정
    */
-  async loadProjectCodeSuffixes(users) {
+  loadProjectCodeSuffixes(users) {
     // 관리자 여부 확인
     const isAdmin = window.userRole === 'admin' || window.userRole === 'super_admin';
 
     for (const user of users) {
-      try {
-        const response = await fetch(`/api/users/${encodeURIComponent(user.email)}/project-code-suffix`);
+      const emailEscaped = user.email.replace(/['"]/g, '\\$&');
+      const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
+      const editInput = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
+      const editBtn = document.querySelector(`.edit-project-code-btn[data-user-email="${emailEscaped}"]`);
 
-        const emailEscaped = user.email.replace(/['"]/g, '\\$&');
-        const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
-        const editInput = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
-        const editBtn = document.querySelector(`.edit-project-code-btn[data-user-email="${emailEscaped}"]`);
+      if (!displayInput || !editInput) continue;
 
-        if (!displayInput || !editInput) continue;
+      // 사용자 데이터에서 직접 접미사 가져오기
+      const suffix = user.project_code_suffix || '';
 
-        // HTTP 상태 코드 체크
-        if (!response.ok) {
-          logger.error(`[USER_MODAL] 프로젝트 코드 접미사 API 오류 (${user.email}): HTTP ${response.status}`);
-          displayInput.value = '오류';
-          displayInput.style.color = '#dc3545'; // 빨간색
-          editInput.dataset.originalValue = '';
-          continue; // 다음 사용자 처리
-        }
+      if (suffix) {
+        displayInput.value = suffix;
+        displayInput.style.color = '#6c757d'; // 회색
+        editInput.value = suffix;
+        // 초기 originalValue 설정 (취소 시 복원용)
+        editInput.dataset.originalValue = suffix;
+      } else {
+        displayInput.value = '';
+        displayInput.style.color = '#6c757d'; // 회색
+        editInput.value = '';
+        // 초기 originalValue 설정 (빈 값)
+        editInput.dataset.originalValue = '';
+      }
 
-        const data = await response.json();
-
-        if (data.success && data.suffix) {
-          displayInput.value = data.suffix;
-          displayInput.style.color = '#6c757d'; // 회색
-          editInput.value = data.suffix;
-          // 초기 originalValue 설정 (취소 시 복원용)
-          editInput.dataset.originalValue = data.suffix;
-        } else {
-          displayInput.value = '';
-          displayInput.style.color = '#6c757d'; // 회색
-          editInput.value = '';
-          // 초기 originalValue 설정 (빈 값)
-          editInput.dataset.originalValue = '';
-        }
-
-        // 관리자만 수정 버튼 표시
-        if (isAdmin && editBtn) {
-          editBtn.style.display = 'inline-block';
-        }
-
-      } catch (error) {
-        logger.error(`[USER_MODAL] 프로젝트 코드 접미사 로드 오류 (${user.email}):`, error);
-        const emailEscaped = user.email.replace(/['"]/g, '\\$&');
-        const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
-        if (displayInput) {
-          displayInput.value = '오류';
-          displayInput.style.color = '#dc3545'; // 빨간색
-        }
-        // 에러가 발생해도 다음 사용자 처리 계속
+      // 관리자만 수정 버튼 표시
+      if (isAdmin && editBtn) {
+        editBtn.style.display = 'inline-block';
       }
     }
   }
