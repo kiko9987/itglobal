@@ -392,7 +392,7 @@ export default class UserModal {
       html += '</td>';
 
       // 프로젝트 코드 접미사 (관리자만 수정 가능)
-      html += '<td class="text-center project-code-cell" data-user-email="${userEmailEscaped}">';
+      html += `<td class="text-center project-code-cell" data-user-email="${userEmailEscaped}">`;
       html += `
         <div class="d-flex align-items-center justify-content-center gap-1">
           <!-- 읽기 모드 (기본) - 비활성화된 입력창 -->
