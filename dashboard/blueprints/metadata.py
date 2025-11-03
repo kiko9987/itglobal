@@ -54,10 +54,11 @@ def preview_project_code():
             if owner:
                 # 1. 먼저 사용자 DB에서 담당자 이름으로 이메일 찾기
                 try:
-                    from dashboard.utils.user_database import get_all_users
+                    from dashboard.utils.user_database import get_user_database
                     from dashboard.blueprints.users import _get_user_suffix
 
-                    all_users = get_all_users()
+                    user_db = get_user_database()
+                    all_users = user_db.get_all_users()
                     user_email = None
 
                     # 이름으로 사용자 찾기
