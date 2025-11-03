@@ -64,6 +64,9 @@ instance/
 *.sqlite
 *.sqlite3
 
+# Redis 스냅샷
+dump.rdb
+
 # 백업 파일
 *.backup
 *.bak

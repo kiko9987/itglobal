@@ -339,12 +339,12 @@ def get_project_code_suffix(email):
             })
 
         # Redis에 없으면 project_config.json에서 조회
-        from dashboard import PROJECT_CONFIG
+        from dashboard.services import project_service
         user_db = get_user_database()
         user_info = user_db.get_user_by_email(email)
         user_name = user_info.get('name', '') if user_info else ''
 
-        config_suffix = PROJECT_CONFIG.get('owner_suffix_map', {}).get(user_name, '')
+        config_suffix = project_service.PROJECT_CONFIG.get('owner_suffix_map', {}).get(user_name, '')
 
         if config_suffix:
             return jsonify({
