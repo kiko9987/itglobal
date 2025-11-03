@@ -317,6 +317,127 @@ def delete_user(email):
         logger.error(f"사용자 삭제 오류: {str(e)}")
         return jsonify({'success': False, 'message': '사용자 삭제에 실패했습니다.'}), 500
 
+@users_bp.route('/users/<email>/project-code-suffix', methods=['GET'])
+@login_required
+def get_project_code_suffix(email):
+    """사용자 프로젝트 코드 접미사 조회"""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+
+        redis_client = get_redis_client()
+        redis_key = f"user:project_code_suffix:{email}"
+
+        # Redis에서 조회
+        suffix = redis_client.get(redis_key)
+
+        if suffix:
+            logger.debug(f"프로젝트 코드 접미사 조회: {email} → {suffix}")
+            return jsonify({
+                'success': True,
+                'suffix': suffix,
+                'source': 'custom'
+            })
+
+        # Redis에 없으면 project_config.json에서 조회
+        from dashboard import PROJECT_CONFIG
+        user_db = get_user_database()
+        user_info = user_db.get_user_by_email(email)
+        user_name = user_info.get('name', '') if user_info else ''
+
+        config_suffix = PROJECT_CONFIG.get('owner_suffix_map', {}).get(user_name, '')
+
+        if config_suffix:
+            return jsonify({
+                'success': True,
+                'suffix': config_suffix,
+                'source': 'config'
+            })
+
+        # 둘 다 없으면 null
+        return jsonify({
+            'success': True,
+            'suffix': None,
+            'source': 'none'
+        })
+
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 코드 접미사 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '프로젝트 코드 접미사 조회 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
+
+@users_bp.route('/users/<email>/project-code-suffix', methods=['PUT'])
+@admin_required
+def update_project_code_suffix(email):
+    """사용자 프로젝트 코드 접미사 업데이트 (관리자만)"""
+    try:
+        data = request.get_json()
+        suffix = data.get('suffix', '').strip().upper()
+
+        # Validation
+        if suffix and (len(suffix) < 1 or len(suffix) > 3):
+            return jsonify({
+                'success': False,
+                'message': '접미사는 1~3자 사이여야 합니다.'
+            }), 400
+
+        if suffix and not suffix.isalpha():
+            return jsonify({
+                'success': False,
+                'message': '접미사는 영문자만 입력 가능합니다.'
+            }), 400
+
+        from dashboard.utils.redis_client import get_redis_client
+        redis_client = get_redis_client()
+        redis_key = f"user:project_code_suffix:{email}"
+
+        # 이전 값 조회 (감사 로그용)
+        old_suffix = redis_client.get(redis_key) or '-'
+
+        if suffix:
+            # 값 설정
+            redis_client.set(redis_key, suffix)
+            logger.info(f"프로젝트 코드 접미사 설정: {email} → {suffix}")
+        else:
+            # 값 삭제 (빈 문자열이면 삭제)
+            redis_client.delete(redis_key)
+            logger.info(f"프로젝트 코드 접미사 삭제: {email}")
+
+        # 감사 로그 기록
+        try:
+            from dashboard.utils.user_database import get_audit_repository
+            audit_repo = get_audit_repository()
+            admin_email = session.get('user', {}).get('email', 'unknown')
+            audit_repo.log_action(
+                user_email=admin_email,
+                action='PROJECT_CODE_SUFFIX_UPDATE',
+                details=f'사용자 {email}의 프로젝트 코드 접미사를 {suffix or "(삭제)"}로 변경',
+                field_name='project_code_suffix',
+                old_value=old_suffix,
+                new_value=suffix or '(삭제)',
+                ip_address=request.remote_addr
+            )
+        except Exception as log_error:
+            logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+        return jsonify({
+            'success': True,
+            'message': '프로젝트 코드 접미사가 성공적으로 업데이트되었습니다.',
+            'suffix': suffix or None
+        })
+
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 프로젝트 코드 접미사 업데이트 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '프로젝트 코드 접미사 업데이트 중 오류가 발생했습니다.',
+            'error_id': error_id
+        }), 500
+
 @users_bp.route('/release-all-user-locks', methods=['POST'])
 @login_required
 def release_all_user_locks():

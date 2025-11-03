@@ -677,7 +677,49 @@ def _build_company_prefix_map(df: pd.DataFrame) -> Dict[str, str]:
 
 
 def _build_owner_suffix_map(df: pd.DataFrame) -> Dict[str, str]:
-    mapping = {k: str(v).upper() for k, v in PROJECT_CONFIG.get('owner_suffix_map', {}).items()}
+    """
+    사용자별 프로젝트 코드 접미사 매핑 생성
+
+    우선순위:
+    1. Redis 동적 설정 (관리자가 웹에서 설정한 값)
+    2. project_config.json의 owner_suffix_map
+    3. DataFrame 분석 (기존 프로젝트 코드 패턴)
+    4. 폴백 (이름의 첫 2자 대문자, 경고 로그)
+    """
+    from dashboard.utils.redis_client import get_redis_client
+    from dashboard.utils.user_database import get_user_database
+
+    mapping = {}
+
+    # 1단계: Redis 동적 설정 조회 (최우선)
+    try:
+        redis_client = get_redis_client()
+        user_db = get_user_database()
+        all_users = user_db.get_all_users()
+
+        for user in all_users:
+            email = user.get('email', '')
+            name = user.get('name', '').strip()
+
+            if not name:
+                continue
+
+            # Redis에서 조회
+            redis_key = f"user:project_code_suffix:{email}"
+            redis_suffix = redis_client.get(redis_key)
+
+            if redis_suffix:
+                mapping[name] = redis_suffix.upper()
+                logger.debug(f"프로젝트 코드 접미사 (Redis): {name} → {redis_suffix}")
+
+    except Exception as e:
+        logger.warning(f"Redis 동적 접미사 조회 중 오류 (무시하고 계속): {e}")
+
+    # 2단계: project_config.json 기본값
+    for k, v in PROJECT_CONFIG.get('owner_suffix_map', {}).items():
+        mapping.setdefault(k, str(v).upper())
+
+    # 3단계: DataFrame 분석 (기존 프로젝트 코드 패턴)
     if '프로젝트 코드' in df.columns and ('프로젝트 담당자' in df.columns or '담당자 이메일' in df.columns):
         grouped: Dict[str, List[str]] = defaultdict(list)
         for _, row in df.iterrows():
@@ -689,6 +731,7 @@ def _build_owner_suffix_map(df: pd.DataFrame) -> Dict[str, str]:
         for name, suffixes in grouped.items():
             if suffixes:
                 mapping.setdefault(name, Counter(suffixes).most_common(1)[0][0])
+
     return mapping
 
 
@@ -771,15 +814,36 @@ def _auto_project_code(df: pd.DataFrame, company: str, owner: str) -> str:
     prefix = comp_map.get(company.strip())
     suffix = own_map.get(owner.strip())
 
-    if not prefix or not suffix:
+    # Company prefix 없으면 오류
+    if not prefix:
         available_companies = ', '.join(comp_map.keys()) or 'unregistered'
-        available_owners = ', '.join(own_map.keys()) or 'unregistered'
         message = (
-            'Failed to generate project code. Verify company/owner mappings.\n'
-            f'Available companies: {available_companies}\n'
-            f'Available owners: {available_owners}'
+            'Failed to generate project code: Company prefix not found.\n'
+            f'Available companies: {available_companies}'
         )
         raise ValueError(message)
+
+    # Owner suffix 폴백 로직
+    if not suffix:
+        owner_name = owner.strip()
+
+        # 영문 이름 처리: 첫 2~3자를 대문자로 변환
+        # 예: "John" → "JO", "Park" → "PA"
+        if owner_name and all(ord(c) < 128 for c in owner_name):  # ASCII 문자만
+            suffix = owner_name[:2].upper()
+            logger.warning(
+                f"⚠️ 프로젝트 코드 접미사 자동 생성 (폴백): {owner_name} → {suffix}\n"
+                f"관리자는 사용자 관리 화면에서 '{owner_name}'의 접미사를 설정하세요."
+            )
+        else:
+            # 한글 이름이거나 특수문자 포함 시 오류
+            available_owners = ', '.join(own_map.keys()) or 'unregistered'
+            message = (
+                f'Failed to generate project code: Owner suffix not found for "{owner_name}".\n'
+                f'Available owners: {available_owners}\n'
+                f'⚠️ 관리자는 사용자 관리 화면에서 프로젝트 코드 접미사를 설정해야 합니다.'
+            )
+            raise ValueError(message)
 
     # 전체 통합 번호 사용 (기존 규칙 유지)
     number = _next_running_number(df)

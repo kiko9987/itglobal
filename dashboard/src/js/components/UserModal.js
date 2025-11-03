@@ -172,6 +172,38 @@ export default class UserModal {
       }
     });
 
+    // 프로젝트 코드 접미사 입력 필드 blur 이벤트
+    userTableBody.addEventListener('blur', (e) => {
+      if (e.target.matches('.project-code-suffix-input')) {
+        const inputElement = e.target;
+        const userEmail = inputElement.dataset.userEmail;
+        const newSuffix = inputElement.value.trim().toUpperCase();
+        const oldSuffix = inputElement.dataset.originalValue || '';
+
+        // 값이 변경되지 않았으면 무시
+        if (newSuffix === oldSuffix) {
+          return;
+        }
+
+        // 클라이언트 측 유효성 검사
+        if (newSuffix && (newSuffix.length < 1 || newSuffix.length > 3)) {
+          this.showToast('접미사는 1~3자 사이여야 합니다.', 'error');
+          inputElement.value = oldSuffix;
+          return;
+        }
+
+        if (newSuffix && !/^[A-Z]+$/.test(newSuffix)) {
+          this.showToast('접미사는 영문자만 입력 가능합니다.', 'error');
+          inputElement.value = oldSuffix;
+          return;
+        }
+
+        // 원본 값 저장 및 업데이트
+        inputElement.dataset.originalValue = newSuffix;
+        this.updateProjectCodeSuffix(userEmail, newSuffix, inputElement);
+      }
+    }, true); // useCapture = true for blur event
+
     this.eventDelegationSetup = true;
   }
 
@@ -317,7 +349,7 @@ export default class UserModal {
     if (!users || users.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="6" class="text-center text-muted">
+          <td colspan="7" class="text-center text-muted">
             등록된 사용자가 없습니다.
           </td>
         </tr>
@@ -355,6 +387,19 @@ export default class UserModal {
       `;
       html += '</td>';
 
+      // 프로젝트 코드 접미사 (관리자만 수정 가능)
+      html += '<td class="text-center">';
+      html += `
+        <input type="text"
+               class="form-control form-control-sm project-code-suffix-input"
+               data-user-email="${userEmailEscaped}"
+               placeholder="로딩 중..."
+               maxlength="3"
+               style="max-width: 80px; margin: auto; text-transform: uppercase;"
+               disabled>
+      `;
+      html += '</td>';
+
       // 상태 뱃지
       html += '<td class="text-center">';
       html += this.getStatusBadge(user);
@@ -389,6 +434,48 @@ export default class UserModal {
     }).join('');
 
     tbody.innerHTML = htmlContent;
+
+    // 프로젝트 코드 접미사 로드
+    this.loadProjectCodeSuffixes(users);
+  }
+
+  /**
+   * 프로젝트 코드 접미사 로드
+   */
+  async loadProjectCodeSuffixes(users) {
+    // 관리자 여부 확인
+    const isAdmin = window.currentUserRole === 'admin' || window.currentUserRole === 'super_admin';
+
+    for (const user of users) {
+      try {
+        const response = await fetch(`/api/users/${encodeURIComponent(user.email)}/project-code-suffix`);
+        const data = await response.json();
+
+        const input = document.querySelector(`.project-code-suffix-input[data-user-email="${user.email.replace(/['"]/g, '\\$&')}"]`);
+        if (!input) continue;
+
+        if (data.success && data.suffix) {
+          input.value = data.suffix;
+          input.placeholder = '';
+        } else {
+          input.value = '';
+          input.placeholder = '-';
+        }
+
+        // 관리자만 수정 가능
+        if (isAdmin) {
+          input.disabled = false;
+        }
+
+      } catch (error) {
+        logger.error(`[USER_MODAL] 프로젝트 코드 접미사 로드 오류 (${user.email}):`, error);
+        const input = document.querySelector(`.project-code-suffix-input[data-user-email="${user.email.replace(/['"]/g, '\\$&')}"]`);
+        if (input) {
+          input.placeholder = '오류';
+          input.disabled = true;
+        }
+      }
+    }
   }
 
   /**
@@ -471,6 +558,48 @@ export default class UserModal {
       logger.error('상태 업데이트 실패 (예외):', error);
       this.showAlert('사용자 상태 변경에 실패했습니다.', 'error');
       this.loadUsers(); // 실패 시 원래 상태로 복원
+    }
+  }
+
+  /**
+   * 프로젝트 코드 접미사 업데이트
+   */
+  async updateProjectCodeSuffix(email, suffix, inputElement) {
+    try {
+      const response = await fetch(`/api/users/${encodeURIComponent(email)}/project-code-suffix`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          suffix: suffix
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        this.showToast(result.message || '프로젝트 코드 접미사가 업데이트되었습니다.', 'success');
+        // 성공 시 placeholder 업데이트
+        if (suffix) {
+          inputElement.placeholder = '';
+        } else {
+          inputElement.placeholder = '-';
+        }
+      } else {
+        logger.error('프로젝트 코드 접미사 업데이트 실패 (응답):', result);
+        this.showToast(result.message || '프로젝트 코드 접미사 업데이트에 실패했습니다.', 'error');
+        // 실패 시 원래 값으로 되돌림
+        const oldValue = inputElement.dataset.originalValue || '';
+        inputElement.value = oldValue;
+      }
+    } catch (error) {
+      logger.error('프로젝트 코드 접미사 업데이트 실패 (예외):', error);
+      this.showToast('프로젝트 코드 접미사 업데이트 중 오류가 발생했습니다.', 'error');
+      // 실패 시 원래 값으로 되돌림
+      const oldValue = inputElement.dataset.originalValue || '';
+      inputElement.value = oldValue;
     }
   }
 
@@ -562,6 +691,13 @@ export default class UserModal {
     if (alertContainer) {
       alertContainer.innerHTML = '';
     }
+  }
+
+  /**
+   * Toast 메시지 표시 (showAlert의 별칭)
+   */
+  showToast(message, type = 'info') {
+    this.showAlert(message, type);
   }
 
   /**
@@ -729,6 +865,7 @@ export default class UserModal {
                       <th>이름</th>
                       <th>이메일</th>
                       <th>권한</th>
+                      <th>프로젝트 코드</th>
                       <th>상태</th>
                       <th>마지막 로그인</th>
                       <th>상태 변경</th>
