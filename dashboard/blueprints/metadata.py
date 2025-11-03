@@ -48,29 +48,44 @@ def preview_project_code():
                 }
                 company_code = company_mapping.get(company, 'G')  # 기본값 G
 
-            # 담당자 이름을 기반으로 접미사 코드 생성 (구글 시트 규칙)
+            # 담당자 이름을 기반으로 접미사 코드 생성
+            # 우선순위: 1) 사용자 DB(Redis) 2) project_config 3) 폴백(이름 앞 2글자)
             owner_suffix = ""
             if owner:
-                # 담당자별 코드 매핑
-                owner_mapping = {
-                    '박용구': 'YG',
-                    '박정우': 'JW',
-                    '강성환': 'SH',
-                    '박민우': 'MW',
-                    '이근혁': 'GH',
-                    '김호중': 'HJ',
-                    '아이티': 'IT',
-                    '김단이': 'DN',
-                    '권태훈': 'TH',
-                    '주영민': 'YM',
-                    '심장원': 'SJW',
-                    '빈승정': 'SJ',
-                    '박민재': 'MJ',
-                    '조성헌': 'JSH',
-                    '황해승': 'HS',
-                    '강민석': 'MS'
-                }
-                owner_suffix = owner_mapping.get(owner, owner[:2].upper() if len(owner) >= 2 else owner.upper())
+                # 1. 먼저 사용자 DB에서 담당자 이름으로 이메일 찾기
+                try:
+                    from dashboard.utils.user_database import get_all_users
+                    from dashboard.blueprints.users import _get_user_suffix
+
+                    all_users = get_all_users()
+                    user_email = None
+
+                    # 이름으로 사용자 찾기
+                    for user in all_users:
+                        if user.get('name', '').strip() == owner.strip():
+                            user_email = user.get('email')
+                            break
+
+                    # 사용자를 찾았으면 _get_user_suffix 함수로 접미사 조회
+                    if user_email:
+                        owner_suffix = _get_user_suffix(user_email, owner)
+                        if owner_suffix:
+                            logger.info(f"[PROJECT_CODE] 사용자 DB에서 접미사 찾음: {owner} → {owner_suffix}")
+
+                except Exception as e:
+                    logger.warning(f"[PROJECT_CODE] 사용자 DB 접미사 조회 실패: {e}")
+
+                # 2. 사용자 DB에서 못 찾았으면 project_config 확인
+                if not owner_suffix:
+                    from dashboard.services.project_service import PROJECT_CONFIG
+                    owner_suffix = PROJECT_CONFIG.get('owner_suffix_map', {}).get(owner, '')
+                    if owner_suffix:
+                        logger.info(f"[PROJECT_CODE] project_config에서 접미사 찾음: {owner} → {owner_suffix}")
+
+                # 3. 둘 다 없으면 폴백 (이름 앞 2글자)
+                if not owner_suffix:
+                    owner_suffix = owner[:2].upper() if len(owner) >= 2 else owner.upper()
+                    logger.info(f"[PROJECT_CODE] 폴백 접미사 생성: {owner} → {owner_suffix}")
 
             # 기존 프로젝트 코드와 중복 확인
             existing_codes = []
