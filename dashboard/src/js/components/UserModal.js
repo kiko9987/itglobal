@@ -394,16 +394,16 @@ export default class UserModal {
       // 프로젝트 코드 접미사 (관리자만 수정 가능)
       html += '<td class="text-center project-code-cell" data-user-email="${userEmailEscaped}">';
       html += `
-        <div class="d-flex align-items-center justify-content-center gap-2">
+        <div class="d-flex align-items-center justify-content-center gap-1">
           <!-- 읽기 모드 (기본) -->
-          <span class="project-code-display" data-user-email="${userEmailEscaped}" style="min-width: 40px;">
-            <i class="fas fa-spinner fa-spin text-muted"></i>
+          <span class="project-code-display" data-user-email="${userEmailEscaped}" style="min-width: 30px; font-size: 0.875rem;">
+            <i class="fas fa-spinner fa-spin text-muted fa-xs"></i>
           </span>
           <button class="btn btn-sm btn-outline-primary edit-project-code-btn"
                   data-user-email="${userEmailEscaped}"
                   title="접미사 수정"
-                  style="display: none;">
-            <i class="fas fa-edit"></i>
+                  style="display: none; padding: 0.15rem 0.4rem;">
+            <i class="fas fa-edit fa-xs"></i>
           </button>
 
           <!-- 편집 모드 (숨김) -->
@@ -412,19 +412,19 @@ export default class UserModal {
                  data-user-email="${userEmailEscaped}"
                  placeholder="접미사"
                  maxlength="3"
-                 style="max-width: 80px; text-transform: uppercase; display: none;"
+                 style="max-width: 50px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-transform: uppercase; display: none;"
                  disabled>
           <button class="btn btn-sm btn-success save-project-code-btn"
                   data-user-email="${userEmailEscaped}"
                   title="저장"
-                  style="display: none;">
-            <i class="fas fa-check"></i>
+                  style="display: none; padding: 0.15rem 0.4rem;">
+            <i class="fas fa-check fa-xs"></i>
           </button>
           <button class="btn btn-sm btn-secondary cancel-project-code-btn"
                   data-user-email="${userEmailEscaped}"
                   title="취소"
-                  style="display: none;">
-            <i class="fas fa-times"></i>
+                  style="display: none; padding: 0.15rem 0.4rem;">
+            <i class="fas fa-times fa-xs"></i>
           </button>
         </div>
       `;
