@@ -181,11 +181,27 @@ def get_meta_options():
             companies = sorted(set(x.strip() for x in df["사업자"].astype(str)
                                  if x.strip() and x.strip() not in ("-", "없음", "N/A", "n/a", "nan")))
 
-        # 담당자 목록 추출
-        owners = []
+        # 담당자 목록 추출 (구글 시트 + 사용자 DB 병합)
+        sheet_owners = set()
         if "담당자" in df.columns:
-            owners = sorted(set(x.strip() for x in df["담당자"].astype(str)
-                              if x.strip() and x.strip() not in ("-", "없음", "N/A", "n/a", "nan")))
+            sheet_owners = set(x.strip() for x in df["담당자"].astype(str)
+                              if x.strip() and x.strip() not in ("-", "없음", "N/A", "n/a", "nan"))
+
+        # 사용자 DB에서 가입된 담당자 추출 (퇴사자 제외)
+        db_owners = set()
+        try:
+            from dashboard.utils.user_database import get_user_database
+            user_db = get_user_database()
+            db_users = user_db.get_all_users()
+            db_owners = set(u['name'] for u in db_users
+                          if u.get('name') and not u.get('is_resigned', False))
+            logger.debug(f"[META_OPTIONS] 사용자 DB에서 {len(db_owners)}명의 담당자 추출")
+        except Exception as e:
+            logger.warning(f"[META_OPTIONS] 사용자 DB 조회 실패 (시트 데이터만 사용): {e}")
+
+        # 두 소스 병합 및 정렬
+        owners = sorted(sheet_owners | db_owners)
+        logger.info(f"[META_OPTIONS] 담당자 목록 병합 완료 - 시트: {len(sheet_owners)}명, DB: {len(db_owners)}명, 총: {len(owners)}명")
 
         # 거래처 목록 추출 (추가 정보)
         clients = []
