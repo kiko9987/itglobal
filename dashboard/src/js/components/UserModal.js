@@ -1046,8 +1046,8 @@ export default class UserModal {
                       <th>이름</th>
                       <th>이메일</th>
                       <th>권한</th>
-                      <th>프로젝트 코드</th>
-                      <th>상태</th>
+                      <th style="width: 14%;">프로젝트 코드</th>
+                      <th style="width: 8%;">상태</th>
                       <th>마지막 로그인</th>
                       <th>상태 변경</th>
                     </tr>
