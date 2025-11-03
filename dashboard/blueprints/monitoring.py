@@ -715,7 +715,7 @@ def get_cache_metrics():
 
 @monitoring_bp.route('/api/cache/reset-metrics', methods=['POST'])
 @admin_required
-def reset_cache_metrics():
+def reset_cache_metrics_v2():
     """캐시 메트릭 초기화 (관리자 전용)"""
     try:
         from dashboard.utils.smart_cache_manager import get_smart_cache
