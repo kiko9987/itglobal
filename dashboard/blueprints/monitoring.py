@@ -675,6 +675,7 @@ def get_cache_metrics():
 
         # 캐시 상태 정보
         cache_info = cache.get_cache_info()
+        cache_info.pop('metrics', None)  # 상위 metrics와 중복 제거
 
         # 폴백 모드 확인
         is_fallback = cache._use_fallback
@@ -718,12 +719,12 @@ def reset_cache_metrics():
     """캐시 메트릭 초기화 (관리자 전용)"""
     try:
         from dashboard.utils.smart_cache_manager import get_smart_cache
-        from flask_login import current_user
 
         cache = get_smart_cache()
         cache.reset_metrics()
 
-        logger.info(f"관리자 {current_user.email}가 캐시 메트릭을 초기화했습니다")
+        admin_email = session.get('user', {}).get('email', 'unknown')
+        logger.info(f"관리자 {admin_email}가 캐시 메트릭을 초기화했습니다")
 
         return jsonify({
             'success': True,
