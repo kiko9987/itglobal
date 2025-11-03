@@ -254,7 +254,7 @@ export default class UserModal {
     // 로딩 상태 표시
     tbody.innerHTML = `
       <tr>
-        <td colspan="6" class="text-center">
+        <td colspan="7" class="text-center">
           <i class="fas fa-spinner fa-spin"></i> 로딩 중...
         </td>
       </tr>
@@ -299,7 +299,7 @@ export default class UserModal {
       logger.error('[USER_MODAL] 사용자 목록 로드 실패:', error);
       tbody.innerHTML = `
         <tr>
-          <td colspan="6" class="text-center text-danger">
+          <td colspan="7" class="text-center text-danger">
             <i class="fas fa-exclamation-triangle me-2"></i>사용자 목록을 불러올 수 없습니다.
           </td>
         </tr>
@@ -876,7 +876,7 @@ export default class UserModal {
                   </thead>
                   <tbody id="usersTableBody">
                     <tr>
-                      <td colspan="6" class="text-center">
+                      <td colspan="7" class="text-center">
                         <i class="fas fa-spinner fa-spin"></i> 로딩 중...
                       </td>
                     </tr>

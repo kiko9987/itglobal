@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>프로젝트 시퀀스 관리 - IT Global Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .sequence-card {
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            margin-bottom: 1rem;
+        }
+        .sequence-card-header {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-bottom: 1px solid #dee2e6;
+            padding: 1rem;
+            font-weight: 600;
+        }
+        .sequence-stat {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #f1f3f4;
+        }
+        .sequence-stat:last-child {
+            border-bottom: none;
+        }
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .stat-value {
+            font-weight: 600;
+            color: #0d6efd;
+            font-size: 1.1rem;
+        }
+        .gap-badge {
+            font-size: 1.5rem;
+            font-weight: bold;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+        }
+        .gap-badge.normal {
+            background-color: #d1e7dd;
+            color: #0f5132;
+        }
+        .gap-badge.warning {
+            background-color: #fff3cd;
+            color: #664d03;
+        }
+        .gap-badge.danger {
+            background-color: #f8d7da;
+            color: #842029;
+        }
+        .refresh-btn {
+            background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%);
+            border: none;
+            color: white;
+            padding: 0.5rem 1.5rem;
+            border-radius: 0.375rem;
+            transition: all 0.3s ease;
+        }
+        .refresh-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(13, 110, 253, 0.3);
+        }
+        .reset-btn {
+            background: linear-gradient(135deg, #dc3545 0%, #bb2d3b 100%);
+            border: none;
+            color: white;
+            padding: 0.5rem 1.5rem;
+            border-radius: 0.375rem;
+            transition: all 0.3s ease;
+        }
+        .reset-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+        }
+        .reset-btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .loading-spinner {
+            display: none;
+        }
+        .alert-section {
+            margin-top: 1.5rem;
+        }
+        .info-box {
+            background-color: #cfe2ff;
+            border-left: 4px solid #084298;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.25rem;
+        }
+        .warning-box {
+            background-color: #fff3cd;
+            border-left: 4px solid #664d03;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="fas fa-sort-numeric-up me-2"></i> 프로젝트 시퀀스 관리</h2>
+            <a href="/projects" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i> 프로젝트 목록으로
+            </a>
+        </div>
+
+        <!-- 안내 메시지 -->
+        <div class="info-box">
+            <h6 class="mb-2"><i class="fas fa-info-circle me-2"></i> 프로젝트 시퀀스란?</h6>
+            <p class="mb-1">
+                프로젝트 코드(예: G2833-SH)의 번호 부분을 자동으로 생성하는 데이터베이스 시퀀스입니다.
+            </p>
+            <p class="mb-0">
+                <strong>차이(Gap)가 0보다 크면:</strong> 프로젝트 등록 실패로 번호가 건너뛰어진 상태입니다.
+                이 경우 "시퀀스 리셋" 버튼으로 DB 시퀀스를 Google Sheets 최댓값과 동기화할 수 있습니다.
+            </p>
+        </div>
+
+        <!-- 시퀀스 상태 카드 -->
+        <div class="sequence-card">
+            <div class="sequence-card-header">
+                <i class="fas fa-database me-2"></i> 시퀀스 상태
+            </div>
+            <div class="card-body">
+                <div class="loading-spinner text-center py-4" id="loadingSpinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">로딩 중...</span>
+                    </div>
+                    <p class="mt-2">데이터 로딩 중...</p>
+                </div>
+
+                <div id="sequenceData" style="display: none;">
+                    <div class="sequence-stat">
+                        <span class="stat-label">DB 시퀀스 현재값</span>
+                        <span class="stat-value" id="dbSequence">-</span>
+                    </div>
+                    <div class="sequence-stat">
+                        <span class="stat-label">Google Sheets 최댓값</span>
+                        <span class="stat-value" id="sheetMax">-</span>
+                    </div>
+                    <div class="sequence-stat">
+                        <span class="stat-label">차이 (Gap)</span>
+                        <span class="gap-badge normal" id="gapBadge">0</span>
+                    </div>
+                    <div class="sequence-stat">
+                        <span class="stat-label">마지막 업데이트</span>
+                        <span class="stat-value" id="lastUpdated">-</span>
+                    </div>
+                </div>
+
+                <!-- 버튼 그룹 -->
+                <div class="mt-3 d-flex gap-2">
+                    <button class="refresh-btn" onclick="loadSequenceStatus()">
+                        <i class="fas fa-sync-alt me-1"></i> 새로고침
+                    </button>
+                    <button class="reset-btn" id="resetBtn" onclick="resetSequence()" disabled>
+                        <i class="fas fa-redo me-1"></i> 시퀀스 리셋
+                    </button>
+                </div>
+
+                <!-- 경고 메시지 -->
+                <div id="warningSection" class="alert-section" style="display: none;">
+                    <div class="warning-box">
+                        <h6 class="mb-2"><i class="fas fa-exclamation-triangle me-2"></i> 주의사항</h6>
+                        <p class="mb-0">
+                            시퀀스 리셋은 DB 시퀀스를 Google Sheets 최댓값으로 되돌립니다.
+                            이 작업은 되돌릴 수 없으며, 리셋 후 다음 프로젝트 번호는 <strong id="nextNumber">-</strong>가 됩니다.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 알림 메시지 영역 -->
+        <div id="alertContainer"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 페이지 로드 시 자동 실행
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSequenceStatus();
+        });
+
+        // 시퀀스 상태 조회
+        async function loadSequenceStatus() {
+            const spinner = document.getElementById('loadingSpinner');
+            const data = document.getElementById('sequenceData');
+
+            spinner.style.display = 'block';
+            data.style.display = 'none';
+
+            try {
+                const response = await fetch('/admin/api/sequence/status');
+                const result = await response.json();
+
+                if (result.success) {
+                    // 데이터 표시
+                    document.getElementById('dbSequence').textContent = result.db_sequence;
+                    document.getElementById('sheetMax').textContent = result.sheet_max;
+
+                    const gap = result.gap;
+                    const gapBadge = document.getElementById('gapBadge');
+                    gapBadge.textContent = gap;
+
+                    // Gap에 따른 색상 변경
+                    gapBadge.className = 'gap-badge ';
+                    if (gap === 0) {
+                        gapBadge.className += 'normal';
+                    } else if (gap <= 2) {
+                        gapBadge.className += 'warning';
+                    } else {
+                        gapBadge.className += 'danger';
+                    }
+
+                    // 마지막 업데이트 시간
+                    const lastUpdated = result.last_updated || '-';
+                    document.getElementById('lastUpdated').textContent = lastUpdated;
+
+                    // 리셋 버튼 활성화/비활성화
+                    const resetBtn = document.getElementById('resetBtn');
+                    const warningSection = document.getElementById('warningSection');
+
+                    if (gap > 0) {
+                        resetBtn.disabled = false;
+                        warningSection.style.display = 'block';
+                        document.getElementById('nextNumber').textContent = result.sheet_max + 1;
+                    } else {
+                        resetBtn.disabled = true;
+                        warningSection.style.display = 'none';
+                    }
+
+                    spinner.style.display = 'none';
+                    data.style.display = 'block';
+                } else {
+                    showAlert('오류', result.error || '시퀀스 상태를 조회할 수 없습니다.', 'danger');
+                    spinner.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('시퀀스 상태 조회 실패:', error);
+                showAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
+                spinner.style.display = 'none';
+            }
+        }
+
+        // 시퀀스 리셋
+        async function resetSequence() {
+            if (!confirm('정말로 시퀀스를 리셋하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+                return;
+            }
+
+            const resetBtn = document.getElementById('resetBtn');
+            resetBtn.disabled = true;
+            resetBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> 리셋 중...';
+
+            try {
+                const response = await fetch('/admin/api/sequence/reset', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ confirm: true })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showAlert('성공', result.message, 'success');
+                    // 3초 후 자동 새로고침
+                    setTimeout(() => {
+                        loadSequenceStatus();
+                    }, 1500);
+                } else {
+                    showAlert('실패', result.message || '시퀀스 리셋에 실패했습니다.', 'danger');
+                    resetBtn.disabled = false;
+                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i> 시퀀스 리셋';
+                }
+            } catch (error) {
+                console.error('시퀀스 리셋 실패:', error);
+                showAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
+                resetBtn.disabled = false;
+                resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i> 시퀀스 리셋';
+            }
+        }
+
+        // 알림 메시지 표시
+        function showAlert(title, message, type = 'info') {
+            const container = document.getElementById('alertContainer');
+            const alertId = 'alert_' + Date.now();
+
+            const alertHtml = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert" id="${alertId}">
+                    <strong>${title}:</strong> ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+
+            container.innerHTML = alertHtml;
+
+            // 5초 후 자동 제거
+            setTimeout(() => {
+                const alert = document.getElementById(alertId);
+                if (alert) {
+                    alert.remove();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
