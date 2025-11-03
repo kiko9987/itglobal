@@ -395,10 +395,15 @@ export default class UserModal {
       html += '<td class="text-center project-code-cell" data-user-email="${userEmailEscaped}">';
       html += `
         <div class="d-flex align-items-center justify-content-center gap-1">
-          <!-- 읽기 모드 (기본) -->
-          <span class="project-code-display" data-user-email="${userEmailEscaped}" style="min-width: 30px; font-size: 0.875rem;">
-            <i class="fas fa-spinner fa-spin text-muted fa-xs"></i>
-          </span>
+          <!-- 읽기 모드 (기본) - 비활성화된 입력창 -->
+          <input type="text"
+                 class="form-control form-control-sm project-code-display-input"
+                 data-user-email="${userEmailEscaped}"
+                 placeholder="-"
+                 maxlength="3"
+                 style="max-width: 50px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-transform: uppercase; background-color: #e9ecef; color: #6c757d; border-color: #ced4da;"
+                 disabled
+                 readonly>
           <button class="btn btn-sm btn-outline-primary edit-project-code-btn"
                   data-user-email="${userEmailEscaped}"
                   title="접미사 수정"
@@ -481,32 +486,35 @@ export default class UserModal {
         const response = await fetch(`/api/users/${encodeURIComponent(user.email)}/project-code-suffix`);
 
         const emailEscaped = user.email.replace(/['"]/g, '\\$&');
-        const display = document.querySelector(`.project-code-display[data-user-email="${emailEscaped}"]`);
-        const input = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
+        const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
+        const editInput = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
         const editBtn = document.querySelector(`.edit-project-code-btn[data-user-email="${emailEscaped}"]`);
 
-        if (!display || !input) continue;
+        if (!displayInput || !editInput) continue;
 
         // HTTP 상태 코드 체크
         if (!response.ok) {
           logger.error(`[USER_MODAL] 프로젝트 코드 접미사 API 오류 (${user.email}): HTTP ${response.status}`);
-          display.innerHTML = '<span class="text-danger">오류</span>';
-          input.dataset.originalValue = '';
+          displayInput.value = '오류';
+          displayInput.style.color = '#dc3545'; // 빨간색
+          editInput.dataset.originalValue = '';
           continue; // 다음 사용자 처리
         }
 
         const data = await response.json();
 
         if (data.success && data.suffix) {
-          display.textContent = data.suffix;
-          input.value = data.suffix;
+          displayInput.value = data.suffix;
+          displayInput.style.color = '#6c757d'; // 회색
+          editInput.value = data.suffix;
           // 초기 originalValue 설정 (취소 시 복원용)
-          input.dataset.originalValue = data.suffix;
+          editInput.dataset.originalValue = data.suffix;
         } else {
-          display.innerHTML = '<span class="text-muted">-</span>';
-          input.value = '';
+          displayInput.value = '';
+          displayInput.style.color = '#6c757d'; // 회색
+          editInput.value = '';
           // 초기 originalValue 설정 (빈 값)
-          input.dataset.originalValue = '';
+          editInput.dataset.originalValue = '';
         }
 
         // 관리자만 수정 버튼 표시
@@ -517,9 +525,10 @@ export default class UserModal {
       } catch (error) {
         logger.error(`[USER_MODAL] 프로젝트 코드 접미사 로드 오류 (${user.email}):`, error);
         const emailEscaped = user.email.replace(/['"]/g, '\\$&');
-        const display = document.querySelector(`.project-code-display[data-user-email="${emailEscaped}"]`);
-        if (display) {
-          display.innerHTML = '<span class="text-danger">오류</span>';
+        const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
+        if (displayInput) {
+          displayInput.value = '오류';
+          displayInput.style.color = '#dc3545'; // 빨간색
         }
         // 에러가 발생해도 다음 사용자 처리 계속
       }
@@ -656,27 +665,27 @@ export default class UserModal {
    */
   enterEditMode(userEmail) {
     const emailEscaped = userEmail.replace(/['"]/g, '\\$&');
-    const display = document.querySelector(`.project-code-display[data-user-email="${emailEscaped}"]`);
+    const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
     const editBtn = document.querySelector(`.edit-project-code-btn[data-user-email="${emailEscaped}"]`);
-    const input = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
+    const editInput = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
     const saveBtn = document.querySelector(`.save-project-code-btn[data-user-email="${emailEscaped}"]`);
     const cancelBtn = document.querySelector(`.cancel-project-code-btn[data-user-email="${emailEscaped}"]`);
 
-    if (!display || !editBtn || !input || !saveBtn || !cancelBtn) return;
+    if (!displayInput || !editBtn || !editInput || !saveBtn || !cancelBtn) return;
 
     // 읽기 모드 숨김
-    display.style.display = 'none';
+    displayInput.style.display = 'none';
     editBtn.style.display = 'none';
 
     // 편집 모드 표시
-    input.style.display = 'inline-block';
-    input.disabled = false;
+    editInput.style.display = 'inline-block';
+    editInput.disabled = false;
     saveBtn.style.display = 'inline-block';
     cancelBtn.style.display = 'inline-block';
 
     // 입력 필드에 포커스
-    input.focus();
-    input.select();
+    editInput.focus();
+    editInput.select();
   }
 
   /**
@@ -684,25 +693,25 @@ export default class UserModal {
    */
   cancelEditMode(userEmail) {
     const emailEscaped = userEmail.replace(/['"]/g, '\\$&');
-    const display = document.querySelector(`.project-code-display[data-user-email="${emailEscaped}"]`);
+    const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
     const editBtn = document.querySelector(`.edit-project-code-btn[data-user-email="${emailEscaped}"]`);
-    const input = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
+    const editInput = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
     const saveBtn = document.querySelector(`.save-project-code-btn[data-user-email="${emailEscaped}"]`);
     const cancelBtn = document.querySelector(`.cancel-project-code-btn[data-user-email="${emailEscaped}"]`);
 
-    if (!display || !editBtn || !input || !saveBtn || !cancelBtn) return;
+    if (!displayInput || !editBtn || !editInput || !saveBtn || !cancelBtn) return;
 
     // 원래 값으로 복원
-    const originalValue = input.dataset.originalValue || '';
-    input.value = originalValue;
+    const originalValue = editInput.dataset.originalValue || '';
+    editInput.value = originalValue;
 
     // 편집 모드 숨김
-    input.style.display = 'none';
+    editInput.style.display = 'none';
     saveBtn.style.display = 'none';
     cancelBtn.style.display = 'none';
 
     // 읽기 모드 표시
-    display.style.display = 'inline';
+    displayInput.style.display = 'inline-block';
     editBtn.style.display = 'inline-block';
   }
 
@@ -711,13 +720,13 @@ export default class UserModal {
    */
   async saveProjectCodeSuffix(userEmail) {
     const emailEscaped = userEmail.replace(/['"]/g, '\\$&');
-    const input = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
-    const display = document.querySelector(`.project-code-display[data-user-email="${emailEscaped}"]`);
+    const editInput = document.querySelector(`.project-code-suffix-input[data-user-email="${emailEscaped}"]`);
+    const displayInput = document.querySelector(`.project-code-display-input[data-user-email="${emailEscaped}"]`);
 
-    if (!input || !display) return;
+    if (!editInput || !displayInput) return;
 
-    const newSuffix = input.value.trim().toUpperCase();
-    const oldSuffix = input.dataset.originalValue || '';
+    const newSuffix = editInput.value.trim().toUpperCase();
+    const oldSuffix = editInput.dataset.originalValue || '';
 
     // 값이 변경되지 않았으면 취소 처리
     if (newSuffix === oldSuffix) {
@@ -728,13 +737,13 @@ export default class UserModal {
     // 클라이언트 측 유효성 검사
     if (newSuffix && (newSuffix.length < 1 || newSuffix.length > 3)) {
       this.showToast('접미사는 1~3자 사이여야 합니다.', 'error');
-      input.value = oldSuffix;
+      editInput.value = oldSuffix;
       return;
     }
 
     if (newSuffix && !/^[A-Z]+$/.test(newSuffix)) {
       this.showToast('접미사는 영문자만 입력 가능합니다.', 'error');
-      input.value = oldSuffix;
+      editInput.value = oldSuffix;
       return;
     }
 
@@ -764,13 +773,10 @@ export default class UserModal {
       if (response.ok && result.success) {
         this.showToast(result.message || '프로젝트 코드 접미사가 업데이트되었습니다.', 'success');
 
-        // 성공 시 originalValue와 display 업데이트
-        input.dataset.originalValue = newSuffix;
-        if (newSuffix) {
-          display.textContent = newSuffix;
-        } else {
-          display.innerHTML = '<span class="text-muted">-</span>';
-        }
+        // 성공 시 originalValue와 displayInput 업데이트
+        editInput.dataset.originalValue = newSuffix;
+        displayInput.value = newSuffix;
+        displayInput.style.color = '#6c757d'; // 회색
 
         // 읽기 모드로 전환
         this.cancelEditMode(userEmail);
