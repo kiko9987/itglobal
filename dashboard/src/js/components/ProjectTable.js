@@ -686,15 +686,15 @@ export default class ProjectTable {
       ],
       columnDefs: [
         {
-          // 프로젝트 코드: 넓이 증가
+          // 프로젝트 코드: 넓이 증가 (비율)
           targets: [0],
-          width: '140px',
+          width: '12%',
           className: 'text-left'
         },
         {
-          // 담당자, 거래처: 넓이 줄임
+          // 담당자, 거래처: 넓이 축소 (비율)
           targets: [1, 2],
-          width: '90px',
+          width: '7%',
           className: 'text-left'
         },
         {
@@ -703,21 +703,21 @@ export default class ProjectTable {
           className: 'text-left'
         },
         {
-          // 날짜: 넓이 줄임
+          // 날짜: 넓이 축소 (비율)
           targets: [5, 6],
-          width: '90px',
+          width: '7%',
           className: 'text-center'
         },
         {
-          // 금액, 미수금: 넓이 줄임
+          // 금액, 미수금: 넓이 축소 (비율)
           targets: [7, 8],
-          width: '100px',
+          width: '8%',
           className: 'text-center'
         },
         {
-          // 상태, 데이터 완성도: 넓이 줄임
+          // 상태, 데이터 완성도: 넓이 축소 (비율)
           targets: [9, 10],
-          width: '80px',
+          width: '6%',
           className: 'text-center'
         }
         // visible 설정은 각 컬럼 정의에서 직접 설정됨 (중복 방지)
