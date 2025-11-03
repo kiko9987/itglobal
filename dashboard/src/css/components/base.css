@@ -490,3 +490,5 @@ body .header .container-fluid .d-flex {
 .compact-item:last-child {
   border-bottom: none;
 }
+
+/* ===== 1920x1080 전용 최적화 제거됨 (row-details 마진 제거로 해결) ===== */

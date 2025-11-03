@@ -1761,3 +1761,18 @@ tr.accordion-row:hover .row-details,
 .folder-path-input:not(.valid-folder-id):hover {
   border-color: #fd7e14 !important;
 }
+
+/* ===== 1920x1080 전용 최적화 (마진 제거로 카드 공간 확보) ===== */
+/* 1800~2399px: 1920x1080 일반/풀스크린 모두 포함, 2560x1440은 제외 */
+@media (min-width: 1800px) and (max-width: 2399px) {
+  /* row-details 마진 완전 제거 - 테이블 셀 전체를 활용 */
+  .row-details {
+    margin: 0 !important;
+    border-radius: 0 !important; /* 마진 없으니 둥근 모서리도 제거 */
+  }
+
+  /* 왼쪽 테두리 라인은 유지 */
+  .row-details::before {
+    border-radius: 0 !important;
+  }
+}

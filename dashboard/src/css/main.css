@@ -219,7 +219,9 @@ html body div.project-accordion-container div.compact-item input.inline-edit-inp
   min-width: 0 !important;
 }
 
-/* 6. 반응형: 화면 축소시 세로 레이아웃 */
+/* 6. 반응형: 1920x1080 전용 최적화 제거됨 (row-details 마진 제거로 해결) */
+
+/* 7. 반응형: 화면 축소시 세로 레이아웃 */
 @media (max-width: 768px) {
   .compact-item {
     flex-direction: column !important;
