@@ -650,3 +650,91 @@ def logout_user_all_sessions(user_email):
     except Exception as e:
         logger.error(f"사용자 전체 세션 로그아웃 오류: {user_email} - {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@monitoring_bp.route('/api/cache/metrics', methods=['GET'])
+@login_required
+def get_cache_metrics():
+    """캐시 히트율 및 메트릭 조회 API
+
+    Returns:
+        JSON: 캐시 성능 메트릭
+            - hits: 캐시 히트 횟수
+            - misses: 캐시 미스 횟수
+            - total: 총 요청 횟수
+            - hit_rate: 히트율 (%)
+            - cache_info: 캐시 상태 정보
+    """
+    try:
+        from dashboard.utils.smart_cache_manager import get_smart_cache
+
+        cache = get_smart_cache()
+
+        # 메트릭 조회
+        metrics = cache.get_metrics()
+
+        # 캐시 상태 정보
+        cache_info = cache.get_cache_info()
+
+        # 폴백 모드 확인
+        is_fallback = cache._use_fallback
+
+        return jsonify({
+            'success': True,
+            'metrics': {
+                'hits': metrics.get('hits', 0),
+                'misses': metrics.get('misses', 0),
+                'total': metrics.get('total', 0),
+                'hit_rate': metrics.get('hit_rate', 0.0),
+                'reset_at': metrics.get('reset_at'),
+                'timestamp': metrics.get('timestamp')
+            },
+            'cache_info': {
+                'total_items': cache_info.get('total_items', 0),
+                'active_items': cache_info.get('active_items', 0),
+                'invalidation_markers': cache_info.get('invalidation_markers', 0),
+                'mode': 'fallback' if is_fallback else 'redis'
+            },
+            'warnings': [] if not is_fallback else [{
+                'type': 'CRITICAL',
+                'message': 'Redis 폴백 모드 활성화',
+                'details': '다중 워커 환경에서 캐시 동기화 불가'
+            }]
+        })
+
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캐시 메트릭 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캐시 메트릭 조회 중 오류가 발생했습니다',
+            'error_id': error_id
+        }), 500
+
+
+@monitoring_bp.route('/api/cache/reset-metrics', methods=['POST'])
+@admin_required
+def reset_cache_metrics():
+    """캐시 메트릭 초기화 (관리자 전용)"""
+    try:
+        from dashboard.utils.smart_cache_manager import get_smart_cache
+        from flask_login import current_user
+
+        cache = get_smart_cache()
+        cache.reset_metrics()
+
+        logger.info(f"관리자 {current_user.email}가 캐시 메트릭을 초기화했습니다")
+
+        return jsonify({
+            'success': True,
+            'message': '캐시 메트릭이 초기화되었습니다'
+        })
+
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 캐시 메트릭 초기화 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '캐시 메트릭 초기화 중 오류가 발생했습니다',
+            'error_id': error_id
+        }), 500
