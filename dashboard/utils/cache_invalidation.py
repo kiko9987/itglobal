@@ -71,7 +71,25 @@ class CacheInvalidationService:
 
         except Exception as e:
             logger.error(f"캐시 무효화 메시지 발행 실패: {e}")
-            return False
+
+            # 🔄 FALLBACK: Pub/Sub 실패 시 로컬 캐시라도 무효화
+            try:
+                from dashboard.utils.smart_cache_manager import get_smart_cache
+                cache = get_smart_cache()
+
+                for key in keys:
+                    # broadcast=False로 무한 루프 방지
+                    cache.delete(key, set_marker=True, broadcast=False)
+
+                logger.warning(
+                    f"⚠️ Pub/Sub 실패 → 로컬 캐시만 무효화 완료: {len(keys)}개 키\n"
+                    f"다중 워커 환경에서는 다른 워커의 캐시가 무효화되지 않을 수 있습니다."
+                )
+                return True  # 로컬 캐시는 무효화 성공
+
+            except Exception as fallback_error:
+                logger.error(f"폴백 캐시 무효화도 실패: {fallback_error}")
+                return False
 
     def publish_pattern_invalidation(self, pattern: str, reason: str = "pattern_invalidation") -> bool:
         """
@@ -103,7 +121,24 @@ class CacheInvalidationService:
 
         except Exception as e:
             logger.error(f"패턴 무효화 메시지 발행 실패: {e}")
-            return False
+
+            # 🔄 FALLBACK: Pub/Sub 실패 시 로컬 캐시라도 무효화
+            try:
+                from dashboard.utils.smart_cache_manager import get_smart_cache
+                cache = get_smart_cache()
+
+                # broadcast=False로 무한 루프 방지
+                invalidated_count = cache.invalidate_by_pattern(pattern, set_marker=True, broadcast=False)
+
+                logger.warning(
+                    f"⚠️ Pub/Sub 실패 → 로컬 캐시만 패턴 무효화 완료: {pattern} ({invalidated_count}개)\n"
+                    f"다중 워커 환경에서는 다른 워커의 캐시가 무효화되지 않을 수 있습니다."
+                )
+                return True  # 로컬 캐시는 무효화 성공
+
+            except Exception as fallback_error:
+                logger.error(f"폴백 패턴 무효화도 실패: {fallback_error}")
+                return False
 
     def publish_cache_clear(self, reason: str = "admin_clear") -> bool:
         """

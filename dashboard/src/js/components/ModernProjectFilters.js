@@ -34,7 +34,8 @@ export default class ModernProjectFilters {
       '시공자',
       '계약금_메모',
       '중도금_메모',
-      '잔금_메모'
+      '잔금_메모',
+      '수금 관련 특이사항'  // 수금 관련 특이사항 검색 지원
     ];
   }
 
