@@ -456,10 +456,20 @@ export default class UserModal {
     for (const user of users) {
       try {
         const response = await fetch(`/api/users/${encodeURIComponent(user.email)}/project-code-suffix`);
-        const data = await response.json();
 
         const input = document.querySelector(`.project-code-suffix-input[data-user-email="${user.email.replace(/['"]/g, '\\$&')}"]`);
         if (!input) continue;
+
+        // HTTP 상태 코드 체크
+        if (!response.ok) {
+          logger.error(`[USER_MODAL] 프로젝트 코드 접미사 API 오류 (${user.email}): HTTP ${response.status}`);
+          input.value = '';
+          input.placeholder = '오류';
+          input.disabled = true;
+          continue; // 다음 사용자 처리
+        }
+
+        const data = await response.json();
 
         if (data.success && data.suffix) {
           input.value = data.suffix;
@@ -485,6 +495,7 @@ export default class UserModal {
           input.placeholder = '오류';
           input.disabled = true;
         }
+        // 에러가 발생해도 다음 사용자 처리 계속
       }
     }
   }
