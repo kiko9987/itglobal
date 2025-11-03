@@ -198,9 +198,8 @@ export default class UserModal {
           return;
         }
 
-        // 원본 값 저장 및 업데이트
-        inputElement.dataset.originalValue = newSuffix;
-        this.updateProjectCodeSuffix(userEmail, newSuffix, inputElement);
+        // API 요청 (성공 시에만 originalValue 업데이트)
+        this.updateProjectCodeSuffix(userEmail, newSuffix, inputElement, oldSuffix);
       }
     }, true); // useCapture = true for blur event
 
@@ -444,7 +443,7 @@ export default class UserModal {
    */
   async loadProjectCodeSuffixes(users) {
     // 관리자 여부 확인
-    const isAdmin = window.currentUserRole === 'admin' || window.currentUserRole === 'super_admin';
+    const isAdmin = window.userRole === 'admin' || window.userRole === 'super_admin';
 
     for (const user of users) {
       try {
@@ -457,9 +456,13 @@ export default class UserModal {
         if (data.success && data.suffix) {
           input.value = data.suffix;
           input.placeholder = '';
+          // 초기 originalValue 설정 (실패 시 복원용)
+          input.dataset.originalValue = data.suffix;
         } else {
           input.value = '';
           input.placeholder = '-';
+          // 초기 originalValue 설정 (빈 값)
+          input.dataset.originalValue = '';
         }
 
         // 관리자만 수정 가능
@@ -564,7 +567,7 @@ export default class UserModal {
   /**
    * 프로젝트 코드 접미사 업데이트
    */
-  async updateProjectCodeSuffix(email, suffix, inputElement) {
+  async updateProjectCodeSuffix(email, suffix, inputElement, oldSuffix) {
     try {
       const response = await fetch(`/api/users/${encodeURIComponent(email)}/project-code-suffix`, {
         method: 'PUT',
@@ -581,7 +584,9 @@ export default class UserModal {
 
       if (response.ok && result.success) {
         this.showToast(result.message || '프로젝트 코드 접미사가 업데이트되었습니다.', 'success');
-        // 성공 시 placeholder 업데이트
+        // 성공 시에만 originalValue 업데이트
+        inputElement.dataset.originalValue = suffix;
+        // placeholder 업데이트
         if (suffix) {
           inputElement.placeholder = '';
         } else {
@@ -590,16 +595,14 @@ export default class UserModal {
       } else {
         logger.error('프로젝트 코드 접미사 업데이트 실패 (응답):', result);
         this.showToast(result.message || '프로젝트 코드 접미사 업데이트에 실패했습니다.', 'error');
-        // 실패 시 원래 값으로 되돌림
-        const oldValue = inputElement.dataset.originalValue || '';
-        inputElement.value = oldValue;
+        // 실패 시 이전 값으로 되돌림
+        inputElement.value = oldSuffix;
       }
     } catch (error) {
       logger.error('프로젝트 코드 접미사 업데이트 실패 (예외):', error);
       this.showToast('프로젝트 코드 접미사 업데이트 중 오류가 발생했습니다.', 'error');
-      // 실패 시 원래 값으로 되돌림
-      const oldValue = inputElement.dataset.originalValue || '';
-      inputElement.value = oldValue;
+      // 실패 시 이전 값으로 되돌림
+      inputElement.value = oldSuffix;
     }
   }
 
