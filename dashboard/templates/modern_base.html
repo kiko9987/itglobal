@@ -468,6 +468,12 @@
 
         // 시퀀스 관리 모달 열기
         window.openSequenceManagement = function() {
+            // 권한 체크 (admin 또는 super_admin만 허용)
+            if (window.userRole !== 'admin' && window.userRole !== 'super_admin') {
+                console.warn('시퀀스 관리는 관리자만 접근할 수 있습니다.');
+                return;
+            }
+
             const modal = new bootstrap.Modal(document.getElementById('sequenceManagementModal'));
             modal.show();
             loadSequenceStatus();

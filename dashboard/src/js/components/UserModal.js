@@ -203,6 +203,14 @@ export default class UserModal {
       }
     }, true); // useCapture = true for blur event
 
+    // 프로젝트 코드 접미사 입력 필드 Enter 키 처리
+    userTableBody.addEventListener('keydown', (e) => {
+      if (e.target.matches('.project-code-suffix-input') && e.key === 'Enter') {
+        e.preventDefault(); // 기본 Enter 동작 방지
+        e.target.blur(); // blur 이벤트를 트리거하여 저장 처리
+      }
+    });
+
     this.eventDelegationSetup = true;
   }
 
