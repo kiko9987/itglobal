@@ -400,6 +400,14 @@ body .header .container-fluid .d-flex {
   display: flex;
   align-items: center;
 }
+
+/* 값 컨테이너 - 내용물 크기만큼만 차지 */
+.compact-item .editable-value,
+.compact-item .readonly-value,
+.compact-item .calculated-field {
+  flex: 0 1 auto;
+  min-width: 0;
+}
 .card-edit-buttons {
   opacity: 0.7;
   transition: var(--transition-base);

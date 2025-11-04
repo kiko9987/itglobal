@@ -599,6 +599,7 @@ div.dt-container .bottom {
   padding: 1px 2px;
   border-radius: 6px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .memo-value-wrapper .memo-amount-text {

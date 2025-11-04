@@ -1,0 +1,289 @@
+// Personal Access Token 저장 (최초 1회 실행)
+function setToken() {
+  const token = "YOUR_AIRTABLE_PERSONAL_ACCESS_TOKEN"; // Airtable Personal Access Token으로 교체하세요
+  PropertiesService.getScriptProperties().setProperty("AIRTABLE_ACCESS_TOKEN", token);
+}
+
+// Personal Access Token 가져오기
+function getToken() {
+  return PropertiesService.getScriptProperties().getProperty("AIRTABLE_ACCESS_TOKEN");
+}
+
+// Airtable 동기화 함수
+function syncToAirtable() {
+  const baseId = "apptS4LRuZwZxCieQ"; // Airtable Base ID
+  const tableName = "tbl4xgxqznsYGDJPt"; // Airtable Table ID
+  const url = `https://api.airtable.com/v0/${baseId}/${tableName}`;
+  const accessToken = getToken();
+
+  if (!accessToken) {
+    Logger.log("Access token is not set. Run setToken() to save your token.");
+    return;
+  }
+
+  // 특정 구글 스프레드시트 및 시트 지정
+  const spreadsheetId = "1s2fVTlRDpj-ljgub3noxuPCNlnH8gawuB87WtOxSyk4";
+  const sheet = SpreadsheetApp.openById(spreadsheetId).getSheets()[0]; // 첫 번째 시트 (gid=0)
+  const data = sheet.getDataRange().getValues();
+
+  if (data.length < 2) {
+    Logger.log("No data found in the sheet.");
+    return;
+  }
+
+  const headersRow = data[0];
+  const rows = data.slice(1);
+
+  const idColumnIndex = headersRow.indexOf("Airtable Record ID");
+  const projectCodeIndex = headersRow.indexOf("프로젝트 코드");
+
+  if (idColumnIndex === -1 || projectCodeIndex === -1) {
+    Logger.log("Missing 'Airtable Record ID' or '프로젝트 코드' column in Google Sheet.");
+    return;
+  }
+
+  const fieldTypes = {
+    currency: ["총액1", "총액2", "계약금", "중도금", "잔금", "미수금", "제품대", "도급비", "자재비", "기타비", "순익"],
+    date: ["공사 시작", "공사 종료", "수금 날짜", "공사 확정"],
+    checkbox: ["부가세", "수금 확인"],
+  };
+
+  // 에어테이블에서 모든 레코드 가져오기
+  const existingRecords = fetchAirtableRecords(url, accessToken);
+  const recordMap = existingRecords.reduce((map, record) => {
+    map[record.id] = record.fields;
+    return map;
+  }, {});
+
+  const validatedRecordIds = new Set(); // 검증 완료된 Airtable Record ID를 추적
+
+ rows.forEach((row, index) => {
+  const rowIndex = index + 2; // 시트의 실제 행 번호
+  let airtableId = row[idColumnIndex];
+  const projectCode = row[projectCodeIndex]; // 프로젝트 코드 열의 값 가져오기
+
+  // 프로젝트 코드가 없으면 건너뜁니다.
+  if (!projectCode || projectCode.trim() === "") {
+    Logger.log(`Skipping row ${rowIndex}: '프로젝트 코드' is empty.`);
+    return;
+  }
+
+  // 레코드 생성
+  const record = buildRecord(headersRow, row, fieldTypes, rowIndex);
+  if (!record) {
+    Logger.log(`Skipping row ${rowIndex}: invalid record.`);
+    return;
+  }
+
+  // 중복 ID 처리 및 유효성 검사
+  if (airtableId) {
+    if (validatedRecordIds.has(airtableId)) {
+      Logger.log(`Row ${rowIndex}: Duplicate Airtable Record ID detected in another row, resetting.`);
+      airtableId = null; // 중복된 경우 ID 초기화
+      sheet.getRange(rowIndex, idColumnIndex + 1).setValue(""); // 구글 시트에서 해당 값 초기화
+    } else if (!recordMap[airtableId]) {
+      Logger.log(`Row ${rowIndex}: Invalid Airtable Record ID detected, resetting.`);
+      airtableId = null; // 유효하지 않은 경우 ID 초기화
+      sheet.getRange(rowIndex, idColumnIndex + 1).setValue(""); // ID 초기화
+    } else {
+      validatedRecordIds.add(airtableId); // 유효한 ID는 검증 완료로 등록
+    }
+  }
+
+  // Airtable Record ID가 없는 경우 새 레코드 생성
+  if (!airtableId) {
+    const newRecordId = createRecord(url, record.fields, accessToken, rowIndex);
+    if (newRecordId) {
+      sheet.getRange(rowIndex, idColumnIndex + 1).setValue(newRecordId); // Airtable Record ID 열에 값 업데이트
+      Logger.log(`Row ${rowIndex} created with ID: ${newRecordId}`);
+    } else {
+      Logger.log(`Row ${rowIndex}: Failed to create record in Airtable.`);
+    }
+  } else {
+    // Airtable Record ID가 있는 경우 기존 레코드 업데이트
+    if (isRecordDifferent(recordMap[airtableId], record.fields)) {
+      updateRecord(url, airtableId, record.fields, accessToken, rowIndex);
+    } else {
+      Logger.log(`Row ${rowIndex} has no changes, skipping.`);
+    }
+  }
+
+  Utilities.sleep(200); // 호출 제한 방지
+});
+
+
+  Logger.log("Sync to Airtable completed.");
+}
+
+// 에어테이블 레코드 조회 함수
+function fetchAirtableRecords(url, accessToken) {
+  let records = [];
+  let offset = null;
+
+  do {
+    const fetchUrl = offset ? `${url}?offset=${offset}` : url;
+    const options = {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      muteHttpExceptions: true,
+    };
+
+    try {
+      const response = UrlFetchApp.fetch(fetchUrl, options);
+      const responseBody = JSON.parse(response.getContentText());
+      records = records.concat(responseBody.records);
+      offset = responseBody.offset || null;
+    } catch (e) {
+      Logger.log(`Error fetching records: ${e.message}`);
+      return [];
+    }
+  } while (offset);
+
+  return records;
+}
+
+// 레코드 생성 함수
+function buildRecord(headers, row, fieldTypes, rowIndex) {
+  const record = { fields: {} };
+
+  headers.forEach((header, colIndex) => {
+    let value = row[colIndex];
+
+    // "Airtable Record ID"와 "_version" 필드는 무시
+    if (header === "Airtable Record ID" || header === "_version") return;
+
+    if (value === "" || value === null || value === undefined) return;
+
+    // 데이터 유형별 처리
+    if (fieldTypes.currency.includes(header)) {
+      value = handleCurrency(value, header, rowIndex);
+    } else if (fieldTypes.date.includes(header)) {
+      value = handleDate(value, header, rowIndex);
+    } else if (fieldTypes.checkbox.includes(header)) {
+      value = handleCheckbox(value, header, rowIndex);
+    } else if (header === "마진율") {
+      value = handleMargin(value, header, rowIndex);
+    }
+
+    if (value !== null) {
+      record.fields[header] = value;
+    }
+  });
+
+  return record;
+}
+
+// 통화 처리
+function handleCurrency(value, header, rowIndex) {
+  if (typeof value === "string") {
+    value = parseFloat(value.replace(/,/g, "").trim());
+  }
+  if (isNaN(value)) {
+    Logger.log(`Invalid currency value for '${header}' in row ${rowIndex}: ${value}`);
+    return null;
+  }
+  return value;
+}
+
+// 날짜 처리 (시간대 적용)
+function handleDate(value, header, rowIndex) {
+  const timezone = "Asia/Seoul"; // 한국 표준시
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, timezone, "yyyy-MM-dd");
+  } else if (typeof value === "string") {
+    const parsedDate = new Date(value);
+    if (!isNaN(parsedDate)) {
+      return Utilities.formatDate(parsedDate, timezone, "yyyy-MM-dd");
+    }
+  }
+  Logger.log(`Invalid date value for '${header}' in row ${rowIndex}: ${value}`);
+  return null;
+}
+
+// 체크박스 처리
+function handleCheckbox(value, header, rowIndex) {
+  if (typeof value === "boolean") {
+    return value ? "TRUE" : "FALSE";
+  }
+  Logger.log(`Invalid checkbox value for '${header}' in row ${rowIndex}: ${value}`);
+  return null;
+}
+
+// 마진율 처리
+function handleMargin(value, header, rowIndex) {
+  if (typeof value === "number") {
+    return (value * 100).toFixed(2) + "%";
+  }
+  Logger.log(`Invalid margin value for '${header}' in row ${rowIndex}: ${value}`);
+  return null;
+}
+
+// 레코드 비교 함수
+function isRecordDifferent(existingRecord, newRecord) {
+  for (let key in newRecord) {
+    if (newRecord[key] !== existingRecord[key]) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// 에어테이블 레코드 업데이트
+function updateRecord(url, recordId, fields, accessToken, rowIndex) {
+  const options = {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    payload: JSON.stringify({ fields }),
+    muteHttpExceptions: true,
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(`${url}/${recordId}`, options);
+    Logger.log(`Row ${rowIndex} updated: ${response.getContentText()}`);
+  } catch (e) {
+    Logger.log(`Failed to update row ${rowIndex}: ${e.message}`);
+  }
+}
+
+// 에어테이블 새로운 레코드 추가
+function createRecord(url, fields, accessToken, rowIndex) {
+  const options = {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    payload: JSON.stringify({ fields }),
+    muteHttpExceptions: true,
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const responseBody = JSON.parse(response.getContentText());
+    Logger.log(`Row ${rowIndex} created: ${response.getContentText()}`);
+    return responseBody.id;
+  } catch (e) {
+    Logger.log(`Failed to create row ${rowIndex}: ${e.message}`);
+    return null;
+  }
+}
+
+// 트리거 설정 함수
+function createTriggers() {
+  ScriptApp.newTrigger("syncToAirtable")
+    .timeBased()
+    .everyDays(1)
+    .atHour(3) // 새벽 3시
+    .create();
+}
+
+
+// 트리거 제거 함수
+function deleteTriggers() {
+  ScriptApp.getProjectTriggers().forEach(trigger => ScriptApp.deleteTrigger(trigger));
+}
