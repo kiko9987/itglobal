@@ -157,62 +157,20 @@ body {
   min-height: 42px !important;
   padding: 0.4rem 0 !important;
   border-bottom: 1px solid var(--gray-100) !important;
+  gap: 0.25rem !important; /* 레이블-값 간격 (4px) */
 }
 
-/* 3. 레이블 고정 크기 */
+/* 3. 레이블 유연한 크기 */
 .compact-item small {
   flex-shrink: 0 !important;
-  min-width: 70px !important;
-  max-width: 70px !important;
+  min-width: 40px !important;
   margin-top: 0 !important;
   display: inline-flex;
   align-items: center;
   line-height: 1.4;
 }
 
-/* 금액정보, 수금정보, 손익정보 카드 - 값 위치 조정 (연락처/이메일과 동일) */
-[id^="card-financial-"] .compact-item .editable-value,
-[id^="card-financial-"] .compact-item .readonly-value,
-[id^="card-financial-"] .compact-item .calculated-field,
-[id^="card-collection-"] .compact-item .editable-value,
-[id^="card-collection-"] .compact-item .readonly-value,
-[id^="card-collection-"] .compact-item .calculated-field,
-[id^="card-profit-"] .compact-item .editable-value,
-[id^="card-profit-"] .compact-item .readonly-value,
-[id^="card-profit-"] .compact-item .calculated-field {
-  margin-left: -22px !important;
-}
-
-/* 편집 모드: input/select/textarea도 동일한 마진 적용 */
-[id^="card-financial-"] .compact-item .editable-value input,
-[id^="card-financial-"] .compact-item .editable-value select,
-[id^="card-financial-"] .compact-item .editable-value textarea,
-[id^="card-collection-"] .compact-item .editable-value input,
-[id^="card-collection-"] .compact-item .editable-value select,
-[id^="card-collection-"] .compact-item .editable-value textarea,
-[id^="card-profit-"] .compact-item .editable-value input,
-[id^="card-profit-"] .compact-item .editable-value select,
-[id^="card-profit-"] .compact-item .editable-value textarea {
-  margin-left: -22px !important;
-}
-
-/* 수금확인과 수금 날짜는 레이블이 길어서 마진 제거 */
-[id^="card-collection-"] .compact-item .editable-value[data-field="수금 확인"],
-[id^="card-collection-"] .compact-item .readonly-value[data-field="수금 확인"],
-[id^="card-collection-"] .compact-item .editable-value[data-field="수금 날짜"],
-[id^="card-collection-"] .compact-item .readonly-value[data-field="수금 날짜"] {
-  margin-left: 0 !important;
-}
-
-/* 편집 모드: 수금확인과 수금 날짜 input도 마진 제거 */
-[id^="card-collection-"] .compact-item .editable-value[data-field="수금 확인"] input,
-[id^="card-collection-"] .compact-item .editable-value[data-field="수금 확인"] select,
-[id^="card-collection-"] .compact-item .editable-value[data-field="수금 날짜"] input,
-[id^="card-collection-"] .compact-item .editable-value[data-field="수금 날짜"] select {
-  margin-left: 0 !important;
-}
-
-/* 4. 값 컨테이너 - 내용물 크기만큼만 차지 */
+/* 4. 값 컨테이너 - 내용물 크기만큼만 차지 (모든 카드 통일) */
 .compact-item .editable-value,
 .compact-item .readonly-value,
 .compact-item .calculated-field,
@@ -222,25 +180,10 @@ body {
   font-size: 0.9rem !important;
   color: var(--gray-800) !important;
   line-height: 1.3 !important;
-  word-break: break-word !important;
-  overflow-wrap: anywhere !important;
-  flex-wrap: wrap !important;
-}
-
-/* 수금 정보 금액/메모는 줄바꿈 없이 한 줄 유지 */
-[id^="card-collection-"] .compact-item .editable-value {
-  flex-wrap: nowrap !important;
-  gap: 4px;
   display: flex !important;
   align-items: center !important;
-}
-
-/* 편집 모드: 메모 input이 너무 넓어지지 않도록 제한 (메모 아이콘 공간 확보) */
-[id^="card-collection-"] .compact-item .editable-value input {
-  flex: 0 1 auto !important;
-  width: auto !important;
-  max-width: calc(100% - 35px) !important;
-  min-width: 60px !important;
+  flex-wrap: nowrap !important; /* 기본적으로 줄바꿈 방지 */
+  gap: 0.375rem !important; /* 값 내부 요소들 간격 (input과 메모 아이콘 등) - 6px */
 }
 
 /* 아코디언 내부 모든 input과 텍스트는 왼쪽 정렬 */

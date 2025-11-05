@@ -367,8 +367,23 @@ tr.accordion-row:hover .row-details,
 }
 
 .info-card-column {
-  flex: 0 0 20%;
-  max-width: 20%;
+  flex: 1 1 320px;
+  max-width: 100%;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+@media (min-width: 2200px) {
+  .info-card-column {
+    flex: 0 0 20%;
+    max-width: 20%;
+  }
+}
+
+@media (max-width: 1750px) {
+  .info-card-column {
+    flex: 1 1 360px;
+  }
 }
 
 /* ===== 아코디언 열린 메인 행 강조 - 모든 가능한 선택자로 절대 우선순위 확보 ===== */
@@ -468,6 +483,26 @@ table#projectsTable tbody tr.table-active td,
 
 .row-details .card-body {
   padding: 2rem;
+}
+
+@media (max-width: 1920px) {
+  .row-details .card {
+    margin: 0 1.5rem;
+  }
+
+  .row-details .card-body {
+    padding: 1.6rem;
+  }
+}
+
+@media (max-width: 1680px) {
+  .row-details .card {
+    margin: 0 1rem;
+  }
+
+  .row-details .card-body {
+    padding: 1.4rem;
+  }
 }
 
 /* ===== 액션 버튼 스타일 ===== */
