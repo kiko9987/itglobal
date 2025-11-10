@@ -1751,34 +1751,25 @@ export default class ProjectRowAccordion {
     // 표시할 텍스트
     const displayText = selectedItems.length > 0 ? selectedItems.join(', ') : '선택';
 
-    // 카테고리별 체크박스 HTML 생성 (한 줄에 5개씩)
-    const categoryHtml = dropdownOptions.categories.map(category => {
-      // 5개씩 나누기
-      const chunkSize = 5;
-      const chunks = [];
-      for (let i = 0; i < category.options.length; i += chunkSize) {
-        chunks.push(category.options.slice(i, i + chunkSize));
-      }
-
-      return chunks.map((chunk, chunkIndex) => `
-        <li class="p-0 constructor-category-group" data-category="${category.name}">
-          <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
-            ${chunkIndex === 0 ? `<strong style="font-size: 0.8125rem; color: #495057; min-width: 50px;">[${category.name}]</strong>` : '<div style="min-width: 50px;"></div>'}
-            <div style="display: flex; gap: 0.5rem; flex: 1; flex-wrap: wrap;">
-              ${chunk.map(option => `
-                <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
-                  <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
-                         value="${option}"
-                         data-category="${category.name}"
-                         ${normalValues.includes(option) ? 'checked' : ''}>
-                  <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
-                </label>
-              `).join('')}
-            </div>
+    // 카테고리별 체크박스 HTML 생성 (계산서와 동일한 구조)
+    const categoryHtml = dropdownOptions.categories.map(category => `
+      <li class="p-0 constructor-category-group" data-category="${category.name}">
+        <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
+          <strong style="font-size: 0.8125rem; color: #495057; min-width: 50px;">[${category.name}]</strong>
+          <div style="display: flex; gap: 0.5rem; flex: 1; flex-wrap: wrap;">
+            ${category.options.map(option => `
+              <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
+                <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
+                       value="${option}"
+                       data-category="${category.name}"
+                       ${normalValues.includes(option) ? 'checked' : ''}>
+                <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
+              </label>
+            `).join('')}
           </div>
-        </li>
-      `).join('');
-    }).join('');
+        </div>
+      </li>
+    `).join('');
 
     // 기타 입력 필드
     const otherHtml = `
