@@ -1802,10 +1802,17 @@ tr.accordion-row:hover .row-details,
   .row-details {
     margin: 0 !important;
     border-radius: 0 !important; /* 마진 없으니 둥근 모서리도 제거 */
+    padding: 1.2rem 2rem !important; /* 좌우 padding 증가로 내부 여백 확보 */
   }
 
   /* 왼쪽 테두리 라인은 유지 */
   .row-details::before {
     border-radius: 0 !important;
+  }
+
+  /* 카드 넓이 확장 - 텍스트 짤림 방지 */
+  .info-card-column {
+    flex: 0 0 21.5% !important;
+    max-width: 21.5% !important;
   }
 }
