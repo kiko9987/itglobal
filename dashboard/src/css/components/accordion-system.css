@@ -1810,9 +1810,16 @@ tr.accordion-row:hover .row-details,
     border-radius: 0 !important;
   }
 
-  /* 카드 넓이 확장 - 텍스트 짤림 방지 */
+  /* 카드 넓이 및 간격 최적화 - 5개 카드를 한 줄에 배치 */
   .info-card-column {
-    flex: 0 0 21.5% !important;
-    max-width: 21.5% !important;
+    flex: 0 0 19.6% !important;
+    max-width: 19.6% !important;
+    padding-left: 0.4rem !important;  /* 카드 간격 축소 */
+    padding-right: 0.4rem !important;
+  }
+
+  /* 카드 내부 padding 증가로 콘텐츠 영역 확보 */
+  .info-card {
+    padding: 1.3rem !important;
   }
 }
