@@ -1802,7 +1802,7 @@ tr.accordion-row:hover .row-details,
   .row-details {
     margin: 0 !important;
     border-radius: 0 !important; /* 마진 없으니 둥근 모서리도 제거 */
-    padding: 1.2rem 1.5rem 1.2rem 2rem !important; /* 오른쪽 padding 축소 */
+    padding: 1.2rem 1.5rem !important; /* 좌우 padding 동일하게 1.5rem */
   }
 
   /* 왼쪽 테두리 라인은 유지 */
