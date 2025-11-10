@@ -1238,18 +1238,11 @@ a[id^="folder-display-"] {
   max-width: 100% !important; /* 부모 컨테이너 넘지 않도록 */
 }
 
-/* 연락처/이메일 일반모드 위치 조정 */
-[id^="card-basic-"] .compact-item .editable-value[data-field="담당자 연락처"],
-[id^="card-basic-"] .compact-item .editable-value[data-field="담당자 이메일"] {
-  margin-left: -22px;
-}
-
-/* 연락처/이메일 편집모드 위치 및 크기 조정 */
+/* 연락처/이메일 편집모드 크기 조정 */
 input[type="tel"].inline-edit-input.input-manager,
 input[type="tel"].inline-edit-input,
 input[type="email"].inline-edit-input.form-control,
 input[type="email"].inline-edit-input {
-  margin-left: -2px; /* 일반모드에서 이미 -22px 적용되어 있으므로 -2px로 총 -22px */
   width: 150px;
   max-width: 100%; /* 부모 컨테이너 넘지 않도록 */
 }
