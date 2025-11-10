@@ -1751,14 +1751,14 @@ export default class ProjectRowAccordion {
     // 표시할 텍스트
     const displayText = selectedItems.length > 0 ? selectedItems.join(', ') : '선택';
 
-    // 카테고리별 체크박스 HTML 생성 (계산서와 완전히 동일한 구조)
+    // 카테고리별 체크박스 HTML 생성 (한 줄에 5개씩, 자동 줄바꿈)
     const categoryHtml = dropdownOptions.categories.map(category => `
       <li class="p-0 constructor-category-group" data-category="${category.name}">
-        <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
-          <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px;">[${category.name}]</strong>
-          <div style="display: flex; gap: 0.75rem; flex: 1;">
+        <div style="display: flex; align-items: flex-start; padding: 0.5rem 0.75rem; gap: 0.75rem;">
+          <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px; padding-top: 0.125rem;">[${category.name}]</strong>
+          <div style="display: flex; gap: 0.5rem; flex: 1; flex-wrap: wrap;">
             ${category.options.map(option => `
-              <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
+              <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem; min-width: fit-content;">
                 <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
                        value="${option}"
                        data-category="${category.name}"
@@ -1800,7 +1800,7 @@ export default class ProjectRowAccordion {
           <span class="selected-text">${displayText}</span>
         </button>
         <ul class="dropdown-menu constructor-dropdown" aria-labelledby="${dropdownId}"
-            style="max-width: 400px; min-width: 300px; z-index: 9999;">
+            style="max-width: 550px; min-width: 500px; z-index: 9999;">
           ${categoryHtml}
           ${otherHtml}
         </ul>
