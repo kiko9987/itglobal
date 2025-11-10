@@ -1572,9 +1572,8 @@ tr.accordion-row:hover .row-details,
 
 /* 시공자 드롭다운은 계산서와 동일한 카테고리 구조 사용 (특별한 스타일 불필요) */
 
-/* 계산서/시공자 드롭다운: 카테고리 내부 label을 가로 배치 */
-.bill-status-dropdown label,
-.constructor-dropdown label {
+/* 시공자 드롭다운: 카테고리 내부 label만 가로 배치 (계산서는 원래 잘 작동함) */
+.constructor-dropdown .constructor-category-group label {
   display: inline-flex !important;
 }
 
