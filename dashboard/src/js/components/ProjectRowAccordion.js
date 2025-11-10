@@ -1631,7 +1631,15 @@ export default class ProjectRowAccordion {
       '기계 분류': ['신품', '중고', '기존제품', '기타'],
       '브랜드': ['LG', '삼성', '캐리어', 'FCU', '덕트', '기타'],
       '계약 형태': ['일반', '리스', '렌탈', '기타'],
-      '시공자': ['고승빈', '구상모', '노성현', '남진열', '최태식', '한현규', '현재호', '김석홍', '김재광', '박성준', '우성덕트', '송파팀장', '아이티', '김종연', '김태현', '일당'],
+
+      // 시공자 옵션 - 카테고리별 구조화 (한 줄에 5개씩)
+      '시공자': {
+        categories: [
+          { name: '메인', options: ['고승빈', '구상모', '노성현', '남진열', '최태식', '한현규', '현재호'] },
+          { name: '서브', options: ['김석홍', '김재광', '박성준', '우성덕트', '송파팀장'] },
+          { name: '내부', options: ['아이티', '김종연', '김태현', '일당'] }
+        ]
+      },
 
       // 계산서 옵션 - 카테고리별 구조화 (각 카테고리에서 1개만 선택, 총 3개까지)
       '계산서': {
@@ -1725,6 +1733,90 @@ export default class ProjectRowAccordion {
   }
 
   /**
+   * 시공자 드롭다운 생성 (카테고리별 체크박스, 한 줄에 5개씩)
+   */
+  createConstructorDropdown(fieldName, currentValue, dropdownOptions) {
+    const dropdownId = `constructor-${Math.random().toString(36).substr(2, 9)}`;
+
+    // 현재 값 파싱 (콤마로 구분)
+    const selectedItems = currentValue ? currentValue.split(',').map(s => s.trim()).filter(v => v && v !== '-') : [];
+
+    // 드롭다운 옵션에 없는 값 찾기 (기타로 입력한 값)
+    const allOptions = dropdownOptions.categories.flatMap(cat => cat.options);
+    const otherValues = selectedItems.filter(v => !allOptions.includes(v));
+    const otherValue = otherValues.length > 0 ? otherValues[0] : '';
+    const normalValues = selectedItems.filter(v => allOptions.includes(v));
+
+    // 표시할 텍스트
+    const displayText = selectedItems.length > 0 ? selectedItems.join(', ') : '선택';
+
+    // 카테고리별 체크박스 HTML 생성 (한 줄에 5개씩)
+    const categoryHtml = dropdownOptions.categories.map(category => {
+      // 5개씩 나누기
+      const chunkSize = 5;
+      const chunks = [];
+      for (let i = 0; i < category.options.length; i += chunkSize) {
+        chunks.push(category.options.slice(i, i + chunkSize));
+      }
+
+      return chunks.map((chunk, chunkIndex) => `
+        <li class="p-0 constructor-category-group" data-category="${category.name}">
+          <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
+            ${chunkIndex === 0 ? `<strong style="font-size: 0.8125rem; color: #495057; min-width: 50px;">[${category.name}]</strong>` : '<div style="min-width: 50px;"></div>'}
+            <div style="display: flex; gap: 0.5rem; flex: 1; flex-wrap: wrap;">
+              ${chunk.map(option => `
+                <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
+                  <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
+                         value="${option}"
+                         data-category="${category.name}"
+                         ${normalValues.includes(option) ? 'checked' : ''}>
+                  <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </li>
+      `).join('');
+    }).join('');
+
+    // 기타 입력 필드
+    const otherHtml = `
+      <li class="p-0" style="border-top: 2px solid #dee2e6;">
+        <label class="d-flex align-items-center w-100 m-0 cursor-pointer" for="${dropdownId}-other-check"
+               style="padding: 0.5rem 0.75rem; gap: 0.5rem;">
+          <span style="flex: 1; font-size: 0.875rem;">기타</span>
+          <input class="form-check-input m-0 constructor-other-check" type="checkbox"
+                 id="${dropdownId}-other-check" ${otherValue ? 'checked' : ''}>
+        </label>
+      </li>
+      <li class="p-0 ${otherValue ? '' : 'd-none'} constructor-other-input-container" id="${dropdownId}-other-input-container">
+        <div style="padding: 0.25rem 0.75rem 0.5rem 0.75rem;">
+          <input type="text" class="form-control form-control-sm constructor-other-input"
+                 placeholder="직접 입력" value="${otherValue}"
+                 style="font-size: 0.8125rem;">
+        </div>
+      </li>
+    `;
+
+    return `
+      <div class="dropdown w-100">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle text-start w-100 constructor-dropdown-btn"
+                type="button" id="${dropdownId}" data-bs-toggle="dropdown"
+                data-bs-auto-close="outside"
+                aria-expanded="false"
+                style="height: auto; white-space: normal; padding-top: 0.375rem; padding-bottom: 0.375rem;">
+          <span class="selected-text">${displayText}</span>
+        </button>
+        <ul class="dropdown-menu constructor-dropdown" aria-labelledby="${dropdownId}"
+            style="max-width: 600px; min-width: 500px;">
+          ${categoryHtml}
+          ${otherHtml}
+        </ul>
+      </div>
+    `;
+  }
+
+  /**
    * 입력 요소 생성 (멀티셀렉트 지원)
    */
   createInputElement(fieldName, currentValue) {
@@ -1737,6 +1829,11 @@ export default class ProjectRowAccordion {
       // 계산서 필드 특별 처리 - 카테고리별 체크박스
       if (fieldName === '계산서' && dropdownOptions.categories) {
         return this.createBillStatusDropdown(fieldName, currentValue, dropdownOptions);
+      }
+
+      // 시공자 필드 특별 처리 - 카테고리별 체크박스
+      if (fieldName === '시공자' && dropdownOptions.categories) {
+        return this.createConstructorDropdown(fieldName, currentValue, dropdownOptions);
       }
 
       // 멀티셀렉트 필드 처리 - 체크박스 드롭다운
@@ -6575,24 +6672,38 @@ export default class ProjectRowAccordion {
         }
       }
 
-      // 시공자 필드: 기타 체크박스 이벤트 처리
+      // 시공자 필드: 카테고리별 체크박스 이벤트 처리
       if (fieldName === '시공자') {
-        const otherCheck = dropdownMenu.querySelector('.accordion-constructor-other-check');
-        const otherInputContainer = dropdownMenu.querySelector('.accordion-constructor-other-input-container');
-        const otherInput = dropdownMenu.querySelector('.accordion-constructor-other-input');
+        const constructorCheckboxes = dropdownMenu.querySelectorAll('.constructor-checkbox');
+        const otherCheck = dropdownMenu.querySelector('.constructor-other-check');
+        const otherInputContainer = dropdownMenu.querySelector('.constructor-other-input-container');
+        const otherInput = dropdownMenu.querySelector('.constructor-other-input');
 
+        // 일반 체크박스 이벤트
+        constructorCheckboxes.forEach(checkbox => {
+          checkbox.addEventListener('change', () => {
+            // 전체 선택 개수 확인 (최대 3개)
+            const checkedCount = Array.from(constructorCheckboxes).filter(cb => cb.checked).length;
+            const otherChecked = otherCheck && otherCheck.checked ? 1 : 0;
+
+            if (checkbox.checked && (checkedCount + otherChecked) > 3) {
+              checkbox.checked = false;
+              logger.debug('✋ [시공자] 최대 3개까지만 선택 가능합니다');
+              return;
+            }
+
+            this.updateConstructorSelection(constructorCheckboxes, otherCheck, otherInput, selectedText, fieldName);
+          });
+        });
+
+        // 기타 체크박스 이벤트
         if (otherCheck && otherInputContainer && otherInput) {
-          // 기타 체크박스 클릭 시 입력창 토글
           otherCheck.addEventListener('change', () => {
-            // 기타 체크박스를 제외한 일반 체크박스만 카운트
-            const normalCheckedBoxes = Array.from(checkboxes).filter(cb =>
-              cb.checked && !cb.classList.contains('accordion-constructor-other-check')
-            );
+            const normalCheckedCount = Array.from(constructorCheckboxes).filter(cb => cb.checked).length;
 
-            // 일반 체크박스가 이미 3개면 기타 체크 불가
-            if (otherCheck.checked && normalCheckedBoxes.length >= 3) {
+            if (otherCheck.checked && normalCheckedCount >= 3) {
               otherCheck.checked = false;
-              logger.debug(`✋ [CheckboxDropdown] "${fieldName}" 최대 3개까지만 선택 가능`);
+              logger.debug('✋ [시공자] 최대 3개까지만 선택 가능합니다');
               return;
             }
 
@@ -6603,12 +6714,13 @@ export default class ProjectRowAccordion {
               otherInputContainer.classList.add('d-none');
               otherInput.value = '';
             }
-            this.updateAccordionConstructorSelection(checkboxes, selectedText, otherCheck, otherInput, fieldName);
+
+            this.updateConstructorSelection(constructorCheckboxes, otherCheck, otherInput, selectedText, fieldName);
           });
 
           // 입력창 값 변경 시 선택된 값 업데이트
           otherInput.addEventListener('input', () => {
-            this.updateAccordionConstructorSelection(checkboxes, selectedText, otherCheck, otherInput, fieldName);
+            this.updateConstructorSelection(constructorCheckboxes, otherCheck, otherInput, selectedText, fieldName);
           });
         }
       }
@@ -6704,6 +6816,36 @@ export default class ProjectRowAccordion {
    * 계산서 선택 업데이트 (카테고리-단계 형식)
    * 형식: "현금결제-계약금, N입금-중도금, 카드결제-잔금"
    */
+  /**
+   * 시공자 선택 값 업데이트
+   */
+  updateConstructorSelection(constructorCheckboxes, otherCheck, otherInput, selectedText, fieldName) {
+    const selectedItems = [];
+
+    // 일반 체크박스에서 선택된 값
+    constructorCheckboxes.forEach(cb => {
+      if (cb.checked) {
+        selectedItems.push(cb.value);
+      }
+    });
+
+    // 기타 입력값 추가
+    if (otherCheck && otherCheck.checked && otherInput && otherInput.value.trim()) {
+      selectedItems.push(otherInput.value.trim());
+    }
+
+    // 선택된 값 표시
+    const displayText = selectedItems.length > 0 ? selectedItems.join(', ') : '선택';
+    selectedText.textContent = displayText;
+
+    // EditState 업데이트
+    if (this.editState && this.editState.isActive && fieldName) {
+      const finalValue = selectedItems.length > 0 ? selectedItems.join(', ') : '';
+      this.editState.updateField(fieldName, finalValue);
+      logger.debug(`[EditState] ${fieldName} 업데이트: ${finalValue}`);
+    }
+  }
+
   updateBillStatusSelection(billStageCheckboxes, billSpecialCheckbox, selectedText, fieldName) {
     // 미발행 체크 여부 확인
     if (billSpecialCheckbox && billSpecialCheckbox.checked) {
