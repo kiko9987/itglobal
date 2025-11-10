@@ -1812,10 +1812,15 @@ tr.accordion-row:hover .row-details,
 
   /* 카드 넓이 및 간격 최적화 - 5개 카드를 한 줄에 배치 */
   .info-card-column {
-    flex: 0 0 19.6% !important;
-    max-width: 19.6% !important;
+    flex: 0 0 19.9% !important;  /* 카드 넓이 증가 */
+    max-width: 19.9% !important;
     padding-left: 0.4rem !important;  /* 카드 간격 */
     padding-right: 0.4rem !important;
+  }
+
+  /* 마지막 카드 - 오른쪽 padding 제거하여 헤더 끝점과 정렬 */
+  .info-card-column:last-child {
+    padding-right: 0 !important;
   }
 
   /* 카드 내부 padding 증가로 콘텐츠 영역 확보 */
