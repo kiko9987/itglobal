@@ -1800,17 +1800,16 @@ export default class ProjectRowAccordion {
     `;
 
     return `
-      <div class="dropdown w-100">
-        <button class="btn btn-sm btn-outline-secondary dropdown-toggle text-start w-100 constructor-dropdown-btn"
+      <div class="dropdown multi-select-dropdown inline-edit-input" data-field="${fieldName}">
+        <button class="form-select form-select-sm dropdown-toggle text-start multi-select-btn"
                 type="button" id="${dropdownId}" data-bs-toggle="dropdown"
                 data-bs-auto-close="outside"
-                data-bs-boundary="viewport"
                 aria-expanded="false"
                 style="height: auto; white-space: normal; padding-top: 0.375rem; padding-bottom: 0.375rem;">
           <span class="selected-text">${displayText}</span>
         </button>
         <ul class="dropdown-menu constructor-dropdown" aria-labelledby="${dropdownId}"
-            style="max-width: 600px; min-width: 500px; z-index: 9999;">
+            style="max-width: 600px; min-width: 500px;">
           ${categoryHtml}
           ${otherHtml}
         </ul>
