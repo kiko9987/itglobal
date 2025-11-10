@@ -1683,9 +1683,9 @@ export default class ProjectRowAccordion {
     const specialHtml = `
       <li class="p-0">
         <label class="d-flex align-items-center w-100 m-0 cursor-pointer" style="padding: 0.5rem 0.75rem; gap: 0.5rem; border-bottom: 2px solid #dee2e6;">
+          <span style="flex: 1; font-size: 0.875rem;">미발행</span>
           <input class="form-check-input m-0 bill-special-checkbox" type="checkbox" value="미발행"
                  ${isMibalhaeng ? 'checked' : ''}>
-          <span style="font-size: 0.875rem;">미발행</span>
         </label>
       </li>
     `;
@@ -1700,12 +1700,12 @@ export default class ProjectRowAccordion {
               const itemKey = `${category.name}-${option}`;
               return `
                 <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
+                  <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
                   <input class="form-check-input m-0 bill-stage-checkbox" type="checkbox"
                          value="${option}"
                          data-category="${category.name}"
                          data-item-key="${itemKey}"
                          ${selectedItems[itemKey] ? 'checked' : ''}>
-                  <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
                 </label>
               `;
             }).join('')}
@@ -1759,11 +1759,11 @@ export default class ProjectRowAccordion {
           <div style="display: flex; gap: 0.75rem; flex: 1; flex-wrap: wrap;">
             ${category.options.map(option => `
               <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
+                <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
                 <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
                        value="${option}"
                        data-category="${category.name}"
                        ${normalValues.includes(option) ? 'checked' : ''}>
-                <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
               </label>
             `).join('')}
           </div>
