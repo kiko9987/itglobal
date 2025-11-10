@@ -1683,9 +1683,9 @@ export default class ProjectRowAccordion {
     const specialHtml = `
       <li class="p-0">
         <label class="d-flex align-items-center w-100 m-0 cursor-pointer" style="padding: 0.5rem 0.75rem; gap: 0.5rem; border-bottom: 2px solid #dee2e6;">
-          <span style="font-size: 0.875rem;">미발행</span>
           <input class="form-check-input m-0 bill-special-checkbox" type="checkbox" value="미발행"
                  ${isMibalhaeng ? 'checked' : ''}>
+          <span style="font-size: 0.875rem;">미발행</span>
         </label>
       </li>
     `;
