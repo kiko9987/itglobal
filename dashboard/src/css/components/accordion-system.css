@@ -1570,35 +1570,7 @@ tr.accordion-row:hover .row-details,
   white-space: nowrap !important;
 }
 
-/* 시공자 필드 전용: 드롭다운 항목을 가로로 배치 */
-/* .show 클래스가 있을 때만 flex 레이아웃 적용 (드롭다운이 열렸을 때) */
-.multi-select-dropdown[data-field="시공자"] .dropdown-menu.show {
-  width: 450px !important;
-  min-width: 450px !important;
-  padding: 0.75rem !important;
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: wrap !important;
-  gap: 0.5rem !important;
-  max-height: none !important;
-  overflow-y: visible !important;
-}
-
-.multi-select-dropdown[data-field="시공자"] .dropdown-menu.show li {
-  flex: 0 0 calc(25% - 0.5rem) !important;
-  width: calc(25% - 0.5rem) !important;
-  list-style: none !important;
-  padding: 0 !important;
-  display: block !important;
-}
-
-.multi-select-dropdown[data-field="시공자"] .dropdown-menu.show label {
-  justify-content: space-between !important;
-  width: 100% !important;
-  padding: 0.4rem 0.6rem !important;
-  margin: 0 !important;
-  display: flex !important;
-}
+/* 시공자 드롭다운은 계산서와 동일한 카테고리 구조 사용 (특별한 스타일 불필요) */
 
 .cursor-pointer {
   cursor: pointer !important;
