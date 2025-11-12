@@ -1825,6 +1825,7 @@ export default class ProjectRowAccordion {
 
       // 시공자 필드 특별 처리 - 카테고리별 체크박스
       if (fieldName === '시공자' && dropdownOptions.categories) {
+        logger.debug('[시공자] createConstructorDropdown 호출', { fieldName, hasCategories: !!dropdownOptions.categories });
         return this.createConstructorDropdown(fieldName, currentValue, dropdownOptions);
       }
 
