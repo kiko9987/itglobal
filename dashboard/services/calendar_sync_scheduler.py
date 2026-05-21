@@ -125,7 +125,24 @@ class CalendarSyncScheduler:
         from dashboard.services.project_service import get_project_records
         all_projects = get_project_records()
         # KeyError 방지: 프로젝트 코드가 없거나 빈 값인 row는 건너뜀
-        project_map = {p['프로젝트 코드']: p for p in all_projects if p.get('프로젝트 코드')}
+        # 방어적 가드: all_projects에 dict가 아닌 항목이 섞여 들어오는 경우 무시 + 로그
+        project_map = {}
+        invalid_types = []
+        for p in all_projects:
+            if not isinstance(p, dict):
+                invalid_types.append(type(p).__name__)
+                continue
+            code = p.get('프로젝트 코드')
+            if code:
+                project_map[code] = p
+
+        if invalid_types:
+            logger.warning(
+                f"[CALENDAR_SYNC] all_projects에 비정상 항목 발견: "
+                f"타입={invalid_types[:5]}{'...' if len(invalid_types) > 5 else ''} "
+                f"(총 {len(invalid_types)}개, 전체 {len(all_projects)}개 중)"
+            )
+
         logger.debug(f"[CALENDAR_SYNC] 시트 데이터 로드 완료: {len(project_map)}개 프로젝트 (dict 변환)")
 
         deleted_count = 0

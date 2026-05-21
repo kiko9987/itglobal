@@ -325,6 +325,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.metadata import metadata_bp
         from dashboard.blueprints.leads import leads_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
+        from dashboard.blueprints.constructors import constructors_bp
         from dashboard.api.v1.auth import auth_bp as auth_api_bp
 
         # 기본 블루프린트들 등록
@@ -342,9 +343,19 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(folders_bp)
         app.register_blueprint(metadata_bp)
         app.register_blueprint(sequence_bp)
+        app.register_blueprint(constructors_bp)
         app.register_blueprint(auth_api_bp)  # API v1 인증 엔드포인트
 
-        logger.info("블루프린트 등록 완료 (main, auth, projects, leads, monitoring, admin, users, analytics, stats, data_management, locks, folders, metadata, admin_sequence, auth_api)")
+        # 시공자 초기 시드 (테이블이 비어있을 때만)
+        try:
+            from dashboard.utils.user_database import get_constructor_repository
+            seeded = get_constructor_repository().seed_initial_data()
+            if seeded > 0:
+                logger.info(f"시공자 마스터 초기 시드 완료: {seeded}명 추가")
+        except Exception as seed_err:
+            logger.warning(f"시공자 초기 시드 실패 (무시): {seed_err}")
+
+        logger.info("블루프린트 등록 완료 (main, auth, projects, leads, monitoring, admin, users, analytics, stats, data_management, locks, folders, metadata, admin_sequence, constructors, auth_api)")
     except Exception as e:
         logger.error(f"블루프린트 등록 실패: {e}")
         # 블루프린트는 필수가 아니므로 앱 시작을 차단하지 않음

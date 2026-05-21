@@ -167,6 +167,11 @@
                                         <i class="fas fa-sort-numeric-up me-2"></i>시퀀스 관리
                                     </a>
                                 </li>
+                                <li id="constructor-menu-item" style="display: none;">
+                                    <a class="dropdown-item" href="#" onclick="openConstructorManagement()">
+                                        <i class="fas fa-hard-hat me-2"></i>시공자 관리
+                                    </a>
+                                </li>
                                 <li>
                                     <a class="dropdown-item" href="#" onclick="openAuditLogs()">
                                         <i class="fas fa-history me-2"></i>작업 로그
@@ -321,6 +326,113 @@
                                 onmouseout="this.style.backgroundColor='#fff3cd'; this.style.borderColor='#ffeeba'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
                             <i class="fas fa-broom me-1"></i>매핑 정리
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 시공자 관리 모달 -->
+        <div class="modal fade" id="constructorManagementModal" tabindex="-1" aria-labelledby="constructorManagementModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered" style="max-width: 560px;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="constructorManagementModalLabel">
+                            <i class="fas fa-hard-hat me-2"></i>시공자 관리
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"
+                                style="background: none; opacity: 1; padding: 0.5rem;">
+                            <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d;"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info py-2 mb-3" style="font-size: 0.875rem;">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>비활성</strong>으로 표시된 시공자는 프로젝트 등록/편집 시 드롭다운에 나타나지 않습니다.
+                            (기존 프로젝트 데이터는 영향 없음 — 거래 중단 시 비활성화 추천)
+                        </div>
+
+                        <!-- 새 시공자 추가 폼 -->
+                        <div class="card mb-3">
+                            <div class="card-body py-2">
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-md-5">
+                                        <input type="text" id="newConstructorName" class="form-control form-control-sm" placeholder="새 시공자 이름" maxlength="30">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <select id="newConstructorCategory" class="form-select form-select-sm constructor-category-select">
+                                            <option value="메인">메인</option>
+                                            <option value="서브">서브</option>
+                                            <option value="내부">내부</option>
+                                            <option value="세척">세척</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button type="button" class="btn btn-primary btn-sm w-100" onclick="addConstructor()">
+                                            <i class="fas fa-plus me-1"></i>추가
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 알림 메시지 영역 -->
+                        <div id="constructorAlertContainer"></div>
+
+                        <!-- 로딩 -->
+                        <div class="text-center py-4" id="constructorLoadingSpinner">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2 small">로딩 중...</p>
+                        </div>
+
+                        <!-- 카테고리별 시공자 목록 -->
+                        <div id="constructorContent" style="display: none;">
+                            <ul class="nav nav-tabs mb-2" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="tab-main" data-bs-toggle="tab" data-bs-target="#constructor-main" type="button">메인 <span class="badge bg-secondary ms-1" id="count-main">0</span></button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="tab-sub" data-bs-toggle="tab" data-bs-target="#constructor-sub" type="button">서브 <span class="badge bg-secondary ms-1" id="count-sub">0</span></button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="tab-internal" data-bs-toggle="tab" data-bs-target="#constructor-internal" type="button">내부 <span class="badge bg-secondary ms-1" id="count-internal">0</span></button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="tab-cleaning" data-bs-toggle="tab" data-bs-target="#constructor-cleaning" type="button">세척 <span class="badge bg-secondary ms-1" id="count-cleaning">0</span></button>
+                                </li>
+                            </ul>
+                            <div class="tab-content">
+                                <div class="tab-pane fade show active" id="constructor-main" role="tabpanel">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead class="table-light"><tr><th style="width:35%">이름</th><th style="width:25%" class="text-center">카테고리</th><th style="width:20%" class="text-center">활성</th><th style="width:20%" class="text-center">삭제</th></tr></thead>
+                                        <tbody id="constructor-tbody-메인"></tbody>
+                                    </table>
+                                </div>
+                                <div class="tab-pane fade" id="constructor-sub" role="tabpanel">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead class="table-light"><tr><th style="width:35%">이름</th><th style="width:25%" class="text-center">카테고리</th><th style="width:20%" class="text-center">활성</th><th style="width:20%" class="text-center">삭제</th></tr></thead>
+                                        <tbody id="constructor-tbody-서브"></tbody>
+                                    </table>
+                                </div>
+                                <div class="tab-pane fade" id="constructor-internal" role="tabpanel">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead class="table-light"><tr><th style="width:35%">이름</th><th style="width:25%" class="text-center">카테고리</th><th style="width:20%" class="text-center">활성</th><th style="width:20%" class="text-center">삭제</th></tr></thead>
+                                        <tbody id="constructor-tbody-내부"></tbody>
+                                    </table>
+                                </div>
+                                <div class="tab-pane fade" id="constructor-cleaning" role="tabpanel">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead class="table-light"><tr><th style="width:35%">이름</th><th style="width:25%" class="text-center">카테고리</th><th style="width:20%" class="text-center">활성</th><th style="width:20%" class="text-center">삭제</th></tr></thead>
+                                        <tbody id="constructor-tbody-세척"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadConstructors()">
+                            <i class="fas fa-sync-alt me-1"></i>새로고침
+                        </button>
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
                     </div>
                 </div>
             </div>
@@ -738,10 +850,314 @@
             }, 5000);
         }
 
+        // =========================================================
+        // 시공자 관리 모달
+        // =========================================================
+
+        // 시공자 캐시 갱신 (모든 로그인 사용자) - ProjectRowAccordion 드롭다운용
+        // 활성+비활성 모두 받아서 분리 저장 (비활성은 기존 프로젝트 편집 시 회색 옵션으로 표시)
+        window.refreshConstructorCache = async function() {
+            try {
+                const response = await fetch('/api/constructors/all-public');
+                if (!response.ok) return;
+                const result = await response.json();
+                if (!result.success) return;
+
+                // API 응답: {"메인": [{name, is_active}, ...], ...}
+                // ProjectRowAccordion 기대 형식: {categories: [{name, options, inactiveOptions}]}
+                const categories = [];
+                for (const cat of ['메인', '서브', '내부', '세척']) {
+                    const items = result.data[cat] || [];
+                    categories.push({
+                        name: cat,
+                        options: items.filter(c => c.is_active).map(c => c.name),
+                        inactiveOptions: items.filter(c => !c.is_active).map(c => c.name),
+                    });
+                }
+                window.__CONSTRUCTORS_CACHE__ = { categories };
+                console.log('[CONSTRUCTOR_CACHE] 갱신됨:',
+                    categories.map(c => `${c.name}(활성${c.options.length}+비활성${c.inactiveOptions.length})`).join(', '));
+            } catch (err) {
+                console.warn('[CONSTRUCTOR_CACHE] 갱신 실패 (폴백 사용):', err);
+            }
+        };
+
+        // 페이지 로드 직후 캐시 미리 채우기 (백그라운드)
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => window.refreshConstructorCache());
+        } else {
+            window.refreshConstructorCache();
+        }
+
+        window.openConstructorManagement = function() {
+            if (window.userRole !== 'admin' && window.userRole !== 'super_admin') {
+                alert('관리자 권한이 필요합니다.');
+                return;
+            }
+
+            // 편집 중인 프로젝트의 시공자 드롭다운이 있는지 확인
+            // (시공자 데이터 변경 후 편집 화면 자동 갱신 안 되므로 사용자에게 안내)
+            const editingWithInstaller = document.querySelector('.editing [data-field="시공자"]');
+            if (editingWithInstaller) {
+                const proceed = confirm(
+                    '⚠️ 현재 편집 중인 프로젝트가 있습니다.\n\n' +
+                    '시공자 관리에서 변경한 내용은 편집 중인 화면에는\n' +
+                    '즉시 반영되지 않습니다. 변경 사항을 적용하려면\n' +
+                    '편집을 닫고 다시 열어주세요.\n\n' +
+                    '계속하시겠습니까?'
+                );
+                if (!proceed) return;
+            }
+
+            const modal = new bootstrap.Modal(document.getElementById('constructorManagementModal'));
+            modal.show();
+            loadConstructors();
+        };
+
+        function showConstructorAlert(message, type = 'info') {
+            const container = document.getElementById('constructorAlertContainer');
+            const alertId = 'constructorAlert_' + Date.now();
+            container.innerHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show py-2" role="alert" id="${alertId}" style="font-size: 0.875rem;">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            setTimeout(() => {
+                const el = document.getElementById(alertId);
+                if (el) el.remove();
+            }, 4000);
+        }
+
+        async function loadConstructors() {
+            const spinner = document.getElementById('constructorLoadingSpinner');
+            const content = document.getElementById('constructorContent');
+            spinner.style.display = 'block';
+            content.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/admin/constructors');
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        showConstructorAlert('관리자 권한이 필요합니다.', 'danger');
+                        return;
+                    }
+                    throw new Error('HTTP ' + response.status);
+                }
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.message || '로드 실패');
+                }
+
+                // 카테고리별로 그룹화
+                const grouped = { '메인': [], '서브': [], '내부': [], '세척': [] };
+                for (const c of result.data) {
+                    if (grouped[c.category]) grouped[c.category].push(c);
+                }
+
+                // 각 카테고리 렌더링
+                renderConstructorTbody('메인', grouped['메인']);
+                renderConstructorTbody('서브', grouped['서브']);
+                renderConstructorTbody('내부', grouped['내부']);
+                renderConstructorTbody('세척', grouped['세척']);
+
+                // 카운트 업데이트
+                document.getElementById('count-main').textContent = grouped['메인'].length;
+                document.getElementById('count-sub').textContent = grouped['서브'].length;
+                document.getElementById('count-internal').textContent = grouped['내부'].length;
+                document.getElementById('count-cleaning').textContent = grouped['세척'].length;
+
+                content.style.display = 'block';
+            } catch (err) {
+                console.error('[CONSTRUCTOR] 로드 실패:', err);
+                showConstructorAlert('시공자 목록 로드 실패: ' + err.message, 'danger');
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        function renderConstructorTbody(category, items) {
+            const tbody = document.getElementById('constructor-tbody-' + category);
+            if (!tbody) return;
+            if (items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">등록된 시공자가 없습니다.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = items.map(c => `
+                <tr data-constructor-id="${c.id}" ${!c.is_active ? 'style="opacity: 0.5;"' : ''}>
+                    <td>
+                        <input type="text" class="form-control form-control-sm border-0 bg-transparent constructor-name-input"
+                               value="${escapeHtml(c.name)}" data-original="${escapeHtml(c.name)}"
+                               onblur="updateConstructorName(${c.id}, this)" onkeydown="if(event.key==='Enter')this.blur()">
+                    </td>
+                    <td>
+                        <select class="form-select form-select-sm constructor-category-select"
+                                onchange="updateConstructorCategory(${c.id}, this.value, '${escapeHtml(c.name)}')">
+                            <option value="메인" ${c.category === '메인' ? 'selected' : ''}>메인</option>
+                            <option value="서브" ${c.category === '서브' ? 'selected' : ''}>서브</option>
+                            <option value="내부" ${c.category === '내부' ? 'selected' : ''}>내부</option>
+                            <option value="세척" ${c.category === '세척' ? 'selected' : ''}>세척</option>
+                        </select>
+                    </td>
+                    <td class="text-center">
+                        <div class="form-check form-switch d-inline-flex justify-content-center" style="padding-left: 2.5em;">
+                            <input class="form-check-input" type="checkbox" role="switch"
+                                   ${c.is_active ? 'checked' : ''}
+                                   onchange="toggleConstructorActive(${c.id}, this.checked)">
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteConstructor(${c.id}, '${escapeHtml(c.name)}')" title="영구 삭제">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/[&<>"']/g, m => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[m]);
+        }
+
+        window.addConstructor = async function() {
+            const nameInput = document.getElementById('newConstructorName');
+            const categorySelect = document.getElementById('newConstructorCategory');
+            const name = nameInput.value.trim();
+            const category = categorySelect.value;
+
+            if (!name) {
+                showConstructorAlert('이름을 입력해주세요.', 'warning');
+                nameInput.focus();
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/constructors', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, category, is_active: true })
+                });
+                const result = await response.json();
+
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || 'HTTP ' + response.status);
+                }
+
+                showConstructorAlert(`'${name}' 시공자가 추가되었습니다. (${category})`, 'success');
+                nameInput.value = '';
+                await loadConstructors();
+                window.refreshConstructorCache();  // 드롭다운 캐시 갱신
+
+                // 추가한 카테고리 탭으로 자동 전환
+                const tabId = { '메인': 'tab-main', '서브': 'tab-sub', '내부': 'tab-internal', '세척': 'tab-cleaning' }[category];
+                if (tabId) bootstrap.Tab.getOrCreateInstance(document.getElementById(tabId)).show();
+            } catch (err) {
+                console.error('[CONSTRUCTOR] 추가 실패:', err);
+                showConstructorAlert('추가 실패: ' + err.message, 'danger');
+            }
+        };
+
+        window.toggleConstructorActive = async function(id, isActive) {
+            try {
+                const response = await fetch('/api/admin/constructors/' + id, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_active: isActive })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.message || 'HTTP ' + response.status);
+
+                // 행 opacity 즉시 업데이트
+                const row = document.querySelector(`tr[data-constructor-id="${id}"]`);
+                if (row) row.style.opacity = isActive ? '1' : '0.5';
+
+                showConstructorAlert(`${isActive ? '활성화' : '비활성화'} 되었습니다.`, 'success');
+                window.refreshConstructorCache();  // 드롭다운 캐시 갱신
+            } catch (err) {
+                console.error('[CONSTRUCTOR] 활성 토글 실패:', err);
+                showConstructorAlert('변경 실패: ' + err.message, 'danger');
+                loadConstructors();  // 상태 복원
+            }
+        };
+
+        window.updateConstructorName = async function(id, inputEl) {
+            const newName = inputEl.value.trim();
+            const originalName = inputEl.dataset.original;
+            if (newName === originalName) return;
+            if (!newName) {
+                inputEl.value = originalName;
+                showConstructorAlert('이름은 비울 수 없습니다.', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/constructors/' + id, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.message || 'HTTP ' + response.status);
+
+                inputEl.dataset.original = newName;
+                showConstructorAlert(`'${originalName}' → '${newName}' 변경됨`, 'success');
+                window.refreshConstructorCache();  // 드롭다운 캐시 갱신
+            } catch (err) {
+                console.error('[CONSTRUCTOR] 이름 수정 실패:', err);
+                inputEl.value = originalName;
+                showConstructorAlert('수정 실패: ' + err.message, 'danger');
+            }
+        };
+
+        window.updateConstructorCategory = async function(id, newCategory, name) {
+            try {
+                const response = await fetch('/api/admin/constructors/' + id, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category: newCategory })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.message || 'HTTP ' + response.status);
+
+                showConstructorAlert(`'${name}' 카테고리 변경됨 (→ ${newCategory})`, 'success');
+                await loadConstructors();  // 다른 탭으로 이동했으므로 전체 리로드
+                window.refreshConstructorCache();
+
+                // 변경된 카테고리 탭으로 자동 전환
+                const tabId = { '메인': 'tab-main', '서브': 'tab-sub', '내부': 'tab-internal' }[newCategory];
+                if (tabId) bootstrap.Tab.getOrCreateInstance(document.getElementById(tabId)).show();
+            } catch (err) {
+                console.error('[CONSTRUCTOR] 카테고리 변경 실패:', err);
+                showConstructorAlert('카테고리 변경 실패: ' + err.message, 'danger');
+                loadConstructors();  // 상태 복원
+            }
+        };
+
+        window.deleteConstructor = async function(id, name) {
+            if (!confirm(`'${name}' 시공자를 영구 삭제하시겠습니까?\n(거래 중단된 경우는 삭제 대신 비활성화를 권장합니다.)`)) {
+                return;
+            }
+            try {
+                const response = await fetch('/api/admin/constructors/' + id, { method: 'DELETE' });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.message || 'HTTP ' + response.status);
+                showConstructorAlert(`'${name}' 시공자가 삭제되었습니다.`, 'success');
+                await loadConstructors();
+                window.refreshConstructorCache();  // 드롭다운 캐시 갱신
+            } catch (err) {
+                console.error('[CONSTRUCTOR] 삭제 실패:', err);
+                showConstructorAlert('삭제 실패: ' + err.message, 'danger');
+            }
+        };
+
         // 관리자 권한 체크 및 메뉴 표시
         function checkAdminPermissions() {
             const adminMenuItem = document.getElementById('admin-menu-item');
             const sequenceMenuItem = document.getElementById('sequence-menu-item');
+            const constructorMenuItem = document.getElementById('constructor-menu-item');
             const roleBadge = document.getElementById('user-role-badge');
 
             const isAdmin = window.userRole === 'admin' || window.userRole === 'super_admin';
@@ -754,6 +1170,11 @@
             if (sequenceMenuItem) {
                 sequenceMenuItem.style.display = isAdmin ? 'block' : 'none';
                 console.log(`[ADMIN] 시퀀스 관리 메뉴 ${isAdmin ? '표시됨' : '숨김'}`);
+            }
+
+            if (constructorMenuItem) {
+                constructorMenuItem.style.display = isAdmin ? 'block' : 'none';
+                console.log(`[ADMIN] 시공자 관리 메뉴 ${isAdmin ? '표시됨' : '숨김'}`);
             }
 
             // 권한 뱃지 업데이트

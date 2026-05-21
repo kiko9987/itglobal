@@ -357,7 +357,9 @@
 .user-permission-select.form-select,
 #userManagementModal .user-status-select.form-select,
 #usersTable .user-status-select.form-select,
-.user-status-select.form-select {
+.user-status-select.form-select,
+#constructorManagementModal .constructor-category-select.form-select,
+.constructor-category-select.form-select {
   appearance: none !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
@@ -386,10 +388,17 @@
 .user-permission-select.form-select:focus,
 #userManagementModal .user-status-select.form-select:focus,
 #usersTable .user-status-select.form-select:focus,
-.user-status-select.form-select:focus {
+.user-status-select.form-select:focus,
+#constructorManagementModal .constructor-category-select.form-select:focus,
+.constructor-category-select.form-select:focus {
   border-color: #86b7fe !important;
   outline: 0 !important;
   box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
+}
+
+/* 시공자 관리 모달은 가로 폭이 좁아서 select width를 fit-content로 자동 조정 */
+#constructorManagementModal .constructor-category-select.form-select {
+  width: 100% !important;
 }
 
 /* ===== 감사 로그 페이지네이션 스타일 (메인 테이블과 동일) ===== */

@@ -155,7 +155,92 @@ class UserDatabase:
 
             conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_events_code ON project_calendar_events(project_code)')
 
+            # 시공자(Constructor) 마스터 테이블
+            # 카테고리 CHECK 제약 없음 (확장성: 메인/서브/내부/세척/... 자유롭게)
+            # 카테고리 유효성은 Python 레벨(ConstructorRepository.VALID_CATEGORIES)에서 검증
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS constructors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    display_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(name, category)
+                )
+            ''')
+
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_constructors_category ON constructors(category)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_constructors_active ON constructors(is_active)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_constructors_order ON constructors(category, display_order)')
+
+            # 마이그레이션: 기존 테이블에 CHECK 제약이 남아있으면 제거
+            self._migrate_constructors_remove_check(conn)
+
             conn.commit()
+
+    def _migrate_constructors_remove_check(self, conn):
+        """constructors 테이블의 카테고리 CHECK 제약을 제거 (확장성)
+
+        SQLite는 ALTER TABLE로 CHECK 제거 불가 → 테이블 재생성 방식.
+        기존 데이터는 전부 보존.
+        """
+        try:
+            cursor = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='constructors'"
+            )
+            row = cursor.fetchone()
+            if not row:
+                return  # 테이블 없음
+
+            current_sql = row['sql'] or ''
+            # CHECK 제약이 없으면 마이그레이션 불필요
+            if 'CHECK' not in current_sql.upper():
+                return
+
+            logger.info("[CONSTRUCTOR] 카테고리 CHECK 제약 제거 마이그레이션 시작")
+
+            # 1. 기존 데이터 백업
+            cursor = conn.execute('SELECT id, name, category, is_active, display_order, created_at, updated_at FROM constructors')
+            rows = cursor.fetchall()
+
+            # 2. 임시 이름으로 변경
+            conn.execute('ALTER TABLE constructors RENAME TO constructors_old')
+
+            # 3. 새 테이블 생성 (CHECK 없음)
+            conn.execute('''
+                CREATE TABLE constructors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    display_order INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(name, category)
+                )
+            ''')
+
+            # 4. 인덱스 재생성
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_constructors_category ON constructors(category)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_constructors_active ON constructors(is_active)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_constructors_order ON constructors(category, display_order)')
+
+            # 5. 데이터 복원
+            for r in rows:
+                conn.execute('''
+                    INSERT INTO constructors (id, name, category, is_active, display_order, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (r['id'], r['name'], r['category'], r['is_active'],
+                      r['display_order'], r['created_at'], r['updated_at']))
+
+            # 6. 옛 테이블 삭제
+            conn.execute('DROP TABLE constructors_old')
+
+            logger.info(f"[CONSTRUCTOR] 마이그레이션 완료: {len(rows)}개 행 복원 (CHECK 제약 제거됨)")
+        except Exception as e:
+            logger.error(f"[CONSTRUCTOR] 마이그레이션 실패 (무시): {e}", exc_info=True)
 
     def _migrate_existing_db(self):
         """기존 dashboard/users.db를 instance 폴더로 이동"""
@@ -874,3 +959,202 @@ def get_calendar_event_repository() -> CalendarEventRepository:
         user_db = get_user_database()
         _calendar_event_repository = CalendarEventRepository(user_db)
     return _calendar_event_repository
+
+
+class ConstructorRepository:
+    """시공자(Constructor) 마스터 데이터 저장소
+
+    카테고리: '메인', '서브', '내부'
+    is_active=False 시 드롭다운에서 숨김 (소프트 삭제)
+    """
+
+    VALID_CATEGORIES = ('메인', '서브', '내부', '세척')
+
+    def __init__(self, user_db: UserDatabase):
+        self.user_db = user_db
+
+    def get_all(self, active_only: bool = False) -> List[Dict]:
+        """모든 시공자 조회 (카테고리 → 활성여부 → 이름 가나다순)
+
+        정렬 우선순위:
+            1. 카테고리: 메인 → 서브 → 내부
+            2. 활성 여부: 활성(1) 먼저, 비활성(0) 나중
+            3. 이름: 가나다순
+
+        Note:
+            display_order 컬럼은 유지하되 정렬은 자동 계산.
+            추가/수정 시 즉시 올바른 위치에 배치됨.
+        """
+        with self.user_db._get_connection() as conn:
+            query = '''
+                SELECT id, name, category, is_active, display_order, created_at, updated_at
+                FROM constructors
+            '''
+            params: Tuple = ()
+            if active_only:
+                query += ' WHERE is_active = 1'
+            # 카테고리 순서 동적 처리 (VALID_CATEGORIES 순서대로)
+            case_clauses = ' '.join([f"WHEN ? THEN {i+1}" for i in range(len(self.VALID_CATEGORIES))])
+            query += f'''
+                ORDER BY CASE category {case_clauses} ELSE 99 END,
+                         is_active DESC,
+                         name COLLATE NOCASE
+            '''
+            params = self.VALID_CATEGORIES
+
+            cursor = conn.execute(query, params)
+            return [self._row_to_dict(row) for row in cursor.fetchall()]
+
+    def get_grouped(self, active_only: bool = False) -> Dict[str, List[Dict]]:
+        """카테고리별로 묶어서 반환: {'메인': [...], '서브': [...], '내부': [...]}"""
+        all_rows = self.get_all(active_only=active_only)
+        grouped: Dict[str, List[Dict]] = {cat: [] for cat in self.VALID_CATEGORIES}
+        for row in all_rows:
+            grouped[row['category']].append(row)
+        return grouped
+
+    def create(self, name: str, category: str, is_active: bool = True,
+               display_order: Optional[int] = None) -> Tuple[bool, str, Optional[Dict]]:
+        """시공자 추가"""
+        name = (name or '').strip()
+        if not name:
+            return False, "이름이 비어있습니다.", None
+        if category not in self.VALID_CATEGORIES:
+            return False, f"잘못된 카테고리: {category} (허용: {', '.join(self.VALID_CATEGORIES)})", None
+
+        with self.user_db._get_connection() as conn:
+            # 중복 체크 (같은 카테고리 내 동일 이름)
+            cursor = conn.execute(
+                'SELECT COUNT(*) as count FROM constructors WHERE name = ? AND category = ?',
+                (name, category)
+            )
+            if cursor.fetchone()['count'] > 0:
+                return False, f"'{category}' 카테고리에 이미 '{name}'이(가) 존재합니다.", None
+
+            # display_order 자동 계산 (해당 카테고리 내 최대값 + 1)
+            if display_order is None:
+                cursor = conn.execute(
+                    'SELECT COALESCE(MAX(display_order), -1) + 1 as next_order FROM constructors WHERE category = ?',
+                    (category,)
+                )
+                display_order = cursor.fetchone()['next_order']
+
+            cursor = conn.execute('''
+                INSERT INTO constructors (name, category, is_active, display_order)
+                VALUES (?, ?, ?, ?)
+            ''', (name, category, 1 if is_active else 0, display_order))
+            conn.commit()
+
+            new_id = cursor.lastrowid
+            cursor = conn.execute('SELECT * FROM constructors WHERE id = ?', (new_id,))
+            row = cursor.fetchone()
+            logger.info(f"[CONSTRUCTOR] 추가됨: id={new_id}, name={name}, category={category}")
+            return True, "추가되었습니다.", self._row_to_dict(row)
+
+    def update(self, constructor_id: int, name: Optional[str] = None,
+               category: Optional[str] = None, is_active: Optional[bool] = None,
+               display_order: Optional[int] = None) -> Tuple[bool, str, Optional[Dict]]:
+        """시공자 수정 (부분 업데이트 지원)"""
+        with self.user_db._get_connection() as conn:
+            cursor = conn.execute('SELECT * FROM constructors WHERE id = ?', (constructor_id,))
+            existing = cursor.fetchone()
+            if not existing:
+                return False, "시공자를 찾을 수 없습니다.", None
+
+            new_name = (name.strip() if name is not None else existing['name'])
+            new_category = category if category is not None else existing['category']
+            new_is_active = is_active if is_active is not None else bool(existing['is_active'])
+            new_display_order = display_order if display_order is not None else existing['display_order']
+
+            if not new_name:
+                return False, "이름이 비어있습니다.", None
+            if new_category not in self.VALID_CATEGORIES:
+                return False, f"잘못된 카테고리: {new_category}", None
+
+            # 중복 체크 (자기 자신 제외)
+            cursor = conn.execute(
+                'SELECT COUNT(*) as count FROM constructors WHERE name = ? AND category = ? AND id != ?',
+                (new_name, new_category, constructor_id)
+            )
+            if cursor.fetchone()['count'] > 0:
+                return False, f"'{new_category}' 카테고리에 이미 '{new_name}'이(가) 존재합니다.", None
+
+            conn.execute('''
+                UPDATE constructors
+                SET name = ?, category = ?, is_active = ?, display_order = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (new_name, new_category, 1 if new_is_active else 0, new_display_order, constructor_id))
+            conn.commit()
+
+            cursor = conn.execute('SELECT * FROM constructors WHERE id = ?', (constructor_id,))
+            row = cursor.fetchone()
+            logger.info(f"[CONSTRUCTOR] 수정됨: id={constructor_id}, name={new_name}, active={new_is_active}")
+            return True, "수정되었습니다.", self._row_to_dict(row)
+
+    def delete(self, constructor_id: int) -> Tuple[bool, str]:
+        """시공자 영구 삭제 (사용 주의 — 보통 is_active=False 권장)"""
+        with self.user_db._get_connection() as conn:
+            cursor = conn.execute('DELETE FROM constructors WHERE id = ?', (constructor_id,))
+            if cursor.rowcount == 0:
+                return False, "시공자를 찾을 수 없습니다."
+            conn.commit()
+            logger.info(f"[CONSTRUCTOR] 삭제됨: id={constructor_id}")
+            return True, "삭제되었습니다."
+
+    def seed_initial_data(self) -> int:
+        """초기 시드 데이터 삽입 (이미 있으면 건너뜀). 삽입된 개수 반환."""
+        seed_data = [
+            ('메인', ['고승빈', '구상모', '노성현', '남진열', '최태식', '한현규', '현재호']),
+            ('서브', ['김석홍', '김재광', '박성준', '우성덕트', '송파팀장']),
+            ('내부', ['아이티', '김종연', '김태현', '일당']),
+        ]
+
+        inserted = 0
+        with self.user_db._get_connection() as conn:
+            # 이미 데이터가 있으면 시드 안 함
+            cursor = conn.execute('SELECT COUNT(*) as count FROM constructors')
+            if cursor.fetchone()['count'] > 0:
+                logger.info("[CONSTRUCTOR] 시드 데이터 건너뜀 (이미 데이터 존재)")
+                return 0
+
+            for category, names in seed_data:
+                for idx, name in enumerate(names):
+                    try:
+                        conn.execute('''
+                            INSERT INTO constructors (name, category, is_active, display_order)
+                            VALUES (?, ?, 1, ?)
+                        ''', (name, category, idx))
+                        inserted += 1
+                    except sqlite3.IntegrityError:
+                        # UNIQUE 충돌 시 건너뜀
+                        pass
+            conn.commit()
+
+        logger.info(f"[CONSTRUCTOR] 초기 시드 완료: {inserted}명 추가")
+        return inserted
+
+    def _row_to_dict(self, row) -> Optional[Dict]:
+        if not row:
+            return None
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'category': row['category'],
+            'is_active': bool(row['is_active']),
+            'display_order': row['display_order'],
+            'created_at': row['created_at'],
+            'updated_at': row['updated_at'],
+        }
+
+
+_constructor_repository: Optional[ConstructorRepository] = None
+
+
+def get_constructor_repository() -> ConstructorRepository:
+    """시공자 저장소 싱글톤 인스턴스"""
+    global _constructor_repository
+    if _constructor_repository is None:
+        user_db = get_user_database()
+        _constructor_repository = ConstructorRepository(user_db)
+    return _constructor_repository

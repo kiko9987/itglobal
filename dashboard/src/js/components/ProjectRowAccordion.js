@@ -1632,12 +1632,14 @@ export default class ProjectRowAccordion {
       '브랜드': ['LG', '삼성', '캐리어', 'FCU', '덕트', '기타'],
       '계약 형태': ['일반', '리스', '렌탈', '기타'],
 
-      // 시공자 옵션 - 카테고리별 구조화 (한 줄에 5개씩)
-      '시공자': {
+      // 시공자 옵션 - DB에서 로드 (window.__CONSTRUCTORS_CACHE__),
+      // 캐시가 없을 때만 아래 하드코딩 폴백 사용 (시드 데이터와 일치)
+      '시공자': (window.__CONSTRUCTORS_CACHE__) ? window.__CONSTRUCTORS_CACHE__ : {
         categories: [
           { name: '메인', options: ['고승빈', '구상모', '노성현', '남진열', '최태식', '한현규', '현재호'] },
-          { name: '서브', options: ['김석홍', '김재광', '박성준', '우성덕트', '송파팀장'] },
-          { name: '내부', options: ['아이티', '김종연', '김태현', '일당'] }
+          { name: '서브', options: ['김재광', '박성준', '우성덕트', '송파팀장'] },
+          { name: '내부', options: ['아이티', '김종연', '김태현', '일당'] },
+          { name: '세척', options: ['김석홍'] }
         ]
       },
 
@@ -1742,49 +1744,77 @@ export default class ProjectRowAccordion {
     // 현재 값 파싱 (콤마로 구분)
     const selectedItems = currentValue ? currentValue.split(',').map(s => s.trim()).filter(v => v && v !== '-') : [];
 
-    // 드롭다운 옵션에 없는 값 찾기 (기타로 입력한 값)
-    const allOptions = dropdownOptions.categories.flatMap(cat => cat.options);
-    const otherValues = selectedItems.filter(v => !allOptions.includes(v));
+    // 활성 / 비활성 옵션 분리
+    const allActiveOptions = dropdownOptions.categories.flatMap(cat => cat.options || []);
+    const allInactiveOptions = dropdownOptions.categories.flatMap(cat => cat.inactiveOptions || []);
+
+    // 진짜 "기타": 활성도 비활성도 아닌 값
+    const otherValues = selectedItems.filter(v => !allActiveOptions.includes(v) && !allInactiveOptions.includes(v));
     const otherValue = otherValues.length > 0 ? otherValues[0] : '';
-    const normalValues = selectedItems.filter(v => allOptions.includes(v));
+
+    // 정상 체크 대상: 활성 옵션에 있는 값들
+    const normalValues = selectedItems.filter(v => allActiveOptions.includes(v));
+
+    // 비활성 시공자 중 현재 프로젝트에 저장된 값들 (회색 옵션으로 표시)
+    const inactiveSelected = selectedItems.filter(v => allInactiveOptions.includes(v));
 
     // 표시할 텍스트
     const displayText = selectedItems.length > 0 ? selectedItems.join(', ') : '선택';
 
-    // 카테고리별 체크박스 HTML 생성 (계산서와 동일 구조)
-    const categoryHtml = dropdownOptions.categories.map(category => `
-      <li class="p-0 constructor-category-group" data-category="${category.name}">
-        <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
-          <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px;">[${category.name}]</strong>
-          <div style="display: flex; gap: 0.75rem; flex: 1; flex-wrap: wrap;">
-            ${category.options.map(option => `
-              <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
-                <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
-                <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
-                       value="${option}"
-                       data-category="${category.name}"
-                       ${normalValues.includes(option) ? 'checked' : ''}>
-              </label>
-            `).join('')}
-          </div>
-        </div>
-      </li>
-    `).join('');
-
-    // 기타 입력 필드
-    const otherHtml = `
-      <li class="p-0" style="border-top: 2px solid #dee2e6;">
-        <label class="d-flex align-items-center w-100 m-0 cursor-pointer" for="${dropdownId}-other-check"
-               style="padding: 0.5rem 0.75rem; gap: 0.5rem;">
-          <span style="font-size: 0.875rem;">기타</span>
+    // 카테고리별 체크박스 HTML 생성 (계산서와 100% 동일 구조, flex-wrap: wrap만 추가)
+    // 내부 카테고리 끝에 '기타' 체크박스를 통합 (별도 [기타] 영역 없이 일반 옵션처럼)
+    // 비활성 시공자 중 현재 프로젝트에 저장된 것은 해당 카테고리에 회색으로 추가 표시
+    const categoryHtml = dropdownOptions.categories.map(category => {
+      const isInternal = category.name === '내부';
+      const otherOptionHtml = isInternal ? `
+        <label class="d-flex align-items-center m-0 cursor-pointer" for="${dropdownId}-other-check" style="gap: 0.25rem;">
+          <span style="font-size: 0.8125rem; white-space: nowrap;">기타</span>
           <input class="form-check-input m-0 constructor-other-check" type="checkbox"
                  id="${dropdownId}-other-check" ${otherValue ? 'checked' : ''}>
         </label>
-      </li>
+      ` : '';
+
+      // 이 카테고리의 비활성 시공자 중 현재 프로젝트에 저장된 것만 표시
+      const inactiveInThisCategory = (category.inactiveOptions || []).filter(name => inactiveSelected.includes(name));
+      const inactiveOptionsHtml = inactiveInThisCategory.map(option => `
+        <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem; opacity: 0.55;" title="비활성 시공자 (거래 중단)">
+          <span style="font-size: 0.8125rem; white-space: nowrap; color: #6c757d;">${option}</span>
+          <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
+                 value="${option}"
+                 data-category="${category.name}"
+                 data-inactive="true"
+                 checked>
+        </label>
+      `).join('');
+
+      return `
+        <li class="p-0 bill-category-group constructor-category-group" data-category="${category.name}">
+          <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
+            <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px;">[${category.name}]</strong>
+            <div style="display: flex; gap: 0.75rem; flex: 1; flex-wrap: wrap;">
+              ${category.options.map(option => `
+                <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
+                  <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
+                  <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
+                         value="${option}"
+                         data-category="${category.name}"
+                         ${normalValues.includes(option) ? 'checked' : ''}>
+                </label>
+              `).join('')}
+              ${inactiveOptionsHtml}
+              ${otherOptionHtml}
+            </div>
+          </div>
+        </li>
+      `;
+    }).join('');
+
+    // 기타 입력 필드 (체크박스는 내부 카테고리로 이동, 텍스트 입력만 유지)
+    const otherHtml = `
       <li class="p-0 ${otherValue ? '' : 'd-none'} constructor-other-input-container" id="${dropdownId}-other-input-container">
         <div style="padding: 0.25rem 0.75rem 0.5rem 0.75rem;">
           <input type="text" class="form-control form-control-sm constructor-other-input"
-                 placeholder="직접 입력" value="${otherValue}"
+                 placeholder="직접 입력 (기타)" value="${otherValue}"
                  style="font-size: 0.8125rem;">
         </div>
       </li>
@@ -1799,8 +1829,8 @@ export default class ProjectRowAccordion {
                 style="height: auto; white-space: normal; padding-top: 0.375rem; padding-bottom: 0.375rem;">
           <span class="selected-text">${displayText}</span>
         </button>
-        <ul class="dropdown-menu constructor-dropdown" aria-labelledby="${dropdownId}"
-            style="max-width: 550px; min-width: 500px; z-index: 9999;">
+        <ul class="dropdown-menu bill-status-dropdown constructor-dropdown" aria-labelledby="${dropdownId}"
+            style="z-index: 9999;">
           ${categoryHtml}
           ${otherHtml}
         </ul>
@@ -6513,38 +6543,15 @@ export default class ProjectRowAccordion {
         dropdownMenu.style.top = `${rect.bottom + 2}px`;
         dropdownMenu.style.left = `${rect.left}px`;
 
-        // 시공자 필드는 450px 너비 + 4열 그리드 레이아웃
+        // 시공자 필드는 계산서와 동일한 카테고리 레이아웃 (HTML에서 이미 설정됨)
+        // 박스 너비를 컨텐츠 크기에 자동 맞춤 (가장 긴 메인 카테고리 기준)
         if (fieldName === '시공자') {
-          dropdownMenu.style.width = '450px';
-          dropdownMenu.style.minWidth = '450px';
-          dropdownMenu.style.maxWidth = '450px';
-          dropdownMenu.style.padding = '0.75rem';
-          dropdownMenu.style.display = 'flex';
-          dropdownMenu.style.flexDirection = 'row';
-          dropdownMenu.style.flexWrap = 'wrap';
-          dropdownMenu.style.gap = '0.5rem';
+          dropdownMenu.style.width = 'max-content';
+          dropdownMenu.style.minWidth = '420px';
+          dropdownMenu.style.maxWidth = '90vw';
           dropdownMenu.style.maxHeight = 'none';
           dropdownMenu.style.overflowY = 'visible';
-
-          // 각 li 항목을 4열 그리드로 배치
-          const listItems = dropdownMenu.querySelectorAll('li');
-          listItems.forEach(li => {
-            li.style.flex = '0 0 calc(25% - 0.5rem)';
-            li.style.width = 'calc(25% - 0.5rem)';
-            li.style.listStyle = 'none';
-            li.style.padding = '0';
-            li.style.display = 'block';
-
-            // label도 스타일 적용
-            const label = li.querySelector('label');
-            if (label) {
-              label.style.justifyContent = 'space-between';
-              label.style.width = '100%';
-              label.style.padding = '0.4rem 0.6rem';
-              label.style.margin = '0';
-              label.style.display = 'flex';
-            }
-          });
+          dropdownMenu.style.padding = '0.5rem 0.75rem';  // 박스 내부 여백
         } else if (fieldName === '계산서') {
           // 계산서 필드는 카테고리별 레이아웃 (이미 HTML에서 설정됨)
           dropdownMenu.style.width = 'auto';
@@ -6559,10 +6566,7 @@ export default class ProjectRowAccordion {
         }
 
         dropdownMenu.style.zIndex = '9999';
-        // 시공자 필드는 이미 display: flex 설정됨
-        if (fieldName !== '시공자') {
-          dropdownMenu.style.display = 'block';
-        }
+        dropdownMenu.style.display = 'block';
       });
 
       // 드롭다운 닫힐 때 원래 위치로 복귀
