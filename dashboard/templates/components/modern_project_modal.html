@@ -1,4 +1,29 @@
 <!-- 현대화된 프로젝트 모달 (레거시와 동일한 기능) -->
+<style>
+/* 모달 내 모든 form-check를 flex로 정렬 (체크박스와 라벨 세로 가운데) */
+#modernProjectModal .form-check {
+    display: flex !important;
+    align-items: center;
+    padding-left: 0;
+    gap: 0.4em;
+    margin-bottom: 0;
+}
+#modernProjectModal .form-check .form-check-input {
+    margin: 0 !important;
+    float: none;
+    flex-shrink: 0;
+}
+#modernProjectModal .form-check .form-check-label {
+    margin: 0;
+    cursor: pointer;
+    line-height: 1.4;
+}
+/* col 안에 위치한 form-check는 좌측 패딩 추가 (기존 부트스트랩 들여쓰기 효과 복원) */
+#modernProjectModal [class*="col-"] > .form-check,
+#modernProjectModal [class*="col-"] .form-check {
+    padding-left: 0.5rem;
+}
+</style>
 <div class="modal fade" id="modernProjectModal" tabindex="-1">
     <div class="modal-dialog modal-xl">
         <div class="modal-content" style="border-radius: var(--border-radius-xl); border: none; box-shadow: var(--shadow-xl);">
@@ -302,117 +327,10 @@
                                                 </small>
                                             </div>
                                             <div class="border rounded p-3" style="background-color: #fafafa;">
-                                                <div class="row g-3">
-                                                    <!-- 1줄: 메인 시공자 -->
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="고승빈" id="modern-constructor-1">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-1">고승빈</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="구상모" id="modern-constructor-2">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-2">구상모</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="노성현" id="modern-constructor-3">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-3">노성현</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="남진열" id="modern-constructor-4">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-4">남진열</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="최태식" id="modern-constructor-5">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-5">최태식</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="한현규" id="modern-constructor-6">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-6">한현규</label>
-                                                        </div>
-                                                    </div>
-                                                    <!-- 줄바꿈 -->
-                                                    <div class="w-100"></div>
-                                                    <!-- 2줄: 서브 시공자 -->
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="현재호" id="modern-constructor-7">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-7">현재호</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김석홍" id="modern-constructor-8">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-8">김석홍 (세척)</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김재광" id="modern-constructor-9">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-9">김재광</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="박성준" id="modern-constructor-10">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-10">박성준</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="우성덕트" id="modern-constructor-11">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-11">우성덕트</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="송파팀장" id="modern-constructor-12">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-12">송파팀장</label>
-                                                        </div>
-                                                    </div>
-                                                    <!-- 줄바꿈 -->
-                                                    <div class="w-100"></div>
-                                                    <!-- 3줄: 내부 시공자 -->
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="아이티" id="modern-constructor-13">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-13">아이티</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김종연" id="modern-constructor-14">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-14">김종연</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="김태현" id="modern-constructor-15">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-15">김태현</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-2">
-                                                        <div class="form-check">
-                                                            <input class="form-check-input modern-constructor-checkbox" type="checkbox" value="일당" id="modern-constructor-16">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-16">일당</label>
-                                                        </div>
-                                                    </div>
-                                                    <div class="col-4 d-flex align-items-center gap-2">
-                                                        <div class="form-check mb-0" style="flex-shrink: 0;">
-                                                            <input class="form-check-input" type="checkbox" id="modern-constructor-other-check">
-                                                            <label class="form-check-label fw-normal" for="modern-constructor-other-check">기타</label>
-                                                        </div>
-                                                        <input type="text" class="form-control form-control-sm d-none" id="modern-constructor-other-input" placeholder="이름 입력" style="font-size: 0.8125rem; height: 24px; padding: 0.25rem 0.5rem; flex: 1; min-width: 0;">
-                                                    </div>
+                                                <!-- 시공자 체크박스는 ModernProjectModal.js가 DB에서 로드 후 동적 렌더링 -->
+                                                <!-- (window.renderConstructorCheckboxes 헬퍼 사용, modern_base.html에 정의) -->
+                                                <div id="modern-constructor-categories">
+                                                    <div class="text-muted small px-2 py-2">시공자 정보를 불러오는 중...</div>
                                                 </div>
                                             </div>
                                             <!-- 선택된 값을 저장할 hidden input -->

@@ -209,16 +209,17 @@
         <div class="modal fade" id="sequenceManagementModal" tabindex="-1" aria-labelledby="sequenceManagementModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered" style="max-width: 600px;">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="sequenceManagementModalLabel">
+                    <div class="modal-header" style="min-height: 68px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; padding: 1rem;">
+                        <h5 class="modal-title mb-0 d-flex align-items-center" id="sequenceManagementModalLabel" style="height: 36px;">
                             <i class="fas fa-sort-numeric-up me-2"></i>프로젝트 시퀀스 관리
                         </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"
-                                onclick="this.blur();"
-                                style="background: none; opacity: 1; padding: 0.5rem; width: auto; height: auto; margin: 0; outline: none; box-shadow: none !important;">
-                            <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; transition: color 0.2s;"
-                               onmouseover="this.style.color='#dc3545'"
-                               onmouseout="this.style.color='#6c757d'"></i>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center" id="refreshSequenceBtn"
+                                onclick="window.runRefreshAnimation(this, loadSequenceStatus)" style="height: 36px;">
+                            <i class="fas fa-sync-alt me-1"></i>새로고침
+                        </button>
+                        <button type="button" class="btn-close d-flex align-items-center justify-content-center" data-bs-dismiss="modal" aria-label="닫기"
+                                style="background: none; opacity: 1; padding: 0; margin: 0 !important; height: 36px; width: 36px; position: static;">
+                            <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; line-height: 1;"></i>
                         </button>
                     </div>
                     <div class="modal-body">
@@ -308,12 +309,7 @@
                         <div id="sequenceAlertContainer"></div>
                     </div>
                     <div class="modal-footer justify-content-center">
-                        <button type="button" class="btn" onclick="loadSequenceStatus()"
-                                style="background-color: #d1ecf1; border: 1px solid #bee5eb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #0c5460;"
-                                onmouseover="this.style.backgroundColor='#bee5eb'; this.style.borderColor='#abdde5'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(12, 84, 96, 0.2)'"
-                                onmouseout="this.style.backgroundColor='#d1ecf1'; this.style.borderColor='#bee5eb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                            <i class="fas fa-sync-alt me-1"></i>새로고침
-                        </button>
+                        <!-- 새로고침은 헤더로 이동됨 -->
                         <button type="button" class="btn" id="sequenceResetBtn" onclick="resetSequence()" disabled
                                 style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #721c24;"
                                 onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f1b0b7'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(114, 28, 36, 0.2)'"
@@ -335,13 +331,19 @@
         <div class="modal fade" id="constructorManagementModal" tabindex="-1" aria-labelledby="constructorManagementModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered" style="max-width: 560px;">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="constructorManagementModalLabel">
+                    <div class="modal-header" style="min-height: 68px; display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 0.5rem; padding: 1rem;">
+                        <h5 class="modal-title mb-0 d-flex align-items-center" id="constructorManagementModalLabel" style="height: 36px;">
                             <i class="fas fa-hard-hat me-2"></i>시공자 관리
                         </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"
-                                style="background: none; opacity: 1; padding: 0.5rem;">
-                            <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d;"></i>
+                        <!-- 알림 메시지 영역 (제목 바로 옆, 좌측 정렬, 고정 높이로 layout shift 방지) -->
+                        <div id="constructorAlertContainerHeader" style="height: 36px; display: flex; align-items: center; margin-left: 0.5rem;"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center" id="refreshConstructorsBtn"
+                                onclick="window.runRefreshAnimation(this, loadConstructors)" style="height: 36px;">
+                            <i class="fas fa-sync-alt me-1"></i>새로고침
+                        </button>
+                        <button type="button" class="btn-close d-flex align-items-center justify-content-center" data-bs-dismiss="modal" aria-label="닫기"
+                                style="background: none; opacity: 1; padding: 0; margin: 0 !important; height: 36px; width: 36px; position: static;">
+                            <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; line-height: 1;"></i>
                         </button>
                     </div>
                     <div class="modal-body">
@@ -375,8 +377,9 @@
                             </div>
                         </div>
 
-                        <!-- 알림 메시지 영역 -->
-                        <div id="constructorAlertContainer"></div>
+                        <!-- 알림 메시지 영역은 modal-header로 이동됨 (constructorAlertContainerHeader) -->
+                        <!-- body 영역에는 두지 않음 → 명단 영역이 알림 표시/사라짐에 영향받지 않게 -->
+                        <div id="constructorAlertContainer" class="d-none"></div>
 
                         <!-- 로딩 -->
                         <div class="text-center py-4" id="constructorLoadingSpinner">
@@ -428,12 +431,8 @@
                             </div>
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="loadConstructors()">
-                            <i class="fas fa-sync-alt me-1"></i>새로고침
-                        </button>
-                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">닫기</button>
-                    </div>
+                    <!-- footer 제거됨: 새로고침 버튼이 헤더로 이동 -->
+
                 </div>
             </div>
         </div>
@@ -856,6 +855,39 @@
 
         // 시공자 캐시 갱신 (모든 로그인 사용자) - ProjectRowAccordion 드롭다운용
         // 활성+비활성 모두 받아서 분리 저장 (비활성은 기존 프로젝트 편집 시 회색 옵션으로 표시)
+        /**
+         * 통일된 새로고침 애니메이션 헬퍼 (모든 관리 모달 공통)
+         * @param {HTMLElement} btnEl - 새로고침 버튼 요소
+         * @param {Function} refreshFn - 비동기 데이터 로드 함수
+         */
+        window.runRefreshAnimation = async function(btnEl, refreshFn) {
+            if (!btnEl) {
+                try { await refreshFn(); } catch (e) { console.error(e); }
+                return;
+            }
+            const icon = btnEl.querySelector('i');
+            const originalIconClass = icon ? icon.className : '';
+
+            btnEl.disabled = true;
+            if (icon) icon.className = 'fas fa-sync-alt fa-spin me-1';
+
+            try {
+                await refreshFn();
+                if (icon) icon.className = 'fas fa-check-circle me-1 text-success';
+                setTimeout(() => {
+                    if (icon) icon.className = originalIconClass;
+                    btnEl.disabled = false;
+                }, 800);
+            } catch (err) {
+                if (icon) icon.className = 'fas fa-times-circle me-1 text-danger';
+                setTimeout(() => {
+                    if (icon) icon.className = originalIconClass;
+                    btnEl.disabled = false;
+                }, 1200);
+                console.error('[REFRESH] 실패:', err);
+            }
+        };
+
         window.refreshConstructorCache = async function() {
             try {
                 const response = await fetch('/api/constructors/all-public');
@@ -889,6 +921,118 @@
             window.refreshConstructorCache();
         }
 
+        /**
+         * 시공자 체크박스 UI를 컨테이너에 동적으로 렌더링하는 헬퍼
+         * 카테고리 라벨이 좌측에 표시되고, 그 옆에 옵션 체크박스가 가로 배치됨
+         *
+         * @param {string} containerId - 체크박스를 넣을 컨테이너 element id
+         * @param {Object} options
+         *   - selectedValues: 기존 선택된 시공자 이름 배열 (편집 시)
+         *   - checkboxClass: 체크박스에 붙일 클래스 (예: 'modern-constructor-checkbox')
+         *   - idPrefix: 체크박스 id prefix
+         *   - showOther: 기타 입력 포함 여부 (기본 true)
+         *   - otherCheckId: 기타 체크박스 id
+         *   - otherInputId: 기타 입력란 id
+         * @returns {boolean} 렌더링 성공 여부 (캐시 없으면 false, 자동 재시도)
+         */
+        window.renderConstructorCheckboxes = function(containerId, options) {
+            const opts = Object.assign({
+                selectedValues: [],
+                checkboxClass: 'modern-constructor-checkbox',
+                idPrefix: 'modern-constructor',
+                showOther: true,
+                otherCheckId: 'modern-constructor-other-check',
+                otherInputId: 'modern-constructor-other-input',
+            }, options || {});
+
+            const container = document.getElementById(containerId);
+            if (!container) {
+                console.warn('[CONSTRUCTOR_RENDER] 컨테이너 없음:', containerId);
+                return false;
+            }
+
+            const cache = window.__CONSTRUCTORS_CACHE__;
+            if (!cache || !cache.categories) {
+                container.innerHTML = '<div class="text-muted small px-2 py-2">시공자 정보를 불러오는 중...</div>';
+                if (typeof window.refreshConstructorCache === 'function') {
+                    window.refreshConstructorCache().then(() => {
+                        window.renderConstructorCheckboxes(containerId, options);
+                    });
+                }
+                return false;
+            }
+
+            // 활성 시공자 전체 옵션 (기타 판별용)
+            const allActiveOptions = cache.categories.flatMap(c => c.options || []);
+            const selectedSet = new Set(opts.selectedValues);
+
+            // 카테고리별로 한 row씩: [라벨] + [옵션 가로 wrap]
+            let html = '';
+            let idCounter = 0;
+
+            for (const category of cache.categories) {
+                const activeOptions = category.options || [];
+                if (activeOptions.length === 0) continue;
+
+                // 카테고리 이름 글자 사이 공백 삽입 ("메인" → "메   인")
+                const spacedCategoryName = category.name.split('').join(' ');  // Em space
+
+                // 옵션 체크박스 HTML
+                let optionsHtml = '';
+                for (const name of activeOptions) {
+                    idCounter++;
+                    const checkboxId = `${opts.idPrefix}-${idCounter}`;
+                    const isChecked = selectedSet.has(name);
+                    const safeName = name.replace(/"/g, '&quot;');
+                    optionsHtml += `
+                        <div class="form-check me-5" style="min-width: 75px; display: inline-flex; align-items: center; padding-left: 0; gap: 0.4em;">
+                            <input class="form-check-input ${opts.checkboxClass} m-0" type="checkbox"
+                                   value="${safeName}" id="${checkboxId}" data-category="${category.name}"
+                                   ${isChecked ? 'checked' : ''}
+                                   style="flex-shrink: 0; float: none;">
+                            <label class="form-check-label fw-normal m-0" for="${checkboxId}" style="cursor: pointer;">${name}</label>
+                        </div>
+                    `;
+                }
+
+                html += `
+                    <div class="d-flex align-items-start mb-3" style="gap: 1rem; padding-left: 1.25rem;">
+                        <strong style="font-size: 0.8125rem; color: #495057; min-width: 75px; padding-top: 0.15rem; flex-shrink: 0; text-align: left; letter-spacing: 0.05em;">
+                            [${spacedCategoryName}]
+                        </strong>
+                        <div class="d-flex flex-wrap align-items-center" style="flex: 1; row-gap: 1rem;">
+                            ${optionsHtml}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // 기타 (마지막 row, 다른 카테고리와 같은 형식)
+            if (opts.showOther) {
+                const otherValue = opts.selectedValues.find(v => !allActiveOptions.includes(v)) || '';
+                const safeOther = otherValue.replace(/"/g, '&quot;');
+                html += `
+                    <div class="d-flex align-items-center" style="gap: 1rem; padding-left: 1.25rem;">
+                        <strong style="font-size: 0.8125rem; color: #495057; min-width: 75px; flex-shrink: 0; text-align: left; letter-spacing: 0.05em;">
+                            [기 타]
+                        </strong>
+                        <div class="d-flex align-items-center" style="flex: 1; gap: 0;">
+                            <div class="form-check mb-0 me-4" style="flex-shrink: 0; min-width: 80px; display: inline-flex; align-items: center; padding-left: 0; gap: 0.4em;">
+                                <input class="form-check-input m-0" type="checkbox" id="${opts.otherCheckId}" ${otherValue ? 'checked' : ''} style="flex-shrink: 0; float: none;">
+                                <label class="form-check-label fw-normal m-0" for="${opts.otherCheckId}" style="cursor: pointer;">직접 입력</label>
+                            </div>
+                            <input type="text" class="form-control form-control-sm ${otherValue ? '' : 'd-none'}"
+                                   id="${opts.otherInputId}" placeholder="이름 입력" value="${safeOther}"
+                                   style="font-size: 0.8125rem; height: 28px; padding: 0.25rem 0.5rem; flex: 1; min-width: 0; max-width: 200px;">
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+            return true;
+        };
+
         window.openConstructorManagement = function() {
             if (window.userRole !== 'admin' && window.userRole !== 'super_admin') {
                 alert('관리자 권한이 필요합니다.');
@@ -915,18 +1059,53 @@
         };
 
         function showConstructorAlert(message, type = 'info') {
-            const container = document.getElementById('constructorAlertContainer');
+            // 헤더 영역에 알림 표시 (body 명단 영역에 영향 안 주도록)
+            const container = document.getElementById('constructorAlertContainerHeader');
+            if (!container) return;
             const alertId = 'constructorAlert_' + Date.now();
+
+            // 알림 색상 매핑 (헤더용 컴팩트, 진한 톤)
+            const styleMap = {
+                success:   { bg: '#198754', color: '#fff', icon: 'fa-check-circle' },
+                secondary: { bg: '#6c757d', color: '#fff', icon: 'fa-minus-circle' },
+                danger:    { bg: '#dc3545', color: '#fff', icon: 'fa-exclamation-circle' },
+                warning:   { bg: '#ffc107', color: '#212529', icon: 'fa-exclamation-triangle' },
+                info:      { bg: '#0d6efd', color: '#fff', icon: 'fa-info-circle' }
+            };
+            const s = styleMap[type] || styleMap.info;
+
             container.innerHTML = `
-                <div class="alert alert-${type} alert-dismissible fade show py-2" role="alert" id="${alertId}" style="font-size: 0.875rem;">
-                    ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <div id="${alertId}"
+                     style="display: inline-flex;
+                            align-items: center;
+                            gap: 0.4rem;
+                            background-color: ${s.bg};
+                            color: ${s.color};
+                            border-radius: 0.375rem;
+                            padding: 0.35rem 0.7rem;
+                            font-size: 0.8125rem;
+                            font-weight: 500;
+                            white-space: nowrap;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                            opacity: 0;
+                            transition: opacity 0.2s ease-in-out;">
+                    <i class="fas ${s.icon}" style="font-size: 0.85rem;"></i>
+                    <span>${message}</span>
                 </div>
             `;
+            // fade-in
+            requestAnimationFrame(() => {
+                const el = document.getElementById(alertId);
+                if (el) el.style.opacity = '1';
+            });
+            // fade-out 후 제거
             setTimeout(() => {
                 const el = document.getElementById(alertId);
-                if (el) el.remove();
-            }, 4000);
+                if (el) {
+                    el.style.opacity = '0';
+                    setTimeout(() => el.remove(), 250);
+                }
+            }, 3000);
         }
 
         async function loadConstructors() {
@@ -1070,12 +1249,17 @@
                 const result = await response.json();
                 if (!response.ok || !result.success) throw new Error(result.message || 'HTTP ' + response.status);
 
-                // 행 opacity 즉시 업데이트
+                // UX 개선: 같은 탭 내 위치 유지 (마우스 위치 안정)
+                // 행 opacity만 즉시 업데이트하고 재정렬은 다음 모달 오픈 시 자동 반영
                 const row = document.querySelector(`tr[data-constructor-id="${id}"]`);
                 if (row) row.style.opacity = isActive ? '1' : '0.5';
 
-                showConstructorAlert(`${isActive ? '활성화' : '비활성화'} 되었습니다.`, 'success');
-                window.refreshConstructorCache();  // 드롭다운 캐시 갱신
+                // 활성화는 success(녹색), 비활성화는 secondary(회색)로 시각적 구분
+                showConstructorAlert(
+                    `${isActive ? '활성화' : '비활성화'} 되었습니다.`,
+                    isActive ? 'success' : 'secondary'
+                );
+                window.refreshConstructorCache();  // 드롭다운 캐시 갱신 (프로젝트 모달용)
             } catch (err) {
                 console.error('[CONSTRUCTOR] 활성 토글 실패:', err);
                 showConstructorAlert('변경 실패: ' + err.message, 'danger');

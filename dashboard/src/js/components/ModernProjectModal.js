@@ -99,34 +99,38 @@ export default class ModernProjectModal {
       checkbox.addEventListener('change', (e) => this.handleCheckboxLimit(e, '.modern-contract-category-checkbox', 'modern-contract-category-error', 2));
     });
 
-    // 시공자 체크박스 (최대 3개)
-    const constructorCheckboxes = this.modalElement.querySelectorAll('.modern-constructor-checkbox');
-    constructorCheckboxes.forEach(checkbox => {
-      checkbox.addEventListener('change', (e) => {
+    // 시공자 체크박스 - 이벤트 위임 (체크박스가 동적으로 생성되므로 정적 바인딩 안 됨)
+    // window.renderConstructorCheckboxes 헬퍼가 매번 새로 그리기 때문에
+    // 모달 요소에 위임하여 동적 체크박스도 정상 작동
+    this.modalElement.addEventListener('change', (e) => {
+      // 일반 시공자 체크박스 (최대 3개)
+      if (e.target.matches('.modern-constructor-checkbox')) {
         this.handleCheckboxLimit(e, '.modern-constructor-checkbox', 'modern-constructor-error', 3);
         this.updateConstructorHiddenInput();
-      });
+        return;
+      }
+      // 기타 체크박스 - 입력창 토글
+      if (e.target.id === 'modern-constructor-other-check') {
+        const otherInput = document.getElementById('modern-constructor-other-input');
+        if (otherInput) {
+          if (e.target.checked) {
+            otherInput.classList.remove('d-none');
+            otherInput.focus();
+          } else {
+            otherInput.classList.add('d-none');
+            otherInput.value = '';
+          }
+          this.updateConstructorHiddenInput();
+        }
+      }
     });
 
-    // 시공자 기타 체크박스 - 입력창 토글
-    const constructorOtherCheck = document.getElementById('modern-constructor-other-check');
-    const constructorOtherInput = document.getElementById('modern-constructor-other-input');
-    if (constructorOtherCheck && constructorOtherInput) {
-      constructorOtherCheck.addEventListener('change', (e) => {
-        if (e.target.checked) {
-          constructorOtherInput.classList.remove('d-none');
-          constructorOtherInput.focus();
-        } else {
-          constructorOtherInput.classList.add('d-none');
-          constructorOtherInput.value = '';
-        }
+    // 기타 입력란 텍스트 변경 - 이벤트 위임
+    this.modalElement.addEventListener('input', (e) => {
+      if (e.target.id === 'modern-constructor-other-input') {
         this.updateConstructorHiddenInput();
-      });
-
-      constructorOtherInput.addEventListener('input', () => {
-        this.updateConstructorHiddenInput();
-      });
-    }
+      }
+    });
 
     // 날짜 동기화 ('시작일과 동일' 체크박스)
     const sameDateCheck = document.getElementById('modern-same-date-check');
@@ -267,6 +271,9 @@ export default class ModernProjectModal {
         throw new Error('모달 초기화에 실패했습니다.');
       }
 
+      // 시공자 체크박스 영역 동적 렌더링 (DB 캐시 기반 - 시공자 관리 변경 자동 반영)
+      this.renderConstructorField();
+
       // 모달 먼저 즉시 표시 (UX 개선)
       this.modal.show();
 
@@ -277,6 +284,26 @@ export default class ModernProjectModal {
       logger.error('[ModernProjectModal] 모달 열기 오류:', error);
       this.showAlert('모달을 여는 중 오류가 발생했습니다.', 'danger');
     }
+  }
+
+  /**
+   * 시공자 체크박스 영역을 DB 캐시 기반으로 동적 렌더링
+   * 시공자 관리 모달에서 변경하면 자동으로 반영됨
+   * @param {Array<string>} selectedValues - 이미 선택된 시공자 이름 (편집 모드 등)
+   */
+  renderConstructorField(selectedValues = []) {
+    if (typeof window.renderConstructorCheckboxes !== 'function') {
+      logger.warn('[ModernProjectModal] renderConstructorCheckboxes 헬퍼 함수 없음');
+      return;
+    }
+    window.renderConstructorCheckboxes('modern-constructor-categories', {
+      selectedValues: selectedValues,
+      checkboxClass: 'modern-constructor-checkbox',
+      idPrefix: 'modern-constructor',
+      showOther: true,
+      otherCheckId: 'modern-constructor-other-check',
+      otherInputId: 'modern-constructor-other-input',
+    });
   }
 
   /**

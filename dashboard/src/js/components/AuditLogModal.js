@@ -51,6 +51,14 @@ export default class AuditLogModal {
       daysSelect.addEventListener('change', () => this.loadAuditLogs(1));
     }
 
+    // 새로고침 버튼 (공통 헬퍼 사용)
+    const refreshBtn = document.getElementById('refreshAuditLogsBtn');
+    if (refreshBtn && typeof window.runRefreshAnimation === 'function') {
+      refreshBtn.addEventListener('click', () => {
+        window.runRefreshAnimation(refreshBtn, () => this.loadAuditLogs(1));
+      });
+    }
+
     // 모달 숨김 이벤트
     this.modalElement.addEventListener('hidden.bs.modal', () => {
       this.handleModalHidden();
@@ -668,26 +676,52 @@ export default class AuditLogModal {
     // 기존 알림 제거
     alertContainer.innerHTML = '';
 
-    // 새 알림 생성
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type === 'error' ? 'danger' : type} py-1 px-2 mb-0 d-inline-flex align-items-center`;
-    alertDiv.style.fontSize = '0.85rem';
-
-    const iconMap = {
-      success: 'fa-check-circle',
-      error: 'fa-exclamation-triangle',
-      warning: 'fa-exclamation-circle'
+    // 컴팩트 인라인 알림 (헤더용, 시공자/사용자 모달 패턴과 통일)
+    const styleMap = {
+      success:   { bg: '#198754', color: '#fff', icon: 'fa-check-circle' },
+      secondary: { bg: '#6c757d', color: '#fff', icon: 'fa-minus-circle' },
+      danger:    { bg: '#dc3545', color: '#fff', icon: 'fa-exclamation-circle' },
+      error:     { bg: '#dc3545', color: '#fff', icon: 'fa-exclamation-circle' },
+      warning:   { bg: '#ffc107', color: '#212529', icon: 'fa-exclamation-triangle' },
+      info:      { bg: '#0d6efd', color: '#fff', icon: 'fa-info-circle' }
     };
+    const s = styleMap[type] || styleMap.info;
+    const alertId = 'auditLogsAlertItem_' + Date.now();
 
-    const icon = iconMap[type] || 'fa-info-circle';
-    alertDiv.innerHTML = `<i class="fas ${icon} me-2"></i>${message}`;
+    alertContainer.innerHTML = `
+      <div id="${alertId}"
+           style="display: inline-flex;
+                  align-items: center;
+                  gap: 0.4rem;
+                  background-color: ${s.bg};
+                  color: ${s.color};
+                  border-radius: 0.375rem;
+                  padding: 0.35rem 0.7rem;
+                  font-size: 0.8125rem;
+                  font-weight: 500;
+                  white-space: nowrap;
+                  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                  opacity: 0;
+                  transition: opacity 0.2s ease-in-out;">
+        <i class="fas ${s.icon}" style="font-size: 0.85rem;"></i>
+        <span>${message}</span>
+      </div>
+    `;
 
-    alertContainer.appendChild(alertDiv);
+    // fade-in
+    requestAnimationFrame(() => {
+      const el = document.getElementById(alertId);
+      if (el) el.style.opacity = '1';
+    });
 
-    // 3초 후 자동 제거 (성공 메시지만)
-    if (type === 'success') {
+    // 성공/일반 정보는 3초 후 자동 제거
+    if (type === 'success' || type === 'info' || type === 'secondary') {
       setTimeout(() => {
-        this.clearAlert();
+        const el = document.getElementById(alertId);
+        if (el) {
+          el.style.opacity = '0';
+          setTimeout(() => this.clearAlert(), 250);
+        }
       }, 3000);
     }
   }
@@ -711,22 +745,27 @@ export default class AuditLogModal {
       <div class="modal fade" id="auditLogsModal" tabindex="-1" aria-labelledby="auditLogsModalLabel" data-bs-backdrop="true" data-bs-keyboard="true">
         <div class="modal-dialog audit-logs-modal">
           <div class="modal-content">
-            <div class="modal-header">
-              <div class="d-flex align-items-center flex-grow-1">
-                <h5 class="modal-title mb-0" id="auditLogsModalLabel">
-                  <i class="fas fa-history me-2"></i>작업 로그
-                </h5>
-                <div id="auditLogsAlert" class="ms-3 audit-logs-alert"></div>
-              </div>
-              <div class="d-flex align-items-center">
-                <select id="auditLogsDays" class="form-select form-select-sm me-2 audit-logs-days-select">
-                  <option value="1">오늘</option>
-                  <option value="3">3일</option>
-                  <option value="7" selected>7일</option>
-                  <option value="14">14일</option>
-                  <option value="30">30일</option>
-                </select>
-              </div>
+            <div class="modal-header" style="min-height: 68px; display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 0.5rem; padding: 1rem;">
+              <h5 class="modal-title mb-0 d-flex align-items-center" id="auditLogsModalLabel" style="height: 36px;">
+                <i class="fas fa-history me-2"></i>작업 로그
+              </h5>
+              <!-- 알림 영역: 고정 높이로 layout shift 방지 -->
+              <div id="auditLogsAlert" class="audit-logs-alert d-flex align-items-center" style="height: 36px; margin-left: 0.5rem;"></div>
+              <select id="auditLogsDays" class="form-select form-select-sm audit-logs-days-select" style="height: 36px;">
+                <option value="1">오늘</option>
+                <option value="3">3일</option>
+                <option value="7" selected>7일</option>
+                <option value="14">14일</option>
+                <option value="30">30일</option>
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center" id="refreshAuditLogsBtn"
+                      style="height: 36px;">
+                <i class="fas fa-sync-alt me-1"></i>새로고침
+              </button>
+              <button type="button" class="btn-close d-flex align-items-center justify-content-center" data-bs-dismiss="modal" aria-label="닫기"
+                      style="background: none; opacity: 1; padding: 0; margin: 0 !important; height: 36px; width: 36px; position: static;">
+                <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; line-height: 1;"></i>
+              </button>
             </div>
             <div class="modal-body audit-logs-body">
               <div class="table-responsive">
@@ -781,10 +820,8 @@ export default class AuditLogModal {
                   </nav>
                 </div>
 
-                <!-- 우측: 닫기 버튼 -->
-                <div class="audit-logs-close">
-                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
-                </div>
+                <!-- 우측: 빈 공간 유지 (헤더 X 버튼으로 닫기) -->
+                <div class="audit-logs-close" aria-hidden="true"></div>
               </div>
             </div>
           </div>

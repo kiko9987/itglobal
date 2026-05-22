@@ -1762,18 +1762,9 @@ export default class ProjectRowAccordion {
     const displayText = selectedItems.length > 0 ? selectedItems.join(', ') : '선택';
 
     // 카테고리별 체크박스 HTML 생성 (계산서와 100% 동일 구조, flex-wrap: wrap만 추가)
-    // 내부 카테고리 끝에 '기타' 체크박스를 통합 (별도 [기타] 영역 없이 일반 옵션처럼)
     // 비활성 시공자 중 현재 프로젝트에 저장된 것은 해당 카테고리에 회색으로 추가 표시
+    // 기타는 별도 [기타] 카테고리 row로 분리 (otherHtml에서 처리)
     const categoryHtml = dropdownOptions.categories.map(category => {
-      const isInternal = category.name === '내부';
-      const otherOptionHtml = isInternal ? `
-        <label class="d-flex align-items-center m-0 cursor-pointer" for="${dropdownId}-other-check" style="gap: 0.25rem;">
-          <span style="font-size: 0.8125rem; white-space: nowrap;">기타</span>
-          <input class="form-check-input m-0 constructor-other-check" type="checkbox"
-                 id="${dropdownId}-other-check" ${otherValue ? 'checked' : ''}>
-        </label>
-      ` : '';
-
       // 이 카테고리의 비활성 시공자 중 현재 프로젝트에 저장된 것만 표시
       const inactiveInThisCategory = (category.inactiveOptions || []).filter(name => inactiveSelected.includes(name));
       const inactiveOptionsHtml = inactiveInThisCategory.map(option => `
@@ -1789,11 +1780,11 @@ export default class ProjectRowAccordion {
 
       return `
         <li class="p-0 bill-category-group constructor-category-group" data-category="${category.name}">
-          <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
-            <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px;">[${category.name}]</strong>
-            <div style="display: flex; gap: 0.75rem; flex: 1; flex-wrap: wrap;">
+          <div style="display: flex; align-items: flex-start; padding: 0.5rem 0.75rem; gap: 0.75rem;">
+            <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px; padding-top: 0.15rem; flex-shrink: 0;">[${category.name}]</strong>
+            <div style="display: flex; gap: 0.75rem; flex: 1; flex-wrap: wrap; row-gap: 1rem;">
               ${category.options.map(option => `
-                <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
+                <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem; min-width: 80px; flex-shrink: 0;">
                   <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
                   <input class="form-check-input m-0 constructor-checkbox" type="checkbox"
                          value="${option}"
@@ -1802,20 +1793,27 @@ export default class ProjectRowAccordion {
                 </label>
               `).join('')}
               ${inactiveOptionsHtml}
-              ${otherOptionHtml}
             </div>
           </div>
         </li>
       `;
     }).join('');
 
-    // 기타 입력 필드 (체크박스는 내부 카테고리로 이동, 텍스트 입력만 유지)
+    // [기타] 카테고리 row (다른 카테고리와 동일한 형식 + 체크박스 옆에 입력란)
     const otherHtml = `
-      <li class="p-0 ${otherValue ? '' : 'd-none'} constructor-other-input-container" id="${dropdownId}-other-input-container">
-        <div style="padding: 0.25rem 0.75rem 0.5rem 0.75rem;">
-          <input type="text" class="form-control form-control-sm constructor-other-input"
-                 placeholder="직접 입력 (기타)" value="${otherValue}"
-                 style="font-size: 0.8125rem;">
+      <li class="p-0 bill-category-group constructor-category-group" data-category="기타">
+        <div style="display: flex; align-items: center; padding: 0.5rem 0.75rem; gap: 0.75rem;">
+          <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px; flex-shrink: 0;">[기타]</strong>
+          <div style="display: flex; gap: 0.75rem; flex: 1; align-items: center;">
+            <label class="d-flex align-items-center m-0 cursor-pointer" for="${dropdownId}-other-check" style="gap: 0.25rem; min-width: 80px; flex-shrink: 0;">
+              <span style="font-size: 0.8125rem; white-space: nowrap;">직접 입력</span>
+              <input class="form-check-input m-0 constructor-other-check" type="checkbox"
+                     id="${dropdownId}-other-check" ${otherValue ? 'checked' : ''}>
+            </label>
+            <input type="text" class="form-control form-control-sm constructor-other-input ${otherValue ? '' : 'd-none'}"
+                   id="${dropdownId}-other-input" placeholder="이름 입력" value="${otherValue}"
+                   style="font-size: 0.8125rem; height: 28px; padding: 0.25rem 0.5rem; flex: 1; min-width: 0; max-width: 250px;">
+          </div>
         </div>
       </li>
     `;
@@ -6543,15 +6541,15 @@ export default class ProjectRowAccordion {
         dropdownMenu.style.top = `${rect.bottom + 2}px`;
         dropdownMenu.style.left = `${rect.left}px`;
 
-        // 시공자 필드는 계산서와 동일한 카테고리 레이아웃 (HTML에서 이미 설정됨)
-        // 박스 너비를 컨텐츠 크기에 자동 맞춤 (가장 긴 메인 카테고리 기준)
+        // 시공자 필드: 한 줄 6명 한도, 7명 이상은 자동 wrap
+        // (max-width로 박스 폭 제한 → 옵션 폭 80 × 6 + 라벨/padding ≈ 720px)
         if (fieldName === '시공자') {
           dropdownMenu.style.width = 'max-content';
           dropdownMenu.style.minWidth = '420px';
-          dropdownMenu.style.maxWidth = '90vw';
+          dropdownMenu.style.maxWidth = '680px';
           dropdownMenu.style.maxHeight = 'none';
           dropdownMenu.style.overflowY = 'visible';
-          dropdownMenu.style.padding = '0.5rem 0.75rem';  // 박스 내부 여백
+          dropdownMenu.style.padding = '0.75rem 0 0.75rem 0.5rem';  // 위/좌/아래 여백 추가, 우측은 그대로
         } else if (fieldName === '계산서') {
           // 계산서 필드는 카테고리별 레이아웃 (이미 HTML에서 설정됨)
           dropdownMenu.style.width = 'auto';
@@ -6673,7 +6671,6 @@ export default class ProjectRowAccordion {
       if (fieldName === '시공자') {
         const constructorCheckboxes = dropdownMenu.querySelectorAll('.constructor-checkbox');
         const otherCheck = dropdownMenu.querySelector('.constructor-other-check');
-        const otherInputContainer = dropdownMenu.querySelector('.constructor-other-input-container');
         const otherInput = dropdownMenu.querySelector('.constructor-other-input');
 
         // 일반 체크박스 이벤트
@@ -6693,8 +6690,8 @@ export default class ProjectRowAccordion {
           });
         });
 
-        // 기타 체크박스 이벤트
-        if (otherCheck && otherInputContainer && otherInput) {
+        // 기타 체크박스 이벤트 (입력란이 같은 row의 우측에 표시됨)
+        if (otherCheck && otherInput) {
           otherCheck.addEventListener('change', () => {
             const normalCheckedCount = Array.from(constructorCheckboxes).filter(cb => cb.checked).length;
 
@@ -6705,10 +6702,10 @@ export default class ProjectRowAccordion {
             }
 
             if (otherCheck.checked) {
-              otherInputContainer.classList.remove('d-none');
+              otherInput.classList.remove('d-none');
               otherInput.focus();
             } else {
-              otherInputContainer.classList.add('d-none');
+              otherInput.classList.add('d-none');
               otherInput.value = '';
             }
 

@@ -821,30 +821,52 @@ export default class UserModal {
     // 기존 알림 제거
     this.clearAlert();
 
-    // 타입별 스타일 설정
-    const alertTypes = {
-      success: { class: 'alert-success', icon: 'fa-check-circle' },
-      error: { class: 'alert-danger', icon: 'fa-exclamation-triangle' },
-      warning: { class: 'alert-warning', icon: 'fa-exclamation-circle' },
-      info: { class: 'alert-info', icon: 'fa-info-circle' }
+    // 컴팩트 인라인 알림 (헤더용, 시공자 모달 패턴과 통일)
+    const styleMap = {
+      success:   { bg: '#198754', color: '#fff', icon: 'fa-check-circle' },
+      secondary: { bg: '#6c757d', color: '#fff', icon: 'fa-minus-circle' },
+      danger:    { bg: '#dc3545', color: '#fff', icon: 'fa-exclamation-circle' },
+      error:     { bg: '#dc3545', color: '#fff', icon: 'fa-exclamation-circle' },
+      warning:   { bg: '#ffc107', color: '#212529', icon: 'fa-exclamation-triangle' },
+      info:      { bg: '#0d6efd', color: '#fff', icon: 'fa-info-circle' }
     };
+    const s = styleMap[type] || styleMap.info;
+    const alertId = 'userMgmtAlert_' + Date.now();
 
-    const alertType = alertTypes[type] || alertTypes.info;
-
-    const alertElement = document.createElement('div');
-    alertElement.className = `alert ${alertType.class} alert-dismissible fade show py-2 px-3 mb-0`;
-    alertElement.style.fontSize = '0.85rem';
-    alertElement.innerHTML = `
-      <i class="fas ${alertType.icon} me-2"></i>${message}
-      <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+    alertContainer.innerHTML = `
+      <div id="${alertId}"
+           style="display: inline-flex;
+                  align-items: center;
+                  gap: 0.4rem;
+                  background-color: ${s.bg};
+                  color: ${s.color};
+                  border-radius: 0.375rem;
+                  padding: 0.35rem 0.7rem;
+                  font-size: 0.8125rem;
+                  font-weight: 500;
+                  white-space: nowrap;
+                  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+                  opacity: 0;
+                  transition: opacity 0.2s ease-in-out;">
+        <i class="fas ${s.icon}" style="font-size: 0.85rem;"></i>
+        <span>${message}</span>
+      </div>
     `;
 
-    alertContainer.appendChild(alertElement);
+    // fade-in
+    requestAnimationFrame(() => {
+      const el = document.getElementById(alertId);
+      if (el) el.style.opacity = '1';
+    });
 
-    // 3초 후 자동 제거 (성공 메시지만)
-    if (type === 'success') {
+    // 성공/일반 정보는 3초 후 자동 제거, 에러/경고는 유지
+    if (type === 'success' || type === 'info' || type === 'secondary') {
       setTimeout(() => {
-        this.clearAlert();
+        const el = document.getElementById(alertId);
+        if (el) {
+          el.style.opacity = '0';
+          setTimeout(() => this.clearAlert(), 250);
+        }
       }, 3000);
     }
   }
@@ -1010,18 +1032,20 @@ export default class UserModal {
       <div class="modal fade" id="userManagementModal" tabindex="-1" aria-labelledby="userManagementModalLabel" data-bs-backdrop="true" data-bs-keyboard="true">
         <div class="modal-dialog user-management-modal">
           <div class="modal-content">
-            <div class="modal-header">
-              <div class="d-flex align-items-center flex-grow-1">
-                <h5 class="modal-title mb-0" id="userManagementModalLabel">
-                  <i class="fas fa-users-cog me-2"></i>사용자 관리
-                </h5>
-                <div id="userManagementAlert" class="ms-3 user-management-alert"></div>
-              </div>
-              <div class="d-flex align-items-center">
-                <button class="btn btn-sm me-2 user-refresh-btn" id="refreshUsersBtn">
-                  <i class="fas fa-sync-alt me-1"></i>새로고침
-                </button>
-              </div>
+            <div class="modal-header" style="min-height: 68px; display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 0.5rem; padding: 1rem;">
+              <h5 class="modal-title mb-0 d-flex align-items-center" id="userManagementModalLabel" style="height: 36px;">
+                <i class="fas fa-users-cog me-2"></i>사용자 관리
+              </h5>
+              <!-- 알림 영역: 고정 높이로 layout shift 방지 -->
+              <div id="userManagementAlert" class="user-management-alert d-flex align-items-center" style="height: 36px; margin-left: 0.5rem;"></div>
+              <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center" id="refreshUsersBtn"
+                      style="height: 36px;">
+                <i class="fas fa-sync-alt me-1"></i>새로고침
+              </button>
+              <button type="button" class="btn-close d-flex align-items-center justify-content-center" data-bs-dismiss="modal" aria-label="닫기"
+                      style="background: none; opacity: 1; padding: 0; margin: 0 !important; height: 36px; width: 36px; position: static;">
+                <i class="fas fa-times" style="font-size: 1.5rem; color: #6c757d; line-height: 1;"></i>
+              </button>
             </div>
             <div class="modal-body">
               <div class="table-responsive">
@@ -1075,10 +1099,8 @@ export default class UserModal {
                   </nav>
                 </div>
 
-                <!-- 우측: 닫기 버튼 -->
-                <div class="user-management-close">
-                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
-                </div>
+                <!-- 우측: 빈 공간 유지 (헤더 X 버튼으로 닫기, 페이지네이션 중앙 정렬 유지) -->
+                <div class="user-management-close" aria-hidden="true"></div>
               </div>
             </div>
           </div>
