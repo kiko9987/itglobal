@@ -382,14 +382,21 @@ export default class ModernProjectModal {
         .filter(company => company)
     )].sort();
 
-    // 거래처 목록 추출 (필터와 동일)
+    // 거래처 목록 추출 (D열, 유입채널)
     const clients = [...new Set(
       projectData
         .map(item => (item['거래처'] || '').trim())
         .filter(client => client)
     )].sort();
 
-    return { owners, companies, clients };
+    // 사업자명 목록 추출 (E열, 신규)
+    const businessNames = [...new Set(
+      projectData
+        .map(item => (item['사업자명'] || '').trim())
+        .filter(name => name)
+    )].sort((a, b) => a.localeCompare(b, 'ko'));
+
+    return { owners, companies, clients, businessNames };
   }
 
   /**
@@ -398,7 +405,8 @@ export default class ModernProjectModal {
   setDropdownsLoading(isLoading) {
     const ownerSelect = document.getElementById('modern-owner');
     const companySelect = document.getElementById('modern-company');
-    const clientInput = document.getElementById('modern-client');
+    const clientInput = document.getElementById('modern-client');  // 이제 select
+    const businessNameInput = document.getElementById('modern-business-name');
 
     if (isLoading) {
       // 로딩 중 - 비활성화 및 로딩 메시지
@@ -411,7 +419,16 @@ export default class ModernProjectModal {
       }
       if (clientInput) {
         clientInput.disabled = true;
-        clientInput.placeholder = '로딩 중...';
+        // select는 placeholder 없음, 첫 옵션 텍스트 변경으로 안내
+        if (clientInput.tagName === 'SELECT' && clientInput.children[0]) {
+          clientInput.children[0].textContent = '로딩 중...';
+        } else {
+          clientInput.placeholder = '로딩 중...';
+        }
+      }
+      if (businessNameInput) {
+        businessNameInput.disabled = true;
+        businessNameInput.placeholder = '로딩 중...';
       }
     } else {
       // 로딩 완료 - 활성화
@@ -423,7 +440,15 @@ export default class ModernProjectModal {
       }
       if (clientInput) {
         clientInput.disabled = false;
-        clientInput.placeholder = '거래처 입력';
+        if (clientInput.tagName === 'SELECT' && clientInput.children[0]) {
+          clientInput.children[0].textContent = '선택';
+        } else {
+          clientInput.placeholder = '거래처 입력';
+        }
+      }
+      if (businessNameInput) {
+        businessNameInput.disabled = false;
+        businessNameInput.placeholder = '사업자등록증명';
       }
     }
   }
@@ -490,16 +515,31 @@ export default class ModernProjectModal {
       console.error('[DEBUG] modern-owner 엘리먼트를 찾을 수 없음');
     }
 
-    // 거래처 목록
+    // 거래처 (D열, 유입채널) - select 드롭다운
     const clients = data.options?.clients || data.clients || [];
-
-    const clientList = document.getElementById('modernClientList');
-    if (clientList) {
-      clientList.innerHTML = '';
+    const clientSelect = document.getElementById('modern-client');
+    if (clientSelect && clientSelect.tagName === 'SELECT') {
+      // 첫 옵션 "선택"만 유지하고 나머지 제거
+      while (clientSelect.children.length > 1) {
+        clientSelect.removeChild(clientSelect.lastChild);
+      }
       clients.forEach(client => {
         const option = document.createElement('option');
         option.value = client;
-        clientList.appendChild(option);
+        option.textContent = client;
+        clientSelect.appendChild(option);
+      });
+    }
+
+    // 사업자명 (E열, 신규) - datalist 자동완성
+    const businessNames = data.options?.businessNames || data.businessNames || [];
+    const businessNameList = document.getElementById('modernBusinessNameList');
+    if (businessNameList) {
+      businessNameList.innerHTML = '';
+      businessNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        businessNameList.appendChild(option);
       });
     }
   }

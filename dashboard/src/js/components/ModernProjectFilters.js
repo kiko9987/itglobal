@@ -27,6 +27,7 @@ export default class ModernProjectFilters {
       '프로젝트 코드',
       '거래처',
       '담당자',
+      '사업자명',  // E열 신규: 사업자등록증명
       '현장 주소',
       '공사 내용',
       '사업자',
@@ -64,6 +65,7 @@ export default class ModernProjectFilters {
     this.searchInput = document.getElementById('searchInput');
     this.companyFilter = document.getElementById('companyFilter');
     this.clientFilter = document.getElementById('clientFilter');
+    this.businessNameFilter = document.getElementById('businessNameFilter');
     this.statusFilter = document.getElementById('statusFilter');
     this.dataFilter = document.getElementById('dataFilter');
     this.managerFilter = document.getElementById('managerFilter');
@@ -113,7 +115,7 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 거래처 필터
+    // 거래처 필터 (유입채널)
     if (this.clientFilter) {
       this.clientFilter.addEventListener('change', (e) => {
         const value = e.target.value;
@@ -121,6 +123,20 @@ export default class ModernProjectFilters {
           this.filters.client = value;
         } else {
           delete this.filters.client;
+        }
+        this.applyFilters(null, true);
+        e.target.blur(); // 포커스 제거
+      });
+    }
+
+    // 사업자명 필터 (E열, 신규)
+    if (this.businessNameFilter) {
+      this.businessNameFilter.addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (value && value !== '' && value !== '전체') {
+          this.filters.businessName = value;
+        } else {
+          delete this.filters.businessName;
         }
         this.applyFilters(null, true);
         e.target.blur(); // 포커스 제거
@@ -258,11 +274,19 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 거래처 필터 (새로 추가)
+    // 거래처 필터 (유입채널)
     if (this.filters.client) {
       filteredData = filteredData.filter(item => {
         const client = item['거래처'] || '';
         return client.toString().trim() === this.filters.client;
+      });
+    }
+
+    // 사업자명 필터 (E열 신규)
+    if (this.filters.businessName) {
+      filteredData = filteredData.filter(item => {
+        const businessName = item['사업자명'] || '';
+        return businessName.toString().trim() === this.filters.businessName;
       });
     }
 
@@ -415,6 +439,7 @@ export default class ModernProjectFilters {
     const currentSelections = {
       company: this.companyFilter?.value || '',
       client: this.clientFilter?.value || '',
+      businessName: this.businessNameFilter?.value || '',
       status: this.statusFilter?.value || '',
       manager: this.managerFilter?.value || ''
     };
@@ -422,6 +447,7 @@ export default class ModernProjectFilters {
     // 필터 옵션 재생성
     this.populateCompanyFilter(data);
     this.populateClientFilter(data);
+    this.populateBusinessNameFilter(data);  // E열 사업자명 (신규)
     this.populateStatusFilter(data);
     this.populateManagerFilter(data);
 
@@ -458,6 +484,18 @@ export default class ModernProjectFilters {
         // 옵션이 더 이상 존재하지 않는 경우 초기화
         this.clientFilter.value = '';
         delete this.filters.client;
+      }
+    }
+
+    // 사업자명 필터 복원 (E열 신규)
+    if (selections.businessName && this.businessNameFilter) {
+      const opt = Array.from(this.businessNameFilter.options).find(o => o.value === selections.businessName);
+      if (opt) {
+        this.businessNameFilter.value = selections.businessName;
+        this.filters.businessName = selections.businessName;
+      } else {
+        this.businessNameFilter.value = '';
+        delete this.filters.businessName;
       }
     }
 
@@ -531,6 +569,29 @@ export default class ModernProjectFilters {
       option.value = client;
       option.textContent = client;
       this.clientFilter.appendChild(option);
+    });
+  }
+
+  /**
+   * 사업자명 필터 옵션 동적 생성 (E열, 신규)
+   */
+  populateBusinessNameFilter(data) {
+    if (!this.businessNameFilter || !data || !Array.isArray(data)) return;
+
+    // 고유한 사업자명 목록 추출
+    const businessNames = [...new Set(data.map(item => (item['사업자명'] || '').trim()).filter(name => name))];
+
+    // 기존 옵션 제거 (첫 번째 "전체" 옵션은 유지)
+    while (this.businessNameFilter.children.length > 1) {
+      this.businessNameFilter.removeChild(this.businessNameFilter.lastChild);
+    }
+
+    // 사업자명 옵션 추가 (가나다순)
+    businessNames.sort((a, b) => a.localeCompare(b, 'ko')).forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      this.businessNameFilter.appendChild(option);
     });
   }
 
@@ -680,6 +741,7 @@ export default class ModernProjectFilters {
     if (this.searchInput) this.searchInput.value = '';
     if (this.companyFilter) this.companyFilter.value = '';
     if (this.clientFilter) this.clientFilter.value = '';
+    if (this.businessNameFilter) this.businessNameFilter.value = '';
     if (this.statusFilter) this.statusFilter.value = '';
     if (this.dataFilter) this.dataFilter.value = '';
     if (this.managerFilter) this.managerFilter.value = '';

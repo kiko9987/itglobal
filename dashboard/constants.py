@@ -10,10 +10,11 @@
 MEMOABLE_FIELDS = ['계약금', '중도금', '잔금']
 
 # 필드명 → 구글 시트 컬럼 매핑
+# 2026-05-22 시프트: E열 사업자명 추가로 T/U/V → U/V/W
 PAYMENT_FIELD_TO_COLUMN = {
-    '계약금': 'T',
-    '중도금': 'U',
-    '잔금': 'V'
+    '계약금': 'U',
+    '중도금': 'V',
+    '잔금': 'W'
 }
 
 # 컬럼 → 필드명 매핑 (역방향)
@@ -22,9 +23,9 @@ COLUMN_TO_PAYMENT_FIELD = {v: k for k, v in PAYMENT_FIELD_TO_COLUMN.items()}
 # 메모 필드명 (데이터프레임 컬럼)
 MEMO_FIELD_SUFFIX = '_메모'
 PAYMENT_MEMO_FIELDS = {
-    '계약금_메모': 'T',
-    '중도금_메모': 'U',
-    '잔금_메모': 'V'
+    '계약금_메모': 'U',
+    '중도금_메모': 'V',
+    '잔금_메모': 'W'
 }
 
 # 메모 길이 제한

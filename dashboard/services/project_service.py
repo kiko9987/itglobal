@@ -68,7 +68,7 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
             return None
 
         manager = get_sheets_manager()
-        sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AN')
+        sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AO')
         logger.debug("[PREFETCH] Google Sheets 데이터 가져오기 시작")
         df = manager.get_sheet_data(sheet_id, sheet_range)
 
@@ -86,7 +86,7 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
 
             if notes_by_row is None:
                 logger.debug("[PREFETCH] 셀 노트 가져오기")
-                notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['T', 'U', 'V'])
+                notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W'])
                 smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)
             else:
                 logger.debug(f"[PREFETCH] 캐시된 셀 노트 사용: {len(notes_by_row)}개 행")
@@ -398,7 +398,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 return None
 
             manager = get_sheets_manager()
-            sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AN')
+            sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AO')
             logger.info(f"Loading project data from range: {sheet_range}")
             df = manager.get_sheet_data(sheet_id, sheet_range)
 
@@ -416,7 +416,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
 
                 if notes_by_row is None or force_refresh:
                     logger.info(f"[LOAD_NOTES] 셀 노트 가져오기 시작: {sheet_name}")
-                    notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['T', 'U', 'V'])
+                    notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W'])
 
                     # 셀 노트 캐시에 저장 (TEMPORARY 전략)
                     smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)

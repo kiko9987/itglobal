@@ -623,7 +623,7 @@ def _load_project_row(manager, sheet_id, sheet_name, project_code):
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AN',  # AN 컬럼까지 읽기 (_version 포함)
+        end_col='AO',  # AN 컬럼까지 읽기 (_version 포함)
         value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
     )
 
@@ -661,7 +661,7 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AN',
+            end_col='AO',
             value_render_option='FORMATTED_VALUE'
         )
 
@@ -866,7 +866,7 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AN',  # AN 컬럼까지 조회 (_version 포함)
+        end_col='AO',  # AN 컬럼까지 조회 (_version 포함)
         value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
     )
 
@@ -1157,7 +1157,7 @@ def _load_row_data_for_inline_update(manager, sheet_id, sheet_name, project_code
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AN'
+        end_col='AO'
     )
 
     # 현재 값을 리스트로 확장 (40개 컬럼, AN까지)
@@ -1202,7 +1202,7 @@ def _check_optimistic_lock_inline(data, current_values, project_code, manager, s
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AN',
+            end_col='AO',
             value_render_option='FORMATTED_VALUE'
         )
 
@@ -1414,7 +1414,7 @@ def _save_and_return_inline_result(manager, sheet_id, sheet_name, row_number, cu
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AM'
+        end_col='AN'
     )
 
     # 행 데이터를 딕셔너리로 변환
@@ -2496,12 +2496,15 @@ def _build_row_values(data, manager, row_number):
 
     # 수식 필드 강제 삽입 (컬럼 매핑에 없어도 삽입)
     # 부가세 계산: 절사(FLOOR) 방식 + 끝자리 1/9원 보정 (실무 표준, 행 번호 동적 삽입)
+    # 2026-05-22 시프트: 모든 letter가 한 칸씩 뒤로 (E열 사업자명 추가)
+    #   총액1: Q→R, 부가세: R→S, 총액2: S→T, 계약금: T→U, 중도금: U→V, 잔금: V→W, 미수금: W→X
+    #   제품대: AA→AB, 도급비: AB→AC, 자재비: AC→AD, 기타비: AD→AE, 순익: AE→AF, 마진율: AF→AG, _version: AN→AO
     formula_fields = {
-        'S': data.get('총액 2', f'=IF(R{row_number}=TRUE, Q{row_number}+FLOOR(Q{row_number}*0.1,1) + IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=1, -1, IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=9, 1, 0)), Q{row_number})'),
-        'W': data.get('미수금', f'=($T{row_number}+$U{row_number}+$V{row_number})-$S{row_number}'),
-        'AE': data.get('순익', f'=Q{row_number}-(AA{row_number}+AB{row_number}+AC{row_number}+AD{row_number})'),
-        'AF': data.get('마진율', f'=IF(OR(Q{row_number}=0, AE{row_number}=0), 0, AE{row_number}/Q{row_number})'),
-        'AN': '0'  # _version 초기값 (낙관적 잠금용)
+        'T': data.get('총액 2', f'=IF(S{row_number}=TRUE, R{row_number}+FLOOR(R{row_number}*0.1,1) + IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=1, -1, IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=9, 1, 0)), R{row_number})'),
+        'X': data.get('미수금', f'=($U{row_number}+$V{row_number}+$W{row_number})-$T{row_number}'),
+        'AF': data.get('순익', f'=R{row_number}-(AB{row_number}+AC{row_number}+AD{row_number}+AE{row_number})'),
+        'AG': data.get('마진율', f'=IF(OR(R{row_number}=0, AF{row_number}=0), 0, AF{row_number}/R{row_number})'),
+        'AO': '0'  # _version 초기값 (낙관적 잠금용)
     }
 
     for col_letter, formula in formula_fields.items():

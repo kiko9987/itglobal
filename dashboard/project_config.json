@@ -8,7 +8,7 @@
   ],
   "slack_webhook_url": "",
   "sheet_id": "1s2fVTlRDpj-ljgub3noxuPCNlnH8gawuB87WtOxSyk4",
-  "sheet_range": "공사 현황의 사본!A1:AN5000",
+  "sheet_range": "공사 현황의 사본!A1:AO5000",
   "required_fields": [
     "프로젝트 코드",
     "현장 주소"

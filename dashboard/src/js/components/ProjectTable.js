@@ -486,6 +486,21 @@ export default class ProjectTable {
           }.bind(this)
         },
         {
+          // 사업자명 (E열, 신규) - 연한 회색 라벨
+          name: 'businessName',
+          data: '사업자명',
+          defaultContent: '',
+          render: function(data) {
+            if (data && data.trim() !== '') {
+              // HTML 이스케이프 (간단)
+              const safe = String(data).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              return `<span class="badge business-name-badge" style="background-color: #e9ecef; color: #495057; font-weight: 500; padding: 0.3em 0.55em; font-size: 0.8125rem; white-space: normal; text-align: left; max-width: 100%;">${safe}</span>`;
+            } else {
+              return '<span class="text-muted">-</span>';
+            }
+          }
+        },
+        {
           name: 'address',
           data: '현장 주소',
           defaultContent: '',
@@ -497,18 +512,7 @@ export default class ProjectTable {
             }
           }
         },
-        {
-          name: 'workContent',
-          data: '공사 내용',
-          defaultContent: '',
-          render: function(data) {
-            if (data && data.trim() !== '') {
-              return data;
-            } else {
-              return '<i class="fas fa-exclamation-circle text-danger me-2" title="데이터가 비어 있습니다. 공사 내용을 입력해주세요."></i><span class="text-muted">공사내용 없음</span>';
-            }
-          }
-        },
+        // 공사 내용 컬럼은 제거됨 (행 펼침 아코디언에서 표시)
         {
           name: 'startDate',
           data: '공사 시작',
@@ -698,8 +702,13 @@ export default class ProjectTable {
           className: 'text-left'
         },
         {
-          // 주소와 공사 내용: 넓이 유지 (왼쪽 정렬)
-          targets: [3, 4],
+          // 사업자명: 가운데 정렬
+          targets: [3],
+          className: 'text-center'
+        },
+        {
+          // 현장 주소: 왼쪽 정렬
+          targets: [4],
           className: 'text-left'
         },
         {
@@ -1483,9 +1492,9 @@ export default class ProjectTable {
       logger.debug(`[ProjectTable] 수금 모드 전환 시작 (${this.modeManager.isReceivablesMode() ? 'ON' : 'OFF'})`);
 
       // ✅ 1단계: 컬럼 visibility 먼저 변경 (draw 없이 - 깜빡임 방지)
+      // (workContent 컬럼은 메인 테이블에서 제거됨 — 아코디언에서 표시)
       if (this.modeManager.isReceivablesMode()) {
         // 수금 관리 모드 ON
-        this.table.column('workContent:name').visible(false, false);
         this.table.column('startDate:name').visible(false, false);
         this.table.column('outstandingNormal:name').visible(false, false);
         this.table.column('status:name').visible(false, false);
@@ -1498,7 +1507,6 @@ export default class ProjectTable {
         this.table.column('receivableNotes:name').visible(true, false);
       } else {
         // 일반 모드 복원
-        this.table.column('workContent:name').visible(true, false);
         this.table.column('startDate:name').visible(true, false);
         this.table.column('outstandingNormal:name').visible(true, false);
         this.table.column('status:name').visible(true, false);
@@ -1709,7 +1717,7 @@ export default class ProjectTable {
     if (!this.modeManager.isReceivablesMode() || !this.table) return;
 
     // 수금 모드 컬럼 visibility 복원 - name 기반으로
-    this.table.column('workContent:name').visible(false, false);       // 공사내용
+    // (workContent 컬럼은 메인 테이블에서 제거됨 — 아코디언에서 표시)
     this.table.column('startDate:name').visible(false, false);         // 공사시작
     this.table.column('outstandingNormal:name').visible(false, false); // 미수금(일반용)
     this.table.column('status:name').visible(false, false);            // 상태

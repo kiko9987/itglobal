@@ -99,15 +99,26 @@
                                     </h6>
                                 </div>
                                 <div class="card-body" style="padding: 1.5rem;">
-                                    <div class="row">
+                                    <!-- 1줄: 거래처(유입채널) + 사업자명 -->
+                                    <div class="row mb-3">
                                         <div class="col-md-4">
                                             <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">거래처 <span class="text-danger">*</span></label>
-                                            <input type="text" class="form-control" id="modern-client" name="거래처" required list="modernClientList" autocomplete="off" placeholder="거래처명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
-                                            <datalist id="modernClientList">
-                                                <!-- 동적으로 채워짐 -->
-                                            </datalist>
+                                            <select class="form-select" id="modern-client" name="거래처" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                                <option value="">선택</option>
+                                                <!-- 동적으로 D열 unique 값 채워짐 (유입채널: 거래처/온라인/당근/소개/숨고 등) -->
+                                            </select>
                                         </div>
                                         <div class="col-md-8">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">사업자명</label>
+                                            <input type="text" class="form-control" id="modern-business-name" name="사업자명" list="modernBusinessNameList" autocomplete="off" placeholder="사업자등록증명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <datalist id="modernBusinessNameList">
+                                                <!-- 동적으로 E열 unique 값 채워짐 -->
+                                            </datalist>
+                                        </div>
+                                    </div>
+                                    <!-- 2줄: 공사 구분 -->
+                                    <div class="row">
+                                        <div class="col-md-12">
                                             <div class="d-flex align-items-center justify-content-between mb-2">
                                                 <label class="form-label mb-0" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm);">공사 구분</label>
                                                 <!-- 공사 구분 에러 메시지 -->
