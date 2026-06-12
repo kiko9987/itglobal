@@ -139,3 +139,9 @@ new_fastapi_app/
 
 # 테스트 결과 아티팩트
 test-results/
+
+# Worktrees (Claude Code internal)
+.claude/worktrees/
+
+# Flask session cache
+flask_session/

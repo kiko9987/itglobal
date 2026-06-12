@@ -21,3 +21,10 @@ pytest==8.4.2
 PyJWT==2.8.0
 redis==5.2.1
 rq==2.2.0
+
+# Slack 봇 (ITG 관리 봇)
+slack_bolt==1.28.0
+slack_sdk==3.42.0
+
+# 암호화된 엑셀 복호화 (당근 리드 자동 처리)
+msoffcrypto-tool==6.0.0

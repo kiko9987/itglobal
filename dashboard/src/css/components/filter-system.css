@@ -2,14 +2,15 @@
 
 /* 필터 컨테이너 */
 .filter-section-sticky {
-  /* 레거시 스타일: content-container 안에 있으므로 wrapper는 투명하게 */
+  /* sticky 영역: 스크롤 시 테이블 행이 비쳐 보이지 않도록 흰 배경 + 높은 z-index */
   position: sticky;
   top: var(--header-height);
-  z-index: var(--z-sticky);
-  background: transparent;
-  border-bottom: none;
-  box-shadow: none;
+  z-index: 1020;  /* 부트스트랩 sticky-top 표준값, 테이블 행 위로 */
+  background: #ffffff;
+  border-bottom: 1px solid #e9ecef;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
   margin-bottom: 0;
+  padding: 0.5rem 0;
 }
 
 .filter-section {

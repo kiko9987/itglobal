@@ -326,6 +326,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.leads import leads_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
         from dashboard.blueprints.constructors import constructors_bp
+        from dashboard.blueprints.slack_bot import slack_bp
         from dashboard.api.v1.auth import auth_bp as auth_api_bp
 
         # 기본 블루프린트들 등록
@@ -344,6 +345,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(metadata_bp)
         app.register_blueprint(sequence_bp)
         app.register_blueprint(constructors_bp)
+        app.register_blueprint(slack_bp)  # Slack 봇 webhook
         app.register_blueprint(auth_api_bp)  # API v1 인증 엔드포인트
 
         # 시공자 초기 시드 (테이블이 비어있을 때만)
@@ -360,6 +362,16 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         logger.error(f"블루프린트 등록 실패: {e}")
         # 블루프린트는 필수가 아니므로 앱 시작을 차단하지 않음
         logger.warning("블루프린트 없이 계속 진행")
+
+    # 백그라운드 sync 스케줄러 (당근 시트 → 메인 시트 + 슬랙 알림)
+    try:
+        # Flask debug reloader가 자식 프로세스에서만 진짜 동작하므로 메인 프로세스에선 스킵
+        is_reloader_child = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
+        if not app.debug or is_reloader_child:
+            from dashboard.services.sync_scheduler import start_scheduler
+            start_scheduler()
+    except Exception as sched_err:
+        logger.warning(f"스케줄러 시작 실패 (무시): {sched_err}")
 
     # FUTURE: 미래 확장 블루프린트들 (계획 중)
     # register_auth_blueprint(app)         # 인증 & 권한

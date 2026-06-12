@@ -690,10 +690,10 @@ export default class ProjectTable {
       ],
       columnDefs: [
         {
-          // 프로젝트 코드: 넓이 증가 (비율)
+          // 프로젝트 코드: 컴팩트 (8자 정도) + 줄바꿈 방지로 해상도 영향 없음
           targets: [0],
-          width: '12%',
-          className: 'text-left'
+          width: '8%',
+          className: 'text-left text-nowrap'
         },
         {
           // 담당자, 거래처: 넓이 축소 (비율)

@@ -50,16 +50,6 @@ class StatsManager {
     }
 
     generateStatistics() {
-        // 2024년 프로젝트 수 계산
-        const projects2024Count = this.projectsData.filter(project => {
-            const confirmDate = project['공사 확정'];
-            if (confirmDate) {
-                const year = new Date(confirmDate).getFullYear();
-                return year === 2024;
-            }
-            return false;
-        }).length;
-
         // 2025년 프로젝트 수 계산
         const projects2025Count = this.projectsData.filter(project => {
             const confirmDate = project['공사 확정'];
@@ -70,32 +60,42 @@ class StatsManager {
             return false;
         }).length;
 
+        // 2026년 프로젝트 수 계산
+        const projects2026Count = this.projectsData.filter(project => {
+            const confirmDate = project['공사 확정'];
+            if (confirmDate) {
+                const year = new Date(confirmDate).getFullYear();
+                return year === 2026;
+            }
+            return false;
+        }).length;
+
         // 총 프로젝트 표시
         document.getElementById('totalProjects').innerHTML =
-            `2024년 : ${projects2024Count}건 (1월~12월)<br>2025년 : ${projects2025Count}건 (1월~현재)`;
+            `2025년 : ${projects2025Count}건 (1월~12월)<br>2026년 : ${projects2026Count}건 (1월~현재)`;
 
-        // 2024년 매출 계산
-        const revenue2024 = this.calculateYearlyRevenue(2024);
+        // 2025년 매출 계산
         const revenue2025 = this.calculateYearlyRevenue(2025);
+        const revenue2026 = this.calculateYearlyRevenue(2026);
 
         // 총 매출 표시
         document.getElementById('totalRevenue').innerHTML =
-            `2024년 : ${this.formatCurrency(revenue2024)} (1월~12월)<br>2025년 : ${this.formatCurrency(revenue2025)} (1월~현재)`;
+            `2025년 : ${this.formatCurrency(revenue2025)} (1월~12월)<br>2026년 : ${this.formatCurrency(revenue2026)} (1월~현재)`;
 
         // 미수금 계산
-        const outstanding2024 = this.calculateOutstanding(2024);
         const outstanding2025 = this.calculateOutstanding(2025);
+        const outstanding2026 = this.calculateOutstanding(2026);
 
         document.getElementById('outstandingAmount').innerHTML =
-            `2024년 : ${this.formatCurrency(outstanding2024)} (1월~12월)<br>2025년 : ${this.formatCurrency(outstanding2025)} (1월~현재)`;
+            `2025년 : ${this.formatCurrency(outstanding2025)} (1월~12월)<br>2026년 : ${this.formatCurrency(outstanding2026)} (1월~현재)`;
 
         // 월 평균 매출 계산
         const currentMonth = new Date().getMonth() + 1;
-        const avg2024 = revenue2024 > 0 ? revenue2024 / 12 : 0;
-        const avg2025 = revenue2025 > 0 ? revenue2025 / currentMonth : 0;
+        const avg2025 = revenue2025 > 0 ? revenue2025 / 12 : 0;
+        const avg2026 = revenue2026 > 0 ? revenue2026 / currentMonth : 0;
 
         document.getElementById('avgMonthlyRevenue').innerHTML =
-            `2024년 : ${this.formatCurrency(avg2024)} (12개월)<br>2025년 : ${this.formatCurrency(avg2025)} (${currentMonth}개월)`;
+            `2025년 : ${this.formatCurrency(avg2025)} (12개월)<br>2026년 : ${this.formatCurrency(avg2026)} (${currentMonth}개월)`;
     }
 
     calculateYearlyRevenue(year) {
@@ -132,8 +132,8 @@ class StatsManager {
 
     setupManagerColors() {
         const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
-        const managers2024 = new Set();
         const managers2025 = new Set();
+        const managers2026 = new Set();
 
         // 담당자 수집
         this.projectsData.forEach(project => {
@@ -142,21 +142,21 @@ class StatsManager {
                 const year = new Date(confirmDate).getFullYear();
                 const manager = project['담당자'];
                 if (manager && !excludedOwners.includes(manager)) {
-                    if (year === 2024) managers2024.add(manager);
                     if (year === 2025) managers2025.add(manager);
+                    if (year === 2026) managers2026.add(manager);
                 }
             }
         });
 
-        // 2024년 담당자에게 기본 색상 할당
-        Array.from(managers2024).sort().forEach(manager => {
+        // 2025년 담당자에게 기본 색상 할당
+        Array.from(managers2025).sort().forEach(manager => {
             if (this.colorIndex < this.baseColors.length) {
                 this.managerColorMap[manager] = this.baseColors[this.colorIndex++];
             }
         });
 
-        // 2025년 신규 담당자에게 추가 색상 할당
-        Array.from(managers2025).sort().forEach(manager => {
+        // 2026년 신규 담당자에게 추가 색상 할당
+        Array.from(managers2026).sort().forEach(manager => {
             if (!this.managerColorMap[manager]) {
                 if (this.additionalColorIndex < this.additionalColors.length) {
                     this.managerColorMap[manager] = this.additionalColors[this.additionalColorIndex++];
@@ -167,36 +167,14 @@ class StatsManager {
 
     createCharts() {
         this.setupManagerColors();
-        this.createMonthly2024Chart();
         this.createMonthly2025Chart();
-        this.createPersonal2024Chart();
+        this.createMonthly2026Chart();
         this.createPersonal2025Chart();
-        this.createCompany2024Chart();
+        this.createPersonal2026Chart();
         this.createCompany2025Chart();
+        this.createCompany2026Chart();
         this.createCompanyCompareChart();
         this.createTrendChart();
-    }
-
-    createMonthly2024Chart() {
-        const ctx = document.getElementById('monthly2024Chart').getContext('2d');
-        const monthlyData = this.getMonthlyData(2024);
-        const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
-
-        if (this.charts.monthly2024) this.charts.monthly2024.destroy();
-
-        this.charts.monthly2024 = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: monthNames,
-                datasets: [{
-                    data: monthlyData.map(amount => amount / 100000000),
-                    backgroundColor: '#7BB3FF',
-                    borderColor: '#5A9BD4',
-                    borderWidth: 1
-                }]
-            },
-            options: this.getBarChartOptions()
-        });
     }
 
     createMonthly2025Chart() {
@@ -221,31 +199,25 @@ class StatsManager {
         });
     }
 
-    createPersonal2024Chart() {
-        const ctx = document.getElementById('personal2024Chart').getContext('2d');
-        const managerRevenue = this.getManagerRevenue(2024);
+    createMonthly2026Chart() {
+        const ctx = document.getElementById('monthly2026Chart').getContext('2d');
+        const monthlyData = this.getMonthlyData(2026);
+        const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
 
-        const sortedManagers = Object.entries(managerRevenue)
-            .sort(([, a], [, b]) => b - a);
+        if (this.charts.monthly2026) this.charts.monthly2026.destroy();
 
-        const managerNames = sortedManagers.map(([name]) => name);
-        const managerAmounts = sortedManagers.map(([, amount]) => amount / 100000000);
-        const managerColors = managerNames.map(name => this.managerColorMap[name] || '#7BB3FF');
-
-        if (this.charts.personal2024) this.charts.personal2024.destroy();
-
-        this.charts.personal2024 = new Chart(ctx, {
+        this.charts.monthly2026 = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: managerNames,
+                labels: monthNames,
                 datasets: [{
-                    data: managerAmounts,
-                    backgroundColor: managerColors,
-                    borderColor: managerColors.map(color => color.replace('FF', 'CC')),
+                    data: monthlyData.map(amount => amount / 100000000),
+                    backgroundColor: '#7BB3FF',
+                    borderColor: '#5A9BD4',
                     borderWidth: 1
                 }]
             },
-            options: this.getPersonalChartOptions()
+            options: this.getBarChartOptions()
         });
     }
 
@@ -258,7 +230,7 @@ class StatsManager {
 
         const managerNames = sortedManagers.map(([name]) => name);
         const managerAmounts = sortedManagers.map(([, amount]) => amount / 100000000);
-        const managerColors = managerNames.map(name => this.managerColorMap[name] || '#999999');
+        const managerColors = managerNames.map(name => this.managerColorMap[name] || '#7BB3FF');
 
         if (this.charts.personal2025) this.charts.personal2025.destroy();
 
@@ -277,31 +249,31 @@ class StatsManager {
         });
     }
 
-    createCompany2024Chart() {
-        const ctx = document.getElementById('company2024Chart').getContext('2d');
-        const { globalData, globalGroupData } = this.getCompanyMonthlyData(2024);
+    createPersonal2026Chart() {
+        const ctx = document.getElementById('personal2026Chart').getContext('2d');
+        const managerRevenue = this.getManagerRevenue(2026);
 
-        if (this.charts.company2024) this.charts.company2024.destroy();
+        const sortedManagers = Object.entries(managerRevenue)
+            .sort(([, a], [, b]) => b - a);
 
-        this.charts.company2024 = new Chart(ctx, {
+        const managerNames = sortedManagers.map(([name]) => name);
+        const managerAmounts = sortedManagers.map(([, amount]) => amount / 100000000);
+        const managerColors = managerNames.map(name => this.managerColorMap[name] || '#999999');
+
+        if (this.charts.personal2026) this.charts.personal2026.destroy();
+
+        this.charts.personal2026 = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'],
+                labels: managerNames,
                 datasets: [{
-                    label: '글로벌',
-                    data: globalData.map(amount => amount / 100000000),
-                    backgroundColor: '#FF8A95',
-                    borderColor: '#E6707A',
-                    borderWidth: 1
-                }, {
-                    label: '글로벌그룹',
-                    data: globalGroupData.map(amount => amount / 100000000),
-                    backgroundColor: '#7BB3FF',
-                    borderColor: '#5A9BD4',
+                    data: managerAmounts,
+                    backgroundColor: managerColors,
+                    borderColor: managerColors.map(color => color.replace('FF', 'CC')),
                     borderWidth: 1
                 }]
             },
-            options: this.getCompanyChartOptions()
+            options: this.getPersonalChartOptions()
         });
     }
 
@@ -333,6 +305,34 @@ class StatsManager {
         });
     }
 
+    createCompany2026Chart() {
+        const ctx = document.getElementById('company2026Chart').getContext('2d');
+        const { globalData, globalGroupData } = this.getCompanyMonthlyData(2026);
+
+        if (this.charts.company2026) this.charts.company2026.destroy();
+
+        this.charts.company2026 = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'],
+                datasets: [{
+                    label: '글로벌',
+                    data: globalData.map(amount => amount / 100000000),
+                    backgroundColor: '#FF8A95',
+                    borderColor: '#E6707A',
+                    borderWidth: 1
+                }, {
+                    label: '글로벌그룹',
+                    data: globalGroupData.map(amount => amount / 100000000),
+                    backgroundColor: '#7BB3FF',
+                    borderColor: '#5A9BD4',
+                    borderWidth: 1
+                }]
+            },
+            options: this.getCompanyChartOptions()
+        });
+    }
+
     createCompanyCompareChart() {
         const ctx = document.getElementById('companyCompareChart').getContext('2d');
         const comparison = this.getCompanyComparison();
@@ -342,16 +342,16 @@ class StatsManager {
         this.charts.companyCompare = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['2024년', '2025년'],
+                labels: ['2025년', '2026년'],
                 datasets: [{
                     label: '글로벌',
-                    data: [comparison.global2024 / 100000000, comparison.global2025 / 100000000],
+                    data: [comparison.global2025 / 100000000, comparison.global2026 / 100000000],
                     backgroundColor: '#FF8A95',
                     borderColor: '#E6707A',
                     borderWidth: 1
                 }, {
                     label: '글로벌그룹',
-                    data: [comparison.globalGroup2024 / 100000000, comparison.globalGroup2025 / 100000000],
+                    data: [comparison.globalGroup2025 / 100000000, comparison.globalGroup2026 / 100000000],
                     backgroundColor: '#7BB3FF',
                     borderColor: '#5A9BD4',
                     borderWidth: 1
@@ -363,8 +363,8 @@ class StatsManager {
 
     createTrendChart() {
         const ctx = document.getElementById('trendChart').getContext('2d');
-        const monthlyData2024 = this.getMonthlyData(2024);
         const monthlyData2025 = this.getMonthlyData(2025);
+        const monthlyData2026 = this.getMonthlyData(2026);
 
         if (this.charts.trend) this.charts.trend.destroy();
 
@@ -373,15 +373,15 @@ class StatsManager {
             data: {
                 labels: ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'],
                 datasets: [{
-                    label: '2024년',
-                    data: monthlyData2024.map(amount => amount / 100000000),
+                    label: '2025년',
+                    data: monthlyData2025.map(amount => amount / 100000000),
                     borderColor: '#FF6B35',
                     backgroundColor: 'rgba(255, 107, 53, 0.1)',
                     borderWidth: 2,
                     fill: false
                 }, {
-                    label: '2025년',
-                    data: monthlyData2025.map(amount => amount / 100000000),
+                    label: '2026년',
+                    data: monthlyData2026.map(amount => amount / 100000000),
                     borderColor: '#4A90E2',
                     backgroundColor: 'rgba(74, 144, 226, 0.1)',
                     borderWidth: 2,
@@ -459,7 +459,7 @@ class StatsManager {
     }
 
     getCompanyComparison() {
-        let global2024 = 0, globalGroup2024 = 0, global2025 = 0, globalGroup2025 = 0;
+        let global2025 = 0, globalGroup2025 = 0, global2026 = 0, globalGroup2026 = 0;
 
         this.projectsData.forEach(project => {
             const confirmDate = project['공사 확정'];
@@ -471,16 +471,16 @@ class StatsManager {
                 const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
 
                 if (company === '글로벌') {
-                    if (year === 2024) global2024 += amount;
                     if (year === 2025) global2025 += amount;
+                    if (year === 2026) global2026 += amount;
                 } else if (company === '글로벌그룹') {
-                    if (year === 2024) globalGroup2024 += amount;
                     if (year === 2025) globalGroup2025 += amount;
+                    if (year === 2026) globalGroup2026 += amount;
                 }
             }
         });
 
-        return { global2024, globalGroup2024, global2025, globalGroup2025 };
+        return { global2025, globalGroup2025, global2026, globalGroup2026 };
     }
 
     // Chart.js 옵션들

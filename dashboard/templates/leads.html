@@ -53,28 +53,34 @@
                                 <label for="statusFilter" class="form-label">상태</label>
                                 <select class="form-select" id="statusFilter">
                                     <option value="">전체</option>
+                                    <option value="상담 대기">상담 대기</option>
                                     <option value="유선 상담">유선 상담</option>
+                                    <option value="부재중">부재중</option>
                                     <option value="방문 예약">방문 예약</option>
-                                    <option value="견적 제출">견적 제출</option>
+                                    <option value="방문 대기">방문 대기</option>
+                                    <option value="방문 완료">방문 완료</option>
                                     <option value="방문 취소">방문 취소</option>
+                                    <option value="견적 제출">견적 제출</option>
+                                    <option value="문의 드랍">문의 드랍</option>
                                     <option value="공사 확정">공사 확정</option>
+                                    <option value="공사 취소">공사 취소</option>
                                     <option value="공사 드랍">공사 드랍</option>
                                 </select>
                             </div>
 
-                            <!-- 거래처 필터 -->
+                            <!-- 플랫폼 필터 -->
                             <div class="col-md-2">
-                                <label for="companyFilter" class="form-label">거래처</label>
-                                <select class="form-select" id="companyFilter">
+                                <label for="platformFilter" class="form-label">플랫폼</label>
+                                <select class="form-select" id="platformFilter">
                                     <option value="">전체</option>
                                     <!-- JavaScript로 동적 생성 -->
                                 </select>
                             </div>
 
-                            <!-- 담당자 필터 -->
+                            <!-- 영업 담당자 필터 -->
                             <div class="col-md-2">
-                                <label for="ownerFilter" class="form-label">담당자</label>
-                                <select class="form-select" id="ownerFilter">
+                                <label for="salesOwnerFilter" class="form-label">영업 담당자</label>
+                                <select class="form-select" id="salesOwnerFilter">
                                     <option value="">전체</option>
                                     <!-- JavaScript로 동적 생성 -->
                                 </select>
@@ -84,7 +90,7 @@
                             <div class="col-md-2">
                                 <label for="searchInput" class="form-label">키워드 검색</label>
                                 <input type="text" class="form-control" id="searchInput"
-                                       placeholder="고객명, 연락처, 주소...">
+                                       placeholder="고객명, 연락처, 주소, 내용...">
                             </div>
 
                             <!-- 필터 액션 -->
@@ -107,19 +113,22 @@
             <!-- 테이블 뷰 -->
             <div id="tableView" class="table-section">
                 <div class="table-wrapper">
-                    <table class="table table-hover" id="leadsTable" style="visibility: hidden;">
+                    <table class="table table-hover lead-inline-table" id="leadsTable" style="visibility: hidden; width: 100%;">
                         <thead>
                             <tr>
-                                <th style="width: 8%;">리드 No</th>
-                                <th style="width: 8%;">거래처</th>
-                                <th style="width: 8%;">상태</th>
-                                <th style="width: 10%;">방문 예정일</th>
-                                <th style="width: 8%;">담당자</th>
-                                <th style="width: 12%;">연락처</th>
-                                <th style="width: 10%;">고객명</th>
-                                <th style="width: 18%;">방문 주소</th>
-                                <th style="width: 10%;">마지막 연락일</th>
-                                <th style="width: 8%;">작업</th>
+                                <th class="col-time">상담 시간</th>
+                                <th class="col-platform">플랫폼</th>
+                                <th class="col-status">상태</th>
+                                <th class="col-visitdate">방문 예정일</th>
+                                <th class="col-name">고객명</th>
+                                <th class="col-phone">연락처</th>
+                                <th class="col-email">이메일</th>
+                                <th class="col-address">방문 주소</th>
+                                <th class="col-content">상담 내용</th>
+                                <th class="col-keyword">키워드</th>
+                                <th class="col-online">온라인 상담자</th>
+                                <th class="col-sales">영업 담당자</th>
+                                <th class="col-feedback">피드백</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -173,23 +182,52 @@
                                     </div>
                                     <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    거래처 <span class="text-danger">*</span>
+                                                    플랫폼 <span class="text-danger">*</span>
                                                 </label>
-                                                <select class="form-select" id="newLeadCompany" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                <select class="form-select" id="newLeadPlatform" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
                                                     <option value="">선택하세요</option>
                                                     <!-- JavaScript로 동적 생성 -->
                                                 </select>
                                             </div>
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    담당자
+                                                    상태
                                                 </label>
-                                                <select class="form-select" id="newLeadOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                <select class="form-select" id="newLeadStatus" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                    <option value="유선 상담">유선 상담</option>
+                                                    <option value="방문 예약">방문 예약</option>
+                                                    <option value="방문 대기">방문 대기</option>
+                                                    <option value="방문 완료">방문 완료</option>
+                                                    <option value="견적 제출">견적 제출</option>
+                                                    <option value="방문 취소">방문 취소</option>
+                                                    <option value="공사 확정">공사 확정</option>
+                                                    <option value="공사 드랍">공사 드랍</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    영업 담당자
+                                                </label>
+                                                <select class="form-select" id="newLeadSalesOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
                                                     <option value="">선택하세요</option>
                                                     <!-- JavaScript로 동적 생성 -->
                                                 </select>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    상담 시간
+                                                </label>
+                                                <input type="text" class="form-control" id="newLeadConsultTime" placeholder="비우면 현재 시각 자동 입력" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    온라인 상담자
+                                                </label>
+                                                <input type="text" class="form-control" id="newLeadOnlineOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                     </div>
@@ -208,17 +246,23 @@
                                     </div>
                                     <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
                                                     고객명 <span class="text-danger">*</span>
                                                 </label>
                                                 <input type="text" class="form-control" id="newLeadCustomerName" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    연락처 <span class="text-danger">*</span>
+                                                    고객 연락처 <span class="text-danger">*</span>
                                                 </label>
                                                 <input type="tel" class="form-control" id="newLeadPhone" placeholder="010-1234-5678" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    이메일
+                                                </label>
+                                                <input type="email" class="form-control" id="newLeadEmail" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                         <div class="row mt-3">
@@ -288,15 +332,21 @@
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
                                                     상담 내용
                                                 </label>
-                                                <textarea class="form-control" id="newLeadContent" rows="4" placeholder="고객이 원하는 공사 내용, 요청 사항 등을 기재하세요" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
+                                                <textarea class="form-control" id="newLeadContent" rows="4" placeholder="(당) 5월 27일 오전 / 주소 / 상담 요청 사항..." style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
                                             </div>
                                         </div>
                                         <div class="row mt-3">
-                                            <div class="col-12">
+                                            <div class="col-md-6">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    비고
+                                                    키워드
                                                 </label>
-                                                <input type="text" class="form-control" id="newLeadNote" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                                <input type="text" class="form-control" id="newLeadKeyword" placeholder="예: 천장형, 1등급, 비교견적" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    피드백
+                                                </label>
+                                                <input type="text" class="form-control" id="newLeadFeedback" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                     </div>
@@ -349,42 +399,56 @@
                                     </div>
                                     <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
-                                            <div class="col-md-4">
+                                            <div class="col-md-3">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
                                                     리드 No
                                                 </label>
                                                 <input type="text" class="form-control" id="editLeadNoDisplay" readonly style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; background-color: #e9ecef;">
                                             </div>
-                                            <div class="col-md-4">
+                                            <div class="col-md-3">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
                                                     상태
                                                 </label>
                                                 <select class="form-select" id="editLeadStatus" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
                                                     <option value="유선 상담">유선 상담</option>
                                                     <option value="방문 예약">방문 예약</option>
+                                                    <option value="방문 대기">방문 대기</option>
+                                                    <option value="방문 완료">방문 완료</option>
                                                     <option value="견적 제출">견적 제출</option>
                                                     <option value="방문 취소">방문 취소</option>
                                                     <option value="공사 확정">공사 확정</option>
                                                     <option value="공사 드랍">공사 드랍</option>
                                                 </select>
                                             </div>
-                                            <div class="col-md-4">
+                                            <div class="col-md-3">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    거래처
+                                                    플랫폼
                                                 </label>
-                                                <select class="form-select" id="editLeadCompany" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                <select class="form-select" id="editLeadPlatform" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
+                                                    <!-- JavaScript로 동적 생성 -->
+                                                </select>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    영업 담당자
+                                                </label>
+                                                <select class="form-select" id="editLeadSalesOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
                                                     <!-- JavaScript로 동적 생성 -->
                                                 </select>
                                             </div>
                                         </div>
                                         <div class="row mt-3">
-                                            <div class="col-md-4">
+                                            <div class="col-md-6">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    담당자
+                                                    상담 시간
                                                 </label>
-                                                <select class="form-select" id="editLeadOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px;">
-                                                    <!-- JavaScript로 동적 생성 -->
-                                                </select>
+                                                <input type="text" class="form-control" id="editLeadConsultTime" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    온라인 상담자
+                                                </label>
+                                                <input type="text" class="form-control" id="editLeadOnlineOwner" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                     </div>
@@ -403,17 +467,23 @@
                                     </div>
                                     <div class="card-body" style="padding: 1.5rem;">
                                         <div class="row">
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
                                                     고객명
                                                 </label>
                                                 <input type="text" class="form-control" id="editLeadCustomerName" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    연락처
+                                                    고객 연락처
                                                 </label>
                                                 <input type="tel" class="form-control" id="editLeadPhone" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-4">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    이메일
+                                                </label>
+                                                <input type="email" class="form-control" id="editLeadEmail" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                         <div class="row mt-3">
@@ -487,11 +557,17 @@
                                             </div>
                                         </div>
                                         <div class="row mt-3">
-                                            <div class="col-12">
+                                            <div class="col-md-6">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    비고
+                                                    키워드
                                                 </label>
-                                                <input type="text" class="form-control" id="editLeadNote" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                                <input type="text" class="form-control" id="editLeadKeyword" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    피드백
+                                                </label>
+                                                <input type="text" class="form-control" id="editLeadFeedback" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                     </div>
@@ -511,6 +587,128 @@
             </div>
         </div>
     </div>
+
+    <!-- (상세 보기는 아코디언으로 행 아래에 펼쳐짐 — JS에서 동적 생성) -->
+
+    <style>
+        /* ====== 구글 시트 스타일 인라인 편집 테이블 ====== */
+        /* 가로 스크롤 컨테이너 */
+        .table-wrapper {
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+        .lead-inline-table {
+            min-width: 1720px;  /* 13열 펼친 최소 너비 (리드No·마지막 연락일 제거) */
+            font-size: 0.85rem;
+        }
+        .lead-inline-table thead th {
+            white-space: nowrap;
+            vertical-align: middle;
+            font-size: 0.78rem;
+            color: var(--gray-600);
+            background: #fafbfc;
+        }
+        .lead-inline-table tbody td {
+            vertical-align: middle;
+            padding: 0.35rem 0.5rem;
+            border-bottom: 1px solid var(--gray-200);
+        }
+
+        /* 컬럼별 너비 (px 기반) */
+        .lead-inline-table th.col-time,      .lead-inline-table td.col-time      { width: 130px; min-width: 130px; }
+        .lead-inline-table th.col-platform,  .lead-inline-table td.col-platform  { width: 100px; min-width: 100px; }
+        .lead-inline-table th.col-status,    .lead-inline-table td.col-status    { width: 100px; min-width: 100px; }
+        .lead-inline-table th.col-visitdate, .lead-inline-table td.col-visitdate { width: 100px; min-width: 100px; }
+        .lead-inline-table th.col-name,      .lead-inline-table td.col-name      { width: 100px; min-width: 100px; }
+        .lead-inline-table th.col-phone,     .lead-inline-table td.col-phone     { width: 130px; min-width: 130px; }
+        .lead-inline-table th.col-email,     .lead-inline-table td.col-email     { width: 160px; min-width: 160px; }
+        .lead-inline-table th.col-address,   .lead-inline-table td.col-address   { width: 290px; min-width: 290px; }
+        .lead-inline-table th.col-content,   .lead-inline-table td.col-content   { width: 320px; min-width: 320px; }
+        .lead-inline-table th.col-keyword,   .lead-inline-table td.col-keyword   { width: 110px; min-width: 110px; }
+        .lead-inline-table th.col-online,    .lead-inline-table td.col-online    { width: 100px; min-width: 100px; }
+        .lead-inline-table th.col-sales,     .lead-inline-table td.col-sales     { width: 100px; min-width: 100px; }
+        .lead-inline-table th.col-feedback,  .lead-inline-table td.col-feedback  { width: 180px; min-width: 180px; }
+
+        /* 인라인 select (상태/플랫폼/영업 담당자) */
+        .js-inline-select {
+            border: 1px solid transparent;
+            background: transparent;
+            font-size: 0.82rem;
+            padding: 0.2rem 0.4rem;
+            height: 30px;
+            width: 100%;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.12s, border-color 0.12s;
+        }
+        .js-inline-select:hover {
+            background: rgba(99, 102, 241, 0.05);
+            border-color: var(--gray-300);
+        }
+        .js-inline-select:focus {
+            outline: none;
+            background: white;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+        }
+
+        /* 인라인 텍스트/날짜 셀 (더블클릭으로 편집) */
+        .js-inline-text, .js-inline-date {
+            display: block;
+            padding: 0.35rem 0.5rem;
+            border-radius: 4px;
+            cursor: text;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-height: 30px;
+            transition: background 0.12s, box-shadow 0.12s;
+        }
+        .js-inline-text:hover, .js-inline-date:hover {
+            background: rgba(99, 102, 241, 0.05);
+            box-shadow: inset 0 0 0 1px var(--gray-300);
+        }
+        .js-inline-text.is-empty, .js-inline-date.is-empty {
+            color: var(--gray-400);
+            font-style: italic;
+        }
+
+        /* 더블클릭으로 활성화된 input/textarea */
+        .js-inline-input {
+            width: 100%;
+            font-size: 0.85rem;
+            padding: 0.3rem 0.4rem;
+            border: 2px solid #6366f1;
+            border-radius: 4px;
+            background: white;
+            outline: none;
+        }
+        textarea.js-inline-input {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        /* 상담 시간 - 표시만 (편집 불가) */
+        .lead-inline-table td.col-time {
+            color: var(--gray-600);
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+
+        /* 저장 중 indicator */
+        .js-saving {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .save-indicator-flash {
+            animation: saveFlash 0.6s ease-out;
+        }
+        @keyframes saveFlash {
+            0%   { background: rgba(25, 135, 84, 0.3); }
+            100% { background: transparent; }
+        }
+    </style>
+
 
 {% endblock %}
 
