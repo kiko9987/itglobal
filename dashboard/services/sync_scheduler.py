@@ -58,6 +58,16 @@ def start_scheduler():
         )
         jobs.append(f'홈페이지 메일 {homepage_interval}분')
 
+    # 채널톡 미배정 알림 체크 (1분 주기 — 5분 경과한 미응답 채팅 찾기)
+    if os.getenv('CHANNELTALK_ACCESS_KEY', '').strip():
+        _scheduler.add_job(
+            _safe_channeltalk_pending_check,
+            'interval',
+            minutes=1,
+            id='channeltalk_pending_check',
+        )
+        jobs.append('채널톡 미배정 알림 1분')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -89,6 +99,66 @@ def _safe_homepage_sync():
         sync_homepage_email()
     except Exception as exc:
         logger.error(f'[SCHED] 홈페이지 메일 sync 실행 실패: {exc}', exc_info=True)
+
+
+def _safe_channeltalk_pending_check():
+    """5분 경과한 미배정 채팅에 @here 알림 발송 (1분 주기)"""
+    try:
+        import time
+        import json
+        import urllib.request
+        from dashboard.services import channeltalk_threads as _t
+
+        channel = os.getenv('SLACK_CHANNELTALK_CHANNEL', '').strip()
+        token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+        if not channel or not token:
+            return
+
+        threshold_sec = int(os.getenv('CHANNELTALK_REMIND_AFTER_MIN', '5')) * 60
+        now = int(time.time())
+
+        for entry in _t.list_pending():
+            if entry.get('reminded'):
+                continue
+            elapsed = now - int(entry.get('created_at', 0))
+            if elapsed < threshold_sec:
+                continue
+
+            # 알림 발송
+            thread_ts = entry.get('thread_ts')
+            chat_id = entry.get('chat_id')
+            if not thread_ts:
+                continue
+
+            text = (
+                f':alarm_clock: <!here> *고객이 {elapsed // 60}분째 답변을 기다리고 있어요*\n'
+                f'_이 thread에서 답변 부탁드립니다._'
+            )
+            try:
+                req = urllib.request.Request(
+                    'https://slack.com/api/chat.postMessage',
+                    data=json.dumps({
+                        'channel': channel,
+                        'thread_ts': thread_ts,
+                        'text': text,
+                        'reply_broadcast': True,  # 채널 본문에도 노출 → 알림 강조
+                    }).encode('utf-8'),
+                    headers={
+                        'Authorization': f'Bearer {token}',
+                        'Content-Type': 'application/json; charset=utf-8',
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    resp = json.loads(r.read())
+                if resp.get('ok'):
+                    _t.mark_reminded(chat_id)
+                    logger.info(f'[SCHED] 채널톡 미배정 알림 발송 (chat_id={chat_id}, {elapsed // 60}분 경과)')
+                else:
+                    logger.warning(f'[SCHED] 미배정 알림 발송 실패: {resp.get("error")}')
+            except Exception as exc:
+                logger.warning(f'[SCHED] 미배정 알림 예외: {exc}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 채널톡 미배정 체크 실패: {exc}', exc_info=True)
 
 
 def trigger_karrot_sync_now() -> dict:

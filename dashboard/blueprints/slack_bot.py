@@ -14,6 +14,7 @@ import time
 import threading
 import logging
 import json
+import urllib.request
 from datetime import date, datetime
 from flask import Blueprint, request, jsonify
 
@@ -76,6 +77,11 @@ def _init_slack_app():
     try:
         from slack_bolt import App
         from slack_bolt.adapter.flask import SlackRequestHandler
+
+        # Bolt 자체 디버그 로그 활성화 (메시지 라우팅 추적)
+        import logging
+        logging.getLogger("slack_bolt").setLevel(logging.DEBUG)
+        logging.getLogger("slack_bolt.App").setLevel(logging.DEBUG)
 
         _slack_app = App(
             token=_BOT_TOKEN,
@@ -217,18 +223,88 @@ def _register_handlers(app):
         text = event.get("text", "")
         say(f"<@{user}> 부르셨나요? `/당근`, `/상태` 명령을 사용해보세요.")
 
-    # ④ DM 메시지 이벤트 (봇에게 직접 DM)
+    # ④ DM + 채널톡 thread 답글 통합 처리
     @app.event("message")
-    def handle_dm(event, say):
+    def handle_message(event, say, client):
+        # 디버그 — 들어온 이벤트 무조건 로깅
+        logger.info(
+            f"[SLACK/msg] type={event.get('type')} subtype={event.get('subtype')} "
+            f"channel_type={event.get('channel_type')} thread_ts={event.get('thread_ts')} "
+            f"bot_id={event.get('bot_id')} user={event.get('user')} "
+            f"text={(event.get('text') or '')[:40]!r}"
+        )
+
         # 봇 자신의 메시지는 무시
         if event.get("bot_id") or event.get("subtype") == "bot_message":
-            return
-        # 채널 메시지는 무시 (멘션만 처리)
-        if event.get("channel_type") != "im":
+            logger.debug("[SLACK/msg] bot/bot_message → skip")
             return
 
-        text = event.get("text", "")
-        say(f"메시지 받았습니다: _{text}_\n슬래시 명령 `/당근`, `/상태`도 사용 가능합니다.")
+        channel_type = event.get("channel_type")
+
+        # ④-1. DM: 안내 메시지
+        if channel_type == "im":
+            text = event.get("text", "")
+            say(f"메시지 받았습니다: _{text}_\n슬래시 명령 `/당근`, `/상태`도 사용 가능합니다.")
+            return
+
+        # ④-2. 채널 thread 답글 — 채널톡 thread면 채널톡으로 forward
+        if channel_type in ("channel", "group"):
+            thread_ts = event.get("thread_ts")
+            if not thread_ts:
+                return  # thread가 아닌 일반 채널 메시지는 무시
+
+            try:
+                from dashboard.services.channeltalk_threads import get_chat_id
+                from dashboard.services.channeltalk_api import (
+                    send_manager_message,
+                    assign_user_chat,
+                )
+                logger.info(f"[ChannelTalk→] thread 답글 수신 (thread_ts={thread_ts})")
+
+                chat_id = get_chat_id(thread_ts)
+                if not chat_id:
+                    logger.info(f"[ChannelTalk→] 채널톡 매핑 없음 — 무시 (thread_ts={thread_ts})")
+                    return
+
+                text = (event.get("text") or "").strip()
+                if not text:
+                    return
+
+                manager_id = os.getenv("CHANNELTALK_OPERATOR_ID", "").strip()
+                if not manager_id:
+                    logger.warning("[ChannelTalk→] CHANNELTALK_OPERATOR_ID 미설정 — 전송 불가")
+                    return
+
+                # 채널톡은 봇 명의로 메시지 발신 — 배정 없이도 동작 확인됨
+                resp = send_manager_message(chat_id, manager_id, text)
+                logger.info(f"[ChannelTalk→] 메시지 발신: text={text[:40]!r}, resp_ok={resp is not None}")
+
+                # 직원 응답했으니 미배정 알림 큐에서 제거
+                from dashboard.services.channeltalk_threads import remove_pending
+                remove_pending(chat_id)
+                if resp:
+                    # 슬랙 reaction으로 전송 성공 표시
+                    try:
+                        client.reactions_add(
+                            channel=event["channel"],
+                            timestamp=event["ts"],
+                            name="white_check_mark",
+                        )
+                    except Exception:
+                        pass
+                    logger.info(f"[ChannelTalk→] 슬랙→채널톡 전송 완료 (chat_id={chat_id})")
+                else:
+                    try:
+                        client.reactions_add(
+                            channel=event["channel"],
+                            timestamp=event["ts"],
+                            name="x",
+                        )
+                    except Exception:
+                        pass
+                    logger.warning(f"[ChannelTalk→] 슬랙→채널톡 전송 실패 (chat_id={chat_id})")
+            except Exception as exc:
+                logger.error(f"[ChannelTalk→] thread 답글 처리 예외: {exc}", exc_info=True)
 
     # ⑤ 파일 업로드 이벤트 — 당근 엑셀 자동 처리
     @app.event("file_shared")
@@ -549,6 +625,9 @@ def _open_inquiry_modal(client, body, action: str):
     """
     [방문 요청] 또는 [가격 문의] 버튼 클릭 → 모달 팝업
 
+    슬랙 trigger_id는 3초 만료 → 시트 로드(3000+행)가 그 안에 안 끝남.
+    해결: 즉시 placeholder 모달 → 데이터 로드 → views_update로 실제 모달로 교체.
+
     action: 'visit' or 'price'
     """
     lead_no = body["actions"][0]["value"]
@@ -557,15 +636,50 @@ def _open_inquiry_modal(client, body, action: str):
     message_ts = body["message"]["ts"]
     user_id = body["user"]["id"]
 
+    callback_id = "submit_visit" if action == 'visit' else "submit_price"
+    title = "방문 요청" if action == 'visit' else "가격 문의"
+
+    metadata = json.dumps({
+        "lead_no": lead_no,
+        "channel": channel,
+        "message_ts": message_ts,
+    }, ensure_ascii=False)
+
+    # 1단계: 즉시 placeholder 모달 띄움 (trigger_id 3초 만료 회피)
+    placeholder_view = {
+        "type": "modal",
+        "callback_id": callback_id,
+        "title": {"type": "plain_text", "text": title},
+        "close": {"type": "plain_text", "text": "취소"},
+        "private_metadata": metadata,
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+                                          "text": f":hourglass_flowing_sand: `{lead_no}` 리드 정보 로딩 중...\n잠시만 기다려주세요."}},
+        ],
+    }
+    try:
+        resp = client.views_open(trigger_id=trigger_id, view=placeholder_view)
+        view_id = resp["view"]["id"]
+    except Exception as exc:
+        logger.error(f"[SLACK] placeholder views_open 실패 ({lead_no}): {exc}", exc_info=True)
+        return
+
+    # 2단계: 시트 로드 + 실제 모달로 update
     lead = _find_lead_by_no(lead_no)
     if not lead:
         try:
-            client.chat_postEphemeral(
-                channel=channel, user=user_id,
-                text=f"❌ `{lead_no}` 리드를 메인 시트에서 찾을 수 없습니다. 시트가 갱신되었는지 확인하세요.",
-            )
-        except Exception:
-            pass
+            client.views_update(view_id=view_id, view={
+                "type": "modal",
+                "callback_id": callback_id,
+                "title": {"type": "plain_text", "text": title},
+                "close": {"type": "plain_text", "text": "닫기"},
+                "blocks": [
+                    {"type": "section", "text": {"type": "mrkdwn",
+                                                  "text": f":x: `{lead_no}` 리드를 메인 시트에서 찾을 수 없습니다.\n시트가 갱신되었는지 확인하세요."}},
+                ],
+            })
+        except Exception as exc:
+            logger.error(f"[SLACK] 에러 모달 update 실패: {exc}", exc_info=True)
         return
 
     # 상담 내용에서 장소/기기/문의 분리
@@ -578,13 +692,6 @@ def _open_inquiry_modal(client, body, action: str):
     inquiry = parts['inquiry'] or str(lead.get('상담 내용') or '').strip() or '-'
     address = str(lead.get('방문 주소') or '').strip()
     consult_time = str(lead.get('상담 시간') or '').strip() or '-'
-
-    # 메타 데이터 - 모달 제출 시 받음
-    metadata = json.dumps({
-        "lead_no": lead_no,
-        "channel": channel,
-        "message_ts": message_ts,
-    }, ensure_ascii=False)
 
     # 모달 상단 - 원본 인입 정보 표시 (옛 Apps Script 패턴)
     info_blocks = [
@@ -607,7 +714,7 @@ def _open_inquiry_modal(client, body, action: str):
         {"type": "divider"},
     ]
 
-    # 입력 블록 — action에 따라 다름
+    # 입력 블록 — action에 따라 다름 (callback_id, title은 1단계에서 정의됨)
     today_iso = date.today().isoformat()
     if action == 'visit':
         input_blocks = [
@@ -645,8 +752,6 @@ def _open_inquiry_modal(client, body, action: str):
                 "optional": True,
             },
         ]
-        callback_id = "submit_visit"
-        title = "방문 요청"
     else:  # price
         input_blocks = [
             {
@@ -678,10 +783,8 @@ def _open_inquiry_modal(client, body, action: str):
                 },
             },
         ]
-        callback_id = "submit_price"
-        title = "가격 문의"
 
-    view = {
+    full_view = {
         "type": "modal",
         "callback_id": callback_id,
         "title": {"type": "plain_text", "text": title},
@@ -690,7 +793,11 @@ def _open_inquiry_modal(client, body, action: str):
         "private_metadata": metadata,
         "blocks": info_blocks + input_blocks,
     }
-    client.views_open(trigger_id=trigger_id, view=view)
+    # 3단계: placeholder를 실제 모달로 교체
+    try:
+        client.views_update(view_id=view_id, view=full_view)
+    except Exception as exc:
+        logger.error(f"[SLACK] 모달 views_update 실패 ({lead_no}): {exc}", exc_info=True)
 
 
 def _v(state, block_id, default=''):
@@ -708,8 +815,67 @@ def _v(state, block_id, default=''):
         return default
 
 
+def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
+                        message_ts: str, action: str) -> bool:
+    """슬랙 List 워크플로우 webhook 호출 — 모달 제출 시 자동 등록.
+
+    Args:
+        lead: 시트 행 dict (고객명/연락처/이메일/방문주소/상담시간 등)
+        modal_fields: 모달 입력 dict (visit_date, visit_address, consultation, estimate)
+        channel: 슬랙 채널 ID
+        message_ts: 원본 메시지 ts (영구 링크용)
+        action: 'visit' or 'price'
+    """
+    webhook_url = os.getenv("SLACK_LIST_WEBHOOK_URL", "").strip()
+    if not webhook_url:
+        logger.debug("[SLACK/LIST] SLACK_LIST_WEBHOOK_URL 미설정 - 등록 스킵")
+        return False
+
+    # 메시지 영구 링크
+    message_link = ''
+    try:
+        permalink = client.chat_getPermalink(channel=channel, message_ts=message_ts)
+        message_link = permalink.get("permalink", "")
+    except Exception:
+        pass
+
+    # 상담 내용 파싱 (장소/기기/문의)
+    parts = _split_lead_content(str(lead.get('상담 내용', '')))
+
+    payload = {
+        "name": str(lead.get('고객명') or '').strip() or '-',
+        "contact": str(lead.get('고객 연락처') or '').strip() or '-',
+        "email": str(lead.get('이메일') or '').strip() or '-',
+        "inquiry_time": str(lead.get('상담 시간') or '').strip() or '-',
+        "location": parts.get('place') or '-',
+        "device": parts.get('device') or str(lead.get('키워드') or '').strip() or '-',
+        "visit_address": modal_fields.get('visit_address') or str(lead.get('방문 주소') or '').strip() or '-',
+        "consultation": modal_fields.get('consultation') or '-',
+        "details": parts.get('inquiry') or str(lead.get('상담 내용') or '').strip() or '-',
+        "visit_date": modal_fields.get('visit_date') or '-',
+        "estimate_request": modal_fields.get('estimate') or '-',
+        "message_link": message_link or '-',
+        "payload": f"lead_no={lead.get('리드 No')} action={action}",
+    }
+
+    try:
+        req = urllib.request.Request(
+            webhook_url,
+            data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+            headers={'Content-Type': 'application/json; charset=utf-8'},
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            r.read()
+        logger.info(f"[SLACK/LIST] webhook 등록 완료 (lead={lead.get('리드 No')} action={action})")
+        return True
+    except Exception as exc:
+        logger.warning(f"[SLACK/LIST] webhook 호출 실패: {exc}")
+        return False
+
+
 def _process_visit_submission(client, body, view):
-    """방문 요청 모달 제출 → 메인 시트 업데이트 + 원본 메시지에 답글"""
+    """방문 요청 모달 제출 → 메인 시트 업데이트 + 원본 메시지에 답글 + 슬랙 List 등록"""
     metadata = json.loads(view["private_metadata"])
     lead_no = metadata["lead_no"]
     channel = metadata["channel"]
@@ -731,11 +897,22 @@ def _process_visit_submission(client, body, view):
         if visit_address:
             update_data['방문 주소'] = visit_address
         if consultation:
-            # 기존 피드백에 추가 형태 (구분자 \n---)
             update_data['피드백'] = consultation
         update_lead(lead_no, update_data)
     except Exception as exc:
         logger.error(f"[SLACK] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
+
+    # 슬랙 List webhook 등록
+    lead = _find_lead_by_no(lead_no) or {}
+    _post_to_slack_list(
+        client, lead,
+        modal_fields={
+            'visit_date': visit_date,
+            'visit_address': visit_address,
+            'consultation': consultation,
+        },
+        channel=channel, message_ts=message_ts, action='visit',
+    )
 
     # 원본 메시지에 답글
     reply_text = (
@@ -779,6 +956,17 @@ def _process_price_submission(client, body, view):
         update_lead(lead_no, update_data)
     except Exception as exc:
         logger.error(f"[SLACK] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
+
+    # 슬랙 List webhook 등록
+    lead = _find_lead_by_no(lead_no) or {}
+    _post_to_slack_list(
+        client, lead,
+        modal_fields={
+            'consultation': consultation,
+            'estimate': estimate_label,
+        },
+        channel=channel, message_ts=message_ts, action='price',
+    )
 
     # 원본 메시지에 답글
     reply_text = (

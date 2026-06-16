@@ -102,26 +102,40 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
     phone = normalize_phone(row.get(KCOL_PHONE, ''))
     place = _s(KCOL_PLACE)
     device = _s(KCOL_DEVICE)
-    address = _s(KCOL_ADDRESS)
+    address_raw = _s(KCOL_ADDRESS)
     inquiry = _s(KCOL_INQUIRY)
+
+    # 당근 폼은 자유 입력이라 카카오 검증 + 정규화 필요
+    address, address_level = '', ''
+    if address_raw:
+        from dashboard.services import address_resolver as _ar
+        from dashboard.services import lead_helpers as _lh
+        _regex = _lh.extract_korean_address(address_raw)
+        _regex_addr = _regex[0] if _regex else None
+        _regex_lv = _regex[1] if _regex else ''
+        address, address_level = _ar.resolve_address(address_raw, _regex_addr, _regex_lv)
+        if not address:
+            address = address_raw  # 최후 fallback
 
     # 상담 내용: 순수 문의 본문만 (장소/기기는 별도 컬럼/키워드로)
     content = inquiry
 
     # 키워드: KEYWORD_VOCAB 매칭 (device + place + inquiry)
     from dashboard.services.lead_helpers import extract_keywords_from_sources
-    keyword = extract_keywords_from_sources(device, place, inquiry)
+    # K열(키워드) = 폼에서 선택한 device 값만 (옵션 B). vocab 매칭으로 정규화.
+    # 추가 vocab(중고/매입/세척/소상공인)은 전화 통화 후 수동 입력용.
+    keyword = extract_keywords_from_sources(device)
 
     return {
         '리드 No': '',  # 시트 등록 시 자동 발번
         '상담 시간': consult_time,
         '플랫폼': KARROT_PLATFORM,
         '상태': DEFAULT_STATUS,
-        '방문 예정일': '',
+        '방문 예정일': '-',
         '고객 연락처': phone,
-        '이메일': '',
+        '이메일': '-',
         '고객명': name,
-        '방문 주소': address,
+        '방문 주소': address or '-',
         '상담 내용': content,
         '키워드': keyword,
         '온라인 상담자': '',
@@ -133,6 +147,7 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
         '_meta_device': device,
         '_meta_inquiry': inquiry,
         '_meta_consult_dt': consult_dt,
+        '_meta_address_level': address_level,  # verified면 정확, level5~7/raw면 _(추정)_ 표시
     }
 
 

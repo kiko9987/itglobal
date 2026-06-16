@@ -159,8 +159,9 @@ def _kakao_search(query: str) -> Optional[dict]:
         return None
 
 
-# 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1")
-_ROAD_PATTERN = re.compile(r'([가-힣]+(?:로|길)\s+\d+(?:-\d+)?)')
+# 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22")
+# 도로명 중간에 숫자 허용 (꽃내음1길, 시흥대로14길 등)
+_ROAD_PATTERN = re.compile(r'([가-힣]+\d*(?:로|길)\s+\d+(?:-\d+)?)')
 
 
 # 건물명/층/호 정보 추출용
@@ -173,8 +174,10 @@ _TAIL_SIGNAL = re.compile(
     r'|[가-힣A-Za-z0-9]+\s*'
     r'(?:아파트|빌딩|타워|오피스텔|마을|클래스원|클래스|센터|'
     r'힐스테이트|자이|푸르지오|아이파크|래미안|롯데캐슬|이편한세상|위브|더샵|'
-    r'센트럴파크|학교|학원|병원|교회|공장|창고|연구원|연수원|회관|호텔|모텔|'
-    r'대학교|대학|아이클럽|상가동)'
+    r'센트럴파크|학교|학원|병원|교회|공장|창고|연구원|연수원|회관|마을회관|호텔|모텔|'
+    r'대학교|대학|아이클럽|상가동|'
+    # 한국식 시설/사업장 명사 (○○집/카페/식당 등 prefix 있어야)
+    r'집|상회|공방|펜션|하우스|빌라|약국|미용실|매점|갤러리|한의원|식당|카페)'
     r')'
 )
 _TAIL_STOP_WORDS = [
@@ -182,8 +185,8 @@ _TAIL_STOP_WORDS = [
     '냉방', '냉난방', '제품', '면적', '평수', '평형', '시스템',
     '예정입니다', '있습니다', '합니다', '드립니다', '부탁', '바랍니다',
     '필요합니다', '희망', '원합니다',
-    # 모호 명사 (의미 없이 뒤따라붙는 단어들)
-    '사무실', '카페', '매장', '점포', '집', '식당', '회사', '입니다',
+    # 모호 명사 (의미 없이 뒤따라붙는 단어들) — "집/카페/식당"은 빌딩명에 흔히 들어가므로 제외
+    '사무실', '매장', '점포', '회사', '입니다', '관심',
 ]
 
 
@@ -205,13 +208,17 @@ def _extract_building_tail(text: str) -> str:
     """
     if not text:
         return ''
-    first_line = text.strip().split('\n', 1)[0].strip()
+    # 첫 3줄 합쳐서 분석 (당근 주소 칸 멀티라인 입력 케이스 대응)
+    # 예: "고양시덕양구 화신로298\n별빛8단지상가101호 코코헤어"
+    lines = text.strip().split('\n')[:3]
+    first_line = ' '.join(line.strip() for line in lines if line.strip())
     first_line = re.sub(r'\s+', ' ', first_line)
 
     candidates = []
-    # 1. 도로명·길 + 번지 + 뒤 (예: "갯벌로 36, 인하대학교 ...")
+    # 1. 도로명·길 + 번지 + 뒤 (예: "갯벌로 36, 인하대학교 ...", "꽃내음1길 19-22, ...", "동호로28길11 느티나무집")
+    # 도로명 중간 숫자 허용 (\d*) + 도로명/번지 사이 공백 옵션 (\s*)
     m = re.search(
-        r'[가-힣]+(?:로|길)\s+\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
+        r'[가-힣]+\d*(?:로|길)\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
@@ -242,7 +249,12 @@ def _extract_building_tail(text: str) -> str:
 
 
 def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
-    """주소 후보 목록 (중복 제거, 우선순위 순)"""
+    """주소 후보 목록 (중복 제거, 우선순위 순).
+
+    우선순위: 원본 첫 줄 → 정규식 결과 → 콤마 전 부분 → 도로명+번지 추출.
+    원본 첫 줄이 짧고 깔끔한 주소면 그게 가장 정확 (당근 폼 등).
+    매칭 실패하면 정규식 결과로 fallback (홈페이지 메일 본문 등).
+    """
     seen = set()
     out: List[str] = []
 
@@ -254,18 +266,17 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
             seen.add(s)
             out.append(s)
 
-    if regex_addr:
-        _push(regex_addr)
-
+    first_line = ''
     if text:
-        # 첫 줄
         first_line = text.strip().split('\n', 1)[0].strip()
         _push(first_line)
 
-        # 첫 줄에 콤마 있으면 콤마 전 부분만 — "갯벌로 36, 인하대..." → "갯벌로 36"
+    if regex_addr:
+        _push(regex_addr)
+
+    if first_line:
         if ',' in first_line:
             _push(first_line.split(',', 1)[0])
-
         # 도로명+번지 추출 (본문 어디든)
         for m in _ROAD_PATTERN.finditer(text):
             _push(m.group(1))
@@ -293,21 +304,39 @@ def verify_address(
     # 카카오 verified 주소에 붙일 건물·층·호 정보 (한 번만 추출)
     building_tail = _extract_building_tail(text)
 
-    for cand in _build_candidates(text, regex_addr):
+    # 정규식 결과의 끝 "○○층/호" 분리 — 카카오가 "3층"의 "3"을 번지로 잘못 매칭하는 케이스 방지
+    # 예: "인천 서구 가좌동 3층" → carry="3층", clean="인천 서구 가좌동"으로 검색
+    floor_carry = ''
+    clean_regex = regex_addr
+    if regex_addr:
+        m_floor = re.search(r'\s+(\d+(?:층|호|관))\s*$', regex_addr)
+        if m_floor:
+            floor_carry = m_floor.group(1)
+            clean_regex = regex_addr[:m_floor.start()].strip()
+
+    def _compose(base: str) -> str:
+        parts = [base]
+        if building_tail:
+            parts.append(building_tail)
+        elif floor_carry and floor_carry not in base:
+            parts.append(floor_carry)
+        result = ' '.join(parts).strip()
+        # 시각적 띄어쓰기 보장 — "○○상가101호" → "○○상가 101호", "305동1502호" → "305동 1502호"
+        # lookbehind 사용해 연속 매칭 ("동1502호"의 1502호도 띄움)
+        result = re.sub(r'(?<=[가-힣A-Za-z])(\d+(?:동|호|층|관))', r' \1', result)
+        return result
+
+    for cand in _build_candidates(text, clean_regex):
         doc = _kakao_search(cand)
         if not doc:
             continue
         # 도로명 우선, 없으면 지번
         road = doc.get('road_address')
         if road and road.get('address_name'):
-            base = normalize_display(road['address_name'])
-            full = f'{base} {building_tail}'.strip() if building_tail else base
-            return (full, 'verified')
+            return (_compose(normalize_display(road['address_name'])), 'verified')
         jibun = doc.get('address')
         if jibun and jibun.get('address_name'):
-            base = normalize_display(jibun['address_name'])
-            full = f'{base} {building_tail}'.strip() if building_tail else base
-            return (full, 'verified')
+            return (_compose(normalize_display(jibun['address_name'])), 'verified')
 
     return None
 
@@ -335,13 +364,22 @@ def resolve_address(
     if regex_addr:
         return (normalize_display(regex_addr), regex_level or 'regex')
 
-    # 3. 원문 첫 줄 fallback (한글 포함 + 적절한 길이)
+    # 3. 원문 첫 줄 fallback — 엄격한 주소 패턴이 포함된 경우만
+    # "세방정유라는 회사입니다" / "공장동 내에 ..." 같은 본문이 잘못 raw로 들어가는 것 방지
     if text:
         first_line = text.strip().split('\n', 1)[0].strip()
         first_line = re.sub(r'\s+', ' ', first_line)
+        has_strict_address = re.search(
+            r'(?:로|길)\s+\d|\d+(?:번지|호)'
+            r'|(?:서울|부산|대구|인천|광주|대전|울산|세종'
+            r'|경기|강원|충북|충남|전북|전남|경북|경남|제주)'
+            r'\s+[가-힣]+(?:구|시|군|동)',
+            first_line,
+        )
         if (
             4 <= len(first_line) <= 100
             and re.search(r'[가-힣]', first_line)
+            and has_strict_address
         ):
             return (first_line, 'raw')
 

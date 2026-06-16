@@ -341,6 +341,10 @@ class SecurityMiddleware:
         if request.path.startswith('/slack/'):
             return None  # CSRF/세션 검증 skip, slack_bolt가 직접 서명 검증
 
+        # 1.6. 채널톡 webhook 우회 — 채널톡 자체 X-Signature 서명 검증 사용
+        if request.path.startswith('/channeltalk/'):
+            return None
+
         # 2. CSRF/인증 검사 (상태 변경 요청)
         if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
             if request.path.startswith('/api/') or request.path.startswith('/admin/api/'):

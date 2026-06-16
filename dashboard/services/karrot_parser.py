@@ -207,9 +207,9 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
         '상담 시간': consult_time,
         '플랫폼': KARROT_PLATFORM,
         '상태': DEFAULT_STATUS,
-        '방문 예정일': '',
+        '방문 예정일': '-',
         '고객 연락처': phone,
-        '이메일': '',
+        '이메일': '-',
         '고객명': name,
         '방문 주소': address,
         '상담 내용': content,
@@ -218,9 +218,10 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
         '영업 담당자': '',
         '마지막 연락일': '',
         '피드백': '',
-        # 메타 (등록 전에 제거)
-        '_meta_expired': is_expired,
-        '_meta_suspicious_address': is_suspicious_address(address),
+        # 메타 — 슬랙 메시지 양식용 (시트 등록 시 LEAD_COLUMN_ORDER 필터링으로 자동 제외)
+        '_meta_place': place,
+        '_meta_device': device,
+        '_meta_inquiry': inquiry,
     }
 
 
@@ -282,30 +283,25 @@ def process_karrot_excel(file_bytes: bytes, business_number: str) -> Dict[str, A
         existing_keys.add(key)
 
         lead = map_karrot_row_to_lead(row)
-        is_expired = lead.pop('_meta_expired')
-        is_suspicious = lead.pop('_meta_suspicious_address')
-
-        if is_expired: expired_count += 1
-        if is_suspicious: suspicious_count += 1
+        # _meta_* 는 슬랙 메시지에서 사용. 시트 등록 시 LEAD_COLUMN_ORDER 필터로 자동 제외됨.
 
         new_leads.append(lead)
 
     logger.info(
         f'[KARROT] 처리 결과: total={total} new={len(new_leads)} dup={duplicates} '
-        f'expired={expired_count} suspicious={suspicious_count} '
         f'sheet_karrot_count={karrot_existing_count}'
     )
+
+    # 응답 시각 오름차순 정렬 → 슬랙에 보낼 때 가장 최신이 마지막 메시지가 되도록
+    new_leads.sort(key=lambda l: _parse_consult_dt(l.get('상담 시간')) or datetime.min)
 
     return {
         'total': total,
         'new_count': len(new_leads),
         'new': new_leads,
         'duplicates': duplicates,
-        'old_skipped': 0,  # 이제 사용 안 함 (legacy field)
-        'expired_count': expired_count,
-        'suspicious_count': suspicious_count,
-        'last_processed': last_dt.strftime('%Y.%m.%d %H:%M') if last_dt else None,
         'sheet_karrot_count': karrot_existing_count,
+        'last_processed': last_dt.strftime('%Y.%m.%d %H:%M') if last_dt else None,
     }
 
 

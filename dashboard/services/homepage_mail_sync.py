@@ -288,7 +288,9 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     # 키워드: device + place + inquiry 에서 KEYWORD_VOCAB 매칭
-    keyword = extract_keywords_from_sources(device, place, inquiry)
+    # K열(키워드) = 폼에서 선택한 device 값만 (옵션 B). vocab 매칭으로 정규화.
+    # 추가 vocab(중고/매입/세척/소상공인)은 전화 통화 후 수동 입력용.
+    keyword = extract_keywords_from_sources(device)
 
     # 상담 내용: 순수 문의 본문만 (장소/기기 prefix 제거)
     # 옛 양식: "장소: ... / 기기: ... / 문의: ..." → 문의 본문만
@@ -299,11 +301,11 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         '상담 시간': _normalize_consult_time(parsed.get('inquiry_time', '')),
         '플랫폼': HOMEPAGE_PLATFORM,
         '상태': DEFAULT_STATUS,
-        '방문 예정일': '',
+        '방문 예정일': '-',
         '고객 연락처': _normalize_phone(parsed.get('phone', '')),
-        '이메일': email,
+        '이메일': email or '-',
         '고객명': name,
-        '방문 주소': extracted_address,
+        '방문 주소': extracted_address or '-',
         '상담 내용': content,
         '키워드': keyword,
         '온라인 상담자': '',
