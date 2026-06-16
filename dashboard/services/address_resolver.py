@@ -269,6 +269,19 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
     first_line = ''
     if text:
         first_line = text.strip().split('\n', 1)[0].strip()
+        # 1) 행정구역 단위까지만 (도/광역시 + 시·군(?옵션) + 구/읍/면/동) — 카카오에 깔끔히 던짐
+        # 본문 측정 단위(30평/2대)가 번지로 오인되는 것 방지
+        # "경기도 화성 봉담읍" 처럼 "시"가 생략된 케이스도 잡기 위해 시/군은 옵션
+        m_admin = re.search(
+            r'((?:경기|강원|충북|충남|전북|전남|경북|경남|제주'
+            r'|서울|부산|대구|인천|광주|대전|울산|세종)'
+            r'(?:특별시|광역시|특별자치시|특별자치도|도)?'
+            r'\s+[가-힣]+(?:시|군)?'
+            r'\s+[가-힣]+(?:구|읍|면|동))',
+            first_line,
+        )
+        if m_admin:
+            _push(m_admin.group(1))
         _push(first_line)
 
     if regex_addr:
