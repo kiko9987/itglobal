@@ -321,9 +321,16 @@ def verify_address(
         elif floor_carry and floor_carry not in base:
             parts.append(floor_carry)
         result = ' '.join(parts).strip()
-        # 시각적 띄어쓰기 보장 — "○○상가101호" → "○○상가 101호", "305동1502호" → "305동 1502호"
-        # lookbehind 사용해 연속 매칭 ("동1502호"의 1502호도 띄움)
+        # 시각적 띄어쓰기 보장
+        # 1. 한국 주소·시설 단어 다음 한글 — "단지상가" → "단지 상가"
+        result = re.sub(
+            r'(단지|상가|아파트|빌딩|타워|오피스텔|맨션|빌라|하우스|클래스원)(?=[가-힣])',
+            r'\1 ', result,
+        )
+        # 2. 한글/영문 다음 숫자+동/호/층/관 — "○○상가101호" → "○○상가 101호"
         result = re.sub(r'(?<=[가-힣A-Za-z])(\d+(?:동|호|층|관))', r' \1', result)
+        # 3. 연속 공백 정리
+        result = re.sub(r' +', ' ', result).strip()
         return result
 
     for cand in _build_candidates(text, clean_regex):
