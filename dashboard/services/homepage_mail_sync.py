@@ -389,10 +389,14 @@ def sync_homepage_email() -> Dict[str, Any]:
         logger.debug('[SYNC/홈페이지] 미처리 메일 없음')
         return {'total': 0, 'new_count': 0, 'duplicates': 0, 'unknown': 0}
 
-    # 메인 시트 dedup 인덱스
-    from dashboard.services.lead_sync import _get_existing_phones, _append_leads_to_main
+    # 메인 시트 dedup 인덱스 (연락처+시간 윈도우, 재문의 컨텍스트 포함)
+    from dashboard.services.lead_sync import (
+        _get_existing_phone_lookup, _append_leads_to_main,
+    )
+    from datetime import timedelta
     main_df = load_leads_data(force_refresh=True)
-    existing_phones = _get_existing_phones(main_df)
+    phone_lookup = _get_existing_phone_lookup(main_df)
+    seen_in_sync: Dict[str, datetime] = {}
 
     new_leads: List[Dict[str, Any]] = []
     new_by_source: Dict[str, List[Dict[str, Any]]] = {}
@@ -417,21 +421,40 @@ def sync_homepage_email() -> Dict[str, Any]:
         if category == '기타':
             unknown += 1
             logger.warning(f'[SYNC/홈페이지] 알 수 없는 메일 형식 (id={msg_id})')
-            processed_msg_ids.append(msg_id)  # 알 수 없는 것도 라벨 부착 → 다음에 또 안 뜨도록
+            processed_msg_ids.append(msg_id)
             continue
 
         lead = to_lead(parsed)
         phone_digits = re.sub(r'\D', '', lead['고객 연락처'])
+        # 새 lead 시각 파싱
+        try:
+            new_dt = datetime.strptime(lead.get('상담 시간', ''), '%Y.%m.%d. %H:%M')
+        except (ValueError, TypeError):
+            new_dt = None
+        lead['_meta_consult_dt'] = new_dt
 
-        if phone_digits and phone_digits in existing_phones:
-            duplicates += 1
-            processed_msg_ids.append(msg_id)
-            continue
+        # 같은 sync 내 중복 (1시간 윈도우)
+        if phone_digits and phone_digits in seen_in_sync and new_dt:
+            if abs((new_dt - seen_in_sync[phone_digits]).total_seconds()) < 3600:
+                duplicates += 1
+                processed_msg_ids.append(msg_id)
+                continue
+
+        # 메인 시트 최근 lead와 1시간 이내 → 중복 (재폴링)
+        if phone_digits and phone_digits in phone_lookup and new_dt:
+            latest = phone_lookup[phone_digits][0]
+            if latest['consult_dt']:
+                if abs((new_dt - latest['consult_dt']).total_seconds()) < 3600:
+                    duplicates += 1
+                    processed_msg_ids.append(msg_id)
+                    continue
+            # 1시간 이상 차이 → 재문의로 간주, 옛 이력 메타에 저장
+            lead['_meta_previous_leads'] = phone_lookup[phone_digits]
 
         new_leads.append(lead)
         new_by_source.setdefault(category, []).append(lead)
-        if phone_digits:
-            existing_phones.add(phone_digits)
+        if phone_digits and new_dt:
+            seen_in_sync[phone_digits] = new_dt
         processed_msg_ids.append(msg_id)
 
     # 응답 시각 오름차순 정렬 (가장 최신이 채널 마지막에)

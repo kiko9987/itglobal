@@ -13,7 +13,7 @@
 
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -155,6 +155,7 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
 # 메인 시트 dedup용 인덱스
 # ─────────────────────────────────────────────────────────────
 def _get_existing_phones(main_df: Optional[pd.DataFrame]) -> set:
+    """레거시 — set 형태로 연락처만 반환 (단순 dedup 용)"""
     phones = set()
     if main_df is None or main_df.empty:
         return phones
@@ -166,6 +167,88 @@ def _get_existing_phones(main_df: Optional[pd.DataFrame]) -> set:
         if len(digits) >= 10:
             phones.add(digits)
     return phones
+
+
+def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
+    """연락처 → [{lead_no, consult_time(datetime), status, feedback, platform}, ...] 시간 내림차순.
+
+    재문의 감지 + 옛 이력 카드 표시에 사용.
+    """
+    lookup: dict = {}
+    if main_df is None or main_df.empty:
+        return lookup
+    for _, row in main_df.iterrows():
+        phone_raw = str(row.get('고객 연락처', '') or '')
+        digits = re.sub(r'\D', '', phone_raw)
+        if len(digits) < 10:
+            continue
+        consult_dt = _parse_consult_dt(row.get('상담 시간'))
+        entry = {
+            'lead_no': str(row.get('리드 No', '') or ''),
+            'consult_dt': consult_dt,
+            'consult_time': str(row.get('상담 시간', '') or ''),
+            'status': str(row.get('상태', '') or ''),
+            'feedback': str(row.get('피드백', '') or ''),
+            'inquiry': str(row.get('상담 내용', '') or ''),
+            'platform': str(row.get('플랫폼', '') or ''),
+        }
+        lookup.setdefault(digits, []).append(entry)
+    # 각 연락처별 시간 내림차순
+    for digits in lookup:
+        lookup[digits].sort(
+            key=lambda e: e['consult_dt'] or datetime.min,
+            reverse=True,
+        )
+    return lookup
+
+
+def _find_previous_leads(phone_lookup: dict, phone_digits: str,
+                         new_dt: Optional[datetime] = None) -> list:
+    """같은 연락처의 옛 lead 이력 (현 신규 시각보다 이른 것만)"""
+    if not phone_digits or phone_digits not in phone_lookup:
+        return []
+    entries = phone_lookup[phone_digits]
+    if new_dt:
+        entries = [e for e in entries if e['consult_dt'] and e['consult_dt'] < new_dt]
+    return entries
+
+
+def _format_time_ago(now_dt: Optional[datetime], prev_dt: Optional[datetime]) -> str:
+    """시간 차이를 사람이 읽는 형태로 ('3개월 전', '2년 전' 등)"""
+    if not now_dt or not prev_dt:
+        return ''
+    diff_days = (now_dt - prev_dt).days
+    if diff_days < 0:
+        return ''
+    if diff_days < 1:
+        return '오늘'
+    if diff_days < 7:
+        return f'{diff_days}일 전'
+    if diff_days < 30:
+        return f'{diff_days // 7}주 전'
+    if diff_days < 365:
+        return f'{diff_days // 30}개월 전'
+    return f'{diff_days // 365}년 전'
+
+
+def _build_repeat_section(lead: dict) -> str:
+    """재문의 컨텍스트 섹션 (이전 No + 이전 문의 내용)"""
+    prev_leads = lead.get('_meta_previous_leads') or []
+    if not prev_leads:
+        return ''
+    most_recent = prev_leads[0]
+    prev_no = most_recent.get('lead_no', '')
+    prev_inquiry = (most_recent.get('inquiry') or '').strip() or '-'
+    # 길이 제한 (200자)
+    if len(prev_inquiry) > 200:
+        prev_inquiry = prev_inquiry[:200] + '...'
+
+    return (
+        f":repeat: *재문의 감지*\n"
+        f">*이전 문의* {prev_no}\n"
+        f">*문의 내용* : {prev_inquiry}\n"
+        f"---------------------------------------------\n"
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -197,21 +280,38 @@ def sync_karrot() -> Dict[str, Any]:
 
     # 메인 시트 (운영 시트) 로드 + dedup 인덱스
     main_df = load_leads_data(force_refresh=True)
-    existing_phones = _get_existing_phones(main_df)
+    phone_lookup = _get_existing_phone_lookup(main_df)
+    # 같은 sync 내 중복 폴링 방지용 (연락처+시간 윈도우)
+    seen_in_sync: dict = {}  # phone_digits → consult_dt
+    DEDUP_WINDOW = timedelta(hours=1)  # 1시간 이내 같은 번호 = 재폴링으로 간주
 
     new_leads: List[Dict[str, Any]] = []
     duplicates = 0
     for _, row in karrot_df.iterrows():
         lead = map_karrot_row_to_lead(row)
         phone_digits = re.sub(r'\D', '', lead['고객 연락처'])
+        new_dt = lead.get('_meta_consult_dt')
 
-        if phone_digits and phone_digits in existing_phones:
-            duplicates += 1
-            continue
+        # 1) 같은 sync 내 중복 폴링 (1시간 이내) → skip
+        if phone_digits and phone_digits in seen_in_sync:
+            if new_dt and abs((new_dt - seen_in_sync[phone_digits]).total_seconds()) < 3600:
+                duplicates += 1
+                continue
+
+        # 2) 메인 시트의 가장 최근 lead와 1시간 이내 → skip (재폴링 가능성)
+        if phone_digits and phone_digits in phone_lookup and new_dt:
+            latest = phone_lookup[phone_digits][0]
+            if latest['consult_dt']:
+                time_diff = new_dt - latest['consult_dt']
+                if abs(time_diff.total_seconds()) < 3600:
+                    duplicates += 1
+                    continue
+            # 1시간 이상 차이 → 재문의로 간주, 옛 이력 메타에 저장
+            lead['_meta_previous_leads'] = phone_lookup[phone_digits]
 
         new_leads.append(lead)
-        if phone_digits:
-            existing_phones.add(phone_digits)  # 같은 폴링 내 중복도 차단
+        if phone_digits and new_dt:
+            seen_in_sync[phone_digits] = new_dt
 
     # 응답 시각 오름차순 정렬 (가장 최신이 채널의 마지막 메시지로)
     new_leads.sort(key=lambda l: l.get('_meta_consult_dt') or datetime.min)
@@ -429,11 +529,15 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
 
     title = f"새 문의 접수 알림 - {source}"
 
+    # 재문의 감지 — 같은 번호로 이전 lead가 있으면 섹션 추가 (타이틀은 그대로 유지)
+    repeat_section = _build_repeat_section(lead)
+
     main_text = (
         f"*접수번호:* `{lead_no}`\n"
         f":bell: *{title}*\n"
         f"---------------------------------------------\n"
-        f">*문의시간* : {consult_time}\n"
+        + repeat_section
+        + f">*문의시간* : {consult_time}\n"
         f">*이름 / 상호* : {name}\n"
         f">*연락처* : {phone}\n"
         f">*이메일* : {email}\n"
