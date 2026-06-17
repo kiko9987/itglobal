@@ -402,9 +402,59 @@ def _register_handlers(app):
         except Exception as exc:
             logger.error(f"[SLACK] submit_price 실패: {exc}", exc_info=True)
 
+    # ⑩ /전화 슬래시 명령 — 전화 문의 등록 모달
+    @app.command("/전화")
+    def handle_phone_command(ack, command, client):
+        ack()
+        text = command.get("text", "").strip().lower()
+        trigger_id = command.get("trigger_id", "")
+        channel = command.get("channel_id", "")
+        user_id = command.get("user_id", "")
+
+        # 인자 분기
+        if text in ("안내", "setup", "help"):
+            # 채널에 안내 메시지 + [+ 전화 문의 등록] 버튼 발송 (관리자가 핀 고정용)
+            _post_phone_setup_message(client, channel)
+            return
+
+        # 기본: 모달 열기
+        if not trigger_id:
+            return
+        try:
+            _open_phone_modal(client, trigger_id, channel, user_id)
+        except Exception as exc:
+            logger.error(f"[SLACK] /전화 모달 실패: {exc}", exc_info=True)
+
+    # ⑪ [+ 전화 문의 등록] 버튼 (채널 고정 메시지의 버튼)
+    @app.action("button_phone")
+    def handle_button_phone(ack, body, client):
+        ack()
+        try:
+            _open_phone_modal(
+                client,
+                body["trigger_id"],
+                body["channel"]["id"],
+                body["user"]["id"],
+            )
+        except Exception as exc:
+            logger.error(f"[SLACK] button_phone 실패: {exc}", exc_info=True)
+
+    # ⑫ 전화 문의 모달 제출
+    @app.view("submit_phone")
+    def handle_submit_phone(ack, body, client, view):
+        ack()
+        # 시트 로드(3500+행) + 등록이 3초 넘을 수 있어 백그라운드 스레드로 처리
+        # → 슬랙 3초 timeout 회피, 모달 정상 닫힘
+        def _bg():
+            try:
+                _process_phone_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK] submit_phone 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     logger.info(
-        "[SLACK] 핸들러 등록 완료: /당근, /상태, app_mention, message(DM), file_shared, "
-        "button_visit, button_price, submit_visit, submit_price"
+        "[SLACK] 핸들러 등록 완료: /당근, /상태, /전화, app_mention, message(DM), file_shared, "
+        "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone"
     )
 
 
@@ -804,7 +854,6 @@ def _v(state, block_id, default=''):
     """모달 state.values에서 안전하게 값 추출 (datepicker / text / select 자동 분기)"""
     try:
         item = state[block_id]["value"]
-        # 자동 분기
         return (
             item.get("selected_date")
             or item.get("value")
@@ -813,6 +862,320 @@ def _v(state, block_id, default=''):
         )
     except Exception:
         return default
+
+
+def _slack_user_to_korean_name(client, user_id: str) -> str:
+    """슬랙 user_id → SALES_EMAILS 매핑 한국 이름 (fallback: display_name/real_name)"""
+    if not user_id:
+        return ''
+    try:
+        resp = client.users_info(user=user_id)
+        if not resp.get("ok"):
+            return ''
+        profile = resp["user"]["profile"]
+        email = (profile.get("email") or '').strip().lower()
+
+        # SALES_EMAILS 역매칭
+        try:
+            sales_emails = json.loads(os.getenv("SALES_EMAILS", "{}"))
+        except Exception:
+            sales_emails = {}
+        for name, mapped in sales_emails.items():
+            if str(mapped).strip().lower() == email:
+                return name
+
+        # Fallback: display_name / real_name
+        return (profile.get("display_name")
+                or profile.get("real_name")
+                or '').strip()
+    except Exception as exc:
+        logger.warning(f"[SLACK] users_info 실패 ({user_id}): {exc}")
+        return ''
+
+
+def _v_multi(state, block_id) -> list:
+    """멀티 선택 체크박스/multi_static_select 값 추출"""
+    try:
+        item = state[block_id]["value"]
+        opts = item.get("selected_options") or []
+        return [o.get("value") for o in opts if o.get("value")]
+    except Exception:
+        return []
+
+
+# ─────────────────────────────────────────────────────────────
+# 전화 문의 — 슬랙 모달 입력으로 시트 등록 + 조건부 슬랙 알림
+# ─────────────────────────────────────────────────────────────
+_PHONE_DEVICE_OPTIONS = [
+    "천장형", "스탠드", "매립덕트", "벽걸이", "FCU", "전열교환기", "세척",
+    "가정용",  # 드랍 사유 추적용 — 가정용은 취급 X
+]
+_PHONE_STATUS_OPTIONS = [
+    ("유선 상담", "유선 상담 (시트 등록)"),
+    ("문의 드랍", "문의 드랍 (시트 등록)"),
+    ("방문 예약", "방문 예약 (시트 등록 + 슬랙 알림)"),
+    ("견적 제출", "견적 제출 (시트 등록 + 슬랙 알림)"),
+]
+
+
+def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
+    """[전화 문의 등록] 모달 열기"""
+    metadata = json.dumps({"channel": channel, "user_id": user_id}, ensure_ascii=False)
+    modal = {
+        "type": "modal",
+        "callback_id": "submit_phone",
+        "title": {"type": "plain_text", "text": "전화 문의 등록"},
+        "submit": {"type": "plain_text", "text": "등록"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "private_metadata": metadata,
+        "blocks": [
+            {
+                "type": "input", "block_id": "name",
+                "label": {"type": "plain_text", "text": "고객명 / 상호 (선택)"},
+                "element": {"type": "plain_text_input", "action_id": "value"},
+                "optional": True,
+            },
+            {
+                "type": "input", "block_id": "phone",
+                "label": {"type": "plain_text", "text": "연락처"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "010-1234-5678"},
+                },
+            },
+            {
+                "type": "input", "block_id": "email",
+                "label": {"type": "plain_text", "text": "이메일 (선택)"},
+                "element": {"type": "plain_text_input", "action_id": "value"},
+                "optional": True,
+            },
+            {
+                "type": "input", "block_id": "status",
+                "label": {"type": "plain_text", "text": "상태"},
+                "element": {
+                    "type": "static_select", "action_id": "value",
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "유선 상담 (시트 등록)"},
+                        "value": "유선 상담",
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": label}, "value": v}
+                        for v, label in _PHONE_STATUS_OPTIONS
+                    ],
+                },
+            },
+            {
+                "type": "input", "block_id": "device",
+                "label": {"type": "plain_text", "text": "설치 희망 기기 (선택, 멀티)"},
+                "element": {
+                    "type": "multi_static_select", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "기기 선택"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": d}, "value": d}
+                        for d in _PHONE_DEVICE_OPTIONS
+                    ],
+                },
+                "optional": True,
+            },
+            {
+                "type": "input", "block_id": "address",
+                "label": {"type": "plain_text", "text": "방문 주소 (선택)"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "예: 강남구 테헤란로 152"},
+                },
+                "optional": True,
+            },
+            {
+                "type": "input", "block_id": "inquiry",
+                "label": {"type": "plain_text", "text": "상담 내용 (선택)"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value",
+                    "multiline": True,
+                    "placeholder": {"type": "plain_text",
+                                    "text": "통화에서 받은 정보, 상담 내용 등"},
+                },
+                "optional": True,
+            },
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=modal)
+
+
+def _post_phone_setup_message(client, channel: str):
+    """채널에 전화 문의 등록 안내 메시지 + [+ 등록] 버튼 발송 (관리자가 핀 고정)"""
+    if not channel:
+        return
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn",
+                                      "text": ":telephone_receiver: *전화 문의 받으셨나요?*\n"
+                                              "_아래 버튼을 누르거나 `/전화` 입력하시면 등록 모달이 뜹니다._"}},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "+ 전화 문의 등록"},
+                    "style": "primary",
+                    "action_id": "button_phone",
+                    "value": "open",
+                },
+            ],
+        },
+    ]
+    client.chat_postMessage(
+        channel=channel,
+        blocks=blocks,
+        text="전화 문의 등록 안내",
+    )
+
+
+def _process_phone_submission(client, body, view):
+    """전화 문의 모달 제출 → 시트 등록 + 상태 분기 슬랙 알림"""
+    import re as _re
+    metadata = json.loads(view["private_metadata"])
+    channel = metadata.get("channel", "")
+    user_id = metadata.get("user_id") or body["user"]["id"]
+
+    state = view["state"]["values"]
+    name = _v(state, "name").strip() or '-'
+    phone_raw = _v(state, "phone").strip()
+    email = _v(state, "email").strip() or '-'
+    status = _v(state, "status").strip() or '유선 상담'
+    address_raw = _v(state, "address").strip()
+    inquiry = _v(state, "inquiry").strip() or '-'
+    devices = _v_multi(state, "device")
+    device_str = ', '.join(devices) if devices else '-'
+    place = '-'  # 전화 문의 모달에서는 장소 필드 제거 (통화로 주소만 받음)
+
+    # 슬랙 user → 시트 L열 (온라인 상담자) 한국 이름 매핑
+    counselor = _slack_user_to_korean_name(client, user_id) or '-'
+
+    # 연락처 정규화
+    from dashboard.services.lead_helpers import (
+        normalize_phone, extract_keywords_from_sources, extract_korean_address,
+    )
+    phone = normalize_phone(phone_raw) or phone_raw or '-'
+
+    # 키워드 = device 값에서 vocab 매칭
+    keyword = extract_keywords_from_sources(device_str) or '-'
+
+    # 주소 카카오 검증
+    address = '-'
+    if address_raw:
+        try:
+            from dashboard.services.address_resolver import resolve_address
+            r = extract_korean_address(address_raw)
+            ra = r[0] if r else None
+            rl = r[1] if r else ''
+            verified, lv = resolve_address(address_raw, ra, rl)
+            address = verified or address_raw
+        except Exception as exc:
+            logger.warning(f"[SLACK/전화] 주소 검증 실패: {exc}")
+            address = address_raw
+
+    # 상담 시간 = 지금
+    now = datetime.now()
+    consult_time = now.strftime('%Y.%m.%d. %H:%M')
+
+    lead = {
+        '리드 No': '',
+        '상담 시간': consult_time,
+        '플랫폼': '전화',
+        '상태': status,
+        '방문 예정일': '-',
+        '고객 연락처': phone,
+        '이메일': email,
+        '고객명': name,
+        '방문 주소': address,
+        '상담 내용': inquiry,
+        '키워드': keyword,
+        '온라인 상담자': counselor,
+        '영업 담당자': '',
+        '마지막 연락일': '',
+        '피드백': '',
+        '_meta_place': place,
+        '_meta_device': device_str,
+        '_meta_inquiry': inquiry,
+        '_meta_consult_dt': now,
+        '_meta_address_level': '',
+    }
+
+    # 재문의 감지 (같은 번호 옛 lead 1시간 이상 전)
+    try:
+        from dashboard.services.lead_service import load_leads_data
+        from dashboard.services.lead_sync import _get_existing_phone_lookup
+        main_df = load_leads_data(force_refresh=False)
+        phone_lookup = _get_existing_phone_lookup(main_df)
+        phone_digits = _re.sub(r'\D', '', phone)
+        if phone_digits and phone_digits in phone_lookup:
+            prev = phone_lookup[phone_digits]
+            if prev and prev[0].get('consult_dt'):
+                if (now - prev[0]['consult_dt']).total_seconds() > 3600:
+                    lead['_meta_previous_leads'] = prev
+    except Exception as exc:
+        logger.warning(f"[SLACK/전화] 재문의 감지 실패: {exc}")
+
+    # 시트 등록 (SSL 일시 에러 시 시트에서 lead 검색 후 정상 흐름 이어가기)
+    lead_no = None
+    try:
+        from dashboard.services.lead_sync import _append_leads_to_main
+        lead_nos = _append_leads_to_main([lead])
+        lead_no = lead_nos[0] if lead_nos else None
+    except Exception as exc:
+        err_lower = str(exc).lower()
+        is_ssl_error = 'ssl' in err_lower or 'wrong_version' in err_lower
+        if is_ssl_error:
+            # SSL 일시 에러 — google API 자동 retry로 시트엔 보통 등록됨
+            # 같은 연락처 최근 lead를 시트에서 찾아 lead_no 회복
+            logger.warning(f"[SLACK/전화] SSL 일시 에러, 시트 확인 중: {exc}")
+            time.sleep(2)
+            try:
+                from dashboard.services.lead_service import load_leads_data
+                main_df = load_leads_data(force_refresh=True)
+                phone_digits = _re.sub(r'\D', '', phone)
+                if phone_digits and main_df is not None and not main_df.empty:
+                    norm = main_df['고객 연락처'].astype(str).str.replace(r'\D', '', regex=True)
+                    matches = main_df[norm == phone_digits]
+                    if not matches.empty:
+                        lead_no = str(matches.iloc[-1]['리드 No'])
+                        logger.info(f"[SLACK/전화] SSL 에러 후 시트에서 lead 확인: {lead_no}")
+            except Exception as exc2:
+                logger.warning(f"[SLACK/전화] SSL 후 시트 검증 실패: {exc2}")
+        else:
+            logger.error(f"[SLACK/전화] 시트 등록 실패: {exc}", exc_info=True)
+
+    if not lead_no:
+        # 진짜 등록 실패
+        try:
+            client.chat_postEphemeral(
+                channel=channel or user_id, user=user_id,
+                text=":x: 시트 등록 실패. 잠시 후 시트에서 직접 확인 부탁드립니다.",
+            )
+        except Exception:
+            pass
+        return
+
+    # 상태 분기 — 방문 예약/견적 제출만 슬랙 카드 발송
+    notify_slack = status in ('방문 예약', '견적 제출')
+    if notify_slack:
+        try:
+            from dashboard.services.lead_sync import _send_slack_notifications
+            _send_slack_notifications([lead], [lead_no], source='전화')
+        except Exception as exc:
+            logger.error(f"[SLACK/전화] 슬랙 알림 발송 실패: {exc}", exc_info=True)
+
+    # 확인 메시지 (ephemeral)
+    if notify_slack:
+        confirm = (f":white_check_mark: *{lead_no}* 전화 문의 등록 완료 + "
+                   f"슬랙 알림 발송 — `{status}`")
+    else:
+        confirm = (f":white_check_mark: *{lead_no}* 전화 문의 시트 등록 완료 — "
+                   f"`{status}` _(슬랙 알림 X)_")
+    try:
+        client.chat_postEphemeral(channel=channel or user_id, user=user_id, text=confirm)
+    except Exception as exc:
+        logger.warning(f"[SLACK/전화] 확인 메시지 실패: {exc}")
 
 
 def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,

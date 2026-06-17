@@ -97,7 +97,8 @@ def _format_ts(created_ms: int) -> str:
         return ''
 
 
-def _new_chat_card(user_chat: dict, user: dict, first_message: str, created_ms: int) -> dict:
+def _new_chat_card(user_chat: dict, user: dict, first_message: str,
+                   created_ms: int, lead_no: str = '') -> dict:
     """새 채팅 시작 시 표시할 카드 (text + blocks)"""
     customer_name = user.get('name') or user_chat.get('name') or '익명 고객'
     medium = (user_chat.get('mediumProfile') or {}).get('mediumName', '')
@@ -110,16 +111,78 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str, created_ms: 
         medium_icon = ':채널톡:'
     ts_str = _format_ts(created_ms)
 
+    lead_line = f'*접수번호:* `{lead_no}`\n' if lead_no else ''
     header_text = (
-        f'{medium_icon} *새 상담 요청*\n'
-        f'>*고객* : {customer_name}\n'
-        f'>*인입 채널* : {medium_label}\n'
-        f'>*시각* : {ts_str}\n'
-        f'>*첫 메시지* : {first_message}\n'
-        f'_(아래 thread에서 실시간 대화)_'
+        lead_line
+        + f'{medium_icon} *새 상담 요청*\n'
+        + f'>*고객* : {customer_name}\n'
+        + f'>*인입 채널* : {medium_label}\n'
+        + f'>*시각* : {ts_str}\n'
+        + f'>*첫 메시지* : {first_message}\n'
+        + f'_(아래 thread에서 실시간 대화)_'
     )
 
     return {'text': header_text}
+
+
+def _register_chat_lead(user_chat: dict, user: dict, first_message: str,
+                        created_ms: int) -> str:
+    """새 채팅 인입을 메인 시트에 1건 lead로 등록 (통계용).
+
+    Returns: lead_no (실패 시 빈 문자열)
+    """
+    try:
+        from dashboard.services.lead_sync import _append_leads_to_main
+        from datetime import datetime
+
+        customer_name = (user.get('name') or user_chat.get('name')
+                         or '익명 고객').strip()
+        medium = (user_chat.get('mediumProfile') or {}).get('mediumName', '')
+        platform = MEDIUM_LABELS.get(medium) if medium else '채널톡'
+        if not platform:
+            platform = medium or '채널톡'
+
+        try:
+            dt = datetime.fromtimestamp(created_ms / 1000.0)
+            consult_time = dt.strftime('%Y.%m.%d. %H:%M')
+        except Exception:
+            dt = datetime.now()
+            consult_time = dt.strftime('%Y.%m.%d. %H:%M')
+
+        # 본문 길이 제한 (시트 한 셀에 너무 길면 가독성 ↓)
+        inquiry = (first_message or '').strip()
+        if len(inquiry) > 500:
+            inquiry = inquiry[:500] + '...'
+        if not inquiry:
+            inquiry = '-'
+
+        lead = {
+            '리드 No': '',
+            '상담 시간': consult_time,
+            '플랫폼': platform,
+            '상태': '상담 대기',
+            '방문 예정일': '-',
+            '고객 연락처': '-',
+            '이메일': '-',
+            '고객명': customer_name,
+            '방문 주소': '-',
+            '상담 내용': inquiry,
+            '키워드': '-',
+            '온라인 상담자': '',
+            '영업 담당자': '',
+            '마지막 연락일': '',
+            '피드백': '',
+            '_meta_place': '-',
+            '_meta_device': '-',
+            '_meta_inquiry': inquiry,
+            '_meta_consult_dt': dt,
+            '_meta_address_level': '',
+        }
+        lead_nos = _append_leads_to_main([lead])
+        return lead_nos[0] if lead_nos else ''
+    except Exception as exc:
+        logger.warning(f'[ChannelTalk] 시트 등록 실패 (lead은 기록 안 됨): {exc}')
+        return ''
 
 
 def _thread_reply_text(plain_text: str, customer_name: str, created_ms: int) -> str:
@@ -260,8 +323,11 @@ def _handle_user_message(payload: dict) -> None:
     # 1단계: 텍스트 메시지 — 파일이 없을 때만, 또는 새 채팅(카드)일 때만 발송
     # 파일 있는 thread reply는 텍스트 skip → 파일 업로드의 initial_comment로 합침 (알림 1번)
     if not thread_ts:
-        # 새 채팅 — 카드 발송 (thread root)
-        card = _new_chat_card(user_chat, user, display_text, created_ms)
+        # 새 채팅 — 시트에 lead 1건 등록 (통계용)
+        lead_no = _register_chat_lead(user_chat, user, display_text, created_ms)
+
+        # 새 채팅 카드 발송 (thread root)
+        card = _new_chat_card(user_chat, user, display_text, created_ms, lead_no=lead_no)
         resp = _slack_post('chat.postMessage', {
             'channel': channel,
             'text': card['text'],

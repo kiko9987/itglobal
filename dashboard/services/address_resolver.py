@@ -159,9 +159,11 @@ def _kakao_search(query: str) -> Optional[dict]:
         return None
 
 
-# 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22")
-# 도로명 중간에 숫자 허용 (꽃내음1길, 시흥대로14길 등)
-_ROAD_PATTERN = re.compile(r'([가-힣]+\d*(?:로|길)\s+\d+(?:-\d+)?)')
+# 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22", "봉은사로 26길 12")
+# 도로명 중간에 숫자 허용 (꽃내음1길, 시흥대로14길 등) + 2단 도로명 옵션 (○○로 N길)
+_ROAD_PATTERN = re.compile(
+    r'([가-힣]+\d*(?:로|길)(?:\s+\d+(?:로|길))?\s+\d+(?:-\d+)?)'
+)
 
 
 # 건물명/층/호 정보 추출용
@@ -177,7 +179,13 @@ _TAIL_SIGNAL = re.compile(
     r'센트럴파크|학교|학원|병원|교회|공장|창고|연구원|연수원|회관|마을회관|호텔|모텔|'
     r'대학교|대학|아이클럽|상가동|'
     # 한국식 시설/사업장 명사 (○○집/카페/식당 등 prefix 있어야)
-    r'집|상회|공방|펜션|하우스|빌라|약국|미용실|매점|갤러리|한의원|식당|카페)'
+    r'집|상회|공방|펜션|하우스|빌라|약국|미용실|매점|갤러리|한의원|식당|카페|'
+    # 음식점·소매점 업종 키워드 (suffix)
+    r'치킨|통닭|분식|곱창|닭갈비|국밥|냉면|고깃집|쌈밥|족발|보쌈|돈까스|초밥|횟집|'
+    r'김밥|떡볶이|토스트|햄버거|피자|쌀국수|우동|라면|쭈꾸미|순대|덮밥|'
+    r'정육점|베이커리|빵집|도넛|주점|호프|포차|편의점|마트|슈퍼|문구|꽃집|세탁소)'
+    # brand 시작 키워드 + 뒤 한글 (예: "김밥천국", "신촌도넛", "치킨마니아", "떡볶이나라")
+    r'|(?:김밥|떡볶이|치킨|통닭|국밥|도넛|쌀국수|분식|족발|보쌈|곱창)[가-힣]{1,6}'
     r')'
 )
 _TAIL_STOP_WORDS = [
@@ -215,17 +223,18 @@ def _extract_building_tail(text: str) -> str:
     first_line = re.sub(r'\s+', ' ', first_line)
 
     candidates = []
-    # 1. 도로명·길 + 번지 + 뒤 (예: "갯벌로 36, 인하대학교 ...", "꽃내음1길 19-22, ...", "동호로28길11 느티나무집")
-    # 도로명 중간 숫자 허용 (\d*) + 도로명/번지 사이 공백 옵션 (\s*)
+    # 1. 도로명·길 + 번지 + 뒤
+    #    1단: "갯벌로 36, ...", "꽃내음1길 19-22, ...", "동호로28길11 ..."
+    #    2단: "봉은사로 26길 12 ..." (도로명이 ○○로 + 공백 + N길로 두 단으로 띄어쓴 형식)
     m = re.search(
-        r'[가-힣]+\d*(?:로|길)\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
+        r'[가-힣]+\d*(?:로|길)(?:\s+\d+(?:로|길))?\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
         candidates.append(m.group(1).strip())
-    # 2. ○○동 + 번지 + 뒤 (예: "상암동 1605번지 DMC 빌딩 5층")
+    # 2. ○○동(○가)? + 번지 + 뒤 (예: "상암동 1605번지 DMC 빌딩 5층", "성수동1가 12-3 신촌도넛")
     m = re.search(
-        r'[가-힣]+동\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]+(.+)',
+        r'[가-힣]+동(?:\s*\d+가)?\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
@@ -327,12 +336,34 @@ def verify_address(
             floor_carry = m_floor.group(1)
             clean_regex = regex_addr[:m_floor.start()].strip()
 
+    # 정규식 결과 끝 "상호명/시설명" 분리 — building_tail이 못 잡은 케이스의 fallback
+    # 예: "본오동849번지 원치킨" → carry="원치킨", clean="본오동849번지"로 검색
+    # building_tail은 도로명/동+번지+(.+) 패턴이 매칭돼야 작동 — regex_addr가 본문에서 잘려 들어오면
+    # 패턴 매칭 실패하므로 여기서 보강
+    facility_carry = ''
+    if clean_regex and not building_tail:
+        m_fac = re.search(
+            r'\s+([가-힣A-Za-z0-9]+'
+            r'(?:치킨|통닭|분식|곱창|닭갈비|국밥|냉면|고깃집|쌈밥|족발|보쌈|돈까스|초밥|횟집|'
+            r'김밥|떡볶이|토스트|햄버거|피자|쌀국수|우동|라면|쭈꾸미|순대|덮밥|'
+            r'정육점|베이커리|빵집|도넛|주점|호프|포차|편의점|마트|슈퍼|문구|꽃집|세탁소|'
+            r'카페|식당|약국|미용실|병원|한의원|학원|공방|상회|매점|갤러리'
+            r'))\s*$',
+            clean_regex,
+        )
+        if m_fac:
+            facility_carry = m_fac.group(1)
+            clean_regex = clean_regex[:m_fac.start()].strip()
+
     def _compose(base: str) -> str:
         parts = [base]
         if building_tail:
             parts.append(building_tail)
-        elif floor_carry and floor_carry not in base:
-            parts.append(floor_carry)
+        else:
+            if facility_carry and facility_carry not in base:
+                parts.append(facility_carry)
+            if floor_carry and floor_carry not in base:
+                parts.append(floor_carry)
         result = ' '.join(parts).strip()
         # 시각적 띄어쓰기 보장
         # 1. 한국 주소·시설 단어 다음 한글 — "단지상가" → "단지 상가"

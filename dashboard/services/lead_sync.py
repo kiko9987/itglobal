@@ -392,7 +392,91 @@ def _append_leads_to_main(leads: List[Dict[str, Any]]) -> List[str]:
         f'range={updated_range}, '
         f'updatedCells={updates.get("updatedCells", "?")})'
     )
+
+    # 등록된 행의 배경색 설정
+    # - 방문 예약: 연한 노란색 (#fff2cc)
+    # - 그 외: 흰색 (INSERT_ROWS의 위 행 색 자동 상속 방지)
+    try:
+        statuses = [str(lead.get('상태', '') or '') for lead in leads]
+        _reset_row_background(mgr, cfg['sheet_id'], sheet_name, updated_range,
+                              num_cols=len(LEAD_COLUMN_ORDER), statuses=statuses)
+    except Exception as exc:
+        logger.warning(f'[SYNC] 신규 행 배경색 설정 실패 (등록은 정상): {exc}')
+
     return lead_nos
+
+
+_SHEET_GID_CACHE: Dict[str, int] = {}
+
+
+def _get_sheet_gid(mgr, spreadsheet_id: str, sheet_name: str) -> Optional[int]:
+    """시트명 → 시트 gid (서식 batchUpdate 용)"""
+    cache_key = f'{spreadsheet_id}::{sheet_name}'
+    if cache_key in _SHEET_GID_CACHE:
+        return _SHEET_GID_CACHE[cache_key]
+    info = mgr.service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    for s in info.get('sheets', []):
+        props = s.get('properties', {})
+        if props.get('title') == sheet_name:
+            gid = props.get('sheetId')
+            _SHEET_GID_CACHE[cache_key] = gid
+            return gid
+    return None
+
+
+def _reset_row_background(mgr, spreadsheet_id: str, sheet_name: str,
+                          updated_range: str, num_cols: int,
+                          statuses: Optional[List[str]] = None):
+    """방금 등록된 행들의 배경색 설정.
+
+    - 상태 '방문 예약' → 연한 노란색 (#fff2cc)
+    - 그 외 → 흰색 (위 행 색 상속 방지)
+    """
+    m = re.search(r'![A-Z]+(\d+):[A-Z]+(\d+)', updated_range or '')
+    if not m:
+        return
+    start_row = int(m.group(1))
+    end_row = int(m.group(2))
+    num_rows = end_row - start_row + 1
+    if num_rows <= 0:
+        return
+
+    gid = _get_sheet_gid(mgr, spreadsheet_id, sheet_name)
+    if gid is None:
+        logger.warning(f'[SYNC] 시트 gid 못 찾음: {sheet_name}')
+        return
+
+    white = {'red': 1.0, 'green': 1.0, 'blue': 1.0}
+    yellow = {'red': 1.0, 'green': 242/255, 'blue': 204/255}  # #fff2cc 연한 노란색
+    statuses = statuses or []
+
+    rows_payload = []
+    for i in range(num_rows):
+        status = statuses[i] if i < len(statuses) else ''
+        color = yellow if status == '방문 예약' else white
+        rows_payload.append({
+            'values': [{'userEnteredFormat': {'backgroundColor': color}}] * num_cols
+        })
+
+    request = {
+        'updateCells': {
+            'range': {
+                'sheetId': gid,
+                'startRowIndex': start_row - 1,
+                'endRowIndex': end_row,
+                'startColumnIndex': 0,
+                'endColumnIndex': num_cols,
+            },
+            'fields': 'userEnteredFormat.backgroundColor',
+            'rows': rows_payload,
+        }
+    }
+    mgr.service.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={'requests': [request]},
+    ).execute()
+    yellow_count = sum(1 for s in statuses[:num_rows] if s == '방문 예약')
+    logger.info(f'[SYNC] 신규 행 배경색 설정 완료 ({num_rows}행, 방문 예약 {yellow_count}건 노란색)')
 
 
 # ─────────────────────────────────────────────────────────────
