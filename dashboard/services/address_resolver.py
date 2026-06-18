@@ -219,6 +219,29 @@ def _extract_building_tail(text: str) -> str:
     # 첫 3줄 합쳐서 분석 (당근 주소 칸 멀티라인 입력 케이스 대응)
     # 예: "고양시덕양구 화신로298\n별빛8단지상가101호 코코헤어"
     lines = text.strip().split('\n')[:3]
+
+    # 멀티라인 + 첫 줄에 회사명/시설명, 둘째 줄에 주소가 오는 거꾸로 입력 케이스
+    # 예: "(주)창림아이티\n안산시단원구 신원로 28(신길동)1057-3"
+    #     → facility_prefix = "(주)창림아이티"
+    facility_prefix = ''
+    if len(lines) >= 2:
+        line0 = lines[0].strip()
+        line1 = lines[1].strip()
+        line0_has_addr = bool(re.search(
+            r'(?:[가-힣]+동|[가-힣]+(?:로|길))\s*\d', line0
+        ))
+        line1_has_addr = bool(re.search(
+            r'(?:[가-힣]+동|[가-힣]+(?:로|길))\s*\d', line1
+        ))
+        if not line0_has_addr and line1_has_addr and 2 <= len(line0) <= 40:
+            # 회사명/시설명 표지 검사
+            is_company = bool(re.search(
+                r'\(주\)|㈜|\(유\)|주식회사|유한회사|영농조합법인', line0
+            ))
+            is_facility = bool(_TAIL_SIGNAL.search(line0))
+            if is_company or is_facility:
+                facility_prefix = line0
+
     first_line = ' '.join(line.strip() for line in lines if line.strip())
     first_line = re.sub(r'\s+', ' ', first_line)
 
@@ -241,6 +264,9 @@ def _extract_building_tail(text: str) -> str:
         candidates.append(m.group(1).strip())
 
     for tail in candidates:
+        # 리딩 구분자/부호 정리 (사용자가 ". ", "/ ", "- " 같은 구분자 쓴 케이스)
+        # 예: "완정로 24 . 이성빌딩" → group(1) = ". 이성빌딩" → "이성빌딩"
+        tail = re.sub(r'^[,.·\-/\s]+', '', tail).strip()
         # 종료 키워드까지 자르기
         cut_pos = len(tail)
         for sw in _TAIL_STOP_WORDS:
@@ -253,8 +279,11 @@ def _extract_building_tail(text: str) -> str:
 
         # 의미 있는 건물·층·호 신호 있는지 검증
         if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):
-            return tail
-    return ''
+            # facility_prefix가 있으면 함께 부착 (예: "회사명 + 건물명")
+            return f"{tail} {facility_prefix}".strip() if facility_prefix else tail
+
+    # 주소 뒤 시설명 없지만 멀티라인 첫줄 회사명/시설명만 있는 경우
+    return facility_prefix
 
 
 def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
@@ -357,6 +386,13 @@ def verify_address(
 
     def _compose(base: str) -> str:
         parts = [base]
+        # base에 도로명+번지가 없으면 원문에서 추출해 부착
+        # (m_admin 후보로 검색되면 행정구역까지만 정규화돼 도로명/번지 손실)
+        # 예: base="안양 동안구" + 원문 "관악대로 69" → "안양 동안구 관악대로 69"
+        if not re.search(r'(?:로|길)\s+\d+', base):
+            m_road = _ROAD_PATTERN.search(text or '')
+            if m_road:
+                parts.append(m_road.group(1))
         if building_tail:
             parts.append(building_tail)
         else:

@@ -1126,26 +1126,72 @@ def _process_phone_submission(client, body, view):
             pass
         return
 
-    # 상태 분기 — 방문 예약/견적 제출만 슬랙 카드 발송
+    # 상태 분기 — 방문 예약/견적 제출만 채널에 "전화 등록 결과 보고" 카드 발송
+    # (인입 알림 카드가 아니라 결과 공유용 — 버튼 없음, 이중 컨택 방지가 목적)
     notify_slack = status in ('방문 예약', '견적 제출')
     if notify_slack:
         try:
-            from dashboard.services.lead_sync import _send_slack_notifications
-            _send_slack_notifications([lead], [lead_no], source='전화')
+            _post_phone_registration_notice(
+                client, lead, lead_no, status, user_id,
+                channel=os.getenv('SLACK_LEAD_CHANNEL', '').strip(),
+            )
         except Exception as exc:
-            logger.error(f"[SLACK/전화] 슬랙 알림 발송 실패: {exc}", exc_info=True)
+            logger.error(f"[SLACK/전화] 등록 보고 발송 실패: {exc}", exc_info=True)
 
-    # 확인 메시지 (ephemeral)
+    # 확인 메시지 (ephemeral) — 전화번호 메인 + 리드 No 보조
     if notify_slack:
-        confirm = (f":white_check_mark: *{lead_no}* 전화 문의 등록 완료 + "
-                   f"슬랙 알림 발송 — `{status}`")
+        confirm = f":white_check_mark: *{phone}* 등록 완료 — {status} (채널 공지 완료) `{lead_no}`"
     else:
-        confirm = (f":white_check_mark: *{lead_no}* 전화 문의 시트 등록 완료 — "
-                   f"`{status}` _(슬랙 알림 X)_")
+        confirm = f":white_check_mark: *{phone}* 등록 완료 — {status} (시트만 기록) `{lead_no}`"
     try:
         client.chat_postEphemeral(channel=channel or user_id, user=user_id, text=confirm)
     except Exception as exc:
         logger.warning(f"[SLACK/전화] 확인 메시지 실패: {exc}")
+
+
+def _post_phone_registration_notice(client, lead: dict, lead_no: str, status: str,
+                                     user_id: str, channel: str):
+    """전화 모달 등록 후 채널에 결과 보고 카드 발송.
+
+    인입 알림 카드(버튼 있음)가 아니라 *결과 공유*용 단순 카드.
+    의도: 다른 영업 담당자가 같은 고객한테 이중 컨택하지 않도록 공유.
+
+    양식:
+        ✅ 전화 접수 → 방문 예약 등록  `L-02909`
+        📞 010-8942-0275 (김서아)
+        📍 군포 엘에스로 13 신일IT유토지식산업센터 1012호
+        📅 방문 예정: 2026-06-20
+        👤 등록: @박정우
+    """
+    if not channel:
+        return
+
+    phone = (lead.get('고객 연락처') or '').strip() or '-'
+    name = (lead.get('고객명') or '').strip()
+    address = (lead.get('방문 주소') or '').strip()
+    visit_date = (lead.get('방문 예정일') or '').strip()
+
+    lines = [f":white_check_mark: *전화 접수 → {status} 등록*  `{lead_no}`"]
+
+    phone_line = f":telephone_receiver: {phone}"
+    if name and name not in ('-', ''):
+        phone_line += f" ({name})"
+    lines.append(phone_line)
+
+    if address and address not in ('-', ''):
+        lines.append(f":round_pushpin: {address}")
+
+    if status == '방문 예약' and visit_date and visit_date not in ('-', ''):
+        lines.append(f":calendar: 방문 예정: {visit_date}")
+
+    lines.append(f":bust_in_silhouette: 등록: <@{user_id}>")
+
+    try:
+        client.chat_postMessage(
+            channel=channel, text='\n'.join(lines), unfurl_links=False,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/전화] 채널 보고 발송 실패: {exc}")
 
 
 def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
