@@ -35,29 +35,6 @@ _SIGNING_SECRET = os.getenv('SLACK_SIGNING_SECRET', '')
 _slack_app = None
 _slack_handler = None
 
-# file_shared 이벤트 중복 방지 (5분 TTL)
-_processed_file_ids: dict = {}  # file_id → timestamp
-_FILE_DEDUP_TTL_SEC = 300
-_processed_file_ids_lock = threading.Lock()
-
-
-def _is_file_already_processed(file_id: str) -> bool:
-    """파일이 최근 처리됐는지 체크하고, 새로 처리할 거면 등록."""
-    if not file_id:
-        return False
-    now = time.time()
-    with _processed_file_ids_lock:
-        # 오래된 항목 정리
-        for fid in list(_processed_file_ids.keys()):
-            if now - _processed_file_ids[fid] > _FILE_DEDUP_TTL_SEC * 2:
-                del _processed_file_ids[fid]
-        # 5분 내 동일 file_id면 중복으로 간주
-        if file_id in _processed_file_ids:
-            return True
-        _processed_file_ids[file_id] = now
-        return False
-
-
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
     global _slack_app, _slack_handler
@@ -108,86 +85,7 @@ def _init_slack_app():
 def _register_handlers(app):
     """슬래시 명령, 인터랙티브, 이벤트 핸들러 등록"""
 
-    # ① 슬래시 명령: /당근 (당근마켓 리드폼 처리)
-    @app.command("/당근")
-    def handle_karrot(ack, command, respond):
-        ack()
-        user_id = command.get("user_id", "")
-        text = command.get("text", "").strip().lower()
-
-        # 인자에 따라 분기
-        if text in ("도움말", "help", ""):
-            respond({
-                "response_type": "ephemeral",
-                "blocks": [
-                    {
-                        "type": "header",
-                        "text": {"type": "plain_text", "text": "🥕 당근 리드폼 자동 처리"},
-                    },
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": (
-                                "*사용법*\n"
-                                "1️⃣ 당근 비즈프로필에서 리드폼 엑셀을 다운로드\n"
-                                "2️⃣ 이 채널에 *드래그앤드롭* (또는 📎 첨부)\n"
-                                "3️⃣ 봇이 자동으로 복호화 + 신규만 추출 + 시트 등록\n\n"
-                                "*명령어*\n"
-                                "• `/당근` 또는 `/당근 도움말` — 이 도움말\n"
-                                "• `/당근 상태` — 마지막 처리 시점 + 시트의 당근 리드 수\n\n"
-                                "_⚠️ 아직 자동 처리 기능 구현 중입니다. 곧 활성화됩니다._"
-                            ),
-                        },
-                    },
-                ],
-            })
-        elif text in ("상태", "status"):
-            # 시트에서 당근 리드 마지막 처리 시점 조회
-            try:
-                from dashboard.services.lead_service import load_leads_data
-                df = load_leads_data()
-                if df is None or df.empty:
-                    respond({"response_type": "ephemeral", "text": "📭 시트 데이터 없음"})
-                    return
-
-                karrot_rows = df[df['플랫폼'].astype(str).str.strip() == '당근']
-                total = len(karrot_rows)
-                last_consult = ''
-                if total > 0 and '상담 시간' in karrot_rows.columns:
-                    last_consult = karrot_rows['상담 시간'].dropna().astype(str).max()
-
-                respond({
-                    "response_type": "ephemeral",
-                    "blocks": [
-                        {
-                            "type": "header",
-                            "text": {"type": "plain_text", "text": "🥕 당근 리드 현황"},
-                        },
-                        {
-                            "type": "section",
-                            "fields": [
-                                {"type": "mrkdwn", "text": f"*시트의 당근 리드:*\n{total}건"},
-                                {"type": "mrkdwn", "text": f"*마지막 응답 일시:*\n{last_consult or '(없음)'}"},
-                            ],
-                        },
-                    ],
-                })
-            except Exception as exc:
-                logger.error(f"[SLACK] /당근 상태 실패: {exc}", exc_info=True)
-                respond({"response_type": "ephemeral", "text": f"❌ 상태 조회 실패: {exc}"})
-        else:
-            respond({
-                "response_type": "ephemeral",
-                "text": (
-                    f"❓ 알 수 없는 옵션: `{text}`\n"
-                    "`/당근 도움말` 또는 `/당근 상태` 를 사용하세요."
-                ),
-            })
-
-        logger.info(f"[SLACK] /당근 처리: user={user_id}, text={text!r}")
-
-    # ② 슬래시 명령: /상태 (사이트 헬스체크)
+    # ① 슬래시 명령: /상태 (사이트 헬스체크)
     @app.command("/상태")
     def handle_status(ack, command, respond):
         ack()
@@ -216,14 +114,14 @@ def _register_handlers(app):
             logger.error(f"[SLACK] /상태 실패: {exc}", exc_info=True)
             respond({"text": f"❌ 상태 조회 실패: {exc}"})
 
-    # ③ 봇 멘션 이벤트 (예: @ITG관리봇 안녕)
+    # ② 봇 멘션 이벤트 (예: @ITG관리봇 안녕)
     @app.event("app_mention")
     def handle_mention(event, say):
         user = event.get("user", "")
         text = event.get("text", "")
-        say(f"<@{user}> 부르셨나요? `/당근`, `/상태` 명령을 사용해보세요.")
+        say(f"<@{user}> 부르셨나요? `/상태`, `/전화`, `/청소` 명령을 사용해보세요.")
 
-    # ④ DM + 채널톡 thread 답글 통합 처리
+    # ③ DM + 채널톡 thread 답글 통합 처리
     @app.event("message")
     def handle_message(event, say, client):
         # 디버그 — 들어온 이벤트 무조건 로깅
@@ -241,13 +139,13 @@ def _register_handlers(app):
 
         channel_type = event.get("channel_type")
 
-        # ④-1. DM: 안내 메시지
+        # ③-1. DM: 안내 메시지
         if channel_type == "im":
             text = event.get("text", "")
-            say(f"메시지 받았습니다: _{text}_\n슬래시 명령 `/당근`, `/상태`도 사용 가능합니다.")
+            say(f"메시지 받았습니다: _{text}_\n슬래시 명령 `/상태`, `/전화`, `/청소`도 사용 가능합니다.")
             return
 
-        # ④-2. 채널 thread 답글 — 채널톡 thread면 채널톡으로 forward
+        # ③-2. 채널 thread 답글 — 채널톡 thread면 채널톡으로 forward
         if channel_type in ("channel", "group"):
             thread_ts = event.get("thread_ts")
             if not thread_ts:
@@ -306,67 +204,7 @@ def _register_handlers(app):
             except Exception as exc:
                 logger.error(f"[ChannelTalk→] thread 답글 처리 예외: {exc}", exc_info=True)
 
-    # ⑤ 파일 업로드 이벤트 — 당근 엑셀 자동 처리
-    @app.event("file_shared")
-    def handle_file_shared(event, client, request):
-        file_id = event.get("file_id", "")
-
-        # 슬랙 retry 체크 (헤더 X-Slack-Retry-Num): 이미 처리 시도된 거니까 무시
-        retry_num = request.headers.get("X-Slack-Retry-Num") if request else None
-        retry_reason = request.headers.get("X-Slack-Retry-Reason") if request else None
-        if retry_num:
-            logger.info(f"[SLACK] file_shared retry 무시: file_id={file_id} retry={retry_num} reason={retry_reason}")
-            return
-
-        # 5분 내 동일 file_id 중복 방지 (file_id별 dedup)
-        if _is_file_already_processed(file_id):
-            logger.info(f"[SLACK] file_shared 중복 무시: file_id={file_id}")
-            return
-
-        logger.info(f"[SLACK] file_shared 수신: file_id={file_id}")
-        if not file_id:
-            return
-
-        # 파일 정보 조회 (이름·다운로드 URL·채널)
-        try:
-            info = client.files_info(file=file_id)
-        except Exception as exc:
-            logger.error(f"[SLACK] files_info 실패: {exc}", exc_info=True)
-            return
-
-        f = info.get("file", {}) or {}
-        fname = (f.get("name") or "").lower()
-        channels = f.get("channels") or []
-        groups = f.get("groups") or []
-        target_channel = (channels + groups)[0] if (channels or groups) else None
-
-        if not target_channel:
-            logger.info(f"[SLACK] file_shared 무시 (채널 없음): {fname}")
-            return
-
-        # .xlsx 가 아니면 무시 (당근 엑셀만 처리, 향후 현장 사진은 별도 이벤트로)
-        if not fname.endswith(".xlsx"):
-            logger.info(f"[SLACK] file_shared 무시 (xlsx 아님): {fname}")
-            return
-
-        # 당근 리드 엑셀로 추정되는지 (파일명에 '당근' 또는 '리드폼' 포함)
-        is_karrot = ('당근' in fname) or ('리드폼' in fname) or ('karrot' in fname)
-        if not is_karrot:
-            client.chat_postMessage(
-                channel=target_channel,
-                text=f"📎 `{f.get('name','')}` 받았습니다. 당근 리드 파일은 파일명에 *당근* 또는 *리드폼* 이 포함되어야 자동 처리됩니다.",
-            )
-            return
-
-        # 무거운 작업은 별도 스레드 → 슬랙에 빠른 ack 보장 (retry 방지)
-        threading.Thread(
-            target=_process_karrot_file_async,
-            args=(client, target_channel, f),
-            daemon=True,
-            name=f"karrot-{file_id[:8]}",
-        ).start()
-
-    # ⑥ 인입 알림 메시지의 [방문 요청] 버튼
+    # ④ 인입 알림 메시지의 [방문 요청] 버튼
     @app.action("button_visit")
     def handle_button_visit(ack, body, client):
         ack()
@@ -452,135 +290,267 @@ def _register_handlers(app):
                 logger.error(f"[SLACK] submit_phone 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    # ⑬ /청소 슬래시 명령 — 채널 메시지 일괄 청소 (봇이 보낸 메시지만)
+    @app.command("/청소")
+    def handle_sweep_command(ack, command, client, respond):
+        ack()
+        text = command.get("text", "").strip()
+        channel = command.get("channel_id", "")
+
+        parsed = _parse_sweep_args(text)
+        if not parsed["valid"]:
+            respond({"response_type": "ephemeral", "text": parsed["error"]})
+            return
+
+        if parsed["mode"] == "all":
+            mode_desc = "*전체* 메시지"
+        elif parsed["mode"] == "count":
+            mode_desc = f"최근 *{parsed['value']}개* 메시지"
+        else:
+            mode_desc = f"최근 *{_human_duration(parsed['value'])}* 이내 메시지"
+
+        private_meta = json.dumps({
+            "channel": channel,
+            "mode": parsed["mode"],
+            "value": parsed.get("value", 0),
+        })
+
+        respond({
+            "response_type": "ephemeral",
+            "text": f"🧹 {mode_desc}를 청소합니다.",
+            "blocks": [
+                {"type": "section", "text": {"type": "mrkdwn", "text": (
+                    f"🧹 {mode_desc}를 청소합니다.\n"
+                    "_• 봇이 보낸 메시지만 삭제됩니다 (Slack 정책)_\n"
+                    "_• 1초당 1개 속도 (rate limit) — 100개 약 2분_"
+                )}},
+                {"type": "actions", "elements": [
+                    {"type": "button", "text": {"type": "plain_text", "text": "✅ 시작"},
+                     "style": "danger", "action_id": "sweep_confirm",
+                     "value": private_meta},
+                    {"type": "button", "text": {"type": "plain_text", "text": "취소"},
+                     "action_id": "sweep_cancel"},
+                ]},
+            ],
+        })
+
+    # ⑭ [시작] 버튼 - 청소 백그라운드 실행
+    @app.action("sweep_confirm")
+    def handle_sweep_confirm(ack, body, client, respond):
+        ack()
+        try:
+            meta = json.loads(body["actions"][0].get("value", "{}"))
+        except Exception:
+            respond({"response_type": "ephemeral", "text": "❌ 인자 디코딩 실패"})
+            return
+
+        response_url = body.get("response_url", "")
+        channel = meta.get("channel", "")
+        mode = meta.get("mode", "")
+        value = meta.get("value", 0)
+
+        respond({
+            "response_type": "ephemeral",
+            "replace_original": True,
+            "text": "🧹 청소 시작... (50개마다 진행 보고)",
+        })
+
+        def _bg():
+            try:
+                _run_sweep(client, channel, response_url, mode, value)
+            except Exception as exc:
+                logger.error(f"[SWEEP] 실패: {exc}", exc_info=True)
+                _sweep_update(response_url, f"❌ 청소 실패: {type(exc).__name__}: {exc}")
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # ⑮ [취소] 버튼
+    @app.action("sweep_cancel")
+    def handle_sweep_cancel(ack, body, respond):
+        ack()
+        respond({
+            "response_type": "ephemeral",
+            "replace_original": True,
+            "text": "_청소 취소됨._",
+        })
+
     logger.info(
-        "[SLACK] 핸들러 등록 완료: /당근, /상태, /전화, app_mention, message(DM), file_shared, "
-        "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone"
+        "[SLACK] 핸들러 등록 완료: /상태, /전화, /청소, app_mention, message(DM), "
+        "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone, "
+        "sweep_confirm, sweep_cancel"
     )
 
 
-def _process_karrot_file_async(client, channel: str, file_info: dict):
-    """당근 엑셀 다운로드 → 파싱 → 시트 일괄 등록 → 결과 메시지"""
-    fname = file_info.get("name", "")
-    download_url = file_info.get("url_private_download") or file_info.get("url_private")
+# ─────────────────────────────────────────────────────────────
+# /청소 — 채널 메시지 일괄 청소 헬퍼
+# ─────────────────────────────────────────────────────────────
+_BOT_INFO = {"user_id": "", "bot_id": ""}
+_BOT_INFO_LOCK = threading.Lock()
 
-    if not download_url:
-        client.chat_postMessage(channel=channel, text=f"❌ `{fname}` 다운로드 URL 없음")
-        return
 
-    # 처리 시작 알림
-    try:
-        ack_msg = client.chat_postMessage(
-            channel=channel,
-            text=f"🥕 `{fname}` 처리 중... (10~30초 소요)",
-        )
-        ack_ts = ack_msg.get("ts")
-    except Exception:
-        ack_ts = None
-
-    business_number = os.getenv("KARROT_BUSINESS_NUMBER", "")
-    if not business_number:
-        client.chat_postMessage(channel=channel, text="❌ `KARROT_BUSINESS_NUMBER` 환경변수 미설정")
-        return
-
-    # 다운로드 (Bot 토큰 필요)
-    import requests
-    try:
-        resp = requests.get(
-            download_url,
-            headers={"Authorization": f"Bearer {_BOT_TOKEN}"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        file_bytes = resp.content
-    except Exception as exc:
-        logger.error(f"[SLACK] 파일 다운로드 실패: {exc}", exc_info=True)
-        client.chat_postMessage(channel=channel, text=f"❌ 파일 다운로드 실패: {exc}")
-        return
-
-    # 파싱 + 시트 등록
-    try:
-        from dashboard.services.karrot_parser import process_karrot_excel, append_leads_to_sheet
-        result = process_karrot_excel(file_bytes, business_number)
-
-        # 신규 등록
-        lead_nos = []
-        if result["new"]:
-            lead_nos = append_leads_to_sheet(result["new"])
-    except ValueError as exc:
-        logger.error(f"[SLACK] 당근 파싱 실패: {exc}")
-        client.chat_postMessage(channel=channel, text=f"❌ 처리 실패: {exc}")
-        return
-    except Exception as exc:
-        logger.error(f"[SLACK] 당근 처리 실패: {exc}", exc_info=True)
-        client.chat_postMessage(channel=channel, text=f"❌ 처리 중 오류: {type(exc).__name__}: {exc}")
-        return
-
-    # ─────────────────────────────────────────────────────────
-    # 결과 처리
-    # ─────────────────────────────────────────────────────────
-    new_count = result["new_count"]
-    sheet_karrot_count = result.get("sheet_karrot_count", 0)
-
-    # 신규 0건: 처리 중 메시지 삭제하고 짧은 알림만
-    if new_count == 0:
-        msg = (
-            f"🥕 신규 리드 없음 _(엑셀 {result['total']}건 / "
-            f"이미 등록 {result['duplicates']}건, 당근 누적 {sheet_karrot_count}건)_"
-        )
+def _get_bot_info(client) -> dict:
+    """auth.test로 봇의 user_id/bot_id 조회. 한 번만 호출 후 캐시."""
+    with _BOT_INFO_LOCK:
+        if _BOT_INFO["user_id"]:
+            return _BOT_INFO
         try:
-            if ack_ts:
-                client.chat_update(channel=channel, ts=ack_ts, text=msg)
-            else:
-                client.chat_postMessage(channel=channel, text=msg)
+            res = client.auth_test()
+            _BOT_INFO["user_id"] = res.get("user_id", "")
+            _BOT_INFO["bot_id"] = res.get("bot_id", "")
+            logger.info(f"[SWEEP] 봇 ID 캐시: user_id={_BOT_INFO['user_id']}, bot_id={_BOT_INFO['bot_id']}")
         except Exception as exc:
-            logger.error(f"[SLACK] 결과 메시지 전송 실패: {exc}", exc_info=True)
+            logger.warning(f"[SWEEP] auth.test 실패: {exc}")
+    return _BOT_INFO
+
+
+def _parse_sweep_args(text: str) -> dict:
+    """/청소 인자 파싱.
+
+    반환:
+        {"valid": True, "mode": "count", "value": 100}
+        {"valid": True, "mode": "duration", "value": 86400}  # 초
+        {"valid": True, "mode": "all"}
+        {"valid": False, "error": "..."}
+    """
+    import re as _re
+    text = text.strip().lower()
+
+    if not text or text in ("help", "도움말", "?"):
+        return {"valid": False, "error": (
+            "*사용법*\n"
+            "`/청소 100` — 최근 100개 메시지 청소\n"
+            "`/청소 24h` — 24시간 이내 메시지 청소\n"
+            "`/청소 7d` — 7일 이내 메시지 청소\n"
+            "`/청소 all` — 전체 청소 (위험)\n\n"
+            "_※ 봇이 보낸 메시지만 삭제됩니다 (Slack 정책)_"
+        )}
+
+    if text == "all":
+        return {"valid": True, "mode": "all"}
+
+    # 시간 단위 (60m, 24h, 7d)
+    m = _re.match(r'^(\d+)([mhd])$', text)
+    if m:
+        n = int(m.group(1))
+        unit_secs = {"m": 60, "h": 3600, "d": 86400}[m.group(2)]
+        return {"valid": True, "mode": "duration", "value": n * unit_secs}
+
+    # 숫자 (최근 N개)
+    m = _re.match(r'^(\d+)$', text)
+    if m:
+        n = int(m.group(1))
+        if n <= 0 or n > 10000:
+            return {"valid": False, "error": "개수는 1~10000 사이"}
+        return {"valid": True, "mode": "count", "value": n}
+
+    return {"valid": False, "error": f"인식 못 함: `{text}`. `/청소 help`로 사용법 확인"}
+
+
+def _human_duration(seconds: int) -> str:
+    if seconds >= 86400:
+        return f"{seconds // 86400}일"
+    if seconds >= 3600:
+        return f"{seconds // 3600}시간"
+    if seconds >= 60:
+        return f"{seconds // 60}분"
+    return f"{seconds}초"
+
+
+def _sweep_update(response_url: str, text: str):
+    """response_url로 ephemeral 갱신 (실패해도 무시)."""
+    if not response_url:
+        return
+    try:
+        req = urllib.request.Request(
+            response_url,
+            data=json.dumps({
+                "response_type": "ephemeral",
+                "replace_original": True,
+                "text": text,
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as exc:
+        logger.warning(f"[SWEEP] response_url 갱신 실패: {exc}")
+
+
+def _run_sweep(client, channel: str, response_url: str, mode: str, value: int):
+    """채널 청소 백그라운드 워커.
+
+    - conversations.history로 페이지네이션
+    - 봇 user_id 또는 bot_id 매칭 시 chat.delete (1초당 1개)
+    - 50개마다 진행 보고, 완료 시 결과 보고
+    """
+    import time as _time
+    bot = _get_bot_info(client)
+    bot_uid = bot.get("user_id", "")
+    bot_bid = bot.get("bot_id", "")
+    if not bot_uid and not bot_bid:
+        _sweep_update(response_url, "❌ 봇 정보 확인 실패 (auth.test 실패)")
         return
 
-    # 신규 N건: 처리 중 메시지를 짧은 헤더로 교체 (또는 삭제 후 새로)
-    try:
-        if ack_ts:
-            client.chat_update(
-                channel=channel, ts=ack_ts,
-                text=f"🥕 당근 신규 리드 {new_count}건 도착",
-            )
-    except Exception as exc:
-        logger.warning(f"[SLACK] ack 메시지 업데이트 실패: {exc}")
+    deleted = 0
+    skipped_not_ours = 0
+    delete_failed = 0
+    cursor = None
+    oldest = ""
+    target_count = value if mode == "count" else None
+    if mode == "duration":
+        oldest = str(_time.time() - value)
 
-    # 각 신규 리드를 응답 시각 오름차순으로 채널에 개별 메시지 전송
-    # (가장 최신 응답이 마지막에 떠서 영업 알림에 잘 띄게)
-    for lead, lead_no in zip(result["new"], lead_nos):
+    while True:
         try:
-            text = _format_karrot_message(lead, lead_no)
-            client.chat_postMessage(channel=channel, text=text, unfurl_links=False)
+            params = {"channel": channel, "limit": 100}
+            if cursor:
+                params["cursor"] = cursor
+            if oldest:
+                params["oldest"] = oldest
+            res = client.conversations_history(**params)
         except Exception as exc:
-            logger.error(f"[SLACK] 리드 메시지 전송 실패 ({lead_no}): {exc}", exc_info=True)
+            _sweep_update(response_url, f"❌ history 조회 실패: {exc}")
+            return
 
+        msgs = res.get("messages", []) or []
+        for m in msgs:
+            if target_count is not None and deleted >= target_count:
+                break
 
-def _format_karrot_message(lead: dict, lead_no: str) -> str:
-    """
-    당근 신규 리드 1건을 사용자 정의 양식으로 포맷.
+            is_ours = (m.get("user") == bot_uid) or (m.get("bot_id") == bot_bid)
+            if not is_ours:
+                skipped_not_ours += 1
+                continue
 
-    양식:
-        *당근 문의 (방문)*
-        2026.05.29. 09:42   이샛별   010-9025-9352   상가 / 상업시설 / 의료시설
-        천장형   이천 이섭대천로 1407번길 8 2층   "기존 천장형 에어컨이 있는데..."
-    """
-    consult_time = (lead.get("상담 시간") or "").strip() or "-"
-    name = (lead.get("고객명") or "").strip() or "-"
-    phone = (lead.get("고객 연락처") or "").strip() or "-"
-    place = (lead.get("_meta_place") or "").strip() or "-"
-    device = (lead.get("_meta_device") or "").strip() or "-"
-    address = (lead.get("방문 주소") or "").strip() or "-"
-    inquiry = (lead.get("_meta_inquiry") or "").strip() or "-"
+            ts = m.get("ts")
+            if not ts:
+                continue
 
-    # 사용자 양식 그대로 (공백 3칸 구분자)
-    line1 = f"{consult_time}   {name}   {phone}   {place}"
-    line2 = f"{device}   {address}   \"{inquiry}\""
+            try:
+                client.chat_delete(channel=channel, ts=ts)
+                deleted += 1
+                _time.sleep(1.1)  # Slack tier-3 rate limit (50/min) 안전 대기
+            except Exception as exc:
+                delete_failed += 1
+                logger.warning(f"[SWEEP] chat.delete 실패 ({ts}): {exc}")
+                _time.sleep(1.1)
 
-    # 헤더에 리드 No도 살짝 포함 (운영자가 사이트와 매칭하기 쉽게)
-    return f"*당근 문의 (방문)*  `{lead_no}`\n{line1}\n{line2}"
+            if deleted > 0 and deleted % 50 == 0:
+                _sweep_update(response_url, f"🧹 진행 중... 삭제 {deleted}개")
 
-    logger.info("[SLACK] 핸들러 등록 완료: /당근, /상태, app_mention, message(DM), file_shared")
+        if target_count is not None and deleted >= target_count:
+            break
+        cursor = (res.get("response_metadata") or {}).get("next_cursor", "")
+        if not cursor:
+            break
+
+    _sweep_update(
+        response_url,
+        (
+            f"✅ 청소 완료\n"
+            f"• 삭제: {deleted}개\n"
+            f"• 봇 메시지 아님 (스킵): {skipped_not_ours}개\n"
+            f"• 삭제 실패: {delete_failed}개"
+        ),
+    )
 
 
 # ─────────────────────────────────────────────────────────────
