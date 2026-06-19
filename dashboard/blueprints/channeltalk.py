@@ -88,6 +88,41 @@ def _slack_post(api_path: str, body: dict) -> Optional[dict]:
 # ─────────────────────────────────────────────────────────────
 # 슬랙 메시지 양식
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# 우리 봇이 슬랙→채널톡으로 forward한 메시지 캐시 (echo loop 방지)
+# webhook으로 같은 메시지가 되돌아오면 skip
+# ─────────────────────────────────────────────────────────────
+_OUR_SENT_CACHE: dict = {}  # (chat_id, text) → epoch sec
+_OUR_SENT_TTL = 60  # 초
+
+
+def mark_our_sent(chat_id: str, text: str) -> None:
+    """슬랙→채널톡 forward 직후 호출 — echo loop 방지용 캐시."""
+    if not chat_id or not text:
+        return
+    import time as _t
+    now = _t.time()
+    _OUR_SENT_CACHE[(chat_id, text.strip())] = now
+    # 오래된 항목 정리
+    cutoff = now - _OUR_SENT_TTL * 2
+    for key in list(_OUR_SENT_CACHE):
+        if _OUR_SENT_CACHE[key] < cutoff:
+            del _OUR_SENT_CACHE[key]
+
+
+def is_our_sent(chat_id: str, text: str) -> bool:
+    """webhook 도착 시 — 우리가 방금 forward한 메시지인지 확인. 일치 시 True + 캐시 제거."""
+    if not chat_id or not text:
+        return False
+    import time as _t
+    key = (chat_id, text.strip())
+    if key in _OUR_SENT_CACHE:
+        ts = _OUR_SENT_CACHE.pop(key)
+        if _t.time() - ts < _OUR_SENT_TTL:
+            return True
+    return False
+
+
 def _format_ts(created_ms: int) -> str:
     """epoch ms → '14:32' / 자정 넘으면 '06.15 14:32'"""
     try:
@@ -188,6 +223,12 @@ def _register_chat_lead(user_chat: dict, user: dict, first_message: str,
 def _thread_reply_text(plain_text: str, customer_name: str, created_ms: int) -> str:
     ts_str = _format_ts(created_ms)
     return f':bust_in_silhouette: *{customer_name}* _{ts_str}_\n{plain_text}'
+
+
+def _thread_reply_text_manager(text: str, manager_name: str, created_ms: int) -> str:
+    """매니저(채널톡 직원)가 채널톡 앱에서 직접 답변한 메시지 — thread reply 양식."""
+    ts_str = _format_ts(created_ms)
+    return f':technologist: *{manager_name}* (채널톡 답변) _{ts_str}_\n{text}'
 
 
 def _extract_files(entity: dict) -> list:
@@ -291,6 +332,80 @@ def _slack_upload_files(channel: str, thread_ts: str,
 # ─────────────────────────────────────────────────────────────
 # 핸들러
 # ─────────────────────────────────────────────────────────────
+def _handle_manager_message(payload: dict) -> None:
+    """매니저(own_operator 외 채널톡 직원)가 채널톡 앱에서 직접 답변한 메시지를
+    슬랙 thread reply로 forward + 미응답 큐에서 제거.
+    """
+    entity = payload.get('entity') or {}
+    refers = payload.get('refers') or {}
+    user_chat = refers.get('userChat') or {}
+    manager = refers.get('manager') or {}
+
+    chat_id = entity.get('chatId') or user_chat.get('id')
+    plain_text = (entity.get('plainText') or '').strip()
+    created_ms = entity.get('createdAt') or 0
+    manager_name = (manager.get('name') or '매니저').strip() or '매니저'
+
+    files = _extract_files(entity)
+    if not chat_id or (not plain_text and not files):
+        return
+
+    channel = _slack_channel()
+    if not channel:
+        return
+
+    thread_ts = _threads.get_thread_ts(chat_id)
+    if not thread_ts:
+        # thread 매핑 없음 — 매니저가 우리 카드 생성 전에 답변한 드문 케이스
+        logger.debug(
+            f'[ChannelTalk] manager 답변 — thread 없음, skip (chat_id={chat_id})'
+        )
+        return
+
+    display_text = plain_text or (
+        '🖼️ 사진' if any(f['is_image'] for f in files) else '📎 파일'
+    )
+    reply_text = _thread_reply_text_manager(display_text, manager_name, created_ms)
+
+    if not files:
+        _slack_post('chat.postMessage', {
+            'channel': channel,
+            'thread_ts': thread_ts,
+            'text': reply_text,
+            'unfurl_links': False,
+        })
+    else:
+        # 파일 있을 때 — files.upload_v2로 thread에 첨부 (initial_comment=reply_text)
+        from dashboard.services.channeltalk_api import get_file_signed_url, download_file
+        items = []
+        for f in files:
+            try:
+                signed = get_file_signed_url(chat_id, f['key'])
+                if not signed:
+                    continue
+                content = download_file(signed)
+                if content:
+                    items.append({'content': content, 'name': f['name']})
+            except Exception as exc:
+                logger.warning(f'[ChannelTalk/mgr] 파일 처리 실패: {exc}')
+        if items:
+            _slack_upload_files(channel, thread_ts, items, reply_text)
+        else:
+            _slack_post('chat.postMessage', {
+                'channel': channel,
+                'thread_ts': thread_ts,
+                'text': reply_text,
+                'unfurl_links': False,
+            })
+
+    # 매니저가 답변했으니 미응답 큐에서 제거
+    _threads.remove_pending(chat_id)
+    logger.info(
+        f'[ChannelTalk] manager 답변 forward 완료 '
+        f'(chat_id={chat_id}, by={manager_name}, text={display_text[:30]!r})'
+    )
+
+
 def _handle_user_message(payload: dict) -> None:
     """사용자(고객) 메시지 처리 — 채널톡 → 슬랙"""
     entity = payload.get('entity') or {}
@@ -455,10 +570,19 @@ def events():
         if chat_type == 'userChat' and person_type == 'user':
             _handle_user_message(payload)
 
-        # 2. 매니저 발신 메시지는 슬랙에 표시 안 함 (loop 방지)
+        # 2. 매니저 메시지 — 우리 봇 forward(=echo loop) 캐시 비교로 구분
         elif chat_type == 'userChat' and person_type == 'manager':
-            # 향후: 슬랙에 자기 답변 echo 표시 옵션 (현재는 무시)
-            logger.debug(f'[ChannelTalk] manager 메시지 skip (chatId={entity.get("chatId")})')
+            chat_id_m = entity.get('chatId') or (refers.get('userChat') or {}).get('id')
+            text_m = (entity.get('plainText') or '').strip()
+            if is_our_sent(chat_id_m, text_m):
+                # 우리 봇이 방금 forward한 메시지 — echo loop 방지로 skip
+                # 미응답 큐만 제거 (어차피 사용자가 슬랙에서 답변한 거)
+                if chat_id_m:
+                    _threads.remove_pending(chat_id_m)
+                logger.debug(f'[ChannelTalk] echo skip (chatId={chat_id_m})')
+            else:
+                # 본인이든 다른 매니저든 채널톡 앱에서 직접 답변 → 슬랙 thread로 forward
+                _handle_manager_message(payload)
 
         # 3. 채팅 종료 (state=closed)
         if chat_state == 'closed':

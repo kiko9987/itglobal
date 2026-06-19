@@ -32,8 +32,14 @@ _BOT_ENABLED = os.getenv('SLACK_BOT_ENABLED', 'false').lower() == 'true'
 _BOT_TOKEN = os.getenv('SLACK_BOT_TOKEN', '')
 _SIGNING_SECRET = os.getenv('SLACK_SIGNING_SECRET', '')
 
+# 공사 현황 알림 봇 (별도 토큰/secret) — /공사확정 슬래시 + 모달 처리
+_PROJECT_BOT_TOKEN = os.getenv('SLACK_PROJECT_BOT_TOKEN', '')
+_PROJECT_SIGNING_SECRET = os.getenv('SLACK_PROJECT_SIGNING_SECRET', '')
+
 _slack_app = None
 _slack_handler = None
+_project_slack_app = None
+_project_slack_handler = None
 
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
@@ -77,6 +83,92 @@ def _init_slack_app():
     except Exception as exc:
         logger.error(f"[SLACK] 봇 초기화 실패: {exc}", exc_info=True)
         return False
+
+
+def _init_project_slack_app():
+    """공사 현황 알림 봇 — 별도 Bolt App 인스턴스. /공사확정 슬래시 + 모달 처리."""
+    global _project_slack_app, _project_slack_handler
+
+    if not _BOT_ENABLED:
+        return False
+    if not _PROJECT_BOT_TOKEN:
+        logger.warning("[SLACK/공사봇] SLACK_PROJECT_BOT_TOKEN 미설정 — 비활성화")
+        return False
+    if not _PROJECT_SIGNING_SECRET:
+        logger.warning("[SLACK/공사봇] SLACK_PROJECT_SIGNING_SECRET 미설정 — 비활성화")
+        return False
+
+    try:
+        from slack_bolt import App
+        from slack_bolt.adapter.flask import SlackRequestHandler
+
+        _project_slack_app = App(
+            token=_PROJECT_BOT_TOKEN,
+            signing_secret=_PROJECT_SIGNING_SECRET,
+            process_before_response=True,
+        )
+        _project_slack_handler = SlackRequestHandler(_project_slack_app)
+
+        _register_project_handlers(_project_slack_app)
+        logger.info("[SLACK/공사봇] 초기화 완료 ✅")
+        return True
+    except Exception as exc:
+        logger.error(f"[SLACK/공사봇] 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _register_project_handlers(app):
+    """공사 현황 알림 봇 핸들러 — /공사확정 + submit_project"""
+
+    @app.command("/공사확정")
+    def handle_project_command(ack, command, client):
+        ack()
+        trigger_id = command.get("trigger_id", "")
+        channel = command.get("channel_id", "")
+        user_id = command.get("user_id", "")
+        if not trigger_id:
+            return
+        try:
+            _open_project_modal(client, trigger_id, channel, user_id)
+        except Exception as exc:
+            logger.error(f"[SLACK/공사확정] 모달 열기 실패: {exc}", exc_info=True)
+
+    @app.view("submit_project")
+    def handle_submit_project(ack, body, client, view):
+        ack()
+        def _bg():
+            try:
+                _process_project_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/공사확정] submit 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.options("value")
+    def handle_external_options(ack, body):
+        """external_select 옵션 응답. block_id로 분기.
+
+        현재는 company_name(사업자명) 한 곳만 사용.
+        """
+        block_id = body.get("block_id", "")
+        query = (body.get("value") or "").strip()
+        logger.info(
+            f"[SLACK/공사확정/options] 요청 수신: block_id={block_id!r}, query={query!r}"
+        )
+        if block_id == "company_name":
+            try:
+                options = _search_company_names(query.lower())
+                logger.info(f"[SLACK/공사확정/options] {len(options)}개 반환")
+                ack(options=options)
+            except Exception as exc:
+                logger.warning(f"[SLACK/공사확정] 사업자명 검색 실패: {exc}", exc_info=True)
+                ack(options=[])
+        else:
+            ack(options=[])
+
+    logger.info(
+        "[SLACK/공사봇] 핸들러 등록 완료: /공사확정, submit_project, "
+        "options(company_name)"
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -174,6 +266,9 @@ def _register_handlers(app):
                     return
 
                 # 채널톡은 봇 명의로 메시지 발신 — 배정 없이도 동작 확인됨
+                # echo loop 방지: 이 메시지가 webhook으로 되돌아올 때 skip하도록 캐시
+                from dashboard.blueprints.channeltalk import mark_our_sent
+                mark_our_sent(chat_id, text)
                 resp = send_manager_message(chat_id, manager_id, text)
                 logger.info(f"[ChannelTalk→] 메시지 발신: text={text[:40]!r}, resp_ok={resp is not None}")
 
@@ -373,36 +468,12 @@ def _register_handlers(app):
             "text": "_청소 취소됨._",
         })
 
-    # ⑯ /공사확정 슬래시 명령 — 모바일/슬랙에서 공사 확정 등록
-    @app.command("/공사확정")
-    def handle_project_command(ack, command, client):
-        ack()
-        trigger_id = command.get("trigger_id", "")
-        channel = command.get("channel_id", "")
-        user_id = command.get("user_id", "")
-        if not trigger_id:
-            return
-        try:
-            _open_project_modal(client, trigger_id, channel, user_id)
-        except Exception as exc:
-            logger.error(f"[SLACK/공사확정] 모달 열기 실패: {exc}", exc_info=True)
-
-    # ⑰ 공사확정 모달 제출
-    @app.view("submit_project")
-    def handle_submit_project(ack, body, client, view):
-        ack()
-        # 시트 로드 + 등록이 3초 넘을 수 있어 백그라운드
-        def _bg():
-            try:
-                _process_project_submission(client, body, view)
-            except Exception as exc:
-                logger.error(f"[SLACK/공사확정] submit 실패: {exc}", exc_info=True)
-        threading.Thread(target=_bg, daemon=True).start()
+    # /공사확정 + submit_project는 별도 공사 봇이 처리 (_init_project_slack_app)
 
     logger.info(
-        "[SLACK] 핸들러 등록 완료: /상태, /전화, /청소, /공사확정, app_mention, message(DM), "
+        "[SLACK] 메인 봇 핸들러 등록 완료: /상태, /전화, /청소, app_mention, message(DM), "
         "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone, "
-        "submit_project, sweep_confirm, sweep_cancel"
+        "sweep_confirm, sweep_cancel"
     )
 
 
@@ -586,6 +657,33 @@ _PROJECT_COMPANY_OPTIONS = ["글로벌", "글로벌그룹", "플랜트"]
 _PROJECT_SOURCE_OPTIONS = ["거래처", "온라인", "당근", "소개", "숨고"]
 
 
+def _search_company_names(query: str) -> list:
+    """시트의 사업자명 unique 목록에서 query 부분 매칭. 슬랙 옵션 형식으로 반환.
+
+    Slack 제약:
+    - 최대 100 options per response
+    - option text/value 최대 75자
+    - min_query_length=1 — 빈 query는 빈 결과
+    """
+    if not query:
+        return []
+    from dashboard.services.project_service import load_data
+    df = load_data()
+    if df is None or df.empty or '사업자명' not in df.columns:
+        return []
+    # 시트의 사업자명 unique (캐시돼 있어 빠름)
+    names = df['사업자명'].dropna().astype(str).str.strip().unique().tolist()
+    names = [n for n in names if n and n != '-']
+    # 부분 매칭 (대소문자 무관)
+    q = query.lower()
+    matched = [n for n in names if q in n.lower()]
+    matched = sorted(set(matched))[:100]  # 슬랙 100개 제한
+    return [
+        {"text": {"type": "plain_text", "text": n[:75]}, "value": n[:75]}
+        for n in matched
+    ]
+
+
 def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
     """공사 확정 등록 모달 — 핵심 11개 필드."""
     def _select_options(values):
@@ -623,8 +721,16 @@ def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
             },
             {
                 "type": "input", "block_id": "company_name",
-                "label": {"type": "plain_text", "text": "사업자명 (고객사)"},
-                "element": {"type": "plain_text_input", "action_id": "value"},
+                "label": {"type": "plain_text", "text": "사업자명 (고객사) — 입력해서 검색"},
+                "element": {
+                    "type": "external_select",
+                    "action_id": "value",
+                    "min_query_length": 1,
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "예: 삼성 / 한국 / 김밥 (1글자부터 매칭)",
+                    },
+                },
             },
             {
                 "type": "input", "block_id": "address",
@@ -809,12 +915,22 @@ def _slack_create_project(data: dict) -> str:
 # ─────────────────────────────────────────────────────────────
 @slack_bp.route("/events", methods=["POST"])
 def slack_events():
-    """슬랙 → 우리 서버 webhook (모든 이벤트/명령/인터랙션 통합 endpoint)"""
+    """슬랙 → 우리 서버 webhook (메인 봇: 모든 이벤트/명령/인터랙션 통합 endpoint)"""
     if _slack_handler is None:
         if not _init_slack_app():
             return jsonify({"error": "Slack bot not configured"}), 503
 
     return _slack_handler.handle(request)
+
+
+@slack_bp.route("/project-events", methods=["POST"])
+def slack_project_events():
+    """슬랙 → 공사 현황 알림 봇 전용 endpoint (/공사확정 슬래시 + 모달)"""
+    if _project_slack_handler is None:
+        if not _init_project_slack_app():
+            return jsonify({"error": "Project Slack bot not configured"}), 503
+
+    return _project_slack_handler.handle(request)
 
 
 @slack_bp.route("/sync-karrot", methods=["GET", "POST"])
@@ -1071,6 +1187,18 @@ def _open_inquiry_modal(client, body, action: str):
         logger.error(f"[SLACK] 모달 views_update 실패 ({lead_no}): {exc}", exc_info=True)
 
 
+def _format_date_for_sheet(iso_date: str) -> str:
+    """ISO 형식("2026-06-25")을 시트에 텍스트로 저장하도록 escape.
+
+    Google Sheets는 USER_ENTERED 모드에서 ISO 날짜를 시리얼 숫자로 자동 변환.
+    작은따옴표 prefix는 Sheets의 텍스트 escape 문자 — UI/API에 표시되지 않음.
+    출력: "2026-06-25" 그대로 (시트의 기존 방문 예정일 형식과 일관)
+    """
+    if not iso_date:
+        return ''
+    return f"'{iso_date}"  # 작은따옴표 prefix로 텍스트 강제 (시리얼 변환 차단)
+
+
 def _v(state, block_id, default=''):
     """모달 state.values에서 안전하게 값 추출 (datepicker / text / select 자동 분기)"""
     try:
@@ -1270,7 +1398,10 @@ def _process_phone_submission(client, body, view):
     email = _v(state, "email").strip() or '-'
     status = _v(state, "status").strip() or '유선 상담'
     address_raw = _v(state, "address").strip()
-    visit_date = _v(state, "visit_date").strip() or '-'  # 방문 예약 시 datepicker
+    # datepicker는 ISO 형식("2026-06-25") 반환 — Google Sheets가 USER_ENTERED 모드에서
+    # 자동으로 시리얼 숫자로 저장하는 것을 막기 위해 한국식 점 표기 + 종결 점으로 변환
+    visit_date_raw = _v(state, "visit_date").strip()
+    visit_date = _format_date_for_sheet(visit_date_raw) if visit_date_raw else '-'
     inquiry = _v(state, "inquiry").strip() or '-'
     devices = _v_multi(state, "device")
     device_str = ', '.join(devices) if devices else '-'
@@ -1344,19 +1475,23 @@ def _process_phone_submission(client, body, view):
     except Exception as exc:
         logger.warning(f"[SLACK/전화] 재문의 감지 실패: {exc}")
 
-    # 시트 등록 (SSL 일시 에러 시 시트에서 lead 검색 후 정상 흐름 이어가기)
+    # 시트 등록 (SSL/timeout 일시 에러는 시트에 이미 등록됐을 가능성 큼 → 검색 fallback)
+    # 절대 자동 retry 하지 않음 (중복 등록 방지)
+    from dashboard.services.lead_sync import _append_leads_to_main
     lead_no = None
     try:
-        from dashboard.services.lead_sync import _append_leads_to_main
         lead_nos = _append_leads_to_main([lead])
         lead_no = lead_nos[0] if lead_nos else None
     except Exception as exc:
         err_lower = str(exc).lower()
-        is_ssl_error = 'ssl' in err_lower or 'wrong_version' in err_lower
-        if is_ssl_error:
-            # SSL 일시 에러 — google API 자동 retry로 시트엔 보통 등록됨
-            # 같은 연락처 최근 lead를 시트에서 찾아 lead_no 회복
-            logger.warning(f"[SLACK/전화] SSL 일시 에러, 시트 확인 중: {exc}")
+        is_transient = (
+            'ssl' in err_lower or 'wrong_version' in err_lower
+            or 'timeout' in err_lower or 'connection' in err_lower
+        )
+        if is_transient:
+            # 일시 에러 — Google API의 자체 retry로 시트엔 보통 등록됐음
+            # 같은 번호 + 최근 2분 이내 lead를 시트에서 회복 시도
+            logger.warning(f"[SLACK/전화] 일시 에러, 시트 검증 중: {exc}")
             time.sleep(2)
             try:
                 from dashboard.services.lead_service import load_leads_data
@@ -1364,12 +1499,55 @@ def _process_phone_submission(client, body, view):
                 phone_digits = _re.sub(r'\D', '', phone)
                 if phone_digits and main_df is not None and not main_df.empty:
                     norm = main_df['고객 연락처'].astype(str).str.replace(r'\D', '', regex=True)
-                    matches = main_df[norm == phone_digits]
+                    matches = main_df[norm == phone_digits].copy()
                     if not matches.empty:
-                        lead_no = str(matches.iloc[-1]['리드 No'])
-                        logger.info(f"[SLACK/전화] SSL 에러 후 시트에서 lead 확인: {lead_no}")
+                        # 최근 2분 이내만 — 옛 lead 잘못 잡지 않게
+                        from datetime import timedelta
+                        cutoff = now - timedelta(minutes=2)
+                        recent = []
+                        for _, m_row in matches.iterrows():
+                            from dashboard.services.lead_sync import _parse_consult_dt
+                            dt = _parse_consult_dt(m_row.get('상담 시간'))
+                            if dt and dt >= cutoff:
+                                recent.append((dt, str(m_row.get('리드 No', ''))))
+                        if recent:
+                            recent.sort(key=lambda x: x[0], reverse=True)
+                            lead_no = recent[0][1]
+                            logger.info(f"[SLACK/전화] 일시 에러 후 시트 회복: {lead_no}")
+                            # fallback 케이스에서는 _reset_row_background가 호출되지 않아
+                            # 위 행 색을 상속받음 — 회복 후 직접 색 재설정
+                            try:
+                                from dashboard.services.lead_sync import (
+                                    _reset_row_background,
+                                )
+                                from dashboard.services.lead_service import (
+                                    _get_sheet_config, get_sheets_manager,
+                                    LEAD_COLUMN_ORDER,
+                                )
+                                cfg = _get_sheet_config()
+                                if cfg:
+                                    idx_match = main_df.index[
+                                        main_df['리드 No'].astype(str) == lead_no
+                                    ]
+                                    if len(idx_match):
+                                        row_num = int(idx_match[0]) + 2  # 헤더 1행
+                                        updated_range = (
+                                            f"'{cfg['sheet_name']}'"
+                                            f"!A{row_num}:O{row_num}"
+                                        )
+                                        _reset_row_background(
+                                            get_sheets_manager(), cfg['sheet_id'],
+                                            cfg['sheet_name'], updated_range,
+                                            num_cols=len(LEAD_COLUMN_ORDER),
+                                            statuses=[status],
+                                        )
+                                        logger.info(
+                                            f"[SLACK/전화] 행 색 재설정 완료 (row {row_num}, {status})"
+                                        )
+                            except Exception as exc3:
+                                logger.warning(f"[SLACK/전화] 행 색 재설정 실패: {exc3}")
             except Exception as exc2:
-                logger.warning(f"[SLACK/전화] SSL 후 시트 검증 실패: {exc2}")
+                logger.warning(f"[SLACK/전화] 시트 검증 실패: {exc2}")
         else:
             logger.error(f"[SLACK/전화] 시트 등록 실패: {exc}", exc_info=True)
 
@@ -1396,15 +1574,15 @@ def _process_phone_submission(client, body, view):
         except Exception as exc:
             logger.error(f"[SLACK/전화] 등록 보고 발송 실패: {exc}", exc_info=True)
 
-    # 확인 메시지 (ephemeral) — 전화번호 메인 + 리드 No 보조
-    if notify_slack:
-        confirm = f":white_check_mark: *{phone}* 등록 완료 — {status} (채널 공지 완료) `{lead_no}`"
-    else:
-        confirm = f":white_check_mark: *{phone}* 등록 완료 — {status} (시트만 기록) `{lead_no}`"
-    try:
-        client.chat_postEphemeral(channel=channel or user_id, user=user_id, text=confirm)
-    except Exception as exc:
-        logger.warning(f"[SLACK/전화] 확인 메시지 실패: {exc}")
+    # 확인 메시지 (ephemeral)
+    # - 방문 예약/견적 제출: 채널 공지 카드가 영수증 역할 → ephemeral 생략 (채널 가독성)
+    # - 유선 상담/문의 드랍: 채널 공지 없음 → 짧은 한 줄 ephemeral
+    if not notify_slack:
+        try:
+            confirm = f":white_check_mark: *{phone}* 등록 — {status} `{lead_no}`"
+            client.chat_postEphemeral(channel=channel or user_id, user=user_id, text=confirm)
+        except Exception as exc:
+            logger.warning(f"[SLACK/전화] 확인 메시지 실패: {exc}")
 
 
 def _post_phone_registration_notice(client, lead: dict, lead_no: str, status: str,
@@ -1415,11 +1593,14 @@ def _post_phone_registration_notice(client, lead: dict, lead_no: str, status: st
     의도: 다른 영업 담당자가 같은 고객한테 이중 컨택하지 않도록 공유.
 
     양식:
-        ✅ 전화 접수 → 방문 예약 등록  `L-02909`
+        ✅ 전화 문의 → 방문 예약 등록  `L-02909`
+        ---------------------------------------------
+        📅 방문 예정: 2026-06-20
         📞 010-8942-0275 (김서아)
         📍 군포 엘에스로 13 신일IT유토지식산업센터 1012호
-        📅 방문 예정: 2026-06-20
+        📝 (상담 내용)
         👤 등록: @박정우
+        ---------------------------------------------
     """
     if not channel:
         return
@@ -1428,8 +1609,19 @@ def _post_phone_registration_notice(client, lead: dict, lead_no: str, status: st
     name = (lead.get('고객명') or '').strip()
     address = (lead.get('방문 주소') or '').strip()
     visit_date = (lead.get('방문 예정일') or '').strip()
+    # 시트 저장용 작은따옴표 prefix 제거 (슬랙 표시용)
+    if visit_date.startswith("'"):
+        visit_date = visit_date[1:]
+    inquiry = (lead.get('상담 내용') or '').strip()
 
-    lines = [f":white_check_mark: *전화 접수 → {status} 등록*  `{lead_no}`"]
+    SEP = "---------------------------------------------"
+    lines = [
+        f":white_check_mark: *전화 문의 → {status} 등록*  `{lead_no}`",
+        SEP,
+    ]
+
+    if status == '방문 예약' and visit_date and visit_date not in ('-', ''):
+        lines.append(f":calendar: 방문 예정: {visit_date}")
 
     phone_line = f":telephone_receiver: {phone}"
     if name and name not in ('-', ''):
@@ -1439,10 +1631,13 @@ def _post_phone_registration_notice(client, lead: dict, lead_no: str, status: st
     if address and address not in ('-', ''):
         lines.append(f":round_pushpin: {address}")
 
-    if status == '방문 예약' and visit_date and visit_date not in ('-', ''):
-        lines.append(f":calendar: 방문 예정: {visit_date}")
+    if inquiry and inquiry not in ('-', ''):
+        # 너무 길면 자름
+        short_inq = inquiry[:200] + ('...' if len(inquiry) > 200 else '')
+        lines.append(f":memo: {short_inq}")
 
     lines.append(f":bust_in_silhouette: 등록: <@{user_id}>")
+    lines.append(SEP)
 
     try:
         client.chat_postMessage(
@@ -1520,7 +1715,8 @@ def _process_visit_submission(client, body, view):
     user_id = body["user"]["id"]
 
     state = view["state"]["values"]
-    visit_date = _v(state, "visit_date")
+    visit_date_raw = _v(state, "visit_date")
+    visit_date = _format_date_for_sheet(visit_date_raw) if visit_date_raw else ''
     visit_address = _v(state, "visit_address")
     consultation = _v(state, "consultation")
 
