@@ -251,7 +251,7 @@ export default class FormValidator {
     const requiredFields = {
       '사업자': formDataObj['company'] || formDataObj['사업자'],
       '담당자': formDataObj['owner'] || formDataObj['담당자'],
-      '거래처': formDataObj['client'] || formDataObj['거래처']
+      '유입 구분': formDataObj['client'] || formDataObj['유입 구분']
     };
 
     for (const [fieldName, value] of Object.entries(requiredFields)) {
@@ -274,7 +274,7 @@ export default class FormValidator {
     }
 
     // 이메일 검증
-    const email = formDataObj['담당자 이메일'] || formDataObj['manager-email'];
+    const email = formDataObj['발주처 이메일'] || formDataObj['manager-email'];
     if (email) {
       const emailValidation = this.validateEmail(email);
       if (!emailValidation.isValid) {

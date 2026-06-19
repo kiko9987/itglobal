@@ -382,10 +382,10 @@ export default class ModernProjectModal {
         .filter(company => company)
     )].sort();
 
-    // 거래처 목록 추출 (D열, 유입채널)
+    // 유입 구분 목록 추출 (D열, 유입 채널 카테고리)
     const clients = [...new Set(
       projectData
-        .map(item => (item['거래처'] || '').trim())
+        .map(item => (item['유입 구분'] || '').trim())
         .filter(client => client)
     )].sort();
 

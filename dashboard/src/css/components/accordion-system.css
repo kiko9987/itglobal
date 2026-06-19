@@ -1232,7 +1232,7 @@ a[id^="folder-display-"] {
 }
 
 /* 기본정보 카드: 현장담당자 입력 필드 */
-[id^="card-basic-"] .compact-item .editable-value[data-field="현장 담당자"] .inline-edit-input.form-control {
+[id^="card-basic-"] .compact-item .editable-value[data-field="발주처 담당자"] .inline-edit-input.form-control {
   width: 126px !important; /* 드롭박스보다 4px 작게 */
   min-width: 80px !important; /* 최소 크기 조정 - 반응형 지원 */
   max-width: 100% !important; /* 부모 컨테이너 넘지 않도록 */

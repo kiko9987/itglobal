@@ -1171,12 +1171,12 @@ export default class UserModal {
 
       // 모든 행을 순회하면서 담당자 컬럼(인덱스 1) 확인
       // ✅ IMPROVED: 이메일 우선 매칭 → 이름 폴백 방식으로 동명이인 문제 완화
-      //    - 담당자 이메일이 있으면: 이메일로 정확히 매칭 (동명이인 문제 해결)
-      //    - 담당자 이메일이 없으면: 이름으로 매칭 (기존 방식 유지)
+      //    - 발주처 이메일이 있으면: 이메일로 정확히 매칭 (동명이인 문제 해결)
+      //    - 발주처 이메일이 없으면: 이름으로 매칭 (기존 방식 유지)
       table.rows().every(function() {
         const rowData = this.data();
         const managerName = rowData['담당자'];
-        const managerEmail = rowData['담당자 이메일'];
+        const managerEmail = rowData['발주처 이메일'];
 
         // 우선순위 매칭: 이메일 → 이름
         let isMatch = false;

@@ -1037,8 +1037,8 @@ def update_project(project_code):
         update_changes = _apply_field_updates(data, current_values, field_to_index, project_code)
         field_changes.extend(update_changes)
 
-        # 8. Google Sheets 업데이트
-        range_name = f'{sheet_name}!A{row_number}:AN{row_number}'
+        # 8. Google Sheets 업데이트 (AO _version 포함)
+        range_name = f'{sheet_name}!A{row_number}:AO{row_number}'
         manager.update_row(sheet_id, row_number, current_values, range_name)
         logger.info(f"[PUT] 전체 행 업데이트 완료: {project_code}, {len(field_changes)}개 필드 변경")
 
@@ -1402,8 +1402,8 @@ def _save_and_return_inline_result(manager, sheet_id, sheet_name, row_number, cu
     Returns:
         tuple: (jsonify response, status_code)
     """
-    # 구글 시트 업데이트 (AN 컬럼까지 포함)
-    range_name = f'{sheet_name}!A{row_number}:AN{row_number}'
+    # 구글 시트 업데이트 (AO 컬럼 _version 포함)
+    range_name = f'{sheet_name}!A{row_number}:AO{row_number}'
     update_result = manager.update_row(sheet_id, row_number, current_values, range_name)
 
     logger.info(f"[인라인] 프로젝트 업데이트 완료: {project_code}")
@@ -2463,20 +2463,45 @@ def _prepare_project_defaults(data, row_number):
             if clean_number:
                 data['총액 1'] = f"₩{int(clean_number):,}"
 
+    # 텍스트 필드 빈값 → '-' 채우기 (시트 가독성 + 일관성)
+    # 수식/금액/날짜/Boolean/시스템 필드는 제외
+    _excluded_fields = {
+        '프로젝트 코드', '사업자', '담당자',  # 필수 필드 (검증으로 보장)
+        '공사 시작', '공사 종료', '공사 확정',  # 날짜
+        '총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금',  # 금액
+        '제품대', '도급비', '자재비', '기타비', '순익', '마진율',  # 금액/수식
+        '부가세', '수금 확인',  # Boolean
+        '계산서', '_version', 'lead_no',  # 시스템 필드
+        '수금 날짜',  # 빈값 의도적
+    }
+    text_fields_to_dash = [
+        '사업자명', '발주처 담당자', '발주처 연락처', '발주처 이메일',
+        '현장 주소', '공사 구분', '기계 분류', '브랜드',
+        '공사 내용', '도급 구분', '시공자', '유입 구분',
+        '수금 관련 특이사항', '계약금 입금자명', '중도금 입금자명', '잔금 입금자명',
+        '견적서 및 계약서 폴더 경로',
+    ]
+    for field in text_fields_to_dash:
+        if field in _excluded_fields:
+            continue
+        value = data.get(field)
+        if value is None or (isinstance(value, str) and value.strip() == ''):
+            data[field] = '-'
+
 
 # ===== 헬퍼 함수 5: 행 값 배열 구성 =====
 def _build_row_values(data, manager, row_number):
     """
-    데이터를 Google Sheets 행 배열로 변환 (40 컬럼)
+    데이터를 Google Sheets 행 배열로 변환 (41 컬럼 A~AO)
 
     Args:
         row_number: Google Sheets에 삽입될 행 번호 (기본값 수식 생성용)
 
     Returns:
-        list: 40개 요소의 값 배열
+        list: 41개 요소의 값 배열 (A~AO)
     """
     column_mapping = manager.get_column_mapping()
-    values = [''] * 40  # AN 컬럼까지
+    values = [''] * 41  # AO 컬럼까지 (_version 포함, 2026-06-19 fix: 40→41)
 
     # 컬럼 매핑에 따라 값 채우기
     for col_letter, field_name in column_mapping.items():
@@ -2575,6 +2600,13 @@ def _finalize_project_creation(code, data, project_data):
         except Exception as lead_error:
             logger.warning(f"[LEAD_LINKED] 리드 상태 업데이트 중 오류 (프로젝트 생성은 성공): {lead_error}")
 
+    # 5. 공사 확정 슬랙 알림 (#공사_확정, 별도 봇)
+    try:
+        from ..services.project_slack_notifier import send_project_created_notification
+        send_project_created_notification(data, code)
+    except Exception as slack_error:
+        logger.warning(f"[PROJECT/SLACK] 알림 발송 중 오류 (프로젝트 생성은 성공): {slack_error}")
+
     return {'lead_linked': bool(lead_no)}
 
 
@@ -2632,13 +2664,13 @@ def _build_project_response_data(code, data):
     project_data = {
         '프로젝트 코드': code,
         '사업자': data.get('사업자', ''),
-        '거래처': data.get('거래처', ''),
+        '유입 구분': data.get('유입 구분', ''),
         '담당자': data.get('담당자', ''),
-        '담당자 연락처': data.get('담당자 연락처', ''),
-        '담당자 이메일': data.get('담당자 이메일', ''),
+        '발주처 연락처': data.get('발주처 연락처', ''),
+        '발주처 이메일': data.get('발주처 이메일', ''),
         '현장 주소': data.get('현장 주소', ''),
         '시공자': data.get('시공자', ''),
-        '현장 담당자': data.get('현장 담당자', ''),
+        '발주처 담당자': data.get('발주처 담당자', ''),
         '공사 내용': data.get('공사 내용', ''),
         '공사 시작': data.get('공사 시작', ''),
         '공사 종료': data.get('공사 종료', ''),

@@ -952,7 +952,7 @@ window.DataSyncManager = {
 
     try {
       // 데이터 무결성 검증: 필수 필드가 모두 있는지 확인
-      const requiredFields = ['프로젝트 코드', '담당자', '거래처'];
+      const requiredFields = ['프로젝트 코드', '담당자', '유입 구분'];
       const hasAllFields = requiredFields.every(field =>
         projectData.hasOwnProperty(field)
       );

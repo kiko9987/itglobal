@@ -626,7 +626,7 @@ def can_user_edit_project(project: Dict[str, Any], user_email: str, user_role: s
         user_role_lower = user_role.lower()
         if user_role_lower == 'admin':
             return True
-        owner_email = project.get('담당자 이메일', '')
+        owner_email = project.get('발주처 이메일', '')
         if owner_email == user_email:
             return True
         if user_role_lower in ['editor', 'user']:
@@ -720,10 +720,10 @@ def _build_owner_suffix_map(df: pd.DataFrame) -> Dict[str, str]:
         mapping.setdefault(k, str(v).upper())
 
     # 3단계: DataFrame 분석 (기존 프로젝트 코드 패턴)
-    if '프로젝트 코드' in df.columns and ('프로젝트 담당자' in df.columns or '담당자 이메일' in df.columns):
+    if '프로젝트 코드' in df.columns and ('프로젝트 담당자' in df.columns or '발주처 이메일' in df.columns):
         grouped: Dict[str, List[str]] = defaultdict(list)
         for _, row in df.iterrows():
-            name = str(row.get('프로젝트 담당자', row.get('담당자 이메일', ''))).strip()
+            name = str(row.get('프로젝트 담당자', row.get('발주처 이메일', ''))).strip()
             code = str(row.get('프로젝트 코드', '')).strip()
             suffix = _suffix_from_code(code)
             if name and suffix:

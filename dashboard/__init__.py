@@ -7,6 +7,7 @@ import os
 import logging
 from flask import Flask
 from flask_compress import Compress
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # 설정 시스템 가져오기
 from dashboard.config import get_config
@@ -45,6 +46,13 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
 
     # Flask 앱 인스턴스 생성
     app = Flask(__name__)
+
+    # Caddy 리버스 프록시 뒤에서 외부 URL(https + pm.itg-aircon.com)을 올바르게 인식
+    # — X-Forwarded-Proto / X-Forwarded-Host / X-Forwarded-For 헤더 처리
+    # — url_for(_external=True) 가 https://pm.itg-aircon.com/... 으로 생성되도록
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1
+    )
 
     # 1. 로깅 시스템 초기화
     setup_logging()

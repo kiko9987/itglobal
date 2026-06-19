@@ -543,6 +543,9 @@ class SecurityMiddleware:
 
             # 필드별 특수 검증
             if 'email' in field_name.lower():
+                # 빈 문자열/대시는 선택 입력으로 허용
+                if not value or value.strip() in ('', '-'):
+                    return True
                 result = self.validator.validate_email(value)
                 logger.debug(f"[VALIDATION] {'✓' if result else '✗'} {field_name}: 이메일 검증 - {value}")
                 if not result:
@@ -552,6 +555,9 @@ class SecurityMiddleware:
                     }
                 return result
             elif 'phone' in field_name.lower() or '연락처' in field_name:
+                # 빈 문자열은 선택 입력으로 허용 (발주처 담당자 등이 모를 수 있음)
+                if not value or value.strip() in ('', '-'):
+                    return True
                 result = self.validator.validate_phone(value)
                 logger.debug(f"[VALIDATION] {'✓' if result else '✗'} {field_name}: 전화번호 검증 - {value}")
                 if not result:

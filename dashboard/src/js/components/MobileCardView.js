@@ -374,7 +374,7 @@ export default class MobileCardView {
     // 검색어 적용
     if (this.searchTerm) {
       filtered = filtered.filter(item => {
-        const searchFields = ['프로젝트 코드', '담당자', '거래처', '현장 주소', '공사 내용'];
+        const searchFields = ['프로젝트 코드', '담당자', '유입 구분', '현장 주소', '공사 내용'];
         return searchFields.some(field =>
           String(item[field] || '').toLowerCase().includes(this.searchTerm.toLowerCase())
         );
@@ -495,9 +495,9 @@ export default class MobileCardView {
 
             <div class="info-row">
               <span class="info-label">
-                <i class="fas fa-building me-1"></i>거래처
+                <i class="fas fa-building me-1"></i>유입 구분
               </span>
-              <span class="info-value">${this.badgeSystem ? this.badgeSystem.createCompanyBadge(data['거래처']) : (data['거래처'] || '-')}</span>
+              <span class="info-value">${this.badgeSystem ? this.badgeSystem.createCompanyBadge(data['유입 구분']) : (data['유입 구분'] || '-')}</span>
             </div>
 
             <div class="info-row">

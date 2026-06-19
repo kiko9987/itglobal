@@ -191,6 +191,7 @@ def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
             'feedback': str(row.get('피드백', '') or ''),
             'inquiry': str(row.get('상담 내용', '') or ''),
             'platform': str(row.get('플랫폼', '') or ''),
+            'consultant': str(row.get('온라인 상담자', '') or ''),
         }
         lookup.setdefault(digits, []).append(entry)
     # 각 연락처별 시간 내림차순
@@ -232,21 +233,33 @@ def _format_time_ago(now_dt: Optional[datetime], prev_dt: Optional[datetime]) ->
 
 
 def _build_repeat_section(lead: dict) -> str:
-    """재문의 컨텍스트 섹션 (이전 No + 이전 문의 내용)"""
+    """재문의 컨텍스트 섹션 (이전 No + 문의 내용 + 상태 + 상담자).
+
+    이전 응대자(상담자)와 상태가 보이면 인수인계/우선순위 판단에 도움.
+    빈값은 '-'로 통일.
+    """
     prev_leads = lead.get('_meta_previous_leads') or []
     if not prev_leads:
         return ''
     most_recent = prev_leads[0]
     prev_no = most_recent.get('lead_no', '')
+    prev_time = (most_recent.get('consult_time') or '').strip()
     prev_inquiry = (most_recent.get('inquiry') or '').strip() or '-'
+    prev_status = (most_recent.get('status') or '').strip() or '-'
+    prev_consultant = (most_recent.get('consultant') or '').strip() or '-'
     # 길이 제한 (200자)
     if len(prev_inquiry) > 200:
         prev_inquiry = prev_inquiry[:200] + '...'
 
+    # 이전 문의 식별: "시간 / 리드No" 형태 (시간 없으면 리드No만)
+    prev_label = f"{prev_time} / {prev_no}" if prev_time else prev_no
+
     return (
         f":repeat: *재문의 감지*\n"
-        f">*이전 문의* {prev_no}\n"
+        f">*이전 문의* : {prev_label}\n"
         f">*문의 내용* : {prev_inquiry}\n"
+        f">*상태* : {prev_status}\n"
+        f">*상담자* : {prev_consultant}\n"
         f"---------------------------------------------\n"
     )
 

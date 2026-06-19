@@ -1205,7 +1205,7 @@
                             <tr>
                                 <th>프로젝트 코드</th>
                                 <th>담당자</th>
-                                <th>거래처</th>
+                                <th>유입 구분</th>
                                 <th>현장주소</th>
                                 <th>공사 내용</th>
                                 <th>공사 종료</th>
@@ -1392,7 +1392,7 @@
                         }
                     },
                     {
-                        data: '거래처',
+                        data: '유입 구분',
                         render: function(data, type, row) {
                             if (type === 'sort') return data || '';
                             return createCompanyBadge(data);

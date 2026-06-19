@@ -52,7 +52,7 @@ def _build_event_summary(project: dict) -> str:
     parts = [
         project.get('프로젝트 코드'),
         project.get('시공자'),
-        project.get('공사 내용') or project.get('현장 주소') or project.get('거래처') or project.get('사업자')
+        project.get('공사 내용') or project.get('현장 주소') or project.get('유입 구분') or project.get('사업자')
     ]
     return ' · '.join(filter(None, parts))
 
@@ -64,8 +64,8 @@ def _build_event_description(project: dict) -> str:
         f"사업자: {project.get('사업자') or '-'}",
         f"담당자: {project.get('담당자') or '-'}",
         f"현장 주소: {project.get('현장 주소') or '-'}",
-        f"고객명: {project.get('현장 담당자') or '-'}",
-        f"연락처: {project.get('담당자 연락처') or '-'}",
+        f"고객명: {project.get('발주처 담당자') or '-'}",
+        f"연락처: {project.get('발주처 연락처') or '-'}",
     ]
     return '\n'.join(lines)
 

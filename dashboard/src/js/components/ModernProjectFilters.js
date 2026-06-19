@@ -25,13 +25,13 @@ export default class ModernProjectFilters {
     // 검색 대상 필드 정의 (성능 최적화)
     this.searchableFields = [
       '프로젝트 코드',
-      '거래처',
+      '유입 구분',
       '담당자',
       '사업자명',  // E열 신규: 사업자등록증명
       '현장 주소',
       '공사 내용',
       '사업자',
-      '현장 담당자',
+      '발주처 담당자',
       '시공자',
       '계약금_메모',
       '중도금_메모',
@@ -274,10 +274,10 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 거래처 필터 (유입채널)
+    // 유입 구분 필터 (유입 채널 카테고리)
     if (this.filters.client) {
       filteredData = filteredData.filter(item => {
-        const client = item['거래처'] || '';
+        const client = item['유입 구분'] || '';
         return client.toString().trim() === this.filters.client;
       });
     }
@@ -322,10 +322,10 @@ export default class ModernProjectFilters {
     // 내 공사만 보기 필터 (이메일 기반 비교 - 고유 식별)
     if (this.filters.myProjectsOnly) {
       filteredData = filteredData.filter(item => {
-        const managerEmail = (item['담당자 이메일'] || '').toString().trim();
+        const managerEmail = (item['발주처 이메일'] || '').toString().trim();
         const manager = (item['담당자'] || '').toString().trim();
 
-        // 1순위: 담당자 이메일로 비교 (고유 식별)
+        // 1순위: 발주처 이메일로 비교 (고유 식별)
         // 2순위: 이메일 없으면 담당자 이름으로 폴백 (레거시 데이터 호환)
         return managerEmail === this.filters.myProjectsOnly ||
                (managerEmail === '' && manager === (window.userDisplayName || ''));
@@ -555,8 +555,8 @@ export default class ModernProjectFilters {
   populateClientFilter(data) {
     if (!this.clientFilter || !data || !Array.isArray(data)) return;
 
-    // 고유한 거래처 목록 추출 (map 단계에서 바로 trim 적용)
-    const clients = [...new Set(data.map(item => (item['거래처'] || '').trim()).filter(client => client))];
+    // 고유한 유입 구분 목록 추출 (map 단계에서 바로 trim 적용)
+    const clients = [...new Set(data.map(item => (item['유입 구분'] || '').trim()).filter(client => client))];
 
     // 기존 옵션 제거 (첫 번째 "전체" 옵션은 유지)
     while (this.clientFilter.children.length > 1) {
@@ -825,7 +825,7 @@ export default class ModernProjectFilters {
   getActiveFilters() {
     const active = [];
     if (this.filters.company) active.push('사업자');
-    if (this.filters.client) active.push('거래처');
+    if (this.filters.client) active.push('유입 구분');
     if (this.filters.status) active.push('상태');
     if (this.filters.data) active.push('데이터');
     if (this.filters.manager) active.push('담당자');
@@ -910,8 +910,8 @@ export default class ModernProjectFilters {
     // 체크할 중요 필드들 (ProjectTable.js와 동일한 필드명 사용)
     const importantFields = [
       '사업자',
-      '현장 담당자',
-      '담당자 연락처',
+      '발주처 담당자',
+      '발주처 연락처',
       '현장 주소',
       '공사 내용',
       '공사 시작',

@@ -234,7 +234,7 @@ export default class StatusBadge extends BaseBadge {
     if (!projectData) return true;
 
     const requiredFields = [
-      '사업자', '현장 담당자', '담당자 연락처', '현장 주소', '공사 내용',
+      '사업자', '발주처 담당자', '발주처 연락처', '현장 주소', '공사 내용',
       '공사 시작', '공사 종료', '총액 1', '총액 2', '기계 분류', '브랜드',
       '견적서 및 계약서 폴더 경로'
     ];

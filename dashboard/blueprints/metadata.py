@@ -203,10 +203,10 @@ def get_meta_options():
         owners = sorted(sheet_owners | db_owners)
         logger.info(f"[META_OPTIONS] 담당자 목록 병합 완료 - 시트: {len(sheet_owners)}명, DB: {len(db_owners)}명, 총: {len(owners)}명")
 
-        # 거래처 목록 추출 (추가 정보)
+        # 유입 구분 목록 추출 (추가 정보)
         clients = []
-        if "거래처" in df.columns:
-            clients = sorted(set(x.strip() for x in df["거래처"].astype(str)
+        if "유입 구분" in df.columns:
+            clients = sorted(set(x.strip() for x in df["유입 구분"].astype(str)
                                if x.strip() and x.strip() not in ("-", "없음", "N/A", "n/a", "nan")))
 
         # 지역 목록 추출 (추가 정보)

@@ -6,17 +6,17 @@ from dashboard.services import project_service
 
 
 def test_can_user_edit_project_admin_allows_edit():
-    project = {'수금 관련 특이사항': '', '담당자 이메일': 'owner@example.com'}
+    project = {'수금 관련 특이사항': '', '발주처 이메일': 'owner@example.com'}
     assert project_service.can_user_edit_project(project, 'other@example.com', 'admin')
 
 
 def test_can_user_edit_project_owner_allows_edit():
-    project = {'수금 관련 특이사항': '', '담당자 이메일': 'owner@example.com'}
+    project = {'수금 관련 특이사항': '', '발주처 이메일': 'owner@example.com'}
     assert project_service.can_user_edit_project(project, 'owner@example.com', 'user')
 
 
 def test_can_user_edit_project_denies_cancelled():
-    project = {'수금 관련 특이사항': '공사취소', '담당자 이메일': 'owner@example.com'}
+    project = {'수금 관련 특이사항': '공사취소', '발주처 이메일': 'owner@example.com'}
     assert not project_service.can_user_edit_project(project, 'owner@example.com', 'admin')
 
 
@@ -37,7 +37,7 @@ def test_auto_project_code_uses_dataframe_values():
     df = pd.DataFrame({
         '프로젝트 코드': ['G0001-IT', 'G0002-IT', 'S0001-AA'],
         '프로젝트 담당자': ['글로벌', '글로벌', '서울지점'],
-        '담당자 이메일': ['홍철수', '홍철수', '김현환']  # 실제 매핑에 있는 이름들 사용
+        '발주처 이메일': ['홍철수', '홍철수', '김현환']  # 실제 매핑에 있는 이름들 사용
     })
 
     # DataFrame과 PROJECT_CONFIG에서 실제 매핑되는 값들로 테스트
@@ -239,7 +239,7 @@ def test_invalidate_project_cache_with_project_code():
 
 def test_can_user_edit_project_various_roles():
     """다양한 사용자 역할에 대한 편집 권한 테스트"""
-    project = {'수금 관련 특이사항': '', '담당자 이메일': 'owner@example.com'}
+    project = {'수금 관련 특이사항': '', '발주처 이메일': 'owner@example.com'}
 
     # editor 역할 테스트
     assert project_service.can_user_edit_project(project, 'other@example.com', 'editor')

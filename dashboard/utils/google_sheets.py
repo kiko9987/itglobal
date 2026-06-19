@@ -793,7 +793,8 @@ class GoogleSheetsManager:
                 raise Exception("다음 빈 행을 찾을 수 없습니다")
             
             # 특정 행에 데이터 업데이트 (수식이 있는 빈 행에 덮어쓰기)
-            actual_range = f'공사 현황의 사본!A{next_row}:AN{next_row}'
+            # 2026-06-19 fix: AN → AO (_version 컬럼 포함)
+            actual_range = f'공사 현황의 사본!A{next_row}:AO{next_row}'
             body = {
                 'values': [values]
             }
@@ -815,7 +816,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 데이터 추가 오류: {str(e)}")
             raise
     
-    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AN{row}'):
+    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AO{row}'):
         """
         구글 시트의 특정 행 업데이트
         
@@ -1024,14 +1025,15 @@ class GoogleSheetsManager:
         """컬럼 매핑 정보 반환
 
         2026-05-22 변경: E열에 '사업자명' 추가로 기존 E~AN이 F~AO로 한 칸 시프트.
-        - D열 '거래처': 제목 그대로, 값 의미는 유입채널(거래처/온라인/당근/소개/숨고)
+        2026-06-19 변경: D열 헤더 '거래처' → '유입 구분' (값=거래처/온라인/당근/소개/숨고)
+        - D열 '유입 구분': 유입 채널 카테고리 (거래처/온라인/당근/소개/숨고)
         - E열 '사업자명': 신규, 실제 사업자등록증명
         """
         return {
             'A': '프로젝트 코드',
             'B': '사업자',
             'C': '담당자',
-            'D': '거래처',
+            'D': '유입 구분',
             'E': '사업자명',
             'F': '현장 주소',
             'G': '공사 구분',
@@ -1042,9 +1044,9 @@ class GoogleSheetsManager:
             'L': '공사 내용',
             'M': '도급 구분',
             'N': '시공자',
-            'O': '현장 담당자',
-            'P': '담당자 연락처',
-            'Q': '담당자 이메일',
+            'O': '발주처 담당자',
+            'P': '발주처 연락처',
+            'Q': '발주처 이메일',
             'R': '총액 1',
             'S': '부가세',
             'T': '총액 2',
@@ -1079,11 +1081,11 @@ class GoogleSheetsManager:
         return {
             # 기본정보
             '사업자': 'B',
-            '현장 담당자': 'O',
+            '발주처 담당자': 'O',
             '도급 구분': 'M',
-            '담당자 연락처': 'P',
+            '발주처 연락처': 'P',
             '시공자': 'N',
-            '담당자 이메일': 'Q',
+            '발주처 이메일': 'Q',
             '현장 주소': 'F',
             # 공사정보
             '공사 구분': 'G',
@@ -1096,7 +1098,7 @@ class GoogleSheetsManager:
             # 문서 정보
             '견적서 및 계약서 폴더 경로': 'AL',
             # 거래처 정보
-            '거래처': 'D',
+            '유입 구분': 'D',
             '사업자명': 'E',
             '담당자': 'C'
         }

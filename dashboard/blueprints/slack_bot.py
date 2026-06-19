@@ -373,10 +373,36 @@ def _register_handlers(app):
             "text": "_청소 취소됨._",
         })
 
+    # ⑯ /공사확정 슬래시 명령 — 모바일/슬랙에서 공사 확정 등록
+    @app.command("/공사확정")
+    def handle_project_command(ack, command, client):
+        ack()
+        trigger_id = command.get("trigger_id", "")
+        channel = command.get("channel_id", "")
+        user_id = command.get("user_id", "")
+        if not trigger_id:
+            return
+        try:
+            _open_project_modal(client, trigger_id, channel, user_id)
+        except Exception as exc:
+            logger.error(f"[SLACK/공사확정] 모달 열기 실패: {exc}", exc_info=True)
+
+    # ⑰ 공사확정 모달 제출
+    @app.view("submit_project")
+    def handle_submit_project(ack, body, client, view):
+        ack()
+        # 시트 로드 + 등록이 3초 넘을 수 있어 백그라운드
+        def _bg():
+            try:
+                _process_project_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/공사확정] submit 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     logger.info(
-        "[SLACK] 핸들러 등록 완료: /상태, /전화, /청소, app_mention, message(DM), "
+        "[SLACK] 핸들러 등록 완료: /상태, /전화, /청소, /공사확정, app_mention, message(DM), "
         "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone, "
-        "sweep_confirm, sweep_cancel"
+        "submit_project, sweep_confirm, sweep_cancel"
     )
 
 
@@ -551,6 +577,231 @@ def _run_sweep(client, channel: str, response_url: str, mode: str, value: int):
             f"• 삭제 실패: {delete_failed}개"
         ),
     )
+
+
+# ─────────────────────────────────────────────────────────────
+# /공사확정 — 슬랙 모달로 공사 확정 등록 (모바일 친화)
+# ─────────────────────────────────────────────────────────────
+_PROJECT_COMPANY_OPTIONS = ["글로벌", "글로벌그룹", "플랜트"]
+_PROJECT_SOURCE_OPTIONS = ["거래처", "온라인", "당근", "소개", "숨고"]
+
+
+def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
+    """공사 확정 등록 모달 — 핵심 11개 필드."""
+    def _select_options(values):
+        return [
+            {"text": {"type": "plain_text", "text": v}, "value": v}
+            for v in values
+        ]
+
+    metadata = json.dumps({"channel": channel, "user_id": user_id})
+    view = {
+        "type": "modal",
+        "callback_id": "submit_project",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "공사 확정 등록"},
+        "submit": {"type": "plain_text", "text": "등록"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": [
+            {
+                "type": "input", "block_id": "company",
+                "label": {"type": "plain_text", "text": "사업자"},
+                "element": {
+                    "type": "static_select", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "선택"},
+                    "options": _select_options(_PROJECT_COMPANY_OPTIONS),
+                },
+            },
+            {
+                "type": "input", "block_id": "source",
+                "label": {"type": "plain_text", "text": "유입 구분"},
+                "element": {
+                    "type": "static_select", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "선택"},
+                    "options": _select_options(_PROJECT_SOURCE_OPTIONS),
+                },
+            },
+            {
+                "type": "input", "block_id": "company_name",
+                "label": {"type": "plain_text", "text": "사업자명 (고객사)"},
+                "element": {"type": "plain_text_input", "action_id": "value"},
+            },
+            {
+                "type": "input", "block_id": "address",
+                "label": {"type": "plain_text", "text": "현장 주소"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "예: 서울 강남구 테헤란로 152"},
+                },
+            },
+            {
+                "type": "input", "block_id": "customer", "optional": True,
+                "label": {"type": "plain_text", "text": "발주처 담당자 (선택)"},
+                "element": {"type": "plain_text_input", "action_id": "value"},
+            },
+            {
+                "type": "input", "block_id": "contact", "optional": True,
+                "label": {"type": "plain_text", "text": "발주처 연락처 (선택)"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "예: 010-1234-5678"},
+                },
+            },
+            {
+                "type": "input", "block_id": "start_date",
+                "label": {"type": "plain_text", "text": "공사 시작"},
+                "element": {"type": "datepicker", "action_id": "value"},
+            },
+            {
+                "type": "input", "block_id": "end_date",
+                "label": {"type": "plain_text", "text": "공사 종료"},
+                "element": {"type": "datepicker", "action_id": "value"},
+            },
+            {
+                "type": "input", "block_id": "content",
+                "label": {"type": "plain_text", "text": "공사 내용"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value", "multiline": True,
+                    "placeholder": {"type": "plain_text", "text": "예: LG 천장형 4way 2대 설치"},
+                },
+            },
+            {
+                "type": "input", "block_id": "amount",
+                "label": {"type": "plain_text", "text": "공사 금액 (VAT 별도, 숫자만)"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "예: 4600000"},
+                },
+            },
+            {
+                "type": "input", "block_id": "vat", "optional": True,
+                "label": {"type": "plain_text", "text": "부가세"},
+                "element": {
+                    "type": "checkboxes", "action_id": "value",
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "VAT 별도 (10% 추가)"},
+                         "value": "true"},
+                    ],
+                },
+            },
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _process_project_submission(client, body, view):
+    """공사 확정 모달 제출 → 시트 등록 + Calendar + #공사_확정 알림."""
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    channel = metadata.get("channel", "")
+    user_id = metadata.get("user_id") or body["user"]["id"]
+    state = view["state"]["values"]
+
+    # 모달 입력
+    company = _v(state, "company")
+    source = _v(state, "source")
+    company_name = (_v(state, "company_name") or '').strip()
+    address = (_v(state, "address") or '').strip()
+    customer = (_v(state, "customer") or '').strip()
+    contact = (_v(state, "contact") or '').strip()
+    start_date = _v(state, "start_date")
+    end_date = _v(state, "end_date")
+    content = (_v(state, "content") or '').strip()
+    amount_raw = (_v(state, "amount") or '').strip()
+    vat_separate = bool(_v_multi(state, "vat"))
+
+    # 영업 담당자: 슬랙 사용자 → 한국 이름
+    manager_name = _slack_user_to_korean_name(client, user_id) or '미지정'
+
+    # 금액 정규화 (콤마/원 제거)
+    amount_digits = ''.join(ch for ch in amount_raw if ch.isdigit())
+
+    data = {
+        '사업자': company,
+        '담당자': manager_name,
+        '유입 구분': source,
+        '사업자명': company_name,
+        '현장 주소': address,
+        '발주처 담당자': customer,
+        '발주처 연락처': contact,
+        '공사 시작': start_date,
+        '공사 종료': end_date,
+        '공사 내용': content,
+        '총액 1': amount_digits or '0',
+        '부가세': vat_separate,
+    }
+
+    try:
+        code = _slack_create_project(data)
+        msg = (
+            f":white_check_mark: *{company_name or '공사'}* 등록 완료 — "
+            f"`{code}`\n_담당자: {manager_name} · 시작: {start_date} · "
+            f"금액: {int(amount_digits or 0):,}원_"
+        )
+        client.chat_postEphemeral(
+            channel=channel or user_id, user=user_id, text=msg,
+        )
+    except Exception as exc:
+        logger.error(f"[SLACK/공사확정] 등록 실패: {exc}", exc_info=True)
+        client.chat_postEphemeral(
+            channel=channel or user_id, user=user_id,
+            text=f":x: 등록 실패: {type(exc).__name__}: {exc}",
+        )
+
+
+def _slack_create_project(data: dict) -> str:
+    """슬랙 진입점 — 시트 등록 + 후처리. 성공 시 프로젝트 코드 반환.
+
+    Flask request context 없이 동작 (직접 service 함수 호출).
+    """
+    from dashboard.services.project_service import (
+        get_sheets_manager, load_data, _auto_project_code,
+        invalidate_project_cache,
+    )
+    from dashboard.blueprints.projects import (
+        _prepare_project_defaults, _build_row_values, _build_project_response_data,
+    )
+    from dashboard.services.calendar_service import create_project_calendar_event
+    from dashboard.services.project_slack_notifier import send_project_created_notification
+
+    sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    if not sheet_id:
+        raise Exception('GOOGLE_SHEET_ID 미설정')
+
+    df = load_data()
+    next_row = (len(df) + 2) if df is not None and not df.empty else 2
+
+    company = str(data.get('사업자', '')).strip()
+    owner = str(data.get('담당자', '')).strip()
+    code = _auto_project_code(df, company, owner)
+    if not code:
+        raise Exception(f'프로젝트 코드 생성 실패 (사업자={company}, 담당자={owner})')
+    data['프로젝트 코드'] = code
+
+    manager = get_sheets_manager()
+    _prepare_project_defaults(data, next_row)
+    values = _build_row_values(data, manager, next_row)
+    result = manager.append_row(sheet_id, values)
+    if not result:
+        raise Exception('시트 등록 실패')
+
+    # 후처리 (실패해도 등록은 성공으로 간주)
+    try:
+        invalidate_project_cache(code)
+    except Exception as exc:
+        logger.warning(f"[SLACK/공사확정] 캐시 무효화 실패: {exc}")
+
+    try:
+        project_data = _build_project_response_data(code, data)
+        create_project_calendar_event(project_data)
+    except Exception as exc:
+        logger.warning(f"[SLACK/공사확정] Calendar 등록 실패: {exc}")
+
+    try:
+        send_project_created_notification(data, code)
+    except Exception as exc:
+        logger.warning(f"[SLACK/공사확정] #공사_확정 알림 실패: {exc}")
+
+    return code
 
 
 # ─────────────────────────────────────────────────────────────
@@ -957,6 +1208,12 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
                 "optional": True,
             },
             {
+                "type": "input", "block_id": "visit_date",
+                "label": {"type": "plain_text", "text": "방문 예정일 (방문 예약 시 입력)"},
+                "element": {"type": "datepicker", "action_id": "value"},
+                "optional": True,
+            },
+            {
                 "type": "input", "block_id": "inquiry",
                 "label": {"type": "plain_text", "text": "상담 내용 (선택)"},
                 "element": {
@@ -1013,6 +1270,7 @@ def _process_phone_submission(client, body, view):
     email = _v(state, "email").strip() or '-'
     status = _v(state, "status").strip() or '유선 상담'
     address_raw = _v(state, "address").strip()
+    visit_date = _v(state, "visit_date").strip() or '-'  # 방문 예약 시 datepicker
     inquiry = _v(state, "inquiry").strip() or '-'
     devices = _v_multi(state, "device")
     device_str = ', '.join(devices) if devices else '-'
@@ -1053,7 +1311,7 @@ def _process_phone_submission(client, body, view):
         '상담 시간': consult_time,
         '플랫폼': '전화',
         '상태': status,
-        '방문 예정일': '-',
+        '방문 예정일': visit_date,
         '고객 연락처': phone,
         '이메일': email,
         '고객명': name,

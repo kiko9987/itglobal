@@ -712,7 +712,7 @@ export default class ProjectRowAccordion {
           </div>
           <div class="compact-item">
             <small>현장담당자</small>
-            <div class="editable-value" data-field="현장 담당자">${rowData['현장 담당자'] || '-'}</div>
+            <div class="editable-value" data-field="발주처 담당자">${rowData['발주처 담당자'] || '-'}</div>
           </div>
           <div class="compact-item">
             <small>도급구분</small>
@@ -720,7 +720,7 @@ export default class ProjectRowAccordion {
           </div>
           <div class="compact-item">
             <small>연락처</small>
-            <div class="editable-value" data-field="담당자 연락처">${rowData['담당자 연락처'] || '-'}</div>
+            <div class="editable-value" data-field="발주처 연락처">${rowData['발주처 연락처'] || '-'}</div>
           </div>
           <div class="compact-item">
             <small>시공자</small>
@@ -728,7 +728,7 @@ export default class ProjectRowAccordion {
           </div>
           <div class="compact-item">
             <small>이메일</small>
-            <div class="editable-value" data-field="담당자 이메일">${rowData['담당자 이메일'] || '-'}</div>
+            <div class="editable-value" data-field="발주처 이메일">${rowData['발주처 이메일'] || '-'}</div>
           </div>
         </div>
       </div>
@@ -3987,7 +3987,7 @@ export default class ProjectRowAccordion {
    */
   validateField(fieldName, value) {
     // 필수 필드 검증 (레거시 동일)
-    const requiredFields = ['사업자', '현장 담당자', '공사 구분'];
+    const requiredFields = ['사업자', '발주처 담당자', '공사 구분'];
     if (requiredFields.includes(fieldName) && (!value || value.trim() === '')) {
       return { isValid: false, message: '필수 입력 항목입니다' };
     }
