@@ -68,6 +68,15 @@ def start_scheduler():
         )
         jobs.append('채널톡 미배정 알림 1분')
 
+    # 슬랙 워크플로우 → 메인 시트 직접 추가 전화 lead 보정 (2분 주기)
+    _scheduler.add_job(
+        _safe_workflow_phone_sync,
+        'interval',
+        minutes=2,
+        id='workflow_phone_sync',
+    )
+    jobs.append('워크플로 전화 lead 2분')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -90,6 +99,15 @@ def _safe_karrot_sync():
         sync_karrot()
     except Exception as exc:
         logger.error(f'[SCHED] 당근 sync 실행 실패: {exc}', exc_info=True)
+
+
+def _safe_workflow_phone_sync():
+    """슬랙 워크플로우가 메인 시트에 직접 추가한 전화 lead 보정"""
+    try:
+        from dashboard.services.lead_sync import sync_workflow_phone_leads
+        sync_workflow_phone_leads()
+    except Exception as exc:
+        logger.error(f'[SCHED] 워크플로 전화 lead 보정 실패: {exc}', exc_info=True)
 
 
 def _safe_homepage_sync():
@@ -141,7 +159,7 @@ def _safe_channeltalk_pending_check():
                         'channel': channel,
                         'thread_ts': thread_ts,
                         'text': text,
-                        'reply_broadcast': True,  # 채널 본문에도 노출 → 알림 강조
+                        'reply_broadcast': False,  # thread에만 — 메인 채널 중복 노출 방지
                     }).encode('utf-8'),
                     headers={
                         'Authorization': f'Bearer {token}',

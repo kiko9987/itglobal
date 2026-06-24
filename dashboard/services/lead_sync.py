@@ -13,6 +13,7 @@
 
 import os
 import re
+import textwrap
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -169,6 +170,60 @@ def _get_existing_phones(main_df: Optional[pd.DataFrame]) -> set:
     return phones
 
 
+def _normalize_address_key(addr: str) -> str:
+    """주소에서 도로명 + 번지까지 추출 (건물명/층/호 제외) — 동일 건물 매칭 키.
+
+    예: '남양주 진건읍 진건오남로 77 심미에셈빌 1층 오헤어'
+        → '남양주 진건읍 진건오남로 77'
+    """
+    if not addr:
+        return ''
+    addr = addr.strip()
+    if addr in ('-', ''):
+        return ''
+    # 도로명/길 + 번지 패턴
+    m = re.search(r'[가-힣]+(?:로|길)\s*\d+(?:-\d+)?', addr)
+    if not m:
+        # 도로명 없으면 지번 형태 시도: 동 + 번지
+        m = re.search(r'[가-힣]+동\s*\d+(?:-\d+)?', addr)
+    if not m:
+        return ''
+    # 매칭된 끝까지 (앞 행정구역 포함, 뒤 건물명 제외)
+    return re.sub(r'\s+', ' ', addr[:m.end()]).strip()
+
+
+def _get_existing_address_lookup(main_df: Optional[pd.DataFrame]) -> dict:
+    """주소 정규화 키 → entries (재문의 감지: 같은 건물 다른 사람)."""
+    lookup: dict = {}
+    if main_df is None or main_df.empty:
+        return lookup
+    for _, row in main_df.iterrows():
+        addr_raw = str(row.get('방문 주소', '') or '')
+        key = _normalize_address_key(addr_raw)
+        if not key:
+            continue
+        consult_dt = _parse_consult_dt(row.get('상담 시간'))
+        entry = {
+            'lead_no': str(row.get('리드 No', '') or ''),
+            'consult_dt': consult_dt,
+            'consult_time': str(row.get('상담 시간', '') or ''),
+            'status': str(row.get('상태', '') or ''),
+            'feedback': str(row.get('피드백', '') or ''),
+            'inquiry': str(row.get('상담 내용', '') or ''),
+            'platform': str(row.get('플랫폼', '') or ''),
+            'consultant': str(row.get('온라인 상담자', '') or ''),
+            'sales_rep': str(row.get('영업 담당자', '') or ''),
+            'customer_name': str(row.get('고객명', '') or ''),
+            'phone': str(row.get('고객 연락처', '') or ''),
+        }
+        lookup.setdefault(key, []).append(entry)
+    for key in lookup:
+        lookup[key].sort(
+            key=lambda e: e['consult_dt'] or datetime.min, reverse=True,
+        )
+    return lookup
+
+
 def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
     """연락처 → [{lead_no, consult_time(datetime), status, feedback, platform}, ...] 시간 내림차순.
 
@@ -192,6 +247,7 @@ def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
             'inquiry': str(row.get('상담 내용', '') or ''),
             'platform': str(row.get('플랫폼', '') or ''),
             'consultant': str(row.get('온라인 상담자', '') or ''),
+            'sales_rep': str(row.get('영업 담당자', '') or ''),
         }
         lookup.setdefault(digits, []).append(entry)
     # 각 연락처별 시간 내림차순
@@ -232,6 +288,28 @@ def _format_time_ago(now_dt: Optional[datetime], prev_dt: Optional[datetime]) ->
     return f'{diff_days // 365}년 전'
 
 
+def _wrap_quoted(text: str, width: int = 60) -> str:
+    """텍스트를 width자 단위로 wrap하고 각 줄에 '>' prefix 부착.
+
+    슬랙 mrkdwn에서 한 줄이 너무 길면 화면 wrap 시 '>' 마커가 끊겨 인용 그룹을 이탈함.
+    미리 명시적 줄바꿈을 넣어 매 줄에 '>' 보장.
+    """
+    if not text:
+        return ''
+    out_lines = []
+    for raw in text.split('\n'):
+        if not raw:
+            out_lines.append('>')
+            continue
+        # 한국어 텍스트는 단어 경계가 모호하므로 break_long_words=False보다는
+        # break_on_hyphens=False로 두고 textwrap 기본 처리
+        wrapped = textwrap.fill(raw, width=width, break_long_words=True,
+                                break_on_hyphens=False) or raw
+        for ln in wrapped.split('\n'):
+            out_lines.append('>' + ln)
+    return '\n'.join(out_lines)
+
+
 def _build_repeat_section(lead: dict) -> str:
     """재문의 컨텍스트 섹션 (이전 No + 문의 내용 + 상태 + 상담자).
 
@@ -246,7 +324,16 @@ def _build_repeat_section(lead: dict) -> str:
     prev_time = (most_recent.get('consult_time') or '').strip()
     prev_inquiry = (most_recent.get('inquiry') or '').strip() or '-'
     prev_status = (most_recent.get('status') or '').strip() or '-'
-    prev_consultant = (most_recent.get('consultant') or '').strip() or '-'
+    # 상담자/방문자: 한국 이름 → 이니셜 통일
+    from dashboard.blueprints.slack_bot import _to_initial
+    prev_consultant_raw = (most_recent.get('consultant') or '').strip()
+    prev_consultant = _to_initial(prev_consultant_raw) or '-'
+    # 방문자: 이전 상태가 "방문 예약"일 때만 영업 담당자 값, 그 외 '-'
+    if prev_status == '방문 예약':
+        prev_sales_rep_raw = (most_recent.get('sales_rep') or '').strip()
+        prev_sales_rep = _to_initial(prev_sales_rep_raw) or '-'
+    else:
+        prev_sales_rep = '-'
     # 길이 제한 (200자)
     if len(prev_inquiry) > 200:
         prev_inquiry = prev_inquiry[:200] + '...'
@@ -254,13 +341,16 @@ def _build_repeat_section(lead: dict) -> str:
     # 이전 문의 식별: "시간 / 리드No" 형태 (시간 없으면 리드No만)
     prev_label = f"{prev_time} / {prev_no}" if prev_time else prev_no
 
+    # 문의 내용은 60자 wrap + 각 줄 '>' prefix (긴 라인 화면 wrap 시 인용 이탈 방지)
+    prev_inquiry_quoted = _wrap_quoted(prev_inquiry, width=60)
     return (
-        f":repeat: *재문의 감지*\n"
+        f">:repeat: *재문의 감지*\n"
         f">*이전 문의* : {prev_label}\n"
-        f">*문의 내용* : {prev_inquiry}\n"
+        f">*문의 내용* :\n{prev_inquiry_quoted}\n"
         f">*상태* : {prev_status}\n"
         f">*상담자* : {prev_consultant}\n"
-        f"---------------------------------------------\n"
+        f">*방문자* : {prev_sales_rep}\n"
+        f">---------------------------------------------\n"
     )
 
 
@@ -536,24 +626,30 @@ def _resolve_channel_id(client, channel_name_or_id: str) -> str:
     return cn  # 그대로 시도 (실패 시 명확한 에러)
 
 
-def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str], source: str = '당근'):
-    """각 신규 리드를 사용자 양식으로 채널에 개별 메시지 전송"""
+def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
+                              source: str = '당근') -> set:
+    """각 신규 리드를 사용자 양식으로 채널에 개별 메시지 전송.
+
+    Returns: 발송 성공한 lead_no의 set (실패는 미포함).
+             Slack 미구성 / 클라이언트 초기화 실패 시 빈 set.
+    """
+    sent: set = set()
     bot_token = os.getenv('SLACK_BOT_TOKEN', '').strip()
     channel_setting = os.getenv('SLACK_LEAD_CHANNEL', '').strip()
 
     if not bot_token or 'your' in bot_token.lower():
         logger.warning(f'[SYNC/{source}] SLACK_BOT_TOKEN 미설정 - 슬랙 알림 스킵')
-        return
+        return sent
     if not channel_setting or '여기에' in channel_setting:
         logger.warning(f'[SYNC/{source}] SLACK_LEAD_CHANNEL 미설정 - 슬랙 알림 스킵')
-        return
+        return sent
 
     try:
         from slack_sdk import WebClient
         client = WebClient(token=bot_token)
     except Exception as exc:
         logger.error(f'[SYNC/{source}] Slack 클라이언트 초기화 실패: {exc}')
-        return
+        return sent
 
     # 채널명 → ID 자동 변환 (한글 채널명 문제 회피)
     channel = _resolve_channel_id(client, channel_setting)
@@ -567,14 +663,19 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str], 
     for lead, ln in zip(leads, lead_nos):
         try:
             blocks, fallback = build_inquiry_blocks(lead, ln, source)
-            client.chat_postMessage(
+            resp = client.chat_postMessage(
                 channel=channel,
                 text=fallback,
                 blocks=blocks,
                 unfurl_links=False,
             )
+            if resp and resp.get('ok'):
+                sent.add(ln)
+            else:
+                logger.error(f'[SYNC/{source}] 슬랙 전송 응답 not ok ({ln}): {resp}')
         except Exception as exc:
             logger.error(f'[SYNC/{source}] 슬랙 전송 실패 ({ln}): {exc}')
+    return sent
 
 
 # ─────────────────────────────────────────────────────────────
@@ -629,10 +730,14 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     # 재문의 감지 — 같은 번호로 이전 lead가 있으면 섹션 추가 (타이틀은 그대로 유지)
     repeat_section = _build_repeat_section(lead)
 
+    # 헤더 + 구분선 + 본문 + 구분선 모두 한 `>` blockquote 그룹으로 통일.
+    # 같은 blockquote 안 라인은 슬랙이 복사 시 줄바꿈을 정상 보존함.
+    # 멀티라인 inquiry는 60자 wrap + 각 줄마다 `>` prefix.
+    inquiry_quoted = _wrap_quoted(inquiry.rstrip(), width=60)
     main_text = (
-        f"*접수번호:* `{lead_no}`\n"
-        f":bell: *{title}*\n"
-        f"---------------------------------------------\n"
+        f">*접수번호:* `{lead_no}`\n"
+        f">:bell: *{title}*\n"
+        f">---------------------------------------------\n"
         + repeat_section
         + f">*문의시간* : {consult_time}\n"
         f">*이름 / 상호* : {name}\n"
@@ -641,32 +746,307 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*설치 희망 장소* : {place}\n"
         f">*설치 희망 기기* : {device}\n"
         f">*방문 주소* : {address_display}\n"
-        f">*상세 문의 내용* : \n{inquiry}\n"
+        f">*상세 문의 내용* : \n{inquiry_quoted}\n"
+        f">---------------------------------------------"
     )
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": main_text}},
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": "---------------------------------------------"}},
         {
             "type": "actions",
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "방문 요청"},
+                    "text": {"type": "plain_text", "text": ":point_right: 상담하기", "emoji": True},
                     "style": "primary",
                     "value": lead_no,
-                    "action_id": "button_visit",
-                },
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "가격 문의"},
-                    "style": "danger",
-                    "value": lead_no,
-                    "action_id": "button_price",
+                    "action_id": "button_consult",
                 },
             ],
         },
     ]
     fallback_text = f"[{source}] {lead_no} {name} / {phone}"
     return blocks, fallback_text
+
+
+# ─────────────────────────────────────────────────────────────
+# 슬랙 워크플로우가 직접 추가한 전화 lead 보정 (B안 폴링)
+# ─────────────────────────────────────────────────────────────
+_MONTH_ABBR = {
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+}
+
+
+def _parse_english_longform_dt(raw: str) -> Optional[datetime]:
+    """영문 long form 시간 인식 (locale 무관).
+
+    예: 'Jun 23, 2026, 9:10:33 AM' / 'Jun 23, 2026, 9:10 AM' / 'Jun 23, 2026'
+    """
+    m = re.match(
+        r'(\w{3,9})\s+(\d{1,2}),\s+(\d{4})'
+        r'(?:,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?)?',
+        raw, re.IGNORECASE,
+    )
+    if not m:
+        return None
+    month = _MONTH_ABBR.get(m.group(1)[:3].lower())
+    if not month:
+        return None
+    day = int(m.group(2))
+    year = int(m.group(3))
+    hour = int(m.group(4)) if m.group(4) else 0
+    minute = int(m.group(5)) if m.group(5) else 0
+    second = int(m.group(6)) if m.group(6) else 0
+    ampm = (m.group(7) or '').upper()
+    if ampm == 'PM' and hour < 12:
+        hour += 12
+    elif ampm == 'AM' and hour == 12:
+        hour = 0
+    try:
+        return datetime(year, month, day, hour, minute, second)
+    except ValueError:
+        return None
+
+
+def _normalize_workflow_datetime(raw: str) -> str:
+    """슬랙 워크플로의 시간 변수를 'YYYY.MM.DD. HH:MM' 한국식 점 표기로 정규화.
+
+    인식 포맷:
+      - 이미 점 표기 ('2026.06.23. 17:19') — 그대로
+      - 타임스탬프 (epoch seconds: 10자리 / milliseconds: 13자리)
+      - ISO 8601 / 슬래시
+      - 영문 long form ('Jun 23, 2026, 9:10:33 AM') — locale 무관 패턴
+      - 인식 실패 시 원본 그대로 반환 (수동 정리 가능하도록)
+    """
+    if not raw:
+        return ''
+    raw = raw.strip()
+    if re.match(r'^\d{4}\.\d{2}\.\d{2}\.', raw):
+        return raw
+
+    # epoch 타임스탬프 (10자리 = seconds, 13자리 = milliseconds)
+    if raw.isdigit():
+        try:
+            n = int(raw)
+            if len(raw) == 13:
+                n = n // 1000
+            if 946684800 <= n <= 32503680000:  # 2000-01-01 ~ 3000-01-01
+                return datetime.fromtimestamp(n).strftime('%Y.%m.%d. %H:%M')
+        except (ValueError, OverflowError):
+            pass
+
+    formats = [
+        '%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ',
+        '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M',
+        '%Y/%m/%d %H:%M:%S', '%Y/%m/%d %H:%M',
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(raw, fmt).strftime('%Y.%m.%d. %H:%M')
+        except ValueError:
+            continue
+
+    # 영문 long form
+    dt = _parse_english_longform_dt(raw)
+    if dt:
+        return dt.strftime('%Y.%m.%d. %H:%M')
+
+    return raw
+
+
+def _normalize_workflow_date(raw: str) -> str:
+    """방문 예정일 정규화 — Google Sheets 시리얼 숫자도 ISO로 복원.
+
+    슬랙 워크플로의 datepicker는 ISO('2026-06-25')를 보내지만 시트가 USER_ENTERED
+    모드에서 시리얼 정수(예: 46197)로 자동 변환할 수 있음.
+
+    Returns:
+        '2026-06-25' (ISO 그대로) — 호출 측이 시트에 escape prefix 붙여 저장.
+        시리얼/ISO 둘 다 인식, 인식 실패 시 빈 문자열.
+    """
+    if not raw:
+        return ''
+    raw = raw.strip()
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', raw):
+        return raw
+    if raw.isdigit():
+        try:
+            serial = int(raw)
+            if 1 <= serial <= 100000:  # 1900-01-01 ~ 2173-10-15 범위
+                base = datetime(1899, 12, 30)
+                dt = base + timedelta(days=serial)
+                return dt.strftime('%Y-%m-%d')
+        except (ValueError, OverflowError):
+            pass
+    return ''
+
+
+def sync_workflow_phone_leads() -> Dict[str, Any]:
+    """슬랙 워크플로우가 메인 시트에 직접 추가한 전화 lead 자동 보정.
+
+    스캔 대상: 리드 No 빈 + 플랫폼='전화' 행
+    처리:
+      1. lead_no 발번 (max + 1)
+      2. 상담 시간 ISO → 'YYYY.MM.DD. HH:MM'
+      3. 방문 예정일 ISO → 시트 escape ('YYYY-MM-DD)
+      4. 키워드 vocab 매칭
+      5. 행 색 분기 (상태별)
+      6. 상태='방문 예약' 시 #방문_일정 카드 발송
+    """
+    result = {'processed': 0, 'visit_notified': 0, 'errors': 0}
+    try:
+        main_df = load_leads_data(force_refresh=True)
+        if main_df is None or main_df.empty:
+            return result
+
+        # 빈 lead_no + 플랫폼='전화' 행
+        is_empty_no = main_df['리드 No'].astype(str).str.strip() == ''
+        is_phone = main_df['플랫폼'].astype(str).str.strip() == '전화'
+        candidates = main_df[is_empty_no & is_phone].copy()
+        if candidates.empty:
+            return result
+
+        cfg = _get_sheet_config()
+        if not cfg:
+            logger.warning('[SYNC/전화WF] ONLINE_LEADS_SHEET_ID 미설정')
+            return result
+
+        manager = get_sheets_manager()
+
+        # 다음 lead_no — 시트 max + 1
+        existing_nos = main_df['리드 No'].astype(str).str.extract(r'L-(\d+)')[0]
+        existing_nos = pd.to_numeric(existing_nos, errors='coerce').dropna()
+        next_no_int = int(existing_nos.max()) + 1 if len(existing_nos) > 0 else 1
+
+        from dashboard.services.lead_helpers import extract_keywords_from_sources
+        notify_visit = []
+
+        for idx, row in candidates.iterrows():
+            sheet_row = idx + 2  # 헤더 1행 + 0-based
+            new_lead_no = f"L-{next_no_int:05d}"
+            next_no_int += 1
+
+            update_cells = [(f"A{sheet_row}", new_lead_no)]
+
+            # 상담 시간 정규화
+            consult_raw = str(row.get('상담 시간', '')).strip()
+            consult_norm = _normalize_workflow_datetime(consult_raw)
+            if consult_norm and consult_norm != consult_raw:
+                update_cells.append((f"B{sheet_row}", consult_norm))
+
+            # 방문 예정일 정규화 — 시리얼/ISO 모두 'YYYY-MM-DD' escape 형태로 통일
+            visit_date_raw = str(row.get('방문 예정일', '')).strip()
+            visit_date = visit_date_raw
+            if visit_date_raw and not visit_date_raw.startswith("'"):
+                iso = _normalize_workflow_date(visit_date_raw)
+                if iso:
+                    update_cells.append((f"E{sheet_row}", f"'{iso}"))
+                    visit_date = iso
+
+            # 키워드 vocab 매칭
+            keyword_raw = str(row.get('키워드', '')).strip()
+            keyword_norm = extract_keywords_from_sources(keyword_raw) or '-'
+            if keyword_norm != keyword_raw:
+                update_cells.append((f"K{sheet_row}", keyword_norm))
+
+            # batchUpdate — SSL/transient 에러 시 즉시 1회 재시도
+            import time as _t
+            batch_body = {
+                'valueInputOption': 'USER_ENTERED',
+                'data': [
+                    {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[v]]}
+                    for r, v in update_cells
+                ],
+            }
+            try:
+                try:
+                    manager.service.spreadsheets().values().batchUpdate(
+                        spreadsheetId=cfg['sheet_id'], body=batch_body,
+                    ).execute()
+                except Exception as exc1:
+                    err_l = str(exc1).lower()
+                    if any(k in err_l for k in ('ssl', 'wrong_version',
+                                                  'timeout', 'connection')):
+                        logger.warning(
+                            f"[SYNC/전화WF] 일시 에러 재시도 ({new_lead_no}): {exc1}"
+                        )
+                        _t.sleep(2)
+                        manager.service.spreadsheets().values().batchUpdate(
+                            spreadsheetId=cfg['sheet_id'], body=batch_body,
+                        ).execute()
+                    else:
+                        raise
+
+                # 행 색
+                status = str(row.get('상태', '')).strip()
+                try:
+                    updated_range = (
+                        f"'{cfg['sheet_name']}'!A{sheet_row}:O{sheet_row}"
+                    )
+                    _reset_row_background(
+                        manager, cfg['sheet_id'], cfg['sheet_name'],
+                        updated_range, num_cols=len(LEAD_COLUMN_ORDER),
+                        statuses=[status],
+                    )
+                except Exception as exc_bg:
+                    logger.warning(f"[SYNC/전화WF] 행 색 실패 ({new_lead_no}): {exc_bg}")
+
+                result['processed'] += 1
+                logger.info(f"[SYNC/전화WF] 보정 완료: {new_lead_no} ({status})")
+
+                # 방문 예약 시 #방문_일정 카드 후보
+                if status == '방문 예약':
+                    # 등록자: 영업 담당자 > 온라인 상담자 (둘 다 한국 이름 가정)
+                    user_name = (str(row.get('영업 담당자', '')).strip()
+                                 or str(row.get('온라인 상담자', '')).strip())
+                    notify_visit.append({
+                        'lead_no': new_lead_no,
+                        'name': str(row.get('고객명', '')).strip(),
+                        'phone': str(row.get('고객 연락처', '')).strip(),
+                        'address': str(row.get('방문 주소', '')).strip(),
+                        'visit_date': visit_date,
+                        'inquiry': str(row.get('상담 내용', '')).strip(),
+                        'user_name': user_name,
+                    })
+            except Exception as exc:
+                logger.error(f"[SYNC/전화WF] 보정 실패 (row {sheet_row}): {exc}",
+                             exc_info=True)
+                result['errors'] += 1
+
+        # 방문 예약 카드 발송 — 슬랙 client 가져오기 (순환 import 회피)
+        if notify_visit:
+            try:
+                from dashboard.blueprints.slack_bot import (
+                    _slack_app, _post_visit_notice,
+                )
+                client = _slack_app.client if _slack_app else None
+                if client:
+                    for lead in notify_visit:
+                        try:
+                            vd = lead['visit_date']
+                            if vd.startswith("'"):
+                                vd = vd[1:]
+                            _post_visit_notice(
+                                client, lead_no=lead['lead_no'], category='전화',
+                                user_id='', visit_date=vd,
+                                name=lead['name'], contact=lead['phone'],
+                                visit_address=lead['address'],
+                                consultation=lead['inquiry'],
+                                user_name=lead.get('user_name', ''),
+                            )
+                            result['visit_notified'] += 1
+                        except Exception as exc:
+                            logger.error(
+                                f"[SYNC/전화WF] #방문_일정 카드 실패 ({lead['lead_no']}): {exc}",
+                                exc_info=True,
+                            )
+            except Exception as exc:
+                logger.warning(f"[SYNC/전화WF] 슬랙 client 로드 실패: {exc}")
+
+        if result['processed'] > 0:
+            invalidate_leads_cache()
+        return result
+    except Exception as exc:
+        logger.error(f"[SYNC/전화WF] 동기화 실패: {exc}", exc_info=True)
+        return result
