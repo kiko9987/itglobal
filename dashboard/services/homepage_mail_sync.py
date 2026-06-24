@@ -400,6 +400,9 @@ def sync_homepage_email() -> Dict[str, Any]:
 
     new_leads: List[Dict[str, Any]] = []
     new_by_source: Dict[str, List[Dict[str, Any]]] = {}
+    # 시트엔 이미 있지만 라벨이 없는 메일 = 슬랙 미발송 추정 → 재발송 후보
+    resend_leads: List[Dict[str, Any]] = []
+    resend_by_source: Dict[str, List[Dict[str, Any]]] = {}
     duplicates = 0
     unknown = 0
     processed_msg_ids: List[str] = []
@@ -441,21 +444,29 @@ def sync_homepage_email() -> Dict[str, Any]:
                 continue
 
         # 메인 시트 최근 lead와 1시간 이내 → 중복 (재폴링)
+        # 라벨이 없는 메일이 여기 잡혔다 = 이전 폴링에서 시트 등록 후 슬랙 발송 실패
+        # → 시트 기존 lead_no 그대로 슬랙만 재발송 (라벨은 발송 성공해야 부착)
         if phone_digits and phone_digits in phone_lookup and new_dt:
             latest = phone_lookup[phone_digits][0]
             if latest['consult_dt']:
                 if abs((new_dt - latest['consult_dt']).total_seconds()) < 3600:
                     duplicates += 1
-                    processed_msg_ids.append(msg_id)
+                    lead['_meta_msg_id'] = msg_id
+                    lead['_meta_resend_lead_no'] = latest.get('lead_no', '')
+                    resend_leads.append(lead)
+                    resend_by_source.setdefault(category, []).append(lead)
                     continue
             # 1시간 이상 차이 → 재문의로 간주, 옛 이력 메타에 저장
             lead['_meta_previous_leads'] = phone_lookup[phone_digits]
 
+        # msg_id를 lead에 보관 — 슬랙 발송 성공 시에만 라벨 부착 (D안)
+        lead['_meta_msg_id'] = msg_id
         new_leads.append(lead)
         new_by_source.setdefault(category, []).append(lead)
         if phone_digits and new_dt:
             seen_in_sync[phone_digits] = new_dt
-        processed_msg_ids.append(msg_id)
+        # new_leads의 msg_id는 슬랙 발송 결과 보고 나서 라벨 부착
+        # (여기선 processed_msg_ids에 추가하지 않음)
 
     # 응답 시각 오름차순 정렬 (가장 최신이 채널 마지막에)
     def _sort_key(l):
@@ -472,20 +483,49 @@ def sync_homepage_email() -> Dict[str, Any]:
     if new_leads:
         lead_nos = _append_leads_to_main(new_leads)
 
-        # source별로 슬랙 알림 (홈페이지 / 게시판 구분)
+        # source별로 슬랙 알림 — 발송 성공한 lead_no만 set으로 받음
         from dashboard.services.lead_sync import _send_slack_notifications
-        # 위 lead_nos는 등록 순서. source별로 잘라 보내야 함.
-        # 등록 순서대로 source 매칭 위해 다시 매핑
-        i = 0
+        sent_lead_nos: set = set()
         for src, leads in new_by_source.items():
             src_lead_nos = []
             for lead in leads:
-                # new_leads 안에서 같은 dict 객체 찾아 인덱스
                 idx = new_leads.index(lead)
                 src_lead_nos.append(lead_nos[idx])
-            _send_slack_notifications(leads, src_lead_nos, source=src)
+            sent = _send_slack_notifications(leads, src_lead_nos, source=src) or set()
+            sent_lead_nos.update(sent)
 
-    # 처리 완료 라벨 부착 (등록 성공 + 중복 + 알 수 없는 형식 모두)
+        # D안: 슬랙 발송 성공한 new_lead의 msg_id만 라벨 부착 대상에 추가
+        # 발송 실패 lead의 msg_id는 라벨 미부착 → 다음 폴링에서 재시도
+        # 시트 자체 dedup(연락처+시간)으로 중복 등록은 방지됨
+        for lead, ln in zip(new_leads, lead_nos):
+            if ln in sent_lead_nos and lead.get('_meta_msg_id'):
+                processed_msg_ids.append(lead['_meta_msg_id'])
+            elif lead.get('_meta_msg_id'):
+                logger.warning(
+                    f'[SYNC/홈페이지] 슬랙 발송 실패 → 라벨 보류 ({ln}, msg_id={lead["_meta_msg_id"]})'
+                )
+
+    # 재발송 처리 — 시트엔 이미 있지만 슬랙 미발송 추정 케이스
+    # (이전 폴링에서 시트 등록 후 발송 실패한 사고 케이스의 자동 복구)
+    if resend_leads:
+        from dashboard.services.lead_sync import _send_slack_notifications
+        sent_resend: set = set()
+        for src, leads in resend_by_source.items():
+            r_lead_nos = [l.get('_meta_resend_lead_no', '') for l in leads]
+            sent = _send_slack_notifications(leads, r_lead_nos, source=src) or set()
+            sent_resend.update(sent)
+
+        for lead in resend_leads:
+            ln = lead.get('_meta_resend_lead_no', '')
+            if ln in sent_resend and lead.get('_meta_msg_id'):
+                processed_msg_ids.append(lead['_meta_msg_id'])
+                logger.info(f'[SYNC/홈페이지] 재발송 완료 ({ln})')
+            elif lead.get('_meta_msg_id'):
+                logger.warning(
+                    f'[SYNC/홈페이지] 재발송 실패 → 라벨 보류 ({ln}, msg_id={lead["_meta_msg_id"]})'
+                )
+
+    # 처리 완료 라벨 부착 (dup/unknown은 즉시, new_lead/resend는 슬랙 성공한 것만)
     for msg_id in processed_msg_ids:
         _mark_processed(service, msg_id, label_id)
 
