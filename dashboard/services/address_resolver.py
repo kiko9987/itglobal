@@ -159,10 +159,14 @@ def _kakao_search(query: str) -> Optional[dict]:
         return None
 
 
-# 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22", "봉은사로 26길 12")
-# 도로명 중간에 숫자 허용 (꽃내음1길, 시흥대로14길 등) + 2단 도로명 옵션 (○○로 N길)
+# 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22",
+# "봉은사로 26길 12", "부천로431번길 16")
+# - 한글 2글자 이상으로 도로명 시작 (1글자 "번길" 같은 오인 차단)
+# - 도로명 중간/끝 숫자 허용 (꽃내음1길, 시흥대로14길)
+# - 2단 도로명 옵션 (○○로 N길 12, 봉은사로 26길 12)
+# - 도로명 + 숫자번길 옵션 (부천로431번길 16) — "번" 옵션
 _ROAD_PATTERN = re.compile(
-    r'([가-힣]+\d*(?:로|길)(?:\s+\d+(?:로|길))?\s+\d+(?:-\d+)?)'
+    r'([가-힣]{2,}\d*(?:로|길)(?:\s*\d+번?(?:로|길))?\s+\d+(?:-\d+)?)'
 )
 
 
@@ -178,16 +182,40 @@ _TAIL_SIGNAL = re.compile(
     r'힐스테이트|자이|푸르지오|아이파크|래미안|롯데캐슬|이편한세상|위브|더샵|'
     r'센트럴파크|학교|학원|병원|교회|공장|창고|연구원|연수원|회관|마을회관|호텔|모텔|'
     r'대학교|대학|아이클럽|상가동|'
+    # 휴양·숙박·복합시설 (lead_helpers의 _BUILDING과 동기화)
+    r'리조트|콘도|펜션|게스트하우스|레지던스|플라자|프라자|쇼핑몰|백화점|아울렛|'
+    r'마트|시장|타운|파크|가든|스퀘어|허브|컴플렉스|문화회관|체육관|'
     # 한국식 시설/사업장 명사 (○○집/카페/식당 등 prefix 있어야)
-    r'집|상회|공방|펜션|하우스|빌라|약국|미용실|매점|갤러리|한의원|식당|카페|'
+    r'집|상회|공방|하우스|빌라|약국|미용실|매점|갤러리|한의원|식당|카페|'
     # 음식점·소매점 업종 키워드 (suffix)
     r'치킨|통닭|분식|곱창|닭갈비|국밥|냉면|고깃집|쌈밥|족발|보쌈|돈까스|초밥|횟집|'
     r'김밥|떡볶이|토스트|햄버거|피자|쌀국수|우동|라면|쭈꾸미|순대|덮밥|'
-    r'정육점|베이커리|빵집|도넛|주점|호프|포차|편의점|마트|슈퍼|문구|꽃집|세탁소)'
+    r'정육점|베이커리|빵집|도넛|주점|호프|포차|편의점|슈퍼|문구|꽃집|세탁소)'
     # brand 시작 키워드 + 뒤 한글 (예: "김밥천국", "신촌도넛", "치킨마니아", "떡볶이나라")
     r'|(?:김밥|떡볶이|치킨|통닭|국밥|도넛|쌀국수|분식|족발|보쌈|곱창)[가-힣]{1,6}'
     r')'
 )
+
+# 한국 성씨 (흔한 것 70개) — tail 끝의 사람 이름 제거용
+_KOREAN_SURNAMES = (
+    r'김|이|박|최|정|강|조|윤|장|임|한|신|오|서|권|황|안|송|류|전|홍|'
+    r'고|문|양|손|배|백|허|유|남|심|노|하|곽|성|차|주|우|구|민|진|지|'
+    r'엄|채|천|방|공|함|변|염|여|추|도|소|석|선|설|마|길|연|위|표|명|'
+    r'기|반|라|모|음|편|국'
+)
+
+
+def _strip_personal_name(tail: str) -> str:
+    """tail 끝의 한국 사람 이름(성씨 + 1~2자, 총 2~3자)을 제거.
+
+    예: '그로브리조트 정승종' → '그로브리조트'
+        'ABC빌딩 김지수' → 'ABC빌딩'
+    """
+    if not tail:
+        return tail
+    return re.sub(
+        rf'\s+(?:{_KOREAN_SURNAMES})[가-힣]{{1,2}}$', '', tail,
+    ).strip()
 _TAIL_STOP_WORDS = [
     '신축', '상담', '견적', '문의', '연락', '에어컨', '설치', '예정',
     '냉방', '냉난방', '제품', '면적', '평수', '평형', '시스템',
@@ -248,9 +276,11 @@ def _extract_building_tail(text: str) -> str:
     candidates = []
     # 1. 도로명·길 + 번지 + 뒤
     #    1단: "갯벌로 36, ...", "꽃내음1길 19-22, ...", "동호로28길11 ..."
-    #    2단: "봉은사로 26길 12 ..." (도로명이 ○○로 + 공백 + N길로 두 단으로 띄어쓴 형식)
+    #    2단(공백): "봉은사로 26길 12 ..." (○○로 + 공백 + N길로 두 단으로 띄어쓴 형식)
+    #    번길 합성: "부천로431번길 16 ..." (도로명 + 숫자 + 번길 한 단어)
+    #    한글 2글자 이상 — 1글자 "번길" 같은 오인 차단
     m = re.search(
-        r'[가-힣]+\d*(?:로|길)(?:\s+\d+(?:로|길))?\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
+        r'[가-힣]{2,}\d*(?:로|길)(?:\s*\d+번?(?:로|길))?\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
@@ -276,6 +306,8 @@ def _extract_building_tail(text: str) -> str:
         tail = tail[:cut_pos].strip()
         # 트레일링 부호/공백 정리
         tail = re.sub(r'[,.\s]+$', '', tail).strip()
+        # 끝의 한국 사람 이름 제거 (예: "그로브리조트 정승종" → "그로브리조트")
+        tail = _strip_personal_name(tail)
 
         # 의미 있는 건물·층·호 신호 있는지 검증
         if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):
@@ -391,10 +423,23 @@ def verify_address(
         # 예: base="안양 동안구" + 원문 "관악대로 69" → "안양 동안구 관악대로 69"
         if not re.search(r'(?:로|길)\s+\d+', base):
             m_road = _ROAD_PATTERN.search(text or '')
-            if m_road:
+            if m_road and m_road.group(1) not in base:
                 parts.append(m_road.group(1))
         if building_tail:
-            parts.append(building_tail)
+            # 카카오 building_name이 이미 base에 부착되어 building_tail과 중복되는 경우 dedup
+            # 예: base="...강남파이낸스센터" + tail="강남파이낸스센터" → skip
+            #     base="...강남파이낸스센터" + tail="강남파이낸스센터 1층" → "1층"만 추가
+            if building_tail in base:
+                pass  # 완전 중복 — skip
+            else:
+                tail_words = building_tail.split()
+                # 첫 단어가 base 끝에 이미 있으면 그 부분 제거 후 추가
+                if tail_words and base.rstrip().endswith(tail_words[0]):
+                    remaining = ' '.join(tail_words[1:]).strip()
+                    if remaining:
+                        parts.append(remaining)
+                else:
+                    parts.append(building_tail)
         else:
             if facility_carry and facility_carry not in base:
                 parts.append(facility_carry)
@@ -413,17 +458,35 @@ def verify_address(
         result = re.sub(r' +', ' ', result).strip()
         return result
 
-    for cand in _build_candidates(text, clean_regex):
-        doc = _kakao_search(cand)
+    def _try_kakao(cand_text: str):
+        doc = _kakao_search(cand_text)
         if not doc:
-            continue
-        # 도로명 우선, 없으면 지번
+            return None
         road = doc.get('road_address')
         if road and road.get('address_name'):
-            return (_compose(normalize_display(road['address_name'])), 'verified')
+            base = normalize_display(road['address_name'])
+            building_name = (road.get('building_name') or '').strip()
+            if building_name and building_name not in base:
+                base = f"{base} {building_name}"
+            return (_compose(base), 'verified')
         jibun = doc.get('address')
         if jibun and jibun.get('address_name'):
             return (_compose(normalize_display(jibun['address_name'])), 'verified')
+        return None
+
+    for cand in _build_candidates(text, clean_regex):
+        result = _try_kakao(cand)
+        if result:
+            return result
+        # 도로명 약식 보정 — "도신4길" → "도신로4길" 등 사용자 약식 입력 자동 정정
+        # 패턴: 한글{2,}+ 숫자 + 길 → 한글 + "로" + 숫자 + 길
+        fixed = re.sub(
+            r'([가-힣]{2,})(\d+길)', r'\1로\2', cand,
+        )
+        if fixed != cand:
+            result = _try_kakao(fixed)
+            if result:
+                return result
 
     return None
 
