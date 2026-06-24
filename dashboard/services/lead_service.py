@@ -331,8 +331,44 @@ def update_lead(lead_no: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
         if not updates:
             return {'success': False, 'message': '업데이트할 필드가 없습니다'}
 
-        for cell_range, value in updates:
-            manager.update_cell(cfg['sheet_id'], cfg['sheet_name'], cell_range, value)
+        # 1회 batchUpdate API 호출로 모든 셀 갱신 (GoogleSheetsManager.update_cell 부재)
+        # 일시 에러(SSL/timeout/connection/NoneType .read 등)는 최대 2회 자동 재시도
+        import time as _t
+        batch_body = {
+            'valueInputOption': 'USER_ENTERED',
+            'data': [
+                {
+                    'range': f"'{cfg['sheet_name']}'!{cell_range}",
+                    'values': [[value]],
+                }
+                for cell_range, value in updates
+            ],
+        }
+        last_exc = None
+        for attempt in range(3):
+            try:
+                manager.service.spreadsheets().values().batchUpdate(
+                    spreadsheetId=cfg['sheet_id'], body=batch_body,
+                ).execute()
+                last_exc = None
+                break
+            except Exception as exc:
+                last_exc = exc
+                err_l = str(exc).lower()
+                is_transient = (
+                    'ssl' in err_l or 'wrong_version' in err_l
+                    or 'timeout' in err_l or 'connection' in err_l
+                    or 'nonetype' in err_l or 'read' in err_l
+                )
+                if not is_transient or attempt == 2:
+                    raise
+                logger.warning(
+                    f"[LEADS] 리드 {lead_no} 일시 에러, "
+                    f"{attempt+1}/2 재시도: {exc}"
+                )
+                _t.sleep(2)
+        if last_exc:
+            raise last_exc
 
         logger.info(f"[LEADS] 리드 {lead_no} 업데이트 완료: {len(updates)}개 필드")
 
