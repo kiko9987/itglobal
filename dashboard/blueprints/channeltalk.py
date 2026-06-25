@@ -207,7 +207,7 @@ def _attach_chat_open_button(channel: str, thread_ts: str, original_text: str,
                     'elements': [
                         {
                             'type': 'button',
-                            'text': {'type': 'plain_text', 'text': '📞 상담하기'},
+                            'text': {'type': 'plain_text', 'text': ':point_right: 상담하기', 'emoji': True},
                             'style': 'primary',
                             'value': lead_no or '',
                             'action_id': 'button_consult',
