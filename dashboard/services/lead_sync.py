@@ -995,7 +995,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 result['processed'] += 1
                 logger.info(f"[SYNC/전화WF] 보정 완료: {new_lead_no} ({status})")
 
-                # 방문 예약 시 #방문_일정 카드 후보
+                # 방문 예약 시 #방문_일정 카드 + 슬랙 List 후보
                 if status == '방문 예약':
                     # 등록자: 영업 담당자 > 온라인 상담자 (둘 다 한국 이름 가정)
                     user_name = (str(row.get('영업 담당자', '')).strip()
@@ -1004,9 +1004,12 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         'lead_no': new_lead_no,
                         'name': str(row.get('고객명', '')).strip(),
                         'phone': str(row.get('고객 연락처', '')).strip(),
+                        'email': str(row.get('이메일', '')).strip(),
+                        'consult_time': consult_norm or consult_raw,
                         'address': str(row.get('방문 주소', '')).strip(),
                         'visit_date': visit_date,
                         'inquiry': str(row.get('상담 내용', '')).strip(),
+                        'keyword': keyword_norm,
                         'user_name': user_name,
                     })
             except Exception as exc:
@@ -1014,20 +1017,21 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                              exc_info=True)
                 result['errors'] += 1
 
-        # 방문 예약 카드 발송 — 슬랙 client 가져오기 (순환 import 회피)
+        # 방문 예약 카드 발송 + 슬랙 List 등록 — 슬랙 client 가져오기 (순환 import 회피)
         if notify_visit:
             try:
                 from dashboard.blueprints.slack_bot import (
-                    _slack_app, _post_visit_notice,
+                    _slack_app, _post_visit_notice, _post_to_slack_list,
                 )
                 client = _slack_app.client if _slack_app else None
                 if client:
                     for lead in notify_visit:
+                        notice_channel, notice_ts = '', ''
                         try:
                             vd = lead['visit_date']
                             if vd.startswith("'"):
                                 vd = vd[1:]
-                            _post_visit_notice(
+                            notice_channel, notice_ts = _post_visit_notice(
                                 client, lead_no=lead['lead_no'], category='전화',
                                 user_id='', visit_date=vd,
                                 name=lead['name'], contact=lead['phone'],
@@ -1039,6 +1043,37 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         except Exception as exc:
                             logger.error(
                                 f"[SYNC/전화WF] #방문_일정 카드 실패 ({lead['lead_no']}): {exc}",
+                                exc_info=True,
+                            )
+
+                        # 슬랙 List 워크플로우 등록 — 방문 예약 한정
+                        # 원본 메시지 링크 = 방금 발송한 #방문_일정 카드
+                        try:
+                            lead_data = {
+                                '리드 No': lead['lead_no'],
+                                '고객명': lead['name'],
+                                '고객 연락처': lead['phone'],
+                                '이메일': lead.get('email', ''),
+                                '상담 시간': lead.get('consult_time', ''),
+                                '방문 주소': lead['address'],
+                                '상담 내용': lead['inquiry'],
+                                '키워드': lead.get('keyword', ''),
+                                '플랫폼': '전화',
+                            }
+                            _post_to_slack_list(
+                                client, lead_data,
+                                modal_fields={
+                                    'visit_date': vd,
+                                    'visit_address': lead['address'],
+                                    'consultation': lead['inquiry'],
+                                    'estimate': '',
+                                },
+                                channel=notice_channel, message_ts=notice_ts,
+                                action='visit',
+                            )
+                        except Exception as exc:
+                            logger.error(
+                                f"[SYNC/전화WF] 슬랙 List 등록 실패 ({lead['lead_no']}): {exc}",
                                 exc_info=True,
                             )
             except Exception as exc:

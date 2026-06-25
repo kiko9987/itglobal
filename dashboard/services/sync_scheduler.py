@@ -68,14 +68,14 @@ def start_scheduler():
         )
         jobs.append('채널톡 미배정 알림 1분')
 
-    # 슬랙 워크플로우 → 메인 시트 직접 추가 전화 lead 보정 (2분 주기)
+    # 슬랙 워크플로우 → 메인 시트 직접 추가 전화 lead 보정 (10초 주기 — 사용자 체감 즉시)
     _scheduler.add_job(
         _safe_workflow_phone_sync,
         'interval',
-        minutes=2,
+        seconds=10,
         id='workflow_phone_sync',
     )
-    jobs.append('워크플로 전화 lead 2분')
+    jobs.append('워크플로 전화 lead 10초')
 
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
