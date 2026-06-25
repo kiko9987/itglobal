@@ -159,47 +159,50 @@ def _init_visit_slack_app():
 
 
 def _register_visit_handlers(app):
-    """방문 일정 알림 봇 핸들러 — [✏️ 방문 날짜 수정] / [🗑️ 방문 취소]"""
+    """방문 일정 알림 봇 핸들러 — [✏️ 방문일 수정] / [🗑️ 방문 취소]"""
 
     @app.action("visit_modify_date")
     def handle_visit_modify_date(ack, body, client):
         ack()
-        try:
-            lead_no = body["actions"][0].get("value") or ''
-            channel = body["channel"]["id"]
-            message_ts = body["message"]["ts"]
-            trigger_id = body["trigger_id"]
+        # background로 분리 — ack 즉시 응답 + 3초 안에 views_open 호출
+        def _bg():
             try:
-                msg_text = body["message"].get("text", "")
-                m = re.search(r'방문 날짜\s*:\s*(\d{4}-\d{2}-\d{2})', msg_text)
-                current_date = m.group(1) if m else ''
-            except Exception:
-                current_date = ''
-            metadata = json.dumps({
-                "lead_no": lead_no, "channel": channel, "message_ts": message_ts,
-            }, ensure_ascii=False)
-            dp_element = {"type": "datepicker", "action_id": "value"}
-            if current_date:
-                dp_element["initial_date"] = current_date
-            client.views_open(trigger_id=trigger_id, view={
-                "type": "modal",
-                "callback_id": "submit_visit_modify",
-                "title": {"type": "plain_text", "text": "방문 날짜 수정"},
-                "submit": {"type": "plain_text", "text": "수정"},
-                "close": {"type": "plain_text", "text": "취소"},
-                "private_metadata": metadata,
-                "blocks": [
-                    {"type": "section", "text": {"type": "mrkdwn",
-                        "text": f"*{lead_no}* 의 방문 예정일을 변경합니다."}},
-                    {
-                        "type": "input", "block_id": "visit_date",
-                        "label": {"type": "plain_text", "text": "새 방문 예정일"},
-                        "element": dp_element,
-                    },
-                ],
-            })
-        except Exception as exc:
-            logger.error(f"[SLACK/방문봇] visit_modify_date 실패: {exc}", exc_info=True)
+                lead_no = body["actions"][0].get("value") or ''
+                channel = body["channel"]["id"]
+                message_ts = body["message"]["ts"]
+                trigger_id = body["trigger_id"]
+                try:
+                    msg_text = body["message"].get("text", "")
+                    m = re.search(r'방문일\s*:\s*(\d{4}-\d{2}-\d{2})', msg_text)
+                    current_date = m.group(1) if m else ''
+                except Exception:
+                    current_date = ''
+                metadata = json.dumps({
+                    "lead_no": lead_no, "channel": channel, "message_ts": message_ts,
+                }, ensure_ascii=False)
+                dp_element = {"type": "datepicker", "action_id": "value"}
+                if current_date:
+                    dp_element["initial_date"] = current_date
+                client.views_open(trigger_id=trigger_id, view={
+                    "type": "modal",
+                    "callback_id": "submit_visit_modify",
+                    "title": {"type": "plain_text", "text": "방문일 수정"},
+                    "submit": {"type": "plain_text", "text": "수정"},
+                    "close": {"type": "plain_text", "text": "취소"},
+                    "private_metadata": metadata,
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn",
+                            "text": f"*{lead_no}* 의 방문 예정일을 변경합니다."}},
+                        {
+                            "type": "input", "block_id": "visit_date",
+                            "label": {"type": "plain_text", "text": "새 방문 예정일"},
+                            "element": dp_element,
+                        },
+                    ],
+                })
+            except Exception as exc:
+                logger.error(f"[SLACK/방문봇] visit_modify_date 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     @app.view("submit_visit_modify")
     def handle_submit_visit_modify(ack, body, client, view):
@@ -220,6 +223,49 @@ def _register_visit_handlers(app):
             except Exception as exc:
                 logger.error(f"[SLACK/방문봇] visit_cancel 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("visit_uncancel")
+    def handle_visit_uncancel(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _process_visit_uncancel(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/방문봇] visit_uncancel 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # 방문 카드 thread 메시지 — 사진 첨부(드라이브 업로드) + 상호명 답글(폴더명 갱신)
+    @app.event("message")
+    def handle_visit_message(event, client):
+        thread_ts = event.get("thread_ts")
+        subtype = event.get("subtype")
+        bot_id = event.get("bot_id")
+        text_preview = (event.get("text") or '')[:30]
+        logger.info(
+            f"[SLACK/방문봇] message event: thread_ts={thread_ts} "
+            f"subtype={subtype} bot_id={bot_id} text={text_preview!r}"
+        )
+        if not thread_ts:
+            return
+        if bot_id:  # 봇 메시지는 무시 (echo 방지)
+            return
+
+        # 1) 사진/파일 첨부 → 드라이브 업로드
+        if subtype == "file_share" and event.get("files"):
+            threading.Thread(
+                target=_process_visit_thread_files,
+                args=(client, event), daemon=True,
+            ).start()
+            return
+
+        # 2) 상호 / 상호명 prefix 답글 → 폴더명 갱신
+        text = (event.get("text") or '').strip()
+        if text.startswith('상호 ') or text.startswith('상호명 '):
+            logger.info(f"[SLACK/방문봇] 상호명 답글 감지 → shop_name 갱신 트리거")
+            threading.Thread(
+                target=_process_visit_shop_name_update,
+                args=(client, event), daemon=True,
+            ).start()
 
 
 def _register_project_handlers(app):
@@ -563,7 +609,7 @@ def _register_handlers(app):
                 logger.error(f"[SLACK] submit_phone 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
-    # #방문_일정 카드의 [✏️ 방문 날짜 수정] / [🗑️ 방문 취소] 액션은
+    # #방문_일정 카드의 [✏️ 방문일 수정] / [🗑️ 방문 취소] 액션은
     # 방문 일정 알림 봇(_visit_slack_app)이 처리 — _register_visit_handlers 참조
 
     # ⑬ /청소 슬래시 명령 — 채널 메시지 일괄 청소 (봇이 보낸 메시지만)
@@ -1158,6 +1204,24 @@ def slack_sync_homepage_now():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@slack_bp.route("/workflow-phone-trigger", methods=["GET", "POST"])
+def slack_workflow_phone_trigger():
+    """슬랙 워크플로 form → 시트 추가 직후 즉시 호출 — 봇 보정 흐름을 즉시 실행.
+
+    워크플로 빌더 "웹 요청 보내기" step에서 이 URL 호출:
+    https://pm.itg-aircon.com/slack/workflow-phone-trigger
+    body는 비워도 됨 (전체 시트 보정 폴링이라 행 정보 불필요).
+    """
+    def _bg():
+        try:
+            from dashboard.services.lead_sync import sync_workflow_phone_leads
+            sync_workflow_phone_leads()
+        except Exception as exc:
+            logger.error(f"[SLACK] 워크플로 즉시 트리거 실패: {exc}", exc_info=True)
+    threading.Thread(target=_bg, daemon=True).start()
+    return jsonify({"ok": True}), 200
+
+
 @slack_bp.route("/health", methods=["GET"])
 def slack_health():
     """봇 상태 체크 (브라우저로 열어서 확인용)"""
@@ -1309,7 +1373,7 @@ def _open_inquiry_modal(client, body, action: str):
             {
                 "type": "input",
                 "block_id": "visit_date",
-                "label": {"type": "plain_text", "text": "방문 날짜"},
+                "label": {"type": "plain_text", "text": "방문일"},
                 "element": {
                     "type": "datepicker",
                     "action_id": "value",
@@ -1659,19 +1723,20 @@ def _process_consult_submission(client, body, view):
         except Exception as exc:
             logger.error(f"[SLACK/상담] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
 
-        # 슬랙 List webhook
-        lead = _find_lead_by_no(lead_no) or {}
-        _post_to_slack_list(
-            client, lead,
-            modal_fields={
-                'visit_date': visit_date_raw,
-                'visit_address': visit_address,
-                'consultation': consultation,
-                'estimate': '요청 보냄' if is_estimate else '',
-            },
-            channel=channel, message_ts=message_ts,
-            action='visit' if is_visit else 'price',
-        )
+        # 슬랙 List webhook — 방문 예약 한정 (유선 상담/견적/드랍은 list 미등록)
+        if is_visit:
+            lead = _find_lead_by_no(lead_no) or {}
+            _post_to_slack_list(
+                client, lead,
+                modal_fields={
+                    'visit_date': visit_date_raw,
+                    'visit_address': visit_address,
+                    'consultation': consultation,
+                    'estimate': '',
+                },
+                channel=channel, message_ts=message_ts,
+                action='visit',
+            )
 
     # ─────────────────────────────────────────────
     # 2) 신규 리드 케이스 (거래처/기타, 슬래시 진입) — 시트에 새 lead 등록
@@ -1735,7 +1800,7 @@ def _process_consult_submission(client, body, view):
             f">등록자 : {ini}",
         ]
         if is_visit and visit_date_raw:
-            reply_lines.append(f">방문 날짜 : {visit_date_raw}")
+            reply_lines.append(f">방문일 : {visit_date_raw}")
         if name:
             reply_lines.append(f">이름 / 상호 : {name}")
         if contact:
@@ -1751,11 +1816,38 @@ def _process_consult_submission(client, body, view):
                 for ln in wrapped.split('\n'):
                     reply_lines.append(f">{ln}")
         reply_lines.append(f">{SEP}")
+        reply_text = '\n'.join(reply_lines)
+        # 같은 lead 재제출 시 옛 reply가 있으면 그 메시지를 chat.update로 갱신
+        old_reply_ts = ''
         try:
-            client.chat_postMessage(
-                channel=channel, thread_ts=message_ts,
-                text='\n'.join(reply_lines),
-            )
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            reply_key = f"consult_reply:{lead_no}"
+            cached = rc.get(reply_key)
+            if cached:
+                old_reply_ts = (
+                    cached.decode() if isinstance(cached, bytes) else cached
+                )
+        except Exception as exc:
+            logger.debug(f"[SLACK/상담] reply 캐시 조회 실패: {exc}")
+
+        try:
+            if old_reply_ts:
+                client.chat_update(
+                    channel=channel, ts=old_reply_ts, text=reply_text,
+                )
+            else:
+                resp = client.chat_postMessage(
+                    channel=channel, thread_ts=message_ts, text=reply_text,
+                )
+                # 새 reply의 ts를 Redis에 저장 (90일)
+                if resp and resp.get('ok') and resp.get('ts'):
+                    try:
+                        rc.set(
+                            reply_key, resp['ts'], ex=60 * 60 * 24 * 90,
+                        )
+                    except Exception:
+                        pass
         except Exception as exc:
             logger.error(f"[SLACK/상담] thread reply 실패: {exc}", exc_info=True)
 
@@ -1780,7 +1872,7 @@ def _process_consult_submission(client, body, view):
 def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
                        visit_date: str, name: str, contact: str,
                        visit_address: str, consultation: str,
-                       user_name: str = '', platform: str = '') -> None:
+                       user_name: str = '', platform: str = '') -> tuple:
     """#방문_일정 채널에 방문 케이스 알림 발송 (통합 모달 + 전화 모달 + 워크플로 공용).
 
     헤더 양식:
@@ -1792,7 +1884,7 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
     """
     visit_channel = os.getenv('SLACK_VISIT_CHANNEL', '').strip()
     if not visit_channel:
-        return
+        return ('', '')
 
     # 방문 일정 봇 client 우선 사용 (액션 매칭을 위해 카드도 visit bot 명의로)
     if _visit_slack_handler is None:
@@ -1809,19 +1901,41 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
     else:
         category_display = category
 
+    body_text, blocks = _build_visit_notice_blocks(
+        lead_no=lead_no, category_display=category_display, initial=initial,
+        visit_date=visit_date, name=name, contact=contact,
+        visit_address=visit_address, consultation=consultation,
+    )
+    try:
+        resp = client.chat_postMessage(
+            channel=visit_channel, text=body_text,
+            blocks=blocks, unfurl_links=False,
+        )
+        ts = resp.get('ts', '') if resp else ''
+        return (visit_channel, ts)
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문] #방문_일정 발송 실패: {exc}")
+        return ('', '')
+
+
+def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str,
+                                visit_date: str, name: str, contact: str,
+                                visit_address: str, consultation: str) -> tuple:
+    """방문 일정 카드 양식 빌더 — (text, blocks) 반환.
+
+    [✏️ 방문일 수정] + [🗑️ 방문 취소] 액션 버튼 포함. 카드 발송/복원 양쪽에서 재사용.
+    """
     SEP = '---------------------------------------------'
-    # 모든 라인을 `>` blockquote로 통일 — 복사 시 줄바꿈 보존
     lines = [
         f">:bell: *새 방문 일정* — {category_display}  `{lead_no}`",
         f">{SEP}",
         f">등록자 : {initial or '-'}",
-        f">방문 날짜 : {visit_date or '-'}",
+        f">방문일 : {visit_date or '-'}",
         f">이름 / 상호 : {name or '-'}",
         f">연락처 : {contact or '-'}",
         f">방문 주소 : {visit_address or '-'}",
     ]
     if consultation:
-        # 60자 wrap + 각 줄 `>` prefix
         lines.append(f">상담 내용 :")
         for raw in consultation[:500].split('\n'):
             wrapped = textwrap.fill(
@@ -1838,7 +1952,7 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "✏️ 방문 날짜 수정", "emoji": True},
+                    "text": {"type": "plain_text", "text": "✏️ 방문일 수정", "emoji": True},
                     "style": "primary",
                     "value": lead_no,
                     "action_id": "visit_modify_date",
@@ -1860,17 +1974,74 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
             ],
         },
     ]
+    return body_text, blocks
+
+
+def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
+                                  message_ts: str, new_visit_date: str = '') -> None:
+    """슬랙 워크플로우 webhook 호출 — list 행 삭제/업데이트.
+
+    env_key: SLACK_VISIT_CANCEL_WEBHOOK_URL 또는 SLACK_VISIT_MODIFY_WEBHOOK_URL
+    new_visit_date: 날짜 수정 시 새 날짜 (ISO YYYY-MM-DD). 빈값이면 payload 미포함.
+    """
+    url = os.getenv(env_key, '').strip()
+    if not url:
+        logger.debug(f"[SLACK/방문 list] {env_key} 미설정 — 호출 스킵")
+        return
+
+    lead = _find_lead_by_no(lead_no) or {}
+
+    # 메시지 permalink
+    message_link = ''
+    if channel and message_ts:
+        try:
+            link_client = (_visit_slack_app.client if _visit_slack_app
+                           else _slack_app.client)
+            resp = link_client.chat_getPermalink(
+                channel=channel, message_ts=message_ts,
+            )
+            if resp and resp.get('ok'):
+                message_link = resp.get('permalink', '')
+        except Exception:
+            pass
+
+    def _strip_escape(s: str) -> str:
+        s = (s or '').strip()
+        return s[1:] if s.startswith("'") else s
+
+    payload = {
+        'email': str(lead.get('이메일', '') or '').strip(),
+        'details': '',
+        'contact': str(lead.get('고객 연락처', '') or '').strip(),
+        'message_link': message_link,
+        'payload': lead_no,
+        'consultation': str(lead.get('상담 내용', '') or '').strip(),
+        'estimate_request': '',
+        'visit_date': _strip_escape(str(lead.get('방문 예정일', '') or '')),
+        'device': str(lead.get('키워드', '') or '').strip(),
+        'visit_address': str(lead.get('방문 주소', '') or '').strip(),
+        'name': str(lead.get('고객명', '') or '').strip(),
+        'inquiry_time': str(lead.get('상담 시간', '') or '').strip(),
+        'location': '',
+    }
+    if new_visit_date:
+        payload['new_visit_date'] = new_visit_date
+
     try:
-        client.chat_postMessage(
-            channel=visit_channel, text=body_text,
-            blocks=blocks, unfurl_links=False,
+        data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+        req = urllib.request.Request(
+            url, data=data,
+            headers={'Content-Type': 'application/json; charset=utf-8'},
         )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            r.read()
+        logger.info(f"[SLACK/방문 list] {env_key} 호출 완료 ({lead_no})")
     except Exception as exc:
-        logger.warning(f"[SLACK/방문] #방문_일정 발송 실패: {exc}")
+        logger.warning(f"[SLACK/방문 list] {env_key} 호출 실패 ({lead_no}): {exc}")
 
 
 def _process_visit_date_modify(client, body, view) -> None:
-    """[📅 방문 날짜 수정] 모달 제출 처리 — 시트 update + 메시지 chat.update."""
+    """[📅 방문일 수정] 모달 제출 처리 — 시트 update + 메시지 chat.update."""
     metadata = json.loads(view.get("private_metadata") or "{}")
     lead_no = metadata.get("lead_no", "")
     channel = metadata.get("channel", "")
@@ -1888,37 +2059,36 @@ def _process_visit_date_modify(client, body, view) -> None:
         logger.error(f"[SLACK/방문수정] 시트 update 실패 ({lead_no}): {exc}", exc_info=True)
         return
 
-    # 2) 메시지 chat.update — 본문의 방문 날짜 라인만 새 날짜로 교체
+    # 1-2) 슬랙 List 동기화 워크플로우 — 날짜 셀 갱신
+    _trigger_visit_list_webhook(
+        'SLACK_VISIT_MODIFY_WEBHOOK_URL', lead_no, channel, message_ts,
+        new_visit_date=new_date,
+    )
+
+    # 2) 메시지 chat.update — 시트 lead 정보로 카드 재구성
+    # conversations.history는 visit bot에 권한 없으므로 사용 X
     try:
-        resp = client.conversations_history(
-            channel=channel, latest=message_ts, inclusive=True, limit=1,
+        lead = _find_lead_by_no(lead_no) or {}
+        platform = str(lead.get('플랫폼', '')).strip()
+        if platform in ('전화', '거래처', '기타'):
+            category = platform
+            category_display = category
+        else:
+            category = '온라인'
+            category_display = f"{category}({platform})" if platform else category
+
+        user_id = body["user"]["id"]
+        initial = _slack_user_to_initial(client, user_id) or '-'
+        body_text, blocks = _build_visit_notice_blocks(
+            lead_no=lead_no, category_display=category_display, initial=initial,
+            visit_date=new_date,
+            name=str(lead.get('고객명', '') or '').strip(),
+            contact=str(lead.get('고객 연락처', '') or '').strip(),
+            visit_address=str(lead.get('방문 주소', '') or '').strip(),
+            consultation=str(lead.get('상담 내용', '') or '').strip(),
         )
-        msgs = resp.get("messages", []) if resp else []
-        if not msgs:
-            return
-        msg = msgs[0]
-        old_blocks = msg.get("blocks", [])
-        old_text = msg.get("text", "")
-
-        # text 본문에서 "방문 날짜 : ..." 라인 교체
-        new_text = re.sub(
-            r'(방문 날짜\s*:\s*)\S+', rf'\g<1>{new_date}', old_text,
-        )
-
-        # blocks의 section text도 함께 교체
-        new_blocks = []
-        for blk in old_blocks:
-            if blk.get("type") == "section" and \
-                    blk.get("text", {}).get("type") == "mrkdwn":
-                bt = blk["text"].get("text", "")
-                bt_new = re.sub(
-                    r'(방문 날짜\s*:\s*)\S+', rf'\g<1>{new_date}', bt,
-                )
-                blk = {**blk, "text": {**blk["text"], "text": bt_new}}
-            new_blocks.append(blk)
-
         client.chat_update(
-            channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
+            channel=channel, ts=message_ts, text=body_text, blocks=blocks,
         )
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 메시지 update 실패 ({lead_no}): {exc}",
@@ -1942,27 +2112,378 @@ def _process_visit_cancel(client, body) -> None:
         logger.error(f"[SLACK/방문취소] 시트 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
 
+    # 1-2) 슬랙 List 동기화 워크플로우 — 행 삭제
+    _trigger_visit_list_webhook(
+        'SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, channel, message_ts,
+    )
+
     # 2) 메시지 chat.update — 취소 양식
     try:
         initial = _slack_user_to_initial(client, user_id) or '-'
         cancel_time = datetime.now().strftime('%Y.%m.%d. %H:%M')
-        original_text = body["message"].get("text", "")
+
+        # 원본 메시지의 blocks에서 section text 추출 (text 필드는 줄바꿈 깨질 위험)
+        original_text = ''
+        for blk in body["message"].get("blocks", []):
+            if blk.get("type") == "section":
+                bt = blk.get("text", {}).get("text", "")
+                if bt:
+                    original_text = bt
+                    break
+        if not original_text:
+            original_text = body["message"].get("text", "")
+
+        # 원본의 `>` blockquote 마커 제거 후 코드 블록으로 감싸기 — 흑백 회색 박스 표시
+        cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
+        # 마크다운 강조(*) 제거 — 코드 블록 안에서는 raw로 보이는 게 깔끔
+        cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
+        clean_text = '\n'.join(cleaned_lines).strip()
 
         new_text = (
             f":no_entry_sign: *고객 요청으로 방문 취소*\n"
             f"취소한 사람 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
-            f"```\n{original_text}\n```"
+            f"```\n{clean_text}\n```"
         )
         new_blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "↩️ 취소 되돌리기", "emoji": True},
+                        "style": "primary",
+                        "value": lead_no,
+                        "action_id": "visit_uncancel",
+                        "confirm": {
+                            "title": {"type": "plain_text", "text": "취소 되돌리기"},
+                            "text": {"type": "plain_text",
+                                     "text": "이 방문 취소를 되돌리시겠습니까?"},
+                            "confirm": {"type": "plain_text", "text": "되돌리기"},
+                            "deny": {"type": "plain_text", "text": "닫기"},
+                        },
+                    },
+                ],
+            },
         ]
         client.chat_update(
             channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
         )
     except Exception as exc:
         logger.error(f"[SLACK/방문취소] 메시지 update 실패 ({lead_no}): {exc}",
+                     exc_info=True)
+
+
+def _process_visit_thread_files(client, event) -> None:
+    """#방문_일정 카드 thread에 첨부된 파일을 구글 드라이브로 업로드.
+
+    폴더명: "{lead_no}_{고객명}_{방문일}" — parent는 GOOGLE_DRIVE_VISIT_FOLDER_ID
+    1. thread root 메시지에서 lead_no 추출
+    2. lead 정보로 폴더명 생성 (있으면 재사용)
+    3. 슬랙 file URL에서 다운로드 → 드라이브 업로드
+    4. thread에 답글: "사진 N장 드라이브에 저장 + 폴더 링크"
+    """
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts", "")
+    files = event.get("files") or []
+    if not channel or not thread_ts or not files:
+        return
+
+    # 1) thread root에서 lead_no 추출
+    try:
+        resp = client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=1, inclusive=True,
+        )
+        msgs = resp.get("messages") or []
+        if not msgs:
+            return
+        root_text = msgs[0].get("text", "")
+        for blk in msgs[0].get("blocks", []):
+            if blk.get("type") == "section" and \
+                    blk.get("text", {}).get("type") == "mrkdwn":
+                root_text = blk["text"].get("text", "") + "\n" + root_text
+                break
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 사진] thread root 조회 실패: {exc}")
+        return
+
+    m = re.search(r'L-\d{5}', root_text)
+    if not m:
+        logger.info("[SLACK/방문 사진] thread root에 lead_no 없음 — 스킵")
+        return
+    lead_no = m.group(0)
+
+    # 2) 폴더명 생성 — "({이니셜}) {방문 주소} {YY.MM.DD}"
+    lead = _find_lead_by_no(lead_no) or {}
+    # 이니셜 — 시트의 영업 담당자 우선, 없으면 카드 본문의 "등록자 :" 라인 추출
+    sales_rep = str(lead.get('영업 담당자', '') or '').strip()
+    initial = _to_initial(sales_rep) if sales_rep else ''
+    if not initial:
+        m_ini = re.search(r'등록자\s*:\s*([A-Za-z가-힣]+)', root_text)
+        if m_ini:
+            initial = _to_initial(m_ini.group(1).strip())
+    initial = initial or '미상'
+
+    visit_address = str(lead.get('방문 주소', '') or '').strip()
+    if not visit_address or visit_address == '-':
+        visit_address = '주소 미상'
+
+    today_str = datetime.now().strftime('%y.%m.%d')
+    # 플랫폼 prefix — 홈페이지/전화/카카오톡/채널톡은 디폴트(없음, 광고 플랫폼 X)
+    # 그 외(당근/거래처/숨고/기타)는 prefix 추가
+    platform = str(lead.get('플랫폼', '') or '').strip()
+    _DEFAULT_PLATFORMS = {'홈페이지', '전화', '카카오톡', '채널톡'}
+    prefix = f"{platform} " if (platform and platform not in _DEFAULT_PLATFORMS) else ''
+
+    # 사진 caption(메시지 text) = 위치(서브폴더) 용도. 상호명은 별도 답글로만.
+    # 예: "1층", "2층 휴게실"
+    caption = (event.get('text') or '').strip()
+    location = ''
+    if caption and '\n' not in caption and len(caption) <= 30:
+        location = re.sub(r'[\\/:*?"<>|]', '', caption).strip()
+
+    folder_name = f"{prefix}({initial}) {visit_address} {today_str}"
+    # 폴더명에 사용 불가한 문자 정리
+    folder_name = re.sub(r'[\\/:*?"<>|]', '', folder_name).strip()
+
+    # 3) 루트 폴더 안에 lead 폴더 + 그 안에 '현장사진' 서브폴더
+    parent_id = os.getenv('GOOGLE_DRIVE_VISIT_FOLDER_ID', '').strip()
+    if not parent_id:
+        logger.warning("[SLACK/방문 사진] GOOGLE_DRIVE_VISIT_FOLDER_ID 미설정")
+        return
+
+    from dashboard.utils.google_drive import find_or_create_folder, upload_file
+    lead_folder = find_or_create_folder(folder_name, parent_id)
+    if not lead_folder:
+        logger.error(f"[SLACK/방문 사진] lead 폴더 생성/조회 실패: {folder_name}")
+        return
+    photo_folder = find_or_create_folder('현장사진', lead_folder['id'])
+    if not photo_folder:
+        logger.error(f"[SLACK/방문 사진] '현장사진' 서브폴더 생성/조회 실패")
+        return
+
+    # caption(위치) 있으면 현장사진/{위치}/ 서브폴더 생성, 없으면 현장사진/ 직접
+    if location:
+        location_folder = find_or_create_folder(location, photo_folder['id'])
+        if location_folder:
+            folder_id = location_folder['id']
+        else:
+            folder_id = photo_folder['id']
+    else:
+        folder_id = photo_folder['id']
+    folder_link = lead_folder.get('webViewLink', '')
+
+    bot_token = os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+    if not bot_token:
+        bot_token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+
+    uploaded = 0
+    for f in files:
+        download_url = f.get('url_private_download') or f.get('url_private')
+        if not download_url:
+            continue
+        filename = f.get('name') or f.get('title') or f'photo_{f.get("id","unknown")}.jpg'
+        mimetype = f.get('mimetype') or 'application/octet-stream'
+        # 사진/비디오만 (기타 PDF 등은 OK이지만 의도 사진)
+        try:
+            req = urllib.request.Request(
+                download_url,
+                headers={'Authorization': f'Bearer {bot_token}'},
+            )
+            with urllib.request.urlopen(req, timeout=20) as r:
+                content = r.read()
+            if upload_file(folder_id, filename, content, mimetype=mimetype):
+                uploaded += 1
+        except Exception as exc:
+            logger.error(f"[SLACK/방문 사진] 다운로드/업로드 실패 ({filename}): {exc}",
+                         exc_info=True)
+
+    if uploaded == 0:
+        return
+
+    # 4) thread → folder 매핑 저장 (상호명 답글로 폴더명 갱신용, TTL 30일)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        key = f"visit_thread:{channel}:{thread_ts}"
+        rc.hset(key, mapping={
+            'lead_folder_id': lead_folder['id'],
+            'photo_folder_id': photo_folder['id'],
+            'prefix': prefix,
+            'initial': initial,
+            'address': visit_address,
+            'date': today_str,
+            'shop_name': '',
+        })
+        rc.expire(key, 60 * 60 * 24 * 30)
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 사진] Redis 매핑 저장 실패: {exc}")
+
+    # 5) thread 답글
+    try:
+        location_suffix = f" → 현장사진/{location}" if location else ''
+        # 윈도우 탐색기 경로 안내 (구글 드라이브 데스크톱 앱 동기화 경로)
+        # 트리플 백틱 코드 블록 → 슬랙 데스크톱 앱 호버 시 복사 버튼 자동 표시
+        win_base = os.getenv('GOOGLE_DRIVE_WINDOWS_BASE_PATH', '').strip()
+        win_path_line = ''
+        if win_base:
+            win_path_line = (
+                f"\n💻 *탐색기 경로* :\n"
+                f"```{win_base}\\{folder_name}```"
+            )
+        reply_text = (
+            f":file_folder: 사진 {uploaded}장을 드라이브에 저장했습니다{location_suffix}.\n"
+            f"📁 {folder_name}"
+            f"{win_path_line}\n"
+            f":id: *폴더 ID* (새 프로젝트 등록용) :\n"
+            f"```{lead_folder['id']}```\n"
+            f">*상호명 추가* : 답글에 \"상호 OOO\" 입력\n"
+            f">*위치 분류* : 사진 첨부시 댓글에 \"1층\" 등 함께 입력"
+        )
+        client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts, text=reply_text,
+            unfurl_links=False,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 사진] thread 답글 실패: {exc}")
+
+    # 6) thread root(방문 일정 카드)에 ✅ reaction 추가 — 사진 등록 완료 표시
+    try:
+        client.reactions_add(
+            channel=channel, timestamp=thread_ts, name="white_check_mark",
+        )
+    except Exception as exc:
+        # 이미 reaction 있으면 already_reacted — 무시
+        logger.debug(f"[SLACK/방문 사진] reaction 추가 스킵: {exc}")
+
+
+def _process_visit_shop_name_update(client, event) -> None:
+    """thread 답글의 `상호 XXX` / `상호명 XXX` 패턴 감지 → 드라이브 폴더명 갱신."""
+    channel = event.get("channel", "")
+    thread_ts = event.get("thread_ts", "")
+    text = (event.get("text") or '').strip()
+    if not channel or not thread_ts or not text:
+        return
+
+    m = re.match(r'^상호명?\s+(.+)$', text)
+    if not m:
+        return
+    shop_name = m.group(1).strip()
+    if not shop_name:
+        return
+    # 파일명 사용 불가 문자 정리
+    shop_name = re.sub(r'[\\/:*?"<>|]', '', shop_name).strip()
+    if not shop_name:
+        return
+
+    # Redis에서 thread 매핑 조회
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        key = f"visit_thread:{channel}:{thread_ts}"
+        info = rc.hgetall(key)
+        logger.info(
+            f"[SLACK/방문 사진] 상호명 갱신 시도 key={key} found={bool(info)} shop={shop_name!r}"
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 사진] Redis 매핑 조회 실패: {exc}")
+        return
+    if not info:
+        # 사진 업로드 없이 상호명만 답글 — 무시
+        logger.info(f"[SLACK/방문 사진] Redis 매핑 없음 — 사진 업로드 먼저 필요")
+        return
+    # Redis bytes → str (decode_responses=True 면 이미 str)
+    info = {(k.decode() if isinstance(k, bytes) else k):
+            (v.decode() if isinstance(v, bytes) else v) for k, v in info.items()}
+
+    lead_folder_id = info.get('lead_folder_id', '')
+    if not lead_folder_id:
+        return
+
+    prefix = info.get('prefix', '')
+    initial = info.get('initial', '')
+    address = info.get('address', '')
+    date_str = info.get('date', '')
+    new_folder_name = f"{prefix}({initial}) {address} {shop_name} {date_str}"
+    new_folder_name = re.sub(r'[\\/:*?"<>|]', '', new_folder_name).strip()
+
+    from dashboard.utils.google_drive import rename_folder
+    if not rename_folder(lead_folder_id, new_folder_name):
+        return
+
+    # Redis 갱신
+    try:
+        rc.hset(key, 'shop_name', shop_name)
+    except Exception:
+        pass
+
+    # thread 답글
+    try:
+        client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts,
+            text=(
+                f":pencil2: 폴더명에 상호명이 추가되었습니다.\n"
+                f":file_folder: {new_folder_name}"
+            ),
+            unfurl_links=False,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 사진] 상호명 답글 실패: {exc}")
+
+
+def _process_visit_uncancel(client, body) -> None:
+    """[↩️ 취소 되돌리기] 클릭 처리 — 시트 상태 복원 + 카드 원본 양식 복원 + list 복구 webhook."""
+    lead_no = body["actions"][0].get("value") or ''
+    channel = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+    user_id = body["user"]["id"]
+    if not lead_no:
+        return
+
+    # 1) 시트 상태 → '방문 예약' 복원
+    try:
+        from dashboard.services.lead_service import update_lead
+        update_lead(lead_no, {'상태': '방문 예약'})
+    except Exception as exc:
+        logger.error(f"[SLACK/방문복원] 시트 update 실패 ({lead_no}): {exc}",
+                     exc_info=True)
+
+    # 2) list 복구 webhook 호출
+    _trigger_visit_list_webhook(
+        'SLACK_VISIT_RESTORE_WEBHOOK_URL', lead_no, channel, message_ts,
+    )
+
+    # 3) 메시지 chat.update — 시트 lead 정보로 원본 양식 재구성
+    try:
+        lead = _find_lead_by_no(lead_no) or {}
+        platform = str(lead.get('플랫폼', '')).strip()
+        # 카테고리는 인입 lead면 "온라인" (lead_no가 정상 카카오톡/홈페이지/당근/전화이면)
+        if platform in ('전화', '거래처', '기타'):
+            category = platform
+            category_display = category
+        else:
+            category = '온라인'
+            category_display = f"{category}({platform})" if platform else category
+
+        initial = _slack_user_to_initial(client, user_id) or '-'
+        visit_date_raw = str(lead.get('방문 예정일', '') or '').strip()
+        if visit_date_raw.startswith("'"):
+            visit_date_raw = visit_date_raw[1:]
+        body_text, blocks = _build_visit_notice_blocks(
+            lead_no=lead_no, category_display=category_display, initial=initial,
+            visit_date=visit_date_raw,
+            name=str(lead.get('고객명', '') or '').strip(),
+            contact=str(lead.get('고객 연락처', '') or '').strip(),
+            visit_address=str(lead.get('방문 주소', '') or '').strip(),
+            consultation=str(lead.get('상담 내용', '') or '').strip(),
+        )
+        client.chat_update(
+            channel=channel, ts=message_ts, text=body_text, blocks=blocks,
+        )
+    except Exception as exc:
+        logger.error(f"[SLACK/방문복원] 메시지 복원 실패 ({lead_no}): {exc}",
                      exc_info=True)
 
 
@@ -2443,18 +2964,49 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         message_ts: 원본 메시지 ts (영구 링크용)
         action: 'visit' or 'price'
     """
-    webhook_url = os.getenv("SLACK_LIST_WEBHOOK_URL", "").strip()
-    if not webhook_url:
+    add_url = os.getenv("SLACK_LIST_WEBHOOK_URL", "").strip()
+    update_url = os.getenv("SLACK_LIST_UPDATE_WEBHOOK_URL", "").strip()
+    if not add_url:
         logger.debug("[SLACK/LIST] SLACK_LIST_WEBHOOK_URL 미설정 - 등록 스킵")
         return False
 
-    # 메시지 영구 링크
+    # 같은 lead 첫 호출 / 재호출 판정 — Redis dedup
+    # 첫 호출 → add 워크플로우 (list에 행 추가)
+    # 재호출 → update 워크플로우 (같은 lead 행 갱신, contact 매칭)
+    lead_no = str(lead.get('리드 No', '') or '').strip()
+    is_first = True
+    if lead_no:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            dedup_key = f"slack_list_posted:{lead_no}"
+            # setnx — 처음만 True, 재호출은 False
+            is_first = bool(rc.set(dedup_key, '1', ex=60 * 60 * 24 * 90, nx=True))
+        except Exception as exc:
+            logger.warning(f"[SLACK/LIST] dedup 체크 실패 ({lead_no}): {exc}")
+
+    if is_first:
+        webhook_url = add_url
+        op = 'add'
+    else:
+        if not update_url:
+            logger.info(
+                f"[SLACK/LIST] 재제출이지만 SLACK_LIST_UPDATE_WEBHOOK_URL 미설정 — skip ({lead_no})"
+            )
+            return False
+        webhook_url = update_url
+        op = 'update'
+
+    # 메시지 영구 링크 (channel/ts 둘 다 있을 때만 — 워크플로 form 흐름은 빈 상태)
     message_link = ''
-    try:
-        permalink = client.chat_getPermalink(channel=channel, message_ts=message_ts)
-        message_link = permalink.get("permalink", "")
-    except Exception:
-        pass
+    if channel and message_ts:
+        try:
+            permalink = client.chat_getPermalink(
+                channel=channel, message_ts=message_ts,
+            )
+            message_link = permalink.get("permalink", "")
+        except Exception:
+            pass
 
     # 상담 내용 파싱 (장소/기기/문의)
     parts = _split_lead_content(str(lead.get('상담 내용', '')))
@@ -2484,7 +3036,9 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         )
         with urllib.request.urlopen(req, timeout=5) as r:
             r.read()
-        logger.info(f"[SLACK/LIST] webhook 등록 완료 (lead={lead.get('리드 No')} action={action})")
+        logger.info(
+            f"[SLACK/LIST] webhook {op} 완료 (lead={lead.get('리드 No')} action={action})"
+        )
         return True
     except Exception as exc:
         logger.warning(f"[SLACK/LIST] webhook 호출 실패: {exc}")
@@ -2535,7 +3089,7 @@ def _process_visit_submission(client, body, view):
     # 원본 메시지에 답글 (raw 날짜 — 슬랙 표시 깔끔)
     reply_text = (
         f":white_check_mark: *방문 요청 등록* — `{lead_no}` by <@{user_id}>\n"
-        f">*방문 날짜* : {visit_date_raw or '-'}\n"
+        f">*방문일* : {visit_date_raw or '-'}\n"
         f">*방문 주소* : {visit_address or '-'}\n"
         f">*내용 / 특이사항* : {consultation or '-'}"
     )
