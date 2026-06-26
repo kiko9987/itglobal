@@ -546,6 +546,46 @@ def _register_handlers(app):
             logger.error(f"[SLACK] submit_price 실패: {exc}", exc_info=True)
 
     # ⑩ /전화 슬래시 명령 — 전화 문의 등록 모달
+    @app.command("/수금")
+    def handle_payment_command(ack, command, client):
+        """수금 관리 봇 — /수금 [코드 또는 '요약' 또는 '미수금']"""
+        ack()
+        text = command.get("text", "").strip()
+        channel = command.get("channel_id", "")
+        user_id = command.get("user_id", "")
+
+        def _bg():
+            try:
+                from dashboard.services.payment_sync import (
+                    search_project, daily_payment_summary, build_overdue_message,
+                )
+                if not text or text.lower() in ('도움', 'help', '안내'):
+                    msg = (
+                        "*수금 관리 봇 사용법*\n"
+                        "• `/수금 G3491-YG` — 특정 프로젝트 history 조회\n"
+                        "• `/수금 요약` — 오늘 발송 일일 요약\n"
+                        "• `/수금 미수금` — 30일 이상 경과 미수금 리스트\n"
+                        "• `/수금 미수금 60` — N일 이상 경과 (커스텀)"
+                    )
+                elif text.lower() == '요약':
+                    msg = daily_payment_summary() or "오늘 발송 이력 없음"
+                elif text.lower().startswith('미수금'):
+                    parts = text.split()
+                    days = 30
+                    if len(parts) > 1:
+                        try:
+                            days = int(parts[1])
+                        except Exception:
+                            pass
+                    msg = build_overdue_message(days=days) or f"{days}일 이상 경과한 미수금 없음"
+                else:
+                    msg = search_project(text) or f"`{text}` 검색 결과 없음"
+                client.chat_postEphemeral(channel=channel, user=user_id, text=msg)
+            except Exception as exc:
+                logger.error(f"[SLACK] /수금 처리 실패: {exc}", exc_info=True)
+        import threading
+        threading.Thread(target=_bg, daemon=True).start()
+
     @app.command("/전화")
     def handle_phone_command(ack, command, client):
         ack()

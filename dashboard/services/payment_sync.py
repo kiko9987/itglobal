@@ -54,8 +54,8 @@ _VALID_PROJECT_RE = re.compile(r'^[GR]\d{4}-[A-Z]+$')
 # 메모 파싱
 # ─────────────────────────────────────────────
 
-# 금액 추출: "입금 12,100,000원" or "입금12,100,000원"
-_AMOUNT_RE = re.compile(r'입금\s*([\d,]+)\s*원')
+# 금액 추출: "입금 12,100,000원" or "금액 : 12,100,000원" 등
+_AMOUNT_RE = re.compile(r'(?:입금|금액\s*[:：])\s*([\d,]+)\s*원')
 # 라벨 양식 (앱스크립트 자동 + 매니저 수기 덮어쓰기)
 _LABEL_DATE_RE = re.compile(r'^입금일\s*:\s*(.+)$')
 _LABEL_PAYER_RE = re.compile(r'^입금자\s*:\s*(.+)$')
@@ -65,10 +65,16 @@ _BARE_AMOUNT_RE = re.compile(r'^([\d,]+)(?:\s*원)?$')
 _DATE_RE = re.compile(r'(?:(\d{4})[/.-])?(\d{1,2})[/.-](\d{1,2})')
 # 은행명 추출 — 라인 또는 첫줄 시작
 _BANK_RE = re.compile(r'(기업|하나|국민|신한|우리|농협|카카오|토스)')
+# ITG 통장 계좌번호 — 카드 결제 시 카드사 약자보다 우선
+# 기업 452-039388-01-011 (글로벌 G), 하나 255-910014-31304 (글로벌그룹 R)
+_ACCT_G_RE = re.compile(r'452[\*\-]+0?3?9?\d*[\*\-]+\d')  # 기업 452***38801011
+_ACCT_R_RE = re.compile(r'255[\*\-]+9?1?0?0?\d*[\*\-]+\d')  # 하나 255******31304
 
 
-def _parse_memo_block(block: str) -> Optional[Dict]:
-    """입금 메모 한 블록 → {'date_md': 'MM/DD', 'amount': int, 'partner': str, 'bank': str}"""
+def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
+    """입금 메모 한 블록 → {'date_md': 'MM/DD', 'amount': int, 'partner': str, 'bank': str}
+    fallback_amount: 메모에 금액 라인 없으면 시트 단계 값 사용 (옛 양식 처리).
+    """
     lines = [l.strip() for l in block.splitlines() if l.strip()]
     if not lines:
         return None
@@ -104,8 +110,11 @@ def _parse_memo_block(block: str) -> Optional[Dict]:
             if m:
                 amount = int(m.group(1).replace(',', ''))
                 break
+    # 옛 양식 fallback — 메모에 금액 없으면 시트 단계 값 사용
+    if amount == 0 and fallback_amount > 0:
+        amount = fallback_amount
     if amount == 0:
-        return None  # 금액 없으면 입금 블록 아님
+        return None  # 금액 + fallback 모두 없으면 입금 블록 아님
 
     # 매니저 수기 양식 — "입금일: YYYY-MM-DD" / "입금자: 현금" 등
     label_payer = ''
@@ -121,13 +130,20 @@ def _parse_memo_block(block: str) -> Optional[Dict]:
         if m:
             label_payer = m.group(1).strip()
 
-    # 은행
+    # 은행 — ITG 통장 계좌번호 우선 (카드사 약자보다 정확)
     bank = ''
-    for ln in lines:
-        m = _BANK_RE.search(ln)
-        if m:
-            bank = m.group(1)
-            break
+    text_join = '\n'.join(lines)
+    if _ACCT_G_RE.search(text_join):
+        bank = '기업'
+    elif _ACCT_R_RE.search(text_join):
+        bank = '하나'
+    else:
+        # 계좌 마스킹 없으면 메모 텍스트에서 은행명 추출
+        for ln in lines:
+            m = _BANK_RE.search(ln)
+            if m:
+                bank = m.group(1)
+                break
 
     # 거래처(partner) — 휴리스틱
     # 양식 B: "적요 (주)..." → "적요 " 제거
@@ -145,7 +161,8 @@ def _parse_memo_block(block: str) -> Optional[Dict]:
         re.compile(r'^계좌번호'),
         re.compile(r'^\d{3}[*\d]+$'),  # 계좌번호 (전체 숫자/* — 끝 문자 있으면 거래처)
         re.compile(r'^[\d,]+(?:\s*원)?$'),  # 단일 숫자 라인 (이미 amount로 사용)
-        re.compile(r'^(기업|하나|국민|신한|우리|농협|카카오|토스)(\s+입금)?'),
+        # 은행명 단독 라인 또는 "은행 입금X원" 라인만 skip — "하나90242344" 같은 카드 승인번호 보존
+        re.compile(r'^(기업|하나|국민|신한|우리|농협|카카오|토스)(?:\s+입금|\s*$)'),
     ]
     if not partner:
         for ln in lines:
@@ -186,20 +203,79 @@ def _hash_payments(payments: List[Dict]) -> str:
     return hashlib.md5(s.encode('utf-8')).hexdigest()[:16]
 
 
-def _parse_notes(notes: List[str]) -> List[Dict]:
-    """U/V/W 셀 노트 3개를 모두 파싱 → [{stage:'계약금', ...}, {stage:'중도금', ...}, ...]"""
+def _parse_notes(notes: List[str],
+                 stage_vals: Optional[Dict[str, int]] = None) -> List[Dict]:
+    """U/V/W 셀 노트 3개를 모두 파싱 → [{stage:'계약금', ...}, {stage:'중도금', ...}, ...]
+    파싱 실패한 블록 또는 partner 빈 블록은 직전 블록과 합쳐서 재시도
+    (매니저가 한 입금 안에서 빈 줄 입력해서 잘못 분리되는 케이스 보정).
+    stage_vals: 단계별 시트 값(U/V/W) — 옛 양식(금액 라인 없음) 처리용 fallback.
+    """
     results = []
     stages = ['계약금', '중도금', '잔금']
     for note, stage in zip(notes, stages):
+        stage_val = (stage_vals or {}).get(stage, 0)
         if not note:
+            # 메모 없는데 단계 값 있으면 fallback payment 추가 (옛 데이터)
+            if stage_val > 0:
+                results.append({
+                    'date_md': '-', 'amount': stage_val, 'partner': '-',
+                    'bank': '', 'note_label': '', 'stage': stage,
+                })
             continue
-        # 빈 줄로 블록 분리
-        blocks = re.split(r'\n\s*\n', note.strip())
-        for block in blocks:
-            parsed = _parse_memo_block(block)
+        # 1차: 빈 줄로 블록 분리
+        raw_blocks = re.split(r'\n\s*\n', note.strip())
+        # 2차: 한 블록 안에 날짜 패턴이 2번 이상이면 추가 분리 (빈 줄 없는 분할 입금)
+        blocks = []
+        for rb in raw_blocks:
+            # 날짜 패턴 (YYYY/MM/DD HH:MM) 위치 찾기
+            date_starts = [m.start() for m in re.finditer(r'\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}', rb)]
+            if len(date_starts) >= 2:
+                # 각 날짜 시작점으로 분리
+                for i, ds in enumerate(date_starts):
+                    end = date_starts[i+1] if i+1 < len(date_starts) else len(rb)
+                    blocks.append(rb[ds:end].strip())
+            else:
+                blocks.append(rb)
+        prev_block = ''
+        block_count = len(blocks)
+        any_parsed = False
+        for bidx, block in enumerate(blocks):
+            # 블록 하나뿐이고 옛 양식이면 fallback amount 적용
+            fb = stage_val if block_count == 1 else 0
+            parsed = _parse_memo_block(block, fallback_amount=fb)
             if parsed:
+                any_parsed = True
+            if not parsed and prev_block:
+                # 파싱 실패 — 직전 블록과 합쳐 재시도
+                merged = prev_block + '\n' + block
+                reparse = _parse_memo_block(merged, fallback_amount=fb)
+                if reparse and results and results[-1].get('stage') == stage:
+                    # 직전 결과 대체 (partner 등 보강된 정보)
+                    reparse['stage'] = stage
+                    results[-1] = reparse
+                    prev_block = merged
+                    continue
+            if parsed:
+                # 직전 결과가 같은 단계 + partner 비어있으면 합쳐서 재시도
+                if (results and results[-1].get('stage') == stage
+                        and not results[-1].get('partner') and prev_block):
+                    merged = prev_block + '\n' + block
+                    reparse = _parse_memo_block(merged)
+                    if (reparse and reparse.get('partner')
+                            and reparse['amount'] == results[-1]['amount']):
+                        reparse['stage'] = stage
+                        results[-1] = reparse
+                        prev_block = merged
+                        continue
                 parsed['stage'] = stage
                 results.append(parsed)
+                prev_block = block
+        # 메모 있지만 어떤 블록도 파싱 실패 + 단계 값 있으면 fallback
+        if not any_parsed and stage_val > 0:
+            results.append({
+                'date_md': '-', 'amount': stage_val, 'partner': '-',
+                'bank': '', 'note_label': '', 'stage': stage,
+            })
     # 날짜순 정렬 (월/일 기준) — 양식에 연도 없으면 동일 연도 가정
     def _date_key(p):
         mm_dd = p.get('date_md', '0/0')
@@ -208,7 +284,10 @@ def _parse_notes(notes: List[str]) -> List[Dict]:
             return (int(mm), int(dd))
         except Exception:
             return (0, 0)
-    results.sort(key=_date_key)
+
+    # 같은 단계 안에서만 날짜순 정렬 (단계 순서는 계약금→중도금→잔금 유지)
+    stage_order = {'계약금': 0, '중도금': 1, '잔금': 2}
+    results.sort(key=lambda p: (stage_order.get(p.get('stage', ''), 9), _date_key(p)))
     return results
 
 
@@ -220,12 +299,12 @@ _CARD_PARTNER_RE = re.compile(r'^[0-9A-Z가-힣]{6,18}$')
 
 
 def _is_card_payment(invoice_value: str, partner: str) -> bool:
-    """Y열 + 거래처 패턴으로 카드 결제 여부 판별."""
+    """Y열 + 거래처 패턴으로 카드 결제 여부 판별.
+    Y='카드결제'/'혼합' 케이스도 단계별로 partner 패턴 확인 — 한 프로젝트에서
+    일부 단계만 카드 결제일 수도 있음(예: 계약금 일반, 잔금 카드).
+    """
     iv = (invoice_value or '').strip()
-    if iv == '카드결제':
-        return True
-    if iv == '혼합':
-        # 혼합 — 거래처가 영숫자 코드(승인번호 패턴)면 카드
+    if iv in ('카드결제', '혼합'):
         return bool(partner and _CARD_PARTNER_RE.match(partner.strip()))
     return False
 
@@ -262,6 +341,7 @@ def _build_stage_message(
     stage: str, project: str, address: str,
     payment: Dict, invoice_value: str,
     total_r: int, total_t: int, unpaid: int,
+    stage_sheet_val: int = 0,
 ) -> str:
     """단계별 입금 알림 (계약금/중도금/잔금)."""
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
@@ -290,13 +370,8 @@ def _build_stage_message(
         f"미수금 : {unpaid:,}원",
     ]
     if is_card:
-        # T = R × 1.1 (S 체크 시 부가세 10% 포함 금액)
-        # 카드 결제 시:
-        #   실결제 = T × 1.03 (고객에게 3% 추가 부담시킴, 우리 수익원)
-        #   3% = T × 0.03 (고객 부담 추가분)
-        #   카드 수수료 = 실결제 - 입금 (우리가 카드사에 내는 실제 수수료 ≈ 2.N%)
-        real_payment = round(total_t * 1.03)
-        extra_3pct = real_payment - total_t
+        real_payment = _resolve_real_payment(stage_sheet_val, amount, total_t)
+        extra_3pct = round(real_payment * 0.03 / 1.03)
         fee = real_payment - amount
         if fee > 0 and extra_3pct > 0:
             parts = [
@@ -309,10 +384,24 @@ def _build_stage_message(
     return '\n'.join(lines)
 
 
+def _resolve_real_payment(stage_val: int, amount: int, total_t: int) -> int:
+    """카드 결제 실결제 자동 판별.
+    - stage_val >= amount: 시트 값 = 실결제 (G2530-TH 양식, 매니저가 카드 부담분 반영)
+    - stage_val < amount: 시트 값 = R (R3282-MJ 양식), 실결제 = 시트 값 × 1.03
+    - stage_val 없으면 total_t × 1.03 fallback
+    """
+    if stage_val <= 0:
+        return round(total_t * 1.03)
+    if stage_val >= amount:
+        return stage_val
+    return round(stage_val * 1.03)
+
+
 def _build_stage_with_history_message(
     stage: str, project: str, address: str,
     last_payment: Dict, all_payments: List[Dict], invoice_value: str,
     total_r: int, total_t: int, unpaid: int,
+    stage_sheet_vals: Optional[Dict[str, int]] = None,
 ) -> str:
     """단계 카드 + 누적 이력 (중도금 입금 시 사용)."""
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
@@ -341,8 +430,9 @@ def _build_stage_with_history_message(
         f"미수금 : {unpaid:,}원",
     ]
     if is_card:
-        real_payment = round(total_t * 1.03)
-        extra_3pct = real_payment - total_t
+        stage_val = (stage_sheet_vals or {}).get(stage, 0)
+        real_payment = _resolve_real_payment(stage_val, amount, total_t)
+        extra_3pct = round(real_payment * 0.03 / 1.03)
         fee = real_payment - amount
         if fee > 0 and extra_3pct > 0:
             lines.append(
@@ -368,6 +458,7 @@ def _build_stage_with_history_message(
 def _build_complete_message(
     project: str, address: str,
     payments: List[Dict], invoice_value: str, total_t: int,
+    stage_sheet_vals: Optional[Dict[str, int]] = None,
 ) -> str:
     """수금완료 알림 — 전체 history 취합."""
     lines = [
@@ -390,6 +481,25 @@ def _build_complete_message(
         lines.append(
             f"{stage}  {date_md}  {code_display}  {amount:,}원  {partner}{suffix}"
         )
+        # 카드 결제 단계 — 부가 정보 라인 추가 (단계 시트 값 = 실결제)
+        if is_card and stage_sheet_vals:
+            # 같은 단계 카드 결제 중 마지막 입금에서만 부가 정보 1회 표시 (분할 입금 합산)
+            same_stage_cards = [
+                pp for pp in payments
+                if pp.get('stage') == stage
+                and _is_card_payment(invoice_value, pp.get('partner', ''))
+            ]
+            if same_stage_cards and same_stage_cards[-1] is p:
+                stage_val = stage_sheet_vals.get(stage, 0)
+                same_stage_card_total = sum(c['amount'] for c in same_stage_cards)
+                real_payment = _resolve_real_payment(stage_val, same_stage_card_total, total_t)
+                if real_payment > 0:
+                    fee = real_payment - same_stage_card_total
+                    three_pct = round(real_payment * 0.03 / 1.03)
+                    if fee > 0 and three_pct > 0:
+                        lines.append(
+                            f"  (실결제 {real_payment:,}원 / 3% {three_pct:,}원 / 카드 수수료 {fee:,}원)"
+                        )
     lines.append(_SEP)
     lines.append(f"총액 : {total_t:,}원")
     return '\n'.join(lines)
@@ -707,15 +817,17 @@ def sync_payments() -> Dict:
         project = c['project']
         result['processed'] += 1
         try:
-            notes = _fetch_row_notes(sheet_id, sheet_name, sheet_row)
-            payments = _parse_notes(notes)
-            new_phash = _hash_payments(payments)
-            prev_phash = c.get('phash', '')
-            note_changed = new_phash != prev_phash
-
             prev_u, prev_v, prev_w = c['prev_u'], c['prev_v'], c['prev_w']
             prev_aa = c['prev_aa']
             u_val, v_val, w_val, aa_chk = c['u'], c['v'], c['w'], c['aa']
+            notes = _fetch_row_notes(sheet_id, sheet_name, sheet_row)
+            payments = _parse_notes(
+                notes,
+                stage_vals={'계약금': u_val, '중도금': v_val, '잔금': w_val},
+            )
+            new_phash = _hash_payments(payments)
+            prev_phash = c.get('phash', '')
+            note_changed = new_phash != prev_phash
 
             # 단계별 발송 분기 (양수 증가 + 메모 변경된 단계만):
             #   계약금 → 단일 카드
@@ -736,12 +848,16 @@ def sync_payments() -> Dict:
                     if not stage_payments:
                         continue
                     last_payment = stage_payments[-1]
+                    stage_vals = {
+                        '계약금': c['u'], '중도금': c['v'], '잔금': c['w'],
+                    }
                     if stage == '잔금' and c['unpaid'] == 0:
                         # 잔금 + 미수금 0 → 수금완료
                         text = _build_complete_message(
                             project=project, address=c['address'],
                             payments=payments, invoice_value=c['invoice'],
                             total_t=c['total_t'],
+                            stage_sheet_vals=stage_vals,
                         )
                     elif stage in ('중도금', '잔금'):
                         # 중도금, 또는 잔금 부족 입금(수금중) → 단계 카드 + history
@@ -751,6 +867,7 @@ def sync_payments() -> Dict:
                             invoice_value=c['invoice'],
                             total_r=c['total_r'], total_t=c['total_t'],
                             unpaid=c['unpaid'],
+                            stage_sheet_vals=stage_vals,
                         )
                     else:  # 계약금
                         text = _build_stage_message(
@@ -758,6 +875,7 @@ def sync_payments() -> Dict:
                             payment=last_payment, invoice_value=c['invoice'],
                             total_r=c['total_r'], total_t=c['total_t'],
                             unpaid=c['unpaid'],
+                            stage_sheet_val=stage_vals.get(stage, 0),
                         )
                     slack.chat_postMessage(channel=channel, text=text)
                     result['sent'] += 1
@@ -792,4 +910,168 @@ def sync_payments() -> Dict:
         except Exception:
             pass
 
+    # 일일 통계 누적 (오늘 발송 건수)
+    if result['sent'] > 0:
+        try:
+            from datetime import datetime
+            today_key = f"payment_sync:daily_stats:{datetime.now().strftime('%Y-%m-%d')}"
+            rc.hincrby(today_key, 'sent', result['sent'])
+            rc.hincrby(today_key, 'errors', result['errors'])
+            rc.expire(today_key, 60 * 60 * 24 * 7)  # 일주일 보관
+        except Exception:
+            pass
+
     return result
+
+
+# ─────────────────────────────────────────────
+# 일일 요약 / 미수금 장기 체류 / 검색 (운영 보조)
+# ─────────────────────────────────────────────
+
+
+def daily_payment_summary() -> Optional[str]:
+    """오늘 발송한 수금 알림 요약 메시지 빌드 → 슬랙 발송용 text."""
+    from datetime import datetime
+    try:
+        rc = get_redis_client().redis
+        today = datetime.now().strftime('%Y-%m-%d')
+        stats = rc.hgetall(f"payment_sync:daily_stats:{today}")
+        if not stats:
+            return None
+        sent = int(stats.get('sent', 0) or 0)
+        errors = int(stats.get('errors', 0) or 0)
+        lines = [
+            f":bar_chart: *수금 알림 일일 요약* — {today}",
+            '---------------------------------------------',
+            f"발송 완료 : {sent}건",
+            f"오류 : {errors}건",
+            '---------------------------------------------',
+        ]
+        return '\n'.join(lines)
+    except Exception as exc:
+        logger.error(f"[PAYMENT] 일일 요약 실패: {exc}", exc_info=True)
+        return None
+
+
+def find_overdue_unpaid(days: int = 30) -> List[Dict]:
+    """미수금 ≠ 0 + 최종 입금일이 days일 이상 경과한 프로젝트 리스트.
+
+    반환: [{'project', 'address', 'unpaid', 'last_date'}, ...]
+    """
+    from datetime import datetime, timedelta
+    sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    if not sheet_id or not sheet_name:
+        return []
+    service = _get_payment_service()
+    if not service:
+        return []
+    try:
+        resp = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AA10000",
+            valueRenderOption='UNFORMATTED_VALUE',
+        ).execute()
+    except Exception as exc:
+        logger.error(f"[PAYMENT] overdue 시트 fetch 실패: {exc}")
+        return []
+    rows = resp.get('values', [])
+    cutoff = datetime.now() - timedelta(days=days)
+    overdue = []
+    for row in rows:
+        while len(row) < 27:
+            row.append('')
+        a = str(row[0]).strip()
+        if not a or not _VALID_PROJECT_RE.match(a):
+            continue
+        unpaid = _to_int_won(row[23])
+        if unpaid == 0:
+            continue
+        # 수금 확인 체크 → 미수금 있어도 정리된 케이스
+        if _to_bool(row[26]):
+            continue
+        # 최종 입금일 — Z열(수금 날짜) 시리얼 → 날짜
+        z_val = row[25]
+        last_date = None
+        if isinstance(z_val, (int, float)) and z_val > 0:
+            # 구글 시리얼 (1899-12-30 기준)
+            try:
+                last_date = datetime(1899, 12, 30) + timedelta(days=int(z_val))
+            except Exception:
+                last_date = None
+        if last_date is None or last_date >= cutoff:
+            continue
+        overdue.append({
+            'project': a,
+            'address': str(row[5]).strip(),
+            'unpaid': unpaid,
+            'last_date': last_date.strftime('%Y-%m-%d'),
+        })
+    overdue.sort(key=lambda x: x['last_date'])
+    return overdue
+
+
+def build_overdue_message(days: int = 30, limit: int = 20) -> Optional[str]:
+    """미수금 장기 체류 슬랙 알림 메시지."""
+    items = find_overdue_unpaid(days=days)
+    if not items:
+        return None
+    lines = [
+        f":warning: *미수금 {days}일 이상 경과* — {len(items)}건",
+        '---------------------------------------------',
+    ]
+    for it in items[:limit]:
+        lines.append(
+            f"`{it['project']}` {it['address'][:30]} : "
+            f"미수금 {it['unpaid']:,}원 (마지막 입금 {it['last_date']})"
+        )
+    if len(items) > limit:
+        lines.append(f"... 외 {len(items) - limit}건")
+    lines.append('---------------------------------------------')
+    return '\n'.join(lines)
+
+
+def search_project(project_code: str) -> Optional[str]:
+    """특정 프로젝트의 전체 수금 history 조회 (슬래시 명령용)."""
+    sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    if not sheet_id or not sheet_name:
+        return None
+    service = _get_payment_service()
+    if not service:
+        return None
+    try:
+        resp = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AA10000",
+            valueRenderOption='UNFORMATTED_VALUE',
+        ).execute()
+    except Exception as exc:
+        logger.error(f"[PAYMENT] 검색 시트 fetch 실패: {exc}")
+        return None
+    rows = resp.get('values', [])
+    code = project_code.strip().upper()
+    for off, row in enumerate(rows):
+        while len(row) < 27:
+            row.append('')
+        if str(row[0]).strip().upper() != code:
+            continue
+        sheet_row = off + 2
+        notes = _fetch_row_notes(sheet_id, sheet_name, sheet_row)
+        u_val = _to_int_won(row[20])
+        v_val = _to_int_won(row[21])
+        w_val = _to_int_won(row[22])
+        stage_vals = {'계약금': u_val, '중도금': v_val, '잔금': w_val}
+        payments = _parse_notes(notes, stage_vals=stage_vals)
+        if not payments:
+            return f"`{code}` — 수금 메모 없음 (시트 메모 미입력)"
+        address = str(row[5]).strip()
+        total_t = _to_int_won(row[19])
+        unpaid = _to_int_won(row[23])
+        invoice = str(row[24]).strip()
+        msg = _build_complete_message(
+            code, address, payments, invoice, total_t,
+            stage_sheet_vals=stage_vals,
+        )
+        if unpaid != 0:
+            msg += f"\n_미수금 : {unpaid:,}원_"
+        return msg
+    return f"`{code}` — 시트에 없음"

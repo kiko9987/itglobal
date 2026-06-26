@@ -86,6 +86,7 @@ def start_scheduler():
             id='payment_sync',
         )
         jobs.append('수금 관리 30초')
+        # 일일 요약/미수금 자동 발송은 disable — /수금 슬래시 명령으로만 조회
 
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
@@ -127,6 +128,29 @@ def _safe_payment_sync():
         sync_payments()
     except Exception as exc:
         logger.error(f'[SCHED] 수금 알림 sync 실패: {exc}', exc_info=True)
+
+
+def _safe_payment_daily_report():
+    """매일 18시 — 일일 요약 + 미수금 30일 경과 리포트 #수금_관리 채널 발송"""
+    try:
+        import os
+        from slack_sdk import WebClient
+        from dashboard.services.payment_sync import (
+            daily_payment_summary, build_overdue_message,
+        )
+        token = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip()
+        channel = os.getenv('SLACK_PAYMENT_CHANNEL', '').strip()
+        if not token or not channel:
+            return
+        slack = WebClient(token=token)
+        summary = daily_payment_summary()
+        if summary:
+            slack.chat_postMessage(channel=channel, text=summary)
+        overdue = build_overdue_message(days=30)
+        if overdue:
+            slack.chat_postMessage(channel=channel, text=overdue)
+    except Exception as exc:
+        logger.error(f'[SCHED] 수금 일일 리포트 실패: {exc}', exc_info=True)
 
 
 def _safe_homepage_sync():
