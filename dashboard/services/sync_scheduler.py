@@ -77,6 +77,16 @@ def start_scheduler():
     )
     jobs.append('워크플로 전화 lead 10초')
 
+    # 수금 관리 알림 — 공사 현황 시트 U/V/W 입금 메모 변경 감지 (30초 주기)
+    if os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip():
+        _scheduler.add_job(
+            _safe_payment_sync,
+            'interval',
+            seconds=30,
+            id='payment_sync',
+        )
+        jobs.append('수금 관리 30초')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -108,6 +118,15 @@ def _safe_workflow_phone_sync():
         sync_workflow_phone_leads()
     except Exception as exc:
         logger.error(f'[SCHED] 워크플로 전화 lead 보정 실패: {exc}', exc_info=True)
+
+
+def _safe_payment_sync():
+    """공사 현황 시트 U/V/W 입금 메모 변경 감지 → #수금_관리 채널 발송"""
+    try:
+        from dashboard.services.payment_sync import sync_payments
+        sync_payments()
+    except Exception as exc:
+        logger.error(f'[SCHED] 수금 알림 sync 실패: {exc}', exc_info=True)
 
 
 def _safe_homepage_sync():
