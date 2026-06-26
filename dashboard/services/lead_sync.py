@@ -744,6 +744,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     # 멀티라인 inquiry는 60자 wrap + 각 줄마다 `>` prefix.
     inquiry_quoted = _wrap_quoted(inquiry.rstrip(), width=60)
     main_text = (
+        "⠀\n"
         f">*접수번호:* `{lead_no}`\n"
         f">:bell: *{title}*\n"
         f">---------------------------------------------\n"
@@ -756,7 +757,8 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*설치 희망 기기* : {device}\n"
         f">*방문 주소* : {address_display}\n"
         f">*상세 문의 내용* : \n{inquiry_quoted}\n"
-        f">---------------------------------------------"
+        f">---------------------------------------------\n"
+        "⠀"
     )
 
     blocks = [

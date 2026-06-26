@@ -59,6 +59,11 @@ _AMOUNT_RE = re.compile(r'(?:입금|금액\s*[:：])\s*([\d,]+)\s*원')
 # 라벨 양식 (앱스크립트 자동 + 매니저 수기 덮어쓰기)
 _LABEL_DATE_RE = re.compile(r'^입금일\s*:\s*(.+)$')
 _LABEL_PAYER_RE = re.compile(r'^입금자\s*:\s*(.+)$')
+# 매니저 카톡 양식 (분할 입금 history를 V 셀에 그대로 복사한 케이스)
+# 예: "02/02 G 22,308,000원 프레임플러스"
+_KATOK_LINE_RE = re.compile(
+    r'^(\d{1,2})/(\d{1,2})\s+([GRN]|현금|박C기업)\s+([\d,]+)\s*원\s*(.*?)\s*(?:수금중|수금완료)?\s*$'
+)
 # 단일 숫자(콤마 OK) 라인 — 매니저가 입금액만 적은 경우
 _BARE_AMOUNT_RE = re.compile(r'^([\d,]+)(?:\s*원)?$')
 # 날짜: "2026/03/19", "06/25", "5/27" 등 — MM/DD 추출
@@ -115,6 +120,11 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         amount = fallback_amount
     if amount == 0:
         return None  # 금액 + fallback 모두 없으면 입금 블록 아님
+    # 통합 입금 분담 케이스: 메모 amount가 시트 단계값보다 크면
+    # → 매니저가 큰 통합 입금 메모를 여러 행에 복사한 것 → 시트 단계값(실제 부담분) 사용
+    # 카드 결제(메모 amount < 시트값) 케이스는 보존
+    if fallback_amount > 0 and amount > fallback_amount:
+        amount = fallback_amount
 
     # 매니저 수기 양식 — "입금일: YYYY-MM-DD" / "입금자: 현금" 등
     label_payer = ''
@@ -222,6 +232,42 @@ def _parse_notes(notes: List[str],
                     'bank': '', 'note_label': '', 'stage': stage,
                 })
             continue
+
+        # 매니저 카톡 양식 우선 검사 — 분할 입금 history를 셀에 복사한 케이스
+        # 예: "02/02 G 22,308,000원 프레임플러스" 같은 라인이 여러 개
+        katok_payments = []
+        for ln in note.strip().splitlines():
+            m = _KATOK_LINE_RE.match(ln.strip())
+            if m:
+                mm, dd = int(m.group(1)), int(m.group(2))
+                amount = int(m.group(4).replace(',', ''))
+                partner = m.group(5).strip()
+                # 은행 추정 — 코드만 보고 한국 ITG 기본
+                bank = '기업' if m.group(3) in ('G', '현금', '박C기업') else (
+                    '하나' if m.group(3) == 'R' else ''
+                )
+                katok_payments.append({
+                    'date_md': f'{mm:02d}/{dd:02d}',
+                    'amount': amount,
+                    'partner': partner or '-',
+                    'bank': bank,
+                    'note_label': '박C' if m.group(3) == '박C기업' else '',
+                    'stage': stage,
+                })
+        # 카톡 양식 라인이 1건이고 (실결제/수수료) 같은 카드 정보 라인이 함께 있으면 카드 결제 케이스
+        # 예: "06/18 G 1,394,400원 비씨카드\n(실결제 1,400,000원 수수료 5,600원)"
+        if len(katok_payments) == 1 and re.search(r'\(.*실결제.*수수료.*\)', note):
+            results.extend(katok_payments)
+            continue
+        # 카톡 양식 라인이 2건 이상이면 카톡 양식으로 처리 (정상 양식과 명확히 다름)
+        if len(katok_payments) >= 2:
+            # 매니저가 history 누적 — 이전 단계와 중복되는 첫 라인들 제외
+            # 예: V 메모의 첫 라인이 U값과 동일하면 계약금 입금 중복
+            prev_amounts = {p.get('amount') for p in results}
+            while katok_payments and katok_payments[0].get('amount') in prev_amounts:
+                katok_payments.pop(0)
+            results.extend(katok_payments)
+            continue
         # 1차: 빈 줄로 블록 분리
         raw_blocks = re.split(r'\n\s*\n', note.strip())
         # 2차: 한 블록 안에 날짜 패턴이 2번 이상이면 추가 분리 (빈 줄 없는 분할 입금)
@@ -295,7 +341,15 @@ def _parse_notes(notes: List[str],
 # 한 글자 표시 (G/N/R) 결정
 # ─────────────────────────────────────────────
 
-_CARD_PARTNER_RE = re.compile(r'^[0-9A-Z가-힣]{6,18}$')
+# 카드 승인번호 — 영문 또는 숫자 필수 (한글만 단독은 카드 아님)
+# 예: "하나90242344" / "NH15415440" / "745389850B" / "현108017094" → 카드
+#     "미사역파라곤아파" / "프레임플러스" → 일반 입금자
+_CARD_PARTNER_RE = re.compile(r'^(?=.*[A-Za-z0-9])[0-9A-Z가-힣]{6,18}$')
+
+
+_CARD_BRAND_RE = re.compile(
+    r'(?:비씨|BC|삼성|현대|롯데|신한|하나|국민|KB|NH|SH|SHC|우리|씨티|카카오)\s*카드'
+)
 
 
 def _is_card_payment(invoice_value: str, partner: str) -> bool:
@@ -305,7 +359,15 @@ def _is_card_payment(invoice_value: str, partner: str) -> bool:
     """
     iv = (invoice_value or '').strip()
     if iv in ('카드결제', '혼합'):
-        return bool(partner and _CARD_PARTNER_RE.match(partner.strip()))
+        if not partner:
+            return False
+        p = partner.strip()
+        # 1) 카드 승인번호 패턴 (영숫자/한글+숫자)
+        if _CARD_PARTNER_RE.match(p):
+            return True
+        # 2) 카드사 이름 직접 매칭 (예: "비씨카드", "삼성카드")
+        if _CARD_BRAND_RE.search(p):
+            return True
     return False
 
 
@@ -335,6 +397,7 @@ _STAGE_EMOJI = {
     '잔금': ':moneybag:',
 }
 _SEP = '---------------------------------------------'
+_SEP_HARD = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
 
 def _build_stage_message(
@@ -360,14 +423,14 @@ def _build_stage_message(
     header_action = '결제' if is_card else '입금'
 
     lines = [
-        f"{emoji} *{stage} {header_action}* — `{project}`",
+        '⠀',
+        f":large_blue_diamond: *{project}* / {emoji} *{stage} {header_action}*",
         _SEP,
         f"주소 : {address or '-'}",
         f"{date_label} : {date_md}",
         f"{amount_label} : {amount:,}원",
         f"{partner_label} : {partner}",
         f"은행 : {bank} ({code_display})",
-        f"미수금 : {unpaid:,}원",
     ]
     if is_card:
         real_payment = _resolve_real_payment(stage_sheet_val, amount, total_t)
@@ -381,6 +444,8 @@ def _build_stage_message(
             ]
             lines.append(f"({' / '.join(parts)})")
     lines.append(_SEP)
+    lines.append(f"미수금 : {unpaid:,}원")
+    lines.append('⠀')
     return '\n'.join(lines)
 
 
@@ -420,14 +485,14 @@ def _build_stage_with_history_message(
     header_action = '결제' if is_card else '입금'
 
     lines = [
-        f"{emoji} *{stage} {header_action}* — `{project}`",
+        '⠀',
+        f":large_blue_diamond: *{project}* / {emoji} *{stage} {header_action}*",
         _SEP,
         f"주소 : {address or '-'}",
         f"{date_label} : {date_md}",
         f"{amount_label} : {amount:,}원",
         f"{partner_label} : {partner}",
         f"은행 : {bank} ({code_display})",
-        f"미수금 : {unpaid:,}원",
     ]
     if is_card:
         stage_val = (stage_sheet_vals or {}).get(stage, 0)
@@ -438,6 +503,8 @@ def _build_stage_with_history_message(
             lines.append(
                 f"(실결제 {real_payment:,}원 / 3% {extra_3pct:,}원 / 카드 수수료 {fee:,}원)"
             )
+    lines.append(_SEP)
+    lines.append(f"미수금 : {unpaid:,}원")
     lines.append('')
     lines.append('[누적 이력]')
     for p in all_payments:
@@ -445,13 +512,16 @@ def _build_stage_with_history_message(
         d = p.get('date_md', '-')
         c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
         nl = p.get('note_label', '')
-        c_disp = f"{c}({nl})" if nl else c
+        bk = p.get('bank', '') or ''
+        inner = f"{c}, {nl}" if nl else c
+        c_disp = f"{bk} ({inner})" if bk else inner
         a = p.get('amount', 0)
         pt = p.get('partner', '-') or '-'
         is_c = _is_card_payment(invoice_value, pt)
         suffix = ' (카드)' if is_c else ''
         lines.append(f"{st}  {d}  {c_disp}  {a:,}원  {pt}{suffix}")
-    lines.append(_SEP)
+    lines.append(' ')
+    lines.append('⠀')
     return '\n'.join(lines)
 
 
@@ -462,7 +532,8 @@ def _build_complete_message(
 ) -> str:
     """수금완료 알림 — 전체 history 취합."""
     lines = [
-        f":white_check_mark: *수금완료* — `{project}`",
+        '⠀',
+        f":large_blue_diamond: *{project}* / :white_check_mark: *수금완료*",
         _SEP,
         f"주소 : {address or '-'}",
         '',
@@ -473,7 +544,9 @@ def _build_complete_message(
         date_md = p.get('date_md', '-')
         code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
         note_label = p.get('note_label', '')
-        code_display = f"{code}({note_label})" if note_label else code
+        bank = p.get('bank', '') or ''
+        inner = f"{code}, {note_label}" if note_label else code
+        code_display = f"{bank} ({inner})" if bank else inner
         amount = p.get('amount', 0)
         partner = p.get('partner', '-') or '-'
         is_card = _is_card_payment(invoice_value, partner)
@@ -502,6 +575,7 @@ def _build_complete_message(
                         )
     lines.append(_SEP)
     lines.append(f"총액 : {total_t:,}원")
+    lines.append('⠀')
     return '\n'.join(lines)
 
 

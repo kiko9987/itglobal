@@ -1967,6 +1967,7 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     """
     SEP = '---------------------------------------------'
     lines = [
+        "⠀",
         f">:bell: *새 방문 일정* — {category_display}  `{lead_no}`",
         f">{SEP}",
         f">등록자 : {initial or '-'}",
@@ -1984,6 +1985,7 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
             for ln in wrapped.split('\n'):
                 lines.append(f">{ln}")
     lines.append(f">{SEP}")
+    lines.append("⠀")
     body_text = '\n'.join(lines)
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": body_text}},
