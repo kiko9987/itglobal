@@ -422,7 +422,16 @@ def sync_karrot() -> Dict[str, Any]:
     lead_nos = []
     if new_leads:
         lead_nos = _append_leads_to_main(new_leads)
-        _send_slack_notifications(new_leads, lead_nos, source='당근')
+        sent = _send_slack_notifications(new_leads, lead_nos, source='당근')
+        # 미발송 lead — Redis pending 큐에 저장 (SSL 에러 등으로 누락된 lead 추적용)
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            for ln in lead_nos:
+                if ln not in sent:
+                    rc.set(f'pending_slack_notify:{ln}', '당근', ex=60 * 60 * 24 * 7)
+        except Exception:
+            pass
 
     result = {
         'total': len(karrot_df),
@@ -880,6 +889,68 @@ def _normalize_workflow_date(raw: str) -> str:
         except (ValueError, OverflowError):
             pass
     return ''
+
+
+def retry_pending_slack_notifications() -> Dict[str, Any]:
+    """SSL 에러 등으로 슬랙 발송 누락된 lead 자동 재발송.
+
+    Redis 'pending_slack_notify:{lead_no}'에 마커 있는 lead를 메인 시트에서 찾아
+    _send_slack_notifications 재호출. 성공한 lead의 마커는 삭제.
+    """
+    result = {'attempted': 0, 'sent': 0}
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        keys = list(rc.scan_iter(match='pending_slack_notify:*', count=100))
+        if not keys:
+            return result
+        # 메인 시트 fetch
+        main_df = load_leads_data(force_refresh=True)
+        if main_df is None or main_df.empty:
+            return result
+        pending_leads = []
+        pending_nos = []
+        pending_sources = []
+        for k in keys:
+            ks = k if isinstance(k, str) else k.decode()
+            lead_no = ks.split(':')[-1]
+            source_raw = rc.get(k) or '당근'
+            source = source_raw if isinstance(source_raw, str) else source_raw.decode()
+            row = main_df[main_df['리드 No'].astype(str).str.strip() == lead_no]
+            if row.empty:
+                rc.delete(k)
+                continue
+            lead = row.iloc[0].to_dict()
+            # _meta 필드 채움 (build_inquiry_blocks 의존)
+            lead['_meta_place'] = ''
+            lead['_meta_device'] = str(lead.get('키워드', '') or '')
+            lead['_meta_inquiry'] = str(lead.get('상담 내용', '') or '')
+            pending_leads.append(lead)
+            pending_nos.append(lead_no)
+            pending_sources.append(source)
+        if not pending_leads:
+            return result
+        result['attempted'] = len(pending_leads)
+        # 출처별 그룹 발송 (당근/홈페이지 등)
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for lead, ln, src in zip(pending_leads, pending_nos, pending_sources):
+            groups[src].append((lead, ln))
+        for src, items in groups.items():
+            leads = [l for l, _ in items]
+            nos = [n for _, n in items]
+            sent = _send_slack_notifications(leads, nos, source=src)
+            for ln in nos:
+                if ln in sent:
+                    rc.delete(f'pending_slack_notify:{ln}')
+                    result['sent'] += 1
+        if result['sent']:
+            logger.info(
+                f"[SYNC/retry] 미발송 슬랙 알림 재발송: {result['sent']}/{result['attempted']}"
+            )
+    except Exception as exc:
+        logger.error(f"[SYNC/retry] 재발송 처리 실패: {exc}", exc_info=True)
+    return result
 
 
 def sync_workflow_phone_leads() -> Dict[str, Any]:

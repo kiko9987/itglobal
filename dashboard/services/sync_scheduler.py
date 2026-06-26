@@ -88,6 +88,15 @@ def start_scheduler():
         jobs.append('수금 관리 30초')
         # 일일 요약/미수금 자동 발송은 disable — /수금 슬래시 명령으로만 조회
 
+    # 미발송 슬랙 알림 재발송 (SSL 에러 등으로 누락된 lead 자동 복구) — 5분 주기
+    _scheduler.add_job(
+        _safe_retry_pending_slack,
+        'interval',
+        minutes=5,
+        id='retry_pending_slack',
+    )
+    jobs.append('미발송 슬랙 재발송 5분')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -119,6 +128,15 @@ def _safe_workflow_phone_sync():
         sync_workflow_phone_leads()
     except Exception as exc:
         logger.error(f'[SCHED] 워크플로 전화 lead 보정 실패: {exc}', exc_info=True)
+
+
+def _safe_retry_pending_slack():
+    """미발송 슬랙 알림 자동 재발송 (SSL 에러 등으로 누락된 lead 복구)"""
+    try:
+        from dashboard.services.lead_sync import retry_pending_slack_notifications
+        retry_pending_slack_notifications()
+    except Exception as exc:
+        logger.error(f'[SCHED] 미발송 슬랙 재발송 실패: {exc}', exc_info=True)
 
 
 def _safe_payment_sync():
