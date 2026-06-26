@@ -129,6 +129,12 @@ def normalize_display(addr: str) -> str:
             return ' '.join([second[:-1]] + rest)
         return ' '.join(tokens[1:])
 
+    # 6. 도 prefix 없이 "○○시 ○○구/읍/면" 시작 — "화성시 만세구" → "화성 만세구"
+    if (first.endswith('시') and len(first) >= 3
+            and not first.endswith('광역시') and not first.endswith('특별시')):
+        if second.endswith('구') or second.endswith('읍') or second.endswith('면'):
+            return ' '.join([first[:-1]] + tokens[1:])
+
     return addr
 
 
@@ -303,6 +309,11 @@ def _extract_building_tail(text: str) -> str:
             p = tail.find(sw)
             if 0 <= p < cut_pos:
                 cut_pos = p
+        # 자유 구분자(/, |) 뒤의 추가 정보(평수/상세 등) 차단
+        for sep in ('/', '|', '~'):
+            p = tail.find(sep)
+            if 0 <= p < cut_pos:
+                cut_pos = p
         tail = tail[:cut_pos].strip()
         # 트레일링 부호/공백 정리
         tail = re.sub(r'[,.\s]+$', '', tail).strip()
@@ -401,20 +412,28 @@ def verify_address(
     # 예: "본오동849번지 원치킨" → carry="원치킨", clean="본오동849번지"로 검색
     # building_tail은 도로명/동+번지+(.+) 패턴이 매칭돼야 작동 — regex_addr가 본문에서 잘려 들어오면
     # 패턴 매칭 실패하므로 여기서 보강
+    _FACILITY_RE = re.compile(
+        r'\s+([가-힣A-Za-z0-9]+'
+        r'(?:치킨|통닭|분식|곱창|닭갈비|국밥|냉면|고깃집|쌈밥|족발|보쌈|돈까스|초밥|횟집|'
+        r'김밥|떡볶이|토스트|햄버거|피자|쌀국수|우동|라면|쭈꾸미|순대|덮밥|'
+        r'정육점|베이커리|빵집|도넛|주점|호프|포차|편의점|마트|슈퍼|문구|꽃집|세탁소|'
+        r'카페|식당|약국|미용실|병원|한의원|학원|공방|상회|매점|갤러리|'
+        r'헤어|미용|네일|에스테틱|살롱|파티|스튜디오|체육관|헬스|필라테스|요가'
+        r'))\s*$',
+    )
     facility_carry = ''
     if clean_regex and not building_tail:
-        m_fac = re.search(
-            r'\s+([가-힣A-Za-z0-9]+'
-            r'(?:치킨|통닭|분식|곱창|닭갈비|국밥|냉면|고깃집|쌈밥|족발|보쌈|돈까스|초밥|횟집|'
-            r'김밥|떡볶이|토스트|햄버거|피자|쌀국수|우동|라면|쭈꾸미|순대|덮밥|'
-            r'정육점|베이커리|빵집|도넛|주점|호프|포차|편의점|마트|슈퍼|문구|꽃집|세탁소|'
-            r'카페|식당|약국|미용실|병원|한의원|학원|공방|상회|매점|갤러리'
-            r'))\s*$',
-            clean_regex,
-        )
+        m_fac = _FACILITY_RE.search(clean_regex)
         if m_fac:
             facility_carry = m_fac.group(1)
             clean_regex = clean_regex[:m_fac.start()].strip()
+    # 정규식 결과 없는 경우(박민혜: "내손중앙로51 헤어파티" → 정규식 None)에도
+    # 원본 텍스트에서 시설명만 추출해 carry에 보관
+    if not facility_carry and not building_tail and text:
+        first_line = text.strip().split('\n', 1)[0]
+        m_fac2 = _FACILITY_RE.search(' ' + first_line)
+        if m_fac2:
+            facility_carry = m_fac2.group(1)
 
     def _compose(base: str) -> str:
         parts = [base]
@@ -491,6 +510,67 @@ def verify_address(
     return None
 
 
+def _enrich_verified_address(
+    verified_addr: str, original_text: str, regex_addr: Optional[str]
+) -> str:
+    """카카오 verified 결과에 원본/정규식에 있는 누락 정보 보강.
+
+    1. {도로명} N번길 M 패턴 — 카카오가 "N"까지만 인식하고 "번길 M" 누락 케이스
+    2. verified에 도로명+번지가 없는데 원본/정규식엔 있는 케이스 (행정구역만 매칭)
+    """
+    if not verified_addr or not original_text:
+        return verified_addr
+
+    # 1. {도로명} N번길 M 보강 (송미나 케이스)
+    m = re.search(
+        r'([가-힣]+(?:로|길))\s*(\d+)\s*번길[\s,]*(\d+(?:-\d+)?)',
+        original_text,
+    )
+    if m and '번길' not in verified_addr:
+        road, num, ext = m.group(1), m.group(2), m.group(3)
+        target = f"{road} {num}"
+        target_alt = f"{road}{num}"
+        replacement = f"{road} {num}번길 {ext}"
+        if target in verified_addr:
+            verified_addr = verified_addr.replace(target, replacement)
+        elif target_alt in verified_addr:
+            verified_addr = verified_addr.replace(target_alt, replacement)
+
+    # 1-b. {호} 다음 단어 = 상호명 자동 부착 (예: "105호 베베드피노")
+    m_shop = re.search(
+        r'\d+호\s+([가-힣A-Za-z][가-힣A-Za-z0-9]{1,15})\s*$',
+        original_text.split('\n')[-1].strip(),
+    )
+    if m_shop:
+        shop = m_shop.group(1)
+        if shop not in verified_addr and not re.search(rf'\b{re.escape(shop)}\b', verified_addr):
+            verified_addr = f"{verified_addr} {shop}".strip()
+
+    # 도로명 끝 + 숫자 사이 공백 보강 ("세월길2" → "세월길 2"). 단 "12길" 같은 도로명 일부는 제외
+    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?!길)', r'\1 \2', verified_addr)
+
+    # 2. verified에 도로명+번지 없으면 원본/정규식에서 추출 부착 (황경철 케이스)
+    if not re.search(r'(?:로|길)\s*\d', verified_addr):
+        # 정규식 결과 우선 검사
+        candidates = []
+        if regex_addr:
+            m_r = re.search(r'([가-힣]+(?:로|길)\s*\d+(?:-\d+)?)', regex_addr)
+            if m_r:
+                candidates.append(m_r.group(1))
+        m_t = re.search(r'([가-힣]+(?:로|길)\s*\d+(?:-\d+)?)', original_text)
+        if m_t:
+            candidates.append(m_t.group(1))
+        for cand in candidates:
+            if cand not in verified_addr:
+                verified_addr = f"{verified_addr} {cand}".strip()
+                verified_addr = re.sub(r'\s+', ' ', verified_addr)
+                break
+
+    # 최종 — 도로명 + 숫자 사이 공백 보강 (부착 후에도 적용)
+    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?!길)', r'\1 \2', verified_addr)
+    return verified_addr
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -508,11 +588,15 @@ def resolve_address(
     # 1. 카카오 검증 시도
     verified = verify_address(text, regex_addr)
     if verified:
-        return verified
+        addr, level = verified
+        addr = _enrich_verified_address(addr, text, regex_addr)
+        return (addr, level)
 
-    # 2. 정규식 결과 (시도 prefix 정규화 적용)
+    # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
     if regex_addr:
-        return (normalize_display(regex_addr), regex_level or 'regex')
+        addr = normalize_display(regex_addr)
+        addr = _enrich_verified_address(addr, text, regex_addr)
+        return (addr, regex_level or 'regex')
 
     # 3. 원문 첫 줄 fallback — 엄격한 주소 패턴이 포함된 경우만
     # "세방정유라는 회사입니다" / "공장동 내에 ..." 같은 본문이 잘못 raw로 들어가는 것 방지
