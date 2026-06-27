@@ -419,6 +419,22 @@ def sync_karrot() -> Dict[str, Any]:
     # 응답 시각 오름차순 정렬 (가장 최신이 채널의 마지막 메시지로)
     new_leads.sort(key=lambda l: l.get('_meta_consult_dt') or datetime.min)
 
+    # 폭주 안전망 — 한 sync에 신규 lead가 비정상적으로 많으면(Redis 장애 등)
+    # 슬랙 발송 skip + 알림. 정상은 보통 0~2건, 5건 이상이면 dedup 문제 의심.
+    MAX_NEW_PER_SYNC = int(os.getenv('KARROT_MAX_NEW_PER_SYNC', '5'))
+    if len(new_leads) > MAX_NEW_PER_SYNC:
+        logger.error(
+            f'[SYNC/karrot] 신규 lead 비정상 다수 ({len(new_leads)}건 > {MAX_NEW_PER_SYNC}) '
+            f'— Redis dedup 장애 의심, 발송 skip'
+        )
+        return {
+            'total': len(karrot_df),
+            'new_count': 0,
+            'duplicates': duplicates,
+            'lead_nos': [],
+            'skipped_runaway': len(new_leads),
+        }
+
     lead_nos = []
     if new_leads:
         lead_nos = _append_leads_to_main(new_leads)
@@ -757,8 +773,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*설치 희망 기기* : {device}\n"
         f">*방문 주소* : {address_display}\n"
         f">*상세 문의 내용* : \n{inquiry_quoted}\n"
-        f">---------------------------------------------\n"
-        "⠀"
+        f">---------------------------------------------"
     )
 
     blocks = [
@@ -775,6 +790,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
                 },
             ],
         },
+        {"type": "section", "text": {"type": "mrkdwn", "text": "⠀"}},
     ]
     fallback_text = f"[{source}] {lead_no} {name} / {phone}"
     return blocks, fallback_text

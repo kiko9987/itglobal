@@ -1562,12 +1562,20 @@ def _open_consult_modal(client, body, from_slash: bool = False):
     lead = _find_lead_by_no(lead_no) if lead_no else None
     info_blocks = _build_consult_info_blocks(lead, lead_no)
 
-    # 초기 prefill — 인입은 온라인, 슬래시는 거래처. 처리 유형은 항상 유선 상담 기본.
+    # 초기 prefill — 인입은 온라인, 슬래시는 거래처.
+    # 재제출(시트에 상태/방문 예정일 이미 있음) → 시트 값으로 prefill
+    # 첫 상담(시트 빈 상태) → 처리 유형은 '유선 상담' 기본, 방문 예정일은 빈값
     default_visit_type = '온라인' if lead_no else '거래처'
+    sheet_status = (str(lead.get('상태') or '').strip() if lead else '')
+    sheet_visit_date_raw = (str(lead.get('방문 예정일') or '').strip() if lead else '')
+    # 시트 escape prefix(') 제거 + ISO 양식만 허용 (datepicker initial_date 검증)
+    if sheet_visit_date_raw.startswith("'"):
+        sheet_visit_date_raw = sheet_visit_date_raw[1:]
+    sheet_visit_date = sheet_visit_date_raw if re.fullmatch(r'\d{4}-\d{2}-\d{2}', sheet_visit_date_raw) else ''
     prefilled = {
         'visit_type': default_visit_type,
-        'status': '유선 상담',
-        'visit_date': '',
+        'status': sheet_status if sheet_status else '유선 상담',
+        'visit_date': sheet_visit_date,
         'name': (str(lead.get('고객명') or '').strip() if lead else ''),
         'contact': (str(lead.get('고객 연락처') or '').strip() if lead else ''),
         'visit_address': (str(lead.get('방문 주소') or '').strip() if lead else ''),
@@ -1937,7 +1945,7 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
 
     # 카테고리(플랫폼) 표시
     if platform and platform != category:
-        category_display = f"{category}({platform})"
+        category_display = f"{category} ({platform})"
     else:
         category_display = category
 
@@ -1946,12 +1954,46 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
         visit_date=visit_date, name=name, contact=contact,
         visit_address=visit_address, consultation=consultation,
     )
+    # 재제출이면 기존 방문 카드 메시지를 chat.update — 중복 발송 방지
+    redis_key = f"visit_notice_msg:{lead_no}" if lead_no else ''
+    existing_ts = ''
+    if redis_key:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            stored = rc.get(redis_key)
+            if stored:
+                stored = stored.decode('utf-8') if isinstance(stored, bytes) else stored
+                if '|' in stored:
+                    stored_channel, existing_ts = stored.split('|', 1)
+                    if stored_channel != visit_channel:
+                        existing_ts = ''
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문] 기존 메시지 ts 조회 실패 ({lead_no}): {exc}")
+
+    if existing_ts:
+        try:
+            client.chat_update(
+                channel=visit_channel, ts=existing_ts,
+                text=body_text, blocks=blocks,
+            )
+            return (visit_channel, existing_ts)
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문] chat.update 실패 ({lead_no}, ts={existing_ts}): {exc} — 신규 발송 fallback")
+
     try:
         resp = client.chat_postMessage(
             channel=visit_channel, text=body_text,
             blocks=blocks, unfurl_links=False,
         )
         ts = resp.get('ts', '') if resp else ''
+        if redis_key and ts:
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                rc = get_redis_client().redis
+                rc.set(redis_key, f"{visit_channel}|{ts}", ex=60 * 60 * 24 * 180)  # 180일
+            except Exception as exc:
+                logger.warning(f"[SLACK/방문] ts 저장 실패 ({lead_no}): {exc}")
         return (visit_channel, ts)
     except Exception as exc:
         logger.warning(f"[SLACK/방문] #방문_일정 발송 실패: {exc}")
@@ -2052,6 +2094,9 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
         return s[1:] if s.startswith("'") else s
 
     payload = {
+        'lead_no': lead_no or '-',
+        'platform': str(lead.get('플랫폼', '') or '').strip() or '-',
+        'visit_type': '온라인',
         'email': str(lead.get('이메일', '') or '').strip(),
         'details': '',
         'contact': str(lead.get('고객 연락처', '') or '').strip(),
@@ -3054,6 +3099,9 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
     parts = _split_lead_content(str(lead.get('상담 내용', '')))
 
     payload = {
+        "lead_no": lead_no or '-',
+        "platform": str(lead.get('플랫폼') or '').strip() or '-',
+        "visit_type": "온라인",
         "name": str(lead.get('고객명') or '').strip() or '-',
         "contact": str(lead.get('고객 연락처') or '').strip() or '-',
         "email": str(lead.get('이메일') or '').strip() or '-',

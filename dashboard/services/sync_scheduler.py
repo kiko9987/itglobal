@@ -17,6 +17,18 @@ logger = get_logger(__name__)
 _scheduler: Optional[BackgroundScheduler] = None
 
 
+def _redis_healthy() -> bool:
+    """Redis ping 체크 — 죽었으면 모든 sync 작업 skip (폭주 방지 circuit breaker).
+    Redis가 죽으면 dedup 키 조회 실패 → 모든 리드를 신규로 인식 → 슬랙 메시지 폭주.
+    """
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        return get_redis_client().ping()
+    except Exception as exc:
+        logger.error(f'[SCHED] Redis 헬스체크 실패: {exc}')
+        return False
+
+
 def start_scheduler():
     """앱 시작 시 1회 호출. Flask debug reload 시 이중 시작 방지."""
     global _scheduler
@@ -114,6 +126,9 @@ def stop_scheduler():
 
 def _safe_karrot_sync():
     """예외가 스케줄러를 중단시키지 않도록 wrapper"""
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — 당근 sync skip (폭주 방지)')
+        return
     try:
         from dashboard.services.lead_sync import sync_karrot
         sync_karrot()
@@ -123,6 +138,9 @@ def _safe_karrot_sync():
 
 def _safe_workflow_phone_sync():
     """슬랙 워크플로우가 메인 시트에 직접 추가한 전화 lead 보정"""
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — 워크플로 전화 lead 보정 skip')
+        return
     try:
         from dashboard.services.lead_sync import sync_workflow_phone_leads
         sync_workflow_phone_leads()
@@ -132,6 +150,9 @@ def _safe_workflow_phone_sync():
 
 def _safe_retry_pending_slack():
     """미발송 슬랙 알림 자동 재발송 (SSL 에러 등으로 누락된 lead 복구)"""
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — pending slack 재발송 skip')
+        return
     try:
         from dashboard.services.lead_sync import retry_pending_slack_notifications
         retry_pending_slack_notifications()
@@ -141,6 +162,9 @@ def _safe_retry_pending_slack():
 
 def _safe_payment_sync():
     """공사 현황 시트 U/V/W 입금 메모 변경 감지 → #수금_관리 채널 발송"""
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — 수금 sync skip')
+        return
     try:
         from dashboard.services.payment_sync import sync_payments
         sync_payments()
@@ -173,6 +197,9 @@ def _safe_payment_daily_report():
 
 def _safe_homepage_sync():
     """예외가 스케줄러를 중단시키지 않도록 wrapper"""
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — 홈페이지 메일 sync skip')
+        return
     try:
         from dashboard.services.homepage_mail_sync import sync_homepage_email
         sync_homepage_email()

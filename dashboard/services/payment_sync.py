@@ -405,6 +405,7 @@ def _build_stage_message(
     payment: Dict, invoice_value: str,
     total_r: int, total_t: int, unpaid: int,
     stage_sheet_val: int = 0,
+    construction: str = '',
 ) -> str:
     """단계별 입금 알림 (계약금/중도금/잔금)."""
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
@@ -427,11 +428,15 @@ def _build_stage_message(
         f":large_blue_diamond: *{project}* / {emoji} *{stage} {header_action}*",
         _SEP,
         f"주소 : {address or '-'}",
+    ]
+    if construction:
+        lines.append(f"공사내용 : {construction}")
+    lines.extend([
         f"{date_label} : {date_md}",
         f"{amount_label} : {amount:,}원",
         f"{partner_label} : {partner}",
         f"은행 : {bank} ({code_display})",
-    ]
+    ])
     if is_card:
         real_payment = _resolve_real_payment(stage_sheet_val, amount, total_t)
         extra_3pct = round(real_payment * 0.03 / 1.03)
@@ -467,6 +472,7 @@ def _build_stage_with_history_message(
     last_payment: Dict, all_payments: List[Dict], invoice_value: str,
     total_r: int, total_t: int, unpaid: int,
     stage_sheet_vals: Optional[Dict[str, int]] = None,
+    construction: str = '',
 ) -> str:
     """단계 카드 + 누적 이력 (중도금 입금 시 사용)."""
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
@@ -489,11 +495,15 @@ def _build_stage_with_history_message(
         f":large_blue_diamond: *{project}* / {emoji} *{stage} {header_action}*",
         _SEP,
         f"주소 : {address or '-'}",
+    ]
+    if construction:
+        lines.append(f"공사내용 : {construction}")
+    lines.extend([
         f"{date_label} : {date_md}",
         f"{amount_label} : {amount:,}원",
         f"{partner_label} : {partner}",
         f"은행 : {bank} ({code_display})",
-    ]
+    ])
     if is_card:
         stage_val = (stage_sheet_vals or {}).get(stage, 0)
         real_payment = _resolve_real_payment(stage_val, amount, total_t)
@@ -529,6 +539,7 @@ def _build_complete_message(
     project: str, address: str,
     payments: List[Dict], invoice_value: str, total_t: int,
     stage_sheet_vals: Optional[Dict[str, int]] = None,
+    construction: str = '',
 ) -> str:
     """수금완료 알림 — 전체 history 취합."""
     lines = [
@@ -536,9 +547,13 @@ def _build_complete_message(
         f":large_blue_diamond: *{project}* / :white_check_mark: *수금완료*",
         _SEP,
         f"주소 : {address or '-'}",
+    ]
+    if construction:
+        lines.append(f"공사내용 : {construction}")
+    lines.extend([
         '',
         '[입금 이력]',
-    ]
+    ])
     for p in payments:
         stage = p.get('stage', '-')
         date_md = p.get('date_md', '-')
@@ -736,6 +751,7 @@ def sync_payments() -> Dict:
 
     IDX_A = col_idx('A')
     IDX_F = col_idx('F')
+    IDX_L = col_idx('L')
     IDX_R = col_idx('R')
     IDX_T = col_idx('T')
     IDX_U = col_idx('U')
@@ -855,6 +871,7 @@ def sync_payments() -> Dict:
             'u': u_val, 'v': v_val, 'w': w_val, 'aa': aa_chk,
             'prev_u': prev_u, 'prev_v': prev_v, 'prev_w': prev_w, 'prev_aa': prev_aa,
             'address': str(_get(IDX_F)).strip(),
+            'construction': str(_get(IDX_L)).strip(),
             'invoice': str(_get(IDX_Y)).strip(),
             'total_r': _to_int_won(_get(IDX_R)),
             'total_t': _to_int_won(_get(IDX_T)),
@@ -932,6 +949,7 @@ def sync_payments() -> Dict:
                             payments=payments, invoice_value=c['invoice'],
                             total_t=c['total_t'],
                             stage_sheet_vals=stage_vals,
+                            construction=c.get('construction', ''),
                         )
                     elif stage in ('중도금', '잔금'):
                         # 중도금, 또는 잔금 부족 입금(수금중) → 단계 카드 + history
@@ -942,6 +960,7 @@ def sync_payments() -> Dict:
                             total_r=c['total_r'], total_t=c['total_t'],
                             unpaid=c['unpaid'],
                             stage_sheet_vals=stage_vals,
+                            construction=c.get('construction', ''),
                         )
                     else:  # 계약금
                         text = _build_stage_message(
@@ -950,6 +969,7 @@ def sync_payments() -> Dict:
                             total_r=c['total_r'], total_t=c['total_t'],
                             unpaid=c['unpaid'],
                             stage_sheet_val=stage_vals.get(stage, 0),
+                            construction=c.get('construction', ''),
                         )
                     slack.chat_postMessage(channel=channel, text=text)
                     result['sent'] += 1
@@ -1138,12 +1158,14 @@ def search_project(project_code: str) -> Optional[str]:
         if not payments:
             return f"`{code}` — 수금 메모 없음 (시트 메모 미입력)"
         address = str(row[5]).strip()
+        construction = str(row[11]).strip() if len(row) > 11 else ''
         total_t = _to_int_won(row[19])
         unpaid = _to_int_won(row[23])
         invoice = str(row[24]).strip()
         msg = _build_complete_message(
             code, address, payments, invoice, total_t,
             stage_sheet_vals=stage_vals,
+            construction=construction,
         )
         if unpaid != 0:
             msg += f"\n_미수금 : {unpaid:,}원_"
