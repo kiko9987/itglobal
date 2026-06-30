@@ -46,6 +46,46 @@ class TestSpamDetection:
         assert _is_spam_message('') is False
         assert _is_spam_message(None or '') is False
 
+    def test_short_spam_with_high_keyword_url(self):
+        """짧아도 명확한 광고 — URL + 채널업 키워드 (점수≥5) → 차단"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        # 50자 미만 + URL + HIGH 키워드 (채널업=5점)
+        assert _is_spam_message('https://channelup.kr 무료체험 신청') is True
+        # 50자 미만 + URL + 카드론 (HIGH=5점)
+        assert _is_spam_message('카드론 https://loan.kr 저금리 안내') is True
+
+    def test_short_spam_without_high_keyword(self):
+        """짧은 메시지 + URL만 → 통과 (URL만으론 차단 X)"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        # 50자 미만 + URL + LOW 키워드만
+        assert _is_spam_message('대표님 https://example.com 확인 부탁') is False
+
+    def test_weak_keyword_accumulation_not_spam(self):
+        """약한 키워드만 누적된 정상 메시지 — false positive 방지"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        # '사장님' + '도움 되시' + '연락 부탁드립니다' = LOW 3개 = 3점
+        # URL 1개 + 점수 3 → 차단 X (점수 5 미만)
+        msg = ('사장님 안녕하세요. 친구한테 추천 받아서 문의드립니다. '
+               'https://itg-aircon.com 봤어요. 도움 되시면 좋겠습니다. '
+               '연락 부탁드립니다.')
+        assert _is_spam_message(msg) is False
+
+    def test_clear_advertisement_blocked(self):
+        """명확한 광고 — MID 키워드 다수 + URL 2개 → 차단"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        # '광고' (3) + '효과 보장' (3) + URL 2개 → 점수 6, URL 2 → 차단
+        msg = ('https://x.com 광고 솔루션입니다. 효과 보장 https://y.com '
+               '연락주세요.')
+        assert _is_spam_message(msg) is True
+
+    def test_normal_friend_recommendation_long(self):
+        """긴 정상 메시지 — false positive 방지"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        msg = ('안녕하세요. 친구가 추천해줘서 문의드립니다. '
+               'https://itg-aircon.com 사이트 봤습니다. 사무실 30평 정도 '
+               '천장형 에어컨 견적 가능할까요?')
+        assert _is_spam_message(msg) is False
+
 
 @pytest.mark.unit
 class TestSlackCardTruncate:
