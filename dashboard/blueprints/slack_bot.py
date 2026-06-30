@@ -2038,13 +2038,13 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
     if vd_initial:
         vd_element["initial_date"] = vd_initial
 
-    # 인입 카드(lead_no 있음) 진입은 자동으로 '온라인' 분류 → 방문 유형 필드 숨김
-    # /방문 슬래시 진입(lead_no 없음)에서만 방문 유형 dropdown 표시
+    # 인입 카드(lead_no 또는 chat_id 있음) 진입은 자동 분류 → 방문 유형 필드 숨김
+    # /방문 슬래시 진입(둘 다 없음)에서만 방문 유형 dropdown 표시
     try:
         _meta = json.loads(metadata) if metadata else {}
     except Exception:
         _meta = {}
-    is_lead_card = bool(_meta.get('lead_no'))
+    is_lead_card = bool(_meta.get('lead_no') or _meta.get('chat_id'))
 
     input_blocks = []
     if not is_lead_card:
