@@ -1795,6 +1795,25 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
                 )
             except Exception:
                 pass
+
+        # 연결된 기존 lead의 원본 카드에 ✅ reaction 추가 (시각적 처리 완료 표시)
+        try:
+            card_info = rc.get(f'lead_card_msg:{target_lead_no}')
+            if card_info:
+                card_info_s = card_info.decode('utf-8') if isinstance(card_info, bytes) else card_info
+                if '|' in card_info_s:
+                    target_channel, target_ts = card_info_s.split('|', 1)
+                    try:
+                        client.reactions_add(
+                            channel=target_channel, timestamp=target_ts,
+                            name='white_check_mark',
+                        )
+                    except Exception as exc:
+                        # 이미 reaction 있거나 권한 문제는 무시
+                        logger.debug(f"[SLACK/link] reaction 추가 skip ({target_lead_no}): {exc}")
+        except Exception as exc:
+            logger.warning(f"[SLACK/link] 원본 카드 reaction 실패: {exc}")
+
         logger.info(
             f"[SLACK/link] chat_id={chat_id} → {target_lead_no} 통합 완료"
         )

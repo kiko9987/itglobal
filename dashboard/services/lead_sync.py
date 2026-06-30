@@ -717,6 +717,19 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
             )
             if resp and resp.get('ok'):
                 sent.add(ln)
+                # 카드 ts 저장 — [기존 lead 연결] 시 그 카드에 ✅ reaction 추가용
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    rc = get_redis_client().redis
+                    msg_ts = resp.get('ts', '')
+                    if msg_ts:
+                        rc.set(
+                            f'lead_card_msg:{ln}',
+                            f'{channel}|{msg_ts}',
+                            ex=60 * 60 * 24 * 180,  # 180일 보존
+                        )
+                except Exception:
+                    pass
             else:
                 logger.error(f'[SYNC/{source}] 슬랙 전송 응답 not ok ({ln}): {resp}')
         except Exception as exc:
