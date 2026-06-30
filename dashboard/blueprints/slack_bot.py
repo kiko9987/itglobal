@@ -1847,7 +1847,15 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         channel = body["channel"]["id"]
         message_ts = body["message"]["ts"]
         # 옛 카드 본문 — 모달 제출 후 회색 박스 변환에 사용
-        original_text = body.get("message", {}).get("text", "") or ''
+        # message.text는 짧은 fallback이라 실제 카드는 blocks에서 추출
+        msg = body.get("message", {})
+        block_texts = []
+        for b in msg.get("blocks", []):
+            if b.get("type") == "section":
+                t = (b.get("text") or {}).get("text", "")
+                if t:
+                    block_texts.append(t)
+        original_text = '\n'.join(block_texts) if block_texts else (msg.get("text", "") or '')
 
     metadata = json.dumps({
         "lead_no": lead_no,
