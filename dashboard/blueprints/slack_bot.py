@@ -3246,7 +3246,8 @@ def _process_phone_submission(client, body, view):
         '_meta_address_level': '',
     }
 
-    # 중복 등록 방지 — 같은 번호 24시간 이내 lead 있으면 차단 + 안내
+    # 중복 등록 감지 — 같은 번호 24시간 이내 lead 있으면 신규 등록 X, 기존 update
+    existing_lead_no = ''
     try:
         from dashboard.services.lead_service import load_leads_data
         from dashboard.services.lead_sync import _get_existing_phone_lookup
@@ -3260,39 +3261,46 @@ def _process_phone_submission(client, body, view):
                 prev_dt = prev[0].get('consult_dt')
                 prev_lead_no = prev[0].get('lead_no', '')
                 if prev_dt and (now - prev_dt) < timedelta(hours=24):
-                    # 같은 번호 24시간 이내 lead 발견 → 등록 skip + 매니저 안내
-                    try:
-                        client.chat_postEphemeral(
-                            channel=channel, user=user_id,
-                            text=(
-                                f":warning: *중복 등록 차단* — `{phone}` 번호는 "
-                                f"`{prev_lead_no}` ({prev_dt.strftime('%m.%d %H:%M')})로 "
-                                f"이미 등록됨.\n"
-                                f"기존 lead 처리하시려면 슬랙 카드의 *[상담하기]* 버튼을 "
-                                f"이용해주세요.\n"
-                                f"_정말 새 lead로 등록해야 한다면 24시간 후 다시 시도하거나 "
-                                f"관리자에게 문의하세요._"
-                            ),
-                        )
-                    except Exception:
-                        pass
+                    # 24시간 이내 같은 번호 → 기존 lead update (신규 등록 X)
+                    existing_lead_no = prev_lead_no
                     logger.info(
-                        f"[SLACK/전화] 중복 등록 차단 (phone={phone}, "
-                        f"prev={prev_lead_no}, by={user_id})"
+                        f"[SLACK/전화] 중복 감지 → 기존 lead update "
+                        f"(phone={phone}, lead_no={existing_lead_no}, by={user_id})"
                     )
-                    return
             if prev and prev[0].get('consult_dt'):
                 if (now - prev[0]['consult_dt']).total_seconds() > 3600:
                     lead['_meta_previous_leads'] = prev
     except Exception as exc:
         logger.warning(f"[SLACK/전화] 재문의 감지 실패: {exc}")
 
-    # 시트 등록 — 최대 2회 시도 (1차 실패 시 5초 대기 후 재시도)
-    # transient 에러(SSL/timeout/connection)는 Google API가 자체 retry하여 시트엔 이미 등록됐을 수 있음
-    # → 각 시도 후 시트 검색 fallback으로 회복 시도 (중복 등록 방지)
+    # 시트 등록 / update — 같은 번호 24시간 이내 lead 있으면 update, 없으면 신규
     lead_no = None
     permanent_error = False
+    if existing_lead_no:
+        # 기존 lead update — 신규 발번 X, 기존 행만 갱신
+        try:
+            from dashboard.services.lead_service import update_lead
+            update_data = {
+                '상태': status,
+                '방문 예정일': visit_date,
+                '고객명': name,
+                '이메일': email,
+                '방문 주소': address,
+                '상담 내용': inquiry,
+                '키워드': keyword,
+                '온라인 상담자': counselor,
+            }
+            update_lead(existing_lead_no, update_data)
+            lead_no = existing_lead_no
+            logger.info(f"[SLACK/전화] 기존 lead update 완료: {lead_no}")
+        except Exception as exc:
+            logger.error(f"[SLACK/전화] 기존 lead update 실패 ({existing_lead_no}): {exc}",
+                         exc_info=True)
+            permanent_error = True
+
     for attempt in range(2):
+        if lead_no:
+            break  # 기존 update 성공 또는 신규 등록 성공
         if attempt > 0:
             logger.warning(f"[SLACK/전화] 1차 등록 실패 — 5초 후 재시도")
             time.sleep(5)
@@ -3360,7 +3368,8 @@ def _process_phone_submission(client, body, view):
     # 확인 메시지 (ephemeral) — 방문 예약은 채널 공지가 영수증, 그 외는 짧은 한 줄
     if not is_visit:
         try:
-            confirm = f":white_check_mark: *{phone}* 등록 — {status} `{lead_no}`"
+            action_label = '재등록 (update)' if existing_lead_no else '등록'
+            confirm = f":white_check_mark: *{phone}* {action_label} — {status} `{lead_no}`"
             client.chat_postEphemeral(channel=channel or user_id, user=user_id, text=confirm)
         except Exception as exc:
             logger.warning(f"[SLACK/전화] 확인 메시지 실패: {exc}")
