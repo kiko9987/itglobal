@@ -3246,15 +3246,41 @@ def _process_phone_submission(client, body, view):
         '_meta_address_level': '',
     }
 
-    # 재문의 감지 (같은 번호 옛 lead 1시간 이상 전)
+    # 중복 등록 방지 — 같은 번호 24시간 이내 lead 있으면 차단 + 안내
     try:
         from dashboard.services.lead_service import load_leads_data
         from dashboard.services.lead_sync import _get_existing_phone_lookup
+        from datetime import timedelta
         main_df = load_leads_data(force_refresh=False)
         phone_lookup = _get_existing_phone_lookup(main_df)
         phone_digits = _re.sub(r'\D', '', phone)
         if phone_digits and phone_digits in phone_lookup:
             prev = phone_lookup[phone_digits]
+            if prev and prev[0].get('consult_dt'):
+                prev_dt = prev[0].get('consult_dt')
+                prev_lead_no = prev[0].get('lead_no', '')
+                if prev_dt and (now - prev_dt) < timedelta(hours=24):
+                    # 같은 번호 24시간 이내 lead 발견 → 등록 skip + 매니저 안내
+                    try:
+                        client.chat_postEphemeral(
+                            channel=channel, user=user_id,
+                            text=(
+                                f":warning: *중복 등록 차단* — `{phone}` 번호는 "
+                                f"`{prev_lead_no}` ({prev_dt.strftime('%m.%d %H:%M')})로 "
+                                f"이미 등록됨.\n"
+                                f"기존 lead 처리하시려면 슬랙 카드의 *[상담하기]* 버튼을 "
+                                f"이용해주세요.\n"
+                                f"_정말 새 lead로 등록해야 한다면 24시간 후 다시 시도하거나 "
+                                f"관리자에게 문의하세요._"
+                            ),
+                        )
+                    except Exception:
+                        pass
+                    logger.info(
+                        f"[SLACK/전화] 중복 등록 차단 (phone={phone}, "
+                        f"prev={prev_lead_no}, by={user_id})"
+                    )
+                    return
             if prev and prev[0].get('consult_dt'):
                 if (now - prev[0]['consult_dt']).total_seconds() > 3600:
                     lead['_meta_previous_leads'] = prev
