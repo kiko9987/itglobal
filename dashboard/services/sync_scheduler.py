@@ -228,6 +228,16 @@ def stop_scheduler():
         logger.info('[SCHED] 스케줄러 정지')
 
 
+def _is_transient_error(exc: Exception) -> bool:
+    """일시 에러 (SSL/timeout/connection) 판정 — 다음 폴링에 자동 재시도되므로 알림 불필요."""
+    s = str(exc).lower()
+    return (
+        'ssl' in s or 'wrong_version' in s or 'decryption_failed' in s
+        or 'timeout' in s or 'connection' in s or 'bad_record_mac' in s
+        or 'eof' in s or 'unreachable' in s or 'reset' in s
+    )
+
+
 def _safe_karrot_sync():
     """예외가 스케줄러를 중단시키지 않도록 wrapper"""
     if not _redis_healthy():
@@ -238,8 +248,9 @@ def _safe_karrot_sync():
         sync_karrot()
     except Exception as exc:
         logger.error(f'[SCHED] 당근 sync 실행 실패: {exc}', exc_info=True)
-        _notify_admin('karrot_sync_fail',
-                      f':warning: 당근 sync 실패 — `{exc}`. 로그 확인 필요.')
+        if not _is_transient_error(exc):
+            _notify_admin('karrot_sync_fail',
+                          f':warning: 당근 sync 실패 — `{exc}`. 로그 확인 필요.')
 
 
 def _safe_workflow_phone_sync():
@@ -252,8 +263,9 @@ def _safe_workflow_phone_sync():
         sync_workflow_phone_leads()
     except Exception as exc:
         logger.error(f'[SCHED] 워크플로 전화 lead 보정 실패: {exc}', exc_info=True)
-        _notify_admin('workflow_phone_fail',
-                      f':warning: 전화 lead 보정 실패 — `{exc}`.')
+        if not _is_transient_error(exc):
+            _notify_admin('workflow_phone_fail',
+                          f':warning: 전화 lead 보정 실패 — `{exc}`.')
 
 
 def _safe_retry_pending_slack():
@@ -266,6 +278,8 @@ def _safe_retry_pending_slack():
         retry_pending_slack_notifications()
     except Exception as exc:
         logger.error(f'[SCHED] 미발송 슬랙 재발송 실패: {exc}', exc_info=True)
+        if _is_transient_error(exc):
+            return
         _notify_admin('retry_pending_fail',
                       f':warning: 미발송 슬랙 재발송 실패 — `{exc}`.')
 
@@ -280,8 +294,9 @@ def _safe_payment_sync():
         sync_payments()
     except Exception as exc:
         logger.error(f'[SCHED] 수금 알림 sync 실패: {exc}', exc_info=True)
-        _notify_admin('payment_sync_fail',
-                      f':warning: 수금 알림 sync 실패 — `{exc}`.')
+        if not _is_transient_error(exc):
+            _notify_admin('payment_sync_fail',
+                          f':warning: 수금 알림 sync 실패 — `{exc}`.')
 
 
 def _safe_payment_daily_report():
@@ -317,8 +332,9 @@ def _safe_homepage_sync():
         sync_homepage_email()
     except Exception as exc:
         logger.error(f'[SCHED] 홈페이지 메일 sync 실행 실패: {exc}', exc_info=True)
-        _notify_admin('homepage_sync_fail',
-                      f':warning: 홈페이지 메일 sync 실패 — `{exc}`.')
+        if not _is_transient_error(exc):
+            _notify_admin('homepage_sync_fail',
+                          f':warning: 홈페이지 메일 sync 실패 — `{exc}`.')
 
 
 def _safe_channeltalk_pending_check():
