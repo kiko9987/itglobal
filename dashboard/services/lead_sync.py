@@ -439,7 +439,15 @@ def sync_karrot() -> Dict[str, Any]:
     lead_nos = []
     if new_leads:
         lead_nos = _append_leads_to_main(new_leads)
-        sent = _send_slack_notifications(new_leads, lead_nos, source='당근')
+        # 슬랙 발송 — 함수 자체가 SSL/네트워크 에러로 raise 가능 → 외부 try/except 안전망
+        # raise되면 sent=빈 set으로 처리 → 모든 lead가 pending 큐에 들어감 (자동 재시도)
+        try:
+            sent = _send_slack_notifications(new_leads, lead_nos, source='당근')
+        except Exception as exc:
+            logger.error(
+                f'[SYNC/karrot] 슬랙 발송 함수 자체 실패 → 전체 pending 큐 등록: {exc}'
+            )
+            sent = set()
         # 미발송 lead — Redis pending 큐에 저장 (SSL 에러 등으로 누락된 lead 추적용)
         try:
             from dashboard.utils.redis_client import get_redis_client
