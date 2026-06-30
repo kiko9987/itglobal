@@ -2364,47 +2364,20 @@ def _process_consult_submission(client, body, view):
         except Exception as exc:
             logger.debug(f"[SLACK/상담] reply 캐시 조회 실패: {exc}")
 
-        try:
-            if old_reply_ts:
-                client.chat_update(
-                    channel=channel, ts=old_reply_ts, text=reply_text,
-                )
-            else:
-                resp = client.chat_postMessage(
-                    channel=channel, thread_ts=message_ts, text=reply_text,
-                )
-                # 새 reply의 ts를 Redis에 저장 (90일)
-                if resp and resp.get('ok') and resp.get('ts'):
-                    try:
-                        rc.set(
-                            reply_key, resp['ts'], ex=60 * 60 * 24 * 90,
-                        )
-                    except Exception:
-                        pass
-        except Exception as exc:
-            logger.error(f"[SLACK/상담] thread reply 실패: {exc}", exc_info=True)
-
-        # 원본 카드 ✅ reaction
-        try:
-            client.reactions_add(
-                channel=channel, timestamp=message_ts, name="white_check_mark",
-            )
-        except Exception:
-            pass
-
-        # 원본 카드 본문 회색 박스 변환 — "처리 완료" 시각 명확화 (공사 취소 카드와 일관)
+        # 순서 — chat.update(회색 박스) → reaction → thread reply
+        # 옛 공사현황 봇과 같은 순서 — slack UI가 reply count 표시 안 되는 케이스 회피
+        # 1) 원본 카드 본문 회색 박스 변환
         original_text = metadata.get("original_text", "") if isinstance(metadata, dict) else ''
         if original_text:
             try:
                 cancel_time = datetime.now().strftime('%m.%d %H:%M')
                 initial = _slack_user_to_initial(client, user_id) or '-'
-                # 옛 본문에서 `>` blockquote / * 마크다운 제거 + 양쪽 ⠀(Braille blank) / 공백 제거
                 cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
                 cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
                 clean_text = '\n'.join(cleaned_lines)
                 clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
                 header_lines = [
-                    "⠀",  # 처리 완료 카드 상단 여백
+                    "⠀",
                     f":white_check_mark: *{status} 처리 완료*",
                     f"처리자 : {initial}",
                     f"처리 시간 : {cancel_time}",
@@ -2420,6 +2393,34 @@ def _process_consult_submission(client, body, view):
                 )
             except Exception as exc:
                 logger.warning(f"[SLACK/상담] 카드 회색 처리 실패 ({lead_no}): {exc}")
+
+        # 2) 원본 카드 ✅ reaction
+        try:
+            client.reactions_add(
+                channel=channel, timestamp=message_ts, name="white_check_mark",
+            )
+        except Exception:
+            pass
+
+        # 3) thread reply 발송 (slack UI가 reply count 표시 갱신하도록 마지막에)
+        try:
+            if old_reply_ts:
+                client.chat_update(
+                    channel=channel, ts=old_reply_ts, text=reply_text,
+                )
+            else:
+                resp = client.chat_postMessage(
+                    channel=channel, thread_ts=message_ts, text=reply_text,
+                )
+                if resp and resp.get('ok') and resp.get('ts'):
+                    try:
+                        rc.set(
+                            reply_key, resp['ts'], ex=60 * 60 * 24 * 90,
+                        )
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.error(f"[SLACK/상담] thread reply 실패: {exc}", exc_info=True)
     else:
         # 슬래시 진입 케이스 — ephemeral 확인 메시지
         try:
