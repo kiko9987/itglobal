@@ -1977,11 +1977,8 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         ),
         'contact': (str(lead.get('고객 연락처') or '').strip() if lead else ''),
         'visit_address': (str(lead.get('방문 주소') or '').strip() if lead else ''),
-        # 원본 고객 메시지 prefill → 통화 후 사용자가 추가/수정 → 시트 '상담 내용'에 저장
-        'consultation': (
-            (str(lead.get('상담 내용') or '').strip() if lead else '')
-            or (channeltalk_info.get('first_message', '') if channeltalk_info else '')
-        ),
+        # 옛 상담 내용은 카드에 이미 표시 — 모달은 통화 후 추가 메모만 받음 (피드백 컬럼에 저장)
+        'consultation': '',
     }
     full_view = _build_consult_view(info_blocks, metadata, prefilled)
     try:
@@ -2120,8 +2117,9 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
         _text_input("name", "이름 / 상호"),
         _text_input("contact", "연락처", placeholder="010-1234-5678"),
         _text_input("visit_address", "방문 주소"),
-        _text_input("consultation", "상담 내용 / 특이사항",
-                    multiline=True, placeholder="통화 요지, 특이사항 등"),
+        _text_input("consultation", "추가 상담 메모 (옵션)",
+                    multiline=True,
+                    placeholder="통화/방문 후 추가 정보, 특이사항 등 — 시트 피드백 컬럼에 저장"),
     ])
 
     return {
@@ -2219,9 +2217,8 @@ def _process_consult_submission(client, body, view):
             if visit_address:
                 update_data['방문 주소'] = visit_address
             if consultation:
-                # 상담 내용 컬럼을 모달 입력으로 갱신 (원본 prefill을 통화 후 정확한
-                # 내용으로 사용자가 수정한 결과 — 통화 정보가 더 정확하므로)
-                update_data['상담 내용'] = consultation
+                # 옛 상담 내용은 보존 — 매니저 추가 입력은 피드백 컬럼에 저장
+                update_data['피드백'] = consultation
             update_lead(lead_no, update_data)
         except Exception as exc:
             logger.error(f"[SLACK/상담] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
@@ -2401,17 +2398,20 @@ def _process_consult_submission(client, body, view):
             try:
                 cancel_time = datetime.now().strftime('%m.%d %H:%M')
                 initial = _slack_user_to_initial(client, user_id) or '-'
-                # 옛 본문에서 `>` blockquote / * 마크다운 제거 → 코드 블록으로 회색 표시
+                # 옛 본문에서 `>` blockquote / * 마크다운 제거 + 양쪽 ⠀(Braille blank) / 공백 제거
                 cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
                 cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
-                clean_text = '\n'.join(cleaned_lines).strip()
-                new_text = (
-                    f":white_check_mark: *{status} 처리 완료*\n"
-                    f"처리자 : {initial}\n"
-                    f"처리 시간 : {cancel_time}\n"
-                    f"\n"
-                    f"```\n{clean_text}\n```"
-                )
+                clean_text = '\n'.join(cleaned_lines)
+                clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
+                header_lines = [
+                    "⠀",  # 처리 완료 카드 상단 여백
+                    f":white_check_mark: *{status} 처리 완료*",
+                    f"처리자 : {initial}",
+                    f"처리 시간 : {cancel_time}",
+                ]
+                if consultation:
+                    header_lines.append(f"상담내용 : {consultation}")
+                new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
                 new_blocks = [
                     {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
                 ]
