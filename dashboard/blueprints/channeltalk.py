@@ -177,9 +177,9 @@ def _attach_chat_open_button(channel: str, thread_ts: str, original_text: str,
         sep = '&' if '?' in permalink else '?'
         thread_url = f'{permalink}{sep}thread_ts={thread_ts}&cid={channel}'
 
-        # 본문 끝에 [💬 채팅 열기] 마크다운 링크 (thread 이동용)
+        # 본문 끝에 [💬 채팅 열기] 마크다운 링크 (thread 이동용) + 빈 줄로 간격
         # 그 아래 actions block에 [📞 상담하기] action button (통합 모달 — 같은 lead 업데이트)
-        updated_text = original_text + f"\n\n👉 <{thread_url}|*💬 채팅 열기*>"
+        updated_text = original_text + f"\n\n<{thread_url}|*💬 채팅 열기*>\n⠀"
         _slack_post('chat.update', {
             'channel': channel,
             'ts': thread_ts,
