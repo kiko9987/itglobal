@@ -208,7 +208,10 @@ def start_scheduler():
             hour=9, minute=0,
             id='cert_expiry_check',
         )
-        jobs.append('SSL 인증서 체크 매일 09시')
+        # Flask 시작 시 1회 즉시 체크 — 재시작 직후 만료 임박 즉시 감지
+        import threading as _th
+        _th.Timer(30, _safe_cert_expiry_check).start()
+        jobs.append('SSL 인증서 체크 매일 09시 + 시작 30초 후 1회')
 
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
