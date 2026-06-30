@@ -2192,7 +2192,40 @@ def _process_consult_submission(client, body, view):
     # ─────────────────────────────────────────────
     # 2) 신규 리드 케이스 (거래처/기타, 슬래시 진입) — 시트에 새 lead 등록
     # ─────────────────────────────────────────────
+    elif category in ('거래처', '기타'):
+        # 거래처 / 기타 — 신규 lead 아님 (기존 매니저 추가 공사 또는 현장 용건)
+        # → 시트 등록 X, lead_no 발번 X
+        # 방문 예약이면 슬랙 List만 등록 (다음날 일정 정리용)
+        from dashboard.services.lead_helpers import normalize_phone
+        contact = normalize_phone(contact) or contact or '-'
+        if is_visit:
+            synthetic_lead = {
+                '리드 No': '',
+                '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
+                '플랫폼': category,
+                '고객명': name or '-',
+                '고객 연락처': contact,
+                '이메일': '-',
+                '방문 주소': visit_address or '-',
+                '상담 내용': consultation or '-',
+                '키워드': '-',
+            }
+            try:
+                _post_to_slack_list(
+                    client, synthetic_lead,
+                    modal_fields={
+                        'visit_date': visit_date_raw,
+                        'visit_address': visit_address,
+                        'consultation': consultation,
+                        'estimate': '',
+                    },
+                    channel=channel, message_ts=message_ts, action='visit',
+                )
+            except Exception as exc:
+                logger.error(f"[SLACK/상담] 거래처/기타 List 등록 실패: {exc}", exc_info=True)
+
     else:
+        # 슬래시 진입의 예외 케이스 (visit_type='온라인'인데 lead_no 없음 등) — 옛 신규 lead 등록 흐름
         try:
             from dashboard.services.lead_sync import _append_leads_to_main
             from dashboard.services.lead_helpers import normalize_phone
@@ -2201,7 +2234,7 @@ def _process_consult_submission(client, body, view):
             new_lead = {
                 '리드 No': '',
                 '상담 시간': now.strftime('%Y.%m.%d. %H:%M'),
-                '플랫폼': category,  # 거래처 / 기타
+                '플랫폼': category,
                 '상태': sheet_status,
                 '방문 예정일': visit_date_for_sheet or '-',
                 '고객 연락처': normalize_phone(contact) or contact or '-',
@@ -2411,9 +2444,11 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     [✏️ 방문일 수정] + [🗑️ 방문 취소] 액션 버튼 포함. 카드 발송/복원 양쪽에서 재사용.
     """
     SEP = '---------------------------------------------'
+    # lead_no 없으면 (거래처/기타) 헤더에 표시 안 함
+    header_suffix = f"  `{lead_no}`" if lead_no else ''
     lines = [
         "⠀",
-        f">:bell: *새 방문 일정* — {category_display}  `{lead_no}`",
+        f">:bell: *새 방문 일정* — {category_display}{header_suffix}",
         f">{SEP}",
         f">등록자 : {initial or '-'}",
         f">방문일 : {visit_date or '-'}",
