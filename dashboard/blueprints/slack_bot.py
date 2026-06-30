@@ -2219,6 +2219,10 @@ def _process_consult_submission(client, body, view):
             if consultation:
                 # 옛 상담 내용은 보존 — 매니저 추가 입력은 피드백 컬럼에 저장
                 update_data['피드백'] = consultation
+            # 상담하기 누른 매니저 → L열(온라인 상담자) — 드롭다운 값과 매칭되는 한국 이름
+            counselor = _slack_user_to_korean_name(client, user_id)
+            if counselor:
+                update_data['온라인 상담자'] = counselor
             update_lead(lead_no, update_data)
         except Exception as exc:
             logger.error(f"[SLACK/상담] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
