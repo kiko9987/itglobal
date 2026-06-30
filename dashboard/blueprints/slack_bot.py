@@ -22,6 +22,16 @@ from typing import Optional
 from flask import Blueprint, request, jsonify
 
 from dashboard.utils.logging_config import get_logger
+from dashboard.blueprints.slack_helpers import (
+    _format_date_for_sheet,
+    _v,
+    _v_multi,
+    _to_initial,
+    _slack_user_to_initial,
+    _slack_user_to_korean_name,
+    _human_duration,
+    SALES_INITIALS,
+)
 
 logger = get_logger(__name__)
 
@@ -158,6 +168,21 @@ def _init_visit_slack_app():
         return False
 
 
+def _try_acquire_action_lock(lead_no: str, action: str, ttl: int = 5) -> bool:
+    """동시/더블 클릭 방지 락 — 첫 클릭만 통과. 락 못 잡으면 False.
+    Redis 다운 시 보수적으로 True 반환 (기능 끊지 않음)."""
+    if not lead_no:
+        return True
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        return bool(rc.set(
+            f'visit_action_lock:{lead_no}:{action}', '1', nx=True, ex=ttl,
+        ))
+    except Exception:
+        return True
+
+
 def _register_visit_handlers(app):
     """방문 일정 알림 봇 핸들러 — [✏️ 방문일 수정] / [🗑️ 방문 취소]"""
 
@@ -168,6 +193,10 @@ def _register_visit_handlers(app):
         def _bg():
             try:
                 lead_no = body["actions"][0].get("value") or ''
+                # 동시 클릭 방지 락 (5초)
+                if not _try_acquire_action_lock(lead_no, 'modify_date'):
+                    logger.info(f'[SLACK/방문봇] visit_modify_date 중복 클릭 skip ({lead_no})')
+                    return
                 channel = body["channel"]["id"]
                 message_ts = body["message"]["ts"]
                 trigger_id = body["trigger_id"]
@@ -219,6 +248,10 @@ def _register_visit_handlers(app):
         ack()
         def _bg():
             try:
+                lead_no = body["actions"][0].get("value") or ''
+                if not _try_acquire_action_lock(lead_no, 'cancel'):
+                    logger.info(f'[SLACK/방문봇] visit_cancel 중복 클릭 skip ({lead_no})')
+                    return
                 _process_visit_cancel(client, body)
             except Exception as exc:
                 logger.error(f"[SLACK/방문봇] visit_cancel 실패: {exc}", exc_info=True)
@@ -229,6 +262,10 @@ def _register_visit_handlers(app):
         ack()
         def _bg():
             try:
+                lead_no = body["actions"][0].get("value") or ''
+                if not _try_acquire_action_lock(lead_no, 'uncancel'):
+                    logger.info(f'[SLACK/방문봇] visit_uncancel 중복 클릭 skip ({lead_no})')
+                    return
                 _process_visit_uncancel(client, body)
             except Exception as exc:
                 logger.error(f"[SLACK/방문봇] visit_uncancel 실패: {exc}", exc_info=True)
@@ -469,6 +506,68 @@ def _register_handlers(app):
         except Exception as exc:
             logger.error(f"[SLACK] button_consult 실패: {exc}", exc_info=True)
 
+    # 채널톡 카드 [🔗 기존 lead 연결] — 같은 사람이 다른 채널로도 인입했을 때
+    @app.action("link_existing_lead")
+    def handle_link_existing_lead(ack, body, client):
+        ack()
+        try:
+            chat_id = body["actions"][0]["value"]
+            channel = body["channel"]["id"]
+            message_ts = body["message"]["ts"]
+            _open_link_lead_modal(client, body, chat_id, channel, message_ts)
+        except Exception as exc:
+            logger.error(f"[SLACK] link_existing_lead 실패: {exc}", exc_info=True)
+
+    @app.options("value")
+    def handle_link_lead_options(ack, body):
+        """external_select 검색 — 매니저가 입력한 query로 시트 lead 매칭."""
+        try:
+            # action_id "value"는 다른 select에도 쓰일 수 있어 block_id로 필터
+            block_id = (body.get("block_id") or "")
+            if block_id != "target_lead_no":
+                ack(options=[])
+                return
+            query = (body.get("value") or "").strip()
+            options = _search_leads_for_options(query, limit=30)
+            ack(options=options)
+        except Exception as exc:
+            logger.error(f"[SLACK] link lead options 실패: {exc}", exc_info=True)
+            try:
+                ack(options=[])
+            except Exception:
+                pass
+
+    @app.view("submit_link_lead")
+    def handle_submit_link_lead(ack, body, view, client):
+        try:
+            metadata = json.loads(view["private_metadata"])
+            chat_id = metadata.get("chat_id", "")
+            channel = metadata.get("channel", "")
+            message_ts = metadata.get("message_ts", "")
+            state = view["state"]["values"]
+            # external_select 결과 — selected_option.value = lead_no
+            sel = state.get("target_lead_no", {}).get("value", {}).get("selected_option")
+            target_lead_no = (sel or {}).get("value", "").strip().upper() if sel else ""
+            if not re.match(r"^L-\d{5}$", target_lead_no):
+                ack(response_action="errors", errors={
+                    "target_lead_no": "검색해서 lead를 선택해주세요"
+                })
+                return
+            target_lead = _find_lead_by_no(target_lead_no)
+            if not target_lead:
+                ack(response_action="errors", errors={
+                    "target_lead_no": f"{target_lead_no} 시트에 없는 lead 입니다"
+                })
+                return
+            ack()
+            _link_chat_to_existing_lead(client, chat_id, target_lead_no, channel, message_ts)
+        except Exception as exc:
+            logger.error(f"[SLACK] submit_link_lead 실패: {exc}", exc_info=True)
+            try:
+                ack()
+            except Exception:
+                pass
+
     # ⓓ /방문 슬래시 명령 — 거래처/기타 방문 직접 등록
     @app.command("/방문")
     def handle_visit_command(ack, command, client):
@@ -653,9 +752,19 @@ def _register_handlers(app):
     # 방문 일정 알림 봇(_visit_slack_app)이 처리 — _register_visit_handlers 참조
 
     # ⑬ /청소 슬래시 명령 — 채널 메시지 일괄 청소 (봇이 보낸 메시지만)
+    # 권한 — SLACK_ADMIN_CHANNEL(=admin user ID) 만 실행 가능
     @app.command("/청소")
     def handle_sweep_command(ack, command, client, respond):
         ack()
+        user_id = command.get("user_id", "")
+        admin_uid = os.getenv('SLACK_ADMIN_CHANNEL', '').strip()
+        if admin_uid and admin_uid.startswith('U') and user_id != admin_uid:
+            respond({
+                "response_type": "ephemeral",
+                "text": ":no_entry: `/청소` 명령은 관리자만 실행할 수 있습니다.",
+            })
+            return
+
         text = command.get("text", "").strip()
         channel = command.get("channel_id", "")
 
@@ -807,16 +916,6 @@ def _parse_sweep_args(text: str) -> dict:
         return {"valid": True, "mode": "count", "value": n}
 
     return {"valid": False, "error": f"인식 못 함: `{text}`. `/청소 help`로 사용법 확인"}
-
-
-def _human_duration(seconds: int) -> str:
-    if seconds >= 86400:
-        return f"{seconds // 86400}일"
-    if seconds >= 3600:
-        return f"{seconds // 3600}시간"
-    if seconds >= 60:
-        return f"{seconds // 60}분"
-    return f"{seconds}초"
 
 
 def _sweep_update(response_url: str, text: str):
@@ -1513,6 +1612,188 @@ _CONSULT_STATUS_OPTIONS = [
 ]
 
 
+def _search_leads_for_options(query: str, limit: int = 20) -> list:
+    """external_select용 lead 검색 — 이름/연락처/lead_no/주소 매칭.
+    각 옵션 라벨: "L-XXXXX | 이름 | 연락처 | 플랫폼" — 매니저가 식별 가능하게.
+    """
+    try:
+        from dashboard.services.lead_service import get_lead_records
+    except Exception:
+        return []
+    leads = get_lead_records() or []
+    q = query.strip().lower()
+    q_digits = re.sub(r'\D', '', q)
+
+    # 빈 검색 — 최근 lead N건 반환 (lead_no 내림차순)
+    if not q:
+        recent = []
+        for lead in leads:
+            lead_no = str(lead.get('리드 No') or '').strip()
+            if not lead_no.startswith('L-'):
+                continue
+            name = str(lead.get('고객명') or '').strip()
+            phone = str(lead.get('고객 연락처') or '').strip()
+            platform = str(lead.get('플랫폼') or '').strip() or '-'
+            label = f"{lead_no} | {name or '-'} | {phone or '-'} | {platform}"
+            if len(label) > 75:
+                label = label[:72] + '...'
+            try:
+                sort_key = int(lead_no.split('-')[1])
+            except Exception:
+                sort_key = 0
+            recent.append((sort_key, lead_no, label))
+        recent.sort(reverse=True)  # 최신순 (큰 lead_no 먼저)
+        return [
+            {"text": {"type": "plain_text", "text": label}, "value": lead_no}
+            for _, lead_no, label in recent[:limit]
+        ]
+
+    matched = []
+    for lead in leads:
+        lead_no = str(lead.get('리드 No') or '').strip()
+        if not lead_no:
+            continue
+        name = str(lead.get('고객명') or '').strip()
+        phone = str(lead.get('고객 연락처') or '').strip()
+        platform = str(lead.get('플랫폼') or '').strip() or '-'
+        address = str(lead.get('방문 주소') or '').strip()
+        phone_digits = re.sub(r'\D', '', phone)
+        # 매칭 점수 — 정확 일치 우선
+        score = 0
+        if q and q.upper() in lead_no.upper():
+            score = 100  # lead_no 정확 매칭
+        elif q and q in name.lower():
+            score = 90
+        elif q_digits and q_digits in phone_digits:
+            score = 80
+        elif q and q in address.lower():
+            score = 50
+        if score > 0:
+            label = f"{lead_no} | {name or '-'} | {phone or '-'} | {platform}"
+            if len(label) > 75:
+                label = label[:72] + '...'
+            try:
+                sort_key = int(lead_no.split('-')[1])
+            except Exception:
+                sort_key = 0
+            matched.append((score, sort_key, lead_no, label))
+    # 점수 내림차순 + lead_no 내림차순 (최신순)
+    matched.sort(key=lambda x: (-x[0], -x[1]))
+    return [
+        {"text": {"type": "plain_text", "text": label}, "value": lead_no}
+        for _, _, lead_no, label in matched[:limit]
+    ]
+
+
+def _open_link_lead_modal(client, body, chat_id: str, channel: str, message_ts: str):
+    """채널톡 카드의 [🔗 기존 lead 연결] 모달 — 같은 사람이 다른 채널로도 인입한 경우.
+    매니저가 lead_no를 입력하면 채팅 정보를 기존 lead에 통합 (피드백 컬럼에 메모 추가).
+    """
+    trigger_id = body["trigger_id"]
+    # Redis pending lead에서 채팅 정보 가져와 모달에 표시
+    chat_info_text = ''
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        pending_raw = rc.get(f'channeltalk_pending_lead:{chat_id}')
+        if pending_raw:
+            pending = json.loads(
+                pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw
+            )
+            chat_info_text = (
+                f"*카톡 채팅 정보*\n"
+                f"• 닉네임: `{pending.get('user_name', '-')}`\n"
+                f"• 첫 메시지: {pending.get('first_message', '-')[:80]}"
+            )
+    except Exception:
+        pass
+
+    metadata = json.dumps({
+        "chat_id": chat_id, "channel": channel, "message_ts": message_ts,
+    }, ensure_ascii=False)
+
+    blocks = []
+    if chat_info_text:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chat_info_text}})
+        blocks.append({"type": "divider"})
+    blocks.append({
+        "type": "input",
+        "block_id": "target_lead_no",
+        "label": {"type": "plain_text", "text": "통합할 기존 Lead 선택"},
+        "element": {
+            "type": "external_select",
+            "action_id": "value",
+            "placeholder": {"type": "plain_text", "text": "클릭하면 최근 lead 표시 / 검색도 가능"},
+            "min_query_length": 0,
+        },
+        "hint": {"type": "plain_text",
+                 "text": "기본: 최근 30건 / 검색: 이름·연락처·Lead No 입력"},
+    })
+
+    view = {
+        "type": "modal",
+        "callback_id": "submit_link_lead",
+        "title": {"type": "plain_text", "text": "기존 Lead에 연결"},
+        "submit": {"type": "plain_text", "text": "연결"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "private_metadata": metadata,
+        "blocks": blocks,
+    }
+    try:
+        client.views_open(trigger_id=trigger_id, view=view)
+    except Exception as exc:
+        logger.error(f"[SLACK/link] 모달 열기 실패: {exc}", exc_info=True)
+
+
+def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
+                                 channel: str, message_ts: str) -> None:
+    """채널톡 채팅을 기존 lead에 통합.
+    - 시트 lead의 피드백 컬럼에 카톡 메시지 메모 추가
+    - Redis pending lead 삭제 (이 채팅은 더 이상 새 lead 등록 안 함)
+    - 슬랙 thread에 통합 완료 안내
+    """
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        from dashboard.services.lead_service import update_lead, get_lead_by_no
+        from datetime import datetime
+        rc = get_redis_client().redis
+        pending_key = f'channeltalk_pending_lead:{chat_id}'
+        pending_raw = rc.get(pending_key)
+        chat_memo_parts = [f"[{datetime.now().strftime('%m/%d %H:%M')} 카톡 추가 문의 통합]"]
+        if pending_raw:
+            pending = json.loads(
+                pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw
+            )
+            chat_memo_parts.append(f"닉네임: {pending.get('user_name', '-')}")
+            chat_memo_parts.append(f"메시지: {pending.get('first_message', '-')}")
+        chat_memo = '\n'.join(chat_memo_parts)
+
+        # 기존 피드백에 추가 (덮어쓰지 않음)
+        existing = get_lead_by_no(target_lead_no) or {}
+        old_feedback = (existing.get('피드백') or '').strip()
+        new_feedback = (old_feedback + '\n\n' + chat_memo).strip() if old_feedback else chat_memo
+        update_lead(target_lead_no, {'피드백': new_feedback})
+
+        # Redis 삭제 — 이 채팅은 새 lead 등록 안 함
+        rc.delete(pending_key)
+
+        # 슬랙 thread 안내
+        if channel and message_ts:
+            try:
+                client.chat_postMessage(
+                    channel=channel, thread_ts=message_ts,
+                    text=f":link: 기존 lead `{target_lead_no}`에 통합 완료. "
+                         f"이 채팅의 추가 메시지는 시트에 별도 등록되지 않습니다."
+                )
+            except Exception:
+                pass
+        logger.info(
+            f"[SLACK/link] chat_id={chat_id} → {target_lead_no} 통합 완료"
+        )
+    except Exception as exc:
+        logger.error(f"[SLACK/link] 통합 처리 실패: {exc}", exc_info=True)
+
+
 def _open_consult_modal(client, body, from_slash: bool = False):
     """통합 상담 모달 — 인입 카드 [📋 상담하기] 또는 /방문 슬래시에서 호출.
 
@@ -1522,18 +1803,25 @@ def _open_consult_modal(client, body, from_slash: bool = False):
     trigger_id = body["trigger_id"]
     user_id = body["user"]["id"]
     lead_no = ''
+    chat_id = ''  # 채널톡 카드 button value가 chat_id인 경우
     channel = ''
     message_ts = ''
 
     if from_slash:
         channel = body.get("channel_id", "")
     else:
-        lead_no = body["actions"][0]["value"]
+        btn_value = body["actions"][0]["value"]
+        # value가 L-XXXXX 양식이면 lead_no, 아니면 chat_id (채널톡 B 옵션 카드)
+        if re.match(r"^L-\d{5}$", btn_value):
+            lead_no = btn_value
+        elif btn_value and btn_value != '-':
+            chat_id = btn_value
         channel = body["channel"]["id"]
         message_ts = body["message"]["ts"]
 
     metadata = json.dumps({
         "lead_no": lead_no,
+        "chat_id": chat_id,
         "channel": channel,
         "message_ts": message_ts,
     }, ensure_ascii=False)
@@ -1562,10 +1850,24 @@ def _open_consult_modal(client, body, from_slash: bool = False):
     lead = _find_lead_by_no(lead_no) if lead_no else None
     info_blocks = _build_consult_info_blocks(lead, lead_no)
 
+    # 채널톡 카드 케이스 — chat_id 있으면 Redis pending lead 정보로 prefill
+    channeltalk_info = None
+    if chat_id:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            pending_raw = rc.get(f'channeltalk_pending_lead:{chat_id}')
+            if pending_raw:
+                channeltalk_info = json.loads(
+                    pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw
+                )
+        except Exception as exc:
+            logger.warning(f"[SLACK/상담] 채널톡 정보 조회 실패: {exc}")
+
     # 초기 prefill — 인입은 온라인, 슬래시는 거래처.
     # 재제출(시트에 상태/방문 예정일 이미 있음) → 시트 값으로 prefill
     # 첫 상담(시트 빈 상태) → 처리 유형은 '유선 상담' 기본, 방문 예정일은 빈값
-    default_visit_type = '온라인' if lead_no else '거래처'
+    default_visit_type = '온라인' if (lead_no or chat_id) else '거래처'
     sheet_status = (str(lead.get('상태') or '').strip() if lead else '')
     sheet_visit_date_raw = (str(lead.get('방문 예정일') or '').strip() if lead else '')
     # 시트 escape prefix(') 제거 + ISO 양식만 허용 (datepicker initial_date 검증)
@@ -1576,11 +1878,17 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         'visit_type': default_visit_type,
         'status': sheet_status if sheet_status else '유선 상담',
         'visit_date': sheet_visit_date,
-        'name': (str(lead.get('고객명') or '').strip() if lead else ''),
+        'name': (
+            (str(lead.get('고객명') or '').strip() if lead else '')
+            or (channeltalk_info.get('user_name', '') if channeltalk_info else '')
+        ),
         'contact': (str(lead.get('고객 연락처') or '').strip() if lead else ''),
         'visit_address': (str(lead.get('방문 주소') or '').strip() if lead else ''),
         # 원본 고객 메시지 prefill → 통화 후 사용자가 추가/수정 → 시트 '상담 내용'에 저장
-        'consultation': (str(lead.get('상담 내용') or '').strip() if lead else ''),
+        'consultation': (
+            (str(lead.get('상담 내용') or '').strip() if lead else '')
+            or (channeltalk_info.get('first_message', '') if channeltalk_info else '')
+        ),
     }
     full_view = _build_consult_view(info_blocks, metadata, prefilled)
     try:
@@ -1731,9 +2039,51 @@ def _process_consult_submission(client, body, view):
     """통합 상담 모달 제출 → 처리 유형별 분기 (방문/견적/유선/문의 드랍/거래처/기타)"""
     metadata = json.loads(view.get("private_metadata") or "{}")
     lead_no = metadata.get("lead_no", "")
+    chat_id = metadata.get("chat_id", "")  # 채널톡 카드 케이스
     channel = metadata.get("channel", "")
     message_ts = metadata.get("message_ts", "")
     user_id = body["user"]["id"]
+
+    # 채널톡 chat_id 있으면 Redis 락 + pending lead 정리 (중복 등록 방지)
+    if chat_id:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            # SETNX 락 — 60초 TTL (모달 제출이 끝날 시간 충분)
+            lock_key = f'channeltalk_lead_lock:{chat_id}'
+            if not rc.set(lock_key, '1', nx=True, ex=60):
+                logger.info(
+                    f"[SLACK/상담] 채널톡 chat_id={chat_id} 이미 처리 중 — 중복 제출 무시"
+                )
+                return
+            # pending lead 데이터 삭제 (이 모달 제출이 정상 lead 등록 흐름)
+            rc.delete(f'channeltalk_pending_lead:{chat_id}')
+        except Exception as exc:
+            logger.warning(f"[SLACK/상담] chat_id Redis 정리 실패: {exc}")
+
+    # 인입 lead 락 — 동시 매니저 제출 시 데이터 손실 방지
+    if lead_no:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            lock_key = f'consult_submit_lock:{lead_no}'
+            if not rc.set(lock_key, '1', nx=True, ex=30):
+                logger.info(
+                    f"[SLACK/상담] {lead_no} 다른 매니저 처리 중 — 중복 제출 무시"
+                )
+                # 슬랙 thread에 안내
+                if channel and message_ts:
+                    try:
+                        client.chat_postMessage(
+                            channel=channel, thread_ts=message_ts,
+                            text=f":warning: 다른 매니저가 `{lead_no}`를 동시에 처리 중이라 이번 제출은 무시했습니다. "
+                                 f"30초 후 다시 시도해주세요."
+                        )
+                    except Exception:
+                        pass
+                return
+        except Exception as exc:
+            logger.warning(f"[SLACK/상담] 락 획득 실패: {exc}")
 
     state = view["state"]["values"]
     visit_type = _v(state, "visit_type") or '온라인'  # 온라인 / 거래처 / 기타
@@ -2027,7 +2377,6 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
             for ln in wrapped.split('\n'):
                 lines.append(f">{ln}")
     lines.append(f">{SEP}")
-    lines.append("⠀")
     body_text = '\n'.join(lines)
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": body_text}},
@@ -2057,6 +2406,7 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
                 },
             ],
         },
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
     ]
     return body_text, blocks
 
@@ -2574,114 +2924,8 @@ def _process_visit_uncancel(client, body) -> None:
                      exc_info=True)
 
 
-def _format_date_for_sheet(iso_date: str) -> str:
-    """ISO 형식("2026-06-25")을 시트에 텍스트로 저장하도록 escape.
-
-    Google Sheets는 USER_ENTERED 모드에서 ISO 날짜를 시리얼 숫자로 자동 변환.
-    작은따옴표 prefix는 Sheets의 텍스트 escape 문자 — UI/API에 표시되지 않음.
-    출력: "2026-06-25" 그대로 (시트의 기존 방문 예정일 형식과 일관)
-    """
-    if not iso_date:
-        return ''
-    return f"'{iso_date}"  # 작은따옴표 prefix로 텍스트 강제 (시리얼 변환 차단)
-
-
-def _v(state, block_id, default=''):
-    """모달 state.values에서 안전하게 값 추출 (datepicker / text / select 자동 분기)"""
-    try:
-        item = state[block_id]["value"]
-        return (
-            item.get("selected_date")
-            or item.get("value")
-            or (item.get("selected_option") or {}).get("value")
-            or default
-        )
-    except Exception:
-        return default
-
-
-# ─────────────────────────────────────────────────────────────
-# 직원 이니셜 매핑 (시트 A열 수식과 동일) — 슬랙 메시지 표시용
-# ─────────────────────────────────────────────────────────────
-SALES_INITIALS = {
-    '박용구': 'YG', '박정우': 'JW', '강성환': 'SH', '박민우': 'MW',
-    '이근혁': 'GH', '김호중': 'HJ', '아이티': 'IT', '김단이': 'DN',
-    '권태훈': 'TH', '주영민': 'YM', '심장원': 'SJW', '빈승정': 'SJ',
-    '박민재': 'MJ', '조성헌': 'JSH', '황해승': 'HS', '강민석': 'MS',
-    '강정권': 'JK', '이상덕': 'SD', '고광일': 'KiKO',
-}
-
-
-def _to_initial(name: str) -> str:
-    """한국 이름 / 이니셜 / 빈값 → 이니셜 통일.
-
-    - 한국 이름 → SALES_INITIALS 매핑 (예: '박용구' → 'YG')
-    - 이미 이니셜 (영문 2~5자) → 대문자 통일, 단 'KiKO'는 i만 소문자 유지
-    - 매핑 없으면 원본 그대로
-    """
-    if not name:
-        return ''
-    name = name.strip()
-    if not name:
-        return ''
-    if name in SALES_INITIALS:
-        return SALES_INITIALS[name]
-    # 영문 이니셜이면 대문자로 통일 — 'KiKO'만 예외
-    if re.match(r'^[A-Za-z]{2,5}$', name):
-        if name.lower() == 'kiko':
-            return 'KiKO'
-        return name.upper()
-    return name
-
-
-def _slack_user_to_initial(client, user_id: str) -> str:
-    """슬랙 user_id → 직원 이니셜.
-
-    한국 이름을 한 번 거쳐서 이니셜로 변환. 매핑 없으면 한국 이름 또는 빈 문자열.
-    """
-    if not user_id:
-        return ''
-    korean = _slack_user_to_korean_name(client, user_id)
-    return _to_initial(korean)
-
-
-def _slack_user_to_korean_name(client, user_id: str) -> str:
-    """슬랙 user_id → SALES_EMAILS 매핑 한국 이름 (fallback: display_name/real_name)"""
-    if not user_id:
-        return ''
-    try:
-        resp = client.users_info(user=user_id)
-        if not resp.get("ok"):
-            return ''
-        profile = resp["user"]["profile"]
-        email = (profile.get("email") or '').strip().lower()
-
-        # SALES_EMAILS 역매칭
-        try:
-            sales_emails = json.loads(os.getenv("SALES_EMAILS", "{}"))
-        except Exception:
-            sales_emails = {}
-        for name, mapped in sales_emails.items():
-            if str(mapped).strip().lower() == email:
-                return name
-
-        # Fallback: display_name / real_name
-        return (profile.get("display_name")
-                or profile.get("real_name")
-                or '').strip()
-    except Exception as exc:
-        logger.warning(f"[SLACK] users_info 실패 ({user_id}): {exc}")
-        return ''
-
-
-def _v_multi(state, block_id) -> list:
-    """멀티 선택 체크박스/multi_static_select 값 추출"""
-    try:
-        item = state[block_id]["value"]
-        opts = item.get("selected_options") or []
-        return [o.get("value") for o in opts if o.get("value")]
-    except Exception:
-        return []
+# (헬퍼 함수 정의: slack_helpers.py로 이동 — _format_date_for_sheet/_v/_v_multi/
+#  _to_initial/_slack_user_to_korean_name/_slack_user_to_initial/SALES_INITIALS)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -2833,7 +3077,8 @@ def _recover_phone_lead_from_sheet(now, phone: str, status: str) -> Optional[str
             _parse_consult_dt, _reset_row_background,
         )
 
-        main_df = load_leads_data(force_refresh=True)
+        # 재문의 감지 — 캐시 사용 (5분 stale 허용, sync 직후 항상 새로고침되므로 신선)
+        main_df = load_leads_data()
         phone_digits = _re.sub(r'\D', '', phone or '')
         if not phone_digits or main_df is None or main_df.empty:
             return None

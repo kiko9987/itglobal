@@ -425,7 +425,7 @@ def _build_stage_message(
 
     lines = [
         '⠀',
-        f":large_blue_diamond: *{project}* / {emoji} *{stage} {header_action}*",
+        f"{emoji} *{stage} {header_action}* — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
     ]
@@ -492,7 +492,7 @@ def _build_stage_with_history_message(
 
     lines = [
         '⠀',
-        f":large_blue_diamond: *{project}* / {emoji} *{stage} {header_action}*",
+        f"{emoji} *{stage} {header_action}* — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
     ]
@@ -513,11 +513,13 @@ def _build_stage_with_history_message(
             lines.append(
                 f"(실결제 {real_payment:,}원 / 3% {extra_3pct:,}원 / 카드 수수료 {fee:,}원)"
             )
-    lines.append(_SEP)
-    lines.append(f"미수금 : {unpaid:,}원")
     lines.append('')
     lines.append('[누적 이력]')
-    for p in all_payments:
+    # 현재 알림 단계까지만 표시 — 매니저가 다음 단계 메모를 미리 입력한 경우 차단
+    _STAGE_ORDER = {'계약금': 0, '중도금': 1, '잔금': 2}
+    cur_idx = _STAGE_ORDER.get(stage, 99)
+    history = [p for p in all_payments if _STAGE_ORDER.get(p.get('stage'), 99) <= cur_idx]
+    for p in history:
         st = p.get('stage', '-')
         d = p.get('date_md', '-')
         c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
@@ -530,6 +532,8 @@ def _build_stage_with_history_message(
         is_c = _is_card_payment(invoice_value, pt)
         suffix = ' (카드)' if is_c else ''
         lines.append(f"{st}  {d}  {c_disp}  {a:,}원  {pt}{suffix}")
+    lines.append(_SEP)
+    lines.append(f"미수금 : {unpaid:,}원")
     lines.append(' ')
     lines.append('⠀')
     return '\n'.join(lines)
@@ -544,7 +548,7 @@ def _build_complete_message(
     """수금완료 알림 — 전체 history 취합."""
     lines = [
         '⠀',
-        f":large_blue_diamond: *{project}* / :white_check_mark: *수금완료*",
+        f":white_check_mark: *수금완료* — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
     ]

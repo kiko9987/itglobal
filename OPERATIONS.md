@@ -32,8 +32,12 @@
 | Caddy 설정 | `Caddyfile` (루트) |
 | Redis 백업 | `backups/redis/` |
 | Flask 진입점 | `app.py` |
-| 슬랙 봇 핸들러 | `dashboard/blueprints/slack_bot.py` |
-| 폴링 스케줄러 | `dashboard/services/sync_scheduler.py` |
+| 슬랙 봇 핸들러 | `dashboard/blueprints/slack_bot.py` (3500줄) |
+| 슬랙 공통 유틸 | `dashboard/blueprints/slack_helpers.py` (모달 state 추출, 이니셜 매핑, 시간 표시) |
+| 채널톡 핸들러 | `dashboard/blueprints/channeltalk.py` |
+| 채널톡 공통 유틸 | `dashboard/blueprints/channeltalk_helpers.py` (시간 포맷, 스팸 감지) |
+| 폴링 스케줄러 | `dashboard/services/sync_scheduler.py` (관리자 알림 + 인증서 체크 포함) |
+| pytest 테스트 | `tests/unit/test_slack_channeltalk_core.py` |
 | 가상환경 | `.venv/` |
 
 ## 3. 회사 서버 PC 마이그레이션 체크리스트
@@ -154,6 +158,26 @@
 - Redis 다운 시 모든 sync 작업 자동 skip (`_redis_healthy()` circuit breaker)
 - 한 sync에 신규 lead 5건 초과 시 발송 skip (`KARROT_MAX_NEW_PER_SYNC`)
 - SSL 에러로 누락된 슬랙 알림은 5분마다 자동 재시도 (`pending_slack_notify` Redis 큐)
+- 채널톡 스팸 자동 감지 — 마케팅 키워드 + URL 조합 판정 시 미응답 알림 큐 skip
+  (`_is_spam_message` in `channeltalk_helpers.py`)
+
+### 동시성 보호 (구현됨)
+3중 락으로 race condition 방지:
+| Redis 키 | TTL | 보호 대상 |
+|---|---|---|
+| `channeltalk_lead_lock:{chat_id}` | 60초 | 채널톡 매니저 응답 + 슬랙 모달 동시 처리 |
+| `consult_submit_lock:{lead_no}` | 30초 | 두 매니저가 같은 lead 모달 동시 제출 (데이터 손실 방지) |
+| `visit_action_lock:{lead_no}:{action}` | 5초 | 방문 카드 [방문일 수정] / [방문 취소] 동시 클릭 |
+| `_APPEND_LEAD_LOCK` (process-wide threading.Lock) | - | 신규 lead_no 발번 race (빈 행 방지) |
+
+### 운영 알림 (구현됨)
+Redis 다운 / sync 실패 / SSL 인증서 만료 30일 이내 시 자동 알림:
+- 슬랙 DM (`SLACK_ADMIN_CHANNEL=U04UL2ZLJAX`)
+- 이메일 (`ADMIN_NOTIFY_EMAIL=kiko@itg-aircon.com`) — Gmail API send
+- 같은 알림은 30분 cooldown (스팸 방지)
+- SSL 인증서: 매일 09시 `SLACK_PUBLIC_HOST` 도메인 체크
+
+**Gmail send scope 요구**: Google Workspace Admin 콘솔 도메인 위임에 `gmail.send` scope 추가 필요.
 
 ## 6. 자주 발생하는 문제
 
@@ -237,6 +261,11 @@ GOOGLE_DRIVE_WINDOWS_BASE_PATH=G:\공유 드라이브\...
 
 # 활성화 플래그
 SLACK_BOT_ENABLED=true
+
+# 운영 알림 (Redis 다운, sync 실패, SSL 인증서 만료)
+SLACK_ADMIN_CHANNEL=U04UL2ZLJAX     # 관리자 슬랙 User ID
+SLACK_PUBLIC_HOST=pm.itg-aircon.com  # SSL 인증서 체크 도메인
+ADMIN_NOTIFY_EMAIL=kiko@itg-aircon.com  # 이메일 알림 수신처
 ```
 
 ## 8. 백업/복구 절차
@@ -282,6 +311,9 @@ Get-Content logs\dashboard.log -Tail 50 -Wait
 
 # 환경 변수 확인 (Python REPL)
 python -c "import os; from dotenv import load_dotenv; load_dotenv(); print(os.getenv('GOOGLE_SHEET_ID'))"
+
+# 핵심 함수 회귀 검증 (코드 변경 후 권장)
+.venv\Scripts\python.exe -m pytest tests/unit/test_slack_channeltalk_core.py -v --no-cov
 ```
 
 ## 10. 연락처 / 외부 자료
@@ -293,4 +325,4 @@ python -c "import os; from dotenv import load_dotenv; load_dotenv(); print(os.ge
 - DDNS (도메인): pm.itg-aircon.com
 
 ---
-**마지막 업데이트**: 2026-06-28
+**마지막 업데이트**: 2026-06-30

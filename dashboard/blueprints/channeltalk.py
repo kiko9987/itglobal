@@ -138,26 +138,15 @@ def is_our_sent(chat_id: str, text: str) -> bool:
     return False
 
 
-def _format_ts(created_ms: int) -> str:
-    """epoch ms → '14:32' / 자정 넘으면 '06.15 14:32'"""
-    try:
-        dt = datetime.fromtimestamp(created_ms / 1000.0)
-        return dt.strftime('%m.%d %H:%M')
-    except Exception:
-        return ''
-
-
-def _format_ts_full(created_ms: int) -> str:
-    """epoch ms → '2026.06.22. 09:32' (다른 인입 카드와 동일 양식)"""
-    try:
-        dt = datetime.fromtimestamp(created_ms / 1000.0)
-        return dt.strftime('%Y.%m.%d. %H:%M')
-    except Exception:
-        return ''
+# (시간 포맷 함수: channeltalk_helpers.py로 이동)
+from dashboard.blueprints.channeltalk_helpers import (
+    _format_ts, _format_ts_full, _is_spam_message,
+    _SPAM_KEYWORDS, _URL_RE,
+)
 
 
 def _attach_chat_open_button(channel: str, thread_ts: str, original_text: str,
-                             lead_no: str = '') -> None:
+                             lead_no: str = '', chat_id: str = '') -> None:
     """카드 발송 후 thread permalink로 이동하는 [💬 채팅 열기] URL 버튼 부착.
 
     카카오톡 채팅 인입은 thread에서 직접 응대 → 통합 모달이 아니라 thread 이동.
@@ -209,11 +198,18 @@ def _attach_chat_open_button(channel: str, thread_ts: str, original_text: str,
                             'type': 'button',
                             'text': {'type': 'plain_text', 'text': ':point_right: 상담하기', 'emoji': True},
                             'style': 'primary',
-                            'value': lead_no or '',
+                            'value': lead_no or chat_id or '-',
                             'action_id': 'button_consult',
+                        },
+                        {
+                            'type': 'button',
+                            'text': {'type': 'plain_text', 'text': ':link: 기존 lead 연결', 'emoji': True},
+                            'value': chat_id or '-',
+                            'action_id': 'link_existing_lead',
                         },
                     ],
                 },
+                {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
             ],
         })
     except Exception as exc:
@@ -244,8 +240,11 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
         medium_icon = ':채널톡:'
     ts_str = _format_ts_full(created_ms)
     SEP = '---------------------------------------------'
+    # 슬랙 본문 3000자 한도 — 메시지 본문 truncate (스팸 헤더/메타 여유)
+    if first_message and len(first_message) > 2400:
+        first_message = first_message[:2400] + '\n…(내용이 길어 일부만 표시 — 채널톡 thread 참조)'
 
-    lines = []
+    lines = ['⠀']
     if lead_no:
         lines.append(f'접수번호: `{lead_no}`')
     lines.extend([
@@ -260,6 +259,9 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
     header_text = '\n'.join(lines)
 
     return {'text': header_text}
+
+
+# (스팸 감지 함수: channeltalk_helpers.py로 이동 — 위에서 import)
 
 
 def _register_chat_lead(user_chat: dict, user: dict, first_message: str,
@@ -434,6 +436,64 @@ def _slack_upload_files(channel: str, thread_ts: str,
 # ─────────────────────────────────────────────────────────────
 # 핸들러
 # ─────────────────────────────────────────────────────────────
+def _register_pending_lead_if_any(chat_id: str) -> str:
+    """매니저 첫 응답 시점에 Redis pending lead → 시트 등록.
+    이미 등록됐으면 (Redis 키 없음) skip. 등록 성공 시 lead_no 반환, 실패 시 빈 문자열.
+
+    SETNX 락 — 동시 응답 시 중복 등록 방지.
+    """
+    if not chat_id:
+        return ''
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        import json as _json
+        rc = get_redis_client().redis
+        # SETNX 락 (60초 TTL) — 동시 호출 시 한 번만 등록
+        lock_key = f'channeltalk_lead_lock:{chat_id}'
+        if not rc.set(lock_key, '1', nx=True, ex=60):
+            logger.debug(f'[ChannelTalk] lead 등록 락 잡힘 — skip (chat_id={chat_id})')
+            return ''
+        pending_key = f'channeltalk_pending_lead:{chat_id}'
+        pending_raw = rc.get(pending_key)
+        if not pending_raw:
+            return ''
+        pending = _json.loads(
+            pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw
+        )
+        fake_user_chat = {
+            'name': pending.get('user_name', ''),
+            'mediumProfile': {'mediumName': pending.get('medium', '')},
+        }
+        fake_user = {'name': pending.get('user_name', '')}
+        lead_no_new = _register_chat_lead(
+            fake_user_chat, fake_user,
+            pending.get('first_message', ''),
+            pending.get('created_ms', 0),
+        )
+        if lead_no_new:
+            rc.delete(pending_key)
+            logger.info(
+                f'[ChannelTalk] 매니저 응답 → lead 등록 (chat_id={chat_id}, lead_no={lead_no_new})'
+            )
+            # 슬랙 thread에 등록 완료 안내
+            channel = _slack_channel()
+            thread_ts = _threads.get_thread_ts(chat_id)
+            if channel and thread_ts:
+                try:
+                    _slack_post('chat.postMessage', {
+                        'channel': channel,
+                        'thread_ts': thread_ts,
+                        'text': f':white_check_mark: 시트 등록 완료 — `{lead_no_new}`',
+                        'unfurl_links': False,
+                    })
+                except Exception:
+                    pass
+            return lead_no_new
+    except Exception as exc:
+        logger.warning(f'[ChannelTalk] pending lead 등록 실패 (chat_id={chat_id}): {exc}')
+    return ''
+
+
 def _handle_manager_message(payload: dict) -> None:
     """매니저(own_operator 외 채널톡 직원)가 채널톡 앱에서 직접 답변한 메시지를
     슬랙 thread reply로 forward + 미응답 큐에서 제거.
@@ -503,6 +563,9 @@ def _handle_manager_message(payload: dict) -> None:
     # 매니저가 답변했으니 미응답 큐에서 제거
     _threads.remove_pending(chat_id)
 
+    # 첫 매니저 응답 시점 — 시트에 lead 등록 (스팸 차단 효과)
+    _register_pending_lead_if_any(chat_id)
+
     # 원본 카드(thread_ts)에 ✅ — 다른 영업도 "처리됨" 한눈에 확인
     try:
         _slack_post('reactions.add', {
@@ -567,23 +630,52 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
     # 1단계: 텍스트 메시지 — 파일이 없을 때만, 또는 새 채팅(카드)일 때만 발송
     # 파일 있는 thread reply는 텍스트 skip → 파일 업로드의 initial_comment로 합침 (알림 1번)
     if not thread_ts:
-        # 새 채팅 — 시트에 lead 1건 등록 (통계용)
-        lead_no = _register_chat_lead(user_chat, user, display_text, created_ms)
+        # 새 채팅 — lead 등록 보류 (스팸 차단 위해).
+        # 매니저 응답 시점에 lead 등록 (정상 채팅 신호).
+        # chat_id → 인입 정보를 Redis에 임시 저장 (매니저 응답 시 활용)
+        lead_no = ''
+        is_spam_suspect = _is_spam_message(display_text)
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            import json as _json
+            rc = get_redis_client().redis
+            rc.set(
+                f'channeltalk_pending_lead:{chat_id}',
+                _json.dumps({
+                    'user_name': user.get('name') or user_chat.get('name') or '익명 고객',
+                    'medium': (user_chat.get('mediumProfile') or {}).get('mediumName', ''),
+                    'first_message': display_text,
+                    'created_ms': created_ms,
+                    'is_spam_suspect': is_spam_suspect,
+                }, ensure_ascii=False),
+                ex=60 * 60 * 24 * 30,  # 30일 — 채팅 응답 늦어도 보존
+            )
+        except Exception as exc:
+            logger.warning(f'[ChannelTalk] pending lead 저장 실패: {exc}')
 
-        # 새 채팅 카드 발송 (thread root)
+        # 새 채팅 카드 발송 (thread root, lead_no 없음)
         card = _new_chat_card(user_chat, user, display_text, created_ms, lead_no=lead_no)
+        # 스팸 의심 시 카드 텍스트 머리에 표시
+        card_text = card['text']
+        if is_spam_suspect:
+            card_text = ':no_entry: *스팸 의심* (미응답 알림 skip)\n' + card_text
         resp = _slack_post('chat.postMessage', {
             'channel': channel,
-            'text': card['text'],
+            'text': card_text,
             'unfurl_links': False,
         })
         if resp and resp.get('ok') and resp.get('ts'):
             thread_ts = resp['ts']
             _threads.set_thread_ts(chat_id, thread_ts)
-            # 새 채팅 — 미배정 알림 대기열에 등록 (5분 후 응답 없으면 알림)
-            _threads.add_pending(chat_id, thread_ts)
+            # 스팸 의심이면 미응답 알림 큐에 등록 안 함 (5분 알림 skip)
+            if not is_spam_suspect:
+                _threads.add_pending(chat_id, thread_ts)
+            else:
+                logger.info(
+                    f'[ChannelTalk] 스팸 의심 — 미응답 큐 skip (chat_id={chat_id})'
+                )
             # 카드 하단에 [💬 채팅 열기] 링크 — 클릭 시 슬랙 thread로 이동
-            _attach_chat_open_button(channel, thread_ts, card['text'], lead_no=lead_no)
+            _attach_chat_open_button(channel, thread_ts, card_text, lead_no=lead_no, chat_id=chat_id)
         else:
             logger.warning(f'[ChannelTalk] 새 카드 발송 실패 (chat_id={chat_id})')
     elif not has_files:
@@ -663,6 +755,9 @@ def _handle_chat_closed(payload: dict) -> None:
     if not chat_id:
         return
 
+    # 종료된 채팅 — 미응답 알림 큐에서 즉시 제거 (종료 후 5분 알림 방지)
+    _threads.remove_pending(chat_id)
+
     # dedup — 같은 chat_id에 대해 한 번만
     if _mark_chat_closed(chat_id):
         logger.debug(f'[ChannelTalk] 상담 종료 중복 skip (chat_id={chat_id})')
@@ -676,6 +771,25 @@ def _handle_chat_closed(payload: dict) -> None:
     channel = _slack_channel()
     if not channel:
         return
+
+    # 메시지 존재 확인 — 카드 삭제됐으면 종료 알림 자체 skip (메인 채널 본문 노출 방지)
+    try:
+        token = _slack_token()
+        if token:
+            check_req = urllib.request.Request(
+                f'https://slack.com/api/conversations.replies'
+                f'?channel={channel}&ts={thread_ts}&limit=1',
+                headers={'Authorization': f'Bearer {token}'},
+            )
+            with urllib.request.urlopen(check_req, timeout=5) as r:
+                check_resp = json.loads(r.read())
+            if not check_resp.get('ok') or not check_resp.get('messages'):
+                logger.info(
+                    f'[ChannelTalk] 카드 삭제됨 — 상담 종료 알림 skip (chat_id={chat_id})'
+                )
+                return
+    except Exception as exc:
+        logger.warning(f'[ChannelTalk] 종료 알림 — 메시지 존재 확인 실패: {exc}')
 
     # 고객명 — thread 매핑이 어긋나 메인 채널로 흘러나갈 가능성 대비 식별자
     customer_name = (user.get('name') or user_chat.get('name') or '익명 고객').strip()
@@ -757,11 +871,13 @@ def events():
             chat_id_m = entity.get('chatId') or (refers.get('userChat') or {}).get('id')
             text_m = (entity.get('plainText') or '').strip()
             if is_our_sent(chat_id_m, text_m):
-                # 우리 봇이 방금 forward한 메시지 — echo loop 방지로 skip
+                # 우리 봇이 방금 forward한 메시지 — echo loop 방지로 슬랙 forward는 skip
                 # 미응답 큐만 제거 (어차피 사용자가 슬랙에서 답변한 거)
                 if chat_id_m:
                     _threads.remove_pending(chat_id_m)
-                logger.debug(f'[ChannelTalk] echo skip (chatId={chat_id_m})')
+                # 단, lead 등록은 트리거 — 슬랙 thread reply도 매니저 응답이므로 시트 등록 필요
+                _register_pending_lead_if_any(chat_id_m)
+                logger.debug(f'[ChannelTalk] echo skip — lead 등록 시도 (chatId={chat_id_m})')
             else:
                 # 본인이든 다른 매니저든 채널톡 앱에서 직접 답변 → 슬랙 thread로 forward
                 _handle_manager_message(payload)

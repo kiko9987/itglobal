@@ -14,6 +14,7 @@
 import os
 import re
 import textwrap
+import threading
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -462,12 +463,17 @@ def sync_karrot() -> Dict[str, Any]:
     return result
 
 
+_APPEND_LEAD_LOCK = threading.Lock()
+
+
 def _append_leads_to_main(leads: List[Dict[str, Any]]) -> List[str]:
     """
     메인 시트에 일괄 추가 + 리드No 자동 발번.
 
     Google Sheets API의 spreadsheets.values.append() 직접 호출.
     (mgr.append_row()는 시트명이 '공사 현황의 사본'으로 하드코딩돼 있어서 사용 불가)
+
+    threading.Lock으로 직렬화 — 동시 호출 시 lead_no 발번 race condition 방지.
     """
     if not leads:
         return []
@@ -476,6 +482,13 @@ def _append_leads_to_main(leads: List[Dict[str, Any]]) -> List[str]:
     if cfg is None:
         raise RuntimeError('ONLINE_LEADS_SHEET_ID 환경변수 미설정')
 
+    # 락 — 동시 lead_no 발번 충돌 방지 (블로킹 acquire)
+    with _APPEND_LEAD_LOCK:
+        return _append_leads_to_main_locked(leads, cfg)
+
+
+def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
+    """lock 잡힌 후 실제 append 처리 (내부용)."""
     mgr = get_sheets_manager()
     df = load_leads_data(force_refresh=True)
 
@@ -734,6 +747,9 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     place = (lead.get('_meta_place') or '').strip() or '-'
     device = (lead.get('_meta_device') or '').strip() or '-'
     inquiry = (lead.get('_meta_inquiry') or lead.get('상담 내용') or '').strip() or '-'
+    # 슬랙 section text 3000자 한도 — 메타데이터 여유분 고려 안전선 2400자
+    if len(inquiry) > 2400:
+        inquiry = inquiry[:2400] + '\n…(내용이 길어 일부만 표시 — 시트 참조)'
 
     # 방문 주소 (자동 추출 또는 시트에 등록된 값) — 신뢰도 레벨에 따라 표시 분기
     address = (lead.get('방문 주소') or '').strip()
@@ -761,8 +777,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     inquiry_quoted = _wrap_quoted(inquiry.rstrip(), width=60)
     main_text = (
         "⠀\n"
-        f">*접수번호:* `{lead_no}`\n"
-        f">:bell: *{title}*\n"
+        f">:bell: *{title}*  `{lead_no}`\n"
         f">---------------------------------------------\n"
         + repeat_section
         + f">*문의시간* : {consult_time}\n"
@@ -790,7 +805,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
                 },
             ],
         },
-        {"type": "section", "text": {"type": "mrkdwn", "text": "⠀"}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
     ]
     fallback_text = f"[{source}] {lead_no} {name} / {phone}"
     return blocks, fallback_text
