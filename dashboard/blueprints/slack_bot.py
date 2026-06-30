@@ -520,17 +520,17 @@ def _register_handlers(app):
         except Exception as exc:
             logger.error(f"[SLACK] link_existing_lead 실패: {exc}", exc_info=True)
 
-    @app.options("value")
+    @app.options("link_lead_search")
     def handle_link_lead_options(ack, body):
         """external_select 검색 — 매니저가 입력한 query로 시트 lead 매칭."""
         try:
-            # action_id "value"는 다른 select에도 쓰일 수 있어 block_id로 필터
-            block_id = (body.get("block_id") or "")
-            if block_id != "target_lead_no":
-                ack(options=[])
-                return
             query = (body.get("value") or "").strip()
+            block_id = (body.get("block_id") or "")
+            logger.info(
+                f"[SLACK/options] action=link_lead_search block_id={block_id!r} query={query!r}"
+            )
             options = _search_leads_for_options(query, limit=30)
+            logger.info(f"[SLACK/options] 반환 {len(options)}건")
             ack(options=options)
         except Exception as exc:
             logger.error(f"[SLACK] link lead options 실패: {exc}", exc_info=True)
@@ -548,7 +548,7 @@ def _register_handlers(app):
             message_ts = metadata.get("message_ts", "")
             state = view["state"]["values"]
             # external_select 결과 — selected_option.value = lead_no
-            sel = state.get("target_lead_no", {}).get("value", {}).get("selected_option")
+            sel = state.get("target_lead_no", {}).get("link_lead_search", {}).get("selected_option")
             target_lead_no = (sel or {}).get("value", "").strip().upper() if sel else ""
             if not re.match(r"^L-\d{5}$", target_lead_no):
                 ack(response_action="errors", errors={
@@ -1724,7 +1724,7 @@ def _open_link_lead_modal(client, body, chat_id: str, channel: str, message_ts: 
         "label": {"type": "plain_text", "text": "통합할 기존 Lead 선택"},
         "element": {
             "type": "external_select",
-            "action_id": "value",
+            "action_id": "link_lead_search",
             "placeholder": {"type": "plain_text", "text": "클릭하면 최근 lead 표시 / 검색도 가능"},
             "min_query_length": 0,
         },
