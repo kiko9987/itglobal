@@ -2332,7 +2332,7 @@ def _process_consult_submission(client, body, view):
         ini = _slack_user_to_initial(client, user_id) or '-'
         # 모든 라인을 `>` blockquote로 통일 — 복사 시 줄바꿈 보존
         reply_lines = [
-            f">:white_check_mark: *{status} 등록* — `{lead_no}`",
+            f">:white_check_mark: *상담 완료 - {status}* — `{lead_no}`",
             f">{SEP}",
             f">등록자 : {ini}",
         ]
@@ -2370,9 +2370,9 @@ def _process_consult_submission(client, body, view):
 
         # 순서 — chat.update(회색 박스) → reaction → thread reply
         # 옛 공사현황 봇과 같은 순서 — slack UI가 reply count 표시 안 되는 케이스 회피
-        # 1) 원본 카드 본문 회색 박스 변환
+        # 1) 원본 카드 본문 회색 박스 변환 (부재중은 추후 재상담 필요 → 변환 skip)
         original_text = metadata.get("original_text", "") if isinstance(metadata, dict) else ''
-        if original_text:
+        if original_text and status != '부재중':
             try:
                 cancel_time = datetime.now().strftime('%m.%d %H:%M')
                 initial = _slack_user_to_initial(client, user_id) or '-'
@@ -2382,7 +2382,7 @@ def _process_consult_submission(client, body, view):
                 clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
                 header_lines = [
                     "⠀",
-                    f":white_check_mark: *{status} 처리 완료*",
+                    f":white_check_mark: *상담 완료 - {status}*",
                     f"처리자 : {initial}",
                     f"처리 시간 : {cancel_time}",
                 ]
