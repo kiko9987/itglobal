@@ -2562,7 +2562,8 @@ def _process_visit_date_modify(client, body, view) -> None:
     try:
         lead = _find_lead_by_no(lead_no) or {}
         platform = str(lead.get('플랫폼', '')).strip()
-        if platform in ('전화', '거래처', '기타'):
+        # 거래처/기타는 그 자체 표시, 그 외(전화/홈페이지/당근/카카오톡 등)는 '온라인 (플랫폼)'
+        if platform in ('거래처', '기타'):
             category = platform
             category_display = category
         else:
@@ -3358,9 +3359,10 @@ def _process_phone_submission(client, body, view):
             visit_date_display = ''
         try:
             _post_visit_notice(
-                client, lead_no=lead_no, category='전화', user_id=user_id,
+                client, lead_no=lead_no, category='온라인', user_id=user_id,
                 visit_date=visit_date_display, name=name, contact=phone,
                 visit_address=address, consultation=inquiry,
+                platform='전화',
             )
         except Exception as exc:
             logger.error(f"[SLACK/전화] #방문_일정 발송 실패: {exc}", exc_info=True)
