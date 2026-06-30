@@ -2403,12 +2403,20 @@ def _process_consult_submission(client, body, view):
             pass
 
         # 3) thread reply 발송 (slack UI가 reply count 표시 갱신하도록 마지막에)
-        try:
-            if old_reply_ts:
+        # chat.update 실패 시(옛 ts 삭제됐거나) chat.postMessage fallback
+        reply_sent = False
+        if old_reply_ts:
+            try:
                 client.chat_update(
                     channel=channel, ts=old_reply_ts, text=reply_text,
                 )
-            else:
+                reply_sent = True
+            except Exception as exc:
+                logger.warning(
+                    f"[SLACK/상담] 옛 reply update 실패 — 새 reply 발송: {exc}"
+                )
+        if not reply_sent:
+            try:
                 resp = client.chat_postMessage(
                     channel=channel, thread_ts=message_ts, text=reply_text,
                 )
@@ -2419,8 +2427,8 @@ def _process_consult_submission(client, body, view):
                         )
                     except Exception:
                         pass
-        except Exception as exc:
-            logger.error(f"[SLACK/상담] thread reply 실패: {exc}", exc_info=True)
+            except Exception as exc:
+                logger.error(f"[SLACK/상담] thread reply 실패: {exc}", exc_info=True)
     else:
         # 슬래시 진입 케이스 — ephemeral 확인 메시지
         try:
