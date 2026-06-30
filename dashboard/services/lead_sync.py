@@ -1047,10 +1047,22 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             if consult_norm and consult_norm != consult_raw:
                 update_cells.append((f"B{sheet_row}", consult_norm))
 
-            # 방문 예정일 정규화 — 시리얼/ISO 모두 'YYYY-MM-DD' escape 형태로 통일
+            # 방문 예정일 정규화 — 단일 ISO은 escape 형태, 범위는 양식 정돈
+            # 슬랙 워크플로우 빌더에서 datepicker 2개 결합 시 raw ISO 범위 ("2026-06-23~2026-06-24")로 들어옴
             visit_date_raw = str(row.get('방문 예정일', '')).strip()
             visit_date = visit_date_raw
-            if visit_date_raw and not visit_date_raw.startswith("'"):
+            if visit_date_raw and '~' in visit_date_raw:
+                # 범위 — 양식 정돈 (같은 달이면 ~DD, 다른 달이면 ~MM-DD)
+                parts = visit_date_raw.split('~', 1)
+                start_iso = parts[0].lstrip("'").strip()
+                end_iso = parts[1].strip() if len(parts) > 1 else ''
+                from dashboard.blueprints.slack_helpers import _format_visit_date_range
+                formatted = _format_visit_date_range(start_iso, end_iso)
+                if formatted and formatted != visit_date_raw:
+                    # 범위 텍스트는 escape prefix 없이 (Google Sheets가 텍스트로 인식)
+                    update_cells.append((f"E{sheet_row}", formatted))
+                    visit_date = formatted
+            elif visit_date_raw and not visit_date_raw.startswith("'"):
                 iso = _normalize_workflow_date(visit_date_raw)
                 if iso:
                     update_cells.append((f"E{sheet_row}", f"'{iso}"))
