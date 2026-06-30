@@ -1625,6 +1625,8 @@ def _search_leads_for_options(query: str, limit: int = 20) -> list:
     leads = get_lead_records() or []
     q = query.strip().lower()
     q_digits = re.sub(r'\D', '', q)
+    # 채팅 lead 제외 — 같은 채팅방 재인입 시 스레드 유지되므로 다른 lead 연결 불필요
+    _CHAT_PLATFORMS = {'카카오톡', '채널톡'}
 
     # 빈 검색 — 최근 lead N건 반환 (lead_no 내림차순)
     if not q:
@@ -1633,9 +1635,11 @@ def _search_leads_for_options(query: str, limit: int = 20) -> list:
             lead_no = str(lead.get('리드 No') or '').strip()
             if not lead_no.startswith('L-'):
                 continue
+            platform = str(lead.get('플랫폼') or '').strip() or '-'
+            if platform in _CHAT_PLATFORMS:
+                continue  # 채팅 lead 제외
             name = str(lead.get('고객명') or '').strip()
             phone = str(lead.get('고객 연락처') or '').strip()
-            platform = str(lead.get('플랫폼') or '').strip() or '-'
             label = f"{lead_no} | {name or '-'} | {phone or '-'} | {platform}"
             if len(label) > 75:
                 label = label[:72] + '...'
@@ -1655,9 +1659,11 @@ def _search_leads_for_options(query: str, limit: int = 20) -> list:
         lead_no = str(lead.get('리드 No') or '').strip()
         if not lead_no:
             continue
+        platform = str(lead.get('플랫폼') or '').strip() or '-'
+        if platform in _CHAT_PLATFORMS:
+            continue  # 채팅 lead 제외
         name = str(lead.get('고객명') or '').strip()
         phone = str(lead.get('고객 연락처') or '').strip()
-        platform = str(lead.get('플랫폼') or '').strip() or '-'
         address = str(lead.get('방문 주소') or '').strip()
         phone_digits = re.sub(r'\D', '', phone)
         # 매칭 점수 — 정확 일치 우선
