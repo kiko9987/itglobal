@@ -25,6 +25,7 @@ from dashboard.utils.logging_config import get_logger
 from dashboard.blueprints.slack_helpers import (
     _format_date_for_sheet,
     _format_visit_date_range,
+    _split_visit_date_range,
     _v,
     _v_multi,
     _to_initial,
@@ -2546,6 +2547,9 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
 
     # visit_type — 슬랙 워크플로가 시트 C열(플랫폼)에 매핑 → 시트 값 그대로 사용
     _lead_platform = str(lead.get('플랫폼', '') or '').strip()
+    # 방문 예정일 분리 — start/end ISO 변수도 함께 전달
+    _vd_raw = str(lead.get('방문 예정일', '') or '').strip()
+    _vd_start, _vd_end = _split_visit_date_range(_vd_raw)
     payload = {
         'lead_no': lead_no or '-',
         'platform': _lead_platform or '-',
@@ -2558,6 +2562,8 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
         'consultation': str(lead.get('상담 내용', '') or '').strip(),
         'estimate_request': '',
         'visit_date': _strip_escape(str(lead.get('방문 예정일', '') or '')),
+        'visit_date_start': _vd_start or '-',
+        'visit_date_end': _vd_end or '-',
         'device': str(lead.get('키워드', '') or '').strip(),
         'visit_address': str(lead.get('방문 주소', '') or '').strip(),
         'name': str(lead.get('고객명', '') or '').strip(),
@@ -3497,6 +3503,9 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
     # visit_type — 슬랙 워크플로가 시트 C열(플랫폼)에 매핑 → lead 실제 플랫폼 사용
     # 채팅(카카오톡/채널톡) / 홈페이지 / 전화 / 당근 — 시트 값 유지 보장
     lead_platform = str(lead.get('플랫폼') or '').strip()
+    # 방문 예정일 — 범위 양식이면 (시작, 종료) ISO로 분리 + 합쳐진 표시 양식도 함께 전달
+    visit_date_raw = str(lead.get('방문 예정일') or '').strip()
+    vd_start_iso, vd_end_iso = _split_visit_date_range(visit_date_raw)
     payload = {
         "lead_no": lead_no or '-',
         "platform": lead_platform or '-',
@@ -3511,6 +3520,8 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         "consultation": modal_fields.get('consultation') or '-',
         "details": parts.get('inquiry') or str(lead.get('상담 내용') or '').strip() or '-',
         "visit_date": modal_fields.get('visit_date') or '-',
+        "visit_date_start": vd_start_iso or '-',  # 분리 변수 — Slack List datepicker 컬럼용
+        "visit_date_end": vd_end_iso or '-',      # 종료일 (단일이면 '-')
         "estimate_request": modal_fields.get('estimate') or '-',
         "message_link": message_link or '-',
         "payload": f"lead_no={lead.get('리드 No')} action={action}",

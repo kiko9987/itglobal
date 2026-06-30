@@ -32,6 +32,39 @@ def _format_date_for_sheet(value: str) -> str:
     return f"'{value}"
 
 
+def _split_visit_date_range(value: str) -> tuple:
+    """범위 양식 → (start_iso, end_iso) 분리. 단일이면 (start, '').
+
+    - "2026-06-23~24" → ("2026-06-23", "2026-06-24")  # 같은 년월
+    - "2026-07-01~08-15" → ("2026-07-01", "2026-08-15")  # 같은 년
+    - "2026-12-30~2027-01-02" → ("2026-12-30", "2027-01-02")  # 다른 년
+    - "2026-06-25" → ("2026-06-25", "")  # 단일
+    - "'2026-06-25" → ("2026-06-25", "")  # escape prefix 제거
+    """
+    if not value:
+        return ('', '')
+    value = value.lstrip("'").strip()
+    if '~' not in value:
+        return (value, '')
+    start, end = value.split('~', 1)
+    start = start.strip()
+    end = end.strip()
+    if not end:
+        return (start, '')
+    # end="DD" (2자리 숫자) — 같은 년월
+    if len(end) == 2 and end.isdigit():
+        parts = start.split('-')
+        if len(parts) == 3:
+            return (start, f'{parts[0]}-{parts[1]}-{end}')
+    # end="MM-DD" (5자, 가운데 '-') — 같은 년
+    if len(end) == 5 and end[2] == '-':
+        parts = start.split('-')
+        if len(parts) == 3:
+            return (start, f'{parts[0]}-{end}')
+    # end="YYYY-MM-DD" — 다른 년
+    return (start, end)
+
+
 def _format_visit_date_range(start_iso: str, end_iso: str) -> str:
     """방문 예정일 표시 양식 — 시작/종료 ISO 날짜 → 사용자 친화적 양식.
 
