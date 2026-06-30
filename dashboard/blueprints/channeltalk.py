@@ -630,28 +630,38 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
     # 1단계: 텍스트 메시지 — 파일이 없을 때만, 또는 새 채팅(카드)일 때만 발송
     # 파일 있는 thread reply는 텍스트 skip → 파일 업로드의 initial_comment로 합침 (알림 1번)
     if not thread_ts:
-        # 새 채팅 — lead 등록 보류 (스팸 차단 위해).
-        # 매니저 응답 시점에 lead 등록 (정상 채팅 신호).
-        # chat_id → 인입 정보를 Redis에 임시 저장 (매니저 응답 시 활용)
+        # 새 채팅 — lead 등록 정책:
+        # - 스팸 의심 → Redis pending만 저장 (매니저 모달 제출 시 등록)
+        # - 일반 메시지 → 즉시 시트 등록 (lead_no 순서 보장, 다른 인입과 시간 순)
         lead_no = ''
         is_spam_suspect = _is_spam_message(display_text)
-        try:
-            from dashboard.utils.redis_client import get_redis_client
-            import json as _json
-            rc = get_redis_client().redis
-            rc.set(
-                f'channeltalk_pending_lead:{chat_id}',
-                _json.dumps({
-                    'user_name': user.get('name') or user_chat.get('name') or '익명 고객',
-                    'medium': (user_chat.get('mediumProfile') or {}).get('mediumName', ''),
-                    'first_message': display_text,
-                    'created_ms': created_ms,
-                    'is_spam_suspect': is_spam_suspect,
-                }, ensure_ascii=False),
-                ex=60 * 60 * 24 * 30,  # 30일 — 채팅 응답 늦어도 보존
-            )
-        except Exception as exc:
-            logger.warning(f'[ChannelTalk] pending lead 저장 실패: {exc}')
+
+        if not is_spam_suspect:
+            # 일반 채팅 — 즉시 시트 등록 → lead_no 부여
+            try:
+                lead_no = _register_chat_lead(user_chat, user, display_text, created_ms) or ''
+            except Exception as exc:
+                logger.warning(f'[ChannelTalk] 즉시 lead 등록 실패: {exc}')
+
+        # 스팸 또는 즉시 등록 실패 시 Redis pending 저장 (매니저 응답 시 활용)
+        if not lead_no:
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                import json as _json
+                rc = get_redis_client().redis
+                rc.set(
+                    f'channeltalk_pending_lead:{chat_id}',
+                    _json.dumps({
+                        'user_name': user.get('name') or user_chat.get('name') or '익명 고객',
+                        'medium': (user_chat.get('mediumProfile') or {}).get('mediumName', ''),
+                        'first_message': display_text,
+                        'created_ms': created_ms,
+                        'is_spam_suspect': is_spam_suspect,
+                    }, ensure_ascii=False),
+                    ex=60 * 60 * 24 * 30,  # 30일 — 채팅 응답 늦어도 보존
+                )
+            except Exception as exc:
+                logger.warning(f'[ChannelTalk] pending lead 저장 실패: {exc}')
 
         # 새 채팅 카드 발송 (thread root, lead_no 없음)
         card = _new_chat_card(user_chat, user, display_text, created_ms, lead_no=lead_no)
