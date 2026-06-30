@@ -1848,7 +1848,60 @@ def _open_consult_modal(client, body, from_slash: bool = False):
 
     # lead_no 있으면 시트 조회 (인입 케이스 prefill)
     lead = _find_lead_by_no(lead_no) if lead_no else None
+
+    # 자동 매칭 — lead_no 못 찾으면 슬랙 카드 메시지에서 이메일/연락처 파싱 후 매칭
+    # (매니저가 시트 정리 시 lead_no 변경한 경우 — 슬랙 카드의 옛 lead_no가 stale)
+    matched_lead_no = ''
+    if lead_no and lead is None:
+        try:
+            card_text = (body.get("message") or {}).get("text", "") or ''
+            # 이메일 / 연락처 추출
+            email_m = re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', card_text)
+            phone_m = re.search(r'\b(0\d{1,2}[- ]?\d{3,4}[- ]?\d{4})\b', card_text)
+            email = email_m.group(0).strip().lower() if email_m else ''
+            phone_digits = re.sub(r'\D', '', phone_m.group(1)) if phone_m else ''
+            # 시트에서 매칭
+            from dashboard.services.lead_service import load_leads_data
+            df = load_leads_data(force_refresh=True)  # 시트 정리 직후 stale 방지
+            if df is not None and not df.empty:
+                if email:
+                    em_norm = df['이메일'].astype(str).str.strip().str.lower()
+                    matches = df[em_norm == email]
+                    if not matches.empty:
+                        matched_lead_no = str(matches.iloc[0].get('리드 No') or '').strip()
+                if not matched_lead_no and phone_digits:
+                    ph_norm = df['고객 연락처'].astype(str).str.replace(r'\D', '', regex=True)
+                    matches = df[ph_norm == phone_digits]
+                    if not matches.empty:
+                        matched_lead_no = str(matches.iloc[0].get('리드 No') or '').strip()
+            if matched_lead_no:
+                logger.info(
+                    f"[SLACK/상담] {lead_no} 시트 없음 → "
+                    f"이메일/연락처로 자동 매칭: {matched_lead_no}"
+                )
+                old_lead_no = lead_no
+                lead = _find_lead_by_no(matched_lead_no)
+                lead_no = matched_lead_no  # 모달 metadata도 업데이트
+                # metadata 재구성
+                metadata = json.dumps({
+                    "lead_no": lead_no, "chat_id": chat_id,
+                    "channel": channel, "message_ts": message_ts,
+                }, ensure_ascii=False)
+        except Exception as exc:
+            logger.warning(f"[SLACK/상담] 자동 매칭 실패: {exc}")
+            old_lead_no = ''
+    else:
+        old_lead_no = ''
+
     info_blocks = _build_consult_info_blocks(lead, lead_no)
+    # 자동 매칭 됐으면 상단에 안내 추가
+    if old_lead_no and matched_lead_no:
+        info_blocks.insert(0, {
+            "type": "section",
+            "text": {"type": "mrkdwn",
+                     "text": f":arrows_counterclockwise: *자동 매칭됨* — `{old_lead_no}` "
+                             f"시트에 없어 이메일/연락처로 `{matched_lead_no}` 매칭"},
+        })
 
     # 채널톡 카드 케이스 — chat_id 있으면 Redis pending lead 정보로 prefill
     channeltalk_info = None
