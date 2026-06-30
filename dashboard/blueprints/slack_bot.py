@@ -2496,10 +2496,12 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
         s = (s or '').strip()
         return s[1:] if s.startswith("'") else s
 
+    # visit_type — 슬랙 워크플로가 시트 C열(플랫폼)에 매핑 → 시트 값 그대로 사용
+    _lead_platform = str(lead.get('플랫폼', '') or '').strip()
     payload = {
         'lead_no': lead_no or '-',
-        'platform': str(lead.get('플랫폼', '') or '').strip() or '-',
-        'visit_type': '온라인',
+        'platform': _lead_platform or '-',
+        'visit_type': _lead_platform or '온라인',
         'email': str(lead.get('이메일', '') or '').strip(),
         'details': '',
         'contact': str(lead.get('고객 연락처', '') or '').strip(),
@@ -3396,10 +3398,13 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
     # 상담 내용 파싱 (장소/기기/문의)
     parts = _split_lead_content(str(lead.get('상담 내용', '')))
 
+    # visit_type — 슬랙 워크플로가 시트 C열(플랫폼)에 매핑 → lead 실제 플랫폼 사용
+    # 채팅(카카오톡/채널톡) / 홈페이지 / 전화 / 당근 — 시트 값 유지 보장
+    lead_platform = str(lead.get('플랫폼') or '').strip()
     payload = {
         "lead_no": lead_no or '-',
-        "platform": str(lead.get('플랫폼') or '').strip() or '-',
-        "visit_type": "온라인",
+        "platform": lead_platform or '-',
+        "visit_type": lead_platform or "온라인",
         "name": str(lead.get('고객명') or '').strip() or '-',
         "contact": str(lead.get('고객 연락처') or '').strip() or '-',
         "email": str(lead.get('이메일') or '').strip() or '-',
