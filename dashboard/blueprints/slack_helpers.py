@@ -18,16 +18,44 @@ logger = get_logger(__name__)
 # ─────────────────────────────────────────────────────────────
 # 시트 날짜 포맷
 # ─────────────────────────────────────────────────────────────
-def _format_date_for_sheet(iso_date: str) -> str:
-    """ISO 형식("2026-06-25")을 시트에 텍스트로 저장하도록 escape.
+def _format_date_for_sheet(value: str) -> str:
+    """단일 ISO 날짜("2026-06-25")는 escape prefix 추가, 범위 텍스트는 그대로.
 
     Google Sheets는 USER_ENTERED 모드에서 ISO 날짜를 시리얼 숫자로 자동 변환.
     작은따옴표 prefix는 Sheets의 텍스트 escape 문자 — UI/API에 표시되지 않음.
-    출력: "2026-06-25" 그대로 (시트의 기존 방문 예정일 형식과 일관)
+    범위 텍스트('~' 포함)는 시트가 텍스트로 인식하므로 escape 불필요.
     """
-    if not iso_date:
+    if not value:
         return ''
-    return f"'{iso_date}"
+    if '~' in value:
+        return value  # 범위 텍스트는 그대로
+    return f"'{value}"
+
+
+def _format_visit_date_range(start_iso: str, end_iso: str) -> str:
+    """방문 예정일 표시 양식 — 시작/종료 ISO 날짜 → 사용자 친화적 양식.
+
+    - end 없거나 start와 동일: "2026-06-25"
+    - 같은 년월: "2026-06-23~24"
+    - 같은 년, 다른 월: "2026-07-01~07-03"
+    - 다른 년: "2026-12-30~2027-01-02"
+    """
+    if not start_iso:
+        return ''
+    if not end_iso or end_iso == start_iso:
+        return start_iso
+    s = start_iso.split('-')
+    e = end_iso.split('-')
+    if len(s) != 3 or len(e) != 3:
+        return f'{start_iso}~{end_iso}'
+    if s[0] == e[0] and s[1] == e[1]:
+        # 같은 년월 — 일자만
+        return f'{start_iso}~{e[2]}'
+    if s[0] == e[0]:
+        # 같은 년, 다른 월 — MM-DD
+        return f'{start_iso}~{e[1]}-{e[2]}'
+    # 다른 년 — 전체
+    return f'{start_iso}~{end_iso}'
 
 
 # ─────────────────────────────────────────────────────────────

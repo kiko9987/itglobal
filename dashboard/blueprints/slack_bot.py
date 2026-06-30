@@ -24,6 +24,7 @@ from flask import Blueprint, request, jsonify
 from dashboard.utils.logging_config import get_logger
 from dashboard.blueprints.slack_helpers import (
     _format_date_for_sheet,
+    _format_visit_date_range,
     _v,
     _v_multi,
     _to_initial,
@@ -2067,6 +2068,13 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
                      "text": "처리 유형이 '방문 예약'이 아니면 무시됩니다."},
             "element": vd_element,
         },
+        {
+            "type": "input", "block_id": "visit_date_end", "optional": True,
+            "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
+            "hint": {"type": "plain_text",
+                     "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
+            "element": {"type": "datepicker", "action_id": "value"},
+        },
     ])
 
     input_blocks.extend([
@@ -2142,7 +2150,12 @@ def _process_consult_submission(client, body, view):
     visit_type = _v(state, "visit_type") or '온라인'  # 온라인 / 거래처 / 기타
     status = _v(state, "status")  # 방문 예약 / 견적 제출 / 유선 상담 / 문의 드랍
     visit_date_raw = (_v(state, "visit_date") or '').strip()
-    visit_date_for_sheet = _format_date_for_sheet(visit_date_raw) if visit_date_raw else ''
+    visit_date_end_raw = (_v(state, "visit_date_end") or '').strip()
+    # 범위 표시 양식 적용 (같은 달: "MM-DD~DD" / 다른 달: "MM-DD~MM-DD")
+    visit_date_display = _format_visit_date_range(visit_date_raw, visit_date_end_raw)
+    visit_date_for_sheet = _format_date_for_sheet(visit_date_display) if visit_date_display else ''
+    # 슬랙 카드 발송용 raw 표시 — 범위 양식 또는 단일
+    visit_date_raw = visit_date_display
     name = (_v(state, "name") or '').strip()
     contact = (_v(state, "contact") or '').strip()
     visit_address = (_v(state, "visit_address") or '').strip()
@@ -3109,6 +3122,14 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
                 "optional": True,
             },
             {
+                "type": "input", "block_id": "visit_date_end",
+                "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
+                "hint": {"type": "plain_text",
+                         "text": "여러 날 방문일 때만 입력. 단일이면 비워두세요."},
+                "element": {"type": "datepicker", "action_id": "value"},
+                "optional": True,
+            },
+            {
                 "type": "input", "block_id": "inquiry",
                 "label": {"type": "plain_text", "text": "상담 내용 (선택)"},
                 "element": {
@@ -3230,10 +3251,13 @@ def _process_phone_submission(client, body, view):
     email = _v(state, "email").strip() or '-'
     status = _v(state, "status").strip() or '유선 상담'
     address_raw = _v(state, "address").strip()
-    # datepicker는 ISO 형식("2026-06-25") 반환 — Google Sheets가 USER_ENTERED 모드에서
-    # 자동으로 시리얼 숫자로 저장하는 것을 막기 위해 한국식 점 표기 + 종결 점으로 변환
+    # datepicker는 ISO 형식("2026-06-25") 반환 — 단일/범위 표시 양식 처리
     visit_date_raw = _v(state, "visit_date").strip()
-    visit_date = _format_date_for_sheet(visit_date_raw) if visit_date_raw else '-'
+    visit_date_end_raw = _v(state, "visit_date_end").strip()
+    visit_date_display = _format_visit_date_range(visit_date_raw, visit_date_end_raw)
+    visit_date = _format_date_for_sheet(visit_date_display) if visit_date_display else '-'
+    # 슬랙 카드 표시용 raw — 범위 양식 또는 단일
+    visit_date_raw = visit_date_display
     inquiry = _v(state, "inquiry").strip() or '-'
     devices = _v_multi(state, "device")
     device_str = ', '.join(devices) if devices else '-'
