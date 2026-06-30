@@ -1833,6 +1833,7 @@ def _open_consult_modal(client, body, from_slash: bool = False):
     chat_id = ''  # 채널톡 카드 button value가 chat_id인 경우
     channel = ''
     message_ts = ''
+    original_text = ''  # 모달 제출 후 카드 chat.update 시 옛 본문 보존용
 
     if from_slash:
         channel = body.get("channel_id", "")
@@ -1845,12 +1846,15 @@ def _open_consult_modal(client, body, from_slash: bool = False):
             chat_id = btn_value
         channel = body["channel"]["id"]
         message_ts = body["message"]["ts"]
+        # 옛 카드 본문 — 모달 제출 후 회색 박스 변환에 사용
+        original_text = body.get("message", {}).get("text", "") or ''
 
     metadata = json.dumps({
         "lead_no": lead_no,
         "chat_id": chat_id,
         "channel": channel,
         "message_ts": message_ts,
+        "original_text": original_text,
     }, ensure_ascii=False)
 
     # placeholder 모달 (3초 trigger_id 제약 회피)
@@ -1909,10 +1913,11 @@ def _open_consult_modal(client, body, from_slash: bool = False):
                 old_lead_no = lead_no
                 lead = _find_lead_by_no(matched_lead_no)
                 lead_no = matched_lead_no  # 모달 metadata도 업데이트
-                # metadata 재구성
+                # metadata 재구성 (original_text 유지)
                 metadata = json.dumps({
                     "lead_no": lead_no, "chat_id": chat_id,
                     "channel": channel, "message_ts": message_ts,
+                    "original_text": original_text,
                 }, ensure_ascii=False)
         except Exception as exc:
             logger.warning(f"[SLACK/상담] 자동 매칭 실패: {exc}")
@@ -2381,6 +2386,32 @@ def _process_consult_submission(client, body, view):
             )
         except Exception:
             pass
+
+        # 원본 카드 본문 회색 박스 변환 — "처리 완료" 시각 명확화 (공사 취소 카드와 일관)
+        original_text = metadata.get("original_text", "") if isinstance(metadata, dict) else ''
+        if original_text:
+            try:
+                cancel_time = datetime.now().strftime('%m.%d %H:%M')
+                initial = _slack_user_to_initial(client, user_id) or '-'
+                # 옛 본문에서 `>` blockquote / * 마크다운 제거 → 코드 블록으로 회색 표시
+                cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
+                cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
+                clean_text = '\n'.join(cleaned_lines).strip()
+                new_text = (
+                    f":white_check_mark: *{status} 처리 완료*\n"
+                    f"처리자 : {initial}\n"
+                    f"처리 시간 : {cancel_time}\n"
+                    f"\n"
+                    f"```\n{clean_text}\n```"
+                )
+                new_blocks = [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+                ]
+                client.chat_update(
+                    channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
+                )
+            except Exception as exc:
+                logger.warning(f"[SLACK/상담] 카드 회색 처리 실패 ({lead_no}): {exc}")
     else:
         # 슬래시 진입 케이스 — ephemeral 확인 메시지
         try:
