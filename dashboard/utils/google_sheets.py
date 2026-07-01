@@ -476,7 +476,7 @@ class GoogleSheetsManager:
 
         return f"{user_message} (상세: {error_reason})"
     
-    def get_sheet_data(self, sheet_id, range_name='공사 현황의 사본!A:AO'):
+    def get_sheet_data(self, sheet_id, range_name='공사 현황의 사본!A:AP'):
         """
         구글 시트에서 데이터 가져오기 (에러 처리 강화)
 
@@ -774,7 +774,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 찾기 오류: {str(e)}")
             return None
 
-    def append_row(self, sheet_id, values, range_name='공사 현황의 사본!A:AO'):
+    def append_row(self, sheet_id, values, range_name='공사 현황의 사본!A:AP'):
         """
         구글 시트의 다음 빈 행에 데이터 추가 (수식이 미리 설정된 행에 덮어쓰기)
         
@@ -1070,7 +1070,8 @@ class GoogleSheetsManager:
             'AL': '견적서 및 계약서 폴더 경로',
             'AM': '공사 확정',
             'AN': 'Airtable Record ID',
-            'AO': '_version'
+            'AO': 'Lead No',   # 리드 연결 (2026-07 신규)
+            'AP': '_version'   # 옛 AO에서 이동
         }
 
     def get_field_column_mapping(self):

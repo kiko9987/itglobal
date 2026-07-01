@@ -68,7 +68,7 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
             return None
 
         manager = get_sheets_manager()
-        sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AO')
+        sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AP')
         logger.debug("[PREFETCH] Google Sheets 데이터 가져오기 시작")
         df = manager.get_sheet_data(sheet_id, sheet_range)
 
@@ -398,7 +398,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 return None
 
             manager = get_sheets_manager()
-            sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AO')
+            sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AP')
             logger.info(f"Loading project data from range: {sheet_range}")
             df = manager.get_sheet_data(sheet_id, sheet_range)
 

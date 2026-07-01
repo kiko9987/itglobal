@@ -623,12 +623,12 @@ def _load_project_row(manager, sheet_id, sheet_name, project_code):
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AO',  # AN 컬럼까지 읽기 (_version 포함)
+        end_col='AP',  # AP 컬럼까지 읽기 (_version 포함, 2026-07 컬럼 시프트)
         value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
     )
 
-    # 현재 값을 리스트로 확장 (40개 컬럼, AN까지)
-    while len(current_values) < 40:
+    # 현재 값을 리스트로 확장 (42개 컬럼, AP까지)
+    while len(current_values) < 42:
         current_values.append('')
 
     return row_number, current_values, None
@@ -642,7 +642,7 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
         - success: (int, None)
         - failure: (None, JsonResponse with 409)
     """
-    current_version = current_values[39]  # AN 컬럼 (index 39)
+    current_version = current_values[41]  # AP 컬럼 (index 41) — _version (2026-07 컬럼 시프트, 옛 AO → AP)
 
     # 버전 값 정규화 (빈 문자열/None → '0')
     if not current_version or current_version == '':
@@ -661,7 +661,7 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AO',
+            end_col='AP',
             value_render_option='FORMATTED_VALUE'
         )
 
@@ -866,7 +866,7 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AO',  # AN 컬럼까지 조회 (_version 포함)
+        end_col='AP',  # AP 컬럼까지 조회 (_version 포함, 2026-07 시프트)
         value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
     )
 
@@ -1011,7 +1011,7 @@ def update_project(project_code):
             return error_response
 
         # 버전 업데이트
-        current_values[39] = str(new_version)
+        current_values[41] = str(new_version)  # AP 컬럼 (_version, 2026-07 시프트)
 
         # 5. 필드 매핑 생성
         column_mapping = manager.get_column_mapping()
@@ -1157,7 +1157,7 @@ def _load_row_data_for_inline_update(manager, sheet_id, sheet_name, project_code
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AO'
+        end_col='AP'
     )
 
     # 현재 값을 리스트로 확장 (40개 컬럼, AN까지)
@@ -1184,7 +1184,7 @@ def _check_optimistic_lock_inline(data, current_values, project_code, manager, s
         tuple: (new_version, None) 성공 시, (None, error_response) 충돌 시
     """
     expected_version = data.get('_version')
-    current_version = current_values[39]  # AN 컬럼 (index 39)
+    current_version = current_values[41]  # AP 컬럼 (index 41) — _version (2026-07 컬럼 시프트, 옛 AO → AP)
 
     # 버전 값 정규화 (빈 문자열/None → '0')
     if not current_version or current_version == '':
@@ -1202,7 +1202,7 @@ def _check_optimistic_lock_inline(data, current_values, project_code, manager, s
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AO',
+            end_col='AP',
             value_render_option='FORMATTED_VALUE'
         )
 
@@ -1508,7 +1508,7 @@ def update_project_inline():
             return lock_error  # 409 Conflict 반환
 
         # 버전 업데이트
-        current_values[39] = str(new_version)
+        current_values[41] = str(new_version)  # AP 컬럼 (_version, 2026-07 시프트)
 
         # 5. 프로젝트 코드 자동 재산출 (사업자/담당자 변경 시)
         original_values = current_values.copy()
@@ -2529,7 +2529,8 @@ def _build_row_values(data, manager, row_number):
         'X': data.get('미수금', f'=($U{row_number}+$V{row_number}+$W{row_number})-$T{row_number}'),
         'AF': data.get('순익', f'=R{row_number}-(AB{row_number}+AC{row_number}+AD{row_number}+AE{row_number})'),
         'AG': data.get('마진율', f'=IF(OR(R{row_number}=0, AF{row_number}=0), 0, AF{row_number}/R{row_number})'),
-        'AO': '0'  # _version 초기값 (낙관적 잠금용)
+        'AO': data.get('Lead No', ''),  # 리드 연결 (2026-07 신규)
+        'AP': '0'  # _version 초기값 (낙관적 잠금용) — 옛 AO에서 이동
     }
 
     for col_letter, formula in formula_fields.items():
