@@ -306,12 +306,12 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         '이메일': email or '-',
         '고객명': name,
         '방문 주소': extracted_address or '-',
-        '상담 내용': content,
+        '문의 내용': content,   # 홈페이지 인입 원본
+        '상담 내용': '',        # 매니저 처리 결과 (초기엔 빈값)
         '키워드': keyword,
         '온라인 상담자': '',
         '영업 담당자': '',
         '마지막 연락일': '',
-        '피드백': '',
         # 슬랙 메시지용 메타
         '_meta_place': place,
         '_meta_device': device,

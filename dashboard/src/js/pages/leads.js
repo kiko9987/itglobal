@@ -40,12 +40,12 @@ const KO = {
     email:        '이메일',
     customerName: '고객명',
     address:      '방문 주소',
-    content:      '상담 내용',
+    content:      '문의 내용',   // 인입 원본 (옛 '상담 내용')
+    feedback:     '상담 내용',   // 매니저 처리 결과 (옛 '피드백')
     keyword:      '키워드',
     onlineOwner:  '온라인 상담자',
     salesOwner:   '영업 담당자',
     lastContact:  '마지막 연락일',
-    feedback:     '피드백',
 };
 
 // 상태별 배지 색상 (Bootstrap 5)
@@ -89,12 +89,12 @@ const F = {
     email:        (r) => r['이메일'] || '',
     customerName: (r) => r['고객명'] || '',
     address:      (r) => r['방문 주소'] || '',
-    content:      (r) => r['상담 내용'] || '',
+    content:      (r) => r['문의 내용'] || r['상담 내용'] || '',   // 새 J열 우선, 옛 이름 fallback
     keyword:      (r) => r['키워드'] || '',
     onlineOwner:  (r) => r['온라인 상담자'] || '',
     salesOwner:   (r) => r['영업 담당자'] || r['담당자'] || '',
     lastContact:  (r) => r['마지막 연락일'] || '',
-    feedback:     (r) => r['피드백'] || r['비고'] || '',
+    feedback:     (r) => r['상담 내용'] || r['피드백'] || r['비고'] || '',   // 새 K열 우선, 옛 이름 fallback
 };
 
 // 멀티라인 편집이 어울리는 필드
@@ -617,9 +617,9 @@ async function saveNewLead() {
             '방문 주소': document.getElementById('newLeadAddress').value,
             '방문 예정일': document.getElementById('newLeadVisitDate').value,
             '마지막 연락일': document.getElementById('newLeadLastContact').value,
-            '상담 내용': document.getElementById('newLeadContent').value,
+            '문의 내용': document.getElementById('newLeadContent').value,   // 인입 원본
             '키워드': document.getElementById('newLeadKeyword').value,
-            '피드백': document.getElementById('newLeadFeedback').value,
+            '상담 내용': document.getElementById('newLeadFeedback').value,   // 매니저 처리 결과 (옛 피드백)
         };
 
         if (!leadData['플랫폼'] || !leadData['고객명'] || !leadData['고객 연락처']) {
@@ -690,9 +690,9 @@ async function saveEditLead() {
             '방문 주소': document.getElementById('editLeadAddress').value,
             '방문 예정일': document.getElementById('editLeadVisitDate').value,
             '마지막 연락일': document.getElementById('editLeadLastContact').value,
-            '상담 내용': document.getElementById('editLeadContent').value,
+            '문의 내용': document.getElementById('editLeadContent').value,
             '키워드': document.getElementById('editLeadKeyword').value,
-            '피드백': document.getElementById('editLeadFeedback').value,
+            '상담 내용': document.getElementById('editLeadFeedback').value,
         };
 
         const response = await fetch(`/leads/api/update/${leadNo}`, {

@@ -138,12 +138,12 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
         '이메일': '-',
         '고객명': name,
         '방문 주소': address or '-',
-        '상담 내용': content,
+        '문의 내용': content,
+        '상담 내용': '',
         '키워드': keyword,
         '온라인 상담자': '',
         '영업 담당자': '',
         '마지막 연락일': '',
-        '피드백': '',
         # 메타 (시트 등록 시 LEAD_COLUMN_ORDER 필터로 자동 제외)
         '_meta_place': place,
         '_meta_device': device,
@@ -209,8 +209,8 @@ def _get_existing_address_lookup(main_df: Optional[pd.DataFrame]) -> dict:
             'consult_dt': consult_dt,
             'consult_time': str(row.get('상담 시간', '') or ''),
             'status': str(row.get('상태', '') or ''),
-            'feedback': str(row.get('피드백', '') or ''),
-            'inquiry': str(row.get('상담 내용', '') or ''),
+            'feedback': str(row.get('상담 내용', '') or ''),  # 새 K열 (매니저 상담 결과)
+            'inquiry': str(row.get('문의 내용', '') or ''),   # 새 J열 (인입 원본)
             'platform': str(row.get('플랫폼', '') or ''),
             'consultant': str(row.get('온라인 상담자', '') or ''),
             'sales_rep': str(row.get('영업 담당자', '') or ''),
@@ -244,8 +244,8 @@ def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
             'consult_dt': consult_dt,
             'consult_time': str(row.get('상담 시간', '') or ''),
             'status': str(row.get('상태', '') or ''),
-            'feedback': str(row.get('피드백', '') or ''),
-            'inquiry': str(row.get('상담 내용', '') or ''),
+            'feedback': str(row.get('상담 내용', '') or ''),  # 새 K열 (매니저 상담 결과)
+            'inquiry': str(row.get('문의 내용', '') or ''),   # 새 J열 (인입 원본)
             'platform': str(row.get('플랫폼', '') or ''),
             'consultant': str(row.get('온라인 상담자', '') or ''),
             'sales_rep': str(row.get('영업 담당자', '') or ''),
@@ -767,7 +767,8 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     email = (lead.get('이메일') or '').strip() or '-'
     place = (lead.get('_meta_place') or '').strip() or '-'
     device = (lead.get('_meta_device') or '').strip() or '-'
-    inquiry = (lead.get('_meta_inquiry') or lead.get('상담 내용') or '').strip() or '-'
+    # 인입 원본은 새 J열 '문의 내용' — 옛 K열 '상담 내용'은 fallback (마이그레이션 호환)
+    inquiry = (lead.get('_meta_inquiry') or lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
     # 슬랙 section text 3000자 한도 — 메타데이터 여유분 고려 안전선 2400자
     if len(inquiry) > 2400:
         inquiry = inquiry[:2400] + '\n…(내용이 길어 일부만 표시 — 시트 참조)'
@@ -978,7 +979,7 @@ def retry_pending_slack_notifications() -> Dict[str, Any]:
             # _meta 필드 채움 (build_inquiry_blocks 의존)
             lead['_meta_place'] = ''
             lead['_meta_device'] = str(lead.get('키워드', '') or '')
-            lead['_meta_inquiry'] = str(lead.get('상담 내용', '') or '')
+            lead['_meta_inquiry'] = str(lead.get('문의 내용', '') or lead.get('상담 내용', '') or '')
             pending_leads.append(lead)
             pending_nos.append(lead_no)
             pending_sources.append(source)
@@ -1154,7 +1155,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         'consult_time': consult_norm or consult_raw,
                         'address': str(row.get('방문 주소', '')).strip(),
                         'visit_date': visit_date,
-                        'inquiry': str(row.get('상담 내용', '')).strip(),
+                        'inquiry': str(row.get('문의 내용', '') or row.get('상담 내용', '')).strip(),
                         'keyword': keyword_norm,
                         'user_name': user_name,
                     })
@@ -1202,7 +1203,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                 '이메일': lead.get('email', ''),
                                 '상담 시간': lead.get('consult_time', ''),
                                 '방문 주소': lead['address'],
-                                '상담 내용': lead['inquiry'],
+                                '문의 내용': lead['inquiry'],
                                 '키워드': lead.get('keyword', ''),
                                 '플랫폼': '전화',
                             }

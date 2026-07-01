@@ -124,11 +124,11 @@
                                 <th class="col-phone">연락처</th>
                                 <th class="col-email">이메일</th>
                                 <th class="col-address">방문 주소</th>
-                                <th class="col-content">상담 내용</th>
+                                <th class="col-content">문의 내용</th>
+                                <th class="col-feedback">상담 내용</th>
                                 <th class="col-keyword">키워드</th>
                                 <th class="col-online">온라인 상담자</th>
                                 <th class="col-sales">영업 담당자</th>
-                                <th class="col-feedback">피드백</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -330,23 +330,25 @@
                                         <div class="row">
                                             <div class="col-12">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    상담 내용
+                                                    문의 내용
                                                 </label>
-                                                <textarea class="form-control" id="newLeadContent" rows="4" placeholder="(당) 5월 27일 오전 / 주소 / 상담 요청 사항..." style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
+                                                <textarea class="form-control" id="newLeadContent" rows="4" placeholder="인입 원본 문의 내용..." style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
                                             </div>
                                         </div>
                                         <div class="row mt-3">
-                                            <div class="col-md-6">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    상담 내용
+                                                </label>
+                                                <textarea class="form-control" id="newLeadFeedback" rows="3" placeholder="통화/방문 후 상담 결과, 특이사항..." style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-md-12">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
                                                     키워드
                                                 </label>
                                                 <input type="text" class="form-control" id="newLeadKeyword" placeholder="예: 천장형, 1등급, 비교견적" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    피드백
-                                                </label>
-                                                <input type="text" class="form-control" id="newLeadFeedback" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                     </div>
@@ -551,23 +553,25 @@
                                         <div class="row">
                                             <div class="col-12">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    상담 내용
+                                                    문의 내용
                                                 </label>
                                                 <textarea class="form-control" id="editLeadContent" rows="4" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
                                             </div>
                                         </div>
                                         <div class="row mt-3">
-                                            <div class="col-md-6">
+                                            <div class="col-12">
+                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
+                                                    상담 내용
+                                                </label>
+                                                <textarea class="form-control" id="editLeadFeedback" rows="3" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem;"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="row mt-3">
+                                            <div class="col-md-12">
                                                 <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
                                                     키워드
                                                 </label>
                                                 <input type="text" class="form-control" id="editLeadKeyword" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
-                                            </div>
-                                            <div class="col-md-6">
-                                                <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">
-                                                    피드백
-                                                </label>
-                                                <input type="text" class="form-control" id="editLeadFeedback" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                             </div>
                                         </div>
                                     </div>

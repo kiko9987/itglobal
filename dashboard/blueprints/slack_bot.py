@@ -1476,13 +1476,13 @@ def _open_inquiry_modal(client, body, action: str):
         return
 
     # 상담 내용에서 장소/기기/문의 분리
-    parts = _split_lead_content(str(lead.get('상담 내용', '')))
+    parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
     name = str(lead.get('고객명') or '').strip() or '-'
     phone = str(lead.get('고객 연락처') or '').strip() or '-'
     email = str(lead.get('이메일') or '').strip() or '-'
     place = parts['place'] or '-'
     device = parts['device'] or '-'
-    inquiry = parts['inquiry'] or str(lead.get('상담 내용') or '').strip() or '-'
+    inquiry = parts['inquiry'] or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
     address = str(lead.get('방문 주소') or '').strip()
     consult_time = str(lead.get('상담 시간') or '').strip() or '-'
 
@@ -1778,9 +1778,9 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
 
         # 기존 피드백에 추가 (덮어쓰지 않음)
         existing = get_lead_by_no(target_lead_no) or {}
-        old_feedback = (existing.get('피드백') or '').strip()
+        old_feedback = (existing.get('상담 내용') or existing.get('피드백') or '').strip()
         new_feedback = (old_feedback + '\n\n' + chat_memo).strip() if old_feedback else chat_memo
-        update_lead(target_lead_no, {'피드백': new_feedback})
+        update_lead(target_lead_no, {'상담 내용': new_feedback})
 
         # Redis 삭제 — 이 채팅은 새 lead 등록 안 함
         rc.delete(pending_key)
@@ -1806,14 +1806,14 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
                     for _, r in match.iterrows():
                         chat_lead_no = str(r.get('리드 No') or '').strip()
                         if chat_lead_no and chat_lead_no != target_lead_no:
-                            chat_old_feedback = str(r.get('피드백') or '').strip()
+                            chat_old_feedback = str(r.get('상담 내용') or r.get('피드백') or '').strip()
                             chat_new_feedback = (
                                 (chat_old_feedback + '\n\n' if chat_old_feedback else '')
                                 + f'→ {target_lead_no}로 통합'
                             )
                             update_lead(chat_lead_no, {
                                 '상태': '문의 드랍',
-                                '피드백': chat_new_feedback,
+                                '상담 내용': chat_new_feedback,
                             })
                             logger.info(
                                 f"[SLACK/link] 채팅 lead 통합 마킹: {chat_lead_no} → {target_lead_no}"
@@ -2027,11 +2027,11 @@ def _open_consult_modal(client, body, from_slash: bool = False):
 def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
     """상담 모달 상단 인입 정보 블록 — lead 있으면 카드형 정보, 없고 lead_no만 있으면 경고."""
     if lead:
-        parts = _split_lead_content(str(lead.get('상담 내용', '')))
+        parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
         name = str(lead.get('고객명') or '').strip() or '-'
         phone = str(lead.get('고객 연락처') or '').strip() or '-'
         consult_time = str(lead.get('상담 시간') or '').strip() or '-'
-        inquiry = parts.get('inquiry') or str(lead.get('상담 내용') or '').strip() or '-'
+        inquiry = parts.get('inquiry') or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
         return [
             {"type": "section", "text": {"type": "mrkdwn", "text": (
                 f"*접수번호:* `{lead_no}`\n"
@@ -2255,7 +2255,7 @@ def _process_consult_submission(client, body, view):
                 update_data['방문 주소'] = visit_address
             if consultation:
                 # 옛 상담 내용은 보존 — 매니저 추가 입력은 피드백 컬럼에 저장
-                update_data['피드백'] = consultation
+                update_data['상담 내용'] = consultation
             # 상담하기 누른 매니저 → L열(온라인 상담자) — 드롭다운 값과 매칭되는 한국 이름
             counselor = _slack_user_to_korean_name(client, user_id)
             if counselor:
@@ -2331,12 +2331,12 @@ def _process_consult_submission(client, body, view):
                 '이메일': '-',
                 '고객명': name or '-',
                 '방문 주소': visit_address or '-',
-                '상담 내용': consultation or '-',
+                '문의 내용': '',                 # 슬래시 신규 등록 — 인입 원본 없음
+                '상담 내용': consultation or '-', # 매니저 입력 (옛 피드백 자리)
                 '키워드': '-',
                 '온라인 상담자': counselor,
                 '영업 담당자': '',
                 '마지막 연락일': '',
-                '피드백': consultation or '',
                 '_meta_consult_dt': now,
             }
             lead_nos = _append_leads_to_main([new_lead])
@@ -3413,12 +3413,12 @@ def _process_phone_submission(client, body, view):
         '이메일': email,
         '고객명': name,
         '방문 주소': address,
-        '상담 내용': inquiry,
+        '문의 내용': inquiry,   # 전화 인입 원본
+        '상담 내용': '',        # 매니저 처리 결과 (초기엔 빈값)
         '키워드': keyword,
         '온라인 상담자': counselor,
         '영업 담당자': '',
         '마지막 연락일': '',
-        '피드백': '',
         '_meta_place': place,
         '_meta_device': device_str,
         '_meta_inquiry': inquiry,
@@ -3466,7 +3466,7 @@ def _process_phone_submission(client, body, view):
                 '고객명': name,
                 '이메일': email,
                 '방문 주소': address,
-                '상담 내용': inquiry,
+                '상담 내용': inquiry,   # 전화 재제출 → 매니저가 확인한 상담 결과로 반영
                 '키워드': keyword,
                 '온라인 상담자': counselor,
             }
@@ -3612,7 +3612,7 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
             pass
 
     # 상담 내용 파싱 (장소/기기/문의)
-    parts = _split_lead_content(str(lead.get('상담 내용', '')))
+    parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
 
     # visit_type — 슬랙 워크플로가 시트 C열(플랫폼)에 매핑 → lead 실제 플랫폼 사용
     # 채팅(카카오톡/채널톡) / 홈페이지 / 전화 / 당근 — 시트 값 유지 보장
@@ -3632,7 +3632,7 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         "device": parts.get('device') or str(lead.get('키워드') or '').strip() or '-',
         "visit_address": modal_fields.get('visit_address') or str(lead.get('방문 주소') or '').strip() or '-',
         "consultation": modal_fields.get('consultation') or '-',
-        "details": parts.get('inquiry') or str(lead.get('상담 내용') or '').strip() or '-',
+        "details": parts.get('inquiry') or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-',
         "visit_date": modal_fields.get('visit_date') or '-',
         "visit_date_start": vd_start_iso or '-',  # 분리 변수 — Slack List datepicker 컬럼용
         "visit_date_end": vd_end_iso or '-',      # 종료일 (단일이면 '-')
@@ -3683,7 +3683,7 @@ def _process_visit_submission(client, body, view):
         if visit_address:
             update_data['방문 주소'] = visit_address
         if consultation:
-            update_data['피드백'] = consultation
+            update_data['상담 내용'] = consultation
         update_lead(lead_no, update_data)
     except Exception as exc:
         logger.error(f"[SLACK] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
@@ -3747,7 +3747,7 @@ def _process_price_submission(client, body, view):
             '상태': new_status,
         }
         if consultation:
-            update_data['피드백'] = consultation
+            update_data['상담 내용'] = consultation
         update_lead(lead_no, update_data)
     except Exception as exc:
         logger.error(f"[SLACK] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
