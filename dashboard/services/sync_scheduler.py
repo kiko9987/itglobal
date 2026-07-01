@@ -254,7 +254,14 @@ def _safe_karrot_sync():
 
 
 def _safe_workflow_phone_sync():
-    """슬랙 워크플로우가 메인 시트에 직접 추가한 전화 lead 보정"""
+    """슬랙 워크플로우가 메인 시트에 직접 추가한 전화 lead 보정.
+
+    PHONE_WORKFLOW_SYNC_ENABLED=true 일 때만 활성화.
+    기본 disable — 슬랙 도입 전 매니저가 시트 수동 입력할 때 자동 발번/카드 방지.
+    Apps Script onEdit이 대신 lead_no 발번.
+    """
+    if os.getenv('PHONE_WORKFLOW_SYNC_ENABLED', 'false').lower() != 'true':
+        return
     if not _redis_healthy():
         logger.warning('[SCHED] Redis 다운 — 워크플로 전화 lead 보정 skip')
         return
