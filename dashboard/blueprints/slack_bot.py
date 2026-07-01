@@ -1785,6 +1785,43 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
         # Redis 삭제 — 이 채팅은 새 lead 등록 안 함
         rc.delete(pending_key)
 
+        # 채팅 lead 자체를 시트에서 통합 처리 — 상태='문의 드랍' + 피드백에 통합 마킹
+        # (채팅 인입 시 즉시 시트 등록되므로 그 행이 남지 않도록)
+        try:
+            from dashboard.services.lead_service import load_leads_data
+            df = load_leads_data()
+            # chat_id → 시트에서 같은 chat의 lead 찾기 (Redis pending 데이터에 이름/시간 있음)
+            # 가장 간단하게 — 최근 채팅 lead 중 target과 다른 것 찾음. pending 데이터의 user_name/시간으로 매칭.
+            if pending_raw and df is not None:
+                user_name = pending.get('user_name', '')
+                created_ms = pending.get('created_ms', 0)
+                if user_name and created_ms:
+                    from datetime import datetime as _dt
+                    consult_time_str = _dt.fromtimestamp(created_ms / 1000.0).strftime('%Y.%m.%d. %H:%M')
+                    match = df[
+                        (df['고객명'].astype(str).str.strip() == user_name)
+                        & (df['상담 시간'].astype(str).str.strip() == consult_time_str)
+                        & (df['플랫폼'].astype(str).str.strip().isin(['카카오톡', '채널톡']))
+                    ]
+                    for _, r in match.iterrows():
+                        chat_lead_no = str(r.get('리드 No') or '').strip()
+                        if chat_lead_no and chat_lead_no != target_lead_no:
+                            chat_old_feedback = str(r.get('피드백') or '').strip()
+                            chat_new_feedback = (
+                                (chat_old_feedback + '\n\n' if chat_old_feedback else '')
+                                + f'→ {target_lead_no}로 통합'
+                            )
+                            update_lead(chat_lead_no, {
+                                '상태': '문의 드랍',
+                                '피드백': chat_new_feedback,
+                            })
+                            logger.info(
+                                f"[SLACK/link] 채팅 lead 통합 마킹: {chat_lead_no} → {target_lead_no}"
+                            )
+                            break
+        except Exception as exc:
+            logger.warning(f"[SLACK/link] 채팅 lead 통합 마킹 실패: {exc}")
+
         # 슬랙 thread 안내
         if channel and message_ts:
             try:
