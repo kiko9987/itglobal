@@ -1049,6 +1049,15 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
         for idx, row in candidates.iterrows():
             sheet_row = idx + 2  # 헤더 1행 + 0-based
+            # 매니저 입력 진행 중 — 필수 필드(고객명 or 연락처) 없으면 다음 sync 대기
+            # (슬랙 워크플로우가 시트에 여러 셀 순차 write하는 동안 sync가 잡으면 빈 카드 발송됨)
+            _name = str(row.get('고객명', '') or '').strip()
+            _phone = str(row.get('고객 연락처', '') or '').strip()
+            if not _name and not _phone:
+                logger.debug(
+                    f'[SYNC/전화WF] 매니저 입력 진행 중 skip (row {sheet_row})'
+                )
+                continue
             new_lead_no = f"L-{next_no_int:05d}"
             next_no_int += 1
 
