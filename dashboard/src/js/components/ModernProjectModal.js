@@ -4,7 +4,7 @@
 import AmountCalculator from '../utils/AmountCalculator.js';
 import FormValidator from '../utils/FormValidator.js';
 import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
-import { initLeadAutocomplete } from '../utils/leadAutocomplete.js';
+import { initLeadProjectLoader } from '../utils/leadProjectLoader.js';
 
 import logger from '../utils/logger.js';
 export default class ModernProjectModal {
@@ -190,6 +190,16 @@ export default class ModernProjectModal {
       addressInput.addEventListener('blur', () => this.validateAddress());
     }
 
+    // 유입 구분 ↔ 사업자명 잠금 연동
+    // 거래처가 아니면 사업자명은 '-' 고정 + readonly (사업자등록증 미수령 전 상태)
+    // 거래처면 편집 가능 + datalist 자동완성 복구
+    const clientSelectForLock = document.getElementById('modern-client');
+    if (clientSelectForLock) {
+      clientSelectForLock.addEventListener('change', () => this.syncBusinessNameLock());
+      // 초기 로드 시에도 상태 정리 (기본값이 비어있으면 lock 해제)
+      this.syncBusinessNameLock();
+    }
+
     // 날짜 입력 필드 클릭 이벤트 (아이콘 클릭 시 날짜 선택창 열기)
     const calendarIcons = this.modalElement.querySelectorAll('.calendar-icon');
     calendarIcons.forEach(icon => {
@@ -251,9 +261,28 @@ export default class ModernProjectModal {
       this.resetForm();
     });
 
-    // 리드 자동완성 초기화
-    initLeadAutocomplete();
-    logger.info('[ModernProjectModal] Lead autocomplete initialized');
+    // 리드→프로젝트 로더 (기존 리드 불러오기, 방문 예약/견적 제출)
+    initLeadProjectLoader({
+      inputId: 'modern-lead-search-input',
+      resultsId: 'modern-lead-search-results',
+      leadNoInputId: 'modern-lead-no',
+      linkedInfoId: 'modern-lead-linked-info',
+      linkedInfoTextId: 'modern-lead-linked-info-text',
+      unlinkBtnId: 'modern-lead-unlink-btn',
+      badgeId: 'lead-linked-badge',
+      badgeTextId: 'lead-linked-badge-text',
+      modalId: 'modernProjectModal',
+      emailUnknownCheckId: 'modern-email-unknown-check',
+      targets: {
+        client: 'modern-client',
+        siteManager: 'modern-site-manager',
+        phone: 'modern-manager-phone',
+        email: 'modern-manager-email',
+        address: 'modern-address',
+        documentPath: 'modern-document-path',
+      },
+    });
+    logger.info('[ModernProjectModal] Lead-project loader initialized');
   }
 
   /**
@@ -357,10 +386,89 @@ export default class ModernProjectModal {
       // UI 업데이트 (캐시 불필요 - 프로젝트 데이터가 이미 캐시됨)
       this.populateDropdowns({ options });
 
+      // 유입 구분은 시트 데이터 유효성 검사에서 다시 로드 (사용자가 시트에서 수정한 값 반영)
+      this.refreshInflowOptions();
+
       logger.debug('[ModernProjectModal] 옵션 로드 완료 (0ms)');
 
     } catch (error) {
       logger.error('[ModernProjectModal] 옵션 로드 오류:', error);
+    }
+  }
+
+  /**
+   * 유입 구분 값에 따라 사업자명 필드 상태 동기화.
+   * - 거래처: 편집 가능 + datalist 자동완성 유지 + '-' 이면 값 비움
+   * - 그 외: '-' 자동 입력 + readonly + datalist 자동완성 비활성화
+   */
+  syncBusinessNameLock() {
+    const clientSelect = document.getElementById('modern-client');
+    const bizInput = document.getElementById('modern-business-name');
+    if (!clientSelect || !bizInput) return;
+
+    const isPartner = clientSelect.value === '거래처';
+
+    if (isPartner) {
+      // 거래처 → 편집 가능, 자동완성 복구
+      bizInput.readOnly = false;
+      bizInput.style.backgroundColor = '';
+      bizInput.style.cursor = '';
+      bizInput.setAttribute('list', 'modernBusinessNameList');
+      bizInput.placeholder = '사업자등록증명';
+      if (bizInput.value === '-') bizInput.value = '';
+    } else {
+      // 거래처 외 → '-' 고정, 편집 불가
+      bizInput.value = '-';
+      bizInput.readOnly = true;
+      bizInput.style.backgroundColor = '#e9ecef';
+      bizInput.style.cursor = 'not-allowed';
+      bizInput.removeAttribute('list');
+      bizInput.placeholder = '거래처 유입 시에만 입력';
+    }
+  }
+
+  /**
+   * 시트 D열의 데이터 유효성 검사 값으로 유입 구분 드롭다운 갱신.
+   * 실패 시 기존 프로젝트 D열 유니크 값(=extractOptionsFromProjectData 산출값)이 유지됨.
+   */
+  async refreshInflowOptions() {
+    try {
+      console.log('[INFLOW] fetch /api/inflow-options 시작');
+      const res = await fetch('/api/inflow-options', { credentials: 'same-origin' });
+      console.log(`[INFLOW] response status: ${res.status}`);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.warn(`[INFLOW] fetch 실패 (${res.status})`, errText);
+        return;
+      }
+      const json = await res.json();
+      console.log('[INFLOW] response body:', json);
+      const options = Array.isArray(json.options) ? json.options.filter(Boolean) : [];
+      if (!options.length) {
+        console.warn('[INFLOW] options 배열이 비어있음 - 시트 D열 dataValidation 확인 필요');
+        return;
+      }
+
+      const clientSelect = document.getElementById('modern-client');
+      if (!clientSelect || clientSelect.tagName !== 'SELECT') return;
+
+      const currentValue = clientSelect.value;
+      while (clientSelect.children.length > 1) {
+        clientSelect.removeChild(clientSelect.lastChild);
+      }
+      options.forEach((v) => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        clientSelect.appendChild(opt);
+      });
+      // 선택값 복원 (여전히 목록에 있으면)
+      if (currentValue && options.includes(currentValue)) {
+        clientSelect.value = currentValue;
+      }
+      logger.debug(`[ModernProjectModal] 유입 구분 옵션 갱신: ${options.length}개`);
+    } catch (err) {
+      logger.warn('[ModernProjectModal] 유입 구분 옵션 갱신 예외:', err);
     }
   }
 
@@ -382,12 +490,13 @@ export default class ModernProjectModal {
         .filter(company => company)
     )].sort();
 
-    // 유입 구분 목록 추출 (D열, 유입 채널 카테고리)
+    // 유입 구분 초기값 = 기존 프로젝트 D열 유니크 값 (서버 fetch 전 fallback)
+    // 실제 마스터 목록은 /projects/api/inflow-options 로 시트 validation을 조회해 덮어씀
     const clients = [...new Set(
       projectData
         .map(item => (item['유입 구분'] || '').trim())
         .filter(client => client)
-    )].sort();
+    )].sort((a, b) => a.localeCompare(b, 'ko'));
 
     // 사업자명 목록 추출 (E열, 신규)
     const businessNames = [...new Set(
@@ -487,7 +596,7 @@ export default class ModernProjectModal {
     }
 
     // 담당자 목록 (제외할 인원 필터링)
-    const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+    const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '황해승'];
     const owners = data.options?.owners || data.owners || [];
     const filteredOwners = owners.filter(owner => !excludedOwners.includes(owner));
     console.log('[DEBUG] 담당자 수:', filteredOwners.length);
@@ -1355,6 +1464,24 @@ export default class ModernProjectModal {
   resetForm() {
     if (this.form) {
       this.form.reset();
+    }
+
+    // 유입 구분 ↔ 사업자명 잠금 재동기화 (form.reset 은 change 이벤트를 fire 하지 않음)
+    this.syncBusinessNameLock();
+
+    // 리드 연결 UI 초기화
+    const leadNo = document.getElementById('modern-lead-no');
+    if (leadNo) leadNo.value = '';
+    const leadLinked = document.getElementById('modern-lead-linked-info');
+    if (leadLinked) leadLinked.classList.add('d-none');
+    const leadBadge = document.getElementById('lead-linked-badge');
+    if (leadBadge) leadBadge.classList.add('d-none');
+    const leadSearchInput = document.getElementById('modern-lead-search-input');
+    if (leadSearchInput) leadSearchInput.value = '';
+    const leadResults = document.getElementById('modern-lead-search-results');
+    if (leadResults) {
+      leadResults.classList.add('d-none');
+      leadResults.innerHTML = '';
     }
 
     // 코드 미리보기 초기화

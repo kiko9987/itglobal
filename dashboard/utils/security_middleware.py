@@ -426,8 +426,8 @@ class SecurityMiddleware:
             # 개발 환경: 매우 관대한 제한
             limit = 10000
             window = 3600
-        elif request.path.startswith('/api/'):
-            # 프로덕션 API: 관대한 제한
+        elif '/api/' in request.path:
+            # 프로덕션 API (블루프린트 하위 /leads/api/, /projects/api/ 등 포함): 관대한 제한
             limit = 1000
             window = 3600
         else:

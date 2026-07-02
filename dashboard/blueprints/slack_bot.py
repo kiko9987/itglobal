@@ -186,7 +186,7 @@ def _try_acquire_action_lock(lead_no: str, action: str, ttl: int = 5) -> bool:
 
 
 def _register_visit_handlers(app):
-    """방문 일정 알림 봇 핸들러 — [✏️ 방문일 수정] / [🗑️ 방문 취소]"""
+    """방문 일정 알림 봇 핸들러 — [✏️ 방문일 수정] / [✅ 방문 완료] / [🗑️ 방문 취소]"""
 
     @app.action("visit_modify_date")
     def handle_visit_modify_date(ack, body, client):
@@ -257,6 +257,20 @@ def _register_visit_handlers(app):
                 _process_visit_cancel(client, body)
             except Exception as exc:
                 logger.error(f"[SLACK/방문봇] visit_cancel 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("visit_complete")
+    def handle_visit_complete(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                lead_no = body["actions"][0].get("value") or ''
+                if not _try_acquire_action_lock(lead_no, 'complete'):
+                    logger.info(f'[SLACK/방문봇] visit_complete 중복 클릭 skip ({lead_no})')
+                    return
+                _process_visit_complete(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/방문봇] visit_complete 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.action("visit_uncancel")
@@ -2365,7 +2379,7 @@ def _process_consult_submission(client, body, view):
     #     — 헤더만 다르고 본문은 #방문_일정 채널 양식과 동일 (혼동 방지)
     # ─────────────────────────────────────────────
     if message_ts:
-        SEP = '---------------------------------------------'
+        SEP = '--------------------------------------------'
         ini = _slack_user_to_initial(client, user_id) or '-'
         # 모든 라인을 `>` blockquote로 통일 — 복사 시 줄바꿈 보존
         reply_lines = [
@@ -2571,7 +2585,7 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
 
     [✏️ 방문일 수정] + [🗑️ 방문 취소] 액션 버튼 포함. 카드 발송/복원 양쪽에서 재사용.
     """
-    SEP = '---------------------------------------------'
+    SEP = '--------------------------------------------'
     # lead_no 없으면 (거래처/기타) 헤더에 표시 안 함
     header_suffix = f"  `{lead_no}`" if lead_no else ''
     lines = [
@@ -2605,6 +2619,19 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
                     "style": "primary",
                     "value": lead_no,
                     "action_id": "visit_modify_date",
+                },
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "✅ 방문 완료", "emoji": True},
+                    "value": lead_no,
+                    "action_id": "visit_complete",
+                    "confirm": {
+                        "title": {"type": "plain_text", "text": "방문 완료 처리"},
+                        "text": {"type": "plain_text",
+                                 "text": "이 방문을 완료 처리하시겠습니까?\n(슬랙 리스트에서 삭제됩니다)"},
+                        "confirm": {"type": "plain_text", "text": "완료 확정"},
+                        "deny": {"type": "plain_text", "text": "취소"},
+                    },
                 },
                 {
                     "type": "button",
@@ -2754,6 +2781,65 @@ def _process_visit_date_modify(client, body, view) -> None:
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 메시지 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
+
+
+def _process_visit_complete(client, body) -> None:
+    """[✅ 방문 완료] 클릭 처리 — 슬랙 리스트 삭제 + 카드 회색 박스 변환.
+
+    시트 상태는 변경하지 않음. 나중에 프로젝트 등록 시 자동으로 '공사 확정'으로 이동.
+    상담 완료 카드와 동일한 패턴 (chat.update로 헤더 갱신 + 원본 코드 블록화).
+    """
+    lead_no = body["actions"][0].get("value") or ''
+    channel = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+    user_id = body["user"]["id"]
+    if not lead_no:
+        return
+
+    # 1) 슬랙 리스트에서 행 삭제 (webhook)
+    _trigger_visit_list_webhook(
+        'SLACK_VISIT_COMPLETE_WEBHOOK_URL', lead_no, channel, message_ts,
+    )
+
+    # 2) 원본 카드 회색 박스 변환 (상담 완료와 동일 양식)
+    try:
+        initial = _slack_user_to_initial(client, user_id) or '-'
+        complete_time = datetime.now().strftime('%m.%d %H:%M')
+
+        # 원본 message 의 section text 추출
+        original_text = ''
+        for blk in body["message"].get("blocks", []):
+            if blk.get("type") == "section":
+                bt = blk.get("text", {}).get("text", "")
+                if bt:
+                    original_text = bt
+                    break
+        if not original_text:
+            original_text = body["message"].get("text", "")
+
+        # `>` blockquote 마커·마크다운 강조·앞뒤 공백 제거
+        cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
+        cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
+        clean_text = '\n'.join(cleaned_lines)
+        clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
+
+        header_lines = [
+            "⠀",
+            f":white_check_mark: *방문 완료*  `{lead_no}`",
+            f"처리자 : {initial}",
+            f"완료 시간 : {complete_time}",
+        ]
+        new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
+        new_blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+        ]
+        client.chat_update(
+            channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문완료] chat.update 실패 ({lead_no}): {exc}")
+
+    logger.info(f"[SLACK/방문완료] 처리 완료: {lead_no} by {user_id}")
 
 
 def _process_visit_cancel(client, body) -> None:
@@ -2965,6 +3051,7 @@ def _process_visit_thread_files(client, event) -> None:
         return
 
     # 4) thread → folder 매핑 저장 (상호명 답글로 폴더명 갱신용, TTL 30일)
+    #    + lead_no → folder_id 역인덱스 (프로젝트 등록 모달 '리드 불러오기' 자동 채움용)
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
@@ -2979,8 +3066,19 @@ def _process_visit_thread_files(client, event) -> None:
             'shop_name': '',
         })
         rc.expire(key, 60 * 60 * 24 * 30)
+        # 역인덱스 — lead_no 로 폴더 조회 (프로젝트 등록 시 자동 채움)
+        # 프로젝트 등록까지 여유롭게 180일 TTL (몇 달 뒤 확정 케이스 대응)
+        rc.set(f"visit_folder:{lead_no}", lead_folder['id'], ex=60 * 60 * 24 * 180)
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] Redis 매핑 저장 실패: {exc}")
+
+    # 4-2) 리드 시트 P열 (폴더 ID) 영구 저장 — Redis TTL 만료 대비 + source of truth
+    try:
+        from dashboard.services.lead_service import update_lead
+        update_lead(lead_no, {'폴더 ID': lead_folder['id']})
+        logger.info(f"[SLACK/방문 사진] 시트 P열 폴더 ID 저장: {lead_no} → {lead_folder['id']}")
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 사진] 시트 P열 저장 실패 ({lead_no}): {exc}")
 
     # 5) thread 답글
     try:
@@ -3403,6 +3501,8 @@ def _process_phone_submission(client, body, view):
     now = datetime.now()
     consult_time = now.strftime('%Y.%m.%d. %H:%M')
 
+    # 전화 시맨틱: 텍스트 원본이 없으므로 J(문의 내용)="-", 통화하며 받아 적은 내용은 K(상담 내용)
+    # 홈페이지·채널톡·당근은 J=인입 원본, K=매니저 후처리 (전화만 이 규칙 반전)
     lead = {
         '리드 No': '',
         '상담 시간': consult_time,
@@ -3413,15 +3513,15 @@ def _process_phone_submission(client, body, view):
         '이메일': email,
         '고객명': name,
         '방문 주소': address,
-        '문의 내용': inquiry,   # 전화 인입 원본
-        '상담 내용': '',        # 매니저 처리 결과 (초기엔 빈값)
+        '문의 내용': '-',        # 전화는 인입 원본 텍스트 없음
+        '상담 내용': inquiry,    # 통화 중 매니저가 받아 적은 내용
         '키워드': keyword,
         '온라인 상담자': counselor,
         '영업 담당자': '',
         '마지막 연락일': '',
         '_meta_place': place,
         '_meta_device': device_str,
-        '_meta_inquiry': inquiry,
+        '_meta_inquiry': inquiry,  # 슬랙 카드 표시용 — 상담 내용에서 왔지만 카드에는 통화 내용으로 표시
         '_meta_consult_dt': now,
         '_meta_address_level': '',
     }
@@ -3614,16 +3714,22 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
     # 상담 내용 파싱 (장소/기기/문의)
     parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
 
-    # visit_type — 슬랙 워크플로가 시트 C열(플랫폼)에 매핑 → lead 실제 플랫폼 사용
-    # 채팅(카카오톡/채널톡) / 홈페이지 / 전화 / 당근 — 시트 값 유지 보장
+    # visit_type — Slack List 방문 유형 컬럼용 3 카테고리 (온라인/거래처/기타)
+    # 거래처·소개 → 거래처, 기타 → 기타, 나머지(전화·홈페이지·카카오톡·당근·채널톡·숨고·큐플레이스·메일 등) → 온라인
     lead_platform = str(lead.get('플랫폼') or '').strip()
+    if lead_platform in ('거래처', '소개'):
+        visit_type_category = '거래처'
+    elif lead_platform == '기타':
+        visit_type_category = '기타'
+    else:
+        visit_type_category = '온라인'
     # 방문 예정일 — 범위 양식이면 (시작, 종료) ISO로 분리 + 합쳐진 표시 양식도 함께 전달
     visit_date_raw = str(lead.get('방문 예정일') or '').strip()
     vd_start_iso, vd_end_iso = _split_visit_date_range(visit_date_raw)
     payload = {
         "lead_no": lead_no or '-',
         "platform": lead_platform or '-',
-        "visit_type": lead_platform or "온라인",
+        "visit_type": visit_type_category,
         "name": str(lead.get('고객명') or '').strip() or '-',
         "contact": str(lead.get('고객 연락처') or '').strip() or '-',
         "email": str(lead.get('이메일') or '').strip() or '-',

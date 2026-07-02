@@ -351,7 +351,7 @@ def _build_repeat_section(lead: dict) -> str:
         f">*상태* : {prev_status}\n"
         f">*상담자* : {prev_consultant}\n"
         f">*방문자* : {prev_sales_rep}\n"
-        f">---------------------------------------------\n"
+        f">--------------------------------------------\n"
     )
 
 
@@ -520,9 +520,9 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
         rows.append([lead.get(col, '') for col in LEAD_COLUMN_ORDER])
 
     # values.append() 사용 — 자동으로 grid 확장 + 다음 빈 행에 추가
-    # range를 'A1:O1'로 한정해 시트의 다른 컬럼 영향 받지 않게 (헤더 영역만 참조)
+    # range를 'A1:P1'로 한정해 시트의 다른 컬럼 영향 받지 않게 (헤더 영역만 참조)
     sheet_name = cfg['sheet_name']
-    range_name = f"'{sheet_name}'!A1:O1"
+    range_name = f"'{sheet_name}'!A1:P1"
 
     result = mgr.service.spreadsheets().values().append(
         spreadsheetId=cfg['sheet_id'],
@@ -746,7 +746,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
 
         *접수번호:* `L-02345`
         :bell: *새 문의 접수 알림 - 당근*
-        ---------------------------------------------
+        --------------------------------------------
 
     플랫폼별 타이틀: `새 문의 접수 알림 - {source}` 형식으로 통일.
     새 플랫폼 추가 시 source 인자만 바꾸면 자동 적용.
@@ -758,7 +758,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         >*설치 희망 기기* : 천장형
         >*상세 문의 내용* :
         실평9평. 15-20평형 천장형으로 견적원합니다...
-        ---------------------------------------------
+        --------------------------------------------
         [방문 요청] [가격 문의]
     """
     consult_time = (lead.get('상담 시간') or '').strip() or '-'
@@ -768,7 +768,16 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     place = (lead.get('_meta_place') or '').strip() or '-'
     device = (lead.get('_meta_device') or '').strip() or '-'
     # 인입 원본은 새 J열 '문의 내용' — 옛 K열 '상담 내용'은 fallback (마이그레이션 호환)
-    inquiry = (lead.get('_meta_inquiry') or lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
+    # 전화 유입은 J='-' (인입 텍스트 없음) + K에 통화 내용 → '-' 를 빈값처럼 취급해 K로 넘어감
+    def _pick(v):
+        s = str(v or '').strip()
+        return s if s and s != '-' else ''
+    inquiry = (
+        _pick(lead.get('_meta_inquiry'))
+        or _pick(lead.get('문의 내용'))
+        or _pick(lead.get('상담 내용'))
+        or '-'
+    )
     # 슬랙 section text 3000자 한도 — 메타데이터 여유분 고려 안전선 2400자
     if len(inquiry) > 2400:
         inquiry = inquiry[:2400] + '\n…(내용이 길어 일부만 표시 — 시트 참조)'
@@ -800,7 +809,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     main_text = (
         "⠀\n"
         f">:bell: *{title}*  `{lead_no}`\n"
-        f">---------------------------------------------\n"
+        f">--------------------------------------------\n"
         + repeat_section
         + f">*문의시간* : {consult_time}\n"
         f">*이름 / 상호* : {name}\n"
@@ -810,7 +819,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*설치 희망 기기* : {device}\n"
         f">*방문 주소* : {address_display}\n"
         f">*상세 문의 내용* : \n{inquiry_quoted}\n"
-        f">---------------------------------------------"
+        f">--------------------------------------------"
     )
 
     blocks = [
@@ -1009,16 +1018,20 @@ def retry_pending_slack_notifications() -> Dict[str, Any]:
 
 
 def sync_workflow_phone_leads() -> Dict[str, Any]:
-    """슬랙 워크플로우가 메인 시트에 직접 추가한 전화 lead 자동 보정.
+    """슬랙 워크플로우/수동 입력 모달이 메인 시트에 직접 추가한 lead 자동 보정.
 
-    스캔 대상: 리드 No 빈 + 플랫폼='전화' 행
+    스캔 대상: 리드 No 빈 + 플랫폼 in {'전화', '거래처', '기타', '소개'} 행
+      - 전화: 온라인_문의 채널 '전화문의 등록하기' 모달 (법인폰 유입)
+      - 거래처: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=거래처)
+      - 기타: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=기타 — 계약서·수금·A/S 등)
+      - 소개: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=소개)
     처리:
       1. lead_no 발번 (max + 1)
       2. 상담 시간 ISO → 'YYYY.MM.DD. HH:MM'
       3. 방문 예정일 ISO → 시트 escape ('YYYY-MM-DD)
       4. 키워드 vocab 매칭
       5. 행 색 분기 (상태별)
-      6. 상태='방문 예약' 시 #방문_일정 카드 발송
+      6. 상태='방문 예약' 시 #방문_일정 카드 발송 (방문 수정/취소 버튼 자동 포함)
     """
     result = {'processed': 0, 'visit_notified': 0, 'errors': 0}
     try:
@@ -1026,10 +1039,11 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         if main_df is None or main_df.empty:
             return result
 
-        # 빈 lead_no + 플랫폼='전화' 행
+        # 빈 lead_no + 플랫폼 in {'전화', '거래처', '기타', '소개'}
+        WF_PLATFORMS = {'전화', '거래처', '기타', '소개'}
         is_empty_no = main_df['리드 No'].astype(str).str.strip() == ''
-        is_phone = main_df['플랫폼'].astype(str).str.strip() == '전화'
-        candidates = main_df[is_empty_no & is_phone].copy()
+        is_target = main_df['플랫폼'].astype(str).str.strip().isin(WF_PLATFORMS)
+        candidates = main_df[is_empty_no & is_target].copy()
         if candidates.empty:
             return result
 
@@ -1072,30 +1086,68 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
             # 방문 예정일 정규화 — 단일 ISO은 escape 형태, 범위는 양식 정돈
             # 슬랙 워크플로우 빌더에서 datepicker 2개 결합 시 raw ISO 범위 ("2026-06-23~2026-06-24")로 들어옴
+            # 종료일 미선택 시 "2026-06-23~" 형태로 들어올 수 있음 → 단일로 처리
             visit_date_raw = str(row.get('방문 예정일', '')).strip()
             visit_date = visit_date_raw
             if visit_date_raw and '~' in visit_date_raw:
-                # 범위 — 양식 정돈 (같은 달이면 ~DD, 다른 달이면 ~MM-DD)
                 parts = visit_date_raw.split('~', 1)
                 start_iso = parts[0].lstrip("'").strip()
                 end_iso = parts[1].strip() if len(parts) > 1 else ''
-                from dashboard.blueprints.slack_helpers import _format_visit_date_range
-                formatted = _format_visit_date_range(start_iso, end_iso)
-                if formatted and formatted != visit_date_raw:
-                    # 범위 텍스트는 escape prefix 없이 (Google Sheets가 텍스트로 인식)
-                    update_cells.append((f"E{sheet_row}", formatted))
-                    visit_date = formatted
+                if not end_iso:
+                    # 종료일 비어있음 → 단일 날짜로 처리 (escape prefix + ISO)
+                    iso = _normalize_workflow_date(start_iso)
+                    if iso:
+                        update_cells.append((f"E{sheet_row}", f"'{iso}"))
+                        visit_date = iso
+                else:
+                    # 범위 — 양식 정돈 (같은 달이면 ~DD, 다른 달이면 ~MM-DD)
+                    from dashboard.blueprints.slack_helpers import _format_visit_date_range
+                    formatted = _format_visit_date_range(start_iso, end_iso)
+                    if formatted and formatted != visit_date_raw:
+                        # 범위 텍스트는 escape prefix 없이 (Google Sheets가 텍스트로 인식)
+                        update_cells.append((f"E{sheet_row}", formatted))
+                        visit_date = formatted
             elif visit_date_raw and not visit_date_raw.startswith("'"):
                 iso = _normalize_workflow_date(visit_date_raw)
                 if iso:
                     update_cells.append((f"E{sheet_row}", f"'{iso}"))
                     visit_date = iso
+            elif not visit_date_raw:
+                # 유선 상담 등 방문 예정일 없는 케이스 — 빈 값 대신 '-'
+                update_cells.append((f"E{sheet_row}", '-'))
+                visit_date = '-'
 
-            # 키워드 vocab 매칭
+            # 키워드 vocab 매칭 (L열, 2026-07 J/K 스왑 이후 K→L 이동)
+            # 매칭 실패 시 원본 값 유지 (수금·A/S·세척 등 서비스 값은 vocab 미포함 가능)
             keyword_raw = str(row.get('키워드', '')).strip()
-            keyword_norm = extract_keywords_from_sources(keyword_raw) or '-'
+            keyword_norm = extract_keywords_from_sources(keyword_raw) or keyword_raw or '-'
             if keyword_norm != keyword_raw:
-                update_cells.append((f"K{sheet_row}", keyword_norm))
+                update_cells.append((f"L{sheet_row}", keyword_norm))
+
+            # 온라인 상담자 (M열) — "@고광일" → "고광일" (시트는 실명, 슬랙 카드만 이니셜)
+            counselor_raw = str(row.get('온라인 상담자', '')).strip()
+            counselor_norm = counselor_raw.lstrip('@').strip() or '-'
+            if counselor_norm != counselor_raw:
+                update_cells.append((f"M{sheet_row}", counselor_norm))
+
+            # 영업 담당자 (N열) — 워크플로우가 채우지 않음, 매니저가 수동 배정 전 '-' 로 초기화
+            sales_raw = str(row.get('영업 담당자', '') or '').strip()
+            if not sales_raw:
+                update_cells.append((f"N{sheet_row}", '-'))
+
+            # 빈 텍스트 셀 정규화 — 워크플로우가 값 안 넣은 옵션 필드는 '-' 로
+            # J(문의 내용)는 전화 시맨틱상 항상 '-' — 워크플로우 매핑도 '-' 고정
+            _dash_columns = [
+                ('G', '이메일'),
+                ('H', '고객명'),
+                ('I', '방문 주소'),
+                ('J', '문의 내용'),
+                ('O', '마지막 연락일'),
+            ]
+            for col_letter, field in _dash_columns:
+                current = str(row.get(field, '') or '').strip()
+                if not current:
+                    update_cells.append((f"{col_letter}{sheet_row}", '-'))
 
             # batchUpdate — SSL/transient 에러 시 즉시 1회 재시도
             import time as _t
@@ -1129,7 +1181,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 status = str(row.get('상태', '')).strip()
                 try:
                     updated_range = (
-                        f"'{cfg['sheet_name']}'!A{sheet_row}:O{sheet_row}"
+                        f"'{cfg['sheet_name']}'!A{sheet_row}:P{sheet_row}"
                     )
                     _reset_row_background(
                         manager, cfg['sheet_id'], cfg['sheet_name'],
@@ -1145,8 +1197,11 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 # 방문 예약 시 #방문_일정 카드 + 슬랙 List 후보
                 if status == '방문 예약':
                     # 등록자: 영업 담당자 > 온라인 상담자 (둘 다 한국 이름 가정)
-                    user_name = (str(row.get('영업 담당자', '')).strip()
-                                 or str(row.get('온라인 상담자', '')).strip())
+                    # 워크플로우가 "@고광일" 형태로 write 하므로 @ 제거
+                    user_name = (
+                        str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
+                        or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
+                    )
                     notify_visit.append({
                         'lead_no': new_lead_no,
                         'name': str(row.get('고객명', '')).strip(),
@@ -1155,9 +1210,16 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         'consult_time': consult_norm or consult_raw,
                         'address': str(row.get('방문 주소', '')).strip(),
                         'visit_date': visit_date,
-                        'inquiry': str(row.get('문의 내용', '') or row.get('상담 내용', '')).strip(),
+                        'inquiry': (
+                            # 전화 유입은 문의 내용='-' + 상담 내용에 통화 내용 → '-'를 빈값 취급
+                            (lambda a, b: (a if a and a != '-' else b))(
+                                str(row.get('문의 내용', '') or '').strip(),
+                                str(row.get('상담 내용', '') or '').strip(),
+                            )
+                        ),
                         'keyword': keyword_norm,
                         'user_name': user_name,
+                        'platform': str(row.get('플랫폼', '')).strip(),
                     })
             except Exception as exc:
                 logger.error(f"[SYNC/전화WF] 보정 실패 (row {sheet_row}): {exc}",
@@ -1178,8 +1240,18 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                             vd = lead['visit_date']
                             if vd.startswith("'"):
                                 vd = vd[1:]
+                            # 카드 헤더 카테고리 결정:
+                            #   전화 → 온라인 (전화)
+                            #   거래처 → 거래처
+                            #   기타 → 기타
+                            lead_platform = lead.get('platform', '')
+                            if lead_platform == '전화':
+                                card_category, card_platform = '온라인', '전화'
+                            else:
+                                card_category, card_platform = lead_platform or '기타', ''
                             notice_channel, notice_ts = _post_visit_notice(
-                                client, lead_no=lead['lead_no'], category='전화',
+                                client, lead_no=lead['lead_no'],
+                                category=card_category, platform=card_platform,
                                 user_id='', visit_date=vd,
                                 name=lead['name'], contact=lead['phone'],
                                 visit_address=lead['address'],
@@ -1205,7 +1277,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                 '방문 주소': lead['address'],
                                 '문의 내용': lead['inquiry'],
                                 '키워드': lead.get('keyword', ''),
-                                '플랫폼': '전화',
+                                '플랫폼': lead.get('platform', '') or '전화',
                             }
                             _post_to_slack_list(
                                 client, lead_data,

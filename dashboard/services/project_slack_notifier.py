@@ -62,7 +62,7 @@ def _build_message(data: dict, code: str) -> str:
 
     lines = [
         f":bell: *[공사 확정 알림]*  `{code_safe}`",
-        "---------------------------------------------",
+        "--------------------------------------------",
         f":inbox_tray: 유입 구분 : {_val(data, '유입 구분')}",
         f":office: 사업자명 : {_val(data, '사업자명')}",
         f":round_pushpin: 현장 주소 : {_val(data, '현장 주소')}",
@@ -75,7 +75,7 @@ def _build_message(data: dict, code: str) -> str:
         f":heavy_dollar_sign: 공사 금액 : {amount_line}",
         f":date: 공사 시작 : {_val(data, '공사 시작')}",
         f":date: 공사 종료 : {_val(data, '공사 종료')}",
-        "---------------------------------------------",
+        "--------------------------------------------",
     ]
     return '\n'.join(lines)
 

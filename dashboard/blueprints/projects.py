@@ -517,6 +517,41 @@ def get_projects_list():
         }), 500
 
 
+@projects_bp.route('/api/inflow-options')
+def get_inflow_options():
+    """시트 D열(유입 구분)의 데이터 유효성 검사 드롭다운 값을 반환.
+
+    사용자가 시트에서 드롭다운 목록을 수정하면 자동으로 반영됨.
+    """
+    try:
+        sheet_id = os.getenv('GOOGLE_SHEET_ID')
+        if not sheet_id:
+            return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
+
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        manager = get_sheets_manager()
+        meta = manager.get_column_dropdown_values(sheet_id, sheet_name, 'D', scan_rows=200)
+        return jsonify({
+            'success': True,
+            'options': meta.get('values', []),
+            'debug': {
+                'source_row': meta.get('source_row'),
+                'condition_type': meta.get('condition_type'),
+                'raw': meta.get('raw'),
+                'sheet_name': sheet_name,
+            },
+        })
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 유입 구분 옵션 조회 실패: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '유입 구분 옵션 조회 중 오류가 발생했습니다.',
+            'error_id': error_id,
+            'options': [],
+        }), 500
+
+
 @projects_bp.route('/api/next-project-code')
 def get_next_project_code():
     """다음 프로젝트 코드 생성 API"""
@@ -2498,10 +2533,10 @@ def _build_row_values(data, manager, row_number):
         row_number: Google Sheets에 삽입될 행 번호 (기본값 수식 생성용)
 
     Returns:
-        list: 41개 요소의 값 배열 (A~AO)
+        list: 42개 요소의 값 배열 (A~AP)
     """
     column_mapping = manager.get_column_mapping()
-    values = [''] * 41  # AO 컬럼까지 (_version 포함, 2026-06-19 fix: 40→41)
+    values = [''] * 42  # AP 컬럼까지 (Lead No + _version, 2026-07 shift: 41→42)
 
     # 컬럼 매핑에 따라 값 채우기
     for col_letter, field_name in column_mapping.items():
@@ -2588,8 +2623,8 @@ def _finalize_project_creation(code, data, project_data):
     except Exception as calendar_error:
         logger.warning(f"[CALENDAR] 이벤트 생성 실패 ({code}): {calendar_error}", exc_info=True)
 
-    # 4. 리드 연동
-    lead_no = data.get('lead_no')
+    # 4. 리드 연동 (Lead No가 모달에서 선택됐거나 lead_no로 전달된 경우)
+    lead_no = data.get('Lead No') or data.get('lead_no')
     if lead_no:
         try:
             from ..services.lead_service import update_lead_status

@@ -1293,6 +1293,112 @@ class GoogleSheetsManager:
             logger.warning(f"셀 값 조회 실패 ({column}{row_number}): {e}")
             return ''
 
+    def get_column_dropdown_values(self, sheet_id, sheet_name, column, scan_rows=200):
+        """
+        특정 컬럼의 데이터 유효성 검사(드롭다운) 값 목록을 조회.
+
+        헤더 밑 N개 행을 스캔해 처음 발견된 dataValidation을 사용.
+        ONE_OF_LIST (리터럴 목록) 및 ONE_OF_RANGE (다른 범위 참조) 둘 다 대응.
+
+        Args:
+            sheet_id: 구글 시트 ID
+            sheet_name: 시트 이름 (예: '공사 현황의 사본')
+            column: 조회할 컬럼 letter (예: 'D')
+            scan_rows: 헤더 이후 스캔할 행 수 (기본 200)
+
+        Returns:
+            dict: {'values': [...], 'source_row': int, 'condition_type': str, 'raw': dict}
+                  values 는 빈 리스트일 수 있음.
+        """
+        result_meta = {'values': [], 'source_row': 0, 'condition_type': '', 'raw': None}
+        try:
+            cell_range = f"{sheet_name}!{column}2:{column}{scan_rows + 1}"
+            result = self._execute_with_retry(
+                lambda: self.service.spreadsheets().get(
+                    spreadsheetId=sheet_id,
+                    ranges=[cell_range],
+                    includeGridData=True,
+                    fields='sheets(data(startRow,rowData(values(dataValidation))))',
+                ),
+                f"get_column_dropdown_values({cell_range})"
+            )
+            sheets = result.get('sheets') or []
+            if not sheets:
+                logger.info(f"[DROPDOWN] sheets 비어있음 ({column})")
+                return result_meta
+            data_arr = sheets[0].get('data') or []
+            if not data_arr:
+                logger.info(f"[DROPDOWN] data 비어있음 ({column})")
+                return result_meta
+
+            found_dv = None
+            found_row = 0
+            for data in data_arr:
+                start_row = data.get('startRow', 1)
+                row_data = data.get('rowData') or []
+                for offset, row in enumerate(row_data):
+                    values = row.get('values') or []
+                    if not values:
+                        continue
+                    dv = values[0].get('dataValidation')
+                    if dv:
+                        found_dv = dv
+                        found_row = start_row + offset + 1  # 0-based → 1-based
+                        break
+                if found_dv:
+                    break
+
+            if not found_dv:
+                logger.info(f"[DROPDOWN] {column}2:{column}{scan_rows + 1} 범위에서 dataValidation 없음")
+                return result_meta
+
+            condition = found_dv.get('condition') or {}
+            cond_type = condition.get('type', '')
+            cond_values = condition.get('values') or []
+            result_meta['source_row'] = found_row
+            result_meta['condition_type'] = cond_type
+            result_meta['raw'] = found_dv
+
+            if cond_type == 'ONE_OF_LIST':
+                result_meta['values'] = [
+                    str(v.get('userEnteredValue', '')).strip()
+                    for v in cond_values
+                    if v.get('userEnteredValue')
+                ]
+                return result_meta
+
+            if cond_type == 'ONE_OF_RANGE' and cond_values:
+                ref = cond_values[0].get('userEnteredValue', '')
+                if ref.startswith('='):
+                    ref = ref[1:]
+                if not ref:
+                    return result_meta
+                try:
+                    ref_result = self._execute_with_retry(
+                        lambda: self.service.spreadsheets().values().get(
+                            spreadsheetId=sheet_id,
+                            range=ref,
+                        ),
+                        f"get_column_dropdown_values.ref({ref})"
+                    )
+                    ref_rows = ref_result.get('values') or []
+                    seen = []
+                    for row in ref_rows:
+                        for cell in row:
+                            v = str(cell or '').strip()
+                            if v and v not in seen:
+                                seen.append(v)
+                    result_meta['values'] = seen
+                    return result_meta
+                except Exception as ref_exc:
+                    logger.warning(f"[DROPDOWN] 참조 범위 조회 실패 ({ref}): {ref_exc}")
+                    return result_meta
+
+            return result_meta
+        except Exception as exc:
+            logger.warning(f"[DROPDOWN] 유효성 검사 조회 실패 ({column}): {exc}")
+            return result_meta
+
     def get_row_values(self, sheet_id, sheet_name, row_number, start_col='A', end_col='AM', value_render_option='FORMATTED_VALUE'):
         """
         특정 행의 값을 조회 (재시도/로깅/모니터링 포함)

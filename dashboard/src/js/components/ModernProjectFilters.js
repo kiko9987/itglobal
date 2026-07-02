@@ -550,26 +550,54 @@ export default class ModernProjectFilters {
   }
 
   /**
-   * 거래처 필터 옵션 동적 생성
+   * 유입 구분 필터 옵션 동적 생성.
+   * 기본은 프로젝트 D열 유니크 값으로 즉시 채우고, /api/inflow-options 를 백그라운드로
+   * 조회해 시트 dataValidation 값으로 덮어씀 (사용자가 시트에서 바꾼 값 즉시 반영).
    */
   populateClientFilter(data) {
     if (!this.clientFilter || !data || !Array.isArray(data)) return;
 
-    // 고유한 유입 구분 목록 추출 (map 단계에서 바로 trim 적용)
+    // 1) 프로젝트 D열 유니크 값으로 즉시 렌더 (fallback)
     const clients = [...new Set(data.map(item => (item['유입 구분'] || '').trim()).filter(client => client))];
 
-    // 기존 옵션 제거 (첫 번째 "전체" 옵션은 유지)
     while (this.clientFilter.children.length > 1) {
       this.clientFilter.removeChild(this.clientFilter.lastChild);
     }
-
-    // 거래처 옵션 추가
-    clients.sort().forEach(client => {
+    clients.sort((a, b) => a.localeCompare(b, 'ko')).forEach(client => {
       const option = document.createElement('option');
       option.value = client;
       option.textContent = client;
       this.clientFilter.appendChild(option);
     });
+
+    // 2) 시트 유효성 검사 값으로 덮어쓰기
+    this._refreshClientFilterFromSheet();
+  }
+
+  async _refreshClientFilterFromSheet() {
+    try {
+      const res = await fetch('/api/inflow-options', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const json = await res.json();
+      const options = Array.isArray(json.options) ? json.options.filter(Boolean) : [];
+      if (!options.length || !this.clientFilter) return;
+
+      const currentValue = this.clientFilter.value;
+      while (this.clientFilter.children.length > 1) {
+        this.clientFilter.removeChild(this.clientFilter.lastChild);
+      }
+      options.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        this.clientFilter.appendChild(opt);
+      });
+      if (currentValue && options.includes(currentValue)) {
+        this.clientFilter.value = currentValue;
+      }
+    } catch (err) {
+      console.warn('[FILTER] 유입 구분 옵션 갱신 실패:', err);
+    }
   }
 
   /**

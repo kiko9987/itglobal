@@ -41,6 +41,7 @@ LEAD_COLUMN_MAPPING: Dict[str, str] = {
     '온라인 상담자':   'M',
     '영업 담당자':     'N',
     '마지막 연락일':   'O',
+    '폴더 ID':        'P',  # 방문 사진 업로드 시 자동 write (2026-07 신규)
 }
 
 # 헤더 순서대로의 컬럼 리스트 (새 행 작성 시 사용)
@@ -103,7 +104,7 @@ def load_leads_data(force_refresh: bool = False) -> Optional[pd.DataFrame]:
             return None
 
         manager = get_sheets_manager()
-        sheet_range = f"{cfg['sheet_name']}!A:O"  # 15열 (A~O)
+        sheet_range = f"{cfg['sheet_name']}!A:P"  # 16열 (A~P, 2026-07 폴더 ID 추가)
 
         logger.debug(f"[LEADS] Google Sheets 데이터 가져오기: {sheet_range}")
         df = manager.get_sheet_data(cfg['sheet_id'], sheet_range)

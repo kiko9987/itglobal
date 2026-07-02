@@ -131,7 +131,7 @@ class StatsManager {
     }
 
     setupManagerColors() {
-        const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+        const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '황해승'];
         const managers2025 = new Set();
         const managers2026 = new Set();
 
@@ -412,7 +412,7 @@ class StatsManager {
     }
 
     getManagerRevenue(year) {
-        const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+        const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '황해승'];
         const managerRevenue = {};
 
         this.projectsData.forEach(project => {

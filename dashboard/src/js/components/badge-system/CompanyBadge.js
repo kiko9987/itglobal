@@ -1,31 +1,34 @@
 /**
  * Company Badge Module
- * 거래처/회사 뱃지 (해시 기반 색상)
+ * 유입 구분 뱃지 — 알려진 값은 지정 색상, 나머지는 해시 기반 색상
  */
 import BaseBadge from './BaseBadge.js';
+
+// 유입 구분 값별 고정 색상 매핑 (플랫폼 정체성 반영)
+const INFLOW_COLORS = {
+  '홈페이지':   { bg: '#dbeafe', fg: '#1e40af' },  // 파란색
+  '카카오톡':   { bg: '#fef08a', fg: '#713f12' },  // 카카오 노랑
+  '채널톡':     { bg: '#e0f2fe', fg: '#075985' },  // 하늘색
+  '전화':       { bg: '#e5e7eb', fg: '#374151' },  // 회색
+  '메일':       { bg: '#e0e7ff', fg: '#3730a3' },  // 인디고
+  '당근':       { bg: '#fed7aa', fg: '#9a3412' },  // 당근 주황
+  '숨고':       { bg: '#dcfce7', fg: '#14532d' },  // 숨고 초록
+  '큐플레이스': { bg: '#e9d5ff', fg: '#6b21a8' },  // 보라
+  '거래처':     { bg: '#c7d2fe', fg: '#312e81' },  // 진한 파랑
+  '온라인':     { bg: '#ccfbf1', fg: '#0f766e' },  // 청록
+  '소개':       { bg: '#fce7f3', fg: '#9d174d' },  // 핑크
+};
 
 export default class CompanyBadge extends BaseBadge {
   constructor() {
     super();
 
-    // 거래처용 색상 팔레트 (기존 시스템과 동일)
+    // 미정의 값 fallback 색상 팔레트
     this.companyColors = [
-      '#e8f5e8',  // 연한 녹색
-      '#e0f2f1',  // 연한 틸색
-      '#f1f8e9',  // 연한 라임색
-      '#e8f5e8',  // 매우 연한 녹색
-      '#fff9c4',  // 연한 레몬색
-      '#ffecb3',  // 연한 앰버색
-      '#f9fbe7',  // 연한 라임 그린색
-      '#fff8e1',  // 연한 앰버 화이트색
-      '#f0f4c3',  // 연한 라임 옐로우색
-      '#e1f5fe',  // 매우 연한 시안색
-      '#e0f7fa',  // 연한 틸 블루색
-      '#fce4ec',  // 연한 로즈색
-      '#f3e5f5',  // 연한 자주색
-      '#fef7ff',  // 매우 연한 보라색
-      '#ffebee',  // 연한 핑크 화이트색
-      '#fafafa'   // 연한 그레이색
+      '#e8f5e8', '#e0f2f1', '#f1f8e9', '#e8f5e8',
+      '#fff9c4', '#ffecb3', '#f9fbe7', '#fff8e1',
+      '#f0f4c3', '#e1f5fe', '#e0f7fa', '#fce4ec',
+      '#f3e5f5', '#fef7ff', '#ffebee', '#fafafa',
     ];
   }
 
@@ -48,11 +51,17 @@ export default class CompanyBadge extends BaseBadge {
     }
 
     const name = String(companyName).trim();
-    const hashIndex = this.getCompanyHash(name);
-    const backgroundColor = this.companyColors[hashIndex];
+    const known = INFLOW_COLORS[name];
+    let style;
+    if (known) {
+      style = `background-color: ${known.bg}; color: ${known.fg}; font-weight: 600;`;
+    } else {
+      const hashIndex = this.getCompanyHash(name);
+      style = `background-color: ${this.companyColors[hashIndex]};`;
+    }
 
     return this.createBadgeHtml(name, 'badge company-badge', {
-      style: `background-color: ${backgroundColor};`,
+      style,
       dataAttributes: {
         'badge-type': 'company'
       },
@@ -82,8 +91,11 @@ export default class CompanyBadge extends BaseBadge {
    */
   getCompanyColorInfo(companyName) {
     const name = String(companyName).trim();
+    const known = INFLOW_COLORS[name];
+    if (known) {
+      return { background: known.bg, text: known.fg, border: 'var(--black-alpha-10)' };
+    }
     const hashIndex = this.getCompanyHash(name);
-
     return {
       background: this.companyColors[hashIndex],
       text: 'var(--gray-700)',

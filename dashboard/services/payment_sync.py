@@ -396,7 +396,7 @@ _STAGE_EMOJI = {
     '중도금': ':moneybag:',
     '잔금': ':moneybag:',
 }
-_SEP = '---------------------------------------------'
+_SEP = '--------------------------------------------'
 _SEP_HARD = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
 
@@ -1040,10 +1040,10 @@ def daily_payment_summary() -> Optional[str]:
         errors = int(stats.get('errors', 0) or 0)
         lines = [
             f":bar_chart: *수금 알림 일일 요약* — {today}",
-            '---------------------------------------------',
+            '--------------------------------------------',
             f"발송 완료 : {sent}건",
             f"오류 : {errors}건",
-            '---------------------------------------------',
+            '--------------------------------------------',
         ]
         return '\n'.join(lines)
     except Exception as exc:
@@ -1115,7 +1115,7 @@ def build_overdue_message(days: int = 30, limit: int = 20) -> Optional[str]:
         return None
     lines = [
         f":warning: *미수금 {days}일 이상 경과* — {len(items)}건",
-        '---------------------------------------------',
+        '--------------------------------------------',
     ]
     for it in items[:limit]:
         lines.append(
@@ -1124,7 +1124,7 @@ def build_overdue_message(days: int = 30, limit: int = 20) -> Optional[str]:
         )
     if len(items) > limit:
         lines.append(f"... 외 {len(items) - limit}건")
-    lines.append('---------------------------------------------')
+    lines.append('--------------------------------------------')
     return '\n'.join(lines)
 
 

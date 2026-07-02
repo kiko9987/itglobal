@@ -6034,7 +6034,7 @@ export default class ProjectRowAccordion {
     const allManagers = new Set([...baseManagers, ...dataTableManagers]);
 
     // 4. 퇴사자 및 경영지원팀 제외
-    const excludedManagers = ['김단이', '심장원', '아이티', '이근혁', '황샛별'];
+    const excludedManagers = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '황해승'];
     const activeManagers = Array.from(allManagers).filter(m => !excludedManagers.includes(m));
 
     // 5. 가나다순 정렬

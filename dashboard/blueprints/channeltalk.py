@@ -223,12 +223,12 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
     양식:
         접수번호: L-XXXXX
         :카카오톡: 새 문의 접수 알림 - 카카오톡
-        ---------------------------------------------
+        --------------------------------------------
         문의시간 : 2026.06.22. 09:32
         이름 / 상호 : 멜론 518
         연락처 : -
         상세 문의 내용 : 저희 회사가 ...
-        ---------------------------------------------
+        --------------------------------------------
     """
     customer_name = user.get('name') or user_chat.get('name') or '익명 고객'
     medium = (user_chat.get('mediumProfile') or {}).get('mediumName', '')
@@ -239,7 +239,7 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
     if not medium_icon:
         medium_icon = ':채널톡:'
     ts_str = _format_ts_full(created_ms)
-    SEP = '---------------------------------------------'
+    SEP = '--------------------------------------------'
     # 슬랙 본문 3000자 한도 — 메시지 본문 truncate (스팸 헤더/메타 여유)
     if first_message and len(first_message) > 2400:
         first_message = first_message[:2400] + '\n…(내용이 길어 일부만 표시 — 채널톡 thread 참조)'
