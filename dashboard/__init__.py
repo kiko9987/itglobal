@@ -375,11 +375,11 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
 
     # 백그라운드 sync 스케줄러 (당근 시트 → 메인 시트 + 슬랙 알림)
     try:
-        # Flask debug reloader가 자식 프로세스에서만 진짜 동작하므로 메인 프로세스에선 스킵
-        is_reloader_child = os.environ.get('WERKZEUG_RUN_MAIN') == 'true'
-        if not app.debug or is_reloader_child:
-            from dashboard.services.sync_scheduler import start_scheduler
-            start_scheduler()
+        # start_dashboard.py가 use_reloader=False 강제 → reloader 자식/부모 분기 불필요.
+        # 과거 가드(if not app.debug or is_reloader_child)는 DEBUG=True + reloader off 조합에서
+        # 무조건 스킵되어 스케줄러 자체가 뜨지 않던 잠재 버그. start_scheduler()는 자체 idempotent.
+        from dashboard.services.sync_scheduler import start_scheduler
+        start_scheduler()
     except Exception as sched_err:
         logger.warning(f"스케줄러 시작 실패 (무시): {sched_err}")
 
