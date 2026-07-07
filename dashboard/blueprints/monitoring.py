@@ -165,6 +165,63 @@ def health_check():
             'timestamp': datetime.now().isoformat()
         }), 500
 
+@monitoring_bp.route('/api/monitoring/scheduler-status', methods=['GET'])
+@admin_required
+def get_scheduler_status():
+    """
+    APScheduler job 상태 조회 (2026-07-08 신규).
+
+    Returns:
+        {
+          "running": bool,
+          "jobs": [
+            {"id", "name", "trigger", "next_run", "misfire_grace_time"},
+            ...
+          ],
+          "job_count": int,
+          "timestamp": ISO8601
+        }
+    """
+    try:
+        from dashboard.services import sync_scheduler
+        sched = getattr(sync_scheduler, '_scheduler', None)
+
+        if not sched or not getattr(sched, 'running', False):
+            return jsonify({
+                'running': False,
+                'jobs': [],
+                'job_count': 0,
+                'timestamp': datetime.now().isoformat(),
+                'error': 'Scheduler not running'
+            }), 503
+
+        jobs = []
+        for job in sched.get_jobs():
+            jobs.append({
+                'id': job.id,
+                'name': job.name or job.func.__name__ if hasattr(job, 'func') else str(job.id),
+                'trigger': str(job.trigger),
+                'next_run': job.next_run_time.isoformat() if job.next_run_time else None,
+                'misfire_grace_time': getattr(job, 'misfire_grace_time', None),
+                'max_instances': getattr(job, 'max_instances', None),
+            })
+
+        return jsonify({
+            'running': True,
+            'jobs': jobs,
+            'job_count': len(jobs),
+            'timestamp': datetime.now().isoformat(),
+        }), 200
+
+    except Exception as e:
+        logger.error(f"[SCHED_STATUS] 조회 실패: {e}", exc_info=True)
+        return jsonify({
+            'running': False,
+            'error': str(e),
+            'timestamp': datetime.now().isoformat()
+        }), 500
+
+
 @monitoring_bp.route('/api/audit-logs', methods=['GET'])
 @login_required
 def get_audit_logs_api():

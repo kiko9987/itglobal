@@ -147,6 +147,9 @@ def _extract_leaf_and_parent_from_windows_path(folder_path: str):
     Returns:
         (leaf_name: str | None, parent_name: str | None)
     """
+    # 2026-07-08 None/빈 값 방어 (test_core_flows에서 발견된 실제 버그)
+    if not folder_path:
+        return None, None
     normalized = folder_path.replace('/', '\\')
     segments = [s.strip() for s in normalized.split('\\') if s.strip()]
     if not segments:
