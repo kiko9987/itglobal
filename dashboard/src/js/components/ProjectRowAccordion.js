@@ -2834,9 +2834,9 @@ export default class ProjectRowAccordion {
         // 3. 취소 스타일 적용 (그레이스케일, 워터마크)
         this.applyCancelledProjectStyles(projectCode);
 
-        // 4. StateManager 동기화
+        // 4. StateManager 동기화 (silent — 아코디언 유지, 리스트 리렌더 X)
         if (window.projectListApp?.stateManager) {
-          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project);
+          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project, null, { silent: true });
         }
 
         // 5. 메인 테이블 행 업데이트
@@ -2923,9 +2923,9 @@ export default class ProjectRowAccordion {
         // 3. 취소 스타일 제거
         this.removeCancelledProjectStyles(projectCode);
 
-        // 4. StateManager 동기화
+        // 4. StateManager 동기화 (silent — 아코디언 유지, 리스트 리렌더 X)
         if (window.projectListApp?.stateManager) {
-          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project);
+          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project, null, { silent: true });
         }
 
         // 5. 메인 테이블 행 업데이트 (상태 재계산)

@@ -197,12 +197,16 @@ export default class StateManager {
    * @param {string} oldProjectCode - 이전 프로젝트 코드 (프로젝트 코드 변경 시)
    * @returns {boolean} 업데이트 성공 여부
    */
-  updateSingleProject(projectCode, updatedProject, oldProjectCode = null) {
+  updateSingleProject(projectCode, updatedProject, oldProjectCode = null, options = {}) {
     try {
-      // 프로젝트 코드가 변경된 경우 이전 코드로 검색
+      // options.silent: true이면 dataChange 알림 + 필터 재적용 skip
+      // (2026-07-07): 취소/재개처럼 호출자가 이미 로컬 DOM을 부분 업데이트한 경우,
+      // 리스트 전체 리렌더는 아코디언 상태·스크롤 위치를 리셋시켜서 UX 저해.
+      // 이 경우 currentData만 조용히 교체하고 렌더링 트리거는 건너뜀.
+      const silent = options.silent === true;
+
       const searchCode = oldProjectCode || projectCode;
 
-      // currentData에서 해당 프로젝트 찾기 (한글 필드명 사용)
       const index = this.currentData.findIndex(p => p['프로젝트 코드'] === searchCode);
 
       if (index === -1) {
@@ -211,10 +215,8 @@ export default class StateManager {
         return false;
       }
 
-      // 배열에서 프로젝트 교체
       this.currentData[index] = updatedProject;
 
-      // 전역 호환성 (레거시) - 읽기 전용 속성 재정의
       Object.defineProperty(window, 'projectsData', {
         value: this.currentData,
         writable: false,
@@ -222,16 +224,15 @@ export default class StateManager {
       });
 
       if (oldProjectCode && oldProjectCode !== projectCode) {
-        logger.debug(`[StateManager] 프로젝트 코드 변경: ${oldProjectCode} → ${projectCode}`);
+        logger.debug(`[StateManager] 프로젝트 코드 변경: ${oldProjectCode} → ${projectCode}${silent ? ' (silent)' : ''}`);
       } else {
-        logger.debug(`[StateManager] 프로젝트 ${projectCode} 업데이트 완료`);
+        logger.debug(`[StateManager] 프로젝트 ${projectCode} 업데이트 완료${silent ? ' (silent)' : ''}`);
       }
 
-      // 데이터 변경 알림
-      this.notifyListeners('dataChange', this.currentData);
-
-      // 필터 재적용
-      this.applyCurrentFilters();
+      if (!silent) {
+        this.notifyListeners('dataChange', this.currentData);
+        this.applyCurrentFilters();
+      }
 
       return true;
     } catch (error) {
