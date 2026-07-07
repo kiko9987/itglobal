@@ -3148,8 +3148,21 @@ export default class ProjectRowAccordion {
           // 테이블 업데이트 (배지, 날짜, 금액 등 모든 렌더러 정상 작동)
           row.invalidate().draw(false);
 
-          // draw 완료 후 아코디언 다시 열기
+          // draw 완료 후 취소 스타일 클래스 재적용 + 아코디언 재오픈
+          // (2026-07-07): draw가 tr DOM을 새로 생성해서 line 3130에서 붙인
+          // .project-cancelled-row 클래스가 유실됨. rowCallback이 실행되긴 하지만
+          // 취소 상태 매칭이 확실치 않으므로 여기서 명시적으로 재적용.
           setTimeout(() => {
+            const freshRow = table.row(rowIndex);
+            const freshRowNode = freshRow?.node();
+            if (freshRowNode) {
+              const isCancelled = this.isProjectCancelled(rowData);
+              if (isCancelled) {
+                freshRowNode.classList.add('project-cancelled-row');
+              } else {
+                freshRowNode.classList.remove('project-cancelled-row');
+              }
+            }
             this.reopenAccordion(savedProjectCode, savedProjectData);
           }, 0);
         }
