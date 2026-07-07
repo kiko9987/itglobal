@@ -4,6 +4,7 @@ Google Drive 폴더 통합, 프로젝트 폴더 관리, 폴더 ID 변환 등 파
 """
 
 import os
+import re
 import logging
 import subprocess
 from datetime import datetime
@@ -74,25 +75,35 @@ def get_project_folder_id(project_code):
 
         folder_path = project_data.get('견적서 및 계약서 폴더 경로', '')
         folder_id = None
+        # 폴더 ID 유효 형식 (Google Drive ID 표준: 20~100자 alphanumeric + _ + -)
+        _folder_id_pattern = re.compile(r'^[a-zA-Z0-9_-]{20,100}$')
 
-        # Google Drive URL에서 폴더 ID 추출
+        # Case 1: Google Drive URL에서 폴더 ID 추출
         if folder_path and 'drive.google.com' in folder_path:
             try:
-                # URL에서 폴더 ID 추출 로직
                 if '/folders/' in folder_path:
                     folder_id = folder_path.split('/folders/')[-1].split('?')[0].split('/')[0]
                 elif 'id=' in folder_path:
                     folder_id = folder_path.split('id=')[-1].split('&')[0]
 
-                if folder_id:
-                    # 캐시에 저장 (24시간)
-                    smart_set(folder_id_cache_key, folder_id, ttl=86400)
-                    logger.info(f"[FOLDER_ID] 폴더 ID 추출 성공: {project_code} -> {folder_id}")
+                if folder_id and not _folder_id_pattern.match(folder_id):
+                    folder_id = None  # 파싱 결과 이상값이면 skip
 
+                if folder_id:
+                    smart_set(folder_id_cache_key, folder_id, ttl=86400)
+                    logger.info(f"[FOLDER_ID] URL에서 추출: {project_code} -> {folder_id}")
                     return jsonify({'success': True, 'folder_id': folder_id})
 
             except Exception as e:
                 logger.warning(f"[FOLDER_ID] URL 파싱 실패: {folder_path}, 오류: {e}")
+
+        # Case 2: 셀에 이미 순수 폴더 ID가 저장된 경우 (convert_folder_paths_to_ids 실행 후)
+        # 셀 값이 폴더 ID 형식이면 그대로 사용 + 캐시 저장
+        if folder_path and _folder_id_pattern.match(folder_path.strip()):
+            folder_id = folder_path.strip()
+            smart_set(folder_id_cache_key, folder_id, ttl=86400)
+            logger.info(f"[FOLDER_ID] 셀에 저장된 순수 ID 인식: {project_code} -> {folder_id}")
+            return jsonify({'success': True, 'folder_id': folder_id})
 
         # 폴더 ID를 찾을 수 없는 경우
         logger.warning(f"[FOLDER_ID] 폴더 ID를 찾을 수 없음: {project_code}, 경로: {folder_path}")
@@ -147,6 +158,11 @@ def convert_folder_paths_to_ids():
         converted_count = 0
         total_projects = len(df)
         results = []
+        sheet_updates = []  # 성공한 항목만 시트 batch write용 축적
+
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        # 폴더 ID 유효성 검사: 20~100자 alphanumeric + _ + - (Google Drive ID 표준)
+        _folder_id_pattern = re.compile(r'^[a-zA-Z0-9_-]{20,100}$')
 
         for idx, project in df.iterrows():
             project_code = project.get('프로젝트 코드', '')
@@ -164,11 +180,27 @@ def convert_folder_paths_to_ids():
                     elif 'id=' in folder_path:
                         folder_id = folder_path.split('id=')[-1].split('&')[0]
 
+                    # 유효성 검사: 이상한 값이 셀에 저장되지 않도록 방어
+                    if folder_id and not _folder_id_pattern.match(folder_id):
+                        logger.warning(
+                            f"[FOLDER_CONVERT] {project_code} folder_id 형식 이상 (skip): "
+                            f"{folder_id!r} (원본: {folder_path[:60]!r})"
+                        )
+                        folder_id = None
+
                     if folder_id:
-                        # 캐시에 저장
+                        # 1) Redis 캐시 저장 (문서 폴더 열기 빠른 조회용)
                         folder_id_cache_key = f"folder_id_{project_code}"
                         smart_set(folder_id_cache_key, folder_id, ttl=86400)
                         converted_count += 1
+
+                        # 2) 시트 batch write 대상에 추가 — URL 원본을 순수 folder_id로 교체
+                        #    idx는 DataFrame 0-index, 시트 실제 행 = idx + 2 (헤더 1행 + 1-based)
+                        sheet_row = idx + 2
+                        sheet_updates.append({
+                            'range': f'{sheet_name}!AL{sheet_row}',
+                            'values': [[folder_id]]
+                        })
 
                         results.append({
                             'project_code': project_code,
@@ -177,12 +209,31 @@ def convert_folder_paths_to_ids():
                         })
 
                 except Exception as e:
+                    # 파싱 실패 → skip. 시트 셀은 원본 유지 (write 안 함).
                     logger.warning(f"프로젝트 {project_code} 변환 실패: {e}")
                     results.append({
                         'project_code': project_code,
                         'error': str(e),
                         'original_path': folder_path[:50] + '...' if len(folder_path) > 50 else folder_path
                     })
+
+        # 시트 batch write — 성공한 항목만 AL 셀을 folder_id로 갱신
+        sheet_write_count = 0
+        if sheet_updates:
+            try:
+                from dashboard.utils.google_sheets import GoogleSheetsManager
+                manager = GoogleSheetsManager()
+                batch_result = manager.batch_update_cells(sheet_id, sheet_updates)
+                sheet_write_count = batch_result.get('totalUpdatedCells', 0) if isinstance(batch_result, dict) else len(sheet_updates)
+                logger.info(f"[FOLDER_CONVERT] 시트 batch write: {sheet_write_count}개 셀 갱신")
+
+                # 시트 데이터 캐시 무효화 (다음 로드 시 새 값 반영)
+                smart_delete("current_sheet_data")
+                smart_delete("project_data_cache")
+            except Exception as sheet_err:
+                logger.error(f"[FOLDER_CONVERT] 시트 batch write 실패: {sheet_err}", exc_info=True)
+                # Redis 캐시는 이미 저장됐으니 부분 성공 상태.
+                # 사용자에게 정확히 알리기 위해 감사 로그·응답에 반영
 
         # 감사 로그 기록
         try:
@@ -192,21 +243,28 @@ def convert_folder_paths_to_ids():
             audit_repo.log_action(
                 user_email=admin_email,
                 action='FOLDER_PATH_CONVERSION',
-                details=f'폴더 경로 일괄 변환: {converted_count}/{total_projects}개 성공',
+                details=(
+                    f'폴더 경로 일괄 변환: 캐시 {converted_count}/{total_projects}, '
+                    f'시트 셀 갱신 {sheet_write_count}건 (AL 컬럼 URL→ID)'
+                ),
                 field_name='folder_paths',
-                old_value='기존 경로들',
-                new_value=f'{converted_count}개 ID로 변환',
+                old_value='URL 형식 경로들',
+                new_value=f'{sheet_write_count}개 셀을 폴더 ID로 갱신',
                 ip_address=request.remote_addr
             )
         except Exception as log_error:
             logger.warning(f"감사 로그 기록 실패: {log_error}")
 
-        logger.info(f"=== 폴더 경로 → ID 변환 완료: {converted_count}/{total_projects} ===")
+        logger.info(
+            f"=== 폴더 경로 → ID 변환 완료: 캐시 {converted_count}/{total_projects}, "
+            f"시트 셀 write {sheet_write_count}건 ==="
+        )
 
         return jsonify({
             'success': True,
-            'message': f'{converted_count}개 프로젝트의 폴더 ID 변환 완료',
+            'message': f'{converted_count}개 캐시 · {sheet_write_count}개 셀 갱신 완료',
             'converted_count': converted_count,
+            'sheet_write_count': sheet_write_count,
             'total_projects': total_projects,
             'results': results[:20]  # 처음 20개만 반환
         })
