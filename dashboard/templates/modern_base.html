@@ -589,16 +589,20 @@
 
             const proceed = confirm(
                 '전체 프로젝트의 폴더 경로를 Google Drive 폴더 ID로 변환합니다.\n\n' +
-                '• 성공 항목: 시트의 「견적서 및 계약서 폴더 경로」 셀을 URL → 폴더 ID로 갱신\n' +
-                '• 실패 항목 (URL 아님 · 파싱 불가): 셀 원본 그대로 유지\n' +
+                '처리 케이스:\n' +
+                '• Google Drive URL → ID 추출\n' +
+                '• Windows 로컬 경로 (G:\\…) → Drive API 이름 검색\n' +
+                '• 이미 순수 ID → 그대로 유지\n\n' +
+                '동작:\n' +
+                '• 성공 항목: 시트의 「견적서 및 계약서 폴더 경로」 셀을 폴더 ID로 갱신\n' +
+                '• 실패 · 동명 폴더 여러 개(disambiguation 실패) : 셀 원본 그대로 유지\n' +
                 '• Redis 캐시 24시간 저장 → 문서 폴더 열기 반응 향상\n' +
                 '• 감사 로그 남음\n\n' +
+                '⚠ 백그라운드 실행 (15~25분 예상, 3186건 규모 Drive API 호출).\n' +
+                '진행률은 서버 로그의 [FOLDER_CONVERT_BG] 태그로 확인.\n\n' +
                 '계속하시겠습니까?'
             );
             if (!proceed) return;
-
-            // 진행 안내 (시스템 헤더에 짧게)
-            if (window.showSystemAlert) window.showSystemAlert('폴더 경로 변환 중... (시트 batch write 포함)', 'info');
 
             try {
                 const response = await fetch('/api/folder/convert-paths-to-ids', {
@@ -607,19 +611,25 @@
                     credentials: 'same-origin',
                     // security_middleware가 Content-Type: application/json 요청의 body를
                     // request.get_json()으로 파싱함. 빈 body면 "Invalid JSON" 400 반환.
-                    // 이 엔드포인트는 body를 요구하지 않지만, 미들웨어를 통과시키려면 빈 객체 필요.
                     body: JSON.stringify({}),
                 });
 
                 const result = await response.json();
 
-                if (result.success) {
+                if (result.success && result.background) {
+                    // 백그라운드 실행 시작됨 — 즉시 202 응답
+                    const msg = '폴더 경로 변환이 백그라운드에서 시작됐습니다. (15~25분 소요, 서버 로그 [FOLDER_CONVERT_BG] 확인)';
+                    if (window.showPageAlert) window.showPageAlert(msg, 'info');
+                    else alert(msg);
+                    return;
+                } else if (result.success) {
+                    // 옛 동기 응답 폴백 (사용 안 되지만 안전망)
                     const converted = result.converted_count ?? 0;
                     const sheetWritten = result.sheet_write_count ?? 0;
                     const total = result.total_projects ?? 0;
                     const skipped = total - converted;
                     const msg = `폴더 경로 변환 완료: 캐시 ${converted}건 · 시트 셀 갱신 ${sheetWritten}건` +
-                                (skipped > 0 ? ` (${skipped}개는 URL 아님·파싱 불가 → 원본 유지)` : '');
+                                (skipped > 0 ? ` (${skipped}개는 원본 유지)` : '');
                     if (window.showPageAlert) window.showPageAlert(msg, 'success');
                     else alert(msg);
                 } else {

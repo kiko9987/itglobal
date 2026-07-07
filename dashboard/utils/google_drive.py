@@ -6,7 +6,7 @@
 
 import io
 import os
-from typing import Optional
+from typing import Optional, List, Dict
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -80,6 +80,42 @@ def find_or_create_folder(name: str, parent_id: str) -> Optional[dict]:
     except Exception as exc:
         logger.error(f"[DRIVE] 폴더 생성/조회 실패 ({name}): {exc}", exc_info=True)
         return None
+
+
+def search_folder_by_name(name: str, limit: int = 10) -> List[Dict]:
+    """이름으로 폴더 검색 (parent 무관, 공유 드라이브 포함).
+
+    Windows 로컬 경로에서 추출한 폴더 이름으로 Drive에서 매칭 폴더 찾기용.
+    각 결과에 parents 필드 포함 → 동명 폴더 disambiguation에 사용.
+
+    Args:
+        name: 정확 일치 검색할 폴더 이름
+        limit: 최대 결과 수 (기본 10)
+
+    Returns:
+        List of {'id': str, 'name': str, 'parents': List[str]} dicts. 실패 시 빈 리스트.
+    """
+    service = _get_drive_service()
+    if not service or not name:
+        return []
+    try:
+        safe_name = name.replace("'", "\\'")
+        query = (
+            f"name = '{safe_name}' and "
+            f"mimeType = 'application/vnd.google-apps.folder' and "
+            f"trashed = false"
+        )
+        resp = service.files().list(
+            q=query,
+            fields='files(id, name, parents)',
+            pageSize=limit,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+        return resp.get('files', []) or []
+    except Exception as exc:
+        logger.warning(f"[DRIVE] 폴더 이름 검색 실패 ({name}): {exc}")
+        return []
 
 
 def get_folder_name(folder_id: str) -> Optional[str]:
