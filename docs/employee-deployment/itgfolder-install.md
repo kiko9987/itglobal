@@ -2,13 +2,6 @@
 
 관리 사이트(pm.itg-aircon.com)에서 프로젝트 **문서 폴더 링크**를 클릭하면 각자 자기 PC의 **탐색기**로 폴더가 열리도록 하는 설치입니다.
 
-## 필요한 파일
-
-1. `install-itg-folder.reg`
-2. `open-itg-folder.vbs`
-
-관리자로부터 두 파일을 전달받으세요.
-
 ## 사전 요구사항
 
 - **Google Drive Desktop** 설치 및 로그인 완료
@@ -17,28 +10,25 @@
 
 Drive Desktop 미설치 상태에서는 이 프로토콜이 작동하지 않습니다.
 
-## 설치 절차 (30초)
+## 설치 (10초)
 
-### 1단계 — VBS 파일 배치
+### 1단계 — 설치 파일 실행
 
-`C:\ITG\` 폴더가 없으면 만들고, 그 안에 `open-itg-folder.vbs`를 넣으세요.
+관리자로부터 `install-itg-folder.bat` 파일을 전달받으세요.
 
-**경로가 반드시 이 그대로여야 합니다:**
-```
-C:\ITG\open-itg-folder.vbs
-```
+파일을 **더블클릭**하세요.
 
-### 2단계 — 프로토콜 등록
+Windows SmartScreen이 뜨면:
+1. **[추가 정보]** 클릭
+2. **[실행]** 클릭
 
-`install-itg-folder.reg` 파일을 **더블클릭**하세요.
+검은 창이 뜨고 "설치 완료" 메시지가 나온 뒤 아무 키나 누르면 창이 닫힙니다.
 
-Windows 경고창이 뜨면:
-1. "레지스트리 편집기" 경고 → **[예]**
-2. "성공적으로 추가되었습니다" → **[확인]**
+관리자 권한 불필요. 현재 로그인한 사용자에게만 등록됩니다.
 
-### 3단계 — 브라우저 재시작
+### 2단계 — 브라우저 재시작
 
-Chrome/Edge를 완전히 종료했다가 다시 열어주세요. (이미 열려 있는 창은 새로고침만으로 부족합니다)
+Chrome/Edge를 **완전히 종료**했다가 다시 열어주세요. (이미 열려 있는 창은 새로고침만으로 부족합니다)
 
 ## 사용 방법
 
@@ -54,11 +44,10 @@ Chrome/Edge를 완전히 종료했다가 다시 열어주세요. (이미 열려 
 ### 링크를 클릭해도 아무 반응이 없어요
 - Google Drive Desktop이 실행 중인지 확인 (트레이 아이콘)
 - Drive Desktop이 **G: 드라이브**에 마운트됐는지 확인 (탐색기에서 G: 드라이브 확인)
-- 브라우저 팝업 자체가 안 뜨면 → 프로토콜 등록 실패. `install-itg-folder.reg`를 다시 실행
+- 브라우저 팝업 자체가 안 뜨면 → 프로토콜 등록 실패. `install-itg-folder.bat`을 다시 실행
 
 ### "이 사이트에서 itgfolder를 열려고 합니다" 팝업이 안 떠요
-- `C:\ITG\open-itg-folder.vbs` 파일이 있는지 확인
-- `install-itg-folder.reg`를 관리자 권한으로 다시 실행
+- `install-itg-folder.bat`을 다시 실행
 - 브라우저 완전 재시작
 
 ### 탐색기가 열리긴 하는데 "폴더를 찾을 수 없다"고 나와요
@@ -66,16 +55,22 @@ Chrome/Edge를 완전히 종료했다가 다시 열어주세요. (이미 열려 
 - 프로젝트가 방금 등록된 경우 몇 분 대기 후 재시도
 
 ### cmd/PowerShell 창이 잠깐 뜨다 사라져요
-- 정상 아닙니다. VBS 파일이 아니라 이전 버전의 설정이 남아있을 수 있으니 관리자에게 문의
+- 정상 아닙니다. 설치가 잘못됐을 수 있으니 관리자에게 문의
 
 ## 제거 방법
 
 향후 사용을 중단하려면:
 
-1. `install-itg-folder.reg` 파일을 **메모장으로 열어**서 마지막 줄을 확인
-2. Windows 실행(`Win+R`) → `regedit`
-3. `HKEY_CLASSES_ROOT\itgfolder` 키를 우클릭 → **삭제**
-4. `C:\ITG\` 폴더 삭제
+1. Windows 실행(`Win+R`) → `regedit`
+2. `HKEY_CURRENT_USER\Software\Classes\itgfolder` 키를 우클릭 → **삭제**
+3. `C:\ITG\` 폴더 삭제
+
+## 설치되는 내용 (참고)
+
+`install-itg-folder.bat`이 자동으로 처리하는 것:
+
+- `C:\ITG\open-itg-folder.vbs` 배치 — URL에서 폴더 ID 파싱 후 탐색기 실행하는 스크립트
+- `HKEY_CURRENT_USER\Software\Classes\itgfolder` 프로토콜 등록 — 클릭 시 위 VBS 호출
 
 ## 작동 원리 (참고)
 
