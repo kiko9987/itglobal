@@ -570,27 +570,33 @@ class ProjectListApp {
         this.showSuccessMessage('새 프로젝트가 추가되었습니다.');
       });
 
-      // 공사 취소 이벤트 처리
+      // 공사 취소 이벤트 처리 — 자기 자신이 발생시킨 이벤트는 무시
+      // (2026-07-07): 로컬 cancelConstruction이 이미 아코디언 UI + StateManager 갱신했으므로
+      // 여기서 다시 stateManager.updateSingleProject를 호출하면 applyCurrentFilters가 리스트
+      // 리렌더 → 아코디언 닫힘 + 스크롤 top. 다른 매니저 PC에선 정상 반영이 필요하므로 skip은
+      // 자기 자신에게만.
       socket.on('project_cancelled', (data) => {
         logger.debug('[Socket.IO] 공사 취소 이벤트 수신:', data);
-
-        // StateManager 업데이트
+        if (data.sender_email && data.sender_email === window.userEmail) {
+          logger.debug('[Socket.IO] 자기 자신의 취소 액션 — 재렌더 skip');
+          return;
+        }
         if (this.stateManager && data.updated_project) {
           this.stateManager.updateSingleProject(data.project_code, data.updated_project);
         }
-
         this.showSuccessMessage(`프로젝트 ${data.project_code}이(가) 취소되었습니다.`);
       });
 
-      // 공사 재개 이벤트 처리
+      // 공사 재개 이벤트 처리 — 취소와 동일한 self-echo skip 규칙
       socket.on('project_resumed', (data) => {
         logger.debug('[Socket.IO] 공사 재개 이벤트 수신:', data);
-
-        // StateManager 업데이트
+        if (data.sender_email && data.sender_email === window.userEmail) {
+          logger.debug('[Socket.IO] 자기 자신의 재개 액션 — 재렌더 skip');
+          return;
+        }
         if (this.stateManager && data.updated_project) {
           this.stateManager.updateSingleProject(data.project_code, data.updated_project);
         }
-
         this.showSuccessMessage(`프로젝트 ${data.project_code}이(가) 재개되었습니다.`);
       });
 

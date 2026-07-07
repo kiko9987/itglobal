@@ -2947,11 +2947,13 @@ def _get_and_sanitize_updated_project(project_code):
     return sanitize_project_for_json(updated_project) if updated_project else None
 
 
-def _emit_project_status_change(event_name, message, project_code, user_name, sanitized_project):
+def _emit_project_status_change(event_name, message, project_code, user_name, sanitized_project, sender_email=''):
     """프로젝트 상태 변경 실시간 알림 (SocketIO)
 
     Args:
         event_name: 'project_cancelled' 또는 'project_resumed'
+        sender_email: 이 액션을 트리거한 사용자 이메일 — 클라이언트가 자기 자신 이벤트를
+                      무시하는 용도 (자기 PC에선 이미 로컬 반영돼 있어 재렌더 필요 없음)
     """
     try:
         socketio = current_app.extensions.get('socketio')
@@ -2967,6 +2969,7 @@ def _emit_project_status_change(event_name, message, project_code, user_name, sa
                 'action': action_map.get(event_name, event_name),
                 'project_code': project_code,
                 'user': user_name,
+                'sender_email': sender_email,
                 'updated_project': sanitized_project
             })
         else:
@@ -3150,7 +3153,8 @@ def cancel_project_api():
                         message=f'프로젝트 공사가 취소되었습니다: {project_code}',
                         project_code=project_code,
                         user_name=user_name,
-                        sanitized_project=sanitized_project
+                        sanitized_project=sanitized_project,
+                        sender_email=user_email
                     )
                 except Exception as exc:
                     logger.warning(f"[BG/SOCKETIO] {project_code} 알림 오류: {exc}")
@@ -3259,7 +3263,8 @@ def resume_project_api():
                         message=f'프로젝트 공사가 재개되었습니다: {project_code}',
                         project_code=project_code,
                         user_name=user_name,
-                        sanitized_project=sanitized_project
+                        sanitized_project=sanitized_project,
+                        sender_email=user_email
                     )
                 except Exception as exc:
                     logger.warning(f"[BG/SOCKETIO] {project_code} 알림 오류: {exc}")
