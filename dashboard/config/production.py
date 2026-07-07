@@ -28,7 +28,10 @@ class ProductionConfig(BaseConfig):
     GOOGLE_SHEETS_WRITE_LIMIT = 80
 
     # 캐시 설정 (프로덕션 - 안정성)
-    CACHE_TTL_MINUTES = 10  # 10분으로 연장
+    # 2026-07-07: 10분 → 20분 확장 (20명 동시 사용 대비 Google Sheets API 호출 감소).
+    # 편집·취소·재개 시 즉시 부분 무효화로 사용자 피드백 지연 없음.
+    # 백그라운드 프리페치가 주기적으로 갱신하니 stale window는 실질 40초 이내.
+    CACHE_TTL_MINUTES = 20
     BACKGROUND_PREFETCH_ENABLED = True
 
     # 서비스워커 활성화 (프로덕션 성능)

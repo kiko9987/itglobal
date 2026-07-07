@@ -550,6 +550,51 @@ def get_project_records(force_refresh: bool = False) -> List[Dict[str, Any]]:
     return df
 
 
+def update_project_in_cache(project_code: str, updated_fields: Dict[str, Any]) -> bool:
+    """캐시된 current_sheet_data의 특정 프로젝트 필드를 in-place 갱신.
+
+    편집·취소·재개 시 전체 캐시 무효화(→ 다음 read가 3836행 시트 전체 재로드) 대신
+    캐시된 DataFrame에서 해당 프로젝트 row의 지정 필드만 교체한다. Google Sheets API
+    호출 절약 (20명 동시 사용 대비 병목 완화 핵심).
+
+    Args:
+        project_code: 대상 프로젝트 코드
+        updated_fields: {field_name: new_value} 갱신할 필드만
+
+    Returns:
+        True: 캐시에서 성공적으로 갱신됨 (호출자는 별도 무효화 불필요)
+        False: 캐시 미스·타입 mismatch·프로젝트 못 찾음 (호출자가 invalidate_project_cache로 fallback해야 함)
+
+    Note:
+        - 계산 필드(미수금·순익·마진율 등)는 갱신하지 않음. 편집 필드에 계산 필드가 의존하는
+          경우 값이 짧은 시간 stale일 수 있으나 백그라운드 prefetch가 곧 정확한 값으로 갱신.
+        - Redis 캐시는 pickle 저장이라 GET→수정→SET 필요. 3836행 DataFrame은 몇 MB이지만
+          이 편도 왕복(~30ms)이 Google Sheets API(~1000ms) 대비 훨씬 저렴.
+    """
+    cached = smart_get("current_sheet_data", CacheStrategy.CRITICAL_DATA)
+    if cached is None:
+        logger.info(f"[CACHE_UPDATE] 캐시 미스 → 전체 무효화 fallback ({project_code})")
+        return False
+
+    if not isinstance(cached, pd.DataFrame):
+        logger.warning(f"[CACHE_UPDATE] 캐시 타입 예상 밖 ({type(cached).__name__}) → fallback")
+        return False
+
+    mask = cached['프로젝트 코드'] == project_code
+    if not mask.any():
+        logger.warning(f"[CACHE_UPDATE] 프로젝트 {project_code}가 캐시에 없음 → fallback")
+        return False
+
+    idx = cached.index[mask][0]
+    for field, value in updated_fields.items():
+        if field in cached.columns:
+            cached.at[idx, field] = value
+
+    smart_set("current_sheet_data", cached, CacheStrategy.CRITICAL_DATA)
+    logger.info(f"[CACHE_UPDATE] 프로젝트 {project_code} 부분 갱신 완료: {list(updated_fields.keys())}")
+    return True
+
+
 def invalidate_project_cache(project_code: Optional[str] = None, trigger_refresh: bool = True) -> None:
     """프로젝트 데이터 캐시 무효화 (레이스 컨디션 방지 + 백그라운드 리프레시)
 

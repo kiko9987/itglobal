@@ -17,6 +17,7 @@ from ..services.project_service import (
     check_overdue_status,
     get_project_records,
     invalidate_project_cache,
+    update_project_in_cache,
     get_sheets_manager,
     load_data,
     get_project_config,
@@ -1083,14 +1084,21 @@ def update_project(project_code):
         # 10. 감사 로그 배치 기록
         _record_update_audit_logs(field_changes, project_code)
 
-        # 11. 캐시 무효화
-        invalidate_project_cache(final_project_code)
-        logger.info(f"[PUT] 프로젝트 업데이트 완료: {final_project_code}")
-
-        # 12. 최신 데이터 조회 및 계산 필드 재계산
+        # 11. 최신 데이터 조회 및 계산 필드 재계산 (개별 row fetch, 캐시 무관)
         updated_project = _fetch_and_calculate_updated_project(
             manager, sheet_id, sheet_name, row_number, field_to_index
         )
+
+        # 12. 캐시 부분 갱신 시도 (Google Sheets API 호출 없이 즉시 반영)
+        # - 프로젝트 코드 변경 없고 updated_project 있으면 캐시된 DataFrame에서 해당 row만 in-place 교체
+        # - 실패 시(캐시 미스·타입 mismatch·못 찾음) 기존 전체 무효화 fallback
+        code_unchanged = (project_code == final_project_code)
+        cache_updated = False
+        if code_unchanged and updated_project:
+            cache_updated = update_project_in_cache(final_project_code, updated_project)
+        if not cache_updated:
+            invalidate_project_cache(final_project_code)
+        logger.info(f"[PUT] 프로젝트 업데이트 완료: {final_project_code} (cache_partial={cache_updated})")
 
         # 13. 캘린더 + 슬랙 편집 알림 백그라운드 처리 (사용자 응답 대기 안 함, ~1s 절약)
         # 재시작 순간 진행 중이던 알림은 유실될 수 있지만 시트 저장은 이미 완료 상태 → 데이터 유실 아님.
@@ -1494,8 +1502,9 @@ def _save_and_return_inline_result(manager, sheet_id, sheet_name, row_number, cu
 
     logger.info(f"[인라인] 업데이트된 행 데이터 로드 완료: {project_code}")
 
-    # 캐시 무효화
-    invalidate_project_cache(project_code)
+    # 캐시 부분 갱신 시도 (실패 시 전체 무효화 fallback)
+    if not update_project_in_cache(project_code, updated_project):
+        invalidate_project_cache(project_code)
 
     # 업데이트된 프로젝트 데이터 반환
     return jsonify({
@@ -3105,8 +3114,15 @@ def cancel_project_api():
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 취소 - {updated_cells}개 셀 업데이트 완료")
 
-            # 5. 캐시 무효화 (즉시)
-            invalidate_project_cache(project_code)
+            # 5. 캐시 부분 갱신 시도 (Google Sheets API 호출 없이 즉시 반영)
+            # 실패 시(캐시 미스 등) 기존 전체 무효화 fallback
+            cache_updated = update_project_in_cache(project_code, {
+                '수금 관련 특이사항': '공사 취소',
+                '수금 확인': False,
+                '공사 확정': '',
+            })
+            if not cache_updated:
+                invalidate_project_cache(project_code)
 
             # 6. 감사 로그 기록 (동기 유지 — 감사 이력 즉시 확정)
             _log_project_status_change(
@@ -3231,8 +3247,14 @@ def resume_project_api():
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 재개 - 배치 업데이트 완료 ({updated_cells}개 셀)")
 
-            # 5. 캐시 무효화 (즉시)
-            invalidate_project_cache(project_code)
+            # 5. 캐시 부분 갱신 시도 (취소와 대칭)
+            today_str = datetime.now().strftime('%Y-%m-%d')
+            cache_updated = update_project_in_cache(project_code, {
+                '수금 관련 특이사항': '',
+                '공사 확정': today_str,
+            })
+            if not cache_updated:
+                invalidate_project_cache(project_code)
 
             # 6. 감사 로그 기록 (동기 유지)
             _log_project_status_change(
