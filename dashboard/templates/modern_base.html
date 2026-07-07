@@ -605,6 +605,10 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
+                    // security_middleware가 Content-Type: application/json 요청의 body를
+                    // request.get_json()으로 파싱함. 빈 body면 "Invalid JSON" 400 반환.
+                    // 이 엔드포인트는 body를 요구하지 않지만, 미들웨어를 통과시키려면 빈 객체 필요.
+                    body: JSON.stringify({}),
                 });
 
                 const result = await response.json();
