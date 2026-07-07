@@ -183,6 +183,10 @@ class CacheInvalidationService:
     def start_subscriber(self):
         """
         Pub/Sub 구독자 시작 (백그라운드 스레드)
+
+        Note (2026-07-07): 현재 아키텍처는 Waitress 단일 프로세스이므로 Pub/Sub는
+        향후 멀티프로세스/다중 워커 확장 대비. 단일 프로세스에서는 로컬 캐시 무효화
+        직접 호출로 즉시 반영되고, 여기 pub/sub는 안전망 역할.
         """
         if self._running:
             logger.warning("Pub/Sub 구독자가 이미 실행 중입니다.")

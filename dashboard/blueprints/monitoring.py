@@ -126,6 +126,32 @@ def health_check():
             logger.warning(f"캐시 모드 체크 실패: {e}")
             health_status['services']['cache'] = 'unknown'
 
+        # APScheduler 상태 (2026-07-07 추가)
+        try:
+            from dashboard.services import sync_scheduler
+            sched = getattr(sync_scheduler, '_scheduler', None)
+            if sched and getattr(sched, 'running', False):
+                job_count = len(sched.get_jobs())
+                health_status['services']['scheduler'] = f'running ({job_count} jobs)'
+            else:
+                health_status['services']['scheduler'] = 'stopped'
+                health_status['status'] = 'degraded'
+        except Exception as e:
+            logger.warning(f"Scheduler 헬스체크 실패: {e}")
+            health_status['services']['scheduler'] = 'unknown'
+
+        # Google Sheets API 자격증명 상태 (실제 API 호출 없이 client 초기화 확인)
+        try:
+            from dashboard.services.project_service import get_sheets_manager
+            sheets_manager = get_sheets_manager()
+            health_status['services']['google_sheets'] = 'authenticated' if sheets_manager else 'unauthenticated'
+            if not sheets_manager:
+                health_status['status'] = 'degraded'
+        except Exception as e:
+            logger.warning(f"Google Sheets 헬스체크 실패: {e}")
+            health_status['services']['google_sheets'] = 'error'
+            health_status['status'] = 'degraded'
+
         # HTTP 상태 코드 결정
         status_code = 200 if health_status['status'] == 'healthy' else 503
 

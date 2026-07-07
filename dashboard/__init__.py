@@ -44,6 +44,30 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         tuple: (Flask 앱 인스턴스, SocketIO 인스턴스 또는 None)
     """
 
+    # Sentry 에러 모니터링 (SENTRY_DSN 환경변수 있을 때만 활성화)  # noqa: E501
+    # DSN 없으면 no-op이라 안전. 사용자가 나중에 sentry.io 프로젝트 만들고 .env에
+    # SENTRY_DSN=https://... 추가하면 즉시 활성. 무료 티어 월 5K 이벤트.
+    _sentry_dsn = os.getenv('SENTRY_DSN', '').strip()
+    if _sentry_dsn:
+        try:
+            import sentry_sdk
+            from sentry_sdk.integrations.flask import FlaskIntegration
+            from sentry_sdk.integrations.logging import LoggingIntegration
+            sentry_sdk.init(
+                dsn=_sentry_dsn,
+                integrations=[
+                    FlaskIntegration(),
+                    LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
+                ],
+                environment=os.getenv('FLASK_ENV', 'production'),
+                traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
+                send_default_pii=False,  # 사용자 이메일 등 자동 수집 안 함
+                release=os.getenv('APP_VERSION', 'unknown'),
+            )
+            logger.info(f"Sentry 에러 모니터링 활성화 (환경={os.getenv('FLASK_ENV', 'production')})")
+        except Exception as e:
+            logger.warning(f"Sentry 초기화 실패 (무시하고 계속): {e}")
+
     # Flask 앱 인스턴스 생성
     app = Flask(__name__)
 

@@ -332,9 +332,12 @@ class SecurityMiddleware:
 
     def process_request(self):
         """요청 처리"""
-        # 0. 정적 리소스는 rate limit 대상 아님 (한 페이지 로드에 다수 요청 발생)
+        # 0. 정적 리소스·SocketIO polling·health check는 rate limit 대상 아님
+        # (한 페이지 로드에 다수 요청 발생 + SocketIO polling 5초 주기 = 시간당 720건)
         _p = request.path
         if (_p.startswith('/static/') or _p.startswith('/favicon')
+                or _p.startswith('/socket.io/')  # SocketIO polling 제외
+                or _p.startswith('/api/health')  # health check 제외 (모니터링용)
                 or _p.endswith('.css') or _p.endswith('.js')
                 or _p.endswith('.map') or _p.endswith('.ico')
                 or _p.endswith('.woff') or _p.endswith('.woff2')
@@ -437,12 +440,13 @@ class SecurityMiddleware:
             limit = 10000
             window = 3600
         elif '/api/' in request.path:
-            # 프로덕션 API (블루프린트 하위 /leads/api/, /projects/api/ 등 포함): 관대한 제한
-            limit = 2000
+            # 프로덕션 API — 20명 매니저 동시 편집·조회 대비. 사용자당 50/분 여유.
+            # SocketIO polling은 별도 제외됨.
+            limit = 3000
             window = 3600
         else:
-            # 프로덕션 일반 페이지: 완화 (다중 탭·프리페치·백그라운드 폴링 대비)
-            limit = 500
+            # 프로덕션 일반 페이지 — 다중 탭·프리페치·백그라운드 폴링 대비.
+            limit = 1000
             window = 3600
 
         return self.rate_limiter.is_allowed(identifier, limit, window)

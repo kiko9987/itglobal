@@ -147,6 +147,11 @@ class ProjectLockManager:
         """
         프로젝트 잠금 획득 시도 (Redis 기반)
 
+        Note (2026-07-07): Grace period 마커 조회와 main 잠금 설정이 원자적이지 않지만
+        `with self._lock:` (threading.Lock) 으로 프로세스 내 순차 처리 보장. Waitress
+        단일 프로세스 아키텍처에서는 실질 race 없음. 멀티프로세스 확장 시점에 Lua
+        스크립트로 원자화 검토.
+
         Args:
             project_code: 프로젝트 코드
             user_email: 사용자 이메일
