@@ -58,17 +58,18 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             import sentry_sdk
             from sentry_sdk.integrations.flask import FlaskIntegration
             from sentry_sdk.integrations.logging import LoggingIntegration
+            # default_integrations=False: 자동 등록 통합 중 하나가 Windows에서 SIGUSR1
+            # 참조로 초기화 실패 유발 → 명시 통합만 사용.
             sentry_sdk.init(
                 dsn=_sentry_dsn,
+                default_integrations=False,
                 integrations=[
                     FlaskIntegration(),
                     LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
                 ],
                 environment=os.getenv('FLASK_ENV', 'production'),
                 traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
-                send_default_pii=False,  # 사용자 이메일 등 자동 수집 안 함
-                # enable_logs=True는 2026-07-08 시도 시 waitress task queue 폭주 유발 → 롤백.
-                # LoggingIntegration이 이미 ERROR 이벤트 전송 담당하므로 별도 활성화 불필요.
+                send_default_pii=False,
                 release=os.getenv('APP_VERSION', 'unknown'),
             )
             logger.info(f"Sentry 에러 모니터링 활성화 (환경={os.getenv('FLASK_ENV', 'production')})")
