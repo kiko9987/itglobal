@@ -3116,8 +3116,17 @@ def cancel_project_api():
                 new_value='공사 취소'
             )
 
-            # 7. 업데이트된 프로젝트 데이터 가져오기 (응답 body에 필요, 동기 유지)
-            sanitized_project = _get_and_sanitize_updated_project(project_code)
+            # 7. 업데이트된 프로젝트 데이터 구성 — 시트 재조회 대신 방금 write한 값을 로컬 반영
+            # (2026-07-07): 옛 로직은 _get_and_sanitize_updated_project → get_project_records() 로
+            # 시트 재조회했으나 Google Sheets eventual consistency 지연으로 옛 값 반환 확률 있음.
+            # 그 옛 값이 socket.io project_cancelled payload로 나가서 클라이언트가 취소 상태를
+            # 옛 상태로 롤백하는 UX 버그. batch_update_cells 성공했다는 건 write가 확정됐다는
+            # 뜻이므로 그 값을 그대로 쓰는 게 안전.
+            updated_project = dict(project)
+            updated_project['수금 관련 특이사항'] = '공사 취소'
+            updated_project['수금 확인'] = False
+            updated_project['공사 확정'] = ''
+            sanitized_project = sanitize_project_for_json(updated_project)
 
             # 8. 배경색·캘린더·SocketIO 알림을 백그라운드 (사용자 응답 대기 안 함, ~1s 절약)
             # 프로젝트 표준 패턴 (bd6299d 편집 API와 동일).
@@ -3226,8 +3235,12 @@ def resume_project_api():
                 new_value=''
             )
 
-            # 7. 업데이트된 프로젝트 데이터 가져오기 (응답 body 필요)
-            sanitized_project = _get_and_sanitize_updated_project(project_code)
+            # 7. 업데이트된 프로젝트 데이터 구성 — 시트 재조회 대신 방금 write한 값을 로컬 반영
+            # (2026-07-07): 취소 API와 동일한 이유. Google Sheets read consistency 지연 우회.
+            updated_project = dict(project)
+            updated_project['수금 관련 특이사항'] = ''
+            updated_project['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
+            sanitized_project = sanitize_project_for_json(updated_project)
 
             # 8. 배경색·SocketIO 알림을 백그라운드 (사용자 응답 대기 안 함)
             import threading as _th
