@@ -111,6 +111,7 @@ def search_folder_by_name(name: str, limit: int = 10) -> List[Dict]:
             pageSize=limit,
             supportsAllDrives=True,
             includeItemsFromAllDrives=True,
+            corpora='allDrives',  # 공유 드라이브까지 검색 범위 확장 (2026-07-07 발견: 이거 없으면 옛 폴더 못 찾음)
         ).execute()
         return resp.get('files', []) or []
     except Exception as exc:
