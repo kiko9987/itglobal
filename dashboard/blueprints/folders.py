@@ -129,7 +129,10 @@ def convert_folder_paths_to_ids():
     try:
         from dashboard.utils.smart_cache_manager import smart_delete, smart_set
         from dashboard.services.project_service import load_data
-        from dashboard.utils.google_sheets import get_sheets_manager
+        # NOTE: 옛 코드에 `from dashboard.utils.google_sheets import get_sheets_manager`
+        # 잘못된 import가 있었으나 실제로 함수 정의 위치는 project_service.py다.
+        # 이 엔드포인트에서는 GoogleSheetsManager를 직접 인스턴스화(아래 batch write 블록)
+        # 하므로 이 import 자체가 필요 없어 제거했음. (2026-07-07 활성화 시 발견)
 
         logger.info("=== 폴더 경로 → ID 일괄 변환 시작 ===")
 
