@@ -1,6 +1,13 @@
 # 환경 변수 파일 (민감한 정보 포함)
 .env
 *.env
+.env.*
+**/.env.*
+# 템플릿·문서 파일은 예외 (커밋 대상)
+!.env.example
+!**/.env.example
+!.env.sentinel.example
+!**/.env.sentinel.example
 
 # Google API 자격증명 파일
 credentials.json
