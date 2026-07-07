@@ -3102,15 +3102,10 @@ def cancel_project_api():
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 취소 - {updated_cells}개 셀 업데이트 완료")
 
-            # 5. 배경색 변경 (진한 회색)
-            _update_project_background_color(
-                manager, sheet_id, sheet_name, row_number, 'dark_grey', '취소'
-            )
-
-            # 6. 캐시 무효화
+            # 5. 캐시 무효화 (즉시)
             invalidate_project_cache(project_code)
 
-            # 7. 감사 로그 기록
+            # 6. 감사 로그 기록 (동기 유지 — 감사 이력 즉시 확정)
             _log_project_status_change(
                 project_code=project_code,
                 project=project,
@@ -3121,20 +3116,38 @@ def cancel_project_api():
                 new_value='공사 취소'
             )
 
-            # 8. 업데이트된 프로젝트 데이터 가져오기
+            # 7. 업데이트된 프로젝트 데이터 가져오기 (응답 body에 필요, 동기 유지)
             sanitized_project = _get_and_sanitize_updated_project(project_code)
 
-            # 9. 캘린더 이벤트 삭제
-            _delete_calendar_event(project_code)
+            # 8. 배경색·캘린더·SocketIO 알림을 백그라운드 (사용자 응답 대기 안 함, ~1s 절약)
+            # 프로젝트 표준 패턴 (bd6299d 편집 API와 동일).
+            import threading as _th
 
-            # 10. 실시간 알림 (SocketIO)
-            _emit_project_status_change(
-                event_name='project_cancelled',
-                message=f'프로젝트 공사가 취소되었습니다: {project_code}',
-                project_code=project_code,
-                user_name=user_name,
-                sanitized_project=sanitized_project
-            )
+            def _bg_side_effects():
+                logger.info(f"[BG/START] {project_code} 취소 side-effect 백그라운드 시작")
+                try:
+                    _update_project_background_color(
+                        manager, sheet_id, sheet_name, row_number, 'dark_grey', '취소'
+                    )
+                except Exception as exc:
+                    logger.warning(f"[BG/COLOR] {project_code} 배경색 변경 오류: {exc}")
+                try:
+                    _delete_calendar_event(project_code)
+                except Exception as exc:
+                    logger.warning(f"[BG/CALENDAR] {project_code} 캘린더 삭제 오류: {exc}")
+                try:
+                    _emit_project_status_change(
+                        event_name='project_cancelled',
+                        message=f'프로젝트 공사가 취소되었습니다: {project_code}',
+                        project_code=project_code,
+                        user_name=user_name,
+                        sanitized_project=sanitized_project
+                    )
+                except Exception as exc:
+                    logger.warning(f"[BG/SOCKETIO] {project_code} 알림 오류: {exc}")
+                logger.info(f"[BG/DONE] {project_code} 취소 side-effect 완료")
+
+            _th.Thread(target=_bg_side_effects, daemon=True).start()
 
             logger.info(f"프로젝트 취소 완료: {project_code} by {user_name}")
 
@@ -3199,15 +3212,10 @@ def resume_project_api():
             updated_cells = batch_result.get('totalUpdatedCells', 0)
             logger.info(f"프로젝트 재개 - 배치 업데이트 완료 ({updated_cells}개 셀)")
 
-            # 5. 배경색 복원 (흰색)
-            _update_project_background_color(
-                manager, sheet_id, sheet_name, row_number, 'normal', '재개'
-            )
-
-            # 6. 캐시 무효화
+            # 5. 캐시 무효화 (즉시)
             invalidate_project_cache(project_code)
 
-            # 7. 감사 로그 기록
+            # 6. 감사 로그 기록 (동기 유지)
             _log_project_status_change(
                 project_code=project_code,
                 project=project,
@@ -3218,17 +3226,33 @@ def resume_project_api():
                 new_value=''
             )
 
-            # 8. 업데이트된 프로젝트 데이터 가져오기
+            # 7. 업데이트된 프로젝트 데이터 가져오기 (응답 body 필요)
             sanitized_project = _get_and_sanitize_updated_project(project_code)
 
-            # 9. 실시간 알림 (SocketIO)
-            _emit_project_status_change(
-                event_name='project_resumed',
-                message=f'프로젝트 공사가 재개되었습니다: {project_code}',
-                project_code=project_code,
-                user_name=user_name,
-                sanitized_project=sanitized_project
-            )
+            # 8. 배경색·SocketIO 알림을 백그라운드 (사용자 응답 대기 안 함)
+            import threading as _th
+
+            def _bg_side_effects():
+                logger.info(f"[BG/START] {project_code} 재개 side-effect 백그라운드 시작")
+                try:
+                    _update_project_background_color(
+                        manager, sheet_id, sheet_name, row_number, 'normal', '재개'
+                    )
+                except Exception as exc:
+                    logger.warning(f"[BG/COLOR] {project_code} 배경색 복원 오류: {exc}")
+                try:
+                    _emit_project_status_change(
+                        event_name='project_resumed',
+                        message=f'프로젝트 공사가 재개되었습니다: {project_code}',
+                        project_code=project_code,
+                        user_name=user_name,
+                        sanitized_project=sanitized_project
+                    )
+                except Exception as exc:
+                    logger.warning(f"[BG/SOCKETIO] {project_code} 알림 오류: {exc}")
+                logger.info(f"[BG/DONE] {project_code} 재개 side-effect 완료")
+
+            _th.Thread(target=_bg_side_effects, daemon=True).start()
 
             logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
 
