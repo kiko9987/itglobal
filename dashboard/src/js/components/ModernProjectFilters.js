@@ -199,17 +199,20 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 내 공사만 보기 체크박스
+    // 내 공사만 보기 체크박스 — 담당자 필터를 로그인 사용자 이름으로 자동 세팅.
+    // 2026-07-07 변경: 옛 로직은 '발주처 이메일'(고객 이메일) 컬럼과 로그인 이메일을 비교해
+    // 항상 0건이 됐음. 이미 있는 담당자 select 필터와 시맨틱 통일이 더 간단·명확.
     if (this.myProjectsOnlyCheckbox) {
       this.myProjectsOnlyCheckbox.addEventListener('change', (e) => {
         if (e.target.checked) {
-          // 현재 로그인한 사용자 이메일을 가져와서 필터 적용 (고유 식별)
-          const userEmail = window.userEmail || '';
-          if (userEmail) {
-            this.filters.myProjectsOnly = userEmail;
+          const userName = (window.userDisplayName || '').trim();
+          if (userName) {
+            this.filters.manager = userName;
+            if (this.managerFilter) this.managerFilter.value = userName;
           }
         } else {
-          delete this.filters.myProjectsOnly;
+          delete this.filters.manager;
+          if (this.managerFilter) this.managerFilter.value = '';
         }
         this.applyFilters(null, true);
       });
@@ -319,18 +322,8 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 내 공사만 보기 필터 (이메일 기반 비교 - 고유 식별)
-    if (this.filters.myProjectsOnly) {
-      filteredData = filteredData.filter(item => {
-        const managerEmail = (item['발주처 이메일'] || '').toString().trim();
-        const manager = (item['담당자'] || '').toString().trim();
-
-        // 1순위: 발주처 이메일로 비교 (고유 식별)
-        // 2순위: 이메일 없으면 담당자 이름으로 폴백 (레거시 데이터 호환)
-        return managerEmail === this.filters.myProjectsOnly ||
-               (managerEmail === '' && manager === (window.userDisplayName || ''));
-      });
-    }
+    // '내 공사만 보기' 별도 필터는 없음 — 체크박스 change 핸들러에서 this.filters.manager를
+    // 세팅해 위쪽 담당자 필터가 처리하도록 위임 (2026-07-07 변경).
 
     // 미수금 필터
     if (this.filters.outstanding) {

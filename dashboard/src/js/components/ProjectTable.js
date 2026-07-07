@@ -1340,17 +1340,23 @@ export default class ProjectTable {
     checkbox.id = 'myProjectsOnly';
     checkbox.title = '내 담당 프로젝트만 표시';
 
-    // 체크박스 이벤트 리스너 추가 (ModernProjectFilters와 연동)
+    // 체크박스 이벤트 리스너 추가 — 담당자 필터에 로그인 사용자 이름 세팅으로 위임
+    // (2026-07-07 변경, ModernProjectFilters의 새 로직과 동일)
     checkbox.addEventListener('change', (e) => {
       if (window.modernFilters) {
-        // ModernProjectFilters의 필터 로직 직접 호출
         if (e.target.checked) {
-          const userEmail = window.userEmail || '';
-          if (userEmail) {
-            window.modernFilters.filters.myProjectsOnly = userEmail;
+          const userName = (window.userDisplayName || '').trim();
+          if (userName) {
+            window.modernFilters.filters.manager = userName;
+            if (window.modernFilters.managerFilter) {
+              window.modernFilters.managerFilter.value = userName;
+            }
           }
         } else {
-          delete window.modernFilters.filters.myProjectsOnly;
+          delete window.modernFilters.filters.manager;
+          if (window.modernFilters.managerFilter) {
+            window.modernFilters.managerFilter.value = '';
+          }
         }
         window.modernFilters.applyFilters(null, true);
       }
