@@ -2834,9 +2834,12 @@ export default class ProjectRowAccordion {
         // 3. 취소 스타일 적용 (그레이스케일, 워터마크)
         this.applyCancelledProjectStyles(projectCode);
 
-        // 4. StateManager 동기화 (silent — 아코디언 유지, 리스트 리렌더 X)
+        // 4. StateManager 동기화 — 필터 재적용 함께 실행 (필터 우선)
+        // 취소로 필터 조건에 안 맞아진 프로젝트가 필터 리스트에 남아있으면 UX 혼란.
+        // 필터 정확성 우선. 리스트 리렌더로 아코디언 리셋될 수 있는데 이는 사용자가
+        // 직접 조작한 결과라 자연스러움.
         if (window.projectListApp?.stateManager) {
-          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project, null, { silent: true });
+          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project);
         }
 
         // 5. 메인 테이블 행 업데이트
@@ -2923,9 +2926,9 @@ export default class ProjectRowAccordion {
         // 3. 취소 스타일 제거
         this.removeCancelledProjectStyles(projectCode);
 
-        // 4. StateManager 동기화 (silent — 아코디언 유지, 리스트 리렌더 X)
+        // 4. StateManager 동기화 — 필터 재적용 함께 실행 (필터 우선, 취소와 대칭)
         if (window.projectListApp?.stateManager) {
-          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project, null, { silent: true });
+          window.projectListApp.stateManager.updateSingleProject(projectCode, result.updated_project);
         }
 
         // 5. 메인 테이블 행 업데이트 (상태 재계산)
@@ -2942,6 +2945,12 @@ export default class ProjectRowAccordion {
         }));
 
         this.showMessage('공사가 재개되었습니다.', 'success');
+      } else if (result.success && result.already_active) {
+        // 이미 정상 상태 (백엔드가 200 + already_active=true 반환) — 실패 아님
+        // 사용자에게 정보만 알리고 재개 버튼 로딩 해제
+        this.showMessage('이미 정상 상태입니다.', 'info');
+        resumeBtn.disabled = false;
+        resumeBtn.innerHTML = originalBtnHTML;
       } else {
         throw new Error(result.error || '공사 재개에 실패했습니다.');
       }
