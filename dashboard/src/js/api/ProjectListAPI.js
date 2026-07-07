@@ -67,7 +67,10 @@ export function exposeGlobalAPI(app) {
           buttonStateManager.setError(btn, '실패', '새로고침');
         }
 
-        if (app.showErrorMessage) {
+        // 새로고침 실패 = 시스템 파이프라인 에러 → 사이트 최상단 헤더
+        if (app.showSystemAlert) {
+          app.showSystemAlert('새로고침에 실패했습니다.', 'error');
+        } else if (app.showErrorMessage) {
           app.showErrorMessage('새로고침에 실패했습니다.');
         }
       }
@@ -88,9 +91,11 @@ export function exposeGlobalAPI(app) {
     clearCache: () => app.clearLocalCache(),
     getCachedData: () => app.getCachedData(),
 
-    // UI 관련
-    showSuccess: (message) => app.showSuccessMessage(message),
-    showError: (message) => app.showErrorMessage(message),
+    // UI 관련 (스코프 명시 헬퍼도 함께 노출)
+    showSuccess: (message) => app.showSuccessMessage(message),  // 기본: 페이지
+    showError: (message) => app.showErrorMessage(message),      // 기본: 시스템
+    showSystemAlert: (message, type) => app.showSystemAlert(message, type),
+    showPageAlert: (message, type) => app.showPageAlert(message, type),
 
     // 컴포넌트 접근
     getComponents: () => app.components,

@@ -1369,8 +1369,12 @@ export default class ModernProjectModal {
         // 12. 모달 닫기 (데이터 새로고침 완료 후)
         this.modal.hide();
 
-        // 13. 성공 메시지
-        this.showSuccessMessage('새 프로젝트가 등록되었습니다.');
+        // 13. 성공 메시지 — 프로젝트 표 관련 → 페이지 헤더 (headerAlertContainer)
+        if (window.showPageAlert) {
+          window.showPageAlert('새 프로젝트가 등록되었습니다.', 'success');
+        } else {
+          this.showSuccessMessage('새 프로젝트가 등록되었습니다.');
+        }
 
         // 13-b. 수금관리 모드에서 완납(미수금=0) 프로젝트는 필터에 안 잡혀 안 보임 → 사용자 안내
         try {
@@ -1378,12 +1382,14 @@ export default class ModernProjectModal {
           const isReceivablesMode =
             document.getElementById('outstandingFilter')?.value === 'outstanding';
           if (isReceivablesMode && receivable <= 0) {
-            const toast = await this.getToastComponent();
-            toast.show(
-              '완납 상태로 등록되어 수금관리 모드에서는 숨겨집니다. 상단 토글을 끄시면 확인할 수 있어요.',
-              'info',
-              6000
-            );
+            // 새 프로젝트 결과 안내 → 페이지 헤더
+            const msg = '완납 상태로 등록되어 수금관리 모드에서는 숨겨집니다. 상단 토글을 끄시면 확인할 수 있어요.';
+            if (window.showPageAlert) {
+              window.showPageAlert(msg, 'info');
+            } else {
+              const toast = await this.getToastComponent();
+              toast.show(msg, 'info', 6000);
+            }
           }
         } catch (hiddenNoticeError) {
           logger.debug('[ModernProjectModal] 완납 안내 표시 스킵:', hiddenNoticeError);

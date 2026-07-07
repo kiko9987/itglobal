@@ -404,7 +404,9 @@ export default class ProjectRowAccordion {
     // 데이터 검증: 필수 데이터가 있는지 확인
     if (!projectData || !projectData['프로젝트 코드']) {
       logger.error('[아코디언] 프로젝트 데이터가 유효하지 않습니다:', projectData);
-      this.showToast('프로젝트 정보를 불러올 수 없습니다', 'error');
+      // 페이지 액션 결과 (아코디언 표 관련) → 페이지 헤더
+      if (window.showPageAlert) window.showPageAlert('프로젝트 정보를 불러올 수 없습니다', 'error');
+      else this.showToast('프로젝트 정보를 불러올 수 없습니다', 'error');
       return;
     }
 
@@ -524,8 +526,9 @@ export default class ProjectRowAccordion {
       this.isOpen = false;
       this.currentProject = null;
 
-      // 사용자에게 알림
-      this.showToast('아코디언을 열 수 없습니다. 데이터를 확인해주세요.', 'error');
+      // 사용자에게 알림 — 아코디언 표 관련 → 페이지 헤더
+      if (window.showPageAlert) window.showPageAlert('아코디언을 열 수 없습니다. 데이터를 확인해주세요.', 'error');
+      else this.showToast('아코디언을 열 수 없습니다. 데이터를 확인해주세요.', 'error');
 
       // 오류 발생 시 생성된 DOM 정리
       document.querySelectorAll('.accordion-row').forEach(row => row.remove());
@@ -6931,7 +6934,9 @@ export default class ProjectRowAccordion {
 
         // 3회 연속 실패 시 경고
         if (this.heartbeatFailureCount === 3) {
-          this.showToast('⚠️ 네트워크가 불안정합니다. 편집 내용을 저장하세요.', 'warning');
+          // 네트워크 상태 = 시스템 알림 → 사이트 최상단 헤더
+          if (window.showSystemAlert) window.showSystemAlert('⚠️ 네트워크가 불안정합니다. 편집 내용을 저장하세요.', 'warning');
+          else this.showToast('⚠️ 네트워크가 불안정합니다. 편집 내용을 저장하세요.', 'warning');
           logger.warn('⚠️ [Heartbeat] 3회 연속 실패 - 사용자에게 경고');
         }
 

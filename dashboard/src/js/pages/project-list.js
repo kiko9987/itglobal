@@ -620,24 +620,67 @@ class ProjectListApp {
 
 
   /**
-   * 메시지 표시 유틸리티
+   * 알림 표시 유틸리티
+   *
+   * 두 스코프 지원:
+   *  - showSystemAlert : 사이트 최상단 헤더 (#systemAlertContainer)
+   *    시스템 전역 상태 알림용 (자동 새로고침 · 앱 초기화 · 파이프라인 실패 · 네트워크 · 인증 만료)
+   *  - showPageAlert   : 페이지 서브 헤더 (#headerAlertContainer)
+   *    페이지 액션 결과 알림용 (프로젝트 추가·취소·재개 · 아코디언 열기 · 리드 CRUD)
+   *
+   * 레거시 wrapper (showSuccessMessage / showErrorMessage / showToast) 는 유지하되
+   * 각 캐시점에서 명시적으로 두 스코프 중 하나를 호출하도록 리팩터됐음.
+   * 기본 라우팅: success → page, error → system, generic toast → system.
    */
-  showSuccessMessage(message) {
-    this.showToast(message, 'success');
-  }
-
-  showErrorMessage(message) {
-    this.showToast(message, 'error');
-  }
-
-  showToast(message, type = 'info') {
-    // Toast 컴포넌트 로딩 후 표시
+  showSystemAlert(message, type = 'info') {
     import('../components/Toast.js').then(({ default: Toast }) => {
       new Toast().show(message, type);
     });
-
-    // 스크린 리더 알림
     announceToScreenReader(message, type === 'error' ? 'assertive' : 'polite');
+  }
+
+  showPageAlert(message, type = 'info') {
+    const container = document.getElementById('headerAlertContainer');
+    if (!container) {
+      // 페이지 서브 헤더 슬롯이 없으면 시스템 스코프로 fallback
+      this.showSystemAlert(message, type);
+      return;
+    }
+    const typeMap = {
+      success: 'alert-success',
+      error:   'alert-danger',
+      danger:  'alert-danger',
+      warning: 'alert-warning',
+      info:    'alert-info',
+    };
+    const klass = typeMap[type] || 'alert-info';
+    const escaped = String(message)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    container.innerHTML = `
+      <div class="alert ${klass} alert-dismissible fade show mb-0 py-1 px-3" role="alert" style="font-size: 0.9rem;">
+        ${escaped}
+        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert" aria-label="닫기"></button>
+      </div>
+    `;
+    setTimeout(() => { container.innerHTML = ''; }, 3000);
+    announceToScreenReader(message, type === 'error' ? 'assertive' : 'polite');
+  }
+
+  // 레거시 wrapper — success는 페이지 성격이 더 강함 (액션 결과)
+  showSuccessMessage(message) {
+    this.showPageAlert(message, 'success');
+  }
+  // 레거시 wrapper — error는 시스템 성격이 더 강함 (앱·파이프라인)
+  showErrorMessage(message) {
+    this.showSystemAlert(message, 'error');
+  }
+  // 레거시 wrapper — 일반 toast는 시스템 (자동 새로고침 등)
+  showToast(message, type = 'info') {
+    this.showSystemAlert(message, type);
   }
 
   /**
@@ -798,6 +841,12 @@ if (window.__projectListAppModuleLoaded) {
   window.__projectListAppInstance = app;
   window.ProjectListApp = app; // 레거시 호환성
   window.projectListApp = app; // DataSyncManager 호환성 (소문자)
+
+  // 알림 헬퍼 window 전역 노출 — 다른 컴포넌트(ProjectRowAccordion·ModernProjectModal 등)가
+  // app 인스턴스 참조 없이 직접 호출할 수 있게. showSystemAlert = 사이트 최상단 헤더,
+  // showPageAlert = 페이지 서브 헤더. 스코프 분류 규칙은 app 클래스 정의부 주석 참조.
+  window.showSystemAlert = (msg, type) => app.showSystemAlert(msg, type);
+  window.showPageAlert = (msg, type) => app.showPageAlert(msg, type);
 
   // DOM 준비 완료 시 초기화
   if (document.readyState === 'loading') {
