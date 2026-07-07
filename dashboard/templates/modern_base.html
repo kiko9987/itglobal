@@ -1002,6 +1002,19 @@
          *   - otherInputId: 기타 입력란 id
          * @returns {boolean} 렌더링 성공 여부 (캐시 없으면 false, 자동 재시도)
          */
+        // 전역 escapeHtml 헬퍼 (2026-07-08 XSS 방어)
+        // 각 컴포넌트별 로컬 정의가 있지만 base template 스크립트가 접근할 수 있게 전역 노출.
+        if (typeof window.escapeHtml !== 'function') {
+            window.escapeHtml = function(text) {
+                if (text == null) return '';
+                const div = document.createElement('div');
+                div.textContent = String(text);
+                return div.innerHTML;
+            };
+        }
+        // 지역 참조 (기존 코드 호환)
+        const escapeHtml = window.escapeHtml;
+
         window.renderConstructorCheckboxes = function(containerId, options) {
             const opts = Object.assign({
                 selectedValues: [],
@@ -1050,14 +1063,17 @@
                     idCounter++;
                     const checkboxId = `${opts.idPrefix}-${idCounter}`;
                     const isChecked = selectedSet.has(name);
+                    // 2026-07-08 XSS 방어: attribute value용 safeName + label text용 escapedName 분리
                     const safeName = name.replace(/"/g, '&quot;');
+                    const escapedName = (typeof escapeHtml === 'function') ? escapeHtml(name) : safeName;
+                    const escapedCategoryName = (typeof escapeHtml === 'function') ? escapeHtml(category.name) : category.name.replace(/"/g, '&quot;');
                     optionsHtml += `
                         <div class="form-check me-5" style="min-width: 75px; display: inline-flex; align-items: center; padding-left: 0; gap: 0.4em;">
                             <input class="form-check-input ${opts.checkboxClass} m-0" type="checkbox"
-                                   value="${safeName}" id="${checkboxId}" data-category="${category.name}"
+                                   value="${safeName}" id="${checkboxId}" data-category="${escapedCategoryName}"
                                    ${isChecked ? 'checked' : ''}
                                    style="flex-shrink: 0; float: none;">
-                            <label class="form-check-label fw-normal m-0" for="${checkboxId}" style="cursor: pointer;">${name}</label>
+                            <label class="form-check-label fw-normal m-0" for="${checkboxId}" style="cursor: pointer;">${escapedName}</label>
                         </div>
                     `;
                 }

@@ -1168,6 +1168,17 @@ export default class ModernProjectModal {
     const submitLoading = document.getElementById('modern-submit-loading');
     let willRetry = false; // 재시도 예정 플래그
 
+    // 2026-07-08 재진입 방지: 최초 제출(retryCount=0)에서 이미 submit 진행 중이면 skip.
+    // 폼 더블 클릭·엔터 연타로 인한 신규 프로젝트 중복 등록 방지.
+    // 내부 재시도(retryCount > 0)는 예외 — 진행 중인 submit 자체가 재호출한 것.
+    if (retryCount === 0) {
+      if (this._submitInProgress) {
+        logger.debug('[ModernProjectModal] submitProject 재진입 감지 - 스킵');
+        return;
+      }
+      this._submitInProgress = true;
+    }
+
     // 0. 최초 제출 시에만 최종 유효성 검증 수행
     if (retryCount === 0) {
       const validation = this.validateBeforeSubmit();
@@ -1175,6 +1186,7 @@ export default class ModernProjectModal {
         // 검증 실패: 모든 오류를 하나의 메시지로 표시
         const errorMessage = validation.errors.join('\n• ');
         this.showAlert(`다음 항목을 확인해주세요:\n\n• ${errorMessage}`, 'danger');
+        this._submitInProgress = false;  // 검증 실패도 클리어
         return;
       }
     }
@@ -1477,6 +1489,8 @@ export default class ModernProjectModal {
         if (submitLoading) {
           submitLoading.classList.add('d-none');
         }
+        // 재진입 방지 플래그 해제 — 재시도 예정 아닐 때만 (재시도는 같은 flow 이어짐)
+        this._submitInProgress = false;
       }
     }
   }

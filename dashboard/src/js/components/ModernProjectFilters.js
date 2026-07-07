@@ -954,4 +954,15 @@ export default class ModernProjectFilters {
              value.toString().trim() === 'undefined';
     });
   }
+
+  /**
+   * 컴포넌트 정리 (2026-07-08 추가)
+   * 페이지 전환·컴포넌트 재초기화 시 pending timer 정리로 예상치 못한 필터 적용 방지.
+   */
+  destroy() {
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+      this.searchDebounceTimer = null;
+    }
+  }
 }

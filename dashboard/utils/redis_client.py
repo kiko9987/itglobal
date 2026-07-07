@@ -433,7 +433,8 @@ class RedisClient:
             ServiceUnavailable: Redis 에러 시
 
         Warning:
-            KEYS 명령은 O(N)이므로 프로덕션에서는 주의해서 사용
+            KEYS 명령은 O(N)이므로 프로덕션에서는 주의해서 사용.
+            대규모 키 조회 시 scan_iter() 사용 권장.
         """
         # Fallback 모드일 때 메모리 캐시 사용
         if getattr(self, '_use_fallback', False) and self._fallback_cache:
@@ -443,6 +444,29 @@ class RedisClient:
             return self.redis.keys(pattern)
         except RedisError as e:
             logger.error(f"Redis keys 실패: pattern={pattern}, error={e}")
+            raise ServiceUnavailable(f"Cache unavailable: {e}")
+
+    def scan_iter(self, match: str = '*', count: int = 100) -> list:
+        """
+        패턴에 맞는 키를 SCAN으로 non-blocking iteration (2026-07-08 추가).
+
+        KEYS(O(N) 블로킹) 대신 SCAN cursor를 사용해 서버 blocking 회피.
+        내부적으로 여러 번 SCAN 호출하지만 사이사이 다른 요청 처리 가능.
+
+        Args:
+            match: 패턴 (예: "lock:*")
+            count: 배치당 반환 수 힌트 (기본 100)
+
+        Returns:
+            list: 매칭된 키 전체 목록
+        """
+        if getattr(self, '_use_fallback', False) and self._fallback_cache:
+            return self._fallback_cache.keys(match)
+
+        try:
+            return list(self.redis.scan_iter(match=match, count=count))
+        except RedisError as e:
+            logger.error(f"Redis scan_iter 실패: match={match}, error={e}")
             raise ServiceUnavailable(f"Cache unavailable: {e}")
 
     def flushdb(self) -> bool:

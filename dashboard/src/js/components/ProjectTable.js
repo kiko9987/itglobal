@@ -850,6 +850,15 @@ export default class ProjectTable {
   updateData(data) {
     if (!this.table) return;
 
+    // 2026-07-08 재진입 방지: 이전 updateData가 아직 draw 완료 안 됐으면 이 요청 스킵.
+    // 짧은 간격 연속 호출로 인한 draw 중복·아코디언 상태 유실·수금 모드 플래그 꼬임 방지.
+    // 플래그는 draw.dt 콜백에서 clear (updateDataRegular / updateDataWithOptimization).
+    if (this._updateInProgress) {
+      logger.debug('[ProjectTable] updateData 재진입 감지 - 스킵');
+      return;
+    }
+    this._updateInProgress = true;
+
     // 수금 모드 전환 중에는 배치 처리 건너뛰기 (빠른 draw 보장)
     if (this.isReceivablesTransitioning) {
       logger.debug('[ProjectTable] 수금 모드 전환 중 - 일반 업데이트 사용');
@@ -908,6 +917,9 @@ export default class ProjectTable {
           }
         });
       }
+
+      // 재진입 방지 플래그 해제 (다음 updateData 호출 허용)
+      this._updateInProgress = false;
     });
 
     this.table.draw();
@@ -998,9 +1010,13 @@ export default class ProjectTable {
         this.pendingBatchTimeout = null;
 
         // draw 완료 콜백 등록 후 draw 호출
-        if (onComplete) {
-          this.table.one('draw.dt', onComplete);
-        }
+        // 재진입 방지 플래그도 함께 해제 (2026-07-08)
+        this.table.one('draw.dt', () => {
+          if (onComplete) {
+            try { onComplete(); } catch (e) { logger.warn('[ProjectTable] onComplete 오류:', e); }
+          }
+          this._updateInProgress = false;
+        });
         this.table.draw();
         return;
       }

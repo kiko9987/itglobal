@@ -253,7 +253,8 @@ class CalendarSyncScheduler:
             row_index = sheets_manager.find_row_by_project_code(sheet_id, project_code, f"{sheet_name}!A:A")
 
             if row_index is None:
-                logger.warning(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
+                # 매 5분 sync에서 삭제·재코드된 프로젝트가 반복 로그 유발 → debug 하향 (2026-07-08)
+                logger.debug(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
                 return False
 
             # 날짜 필드 비우기 (공사 시작: J열, 공사 종료: K열)
@@ -311,7 +312,8 @@ class CalendarSyncScheduler:
             row_index = sheets_manager.find_row_by_project_code(sheet_id, project_code, f"{sheet_name}!A:A")
 
             if row_index is None:
-                logger.warning(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
+                # 반복 로그 억제 (2026-07-08)
+                logger.debug(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
                 return False
 
             # 날짜 필드 업데이트 (공사 시작: J열, 공사 종료: K열)
@@ -385,7 +387,8 @@ class CalendarSyncScheduler:
             sheet_project = project_map.get(project_code)
 
             if not sheet_project:
-                logger.warning(f"[CALENDAR_SYNC] 시트에서 프로젝트를 찾을 수 없음: {project_code}")
+                # 반복 로그 억제 (2026-07-08) — 삭제된 프로젝트가 캘린더에 남아있는 것뿐
+                logger.debug(f"[CALENDAR_SYNC] 시트에서 프로젝트를 찾을 수 없음: {project_code}")
                 return False
 
             # None 안전 처리: None이면 빈 문자열로 fallback

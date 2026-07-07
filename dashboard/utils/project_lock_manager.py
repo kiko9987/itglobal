@@ -395,7 +395,9 @@ class ProjectLockManager:
         """
         try:
             active_locks = []
-            lock_keys = self.redis.keys("lock:*")
+            # 2026-07-08: KEYS(O(N) blocking) → SCAN(non-blocking iterator)으로 교체.
+            # 20명 동시 사용 대비 Redis 블로킹 회피.
+            lock_keys = list(self.redis.scan_iter(match="lock:*", count=100))
 
             for lock_key in lock_keys:
                 # lock:PROJECT_CODE 형식에서 project_code 추출
@@ -420,7 +422,9 @@ class ProjectLockManager:
         """
         try:
             user_locks = []
-            lock_keys = self.redis.keys("lock:*")
+            # 2026-07-08: KEYS(O(N) blocking) → SCAN(non-blocking iterator)으로 교체.
+            # 20명 동시 사용 대비 Redis 블로킹 회피.
+            lock_keys = list(self.redis.scan_iter(match="lock:*", count=100))
 
             for lock_key in lock_keys:
                 project_code = lock_key.replace("lock:", "", 1)
@@ -448,7 +452,9 @@ class ProjectLockManager:
         """
         try:
             project_codes_to_remove = []
-            lock_keys = self.redis.keys("lock:*")
+            # 2026-07-08: KEYS(O(N) blocking) → SCAN(non-blocking iterator)으로 교체.
+            # 20명 동시 사용 대비 Redis 블로킹 회피.
+            lock_keys = list(self.redis.scan_iter(match="lock:*", count=100))
 
             # 해당 사용자의 잠금 찾기
             for lock_key in lock_keys:
