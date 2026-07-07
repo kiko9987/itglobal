@@ -2994,19 +2994,22 @@ def _prepare_cancel_updates(sheet_name, row_number):
     """공사 취소 배치 업데이트 준비
 
     Returns:
-        list: Batch update requests (AG: 공사 취소, Z: FALSE, AL: '')
+        list: Batch update requests (AH: 수금 관련 특이사항, AA: 수금 확인, AM: 공사 확정)
+
+    Note: 2026-07 컬럼 시프트 반영 (AG→AH, Z→AA, AL→AM).
+          옛 매핑은 마진율·수금 날짜·폴더 경로에 잘못 write하는 데이터 파괴 버그였음.
     """
     return [
         {
-            'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
+            'range': f'{sheet_name}!AH{row_number}',  # AH: 수금 관련 특이사항
             'values': [['공사 취소']]
         },
         {
-            'range': f'{sheet_name}!Z{row_number}',  # Z: 수금 확인
+            'range': f'{sheet_name}!AA{row_number}',  # AA: 수금 확인
             'values': [['FALSE']]
         },
         {
-            'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
+            'range': f'{sheet_name}!AM{row_number}',  # AM: 공사 확정
             'values': [['']]
         }
     ]
@@ -3045,15 +3048,18 @@ def _prepare_resume_updates(sheet_name, row_number):
     """공사 재개 배치 업데이트 준비
 
     Returns:
-        list: Batch update requests (AG: '', AL: 현재 날짜)
+        list: Batch update requests (AH: '', AM: 현재 날짜)
+
+    Note: 2026-07 컬럼 시프트 반영 (AG→AH, AL→AM).
+          옛 매핑은 마진율에 빈 값을, 폴더 경로에 날짜를 잘못 write하는 데이터 파괴 버그였음.
     """
     return [
         {
-            'range': f'{sheet_name}!AG{row_number}',  # AG: 수금 관련 특이사항
+            'range': f'{sheet_name}!AH{row_number}',  # AH: 수금 관련 특이사항
             'values': [['']]
         },
         {
-            'range': f'{sheet_name}!AL{row_number}',  # AL: 공사 확정일
+            'range': f'{sheet_name}!AM{row_number}',  # AM: 공사 확정
             'values': [[datetime.now().strftime('%Y-%m-%d')]]
         }
     ]
