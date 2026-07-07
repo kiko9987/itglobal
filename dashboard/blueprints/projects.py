@@ -1092,18 +1092,27 @@ def update_project(project_code):
             manager, sheet_id, sheet_name, row_number, field_to_index
         )
 
-        # 13. 구글 캘린더 이벤트 업데이트
-        _update_calendar_if_needed(updated_project, project_code, final_project_code)
+        # 13. 캘린더 + 슬랙 편집 알림 백그라운드 처리 (사용자 응답 대기 안 함, ~1s 절약)
+        # 재시작 순간 진행 중이던 알림은 유실될 수 있지만 시트 저장은 이미 완료 상태 → 데이터 유실 아님.
+        # 프로젝트 표준 패턴 (blueprints/slack_bot.py 등에 15+ 곳 사용) 그대로.
+        import threading as _th
 
-        # 13-b. 공사 확정 카드 갱신 + 스레드에 변경 알림 답글
-        # (원본 카드는 최신 스냅샷으로 갱신, 스레드에 편집 히스토리 답글)
-        try:
-            from ..services.project_slack_notifier import notify_project_field_changes
-            notify_project_field_changes(
-                final_project_code, field_changes, latest_data=updated_project,
-            )
-        except Exception as _exc:
-            logger.warning(f"[PROJECT/SLACK/편집] 알림 처리 오류 ({final_project_code}): {_exc}")
+        def _bg_notifications():
+            logger.info(f"[BG/START] {final_project_code} 알림 백그라운드 시작")
+            try:
+                _update_calendar_if_needed(updated_project, project_code, final_project_code)
+            except Exception as exc:
+                logger.warning(f"[BG/CALENDAR] {final_project_code} 처리 오류: {exc}")
+            try:
+                from ..services.project_slack_notifier import notify_project_field_changes
+                notify_project_field_changes(
+                    final_project_code, field_changes, latest_data=updated_project,
+                )
+            except Exception as exc:
+                logger.warning(f"[BG/SLACK] {final_project_code} 알림 처리 오류: {exc}")
+            logger.info(f"[BG/DONE] {final_project_code} 알림 처리 완료")
+
+        _th.Thread(target=_bg_notifications, daemon=True).start()
 
         # 14. 최종 응답 반환
         logger.info(f"[PUT] 최종 응답 - project 필드 존재: {updated_project is not None}, 필드 개수: {len(updated_project) if updated_project else 0}")
