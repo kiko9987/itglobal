@@ -49,12 +49,23 @@ def _parse_date(value: Optional[str]) -> Optional[datetime]:
 
 
 def _build_event_summary(project: dict) -> str:
+    """캘린더 이벤트 제목 조립.
+
+    형식: `{담당자 이니셜} {시공자} {공사 내용 or 폴백}`
+    예: 'R3836-MS' 프로젝트 → 'MS 준연 1WAY 3대 가스 점검'
+
+    담당자 이니셜은 프로젝트 코드의 '-' 뒤 부분(예: R3836-MS → MS).
+    dash 없는 예외적 코드면 그 전체를 사용.
+    폴백 순서: 공사 내용 → 현장 주소 → 유입 구분 → 사업자.
+    """
+    project_code = (project.get('프로젝트 코드') or '').strip()
+    initial = project_code.split('-')[-1] if '-' in project_code else project_code
     parts = [
-        project.get('프로젝트 코드'),
+        initial,
         project.get('시공자'),
         project.get('공사 내용') or project.get('현장 주소') or project.get('유입 구분') or project.get('사업자')
     ]
-    return ' · '.join(filter(None, parts))
+    return ' '.join(filter(None, parts))
 
 
 def _build_event_description(project: dict) -> str:
