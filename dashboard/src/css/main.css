@@ -56,7 +56,7 @@
 /* 전역 스타일 */
 :root {
   /* 애플리케이션 특화 변수 (tokens.css에 없는 고유 변수들) */
-  --header-height: 120px;
+  --header-height: 96px;
 
   /* Z-index 레이어 관리 */
   --zindex-sticky: 1020;
