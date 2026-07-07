@@ -576,9 +576,56 @@
             }
         };
 
-        // 폴더 경로 변환 플레이스홀더 함수 (레거시 호환성)
-        window.showConvertPathsModal = function() {
-            alert('폴더 경로 변환 기능은 현재 개발 중입니다.');
+        // 폴더 경로 변환 — 백엔드 /api/folder/convert-paths-to-ids 호출
+        // 시트에는 write하지 않음. URL에서 Google Drive 폴더 ID만 추출해 Redis 캐시에 저장.
+        // 문서 폴더 열기(itgfolder://) 성능 향상용 인덱싱.
+        window.showConvertPathsModal = async function() {
+            // 관리자 권한 확인
+            if (window.userRole !== 'admin' && window.userRole !== 'super_admin') {
+                if (window.showSystemAlert) window.showSystemAlert('관리자만 사용 가능합니다.', 'error');
+                else alert('관리자만 사용 가능합니다.');
+                return;
+            }
+
+            const proceed = confirm(
+                '전체 프로젝트의 폴더 경로를 Google Drive 폴더 ID로 인덱싱합니다.\n\n' +
+                '• 시트 값은 변경하지 않음 (Redis 캐시에만 저장)\n' +
+                '• 파싱 안 되는 항목은 원본 그대로 유지\n' +
+                '• 캐시는 24시간 유지, 이후 문서 폴더 열기가 빨라짐\n\n' +
+                '계속하시겠습니까?'
+            );
+            if (!proceed) return;
+
+            // 진행 안내 (시스템 헤더에 짧게)
+            if (window.showSystemAlert) window.showSystemAlert('폴더 경로 인덱싱 중...', 'info');
+
+            try {
+                const response = await fetch('/api/folder/convert-paths-to-ids', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const converted = result.converted_count ?? 0;
+                    const total = result.total_projects ?? 0;
+                    const skipped = total - converted;
+                    const msg = `폴더 경로 인덱싱 완료: ${converted}/${total}개 캐시됨` +
+                                (skipped > 0 ? ` (${skipped}개는 URL 아님·파싱 불가 → 원본 유지)` : '');
+                    if (window.showPageAlert) window.showPageAlert(msg, 'success');
+                    else alert(msg);
+                } else {
+                    const msg = result.error || '폴더 경로 인덱싱에 실패했습니다.';
+                    if (window.showSystemAlert) window.showSystemAlert(msg, 'error');
+                    else alert(msg);
+                }
+            } catch (err) {
+                const msg = '네트워크 오류: ' + (err?.message || err);
+                if (window.showSystemAlert) window.showSystemAlert(msg, 'error');
+                else alert(msg);
+            }
         };
 
         // 시퀀스 관리 모달 열기
