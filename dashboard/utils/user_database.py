@@ -267,6 +267,12 @@ class UserDatabase:
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row  # 딕셔너리 형태로 결과 반환
             conn.execute('PRAGMA foreign_keys = ON')
+            # WAL 모드 활성화 — 20명 동시 사용 대비 (2026-07-07)
+            # 기본 DELETE 저널은 단일 writer 모델이라 concurrent write 시 database is locked 리스크.
+            # WAL은 reader와 writer 독립 진행 가능. 성능 개선 + 락 경합 해소.
+            # journal_mode/synchronous는 DB 파일 속성이므로 첫 커넥션에서 세팅되면 지속됨.
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')  # WAL과 함께 안전한 fsync 정책
             try:
                 yield conn
             finally:

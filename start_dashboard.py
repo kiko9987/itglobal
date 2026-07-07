@@ -106,21 +106,31 @@ def main():
         # 서버 설정
         host = os.getenv('HOST', '0.0.0.0')
         port = int(os.getenv('PORT', 5000))
-        debug = os.getenv('DEBUG', 'True').lower() == 'true'
-        
+        # WSGI 서버로 Waitress 사용 (2026-07-07): Werkzeug 개발 서버는 20명 동시 polling
+        # 유지 시 스레드 관리 미흡으로 SIGSEGV·응답 지연 리스크. Waitress는 프로덕션 WSGI
+        # 표준 구현, 스레드풀 명시 관리 가능. Flask-SocketIO async_mode='threading' +
+        # transports=['polling'] 조합과 완벽 호환 (WebSocket 사용 안 함).
+        # 튜닝: 매니저 20명 × safety margin 1.5 → threads=30 기본, 필요 시 .env로 조정.
+        threads = int(os.getenv('WAITRESS_THREADS', 30))
+        connection_limit = int(os.getenv('WAITRESS_CONNECTION_LIMIT', 200))
+        channel_timeout = int(os.getenv('WAITRESS_CHANNEL_TIMEOUT', 120))
+
         print(f"대시보드 URL: http://localhost:{port}")
+        print(f"Waitress WSGI: threads={threads}, connection_limit={connection_limit}, channel_timeout={channel_timeout}s")
         print("종료하려면 Ctrl+C를 누르세요")
         print("=" * 60)
-        
-        # Flask-SocketIO 서버 시작
-        socketio.run(
-            app, 
-            host=host, 
-            port=port, 
-            debug=debug,
-            use_reloader=False  # 알림 시스템과의 충돌 방지
+
+        from waitress import serve
+        serve(
+            app,
+            host=host,
+            port=port,
+            threads=threads,
+            connection_limit=connection_limit,
+            channel_timeout=channel_timeout,
+            ident='ITG-Dashboard',
         )
-        
+
     except KeyboardInterrupt:
         print("\n사용자에 의해 종료되었습니다.")
     except Exception as e:
