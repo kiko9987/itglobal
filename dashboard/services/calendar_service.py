@@ -69,12 +69,16 @@ def _build_event_summary(project: dict) -> str:
 
 
 def _build_event_description(project: dict) -> str:
+    """캘린더 이벤트 설명 (매니저 요청 반영).
+
+    - 현장 주소: 이벤트 상단 '장소' 필드에 이미 표시되므로 중복 제거
+    - 사업자·담당자: 프로젝트 코드로 유추 가능하므로 제거
+      (예: R3828-JW 에서 JW = 담당자 이니셜, R/G 접두어 = 사업자 구분)
+    - 유지: 프로젝트 코드, 공사 내용, 고객명, 연락처
+    """
     lines = [
         f"프로젝트 코드: {project.get('프로젝트 코드')}",
         f"공사 내용: {project.get('공사 내용') or '-'}",
-        f"사업자: {project.get('사업자') or '-'}",
-        f"담당자: {project.get('담당자') or '-'}",
-        f"현장 주소: {project.get('현장 주소') or '-'}",
         f"고객명: {project.get('발주처 담당자') or '-'}",
         f"연락처: {project.get('발주처 연락처') or '-'}",
     ]
