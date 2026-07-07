@@ -105,12 +105,13 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
                     continue  # 숫자로 변환할 수 없으면 건너뛰기
 
                 if 0 <= df_index < len(df):
-                    if 'T' in notes:
-                        df.at[df_index, '계약금_메모'] = notes['T']
+                    # 2026-07 컬럼 시프트 후: 계약금=U, 중도금=V, 잔금=W
                     if 'U' in notes:
-                        df.at[df_index, '중도금_메모'] = notes['U']
+                        df.at[df_index, '계약금_메모'] = notes['U']
                     if 'V' in notes:
-                        df.at[df_index, '잔금_메모'] = notes['V']
+                        df.at[df_index, '중도금_메모'] = notes['V']
+                    if 'W' in notes:
+                        df.at[df_index, '잔금_메모'] = notes['W']
 
             logger.debug(f"[PREFETCH] 셀 노트 {len(notes_by_row)}개 행 로드 완료")
 
@@ -444,14 +445,15 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                         logger.info(f"[MEMO_MAP] 시트 행 {row_num} → DF 인덱스 {df_index}, notes: {notes}")
 
                     if 0 <= df_index < len(df):
-                        if 'T' in notes:
-                            df.at[df_index, '계약금_메모'] = notes['T']
-                            if mapped_count < 3:
-                                logger.info(f"[MEMO_MAP] 계약금_메모 매핑 완료: '{notes['T']}'")
+                        # 2026-07 컬럼 시프트 후: 계약금=U, 중도금=V, 잔금=W
                         if 'U' in notes:
-                            df.at[df_index, '중도금_메모'] = notes['U']
+                            df.at[df_index, '계약금_메모'] = notes['U']
+                            if mapped_count < 3:
+                                logger.info(f"[MEMO_MAP] 계약금_메모 매핑 완료: '{notes['U']}'")
                         if 'V' in notes:
-                            df.at[df_index, '잔금_메모'] = notes['V']
+                            df.at[df_index, '중도금_메모'] = notes['V']
+                        if 'W' in notes:
+                            df.at[df_index, '잔금_메모'] = notes['W']
                         mapped_count += 1
                     else:
                         if mapped_count < 3:
