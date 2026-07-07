@@ -1,186 +1,132 @@
 /**
  * Toast 알림 컴포넌트
- * 사용자에게 피드백 메시지를 표시
+ *
+ * 사이트 헤더 상단 제목 옆 슬롯(`#systemAlertContainer`, modern_base.html)에
+ * 컴팩트 pill 형태로 표시. 시공자 관리 모달의 showConstructorAlert() 스타일 계승.
+ *
+ * 이전 구현은 화면 우측 상단 fixed 컨테이너였음 (bd6299d 시점까지). 매니저 피드백:
+ * 모든 시스템 알림을 사이트 제목 옆으로 통일하고 싶다는 요청 반영해 재작성.
+ * 슬롯이 없는 페이지(로그인 등)에서는 화면 우측 상단 fallback으로 대체.
  */
 export default class Toast {
   constructor() {
-    this.container = this.createContainer();
+    // 헤더 슬롯 우선, 없으면 fallback 컨테이너 생성
+    this.headerSlot = document.getElementById('systemAlertContainer');
+    if (!this.headerSlot) {
+      this.headerSlot = this._createFallbackContainer();
+    }
   }
 
   /**
-   * Toast 컨테이너 생성
+   * 헤더 슬롯 없는 페이지용 fallback (화면 우측 상단)
    */
-  createContainer() {
-    let container = document.getElementById('toast-container');
-
+  _createFallbackContainer() {
+    let container = document.getElementById('toast-fallback-container');
     if (!container) {
       container = document.createElement('div');
-      container.id = 'toast-container';
-      container.className = 'toast-container';
+      container.id = 'toast-fallback-container';
       container.style.cssText = `
         position: fixed;
         top: 20px;
         right: 20px;
         z-index: 9999;
         max-width: 350px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
       `;
       document.body.appendChild(container);
     }
-
     return container;
   }
 
   /**
    * Toast 메시지 표시
-   * @param {string} message
-   * @param {string} type
-   * @param {number} duration
+   * @param {string} message 표시할 메시지
+   * @param {string} type success | error | warning | info
+   * @param {number} duration 자동 사라지는 시간 (ms). 기본 4000. 0이면 수동 닫기만.
    */
   show(message, type = 'info', duration = 4000) {
-    const toast = this.createToast(message, type);
-    this.container.appendChild(toast);
+    // 이전 알림 제거 (헤더 슬롯은 최근 하나만 유지)
+    const isHeaderSlot = this.headerSlot?.id === 'systemAlertContainer';
+    if (isHeaderSlot) {
+      this.headerSlot.innerHTML = '';
+    }
 
-    // 애니메이션
+    const alertEl = this._createAlert(message, type);
+    this.headerSlot.appendChild(alertEl);
+
+    // fade-in
     requestAnimationFrame(() => {
-      toast.classList.add('show');
+      alertEl.style.opacity = '1';
     });
 
-    // 자동 제거
-    setTimeout(() => {
-      this.hide(toast);
-    }, duration);
+    // 자동 fade-out + 제거
+    if (duration > 0) {
+      setTimeout(() => this.hide(alertEl), duration);
+    }
 
-    return toast;
+    return alertEl;
   }
 
   /**
-   * Toast 엘리먼트 생성
+   * pill 형태의 alert 엘리먼트 생성 (showConstructorAlert 스타일)
    */
-  createToast(message, type) {
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
+  _createAlert(message, type) {
+    const styleMap = {
+      success: { bg: '#198754', color: '#fff', icon: 'fa-check-circle' },
+      error:   { bg: '#dc3545', color: '#fff', icon: 'fa-exclamation-circle' },
+      danger:  { bg: '#dc3545', color: '#fff', icon: 'fa-exclamation-circle' },
+      warning: { bg: '#ffc107', color: '#212529', icon: 'fa-exclamation-triangle' },
+      info:    { bg: '#0d6efd', color: '#fff', icon: 'fa-info-circle' },
+    };
+    const s = styleMap[type] || styleMap.info;
 
-    const icon = this.getIcon(type);
-
-    toast.innerHTML = `
-      <div class="toast-content">
-        <i class="${icon}"></i>
-        <span class="toast-message">${message}</span>
-        <button class="toast-close" aria-label="닫기">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-    `;
-
-    // 스타일 적용
-    toast.style.cssText = `
-      background: ${this.getBackgroundColor(type)};
-      color: white;
-      padding: 12px 16px;
-      border-radius: 8px;
-      margin-bottom: 8px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      transform: translateX(100%);
-      transition: transform 0.3s ease-in-out;
-      display: flex;
+    const el = document.createElement('div');
+    el.setAttribute('role', type === 'error' || type === 'danger' ? 'alert' : 'status');
+    el.style.cssText = `
+      display: inline-flex;
       align-items: center;
-      font-size: 14px;
-      min-width: 300px;
+      gap: 0.4rem;
+      background-color: ${s.bg};
+      color: ${s.color};
+      border-radius: 0.375rem;
+      padding: 0.35rem 0.7rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      white-space: nowrap;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      opacity: 0;
+      transition: opacity 0.2s ease-in-out;
+      max-width: 100%;
     `;
-
-    // 닫기 버튼 이벤트
-    const closeBtn = toast.querySelector('.toast-close');
-    closeBtn.addEventListener('click', () => this.hide(toast));
-
-    return toast;
+    el.innerHTML = `
+      <i class="fas ${s.icon}" style="font-size: 0.85rem;" aria-hidden="true"></i>
+      <span style="overflow: hidden; text-overflow: ellipsis;">${this._escape(message)}</span>
+    `;
+    return el;
   }
 
   /**
-   * Toast 숨기기
+   * fade-out 후 DOM 제거
    */
-  hide(toast) {
-    toast.style.transform = 'translateX(100%)';
+  hide(el) {
+    if (!el || !el.parentNode) return;
+    el.style.opacity = '0';
     setTimeout(() => {
-      if (toast.parentNode) {
-        toast.parentNode.removeChild(toast);
-      }
-    }, 300);
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 250);
   }
 
   /**
-   * 타입별 아이콘 반환
+   * XSS 방지: 메시지 HTML 이스케이프
    */
-  getIcon(type) {
-    const icons = {
-      success: 'fas fa-check-circle',
-      error: 'fas fa-exclamation-circle',
-      warning: 'fas fa-exclamation-triangle',
-      info: 'fas fa-info-circle'
-    };
-    return icons[type] || icons.info;
+  _escape(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
-
-  /**
-   * 타입별 배경색 반환
-   */
-  getBackgroundColor(type) {
-    const colors = {
-      success: '#10b981',
-      error: '#ef4444',
-      warning: '#f59e0b',
-      info: '#06b6d4'
-    };
-    return colors[type] || colors.info;
-  }
-}
-
-// CSS 스타일 추가
-const style = document.createElement('style');
-style.textContent = `
-  .toast.show {
-    transform: translateX(0) !important;
-  }
-
-  .toast-content {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .toast-message {
-    flex: 1;
-    font-weight: 500;
-  }
-
-  .toast-close {
-    background: none;
-    border: none;
-    color: inherit;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
-    transition: background-color 0.2s;
-  }
-
-  .toast-close:hover {
-    background-color: rgba(255, 255, 255, 0.2);
-  }
-
-  @media (max-width: 768px) {
-    .toast-container {
-      right: 10px !important;
-      left: 10px !important;
-      max-width: none !important;
-    }
-
-    .toast {
-      min-width: auto !important;
-    }
-  }
-`;
-
-if (!document.getElementById('toast-styles')) {
-  style.id = 'toast-styles';
-  document.head.appendChild(style);
 }
