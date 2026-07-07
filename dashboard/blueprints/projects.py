@@ -3131,8 +3131,25 @@ def cancel_project_api():
             updated_project['공사 확정'] = ''
             sanitized_project = sanitize_project_for_json(updated_project)
 
-            # 8. 배경색·캘린더·SocketIO 알림을 백그라운드 (사용자 응답 대기 안 함, ~1s 절약)
-            # 프로젝트 표준 패턴 (bd6299d 편집 API와 동일).
+            # 8. SocketIO emit — 메인 스레드에서 응답 반환 전 (SIGSEGV 방지)
+            # 2026-07-07: 이전엔 백그라운드 스레드에서 emit했으나 반복적 취소·재개에서
+            # Flask 프로세스가 SIGSEGV로 크래시 (stderr에 traceback 없음, NSSM 자동 재시작).
+            # 원인 추정: async_mode='threading' 하드코딩된 SocketIO에서 백그라운드 스레드
+            # emit 시 race condition. 메인 스레드에서 실행 시 크래시 확률 크게 감소.
+            # 응답 시간 몇 ms 늘어남 (허용 범위).
+            try:
+                _emit_project_status_change(
+                    event_name='project_cancelled',
+                    message=f'프로젝트 공사가 취소되었습니다: {project_code}',
+                    project_code=project_code,
+                    user_name=user_name,
+                    sanitized_project=sanitized_project,
+                    sender_email=user_email
+                )
+            except Exception as exc:
+                logger.warning(f"[SOCKETIO] {project_code} 알림 오류: {exc}")
+
+            # 9. 배경색·캘린더는 여전히 백그라운드 (Google API 호출로 느림, socket과 무관)
             import threading as _th
 
             def _bg_side_effects():
@@ -3147,17 +3164,6 @@ def cancel_project_api():
                     _delete_calendar_event(project_code)
                 except Exception as exc:
                     logger.warning(f"[BG/CALENDAR] {project_code} 캘린더 삭제 오류: {exc}")
-                try:
-                    _emit_project_status_change(
-                        event_name='project_cancelled',
-                        message=f'프로젝트 공사가 취소되었습니다: {project_code}',
-                        project_code=project_code,
-                        user_name=user_name,
-                        sanitized_project=sanitized_project,
-                        sender_email=user_email
-                    )
-                except Exception as exc:
-                    logger.warning(f"[BG/SOCKETIO] {project_code} 알림 오류: {exc}")
                 logger.info(f"[BG/DONE] {project_code} 취소 side-effect 완료")
 
             _th.Thread(target=_bg_side_effects, daemon=True).start()
@@ -3246,7 +3252,20 @@ def resume_project_api():
             updated_project['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
             sanitized_project = sanitize_project_for_json(updated_project)
 
-            # 8. 배경색·SocketIO 알림을 백그라운드 (사용자 응답 대기 안 함)
+            # 8. SocketIO emit — 메인 스레드에서 (SIGSEGV 방지, 취소 API와 대칭)
+            try:
+                _emit_project_status_change(
+                    event_name='project_resumed',
+                    message=f'프로젝트 공사가 재개되었습니다: {project_code}',
+                    project_code=project_code,
+                    user_name=user_name,
+                    sanitized_project=sanitized_project,
+                    sender_email=user_email
+                )
+            except Exception as exc:
+                logger.warning(f"[SOCKETIO] {project_code} 알림 오류: {exc}")
+
+            # 9. 배경색은 백그라운드 유지 (Google API 호출로 느림)
             import threading as _th
 
             def _bg_side_effects():
@@ -3257,17 +3276,6 @@ def resume_project_api():
                     )
                 except Exception as exc:
                     logger.warning(f"[BG/COLOR] {project_code} 배경색 복원 오류: {exc}")
-                try:
-                    _emit_project_status_change(
-                        event_name='project_resumed',
-                        message=f'프로젝트 공사가 재개되었습니다: {project_code}',
-                        project_code=project_code,
-                        user_name=user_name,
-                        sanitized_project=sanitized_project,
-                        sender_email=user_email
-                    )
-                except Exception as exc:
-                    logger.warning(f"[BG/SOCKETIO] {project_code} 알림 오류: {exc}")
                 logger.info(f"[BG/DONE] {project_code} 재개 side-effect 완료")
 
             _th.Thread(target=_bg_side_effects, daemon=True).start()
