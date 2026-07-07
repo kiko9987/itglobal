@@ -110,10 +110,13 @@ def main():
         # 유지 시 스레드 관리 미흡으로 SIGSEGV·응답 지연 리스크. Waitress는 프로덕션 WSGI
         # 표준 구현, 스레드풀 명시 관리 가능. Flask-SocketIO async_mode='threading' +
         # transports=['polling'] 조합과 완벽 호환 (WebSocket 사용 안 함).
-        # 튜닝: 매니저 20명 × safety margin 1.5 → threads=30 기본, 필요 시 .env로 조정.
-        threads = int(os.getenv('WAITRESS_THREADS', 30))
-        connection_limit = int(os.getenv('WAITRESS_CONNECTION_LIMIT', 200))
-        channel_timeout = int(os.getenv('WAITRESS_CHANNEL_TIMEOUT', 120))
+        # 튜닝 (2026-07-08 재조정 — 초기 threads=30·channel_timeout=120s에서 queue 폭주 발견):
+        # SocketIO polling long-poll이 channel_timeout까지 스레드 점유 → threads 소진 → 큐 폭주.
+        # 조치: threads 대폭 상향(100) + channel_timeout 하향(30s)으로 long-poll 회전율 증가.
+        # 각 클라이언트가 순간적으로 3~5 long-poll 요청 유지 가능 → 100 threads로 20명 여유.
+        threads = int(os.getenv('WAITRESS_THREADS', 100))
+        connection_limit = int(os.getenv('WAITRESS_CONNECTION_LIMIT', 500))
+        channel_timeout = int(os.getenv('WAITRESS_CHANNEL_TIMEOUT', 30))
 
         print(f"대시보드 URL: http://localhost:{port}")
         print(f"Waitress WSGI: threads={threads}, connection_limit={connection_limit}, channel_timeout={channel_timeout}s")

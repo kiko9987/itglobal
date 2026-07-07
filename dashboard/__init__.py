@@ -44,6 +44,11 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         tuple: (Flask 앱 인스턴스, SocketIO 인스턴스 또는 None)
     """
 
+    # Waitress queue depth warning 억제 (2026-07-08)
+    # SocketIO polling long-poll이 스레드 점유하는 특성상 depth 50~100 정상.
+    # 매 요청마다 warning이 로그 스팸 유발하므로 ERROR 이상만 표시.
+    logging.getLogger('waitress.queue').setLevel(logging.ERROR)
+
     # Sentry 에러 모니터링 (SENTRY_DSN 환경변수 있을 때만 활성화)  # noqa: E501
     # DSN 없으면 no-op이라 안전. 사용자가 나중에 sentry.io 프로젝트 만들고 .env에
     # SENTRY_DSN=https://... 추가하면 즉시 활성. 무료 티어 월 5K 이벤트.
@@ -62,6 +67,8 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                 environment=os.getenv('FLASK_ENV', 'production'),
                 traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
                 send_default_pii=False,  # 사용자 이메일 등 자동 수집 안 함
+                # enable_logs=True는 2026-07-08 시도 시 waitress task queue 폭주 유발 → 롤백.
+                # LoggingIntegration이 이미 ERROR 이벤트 전송 담당하므로 별도 활성화 불필요.
                 release=os.getenv('APP_VERSION', 'unknown'),
             )
             logger.info(f"Sentry 에러 모니터링 활성화 (환경={os.getenv('FLASK_ENV', 'production')})")
