@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Content *)",
+      "PowerShell(Get-Service *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(Get-WmiObject *)",
+      "PowerShell(Get-CimInstance *)",
+      "Bash(where *)",
+      "mcp__ccd_session_mgmt__search_session_transcripts",
+      "mcp__ccd_session_mgmt__list_sessions",
+      "Edit",
+      "Write",
+      "PowerShell(schtasks /Run /TN \"Restart-ITGFlask\")",
+      "Bash(schtasks /Run \"Restart-ITGFlask\")"
+    ]
+  }
+}
