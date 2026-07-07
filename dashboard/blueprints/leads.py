@@ -4,6 +4,7 @@
 """
 
 import logging
+import re
 from flask import Blueprint, render_template, redirect, url_for, request, session, jsonify
 
 from ..auth import login_required, get_user_role, editor_required
@@ -332,7 +333,8 @@ def api_search_leads_for_project():
     필터:
       - 기본: 로그인 사용자의 담당 리드만 (영업 담당자 = user_alias_map[email])
         · 리드 No 정확 매칭(score 100)은 담당자 무관 항상 노출 (트러스트: 정확한 ID 안다는 뜻)
-        · ?all=1 으로 담당자 필터 우회 (관리자용)
+        · Admin 은 자동으로 담당자 필터 우회 (전체 관리·테스트)
+        · ?all=1 으로도 담당자 필터 우회
       - 빈 검색어: 상태 = '방문 예약' / '견적 제출' 최근 리드만 (현재 파이프라인)
       - 검색어 있음: 상태 무관 전체 리드에서 매칭 (몇 달 전 문의 재개 케이스 지원)
       - 이미 프로젝트로 등록된 lead_no 는 항상 제외
@@ -366,6 +368,10 @@ def api_search_leads_for_project():
             limit = 30
         limit = max(1, min(limit, 50))
 
+        # Admin 사용자는 담당자 필터 우회 (테스트·전체 관리 편의)
+        if get_user_role() == 'Admin':
+            show_all = True
+
         # 로그인 사용자의 영업 담당자 alias 조회 (user_alias_map)
         user_alias = ''
         if not show_all:
@@ -392,7 +398,8 @@ def api_search_leads_for_project():
 
         # 리드 목록 필터 + 매칭
         all_leads = get_lead_records() or []
-        # 빈 query 기본 노출은 현재 파이프라인만, 검색어 있으면 상태 무관 전체
+        # 빈 query 기본 노출은 현재 파이프라인만 (스크롤 폭탄 방지)
+        # 세척·A/S 등 다른 상태는 검색어로 조회 (고객명/리드 No/연락처)
         PIPELINE_STATUSES = {'방문 예약', '견적 제출'}
         matched = []
         for lead in all_leads:
@@ -402,6 +409,11 @@ def api_search_leads_for_project():
             if lead_no in registered_leads:
                 continue
             status = str(lead.get('상태') or '').strip()
+
+            # 공사 확정 리드는 검색에서 제외 — 중복 등록 방지
+            # (registered_leads 체크는 프로젝트 AO열 lead_no 매칭이라, AO 미기입 케이스 방어)
+            if status == '공사 확정':
+                continue
 
             # 빈 query 는 현재 파이프라인만 표시 (스크롤 폭탄 방지)
             if not q and status not in PIPELINE_STATUSES:
@@ -433,9 +445,18 @@ def api_search_leads_for_project():
                 continue
 
             # 담당자 필터 — 리드 No 정확 매칭이면 담당자 무관 노출 (트러스트: 사용자가 ID 안다는 뜻)
+            # 플랫폼별 owner 컬럼 (2026-07 규칙):
+            #   거래처/기타/소개: 온라인 상담자(카드 생성자) 기준
+            #   온라인(그 외): 영업 담당자(List 배정 = 실제 방문자) 기준
+            # 사수·신입 동반 방문 케이스: "권태훈,강정권" 형태 다중 이름 지원.
             if user_alias and not is_exact_lead_no:
-                lead_owner = str(lead.get('영업 담당자') or '').strip()
-                if lead_owner != user_alias:
+                lead_platform_val = str(lead.get('플랫폼') or '').strip()
+                if lead_platform_val in ('거래처', '기타', '소개'):
+                    owner_raw = str(lead.get('온라인 상담자') or '').strip()
+                else:
+                    owner_raw = str(lead.get('영업 담당자') or '').strip()
+                owners = {p.strip() for p in re.split(r'[,/·&.\s]+', owner_raw) if p.strip()}
+                if user_alias not in owners:
                     continue
 
             try:

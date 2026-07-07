@@ -202,18 +202,27 @@ def _register_visit_handlers(app):
                 channel = body["channel"]["id"]
                 message_ts = body["message"]["ts"]
                 trigger_id = body["trigger_id"]
+                # 카드에서 현재 방문일 파싱 — 단일(2026-07-08) 또는 범위(2026-07-01~03/07-03/2027-01-02)
+                cur_start, cur_end = '', ''
                 try:
                     msg_text = body["message"].get("text", "")
-                    m = re.search(r'방문일\s*:\s*(\d{4}-\d{2}-\d{2})', msg_text)
-                    current_date = m.group(1) if m else ''
+                    m = re.search(
+                        r'방문일\s*:\s*(\d{4}-\d{2}-\d{2}(?:~(?:\d{2}|\d{2}-\d{2}|\d{4}-\d{2}-\d{2}))?)',
+                        msg_text,
+                    )
+                    if m:
+                        cur_start, cur_end = _split_visit_date_range(m.group(1))
                 except Exception:
-                    current_date = ''
+                    pass
                 metadata = json.dumps({
                     "lead_no": lead_no, "channel": channel, "message_ts": message_ts,
                 }, ensure_ascii=False)
-                dp_element = {"type": "datepicker", "action_id": "value"}
-                if current_date:
-                    dp_element["initial_date"] = current_date
+                dp_start = {"type": "datepicker", "action_id": "value"}
+                if cur_start:
+                    dp_start["initial_date"] = cur_start
+                dp_end = {"type": "datepicker", "action_id": "value"}
+                if cur_end:
+                    dp_end["initial_date"] = cur_end
                 client.views_open(trigger_id=trigger_id, view={
                     "type": "modal",
                     "callback_id": "submit_visit_modify",
@@ -226,8 +235,15 @@ def _register_visit_handlers(app):
                             "text": f"*{lead_no}* 의 방문 예정일을 변경합니다."}},
                         {
                             "type": "input", "block_id": "visit_date",
-                            "label": {"type": "plain_text", "text": "새 방문 예정일"},
-                            "element": dp_element,
+                            "label": {"type": "plain_text", "text": "새 방문 예정일 (시작)"},
+                            "element": dp_start,
+                        },
+                        {
+                            "type": "input", "block_id": "visit_date_end", "optional": True,
+                            "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
+                            "hint": {"type": "plain_text",
+                                     "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
+                            "element": dp_end,
                         },
                     ],
                 })
@@ -369,9 +385,42 @@ def _register_project_handlers(app):
         else:
             ack(options=[])
 
+    # ─────────────────────────────────────────────────────────
+    # 계산서 발행 요청 흐름 (공사 확정 카드 → 모달 → #영업_관리 카드 → 발행 완료)
+    # ─────────────────────────────────────────────────────────
+    @app.action("invoice_request_open")
+    def handle_invoice_request_open(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _open_invoice_modal(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/계산서] 모달 열기 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_invoice")
+    def handle_submit_invoice(ack, body, client, view):
+        ack()
+        def _bg():
+            try:
+                _process_invoice_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/계산서] submit 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("invoice_complete")
+    def handle_invoice_complete(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _process_invoice_complete(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/계산서] complete 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     logger.info(
         "[SLACK/공사봇] 핸들러 등록 완료: /공사확정, submit_project, "
-        "options(company_name)"
+        "options(company_name), invoice_request_open, submit_invoice, invoice_complete"
     )
 
 
@@ -607,16 +656,31 @@ def _register_handlers(app):
     # ⓒ 통합 상담 모달 제출
     @app.view("submit_consult")
     def handle_submit_consult(ack, body, client, view):
-        # 안전장치: 방문 예약인데 날짜 미선택 시 차단
+        # 방문 예약일 때만 필수 필드 검증 (유선 상담·문의 드랍 등은 옵션 유지)
         state = view["state"]["values"]
         status = _v(state, "status")
-        visit_date = (_v(state, "visit_date") or '').strip()
-        if status == '방문 예약' and not visit_date:
-            ack(
-                response_action="errors",
-                errors={"visit_date": "방문 예약 시 방문 예정일을 선택해주세요."},
-            )
-            return
+        if status == '방문 예약':
+            errors = {}
+            visit_date = (_v(state, "visit_date") or '').strip()
+            name = (_v(state, "name") or '').strip()
+            contact = (_v(state, "contact") or '').strip()
+            visit_address = (_v(state, "visit_address") or '').strip()
+
+            def _is_empty(v):
+                return not v or v == '-'
+
+            if _is_empty(visit_date):
+                errors["visit_date"] = "방문 예약 시 방문 예정일을 선택해주세요."
+            if _is_empty(name):
+                errors["name"] = "방문 예약 시 이름/상호를 입력해주세요."
+            if _is_empty(contact):
+                errors["contact"] = "방문 예약 시 연락처를 입력해주세요."
+            if _is_empty(visit_address):
+                errors["visit_address"] = "방문 예약 시 방문 주소를 입력해주세요."
+
+            if errors:
+                ack(response_action="errors", errors=errors)
+                return
         ack()
         def _bg():
             try:
@@ -624,6 +688,45 @@ def _register_handlers(app):
             except Exception as exc:
                 logger.error(f"[SLACK] submit_consult 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("value")
+    def handle_status_change_dispatch(ack, body, client):
+        """상담 모달의 처리 유형 변경 시 모달 재렌더링 (라벨/필수 동기화).
+
+        action_id='value' 로 여러 필드가 공유하므로 block_id='status' 인 경우만 처리.
+        """
+        ack()
+        try:
+            actions = body.get("actions") or []
+            if not actions or actions[0].get("block_id") != "status":
+                return
+            view = body.get("view") or {}
+            state = view.get("state", {}).get("values", {})
+
+            # 현재 상태에서 prefilled 재구성 (사용자가 입력한 값 보존)
+            def _cur(bid):
+                return (_v(state, bid) or '').strip() if bid in state else ''
+
+            new_status = _cur("status") or '유선 상담'
+            prefilled = {
+                'visit_type': _cur("visit_type") or '온라인',
+                'status': new_status,
+                'visit_date': _cur("visit_date"),
+                'visit_date_end': _cur("visit_date_end"),
+                'name': _cur("name"),
+                'contact': _cur("contact"),
+                'visit_address': _cur("visit_address"),
+                'consultation': _cur("consultation"),
+            }
+            metadata = view.get("private_metadata", "") or ""
+            info_blocks = [b for b in view.get("blocks", [])
+                          if b.get("type") in ("section", "divider")
+                          and not b.get("block_id")]
+
+            new_view = _build_consult_view(info_blocks, metadata, prefilled)
+            client.views_update(view_id=view["id"], view=new_view)
+        except Exception as exc:
+            logger.warning(f"[SLACK/상담] 처리 유형 변경 재렌더 실패: {exc}")
 
     @app.action("button_visit")
     def handle_button_visit(ack, body, client):
@@ -1333,6 +1436,70 @@ def slack_visit_events():
             return jsonify({"error": "Visit Slack bot not configured"}), 503
 
     return _visit_slack_handler.handle(request)
+
+
+@slack_bp.route("/list-assignee", methods=["POST"])
+def slack_list_assignee():
+    """슬랙 List [담당자] 컬럼 변경 → 리드 시트 '영업 담당자' 반영.
+
+    Slack Workflow Builder의 웹훅 액션이 이 URL을 호출.
+    페이로드(JSON):
+      {
+        "lead_no": "L-03116",
+        "assignee": "고광일"        # 한국 이름 또는 슬랙 user_id
+      }
+
+    보안: Workflow 웹훅 URL 자체가 시크릿 역할. 추가로 SLACK_LIST_WEBHOOK_SECRET
+    환경변수 설정 시 X-Auth 헤더로 이중 검증 (선택).
+    """
+    try:
+        # 선택 검증 — .env에 SLACK_LIST_WEBHOOK_SECRET 있으면 헤더 확인
+        expected = os.getenv('SLACK_LIST_WEBHOOK_SECRET', '').strip()
+        if expected:
+            if request.headers.get('X-Auth', '') != expected:
+                logger.warning("[SLACK/LIST] list-assignee: 인증 헤더 불일치")
+                return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+        data = request.get_json(silent=True) or {}
+        lead_no = str(data.get('lead_no') or '').strip()
+        assignee_raw = str(data.get('assignee') or '').strip()
+        logger.info(f"[SLACK/LIST] 담당자 배정 수신: lead={lead_no}, assignee={assignee_raw!r}")
+
+        if not lead_no:
+            return jsonify({"ok": False, "error": "lead_no 누락"}), 400
+
+        # 슬랙 user_id(U01234...) 형식이면 한국 이름으로 변환
+        assignee_name = assignee_raw
+        if assignee_raw.startswith('U') and len(assignee_raw) <= 15 and \
+                assignee_raw[1:].replace('0', '').isalnum():
+            try:
+                if _slack_app is None:
+                    _init_slack_app()
+                if _slack_app is not None:
+                    resolved = _slack_user_to_korean_name(_slack_app.client, assignee_raw)
+                    if resolved:
+                        assignee_name = resolved
+            except Exception as exc:
+                logger.warning(f"[SLACK/LIST] user_id → 이름 변환 실패: {exc}")
+
+        # 시트 반영 — 빈값/'미정'이면 '-' 로 초기화
+        from dashboard.services.lead_service import update_lead
+        if not assignee_name or assignee_name in ('미정', '-'):
+            new_value = '-'
+        else:
+            new_value = assignee_name
+
+        try:
+            update_lead(lead_no, {'영업 담당자': new_value})
+            logger.info(f"[SLACK/LIST] 시트 반영: {lead_no} 영업 담당자 → {new_value!r}")
+            return jsonify({"ok": True, "lead_no": lead_no, "assignee": new_value})
+        except Exception as exc:
+            logger.error(f"[SLACK/LIST] 시트 반영 실패 ({lead_no}): {exc}", exc_info=True)
+            return jsonify({"ok": False, "error": str(exc)}), 500
+
+    except Exception as exc:
+        logger.error(f"[SLACK/LIST] list-assignee 처리 오류: {exc}", exc_info=True)
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @slack_bp.route("/sync-karrot", methods=["GET", "POST"])
@@ -2107,17 +2274,21 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
         status_element["initial_option"] = initial_status
 
     def _text_input(block_id, label, optional=True, multiline=False, placeholder=None):
+        # 방문 예약 시 name/contact/visit_address 도 필수 처리 + 라벨에 (옵션) 제거
+        force_required = is_visit and block_id in ('name', 'contact', 'visit_address')
+        effective_optional = optional and not force_required
+        label_text = label if not effective_optional else f"{label} (옵션)"
         elem = {"type": "plain_text_input", "action_id": "value"}
         if multiline:
             elem["multiline"] = True
         if placeholder:
             elem["placeholder"] = {"type": "plain_text", "text": placeholder}
         val = (prefilled.get(block_id) or '').strip()
-        if val:
+        if val and val != '-':
             elem["initial_value"] = val[:300]
         return {
-            "type": "input", "block_id": block_id, "optional": optional,
-            "label": {"type": "plain_text", "text": label},
+            "type": "input", "block_id": block_id, "optional": effective_optional,
+            "label": {"type": "plain_text", "text": label_text},
             "element": elem,
         }
 
@@ -2134,6 +2305,26 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
         _meta = {}
     is_lead_card = bool(_meta.get('lead_no') or _meta.get('chat_id'))
 
+    # 처리 유형 변경 시 모달 자체를 다시 그려서 필수/옵션 라벨을 동기화
+    status_input_block = {
+        "type": "input", "block_id": "status",
+        "dispatch_action": True,
+        "label": {"type": "plain_text", "text": "처리 유형"},
+        "element": status_element,
+    }
+
+    # visit_date — 방문 예약이면 필수, 아니면 옵션 (라벨도 동기화)
+    vd_label = "방문 예정일" if is_visit else "방문 예정일 (방문 예약 시 입력)"
+    vd_optional = not is_visit
+    vd_block = {
+        "type": "input", "block_id": "visit_date", "optional": vd_optional,
+        "label": {"type": "plain_text", "text": vd_label},
+        "element": vd_element,
+    }
+    if not is_visit:
+        vd_block["hint"] = {"type": "plain_text",
+                            "text": "처리 유형이 '방문 예약'이 아니면 무시됩니다."}
+
     input_blocks = []
     if not is_lead_card:
         input_blocks.append({
@@ -2142,19 +2333,8 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
             "element": visit_type_element,
         })
     input_blocks.extend([
-        {
-            "type": "input", "block_id": "status",
-            "label": {"type": "plain_text", "text": "처리 유형"},
-            "element": status_element,
-        },
-        {
-            "type": "input", "block_id": "visit_date", "optional": True,
-            "label": {"type": "plain_text",
-                      "text": "방문 예정일 (방문 예약 시 입력)"},
-            "hint": {"type": "plain_text",
-                     "text": "처리 유형이 '방문 예약'이 아니면 무시됩니다."},
-            "element": vd_element,
-        },
+        status_input_block,
+        vd_block,
         {
             "type": "input", "block_id": "visit_date_end", "optional": True,
             "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
@@ -2265,6 +2445,11 @@ def _process_consult_submission(client, body, view):
             update_data = {'상태': sheet_status}
             if is_visit and visit_date_for_sheet:
                 update_data['방문 예정일'] = visit_date_for_sheet
+            if name:
+                update_data['고객명'] = name
+            if contact:
+                from dashboard.services.lead_helpers import normalize_phone
+                update_data['고객 연락처'] = normalize_phone(contact) or contact
             if visit_address:
                 update_data['방문 주소'] = visit_address
             if consultation:
@@ -2616,13 +2801,13 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "✏️ 방문일 수정", "emoji": True},
-                    "style": "primary",
                     "value": lead_no,
                     "action_id": "visit_modify_date",
                 },
                 {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "✅ 방문 완료", "emoji": True},
+                    "style": "primary",
                     "value": lead_no,
                     "action_id": "visit_complete",
                     "confirm": {
@@ -2686,15 +2871,22 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
         s = (s or '').strip()
         return s[1:] if s.startswith("'") else s
 
-    # visit_type — 슬랙 워크플로가 시트 C열(플랫폼)에 매핑 → 시트 값 그대로 사용
+    # visit_type — 리스트 드롭다운(온라인/거래처/기타) 매핑
+    # 플랫폼(홈페이지/카카오톡/당근/…) 값 그대로 보내면 드롭다운 매칭 실패 → 빈값(`-`) 저장됨
     _lead_platform = str(lead.get('플랫폼', '') or '').strip()
+    if _lead_platform in ('거래처', '소개'):
+        _visit_type_category = '거래처'
+    elif _lead_platform == '기타':
+        _visit_type_category = '기타'
+    else:
+        _visit_type_category = '온라인'
     # 방문 예정일 분리 — start/end ISO 변수도 함께 전달
     _vd_raw = str(lead.get('방문 예정일', '') or '').strip()
     _vd_start, _vd_end = _split_visit_date_range(_vd_raw)
     payload = {
         'lead_no': lead_no or '-',
         'platform': _lead_platform or '-',
-        'visit_type': _lead_platform or '온라인',
+        'visit_type': _visit_type_category,
         'email': str(lead.get('이메일', '') or '').strip(),
         'details': '',
         'contact': str(lead.get('고객 연락처', '') or '').strip(),
@@ -2728,28 +2920,36 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
 
 
 def _process_visit_date_modify(client, body, view) -> None:
-    """[📅 방문일 수정] 모달 제출 처리 — 시트 update + 메시지 chat.update."""
+    """[📅 방문일 수정] 모달 제출 처리 — 시트 update + 메시지 chat.update.
+
+    시작일 + (선택) 종료일 지원 — 범위 양식 (2026-07-01~03 등) 자동 조립.
+    """
     metadata = json.loads(view.get("private_metadata") or "{}")
     lead_no = metadata.get("lead_no", "")
     channel = metadata.get("channel", "")
     message_ts = metadata.get("message_ts", "")
     state = view["state"]["values"]
-    new_date = _v(state, "visit_date") or ''
-    if not lead_no or not new_date:
+    new_start = _v(state, "visit_date") or ''
+    new_end = _v(state, "visit_date_end") or ''
+    if not lead_no or not new_start:
         return
+    # 범위 양식으로 조립 — end 없거나 start와 같으면 단일
+    new_date_display = _format_visit_date_range(new_start, new_end)
 
     # 1) 시트 update — escape prefix로 시리얼 변환 차단
     try:
         from dashboard.services.lead_service import update_lead
-        update_lead(lead_no, {'방문 예정일': f"'{new_date}"})
+        # 단일이면 escape prefix, 범위는 그대로 (Google Sheets가 텍스트로 인식)
+        sheet_value = f"'{new_date_display}" if '~' not in new_date_display else new_date_display
+        update_lead(lead_no, {'방문 예정일': sheet_value})
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 시트 update 실패 ({lead_no}): {exc}", exc_info=True)
         return
 
-    # 1-2) 슬랙 List 동기화 워크플로우 — 날짜 셀 갱신
+    # 1-2) 슬랙 List 동기화 워크플로우 — 날짜 셀 갱신 (범위/단일 통합)
     _trigger_visit_list_webhook(
         'SLACK_VISIT_MODIFY_WEBHOOK_URL', lead_no, channel, message_ts,
-        new_visit_date=new_date,
+        new_visit_date=new_date_display,
     )
 
     # 2) 메시지 chat.update — 시트 lead 정보로 카드 재구성
@@ -2964,9 +3164,20 @@ def _process_visit_thread_files(client, event) -> None:
 
     # 2) 폴더명 생성 — "({이니셜}) {방문 주소} {YY.MM.DD}"
     lead = _find_lead_by_no(lead_no) or {}
-    # 이니셜 — 시트의 영업 담당자 우선, 없으면 카드 본문의 "등록자 :" 라인 추출
-    sales_rep = str(lead.get('영업 담당자', '') or '').strip()
-    initial = _to_initial(sales_rep) if sales_rep else ''
+    # 이니셜 — 플랫폼별 규칙 (2026-07):
+    #   거래처/기타/소개: 카드 생성자(온라인 상담자) 기준
+    #   온라인(그 외): List 배정 담당자(=영업 담당자) 우선, fallback 온라인 상담자
+    #   최종 fallback: 카드 "등록자 :" 정규식 → '미상'
+    def _clean(v):
+        s = str(v or '').strip()
+        return '' if s in ('', '-', '미정') else s
+
+    lead_platform = str(lead.get('플랫폼', '')).strip()
+    if lead_platform in ('거래처', '기타', '소개'):
+        source_name = _clean(lead.get('온라인 상담자'))
+    else:
+        source_name = _clean(lead.get('영업 담당자')) or _clean(lead.get('온라인 상담자'))
+    initial = _to_initial(source_name) if source_name else ''
     if not initial:
         m_ini = re.search(r'등록자\s*:\s*([A-Za-z가-힣]+)', root_text)
         if m_ini:
@@ -3890,6 +4101,276 @@ def _process_price_submission(client, body, view):
         )
     except Exception as exc:
         logger.debug(f"[SLACK] 가격 문의 reaction 추가 스킵 ({lead_no}): {exc}")
+
+
+# ─────────────────────────────────────────────────────────────
+# 계산서 발행 요청 흐름 (공사 확정 카드 [💰 계산서 요청] 클릭 → 모달 → #영업_관리)
+# ─────────────────────────────────────────────────────────────
+def _money_kr(digits: str) -> str:
+    """숫자 문자열 → '5,200,000원'. 빈 값은 '-'."""
+    d = ''.join(ch for ch in (digits or '') if ch.isdigit())
+    if not d:
+        return '-'
+    return f"{int(d):,}원"
+
+
+def _open_invoice_modal(client, body) -> None:
+    """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈."""
+    trigger_id = body["trigger_id"]
+    action = body["actions"][0]
+    try:
+        payload = json.loads(action.get("value") or "{}")
+    except Exception:
+        payload = {}
+
+    code = payload.get('code', '') or '-'
+    biz = payload.get('biz', '') or ''
+    addr = payload.get('addr', '') or ''
+    amt = payload.get('amt', '') or ''
+    # pre-fill 시 콤마 자동 포맷 (사용자 가독성)
+    if amt.isdigit():
+        amt = f"{int(amt):,}"
+    vat = payload.get('vat', 'sep')  # 'sep' | 'incl'
+    email = payload.get('email', '') or ''
+
+    metadata = json.dumps({"code": code}, ensure_ascii=False)
+
+    def _text_input(block_id, label, value, placeholder='', multiline=False, optional=False):
+        el = {"type": "plain_text_input", "action_id": "value"}
+        if value:
+            el["initial_value"] = value
+        if placeholder:
+            el["placeholder"] = {"type": "plain_text", "text": placeholder}
+        if multiline:
+            el["multiline"] = True
+        blk = {
+            "type": "input", "block_id": block_id,
+            "label": {"type": "plain_text", "text": label},
+            "element": el,
+        }
+        if optional:
+            blk["optional"] = True
+        return blk
+
+    vat_options = [
+        {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
+        {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
+    ]
+    vat_initial = vat_options[0] if vat == 'sep' else vat_options[1]
+
+    view = {
+        "type": "modal",
+        "callback_id": "submit_invoice",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "계산서 발행 요청"},
+        "submit": {"type": "plain_text", "text": "요청 발송"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+                "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
+            _text_input("biz", "사업자명", biz, "예: (주)크리스아이티"),
+            _text_input("addr", "현장 주소", addr, "예: 용인 수지구 포은대로59번길 37 1001호"),
+            _text_input("amt", "금액", amt, "예: 4,900,000 (콤마·공백 무시됨)"),
+            {
+                "type": "input", "block_id": "vat",
+                "label": {"type": "plain_text", "text": "부가세 처리"},
+                "element": {
+                    "type": "radio_buttons", "action_id": "value",
+                    "options": vat_options,
+                    "initial_option": vat_initial,
+                },
+            },
+            _text_input("email", "발행 이메일", email, "예: crissit23@crissit.com"),
+            _text_input("memo", "추가 요청사항", "", "선택 사항", multiline=True, optional=True),
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _process_invoice_submission(client, body, view) -> None:
+    """모달 제출 → #영업_관리 채널에 계산서 요청 카드 발송."""
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if not channel_id:
+        logger.warning('[SLACK/계산서] SLACK_INVOICE_CHANNEL_ID 미설정 — 발송 skip')
+        return
+
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    code = metadata.get("code", "-") or '-'
+
+    values = view["state"]["values"]
+
+    def _get(block_id):
+        return (values.get(block_id, {}).get('value', {}) or {}).get('value', '') or ''
+
+    biz = _get('biz').strip() or '-'
+    addr = _get('addr').strip() or '-'
+    amt_raw = _get('amt').strip()
+    amt_digits = ''.join(ch for ch in amt_raw if ch.isdigit())
+    email = _get('email').strip() or '-'
+    memo = _get('memo').strip()
+
+    vat_selected = (
+        values.get('vat', {}).get('value', {}).get('selected_option', {})
+    )
+    vat_val = vat_selected.get('value', 'sep') if vat_selected else 'sep'
+    vat_label = 'VAT 별도' if vat_val == 'sep' else 'VAT 포함'
+
+    amt_display = _money_kr(amt_digits)
+    if amt_display != '-':
+        amt_display = f"{amt_display} ({vat_label})"
+
+    user_id = body.get("user", {}).get("id", "")
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+
+    # 카드 본문
+    lines = [
+        f":bell: *[계산서 발행 요청]*  `{code}`",
+        "--------------------------------------------",
+        f":office: 사업자명 : {biz}",
+        f":round_pushpin: 현장 주소 : {addr}",
+        f":heavy_dollar_sign: 금액 : {amt_display}",
+        f":envelope: 이메일 : {email}",
+    ]
+    if memo:
+        lines.append(f":memo: 요청사항 : {memo}")
+    requester = f"<@{user_id}>" if user_id else '-'
+    lines.append(f":bust_in_silhouette: 요청자 : {requester} _{now_str}_")
+    lines.append("--------------------------------------------")
+    text = '\n'.join(lines)
+
+    # 발행 완료 버튼 value — 완료 문구 자동 생성용
+    complete_value = json.dumps({
+        'code': code,
+        'amt': amt_digits,
+        'biz': biz,
+        'vat': vat_val,
+    }, ensure_ascii=False)
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "✅ 발행 완료", "emoji": True},
+                    "action_id": "invoice_complete",
+                    "value": complete_value,
+                    "style": "primary",
+                },
+            ],
+        },
+    ]
+
+    # 봇이 채널에 없으면 자동 가입 시도 (public 채널만 성공, private면 사용자가 초대 필요)
+    try:
+        client.conversations_join(channel=channel_id)
+    except Exception:
+        pass
+
+    resp = client.chat_postMessage(
+        channel=channel_id, text=text, blocks=blocks, unfurl_links=False,
+    )
+    if resp.get('ok'):
+        logger.info(
+            f"[SLACK/계산서] 요청 카드 발송 완료: {code} ts={resp.get('ts')} "
+            f"→ {channel_id}"
+        )
+    else:
+        logger.warning(f"[SLACK/계산서] 요청 카드 발송 실패: {resp}")
+
+
+def _process_invoice_complete(client, body) -> None:
+    """[✅ 발행 완료] 클릭 처리 — 스레드 파일 첨부 검증 + 카드 회색화 + 확인 메시지."""
+    channel = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+    user_id = body["user"]["id"]
+
+    try:
+        payload = json.loads(body["actions"][0].get("value") or "{}")
+    except Exception:
+        payload = {}
+    code = payload.get('code', '-') or '-'
+    amt_digits = payload.get('amt', '') or ''
+    biz = payload.get('biz', '-') or '-'
+
+    # 1) 스레드에 첨부 파일 있는지 검증
+    has_file = False
+    try:
+        replies = client.conversations_replies(
+            channel=channel, ts=message_ts, limit=200,
+        )
+        for m in replies.get('messages', [])[1:]:  # root 제외
+            if m.get('files'):
+                has_file = True
+                break
+    except Exception as exc:
+        logger.warning(f"[SLACK/계산서] replies 조회 실패: {exc}")
+
+    if not has_file:
+        # 첨부 없음 — ephemeral로 안내 후 skip
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=(
+                    ':warning: 계산서 이미지/PDF를 먼저 이 스레드에 첨부한 뒤 '
+                    '[✅ 발행 완료] 버튼을 눌러주세요.'
+                ),
+            )
+        except Exception:
+            pass
+        logger.info(f"[SLACK/계산서] 첨부 없음 → 완료 skip ({code}) by {user_id}")
+        return
+
+    # 2) 카드 회색화 (방문 완료와 동일 패턴)
+    try:
+        initial = _slack_user_to_initial(client, user_id) or '-'
+        complete_time = datetime.now().strftime('%m.%d %H:%M')
+
+        original_text = ''
+        for blk in body["message"].get("blocks", []):
+            if blk.get("type") == "section":
+                bt = blk.get("text", {}).get("text", "")
+                if bt:
+                    original_text = bt
+                    break
+        if not original_text:
+            original_text = body["message"].get("text", "")
+
+        cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
+        cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
+        clean_text = '\n'.join(cleaned_lines)
+        clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
+
+        header_lines = [
+            "⠀",
+            f":white_check_mark: *발행 완료*  `{code}`",
+            f"처리자 : {initial}",
+            f"완료 시간 : {complete_time}",
+        ]
+        new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
+        new_blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+        ]
+        client.chat_update(
+            channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/계산서] chat.update 실패 ({code}): {exc}")
+
+    # 3) 회색 카드 위에 완료 확인 문구 게시
+    #    형식: "G3825-MW 5,200,000원 (주)크리스아이티 세금계산서 발행 완료."
+    amt_display = _money_kr(amt_digits)
+    biz_display = biz if biz and biz != '-' else '(사업자명 미기재)'
+    confirm_text = f"{code} {amt_display} {biz_display} 세금계산서 발행 완료."
+    try:
+        client.chat_postMessage(
+            channel=channel, text=confirm_text, unfurl_links=False,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/계산서] 완료 확인 문구 발송 실패: {exc}")
+
+    logger.info(f"[SLACK/계산서] 발행 완료: {code} by {user_id}")
 
 
 # 앱 시작 시 한 번 초기화 시도

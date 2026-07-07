@@ -11,6 +11,7 @@
     → 사용자 결정: 만료된 옛 데이터는 자연스럽게 한 번 등록되고 끝
 """
 
+import json
 import os
 import re
 import textwrap
@@ -439,24 +440,37 @@ def sync_karrot() -> Dict[str, Any]:
     lead_nos = []
     if new_leads:
         lead_nos = _append_leads_to_main(new_leads)
-        # 슬랙 발송 — 함수 자체가 SSL/네트워크 에러로 raise 가능 → 외부 try/except 안전망
-        # raise되면 sent=빈 set으로 처리 → 모든 lead가 pending 큐에 들어감 (자동 재시도)
+        # 순서 중요: 시트 등록 성공 직후 → pending 큐 선등록 → Slack 발송 → 성공분 큐에서 삭제
+        # (SSL 에러가 Slack 발송 함수 내부 어디서 터지든 안전망 확보)
+        # payload에 원본 lead dict(_meta_place/_meta_device 포함) JSON 저장 → 재발송 시 원본 그대로 복원
+        rc = None
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            for lead, ln in zip(new_leads, lead_nos):
+                rc.set(
+                    f'pending_slack_notify:{ln}',
+                    _serialize_pending_payload('당근', lead),
+                    ex=60 * 60 * 24 * 7,
+                )
+        except Exception as exc:
+            logger.warning(f'[SYNC/karrot] pending 큐 선등록 실패 (계속 진행): {exc}')
+
         try:
             sent = _send_slack_notifications(new_leads, lead_nos, source='당근')
         except Exception as exc:
             logger.error(
-                f'[SYNC/karrot] 슬랙 발송 함수 자체 실패 → 전체 pending 큐 등록: {exc}'
+                f'[SYNC/karrot] 슬랙 발송 함수 자체 실패 → pending 큐가 자동 재시도: {exc}'
             )
             sent = set()
-        # 미발송 lead — Redis pending 큐에 저장 (SSL 에러 등으로 누락된 lead 추적용)
-        try:
-            from dashboard.utils.redis_client import get_redis_client
-            rc = get_redis_client().redis
-            for ln in lead_nos:
-                if ln not in sent:
-                    rc.set(f'pending_slack_notify:{ln}', '당근', ex=60 * 60 * 24 * 7)
-        except Exception:
-            pass
+
+        # 성공한 lead만 pending 큐에서 삭제
+        if rc is not None and sent:
+            try:
+                for ln in sent:
+                    rc.delete(f'pending_slack_notify:{ln}')
+            except Exception:
+                pass
 
     result = {
         'total': len(karrot_df),
@@ -532,8 +546,19 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
         body={'values': rows},
     ).execute()
 
-    updates = result.get('updates', {})
-    updated_range = updates.get('updatedRange', '?')
+    # API 응답 유효성 검증 — SSL/네트워크 순간 오류로 partial 응답 방어
+    # updates.updatedRange 없거나 updatedRows=0이면 실제 쓰기 실패로 간주 → raise
+    updates = result.get('updates') or {}
+    updated_range = updates.get('updatedRange')
+    updated_rows = updates.get('updatedRows', 0)
+    expected_rows = len(rows)
+    if not updated_range or updated_rows < expected_rows:
+        raise RuntimeError(
+            f'Google Sheets append 응답 이상 — 쓰기 실패 추정 '
+            f'(expected_rows={expected_rows}, got_rows={updated_rows}, '
+            f'range={updated_range!r}, raw={result!r})'
+        )
+
     invalidate_leads_cache()
     logger.info(
         f'[SYNC] 메인 시트 등록 완료: {len(leads)}건 '
@@ -797,7 +822,20 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     else:
         address_display = '-'
 
-    title = f"새 문의 접수 알림 - {source}"
+    from dashboard.services.lead_helpers import format_inflow_display
+    title = f"새 문의 접수 알림 - {format_inflow_display(source)}"
+
+    # 단일 라인 필드는 개행 flatten — 필드값에 \n이 있으면 slack blockquote 구조가 깨져
+    # 뒤 필드/구분선까지 밖으로 튀어나옴. (예: 고객이 폼 주소란에 여러 줄 입력)
+    def _oneline(s: str) -> str:
+        return re.sub(r'\s*\n\s*', ' ', str(s or '')).strip() or '-'
+    consult_time = _oneline(consult_time)
+    name = _oneline(name)
+    phone = _oneline(phone)
+    email = _oneline(email)
+    place = _oneline(place)
+    device = _oneline(device)
+    address_display = _oneline(address_display)
 
     # 재문의 감지 — 같은 번호로 이전 lead가 있으면 섹션 추가 (타이틀은 그대로 유지)
     repeat_section = _build_repeat_section(lead)
@@ -955,11 +993,56 @@ def _normalize_workflow_date(raw: str) -> str:
     return ''
 
 
+def _serialize_pending_payload(source: str, lead: Dict[str, Any]) -> str:
+    """pending_slack_notify 큐 payload 직렬화.
+
+    형식: JSON {"v": 2, "source": "당근", "lead": {...}}
+    _meta_consult_dt 같은 datetime/pd.Timestamp는 ISO 문자열로 변환.
+    """
+    safe_lead = {}
+    for k, v in lead.items():
+        if v is None:
+            safe_lead[k] = None
+        elif isinstance(v, (str, int, float, bool)):
+            safe_lead[k] = v
+        elif hasattr(v, 'isoformat'):  # datetime, pd.Timestamp
+            try:
+                safe_lead[k] = v.isoformat()
+            except Exception:
+                safe_lead[k] = str(v)
+        elif isinstance(v, (list, dict)):
+            try:
+                json.dumps(v, ensure_ascii=False)  # 검증
+                safe_lead[k] = v
+            except Exception:
+                safe_lead[k] = str(v)
+        else:
+            safe_lead[k] = str(v)
+    return json.dumps({'v': 2, 'source': source, 'lead': safe_lead}, ensure_ascii=False)
+
+
+def _deserialize_pending_payload(raw) -> Optional[Dict[str, Any]]:
+    """pending_slack_notify 큐 payload 역직렬화. 실패 시 None."""
+    if not raw:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode('utf-8', errors='ignore')
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict) and obj.get('v') == 2 and 'lead' in obj:
+            return obj
+    except Exception:
+        pass
+    return None
+
+
 def retry_pending_slack_notifications() -> Dict[str, Any]:
     """SSL 에러 등으로 슬랙 발송 누락된 lead 자동 재발송.
 
-    Redis 'pending_slack_notify:{lead_no}'에 마커 있는 lead를 메인 시트에서 찾아
-    _send_slack_notifications 재호출. 성공한 lead의 마커는 삭제.
+    Redis 'pending_slack_notify:{lead_no}' 지원 payload 형식:
+      - v=2 JSON: {"source": "당근", "lead": {...원본 lead dict...}}  → 원본 그대로 복원
+      - 레거시 문자열 (source만): 시트에서 lookup, _meta 필드는 최선 재구성
+    성공한 lead의 마커는 삭제.
     """
     result = {'attempted': 0, 'sent': 0}
     try:
@@ -968,27 +1051,35 @@ def retry_pending_slack_notifications() -> Dict[str, Any]:
         keys = list(rc.scan_iter(match='pending_slack_notify:*', count=100))
         if not keys:
             return result
-        # 메인 시트 fetch
-        main_df = load_leads_data(force_refresh=True)
-        if main_df is None or main_df.empty:
-            return result
+        # 레거시(시트 lookup 필요) 케이스 대비 메인 시트 캐시 (필요 시에만 fetch)
+        main_df = None
         pending_leads = []
         pending_nos = []
         pending_sources = []
         for k in keys:
             ks = k if isinstance(k, str) else k.decode()
             lead_no = ks.split(':')[-1]
-            source_raw = rc.get(k) or '당근'
-            source = source_raw if isinstance(source_raw, str) else source_raw.decode()
-            row = main_df[main_df['리드 No'].astype(str).str.strip() == lead_no]
-            if row.empty:
-                rc.delete(k)
-                continue
-            lead = row.iloc[0].to_dict()
-            # _meta 필드 채움 (build_inquiry_blocks 의존)
-            lead['_meta_place'] = ''
-            lead['_meta_device'] = str(lead.get('키워드', '') or '')
-            lead['_meta_inquiry'] = str(lead.get('문의 내용', '') or lead.get('상담 내용', '') or '')
+            raw = rc.get(k)
+            payload = _deserialize_pending_payload(raw)
+            if payload:
+                # v=2 JSON payload — 원본 lead dict 그대로 사용
+                lead = dict(payload.get('lead') or {})
+                source = payload.get('source') or '당근'
+            else:
+                # 레거시 (source 문자열만) — 시트에서 lookup + _meta 최선 재구성
+                source = raw if isinstance(raw, str) else (raw.decode() if raw else '당근')
+                if main_df is None:
+                    main_df = load_leads_data(force_refresh=True)
+                    if main_df is None or main_df.empty:
+                        continue
+                row = main_df[main_df['리드 No'].astype(str).str.strip() == lead_no]
+                if row.empty:
+                    rc.delete(k)
+                    continue
+                lead = row.iloc[0].to_dict()
+                lead['_meta_place'] = ''
+                lead['_meta_device'] = str(lead.get('키워드', '') or '')
+                lead['_meta_inquiry'] = str(lead.get('문의 내용', '') or lead.get('상담 내용', '') or '')
             pending_leads.append(lead)
             pending_nos.append(lead_no)
             pending_sources.append(source)
@@ -1014,6 +1105,176 @@ def retry_pending_slack_notifications() -> Dict[str, Any]:
             )
     except Exception as exc:
         logger.error(f"[SYNC/retry] 재발송 처리 실패: {exc}", exc_info=True)
+    return result
+
+
+# 자동 재발송 대상 플랫폼 — 전화(수동 입력)는 제외
+_AUTO_SYNC_PLATFORMS = {
+    '홈페이지', '당근', '카카오톡', '채널톡', '숨고', '큐플레이스', '메일', '모바일',
+}
+
+
+def recover_orphan_lead_notifications() -> Dict[str, Any]:
+    """시트에는 등록됐지만 슬랙 카드 흔적이 전혀 없는 고아 리드 재발송.
+
+    시나리오: 시트 append 성공 직후 pending 큐 등록 전에 Flask 재시작 →
+    pending 큐도 lead_card_msg도 없어서 retry_pending_slack에 안 걸림.
+
+    조건:
+    - 상담 시간 최근 60분 이내 (오래된 것은 의도적 skip으로 간주)
+    - 상담 시간 5분 이상 지남 (막 인입된 건은 sync가 아직 발송 중일 수 있음)
+    - 플랫폼이 자동 sync 대상 (전화·수동 입력 제외)
+    - Redis에 lead_card_msg:{ln} 없음 (이미 발송된 것 skip)
+    - Redis에 pending_slack_notify:{ln} 없음 (retry가 이미 처리 중)
+    - 상태가 상담 대기 (스팸/드랍 등 이미 처리된 건 skip)
+    """
+    from datetime import datetime, timedelta
+    result = {'checked': 0, 'recovered': 0}
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        df = load_leads_data(force_refresh=True)
+        if df is None or df.empty:
+            return result
+
+        now = datetime.now()
+        cutoff_new = now - timedelta(minutes=5)   # 이보다 최근 = 아직 sync 발송 중일 수 있음
+        cutoff_old = now - timedelta(minutes=60)  # 이보다 오래 = 의도적 skip으로 간주
+
+        # 최근 30건만 훑음 (성능)
+        recent = df.tail(30)
+        candidates = []
+        for _, row in recent.iterrows():
+            ln = str(row.get('리드 No', '') or '').strip()
+            if not ln.startswith('L-'):
+                continue
+            platform = str(row.get('플랫폼', '') or '').strip()
+            if platform not in _AUTO_SYNC_PLATFORMS:
+                continue
+            status = str(row.get('상태', '') or '').strip()
+            if status and status != '상담 대기':
+                continue  # 매니저가 이미 처리한 상태는 skip
+            # 상담 시간 파싱
+            consult_str = str(row.get('상담 시간', '') or '').strip()
+            try:
+                dt = datetime.strptime(consult_str, '%Y.%m.%d. %H:%M')
+            except Exception:
+                continue
+            if dt < cutoff_old or dt > cutoff_new:
+                continue
+            # Redis 상태 확인
+            if rc.get(f'lead_card_msg:{ln}'):
+                continue  # 이미 카드 존재
+            if rc.get(f'pending_slack_notify:{ln}'):
+                continue  # pending 큐가 처리 중
+            candidates.append((row, ln, platform, dt))
+
+        result['checked'] = len(candidates)
+        if not candidates:
+            return result
+
+        # 플랫폼별로 그룹핑 (source 인자 정확히 매칭)
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for row, ln, platform, dt in candidates:
+            lead = row.to_dict()
+            # _meta 필드 최선 재구성 (시트에는 없으니 K열 등에서 유추)
+            lead['_meta_place'] = ''
+            lead['_meta_device'] = str(lead.get('키워드', '') or '').strip()
+            lead['_meta_inquiry'] = str(
+                lead.get('문의 내용', '') or lead.get('상담 내용', '') or ''
+            )
+            lead['_meta_address_level'] = ''
+            groups[platform].append((lead, ln))
+
+        for src, items in groups.items():
+            leads = [l for l, _ in items]
+            nos = [n for _, n in items]
+            sent = _send_slack_notifications(leads, nos, source=src)
+            for ln in nos:
+                if ln in sent:
+                    result['recovered'] += 1
+                    logger.warning(
+                        f"[SYNC/recover] 고아 리드 슬랙 카드 재발송: "
+                        f"{ln} (플랫폼={src}) — sync 발송 유실 감지"
+                    )
+    except Exception as exc:
+        logger.error(f"[SYNC/recover] 고아 리드 감지 실패: {exc}", exc_info=True)
+    return result
+
+
+def retry_pending_visit_notices() -> Dict[str, Any]:
+    """SSL 에러 등으로 방문 카드 발송 누락된 lead 자동 재발송.
+
+    Redis 'pending_visit_notice:{lead_no}'에 payload(JSON) 저장 → 카드 재발송.
+    성공한 lead의 마커는 삭제. 시트에 lead가 없으면 큐에서 제거.
+    """
+    result = {'attempted': 0, 'sent': 0}
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        keys = list(rc.scan_iter(match='pending_visit_notice:*', count=100))
+        if not keys:
+            return result
+
+        from dashboard.blueprints.slack_bot import _slack_app, _post_visit_notice
+        client = _slack_app.client if _slack_app else None
+        if client is None:
+            logger.debug('[SYNC/retry-visit] slack client 미준비 — 다음 폴링 대기')
+            return result
+
+        # 시트 검증용 fetch
+        main_df = load_leads_data(force_refresh=True)
+        existing_leads = set()
+        if main_df is not None and not main_df.empty:
+            existing_leads = set(main_df['리드 No'].astype(str).str.strip().tolist())
+
+        for k in keys:
+            ks = k if isinstance(k, str) else k.decode()
+            lead_no = ks.split(':')[-1]
+            payload_raw = rc.get(k)
+            if not payload_raw:
+                rc.delete(k)
+                continue
+            if lead_no not in existing_leads:
+                rc.delete(k)
+                continue
+            try:
+                p = json.loads(payload_raw if isinstance(payload_raw, str) else payload_raw.decode())
+            except Exception:
+                rc.delete(k)
+                continue
+
+            result['attempted'] += 1
+            try:
+                lead_platform = p.get('platform', '')
+                if lead_platform == '전화':
+                    card_category, card_platform = '온라인', '전화'
+                else:
+                    card_category, card_platform = lead_platform or '기타', ''
+                vd = p.get('visit_date', '')
+                if vd.startswith("'"):
+                    vd = vd[1:]
+                _post_visit_notice(
+                    client, lead_no=lead_no,
+                    category=card_category, platform=card_platform,
+                    user_id='', visit_date=vd,
+                    name=p.get('name', ''), contact=p.get('phone', ''),
+                    visit_address=p.get('address', ''),
+                    consultation=p.get('inquiry', ''),
+                    user_name=p.get('user_name', ''),
+                )
+                rc.delete(k)
+                result['sent'] += 1
+            except Exception as exc:
+                logger.warning(f'[SYNC/retry-visit] {lead_no} 재발송 실패, 다음 폴링 대기: {exc}')
+
+        if result['sent']:
+            logger.info(
+                f"[SYNC/retry-visit] 미발송 방문 카드 재발송: {result['sent']}/{result['attempted']}"
+            )
+    except Exception as exc:
+        logger.error(f"[SYNC/retry-visit] 재발송 처리 실패: {exc}", exc_info=True)
     return result
 
 
@@ -1130,7 +1391,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             if counselor_norm != counselor_raw:
                 update_cells.append((f"M{sheet_row}", counselor_norm))
 
-            # 영업 담당자 (N열) — 워크플로우가 채우지 않음, 매니저가 수동 배정 전 '-' 로 초기화
+            # 영업 담당자 (N열) — 2026-07 규칙:
+            #   모든 리드에서 N열 = List 배정 방문자. 리드 생성 시점에는 미배정 → '-'.
+            #   거래처의 owner 개념은 M열(온라인 상담자)에 있음 — 백엔드가 플랫폼별로 골라 읽음.
             sales_raw = str(row.get('영업 담당자', '') or '').strip()
             if not sales_raw:
                 update_cells.append((f"N{sheet_row}", '-'))
@@ -1228,6 +1491,33 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
         # 방문 예약 카드 발송 + 슬랙 List 등록 — 슬랙 client 가져오기 (순환 import 회피)
         if notify_visit:
+            # 안전망: 카드 발송 전에 pending 큐 선등록 → 성공 시 삭제
+            # (SSL/네트워크 에러가 카드 발송 중 raise 되어도 자동 재시도)
+            rc = None
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                rc = get_redis_client().redis
+                for lead in notify_visit:
+                    payload = json.dumps({
+                        'lead_no': lead['lead_no'],
+                        'platform': lead.get('platform', ''),
+                        'name': lead.get('name', ''),
+                        'phone': lead.get('phone', ''),
+                        'email': lead.get('email', ''),
+                        'address': lead.get('address', ''),
+                        'inquiry': lead.get('inquiry', ''),
+                        'visit_date': lead.get('visit_date', ''),
+                        'consult_time': lead.get('consult_time', ''),
+                        'keyword': lead.get('keyword', ''),
+                        'user_name': lead.get('user_name', ''),
+                    }, ensure_ascii=False)
+                    rc.set(
+                        f'pending_visit_notice:{lead["lead_no"]}', payload,
+                        ex=60 * 60 * 24 * 7,
+                    )
+            except Exception as exc:
+                logger.warning(f'[SYNC/전화WF] 방문 카드 pending 큐 선등록 실패 (계속 진행): {exc}')
+
             try:
                 from dashboard.blueprints.slack_bot import (
                     _slack_app, _post_visit_notice, _post_to_slack_list,
@@ -1236,6 +1526,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 if client:
                     for lead in notify_visit:
                         notice_channel, notice_ts = '', ''
+                        card_ok = False
                         try:
                             vd = lead['visit_date']
                             if vd.startswith("'"):
@@ -1259,6 +1550,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                 user_name=lead.get('user_name', ''),
                             )
                             result['visit_notified'] += 1
+                            card_ok = True
                         except Exception as exc:
                             logger.error(
                                 f"[SYNC/전화WF] #방문_일정 카드 실패 ({lead['lead_no']}): {exc}",
@@ -1295,6 +1587,13 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                 f"[SYNC/전화WF] 슬랙 List 등록 실패 ({lead['lead_no']}): {exc}",
                                 exc_info=True,
                             )
+
+                        # 카드 발송 성공 → pending 큐에서 삭제 (List는 실패해도 카드가 뜨는게 우선)
+                        if card_ok and rc is not None:
+                            try:
+                                rc.delete(f'pending_visit_notice:{lead["lead_no"]}')
+                            except Exception:
+                                pass
             except Exception as exc:
                 logger.warning(f"[SYNC/전화WF] 슬랙 client 로드 실패: {exc}")
 

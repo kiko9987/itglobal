@@ -17,16 +17,35 @@ logger = get_logger(__name__)
 folders_bp = Blueprint('folders', __name__, url_prefix='/api')
 
 def find_folder_path_by_drive_id(folder_id):
-    """Google Drive 폴더 ID를 로컬 경로로 변환 (간단 버전)"""
+    """Google Drive 폴더 ID를 로컬 경로로 변환.
+
+    우선순위:
+    1) GOOGLE_DRIVE_WINDOWS_BASE_PATH 하위에서 Drive API로 조회한 폴더명 매칭
+       (Slack 방문사진 파이프라인 등 신규 API 생성 폴더)
+    2) .shortcut-targets-by-id/{id} (Drive Desktop 바로가기)
+    """
     if not folder_id:
         return None
 
-    # Google Drive for Desktop의 .shortcut-targets-by-id 경로 확인
-    # 우선순위: G: > F: > E: > D: > C:
+    # 1) BASE_PATH + Drive API 폴더명 조회
+    base_path = os.getenv('GOOGLE_DRIVE_WINDOWS_BASE_PATH', '').strip()
+    if base_path:
+        try:
+            from dashboard.utils.google_drive import get_folder_name
+            folder_name = get_folder_name(folder_id)
+            if folder_name:
+                candidate = os.path.join(base_path, folder_name)
+                if os.path.exists(candidate):
+                    logger.info(f"[FOLDER_PATH] BASE_PATH 매칭: {candidate}")
+                    return candidate
+        except Exception as e:
+            logger.debug(f"[FOLDER_PATH] Drive API 조회 실패: {e}")
+
+    # 2) Google Drive for Desktop 바로가기 경로
     for drive_letter in ['G:', 'F:', 'E:', 'D:', 'C:']:
         local_path = f"{drive_letter}\\.shortcut-targets-by-id\\{folder_id}"
         if os.path.exists(local_path):
-            logger.info(f"[FOLDER_PATH] 로컬 경로 발견: {local_path}")
+            logger.info(f"[FOLDER_PATH] 바로가기 매칭: {local_path}")
             return local_path
 
     logger.warning(f"[FOLDER_PATH] 폴더 ID {folder_id}의 로컬 경로를 찾을 수 없습니다")

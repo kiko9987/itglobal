@@ -332,6 +332,16 @@ class SecurityMiddleware:
 
     def process_request(self):
         """요청 처리"""
+        # 0. 정적 리소스는 rate limit 대상 아님 (한 페이지 로드에 다수 요청 발생)
+        _p = request.path
+        if (_p.startswith('/static/') or _p.startswith('/favicon')
+                or _p.endswith('.css') or _p.endswith('.js')
+                or _p.endswith('.map') or _p.endswith('.ico')
+                or _p.endswith('.woff') or _p.endswith('.woff2')
+                or _p.endswith('.png') or _p.endswith('.jpg')
+                or _p.endswith('.svg')):
+            return None
+
         # 1. Rate Limiting
         if not self._check_rate_limit():
             self._log_security_event('RATE_LIMIT_EXCEEDED', request.remote_addr)
@@ -428,11 +438,11 @@ class SecurityMiddleware:
             window = 3600
         elif '/api/' in request.path:
             # 프로덕션 API (블루프린트 하위 /leads/api/, /projects/api/ 등 포함): 관대한 제한
-            limit = 1000
+            limit = 2000
             window = 3600
         else:
-            # 프로덕션 일반 페이지: 엄격한 제한
-            limit = 100
+            # 프로덕션 일반 페이지: 완화 (다중 탭·프리페치·백그라운드 폴링 대비)
+            limit = 500
             window = 3600
 
         return self.rate_limiter.is_allowed(identifier, limit, window)

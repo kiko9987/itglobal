@@ -794,7 +794,8 @@ class GoogleSheetsManager:
             
             # 특정 행에 데이터 업데이트 (수식이 있는 빈 행에 덮어쓰기)
             # 2026-06-19 fix: AN → AO (_version 컬럼 포함)
-            actual_range = f'공사 현황의 사본!A{next_row}:AO{next_row}'
+            # 2026-07-03 fix: AO → AP (신규 AO=Lead No 컬럼 + _version이 AP로 이동)
+            actual_range = f'공사 현황의 사본!A{next_row}:AP{next_row}'
             body = {
                 'values': [values]
             }
@@ -816,7 +817,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 데이터 추가 오류: {str(e)}")
             raise
     
-    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AO{row}'):
+    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AP{row}'):
         """
         구글 시트의 특정 행 업데이트
         

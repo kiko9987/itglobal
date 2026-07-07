@@ -1151,6 +1151,20 @@ export default class ProjectRowAccordion {
   /**
    * 문서 섹션 생성 (통합 편집 모드 적용)
    */
+  /**
+   * 폴더 링크 HTML 렌더링.
+   * - 폴더 ID 패턴이면 itgfolder:// 커스텀 프로토콜 (클라이언트 Explorer 직접 열기)
+   * - 그 외 경로면 기존 API 경유
+   */
+  renderFolderLink(localPath, projectCode) {
+    if (!localPath) return '폴더 경로가 설정되지 않았습니다.';
+    const isFolderId = /^[a-zA-Z0-9_-]{20,}$/.test(localPath);
+    if (isFolderId) {
+      return `<a href="itgfolder://${localPath}" class="text-decoration-none" style="color: #0d6efd;" title="탐색기에서 열기">${localPath}</a>`;
+    }
+    return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${projectCode}" style="color: #0d6efd;">${localPath}</a>`;
+  }
+
   generateDocumentSection(rowData) {
     const localPath = (rowData['견적서 및 계약서 폴더 경로'] || rowData['AK'] || '').trim();
     const projectCode = rowData['프로젝트 코드'];
@@ -1164,13 +1178,7 @@ export default class ProjectRowAccordion {
               문서 폴더
             </span>
             <div class="editable-value" data-field="견적서 및 계약서 폴더 경로" data-original-value="${localPath}">
-              ${localPath ? `
-                <a href="#" class="text-decoration-none folder-open-link"
-                   data-project-code="${projectCode}"
-                   style="color: #0d6efd;">
-                  ${localPath}
-                </a>
-              ` : '폴더 경로가 설정되지 않았습니다.'}
+              ${this.renderFolderLink(localPath, projectCode)}
             </div>
           </div>
         </div>
@@ -5472,13 +5480,7 @@ export default class ProjectRowAccordion {
       if (editableField) {
         const originalValue = editableField.dataset.originalValue || '';
         const projectCode = this.currentProject?.['프로젝트 코드'] || '';
-        editableField.innerHTML = originalValue ? `
-          <a href="#" class="text-decoration-none folder-open-link"
-             data-project-code="${projectCode}"
-             style="color: #0d6efd;">
-            ${originalValue}
-          </a>
-        ` : '폴더 경로가 설정되지 않았습니다.';
+        editableField.innerHTML = this.renderFolderLink(originalValue, projectCode);
       }
       documentCard.classList.remove('editing');
     }
@@ -5800,17 +5802,7 @@ export default class ProjectRowAccordion {
           if (input) {
             const originalValue = editableField.dataset.originalValue || '';
             const projectCode = this.currentProject?.['프로젝트 코드'] || '';
-            if (originalValue) {
-              editableField.innerHTML = `
-                <a href="#" class="text-decoration-none folder-open-link"
-                   data-project-code="${projectCode}"
-                   style="color: #0d6efd;">
-                  ${originalValue}
-                </a>
-              `;
-            } else {
-              editableField.innerHTML = '폴더 경로가 설정되지 않았습니다.';
-            }
+            editableField.innerHTML = this.renderFolderLink(originalValue, projectCode);
           }
         }
       }

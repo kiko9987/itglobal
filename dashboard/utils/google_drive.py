@@ -82,6 +82,22 @@ def find_or_create_folder(name: str, parent_id: str) -> Optional[dict]:
         return None
 
 
+def get_folder_name(folder_id: str) -> Optional[str]:
+    """폴더 ID로 이름 조회. 없으면 None."""
+    service = _get_drive_service()
+    if not service or not folder_id:
+        return None
+    try:
+        resp = service.files().get(
+            fileId=folder_id, fields='name',
+            supportsAllDrives=True,
+        ).execute()
+        return resp.get('name') or None
+    except Exception as exc:
+        logger.debug(f"[DRIVE] 폴더 이름 조회 실패 ({folder_id}): {exc}")
+        return None
+
+
 def rename_folder(folder_id: str, new_name: str) -> bool:
     """폴더 이름 변경. 성공 시 True."""
     service = _get_drive_service()

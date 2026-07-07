@@ -139,7 +139,7 @@ def _to_initial(name: str) -> str:
     if not name:
         return ''
     name = name.strip()
-    if not name:
+    if not name or name in ('-', '미정'):
         return ''
     if name in SALES_INITIALS:
         return SALES_INITIALS[name]

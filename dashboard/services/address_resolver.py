@@ -448,12 +448,15 @@ def verify_address(
             # 카카오 building_name이 이미 base에 부착되어 building_tail과 중복되는 경우 dedup
             # 예: base="...강남파이낸스센터" + tail="강남파이낸스센터" → skip
             #     base="...강남파이낸스센터" + tail="강남파이낸스센터 1층" → "1층"만 추가
-            if building_tail in base:
-                pass  # 완전 중복 — skip
+            #     base="...SR프라자" + tail="sr프라자" → 대소문자 무시로 중복 판정
+            base_lower = base.lower()
+            tail_lower = building_tail.lower()
+            if tail_lower in base_lower:
+                pass  # 완전 중복 (대소문자 무시) — skip
             else:
                 tail_words = building_tail.split()
-                # 첫 단어가 base 끝에 이미 있으면 그 부분 제거 후 추가
-                if tail_words and base.rstrip().endswith(tail_words[0]):
+                # 첫 단어가 base 끝에 이미 있으면 그 부분 제거 후 추가 (대소문자 무시)
+                if tail_words and base.rstrip().lower().endswith(tail_words[0].lower()):
                     remaining = ' '.join(tail_words[1:]).strip()
                     if remaining:
                         parts.append(remaining)
@@ -473,6 +476,14 @@ def verify_address(
         )
         # 2. 한글/영문 다음 숫자+동/호/층/관 — "○○상가101호" → "○○상가 101호"
         result = re.sub(r'(?<=[가-힣A-Za-z])(\d+(?:동|호|층|관))', r' \1', result)
+        # 2-b. 층/호/관 다음 한글 (부가 설명·시설 tail) — "7층복도" → "7층 복도"
+        result = re.sub(r'(\d+(?:동|호|층|관|호실))([가-힣])', r'\1 \2', result)
+        # 2-c. 지번 표기 제거 — 도로명 주소만 취급.
+        # "(걸포동)" · "(걸포동 172-1)" · "(가산동, 이앤씨드림타워7차)" 모두 삭제
+        # 조건: 괄호 안이 [가-힣]+동/가/리로 시작 (그 뒤 공백/콤마+임의내용은 허용)
+        result = re.sub(
+            r'\s*\([가-힣]+(?:동|가|리)(?:[\s,][^)]*)?\)', '', result,
+        )
         # 3. 연속 공백 정리
         result = re.sub(r' +', ' ', result).strip()
         return result
@@ -481,11 +492,16 @@ def verify_address(
         doc = _kakao_search(cand_text)
         if not doc:
             return None
+        # 행정구역 단위 매칭(도로명·번지 없음)은 확정 금지 — 뒤 후보로 넘어가야 정답 도달
+        # 예: "서울 노원구 중계동"(동만) → address_type=REGION → 여기서 확정하면
+        #     실제 도로명 "중계로12가길 23"을 놓치고 "노원구 중계동"만 남음
+        if doc.get('address_type') == 'REGION':
+            return None
         road = doc.get('road_address')
         if road and road.get('address_name'):
             base = normalize_display(road['address_name'])
             building_name = (road.get('building_name') or '').strip()
-            if building_name and building_name not in base:
+            if building_name and building_name.lower() not in base.lower():
                 base = f"{base} {building_name}"
             return (_compose(base), 'verified')
         jibun = doc.get('address')
@@ -547,7 +563,7 @@ def _enrich_verified_address(
             verified_addr = f"{verified_addr} {shop}".strip()
 
     # 도로명 끝 + 숫자 사이 공백 보강 ("세월길2" → "세월길 2"). 단 "12길" 같은 도로명 일부는 제외
-    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?!길)', r'\1 \2', verified_addr)
+    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길)', r'\1 \2', verified_addr)
 
     # 2. verified에 도로명+번지 없으면 원본/정규식에서 추출 부착 (황경철 케이스)
     if not re.search(r'(?:로|길)\s*\d', verified_addr):
@@ -567,7 +583,7 @@ def _enrich_verified_address(
                 break
 
     # 최종 — 도로명 + 숫자 사이 공백 보강 (부착 후에도 적용)
-    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?!길)', r'\1 \2', verified_addr)
+    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길)', r'\1 \2', verified_addr)
     return verified_addr
 
 

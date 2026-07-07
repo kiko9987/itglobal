@@ -74,6 +74,126 @@ def _slack_token() -> str:
 
 
 # ─────────────────────────────────────────────────────────────
+# chat_id ↔ lead_no 매핑 (재문의 시 리드 상태 조회용)
+# ─────────────────────────────────────────────────────────────
+_CHAT_LEAD_TTL = 60 * 60 * 24 * 90  # 90일
+
+# 매니저가 이미 손댄 상태 — 이 상태에서 재문의 오면 top-level 알림 카드 추가
+# '상담 대기'만 제외 (첫 인입 대기 중 = 어차피 미응답 알림이 별도로 감)
+_PROCESSED_STATUSES_EXCLUDE = {'상담 대기', ''}
+
+
+def _save_chat_lead_no(chat_id: str, lead_no: str) -> None:
+    """chat_id → lead_no 매핑을 Redis에 저장 (90일 TTL)."""
+    if not chat_id or not lead_no:
+        return
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        rc.set(f'channeltalk_chat_lead:{chat_id}', lead_no, ex=_CHAT_LEAD_TTL)
+    except Exception as exc:
+        logger.debug(f'[ChannelTalk] chat_lead 매핑 저장 실패: {exc}')
+
+
+def _get_chat_lead_no(chat_id: str) -> str:
+    """chat_id로 저장된 lead_no 조회 (없으면 빈 문자열)."""
+    if not chat_id:
+        return ''
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        v = rc.get(f'channeltalk_chat_lead:{chat_id}')
+        if isinstance(v, bytes):
+            v = v.decode('utf-8')
+        return v or ''
+    except Exception:
+        return ''
+
+
+def _post_reinquiry_notice_if_completed(
+    channel: str, chat_id: str, thread_ts: str,
+    customer_name: str, plain_text: str,
+) -> None:
+    """이미 매니저가 처리한 리드(방문 예약/완료/공사/드랍 등)에 재문의 오면
+    채널에 top-level 짧은 알림 카드 발송.
+
+    - 스레드 리플라이는 슬랙이 알림 안 줘서 방치되는 문제 방지
+    - '상담 대기' 상태는 skip (아직 매니저 처리 전 = 별도 미응답 알림 경로가 있음)
+    - 같은 chat_id에 10분 dedup — 도배 방지
+    """
+    lead_no = _get_chat_lead_no(chat_id)
+    if not lead_no or not _lead_is_processed(lead_no):
+        return
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        # 10분 dedup
+        if not rc.set(f'channeltalk_reinquiry_notice:{chat_id}', '1',
+                       nx=True, ex=600):
+            logger.debug(f'[ChannelTalk] 재문의 알림 dedup skip (chat_id={chat_id})')
+            return
+    except Exception:
+        pass
+
+    # 스레드 permalink (있으면 링크로, 없으면 텍스트만)
+    permalink = ''
+    try:
+        token = _slack_token()
+        if token:
+            url = (
+                f'https://slack.com/api/chat.getPermalink'
+                f'?channel={channel}&message_ts={thread_ts}'
+            )
+            req = urllib.request.Request(
+                url, headers={'Authorization': f'Bearer {token}'},
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                pr = json.loads(r.read())
+            if pr.get('ok'):
+                permalink = pr.get('permalink', '') or ''
+    except Exception:
+        pass
+
+    # 카드 텍스트 — 짧게, 최근 메시지 스니펫 포함
+    snippet = (plain_text or '').strip().replace('\n', ' ')
+    if len(snippet) > 80:
+        snippet = snippet[:80] + '…'
+    text_lines = [
+        f':repeat: *진행 중 리드 재문의*  `{lead_no}`  — {customer_name}',
+        f'> {snippet}' if snippet else '',
+    ]
+    if permalink:
+        text_lines.append(f'<{permalink}|스레드 열기>')
+    text = '\n'.join([s for s in text_lines if s])
+
+    _slack_post('chat.postMessage', {
+        'channel': channel,
+        'text': text,
+        'unfurl_links': False,
+    })
+    logger.info(
+        f'[ChannelTalk] 진행 중 리드 재문의 알림 발송 '
+        f'(chat_id={chat_id}, lead_no={lead_no})'
+    )
+
+
+def _lead_is_processed(lead_no: str) -> bool:
+    """리드가 이미 매니저 처리된 상태인지 ('상담 대기' 이외 = 방문 예약/완료/공사/드랍 등)."""
+    if not lead_no:
+        return False
+    try:
+        from dashboard.services.lead_service import get_lead_by_no
+        rec = get_lead_by_no(lead_no)
+        if not rec:
+            return False
+        status = str(rec.get('상태', '')).strip()
+        return status not in _PROCESSED_STATUSES_EXCLUDE
+    except Exception as exc:
+        logger.debug(f'[ChannelTalk] 리드 상태 조회 실패 ({lead_no}): {exc}')
+        return False
+
+
+# ─────────────────────────────────────────────────────────────
 # Slack API 헬퍼
 # ─────────────────────────────────────────────────────────────
 def _slack_post(api_path: str, body: dict) -> Optional[dict]:
@@ -244,11 +364,12 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
     if first_message and len(first_message) > 2400:
         first_message = first_message[:2400] + '\n…(내용이 길어 일부만 표시 — 채널톡 thread 참조)'
 
+    from dashboard.services.lead_helpers import format_inflow_display
     lines = ['⠀']
     if lead_no:
         lines.append(f'접수번호: `{lead_no}`')
     lines.extend([
-        f'{medium_icon} *새 문의 접수 알림 - {medium_label}*',
+        f'{medium_icon} *새 문의 접수 알림 - {format_inflow_display(medium_label)}*',
         SEP,
         f'문의시간 : {ts_str}',
         f'이름 / 상호 : {customer_name}',
@@ -472,6 +593,7 @@ def _register_pending_lead_if_any(chat_id: str) -> str:
         )
         if lead_no_new:
             rc.delete(pending_key)
+            _save_chat_lead_no(chat_id, lead_no_new)
             logger.info(
                 f'[ChannelTalk] 매니저 응답 → lead 등록 (chat_id={chat_id}, lead_no={lead_no_new})'
             )
@@ -640,6 +762,8 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
             # 일반 채팅 — 즉시 시트 등록 → lead_no 부여
             try:
                 lead_no = _register_chat_lead(user_chat, user, display_text, created_ms) or ''
+                if lead_no:
+                    _save_chat_lead_no(chat_id, lead_no)
             except Exception as exc:
                 logger.warning(f'[ChannelTalk] 즉시 lead 등록 실패: {exc}')
 
@@ -696,6 +820,11 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
             'text': _thread_reply_text(plain_text, customer_name, created_ms),
             'unfurl_links': False,
         })
+        # 완료된 리드에 재문의 오면 채널에 top-level 알림 추가 발송
+        # (스레드 리플라이만으론 슬랙이 알림 안 줌 — 완료 후 방치 방지)
+        _post_reinquiry_notice_if_completed(
+            channel, chat_id, thread_ts, customer_name, plain_text,
+        )
 
     # 2단계: 파일 있으면 다운로드 → 슬랙 thread에 한 번에 묶어서 영구 업로드 (알림 1회)
     if has_files and thread_ts:

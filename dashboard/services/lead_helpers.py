@@ -24,6 +24,27 @@ KEYWORD_VOCAB: List[str] = [
 ]
 
 
+def format_inflow_display(platform: str) -> str:
+    """플랫폼(유입 채널) → 카드 헤더/유입 구분 표기.
+
+    - 거래처 → 거래처
+    - 소개 → 거래처 (소개)
+    - 기타 → 기타
+    - 그 외 (홈페이지·카카오톡·채널톡·전화·당근·숨고·큐플레이스·모바일·앱·이메일 등) → 온라인 (X)
+    빈값·'-' 은 '-' 반환.
+    """
+    v = (platform or '').strip()
+    if not v or v == '-':
+        return '-'
+    if v == '거래처':
+        return '거래처'
+    if v == '소개':
+        return '거래처 (소개)'
+    if v == '기타':
+        return '기타'
+    return f'온라인 ({v})'
+
+
 def extract_keywords(text: str) -> List[str]:
     """텍스트에서 KEYWORD_VOCAB 매칭. 등장 순서 무관, vocab 순서 유지.
 

@@ -40,6 +40,36 @@ def _val(data: dict, key: str) -> str:
     return s if s else '-'
 
 
+def _date_val(data: dict, key: str) -> str:
+    """날짜 필드 표시용. pandas Timestamp / datetime / 'YYYY-MM-DD HH:MM:SS' 모두 'YYYY-MM-DD'로 절삭."""
+    v = data.get(key)
+    if v is None:
+        return '-'
+    # pandas NaT 처리
+    try:
+        import pandas as _pd
+        if _pd.isna(v):
+            return '-'
+    except Exception:
+        pass
+    # datetime/Timestamp면 strftime
+    if hasattr(v, 'strftime'):
+        return v.strftime('%Y-%m-%d')
+    s = str(v).strip()
+    if not s or s == 'NaT':
+        return '-'
+    # 문자열에 시간 붙어있으면 앞 10자만
+    if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+        return s[:10]
+    return s
+
+
+def _format_inflow(value: str) -> str:
+    """유입 구분 표기 — 공용 헬퍼 위임 (온라인/거래처/기타 3카테고리 통일)."""
+    from dashboard.services.lead_helpers import format_inflow_display
+    return format_inflow_display(value)
+
+
 def _build_message(data: dict, code: str) -> str:
     """공사 확정 알림 메시지 본문 생성.
 
@@ -60,10 +90,24 @@ def _build_message(data: dict, code: str) -> str:
     else:
         amount_line = amount_str
 
+    # 폴더 경로 (AL열) — 값이 있으면 표시, 형태에 따라 링크 처리
+    folder_raw = str(data.get('견적서 및 계약서 폴더 경로', '') or '').strip()
+    if folder_raw and folder_raw != '-':
+        import re as _re
+        # 폴더 ID 패턴(20자+ 영숫자·언더스코어·하이픈)이면 itgfolder:// 클릭 링크
+        if _re.match(r'^[a-zA-Z0-9_-]{20,}$', folder_raw):
+            folder_display = f'<itgfolder://{folder_raw}|📂 탐색기에서 열기>'
+        else:
+            # 로컬 경로 등은 raw text (매니저가 복사해서 붙여넣기)
+            folder_display = folder_raw
+        folder_line = f":file_folder: 폴더 경로 : {folder_display}"
+    else:
+        folder_line = None
+
     lines = [
         f":bell: *[공사 확정 알림]*  `{code_safe}`",
         "--------------------------------------------",
-        f":inbox_tray: 유입 구분 : {_val(data, '유입 구분')}",
+        f":inbox_tray: 유입 구분 : {_format_inflow(_val(data, '유입 구분'))}",
         f":office: 사업자명 : {_val(data, '사업자명')}",
         f":round_pushpin: 현장 주소 : {_val(data, '현장 주소')}",
         f":bust_in_silhouette: 발주처 담당자 : {_val(data, '발주처 담당자')}",
@@ -73,15 +117,69 @@ def _build_message(data: dict, code: str) -> str:
         f":hammer_and_wrench: 도급 구분 : {_val(data, '도급 구분')}",
         f":construction_worker: 시공자 : {_val(data, '시공자')}",
         f":heavy_dollar_sign: 공사 금액 : {amount_line}",
-        f":date: 공사 시작 : {_val(data, '공사 시작')}",
-        f":date: 공사 종료 : {_val(data, '공사 종료')}",
-        "--------------------------------------------",
+        f":date: 공사 시작 : {_date_val(data, '공사 시작')}",
+        f":date: 공사 종료 : {_date_val(data, '공사 종료')}",
     ]
+    if folder_line:
+        lines.append(folder_line)
+    lines.append("--------------------------------------------")
     return '\n'.join(lines)
 
 
+def _build_invoice_button_value(data: dict, code: str) -> str:
+    """[계산서 요청] 버튼 value — 모달 pre-fill용 프로젝트 정보 JSON."""
+    # 총액 1은 숫자만 — float('9600000.0') → 소수점 이하 절삭 후 digits 추출
+    # (str(9600000.0)="9600000.0" 에서 '.'만 빼면 "96000000" 이 되는 10x 버그 방지)
+    amount_raw = data.get('총액 1', '')
+    try:
+        amount_digits = str(int(float(str(amount_raw).replace(',', '').strip() or '0')))
+        if amount_digits == '0':
+            amount_digits = ''
+    except (ValueError, TypeError):
+        amount_digits = ''
+    vat_raw = data.get('부가세')
+    vat_sep = (
+        vat_raw is True
+        or (isinstance(vat_raw, str) and vat_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+        or vat_raw == 1
+    )
+    payload = {
+        'code': code or '',
+        'biz': _val(data, '사업자명'),
+        'addr': _val(data, '현장 주소'),
+        'amt': amount_digits or '',
+        'vat': 'sep' if vat_sep else 'incl',
+        'email': _val(data, '발주처 이메일'),
+    }
+    # dash 처리 — '-'는 빈값으로
+    for k in ('biz', 'addr', 'email'):
+        if payload[k] == '-':
+            payload[k] = ''
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _build_blocks(data: dict, code: str) -> list:
+    """공사 확정 알림 blocks — section(본문) + actions([계산서 요청])."""
+    text = _build_message(data, code)
+    btn_value = _build_invoice_button_value(data, code)
+    return [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {
+            'type': 'actions',
+            'elements': [
+                {
+                    'type': 'button',
+                    'text': {'type': 'plain_text', 'text': '💰 계산서 요청', 'emoji': True},
+                    'action_id': 'invoice_request_open',
+                    'value': btn_value,
+                },
+            ],
+        },
+    ]
+
+
 def send_project_created_notification(data: dict, code: str) -> bool:
-    """공사 확정 알림을 #공사_확정 채널에 발송.
+    """공사 확정 알림을 #공사_확정 채널에 발송 (section + [계산서 요청] 버튼).
 
     Args:
         data: 프로젝트 dict (시트 한국어 헤더 키 — 거래처/사업자명/현장 주소 등)
@@ -99,10 +197,12 @@ def send_project_created_notification(data: dict, code: str) -> bool:
         logger.debug('[PROJECT/SLACK] SLACK_PROJECT_CHANNEL 미설정 — 알림 스킵')
         return False
 
-    text = _build_message(data, code)
+    text = _build_message(data, code)  # fallback text (알림용)
+    blocks = _build_blocks(data, code)
     payload = {
         'channel': channel,
         'text': text,
+        'blocks': blocks,
         'unfurl_links': False,
     }
 
@@ -118,10 +218,208 @@ def send_project_created_notification(data: dict, code: str) -> bool:
         with urllib.request.urlopen(req, timeout=5) as r:
             resp = json.loads(r.read())
         if resp.get('ok'):
-            logger.info(f"[PROJECT/SLACK] 공사 확정 알림 발송 완료: {code} (ts={resp.get('ts')})")
+            ts = resp.get('ts', '')
+            logger.info(f"[PROJECT/SLACK] 공사 확정 알림 발송 완료: {code} (ts={ts})")
+            # 편집 시 스레드 답글용 채널|ts 매핑 저장 (180일)
+            if ts:
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    rc = get_redis_client().redis
+                    rc.set(
+                        f'project_card_msg:{code}',
+                        f'{channel}|{ts}',
+                        ex=60 * 60 * 24 * 180,
+                    )
+                except Exception as _exc:
+                    logger.debug(f'[PROJECT/SLACK] card 매핑 저장 실패 ({code}): {_exc}')
             return True
         logger.warning(f"[PROJECT/SLACK] 슬랙 API 실패 ({code}): {resp.get('error')}")
         return False
     except Exception as exc:
         logger.warning(f"[PROJECT/SLACK] 발송 예외 ({code}): {exc}")
         return False
+
+
+# ─────────────────────────────────────────────────────────────
+# 편집 시 스레드 답글 (공사 확정 카드 밑 댓글로 변경 내역 전송)
+# ─────────────────────────────────────────────────────────────
+# 알림 대상 필드 (audit-worthy) — 잡음 필드는 제외
+_NOTIFY_FIELDS = {
+    '사업자', '유입 구분', '사업자명', '현장 주소',
+    '공사 구분', '기계 분류', '브랜드',
+    '공사 시작', '공사 종료', '공사 내용', '도급 구분', '시공자',
+    '발주처 담당자', '발주처 연락처', '발주처 이메일',
+    '담당자', '프로젝트 코드',
+    '총액 1', '부가세',
+    '계약금', '중도금', '잔금', '수금 날짜', '계산서',
+    '수금 관련 특이사항',
+    '공사 확정', 'Lead No',
+}
+
+
+def _fmt_money(v) -> str:
+    try:
+        n = int(float(str(v).replace(',', '').strip() or '0'))
+        return f'{n:,}'
+    except (ValueError, TypeError):
+        return str(v) if v is not None else '-'
+
+
+def _fmt_vat(v) -> str:
+    """부가세 값 → 사람 읽는 라벨."""
+    if v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1:
+        return 'VAT 별도'
+    return 'VAT 체크 안됨'
+
+
+def _fmt_date(v) -> str:
+    """날짜값 → 'YYYY-MM-DD'."""
+    if v is None or v == '' or str(v).strip() in ('-', 'NaT'):
+        return '-'
+    if hasattr(v, 'strftime'):
+        return v.strftime('%Y-%m-%d')
+    s = str(v).strip()
+    if len(s) >= 10 and s[4] == '-' and s[7] == '-':
+        return s[:10]
+    return s
+
+
+def _fmt_field(field: str, value) -> str:
+    """필드별 표시 포맷."""
+    if field in ('총액 1', '계약금', '중도금', '잔금'):
+        return _fmt_money(value)
+    if field == '부가세':
+        return _fmt_vat(value)
+    if field in ('공사 시작', '공사 종료', '수금 날짜', '공사 확정'):
+        return _fmt_date(value)
+    if value is None or str(value).strip() == '':
+        return '-'
+    return str(value).strip()
+
+
+def notify_project_field_changes(code: str, field_changes: list, latest_data: dict = None) -> bool:
+    """편집된 필드들을 공사 확정 카드 스레드에 답글로 전송 + 원본 카드 최신 데이터로 재렌더링.
+
+    Args:
+        code: 프로젝트 코드 (변경 후 코드)
+        field_changes: [{'field_name', 'old_value', 'new_value'}, ...]
+        latest_data: 편집 후 시트 dict (있으면 원본 카드 blocks 갱신)
+
+    스레드 답글 = 편집 히스토리 로그, 원본 카드 = 항상 최신 스냅샷.
+    _NOTIFY_FIELDS에 포함된 필드만 답글에 표시. Redis에 카드 매핑 없으면 skip.
+    """
+    if not code or not field_changes:
+        return False
+
+    # field_changes 항목 구조: {'field_name', 'old_value', 'new_value'}
+    # 대상 필드 필터
+    relevant = [c for c in field_changes if c.get('field_name') in _NOTIFY_FIELDS]
+
+    # 실제로 값이 다른 것만 (동일값 저장은 노이즈)
+    def _neq(c):
+        o = _fmt_field(c['field_name'], c.get('old_value'))
+        n = _fmt_field(c['field_name'], c.get('new_value'))
+        return o != n
+    relevant = [c for c in relevant if _neq(c)]
+    if not relevant:
+        return False
+
+    # Redis에서 채널|ts 조회 (코드가 변경됐으면 old_code로도 시도)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return False
+
+    mapping = rc.get(f'project_card_msg:{code}')
+    if not mapping:
+        # 코드 재발번된 경우 old_code로 조회
+        code_change = next((c for c in field_changes if c.get('field_name') == '프로젝트 코드'), None)
+        if code_change and code_change.get('old_value'):
+            old_code = str(code_change['old_value']).strip()
+            mapping = rc.get(f'project_card_msg:{old_code}')
+            if mapping:
+                # 새 코드로 재매핑
+                try:
+                    rc.set(f'project_card_msg:{code}', mapping, ex=60 * 60 * 24 * 180)
+                    rc.delete(f'project_card_msg:{old_code}')
+                except Exception:
+                    pass
+    if not mapping:
+        logger.debug(f'[PROJECT/SLACK/편집] card 매핑 없음, skip ({code})')
+        return False
+
+    try:
+        channel, ts = mapping.split('|', 1) if isinstance(mapping, str) else mapping.decode().split('|', 1)
+    except Exception:
+        return False
+
+    # 본문 조립
+    lines = [f'[{code} 데이터 수정 알림]']
+    for c in relevant:
+        f = c['field_name']
+        old_disp = _fmt_field(f, c.get('old_value'))
+        new_disp = _fmt_field(f, c.get('new_value'))
+        lines.append(f'- {f}: {old_disp} → {new_disp}')
+    text = '\n'.join(lines)
+
+    token = os.getenv('SLACK_PROJECT_BOT_TOKEN', '').strip()
+    if not token:
+        return False
+
+    try:
+        payload = {
+            'channel': channel,
+            'thread_ts': ts,
+            'text': text,
+            'unfurl_links': False,
+        }
+        req = urllib.request.Request(
+            'https://slack.com/api/chat.postMessage',
+            data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json; charset=utf-8',
+                'Authorization': f'Bearer {token}',
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            resp = json.loads(r.read())
+        if resp.get('ok'):
+            logger.info(f'[PROJECT/SLACK/편집] 변경 알림 답글 완료: {code} ({len(relevant)}개 필드)')
+            reply_ok = True
+        else:
+            logger.warning(f'[PROJECT/SLACK/편집] 답글 실패 ({code}): {resp.get("error")}')
+            reply_ok = False
+    except Exception as exc:
+        logger.warning(f'[PROJECT/SLACK/편집] 답글 예외 ({code}): {exc}')
+        reply_ok = False
+
+    # 원본 카드도 최신 데이터로 재렌더링 (스레드 답글과 독립적으로 시도)
+    if latest_data is not None:
+        try:
+            new_text = _build_message(latest_data, code)
+            new_blocks = _build_blocks(latest_data, code)
+            payload = {
+                'channel': channel,
+                'ts': ts,
+                'text': new_text,
+                'blocks': new_blocks,
+            }
+            req = urllib.request.Request(
+                'https://slack.com/api/chat.update',
+                data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                headers={
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'Authorization': f'Bearer {token}',
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                up_resp = json.loads(r.read())
+            if up_resp.get('ok'):
+                logger.info(f'[PROJECT/SLACK/편집] 원본 카드 갱신 완료: {code}')
+            else:
+                logger.warning(f'[PROJECT/SLACK/편집] 원본 카드 갱신 실패 ({code}): {up_resp.get("error")}')
+        except Exception as exc:
+            logger.warning(f'[PROJECT/SLACK/편집] 원본 카드 갱신 예외 ({code}): {exc}')
+
+    return reply_ok

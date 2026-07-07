@@ -1072,8 +1072,8 @@ def update_project(project_code):
         update_changes = _apply_field_updates(data, current_values, field_to_index, project_code)
         field_changes.extend(update_changes)
 
-        # 8. Google Sheets 업데이트 (AO _version 포함)
-        range_name = f'{sheet_name}!A{row_number}:AO{row_number}'
+        # 8. Google Sheets 업데이트 (AP _version 포함 — 2026-07 컬럼 시프트 반영)
+        range_name = f'{sheet_name}!A{row_number}:AP{row_number}'
         manager.update_row(sheet_id, row_number, current_values, range_name)
         logger.info(f"[PUT] 전체 행 업데이트 완료: {project_code}, {len(field_changes)}개 필드 변경")
 
@@ -1094,6 +1094,16 @@ def update_project(project_code):
 
         # 13. 구글 캘린더 이벤트 업데이트
         _update_calendar_if_needed(updated_project, project_code, final_project_code)
+
+        # 13-b. 공사 확정 카드 갱신 + 스레드에 변경 알림 답글
+        # (원본 카드는 최신 스냅샷으로 갱신, 스레드에 편집 히스토리 답글)
+        try:
+            from ..services.project_slack_notifier import notify_project_field_changes
+            notify_project_field_changes(
+                final_project_code, field_changes, latest_data=updated_project,
+            )
+        except Exception as _exc:
+            logger.warning(f"[PROJECT/SLACK/편집] 알림 처리 오류 ({final_project_code}): {_exc}")
 
         # 14. 최종 응답 반환
         logger.info(f"[PUT] 최종 응답 - project 필드 존재: {updated_project is not None}, 필드 개수: {len(updated_project) if updated_project else 0}")
@@ -1437,8 +1447,8 @@ def _save_and_return_inline_result(manager, sheet_id, sheet_name, row_number, cu
     Returns:
         tuple: (jsonify response, status_code)
     """
-    # 구글 시트 업데이트 (AO 컬럼 _version 포함)
-    range_name = f'{sheet_name}!A{row_number}:AO{row_number}'
+    # 구글 시트 업데이트 (AP 컬럼 _version 포함 — 2026-07 컬럼 시프트 반영)
+    range_name = f'{sheet_name}!A{row_number}:AP{row_number}'
     update_result = manager.update_row(sheet_id, row_number, current_values, range_name)
 
     logger.info(f"[인라인] 프로젝트 업데이트 완료: {project_code}")

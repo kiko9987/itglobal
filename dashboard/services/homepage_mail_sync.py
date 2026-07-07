@@ -196,14 +196,32 @@ def parse_mail_body(body: str) -> Dict[str, Any]:
             r'이메일[\s\S]*?\n([\w._%+\-]+@[\w.\-]+\.[a-zA-Z]{2,})', body
         )
         result['email'] = email or ''
+        # 설치/시공 희망 장소 — 라벨 뒤 안내 문구(- ★ 가정집은...) 흡수 후 값 추출
+        # 폼 개정 대응:
+        #   - "설치하실 X" (구) / "시공 원하시는 X" (신)
+        #   - "기기의 종류" (구) / "기기 종류" (신)
         result['place'] = _clean(
-            _safe_search(r'선택해주세요\.\s*([\s\S]*?)\s*설치하실', body)
+            _safe_search(
+                r'선택해주세요\.[^\n]*\n\s*([\s\S]*?)\s*(?:설치하실|시공 원하시는)\s+기기',
+                body,
+            )
         )
+        # 설치/시공 희망 기기 — 라벨 뒤 안내 문구(- ★ 가정용...) 흡수
+        # 종료마커: "(무료 )?방문 견적 받으실" (신규 폼) / "문의 내용" (구 폼)
         result['device'] = _clean(
-            _safe_search(r'중복선택가능\]\s*([\s\S]+?)\s*문의 내용', body)
+            _safe_search(
+                r'중복선택가능\][^\n]*\n\s*([\s\S]+?)\s*(?:(?:무료\s+)?방문 견적 받으실|문의 내용)',
+                body,
+            )
         )
+        # 신규 폼: 주소 블록 (우편번호 / 도로명 / 상세주소 3줄 뭉침)
+        # 예: "(10076)\n경기 김포시 걸포로 134-84 (걸포동)\n4층"
+        result['address_block'] = _safe_search(
+            r'주소를 입력해 주세요\.\s*([\s\S]+?)\s*문의 내용', body
+        ).strip()
+        # 문의 내용 — 라벨 뒤 부가 표기([장문 가능]) 흡수 후 실제 내용만
         result['details'] = _clean(
-            _safe_search(r'문의 내용([\s\S]+?)입력폼 관리하기', body)
+            _safe_search(r'문의 내용[^\n]*\n\s*([\s\S]+?)(?:입력폼 관리하기|$)', body)
         )
 
     elif category == '게시판':
@@ -276,10 +294,23 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
     name = (parsed.get('name') or '').strip()
     email = (parsed.get('email') or '').strip() or ''
 
-    # 문의 내용에서 한국 주소 추출 (정규식 → 카카오 검증 → 원문 첫 줄 fallback)
+    # 주소 추출 우선순위 (2026-07 신규 폼 대응):
+    #   1) 신규 폼: 주소 블록 3줄 (우편번호 / 도로명 / 상세주소) 파싱 → 카카오 검증
+    #   2) 구 폼: 문의 내용에서 정규식 → 카카오 검증 → 원문 첫 줄 fallback
     extracted_address = ''
     extract_level = ''
-    if inquiry:
+    address_block = (parsed.get('address_block') or '').strip()
+    if address_block:
+        # 3줄 블록 파싱 — 우편번호 제거 후 도로명 + 상세주소 조합
+        lines = [ln.strip() for ln in address_block.split('\n') if ln.strip()]
+        # 첫 줄이 "(우편번호)" 형태면 제거
+        if lines and re.match(r'^\(\d{5,6}\)$', lines[0]):
+            lines = lines[1:]
+        combined = ' '.join(lines).strip()
+        if combined:
+            extracted_address, extract_level = resolve_address(combined, combined, 'form')
+    if not extracted_address and inquiry:
+        # 구 폼 fallback — 문의 내용에서 주소 추출
         regex_result = extract_korean_address(inquiry)
         regex_addr = regex_result[0] if regex_result else None
         regex_level = regex_result[1] if regex_result else ''
@@ -483,6 +514,26 @@ def sync_homepage_email() -> Dict[str, Any]:
     if new_leads:
         lead_nos = _append_leads_to_main(new_leads)
 
+        # 순서 중요: 시트 등록 성공 직후 → pending 큐 선등록 → Slack 발송 → 성공분 큐에서 삭제
+        # (SSL 에러가 Slack 발송 함수 내부 어디서 터지든 안전망 확보)
+        # v=2 payload: JSON에 원본 lead dict(_meta_* 포함) 저장 → 재발송 시 원본 그대로 복원
+        rc = None
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            from dashboard.services.lead_sync import _serialize_pending_payload
+            rc = get_redis_client().redis
+            for src, leads in new_by_source.items():
+                for lead in leads:
+                    idx = new_leads.index(lead)
+                    ln = lead_nos[idx]
+                    rc.set(
+                        f'pending_slack_notify:{ln}',
+                        _serialize_pending_payload(src, lead),
+                        ex=60 * 60 * 24 * 7,
+                    )
+        except Exception as exc:
+            logger.warning(f'[SYNC/홈페이지] pending 큐 선등록 실패 (계속 진행): {exc}')
+
         # source별로 슬랙 알림 — 발송 성공한 lead_no만 set으로 받음
         from dashboard.services.lead_sync import _send_slack_notifications
         sent_lead_nos: set = set()
@@ -491,8 +542,22 @@ def sync_homepage_email() -> Dict[str, Any]:
             for lead in leads:
                 idx = new_leads.index(lead)
                 src_lead_nos.append(lead_nos[idx])
-            sent = _send_slack_notifications(leads, src_lead_nos, source=src) or set()
+            try:
+                sent = _send_slack_notifications(leads, src_lead_nos, source=src) or set()
+            except Exception as exc:
+                logger.error(
+                    f'[SYNC/홈페이지] Slack 발송 실패 ({src}) → pending 큐가 자동 재시도: {exc}'
+                )
+                sent = set()
             sent_lead_nos.update(sent)
+
+        # 성공한 lead만 pending 큐에서 삭제
+        if rc is not None and sent_lead_nos:
+            try:
+                for ln in sent_lead_nos:
+                    rc.delete(f'pending_slack_notify:{ln}')
+            except Exception:
+                pass
 
         # D안: 슬랙 발송 성공한 new_lead의 msg_id만 라벨 부착 대상에 추가
         # 발송 실패 lead의 msg_id는 라벨 미부착 → 다음 폴링에서 재시도

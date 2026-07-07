@@ -74,10 +74,69 @@ def _spam_score(text_lower: str) -> int:
     return score
 
 
+def _has_jamo_flood(text: str) -> bool:
+    """필터 회피용 자모 도배 감지.
+
+    한글 낱자(ㄱ~ㅎ, ㅏ~ㅣ) 및 옛한글 아래아(ᆞ·ᆢ) 같은 단독 자모 문자가
+    유의미 문자 대비 25% 이상이면 스팸으로 판정. 정상 한국어는 완성형 음절
+    (가~힣) 사용, 자모 단독은 'ㅋㅋ', 'ㅎㅎ' 같은 짧은 리액션에만 등장.
+    광고 메시지에서 필터 우회를 위해 "ㄴ L ᆞ ㅅ 로드" 처럼 자모/라틴 단독을
+    섞어 넣는 패턴을 잡음.
+    """
+    if not text:
+        return False
+    # 공백/일반 구두점 제외한 유의미 문자
+    meaningful = [
+        c for c in text
+        if not c.isspace()
+        and c not in '.,-!?~()[]{}\"\'“”‘’…•'
+    ]
+    if len(meaningful) < 10:
+        return False
+    noise = 0
+    for c in meaningful:
+        # Hangul Compatibility Jamo (ㄱ~ㅎ, ㅏ~ㅣ) — 단독 자모
+        if 'ㄱ' <= c <= 'ㆎ':
+            noise += 1
+        # 옛한글 낱자 (ᆞ, ᅠ 등)
+        elif 'ᄀ' <= c <= 'ᇿ':
+            noise += 1
+        elif 'ꥠ' <= c <= '꥿':
+            noise += 1
+        # 아래아·유사 특수문자
+        elif c in 'ㆍᆞᆢ':
+            noise += 1
+    return noise / len(meaningful) >= 0.25
+
+
+def _is_meaningless_short(text: str) -> bool:
+    """의미 없는 초단문 첫 메시지 감지 (봇 특유 패턴).
+
+    - 낱자/기호로만 구성 (예: 'ㅡ', 'ㄴㄴ', '..')
+    - 5자 이하 + 완성형 음절로 시작 안 함 (예: '.연승', '- 하이')
+    정상 인입은 대부분 '안녕하세요' (5자+) 로 시작하므로 오탐 최소.
+    """
+    if not text:
+        return False
+    stripped = text.strip()
+    if not stripped or len(stripped) > 8:
+        return False
+    syllables = sum(1 for c in stripped if '가' <= c <= '힣')
+    if syllables >= 3:
+        return False
+    if syllables == 0:
+        return True  # 낱자·기호만
+    if len(stripped) <= 5 and not ('가' <= stripped[0] <= '힣'):
+        return True  # 기호·낱자로 시작 + 5자 이하
+    return False
+
+
 def _is_spam_message(text: str) -> bool:
-    """첫 메시지가 스팸 마케팅 패턴인지 판정 — 가중치 기반.
+    """첫 메시지가 스팸 마케팅 패턴인지 판정 — 가중치 + 자모 도배 + 무의미 초단문.
 
     판정 규칙:
+    - 무의미 초단문 → 즉시 차단 (낱자/기호로만, 또는 5자 이하+기호로 시작)
+    - 자모 도배 → 즉시 차단 (필터 회피용 chaos 텍스트, 10자↑ 대상)
     - 짧은 메시지 (<50자): URL 1개+ + HIGH 키워드 1개+ (점수≥5) → 차단
       ('https://channelup.kr 무료체험' 같은 명백한 짧은 광고)
     - 긴 메시지 (≥50자):
@@ -89,6 +148,13 @@ def _is_spam_message(text: str) -> bool:
     """
     if not text:
         return False
+    # 무의미 초단문 (봇 첫 메시지 패턴) — 즉시 차단
+    if _is_meaningless_short(text):
+        return True
+    # 자모 도배 (자모+라틴 단독 문자 25%↑) — 즉시 차단
+    if _has_jamo_flood(text):
+        return True
+
     text_lower = text.lower()
     url_count = len(_URL_RE.findall(text))
     score = _spam_score(text_lower)

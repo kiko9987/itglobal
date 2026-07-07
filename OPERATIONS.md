@@ -6,8 +6,9 @@
 
 | 컴포넌트 | 종류 | 비고 |
 |---|---|---|
-| Flask 백엔드 | NSSM 윈도우 서비스 (`ITGFlask`) | 포트 5000 — 모든 슬랙 webhook/UI 진입점 |
+| Flask 백엔드 | NSSM 윈도우 서비스 (`ITGFlask`, **LocalSystem 계정**) | 포트 5000 — 모든 슬랙 webhook/UI 진입점 |
 | Caddy 리버스 프록시 | NSSM 윈도우 서비스 | 포트 443(HTTPS) → 내부 5000 |
+| Vite 빌드 산출물 | `dashboard/static/dist/` | 프론트엔드 JS 변경 시 `npm run build` 필요 |
 | Redis | Docker 컨테이너 (`redis:alpine`) | 포트 6379, 볼륨 `redis-data`, AOF+RDB 영속화 |
 | 라우터 포트포워딩 | 외부 443 → 내부 PC:443 | DDNS 도메인: `pm.itg-aircon.com` |
 | Google Sheets | 외부 API | 서비스 계정 credentials.json |
@@ -20,6 +21,12 @@
 ### 슬랙 webhook 진입점
 - 단일 도메인: `https://pm.itg-aircon.com/slack/events`
 - 4개 봇 + 슬래시 명령 모두 이 URL 사용
+
+### Flask 서비스 계정 = LocalSystem (중요)
+NSSM으로 등록된 `ITGFlask`는 **LocalSystem 계정**으로 실행됩니다. 이로 인해:
+- 사용자 세션의 매핑 드라이브(`G:` 등 Google Drive Desktop)가 **보이지 않음**
+- 사용자 데스크톱에 창을 띄울 수 없음 (`subprocess.run(['explorer', ...])` 등 무효)
+- 이 제약 때문에 문서 폴더 열기는 서버 subprocess가 아닌 **클라이언트 커스텀 URL 프로토콜** (`itgfolder://`)로 구현됨 — [docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md) 참고
 
 ## 2. 핵심 파일 / 위치
 
@@ -37,6 +44,12 @@
 | 채널톡 핸들러 | `dashboard/blueprints/channeltalk.py` |
 | 채널톡 공통 유틸 | `dashboard/blueprints/channeltalk_helpers.py` (시간 포맷, 스팸 감지) |
 | 폴링 스케줄러 | `dashboard/services/sync_scheduler.py` (관리자 알림 + 인증서 체크 포함) |
+| 리드 서비스 | `dashboard/services/lead_service.py` — 시트 CRUD (16열, A~P) |
+| 리드 sync | `dashboard/services/lead_sync.py` — 당근/전화 워크플로 폴링 |
+| 폴더 API | `dashboard/blueprints/folders.py` + `dashboard/utils/google_drive.py` |
+| Vite 프론트엔드 소스 | `dashboard/src/` |
+| Vite 빌드 산출물 | `dashboard/static/dist/` (git에 커밋됨) |
+| 직원 배포 문서 | `docs/employee-deployment/` |
 | pytest 테스트 | `tests/unit/test_slack_channeltalk_core.py` |
 | 가상환경 | `.venv/` |
 
@@ -48,7 +61,8 @@
 - [ ] 방화벽: 5000/443 포트 개방 (또는 Flask/Caddy 추가)
 
 ### 소프트웨어 설치
-- [ ] Python 3.x (현재 PC 버전과 동일)
+- [ ] Python 3.9+ (현재 PC 버전과 동일)
+- [ ] Node.js 18+ (Vite 프론트엔드 빌드용)
 - [ ] Git for Windows
 - [ ] Docker Desktop (WSL2 백엔드)
 - [ ] NSSM (https://nssm.cc)
@@ -57,6 +71,8 @@
 ### 코드/데이터 이전
 - [ ] `git clone <리포지토리>` — 코드 가져오기
 - [ ] `python -m venv .venv` + `pip install -r requirements.txt`
+- [ ] `cd dashboard && npm install` — Vite 의존성
+- [ ] `npm run build` — 프론트엔드 빌드 (필수: `static/dist/`가 있어야 UI 로드됨)
 - [ ] `.env` 복사 (수동, 시크릿 포함)
 - [ ] `credentials.json`, `token.json` 복사
 - [ ] `Caddyfile` 복사
@@ -102,6 +118,13 @@
 - [ ] 슬랙 봇 4개 모두 응답 (인입 카드, 모달, 슬래시 명령)
 - [ ] APScheduler 작업 로그 확인 (`logs/`)
 - [ ] 첫 인입 lead 전체 플로우 검증 (홈페이지 → 시트 → 슬랙 → 모달 제출 → 리스트 등록)
+- [ ] 관리 사이트에서 프로젝트 상세 열기 → 문서 폴더 링크 렌더 확인 (UI 로드)
+- [ ] `.venv\Scripts\python.exe -m pytest tests/unit/test_slack_channeltalk_core.py -v --no-cov` 통과
+
+### 직원 PC 배포 (병렬 진행)
+- [ ] 각 직원 PC에 Google Drive Desktop 설치 및 G: 마운트 확인
+- [ ] `itgfolder://` 프로토콜 등록 — [docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md) 참고
+- [ ] Slack Desktop 앱 설치 및 로그인
 
 ## 4. 원격 유지보수 환경
 
@@ -217,56 +240,104 @@ Restart-Service ITGFlask  # 관리자 권한 필요
 **원인**: Redis dedup 키 사라짐 (컨테이너 데이터 손실)
 **조치**: 이미 영속화 적용됨 — 재발 시 AOF 파일 상태 확인
 
+### 문서 폴더 링크 클릭해도 탐색기가 안 열림 (사용자 문의)
+**증상**: 프로젝트 상세의 폴더 ID 링크 클릭 시 반응 없음, 또는 브라우저 오류
+**원인 후보** (순서대로 확인):
+1. 해당 직원 PC에 `itgfolder://` 프로토콜이 등록되지 않음 — [docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md) 재설치
+2. `C:\ITG\open-itg-folder.vbs` 파일 없음
+3. Google Drive Desktop 미실행 또는 G: 미마운트
+4. 브라우저 팝업 차단 — 첫 클릭 시 "itgfolder 열기" 허용 필요
+
+**주의**: 서버(Flask/NSSM/LocalSystem)는 이 흐름에 관여하지 않음. 서버 로그에는 흔적 없음. 모두 클라이언트 이슈로 좁혀서 진단.
+
+### 신규 프로젝트 등록 시 API 400 (범위 관련)
+**증상**: 프로젝트 시트 API 에러 `Requested writing within range ... but tried writing to column [XX]`
+**원인**: `_build_row_values`가 반환하는 리스트 길이와 `append_row`의 하드코딩 범위 불일치
+**조치**: 컬럼 추가/이동 시 `dashboard/utils/google_sheets.py:797` 의 `A{next_row}:AP{next_row}`도 함께 갱신. 현재 프로젝트 시트는 A~AP(42열, AO=Lead No, AP=_version).
+
 ## 7. 환경 변수 핵심 목록 (`.env`)
 
 ```bash
-# Google
-GOOGLE_SHEET_ID=...
-GOOGLE_SHEET_NAME=...
-KARROT_AUTO_SHEET_ID=...
+# Google Sheets — 프로젝트 시트 + 리드 시트 분리
+GOOGLE_SHEET_ID=...                   # 공사 현황 시트 ID
+GOOGLE_SHEET_NAME=공사 현황의 사본
+ONLINE_LEADS_SHEET_ID=...             # 리드 관리 시트 ID (별개 문서)
+ONLINE_LEADS_SHEET_NAME=리드 관리     # 탭 이름 (개명됨: 옛 "고객 리드 관리")
+KARROT_AUTO_SHEET_ID=...              # 당근 자동 등록 시트
+KARROT_AUTO_SHEET_TAB=...
+GOOGLE_APPLICATION_CREDENTIALS=credentials.json
+GOOGLE_CREDENTIALS_FILE=credentials.json
+GOOGLE_CALENDAR_ID=primary
 
-# Slack 봇 4개
-SLACK_BOT_TOKEN=...           # 메인 봇
-SLACK_VISIT_BOT_TOKEN=...     # 방문 일정 봇
-SLACK_PROJECT_BOT_TOKEN=...   # 프로젝트 봇 (별도)
-SLACK_PAYMENT_BOT_TOKEN=...   # 수금 관리 봇
+# Slack 봇 4개 (각각 토큰 + signing secret 필요)
+SLACK_BOT_TOKEN=...              # 메인 (온라인 문의 알림봇)
+SLACK_SIGNING_SECRET=...
+SLACK_VISIT_BOT_TOKEN=...        # 방문 일정 알림봇
+SLACK_VISIT_SIGNING_SECRET=...
+SLACK_PROJECT_BOT_TOKEN=...      # 공사 현황 알림봇
+SLACK_PROJECT_SIGNING_SECRET=...
+SLACK_PAYMENT_BOT_TOKEN=...      # 수금 관리 알림봇
 
-# Slack webhook 워크플로
-SLACK_LIST_WEBHOOK_URL=...
-SLACK_LIST_UPDATE_WEBHOOK_URL=...
+# Slack webhook 워크플로 (Slack List 조작)
+SLACK_LIST_WEBHOOK_URL=...           # 방문 List 등록
+SLACK_LIST_UPDATE_WEBHOOK_URL=...    # 방문 List 업데이트
 SLACK_VISIT_CANCEL_WEBHOOK_URL=...
 SLACK_VISIT_MODIFY_WEBHOOK_URL=...
 SLACK_VISIT_RESTORE_WEBHOOK_URL=...
+SLACK_VISIT_COMPLETE_WEBHOOK_URL=... # 방문 완료 (List 삭제)
 
 # Slack 채널
-SLACK_CHANNEL=...           # 온라인 문의
-SLACK_VISIT_CHANNEL=...     # 방문 일정
-SLACK_PAYMENT_CHANNEL=...   # 수금 관리
+SLACK_LEAD_CHANNEL=...          # 온라인 문의
+SLACK_VISIT_CHANNEL=...         # 방문 일정
+SLACK_PROJECT_CHANNEL=...       # 공사 확정
+SLACK_PAYMENT_CHANNEL=...       # 수금 관리
 SLACK_CHANNELTALK_CHANNEL=...
+SLACK_INVOICE_CHANNEL_ID=...    # 세금계산서 발행 요청 카드 발송처 (#영업_관리)
+
+# 스케줄러 플래그
+PHONE_WORKFLOW_SYNC_ENABLED=false  # 슬랙 워크플로 도입 전엔 false 유지 (수동 시트 입력 시 자동 카드 발송 방지)
 
 # 외부 API
 KAKAO_REST_API_KEY=...
 CHANNELTALK_ACCESS_KEY=...
 CHANNELTALK_ACCESS_SECRET=...
-HOMEPAGE_MAIL_USER=...
+CHANNELTALK_OPERATOR_ID=...        # 봇 답변 시 표기할 운영자 ID
+CHANNELTALK_REMIND_AFTER_MIN=30    # 미응답 알림 딜레이 (분)
+HOMEPAGE_MAIL_USER=...             # Gmail 계정 (홈페이지 문의 처리용)
+HOMEPAGE_PROCESSED_LABEL=처리완료   # 처리된 메일에 붙는 라벨
+HOMEPAGE_MAIL_DAYS_BACK=3
 
 # 폴링 주기 (선택)
 KARROT_SYNC_INTERVAL_MIN=2
 HOMEPAGE_MAIL_SYNC_INTERVAL_MIN=2
 KARROT_MAX_NEW_PER_SYNC=5
 
-# Google Drive 시설 폴더
-GOOGLE_DRIVE_VISIT_FOLDER_ID=...
-GOOGLE_DRIVE_WINDOWS_BASE_PATH=G:\공유 드라이브\...
+# Google Drive 시설 폴더 (방문 사진 자동 저장 + itgfolder://)
+GOOGLE_DRIVE_VISIT_FOLDER_ID=...              # 부모 폴더 ID
+GOOGLE_DRIVE_WINDOWS_BASE_PATH=G:\공유 드라이브\...  # Drive Desktop 미러 경로
 
 # 활성화 플래그
 SLACK_BOT_ENABLED=true
+PHONE_WORKFLOW_SYNC_ENABLED=true   # 전화 워크플로 sync 폴러
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
 
 # 운영 알림 (Redis 다운, sync 실패, SSL 인증서 만료)
 SLACK_ADMIN_CHANNEL=U04UL2ZLJAX     # 관리자 슬랙 User ID
 SLACK_PUBLIC_HOST=pm.itg-aircon.com  # SSL 인증서 체크 도메인
 ADMIN_NOTIFY_EMAIL=kiko@itg-aircon.com  # 이메일 알림 수신처
 ```
+
+### 시트 컬럼 참고
+| 시트 | 범위 | 최근 주요 변경 |
+|---|---|---|
+| **프로젝트 시트** (공사 현황의 사본) | A~AP (42열) | 2026-07 AO=Lead No 신설, _version이 AN→AP 이동 |
+| **리드 시트** (리드 관리) | A~P (16열) | 2026-07 P열 = 폴더 ID (방문 사진 폴더 자동 저장) |
+
+프로젝트 시트 컬럼 변경 시 반드시 `dashboard/utils/google_sheets.py:797`의 `A:AP` 범위와 `_build_row_values`의 리스트 크기(현재 42)를 함께 갱신.
 
 ## 8. 백업/복구 절차
 
@@ -280,6 +351,9 @@ New-Item -ItemType Directory -Force $dst
 docker exec redis redis-cli BGSAVE
 Start-Sleep 3
 docker cp redis:/data/dump.rdb "$dst\redis_dump.rdb"
+
+# 감사 로그 SQLite
+Copy-Item dashboard_db.sqlite "$dst\dashboard_db.sqlite"
 
 # 설정 파일
 Copy-Item .env, credentials.json, token.json, Caddyfile $dst
@@ -314,9 +388,33 @@ python -c "import os; from dotenv import load_dotenv; load_dotenv(); print(os.ge
 
 # 핵심 함수 회귀 검증 (코드 변경 후 권장)
 .venv\Scripts\python.exe -m pytest tests/unit/test_slack_channeltalk_core.py -v --no-cov
+
+# 프론트엔드 리빌드 (JS/CSS 변경 후 필수)
+cd dashboard
+npm run build
+cd ..
+Restart-Service ITGFlask
+
+# 프로젝트 시트 append_row 범위 확인 (컬럼 추가 시)
+Select-String -Path dashboard\utils\google_sheets.py -Pattern "A{next_row}"
 ```
 
-## 10. 연락처 / 외부 자료
+## 10. 배포 · 문서
+
+### 직원 대상 배포
+- **문서 폴더 프로토콜**: [docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md)
+  - 각 직원 PC에 `.reg` + `.vbs` 설치 필요
+  - Google Drive Desktop 사전 설치 요구
+  - 미설치 시 서비스가 폴더 링크 클릭에 응답 X (서버 로그에 아무 흔적 없음)
+
+### 관련 문서
+- [README.md](README.md) — 시스템 개요 및 기능
+- [SETUP.md](SETUP.md) — 개발 환경 셋업
+- [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md) — Google OAuth 상세
+- [dashboard/프로젝트_진행현황_및_다음단계_계획.md](dashboard/프로젝트_진행현황_및_다음단계_계획.md) — Phase 이력 및 로드맵
+- [dashboard/다음_세션_시작_가이드.md](dashboard/다음_세션_시작_가이드.md) — 새 세션 시작 시 체크리스트
+
+## 11. 연락처 / 외부 자료
 
 - 슬랙 앱 관리: https://api.slack.com/apps
 - Google Cloud Console: https://console.cloud.google.com
@@ -325,4 +423,4 @@ python -c "import os; from dotenv import load_dotenv; load_dotenv(); print(os.ge
 - DDNS (도메인): pm.itg-aircon.com
 
 ---
-**마지막 업데이트**: 2026-06-30
+**마지막 업데이트**: 2026-07-03 (Phase 5-G 완료 반영)

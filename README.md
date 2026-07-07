@@ -1,242 +1,155 @@
-# 냉난방기 설치 공사 관리 시스템
+# ITG-Aircon 관리 시스템
 
-구글 시트의 웹 GUI 버전 + 실시간 대시보드 + 자동 알림 시스템
+냉난방기 설치/A·S/수금 전체 라이프사이클을 관리하는 통합 대시보드 + 자동화 봇.
 
-**영업사원들을 위한 쉬운 데이터 입력과 관리자를 위한 통합 대시보드**
-
-**구조 안내**: 프로젝트 라우트는 `dashboard/blueprints/`, 데이터 연동 및 캐시는 `dashboard/services/` 모듈에서 관리합니다.
-
+**핵심**: 리드 인입 → 상담 → 방문 → 견적 → 공사 확정 → 시공 → 수금 → 사후관리 전 과정이 Google Sheets를 단일 진실 원천으로 삼고, Flask 대시보드 + 4개 Slack 봇 + 채널톡·Gmail 인입 통합으로 운영.
 
 ## 🌟 주요 기능
 
-### 🖥️ **웹 기반 데이터 입력 시스템 (구글 시트 GUI)**
-- **직관적인 입력 폼**: 영업사원들도 쉽게 사용할 수 있는 웹 인터페이스
-- **자동 데이터 검증**: 필수 항목 체크 및 형식 검증
-- **실시간 계산**: 부가세, 미수금, 마진율 자동 계산
-- **프로젝트 코드 자동 생성**: 지역별 순차 번호 자동 부여
-- **구글 시트 실시간 동기화**: 입력 즉시 구글 시트에 반영
+### 📊 관리 대시보드 (pm.itg-aircon.com)
+- **프로젝트 관리**: 시트-스타일 인라인 편집, 실시간 필터·검색·정렬
+- **리드 관리**: 온라인/전화/거래처 리드 통합 관리, 프로젝트 자동 연동
+- **통계·차트**: 월별 매출, 담당자별 성과, 미수금 현황
+- **감사 로그**: 모든 편집 이력 추적 (사용자·시각·이전/이후 값)
+- **권한 관리**: Admin/Editor/Viewer 3단계 롤
 
-### 📋 **프로젝트 관리 시스템**
-- **전체 프로젝트 목록**: 필터링, 검색, 정렬 기능
-- **상세 정보 보기**: 각 프로젝트의 완전한 정보 조회
-- **수정 및 삭제**: 웹에서 직접 데이터 편집
-- **CSV 내보내기**: 필터된 데이터 엑셀 다운로드
-- **상태별 관리**: 대기/진행중/완료 상태 추적
+### 🤖 Slack 봇 (4개 분리 앱)
+| 봇 | 담당 |
+|---|---|
+| **온라인 문의 알림봇** | 홈페이지/카카오톡/채널톡/당근/전화 문의 인입 → 카드 발송 → 상담 모달 |
+| **방문 일정 알림봇** | 방문 예약 카드 + 방문일 수정/완료/취소 액션 + 현장 사진 자동 저장 |
+| **공사 현황 알림봇** | 리드 → 프로젝트 등록 모달 (`/공사확정`) + 세금계산서 발행 요청/완료 흐름 |
+| **수금 관리 알림봇** | 입금 메모 자동 감지 → 미수금 카드 → 확정 액션 |
 
-### 📊 **실시간 대시보드**
-- **전체 현황 요약**: 총 프로젝트 수, 매출액, 미수금, 회수율
-- **월별 매출 분석**: 시각적 차트로 매출 추이 확인
-- **지역별 성과**: 영업사원별 매출 및 성과 분석
-- **브랜드별 분석**: 냉난방기 브랜드별 매출 및 마진율
-- **미수금 현황**: 미수금 현황 및 기간별 분류
-- **실시간 업데이트**: WebSocket으로 실시간 데이터 반영
+**진입점**: 모든 봇/워크플로가 `https://pm.itg-aircon.com/slack/events` 단일 URL 사용.
 
-### 📧 **스마트 알림 시스템**
-- **빈 칸 알림**: 영업사원별 미입력 항목 자동 체크 및 이메일 발송
-- **일일 보고서**: 관리자용 일일 현황 요약 보고서
-- **슬랙 통합**: 팀 채널로 실시간 알림
-- **스케줄 자동화**: 매일 오전 9시, 오후 6시 자동 실행
-- **개인별 맞춤 알림**: 각 영업사원에게 해당하는 누락 항목만 전송
+### 🔄 자동 인입 파이프라인
+| 채널 | 흐름 |
+|---|---|
+| 홈페이지 문의 | Gmail API → 파싱 → 시트 등록 → Slack 카드 |
+| 카카오톡/채널톡 | 채널톡 Developer API → 시트 등록 → Slack 카드 (매니저 답변 forward) |
+| 전화 문의 | Slack 워크플로 → 시트 등록 → sync 폴링 → Slack 카드 |
+| 당근마켓 | 당근 시트 → 자동 sync → 메인 시트 → Slack 카드 |
+| 거래처/기타 방문 | Slack `/방문` 슬래시 명령 → 방문 List 등록 |
 
-## 🚀 빠른 시작
+### 📁 Google Drive 자동 폴더 파이프라인
+- 방문 카드 thread에 현장 사진 첨부 → 자동으로 프로젝트 폴더 생성
+- 폴더명 규칙: `(담당자이니셜) 주소 YY.MM.DD`
+- 폴더 ID가 리드 시트 P열에 저장 → 신규 프로젝트 등록 시 자동 채움
+- 대시보드에서 폴더 링크 클릭 시 각자 자기 PC 탐색기로 열림 ([itgfolder://](docs/employee-deployment/itgfolder-install.md) 프로토콜)
 
-### 1. 필수 요구사항
-- Python 3.8+
-- 구글 계정 및 Google Cloud Console 프로젝트
-- Gmail 계정 (알림용)
+### 💰 세금계산서 발행 요청/완료 흐름
+- 공사 확정 카드 하단 `[💰 계산서 요청]` 버튼 → 프로젝트 정보 pre-fill 모달 → `#영업_관리` 채널에 정형 카드 발송
+- 회계가 스레드에 계산서 PDF/이미지 첨부 후 `[✅ 발행 완료]` 클릭 → 카드 회색화 + 확인 문구 게시
+- 첨부 없으면 완료 처리 차단 (ephemeral 안내)
 
-### 2. 설치 및 설정
+### 🔔 안정성 안전망
+- **고아 리드 감지** — 시트 등록됐지만 슬랙 카드 없는 리드를 5분 주기 스캔·자동 재발송 (Flask 재시작 등 유실 대비)
+- **재문의 알림** — 채팅 리드 진행 중 상태에서 재문의 오면 채널에 top-level 알림 카드 추가 (스레드 리플라이는 슬랙 알림 안 뜨는 문제 회피)
+- **프로젝트 편집 알림** — 대시보드에서 편집 시 원본 공사 확정 카드가 최신 스냅샷으로 갱신되고, 스레드에 `[프로젝트코드 데이터 수정 알림]` 히스토리 답글
+- **Pending 큐 재발송** — 슬랙 SSL 에러 등으로 누락된 카드·방문 알림 5분 주기 자동 복구
 
-#### 라이브러리 설치
-```bash
-pip install -r requirements.txt
-```
-> 신규 구조: 프로젝트 관련 라우트는 `dashboard/blueprints/`, 데이터 연동 로직은 `dashboard/services/`에서 관리합니다.
+### 🔍 주소 정규화
+- Kakao Local API로 도로명/지번 검증
+- 시설명·층·호 정보 자동 부착 (verified 주소 뒤에 부가정보)
+- 재문의 자동 감지 (같은 주소 다른 리드 매칭)
 
+## 🏗️ 시스템 구성
 
-#### 구글 API 설정
-1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트 생성
-2. Google Sheets API 활성화
-3. 서비스 계정 생성 후 JSON 키 다운로드
-4. `credentials.json` 파일을 프로젝트 루트에 저장
+| 컴포넌트 | 배포 | 비고 |
+|---|---|---|
+| Flask 백엔드 | Windows NSSM 서비스 (`ITGFlask`) | 포트 5000 |
+| Caddy 리버스 프록시 | Windows NSSM 서비스 | 포트 443 HTTPS → 5000 |
+| Redis | Docker 컨테이너 | 캐시·락·pending 큐 |
+| Google Sheets | 외부 API | 서비스 계정 인증 |
+| Google Drive | 외부 API + Desktop 앱 | 폴더 자동 생성 · 로컬 미러 |
+| Slack | Bolt for Python | 4개 봇 앱 |
+| 채널톡 | Developer API | 실시간 webhook |
+| Gmail | OAuth (홈페이지 메일 처리) | |
 
-#### 환경 변수 설정
-`.env` 파일을 생성하고 다음 정보를 입력:
-
-```env
-# 구글 API 설정
-GOOGLE_SHEET_ID=your_google_sheet_id_here
-GOOGLE_SHEET_NAME=공사 현황
-
-# Flask 설정
-FLASK_SECRET_KEY=your_secret_key_here
-DEBUG=True
-
-# 이메일 설정 (Gmail SMTP)
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USERNAME=your_email@gmail.com
-EMAIL_PASSWORD=your_app_password
-
-# 관리자 이메일 (쉼표로 구분)
-ADMIN_EMAILS=admin1@company.com,admin2@company.com
-
-# 영업사원 이메일 (JSON 형태)
-SALES_EMAILS={"양곡":"yangkok@company.com","종로":"jongno@company.com"}
-
-# 슬랙 웹훅 URL (선택사항)
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/your/webhook/url
-
-# 알림 설정
-NOTIFICATION_INTERVAL_HOURS=24
-MISSING_FIELDS_THRESHOLD=3
-```
-
-새로운 구조: `dashboard/blueprints/`에는 Flask Blueprint가, `dashboard/services/`에는 데이터 로직이 배치되어 있습니다.
-
-
-### 3. 실행
-
-#### 통합 시스템 시작
-```bash
-python start_dashboard.py
-```
-
-시스템이 시작되면 다음 URL에서 이용 가능합니다:
-- **메인 대시보드**: `http://localhost:5000`
-- **프로젝트 관리**: `http://localhost:5000/projects`  
-- **새 프로젝트 등록**: `http://localhost:5000/project/new`
-
-#### 알림 시스템 시작 (별도 터미널)
-```bash
-python -m dashboard.utils.notification_system
-```
-이 명령은 매일 09:00과 18:00에 알림을 보내는 스케줄러를 실행합니다. 장기 실행이 필요하면 별도 터미널에서 백그라운드로 유지하세요.
-
+**상세 운영 가이드**: [OPERATIONS.md](OPERATIONS.md)
 
 ## 📁 프로젝트 구조
 
 ```
-프로젝트/
+Claude Project/
+├── app.py                        # Flask 진입점
 ├── dashboard/
-│   ├── app.py                 # Flask 웹 애플리케이션
-│   ├── templates/
-│   │   └── dashboard.html     # 대시보드 HTML 템플릿
-│   └── utils/
-│       ├── google_sheets.py   # 구글 시트 연동
-│       ├── data_analyzer.py   # 데이터 분석 모듈
-│       └── notification_system.py # 알림 시스템
-├── data/                      # 엑셀 데이터 파일 (폴백용)
-├── start_dashboard.py         # 대시보드 시작 스크립트
-├── requirements.txt           # Python 패키지 의존성
-├── .env                       # 환경 변수 설정
-├── credentials.json          # 구글 API 자격증명
-└── README.md                  # 프로젝트 문서
+│   ├── blueprints/               # Flask 라우트 (블루프린트별 분리)
+│   │   ├── projects.py           # 프로젝트 CRUD + 자동 코드 생성
+│   │   ├── leads.py              # 리드 관리
+│   │   ├── slack_bot.py          # Slack 4봇 통합 핸들러
+│   │   ├── slack_helpers.py      # Slack 공통 유틸
+│   │   ├── channeltalk.py        # 채널톡 webhook
+│   │   ├── channeltalk_helpers.py
+│   │   ├── folders.py            # Google Drive 폴더 API
+│   │   ├── auth.py, admin.py, users.py
+│   │   └── ...
+│   ├── services/                 # 비즈니스 로직
+│   │   ├── project_service.py    # 프로젝트 시트 로드/캐시
+│   │   ├── lead_service.py       # 리드 시트 로드/CRUD
+│   │   ├── lead_sync.py          # 당근/전화 워크플로 자동 동기화
+│   │   ├── lead_helpers.py       # 전화번호 정규화, 키워드 매핑
+│   │   ├── address_resolver.py   # Kakao Local API
+│   │   ├── homepage_mail_sync.py # Gmail 파싱
+│   │   ├── payment_sync.py       # 수금 메모 감지
+│   │   ├── project_slack_notifier.py
+│   │   ├── channeltalk_api.py, channeltalk_threads.py
+│   │   ├── calendar_service.py, calendar_sync_scheduler.py
+│   │   └── sync_scheduler.py     # apscheduler 폴링 관리
+│   ├── utils/
+│   │   ├── google_sheets.py, google_drive.py
+│   │   ├── redis_client.py, smart_cache_manager.py
+│   │   └── ...
+│   ├── templates/, static/, src/ # UI (Vite 빌드)
+│   └── logs/
+├── docs/                         # 문서
+│   └── employee-deployment/
+├── tests/                        # pytest
+├── credentials.json              # Google 서비스 계정 (git-ignored)
+├── token.json                    # Gmail OAuth 토큰 (git-ignored)
+├── .env                          # 환경 변수 (git-ignored)
+├── Caddyfile
+├── docker-compose.yml            # Redis 컨테이너
+└── OPERATIONS.md                 # 운영 가이드
 ```
 
-## 🔧 상세 설정
+## 🚀 시작하기
 
-### 구글 시트 설정
-1. 구글 시트에서 '공사 현황' 시트 생성
-2. 필수 컬럼: 프로젝트 코드, 사업자, 담당자, 거래처, 현장 주소, 공사 내용, 공사 시작, 총액 2, 미수금 등
-3. 시트 공유 설정에서 서비스 계정 이메일에 뷰어 권한 부여
+### 개발 환경 (로컬)
+[SETUP.md](SETUP.md) 참고.
 
-### 이메일 설정
-Gmail 사용 시:
-1. Google 계정에서 2단계 인증 활성화
-2. 앱 비밀번호 생성 후 `EMAIL_PASSWORD`에 입력
+### 프로덕션 배포 (회사 서버 PC)
+[OPERATIONS.md](OPERATIONS.md) 참고 — NSSM 서비스 등록, Caddy HTTPS, Redis 백업 포함.
 
-### 슬랙 설정 (선택사항)
-1. 슬랙 워크스페이스에서 Incoming Webhook 생성
-2. 웹훅 URL을 `SLACK_WEBHOOK_URL`에 입력
+### 직원용 폴더 프로토콜 설치
+[docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md) 참고 — 각 직원 PC에서 프로젝트 문서 폴더가 탐색기로 열리도록 설정.
 
-## 📈 대시보드 기능 상세
+## 🔒 보안 · 인증
 
-### 메인 대시보드
-- **요약 카드**: 프로젝트 수, 총매출, 미수금, 회수율
-- **월별 매출 차트**: 라인 차트로 매출 추이 시각화
-- **지역별 매출**: 도넛 차트로 지역별 비중 표시
-- **미수금 현황**: 담당자별 미수금 바 차트
-- **브랜드 분석**: 파이 차트로 브랜드별 매출 비중
+- Google OAuth (도메인 제한: `@itg-aircon.com`)
+- 세션 4시간 타임아웃
+- 편집 락 5분 자동 해제
+- 모든 시트 편집 감사 로그
+- CSRF 토큰 (Flask-WTF)
+- `.env`, `credentials.json`, `token.json` git-ignored
 
-### 실시간 기능
-- **WebSocket 연결**: 실시간 데이터 업데이트
-- **자동 새로고침**: 10분마다 자동으로 데이터 갱신
-- **연결 상태 표시**: 실시간 연결 상태 확인
+## 🧪 테스트
 
-## 🔔 알림 시스템 상세
-
-### 빈 칸 알림
-- **자동 검증**: 중요 필드의 누락 데이터 자동 감지
-- **개인별 알림**: 각 영업사원에게 개별 이메일 발송
-- **우선순위**: 누락 항목 수에 따른 긴급도 표시
-- **프로젝트 목록**: 구체적인 누락 프로젝트 코드 제공
-
-### 관리자 보고서
-- **일일 요약**: 전체 현황 요약 보고서
-- **미수금 현황**: 미수금 상세 현황
-- **팀 성과**: 지역별 성과 요약
-
-## 🛠️ 커스터마이징
-
-### 새로운 차트 추가
-1. `data_analyzer.py`에 분석 함수 추가
-2. `app.py`에 API 엔드포인트 추가
-3. `dashboard.html`에 차트 컴포넌트 추가
-
-### 알림 규칙 변경
-1. `.env`에서 `MISSING_FIELDS_THRESHOLD` 값 조정
-2. `notification_system.py`에서 체크 로직 수정
-
-### 새로운 영업사원 추가
-1. `.env`의 `SALES_EMAILS`에 추가
-2. 구글 시트에 새로운 담당자 지역 추가
-
-## 🔍 문제 해결
-
-### 일반적인 문제들
-
-**1. 구글 시트 연결 실패**
-- `credentials.json` 파일 확인
-- 구글 시트 ID 정확성 확인
-- 서비스 계정 권한 확인
-
-**2. 이메일 발송 실패**
-- Gmail 앱 비밀번호 확인
-- 2단계 인증 활성화 확인
-- 방화벽 설정 확인
-
-**3. 데이터 로드 오류**
-- 구글 시트 컬럼명 일치 확인
-- 데이터 타입 확인
-- 네트워크 연결 확인
-
-### 로그 확인
-- 대시보드 로그: `dashboard.log`
-- 알림 시스템 로그: `notifications.log`
-
-## 🔒 보안 고려사항
-
-- `.env` 파일을 버전 관리에 포함하지 마세요
-- `credentials.json` 파일을 안전하게 보관하세요
-- 프로덕션 환경에서는 `DEBUG=False` 설정
-- 정기적으로 앱 비밀번호 갱신
-
-## 📞 지원
-
-문제가 발생하면 다음을 확인해보세요:
-1. 요구사항 체크 스크립트 실행
-2. 로그 파일 확인
-3. .env 설정 재확인
-
-## 🔄 업데이트
-
-새로운 기능이나 버그 수정을 위해 정기적으로 업데이트하세요:
 ```bash
-git pull origin main
-pip install -r requirements.txt
+pytest tests/
 ```
 
----
+주요 테스트: `tests/unit/test_slack_channeltalk_core.py` (Slack/채널톡 핵심 파서·모달 로직).
 
-💡 **팁**: 처음 설정할 때는 대시보드를 먼저 실행해서 정상 동작을 확인한 후 알림 시스템을 시작하는 것을 추천합니다.
+## 📚 관련 문서
+
+- [SETUP.md](SETUP.md) — 개발 환경 셋업
+- [OPERATIONS.md](OPERATIONS.md) — 프로덕션 운영 · 서버 마이그레이션 · 백업
+- [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md) — Google OAuth 상세
+- [docs/employee-deployment/](docs/employee-deployment/) — 직원 대상 설치 가이드
+- [dashboard/프로젝트_진행현황_및_다음단계_계획.md](dashboard/프로젝트_진행현황_및_다음단계_계획.md) — 진행 이력
+
+## 📝 라이선스
+
+내부 사용 전용.

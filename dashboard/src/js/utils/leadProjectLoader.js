@@ -32,6 +32,18 @@ function mapPlatformToInflow(platform) {
   return PLATFORM_TO_INFLOW[platform.trim()] || platform.trim();
 }
 
+// 카카오/채널톡 랜덤 닉네임 패턴 감지 — "햇님 310", "초콜릿 699", "스노우맨 257" 등
+// 매니저가 실명 확인 안 한 채로 프로젝트 등록되지 않도록 자동 채우기 skip
+function looksLikeChatNickname(name) {
+  const s = (name || '').trim();
+  if (!s) return false;
+  // 한글 단어 + 공백 + 2~4자리 숫자 (카카오 오픈채팅 랜덤 닉 표준)
+  if (/^[가-힣]{2,10}\s\d{2,4}$/.test(s)) return true;
+  // generic 대체 값
+  if (['익명', '익명 고객', '카카오톡 사용자', '채널톡 사용자'].includes(s)) return true;
+  return false;
+}
+
 let debounceTimer = null;
 let currentLead = null;
 
@@ -173,7 +185,15 @@ function applyLead(lead, opts) {
   };
 
   setVal(targets.client, mapPlatformToInflow(lead.platform));
-  setVal(targets.siteManager, lead.name);
+  // 채팅 인입 리드의 랜덤 닉네임(예: "햇님 310")은 auto-fill skip — 실명 확인용 placeholder 강조
+  const siteMgrEl = targets.siteManager ? document.getElementById(targets.siteManager) : null;
+  if (siteMgrEl && looksLikeChatNickname(lead.name)) {
+    siteMgrEl.value = '';
+    siteMgrEl.placeholder = `채팅 닉네임(${lead.name}) — 실제 담당자명을 입력하세요`;
+    flashHighlight(siteMgrEl);
+  } else {
+    setVal(targets.siteManager, lead.name);
+  }
   setVal(targets.phone, lead.phone);
   setVal(targets.address, lead.address);
 

@@ -1,86 +1,152 @@
-# ITG Sheets Dashboard 설정 가이드
+# 개발 환경 셋업 가이드
 
-## 집에서 작업 시작하기
+로컬 개발 시작용. 프로덕션 운영/서버 마이그레이션은 [OPERATIONS.md](OPERATIONS.md) 참고.
 
-### 1. 프로젝트 클론
-```bash
-git clone https://github.com/[YOUR_USERNAME]/itg-sheets-dashboard.git
-cd itg-sheets-dashboard
-```
+## 사전 요구사항
 
-### 2. 가상환경 설정
-```bash
-# Python 가상환경 생성
-python -m venv venv
+- Python 3.9+
+- Node.js 18+ (프론트엔드 빌드용)
+- Docker Desktop (Redis 컨테이너용)
+- Google Cloud Console 프로젝트 (Sheets/Drive/Calendar/OAuth API 활성화)
+- Slack 워크스페이스 관리자 권한 (봇 등록용, 개발 참여 시)
 
-# 가상환경 활성화
-# Windows
-venv\Scripts\activate
-# macOS/Linux  
-source venv/bin/activate
+## 1. 저장소 복제 및 가상환경
 
-# 의존성 설치
+```powershell
+git clone <repo-url>
+cd "Claude Project"
+
+python -m venv .venv
+.venv\Scripts\activate
+
 pip install -r requirements.txt
 ```
 
-### 3. 환경 설정 파일 생성
-```bash
-# .env.example을 .env로 복사
-cp .env.example .env
+## 2. 프론트엔드 의존성 (Vite)
+
+```powershell
+cd dashboard
+npm install
+cd ..
 ```
 
-### 4. 필수 파일 설정
+## 3. 필수 인증 파일
 
-#### A. Google API 자격증명 파일 (credentials.json)
-- Google Cloud Console에서 서비스 계정 JSON 키 다운로드
-- 프로젝트 루트에 `credentials.json`으로 저장
-- ⚠️ 이 파일은 Git에 커밋되지 않음 (.gitignore에 포함)
+프로젝트 루트에 배치:
 
-#### B. .env 파일 수정
-```bash
-# 중요: 실제 값으로 변경 필요
-GOOGLE_SHEET_ID=your-actual-google-sheet-id
-SECRET_KEY=your-random-secret-key
-# 기타 필요한 설정들...
+| 파일 | 용도 | 획득 방법 |
+|---|---|---|
+| `credentials.json` | Google 서비스 계정 (Sheets/Drive 접근) | Google Cloud Console → IAM → 서비스 계정 → JSON 키 |
+| `token.json` | Gmail OAuth 토큰 | 최초 실행 시 자동 생성 (아래 설명) |
+| `google_calendar_client_secret.json` | Calendar OAuth | `dashboard/` 폴더에 배치 |
+
+모두 `.gitignore` 처리됨. **절대 커밋 금지.**
+
+## 4. 환경 변수 (.env)
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
 ```
 
-### 5. 애플리케이션 실행
-```bash
-python start_dashboard.py
+**최소 채워야 하는 값** (개발용):
+
+```env
+# Flask
+FLASK_ENV=development
+SECRET_KEY=<랜덤 64자>
+
+# Google Sheets (프로젝트 관리 + 리드 관리)
+GOOGLE_SHEET_ID=<공사 현황 시트 ID>
+GOOGLE_SHEET_NAME=공사 현황의 사본
+ONLINE_LEADS_SHEET_ID=<리드 관리 시트 ID>
+ONLINE_LEADS_SHEET_NAME=리드 관리
+
+# Google OAuth (로그인)
+GOOGLE_OAUTH_ALLOWED_DOMAIN=itg-aircon.com
+GOOGLE_OAUTH_REDIRECT_URIS=http://localhost:5000/auth/callback
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# 관리자 (감사 로그·알림 대상)
+ADMIN_EMAILS=your@email.com
 ```
 
-## 동기화 작업 흐름
+**슬랙/채널톡/카카오 통합 등을 개발하려면** 추가 필요 (자세한 목록은 [OPERATIONS.md 3장](OPERATIONS.md) 참조):
+- `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET` (main bot)
+- `SLACK_VISIT_BOT_TOKEN`, `SLACK_VISIT_SIGNING_SECRET` (방문봇)
+- `SLACK_PROJECT_BOT_TOKEN`, `SLACK_PAYMENT_BOT_TOKEN` (공사확정/수금봇)
+- `SLACK_LIST_WEBHOOK_URL`, `SLACK_VISIT_COMPLETE_WEBHOOK_URL` (워크플로 트리거)
+- `CHANNELTALK_ACCESS_KEY`, `CHANNELTALK_ACCESS_SECRET`
+- `KAKAO_REST_API_KEY`
+- `GOOGLE_DRIVE_VISIT_FOLDER_ID`, `GOOGLE_DRIVE_WINDOWS_BASE_PATH`
 
-### 작업 시작 전 (pull)
-```bash
-git pull origin main
+## 5. Redis 실행 (Docker)
+
+```powershell
+docker run -d --name itg-redis -p 6379:6379 -v redis-data:/data redis:alpine
 ```
 
-### 작업 완료 후 (push)
-```bash
-git add .
-git commit -m "작업 내용 설명"
-git push origin main
+또는 `docker-compose.yml` 사용:
+```powershell
+docker-compose up -d redis
 ```
 
-## 브랜치 작업 (권장)
-```bash
-# 새 기능 개발 시
-git checkout -b feature/새기능명
-git add .
-git commit -m "새 기능 추가"
-git push origin feature/새기능명
+## 6. 최초 실행
 
-# GitHub에서 Pull Request 생성
+프론트엔드 빌드:
+```powershell
+cd dashboard
+npm run build
+cd ..
 ```
 
-## 주의사항
-- `.env` 파일과 `credentials.json`은 Git에 포함되지 않음
-- 각 환경에서 이 파일들을 직접 설정해야 함
-- 민감한 정보를 GitHub에 올리지 않도록 주의
-- 작업 전후로 항상 `git pull`과 `git push` 실행
+Flask 실행:
+```powershell
+python app.py
+```
 
-## 문제 해결
-- 의존성 오류: `pip install -r requirements.txt` 재실행
-- 권한 오류: Google API 서비스 계정 권한 확인
-- 포트 충돌: `.env`에서 PORT 변경
+또는:
+```powershell
+python -m flask --app app run --port 5000 --debug
+```
+
+브라우저: http://localhost:5000
+
+## 7. 개발 워크플로
+
+### 프론트엔드 개발 중일 때
+```powershell
+cd dashboard
+npm run dev
+```
+Vite 개발 서버가 별도 포트에 뜸 (HMR 지원).
+
+### 프론트엔드 프로덕션 빌드
+```powershell
+cd dashboard
+npm run build:prod
+```
+- lint → build → manifest verify
+
+### 테스트 실행
+```powershell
+pytest tests/
+```
+
+## 트러블슈팅
+
+- **`ModuleNotFoundError`**: 가상환경 활성화 확인 (`.venv\Scripts\activate`)
+- **Google Sheets 403**: 서비스 계정을 해당 시트에 편집자 권한으로 공유했는지 확인
+- **Redis 연결 실패**: `docker ps`로 컨테이너 실행 확인
+- **Slack 서명 검증 실패**: `.env`의 `SLACK_*_SIGNING_SECRET`이 Slack 앱 설정과 일치하는지 확인
+- **포트 5000 충돌**: `.env`의 `PORT=` 변경 또는 기존 프로세스 종료
+
+## 참고 문서
+
+- [OPERATIONS.md](OPERATIONS.md) — 프로덕션 배포 · NSSM 서비스 · 백업 · 인증서 · Slack 웹훅 라우팅
+- [GOOGLE_OAUTH_SETUP.md](GOOGLE_OAUTH_SETUP.md) — Google OAuth 상세 설정
+- [docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md) — 직원 대상 폴더 프로토콜 배포
+- [README.md](README.md) — 시스템 개요 및 기능 목록

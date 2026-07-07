@@ -200,6 +200,25 @@ def start_scheduler():
     )
     jobs.append('미발송 슬랙 재발송 5분')
 
+    # 미발송 방문 카드 재발송 (전화WF sync SSL 안전망) — 5분 주기
+    _scheduler.add_job(
+        _safe_retry_pending_visit_notice,
+        'interval',
+        minutes=5,
+        id='retry_pending_visit_notice',
+    )
+    jobs.append('미발송 방문 카드 재발송 5분')
+
+    # 고아 리드 감지 (시트에 있는데 슬랙 카드 흔적 없음 = Flask 재시작 등으로 발송 유실)
+    # — 5분 주기, pending 큐에도 없는 케이스가 대상
+    _scheduler.add_job(
+        _safe_recover_orphan_leads,
+        'interval',
+        minutes=5,
+        id='recover_orphan_leads',
+    )
+    jobs.append('고아 리드 재발송 5분')
+
     # SSL 인증서 만료 체크 — 매일 09시 (Caddy 자동 갱신 실패 안전망)
     if os.getenv('SLACK_PUBLIC_HOST', '').strip():
         _scheduler.add_job(
@@ -289,6 +308,42 @@ def _safe_retry_pending_slack():
             return
         _notify_admin('retry_pending_fail',
                       f':warning: 미발송 슬랙 재발송 실패 — `{exc}`.')
+
+
+def _safe_retry_pending_visit_notice():
+    """미발송 방문 카드 자동 재발송 (전화WF sync SSL 에러 등 복구)"""
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — pending visit notice 재발송 skip')
+        return
+    try:
+        from dashboard.services.lead_sync import retry_pending_visit_notices
+        retry_pending_visit_notices()
+    except Exception as exc:
+        logger.error(f'[SCHED] 미발송 방문 카드 재발송 실패: {exc}', exc_info=True)
+        if _is_transient_error(exc):
+            return
+        _notify_admin('retry_visit_fail',
+                      f':warning: 미발송 방문 카드 재발송 실패 — `{exc}`.')
+
+
+def _safe_recover_orphan_leads():
+    """시트에 등록됐지만 슬랙 카드 흔적 없는 고아 리드 자동 재발송.
+
+    Flask 재시작 등으로 시트 append 후 pending 큐 등록 전에 프로세스가 죽어
+    retry_pending_slack도 못 잡는 케이스 대응.
+    """
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — 고아 리드 재발송 skip')
+        return
+    try:
+        from dashboard.services.lead_sync import recover_orphan_lead_notifications
+        recover_orphan_lead_notifications()
+    except Exception as exc:
+        logger.error(f'[SCHED] 고아 리드 재발송 실패: {exc}', exc_info=True)
+        if _is_transient_error(exc):
+            return
+        _notify_admin('recover_orphan_fail',
+                      f':warning: 고아 리드 재발송 실패 — `{exc}`.')
 
 
 def _safe_payment_sync():
