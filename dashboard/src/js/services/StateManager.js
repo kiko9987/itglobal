@@ -229,7 +229,15 @@ export default class StateManager {
         logger.debug(`[StateManager] 프로젝트 ${projectCode} 업데이트 완료${silent ? ' (silent)' : ''}`);
       }
 
-      if (!silent) {
+      if (silent) {
+        // silent 모드: 리스트 리렌더는 skip하되 filteredData의 해당 원소도 인플레이스 교체.
+        // DataTable/리스트 뷰가 filteredData를 참조할 수 있으므로 두 배열이 어긋나면
+        // 다음 부분 렌더(updateMainTableRow의 row.invalidate().draw)가 옛 값을 그림.
+        const fIdx = this.filteredData.findIndex(p => p['프로젝트 코드'] === searchCode);
+        if (fIdx !== -1) {
+          this.filteredData[fIdx] = updatedProject;
+        }
+      } else {
         this.notifyListeners('dataChange', this.currentData);
         this.applyCurrentFilters();
       }
