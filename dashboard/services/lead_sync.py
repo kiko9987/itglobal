@@ -247,6 +247,7 @@ def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
             'status': str(row.get('상태', '') or ''),
             'feedback': str(row.get('상담 내용', '') or ''),  # 새 K열 (매니저 상담 결과)
             'inquiry': str(row.get('문의 내용', '') or ''),   # 새 J열 (인입 원본)
+            'address': str(row.get('방문 주소', '') or ''),   # I열 — 재문의 시 이전 방문지 노출용
             'platform': str(row.get('플랫폼', '') or ''),
             'consultant': str(row.get('온라인 상담자', '') or ''),
             'sales_rep': str(row.get('영업 담당자', '') or ''),
@@ -326,6 +327,8 @@ def _build_repeat_section(lead: dict) -> str:
     prev_time = (most_recent.get('consult_time') or '').strip()
     prev_inquiry = (most_recent.get('inquiry') or '').strip() or '-'
     prev_status = (most_recent.get('status') or '').strip() or '-'
+    prev_address = (most_recent.get('address') or '').strip() or '-'
+    prev_feedback = (most_recent.get('feedback') or '').strip() or '-'
     # 상담자/방문자: 한국 이름 → 이니셜 통일
     from dashboard.blueprints.slack_bot import _to_initial
     prev_consultant_raw = (most_recent.get('consultant') or '').strip()
@@ -339,19 +342,27 @@ def _build_repeat_section(lead: dict) -> str:
     # 길이 제한 (200자)
     if len(prev_inquiry) > 200:
         prev_inquiry = prev_inquiry[:200] + '...'
+    if len(prev_feedback) > 200:
+        prev_feedback = prev_feedback[:200] + '...'
 
     # 이전 문의 식별: "시간 / 리드No" 형태 (시간 없으면 리드No만)
     prev_label = f"{prev_time} / {prev_no}" if prev_time else prev_no
+
+    # 방문 주소·상담 내용의 개행은 flatten (blockquote 구조 유지)
+    prev_address = re.sub(r'\s*\n\s*', ' ', prev_address).strip() or '-'
+    prev_feedback_oneline = re.sub(r'\s*\n\s*', ' ', prev_feedback).strip() or '-'
 
     # 문의 내용은 60자 wrap + 각 줄 '>' prefix (긴 라인 화면 wrap 시 인용 이탈 방지)
     prev_inquiry_quoted = _wrap_quoted(prev_inquiry, width=60)
     return (
         f">:repeat: *재문의 감지*\n"
         f">*이전 문의* : {prev_label}\n"
+        f">*방문 주소* : {prev_address}\n"
         f">*문의 내용* :\n{prev_inquiry_quoted}\n"
         f">*상태* : {prev_status}\n"
         f">*상담자* : {prev_consultant}\n"
         f">*방문자* : {prev_sales_rep}\n"
+        f">*상담 내용* : {prev_feedback_oneline}\n"
         f">--------------------------------------------\n"
     )
 
