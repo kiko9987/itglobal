@@ -184,13 +184,22 @@ class ProjectLockManager:
                             'lock_info': existing_lock.to_dict()
                         }
                     elif existing_lock.user_email == user_email:
-                        # 같은 사용자지만 다른 탭
+                        # 같은 사용자, 다른 탭 — 2026-07-08: 새 탭으로 잠금 이전 (기존엔 차단).
+                        # 저장 실패 후 새로고침처럼 자기 자신이 갇히는 케이스가 흔해 UX 저해.
+                        # 실제로 두 탭 동시 편집 시나리오는 드물고, 나중 탭이 우선한다는 정책이
+                        # 매니저 UX상 훨씬 자연스럽다.
+                        prev_tab = existing_lock.tab_id[:8]
+                        existing_lock.tab_id = tab_id
+                        existing_lock.expires_at = datetime.now() + timedelta(minutes=self.lock_timeout_minutes)
+                        self._set_lock_in_redis(existing_lock)
+                        logger.info(
+                            f"잠금 새 탭으로 이전: {project_code} by {user_email} "
+                            f"(새 탭: {tab_id[:8]}..., 이전 탭: {prev_tab}...)"
+                        )
                         return {
-                            'success': False,
-                            'message': f'다른 탭에서 이미 편집 중입니다. 해당 탭으로 이동하세요.',
-                            'locked_by': existing_lock.user_name,
-                            'locked_by_email': existing_lock.user_email,
-                            'same_user': True,
+                            'success': True,
+                            'message': '이 탭으로 편집 잠금을 이전했습니다.',
+                            'transferred': True,
                             'lock_info': existing_lock.to_dict()
                         }
                     else:
@@ -208,7 +217,11 @@ class ProjectLockManager:
                 grace_info = self._get_grace_info(project_code)
                 if grace_info:
                     # Grace Period 마커가 존재
-                    if grace_info['user_email'] == user_email and grace_info['tab_id'] == tab_id:
+                    # 2026-07-08: 이메일 일치만 확인 (기존 이메일+tab_id 이중 조건에서 완화).
+                    # 저장 실패 → 새로고침 시 브라우저가 새 tab_id 생성해 원 락 회수 불가능하고
+                    # 자기 자신조차 5분 TTL을 기다려야 하는 UX 결함을 없앰. 다른 사용자는 여전히
+                    # 이메일 mismatch로 걸림.
+                    if grace_info['user_email'] == user_email:
                         # 원래 사용자가 Grace Period 내에 재획득 시도 - 잠금 복구
                         recovered_lock = ProjectLock(
                             project_code=project_code,
@@ -219,7 +232,11 @@ class ProjectLockManager:
                             expires_at=datetime.now() + timedelta(minutes=self.lock_timeout_minutes)
                         )
                         self._set_lock_in_redis(recovered_lock)
-                        logger.info(f"Grace Period 내 잠금 복구: {project_code} by {user_email} (탭 ID: {tab_id[:8]}...)")
+                        prev_tab = grace_info.get('tab_id', '')[:8]
+                        logger.info(
+                            f"Grace Period 내 잠금 복구: {project_code} by {user_email} "
+                            f"(탭 ID: {tab_id[:8]}..., 이전 탭: {prev_tab}...)"
+                        )
                         return {
                             'success': True,
                             'message': '잠금이 복구되었습니다.',
