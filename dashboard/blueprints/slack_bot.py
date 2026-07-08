@@ -3194,9 +3194,12 @@ def _process_visit_cancel(client, body) -> None:
         # 마크다운 강조(*) 제거 — 코드 블록 안에서는 raw로 보이는 게 깔끔
         cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
         clean_text = '\n'.join(cleaned_lines).strip()
+        # Slack 저장 정규화로 :bell: 등 shortcode가 남아 코드블록 안에서 텍스트로 보이는 것 방지.
+        from dashboard.blueprints.slack_helpers import _normalize_shortcodes_to_unicode
+        clean_text = _normalize_shortcodes_to_unicode(clean_text)
 
         new_text = (
-            f":no_entry_sign: *고객 요청으로 방문 취소*  `{lead_no}`\n"
+            f"🚫 *고객 요청으로 방문 취소*  `{lead_no}`\n"
             f"취소한 사람 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
@@ -4576,18 +4579,21 @@ def _post_project_edit_notice_card(
         change_lines.append(_fmt_edit_field_change(f, before_project.get(f, ''), updates[f], vat_after))
 
     lines = [
-        f':bell: *[공사 내용 수정 알림]*  `{code}`',
+        f'🔔 *[공사 내용 수정 알림]*  `{code}`',
         '--------------------------------------------',
-        f':office: 사업자명 : {biz}',
-        f':round_pushpin: 현장 주소 : {addr}',
-        f':memo: 수정 사유 : {reason.strip()}',
-        ':clipboard: 변경 내역',
+        f'🏢 사업자명 : {biz}',
+        f'📍 현장 주소 : {addr}',
+        f'📝 수정 사유 : {reason.strip()}',
+        '📋 변경 내역',
         *change_lines,
-        f':bust_in_silhouette: 수정자 : {initial}  _{now_str}_',
+        f'👤 수정자 : {initial}  _{now_str}_',
         '--------------------------------------------',
     ]
-    text = '\n'.join(lines)
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]
+    text = '⠀\n' + '\n'.join(lines)
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
+    ]
 
     try:
         client.conversations_join(channel=channel_id)
@@ -4651,7 +4657,7 @@ def _process_project_cancel(client, body) -> None:
         clean_text = '\n'.join(cleaned).strip()
 
         new_text = (
-            f":no_entry_sign: *고객 요청으로 공사 취소*  `{code}`\n"
+            f"🚫 *고객 요청으로 공사 취소*  `{code}`\n"
             f"취소한 사람 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
@@ -4724,17 +4730,20 @@ def _post_project_cancel_notice_card(
 
     now_str = datetime.now().strftime('%m.%d %H:%M')
     lines = [
-        f':bell: *[공사 취소 알림]*  `{code}`',
+        f'🔔 *[공사 취소 알림]*  `{code}`',
         '--------------------------------------------',
-        f':office: 사업자명 : {biz}',
-        f':round_pushpin: 현장 주소 : {addr}',
-        f':heavy_dollar_sign: 공사 금액 : {amt_disp}',
-        f':date: 공사 확정일 : {confirmed_disp}',
-        f':bust_in_silhouette: 취소자 : {initial}  _{now_str}_',
+        f'🏢 사업자명 : {biz}',
+        f'📍 현장 주소 : {addr}',
+        f'💲 공사 금액 : {amt_disp}',
+        f'📅 공사 확정일 : {confirmed_disp}',
+        f'👤 취소자 : {initial}  _{now_str}_',
         '--------------------------------------------',
     ]
-    text = '\n'.join(lines)
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]
+    text = '⠀\n' + '\n'.join(lines)
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
+    ]
 
     try:
         client.conversations_join(channel=channel_id)
@@ -4932,20 +4941,20 @@ def _process_invoice_submission(client, body, view) -> None:
     now_str = datetime.now().strftime('%m.%d %H:%M')
 
     # 카드 본문
+    initial = _slack_user_to_initial(client, user_id) or '-'
     lines = [
-        f":bell: *[계산서 발행 요청]*  `{code}`",
+        f"🔔 *[계산서 발행 요청]*  `{code}`",
         "--------------------------------------------",
-        f":office: 사업자명 : {biz}",
-        f":round_pushpin: 현장 주소 : {addr}",
-        f":heavy_dollar_sign: 금액 : {amt_display}",
-        f":envelope: 이메일 : {email}",
+        f"🏢 사업자명 : {biz}",
+        f"📍 현장 주소 : {addr}",
+        f"💲 금액 : {amt_display}",
+        f"✉️ 이메일 : {email}",
     ]
     if memo:
-        lines.append(f":memo: 요청사항 : {memo}")
-    requester = f"<@{user_id}>" if user_id else '-'
-    lines.append(f":bust_in_silhouette: 요청자 : {requester} _{now_str}_")
+        lines.append(f"📝 요청사항 : {memo}")
+    lines.append(f"👤 요청자 : {initial}  _{now_str}_")
     lines.append("--------------------------------------------")
-    text = '\n'.join(lines)
+    text = '⠀\n' + '\n'.join(lines)
 
     # 발행 완료 버튼 value — 완료 문구 자동 생성용
     complete_value = json.dumps({
@@ -4969,6 +4978,7 @@ def _process_invoice_submission(client, body, view) -> None:
                 },
             ],
         },
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
     ]
 
     # 봇이 채널에 없으면 자동 가입 시도 (public 채널만 성공, private면 사용자가 초대 필요)

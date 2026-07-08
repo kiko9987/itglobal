@@ -130,6 +130,61 @@ SALES_INITIALS = {
 }
 
 
+# Slack이 저장 시 unicode 이모지를 :bell: 같은 shortcode로 정규화해
+# body에서 다시 읽을 때 shortcode 상태로 돌아옴. 정상 mrkdwn 렌더링에선 문제 없지만
+# ``` 코드블록 안에 들어가면 텍스트로 남아 가독성 저하.
+# 취소 UI(원본 카드를 회색 코드블록으로 감쌈)에서 재변환 필요.
+_SHORTCODE_TO_EMOJI = {
+    ':bell:': '🔔',
+    ':inbox_tray:': '📥',
+    ':office:': '🏢',
+    ':round_pushpin:': '📍',
+    ':bust_in_silhouette:': '👤',
+    ':telephone_receiver:': '📞',
+    ':envelope:': '✉️',
+    ':email:': '✉️',
+    ':clipboard:': '📋',
+    ':hammer_and_wrench:': '🛠️',
+    ':construction_worker:': '👷',
+    ':heavy_dollar_sign:': '💲',
+    ':moneybag:': '💰',
+    ':date:': '📅',
+    ':file_folder:': '📁',
+    ':paperclip:': '📎',
+    ':white_check_mark:': '✅',
+    ':white_large_square:': '⬜',
+    ':no_entry_sign:': '🚫',
+    ':no_entry:': '⛔',
+    ':memo:': '📝',
+    ':bulb:': '💡',
+    ':warning:': '⚠️',
+    ':speech_balloon:': '💬',
+    ':point_right:': '👉',
+    ':receipt:': '🧾',
+    ':pencil2:': '✏️',
+    ':x:': '❌',
+    ':arrow_backward:': '◀️',
+    ':leftwards_arrow_with_hook:': '↩️',
+    ':house:': '🏠',
+    ':wrench:': '🔧',
+    ':gear:': '⚙️',
+}
+
+
+def _normalize_shortcodes_to_unicode(text: str) -> str:
+    """`:name:` shortcode → unicode 이모지. 매핑 없는 건 그대로.
+
+    Slack 코드블록(```) 안에서 shortcode는 텍스트로 보여 가독성이 심각히 저하되는데
+    이 함수로 정규화하면 코드블록 안에서도 이모지가 정상 렌더된다.
+    """
+    if not text:
+        return text
+    for k, v in _SHORTCODE_TO_EMOJI.items():
+        if k in text:
+            text = text.replace(k, v)
+    return text
+
+
 def _to_initial(name: str) -> str:
     """한국 이름 / 이니셜 / 빈값 → 이니셜 통일.
     - 한국 이름 → SALES_INITIALS 매핑
