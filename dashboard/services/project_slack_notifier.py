@@ -212,14 +212,14 @@ def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list
                     'action_id': 'project_cancel_confirm',
                     'value': code,
                     'confirm': {
-                        'title': {'type': 'plain_text', 'text': '공사 취소'},
+                        'title': {'type': 'plain_text', 'text': '공사 취소 확인'},
                         'text': {
                             'type': 'plain_text',
                             'text': f'{code} 공사를 취소하시겠습니까?\n'
                                     f'관리 사이트의 [공사 취소] 버튼과 동일하게 처리됩니다.',
                         },
-                        'confirm': {'type': 'plain_text', 'text': '취소'},
-                        'deny': {'type': 'plain_text', 'text': '닫기'},
+                        'confirm': {'type': 'plain_text', 'text': '공사 취소'},
+                        'deny': {'type': 'plain_text', 'text': '아니오'},
                     },
                 },
             ],
