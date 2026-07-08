@@ -575,13 +575,17 @@ class GoogleSheetsManager:
         df = df.dropna(how='all')
         
         # 프로젝트 코드가 있는 행만 필터링 (실제 데이터만)
+        # _preprocess_data는 리드 관리 시트 로드에도 재사용되는데, 그 시트에는 애초에
+        # '프로젝트 코드' 컬럼이 없다. 이 케이스는 정상 상황이라 DEBUG로 강등해 매니저
+        # 편집·리드 로드마다 WARNING이 반복 뜨는 로그 노이즈를 제거 (2026-07-08 fix).
+        # 실제로 프로젝트 시트 로드인데 컬럼이 없다면 상위 로직이 다른 방식으로 감지한다.
         if '프로젝트 코드' in df.columns:
             original_count = len(df)
             df = df[df['프로젝트 코드'].notna() & (df['프로젝트 코드'].astype(str).str.strip() != '')]
             filtered_count = len(df)
             logger.debug(f"프로젝트 코드 필터링: {original_count}행 → {filtered_count}행")
         else:
-            logger.warning("프로젝트 코드 컬럼을 찾을 수 없습니다.")
+            logger.debug("'프로젝트 코드' 컬럼 없음 (리드 관리 시트 등 프로젝트 외 데이터일 수 있음)")
         
         # 날짜 컬럼 처리 (빈 값은 빈 문자열로 유지)
         date_columns = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
