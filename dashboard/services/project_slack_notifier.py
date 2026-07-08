@@ -207,7 +207,6 @@ def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list
                 {
                     'type': 'button',
                     'text': {'type': 'plain_text', 'text': '❌ 공사 취소', 'emoji': True},
-                    'style': 'danger',
                     'action_id': 'project_cancel_confirm',
                     'value': code,
                     'confirm': {
