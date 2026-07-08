@@ -74,7 +74,7 @@ export default class StatusBadge extends BaseBadge {
     const contractAmount = parseFloat(projectData.계약금 || 0);
     const intermediateAmount = parseFloat(projectData.중도금 || 0);
     const finalAmount = parseFloat(projectData.잔금 || 0);
-    const outstandingAmount = parseFloat(projectData.미수금 || projectData.미수금W || projectData.W || 0);
+    const outstandingAmount = parseFloat(projectData.미수금 || 0);
     const totalAmount = parseFloat(projectData['총액 2'] || projectData.총액2 || projectData.S || projectData.총액 || 0);
     const collectionConfirmed = projectData['수금 확인'] || projectData.Z || '';
 

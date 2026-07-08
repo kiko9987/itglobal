@@ -389,7 +389,7 @@ export default class MobileCardView {
           break;
         case 'outstanding':
           filtered = filtered.filter(item => {
-            const outstanding = parseFloat(item['미수금'] || item['미수금W'] || 0);
+            const outstanding = parseFloat(item['미수금'] || 0);
             return outstanding > 0;
           });
           break;
@@ -463,7 +463,7 @@ export default class MobileCardView {
     const projectCode = data['프로젝트 코드'] || '';
     const status = data['공사상태'] || '';
     const totalAmount = parseFloat(data['총액 2'] || data['총액2'] || data['S'] || 0);
-    const outstanding = parseFloat(data['미수금'] || data['미수금W'] || 0);
+    const outstanding = parseFloat(data['미수금'] || 0);
 
     // 컬럼 클래스 결정
     const colClass = this.getColumnClass();
@@ -653,7 +653,7 @@ export default class MobileCardView {
     const totalCount = this.currentData.length;
     const filteredCount = this.filteredData.length;
     const totalOutstanding = this.filteredData.reduce((sum, item) => {
-      return sum + (parseFloat(item['미수금'] || item['미수금W'] || 0) || 0);
+      return sum + (parseFloat(item['미수금'] || 0) || 0);
     }, 0);
 
     // DOM 업데이트

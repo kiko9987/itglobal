@@ -25,7 +25,7 @@ export default class ProjectStatusCalculator {
     const contractAmount = AmountCalculator.safeParseCurrency(rowData['계약금'] || 0);
     const midAmount = AmountCalculator.safeParseCurrency(rowData['중도금'] || 0);
     const finalAmount = AmountCalculator.safeParseCurrency(rowData['잔금'] || 0);
-    const outstandingAmount = AmountCalculator.safeParseCurrency(rowData['미수금'] || rowData['미수금W'] || rowData['W'] || 0);
+    const outstandingAmount = AmountCalculator.safeParseCurrency(rowData['미수금'] || 0);
     const totalAmount = AmountCalculator.safeParseCurrency(rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0);
 
     // 수금 확인 (Z열)

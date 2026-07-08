@@ -125,7 +125,7 @@ class StatsManager {
                 return false;
             })
             .reduce((sum, project) => {
-                const outstanding = parseFloat(project['미수금'] || project['미수금W'] || project['미수금 W'] || project['W'] || 0);
+                const outstanding = parseFloat(project['미수금'] || 0);
                 return sum + Math.max(0, outstanding);
             }, 0);
     }

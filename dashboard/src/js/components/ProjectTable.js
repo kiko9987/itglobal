@@ -562,7 +562,7 @@ export default class ProjectTable {
           className: 'text-center amount-cell',
           visible: true,  // 일반 모드에서 항상 표시
           render: function(data, type, row) {
-            const outstandingData = row['미수금'] || row['미수금W'] || row['미수금 W'] || row['W'] || 0;
+            const outstandingData = row['미수금'] || 0;
             const outstandingAmount = parseFloat(outstandingData) || 0;
             const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0);
 
@@ -655,7 +655,7 @@ export default class ProjectTable {
           className: 'text-center amount-cell',
           visible: false,
           render: function(data, type, row) {
-            const outstandingData = row['미수금'] || row['미수금W'] || row['미수금 W'] || row['W'] || 0;
+            const outstandingData = row['미수금'] || 0;
             const outstandingAmount = parseFloat(outstandingData) || 0;
             const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0);
 
@@ -737,7 +737,7 @@ export default class ProjectTable {
       ],
       createdRow: function(row, data, dataIndex) {
         const status = data['공사상태'] || '';
-        const outstandingAmount = parseFloat(data['미수금'] || data['미수금W'] || data['미수금 W'] || data['W'] || 0);
+        const outstandingAmount = parseFloat(data['미수금'] || 0);
 
         // 상태에 따른 행 스타일링 (jQuery 제거)
         row.classList.remove('table-success', 'table-warning', 'table-danger', 'table-info', 'table-secondary');
@@ -1132,7 +1132,7 @@ export default class ProjectTable {
     const contractAmount = parseFloat(rowData['계약금'] || 0);
     const midAmount = parseFloat(rowData['중도금'] || 0);
     const finalAmount = parseFloat(rowData['잔금'] || 0);
-    const outstandingAmount = parseFloat(rowData['미수금'] || rowData['미수금W'] || rowData['W'] || 0);
+    const outstandingAmount = parseFloat(rowData['미수금'] || 0);
     const totalAmount = parseFloat(rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0);
 
     // 수금 확인 (Z열)

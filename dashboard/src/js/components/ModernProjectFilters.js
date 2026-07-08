@@ -329,7 +329,7 @@ export default class ModernProjectFilters {
     if (this.filters.outstanding) {
       const beforeCount = filteredData.length;
       filteredData = filteredData.filter((item, index) => {
-        const outstandingData = item['미수금'] || item['미수금W'] || item['W'] || 0;
+        const outstandingData = item['미수금'] || 0;
         const outstandingAmount = AmountCalculator.safeParseCurrency(outstandingData);
         const collectedValue = item['수금 확인'];
         const isCollected = collectedValue === true ||
@@ -349,8 +349,9 @@ export default class ModernProjectFilters {
       });
 
       // 수금 관리 모드에서는 취소된 공사 제외 (띄어쓰기 무시)
+      // (2026-07-08: item['AG'] fallback 제거 — 컬럼 시프트 후 AG=마진율이라 잘못된 참조)
       filteredData = filteredData.filter(item => {
-        const collectionNotes = item['수금 관련 특이사항'] || item['AG'] || '';
+        const collectionNotes = item['수금 관련 특이사항'] || '';
         return !/공사\s*취소/.test(collectionNotes);
       });
     }
