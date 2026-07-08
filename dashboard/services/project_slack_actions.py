@@ -99,18 +99,27 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
     if not row_number:
         return {'ok': False, 'reason': 'row_not_found'}
 
-    # 원래 공사 확정 날짜를 Redis 스냅샷으로 보존 (되돌리기 시 원본 복원용).
-    # 이걸 안 하면 취소가 AM을 blank로 만들고 되돌릴 때 오늘 날짜로 덮어써서 사라짐.
+    # 되돌리기 시 원본 복원용 Redis 스냅샷. 공사 확정일 + 수금 확인 둘 다 보존
+    # (취소가 두 컬럼을 덮어쓰기 때문). 저장 형태: JSON.
+    import json as _json
     confirmed_date_original = str(project.get('공사 확정', '') or '').strip()
+    payment_raw = project.get('수금 확인')
+    payment_original = (
+        payment_raw is True
+        or (isinstance(payment_raw, str) and payment_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+        or payment_raw == 1
+    )
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        if confirmed_date_original:
-            rc.set(
-                f'project_cancel_snapshot:{code}',
-                confirmed_date_original,
-                ex=60 * 60 * 24 * 365,  # 1년
-            )
+        rc.set(
+            f'project_cancel_snapshot:{code}',
+            _json.dumps({
+                'confirmed_date': confirmed_date_original,
+                'payment_confirmed': payment_original,
+            }, ensure_ascii=False),
+            ex=60 * 60 * 24 * 365,  # 1년
+        )
     except Exception as exc:
         logger.warning(f'[SLACK/취소] 스냅샷 저장 실패 ({code}): {exc}')
 
@@ -179,17 +188,32 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     if not row_number:
         return {'ok': False, 'reason': 'row_not_found'}
 
-    # 취소 시 저장해둔 원본 공사 확정일 복원. 스냅샷 없으면 오늘 날짜 fallback
-    # (관리 사이트에서 취소한 케이스거나 스냅샷 TTL 만료).
+    # 취소 시 저장해둔 원본 공사 확정일 + 수금 확인 복원. 스냅샷 없으면 fallback
+    # (관리 사이트에서 취소한 케이스거나 스냅샷 TTL 만료 or 옛 스냅샷 문자열 형태).
+    import json as _json
     restore_date = datetime.now().strftime('%Y-%m-%d')
+    restore_payment = None  # None 이면 수금 확인 컬럼 미터치 (기존 값 유지)
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
         snap = rc.get(f'project_cancel_snapshot:{code}')
         if snap:
             snap_val = snap.decode() if isinstance(snap, bytes) else snap
-            if snap_val.strip():
-                restore_date = snap_val.strip()
+            snap_val = snap_val.strip()
+            if snap_val.startswith('{'):
+                # 새 JSON 형태
+                try:
+                    parsed = _json.loads(snap_val)
+                    d = str(parsed.get('confirmed_date', '') or '').strip()
+                    if d:
+                        restore_date = d
+                    if 'payment_confirmed' in parsed:
+                        restore_payment = bool(parsed['payment_confirmed'])
+                except Exception:
+                    pass
+            elif snap_val:
+                # 구 문자열 형태 (공사 확정일만)
+                restore_date = snap_val
     except Exception as exc:
         logger.warning(f'[SLACK/재개] 스냅샷 조회 실패 ({code}): {exc}')
 
@@ -197,6 +221,11 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
         {'range': f'{sheet_name}!AH{row_number}', 'values': [['']]},
         {'range': f'{sheet_name}!AM{row_number}', 'values': [[restore_date]]},
     ]
+    if restore_payment is not None:
+        updates.append({
+            'range': f'{sheet_name}!AA{row_number}',
+            'values': [['TRUE' if restore_payment else 'FALSE']],
+        })
     try:
         manager.batch_update_cells(sheet_id, updates)
     except Exception as exc:
@@ -215,10 +244,13 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
             update_project_in_cache,
             invalidate_project_cache,
         )
-        cache_updated = update_project_in_cache(code, {
+        cache_payload = {
             '수금 관련 특이사항': '',
             '공사 확정': restore_date,
-        })
+        }
+        if restore_payment is not None:
+            cache_payload['수금 확인'] = restore_payment
+        cache_updated = update_project_in_cache(code, cache_payload)
         if not cache_updated:
             invalidate_project_cache(code)
     except Exception as exc:
