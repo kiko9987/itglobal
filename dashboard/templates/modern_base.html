@@ -1277,12 +1277,8 @@
             `).join('');
         }
 
-        function escapeHtml(str) {
-            if (str === null || str === undefined) return '';
-            return String(str).replace(/[&<>"']/g, m => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            })[m]);
-        }
+        // escapeHtml은 위쪽에서 window.escapeHtml + const escapeHtml 로 이미 정의됨 (line 1005~1016)
+        // 여기 있던 로컬 function 재선언은 SyntaxError 유발 — 제거.
 
         window.addConstructor = async function() {
             const nameInput = document.getElementById('newConstructorName');
