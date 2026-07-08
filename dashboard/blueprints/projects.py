@@ -1621,80 +1621,50 @@ def update_project_inline():
             'error_id': error_id
         }), 500
 
-# 서비스 워커 라우트
+# 서비스 워커 라우트 — 2026-07-08 무력화.
+# 이전 동적 sw.js가 Vite 해시 파일 변경 시 stale HTML을 서빙해 매니저 브라우저
+# ERR_FAILED 유발 (배포 blocker). 프로덕션 config.SERVICE_WORKER_ENABLED=False로
+# 신규 등록은 이미 차단됨. 기존 브라우저에 남은 옛 SW는 이 unregister 스텁을
+# 받으면 자기 자신을 해제 + 캐시 삭제.
 @projects_bp.route('/sw.js')
 def service_worker():
-    """동적 서비스 워커 생성 - Vite 빌드 결과에 맞는 자산 경로 포함"""
-    from ..utils.frontend_helpers import asset_manager
+    """Service Worker unregister 스텁 (기존 등록분 자동 정리용)."""
     from flask import Response
 
-    # 현재 빌드된 자산들의 실제 경로 가져오기
-    assets = asset_manager.get_service_worker_assets()
-
-    # 안전한 중복 제거를 위한 URL 목록 생성
-    raw_urls = [
-        '/',  # 루트 경로 명시적 포함
-        *assets['css_files'],
-        *assets['js_files'],
-        *assets['static_files']
-    ]
-
-    # 중복 제거 및 정렬 (None/빈 문자열 필터링 포함)
-    all_urls = sorted(list(set(filter(None, raw_urls))))
-
-    # 동적 서비스 워커 생성
-    sw_content = f"""/**
- * Service Worker - 동적 PWA 기능
- * Vite 빌드 결과에 맞는 자산 경로로 자동 업데이트
+    sw_content = """/**
+ * Service Worker unregister stub (2026-07-08).
+ * 기존에 등록된 SW를 자동 해제하고 캐시를 삭제한다.
+ * fetch 훅 없음 — 모든 요청은 브라우저가 직접 처리.
  */
+self.addEventListener('install', () => {
+    self.skipWaiting();
+});
 
-const CACHE_NAME = 'itg-dashboard-v4';
-const STATIC_CACHE_URLS = {json.dumps(all_urls, indent=2)};
-
-// 설치 이벤트
-self.addEventListener('install', event => {{
-    console.log('[SW] 서비스 워커 설치 중...');
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(STATIC_CACHE_URLS))
-            .then(() => self.skipWaiting())
-    );
-}});
-
-// 활성화 이벤트
-self.addEventListener('activate', event => {{
-    console.log('[SW] 서비스 워커 활성화');
-    event.waitUntil(
-        caches.keys().then(cacheNames => {{
-            return Promise.all(
-                cacheNames.map(cacheName => {{
-                    if (cacheName !== CACHE_NAME) {{
-                        console.log('[SW] 이전 캐시 삭제:', cacheName);
-                        return caches.delete(cacheName);
-                    }}
-                }})
-            );
-        }}).then(() => self.clients.claim())
-    );
-}});
-
-// 네트워크 요청 가로채기
-self.addEventListener('fetch', event => {{
-    if (event.request.method !== 'GET') return;
-
-    event.respondWith(
-        caches.match(event.request)
-            .then(response => {{
-                if (response) {{
-                    return response;
-                }}
-                return fetch(event.request);
-            }})
-    );
-}});
+self.addEventListener('activate', (event) => {
+    event.waitUntil((async () => {
+        try {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map((name) => caches.delete(name)));
+        } catch (err) { /* ignore */ }
+        try {
+            await self.registration.unregister();
+        } catch (err) { /* ignore */ }
+        try {
+            const clients = await self.clients.matchAll({ type: 'window' });
+            clients.forEach((client) => {
+                if (client.url && 'navigate' in client) {
+                    client.navigate(client.url);
+                }
+            });
+        } catch (err) { /* ignore */ }
+    })());
+});
 """
 
-    return Response(sw_content, mimetype='application/javascript')
+    resp = Response(sw_content, mimetype='application/javascript')
+    # 브라우저가 옛 sw.js를 캐시해 이 스텁을 못 받는 사고 방지
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    return resp
 
 # 캐시 상태 API (프로젝트 페이지용)
 @projects_bp.route('/api/cache/status')
