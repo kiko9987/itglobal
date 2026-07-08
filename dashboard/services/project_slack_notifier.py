@@ -194,7 +194,7 @@ def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list
             'elements': [
                 {
                     'type': 'button',
-                    'text': {'type': 'plain_text', 'text': '💰 계산서 요청', 'emoji': True},
+                    'text': {'type': 'plain_text', 'text': '🧾 계산서 요청', 'emoji': True},
                     'action_id': 'invoice_request_open',
                     'value': btn_value,
                 },
