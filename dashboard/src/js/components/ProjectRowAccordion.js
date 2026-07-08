@@ -1188,11 +1188,23 @@ export default class ProjectRowAccordion {
       const folderId = link.dataset.folderId;
       if (!folderId) return;
 
-      // 클릭 시각 기록. 1.5초 후에도 탭이 hidden으로 안 갔으면 프로토콜 미설치 유력.
-      const clickAt = Date.now();
+      // 이미 프로토콜 정상 작동 확인된 브라우저는 매번 안내하지 않음
+      if (localStorage.getItem('itg_folder_protocol_ok') === '1') return;
+
+      // 프로토콜이 실행되면 탐색기(외부 앱)로 focus가 이동 → window blur 발생.
+      // 1.5초 안에 blur 없으면 프로토콜 미설치 유력.
+      let focusLost = false;
+      const onBlur = () => { focusLost = true; };
+      window.addEventListener('blur', onBlur, { once: true });
+
       setTimeout(() => {
-        if (document.hidden) return;  // 탐색기가 뜨면 브라우저가 hidden 됨
-        if (Date.now() - clickAt < 1400) return;  // 도중 다른 액션 있으면 skip
+        window.removeEventListener('blur', onBlur);
+        if (focusLost) {
+          // 성공: 다시 안내 안 하도록 저장
+          localStorage.setItem('itg_folder_protocol_ok', '1');
+          return;
+        }
+        // 미설치 유력
         const proceed = confirm(
           '폴더가 열리지 않았나요?\n\n' +
           '탐색기 프로토콜 미설치일 수 있습니다.\n' +
