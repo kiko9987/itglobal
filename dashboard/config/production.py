@@ -34,8 +34,11 @@ class ProductionConfig(BaseConfig):
     CACHE_TTL_MINUTES = 20
     BACKGROUND_PREFETCH_ENABLED = True
 
-    # 서비스워커 활성화 (프로덕션 성능)
-    SERVICE_WORKER_ENABLED = True
+    # 서비스워커 사용 안 함 (2026-07-08).
+    # 이유: 기존 sw.js의 Cache First 전략이 Vite 해시 파일 변경 시 stale HTML을
+    # 서빙해 매니저 브라우저에서 ERR_FAILED / "이 페이지에 연결할 수 없습니다" 발생.
+    # sw.js 자체는 unregister 스텁으로 유지 — 기존 브라우저에 남은 등록분을 자동 해제.
+    SERVICE_WORKER_ENABLED = False
     SERVICE_WORKER_CACHE_TTL = 86400 * 7  # 7일
 
     # API 모니터링 (프로덕션 - 안정성 중심)

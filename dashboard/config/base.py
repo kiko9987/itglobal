@@ -77,8 +77,8 @@ class BaseConfig:
         'logs'
     )
 
-    # 서비스워커 설정
-    SERVICE_WORKER_ENABLED = True
+    # 서비스워커 설정 — 2026-07-08 무력화 (production.py 주석 참조).
+    SERVICE_WORKER_ENABLED = False
     SERVICE_WORKER_CACHE_TTL = 86400  # 24시간 (초)
 
     # 업로드 설정

@@ -1,127 +1,48 @@
 /**
- * Service Worker - 기본 PWA 기능
- * 캐싱 및 오프라인 지원
+ * Service Worker 무력화 (2026-07-08).
+ *
+ * 이유: 기존 sw.js의 Cache First 전략이 Vite 해시 파일명이 갱신되는
+ *   배포마다 stale HTML을 서빙해 매니저 브라우저에서 ERR_FAILED 재현.
+ *   PWA/오프라인 지원은 사용 요구 없음 — 안전을 위해 SW 자체 사용 중지.
+ *
+ * 동작:
+ *   - install 즉시 skipWaiting → 대기 없이 새 SW로 교체
+ *   - activate 시 모든 캐시 삭제 + 자기 자신 unregister
+ *   - 이후 방문 시 SW 없음 (modern_base.html에서 register 호출 제거됨)
+ *
+ * 기존 매니저 브라우저에 남아 있던 sw.js v2가 이 파일을 새로 받으면
+ * 스스로 해제 + 캐시 삭제되므로 별도 안내 불필요.
  */
 
-const CACHE_NAME = 'itg-dashboard-v2';
-const STATIC_CACHE_URLS = [
-    '/static/css/project-list.css',
-    '/static/js/project-list.js',
-    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css',
-    'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js',
-    'https://code.jquery.com/jquery-3.6.0.min.js'
-];
-
-// Service Worker 설치
-self.addEventListener('install', (event) => {
-    console.log('🔧 Service Worker 설치 중...');
-
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then((cache) => {
-                console.log('📦 정적 리소스 캐싱 중...');
-                // 중복 URL 제거
-                const uniqueUrls = [...new Set(STATIC_CACHE_URLS)];
-                console.log('캐싱할 URL 목록:', uniqueUrls);
-
-                // 개별 캐싱으로 중복 오류 방지
-                return Promise.allSettled(
-                    uniqueUrls.map(async (url) => {
-                        try {
-                            const response = await fetch(url);
-                            if (response.ok) {
-                                await cache.put(url, response);
-                                console.log(`✅ 캐싱 성공: ${url}`);
-                            }
-                        } catch (err) {
-                            console.warn(`❌ 캐싱 실패: ${url}`, err);
-                        }
-                    })
-                );
-            })
-            .then(() => {
-                console.log('[SUCCESS] Service Worker 설치 완료');
-                return self.skipWaiting();
-            })
-    );
+self.addEventListener('install', () => {
+    self.skipWaiting();
 });
 
-// Service Worker 활성화
 self.addEventListener('activate', (event) => {
-    console.log('[ROCKET] Service Worker 활성화 중...');
-
-    event.waitUntil(
-        caches.keys()
-            .then((cacheNames) => {
-                return Promise.all(
-                    cacheNames.map((cacheName) => {
-                        if (cacheName !== CACHE_NAME) {
-                            console.log('🗑️ 이전 캐시 삭제:', cacheName);
-                            return caches.delete(cacheName);
-                        }
-                    })
-                );
-            })
-            .then(() => {
-                console.log('[SUCCESS] Service Worker 활성화 완료');
-                return self.clients.claim();
-            })
-    );
-});
-
-// 네트워크 요청 가로채기 (Cache First 전략)
-self.addEventListener('fetch', (event) => {
-    const url = new URL(event.request.url);
-
-    // API 요청은 캐싱하지 않음
-    if (url.pathname.startsWith('/api/')) {
-        return;
-    }
-
-    // 외부 리소스나 정적 파일만 캐싱
-    if (url.origin !== location.origin && !url.hostname.includes('cdn.')) {
-        return;
-    }
-
-    event.respondWith(
-        caches.match(event.request)
-            .then((response) => {
-                // 캐시에 있으면 캐시에서 반환
-                if (response) {
-                    return response;
+    event.waitUntil((async () => {
+        try {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map((name) => caches.delete(name)));
+        } catch (err) {
+            // 캐시 삭제 실패해도 unregister는 진행
+        }
+        try {
+            await self.registration.unregister();
+        } catch (err) {
+            // ignore
+        }
+        try {
+            const clients = await self.clients.matchAll({ type: 'window' });
+            clients.forEach((client) => {
+                // 다음 로드부터는 SW 없이 네트워크에서 직접 받도록 새로고침
+                if (client.url && 'navigate' in client) {
+                    client.navigate(client.url);
                 }
-
-                // 캐시에 없으면 네트워크에서 가져와서 캐싱
-                return fetch(event.request)
-                    .then((response) => {
-                        // 유효한 응답만 캐싱
-                        if (!response || response.status !== 200 || response.type !== 'basic') {
-                            return response;
-                        }
-
-                        const responseToCache = response.clone();
-                        caches.open(CACHE_NAME)
-                            .then((cache) => {
-                                cache.put(event.request, responseToCache);
-                            });
-
-                        return response;
-                    })
-                    .catch(() => {
-                        // 네트워크 실패 시 기본 오프라인 페이지 (향후 구현)
-                        console.warn('네트워크 요청 실패:', event.request.url);
-                        throw new Error('네트워크 오류');
-                    });
-            })
-    );
+            });
+        } catch (err) {
+            // ignore
+        }
+    })());
 });
 
-// 백그라운드 동기화 (향후 확장 가능)
-self.addEventListener('sync', (event) => {
-    console.log('[REFRESH] 백그라운드 동기화:', event.tag);
-});
-
-// 푸시 알림 (향후 확장 가능)
-self.addEventListener('push', (event) => {
-    console.log('📨 푸시 알림 수신:', event.data?.text());
-});
+// fetch 이벤트 훅 제거 — 모든 요청은 브라우저가 직접 처리 (SW 통과).
