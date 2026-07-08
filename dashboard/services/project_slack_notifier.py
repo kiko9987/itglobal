@@ -16,9 +16,18 @@ logger = get_logger(__name__)
 
 
 def _money_kr(value) -> str:
-    """₩1,000 / 1000 / '1,000' 모두 받아 '1,000원' 형태로 정규화. 빈값은 '-'."""
+    """₩1,000 / 1000 / 1000.0 / '1,000' 모두 받아 '1,000원' 형태로 정규화. 빈값은 '-'."""
     if value is None or value == '' or value == '-':
         return '-'
+    # 숫자 타입은 문자 추출을 거치면 float의 '.0' 뒷자리가 붙어 10배로 잘못 계산됨.
+    # (2026-07-08 공사 확정 카드 금액이 10배로 표시된 사고 fix)
+    if isinstance(value, bool):  # bool도 int 서브클래스라 우선 걸러냄
+        return '-'
+    if isinstance(value, (int, float)):
+        try:
+            return f"{int(value):,}원"
+        except (ValueError, OverflowError):
+            return '-'
     s = str(value).strip()
     # ₩ 와 콤마 제거 후 숫자만 추출
     digits = ''.join(ch for ch in s if ch.isdigit() or ch == '-')
