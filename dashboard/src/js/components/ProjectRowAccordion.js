@@ -4835,32 +4835,31 @@ export default class ProjectRowAccordion {
             const inputElement = this.createInputElement(fieldName, currentValue);
             editableField.innerHTML = inputElement;
             
-            // Google Drive 링크 자동 파싱 이벤트 추가
+            // Google Drive 링크 자동 파싱 + EditState 동기화 이벤트 추가
+            // (2026-07-08 fix: 폴더 경로 붙여넣기 → 저장 시 '변경사항 없음' 오인식 사고 대응.
+            //  통합 편집 모드는 enableCardEditing을 안 거쳐서 카드 레벨 위임 리스너가 없다.
+            //  folder-path-input에서 직접 EditState.updateField 호출해야 dirtyFields에 반영됨.)
             setTimeout(() => {
               const folderInput = editableField.querySelector('.folder-path-input');
-              console.log('[문서 폴더] Input 찾기:', folderInput);
               if (folderInput) {
-                console.log('[문서 폴더] 이벤트 리스너 등록 중...');
-                folderInput.addEventListener('input', (e) => {
-                  console.log('[문서 폴더] input 이벤트 발생:', e.target.value);
+                const syncFolderEditState = () => {
                   this.parseDriveFolderUrl(folderInput);
+                  if (this.editState && this.editState.isActive) {
+                    this.editState.updateField(fieldName, folderInput.value.trim());
+                  }
+                };
+                folderInput.addEventListener('input', syncFolderEditState);
+                folderInput.addEventListener('paste', () => {
+                  // paste는 브라우저가 값 세팅 후에 잡아야 함
+                  setTimeout(syncFolderEditState, 10);
                 });
-                folderInput.addEventListener('paste', (e) => {
-                  console.log('[문서 폴더] paste 이벤트 발생');
-                  setTimeout(() => {
-                    console.log('[문서 폴더] paste 후 값:', folderInput.value);
-                    this.parseDriveFolderUrl(folderInput);
-                  }, 10);
-                });
-                console.log('[문서 폴더] 이벤트 리스너 등록 완료');
 
                 // 편집 모드 진입 시 기존 값 검증
                 if (folderInput.value.trim()) {
-                  console.log('[문서 폴더] 기존 값 검증:', folderInput.value);
                   this.parseDriveFolderUrl(folderInput);
                 }
               } else {
-                console.error('[문서 폴더] Input을 찾을 수 없습니다!');
+                logger.warn('[문서 폴더] folder-path-input을 찾을 수 없음');
               }
             }, 100);
           }
