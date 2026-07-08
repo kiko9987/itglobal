@@ -3,9 +3,18 @@
 루트 라우트와 기본 페이지들
 """
 
-from flask import Blueprint, redirect, url_for, render_template, session, jsonify
+from flask import Blueprint, redirect, url_for, render_template, session, jsonify, send_from_directory, current_app
+import os
 
 main_bp = Blueprint('main', __name__)
+
+
+@main_bp.route('/favicon.ico')
+def favicon():
+    """루트 /favicon.ico 요청을 static/favicon.ico로 서빙 (2026-07-08 부하 테스트에서 404 60건 발견).
+    브라우저가 자동으로 /favicon.ico 요청하지만 라우트 없으면 404 로그 스팸 유발."""
+    static_dir = os.path.join(current_app.root_path, 'static')
+    return send_from_directory(static_dir, 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 
 @main_bp.route('/')

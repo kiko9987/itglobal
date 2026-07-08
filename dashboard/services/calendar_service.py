@@ -39,12 +39,22 @@ def is_calendar_enabled() -> bool:
     return bool(calendar_id)
 
 
-def _parse_date(value: Optional[str]) -> Optional[datetime]:
+def _parse_date(value: Optional[str], context: str = '') -> Optional[datetime]:
+    """날짜 문자열 파싱. 실패 시 warning 로그 + None 반환 (2026-07-08 silent 처리 제거).
+
+    Args:
+        value: 'YYYY-MM-DD' 형식 문자열
+        context: 로그에 남길 맥락 (예: 'R2384-SJ 공사 시작')
+    """
     if not value:
         return None
     try:
         return datetime.strptime(value, '%Y-%m-%d')
     except ValueError:
+        logger.warning(
+            f"[CALENDAR] 날짜 파싱 실패: {value!r} (context={context!r}). "
+            "'YYYY-MM-DD' 형식이 아님. 캘린더 동기화 skip."
+        )
         return None
 
 

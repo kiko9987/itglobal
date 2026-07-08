@@ -71,6 +71,9 @@ export default class ProjectRowAccordion {
     this.tomSelectInstances = []; // Tom Select 인스턴스 저장
     this.pendingMemoChanges = {}; // 저장 대기 중인 메모 변경사항
 
+    // itgfolder:// 프로토콜 실패 감지 (2026-07-08)
+    this.bindItgfolderProtocolHandler();
+
     // 🆕 EditState: 단일 진실 소스 (Single Source of Truth)
     this.editState = null;
 
@@ -1163,9 +1166,48 @@ export default class ProjectRowAccordion {
     if (!localPath) return '폴더 경로가 설정되지 않았습니다.';
     const isFolderId = /^[a-zA-Z0-9_-]{20,}$/.test(localPath);
     if (isFolderId) {
-      return `<a href="itgfolder://${localPath}" class="text-decoration-none" style="color: #0d6efd;" title="탐색기에서 열기">${localPath}</a>`;
+      // 2026-07-08 프로토콜 실패 감지: 클릭 후 페이지가 여전히 활성 상태면 프로토콜 미설치로 판단, 설치 안내.
+      return `<a href="itgfolder://${localPath}" class="text-decoration-none itgfolder-link" data-folder-id="${localPath}" style="color: #0d6efd;" title="탐색기에서 열기 (프로토콜 필요)">${localPath}</a>`;
     }
     return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${projectCode}" style="color: #0d6efd;">${localPath}</a>`;
+  }
+
+  /**
+   * itgfolder:// 링크 클릭 감지 (2026-07-08).
+   * 클릭 후 1.5초 뒤에도 탭이 활성 상태이면 프로토콜 미설치 → 설치 안내 알림.
+   * ProjectRowAccordion 초기화 시 한 번 등록.
+   */
+  bindItgfolderProtocolHandler() {
+    // 전역 플래그로 중복 등록 방지 (여러 컴포넌트 인스턴스 대응)
+    if (window._itgfolderHandlerBound) return;
+    window._itgfolderHandlerBound = true;
+
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('.itgfolder-link');
+      if (!link) return;
+      const folderId = link.dataset.folderId;
+      if (!folderId) return;
+
+      // 클릭 시각 기록. 1.5초 후에도 탭이 hidden으로 안 갔으면 프로토콜 미설치 유력.
+      const clickAt = Date.now();
+      setTimeout(() => {
+        if (document.hidden) return;  // 탐색기가 뜨면 브라우저가 hidden 됨
+        if (Date.now() - clickAt < 1400) return;  // 도중 다른 액션 있으면 skip
+        const proceed = confirm(
+          '폴더가 열리지 않았나요?\n\n' +
+          '탐색기 프로토콜 미설치일 수 있습니다.\n' +
+          '설치 방법:\n' +
+          '  1) 회사에서 배포한 install-itg-folder.bat 파일을 실행\n' +
+          '  2) 브라우저를 완전히 종료 후 재실행\n' +
+          '  3) 다시 폴더 링크 클릭\n\n' +
+          '설치 가이드가 필요하면 관리자(kiko@itg-aircon.com)에게 문의하세요.\n\n' +
+          '확인을 누르면 폴더 ID를 클립보드에 복사합니다 (Drive에서 직접 열기용).'
+        );
+        if (proceed && navigator.clipboard) {
+          navigator.clipboard.writeText(folderId).catch(() => {});
+        }
+      }, 1500);
+    });
   }
 
   generateDocumentSection(rowData) {
@@ -4644,6 +4686,48 @@ export default class ProjectRowAccordion {
       return;
     }
 
+    // 2026-07-08 draft 복구 체크 — 이전 편집 세션에서 저장된 미완료 값이 있으면 안내
+    try {
+      const draftKey = `itg_draft_${projectCode}`;
+      const draftRaw = sessionStorage.getItem(draftKey);
+      if (draftRaw) {
+        const draft = JSON.parse(draftRaw);
+        const draftAt = new Date(draft._savedAt || 0);
+        const ageMin = (Date.now() - draftAt.getTime()) / 60000;
+        // 30분 이내 draft만 복구 제안 (오래된 것은 stale 위험)
+        if (ageMin < 30 && confirm(
+          `이전 편집 세션의 미저장 데이터가 있습니다.\n` +
+          `저장 시각: ${draftAt.toLocaleString('ko-KR')} (${Math.round(ageMin)}분 전)\n\n` +
+          `복구하시겠습니까?\n(취소하면 draft 삭제)`
+        )) {
+          this._pendingDraft = draft;
+        } else {
+          sessionStorage.removeItem(draftKey);
+        }
+      }
+    } catch (e) {
+      logger.debug('[편집 모드] draft 복구 시도 오류 (무시):', e);
+    }
+
+    // draft 자동 저장 시작 (5초 주기, 편집 종료 시 clear)
+    if (this._draftAutoSaveTimer) clearInterval(this._draftAutoSaveTimer);
+    this._draftAutoSaveTimer = setInterval(() => {
+      try {
+        const shell = this.getAccordionShell?.();
+        if (!shell) return;
+        const inputs = shell.querySelectorAll('input[data-field], textarea[data-field], select[data-field]');
+        if (inputs.length === 0) return;
+        const snapshot = { _savedAt: new Date().toISOString(), _projectCode: projectCode, fields: {} };
+        inputs.forEach(el => {
+          const field = el.dataset.field;
+          if (field) snapshot.fields[field] = el.value;
+        });
+        sessionStorage.setItem(`itg_draft_${projectCode}`, JSON.stringify(snapshot));
+      } catch (e) {
+        logger.debug('[편집 모드] draft 자동 저장 실패 (무시):', e);
+      }
+    }, 5000);
+
     // 프로젝트 잠금 획득 시도
     try {
       logger.debug(`🔒 [잠금] 프로젝트 잠금 획득 시도: ${projectCode} (탭 ID: ${this.tabId})`);
@@ -5531,6 +5615,15 @@ export default class ProjectRowAccordion {
    * 통합 편집 모드 해제
    */
   disableUnifiedEditMode(projectCode, skipDataRestore = false) {
+
+    // 2026-07-08 draft 자동 저장 timer 종료 + 저장된 draft 삭제 (편집 완료·취소 시)
+    if (this._draftAutoSaveTimer) {
+      clearInterval(this._draftAutoSaveTimer);
+      this._draftAutoSaveTimer = null;
+    }
+    try {
+      sessionStorage.removeItem(`itg_draft_${projectCode}`);
+    } catch (e) { /* ignore */ }
 
     // 현재 프로젝트 코드 사용 (실시간 업데이트로 변경되었을 수 있음)
     const currentCode = this.currentProject?.['프로젝트 코드'] || projectCode;

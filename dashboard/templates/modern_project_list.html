@@ -43,6 +43,40 @@
 
     <div class="container-fluid">
         <div class="content-container">
+            <!-- 첫 방문자 온보딩 배너 (2026-07-08, localStorage 기반 자동 dismiss) -->
+            <div class="alert alert-success alert-dismissible fade show mb-3" role="alert" id="onboardingBanner"
+                 style="display: none; border-left: 4px solid #28a745;">
+                <i class="fas fa-lightbulb me-2"></i>
+                <strong>ITG 대시보드에 오신 것을 환영합니다!</strong>
+                <ul class="mb-1 mt-2 small">
+                    <li><strong>편집:</strong> 프로젝트 행 클릭 → 아코디언 펼침 → 각 필드 <em>편집</em> 버튼</li>
+                    <li><strong>공사 취소/재개:</strong> 아코디언 우측 상단 버튼. 취소 시 마크가 표시됩니다</li>
+                    <li><strong>문서 폴더 열기:</strong> "문서 폴더" 링크 클릭 (사전 <em>install-itg-folder.bat</em> 설치 필요)</li>
+                    <li><strong>내 프로젝트만 보기:</strong> 필터 영역 체크박스로 담당자 자동 필터</li>
+                </ul>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"
+                        onclick="localStorage.setItem('itg_onboarding_dismissed','1')"></button>
+            </div>
+            <script>
+                // 첫 방문이거나 dismiss 이력 없으면 배너 표시
+                (function () {
+                    if (!localStorage.getItem('itg_onboarding_dismissed')) {
+                        var b = document.getElementById('onboardingBanner');
+                        if (b) b.style.display = 'block';
+                    }
+                })();
+            </script>
+
+            {% if user_role and user_role.lower() == 'viewer' %}
+            <!-- Viewer 권한 안내 배너 (2026-07-08) -->
+            <div class="alert alert-info alert-dismissible fade show mb-3" role="alert" style="border-left: 4px solid #0d6efd;">
+                <i class="fas fa-info-circle me-2"></i>
+                <strong>조회 전용 권한입니다.</strong>
+                프로젝트 편집·취소·재개 기능을 사용하려면 관리자(kiko@itg-aircon.com)에게 <strong>편집 권한(editor)</strong> 승격을 요청하세요.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endif %}
+
             <!-- 프로젝트 관리 헤더 -->
             <div class="row mb-3">
                 <div class="col-12 d-flex align-items-center justify-content-between" style="min-height: 2.5rem;">
@@ -54,17 +88,23 @@
 
                     <div class="d-flex gap-2">
                         <!-- 새로고침 버튼 -->
-                        <button class="btn btn-soft-success" onclick="fullRefresh()" id="fullRefreshBtn" style="min-width: 110px; white-space: nowrap;">
+                        <button class="btn btn-soft-success" onclick="fullRefresh()" id="fullRefreshBtn"
+                                title="시트에서 최신 데이터를 다시 불러옵니다 (편집 도중 다른 매니저가 변경한 값 확인 시)"
+                                style="min-width: 110px; white-space: nowrap;">
                             <i class="fas fa-sync-alt me-1"></i>새로고침
                         </button>
 
                         <!-- 캘린더 동기화 버튼 -->
-                        <button class="btn btn-soft-success" onclick="syncCalendar()" id="calendarSyncBtn" style="min-width: 130px; white-space: nowrap;">
+                        <button class="btn btn-soft-success" onclick="syncCalendar()" id="calendarSyncBtn"
+                                title="시트 공사 일정을 Google 캘린더에 반영합니다 (자동 동기화 외 수동 트리거)"
+                                style="min-width: 130px; white-space: nowrap;">
                             <i class="fas fa-calendar-check me-1"></i>캘린더 동기화
                         </button>
 
                         <!-- 새 프로젝트 버튼 -->
-                        <button class="btn btn-soft-primary" onclick="openNewProjectModal()" style="min-width: 110px; white-space: nowrap;">
+                        <button class="btn btn-soft-primary" onclick="openNewProjectModal()"
+                                title="새 프로젝트를 등록합니다. 사업자·현장 주소·담당자·시공자 등 기본 정보를 입력하세요."
+                                style="min-width: 110px; white-space: nowrap;">
                             <i class="fas fa-plus me-1"></i>새 프로젝트
                         </button>
                     </div>

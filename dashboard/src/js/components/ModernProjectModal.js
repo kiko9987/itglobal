@@ -1062,6 +1062,24 @@ export default class ModernProjectModal {
 
     // HTTP 상태 코드별 처리
     if (statusCode === 400) {
+      // 2026-07-08 필드명 표시 시도: 서버 응답에서 어느 필드가 문제인지 추출
+      // 지원 형식:
+      //   - "필드 'X'는 필수입니다"
+      //   - "X 필드가 필요합니다"
+      //   - error.fieldErrors = { field: '메시지' }
+      if (error.fieldErrors && typeof error.fieldErrors === 'object') {
+        const parts = Object.entries(error.fieldErrors).map(([f, m]) => `• ${f}: ${m}`);
+        return `다음 항목을 확인해주세요:\n${parts.join('\n')}`;
+      }
+      const fieldMatch = errorMessage.match(/(?:필드\s*['"]?([^'"\s]+)['"]?|['"]?([^'"\s]+)['"]?\s*필드)/);
+      if (fieldMatch) {
+        const field = fieldMatch[1] || fieldMatch[2];
+        return `'${field}' 필드를 확인해주세요.\n(서버 메시지: ${errorMessage.slice(0, 200)})`;
+      }
+      // 서버 메시지가 이해 가능한 한글이면 그대로 노출
+      if (errorMessage && errorMessage.length < 200 && /[가-힣]/.test(errorMessage)) {
+        return `입력 오류: ${errorMessage}`;
+      }
       return '입력하신 정보에 문제가 있습니다. 모든 필드를 다시 확인해주세요.';
     }
     if (statusCode === 401 || statusCode === 403) {
