@@ -115,11 +115,17 @@ def _list_folder_files(drive, folder_id: str) -> list:
     return resp.get('files', [])
 
 
-def _next_copy_index(files: list, ext: str) -> int:
-    """이미 존재하는 '사업자등록증_{N}.{ext}' 중 최댓값+1. 없으면 1.
-    (2026-07-09 사용자 요청 형식: '사업자등록증_1.pdf', '_2.pdf' ...)
+def _canonical_name(code: str, ext: str) -> str:
+    """{프로젝트코드} 사업자등록증.{ext} 형식.
+    (2026-07-09 사용자 확정: 파일이 폴더 밖으로 나가도 어느 프로젝트인지 즉시 인지)
     """
-    pat = re.compile(rf'^{re.escape(LICENSE_BASENAME)}_(\d+)\.{re.escape(ext)}$')
+    return f'{code} {LICENSE_BASENAME}.{ext}'
+
+
+def _next_copy_index(files: list, code: str, ext: str) -> int:
+    """이미 존재하는 '{code} 사업자등록증_{N}.{ext}' 중 최댓값+1. 없으면 1."""
+    prefix = f'{code} {LICENSE_BASENAME}'
+    pat = re.compile(rf'^{re.escape(prefix)}_(\d+)\.{re.escape(ext)}$')
     max_n = 0
     for f in files:
         m = pat.match(f['name'])
@@ -171,17 +177,17 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
     license_folder = _get_or_create_license_subfolder(drive, parent)
 
     ext = _guess_ext(filename, mimetype)
-    canonical = f'{LICENSE_BASENAME}.{ext}'
+    canonical = _canonical_name(code, ext)
 
-    # 저장 파일명 결정 규칙 (2026-07-09 사용자 확정):
-    #   원본이 없으면 '사업자등록증.{ext}' 로 저장 (canonical)
-    #   원본이 이미 있으면 '사업자등록증_{N}.{ext}' 로 저장 (N=1,2,3...). 원본은 그대로 유지.
+    # 저장 파일명 규칙 (2026-07-09 사용자 확정):
+    #   원본이 없으면 '{code} 사업자등록증.{ext}' (canonical)
+    #   원본이 이미 있으면 '{code} 사업자등록증_{N}.{ext}' (N=1,2,3...). 원본은 유지.
     # 계산서 요청 검증은 항상 canonical 존재 여부만 확인.
     existing = _list_folder_files(drive, license_folder)
     canonical_exists = any(f['name'] == canonical for f in existing)
     if canonical_exists:
-        next_n = _next_copy_index(existing, ext)
-        save_name = f'{LICENSE_BASENAME}_{next_n}.{ext}'
+        next_n = _next_copy_index(existing, code, ext)
+        save_name = f'{code} {LICENSE_BASENAME}_{next_n}.{ext}'
     else:
         save_name = canonical
 
@@ -219,13 +225,15 @@ def verify_license_exists(code: str) -> bool:
     fid = _find_license_subfolder(drive, parent)
     if not fid:
         return False
+    # 2026-07-09 규칙: canonical = '{code} 사업자등록증.{ext}'.
+    # 확장자 무관 basename 매치 (같은 프로젝트에 pdf/png 등 여러 확장자 원본 허용).
+    expected_base = f'{code} {LICENSE_BASENAME}'
     for f in _list_folder_files(drive, fid):
-        # basename 정확 매치
         name = f['name']
         if '.' not in name:
             continue
         base = name.rsplit('.', 1)[0]
-        if base == LICENSE_BASENAME:
+        if base == expected_base:
             return True
     return False
 
