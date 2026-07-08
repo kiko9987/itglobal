@@ -472,10 +472,64 @@ def _register_project_handlers(app):
                 logger.error(f"[LICENSE] 파일 처리 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    # ─────────────────────────────────────────────────────────
+    # 공사 확정 카드 [✏️ 내용 수정] / [❌ 공사 취소] / [↩️ 취소 되돌리기]
+    # ─────────────────────────────────────────────────────────
+    @app.action("project_edit_open")
+    def handle_project_edit_open(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _open_project_edit_modal(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/공사수정] 모달 열기 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_project_edit")
+    def handle_submit_project_edit(ack, body, client, view):
+        # 필수 사유 검증 — 빈값이면 modal errors로 응답
+        values = view.get("state", {}).get("values", {})
+        reason = ''
+        try:
+            reason = (values.get("reason", {}).get("value", {}) or {}).get("value", '') or ''
+        except Exception:
+            reason = ''
+        if not reason.strip():
+            ack(response_action="errors", errors={"reason": "수정 사유를 반드시 입력해야 합니다."})
+            return
+        ack()
+        def _bg():
+            try:
+                _process_project_edit_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/공사수정] submit 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("project_cancel_confirm")
+    def handle_project_cancel(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _process_project_cancel(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/공사취소] 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("project_uncancel")
+    def handle_project_uncancel(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _process_project_uncancel(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/공사재개] 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     logger.info(
         "[SLACK/공사봇] 핸들러 등록 완료: /공사확정, submit_project, "
         "options(company_name), invoice_request_open, submit_invoice, invoice_complete, "
-        "message.file_share(사업자등록증)"
+        "message.file_share(사업자등록증), "
+        "project_edit_open, submit_project_edit, project_cancel_confirm, project_uncancel"
     )
 
 
@@ -4167,6 +4221,414 @@ def _money_kr(digits: str) -> str:
     if not d:
         return '-'
     return f"{int(d):,}원"
+
+
+# ─────────────────────────────────────────────────────────────
+# 공사 확정 카드 편집 / 취소 헬퍼 (2026-07-09)
+# ─────────────────────────────────────────────────────────────
+_CONTRACT_TYPE_OPTIONS = ['외주', '내부', '일당', '기타']
+
+
+def _load_active_constructors_flat() -> list:
+    """활성 시공자 목록 (카테고리 flat, 이름만). 모달 multi_static_select 옵션 용."""
+    try:
+        from dashboard.utils.user_database import get_constructor_repository
+        grouped = get_constructor_repository().get_grouped(active_only=True)
+        names = []
+        for cat_items in grouped.values():
+            for c in cat_items:
+                nm = (c.get('name') or '').strip()
+                if nm and nm not in names:
+                    names.append(nm)
+        return names
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사수정] 시공자 목록 로드 실패: {exc}')
+        return []
+
+
+def _multiselect_options(values: list) -> list:
+    return [{'text': {'type': 'plain_text', 'text': v}, 'value': v} for v in values]
+
+
+def _open_project_edit_modal(client, body) -> None:
+    """[✏️ 내용 수정] 클릭 → 편집 가능 필드 7개 pre-fill 모달."""
+    from dashboard.services.project_service import get_project_records
+
+    trigger_id = body["trigger_id"]
+    code = (body["actions"][0].get("value") or '').strip()
+    channel = body.get("channel", {}).get("id", "") or body.get("container", {}).get("channel_id", "")
+    message_ts = body.get("message", {}).get("ts", "") or body.get("container", {}).get("message_ts", "")
+
+    if not code:
+        return
+
+    records = get_project_records() or []
+    project = next((r for r in records if (r.get('프로젝트 코드') or '').strip() == code), None)
+    if not project:
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=body["user"]["id"],
+                text=f':warning: `{code}` 프로젝트를 찾을 수 없습니다. (시트에서 삭제/이동됐을 수 있음)',
+            )
+        except Exception:
+            pass
+        return
+
+    metadata = json.dumps({'code': code, 'channel': channel, 'message_ts': message_ts}, ensure_ascii=False)
+
+    # pre-fill 값 준비
+    def _val(field):
+        v = project.get(field, '')
+        return '' if v in (None, '-', 'None') else str(v).strip()
+
+    content = _val('공사 내용')
+    contractor_raw = _val('시공자')
+    contract_type_raw = _val('도급 구분')
+    amount_raw = project.get('총액 1', '')
+    amt_str = ''
+    if amount_raw not in (None, '', '-'):
+        try:
+            amt_str = f"{int(float(str(amount_raw).replace(',', '').strip())):,}"
+        except (ValueError, TypeError):
+            amt_str = str(amount_raw)
+    vat_raw = project.get('부가세')
+    vat_sep = (
+        vat_raw is True
+        or (isinstance(vat_raw, str) and vat_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+        or vat_raw == 1
+    )
+    start_raw = _val('공사 시작')
+    end_raw = _val('공사 종료')
+    start_date = start_raw[:10] if len(start_raw) >= 10 else ''
+    end_date = end_raw[:10] if len(end_raw) >= 10 else ''
+
+    # multi-select initial (값이 옵션에 있는 것만)
+    contract_type_current = [t.strip() for t in re.split(r'[,/]', contract_type_raw) if t.strip()]
+    contract_type_initial = _multiselect_options([t for t in contract_type_current if t in _CONTRACT_TYPE_OPTIONS])
+
+    constructor_names = _load_active_constructors_flat()
+    # 기존 값 중 리스트에 없으면 추가 (비활성 시공자 유지)
+    contractor_current = [n.strip() for n in re.split(r'[,/]', contractor_raw) if n.strip()]
+    for n in contractor_current:
+        if n not in constructor_names:
+            constructor_names.append(n)
+    contractor_initial = _multiselect_options([n for n in contractor_current if n in constructor_names])
+
+    vat_option = {'text': {'type': 'plain_text', 'text': 'VAT 별도'}, 'value': 'sep'}
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"프로젝트 `{code}` 수정"}},
+        {
+            "type": "input", "block_id": "content", "optional": True,
+            "label": {"type": "plain_text", "text": "공사 내용"},
+            "element": {
+                "type": "plain_text_input", "action_id": "value",
+                "multiline": True,
+                **({"initial_value": content} if content else {}),
+            },
+        },
+        {
+            "type": "input", "block_id": "contract_type", "optional": True,
+            "label": {"type": "plain_text", "text": "도급 구분 (최대 2개)"},
+            "element": {
+                "type": "multi_static_select", "action_id": "value",
+                "max_selected_items": 2,
+                "options": _multiselect_options(_CONTRACT_TYPE_OPTIONS),
+                **({"initial_options": contract_type_initial} if contract_type_initial else {}),
+            },
+        },
+        {
+            "type": "input", "block_id": "contractor", "optional": True,
+            "label": {"type": "plain_text", "text": "시공자"},
+            "element": {
+                "type": "multi_static_select", "action_id": "value",
+                "options": _multiselect_options(constructor_names),
+                **({"initial_options": contractor_initial} if contractor_initial else {}),
+            },
+        },
+        {
+            "type": "input", "block_id": "amount", "optional": True,
+            "label": {"type": "plain_text", "text": "공사 금액"},
+            "element": {
+                "type": "plain_text_input", "action_id": "value",
+                "placeholder": {"type": "plain_text", "text": "예: 15,000,000 (콤마·공백 무시됨)"},
+                **({"initial_value": amt_str} if amt_str else {}),
+            },
+        },
+        {
+            "type": "input", "block_id": "vat", "optional": True,
+            "label": {"type": "plain_text", "text": "부가세"},
+            "element": {
+                "type": "checkboxes", "action_id": "value",
+                "options": [vat_option],
+                **({"initial_options": [vat_option]} if vat_sep else {}),
+            },
+        },
+        {
+            "type": "input", "block_id": "start_date", "optional": True,
+            "label": {"type": "plain_text", "text": "공사 시작"},
+            "element": {
+                "type": "datepicker", "action_id": "value",
+                **({"initial_date": start_date} if start_date else {}),
+            },
+        },
+        {
+            "type": "input", "block_id": "end_date", "optional": True,
+            "label": {"type": "plain_text", "text": "공사 종료"},
+            "element": {
+                "type": "datepicker", "action_id": "value",
+                **({"initial_date": end_date} if end_date else {}),
+            },
+        },
+        {
+            "type": "input", "block_id": "reason",
+            "label": {"type": "plain_text", "text": "수정 사유 (필수)"},
+            "element": {
+                "type": "plain_text_input", "action_id": "value", "multiline": True,
+                "placeholder": {"type": "plain_text", "text": "예: 고객 요청으로 시공자 변경"},
+            },
+        },
+    ]
+
+    view = {
+        "type": "modal",
+        "callback_id": "submit_project_edit",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "공사 내용 수정"},
+        "submit": {"type": "plain_text", "text": "저장"},
+        "close": {"type": "plain_text", "text": "닫기"},
+        "blocks": blocks,
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _process_project_edit_submission(client, body, view) -> None:
+    """편집 모달 제출 → project_slack_actions.perform_edit 호출."""
+    from dashboard.services.project_slack_actions import perform_edit
+
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    code = metadata.get("code", "")
+    if not code:
+        return
+
+    channel = metadata.get("channel", "")
+    user_id = body.get("user", {}).get("id", "")
+
+    values = view["state"]["values"]
+
+    def _text(bid):
+        return (values.get(bid, {}).get('value', {}) or {}).get('value', '') or ''
+
+    def _multi(bid):
+        opts = (values.get(bid, {}).get('value', {}) or {}).get('selected_options', []) or []
+        return [o.get('value', '') for o in opts if o.get('value')]
+
+    def _date(bid):
+        return (values.get(bid, {}).get('value', {}) or {}).get('selected_date', '') or ''
+
+    def _checked(bid):
+        opts = (values.get(bid, {}).get('value', {}) or {}).get('selected_options', []) or []
+        return bool(opts)
+
+    content = _text('content').strip()
+    contract_types = _multi('contract_type')
+    contractors = _multi('contractor')
+    amount_raw = _text('amount').strip()
+    vat_sep = _checked('vat')
+    start_date = _date('start_date')
+    end_date = _date('end_date')
+    reason = _text('reason').strip()
+
+    # 편집할 필드만 dict 구성 — 원본 값과 다를 때만 (관리 사이트도 diff 기반)
+    from dashboard.services.project_service import get_project_records
+    records = get_project_records() or []
+    project = next((r for r in records if (r.get('프로젝트 코드') or '').strip() == code), None)
+    if not project:
+        return
+
+    updates = {}
+    if content and content != (project.get('공사 내용') or '').strip():
+        updates['공사 내용'] = content
+    new_contract = ', '.join(contract_types)
+    if new_contract != (project.get('도급 구분') or '').strip():
+        updates['도급 구분'] = new_contract
+    new_contractor = ', '.join(contractors)
+    if new_contractor != (project.get('시공자') or '').strip():
+        updates['시공자'] = new_contractor
+    if amount_raw:
+        digits = ''.join(ch for ch in amount_raw if ch.isdigit())
+        if digits:
+            new_amt = int(digits)
+            try:
+                cur_amt = int(float(str(project.get('총액 1', 0) or 0).replace(',', '').strip() or 0))
+            except (ValueError, TypeError):
+                cur_amt = 0
+            if new_amt != cur_amt:
+                updates['총액 1'] = new_amt
+    # VAT는 체크박스 → bool. 원본과 다르면 반영.
+    cur_vat_raw = project.get('부가세')
+    cur_vat = (
+        cur_vat_raw is True
+        or (isinstance(cur_vat_raw, str) and cur_vat_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+        or cur_vat_raw == 1
+    )
+    if vat_sep != cur_vat:
+        updates['부가세'] = vat_sep
+    if start_date and start_date != (project.get('공사 시작') or '')[:10]:
+        updates['공사 시작'] = start_date
+    if end_date and end_date != (project.get('공사 종료') or '')[:10]:
+        updates['공사 종료'] = end_date
+
+    if not updates:
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=':information_source: 변경된 필드가 없어 저장을 skip 했습니다.',
+            )
+        except Exception:
+            pass
+        return
+
+    display_name = _slack_user_to_korean_name(client, user_id) or user_id
+    result = perform_edit(code, updates, reason, display_name)
+
+    if result.get('ok'):
+        try:
+            summary = ', '.join(updates.keys())
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=f':white_check_mark: `{code}` 수정 완료 — {summary}',
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=f':x: `{code}` 수정 실패: {result.get("reason", "unknown")}',
+            )
+        except Exception:
+            pass
+
+
+def _process_project_cancel(client, body) -> None:
+    """[❌ 공사 취소] 확인 → perform_cancel → 카드 chat.update(방문 취소 UI 스타일)."""
+    from dashboard.services.project_slack_actions import perform_cancel
+
+    code = (body["actions"][0].get("value") or '').strip()
+    channel = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+    user_id = body["user"]["id"]
+    if not code:
+        return
+
+    display_name = _slack_user_to_korean_name(client, user_id) or user_id
+    result = perform_cancel(code, display_name)
+
+    if not result.get('ok'):
+        reason = result.get('reason', 'unknown')
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=f':x: `{code}` 취소 실패: {reason}',
+            )
+        except Exception:
+            pass
+        return
+
+    # 카드 chat.update — 방문 취소 UI 스타일 그대로 (원본 회색 처리)
+    try:
+        cancel_time = datetime.now().strftime('%Y.%m.%d. %H:%M')
+        original_text = ''
+        for blk in body["message"].get("blocks", []):
+            if blk.get("type") == "section":
+                bt = blk.get("text", {}).get("text", "")
+                if bt:
+                    original_text = bt
+                    break
+        if not original_text:
+            original_text = body["message"].get("text", "")
+        cleaned = [ln.replace('*', '') for ln in original_text.split('\n')]
+        clean_text = '\n'.join(cleaned).strip()
+
+        new_text = (
+            f":no_entry_sign: *공사 취소*\n"
+            f"취소한 사람 : {display_name}\n"
+            f"취소 시간 : {cancel_time}\n"
+            f"\n"
+            f"```\n{clean_text}\n```"
+        )
+        new_blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "↩️ 취소 되돌리기", "emoji": True},
+                        "style": "primary",
+                        "value": code,
+                        "action_id": "project_uncancel",
+                        "confirm": {
+                            "title": {"type": "plain_text", "text": "취소 되돌리기"},
+                            "text": {"type": "plain_text",
+                                     "text": f"{code} 공사 취소를 되돌리시겠습니까?"},
+                            "confirm": {"type": "plain_text", "text": "되돌리기"},
+                            "deny": {"type": "plain_text", "text": "닫기"},
+                        },
+                    },
+                ],
+            },
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
+        ]
+        client.chat_update(channel=channel, ts=message_ts, text=new_text, blocks=new_blocks)
+    except Exception as exc:
+        logger.error(f"[SLACK/공사취소] chat.update 실패 ({code}): {exc}", exc_info=True)
+
+
+def _process_project_uncancel(client, body) -> None:
+    """[↩️ 취소 되돌리기] → perform_uncancel → 카드 원본 형태로 복원."""
+    from dashboard.services.project_slack_actions import perform_uncancel
+    from dashboard.services.project_slack_notifier import _build_blocks
+    from dashboard.services.business_license_handler import verify_license_exists
+    from dashboard.services.project_service import get_project_records
+
+    code = (body["actions"][0].get("value") or '').strip()
+    channel = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+    user_id = body["user"]["id"]
+    if not code:
+        return
+
+    display_name = _slack_user_to_korean_name(client, user_id) or user_id
+    result = perform_uncancel(code, display_name)
+
+    if not result.get('ok'):
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=f':x: `{code}` 재개 실패: {result.get("reason", "unknown")}',
+            )
+        except Exception:
+            pass
+        return
+
+    # 카드 원본 형태로 재렌더링
+    try:
+        records = get_project_records(force_refresh=True) or []
+        latest = next((r for r in records if (r.get('프로젝트 코드') or '').strip() == code), None)
+        if not latest:
+            return
+        try:
+            license_attached = verify_license_exists(code)
+        except Exception:
+            license_attached = False
+        new_blocks = _build_blocks(latest, code, license_attached=license_attached)
+        biz = latest.get('사업자명') or ''
+        fallback = f"[공사 확정] {code} {biz}".strip()
+        client.chat_update(channel=channel, ts=message_ts, text=fallback, blocks=new_blocks)
+    except Exception as exc:
+        logger.error(f"[SLACK/공사재개] chat.update 실패 ({code}): {exc}", exc_info=True)
 
 
 def _open_invoice_modal(client, body) -> None:

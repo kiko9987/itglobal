@@ -181,7 +181,10 @@ def _build_invoice_button_value(data: dict, code: str) -> str:
 
 
 def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list:
-    """공사 확정 알림 blocks — section(본문) + actions([계산서 요청]) + 하단 여백 context."""
+    """공사 확정 알림 blocks — section(본문) + actions(3버튼) + 하단 여백 context.
+
+    버튼: [계산서 요청] [내용 수정] [공사 취소]. 매니저가 밖에서 슬랙만으로 수정/취소 가능.
+    """
     text = _build_message(data, code, license_attached=license_attached)
     btn_value = _build_invoice_button_value(data, code)
     return [
@@ -194,6 +197,29 @@ def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list
                     'text': {'type': 'plain_text', 'text': '💰 계산서 요청', 'emoji': True},
                     'action_id': 'invoice_request_open',
                     'value': btn_value,
+                },
+                {
+                    'type': 'button',
+                    'text': {'type': 'plain_text', 'text': '✏️ 내용 수정', 'emoji': True},
+                    'action_id': 'project_edit_open',
+                    'value': code,
+                },
+                {
+                    'type': 'button',
+                    'text': {'type': 'plain_text', 'text': '❌ 공사 취소', 'emoji': True},
+                    'style': 'danger',
+                    'action_id': 'project_cancel_confirm',
+                    'value': code,
+                    'confirm': {
+                        'title': {'type': 'plain_text', 'text': '공사 취소'},
+                        'text': {
+                            'type': 'plain_text',
+                            'text': f'{code} 공사를 취소하시겠습니까?\n'
+                                    f'관리 사이트의 [공사 취소] 버튼과 동일하게 처리됩니다.',
+                        },
+                        'confirm': {'type': 'plain_text', 'text': '취소'},
+                        'deny': {'type': 'plain_text', 'text': '닫기'},
+                    },
                 },
             ],
         },
