@@ -113,7 +113,7 @@ def _build_message(
         import re as _re
         # 폴더 ID 패턴(20자+ 영숫자·언더스코어·하이픈)이면 itgfolder:// 클릭 링크
         if _re.match(r'^[a-zA-Z0-9_-]{20,}$', folder_raw):
-            folder_display = f'<itgfolder://{folder_raw}|📂 탐색기에서 열기>'
+            folder_display = f'<itgfolder://{folder_raw}|탐색기에서 열기>'
         else:
             # 로컬 경로 등은 raw text (매니저가 복사해서 붙여넣기)
             folder_display = folder_raw
