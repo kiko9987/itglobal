@@ -583,22 +583,6 @@ def _register_handlers(app):
         except Exception as exc:
             logger.error(f"[SLACK] link_existing_lead 실패: {exc}", exc_info=True)
 
-    @app.options("business_name_search")
-    def handle_business_name_options(ack, body):
-        """방문 요청 모달의 '기존 거래처 검색' external_select — 시트 사업자명 부분 매칭.
-        2026-07-08 추가: 매니저가 매번 상호를 자유 입력하는 것보다 자동완성으로 오타·표기 통일 개선."""
-        try:
-            query = (body.get("value") or "").strip()
-            options = _search_company_names(query.lower())
-            logger.info(f"[SLACK/options] business_name_search query={query!r} -> {len(options)}건")
-            ack(options=options)
-        except Exception as exc:
-            logger.error(f"[SLACK] business name options 실패: {exc}", exc_info=True)
-            try:
-                ack(options=[])
-            except Exception:
-                pass
-
     @app.options("link_lead_search")
     def handle_link_lead_options(ack, body):
         """external_select 검색 — 매니저가 입력한 query로 시트 lead 매칭."""
@@ -682,21 +666,13 @@ def _register_handlers(app):
             contact = (_v(state, "contact") or '').strip()
             visit_address = (_v(state, "visit_address") or '').strip()
 
-            # 2026-07-08: external_select에서 기존 거래처 선택했으면 name 대체 허용
-            try:
-                sel = state.get("existing_business", {}).get("business_name_search", {}).get("selected_option")
-                if sel and sel.get("value"):
-                    name = name or sel["value"].strip()
-            except Exception:
-                pass
-
             def _is_empty(v):
                 return not v or v == '-'
 
             if _is_empty(visit_date):
                 errors["visit_date"] = "방문 예약 시 방문 예정일을 선택해주세요."
             if _is_empty(name):
-                errors["name"] = "방문 예약 시 '이름/상호'에 직접 입력하거나 위 '기존 거래처 검색'에서 선택해주세요."
+                errors["name"] = "방문 예약 시 이름/상호를 입력해주세요."
             if _is_empty(contact):
                 errors["contact"] = "방문 예약 시 연락처를 입력해주세요."
             if _is_empty(visit_address):
@@ -2368,22 +2344,7 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
         },
     ])
 
-    # 2026-07-08: 기존 거래처 자동완성 필드 추가. 기존 자유 입력은 유지 (새 거래처용).
-    existing_business_block = {
-        "type": "input",
-        "block_id": "existing_business",
-        "optional": True,
-        "label": {"type": "plain_text", "text": "기존 거래처 검색 (선택)"},
-        "hint": {"type": "plain_text", "text": "이미 등록된 거래처면 여기서 검색·선택. 새 거래처는 아래 '이름 / 상호'에 직접 입력."},
-        "element": {
-            "type": "external_select",
-            "action_id": "business_name_search",
-            "placeholder": {"type": "plain_text", "text": "타이핑하여 검색 (예: 태극당)"},
-            "min_query_length": 1,
-        },
-    }
     input_blocks.extend([
-        existing_business_block,
         _text_input("name", "이름 / 상호"),
         _text_input("contact", "연락처", placeholder="010-1234-5678"),
         _text_input("visit_address", "방문 주소"),
@@ -2464,13 +2425,6 @@ def _process_consult_submission(client, body, view):
     # 슬랙 카드 발송용 raw 표시 — 범위 양식 또는 단일
     visit_date_raw = visit_date_display
     name = (_v(state, "name") or '').strip()
-    # 2026-07-08: 기존 거래처 external_select 선택값이 있으면 우선 반영 (자유 입력 빈 값일 때)
-    try:
-        _sel = state.get("existing_business", {}).get("business_name_search", {}).get("selected_option")
-        if _sel and _sel.get("value"):
-            name = name or _sel["value"].strip()
-    except Exception:
-        pass
     contact = (_v(state, "contact") or '').strip()
     visit_address = (_v(state, "visit_address") or '').strip()
     consultation = (_v(state, "consultation") or '').strip()
