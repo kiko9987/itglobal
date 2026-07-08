@@ -99,6 +99,21 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
     if not row_number:
         return {'ok': False, 'reason': 'row_not_found'}
 
+    # 원래 공사 확정 날짜를 Redis 스냅샷으로 보존 (되돌리기 시 원본 복원용).
+    # 이걸 안 하면 취소가 AM을 blank로 만들고 되돌릴 때 오늘 날짜로 덮어써서 사라짐.
+    confirmed_date_original = str(project.get('공사 확정', '') or '').strip()
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        if confirmed_date_original:
+            rc.set(
+                f'project_cancel_snapshot:{code}',
+                confirmed_date_original,
+                ex=60 * 60 * 24 * 365,  # 1년
+            )
+    except Exception as exc:
+        logger.warning(f'[SLACK/취소] 스냅샷 저장 실패 ({code}): {exc}')
+
     # 관리 사이트 _prepare_cancel_updates 와 동일 (2026-07 컬럼 시프트 반영)
     updates = [
         {'range': f'{sheet_name}!AH{row_number}', 'values': [['공사 취소']]},
@@ -164,16 +179,36 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     if not row_number:
         return {'ok': False, 'reason': 'row_not_found'}
 
-    today = datetime.now().strftime('%Y-%m-%d')
+    # 취소 시 저장해둔 원본 공사 확정일 복원. 스냅샷 없으면 오늘 날짜 fallback
+    # (관리 사이트에서 취소한 케이스거나 스냅샷 TTL 만료).
+    restore_date = datetime.now().strftime('%Y-%m-%d')
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        snap = rc.get(f'project_cancel_snapshot:{code}')
+        if snap:
+            snap_val = snap.decode() if isinstance(snap, bytes) else snap
+            if snap_val.strip():
+                restore_date = snap_val.strip()
+    except Exception as exc:
+        logger.warning(f'[SLACK/재개] 스냅샷 조회 실패 ({code}): {exc}')
+
     updates = [
         {'range': f'{sheet_name}!AH{row_number}', 'values': [['']]},
-        {'range': f'{sheet_name}!AM{row_number}', 'values': [[today]]},
+        {'range': f'{sheet_name}!AM{row_number}', 'values': [[restore_date]]},
     ]
     try:
         manager.batch_update_cells(sheet_id, updates)
     except Exception as exc:
         logger.error(f'[SLACK/재개] 시트 write 실패 ({code}): {exc}', exc_info=True)
         return {'ok': False, 'reason': 'sheet_write_failed'}
+
+    # 스냅샷 정리 (복원 성공 시 삭제)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.delete(f'project_cancel_snapshot:{code}')
+    except Exception:
+        pass
 
     try:
         from dashboard.services.project_service import (
@@ -182,7 +217,7 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
         )
         cache_updated = update_project_in_cache(code, {
             '수금 관련 특이사항': '',
-            '공사 확정': today,
+            '공사 확정': restore_date,
         })
         if not cache_updated:
             invalidate_project_cache(code)
