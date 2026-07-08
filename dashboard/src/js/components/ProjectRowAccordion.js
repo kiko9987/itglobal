@@ -4905,6 +4905,41 @@ export default class ProjectRowAccordion {
 
         // 새로운 드롭다운 초기화
         this.initializeTomSelectMultiSelects();
+
+        // 2026-07-08 draft 실제 적용 — _pendingDraft(line 4715)를 실제 폼 필드에 주입.
+        // 이전엔 confirm에서 '확인'을 눌러도 값이 채워지지 않아 매니저가 다시 처음부터
+        // 입력해야 했음 (반쪽 구현). 편집 UI가 완전히 렌더된 이 시점에 주입해야 안전.
+        if (this._pendingDraft && this._pendingDraft.fields) {
+          try {
+            const shell = this.accordionContainer.querySelector(
+              `.accordion-shell[data-project-code="${projectCode}"]`
+            );
+            let applied = 0;
+            if (shell) {
+              Object.entries(this._pendingDraft.fields).forEach(([field, value]) => {
+                if (value === undefined || value === null) return;
+                const el = shell.querySelector(
+                  `input[data-field="${field}"], textarea[data-field="${field}"], select[data-field="${field}"]`
+                );
+                if (el) {
+                  el.value = value;
+                  // 값 변경 이벤트 발생 — Tom Select·계산식·validation 등이 반응해야 함
+                  el.dispatchEvent(new Event('input', { bubbles: true }));
+                  el.dispatchEvent(new Event('change', { bubbles: true }));
+                  applied++;
+                }
+              });
+            }
+            logger.info(`[편집 모드] draft 값 ${applied}개 폼 필드에 복구 완료`);
+            if (applied > 0) {
+              this.showMessage(`이전 미저장 편집 내용 ${applied}개 필드 복구됨`, 'info');
+            }
+          } catch (draftErr) {
+            logger.warn('[편집 모드] draft 폼 적용 실패:', draftErr);
+          } finally {
+            this._pendingDraft = null;
+          }
+        }
       }, 100);
 
     } catch (uiError) {
