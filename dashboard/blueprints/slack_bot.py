@@ -1684,7 +1684,7 @@ def _open_inquiry_modal(client, body, action: str):
         {"type": "section", "text": {"type": "mrkdwn",
                                       "text": f"*설치 희망 기기 :* {device}"}},
         {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*상세 문의 내용 :*\n{inquiry}"}},
+                                      "text": f"*문의 내용 :*\n{inquiry}"}},
         {"type": "divider"},
     ]
 

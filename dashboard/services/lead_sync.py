@@ -792,7 +792,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         >*이메일* : -
         >*설치 희망 장소* : 사무실 / 관공서
         >*설치 희망 기기* : 천장형
-        >*상세 문의 내용* :
+        >*문의 내용* :
         실평9평. 15-20평형 천장형으로 견적원합니다...
         --------------------------------------------
         [방문 요청] [가격 문의]
@@ -871,7 +871,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*설치 희망 장소* : {place}\n"
         f">*설치 희망 기기* : {device}\n"
         f">*방문 주소* : {address_display}\n"
-        f">*상세 문의 내용* : \n{inquiry_quoted}\n"
+        f">*문의 내용* : \n{inquiry_quoted}\n"
         f">--------------------------------------------"
     )
 

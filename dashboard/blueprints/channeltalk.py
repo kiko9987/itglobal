@@ -347,7 +347,7 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
         문의시간 : 2026.06.22. 09:32
         이름 / 상호 : 멜론 518
         연락처 : -
-        상세 문의 내용 : 저희 회사가 ...
+        문의 내용 : 저희 회사가 ...
         --------------------------------------------
     """
     customer_name = user.get('name') or user_chat.get('name') or '익명 고객'
@@ -374,7 +374,7 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
         f'문의시간 : {ts_str}',
         f'이름 / 상호 : {customer_name}',
         f'연락처 : -',
-        f'상세 문의 내용 : {first_message}',
+        f'문의 내용 : {first_message}',
         SEP,
     ])
     header_text = '\n'.join(lines)
