@@ -955,30 +955,72 @@ class GoogleSheetsManager:
                 if project_code in self._row_cache:
                     del self._row_cache[project_code]
 
-        try:
-            result = self.service.spreadsheets().values().get(
-                spreadsheetId=sheet_id,
-                range=range_name
-            ).execute()
+        # 2026-07-08 SSL 재시도 로직 추가.
+        # 이 함수는 _execute_with_retry를 안 거치는 직접 API 호출이라 SSL 에러 시 그대로
+        # None 반환 → 상위 PUT handler가 "시트에서 찾을 수 없음" 500 응답. 매니저 저장 실패.
+        # SSL 에러만 명시 감지 → 서비스 재초기화 후 즉시 재시도.
+        max_ssl_retries = 2  # 총 (1 + 2) = 3회 시도
+        last_exc = None
+        for ssl_attempt in range(max_ssl_retries + 1):
+            try:
+                result = self.service.spreadsheets().values().get(
+                    spreadsheetId=sheet_id,
+                    range=range_name
+                ).execute()
 
-            values = result.get('values', [])
+                values = result.get('values', [])
 
-            for i, row in enumerate(values):
-                if row and len(row) > 0 and row[0] == project_code:
-                    row_number = i + 1  # 1부터 시작하는 행 번호
+                for i, row in enumerate(values):
+                    if row and len(row) > 0 and row[0] == project_code:
+                        row_number = i + 1  # 1부터 시작하는 행 번호
 
-                    # 캐시 저장
-                    if use_cache:
-                        self._row_cache[project_code] = row_number
-                        logger.debug(f"[ROW_CACHE_SET] {project_code} → 행 {row_number}")
+                        # 캐시 저장
+                        if use_cache:
+                            self._row_cache[project_code] = row_number
+                            logger.debug(f"[ROW_CACHE_SET] {project_code} → 행 {row_number}")
 
-                    return row_number
+                        return row_number
 
-            return None
+                return None
 
-        except Exception as e:
-            logger.error(f"행 찾기 오류: {str(e)}")
-            return None
+            except ssl.SSLError as ssl_err:
+                last_exc = ssl_err
+                logger.warning(
+                    f"[find_row/SSL] {project_code} SSL 에러 (시도 {ssl_attempt+1}/{max_ssl_retries+1}): {ssl_err}"
+                )
+                if ssl_attempt < max_ssl_retries:
+                    try:
+                        self.reset_service()
+                        time.sleep(0.3 * (ssl_attempt + 1))
+                    except Exception:
+                        pass
+                    continue
+                logger.error(
+                    f"[find_row/SSL] {project_code} SSL 재시도 {max_ssl_retries+1}회 모두 실패: {ssl_err}"
+                )
+                return None
+            except Exception as e:
+                # requests 라이브러리의 SSL 에러도 재시도 대상
+                if HAS_REQUESTS and isinstance(e, requests.exceptions.SSLError):
+                    last_exc = e
+                    logger.warning(
+                        f"[find_row/requests.SSL] {project_code} SSL 에러 "
+                        f"(시도 {ssl_attempt+1}/{max_ssl_retries+1}): {e}"
+                    )
+                    if ssl_attempt < max_ssl_retries:
+                        try:
+                            self.reset_service()
+                            time.sleep(0.3 * (ssl_attempt + 1))
+                        except Exception:
+                            pass
+                        continue
+                    logger.error(
+                        f"[find_row/requests.SSL] {project_code} SSL 재시도 모두 실패: {e}"
+                    )
+                    return None
+                # 그 외 예외는 재시도 없이 실패
+                logger.error(f"행 찾기 오류: {str(e)}")
+                return None
     
     def get_next_project_code(self, sheet_id, region_code='IT'):
         """

@@ -154,7 +154,18 @@ def create_project_calendar_event(project: dict) -> Optional[str]:
             logger.info(f"[CALENDAR] 이벤트 생성 완료: {project.get('프로젝트 코드')} → {event_id}")
         return event_id
     except HttpError as exc:
-        logger.error(f"[CALENDAR] 이벤트 생성 실패({project.get('프로젝트 코드')}): {exc}")
+        # 2026-07-08 403(권한) / 404(캘린더 없음)은 캘린더 공유 설정 이슈로 관리자 조치 대상.
+        # 매니저 편집마다 발생하면 로그 폭주 + Sentry 노이즈 → WARNING 강등.
+        # 기타 예외는 실제 이슈일 수 있어 ERROR 유지.
+        status = getattr(getattr(exc, 'resp', None), 'status', 0) or 0
+        code = project.get('프로젝트 코드')
+        if status in (403, 404):
+            logger.warning(
+                f"[CALENDAR] 이벤트 생성 스킵({code}): HTTP {status} — "
+                f"캘린더 공유/권한 설정 확인 필요"
+            )
+        else:
+            logger.error(f"[CALENDAR] 이벤트 생성 실패({code}): {exc}")
         return None
 
 

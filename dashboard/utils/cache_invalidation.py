@@ -249,7 +249,13 @@ class CacheInvalidationService:
                         logger.error(f"Pub/Sub 메시지 처리 오류: {e}")
 
         except Exception as e:
-            logger.error(f"Pub/Sub 구독자 루프 오류: {e}")
+            # 2026-07-08 Redis blocking read timeout은 정상 상황이라 WARNING 강등.
+            # Sentry에 유입되어 진짜 에러와 섞이면 관제가 어려워짐. 그 외 예외는 ERROR 유지.
+            msg = str(e)
+            if 'Timeout reading from socket' in msg or 'Connection closed by server' in msg:
+                logger.warning(f"Pub/Sub 구독자 루프 종료 (재구독 필요): {e}")
+            else:
+                logger.error(f"Pub/Sub 구독자 루프 오류: {e}")
 
         finally:
             logger.info("Pub/Sub 구독자 루프 종료")
