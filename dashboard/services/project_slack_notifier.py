@@ -113,25 +113,27 @@ def _build_message(data: dict, code: str, license_attached: bool = False) -> str
         else:
             # 로컬 경로 등은 raw text (매니저가 복사해서 붙여넣기)
             folder_display = folder_raw
-        folder_line = f":file_folder: 폴더 경로 : {folder_display}"
+        folder_line = f"📁 폴더 경로 : {folder_display}"
     else:
         folder_line = None
 
+    # 이모지는 raw Unicode 사용 — 취소 시 카드가 ``` 코드블록으로 감싸져도 정상 렌더됨
+    # (:bell: 같은 shortcode는 코드블록 안에서 텍스트로 남음).
     lines = [
-        f":bell: *[공사 확정 알림]*  `{code_safe}`",
+        f"🔔 *[공사 확정 알림]*  `{code_safe}`",
         "--------------------------------------------",
-        f":inbox_tray: 유입 구분 : {_format_inflow(_val(data, '유입 구분'))}",
-        f":office: 사업자명 : {_val(data, '사업자명')}",
-        f":round_pushpin: 현장 주소 : {_val(data, '현장 주소')}",
-        f":bust_in_silhouette: 발주처 담당자 : {_val(data, '발주처 담당자')}",
-        f":telephone_receiver: 발주처 연락처 : {_val(data, '발주처 연락처')}",
-        f":envelope: 발주처 이메일 : {_val(data, '발주처 이메일')}",
-        f":clipboard: 공사 내용 : {_val(data, '공사 내용')}",
-        f":hammer_and_wrench: 도급 구분 : {_val(data, '도급 구분')}",
-        f":construction_worker: 시공자 : {_val(data, '시공자')}",
-        f":heavy_dollar_sign: 공사 금액 : {amount_line}",
-        f":date: 공사 시작 : {_date_val(data, '공사 시작')}",
-        f":date: 공사 종료 : {_date_val(data, '공사 종료')}",
+        f"📥 유입 구분 : {_format_inflow(_val(data, '유입 구분'))}",
+        f"🏢 사업자명 : {_val(data, '사업자명')}",
+        f"📍 현장 주소 : {_val(data, '현장 주소')}",
+        f"👤 발주처 담당자 : {_val(data, '발주처 담당자')}",
+        f"📞 발주처 연락처 : {_val(data, '발주처 연락처')}",
+        f"✉️ 발주처 이메일 : {_val(data, '발주처 이메일')}",
+        f"📋 공사 내용 : {_val(data, '공사 내용')}",
+        f"🛠️ 도급 구분 : {_val(data, '도급 구분')}",
+        f"👷 시공자 : {_val(data, '시공자')}",
+        f"💲 공사 금액 : {amount_line}",
+        f"📅 공사 시작 : {_date_val(data, '공사 시작')}",
+        f"📅 공사 종료 : {_date_val(data, '공사 종료')}",
     ]
     if folder_line:
         lines.append(folder_line)
@@ -139,9 +141,9 @@ def _build_message(data: dict, code: str, license_attached: bool = False) -> str
     # 2026-07-09 사업자등록증 배지는 카드 구분선 바깥 하단에 별도 라인으로 표시.
     # 스레드에 파일 첨부 → Drive 저장 성공 시 chat.update로 True.
     license_line = (
-        ":paperclip: 사업자등록증 : :white_check_mark: 첨부됨"
+        "📎 사업자등록증 : ✅ 첨부됨"
         if license_attached
-        else ":paperclip: 사업자등록증 : :white_large_square: 미첨부"
+        else "📎 사업자등록증 : ⬜ 미첨부"
     )
     lines.append(license_line)
     # 2026-07-09 리드 알림 스타일로 통일 — 상단 여백은 리드와 동일한 U+2800 라인.
