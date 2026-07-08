@@ -1,4 +1,4 @@
-# NSSM 로그 자동 회전 설정 (관리자 권한 PowerShell에서 실행)
+﻿# NSSM 로그 자동 회전 설정 (관리자 권한 PowerShell에서 실행)
 #
 # 이유: NSSM이 리다이렉트하는 service_stdout.log / service_stderr.log가
 #   무제한 증가해 서버 스토리지 폭주 위험. 매일 자정 + 20MB 초과 시 회전.
