@@ -135,15 +135,17 @@ def _build_message(data: dict, code: str, license_attached: bool = False) -> str
     ]
     if folder_line:
         lines.append(folder_line)
-    # 2026-07-09 사업자등록증 첨부 표시. 스레드에 파일 첨부 → Drive 저장 성공 시 chat.update로 True.
+    lines.append("--------------------------------------------")
+    # 2026-07-09 사업자등록증 배지는 카드 구분선 바깥 하단에 별도 라인으로 표시.
+    # 스레드에 파일 첨부 → Drive 저장 성공 시 chat.update로 True.
     license_line = (
         ":paperclip: 사업자등록증 : :white_check_mark: 첨부됨"
         if license_attached
         else ":paperclip: 사업자등록증 : :white_large_square: 미첨부"
     )
     lines.append(license_line)
-    lines.append("--------------------------------------------")
-    return '\n'.join(lines)
+    # 2026-07-09 리드 알림 스타일로 통일 — 상단 여백은 리드와 동일한 U+2800 라인.
+    return "⠀\n" + '\n'.join(lines)
 
 
 def _build_invoice_button_value(data: dict, code: str) -> str:
@@ -179,7 +181,7 @@ def _build_invoice_button_value(data: dict, code: str) -> str:
 
 
 def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list:
-    """공사 확정 알림 blocks — section(본문) + actions([계산서 요청])."""
+    """공사 확정 알림 blocks — section(본문) + actions([계산서 요청]) + 하단 여백 context."""
     text = _build_message(data, code, license_attached=license_attached)
     btn_value = _build_invoice_button_value(data, code)
     return [
@@ -195,6 +197,8 @@ def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list
                 },
             ],
         },
+        # 2026-07-09 리드 알림 스타일과 통일 — 카드 아래 여백.
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
     ]
 
 
@@ -217,7 +221,9 @@ def send_project_created_notification(data: dict, code: str) -> bool:
         logger.debug('[PROJECT/SLACK] SLACK_PROJECT_CHANNEL 미설정 — 알림 스킵')
         return False
 
-    text = _build_message(data, code)  # fallback text (알림용)
+    # fallback text (알림 미리보기용) — 리드 방식으로 짧은 요약만. blocks 안 텍스트는 별도.
+    biz = _val(data, '사업자명')
+    text = f"[공사 확정] {code} {biz}".strip()
     blocks = _build_blocks(data, code)
     payload = {
         'channel': channel,
@@ -434,8 +440,9 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
                 license_attached = verify_license_exists(code)
             except Exception:
                 license_attached = False
-            new_text = _build_message(latest_data, code, license_attached=license_attached)
             new_blocks = _build_blocks(latest_data, code, license_attached=license_attached)
+            biz = _val(latest_data, '사업자명')
+            new_text = f"[공사 확정] {code} {biz}".strip()
             payload = {
                 'channel': channel,
                 'ts': ts,
@@ -513,8 +520,9 @@ def refresh_project_card_license(code: str, latest_data: Optional[dict] = None) 
         license_attached = False
 
     try:
-        new_text = _build_message(latest_data, code, license_attached=license_attached)
         new_blocks = _build_blocks(latest_data, code, license_attached=license_attached)
+        biz = _val(latest_data, '사업자명')
+        new_text = f"[공사 확정] {code} {biz}".strip()
         payload = {
             'channel': channel,
             'ts': ts,
