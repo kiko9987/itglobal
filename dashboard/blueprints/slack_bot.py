@@ -4646,7 +4646,7 @@ def _process_project_cancel(client, body) -> None:
         clean_text = '\n'.join(cleaned).strip()
 
         new_text = (
-            f":no_entry_sign: *공사 취소*\n"
+            f":no_entry_sign: *고객 요청으로 공사 취소*\n"
             f"취소한 사람 : {display_name}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
