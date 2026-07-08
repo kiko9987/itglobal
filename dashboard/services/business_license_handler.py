@@ -115,9 +115,11 @@ def _list_folder_files(drive, folder_id: str) -> list:
     return resp.get('files', [])
 
 
-def _next_backup_index(files: list, ext: str) -> int:
-    """이미 존재하는 '사업자등록증_{N}.{ext}' 중 최댓값+1. 없으면 1."""
-    pat = re.compile(rf'^{re.escape(LICENSE_BASENAME)}_(\d+)\.{re.escape(ext)}$')
+def _next_copy_index(files: list, ext: str) -> int:
+    """이미 존재하는 '사업자등록증(N).{ext}' 중 최댓값+1. 없으면 1.
+    (2026-07-08 사용자 요청: OS/브라우저 다운로드 관행 '파일(1).pdf' 형식)
+    """
+    pat = re.compile(rf'^{re.escape(LICENSE_BASENAME)}\((\d+)\)\.{re.escape(ext)}$')
     max_n = 0
     for f in files:
         m = pat.match(f['name'])
@@ -171,27 +173,22 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
     ext = _guess_ext(filename, mimetype)
     canonical = f'{LICENSE_BASENAME}.{ext}'
 
+    # 저장 파일명 결정 규칙 (2026-07-08 OS/브라우저 다운로드 관행 반영):
+    #   원본이 없으면 '사업자등록증.{ext}' 로 저장 (canonical)
+    #   원본이 이미 있으면 '사업자등록증(N).{ext}' 로 저장 (N=1,2,3...). 원본은 그대로 유지.
+    # 계산서 요청 검증은 항상 canonical 존재 여부만 확인.
     existing = _list_folder_files(drive, license_folder)
-    # 같은 canonical 이름이면 rename 후 새 저장
-    for f in existing:
-        if f['name'] == canonical:
-            next_n = _next_backup_index(existing, ext)
-            new_name = f'{LICENSE_BASENAME}_{next_n}.{ext}'
-            try:
-                drive.files().update(
-                    fileId=f['id'],
-                    body={'name': new_name},
-                    supportsAllDrives=True,
-                ).execute()
-                logger.info(f'[LICENSE] rename {canonical} → {new_name} (project={code})')
-            except Exception as exc:
-                logger.warning(f'[LICENSE] rename 실패 (계속 진행): {exc}')
-            break
+    canonical_exists = any(f['name'] == canonical for f in existing)
+    if canonical_exists:
+        next_n = _next_copy_index(existing, ext)
+        save_name = f'{LICENSE_BASENAME}({next_n}).{ext}'
+    else:
+        save_name = canonical
 
     # 새 파일 업로드
     media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype or 'application/octet-stream')
     body = {
-        'name': canonical,
+        'name': save_name,
         'parents': [license_folder],
     }
     up = drive.files().create(
