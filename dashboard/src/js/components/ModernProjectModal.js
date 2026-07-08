@@ -612,6 +612,14 @@ export default class ModernProjectModal {
         ownerSelect.appendChild(option);
       });
 
+      // 2026-07-08 편의: 로그인한 사용자 본인으로 담당자 기본 선택.
+      // 매니저는 대부분 자기 프로젝트를 등록하니 수동 클릭 한 번을 줄임.
+      // 수동 수정은 그대로 가능. 시트 담당자 목록에 없거나 excludedOwners에 있으면 미선택.
+      const currentUserName = (window.userDisplayName || '').trim();
+      if (currentUserName && filteredOwners.includes(currentUserName)) {
+        ownerSelect.value = currentUserName;
+      }
+
       // innerHTML 변경 후 이벤트 리스너 재바인딩
       ownerSelect.removeEventListener('change', this._ownerChangeHandler);
       this._ownerChangeHandler = () => {
