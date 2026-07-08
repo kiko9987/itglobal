@@ -303,4 +303,12 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
             logger.error(f'[LICENSE] 처리 예외 ({name}): {exc}', exc_info=True)
             skipped.append(f'{name}: 예외 {type(exc).__name__}')
 
+    # 하나라도 저장 성공했으면 원본 공사 확정 카드의 사업자등록증 배지를 ✅로 갱신.
+    if saved:
+        try:
+            from dashboard.services.project_slack_notifier import refresh_project_card_license
+            refresh_project_card_license(code)
+        except Exception as exc:
+            logger.warning(f'[LICENSE] 원본 카드 갱신 실패 ({code}): {exc}')
+
     return {'code': code, 'saved': saved, 'skipped': skipped, 'thread_ts': thread_ts, 'channel': channel}

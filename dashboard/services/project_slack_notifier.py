@@ -9,6 +9,7 @@
 import json
 import os
 import urllib.request
+from typing import Optional
 
 from dashboard.utils.logging_config import get_logger
 
@@ -79,10 +80,10 @@ def _format_inflow(value: str) -> str:
     return format_inflow_display(value)
 
 
-def _build_message(data: dict, code: str) -> str:
+def _build_message(data: dict, code: str, license_attached: bool = False) -> str:
     """공사 확정 알림 메시지 본문 생성.
 
-    13줄 양식 (등록자/사업자/담당자/공사 구분/기계 분류/브랜드/계산서 제외).
+    license_attached: 사업자등록증 첨부 여부(스레드에 첨부돼 Drive 폴더에 저장됐는지).
     """
     code_safe = code or '-'
 
@@ -134,6 +135,13 @@ def _build_message(data: dict, code: str) -> str:
     ]
     if folder_line:
         lines.append(folder_line)
+    # 2026-07-09 사업자등록증 첨부 표시. 스레드에 파일 첨부 → Drive 저장 성공 시 chat.update로 True.
+    license_line = (
+        ":paperclip: 사업자등록증 : :white_check_mark: 첨부됨"
+        if license_attached
+        else ":paperclip: 사업자등록증 : :white_large_square: 미첨부"
+    )
+    lines.append(license_line)
     lines.append("--------------------------------------------")
     return '\n'.join(lines)
 
@@ -170,9 +178,9 @@ def _build_invoice_button_value(data: dict, code: str) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _build_blocks(data: dict, code: str) -> list:
+def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list:
     """공사 확정 알림 blocks — section(본문) + actions([계산서 요청])."""
-    text = _build_message(data, code)
+    text = _build_message(data, code, license_attached=license_attached)
     btn_value = _build_invoice_button_value(data, code)
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
@@ -420,8 +428,14 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
     # 원본 카드도 최신 데이터로 재렌더링 (스레드 답글과 독립적으로 시도)
     if latest_data is not None:
         try:
-            new_text = _build_message(latest_data, code)
-            new_blocks = _build_blocks(latest_data, code)
+            # 사업자등록증 상태 유지 — 편집으로 카드가 재렌더링되면서 배지가 뒤집히면 안 됨.
+            try:
+                from dashboard.services.business_license_handler import verify_license_exists
+                license_attached = verify_license_exists(code)
+            except Exception:
+                license_attached = False
+            new_text = _build_message(latest_data, code, license_attached=license_attached)
+            new_blocks = _build_blocks(latest_data, code, license_attached=license_attached)
             payload = {
                 'channel': channel,
                 'ts': ts,
@@ -446,3 +460,87 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
             logger.warning(f'[PROJECT/SLACK/편집] 원본 카드 갱신 예외 ({code}): {exc}')
 
     return reply_ok
+
+
+def refresh_project_card_license(code: str, latest_data: Optional[dict] = None) -> bool:
+    """사업자등록증 첨부 상태 변경 시 원본 공사 확정 카드를 chat.update로 갱신.
+
+    스레드에 사업자등록증 파일이 첨부돼 Drive 저장이 성공한 직후 호출.
+    latest_data가 없으면 시트에서 최신 프로젝트 데이터를 재조회한다(있으면 그대로 사용).
+    """
+    if not code:
+        return False
+
+    token = os.getenv('SLACK_PROJECT_BOT_TOKEN', '').strip()
+    if not token:
+        return False
+
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return False
+
+    mapping = rc.get(f'project_card_msg:{code}')
+    if not mapping:
+        logger.debug(f'[PROJECT/SLACK/사업자] card 매핑 없음, skip ({code})')
+        return False
+    try:
+        channel, ts = (
+            mapping.split('|', 1) if isinstance(mapping, str) else mapping.decode().split('|', 1)
+        )
+    except Exception:
+        return False
+
+    if latest_data is None:
+        try:
+            from dashboard.services.project_service import get_project_records
+            records = get_project_records() or []
+            latest_data = next(
+                (r for r in records if (r.get('프로젝트 코드') or '').strip() == code),
+                None,
+            )
+        except Exception:
+            latest_data = None
+    if not latest_data:
+        logger.debug(f'[PROJECT/SLACK/사업자] 프로젝트 데이터 조회 실패, skip ({code})')
+        return False
+
+    try:
+        from dashboard.services.business_license_handler import verify_license_exists
+        license_attached = verify_license_exists(code)
+    except Exception:
+        license_attached = False
+
+    try:
+        new_text = _build_message(latest_data, code, license_attached=license_attached)
+        new_blocks = _build_blocks(latest_data, code, license_attached=license_attached)
+        payload = {
+            'channel': channel,
+            'ts': ts,
+            'text': new_text,
+            'blocks': new_blocks,
+        }
+        req = urllib.request.Request(
+            'https://slack.com/api/chat.update',
+            data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json; charset=utf-8',
+                'Authorization': f'Bearer {token}',
+            },
+        )
+        with urllib.request.urlopen(req, timeout=5) as r:
+            resp = json.loads(r.read())
+        if resp.get('ok'):
+            logger.info(
+                f'[PROJECT/SLACK/사업자] 원본 카드 갱신 완료: {code} '
+                f'(license_attached={license_attached})'
+            )
+            return True
+        logger.warning(
+            f'[PROJECT/SLACK/사업자] 원본 카드 갱신 실패 ({code}): {resp.get("error")}'
+        )
+        return False
+    except Exception as exc:
+        logger.warning(f'[PROJECT/SLACK/사업자] 원본 카드 갱신 예외 ({code}): {exc}')
+        return False
