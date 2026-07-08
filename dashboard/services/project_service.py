@@ -586,9 +586,21 @@ def update_project_in_cache(project_code: str, updated_fields: Dict[str, Any]) -
         return False
 
     idx = cached.index[mask][0]
-    for field, value in updated_fields.items():
-        if field in cached.columns:
-            cached.at[idx, field] = value
+    # dtype mismatch 방어 — pandas가 boolean 컬럼에 'TRUE'/'FALSE' 문자열이나
+    # float64 컬럼에 int 등을 넣을 때 ValueError raise. 이 경우 부분 갱신 포기하고
+    # False 리턴 → 호출자가 invalidate_project_cache로 fallback → 다음 로드에서 fresh.
+    # 시트 저장은 이미 완료된 상태라 데이터 정합성엔 영향 없음. (2026-07-08 G3836-MS
+    # "Invalid value 'TRUE' for dtype 'boolean'" 500 사고 재발 방지)
+    try:
+        for field, value in updated_fields.items():
+            if field in cached.columns:
+                cached.at[idx, field] = value
+    except (ValueError, TypeError) as exc:
+        logger.warning(
+            f"[CACHE_UPDATE] dtype mismatch로 부분 갱신 실패 → 전체 무효화 fallback "
+            f"({project_code}): {exc}"
+        )
+        return False
 
     smart_set("current_sheet_data", cached, CacheStrategy.CRITICAL_DATA)
     logger.info(f"[CACHE_UPDATE] 프로젝트 {project_code} 부분 갱신 완료: {list(updated_fields.keys())}")
