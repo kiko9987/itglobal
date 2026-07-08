@@ -220,6 +220,22 @@ class TestFlattenParenTail:
         from dashboard.services.address_resolver import _flatten_paren_tail
         assert _flatten_paren_tail('(건영아파트, 1층)') == '건영아파트 1층'
 
+    def test_위플레이스_케이스_괄호뒤_텍스트(self):
+        """L-03168 위플레이스: 괄호 뒤에도 텍스트 있는 케이스
+        지번 (서초동)만 제거하고 나머지는 공백으로 flatten"""
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        assert _flatten_paren_tail('(서초동, 타임빌딩) B1, 위플레이스') == '타임빌딩 B1 위플레이스'
+
+    def test_괄호앞_텍스트_있는_케이스(self):
+        """드물지만 tail 앞에도 텍스트 있을 수 있음"""
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        assert _flatten_paren_tail('본관 (가산동, 이앤씨드림타워7차) 5층') == '본관 이앤씨드림타워7차 5층'
+
+    def test_지번만_있고_괄호밖에_텍스트(self):
+        """(걸포동) 지하 1층 → 지번 제거 + 지하 1층 유지"""
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        assert _flatten_paren_tail('(걸포동) 지하 1층') == '지하 1층'
+
 
 # ─────────────────────────────────────────────────────────────
 # Windows용 시나리오: pytest 실행 시 pytest.ini 없어도 동작

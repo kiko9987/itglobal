@@ -235,32 +235,51 @@ _TAIL_STOP_WORDS = [
 def _flatten_paren_tail(tail: str) -> str:
     """괄호로 감싸진 tail을 flatten. 첫 요소가 순수 지번(동/가/리)이면 제거.
 
+    괄호 앞/뒤 텍스트도 살려 이어붙이며, 결과의 콤마는 공백으로 정리한다.
+
     예:
         "(중계동, 건영아파트 유치원상가 1층 103호, 케이)"
         → "건영아파트 유치원상가 1층 103호 케이"
 
+        "(서초동, 타임빌딩) B1, 위플레이스"      (괄호 뒤 텍스트 있는 케이스)
+        → "타임빌딩 B1 위플레이스"
+
         "(가산동, 이앤씨드림타워7차)"
         → "이앤씨드림타워7차"
 
-        "(건영아파트 유치원상가)"  (첫 요소가 지번 아님)
+        "(걸포동)"                                (순수 지번만 → 빈 문자열)
+        → ""
+
+        "(건영아파트 유치원상가)"                 (첫 요소가 지번 아님)
         → "건영아파트 유치원상가"
 
-        "건영아파트 유치원상가"  (괄호 없음)
+        "건영아파트 유치원상가"                   (괄호 없음)
         → "건영아파트 유치원상가"
 
     이렇게 벗겨야 카카오 base와 자연스레 이어지고 매니저에게 층/호/상호 모두 노출된다.
     """
     if not tail:
         return tail
-    m_paren = re.fullmatch(r'\s*\(([^)]*)\)\s*', tail)
-    if not m_paren:
+
+    m = re.search(r'\(([^)]*)\)', tail)
+    if not m:
+        # 괄호 자체가 없으면 원본 그대로
         return tail
-    parts = [p.strip() for p in m_paren.group(1).split(',')]
+
+    before = tail[:m.start()].strip()
+    after = tail[m.end():].strip()
+    parts = [p.strip() for p in m.group(1).split(',')]
     if parts and re.match(
         r'^[가-힣]+(?:동|가|리)(?:\s+\d+(?:-\d+)?)?$', parts[0]
     ):
         parts = parts[1:]
-    return ' '.join(p for p in parts if p).strip()
+    inner_flat = ' '.join(p for p in parts if p).strip()
+
+    result = ' '.join(x for x in (before, inner_flat, after) if x)
+    # tail 안의 잔여 콤마는 공백으로 flatten (예: "B1, 위플레이스" → "B1 위플레이스")
+    result = re.sub(r'\s*,\s*', ' ', result)
+    result = re.sub(r'\s+', ' ', result).strip()
+    return result
 
 
 def _extract_building_tail(text: str) -> str:
