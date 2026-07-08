@@ -426,8 +426,12 @@ export default class ProjectTable {
       ordering: true, // 정렬 기능 활성화
       orderMulti: false, // 여러 열을 동시에 정렬하지 않음
       searching: false, // 테이블 내장 검색 기능 비활성화 (상단 필터 사용)
-      stateSave: true, // 페이지 상태 저장 (페이지 번호, 정렬, 페이지당 표시 개수)
-      stateDuration: -1, // 브라우저 세션이 유지되는 동안 상태 저장
+      // 2026-07-08 stateSave 비활성화. 매니저가 이전 세션에서 실수로 다른 컬럼을 클릭해
+      // 정렬 상태가 유지되면 새로고침 후 뒤죽박됨 순서로 보이고, 필터도 안 켜져 있는데
+      // 왜 이 순서인지 판단이 어려운 UX 사고 유발. 매 방문 시 기본 정렬(코드 내림차순)로
+      // 시작하는 것이 매니저 20명 운영에 안전.
+      stateSave: false,
+      stateDuration: -1,
 
       // DOM 구조 설정 - 겹침 문제 근본 해결, 한 줄에 나란히 배치
       dom: '<"top"l>rt<"bottom d-flex justify-content-between"<"info-left"i><"paging-right"p>><"clear">',

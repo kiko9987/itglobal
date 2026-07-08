@@ -58,9 +58,11 @@
                         onclick="localStorage.setItem('itg_onboarding_dismissed','1')"></button>
             </div>
             <script>
-                // 첫 방문이거나 dismiss 이력 없으면 배너 표시
+                // 2026-07-08 온보딩 배너 상시 숨김. 마크업(#onboardingBanner)은 그대로 유지 —
+                // 나중에 공지·업데이트 안내용으로 재활용할 때 아래 조건의 `false && ` 부분만
+                // 제거하면 원상복구됨. 초기 배포 시엔 매니저 화면에 노출 안 함.
                 (function () {
-                    if (!localStorage.getItem('itg_onboarding_dismissed')) {
+                    if (false && !localStorage.getItem('itg_onboarding_dismissed')) {
                         var b = document.getElementById('onboardingBanner');
                         if (b) b.style.display = 'block';
                     }
