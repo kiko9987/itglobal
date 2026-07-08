@@ -242,6 +242,13 @@ def send_project_created_notification(data: dict, code: str) -> bool:
                         f'{channel}|{ts}',
                         ex=60 * 60 * 24 * 180,
                     )
+                    # 2026-07-08 역방향 매핑 (사업자등록증 첨부 등 스레드 이벤트 처리용).
+                    # 스레드 답글이 들어오면 channel|ts로 프로젝트 코드를 즉시 조회.
+                    rc.set(
+                        f'project_thread:{channel}|{ts}',
+                        code,
+                        ex=60 * 60 * 24 * 180,
+                    )
                 except Exception as _exc:
                     logger.debug(f'[PROJECT/SLACK] card 매핑 저장 실패 ({code}): {_exc}')
             return True

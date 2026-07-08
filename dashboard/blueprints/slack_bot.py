@@ -418,9 +418,51 @@ def _register_project_handlers(app):
                 logger.error(f"[SLACK/계산서] complete 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    # ─────────────────────────────────────────────────────────
+    # 사업자등록증 스레드 첨부 → Google Drive 저장 (2026-07-08)
+    # ─────────────────────────────────────────────────────────
+    # 공사 확정 카드 스레드에 매니저가 파일(이미지/PDF)을 첨부하면 봇이 감지해
+    # 프로젝트 폴더의 '사업자등록증/' 하위 폴더로 자동 저장.
+    # 첫 파일은 '사업자등록증.{ext}', 재첨부 시 기존 것을 '사업자등록증_{N}.{ext}'로 밀고
+    # 새 파일을 다시 '사업자등록증.{ext}' 로 저장 (최신본이 항상 canonical name).
+    # 계산서 요청 시 이 canonical 파일 존재 여부로 검증.
+    @app.event({"type": "message", "subtype": "file_share"})
+    def handle_thread_file_share(event, client):
+        def _bg():
+            try:
+                from dashboard.services.business_license_handler import handle_thread_file_share as _h
+                result = _h(event, _PROJECT_BOT_TOKEN)
+                if not result:
+                    return  # 프로젝트 카드 스레드 아님 → 조용히 skip
+                # 결과 안내: 스레드에 성공/실패 요약 답글
+                saved = result.get('saved') or []
+                skipped = result.get('skipped') or []
+                lines = []
+                if saved:
+                    lines.append(f":white_check_mark: 사업자등록증 저장 완료 — `{result['code']}`")
+                    for fn in saved:
+                        lines.append(f"  • {fn}")
+                if skipped:
+                    lines.append(f":warning: 저장 안 됨:")
+                    for s in skipped:
+                        lines.append(f"  • {s}")
+                if lines:
+                    try:
+                        client.chat_postMessage(
+                            channel=result['channel'],
+                            thread_ts=result['thread_ts'],
+                            text='\n'.join(lines),
+                        )
+                    except Exception as exc:
+                        logger.warning(f"[LICENSE] 답글 발송 실패: {exc}")
+            except Exception as exc:
+                logger.error(f"[LICENSE] 파일 처리 예외: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     logger.info(
         "[SLACK/공사봇] 핸들러 등록 완료: /공사확정, submit_project, "
-        "options(company_name), invoice_request_open, submit_invoice, invoice_complete"
+        "options(company_name), invoice_request_open, submit_invoice, invoice_complete, "
+        "message.file_share(사업자등록증)"
     )
 
 
@@ -4115,7 +4157,12 @@ def _money_kr(digits: str) -> str:
 
 
 def _open_invoice_modal(client, body) -> None:
-    """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈."""
+    """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈.
+
+    2026-07-08: 사업자등록증 첨부 여부 사전 검증.
+    카드 스레드에 사업자등록증.{ext} 파일이 없으면 모달 대신 ephemeral 안내로
+    첨부 유도. 매니저가 계산서 발행 요청 전에 파일 첨부하도록 강제.
+    """
     trigger_id = body["trigger_id"]
     action = body["actions"][0]
     try:
@@ -4124,6 +4171,28 @@ def _open_invoice_modal(client, body) -> None:
         payload = {}
 
     code = payload.get('code', '') or '-'
+
+    # 사업자등록증 파일 검증 — 카드 스레드에 첨부 안 됐으면 안내 후 종료
+    if code and code != '-':
+        try:
+            from dashboard.services.business_license_handler import verify_license_exists
+            if not verify_license_exists(code):
+                channel = body.get("channel", {}).get("id", "") or body.get("container", {}).get("channel_id", "")
+                user_id = body.get("user", {}).get("id", "")
+                msg = (
+                    f":warning: 사업자등록증이 아직 첨부되지 않아 계산서를 요청할 수 없습니다.\n"
+                    f"이 카드 스레드에 사업자등록증(이미지 or PDF)을 첨부한 뒤 다시 눌러주세요."
+                )
+                try:
+                    if channel and user_id:
+                        client.chat_postEphemeral(channel=channel, user=user_id, text=msg)
+                except Exception as _exc:
+                    logger.warning(f'[SLACK/계산서] 사업자등록증 안내 발송 실패: {_exc}')
+                return
+        except Exception as exc:
+            # 검증 실패 시 안전하게 모달을 여는 방향 (계산서 발행 자체는 막지 않음)
+            logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (모달 계속 오픈): {exc}')
+
     biz = payload.get('biz', '') or ''
     addr = payload.get('addr', '') or ''
     amt = payload.get('amt', '') or ''
