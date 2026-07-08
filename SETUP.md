@@ -58,7 +58,7 @@ SECRET_KEY=<랜덤 64자>
 
 # Google Sheets (프로젝트 관리 + 리드 관리)
 GOOGLE_SHEET_ID=<공사 현황 시트 ID>
-GOOGLE_SHEET_NAME=공사 현황의 사본
+GOOGLE_SHEET_NAME=공사 현황
 ONLINE_LEADS_SHEET_ID=<리드 관리 시트 ID>
 ONLINE_LEADS_SHEET_NAME=리드 관리
 

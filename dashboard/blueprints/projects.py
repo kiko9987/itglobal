@@ -529,7 +529,7 @@ def get_inflow_options():
         if not sheet_id:
             return jsonify({'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
 
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
         manager = get_sheets_manager()
         meta = manager.get_column_dropdown_values(sheet_id, sheet_name, 'D', scan_rows=200)
         return jsonify({
@@ -1027,7 +1027,7 @@ def update_project(project_code):
         if not sheet_id:
             return jsonify({'success': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
 
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
         manager = get_sheets_manager()
 
         # 3. 프로젝트 행 로드
@@ -1550,7 +1550,7 @@ def update_project_inline():
         if not sheet_id:
             return jsonify({'success': False, 'error': 'GOOGLE_SHEET_ID가 설정되지 않았습니다.'}), 500
 
-        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
         manager = get_sheets_manager()
 
         # 3. 현재 행 데이터 로드
@@ -1801,7 +1801,7 @@ def _find_memo_project_row(project_code):
     # Google Sheets Manager 및 설정 초기화
     manager = get_sheets_manager()
     sheet_id = os.getenv('GOOGLE_SHEET_ID')
-    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
 
     # 프로젝트 행 번호 조회
     row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
@@ -2002,7 +2002,7 @@ def _validate_and_find_memo_batch_row(project_code, memos):
     # Google Sheets Manager 초기화
     manager = get_sheets_manager()
     sheet_id = os.getenv('GOOGLE_SHEET_ID')
-    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
 
     # 프로젝트 행 번호 조회
     row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')
@@ -2852,7 +2852,7 @@ def _find_project_and_row(project_code):
     # Google Sheets Manager 초기화
     manager = get_sheets_manager()
     sheet_id = os.getenv('GOOGLE_SHEET_ID')
-    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
 
     # 프로젝트 코드로 행 찾기
     row_number = manager.find_row_by_project_code(sheet_id, project_code, f'{sheet_name}!A:A')

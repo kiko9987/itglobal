@@ -365,7 +365,7 @@ def convert_folder_paths_to_ids():
             'error': 'Google Sheets ID가 설정되지 않았습니다.'
         }), 500
 
-    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
     admin_email = session.get('user', {}).get('email', 'unknown')
     ip_address = request.remote_addr
 

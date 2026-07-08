@@ -140,7 +140,7 @@ class TestSSLRecovery:
                 sheet_id="test_sheet",
                 row_number=100,
                 values=["G2830-YG", "글로벌그룹", "강민석"],
-                range_name="공사 현황의 사본!A{row}:AM{row}"
+                range_name="공사 현황!A{row}:AM{row}"
             )
 
             # 성공 확인

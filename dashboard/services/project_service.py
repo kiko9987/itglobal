@@ -78,7 +78,7 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
 
         # 셀 노트(댓글) 가져오기 (계약금, 중도금, 잔금)
         try:
-            sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황의 사본')
+            sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황')
 
             # 셀 노트 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
             notes_cache_key = f"cell_notes_{sheet_id}"
@@ -409,7 +409,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
 
             # 셀 노트(댓글) 가져오기 (계약금, 중도금, 잔금)
             try:
-                sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황의 사본')
+                sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황')
 
                 # 셀 노트 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
                 notes_cache_key = f"cell_notes_{sheet_id}"

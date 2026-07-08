@@ -243,7 +243,7 @@ class CalendarSyncScheduler:
             # 환경 변수에서 시트 정보 가져오기
             import os
             sheet_id = os.getenv('GOOGLE_SHEET_ID')
-            sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+            sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
 
             if not sheet_id:
                 logger.error("[CALENDAR_SYNC] GOOGLE_SHEET_ID 환경 변수가 설정되지 않았습니다.")
@@ -302,7 +302,7 @@ class CalendarSyncScheduler:
             # 환경 변수에서 시트 정보 가져오기
             import os
             sheet_id = os.getenv('GOOGLE_SHEET_ID')
-            sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황의 사본')
+            sheet_name = os.getenv('GOOGLE_SHEET_NAME', '공사 현황')
 
             if not sheet_id:
                 logger.error("[CALENDAR_SYNC] GOOGLE_SHEET_ID 환경 변수가 설정되지 않았습니다.")

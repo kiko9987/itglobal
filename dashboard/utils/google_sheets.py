@@ -476,7 +476,7 @@ class GoogleSheetsManager:
 
         return f"{user_message} (상세: {error_reason})"
     
-    def get_sheet_data(self, sheet_id, range_name='공사 현황의 사본!A:AP'):
+    def get_sheet_data(self, sheet_id, range_name='공사 현황!A:AP'):
         """
         구글 시트에서 데이터 가져오기 (에러 처리 강화)
 
@@ -740,7 +740,7 @@ class GoogleSheetsManager:
             logger.error(f"구글 시트 연결 테스트 오류: {str(e)}")
             return False
 
-    def find_next_empty_row(self, sheet_id, range_name='공사 현황의 사본!A:A'):
+    def find_next_empty_row(self, sheet_id, range_name='공사 현황!A:A'):
         """
         다음 빈 행 번호 찾기 (수식이 미리 설정된 행에 데이터 추가용)
         
@@ -774,7 +774,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 찾기 오류: {str(e)}")
             return None
 
-    def append_row(self, sheet_id, values, range_name='공사 현황의 사본!A:AP'):
+    def append_row(self, sheet_id, values, range_name='공사 현황!A:AP'):
         """
         구글 시트의 다음 빈 행에 데이터 추가 (수식이 미리 설정된 행에 덮어쓰기)
         
@@ -795,7 +795,7 @@ class GoogleSheetsManager:
             # 특정 행에 데이터 업데이트 (수식이 있는 빈 행에 덮어쓰기)
             # 2026-06-19 fix: AN → AO (_version 컬럼 포함)
             # 2026-07-03 fix: AO → AP (신규 AO=Lead No 컬럼 + _version이 AP로 이동)
-            actual_range = f'공사 현황의 사본!A{next_row}:AP{next_row}'
+            actual_range = f'공사 현황!A{next_row}:AP{next_row}'
             body = {
                 'values': [values]
             }
@@ -817,7 +817,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 데이터 추가 오류: {str(e)}")
             raise
     
-    def update_row(self, sheet_id, row_number, values, range_name='공사 현황의 사본!A{row}:AP{row}'):
+    def update_row(self, sheet_id, row_number, values, range_name='공사 현황!A{row}:AP{row}'):
         """
         구글 시트의 특정 행 업데이트
         
@@ -1303,7 +1303,7 @@ class GoogleSheetsManager:
 
         Args:
             sheet_id: 구글 시트 ID
-            sheet_name: 시트 이름 (예: '공사 현황의 사본')
+            sheet_name: 시트 이름 (예: '공사 현황')
             column: 조회할 컬럼 letter (예: 'D')
             scan_rows: 헤더 이후 스캔할 행 수 (기본 200)
 
@@ -1470,7 +1470,7 @@ class GoogleSheetsManager:
                 break
         return result
 
-    def get_cell_notes(self, sheet_id, sheet_name='공사 현황의 사본', columns=['U', 'V', 'W']):
+    def get_cell_notes(self, sheet_id, sheet_name='공사 현황', columns=['U', 'V', 'W']):
         """
         특정 컬럼들의 셀 노트(댓글)를 모두 가져오기
 
@@ -1711,8 +1711,8 @@ class GoogleSheetsManager:
             bool: 성공 여부
 
         Example:
-            manager.update_cell_note(sheet_id, '공사 현황의 사본', 'T5', '입금일: 2025-01-10\\n입금자: 홍길동')
-            manager.update_cell_note(sheet_id, '공사 현황의 사본', 'U10', None)  # 댓글 삭제
+            manager.update_cell_note(sheet_id, '공사 현황', 'T5', '입금일: 2025-01-10\\n입금자: 홍길동')
+            manager.update_cell_note(sheet_id, '공사 현황', 'U10', None)  # 댓글 삭제
         """
         import psutil
         import threading
@@ -1942,7 +1942,7 @@ class GoogleSheetsManager:
         Example:
             manager.update_row_with_notes_batch(
                 sheet_id='abc123',
-                sheet_name='공사 현황의 사본',
+                sheet_name='공사 현황',
                 row_number=5,
                 row_values=['G0001-IT', '강성환', ...],
                 cell_notes={'T5': '계약금 메모', 'U5': '중도금 메모', 'V5': None}

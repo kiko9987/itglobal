@@ -504,7 +504,7 @@ def _append_leads_to_main(leads: List[Dict[str, Any]]) -> List[str]:
     메인 시트에 일괄 추가 + 리드No 자동 발번.
 
     Google Sheets API의 spreadsheets.values.append() 직접 호출.
-    (mgr.append_row()는 시트명이 '공사 현황의 사본'으로 하드코딩돼 있어서 사용 불가)
+    (mgr.append_row()는 시트명이 '공사 현황'으로 하드코딩돼 있어서 사용 불가)
 
     threading.Lock으로 직렬화 — 동시 호출 시 lead_no 발번 race condition 방지.
     """

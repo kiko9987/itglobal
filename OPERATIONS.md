@@ -260,7 +260,7 @@ Restart-Service ITGFlask  # 관리자 권한 필요
 ```bash
 # Google Sheets — 프로젝트 시트 + 리드 시트 분리
 GOOGLE_SHEET_ID=...                   # 공사 현황 시트 ID
-GOOGLE_SHEET_NAME=공사 현황의 사본
+GOOGLE_SHEET_NAME=공사 현황
 ONLINE_LEADS_SHEET_ID=...             # 리드 관리 시트 ID (별개 문서)
 ONLINE_LEADS_SHEET_NAME=리드 관리     # 탭 이름 (개명됨: 옛 "고객 리드 관리")
 KARROT_AUTO_SHEET_ID=...              # 당근 자동 등록 시트
@@ -334,7 +334,7 @@ ADMIN_NOTIFY_EMAIL=kiko@itg-aircon.com  # 이메일 알림 수신처
 ### 시트 컬럼 참고
 | 시트 | 범위 | 최근 주요 변경 |
 |---|---|---|
-| **프로젝트 시트** (공사 현황의 사본) | A~AP (42열) | 2026-07 AO=Lead No 신설, _version이 AN→AP 이동 |
+| **프로젝트 시트** (공사 현황) | A~AP (42열) | 2026-07 AO=Lead No 신설, _version이 AN→AP 이동 |
 | **리드 시트** (리드 관리) | A~P (16열) | 2026-07 P열 = 폴더 ID (방문 사진 폴더 자동 저장) |
 
 프로젝트 시트 컬럼 변경 시 반드시 `dashboard/utils/google_sheets.py:797`의 `A:AP` 범위와 `_build_row_values`의 리스트 크기(현재 42)를 함께 갱신.
