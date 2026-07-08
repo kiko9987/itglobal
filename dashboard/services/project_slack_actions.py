@@ -57,6 +57,27 @@ def _audit_log(**kwargs) -> None:
         logger.warning(f'[SLACK/action] 감사 로그 실패: {exc}')
 
 
+def _update_row_bg(manager, sheet_id: str, sheet_name: str, row_number: int, color_type: str) -> None:
+    """행 배경색 갱신 — 취소 시 dark_grey, 재개 시 normal(흰색).
+
+    관리 사이트 _update_project_background_color 와 동등. 실패해도 예외 안 던짐.
+    """
+    try:
+        ok = manager.update_row_background_color(
+            spreadsheet_id=sheet_id,
+            sheet_name=sheet_name,
+            row_number=row_number,
+            color_type=color_type,
+        )
+        if ok:
+            desc = '진한 회색' if color_type == 'dark_grey' else '흰색'
+            logger.info(f'[SLACK/action] 행 배경색 갱신 완료: row={row_number} → {desc}')
+        else:
+            logger.warning(f'[SLACK/action] 행 배경색 갱신 실패: row={row_number}, color={color_type}')
+    except Exception as exc:
+        logger.warning(f'[SLACK/action] 행 배경색 예외: {exc}')
+
+
 # ─────────────────────────────────────────────────────────────
 # 공사 취소
 # ─────────────────────────────────────────────────────────────
@@ -119,6 +140,9 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
         ip_address='slack-bot',
     )
 
+    # 행 배경색 → 진한 회색 (관리 사이트와 동일 UX)
+    _update_row_bg(manager, sheet_id, sheet_name, row_number, 'dark_grey')
+
     logger.info(f'[SLACK/취소] 완료: {code} by slack:{by_display_name}')
     return {
         'ok': True,
@@ -175,6 +199,9 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
         new_value='',
         ip_address='slack-bot',
     )
+
+    # 행 배경색 → 흰색 복원
+    _update_row_bg(manager, sheet_id, sheet_name, row_number, 'normal')
 
     logger.info(f'[SLACK/재개] 완료: {code} by slack:{by_display_name}')
     return {'ok': True}
