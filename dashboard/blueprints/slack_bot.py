@@ -4323,7 +4323,6 @@ def _open_project_edit_modal(client, body) -> None:
             "label": {"type": "plain_text", "text": "공사 내용"},
             "element": {
                 "type": "plain_text_input", "action_id": "value",
-                "multiline": True,
                 **({"initial_value": content} if content else {}),
             },
         },
@@ -4385,7 +4384,8 @@ def _open_project_edit_modal(client, body) -> None:
             "label": {"type": "plain_text", "text": "수정 사유 (필수)"},
             "element": {
                 "type": "plain_text_input", "action_id": "value", "multiline": True,
-                "placeholder": {"type": "plain_text", "text": "예: 고객 요청으로 시공자 변경"},
+                "placeholder": {"type": "plain_text",
+                                "text": "예: 공사 내용 변경으로 공사 금액 상향 or 하향"},
             },
         },
     ]
@@ -4501,6 +4501,13 @@ def _process_project_edit_submission(client, body, view) -> None:
             )
         except Exception:
             pass
+        # #영업_관리 채널에 수정 알림 카드 발송 (양식은 계산서 요청과 유사)
+        try:
+            _post_project_edit_notice_card(
+                client, code, project, updates, reason, user_id,
+            )
+        except Exception as exc:
+            logger.warning(f'[SLACK/공사수정] 영업_관리 알림 실패 ({code}): {exc}')
     else:
         try:
             client.chat_postEphemeral(
@@ -4509,6 +4516,93 @@ def _process_project_edit_submission(client, body, view) -> None:
             )
         except Exception:
             pass
+
+
+def _fmt_edit_field_change(field: str, old_value, new_value, current_vat_after: bool) -> str:
+    """수정 알림 카드 한 줄 렌더링. 부가세/총액은 사람이 읽기 쉬운 포맷으로."""
+    def _money(v):
+        try:
+            d = int(float(str(v).replace(',', '').strip() or 0))
+            return f'{d:,}원' if d else '-'
+        except (ValueError, TypeError):
+            return str(v) if v not in (None, '') else '-'
+
+    def _vat_label(v):
+        if v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1:
+            return 'VAT 별도'
+        return 'VAT 없음'
+
+    def _txt(v):
+        s = str(v).strip() if v is not None else ''
+        return s if s else '-'
+
+    if field == '총액 1':
+        old_disp = _money(old_value)
+        new_disp = _money(new_value)
+        vat_suffix = f' ({_vat_label(current_vat_after)})' if new_disp != '-' else ''
+        return f'  • 공사 금액 : {old_disp} → {new_disp}{vat_suffix}'
+    if field == '부가세':
+        return f'  • 부가세 : {_vat_label(old_value)} → {_vat_label(new_value)}'
+    return f'  • {field} : {_txt(old_value)} → {_txt(new_value)}'
+
+
+def _post_project_edit_notice_card(
+    client, code: str, before_project: dict, updates: dict, reason: str, user_id: str,
+) -> None:
+    """수정 완료 후 #영업_관리 채널에 알림 카드 발송."""
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if not channel_id:
+        logger.debug('[SLACK/공사수정] SLACK_INVOICE_CHANNEL_ID 미설정 — 알림 skip')
+        return
+
+    biz = (before_project.get('사업자명') or '-').strip() or '-'
+    addr = (before_project.get('현장 주소') or '-').strip() or '-'
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+
+    # 부가세 반영된 최종 상태 (총액 라벨용)
+    vat_after_raw = updates.get('부가세', before_project.get('부가세'))
+    vat_after = (
+        vat_after_raw is True
+        or (isinstance(vat_after_raw, str) and vat_after_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+        or vat_after_raw == 1
+    )
+
+    change_lines = []
+    # 표시 순서 고정 (모달 순서와 동일)
+    field_order = ['공사 내용', '도급 구분', '시공자', '총액 1', '부가세', '공사 시작', '공사 종료']
+    for f in field_order:
+        if f not in updates:
+            continue
+        change_lines.append(_fmt_edit_field_change(f, before_project.get(f, ''), updates[f], vat_after))
+
+    requester = f'<@{user_id}>' if user_id else '-'
+    lines = [
+        f':bell: *[공사 내용 수정 알림]*  `{code}`',
+        '--------------------------------------------',
+        f':office: 사업자명 : {biz}',
+        f':round_pushpin: 현장 주소 : {addr}',
+        f':memo: 수정 사유 : {reason.strip()}',
+        ':clipboard: 변경 내역',
+        *change_lines,
+        f':bust_in_silhouette: 수정자 : {requester}  _{now_str}_',
+        '--------------------------------------------',
+    ]
+    text = '\n'.join(lines)
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]
+
+    try:
+        client.conversations_join(channel=channel_id)
+    except Exception:
+        pass
+    resp = client.chat_postMessage(
+        channel=channel_id, text=text, blocks=blocks, unfurl_links=False,
+    )
+    if resp.get('ok'):
+        logger.info(
+            f'[SLACK/공사수정] 영업_관리 알림 발송 완료: {code} ts={resp.get("ts")}'
+        )
+    else:
+        logger.warning(f'[SLACK/공사수정] 영업_관리 알림 실패: {resp}')
 
 
 def _process_project_cancel(client, body) -> None:
