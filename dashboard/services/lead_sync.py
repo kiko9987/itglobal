@@ -754,18 +754,29 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
             if resp and resp.get('ok'):
                 sent.add(ln)
                 # 카드 ts 저장 — [기존 lead 연결] 시 그 카드에 ✅ reaction 추가용
-                try:
-                    from dashboard.utils.redis_client import get_redis_client
-                    rc = get_redis_client().redis
-                    msg_ts = resp.get('ts', '')
-                    if msg_ts:
+                # (실패 시 orphan recovery가 중복 재발송할 수 있어 반드시 로그로 남긴다.
+                #  이전엔 except pass라 조용히 실패 → 2026-07-08 L-03167 중복 발송 사고 유발)
+                msg_ts = resp.get('ts', '')
+                if msg_ts:
+                    try:
+                        from dashboard.utils.redis_client import get_redis_client
+                        rc = get_redis_client().redis
                         rc.set(
                             f'lead_card_msg:{ln}',
                             f'{channel}|{msg_ts}',
                             ex=60 * 60 * 24 * 180,  # 180일 보존
                         )
-                except Exception:
-                    pass
+                    except Exception as _exc:
+                        logger.error(
+                            f'[SYNC/{source}] lead_card_msg 저장 실패 ({ln}) — '
+                            f'orphan recovery가 중복 재발송할 위험: {_exc}',
+                            exc_info=True,
+                        )
+                else:
+                    logger.warning(
+                        f'[SYNC/{source}] 슬랙 응답에 ts 없음 ({ln}) — '
+                        f'lead_card_msg 저장 스킵. orphan recovery 오탐 가능.'
+                    )
             else:
                 logger.error(f'[SYNC/{source}] 슬랙 전송 응답 not ok ({ln}): {resp}')
         except Exception as exc:
@@ -1137,11 +1148,14 @@ def recover_orphan_lead_notifications() -> Dict[str, Any]:
 
     조건:
     - 상담 시간 최근 60분 이내 (오래된 것은 의도적 skip으로 간주)
-    - 상담 시간 5분 이상 지남 (막 인입된 건은 sync가 아직 발송 중일 수 있음)
+    - 상담 시간 15분 이상 지남 (2026-07-08 L-03167 사고 이후 5분→15분: 첫 발송 성공 후
+      lead_card_msg 저장이 지연되는 case 여유. 그 시간 안엔 매니저가 채팅 열기 등으로
+      상담 시작할 수 있어 재발송이 명백한 오탐이 되기 때문)
     - 플랫폼이 자동 sync 대상 (전화·수동 입력 제외)
     - Redis에 lead_card_msg:{ln} 없음 (이미 발송된 것 skip)
     - Redis에 pending_slack_notify:{ln} 없음 (retry가 이미 처리 중)
     - 상태가 상담 대기 (스팸/드랍 등 이미 처리된 건 skip)
+    - 재발송 직전에 lead_card_msg 한 번 더 확인 (double check)
     """
     from datetime import datetime, timedelta
     result = {'checked': 0, 'recovered': 0}
@@ -1153,7 +1167,7 @@ def recover_orphan_lead_notifications() -> Dict[str, Any]:
             return result
 
         now = datetime.now()
-        cutoff_new = now - timedelta(minutes=5)   # 이보다 최근 = 아직 sync 발송 중일 수 있음
+        cutoff_new = now - timedelta(minutes=15)  # 이보다 최근 = 아직 sync 발송/저장 중일 수 있음
         cutoff_old = now - timedelta(minutes=60)  # 이보다 오래 = 의도적 skip으로 간주
 
         # 최근 30건만 훑음 (성능)
@@ -1203,8 +1217,21 @@ def recover_orphan_lead_notifications() -> Dict[str, Any]:
             groups[platform].append((lead, ln))
 
         for src, items in groups.items():
-            leads = [l for l, _ in items]
-            nos = [n for _, n in items]
+            # 재발송 직전 lead_card_msg 재확인 — 스캔 시점과 발송 사이의 race 방지
+            # (다른 스레드가 방금 성공 마킹을 저장했을 수 있음)
+            recheck_items = []
+            for lead, ln in items:
+                if rc.get(f'lead_card_msg:{ln}'):
+                    logger.info(
+                        f"[SYNC/recover] {ln} 재발송 직전 재확인에서 lead_card_msg 발견 — "
+                        f"오탐 방지 skip"
+                    )
+                    continue
+                recheck_items.append((lead, ln))
+            if not recheck_items:
+                continue
+            leads = [l for l, _ in recheck_items]
+            nos = [n for _, n in recheck_items]
             sent = _send_slack_notifications(leads, nos, source=src)
             for ln in nos:
                 if ln in sent:
