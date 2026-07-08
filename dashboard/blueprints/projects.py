@@ -2458,10 +2458,14 @@ def _prepare_project_defaults(data, row_number):
 
     # 수식 필드 자동 삽입 (행 번호 동적 삽입 - 성능 최적화 및 가독성 개선)
     # 총액2는 끝자리 1/9원만 보정 (깔끔한 금액 유지)
-    data['총액 2'] = f'=IF(R{row_number}=TRUE, Q{row_number}+FLOOR(Q{row_number}*0.1,1) + IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=1, -1, IF(MOD(Q{row_number}+FLOOR(Q{row_number}*0.1,1), 10)=9, 1, 0)), Q{row_number})'
-    data['미수금'] = f'=($T{row_number}+$U{row_number}+$V{row_number})-$S{row_number}'
-    data['순익'] = f'=Q{row_number}-(AA{row_number}+AB{row_number}+AC{row_number}+AD{row_number})'
-    data['마진율'] = f'=IF(OR(Q{row_number}=0, AE{row_number}=0), 0, AE{row_number}/Q{row_number})'
+    #
+    # 컬럼 매핑 (2026-07 AO=Lead No 신설로 컬럼 한 칸씩 시프트 반영):
+    #   R=총액1, S=부가세, T=총액2, U=계약금, V=중도금, W=잔금, X=미수금
+    #   AB=제품대, AC=도급비, AD=자재비, AE=기타비, AF=순익, AG=마진율
+    data['총액 2'] = f'=IF(S{row_number}=TRUE, R{row_number}+FLOOR(R{row_number}*0.1,1) + IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=1, -1, IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=9, 1, 0)), R{row_number})'
+    data['미수금'] = f'=($U{row_number}+$V{row_number}+$W{row_number})-$T{row_number}'
+    data['순익'] = f'=R{row_number}-(AB{row_number}+AC{row_number}+AD{row_number}+AE{row_number})'
+    data['마진율'] = f'=IF(OR(R{row_number}=0, AF{row_number}=0), 0, AF{row_number}/R{row_number})'
 
     # 기타 필드 기본값
     if '계산서' not in data or not data.get('계산서'):
