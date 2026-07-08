@@ -1134,9 +1134,12 @@ def retry_pending_slack_notifications() -> Dict[str, Any]:
     return result
 
 
-# 자동 재발송 대상 플랫폼 — 전화(수동 입력)는 제외
+# orphan recovery 대상 플랫폼 — 우리 서버가 build_inquiry_blocks로 슬랙 알림을
+# 직접 발송하는 플랫폼만 포함해야 함. 채널톡 SaaS가 슬랙에 직접 카드를 밀어넣는
+# 카카오톡·채널톡은 lead_card_msg를 저장하지 않으므로 여기 넣으면 매번 오탐지
+# 재발송된다 (2026-07-08 L-03167 사고). 전화(수동 입력)도 제외.
 _AUTO_SYNC_PLATFORMS = {
-    '홈페이지', '당근', '카카오톡', '채널톡', '숨고', '큐플레이스', '메일', '모바일',
+    '홈페이지', '당근', '숨고', '큐플레이스', '메일', '모바일',
 }
 
 
