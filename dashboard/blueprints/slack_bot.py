@@ -4489,8 +4489,8 @@ def _process_project_edit_submission(client, body, view) -> None:
             pass
         return
 
-    display_name = _slack_user_to_korean_name(client, user_id) or user_id
-    result = perform_edit(code, updates, reason, display_name)
+    initial = _slack_user_to_initial(client, user_id) or '-'
+    result = perform_edit(code, updates, reason, initial)
 
     if result.get('ok'):
         try:
@@ -4504,7 +4504,7 @@ def _process_project_edit_submission(client, body, view) -> None:
         # #영업_관리 채널에 수정 알림 카드 발송 (양식은 계산서 요청과 유사)
         try:
             _post_project_edit_notice_card(
-                client, code, project, updates, reason, user_id,
+                client, code, project, updates, reason, initial,
             )
         except Exception as exc:
             logger.warning(f'[SLACK/공사수정] 영업_관리 알림 실패 ({code}): {exc}')
@@ -4547,7 +4547,7 @@ def _fmt_edit_field_change(field: str, old_value, new_value, current_vat_after: 
 
 
 def _post_project_edit_notice_card(
-    client, code: str, before_project: dict, updates: dict, reason: str, user_id: str,
+    client, code: str, before_project: dict, updates: dict, reason: str, initial: str,
 ) -> None:
     """수정 완료 후 #영업_관리 채널에 알림 카드 발송."""
     channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
@@ -4575,7 +4575,6 @@ def _post_project_edit_notice_card(
             continue
         change_lines.append(_fmt_edit_field_change(f, before_project.get(f, ''), updates[f], vat_after))
 
-    requester = f'<@{user_id}>' if user_id else '-'
     lines = [
         f':bell: *[공사 내용 수정 알림]*  `{code}`',
         '--------------------------------------------',
@@ -4584,7 +4583,7 @@ def _post_project_edit_notice_card(
         f':memo: 수정 사유 : {reason.strip()}',
         ':clipboard: 변경 내역',
         *change_lines,
-        f':bust_in_silhouette: 수정자 : {requester}  _{now_str}_',
+        f':bust_in_silhouette: 수정자 : {initial}  _{now_str}_',
         '--------------------------------------------',
     ]
     text = '\n'.join(lines)
@@ -4606,7 +4605,11 @@ def _post_project_edit_notice_card(
 
 
 def _process_project_cancel(client, body) -> None:
-    """[❌ 공사 취소] 확인 → perform_cancel → 카드 chat.update(방문 취소 UI 스타일)."""
+    """[❌ 공사 취소] 확인 → perform_cancel → 카드 chat.update(방문 취소 UI 스타일).
+
+    취소자 표기는 이니셜(방문 취소·기타 알림과 통일). 감사 로그용 by_user 는
+    슬랙 표시명 fallback 이니셜 사용.
+    """
     from dashboard.services.project_slack_actions import perform_cancel
 
     code = (body["actions"][0].get("value") or '').strip()
@@ -4616,8 +4619,8 @@ def _process_project_cancel(client, body) -> None:
     if not code:
         return
 
-    display_name = _slack_user_to_korean_name(client, user_id) or user_id
-    result = perform_cancel(code, display_name)
+    initial = _slack_user_to_initial(client, user_id) or '-'
+    result = perform_cancel(code, initial)
 
     if not result.get('ok'):
         reason = result.get('reason', 'unknown')
@@ -4647,7 +4650,7 @@ def _process_project_cancel(client, body) -> None:
 
         new_text = (
             f":no_entry_sign: *고객 요청으로 공사 취소*  `{code}`\n"
-            f"취소한 사람 : {display_name}\n"
+            f"취소한 사람 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
             f"```\n{clean_text}\n```"
@@ -4678,6 +4681,72 @@ def _process_project_cancel(client, body) -> None:
         client.chat_update(channel=channel, ts=message_ts, text=new_text, blocks=new_blocks)
     except Exception as exc:
         logger.error(f"[SLACK/공사취소] chat.update 실패 ({code}): {exc}", exc_info=True)
+
+    # #영업_관리 채널에 취소 알림 카드 발송 (계산서 요청과 유사한 양식)
+    try:
+        _post_project_cancel_notice_card(client, code, result.get('project') or {}, initial)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사취소] 영업_관리 알림 실패 ({code}): {exc}')
+
+
+def _post_project_cancel_notice_card(
+    client, code: str, before_project: dict, initial: str,
+) -> None:
+    """취소 완료 후 #영업_관리 채널에 알림 카드 발송."""
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if not channel_id:
+        logger.debug('[SLACK/공사취소] SLACK_INVOICE_CHANNEL_ID 미설정 — 알림 skip')
+        return
+
+    biz = (before_project.get('사업자명') or '-').strip() or '-'
+    addr = (before_project.get('현장 주소') or '-').strip() or '-'
+
+    # 금액 표시 (부가세 반영)
+    amt_raw = before_project.get('총액 1', '')
+    try:
+        amt_int = int(float(str(amt_raw).replace(',', '').strip() or 0))
+        amt_disp = f'{amt_int:,}원' if amt_int else '-'
+    except (ValueError, TypeError):
+        amt_disp = '-'
+    vat_raw = before_project.get('부가세')
+    vat_sep = (
+        vat_raw is True
+        or (isinstance(vat_raw, str) and vat_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+        or vat_raw == 1
+    )
+    if amt_disp != '-':
+        amt_disp = f"{amt_disp} ({'VAT 별도' if vat_sep else 'VAT 없음'})"
+
+    confirmed_raw = str(before_project.get('공사 확정', '') or '').strip()
+    confirmed_disp = confirmed_raw[:10] if confirmed_raw else '-'
+
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+    lines = [
+        f':bell: *[공사 취소 알림]*  `{code}`',
+        '--------------------------------------------',
+        f':office: 사업자명 : {biz}',
+        f':round_pushpin: 현장 주소 : {addr}',
+        f':heavy_dollar_sign: 공사 금액 : {amt_disp}',
+        f':date: 공사 확정일 : {confirmed_disp}',
+        f':bust_in_silhouette: 취소자 : {initial}  _{now_str}_',
+        '--------------------------------------------',
+    ]
+    text = '\n'.join(lines)
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]
+
+    try:
+        client.conversations_join(channel=channel_id)
+    except Exception:
+        pass
+    resp = client.chat_postMessage(
+        channel=channel_id, text=text, blocks=blocks, unfurl_links=False,
+    )
+    if resp.get('ok'):
+        logger.info(
+            f'[SLACK/공사취소] 영업_관리 알림 발송 완료: {code} ts={resp.get("ts")}'
+        )
+    else:
+        logger.warning(f'[SLACK/공사취소] 영업_관리 알림 실패: {resp}')
 
 
 def _process_project_uncancel(client, body) -> None:
