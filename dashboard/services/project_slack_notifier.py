@@ -94,10 +94,13 @@ def _build_message(data: dict, code: str) -> str:
         or vat_raw == 1
     )
     amount_str = _money_kr(data.get('총액 1'))
-    if amount_str != '-' and vat_is_separate:
+    if amount_str == '-':
+        amount_line = amount_str
+    elif vat_is_separate:
         amount_line = f"{amount_str} (VAT 별도)"
     else:
-        amount_line = amount_str
+        # 2026-07-08 부가세 미체크도 명시 표시 (매니저 판단 명확화)
+        amount_line = f"{amount_str} (VAT 없음)"
 
     # 폴더 경로 (AL열) — 값이 있으면 표시, 형태에 따라 링크 처리
     folder_raw = str(data.get('견적서 및 계약서 폴더 경로', '') or '').strip()
