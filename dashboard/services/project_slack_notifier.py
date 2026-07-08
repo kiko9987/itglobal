@@ -80,10 +80,14 @@ def _format_inflow(value: str) -> str:
     return format_inflow_display(value)
 
 
-def _build_message(data: dict, code: str, license_attached: bool = False) -> str:
+def _build_message(
+    data: dict, code: str, license_attached: bool = False,
+    thread_permalink: Optional[str] = None,
+) -> str:
     """공사 확정 알림 메시지 본문 생성.
 
     license_attached: 사업자등록증 첨부 여부(스레드에 첨부돼 Drive 폴더에 저장됐는지).
+    thread_permalink: 미첨부일 때 라인 옆에 '(첨부하기)' 링크 삽입용.
     """
     code_safe = code or '-'
 
@@ -140,11 +144,13 @@ def _build_message(data: dict, code: str, license_attached: bool = False) -> str
     lines.append("--------------------------------------------")
     # 2026-07-09 사업자등록증 배지는 카드 구분선 바깥 하단에 별도 라인으로 표시.
     # 스레드에 파일 첨부 → Drive 저장 성공 시 chat.update로 True.
-    license_line = (
-        "📎 사업자등록증 : ✅ 첨부됨"
-        if license_attached
-        else "📎 사업자등록증 : ⬜ 미첨부"
-    )
+    # 미첨부 상태에서만 옆에 (첨부하기) 스레드 링크 노출.
+    if license_attached:
+        license_line = "📎 사업자등록증 : ✅ 첨부됨"
+    else:
+        license_line = "📎 사업자등록증 : ⬜ 미첨부"
+        if thread_permalink:
+            license_line += f"  <{thread_permalink}|(첨부하기)>"
     lines.append(license_line)
     # 2026-07-09 리드 알림 스타일로 통일 — 상단 여백은 리드와 동일한 U+2800 라인.
     return "⠀\n" + '\n'.join(lines)
@@ -199,21 +205,15 @@ def _build_blocks(
     버튼: [계산서 요청] [내용 수정] [공사 취소]. 매니저가 밖에서 슬랙만으로 수정/취소 가능.
     thread_permalink 지정 시 사업자등록증 미첨부일 때만 스레드 진입 링크 삽입.
     """
-    text = _build_message(data, code, license_attached=license_attached)
+    text = _build_message(
+        data, code,
+        license_attached=license_attached,
+        thread_permalink=thread_permalink,
+    )
     btn_value = _build_invoice_button_value(data, code)
     blocks: list = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
     ]
-    # 사업자등록증 첨부 유도 링크 — 미첨부 상태에서만 노출.
-    # 링크 클릭 → 이 카드의 스레드 pane이 열림 → 매니저가 파일 드롭.
-    if thread_permalink and not license_attached:
-        blocks.append({
-            'type': 'section',
-            'text': {
-                'type': 'mrkdwn',
-                'text': f'  <{thread_permalink}|📎 사업자등록증 첨부하기>',
-            },
-        })
     # 2026-07-09 사업자등록증 라인과 액션 버튼 사이 여백 한 줄.
     blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]})
     blocks.append({
