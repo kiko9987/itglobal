@@ -13,6 +13,12 @@ from werkzeug.exceptions import HTTPException
 import traceback
 
 from .responses import APIResponse, APIException, APIErrorCode
+from dashboard.utils.error_helpers import generate_error_id
+
+try:
+    from googleapiclient.errors import HttpError as _GoogleHttpError
+except Exception:  # googleapiclient가 없는 환경도 안전 fallback
+    _GoogleHttpError = None
 
 
 class RequestTrackingMiddleware:
@@ -156,10 +162,31 @@ class APIErrorHandler:
             raise error  # Re-raise for non-API routes
 
         request_id = getattr(g, 'request_id', 'unknown')
+        error_id = generate_error_id()
+
+        # Google Sheets API 할당량/속도 초과 감지 → 500이 아니라 429 반환
+        # (프론트 userFriendlyErrors.js가 429 안내 문구를 이미 지원)
+        if _GoogleHttpError is not None and isinstance(error, _GoogleHttpError):
+            status = getattr(getattr(error, 'resp', None), 'status', 0) or 0
+            err_msg = str(error).lower()
+            if status == 429 or (status == 403 and 'quota' in err_msg):
+                current_app.logger.warning(
+                    f"[{error_id}] Google Sheets 할당량 초과 (status={status}) "
+                    f"[Request ID: {request_id}]"
+                )
+                return APIResponse.error(
+                    error_code=APIErrorCode.RATE_LIMITED,
+                    message=(
+                        "Google 시트 요청이 일시적으로 몰려 처리되지 못했습니다. "
+                        "잠시 후 다시 시도해주세요."
+                    ),
+                    details={"error_id": error_id},
+                    status_code=429,
+                )
 
         # Log detailed error information
         current_app.logger.error(
-            f"Unhandled Exception: {type(error).__name__}: {str(error)} "
+            f"[{error_id}] Unhandled Exception: {type(error).__name__}: {str(error)} "
             f"[Request ID: {request_id}]\n"
             f"Traceback: {traceback.format_exc()}"
         )
@@ -168,14 +195,19 @@ class APIErrorHandler:
         if current_app.config.get('DEBUG', False):
             details = {
                 "type": type(error).__name__,
-                "traceback": traceback.format_exc().split('\n')
+                "traceback": traceback.format_exc().split('\n'),
+                "error_id": error_id,
             }
         else:
-            details = None
+            # 프로덕션: 매니저가 문의할 때 로그 매칭에 쓸 error_id만 노출
+            details = {"error_id": error_id}
 
         return APIResponse.error(
             error_code=APIErrorCode.INTERNAL_ERROR,
-            message="An unexpected error occurred",
+            message=(
+                f"예기치 못한 오류가 발생했습니다. 잠시 후 다시 시도해주세요. "
+                f"(오류 ID: {error_id})"
+            ),
             details=details,
             status_code=500
         )
