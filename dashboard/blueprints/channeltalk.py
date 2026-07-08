@@ -758,7 +758,18 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
         lead_no = ''
         is_spam_suspect = _is_spam_message(display_text)
 
-        if not is_spam_suspect:
+        # 2026-07-08 재시작 사고 방어 — thread_ts는 없지만 chat_id에 이미 등록된 리드가
+        # 있으면 새 리드 등록 skip. 서버 재시작 등으로 thread_ts만 유실된 상태에서
+        # 후속 메시지가 오면 같은 대화가 두 리드로 쪼개지는 사고 방지.
+        # (예: L-03170, L-03171 새싹 399 케이스)
+        existing_lead_no = _get_chat_lead_no(chat_id)
+        if existing_lead_no:
+            lead_no = existing_lead_no
+            logger.info(
+                f'[ChannelTalk] thread_ts 유실 감지 — 기존 lead {existing_lead_no}로 카드 재발송 '
+                f'(chat_id={chat_id}). 새 lead 등록 skip.'
+            )
+        elif not is_spam_suspect:
             # 일반 채팅 — 즉시 시트 등록 → lead_no 부여
             try:
                 lead_no = _register_chat_lead(user_chat, user, display_text, created_ms) or ''
