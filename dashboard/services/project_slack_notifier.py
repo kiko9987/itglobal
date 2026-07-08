@@ -189,6 +189,8 @@ def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list
     btn_value = _build_invoice_button_value(data, code)
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        # 2026-07-09 사업자등록증 라인과 액션 버튼 사이 여백 한 줄.
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
         {
             'type': 'actions',
             'elements': [
