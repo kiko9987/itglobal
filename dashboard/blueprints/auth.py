@@ -45,8 +45,14 @@ def google_login():
         if not is_oauth_configured():
             return redirect(url_for('auth.login_page', message='oauth_not_configured'))
 
+        # 2026-07-08 진단: 실제 전송되는 redirect_uri를 로그로 확인 + .env override
+        _forced = os.getenv('GOOGLE_OAUTH_DEFAULT_REDIRECT_URI', '').strip()
+        _url_for = url_for('auth.google_callback', _external=True)
+        _effective = _forced or _url_for
+        logger.info(f"[OAuth] google_login: url_for={_url_for!r} env={_forced!r} effective={_effective!r}")
+
         authorization_url, state = get_google_oauth().get_authorization_url(
-            redirect_uri=url_for('auth.google_callback', _external=True)
+            redirect_uri=_effective
         )
 
         if not authorization_url:
@@ -85,9 +91,15 @@ def google_callback():
             return redirect(url_for('auth.login_page', message='oauth_error'))
 
         # 사용자 정보 가져오기 (credentials도 함께)
+        # 2026-07-08: callback 시점에도 .env override 사용 (ProxyFix가 https 인식 못 하는 케이스 대비)
+        _forced = os.getenv('GOOGLE_OAUTH_DEFAULT_REDIRECT_URI', '').strip()
+        _url_for = url_for('auth.google_callback', _external=True)
+        _effective = _forced or _url_for
+        logger.info(f"[OAuth] callback: url_for={_url_for!r} env={_forced!r} effective={_effective!r}")
+
         user_info, credentials = get_google_oauth().get_user_info(
             code, state,
-            redirect_uri=url_for('auth.google_callback', _external=True)
+            redirect_uri=_effective
         )
 
         if not user_info:

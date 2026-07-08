@@ -46,6 +46,10 @@ class ProductionConfig(BaseConfig):
     # 파일 업로드 제한 (프로덕션 보안)
     MAX_CONTENT_LENGTH = 8 * 1024 * 1024  # 8MB로 제한
 
+    # 정적 자산 캐시 (2026-07-08): Vite hash filename(예: components.tJkYWzVd.js)이라 콘텐츠 변경 시 자동 무효화.
+    # 1년 immutable 캐시로 브라우저 재요청 대폭 감소. Flask send_file 응답의 Cache-Control 헤더에 적용.
+    SEND_FILE_MAX_AGE_DEFAULT = 60 * 60 * 24 * 365  # 1년
+
     @classmethod
     def init_app(cls, app):
         """프로덕션 환경 초기화"""

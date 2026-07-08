@@ -60,6 +60,27 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             from sentry_sdk.integrations.logging import LoggingIntegration
             # default_integrations=False: 자동 등록 통합 중 하나가 Windows에서 SIGUSR1
             # 참조로 초기화 실패 유발 → 명시 통합만 사용.
+            # PII 필터 (2026-07-08): send_default_pii=False로도 LoggingIntegration의
+            # extra{user_email,user_id} 및 request headers가 함께 전송될 수 있음.
+            # before_send로 이벤트 직전에 민감 필드 제거.
+            def _sentry_scrub_pii(event, hint):
+                try:
+                    if 'user' in event:
+                        for k in ['email', 'ip_address', 'username']:
+                            event['user'].pop(k, None)
+                    for section in ('extra', 'contexts'):
+                        data = event.get(section) or {}
+                        for k in list(data.keys()):
+                            if any(x in k.lower() for x in ['email', 'user_id', 'password', 'token', 'secret', 'ssn']):
+                                data.pop(k, None)
+                    req = event.get('request') or {}
+                    headers = req.get('headers') or {}
+                    for h in ['Authorization', 'Cookie', 'X-CSRF-Token', 'X-Session-ID']:
+                        headers.pop(h, None)
+                except Exception:
+                    pass  # scrubber 자체 실패는 이벤트 전송 안 막음
+                return event
+
             sentry_sdk.init(
                 dsn=_sentry_dsn,
                 default_integrations=False,
@@ -70,6 +91,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                 environment=os.getenv('FLASK_ENV', 'production'),
                 traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.1')),
                 send_default_pii=False,
+                before_send=_sentry_scrub_pii,
                 release=os.getenv('APP_VERSION', 'unknown'),
             )
             logger.info(f"Sentry 에러 모니터링 활성화 (환경={os.getenv('FLASK_ENV', 'production')})")
