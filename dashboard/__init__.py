@@ -65,6 +65,26 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             # before_send로 이벤트 직전에 민감 필드 제거.
             def _sentry_scrub_pii(event, hint):
                 try:
+                    # 무해한 SocketIO polling 경고 무시 (2026-07-08)
+                    # engineio가 만료된 세션 polling 요청 받으면 매번 로그. 라이브러리 자체가
+                    # "further occurrences will be logged with level INFO"로 강등하는 알려진 무해 경고.
+                    # 20명 사용 시 하루 수백 건 예상 → Slack 알림 스팸 방지.
+                    msg = ''
+                    if event.get('logentry'):
+                        msg = event['logentry'].get('message') or ''
+                    if not msg:
+                        msg = event.get('message') or ''
+                    if isinstance(msg, str) and 'Invalid session' in msg and 'engineio' not in msg.lower():
+                        # engineio 관련 Invalid session은 무시
+                        return None
+                    # KeyError('Session is disconnected') 예외도 같은 계열
+                    exc_type = ''
+                    for entry in (event.get('exception', {}).get('values') or []):
+                        exc_type = entry.get('type', '')
+                        exc_msg = entry.get('value', '')
+                        if exc_type == 'KeyError' and 'Session is disconnected' in exc_msg:
+                            return None
+
                     if 'user' in event:
                         for k in ['email', 'ip_address', 'username']:
                             event['user'].pop(k, None)
