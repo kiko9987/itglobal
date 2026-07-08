@@ -810,13 +810,17 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     # 방문 주소 (자동 추출 또는 시트에 등록된 값) — 신뢰도 레벨에 따라 표시 분기
     address = (lead.get('방문 주소') or '').strip()
     addr_level = (lead.get('_meta_address_level') or '').strip()
-    if address:
+    if address and address != '-':
         # 신뢰도별 표시:
         # - verified (카카오 매칭): 마커 없음 (정확)
         # - level1~4 (정규식 풀 패턴): 마커 없음 (정확)
         # - level5~7 / regex / raw: _(추정)_ 마커 (영업 검증 필요)
-        if addr_level in ('verified', 'level1', 'level2', 'level3', 'level3b', 'level4', ''):
+        # - '' (resolve 완전 실패로 원본 raw 그대로): _[주소 확인 필요]_ 마커
+        #   → 전화번호/오타/문의글이 주소 필드로 들어온 케이스. 매니저 오방문 방지.
+        if addr_level in ('verified', 'level1', 'level2', 'level3', 'level3b', 'level4'):
             address_display = address
+        elif not addr_level:
+            address_display = f'{address}  _[주소 확인 필요]_'
         else:
             address_display = f'{address}  _(추정)_'
     else:

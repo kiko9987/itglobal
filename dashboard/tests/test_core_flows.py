@@ -186,6 +186,42 @@ class TestCachePartialUpdate:
 
 
 # ─────────────────────────────────────────────────────────────
+# 주소 파이프라인 회귀 방지 (2026-07-08 이수진 케이스 회귀 대응)
+# _flatten_paren_tail — 카카오 검색 이전에 원본 tail을 정규화하는 순수 함수.
+# 카카오 API 호출 없어 네트워크 무관.
+# ─────────────────────────────────────────────────────────────
+
+class TestFlattenParenTail:
+    """address_resolver._flatten_paren_tail 회귀 방지."""
+
+    def test_이수진_케이스_전체_보존(self):
+        """L-03118 유사: 괄호 안 지번(중계동)만 떼고 나머지 flat"""
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        tail = '(중계동, 건영아파트 유치원상가 1층 103호, 케이)'
+        assert _flatten_paren_tail(tail) == '건영아파트 유치원상가 1층 103호 케이'
+
+    def test_가산동_건물명(self):
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        assert _flatten_paren_tail('(가산동, 이앤씨드림타워7차)') == '이앤씨드림타워7차'
+
+    def test_지번만_있으면_빈_문자열(self):
+        """콤마 없는 순수 지번 — 유용 정보 없음"""
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        assert _flatten_paren_tail('(걸포동)') == ''
+        assert _flatten_paren_tail('(걸포동 172-1)') == ''
+
+    def test_괄호_없으면_그대로(self):
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        assert _flatten_paren_tail('마천빌딩 지하 1층') == '마천빌딩 지하 1층'
+        assert _flatten_paren_tail('') == ''
+
+    def test_괄호_안_첫요소_지번_아니면_보존(self):
+        """예: (건영아파트, 1층) — 첫 요소가 건물명이면 그대로 flat"""
+        from dashboard.services.address_resolver import _flatten_paren_tail
+        assert _flatten_paren_tail('(건영아파트, 1층)') == '건영아파트 1층'
+
+
+# ─────────────────────────────────────────────────────────────
 # Windows용 시나리오: pytest 실행 시 pytest.ini 없어도 동작
 # ─────────────────────────────────────────────────────────────
 

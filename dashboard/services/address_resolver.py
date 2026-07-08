@@ -232,6 +232,37 @@ _TAIL_STOP_WORDS = [
 ]
 
 
+def _flatten_paren_tail(tail: str) -> str:
+    """괄호로 감싸진 tail을 flatten. 첫 요소가 순수 지번(동/가/리)이면 제거.
+
+    예:
+        "(중계동, 건영아파트 유치원상가 1층 103호, 케이)"
+        → "건영아파트 유치원상가 1층 103호 케이"
+
+        "(가산동, 이앤씨드림타워7차)"
+        → "이앤씨드림타워7차"
+
+        "(건영아파트 유치원상가)"  (첫 요소가 지번 아님)
+        → "건영아파트 유치원상가"
+
+        "건영아파트 유치원상가"  (괄호 없음)
+        → "건영아파트 유치원상가"
+
+    이렇게 벗겨야 카카오 base와 자연스레 이어지고 매니저에게 층/호/상호 모두 노출된다.
+    """
+    if not tail:
+        return tail
+    m_paren = re.fullmatch(r'\s*\(([^)]*)\)\s*', tail)
+    if not m_paren:
+        return tail
+    parts = [p.strip() for p in m_paren.group(1).split(',')]
+    if parts and re.match(
+        r'^[가-힣]+(?:동|가|리)(?:\s+\d+(?:-\d+)?)?$', parts[0]
+    ):
+        parts = parts[1:]
+    return ' '.join(p for p in parts if p).strip()
+
+
 def _extract_building_tail(text: str) -> str:
     """
     원본 텍스트에서 도로명/동 + 번지 뒤의 건물·동·층·호 정보 추출.
@@ -435,6 +466,9 @@ def verify_address(
         if m_fac2:
             facility_carry = m_fac2.group(1)
 
+    # 괄호로 감싸진 building_tail flatten — module-level 함수로 추출 (테스트 용이).
+    building_tail = _flatten_paren_tail(building_tail)
+
     def _compose(base: str) -> str:
         parts = [base]
         # base에 도로명+번지가 없으면 원문에서 추출해 부착
@@ -478,11 +512,13 @@ def verify_address(
         result = re.sub(r'(?<=[가-힣A-Za-z])(\d+(?:동|호|층|관))', r' \1', result)
         # 2-b. 층/호/관 다음 한글 (부가 설명·시설 tail) — "7층복도" → "7층 복도"
         result = re.sub(r'(\d+(?:동|호|층|관|호실))([가-힣])', r'\1 \2', result)
-        # 2-c. 지번 표기 제거 — 도로명 주소만 취급.
-        # "(걸포동)" · "(걸포동 172-1)" · "(가산동, 이앤씨드림타워7차)" 모두 삭제
-        # 조건: 괄호 안이 [가-힣]+동/가/리로 시작 (그 뒤 공백/콤마+임의내용은 허용)
+        # 2-c. 순수 지번 부기만 제거 — "(걸포동)", "(걸포동 172-1)"
+        # 콤마 뒤에 부가정보가 있는 괄호는 보존:
+        #   예 "(중계동, 건영아파트 유치원상가 1층 103호, 케이)" ← 층/호/상호 정보
+        #   예 "(가산동, 이앤씨드림타워7차)" ← 건물명 정보
+        # 회귀 방지 (7487390 이후): 매니저 방문 시 층/호 정보 손실 방지.
         result = re.sub(
-            r'\s*\([가-힣]+(?:동|가|리)(?:[\s,][^)]*)?\)', '', result,
+            r'\s*\([가-힣]+(?:동|가|리)(?:\s+\d+(?:-\d+)?)?\)', '', result,
         )
         # 3. 연속 공백 정리
         result = re.sub(r' +', ' ', result).strip()
@@ -501,7 +537,27 @@ def verify_address(
         if road and road.get('address_name'):
             base = normalize_display(road['address_name'])
             building_name = (road.get('building_name') or '').strip()
-            if building_name and building_name.lower() not in base.lower():
+            # 원본 tail에 건물명/시설명 신호가 있으면 카카오 building_name 스킵 (원본이 더 상세·정확).
+            # 원본 tail이 층/호만 있으면 (건물명 없음) 카카오 building_name도 추가 (양쪽 정보 조합).
+            #
+            # 예: tail="건영아파트 유치원상가 1층 103호 케이" → "아파트"·"상가" 신호 → 스킵 (원본 우선)
+            #     tail="지하 1층"                          → 건물 신호 없음 → "마천빌딩" 추가
+            #     tail="104호"                            → 건물 신호 없음 → "노블시티프라자" 추가
+            _tail_has_building = bool(
+                building_tail
+                and re.search(
+                    r'아파트|빌딩|타워|상가|오피스텔|프라자|플라자|스퀘어|'
+                    r'맨션|빌라|하우스|리조트|콘도|레지던스|'
+                    r'대학|학교|병원|공장|센터|파크|가든|타운|허브|쇼핑몰|백화점|'
+                    r'주식회사|㈜|\(주\)|영농조합|유한회사',
+                    building_tail,
+                )
+            )
+            if (
+                building_name
+                and building_name.lower() not in base.lower()
+                and not _tail_has_building
+            ):
                 base = f"{base} {building_name}"
             return (_compose(base), 'verified')
         jibun = doc.get('address')
