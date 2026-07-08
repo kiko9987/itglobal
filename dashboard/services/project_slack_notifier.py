@@ -182,18 +182,41 @@ def _build_invoice_button_value(data: dict, code: str) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list:
+def _thread_permalink(channel: str, ts: str) -> str:
+    """이 메시지 스레드로 곧장 열리는 슬랙 웹 URL. `?thread_ts&cid`가 있어야 스레드 pane이 열림.
+    workspace 도메인은 SLACK_WORKSPACE_DOMAIN 환경변수 (없으면 fallback)."""
+    workspace = os.getenv('SLACK_WORKSPACE_DOMAIN', 'w1679118856-ybv966043').strip()
+    ts_no_dot = (ts or '').replace('.', '')
+    return f'https://{workspace}.slack.com/archives/{channel}/p{ts_no_dot}?thread_ts={ts}&cid={channel}'
+
+
+def _build_blocks(
+    data: dict, code: str, license_attached: bool = False,
+    thread_permalink: Optional[str] = None,
+) -> list:
     """공사 확정 알림 blocks — section(본문) + actions(3버튼) + 하단 여백 context.
 
     버튼: [계산서 요청] [내용 수정] [공사 취소]. 매니저가 밖에서 슬랙만으로 수정/취소 가능.
+    thread_permalink 지정 시 사업자등록증 미첨부일 때만 스레드 진입 링크 삽입.
     """
     text = _build_message(data, code, license_attached=license_attached)
     btn_value = _build_invoice_button_value(data, code)
-    return [
+    blocks: list = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
-        # 2026-07-09 사업자등록증 라인과 액션 버튼 사이 여백 한 줄.
-        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
-        {
+    ]
+    # 사업자등록증 첨부 유도 링크 — 미첨부 상태에서만 노출.
+    # 링크 클릭 → 이 카드의 스레드 pane이 열림 → 매니저가 파일 드롭.
+    if thread_permalink and not license_attached:
+        blocks.append({
+            'type': 'section',
+            'text': {
+                'type': 'mrkdwn',
+                'text': f'  <{thread_permalink}|📎 사업자등록증 첨부하기>',
+            },
+        })
+    # 2026-07-09 사업자등록증 라인과 액션 버튼 사이 여백 한 줄.
+    blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]})
+    blocks.append({
             'type': 'actions',
             'elements': [
                 {
@@ -225,10 +248,10 @@ def _build_blocks(data: dict, code: str, license_attached: bool = False) -> list
                     },
                 },
             ],
-        },
-        # 2026-07-09 리드 알림 스타일과 통일 — 카드 아래 여백.
-        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
-    ]
+        })
+    # 2026-07-09 리드 알림 스타일과 통일 — 카드 아래 여백.
+    blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]})
+    return blocks
 
 
 def send_project_created_notification(data: dict, code: str) -> bool:
@@ -294,6 +317,26 @@ def send_project_created_notification(data: dict, code: str) -> bool:
                     )
                 except Exception as _exc:
                     logger.debug(f'[PROJECT/SLACK] card 매핑 저장 실패 ({code}): {_exc}')
+                # 사업자등록증 첨부 유도 링크는 ts를 알아야 만들 수 있어 chat.update으로 삽입.
+                try:
+                    permalink = _thread_permalink(channel, ts)
+                    upd_blocks = _build_blocks(data, code, thread_permalink=permalink)
+                    upd_payload = {
+                        'channel': channel, 'ts': ts,
+                        'text': text, 'blocks': upd_blocks,
+                    }
+                    upd_req = urllib.request.Request(
+                        'https://slack.com/api/chat.update',
+                        data=json.dumps(upd_payload, ensure_ascii=False).encode('utf-8'),
+                        headers={
+                            'Content-Type': 'application/json; charset=utf-8',
+                            'Authorization': f'Bearer {token}',
+                        },
+                    )
+                    with urllib.request.urlopen(upd_req, timeout=5) as _r2:
+                        _ = json.loads(_r2.read())
+                except Exception as _exc:
+                    logger.debug(f'[PROJECT/SLACK] 첨부 링크 삽입 실패 ({code}): {_exc}')
             return True
         logger.warning(f"[PROJECT/SLACK] 슬랙 API 실패 ({code}): {resp.get('error')}")
         return False
@@ -469,7 +512,12 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
                 license_attached = verify_license_exists(code)
             except Exception:
                 license_attached = False
-            new_blocks = _build_blocks(latest_data, code, license_attached=license_attached)
+            permalink = _thread_permalink(channel, ts)
+            new_blocks = _build_blocks(
+                latest_data, code,
+                license_attached=license_attached,
+                thread_permalink=permalink,
+            )
             biz = _val(latest_data, '사업자명')
             new_text = f"[공사 확정] {code} {biz}".strip()
             payload = {
@@ -549,7 +597,12 @@ def refresh_project_card_license(code: str, latest_data: Optional[dict] = None) 
         license_attached = False
 
     try:
-        new_blocks = _build_blocks(latest_data, code, license_attached=license_attached)
+        permalink = _thread_permalink(channel, ts)
+        new_blocks = _build_blocks(
+            latest_data, code,
+            license_attached=license_attached,
+            thread_permalink=permalink,
+        )
         biz = _val(latest_data, '사업자명')
         new_text = f"[공사 확정] {code} {biz}".strip()
         payload = {

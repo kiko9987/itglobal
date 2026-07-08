@@ -4797,7 +4797,13 @@ def _process_project_uncancel(client, body) -> None:
             license_attached = verify_license_exists(code)
         except Exception:
             license_attached = False
-        new_blocks = _build_blocks(latest, code, license_attached=license_attached)
+        from dashboard.services.project_slack_notifier import _thread_permalink
+        permalink = _thread_permalink(channel, message_ts)
+        new_blocks = _build_blocks(
+            latest, code,
+            license_attached=license_attached,
+            thread_permalink=permalink,
+        )
         biz = latest.get('사업자명') or ''
         fallback = f"[공사 확정] {code} {biz}".strip()
         client.chat_update(channel=channel, ts=message_ts, text=fallback, blocks=new_blocks)
