@@ -426,15 +426,28 @@ def _register_project_handlers(app):
     # 첫 파일은 '사업자등록증.{ext}', 재첨부 시 기존 것을 '사업자등록증_{N}.{ext}'로 밀고
     # 새 파일을 다시 '사업자등록증.{ext}' 로 저장 (최신본이 항상 canonical name).
     # 계산서 요청 시 이 canonical 파일 존재 여부로 검증.
-    @app.event({"type": "message", "subtype": "file_share"})
-    def handle_thread_file_share(event, client):
+    @app.event("message")
+    def handle_thread_message(event, client):
+        # 모든 message 이벤트가 들어옴 — subtype 필터 + 진단 로그
+        subtype = event.get("subtype") or ""
+        has_files = bool(event.get("files"))
+        thread_ts = event.get("thread_ts")
+        logger.info(
+            f"[LICENSE/EVT] message 수신: subtype={subtype!r}, "
+            f"has_files={has_files}, thread_ts={thread_ts!r}, "
+            f"channel={event.get('channel')}"
+        )
+        # 스레드 파일 첨부만 처리
+        if not thread_ts or not has_files:
+            return
+
         def _bg():
             try:
                 from dashboard.services.business_license_handler import handle_thread_file_share as _h
                 result = _h(event, _PROJECT_BOT_TOKEN)
                 if not result:
-                    return  # 프로젝트 카드 스레드 아님 → 조용히 skip
-                # 결과 안내: 스레드에 성공/실패 요약 답글
+                    logger.info("[LICENSE] 프로젝트 카드 스레드 아님 → skip")
+                    return
                 saved = result.get('saved') or []
                 skipped = result.get('skipped') or []
                 lines = []
