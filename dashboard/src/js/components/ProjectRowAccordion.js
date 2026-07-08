@@ -4426,9 +4426,21 @@ export default class ProjectRowAccordion {
       
       // Google Drive 링크 자동 파싱 이벤트 추가
       if (input && !input.dataset.folderParsingAttached) {
-        input.addEventListener('input', () => this.parseDriveFolderUrl(input));
+        // 폴더 경로 필드는 folder-path-input 클래스 기반이라 다른 필드처럼
+        // .editable-value 부모의 dataset.field로 잡히는 EditState 위임 리스너를
+        // 거치지 않는다. 여기서 명시적으로 EditState.updateField 호출해야 저장 시
+        // 변경사항으로 인식됨 (2026-07-08 매니저 배포 첫날 실측 사고 대응).
+        const FOLDER_FIELD = '견적서 및 계약서 폴더 경로';
+        const syncEditState = () => {
+          this.parseDriveFolderUrl(input);
+          if (this.editState && this.editState.isActive) {
+            this.editState.updateField(FOLDER_FIELD, input.value.trim());
+          }
+        };
+        input.addEventListener('input', syncEditState);
         input.addEventListener('paste', () => {
-          setTimeout(() => this.parseDriveFolderUrl(input), 10);
+          // paste는 브라우저가 값 세팅한 뒤에 잡아야 하니 미세 지연
+          setTimeout(syncEditState, 10);
         });
         input.dataset.folderParsingAttached = 'true';
 
