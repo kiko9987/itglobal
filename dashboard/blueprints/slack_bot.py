@@ -4636,15 +4636,17 @@ def _process_project_cancel(client, body) -> None:
     # 카드 chat.update — 방문 취소 UI 스타일 그대로 (원본 회색 처리)
     try:
         cancel_time = datetime.now().strftime('%Y.%m.%d. %H:%M')
-        original_text = ''
-        for blk in body["message"].get("blocks", []):
-            if blk.get("type") == "section":
-                bt = blk.get("text", {}).get("text", "")
-                if bt:
-                    original_text = bt
-                    break
-        if not original_text:
-            original_text = body["message"].get("text", "")
+        # 원본 텍스트는 body 대신 프로젝트 스냅샷에서 재생성.
+        # (Slack이 unicode 이모지를 :bell: 같은 shortcode로 정규화 저장해
+        # body에서 읽어오면 shortcode 그대로 나와 코드블록 안에서 렌더 안 됨)
+        from dashboard.services.project_slack_notifier import _build_message
+        from dashboard.services.business_license_handler import verify_license_exists
+        snapshot = result.get('project') or {}
+        try:
+            license_attached = verify_license_exists(code)
+        except Exception:
+            license_attached = False
+        original_text = _build_message(snapshot, code, license_attached=license_attached)
         cleaned = [ln.replace('*', '') for ln in original_text.split('\n')]
         clean_text = '\n'.join(cleaned).strip()
 
