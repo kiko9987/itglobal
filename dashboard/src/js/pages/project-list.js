@@ -222,6 +222,32 @@ class ProjectListApp {
 
           // UI는 전혀 건드리지 않음 - 아코디언이 열려있으면 그대로 유지
           logger.debug(`✅ [캐시 무효화] 다음 데이터 로드 시 최신 데이터 사용`);
+
+          // 필터 결과에서 사라진 프로젝트의 아코디언 자동 정리 (수금 관리 모드에서 자주 발생)
+          // 예: 미수금 필터 ON 상태에서 미수금=0 저장 → 필터에서 제외됨 → 아코디언만 뜬금 없이 남음
+          try {
+            const accordion = window.projectListApp?.components?.accordion;
+            const filtered = this.stateManager?.filteredData || [];
+            const stillVisible = filtered.some(p => p?.['프로젝트 코드'] === projectCode);
+            if (!stillVisible && accordion?.isOpen &&
+                accordion?.currentProject?.['프로젝트 코드'] === projectCode) {
+              logger.info(`[필터-아코디언] ${projectCode} 저장 후 필터 결과에서 제외됨 → 아코디언 자동 닫기`);
+              // 편집 모드였다면 정리 (편집 상태에서 사라지는 건 이미 저장 완료 후라 안전)
+              if (accordion.modeManager?.isEditMode?.()) {
+                accordion.disableUnifiedEditMode(projectCode);
+              }
+              accordion.closeAccordion?.();
+              // 사용자 안내 — '오류가 아니라 필터 조건 변경으로 사라짐' 명확화
+              if (window.showSystemAlert) {
+                window.showSystemAlert(
+                  `${projectCode} 저장 완료. 현재 필터 조건에 맞지 않아 리스트에서 제외되었습니다.`,
+                  'info',
+                );
+              }
+            }
+          } catch (err) {
+            logger.warn('[필터-아코디언] 정리 로직 오류 (무시):', err);
+          }
         } else {
           // 전체 새로고침 (레거시 방식 또는 partialUpdate 플래그 없을 때)
           logger.warn(`⚠️ [전체 새로고침] partialUpdate 플래그 없음 - 호출 위치 확인 필요`);
