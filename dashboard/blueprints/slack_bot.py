@@ -438,6 +438,23 @@ def _register_project_handlers(app):
 
     @app.view("submit_invoice")
     def handle_submit_invoice(ack, body, client, view):
+        # 사업자등록증 첨부 여부 검증 (모달 오픈 시점 대신 여기서 — trigger_id 만료 방지).
+        # 미첨부면 modal errors 로 반려해 사용자가 스레드에 첨부 후 재제출.
+        try:
+            metadata = json.loads(view.get("private_metadata") or "{}")
+            code = (metadata.get("code", "") or "").strip()
+            if code and code != '-':
+                from dashboard.services.business_license_handler import verify_license_exists
+                if not verify_license_exists(code):
+                    ack(response_action="errors", errors={
+                        "biz": "사업자등록증이 아직 첨부되지 않았습니다. "
+                               "카드 스레드에 사업자등록증(이미지 or PDF)을 첨부한 뒤 다시 요청해주세요.",
+                    })
+                    return
+        except Exception as exc:
+            # 검증 자체가 실패해도(예: Drive 지연) 발행 요청은 통과시킴 — 관리자가 후속 처리
+            logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (통과): {exc}')
+
         ack()
         def _bg():
             try:
@@ -5493,9 +5510,8 @@ def _process_project_uncancel(client, body) -> None:
 def _open_invoice_modal(client, body) -> None:
     """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈.
 
-    2026-07-08: 사업자등록증 첨부 여부 사전 검증.
-    카드 스레드에 사업자등록증.{ext} 파일이 없으면 모달 대신 ephemeral 안내로
-    첨부 유도. 매니저가 계산서 발행 요청 전에 파일 첨부하도록 강제.
+    2026-07-09: trigger_id 만료(3초) 방지 — Drive API 검증은 모달 오픈 후
+    submit 시점으로 이동. 여기선 오직 pre-fill 후 즉시 views.open 만.
     """
     trigger_id = body["trigger_id"]
     action = body["actions"][0]
@@ -5505,28 +5521,6 @@ def _open_invoice_modal(client, body) -> None:
         payload = {}
 
     code = payload.get('code', '') or '-'
-
-    # 사업자등록증 파일 검증 — 카드 스레드에 첨부 안 됐으면 안내 후 종료
-    if code and code != '-':
-        try:
-            from dashboard.services.business_license_handler import verify_license_exists
-            if not verify_license_exists(code):
-                channel = body.get("channel", {}).get("id", "") or body.get("container", {}).get("channel_id", "")
-                user_id = body.get("user", {}).get("id", "")
-                msg = (
-                    f":warning: 사업자등록증이 아직 첨부되지 않아 계산서를 요청할 수 없습니다.\n"
-                    f"이 카드 스레드에 사업자등록증(이미지 or PDF)을 첨부한 뒤 다시 눌러주세요."
-                )
-                try:
-                    if channel and user_id:
-                        client.chat_postEphemeral(channel=channel, user=user_id, text=msg)
-                except Exception as _exc:
-                    logger.warning(f'[SLACK/계산서] 사업자등록증 안내 발송 실패: {_exc}')
-                return
-        except Exception as exc:
-            # 검증 실패 시 안전하게 모달을 여는 방향 (계산서 발행 자체는 막지 않음)
-            logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (모달 계속 오픈): {exc}')
-
     biz = payload.get('biz', '') or ''
     addr = payload.get('addr', '') or ''
     amt = payload.get('amt', '') or ''
