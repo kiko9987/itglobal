@@ -1172,7 +1172,7 @@ def _register_as_handlers(app):
             pass
         if visitor_type in ('내부', '외주') and not visitor_name.strip():
             ack(response_action="errors", errors={
-                "visitor_name": "내부/외주 방문 시 담당자 이름을 입력해야 합니다.",
+                "visitor_name": "내부/외주 방문 시 방문 예정자 이름을 입력해야 합니다.",
             })
             return
         ack()
@@ -1629,7 +1629,7 @@ def _open_as_accept_modal(client, body) -> None:
             {"type": "section", "text": {"type": "mrkdwn", "text": f"`{as_no}` A/S를 접수합니다."}},
             {
                 "type": "input", "block_id": "visitor_type",
-                "label": {"type": "plain_text", "text": "방문 유형"},
+                "label": {"type": "plain_text", "text": "방문 예정자"},
                 "element": {
                     "type": "static_select", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "선택"},
@@ -1638,7 +1638,7 @@ def _open_as_accept_modal(client, body) -> None:
             },
             {
                 "type": "input", "block_id": "visitor_name", "optional": True,
-                "label": {"type": "plain_text", "text": "담당자 이름 (내부/외주 방문 시 필수)"},
+                "label": {"type": "plain_text", "text": "방문 예정자 이름 (내부/외주 방문 시 필수)"},
                 "hint": {"type": "plain_text", "text": "서비스 기사 방문 시 작성 X"},
                 "element": {
                     "type": "plain_text_input", "action_id": "value",
