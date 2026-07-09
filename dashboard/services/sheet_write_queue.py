@@ -192,38 +192,91 @@ def retry_failed(op_id: str) -> bool:
     return False
 
 
-def _notify_admin_deadletter(op: dict, last_exc: Exception) -> None:
-    """데드레터 발생 시 관리자에게 슬랙 DM. SLACK_ADMIN_CHANNEL 사용."""
+def _slack_lookup_user_id_by_email(email: str, token: str) -> Optional[str]:
+    """이메일 → 슬랙 user_id 조회. 없거나 실패 시 None."""
+    if not email or '@' not in email or not token:
+        return None
     try:
-        import os as _os
         import urllib.request as _urllib_req
-        token = _os.getenv('SLACK_BOT_TOKEN', '').strip()
-        admin_id = _os.getenv('SLACK_ADMIN_CHANNEL', '').strip()
-        if not token or not admin_id:
-            return
-        op_type = op.get('op_type', '?')
-        op_id = op.get('op_id', '')[:8]
-        tag = op.get('payload', {}).get('tag', '')
-        text = (
-            f':rotating_light: *시트 write 큐 데드레터*\n'
-            f'op_type: `{op_type}`\n'
-            f'op_id: `{op_id}…`\n'
-            f'tag: `{tag}`\n'
-            f'attempts: {op.get("attempts", 0)}\n'
-            f'error: `{str(last_exc)[:400]}`\n'
-            f'재시도: `POST /api/admin/sheet-write-queue/retry/{op.get("op_id", "")}`'
-        )
+        import urllib.parse as _urllib_parse
+        url = 'https://slack.com/api/users.lookupByEmail?' + _urllib_parse.urlencode({'email': email})
+        req = _urllib_req.Request(url, headers={'Authorization': f'Bearer {token}'})
+        resp = _urllib_req.urlopen(req, timeout=5).read()
+        data = json.loads(resp.decode('utf-8'))
+        if data.get('ok'):
+            return data.get('user', {}).get('id')
+    except Exception:
+        pass
+    return None
+
+
+def _slack_send_dm(channel: str, text: str, token: str) -> bool:
+    """슬랙 chat.postMessage 유틸."""
+    if not channel or not token:
+        return False
+    try:
+        import urllib.request as _urllib_req
         req = _urllib_req.Request(
             'https://slack.com/api/chat.postMessage',
-            data=json.dumps({'channel': admin_id, 'text': text}).encode('utf-8'),
+            data=json.dumps({'channel': channel, 'text': text}).encode('utf-8'),
             headers={
                 'Content-Type': 'application/json; charset=utf-8',
                 'Authorization': f'Bearer {token}',
             },
         )
         _urllib_req.urlopen(req, timeout=5).read()
+        return True
+    except Exception:
+        return False
+
+
+def _notify_admin_deadletter(op: dict, last_exc: Exception) -> None:
+    """데드레터 발생 시 관리자 + 편집자 본인에게 슬랙 DM.
+
+    - 관리자: SLACK_ADMIN_CHANNEL 로 무조건 발송
+    - 편집자 본인: op.meta.user_email 이 있으면 슬랙 사용자 lookup 후 DM
+      (편집 저장이 실제로 시트에 반영 안 됐음을 즉시 인지)
+    """
+    try:
+        import os as _os
+        token = _os.getenv('SLACK_BOT_TOKEN', '').strip()
+        admin_id = _os.getenv('SLACK_ADMIN_CHANNEL', '').strip()
+        if not token:
+            return
+        op_type = op.get('op_type', '?')
+        op_id = op.get('op_id', '')[:8]
+        tag = op.get('payload', {}).get('tag', '') or op.get('payload', {}).get('project_code', '')
+        user_email = (op.get('meta') or {}).get('user_email', '')
+
+        # 1) 관리자 DM (기존 그대로)
+        if admin_id:
+            admin_text = (
+                f':rotating_light: *시트 write 큐 데드레터*\n'
+                f'op_type: `{op_type}`\n'
+                f'op_id: `{op_id}…`\n'
+                f'tag: `{tag}`\n'
+                f'attempts: {op.get("attempts", 0)}\n'
+                f'user: `{user_email or "unknown"}`\n'
+                f'error: `{str(last_exc)[:400]}`\n'
+                f'재시도: `POST /api/admin/sheet-write-queue/retry/{op.get("op_id", "")}`'
+            )
+            _slack_send_dm(admin_id, admin_text, token)
+
+        # 2) 편집자 본인 DM (project_update_sheet 등 편집 계열 op 만)
+        editor_ops = {'project_update_sheet', 'project_cancel_sheet', 'project_resume_sheet'}
+        if user_email and op_type in editor_ops:
+            user_slack_id = _slack_lookup_user_id_by_email(user_email, token)
+            if user_slack_id:
+                user_text = (
+                    f':warning: *방금 저장하신 편집이 Google Sheets 에 반영되지 않았습니다*\n'
+                    f'프로젝트: `{tag}`\n'
+                    f'재시도 3회 모두 실패했습니다. 잠시 후 다시 시도해 주시거나 관리자에게 문의하세요.\n'
+                    f'_대시보드 화면상으로는 저장된 것처럼 보였지만, 실제 시트에는 반영 안 됐습니다._\n'
+                    f'op_id: `{op_id}…` (관리자 문의 시 전달)'
+                )
+                _slack_send_dm(user_slack_id, user_text, token)
     except Exception as _exc:
-        logger.debug(f'[QUEUE] 관리자 알림 실패: {_exc}')
+        logger.debug(f'[QUEUE] 데드레터 알림 실패: {_exc}')
 
 
 def _drain_processing_on_startup():

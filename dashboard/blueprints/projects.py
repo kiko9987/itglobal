@@ -49,6 +49,37 @@ from ..schemas.project_schemas import (
     ProjectAutoCreateSchema
 )
 
+# ─────────────────────────────────────────────────────────────
+# 컬럼 인덱스 상수 (google_sheets.py column_mapping 과 반드시 일치)
+# 시트 컬럼 시프트 시 여기 하나만 수정하면 됨.
+# `AP: '_version'` → index 41 (2026-07 시프트로 옛 AO 에서 이동)
+# ─────────────────────────────────────────────────────────────
+VERSION_COL_INDEX = 41  # AP 열
+
+
+def _verify_version_col_index(manager) -> None:
+    """부팅·최초 호출 시 상수 vs 실제 매핑 검증. 어긋나면 조용히 로그로 알림.
+
+    회귀 감지용 — 실제 오류는 다음 편집 시도 시 튀지만, 로그에서 조기 발견 가능.
+    """
+    try:
+        column_mapping = manager.get_column_mapping()
+        for col_letter, field_name in column_mapping.items():
+            if field_name == '_version':
+                if len(col_letter) == 1:
+                    actual = ord(col_letter) - ord('A')
+                else:
+                    actual = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
+                if actual != VERSION_COL_INDEX:
+                    logger.error(
+                        f'[VERSION_COL] 상수 불일치! VERSION_COL_INDEX={VERSION_COL_INDEX} '
+                        f'실제 _version 컬럼={col_letter}(idx={actual}) — projects.py 수정 필요'
+                    )
+                return
+        logger.warning('[VERSION_COL] column_mapping 에 _version 필드 없음 — 시트 스키마 확인 필요')
+    except Exception as exc:
+        logger.debug(f'[VERSION_COL] 검증 skip: {exc}')
+
 # 프로젝트 전역 상수 임포트
 from ..constants import PAYMENT_FIELD_TO_COLUMN, MEMOABLE_FIELDS, ERROR_MESSAGES
 
@@ -679,7 +710,7 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
         - success: (int, None)
         - failure: (None, JsonResponse with 409)
     """
-    current_version = current_values[41]  # AP 컬럼 (index 41) — _version (2026-07 컬럼 시프트, 옛 AO → AP)
+    current_version = current_values[VERSION_COL_INDEX]  # AP 컬럼 — _version
 
     # 버전 값 정규화 (빈 문자열/None → '0')
     if not current_version or current_version == '':
@@ -1048,7 +1079,7 @@ def update_project(project_code):
             return error_response
 
         # 버전 업데이트
-        current_values[41] = str(new_version)  # AP 컬럼 (_version, 2026-07 시프트)
+        current_values[VERSION_COL_INDEX] = str(new_version)  # AP 컬럼 — _version
 
         # 5. 필드 매핑 생성
         column_mapping = manager.get_column_mapping()
@@ -1253,7 +1284,7 @@ def _check_optimistic_lock_inline(data, current_values, project_code, manager, s
         tuple: (new_version, None) 성공 시, (None, error_response) 충돌 시
     """
     expected_version = data.get('_version')
-    current_version = current_values[41]  # AP 컬럼 (index 41) — _version (2026-07 컬럼 시프트, 옛 AO → AP)
+    current_version = current_values[VERSION_COL_INDEX]  # AP 컬럼 — _version
 
     # 버전 값 정규화 (빈 문자열/None → '0')
     if not current_version or current_version == '':
@@ -1578,7 +1609,7 @@ def update_project_inline():
             return lock_error  # 409 Conflict 반환
 
         # 버전 업데이트
-        current_values[41] = str(new_version)  # AP 컬럼 (_version, 2026-07 시프트)
+        current_values[VERSION_COL_INDEX] = str(new_version)  # AP 컬럼 — _version
 
         # 5. 프로젝트 코드 자동 재산출 (사업자/담당자 변경 시)
         original_values = current_values.copy()

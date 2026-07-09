@@ -5232,9 +5232,17 @@ export default class ProjectRowAccordion {
         const endTime = performance.now();
         logger.debug(`⏱️ [통합 저장] 프로젝트 필드 저장 API 소요 시간: ${(endTime - startTime).toFixed(0)}ms`);
 
+        // 응답 body 안전 파싱 (서버 재시작 중 body 잘림 방어)
+        const _readEditJson = async (resp) => {
+          try {
+            const text = await resp.text();
+            return text ? JSON.parse(text) : {};
+          } catch (_) { return {}; }
+        };
+
         // 🔒 Optimistic Lock: 409 Conflict 처리 (병합 UI)
         if (response.status === 409) {
-          const conflictResult = await response.json();
+          const conflictResult = await _readEditJson(response);
           logger.warn(`[Optimistic Lock] 버전 충돌 감지: ${conflictResult.message}`);
 
           // 최신 데이터로 UI 업데이트 (서버에서 current_data 반환)
@@ -5278,13 +5286,23 @@ export default class ProjectRowAccordion {
         }
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // error_id 추출용 안전 파싱
+          const errData = await _readEditJson(response);
+          const err = new Error(
+            errData.error || errData.message ||
+            `HTTP ${response.status}: ${response.statusText}`
+          );
+          if (errData.error_id) err.error_id = errData.error_id;
+          err.status = response.status;
+          throw err;
         }
 
-        result = await response.json();
+        result = await _readEditJson(response);
 
         if (!result.success) {
-          throw new Error(result.message || '저장에 실패했습니다.');
+          const err = new Error(result.message || result.error || '저장에 실패했습니다.');
+          if (result.error_id) err.error_id = result.error_id;
+          throw err;
         }
       } else {
         // 프로젝트 변경사항이 없으면 가짜 result 생성
