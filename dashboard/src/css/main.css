@@ -497,34 +497,37 @@ html body div.project-accordion-container div.compact-item input.inline-edit-inp
 }
 
 /* ===== 커스텀 로딩 스피너 =====
- * GPU 레이어로 승격(will-change + translateZ)해서 메인 스레드가 데이터 파싱으로
- * 바쁠 때도 애니메이션이 프레임 드롭 없이 부드럽게 회전하도록 함.
- * 3849건 프로젝트 로드 시 IPC/파싱 부담이 크므로 필수.
+ * - GPU 레이어 승격(will-change + translateZ)으로 데이터 파싱 중 프레임 드롭 방지
+ * - !important 로 prefers-reduced-motion 오버라이드
+ *   (로딩 진행 표시는 상태 정보 전달이라 accessibility 예외 처리)
+ * - border 는 ::before 대신 본체에 직접 → 회전 확실히 보임
  */
+.custom-spinner,
+.custom-spinner::before {
+  box-sizing: border-box;
+}
+
 .custom-spinner {
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  position: relative;
-  animation: rotate 0.9s linear infinite;
+  border: 5px solid #e5e7eb;         /* 트랙(회색) */
+  border-top-color: #6366f1;         /* 강조(indigo) — 이 부분이 회전하면서 위치 이동 */
+  animation: custom-spinner-rotate 0.9s linear infinite !important;
   will-change: transform;
-  transform: translateZ(0);  /* GPU 레이어 승격 트리거 */
+  transform: translateZ(0);
 }
 
-.custom-spinner::before {
-  content: '';
-  box-sizing: border-box;
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 5px solid #e5e7eb;   /* 얇은 트랙 (배경 원) */
-  border-top-color: #6366f1;    /* 회전하는 강조 부분 (indigo) */
-  will-change: transform;
-}
-
-@keyframes rotate {
+@keyframes custom-spinner-rotate {
   from { transform: translateZ(0) rotate(0deg); }
   to   { transform: translateZ(0) rotate(360deg); }
+}
+
+/* prefers-reduced-motion 이 켜져 있어도 로딩 스피너는 유지 (상태 정보 전달) */
+@media (prefers-reduced-motion: reduce) {
+  .custom-spinner {
+    animation: custom-spinner-rotate 0.9s linear infinite !important;
+  }
 }
 
 /* ===== 취소된 프로젝트 스타일 ===== */
