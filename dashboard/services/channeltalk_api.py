@@ -48,6 +48,26 @@ def _request(method: str, path: str, body: Optional[dict] = None) -> Optional[di
         return None
 
 
+import re as _re
+
+# 2026-07-10 CT2: 채널톡 API 가 이메일 주소 포함 메시지를 종종 거부하는 이슈
+# (사용자 관측: 매니저가 이메일 주소 답변 시 전송 실패)
+# 실패 케이스에서 이메일을 전각 골뱅이(＠)로 자동 치환 후 재시도.
+_EMAIL_RE = _re.compile(r'\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b')
+
+
+def _mask_emails(text: str) -> str:
+    """이메일 주소의 @ 를 전각 골뱅이(＠) 로 치환.
+
+    고객 눈에는 여전히 이메일로 보이지만 채널톡 API 의 자동 감지·차단은 회피.
+    """
+    return _EMAIL_RE.sub(r'\1＠\2', text or '')
+
+
+def _contains_email(text: str) -> bool:
+    return bool(_EMAIL_RE.search(text or ''))
+
+
 def send_manager_message(chat_id: str, manager_id: str, plain_text: str) -> Optional[dict]:
     """매니저(운영자)가 채팅방에 메시지 발신.
 
@@ -57,15 +77,42 @@ def send_manager_message(chat_id: str, manager_id: str, plain_text: str) -> Opti
         plain_text: 보낼 메시지 본문
 
     채널톡 입장에서 항상 같은 매니저(kiko=60994)가 보낸 것으로 기록 → 운영자 시트 추가 X.
+
+    Returns:
+        성공: 응답 dict (`email_auto_escaped=True` 가 자동 치환 케이스임을 표시)
+        실패: None
     """
     if not chat_id or not manager_id or not plain_text:
         return None
+
     body = {
         'managerId': manager_id,
         'blocks': [{'type': 'text', 'value': plain_text}],
         'plainText': plain_text,
     }
-    return _request('POST', f'/user-chats/{chat_id}/messages', body=body)
+    resp = _request('POST', f'/user-chats/{chat_id}/messages', body=body)
+    if resp is not None:
+        return resp
+
+    # 재시도: 이메일 포함 케이스면 자동 치환 후 재요청 (2026-07-10 CT2)
+    if _contains_email(plain_text):
+        escaped = _mask_emails(plain_text)
+        logger.warning(
+            f'[ChannelTalk] 최초 전송 실패 + 이메일 감지 → 전각 골뱅이 치환 후 재시도 '
+            f'(chat_id={chat_id})'
+        )
+        body_retry = {
+            'managerId': manager_id,
+            'blocks': [{'type': 'text', 'value': escaped}],
+            'plainText': escaped,
+        }
+        resp = _request('POST', f'/user-chats/{chat_id}/messages', body=body_retry)
+        if resp is not None:
+            # 성공 응답에 자동 치환 표시 (호출자가 매니저에게 안내 가능)
+            resp['_email_auto_escaped'] = True
+            return resp
+
+    return None
 
 
 def get_user_chat(chat_id: str) -> Optional[dict]:

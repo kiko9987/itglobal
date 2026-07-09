@@ -741,6 +741,23 @@ def _register_handlers(app):
                 mark_our_sent(chat_id, text)
                 resp = send_manager_message(chat_id, manager_id, text)
                 logger.info(f"[ChannelTalk→] 메시지 발신: text={text[:40]!r}, resp_ok={resp is not None}")
+                # 이메일 자동 치환 재시도로 성공한 케이스 안내 (2026-07-10 CT2)
+                if resp and resp.get('_email_auto_escaped'):
+                    try:
+                        user_id = event.get('user', '')
+                        if user_id:
+                            client.chat_postEphemeral(
+                                channel=event["channel"],
+                                user=user_id,
+                                thread_ts=thread_ts,
+                                text=(
+                                    ':information_source: *이메일 주소가 감지되어 전각 골뱅이(＠) 로 자동 치환해 전송했습니다.*\n'
+                                    '_채널톡이 이메일 형식을 자동 차단하는 경우가 있어 우회한 것입니다._\n'
+                                    '_고객 화면에는 정상적인 이메일로 보이니 안심하세요._'
+                                ),
+                            )
+                    except Exception:
+                        pass
 
                 # 직원 응답했으니 미배정 알림 큐에서 제거
                 from dashboard.services.channeltalk_threads import remove_pending
