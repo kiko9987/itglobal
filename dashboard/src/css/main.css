@@ -528,6 +528,22 @@ html body div.project-accordion-container div.compact-item input.inline-edit-inp
   .custom-spinner {
     animation: custom-spinner-rotate 0.9s linear infinite !important;
   }
+  /* Font Awesome 6 의 fa-spin 도 오버라이드 — 버튼 로딩 아이콘 (편집/취소/재개 중) */
+  .fa-spin,
+  .fa-spin.fa-circle-notch,
+  .fa-spin.fa-spinner,
+  .fa-spin.fa-sync,
+  .fa-spin.fa-sync-alt {
+    animation: fa-spin 1s linear infinite !important;
+    animation-iteration-count: infinite !important;
+    animation-duration: 1s !important;
+  }
+}
+
+/* Font Awesome fa-spin 이 어떤 이유로든 파싱 후 사라진 경우 폴백 정의 */
+@keyframes fa-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 /* ===== 취소된 프로젝트 스타일 ===== */

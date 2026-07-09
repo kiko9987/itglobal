@@ -2890,7 +2890,16 @@ export default class ProjectRowAccordion {
         _minShow,
       ]);
 
-      const result = await response.json();
+      // 응답 body 안전하게 파싱 (재시작 중 응답 잘림 등 방어)
+      let result;
+      try {
+        const text = await response.text();
+        result = text ? JSON.parse(text) : {};
+      } catch (parseErr) {
+        throw new Error(response.ok
+          ? '서버 응답 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.'
+          : `서버 오류 (HTTP ${response.status})`);
+      }
 
       if (result.success && result.updated_project) {
         // 1. 아코디언 내부 UI 업데이트 (수금확인, 공사확정일, 특이사항)
@@ -2990,7 +2999,16 @@ export default class ProjectRowAccordion {
         _minShow,
       ]);
 
-      const result = await response.json();
+      // 응답 body 안전하게 파싱 (재시작 중 응답 잘림 등 방어)
+      let result;
+      try {
+        const text = await response.text();
+        result = text ? JSON.parse(text) : {};
+      } catch (parseErr) {
+        throw new Error(response.ok
+          ? '서버 응답 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.'
+          : `서버 오류 (HTTP ${response.status})`);
+      }
 
       if (result.success && result.updated_project) {
         // 1. 아코디언 내부 UI 업데이트 (필드 복원)
