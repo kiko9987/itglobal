@@ -177,6 +177,7 @@ export default class ProjectRowAccordion {
     await this.initializeFieldMemoButton();
     this.setupFieldMemoEventListener(); // 메모 업데이트 이벤트 구독
     this.setupProjectLockEventListener(); // 프로젝트 잠금 변경 이벤트 구독
+    this.setupEditFailureNotificationListener(); // 편집 데드레터 브라우저 알림
   }
 
   /**
@@ -249,6 +250,40 @@ export default class ProjectRowAccordion {
       logger.debug('✅ [WebSocket] 프로젝트 잠금 이벤트 리스너 설정 완료');
     } catch (error) {
       logger.warn('⚠️ [WebSocket] SocketManager 초기화 실패 (WebSocket 기능 비활성):', error);
+    }
+  }
+
+  /**
+   * 편집 데드레터 브라우저 알림 리스너
+   *
+   * 서버 sheet_write_queue 워커가 3회 재시도 후 실패 시 error_notification
+   * 이벤트를 broadcast. target_user_email 이 현재 사용자와 일치할 때만 표시.
+   * 이유: 매니저는 슬랙 DM 받아도 할 게 없어서 화면 알림으로만 인지시킴.
+   */
+  setupEditFailureNotificationListener() {
+    try {
+      const socketManager = getSocketManager();
+      socketManager.on('error_notification', (data) => {
+        const me = (window.currentUserEmail || '').trim().toLowerCase();
+        const target = (data?.target_user_email || '').trim().toLowerCase();
+        if (!target || target !== me) return;
+        const title = data.title || '편집 저장 실패';
+        const msg = data.message || '방금 저장하신 편집이 실제로 반영되지 않았습니다.';
+        const idSuffix = data.op_id ? ` (op_id: ${data.op_id.slice(0, 8)})` : '';
+        // 시스템 알림 헤더 우선, 없으면 페이지 알림, 최후 alert
+        const fullMsg = `⚠️ ${title}\n${msg}${idSuffix}`;
+        if (window.showSystemAlert) {
+          window.showSystemAlert(fullMsg, data.severity || 'warning');
+        } else if (window.showPageAlert) {
+          window.showPageAlert(fullMsg, 'warning');
+        } else {
+          alert(fullMsg);
+        }
+        logger.warn('[EditFailure] 편집 데드레터 알림 표시:', data);
+      });
+      logger.debug('✅ [WebSocket] 편집 실패 알림 리스너 설정 완료');
+    } catch (error) {
+      logger.warn('⚠️ [WebSocket] 편집 실패 리스너 설정 실패:', error);
     }
   }
 
