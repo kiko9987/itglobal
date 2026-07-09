@@ -2832,10 +2832,21 @@ def add_project_auto():
             logger.warning(
                 f'[CREATE_PROJECT/dedup] 최근 5분 내 동일 데이터 감지 → 기존 코드 반환: {dup_code}'
             )
+            # dedup 이라도 project_data 찾아서 반환 → 프론트가 전체 시트 재로드(15초) 안 하도록
+            dup_project = None
+            try:
+                from ..services.project_service import get_project_records
+                records = get_project_records() or []
+                for r in records:
+                    if r.get('프로젝트 코드') == dup_code:
+                        dup_project = r
+                        break
+            except Exception as exc:
+                logger.debug(f'[CREATE_PROJECT/dedup] project_data 조회 실패 (무시): {exc}')
             resp_body = {
                 'success': True,
                 'project_code': dup_code,
-                'project_data': None,
+                'project_data': dup_project,
                 'lead_linked': False,
                 'deduped': True,
             }
@@ -2900,11 +2911,15 @@ def add_project_auto():
         _bg_ip = request.remote_addr
 
         def _write_behind():
+            # 스레드별 GoogleSheetsManager 필수 — request thread 의 manager 를
+            # 그대로 쓰면 heap corruption (2026-07-09 크래시 사고 참조).
+            from ..services.project_service import get_sheets_manager as _gsm
+            _mgr = _gsm()
             import time as _time
             last_exc = None
             for attempt in range(3):
                 try:
-                    result = manager.append_row(sheet_id, values)
+                    result = _mgr.append_row(sheet_id, values)
                     if result:
                         _finalize_project_creation_bg(
                             code, data, project_data,
@@ -2922,11 +2937,20 @@ def add_project_auto():
                         f"({code}, {wait}s 후): {exc}"
                     )
                     _time.sleep(wait)
+            # 3회 재시도 모두 실패 → 관리자 슬랙 DM (sheet_write_queue 의 데드레터 알림 재사용)
             logger.error(
                 f"[CREATE_PROJECT/BG] 3회 재시도 모두 실패 — {code} 시트 반영 안 됨. "
-                f"사용자 응답은 이미 완료. 관리자 수동 확인 필요: {last_exc}",
+                f"관리자 수동 확인 필요: {last_exc}",
                 exc_info=True,
             )
+            try:
+                from ..services.sheet_write_queue import _notify_admin_deadletter
+                _notify_admin_deadletter(
+                    {'op_type': 'project_create_append', 'op_id': code, 'payload': {'tag': code}},
+                    last_exc or Exception('알 수 없는 시트 append 실패'),
+                )
+            except Exception as notify_exc:
+                logger.warning(f'[CREATE_PROJECT/BG] 관리자 알림 실패 (무시): {notify_exc}')
 
         threading.Thread(target=_write_behind, daemon=True).start()
 

@@ -1229,9 +1229,9 @@ export default class ModernProjectModal {
     if (submitBtn) {
       submitBtn.disabled = true;
       if (retryCount > 0) {
-        submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>재시도 중... (${retryCount}/${maxRetries})`;
+        submitBtn.innerHTML = `<i class="fas fa-circle-notch fa-spin me-1"></i>재시도 중... (${retryCount}/${maxRetries})`;
       } else {
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>추가 중...';
+        submitBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>추가 중...';
       }
     }
     if (submitLoading) submitLoading.classList.remove('d-none');
@@ -1350,8 +1350,18 @@ export default class ModernProjectModal {
         ...abortCtrl,
       });
 
+      // 응답 body 안전 파싱 (재시작 중 body 잘림 방어)
+      const _readJson = async (resp) => {
+        try {
+          const text = await resp.text();
+          return text ? JSON.parse(text) : {};
+        } catch (_) {
+          return {};
+        }
+      };
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: '서버 오류 발생' }));
+        const errorData = await _readJson(response);
         const statusCode = response.status;
 
         if (statusCode === 401) {
@@ -1360,12 +1370,13 @@ export default class ModernProjectModal {
         }
 
         // 재시도 가능한 에러인지 표시하기 위해 상태 코드 포함
-        const error = new Error(errorData.error || `HTTP ${statusCode}`);
+        const error = new Error(errorData.error || errorData.message || `HTTP ${statusCode}`);
         error.statusCode = statusCode; // 재시도 로직에서 사용
+        if (errorData.error_id) error.error_id = errorData.error_id;
         throw error;
       }
 
-      const result = await response.json();
+      const result = await _readJson(response);
 
       // 백엔드 응답 포맷 호환: success 또는 ok 필드 체크
       const isSuccess = result.success === true || result.ok === true;
@@ -1421,11 +1432,14 @@ export default class ModernProjectModal {
         // 12. 모달 닫기 (데이터 새로고침 완료 후)
         this.modal.hide();
 
-        // 13. 성공 메시지 — 프로젝트 표 관련 → 페이지 헤더 (headerAlertContainer)
+        // 13. 성공 메시지 — 프로젝트 코드 포함 (사용자 확인용)
+        const successMsg = result.deduped
+          ? `동일 프로젝트가 이미 등록되어 있어 기존 코드로 연결했습니다: ${projectCode}`
+          : `새 프로젝트가 등록되었습니다: ${projectCode}`;
         if (window.showPageAlert) {
-          window.showPageAlert('새 프로젝트가 등록되었습니다.', 'success');
+          window.showPageAlert(successMsg, 'success');
         } else {
-          this.showSuccessMessage('새 프로젝트가 등록되었습니다.');
+          this.showSuccessMessage(successMsg);
         }
 
         // 13-b. 수금관리 모드에서 완납(미수금=0) 프로젝트는 필터에 안 잡혀 안 보임 → 사용자 안내
@@ -1512,7 +1526,11 @@ export default class ModernProjectModal {
       // 모달은 열린 채로 유지하여 사용자가 수정/재시도 가능하도록 함
       this.hideProgressBanner();
       const userFriendlyMessage = this.getUserFriendlyErrorMessage(error);
-      this.showAlert(userFriendlyMessage, 'danger');
+      // 서버가 반환한 error_id 있으면 사용자 안내에 포함 (관리자 문의 시 로그 추적용)
+      const errorIdSuffix = error.error_id
+        ? `\n\n오류 ID: ${error.error_id} (관리자에게 전달)`
+        : '';
+      this.showAlert(userFriendlyMessage + errorIdSuffix, 'danger');
     } finally {
       // 14. 버튼과 스피너 복구 (재시도 예정인 경우 제외)
       // - 검증 실패: return으로 빠져나갈 때 실행됨, 모달은 열린 채로 유지
