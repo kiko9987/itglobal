@@ -1652,7 +1652,9 @@ def _open_as_accept_modal(client, body) -> None:
             },
             {
                 "type": "input", "block_id": "visit_date_end", "optional": True,
-                "label": {"type": "plain_text", "text": "방문 예정일 (종료) — 선택"},
+                "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
+                "hint": {"type": "plain_text",
+                         "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
                 "element": {"type": "datepicker", "action_id": "value"},
             },
         ],
