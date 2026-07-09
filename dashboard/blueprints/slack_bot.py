@@ -5933,11 +5933,7 @@ def _process_invoice_submission(client, body, view) -> None:
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": (
-                                    f'📎 <{thread_url}|*계산서 첨부하기*> — '
-                                    f'이 링크를 클릭하면 스레드가 열립니다. 첨부 후 '
-                                    f'아래 `✅ 발행 완료` 를 눌러주세요.'
-                                ),
+                                "text": f'📎 <{thread_url}|*계산서 첨부하기*>',
                             },
                         ],
                     }
