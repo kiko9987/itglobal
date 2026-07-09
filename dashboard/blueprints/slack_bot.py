@@ -5799,7 +5799,7 @@ def _open_invoice_modal(client, body) -> None:
         "type": "modal",
         "callback_id": "submit_invoice",
         "private_metadata": metadata,
-        "title": {"type": "plain_text", "text": "계산서 발행 요청"},
+        "title": {"type": "plain_text", "text": "세금계산서 발행 요청"},
         "submit": {"type": "plain_text", "text": "요청 발송"},
         "close": {"type": "plain_text", "text": "취소"},
         "blocks": [
@@ -5862,7 +5862,7 @@ def _process_invoice_submission(client, body, view) -> None:
     # 카드 본문
     initial = _slack_user_to_initial(client, user_id) or '-'
     lines = [
-        f"🔔 *[계산서 발행 요청]*  `{code}`",
+        f"🔔 *[세금계산서 발행 요청]*  `{code}`",
         "--------------------------------------------",
         f"🏢 사업자명 : {biz}",
         f"📍 현장 주소 : {addr}",
@@ -5933,10 +5933,13 @@ def _process_invoice_submission(client, body, view) -> None:
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f'📎 계산서 : ⬜ 미첨부 <{thread_url}|(첨부하기)>',
+                            "text": f'📎 세금계산서 : ⬜ 미첨부 <{thread_url}|(첨부하기)>',
                         },
                     }
-                    new_blocks = [info_block, attach_link_block, actions_block, padding_block]
+                    # 첨부 라인과 발행 완료 버튼 사이에 여백 한 줄
+                    # (사업자등록증-버튼 사이 여백 패턴 project_slack_notifier.py:218 참조)
+                    spacer_block = {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]}
+                    new_blocks = [info_block, attach_link_block, spacer_block, actions_block, padding_block]
                     client.chat_update(
                         channel=channel_id, ts=ts, text=text, blocks=new_blocks,
                     )
@@ -5988,7 +5991,7 @@ def _process_invoice_complete(client, body) -> None:
             client.chat_postEphemeral(
                 channel=channel, user=user_id,
                 text=(
-                    ':warning: 계산서 이미지/PDF를 먼저 이 스레드에 첨부한 뒤 '
+                    ':warning: 세금계산서 이미지/PDF를 먼저 이 스레드에 첨부한 뒤 '
                     '[✅ 발행 완료] 버튼을 눌러주세요.'
                 ),
             )
