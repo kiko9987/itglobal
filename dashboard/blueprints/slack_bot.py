@@ -1074,10 +1074,100 @@ def _register_handlers(app):
 
     # /공사확정 + submit_project는 별도 공사 봇이 처리 (_init_project_slack_app)
 
+    # ─────────────────────────────────────────────────────────
+    # A/S 사후 관리 (2026-07-09) — /as, 접수/처리 완료 모달
+    # ─────────────────────────────────────────────────────────
+    @app.command("/as")
+    def handle_as_command(ack, command, client):
+        ack()
+        trigger_id = command.get("trigger_id", "")
+        user_id = command.get("user_id", "")
+        if not trigger_id:
+            return
+        try:
+            _open_as_request_modal(client, trigger_id, user_id)
+        except Exception as exc:
+            logger.error(f"[SLACK/AS] 요청 모달 열기 실패: {exc}", exc_info=True)
+
+    @app.view("submit_as_request")
+    def handle_submit_as_request(ack, body, client, view):
+        ack()
+        def _bg():
+            try:
+                _process_as_request_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] submit_as_request 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("as_accept_open")
+    def handle_as_accept_open(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _open_as_accept_modal(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] 접수 모달 열기 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_as_accept")
+    def handle_submit_as_accept(ack, body, client, view):
+        ack()
+        def _bg():
+            try:
+                _process_as_accept_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] submit_as_accept 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("as_complete_open")
+    def handle_as_complete_open(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                _open_as_complete_modal(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] 완료 모달 열기 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_as_complete")
+    def handle_submit_as_complete(ack, body, client, view):
+        ack()
+        def _bg():
+            try:
+                _process_as_complete_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] submit_as_complete 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.options("value")
+    def handle_main_bot_options(ack, body):
+        """external_select 옵션 응답 (메인 봇). block_id로 분기."""
+        block_id = body.get("block_id", "")
+        query = (body.get("value") or "").strip()
+        if block_id == "as_project_code":
+            try:
+                from dashboard.services.as_service import search_confirmed_projects
+                matched = search_confirmed_projects(query, limit=100)
+                options = [
+                    {
+                        "text": {"type": "plain_text", "text": f'{p["code"]} — {p["biz"] or "-"}'[:75]},
+                        "value": p["code"][:75],
+                    }
+                    for p in matched
+                ]
+                ack(options=options)
+            except Exception as exc:
+                logger.warning(f"[SLACK/AS/options] 실패: {exc}", exc_info=True)
+                ack(options=[])
+        else:
+            ack(options=[])
+
     logger.info(
         "[SLACK] 메인 봇 핸들러 등록 완료: /상태, /전화, /청소, app_mention, message(DM), "
         "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone, "
-        "sweep_confirm, sweep_cancel"
+        "sweep_confirm, sweep_cancel, "
+        "/as, submit_as_request, as_accept_open, submit_as_accept, "
+        "as_complete_open, submit_as_complete, options(as_project_code)"
     )
 
 
@@ -1163,6 +1253,353 @@ def _sweep_update(response_url: str, text: str):
         urllib.request.urlopen(req, timeout=5)
     except Exception as exc:
         logger.warning(f"[SWEEP] response_url 갱신 실패: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────
+# A/S 사후 관리 헬퍼 (2026-07-09)
+# ─────────────────────────────────────────────────────────────
+def _as_status_emoji(status: str) -> str:
+    if status == '접수 완료':
+        return '📥'
+    if status == '처리 완료':
+        return '✅'
+    return '🔔'
+
+
+def _build_as_card_text(data: dict, view_state: str = 'requested') -> str:
+    """A/S 카드 본문 텍스트. view_state: requested / accepted / completed"""
+    lines = []
+    if view_state == 'requested':
+        lines.append(f"🔔 *[사후 관리 요청]*  `{data.get('No', '')}`")
+    elif view_state == 'accepted':
+        lines.append(f"📥 *[사후 관리 접수 완료]*  `{data.get('No', '')}`")
+    else:
+        lines.append(f"✅ *[사후 관리 처리 완료]*  `{data.get('No', '')}`")
+    lines.append("--------------------------------------------")
+    lines.append(f"🔗 프로젝트 코드 : `{data.get('프로젝트 코드', '-') or '-'}`")
+    lines.append(f"📍 현장 주소 : {data.get('현장주소', '-') or '-'}")
+    lines.append(f"📋 공사 내용 : {data.get('공사내용', '-') or '-'}")
+    lines.append(f"📅 공사 종료일 : {data.get('공사 종료일', '-') or '-'}")
+    lines.append(f"📝 요청 내용 : {data.get('요청 내용', '-') or '-'}")
+    lines.append(f"👤 요청자 : {data.get('요청자', '-') or '-'}")
+    if view_state in ('accepted', 'completed'):
+        lines.append("--------------------------------------------")
+        lines.append(f"👷 방문 예정자 : {data.get('방문 예정자', '-') or '-'}")
+        lines.append(f"📅 방문 예정일 : {data.get('방문 예정일', '-') or '-'}")
+        lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  _{data.get('접수 일자', '')}_")
+    if view_state == 'completed':
+        lines.append("--------------------------------------------")
+        lines.append(f"🎯 처리 내용 : {data.get('처리 내용', '-') or '-'}")
+    lines.append("--------------------------------------------")
+    return "⠀\n" + "\n".join(lines)
+
+
+def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
+    text = _build_as_card_text(data, view_state=view_state)
+    blocks: list = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
+    ]
+    as_no = data.get('No', '')
+    if view_state == 'requested':
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text", "text": "✅ A/S 접수하기", "emoji": True},
+                "style": "primary",
+                "action_id": "as_accept_open",
+                "value": as_no,
+            }],
+        })
+    elif view_state == 'accepted':
+        blocks.append({
+            "type": "actions",
+            "elements": [{
+                "type": "button",
+                "text": {"type": "plain_text", "text": "🎯 처리 완료", "emoji": True},
+                "style": "primary",
+                "action_id": "as_complete_open",
+                "value": as_no,
+            }],
+        })
+    # completed: no buttons
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
+    return blocks
+
+
+def _open_as_request_modal(client, trigger_id: str, user_id: str) -> None:
+    """`/as` 슬래시 → 요청 모달."""
+    metadata = json.dumps({"user_id": user_id}, ensure_ascii=False)
+    view = {
+        "type": "modal",
+        "callback_id": "submit_as_request",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "A/S 요청"},
+        "submit": {"type": "plain_text", "text": "제출"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": [
+            {
+                "type": "input", "block_id": "as_project_code",
+                "label": {"type": "plain_text", "text": "프로젝트 코드 (검색해서 선택)"},
+                "element": {
+                    "type": "external_select", "action_id": "value",
+                    "min_query_length": 1,
+                    "placeholder": {"type": "plain_text", "text": "예: G3745 / R3845 (1글자부터 검색)"},
+                },
+            },
+            {
+                "type": "input", "block_id": "request_content",
+                "label": {"type": "plain_text", "text": "A/S 요청 내용"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value", "multiline": True,
+                    "placeholder": {"type": "plain_text", "text": "예: 실외기 소음 발생, 점검 필요"},
+                },
+            },
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _process_as_request_submission(client, body, view) -> None:
+    """요청 제출 → 프로젝트 정보 조회 → 시트 append → 카드 발송."""
+    from dashboard.services.as_service import get_project_details, create_as_row
+
+    values = view["state"]["values"]
+    project_code = ''
+    try:
+        opt = values.get("as_project_code", {}).get("value", {}).get("selected_option", {})
+        project_code = (opt or {}).get("value", "") or ''
+    except Exception:
+        pass
+    request_content = ''
+    try:
+        request_content = (values.get("request_content", {}).get("value", {}) or {}).get("value", '') or ''
+    except Exception:
+        pass
+    request_content = request_content.strip()
+    project_code = project_code.strip()
+
+    user_id = body.get("user", {}).get("id", "")
+    requester_initial = _slack_user_to_initial(client, user_id) or '-'
+
+    if not project_code:
+        logger.warning('[SLACK/AS] 프로젝트 코드 누락')
+        return
+
+    details = get_project_details(project_code) or {}
+    as_no, row_num = create_as_row(
+        project_code=project_code,
+        address=details.get('address', ''),
+        work_content=details.get('work_content', ''),
+        work_end=details.get('work_end', ''),
+        request_content=request_content,
+        requester=requester_initial,
+    )
+
+    channel = os.getenv('SLACK_AS_CHANNEL', '').strip()
+    if not channel:
+        logger.warning('[SLACK/AS] SLACK_AS_CHANNEL 미설정 — 카드 발송 skip')
+        return
+
+    card_data = {
+        'No': as_no,
+        '프로젝트 코드': project_code,
+        '현장주소': details.get('address', ''),
+        '공사내용': details.get('work_content', ''),
+        '공사 종료일': details.get('work_end', ''),
+        '요청 내용': request_content,
+        '요청자': requester_initial,
+    }
+    text = f"[사후 관리 요청] {as_no} {project_code}"
+    blocks = _build_as_blocks(card_data, view_state='requested')
+
+    try:
+        client.conversations_join(channel=channel)
+    except Exception:
+        pass
+    resp = client.chat_postMessage(channel=channel, text=text, blocks=blocks, unfurl_links=False)
+    if resp.get('ok'):
+        ts = resp.get('ts', '')
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            rc.set(f'as_card_msg:{as_no}', f'{channel}|{ts}', ex=60 * 60 * 24 * 365)
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] card 매핑 저장 실패: {exc}')
+        logger.info(f'[SLACK/AS] 요청 카드 발송 완료: {as_no} ts={ts}')
+
+
+def _open_as_accept_modal(client, body) -> None:
+    """[✅ A/S 접수하기] 클릭 → 접수 모달 (방문 예정자·일자)."""
+    from dashboard.services.as_service import list_visitor_candidates
+    trigger_id = body["trigger_id"]
+    as_no = (body["actions"][0].get("value") or '').strip()
+    channel = body.get("channel", {}).get("id", "")
+    message_ts = body.get("message", {}).get("ts", "")
+
+    candidates = list_visitor_candidates()
+    metadata = json.dumps({
+        "as_no": as_no, "channel": channel, "message_ts": message_ts,
+    }, ensure_ascii=False)
+
+    view = {
+        "type": "modal",
+        "callback_id": "submit_as_accept",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "A/S 접수"},
+        "submit": {"type": "plain_text", "text": "접수 확정"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"`{as_no}` A/S를 접수합니다."}},
+            {
+                "type": "input", "block_id": "visitor",
+                "label": {"type": "plain_text", "text": "방문 예정자"},
+                "element": {
+                    "type": "static_select", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "선택"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": c[:75]}, "value": c[:75]}
+                        for c in candidates[:100]
+                    ],
+                },
+            },
+            {
+                "type": "input", "block_id": "visit_date_start",
+                "label": {"type": "plain_text", "text": "방문 예정일 (시작)"},
+                "element": {"type": "datepicker", "action_id": "value"},
+            },
+            {
+                "type": "input", "block_id": "visit_date_end", "optional": True,
+                "label": {"type": "plain_text", "text": "방문 예정일 (종료) — 선택"},
+                "element": {"type": "datepicker", "action_id": "value"},
+            },
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _process_as_accept_submission(client, body, view) -> None:
+    """접수 제출 → 시트 갱신 → 카드 chat.update (State 2)."""
+    from dashboard.services.as_service import (
+        update_as_row, get_as_data,
+        COL_ACCEPTER, COL_ACCEPT_DATE, COL_VISITOR, COL_VISIT_DATE, COL_STATUS,
+        STATUS_ACCEPTED,
+    )
+    from dashboard.blueprints.slack_helpers import _format_visit_date_range
+
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    as_no = metadata.get("as_no", '')
+    channel = metadata.get("channel", '')
+    message_ts = metadata.get("message_ts", '')
+    if not as_no:
+        return
+
+    values = view["state"]["values"]
+    visitor = ''
+    try:
+        opt = values.get("visitor", {}).get("value", {}).get("selected_option", {})
+        visitor = (opt or {}).get("value", '') or ''
+    except Exception:
+        pass
+    date_start = (values.get("visit_date_start", {}).get("value", {}) or {}).get("selected_date", '') or ''
+    date_end = (values.get("visit_date_end", {}).get("value", {}) or {}).get("selected_date", '') or ''
+    visit_date = _format_visit_date_range(date_start, date_end)
+
+    user_id = body.get("user", {}).get("id", "")
+    accepter = _slack_user_to_initial(client, user_id) or '-'
+    accept_dt = datetime.now().strftime('%Y.%m.%d. %H:%M')
+
+    ok = update_as_row(as_no, {
+        COL_ACCEPTER: accepter,
+        COL_ACCEPT_DATE: accept_dt,
+        COL_VISITOR: visitor,
+        COL_VISIT_DATE: visit_date,
+        COL_STATUS: STATUS_ACCEPTED,
+    })
+    if not ok:
+        logger.warning(f'[SLACK/AS] 시트 갱신 실패 ({as_no})')
+
+    # 카드 chat.update — 시트 재조회로 완전한 데이터 사용
+    data = get_as_data(as_no) or {}
+    text = f"[사후 관리 접수 완료] {as_no}"
+    blocks = _build_as_blocks(data, view_state='accepted')
+    try:
+        client.chat_update(channel=channel, ts=message_ts, text=text, blocks=blocks)
+        logger.info(f'[SLACK/AS] 접수 완료: {as_no} by {accepter}')
+    except Exception as exc:
+        logger.error(f'[SLACK/AS] chat.update 실패 ({as_no}): {exc}', exc_info=True)
+
+
+def _open_as_complete_modal(client, body) -> None:
+    """[🎯 처리 완료] 클릭 → 처리 완료 모달 (처리 내용)."""
+    trigger_id = body["trigger_id"]
+    as_no = (body["actions"][0].get("value") or '').strip()
+    channel = body.get("channel", {}).get("id", "")
+    message_ts = body.get("message", {}).get("ts", "")
+
+    metadata = json.dumps({
+        "as_no": as_no, "channel": channel, "message_ts": message_ts,
+    }, ensure_ascii=False)
+
+    view = {
+        "type": "modal",
+        "callback_id": "submit_as_complete",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "A/S 처리 완료"},
+        "submit": {"type": "plain_text", "text": "처리 완료"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"`{as_no}` A/S를 처리 완료 처리합니다."}},
+            {
+                "type": "input", "block_id": "resolution",
+                "label": {"type": "plain_text", "text": "처리 내용"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value", "multiline": True,
+                    "placeholder": {"type": "plain_text", "text": "예: 실외기 팬 교체, 소음 해소 확인"},
+                },
+            },
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _process_as_complete_submission(client, body, view) -> None:
+    """처리 완료 제출 → 시트 갱신 → 카드 chat.update (State 3)."""
+    from dashboard.services.as_service import (
+        update_as_row, get_as_data,
+        COL_STATUS, COL_RESOLUTION, STATUS_COMPLETED,
+    )
+
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    as_no = metadata.get("as_no", '')
+    channel = metadata.get("channel", '')
+    message_ts = metadata.get("message_ts", '')
+    if not as_no:
+        return
+
+    values = view["state"]["values"]
+    resolution = (values.get("resolution", {}).get("value", {}) or {}).get("value", '') or ''
+    resolution = resolution.strip()
+    if not resolution:
+        logger.warning(f'[SLACK/AS] 처리 내용 누락 ({as_no})')
+        return
+
+    ok = update_as_row(as_no, {
+        COL_STATUS: STATUS_COMPLETED,
+        COL_RESOLUTION: resolution,
+    })
+    if not ok:
+        logger.warning(f'[SLACK/AS] 완료 갱신 실패 ({as_no})')
+
+    data = get_as_data(as_no) or {}
+    text = f"[사후 관리 처리 완료] {as_no}"
+    blocks = _build_as_blocks(data, view_state='completed')
+    try:
+        client.chat_update(channel=channel, ts=message_ts, text=text, blocks=blocks)
+        logger.info(f'[SLACK/AS] 처리 완료: {as_no}')
+    except Exception as exc:
+        logger.error(f'[SLACK/AS] chat.update 실패 ({as_no}): {exc}', exc_info=True)
 
 
 def _run_sweep(client, channel: str, response_url: str, mode: str, value: int):
