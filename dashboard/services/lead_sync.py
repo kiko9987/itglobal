@@ -984,9 +984,11 @@ def _normalize_workflow_datetime(raw: str) -> str:
         except ValueError:
             continue
 
-    # 영문 long form
+    # 영문 long form — 슬랙 워크플로 '{{Current time}}' 전용 포맷.
+    # 슬랙이 UTC 기준으로 저장하므로 파싱 후 KST(+9h) 로 변환.
     dt = _parse_english_longform_dt(raw)
     if dt:
+        dt = dt + timedelta(hours=9)
         return dt.strftime('%Y.%m.%d. %H:%M')
 
     return raw
