@@ -48,6 +48,9 @@
 - **재문의 알림** — 채팅 리드 진행 중 상태에서 재문의 오면 채널에 top-level 알림 카드 추가 (스레드 리플라이는 슬랙 알림 안 뜨는 문제 회피)
 - **프로젝트 편집 알림** — 대시보드에서 편집 시 원본 공사 확정 카드가 최신 스냅샷으로 갱신되고, 스레드에 `[프로젝트코드 데이터 수정 알림]` 히스토리 답글
 - **Pending 큐 재발송** — 슬랙 SSL 에러 등으로 누락된 카드·방문 알림 5분 주기 자동 복구
+- **Sheet write-behind 큐** — 모든 mutation을 Redis 지속 큐에 등록 후 백그라운드 워커가 Google Sheets에 반영. 응답 시간 <300ms, API 지연을 UX와 완전 분리. 3회 재시도 후 데드레터 + 관리자 슬랙 DM.
+- **자동 일 백업** — 매일 새벽 03:15 users.db + Redis dump.rdb를 `backup/` 로 스냅샷 (30일 유지)
+- **관리자 큐 상태 페이지** — `/admin/queue-status` 실시간 (5초 갱신) pending/processing/failed 카운트 + 실패 op 재시도
 
 ### 🔍 주소 정규화
 - Kakao Local API로 도로명/지번 검증
@@ -60,7 +63,7 @@
 |---|---|---|
 | Flask 백엔드 | Windows NSSM 서비스 (`ITGFlask`) | 포트 5000 |
 | Caddy 리버스 프록시 | Windows NSSM 서비스 | 포트 443 HTTPS → 5000 |
-| Redis | Docker 컨테이너 | 캐시·락·pending 큐 |
+| Redis | Docker 컨테이너 | 캐시·락·pending 큐·**Sheet write-behind 큐** |
 | Google Sheets | 외부 API | 서비스 계정 인증 |
 | Google Drive | 외부 API + Desktop 앱 | 폴더 자동 생성 · 로컬 미러 |
 | Slack | Bolt for Python | 4개 봇 앱 |

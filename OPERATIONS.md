@@ -9,7 +9,9 @@
 | Flask 백엔드 | NSSM 윈도우 서비스 (`ITGFlask`, **LocalSystem 계정**) | 포트 5000 — 모든 슬랙 webhook/UI 진입점 |
 | Caddy 리버스 프록시 | NSSM 윈도우 서비스 | 포트 443(HTTPS) → 내부 5000 |
 | Vite 빌드 산출물 | `dashboard/static/dist/` | 프론트엔드 JS 변경 시 `npm run build` 필요 |
-| Redis | Docker 컨테이너 (`redis:alpine`) | 포트 6379, 볼륨 `redis-data`, AOF+RDB 영속화 |
+| Redis | Docker 컨테이너 (`redis:alpine`) | 포트 6379, 볼륨 `redis-data`, AOF+RDB 영속화. Pub/Sub · 캐시 · **Sheet write-behind 큐** · 프로젝트 락 |
+| Sheet write-behind 큐 워커 | Flask 프로세스 내부 데몬 스레드 | Google Sheets API 지연 UX 분리. `/admin/queue-status` 로 모니터링 |
+| 일 백업 스케줄러 | APScheduler cron (매일 03:15) | `scripts/backup_daily.py` — users.db + Redis dump.rdb, 30일 유지 |
 | 라우터 포트포워딩 | 외부 443 → 내부 PC:443 | DDNS 도메인: `pm.itg-aircon.com` |
 | Google Sheets | 외부 API | 서비스 계정 credentials.json |
 | Google Drive | 외부 API + 로컬 동기화 | 시설별 폴더 자동 생성 |
@@ -37,7 +39,9 @@ NSSM으로 등록된 `ITGFlask`는 **LocalSystem 계정**으로 실행됩니다.
 | Google 서비스 계정 | `credentials.json` (루트) — 시트/드라이브 접근 |
 | Gmail OAuth 토큰 | `token.json` (루트) |
 | Caddy 설정 | `Caddyfile` (루트) |
-| Redis 백업 | `backups/redis/` |
+| Redis 자동 백업 | `backup/redis/{YYYYMMDD}.rdb` (03:15 크론) |
+| SQLite 자동 백업 | `backup/users_db/{YYYYMMDD}.db` (03:15 크론) |
+| 백업 스크립트 | `scripts/backup_daily.py` |
 | Flask 진입점 | `app.py` |
 | 슬랙 봇 핸들러 | `dashboard/blueprints/slack_bot.py` (3500줄) |
 | 슬랙 공통 유틸 | `dashboard/blueprints/slack_helpers.py` (모달 state 추출, 이니셜 매핑, 시간 표시) |
@@ -161,12 +165,11 @@ NSSM으로 등록된 `ITGFlask`는 **LocalSystem 계정**으로 실행됩니다.
 - [ ] 정기적으로 노출된 토큰 점검 (현재 task #23 pending)
 
 ### 백업
-- [ ] Redis: AOF + RDB 자동 (현재 적용됨)
-- [ ] 주기적인 수동 백업:
-  ```powershell
-  docker exec redis redis-cli BGSAVE
-  docker cp redis:/data/dump.rdb "backups/redis/dump_$(Get-Date -Format yyyyMMdd).rdb"
-  ```
+- [x] Redis: AOF + RDB 자동 (Docker 볼륨 영속화)
+- [x] **자동 일 백업 (2026-07-09~)** — 매일 새벽 03:15 APScheduler 크론
+  - `scripts/backup_daily.py` 실행 → `backup/users_db/{YYYYMMDD}.db` + `backup/redis/{YYYYMMDD}.rdb`
+  - 30일 이상 지난 파일 자동 삭제
+  - 수동 실행: `python scripts/backup_daily.py`
 - [ ] Google 시트는 외부 SaaS — 별도 백업 불필요 (Google이 관리)
 - [ ] 로그 디렉토리(`logs/`) 주기 정리 — 디스크 차오름 방지
 
@@ -183,6 +186,47 @@ NSSM으로 등록된 `ITGFlask`는 **LocalSystem 계정**으로 실행됩니다.
 - SSL 에러로 누락된 슬랙 알림은 5분마다 자동 재시도 (`pending_slack_notify` Redis 큐)
 - 채널톡 스팸 자동 감지 — 마케팅 키워드 + URL 조합 판정 시 미응답 알림 큐 skip
   (`_is_spam_message` in `channeltalk_helpers.py`)
+
+### Sheet write-behind 아키텍처 (2026-07-08~)
+Google Sheets API 지연을 사용자 UX에서 완전 분리하기 위한 비동기 쓰기 큐.
+
+**동작 원리**
+1. 매니저가 편집·취소·재개·계산서 요청 등 mutation 실행
+2. 백엔드: 캐시(Redis + 메모리)만 즉시 업데이트하고 `sheet_write_queue`에 op 등록 → **<300ms 응답**
+3. 백그라운드 워커가 Redis List(`sheet_write_queue`)를 LPOP 폴링하며 Google Sheets에 실제 반영
+
+**핵심 파일**
+| 위치 | 역할 |
+|---|---|
+| `dashboard/services/sheet_write_queue.py` | 큐 코어 (enqueue/worker/데드레터/depth 알림/rollup) |
+| `dashboard/blueprints/projects.py` | `sheet_batch_write`, `sheet_bg_color`, `project_update_sheet`, `project_cancel_sheet`, `project_resume_sheet` 핸들러 등록 |
+| `dashboard/services/project_slack_actions.py` | 슬랙 [편집]/[취소]/[재개] mutation write-behind |
+| `dashboard/services/as_service.py` | A/S 상태 업데이트 write-behind |
+
+**Redis 키**
+| 키 | 종류 | 용도 |
+|---|---|---|
+| `sheet_write_queue` | List | 대기 op |
+| `sheet_write_processing` | List | 처리 중 op (크래시 복구용) |
+| `sheet_write_failed` | List | 3회 실패 → 데드레터 |
+| `sheet_write_hourly_processed` | String | rollup 카운터 |
+
+**안전장치**
+- **3회 재시도** — 지수 백오프 (2s → 4s → 8s), 이후 데드레터
+- **데드레터 슬랙 DM** — 관리자(`SLACK_ADMIN_CHANNEL`)에게 즉시 알림
+- **큐 depth 알림** — pending > 100건 시 관리자 슬랙 DM (5분 쿨다운)
+- **처리량 rollup** — 매 시간 처리 건수 로그 (`[QUEUE][ROLLUP]`)
+- **크래시 복구** — 처리 중 op 는 `sheet_write_processing` 에 남아 부팅 시 복구 가능
+
+**관리자 모니터링**
+- 페이지: `/admin/queue-status` (5초 자동 갱신)
+  - pending / processing / failed 카운트
+  - 최근 실패 op 10건 + 인라인 재시도 버튼
+- API: `GET /api/admin/sheet-write-queue`, `POST /api/admin/sheet-write-queue/retry/<op_id>`
+
+**주의**
+- Google Sheets는 이제 관리자 전용 (매니저는 대시보드만 사용). 시트를 직접 수정하면 캐시와 불일치 발생 가능.
+- 워커 종료 시 처리 중 op가 유실될 수 있으나 캐시에는 이미 반영돼 있어 사용자 관점 영향 없음. 다음 prefetch 사이클에서 시트-캐시 불일치 감지 시 관리자가 큐 상태 페이지에서 확인 가능.
 
 ### 동시성 보호 (구현됨)
 3중 락으로 race condition 방지:
