@@ -55,12 +55,18 @@ _PROJECT_SIGNING_SECRET = os.getenv('SLACK_PROJECT_SIGNING_SECRET', '')
 _VISIT_BOT_TOKEN = os.getenv('SLACK_VISIT_BOT_TOKEN', '')
 _VISIT_SIGNING_SECRET = os.getenv('SLACK_VISIT_SIGNING_SECRET', '')
 
+# A/S 사후 관리 봇 (별도 토큰/secret) — /as 슬래시 + 3단계 모달 흐름
+_AS_BOT_TOKEN = os.getenv('SLACK_AS_BOT_TOKEN', '')
+_AS_SIGNING_SECRET = os.getenv('SLACK_AS_SIGNING_SECRET', '')
+
 _slack_app = None
 _slack_handler = None
 _project_slack_app = None
 _project_slack_handler = None
 _visit_slack_app = None
 _visit_slack_handler = None
+_as_slack_app = None
+_as_slack_handler = None
 
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
@@ -167,6 +173,38 @@ def _init_visit_slack_app():
         return True
     except Exception as exc:
         logger.error(f"[SLACK/방문봇] 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _init_as_slack_app():
+    """A/S 사후 관리 봇 — 별도 Bolt App 인스턴스. /as 슬래시 + 3단계 흐름."""
+    global _as_slack_app, _as_slack_handler
+
+    if not _BOT_ENABLED:
+        return False
+    if not _AS_BOT_TOKEN:
+        logger.warning("[SLACK/AS봇] SLACK_AS_BOT_TOKEN 미설정 — 비활성화")
+        return False
+    if not _AS_SIGNING_SECRET:
+        logger.warning("[SLACK/AS봇] SLACK_AS_SIGNING_SECRET 미설정 — 비활성화")
+        return False
+
+    try:
+        from slack_bolt import App
+        from slack_bolt.adapter.flask import SlackRequestHandler
+
+        _as_slack_app = App(
+            token=_AS_BOT_TOKEN,
+            signing_secret=_AS_SIGNING_SECRET,
+            process_before_response=True,
+        )
+        _as_slack_handler = SlackRequestHandler(_as_slack_app)
+
+        _register_as_handlers(_as_slack_app)
+        logger.info("[SLACK/AS봇] 초기화 완료 ✅")
+        return True
+    except Exception as exc:
+        logger.error(f"[SLACK/AS봇] 초기화 실패: {exc}", exc_info=True)
         return False
 
 
@@ -1073,10 +1111,18 @@ def _register_handlers(app):
         })
 
     # /공사확정 + submit_project는 별도 공사 봇이 처리 (_init_project_slack_app)
+    # /as + 사후 관리 흐름은 별도 A/S 봇이 처리 (_init_as_slack_app)
 
-    # ─────────────────────────────────────────────────────────
-    # A/S 사후 관리 (2026-07-09) — /as, 접수/처리 완료 모달
-    # ─────────────────────────────────────────────────────────
+    logger.info(
+        "[SLACK] 메인 봇 핸들러 등록 완료: /상태, /전화, /청소, app_mention, message(DM), "
+        "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone, "
+        "sweep_confirm, sweep_cancel"
+    )
+
+
+def _register_as_handlers(app):
+    """A/S 사후 관리 봇 핸들러 — /as + 3단계 모달 흐름."""
+
     @app.command("/as")
     def handle_as_command(ack, command, client):
         ack()
@@ -1140,8 +1186,8 @@ def _register_handlers(app):
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.options("value")
-    def handle_main_bot_options(ack, body):
-        """external_select 옵션 응답 (메인 봇). block_id로 분기."""
+    def handle_as_bot_options(ack, body):
+        """external_select 옵션 응답 (A/S 봇). block_id=as_project_code."""
         block_id = body.get("block_id", "")
         query = (body.get("value") or "").strip()
         if block_id == "as_project_code":
@@ -1163,11 +1209,9 @@ def _register_handlers(app):
             ack(options=[])
 
     logger.info(
-        "[SLACK] 메인 봇 핸들러 등록 완료: /상태, /전화, /청소, app_mention, message(DM), "
-        "button_visit, button_price, button_phone, submit_visit, submit_price, submit_phone, "
-        "sweep_confirm, sweep_cancel, "
-        "/as, submit_as_request, as_accept_open, submit_as_accept, "
-        "as_complete_open, submit_as_complete, options(as_project_code)"
+        "[SLACK/AS봇] 핸들러 등록 완료: /as, submit_as_request, "
+        "as_accept_open, submit_as_accept, as_complete_open, submit_as_complete, "
+        "options(as_project_code)"
     )
 
 
@@ -1972,6 +2016,16 @@ def slack_project_events():
             return jsonify({"error": "Project Slack bot not configured"}), 503
 
     return _project_slack_handler.handle(request)
+
+
+@slack_bp.route("/as-events", methods=["POST"])
+def slack_as_events():
+    """슬랙 → A/S 사후 관리 봇 전용 endpoint (/as 슬래시 + 3단계 모달)"""
+    if _as_slack_handler is None:
+        if not _init_as_slack_app():
+            return jsonify({"error": "AS Slack bot not configured"}), 503
+
+    return _as_slack_handler.handle(request)
 
 
 @slack_bp.route("/visit-events", methods=["POST"])
