@@ -1439,7 +1439,7 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
             "type": "actions",
             "elements": [{
                 "type": "button",
-                "text": {"type": "plain_text", "text": "🎯 처리 완료", "emoji": True},
+                "text": {"type": "plain_text", "text": "🎯 처리 완료하기", "emoji": True},
                 "style": "primary",
                 "action_id": "as_complete_open",
                 "value": as_no,
