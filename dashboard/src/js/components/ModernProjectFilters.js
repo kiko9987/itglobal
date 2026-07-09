@@ -819,11 +819,26 @@ export default class ModernProjectFilters {
    */
   updateResultCount(count) {
     this.resultCount = count;
-    if (this.resultCountElement) {
-      if (count === 0 && !this.isDataLoaded) {
-        this.resultCountElement.textContent = '로딩 중...';
-      } else {
-        this.resultCountElement.textContent = `${count.toLocaleString()}개 프로젝트`;
+    if (!this.resultCountElement) return;
+
+    if (count === 0 && !this.isDataLoaded) {
+      this.resultCountElement.textContent = '로딩 중...';
+      this.resultCountElement.title = '';
+      return;
+    }
+
+    // 기본 표시
+    this.resultCountElement.textContent = `${count.toLocaleString()}개 프로젝트`;
+    this.resultCountElement.title = '';
+
+    // 결과 0건이고 활성 필터 있으면 어떤 필터가 문제인지 힌트 (매니저 헤맴 방지)
+    if (count === 0 && this.isDataLoaded) {
+      const active = this.getActiveFilters();
+      if (active.length > 0) {
+        this.resultCountElement.textContent =
+          `0개 (활성 필터: ${active.join(', ')} — 조건을 좁혀서 해당 프로젝트가 없습니다)`;
+        this.resultCountElement.title =
+          '초기화 버튼을 눌러 필터를 지우거나, 필터 하나씩 해제해 조건을 넓혀보세요.';
       }
     }
   }
@@ -958,10 +973,14 @@ export default class ModernProjectFilters {
     const active = [];
     if (this.filters.company) active.push('사업자');
     if (this.filters.client) active.push('유입 구분');
+    if (this.filters.businessName) active.push('사업자명');
     if (this.filters.status) active.push('상태');
     if (this.filters.data) active.push('데이터');
     if (this.filters.manager) active.push('담당자');
     if (this.filters.outstanding) active.push('미수금');
+    // 수금 관리 모드 토글도 상단에서 활성이면 카운트에 포함 (매니저 인지 편의)
+    const receivablesToggle = document.getElementById('receivablesToggle');
+    if (receivablesToggle?.checked) active.push('수금 관리');
     if (this.filters.myProjectsOnly) active.push('내 공사');
     if (this.searchInput && this.searchInput.value.trim()) active.push('검색');
     return active;
