@@ -3236,6 +3236,79 @@ def _prepare_resume_updates(sheet_name, row_number):
 
 
 # ============================================
+# Sheet write-behind 큐 관리자 endpoint (2026-07-09)
+# ============================================
+@projects_bp.route('/api/admin/sheet-write-queue', methods=['GET'])
+@admin_required
+def sheet_write_queue_status():
+    """큐 상태 조회 (관리자용) — pending/processing/failed 개수."""
+    from ..services.sheet_write_queue import get_stats, peek_failed
+    stats = get_stats()
+    failed_peek = peek_failed(limit=10)
+    return jsonify({
+        'success': True,
+        'stats': stats,
+        'failed_recent': failed_peek,
+    })
+
+
+@projects_bp.route('/api/admin/sheet-write-queue/retry/<op_id>', methods=['POST'])
+@admin_required
+def sheet_write_queue_retry(op_id):
+    """실패 데드레터 큐 op 재시도 (관리자용)."""
+    from ..services.sheet_write_queue import retry_failed
+    ok = retry_failed(op_id)
+    return jsonify({'success': ok})
+
+
+# ============================================
+# Sheet write-behind 큐 핸들러 (2026-07-09)
+# ============================================
+from ..services.sheet_write_queue import register as _q_register
+
+
+@_q_register('project_cancel_sheet')
+def _handle_cancel_sheet(payload: dict) -> None:
+    """공사 취소 시트 write — batch_update_cells + 행 배경색 dark_grey."""
+    from ..services.project_service import get_sheets_manager
+    manager = get_sheets_manager()
+    sheet_id = payload['sheet_id']
+    sheet_name = payload['sheet_name']
+    row_number = payload['row_number']
+    project_code = payload.get('project_code', '')
+    updates = _prepare_cancel_updates(sheet_name, row_number)
+    manager.batch_update_cells(sheet_id, updates)
+    logger.info(f'[QUEUE/project_cancel] 시트 write 완료: {project_code}')
+    # 배경색 (실패해도 큐 재시도 안 하도록 내부 try)
+    try:
+        _update_project_background_color(
+            manager, sheet_id, sheet_name, row_number, 'dark_grey', '취소'
+        )
+    except Exception as exc:
+        logger.warning(f'[QUEUE/project_cancel/color] {project_code}: {exc}')
+
+
+@_q_register('project_resume_sheet')
+def _handle_resume_sheet(payload: dict) -> None:
+    """공사 재개 시트 write — batch_update_cells + 행 배경색 normal."""
+    from ..services.project_service import get_sheets_manager
+    manager = get_sheets_manager()
+    sheet_id = payload['sheet_id']
+    sheet_name = payload['sheet_name']
+    row_number = payload['row_number']
+    project_code = payload.get('project_code', '')
+    updates = _prepare_resume_updates(sheet_name, row_number)
+    manager.batch_update_cells(sheet_id, updates)
+    logger.info(f'[QUEUE/project_resume] 시트 write 완료: {project_code}')
+    try:
+        _update_project_background_color(
+            manager, sheet_id, sheet_name, row_number, 'normal', '재개'
+        )
+    except Exception as exc:
+        logger.warning(f'[QUEUE/project_resume/color] {project_code}: {exc}')
+
+
+# ============================================
 # 메인 함수 (Refactored Main Functions)
 # ============================================
 
@@ -3264,16 +3337,9 @@ def cancel_project_api():
         if is_cancelled:
             return response, status_code
 
-        # 4. 배치 업데이트 준비 및 실행
-        updates = _prepare_cancel_updates(sheet_name, row_number)
-
+        # 4. 시트 write 를 큐로 위임 + 캐시 즉시 갱신 (2026-07-09 write-behind)
         try:
-            batch_result = manager.batch_update_cells(sheet_id, updates)
-            updated_cells = batch_result.get('totalUpdatedCells', 0)
-            logger.info(f"프로젝트 취소 - {updated_cells}개 셀 업데이트 완료")
-
-            # 5. 캐시 부분 갱신 시도 (Google Sheets API 호출 없이 즉시 반영)
-            # 실패 시(캐시 미스 등) 기존 전체 무효화 fallback
+            # 캐시 즉시 반영 — 사용자 응답 및 다음 read 에 즉시 노출
             cache_updated = update_project_in_cache(project_code, {
                 '수금 관련 특이사항': '공사 취소',
                 '수금 확인': False,
@@ -3281,6 +3347,16 @@ def cancel_project_api():
             })
             if not cache_updated:
                 invalidate_project_cache(project_code)
+
+            # 시트 write 는 큐로 (Google 지연과 무관하게 응답 반환)
+            from ..services.sheet_write_queue import enqueue as _q_enqueue
+            _q_enqueue('project_cancel_sheet', {
+                'sheet_id': sheet_id,
+                'sheet_name': sheet_name,
+                'row_number': row_number,
+                'project_code': project_code,
+            }, meta={'user_email': user_email})
+            updated_cells = 3  # AH/AA/AM 3셀 예상값 (응답 호환용)
 
             # 6. 감사 로그 기록 (동기 유지 — 감사 이력 즉시 확정)
             _log_project_status_change(
@@ -3323,22 +3399,14 @@ def cancel_project_api():
             except Exception as exc:
                 logger.warning(f"[SOCKETIO] {project_code} 알림 오류: {exc}")
 
-            # 9. 배경색·캘린더는 여전히 백그라운드 (Google API 호출로 느림, socket과 무관)
+            # 9. 배경색은 큐 핸들러에서 함께 처리. 캘린더 삭제만 백그라운드.
             import threading as _th
 
             def _bg_side_effects():
-                logger.info(f"[BG/START] {project_code} 취소 side-effect 백그라운드 시작")
-                try:
-                    _update_project_background_color(
-                        manager, sheet_id, sheet_name, row_number, 'dark_grey', '취소'
-                    )
-                except Exception as exc:
-                    logger.warning(f"[BG/COLOR] {project_code} 배경색 변경 오류: {exc}")
                 try:
                     _delete_calendar_event(project_code)
                 except Exception as exc:
-                    logger.warning(f"[BG/CALENDAR] {project_code} 캘린더 삭제 오류: {exc}")
-                logger.info(f"[BG/DONE] {project_code} 취소 side-effect 완료")
+                    logger.debug(f"[BG/CALENDAR] {project_code} 캘린더 삭제 오류: {exc}")
 
             _th.Thread(target=_bg_side_effects, daemon=True).start()
 
@@ -3397,15 +3465,8 @@ def resume_project_api():
         if is_active:
             return response, status_code
 
-        # 4. 배치 업데이트 준비 및 실행
-        updates = _prepare_resume_updates(sheet_name, row_number)
-
+        # 4. 시트 write 를 큐로 위임 + 캐시 즉시 갱신 (2026-07-09 write-behind)
         try:
-            batch_result = manager.batch_update_cells(sheet_id, updates)
-            updated_cells = batch_result.get('totalUpdatedCells', 0)
-            logger.info(f"프로젝트 재개 - 배치 업데이트 완료 ({updated_cells}개 셀)")
-
-            # 5. 캐시 부분 갱신 시도 (취소와 대칭)
             today_str = datetime.now().strftime('%Y-%m-%d')
             cache_updated = update_project_in_cache(project_code, {
                 '수금 관련 특이사항': '',
@@ -3413,6 +3474,15 @@ def resume_project_api():
             })
             if not cache_updated:
                 invalidate_project_cache(project_code)
+
+            from ..services.sheet_write_queue import enqueue as _q_enqueue
+            _q_enqueue('project_resume_sheet', {
+                'sheet_id': sheet_id,
+                'sheet_name': sheet_name,
+                'row_number': row_number,
+                'project_code': project_code,
+            }, meta={'user_email': user_email})
+            updated_cells = 2  # AH/AM 2셀 예상값 (응답 호환용)
 
             # 6. 감사 로그 기록 (동기 유지)
             _log_project_status_change(
@@ -3445,20 +3515,7 @@ def resume_project_api():
             except Exception as exc:
                 logger.warning(f"[SOCKETIO] {project_code} 알림 오류: {exc}")
 
-            # 9. 배경색은 백그라운드 유지 (Google API 호출로 느림)
-            import threading as _th
-
-            def _bg_side_effects():
-                logger.info(f"[BG/START] {project_code} 재개 side-effect 백그라운드 시작")
-                try:
-                    _update_project_background_color(
-                        manager, sheet_id, sheet_name, row_number, 'normal', '재개'
-                    )
-                except Exception as exc:
-                    logger.warning(f"[BG/COLOR] {project_code} 배경색 복원 오류: {exc}")
-                logger.info(f"[BG/DONE] {project_code} 재개 side-effect 완료")
-
-            _th.Thread(target=_bg_side_effects, daemon=True).start()
+            # 9. 배경색은 큐 핸들러에서 함께 처리됨.
 
             logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
 

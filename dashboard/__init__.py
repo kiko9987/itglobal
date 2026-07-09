@@ -325,6 +325,17 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                     logger.info("백그라운드 프리페치 시스템 초기화 완료")
                 else:
                     logger.info("BACKGROUND_PREFETCH_ENABLED=False - 백그라운드 프리페치 비활성화")
+
+                # 2026-07-09 Sheet write-behind 큐 워커 시작 (핸들러는 blueprints 에서 등록)
+                try:
+                    from dashboard.services.sheet_write_queue import start_worker as _start_qw
+                    # blueprints 로드 후 핸들러 등록되도록 지연 임포트
+                    import dashboard.blueprints.projects  # noqa: F401 — 핸들러 등록 트리거
+                    _start_qw()
+                    logger.info("Sheet write-behind 큐 워커 시작 완료")
+                except Exception as _exc:
+                    logger.error(f"Sheet write-behind 큐 워커 시작 실패: {_exc}")
+
                 _background_services_initialized = True
             except Exception as e:
                 logger.error(f"백그라운드 서비스 초기화 실패: {e}")
