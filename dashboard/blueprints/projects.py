@@ -2742,43 +2742,45 @@ def _build_project_response_data(code, data):
 
 
 def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
-    """최근 N분 내 동일 데이터로 이미 등록된 프로젝트 코드가 있으면 반환.
+    """최근 오늘자 동일 데이터로 이미 등록된 프로젝트 코드가 있으면 반환.
 
-    (사업자·담당자·주소·공사 시작·총액 1) 모두 같은 프로젝트가 최근 확정 등록됐으면
+    (사업자·담당자·주소·공사 시작·총액 1) 모두 같은 프로젝트가 오늘 확정 등록됐으면
     duplicate 로 판단. Idempotency key 유실 시 안전망.
+
+    성능: 3800+ 행 dict 순회 대신 pandas mask 로 오늘자만 먼저 필터 (수 ms).
     """
+    biz = str(data.get('사업자', '') or '').strip()
+    owner = str(data.get('담당자', '') or '').strip()
+    addr = str(data.get('현장 주소', '') or '').strip()
+    start = str(data.get('공사 시작', '') or '').strip()[:10]
+    amount_in = str(data.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
+    if not (biz and owner and addr and start):
+        return None
+
     try:
-        from dashboard.services.project_service import get_project_records
-        from datetime import datetime, timedelta
-        biz = str(data.get('사업자', '') or '').strip()
-        owner = str(data.get('담당자', '') or '').strip()
-        addr = str(data.get('현장 주소', '') or '').strip()
-        start = str(data.get('공사 시작', '') or '').strip()[:10]
-        amount = str(data.get('총액 1', '') or '').strip()
-        if not (biz and owner and addr and start):
+        from dashboard.services.project_service import load_data
+        df = load_data()
+        if df is None or df.empty:
             return None
-        cutoff = datetime.now() - timedelta(minutes=minutes)
-        records = get_project_records() or []
-        for r in records:
-            r_confirmed = str(r.get('공사 확정', '') or '').strip()[:10]
+
+        today = datetime.now().strftime('%Y-%m-%d')
+        # 1단계: 오늘 확정된 것만 필터 (수천 → 수십 행)
+        confirmed_str = df['공사 확정'].astype(str).str[:10]
+        today_mask = confirmed_str == today
+        candidates = df[today_mask]
+        if candidates.empty:
+            return None
+
+        # 2단계: 오늘자 소수 행만 정확 매칭
+        for _, r in candidates.iterrows():
             r_biz = str(r.get('사업자', '') or '').strip()
             r_owner = str(r.get('담당자', '') or '').strip()
             r_addr = str(r.get('현장 주소', '') or '').strip()
             r_start = str(r.get('공사 시작', '') or '').strip()[:10]
-            r_amount = str(r.get('총액 1', '') or '').strip().replace(',', '').replace('₩', '')
-            in_amount = amount.replace(',', '').replace('₩', '')
-            same = (r_biz == biz and r_owner == owner and r_addr == addr
-                    and r_start == start and r_amount == in_amount)
-            if not same:
-                continue
-            # 확정일이 오늘인 케이스만 (동일 프로젝트 재등록 아님을 구분)
-            try:
-                dt = datetime.strptime(r_confirmed, '%Y-%m-%d')
-                if dt.date() != datetime.now().date():
-                    continue
-            except ValueError:
-                continue
-            return str(r.get('프로젝트 코드', '') or '').strip()
+            r_amount = str(r.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
+            if (r_biz == biz and r_owner == owner and r_addr == addr
+                    and r_start == start and r_amount == amount_in):
+                return str(r.get('프로젝트 코드', '') or '').strip()
     except Exception as exc:
         logger.warning(f'[CREATE_PROJECT/dedup] 스캔 실패: {exc}')
     return None
