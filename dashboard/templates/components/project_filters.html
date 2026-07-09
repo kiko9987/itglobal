@@ -68,14 +68,18 @@
 
             <div class="col-md-3">
                 <label class="form-label" style="margin-bottom: 0; visibility: hidden;">&nbsp;</label>
-                <div class="d-flex gap-2 filter-actions-row" style="margin-top: 0.25rem;">
-                    <button class="btn btn-outline-secondary" onclick="modernFilters.resetFilters()" title="초기화">
+                <div class="d-flex gap-2 filter-actions-row" style="margin-top: 0.25rem; flex-wrap: wrap; align-items: center;">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="modernFilters.resetFilters()" title="필터 전체 초기화">
                         <i class="fas fa-times me-1"></i>초기화
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="modernFilters.savePresetPrompt()" title="현재 필터 조합을 프리셋으로 저장">
+                        <i class="fas fa-bookmark me-1"></i>프리셋 저장
                     </button>
                     <div class="filter-result-display">
                         <span class="filter-result-count" id="filterResultCount">로딩 중...</span>
                     </div>
                 </div>
+                <div id="filterPresetsContainer" class="d-flex gap-1 mt-2 flex-wrap" style="min-height: 1.5rem;"></div>
             </div>
         </div>
     </div>

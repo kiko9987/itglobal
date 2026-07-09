@@ -56,8 +56,186 @@ export default class ModernProjectFilters {
     this.bindEvents();
     this.updateResultCount(0);
     await this.fetchResignedManagers();
-    // sessionStorage 에 저장된 필터 상태 복원 (F5 후 이어서 작업)
-    this._restoreFiltersFromStorage();
+    // 복원 우선순위: URL query > sessionStorage > 기본(empty)
+    const restoredFromUrl = this._restoreFiltersFromUrl();
+    if (!restoredFromUrl) {
+      this._restoreFiltersFromStorage();
+    }
+    // 프리셋 chip 렌더 (localStorage 로부터)
+    this.renderPresetChips();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 필터 프리셋 (localStorage, 브라우저에 영구 저장)
+  // 매니저별로 자주 쓰는 필터 조합을 이름 붙여 저장 후 클릭 한번에 적용
+  // ─────────────────────────────────────────────────────────────
+
+  _getPresets() {
+    try {
+      const raw = localStorage.getItem('itg_filter_presets_v1');
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (_) { return []; }
+  }
+
+  _savePresets(list) {
+    try { localStorage.setItem('itg_filter_presets_v1', JSON.stringify(list)); }
+    catch (_) { /* private mode 등 무시 */ }
+  }
+
+  savePresetPrompt() {
+    const active = this.getActiveFilters();
+    const receivablesOn = !!document.getElementById('receivablesToggle')?.checked;
+    if (active.length === 0) {
+      const msg = '저장할 활성 필터가 없습니다. 담당자·상태 등 필터를 먼저 설정하세요.';
+      if (window.showSystemAlert) window.showSystemAlert(msg, 'info');
+      else alert(msg);
+      return;
+    }
+    const defaultName = active.join(' + ').slice(0, 40);
+    const name = (prompt(`이 필터 조합의 이름을 지정하세요 (예: ${defaultName})`, defaultName) || '').trim();
+    if (!name) return;
+
+    const presets = this._getPresets();
+    const existing = presets.findIndex(p => p.name === name);
+    const entry = {
+      name,
+      filters: JSON.parse(JSON.stringify(this.filters || {})),
+      receivables: receivablesOn,
+      created_at: new Date().toISOString(),
+    };
+    if (existing >= 0) {
+      if (!confirm(`'${name}' 프리셋이 이미 있습니다. 덮어쓸까요?`)) return;
+      presets[existing] = entry;
+    } else {
+      presets.push(entry);
+    }
+    this._savePresets(presets);
+    this.renderPresetChips();
+    if (window.showSystemAlert) {
+      window.showSystemAlert(`프리셋 저장됨: ${name}`, 'success');
+    }
+  }
+
+  loadPreset(name) {
+    const presets = this._getPresets();
+    const preset = presets.find(p => p.name === name);
+    if (!preset) return;
+
+    // 편집 모드 중이면 change 이벤트로 확인 다이얼로그가 뜨는 경로에 진입시키기 위해
+    // receivablesToggle change dispatch 를 먼저 시도. 취소되면 preset 적용 중단.
+    const receivablesToggle = document.getElementById('receivablesToggle');
+    const targetReceivables = !!preset.receivables;
+    if (receivablesToggle && receivablesToggle.checked !== targetReceivables) {
+      receivablesToggle.checked = targetReceivables;
+      receivablesToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      // change 리스너가 편집 dirty 로 취소하면 checked 원복 → preset 적용 중단
+      if (receivablesToggle.checked !== targetReceivables) return;
+    }
+
+    // 필터 적용
+    this.filters = JSON.parse(JSON.stringify(preset.filters || {}));
+    this._syncUIFromFilters();
+    this.updateFilterVisualEffects();
+    if (this.isDataLoaded) {
+      this.applyFilters(null, true);
+    }
+    if (window.showSystemAlert) {
+      window.showSystemAlert(`프리셋 적용됨: ${name}`, 'info');
+    }
+  }
+
+  deletePreset(name) {
+    if (!confirm(`'${name}' 프리셋을 삭제하시겠습니까?`)) return;
+    const presets = this._getPresets().filter(p => p.name !== name);
+    this._savePresets(presets);
+    this.renderPresetChips();
+  }
+
+  renderPresetChips() {
+    const container = document.getElementById('filterPresetsContainer');
+    if (!container) return;
+    const presets = this._getPresets();
+    if (presets.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+    // 각 chip: [이름 · X]
+    const html = presets.map(p => {
+      const esc = (s) => String(s).replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[m]);
+      const escName = esc(p.name);
+      const jsName = escName.replace(/'/g, '\\&#39;');
+      const filterCount = Object.keys(p.filters || {}).length + (p.receivables ? 1 : 0);
+      return `
+        <span class="badge bg-light text-dark border" style="cursor: pointer; padding: 0.3rem 0.5rem; font-weight: 500;">
+          <span onclick="modernFilters.loadPreset('${jsName}')" title="${escName} (${filterCount}개 필터) — 클릭하여 적용">
+            <i class="fas fa-bookmark me-1 text-primary" style="font-size: 0.7rem;"></i>${escName}
+          </span>
+          <span onclick="event.stopPropagation(); modernFilters.deletePreset('${jsName}')"
+                title="프리셋 삭제"
+                style="margin-left: 0.4rem; color: #999; cursor: pointer;">
+            <i class="fas fa-times" style="font-size: 0.7rem;"></i>
+          </span>
+        </span>
+      `;
+    }).join('');
+    container.innerHTML = html;
+  }
+
+  /**
+   * URL query string 에서 필터 상태 복원.
+   * 예: ?manager=%EB%B0%95%EC%A0%95%EC%9A%B0&status=%EA%B3%B5%EC%82%AC%20%ED%99%95%EC%A0%95
+   * @returns {boolean} 복원 여부 (URL 에 필터 파라미터 있었으면 true)
+   */
+  _restoreFiltersFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const knownKeys = ['search', 'company', 'client', 'businessName', 'status',
+                         'data', 'manager', 'outstanding', 'myProjectsOnly'];
+      const restored = {};
+      let hasAny = false;
+      knownKeys.forEach(k => {
+        const v = params.get(k);
+        if (v !== null && v !== '') {
+          restored[k] = k === 'myProjectsOnly' ? (v === '1' || v === 'true') : v;
+          hasAny = true;
+        }
+      });
+      if (hasAny) {
+        this.filters = restored;
+        logger.debug('[Filters] URL query 에서 복원:', restored);
+        return true;
+      }
+    } catch (err) {
+      logger.warn('[Filters] URL 복원 실패:', err);
+    }
+    return false;
+  }
+
+  /**
+   * 현재 필터 상태를 URL query string 에 반영 (history.replaceState).
+   * 다른 URL params (예: receivables) 은 그대로 유지.
+   */
+  _persistFiltersToUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const knownKeys = ['search', 'company', 'client', 'businessName', 'status',
+                         'data', 'manager', 'outstanding', 'myProjectsOnly'];
+      knownKeys.forEach(k => {
+        const v = this.filters[k];
+        if (v && v !== '') {
+          params.set(k, k === 'myProjectsOnly' ? (v ? '1' : '') : String(v));
+        } else {
+          params.delete(k);
+        }
+      });
+      const qs = params.toString();
+      const newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+      // pushState 아님 — 필터 변경마다 history 스택 쌓이면 back 버튼 오작동
+      window.history.replaceState({}, '', newUrl);
+    } catch (_) { /* private mode 등 무시 */ }
   }
 
   /**
@@ -469,6 +647,8 @@ export default class ModernProjectFilters {
 
     // 필터 상태 sessionStorage 저장 (F5 시 복원용)
     this._persistFiltersToStorage();
+    // 필터 상태 URL 반영 (북마크·공유·F5 복원 우선순위 1)
+    this._persistFiltersToUrl();
 
     // 콜백 함수들 실행 (조건부)
     if (triggerCallbacks) {
@@ -893,6 +1073,16 @@ export default class ModernProjectFilters {
     try {
       sessionStorage.removeItem('itg_filters_v1');
       sessionStorage.removeItem('itg_receivables_mode');
+    } catch (_) {}
+
+    // URL query 도 정리 (북마크 상태 반영)
+    try {
+      const params = new URLSearchParams(window.location.search);
+      ['search', 'company', 'client', 'businessName', 'status', 'data',
+       'manager', 'outstanding', 'myProjectsOnly', 'receivables'].forEach(k => params.delete(k));
+      const qs = params.toString();
+      const newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
     } catch (_) {}
 
     // 시각적 효과 즉시 업데이트 (필터 초기화)
