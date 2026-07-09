@@ -190,8 +190,14 @@ export default class CacheStatusManager {
     textElement.textContent = '새로고침 중...';
     textElement.className = 'text-primary';
 
+    // 최소 400ms 노출 보장 (스피너 정지 오해 방지)
+    const _minShow = new Promise(r => setTimeout(r, 400));
+
     try {
-      const response = await fetch('/api/cache/refresh', { method: 'POST' });
+      const [response] = await Promise.all([
+        fetch('/api/cache/refresh', { method: 'POST' }),
+        _minShow,
+      ]);
       const result = await response.json();
 
       if (result.success) {

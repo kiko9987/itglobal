@@ -1,10 +1,17 @@
 /**
  * 버튼 상태 관리 유틸리티
  * 로딩, 성공, 실패 상태를 시각적으로 표현
+ *
+ * 최소 스피너 노출 시간 400ms 보장:
+ *   write-behind 로 응답이 100ms 이내로 빨라져 스피너가 회전하기도 전에
+ *   사라지는 문제(정지된 것처럼 보임) 방지.
  */
+const MIN_LOADING_MS = 400;
+
 export class ButtonStateManager {
   constructor() {
     this.originalStates = new Map();
+    this.loadingStartTs = new WeakMap(); // 버튼별 setLoading 시각
   }
 
   /**
@@ -30,9 +37,11 @@ export class ButtonStateManager {
     if (!button) return;
 
     this.saveOriginalState(button);
+    this.loadingStartTs.set(button, Date.now());
 
     button.disabled = true;
-    button.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i>${text}`;
+    // fa-circle-notch: 비대칭 원호라 짧은 회전도 명확히 보임 (fa-spinner 대칭 8-radial 은 회전 안 보임)
+    button.innerHTML = `<i class="fas fa-circle-notch fa-spin me-1"></i>${text}`;
     button.classList.remove('btn-success', 'btn-danger', 'btn-warning');
     button.classList.add('btn-secondary');
 
@@ -41,13 +50,30 @@ export class ButtonStateManager {
   }
 
   /**
+   * 최소 로딩 시간 남은 만큼 대기 (setLoading 후 400ms 이하면 남은 시간 sleep)
+   * @param {HTMLElement} button
+   * @returns {Promise<void>}
+   */
+  _waitMinLoading(button) {
+    const start = this.loadingStartTs.get(button);
+    if (!start) return Promise.resolve();
+    const elapsed = Date.now() - start;
+    const remain = MIN_LOADING_MS - elapsed;
+    if (remain <= 0) return Promise.resolve();
+    return new Promise(r => setTimeout(r, remain));
+  }
+
+  /**
    * 버튼을 성공 상태로 변경
    * @param {HTMLElement} button
    * @param {string} text
    * @param {Function} callback
    */
-  setSuccess(button, text = '저장', callback = null) {
+  async setSuccess(button, text = '저장', callback = null) {
     if (!button) return;
+
+    // 스피너 최소 400ms 노출 보장 — 사용자에게 '요청 처리됨' 시각 신호 확보
+    await this._waitMinLoading(button);
 
     button.disabled = false;
     button.innerHTML = `<i class="fas fa-check me-1"></i>${text}`;
@@ -64,8 +90,11 @@ export class ButtonStateManager {
    * @param {string} text
    * @param {string} originalText
    */
-  setError(button, text = '실패', originalText = '저장') {
+  async setError(button, text = '실패', originalText = '저장') {
     if (!button) return;
+
+    // 실패도 최소 400ms 로딩 노출 (즉시 실패 시 스피너 안 보이는 문제 방지)
+    await this._waitMinLoading(button);
 
     button.disabled = false;
     button.innerHTML = `<i class="fas fa-exclamation-triangle me-1"></i>${text}`;
