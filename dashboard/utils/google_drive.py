@@ -44,42 +44,61 @@ def _get_drive_service():
 
 
 def find_or_create_folder(name: str, parent_id: str) -> Optional[dict]:
-    """parent_id 안에서 name과 일치하는 폴더를 찾거나 새로 생성. {'id', 'webViewLink'} 반환."""
+    """parent_id 안에서 name과 일치하는 폴더를 찾거나 새로 생성. {'id', 'webViewLink'} 반환.
+
+    2026-07-09 네트워크 timeout 재시도 (최대 3회 지수 백오프).
+    """
+    import http.client as _http_client
+    import socket
+    import time as _time
+
     service = _get_drive_service()
     if not service or not parent_id:
         return None
-    try:
-        # 동일 이름 폴더 검색 (이름 단일 인자에 작은따옴표 escape)
-        safe_name = name.replace("'", "\\'")
-        query = (
-            f"name = '{safe_name}' and "
-            f"'{parent_id}' in parents and "
-            f"mimeType = 'application/vnd.google-apps.folder' and "
-            f"trashed = false"
-        )
-        resp = service.files().list(
-            q=query, fields='files(id, name, webViewLink)',
-            supportsAllDrives=True, includeItemsFromAllDrives=True,
-        ).execute()
-        files = resp.get('files', [])
-        if files:
-            return files[0]
 
-        # 새 폴더 생성
-        meta = {
-            'name': name,
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [parent_id],
-        }
-        created = service.files().create(
-            body=meta, fields='id, name, webViewLink',
-            supportsAllDrives=True,
-        ).execute()
-        logger.info(f"[DRIVE] 폴더 생성: {name} ({created.get('id')})")
-        return created
-    except Exception as exc:
-        logger.error(f"[DRIVE] 폴더 생성/조회 실패 ({name}): {exc}", exc_info=True)
-        return None
+    safe_name = name.replace("'", "\\'")
+    query = (
+        f"name = '{safe_name}' and "
+        f"'{parent_id}' in parents and "
+        f"mimeType = 'application/vnd.google-apps.folder' and "
+        f"trashed = false"
+    )
+    meta = {
+        'name': name,
+        'mimeType': 'application/vnd.google-apps.folder',
+        'parents': [parent_id],
+    }
+
+    last_exc = None
+    for attempt in range(3):
+        try:
+            resp = service.files().list(
+                q=query, fields='files(id, name, webViewLink)',
+                supportsAllDrives=True, includeItemsFromAllDrives=True,
+            ).execute()
+            files = resp.get('files', [])
+            if files:
+                return files[0]
+
+            created = service.files().create(
+                body=meta, fields='id, name, webViewLink',
+                supportsAllDrives=True,
+            ).execute()
+            logger.info(f"[DRIVE] 폴더 생성: {name} ({created.get('id')})")
+            return created
+        except (TimeoutError, socket.timeout, _http_client.IncompleteRead, ConnectionError) as exc:
+            last_exc = exc
+            wait = 0.5 * (attempt + 1)
+            logger.warning(
+                f"[DRIVE] 네트워크 에러 ({type(exc).__name__}) 재시도 {attempt+1}/3 "
+                f"— {wait}s 후 ({name})"
+            )
+            _time.sleep(wait)
+        except Exception as exc:
+            logger.error(f"[DRIVE] 폴더 생성/조회 실패 ({name}): {exc}", exc_info=True)
+            return None
+    logger.error(f"[DRIVE] 폴더 생성/조회 3회 재시도 모두 실패 ({name}): {last_exc}")
+    return None
 
 
 def search_folder_by_name(name: str, limit: int = 10) -> List[Dict]:

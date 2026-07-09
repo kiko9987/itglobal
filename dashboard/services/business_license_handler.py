@@ -138,13 +138,32 @@ def _next_copy_index(files: list, code: str, ext: str) -> int:
 
 
 def _download_slack_file(url: str, slack_bot_token: str) -> bytes:
-    """Slack file URL → bytes. private URL이라 봇 토큰 Authorization 필요."""
-    req = urllib.request.Request(
-        url,
-        headers={'Authorization': f'Bearer {slack_bot_token}'},
-    )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read()
+    """Slack file URL → bytes. private URL이라 봇 토큰 Authorization 필요.
+
+    2026-07-09 네트워크 timeout 재시도 (최대 3회 지수 백오프).
+    """
+    import http.client as _http_client
+    import socket
+    import time as _time
+
+    last_exc = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={'Authorization': f'Bearer {slack_bot_token}'},
+            )
+            with urllib.request.urlopen(req, timeout=45) as r:
+                return r.read()
+        except (TimeoutError, socket.timeout, _http_client.IncompleteRead, ConnectionError) as exc:
+            last_exc = exc
+            wait = 1.0 * (attempt + 1)
+            logger.warning(
+                f'[LICENSE] Slack 파일 다운로드 네트워크 에러 ({type(exc).__name__}) '
+                f'재시도 {attempt+1}/3 — {wait}s 후'
+            )
+            _time.sleep(wait)
+    raise last_exc if last_exc else RuntimeError('Slack 파일 다운로드 실패')
 
 
 def _guess_ext(filename: str, mimetype: str) -> str:
