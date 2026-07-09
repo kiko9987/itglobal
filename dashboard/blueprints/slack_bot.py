@@ -5932,16 +5932,23 @@ def _process_invoice_complete(client, body) -> None:
     amt_digits = payload.get('amt', '') or ''
     biz = payload.get('biz', '-') or '-'
 
-    # 1) 스레드에 첨부 파일 있는지 검증
+    # 1) 스레드에 첨부 파일 있는지 검증 + 파일 정보 수집 (2026-07-10)
     has_file = False
+    attached_files = []  # [{name, permalink, mimetype}]
     try:
         replies = client.conversations_replies(
             channel=channel, ts=message_ts, limit=200,
         )
         for m in replies.get('messages', [])[1:]:  # root 제외
-            if m.get('files'):
+            for f in (m.get('files') or []):
+                if not f.get('id'):
+                    continue
                 has_file = True
-                break
+                attached_files.append({
+                    'name': f.get('name') or f.get('title') or '첨부파일',
+                    'permalink': f.get('permalink') or '',
+                    'mimetype': f.get('mimetype') or '',
+                })
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] replies 조회 실패: {exc}")
 
@@ -5996,14 +6003,51 @@ def _process_invoice_complete(client, body) -> None:
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] chat.update 실패 ({code}): {exc}")
 
-    # 3) 회색 카드 위에 완료 확인 문구 게시
-    #    형식: "G3825-MW 5,200,000원 (주)크리스아이티 세금계산서 발행 완료."
+    # 3) 회색 카드 위에 완료 확인 게시 — 첨부 이미지 preview + 이모지·구조 개선 (2026-07-10)
     amt_display = _money_kr(amt_digits)
     biz_display = biz if biz and biz != '-' else '(사업자명 미기재)'
-    confirm_text = f"{code} {amt_display} {biz_display} 세금계산서 발행 완료."
+    initial_for_msg = _slack_user_to_initial(client, user_id) or '-'
+    complete_time_full = datetime.now().strftime('%Y.%m.%d %H:%M')
+
+    # 첨부 파일 permalink 목록 — Slack 이 자동 unfurl 로 미리보기 렌더 (이미지·PDF 모두)
+    file_lines = []
+    for i, af in enumerate(attached_files[:5], 1):  # 최대 5개
+        icon = ':frame_with_picture:' if af['mimetype'].startswith('image/') else ':page_facing_up:'
+        if af['permalink']:
+            file_lines.append(f'{icon} <{af["permalink"]}|{af["name"]}>')
+        else:
+            file_lines.append(f'{icon} {af["name"]}')
+    files_text = '\n'.join(file_lines) if file_lines else ':paperclip: 첨부 없음'
+    extra_note = f'\n_외 {len(attached_files) - 5}개 첨부_' if len(attached_files) > 5 else ''
+
+    # 헤더에 첫 이미지 파일이 있으면 image block 으로 자동 표시 (썸네일)
+    confirm_blocks = [
+        {
+            'type': 'section',
+            'text': {
+                'type': 'mrkdwn',
+                'text': (
+                    f'✅ *세금계산서 발행 완료*  `{code}`\n'
+                    f'━━━━━━━━━━━━━━━━━━━━\n'
+                    f':office: *사업자명* : {biz_display}\n'
+                    f':moneybag: *발행 금액* : *{amt_display}*\n'
+                    f':bust_in_silhouette: *처리자* : {initial_for_msg}\n'
+                    f':clock3: *완료 시간* : {complete_time_full}\n'
+                    f'\n'
+                    f':paperclip: *첨부 파일* ({len(attached_files)}개)\n'
+                    f'{files_text}{extra_note}'
+                ),
+            },
+        },
+    ]
+
+    # fallback text (알림 프리뷰용)
+    confirm_text = f"✅ 세금계산서 발행 완료 · {code} · {amt_display} · {biz_display}"
     try:
         client.chat_postMessage(
-            channel=channel, text=confirm_text, unfurl_links=False,
+            channel=channel, text=confirm_text, blocks=confirm_blocks,
+            unfurl_links=True,   # 첨부 permalink 자동 미리보기 활성
+            unfurl_media=True,
         )
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] 완료 확인 문구 발송 실패: {exc}")
