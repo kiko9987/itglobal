@@ -184,11 +184,15 @@ def update_as_row(as_no: str, updates: Dict[str, Any]) -> bool:
     if not batch:
         return False
     try:
-        manager.batch_update_cells(sheet_id, batch)
-        logger.info(f'[AS] 갱신 완료: {as_no} row={row_num} fields={list(updates.keys())}')
+        # 2026-07-09 write-behind: A/S 시트 갱신을 큐로 위임
+        from dashboard.services.sheet_write_queue import enqueue
+        enqueue('sheet_batch_write', {
+            'sheet_id': sheet_id, 'updates': batch, 'tag': f'as_update:{as_no}',
+        })
+        logger.info(f'[AS] 갱신 큐 위임: {as_no} row={row_num} fields={list(updates.keys())}')
         return True
     except Exception as exc:
-        logger.error(f'[AS] 갱신 실패 ({as_no}): {exc}', exc_info=True)
+        logger.error(f'[AS] 갱신 큐 실패 ({as_no}): {exc}', exc_info=True)
         return False
 
 

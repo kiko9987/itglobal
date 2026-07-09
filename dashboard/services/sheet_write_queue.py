@@ -125,6 +125,40 @@ def retry_failed(op_id: str) -> bool:
     return False
 
 
+def _notify_admin_deadletter(op: dict, last_exc: Exception) -> None:
+    """데드레터 발생 시 관리자에게 슬랙 DM. SLACK_ADMIN_CHANNEL 사용."""
+    try:
+        import os as _os
+        import urllib.request as _urllib_req
+        token = _os.getenv('SLACK_BOT_TOKEN', '').strip()
+        admin_id = _os.getenv('SLACK_ADMIN_CHANNEL', '').strip()
+        if not token or not admin_id:
+            return
+        op_type = op.get('op_type', '?')
+        op_id = op.get('op_id', '')[:8]
+        tag = op.get('payload', {}).get('tag', '')
+        text = (
+            f':rotating_light: *시트 write 큐 데드레터*\n'
+            f'op_type: `{op_type}`\n'
+            f'op_id: `{op_id}…`\n'
+            f'tag: `{tag}`\n'
+            f'attempts: {op.get("attempts", 0)}\n'
+            f'error: `{str(last_exc)[:400]}`\n'
+            f'재시도: `POST /api/admin/sheet-write-queue/retry/{op.get("op_id", "")}`'
+        )
+        req = _urllib_req.Request(
+            'https://slack.com/api/chat.postMessage',
+            data=json.dumps({'channel': admin_id, 'text': text}).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json; charset=utf-8',
+                'Authorization': f'Bearer {token}',
+            },
+        )
+        _urllib_req.urlopen(req, timeout=5).read()
+    except Exception as _exc:
+        logger.debug(f'[QUEUE] 관리자 알림 실패: {_exc}')
+
+
 def _drain_processing_on_startup():
     """부팅 시 processing 리스트에 남아있던 op 를 큐로 되돌림.
 
@@ -209,6 +243,7 @@ def _worker_loop():
                         exc_info=True,
                     )
                     _rc().rpush(FAILED_KEY, json.dumps(op, ensure_ascii=False))
+                    _notify_admin_deadletter(op, exc)
         except Exception as loop_exc:
             logger.error(f'[QUEUE] 워커 루프 예외: {loop_exc}', exc_info=True)
             if raw:

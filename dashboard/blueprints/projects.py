@@ -3294,6 +3294,34 @@ def _handle_cancel_sheet(payload: dict) -> None:
         logger.warning(f'[QUEUE/project_cancel/color] {project_code}: {exc}')
 
 
+@_q_register('sheet_batch_write')
+def _handle_sheet_batch_write(payload: dict) -> None:
+    """범용 batch_update_cells. payload: {sheet_id, updates, tag}.
+
+    슬랙 액션(취소·재개·편집), A/S 시트 갱신 등 다양한 위치에서 재사용.
+    """
+    from ..services.project_service import get_sheets_manager
+    manager = get_sheets_manager()
+    manager.batch_update_cells(payload['sheet_id'], payload['updates'])
+    tag = payload.get('tag', '')
+    logger.info(f'[QUEUE/sheet_batch_write] 완료 (tag={tag})')
+
+
+@_q_register('sheet_bg_color')
+def _handle_sheet_bg_color(payload: dict) -> None:
+    """범용 행 배경색 갱신. payload: {sheet_id, sheet_name, row_number, color_type, tag}."""
+    from ..services.project_service import get_sheets_manager
+    manager = get_sheets_manager()
+    manager.update_row_background_color(
+        spreadsheet_id=payload['sheet_id'],
+        sheet_name=payload['sheet_name'],
+        row_number=payload['row_number'],
+        color_type=payload['color_type'],
+    )
+    tag = payload.get('tag', '')
+    logger.info(f'[QUEUE/sheet_bg_color] 완료 (tag={tag})')
+
+
 @_q_register('project_update_sheet')
 def _handle_project_update_sheet(payload: dict) -> None:
     """편집 시트 write — update_row + payment comments.

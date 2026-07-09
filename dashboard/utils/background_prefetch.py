@@ -482,3 +482,16 @@ def register_sheets_prefetch():
         prefetch_threshold=0.15,
     )
     logger.info("[PREFETCH] Google Sheets 프리패치 등록 완료 (threshold=0.15, ≈3분 주기)")
+
+    # 2026-07-09 리드 시트도 함께 프리페치 (슬랙 리드 조회 시 캐시 신선도 유지)
+    def get_fresh_leads():
+        from ..services.lead_service import load_leads_data
+        return load_leads_data(force_refresh=True)
+
+    prefetch.register_prefetch_job(
+        cache_key="online_leads_sheet_data",
+        data_fetcher=get_fresh_leads,
+        strategy=CacheStrategy.CRITICAL_DATA,
+        prefetch_threshold=0.15,
+    )
+    logger.info("[PREFETCH] 리드 시트 프리패치 등록 완료 (threshold=0.15)")

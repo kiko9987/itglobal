@@ -57,25 +57,23 @@ def _audit_log(**kwargs) -> None:
         logger.warning(f'[SLACK/action] 감사 로그 실패: {exc}')
 
 
-def _update_row_bg(manager, sheet_id: str, sheet_name: str, row_number: int, color_type: str) -> None:
-    """행 배경색 갱신 — 취소 시 dark_grey, 재개 시 normal(흰색).
-
-    관리 사이트 _update_project_background_color 와 동등. 실패해도 예외 안 던짐.
-    """
+def _queue_bg_color(sheet_id: str, sheet_name: str, row_number: int, color_type: str, tag: str = '') -> None:
+    """행 배경색 갱신을 큐로 위임 (write-behind)."""
     try:
-        ok = manager.update_row_background_color(
-            spreadsheet_id=sheet_id,
-            sheet_name=sheet_name,
-            row_number=row_number,
-            color_type=color_type,
-        )
-        if ok:
-            desc = '진한 회색' if color_type == 'dark_grey' else '흰색'
-            logger.info(f'[SLACK/action] 행 배경색 갱신 완료: row={row_number} → {desc}')
-        else:
-            logger.warning(f'[SLACK/action] 행 배경색 갱신 실패: row={row_number}, color={color_type}')
+        from dashboard.services.sheet_write_queue import enqueue
+        enqueue('sheet_bg_color', {
+            'sheet_id': sheet_id, 'sheet_name': sheet_name,
+            'row_number': row_number, 'color_type': color_type,
+            'tag': tag,
+        })
     except Exception as exc:
-        logger.warning(f'[SLACK/action] 행 배경색 예외: {exc}')
+        logger.warning(f'[SLACK/action] bg_color enqueue 실패 ({tag}): {exc}')
+
+
+def _queue_batch_write(sheet_id: str, updates: list, tag: str) -> None:
+    """batch_update_cells 을 큐로 위임 (write-behind)."""
+    from dashboard.services.sheet_write_queue import enqueue
+    enqueue('sheet_batch_write', {'sheet_id': sheet_id, 'updates': updates, 'tag': tag})
 
 
 # ─────────────────────────────────────────────────────────────
@@ -130,11 +128,8 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
         {'range': f'{sheet_name}!AM{row_number}', 'values': [['']]},
     ]
 
-    try:
-        manager.batch_update_cells(sheet_id, updates)
-    except Exception as exc:
-        logger.error(f'[SLACK/취소] 시트 write 실패 ({code}): {exc}', exc_info=True)
-        return {'ok': False, 'reason': 'sheet_write_failed'}
+    # 2026-07-09 write-behind: 시트 write 를 큐로 위임
+    _queue_batch_write(sheet_id, updates, tag=f'slack_cancel:{code}')
 
     # 캐시 부분 갱신 (실패 시 전체 무효화 fallback)
     try:
@@ -165,7 +160,7 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
     )
 
     # 행 배경색 → 진한 회색 (관리 사이트와 동일 UX)
-    _update_row_bg(manager, sheet_id, sheet_name, row_number, 'dark_grey')
+    _queue_bg_color(sheet_id, sheet_name, row_number, 'dark_grey', tag=f'slack_cancel_bg:{code}')
 
     logger.info(f'[SLACK/취소] 완료: {code} by slack:{by_display_name}')
     return {
@@ -226,11 +221,7 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
             'range': f'{sheet_name}!AA{row_number}',
             'values': [['TRUE' if restore_payment else 'FALSE']],
         })
-    try:
-        manager.batch_update_cells(sheet_id, updates)
-    except Exception as exc:
-        logger.error(f'[SLACK/재개] 시트 write 실패 ({code}): {exc}', exc_info=True)
-        return {'ok': False, 'reason': 'sheet_write_failed'}
+    _queue_batch_write(sheet_id, updates, tag=f'slack_uncancel:{code}')
 
     # 스냅샷 정리 (복원 성공 시 삭제)
     try:
@@ -268,7 +259,7 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     )
 
     # 행 배경색 → 흰색 복원
-    _update_row_bg(manager, sheet_id, sheet_name, row_number, 'normal')
+    _queue_bg_color(sheet_id, sheet_name, row_number, 'normal', tag=f'slack_uncancel_bg:{code}')
 
     logger.info(f'[SLACK/재개] 완료: {code} by slack:{by_display_name}')
     return {'ok': True}
@@ -344,11 +335,7 @@ def perform_edit(
     if not batch:
         return {'ok': False, 'reason': 'no_changes'}
 
-    try:
-        manager.batch_update_cells(sheet_id, batch)
-    except Exception as exc:
-        logger.error(f'[SLACK/편집] 시트 write 실패 ({code}): {exc}', exc_info=True)
-        return {'ok': False, 'reason': 'sheet_write_failed'}
+    _queue_batch_write(sheet_id, batch, tag=f'slack_edit:{code}')
 
     # 캐시 부분 갱신
     try:
