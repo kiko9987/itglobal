@@ -265,19 +265,36 @@ export default class ModernProjectFilters {
     }
 
     // 내 공사만 보기 체크박스 — 담당자 필터를 로그인 사용자 이름으로 자동 세팅.
-    // 2026-07-07 변경: 옛 로직은 '발주처 이메일'(고객 이메일) 컬럼과 로그인 이메일을 비교해
-    // 항상 0건이 됐음. 이미 있는 담당자 select 필터와 시맨틱 통일이 더 간단·명확.
+    // 2026-07-07: 옛 로직은 '발주처 이메일'(고객 이메일)과 로그인 이메일을 비교해 항상
+    // 0건. 이미 있는 담당자 select 필터와 시맨틱 통일이 더 간단·명확.
+    // 2026-07-09: 체크 전 담당자 값 백업 → 언체크 시 복원 (사용자 상태 파괴 방지)
     if (this.myProjectsOnlyCheckbox) {
       this.myProjectsOnlyCheckbox.addEventListener('change', (e) => {
         if (e.target.checked) {
+          // 체크: 현재 담당자 값 백업 후 로그인 사용자로 덮어씀
+          this._managerBackupBeforeMine = this.filters.manager || '';
           const userName = (window.userDisplayName || '').trim();
           if (userName) {
             this.filters.manager = userName;
             if (this.managerFilter) this.managerFilter.value = userName;
           }
         } else {
-          delete this.filters.manager;
-          if (this.managerFilter) this.managerFilter.value = '';
+          // 언체크: 현재 담당자 필터가 로그인 사용자 이름 그대로면 → 백업 복원 or clear
+          //        다른 사람으로 명시적 변경돼 있으면 → 그대로 유지 (사용자 의도 존중)
+          const userName = (window.userDisplayName || '').trim();
+          const currentManager = (this.filters.manager || '').trim();
+          if (currentManager === userName) {
+            const restored = this._managerBackupBeforeMine || '';
+            if (restored) {
+              this.filters.manager = restored;
+              if (this.managerFilter) this.managerFilter.value = restored;
+            } else {
+              delete this.filters.manager;
+              if (this.managerFilter) this.managerFilter.value = '';
+            }
+          }
+          // 담당자가 다른 사람으로 바뀌었으면 그대로 (사용자가 이미 명시적으로 다른 필터 세팅)
+          this._managerBackupBeforeMine = null;
         }
         this.applyFilters(null, true);
       });
