@@ -3756,7 +3756,7 @@ def _process_visit_date_modify(client, body, view) -> None:
         initial = _slack_user_to_initial(client, user_id) or '-'
         body_text, blocks = _build_visit_notice_blocks(
             lead_no=lead_no, category_display=category_display, initial=initial,
-            visit_date=new_date,
+            visit_date=new_date_display,
             name=str(lead.get('고객명', '') or '').strip(),
             contact=str(lead.get('고객 연락처', '') or '').strip(),
             visit_address=str(lead.get('방문 주소', '') or '').strip(),
