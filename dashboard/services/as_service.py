@@ -196,13 +196,14 @@ def update_as_row(as_no: str, updates: Dict[str, Any]) -> bool:
 # 프로젝트 자동완성 (공사 확정된 것만)
 # ─────────────────────────────────────────────────────────────
 def search_confirmed_projects(query: str, limit: int = 100) -> List[Dict[str, str]]:
-    """공사 확정된 프로젝트 검색. (프로젝트 코드 부분 매칭)
+    """공사 확정된 프로젝트 검색. 프로젝트 코드 + 사업자명 부분 매칭. 최신순 정렬.
 
     각 결과: {'code', 'biz', 'address', 'work_content', 'work_end'}
     """
     if not query:
         return []
     try:
+        import pandas as pd
         from dashboard.services.project_service import load_data
         df = load_data()
         if df is None or df.empty or '프로젝트 코드' not in df.columns:
@@ -212,23 +213,36 @@ def search_confirmed_projects(query: str, limit: int = 100) -> List[Dict[str, st
         if confirmed_col:
             mask = df[confirmed_col].astype(str).str.strip().replace('', None).notna()
             mask &= df[confirmed_col].astype(str).str.strip() != ''
-            filtered = df[mask]
+            filtered = df[mask].copy()
+            # 최신순 정렬 — 공사 확정 날짜 descending
+            filtered['_confirmed_dt'] = pd.to_datetime(
+                filtered[confirmed_col], errors='coerce',
+            )
+            filtered = filtered.sort_values('_confirmed_dt', ascending=False, na_position='last')
         else:
             filtered = df
+
         q = query.lower()
         matched = []
         for _, r in filtered.iterrows():
             code = str(r.get('프로젝트 코드', '') or '').strip()
-            if not code or q not in code.lower():
+            biz = str(r.get('사업자명', '') or '').strip()
+            if not code:
+                continue
+            # 코드 OR 사업자명 부분 매칭
+            code_hit = q in code.lower()
+            biz_hit = biz and q in biz.lower()
+            if not (code_hit or biz_hit):
                 continue
             matched.append({
                 'code': code,
-                'biz': str(r.get('사업자명', '') or '').strip(),
+                'biz': biz,
                 'address': str(r.get('현장 주소', '') or '').strip(),
                 'work_content': str(r.get('공사 내용', '') or '').strip(),
                 'work_end': str(r.get('공사 종료', '') or '').strip()[:10],
             })
-        matched = matched[:limit]
+            if len(matched) >= limit:
+                break
         return matched
     except Exception as exc:
         logger.warning(f'[AS] 프로젝트 검색 실패: {exc}')

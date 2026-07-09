@@ -1194,13 +1194,18 @@ def _register_as_handlers(app):
             try:
                 from dashboard.services.as_service import search_confirmed_projects
                 matched = search_confirmed_projects(query, limit=100)
-                options = [
-                    {
-                        "text": {"type": "plain_text", "text": f'{p["code"]} — {p["biz"] or "-"}'[:75]},
+                options = []
+                for p in matched:
+                    biz = (p.get('biz') or '').strip()
+                    if not biz or biz == '-':
+                        biz_disp = '사업자 비어 있음'
+                    else:
+                        biz_disp = biz
+                    label = f'{p["code"]} : {biz_disp}'
+                    options.append({
+                        "text": {"type": "plain_text", "text": label[:75]},
                         "value": p["code"][:75],
-                    }
-                    for p in matched
-                ]
+                    })
                 ack(options=options)
             except Exception as exc:
                 logger.warning(f"[SLACK/AS/options] 실패: {exc}", exc_info=True)
