@@ -1350,20 +1350,59 @@ def _as_status_emoji(status: str) -> str:
 
 
 def _build_as_card_text(data: dict, view_state: str = 'requested') -> str:
-    """A/S 카드 본문 텍스트. view_state: requested / accepted / completed"""
+    """A/S 카드 본문 텍스트. view_state: requested / accepted / completed.
+
+    공사 확정 카드와 동등한 정보량으로 렌더 — 유입 구분·발주처 담당자/연락처/이메일·
+    도급 구분·시공자·공사 금액·공사 시작 추가.
+    """
+    # 프로젝트 상세 조회 (부족한 필드 채움 — 시트엔 없어도 카드엔 표시).
+    proj = None
+    code = str(data.get('프로젝트 코드', '') or '').strip()
+    if code and code != '-':
+        try:
+            from dashboard.services.as_service import get_project_details
+            proj = get_project_details(code) or {}
+        except Exception:
+            proj = None
+
+    def _pick(key_data: str, key_proj: str, default: str = '-') -> str:
+        v = data.get(key_data)
+        if v not in (None, '', '-'):
+            return str(v)
+        if proj:
+            v2 = proj.get(key_proj)
+            if v2 not in (None, '', '-'):
+                return str(v2)
+        return default
+
+    as_no = data.get('No', '')
     lines = []
     if view_state == 'requested':
-        lines.append(f"🔔 *[사후 관리 요청]*  `{data.get('No', '')}`")
+        lines.append(f"🔔 *[사후 관리 요청]*  `{as_no}`")
     elif view_state == 'accepted':
-        lines.append(f"📥 *[사후 관리 접수 완료]*  `{data.get('No', '')}`")
+        lines.append(f"📥 *[사후 관리 접수 완료]*  `{as_no}`")
     else:
-        lines.append(f"✅ *[사후 관리 처리 완료]*  `{data.get('No', '')}`")
+        lines.append(f"✅ *[사후 관리 처리 완료]*  `{as_no}`")
     lines.append("--------------------------------------------")
-    lines.append(f"🔗 프로젝트 코드 : `{data.get('프로젝트 코드', '-') or '-'}`")
-    lines.append(f"📍 현장 주소 : {data.get('현장주소', '-') or '-'}")
-    lines.append(f"📋 공사 내용 : {data.get('공사내용', '-') or '-'}")
-    lines.append(f"📅 공사 종료일 : {data.get('공사 종료일', '-') or '-'}")
-    lines.append(f"📝 요청 내용 : {data.get('요청 내용', '-') or '-'}")
+
+    inflow = (proj or {}).get('inflow', '-') if proj else '-'
+    biz = (proj or {}).get('biz', '-') if proj else '-'
+
+    lines.append(f"🔗 프로젝트 코드 : `{code or '-'}`")
+    lines.append(f"📥 유입 구분 : {inflow or '-'}")
+    lines.append(f"🏢 사업자명 : {biz or '-'}")
+    lines.append(f"📍 현장 주소 : {_pick('현장주소', 'address')}")
+    lines.append(f"👤 발주처 담당자 : {(proj or {}).get('client_manager', '-') or '-'}")
+    lines.append(f"📞 발주처 연락처 : {(proj or {}).get('client_phone', '-') or '-'}")
+    lines.append(f"✉️ 발주처 이메일 : {(proj or {}).get('client_email', '-') or '-'}")
+    lines.append(f"📋 공사 내용 : {_pick('공사내용', 'work_content')}")
+    lines.append(f"🛠️ 도급 구분 : {(proj or {}).get('contract_type', '-') or '-'}")
+    lines.append(f"👷 시공자 : {(proj or {}).get('contractor', '-') or '-'}")
+    lines.append(f"💲 공사 금액 : {(proj or {}).get('amount', '-') or '-'}")
+    lines.append(f"📅 공사 시작 : {(proj or {}).get('work_start', '-') or '-'}")
+    lines.append(f"📅 공사 종료 : {_pick('공사 종료일', 'work_end')}")
+    lines.append("--------------------------------------------")
+    lines.append(f"📝 A/S 요청 내용 : {data.get('요청 내용', '-') or '-'}")
     lines.append(f"👤 요청자 : {data.get('요청자', '-') or '-'}")
     if view_state in ('accepted', 'completed'):
         lines.append("--------------------------------------------")
