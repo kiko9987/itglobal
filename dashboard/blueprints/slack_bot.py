@@ -1626,7 +1626,6 @@ def _open_as_accept_modal(client, body) -> None:
         "submit": {"type": "plain_text", "text": "접수 확정"},
         "close": {"type": "plain_text", "text": "취소"},
         "blocks": [
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"`{as_no}` A/S를 접수합니다."}},
             {
                 "type": "input", "block_id": "visitor_type",
                 "label": {"type": "plain_text", "text": "방문 예정자"},
@@ -1744,7 +1743,6 @@ def _open_as_complete_modal(client, body) -> None:
         "submit": {"type": "plain_text", "text": "처리 완료"},
         "close": {"type": "plain_text", "text": "취소"},
         "blocks": [
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"`{as_no}` A/S를 처리 완료 처리합니다."}},
             {
                 "type": "input", "block_id": "resolution",
                 "label": {"type": "plain_text", "text": "처리 내용"},
