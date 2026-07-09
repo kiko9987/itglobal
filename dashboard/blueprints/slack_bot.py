@@ -5910,10 +5910,40 @@ def _process_invoice_submission(client, body, view) -> None:
         channel=channel_id, text=text, blocks=blocks, unfurl_links=False,
     )
     if resp.get('ok'):
+        ts = resp.get('ts', '')
         logger.info(
-            f"[SLACK/계산서] 요청 카드 발송 완료: {code} ts={resp.get('ts')} "
-            f"→ {channel_id}"
+            f"[SLACK/계산서] 요청 카드 발송 완료: {code} ts={ts} → {channel_id}"
         )
+        # 카드 하단에 '📎 계산서 첨부 (스레드 열기)' 링크 추가 (2026-07-10)
+        # 회계 매니저(샛별)가 링크 클릭 → 자동으로 이 카드 스레드로 이동 → 파일 첨부
+        try:
+            perm_resp = client.chat_getPermalink(channel=channel_id, message_ts=ts)
+            if perm_resp.get('ok'):
+                base_url = perm_resp.get('permalink', '')
+                if base_url:
+                    sep = '&' if '?' in base_url else '?'
+                    thread_url = f"{base_url}{sep}thread_ts={ts}&cid={channel_id}"
+                    new_blocks = blocks[:-1] + [  # 마지막 context(⠀) 제거
+                        {
+                            "type": "context",
+                            "elements": [
+                                {
+                                    "type": "mrkdwn",
+                                    "text": (
+                                        f'📎 <{thread_url}|*계산서 첨부하기*> — '
+                                        f'이 링크를 클릭하면 스레드가 열립니다. 첨부 후 '
+                                        f'`✅ 발행 완료` 를 눌러주세요.'
+                                    ),
+                                },
+                            ],
+                        },
+                        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
+                    ]
+                    client.chat_update(
+                        channel=channel_id, ts=ts, text=text, blocks=new_blocks,
+                    )
+        except Exception as perm_exc:
+            logger.warning(f"[SLACK/계산서] permalink 링크 추가 실패 (무시): {perm_exc}")
     else:
         logger.warning(f"[SLACK/계산서] 요청 카드 발송 실패: {resp}")
 
