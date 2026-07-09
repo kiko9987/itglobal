@@ -117,6 +117,9 @@ class GoogleSheetsManager:
         """구글 시트 매니저 초기화 (스레드당 1회)."""
         if self._initialized:
             return
+        # 인스턴스 lock — 서비스 재초기화 시 사용 (self._lock 참조 여러 곳 있음)
+        import threading as _th
+        self._lock = _th.RLock()
             
         env_credentials = os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or os.getenv('GOOGLE_CREDENTIALS_FILE')
         if env_credentials:
