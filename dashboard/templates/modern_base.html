@@ -370,7 +370,6 @@
                                             <option value="서브">서브</option>
                                             <option value="내부">내부</option>
                                             <option value="세척">세척</option>
-                                            <option value="서비스 기사">서비스 기사</option>
                                         </select>
                                     </div>
                                     <div class="col-md-3">
@@ -966,7 +965,7 @@
                 // API 응답: {"메인": [{name, is_active}, ...], ...}
                 // ProjectRowAccordion 기대 형식: {categories: [{name, options, inactiveOptions}]}
                 const categories = [];
-                for (const cat of ['메인', '서브', '내부', '세척', '서비스 기사']) {
+                for (const cat of ['메인', '서브', '내부', '세척']) {
                     const items = result.data[cat] || [];
                     categories.push({
                         name: cat,
@@ -1213,7 +1212,7 @@
                 }
 
                 // 카테고리별로 그룹화
-                const grouped = { '메인': [], '서브': [], '내부': [], '세척': [], '서비스 기사': [] };
+                const grouped = { '메인': [], '서브': [], '내부': [], '세척': [] };
                 for (const c of result.data) {
                     if (grouped[c.category]) grouped[c.category].push(c);
                 }

@@ -974,7 +974,7 @@ class ConstructorRepository:
     is_active=False 시 드롭다운에서 숨김 (소프트 삭제)
     """
 
-    VALID_CATEGORIES = ('메인', '서브', '내부', '세척', '서비스 기사')
+    VALID_CATEGORIES = ('메인', '서브', '내부', '세척')
 
     def __init__(self, user_db: UserDatabase):
         self.user_db = user_db
