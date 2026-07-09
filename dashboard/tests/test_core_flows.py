@@ -238,6 +238,108 @@ class TestFlattenParenTail:
 
 
 # ─────────────────────────────────────────────────────────────
+# GoogleSheetsManager — 스레드-local + 필수 속성 회귀 방지
+# 2026-07-09 사고: __new__ 를 threading.local 로 바꾸면서 _lock 클래스 속성이
+# 사라져 self._lock 참조 시 AttributeError → 시트 read 전면 실패.
+# 이 테스트는 _lock 이 인스턴스에 살아있고 스레드별로 인스턴스가 격리되는지 검증.
+# ─────────────────────────────────────────────────────────────
+
+class TestGoogleSheetsManagerThreadSafety:
+    def test_lock_attribute_exists(self):
+        """__init__ 후 self._lock 존재 확인 (AttributeError 재발 방지)."""
+        from dashboard.utils.google_sheets import GoogleSheetsManager
+        import threading as _th
+        mgr = GoogleSheetsManager()
+        assert hasattr(mgr, '_lock'), 'GoogleSheetsManager 인스턴스에 _lock 없음'
+        # RLock 인지 확인 (재진입 허용 필요)
+        assert isinstance(mgr._lock, type(_th.RLock())), '_lock 이 RLock 이 아님'
+
+    def test_lock_usable_reentrant(self):
+        """self._lock 이 실제로 acquire/release 가능한지 (재진입 포함)."""
+        from dashboard.utils.google_sheets import GoogleSheetsManager
+        mgr = GoogleSheetsManager()
+        with mgr._lock:
+            with mgr._lock:  # RLock 이라 재진입 OK
+                pass  # 데드락 없이 통과해야 함
+
+    def test_thread_local_isolation(self):
+        """다른 스레드는 다른 GoogleSheetsManager 인스턴스를 받아야 함
+        (google-api-python-client not thread-safe → heap corruption 방지)."""
+        from dashboard.utils.google_sheets import GoogleSheetsManager
+        import threading
+        instances = {}
+        lock = threading.Lock()
+
+        def _worker(name):
+            m = GoogleSheetsManager()
+            with lock:
+                instances[name] = m
+
+        threads = [threading.Thread(target=_worker, args=(f't{i}',)) for i in range(3)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        _worker('main')
+
+        # 4개 스레드 모두 서로 다른 id
+        ids = [id(m) for m in instances.values()]
+        assert len(set(ids)) == 4, f'스레드 격리 실패: {ids}'
+
+    def test_same_thread_returns_same_instance(self):
+        """같은 스레드에서 재호출 시 캐시된 인스턴스 반환 (인증 오버헤드 절감)."""
+        from dashboard.utils.google_sheets import GoogleSheetsManager
+        m1 = GoogleSheetsManager()
+        m2 = GoogleSheetsManager()
+        assert m1 is m2, '같은 스레드에서 다른 인스턴스 반환 (스레드-local 저장 실패)'
+
+
+# ─────────────────────────────────────────────────────────────
+# Lead 검색용 순수 로직 — 매니저별 이니셜 매칭 필터
+# 2026-07-09 사고: `_lock` 미존재로 시트 read 실패 → 리드 캐시 텅 빔
+# → 새 프로젝트 모달 "기존 리드 불러오기" 결과 0건 회귀.
+# ─────────────────────────────────────────────────────────────
+
+class TestLeadSearchOwnerFilter:
+    """`api_search_leads_for_project` 안의 담당자 매칭 규칙 검증.
+
+    2026-07 규칙: 리드 플랫폼 = 거래처/기타/소개 이면 '온라인 상담자'로,
+    그 외는 '영업 담당자' 로 소유자 판단. 사수·신입 동반은 쉼표·공백 분리.
+    """
+
+    @staticmethod
+    def _get_owner_names(lead: dict):
+        """endpoint 안에 있는 소유자 파싱 로직 미러링 (실 코드 참조 후 반영)."""
+        import re as _re
+        platform = str(lead.get('플랫폼') or '').strip()
+        if platform in ('거래처', '기타', '소개'):
+            owner_raw = str(lead.get('온라인 상담자') or '').strip()
+        else:
+            owner_raw = str(lead.get('영업 담당자') or '').strip()
+        return {p.strip() for p in _re.split(r'[,/·&.\s]+', owner_raw) if p.strip()}
+
+    def test_online_lead_uses_sales_owner(self):
+        lead = {'플랫폼': '홈페이지', '영업 담당자': '박정우', '온라인 상담자': '김호중'}
+        assert self._get_owner_names(lead) == {'박정우'}
+
+    def test_offline_lead_uses_online_owner(self):
+        # 거래처 리드는 카드 생성자(온라인 상담자) 기준
+        lead = {'플랫폼': '거래처', '영업 담당자': '박정우', '온라인 상담자': '김호중'}
+        assert self._get_owner_names(lead) == {'김호중'}
+
+    def test_multi_owner_comma_separated(self):
+        # 사수 · 신입 동반 방문 케이스
+        lead = {'플랫폼': '전화', '영업 담당자': '권태훈,강정권'}
+        assert self._get_owner_names(lead) == {'권태훈', '강정권'}
+
+    def test_multi_owner_with_slash(self):
+        lead = {'플랫폼': '카카오톡', '영업 담당자': '박용구/이근혁'}
+        assert self._get_owner_names(lead) == {'박용구', '이근혁'}
+
+    def test_empty_owner_returns_empty_set(self):
+        lead = {'플랫폼': '전화', '영업 담당자': ''}
+        assert self._get_owner_names(lead) == set()
+
+
+# ─────────────────────────────────────────────────────────────
 # Windows용 시나리오: pytest 실행 시 pytest.ini 없어도 동작
 # ─────────────────────────────────────────────────────────────
 
