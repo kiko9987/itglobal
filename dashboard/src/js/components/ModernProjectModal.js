@@ -39,6 +39,20 @@ export default class ModernProjectModal {
     this.modal = new bootstrap.Modal(this.modalElement);
     this.form = document.getElementById('modernProjectForm');
 
+    // 제출·재시도 진행 중 모달 닫기 방지 (X 버튼·ESC·backdrop 클릭 모두 차단)
+    // Bootstrap 5: hide.bs.modal 이벤트에서 preventDefault() 로 취소 가능.
+    this.modalElement.addEventListener('hide.bs.modal', (ev) => {
+      if (this._submitInProgress) {
+        ev.preventDefault();
+        // 잠깐 안내 (연속 시도 방지 위해 debounce)
+        if (!this._closePreventNotified) {
+          this._closePreventNotified = true;
+          this.showAlert('등록이 진행 중입니다. 완료 후 자동으로 닫힙니다.', 'info');
+          setTimeout(() => { this._closePreventNotified = false; }, 3000);
+        }
+      }
+    });
+
     this.bindEvents();
     this.initialized = true;
   }

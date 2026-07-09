@@ -2817,8 +2817,6 @@ def add_project_auto():
                 )
                 import json as _json
                 return jsonify(_json.loads(cached))
-            # 처리 중 마킹 (같은 key 로 병렬 요청 방어 — 10분 TTL, NX)
-            rc.set(idem_redis_key + ':inflight', '1', nx=True, ex=600)
         except Exception as exc:
             logger.debug(f'[CREATE_PROJECT/idem] Redis 조회 실패 (계속 진행): {exc}')
 
@@ -2966,14 +2964,6 @@ def add_project_auto():
             "error_id": error_id,
             "code": "INTERNAL_ERROR"
         }), 500
-    finally:
-        # inflight 마킹 정리 (성공/실패 무관)
-        if idem_key:
-            try:
-                from dashboard.utils.redis_client import get_redis_client
-                get_redis_client().redis.delete(idem_redis_key + ':inflight')
-            except Exception:
-                pass
 
 
 def _finalize_project_creation_bg(code, data, project_data, user_email='unknown', ip_address=None):
