@@ -848,6 +848,20 @@ export default class ModernProjectFilters {
    * 필터 초기화
    */
   resetFilters() {
+    // 수금 관리 토글부터 처리 (편집 모드였을 때 dirty 확인 다이얼로그 우선 노출)
+    // 사용자가 취소하면 나머지 필터 리셋도 안 하는 게 자연스러움.
+    const receivablesToggle = document.getElementById('receivablesToggle');
+    if (receivablesToggle && receivablesToggle.checked) {
+      receivablesToggle.checked = false;
+      receivablesToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      // change 리스너가 편집 모드 확인 다이얼로그에서 '취소' 를 받으면
+      // receivablesToggle.checked 를 true 로 원복함 → 이 경우 나머지 필터도 리셋 안 함.
+      if (receivablesToggle.checked) {
+        return;
+      }
+    }
+
+    // 이제 나머지 필터 리셋
     this.filters = {};
 
     if (this.searchInput) this.searchInput.value = '';
@@ -861,7 +875,10 @@ export default class ModernProjectFilters {
     if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
 
     // sessionStorage 삭제 (다음 F5 때 복원되지 않도록)
-    try { sessionStorage.removeItem('itg_filters_v1'); } catch (_) {}
+    try {
+      sessionStorage.removeItem('itg_filters_v1');
+      sessionStorage.removeItem('itg_receivables_mode');
+    } catch (_) {}
 
     // 시각적 효과 즉시 업데이트 (필터 초기화)
     this.updateFilterVisualEffects();
