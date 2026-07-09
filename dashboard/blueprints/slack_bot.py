@@ -1208,6 +1208,22 @@ def _register_as_handlers(app):
         else:
             ack(options=[])
 
+    @app.action("value")
+    def handle_as_block_action(ack, body, client):
+        """모달 내 external_select 선택 → 프로젝트 정보 pre-fill 갱신."""
+        ack()
+        if not body.get("view"):
+            return
+        action = (body.get("actions") or [{}])[0]
+        if action.get("block_id") != "as_project_code":
+            return
+        def _bg():
+            try:
+                _update_as_modal_with_project(client, body, action)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] 모달 갱신 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     logger.info(
         "[SLACK/AS봇] 핸들러 등록 완료: /as, submit_as_request, "
         "as_accept_open, submit_as_accept, as_complete_open, submit_as_complete, "
@@ -1372,6 +1388,52 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
     return blocks
 
 
+def _as_request_view_blocks(
+    initial_project_option: Optional[dict] = None,
+    project_details: Optional[dict] = None,
+    initial_request_content: str = '',
+) -> list:
+    """요청 모달 blocks — 프로젝트 선택 전/후 공용."""
+    project_element = {
+        "type": "external_select", "action_id": "value",
+        "min_query_length": 1,
+        "placeholder": {"type": "plain_text", "text": "예: G3745 / R3845 (1글자부터 검색)"},
+    }
+    if initial_project_option:
+        project_element["initial_option"] = initial_project_option
+
+    blocks: list = [
+        {
+            "type": "input", "block_id": "as_project_code",
+            "label": {"type": "plain_text", "text": "프로젝트 코드 (검색해서 선택)"},
+            "element": project_element,
+            "dispatch_action": True,  # 선택 즉시 block_actions 발동해 상세 pre-fill
+        },
+    ]
+    if project_details:
+        info = (
+            f"*🏢 사업자명:* {project_details.get('biz','-') or '-'}\n"
+            f"*📍 현장 주소:* {project_details.get('address','-') or '-'}\n"
+            f"*📋 공사 내용:* {project_details.get('work_content','-') or '-'}\n"
+            f"*📅 공사 종료일:* {project_details.get('work_end','-') or '-'}"
+        )
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
+        blocks.append({"type": "divider"})
+
+    request_element = {
+        "type": "plain_text_input", "action_id": "value", "multiline": True,
+        "placeholder": {"type": "plain_text", "text": "예: 실외기 소음 발생, 점검 필요"},
+    }
+    if initial_request_content:
+        request_element["initial_value"] = initial_request_content
+    blocks.append({
+        "type": "input", "block_id": "request_content",
+        "label": {"type": "plain_text", "text": "A/S 요청 내용"},
+        "element": request_element,
+    })
+    return blocks
+
+
 def _open_as_request_modal(client, trigger_id: str, user_id: str) -> None:
     """`/as` 슬래시 → 요청 모달."""
     metadata = json.dumps({"user_id": user_id}, ensure_ascii=False)
@@ -1382,27 +1444,54 @@ def _open_as_request_modal(client, trigger_id: str, user_id: str) -> None:
         "title": {"type": "plain_text", "text": "A/S 요청"},
         "submit": {"type": "plain_text", "text": "제출"},
         "close": {"type": "plain_text", "text": "취소"},
-        "blocks": [
-            {
-                "type": "input", "block_id": "as_project_code",
-                "label": {"type": "plain_text", "text": "프로젝트 코드 (검색해서 선택)"},
-                "element": {
-                    "type": "external_select", "action_id": "value",
-                    "min_query_length": 1,
-                    "placeholder": {"type": "plain_text", "text": "예: G3745 / R3845 (1글자부터 검색)"},
-                },
-            },
-            {
-                "type": "input", "block_id": "request_content",
-                "label": {"type": "plain_text", "text": "A/S 요청 내용"},
-                "element": {
-                    "type": "plain_text_input", "action_id": "value", "multiline": True,
-                    "placeholder": {"type": "plain_text", "text": "예: 실외기 소음 발생, 점검 필요"},
-                },
-            },
-        ],
+        "blocks": _as_request_view_blocks(),
     }
     client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _update_as_modal_with_project(client, body, action) -> None:
+    """external_select 선택 → 프로젝트 상세 pre-fill 후 views.update."""
+    from dashboard.services.as_service import get_project_details
+
+    selected_option = action.get("selected_option") or {}
+    selected_code = selected_option.get("value", '').strip()
+    if not selected_code:
+        return
+
+    view = body["view"]
+    view_id = view.get("id", '')
+    view_hash = view.get("hash", '')
+    metadata = view.get("private_metadata", '') or json.dumps({}, ensure_ascii=False)
+
+    # 기존 A/S 요청 내용 보존
+    current_content = ''
+    try:
+        current_content = (
+            (view.get("state", {}) or {}).get("values", {})
+            .get("request_content", {}).get("value", {})
+            .get("value", '') or ''
+        )
+    except Exception:
+        current_content = ''
+
+    details = get_project_details(selected_code) or {}
+    new_view = {
+        "type": "modal",
+        "callback_id": "submit_as_request",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "A/S 요청"},
+        "submit": {"type": "plain_text", "text": "제출"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": _as_request_view_blocks(
+            initial_project_option=selected_option,
+            project_details=details,
+            initial_request_content=current_content,
+        ),
+    }
+    try:
+        client.views_update(view_id=view_id, hash=view_hash, view=new_view)
+    except Exception as exc:
+        logger.warning(f"[SLACK/AS] views_update 실패: {exc}")
 
 
 def _process_as_request_submission(client, body, view) -> None:
