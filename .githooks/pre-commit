@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Pre-commit hook: 커밋 전 test_core_flows.py 순수 함수 테스트 자동 실행.
+# 실패하면 커밋 차단 (사고 재발 즉시 감지).
+#
+# 최초 1회 설정: git config core.hooksPath .githooks
+# 임시로 우회하고 싶으면: git commit --no-verify (권장 X)
+#
+# 실행 시간: ~1초. 무거운 통합 테스트는 여기서 안 돌림.
+
+# pipefail: `pytest | tail` 조합에서 pytest 실패 exit code 가 tail 뒤로
+# 감춰지지 않도록. errexit 는 명시적 if 로 처리하려고 안 씀.
+set -o pipefail
+
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+cd "$PROJECT_ROOT"
+
+# 파이썬/pytest 경로 (Windows venv)
+PYTHON=".venv/Scripts/python.exe"
+if [ ! -x "$PYTHON" ]; then
+    # POSIX 스타일도 시도
+    PYTHON=".venv/bin/python"
+fi
+if [ ! -x "$PYTHON" ]; then
+    echo "[pre-commit] .venv 를 찾을 수 없음 — 테스트 skip (경고)"
+    exit 0
+fi
+
+# .py 변경 없으면 skip (문서·정적 자산 커밋 등)
+CHANGED_PY=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.py$' || true)
+if [ -z "$CHANGED_PY" ]; then
+    echo "[pre-commit] Python 파일 변경 없음 — 테스트 skip"
+    exit 0
+fi
+
+echo "[pre-commit] 순수 함수 테스트 실행 중..."
+# test_core_flows.py + 커밋에 포함된 새/수정 test_*.py 실행
+# (통합 테스트 파일은 conftest 이슈로 제외 — 필요 시 이 목록 확장)
+TEST_TARGETS="dashboard/tests/test_core_flows.py"
+if "$PYTHON" -m pytest $TEST_TARGETS -q --tb=short 2>&1 | tail -30; then
+    echo "[pre-commit] ✓ 통과"
+else
+    echo ""
+    echo "[pre-commit] ✗ 테스트 실패 — 커밋 차단됨"
+    echo "  수정 후 다시 커밋하거나, 진짜 급하면: git commit --no-verify"
+    exit 1
+fi

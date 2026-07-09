@@ -447,6 +447,19 @@ Select-String -Path dashboard\utils\google_sheets.py -Pattern "A{next_row}"
 
 ## 10. 배포 · 문서
 
+### Git pre-commit hook (자동 회귀 감지)
+커밋할 때마다 `test_core_flows.py` 순수 함수 테스트 자동 실행. 실패하면
+커밋 차단. 실행 시간 ~1초. Python 파일 변경 없는 커밋은 skip.
+
+**최초 1회 설정** (새 clone 후):
+```powershell
+git config core.hooksPath .githooks
+```
+
+- 훅 스크립트: `.githooks/pre-commit`
+- 커밋 시 자동 실행됨, 별도 명령 불필요
+- 급하게 우회 필요 시: `git commit --no-verify` (권장 X)
+
 ### 직원 대상 배포
 - **문서 폴더 프로토콜**: [docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md)
   - 각 직원 PC에 `.reg` + `.vbs` 설치 필요
