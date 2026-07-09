@@ -5931,6 +5931,8 @@ def _process_invoice_complete(client, body) -> None:
     code = payload.get('code', '-') or '-'
     amt_digits = payload.get('amt', '') or ''
     biz = payload.get('biz', '-') or '-'
+    vat_val = payload.get('vat', 'sep') or 'sep'
+    vat_label = 'VAT 별도' if vat_val == 'sep' else 'VAT 포함'
 
     # 1) 스레드에 첨부 파일 있는지 검증 + 파일 정보 수집 (2026-07-10)
     has_file = False
@@ -6030,7 +6032,7 @@ def _process_invoice_complete(client, body) -> None:
                     f'✅ *세금계산서 발행 완료*  `{code}`\n'
                     f'━━━━━━━━━━━━━━━━━━━━\n'
                     f':office: *사업자명* : {biz_display}\n'
-                    f':moneybag: *발행 금액* : *{amt_display}*\n'
+                    f':moneybag: *발행 금액* : *{amt_display}*  _({vat_label})_\n'
                     f':bust_in_silhouette: *처리자* : {initial_for_msg}\n'
                     f':clock3: *완료 시간* : {complete_time_full}\n'
                     f'\n'
@@ -6041,8 +6043,8 @@ def _process_invoice_complete(client, body) -> None:
         },
     ]
 
-    # fallback text (알림 프리뷰용)
-    confirm_text = f"✅ 세금계산서 발행 완료 · {code} · {amt_display} · {biz_display}"
+    # fallback text (알림 프리뷰용) — 부가세 여부 함께
+    confirm_text = f"✅ 세금계산서 발행 완료 · {code} · {amt_display} ({vat_label}) · {biz_display}"
     try:
         client.chat_postMessage(
             channel=channel, text=confirm_text, blocks=confirm_blocks,
