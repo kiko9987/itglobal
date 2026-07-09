@@ -56,6 +56,71 @@ export default class ModernProjectFilters {
     this.bindEvents();
     this.updateResultCount(0);
     await this.fetchResignedManagers();
+    // sessionStorage 에 저장된 필터 상태 복원 (F5 후 이어서 작업)
+    this._restoreFiltersFromStorage();
+  }
+
+  /**
+   * sessionStorage 에서 필터 상태 복원.
+   * this.filters 만 채우고, UI select 값은 populateAllFilters 후 _syncUIFromFilters 로 반영.
+   */
+  _restoreFiltersFromStorage() {
+    try {
+      const raw = sessionStorage.getItem('itg_filters_v1');
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (saved && typeof saved === 'object') {
+        this.filters = saved;
+        logger.debug('[Filters] sessionStorage 에서 복원:', saved);
+      }
+    } catch (err) {
+      logger.warn('[Filters] 복원 실패:', err);
+    }
+  }
+
+  /**
+   * 현재 this.filters 값을 UI select/input 요소에 반영.
+   * populateAllFilters 후 (옵션 채워진 후) 호출해야 select value 세팅 가능.
+   */
+  _syncUIFromFilters() {
+    const f = this.filters || {};
+    // 저장된 값이 dropdown 옵션에 없으면 filters 에서도 삭제 (stale 방지)
+    // 예: 저장된 담당자가 삭제·이름 변경돼서 옵션에 없는 경우 → 필터 결과 0건 오해 방지
+    const setSelectSafe = (el, filterKey) => {
+      if (!el || !(filterKey in f)) return;
+      const wanted = f[filterKey] || '';
+      el.value = wanted;
+      if (wanted && el.value !== wanted) {
+        // 옵션에 없어서 브라우저가 세팅 못 함 → filters 정리
+        delete this.filters[filterKey];
+        el.value = '';
+      }
+    };
+    if (this.searchInput && 'search' in f) this.searchInput.value = f.search || '';
+    setSelectSafe(this.companyFilter, 'company');
+    setSelectSafe(this.clientFilter, 'client');
+    setSelectSafe(this.businessNameFilter, 'businessName');
+    setSelectSafe(this.statusFilter, 'status');
+    setSelectSafe(this.dataFilter, 'data');
+    setSelectSafe(this.managerFilter, 'manager');
+    setSelectSafe(this.outstandingFilter, 'outstanding');
+    if (this.myProjectsOnlyCheckbox && f.myProjectsOnly !== undefined) {
+      this.myProjectsOnlyCheckbox.checked = !!f.myProjectsOnly;
+    }
+  }
+
+  /**
+   * 현재 필터 상태 sessionStorage 에 저장.
+   */
+  _persistFiltersToStorage() {
+    try {
+      // myProjectsOnly 체크박스는 filters 에 별도 표시 (managerFilter 와 다름)
+      const snapshot = { ...this.filters };
+      if (this.myProjectsOnlyCheckbox && this.myProjectsOnlyCheckbox.checked) {
+        snapshot.myProjectsOnly = true;
+      }
+      sessionStorage.setItem('itg_filters_v1', JSON.stringify(snapshot));
+    } catch (_) { /* private mode 등 무시 */ }
   }
 
   /**
@@ -233,6 +298,11 @@ export default class ModernProjectFilters {
       this.currentData = data;
       this.isDataLoaded = true;
       this.populateAllFilters(data);
+      // 동적 옵션 생성 후 저장된 필터 값을 UI select 에 반영
+      // (init 단계에서 복원한 this.filters 값이 dropdown 채워지길 기다렸다가 select value 세팅)
+      this._syncUIFromFilters();
+      // 시각적 효과도 최신 상태 반영
+      this.updateFilterVisualEffects();
       dataUpdated = true;
     }
 
@@ -379,6 +449,9 @@ export default class ModernProjectFilters {
 
     // 필터 시각적 효과 업데이트
     this.updateFilterVisualEffects();
+
+    // 필터 상태 sessionStorage 저장 (F5 시 복원용)
+    this._persistFiltersToStorage();
 
     // 콜백 함수들 실행 (조건부)
     if (triggerCallbacks) {
@@ -769,6 +842,9 @@ export default class ModernProjectFilters {
     if (this.managerFilter) this.managerFilter.value = '';
     if (this.outstandingFilter) this.outstandingFilter.value = '';
     if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
+
+    // sessionStorage 삭제 (다음 F5 때 복원되지 않도록)
+    try { sessionStorage.removeItem('itg_filters_v1'); } catch (_) {}
 
     // 시각적 효과 즉시 업데이트 (필터 초기화)
     this.updateFilterVisualEffects();
