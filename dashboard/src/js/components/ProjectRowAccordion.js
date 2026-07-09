@@ -2265,6 +2265,7 @@ export default class ProjectRowAccordion {
       if (!response.ok) {
         // 서버의 구체적인 에러 메시지 읽기
         let errorMessage = `저장 중 오류가 발생했습니다 (HTTP ${response.status})`;
+        let serverErrorId = null;
         try {
           const errorData = await response.json();
           if (errorData.message) {
@@ -2276,11 +2277,15 @@ export default class ProjectRowAccordion {
               errorMessage += ` (필드: ${errorData.field})`;
             }
           }
+          serverErrorId = errorData.error_id || errorData.errorId || null;
         } catch (e) {
           // JSON 파싱 실패 시 기본 메시지 사용
           console.error('Failed to parse error response:', e);
         }
-        throw new Error(errorMessage);
+        const err = new Error(errorMessage);
+        if (serverErrorId) err.error_id = serverErrorId;
+        err.status = response.status;
+        throw err;
       }
 
       const result = await response.json();
@@ -2917,7 +2922,9 @@ export default class ProjectRowAccordion {
 
         this.showMessage('공사가 취소되었습니다.', 'success');
       } else {
-        throw new Error(result.error || '공사 취소에 실패했습니다.');
+        const err = new Error(result.error || '공사 취소에 실패했습니다.');
+        if (result.error_id) err.error_id = result.error_id;
+        throw err;
       }
 
     } catch (error) {
@@ -3015,7 +3022,9 @@ export default class ProjectRowAccordion {
         resumeBtn.disabled = false;
         resumeBtn.innerHTML = originalBtnHTML;
       } else {
-        throw new Error(result.error || '공사 재개에 실패했습니다.');
+        const err = new Error(result.error || '공사 재개에 실패했습니다.');
+        if (result.error_id) err.error_id = result.error_id;
+        throw err;
       }
 
     } catch (error) {

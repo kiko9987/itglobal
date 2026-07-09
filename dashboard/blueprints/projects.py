@@ -3274,6 +3274,77 @@ def sheet_write_queue_retry(op_id):
     return jsonify({'success': ok})
 
 
+@projects_bp.route('/api/admin/slack-health', methods=['GET'])
+@admin_required
+def slack_health_stats():
+    """슬랙 API 최근 5분 실패 통계 (관리자용)."""
+    from ..utils.slack_health import get_stats as _slack_stats
+    return jsonify({'success': True, 'stats': _slack_stats()})
+
+
+@projects_bp.route('/admin/data-integrity')
+@admin_required
+def admin_data_integrity_page():
+    """캐시 ↔ 시트 정합성 감사 페이지."""
+    return render_template('admin_data_integrity.html')
+
+
+@projects_bp.route('/api/admin/data-integrity/check', methods=['POST'])
+@admin_required
+def admin_data_integrity_check():
+    """캐시된 프로젝트 목록 vs Google Sheets 실제 read 결과 diff.
+
+    write-behind 큐 도입 후 워커 실패로 캐시-시트 불일치가 조용히 누적될 수 있어
+    관리자가 원할 때 강제로 재검증.
+
+    비교 대상: 프로젝트 코드 A열 존재 유무 + 매출·수금·상태 3개 필드값.
+    """
+    from ..services.project_service import get_project_records
+    try:
+        cached = get_project_records(force_refresh=False) or []
+        fresh = get_project_records(force_refresh=True) or []
+    except Exception as exc:
+        logger.error(f'[DATA_INTEGRITY] 데이터 fetch 실패: {exc}', exc_info=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+    def _by_code(records):
+        return {r.get('프로젝트 코드', ''): r for r in records if r.get('프로젝트 코드')}
+    cache_map = _by_code(cached)
+    sheet_map = _by_code(fresh)
+
+    only_in_cache = sorted(set(cache_map) - set(sheet_map))
+    only_in_sheet = sorted(set(sheet_map) - set(cache_map))
+    common = set(cache_map) & set(sheet_map)
+
+    mismatched = []
+    compare_fields = ['매출', '수금 확인', '상태']
+    for code in sorted(common):
+        c = cache_map[code]
+        s = sheet_map[code]
+        diffs = {}
+        for f in compare_fields:
+            cv = c.get(f, '')
+            sv = s.get(f, '')
+            if cv != sv:
+                diffs[f] = {'cache': str(cv)[:100], 'sheet': str(sv)[:100]}
+        if diffs:
+            mismatched.append({'code': code, 'diffs': diffs})
+
+    return jsonify({
+        'success': True,
+        'summary': {
+            'cache_total': len(cache_map),
+            'sheet_total': len(sheet_map),
+            'only_in_cache': len(only_in_cache),
+            'only_in_sheet': len(only_in_sheet),
+            'mismatched': len(mismatched),
+        },
+        'only_in_cache': only_in_cache[:50],
+        'only_in_sheet': only_in_sheet[:50],
+        'mismatched': mismatched[:50],
+    })
+
+
 # ============================================
 # Sheet write-behind 큐 핸들러 (2026-07-09)
 # ============================================

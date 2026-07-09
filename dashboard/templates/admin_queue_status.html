@@ -37,6 +37,16 @@
     </div>
   </div>
 
+  <div class="card mb-4">
+    <div class="card-header">
+      <strong>슬랙 API 최근 5분 실패</strong>
+      <small class="text-muted">— 임계값 3건 초과 시 관리자 슬랙 DM (5분 쿨다운)</small>
+    </div>
+    <div class="card-body">
+      <div id="slack-health-body" class="small text-muted">로딩 중...</div>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-header">
       <strong>최근 실패한 op (최대 10건)</strong>
@@ -63,6 +73,31 @@
 </div>
 
 <script>
+  async function refreshSlackHealth() {
+    try {
+      const r = await fetch('/api/admin/slack-health', { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const stats = data.stats || {};
+      const el = document.getElementById('slack-health-body');
+      const keys = Object.keys(stats).filter(k => k !== 'error');
+      if (stats.error) {
+        el.innerHTML = `<span class="text-warning">조회 실패: ${stats.error}</span>`;
+      } else if (keys.length === 0) {
+        el.innerHTML = '<span class="text-success">정상 — 최근 5분 슬랙 API 실패 없음</span>';
+      } else {
+        el.innerHTML = keys.map(api => {
+          const cnt = stats[api];
+          const danger = cnt >= 3 ? 'text-danger fw-bold' : 'text-warning';
+          return `<div class="${danger}"><code>${api}</code>: ${cnt}건</div>`;
+        }).join('');
+      }
+    } catch (e) {
+      document.getElementById('slack-health-body').innerHTML =
+        `<span class="text-warning">조회 실패: ${e.message}</span>`;
+    }
+  }
+
   async function refreshStats() {
     try {
       const r = await fetch('/api/admin/sheet-write-queue', { credentials: 'same-origin' });
@@ -117,6 +152,8 @@
   }
 
   refreshStats();
+  refreshSlackHealth();
   setInterval(refreshStats, 5000);
+  setInterval(refreshSlackHealth, 5000);
 </script>
 {% endblock %}

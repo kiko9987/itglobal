@@ -121,13 +121,62 @@ def _v_multi(state, block_id) -> list:
 # ─────────────────────────────────────────────────────────────
 # 직원 이니셜 매핑 (시트 A열 수식과 동일)
 # ─────────────────────────────────────────────────────────────
-SALES_INITIALS = {
+# 조회 우선순위:
+#   1) Redis 캐시 `user:project_code_suffix:{email}` — 관리자 UI 편집 결과
+#      (users.py `_get_user_suffix` 와 동일 소스)
+#   2) project_config.json 의 `owner_suffix_map`
+#   3) 아래 하드코딩 SALES_INITIALS (부팅 오류 등 fallback)
+# 신규 매니저 이니셜 추가 시:
+#   - 관리자 UI `/admin/users` 에서 project_code_suffix 편집 (Redis 반영 즉시)
+#   - 또는 `dashboard/project_config.json` `owner_suffix_map` 수정 후 재시작
+_SALES_INITIALS_FALLBACK = {
     '박용구': 'YG', '박정우': 'JW', '강성환': 'SH', '박민우': 'MW',
     '이근혁': 'GH', '김호중': 'HJ', '아이티': 'IT', '김단이': 'DN',
     '권태훈': 'TH', '주영민': 'YM', '심장원': 'SJW', '빈승정': 'SJ',
     '박민재': 'MJ', '조성헌': 'JSH', '황해승': 'HS', '강민석': 'MS',
     '강정권': 'JK', '이상덕': 'SD', '고광일': 'KiKO',
 }
+
+
+def _load_initials_from_config() -> dict:
+    """project_config.json + 하드코딩 fallback 병합. 실패 시 fallback만."""
+    merged = dict(_SALES_INITIALS_FALLBACK)
+    try:
+        from dashboard.services import project_service
+        cfg_map = (project_service.PROJECT_CONFIG or {}).get('owner_suffix_map') or {}
+        merged.update({str(k): str(v) for k, v in cfg_map.items() if k and v})
+    except Exception:
+        pass  # fallback 만 사용
+    return merged
+
+
+def _lookup_initial_by_name(name: str) -> str:
+    """이름 → 이니셜. Redis(관리자 편집) → config → fallback 순."""
+    if not name:
+        return ''
+    # 1) users 테이블 조회 → email 알아내서 Redis 확인
+    try:
+        from dashboard.utils.user_database import get_user_database
+        from dashboard.utils.redis_client import get_redis_client
+        users = get_user_database().get_all_users() or []
+        target_email = None
+        for u in users:
+            if u.get('name', '').strip() == name.strip():
+                target_email = u.get('email', '').strip()
+                break
+        if target_email:
+            rc = get_redis_client()
+            v = rc.get(f'user:project_code_suffix:{target_email}')
+            if v:
+                return v.decode() if isinstance(v, bytes) else v
+    except Exception:
+        pass
+    # 2) config + fallback 병합 조회
+    return _load_initials_from_config().get(name, '')
+
+
+# 하위 호환 (기존 코드가 SALES_INITIALS[name] 형태로 참조하는 경우 대비)
+SALES_INITIALS = _SALES_INITIALS_FALLBACK
 
 
 # Slack이 저장 시 unicode 이모지를 :bell: 같은 shortcode로 정규화해
@@ -187,7 +236,7 @@ def _normalize_shortcodes_to_unicode(text: str) -> str:
 
 def _to_initial(name: str) -> str:
     """한국 이름 / 이니셜 / 빈값 → 이니셜 통일.
-    - 한국 이름 → SALES_INITIALS 매핑
+    - 한국 이름 → Redis(관리자 편집) → project_config.json → fallback dict 순 조회
     - 영문 2~5자 → 대문자 ('KiKO' 예외)
     - 매핑 없으면 원본 그대로
     """
@@ -196,8 +245,9 @@ def _to_initial(name: str) -> str:
     name = name.strip()
     if not name or name in ('-', '미정'):
         return ''
-    if name in SALES_INITIALS:
-        return SALES_INITIALS[name]
+    looked = _lookup_initial_by_name(name)
+    if looked:
+        return looked
     if re.match(r'^[A-Za-z]{2,5}$', name):
         if name.lower() == 'kiko':
             return 'KiKO'

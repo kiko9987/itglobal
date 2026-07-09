@@ -1,0 +1,153 @@
+{% extends "modern_base.html" %}
+
+{% block title %}데이터 정합성 감사 · 관리자{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4" style="max-width: 1100px;">
+  <h2 class="mb-3">🔍 데이터 정합성 감사</h2>
+  <p class="text-muted small">
+    캐시(Redis)와 Google Sheets 실제 값을 비교합니다. write-behind 큐 워커 실패로
+    시트에 반영 안 된 op가 있을 수 있어 관리자가 원할 때 강제 재검증합니다.
+  </p>
+
+  <div class="alert alert-info small">
+    <strong>주의</strong>: 검사 시 Google Sheets 전체를 재로드하므로 10~30초 걸릴 수 있습니다.
+    실행 중에도 다른 매니저 작업은 영향받지 않습니다 (별도 read).
+  </div>
+
+  <button id="run-check" class="btn btn-primary mb-4">
+    <i class="fas fa-sync me-2"></i>정합성 검사 실행
+  </button>
+  <span id="run-status" class="ms-3 text-muted"></span>
+
+  <div id="result-panel" style="display: none;">
+    <div class="row g-3 mb-4">
+      <div class="col-md-3">
+        <div class="card"><div class="card-body text-center">
+          <div class="text-muted small">캐시 프로젝트 수</div>
+          <div class="fs-3 fw-bold" id="stat-cache">-</div>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card"><div class="card-body text-center">
+          <div class="text-muted small">시트 프로젝트 수</div>
+          <div class="fs-3 fw-bold" id="stat-sheet">-</div>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card"><div class="card-body text-center">
+          <div class="text-muted small text-warning">캐시에만 있음</div>
+          <div class="fs-3 fw-bold text-warning" id="stat-only-cache">-</div>
+        </div></div>
+      </div>
+      <div class="col-md-3">
+        <div class="card"><div class="card-body text-center">
+          <div class="text-muted small text-danger">필드 불일치</div>
+          <div class="fs-3 fw-bold text-danger" id="stat-mismatch">-</div>
+        </div></div>
+      </div>
+    </div>
+
+    <div id="section-only-cache" class="card mb-3" style="display:none;">
+      <div class="card-header"><strong class="text-warning">캐시에만 있는 프로젝트 (시트 반영 지연 가능)</strong></div>
+      <div class="card-body"><div id="only-cache-body" class="small"></div></div>
+    </div>
+
+    <div id="section-only-sheet" class="card mb-3" style="display:none;">
+      <div class="card-header"><strong>시트에만 있는 프로젝트 (수동 편집 흔적?)</strong></div>
+      <div class="card-body"><div id="only-sheet-body" class="small"></div></div>
+    </div>
+
+    <div id="section-mismatch" class="card mb-3" style="display:none;">
+      <div class="card-header"><strong class="text-danger">핵심 필드 불일치 (매출·수금·상태)</strong></div>
+      <div class="card-body">
+        <table class="table table-sm">
+          <thead><tr><th>프로젝트</th><th>필드</th><th>캐시</th><th>시트</th></tr></thead>
+          <tbody id="mismatch-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="all-clear" class="alert alert-success" style="display:none;">
+      ✅ 정합성 이상 없음 — 캐시와 시트가 완전히 일치합니다.
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('run-check').addEventListener('click', async () => {
+    const btn = document.getElementById('run-check');
+    const status = document.getElementById('run-status');
+    btn.disabled = true;
+    status.textContent = '검사 중... (10~30초)';
+    document.getElementById('result-panel').style.display = 'none';
+    try {
+      const r = await fetch('/api/admin/data-integrity/check', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await r.json();
+      if (!data.success) throw new Error(data.error || 'unknown');
+      renderResult(data);
+      status.textContent = '완료';
+    } catch (e) {
+      status.textContent = '실패: ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  function renderResult(data) {
+    document.getElementById('result-panel').style.display = 'block';
+    const s = data.summary;
+    document.getElementById('stat-cache').textContent = s.cache_total;
+    document.getElementById('stat-sheet').textContent = s.sheet_total;
+    document.getElementById('stat-only-cache').textContent = s.only_in_cache;
+    document.getElementById('stat-mismatch').textContent = s.mismatched;
+
+    // 캐시에만 있음
+    const secOC = document.getElementById('section-only-cache');
+    if (data.only_in_cache.length > 0) {
+      secOC.style.display = 'block';
+      document.getElementById('only-cache-body').innerHTML =
+        data.only_in_cache.map(c => `<code class="me-2">${c}</code>`).join('');
+    } else {
+      secOC.style.display = 'none';
+    }
+
+    // 시트에만 있음
+    const secOS = document.getElementById('section-only-sheet');
+    if (data.only_in_sheet.length > 0) {
+      secOS.style.display = 'block';
+      document.getElementById('only-sheet-body').innerHTML =
+        data.only_in_sheet.map(c => `<code class="me-2">${c}</code>`).join('');
+    } else {
+      secOS.style.display = 'none';
+    }
+
+    // 필드 불일치
+    const secM = document.getElementById('section-mismatch');
+    if (data.mismatched.length > 0) {
+      secM.style.display = 'block';
+      const rows = [];
+      for (const item of data.mismatched) {
+        for (const [f, v] of Object.entries(item.diffs)) {
+          rows.push(`<tr>
+            <td><code>${item.code}</code></td>
+            <td>${f}</td>
+            <td class="text-warning">${v.cache}</td>
+            <td class="text-info">${v.sheet}</td>
+          </tr>`);
+        }
+      }
+      document.getElementById('mismatch-tbody').innerHTML = rows.join('');
+    } else {
+      secM.style.display = 'none';
+    }
+
+    // 문제 없음
+    const clean = s.only_in_cache === 0 && s.only_in_sheet === 0 && s.mismatched === 0;
+    document.getElementById('all-clear').style.display = clean ? 'block' : 'none';
+  }
+</script>
+{% endblock %}

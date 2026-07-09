@@ -11,7 +11,9 @@
 | Vite 빌드 산출물 | `dashboard/static/dist/` | 프론트엔드 JS 변경 시 `npm run build` 필요 |
 | Redis | Docker 컨테이너 (`redis:alpine`) | 포트 6379, 볼륨 `redis-data`, AOF+RDB 영속화. Pub/Sub · 캐시 · **Sheet write-behind 큐** · 프로젝트 락 |
 | Sheet write-behind 큐 워커 | Flask 프로세스 내부 데몬 스레드 | Google Sheets API 지연 UX 분리. `/admin/queue-status` 로 모니터링 |
-| 일 백업 스케줄러 | APScheduler cron (매일 03:15) | `scripts/backup_daily.py` — users.db + Redis dump.rdb, 30일 유지 |
+| 일 백업 스케줄러 | APScheduler cron (매일 03:15) | `scripts/backup_daily.py` — users.db + Redis dump.rdb + 시크릿, 30일 유지 + 30일 이상 로그 자동 삭제 |
+| 슬랙 API 실패 자동 감지 | 로깅 필터 (`_SlackErrorSnooper`) | 5분 이내 3건 초과 시 관리자 슬랙 DM. `/admin/queue-status` 카드로 실시간 확인 |
+| 데이터 정합성 감사 | 관리자 페이지 `/admin/data-integrity` | write-behind 워커 실패 조용한 누적 감지. 캐시 vs 시트 실제 diff |
 | 라우터 포트포워딩 | 외부 443 → 내부 PC:443 | DDNS 도메인: `pm.itg-aircon.com` |
 | Google Sheets | 외부 API | 서비스 계정 credentials.json |
 | Google Drive | 외부 API + 로컬 동기화 | 시설별 폴더 자동 생성 |

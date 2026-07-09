@@ -85,11 +85,13 @@ export function getFriendlyErrorMessage(error, context = '') {
   let errorCode = null;
   let errorType = null;
   let originalMessage = '';
+  let errorId = null;
 
   // Error 객체 파싱
   if (error instanceof Error) {
     originalMessage = error.message;
     errorType = error.name;
+    if (error.error_id || error.errorId) errorId = error.error_id || error.errorId;
   } else if (typeof error === 'object') {
     // HTTP Response 객체
     if (error.status) {
@@ -106,6 +108,11 @@ export function getFriendlyErrorMessage(error, context = '') {
     if (error.type) {
       errorType = error.type;
     }
+    // 서버가 보낸 error_id 추출 (관리자 문의 시 로그 추적용)
+    if (error.error_id) errorId = error.error_id;
+    else if (error.errorId) errorId = error.errorId;
+    else if (error.body?.error_id) errorId = error.body.error_id;
+    else if (error.data?.error_id) errorId = error.data.error_id;
   } else if (typeof error === 'string') {
     originalMessage = error;
 
@@ -170,7 +177,8 @@ export function getFriendlyErrorMessage(error, context = '') {
     message: errorInfo.message,
     action: errorInfo.action,
     originalError: originalMessage || (typeof error === 'string' ? error : JSON.stringify(error)),
-    code: errorCode || errorType || 'UNKNOWN'
+    code: errorCode || errorType || 'UNKNOWN',
+    errorId: errorId || null,
   };
 }
 
@@ -183,11 +191,20 @@ export function getFriendlyErrorMessage(error, context = '') {
 export function showFriendlyError(error, context = '', options = {}) {
   const friendlyError = getFriendlyErrorMessage(error, context);
 
+  // Error ID (관리자 문의 시 로그 추적용) — 있으면 표시
+  const idBlock = friendlyError.errorId
+    ? `<div class="error-toast-id" style="font-size:0.75rem;color:#888;margin-top:4px;">오류 ID: <code>${friendlyError.errorId}</code> (관리자에게 전달)</div>`
+    : '';
+  const idAlertLine = friendlyError.errorId
+    ? `\n\n오류 ID: ${friendlyError.errorId} (관리자에게 전달)`
+    : '';
+
   // Toast 메시지 생성
   const message = `
     <div class="error-toast-content">
       <div class="error-toast-message">${friendlyError.message}</div>
       <div class="error-toast-action">${friendlyError.action}</div>
+      ${idBlock}
     </div>
   `;
 
@@ -197,13 +214,13 @@ export function showFriendlyError(error, context = '', options = {}) {
       title: friendlyError.title,
       message: message,
       type: 'error',
-      duration: options.duration || 5000,
+      duration: options.duration || (friendlyError.errorId ? 10000 : 5000), // ID 있으면 오래 노출
       ...options
     });
   }
   // Fallback: Alert
   else {
-    alert(`${friendlyError.title}\n\n${friendlyError.message}\n\n💡 ${friendlyError.action}`);
+    alert(`${friendlyError.title}\n\n${friendlyError.message}\n\n💡 ${friendlyError.action}${idAlertLine}`);
   }
 
   // 콘솔에 원본 에러 로깅 (디버깅용)

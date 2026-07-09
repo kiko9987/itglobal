@@ -156,6 +156,39 @@ class LoggingConfig:
         # Flask 관련 로거 설정
         self._configure_third_party_loggers()
 
+        # 슬랙 API 실패 감지 필터 (P1-6, 2026-07-09~)
+        root_logger.addFilter(_SlackErrorSnooper())
+
+
+class _SlackErrorSnooper(logging.Filter):
+    """[SLACK/...] 프리픽스 + ERROR 레벨 로그를 감시.
+
+    발생 시 dashboard.utils.slack_health.record_slack_api_failure 호출.
+    항상 True 반환 (로그 흐름 변경 없음).
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            if record.levelno < logging.ERROR:
+                return True
+            msg = record.getMessage()
+            if '[SLACK/' not in msg and 'slack' not in record.name.lower():
+                return True
+            # 지연 import (부팅 순서 이슈 방지)
+            from dashboard.utils.slack_health import record_slack_api_failure
+            # API 이름 추출: '[SLACK/AS] 요청 모달 열기 실패' → 'AS'
+            api = 'unknown'
+            if '[SLACK/' in msg:
+                try:
+                    api = msg.split('[SLACK/', 1)[1].split(']', 1)[0]
+                except Exception:
+                    pass
+            exc = record.exc_info[1] if record.exc_info else Exception(msg[:200])
+            record_slack_api_failure(f'slack.{api}', exc, context={'logger': record.name, 'msg': msg[:150]})
+        except Exception:
+            pass  # 감시 로직 자체가 로그 흐름을 막지 못하게
+        return True
+
     def _add_console_handler(self, logger: logging.Logger):
         """콘솔 핸들러 추가 (UTF-8 인코딩)"""
         # UTF-8 인코딩된 stdout 스트림 생성 (Windows CP949 문제 해결)
