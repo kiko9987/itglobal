@@ -1157,6 +1157,24 @@ def _register_as_handlers(app):
 
     @app.view("submit_as_accept")
     def handle_submit_as_accept(ack, body, client, view):
+        # 방문 유형이 내부/외주면 담당자 이름 필수 검증
+        values = view.get("state", {}).get("values", {})
+        visitor_type = ''
+        try:
+            opt = values.get("visitor_type", {}).get("value", {}).get("selected_option", {})
+            visitor_type = (opt or {}).get("value", '') or ''
+        except Exception:
+            pass
+        visitor_name = ''
+        try:
+            visitor_name = (values.get("visitor_name", {}).get("value", {}) or {}).get("value", '') or ''
+        except Exception:
+            pass
+        if visitor_type in ('내부', '외주') and not visitor_name.strip():
+            ack(response_action="errors", errors={
+                "visitor_name": "내부/외주 방문 시 담당자 이름을 입력해야 합니다.",
+            })
+            return
         ack()
         def _bg():
             try:
@@ -1580,17 +1598,25 @@ def _process_as_request_submission(client, body, view) -> None:
 
 
 def _open_as_accept_modal(client, body) -> None:
-    """[✅ A/S 접수하기] 클릭 → 접수 모달 (방문 예정자·일자)."""
-    from dashboard.services.as_service import list_visitor_candidates
+    """[✅ A/S 접수하기] 클릭 → 접수 모달.
+
+    방문 유형(서비스 기사/내부/외주) 선택 후 담당자 이름을 별도 칸에 입력.
+    서비스 기사 방문 시 담당자 이름 칸은 비워두면 되고, 그 외에는 필수.
+    """
     trigger_id = body["trigger_id"]
     as_no = (body["actions"][0].get("value") or '').strip()
     channel = body.get("channel", {}).get("id", "")
     message_ts = body.get("message", {}).get("ts", "")
 
-    candidates = list_visitor_candidates()
     metadata = json.dumps({
         "as_no": as_no, "channel": channel, "message_ts": message_ts,
     }, ensure_ascii=False)
+
+    visitor_type_options = [
+        {"text": {"type": "plain_text", "text": "서비스 기사"}, "value": "서비스 기사"},
+        {"text": {"type": "plain_text", "text": "내부 (아이티)"}, "value": "내부"},
+        {"text": {"type": "plain_text", "text": "외주 (시공자)"}, "value": "외주"},
+    ]
 
     view = {
         "type": "modal",
@@ -1602,15 +1628,21 @@ def _open_as_accept_modal(client, body) -> None:
         "blocks": [
             {"type": "section", "text": {"type": "mrkdwn", "text": f"`{as_no}` A/S를 접수합니다."}},
             {
-                "type": "input", "block_id": "visitor",
-                "label": {"type": "plain_text", "text": "방문 예정자"},
+                "type": "input", "block_id": "visitor_type",
+                "label": {"type": "plain_text", "text": "방문 유형"},
                 "element": {
                     "type": "static_select", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "선택"},
-                    "options": [
-                        {"text": {"type": "plain_text", "text": c[:75]}, "value": c[:75]}
-                        for c in candidates[:100]
-                    ],
+                    "options": visitor_type_options,
+                },
+            },
+            {
+                "type": "input", "block_id": "visitor_name", "optional": True,
+                "label": {"type": "plain_text", "text": "담당자 이름 (내부/외주 방문 시 필수)"},
+                "hint": {"type": "plain_text", "text": "서비스 기사 방문 시 작성 X"},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "예: 김철수"},
                 },
             },
             {
@@ -1645,12 +1677,23 @@ def _process_as_accept_submission(client, body, view) -> None:
         return
 
     values = view["state"]["values"]
-    visitor = ''
+    visitor_type = ''
     try:
-        opt = values.get("visitor", {}).get("value", {}).get("selected_option", {})
-        visitor = (opt or {}).get("value", '') or ''
+        opt = values.get("visitor_type", {}).get("value", {}).get("selected_option", {})
+        visitor_type = (opt or {}).get("value", '') or ''
     except Exception:
         pass
+    visitor_name = ''
+    try:
+        visitor_name = (values.get("visitor_name", {}).get("value", {}) or {}).get("value", '') or ''
+    except Exception:
+        pass
+    visitor_name = visitor_name.strip()
+    # 서비스 기사 → '서비스 기사' 그대로. 내부/외주 → 입력한 담당자 이름을 그대로 사용.
+    if visitor_type == '서비스 기사':
+        visitor = '서비스 기사'
+    else:
+        visitor = visitor_name or visitor_type or '-'
     date_start = (values.get("visit_date_start", {}).get("value", {}) or {}).get("selected_date", '') or ''
     date_end = (values.get("visit_date_end", {}).get("value", {}) or {}).get("selected_date", '') or ''
     visit_date = _format_visit_date_range(date_start, date_end)
