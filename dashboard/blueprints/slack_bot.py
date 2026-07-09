@@ -775,6 +775,23 @@ def _register_handlers(app):
                     except Exception:
                         pass
                     logger.warning(f"[ChannelTalk→] 슬랙→채널톡 전송 실패 (chat_id={chat_id})")
+                    # 매니저에게 명시적 ephemeral 안내 (2026-07-10 CT1)
+                    # 리액션 X 만으로는 놓칠 수 있음. 답변 안 갔음을 확실히 인지시킴.
+                    try:
+                        user_id = event.get('user', '')
+                        if user_id:
+                            client.chat_postEphemeral(
+                                channel=event["channel"],
+                                user=user_id,
+                                thread_ts=thread_ts,
+                                text=(
+                                    ':warning: *답변이 고객에게 전송되지 않았습니다.*\n'
+                                    '채널톡 API 오류로 실패했습니다. 잠시 후 답글에 같은 내용을 다시 입력해 주세요.\n'
+                                    '_반복 실패 시 관리자에게 문의하세요._'
+                                ),
+                            )
+                    except Exception as ephemeral_exc:
+                        logger.debug(f'[ChannelTalk→] ephemeral 실패 (무시): {ephemeral_exc}')
             except Exception as exc:
                 logger.error(f"[ChannelTalk→] thread 답글 처리 예외: {exc}", exc_info=True)
 
