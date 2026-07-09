@@ -1448,6 +1448,32 @@ export default class ProjectTable {
       return;
     }
 
+    // 초기값 복원: 우선순위 = URL query > sessionStorage > 기본(false)
+    // URL query `?receivables=1` → 통계 페이지의 '수금관리' 링크로 진입 시 자동 활성.
+    // sessionStorage → 새로고침(F5) 시 이전 모드 유지.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get('receivables');
+      const fromStorage = sessionStorage.getItem('itg_receivables_mode');
+      let initial = false;
+      if (fromUrl === '1') {
+        initial = true;
+        // URL 파라미터 정리 (다음 새로고침엔 sessionStorage 만 참조)
+        params.delete('receivables');
+        const clean = window.location.pathname + (params.toString() ? '?' + params : '') + window.location.hash;
+        window.history.replaceState({}, '', clean);
+      } else if (fromStorage === '1') {
+        initial = true;
+      }
+      if (initial) {
+        toggle.checked = true;
+        // change 이벤트 발생시켜 실제 모드 전환 실행 (컬럼 visibility, 필터 등)
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } catch (err) {
+      logger.warn('[ProjectTable] 수금 모드 초기값 복원 실패:', err);
+    }
+
     toggle.addEventListener('change', async (e) => {
       // 🔒 모드 전환 시 편집 중인 아코디언 처리
       if (this.accordion && this.accordion.modeManager.isEditMode()) {
@@ -1501,11 +1527,22 @@ export default class ProjectTable {
       const modeChangeSuccess = this.modeManager.setTableMode(newMode);
 
       if (!modeChangeSuccess) {
-        // 모드 변경 실패 시 토글 상태 복원
+        // 모드 변경 실패 시 토글 상태 복원 (일관성 위해 showSystemAlert 사용)
         e.target.checked = this.modeManager.isReceivablesMode();
-        alert('모드 전환에 실패했습니다. 편집 모드를 종료한 후 다시 시도해주세요.');
+        const failMsg = '모드 전환에 실패했습니다. 편집 모드를 종료한 후 다시 시도해주세요.';
+        if (window.showSystemAlert) window.showSystemAlert(failMsg, 'warning');
+        else alert(failMsg);
         return;
       }
+
+      // sessionStorage 에 모드 저장 → F5 시 복원
+      try {
+        if (newMode === TABLE_MODE.RECEIVABLES) {
+          sessionStorage.setItem('itg_receivables_mode', '1');
+        } else {
+          sessionStorage.removeItem('itg_receivables_mode');
+        }
+      } catch (_) { /* private mode 등 무시 */ }
 
       // 🔖 아코디언 상태 저장 (모드 전환 후 복원용)
       const openAccordionCode = this.accordion?.currentProject?.['프로젝트 코드'] || null;
