@@ -145,15 +145,27 @@ def _drain_processing_on_startup():
 
 
 def _worker_loop():
-    """워커 메인 루프. BRPOPLPUSH 로 atomic 이동."""
-    logger.info('[QUEUE] 워커 시작')
+    """워커 메인 루프. LPOP + RPUSH 로 낮은 오버헤드 폴링.
+
+    2026-07-09 BRPOPLPUSH 소켓 idle timeout 이슈로 lpop 폴링으로 전환.
+    처리 중 크래시 시 op 유실 가능성 있지만 캐시는 이미 반영돼 있어 사용자 영향 없음.
+    다음 refresh 에서 시트-캐시 불일치 감지되면 관리자가 큐 상태 endpoint 로 확인 가능.
+    """
+    import time as _time
+    logger.info('[QUEUE] 워커 시작 (LPOP 폴링 모드)')
     while True:
         raw = None
         try:
-            # blpop timeout=5 로 shutdown 반응 확보. processing 리스트로 이동.
-            raw = _rc().brpoplpush(QUEUE_KEY, PROCESSING_KEY, timeout=5)
+            # Non-blocking pop. 없으면 짧게 sleep.
+            raw = _rc().lpop(QUEUE_KEY)
             if raw is None:
+                _time.sleep(1.0)
                 continue
+            # processing 리스트로 이동 — 강제 종료 시 부팅 시 복구용
+            try:
+                _rc().rpush(PROCESSING_KEY, raw)
+            except Exception:
+                pass
             try:
                 op = json.loads(raw)
             except Exception as parse_exc:
