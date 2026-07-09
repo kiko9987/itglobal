@@ -591,10 +591,26 @@ def update_project_in_cache(project_code: str, updated_fields: Dict[str, Any]) -
     # False 리턴 → 호출자가 invalidate_project_cache로 fallback → 다음 로드에서 fresh.
     # 시트 저장은 이미 완료된 상태라 데이터 정합성엔 영향 없음. (2026-07-08 G3836-MS
     # "Invalid value 'TRUE' for dtype 'boolean'" 500 사고 재발 방지)
+    # 컬럼별 dtype에 맞춰 값 형변환 — 특히 boolean 컬럼(부가세·수금 확인 등)에
+    # 'TRUE'/'FALSE' 문자열 write 시 ValueError → fallback 매번 발생하던 이슈 fix.
+    def _coerce(field: str, value):
+        try:
+            col_dtype = str(cached[field].dtype)
+        except Exception:
+            return value
+        if 'bool' in col_dtype:
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str):
+                return value.strip().upper() in ('TRUE', 'Y', 'YES', '1')
+            if isinstance(value, (int, float)):
+                return bool(value)
+        return value
+
     try:
         for field, value in updated_fields.items():
             if field in cached.columns:
-                cached.at[idx, field] = value
+                cached.at[idx, field] = _coerce(field, value)
     except (ValueError, TypeError) as exc:
         logger.warning(
             f"[CACHE_UPDATE] dtype mismatch로 부분 갱신 실패 → 전체 무효화 fallback "

@@ -1004,11 +1004,22 @@ class GoogleSheetsManager:
                 )
                 return None
             except Exception as e:
-                # requests 라이브러리의 SSL 에러도 재시도 대상
+                # 재시도 대상 네트워크 예외 판별
+                # (SSL·소켓 timeout·http.client.IncompleteRead — 2026-07-09 IncompleteRead 추가)
+                is_network_err = False
                 if HAS_REQUESTS and isinstance(e, requests.exceptions.SSLError):
+                    is_network_err = True
+                    err_kind = 'requests.SSL'
+                else:
+                    import http.client as _http_client
+                    if isinstance(e, (_http_client.IncompleteRead, TimeoutError, ConnectionError)):
+                        is_network_err = True
+                        err_kind = type(e).__name__
+
+                if is_network_err:
                     last_exc = e
                     logger.warning(
-                        f"[find_row/requests.SSL] {project_code} SSL 에러 "
+                        f"[find_row/{err_kind}] {project_code} 네트워크 에러 "
                         f"(시도 {ssl_attempt+1}/{max_ssl_retries+1}): {e}"
                     )
                     if ssl_attempt < max_ssl_retries:
@@ -1019,7 +1030,7 @@ class GoogleSheetsManager:
                             pass
                         continue
                     logger.error(
-                        f"[find_row/requests.SSL] {project_code} SSL 재시도 모두 실패: {e}"
+                        f"[find_row/{err_kind}] {project_code} 재시도 모두 실패: {e}"
                     )
                     return None
                 # 그 외 예외는 재시도 없이 실패
