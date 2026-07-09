@@ -33,6 +33,7 @@ from dashboard.blueprints.slack_helpers import (
     _slack_user_to_korean_name,
     _human_duration,
     SALES_INITIALS,
+    slack_truncate,
 )
 
 logger = get_logger(__name__)
@@ -104,11 +105,50 @@ def _init_slack_app():
         # 핸들러 등록
         _register_handlers(_slack_app)
 
+        # 토큰 유효성 health check — 시작 시 즉시 인지 (2026-07-10)
+        _verify_bot_token(_slack_app.client, '메인 봇')
+
         logger.info("[SLACK] 봇 초기화 완료 ✅")
         return True
 
     except Exception as exc:
         logger.error(f"[SLACK] 봇 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _verify_bot_token(client, bot_label: str) -> bool:
+    """auth_test 호출로 봇 토큰 유효성 즉시 확인 (2026-07-10).
+
+    - 성공: team/user/user_id 로그 출력, True 반환
+    - 실패 (invalid_auth, account_inactive, token_revoked 등): 명확한 경고
+    - 네트워크 오류: warning 로그 후 True 반환 (부팅 자체는 계속)
+    """
+    try:
+        res = client.auth_test()
+        if res.get('ok'):
+            logger.info(
+                f'[SLACK/HEALTH] {bot_label} 토큰 유효 ✓ '
+                f'team={res.get("team", "?")} bot={res.get("user", "?")} '
+                f'user_id={res.get("user_id", "?")}'
+            )
+            return True
+        err = res.get('error', 'unknown')
+        logger.error(f'[SLACK/HEALTH] {bot_label} auth_test 실패: error={err}')
+        return False
+    except Exception as exc:
+        # 네트워크 등 일시 오류는 warning 만 (부팅 계속)
+        err_code = ''
+        try:
+            if hasattr(exc, 'response') and hasattr(exc.response, 'get'):
+                err_code = exc.response.get('error', '')
+        except Exception:
+            pass
+        if err_code in ('invalid_auth', 'account_inactive', 'token_revoked'):
+            logger.error(
+                f'[SLACK/HEALTH] {bot_label} 토큰 검증 실패 — 즉시 조치 필요: {err_code}'
+            )
+        else:
+            logger.warning(f'[SLACK/HEALTH] {bot_label} auth_test 예외 (계속 진행): {exc}')
         return False
 
 
@@ -137,6 +177,7 @@ def _init_project_slack_app():
         _project_slack_handler = SlackRequestHandler(_project_slack_app)
 
         _register_project_handlers(_project_slack_app)
+        _verify_bot_token(_project_slack_app.client, '공사봇')
         logger.info("[SLACK/공사봇] 초기화 완료 ✅")
         return True
     except Exception as exc:
@@ -169,6 +210,7 @@ def _init_visit_slack_app():
         _visit_slack_handler = SlackRequestHandler(_visit_slack_app)
 
         _register_visit_handlers(_visit_slack_app)
+        _verify_bot_token(_visit_slack_app.client, '방문봇')
         logger.info("[SLACK/방문봇] 초기화 완료 ✅")
         return True
     except Exception as exc:
@@ -201,6 +243,7 @@ def _init_as_slack_app():
         _as_slack_handler = SlackRequestHandler(_as_slack_app)
 
         _register_as_handlers(_as_slack_app)
+        _verify_bot_token(_as_slack_app.client, 'A/S봇')
         logger.info("[SLACK/AS봇] 초기화 완료 ✅")
         return True
     except Exception as exc:
@@ -2594,8 +2637,9 @@ def _open_inquiry_modal(client, body, action: str):
                                       "text": f"*설치 희망 장소 :* {place}"}},
         {"type": "section", "text": {"type": "mrkdwn",
                                       "text": f"*설치 희망 기기 :* {device}"}},
+        # 문의 내용은 3000자 제한 대응 — 넘치면 자동 truncate + 안내
         {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*문의 내용 :*\n{inquiry}"}},
+                                      "text": slack_truncate(f"*문의 내용 :*\n{inquiry}")}},
         {"type": "divider"},
     ]
 

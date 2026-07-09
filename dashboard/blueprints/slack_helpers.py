@@ -16,6 +16,101 @@ logger = get_logger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────
+# 슬랙 텍스트 길이 제한 대응 (2026-07-10)
+# Slack blocks 각 section text 는 3000자 제한. 초과 시 API 400 반환.
+# 문의 내용·상담 내용 등 사용자 입력 필드가 넘칠 위험.
+# ─────────────────────────────────────────────────────────────
+SLACK_SECTION_TEXT_MAX = 3000
+SLACK_BLOCK_TEXT_MAX = 3000
+SLACK_MSG_TEXT_MAX = 40000  # message.text 는 40KB
+
+_TRUNC_SUFFIX = '\n… _(내용 길이 초과 — 관리 사이트에서 전체 확인)_'
+
+
+def slack_truncate(text: str, max_len: int = SLACK_SECTION_TEXT_MAX) -> str:
+    """슬랙 text 필드용 안전 truncate.
+
+    - None/빈 문자열 → 그대로
+    - 길이 이하 → 그대로
+    - 초과 → max_len-len(suffix) 까지 자르고 suffix 부착 (전체 확인 안내)
+    """
+    if not text:
+        return text or ''
+    if len(text) <= max_len:
+        return text
+    suffix_len = len(_TRUNC_SUFFIX)
+    keep = max_len - suffix_len
+    if keep < 100:
+        # max_len 이 너무 작으면 suffix 없이 최대한 잘라 반환
+        return text[:max_len]
+    return text[:keep].rstrip() + _TRUNC_SUFFIX
+
+
+def safe_slack_call(client_method, *args, max_retries: int = 3, **kwargs):
+    """슬랙 API 호출 rate limit·transient 오류 자동 대응 wrapper.
+
+    - 429 → Retry-After 헤더 존중해 대기 후 재시도 (최대 max_retries 회)
+    - 5xx / 네트워크 오류 → 지수 백오프 재시도
+    - channel_not_found / not_in_channel / is_archived → 즉시 실패 반환 (재시도 무의미)
+    - 성공 응답 반환, 최종 실패 시 마지막 예외 raise
+
+    사용:
+        response = safe_slack_call(client.chat_postMessage, channel='#foo', text='hi')
+
+    Notes:
+    - 지금까지 슬랙 API 호출은 대부분 단일 시도. sweep 같은 대량 발송은
+      이미 별도로 sleep(1.1) 적용됨. 이 wrapper 는 신규 코드에서 활용.
+    - 기존 41개 chat_postMessage 지점을 일괄 wrapping 하는 건 리스크가 커서
+      필요 시점에 하나씩 이전.
+    """
+    import time as _t
+    FATAL_ERRORS = {'channel_not_found', 'not_in_channel', 'is_archived',
+                    'not_authed', 'invalid_auth', 'account_inactive'}
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            resp = client_method(*args, **kwargs)
+            return resp
+        except Exception as exc:
+            last_exc = exc
+            err_code = ''
+            retry_after = 0
+            # SlackApiError 인 경우
+            if hasattr(exc, 'response'):
+                try:
+                    err_code = (exc.response.get('error') or '') if hasattr(exc.response, 'get') else ''
+                    retry_after = int(exc.response.headers.get('Retry-After', 0)) if hasattr(exc.response, 'headers') else 0
+                except Exception:
+                    pass
+            # 재시도 무의미한 fatal error
+            if err_code in FATAL_ERRORS:
+                logger.warning(f'[SLACK/API] Fatal error {err_code} — 재시도 안 함')
+                raise
+            # rate limit
+            if err_code == 'ratelimited' or getattr(exc, 'status', 0) == 429:
+                wait = max(retry_after, 1)
+                logger.warning(
+                    f'[SLACK/API] Rate limited (attempt {attempt+1}/{max_retries}) — '
+                    f'{wait}s 후 재시도'
+                )
+                _t.sleep(wait)
+                continue
+            # 다른 transient 오류 (네트워크 등) → 지수 백오프
+            if attempt < max_retries - 1:
+                wait = 2.0 * (attempt + 1)
+                logger.warning(
+                    f'[SLACK/API] transient 오류 ({type(exc).__name__}) '
+                    f'attempt {attempt+1}/{max_retries} — {wait}s 후 재시도: {exc}'
+                )
+                _t.sleep(wait)
+            else:
+                logger.error(f'[SLACK/API] {max_retries}회 재시도 실패: {exc}', exc_info=True)
+    if last_exc:
+        raise last_exc
+    return None
+
+
+# ─────────────────────────────────────────────────────────────
 # 시트 날짜 포맷
 # ─────────────────────────────────────────────────────────────
 def _format_date_for_sheet(value: str) -> str:
