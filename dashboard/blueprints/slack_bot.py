@@ -1428,7 +1428,7 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
             "type": "actions",
             "elements": [{
                 "type": "button",
-                "text": {"type": "plain_text", "text": "✅ A/S 접수하기", "emoji": True},
+                "text": {"type": "plain_text", "text": "🛠️ A/S 접수하기", "emoji": True},
                 "style": "primary",
                 "action_id": "as_accept_open",
                 "value": as_no,
