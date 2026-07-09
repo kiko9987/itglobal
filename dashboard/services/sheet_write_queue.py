@@ -43,6 +43,17 @@ PROCESSING_KEY = 'sheet_write_processing'
 FAILED_KEY = 'sheet_write_failed'
 MAX_ATTEMPTS = 3
 
+# 큐 depth 알림 임계값 (2026-07-09)
+DEPTH_ALERT_THRESHOLD = 100
+DEPTH_ALERT_COOLDOWN_SEC = 300  # 5분마다 최대 1회 알림
+_last_depth_alert_ts = 0.0
+
+# 처리 통계 (매 시간 rollup)
+_stats_lock = threading.Lock()
+_processed_since_rollup = 0
+_last_rollup_ts = time.time()
+ROLLUP_INTERVAL_SEC = 3600
+
 # op_type → handler(payload: dict) -> None
 _registry: Dict[str, Callable[[dict], None]] = {}
 _worker_started = False
@@ -63,6 +74,61 @@ def _rc():
     return get_redis_client().redis
 
 
+def _maybe_alert_depth() -> None:
+    """큐 depth 가 임계값 초과 시 관리자 DM (쿨다운 있음)."""
+    global _last_depth_alert_ts
+    try:
+        depth = _rc().llen(QUEUE_KEY)
+        if depth < DEPTH_ALERT_THRESHOLD:
+            return
+        now = time.time()
+        if now - _last_depth_alert_ts < DEPTH_ALERT_COOLDOWN_SEC:
+            return
+        _last_depth_alert_ts = now
+        # 관리자 슬랙 DM
+        import os as _os
+        import urllib.request as _urllib_req
+        token = _os.getenv('SLACK_BOT_TOKEN', '').strip()
+        admin_id = _os.getenv('SLACK_ADMIN_CHANNEL', '').strip()
+        if not token or not admin_id:
+            return
+        text = (
+            f':warning: *시트 write 큐 정체 감지*\n'
+            f'pending: {depth}건 (임계값 {DEPTH_ALERT_THRESHOLD})\n'
+            f'Google Sheets 지연 또는 워커 병목 가능성. `/api/admin/sheet-write-queue` 확인 필요.'
+        )
+        req = _urllib_req.Request(
+            'https://slack.com/api/chat.postMessage',
+            data=json.dumps({'channel': admin_id, 'text': text}).encode('utf-8'),
+            headers={
+                'Content-Type': 'application/json; charset=utf-8',
+                'Authorization': f'Bearer {token}',
+            },
+        )
+        _urllib_req.urlopen(req, timeout=5).read()
+        logger.warning(f'[QUEUE] depth 알림 발송: {depth}건')
+    except Exception as _exc:
+        logger.debug(f'[QUEUE] depth 알림 실패: {_exc}')
+
+
+def _bump_processed_and_maybe_rollup() -> None:
+    """처리 카운트 증가. 1시간마다 통계 rollup 로그."""
+    global _processed_since_rollup, _last_rollup_ts
+    with _stats_lock:
+        _processed_since_rollup += 1
+        now = time.time()
+        elapsed = now - _last_rollup_ts
+        if elapsed >= ROLLUP_INTERVAL_SEC:
+            count = _processed_since_rollup
+            per_min = count / (elapsed / 60) if elapsed > 0 else 0
+            logger.info(
+                f'[QUEUE/STATS] 지난 {int(elapsed/60)}분 처리: {count}건 '
+                f'({per_min:.1f}건/분). 현재 pending: {_rc().llen(QUEUE_KEY)}건'
+            )
+            _processed_since_rollup = 0
+            _last_rollup_ts = now
+
+
 def enqueue(op_type: str, payload: dict, meta: Optional[dict] = None) -> str:
     """큐에 write op 등록. 등록 즉시 op_id 반환. 워커가 비동기 처리."""
     if op_type not in _registry:
@@ -79,6 +145,7 @@ def enqueue(op_type: str, payload: dict, meta: Optional[dict] = None) -> str:
     try:
         _rc().rpush(QUEUE_KEY, json.dumps(op, ensure_ascii=False))
         logger.info(f'[QUEUE] enqueue: {op_type} (op_id={op["op_id"][:8]}…)')
+        _maybe_alert_depth()  # depth 임계값 알림
     except Exception as exc:
         logger.error(f'[QUEUE] enqueue 실패 ({op_type}): {exc}', exc_info=True)
     return op['op_id']
@@ -221,6 +288,7 @@ def _worker_loop():
                 # 성공 → processing 제거
                 _rc().lrem(PROCESSING_KEY, 1, raw)
                 logger.info(f'[QUEUE] {op_type} 처리 완료 (op_id={op_id}…)')
+                _bump_processed_and_maybe_rollup()
             except Exception as exc:
                 op['attempts'] = int(op.get('attempts', 0)) + 1
                 op['last_error'] = str(exc)[:500]

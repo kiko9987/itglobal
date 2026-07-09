@@ -1,0 +1,122 @@
+{% extends "modern_base.html" %}
+
+{% block title %}시트 쓰기 큐 상태 · 관리자{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4" style="max-width: 1100px;">
+  <h2 class="mb-3">🛠️ 시트 쓰기 큐 상태</h2>
+  <p class="text-muted small">
+    write-behind 큐가 Google Sheets 에 실제 반영 중인 op 상태를 실시간으로 보여줍니다.
+    <span id="auto-refresh-indicator" class="badge bg-secondary">5초마다 갱신</span>
+  </p>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-body text-center">
+          <div class="text-muted small">대기 중</div>
+          <div class="fs-2 fw-bold" id="stat-pending">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-body text-center">
+          <div class="text-muted small">처리 중</div>
+          <div class="fs-2 fw-bold" id="stat-processing">-</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card">
+        <div class="card-body text-center">
+          <div class="text-muted small">실패 (데드레터)</div>
+          <div class="fs-2 fw-bold text-danger" id="stat-failed">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <strong>최근 실패한 op (최대 10건)</strong>
+    </div>
+    <div class="card-body">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>op_type</th>
+            <th>tag</th>
+            <th>attempts</th>
+            <th>error</th>
+            <th style="width: 120px;">액션</th>
+          </tr>
+        </thead>
+        <tbody id="failed-tbody">
+          <tr><td colspan="5" class="text-muted text-center">로딩 중...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="alert-container" class="mt-3"></div>
+</div>
+
+<script>
+  async function refreshStats() {
+    try {
+      const r = await fetch('/api/admin/sheet-write-queue', { credentials: 'same-origin' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      const s = data.stats || {};
+      document.getElementById('stat-pending').textContent = s.pending ?? '-';
+      document.getElementById('stat-processing').textContent = s.processing ?? '-';
+      document.getElementById('stat-failed').textContent = s.failed ?? '-';
+      const failed = data.failed_recent || [];
+      const tbody = document.getElementById('failed-tbody');
+      if (failed.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">실패한 op 없음 ✅</td></tr>';
+      } else {
+        tbody.innerHTML = failed.map(op => {
+          const err = (op.last_error || '').slice(0, 150);
+          const tag = (op.payload && op.payload.tag) || '-';
+          return `<tr>
+            <td><code>${op.op_type || '?'}</code></td>
+            <td><small>${tag}</small></td>
+            <td>${op.attempts || 0}</td>
+            <td class="text-danger small">${err}</td>
+            <td><button class="btn btn-sm btn-primary" onclick="retryOp('${op.op_id}')">재시도</button></td>
+          </tr>`;
+        }).join('');
+      }
+    } catch (e) {
+      console.error(e);
+      document.getElementById('alert-container').innerHTML =
+        `<div class="alert alert-warning">상태 조회 실패: ${e.message}</div>`;
+    }
+  }
+
+  async function retryOp(opId) {
+    try {
+      const r = await fetch('/api/admin/sheet-write-queue/retry/' + opId, {
+        method: 'POST', credentials: 'same-origin',
+      });
+      const data = await r.json();
+      if (data.success) {
+        document.getElementById('alert-container').innerHTML =
+          '<div class="alert alert-success">재시도 큐에 다시 넣었습니다.</div>';
+        await refreshStats();
+      } else {
+        document.getElementById('alert-container').innerHTML =
+          '<div class="alert alert-warning">재시도 실패: 해당 op 를 찾을 수 없습니다.</div>';
+      }
+    } catch (e) {
+      document.getElementById('alert-container').innerHTML =
+        `<div class="alert alert-danger">재시도 오류: ${e.message}</div>`;
+    }
+  }
+
+  refreshStats();
+  setInterval(refreshStats, 5000);
+</script>
+{% endblock %}

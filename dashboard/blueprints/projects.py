@@ -3244,6 +3244,13 @@ def _prepare_resume_updates(sheet_name, row_number):
 # ============================================
 # Sheet write-behind 큐 관리자 endpoint (2026-07-09)
 # ============================================
+@projects_bp.route('/admin/queue-status')
+@admin_required
+def admin_queue_status_page():
+    """관리자용 시트 쓰기 큐 상태 HTML 페이지."""
+    return render_template('admin_queue_status.html')
+
+
 @projects_bp.route('/api/admin/sheet-write-queue', methods=['GET'])
 @admin_required
 def sheet_write_queue_status():

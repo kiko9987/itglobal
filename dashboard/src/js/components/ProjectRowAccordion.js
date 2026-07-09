@@ -2250,13 +2250,16 @@ export default class ProjectRowAccordion {
 
     try {
       // API를 통해 변경사항 저장
+      const _to = ('AbortSignal' in window && typeof AbortSignal.timeout === 'function')
+        ? { signal: AbortSignal.timeout(120000) } : {};
       const response = await fetch(`/api/projects/${projectCode}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'same-origin',
-        body: JSON.stringify(changes)
+        body: JSON.stringify(changes),
+        ..._to,
       });
 
       if (!response.ok) {
@@ -2864,13 +2867,16 @@ export default class ProjectRowAccordion {
     const originalData = window.projectListApp?.stateManager?.findProject(projectCode);
 
     try {
+      const _to = ('AbortSignal' in window && typeof AbortSignal.timeout === 'function')
+        ? { signal: AbortSignal.timeout(120000) } : {};
       const response = await fetch('/api/project/cancel', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'same-origin',
-        body: JSON.stringify({ projectCode })
+        body: JSON.stringify({ projectCode }),
+        ..._to,
       });
 
       const result = await response.json();
@@ -2956,13 +2962,16 @@ export default class ProjectRowAccordion {
     const originalData = window.projectListApp?.stateManager?.findProject(projectCode);
 
     try {
+      const _to = ('AbortSignal' in window && typeof AbortSignal.timeout === 'function')
+        ? { signal: AbortSignal.timeout(120000) } : {};
       const response = await fetch('/api/project/resume', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         credentials: 'same-origin',
-        body: JSON.stringify({ projectCode })
+        body: JSON.stringify({ projectCode }),
+        ..._to,
       });
 
       const result = await response.json();

@@ -232,6 +232,16 @@ def start_scheduler():
         _th.Timer(30, _safe_cert_expiry_check).start()
         jobs.append('SSL 인증서 체크 매일 09시 + 시작 30초 후 1회')
 
+    # 2026-07-09 매일 새벽 03:15 자동 백업 (users.db + Redis)
+    _scheduler.add_job(
+        _safe_daily_backup,
+        'cron',
+        hour=3, minute=15,
+        id='daily_backup',
+        replace_existing=True,
+    )
+    jobs.append('일 백업 매일 03:15')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -476,6 +486,31 @@ def _safe_channeltalk_pending_check():
                 logger.warning(f'[SCHED] 미배정 알림 예외: {exc}')
     except Exception as exc:
         logger.error(f'[SCHED] 채널톡 미배정 체크 실패: {exc}', exc_info=True)
+
+
+def _safe_daily_backup():
+    """매일 자동 백업 — users.db + Redis dump.rdb."""
+    try:
+        import sys as _sys, subprocess as _sp
+        from pathlib import Path as _P
+        script = _P(__file__).resolve().parent.parent.parent / 'scripts' / 'backup_daily.py'
+        if not script.exists():
+            logger.warning('[BACKUP] 스크립트 파일 없음')
+            return
+        result = _sp.run(
+            [_sys.executable, '-X', 'utf8', str(script)],
+            capture_output=True, text=True, timeout=180,
+        )
+        if result.returncode == 0:
+            logger.info(f'[BACKUP] 완료:\n{result.stdout.strip()}')
+        else:
+            logger.error(f'[BACKUP] 실패 (exit={result.returncode}):\n{result.stderr.strip()}')
+            _notify_admin(
+                'daily_backup_fail',
+                f':warning: 일 백업 실패 (exit={result.returncode})\n```{result.stderr[:1000]}```',
+            )
+    except Exception as exc:
+        logger.error(f'[BACKUP] 예외: {exc}', exc_info=True)
 
 
 def _safe_cert_expiry_check():
