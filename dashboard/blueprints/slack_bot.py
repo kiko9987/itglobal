@@ -1418,9 +1418,9 @@ def _build_as_card_text(data: dict, view_state: str = 'requested') -> str:
 
 def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
     text = _build_as_card_text(data, view_state=view_state)
+    # section 하단 구분선(-----)과 버튼 사이 여백 제거 (2026-07-09 UX).
     blocks: list = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
     ]
     as_no = data.get('No', '')
     if view_state == 'requested':
