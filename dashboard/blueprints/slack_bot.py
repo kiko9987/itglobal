@@ -1378,11 +1378,11 @@ def _build_as_card_text(data: dict, view_state: str = 'requested') -> str:
     as_no = data.get('No', '')
     lines = []
     if view_state == 'requested':
-        lines.append(f"🔔 *[사후 관리 요청]*  `{as_no}`")
+        lines.append(f"🔔 *[A/S 요청]*  `{as_no}`")
     elif view_state == 'accepted':
-        lines.append(f"📥 *[사후 관리 접수 완료]*  `{as_no}`")
+        lines.append(f"📥 *[A/S 접수 완료]*  `{as_no}`")
     else:
-        lines.append(f"✅ *[사후 관리 처리 완료]*  `{as_no}`")
+        lines.append(f"✅ *[A/S 처리 완료]*  `{as_no}`")
     lines.append("--------------------------------------------")
 
     inflow = (proj or {}).get('inflow', '-') if proj else '-'
@@ -1617,7 +1617,7 @@ def _process_as_request_submission(client, body, view) -> None:
         '요청 내용': request_content,
         '요청자': requester_initial,
     }
-    text = f"[사후 관리 요청] {as_no} {project_code}"
+    text = f"[A/S 요청] {as_no} {project_code}"
     blocks = _build_as_blocks(card_data, view_state='requested')
 
     try:
@@ -1754,7 +1754,7 @@ def _process_as_accept_submission(client, body, view) -> None:
 
     # 카드 chat.update — 시트 재조회로 완전한 데이터 사용
     data = get_as_data(as_no) or {}
-    text = f"[사후 관리 접수 완료] {as_no}"
+    text = f"[A/S 접수 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='accepted')
     try:
         client.chat_update(channel=channel, ts=message_ts, text=text, blocks=blocks)
@@ -1824,7 +1824,7 @@ def _process_as_complete_submission(client, body, view) -> None:
         logger.warning(f'[SLACK/AS] 완료 갱신 실패 ({as_no})')
 
     data = get_as_data(as_no) or {}
-    text = f"[사후 관리 처리 완료] {as_no}"
+    text = f"[A/S 처리 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='completed')
     try:
         client.chat_update(channel=channel, ts=message_ts, text=text, blocks=blocks)
