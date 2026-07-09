@@ -1,5 +1,10 @@
 import logger from '../utils/logger.js';
 import { buttonStateManager } from '../utils/ButtonStateManager.js';
+import { showFriendlyError } from '../utils/userFriendlyErrors.js';
+
+// 새로고침 진행 중 플래그 (연타 방지) + 진행 중 AbortController
+let _refreshInFlight = false;
+let _refreshAbortCtrl = null;
 
 /**
  * Project List API - 글로벌 API 함수들을 노출하는 모듈
@@ -18,6 +23,23 @@ export function exposeGlobalAPI(app) {
 
     // 완전한 동기화 (서버 캐시 삭제 + 클라이언트 갱신)
     fullRefresh: async (showMessage = true) => {
+      // 연타 방지 — 진행 중이면 조용히 return
+      if (_refreshInFlight) {
+        logger.debug('[ProjectListAPI] 새로고침 이미 진행 중, skip');
+        return;
+      }
+      _refreshInFlight = true;
+
+      // 진행 중 요청은 새 요청 시작 전 취소 (AbortController)
+      if (_refreshAbortCtrl) {
+        try { _refreshAbortCtrl.abort(); } catch (_) {}
+      }
+      _refreshAbortCtrl = new AbortController();
+      // 서버 응답 없으면 60초 후 자동 취소 (구글 시트 full fetch ≈ 10~15초라 여유)
+      const timeoutId = setTimeout(() => {
+        try { _refreshAbortCtrl?.abort(); } catch (_) {}
+      }, 60000);
+
       logger.debug('[ProjectListAPI] fullRefresh 호출 - 서버 캐시 삭제 + 클라이언트 갱신');
 
       const btn = document.getElementById('fullRefreshBtn');
@@ -32,16 +54,28 @@ export function exposeGlobalAPI(app) {
         logger.debug('[ProjectListAPI] 서버 캐시 삭제 중...');
         const response = await fetch('/api/cache/refresh', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({})
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({}),
+          signal: _refreshAbortCtrl.signal,
         });
-        const result = await response.json();
+
+        // 응답 body 안전 파싱 — 서버 재시작 중이면 body 잘림
+        let result;
+        try {
+          const text = await response.text();
+          result = text ? JSON.parse(text) : {};
+        } catch (parseErr) {
+          throw new Error(response.ok
+            ? '서버 응답 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.'
+            : `서버 오류 (HTTP ${response.status})`);
+        }
 
         if (!result.success) {
-          logger.warn('[ProjectListAPI] 서버 캐시 삭제 실패:', result.message);
-          throw new Error(result.message || '서버 캐시 삭제 실패');
+          logger.warn('[ProjectListAPI] 서버 캐시 삭제 실패:', result.message || result.error);
+          const err = new Error(result.message || result.error || '서버 캐시 삭제 실패');
+          if (result.error_id) err.error_id = result.error_id;
+          throw err;
         }
 
         logger.info('[ProjectListAPI] 서버 캐시 삭제 성공');
@@ -49,17 +83,19 @@ export function exposeGlobalAPI(app) {
         // 2단계: 클라이언트 데이터 갱신
         api.refreshData(true, showMessage);
 
-        // 성공 상태로 변경
+        // 성공 상태로 변경 (버튼 매니저가 최소 스피너 노출 시간 자동 보장)
         if (btn) {
           buttonStateManager.setSuccess(btn, '완료', () => {
-            // 1.5초 후 원래 상태로 복원
-            setTimeout(() => {
-              buttonStateManager.reset(btn);
-            }, 1500);
+            setTimeout(() => buttonStateManager.reset(btn), 1500);
           });
         }
 
       } catch (error) {
+        // AbortError = 새 요청이 이전 요청 취소한 것. 사용자 액션이 아니라 무시.
+        if (error.name === 'AbortError') {
+          logger.debug('[ProjectListAPI] 이전 새로고침 요청 취소됨 (새 요청이 대신 진행)');
+          return;
+        }
         logger.error('[ProjectListAPI] 서버 캐시 삭제 오류:', error);
 
         // 오류 시 에러 상태로 변경
@@ -67,12 +103,12 @@ export function exposeGlobalAPI(app) {
           buttonStateManager.setError(btn, '실패', '새로고침');
         }
 
-        // 새로고침 실패 = 시스템 파이프라인 에러 → 사이트 최상단 헤더
-        if (app.showSystemAlert) {
-          app.showSystemAlert('새로고침에 실패했습니다.', 'error');
-        } else if (app.showErrorMessage) {
-          app.showErrorMessage('새로고침에 실패했습니다.');
-        }
+        // 사용자 친화적 알림 (error_id 있으면 표시)
+        showFriendlyError(error, '새로고침', { duration: 8000 });
+
+      } finally {
+        clearTimeout(timeoutId);
+        _refreshInFlight = false;
       }
     },
 
