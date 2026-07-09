@@ -496,13 +496,19 @@ html body div.project-accordion-container div.compact-item input.inline-edit-inp
     box-shadow: none !important; /* 모든 그림자 효과 제거 */
 }
 
-/* ===== 커스텀 로딩 스피너 ===== */
+/* ===== 커스텀 로딩 스피너 =====
+ * GPU 레이어로 승격(will-change + translateZ)해서 메인 스레드가 데이터 파싱으로
+ * 바쁠 때도 애니메이션이 프레임 드롭 없이 부드럽게 회전하도록 함.
+ * 3849건 프로젝트 로드 시 IPC/파싱 부담이 크므로 필수.
+ */
 .custom-spinner {
   width: 60px;
   height: 60px;
   border-radius: 50%;
   position: relative;
-  animation: rotate 1s linear infinite;
+  animation: rotate 0.9s linear infinite;
+  will-change: transform;
+  transform: translateZ(0);  /* GPU 레이어 승격 트리거 */
 }
 
 .custom-spinner::before {
@@ -511,22 +517,14 @@ html body div.project-accordion-container div.compact-item input.inline-edit-inp
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 5px solid transparent;
-  border-top-color: #94a3b8;
-  border-right-color: #94a3b8;
-  animation: prixClipFix 2s linear infinite;
+  border: 5px solid #e5e7eb;   /* 얇은 트랙 (배경 원) */
+  border-top-color: #6366f1;    /* 회전하는 강조 부분 (indigo) */
+  will-change: transform;
 }
 
 @keyframes rotate {
-  100% { transform: rotate(360deg); }
-}
-
-@keyframes prixClipFix {
-  0% { clip-path: polygon(50% 50%, 0 0, 0 0, 0 0, 0 0, 0 0); }
-  25% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 0, 100% 0, 100% 0); }
-  50% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 100% 100%, 100% 100%); }
-  75% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 0 100%, 0 100%); }
-  100% { clip-path: polygon(50% 50%, 0 0, 100% 0, 100% 100%, 0 100%, 0 0); }
+  from { transform: translateZ(0) rotate(0deg); }
+  to   { transform: translateZ(0) rotate(360deg); }
 }
 
 /* ===== 취소된 프로젝트 스타일 ===== */
