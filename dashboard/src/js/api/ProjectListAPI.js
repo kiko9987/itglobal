@@ -44,6 +44,17 @@ export function exposeGlobalAPI(app) {
 
       const btn = document.getElementById('fullRefreshBtn');
 
+      // 3초 경과 시 사용자에게 상세 진행 상태 안내 (Google Sheets full fetch 10~15초 케이스)
+      const _progressTimerId = setTimeout(() => {
+        if (btn && _refreshInFlight) {
+          try {
+            const icon = btn.querySelector('i');
+            const iconHtml = icon ? icon.outerHTML : '<i class="fas fa-circle-notch fa-spin me-1"></i>';
+            btn.innerHTML = `${iconHtml}Google Sheets 재로드 중...`;
+          } catch (_) {}
+        }
+      }, 3000);
+
       try {
         // 버튼을 로딩 상태로 변경
         if (btn) {
@@ -80,14 +91,34 @@ export function exposeGlobalAPI(app) {
 
         logger.info('[ProjectListAPI] 서버 캐시 삭제 성공');
 
-        // 2단계: 클라이언트 데이터 갱신
-        api.refreshData(true, showMessage);
+        // 2단계: 클라이언트 데이터 갱신 (await 로 실패 감지)
+        // 이전엔 fire-and-forget 이라 refreshData 실패 시 stale 데이터 유지되면서 '완료' 표시.
+        let clientRefreshOk = true;
+        try {
+          const rr = app.refreshData(true, true, showMessage);
+          if (rr && typeof rr.then === 'function') {
+            await rr;
+          }
+        } catch (refreshErr) {
+          clientRefreshOk = false;
+          logger.error('[ProjectListAPI] 클라이언트 데이터 갱신 실패:', refreshErr);
+        }
 
         // 성공 상태로 변경 (버튼 매니저가 최소 스피너 노출 시간 자동 보장)
         if (btn) {
-          buttonStateManager.setSuccess(btn, '완료', () => {
-            setTimeout(() => buttonStateManager.reset(btn), 1500);
-          });
+          if (clientRefreshOk) {
+            buttonStateManager.setSuccess(btn, '완료', () => {
+              setTimeout(() => buttonStateManager.reset(btn), 1500);
+            });
+          } else {
+            buttonStateManager.setError(btn, '부분 실패', '새로고침');
+            if (app.showSystemAlert) {
+              app.showSystemAlert(
+                '서버 캐시는 삭제됐지만 화면 갱신에 실패했습니다. 페이지를 새로고침(F5) 해주세요.',
+                'warning',
+              );
+            }
+          }
         }
 
       } catch (error) {
@@ -108,6 +139,7 @@ export function exposeGlobalAPI(app) {
 
       } finally {
         clearTimeout(timeoutId);
+        clearTimeout(_progressTimerId);
         _refreshInFlight = false;
       }
     },

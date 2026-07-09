@@ -110,6 +110,13 @@ def has_credentials() -> bool:
 
 
 def get_calendar_service():
+    """Google Calendar API service 반환.
+
+    Thread-safety: 매번 새 build() 호출로 새 service 인스턴스 반환.
+    googleapiclient 는 not thread-safe (GoogleSheetsManager 사고 참조,
+    2026-07-09 heap corruption) 이라 캐싱하지 말고 호출자별로 새로 받아야 함.
+    캐싱 유혹 시 반드시 threading.local() 로.
+    """
     credentials = load_credentials()
     if not credentials:
         raise CalendarCredentialsError('Google Calendar 토큰이 없습니다. 먼저 OAuth 연동을 진행해주세요.')

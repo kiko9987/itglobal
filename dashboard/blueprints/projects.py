@@ -2941,14 +2941,43 @@ def add_project_auto():
                 f"관리자 수동 확인 필요: {last_exc}",
                 exc_info=True,
             )
+            # 관측성: sheet_write_queue 의 FAILED_KEY 에 등록 → /admin/queue-status 에 노출
+            # (전체 큐 이관은 리팩토링 리스크 커서 실패 op 만 큐에 등록)
             try:
-                from ..services.sheet_write_queue import _notify_admin_deadletter
+                from ..services.sheet_write_queue import (
+                    _notify_admin_deadletter, FAILED_KEY,
+                )
+                from dashboard.utils.redis_client import get_redis_client
+                import json as _json_q, uuid as _uuid_q, time as _time_q
+                failed_op = {
+                    'op_id': str(_uuid_q.uuid4()),
+                    'op_type': 'project_create_append',
+                    'payload': {'tag': code, 'project_code': code},
+                    'meta': {'source': 'add_project_auto'},
+                    'created_at': _time_q.time(),
+                    'attempts': 3,
+                    'last_error': str(last_exc)[:500] if last_exc else 'unknown',
+                }
+                get_redis_client().redis.rpush(
+                    FAILED_KEY,
+                    _json_q.dumps(failed_op, ensure_ascii=False),
+                )
                 _notify_admin_deadletter(
-                    {'op_type': 'project_create_append', 'op_id': code, 'payload': {'tag': code}},
+                    failed_op,
                     last_exc or Exception('알 수 없는 시트 append 실패'),
                 )
             except Exception as notify_exc:
                 logger.warning(f'[CREATE_PROJECT/BG] 관리자 알림 실패 (무시): {notify_exc}')
+            # Zombie idempotency 캐시 방어 (2026-07-09)
+            # bg thread 실패했는데 idem 캐시엔 '성공' 응답이 남아있으면 같은 idem_key 재요청 시
+            # '이미 등록됨' 으로 오답 반환하지만 시트엔 실제로 없음. 캐시 삭제해 재시도 가능하게.
+            if idem_key:
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    get_redis_client().redis.delete(idem_redis_key)
+                    logger.info(f'[CREATE_PROJECT/BG] Zombie 방어: idem 캐시 삭제 ({code})')
+                except Exception as del_exc:
+                    logger.warning(f'[CREATE_PROJECT/BG] idem 캐시 삭제 실패: {del_exc}')
 
         threading.Thread(target=_write_behind, daemon=True).start()
 
