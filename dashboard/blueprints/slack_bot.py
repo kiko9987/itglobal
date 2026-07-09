@@ -5923,22 +5923,25 @@ def _process_invoice_submission(client, body, view) -> None:
                 if base_url:
                     sep = '&' if '?' in base_url else '?'
                     thread_url = f"{base_url}{sep}thread_ts={ts}&cid={channel_id}"
-                    new_blocks = blocks[:-1] + [  # 마지막 context(⠀) 제거
-                        {
-                            "type": "context",
-                            "elements": [
-                                {
-                                    "type": "mrkdwn",
-                                    "text": (
-                                        f'📎 <{thread_url}|*계산서 첨부하기*> — '
-                                        f'이 링크를 클릭하면 스레드가 열립니다. 첨부 후 '
-                                        f'`✅ 발행 완료` 를 눌러주세요.'
-                                    ),
-                                },
-                            ],
-                        },
-                        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
-                    ]
+                    # 블록 순서: [info] → [📎 첨부 링크] → [✅ 발행 완료 버튼] → [padding]
+                    # (첨부가 완료보다 먼저 나오게 — 자연스러운 액션 순서)
+                    info_block = blocks[0]      # section (사업자·주소·금액 등)
+                    actions_block = blocks[1]   # actions (발행 완료 버튼)
+                    padding_block = blocks[-1]  # context (⠀)
+                    attach_link_block = {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": (
+                                    f'📎 <{thread_url}|*계산서 첨부하기*> — '
+                                    f'이 링크를 클릭하면 스레드가 열립니다. 첨부 후 '
+                                    f'아래 `✅ 발행 완료` 를 눌러주세요.'
+                                ),
+                            },
+                        ],
+                    }
+                    new_blocks = [info_block, attach_link_block, actions_block, padding_block]
                     client.chat_update(
                         channel=channel_id, ts=ts, text=text, blocks=new_blocks,
                     )
