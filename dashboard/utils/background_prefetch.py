@@ -476,6 +476,9 @@ def register_sheets_prefetch():
         cache_key="current_sheet_data",
         data_fetcher=get_fresh_data,
         strategy=CacheStrategy.CRITICAL_DATA,
-        prefetch_threshold=0.8  # TTL의 80%에서 프리패치
+        # 2026-07-09 매니저는 관리 사이트만 사용 → Google 지연이 UX에 영향 없도록
+        # 공격적으로 미리 갱신. CRITICAL_DATA TTL 20분 기준 0.15 = 약 3분 시점에 리프레시.
+        # 시트가 실질적으로 절대 만료되지 않도록 유지.
+        prefetch_threshold=0.15,
     )
-    logger.info("[PREFETCH] Google Sheets 프리패치 등록 완료")
+    logger.info("[PREFETCH] Google Sheets 프리패치 등록 완료 (threshold=0.15, ≈3분 주기)")

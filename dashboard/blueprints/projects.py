@@ -2850,7 +2850,7 @@ def add_project_auto():
         if error:
             return error
 
-        # 2. 프로젝트 코드 생성
+        # 2. 프로젝트 코드 생성 (DB 시퀀스 — 시트와 무관하게 원자적)
         code, df = _generate_project_code(data)
         if not code:
             return df  # 에러 응답
@@ -2861,50 +2861,71 @@ def add_project_auto():
         if not manager:
             return sheet_id  # 에러 응답
 
-        # 3-1. 다음 행 번호 계산 (헤더=1행, 데이터는 2행부터)
+        # 4. 기본값·행 값 구성 (시트 append 없이도 가능)
         next_row = len(df) + 2
-
-        # 4. 기본값 설정 (행 번호 전달)
         _prepare_project_defaults(data, next_row)
-
-        # 5. 행 값 배열 구성 (행 번호 전달)
         values = _build_row_values(data, manager, next_row)
 
-        # 6. Google Sheets에 추가
-        result = manager.append_row(sheet_id, values)
+        # 5. 응답 데이터 구성 (계산 필드 포함) — 프론트가 즉시 렌더할 데이터
+        project_data = _build_project_response_data(code, data)
 
-        if result:
-            # 7. 응답 데이터 구성 (금액 계산)
-            project_data = _build_project_response_data(code, data)
+        # 6. 응답 본문 준비 (시트 append 전에도 완결)
+        resp_body = {
+            "success": True,
+            "project_code": code,
+            "project_data": project_data,
+            "lead_linked": bool(data.get('Lead No') or data.get('lead_no')),
+        }
+        # Idempotency 캐시 저장 (10분 TTL) — 같은 idem_key 재요청 시 즉시 응답
+        if idem_key:
+            try:
+                import json as _json
+                from dashboard.utils.redis_client import get_redis_client
+                get_redis_client().redis.set(
+                    idem_redis_key, _json.dumps(resp_body), ex=600,
+                )
+            except Exception as exc:
+                logger.debug(f'[CREATE_PROJECT/idem] 캐시 저장 실패: {exc}')
 
-            # 8. 후처리 (캐시, 로그, 캘린더, 리드)
-            finalization_data = _finalize_project_creation(code, data, project_data)
+        # 7. 백그라운드: 시트 append + 후처리 (감사·캘린더·리드·슬랙)
+        # 응답을 먼저 반환하고 Google Sheets 지연이 UX에 영향 없도록 분리 (2026-07-09).
+        # 사용자 세션·IP 등 request context 는 여기서 캡처해 background 로 전달.
+        _bg_user_email = session.get('user', {}).get('email', 'unknown')
+        _bg_ip = request.remote_addr
 
-            logger.info(f"[CREATE_PROJECT] 프로젝트 생성 완료: {code}")
-
-            resp_body = {
-                "success": True,
-                "project_code": code,
-                "project_data": project_data,
-                "lead_linked": finalization_data['lead_linked'],
-            }
-            # Idempotency 캐시 저장 (10분 TTL)
-            if idem_key:
+        def _write_behind():
+            import time as _time
+            last_exc = None
+            for attempt in range(3):
                 try:
-                    import json as _json
-                    from dashboard.utils.redis_client import get_redis_client
-                    get_redis_client().redis.set(
-                        idem_redis_key, _json.dumps(resp_body), ex=600,
-                    )
+                    result = manager.append_row(sheet_id, values)
+                    if result:
+                        _finalize_project_creation_bg(
+                            code, data, project_data,
+                            user_email=_bg_user_email, ip_address=_bg_ip,
+                        )
+                        logger.info(f"[CREATE_PROJECT/BG] 시트 append + 후처리 완료: {code}")
+                        return
+                    else:
+                        raise RuntimeError('append_row returned falsy')
                 except Exception as exc:
-                    logger.debug(f'[CREATE_PROJECT/idem] 캐시 저장 실패: {exc}')
-            return jsonify(resp_body)
-        else:
-            return jsonify({
-                "success": False,
-                "error": "Google Sheets 추가 실패",
-                "code": "SHEETS_APPEND_FAILED"
-            }), 500
+                    last_exc = exc
+                    wait = 2.0 * (attempt + 1)
+                    logger.warning(
+                        f"[CREATE_PROJECT/BG] 시트 append 실패 재시도 {attempt+1}/3 "
+                        f"({code}, {wait}s 후): {exc}"
+                    )
+                    _time.sleep(wait)
+            logger.error(
+                f"[CREATE_PROJECT/BG] 3회 재시도 모두 실패 — {code} 시트 반영 안 됨. "
+                f"사용자 응답은 이미 완료. 관리자 수동 확인 필요: {last_exc}",
+                exc_info=True,
+            )
+
+        threading.Thread(target=_write_behind, daemon=True).start()
+
+        logger.info(f"[CREATE_PROJECT] 응답 반환 (BG write 진행 중): {code}")
+        return jsonify(resp_body)
 
     except Exception as e:
         error_id = generate_error_id()
@@ -2923,6 +2944,54 @@ def add_project_auto():
                 get_redis_client().redis.delete(idem_redis_key + ':inflight')
             except Exception:
                 pass
+
+
+def _finalize_project_creation_bg(code, data, project_data, user_email='unknown', ip_address=None):
+    """`_finalize_project_creation` 의 백그라운드용 변형.
+
+    request context 없이 호출 가능하도록 user_email·ip_address 를 인자로 받음.
+    """
+    # 1. 캐시 무효화
+    invalidate_project_cache(code)
+
+    # 2. 감사 로그 기록
+    try:
+        from ..utils.user_database import get_audit_repository
+        audit_repo = get_audit_repository()
+        audit_repo.log_action(
+            user_email=user_email,
+            action='CREATE_PROJECT',
+            details=f'새 프로젝트 등록: {code}',
+            project_code=code,
+            field_name='전체',
+            old_value='-',
+            new_value='새 프로젝트 생성',
+            ip_address=ip_address,
+        )
+    except Exception as log_error:
+        logger.warning(f"감사 로그 기록 실패: {log_error}")
+
+    # 3. 캘린더 이벤트 생성
+    try:
+        create_project_calendar_event(project_data)
+    except Exception as calendar_error:
+        logger.debug(f"[CALENDAR] 이벤트 생성 실패 ({code}): {calendar_error}")
+
+    # 4. 리드 연동
+    lead_no = data.get('Lead No') or data.get('lead_no')
+    if lead_no:
+        try:
+            from ..services.lead_service import update_lead_status
+            update_lead_status(lead_no, '공사 확정')
+        except Exception as lead_error:
+            logger.warning(f"[LEAD_LINKED] 리드 상태 업데이트 실패: {lead_error}")
+
+    # 5. 슬랙 알림
+    try:
+        from ..services.project_slack_notifier import send_project_created_notification
+        send_project_created_notification(data, code)
+    except Exception as slack_error:
+        logger.warning(f"[PROJECT/SLACK] 알림 발송 실패: {slack_error}")
 
 
 
