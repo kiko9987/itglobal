@@ -1412,20 +1412,23 @@ def _as_request_view_blocks(
     ]
     if project_details:
         info = (
-            f"*유입 구분 :* {project_details.get('inflow','-') or '-'}\n"
-            f"*사업자명 :* {project_details.get('biz','-') or '-'}\n"
-            f"*현장 주소 :* {project_details.get('address','-') or '-'}\n"
-            f"*발주처 담당자 :* {project_details.get('client_manager','-') or '-'}\n"
-            f"*발주처 연락처 :* {project_details.get('client_phone','-') or '-'}\n"
-            f"*발주처 이메일 :* {project_details.get('client_email','-') or '-'}\n"
-            f"*공사 내용 :* {project_details.get('work_content','-') or '-'}\n"
-            f"*도급 구분 :* {project_details.get('contract_type','-') or '-'}\n"
-            f"*시공자 :* {project_details.get('contractor','-') or '-'}\n"
-            f"*공사 금액 :* {project_details.get('amount','-') or '-'}\n"
-            f"*공사 시작 :* {project_details.get('work_start','-') or '-'}\n"
-            f"*공사 종료 :* {project_details.get('work_end','-') or '-'}"
+            f"*📥 유입 구분 :* {project_details.get('inflow','-') or '-'}\n"
+            f"*🏢 사업자명 :* {project_details.get('biz','-') or '-'}\n"
+            f"*📍 현장 주소 :* {project_details.get('address','-') or '-'}\n"
+            f"*👤 발주처 담당자 :* {project_details.get('client_manager','-') or '-'}\n"
+            f"*📞 발주처 연락처 :* {project_details.get('client_phone','-') or '-'}\n"
+            f"*✉️ 발주처 이메일 :* {project_details.get('client_email','-') or '-'}\n"
+            f"*📋 공사 내용 :* {project_details.get('work_content','-') or '-'}\n"
+            f"*🛠️ 도급 구분 :* {project_details.get('contract_type','-') or '-'}\n"
+            f"*👷 시공자 :* {project_details.get('contractor','-') or '-'}\n"
+            f"*💲 공사 금액 :* {project_details.get('amount','-') or '-'}\n"
+            f"*📅 공사 시작 :* {project_details.get('work_start','-') or '-'}\n"
+            f"*📅 공사 종료 :* {project_details.get('work_end','-') or '-'}"
         )
+        # 상단 여백 (⠀ context) + 정보 섹션 + 하단 여백 divider
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
         blocks.append({"type": "divider"})
 
     request_element = {
