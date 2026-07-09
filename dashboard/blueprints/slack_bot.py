@@ -6000,90 +6000,45 @@ def _process_invoice_complete(client, body) -> None:
         logger.info(f"[SLACK/계산서] 첨부 없음 → 완료 skip ({code}) by {user_id}")
         return
 
-    # 2) 카드 회색화 (방문 완료와 동일 패턴)
-    try:
-        initial = _slack_user_to_initial(client, user_id) or '-'
-        complete_time = datetime.now().strftime('%m.%d %H:%M')
-
-        original_text = ''
-        for blk in body["message"].get("blocks", []):
-            if blk.get("type") == "section":
-                bt = blk.get("text", {}).get("text", "")
-                if bt:
-                    original_text = bt
-                    break
-        if not original_text:
-            original_text = body["message"].get("text", "")
-
-        cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
-        cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
-        clean_text = '\n'.join(cleaned_lines)
-        clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
-
-        header_lines = [
-            "⠀",
-            f":white_check_mark: *발행 완료*  `{code}`",
-            f"처리자 : {initial}",
-            f"완료 시간 : {complete_time}",
-        ]
-        new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
-        new_blocks = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
-        ]
-        client.chat_update(
-            channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
-        )
-    except Exception as exc:
-        logger.warning(f"[SLACK/계산서] chat.update 실패 ({code}): {exc}")
-
-    # 3) 회색 카드 위에 완료 확인 게시 — 첨부 이미지 preview + 이모지·구조 개선 (2026-07-10)
+    # 원본 카드 자체를 완료 형식으로 chat.update — 별도 알림 발송하지 않음 (2026-07-10 사용자 요구)
+    # 매니저 관점: 요청 카드와 완료 카드가 두 개로 분산되지 않고 하나로 자연스러운 상태 전환
     amt_display = _money_kr(amt_digits)
     biz_display = biz if biz and biz != '-' else '(사업자명 미기재)'
     initial_for_msg = _slack_user_to_initial(client, user_id) or '-'
-    complete_time_full = datetime.now().strftime('%Y.%m.%d %H:%M')
 
-    # 첨부 파일 permalink 목록 — Slack 이 자동 unfurl 로 미리보기 렌더 (이미지·PDF 모두)
+    # 첨부 파일 permalink — Slack 이 자동 unfurl 로 미리보기 렌더
     file_lines = []
-    for i, af in enumerate(attached_files[:5], 1):  # 최대 5개
+    for af in attached_files[:5]:
         icon = ':frame_with_picture:' if af['mimetype'].startswith('image/') else ':page_facing_up:'
         if af['permalink']:
             file_lines.append(f'{icon} <{af["permalink"]}|{af["name"]}>')
         else:
             file_lines.append(f'{icon} {af["name"]}')
-    files_text = '\n'.join(file_lines) if file_lines else ':paperclip: 첨부 없음'
+    files_text = '\n'.join(file_lines) if file_lines else ''
     extra_note = f'\n_외 {len(attached_files) - 5}개 첨부_' if len(attached_files) > 5 else ''
 
-    # 헤더에 첫 이미지 파일이 있으면 image block 으로 자동 표시 (썸네일)
-    confirm_blocks = [
-        {
-            'type': 'section',
-            'text': {
-                'type': 'mrkdwn',
-                'text': (
-                    f'✅ *세금계산서 발행 완료*  `{code}`\n'
-                    f'━━━━━━━━━━━━━━━━━━━━\n'
-                    f':office: *사업자명* : {biz_display}\n'
-                    f':moneybag: *발행 금액* : *{amt_display}*  _({vat_label})_\n'
-                    f':bust_in_silhouette: *처리자* : {initial_for_msg}\n'
-                    f':clock3: *완료 시간* : {complete_time_full}\n'
-                    f'\n'
-                    f':paperclip: *첨부 파일* ({len(attached_files)}개)\n'
-                    f'{files_text}{extra_note}'
-                ),
-            },
-        },
+    completed_text = (
+        f'✅ *세금계산서 발행 완료*  `{code}`\n'
+        f'━━━━━━━━━━━━━━━━━━━━\n'
+        f':office: *사업자명* : {biz_display}\n'
+        f':moneybag: *발행 금액* : *{amt_display}*  _({vat_label})_\n'
+        f':bust_in_silhouette: *처리자* : {initial_for_msg}\n'
+        f'\n'
+        f':paperclip: *첨부 파일* ({len(attached_files)}개)\n'
+        f'{files_text}{extra_note}'
+    )
+    completed_blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': completed_text}},
     ]
 
-    # fallback text (알림 프리뷰용) — 부가세 여부 함께
-    confirm_text = f"✅ 세금계산서 발행 완료 · {code} · {amt_display} ({vat_label}) · {biz_display}"
     try:
-        client.chat_postMessage(
-            channel=channel, text=confirm_text, blocks=confirm_blocks,
-            unfurl_links=True,   # 첨부 permalink 자동 미리보기 활성
-            unfurl_media=True,
+        client.chat_update(
+            channel=channel, ts=message_ts,
+            text=f"✅ 세금계산서 발행 완료 · {code} · {amt_display} ({vat_label}) · {biz_display}",
+            blocks=completed_blocks,
         )
     except Exception as exc:
-        logger.warning(f"[SLACK/계산서] 완료 확인 문구 발송 실패: {exc}")
+        logger.warning(f"[SLACK/계산서] chat.update 실패 ({code}): {exc}")
 
     logger.info(f"[SLACK/계산서] 발행 완료: {code} by {user_id}")
 
