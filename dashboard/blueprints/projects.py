@@ -3289,6 +3289,19 @@ def admin_data_integrity_page():
     return render_template('admin_data_integrity.html')
 
 
+@projects_bp.route('/api/admin/cache-metrics', methods=['GET'])
+@admin_required
+def admin_cache_metrics():
+    """캐시 hit/miss 통계 + key별 top miss (관리자용)."""
+    try:
+        from ..utils.smart_cache_manager import get_smart_cache
+        sc = get_smart_cache()
+        return jsonify({'success': True, 'stats': sc.get_metrics()})
+    except Exception as exc:
+        logger.error(f'[CACHE_METRICS] 조회 실패: {exc}', exc_info=True)
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+
 @projects_bp.route('/api/admin/data-integrity/check', methods=['POST'])
 @admin_required
 def admin_data_integrity_check():

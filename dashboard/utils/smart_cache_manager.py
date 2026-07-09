@@ -167,19 +167,59 @@ class SimpleCache:
         except Exception as e:
             logger.warning(f"메트릭 초기화 실패 (무시): {e}")
 
-    def _record_hit(self) -> None:
-        """캐시 히트 기록"""
+    # 시간별 rollup 카운터 (매 시간 로그 기록용)
+    METRIC_HOURLY_HIT_KEY = "cache:metrics:hourly_hits"
+    METRIC_HOURLY_MISS_KEY = "cache:metrics:hourly_misses"
+    METRIC_ROLLUP_MARK_KEY = "cache:metrics:last_rollup"
+    _ROLLUP_INTERVAL_SEC = 3600  # 1시간
+
+    def _record_hit(self, key: str = '') -> None:
+        """캐시 히트 기록. key 지정 시 key별 카운터도 함께 증가."""
         try:
             self.redis.redis.incr(self.METRIC_HIT_KEY)
+            self.redis.redis.incr(self.METRIC_HOURLY_HIT_KEY)
+            if key:
+                self.redis.redis.hincrby('cache:metrics:key_hits', key, 1)
+            self._maybe_rollup_metrics()
         except Exception:
             pass  # 메트릭 실패는 무시
 
-    def _record_miss(self) -> None:
-        """캐시 미스 기록"""
+    def _record_miss(self, key: str = '') -> None:
+        """캐시 미스 기록. key 지정 시 key별 카운터도 함께 증가."""
         try:
             self.redis.redis.incr(self.METRIC_MISS_KEY)
+            self.redis.redis.incr(self.METRIC_HOURLY_MISS_KEY)
+            if key:
+                self.redis.redis.hincrby('cache:metrics:key_misses', key, 1)
+            self._maybe_rollup_metrics()
         except Exception:
             pass  # 메트릭 실패는 무시
+
+    def _maybe_rollup_metrics(self) -> None:
+        """1시간마다 hit/miss rollup 로그 + 시간별 카운터 리셋.
+
+        Redis SET NX EX 로 1시간에 딱 1번만 실행 보장 (멀티 워커에서도 안전).
+        """
+        try:
+            got = self.redis.redis.set(
+                self.METRIC_ROLLUP_MARK_KEY, '1',
+                nx=True, ex=self._ROLLUP_INTERVAL_SEC,
+            )
+            if not got:
+                return
+            hits = int(self.redis.redis.get(self.METRIC_HOURLY_HIT_KEY) or 0)
+            misses = int(self.redis.redis.get(self.METRIC_HOURLY_MISS_KEY) or 0)
+            total = hits + misses
+            rate = (hits / total * 100) if total > 0 else 0.0
+            logger.info(
+                f'[CACHE][ROLLUP] 지난 1시간 hit={hits} miss={misses} '
+                f'hit_rate={rate:.1f}%'
+            )
+            # 시간별 카운터 리셋
+            self.redis.redis.set(self.METRIC_HOURLY_HIT_KEY, 0)
+            self.redis.redis.set(self.METRIC_HOURLY_MISS_KEY, 0)
+        except Exception:
+            pass
 
     def get(self, key: str, strategy: CacheStrategy = CacheStrategy.CRITICAL_DATA) -> Optional[Any]:
         """캐시에서 값 가져오기 (Fallback 지원)
@@ -203,9 +243,9 @@ class SimpleCache:
             cache_key = f"cache:{key}"
             value = self._fallback_cache.get(cache_key)
             if value is None:
-                self._record_miss()
+                self._record_miss(key)
             else:
-                self._record_hit()
+                self._record_hit(key)
             return value
 
         try:
@@ -214,7 +254,7 @@ class SimpleCache:
 
             if value is None:
                 logger.debug(f"캐시 미스: {key}")
-                self._record_miss()
+                self._record_miss(key)
                 return None
 
             # bytes이면 pickle 역직렬화 시도
@@ -222,16 +262,16 @@ class SimpleCache:
                 try:
                     deserialized = pickle.loads(value)
                     logger.debug(f"캐시 히트 (pickle): {key}")
-                    self._record_hit()
+                    self._record_hit(key)
                     return deserialized
                 except (pickle.PickleError, Exception) as e:
                     logger.warning(f"pickle 역직렬화 실패: {key}, error={e}")
                     # 실패 시 None 반환
-                    self._record_miss()
+                    self._record_miss(key)
                     return None
 
             logger.debug(f"캐시 히트: {key}")
-            self._record_hit()
+            self._record_hit(key)
             return value
 
         except ServiceUnavailable:
@@ -517,11 +557,53 @@ class SimpleCache:
             total = hits + misses
             hit_rate = (hits / total * 100) if total > 0 else 0.0
 
+            # key별 top miss / top hit
+            try:
+                miss_hash = self.redis.redis.hgetall('cache:metrics:key_misses') or {}
+                hit_hash = self.redis.redis.hgetall('cache:metrics:key_hits') or {}
+                def _norm(h):
+                    out = {}
+                    for k, v in h.items():
+                        k = k.decode() if isinstance(k, bytes) else k
+                        try:
+                            out[k] = int(v)
+                        except Exception:
+                            pass
+                    return out
+                miss_norm = _norm(miss_hash)
+                hit_norm = _norm(hit_hash)
+                top_miss = sorted(miss_norm.items(), key=lambda x: x[1], reverse=True)[:10]
+                # 실질적 문제는 miss+hit 이 많은데 hit rate 가 낮은 것 → hot 이면서 miss 많은 key
+                hot_low_hit = []
+                for k, m in top_miss:
+                    h = hit_norm.get(k, 0)
+                    t = h + m
+                    if t >= 5:  # 최소 5회 이상 접근한 것만
+                        hot_low_hit.append({
+                            'key': k, 'hits': h, 'misses': m, 'total': t,
+                            'hit_rate': round(h / t * 100, 1),
+                        })
+            except Exception:
+                top_miss = []
+                hot_low_hit = []
+
+            # 시간별 rollup 카운터
+            hourly_hits = int(self.redis.redis.get(self.METRIC_HOURLY_HIT_KEY) or 0)
+            hourly_misses = int(self.redis.redis.get(self.METRIC_HOURLY_MISS_KEY) or 0)
+            hourly_total = hourly_hits + hourly_misses
+            hourly_rate = (hourly_hits / hourly_total * 100) if hourly_total > 0 else 0.0
+
             return {
                 'hits': hits,
                 'misses': misses,
                 'total': total,
                 'hit_rate': round(hit_rate, 2),
+                'hourly': {
+                    'hits': hourly_hits, 'misses': hourly_misses,
+                    'hit_rate': round(hourly_rate, 2),
+                },
+                'top_miss': [{'key': k, 'count': c} for k, c in top_miss],
+                'hot_low_hit': hot_low_hit[:5],
                 'reset_at': reset_at_str,
                 'timestamp': time.time()
             }
@@ -571,14 +653,14 @@ class SimpleCache:
                     if isinstance(value, bytes):
                         try:
                             result[key] = pickle.loads(value)
-                            self._record_hit()
+                            self._record_hit(key)
                         except (pickle.PickleError, Exception):
-                            self._record_miss()
+                            self._record_miss(key)
                     else:
                         result[key] = value
-                        self._record_hit()
+                        self._record_hit(key)
                 else:
-                    self._record_miss()
+                    self._record_miss(key)
 
             logger.debug(f"배치 조회: {len(keys)}개 요청, {len(result)}개 히트")
             return result
