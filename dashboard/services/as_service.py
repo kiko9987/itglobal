@@ -236,7 +236,10 @@ def search_confirmed_projects(query: str, limit: int = 100) -> List[Dict[str, st
 
 
 def get_project_details(code: str) -> Optional[Dict[str, str]]:
-    """프로젝트 코드로 상세 조회 (모달 pre-fill 용)."""
+    """프로젝트 코드로 상세 조회 (모달 pre-fill 용).
+
+    공사 확정 카드와 동일한 정보량 반환.
+    """
     try:
         from dashboard.services.project_service import get_project_records
         records = get_project_records() or []
@@ -246,12 +249,48 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
         )
         if not r:
             return None
+
+        def _s(k: str) -> str:
+            return str(r.get(k, '') or '').strip()
+
+        # 금액 표기 (부가세 반영)
+        amt_raw = r.get('총액 1', '')
+        try:
+            amt_int = int(float(str(amt_raw).replace(',', '').strip() or 0))
+            amt_disp = f'{amt_int:,}원' if amt_int else '-'
+        except (ValueError, TypeError):
+            amt_disp = '-'
+        vat_raw = r.get('부가세')
+        vat_sep = (
+            vat_raw is True
+            or (isinstance(vat_raw, str) and vat_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+            or vat_raw == 1
+        )
+        if amt_disp != '-':
+            amt_disp = f"{amt_disp} ({'VAT 별도' if vat_sep else 'VAT 없음'})"
+
+        # 유입 구분 표시 정규화 (공사 확정 카드 _format_inflow 와 동일)
+        raw_inflow = _s('유입 구분')
+        online_platforms = {'홈페이지', '카카오톡', '당근', '기타'}
+        if raw_inflow in online_platforms:
+            inflow_disp = f'온라인 ({raw_inflow})'
+        else:
+            inflow_disp = raw_inflow or '-'
+
         return {
             'code': code,
-            'biz': str(r.get('사업자명', '') or '').strip(),
-            'address': str(r.get('현장 주소', '') or '').strip(),
-            'work_content': str(r.get('공사 내용', '') or '').strip(),
-            'work_end': str(r.get('공사 종료', '') or '').strip()[:10],
+            'inflow': inflow_disp,
+            'biz': _s('사업자명') or '-',
+            'address': _s('현장 주소') or '-',
+            'client_manager': _s('발주처 담당자') or '-',
+            'client_phone': _s('발주처 연락처') or '-',
+            'client_email': _s('발주처 이메일') or '-',
+            'work_content': _s('공사 내용') or '-',
+            'contract_type': _s('도급 구분') or '-',
+            'contractor': _s('시공자') or '-',
+            'amount': amt_disp,
+            'work_start': _s('공사 시작')[:10] or '-',
+            'work_end': _s('공사 종료')[:10] or '-',
         }
     except Exception as exc:
         logger.warning(f'[AS] 프로젝트 상세 조회 실패 ({code}): {exc}')
