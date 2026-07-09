@@ -5928,14 +5928,13 @@ def _process_invoice_submission(client, body, view) -> None:
                     info_block = blocks[0]      # section (사업자·주소·금액 등)
                     actions_block = blocks[1]   # actions (발행 완료 버튼)
                     padding_block = blocks[-1]  # context (⠀)
+                    # 사업자등록증 첨부 안내와 동일한 폰트/패턴 (section 블록, 상태 + (첨부하기) 링크)
                     attach_link_block = {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f'📎 <{thread_url}|*계산서 첨부하기*>',
-                            },
-                        ],
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f'📎 계산서 : ⬜ 미첨부 <{thread_url}|(첨부하기)>',
+                        },
                     }
                     new_blocks = [info_block, attach_link_block, actions_block, padding_block]
                     client.chat_update(
