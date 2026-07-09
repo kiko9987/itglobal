@@ -228,7 +228,9 @@ def _slack_post(api_path: str, body: dict) -> Optional[dict]:
 # webhook으로 같은 메시지가 되돌아오면 skip
 # ─────────────────────────────────────────────────────────────
 _OUR_SENT_CACHE: dict = {}  # (chat_id, text) → epoch sec
-_OUR_SENT_TTL = 60  # 초
+# 2026-07-10 60초 → 300초 로 연장. 채널톡 → 슬랙 → 채널톡 왕복 지연이
+# 네트워크·SlackAPI 큐잉 등으로 60초 초과 사례 방어 (echo loop 재발 방지).
+_OUR_SENT_TTL = 300  # 초 (5분)
 
 
 def mark_our_sent(chat_id: str, text: str) -> None:

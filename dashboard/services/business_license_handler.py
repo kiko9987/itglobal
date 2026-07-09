@@ -137,10 +137,15 @@ def _next_copy_index(files: list, code: str, ext: str) -> int:
     return max_n + 1
 
 
+# 최대 파일 크기 (사업자등록증은 사진·PDF 이므로 넉넉하게 50MB)
+_MAX_LICENSE_BYTES = 50 * 1024 * 1024  # 50MB
+
+
 def _download_slack_file(url: str, slack_bot_token: str) -> bytes:
     """Slack file URL → bytes. private URL이라 봇 토큰 Authorization 필요.
 
-    2026-07-09 네트워크 timeout 재시도 (최대 3회 지수 백오프).
+    - 2026-07-09 네트워크 timeout 재시도 (최대 3회 지수 백오프)
+    - 2026-07-10 파일 크기 50MB 상한 (대용량 다운로드로 메모리·타임아웃 방지)
     """
     import http.client as _http_client
     import socket
@@ -154,7 +159,25 @@ def _download_slack_file(url: str, slack_bot_token: str) -> bytes:
                 headers={'Authorization': f'Bearer {slack_bot_token}'},
             )
             with urllib.request.urlopen(req, timeout=45) as r:
-                return r.read()
+                # Content-Length 로 사전 차단
+                try:
+                    length = int(r.headers.get('Content-Length', '0'))
+                except (TypeError, ValueError):
+                    length = 0
+                if length and length > _MAX_LICENSE_BYTES:
+                    raise ValueError(
+                        f'파일 크기 초과: {length / 1024 / 1024:.1f}MB > 50MB'
+                    )
+                # 스트림 읽기 상한 (헤더 누락 대비 실제 읽는 바이트도 체크)
+                data = r.read(_MAX_LICENSE_BYTES + 1)
+                if len(data) > _MAX_LICENSE_BYTES:
+                    raise ValueError(
+                        f'파일 크기 초과: >{_MAX_LICENSE_BYTES / 1024 / 1024:.0f}MB (실 스트림)'
+                    )
+                return data
+        except ValueError:
+            # 크기 초과는 재시도 무의미 — 즉시 propagate
+            raise
         except (TimeoutError, socket.timeout, _http_client.IncompleteRead, ConnectionError) as exc:
             last_exc = exc
             wait = 1.0 * (attempt + 1)
@@ -164,6 +187,60 @@ def _download_slack_file(url: str, slack_bot_token: str) -> bytes:
             )
             _time.sleep(wait)
     raise last_exc if last_exc else RuntimeError('Slack 파일 다운로드 실패')
+
+
+# ─────────────────────────────────────────────────────────────
+# 매직 넘버 (파일 시그니처) 검증 — 확장자 위장 방어 (2026-07-10)
+# 사업자등록증에 허용되는 실제 파일 종류만 승인
+# ─────────────────────────────────────────────────────────────
+_MAGIC_SIGNATURES = [
+    (b'\xff\xd8\xff', 'jpg'),                    # JPEG (JFIF/EXIF/etc)
+    (b'\x89PNG\r\n\x1a\n', 'png'),               # PNG
+    (b'%PDF-', 'pdf'),                           # PDF
+    (b'GIF87a', 'gif'),                          # GIF87a
+    (b'GIF89a', 'gif'),                          # GIF89a
+    (b'RIFF', 'webp'),                           # WebP (RIFF + 'WEBP' at offset 8)
+]
+
+
+def _validate_magic_bytes(data: bytes, expected_ext: str) -> bool:
+    """파일 첫 몇 바이트로 실제 종류 확인. 확장자 위장 방어.
+
+    - HEIC 는 offset 4~11 에 'ftyp' 시그니처 있어 별도 처리
+    - WebP 는 offset 8~11 에 'WEBP' 있어야 함
+    - 그 외는 prefix 매칭
+    """
+    if not data or len(data) < 8:
+        return False
+    ext = (expected_ext or '').lower()
+    # HEIC
+    if ext == 'heic':
+        return len(data) >= 12 and data[4:8] == b'ftyp' and b'heic' in data[8:16]
+    # WebP
+    if ext == 'webp':
+        return data[:4] == b'RIFF' and len(data) >= 12 and data[8:12] == b'WEBP'
+    # PDF/JPEG/PNG/GIF prefix 매칭
+    for sig, sig_ext in _MAGIC_SIGNATURES:
+        if data.startswith(sig) and sig_ext == ext:
+            return True
+    # 특수: JPG variants (all start with FFD8FF)
+    if ext == 'jpg' and data[:3] == b'\xff\xd8\xff':
+        return True
+    return False
+
+
+def _sanitize_filename_for_log(name: str) -> str:
+    """로그·에러 메시지용 파일명 sanitize.
+
+    Google Drive API 는 자체 필터링하지만 로그에 raw filename 노출 시
+    특수문자·경로 traversal 조작 가능. 로그 표시용만 정리.
+    """
+    if not name:
+        return '(no-name)'
+    # 제어 문자 + 경로 구분자 제거, 길이 100 제한
+    import re as _re
+    cleaned = _re.sub(r'[\x00-\x1f\x7f\\/]', '_', str(name))[:100]
+    return cleaned or '(empty)'
 
 
 def _guess_ext(filename: str, mimetype: str) -> str:
@@ -192,10 +269,20 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
     if not parent:
         return {'ok': False, 'reason': 'no_project_folder'}
 
+    ext = _guess_ext(filename, mimetype)
+
+    # 매직 넘버 검증 — 확장자 위장 방어 (2026-07-10)
+    # 사업자등록증은 이미지·PDF 만 허용. 실제 파일 종류가 확장자와 일치하지 않으면 거부.
+    if not _validate_magic_bytes(file_bytes, ext):
+        logger.warning(
+            f'[LICENSE] 매직 넘버 불일치 거부: filename={_sanitize_filename_for_log(filename)} '
+            f'ext={ext} first_bytes={file_bytes[:8].hex() if file_bytes else "empty"}'
+        )
+        return {'ok': False, 'reason': 'invalid_file_signature'}
+
     drive = _get_drive()
     license_folder = _get_or_create_license_subfolder(drive, parent)
 
-    ext = _guess_ext(filename, mimetype)
     canonical = _canonical_name(code, ext)
 
     # 저장 파일명 규칙 (2026-07-09 사용자 확정):

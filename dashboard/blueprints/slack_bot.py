@@ -393,13 +393,20 @@ def _register_project_handlers(app):
 
     @app.view("submit_project")
     def handle_submit_project(ack, body, client, view):
+        # 날짜 순서 검증 (2026-07-10): 공사 종료가 공사 시작보다 앞이면 반려
+        state = view.get("state", {}).get("values", {})
+        start_date = _v(state, "start_date") or ''
+        end_date = _v(state, "end_date") or ''
+        if start_date and end_date and end_date < start_date:
+            ack(response_action="errors", errors={
+                "end_date": f"공사 종료일({end_date})은 시작일({start_date})보다 이후여야 합니다.",
+            })
+            return
         ack()
-        def _bg():
-            try:
-                _process_project_submission(client, body, view)
-            except Exception as exc:
-                logger.error(f"[SLACK/공사확정] submit 실패: {exc}", exc_info=True)
-        threading.Thread(target=_bg, daemon=True).start()
+        _run_bg_with_notify(
+            client, body, '공사 확정',
+            lambda: _process_project_submission(client, body, view),
+        )
 
     @app.options("value")
     def handle_external_options(ack, body):
@@ -552,32 +559,35 @@ def _register_project_handlers(app):
         if not reason.strip():
             ack(response_action="errors", errors={"reason": "수정 사유를 반드시 입력해야 합니다."})
             return
+        # 날짜 순서 검증 (2026-07-10)
+        start_date = _v(values, "start_date") or ''
+        end_date = _v(values, "end_date") or ''
+        if start_date and end_date and end_date < start_date:
+            ack(response_action="errors", errors={
+                "end_date": f"공사 종료일({end_date})은 시작일({start_date})보다 이후여야 합니다.",
+            })
+            return
         ack()
-        def _bg():
-            try:
-                _process_project_edit_submission(client, body, view)
-            except Exception as exc:
-                logger.error(f"[SLACK/공사수정] submit 실패: {exc}", exc_info=True)
-        threading.Thread(target=_bg, daemon=True).start()
+        _run_bg_with_notify(
+            client, body, '공사 정보 수정',
+            lambda: _process_project_edit_submission(client, body, view),
+        )
 
     @app.action("project_cancel_confirm")
     def handle_project_cancel(ack, body, client):
         ack()
-        def _bg():
-            try:
-                _process_project_cancel(client, body)
-            except Exception as exc:
-                logger.error(f"[SLACK/공사취소] 처리 실패: {exc}", exc_info=True)
-        threading.Thread(target=_bg, daemon=True).start()
+        _run_bg_with_notify(
+            client, body, '공사 취소',
+            lambda: _process_project_cancel(client, body),
+        )
 
     @app.action("project_uncancel")
     def handle_project_uncancel(ack, body, client):
         ack()
-        def _bg():
-            try:
-                _process_project_uncancel(client, body)
-            except Exception as exc:
-                logger.error(f"[SLACK/공사재개] 처리 실패: {exc}", exc_info=True)
+        _run_bg_with_notify(
+            client, body, '공사 취소 되돌리기',
+            lambda: _process_project_uncancel(client, body),
+        )
         threading.Thread(target=_bg, daemon=True).start()
 
     logger.info(
@@ -2202,12 +2212,100 @@ def _slack_create_project(data: dict) -> str:
 # ─────────────────────────────────────────────────────────────
 # Flask endpoint — 슬랙이 호출하는 단일 진입점
 # ─────────────────────────────────────────────────────────────
+def _run_bg_with_notify(client, body, action_label: str, work_fn) -> None:
+    """배경 스레드 실행 유틸. 실패 시 매니저에게 ephemeral 안내 (2026-07-10).
+
+    각 handler 안의 `def _bg(): try: ... except: logger.error(...)` 패턴 대체.
+    매니저 관점: 취소·편집 등 명시적 액션 후 응답 없으면 성공/실패 판단 어려움 → 실패 시
+    확실한 안내로 재시도 유도.
+
+    Args:
+        client: slack client
+        body: slack action body (user.id, channel.id 있음)
+        action_label: '공사 확정', '공사 취소' 등 사용자에게 노출할 액션 이름
+        work_fn: 실제 작업 함수 (인자 없음)
+    """
+    def _run():
+        try:
+            work_fn()
+        except Exception as exc:
+            import uuid as _uuid_e
+            error_id = str(_uuid_e.uuid4())[:8]
+            logger.error(
+                f'[SLACK/BG] {action_label} 실패 (error_id={error_id}): {exc}',
+                exc_info=True,
+            )
+            # 매니저에게 ephemeral 안내
+            try:
+                user_id = (body.get('user') or {}).get('id', '')
+                channel = (body.get('channel') or {}).get('id', '') or \
+                          (body.get('container') or {}).get('channel_id', '')
+                if user_id and channel:
+                    client.chat_postEphemeral(
+                        channel=channel, user=user_id,
+                        text=(
+                            f':x: *{action_label}* 처리 중 오류가 발생했습니다.\n'
+                            f'잠시 후 다시 시도해 주세요.\n'
+                            f'오류 ID: `{error_id}` (관리자 문의 시 전달)'
+                        ),
+                    )
+            except Exception as notify_exc:
+                logger.debug(f'[SLACK/BG] 매니저 알림 실패 (무시): {notify_exc}')
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _is_slack_retry_duplicate() -> bool:
+    """Slack 이 3초 timeout 후 재전송한 요청인지 감지.
+
+    Slack Events API 는 200 응답 못 받으면 3회 재전송. 실제로는 처리 성공했는데
+    응답 지연이면 idempotency 를 위해 중복 처리 skip 필요.
+
+    Headers:
+    - X-Slack-Retry-Num: 재시도 회수 (1, 2, 3)
+    - X-Slack-Retry-Reason: 'http_timeout' 등
+    """
+    retry_num = request.headers.get('X-Slack-Retry-Num', '')
+    retry_reason = request.headers.get('X-Slack-Retry-Reason', '')
+    if not retry_num:
+        return False
+    # 재시도 헤더 있으면 원본 event_id 로 dedup key 만들어 Redis 캐시 확인
+    try:
+        body = request.get_json(silent=True) or {}
+    except Exception:
+        body = {}
+    event_id = body.get('event_id') or ''
+    # slash command / interactive payload 는 event_id 없음 — 처리
+    if not event_id:
+        # slash command 재시도 케이스는 상황상 매우 드묾. 로그만 남기고 계속 진행
+        logger.info(f'[SLACK/RETRY] event_id 없는 재시도 (reason={retry_reason}) — 계속 진행')
+        return False
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _grc
+        rc = _grc().redis
+        dedup_key = f'slack_event_seen:{event_id}'
+        # NX + 1시간 TTL — 처음 보는 event 면 마킹하고 처리 진행
+        first_seen = rc.set(dedup_key, retry_num, nx=True, ex=3600)
+        if not first_seen:
+            logger.warning(
+                f'[SLACK/RETRY] 중복 event 무시: event_id={event_id[:12]}… '
+                f'retry={retry_num} reason={retry_reason}'
+            )
+            return True
+    except Exception as exc:
+        logger.warning(f'[SLACK/RETRY] Redis dedup 실패 (계속 진행): {exc}')
+    return False
+
+
 @slack_bp.route("/events", methods=["POST"])
 def slack_events():
     """슬랙 → 우리 서버 webhook (메인 봇: 모든 이벤트/명령/인터랙션 통합 endpoint)"""
     if _slack_handler is None:
         if not _init_slack_app():
             return jsonify({"error": "Slack bot not configured"}), 503
+
+    # Slack retry idempotency (2026-07-10)
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
 
     return _slack_handler.handle(request)
 
@@ -2219,6 +2317,9 @@ def slack_project_events():
         if not _init_project_slack_app():
             return jsonify({"error": "Project Slack bot not configured"}), 503
 
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
+
     return _project_slack_handler.handle(request)
 
 
@@ -2229,6 +2330,9 @@ def slack_as_events():
         if not _init_as_slack_app():
             return jsonify({"error": "AS Slack bot not configured"}), 503
 
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
+
     return _as_slack_handler.handle(request)
 
 
@@ -2238,6 +2342,9 @@ def slack_visit_events():
     if _visit_slack_handler is None:
         if not _init_visit_slack_app():
             return jsonify({"error": "Visit Slack bot not configured"}), 503
+
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
 
     return _visit_slack_handler.handle(request)
 
@@ -3969,6 +4076,24 @@ def _process_visit_thread_files(client, event) -> None:
         return
     lead_no = m.group(0)
 
+    # Race condition 방어 (2026-07-10)
+    # 두 매니저가 동시에 같은 lead thread 에 사진 첨부 시 각 daemon 스레드가 동시에
+    # find_or_create_folder 를 호출 → Google Drive eventual consistency 로 폴더 중복 생성.
+    # 60초 리드별 락 (사진 업로드 자체는 보통 5~15초).
+    from dashboard.utils.redis_client import get_redis_client as _get_rc
+    _lock_key = f'visit_photo_lock:{lead_no}'
+    try:
+        _rc_lock = _get_rc().redis
+        _got_lock = _rc_lock.set(_lock_key, '1', nx=True, ex=60)
+        if not _got_lock:
+            logger.info(
+                f'[SLACK/방문 사진] {lead_no} 다른 스레드가 처리 중 — 이번 이벤트 skip'
+            )
+            return
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문 사진] 락 획득 실패 — 계속 진행: {exc}')
+        _rc_lock = None
+
     # 2) 폴더명 생성 — "({이니셜}) {방문 주소} {YY.MM.DD}"
     lead = _find_lead_by_no(lead_no) or {}
     # 이니셜 — 플랫폼별 규칙 (2026-07):
@@ -4044,6 +4169,9 @@ def _process_visit_thread_files(client, event) -> None:
     if not bot_token:
         bot_token = os.getenv('SLACK_BOT_TOKEN', '').strip()
 
+    # 방문 사진 최대 100MB (동영상까지 고려). 대용량 파일 다운로드는 메모리·타임아웃 위험.
+    _MAX_PHOTO_BYTES = 100 * 1024 * 1024
+
     uploaded = 0
     for f in files:
         download_url = f.get('url_private_download') or f.get('url_private')
@@ -4051,14 +4179,41 @@ def _process_visit_thread_files(client, event) -> None:
             continue
         filename = f.get('name') or f.get('title') or f'photo_{f.get("id","unknown")}.jpg'
         mimetype = f.get('mimetype') or 'application/octet-stream'
-        # 사진/비디오만 (기타 PDF 등은 OK이지만 의도 사진)
+
+        # 사전 크기 차단: Slack file object 의 size 필드 (bytes)
+        size_hint = f.get('size') or 0
+        if size_hint and size_hint > _MAX_PHOTO_BYTES:
+            logger.warning(
+                f"[SLACK/방문 사진] 파일 크기 초과 skip: "
+                f"{filename} = {size_hint / 1024 / 1024:.1f}MB > 100MB"
+            )
+            continue
+
         try:
             req = urllib.request.Request(
                 download_url,
                 headers={'Authorization': f'Bearer {bot_token}'},
             )
             with urllib.request.urlopen(req, timeout=20) as r:
-                content = r.read()
+                # Content-Length 이차 차단
+                try:
+                    length = int(r.headers.get('Content-Length', '0'))
+                except (TypeError, ValueError):
+                    length = 0
+                if length and length > _MAX_PHOTO_BYTES:
+                    logger.warning(
+                        f"[SLACK/방문 사진] Content-Length 초과 skip: "
+                        f"{filename} = {length / 1024 / 1024:.1f}MB"
+                    )
+                    continue
+                # 스트림 상한
+                content = r.read(_MAX_PHOTO_BYTES + 1)
+                if len(content) > _MAX_PHOTO_BYTES:
+                    logger.warning(
+                        f"[SLACK/방문 사진] 스트림 크기 초과 skip: "
+                        f"{filename} > 100MB"
+                    )
+                    continue
             if upload_file(folder_id, filename, content, mimetype=mimetype):
                 uploaded += 1
         except Exception as exc:
@@ -4134,6 +4289,13 @@ def _process_visit_thread_files(client, event) -> None:
     except Exception as exc:
         # 이미 reaction 있으면 already_reacted — 무시
         logger.debug(f"[SLACK/방문 사진] reaction 추가 스킵: {exc}")
+
+    # 7) 락 해제 — 이후 첨부는 즉시 처리 가능하도록 (자연 만료 60초 대신 즉시)
+    try:
+        if _rc_lock:
+            _rc_lock.delete(_lock_key)
+    except Exception:
+        pass
 
 
 def _process_visit_shop_name_update(client, event) -> None:

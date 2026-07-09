@@ -20,14 +20,22 @@ _SCOPES = [
     'https://www.googleapis.com/auth/drive',
 ]
 
-_drive_service = None
+# Thread-safety: googleapiclient 는 not thread-safe (2026-07-09 heap corruption
+# 사고 참조: GoogleSheetsManager 프로세스 싱글톤 → 크래시). 스레드별 격리 필수.
+# threading.local() 로 각 스레드가 자기 service 인스턴스 갖도록.
+import threading as _threading
+_drive_service_tls = _threading.local()
 
 
 def _get_drive_service():
-    """Google Drive API client (lazy 초기화)."""
-    global _drive_service
-    if _drive_service is not None:
-        return _drive_service
+    """스레드별 Google Drive API client (lazy 초기화).
+
+    2026-07-10: 이전 전역 싱글톤이었으나 Waitress request 스레드와 방문 사진
+    업로드 daemon 스레드가 공유하면 heap corruption 위험 → threading.local 로 격리.
+    """
+    svc = getattr(_drive_service_tls, 'service', None)
+    if svc is not None:
+        return svc
     cred_file = os.getenv('GOOGLE_CREDENTIALS_FILE', 'credentials.json').strip()
     if not os.path.isabs(cred_file):
         cred_file = os.path.join(os.getcwd(), cred_file)
@@ -36,8 +44,9 @@ def _get_drive_service():
         return None
     try:
         creds = Credentials.from_service_account_file(cred_file, scopes=_SCOPES)
-        _drive_service = build('drive', 'v3', credentials=creds, cache_discovery=False)
-        return _drive_service
+        svc = build('drive', 'v3', credentials=creds, cache_discovery=False)
+        _drive_service_tls.service = svc
+        return svc
     except Exception as exc:
         logger.error(f"[DRIVE] 인증 실패: {exc}", exc_info=True)
         return None
