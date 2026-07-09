@@ -4276,7 +4276,37 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
         "submit": {"type": "plain_text", "text": "등록"},
         "close": {"type": "plain_text", "text": "취소"},
         "private_metadata": metadata,
+        # 2026-07-09 통일 규칙: 유형/분류 → 날짜 → 사람정보 → 주소 → 부가옵션 → 내용
         "blocks": [
+            {
+                "type": "input", "block_id": "status",
+                "label": {"type": "plain_text", "text": "상태"},
+                "element": {
+                    "type": "static_select", "action_id": "value",
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "유선 상담 (시트 등록)"},
+                        "value": "유선 상담",
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": label}, "value": v}
+                        for v, label in _PHONE_STATUS_OPTIONS
+                    ],
+                },
+            },
+            {
+                "type": "input", "block_id": "visit_date",
+                "label": {"type": "plain_text", "text": "방문 예정일 (방문 예약 시 입력)"},
+                "element": {"type": "datepicker", "action_id": "value"},
+                "optional": True,
+            },
+            {
+                "type": "input", "block_id": "visit_date_end",
+                "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
+                "hint": {"type": "plain_text",
+                         "text": "여러 날 방문일 때만 입력. 단일이면 비워두세요."},
+                "element": {"type": "datepicker", "action_id": "value"},
+                "optional": True,
+            },
             {
                 "type": "input", "block_id": "name",
                 "label": {"type": "plain_text", "text": "고객명 / 상호 (선택)"},
@@ -4298,19 +4328,13 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
                 "optional": True,
             },
             {
-                "type": "input", "block_id": "status",
-                "label": {"type": "plain_text", "text": "상태"},
+                "type": "input", "block_id": "address",
+                "label": {"type": "plain_text", "text": "방문 주소 (선택)"},
                 "element": {
-                    "type": "static_select", "action_id": "value",
-                    "initial_option": {
-                        "text": {"type": "plain_text", "text": "유선 상담 (시트 등록)"},
-                        "value": "유선 상담",
-                    },
-                    "options": [
-                        {"text": {"type": "plain_text", "text": label}, "value": v}
-                        for v, label in _PHONE_STATUS_OPTIONS
-                    ],
+                    "type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "예: 강남구 테헤란로 152"},
                 },
+                "optional": True,
             },
             {
                 "type": "input", "block_id": "device",
@@ -4323,29 +4347,6 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
                         for d in _PHONE_DEVICE_OPTIONS
                     ],
                 },
-                "optional": True,
-            },
-            {
-                "type": "input", "block_id": "address",
-                "label": {"type": "plain_text", "text": "방문 주소 (선택)"},
-                "element": {
-                    "type": "plain_text_input", "action_id": "value",
-                    "placeholder": {"type": "plain_text", "text": "예: 강남구 테헤란로 152"},
-                },
-                "optional": True,
-            },
-            {
-                "type": "input", "block_id": "visit_date",
-                "label": {"type": "plain_text", "text": "방문 예정일 (방문 예약 시 입력)"},
-                "element": {"type": "datepicker", "action_id": "value"},
-                "optional": True,
-            },
-            {
-                "type": "input", "block_id": "visit_date_end",
-                "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
-                "hint": {"type": "plain_text",
-                         "text": "여러 날 방문일 때만 입력. 단일이면 비워두세요."},
-                "element": {"type": "datepicker", "action_id": "value"},
                 "optional": True,
             },
             {
