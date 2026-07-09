@@ -7,6 +7,7 @@ import threading
 import uuid
 from datetime import datetime
 from collections import Counter, defaultdict
+from typing import Optional
 
 import pandas as pd
 from flask import Blueprint, render_template, redirect, url_for, request, session, jsonify, current_app
@@ -2740,14 +2741,107 @@ def _build_project_response_data(code, data):
 
 
 
+def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
+    """최근 N분 내 동일 데이터로 이미 등록된 프로젝트 코드가 있으면 반환.
+
+    (사업자·담당자·주소·공사 시작·총액 1) 모두 같은 프로젝트가 최근 확정 등록됐으면
+    duplicate 로 판단. Idempotency key 유실 시 안전망.
+    """
+    try:
+        from dashboard.services.project_service import get_project_records
+        from datetime import datetime, timedelta
+        biz = str(data.get('사업자', '') or '').strip()
+        owner = str(data.get('담당자', '') or '').strip()
+        addr = str(data.get('현장 주소', '') or '').strip()
+        start = str(data.get('공사 시작', '') or '').strip()[:10]
+        amount = str(data.get('총액 1', '') or '').strip()
+        if not (biz and owner and addr and start):
+            return None
+        cutoff = datetime.now() - timedelta(minutes=minutes)
+        records = get_project_records() or []
+        for r in records:
+            r_confirmed = str(r.get('공사 확정', '') or '').strip()[:10]
+            r_biz = str(r.get('사업자', '') or '').strip()
+            r_owner = str(r.get('담당자', '') or '').strip()
+            r_addr = str(r.get('현장 주소', '') or '').strip()
+            r_start = str(r.get('공사 시작', '') or '').strip()[:10]
+            r_amount = str(r.get('총액 1', '') or '').strip().replace(',', '').replace('₩', '')
+            in_amount = amount.replace(',', '').replace('₩', '')
+            same = (r_biz == biz and r_owner == owner and r_addr == addr
+                    and r_start == start and r_amount == in_amount)
+            if not same:
+                continue
+            # 확정일이 오늘인 케이스만 (동일 프로젝트 재등록 아님을 구분)
+            try:
+                dt = datetime.strptime(r_confirmed, '%Y-%m-%d')
+                if dt.date() != datetime.now().date():
+                    continue
+            except ValueError:
+                continue
+            return str(r.get('프로젝트 코드', '') or '').strip()
+    except Exception as exc:
+        logger.warning(f'[CREATE_PROJECT/dedup] 스캔 실패: {exc}')
+    return None
+
+
 @projects_bp.route('/api/projects/auto', methods=['POST'])
 @editor_required
 @track_business_operation("api_project_create_auto")
 def add_project_auto():
-    """신규 프로젝트 자동 코드 생성 및 추가"""
+    """신규 프로젝트 자동 코드 생성 및 추가.
+
+    2026-07-09 중복 등록 방지 2단계:
+      1. X-Idempotency-Key 헤더 → Redis 캐시 hit 시 이전 응답 그대로 반환
+      2. 데이터 기반 안전망 (최근 5분 내 동일 사업자·담당자·주소·시작일·금액 존재 시)
+    """
+    idem_key = request.headers.get('X-Idempotency-Key', '').strip()
+    idem_redis_key = f'project_create_idem:{idem_key}' if idem_key else ''
+
+    # === Layer 1: Idempotency key 캐시 조회 ===
+    if idem_key:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            cached = rc.get(idem_redis_key)
+            if cached:
+                logger.info(
+                    f'[CREATE_PROJECT/idem] 중복 요청 감지 (idem={idem_key[:8]}…) — 이전 응답 반환'
+                )
+                import json as _json
+                return jsonify(_json.loads(cached))
+            # 처리 중 마킹 (같은 key 로 병렬 요청 방어 — 10분 TTL, NX)
+            rc.set(idem_redis_key + ':inflight', '1', nx=True, ex=600)
+        except Exception as exc:
+            logger.debug(f'[CREATE_PROJECT/idem] Redis 조회 실패 (계속 진행): {exc}')
+
     try:
         data = request.get_json()
         logger.info(f"[POST /api/projects/auto] 받은 데이터: {data}")
+
+        # === Layer 2: 데이터 기반 dedup 안전망 ===
+        dup_code = _find_recent_duplicate(data)
+        if dup_code:
+            logger.warning(
+                f'[CREATE_PROJECT/dedup] 최근 5분 내 동일 데이터 감지 → 기존 코드 반환: {dup_code}'
+            )
+            resp_body = {
+                'success': True,
+                'project_code': dup_code,
+                'project_data': None,
+                'lead_linked': False,
+                'deduped': True,
+            }
+            # idempotency 캐시에도 저장 (같은 key 로 다시 오면 즉시 재응답)
+            if idem_key:
+                try:
+                    import json as _json
+                    from dashboard.utils.redis_client import get_redis_client
+                    get_redis_client().redis.set(
+                        idem_redis_key, _json.dumps(resp_body), ex=600,
+                    )
+                except Exception:
+                    pass
+            return jsonify(resp_body)
 
         # 1. 데이터 검증
         validated_data, error = _validate_project_auto_data(data)
@@ -2786,12 +2880,23 @@ def add_project_auto():
 
             logger.info(f"[CREATE_PROJECT] 프로젝트 생성 완료: {code}")
 
-            return jsonify({
+            resp_body = {
                 "success": True,
                 "project_code": code,
                 "project_data": project_data,
-                "lead_linked": finalization_data['lead_linked']
-            })
+                "lead_linked": finalization_data['lead_linked'],
+            }
+            # Idempotency 캐시 저장 (10분 TTL)
+            if idem_key:
+                try:
+                    import json as _json
+                    from dashboard.utils.redis_client import get_redis_client
+                    get_redis_client().redis.set(
+                        idem_redis_key, _json.dumps(resp_body), ex=600,
+                    )
+                except Exception as exc:
+                    logger.debug(f'[CREATE_PROJECT/idem] 캐시 저장 실패: {exc}')
+            return jsonify(resp_body)
         else:
             return jsonify({
                 "success": False,
@@ -2808,6 +2913,14 @@ def add_project_auto():
             "error_id": error_id,
             "code": "INTERNAL_ERROR"
         }), 500
+    finally:
+        # inflight 마킹 정리 (성공/실패 무관)
+        if idem_key:
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                get_redis_client().redis.delete(idem_redis_key + ':inflight')
+            except Exception:
+                pass
 
 
 

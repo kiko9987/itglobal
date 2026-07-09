@@ -1203,6 +1203,13 @@ export default class ModernProjectModal {
         return;
       }
       this._submitInProgress = true;
+      // 2026-07-09 Idempotency Key — 최초 제출 시에만 새로 생성.
+      // 재시도 시엔 같은 key 로 요청해 서버가 Redis 캐시로 중복 처리 방지.
+      // 서버가 시트 write 지연으로 client fetch timeout 나서 새 요청이 나가도
+      // 같은 idem-key 로 서버가 이전 응답을 재반환 → 시트 중복 append 방지.
+      this._currentIdempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
 
     // 0. 최초 제출 시에만 최종 유효성 검증 수행
@@ -1328,12 +1335,19 @@ export default class ModernProjectModal {
         this.showProgressBanner(`재시도 중입니다... (${retryCount}/${maxRetries})`);
       }
 
-      // 7. 서버 전송
+      // 7. 서버 전송 — Idempotency-Key 헤더 + 120초 타임아웃 (Google Sheets 재시도 버짓 대비)
+      const abortCtrl = ('AbortSignal' in window && typeof AbortSignal.timeout === 'function')
+        ? { signal: AbortSignal.timeout(120000) }
+        : {};
       const response = await fetch('/api/projects/auto', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Idempotency-Key': this._currentIdempotencyKey || '',
+        },
         credentials: 'same-origin',
-        body: JSON.stringify(projectData)
+        body: JSON.stringify(projectData),
+        ...abortCtrl,
       });
 
       if (!response.ok) {
@@ -1517,6 +1531,8 @@ export default class ModernProjectModal {
         }
         // 재진입 방지 플래그 해제 — 재시도 예정 아닐 때만 (재시도는 같은 flow 이어짐)
         this._submitInProgress = false;
+        // Idempotency key 정리 — 다음 최초 제출 시 새 key 발급되도록
+        this._currentIdempotencyKey = null;
       }
     }
   }
