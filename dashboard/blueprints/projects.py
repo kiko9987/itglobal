@@ -1074,21 +1074,27 @@ def update_project(project_code):
         update_changes = _apply_field_updates(data, current_values, field_to_index, project_code)
         field_changes.extend(update_changes)
 
-        # 8. Google Sheets 업데이트 (AP _version 포함 — 2026-07 컬럼 시프트 반영)
+        # 8. 시트 write 를 큐로 위임 (2026-07-09 write-behind)
         range_name = f'{sheet_name}!A{row_number}:AP{row_number}'
-        manager.update_row(sheet_id, row_number, current_values, range_name)
-        logger.info(f"[PUT] 전체 행 업데이트 완료: {project_code}, {len(field_changes)}개 필드 변경")
+        from ..services.sheet_write_queue import enqueue as _q_enqueue
+        _q_enqueue('project_update_sheet', {
+            'sheet_id': sheet_id,
+            'sheet_name': sheet_name,
+            'row_number': row_number,
+            'range_name': range_name,
+            'current_values': current_values,
+            'field_changes': field_changes,
+            'project_code': final_project_code,
+        }, meta={'user_email': session.get('user', {}).get('email', 'unknown')})
+        logger.info(
+            f"[PUT] 시트 write 큐 위임 완료: {final_project_code}, {len(field_changes)}개 필드"
+        )
 
-        # 9. 금액 필드 자동 댓글 처리
-        _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, field_changes)
-
-        # 10. 감사 로그 배치 기록
+        # 10. 감사 로그 배치 기록 (동기 — 이력 즉시 확정)
         _record_update_audit_logs(field_changes, project_code)
 
-        # 11. 최신 데이터 조회 및 계산 필드 재계산 (개별 row fetch, 캐시 무관)
-        updated_project = _fetch_and_calculate_updated_project(
-            manager, sheet_id, sheet_name, row_number, field_to_index
-        )
+        # 11. updated_project 계산 (시트 재조회 없이 로컬 계산)
+        updated_project = _build_updated_project_from_values(current_values, field_to_index)
 
         # 12. 캐시 부분 갱신 시도 (Google Sheets API 호출 없이 즉시 반영)
         # - 프로젝트 코드 변경 없고 updated_project 있으면 캐시된 DataFrame에서 해당 row만 in-place 교체
@@ -3286,6 +3292,98 @@ def _handle_cancel_sheet(payload: dict) -> None:
         )
     except Exception as exc:
         logger.warning(f'[QUEUE/project_cancel/color] {project_code}: {exc}')
+
+
+@_q_register('project_update_sheet')
+def _handle_project_update_sheet(payload: dict) -> None:
+    """편집 시트 write — update_row + payment comments.
+
+    payload:
+      sheet_id, sheet_name, row_number, range_name, current_values, field_changes,
+      project_code (로깅용)
+    """
+    from ..services.project_service import get_sheets_manager
+    manager = get_sheets_manager()
+    sheet_id = payload['sheet_id']
+    sheet_name = payload['sheet_name']
+    row_number = payload['row_number']
+    current_values = payload['current_values']
+    range_name = payload['range_name']
+    field_changes = payload.get('field_changes', [])
+    code = payload.get('project_code', '')
+    manager.update_row(sheet_id, row_number, current_values, range_name)
+    logger.info(f'[QUEUE/project_update] 시트 write 완료: {code}')
+    try:
+        _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, field_changes)
+    except Exception as exc:
+        logger.warning(f'[QUEUE/project_update/comments] {code}: {exc}')
+
+
+def _build_updated_project_from_values(current_values: list, field_to_index: dict) -> dict:
+    """`_fetch_and_calculate_updated_project` 의 로컬 변형 — 시트 재조회 없이 계산.
+
+    이미 update 를 적용한 current_values 를 그대로 사용해 계산 필드까지 재계산.
+    write-behind 시 응답 지연 없이 프론트가 사용할 데이터 반환.
+    """
+    import pandas as pd
+    from dashboard.services.project_service import (
+        _safe_parse_amount, _parse_vat_flag,
+        _calculate_total2, _calculate_outstanding_amount,
+        _calculate_net_profit, _calculate_margin_rate,
+    )
+
+    updated_project = {}
+    for field_name, index in field_to_index.items():
+        if index < len(current_values):
+            value = current_values[index]
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                updated_project[field_name] = ''
+            else:
+                updated_project[field_name] = str(value)
+
+    # 날짜 필드 정규화
+    date_fields = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
+    for field_name in date_fields:
+        if field_name in updated_project:
+            date_value = updated_project[field_name]
+            if date_value:
+                try:
+                    parsed_date = pd.to_datetime(date_value, errors='coerce')
+                    if pd.notna(parsed_date):
+                        updated_project[field_name] = parsed_date.strftime('%Y-%m-%d')
+                    else:
+                        updated_project[field_name] = ''
+                except Exception:
+                    updated_project[field_name] = ''
+
+    # 금액 필드 정규화 (통화 기호 제거)
+    currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금',
+                       '제품대', '도급비', '자재비', '기타비']
+    for field_name in currency_fields:
+        if field_name in updated_project:
+            cv = updated_project[field_name]
+            if cv is not None and cv != '':
+                pa = safe_parse_currency(cv)
+                if pa == int(pa):
+                    updated_project[field_name] = str(int(pa))
+                else:
+                    updated_project[field_name] = str(pa)
+            else:
+                updated_project[field_name] = ''
+
+    # 계산 필드 재계산
+    row_series = pd.Series(updated_project)
+    total1 = _safe_parse_amount(updated_project.get('총액 1', 0))
+    vat_flag = _parse_vat_flag(updated_project.get('부가세'))
+    total2 = _calculate_total2(total1, vat_flag)
+    outstanding = _calculate_outstanding_amount(row_series)
+    net_profit = _calculate_net_profit(row_series)
+    margin_rate = _calculate_margin_rate(row_series, net_profit)
+    updated_project['총액 2'] = str(int(total2)) if total2 != 0 else ''
+    updated_project['미수금'] = str(int(outstanding)) if outstanding != 0 else ''
+    updated_project['순익'] = str(int(net_profit)) if net_profit != 0 else ''
+    updated_project['마진율'] = str(round(margin_rate, 1)) if margin_rate != 0 else '0'
+    return updated_project
 
 
 @_q_register('project_resume_sheet')
