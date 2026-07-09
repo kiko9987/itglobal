@@ -19,7 +19,6 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-_sheets_manager: Optional[GoogleSheetsManager] = None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -63,11 +62,8 @@ def _normalize_field_name(name: str) -> str:
 
 
 def get_sheets_manager() -> GoogleSheetsManager:
-    """Google Sheets Manager 싱글톤 인스턴스 반환"""
-    global _sheets_manager
-    if _sheets_manager is None:
-        _sheets_manager = GoogleSheetsManager()
-    return _sheets_manager
+    """GoogleSheetsManager 반환 (클래스 자체가 스레드별 인스턴스 관리)."""
+    return GoogleSheetsManager()
 
 
 def _get_sheet_config() -> Optional[Dict[str, str]]:

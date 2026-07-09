@@ -56,14 +56,22 @@ def _should_retry_http_error(exception):
 
 
 class GoogleSheetsManager:
-    """구글 시트 연동 관리 클래스 (Thread-Safe 싱글톤)"""
+    """구글 시트 연동 관리 클래스 (스레드별 인스턴스).
+
+    2026-07-09 이전: 프로세스 전역 싱글톤 → googleapiclient not thread-safe
+    문제로 heap corruption(0xc0000374) 발생 → Flask 프로세스 크래시.
+
+    현재: 스레드별 독립 인스턴스. threading.local 로 각 스레드가 자기
+    GoogleSheetsManager 를 lazy 하게 갖도록 함. 실제로 스레드가 처음
+    호출할 때만 credentials 로드 + 인증 (~500ms 초기 1회).
+    """
 
     SCOPES = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive.readonly'
     ]
-    _instance = None
-    _lock = None
+    # 스레드별 인스턴스 저장소 (threading.local)
+    _tls = None
 
     # 프로젝트 코드 → 행번호 캐시 (메모리)
     _row_cache = {}
@@ -93,24 +101,20 @@ class GoogleSheetsManager:
     MAX_COLUMN_INDEX = 50  # 배경색 업데이트 최대 컬럼 수 (A~AX)
     
     def __new__(cls, credentials_file='credentials.json'):
-        """Thread-Safe 싱글톤 구현"""
-        if cls._lock is None:
+        """스레드별 인스턴스. 같은 스레드에서 재호출 시 캐시된 것 반환."""
+        if cls._tls is None:
             import threading
-            cls._lock = threading.RLock()
-        
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super(GoogleSheetsManager, cls).__new__(cls)
-                cls._instance._initialized = False
-            return cls._instance
-    
+            cls._tls = threading.local()
+        existing = getattr(cls._tls, 'instance', None)
+        if existing is not None:
+            return existing
+        obj = super(GoogleSheetsManager, cls).__new__(cls)
+        obj._initialized = False
+        cls._tls.instance = obj
+        return obj
+
     def __init__(self, credentials_file='credentials.json'):
-        """
-        구글 시트 매니저 초기화 (한 번만 실행)
-        
-        Args:
-            credentials_file: 구글 API 서비스 계정 자격증명 파일 경로
-        """
+        """구글 시트 매니저 초기화 (스레드당 1회)."""
         if self._initialized:
             return
             

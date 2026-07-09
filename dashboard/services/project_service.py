@@ -17,7 +17,6 @@ from dashboard.utils.background_prefetch import get_background_prefetch, start_b
 
 logger = logging.getLogger(__name__)
 
-_sheets_manager: Optional[GoogleSheetsManager] = None
 _load_lock = None  # lazy initialization
 
 PROJECT_CONFIG: Dict[str, Any] = {}
@@ -39,10 +38,8 @@ def get_project_config() -> Dict[str, Any]:
 
 
 def get_sheets_manager() -> GoogleSheetsManager:
-    global _sheets_manager
-    if _sheets_manager is None:
-        _sheets_manager = GoogleSheetsManager()
-    return _sheets_manager
+    """GoogleSheetsManager 반환 (클래스 자체가 스레드별 인스턴스 관리)."""
+    return GoogleSheetsManager()
 
 
 def get_last_update() -> Optional[datetime]:
