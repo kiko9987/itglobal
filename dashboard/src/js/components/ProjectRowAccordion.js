@@ -2190,7 +2190,7 @@ export default class ProjectRowAccordion {
     saveBtn.disabled = true;
     cancelBtn.disabled = true;
     const originalSaveText = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중...';
+    saveBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>저장중...';
 
     // 변경된 필드들 수집 및 검증 (금액 필드 콤마 제거)
     let validationErrors = [];
@@ -2252,15 +2252,18 @@ export default class ProjectRowAccordion {
       // API를 통해 변경사항 저장
       const _to = ('AbortSignal' in window && typeof AbortSignal.timeout === 'function')
         ? { signal: AbortSignal.timeout(120000) } : {};
-      const response = await fetch(`/api/projects/${projectCode}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify(changes),
-        ..._to,
-      });
+      // 최소 400ms 노출 보장 (스피너 정지 오해 방지)
+      const _minShow = new Promise(r => setTimeout(r, 400));
+      const [response] = await Promise.all([
+        fetch(`/api/projects/${projectCode}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(changes),
+          ..._to,
+        }),
+        _minShow,
+      ]);
 
       if (!response.ok) {
         // 서버의 구체적인 에러 메시지 읽기
@@ -2866,7 +2869,7 @@ export default class ProjectRowAccordion {
 
     const originalBtnHTML = cancelBtn.innerHTML;
     cancelBtn.disabled = true;
-    cancelBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>취소 중...';
+    cancelBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>취소 중...';
 
     // 원래 상태 저장 (롤백용)
     const originalData = window.projectListApp?.stateManager?.findProject(projectCode);
@@ -2874,15 +2877,18 @@ export default class ProjectRowAccordion {
     try {
       const _to = ('AbortSignal' in window && typeof AbortSignal.timeout === 'function')
         ? { signal: AbortSignal.timeout(120000) } : {};
-      const response = await fetch('/api/project/cancel', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ projectCode }),
-        ..._to,
-      });
+      // 최소 400ms 노출 보장 — write-behind 응답이 100ms 이내면 스피너가 정지된 것처럼 보이는 문제 방지
+      const _minShow = new Promise(r => setTimeout(r, 400));
+      const [response] = await Promise.all([
+        fetch('/api/project/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ projectCode }),
+          ..._to,
+        }),
+        _minShow,
+      ]);
 
       const result = await response.json();
 
@@ -2963,7 +2969,7 @@ export default class ProjectRowAccordion {
 
     const originalBtnHTML = resumeBtn.innerHTML;
     resumeBtn.disabled = true;
-    resumeBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>재개 중...';
+    resumeBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>재개 중...';
 
     // 원래 상태 저장 (롤백용)
     const originalData = window.projectListApp?.stateManager?.findProject(projectCode);
@@ -2971,15 +2977,18 @@ export default class ProjectRowAccordion {
     try {
       const _to = ('AbortSignal' in window && typeof AbortSignal.timeout === 'function')
         ? { signal: AbortSignal.timeout(120000) } : {};
-      const response = await fetch('/api/project/resume', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'same-origin',
-        body: JSON.stringify({ projectCode }),
-        ..._to,
-      });
+      // 최소 400ms 노출 보장 (스피너 정지 오해 방지)
+      const _minShow = new Promise(r => setTimeout(r, 400));
+      const [response] = await Promise.all([
+        fetch('/api/project/resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ projectCode }),
+          ..._to,
+        }),
+        _minShow,
+      ]);
 
       const result = await response.json();
 
@@ -5165,7 +5174,7 @@ export default class ProjectRowAccordion {
     saveBtn.disabled = true;
     cancelBtn.disabled = true;
     const originalSaveText = saveBtn.innerHTML;
-    saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중...';
+    saveBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>저장중...';
 
     // 메모 필드 분리 (별도 API로 처리) - catch 블록에서도 접근 가능하도록 try 밖에서 선언
     const memoChanges = {};
@@ -5274,7 +5283,7 @@ export default class ProjectRowAccordion {
 
       // 2. 메모 저장 (Batch API - 순차 처리로 SSL 에러 방지)
       if (Object.keys(memoChanges).length > 0) {
-        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>메모 저장중...';
+        saveBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>메모 저장중...';
 
         // 메모 배열 구성
         const memos = Object.entries(memoChanges).map(([memoKey, memoValue]) => ({
@@ -5342,7 +5351,7 @@ export default class ProjectRowAccordion {
           throw error;
         }
 
-        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>저장중...';
+        saveBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>저장중...';
       }
 
       if (result.success) {
