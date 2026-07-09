@@ -108,7 +108,8 @@ class CalendarSyncScheduler:
             # Calendar API 서비스 초기화
             service = get_calendar_service()
         except Exception as e:
-            logger.warning(f"[CALENDAR_SYNC] Calendar 서비스 초기화 실패: {e}")
+            # 2026-07-09 Calendar 도입 유예 중 — 반복 노이즈 방지 debug 로 낮춤.
+            logger.debug(f"[CALENDAR_SYNC] Calendar 서비스 초기화 실패: {e}")
             return
 
         # DB에서 모든 캘린더 이벤트 매핑 조회

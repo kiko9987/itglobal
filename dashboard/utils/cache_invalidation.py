@@ -224,41 +224,68 @@ class CacheInvalidationService:
 
     def _subscriber_loop(self):
         """
-        Pub/Sub 메시지 수신 루프 (백그라운드 스레드)
+        Pub/Sub 메시지 수신 루프 (백그라운드 스레드).
+
+        2026-07-09 blocking listen() 대신 get_message(timeout=30) + PING 30초 주기 —
+        Redis idle timeout(기본 300초) 만료로 소켓이 끊기던 반복 이슈 방지.
+        연결이 끊긴 걸 감지하면 5초 후 재구독.
         """
-        try:
-            # Pub/Sub 연결 생성 (스레드 안전)
-            self._pubsub = self.redis.redis.pubsub()
-            self._pubsub.subscribe(self.CHANNEL_NAME)
+        import time
+        reconnect_delay = 1.0
+        while self._running:
+            try:
+                self._pubsub = self.redis.redis.pubsub()
+                self._pubsub.subscribe(self.CHANNEL_NAME)
+                logger.info(f"Pub/Sub 구독 시작: {self.CHANNEL_NAME}")
+                reconnect_delay = 1.0  # 성공 시 백오프 리셋
+                last_ping = time.monotonic()
 
-            logger.info(f"Pub/Sub 구독 시작: {self.CHANNEL_NAME}")
+                while self._running:
+                    # 30초 타임아웃 wait — 메시지 없으면 loop 돌면서 heartbeat
+                    message = self._pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=30,
+                    )
+                    if message and message.get('type') == 'message':
+                        try:
+                            data = json.loads(message['data'])
+                            self._handle_message(data)
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Pub/Sub 메시지 파싱 오류: {e}")
+                        except Exception as e:
+                            logger.error(f"Pub/Sub 메시지 처리 오류: {e}")
 
-            # 메시지 수신 루프
-            for message in self._pubsub.listen():
-                if not self._running:
-                    break
+                    # 30초 이상 idle 이면 PING 으로 keepalive
+                    now = time.monotonic()
+                    if now - last_ping >= 30:
+                        try:
+                            self.redis.redis.ping()
+                        except Exception as _exc:
+                            # PING 실패 = 연결 끊김. break 후 재구독.
+                            logger.debug(f"Pub/Sub PING 실패, 재구독 예정: {_exc}")
+                            break
+                        last_ping = now
 
-                # 메시지 타입이 'message'인 경우만 처리
-                if message['type'] == 'message':
-                    try:
-                        data = json.loads(message['data'])
-                        self._handle_message(data)
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Pub/Sub 메시지 파싱 오류: {e}")
-                    except Exception as e:
-                        logger.error(f"Pub/Sub 메시지 처리 오류: {e}")
+            except Exception as e:
+                msg = str(e)
+                if 'Timeout reading from socket' in msg or 'Connection closed by server' in msg:
+                    logger.debug(f"Pub/Sub 소켓 idle timeout (재구독): {e}")
+                else:
+                    logger.error(f"Pub/Sub 구독자 루프 오류 (재구독): {e}")
+            finally:
+                try:
+                    if self._pubsub:
+                        self._pubsub.close()
+                except Exception:
+                    pass
+                self._pubsub = None
 
-        except Exception as e:
-            # 2026-07-08 Redis blocking read timeout은 정상 상황이라 WARNING 강등.
-            # Sentry에 유입되어 진짜 에러와 섞이면 관제가 어려워짐. 그 외 예외는 ERROR 유지.
-            msg = str(e)
-            if 'Timeout reading from socket' in msg or 'Connection closed by server' in msg:
-                logger.warning(f"Pub/Sub 구독자 루프 종료 (재구독 필요): {e}")
-            else:
-                logger.error(f"Pub/Sub 구독자 루프 오류: {e}")
+            if not self._running:
+                break
+            # 재구독 백오프 (최대 30초)
+            time.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, 30.0)
 
-        finally:
-            logger.info("Pub/Sub 구독자 루프 종료")
+        logger.info("Pub/Sub 구독자 루프 종료")
 
     def _handle_message(self, message: dict):
         """

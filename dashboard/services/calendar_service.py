@@ -160,7 +160,9 @@ def create_project_calendar_event(project: dict) -> Optional[str]:
         status = getattr(getattr(exc, 'resp', None), 'status', 0) or 0
         code = project.get('프로젝트 코드')
         if status in (403, 404):
-            logger.warning(
+            # 2026-07-09 Calendar 기능 도입 유예 중 — 지속 반복되는 warning 을 debug 로 낮춤.
+            # 도입 재개 시 다시 warning 으로 복구.
+            logger.debug(
                 f"[CALENDAR] 이벤트 생성 스킵({code}): HTTP {status} — "
                 f"캘린더 공유/권한 설정 확인 필요"
             )

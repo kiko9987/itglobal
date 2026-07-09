@@ -88,7 +88,8 @@ def load_credentials() -> Optional[Credentials]:
         credentials = Credentials.from_authorized_user_file(token_file, CALENDAR_SCOPES)
         return credentials
     except (ValueError, json.JSONDecodeError) as exc:
-        logger.warning(f"[CALENDAR] 토큰 파일 파싱 실패: {exc}")
+        # 2026-07-09 Calendar 도입 유예 중 — 반복 노이즈 방지 debug 로 낮춤.
+        logger.debug(f"[CALENDAR] 토큰 파일 파싱 실패: {exc}")
         return None
 
 
