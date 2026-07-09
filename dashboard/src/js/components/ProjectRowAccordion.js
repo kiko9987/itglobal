@@ -5131,17 +5131,30 @@ export default class ProjectRowAccordion {
   async saveAllChanges(projectCode) {
     // 동시 저장 요청 큐잉 처리
     if (this.isSavingInProgress) {
-      // 큐에 이미 같은 프로젝트가 있으면 제거 (최신 요청만 유지)
+      // 큐에 이미 같은 프로젝트가 있으면 이전 대기 Promise reject 후 제거 (최신 요청만 유지)
+      const staleItems = this.saveQueue.filter(item => item.projectCode === projectCode);
+      staleItems.forEach(item => {
+        if (item.timeoutId) clearTimeout(item.timeoutId);
+        item.reject(new Error('superseded'));
+      });
       this.saveQueue = this.saveQueue.filter(item => item.projectCode !== projectCode);
 
-      // 큐에 추가
+      // 큐에 추가 (60초 timeout — hang 시 무한 대기 방지)
       return new Promise((resolve, reject) => {
-        this.saveQueue.push({
+        const queueItem = {
           projectCode,
           resolve,
           reject,
-          timestamp: Date.now()
-        });
+          timestamp: Date.now(),
+          timeoutId: null,
+        };
+        queueItem.timeoutId = setTimeout(() => {
+          // 60초 대기 후에도 처리 안 되면 fail-safe
+          this.saveQueue = this.saveQueue.filter(item => item !== queueItem);
+          reject(new Error('save_queue_timeout'));
+          logger.error('[SAVE_QUEUE] 60초 timeout — 큐 대기 요청 강제 실패:', projectCode);
+        }, 60000);
+        this.saveQueue.push(queueItem);
 
         const saveBtn = this.accordionContainer.querySelector('.unified-save-btn');
         if (saveBtn) {
@@ -5676,11 +5689,13 @@ export default class ProjectRowAccordion {
    */
   _processNextInQueue() {
     if (this.saveQueue.length === 0) {
-      
+
       return;
     }
 
     const nextRequest = this.saveQueue.shift();
+    // 큐 처리 시작 시 timeout 취소 (더 이상 fail-safe 필요 없음)
+    if (nextRequest.timeoutId) clearTimeout(nextRequest.timeoutId);
     // 다음 저장 실행
     this.saveAllChanges(nextRequest.projectCode)
       .then(() => nextRequest.resolve())
@@ -7215,8 +7230,38 @@ export default class ProjectRowAccordion {
         if (this.heartbeatFailureCount >= 5) {
           logger.error('❌ [Heartbeat] 5회 연속 실패 - 편집 모드 자동 종료');
           this.stopLockHeartbeat();
-          this.showMessage('네트워크 연결이 불안정하여 편집 모드가 종료됩니다. 작업 내용을 확인해주세요.', 'error');
+          // dirty 필드 있으면 draft 로 남는 것 안내 (사용자가 복구 방법 명확 인지)
+          const dirtyCount = (this.editState && this.editState.dirtyFields)
+            ? this.editState.dirtyFields.size : 0;
+          const hasDraft = (() => {
+            try { return !!sessionStorage.getItem(`itg_draft_${projectCode}`); }
+            catch (_) { return false; }
+          })();
+          let msg = '네트워크 연결이 불안정하여 편집 모드가 종료됩니다.';
+          if (dirtyCount > 0 && hasDraft) {
+            msg += `\n\n⚠️ 저장하지 않은 변경 ${dirtyCount}개가 있습니다.\n이 프로젝트를 다시 편집하시면 복구 안내가 표시됩니다.`;
+          } else if (dirtyCount > 0) {
+            msg += `\n\n⚠️ 저장하지 않은 변경 ${dirtyCount}개가 있습니다. 네트워크 복구 후 다시 시도해 주세요.`;
+          } else {
+            msg += '\n작업 내용을 확인해 주세요.';
+          }
+          // 시스템 알림 (헤더) 우선 — 사용자 인지도 최우선
+          if (window.showSystemAlert) {
+            window.showSystemAlert(msg, 'warning');
+          } else {
+            alert(msg);
+          }
+          // draft 는 남겨두고 편집 모드만 해제 (disableUnifiedEditMode 내부에서
+          // draft 삭제하니 skipDataRestore=true 대신 별도 처리 필요)
+          // → 임시로 draft 저장 지속: disableUnifiedEditMode 호출 전에 draft 백업
+          let backupDraft = null;
+          try { backupDraft = sessionStorage.getItem(`itg_draft_${projectCode}`); }
+          catch (_) {}
           this.disableUnifiedEditMode(projectCode);
+          if (backupDraft) {
+            try { sessionStorage.setItem(`itg_draft_${projectCode}`, backupDraft); }
+            catch (_) {}
+          }
         }
       }
     }, 30 * 1000); // 30초
