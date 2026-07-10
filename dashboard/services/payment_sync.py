@@ -994,6 +994,15 @@ def sync_payments() -> Dict:
                     )
                     continue
 
+                # Backfill 검증 flag 상태면 stages_increased 전체를 skip + phash 저장 안 함
+                # (P0-1, 2026-07-10 G3717-SH 관측)
+                if os.getenv('PAYMENT_SLACK_DISABLED', '').strip() in ('1', 'true', 'True') and stages_increased:
+                    logger.info(
+                        f"[PAYMENT] 발송 disabled — phash 유지로 재감지 대상 "
+                        f"({project}, row {sheet_row}, stages={stages_increased})"
+                    )
+                    continue
+
                 for stage in stages_increased:
                     stage_payments = [p for p in payments if p.get('stage') == stage]
                     if not stage_payments:
@@ -1031,18 +1040,23 @@ def sync_payments() -> Dict:
                             stage_sheet_val=stage_vals.get(stage, 0),
                             construction=c.get('construction', ''),
                         )
-                    # 2026-07-10 backfill 검증 기간 동안 발송 stop (환경변수 flag)
-                    # phash / rc 상태는 계속 갱신 → 재활성화 시 그동안의 변경으로 폭발 발송 방지.
-                    if os.getenv('PAYMENT_SLACK_DISABLED', '').strip() in ('1', 'true', 'True'):
-                        logger.info(
-                            f"[PAYMENT] 발송 disabled — skip 발송만 ({project}, {stage}, row {sheet_row})"
-                        )
-                    else:
-                        slack.chat_postMessage(channel=channel, text=text)
-                        result['sent'] += 1
-                        logger.info(
-                            f"[PAYMENT] {stage} 입금 발송: {project} (row {sheet_row})"
-                        )
+                    resp = slack.chat_postMessage(channel=channel, text=text)
+                    result['sent'] += 1
+                    logger.info(
+                        f"[PAYMENT] {stage} 입금 발송: {project} (row {sheet_row})"
+                    )
+                    # 발송 성공 시 ts 저장 → 나중에 chat.update 정정 가능 (P0-2, 2026-07-10)
+                    try:
+                        if resp and resp.get('ok'):
+                            ts = resp.get('ts', '')
+                            if ts:
+                                rc.set(
+                                    f'payment_slack:ts:{project}:{stage}',
+                                    ts,
+                                    ex=60 * 60 * 24 * 90,  # 90일 보관
+                                )
+                    except Exception as _exc:
+                        logger.debug(f'[PAYMENT] ts 저장 실패 ({project}/{stage}): {_exc}')
                     sent_this_row = True
 
             if not sent_this_row:
