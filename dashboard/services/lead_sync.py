@@ -745,7 +745,10 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
     for lead, ln in zip(leads, lead_nos):
         try:
             blocks, fallback = build_inquiry_blocks(lead, ln, source)
-            resp = client.chat_postMessage(
+            # 2026-07-10 safe_slack_call — 리드 카드 놓치면 매니저가 신규 문의 인지 실패.
+            from dashboard.blueprints.slack_helpers import safe_slack_call
+            resp = safe_slack_call(
+                client.chat_postMessage,
                 channel=channel,
                 text=fallback,
                 blocks=blocks,

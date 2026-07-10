@@ -308,11 +308,14 @@ def send_alert(row: Dict, category: str, detected: Dict, slack_client=None) -> b
         logger.warning(f'[PAYMENT_ALERT] ephemeral 실패 ({code}/{category}): {exc}')
 
     # DM 병행 — conversations.open 으로 IM 채널 열고 postMessage
+    #   2026-07-10 safe_slack_call 로 재시도 자동화. 매니저 실수 알림은 놓치면
+    #   실질 손실이라 429·5xx 대응 필수.
     try:
-        im = slack_client.conversations_open(users=manager_user_id)
+        from dashboard.blueprints.slack_helpers import safe_slack_call
+        im = safe_slack_call(slack_client.conversations_open, users=manager_user_id)
         if im.get('ok'):
             im_ch = im['channel']['id']
-            slack_client.chat_postMessage(channel=im_ch, text=text)
+            safe_slack_call(slack_client.chat_postMessage, channel=im_ch, text=text)
             sent_any = True
     except Exception as exc:
         logger.warning(f'[PAYMENT_ALERT] DM 실패 ({code}/{category}): {exc}')
@@ -395,9 +398,12 @@ def send_daily_summary(alerts: List[Dict]) -> bool:
         return False
     try:
         from slack_sdk import WebClient
+        from dashboard.blueprints.slack_helpers import safe_slack_call
         client = WebClient(token=bot_token)
         text = build_daily_summary_text(alerts)
-        client.chat_postMessage(channel=channel, text=text)
+        # 2026-07-10 safe_slack_call 로 이관 — 일일 요약 놓치면 매니저가 몰라서
+        # 하루치 실수 감지 실패. 재시도 자동화 필수.
+        safe_slack_call(client.chat_postMessage, channel=channel, text=text)
         logger.info(f'[PAYMENT_ALERT] 일일 요약 발송: {len(alerts)}건')
         return True
     except Exception as exc:

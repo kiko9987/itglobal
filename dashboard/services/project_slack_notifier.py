@@ -285,16 +285,12 @@ def send_project_created_notification(data: dict, code: str) -> bool:
     }
 
     try:
-        req = urllib.request.Request(
-            'https://slack.com/api/chat.postMessage',
-            data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json; charset=utf-8',
-                'Authorization': f'Bearer {token}',
-            },
+        # 2026-07-10 safe_slack_post_url 로 이관 — 429·5xx·네트워크 오류 자동 재시도.
+        #   기존엔 단일 urlopen 이라 슬랙 일시 장애 시 카드 유실 위험이 있었음.
+        from dashboard.blueprints.slack_helpers import safe_slack_post_url
+        resp = safe_slack_post_url(
+            'https://slack.com/api/chat.postMessage', payload, token,
         )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            resp = json.loads(r.read())
         if resp.get('ok'):
             ts = resp.get('ts', '')
             logger.info(f"[PROJECT/SLACK] 공사 확정 알림 발송 완료: {code} (ts={ts})")
@@ -492,16 +488,11 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
             'text': text,
             'unfurl_links': False,
         }
-        req = urllib.request.Request(
-            'https://slack.com/api/chat.postMessage',
-            data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json; charset=utf-8',
-                'Authorization': f'Bearer {token}',
-            },
+        # 2026-07-10 safe_slack_post_url 로 이관 (재시도 자동화).
+        from dashboard.blueprints.slack_helpers import safe_slack_post_url
+        resp = safe_slack_post_url(
+            'https://slack.com/api/chat.postMessage', payload, token,
         )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            resp = json.loads(r.read())
         if resp.get('ok'):
             logger.info(f'[PROJECT/SLACK/편집] 변경 알림 답글 완료: {code} ({len(relevant)}개 필드)')
             reply_ok = True

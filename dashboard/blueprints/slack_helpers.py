@@ -110,6 +110,111 @@ def safe_slack_call(client_method, *args, max_retries: int = 3, **kwargs):
     return None
 
 
+def safe_slack_post_url(
+    url: str,
+    payload: dict,
+    token: str,
+    *,
+    max_retries: int = 3,
+    timeout: int = 5,
+) -> dict:
+    """urllib 기반 슬랙 API POST wrapper — safe_slack_call 의 urllib 판.
+
+    project_slack_notifier.py, sheet_write_queue.py 등 slack_sdk 대신
+    urllib.request.urlopen 으로 직접 슬랙 API 를 호출하는 지점에서 사용.
+
+    - HTTP 429 / Retry-After 헤더 존중해 대기 후 재시도
+    - 5xx / 네트워크 오류 → 지수 백오프 재시도
+    - Slack 응답의 error='ratelimited' 도 처리
+    - fatal error (channel_not_found 등) 즉시 실패 반환 (재시도 무의미)
+    - 성공 시 파싱된 dict 반환, 최종 실패 시 마지막 예외 raise
+
+    사용:
+        resp = safe_slack_post_url('https://slack.com/api/chat.postMessage',
+                                    {'channel': '#foo', 'text': 'hi'},
+                                    token)
+    """
+    import time as _t
+    import urllib.request
+    import urllib.error
+    FATAL_ERRORS = {'channel_not_found', 'not_in_channel', 'is_archived',
+                    'not_authed', 'invalid_auth', 'account_inactive'}
+    last_exc: BaseException | None = None
+    for attempt in range(max_retries):
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                headers={
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'Authorization': f'Bearer {token}',
+                },
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                resp = json.loads(r.read())
+            if resp.get('ok'):
+                return resp
+            # Slack API 논리적 실패 (ok=false)
+            err = resp.get('error', '')
+            if err in FATAL_ERRORS:
+                logger.warning(f'[SLACK/POST] Fatal error {err} — 재시도 안 함 ({url})')
+                return resp  # 호출자가 판단
+            if err == 'ratelimited':
+                retry_after = int(resp.get('headers', {}).get('Retry-After', 1) or 1)
+                logger.warning(
+                    f'[SLACK/POST] Rate limited (attempt {attempt+1}/{max_retries}) — '
+                    f'{retry_after}s 후 재시도'
+                )
+                _t.sleep(retry_after)
+                continue
+            # 기타 논리 실패는 재시도 (transient 일 수도)
+            if attempt < max_retries - 1:
+                wait = 2.0 * (attempt + 1)
+                logger.warning(
+                    f'[SLACK/POST] api error={err} attempt {attempt+1}/{max_retries} — {wait}s 후 재시도'
+                )
+                _t.sleep(wait)
+                continue
+            return resp
+        except urllib.error.HTTPError as exc:
+            last_exc = exc
+            retry_after = 0
+            try:
+                retry_after = int(exc.headers.get('Retry-After', 0))
+            except Exception:
+                pass
+            if exc.code == 429:
+                wait = max(retry_after, 1)
+                logger.warning(
+                    f'[SLACK/POST] HTTP 429 (attempt {attempt+1}/{max_retries}) — '
+                    f'{wait}s 후 재시도'
+                )
+                _t.sleep(wait)
+                continue
+            if 500 <= exc.code < 600 and attempt < max_retries - 1:
+                wait = 2.0 * (attempt + 1)
+                logger.warning(
+                    f'[SLACK/POST] HTTP {exc.code} attempt {attempt+1}/{max_retries} — {wait}s 후 재시도'
+                )
+                _t.sleep(wait)
+                continue
+            raise
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            if attempt < max_retries - 1:
+                wait = 2.0 * (attempt + 1)
+                logger.warning(
+                    f'[SLACK/POST] transient 오류 ({type(exc).__name__}) '
+                    f'attempt {attempt+1}/{max_retries} — {wait}s 후 재시도: {exc}'
+                )
+                _t.sleep(wait)
+            else:
+                logger.error(f'[SLACK/POST] {max_retries}회 재시도 실패: {exc}', exc_info=True)
+    if last_exc:
+        raise last_exc
+    return {}
+
+
 # ─────────────────────────────────────────────────────────────
 # 시트 날짜 포맷
 # ─────────────────────────────────────────────────────────────

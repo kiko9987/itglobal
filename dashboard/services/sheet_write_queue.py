@@ -87,7 +87,6 @@ def _maybe_alert_depth() -> None:
         _last_depth_alert_ts = now
         # 관리자 슬랙 DM
         import os as _os
-        import urllib.request as _urllib_req
         token = _os.getenv('SLACK_BOT_TOKEN', '').strip()
         admin_id = _os.getenv('SLACK_ADMIN_CHANNEL', '').strip()
         if not token or not admin_id:
@@ -97,15 +96,14 @@ def _maybe_alert_depth() -> None:
             f'pending: {depth}건 (임계값 {DEPTH_ALERT_THRESHOLD})\n'
             f'Google Sheets 지연 또는 워커 병목 가능성. `/api/admin/sheet-write-queue` 확인 필요.'
         )
-        req = _urllib_req.Request(
+        # 2026-07-10 safe_slack_post_url 로 이관 (재시도 자동화).
+        #   depth 알림 자체가 슬랙 장애 상황과 겹칠 수 있어 재시도 로직이 특히 중요.
+        from dashboard.blueprints.slack_helpers import safe_slack_post_url
+        safe_slack_post_url(
             'https://slack.com/api/chat.postMessage',
-            data=json.dumps({'channel': admin_id, 'text': text}).encode('utf-8'),
-            headers={
-                'Content-Type': 'application/json; charset=utf-8',
-                'Authorization': f'Bearer {token}',
-            },
+            {'channel': admin_id, 'text': text},
+            token,
         )
-        _urllib_req.urlopen(req, timeout=5).read()
         logger.warning(f'[QUEUE] depth 알림 발송: {depth}건')
     except Exception as _exc:
         logger.debug(f'[QUEUE] depth 알림 실패: {_exc}')

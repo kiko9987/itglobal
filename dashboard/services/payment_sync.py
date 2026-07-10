@@ -1196,7 +1196,10 @@ def sync_payments() -> Dict:
                     if thread_ts:
                         post_kwargs['thread_ts'] = thread_ts
                         post_kwargs['reply_broadcast'] = True  # 채널에도 노출
-                    resp = slack.chat_postMessage(**post_kwargs)
+                    # 2026-07-10 safe_slack_call — 결제 알림은 놓치면 매니저가 실입금
+                    # 인지 실패. 429·5xx 자동 재시도 필수.
+                    from dashboard.blueprints.slack_helpers import safe_slack_call
+                    resp = safe_slack_call(slack.chat_postMessage, **post_kwargs)
                     result['sent'] += 1
                     logger.info(
                         f"[PAYMENT] {stage} 입금 발송: {project} (row {sheet_row})"
