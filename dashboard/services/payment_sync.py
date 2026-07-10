@@ -38,7 +38,11 @@ COL_TOTAL_T = 'T'    # 총액 2 (R + VAT)
 COL_DEPOSIT = 'U'    # 계약금
 COL_MIDDLE = 'V'     # 중도금
 COL_BALANCE = 'W'    # 잔금
-COL_UNPAID = 'X'     # 미수금
+COL_UNPAID = 'X'     # 미수금 — 시트 수식: = (U+V+W) - T  (사용자 확인 2026-07-10)
+                     #   X < 0 : 정상 미납 (총액 대비 입금 부족)
+                     #   X = 0 : 완납
+                     #   X > 0 : 초과 입금 (매니저 실수 or 정정 필요)
+                     # 슬랙 카드에는 unpaid 값 그대로 출력 (음수 표시가 자연스러움).
 COL_INVOICE = 'Y'    # 계산서 (N입금/카드결제/미발행/잔금/중도금/계약금)
 COL_PAYDATE = 'Z'    # 수금 날짜
 COL_CONFIRM = 'AA'   # 수금 확인 체크박스
@@ -1067,12 +1071,32 @@ def sync_payments() -> Dict:
                             stage_sheet_val=stage_vals.get(stage, 0),
                             construction=c.get('construction', ''),
                         )
-                    resp = slack.chat_postMessage(channel=channel, text=text)
+                    # 스레드 연결 (P2-4, 2026-07-10) — 같은 프로젝트의 이전 발송 카드가 있으면
+                    # 그 카드의 스레드 답글로 발송 → 매니저·대표님이 프로젝트별 이력을 한눈에.
+                    thread_ts = ''
+                    try:
+                        # 이전 stage 카드 ts 를 root 로 사용 (계약금 → 중도금 → 잔금 순)
+                        for prev_stage in ('계약금', '중도금'):
+                            if prev_stage == stage:
+                                break
+                            prev_ts = rc.get(f'payment_slack:ts:{project}:{prev_stage}')
+                            if prev_ts:
+                                thread_ts = prev_ts if isinstance(prev_ts, str) else prev_ts.decode()
+                                break
+                    except Exception:
+                        pass
+
+                    post_kwargs = {'channel': channel, 'text': text}
+                    if thread_ts:
+                        post_kwargs['thread_ts'] = thread_ts
+                        post_kwargs['reply_broadcast'] = True  # 채널에도 노출
+                    resp = slack.chat_postMessage(**post_kwargs)
                     result['sent'] += 1
                     logger.info(
                         f"[PAYMENT] {stage} 입금 발송: {project} (row {sheet_row})"
+                        + (f" (스레드 답글 → {thread_ts})" if thread_ts else '')
                     )
-                    # 발송 성공 시 ts 저장 → 나중에 chat.update 정정 가능 (P0-2, 2026-07-10)
+                    # 발송 성공 시 ts 저장 → 나중에 chat.update 정정 + 스레드 연결 (P0-2 · P2-4)
                     try:
                         if resp and resp.get('ok'):
                             ts = resp.get('ts', '')
@@ -1116,6 +1140,17 @@ def sync_payments() -> Dict:
                 'phash': new_phash,
             })
             rc.expire(c['key'], REDIS_TTL)
+            # Phash 이력 저장 (P2-2, 2026-07-10) — 디버깅용, 최근 20개만 유지
+            # payment_sync:row:{row}:phash_history LIST — "{ts}|{phash}|sent={0/1}"
+            try:
+                import time as _t
+                hist_key = f'{c["key"]}:phash_history'
+                entry = f'{int(_t.time())}|{new_phash}|sent={1 if sent_this_row else 0}'
+                rc.lpush(hist_key, entry)
+                rc.ltrim(hist_key, 0, 19)
+                rc.expire(hist_key, REDIS_TTL)
+            except Exception:
+                pass
         except Exception as exc:
             logger.error(
                 f"[PAYMENT] 행 처리 실패 ({project}, row {sheet_row}): {exc}",
