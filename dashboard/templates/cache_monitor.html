@@ -201,9 +201,95 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- 프로젝트 시퀀스 관리 (2026-07-10) -->
+                <div class="row mt-4">
+                    <div class="col-12">
+                        <div class="cache-card">
+                            <div class="cache-card-header">
+                                <i class="fas fa-hashtag me-2"></i>프로젝트 시퀀스 관리
+                                <button type="button" class="btn btn-sm btn-outline-secondary float-end"
+                                        onclick="refreshSequenceStatus()">
+                                    <i class="fas fa-sync-alt me-1"></i>새로고침
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div id="sequenceStatus" class="mb-3">
+                                    <div class="loading-spinner text-center py-3">
+                                        <i class="fas fa-spinner fa-spin"></i> 로딩 중...
+                                    </div>
+                                </div>
+                                <div class="alert alert-info small mb-3">
+                                    매니저가 시트에서 프로젝트를 수동 삭제하면 DB 시퀀스가 시트 max 보다
+                                    커져 다음 신규 등록에 gap 이 생깁니다. gap 이 있으면 아래 버튼으로
+                                    시트 max 로 리셋하세요. (자동 조정은 gap 을 의도한 케이스도 있어
+                                    안전상 수동만 허용)
+                                </div>
+                                <button type="button" class="btn btn-warning" id="btnSequenceReset"
+                                        onclick="resetSequenceToSheetMax()" disabled>
+                                    <i class="fas fa-undo me-1"></i>시트 max 로 리셋
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
+
+    <script>
+    async function refreshSequenceStatus() {
+      const box = document.getElementById('sequenceStatus');
+      const btn = document.getElementById('btnSequenceReset');
+      box.innerHTML = '<div class="text-center py-3"><i class="fas fa-spinner fa-spin"></i> 조회 중...</div>';
+      btn.disabled = true;
+      try {
+        const resp = await fetch('/admin/api/sequence/status', { credentials: 'same-origin' });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || '조회 실패');
+        const gapClass = data.gap > 0 ? 'text-warning' : 'text-success';
+        box.innerHTML = `
+          <table class="table table-sm mb-0">
+            <tr><th style="width:220px">DB 시퀀스</th><td>${data.db_current_number}</td></tr>
+            <tr><th>시트 max</th><td>${data.sheet_max_number}</td></tr>
+            <tr><th>Gap</th><td class="${gapClass} fw-bold">${data.gap}</td></tr>
+            <tr><th>다음 발급 (현재 상태)</th><td>${data.next_issued_if_no_reset}</td></tr>
+            <tr><th>다음 발급 (리셋 시)</th><td class="text-success">${data.next_issued_if_reset}</td></tr>
+            <tr><th>시트 최근 5개</th><td><code>${(data.sheet_top_5_codes || []).join(', ')}</code></td></tr>
+            <tr><th>권장</th><td>${data.recommendation}</td></tr>
+          </table>`;
+        btn.disabled = data.gap <= 0;
+      } catch (err) {
+        box.innerHTML = `<div class="alert alert-danger">조회 실패: ${err.message}</div>`;
+      }
+    }
+
+    async function resetSequenceToSheetMax() {
+      if (!confirm('DB 시퀀스를 시트 max 로 리셋합니다. 진행할까요?\n\n이 작업은 하향 조정만 허용되며, 이후 등록되는 프로젝트 코드는 시트 max+1 부터 발급됩니다.')) return;
+      const btn = document.getElementById('btnSequenceReset');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>리셋 중...';
+      try {
+        const resp = await fetch('/admin/api/sequence/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({}),
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || '리셋 실패');
+        alert(`✓ 리셋 완료\n\n${data.before} → ${data.after}\n다음 발급: ${data.next_issued}`);
+        await refreshSequenceStatus();
+      } catch (err) {
+        alert('리셋 실패: ' + err.message);
+      } finally {
+        btn.innerHTML = '<i class="fas fa-undo me-1"></i>시트 max 로 리셋';
+      }
+    }
+
+    // 페이지 로드 시 자동 조회
+    document.addEventListener('DOMContentLoaded', refreshSequenceStatus);
+    </script>
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

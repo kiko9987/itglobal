@@ -370,3 +370,158 @@ def sync_all_projects_to_calendar():
             'error': '캘린더 일괄 동기화를 시작할 수 없습니다',
             'error_id': error_id
         }), 500
+
+
+# ─────────────────────────────────────────────────────────────
+# 프로젝트 시퀀스 관리 (2026-07-10)
+#   매니저가 시트에서 프로젝트를 수동 삭제하면 DB 시퀀스가 시트 max 보다 커져
+#   다음 신규 등록 시 gap 이 생긴다. 자동 하향 조정은 위험(정말 gap 을 두려는
+#   케이스도 있음)해서 관리자가 명시적으로 리셋할 수 있는 API 만 제공.
+# ─────────────────────────────────────────────────────────────
+
+@admin_bp.route('/api/sequence/status', methods=['GET'])
+@admin_required
+def sequence_status():
+    """DB 시퀀스 vs 시트 max 조회. gap 이 얼마인지 즉시 파악."""
+    try:
+        import os
+        import re
+        from dashboard.utils.user_database import get_user_database
+        from dashboard.services.payment_sync import _get_payment_service
+
+        pattern = request.args.get('pattern', 'GLOBAL').strip()
+        udb = get_user_database()
+        seq_info = udb.get_sequence_status(pattern) or {}
+        db_current = int(seq_info.get('current_number', 0))
+
+        # 시트 max 조회
+        svc = _get_payment_service()
+        sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+        name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+        sheet_max = 0
+        top_codes: list[str] = []
+        if svc and sid and name:
+            resp = svc.spreadsheets().values().get(
+                spreadsheetId=sid, range=f"'{name}'!A2:A10000",
+            ).execute()
+            codes = [r[0] for r in resp.get('values', []) if r and r[0]]
+            nums = []
+            for c in codes:
+                m = re.match(r'^[GRN](\d{4})-', c)
+                if m:
+                    nums.append(int(m.group(1)))
+            if nums:
+                sheet_max = max(nums)
+                top_codes = [c for c in codes if re.match(r'^[GRN]\d{4}-', c)]
+                top_codes = sorted(top_codes, key=lambda x: int(re.match(r'^[GRN](\d{4})-', x).group(1)), reverse=True)[:5]
+
+        gap = db_current - sheet_max
+        return jsonify({
+            'success': True,
+            'pattern': pattern,
+            'db_current_number': db_current,
+            'sheet_max_number': sheet_max,
+            'gap': gap,
+            'next_issued_if_no_reset': db_current + 1,
+            'next_issued_if_reset': sheet_max + 1,
+            'sheet_top_5_codes': top_codes,
+            'last_updated': seq_info.get('last_updated', ''),
+            'recommendation': (
+                f'⚠ 시트에 없는 번호 {gap}개 예약됨. 리셋 권장.' if gap > 0
+                else '✓ 정합 상태 (gap 없음).'
+            ),
+        })
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 시퀀스 상태 조회 오류: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': '조회 실패', 'error_id': error_id}), 500
+
+
+@admin_bp.route('/api/sequence/reset', methods=['POST'])
+@admin_required
+def sequence_reset():
+    """DB 시퀀스를 시트 max 로 리셋. 다음 등록부터 시트 max+1 발급.
+
+    Body (선택):
+        pattern: 시퀀스 이름 (기본 GLOBAL)
+        target: 명시적 목표 값 (미지정 시 시트 max)
+    """
+    try:
+        import os
+        import re
+        from dashboard.utils.user_database import get_user_database
+        from dashboard.services.payment_sync import _get_payment_service
+
+        payload = request.get_json(silent=True) or {}
+        pattern = str(payload.get('pattern', 'GLOBAL')).strip()
+        explicit_target = payload.get('target')
+
+        udb = get_user_database()
+        before = udb.get_sequence_status(pattern) or {}
+        db_before = int(before.get('current_number', 0))
+
+        # 목표 값 결정
+        if explicit_target is not None:
+            try:
+                target = int(explicit_target)
+            except (TypeError, ValueError):
+                return jsonify({'success': False, 'error': 'target 은 정수여야 합니다.'}), 400
+        else:
+            # 시트 max 조회
+            svc = _get_payment_service()
+            sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+            name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+            if not (svc and sid and name):
+                return jsonify({'success': False, 'error': '시트 접근 불가'}), 500
+            resp = svc.spreadsheets().values().get(
+                spreadsheetId=sid, range=f"'{name}'!A2:A10000",
+            ).execute()
+            nums = []
+            for r in resp.get('values', []):
+                if r and r[0]:
+                    m = re.match(r'^[GRN](\d{4})-', r[0])
+                    if m:
+                        nums.append(int(m.group(1)))
+            if not nums:
+                return jsonify({'success': False, 'error': '시트에서 프로젝트 코드를 찾지 못했습니다.'}), 500
+            target = max(nums)
+
+        if target >= db_before:
+            return jsonify({
+                'success': False,
+                'error': (
+                    f'target ({target}) 이 현재 DB 시퀀스 ({db_before}) 보다 크거나 같습니다. '
+                    f'하향 조정용 API 라 안전상 거부합니다. 강제로 올리려면 다른 경로 사용.'
+                ),
+            }), 400
+
+        # SQLite UPDATE
+        with udb._get_connection() as conn:
+            conn.execute('BEGIN IMMEDIATE')
+            try:
+                conn.execute(
+                    'UPDATE project_code_sequences '
+                    'SET current_number = ?, last_updated = CURRENT_TIMESTAMP '
+                    'WHERE pattern = ?',
+                    (target, pattern),
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        after = udb.get_sequence_status(pattern) or {}
+        logger.warning(
+            f'[SEQUENCE/RESET] {pattern}: {db_before} → {target} (by admin)'
+        )
+        return jsonify({
+            'success': True,
+            'pattern': pattern,
+            'before': db_before,
+            'after': int(after.get('current_number', target)),
+            'next_issued': int(after.get('current_number', target)) + 1,
+        })
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 시퀀스 리셋 오류: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': '리셋 실패', 'error_id': error_id}), 500

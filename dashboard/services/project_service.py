@@ -714,7 +714,12 @@ def check_overdue_status(project: Dict[str, Any]) -> bool:
         confirm_date = project.get('공사 확정')
         deposit_date = project.get('계약금 입금일')
         if confirm_date and not deposit_date:
-            confirm_dt = pd.to_datetime(confirm_date, errors='coerce')
+            # 2026-07-10 시리얼 방어 — confirm_date 가 Excel 시리얼 넘버 (예: 46216) 로
+            #   들어오는 경로 (write-behind 편집 응답 등) 에서 pd.to_datetime 이 NaT 반환 →
+            #   기한 초과가 조용히 감지 실패하던 잠재 이슈. 시리얼→문자열 정규화 후 파싱.
+            from dashboard.blueprints.projects import convert_excel_serial_to_date
+            normalized = convert_excel_serial_to_date(confirm_date)
+            confirm_dt = pd.to_datetime(normalized, errors='coerce')
             if pd.notna(confirm_dt):
                 days_passed = (datetime.now() - confirm_dt.to_pydatetime()).days
                 return days_passed > PROJECT_CONFIG.get('overdue_confirm_days', 2)

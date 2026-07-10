@@ -448,12 +448,21 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
             old_code = str(code_change['old_value']).strip()
             mapping = rc.get(f'project_card_msg:{old_code}')
             if mapping:
-                # 새 코드로 재매핑
+                # 새 코드로 재매핑 (정방향)
                 try:
                     rc.set(f'project_card_msg:{code}', mapping, ex=60 * 60 * 24 * 180)
                     rc.delete(f'project_card_msg:{old_code}')
                 except Exception:
                     pass
+                # 2026-07-10 fix — 역방향 매핑 (project_thread:{channel}|{ts}) 값 갱신.
+                #   기존엔 정방향(project_card_msg)만 재매핑하고 역방향은 old_code 그대로 남아
+                #   사업자등록증 첨부·스레드 답글 등 이벤트 처리 시 project_code 조회 결과가
+                #   old_code 반환 → 잘못된 프로젝트로 라우팅 위험이 있었음.
+                try:
+                    mapping_str = mapping if isinstance(mapping, str) else mapping.decode()
+                    rc.set(f'project_thread:{mapping_str}', code, ex=60 * 60 * 24 * 180)
+                except Exception as _rev_exc:
+                    logger.debug(f'[PROJECT/SLACK] 역방향 매핑 갱신 실패 ({old_code}→{code}): {_rev_exc}')
     if not mapping:
         logger.debug(f'[PROJECT/SLACK/편집] card 매핑 없음, skip ({code})')
         return False
