@@ -267,7 +267,7 @@ export default class FieldMemoButton {
   }
 
   /**
-   * 메모 저장 (구글 시트 셀 노트로 저장)
+   * 메모 저장 (구글 시트 셀 메모로 저장)
    */
   async saveMemo() {
     const textarea = this.popoverElement.querySelector('.memo-textarea');
@@ -301,7 +301,7 @@ export default class FieldMemoButton {
 
     // 읽기 모드일 때: 즉시 API 호출 (기존 동작)
     try {
-      // 구글 시트 셀 노트 API 호출 (field_name만 전송)
+      // 구글 시트 셀 메모 API 호출 (field_name만 전송)
       const response = await fetch('/api/projects/field-memo', {
         method: 'POST',
         headers: {
@@ -311,7 +311,7 @@ export default class FieldMemoButton {
         body: JSON.stringify({
           project_code: this.currentProjectCode,
           field_name: this.currentFieldName,  // field_key → field_name으로 변경
-          memo: newMemo || null // 빈 메모는 null로 저장 (셀 노트 삭제)
+          memo: newMemo || null // 빈 메모는 null로 저장 (셀 메모 삭제)
         })
       });
 
@@ -412,7 +412,7 @@ export default class FieldMemoButton {
           }
         }
 
-        // projectUpdated 이벤트는 발생시키지 않음 (메모는 셀 노트일 뿐 프로젝트 데이터 변경이 아님)
+        // projectUpdated 이벤트는 발생시키지 않음 (메모는 셀 메모일 뿐 프로젝트 데이터 변경이 아님)
         // 이미 모든 데이터 소스(DataTables, filters, StateManager, window.projectsData)를
         // 직접 동기화했으므로 추가 이벤트 불필요
         // projectUpdated 이벤트는 updateDataTableRow()를 트리거해서 draw()를 호출하므로
@@ -451,7 +451,7 @@ export default class FieldMemoButton {
           }, 100);
         }
 
-        logger.debug('[INFO] 셀 노트 저장 완료:', this.currentFieldName, '→', newMemo ? '작성됨' : '삭제됨');
+        logger.debug('[INFO] 셀 메모 저장 완료:', this.currentFieldName, '→', newMemo ? '작성됨' : '삭제됨');
 
       } else {
         throw new Error(result.message || '메모 저장 실패');

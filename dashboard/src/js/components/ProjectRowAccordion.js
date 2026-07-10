@@ -1427,7 +1427,7 @@ export default class ProjectRowAccordion {
       this.toggleFolderEditMode(documentCard, false);
     });
 
-    // 노트 편집 버튼 이벤트
+    // 메모 편집 버튼 이벤트
     this.accordionContainer.addEventListener('click', (e) => {
       if (!e.target.closest('.edit-notes-btn')) return;
       const target = e.target.closest('.edit-notes-btn');
@@ -1435,7 +1435,7 @@ export default class ProjectRowAccordion {
       this.toggleNotesEditMode(collectionCard, true);
     });
 
-    // 노트 저장 버튼 이벤트
+    // 메모 저장 버튼 이벤트
     this.accordionContainer.addEventListener('click', (e) => {
       if (!e.target.closest('.save-notes-btn')) return;
       const target = e.target.closest('.save-notes-btn');
@@ -1443,7 +1443,7 @@ export default class ProjectRowAccordion {
       this.saveCollectionNotes(collectionCard);
     });
 
-    // 노트 취소 버튼 이벤트
+    // 메모 취소 버튼 이벤트
     this.accordionContainer.addEventListener('click', (e) => {
       if (!e.target.closest('.cancel-notes-btn')) return;
       const target = e.target.closest('.cancel-notes-btn');
@@ -4685,7 +4685,7 @@ export default class ProjectRowAccordion {
 
 
   /**
-   * 노트 편집 모드 토글
+   * 메모 편집 모드 토글
    */
   toggleNotesEditMode(collectionCard, enable) {
     if (!collectionCard) return;

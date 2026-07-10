@@ -1417,12 +1417,12 @@ def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, proj
     Returns:
         tuple: (success, response_data or error_response)
     """
-    logger.info(f"[FIELD_MEMO] 셀 노트 저장 시작: {project_code} / {cell_address}")
+    logger.info(f"[FIELD_MEMO] 셀 메모 저장 시작: {project_code} / {cell_address}")
 
     # 기존 메모 값 조회 (감사 로그용)
     old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
 
-    # 구글 시트 셀 노트에 저장
+    # 구글 시트 셀 메모에 저장
     success = manager.update_cell_note(
         sheet_id,
         sheet_name,
@@ -1436,11 +1436,11 @@ def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, proj
             'message': '메모 저장에 실패했습니다.'
         }), 500)
 
-    # 셀 노트 캐시만 무효화 (선택적 캐시 무효화 - MED-4 피드백)
+    # 셀 메모 캐시만 무효화 (선택적 캐시 무효화 - MED-4 피드백)
     notes_cache_key = f"cell_notes_{sheet_id}"
     invalidated_notes = smart_invalidate(notes_cache_key)
 
-    logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 셀 노트 캐시 무효화 완료:")
+    logger.info(f"[FIELD_MEMO][PID:{os.getpid()}] 셀 메모 캐시 무효화 완료:")
     logger.info(f"  - {notes_cache_key}: {invalidated_notes}개 항목")
 
     # 감사 로그 기록
@@ -1486,7 +1486,7 @@ def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, proj
 @track_business_operation("api_field_memo_save")
 def save_field_memo():
     """
-    필드 메모 저장 API (구글 시트 셀 노트로 저장)
+    필드 메모 저장 API (구글 시트 셀 메모로 저장)
 
     Request Body:
         {

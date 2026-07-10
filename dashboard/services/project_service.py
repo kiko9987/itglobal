@@ -73,20 +73,20 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
             logger.warning("[PREFETCH] Google Sheet returned no rows")
             return None
 
-        # 셀 노트(댓글) 가져오기 (계약금, 중도금, 잔금)
+        # 셀 메모(댓글) 가져오기 (계약금, 중도금, 잔금)
         try:
             sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황')
 
-            # 셀 노트 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
+            # 셀 메모 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
             notes_cache_key = f"cell_notes_{sheet_id}"
             notes_by_row = smart_get(notes_cache_key, CacheStrategy.TEMPORARY)
 
             if notes_by_row is None:
-                logger.debug("[PREFETCH] 셀 노트 가져오기")
+                logger.debug("[PREFETCH] 셀 메모 가져오기")
                 notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W'])
                 smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)
             else:
-                logger.debug(f"[PREFETCH] 캐시된 셀 노트 사용: {len(notes_by_row)}개 행")
+                logger.debug(f"[PREFETCH] 캐시된 셀 메모 사용: {len(notes_by_row)}개 행")
 
             # DataFrame에 메모 컬럼 추가
             df['계약금_메모'] = None
@@ -110,11 +110,11 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
                     if 'W' in notes:
                         df.at[df_index, '잔금_메모'] = notes['W']
 
-            logger.debug(f"[PREFETCH] 셀 노트 {len(notes_by_row)}개 행 로드 완료")
+            logger.debug(f"[PREFETCH] 셀 메모 {len(notes_by_row)}개 행 로드 완료")
 
         except Exception as note_error:
-            logger.warning(f"[PREFETCH] 셀 노트 가져오기 실패: {note_error}")
-            # 노트 로드 실패해도 데이터는 정상 반환
+            logger.warning(f"[PREFETCH] 셀 메모 가져오기 실패: {note_error}")
+            # 메모 로드 실패해도 데이터는 정상 반환
             df['계약금_메모'] = None
             df['중도금_메모'] = None
             df['잔금_메모'] = None
@@ -404,23 +404,23 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 logger.warning("Google Sheet returned no rows")
                 return None
 
-            # 셀 노트(댓글) 가져오기 (계약금, 중도금, 잔금)
+            # 셀 메모(댓글) 가져오기 (계약금, 중도금, 잔금)
             try:
                 sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황')
 
-                # 셀 노트 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
+                # 셀 메모 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
                 notes_cache_key = f"cell_notes_{sheet_id}"
                 notes_by_row = smart_get(notes_cache_key, CacheStrategy.TEMPORARY)
 
                 if notes_by_row is None or force_refresh:
-                    logger.info(f"[LOAD_NOTES] 셀 노트 가져오기 시작: {sheet_name}")
+                    logger.info(f"[LOAD_NOTES] 셀 메모 가져오기 시작: {sheet_name}")
                     notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W'])
 
-                    # 셀 노트 캐시에 저장 (TEMPORARY 전략)
+                    # 셀 메모 캐시에 저장 (TEMPORARY 전략)
                     smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)
-                    logger.info(f"[LOAD_NOTES] 셀 노트 캐시 저장: {len(notes_by_row)}개 행")
+                    logger.info(f"[LOAD_NOTES] 셀 메모 캐시 저장: {len(notes_by_row)}개 행")
                 else:
-                    logger.info(f"[LOAD_NOTES] 캐시된 셀 노트 사용: {len(notes_by_row)}개 행")
+                    logger.info(f"[LOAD_NOTES] 캐시된 셀 메모 사용: {len(notes_by_row)}개 행")
 
                 # DataFrame에 메모 컬럼 추가
                 df['계약금_메모'] = None
@@ -460,8 +460,8 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 logger.info(f"[LOAD_NOTES] 완료: {len(notes_by_row)}개 행, {memo_count}개 메모")
 
             except Exception as note_error:
-                logger.warning(f"[LOAD_NOTES] 셀 노트 가져오기 실패 (데이터는 정상 로드됨): {note_error}")
-                # 노트 로드 실패해도 데이터는 정상 반환
+                logger.warning(f"[LOAD_NOTES] 셀 메모 가져오기 실패 (데이터는 정상 로드됨): {note_error}")
+                # 메모 로드 실패해도 데이터는 정상 반환
                 df['계약금_메모'] = None
                 df['중도금_메모'] = None
                 df['잔금_메모'] = None

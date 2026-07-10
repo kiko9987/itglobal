@@ -1,9 +1,9 @@
 """수금 관리 매니저 실수 감지 + 슬랙 알림 (2026-07-10).
 
 감지 카테고리 (6개):
-    1. note_missing       — 노트 없이 금액만 입력 (10분 지연)
+    1. note_missing       — 메모 없이 금액만 입력 (10분 지연)
     2. amount_typo        — 총액 대비 10배 차이 금액 (즉시)
-    3. required_missing   — 노트에 파트너/은행/날짜 중 하나 빠짐 (10분 지연)
+    3. required_missing   — 메모에 파트너/은행/날짜 중 하나 빠짐 (10분 지연)
     4. complete_untick    — 미수금=0 인데 수금완료(AA) 미체크 (10분 지연)
     6. unpaid_invalid     — X 미수금이 음수 or 총액 초과 (즉시)
     7. unknown_initial    — 매니저 이니셜이 등록 목록에 없음 (즉시)
@@ -42,15 +42,19 @@ DELAYED_THRESHOLD = 600
 NOTIFIED_TTL = 60 * 60 * 24
 
 CATEGORY_META = {
-    'note_missing':      {'severity': 'delayed',   'title': '📝 노트를 채워주세요'},
+    'note_missing':      {'severity': 'delayed',   'title': '📝 메모를 채워주세요'},
     'amount_typo':       {'severity': 'immediate', 'title': '⚠️ 금액 자릿수 확인'},
-    'required_missing':  {'severity': 'delayed',   'title': '📝 노트 정보 부족'},
+    'required_missing':  {'severity': 'delayed',   'title': '📝 메모 정보 부족'},
     'complete_untick':   {'severity': 'delayed',   'title': '✅ 수금완료 체크'},
     'unpaid_invalid':    {'severity': 'immediate', 'title': '⚠️ 미수금 값 확인'},
     'unknown_initial':   {'severity': 'immediate', 'title': '⚠️ 이니셜 확인'},
     # 2026-07-10 추가 (daily 스캔 전용)
     'reference_mismatch':      {'severity': 'immediate', 'title': '🔗 참조 프로젝트 대응 기록 없음'},
-    'sheet_note_mismatch':     {'severity': 'immediate', 'title': '⚠️ 노트-시트 금액 불일치'},
+    'sheet_note_mismatch':     {'severity': 'immediate', 'title': '⚠️ 메모-시트 금액 불일치'},
+    # 2026-07-11 추가 — 통합 입금 케이스 (informational, 검토 불필요).
+    #   같은 메모가 여러 프로젝트에 반복되고 메모합=시트 개별값 합이면
+    #   통합 입금으로 자동 인식. 매니저는 그룹 요약만 확인.
+    'unified_payment':         {'severity': 'info',      'title': ':white_check_mark: 통합 입금 확인'},
 }
 
 
@@ -59,7 +63,7 @@ CATEGORY_META = {
 # ─────────────────────────────────────────────
 
 def detect_note_missing(row: Dict, payments: List[Dict]) -> Optional[Dict]:
-    """카테고리 1: U/V/W 값 있는데 노트 파싱 결과가 fallback (partner=`-` date=`-`).
+    """카테고리 1: U/V/W 값 있는데 메모 파싱 결과가 fallback (partner=`-` date=`-`).
 
     AA(수금완료) 체크된 옛 프로젝트는 skip — 이미 완료된 건은 매니저가 손댈 필요 없음.
     """
@@ -78,8 +82,8 @@ def detect_note_missing(row: Dict, payments: List[Dict]) -> Optional[Dict]:
     return {
         'stages': incomplete_stages,
         'body': (
-            f"{', '.join(incomplete_stages)} 금액이 입력됐지만 노트가 비어있어요. "
-            f"시트 노트에 입금 정보(일시/입금액/계좌/적요) 추가해주세요."
+            f"{', '.join(incomplete_stages)} 금액이 입력됐지만 메모가 비어있어요. "
+            f"시트 메모에 입금 정보(일시/입금액/계좌/적요) 추가해주세요."
         ),
     }
 
@@ -110,7 +114,7 @@ def detect_amount_typo(row: Dict, payments: List[Dict]) -> Optional[Dict]:
 
 
 def detect_required_missing(row: Dict, payments: List[Dict]) -> Optional[Dict]:
-    """카테고리 3: 노트는 있는데 파트너/은행/날짜 중 하나 빠짐.
+    """카테고리 3: 메모는 있는데 파트너/은행/날짜 중 하나 빠짐.
 
     AA(수금완료) 옛 프로젝트는 skip.
     현금 케이스 완화 (2026-07-10 매니저 확인): partner='현금' 이면 은행 정보 요구 안 함.
@@ -135,7 +139,7 @@ def detect_required_missing(row: Dict, payments: List[Dict]) -> Optional[Dict]:
     if not issues:
         return None
     return {
-        'body': f"노트에 필수 정보가 부족해요: {'; '.join(issues)}.",
+        'body': f"메모에 필수 정보가 부족해요: {'; '.join(issues)}.",
     }
 
 

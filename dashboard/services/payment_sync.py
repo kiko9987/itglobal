@@ -3,8 +3,8 @@
 흐름:
 1. 시트 폴링 (값만 가벼움): R/S/T/U/V/W/X/Y/Z/AA + A/F
 2. Redis에 이전 (U, V, W, AA) 상태 저장 후 변경 감지
-3. 변경된 행만 셀 노트(U/V/W) 추가 fetch
-4. 노트 파싱 → 누적 history 메시지 빌더 → 슬랙 발송
+3. 변경된 행만 셀 메모(U/V/W) 추가 fetch
+4. 메모 파싱 → 누적 history 메시지 빌더 → 슬랙 발송
 
 메모 파싱 — 4가지 양식 (사용자 데이터 기준):
   양식 A: yyyy/mm/dd HH:MM / 입금 X원 / 거래처 / 계좌 / 은행
@@ -226,7 +226,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         for ln in lines:
             if any(p.search(ln) for p in skip_patterns):
                 continue
-            # 프로젝트 코드 라인 skip (2026-07-10 — 매니저가 노트 첫줄에 코드 붙여넣는 케이스)
+            # 프로젝트 코드 라인 skip (2026-07-10 — 매니저가 메모 첫줄에 코드 붙여넣는 케이스)
             if _PROJECT_CODE_RE.match(ln.strip()):
                 continue
             # 매니저 요약 라인 skip (2026-07-10)
@@ -243,7 +243,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
                 break
 
     # 다른 프로젝트 흡수 케이스 (2026-07-10 G2016-YG 관측)
-    # 노트에 '{프로젝트코드} 일부' 같은 참조 있으면 partner 로 세팅
+    # 메모에 '{프로젝트코드} 일부' 같은 참조 있으면 partner 로 세팅
     # 예: "2025-06-16 G2172/2173 일부 140,000원 부가세 포함 수금"
     if not partner:
         _ref_re = re.compile(r'([GRN]\d{4}(?:/\d{4})?)')
@@ -252,7 +252,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         if m:
             partner = f'참조 {m.group(1)}'
 
-    # 노트 전체에 "현금" 키워드 있고 partner 아직 없으면 partner='현금' fallback (2026-07-10)
+    # 메모 전체에 "현금" 키워드 있고 partner 아직 없으면 partner='현금' fallback (2026-07-10)
     # → _resolve_payment_code 에서 'N' 코드 반환
     if not partner and '현금' in '\n'.join(lines):
         partner = '현금'
@@ -294,7 +294,7 @@ def _hash_payments(payments: List[Dict]) -> str:
 
 def _parse_notes(notes: List[str],
                  stage_vals: Optional[Dict[str, int]] = None) -> List[Dict]:
-    """U/V/W 셀 노트 3개를 모두 파싱 → [{stage:'계약금', ...}, {stage:'중도금', ...}, ...]
+    """U/V/W 셀 메모 3개를 모두 파싱 → [{stage:'계약금', ...}, {stage:'중도금', ...}, ...]
     파싱 실패한 블록 또는 partner 빈 블록은 직전 블록과 합쳐서 재시도
     (매니저가 한 입금 안에서 빈 줄 입력해서 잘못 분리되는 케이스 보정).
     stage_vals: 단계별 시트 값(U/V/W) — 옛 양식(금액 라인 없음) 처리용 fallback.
@@ -469,7 +469,7 @@ def _parse_notes(notes: List[str],
     results.sort(key=lambda p: (stage_order.get(p.get('stage', ''), 9), _date_key(p)))
 
     # 매니저 설명 블록 필터 (2026-07-10 G1865-YG 관측)
-    # 매니저가 노트에 설명 문장을 여러 줄 쓰면 각 블록이 별도 payment 로 오인됨.
+    # 매니저가 메모에 설명 문장을 여러 줄 쓰면 각 블록이 별도 payment 로 오인됨.
     # 유효 payment 는 date 또는 bank 하나 이상 있어야 함.
     # 새 파서 결과의 date_md='' (빈값) 는 파싱 실패 → 매니저 설명 블록으로 간주.
     # 옛 fallback payment 는 date_md='-' 라 skip 안 됨 (옛 데이터 보존).
@@ -770,6 +770,74 @@ def _build_complete_message(
     return '\n'.join(lines)
 
 
+def _build_unified_stage_message(
+    stage: str,
+    projects: List[Dict],           # [{'code','address','sheet_val','construction'}, ...]
+    payments: List[Dict],           # 그룹 공통 payments (모든 지점 메모가 동일)
+    invoice_value: str,
+    is_complete: bool,
+) -> str:
+    """통합 입금 카드 — 여러 프로젝트가 같은 메모로 통합 입금됐을 때.
+
+    2026-07-11 신규. SK텔레콤 4지점 통합 입금 사례 대응:
+    - 매니저가 4개 지점 각 메모에 통합 입금 이력(잔금 353만+209만) 복사
+    - 시트 잔금은 개별 배분값 (1,045/1,826/1,045/1,705)
+    - 개별 카드 4건 대신 통합 카드 1건으로 발송 → 매니저 즉시 인지
+    - 그룹 전체 phash 갱신 → 중복 발송 방지
+    """
+    n = len(projects)
+    codes = [p['code'] for p in projects]
+    headline = ':white_check_mark: *수금완료 (통합 입금)*' if is_complete else f':moneybag: *{stage} 통합 입금*'
+    # 코드 4개 이하는 전부 나열, 초과분은 "외 N건" 으로 축약. 총 개수는 (총 N건) 로 명시.
+    if n <= 4:
+        codes_join = ', '.join(codes)
+    else:
+        codes_join = ', '.join(codes[:4]) + f' 외 {n-4}건'
+    lines = [
+        '⠀',
+        f"{headline} — :id: *{codes_join}* (총 {n}건)",
+        _SEP,
+    ]
+
+    # 대표 파트너
+    partners = sorted({(p.get('partner') or '').strip() for p in payments if p.get('partner')})
+    if partners:
+        lines.append(f'입금자 : {", ".join(partners)}')
+
+    # 입금 이력 (공통 payments)
+    lines.extend(['', '[입금 이력]'])
+    for p in payments:
+        stg = p.get('stage', '-')
+        date_md = p.get('date_md', '-')
+        code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
+        transfer_to = p.get('transfer_to', '')
+        if transfer_to and transfer_to != code:
+            code = f"{code} → {transfer_to}"
+        note_label = p.get('note_label', '')
+        bank = p.get('bank', '') or ''
+        inner = f"{code}, {note_label}" if note_label else code
+        code_display = f"{bank} ({inner})" if bank else inner
+        amount = p.get('amount', 0)
+        partner = p.get('partner', '-') or '-'
+        lines.append(
+            f"{stg}  {date_md}  {code_display}  {amount:,}원  {partner}"
+        )
+
+    # 개별 지점 (짧은 주소)
+    lines.extend(['', '[개별 지점 배분]'])
+    for pj in projects:
+        addr = (pj.get('address') or '-')[:50]
+        sv = int(pj.get('sheet_val') or 0)
+        lines.append(f"• `{pj['code']}`  {addr}  {sv:,}원")
+
+    # 총액 (그룹 시트 합계)
+    sheet_sum = sum(int(pj.get('sheet_val') or 0) for pj in projects)
+    lines.append(_SEP)
+    lines.append(f"통합 입금 총액 : {sheet_sum:,}원")
+    lines.append('⠀')
+    return '\n'.join(lines)
+
+
 # ─────────────────────────────────────────────
 # 시트 폴링 + 변경 감지 + 발송
 # ─────────────────────────────────────────────
@@ -814,7 +882,7 @@ def _reset_payment_service():
 
 
 def _fetch_row_notes(spreadsheet_id: str, sheet_name: str, row: int) -> List[str]:
-    """U/V/W 셀 노트 3개 fetch."""
+    """U/V/W 셀 메모 3개 fetch."""
     service = _get_payment_service()
     if not service:
         return ['', '', '']
@@ -843,7 +911,7 @@ def _fetch_row_notes(spreadsheet_id: str, sheet_name: str, row: int) -> List[str
             notes.append('')
         return notes[:3]
     except Exception as exc:
-        logger.error(f"[PAYMENT] 노트 fetch 실패 (row {row}): {exc}", exc_info=True)
+        logger.error(f"[PAYMENT] 메모 fetch 실패 (row {row}): {exc}", exc_info=True)
         return ['', '', '']
 
 
@@ -943,36 +1011,76 @@ def sync_payments() -> Dict:
     except Exception:
         baseline_done = False
 
-    # 첫 폴링이면 모든 행의 U/V/W 노트를 한 번에 fetch (phash baseline 구축)
+    # 2026-07-11 매 폴링마다 전체 메모 fetch. 통합 입금 그룹 감지에 다른 프로젝트
+    #   payments 접근 필요. baseline flag 는 유지하되 매번 fetch 실행 (기존 phash 저장
+    #   로직 그대로 사용). 시트 API batch 호출 1번 추가 (~300ms).
     all_phash_by_row: Dict[int, str] = {}
-    if not baseline_done:
-        try:
-            resp_notes = service.spreadsheets().get(
-                spreadsheetId=sheet_id,
-                ranges=[f"'{sheet_name}'!U2:W10000"],
-                fields='sheets.data.rowData.values.note',
-                includeGridData=True,
-            ).execute()
-            sheets_data = resp_notes.get('sheets', [])
-            if sheets_data:
-                data_list = sheets_data[0].get('data', [])
-                if data_list:
-                    row_data_list = data_list[0].get('rowData', [])
-                    for offset_n, rd in enumerate(row_data_list):
-                        vals = rd.get('values', [])
-                        notes_3 = []
-                        for v in vals:
-                            notes_3.append(v.get('note', '') or '')
-                        while len(notes_3) < 3:
-                            notes_3.append('')
-                        payments_n = _parse_notes(notes_3[:3])
-                        if payments_n:
-                            all_phash_by_row[offset_n + 2] = _hash_payments(payments_n)
+    all_payments_by_row: Dict[int, List[Dict]] = {}  # 통합 그룹 감지용
+    try:
+        resp_notes = service.spreadsheets().get(
+            spreadsheetId=sheet_id,
+            ranges=[f"'{sheet_name}'!U2:W10000"],
+            fields='sheets.data.rowData.values.note',
+            includeGridData=True,
+        ).execute()
+        sheets_data = resp_notes.get('sheets', [])
+        if sheets_data:
+            data_list = sheets_data[0].get('data', [])
+            if data_list:
+                row_data_list = data_list[0].get('rowData', [])
+                for offset_n, rd in enumerate(row_data_list):
+                    vals = rd.get('values', [])
+                    notes_3 = []
+                    for v in vals:
+                        notes_3.append(v.get('note', '') or '')
+                    while len(notes_3) < 3:
+                        notes_3.append('')
+                    payments_n = _parse_notes(notes_3[:3])
+                    if payments_n:
+                        row_num = offset_n + 2
+                        all_phash_by_row[row_num] = _hash_payments(payments_n)
+                        all_payments_by_row[row_num] = payments_n
+        if not baseline_done:
             logger.info(
-                f"[PAYMENT] baseline 노트 fetch 완료: {len(all_phash_by_row)}개 행"
+                f"[PAYMENT] baseline 메모 fetch 완료: {len(all_phash_by_row)}개 행"
             )
-        except Exception as exc:
-            logger.error(f"[PAYMENT] baseline 노트 fetch 실패: {exc}", exc_info=True)
+    except Exception as exc:
+        logger.error(f"[PAYMENT] 메모 fetch 실패: {exc}", exc_info=True)
+
+    # 2026-07-11 통합 입금 그룹 감지용 signature 인덱스.
+    #   (stage, sorted_payments_signature) → [(row, code, sheet_val, address, construction)]
+    #   같은 stage 에 완전 동일한 payments 를 가진 프로젝트가 여러 개면 그룹 후보.
+    def _payment_signature(payments_: List[Dict], stage_: str) -> tuple:
+        return tuple(sorted(
+            (p.get('amount', 0), (p.get('partner') or '').strip(), (p.get('date_md') or '').strip())
+            for p in payments_ if p.get('stage') == stage_
+        ))
+
+    sig_index: Dict[tuple, List[Dict]] = {}
+    for _r_num, _ps in all_payments_by_row.items():
+        # 시트에서 이 행의 U/V/W 값·코드·주소·공사내용 추출
+        _off = _r_num - 2
+        if _off < 0 or _off >= len(rows):
+            continue
+        _row = rows[_off]
+        while len(_row) < 27:
+            _row.append('')
+        _code = str(_row[IDX_A] if IDX_A < len(_row) else '').strip()
+        if not _code or not _VALID_PROJECT_RE.match(_code):
+            continue
+        _u = _to_int_won(_row[IDX_U] if IDX_U < len(_row) else '')
+        _v = _to_int_won(_row[IDX_V] if IDX_V < len(_row) else '')
+        _w = _to_int_won(_row[IDX_W] if IDX_W < len(_row) else '')
+        _addr = str(_row[IDX_F] if IDX_F < len(_row) else '').strip()
+        _constr = str(_row[IDX_L] if IDX_L < len(_row) else '').strip()
+        for _stage, _sval in (('계약금', _u), ('중도금', _v), ('잔금', _w)):
+            _sig = _payment_signature(_ps, _stage)
+            if not _sig:
+                continue
+            sig_index.setdefault((_stage, _sig), []).append({
+                'row': _r_num, 'code': _code, 'sheet_val': _sval,
+                'address': _addr, 'construction': _constr,
+            })
 
     # 발송 처리할 변경 행만 모음 (한 폴링당 최대 N건 — SSL 동시 호출 방지)
     MAX_PER_TICK = 5
@@ -1110,13 +1218,13 @@ def sync_payments() -> Dict:
                 if w_val > prev_w:
                     stages_increased.append('잔금')
 
-                # 노트 미완성 감지 (2026-07-10 · 2026-07-10 조건 완화)
-                # 매니저 실제 워크플로: U/V/W 금액 먼저 입력 → 노트 나중 입력.
-                # 30초 폴링이 그 사이에 걸리면 노트 없는 상태로 발송돼 partner/date 가 비어서 나감.
+                # 메모 미완성 감지 (2026-07-10 · 2026-07-10 조건 완화)
+                # 매니저 실제 워크플로: U/V/W 금액 먼저 입력 → 메모 나중 입력.
+                # 30초 폴링이 그 사이에 걸리면 메모 없는 상태로 발송돼 partner/date 가 비어서 나감.
                 #
                 # 초기 fix: date_md='-' AND partner='-' (완전 fallback) 만 감지
                 # 강화 (G3702-MS 재발 관측): partner 또는 date 하나만 빠져도 skip.
-                # 매니저가 노트 부분만 입력한 중간 상태도 감지 대상.
+                # 매니저가 메모 부분만 입력한 중간 상태도 감지 대상.
                 incomplete = any(
                     (not p.get('partner') or p.get('partner') == '-')
                     or (not p.get('date_md') or p.get('date_md') == '-')
@@ -1126,8 +1234,8 @@ def sync_payments() -> Dict:
                 )
                 if incomplete:
                     logger.info(
-                        f"[PAYMENT] 노트 미저장 감지 → skip ({project}, row {sheet_row}). "
-                        f"다음 폴링에서 노트 확인 후 재시도"
+                        f"[PAYMENT] 메모 미저장 감지 → skip ({project}, row {sheet_row}). "
+                        f"다음 폴링에서 메모 확인 후 재시도"
                     )
                     continue
 
@@ -1148,7 +1256,50 @@ def sync_payments() -> Dict:
                     stage_vals = {
                         '계약금': c['u'], '중도금': c['v'], '잔금': c['w'],
                     }
-                    if stage == '잔금' and c['unpaid'] == 0:
+
+                    # 2026-07-11 통합 입금 그룹 감지
+                    #   sig_index 에 같은 stage 시그니처 가진 프로젝트가 여러개면 그룹.
+                    #   시트합 = 메모합 이면 통합 입금 확정 → 통합 카드 1건 발송.
+                    #   대표(sig_index 첫 프로젝트)만 발송하고 나머지는 phash 만 갱신.
+                    _sig = _payment_signature(payments, stage)
+                    _group = sig_index.get((stage, _sig), [])
+                    _is_unified = False
+                    _unified_projects: List[Dict] = []
+                    if len(_group) >= 2:
+                        _note_sum = sum(p.get('amount', 0) for p in stage_payments)
+                        _sheet_sum = sum(int(g['sheet_val'] or 0) for g in _group)
+                        if _sheet_sum > 0 and abs(_note_sum - _sheet_sum) / max(_sheet_sum, 1) <= 0.05:
+                            _is_unified = True
+                            _unified_projects = _group
+
+                    if _is_unified:
+                        # 대표 아니면 발송 skip (대표가 통합 카드로 4건 다 처리)
+                        _rep_row = _unified_projects[0]['row']
+                        if sheet_row != _rep_row:
+                            # phash 저장 후 skip — 다음 폴링에서 반복 감지 방지.
+                            try:
+                                rc.hset(key, mapping={
+                                    'u': u_val, 'v': v_val, 'w': w_val,
+                                    'aa': 'true' if aa_chk else 'false',
+                                    'phash': new_phash,
+                                })
+                                rc.expire(key, REDIS_TTL)
+                            except Exception:
+                                pass
+                            logger.info(
+                                f"[PAYMENT] 통합 그룹 대표 아님 → phash 갱신 후 skip "
+                                f"({project} row {sheet_row}, 대표 row {_rep_row})"
+                            )
+                            continue
+                        # 통합 카드 발송
+                        text = _build_unified_stage_message(
+                            stage=stage,
+                            projects=_unified_projects,
+                            payments=stage_payments,
+                            invoice_value=c['invoice'],
+                            is_complete=(stage == '잔금' and c['unpaid'] == 0),
+                        )
+                    elif stage == '잔금' and c['unpaid'] == 0:
                         # 잔금 + 미수금 0 → 수금완료
                         text = _build_complete_message(
                             project=project, address=c['address'],
@@ -1177,6 +1328,25 @@ def sync_payments() -> Dict:
                             stage_sheet_val=stage_vals.get(stage, 0),
                             construction=c.get('construction', ''),
                         )
+                    # 2026-07-11 통합 입금 힌트 — 메모 amount 합이 시트 stage 값보다
+                    #   훨씬 크면 (1.5배 이상) 다른 프로젝트가 통합 입금 대상일 가능성.
+                    #   실사례: SK텔레콤 4지점 잔금 통합 입금 시 G2855 카드에 메모 562만
+                    #   기록되지만 총액은 개별 배분값 104만. 매니저가 카드만 봐선 오해.
+                    #   카드 하단에 힌트 부착해 통합 입금 여부 즉시 확인 유도.
+                    #   통합 카드로 발송하는 경우엔 이미 명확하니 힌트 불필요.
+                    if not _is_unified:
+                        try:
+                            _note_sum = sum(p.get('amount', 0) for p in stage_payments)
+                            _sheet_val = int(stage_vals.get(stage, 0))
+                            if _sheet_val > 0 and _note_sum >= _sheet_val * 1.5:
+                                text += (
+                                    '\n\n:warning: *_총액은 시트 개별 배분값입니다._*\n'
+                                    f'_메모 입금 합 {_note_sum:,}원 vs 시트 값 {_sheet_val:,}원._\n'
+                                    '_같은 사업자의 다른 프로젝트가 통합 입금 대상일 수 있어요._'
+                                )
+                        except Exception:
+                            pass
+
                     # 스레드 연결 (P2-4, 2026-07-10) — 같은 프로젝트의 이전 발송 카드가 있으면
                     # 그 카드의 스레드 답글로 발송 → 매니저·대표님이 프로젝트별 이력을 한눈에.
                     thread_ts = ''
@@ -1215,6 +1385,34 @@ def sync_payments() -> Dict:
                                     ts,
                                     ex=60 * 60 * 24 * 90,  # 90일 보관
                                 )
+                                # 2026-07-11 통합 카드였으면 그룹 전체 프로젝트에도 동일 ts 저장.
+                                #   각 지점 코드로 카드 조회하는 후속 처리 (편집 답글 등) 가
+                                #   같은 카드를 참조하도록 → 그룹 어느 코드든 lookup 시 매칭.
+                                #   phash 도 그룹 전체 갱신해서 이후 폴링 중복 발송 방지.
+                                if _is_unified:
+                                    for _g in _unified_projects:
+                                        _row_num = _g['row']
+                                        _code_g = _g['code']
+                                        if _code_g == project:
+                                            continue  # 대표는 이미 처리됨
+                                        try:
+                                            rc.set(
+                                                f'payment_slack:ts:{_code_g}:{stage}',
+                                                ts,
+                                                ex=60 * 60 * 24 * 90,
+                                            )
+                                            # 그룹 전체 phash 갱신 (개별 발송 중복 방지)
+                                            _row_key = f"{REDIS_KEY_PREFIX}{_row_num}"
+                                            rc.hset(_row_key, mapping={
+                                                'phash': all_phash_by_row.get(_row_num, ''),
+                                            })
+                                            rc.expire(_row_key, REDIS_TTL)
+                                        except Exception:
+                                            pass
+                                    logger.info(
+                                        f"[PAYMENT] 통합 카드 발송 후 그룹 phash/ts 갱신: "
+                                        f"{len(_unified_projects)}건 (대표 {project})"
+                                    )
                     except Exception as _exc:
                         logger.debug(f'[PAYMENT] ts 저장 실패 ({project}/{stage}): {_exc}')
                     sent_this_row = True
@@ -1225,7 +1423,7 @@ def sync_payments() -> Dict:
                 )
 
             # 매니저 실수 감지 + 알림 훅 (2026-07-10)
-            # 카테고리: 노트 미저장/자릿수 오타/필수 항목 누락/미체크/미수금 이상/이니셜 오타
+            # 카테고리: 메모 미저장/자릿수 오타/필수 항목 누락/미체크/미수금 이상/이니셜 오타
             try:
                 from dashboard.services.payment_alert import check_and_alert
                 from dashboard.blueprints.slack_helpers import _load_initials_from_config
