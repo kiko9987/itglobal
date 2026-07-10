@@ -938,6 +938,24 @@ def sync_payments() -> Dict:
                 if w_val > prev_w:
                     stages_increased.append('잔금')
 
+                # 노트 미완성 감지 (2026-07-10)
+                # 매니저 실제 워크플로: U/V/W 금액 먼저 입력 → 노트 나중 입력.
+                # 30초 폴링이 그 사이에 걸리면 노트 없는 상태로 발송돼 partner/date/bank 가 `-`, G 로 나감.
+                # _parse_notes 의 fallback (line 227~233) 이 partner=`-` date=`-` payment 를 만들면
+                # 슬랙 발송 skip 하고 rc.hset 도 안 함 → 다음 폴링에서 노트 채워지면 정상 발송.
+                incomplete = any(
+                    p.get('date_md') == '-' and p.get('partner') == '-'
+                    for stage in stages_increased
+                    for p in payments
+                    if p.get('stage') == stage
+                )
+                if incomplete:
+                    logger.info(
+                        f"[PAYMENT] 노트 미저장 감지 → skip ({project}, row {sheet_row}). "
+                        f"다음 폴링에서 노트 확인 후 재시도"
+                    )
+                    continue
+
                 for stage in stages_increased:
                     stage_payments = [p for p in payments if p.get('stage') == stage]
                     if not stage_payments:
@@ -975,12 +993,19 @@ def sync_payments() -> Dict:
                             stage_sheet_val=stage_vals.get(stage, 0),
                             construction=c.get('construction', ''),
                         )
-                    slack.chat_postMessage(channel=channel, text=text)
-                    result['sent'] += 1
+                    # 2026-07-10 backfill 검증 기간 동안 발송 stop (환경변수 flag)
+                    # phash / rc 상태는 계속 갱신 → 재활성화 시 그동안의 변경으로 폭발 발송 방지.
+                    if os.getenv('PAYMENT_SLACK_DISABLED', '').strip() in ('1', 'true', 'True'):
+                        logger.info(
+                            f"[PAYMENT] 발송 disabled — skip 발송만 ({project}, {stage}, row {sheet_row})"
+                        )
+                    else:
+                        slack.chat_postMessage(channel=channel, text=text)
+                        result['sent'] += 1
+                        logger.info(
+                            f"[PAYMENT] {stage} 입금 발송: {project} (row {sheet_row})"
+                        )
                     sent_this_row = True
-                    logger.info(
-                        f"[PAYMENT] {stage} 입금 발송: {project} (row {sheet_row})"
-                    )
 
             if not sent_this_row:
                 logger.debug(
