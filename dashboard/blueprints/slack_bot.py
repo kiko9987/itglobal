@@ -537,14 +537,42 @@ def _register_project_handlers(app):
         subtype = event.get("subtype") or ""
         has_files = bool(event.get("files"))
         thread_ts = event.get("thread_ts")
+        channel = event.get('channel')
+        ts = event.get('ts')
         logger.info(
             f"[LICENSE/EVT] message 수신: subtype={subtype!r}, "
             f"has_files={has_files}, thread_ts={thread_ts!r}, "
-            f"channel={event.get('channel')}"
+            f"channel={channel}"
         )
-        # 스레드 파일 첨부만 처리
+        # 스레드 파일 첨부만 처리 + 봇 자신 메시지 skip (bot_message subtype 등)
         if not thread_ts or not has_files:
             return
+        if subtype == 'bot_message' or event.get('bot_id'):
+            return
+
+        # 2026-07-10 UX 개선 — 파일 첨부 즉시 시각 피드백.
+        #   기존엔 Drive 저장·검증까지 3-10초 걸리는 동안 매니저 관점에선 봇이 아무
+        #   반응 없어 보이던 UX 사고. 즉시 :hourglass_flowing_sand: reaction 붙여
+        #   "봇이 인지·처리 중" 인지 → 완료 시 ✅ or ❌ 로 교체.
+        _sand = 'hourglass_flowing_sand'
+        if channel and ts:
+            try:
+                client.reactions_add(channel=channel, timestamp=ts, name=_sand)
+            except Exception:
+                pass  # 이미 붙어있거나 권한 이슈 — 무시
+
+        def _safe_react(name: str) -> None:
+            """hourglass 제거 후 최종 상태 reaction 부착. 실패는 무시."""
+            if not (channel and ts):
+                return
+            try:
+                client.reactions_remove(channel=channel, timestamp=ts, name=_sand)
+            except Exception:
+                pass
+            try:
+                client.reactions_add(channel=channel, timestamp=ts, name=name)
+            except Exception:
+                pass
 
         def _bg():
             try:
@@ -552,9 +580,24 @@ def _register_project_handlers(app):
                 result = _h(event, _PROJECT_BOT_TOKEN)
                 if not result:
                     logger.info("[LICENSE] 프로젝트 카드 스레드 아님 → skip")
+                    # 프로젝트 스레드 아니면 reaction 정리만 (오해 방지)
+                    if channel and ts:
+                        try:
+                            client.reactions_remove(channel=channel, timestamp=ts, name=_sand)
+                        except Exception:
+                            pass
                     return
                 saved = result.get('saved') or []
                 skipped = result.get('skipped') or []
+
+                # reaction 최종 상태 반영
+                if saved and not skipped:
+                    _safe_react('white_check_mark')  # 전건 성공
+                elif saved and skipped:
+                    _safe_react('warning')  # 부분 성공
+                else:
+                    _safe_react('x')  # 실패
+
                 lines = []
                 if saved:
                     lines.append(f":white_check_mark: 사업자등록증 저장 완료 — `{result['code']}`")
@@ -575,6 +618,7 @@ def _register_project_handlers(app):
                         logger.warning(f"[LICENSE] 답글 발송 실패: {exc}")
             except Exception as exc:
                 logger.error(f"[LICENSE] 파일 처리 예외: {exc}", exc_info=True)
+                _safe_react('x')  # 예외 시 실패 표시
         threading.Thread(target=_bg, daemon=True).start()
 
     # ─────────────────────────────────────────────────────────
@@ -814,25 +858,35 @@ def _register_handlers(app):
 
     # ④ 인입 알림 메시지의 [방문 요청] 버튼
     # ⓑ [📋 상담하기] 통합 버튼 — 인입 카드 모든 처리 흐름의 단일 진입점
+    # 2026-07-10 UX 개선 — modal 열기 handler 를 백그라운드 스레드로 이관.
+    #   기존엔 ack() 후 handler 안에서 직접 _open_xxx_modal (views_open) 호출 →
+    #   Slack API 지연 + Waitress 큐 대기가 겹치면 3초 초과 → 슬랙에 세모 느낌표.
+    #   process_before_response=True 모드에서 Bolt 는 handler 반환 시점에 200 응답 →
+    #   백그라운드 스레드로 넘기면 handler 즉시 반환 → 세모 원천 차단.
+    #   trigger_id 는 3초 유효하지만 스레드는 즉시 시작하므로 실측상 여유 있음.
     @app.action("button_consult")
     def handle_button_consult(ack, body, client):
         ack()
-        try:
-            _open_consult_modal(client, body, from_slash=False)
-        except Exception as exc:
-            logger.error(f"[SLACK] button_consult 실패: {exc}", exc_info=True)
+        def _bg():
+            try:
+                _open_consult_modal(client, body, from_slash=False)
+            except Exception as exc:
+                logger.error(f"[SLACK] button_consult 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     # 채널톡 카드 [🔗 기존 lead 연결] — 같은 사람이 다른 채널로도 인입했을 때
     @app.action("link_existing_lead")
     def handle_link_existing_lead(ack, body, client):
         ack()
-        try:
-            chat_id = body["actions"][0]["value"]
-            channel = body["channel"]["id"]
-            message_ts = body["message"]["ts"]
-            _open_link_lead_modal(client, body, chat_id, channel, message_ts)
-        except Exception as exc:
-            logger.error(f"[SLACK] link_existing_lead 실패: {exc}", exc_info=True)
+        def _bg():
+            try:
+                chat_id = body["actions"][0]["value"]
+                channel = body["channel"]["id"]
+                message_ts = body["message"]["ts"]
+                _open_link_lead_modal(client, body, chat_id, channel, message_ts)
+            except Exception as exc:
+                logger.error(f"[SLACK] link_existing_lead 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     @app.options("link_lead_search")
     def handle_link_lead_options(ack, body):
@@ -982,19 +1036,23 @@ def _register_handlers(app):
     @app.action("button_visit")
     def handle_button_visit(ack, body, client):
         ack()
-        try:
-            _open_inquiry_modal(client, body, action='visit')
-        except Exception as exc:
-            logger.error(f"[SLACK] button_visit 실패: {exc}", exc_info=True)
+        def _bg():
+            try:
+                _open_inquiry_modal(client, body, action='visit')
+            except Exception as exc:
+                logger.error(f"[SLACK] button_visit 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     # ⑦ 인입 알림 메시지의 [가격 문의] 버튼
     @app.action("button_price")
     def handle_button_price(ack, body, client):
         ack()
-        try:
-            _open_inquiry_modal(client, body, action='price')
-        except Exception as exc:
-            logger.error(f"[SLACK] button_price 실패: {exc}", exc_info=True)
+        def _bg():
+            try:
+                _open_inquiry_modal(client, body, action='price')
+            except Exception as exc:
+                logger.error(f"[SLACK] button_price 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     # ⑧ 방문 요청 모달 제출
     @app.view("submit_visit")
@@ -1081,15 +1139,17 @@ def _register_handlers(app):
     @app.action("button_phone")
     def handle_button_phone(ack, body, client):
         ack()
-        try:
-            _open_phone_modal(
-                client,
-                body["trigger_id"],
-                body["channel"]["id"],
-                body["user"]["id"],
-            )
-        except Exception as exc:
-            logger.error(f"[SLACK] button_phone 실패: {exc}", exc_info=True)
+        def _bg():
+            try:
+                _open_phone_modal(
+                    client,
+                    body["trigger_id"],
+                    body["channel"]["id"],
+                    body["user"]["id"],
+                )
+            except Exception as exc:
+                logger.error(f"[SLACK] button_phone 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     # ⑪-2 채널 책갈피용 App Shortcut — 슬랙 콘솔에서 callback_id="phone_inquiry_shortcut"
     # 으로 Global Shortcut 등록 + 채널 책갈피로 추가하면 1클릭으로 모달 호출
