@@ -308,7 +308,7 @@
             try {
                 showLoading(true);
 
-                const response = await fetch('/api/cache-stats');
+                const response = await fetch('/admin/api/cache-stats');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -490,7 +490,7 @@
             }
 
             try {
-                const response = await fetch('/api/cache-clear', {
+                const response = await fetch('/admin/api/cache-clear', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
