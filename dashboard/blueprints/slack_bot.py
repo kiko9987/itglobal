@@ -5967,7 +5967,7 @@ def _process_invoice_complete(client, body) -> None:
 
     # 1) 스레드에 첨부 파일 있는지 검증 + 파일 정보 수집 (2026-07-10)
     has_file = False
-    attached_files = []  # [{name, permalink, mimetype}]
+    attached_files = []  # [{id, name, permalink, mimetype}]
     try:
         replies = client.conversations_replies(
             channel=channel, ts=message_ts, limit=200,
@@ -5978,6 +5978,7 @@ def _process_invoice_complete(client, body) -> None:
                     continue
                 has_file = True
                 attached_files.append({
+                    'id': f.get('id') or '',
                     'name': f.get('name') or f.get('title') or '첨부파일',
                     'permalink': f.get('permalink') or '',
                     'mimetype': f.get('mimetype') or '',
@@ -6000,24 +6001,54 @@ def _process_invoice_complete(client, body) -> None:
         logger.info(f"[SLACK/계산서] 첨부 없음 → 완료 skip ({code}) by {user_id}")
         return
 
-    # 원본 카드 자체를 완료 형식으로 chat.update — 별도 알림 발송하지 않음 (2026-07-10 사용자 요구)
-    # 매니저 관점: 요청 카드와 완료 카드가 두 개로 분산되지 않고 하나로 자연스러운 상태 전환
     amt_display = _money_kr(amt_digits)
     biz_display = biz if biz and biz != '-' else '(사업자명 미기재)'
     initial_for_msg = _slack_user_to_initial(client, user_id) or '-'
 
-    # 첨부 파일 permalink — Slack 이 자동 unfurl 로 미리보기 렌더
+    # 원본 요청 카드 상단 section 텍스트를 재사용 → context block 으로 감싸 회색 톤 + 폰트 축소.
+    # 이모지 shortcode 는 context/mrkdwn 안에서 그대로 렌더링됨.
+    original_text = ''
+    for b in (body.get('message', {}).get('blocks') or []):
+        if b.get('type') == 'section':
+            original_text = (b.get('text', {}) or {}).get('text', '') or ''
+            break
+    if not original_text:
+        # fallback — payload 만 가지고 최소 정보 구성
+        original_text = (
+            f':bell: *[세금계산서 발행 요청]*  `{code}`\n'
+            f':office: 사업자명 : {biz_display}\n'
+            f':heavy_dollar_sign: 금액 : {amt_display} ({vat_label})'
+        )
+
+    header_context = {
+        'type': 'context',
+        'elements': [{
+            'type': 'mrkdwn',
+            'text': (
+                f'{original_text}\n\n'
+                f':white_check_mark: *{initial_for_msg}* 님이 발행 완료 처리'
+            ),
+        }],
+    }
+
     file_lines = []
+    image_blocks = []  # slack_file image blocks (image mimetype 만)
     for af in attached_files[:5]:
         icon = ':frame_with_picture:' if af['mimetype'].startswith('image/') else ':page_facing_up:'
         if af['permalink']:
             file_lines.append(f'{icon} <{af["permalink"]}|{af["name"]}>')
         else:
             file_lines.append(f'{icon} {af["name"]}')
+        if af['mimetype'].startswith('image/') and af.get('id'):
+            image_blocks.append({
+                'type': 'image',
+                'slack_file': {'id': af['id']},
+                'alt_text': af['name'],
+            })
     files_text = '\n'.join(file_lines) if file_lines else ''
     extra_note = f'\n_외 {len(attached_files) - 5}개 첨부_' if len(attached_files) > 5 else ''
 
-    completed_text = (
+    body_text = (
         f'✅ *세금계산서 발행 완료*  `{code}`\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         f':office: *사업자명* : {biz_display}\n'
@@ -6027,8 +6058,12 @@ def _process_invoice_complete(client, body) -> None:
         f':paperclip: *첨부 파일* ({len(attached_files)}개)\n'
         f'{files_text}{extra_note}'
     )
+
     completed_blocks = [
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': completed_text}},
+        header_context,
+        {'type': 'divider'},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': body_text}},
+        *image_blocks,
     ]
 
     try:
