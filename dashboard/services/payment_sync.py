@@ -1272,6 +1272,90 @@ def sync_payments() -> Dict:
                             _is_unified = True
                             _unified_projects = _group
 
+                    # 2026-07-11 grace 통합 승격 — 이전 폴링에서 발송된 카드가 아직 pending
+                    #   (10분 TTL) 이고 자기 시그니처와 일치하면 그 카드에 자기를 추가해
+                    #   chat.update 로 통합 카드로 승격. 매니저가 30초 안에 4지점 메모를 다
+                    #   못 채우고 순차 입력하는 실사용 패턴 대응.
+                    import hashlib as _hl
+                    import json as _json
+                    _sig_hash = _hl.md5(str(_sig).encode()).hexdigest()[:16]
+                    _group_key = f'payment_pending_group:{stage}:{_sig_hash}'
+                    _pending: Optional[Dict] = None
+                    if not _is_unified and _sig:
+                        try:
+                            _raw = rc.get(_group_key)
+                            if _raw:
+                                _pending = _json.loads(_raw if isinstance(_raw, str) else _raw.decode())
+                        except Exception:
+                            _pending = None
+
+                    if _pending:
+                        # 이미 자기 포함된 그룹이면 skip
+                        _existing_codes = {p['code'] for p in _pending.get('projects', [])}
+                        if project in _existing_codes:
+                            logger.debug(
+                                f"[PAYMENT] grace group 이미 포함 → skip ({project} row {sheet_row})"
+                            )
+                            # phash 만 갱신 (다음 폴링 재감지 방지)
+                            try:
+                                rc.hset(key, mapping={
+                                    'u': u_val, 'v': v_val, 'w': w_val,
+                                    'aa': 'true' if aa_chk else 'false',
+                                    'phash': new_phash,
+                                })
+                                rc.expire(key, REDIS_TTL)
+                            except Exception:
+                                pass
+                            continue
+                        # 자기 정보 추가 → 통합 카드 재렌더 → chat.update
+                        _pending['projects'].append({
+                            'code': project,
+                            'sheet_val': int(stage_vals.get(stage, 0)),
+                            'address': c['address'],
+                            'construction': c.get('construction', ''),
+                        })
+                        _updated_text = _build_unified_stage_message(
+                            stage=stage,
+                            projects=_pending['projects'],
+                            payments=_pending.get('payments', stage_payments),
+                            invoice_value=_pending.get('invoice_value', c['invoice']),
+                            is_complete=(stage == '잔금' and c['unpaid'] == 0),
+                        )
+                        try:
+                            from dashboard.blueprints.slack_helpers import safe_slack_call
+                            safe_slack_call(
+                                slack.chat_update,
+                                channel=_pending['channel'],
+                                ts=_pending['ts'],
+                                text=_updated_text,
+                            )
+                            # 그룹 저장 갱신 (TTL 10분 재갱신)
+                            rc.set(_group_key, _json.dumps(_pending), ex=10 * 60)
+                            # 자기 phash / ts 매핑 저장
+                            rc.hset(key, mapping={
+                                'u': u_val, 'v': v_val, 'w': w_val,
+                                'aa': 'true' if aa_chk else 'false',
+                                'phash': new_phash,
+                            })
+                            rc.expire(key, REDIS_TTL)
+                            rc.set(
+                                f'payment_slack:ts:{project}:{stage}',
+                                _pending['ts'],
+                                ex=60 * 60 * 24 * 90,
+                            )
+                            logger.info(
+                                f"[PAYMENT] grace 통합 승격: {project} → 그룹 {len(_pending['projects'])}건 "
+                                f"(원 카드 ts={_pending['ts']})"
+                            )
+                            sent_this_row = True
+                            continue
+                        except Exception as _upd_exc:
+                            logger.warning(
+                                f"[PAYMENT] grace chat.update 실패, 개별 발송 fallback "
+                                f"({project}): {_upd_exc}"
+                            )
+                            # 실패 시 개별 발송으로 진행 (아래 로직)
+
                     if _is_unified:
                         # 대표 아니면 발송 skip (대표가 통합 카드로 4건 다 처리)
                         _rep_row = _unified_projects[0]['row']
@@ -1412,6 +1496,39 @@ def sync_payments() -> Dict:
                                     logger.info(
                                         f"[PAYMENT] 통합 카드 발송 후 그룹 phash/ts 갱신: "
                                         f"{len(_unified_projects)}건 (대표 {project})"
+                                    )
+
+                                # 2026-07-11 grace 그룹 pending 저장 — 이후 10분 안에 다른
+                                #   지점에서 같은 시그니처 감지되면 이 카드에 chat.update.
+                                #   개별 발송이든 통합 발송이든 저장 (통합이면 이미 그룹 완성이지만
+                                #   신규 지점이 추가로 뜰 수도 있으니).
+                                try:
+                                    _pending_projects = (
+                                        [{'code': _g['code'], 'sheet_val': int(_g['sheet_val'] or 0),
+                                          'address': _g.get('address', ''),
+                                          'construction': _g.get('construction', '')}
+                                         for _g in _unified_projects]
+                                        if _is_unified
+                                        else [{'code': project,
+                                               'sheet_val': int(stage_vals.get(stage, 0)),
+                                               'address': c['address'],
+                                               'construction': c.get('construction', '')}]
+                                    )
+                                    _pending_data = {
+                                        'ts': ts,
+                                        'channel': channel,
+                                        'invoice_value': c['invoice'],
+                                        'projects': _pending_projects,
+                                        'payments': stage_payments,
+                                    }
+                                    rc.set(
+                                        _group_key,
+                                        _json.dumps(_pending_data, ensure_ascii=False),
+                                        ex=10 * 60,  # 10분 grace
+                                    )
+                                except Exception as _p_exc:
+                                    logger.debug(
+                                        f'[PAYMENT] grace 저장 실패 ({project}/{stage}): {_p_exc}'
                                     )
                     except Exception as _exc:
                         logger.debug(f'[PAYMENT] ts 저장 실패 ({project}/{stage}): {_exc}')
