@@ -90,14 +90,6 @@ def test_api_next_project_code_default_region(mock_get_manager, client):
         mock_manager.get_next_project_code.assert_called_once_with('test-sheet-id', 'IT')
 
 
-def test_api_update_project_inline_no_auth(client):
-    """인증 없이 인라인 업데이트 API 접근 테스트"""
-    response = client.post('/api/update-project-inline',
-                           json={'프로젝트 코드': 'G0001-IT'})
-    # @login_required 데코레이터가 작동해야 함
-    assert response.status_code in [302, 401, 403, 200]  # 다양한 인증 응답 허용
-
-
 @patch('dashboard.blueprints.projects.get_sheets_manager')
 def test_api_next_project_code_exception(mock_get_manager, client):
     """프로젝트 코드 생성 API 예외 처리 테스트"""

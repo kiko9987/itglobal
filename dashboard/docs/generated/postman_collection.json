@@ -78,30 +78,6 @@
       }
     },
     {
-      "name": "프로젝트 인라인 편집 API - 구글 시트 직접 업데이트",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{base_url}}/api/update-project-inline",
-          "host": [
-            "{{base_url}}"
-          ],
-          "path": [
-            "api",
-            "update-project-inline"
-          ]
-        },
-        "description": "/api/update-project-inline 경로에서 새로운 데이터를 생성합니다."
-      }
-    },
-    {
       "name": "간단한 헬스체크 API",
       "request": {
         "method": "GET",

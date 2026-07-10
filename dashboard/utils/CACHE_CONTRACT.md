@@ -221,7 +221,7 @@ df = smart_get(CACHE_KEYS.PROJECT_LIST, CacheStrategy.CRITICAL_DATA)
 
 **체크리스트**:
 - ✅ 프로젝트 생성 (add_project_auto)
-- ✅ 프로젝트 수정 (update_project, update_project_inline)
+- ✅ 프로젝트 수정 (update_project)
 - ✅ 프로젝트 삭제 (delete_project)
 - ✅ 프로젝트 취소/재개 (cancel_project_api, resume_project_api)
 - ✅ 필드 배치 수정 (save_field_memos_batch - 메모만 해당)

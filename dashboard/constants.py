@@ -48,7 +48,7 @@ PROJECT_DATA_CACHE_KEY = "current_sheet_data"
 #   - 프로젝트 데이터는 변경되지 않으므로 PROJECT_DATA_CACHE_KEY 무효화 불필요
 #   - 최적화: 전체 데이터 재로드 방지, 메모리 부하 감소
 #
-# 프로젝트 데이터 변경 시 (update_project, update_project_inline, add_project_auto):
+# 프로젝트 데이터 변경 시 (update_project, add_project_auto):
 #   - 프로젝트 데이터 캐시 무효화 (PROJECT_DATA_CACHE_KEY)
 #   - load_data(force_refresh=True) 호출 시 셀 노트도 자동으로 재로드됨
 #   - 셀 노트 캐시 명시적 무효화 불필요 (load_data 내부에서 처리)

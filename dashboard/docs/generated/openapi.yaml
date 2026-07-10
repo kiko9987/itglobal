@@ -1832,59 +1832,6 @@ paths:
       summary: 요약 통계 API
       tags:
       - General
-  /api/update-project-inline:
-    post:
-      description: /api/update-project-inline 경로에서 새로운 데이터를 생성합니다.
-      operationId: update_project_inline
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardResponse'
-          description: 성공
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StandardResponse'
-          description: 생성됨
-        '400':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: 잘못된 요청
-        '401':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: 인증 필요
-        '403':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: 권한 없음
-        '404':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: 찾을 수 없음
-        '500':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-          description: 서버 오류
-      security:
-      - bearerAuth: []
-      - sessionAuth: []
-      summary: 프로젝트 인라인 편집 API - 구글 시트 직접 업데이트
-      tags:
-      - General
   /api/user/role:
     get:
       description: /api/user/role 경로에서 데이터를 조회합니다.
