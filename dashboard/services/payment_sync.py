@@ -62,6 +62,9 @@ _KO_AMOUNT_RE = re.compile(r'([\d,]+)\s*만\s*원')
 _KO_DATE_RE = re.compile(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일')
 # 프로젝트 코드 패턴 — partner 파싱 시 skip 대상 (2026-07-10)
 _PROJECT_CODE_RE = re.compile(r'^[GRN]\d{4}-[A-Z]{1,3}$')
+# 매니저 이체 표기 — "2026-07-10 R>g", "2026-07-10 G>N" (2026-07-10)
+# 첫 번째 문자 = 원 계좌, 두 번째 문자 = 이체 후 계좌 (대소문자 무관)
+_TRANSFER_RE = re.compile(r'\d{4}-\d{1,2}-\d{1,2}\s+([GRNP])\s*>\s*([grnpGRNP])')
 # 라벨 양식 (앱스크립트 자동 + 매니저 수기 덮어쓰기)
 _LABEL_DATE_RE = re.compile(r'^입금일\s*:\s*(.+)$')
 _LABEL_PAYER_RE = re.compile(r'^입금자\s*:\s*(.+)$')
@@ -226,12 +229,21 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     if '박C' in block:
         note_label = '박C'
 
+    # 이체 표기 (2026-07-10) — "2026-07-10 R>g" 등
+    transfer_to = ''
+    for ln in lines:
+        m = _TRANSFER_RE.search(ln)
+        if m:
+            transfer_to = m.group(2).upper()
+            break
+
     return {
         'date_md': date_md,
         'amount': amount,
         'partner': partner,
         'bank': bank,
         'note_label': note_label,
+        'transfer_to': transfer_to,
     }
 
 
@@ -447,6 +459,10 @@ def _build_stage_message(
     is_card = _is_card_payment(invoice_value, payment.get('partner', ''))
     code = _resolve_payment_code(invoice_value, payment.get('bank', ''), payment.get('partner', ''))
     note_label = payment.get('note_label', '')
+    # 매니저 이체 표기 반영 (2026-07-10): "R>G" 감지 시 원 코드 뒤에 " → 이체 코드" 부기
+    transfer_to = payment.get('transfer_to', '')
+    if transfer_to and transfer_to != code:
+        code = f"{code} → {transfer_to}"
     code_display = f"{code}, {note_label}" if note_label else code
     amount = payment.get('amount', 0)
     partner = payment.get('partner', '-') or '-'
@@ -514,6 +530,9 @@ def _build_stage_with_history_message(
     is_card = _is_card_payment(invoice_value, last_payment.get('partner', ''))
     code = _resolve_payment_code(invoice_value, last_payment.get('bank', ''), last_payment.get('partner', ''))
     note_label = last_payment.get('note_label', '')
+    transfer_to = last_payment.get('transfer_to', '')
+    if transfer_to and transfer_to != code:
+        code = f"{code} → {transfer_to}"
     code_display = f"{code}, {note_label}" if note_label else code
     amount = last_payment.get('amount', 0)
     partner = last_payment.get('partner', '-') or '-'
@@ -558,6 +577,10 @@ def _build_stage_with_history_message(
         st = p.get('stage', '-')
         d = p.get('date_md', '-')
         c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
+        # 이체 표기 반영 (2026-07-10)
+        tr = p.get('transfer_to', '')
+        if tr and tr != c:
+            c = f"{c} → {tr}"
         nl = p.get('note_label', '')
         bk = p.get('bank', '') or ''
         inner = f"{c}, {nl}" if nl else c
@@ -597,6 +620,10 @@ def _build_complete_message(
         stage = p.get('stage', '-')
         date_md = p.get('date_md', '-')
         code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
+        # 이체 표기 반영 (2026-07-10)
+        transfer_to = p.get('transfer_to', '')
+        if transfer_to and transfer_to != code:
+            code = f"{code} → {transfer_to}"
         note_label = p.get('note_label', '')
         bank = p.get('bank', '') or ''
         inner = f"{code}, {note_label}" if note_label else code

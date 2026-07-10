@@ -200,6 +200,15 @@ def start_scheduler():
         )
         jobs.append('수금 매니저 실수 요약 평일 09시')
 
+        # 수금봇 토큰 health check — 매 1시간 (P1-4, 2026-07-10)
+        # 토큰 만료·비활성화 시 관리자 DM 알림
+        _scheduler.add_job(
+            _safe_payment_bot_health,
+            'interval', hours=1,
+            id='payment_bot_health',
+        )
+        jobs.append('수금봇 health check 1시간')
+
     # 미발송 슬랙 알림 재발송 (SSL 에러 등으로 누락된 lead 자동 복구) — 5분 주기
     _scheduler.add_job(
         _safe_retry_pending_slack,
@@ -378,6 +387,26 @@ def _safe_payment_sync():
         if not _is_transient_error(exc):
             _notify_admin('payment_sync_fail',
                           f':warning: 수금 알림 sync 실패 — `{exc}`.')
+
+
+def _safe_payment_bot_health():
+    """수금봇 토큰 health check — 매 1시간 (P1-4, 2026-07-10).
+
+    auth.test 실패 시 관리자 DM 알림. 봇 토큰 만료·비활성화 즉시 감지.
+    """
+    token = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip()
+    if not token:
+        return
+    try:
+        from slack_sdk import WebClient
+        from dashboard.blueprints.slack_bot import _verify_bot_token
+        client = WebClient(token=token)
+        ok = _verify_bot_token(client, '수금봇')
+        if not ok:
+            _notify_admin('payment_bot_health_fail',
+                          ':warning: 수금봇 토큰 검증 실패 — 토큰 회전 필요 (`SLACK_PAYMENT_BOT_TOKEN`)')
+    except Exception as exc:
+        logger.warning(f'[SCHED] 수금봇 health check 예외: {exc}')
 
 
 def _safe_payment_alert_daily():
