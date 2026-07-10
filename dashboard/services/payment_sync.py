@@ -61,7 +61,8 @@ _VALID_PROJECT_RE = re.compile(r'^[GR]\d{4}-[A-Z]+$')
 # 금액 추출: "입금 12,100,000원" or "금액 : 12,100,000원" 등
 _AMOUNT_RE = re.compile(r'(?:입금|금액\s*[:：])\s*([\d,]+)\s*원')
 # 한글 금액: "272만원", "272만 원", "1,700만원" 등 → 만 단위 (2026-07-10)
-_KO_AMOUNT_RE = re.compile(r'([\d,]+)\s*만\s*원')
+# "만원권" (지폐 종류) 은 제외. 예: "5만원권 246장" 은 금액 아님.
+_KO_AMOUNT_RE = re.compile(r'([\d,]+)\s*만\s*원(?!권)')
 # 한글 날짜: "6월15일", "6월 15일" (연도 없으면 현재 년도) (2026-07-10)
 _KO_DATE_RE = re.compile(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일')
 # 프로젝트 코드 패턴 — partner 파싱 시 skip 대상 (2026-07-10)
@@ -148,8 +149,17 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     # 옛 양식 fallback — 메모에 금액 없으면 시트 단계 값 사용
     if amount == 0 and fallback_amount > 0:
         amount = fallback_amount
+    # amount 없어도 date_md 나 label 있으면 metadata payment 로 반환 (2026-07-10)
+    # _parse_notes 후처리에서 시트값 - 다른 블록 amount 합 = 유추 amount 세팅
+    _has_meta_only = False
     if amount == 0:
-        return None  # 금액 + fallback 모두 없으면 입금 블록 아님
+        # 라벨 양식 감지 (입금일:, 입금자:) or 표준 양식의 date 라인 만 있는 케이스
+        if any(_LABEL_DATE_RE.match(ln) or _LABEL_PAYER_RE.match(ln) for ln in lines):
+            _has_meta_only = True
+        elif date_md:
+            _has_meta_only = True
+        else:
+            return None  # 금액도 metadata 도 없으면 입금 블록 아님
     # 통합 입금 분담 케이스: 메모 amount가 시트 단계값보다 크면
     # → 매니저가 큰 통합 입금 메모를 여러 행에 복사한 것 → 시트 단계값(실제 부담분) 사용
     # 카드 결제(메모 amount < 시트값) 케이스는 보존
@@ -205,11 +215,11 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         re.compile(r'^(기업|하나|국민|신한|우리|농협|카카오|토스)(?:\s+입금|\s*$)'),
     ]
     # 매니저 수기 요약/설명 라인 skip 패턴 (2026-07-10)
-    #   "수령완료", "수금완료입니다", "입금완료", "6월15일 272만원 현금 YG 수령완료"
+    #   "수령완료", "수령 완료", "수금완료입니다", "입금완료", "6월15일 272만원 현금 YG 수령완료"
     #   "550만원 VAT포함에서 500만원 VAT별도로 변경", "현재 400만원 현금으로 수금하였음"
     #   "잔금 100만원 남음", "400만원 수금 으로만 체크 부탁드립니다"
     manager_summary_re = re.compile(
-        r'(수령완료|수금완료|입금완료|정산완료|VAT|변경|하였음|남음|부탁드립니다|이체|취소|체크\s*부탁)'
+        r'(수령\s*완료|수금\s*완료|입금\s*완료|정산\s*완료|VAT|변경|하였음|남음|부탁드립니다|이체|취소|체크\s*부탁|만원권)'
     )
 
     if not partner:
@@ -267,6 +277,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         'bank': bank,
         'note_label': note_label,
         'transfer_to': transfer_to,
+        '_meta_only': _has_meta_only,  # 시트값 후처리로 amount 유추 대상
     }
 
 
@@ -334,6 +345,16 @@ def _parse_notes(notes: List[str],
             prev_amounts = {p.get('amount') for p in results}
             while katok_payments and katok_payments[0].get('amount') in prev_amounts:
                 katok_payments.pop(0)
+            # 이체 중복 제거 (2026-07-10 G3240-HS) — "매출이동" 언급 있으면 같은 date+amount 는 하나만
+            if '매출이동' in note or '이체' in note:
+                seen = set()
+                dedup = []
+                for p in katok_payments:
+                    key = (p.get('date_md'), p.get('amount'), p.get('partner'))
+                    if key not in seen:
+                        seen.add(key)
+                        dedup.append(p)
+                katok_payments = dedup
             results.extend(katok_payments)
             continue
 
@@ -414,6 +435,26 @@ def _parse_notes(notes: List[str],
                 'date_md': '-', 'amount': stage_val, 'partner': '-',
                 'bank': '', 'note_label': '', 'stage': stage,
             })
+
+        # 이 stage 의 meta-only 블록에 amount 유추 세팅 (2026-07-10 R2205-YM)
+        # 매니저가 라벨 양식만 쓴 블록 (입금일:/입금자: 만) 의 amount 를
+        # 시트값 - 정상 파싱 블록 합 으로 계산.
+        stage_results = [p for p in results if p.get('stage') == stage]
+        meta_only = [p for p in stage_results if p.get('_meta_only')]
+        confirmed = [p for p in stage_results if not p.get('_meta_only')]
+        if meta_only and stage_val > 0:
+            confirmed_sum = sum(p.get('amount', 0) for p in confirmed)
+            diff = stage_val - confirmed_sum
+            if diff > 0 and len(meta_only) == 1:
+                # 단일 meta-only 블록 → 차액을 그대로 세팅
+                meta_only[0]['amount'] = diff
+                meta_only[0]['_meta_only'] = False
+            elif diff > 0 and len(meta_only) > 1:
+                # 여러 개 → 균등 분배 (매우 드문 케이스)
+                per = diff // len(meta_only)
+                for p in meta_only:
+                    p['amount'] = per
+                    p['_meta_only'] = False
     # 날짜순 정렬 (월/일 기준) — 양식에 연도 없으면 동일 연도 가정
     def _date_key(p):
         mm_dd = p.get('date_md', '0/0')
@@ -432,16 +473,21 @@ def _parse_notes(notes: List[str],
     # 유효 payment 는 date 또는 bank 하나 이상 있어야 함.
     # 새 파서 결과의 date_md='' (빈값) 는 파싱 실패 → 매니저 설명 블록으로 간주.
     # 옛 fallback payment 는 date_md='-' 라 skip 안 됨 (옛 데이터 보존).
-    _noise_re = re.compile(r'(VAT|변경|하였음|남음|부탁드립니다|이체|취소|체크\s*부탁)')
+    _noise_re = re.compile(r'(VAT|변경|하였음|남음|부탁드립니다|이체|취소|체크\s*부탁|수령\s*완료|수금\s*완료|입금\s*완료|만원권)')
     filtered = []
     for p in results:
         partner = p.get('partner') or ''
         has_date = bool(p.get('date_md'))
         has_bank = bool(p.get('bank'))
+        # amount 유추 실패한 meta-only 는 skip
+        if p.get('_meta_only') and p.get('amount', 0) == 0:
+            continue
         if not has_date and not has_bank:
             continue  # 완전 설명 블록 or 파싱 실패 → skip
         if _noise_re.search(partner):
             p['partner'] = ''  # 유효 블록의 오인된 partner → 비움
+        # 내부 필드 제거 (외부 노출 안 함)
+        p.pop('_meta_only', None)
         filtered.append(p)
     return filtered
 

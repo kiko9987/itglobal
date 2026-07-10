@@ -48,6 +48,9 @@ CATEGORY_META = {
     'complete_untick':   {'severity': 'delayed',   'title': '✅ 수금완료 체크'},
     'unpaid_invalid':    {'severity': 'immediate', 'title': '⚠️ 미수금 값 확인'},
     'unknown_initial':   {'severity': 'immediate', 'title': '⚠️ 이니셜 확인'},
+    # 2026-07-10 추가 (daily 스캔 전용)
+    'reference_mismatch':      {'severity': 'immediate', 'title': '🔗 참조 프로젝트 대응 기록 없음'},
+    'sheet_note_mismatch':     {'severity': 'immediate', 'title': '⚠️ 노트-시트 금액 불일치'},
 }
 
 
