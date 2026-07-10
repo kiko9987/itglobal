@@ -5,7 +5,7 @@
 
 import logging
 from datetime import datetime, timedelta
-from flask import Blueprint, render_template, jsonify, request
+from flask import Blueprint, render_template, jsonify, request, make_response
 from dashboard.auth import admin_required, login_required
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.error_helpers import generate_error_id
@@ -14,11 +14,24 @@ logger = get_logger(__name__)
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
+
+def _no_cache(resp):
+    """관리자 페이지 응답에 no-cache 헤더 강제. 2026-07-10 추가.
+    브라우저(Chrome/Edge) 가 관리자 HTML 을 강력 캐시해 페이지 배포 후에도
+    Ctrl+Shift+R 로도 반영 안 되는 사고 관측 → 관리자 페이지는 매번 최신을
+    받도록 강제. 관리자 트래픽은 소수라 캐시 이득보다 정합성이 훨씬 중요.
+    """
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
+
+
 @admin_bp.route('/cache-monitor')
 @admin_required
 def cache_monitor_page():
     """캐시 모니터링 페이지 (관리자 전용)"""
-    return render_template('cache_monitor.html')
+    return _no_cache(make_response(render_template('cache_monitor.html')))
 
 @admin_bp.route('/docs')
 @admin_required
@@ -384,27 +397,25 @@ def sync_all_projects_to_calendar():
 def sequence_status():
     """DB 시퀀스 vs 시트 max 조회. gap 이 얼마인지 즉시 파악."""
     try:
-        import os
         import re
         from dashboard.utils.user_database import get_user_database
-        from dashboard.services.payment_sync import _get_payment_service
+        from dashboard.services.project_service import load_data
 
         pattern = request.args.get('pattern', 'GLOBAL').strip()
         udb = get_user_database()
         seq_info = udb.get_sequence_status(pattern) or {}
         db_current = int(seq_info.get('current_number', 0))
 
-        # 시트 max 조회
-        svc = _get_payment_service()
-        sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
-        name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+        # 2026-07-10 fix — load_data() 로 시트 코드 조회.
+        #   기존엔 _get_payment_service() (payment_sync 싱글톤) 로 직접 시트 API 호출했는데,
+        #   Flask 요청 스레드에서 실행되면 다른 스레드 googleapiclient 와 충돌해 SSL 에러
+        #   (BAD_RECORD_TYPE) 발생. memory: googleapiclient thread-safety 위반.
+        #   load_data() 는 threading.local 로 관리되는 GoogleSheetsManager 를 사용해 안전.
         sheet_max = 0
         top_codes: list[str] = []
-        if svc and sid and name:
-            resp = svc.spreadsheets().values().get(
-                spreadsheetId=sid, range=f"'{name}'!A2:A10000",
-            ).execute()
-            codes = [r[0] for r in resp.get('values', []) if r and r[0]]
+        df = load_data()
+        if df is not None and '프로젝트 코드' in df.columns:
+            codes = df['프로젝트 코드'].astype(str).tolist()
             nums = []
             for c in codes:
                 m = re.match(r'^[GRN](\d{4})-', c)
@@ -447,10 +458,9 @@ def sequence_reset():
         target: 명시적 목표 값 (미지정 시 시트 max)
     """
     try:
-        import os
         import re
         from dashboard.utils.user_database import get_user_database
-        from dashboard.services.payment_sync import _get_payment_service
+        from dashboard.services.project_service import load_data
 
         payload = request.get_json(silent=True) or {}
         pattern = str(payload.get('pattern', 'GLOBAL')).strip()
@@ -467,21 +477,15 @@ def sequence_reset():
             except (TypeError, ValueError):
                 return jsonify({'success': False, 'error': 'target 은 정수여야 합니다.'}), 400
         else:
-            # 시트 max 조회
-            svc = _get_payment_service()
-            sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
-            name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
-            if not (svc and sid and name):
-                return jsonify({'success': False, 'error': '시트 접근 불가'}), 500
-            resp = svc.spreadsheets().values().get(
-                spreadsheetId=sid, range=f"'{name}'!A2:A10000",
-            ).execute()
+            # 2026-07-10 fix — load_data() 로 안전하게 조회 (status endpoint 동일 이유).
+            df = load_data()
+            if df is None or '프로젝트 코드' not in df.columns:
+                return jsonify({'success': False, 'error': '시트 데이터 로드 실패'}), 500
             nums = []
-            for r in resp.get('values', []):
-                if r and r[0]:
-                    m = re.match(r'^[GRN](\d{4})-', r[0])
-                    if m:
-                        nums.append(int(m.group(1)))
+            for c in df['프로젝트 코드'].astype(str):
+                m = re.match(r'^[GRN](\d{4})-', c)
+                if m:
+                    nums.append(int(m.group(1)))
             if not nums:
                 return jsonify({'success': False, 'error': '시트에서 프로젝트 코드를 찾지 못했습니다.'}), 500
             target = max(nums)
