@@ -2337,8 +2337,15 @@ def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
             code_str = cached_code if isinstance(cached_code, str) else cached_code.decode()
             logger.info(f'[CREATE_PROJECT/dedup:redis] Redis 히트 → 기존 코드 {code_str}')
             return code_str
+        else:
+            # 2026-07-10 관측성 강화 — 조회 miss 도 남긴다. 첫 요청이면 정상, 재요청인데 miss 면
+            # 저장이 안 됐거나 hash 필드가 달라진 것 → 다음 사고 시 근본 원인 짚기 위함.
+            logger.info(
+                f'[CREATE_PROJECT/dedup:redis] Redis miss — key={dedup_key[-16:]} '
+                f'(biz={biz[:20]}, owner={owner}, addr_len={len(addr)}, start={start}, amount={amount_in})'
+            )
     except Exception as exc:
-        logger.debug(f'[CREATE_PROJECT/dedup:redis] Redis 조회 실패 (계속 진행): {exc}')
+        logger.warning(f'[CREATE_PROJECT/dedup:redis] Redis 조회 실패 (계속 진행): {exc}', exc_info=True)
 
     try:
         from dashboard.services.project_service import load_data
@@ -2394,8 +2401,14 @@ def add_project_auto():
                 )
                 import json as _json
                 return jsonify(_json.loads(cached))
+            else:
+                # 2026-07-10 fingerprint 기반 idem-key 도입 후 정상적으로 매 요청마다 나올 로그.
+                # 재요청 시엔 히트해야 정상 → 재발 시 이 로그가 실마리.
+                logger.info(f'[CREATE_PROJECT/idem] miss (idem={idem_key[:8]}…)')
         except Exception as exc:
-            logger.debug(f'[CREATE_PROJECT/idem] Redis 조회 실패 (계속 진행): {exc}')
+            logger.warning(
+                f'[CREATE_PROJECT/idem] Redis 조회 실패 (계속 진행): {exc}', exc_info=True,
+            )
 
     try:
         data = request.get_json()
@@ -2473,11 +2486,22 @@ def add_project_auto():
             try:
                 import json as _json
                 from dashboard.utils.redis_client import get_redis_client
-                get_redis_client().redis.set(
+                _ok = get_redis_client().redis.set(
                     idem_redis_key, _json.dumps(resp_body), ex=600,
                 )
+                if _ok:
+                    logger.info(
+                        f'[CREATE_PROJECT/idem:save] 저장 성공 code={code} idem={idem_key[:8]}…'
+                    )
+                else:
+                    logger.warning(
+                        f'[CREATE_PROJECT/idem:save] Redis set 반환값 falsy — idem={idem_key[:8]}…'
+                    )
             except Exception as exc:
-                logger.debug(f'[CREATE_PROJECT/idem] 캐시 저장 실패: {exc}')
+                logger.warning(
+                    f'[CREATE_PROJECT/idem:save] 캐시 저장 실패 code={code}: {exc}',
+                    exc_info=True,
+                )
 
         # 7. 백그라운드: 시트 append + 후처리 (감사·캘린더·리드·슬랙)
         # 응답을 먼저 반환하고 Google Sheets 지연이 UX에 영향 없도록 분리 (2026-07-09).
@@ -2558,8 +2582,9 @@ def add_project_auto():
 
         threading.Thread(target=_write_behind, daemon=True).start()
 
-        # dedup Redis 캐시 즉시 저장 (2026-07-10 G3852/G3853 대응)
-        # load_data 캐시 갱신 지연으로 dedup 실패하는 케이스 방지 — 8초 이내 재요청 즉시 감지
+        # dedup Redis 캐시 즉시 저장 (2026-07-10 G3852/G3853/R3854/R3855 대응)
+        # load_data 캐시 갱신 지연으로 dedup 실패하는 케이스 방지 — 8초 이내 재요청 즉시 감지.
+        # 관측성: 저장 성공/필드 부족/예외 모두 명시적으로 로그 → 재발 시 원인 즉시 짚음.
         try:
             from dashboard.utils.redis_client import get_redis_client
             _biz = str(data.get('사업자', '') or '').strip()
@@ -2569,9 +2594,25 @@ def add_project_auto():
             _amount = str(data.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
             if _biz and _owner and _addr and _start:
                 _dkey = f'project_create_dedup:{_dedup_hash(_biz, _owner, _addr, _start, _amount)}'
-                get_redis_client().redis.set(_dkey, code, ex=300)  # 5분 TTL
+                _ok = get_redis_client().redis.set(_dkey, code, ex=300)  # 5분 TTL
+                if _ok:
+                    logger.info(
+                        f'[CREATE_PROJECT/dedup:save] 저장 성공 code={code} key={_dkey[-16:]}'
+                    )
+                else:
+                    logger.warning(
+                        f'[CREATE_PROJECT/dedup:save] Redis set 반환값 falsy — key={_dkey[-16:]}'
+                    )
+            else:
+                logger.warning(
+                    f'[CREATE_PROJECT/dedup:save] 필드 부족으로 dedup 저장 스킵 — code={code} '
+                    f'biz="{_biz}" owner="{_owner}" addr_len={len(_addr)} start="{_start}"'
+                )
         except Exception as _exc:
-            logger.debug(f'[CREATE_PROJECT/dedup] Redis 저장 실패 (계속): {_exc}')
+            logger.warning(
+                f'[CREATE_PROJECT/dedup:save] Redis 저장 실패 code={code}: {_exc}',
+                exc_info=True,
+            )
 
         logger.info(f"[CREATE_PROJECT] 응답 반환 (BG write 진행 중): {code}")
         return jsonify(resp_body)
@@ -3096,19 +3137,20 @@ def _build_updated_project_from_values(current_values: list, field_to_index: dic
                 updated_project[field_name] = str(value)
 
     # 날짜 필드 정규화
+    #   2026-07-10 회귀 fix — 편집 저장 후 공사 시작/종료가 사라지던 버그.
+    #     current_values 가 FORMULA render 로 읽혀서 날짜 셀이 시리얼 넘버 (예: 46236) 로 반환됨.
+    #     pd.to_datetime('46236', errors='coerce') 는 NaT → 빈 문자열 → 프론트 카드 재렌더 시 사라짐.
+    #     해결: convert_excel_serial_to_date() 로 시리얼·문자열 모두 정확히 파싱.
+    #     원본 값을 유지하는 게 사라지는 것보다 안전 (파싱 실패 시 빈 문자열 대신 원본 유지).
     date_fields = ['공사 시작', '공사 종료', '수금 날짜', '공사 확정']
     for field_name in date_fields:
         if field_name in updated_project:
             date_value = updated_project[field_name]
             if date_value:
-                try:
-                    parsed_date = pd.to_datetime(date_value, errors='coerce')
-                    if pd.notna(parsed_date):
-                        updated_project[field_name] = parsed_date.strftime('%Y-%m-%d')
-                    else:
-                        updated_project[field_name] = ''
-                except Exception:
-                    updated_project[field_name] = ''
+                converted = convert_excel_serial_to_date(date_value)
+                # 성공: 'YYYY-MM-DD' — 그대로 저장.
+                # 실패: 원본 문자열 반환 → 프론트가 새로고침 없이도 렌더 가능한 값 유지.
+                updated_project[field_name] = converted
 
     # 금액 필드 정규화 (통화 기호 제거)
     currency_fields = ['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금',

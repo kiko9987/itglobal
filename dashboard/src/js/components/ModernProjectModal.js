@@ -317,6 +317,20 @@ export default class ModernProjectModal {
       // 시공자 체크박스 영역 동적 렌더링 (DB 캐시 기반 - 시공자 관리 변경 자동 반영)
       this.renderConstructorField();
 
+      // 2026-07-10 이전 성공 상태 리셋 — 재오픈 시 버튼·플래그·idem-key 초기화.
+      // 성공 시 finally 에서 이 값들을 유지하기 때문에 다음 오픈에서 반드시 초기화 필요.
+      this._submitInProgress = false;
+      this._currentIdempotencyKey = null;
+      const submitBtn = document.getElementById('modern-submit-new-project');
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        if (submitBtn.innerHTML.includes('등록 완료')) {
+          // 템플릿 원본 형태로 복원 (스피너 span + '프로젝트 등록' 텍스트)
+          submitBtn.innerHTML =
+            '<span class="spinner-border spinner-border-sm me-2 d-none" id="modern-submit-loading"></span>프로젝트 등록';
+        }
+      }
+
       // 모달 먼저 즉시 표시 (UX 개선)
       this.modal.show();
 
@@ -1200,6 +1214,38 @@ export default class ModernProjectModal {
   }
 
   /**
+   * 폼 데이터 fingerprint 계산 (Idempotency Key 용).
+   * 서버 dedup hash 와 동일한 필드 (사업자|담당자|주소|시작일|총액) + 오늘 날짜.
+   * 같은 데이터로 같은 날 재클릭 → 무조건 같은 key → 서버 idem 캐시 100% 히트.
+   * crypto.subtle 없거나 실패 시 UUID 로 fallback (기존 동작 유지).
+   */
+  async _computeFormFingerprint() {
+    try {
+      const fd = new FormData(this.form);
+      const biz = (fd.get('사업자') || '').toString().trim();
+      const owner = (fd.get('담당자') || '').toString().trim();
+      const addr = (fd.get('현장 주소') || '').toString().trim();
+      const start = (fd.get('공사 시작') || '').toString().trim().slice(0, 10);
+      const amount = (fd.get('총액 1') || '').toString().replace(/[,₩\s]/g, '');
+      const today = new Date().toISOString().slice(0, 10);
+      const raw = `${biz}|${owner}|${addr}|${start}|${amount}|${today}`;
+      if (crypto?.subtle) {
+        const buf = new TextEncoder().encode(raw);
+        const hashBuf = await crypto.subtle.digest('SHA-256', buf);
+        const hex = Array.from(new Uint8Array(hashBuf))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+        return `fp-${hex.slice(0, 32)}`;
+      }
+    } catch (err) {
+      logger.debug('[ModernProjectModal] fingerprint 계산 실패, UUID fallback:', err);
+    }
+    return (typeof crypto !== 'undefined' && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  /**
    * 프로젝트 제출 (재시도 로직 포함)
    */
   async submitProject(retryCount = 0) {
@@ -1207,6 +1253,7 @@ export default class ModernProjectModal {
     const submitBtn = document.getElementById('modern-submit-new-project');
     const submitLoading = document.getElementById('modern-submit-loading');
     let willRetry = false; // 재시도 예정 플래그
+    let didSucceed = false; // 성공 플래그 — finally 에서 버튼 원복 스킵 판단
 
     // 2026-07-08 재진입 방지: 최초 제출(retryCount=0)에서 이미 submit 진행 중이면 skip.
     // 폼 더블 클릭·엔터 연타로 인한 신규 프로젝트 중복 등록 방지.
@@ -1217,13 +1264,14 @@ export default class ModernProjectModal {
         return;
       }
       this._submitInProgress = true;
-      // 2026-07-09 Idempotency Key — 최초 제출 시에만 새로 생성.
-      // 재시도 시엔 같은 key 로 요청해 서버가 Redis 캐시로 중복 처리 방지.
-      // 서버가 시트 write 지연으로 client fetch timeout 나서 새 요청이 나가도
-      // 같은 idem-key 로 서버가 이전 응답을 재반환 → 시트 중복 append 방지.
-      this._currentIdempotencyKey = (typeof crypto !== 'undefined' && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      // 2026-07-10 Idempotency Key — 폼 데이터 fingerprint 기반.
+      //   기존: crypto.randomUUID() → 재클릭마다 새 key → 서버 idem 캐시 miss → 중복 등록 발생.
+      //     실제 관측 (G3852/G3853, R3854/R3855): 서버 응답 후 프론트 상태 리셋되면서
+      //     매니저 재클릭 시 새 UUID 발급 → 두 요청 페이로드는 100% 같은데 서버 idem miss.
+      //   개선: 서버 dedup hash 와 동일 필드로 프론트 fingerprint 생성.
+      //     같은 데이터면 무조건 같은 key → 서버 idem 캐시가 100% 히트 (Redis 정상시).
+      //   날짜 접미로 다른 날 같은 데이터 재등록은 정상 허용.
+      this._currentIdempotencyKey = await this._computeFormFingerprint();
     }
 
     // 0. 최초 제출 시에만 최종 유효성 검증 수행
@@ -1396,55 +1444,49 @@ export default class ModernProjectModal {
       const isSuccess = result.success === true || result.ok === true;
 
       if (isSuccess) {
+        didSucceed = true;
+        // 성공 시 버튼을 "✓ 등록 완료" 상태로 즉시 표시하고 disabled 유지.
+        // finally 블록에서 원복 스킵 → 재클릭 자체 물리적으로 불가능.
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerHTML = '<i class="fas fa-check me-1"></i>등록 완료';
+        }
         // 8. 진행 배너 메시지 변경 (데이터 동기화 중)
-        this.showProgressBanner('데이터 동기화 중입니다...');
-
-        // 9. 실시간 행 추가 또는 전체 새로고침
+        // 2026-07-10 UX 개선 — 모달 즉시 닫기 + 데이터 동기화는 백그라운드로.
+        //   기존: 동기화 완료 대기 후 닫음 → refreshData 8초+ 걸리면 매니저 대기 중
+        //   재클릭 → 새 idempotency key → 서버 dedup 놓치면 중복 등록 (G3852/G3853 관측).
+        //   개선: 서버 응답 받자마자 모달 닫음. 동기화는 fire-and-forget.
         const projectCode = result.project_code;
         const projectData = result.project_data;
-        let syncSuccess = false;
 
-        try {
-          if (projectData && window.DataSyncManager && window.DataSyncManager.addProjectRealTime) {
-            // 9-A. 실시간 행 추가 (필터 무관, 즉시 DOM 접근)
-            logger.debug('[ModernProjectModal] 실시간 행 추가:', projectCode);
-            window.DataSyncManager.addProjectRealTime(projectData);
-            syncSuccess = true;
-          } else if (window.projectListApp && window.projectListApp.refreshData) {
-            // 9-B. fallback: 전체 데이터 새로고침 (project_data가 없는 경우)
-            logger.debug('[ModernProjectModal] 전체 데이터 새로고침 시작');
-            await window.projectListApp.refreshData(true, false, false); // force=true, overlay=false, message=false
-            logger.debug('[ModernProjectModal] 데이터 새로고침 완료');
-            syncSuccess = true;
-          } else {
-            // 9-C. 데이터 동기화 실패: DataSyncManager나 projectListApp이 없음
-            logger.warn('[ModernProjectModal] 데이터 동기화 실패: 전역 객체 없음');
-            syncSuccess = false;
-          }
-        } catch (syncError) {
-          logger.error('[ModernProjectModal] 데이터 동기화 오류:', syncError);
-          syncSuccess = false;
-        }
-
-        // 10. 동기화 실패 시 경고 (하지만 프로젝트는 저장됨)
-        if (!syncSuccess) {
-          logger.warn('[ModernProjectModal] 데이터 동기화 실패, 전체 새로고침 권장');
-          this.hideProgressBanner();
-          this.modal.hide();
-          this.showAlert('프로젝트가 등록되었지만, 화면 업데이트에 실패했습니다. 페이지를 새로고침해주세요.', 'warning');
-
-          // 3초 후 자동 새로고침
-          setTimeout(() => {
-            window.location.reload();
-          }, 3000);
-          return;
-        }
-
-        // 11. 진행 배너 숨김
         this.hideProgressBanner();
-
-        // 12. 모달 닫기 (데이터 새로고침 완료 후)
         this.modal.hide();
+
+        // 백그라운드 동기화 — await 하지 않음
+        (async () => {
+          let syncSuccess = false;
+          try {
+            if (projectData && window.DataSyncManager && window.DataSyncManager.addProjectRealTime) {
+              window.DataSyncManager.addProjectRealTime(projectData);
+              syncSuccess = true;
+            } else if (window.projectListApp && window.projectListApp.refreshData) {
+              await window.projectListApp.refreshData(true, false, false);
+              syncSuccess = true;
+            }
+          } catch (syncError) {
+            logger.error('[ModernProjectModal] 백그라운드 동기화 오류:', syncError);
+          }
+          if (!syncSuccess) {
+            // 동기화 실패 시 사용자에게 새로고침 유도
+            if (window.showPageAlert) {
+              window.showPageAlert(
+                '프로젝트가 저장됐지만 화면 갱신에 실패했어요. 잠시 후 새로고침됩니다.',
+                'warning'
+              );
+            }
+            setTimeout(() => window.location.reload(), 3000);
+          }
+        })();
 
         // 13. 성공 메시지 — 프로젝트 코드 포함 (사용자 확인용)
         const successMsg = result.deduped
@@ -1546,12 +1588,12 @@ export default class ModernProjectModal {
         : '';
       this.showAlert(userFriendlyMessage + errorIdSuffix, 'danger');
     } finally {
-      // 14. 버튼과 스피너 복구 (재시도 예정인 경우 제외)
-      // - 검증 실패: return으로 빠져나갈 때 실행됨, 모달은 열린 채로 유지
-      // - 서버 성공: 모달이 닫히므로 버튼 상태는 다음 오픈 시 초기화됨
-      // - 서버 실패: 모달이 열린 채로 유지, 사용자가 재시도 가능
-      // - 재시도 예정: 버튼은 "재시도 중..." 상태로 유지 (복구하지 않음)
-      if (!willRetry) {
+      // 14. 버튼과 스피너 복구
+      // - 성공 (didSucceed=true): 버튼 "✓ 등록 완료" 상태 유지, 모달 닫히면 재열림 시 초기화됨.
+      //     이걸 유지해야 재클릭이 물리적으로 불가능 → 중복 등록 원천 차단 (2026-07-10).
+      // - 재시도 예정 (willRetry=true): 버튼 "재시도 중..." 상태 유지, 재귀 호출이 처리.
+      // - 검증 실패 / 서버 실패: 버튼 원복, 사용자가 수정·재시도 가능.
+      if (!willRetry && !didSucceed) {
         if (submitBtn) {
           submitBtn.disabled = false;
           if (submitBtn.innerHTML.includes('추가 중') || submitBtn.innerHTML.includes('재시도 중')) {
@@ -1561,10 +1603,16 @@ export default class ModernProjectModal {
         if (submitLoading) {
           submitLoading.classList.add('d-none');
         }
-        // 재진입 방지 플래그 해제 — 재시도 예정 아닐 때만 (재시도는 같은 flow 이어짐)
+        // 재진입 방지 플래그 해제 — 실패 시에만 (성공/재시도는 계속 유지)
         this._submitInProgress = false;
         // Idempotency key 정리 — 다음 최초 제출 시 새 key 발급되도록
         this._currentIdempotencyKey = null;
+      } else if (didSucceed) {
+        // 성공 후에도 스피너는 숨김 (버튼은 "✓ 등록 완료" 유지)
+        if (submitLoading) {
+          submitLoading.classList.add('d-none');
+        }
+        // _submitInProgress / _currentIdempotencyKey 는 유지 → 모달 재오픈까지 재클릭 100% 차단
       }
     }
   }

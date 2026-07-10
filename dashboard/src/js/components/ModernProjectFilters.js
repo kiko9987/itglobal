@@ -56,10 +56,24 @@ export default class ModernProjectFilters {
     this.bindEvents();
     this.updateResultCount(0);
     await this.fetchResignedManagers();
-    // 복원 우선순위: URL query > sessionStorage > 기본(empty)
-    const restoredFromUrl = this._restoreFiltersFromUrl();
-    if (!restoredFromUrl) {
-      this._restoreFiltersFromStorage();
+    // 복원: sessionStorage 로 먼저 채우고, URL query 로 덮어쓴다 (URL 우선).
+    //   2026-07-10 fix — 이전엔 URL에 필터 하나라도 있으면 storage restore 를 통째로
+    //   스킵했다. URL과 storage 가 서로 다른 키를 갖고 있는 경우 (검색어는 storage에,
+    //   프리셋 조건은 URL에) storage 값이 유실됐다.
+    //   재현: 검색창에 R3070-TH → 데이터 미완료 프리셋 클릭 → Ctrl+Shift+R
+    //     → URL={data:incomplete}, storage={search:R3070-TH, data:incomplete}
+    //     → URL restore 만 실행 → filters={data:incomplete} → 검색창 비어보임.
+    //   해결: 둘 다 실행. URL 이 나중에 실행되어 겹치는 키는 URL 값이 이김.
+    this._restoreFiltersFromStorage();
+    this._restoreFiltersFromUrl();
+    // 2026-07-10 검색어 즉시 세팅 — dropdown 옵션 대기 없이.
+    //   증상: URL/storage 에 search 는 정상 저장되고 필터 결과에도 반영되는데
+    //     검색창 UI 만 비어보이는 이슈 재현. _syncUIFromFilters 가 데이터 로드
+    //     후에야 실행되는데 그 사이 어딘가에서 인풋 값이 사라짐.
+    //   해결: text input 은 dropdown 옵션 대기 필요 없음 → init 마지막에 즉시 세팅.
+    //     이후 _syncUIFromFilters 가 데이터 로드 시점에 한 번 더 세팅 (idempotent).
+    if (this.searchInput && this.filters && this.filters.search) {
+      this.searchInput.value = this.filters.search;
     }
     // 프리셋 chip 렌더 (localStorage 로부터)
     this.renderPresetChips();
@@ -204,8 +218,10 @@ export default class ModernProjectFilters {
         }
       });
       if (hasAny) {
-        this.filters = restored;
-        logger.debug('[Filters] URL query 에서 복원:', restored);
+        // 2026-07-10 fix — 통째로 대체하지 않고 병합. sessionStorage 로 먼저 채운 값을
+        //   덮어쓰되, URL 에 없는 키는 storage 값 유지 (검색어가 storage 에만 있어도 복원).
+        this.filters = { ...(this.filters || {}), ...restored };
+        logger.debug('[Filters] URL query 에서 복원 (병합):', restored);
         return true;
       }
     } catch (err) {
@@ -1011,14 +1027,15 @@ export default class ModernProjectFilters {
     this.resultCountElement.textContent = `${count.toLocaleString()}개 프로젝트`;
     this.resultCountElement.title = '';
 
-    // 결과 0건이고 활성 필터 있으면 어떤 필터가 문제인지 힌트 (매니저 헤맴 방지)
+    // 결과 0건이고 활성 필터 있으면 짧은 힌트 (매니저 헤맴 방지).
+    //   2026-07-10 fix — 이전엔 활성 필터 이름을 다 나열해서 텍스트가 길어졌고
+    //   옆 "N개 활성" 배지를 화면 밖으로 밀어냈다. 개수만 노출하고 상세는 title 로.
     if (count === 0 && this.isDataLoaded) {
       const active = this.getActiveFilters();
       if (active.length > 0) {
-        this.resultCountElement.textContent =
-          `0개 (활성 필터: ${active.join(', ')} — 조건을 좁혀서 해당 프로젝트가 없습니다)`;
+        this.resultCountElement.textContent = `0개 · 필터 ${active.length}개로 좁혀졌어요`;
         this.resultCountElement.title =
-          '초기화 버튼을 눌러 필터를 지우거나, 필터 하나씩 해제해 조건을 넓혀보세요.';
+          `활성 필터: ${active.join(', ')}\n초기화 버튼을 눌러 모두 지우거나 하나씩 해제해 조건을 넓혀보세요.`;
       }
     }
   }

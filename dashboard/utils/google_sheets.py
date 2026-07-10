@@ -625,10 +625,15 @@ class GoogleSheetsManager:
         existing_numeric_columns = [col for col in numeric_columns if col in df.columns]
         
         if existing_numeric_columns:
-            # 벡터화된 일괄 처리로 성능 대폭 향상
+            # 벡터화된 일괄 처리로 성능 대폭 향상.
+            # 2026-07-10 fix — regex 에서 `\-` (마이너스) 를 제거했다. 기존 정규식은 통화 기호와
+            # 함께 마이너스까지 지워서 시트 음수 값(-₩310,000 등)이 백엔드에 들어오는 즉시 양수로
+            # 손상됐다. 관측 사례: R3649-SD 카드결제 취소 반환(-310,000)이 +310,000 으로 잘못
+            # 파싱 → 미수금 재계산이 -620,000 로 표시. 카드 취소·과입금·매출반환 등 음수 값이
+            # 있는 모든 프로젝트에 잠재적으로 영향. 마이너스는 pd.to_numeric 이 알아서 처리.
             for col in existing_numeric_columns:
                 df[col] = (df[col].astype(str, copy=False)
-                          .str.replace(r'[,￦₩\-]', '', regex=True)
+                          .str.replace(r'[,￦₩]', '', regex=True)
                           .str.strip()
                           .replace(['', 'nan', 'None', 'NaN'], pd.NA))
                 df[col] = pd.to_numeric(df[col], errors='coerce')
