@@ -113,11 +113,24 @@ class GoogleSheetsManager:
         cls._tls.instance = obj
         return obj
 
+    def __getattr__(self, name):
+        """_lock 이 어떤 이유로든 부재 시 lazy 생성 — AttributeError 방어."""
+        # 2026-07-10 재발 방지: 07-09 heap corruption 이후 threading.local singleton 패턴에서
+        # __init__ 중 예외 or 재진입 등으로 _lock 미할당 케이스가 관측됨.
+        # __getattr__ 는 정상 lookup 실패 시에만 호출 → 일반 경로에는 부하 없음.
+        if name == '_lock':
+            import threading as _th
+            lock = _th.RLock()
+            object.__setattr__(self, '_lock', lock)
+            return lock
+        raise AttributeError(name)
+
     def __init__(self, credentials_file='credentials.json'):
         """구글 시트 매니저 초기화 (스레드당 1회)."""
         if self._initialized:
             return
         # 인스턴스 lock — 서비스 재초기화 시 사용 (self._lock 참조 여러 곳 있음)
+        # __getattr__ fallback 도 있지만 정상 경로에서는 여기서 만들어짐.
         import threading as _th
         self._lock = _th.RLock()
             
