@@ -1207,16 +1207,20 @@ export default class ModernProjectFilters {
    */
   getActiveFilters() {
     const active = [];
+    // 수금 관리 모드 켜지면 outstanding 필터가 자동 세팅됨 (ProjectTable.setupReceivablesToggle).
+    //   그 파생 필터를 배지에 별도로 카운트하면 매니저가 "수금 관리 하나만 켰는데
+    //   왜 2개 활성?" 인지 부조화 → 수금 관리 모드 켜져 있으면 미수금 카운트 생략.
+    //   (2026-07-10)
+    const receivablesToggle = document.getElementById('receivablesToggle');
+    const receivablesOn = !!receivablesToggle?.checked;
     if (this.filters.company) active.push('사업자');
     if (this.filters.client) active.push('유입 구분');
     if (this.filters.businessName) active.push('사업자명');
     if (this.filters.status) active.push('상태');
     if (this.filters.data) active.push('데이터');
     if (this.filters.manager) active.push('담당자');
-    if (this.filters.outstanding) active.push('미수금');
-    // 수금 관리 모드 토글도 상단에서 활성이면 카운트에 포함 (매니저 인지 편의)
-    const receivablesToggle = document.getElementById('receivablesToggle');
-    if (receivablesToggle?.checked) active.push('수금 관리');
+    if (this.filters.outstanding && !receivablesOn) active.push('미수금');
+    if (receivablesOn) active.push('수금 관리');
     if (this.filters.myProjectsOnly) active.push('내 공사');
     if (this.searchInput && this.searchInput.value.trim()) active.push('검색');
     return active;
