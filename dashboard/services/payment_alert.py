@@ -159,8 +159,9 @@ def detect_unpaid_invalid(row: Dict) -> Optional[Dict]:
     unpaid = row.get('unpaid', 0)
     if row.get('aa', False):
         if unpaid != 0:
-            # 부동소수점 오차 (|unpaid| < 1원) 는 무시
-            if abs(unpaid) < 1:
+            # 반올림 오차 (|unpaid| < 100원) 는 무시 — 매니저 확인 반영 (2026-07-10)
+            #   1원, 몇십원 단위는 카드 수수료 계산 등에서 자연 발생
+            if abs(unpaid) < 100:
                 return None
             direction = '더 받아야' if unpaid < 0 else '초과 입금'
             return {
