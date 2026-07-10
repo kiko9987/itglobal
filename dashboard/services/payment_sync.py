@@ -232,6 +232,16 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
                 partner = cleaned
                 break
 
+    # 다른 프로젝트 흡수 케이스 (2026-07-10 G2016-YG 관측)
+    # 노트에 '{프로젝트코드} 일부' 같은 참조 있으면 partner 로 세팅
+    # 예: "2025-06-16 G2172/2173 일부 140,000원 부가세 포함 수금"
+    if not partner:
+        _ref_re = re.compile(r'([GRN]\d{4}(?:/\d{4})?)')
+        joined_text = '\n'.join(lines)
+        m = _ref_re.search(joined_text)
+        if m:
+            partner = f'참조 {m.group(1)}'
+
     # 노트 전체에 "현금" 키워드 있고 partner 아직 없으면 partner='현금' fallback (2026-07-10)
     # → _resolve_payment_code 에서 'N' 코드 반환
     if not partner and '현금' in '\n'.join(lines):
