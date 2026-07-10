@@ -5787,6 +5787,17 @@ export default class ProjectRowAccordion {
    */
   disableUnifiedEditMode(projectCode, skipDataRestore = false) {
 
+    // 2026-07-10 편집 모드 해제 시 열려있는 폴더 편집 모드도 함께 종료
+    // (통합 편집 저장 완료 시 폴더 입력 칸이 편집 모드로 남는 문제 fix)
+    const currentCodeForFolder = this.currentProject?.['프로젝트 코드'] || projectCode;
+    const rootEl = document.getElementById(`content-${currentCodeForFolder}`) || document;
+    rootEl.querySelectorAll('.document-card').forEach(docCard => {
+      const cardEdit = docCard.querySelector('.legacy-card-edit');
+      if (cardEdit && !cardEdit.classList.contains('d-none')) {
+        this.toggleFolderEditMode(docCard, false);
+      }
+    });
+
     // 2026-07-08 draft 자동 저장 timer 종료 + 저장된 draft 삭제 (편집 완료·취소 시)
     if (this._draftAutoSaveTimer) {
       clearInterval(this._draftAutoSaveTimer);

@@ -2300,11 +2300,22 @@ def _build_project_response_data(code, data):
 
 
 
+def _dedup_hash(biz: str, owner: str, addr: str, start: str, amount: str) -> str:
+    """dedup 키용 해시. Redis 저장·조회 시 사용."""
+    import hashlib as _hl
+    raw = f'{biz}|{owner}|{addr}|{start}|{amount}'
+    return _hl.md5(raw.encode('utf-8')).hexdigest()[:16]
+
+
 def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
     """최근 오늘자 동일 데이터로 이미 등록된 프로젝트 코드가 있으면 반환.
 
     (사업자·담당자·주소·공사 시작·총액 1) 모두 같은 프로젝트가 오늘 확정 등록됐으면
     duplicate 로 판단. Idempotency key 유실 시 안전망.
+
+    2026-07-10 강화: Redis 즉시 캐시 우선 조회 → load_data 캐시 지연 문제 회피
+      (G3852/G3853 관측: 첫 요청 응답 후 8초 만에 재요청 왔지만 load_data 캐시
+      아직 갱신 안 됐음 → dedup 실패).
 
     성능: 3800+ 행 dict 순회 대신 pandas mask 로 오늘자만 먼저 필터 (수 ms).
     """
@@ -2315,6 +2326,19 @@ def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
     amount_in = str(data.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
     if not (biz and owner and addr and start):
         return None
+
+    # Layer A: Redis 즉시 조회 (load_data 캐시 지연 우회)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        dedup_key = f'project_create_dedup:{_dedup_hash(biz, owner, addr, start, amount_in)}'
+        cached_code = rc.get(dedup_key)
+        if cached_code:
+            code_str = cached_code if isinstance(cached_code, str) else cached_code.decode()
+            logger.info(f'[CREATE_PROJECT/dedup:redis] Redis 히트 → 기존 코드 {code_str}')
+            return code_str
+    except Exception as exc:
+        logger.debug(f'[CREATE_PROJECT/dedup:redis] Redis 조회 실패 (계속 진행): {exc}')
 
     try:
         from dashboard.services.project_service import load_data
@@ -2533,6 +2557,21 @@ def add_project_auto():
                     logger.warning(f'[CREATE_PROJECT/BG] idem 캐시 삭제 실패: {del_exc}')
 
         threading.Thread(target=_write_behind, daemon=True).start()
+
+        # dedup Redis 캐시 즉시 저장 (2026-07-10 G3852/G3853 대응)
+        # load_data 캐시 갱신 지연으로 dedup 실패하는 케이스 방지 — 8초 이내 재요청 즉시 감지
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            _biz = str(data.get('사업자', '') or '').strip()
+            _owner = str(data.get('담당자', '') or '').strip()
+            _addr = str(data.get('현장 주소', '') or '').strip()
+            _start = str(data.get('공사 시작', '') or '').strip()[:10]
+            _amount = str(data.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
+            if _biz and _owner and _addr and _start:
+                _dkey = f'project_create_dedup:{_dedup_hash(_biz, _owner, _addr, _start, _amount)}'
+                get_redis_client().redis.set(_dkey, code, ex=300)  # 5분 TTL
+        except Exception as _exc:
+            logger.debug(f'[CREATE_PROJECT/dedup] Redis 저장 실패 (계속): {_exc}')
 
         logger.info(f"[CREATE_PROJECT] 응답 반환 (BG write 진행 중): {code}")
         return jsonify(resp_body)
