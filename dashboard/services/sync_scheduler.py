@@ -189,7 +189,16 @@ def start_scheduler():
             id='payment_sync',
         )
         jobs.append('수금 관리 30초')
-        # 일일 요약/미수금 자동 발송은 disable — /수금 슬래시 명령으로만 조회
+
+        # 매니저 실수 감지 일일 요약 — 매일 오전 9시 (평일만, 매니저 출근 시각)
+        _scheduler.add_job(
+            _safe_payment_alert_daily,
+            'cron',
+            day_of_week='mon-fri',
+            hour=9, minute=0,
+            id='payment_alert_daily',
+        )
+        jobs.append('수금 매니저 실수 요약 평일 09시')
 
     # 미발송 슬랙 알림 재발송 (SSL 에러 등으로 누락된 lead 자동 복구) — 5분 주기
     _scheduler.add_job(
@@ -369,6 +378,21 @@ def _safe_payment_sync():
         if not _is_transient_error(exc):
             _notify_admin('payment_sync_fail',
                           f':warning: 수금 알림 sync 실패 — `{exc}`.')
+
+
+def _safe_payment_alert_daily():
+    """매일 오전 9시 (평일) — 매니저 실수 전체 스캔 + 일일 요약 채널 발송 (2026-07-10)."""
+    if not _redis_healthy():
+        logger.warning('[SCHED] Redis 다운 — 수금 매니저 요약 skip')
+        return
+    try:
+        from dashboard.services.payment_alert_daily import run_daily_scan_and_summary
+        run_daily_scan_and_summary()
+    except Exception as exc:
+        logger.error(f'[SCHED] 수금 매니저 요약 실패: {exc}', exc_info=True)
+        if not _is_transient_error(exc):
+            _notify_admin('payment_alert_daily_fail',
+                          f':warning: 수금 매니저 실수 요약 실패 — `{exc}`.')
 
 
 def _safe_payment_daily_report():

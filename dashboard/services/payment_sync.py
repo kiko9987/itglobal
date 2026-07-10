@@ -938,13 +938,16 @@ def sync_payments() -> Dict:
                 if w_val > prev_w:
                     stages_increased.append('잔금')
 
-                # 노트 미완성 감지 (2026-07-10)
+                # 노트 미완성 감지 (2026-07-10 · 2026-07-10 조건 완화)
                 # 매니저 실제 워크플로: U/V/W 금액 먼저 입력 → 노트 나중 입력.
-                # 30초 폴링이 그 사이에 걸리면 노트 없는 상태로 발송돼 partner/date/bank 가 `-`, G 로 나감.
-                # _parse_notes 의 fallback (line 227~233) 이 partner=`-` date=`-` payment 를 만들면
-                # 슬랙 발송 skip 하고 rc.hset 도 안 함 → 다음 폴링에서 노트 채워지면 정상 발송.
+                # 30초 폴링이 그 사이에 걸리면 노트 없는 상태로 발송돼 partner/date 가 비어서 나감.
+                #
+                # 초기 fix: date_md='-' AND partner='-' (완전 fallback) 만 감지
+                # 강화 (G3702-MS 재발 관측): partner 또는 date 하나만 빠져도 skip.
+                # 매니저가 노트 부분만 입력한 중간 상태도 감지 대상.
                 incomplete = any(
-                    p.get('date_md') == '-' and p.get('partner') == '-'
+                    (not p.get('partner') or p.get('partner') == '-')
+                    or (not p.get('date_md') or p.get('date_md') == '-')
                     for stage in stages_increased
                     for p in payments
                     if p.get('stage') == stage
@@ -1011,6 +1014,24 @@ def sync_payments() -> Dict:
                 logger.debug(
                     f"[PAYMENT] skip ({project}, row {sheet_row}) — note_changed={note_changed}"
                 )
+
+            # 매니저 실수 감지 + 알림 훅 (2026-07-10)
+            # 카테고리: 노트 미저장/자릿수 오타/필수 항목 누락/미체크/미수금 이상/이니셜 오타
+            try:
+                from dashboard.services.payment_alert import check_and_alert
+                from dashboard.blueprints.slack_helpers import _load_initials_from_config
+                alert_row = {
+                    'code': project,
+                    'address': c.get('address', ''),
+                    'total_t': c['total_t'],
+                    'unpaid': c['unpaid'],
+                    'aa': aa_chk,
+                    '계약금': u_val, '중도금': v_val, '잔금': w_val,
+                }
+                known_initials = set(_load_initials_from_config().values())
+                check_and_alert(alert_row, payments, known_initials, slack_client=slack)
+            except Exception as exc:
+                logger.warning(f"[PAYMENT_ALERT] 감지 훅 예외 ({project}): {exc}")
 
             # 새 상태 저장
             rc.hset(c['key'], mapping={
