@@ -77,6 +77,11 @@ _LABEL_PAYER_RE = re.compile(r'^입금자\s*:\s*(.+)$')
 _KATOK_LINE_RE = re.compile(
     r'^(\d{1,2})/(\d{1,2})\s+([GRN]|현금|박C기업)\s+([\d,]+)\s*원\s*(.*?)\s*(?:수금중|수금완료)?\s*$'
 )
+# 매니저 요약 양식 (2026-07-10 R2951-TH 관측)
+# 예: "2025-12-05 300,000원 김연종 농협"  → date/amount/partner/bank 순서
+_MANAGER_LINE_RE = re.compile(
+    r'^\d{4}-(\d{1,2})-(\d{1,2})\s+([\d,]+)\s*원\s+(\S.*?)\s+(기업|하나|농협|국민|신한|우리|카카오|토스)\s*$'
+)
 # 단일 숫자(콤마 OK) 라인 — 매니저가 입금액만 적은 경우
 _BARE_AMOUNT_RE = re.compile(r'^([\d,]+)(?:\s*원)?$')
 # 날짜: "2026/03/19", "06/25", "5/27" 등 — MM/DD 추출
@@ -199,9 +204,13 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         # 은행명 단독 라인 또는 "은행 입금X원" 라인만 skip — "하나90242344" 같은 카드 승인번호 보존
         re.compile(r'^(기업|하나|국민|신한|우리|농협|카카오|토스)(?:\s+입금|\s*$)'),
     ]
-    # 매니저 수기 요약 라인 skip 패턴 (2026-07-10)
-    #   "수령완료", "수금완료입니다", "입금완료", "6월15일 272만원 현금 YG 수령완료" 등
-    manager_summary_re = re.compile(r'(수령완료|수금완료|입금완료|정산완료)')
+    # 매니저 수기 요약/설명 라인 skip 패턴 (2026-07-10)
+    #   "수령완료", "수금완료입니다", "입금완료", "6월15일 272만원 현금 YG 수령완료"
+    #   "550만원 VAT포함에서 500만원 VAT별도로 변경", "현재 400만원 현금으로 수금하였음"
+    #   "잔금 100만원 남음", "400만원 수금 으로만 체크 부탁드립니다"
+    manager_summary_re = re.compile(
+        r'(수령완료|수금완료|입금완료|정산완료|VAT|변경|하였음|남음|부탁드립니다|이체|취소|체크\s*부탁)'
+    )
 
     if not partner:
         for ln in lines:
@@ -317,6 +326,30 @@ def _parse_notes(notes: List[str],
                 katok_payments.pop(0)
             results.extend(katok_payments)
             continue
+
+        # 매니저 요약 양식 (2026-07-10 R2951-TH) — "2025-12-05 300,000원 김연종 농협"
+        manager_payments = []
+        for ln in note.strip().splitlines():
+            m = _MANAGER_LINE_RE.match(ln.strip())
+            if m:
+                mm, dd = int(m.group(1)), int(m.group(2))
+                amount = int(m.group(3).replace(',', ''))
+                partner_v = m.group(4).strip()
+                bank_v = m.group(5)
+                manager_payments.append({
+                    'date_md': f'{mm:02d}/{dd:02d}',
+                    'amount': amount,
+                    'partner': partner_v or '-',
+                    'bank': bank_v,
+                    'note_label': '',
+                    'stage': stage,
+                })
+        if manager_payments:
+            prev_amounts = {p.get('amount') for p in results}
+            while manager_payments and manager_payments[0].get('amount') in prev_amounts:
+                manager_payments.pop(0)
+            results.extend(manager_payments)
+            continue
         # 1차: 빈 줄로 블록 분리
         raw_blocks = re.split(r'\n\s*\n', note.strip())
         # 2차: 한 블록 안에 날짜 패턴이 2번 이상이면 추가 분리 (빈 줄 없는 분할 입금)
@@ -383,7 +416,24 @@ def _parse_notes(notes: List[str],
     # 같은 단계 안에서만 날짜순 정렬 (단계 순서는 계약금→중도금→잔금 유지)
     stage_order = {'계약금': 0, '중도금': 1, '잔금': 2}
     results.sort(key=lambda p: (stage_order.get(p.get('stage', ''), 9), _date_key(p)))
-    return results
+
+    # 매니저 설명 블록 필터 (2026-07-10 G1865-YG 관측)
+    # 매니저가 노트에 설명 문장을 여러 줄 쓰면 각 블록이 별도 payment 로 오인됨.
+    # 유효 payment 는 date 또는 bank 하나 이상 있어야 함.
+    # 새 파서 결과의 date_md='' (빈값) 는 파싱 실패 → 매니저 설명 블록으로 간주.
+    # 옛 fallback payment 는 date_md='-' 라 skip 안 됨 (옛 데이터 보존).
+    _noise_re = re.compile(r'(VAT|변경|하였음|남음|부탁드립니다|이체|취소|체크\s*부탁)')
+    filtered = []
+    for p in results:
+        partner = p.get('partner') or ''
+        has_date = bool(p.get('date_md'))
+        has_bank = bool(p.get('bank'))
+        if not has_date and not has_bank:
+            continue  # 완전 설명 블록 or 파싱 실패 → skip
+        if _noise_re.search(partner):
+            p['partner'] = ''  # 유효 블록의 오인된 partner → 비움
+        filtered.append(p)
+    return filtered
 
 
 # ─────────────────────────────────────────────

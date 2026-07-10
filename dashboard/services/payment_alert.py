@@ -110,16 +110,20 @@ def detect_required_missing(row: Dict, payments: List[Dict]) -> Optional[Dict]:
     """카테고리 3: 노트는 있는데 파트너/은행/날짜 중 하나 빠짐.
 
     AA(수금완료) 옛 프로젝트는 skip.
+    현금 케이스 완화 (2026-07-10 매니저 확인): partner='현금' 이면 은행 정보 요구 안 함.
     """
     if row.get('aa', False):
         return None
     issues = []
     for p in payments:
         stage = p.get('stage', '-')
+        partner = p.get('partner') or ''
+        bank = p.get('bank') or ''
         miss = []
-        if not p.get('partner') or p['partner'] == '-':
+        if not partner or partner == '-':
             miss.append('입금자')
-        if not p.get('bank'):
+        # 현금이면 은행 정보 요구 안 함 (자연스러운 무-은행 상태)
+        if not bank and partner != '현금':
             miss.append('은행')
         if not p.get('date_md') or p['date_md'] == '-':
             miss.append('일시')
