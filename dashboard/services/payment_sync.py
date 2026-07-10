@@ -56,6 +56,12 @@ _VALID_PROJECT_RE = re.compile(r'^[GR]\d{4}-[A-Z]+$')
 
 # 금액 추출: "입금 12,100,000원" or "금액 : 12,100,000원" 등
 _AMOUNT_RE = re.compile(r'(?:입금|금액\s*[:：])\s*([\d,]+)\s*원')
+# 한글 금액: "272만원", "272만 원", "1,700만원" 등 → 만 단위 (2026-07-10)
+_KO_AMOUNT_RE = re.compile(r'([\d,]+)\s*만\s*원')
+# 한글 날짜: "6월15일", "6월 15일" (연도 없으면 현재 년도) (2026-07-10)
+_KO_DATE_RE = re.compile(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일')
+# 프로젝트 코드 패턴 — partner 파싱 시 skip 대상 (2026-07-10)
+_PROJECT_CODE_RE = re.compile(r'^[GRN]\d{4}-[A-Z]{1,3}$')
 # 라벨 양식 (앱스크립트 자동 + 매니저 수기 덮어쓰기)
 _LABEL_DATE_RE = re.compile(r'^입금일\s*:\s*(.+)$')
 _LABEL_PAYER_RE = re.compile(r'^입금자\s*:\s*(.+)$')
@@ -92,9 +98,14 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     if not lines:
         return None
 
-    # 날짜 — 모든 라인에서 첫 매치
+    # 날짜 — 모든 라인에서 첫 매치 (한글 날짜 우선, 없으면 숫자 형식)
     date_md = ''
     for ln in lines:
+        m = _KO_DATE_RE.search(ln)  # "6월15일", "6월 15일"
+        if m:
+            mm, dd = int(m.group(1)), int(m.group(2))
+            date_md = f"{mm:02d}/{dd:02d}"
+            break
         m = _DATE_RE.search(ln)
         if m:
             mm, dd = int(m.group(2)), int(m.group(3))
@@ -114,6 +125,13 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             m = _BARE_AMOUNT_RE.match(ln)
             if m:
                 amount = int(m.group(1).replace(',', ''))
+                break
+    # 한글 금액 (272만원, 1,700만원 등) — "만원" 단위, 만 배수
+    if amount == 0:
+        for ln in lines:
+            m = _KO_AMOUNT_RE.search(ln)
+            if m:
+                amount = int(m.group(1).replace(',', '')) * 10000
                 break
     # 옛 양식 fallback — 메모에 금액 없으면 시트 단계 값 사용
     if amount == 0 and fallback_amount > 0:
@@ -174,9 +192,19 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         # 은행명 단독 라인 또는 "은행 입금X원" 라인만 skip — "하나90242344" 같은 카드 승인번호 보존
         re.compile(r'^(기업|하나|국민|신한|우리|농협|카카오|토스)(?:\s+입금|\s*$)'),
     ]
+    # 매니저 수기 요약 라인 skip 패턴 (2026-07-10)
+    #   "수령완료", "수금완료입니다", "입금완료", "6월15일 272만원 현금 YG 수령완료" 등
+    manager_summary_re = re.compile(r'(수령완료|수금완료|입금완료|정산완료)')
+
     if not partner:
         for ln in lines:
             if any(p.search(ln) for p in skip_patterns):
+                continue
+            # 프로젝트 코드 라인 skip (2026-07-10 — 매니저가 노트 첫줄에 코드 붙여넣는 케이스)
+            if _PROJECT_CODE_RE.match(ln.strip()):
+                continue
+            # 매니저 요약 라인 skip (2026-07-10)
+            if manager_summary_re.search(ln):
                 continue
             cleaned = ln
             cleaned = re.sub(r'\d{1,2}/\d{1,2}\b', '', cleaned)
@@ -187,6 +215,11 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             if cleaned and not re.match(r'^[\d*\-,.\s]+$', cleaned):
                 partner = cleaned
                 break
+
+    # 노트 전체에 "현금" 키워드 있고 partner 아직 없으면 partner='현금' fallback (2026-07-10)
+    # → _resolve_payment_code 에서 'N' 코드 반환
+    if not partner and '현금' in '\n'.join(lines):
+        partner = '현금'
 
     # 박C 표기 — 대표님 개인 기업통장(추적용 구분)
     note_label = ''
@@ -384,6 +417,8 @@ def _resolve_payment_code(invoice_value: str, bank: str, partner: str = '') -> s
         return 'G'
     if bank == '하나':
         return 'R'
+    if bank == '농협':
+        return 'N'
     return 'G'
 
 
