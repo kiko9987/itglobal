@@ -66,14 +66,35 @@ export default class ModernProjectFilters {
     //   해결: 둘 다 실행. URL 이 나중에 실행되어 겹치는 키는 URL 값이 이김.
     this._restoreFiltersFromStorage();
     this._restoreFiltersFromUrl();
-    // 2026-07-10 검색어 즉시 세팅 — dropdown 옵션 대기 없이.
-    //   증상: URL/storage 에 search 는 정상 저장되고 필터 결과에도 반영되는데
-    //     검색창 UI 만 비어보이는 이슈 재현. _syncUIFromFilters 가 데이터 로드
-    //     후에야 실행되는데 그 사이 어딘가에서 인풋 값이 사라짐.
-    //   해결: text input 은 dropdown 옵션 대기 필요 없음 → init 마지막에 즉시 세팅.
-    //     이후 _syncUIFromFilters 가 데이터 로드 시점에 한 번 더 세팅 (idempotent).
-    if (this.searchInput && this.filters && this.filters.search) {
+    // 2026-07-10 검색어·select 즉시 세팅 — dropdown 옵션 populate 대기 없이.
+    //   증상: 새로고침 직후 데이터 로드(수 초) 사이에 담당자 등 select 필터가
+    //     "전체" 로 보임. 매니저 눈엔 필터 안 걸린 것처럼 오인 → 다시 필터 클릭.
+    //   해결: text input 은 즉시 세팅. select 는 옵션 없으면 임시 <option> 을
+    //     만들어 붙여 값 표시. populate 완료 시 옵션 재생성되면서 자연스럽게 정상화.
+    if (this.searchInput && this.filters?.search) {
       this.searchInput.value = this.filters.search;
+    }
+    const setSelectImmediate = (el, val) => {
+      if (!el || !val) return;
+      const exists = Array.from(el.options).some(o => o.value === val);
+      if (!exists) {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = val;
+        opt.dataset.tempPreload = '1';  // populate 시 정리 대상 (필요 시)
+        el.appendChild(opt);
+      }
+      el.value = val;
+    };
+    setSelectImmediate(this.companyFilter, this.filters?.company);
+    setSelectImmediate(this.clientFilter, this.filters?.client);
+    setSelectImmediate(this.businessNameFilter, this.filters?.businessName);
+    setSelectImmediate(this.statusFilter, this.filters?.status);
+    setSelectImmediate(this.dataFilter, this.filters?.data);
+    setSelectImmediate(this.managerFilter, this.filters?.manager);
+    setSelectImmediate(this.outstandingFilter, this.filters?.outstanding);
+    if (this.myProjectsOnlyCheckbox && this.filters?.myProjectsOnly !== undefined) {
+      this.myProjectsOnlyCheckbox.checked = !!this.filters.myProjectsOnly;
     }
     // 프리셋 chip 렌더 (localStorage 로부터)
     this.renderPresetChips();
@@ -278,17 +299,25 @@ export default class ModernProjectFilters {
    */
   _syncUIFromFilters() {
     const f = this.filters || {};
-    // 저장된 값이 dropdown 옵션에 없으면 filters 에서도 삭제 (stale 방지)
-    // 예: 저장된 담당자가 삭제·이름 변경돼서 옵션에 없는 경우 → 필터 결과 0건 오해 방지
+    // 옵션에 값이 실제로 존재할 때만 select value 세팅.
+    //   2026-07-10 fix — 기존 로직은 `el.value = wanted` 후 세팅 실패 시 filters 를
+    //   삭제했다. 문제는 "옵션이 아직 populate 안 됨"(로딩 지연)과 "저장된 값이 옵션에
+    //   없음"(stale) 을 구분 못 해서 로딩 순서 이슈에도 filters 를 지워버림.
+    //   결과: storage 에 manager="이상덕" 있고 populate 후 옵션도 있는데 selectVal
+    //   빈 상태로 남음.
+    //   해결: 옵션 존재 확인 후에만 세팅. 존재 안 하면 filters 유지 (populate 후
+    //   다시 sync 될 때 세팅되도록 대기).
     const setSelectSafe = (el, filterKey) => {
       if (!el || !(filterKey in f)) return;
       const wanted = f[filterKey] || '';
-      el.value = wanted;
-      if (wanted && el.value !== wanted) {
-        // 옵션에 없어서 브라우저가 세팅 못 함 → filters 정리
-        delete this.filters[filterKey];
-        el.value = '';
+      if (!wanted) { el.value = ''; return; }
+      const exists = Array.from(el.options).some(opt => opt.value === wanted);
+      if (exists) {
+        el.value = wanted;
       }
+      // 옵션 없음: filters 는 유지. 옵션이 나중에 채워지면 재호출 시 세팅됨.
+      //   진짜 stale (매니저 삭제 등) 인 경우엔 데이터 로드 후 populateAllFilters →
+      //   restoreFilterSelections 가 별도로 정리.
     };
     if (this.searchInput && 'search' in f) this.searchInput.value = f.search || '';
     setSelectSafe(this.companyFilter, 'company');

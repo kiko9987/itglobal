@@ -2095,9 +2095,14 @@ export default class ProjectRowAccordion {
     }
 
     // 견적서 및 계약서 폴더 경로 필드
+    //   2026-07-10 fix — input 에 data-field 속성 추가.
+    //   기존엔 draft 자동 저장 (querySelectorAll('input[data-field]')) 이 이 인풋을
+    //   못 잡아서 편집 도중 실수로 새로고침 시 폴더 경로 유실. 값은 별도 명시 리스너로
+    //   EditState 에 반영되지만 draft 백업 대상엔 빠져있었음.
     if (fieldName === '견적서 및 계약서 폴더 경로') {
       return `<div class="folder-input-wrapper" style="position: relative; display: inline-block; width: 100%;">
                 <input type="text" class="form-control form-control-sm inline-edit-input folder-path-input"
+                       data-field="${fieldName}"
                        value="${currentValue}"
                        placeholder="Google Drive 링크 또는 폴더 ID를 입력하세요"
                        style="width: 100%; padding-right: 35px;">
@@ -2108,8 +2113,10 @@ export default class ProjectRowAccordion {
     }
 
     // 수금 특이사항 필드 - 텍스트 인풋으로 변경
+    //   2026-07-10 fix — 폴더 경로와 같은 이유로 data-field 추가 (draft 커버리지).
     if (fieldName.includes('특이사항') && fieldName.includes('수금')) {
       return `<input type="text" class="form-control form-control-sm inline-edit-input collection-notes-input"
+                     data-field="${fieldName}"
                      placeholder="수금 관련 특이사항을 입력하세요."
                      value="${currentValue}">`;
     }
@@ -4692,6 +4699,22 @@ export default class ProjectRowAccordion {
       cardRow?.classList.add('d-none');
       cardEdit?.classList.remove('d-none');
       textarea?.focus();
+
+      // 2026-07-10 EditState 명시 리스너 등록 — 폴더 경로와 동일 구조 이슈.
+      //   수금 특이사항 input 은 .legacy-card-edit 안에 있고 .editable-value 부모가
+      //   없어 카드 위임 핸들러가 field 를 감지 못 함 → 저장 시 "변경사항 없음" 오인식.
+      //   폴더 경로 fix (2026-07-08) 와 같은 방식으로 명시 리스너 추가.
+      if (textarea && !textarea.dataset.editstateAttached) {
+        const NOTES_FIELD = '수금 관련 특이사항';
+        const syncNotes = () => {
+          if (this.editState && this.editState.isActive) {
+            this.editState.updateField(NOTES_FIELD, textarea.value);
+          }
+        };
+        textarea.addEventListener('input', syncNotes);
+        textarea.addEventListener('paste', () => setTimeout(syncNotes, 10));
+        textarea.dataset.editstateAttached = 'true';
+      }
     } else {
       // 보기 모드로 전환
       cardRow?.classList.remove('d-none');
@@ -4956,6 +4979,26 @@ export default class ProjectRowAccordion {
             const currentValue = editableField.dataset.originalValue || '';
             const inputElement = this.createInputElement(fieldName, currentValue);
             editableField.innerHTML = inputElement;
+
+            // 2026-07-10 fix — 수금 특이사항도 폴더 경로와 같은 이슈였다.
+            //   통합 편집 모드는 collection-card(=legacy-card 구조)에 대해 카드 위임
+            //   리스너가 없어서 input 이벤트가 EditState 로 전파되지 않음 → 저장 시
+            //   "변경사항 없음" 오인식. 폴더 fix (2026-07-08) 와 같은 방식으로 여기서도
+            //   input 직접 리스너 등록.
+            setTimeout(() => {
+              const notesInput = editableField.querySelector('.collection-notes-input');
+              if (notesInput) {
+                const syncNotesEditState = () => {
+                  if (this.editState && this.editState.isActive) {
+                    this.editState.updateField(fieldName, notesInput.value);
+                  }
+                };
+                notesInput.addEventListener('input', syncNotesEditState);
+                notesInput.addEventListener('paste', () => setTimeout(syncNotesEditState, 10));
+              } else {
+                logger.warn('[수금 특이사항] collection-notes-input을 찾을 수 없음');
+              }
+            }, 100);
           }
         }
       }
@@ -5174,6 +5217,15 @@ export default class ProjectRowAccordion {
       // 성공/실패 여부와 관계없이 플래그 해제
       this.isSavingInProgress = false;
 
+      // shell 입력 락 해제 (2026-07-10) — 성공/실패/취소/타임아웃 모든 경로 커버.
+      if (this._savingShellLock) {
+        const { el, prevPointer, prevOpacity } = this._savingShellLock;
+        el.style.pointerEvents = prevPointer;
+        el.style.opacity = prevOpacity;
+        el.classList.remove('saving-in-progress');
+        this._savingShellLock = null;
+      }
+
       // 큐에 대기 중인 요청 처리 (플래그 해제 후)
       this._processNextInQueue();
     }
@@ -5242,6 +5294,23 @@ export default class ProjectRowAccordion {
     const originalSaveText = saveBtn.innerHTML;
     saveBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>저장중...';
 
+    // 2026-07-10 저장 진행 중 shell 전체 입력 락.
+    //   증상: 스피너 도는 도중 다른 필드에 계속 입력 가능 → EditState 는 업데이트되지만
+    //     서버 응답 후 collectAllChanges 재실행 없이 currentProject 갱신 → 유실.
+    //   해결: shell 에 pointer-events: none + dim 처리. saveBtn 은 이미 disabled 라
+    //     스피너만 표시되고 다른 입력·클릭은 차단됨. finally 에서 반드시 원복.
+    const savingShell = this.accordionContainer.querySelector(
+      `.accordion-shell[data-project-code="${projectCode}"]`
+    ) || this.accordionContainer;
+    this._savingShellLock = {
+      el: savingShell,
+      prevPointer: savingShell.style.pointerEvents,
+      prevOpacity: savingShell.style.opacity,
+    };
+    savingShell.style.pointerEvents = 'none';
+    savingShell.style.opacity = '0.75';
+    savingShell.classList.add('saving-in-progress');
+
     // 메모 필드 분리 (별도 API로 처리) - catch 블록에서도 접근 가능하도록 try 밖에서 선언
     const memoChanges = {};
     const projectChanges = {};
@@ -5300,24 +5369,36 @@ export default class ProjectRowAccordion {
             logger.info('[409 병합] 최신 데이터로 UI 업데이트 완료');
           }
 
-          // 병합 UI: 사용자에게 선택권 제공
+          // 병합 UI: 사용자에게 선택권 제공.
+          //   2026-07-10 문구 명확화 — 계속 편집 선택 시 EditState 를 최신 기준으로
+          //   재초기화하므로 사용자가 이번 편집 세션에 입력했던 내용은 사라진다.
+          //   기존 문구는 "계속 편집" 이 자기 편집을 유지하는 것처럼 오인될 수 있었음.
           const userChoice = confirm(
             '⚠️ 다른 사용자가 이 프로젝트를 먼저 수정했습니다.\n\n' +
-            '최신 버전으로 업데이트되었습니다.\n' +
-            '계속 편집하시겠습니까?\n\n' +
-            '[확인] 계속 편집 (최신 데이터 기준)\n' +
+            '화면이 최신 버전으로 업데이트되었습니다.\n' +
+            '(주의: 이번에 편집한 내용은 초기화됩니다.)\n\n' +
+            '[확인] 최신 데이터로 편집 재시작\n' +
             '[취소] 편집 모드 종료'
           );
 
           if (userChoice) {
-            // 계속 편집: 편집 모드 유지, 최신 데이터로 작업
+            // 2026-07-10 fix — 계속 편집 선택 시 EditState 를 최신 데이터 기준으로
+            //   재초기화 (dirtyFields·originalData·currentData 모두 리셋).
+            //   기존엔 편집 상태가 구 baseline 그대로 남아있어 이후 저장 시 dirty 판정
+            //   오작동 및 메모 변경사항이 최신 데이터와 병합되지 않는 위험이 있었음.
+            //   pendingMemoChanges 도 함께 리셋 — 다른 사용자가 이미 메모를 수정했을 수
+            //   있어서 이번 세션의 로컬 메모 변경을 그대로 서버에 보내면 덮어씀 위험.
+            if (this.editState && conflictResult.current_data) {
+              this.editState.initialize(conflictResult.current_data);
+            }
+            this.pendingMemoChanges = {};
+
             this.showMessage(
-              '최신 버전으로 업데이트되었습니다. 계속 편집할 수 있습니다.',
+              '최신 버전으로 업데이트되었습니다. 다시 편집해주세요.',
               'info',
               3000
             );
-            logger.info('[409 병합] 사용자가 계속 편집 선택');
-            // 편집 모드 유지 - 아무것도 하지 않음
+            logger.info('[409 병합] 사용자가 계속 편집 선택 — EditState 재초기화 + 메모 변경 리셋');
           } else {
             // 편집 종료: 편집 모드 해제
             this.disableUnifiedEditMode(projectCode);
