@@ -1465,6 +1465,30 @@ def sync_payments() -> Dict:
                         except Exception:
                             pass
 
+                    # 2026-07-11 특이사항 라인 표시 (G1019-MW 관측) — 노트에 '제외/차감/
+                    #   채권추심/반환/안분' 키워드가 있는 라인은 매니저가 정상 payment 로 잡히지
+                    #   않는 이유를 서술한 것. 카드 하단에 노출해서 매니저가 이력 합·시트 총액
+                    #   차이 이유를 즉시 파악하도록.
+                    try:
+                        _special_re = re.compile(r'.*(?:제외|차감|채권추심|반환|안분).*')
+                        _special_lines = []
+                        for _note in notes:
+                            if not _note:
+                                continue
+                            for _ln in _note.splitlines():
+                                _ln = _ln.strip()
+                                if not _ln or _ln.startswith('입금 '):
+                                    continue
+                                if _special_re.match(_ln):
+                                    if _ln not in _special_lines:
+                                        _special_lines.append(_ln)
+                        if _special_lines:
+                            text += '\n\n:memo: *_특이사항_*'
+                            for _ln in _special_lines[:5]:
+                                text += f'\n_• {_ln}_'
+                    except Exception:
+                        pass
+
                     # 스레드 연결 (P2-4, 2026-07-10) — 같은 프로젝트의 이전 발송 카드가 있으면
                     # 그 카드의 스레드 답글로 발송 → 매니저·대표님이 프로젝트별 이력을 한눈에.
                     thread_ts = ''
