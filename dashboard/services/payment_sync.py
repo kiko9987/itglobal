@@ -338,6 +338,21 @@ def _parse_notes(notes: List[str],
         if len(katok_payments) == 1 and re.search(r'\(.*실결제.*수수료.*\)', note):
             results.extend(katok_payments)
             continue
+        # 카톡 양식 라인 1건 — 서술 라인들과 섞인 케이스 (2026-07-11 R3166-YM 관측)
+        # 노트에 프로젝트 코드·주소·설명 라인이 섞여있으면 blocks 파서가 이걸
+        # meta-only 로 잡아 amount 를 반으로 분배. katok payment 를 채택해서
+        # 나머지 서술 블록 skip.
+        if len(katok_payments) == 1:
+            _kp = katok_payments[0]
+            _partner = (_kp.get('partner') or '').strip()
+            # partner 노이즈 (숫자·연산자·괄호만) sanitize → 은행 코드 기반 대체
+            if _partner and re.match(r'^[\d,()\s*+\-x×.]+$', _partner):
+                _bank_code = _kp.get('bank', '')
+                if _bank_code == '현금' or _kp.get('note_label') != '박C':
+                    _kp['partner'] = '현금 수령' if '현금' in note else ''
+            results.append(_kp)
+            continue
+
         # 카톡 양식 라인이 2건 이상이면 카톡 양식으로 처리 (정상 양식과 명확히 다름)
         if len(katok_payments) >= 2:
             # 매니저가 history 누적 — 이전 단계와 중복되는 첫 라인들 제외
