@@ -465,8 +465,35 @@ def _parse_notes(notes: List[str],
                 prev_block = block
         # 메모 있지만 어떤 블록도 파싱 실패 + 단계 값 있으면 fallback
         if not any_parsed and stage_val > 0:
+            # 2026-07-11 서술식 노트 fallback 강화 (R3779, R3520, G3662 등 관측)
+            # 노트 텍스트에 '현금' 언급 → partner='현금'
+            # 'N통장' 언급 → partner='N통장'
+            # 'R>N 매출이동' 언급 → partner='매출이동'
+            # 노트에서 date 추출 시도 (YYYY-MM-DD, YYYY/MM/DD, MM/DD, N월 M일)
+            _joined = note
+            _partner = '-'
+            if re.search(r'현금\s*(?:수?령|수?금)?', _joined):
+                _partner = '현금'
+            elif re.search(r'N\s*통장', _joined):
+                _partner = 'N통장'
+            elif re.search(r'매출\s*이동|[RG]\s*>\s*N', _joined):
+                _partner = '매출이동'
+            _date = '-'
+            _m_ko = _KO_DATE_RE.search(_joined)
+            if _m_ko:
+                _date = f'{int(_m_ko.group(1)):02d}/{int(_m_ko.group(2)):02d}'
+            else:
+                # YYYY-MM-DD 우선 매치 (매니저 노트에 흔한 양식)
+                _m_full = re.search(r'(?<!\d)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)', _joined)
+                if _m_full:
+                    _date = f'{int(_m_full.group(2)):02d}/{int(_m_full.group(3)):02d}'
+                else:
+                    # MM/DD (앞뒤에 숫자 없어야, 예: '03/25')
+                    _m_md = re.search(r'(?<!\d)(\d{1,2})/(\d{1,2})(?![:/\d])', _joined)
+                    if _m_md:
+                        _date = f'{int(_m_md.group(1)):02d}/{int(_m_md.group(2)):02d}'
             results.append({
-                'date_md': '-', 'amount': stage_val, 'partner': '-',
+                'date_md': _date, 'amount': stage_val, 'partner': _partner,
                 'bank': '', 'note_label': '', 'stage': stage,
             })
 
@@ -508,6 +535,9 @@ def _parse_notes(notes: List[str],
     # 새 파서 결과의 date_md='' (빈값) 는 파싱 실패 → 매니저 설명 블록으로 간주.
     # 옛 fallback payment 는 date_md='-' 라 skip 안 됨 (옛 데이터 보존).
     _noise_re = re.compile(r'(VAT|변경|하였음|남음|부탁드립니다|이체|취소|체크\s*부탁|수령\s*완료|수금\s*완료|입금\s*완료|만원권)')
+    # 2026-07-11 partner sanitize — amount/원 포함된 partner 는 파싱 오류.
+    #   노트에 '현금'/'N통장' 언급 있으면 partner 를 그것으로 교체.
+    _bad_partner_re = re.compile(r'[\d,]+\s*원|[GRN]\s*[\d,]+')
     filtered = []
     for p in results:
         partner = p.get('partner') or ''
@@ -520,9 +550,72 @@ def _parse_notes(notes: List[str],
             continue  # 완전 설명 블록 or 파싱 실패 → skip
         if _noise_re.search(partner):
             p['partner'] = ''  # 유효 블록의 오인된 partner → 비움
+        elif _bad_partner_re.search(partner):
+            # partner 에 amount 표기 섞임 → sanitize
+            # 노트 원본에서 '현금'/'N통장' 언급 있으면 그걸로 교체
+            _joined_notes = '\n'.join(n or '' for n in notes)
+            if re.search(r'현금', _joined_notes):
+                p['partner'] = '현금'
+            elif re.search(r'N\s*통장', _joined_notes):
+                p['partner'] = 'N통장'
+            else:
+                p['partner'] = ''
         # 내부 필드 제거 (외부 노출 안 함)
         p.pop('_meta_only', None)
         filtered.append(p)
+
+    # 2026-07-11 filter 후 fallback — stage 별로 payment 없으면 노트 있고 stage_val > 0 이면
+    #   서술식 노트 (현금 수령 등) 로 판단해서 fallback 추가.
+    for stage, stage_val in [
+        ('계약금', (stage_vals or {}).get('계약금', 0)),
+        ('중도금', (stage_vals or {}).get('중도금', 0)),
+        ('잔금', (stage_vals or {}).get('잔금', 0)),
+    ]:
+        if stage_val <= 0:
+            continue
+        if any(p.get('stage') == stage for p in filtered):
+            continue
+        # 이 stage 노트가 있는지
+        stage_idx = ['계약금', '중도금', '잔금'].index(stage)
+        note = notes[stage_idx] if stage_idx < len(notes) else ''
+        if not note:
+            continue
+        _partner = '-'
+        if re.search(r'현금', note):
+            _partner = '현금'
+        elif re.search(r'N\s*통장', note):
+            _partner = 'N통장'
+        elif re.search(r'매출\s*이동|[RG]\s*>\s*N', note):
+            _partner = '매출이동'
+        else:
+            continue  # 서술 키워드 없으면 fallback 안 함
+        _date = '-'
+        _m_ko = _KO_DATE_RE.search(note)
+        if _m_ko:
+            _date = f'{int(_m_ko.group(1)):02d}/{int(_m_ko.group(2)):02d}'
+        else:
+            _m_full = re.search(r'(?<!\d)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)', note)
+            if _m_full:
+                _date = f'{int(_m_full.group(2)):02d}/{int(_m_full.group(3)):02d}'
+            else:
+                _m_md = re.search(r'(?<!\d)(\d{1,2})/(\d{1,2})(?![:/\d])', note)
+                if _m_md:
+                    _date = f'{int(_m_md.group(1)):02d}/{int(_m_md.group(2)):02d}'
+        filtered.append({
+            'date_md': _date, 'amount': stage_val, 'partner': _partner,
+            'bank': '', 'note_label': '', 'stage': stage,
+        })
+
+    # 재정렬
+    stage_order2 = {'계약금': 0, '중도금': 1, '잔금': 2}
+    def _dk(p):
+        mm_dd = p.get('date_md', '0/0')
+        try:
+            mm, dd = mm_dd.split('/')
+            return (int(mm), int(dd))
+        except Exception:
+            return (0, 0)
+    filtered.sort(key=lambda p: (stage_order2.get(p.get('stage', ''), 9), _dk(p)))
     return filtered
 
 
