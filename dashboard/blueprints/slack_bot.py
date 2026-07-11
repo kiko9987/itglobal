@@ -950,7 +950,10 @@ def _register_handlers(app):
                         except Exception:
                             pass
                     return
-                _link_chat_to_existing_lead(client, chat_id, target_lead_no, channel, message_ts)
+                _link_chat_to_existing_lead(
+                    client, chat_id, target_lead_no, channel, message_ts,
+                    slack_user_id=user_id,
+                )
             except Exception as exc:
                 logger.error(f"[SLACK] submit_link_lead 백그라운드 실패: {exc}", exc_info=True)
                 if channel and user_id:
@@ -3009,86 +3012,137 @@ def _open_link_lead_modal(client, body, chat_id: str, channel: str, message_ts: 
 
 
 def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
-                                 channel: str, message_ts: str) -> None:
+                                 channel: str, message_ts: str,
+                                 slack_user_id: str = '') -> None:
     """채널톡 채팅을 기존 lead에 통합.
-    - 시트 lead의 피드백 컬럼에 카톡 메시지 메모 추가
-    - Redis pending lead 삭제 (이 채팅은 더 이상 새 lead 등록 안 함)
-    - 슬랙 thread에 통합 완료 안내
+    - target lead 상담 내용에 채팅 세부 정보 append
+    - 채팅 lead 자체 시트 업데이트: 상태='문의 드랍', 상담 내용에 통합 마킹,
+      키워드/온라인 상담자는 target lead 값 복사 (통계 일관성)
+    - Redis pending lead 삭제 (있는 경우)
+    - `linked_chat:{chat_id}` 마커 저장 (30일) — 재시도 방어
+    - 슬랙 thread 안내 + 원본 카드 ✅ reaction
     """
     try:
         from dashboard.utils.redis_client import get_redis_client
         from dashboard.services.lead_service import update_lead, get_lead_by_no
+        from dashboard.blueprints.channeltalk import _get_chat_lead_no
         from datetime import datetime
         rc = get_redis_client().redis
+        linked_key = f'linked_chat:{chat_id}'
+
+        # === 재시도 방어 ===
+        existing_linked = rc.get(linked_key)
+        if isinstance(existing_linked, bytes):
+            existing_linked = existing_linked.decode('utf-8')
+        if existing_linked:
+            existing_linked = str(existing_linked).strip()
+            if existing_linked == target_lead_no:
+                msg = f":information_source: 이 채팅은 이미 `{target_lead_no}` 로 통합돼있어요. 재처리는 스킵합니다."
+            else:
+                msg = (
+                    f":warning: 이 채팅은 이미 `{existing_linked}` 로 통합돼있어요. "
+                    f"다른 lead로 재통합하려면 관리자 문의 필요."
+                )
+            if channel and slack_user_id:
+                try:
+                    client.chat_postEphemeral(channel=channel, user=slack_user_id, text=msg)
+                except Exception:
+                    pass
+            logger.info(f"[SLACK/link] 재시도 skip — chat_id={chat_id} 이미 {existing_linked} 로 통합됨")
+            return
+
+        # === target lead 정보 조회 ===
+        target_lead = get_lead_by_no(target_lead_no) or {}
+
+        # === chat lead 정보 조회 (chat_id → chat_lead_no) ===
+        chat_lead_no = _get_chat_lead_no(chat_id)
+        chat_lead = get_lead_by_no(chat_lead_no) if chat_lead_no else {}
+        chat_lead = chat_lead or {}
+
+        # === pending 데이터 (있으면 세부 정보 우선 사용) ===
         pending_key = f'channeltalk_pending_lead:{chat_id}'
         pending_raw = rc.get(pending_key)
-        chat_memo_parts = [f"[{datetime.now().strftime('%m/%d %H:%M')} 카톡 추가 문의 통합]"]
+        pending: dict = {}
         if pending_raw:
-            pending = json.loads(
-                pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw
-            )
-            chat_memo_parts.append(f"닉네임: {pending.get('user_name', '-')}")
-            chat_memo_parts.append(f"메시지: {pending.get('first_message', '-')}")
-        chat_memo = '\n'.join(chat_memo_parts)
+            try:
+                pending = json.loads(
+                    pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw
+                )
+            except Exception:
+                pending = {}
 
-        # 기존 피드백에 추가 (덮어쓰지 않음)
-        existing = get_lead_by_no(target_lead_no) or {}
-        old_feedback = (existing.get('상담 내용') or existing.get('피드백') or '').strip()
+        # === target lead 상담 내용 append (세부 정보 보강) ===
+        # pending 없으면 채팅 lead 시트 값에서 fallback
+        ts_str = datetime.now().strftime('%m/%d %H:%M')
+        header = f'[{ts_str} 카톡 추가 문의 통합'
+        if chat_lead_no:
+            header += f' — {chat_lead_no}'
+        header += ']'
+        memo_parts = [header]
+        user_name = (pending.get('user_name') or chat_lead.get('고객명') or '').strip()
+        first_msg = (pending.get('first_message') or chat_lead.get('문의 내용') or '').strip()
+        if user_name:
+            memo_parts.append(f'닉네임: {user_name}')
+        if first_msg:
+            # 3000자 대비 truncate
+            memo_parts.append(f'메시지: {first_msg[:1500]}')
+        chat_memo = '\n'.join(memo_parts)
+
+        old_feedback = (target_lead.get('상담 내용') or target_lead.get('피드백') or '').strip()
         new_feedback = (old_feedback + '\n\n' + chat_memo).strip() if old_feedback else chat_memo
         update_lead(target_lead_no, {'상담 내용': new_feedback})
 
-        # Redis 삭제 — 이 채팅은 새 lead 등록 안 함
+        # === 채팅 lead 자체 시트 업데이트 ===
+        # 상태='문의 드랍', 상담 내용에 통합 마킹, 키워드/온라인 상담자 target 값 복사
+        if chat_lead_no and chat_lead_no != target_lead_no:
+            try:
+                chat_old_feedback = (chat_lead.get('상담 내용') or chat_lead.get('피드백') or '').strip()
+                chat_new_feedback = (
+                    (chat_old_feedback + '\n\n' if chat_old_feedback else '')
+                    + f'→ {target_lead_no} 로 통합'
+                )
+                chat_update: dict = {
+                    '상태': '문의 드랍',
+                    '상담 내용': chat_new_feedback,
+                }
+                # 키워드/온라인 상담자는 target lead 값 있을 때만 복사 (공백 덮어쓰기 방지)
+                target_kw = (target_lead.get('키워드') or '').strip()
+                target_op = (target_lead.get('온라인 상담자') or '').strip()
+                if target_kw and target_kw != '-':
+                    chat_update['키워드'] = target_kw
+                if target_op:
+                    chat_update['온라인 상담자'] = target_op
+                update_lead(chat_lead_no, chat_update)
+                logger.info(
+                    f"[SLACK/link] 채팅 lead 통합 마킹: {chat_lead_no} → {target_lead_no} "
+                    f"(키워드/상담자 복사={bool(target_kw)}/{bool(target_op)})"
+                )
+            except Exception as exc:
+                logger.warning(f"[SLACK/link] 채팅 lead 통합 마킹 실패: {exc}")
+
+        # === Redis pending 삭제 (있으면) ===
         rc.delete(pending_key)
 
-        # 채팅 lead 자체를 시트에서 통합 처리 — 상태='문의 드랍' + 피드백에 통합 마킹
-        # (채팅 인입 시 즉시 시트 등록되므로 그 행이 남지 않도록)
+        # === linked_chat 마커 저장 (30일) — 재시도 방어 ===
         try:
-            from dashboard.services.lead_service import load_leads_data
-            df = load_leads_data()
-            # chat_id → 시트에서 같은 chat의 lead 찾기 (Redis pending 데이터에 이름/시간 있음)
-            # 가장 간단하게 — 최근 채팅 lead 중 target과 다른 것 찾음. pending 데이터의 user_name/시간으로 매칭.
-            if pending_raw and df is not None:
-                user_name = pending.get('user_name', '')
-                created_ms = pending.get('created_ms', 0)
-                if user_name and created_ms:
-                    from datetime import datetime as _dt
-                    consult_time_str = _dt.fromtimestamp(created_ms / 1000.0).strftime('%Y.%m.%d. %H:%M')
-                    match = df[
-                        (df['고객명'].astype(str).str.strip() == user_name)
-                        & (df['상담 시간'].astype(str).str.strip() == consult_time_str)
-                        & (df['플랫폼'].astype(str).str.strip().isin(['카카오톡', '채널톡']))
-                    ]
-                    for _, r in match.iterrows():
-                        chat_lead_no = str(r.get('리드 No') or '').strip()
-                        if chat_lead_no and chat_lead_no != target_lead_no:
-                            chat_old_feedback = str(r.get('상담 내용') or r.get('피드백') or '').strip()
-                            chat_new_feedback = (
-                                (chat_old_feedback + '\n\n' if chat_old_feedback else '')
-                                + f'→ {target_lead_no}로 통합'
-                            )
-                            update_lead(chat_lead_no, {
-                                '상태': '문의 드랍',
-                                '상담 내용': chat_new_feedback,
-                            })
-                            logger.info(
-                                f"[SLACK/link] 채팅 lead 통합 마킹: {chat_lead_no} → {target_lead_no}"
-                            )
-                            break
+            rc.set(linked_key, target_lead_no, ex=60 * 60 * 24 * 30)
         except Exception as exc:
-            logger.warning(f"[SLACK/link] 채팅 lead 통합 마킹 실패: {exc}")
+            logger.debug(f"[SLACK/link] linked_chat 마커 저장 실패: {exc}")
 
-        # 슬랙 thread 안내
+        # === 슬랙 thread 안내 ===
         if channel and message_ts:
             try:
+                thread_msg = f":link: 기존 lead `{target_lead_no}` 에 통합 완료."
+                if chat_lead_no:
+                    thread_msg += f" 채팅 리드 `{chat_lead_no}` 는 '문의 드랍' 처리."
                 client.chat_postMessage(
                     channel=channel, thread_ts=message_ts,
-                    text=f":link: 기존 lead `{target_lead_no}`에 통합 완료. "
-                         f"이 채팅의 추가 메시지는 시트에 별도 등록되지 않습니다."
+                    text=thread_msg,
                 )
             except Exception:
                 pass
 
-        # 연결된 기존 lead의 원본 카드에 ✅ reaction 추가 (시각적 처리 완료 표시)
+        # === 원본 lead 카드에 ✅ reaction (시각적 처리 완료 표시) ===
         try:
             card_info = rc.get(f'lead_card_msg:{target_lead_no}')
             if card_info:
@@ -3101,13 +3155,13 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
                             name='white_check_mark',
                         )
                     except Exception as exc:
-                        # 이미 reaction 있거나 권한 문제는 무시
                         logger.debug(f"[SLACK/link] reaction 추가 skip ({target_lead_no}): {exc}")
         except Exception as exc:
             logger.warning(f"[SLACK/link] 원본 카드 reaction 실패: {exc}")
 
         logger.info(
-            f"[SLACK/link] chat_id={chat_id} → {target_lead_no} 통합 완료"
+            f"[SLACK/link] chat_id={chat_id} → {target_lead_no} 통합 완료 "
+            f"(chat_lead={chat_lead_no or '없음'})"
         )
     except Exception as exc:
         logger.error(f"[SLACK/link] 통합 처리 실패: {exc}", exc_info=True)
