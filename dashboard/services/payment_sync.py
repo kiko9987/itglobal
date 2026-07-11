@@ -383,13 +383,17 @@ def _parse_notes(notes: List[str],
             continue
         # 1차: 빈 줄로 블록 분리
         raw_blocks = re.split(r'\n\s*\n', note.strip())
-        # 2차: 한 블록 안에 날짜 패턴이 2번 이상이면 추가 분리 (빈 줄 없는 분할 입금)
+        # 2차: 한 블록 안에 헤더 패턴이 2번 이상이면 추가 분리 (빈 줄 없는 분할 입금)
+        # 지원 헤더:
+        #   - YYYY/MM/DD HH:MM  (은행 SMS full-date 양식)
+        #   - 일시 MM/DD, HH:MM  (은행 SMS 압축 양식, 2026-07-11 R3692-MJ)
+        _BLOCK_HEADER_RE = re.compile(
+            r'(?:\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}|일시\s+\d{1,2}/\d{1,2})'
+        )
         blocks = []
         for rb in raw_blocks:
-            # 날짜 패턴 (YYYY/MM/DD HH:MM) 위치 찾기
-            date_starts = [m.start() for m in re.finditer(r'\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}', rb)]
+            date_starts = [m.start() for m in _BLOCK_HEADER_RE.finditer(rb)]
             if len(date_starts) >= 2:
-                # 각 날짜 시작점으로 분리
                 for i, ds in enumerate(date_starts):
                     end = date_starts[i+1] if i+1 < len(date_starts) else len(rb)
                     blocks.append(rb[ds:end].strip())
