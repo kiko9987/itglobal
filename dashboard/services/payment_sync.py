@@ -399,16 +399,25 @@ def _parse_notes(notes: List[str],
             r'|(?<![\d/])\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}'
             r')'
         )
-        # 추가 감지 — 은행 SMS 양식이지만 헤더 완전 생략, "입금 X원" 반복 (G1897-MW)
+        # 추가 감지 — 은행 SMS 양식이지만 헤더 완전 생략, "입금 X원" 반복 (G1897-MW).
+        # 규칙: 각 header 뒤 첫 amount 는 그 header 에 소속 (skip). 같은 header 뒤
+        # 두 번째 이후 amount 는 새 블록 시작. header 없으면 각 amount 를 시작으로.
         _AMOUNT_LINE_RE = re.compile(r'(?:^|\n)입금\s*[\d,]+원')
         blocks = []
         for rb in raw_blocks:
-            starts = set(m.start() for m in _BLOCK_HEADER_RE.finditer(rb))
+            header_starts = [m.start() for m in _BLOCK_HEADER_RE.finditer(rb)]
             amt_matches = list(_AMOUNT_LINE_RE.finditer(rb))
-            if len(amt_matches) >= 2:
-                # 첫 amount 는 이미 헤더 뒤에 속함 → 두 번째부터 별도 블록 시작
-                for m in amt_matches[1:]:
-                    starts.add(m.start())
+            starts = set(header_starts)
+            prev_header_seen = None
+            for m in amt_matches:
+                pos = m.start()
+                nearest_header = max(
+                    (h for h in header_starts if h <= pos), default=None
+                )
+                if nearest_header is not None and nearest_header != prev_header_seen:
+                    prev_header_seen = nearest_header
+                else:
+                    starts.add(pos)
             starts = sorted(starts)
             if len(starts) >= 2:
                 for i, ds in enumerate(starts):
