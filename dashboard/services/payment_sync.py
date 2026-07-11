@@ -255,7 +255,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     # 메모 전체에 "현금" 키워드 있고 partner 아직 없으면 partner='현금' fallback (2026-07-10)
     # → _resolve_payment_code 에서 'N' 코드 반환
     if not partner and '현금' in '\n'.join(lines):
-        partner = '현금'
+        partner = '현금 수령'
 
     # 박C 표기 — 대표님 개인 기업통장(추적용 구분)
     note_label = ''
@@ -473,7 +473,7 @@ def _parse_notes(notes: List[str],
             _joined = note
             _partner = '-'
             if re.search(r'현금\s*(?:수?령|수?금)?', _joined):
-                _partner = '현금'
+                _partner = '현금 수령'
             elif re.search(r'N\s*통장', _joined):
                 _partner = 'N통장'
             elif re.search(r'매출\s*이동|[RG]\s*>\s*N', _joined):
@@ -555,7 +555,7 @@ def _parse_notes(notes: List[str],
             # 노트 원본에서 '현금'/'N통장' 언급 있으면 그걸로 교체
             _joined_notes = '\n'.join(n or '' for n in notes)
             if re.search(r'현금', _joined_notes):
-                p['partner'] = '현금'
+                p['partner'] = '현금 수령'
             elif re.search(r'N\s*통장', _joined_notes):
                 p['partner'] = 'N통장'
             else:
@@ -582,7 +582,7 @@ def _parse_notes(notes: List[str],
             continue
         _partner = '-'
         if re.search(r'현금', note):
-            _partner = '현금'
+            _partner = '현금 수령'
         elif re.search(r'N\s*통장', note):
             _partner = 'N통장'
         elif re.search(r'매출\s*이동|[RG]\s*>\s*N', note):
@@ -658,8 +658,8 @@ def _resolve_payment_code(invoice_value: str, bank: str, partner: str = '') -> s
     iv = (invoice_value or '').strip()
     if iv == 'N입금':
         return 'N'
-    # 입금자가 '현금'이면 N으로 강제 (혼합 케이스에서 매니저가 수기 입력)
-    if partner and partner.strip() == '현금':
+    # 입금자가 '현금' 또는 '현금 수령' 이면 N으로 강제 (혼합 케이스 매니저 수기 입력)
+    if partner and partner.strip() in ('현금', '현금 수령'):
         return 'N'
     # 카드결제 또는 기타 → 메모 은행으로 판별
     if bank == '기업':
