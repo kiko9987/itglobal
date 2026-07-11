@@ -909,11 +909,16 @@ def _register_handlers(app):
 
     @app.view("submit_link_lead")
     def handle_submit_link_lead(ack, body, view, client):
+        # 2026-07-11 UX 개선 — 링크 처리(시트 write + slack post 여러 개)가 3초 초과 →
+        #   Slack UI 에 "연결하는 데 문제가 발생했습니다" 표시. 실제 처리는 성공했지만
+        #   매니저 눈에는 실패로 보임. 검증만 handler 안에서 하고 실제 통합 처리는
+        #   background thread 로 이관 + ack() 즉시.
         try:
             metadata = json.loads(view["private_metadata"])
             chat_id = metadata.get("chat_id", "")
             channel = metadata.get("channel", "")
             message_ts = metadata.get("message_ts", "")
+            user_id = (body.get("user") or {}).get("id", "")
             state = view["state"]["values"]
             # external_select 결과 — selected_option.value = lead_no
             sel = state.get("target_lead_no", {}).get("link_lead_search", {}).get("selected_option")
@@ -923,20 +928,40 @@ def _register_handlers(app):
                     "target_lead_no": "검색해서 lead를 선택해주세요"
                 })
                 return
-            target_lead = _find_lead_by_no(target_lead_no)
-            if not target_lead:
-                ack(response_action="errors", errors={
-                    "target_lead_no": f"{target_lead_no} 시트에 없는 lead 입니다"
-                })
-                return
             ack()
-            _link_chat_to_existing_lead(client, chat_id, target_lead_no, channel, message_ts)
         except Exception as exc:
-            logger.error(f"[SLACK] submit_link_lead 실패: {exc}", exc_info=True)
+            logger.error(f"[SLACK] submit_link_lead 검증 실패: {exc}", exc_info=True)
             try:
                 ack()
             except Exception:
                 pass
+            return
+
+        def _bg():
+            try:
+                target_lead = _find_lead_by_no(target_lead_no)
+                if not target_lead:
+                    if channel and user_id:
+                        try:
+                            client.chat_postEphemeral(
+                                channel=channel, user=user_id,
+                                text=f":warning: `{target_lead_no}` 시트에 없는 lead 입니다. 다시 시도해주세요.",
+                            )
+                        except Exception:
+                            pass
+                    return
+                _link_chat_to_existing_lead(client, chat_id, target_lead_no, channel, message_ts)
+            except Exception as exc:
+                logger.error(f"[SLACK] submit_link_lead 백그라운드 실패: {exc}", exc_info=True)
+                if channel and user_id:
+                    try:
+                        client.chat_postEphemeral(
+                            channel=channel, user=user_id,
+                            text=f":warning: 링크 처리 중 오류: {exc}",
+                        )
+                    except Exception:
+                        pass
+        threading.Thread(target=_bg, daemon=True).start()
 
     # ⓓ /방문 슬래시 명령 — 거래처/기타 방문 직접 등록
     @app.command("/방문")
