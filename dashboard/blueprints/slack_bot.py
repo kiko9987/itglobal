@@ -3015,9 +3015,12 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
                                  channel: str, message_ts: str,
                                  slack_user_id: str = '') -> None:
     """채널톡 채팅을 기존 lead에 통합.
-    - target lead 상담 내용에 채팅 세부 정보 append
-    - 채팅 lead 자체 시트 업데이트: 상태='문의 드랍', 상담 내용에 통합 마킹,
-      키워드/온라인 상담자는 target lead 값 복사 (통계 일관성)
+    - 채팅 lead(chat_lead_no) 시트 업데이트:
+      · 상태='문의 드랍'
+      · 상담 내용에 `→ {target_lead_no} 로 통합` 마킹
+      · 키워드/온라인 상담자는 target lead 값 복사 (통계 일관성)
+    - target lead 상담 내용은 건드리지 않음
+      (매니저가 이후 상담 결과 입력 시 덮어써지므로 마킹은 의미 없음)
     - Redis pending lead 삭제 (있는 경우)
     - `linked_chat:{chat_id}` 마커 저장 (30일) — 재시도 방어
     - 슬랙 thread 안내 + 원본 카드 ✅ reaction
@@ -3059,38 +3062,8 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
         chat_lead = get_lead_by_no(chat_lead_no) if chat_lead_no else {}
         chat_lead = chat_lead or {}
 
-        # === pending 데이터 (있으면 세부 정보 우선 사용) ===
+        # === pending 데이터 삭제 (있으면) — 재감지 방지 ===
         pending_key = f'channeltalk_pending_lead:{chat_id}'
-        pending_raw = rc.get(pending_key)
-        pending: dict = {}
-        if pending_raw:
-            try:
-                pending = json.loads(
-                    pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw
-                )
-            except Exception:
-                pending = {}
-
-        # === target lead 상담 내용 append (세부 정보 보강) ===
-        # pending 없으면 채팅 lead 시트 값에서 fallback
-        ts_str = datetime.now().strftime('%m/%d %H:%M')
-        header = f'[{ts_str} 카톡 추가 문의 통합'
-        if chat_lead_no:
-            header += f' — {chat_lead_no}'
-        header += ']'
-        memo_parts = [header]
-        user_name = (pending.get('user_name') or chat_lead.get('고객명') or '').strip()
-        first_msg = (pending.get('first_message') or chat_lead.get('문의 내용') or '').strip()
-        if user_name:
-            memo_parts.append(f'닉네임: {user_name}')
-        if first_msg:
-            # 3000자 대비 truncate
-            memo_parts.append(f'메시지: {first_msg[:1500]}')
-        chat_memo = '\n'.join(memo_parts)
-
-        old_feedback = (target_lead.get('상담 내용') or target_lead.get('피드백') or '').strip()
-        new_feedback = (old_feedback + '\n\n' + chat_memo).strip() if old_feedback else chat_memo
-        update_lead(target_lead_no, {'상담 내용': new_feedback})
 
         # === 채팅 lead 자체 시트 업데이트 ===
         # 상태='문의 드랍', 상담 내용에 통합 마킹, 키워드/온라인 상담자 target 값 복사
