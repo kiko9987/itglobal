@@ -387,15 +387,32 @@ def _parse_notes(notes: List[str],
         # 지원 헤더:
         #   - YYYY/MM/DD HH:MM  (은행 SMS full-date 양식)
         #   - 일시 MM/DD, HH:MM  (은행 SMS 압축 양식, 2026-07-11 R3692-MJ)
+        #   - 은행,MM/DD, HH:MM  (하나/기업/농협 등 축약, 2026-07-11 R3589-MW)
+        #   - 입금일: (매니저 라벨 양식, 2026-07-11 G0278/G1866/G1997)
+        #   - MM/DD HH:MM 계좌…  (헤더 없이 날짜만, 2026-07-11 G0323)
         _BLOCK_HEADER_RE = re.compile(
-            r'(?:\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}|일시\s+\d{1,2}/\d{1,2})'
+            r'(?:'
+            r'\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}'
+            r'|일시\s+\d{1,2}/\d{1,2}'
+            r'|(?:하나|기업|국민|신한|우리|농협|카카오|토스)[,\s]\s*\d{1,2}/\d{1,2}'
+            r'|입금일\s*:'
+            r'|(?<![\d/])\d{1,2}/\d{1,2}\s+\d{1,2}:\d{2}'
+            r')'
         )
+        # 추가 감지 — 은행 SMS 양식이지만 헤더 완전 생략, "입금 X원" 반복 (G1897-MW)
+        _AMOUNT_LINE_RE = re.compile(r'(?:^|\n)입금\s*[\d,]+원')
         blocks = []
         for rb in raw_blocks:
-            date_starts = [m.start() for m in _BLOCK_HEADER_RE.finditer(rb)]
-            if len(date_starts) >= 2:
-                for i, ds in enumerate(date_starts):
-                    end = date_starts[i+1] if i+1 < len(date_starts) else len(rb)
+            starts = set(m.start() for m in _BLOCK_HEADER_RE.finditer(rb))
+            amt_matches = list(_AMOUNT_LINE_RE.finditer(rb))
+            if len(amt_matches) >= 2:
+                # 첫 amount 는 이미 헤더 뒤에 속함 → 두 번째부터 별도 블록 시작
+                for m in amt_matches[1:]:
+                    starts.add(m.start())
+            starts = sorted(starts)
+            if len(starts) >= 2:
+                for i, ds in enumerate(starts):
+                    end = starts[i+1] if i+1 < len(starts) else len(rb)
                     blocks.append(rb[ds:end].strip())
             else:
                 blocks.append(rb)
@@ -420,8 +437,12 @@ def _parse_notes(notes: List[str],
                     continue
             if parsed:
                 # 직전 결과가 같은 단계 + partner 비어있으면 합쳐서 재시도
+                # 단, 두 블록의 amount 가 같아야만 병합 (같은 payment 를 매니저가
+                # 빈 줄로 잘못 분리한 케이스). amount 다르면 서로 다른 입금 →
+                # 별도 payment 로 추가. (2026-07-11 G2835-JW 회귀 방지)
                 if (results and results[-1].get('stage') == stage
-                        and not results[-1].get('partner') and prev_block):
+                        and not results[-1].get('partner') and prev_block
+                        and parsed.get('amount') == results[-1].get('amount')):
                     merged = prev_block + '\n' + block
                     reparse = _parse_memo_block(merged)
                     if (reparse and reparse.get('partner')
