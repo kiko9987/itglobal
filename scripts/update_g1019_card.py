@@ -22,7 +22,7 @@ except Exception:
 
 def _int(v):
     try:
-        return int(float(str(v).replace(',', '').strip() or 0))
+        return int(round(float(str(v).replace(',', '').strip() or 0)))
     except (ValueError, TypeError):
         return 0
 
@@ -78,26 +78,43 @@ def main() -> int:
         construction=construction,
     )
 
-    # 특이사항 append
-    _special_re = re.compile(r'.*(?:제외|차감|채권추심|반환|안분).*')
-    _special_lines = []
-    for _note in notes:
+    # 특이사항 라인 (payment_sync 로직과 동일)
+    _SEP = '--------------------------------------------'
+    _stage_by_idx = ('계약금', '중도금', '잔금')
+    _date_prefix_re = re.compile(
+        r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*'
+        r'(?:\d{1,2}:\d{2}\s*)?'
+    )
+    _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분)')
+    _special_entries = []
+    for _idx, _note in enumerate(notes):
         if not _note:
             continue
+        _stage_name = _stage_by_idx[_idx] if _idx < 3 else ''
         for _ln in _note.splitlines():
             _ln = _ln.strip()
             if not _ln or _ln.startswith('입금 '):
                 continue
-            if _special_re.match(_ln):
-                if _ln not in _special_lines:
-                    _special_lines.append(_ln)
-    if _special_lines:
-        text += '\n\n:memo: *_특이사항_*'
-        for _ln in _special_lines[:5]:
-            text += f'\n_• {_ln}_'
-        print(f'[*] 특이사항 라인 {len(_special_lines)}개 감지:')
-        for _ln in _special_lines:
-            print(f'  • {_ln}')
+            if not _special_re.search(_ln):
+                continue
+            _cleaned = _date_prefix_re.sub('', _ln).strip()
+            if not _cleaned:
+                continue
+            _entry = (_stage_name, _cleaned)
+            if _entry not in _special_entries:
+                _special_entries.append(_entry)
+    if _special_entries:
+        _special_block = ['', '[특이사항]']
+        for _stg, _cln in _special_entries[:5]:
+            _prefix = f'{_stg} ' if _stg else ''
+            _special_block.append(f'{_prefix}{_cln}')
+        _special_text = '\n'.join(_special_block)
+        _parts = text.rsplit(_SEP, 1)
+        if len(_parts) == 2:
+            text = _parts[0].rstrip() + '\n' + _special_text + '\n' + _SEP + _parts[1]
+        print(f'[*] 특이사항 {len(_special_entries)}개:')
+        for _stg, _cln in _special_entries:
+            print(f'  {_stg} {_cln}')
 
     print()
     print('=== 새 카드 텍스트 ===')

@@ -950,16 +950,20 @@ def _fetch_row_notes(spreadsheet_id: str, sheet_name: str, row: int) -> List[str
 
 
 def _to_int_won(s) -> int:
-    """'12,100,000' / '₩12,100,000' / '12100000' / 0 → 12100000"""
+    """'12,100,000' / '₩12,100,000' / '12100000' / 0 → 12100000
+
+    Google Sheets UNFORMATTED_VALUE 는 float 저장 (예: 3499999.9999).
+    int() 는 floor 라 3499999 되어 1 부족. round() 로 정수 반올림.
+    """
     if s is None or s == '':
         return 0
     if isinstance(s, (int, float)):
-        return int(s)
+        return int(round(s))
     s = str(s).strip().replace('₩', '').replace(',', '').replace(' ', '')
     if not s:
         return 0
     try:
-        return int(float(s))
+        return int(round(float(s)))
     except Exception:
         return 0
 
@@ -1467,25 +1471,46 @@ def sync_payments() -> Dict:
 
                     # 2026-07-11 특이사항 라인 표시 (G1019-MW 관측) — 노트에 '제외/차감/
                     #   채권추심/반환/안분' 키워드가 있는 라인은 매니저가 정상 payment 로 잡히지
-                    #   않는 이유를 서술한 것. 카드 하단에 노출해서 매니저가 이력 합·시트 총액
-                    #   차이 이유를 즉시 파악하도록.
+                    #   않는 이유를 서술한 것. `[입금 이력]` 블록 아래, 마지막 구분선 위에
+                    #   `[특이사항]` 섹션으로 표시해서 매니저가 이력 합·시트 총액 차이 이유를
+                    #   즉시 파악하도록. 앞의 날짜/시간 부분은 제거하고 stage 접두어 추가.
                     try:
-                        _special_re = re.compile(r'.*(?:제외|차감|채권추심|반환|안분).*')
-                        _special_lines = []
-                        for _note in notes:
+                        _stage_by_idx = ('계약금', '중도금', '잔금')
+                        _date_prefix_re = re.compile(
+                            r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*'
+                            r'(?:\d{1,2}:\d{2}\s*)?'
+                        )
+                        _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분)')
+                        _special_entries = []  # [(stage, cleaned_line)]
+                        for _idx, _note in enumerate(notes):
                             if not _note:
                                 continue
+                            _stage_name = _stage_by_idx[_idx] if _idx < 3 else ''
                             for _ln in _note.splitlines():
                                 _ln = _ln.strip()
                                 if not _ln or _ln.startswith('입금 '):
                                     continue
-                                if _special_re.match(_ln):
-                                    if _ln not in _special_lines:
-                                        _special_lines.append(_ln)
-                        if _special_lines:
-                            text += '\n\n:memo: *_특이사항_*'
-                            for _ln in _special_lines[:5]:
-                                text += f'\n_• {_ln}_'
+                                if not _special_re.search(_ln):
+                                    continue
+                                # 날짜/시간 prefix 제거
+                                _cleaned = _date_prefix_re.sub('', _ln).strip()
+                                if not _cleaned:
+                                    continue
+                                _entry = (_stage_name, _cleaned)
+                                if _entry not in _special_entries:
+                                    _special_entries.append(_entry)
+                        if _special_entries:
+                            _special_block = ['', '[특이사항]']
+                            for _stg, _cln in _special_entries[:5]:
+                                _prefix = f'{_stg} ' if _stg else ''
+                                _special_block.append(f'{_prefix}{_cln}')
+                            _special_text = '\n'.join(_special_block)
+                            # 마지막 구분선 위에 삽입
+                            _parts = text.rsplit(_SEP, 1)
+                            if len(_parts) == 2:
+                                text = _parts[0].rstrip() + '\n' + _special_text + '\n' + _SEP + _parts[1]
+                            else:
+                                text += '\n' + _special_text
                     except Exception:
                         pass
 
