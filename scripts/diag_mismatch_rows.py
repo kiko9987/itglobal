@@ -16,9 +16,12 @@ except Exception:
 
 
 TARGETS = [
-    'G0278-SH', 'G0323-YG', 'G0482-YG', 'G1019-MW',
-    'G1866-YG', 'G1897-MW', 'G1997-JW', 'G2259-YG',
-    'G2587-SJ', 'G2835-JW', 'R3589-MW', 'R3611-YM',
+    # sheet_note_mismatch (7건)
+    'G0278-SH', 'G0482-YG', 'G1019-MW', 'G1884-SH', 'G2259-YG', 'G2587-SJ', 'R3611-YM',
+    # required_missing (5건)
+    'G0323-YG', 'G1865-YG', 'G1897-MW', 'R3688-TH', 'R3692-MJ',
+    # reference_mismatch (2건)
+    'G2016-YG', 'G2224-YM',
 ]
 
 
