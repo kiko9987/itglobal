@@ -3370,7 +3370,7 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
     )
     status_element = {
         "type": "static_select", "action_id": "value",
-        "placeholder": {"type": "plain_text", "text": "처리 유형 선택"},
+        "placeholder": {"type": "plain_text", "text": "상담 유형 선택"},
         "options": [
             {"text": {"type": "plain_text", "text": label}, "value": v}
             for v, label in _CONSULT_STATUS_OPTIONS
@@ -3415,12 +3415,12 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
     status_input_block = {
         "type": "input", "block_id": "status",
         "dispatch_action": True,
-        "label": {"type": "plain_text", "text": "처리 유형"},
+        "label": {"type": "plain_text", "text": "상담 유형"},
         "element": status_element,
     }
 
     # visit_date — 방문 예약이면 필수, 아니면 옵션 (라벨도 동기화)
-    vd_label = "방문 예정일" if is_visit else "방문 예정일 (방문 예약 시 입력)"
+    vd_label = "방문 예정일 (시작)" if is_visit else "방문 예정일 (시작) (방문 예약 시 입력)"
     vd_optional = not is_visit
     vd_block = {
         "type": "input", "block_id": "visit_date", "optional": vd_optional,
@@ -3443,9 +3443,9 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
         vd_block,
         {
             "type": "input", "block_id": "visit_date_end", "optional": True,
-            "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
+            "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
             "hint": {"type": "plain_text",
-                     "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
+                     "text": "방문 일자가 범위 일 때만 입력. (예: 7/1~7/3)"},
             "element": {"type": "datepicker", "action_id": "value"},
         },
     ])
