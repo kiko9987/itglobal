@@ -3453,7 +3453,7 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
     input_blocks.extend([
         _text_input("name", "이름 / 상호"),
         _text_input("contact", "연락처", placeholder="010-1234-5678"),
-        _text_input("visit_address", "방문 주소"),
+        _text_input("visit_address", "방문 주소", multiline=True),
         _text_input("consultation", "상담 내역",
                     optional=False, multiline=True,
                     placeholder="통화 후 추가 정보, 방문 시 참고할 사항 등을 남겨주세요."),
