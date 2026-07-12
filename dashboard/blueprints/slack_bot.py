@@ -1052,9 +1052,10 @@ def _register_handlers(app):
                 'consultation': _cur("consultation"),
             }
             metadata = view.get("private_metadata", "") or ""
+            # info_blocks (인입 정보 section + divider) 유지 — Slack 이 재렌더 후
+            # section 에 block_id 자동 부여하는 경우 있어서 block_id 여부로 필터 안 함
             info_blocks = [b for b in view.get("blocks", [])
-                          if b.get("type") in ("section", "divider")
-                          and not b.get("block_id")]
+                          if b.get("type") in ("section", "divider")]
 
             new_view = _build_consult_view(info_blocks, metadata, prefilled)
             client.views_update(view_id=view["id"], view=new_view)
