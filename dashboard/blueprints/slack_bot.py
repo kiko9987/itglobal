@@ -3330,7 +3330,12 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
             "element": elem,
         }
 
-    vd_element = {"type": "datepicker", "action_id": "value"}
+    # 2026-07-12 datepicker placeholder 명시 — 로케일 렌더링 안정화
+    vd_element = {
+        "type": "datepicker",
+        "action_id": "value",
+        "placeholder": {"type": "plain_text", "text": "날짜 선택"},
+    }
     vd_initial = (prefilled.get('visit_date') or '').strip()
     if vd_initial:
         vd_element["initial_date"] = vd_initial
@@ -3374,7 +3379,11 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
                 "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
                 "hint": {"type": "plain_text",
                          "text": "방문 일자가 범위 일 때만 입력. (예: 7/1~7/3)"},
-                "element": {"type": "datepicker", "action_id": "value"},
+                "element": {
+                    "type": "datepicker",
+                    "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "날짜 선택"},
+                },
             },
         ])
 
