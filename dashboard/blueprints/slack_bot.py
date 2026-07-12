@@ -967,24 +967,8 @@ def _register_handlers(app):
         threading.Thread(target=_bg, daemon=True).start()
 
     # ⓓ /방문 슬래시 명령 — 거래처/기타 방문 직접 등록
-    @app.command("/방문")
-    def handle_visit_command(ack, command, client):
-        ack()
-        trigger_id = command.get("trigger_id", "")
-        channel = command.get("channel_id", "")
-        user_id = command.get("user_id", "")
-        if not trigger_id:
-            return
-        # /방문은 lead_no 없이 통합 모달 호출 (거래처/기타 신규 등록용)
-        fake_body = {
-            "trigger_id": trigger_id,
-            "user": {"id": user_id},
-            "channel_id": channel,
-        }
-        try:
-            _open_consult_modal(client, fake_body, from_slash=True)
-        except Exception as exc:
-            logger.error(f"[SLACK] /방문 실패: {exc}", exc_info=True)
+    # 2026-07-12 /방문 슬래시 명령어 제거 — 사용 안 함.
+    #   상담 모달은 리드 카드 [상담하기] 버튼으로만 진입.
 
     # ⓒ 통합 상담 모달 제출
     @app.view("submit_consult")
