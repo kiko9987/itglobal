@@ -3184,27 +3184,10 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         "original_text": original_text,
     }, ensure_ascii=False)
 
-    # placeholder 모달 (3초 trigger_id 제약 회피)
-    placeholder = {
-        "type": "modal",
-        "callback_id": "submit_consult",
-        "title": {"type": "plain_text", "text": "상담 처리"},
-        "close": {"type": "plain_text", "text": "취소"},
-        "private_metadata": metadata,
-        "blocks": [{
-            "type": "section",
-            "text": {"type": "mrkdwn",
-                     "text": ":hourglass_flowing_sand: 모달 준비 중..."},
-        }],
-    }
-    try:
-        resp = client.views_open(trigger_id=trigger_id, view=placeholder)
-        view_id = resp["view"]["id"]
-    except Exception as exc:
-        logger.error(f"[SLACK/상담] placeholder 실패: {exc}", exc_info=True)
-        return
-
-    # lead_no 있으면 시트 조회 (인입 케이스 prefill)
+    # 2026-07-12 mobile 대응 — placeholder + views_update 조합이 슬랙 mobile 앱
+    #   에서 반영 안 되는 이슈. 처음부터 full view 로 views_open. Lead 조회는 캐시
+    #   사용 (force_refresh=False) 로 빠르게. trigger_id 3초 유효 시간 안에 완료.
+    # lead_no 있으면 시트 조회 (인입 케이스 prefill) — 캐시 우선
     lead = _find_lead_by_no(lead_no) if lead_no else None
 
     # 자동 매칭 — lead_no 못 찾으면 슬랙 카드 메시지에서 이메일/연락처 파싱 후 매칭
@@ -3218,9 +3201,9 @@ def _open_consult_modal(client, body, from_slash: bool = False):
             phone_m = re.search(r'\b(0\d{1,2}[- ]?\d{3,4}[- ]?\d{4})\b', card_text)
             email = email_m.group(0).strip().lower() if email_m else ''
             phone_digits = re.sub(r'\D', '', phone_m.group(1)) if phone_m else ''
-            # 시트에서 매칭
+            # 시트에서 매칭 — 캐시 사용 (mobile 대응 위해 force_refresh 제거)
             from dashboard.services.lead_service import load_leads_data
-            df = load_leads_data(force_refresh=True)  # 시트 정리 직후 stale 방지
+            df = load_leads_data()
             if df is not None and not df.empty:
                 if email:
                     em_norm = df['이메일'].astype(str).str.strip().str.lower()
@@ -3300,10 +3283,32 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         'consultation': '',
     }
     full_view = _build_consult_view(info_blocks, metadata, prefilled)
+    # 2026-07-12 mobile 대응 — placeholder + update 조합이 mobile 에서 안 반영되던
+    #   이슈 fix. 처음부터 full view 로 views_open. 실패 시 placeholder + update
+    #   폴백 (자동 매칭 시간이 길어져서 trigger_id 만료된 경우 등).
     try:
-        client.views_update(view_id=view_id, view=full_view)
+        client.views_open(trigger_id=trigger_id, view=full_view)
     except Exception as exc:
-        logger.error(f"[SLACK/상담] views_update 실패: {exc}", exc_info=True)
+        # 폴백: placeholder + views_update (trigger_id 만료 or 기타 이유)
+        logger.warning(f"[SLACK/상담] full view 직접 open 실패, placeholder 폴백: {exc}")
+        placeholder = {
+            "type": "modal",
+            "callback_id": "submit_consult",
+            "title": {"type": "plain_text", "text": "상담 처리"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "private_metadata": metadata,
+            "blocks": [{
+                "type": "section",
+                "text": {"type": "mrkdwn",
+                         "text": ":hourglass_flowing_sand: 모달 준비 중..."},
+            }],
+        }
+        try:
+            resp = client.views_open(trigger_id=trigger_id, view=placeholder)
+            view_id = resp["view"]["id"]
+            client.views_update(view_id=view_id, view=full_view)
+        except Exception as exc2:
+            logger.error(f"[SLACK/상담] 폴백 실패: {exc2}", exc_info=True)
 
 
 def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
