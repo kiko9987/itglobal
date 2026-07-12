@@ -3381,10 +3381,12 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
         status_element["initial_option"] = initial_status
 
     def _text_input(block_id, label, optional=True, multiline=False, placeholder=None):
-        # 방문 예약 시 name/contact/visit_address 도 필수 처리 + 라벨에 (옵션) 제거
+        # 방문 예약 시 name/contact/visit_address 도 필수 처리.
+        # 옵션 표시는 슬랙이 optional=True 시 라벨 옆에 회색 '(옵션)' 자동 추가 →
+        # 라벨 문자열에 별도 표기하지 않음 (중복 방지).
         force_required = is_visit and block_id in ('name', 'contact', 'visit_address')
         effective_optional = optional and not force_required
-        label_text = label if not effective_optional else f"{label} (옵션)"
+        label_text = label
         elem = {"type": "plain_text_input", "action_id": "value"}
         if multiline:
             elem["multiline"] = True
