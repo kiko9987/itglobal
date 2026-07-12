@@ -321,9 +321,9 @@ def _register_visit_handlers(app):
                         },
                         {
                             "type": "input", "block_id": "visit_date_end", "optional": True,
-                            "label": {"type": "plain_text", "text": "방문 종료일 (범위 시 입력)"},
+                            "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
                             "hint": {"type": "plain_text",
-                                     "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
+                                     "text": "방문 일자가 범위 일 때만 입력. (예: 7/1~7/3)"},
                             "element": dp_end,
                         },
                     ],
