@@ -3211,32 +3211,26 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         'consultation': '',
     }
     full_view = _build_consult_view(info_blocks, metadata, prefilled)
-    # 2026-07-12 mobile 대응 — placeholder + update 조합이 mobile 에서 안 반영되던
-    #   이슈 fix. 처음부터 full view 로 views_open. 실패 시 placeholder + update
-    #   폴백 (자동 매칭 시간이 길어져서 trigger_id 만료된 경우 등).
+    # 2026-07-12 datepicker 표시 원인 확인 위한 임시 revert — 이전 placeholder +
+    #   views_update 방식으로 되돌림. mobile 표시 vs datepicker 로케일 트레이드오프.
+    placeholder = {
+        "type": "modal",
+        "callback_id": "submit_consult",
+        "title": {"type": "plain_text", "text": "상담 처리"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "private_metadata": metadata,
+        "blocks": [{
+            "type": "section",
+            "text": {"type": "mrkdwn",
+                     "text": ":hourglass_flowing_sand: 모달 준비 중..."},
+        }],
+    }
     try:
-        client.views_open(trigger_id=trigger_id, view=full_view)
+        resp = client.views_open(trigger_id=trigger_id, view=placeholder)
+        view_id = resp["view"]["id"]
+        client.views_update(view_id=view_id, view=full_view)
     except Exception as exc:
-        # 폴백: placeholder + views_update (trigger_id 만료 or 기타 이유)
-        logger.warning(f"[SLACK/상담] full view 직접 open 실패, placeholder 폴백: {exc}")
-        placeholder = {
-            "type": "modal",
-            "callback_id": "submit_consult",
-            "title": {"type": "plain_text", "text": "상담 처리"},
-            "close": {"type": "plain_text", "text": "취소"},
-            "private_metadata": metadata,
-            "blocks": [{
-                "type": "section",
-                "text": {"type": "mrkdwn",
-                         "text": ":hourglass_flowing_sand: 모달 준비 중..."},
-            }],
-        }
-        try:
-            resp = client.views_open(trigger_id=trigger_id, view=placeholder)
-            view_id = resp["view"]["id"]
-            client.views_update(view_id=view_id, view=full_view)
-        except Exception as exc2:
-            logger.error(f"[SLACK/상담] 폴백 실패: {exc2}", exc_info=True)
+        logger.error(f"[SLACK/상담] 모달 open 실패: {exc}", exc_info=True)
 
 
 def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
