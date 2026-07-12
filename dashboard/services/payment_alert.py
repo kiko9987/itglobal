@@ -158,30 +158,29 @@ def detect_complete_untick(row: Dict, payments: List[Dict]) -> Optional[Dict]:
 def detect_unpaid_invalid(row: Dict) -> Optional[Dict]:
     """카테고리 6: 미수금 이상 케이스.
 
-    시트 X 열 정의: X = (U+V+W) - T
-      - X < 0 : 정상 미납 (총액 대비 입금 부족) — 감지 대상 아님
+    시트 X 열 정의 (2026-07-12 매니저 수식 반영): X = T - (U+V+W)
+      - X > 0 : 정상 미납 (총액 대비 입금 부족) — 진행 중, 감지 대상 아님
       - X == 0 : 완납
-      - X > 0 : 초과 입금 — 매니저 실수 or 정정 필요
+      - X < 0 : 초과 입금 — 매니저 실수 or 정정 필요
 
     감지 케이스:
       1) AA=True 인데 unpaid != 0 : 수금완료 체크했는데 미납/초과 있음
-      2) AA=False 인데 unpaid > 0 : 초과 입금 상태로 방치됨 (완료 처리 필요)
+      2) AA=False 인데 unpaid < 0 : 초과 입금 상태로 방치됨 (완료 처리 필요)
     """
     unpaid = row.get('unpaid', 0)
     if row.get('aa', False):
         if unpaid != 0:
             # 반올림 오차 (|unpaid| < 100원) 는 무시 — 매니저 확인 반영 (2026-07-10)
-            #   1원, 몇십원 단위는 카드 수수료 계산 등에서 자연 발생
             if abs(unpaid) < 100:
                 return None
-            direction = '더 받아야' if unpaid < 0 else '초과 입금'
+            direction = '더 받아야' if unpaid > 0 else '초과 입금'
             return {
                 'body': f"수금완료 체크됐는데 {abs(unpaid):,}원 {direction} 상태예요. 확인해주세요.",
             }
         return None
-    # AA=False: 초과 입금 방치 케이스만
-    if unpaid > 0:
-        return {'body': f"입금액이 총액보다 {unpaid:,}원 초과했어요. 확인해주세요."}
+    # AA=False: 초과 입금 방치 케이스만 (unpaid < 0 = 실입금 > 총액)
+    if unpaid < 0:
+        return {'body': f"입금액이 총액보다 {abs(unpaid):,}원 초과했어요. 확인해주세요."}
     return None
 
 
