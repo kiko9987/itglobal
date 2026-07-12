@@ -2177,7 +2177,7 @@ def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
             {
                 "type": "input", "block_id": "company_name",
                 "optional": True,
-                "label": {"type": "plain_text", "text": "사업자명 (고객사) — 선택, 1글자 입력시 검색"},
+                "label": {"type": "plain_text", "text": "사업자명 (고객사)"},
                 "element": {
                     "type": "external_select",
                     "action_id": "value",
@@ -2198,12 +2198,12 @@ def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
             },
             {
                 "type": "input", "block_id": "customer", "optional": True,
-                "label": {"type": "plain_text", "text": "발주처 담당자 (선택)"},
+                "label": {"type": "plain_text", "text": "발주처 담당자"},
                 "element": {"type": "plain_text_input", "action_id": "value"},
             },
             {
                 "type": "input", "block_id": "contact", "optional": True,
-                "label": {"type": "plain_text", "text": "발주처 연락처 (선택)"},
+                "label": {"type": "plain_text", "text": "발주처 연락처"},
                 "element": {
                     "type": "plain_text_input", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "예: 010-1234-5678"},
@@ -4682,7 +4682,7 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
             },
             {
                 "type": "input", "block_id": "name",
-                "label": {"type": "plain_text", "text": "고객명 / 상호 (선택)"},
+                "label": {"type": "plain_text", "text": "고객명 / 상호"},
                 "element": {"type": "plain_text_input", "action_id": "value"},
                 "optional": True,
             },
@@ -4696,13 +4696,13 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
             },
             {
                 "type": "input", "block_id": "email",
-                "label": {"type": "plain_text", "text": "이메일 (선택)"},
+                "label": {"type": "plain_text", "text": "이메일"},
                 "element": {"type": "plain_text_input", "action_id": "value"},
                 "optional": True,
             },
             {
                 "type": "input", "block_id": "address",
-                "label": {"type": "plain_text", "text": "방문 주소 (선택)"},
+                "label": {"type": "plain_text", "text": "방문 주소"},
                 "element": {
                     "type": "plain_text_input", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "예: 강남구 테헤란로 152"},
@@ -4711,7 +4711,7 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
             },
             {
                 "type": "input", "block_id": "device",
-                "label": {"type": "plain_text", "text": "설치 희망 기기 (선택, 멀티)"},
+                "label": {"type": "plain_text", "text": "설치 희망 기기 (멀티)"},
                 "element": {
                     "type": "multi_static_select", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "기기 선택"},
@@ -4724,7 +4724,7 @@ def _open_phone_modal(client, trigger_id: str, channel: str, user_id: str):
             },
             {
                 "type": "input", "block_id": "inquiry",
-                "label": {"type": "plain_text", "text": "상담 내용 (선택)"},
+                "label": {"type": "plain_text", "text": "상담 내용"},
                 "element": {
                     "type": "plain_text_input", "action_id": "value",
                     "multiline": True,
