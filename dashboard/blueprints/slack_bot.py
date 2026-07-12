@@ -1048,6 +1048,7 @@ def _register_handlers(app):
                 'visit_date_end': _cur("visit_date_end"),
                 'name': _cur("name"),
                 'contact': _cur("contact"),
+                'email': _cur("email"),
                 'visit_address': _cur("visit_address"),
                 'consultation': _cur("consultation"),
             }
@@ -3279,6 +3280,7 @@ def _open_consult_modal(client, body, from_slash: bool = False):
             or (channeltalk_info.get('user_name', '') if channeltalk_info else '')
         ),
         'contact': (str(lead.get('고객 연락처') or '').strip() if lead else ''),
+        'email': (str(lead.get('이메일') or '').strip() if lead else ''),
         'visit_address': (str(lead.get('방문 주소') or '').strip() if lead else ''),
         # 옛 상담 내용은 카드에 이미 표시 — 모달은 통화 후 추가 메모만 받음 (피드백 컬럼에 저장)
         'consultation': '',
@@ -3452,6 +3454,7 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
     input_blocks.extend([
         _text_input("name", "이름 / 상호"),
         _text_input("contact", "연락처", placeholder="010-1234-5678"),
+        _text_input("email", "이메일", placeholder="example@domain.com"),
         _text_input("visit_address", "방문 주소", multiline=True),
         _text_input("consultation", "상담 내역",
                     optional=False, multiline=True,
@@ -3531,6 +3534,7 @@ def _process_consult_submission(client, body, view):
     visit_date_raw = visit_date_display
     name = (_v(state, "name") or '').strip()
     contact = (_v(state, "contact") or '').strip()
+    email = (_v(state, "email") or '').strip()
     visit_address = (_v(state, "visit_address") or '').strip()
     consultation = (_v(state, "consultation") or '').strip()
 
@@ -3555,6 +3559,8 @@ def _process_consult_submission(client, body, view):
             if contact:
                 from dashboard.services.lead_helpers import normalize_phone
                 update_data['고객 연락처'] = normalize_phone(contact) or contact
+            if email:
+                update_data['이메일'] = email
             if visit_address:
                 update_data['방문 주소'] = visit_address
             if consultation:
@@ -3599,7 +3605,7 @@ def _process_consult_submission(client, body, view):
                 '플랫폼': category,
                 '고객명': name or '-',
                 '고객 연락처': contact,
-                '이메일': '-',
+                '이메일': email or '-',
                 '방문 주소': visit_address or '-',
                 '상담 내용': consultation or '-',
                 '키워드': '-',
@@ -3632,7 +3638,7 @@ def _process_consult_submission(client, body, view):
                 '상태': sheet_status,
                 '방문 예정일': visit_date_for_sheet or '-',
                 '고객 연락처': normalize_phone(contact) or contact or '-',
-                '이메일': '-',
+                '이메일': email or '-',
                 '고객명': name or '-',
                 '방문 주소': visit_address or '-',
                 '문의 내용': '',                 # 슬래시 신규 등록 — 인입 원본 없음
