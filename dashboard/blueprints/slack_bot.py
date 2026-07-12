@@ -1127,27 +1127,8 @@ def _register_handlers(app):
         import threading
         threading.Thread(target=_bg, daemon=True).start()
 
-    @app.command("/전화")
-    def handle_phone_command(ack, command, client):
-        ack()
-        text = command.get("text", "").strip().lower()
-        trigger_id = command.get("trigger_id", "")
-        channel = command.get("channel_id", "")
-        user_id = command.get("user_id", "")
-
-        # 인자 분기
-        if text in ("안내", "setup", "help"):
-            # 채널에 안내 메시지 + [+ 전화 문의 등록] 버튼 발송 (관리자가 핀 고정용)
-            _post_phone_setup_message(client, channel)
-            return
-
-        # 기본: 모달 열기
-        if not trigger_id:
-            return
-        try:
-            _open_phone_modal(client, trigger_id, channel, user_id)
-        except Exception as exc:
-            logger.error(f"[SLACK] /전화 모달 실패: {exc}", exc_info=True)
+    # 2026-07-12 /전화 슬래시 명령어 제거 — 사용 안 함.
+    #   전화 문의 등록은 [+ 전화 문의 등록] 버튼 또는 App Shortcut 으로만 진입.
 
     # ⑪ [+ 전화 문의 등록] 버튼 (채널 고정 메시지의 버튼)
     @app.action("button_phone")
