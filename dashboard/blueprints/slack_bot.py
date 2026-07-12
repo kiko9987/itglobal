@@ -3245,6 +3245,7 @@ def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
         parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
         name = str(lead.get('고객명') or '').strip() or '-'
         phone = str(lead.get('고객 연락처') or '').strip() or '-'
+        email = str(lead.get('이메일') or '').strip() or '-'
         consult_time = str(lead.get('상담 시간') or '').strip() or '-'
         inquiry = parts.get('inquiry') or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
         return [
@@ -3253,6 +3254,7 @@ def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
                 f"*문의시간:* {consult_time}\n"
                 f"*이름 / 상호:* {name}\n"
                 f"*연락처:* {phone}\n"
+                f"*이메일:* {email}\n"
                 f"*상세 문의:* {inquiry[:300]}"
             )}},
             {"type": "divider"},
