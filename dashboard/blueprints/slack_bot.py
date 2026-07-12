@@ -3419,17 +3419,12 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
         "element": status_element,
     }
 
-    # visit_date — 방문 예약이면 필수, 아니면 옵션 (라벨도 동기화)
-    vd_label = "방문 예정일 (시작)" if is_visit else "방문 예정일 (시작) (방문 예약 시 입력)"
-    vd_optional = not is_visit
+    # visit_date — 방문 예약일 때만 표시 (상담 유형 바꾸면 dispatch_action 으로 재렌더링)
     vd_block = {
-        "type": "input", "block_id": "visit_date", "optional": vd_optional,
-        "label": {"type": "plain_text", "text": vd_label},
+        "type": "input", "block_id": "visit_date",
+        "label": {"type": "plain_text", "text": "방문 예정일 (시작)"},
         "element": vd_element,
     }
-    if not is_visit:
-        vd_block["hint"] = {"type": "plain_text",
-                            "text": "처리 유형이 '방문 예약'이 아니면 무시됩니다."}
 
     input_blocks = []
     if not is_lead_card:
@@ -3438,17 +3433,18 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
             "label": {"type": "plain_text", "text": "방문 유형"},
             "element": visit_type_element,
         })
-    input_blocks.extend([
-        status_input_block,
-        vd_block,
-        {
-            "type": "input", "block_id": "visit_date_end", "optional": True,
-            "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
-            "hint": {"type": "plain_text",
-                     "text": "방문 일자가 범위 일 때만 입력. (예: 7/1~7/3)"},
-            "element": {"type": "datepicker", "action_id": "value"},
-        },
-    ])
+    input_blocks.append(status_input_block)
+    if is_visit:
+        input_blocks.extend([
+            vd_block,
+            {
+                "type": "input", "block_id": "visit_date_end", "optional": True,
+                "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
+                "hint": {"type": "plain_text",
+                         "text": "방문 일자가 범위 일 때만 입력. (예: 7/1~7/3)"},
+                "element": {"type": "datepicker", "action_id": "value"},
+            },
+        ])
 
     input_blocks.extend([
         _text_input("name", "이름 / 상호"),
