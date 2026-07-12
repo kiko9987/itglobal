@@ -54,6 +54,7 @@ def main() -> int:
         _get_payment_service, _fetch_row_notes, _parse_notes,
         _build_complete_message, _build_stage_message,
         _build_stage_with_history_message,
+        _TRANSFER_RE,
     )
     from slack_sdk import WebClient
 
@@ -135,13 +136,8 @@ def main() -> int:
     for p in payments:
         print(f'  {p.get("stage")} amt={p.get("amount"):,} date={p.get("date_md")} partner={p.get("partner")}')
 
-    stage_payments = [p for p in payments if p.get('stage') == card_stage]
-    if not stage_payments:
-        print(f'[!] {card_stage} payment 없음')
-        return 1
-    last_payment = stage_payments[-1]
-
     if card_stage == '잔금' and info['unpaid'] == 0:
+        # 수금완료 카드 — 전체 history 취합, stage 필터 불필요
         text = _build_complete_message(
             project=target_code, address=info['address'],
             payments=payments, invoice_value=info['invoice'],
@@ -149,25 +145,31 @@ def main() -> int:
             stage_sheet_vals=stage_vals,
             construction=info['construction'],
         )
-    elif card_stage in ('중도금', '잔금'):
-        text = _build_stage_with_history_message(
-            stage=card_stage, project=target_code, address=info['address'],
-            last_payment=last_payment, all_payments=payments,
-            invoice_value=info['invoice'],
-            total_r=info['total_r'], total_t=info['total_t'],
-            unpaid=info['unpaid'],
-            stage_sheet_vals=stage_vals,
-            construction=info['construction'],
-        )
     else:
-        text = _build_stage_message(
-            stage=card_stage, project=target_code, address=info['address'],
-            payment=last_payment, invoice_value=info['invoice'],
-            total_r=info['total_r'], total_t=info['total_t'],
-            unpaid=info['unpaid'],
-            stage_sheet_val=stage_vals.get(card_stage, 0),
-            construction=info['construction'],
-        )
+        stage_payments = [p for p in payments if p.get('stage') == card_stage]
+        if not stage_payments:
+            print(f'[!] {card_stage} payment 없음')
+            return 1
+        last_payment = stage_payments[-1]
+        if card_stage in ('중도금', '잔금'):
+            text = _build_stage_with_history_message(
+                stage=card_stage, project=target_code, address=info['address'],
+                last_payment=last_payment, all_payments=payments,
+                invoice_value=info['invoice'],
+                total_r=info['total_r'], total_t=info['total_t'],
+                unpaid=info['unpaid'],
+                stage_sheet_vals=stage_vals,
+                construction=info['construction'],
+            )
+        else:
+            text = _build_stage_message(
+                stage=card_stage, project=target_code, address=info['address'],
+                payment=last_payment, invoice_value=info['invoice'],
+                total_r=info['total_r'], total_t=info['total_t'],
+                unpaid=info['unpaid'],
+                stage_sheet_val=stage_vals.get(card_stage, 0),
+                construction=info['construction'],
+            )
 
     # 특이사항 append
     _SEP = '--------------------------------------------'
@@ -176,7 +178,8 @@ def main() -> int:
         r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*'
         r'(?:\d{1,2}:\d{2}\s*)?'
     )
-    _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분)')
+    _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분|상계|매입)')
+    _transfer_md_re = re.compile(r'^\d{4}-(\d{1,2})-(\d{1,2})')
     _special_entries = []
     for _idx, _note in enumerate(notes):
         if not _note:
@@ -186,9 +189,16 @@ def main() -> int:
             _ln = _ln.strip()
             if not _ln or _ln.startswith('입금 '):
                 continue
-            if not _special_re.search(_ln):
+            _tr = _TRANSFER_RE.search(_ln)
+            if _tr:
+                _md_m = _transfer_md_re.match(_ln)
+                _md = f'{int(_md_m.group(1)):02d}/{int(_md_m.group(2)):02d}' if _md_m else ''
+                _a, _b = _tr.group(1).upper(), _tr.group(2).upper()
+                _cleaned = f'{_md} {_a}>{_b} 매출이동'.strip()
+            elif _special_re.search(_ln):
+                _cleaned = _date_prefix_re.sub('', _ln).strip()
+            else:
                 continue
-            _cleaned = _date_prefix_re.sub('', _ln).strip()
             if not _cleaned:
                 continue
             _entry = (_stage_name, _cleaned)

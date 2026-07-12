@@ -445,6 +445,11 @@ def _parse_notes(notes: List[str],
         block_count = len(blocks)
         any_parsed = False
         for bidx, block in enumerate(blocks):
+            # 매출이동/계좌이체 블록 skip (2026-07-12 G2965-TH 관측)
+            #   "2025-12-05 G>N \n 농협 입금2,450,000원..." 은 앞 블록 입금액을
+            #   G(기업)→N(농협) 계좌로 옮긴 것. 새 입금 아님. 파싱 결과에서 제외.
+            if _TRANSFER_RE.search(block):
+                continue
             # 블록 하나뿐이고 옛 양식이면 fallback amount 적용
             fb = stage_val if block_count == 1 else 0
             parsed = _parse_memo_block(block, fallback_amount=fb)
@@ -1583,13 +1588,17 @@ def sync_payments() -> Dict:
                     #   않는 이유를 서술한 것. `[입금 이력]` 블록 아래, 마지막 구분선 위에
                     #   `[특이사항]` 섹션으로 표시해서 매니저가 이력 합·시트 총액 차이 이유를
                     #   즉시 파악하도록. 앞의 날짜/시간 부분은 제거하고 stage 접두어 추가.
+                    #   2026-07-12 확장 — 매출이동/계좌이체 라인 ("YYYY-MM-DD G>N") 도
+                    #   특이사항으로 표시. 파서는 이체 블록을 skip 하지만 매니저 카드에는
+                    #   회계 이력으로 남아야 함 (G2965-TH 관측).
                     try:
                         _stage_by_idx = ('계약금', '중도금', '잔금')
                         _date_prefix_re = re.compile(
                             r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*'
                             r'(?:\d{1,2}:\d{2}\s*)?'
                         )
-                        _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분)')
+                        _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분|상계|매입)')
+                        _transfer_md_re = re.compile(r'^\d{4}-(\d{1,2})-(\d{1,2})')
                         _special_entries = []  # [(stage, cleaned_line)]
                         for _idx, _note in enumerate(notes):
                             if not _note:
@@ -1599,10 +1608,17 @@ def sync_payments() -> Dict:
                                 _ln = _ln.strip()
                                 if not _ln or _ln.startswith('입금 '):
                                     continue
-                                if not _special_re.search(_ln):
+                                _tr = _TRANSFER_RE.search(_ln)
+                                if _tr:
+                                    _md_m = _transfer_md_re.match(_ln)
+                                    _md = f'{int(_md_m.group(1)):02d}/{int(_md_m.group(2)):02d}' if _md_m else ''
+                                    _a, _b = _tr.group(1).upper(), _tr.group(2).upper()
+                                    _cleaned = f'{_md} {_a}>{_b} 매출이동'.strip()
+                                elif _special_re.search(_ln):
+                                    # 날짜/시간 prefix 제거
+                                    _cleaned = _date_prefix_re.sub('', _ln).strip()
+                                else:
                                     continue
-                                # 날짜/시간 prefix 제거
-                                _cleaned = _date_prefix_re.sub('', _ln).strip()
                                 if not _cleaned:
                                     continue
                                 _entry = (_stage_name, _cleaned)
