@@ -65,7 +65,8 @@ CATEGORY_META = {
 def detect_note_missing(row: Dict, payments: List[Dict]) -> Optional[Dict]:
     """카테고리 1: U/V/W 값 있는데 메모 파싱 결과가 fallback (partner=`-` date=`-`).
 
-    AA(수금완료) 체크된 옛 프로젝트는 skip — 이미 완료된 건은 매니저가 손댈 필요 없음.
+    AA(수금완료) 옛 프로젝트는 Daily 알림에서 skip — 별도 관리자 감사 페이지에서
+    확인 (매니저 부담 방지, 2026-07-12).
     """
     if row.get('aa', False):
         return None
