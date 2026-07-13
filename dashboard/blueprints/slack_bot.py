@@ -1468,16 +1468,17 @@ def _as_status_emoji(status: str) -> str:
     return '🔔'
 
 
-def _build_as_card_text(data: dict, view_state: str = 'requested') -> str:
+def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optional[dict] = None) -> str:
     """A/S 카드 본문 텍스트. view_state: requested / accepted / completed.
 
     공사 확정 카드와 동등한 정보량으로 렌더 — 유입 구분·발주처 담당자/연락처/이메일·
     도급 구분·시공자·공사 금액·공사 시작 추가.
+
+    proj: 프로젝트 상세 (호출자가 미리 조회 후 전달 가능 — 중복 API 호출 방지).
     """
-    # 프로젝트 상세 조회 (부족한 필드 채움 — 시트엔 없어도 카드엔 표시).
-    proj = None
+    # 프로젝트 상세 조회 (호출자가 전달 안 했으면 여기서 조회)
     code = str(data.get('프로젝트 코드', '') or '').strip()
-    if code and code != '-':
+    if proj is None and code and code != '-':
         try:
             from dashboard.services.as_service import get_project_details
             proj = get_project_details(code) or {}
@@ -1536,12 +1537,25 @@ def _build_as_card_text(data: dict, view_state: str = 'requested') -> str:
 
 
 def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
-    text = _build_as_card_text(data, view_state=view_state)
+    # 프로젝트 상세 한 번만 조회 (card text + button value 양쪽에서 재사용)
+    proj = None
+    code = str(data.get('프로젝트 코드', '') or '').strip()
+    if code and code != '-':
+        try:
+            from dashboard.services.as_service import get_project_details
+            proj = get_project_details(code) or {}
+        except Exception:
+            proj = None
+    text = _build_as_card_text(data, view_state=view_state, proj=proj)
     # section 하단 구분선(-----)과 버튼 사이 여백 제거 (2026-07-09 UX).
     blocks: list = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
     ]
     as_no = data.get('No', '')
+    # button value 에 시공자 이름 함께 저장 — 모달 오픈 시 시트 API 재조회 skip
+    # → trigger_id 3초 만료 방지 (2026-07-13 사용자 관측: 모달 늦게 열림).
+    contractor = (proj.get('contractor', '') or '').strip() if proj else ''
+    accept_value = json.dumps({'as_no': as_no, 'contractor': contractor}, ensure_ascii=False)
     if view_state == 'requested':
         blocks.append({
             "type": "actions",
@@ -1550,7 +1564,7 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
                 "text": {"type": "plain_text", "text": "🛠️ A/S 접수하기", "emoji": True},
                 "style": "primary",
                 "action_id": "as_accept_open",
-                "value": as_no,
+                "value": accept_value,
             }],
         })
     elif view_state == 'accepted':
@@ -1766,7 +1780,17 @@ def _open_as_accept_modal(client, body) -> None:
     담당자 이름으로 변경.
     """
     trigger_id = body["trigger_id"]
-    as_no = (body["actions"][0].get("value") or '').strip()
+    # button value 는 JSON `{as_no, contractor}` 또는 fallback 로 as_no 문자열 (구 카드)
+    raw_val = (body["actions"][0].get("value") or '').strip()
+    as_no, contractor = '', ''
+    try:
+        payload = json.loads(raw_val) if raw_val.startswith('{') else {}
+        as_no = (payload.get('as_no', '') or '').strip()
+        contractor = (payload.get('contractor', '') or '').strip()
+    except Exception:
+        pass
+    if not as_no:
+        as_no = raw_val  # 구 카드 fallback
     channel = body.get("channel", {}).get("id", "")
     message_ts = body.get("message", {}).get("ts", "")
 
@@ -1774,19 +1798,20 @@ def _open_as_accept_modal(client, body) -> None:
         "as_no": as_no, "channel": channel, "message_ts": message_ts,
     }, ensure_ascii=False)
 
-    # 시공자 이름 pre-fill (외주 케이스용)
-    contractor = ''
-    try:
-        from dashboard.services.as_service import get_as_data, get_project_details
-        as_data = get_as_data(as_no) or {}
-        code = (as_data.get('프로젝트 코드', '') or '').strip()
-        if code and code != '-':
-            proj = get_project_details(code) or {}
-            _c = (proj.get('contractor', '') or '').strip()
-            if _c and _c != '-':
-                contractor = _c
-    except Exception as exc:
-        logger.warning(f'[SLACK/AS] 시공자 pre-fill 조회 실패 (무시): {exc}')
+    # 구 카드로부터 열린 경우 contractor 가 payload 에 없음 → 시트 fallback 조회
+    # (trigger_id 3초 만료 위험 있으나 구 카드에만 해당)
+    if not contractor:
+        try:
+            from dashboard.services.as_service import get_as_data, get_project_details
+            as_data = get_as_data(as_no) or {}
+            code = (as_data.get('프로젝트 코드', '') or '').strip()
+            if code and code != '-':
+                proj = get_project_details(code) or {}
+                _c = (proj.get('contractor', '') or '').strip()
+                if _c and _c != '-':
+                    contractor = _c
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] 시공자 pre-fill 조회 실패 (무시): {exc}')
 
     visitor_type_options = [
         {"text": {"type": "plain_text", "text": "서비스 기사"}, "value": "서비스 기사"},
