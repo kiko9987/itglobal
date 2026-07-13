@@ -1460,6 +1460,10 @@ export default class ModernProjectModal {
         const projectData = result.project_data;
 
         this.hideProgressBanner();
+        // hide.bs.modal 이벤트 preventDefault 방지를 위해 먼저 flag 내림.
+        // 재클릭 방지는 submitBtn.disabled + '등록 완료' 표시로 이미 커버됨.
+        // (2026-07-13 사용자 관측: 등록 성공 후 모달이 자동으로 안 닫히고 X 버튼 필요)
+        this._submitInProgress = false;
         this.modal.hide();
 
         // 백그라운드 동기화 — await 하지 않음
