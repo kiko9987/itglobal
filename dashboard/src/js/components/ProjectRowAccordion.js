@@ -6171,45 +6171,37 @@ export default class ProjectRowAccordion {
       this.currentProject['프로젝트 코드'] = this.originalProjectCode;
     }
 
-    // 문서 폴더 editing 클래스 제거
+    // 문서 폴더 editing 클래스 제거 + input → read-only view 복원
+    // 2026-07-13 관측: 저장(skipDataRestore=true) 후에도 input 이 남아있어
+    // 편집 가능 상태로 보임. CARD_TYPES 에 'document' 가 없어
+    // updateAllCardsWithProjectData 가 이 카드를 스킵하기 때문. 여기서 직접 재렌더.
     const documentCard = this.accordionContainer.querySelector('.document-card');
     if (documentCard && documentCard.classList.contains('editing')) {
-
-      // 취소 시에만 원래 값으로 복원 (저장 시에는 updateAllCardsWithProjectData가 처리)
-      if (!skipDataRestore) {
-        const editableField = documentCard.querySelector('.editable-value');
-        if (editableField) {
-          const input = editableField.querySelector('input, textarea');
-          if (input) {
-            const originalValue = editableField.dataset.originalValue || '';
-            const projectCode = this.currentProject?.['프로젝트 코드'] || '';
-            editableField.innerHTML = this.renderFolderLink(originalValue, projectCode);
-          }
-        }
+      const editableField = documentCard.querySelector('.editable-value');
+      if (editableField) {
+        const projectCode = this.currentProject?.['프로젝트 코드'] || '';
+        // skipDataRestore: 서버 최신값(this.currentProject) 사용 / else: 원본 복원
+        const displayValue = skipDataRestore
+          ? (this.currentProject?.['견적서 및 계약서 폴더 경로'] || '').trim()
+          : (editableField.dataset.originalValue || '');
+        editableField.innerHTML = this.renderFolderLink(displayValue, projectCode);
+        editableField.dataset.originalValue = displayValue;
       }
-
       documentCard.classList.remove('editing');
-
     }
 
-    // 수금 특이사항 editing 클래스 제거
+    // 수금 특이사항 editing 클래스 제거 + textarea → read-only view 복원
     const collectionCard = this.accordionContainer.querySelector('.collection-card');
     if (collectionCard && collectionCard.classList.contains('editing')) {
-
-      // 취소 시에만 원래 값으로 복원 (저장 시에는 updateAllCardsWithProjectData가 처리)
-      if (!skipDataRestore) {
-        const editableField = collectionCard.querySelector('.editable-value');
-        if (editableField) {
-          const input = editableField.querySelector('input, textarea');
-          if (input) {
-            const originalValue = editableField.dataset.originalValue || '';
-            editableField.innerHTML = originalValue || '특이사항이 없습니다.';
-          }
-        }
+      const editableField = collectionCard.querySelector('.editable-value');
+      if (editableField) {
+        const displayValue = skipDataRestore
+          ? (this.currentProject?.['수금 관련 특이사항'] || '').trim()
+          : (editableField.dataset.originalValue || '');
+        editableField.innerHTML = displayValue || '특이사항이 없습니다.';
+        editableField.dataset.originalValue = displayValue;
       }
-
       collectionCard.classList.remove('editing');
-
     }
 
     // 통합 버튼 상태 변경
