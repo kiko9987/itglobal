@@ -344,20 +344,56 @@ def verify_license_exists(code: str) -> bool:
     return False
 
 
-def resolve_project_from_thread(channel: str, thread_ts: str) -> Optional[str]:
-    """channel|thread_ts → 프로젝트 코드 (없으면 None)."""
+def resolve_project_from_thread(channel: str, thread_ts: str, slack_bot_token: str = '') -> Optional[str]:
+    """channel|thread_ts → 프로젝트 코드 (없으면 None).
+
+    1차: Redis 매핑 (카드 발송 시점 저장). 최근 카드만 있음.
+    2차 (fallback, 2026-07-13): Slack API 로 스레드 root 메시지 조회 후
+    텍스트에서 프로젝트 코드 정규식 추출. 오래된 카드도 매칭 가능.
+    """
     if not channel or not thread_ts:
         return None
+    # 1차: Redis
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
         v = rc.get(f'project_thread:{channel}|{thread_ts}')
         if isinstance(v, bytes):
             v = v.decode('utf-8')
-        return v or None
+        if v:
+            return v
     except Exception as exc:
-        logger.warning(f'[LICENSE] 스레드→프로젝트 조회 실패: {exc}')
+        logger.warning(f'[LICENSE] 스레드→프로젝트 Redis 조회 실패: {exc}')
+
+    # 2차 fallback: Slack API 로 root 메시지 텍스트에서 프로젝트 코드 추출
+    if not slack_bot_token:
         return None
+    try:
+        import re
+        from slack_sdk import WebClient
+        client = WebClient(token=slack_bot_token)
+        resp = client.conversations_replies(channel=channel, ts=thread_ts, limit=1)
+        msgs = resp.get('messages') or []
+        if not msgs:
+            return None
+        root_text = msgs[0].get('text', '') or ''
+        # 공사확정 카드 헤더 패턴: G1234-SH / R1234-MW / P1234-YG 등
+        # Slack fallback text 는 백틱이 벗겨진 상태로 옴 → 백틱 옵셔널.
+        m = re.search(r'`?([GRNP]\d{3,5}-[A-Z]{1,3})`?', root_text)
+        if m:
+            code = m.group(1)
+            logger.info(f'[LICENSE] 스레드→프로젝트 slack fallback 매칭: {code}')
+            # Redis 에 다시 저장 (다음 첨부에서 slack API 재조회 방지, 30일 TTL)
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                rc = get_redis_client().redis
+                rc.setex(f'project_thread:{channel}|{thread_ts}', 86400 * 30, code)
+            except Exception:
+                pass
+            return code
+    except Exception as exc:
+        logger.warning(f'[LICENSE] 스레드→프로젝트 slack fallback 실패: {exc}')
+    return None
 
 
 def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict]:
@@ -374,7 +410,7 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
     if not thread_ts:
         return None  # 스레드 답글 아님
 
-    code = resolve_project_from_thread(channel, thread_ts)
+    code = resolve_project_from_thread(channel, thread_ts, slack_bot_token)
     if not code:
         return None  # 프로젝트 카드 스레드 아님
 
@@ -384,6 +420,7 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
 
     saved = []
     skipped = []
+    ocr_content = None  # OCR 대상 (첫 번째로 성공 저장된 파일 content)
     for f in files:
         name = f.get('name') or ''
         mimetype = f.get('mimetype') or ''
@@ -403,6 +440,9 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
             res = save_business_license(code, content, name, mimetype)
             if res.get('ok'):
                 saved.append(res['file_name'])
+                # OCR 은 첫 파일만 (여러 개 첨부해도 하나만 처리 — API cost 절감)
+                if ocr_content is None:
+                    ocr_content = content
             else:
                 skipped.append(f'{name}: 저장 실패({res.get("reason")})')
         except Exception as exc:
@@ -417,4 +457,18 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
         except Exception as exc:
             logger.warning(f'[LICENSE] 원본 카드 갱신 실패 ({code}): {exc}')
 
-    return {'code': code, 'saved': saved, 'skipped': skipped, 'thread_ts': thread_ts, 'channel': channel}
+    # OCR — 첫 저장 파일에서 법인명·상호 추출 (Google Vision API, 2026-07-13).
+    # 실패 시 조용히 skip. 성공 시 handler 가 슬랙 스레드에 안내 메시지 발송.
+    business_name = ''
+    if ocr_content:
+        try:
+            from dashboard.services.business_license_ocr import ocr_business_license
+            business_name = ocr_business_license(ocr_content) or ''
+        except Exception as exc:
+            logger.warning(f'[LICENSE/OCR] 예외: {exc}')
+
+    return {
+        'code': code, 'saved': saved, 'skipped': skipped,
+        'thread_ts': thread_ts, 'channel': channel,
+        'business_name': business_name,
+    }

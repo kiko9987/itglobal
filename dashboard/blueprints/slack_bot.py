@@ -527,22 +527,63 @@ def _register_project_handlers(app):
 
     @app.view("submit_invoice")
     def handle_submit_invoice(ack, body, client, view):
-        # 사업자등록증 첨부 여부 검증 (모달 오픈 시점 대신 여기서 — trigger_id 만료 방지).
-        # 미첨부면 modal errors 로 반려해 사용자가 스레드에 첨부 후 재제출.
+        # 두 검증을 병렬로 (trigger_id 만료 방지 + slack view 3초 응답).
+        #   1) 사업자등록증 첨부 여부 (Drive API 파일 존재 확인)
+        #   2) 프로젝트 시트 S열 부가세 체크박스 채워졌는지 (2026-07-13 추가)
+        # 미충족 시 modal errors 로 반려.
         try:
             metadata = json.loads(view.get("private_metadata") or "{}")
             code = (metadata.get("code", "") or "").strip()
-            if code and code != '-':
-                from dashboard.services.business_license_handler import verify_license_exists
-                if not verify_license_exists(code):
-                    ack(response_action="errors", errors={
-                        "biz": "사업자등록증이 아직 첨부되지 않았습니다. "
-                               "카드 스레드에 사업자등록증(이미지 or PDF)을 첨부한 뒤 다시 요청해주세요.",
-                    })
-                    return
-        except Exception as exc:
-            # 검증 자체가 실패해도(예: Drive 지연) 발행 요청은 통과시킴 — 관리자가 후속 처리
-            logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (통과): {exc}')
+        except Exception:
+            code = ''
+
+        errors = {}
+        if code and code != '-':
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _check_license() -> bool:
+                try:
+                    from dashboard.services.business_license_handler import verify_license_exists
+                    return bool(verify_license_exists(code))
+                except Exception as exc:
+                    logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (통과): {exc}')
+                    return True  # Drive 지연 등은 통과 (관리자 후속 처리)
+
+            def _check_vat_filled() -> bool:
+                try:
+                    from dashboard.services.project_service import get_project_records
+                    records = get_project_records() or []
+                    for r in records:
+                        if (r.get('프로젝트 코드') or '').strip() == code:
+                            vat_raw = r.get('부가세')
+                            # 빈값·None·공백 문자열 = 미체크
+                            if vat_raw in (None, '', ' '):
+                                return False
+                            if isinstance(vat_raw, str) and not vat_raw.strip():
+                                return False
+                            return True
+                    return True  # 프로젝트 못 찾으면 통과
+                except Exception as exc:
+                    logger.warning(f'[SLACK/계산서] 부가세 필드 검증 실패 (통과): {exc}')
+                    return True
+
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                fut_lic = ex.submit(_check_license)
+                fut_vat = ex.submit(_check_vat_filled)
+                lic_ok = fut_lic.result()
+                vat_ok = fut_vat.result()
+
+            if not lic_ok:
+                errors["biz"] = ("사업자등록증이 아직 첨부되지 않았습니다. "
+                                 "공사 확정 카드 스레드에 사업자등록증(이미지 or PDF)을 "
+                                 "첨부한 뒤 다시 요청해주세요.")
+            if not vat_ok:
+                errors["amt"] = ("프로젝트 시트 부가세 항목이 비어있습니다. "
+                                 "관리 사이트에서 프로젝트를 편집해 부가세(포함/미포함) "
+                                 "체크박스를 지정한 뒤 다시 요청해주세요.")
+            if errors:
+                ack(response_action="errors", errors=errors)
+                return
 
         ack()
         def _bg():
@@ -644,6 +685,14 @@ def _register_project_handlers(app):
                     lines.append(f":white_check_mark: 사업자등록증 저장 완료 — `{result['code']}`")
                     for fn in saved:
                         lines.append(f"  • {fn}")
+                # OCR 결과 (2026-07-13): 법인명·상호 추출 성공 시 매니저에게 안내.
+                # 시트 자동 업데이트는 하지 않고 매니저가 관리 페이지에서 확인 후 수동 입력.
+                _biz = (result.get('business_name') or '').strip()
+                if _biz:
+                    lines.append(
+                        f":memo: OCR 결과 — 사업자명 추정: *{_biz}*  "
+                        f"_(관리 페이지에서 프로젝트 사업자명 확인 후 수정하세요)_"
+                    )
                 if skipped:
                     lines.append(f":warning: 저장 안 됨:")
                     for s in skipped:
@@ -5599,17 +5648,23 @@ def _open_invoice_modal(client, body) -> None:
     # pre-fill 시 콤마 자동 포맷 (사용자 가독성)
     if amt.isdigit():
         amt = f"{int(amt):,}"
-    vat = payload.get('vat', 'sep')  # 'sep' | 'incl'
+    # 부가세는 계산서 발행 특성상 항상 '별도' — 필드 제거 (2026-07-13).
     email = payload.get('email', '') or ''
 
     metadata = json.dumps({"code": code}, ensure_ascii=False)
 
-    def _text_input(block_id, label, value, placeholder='', multiline=False, optional=False):
+    # 필드별 initial_value 정책 (2026-07-13):
+    #   - 사업자명·이메일: 빈값이면 initial 없이 두어 매니저가 직접 입력 (필수 항목).
+    #     매니저 패턴상 '-' 접두어가 있으면 '-TEST@TEST.COM' 처럼 이어쓰는 경우가 있어
+    #     아예 빈 필드로 유지 → 슬랙이 required error 로 자연스럽게 유도.
+    #   - 현장 주소·금액: '-' 로 채워 매니저가 수정하거나 그대로 요청 가능.
+    addr = addr or '-'
+    amt = amt or '-'
+
+    def _text_input(block_id, label, value, multiline=False, optional=False):
         el = {"type": "plain_text_input", "action_id": "value"}
         if value:
             el["initial_value"] = value
-        if placeholder:
-            el["placeholder"] = {"type": "plain_text", "text": placeholder}
         if multiline:
             el["multiline"] = True
         blk = {
@@ -5621,12 +5676,6 @@ def _open_invoice_modal(client, body) -> None:
             blk["optional"] = True
         return blk
 
-    vat_options = [
-        {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
-        {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
-    ]
-    vat_initial = vat_options[0] if vat == 'sep' else vat_options[1]
-
     view = {
         "type": "modal",
         "callback_id": "submit_invoice",
@@ -5637,20 +5686,11 @@ def _open_invoice_modal(client, body) -> None:
         "blocks": [
             {"type": "section", "text": {"type": "mrkdwn",
                 "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
-            _text_input("biz", "사업자명", biz, "예: (주)크리스아이티"),
-            _text_input("addr", "현장 주소", addr, "예: 용인 수지구 포은대로59번길 37 1001호"),
-            _text_input("amt", "금액", amt, "예: 4,900,000 (콤마·공백 무시됨)"),
-            {
-                "type": "input", "block_id": "vat",
-                "label": {"type": "plain_text", "text": "부가세 처리"},
-                "element": {
-                    "type": "radio_buttons", "action_id": "value",
-                    "options": vat_options,
-                    "initial_option": vat_initial,
-                },
-            },
-            _text_input("email", "발행 이메일", email, "예: crissit23@crissit.com"),
-            _text_input("memo", "추가 요청사항", "", "선택 사항", multiline=True, optional=True),
+            _text_input("biz", "사업자명", biz),
+            _text_input("addr", "현장 주소", addr),
+            _text_input("amt", "금액", amt),
+            _text_input("email", "발행 이메일", email),
+            _text_input("memo", "추가 요청사항", "", multiline=True, optional=True),
         ],
     }
     client.views_open(trigger_id=trigger_id, view=view)
@@ -5678,11 +5718,9 @@ def _process_invoice_submission(client, body, view) -> None:
     email = _get('email').strip() or '-'
     memo = _get('memo').strip()
 
-    vat_selected = (
-        values.get('vat', {}).get('value', {}).get('selected_option', {})
-    )
-    vat_val = vat_selected.get('value', 'sep') if vat_selected else 'sep'
-    vat_label = 'VAT 별도' if vat_val == 'sep' else 'VAT 포함'
+    # 부가세는 계산서 발행 특성상 항상 '별도' — 라디오 필드 제거 (2026-07-13).
+    vat_val = 'sep'
+    vat_label = 'VAT 별도'
 
     amt_display = _money_kr(amt_digits)
     if amt_display != '-':

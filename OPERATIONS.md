@@ -314,8 +314,11 @@ KARROT_AUTO_SHEET_TAB=...
 GOOGLE_APPLICATION_CREDENTIALS=credentials.json
 GOOGLE_CREDENTIALS_FILE=credentials.json
 GOOGLE_CALENDAR_ID=primary
+# Google Cloud Vision API — 사업자등록증 OCR 로 법인명·상호 자동 추출
+# 사용 전 GCP Console → API & Services → Cloud Vision API → Enable
+# 무료 티어 매월 1,000장, 이후 $1.5/1000장. 서비스 계정에 Vision API 접근 권한 필요.
 
-# Slack 봇 4개 (각각 토큰 + signing secret 필요)
+# Slack 봇 6개 (각각 토큰 + signing secret 필요)
 SLACK_BOT_TOKEN=...              # 메인 (온라인 문의 알림봇)
 SLACK_SIGNING_SECRET=...
 SLACK_VISIT_BOT_TOKEN=...        # 방문 일정 알림봇
@@ -323,6 +326,8 @@ SLACK_VISIT_SIGNING_SECRET=...
 SLACK_PROJECT_BOT_TOKEN=...      # 공사 현황 알림봇
 SLACK_PROJECT_SIGNING_SECRET=...
 SLACK_PAYMENT_BOT_TOKEN=...      # 수금 관리 알림봇
+SLACK_AS_BOT_TOKEN=...           # A/S 관리 알림봇 (선택)
+SLACK_AS_SIGNING_SECRET=...
 
 # Slack webhook 워크플로 (Slack List 조작)
 SLACK_LIST_WEBHOOK_URL=...           # 방문 List 등록
@@ -339,6 +344,14 @@ SLACK_PROJECT_CHANNEL=...       # 공사 확정
 SLACK_PAYMENT_CHANNEL=...       # 수금 관리
 SLACK_CHANNELTALK_CHANNEL=...
 SLACK_INVOICE_CHANNEL_ID=...    # 세금계산서 발행 요청 카드 발송처 (#영업_관리)
+
+# 세금계산서 관리 알림 봇 (invoice_bot) — 별도 Bolt App
+SLACK_INVOICE_BOT_TOKEN=xoxb-... # Bot User OAuth Token
+SLACK_INVOICE_SIGNING_SECRET=... # App Credentials → Signing Secret
+# Endpoint: https://pm.itg-aircon.com/slack/invoice-events (Events + Interactivity 같은 URL)
+# Bot events: message.channels, message.groups
+# 스코프: chat:write, chat:write.public, channels:join, files:read,
+#         channels:history, groups:history, groups:read, users:read, reactions:write
 
 # 스케줄러 플래그
 PHONE_WORKFLOW_SYNC_ENABLED=false  # 슬랙 워크플로 도입 전엔 false 유지 (수동 시트 입력 시 자동 카드 발송 방지)
