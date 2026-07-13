@@ -60,6 +60,10 @@ _VISIT_SIGNING_SECRET = os.getenv('SLACK_VISIT_SIGNING_SECRET', '')
 _AS_BOT_TOKEN = os.getenv('SLACK_AS_BOT_TOKEN', '')
 _AS_SIGNING_SECRET = os.getenv('SLACK_AS_SIGNING_SECRET', '')
 
+# 세금계산서 관리 알림 봇 (별도 토큰/secret) — #영업_관리 카드 발송 + 스레드 첨부 자동 완료
+_INVOICE_BOT_TOKEN = os.getenv('SLACK_INVOICE_BOT_TOKEN', '')
+_INVOICE_SIGNING_SECRET = os.getenv('SLACK_INVOICE_SIGNING_SECRET', '')
+
 _slack_app = None
 _slack_handler = None
 _project_slack_app = None
@@ -68,6 +72,8 @@ _visit_slack_app = None
 _visit_slack_handler = None
 _as_slack_app = None
 _as_slack_handler = None
+_invoice_slack_app = None
+_invoice_slack_handler = None
 
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
@@ -248,6 +254,39 @@ def _init_as_slack_app():
         return True
     except Exception as exc:
         logger.error(f"[SLACK/AS봇] 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _init_invoice_slack_app():
+    """세금계산서 관리 알림 봇 — 별도 Bolt App. #영업_관리 카드 발송 + 스레드 첨부 자동 완료."""
+    global _invoice_slack_app, _invoice_slack_handler
+
+    if not _BOT_ENABLED:
+        return False
+    if not _INVOICE_BOT_TOKEN:
+        logger.warning("[SLACK/계산서봇] SLACK_INVOICE_BOT_TOKEN 미설정 — 비활성화")
+        return False
+    if not _INVOICE_SIGNING_SECRET:
+        logger.warning("[SLACK/계산서봇] SLACK_INVOICE_SIGNING_SECRET 미설정 — 비활성화")
+        return False
+
+    try:
+        from slack_bolt import App
+        from slack_bolt.adapter.flask import SlackRequestHandler
+
+        _invoice_slack_app = App(
+            token=_INVOICE_BOT_TOKEN,
+            signing_secret=_INVOICE_SIGNING_SECRET,
+            process_before_response=True,
+        )
+        _invoice_slack_handler = SlackRequestHandler(_invoice_slack_app)
+
+        _register_invoice_handlers(_invoice_slack_app)
+        _verify_bot_token(_invoice_slack_app.client, '계산서봇')
+        logger.info("[SLACK/계산서봇] 초기화 완료 ✅")
+        return True
+    except Exception as exc:
+        logger.error(f"[SLACK/계산서봇] 초기화 실패: {exc}", exc_info=True)
         return False
 
 
@@ -544,7 +583,9 @@ def _register_project_handlers(app):
             f"has_files={has_files}, thread_ts={thread_ts!r}, "
             f"channel={channel}"
         )
-        # 스레드 파일 첨부만 처리 + 봇 자신 메시지 skip (bot_message subtype 등)
+
+        # 스레드 파일 첨부만 처리 + 봇 자신 메시지 skip (bot_message subtype 등).
+        # 계산서 스레드 첨부·삭제 감지는 계산서봇(_register_invoice_handlers)이 담당.
         if not thread_ts or not has_files:
             return
         if subtype == 'bot_message' or event.get('bot_id'):
@@ -1237,6 +1278,78 @@ def _register_handlers(app):
         "button_visit, button_price, submit_visit, submit_price, "
         "sweep_confirm, sweep_cancel"
     )
+
+
+def _register_invoice_handlers(app):
+    """세금계산서 관리 알림 봇 핸들러.
+
+    - message event: #영업_관리 채널 스레드 첨부 감지 → 카드 자동 완료 update
+    - invoice_complete action (backward compat): 이전 발송된 카드의 [✅ 발행 완료]
+    """
+
+    @app.event("message")
+    def handle_invoice_thread_message(event, client):
+        subtype = event.get("subtype") or ""
+        has_files = bool(event.get("files"))
+        thread_ts = event.get("thread_ts")
+        channel = event.get('channel')
+
+        # 파일 삭제 이벤트 (subtype=message_deleted) — 스레드에 안내 메시지
+        if subtype == 'message_deleted':
+            prev = event.get('previous_message', {}) or {}
+            prev_thread_ts = prev.get('thread_ts', '')
+            if prev_thread_ts and (prev.get('files') or []):
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    rc = get_redis_client().redis
+                    if rc.get(f'invoice_card:{channel}:{prev_thread_ts}'):
+                        client.chat_postMessage(
+                            channel=channel, thread_ts=prev_thread_ts,
+                            text=(':warning: 세금계산서 첨부 파일이 삭제됐어요. '
+                                  '확인이 필요하면 재첨부 부탁드립니다.'),
+                        )
+                        logger.info(f"[SLACK/계산서] 파일 삭제 알림 발송: thread={prev_thread_ts}")
+                except Exception as del_exc:
+                    logger.warning(f"[SLACK/계산서] 삭제 알림 처리 실패: {del_exc}")
+            return
+
+        # 스레드 파일 첨부만 처리 + 봇 자신 메시지 skip
+        if not thread_ts or not has_files:
+            return
+        if subtype == 'bot_message' or event.get('bot_id'):
+            return
+
+        # Redis 에서 계산서 카드 metadata 조회
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            meta_raw = rc.get(f'invoice_card:{channel}:{thread_ts}')
+            if not meta_raw:
+                return  # 계산서 스레드 아님
+            meta = json.loads(
+                meta_raw.decode() if isinstance(meta_raw, bytes) else meta_raw
+            )
+        except Exception as exc:
+            logger.warning(f"[SLACK/계산서] 스레드 metadata 조회 실패: {exc}")
+            return
+
+        def _bg():
+            try:
+                _auto_complete_invoice_card(client, channel, thread_ts, event, meta)
+            except Exception as exc:
+                logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("invoice_complete")
+    def handle_invoice_complete_action(ack, body, client):
+        """Backward compat — 이전 발송된 카드의 [✅ 발행 완료] 버튼 처리."""
+        ack()
+        def _bg():
+            try:
+                _process_invoice_complete(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/계산서] complete 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
 
 def _register_as_handlers(app):
@@ -2484,6 +2597,19 @@ def slack_visit_events():
         return jsonify({"ok": True, "dedup": True}), 200
 
     return _visit_slack_handler.handle(request)
+
+
+@slack_bp.route("/invoice-events", methods=["POST"])
+def slack_invoice_events():
+    """슬랙 → 세금계산서 관리 알림 봇 전용 endpoint (스레드 첨부 자동 완료)"""
+    if _invoice_slack_handler is None:
+        if not _init_invoice_slack_app():
+            return jsonify({"error": "Invoice Slack bot not configured"}), 503
+
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
+
+    return _invoice_slack_handler.handle(request)
 
 
 @slack_bp.route("/list-assignee", methods=["POST"])
@@ -5592,70 +5718,151 @@ def _process_invoice_submission(client, body, view) -> None:
         'orig': text,
     }, ensure_ascii=False)
 
+    # 카드 발송 — 발행 완료 버튼은 제거 (2026-07-13 UX 개선).
+    # 매니저가 스레드에 이미지/PDF 첨부하면 handle_thread_message 가 자동으로
+    # 카드 헤더·첨부 상태를 완료 표시로 update. 버튼이 매니저에게 "이미 완료?" 오해를 줌.
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "✅ 발행 완료", "emoji": True},
-                    "action_id": "invoice_complete",
-                    "value": complete_value,
-                    "style": "primary",
-                },
-            ],
-        },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
     ]
 
+    # 카드 발송은 세금계산서 관리 알림 봇 (invoice_bot) 으로. 없으면 공사봇 fallback.
+    if _invoice_slack_app is None:
+        _init_invoice_slack_app()
+    invoice_client = _invoice_slack_app.client if _invoice_slack_app else client
+
     # 봇이 채널에 없으면 자동 가입 시도 (public 채널만 성공, private면 사용자가 초대 필요)
     try:
-        client.conversations_join(channel=channel_id)
+        invoice_client.conversations_join(channel=channel_id)
     except Exception:
         pass
 
-    resp = client.chat_postMessage(
+    resp = invoice_client.chat_postMessage(
         channel=channel_id, text=text, blocks=blocks, unfurl_links=False,
     )
-    if resp.get('ok'):
-        ts = resp.get('ts', '')
-        logger.info(
-            f"[SLACK/계산서] 요청 카드 발송 완료: {code} ts={ts} → {channel_id}"
-        )
-        # 카드 하단에 '📎 계산서 첨부 (스레드 열기)' 링크 추가 (2026-07-10)
-        # 회계 매니저(샛별)가 링크 클릭 → 자동으로 이 카드 스레드로 이동 → 파일 첨부
-        try:
-            perm_resp = client.chat_getPermalink(channel=channel_id, message_ts=ts)
-            if perm_resp.get('ok'):
-                base_url = perm_resp.get('permalink', '')
-                if base_url:
-                    sep = '&' if '?' in base_url else '?'
-                    thread_url = f"{base_url}{sep}thread_ts={ts}&cid={channel_id}"
-                    # 블록 순서: [info] → [📎 첨부 링크] → [✅ 발행 완료 버튼] → [padding]
-                    # (첨부가 완료보다 먼저 나오게 — 자연스러운 액션 순서)
-                    info_block = blocks[0]      # section (사업자·주소·금액 등)
-                    actions_block = blocks[1]   # actions (발행 완료 버튼)
-                    padding_block = blocks[-1]  # context (⠀)
-                    # 사업자등록증 첨부 안내와 동일한 폰트/패턴 (section 블록, 상태 + (첨부하기) 링크)
-                    attach_link_block = {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": f'📎 세금계산서 : ⬜ 미첨부 <{thread_url}|(첨부하기)>',
-                        },
-                    }
-                    # 첨부 라인과 발행 완료 버튼 사이에 여백 한 줄
-                    # (사업자등록증-버튼 사이 여백 패턴 project_slack_notifier.py:218 참조)
-                    spacer_block = {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]}
-                    new_blocks = [info_block, attach_link_block, spacer_block, actions_block, padding_block]
-                    client.chat_update(
-                        channel=channel_id, ts=ts, text=text, blocks=new_blocks,
-                    )
-        except Exception as perm_exc:
-            logger.warning(f"[SLACK/계산서] permalink 링크 추가 실패 (무시): {perm_exc}")
-    else:
+    if not resp.get('ok'):
         logger.warning(f"[SLACK/계산서] 요청 카드 발송 실패: {resp}")
+        return
+
+    ts = resp.get('ts', '')
+    logger.info(
+        f"[SLACK/계산서] 요청 카드 발송 완료: {code} ts={ts} → {channel_id}"
+    )
+
+    # 카드 하단에 '📎 계산서 첨부 (스레드 열기)' 링크 추가 + Redis 에 metadata 저장.
+    # 매니저가 스레드에 파일 첨부 시 계산서봇 handler 가 이 metadata 로
+    # 카드 자동 완료 update (2026-07-13 자동 완료 전환).
+    thread_url = ''
+    try:
+        perm_resp = invoice_client.chat_getPermalink(channel=channel_id, message_ts=ts)
+        if perm_resp.get('ok'):
+            base_url = perm_resp.get('permalink', '') or ''
+            if base_url:
+                sep = '&' if '?' in base_url else '?'
+                thread_url = f"{base_url}{sep}thread_ts={ts}&cid={channel_id}"
+    except Exception as perm_exc:
+        logger.warning(f"[SLACK/계산서] permalink 조회 실패 (링크 생략): {perm_exc}")
+
+    # Redis 저장 (30일 TTL) — 스레드 첨부 감지 시 auto-complete 처리용
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        rc.setex(
+            f'invoice_card:{channel_id}:{ts}',
+            86400 * 30,
+            json.dumps({
+                'code': code, 'biz': biz, 'amt': amt_digits, 'vat': vat_val,
+                'email': email, 'thread_url': thread_url, 'orig_text': text,
+            }, ensure_ascii=False),
+        )
+    except Exception as red_exc:
+        logger.warning(f"[SLACK/계산서] Redis metadata 저장 실패: {red_exc}")
+
+    # 카드 update — 첨부 안내 라인 추가
+    if thread_url:
+        info_block = blocks[0]
+        padding_block = blocks[-1]
+        attach_link_block = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f'📎 세금계산서 : ⬜ 미첨부 <{thread_url}|(첨부하기)>',
+            },
+        }
+        new_blocks = [info_block, attach_link_block, padding_block]
+        try:
+            invoice_client.chat_update(
+                channel=channel_id, ts=ts, text=text, blocks=new_blocks,
+            )
+        except Exception as upd_exc:
+            logger.warning(f"[SLACK/계산서] 첨부 링크 추가 실패 (무시): {upd_exc}")
+
+
+def _auto_complete_invoice_card(
+    client, channel: str, message_ts: str, event: dict, meta: dict,
+) -> bool:
+    """스레드에 이미지/PDF 첨부 감지 → 카드 자동 완료 update.
+
+    반환: 실제 update 됐는지 여부.
+    """
+    # 이미지/PDF 필터
+    valid_files = []
+    for f in (event.get('files') or []):
+        mt = f.get('mimetype', '') or ''
+        if mt.startswith('image/') or mt == 'application/pdf':
+            valid_files.append(f)
+    if not valid_files:
+        return False
+
+    user_id = event.get('user', '') or ''
+    initial = _slack_user_to_initial(client, user_id) or '-'
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+
+    orig_text = meta.get('orig_text', '') or ''
+    thread_url = meta.get('thread_url', '') or ''
+
+    # 헤더 : 🔔 요청 → ✅ 완료
+    updated_text = orig_text.replace(
+        '🔔 *[세금계산서 발행 요청]*',
+        '✅ *[세금계산서 발행 완료]*',
+        1,
+    )
+    # 완료 처리 라인 추가 (마지막 구분선 앞)
+    _SEP = '--------------------------------------------'
+    completed_line = f'✅ 처리자 : {initial}  {now_str}'
+    parts = updated_text.rsplit(_SEP, 1)
+    if len(parts) == 2:
+        updated_text = parts[0].rstrip() + '\n' + completed_line + '\n' + _SEP + parts[1]
+    else:
+        updated_text += '\n' + completed_line
+
+    # 첨부 상태 : ⬜ 미첨부 → ✅ 첨부됨 / (첨부하기) → (확인하기)
+    if thread_url:
+        attach_text = f'📎 세금계산서 : ✅ 첨부됨 <{thread_url}|(확인하기)>'
+    else:
+        attach_text = f'📎 세금계산서 : ✅ 첨부됨'
+    attach_block = {'type': 'section', 'text': {'type': 'mrkdwn', 'text': attach_text}}
+
+    new_blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': updated_text}},
+        attach_block,
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
+    ]
+
+    try:
+        client.chat_update(
+            channel=channel, ts=message_ts,
+            text=(f"✅ 세금계산서 발행 완료 · {meta.get('code','')} · "
+                  f"{meta.get('biz','')}"),
+            blocks=new_blocks,
+        )
+        logger.info(
+            f"[SLACK/계산서] 자동 완료 update: {meta.get('code','')} by {initial}"
+        )
+        return True
+    except Exception as exc:
+        logger.warning(f"[SLACK/계산서] 자동 완료 update 실패: {exc}")
+        return False
 
 
 def _process_invoice_complete(client, body) -> None:
@@ -5813,3 +6020,4 @@ def _process_invoice_complete(client, body) -> None:
 # 앱 시작 시 한 번 초기화 시도
 _init_slack_app()
 _init_visit_slack_app()
+_init_invoice_slack_app()
