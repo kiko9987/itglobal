@@ -1527,7 +1527,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested') -> str:
         lines.append("--------------------------------------------")
         lines.append(f"👷 방문 예정자 : {data.get('방문 예정자', '-') or '-'}")
         lines.append(f"📅 방문 예정일 : {data.get('방문 예정일', '-') or '-'}")
-        lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  _{data.get('접수 일자', '')}_")
+        lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
     if view_state == 'completed':
         lines.append("--------------------------------------------")
         lines.append(f"🎯 처리 내용 : {data.get('처리 내용', '-') or '-'}")
@@ -1760,6 +1760,10 @@ def _open_as_accept_modal(client, body) -> None:
 
     방문 유형(서비스 기사/내부/외주) 선택 후 담당자 이름을 별도 칸에 입력.
     서비스 기사 방문 시 담당자 이름 칸은 비워두면 되고, 그 외에는 필수.
+
+    2026-07-13: 외주 케이스 대비 원본 시공자 이름을 이름 필드에 pre-fill.
+    매니저가 '외주' 선택 시 시공자 이름을 다시 타이핑할 필요 없음. 내부는 지우고
+    담당자 이름으로 변경.
     """
     trigger_id = body["trigger_id"]
     as_no = (body["actions"][0].get("value") or '').strip()
@@ -1769,6 +1773,20 @@ def _open_as_accept_modal(client, body) -> None:
     metadata = json.dumps({
         "as_no": as_no, "channel": channel, "message_ts": message_ts,
     }, ensure_ascii=False)
+
+    # 시공자 이름 pre-fill (외주 케이스용)
+    contractor = ''
+    try:
+        from dashboard.services.as_service import get_as_data, get_project_details
+        as_data = get_as_data(as_no) or {}
+        code = (as_data.get('프로젝트 코드', '') or '').strip()
+        if code and code != '-':
+            proj = get_project_details(code) or {}
+            _c = (proj.get('contractor', '') or '').strip()
+            if _c and _c != '-':
+                contractor = _c
+    except Exception as exc:
+        logger.warning(f'[SLACK/AS] 시공자 pre-fill 조회 실패 (무시): {exc}')
 
     visitor_type_options = [
         {"text": {"type": "plain_text", "text": "서비스 기사"}, "value": "서비스 기사"},
@@ -1796,10 +1814,12 @@ def _open_as_accept_modal(client, body) -> None:
             {
                 "type": "input", "block_id": "visitor_name", "optional": True,
                 "label": {"type": "plain_text", "text": "방문 예정자 이름 (내부/외주 방문 시 필수)"},
-                "hint": {"type": "plain_text", "text": "서비스 기사 방문 시 작성 X"},
+                "hint": {"type": "plain_text",
+                         "text": "외주 선택 시 시공자 이름 자동 채워짐. 내부는 담당자 이름으로 변경."},
                 "element": {
                     "type": "plain_text_input", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "예: 김철수"},
+                    **({"initial_value": contractor} if contractor else {}),
                 },
             },
             {
@@ -5183,7 +5203,7 @@ def _post_project_edit_notice_card(
         f'📝 수정 사유 : {reason.strip()}',
         '📋 변경 내역',
         *change_lines,
-        f'👤 수정자 : {initial}  _{now_str}_',
+        f'👤 수정자 : {initial}  {now_str}',
         '--------------------------------------------',
     ]
     text = '⠀\n' + '\n'.join(lines)
@@ -5333,7 +5353,7 @@ def _post_project_cancel_notice_card(
         f'📍 현장 주소 : {addr}',
         f'💲 공사 금액 : {amt_disp}',
         f'📅 공사 확정일 : {confirmed_disp}',
-        f'👤 취소자 : {initial}  _{now_str}_',
+        f'👤 취소자 : {initial}  {now_str}',
         '--------------------------------------------',
     ]
     text = '⠀\n' + '\n'.join(lines)
