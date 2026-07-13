@@ -5532,16 +5532,19 @@ def _process_invoice_submission(client, body, view) -> None:
     ]
     if memo:
         lines.append(f"📝 요청사항 : {memo}")
-    lines.append(f"👤 요청자 : {initial}  _{now_str}_")
+    lines.append(f"👤 요청자 : {initial}  {now_str}")
     lines.append("--------------------------------------------")
     text = '⠀\n' + '\n'.join(lines)
 
-    # 발행 완료 버튼 value — 완료 문구 자동 생성용
+    # 발행 완료 버튼 value — 완료 문구 자동 생성용.
+    # 원본 카드 텍스트를 함께 저장해서 완료 처리 시 header_context 를 이걸로 재구성
+    # (chat.update 된 body.message.blocks 에서 뽑아쓰면 재클릭 시 중복 표시 발생).
     complete_value = json.dumps({
         'code': code,
         'amt': amt_digits,
         'biz': biz,
         'vat': vat_val,
+        'orig': text,
     }, ensure_ascii=False)
 
     blocks = [
@@ -5625,6 +5628,28 @@ def _process_invoice_complete(client, body) -> None:
     biz = payload.get('biz', '-') or '-'
     vat_val = payload.get('vat', 'sep') or 'sep'
     vat_label = 'VAT 별도' if vat_val == 'sep' else 'VAT 포함'
+    orig_payload_text = payload.get('orig', '') or ''
+
+    # 0) 이미 완료 처리된 카드 재클릭 방지 (2026-07-13 관측 R-TEST-KiKO 중복 표시).
+    #    감지: message.text 가 완료 카드 fallback text 로 시작하거나 (신규 구조),
+    #    blocks 첫 블록이 context (구 header_context 구조) 이면 skip.
+    _msg = body.get('message', {}) or {}
+    _msg_text = _msg.get('text', '') or ''
+    _blocks = _msg.get('blocks') or []
+    _already_done = (
+        _msg_text.startswith('✅ 세금계산서 발행 완료')
+        or (bool(_blocks) and _blocks[0].get('type') == 'context')
+    )
+    if _already_done:
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=':information_source: 이미 발행 완료 처리된 카드입니다.',
+            )
+        except Exception:
+            pass
+        logger.info(f"[SLACK/계산서] 중복 클릭 skip ({code}) by {user_id}")
+        return
 
     # 1) 스레드에 첨부 파일 있는지 검증 + 파일 정보 수집 (2026-07-10)
     has_file = False
@@ -5666,13 +5691,15 @@ def _process_invoice_complete(client, body) -> None:
     biz_display = biz if biz and biz != '-' else '(사업자명 미기재)'
     initial_for_msg = _slack_user_to_initial(client, user_id) or '-'
 
-    # 원본 요청 카드 상단 section 텍스트를 재사용 → context block 으로 감싸 회색 톤 + 폰트 축소.
-    # 이모지 shortcode 는 context/mrkdwn 안에서 그대로 렌더링됨.
-    original_text = ''
-    for b in (body.get('message', {}).get('blocks') or []):
-        if b.get('type') == 'section':
-            original_text = (b.get('text', {}) or {}).get('text', '') or ''
-            break
+    # 원본 요청 카드 텍스트 → context block 으로 감싸 회색 톤 + 폰트 축소.
+    # payload.orig 를 우선 사용 (submission 시점 저장) — body.message.blocks 에서
+    # 뽑으면 재클릭 시 이미 완료 카드 body_text 가 잡혀 중복 표시됨.
+    original_text = orig_payload_text
+    if not original_text:
+        for b in (body.get('message', {}).get('blocks') or []):
+            if b.get('type') == 'section':
+                original_text = (b.get('text', {}) or {}).get('text', '') or ''
+                break
     if not original_text:
         # fallback — payload 만 가지고 최소 정보 구성
         original_text = (
@@ -5681,50 +5708,49 @@ def _process_invoice_complete(client, body) -> None:
             f':heavy_dollar_sign: 금액 : {amt_display} ({vat_label})'
         )
 
-    header_context = {
-        'type': 'context',
-        'elements': [{
-            'type': 'mrkdwn',
-            'text': (
-                f'{original_text}\n\n'
-                f':white_check_mark: *{initial_for_msg}* 님이 발행 완료 처리'
-            ),
-        }],
-    }
+    # 스레드 permalink — 첨부는 프리뷰 대신 스레드 이동 링크로 (2026-07-13)
+    thread_url = ''
+    try:
+        perm = client.chat_getPermalink(channel=channel, message_ts=message_ts)
+        if perm.get('ok'):
+            _base = perm.get('permalink', '') or ''
+            if _base:
+                _sep = '&' if '?' in _base else '?'
+                thread_url = f'{_base}{_sep}thread_ts={message_ts}&cid={channel}'
+    except Exception as exc:
+        logger.warning(f'[SLACK/계산서] permalink 조회 실패 (링크 생략): {exc}')
 
-    file_lines = []
-    image_blocks = []  # slack_file image blocks (image mimetype 만)
-    for af in attached_files[:5]:
-        icon = ':frame_with_picture:' if af['mimetype'].startswith('image/') else ':page_facing_up:'
-        if af['permalink']:
-            file_lines.append(f'{icon} <{af["permalink"]}|{af["name"]}>')
-        else:
-            file_lines.append(f'{icon} {af["name"]}')
-        if af['mimetype'].startswith('image/') and af.get('id'):
-            image_blocks.append({
-                'type': 'image',
-                'slack_file': {'id': af['id']},
-                'alt_text': af['name'],
-            })
-    files_text = '\n'.join(file_lines) if file_lines else ''
-    extra_note = f'\n_외 {len(attached_files) - 5}개 첨부_' if len(attached_files) > 5 else ''
+    if thread_url:
+        files_text = (
+            f':paperclip: *첨부 파일* : '
+            f'{len(attached_files)}개  <{thread_url}|(확인 하기)>'
+        )
+    else:
+        files_text = f':paperclip: *첨부 파일* : {len(attached_files)}개'
 
     body_text = (
-        f'✅ *세금계산서 발행 완료*  `{code}`\n'
+        f':white_check_mark: *세금계산서 발행 완료*  `{code}`\n'
         f'━━━━━━━━━━━━━━━━━━━━\n'
         f':office: *사업자명* : {biz_display}\n'
-        f':moneybag: *발행 금액* : *{amt_display}*  _({vat_label})_\n'
+        f':moneybag: *발행 금액* : *{amt_display}*  ({vat_label})\n'
         f':bust_in_silhouette: *처리자* : {initial_for_msg}\n'
-        f'\n'
-        f':paperclip: *첨부 파일* ({len(attached_files)}개)\n'
-        f'{files_text}{extra_note}'
+        f'{files_text}'
+    )
+
+    # 원본 요청 카드 — 코드 블록 (```...```) 으로 감싸 monospace 회색 박스로
+    # 표시 (방문 취소 카드와 동일 스타일, slack_bot.py:4133 참조).
+    # mrkdwn 강조(*) 제거 + shortcode → 유니코드 정규화 (코드블록 안에서는 raw 로 보이므로).
+    from dashboard.blueprints.slack_helpers import _normalize_shortcodes_to_unicode
+    _cleaned = [ln.replace('*', '') for ln in original_text.split('\n')]
+    _cleaned = [_normalize_shortcodes_to_unicode(ln) for ln in _cleaned]
+    _clean_original = '\n'.join(_cleaned).strip()
+    combined_text = (
+        f'{body_text}\n\n'
+        f'```\n{_clean_original}\n```'
     )
 
     completed_blocks = [
-        header_context,
-        {'type': 'divider'},
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': body_text}},
-        *image_blocks,
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': combined_text}},
     ]
 
     try:
