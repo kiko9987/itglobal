@@ -185,10 +185,13 @@ ADDRESS_PATTERNS = [
     ),
     # 3. 약식: 구/시 + 동 + 번지/로 + 단지/동·호
     #    (선택) {시} + {구|읍|면} 두 단계 행정구역 (예: "화성시 만세구")
+    #    2026-07-13: 도로명 `로` 뒤 `지하NNN` 형식 지원 — 지하상가 주소
+    #    (예: "강남구 학동로 지하102"). 기존은 `로\s*\d+` 만 매치해서 앞의
+    #    "학동" 을 동 이름으로 오인식 → 도로명 놓침.
     (
         r'([가-힣]{1,5}(?:구|시|군)'
         r'(?:\s+[가-힣]{1,5}(?:구|읍|면))?'
-        r'\s+[가-힣\d]+(?:동\d*|읍|면|로\s*\d+(?:번길)?|길)'
+        r'\s+[가-힣\d]+(?:동\d*|읍|면|로\s*(?:지하\s*)?\d+(?:번길)?|길)'
         r'(?:\s*\d+(?:-\d+)?(?:번지|번길|호)?)*'
         r'(?:\s*\([가-힣\d\s/]+\))?'
         rf'(?:\s+[가-힣\dA-Za-z]{{1,30}}?\s*{_BUILDING})?'
@@ -267,12 +270,17 @@ def _extend_address(text: str, base_addr: str, end_offset: int) -> str:
         p = rest.find(sw)
         if 0 <= p < stop_pos:
             stop_pos = p
-    # 마침표·줄바꿈 위치
-    for ch in '.,\n。、':
+    # 줄바꿈·쉼표 위치 (마침표는 제외 — "20-16.  1층 일미리금계찜닭" 처럼
+    # 매니저가 번지 뒤 마침표 찍고 상세정보 이어붙이는 케이스가 흔함.
+    # 2026-07-13 L-03201 관측)
+    for ch in ',\n。、':
         p = rest.find(ch)
         if 0 <= p < stop_pos:
             stop_pos = p
     rest = rest[:stop_pos]
+    # 마침표를 공백으로 치환 — _EXTEND_TOKEN_RE 첫 그룹이 `\s*` 로 시작해서
+    # 마침표를 skip 못 하므로 (2026-07-13 L-03201).
+    rest = rest.replace('.', ' ')
 
     # 확장 가능한 토큰을 한 번에 하나씩 추가
     extended_tail = ''
@@ -283,6 +291,20 @@ def _extend_address(text: str, base_addr: str, end_offset: int) -> str:
             break
         extended_tail += m.group(0)
         pos = m.end()
+
+    # 마지막 fallback — 남은 텍스트에 짧은 한글 명사(상호 후보) 1개만 추가.
+    # 매니저는 슬랙 카드 상단 방문 주소만 보므로 상호도 함께 붙어야 방문지 파악 가능
+    # (2026-07-13 L-03207 소각커피 / L-03201 일미리금계찜닭 관측).
+    # 조건:
+    #   - _STOP_WORDS 는 이미 rest 자체 잘라놨으므로 별도 필터 불필요
+    #   - 최소 2자 (한글 시작) — 조사·오탈자 회귀 방지
+    if pos < len(rest):
+        m_shop = re.match(
+            r'\s*([가-힣][가-힣A-Za-z0-9]{1,15})(?=\s|$|[.,])',
+            rest[pos:],
+        )
+        if m_shop:
+            extended_tail += ' ' + m_shop.group(1)
 
     if extended_tail:
         # base와 extension 사이 공백은 extension의 leading space로 처리

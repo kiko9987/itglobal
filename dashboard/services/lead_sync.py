@@ -151,6 +151,7 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
         '_meta_inquiry': inquiry,
         '_meta_consult_dt': consult_dt,
         '_meta_address_level': address_level,  # verified면 정확, level5~7/raw면 _(추정)_ 표시
+        '_meta_address_raw': address_raw,      # 원본 주소 표시용 (자동 정리 전)
     }
 
 
@@ -866,6 +867,17 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     device = _oneline(device)
     address_display = _oneline(address_display)
 
+    # 원본 주소 vs 자동 정리 결과 비교 — 다를 때만 두 줄로 표시 (2026-07-13).
+    # 매니저가 파싱 결과가 원본에서 어떻게 변형됐는지 즉시 확인 → 오탐/축소 감지.
+    address_raw = _oneline(lead.get('_meta_address_raw') or '')
+    address_field_lines = []
+    if address_raw and address_raw != '-' and address_raw != address:
+        address_field_lines.append(f">*원본 주소* : {address_raw}")
+        address_field_lines.append(f">*변환 주소* : {address_display}")
+    else:
+        address_field_lines.append(f">*방문 주소* : {address_display}")
+    address_field = '\n'.join(address_field_lines)
+
     # 재문의 감지 — 같은 번호로 이전 lead가 있으면 섹션 추가 (타이틀은 그대로 유지)
     repeat_section = _build_repeat_section(lead)
 
@@ -884,8 +896,8 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*이메일* : {email}\n"
         f">*설치 희망 장소* : {place}\n"
         f">*설치 희망 기기* : {device}\n"
-        f">*방문 주소* : {address_display}\n"
-        f">*문의 내용* : \n{inquiry_quoted}\n"
+        + f"{address_field}\n"
+        + f">*문의 내용* : \n{inquiry_quoted}\n"
         f">--------------------------------------------"
     )
 

@@ -165,6 +165,34 @@ def _kakao_search(query: str) -> Optional[dict]:
         return None
 
 
+_KAKAO_POI_ENDPOINT = 'https://dapi.kakao.com/v2/local/search/keyword.json'
+
+
+@lru_cache(maxsize=512)
+def _kakao_search_poi(query: str) -> tuple:
+    """카카오 POI(키워드) 검색 — 상호명 → 정확한 지점명·주소.
+    반환: ((place_name, road_address_name), ...) 튜플 (lru_cache 호환).
+    """
+    key = _kakao_key()
+    if not key or not query.strip():
+        return ()
+    try:
+        url = _KAKAO_POI_ENDPOINT + '?' + urllib.parse.urlencode(
+            {'query': query.strip(), 'size': 3}
+        )
+        req = urllib.request.Request(url, headers={'Authorization': f'KakaoAK {key}'})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+        docs = data.get('documents', []) or []
+        return tuple(
+            (d.get('place_name', '') or '', d.get('road_address_name', '') or '')
+            for d in docs
+        )
+    except Exception as exc:
+        logger.debug(f'[KAKAO/POI] {type(exc).__name__}: {query[:40]}')
+        return ()
+
+
 # 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22",
 # "봉은사로 26길 12", "부천로431번길 16")
 # - 한글 2글자 이상으로 도로명 시작 (1글자 "번길" 같은 오인 차단)
@@ -627,14 +655,20 @@ def _enrich_verified_address(
         elif target_alt in verified_addr:
             verified_addr = verified_addr.replace(target_alt, replacement)
 
-    # 1-b. {호} 다음 단어 = 상호명 자동 부착 (예: "105호 베베드피노")
+    # 1-b. {호|층|-번지} 다음 단어 = 상호명 자동 부착
+    #   예: "105호 베베드피노" / "1층 일미리금계찜닭" / "205-5 소각커피"
+    #   2026-07-13 L-03201·L-03207 확장 — 호/층/번지 없어도 마지막 상호 후보 잡음.
+    last_line = original_text.split('\n')[-1].strip().rstrip('.')
     m_shop = re.search(
-        r'\d+호\s+([가-힣A-Za-z][가-힣A-Za-z0-9]{1,15})\s*$',
-        original_text.split('\n')[-1].strip(),
+        r'(?:\d+(?:-\d+)?(?:호|층|번지)?)\s+([가-힣][가-힣A-Za-z0-9]{1,15})\s*$',
+        last_line,
     )
     if m_shop:
         shop = m_shop.group(1)
-        if shop not in verified_addr and not re.search(rf'\b{re.escape(shop)}\b', verified_addr):
+        # 도로명·행정구역 접미사(로/길/구/시/군/동/읍/면) 로 끝나면 상호 아님
+        if not re.search(r'(?:로|길|구|시|군|동|읍|면)$', shop) \
+                and shop not in verified_addr \
+                and not re.search(rf'\b{re.escape(shop)}\b', verified_addr):
             verified_addr = f"{verified_addr} {shop}".strip()
 
     # 도로명 끝 + 숫자 사이 공백 보강 ("세월길2" → "세월길 2"). 단 "12길" 같은 도로명 일부는 제외
@@ -659,6 +693,98 @@ def _enrich_verified_address(
 
     # 최종 — 도로명 + 숫자 사이 공백 보강 (부착 후에도 적용)
     verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길)', r'\1 \2', verified_addr)
+
+    # 3. 카카오 POI 검색으로 상호 지점명 부착 (2026-07-13).
+    #   원문에 상호 후보가 있고, POI 결과의 도로명이 verified 와 일치하면
+    #   지점명(place_name) 을 verified 뒤 부기 → 매니저가 지점 정확 파악.
+    #   예: "마성떡볶이" + "학동로 지하 102" → "마성떡볶이 논현역점" 부기
+    verified_addr = _enrich_with_poi(verified_addr, original_text)
+
+    return verified_addr
+
+
+# _STOP_WORDS 를 lead_helpers 재사용 (import 순환 방지 — 지연 import)
+_ADMIN_SUFFIX_RE = re.compile(r'(로|길|구|시|군|동|읍|면|리|번지|호|층|가|동로|번길)$')
+
+
+def _extract_region_hint(verified_addr: str) -> str:
+    """verified 주소에서 지역 힌트 추출 (첫 시/군/구/광역시)."""
+    for w in verified_addr.split():
+        if re.search(r'(?:시|군|구|도)$', w):
+            return w
+    return ''
+
+
+def _road_key(addr: str) -> str:
+    """주소에서 도로명+번지 정규화 키 추출 (`학동로 지하 102`, `지산2길 20-16`)."""
+    m = re.search(
+        r'([가-힣\d]+(?:로|길)\s+(?:지하\s*)?\d+(?:-\d+)?)',
+        addr,
+    )
+    return m.group(1).replace(' ', '') if m else ''
+
+
+def _extract_shop_candidates(text: str) -> list:
+    """원문에서 상호 후보(짧은 한글 명사) 뽑기 — POI 검색용.
+
+    - 한글 2-15자
+    - 행정구역·도로명 접미사(로/길/구/시/군/동/읍/면/번지/호/층/리/가) 로 끝나는 단어 제외
+    - _STOP_WORDS 포함하면 제외
+    - 중복 제거
+    """
+    try:
+        from dashboard.services.lead_helpers import _STOP_WORDS
+    except Exception:
+        _STOP_WORDS = []
+    seen, out = set(), []
+    for w in re.findall(r'[가-힣][가-힣A-Za-z0-9]{1,14}', text):
+        if w in seen:
+            continue
+        if _ADMIN_SUFFIX_RE.search(w):
+            continue
+        if any(sw in w for sw in _STOP_WORDS):
+            continue
+        seen.add(w)
+        out.append(w)
+    return out
+
+
+def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
+    """POI 검색으로 상호 지점명 부착.
+
+    조건:
+      - POI road_address_name 이 verified 도로명·번지와 일치 (다른 위치 배제)
+      - place_name 이 후보 상호 + 공백 + 지점명 형태 (예: "마성떡볶이 논현역점")
+        → 상호 뒤에 실제 지점명이 붙어있을 때만 유의미. 아파트 이름 확장·유사 상호는 배제.
+      - verified 에 이미 후보 상호 부착돼있으면 지점명 포함 형태로 replace
+    """
+    if not verified_addr or not original_text:
+        return verified_addr
+    v_key = _road_key(verified_addr)
+    if not v_key:
+        return verified_addr
+    region = _extract_region_hint(verified_addr)
+    candidates = _extract_shop_candidates(original_text)
+    if not candidates:
+        return verified_addr
+    # verified 에 이미 있는 후보는 우선순위 낮춤 (원문 신규 상호 먼저 시도)
+    priority = (
+        [c for c in candidates if c not in verified_addr]
+        + [c for c in candidates if c in verified_addr]
+    )
+    for cand in priority[:5]:
+        results = _kakao_search_poi(f'{cand} {region}'.strip())
+        for place_name, road_name in results:
+            if not place_name or not road_name:
+                continue
+            if _road_key(road_name) != v_key:
+                continue
+            # "상호 + 공백 + 지점명" 형태만 유의미 (아파트 세부 이름·유사 상호 배제)
+            if not place_name.startswith(cand + ' '):
+                continue
+            if cand in verified_addr:
+                return verified_addr.replace(cand, place_name, 1)
+            return f'{verified_addr} {place_name}'.strip()
     return verified_addr
 
 
