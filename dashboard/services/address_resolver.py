@@ -665,8 +665,9 @@ def _enrich_verified_address(
     )
     if m_shop:
         shop = m_shop.group(1)
-        # 도로명·행정구역 접미사(로/길/구/시/군/동/읍/면) 로 끝나면 상호 아님
-        if not re.search(r'(?:로|길|구|시|군|동|읍|면)$', shop) \
+        # 도로명·행정구역 접미사·층/호/번지 로 끝나면 상호 아님
+        # (2026-07-13 L-03222 관측: '수은빌딩3층' 이 상호로 오인식되어 중복 부착)
+        if not re.search(r'(?:로|길|구|시|군|동|읍|면|층|호|번지)$', shop) \
                 and shop not in verified_addr \
                 and not re.search(rf'\b{re.escape(shop)}\b', verified_addr):
             verified_addr = f"{verified_addr} {shop}".strip()
