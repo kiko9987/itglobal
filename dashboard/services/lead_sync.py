@@ -1492,11 +1492,13 @@ def _batch_delete_sheet_rows(manager, cfg: dict, row_numbers: list) -> None:
 def sync_workflow_phone_leads() -> Dict[str, Any]:
     """슬랙 워크플로우/수동 입력 모달이 메인 시트에 직접 추가한 lead 자동 보정.
 
-    스캔 대상: 리드 No 빈 + 플랫폼 in {'전화', '거래처', '소개'} 행
+    스캔 대상: 리드 No 빈 + 플랫폼 in {'전화', '거래처', '기타', '소개'} 행
       - 전화: 온라인_문의 채널 '전화문의 등록하기' 모달 (법인폰 유입)
       - 거래처: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=거래처)
       - 소개: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=소개)
-      - 기타: 시트 경유 없이 /slack/etc-visit-webhook 직접 처리 (2026-07-14). 슬랙 워크플로 편집기에서 "방문 유형=기타" 브랜치는 시트 append 대신 웹훅으로 라우팅.
+      - 기타: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=기타).
+        시트 등록은 스킵하되 카드+List 는 정상. ETC-xxxxxx 임시번호로 Redis 관리.
+        (사후관리/A/S/수금 등 이미 확정된 관계라 리드 시트 오염 방지 — 2026-07-14)
     처리:
       1. lead_no 발번 (max + 1)
       2. 상담 시간 ISO → 'YYYY.MM.DD. HH:MM'
@@ -1511,11 +1513,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         if main_df is None or main_df.empty:
             return result
 
-        # 빈 lead_no + 플랫폼 in {'전화', '거래처', '소개'}
-        # ('기타' 는 슬랙 워크플로가 웹훅으로 직접 보내므로 시트 스캔 대상 아님 —
-        #  워크플로 편집 실수로 시트에 append 되어도 여기서 잡히지 않게 두어
-        #  중복 카드 발송 방지)
-        WF_PLATFORMS = {'전화', '거래처', '소개'}
+        # 빈 lead_no + 플랫폼 in {'전화', '거래처', '기타', '소개'}
+        # 기타는 아래에서 ETC-xxxxxx 임시번호로 처리 + 시트 행 삭제.
+        WF_PLATFORMS = {'전화', '거래처', '기타', '소개'}
         is_empty_no = main_df['리드 No'].astype(str).str.strip() == ''
         is_target = main_df['플랫폼'].astype(str).str.strip().isin(WF_PLATFORMS)
         candidates = main_df[is_empty_no & is_target].copy()
@@ -1551,10 +1551,91 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 )
                 continue
 
+            _platform_this = str(row.get('플랫폼', '') or '').strip()
+
+            # 기타 방문 (2026-07-14): 시트 등록 스킵, ETC-xxxxxx 임시번호로
+            # Redis 저장 + #방문_일정 카드 + Slack List 만 발송. 방금 append 된
+            # 시트 행은 즉시 삭제 (온라인 리드 시트 오염 방지).
+            # 카드에는 완료/취소/방문일 수정 버튼 정상 포함 (slack_bot.py 헬퍼
+            # _find_lead_by_no / _update_lead_dispatch 가 ETC- 자동 인식).
+            if _platform_this == '기타':
+                try:
+                    from dashboard.blueprints.slack_bot import (
+                        _etc_new_lead_no, _etc_set_lead,
+                    )
+                    etc_lead_no = _etc_new_lead_no()
+
+                    consult_raw_e = str(row.get('상담 시간', '')).strip()
+                    consult_norm_e = (
+                        _normalize_workflow_datetime(consult_raw_e) or consult_raw_e
+                    )
+                    visit_raw_e = str(row.get('방문 예정일', '')).strip()
+                    visit_iso_e = _normalize_workflow_date(visit_raw_e) or visit_raw_e
+                    _inquiry_e = (
+                        str(row.get('문의 내용', '') or '').strip() or
+                        str(row.get('상담 내용', '') or '').strip()
+                    )
+                    if _inquiry_e == '-':
+                        _inquiry_e = ''
+                    _user_e = (
+                        str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
+                        or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
+                    )
+                    _kw_e = str(row.get('키워드', '')).strip()
+
+                    # Redis metadata 저장 — 후속 완료/취소/수정 액션이 lookup
+                    _etc_set_lead(etc_lead_no, {
+                        '리드 No': etc_lead_no,
+                        '고객명': _name,
+                        '고객 연락처': _phone,
+                        '이메일': str(row.get('이메일', '')).strip(),
+                        '상담 시간': consult_norm_e,
+                        '방문 주소': str(row.get('방문 주소', '')).strip(),
+                        '문의 내용': _inquiry_e,
+                        '상담 내용': _inquiry_e,
+                        '키워드': _kw_e,
+                        '방문 예정일': visit_iso_e,
+                        '영업 담당자': _user_e,
+                        '온라인 상담자': _user_e,
+                        '플랫폼': '기타',
+                        '상태': '방문 예약',
+                    })
+
+                    # 카드+List 발송 큐에 추가 (아래 notify_visit 처리 로직 재사용)
+                    notify_visit.append({
+                        'lead_no': etc_lead_no,
+                        'name': _name,
+                        'phone': _phone,
+                        'email': str(row.get('이메일', '')).strip(),
+                        'consult_time': consult_norm_e,
+                        'address': str(row.get('방문 주소', '')).strip(),
+                        'visit_date': visit_iso_e,
+                        'inquiry': _inquiry_e,
+                        'keyword': _kw_e,
+                        'user_name': _user_e,
+                        'platform': '기타',
+                    })
+
+                    # 임시 시트 행 삭제 큐 (사이클 끝 batch delete)
+                    temp_rows_to_delete.append(sheet_row)
+                    result.setdefault('etc_processed', 0)
+                    result['etc_processed'] += 1
+                    logger.info(
+                        f'[SYNC/전화WF/ETC] 기타 방문 처리: {etc_lead_no} '
+                        f'({_name}/{_phone}, sheet row {sheet_row} 삭제 예정)'
+                    )
+                    continue
+                except Exception as exc:
+                    logger.error(
+                        f'[SYNC/전화WF/ETC] 기타 처리 실패 (row {sheet_row}): {exc}',
+                        exc_info=True,
+                    )
+                    result['errors'] += 1
+                    continue
+
             # 전화 워크플로 dedup (2026-07-14): 같은 연락처 90일 이내 리드가
             # 이미 있으면 기존 리드 update + 임시 행 삭제 (매니저 수동 시트
             # 등록 + 워크플로 이중 사용 사고 방지).
-            _platform_this = str(row.get('플랫폼', '') or '').strip()
             if _platform_this == '전화' and _phone:
                 existing = _find_existing_lead_by_phone(main_df, _phone, within_days=90)
                 if existing is not None:
