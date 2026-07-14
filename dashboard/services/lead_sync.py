@@ -17,7 +17,7 @@ import re
 import textwrap
 import threading
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -1340,6 +1340,149 @@ def retry_pending_visit_notices() -> Dict[str, Any]:
     return result
 
 
+# ─────────────────────────────────────────────────────────────
+# 전화 워크플로 dedup helpers (2026-07-14)
+# ─────────────────────────────────────────────────────────────
+
+def _find_existing_lead_by_phone(
+    main_df, phone_raw: str, within_days: int = 90,
+) -> Optional[Tuple[str, int]]:
+    """정규화 연락처 매치 + 최근 within_days 이내 리드 검색.
+
+    반환: (lead_no, sheet_row_1indexed) — 없으면 None.
+    여러 개 매치 시 가장 최근 것.
+    """
+    from datetime import datetime, timedelta
+    phone_norm = normalize_phone(phone_raw)
+    if not phone_norm:
+        return None
+    cutoff = datetime.now() - timedelta(days=within_days)
+
+    best = None  # (dt, lead_no, row_idx)
+    for idx, r in main_df.iterrows():
+        lead_no = str(r.get('리드 No', '') or '').strip()
+        if not lead_no.startswith('L-'):
+            continue
+        this_phone = normalize_phone(str(r.get('고객 연락처', '') or ''))
+        if this_phone != phone_norm:
+            continue
+        try:
+            dt = datetime.strptime(
+                str(r.get('상담 시간', '')).strip(), '%Y.%m.%d. %H:%M',
+            )
+        except Exception:
+            continue
+        if dt < cutoff:
+            continue
+        if best is None or dt > best[0]:
+            best = (dt, lead_no, idx + 2)  # sheet row = df idx + header(1) + 1-index
+    if best is None:
+        return None
+    _, ln, sr = best
+    return (ln, sr)
+
+
+def _update_existing_lead_from_workflow(
+    manager, cfg: dict, existing_sheet_row: int, workflow_row,
+) -> None:
+    """워크플로 임시 행의 값을 기존 리드 행에 덮어쓰기.
+
+    정책: 빈 값이나 '-' 는 skip (기존값 보존). 워크플로 매니저가 채운 값만 반영.
+    """
+    from dashboard.services.lead_helpers import extract_keywords_from_sources
+    # 필드 → 컬럼 매핑
+    field_col = [
+        ('B', '상담 시간'),
+        ('D', '상태'),
+        ('E', '방문 예정일'),
+        ('F', '고객 연락처'),
+        ('G', '이메일'),
+        ('H', '고객명'),
+        ('I', '방문 주소'),
+        ('J', '문의 내용'),
+        ('K', '상담 내용'),
+        ('L', '키워드'),
+        ('M', '온라인 상담자'),
+        ('N', '영업 담당자'),
+        ('O', '마지막 연락일'),
+    ]
+    updates = []
+    for col, field in field_col:
+        v = str(workflow_row.get(field, '') or '').strip()
+        if not v or v == '-':
+            continue  # 빈값·'-' 는 기존값 보존
+        # 필드별 정규화
+        if field == '상담 시간':
+            norm = _normalize_workflow_datetime(v)
+            if norm:
+                v = norm
+        elif field == '방문 예정일':
+            if '~' in v:
+                pass  # 범위는 그대로
+            else:
+                iso = _normalize_workflow_date(v)
+                if iso:
+                    v = f"'{iso}"  # date 는 escape prefix
+        elif field == '키워드':
+            v = extract_keywords_from_sources(v) or v
+        elif field == '온라인 상담자' or field == '영업 담당자':
+            v = v.lstrip('@').strip()
+        updates.append((f'{col}{existing_sheet_row}', v))
+
+    if not updates:
+        return
+    batch_body = {
+        'valueInputOption': 'USER_ENTERED',
+        'data': [
+            {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[val]]}
+            for r, val in updates
+        ],
+    }
+    manager.service.spreadsheets().values().batchUpdate(
+        spreadsheetId=cfg['sheet_id'], body=batch_body,
+    ).execute()
+
+
+def _batch_delete_sheet_rows(manager, cfg: dict, row_numbers: list) -> None:
+    """시트 행 batch delete (Google Sheets deleteDimension).
+
+    row_numbers: 1-indexed sheet row 리스트. 앞 행 삭제 시 뒤 행 shift 되므로
+    큰 rowIndex 부터 삭제.
+    """
+    if not row_numbers:
+        return
+    # 시트 numeric id 조회
+    meta = manager.service.spreadsheets().get(
+        spreadsheetId=cfg['sheet_id'],
+        fields='sheets.properties(sheetId,title)',
+    ).execute()
+    sheet_num_id = None
+    for s in meta.get('sheets', []):
+        if s['properties']['title'] == cfg['sheet_name']:
+            sheet_num_id = s['properties']['sheetId']
+            break
+    if sheet_num_id is None:
+        raise RuntimeError(f'sheet not found: {cfg["sheet_name"]}')
+
+    # 큰 rowIndex 부터 삭제 (shift 방지)
+    requests = []
+    for r in sorted(set(row_numbers), reverse=True):
+        requests.append({
+            'deleteDimension': {
+                'range': {
+                    'sheetId': sheet_num_id,
+                    'dimension': 'ROWS',
+                    'startIndex': r - 1,  # 0-indexed
+                    'endIndex': r,
+                },
+            },
+        })
+    manager.service.spreadsheets().batchUpdate(
+        spreadsheetId=cfg['sheet_id'],
+        body={'requests': requests},
+    ).execute()
+
+
 def sync_workflow_phone_leads() -> Dict[str, Any]:
     """슬랙 워크플로우/수동 입력 모달이 메인 시트에 직접 추가한 lead 자동 보정.
 
@@ -1384,6 +1527,8 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
         from dashboard.services.lead_helpers import extract_keywords_from_sources
         notify_visit = []
+        # 전화 워크플로 dedup 시 삭제할 임시 행 번호 (마지막에 batch delete)
+        temp_rows_to_delete = []
 
         for idx, row in candidates.iterrows():
             sheet_row = idx + 2  # 헤더 1행 + 0-based
@@ -1396,6 +1541,58 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     f'[SYNC/전화WF] 매니저 입력 진행 중 skip (row {sheet_row})'
                 )
                 continue
+
+            # 전화 워크플로 dedup (2026-07-14): 같은 연락처 90일 이내 리드가
+            # 이미 있으면 기존 리드 update + 임시 행 삭제 (매니저 수동 시트
+            # 등록 + 워크플로 이중 사용 사고 방지).
+            _platform_this = str(row.get('플랫폼', '') or '').strip()
+            if _platform_this == '전화' and _phone:
+                existing = _find_existing_lead_by_phone(main_df, _phone, within_days=90)
+                if existing is not None:
+                    existing_lead_no, existing_sheet_row = existing
+                    try:
+                        _update_existing_lead_from_workflow(
+                            manager, cfg, existing_sheet_row, row,
+                        )
+                        temp_rows_to_delete.append(sheet_row)
+                        result.setdefault('updated_existing', 0)
+                        result['updated_existing'] += 1
+                        logger.info(
+                            f'[SYNC/전화WF/DEDUP] 기존 리드 {existing_lead_no} 갱신 '
+                            f'(임시 row {sheet_row} 삭제 예정, 연락처 매치: {_phone})'
+                        )
+                        # 상태가 방문 예약이면 갱신 카드 발송 (기존 lead_no)
+                        _status = str(row.get('상태', '') or '').strip()
+                        if _status == '방문 예약':
+                            _visit_date_raw = str(row.get('방문 예정일', '') or '').strip()
+                            notify_visit.append({
+                                'lead_no': existing_lead_no,
+                                'name': _name,
+                                'phone': _phone,
+                                'email': str(row.get('이메일', '')).strip(),
+                                'consult_time': str(row.get('상담 시간', '')).strip(),
+                                'address': str(row.get('방문 주소', '')).strip(),
+                                'visit_date': _visit_date_raw,
+                                'inquiry': (
+                                    str(row.get('문의 내용', '') or '').strip() or
+                                    str(row.get('상담 내용', '') or '').strip()
+                                ),
+                                'keyword': str(row.get('키워드', '')).strip(),
+                                'user_name': (
+                                    str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
+                                    or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
+                                ),
+                                'platform': _platform_this,
+                                'is_dedup_update': True,  # 헤더 표시용
+                            })
+                        continue
+                    except Exception as exc:
+                        logger.error(
+                            f'[SYNC/전화WF/DEDUP] 기존 리드 갱신 실패 (신규 발번으로 진행): {exc}',
+                            exc_info=True,
+                        )
+                        # dedup 실패 시 fallthrough → 신규 발번
+
             new_lead_no = f"L-{next_no_int:05d}"
             next_no_int += 1
 
@@ -1550,6 +1747,19 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 logger.error(f"[SYNC/전화WF] 보정 실패 (row {sheet_row}): {exc}",
                              exc_info=True)
                 result['errors'] += 1
+
+        # 전화 워크플로 dedup — 임시 행 batch delete (기존 리드에 이미 반영됨)
+        if temp_rows_to_delete:
+            try:
+                _batch_delete_sheet_rows(manager, cfg, temp_rows_to_delete)
+                logger.info(
+                    f'[SYNC/전화WF/DEDUP] 임시 행 {len(temp_rows_to_delete)}개 삭제 완료'
+                )
+            except Exception as exc:
+                logger.error(
+                    f'[SYNC/전화WF/DEDUP] 임시 행 삭제 실패 (수동 정리 필요): {exc}',
+                    exc_info=True,
+                )
 
         # 방문 예약 카드 발송 + 슬랙 List 등록 — 슬랙 client 가져오기 (순환 import 회피)
         if notify_visit:
