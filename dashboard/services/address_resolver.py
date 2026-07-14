@@ -530,19 +530,20 @@ def verify_address(
             # 예: base="...강남파이낸스센터" + tail="강남파이낸스센터" → skip
             #     base="...강남파이낸스센터" + tail="강남파이낸스센터 1층" → "1층"만 추가
             #     base="...SR프라자" + tail="sr프라자" → 대소문자 무시로 중복 판정
+            # 2026-07-13 확장 (L-03190 관측): tail 첫 단어가 base 어디에든 있으면
+            #   연속으로 제거해 중간 중복도 잡음. base 끝이 아닌 중간에 있어도 대응.
             base_lower = base.lower()
             tail_lower = building_tail.lower()
             if tail_lower in base_lower:
                 pass  # 완전 중복 (대소문자 무시) — skip
             else:
                 tail_words = building_tail.split()
-                # 첫 단어가 base 끝에 이미 있으면 그 부분 제거 후 추가 (대소문자 무시)
-                if tail_words and base.rstrip().lower().endswith(tail_words[0].lower()):
-                    remaining = ' '.join(tail_words[1:]).strip()
-                    if remaining:
-                        parts.append(remaining)
-                else:
-                    parts.append(building_tail)
+                # 각 tail 단어가 base 안에 있으면 (연속으로) 제거
+                while tail_words and tail_words[0].lower() in base_lower:
+                    tail_words.pop(0)
+                remaining = ' '.join(tail_words).strip()
+                if remaining:
+                    parts.append(remaining)
         else:
             if facility_carry and facility_carry not in base:
                 parts.append(facility_carry)
@@ -597,6 +598,9 @@ def verify_address(
                     r'맨션|빌라|하우스|리조트|콘도|레지던스|'
                     r'대학|학교|병원|공장|센터|파크|가든|타운|허브|쇼핑몰|백화점|'
                     r'주식회사|㈜|\(주\)|영농조합|유한회사|'
+                    # 브랜드·주상복합·랜드마크 (2026-07-13 L-03190/03194 관측)
+                    r'아울렛|프라임|팰리스|시티|프리미어|캐슬|자이|푸르지오|힐스테이트|'
+                    r'아이파크|더샵|롯데캐슬|이편한세상|위브|스카이|스테이션|'
                     # 영문 건물 키워드 (2026-07-13 L-03193 SD TOWER Ⅱ 중복 이슈)
                     r'TOWER|TWR|BUILDING|BLDG|PLAZA|MALL|CENTER|CENTRE|SQUARE|'
                     r'PARK|HOUSE|VILLA|OFFICE|APT|HOSPITAL|SCHOOL',
@@ -788,6 +792,22 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             if not place_name.startswith(cand + ' '):
                 continue
             if cand in verified_addr:
+                # cand 뒤에 이미 지점명(place_name 두 번째 단어) 이 있으면 replace skip
+                # 예: verified='...현대시티아울렛 가산점 5층...' + place='현대시티아울렛 가산점 주차장'
+                #     → replace 하면 '현대시티아울렛 가산점 주차장 가산점 5층' 중복 (2026-07-13 L-03190)
+                place_words = place_name.split()
+                if len(place_words) < 2:
+                    continue
+                place_second = place_words[1]
+                verified_words = verified_addr.split()
+                already_has_branch = False
+                for i, w in enumerate(verified_words):
+                    if w == cand and i + 1 < len(verified_words):
+                        if verified_words[i + 1] == place_second:
+                            already_has_branch = True
+                            break
+                if already_has_branch:
+                    return verified_addr  # 이미 지점명 있음
                 return verified_addr.replace(cand, place_name, 1)
             return f'{verified_addr} {place_name}'.strip()
     return verified_addr
