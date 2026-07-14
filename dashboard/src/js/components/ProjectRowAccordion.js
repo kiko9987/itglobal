@@ -3589,22 +3589,18 @@ export default class ProjectRowAccordion {
   }
 
   formatBillStatus(rowData) {
-    const billValue = rowData['계산서'] || rowData['X'] || '';
-
+    // 뱃지 형식으로 통일 (2026-07-14) — 부가세 뱃지와 시각적 통일.
+    // 미발행/발행완료/현금(N입금)/부분 발행 등을 색으로 구분.
+    const billValue = rowData['계산서'] ?? rowData['X'] ?? '';
+    let displayValue = billValue;
     if (billValue === true || billValue === 'TRUE' || billValue === '✓' || billValue === 'true') {
-      return '발행완료';
+      displayValue = '발행완료';
     }
-    if (billValue === false || billValue === 'FALSE' || billValue === '' || billValue === '-') {
-      return '미발행';
+    if (this.unifiedBadgeSystem && typeof this.unifiedBadgeSystem.createBadge === 'function') {
+      return this.unifiedBadgeSystem.createBadge('invoice', displayValue);
     }
-    if (typeof billValue === 'string' && billValue.trim() && !['true', 'false', 'TRUE', 'FALSE'].includes(billValue)) {
-      // 계산서 값에서 카테고리 추출하여 아이콘 추가
-      const text = billValue;
-      const icons = this.extractBillIcons(billValue);
-      return `${text}${icons}`;
-    }
-
-    return '미발행';
+    // fallback (badge system 미초기화 시)
+    return displayValue || '미발행';
   }
 
   /**

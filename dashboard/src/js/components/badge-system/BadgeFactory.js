@@ -8,6 +8,7 @@ import ManagerBadge from './ManagerBadge.js';
 import CompanyBadge from './CompanyBadge.js';
 import CollectionBadge from './CollectionBadge.js';
 import VatBadge from './VatBadge.js';
+import InvoiceBadge from './InvoiceBadge.js';
 
 import logger from '../../utils/logger.js';
 export default class BadgeFactory {
@@ -19,6 +20,7 @@ export default class BadgeFactory {
     this.companyBadge = new CompanyBadge();
     this.collectionBadge = new CollectionBadge();
     this.vatBadge = new VatBadge();
+    this.invoiceBadge = new InvoiceBadge();
 
     // 뱃지 타입별 매핑
     this.badgeMap = {
@@ -27,7 +29,8 @@ export default class BadgeFactory {
       'manager': this.managerBadge,
       'company': this.companyBadge,
       'collection': this.collectionBadge,
-      'vat': this.vatBadge
+      'vat': this.vatBadge,
+      'invoice': this.invoiceBadge
     };
   }
 
