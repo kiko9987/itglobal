@@ -685,14 +685,31 @@ def _register_project_handlers(app):
                     lines.append(f":white_check_mark: 사업자등록증 저장 완료 — `{result['code']}`")
                     for fn in saved:
                         lines.append(f"  • {fn}")
-                # OCR 결과 (2026-07-13): 법인명·상호 추출 성공 시 매니저에게 안내.
-                # 시트 자동 업데이트는 하지 않고 매니저가 관리 페이지에서 확인 후 수동 입력.
+                # OCR 결과 (2026-07-13): 법인명·상호 자동 추출 + 사업자명 자동 반영.
+                #   saved      : 사업자명 비어있어서 자동 저장
+                #   match      : 기존값 == OCR (안내 생략)
+                #   mismatch   : 기존값 ≠ OCR (덮어쓰지 않음, 매니저 확인 유도)
+                #   error / '' : 실패 or OCR 매치 못함
                 _biz = (result.get('business_name') or '').strip()
-                if _biz:
+                _biz_status = result.get('biz_update_status') or ''
+                _biz_existing = (result.get('biz_update_existing') or '').strip()
+                if _biz and _biz_status == 'saved':
+                    lines.append(
+                        f":memo: OCR 자동 등록 — 사업자명: *{_biz}* (시트에 저장됨)"
+                    )
+                elif _biz and _biz_status == 'mismatch':
+                    lines.append(
+                        f":memo: 사업자등록증 OCR 결과와 시트값이 달라요. "
+                        f"어느 쪽이 맞는지 확인해주세요.\n"
+                        f"  • 시트값: *{_biz_existing}*\n"
+                        f"  • OCR 결과: *{_biz}*"
+                    )
+                elif _biz and _biz_status == 'error':
                     lines.append(
                         f":memo: OCR 결과 — 사업자명 추정: *{_biz}*  "
-                        f"_(관리 페이지에서 프로젝트 사업자명 확인 후 수정하세요)_"
+                        f"_(자동 저장 실패 — 관리 페이지에서 확인 후 수동 입력하세요)_"
                     )
+                # match / '' 인 경우 조용히 skip
                 if skipped:
                     lines.append(f":warning: 저장 안 됨:")
                     for s in skipped:
@@ -5651,6 +5668,26 @@ def _open_invoice_modal(client, body) -> None:
     # 부가세는 계산서 발행 특성상 항상 '별도' — 필드 제거 (2026-07-13).
     email = payload.get('email', '') or ''
 
+    # button value 는 카드 발송 시점 스냅샷 → OCR 로 갱신된 사업자명·이메일이
+    # 반영되지 않음. 시트 최신값이 있으면 우선 사용 (2026-07-13).
+    if code and code != '-':
+        try:
+            from dashboard.services.project_service import get_project_records
+            _records = get_project_records() or []
+            _latest = next(
+                (r for r in _records if (r.get('프로젝트 코드') or '').strip() == code),
+                None,
+            )
+            if _latest:
+                _biz_latest = (_latest.get('사업자명') or '').strip()
+                if _biz_latest and _biz_latest != '-':
+                    biz = _biz_latest
+                _email_latest = (_latest.get('발주처 이메일') or '').strip()
+                if _email_latest and _email_latest != '-':
+                    email = _email_latest
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] 최신값 조회 실패 (payload fallback): {exc}')
+
     metadata = json.dumps({"code": code}, ensure_ascii=False)
 
     # 필드별 initial_value 정책 (2026-07-13):
@@ -5661,10 +5698,12 @@ def _open_invoice_modal(client, body) -> None:
     addr = addr or '-'
     amt = amt or '-'
 
-    def _text_input(block_id, label, value, multiline=False, optional=False):
+    def _text_input(block_id, label, value, multiline=False, optional=False, placeholder=''):
         el = {"type": "plain_text_input", "action_id": "value"}
         if value:
             el["initial_value"] = value
+        if placeholder:
+            el["placeholder"] = {"type": "plain_text", "text": placeholder}
         if multiline:
             el["multiline"] = True
         blk = {
@@ -5690,7 +5729,11 @@ def _open_invoice_modal(client, body) -> None:
             _text_input("addr", "현장 주소", addr),
             _text_input("amt", "금액", amt),
             _text_input("email", "발행 이메일", email),
-            _text_input("memo", "추가 요청사항", "", multiline=True, optional=True),
+            _text_input(
+                "memo", "추가 요청사항", "",
+                multiline=True, optional=True,
+                placeholder='예) 청구 or 영수 발행\n예) 항목이나 비고란에 특정 내용 기재',
+            ),
         ],
     }
     client.views_open(trigger_id=trigger_id, view=view)

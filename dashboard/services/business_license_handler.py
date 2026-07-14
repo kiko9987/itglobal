@@ -450,25 +450,110 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
             skipped.append(f'{name}: 예외 {type(exc).__name__}')
 
     # 하나라도 저장 성공했으면 원본 공사 확정 카드의 사업자등록증 배지를 ✅로 갱신.
+    # 오래된 카드는 Redis 매핑이 없어 skip 되던 문제 → thread_ts (= 카드 ts) 를
+    # fallback 인자로 전달 (2026-07-13).
     if saved:
         try:
             from dashboard.services.project_slack_notifier import refresh_project_card_license
-            refresh_project_card_license(code)
+            refresh_project_card_license(
+                code,
+                fallback_channel=channel,
+                fallback_message_ts=thread_ts,
+            )
         except Exception as exc:
             logger.warning(f'[LICENSE] 원본 카드 갱신 실패 ({code}): {exc}')
 
     # OCR — 첫 저장 파일에서 법인명·상호 추출 (Google Vision API, 2026-07-13).
-    # 실패 시 조용히 skip. 성공 시 handler 가 슬랙 스레드에 안내 메시지 발송.
+    # 실패 시 조용히 skip. 성공 시 시트 사업자명 자동 반영 시도 (안전장치 있음).
     business_name = ''
+    biz_update_status = ''  # '' | 'saved' | 'match' | 'mismatch' | 'error'
+    biz_update_existing = ''
     if ocr_content:
         try:
             from dashboard.services.business_license_ocr import ocr_business_license
             business_name = ocr_business_license(ocr_content) or ''
         except Exception as exc:
             logger.warning(f'[LICENSE/OCR] 예외: {exc}')
+        if business_name:
+            try:
+                biz_update_status, biz_update_existing = _maybe_update_business_name(code, business_name)
+            except Exception as exc:
+                logger.warning(f'[LICENSE/OCR] 사업자명 자동 반영 실패: {exc}')
+                biz_update_status = 'error'
 
     return {
         'code': code, 'saved': saved, 'skipped': skipped,
         'thread_ts': thread_ts, 'channel': channel,
         'business_name': business_name,
+        'biz_update_status': biz_update_status,
+        'biz_update_existing': biz_update_existing,
     }
+
+
+def _maybe_update_business_name(code: str, ocr_name: str) -> tuple:
+    """OCR 로 추출한 법인명·상호를 시트 사업자명 필드에 자동 반영.
+
+    정책 (오탐 리스크 최소화):
+      - 비어있으면 자동 저장 → 'saved'
+      - 기존값 있고 OCR 결과와 일치 → 'match' (안내 불필요)
+      - 기존값 있고 다름 → 'mismatch' (덮어쓰지 않음, 매니저 확인 유도)
+
+    반환: (status, existing_value)
+    """
+    if not code or not ocr_name:
+        return '', ''
+    # 캐시된 프로젝트 데이터에서 현재 사업자명 조회
+    from dashboard.services.project_service import get_project_records, get_sheets_manager
+    records = get_project_records() or []
+    target_row = None
+    existing = ''
+    for i, r in enumerate(records, start=2):
+        if (r.get('프로젝트 코드') or '').strip() == code:
+            existing = (r.get('사업자명') or '').strip()
+            target_row = i  # 시트 row (header 제외 + 1-indexed)
+            break
+    if target_row is None:
+        logger.warning(f'[LICENSE/OCR] 프로젝트 못 찾음: {code}')
+        return '', ''
+
+    # 정규화 비교 (공백 무시)
+    def _norm(s: str) -> str:
+        import re
+        return re.sub(r'\s+', '', s).strip()
+
+    # '-' 도 미기입으로 간주 (2026-07-13 사용자 정책)
+    if existing and existing != '-':
+        if _norm(existing) == _norm(ocr_name):
+            return 'match', existing
+        return 'mismatch', existing
+
+    # 비어있거나 '-' 이면 시트 update
+    import os
+    sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    if not (sheet_id and sheet_name):
+        logger.warning('[LICENSE/OCR] GOOGLE_SHEET_ID/NAME 미설정')
+        return 'error', ''
+    manager = get_sheets_manager()
+    result = manager.batch_update_fields(
+        sheet_id, sheet_name, target_row,
+        {'사업자명': ocr_name},
+        project_code=code,
+    )
+    if not result.get('success'):
+        logger.warning(f'[LICENSE/OCR] 시트 업데이트 실패: {result}')
+        return 'error', ''
+
+    # 캐시 무효화 → 다음 조회부터 최신값 반영
+    try:
+        from dashboard.services.project_service import invalidate_project_cache
+        invalidate_project_cache(code, trigger_refresh=False)
+    except Exception:
+        try:
+            from dashboard.utils.smart_cache_manager import get_cache_manager
+            get_cache_manager().invalidate_pattern('projects_list')
+        except Exception as exc:
+            logger.debug(f'[LICENSE/OCR] 캐시 무효화 실패 (무시): {exc}')
+
+    logger.info(f'[LICENSE/OCR] 사업자명 자동 저장: {code} → {ocr_name!r}')
+    return 'saved', ''

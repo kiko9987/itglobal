@@ -596,8 +596,12 @@ def verify_address(
                     r'아파트|빌딩|타워|상가|오피스텔|프라자|플라자|스퀘어|'
                     r'맨션|빌라|하우스|리조트|콘도|레지던스|'
                     r'대학|학교|병원|공장|센터|파크|가든|타운|허브|쇼핑몰|백화점|'
-                    r'주식회사|㈜|\(주\)|영농조합|유한회사',
+                    r'주식회사|㈜|\(주\)|영농조합|유한회사|'
+                    # 영문 건물 키워드 (2026-07-13 L-03193 SD TOWER Ⅱ 중복 이슈)
+                    r'TOWER|TWR|BUILDING|BLDG|PLAZA|MALL|CENTER|CENTRE|SQUARE|'
+                    r'PARK|HOUSE|VILLA|OFFICE|APT|HOSPITAL|SCHOOL',
                     building_tail,
+                    re.IGNORECASE,
                 )
             )
             if (

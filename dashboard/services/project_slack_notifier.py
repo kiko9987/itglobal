@@ -546,11 +546,20 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
     return reply_ok
 
 
-def refresh_project_card_license(code: str, latest_data: Optional[dict] = None) -> bool:
+def refresh_project_card_license(
+    code: str,
+    latest_data: Optional[dict] = None,
+    fallback_channel: str = '',
+    fallback_message_ts: str = '',
+) -> bool:
     """사업자등록증 첨부 상태 변경 시 원본 공사 확정 카드를 chat.update로 갱신.
 
     스레드에 사업자등록증 파일이 첨부돼 Drive 저장이 성공한 직후 호출.
     latest_data가 없으면 시트에서 최신 프로젝트 데이터를 재조회한다(있으면 그대로 사용).
+
+    2026-07-13: 오래된 카드는 project_card_msg Redis 매핑이 없어 skip 되던 문제 →
+    fallback_channel/fallback_message_ts (스레드 첨부 handler 가 알고 있는 값) 를
+    받아 매핑 실패 시 재구성.
     """
     if not code:
         return False
@@ -565,15 +574,25 @@ def refresh_project_card_license(code: str, latest_data: Optional[dict] = None) 
     except Exception:
         return False
 
+    channel, ts = '', ''
     mapping = rc.get(f'project_card_msg:{code}')
-    if not mapping:
-        logger.debug(f'[PROJECT/SLACK/사업자] card 매핑 없음, skip ({code})')
-        return False
-    try:
-        channel, ts = (
-            mapping.split('|', 1) if isinstance(mapping, str) else mapping.decode().split('|', 1)
-        )
-    except Exception:
+    if mapping:
+        try:
+            channel, ts = (
+                mapping.split('|', 1) if isinstance(mapping, str) else mapping.decode().split('|', 1)
+            )
+        except Exception:
+            channel, ts = '', ''
+    # Redis 매핑 없음 → handler 가 넘긴 (channel, thread_ts) 사용
+    if (not channel or not ts) and fallback_channel and fallback_message_ts:
+        channel, ts = fallback_channel, fallback_message_ts
+        # 다음 첨부는 Redis hit 되도록 매핑 저장 (30일 TTL)
+        try:
+            rc.setex(f'project_card_msg:{code}', 86400 * 30, f'{channel}|{ts}')
+        except Exception:
+            pass
+    if not channel or not ts:
+        logger.debug(f'[PROJECT/SLACK/사업자] card 매핑·fallback 모두 없음, skip ({code})')
         return False
 
     if latest_data is None:
