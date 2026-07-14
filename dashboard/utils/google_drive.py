@@ -6,15 +6,21 @@
 
 import io
 import os
+import time
 from typing import Optional, List, Dict
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# 재시도 대상 HTTP 상태 — Drive API 는 quota/일시 장애에서 이 코드들을 반환.
+# 429 rate limit (bulk 업로드 시 자주), 5xx 는 서버 측 일시 오류.
+_DRIVE_RETRIABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 _SCOPES = [
     'https://www.googleapis.com/auth/drive',
@@ -182,25 +188,58 @@ def rename_folder(folder_id: str, new_name: str) -> bool:
 
 
 def upload_file(folder_id: str, filename: str, content: bytes,
-                mimetype: str = 'application/octet-stream') -> Optional[dict]:
-    """folder_id 안에 파일 업로드. {'id', 'name', 'webViewLink'} 반환."""
+                mimetype: str = 'application/octet-stream',
+                max_retries: int = 3) -> Optional[dict]:
+    """folder_id 안에 파일 업로드. {'id', 'name', 'webViewLink'} 반환.
+
+    HTTP 429/5xx 는 지수 백오프로 최대 max_retries 회 재시도.
+    현장 사진 50~60장 bulk 업로드 시 Drive quota 로 429 발생 가능성 대응.
+    """
     service = _get_drive_service()
     if not service:
         return None
-    try:
-        media = MediaIoBaseUpload(
-            io.BytesIO(content), mimetype=mimetype, resumable=False,
-        )
-        meta = {'name': filename, 'parents': [folder_id]}
-        result = service.files().create(
-            body=meta, media_body=media,
-            fields='id, name, webViewLink',
-            supportsAllDrives=True,
-        ).execute()
-        logger.info(
-            f"[DRIVE] 파일 업로드: {filename} → {folder_id} ({result.get('id')})"
-        )
-        return result
-    except Exception as exc:
-        logger.error(f"[DRIVE] 파일 업로드 실패 ({filename}): {exc}", exc_info=True)
-        return None
+    meta = {'name': filename, 'parents': [folder_id]}
+    last_exc: Optional[Exception] = None
+    for attempt in range(max_retries):
+        try:
+            # MediaIoBaseUpload 는 재시도마다 새로 만들어야 함 (스트림 소진 방지).
+            media = MediaIoBaseUpload(
+                io.BytesIO(content), mimetype=mimetype, resumable=False,
+            )
+            result = service.files().create(
+                body=meta, media_body=media,
+                fields='id, name, webViewLink',
+                supportsAllDrives=True,
+            ).execute()
+            logger.info(
+                f"[DRIVE] 파일 업로드: {filename} → {folder_id} ({result.get('id')})"
+            )
+            return result
+        except HttpError as exc:
+            status = getattr(getattr(exc, 'resp', None), 'status', 0)
+            try:
+                status = int(status)
+            except (TypeError, ValueError):
+                status = 0
+            if status in _DRIVE_RETRIABLE_STATUS and attempt < max_retries - 1:
+                delay = 2 ** attempt + 0.5  # 1.5, 2.5, 4.5s
+                logger.warning(
+                    f"[DRIVE] 업로드 재시도 예정 ({filename}) — HTTP {status} "
+                    f"[{attempt + 1}/{max_retries}] {delay}s sleep"
+                )
+                time.sleep(delay)
+                last_exc = exc
+                continue
+            logger.error(
+                f"[DRIVE] 파일 업로드 실패 ({filename}) HTTP {status}: {exc}",
+                exc_info=True,
+            )
+            return None
+        except Exception as exc:
+            logger.error(f"[DRIVE] 파일 업로드 실패 ({filename}): {exc}", exc_info=True)
+            return None
+    logger.error(
+        f"[DRIVE] 파일 업로드 최종 실패 ({filename}) — {max_retries}회 재시도 후 포기: "
+        f"{last_exc}"
+    )
+    return None

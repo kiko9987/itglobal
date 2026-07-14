@@ -4446,12 +4446,14 @@ def _process_visit_thread_files(client, event) -> None:
     # Race condition 방어 (2026-07-10)
     # 두 매니저가 동시에 같은 lead thread 에 사진 첨부 시 각 daemon 스레드가 동시에
     # find_or_create_folder 를 호출 → Google Drive eventual consistency 로 폴더 중복 생성.
-    # 60초 리드별 락 (사진 업로드 자체는 보통 5~15초).
+    # TTL 은 파일 개수에 비례 (2026-07-14) — 대형 현장 50~60장 이슈 대응.
+    # 파일당 다운로드 20초 timeout + Drive upload = 최악 ~10초/장, 여유롭게 4초/장.
     from dashboard.utils.redis_client import get_redis_client as _get_rc
     _lock_key = f'visit_photo_lock:{lead_no}'
+    _lock_ttl = min(600, 30 + len(files) * 4)  # 1장=34s, 60장=270s, 상한 10분
     try:
         _rc_lock = _get_rc().redis
-        _got_lock = _rc_lock.set(_lock_key, '1', nx=True, ex=60)
+        _got_lock = _rc_lock.set(_lock_key, '1', nx=True, ex=_lock_ttl)
         if not _got_lock:
             logger.info(
                 f'[SLACK/방문 사진] {lead_no} 다른 스레드가 처리 중 — 이번 이벤트 skip'
@@ -4539,10 +4541,28 @@ def _process_visit_thread_files(client, event) -> None:
     # 방문 사진 최대 100MB (동영상까지 고려). 대용량 파일 다운로드는 메모리·타임아웃 위험.
     _MAX_PHOTO_BYTES = 100 * 1024 * 1024
 
+    # 진행 답글 (2026-07-14) — 대형 현장 50~60장 시 몇 분간 침묵 → 매니저 재업로드 사고 방지.
+    # 4장 이상만 켜서 소량 배치 노이즈 억제. 완료 시 이 메시지를 최종 요약으로 update.
+    _total = len(files)
+    _progress_ts = None
+    if _total >= 4:
+        try:
+            _progress_resp = client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts,
+                text=f":hourglass_flowing_sand: 사진 저장 중... (0/{_total})",
+                unfurl_links=False,
+            )
+            _progress_ts = _progress_resp.get('ts')
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문 사진] 진행 답글 post 실패: {exc}")
+
     uploaded = 0
-    for f in files:
+    skipped_oversize = 0
+    failed = 0
+    for _idx, f in enumerate(files, 1):
         download_url = f.get('url_private_download') or f.get('url_private')
         if not download_url:
+            failed += 1
             continue
         filename = f.get('name') or f.get('title') or f'photo_{f.get("id","unknown")}.jpg'
         mimetype = f.get('mimetype') or 'application/octet-stream'
@@ -4554,40 +4574,84 @@ def _process_visit_thread_files(client, event) -> None:
                 f"[SLACK/방문 사진] 파일 크기 초과 skip: "
                 f"{filename} = {size_hint / 1024 / 1024:.1f}MB > 100MB"
             )
-            continue
+            skipped_oversize += 1
+        else:
+            try:
+                req = urllib.request.Request(
+                    download_url,
+                    headers={'Authorization': f'Bearer {bot_token}'},
+                )
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    # Content-Length 이차 차단
+                    try:
+                        length = int(r.headers.get('Content-Length', '0'))
+                    except (TypeError, ValueError):
+                        length = 0
+                    _too_big = False
+                    if length and length > _MAX_PHOTO_BYTES:
+                        logger.warning(
+                            f"[SLACK/방문 사진] Content-Length 초과 skip: "
+                            f"{filename} = {length / 1024 / 1024:.1f}MB"
+                        )
+                        skipped_oversize += 1
+                        _too_big = True
+                        content = None
+                    else:
+                        # 스트림 상한
+                        content = r.read(_MAX_PHOTO_BYTES + 1)
+                        if len(content) > _MAX_PHOTO_BYTES:
+                            logger.warning(
+                                f"[SLACK/방문 사진] 스트림 크기 초과 skip: "
+                                f"{filename} > 100MB"
+                            )
+                            skipped_oversize += 1
+                            _too_big = True
+                if not _too_big and content is not None:
+                    if upload_file(folder_id, filename, content, mimetype=mimetype):
+                        uploaded += 1
+                    else:
+                        failed += 1
+            except Exception as exc:
+                failed += 1
+                logger.error(
+                    f"[SLACK/방문 사진] 다운로드/업로드 실패 ({filename}): {exc}",
+                    exc_info=True,
+                )
 
-        try:
-            req = urllib.request.Request(
-                download_url,
-                headers={'Authorization': f'Bearer {bot_token}'},
-            )
-            with urllib.request.urlopen(req, timeout=20) as r:
-                # Content-Length 이차 차단
-                try:
-                    length = int(r.headers.get('Content-Length', '0'))
-                except (TypeError, ValueError):
-                    length = 0
-                if length and length > _MAX_PHOTO_BYTES:
-                    logger.warning(
-                        f"[SLACK/방문 사진] Content-Length 초과 skip: "
-                        f"{filename} = {length / 1024 / 1024:.1f}MB"
-                    )
-                    continue
-                # 스트림 상한
-                content = r.read(_MAX_PHOTO_BYTES + 1)
-                if len(content) > _MAX_PHOTO_BYTES:
-                    logger.warning(
-                        f"[SLACK/방문 사진] 스트림 크기 초과 skip: "
-                        f"{filename} > 100MB"
-                    )
-                    continue
-            if upload_file(folder_id, filename, content, mimetype=mimetype):
-                uploaded += 1
-        except Exception as exc:
-            logger.error(f"[SLACK/방문 사진] 다운로드/업로드 실패 ({filename}): {exc}",
-                         exc_info=True)
+        # 진행 업데이트 — 5장마다 or 마지막 파일
+        if _progress_ts and (_idx % 5 == 0 or _idx == _total):
+            try:
+                client.chat_update(
+                    channel=channel, ts=_progress_ts,
+                    text=(
+                        f":hourglass_flowing_sand: 사진 저장 중... ({_idx}/{_total})"
+                    ),
+                )
+            except Exception:
+                pass  # 진행 표시 실패는 무시
 
     if uploaded == 0:
+        # 최종 실패 안내 — 진행 답글이 있으면 그걸로 update, 없으면 새 답글.
+        _reason_bits = []
+        if failed:
+            _reason_bits.append(f"실패 {failed}장")
+        if skipped_oversize:
+            _reason_bits.append(f"크기 초과 스킵 {skipped_oversize}장")
+        _reason = ' / '.join(_reason_bits) or '알 수 없는 원인'
+        _err_text = (
+            f":x: 사진 저장 실패 — 모두 처리되지 않았습니다 ({_reason}).\n"
+            f"잠시 후 다시 시도해 주세요."
+        )
+        try:
+            if _progress_ts:
+                client.chat_update(channel=channel, ts=_progress_ts, text=_err_text)
+            else:
+                client.chat_postMessage(
+                    channel=channel, thread_ts=thread_ts, text=_err_text,
+                    unfurl_links=False,
+                )
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문 사진] 실패 답글 전송 실패: {exc}")
         return
 
     # 4) thread → folder 매핑 저장 (상호명 답글로 폴더명 갱신용, TTL 30일)
@@ -4632,19 +4696,43 @@ def _process_visit_thread_files(client, event) -> None:
                 f"\n💻 *탐색기 경로* :\n"
                 f"```{win_base}\\{folder_name}```"
             )
+        # 부분 실패 표기 (일부 성공, 일부 실패/스킵)
+        _partial_bits = []
+        if failed:
+            _partial_bits.append(f":x: 실패 {failed}장")
+        if skipped_oversize:
+            _partial_bits.append(f":warning: 스킵 {skipped_oversize}장 (100MB 초과)")
+        _partial_line = ('\n' + ' · '.join(_partial_bits)) if _partial_bits else ''
+
         reply_text = (
             f":file_folder: 사진 {uploaded}장을 드라이브에 저장했습니다{location_suffix}.\n"
             f"📁 {folder_name}"
+            f"{_partial_line}"
             f"{win_path_line}\n"
             f":id: *폴더 ID* (새 프로젝트 등록용) :\n"
             f"```{lead_folder['id']}```\n"
             f">*상호명 추가* : 답글에 \"상호 OOO\" 입력\n"
             f">*위치 분류* : 사진 첨부시 댓글에 \"1층\" 등 함께 입력"
         )
-        client.chat_postMessage(
-            channel=channel, thread_ts=thread_ts, text=reply_text,
-            unfurl_links=False,
-        )
+        # 진행 답글이 있으면 그 자리에 update (스레드 중복 방지), 없으면 새 답글.
+        if _progress_ts:
+            try:
+                client.chat_update(
+                    channel=channel, ts=_progress_ts, text=reply_text,
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"[SLACK/방문 사진] 진행 답글 update 실패, 새 답글로 fallback: {exc}"
+                )
+                client.chat_postMessage(
+                    channel=channel, thread_ts=thread_ts, text=reply_text,
+                    unfurl_links=False,
+                )
+        else:
+            client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts, text=reply_text,
+                unfurl_links=False,
+            )
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] thread 답글 실패: {exc}")
 
