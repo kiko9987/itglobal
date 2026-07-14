@@ -2742,6 +2742,142 @@ def slack_list_assignee():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@slack_bp.route("/etc-visit-webhook", methods=["POST"])
+def slack_etc_visit_webhook():
+    """슬랙 워크플로 "방문요청 등록" — "방문 유형=기타" 브랜치 전용 웹훅.
+
+    시트에 저장하지 않고 즉시 #방문_일정 카드 + 슬랙 List 만 생성.
+    "기타" 는 온라인 리드가 아니라 사후관리/수금/A/S 등 이미 확정된 관계이므로
+    리드 시트에 쌓지 않기 위함 (2026-07-14).
+
+    페이로드(JSON):
+      {
+        "name": "홍길동",
+        "phone": "010-1234-5678",
+        "email": "",                       # 선택
+        "address": "서울시 강남구 ...",
+        "visit_date": "2026-07-15 14:00",  # 표시용, 포맷 자유
+        "inquiry": "제품 수리 요청",
+        "user_name": "@고광일",             # @ 자동 제거
+        "consult_time": "2026.07.14. 15:30",  # 선택, 표시용
+        "keyword": ""                       # 선택
+      }
+
+    보안: X-Auth 헤더 == SLACK_ETC_VISIT_WEBHOOK_SECRET 검증.
+    """
+    try:
+        expected = os.getenv('SLACK_ETC_VISIT_WEBHOOK_SECRET', '').strip()
+        if not expected:
+            logger.error("[SLACK/ETC-VISIT] SLACK_ETC_VISIT_WEBHOOK_SECRET 미설정")
+            return jsonify({"ok": False, "error": "server_not_configured"}), 500
+        if request.headers.get('X-Auth', '') != expected:
+            logger.warning("[SLACK/ETC-VISIT] 인증 헤더 불일치")
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+        data = request.get_json(silent=True) or {}
+        name = str(data.get('name') or '').strip()
+        phone = str(data.get('phone') or '').strip()
+        address = str(data.get('address') or '').strip()
+        if not (name or phone):
+            return jsonify({
+                "ok": False,
+                "error": "고객명 or 연락처 중 하나는 필수",
+            }), 400
+        if not address:
+            return jsonify({"ok": False, "error": "방문 주소는 필수"}), 400
+
+        # visit_date 앞의 escape 어포스트로피 제거 (시트 경유 시 관행)
+        vd = str(data.get('visit_date') or '').strip()
+        if vd.startswith("'"):
+            vd = vd[1:]
+
+        lead = {
+            'lead_no': '',  # 기타는 시트 없음 → lead_no 없음
+            'name': name,
+            'phone': phone,
+            'email': str(data.get('email') or '').strip(),
+            'consult_time': str(data.get('consult_time') or '').strip(),
+            'address': address,
+            'visit_date': vd,
+            'inquiry': str(data.get('inquiry') or '').strip(),
+            'keyword': str(data.get('keyword') or '').strip(),
+            'user_name': str(data.get('user_name') or '').strip().lstrip('@').strip(),
+            'platform': '기타',
+        }
+
+        # 백그라운드로 카드 + List 발송 (Slack 워크플로 응답 지연 방지)
+        def _bg():
+            global _slack_app
+            try:
+                if _slack_app is None:
+                    _init_slack_app()
+                client = _slack_app.client if _slack_app else None
+                if not client:
+                    logger.error("[SLACK/ETC-VISIT] Slack client 로드 실패 — skip")
+                    return
+
+                notice_channel, notice_ts = '', ''
+                try:
+                    notice_channel, notice_ts = _post_visit_notice(
+                        client, lead_no='',
+                        category='기타', platform='',
+                        user_id='', visit_date=lead['visit_date'],
+                        name=lead['name'], contact=lead['phone'],
+                        visit_address=lead['address'],
+                        consultation=lead['inquiry'],
+                        user_name=lead.get('user_name', ''),
+                    )
+                    logger.info(
+                        f"[SLACK/ETC-VISIT] 카드 발송 성공: {lead['name']}/{lead['address']}"
+                    )
+                except Exception as exc:
+                    logger.error(
+                        f"[SLACK/ETC-VISIT] 카드 발송 실패: {exc}", exc_info=True,
+                    )
+                    return
+
+                # 슬랙 List 등록 (카드 실패 시 List 도 skip)
+                try:
+                    _post_to_slack_list(
+                        client,
+                        {
+                            '리드 No': '',
+                            '고객명': lead['name'],
+                            '고객 연락처': lead['phone'],
+                            '이메일': lead['email'],
+                            '상담 시간': lead['consult_time'],
+                            '방문 주소': lead['address'],
+                            '문의 내용': lead['inquiry'],
+                            '키워드': lead['keyword'],
+                            '플랫폼': '기타',
+                        },
+                        modal_fields={
+                            'visit_date': lead['visit_date'],
+                            'visit_address': lead['address'],
+                            'consultation': lead['inquiry'],
+                            'estimate': '',
+                        },
+                        channel=notice_channel, message_ts=notice_ts,
+                        action='visit',
+                    )
+                except Exception as exc:
+                    logger.error(
+                        f"[SLACK/ETC-VISIT] List 등록 실패 (카드는 정상): {exc}",
+                        exc_info=True,
+                    )
+            except Exception as exc:
+                logger.error(
+                    f"[SLACK/ETC-VISIT] 배경 처리 실패: {exc}", exc_info=True,
+                )
+
+        threading.Thread(target=_bg, daemon=True).start()
+        return jsonify({"ok": True, "queued": True}), 200
+
+    except Exception as exc:
+        logger.error(f"[SLACK/ETC-VISIT] 웹훅 처리 오류: {exc}", exc_info=True)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @slack_bp.route("/sync-karrot", methods=["GET", "POST"])
 def slack_sync_karrot_now():
     """관리자 트리거 — 당근 시트 즉시 동기화 (테스트/긴급용)"""

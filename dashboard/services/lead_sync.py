@@ -1492,11 +1492,11 @@ def _batch_delete_sheet_rows(manager, cfg: dict, row_numbers: list) -> None:
 def sync_workflow_phone_leads() -> Dict[str, Any]:
     """슬랙 워크플로우/수동 입력 모달이 메인 시트에 직접 추가한 lead 자동 보정.
 
-    스캔 대상: 리드 No 빈 + 플랫폼 in {'전화', '거래처', '기타', '소개'} 행
+    스캔 대상: 리드 No 빈 + 플랫폼 in {'전화', '거래처', '소개'} 행
       - 전화: 온라인_문의 채널 '전화문의 등록하기' 모달 (법인폰 유입)
       - 거래처: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=거래처)
-      - 기타: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=기타 — 계약서·수금·A/S 등)
       - 소개: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=소개)
+      - 기타: 시트 경유 없이 /slack/etc-visit-webhook 직접 처리 (2026-07-14). 슬랙 워크플로 편집기에서 "방문 유형=기타" 브랜치는 시트 append 대신 웹훅으로 라우팅.
     처리:
       1. lead_no 발번 (max + 1)
       2. 상담 시간 ISO → 'YYYY.MM.DD. HH:MM'
@@ -1511,8 +1511,11 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         if main_df is None or main_df.empty:
             return result
 
-        # 빈 lead_no + 플랫폼 in {'전화', '거래처', '기타', '소개'}
-        WF_PLATFORMS = {'전화', '거래처', '기타', '소개'}
+        # 빈 lead_no + 플랫폼 in {'전화', '거래처', '소개'}
+        # ('기타' 는 슬랙 워크플로가 웹훅으로 직접 보내므로 시트 스캔 대상 아님 —
+        #  워크플로 편집 실수로 시트에 append 되어도 여기서 잡히지 않게 두어
+        #  중복 카드 발송 방지)
+        WF_PLATFORMS = {'전화', '거래처', '소개'}
         is_empty_no = main_df['리드 No'].astype(str).str.strip() == ''
         is_target = main_df['플랫폼'].astype(str).str.strip().isin(WF_PLATFORMS)
         candidates = main_df[is_empty_no & is_target].copy()
