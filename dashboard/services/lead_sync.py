@@ -1366,11 +1366,17 @@ def _find_existing_lead_by_phone(
         this_phone = normalize_phone(str(r.get('고객 연락처', '') or ''))
         if this_phone != phone_norm:
             continue
-        try:
-            dt = datetime.strptime(
-                str(r.get('상담 시간', '')).strip(), '%Y.%m.%d. %H:%M',
-            )
-        except Exception:
+        # 상담 시간 파싱 — 정규 포맷 + 워크플로 raw 포맷 (콜론→마침표) 지원.
+        # L-03241 관측: '2026.07.14.14.18' 처럼 정규화 안 된 채 남은 리드도 매치.
+        raw_dt = str(r.get('상담 시간', '')).strip()
+        dt = None
+        for fmt in ('%Y.%m.%d. %H:%M', '%Y.%m.%d.%H.%M', '%Y-%m-%d %H:%M'):
+            try:
+                dt = datetime.strptime(raw_dt, fmt)
+                break
+            except Exception:
+                continue
+        if dt is None:
             continue
         if dt < cutoff:
             continue
@@ -1564,26 +1570,36 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         # 상태가 방문 예약이면 갱신 카드 발송 (기존 lead_no)
                         _status = str(row.get('상태', '') or '').strip()
                         if _status == '방문 예약':
-                            _visit_date_raw = str(row.get('방문 예정일', '') or '').strip()
+                            # 슬랙 카드 값 병합 — 워크플로 새 값 우선, 없으면 기존 리드값.
+                            # (dedup 로직이 시트엔 기존값 유지시켰지만 카드 build 는
+                            # workflow row 만 참조하면 빈값 카드 발송 이슈)
+                            existing_row_data = main_df.loc[existing_sheet_row - 2]
+                            def _pick(field):
+                                v = str(row.get(field, '') or '').strip()
+                                if v and v != '-':
+                                    return v
+                                v2 = str(existing_row_data.get(field, '') or '').strip()
+                                return v2 if v2 and v2 != '-' else ''
+                            _visit_date_raw = _pick('방문 예정일')
+                            # 전화 문의는 '상담 내용' 우선 (매니저가 통화 후 정리한 것).
+                            # 문의 내용은 온라인 리드용이라 전화에서는 fallback.
+                            _inquiry = _pick('상담 내용') or _pick('문의 내용')
                             notify_visit.append({
                                 'lead_no': existing_lead_no,
-                                'name': _name,
-                                'phone': _phone,
-                                'email': str(row.get('이메일', '')).strip(),
-                                'consult_time': str(row.get('상담 시간', '')).strip(),
-                                'address': str(row.get('방문 주소', '')).strip(),
+                                'name': _pick('고객명') or _name,
+                                'phone': _pick('고객 연락처') or _phone,
+                                'email': _pick('이메일'),
+                                'consult_time': _pick('상담 시간'),
+                                'address': _pick('방문 주소'),
                                 'visit_date': _visit_date_raw,
-                                'inquiry': (
-                                    str(row.get('문의 내용', '') or '').strip() or
-                                    str(row.get('상담 내용', '') or '').strip()
-                                ),
-                                'keyword': str(row.get('키워드', '')).strip(),
+                                'inquiry': _inquiry,
+                                'keyword': _pick('키워드'),
                                 'user_name': (
-                                    str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
-                                    or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
+                                    _pick('영업 담당자').lstrip('@').strip()
+                                    or _pick('온라인 상담자').lstrip('@').strip()
                                 ),
                                 'platform': _platform_this,
-                                'is_dedup_update': True,  # 헤더 표시용
+                                'is_dedup_update': True,
                             })
                         continue
                     except Exception as exc:
