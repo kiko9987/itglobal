@@ -11,6 +11,7 @@ Slack 봇 블루프린트 (ITG 관리 봇)
 
 import os
 import re
+import secrets
 import time
 import textwrap
 import threading
@@ -2791,19 +2792,25 @@ def slack_etc_visit_webhook():
         if vd.startswith("'"):
             vd = vd[1:]
 
-        lead = {
-            'lead_no': '',  # 기타는 시트 없음 → lead_no 없음
-            'name': name,
-            'phone': phone,
-            'email': str(data.get('email') or '').strip(),
-            'consult_time': str(data.get('consult_time') or '').strip(),
-            'address': address,
-            'visit_date': vd,
-            'inquiry': str(data.get('inquiry') or '').strip(),
-            'keyword': str(data.get('keyword') or '').strip(),
-            'user_name': str(data.get('user_name') or '').strip().lstrip('@').strip(),
-            'platform': '기타',
+        # pseudo lead_no 발번 + Redis metadata 저장 (완료/취소/수정 액션 대응)
+        etc_lead_no = _etc_new_lead_no()
+        user_name = str(data.get('user_name') or '').strip().lstrip('@').strip()
+        lead_meta = {
+            '리드 No': etc_lead_no,
+            '고객명': name,
+            '고객 연락처': phone,
+            '이메일': str(data.get('email') or '').strip(),
+            '상담 시간': str(data.get('consult_time') or '').strip(),
+            '방문 주소': address,
+            '문의 내용': str(data.get('inquiry') or '').strip(),
+            '상담 내용': str(data.get('inquiry') or '').strip(),
+            '키워드': str(data.get('keyword') or '').strip(),
+            '방문 예정일': vd,
+            '영업 담당자': user_name,
+            '플랫폼': '기타',
+            '상태': '방문 예약',
         }
+        _etc_set_lead(etc_lead_no, lead_meta)
 
         # 백그라운드로 카드 + List 발송 (Slack 워크플로 응답 지연 방지)
         def _bg():
@@ -2819,42 +2826,32 @@ def slack_etc_visit_webhook():
                 notice_channel, notice_ts = '', ''
                 try:
                     notice_channel, notice_ts = _post_visit_notice(
-                        client, lead_no='',
+                        client, lead_no=etc_lead_no,
                         category='기타', platform='',
-                        user_id='', visit_date=lead['visit_date'],
-                        name=lead['name'], contact=lead['phone'],
-                        visit_address=lead['address'],
-                        consultation=lead['inquiry'],
-                        user_name=lead.get('user_name', ''),
+                        user_id='', visit_date=vd,
+                        name=name, contact=phone,
+                        visit_address=address,
+                        consultation=lead_meta['문의 내용'],
+                        user_name=user_name,
                     )
                     logger.info(
-                        f"[SLACK/ETC-VISIT] 카드 발송 성공: {lead['name']}/{lead['address']}"
+                        f"[SLACK/ETC-VISIT] 카드 발송 성공: {etc_lead_no} / {name} / {address}"
                     )
                 except Exception as exc:
                     logger.error(
-                        f"[SLACK/ETC-VISIT] 카드 발송 실패: {exc}", exc_info=True,
+                        f"[SLACK/ETC-VISIT] 카드 발송 실패 ({etc_lead_no}): {exc}",
+                        exc_info=True,
                     )
                     return
 
                 # 슬랙 List 등록 (카드 실패 시 List 도 skip)
                 try:
                     _post_to_slack_list(
-                        client,
-                        {
-                            '리드 No': '',
-                            '고객명': lead['name'],
-                            '고객 연락처': lead['phone'],
-                            '이메일': lead['email'],
-                            '상담 시간': lead['consult_time'],
-                            '방문 주소': lead['address'],
-                            '문의 내용': lead['inquiry'],
-                            '키워드': lead['keyword'],
-                            '플랫폼': '기타',
-                        },
+                        client, lead_meta,
                         modal_fields={
-                            'visit_date': lead['visit_date'],
-                            'visit_address': lead['address'],
-                            'consultation': lead['inquiry'],
+                            'visit_date': vd,
+                            'visit_address': address,
+                            'consultation': lead_meta['문의 내용'],
                             'estimate': '',
                         },
                         channel=notice_channel, message_ts=notice_ts,
@@ -2871,7 +2868,7 @@ def slack_etc_visit_webhook():
                 )
 
         threading.Thread(target=_bg, daemon=True).start()
-        return jsonify({"ok": True, "queued": True}), 200
+        return jsonify({"ok": True, "lead_no": etc_lead_no}), 200
 
     except Exception as exc:
         logger.error(f"[SLACK/ETC-VISIT] 웹훅 처리 오류: {exc}", exc_info=True)
@@ -2934,8 +2931,91 @@ def slack_health():
 # ─────────────────────────────────────────────────────────────
 # 인입 알림 — [방문 요청] / [가격 문의] 모달 + 제출 처리
 # ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# 기타 방문 pseudo-lead (2026-07-14)
+# ─────────────────────────────────────────────────────────────
+# "기타" 방문(사후관리/A/S/수금 등)은 시트에 저장하지 않지만 방문 완료·취소·수정
+# 액션은 정상 동작해야 함. 시트 대신 Redis 에 metadata 저장 (TTL 90일).
+# lead_no 형식: 'ETC-{6자 hex}' (예: 'ETC-a1b2c3'). L-XXXXX 와 구분됨.
+_ETC_LEAD_PREFIX = 'ETC-'
+_ETC_REDIS_KEY_FMT = 'etc_visit:{}'
+_ETC_TTL_SECONDS = 60 * 60 * 24 * 90
+
+
+def _is_etc_lead(lead_no: str) -> bool:
+    return bool(lead_no) and str(lead_no).startswith(_ETC_LEAD_PREFIX)
+
+
+def _etc_new_lead_no() -> str:
+    """중복 확률 극히 낮음 (16^6 = 16M). 충돌 시 재발번."""
+    from dashboard.utils.redis_client import get_redis_client
+    rc = get_redis_client().redis
+    for _ in range(5):
+        candidate = f"{_ETC_LEAD_PREFIX}{secrets.token_hex(3)}"
+        if not rc.exists(_ETC_REDIS_KEY_FMT.format(candidate)):
+            return candidate
+    # 5회 충돌 시 timestamp 추가 (사실상 발생 안 함)
+    return f"{_ETC_LEAD_PREFIX}{secrets.token_hex(3)}{int(time.time()) % 1000:03d}"
+
+
+def _etc_get_lead(lead_no: str) -> Optional[dict]:
+    """Redis 에서 기타 방문 metadata dict 조회. 시트 lead 와 동일 필드명."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        raw = rc.hgetall(_ETC_REDIS_KEY_FMT.format(lead_no))
+        if not raw:
+            return None
+        # Redis 반환값은 bytes → str decode
+        return {
+            (k.decode() if isinstance(k, bytes) else k):
+            (v.decode() if isinstance(v, bytes) else v)
+            for k, v in raw.items()
+        }
+    except Exception as exc:
+        logger.error(f"[SLACK/ETC] Redis 조회 실패 ({lead_no}): {exc}")
+        return None
+
+
+def _etc_set_lead(lead_no: str, data: dict) -> None:
+    """전체 metadata 저장 (신규 생성)."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        # 빈값 제거 (Redis hset 에 None 못 넣음)
+        clean = {k: str(v) for k, v in data.items() if v is not None}
+        rc.hset(_ETC_REDIS_KEY_FMT.format(lead_no), mapping=clean)
+        rc.expire(_ETC_REDIS_KEY_FMT.format(lead_no), _ETC_TTL_SECONDS)
+    except Exception as exc:
+        logger.error(f"[SLACK/ETC] Redis 저장 실패 ({lead_no}): {exc}", exc_info=True)
+
+
+def _update_lead_dispatch(lead_no: str, updates: dict) -> None:
+    """lead_no 형식에 따라 시트 update_lead 또는 Redis hset 로 분기.
+    ETC- 는 시트에 없으므로 Redis metadata 만 갱신 + TTL 재연장.
+    """
+    if _is_etc_lead(lead_no):
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            clean = {k: str(v) for k, v in updates.items() if v is not None}
+            if clean:
+                rc.hset(_ETC_REDIS_KEY_FMT.format(lead_no), mapping=clean)
+                rc.expire(_ETC_REDIS_KEY_FMT.format(lead_no), _ETC_TTL_SECONDS)
+            logger.info(f"[SLACK/ETC] Redis 상태 갱신: {lead_no} ← {clean}")
+        except Exception as exc:
+            logger.error(f"[SLACK/ETC] Redis 갱신 실패 ({lead_no}): {exc}",
+                         exc_info=True)
+        return
+    # 정상 리드 (L-XXXXX)
+    from dashboard.services.lead_service import update_lead
+    update_lead(lead_no, updates)
+
+
 def _find_lead_by_no(lead_no: str):
-    """리드 No로 메인 시트 행 dict 반환"""
+    """리드 No로 메인 시트 행 dict 반환. ETC- 는 Redis fallback."""
+    if _is_etc_lead(lead_no):
+        return _etc_get_lead(lead_no)
     try:
         from dashboard.services.lead_service import load_leads_data
         df = load_leads_data()
@@ -4350,12 +4430,11 @@ def _process_visit_date_modify(client, body, view) -> None:
     # 범위 양식으로 조립 — end 없거나 start와 같으면 단일
     new_date_display = _format_visit_date_range(new_start, new_end)
 
-    # 1) 시트 update — escape prefix로 시리얼 변환 차단
+    # 1) 시트 update — escape prefix로 시리얼 변환 차단.
+    # ETC- 는 Redis metadata 만 갱신 (시트에 없음).
     try:
-        from dashboard.services.lead_service import update_lead
-        # 단일이면 escape prefix, 범위는 그대로 (Google Sheets가 텍스트로 인식)
         sheet_value = f"'{new_date_display}" if '~' not in new_date_display else new_date_display
-        update_lead(lead_no, {'방문 예정일': sheet_value})
+        _update_lead_dispatch(lead_no, {'방문 예정일': sheet_value})
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 시트 update 실패 ({lead_no}): {exc}", exc_info=True)
         return
@@ -4465,10 +4544,9 @@ def _process_visit_cancel(client, body) -> None:
     if not lead_no:
         return
 
-    # 1) 시트 상태='공사 취소'
+    # 1) 시트 상태='공사 취소' (ETC- 는 Redis metadata 만 갱신)
     try:
-        from dashboard.services.lead_service import update_lead
-        update_lead(lead_no, {'상태': '공사 취소'})
+        _update_lead_dispatch(lead_no, {'상태': '공사 취소'})
     except Exception as exc:
         logger.error(f"[SLACK/방문취소] 시트 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
@@ -4573,7 +4651,8 @@ def _process_visit_thread_files(client, event) -> None:
         logger.warning(f"[SLACK/방문 사진] thread root 조회 실패: {exc}")
         return
 
-    m = re.search(r'L-\d{5}', root_text)
+    # L-XXXXX (정상 리드) 또는 ETC-xxxxxx (기타 방문 pseudo lead)
+    m = re.search(r'L-\d{5}|ETC-[a-f0-9]{6}', root_text)
     if not m:
         logger.info("[SLACK/방문 사진] thread root에 lead_no 없음 — 스킵")
         return
@@ -4812,13 +4891,13 @@ def _process_visit_thread_files(client, event) -> None:
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] Redis 매핑 저장 실패: {exc}")
 
-    # 4-2) 리드 시트 P열 (폴더 ID) 영구 저장 — Redis TTL 만료 대비 + source of truth
+    # 4-2) 리드 시트 P열 (폴더 ID) 영구 저장 — Redis TTL 만료 대비 + source of truth.
+    # 정상 리드는 시트 P열, ETC- 는 Redis metadata 에 저장 (기타 방문은 후속 조회 편의만).
     try:
-        from dashboard.services.lead_service import update_lead
-        update_lead(lead_no, {'폴더 ID': lead_folder['id']})
-        logger.info(f"[SLACK/방문 사진] 시트 P열 폴더 ID 저장: {lead_no} → {lead_folder['id']}")
+        _update_lead_dispatch(lead_no, {'폴더 ID': lead_folder['id']})
+        logger.info(f"[SLACK/방문 사진] 폴더 ID 저장: {lead_no} → {lead_folder['id']}")
     except Exception as exc:
-        logger.warning(f"[SLACK/방문 사진] 시트 P열 저장 실패 ({lead_no}): {exc}")
+        logger.warning(f"[SLACK/방문 사진] 폴더 ID 저장 실패 ({lead_no}): {exc}")
 
     # 5) thread 답글
     try:
@@ -4973,10 +5052,9 @@ def _process_visit_uncancel(client, body) -> None:
     if not lead_no:
         return
 
-    # 1) 시트 상태 → '방문 예약' 복원
+    # 1) 시트 상태 → '방문 예약' 복원 (ETC- 는 Redis metadata 만 갱신)
     try:
-        from dashboard.services.lead_service import update_lead
-        update_lead(lead_no, {'상태': '방문 예약'})
+        _update_lead_dispatch(lead_no, {'상태': '방문 예약'})
     except Exception as exc:
         logger.error(f"[SLACK/방문복원] 시트 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
