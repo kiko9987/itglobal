@@ -4579,44 +4579,46 @@ export default class ProjectRowAccordion {
    * Google Drive URL에서 폴더 ID 자동 추출
    */
   parseDriveFolderUrl(input) {
-    console.log('[parseDriveFolderUrl] 함수 호출됨, input:', input);
-    if (!input) {
-      console.error('[parseDriveFolderUrl] input이 없습니다!');
-      return;
-    }
+    if (!input) return;
 
     const value = input.value.trim();
-    console.log('[parseDriveFolderUrl] 입력 값:', value);
-
-    // 체크 아이콘 찾기
     const wrapper = input.closest('.folder-input-wrapper');
     const successIcon = wrapper?.querySelector('.folder-success-icon');
-    console.log('[parseDriveFolderUrl] wrapper 찾기:', wrapper);
-    console.log('[parseDriveFolderUrl] successIcon 찾기:', successIcon);
 
-    // 값이 비어있으면 주황색 테두리, 아이콘 숨김
-    if (!value) {
-      console.log('[parseDriveFolderUrl] 값이 비어있습니다 - 주황색 테두리 + 아이콘 숨김');
-      input.style.borderColor = '#fd7e14'; // 주황색
-      input.classList.remove('valid-folder-id'); // 유효 상태 제거
-      if (successIcon) {
-        successIcon.style.display = 'none';
-        console.log('[parseDriveFolderUrl] 아이콘 숨김 완료');
-      } else {
-        console.warn('[parseDriveFolderUrl] successIcon을 찾을 수 없습니다!');
+    // 에러 메시지 helper (wrapper 아래 div 추가/삭제)
+    const setError = (message) => {
+      if (!wrapper?.parentElement) return;
+      let err = wrapper.parentElement.querySelector('.folder-error-msg');
+      if (message) {
+        if (!err) {
+          err = document.createElement('div');
+          err.className = 'folder-error-msg mt-1';
+          err.style.cssText = 'color: #dc3545; font-size: 0.85rem;';
+          wrapper.parentElement.appendChild(err);
+        }
+        err.textContent = message;
+      } else if (err) {
+        err.remove();
       }
+    };
+
+    // 값이 비어있으면 주황색 테두리, 아이콘·에러 숨김
+    if (!value) {
+      input.style.borderColor = '#fd7e14';
+      input.classList.remove('valid-folder-id');
+      if (successIcon) successIcon.style.display = 'none';
+      setError(null);
       return;
     }
 
-    // 1. 로컬 경로 감지 (C:\ through I:\) - 경고 및 주황색 테두리
+    // 1. 로컬 경로 감지 (C:\ through I:\) - 경고
     const localPathPattern = /^[C-I]:[\\/]/i;
     if (localPathPattern.test(value)) {
       logger.warn('[폴더 경로] 로컬 경로는 권장하지 않습니다:', value);
-      input.style.borderColor = '#fd7e14'; // 주황색
-      input.classList.remove('valid-folder-id'); // 유효 상태 제거
-      if (successIcon) {
-        successIcon.style.display = 'none';
-      }
+      input.style.borderColor = '#dc3545';
+      input.classList.remove('valid-folder-id');
+      if (successIcon) successIcon.style.display = 'none';
+      setError('로컬 경로는 사용할 수 없어요. 탐색기에서 폴더 우클릭 → "링크를 클립보드로 복사" 를 붙여넣으세요.');
       return;
     }
 
@@ -4638,21 +4640,16 @@ export default class ProjectRowAccordion {
     }
 
     if (folderId) {
-      // 폴더 ID로 자동 변경
-      console.log('[parseDriveFolderUrl] 폴더 ID 추출 성공:', folderId);
       input.value = folderId;
       logger.info('[폴더 경로] Google Drive 링크에서 폴더 ID 추출:', folderId);
-
-      // 초록색 테두리 + 체크 아이콘 표시 (저장할 때까지 유지)
-      input.style.borderColor = '#23923c'; // 초록색
+      input.style.borderColor = '#23923c';
       input.style.transition = 'border-color 0.3s';
-      input.classList.add('valid-folder-id'); // 유효 상태 추가 (hover 방지)
-
+      input.classList.add('valid-folder-id');
       if (successIcon) {
         successIcon.style.display = 'block';
         successIcon.style.opacity = '1';
       }
-
+      setError(null);
       return;
     }
 
@@ -4660,27 +4657,22 @@ export default class ProjectRowAccordion {
     const folderIdPattern = /^[a-zA-Z0-9_-]{33}$/;
     if (folderIdPattern.test(value)) {
       logger.debug('[폴더 경로] 올바른 폴더 ID 형식:', value);
-      // 올바른 ID 형식 - 초록색 테두리 + 체크 아이콘
       input.style.borderColor = '#23923c';
       input.style.transition = 'border-color 0.3s';
-      input.classList.add('valid-folder-id'); // 유효 상태 추가 (hover 방지)
+      input.classList.add('valid-folder-id');
       if (successIcon) {
         successIcon.style.display = 'block';
         successIcon.style.opacity = '1';
       }
+      setError(null);
       return;
     }
 
-    // 잘못된 형식 - 주황색 테두리, 아이콘 숨김
-    console.log('[parseDriveFolderUrl] 잘못된 형식 - 주황색 테두리 + 아이콘 숨김');
-    input.style.borderColor = '#fd7e14';
-    input.classList.remove('valid-folder-id'); // 유효 상태 제거
-    if (successIcon) {
-      successIcon.style.display = 'none';
-      console.log('[parseDriveFolderUrl] 아이콘 숨김 완료');
-    } else {
-      console.warn('[parseDriveFolderUrl] successIcon을 찾을 수 없습니다!');
-    }
+    // 잘못된 형식 — 빨간 테두리 + 명시적 에러 메시지 (2026-07-14)
+    input.style.borderColor = '#dc3545';
+    input.classList.remove('valid-folder-id');
+    if (successIcon) successIcon.style.display = 'none';
+    setError('Google Drive 폴더 링크 or 폴더 ID(33자)가 아니에요. "링크를 클립보드로 복사" 를 붙여넣으세요.');
   }
 
 

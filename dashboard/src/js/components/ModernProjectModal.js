@@ -1035,8 +1035,13 @@ export default class ModernProjectModal {
       return;
     }
 
-    // 4. 기타 경우 (잘못된 형식)
-    input.style.borderColor = 'var(--gray-300)';
+    // 4. 기타 경우 — 잘못된 형식으로 명시적 에러 안내 (2026-07-14)
+    //   지금까지는 조용히 skip 이라 매니저가 잘못 붙여넣은 채로 저장하는 사고 발생.
+    this.showFolderPathError(
+      'Google Drive 폴더 링크 or 폴더 ID가 아니에요. '
+      + '탐색기에서 폴더 우클릭 → "링크를 클립보드로 복사" 를 붙여넣으세요.',
+      input,
+    );
   }
 
   /**
