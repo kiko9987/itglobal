@@ -4614,7 +4614,7 @@ export default class ProjectRowAccordion {
       input.style.borderColor = '#dc3545';
       input.classList.remove('valid-folder-id');
       if (successIcon) successIcon.style.display = 'none';
-      setError('로컬 경로는 사용할 수 없어요. 탐색기에서 폴더 우클릭 → "링크를 클립보드로 복사" 를 붙여넣으세요.');
+      setError('로컬 경로는 사용할 수 없어요. 탐색기에서 폴더 우클릭 → "추가 옵션 표시" → "링크를 클립보드로 복사" 를 붙여넣으세요.');
       return;
     }
 
@@ -4668,7 +4668,7 @@ export default class ProjectRowAccordion {
     input.style.borderColor = '#dc3545';
     input.classList.remove('valid-folder-id');
     if (successIcon) successIcon.style.display = 'none';
-    setError('Google Drive 폴더 링크 or 폴더 ID(33자)가 아니에요. "링크를 클립보드로 복사" 를 붙여넣으세요.');
+    setError('Google Drive 폴더 링크 or 폴더 ID(33자)가 아니에요. 탐색기에서 폴더 우클릭 → "추가 옵션 표시" → "링크를 클립보드로 복사" 를 붙여넣으세요.');
   }
 
 
