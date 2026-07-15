@@ -3109,90 +3109,37 @@ def slack_health():
 # 인입 알림 — [방문 요청] / [가격 문의] 모달 + 제출 처리
 # ─────────────────────────────────────────────────────────────
 # ─────────────────────────────────────────────────────────────
-# 기타 방문 pseudo-lead (2026-07-14)
+# 기타 방문 pseudo-lead (2026-07-15 시나리오 D)
 # ─────────────────────────────────────────────────────────────
-# "기타" 방문(사후관리/A/S/수금 등)은 시트에 저장하지 않지만 방문 완료·취소·수정
-# 액션은 정상 동작해야 함. 시트 대신 Redis 에 metadata 저장 (TTL 90일).
-# lead_no 형식: 'ETC-{6자 hex}' (예: 'ETC-a1b2c3'). L-XXXXX 와 구분됨.
+# "기타" 방문(사후관리/A/S/수금 등)도 시트에 정상 등록. 리드 No 만 L- 대신
+# ETC-xxxxxx (랜덤 hex) — L 번호 소모 방지.
+# 시트가 유일 진실 → Redis metadata 저장 없음, 모든 조회·update 는 시트로.
 _ETC_LEAD_PREFIX = 'ETC-'
-_ETC_REDIS_KEY_FMT = 'etc_visit:{}'
-_ETC_TTL_SECONDS = 60 * 60 * 24 * 90
 
 
 def _is_etc_lead(lead_no: str) -> bool:
+    """lead_no 형식 판별 — 대시보드 필터·카드 표시 등에서 사용."""
     return bool(lead_no) and str(lead_no).startswith(_ETC_LEAD_PREFIX)
 
 
 def _etc_new_lead_no() -> str:
-    """중복 확률 극히 낮음 (16^6 = 16M). 충돌 시 재발번."""
-    from dashboard.utils.redis_client import get_redis_client
-    rc = get_redis_client().redis
-    for _ in range(5):
-        candidate = f"{_ETC_LEAD_PREFIX}{secrets.token_hex(3)}"
-        if not rc.exists(_ETC_REDIS_KEY_FMT.format(candidate)):
-            return candidate
-    # 5회 충돌 시 timestamp 추가 (사실상 발생 안 함)
-    return f"{_ETC_LEAD_PREFIX}{secrets.token_hex(3)}{int(time.time()) % 1000:03d}"
+    """랜덤 hex ID. 16^6 = 16M 공간이라 실질 충돌 없음.
 
-
-def _etc_get_lead(lead_no: str) -> Optional[dict]:
-    """Redis 에서 기타 방문 metadata dict 조회. 시트 lead 와 동일 필드명."""
-    try:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        raw = rc.hgetall(_ETC_REDIS_KEY_FMT.format(lead_no))
-        if not raw:
-            return None
-        # Redis 반환값은 bytes → str decode
-        return {
-            (k.decode() if isinstance(k, bytes) else k):
-            (v.decode() if isinstance(v, bytes) else v)
-            for k, v in raw.items()
-        }
-    except Exception as exc:
-        logger.error(f"[SLACK/ETC] Redis 조회 실패 ({lead_no}): {exc}")
-        return None
-
-
-def _etc_set_lead(lead_no: str, data: dict) -> None:
-    """전체 metadata 저장 (신규 생성)."""
-    try:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        # 빈값 제거 (Redis hset 에 None 못 넣음)
-        clean = {k: str(v) for k, v in data.items() if v is not None}
-        rc.hset(_ETC_REDIS_KEY_FMT.format(lead_no), mapping=clean)
-        rc.expire(_ETC_REDIS_KEY_FMT.format(lead_no), _ETC_TTL_SECONDS)
-    except Exception as exc:
-        logger.error(f"[SLACK/ETC] Redis 저장 실패 ({lead_no}): {exc}", exc_info=True)
+    시나리오 D 에서 Redis 중복 체크 제거 — 시트가 유일 진실이지만 시트
+    조회는 sync loop 안에서만 하고 여기서는 랜덤만 반환. 충돌 확률
+    극히 낮으므로 실무 안전.
+    """
+    return f"{_ETC_LEAD_PREFIX}{secrets.token_hex(3)}"
 
 
 def _update_lead_dispatch(lead_no: str, updates: dict) -> None:
-    """lead_no 형식에 따라 시트 update_lead 또는 Redis hset 로 분기.
-    ETC- 는 시트에 없으므로 Redis metadata 만 갱신 + TTL 재연장.
-    """
-    if _is_etc_lead(lead_no):
-        try:
-            from dashboard.utils.redis_client import get_redis_client
-            rc = get_redis_client().redis
-            clean = {k: str(v) for k, v in updates.items() if v is not None}
-            if clean:
-                rc.hset(_ETC_REDIS_KEY_FMT.format(lead_no), mapping=clean)
-                rc.expire(_ETC_REDIS_KEY_FMT.format(lead_no), _ETC_TTL_SECONDS)
-            logger.info(f"[SLACK/ETC] Redis 상태 갱신: {lead_no} ← {clean}")
-        except Exception as exc:
-            logger.error(f"[SLACK/ETC] Redis 갱신 실패 ({lead_no}): {exc}",
-                         exc_info=True)
-        return
-    # 정상 리드 (L-XXXXX)
+    """정규 리드·ETC- 모두 시트 update (시나리오 D)."""
     from dashboard.services.lead_service import update_lead
     update_lead(lead_no, updates)
 
 
 def _find_lead_by_no(lead_no: str):
-    """리드 No로 메인 시트 행 dict 반환. ETC- 는 Redis fallback."""
-    if _is_etc_lead(lead_no):
-        return _etc_get_lead(lead_no)
+    """리드 No 로 메인 시트 행 dict 반환. 정규·ETC- 모두 시트에서 조회."""
     try:
         from dashboard.services.lead_service import load_leads_data
         df = load_leads_data()
@@ -4876,10 +4823,9 @@ def _process_visit_edit_confirmed(client, body, view) -> None:
 
 
 def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -> None:
-    """ETC-xxx (pseudo-lead) → L-XXXXX (정규 리드) 승격.
+    """ETC-xxx → L-XXXXX 승격 (시나리오 D).
 
-    순서 원칙: 새 상태 저장 먼저 → 옛 상태 삭제. 실패 시 최악 = 중복만
-    (유실 없음). 각 단계 성공/실패 로그 명시.
+    시트 A열 (리드 No) + C열 (플랫폼) + 편집 필드만 update. 새 행 add 없음.
     """
     message_ts = metadata.get('message_ts', '')
     user_id = body.get('user', {}).get('id', '')
@@ -4891,61 +4837,68 @@ def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -
     new_address = pending.get('address', '')
     new_consultation = pending.get('consultation', '')
 
-    # 방문 예정일 표시·시트 저장 값
     new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
     sheet_visit_value = (
         f"'{new_visit_display}" if '~' not in new_visit_display else new_visit_display
     )
 
-    # 기존 ETC metadata 에서 부가 정보 보존 (담당자, 온라인 상담자 등)
-    etc_lead = _etc_get_lead(lead_no) or {}
-    user_name = (
-        etc_lead.get('영업 담당자', '').lstrip('@').strip()
-        or etc_lead.get('온라인 상담자', '').lstrip('@').strip()
-    )
-
-    # 1) 새 정규 리드 발번 + 시트 append
+    # 시트 update — A열(리드 No) + C(플랫폼) + 편집 필드 + max L- 발번
     try:
-        from dashboard.services.lead_service import add_lead
-        add_result = add_lead({
-            '플랫폼': new_platform,
-            '상태': '방문 예약',
-            '방문 예정일': sheet_visit_value,
-            '고객명': new_name,
-            '고객 연락처': new_phone,
-            '방문 주소': new_address,
-            '문의 내용': '-',
-            '상담 내용': new_consultation,
-            '온라인 상담자': user_name or '-',
-            '영업 담당자': '-',
-            '마지막 연락일': '-',
-        })
-        if not add_result.get('success'):
-            raise RuntimeError(add_result.get('message', 'add_lead 실패'))
-        new_lead_no = add_result.get('lead_no', '')
+        from dashboard.services.lead_service import (
+            load_leads_data, _get_sheet_config, get_sheets_manager,
+            invalidate_leads_cache,
+        )
+        import pandas as _pd
+        df = load_leads_data(force_refresh=True)
+        if df is None or df.empty:
+            raise RuntimeError('시트 데이터 로드 실패')
+        matches = df[df['리드 No'].astype(str).str.strip() == lead_no]
+        if matches.empty:
+            raise RuntimeError(f'lead_no {lead_no} 시트에서 못 찾음')
+        sheet_row = int(matches.index[0]) + 2
+
+        # 새 L- 발번 (max L- + 1)
+        existing_nos = df['리드 No'].astype(str).str.extract(r'L-(\d+)')[0]
+        existing_nos = _pd.to_numeric(existing_nos, errors='coerce').dropna()
+        next_no_int = int(existing_nos.max()) + 1 if len(existing_nos) > 0 else 1
+        new_lead_no = f"L-{next_no_int:05d}"
+
+        cfg = _get_sheet_config()
+        manager = get_sheets_manager()
+        updates = [
+            (f"A{sheet_row}", new_lead_no),        # 리드 No
+            (f"C{sheet_row}", new_platform),       # 플랫폼: 기타 → 거래처/소개
+            (f"E{sheet_row}", sheet_visit_value),  # 방문 예정일
+            (f"F{sheet_row}", new_phone or '-'),   # 연락처
+            (f"H{sheet_row}", new_name or '-'),    # 고객명
+            (f"I{sheet_row}", new_address or '-'), # 방문 주소
+            (f"K{sheet_row}", new_consultation),   # 상담 내용
+        ]
+        batch = {
+            'valueInputOption': 'USER_ENTERED',
+            'data': [
+                {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[v]]}
+                for r, v in updates
+            ],
+        }
+        manager.service.spreadsheets().values().batchUpdate(
+            spreadsheetId=cfg['sheet_id'], body=batch,
+        ).execute()
+        invalidate_leads_cache()
         logger.info(
-            f"[VISIT/EDIT/PROMOTE] 시트 append 성공: {lead_no} → {new_lead_no}"
+            f"[VISIT/EDIT/PROMOTE] 시트 update: {lead_no} → {new_lead_no} "
+            f"(row {sheet_row})"
         )
     except Exception as exc:
         logger.error(
-            f"[VISIT/EDIT/PROMOTE] 시트 append 실패 ({lead_no}): {exc}",
+            f"[VISIT/EDIT/PROMOTE] 시트 update 실패 ({lead_no}): {exc}",
             exc_info=True,
         )
         _notify_edit_failure(client, channel, user_id, lead_no,
-                             f'시트 append 실패: {exc}')
+                             f'시트 update 실패: {exc}')
         return
 
-    # 2) Redis ETC metadata 삭제 (실패해도 계속 — TTL 로 자연 소멸)
-    try:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        rc.delete(_ETC_REDIS_KEY_FMT.format(lead_no))
-    except Exception as exc:
-        logger.warning(
-            f"[VISIT/EDIT/PROMOTE] Redis ETC 삭제 실패 ({lead_no}) — TTL 로 소멸 대기: {exc}"
-        )
-
-    # 3) 카드 chat_update (헤더 lead_no 갱신, 새 필드 값)
+    # 카드 chat_update (헤더 lead_no 갱신)
     try:
         initial = _slack_user_to_initial(client, user_id) or '-'
         body_text, blocks = _build_visit_notice_blocks(
@@ -4963,41 +4916,32 @@ def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -
             exc_info=True,
         )
 
-    # 4) List webhook — 옛 ETC 아이템 삭제 + 새 정규 아이템 add
+    # List webhook — 옛 ETC 아이템 삭제 + 새 정규 아이템 add
     try:
         _trigger_visit_list_webhook(
             'SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, channel, message_ts,
         )
     except Exception as exc:
         logger.warning(f"[VISIT/EDIT/PROMOTE] List 옛 아이템 삭제 실패: {exc}")
-
     try:
-        new_lead_data = {
-            '리드 No': new_lead_no,
-            '고객명': new_name,
-            '고객 연락처': new_phone,
-            '이메일': etc_lead.get('이메일', ''),
-            '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
-            '방문 주소': new_address,
-            '문의 내용': '-',
-            '키워드': etc_lead.get('키워드', ''),
-            '플랫폼': new_platform,
-        }
         _post_to_slack_list(
-            client, new_lead_data,
-            modal_fields={
-                'visit_date': new_visit_display,
-                'visit_address': new_address,
-                'consultation': new_consultation,
-                'estimate': '',
+            client, {
+                '리드 No': new_lead_no,
+                '고객명': new_name, '고객 연락처': new_phone,
+                '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
+                '방문 주소': new_address, '문의 내용': '-',
+                '플랫폼': new_platform,
             },
-            channel=channel, message_ts=message_ts,
-            action='visit',
+            modal_fields={
+                'visit_date': new_visit_display, 'visit_address': new_address,
+                'consultation': new_consultation, 'estimate': '',
+            },
+            channel=channel, message_ts=message_ts, action='visit',
         )
     except Exception as exc:
         logger.warning(f"[VISIT/EDIT/PROMOTE] List 새 아이템 add 실패: {exc}")
 
-    # 5) 감사 로그 답글 + ephemeral 안내
+    # 감사 로그 답글
     try:
         editor_initial = _slack_user_to_initial(client, user_id) or '-'
         client.chat_postMessage(
@@ -5058,9 +5002,9 @@ def _release_edit_lock(rc, lead_no: str) -> None:
 
 
 def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -> None:
-    """L-XXXXX (정규 리드) → ETC-xxx (pseudo-lead) 강등.
+    """L-XXXXX → ETC-xxx 강등 (시나리오 D).
 
-    순서 원칙: 새 상태 저장 먼저 → 옛 상태 삭제. 실패 시 최악 = 중복만.
+    시트 A열 (리드 No) + C열 (플랫폼=기타) + 편집 필드만 update. 행 삭제 없음.
     """
     message_ts = metadata.get('message_ts', '')
     user_id = body.get('user', {}).get('id', '')
@@ -5072,84 +5016,60 @@ def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -
     new_consultation = pending.get('consultation', '')
 
     new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
-
-    # 기존 정규 lead 에서 부가 정보 (담당자 등) 보존
-    old_lead = _find_lead_by_no(lead_no) or {}
-    user_name = (
-        str(old_lead.get('영업 담당자', '') or '').lstrip('@').strip()
-        or str(old_lead.get('온라인 상담자', '') or '').lstrip('@').strip()
+    sheet_visit_value = (
+        f"'{new_visit_display}" if '~' not in new_visit_display else new_visit_display
     )
 
-    # 1) 새 ETC lead_no 발번 + Redis metadata 저장
-    try:
-        new_etc_lead_no = _etc_new_lead_no()
-        _etc_set_lead(new_etc_lead_no, {
-            '리드 No': new_etc_lead_no,
-            '고객명': new_name,
-            '고객 연락처': new_phone,
-            '이메일': str(old_lead.get('이메일', '') or '').strip(),
-            '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
-            '방문 주소': new_address,
-            '문의 내용': new_consultation,
-            '상담 내용': new_consultation,
-            '키워드': str(old_lead.get('키워드', '') or '').strip(),
-            '방문 예정일': new_visit_display,
-            '영업 담당자': user_name,
-            '온라인 상담자': user_name,
-            '플랫폼': '기타',
-            '상태': '방문 예약',
-        })
-        logger.info(
-            f"[VISIT/EDIT/DEMOTE] Redis ETC 저장 성공: {lead_no} → {new_etc_lead_no}"
-        )
-    except Exception as exc:
-        logger.error(
-            f"[VISIT/EDIT/DEMOTE] Redis ETC 저장 실패 ({lead_no}): {exc}",
-            exc_info=True,
-        )
-        _notify_edit_failure(client, channel, user_id, lead_no,
-                             f'Redis 저장 실패: {exc}')
-        return
+    new_etc_lead_no = _etc_new_lead_no()
 
-    # 2) 정규 리드 시트 행 삭제
+    # 시트 update — A열(리드 No=ETC-xxx) + C(플랫폼=기타) + 편집 필드
     try:
         from dashboard.services.lead_service import (
             load_leads_data, _get_sheet_config, get_sheets_manager,
             invalidate_leads_cache,
         )
-        from dashboard.services.lead_sync import _batch_delete_sheet_rows
         df = load_leads_data(force_refresh=True)
         if df is None or df.empty:
             raise RuntimeError('시트 데이터 로드 실패')
         matches = df[df['리드 No'].astype(str).str.strip() == lead_no]
         if matches.empty:
             raise RuntimeError(f'lead_no {lead_no} 시트에서 못 찾음')
-        sheet_row = int(matches.index[0]) + 2  # 헤더 1 + 0-based
+        sheet_row = int(matches.index[0]) + 2
+
         cfg = _get_sheet_config()
         manager = get_sheets_manager()
-        _batch_delete_sheet_rows(manager, cfg, [sheet_row])
+        updates = [
+            (f"A{sheet_row}", new_etc_lead_no),    # 리드 No: L- → ETC-xxx
+            (f"C{sheet_row}", '기타'),              # 플랫폼: 정규 → 기타
+            (f"E{sheet_row}", sheet_visit_value),  # 방문 예정일
+            (f"F{sheet_row}", new_phone or '-'),   # 연락처
+            (f"H{sheet_row}", new_name or '-'),    # 고객명
+            (f"I{sheet_row}", new_address or '-'), # 방문 주소
+            (f"K{sheet_row}", new_consultation),   # 상담 내용
+        ]
+        batch = {
+            'valueInputOption': 'USER_ENTERED',
+            'data': [
+                {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[v]]}
+                for r, v in updates
+            ],
+        }
+        manager.service.spreadsheets().values().batchUpdate(
+            spreadsheetId=cfg['sheet_id'], body=batch,
+        ).execute()
         invalidate_leads_cache()
         logger.info(
-            f"[VISIT/EDIT/DEMOTE] 시트 행 삭제 성공: {lead_no} (row {sheet_row})"
+            f"[VISIT/EDIT/DEMOTE] 시트 update: {lead_no} → {new_etc_lead_no} "
+            f"(row {sheet_row})"
         )
     except Exception as exc:
-        # 시트 삭제 실패해도 카드/List 는 진행 (매니저가 나중에 수동 삭제)
         logger.error(
-            f"[VISIT/EDIT/DEMOTE] 시트 삭제 실패 ({lead_no}): {exc} — "
-            f"매니저 수동 삭제 필요",
+            f"[VISIT/EDIT/DEMOTE] 시트 update 실패 ({lead_no}): {exc}",
             exc_info=True,
         )
-        try:
-            if user_id and channel:
-                client.chat_postEphemeral(
-                    channel=channel, user=user_id,
-                    text=(
-                        f":warning: `{lead_no}` ETC 전환 완료, 단 시트 행 "
-                        f"자동 삭제 실패. 대시보드에서 수동 삭제 부탁드립니다."
-                    ),
-                )
-        except Exception:
-            pass
+        _notify_edit_failure(client, channel, user_id, lead_no,
+                             f'시트 update 실패: {exc}')
+        return
 
     # 3) 카드 chat_update (헤더 lead_no → ETC-xxx)
     try:
