@@ -2811,6 +2811,110 @@ def slack_list_assignee():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@slack_bp.route("/normalize-visit-dates", methods=["GET", "POST"])
+def slack_normalize_visit_dates():
+    """관리자 트리거 — 리드 시트 방문 예정일 형식 재정규화.
+
+    - 앞의 ' escape prefix 제거 (셀 서식 텍스트라 리터럴로 저장됨)
+    - 공백 포함 범위 ('2026-07-15 ~ 2026-07-17') → 표준 축약 ('2026-07-15~17')
+
+    ?dry_run=1 (기본) / ?dry_run=0 실제 실행
+    ?etc_only=1 → 기타 리드만 (기본 false, 전체 리드)
+    """
+    try:
+        dry_run = request.args.get('dry_run', '1') != '0'
+        etc_only = request.args.get('etc_only', 'false').lower() == 'true'
+        result = _normalize_visit_dates(dry_run=dry_run, etc_only=etc_only)
+        return jsonify({
+            "ok": True, "dry_run": dry_run, "etc_only": etc_only, **result,
+        })
+    except Exception as exc:
+        logger.error(f"[NORMALIZE/방문일] 실패: {exc}", exc_info=True)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def _normalize_visit_dates(dry_run: bool = True, etc_only: bool = False) -> dict:
+    """리드 시트 E열 (방문 예정일) 재정규화."""
+    stats = {'scanned': 0, 'changed': 0, 'skipped': 0, 'errors': 0}
+    try:
+        from dashboard.services.lead_service import (
+            load_leads_data, _get_sheet_config, get_sheets_manager,
+            invalidate_leads_cache,
+        )
+        from dashboard.blueprints.slack_helpers import _format_visit_date_range
+        df = load_leads_data(force_refresh=True)
+        if df is None or df.empty:
+            return {'error': '시트 로드 실패', **stats}
+        cfg = _get_sheet_config()
+        manager = get_sheets_manager()
+
+        updates = []
+        for idx, row in df.iterrows():
+            stats['scanned'] += 1
+            lead_no = str(row.get('리드 No', '') or '').strip()
+            if not lead_no:
+                continue
+            if etc_only and not lead_no.startswith('ETC-'):
+                continue
+
+            raw = str(row.get('방문 예정일', '') or '')
+            if not raw or raw == '-':
+                continue
+
+            # 정규화
+            new_val = raw
+            # 1) 앞의 ' 제거
+            if new_val.startswith("'"):
+                new_val = new_val[1:]
+            # 2) 공백 포함 범위 → 표준
+            if '~' in new_val:
+                parts = [p.strip() for p in new_val.split('~')]
+                parts = [p for p in parts if p]
+                if len(parts) == 2:
+                    new_val = _format_visit_date_range(parts[0], parts[1])
+                elif len(parts) == 1:
+                    new_val = parts[0]
+
+            if new_val == raw:
+                stats['skipped'] += 1
+                continue
+
+            sheet_row = int(idx) + 2  # 헤더 1 + 0-based
+            updates.append((sheet_row, lead_no, raw, new_val))
+            stats['changed'] += 1
+
+        if dry_run or not updates:
+            for sr, ln, old, new in updates[:20]:  # 로그 상한
+                logger.info(
+                    f"[NORMALIZE/방문일/DRY] row {sr} {ln}: {old!r} → {new!r}"
+                )
+            return stats
+
+        # batchUpdate
+        batch = {
+            'valueInputOption': 'USER_ENTERED',
+            'data': [
+                {'range': f"'{cfg['sheet_name']}'!E{sr}", 'values': [[new]]}
+                for sr, _, _, new in updates
+            ],
+        }
+        try:
+            manager.service.spreadsheets().values().batchUpdate(
+                spreadsheetId=cfg['sheet_id'], body=batch,
+            ).execute()
+            invalidate_leads_cache()
+            for sr, ln, old, new in updates:
+                logger.info(f"[NORMALIZE/방문일] row {sr} {ln}: {old!r} → {new!r}")
+        except Exception as exc:
+            logger.error(f"[NORMALIZE/방문일] batchUpdate 실패: {exc}", exc_info=True)
+            stats['errors'] += 1
+    except Exception as exc:
+        logger.error(f"[NORMALIZE/방문일] 스캔 실패: {exc}", exc_info=True)
+        stats['errors'] += 1
+
+    return stats
+
+
 @slack_bp.route("/migrate-etc-to-sheet", methods=["GET", "POST"])
 def slack_migrate_etc_to_sheet():
     """관리자 트리거 — 기존 Redis ETC pseudo-lead metadata 를 시트로 이관.
@@ -4658,7 +4762,7 @@ def _process_visit_date_modify(client, body, view) -> None:
     # 1) 시트 update — escape prefix로 시리얼 변환 차단.
     # ETC- 는 Redis metadata 만 갱신 (시트에 없음).
     try:
-        sheet_value = f"'{new_date_display}" if '~' not in new_date_display else new_date_display
+        sheet_value = new_date_display  # E열 셀 서식 '@ 텍스트' 라 escape 불필요
         _update_lead_dispatch(lead_no, {'방문 예정일': sheet_value})
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 시트 update 실패 ({lead_no}): {exc}", exc_info=True)
@@ -4939,9 +5043,7 @@ def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -
     new_consultation = pending.get('consultation', '')
 
     new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
-    sheet_visit_value = (
-        f"'{new_visit_display}" if '~' not in new_visit_display else new_visit_display
-    )
+    sheet_visit_value = new_visit_display  # E열 텍스트 서식이라 escape 불필요
 
     # 시트 update — A열(리드 No) + C(플랫폼) + 편집 필드 + max L- 발번
     try:
@@ -5117,9 +5219,7 @@ def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -
     new_consultation = pending.get('consultation', '')
 
     new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
-    sheet_visit_value = (
-        f"'{new_visit_display}" if '~' not in new_visit_display else new_visit_display
-    )
+    sheet_visit_value = new_visit_display  # E열 텍스트 서식이라 escape 불필요
 
     new_etc_lead_no = _etc_new_lead_no()
 
@@ -5296,11 +5396,8 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     # 방문 예정일 범위 조립
     new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
 
-    # 시트 저장 값 (범위 아니면 escape prefix)
-    sheet_visit_value = (
-        f"'{new_visit_display}"
-        if '~' not in new_visit_display else new_visit_display
-    )
+    # E열 셀 서식 '@ 텍스트' 라 escape 불필요
+    sheet_visit_value = new_visit_display
 
     updates = {
         '방문 예정일': sheet_visit_value,

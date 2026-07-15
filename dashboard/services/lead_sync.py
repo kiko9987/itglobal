@@ -1428,7 +1428,7 @@ def _update_existing_lead_from_workflow(
             else:
                 iso = _normalize_workflow_date(v)
                 if iso:
-                    v = f"'{iso}"  # date 는 escape prefix
+                    v = iso  # E열 셀 서식 '@ 텍스트' 라 escape 불필요
         elif field == '키워드':
             v = extract_keywords_from_sources(v) or v
         elif field == '온라인 상담자' or field == '영업 담당자':
@@ -1669,7 +1669,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     # 종료일 비어있음 → 단일 날짜로 처리 (escape prefix + ISO)
                     iso = _normalize_workflow_date(start_iso)
                     if iso:
-                        update_cells.append((f"E{sheet_row}", f"'{iso}"))
+                        update_cells.append((f"E{sheet_row}", iso))
                         visit_date = iso
                 else:
                     # 범위 — 양식 정돈 (같은 달이면 ~DD, 다른 달이면 ~MM-DD)
@@ -1682,7 +1682,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             elif visit_date_raw and not visit_date_raw.startswith("'"):
                 iso = _normalize_workflow_date(visit_date_raw)
                 if iso:
-                    update_cells.append((f"E{sheet_row}", f"'{iso}"))
+                    update_cells.append((f"E{sheet_row}", iso))
                     visit_date = iso
             elif not visit_date_raw:
                 # 유선 상담 등 방문 예정일 없는 케이스 — 빈 값 대신 '-'
