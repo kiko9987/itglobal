@@ -2811,6 +2811,201 @@ def slack_list_assignee():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@slack_bp.route("/migrate-visit-buttons", methods=["GET", "POST"])
+def slack_migrate_visit_buttons():
+    """관리자 트리거 — #방문_일정 채널의 기존 카드 버튼을
+    [✏️ 방문일 수정] → [✏️ 정보 수정] 로 일괄 교체 (chat.update).
+
+    ?dry_run=1 (기본) → 실제 update 안 하고 카운트만
+    ?dry_run=0 → 실제 실행
+    ?days=30 (기본) → 최근 N일 카드만 스캔
+    """
+    try:
+        dry_run = request.args.get('dry_run', '1') != '0'
+        try:
+            days = int(request.args.get('days', '30'))
+        except ValueError:
+            days = 30
+        result = _migrate_visit_card_buttons(days=days, dry_run=dry_run)
+        return jsonify({"ok": True, "dry_run": dry_run, "days": days, **result})
+    except Exception as exc:
+        logger.error(f"[MIGRATE/방문버튼] 실패: {exc}", exc_info=True)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
+    """#방문_일정 채널의 방문 카드 스캔 → 새 버튼 blocks 로 chat.update."""
+    channel = os.getenv('SLACK_VISIT_CHANNEL', '').strip()
+    if not channel:
+        return {'error': 'SLACK_VISIT_CHANNEL 미설정'}
+
+    global _visit_slack_app
+    if _visit_slack_app is None:
+        _init_visit_slack_app()
+    client = _visit_slack_app.client if _visit_slack_app else None
+    if not client:
+        return {'error': 'visit bot client 로드 실패'}
+
+    stats = {
+        'scanned': 0, 'visit_cards': 0, 'already_new': 0,
+        'no_actions_skip': 0, 'no_lead_no_skip': 0, 'updated': 0, 'errors': 0,
+    }
+    oldest_ts = str(time.time() - days * 86400)
+    cursor = None
+    pages = 0
+    while pages < 20:  # 안전장치 (최대 20 페이지 = 200*20 = 4000 메시지)
+        pages += 1
+        kwargs = {'channel': channel, 'limit': 200, 'oldest': oldest_ts}
+        if cursor:
+            kwargs['cursor'] = cursor
+        try:
+            resp = client.conversations_history(**kwargs)
+        except Exception as exc:
+            logger.error(f"[MIGRATE/방문버튼] history 실패 (page {pages}): {exc}")
+            stats['errors'] += 1
+            break
+
+        for msg in resp.get('messages', []):
+            stats['scanned'] += 1
+            blocks = msg.get('blocks') or []
+            if not blocks:
+                continue
+
+            # 방문 카드 판별 — section 헤더에 '새 방문 일정' 포함
+            header_text = ''
+            for blk in blocks:
+                if blk.get('type') == 'section':
+                    bt = (blk.get('text') or {}).get('text', '') or ''
+                    if '새 방문 일정' in bt:
+                        header_text = bt
+                        break
+            if not header_text:
+                continue
+            stats['visit_cards'] += 1
+
+            # actions 없으면 이미 완료/취소된 카드 → 스킵
+            actions_blk = next(
+                (b for b in blocks if b.get('type') == 'actions'), None,
+            )
+            if not actions_blk:
+                stats['no_actions_skip'] += 1
+                continue
+
+            # 이미 새 버튼 (visit_edit_info) 이면 스킵
+            elements = actions_blk.get('elements', []) or []
+            if any(e.get('action_id') == 'visit_edit_info' for e in elements):
+                stats['already_new'] += 1
+                continue
+
+            # lead_no 파싱 (헤더 or 본문)
+            lead_no = ''
+            m = re.search(r'(L-\d{5}|ETC-[a-f0-9]{6})', header_text)
+            if m:
+                lead_no = m.group(0)
+            else:
+                for blk in blocks:
+                    if blk.get('type') == 'section':
+                        bt = (blk.get('text') or {}).get('text', '') or ''
+                        m = re.search(r'(L-\d{5}|ETC-[a-f0-9]{6})', bt)
+                        if m:
+                            lead_no = m.group(0)
+                            break
+            if not lead_no:
+                stats['no_lead_no_skip'] += 1
+                continue
+
+            # 최신 lead 값 로드 (없으면 옛 카드 텍스트에서 파싱 fallback)
+            lead = _find_lead_by_no(lead_no) or {}
+
+            # 원본 카드에서 필드값 파싱 (fallback 용)
+            def _parse_field(pattern):
+                mp = re.search(pattern, header_text)
+                return mp.group(1).strip() if mp else ''
+            orig_visit_date = _parse_field(r'방문일\s*:\s*([^\n>]+)')
+            orig_name = _parse_field(r'이름[^:]*:\s*([^\n>]+)')
+            orig_contact = _parse_field(r'연락처\s*:\s*([^\n>]+)')
+            orig_address = _parse_field(r'방문 주소\s*:\s*([^\n>]+)')
+            orig_initial = _parse_field(r'등록자\s*:\s*([^\n>]+)')
+
+            # 상담 내용은 여러 줄 → SEP 사이 텍스트 뽑기
+            orig_consultation = ''
+            m_con = re.search(
+                r'상담 내용\s*:\s*\n((?:>[^\n]*\n)+?)>-{5,}',
+                header_text,
+            )
+            if m_con:
+                orig_consultation = '\n'.join(
+                    ln.lstrip('>').strip() for ln in m_con.group(1).split('\n') if ln.strip()
+                )
+
+            # 필드값: lead 우선, fallback 원본 파싱
+            visit_date = (
+                str(lead.get('방문 예정일', '') or '').strip().lstrip("'")
+                or orig_visit_date
+            )
+            name = str(lead.get('고객명', '') or '').strip() or orig_name
+            contact = str(lead.get('고객 연락처', '') or '').strip() or orig_contact
+            address = str(lead.get('방문 주소', '') or '').strip() or orig_address
+            consultation = (
+                str(lead.get('상담 내용', '') or '').strip() or
+                str(lead.get('문의 내용', '') or '').strip() or
+                orig_consultation
+            )
+            if consultation == '-':
+                consultation = ''
+            initial = orig_initial or '-'
+
+            # category_display
+            platform = str(lead.get('플랫폼', '') or '').strip()
+            if platform in ('거래처', '기타', '소개'):
+                category_display = platform
+            else:
+                category_display = f"온라인({platform})" if platform else '온라인'
+
+            # 새 blocks 생성
+            try:
+                new_body_text, new_blocks = _build_visit_notice_blocks(
+                    lead_no=lead_no, category_display=category_display,
+                    initial=initial, visit_date=visit_date,
+                    name=name, contact=contact,
+                    visit_address=address, consultation=consultation,
+                )
+            except Exception as exc:
+                logger.error(
+                    f"[MIGRATE/방문버튼] blocks 생성 실패 ({lead_no}): {exc}",
+                )
+                stats['errors'] += 1
+                continue
+
+            if dry_run:
+                logger.info(
+                    f"[MIGRATE/방문버튼/DRY] would update ts={msg.get('ts')} "
+                    f"lead={lead_no}"
+                )
+                stats['updated'] += 1
+                continue
+
+            try:
+                client.chat_update(
+                    channel=channel, ts=msg.get('ts'),
+                    text=new_body_text, blocks=new_blocks,
+                )
+                stats['updated'] += 1
+                logger.info(f"[MIGRATE/방문버튼] update: {lead_no}")
+                time.sleep(0.15)  # Slack rate limit 여유
+            except Exception as exc:
+                logger.error(
+                    f"[MIGRATE/방문버튼] chat.update 실패 ({lead_no}): {exc}",
+                )
+                stats['errors'] += 1
+
+        cursor = (resp.get('response_metadata') or {}).get('next_cursor', '')
+        if not cursor:
+            break
+
+    return stats
+
+
 @slack_bp.route("/sync-karrot", methods=["GET", "POST"])
 def slack_sync_karrot_now():
     """관리자 트리거 — 당근 시트 즉시 동기화 (테스트/긴급용)"""
