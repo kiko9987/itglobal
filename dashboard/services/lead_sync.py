@@ -1617,12 +1617,12 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     )
                     visit_raw_e = str(row.get('방문 예정일', '')).strip()
                     visit_iso_e = _normalize_workflow_date(visit_raw_e) or visit_raw_e
-                    _inquiry_e = (
-                        str(row.get('문의 내용', '') or '').strip() or
-                        str(row.get('상담 내용', '') or '').strip()
-                    )
-                    if _inquiry_e == '-':
-                        _inquiry_e = ''
+                    # 상담 내용 우선 (매니저 폼 입력값), 없으면 문의 내용.
+                    # '-' 는 워크플로 기본 placeholder → 빈값 취급.
+                    def _pick_e(field):
+                        v = str(row.get(field, '') or '').strip()
+                        return v if v and v != '-' else ''
+                    _inquiry_e = _pick_e('상담 내용') or _pick_e('문의 내용')
                     _user_e = (
                         str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
                         or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
