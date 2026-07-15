@@ -970,11 +970,11 @@ def get_calendar_event_repository() -> CalendarEventRepository:
 class ConstructorRepository:
     """시공자(Constructor) 마스터 데이터 저장소
 
-    카테고리: '메인', '서브', '내부'
+    카테고리: '메인', '서브', '내부', '일당', '세척', '기타'
     is_active=False 시 드롭다운에서 숨김 (소프트 삭제)
     """
 
-    VALID_CATEGORIES = ('메인', '서브', '내부', '세척')
+    VALID_CATEGORIES = ('메인', '서브', '내부', '일당', '세척', '기타')
 
     def __init__(self, user_db: UserDatabase):
         self.user_db = user_db
@@ -983,7 +983,7 @@ class ConstructorRepository:
         """모든 시공자 조회 (카테고리 → 활성여부 → 이름 가나다순)
 
         정렬 우선순위:
-            1. 카테고리: 메인 → 서브 → 내부
+            1. 카테고리: 메인 → 서브 → 내부 → 일당 → 세척 → 기타
             2. 활성 여부: 활성(1) 먼저, 비활성(0) 나중
             3. 이름: 가나다순
 
