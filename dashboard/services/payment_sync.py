@@ -1105,6 +1105,10 @@ def _to_bool(s) -> bool:
     return str(s).strip().lower() == 'true'
 
 
+_SYNC_MUTEX_KEY = 'payment_sync:running'
+_SYNC_MUTEX_TTL = 60  # 안전 상한 — sync 는 5-10초 예상, 정상 종료 시 즉시 해제
+
+
 def sync_payments() -> Dict:
     """공사 현황 시트 폴링 → U/V/W 변경 감지 + AA 체크 변경 감지 → 알림 발송."""
     result = {'processed': 0, 'sent': 0, 'errors': 0}
@@ -1117,6 +1121,31 @@ def sync_payments() -> Dict:
         logger.debug('[PAYMENT] 필수 환경변수 미설정 — skip')
         return result
 
+    # Redis mutex — APScheduler 자동 폴링 + 수동 스크립트 동시 실행 방지 (중복 발송 방지).
+    #   2026-07-15 관측: 카톡 순서 재발송 스크립트 실행 중 서비스 자동 sync 병렬 진입
+    #   → G3635-YG, G3805-YG 등 카드 중복 발송. SET NX 로 동시 진입 차단.
+    try:
+        _mutex_rc = get_redis_client().redis
+        acquired = _mutex_rc.set(_SYNC_MUTEX_KEY, '1', nx=True, ex=_SYNC_MUTEX_TTL)
+        if not acquired:
+            logger.debug('[PAYMENT] 이미 다른 프로세스에서 sync 실행 중 — skip')
+            return result
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] mutex 획득 실패, sync 진행: {exc}')
+        _mutex_rc = None
+
+    try:
+        return _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token)
+    finally:
+        if _mutex_rc is not None:
+            try:
+                _mutex_rc.delete(_SYNC_MUTEX_KEY)
+            except Exception:
+                pass
+
+
+def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
+    """sync_payments 본체 — mutex 안에서 실행. 원본 함수 시그니처 유지."""
     service = _get_payment_service()
     if not service:
         return result
@@ -1684,33 +1713,18 @@ def sync_payments() -> Dict:
                     except Exception:
                         pass
 
-                    # 스레드 연결 (P2-4, 2026-07-10) — 같은 프로젝트의 이전 발송 카드가 있으면
-                    # 그 카드의 스레드 답글로 발송 → 매니저·대표님이 프로젝트별 이력을 한눈에.
-                    thread_ts = ''
-                    try:
-                        # 이전 stage 카드 ts 를 root 로 사용 (계약금 → 중도금 → 잔금 순)
-                        for prev_stage in ('계약금', '중도금'):
-                            if prev_stage == stage:
-                                break
-                            prev_ts = rc.get(f'payment_slack:ts:{project}:{prev_stage}')
-                            if prev_ts:
-                                thread_ts = prev_ts if isinstance(prev_ts, str) else prev_ts.decode()
-                                break
-                    except Exception:
-                        pass
-
-                    post_kwargs = {'channel': channel, 'text': text}
-                    if thread_ts:
-                        post_kwargs['thread_ts'] = thread_ts
-                        post_kwargs['reply_broadcast'] = True  # 채널에도 노출
-                    # 2026-07-10 safe_slack_call — 결제 알림은 놓치면 매니저가 실입금
-                    # 인지 실패. 429·5xx 자동 재시도 필수.
+                    # 2026-07-15 rollback: 초기 설계 (122a5bb, 각 stage 완전 독립 카드)
+                    #   로 복귀. P2-4 (fd68d48) 스레드 답글 로직 제거 — 프로젝트별 이력
+                    #   통합은 카드 자체 [누적 이력] 섹션이 이미 담당.
+                    # 2026-07-10 safe_slack_call — 결제 알림 놓치면 매니저가 실입금 인지
+                    #   실패. 429·5xx 자동 재시도 필수.
                     from dashboard.blueprints.slack_helpers import safe_slack_call
-                    resp = safe_slack_call(slack.chat_postMessage, **post_kwargs)
+                    resp = safe_slack_call(
+                        slack.chat_postMessage, channel=channel, text=text,
+                    )
                     result['sent'] += 1
                     logger.info(
                         f"[PAYMENT] {stage} 입금 발송: {project} (row {sheet_row})"
-                        + (f" (스레드 답글 → {thread_ts})" if thread_ts else '')
                     )
                     # 발송 성공 시 ts 저장 → 나중에 chat.update 정정 + 스레드 연결 (P0-2 · P2-4)
                     try:
