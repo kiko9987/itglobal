@@ -4624,23 +4624,162 @@ def _process_visit_edit_confirmed(client, body, view) -> None:
 
 
 def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -> None:
-    """[커밋 3 예정] ETC-xxx → L-XXXXX 승격.
-    아직 미구현 — 매니저에게 ephemeral 안내.
+    """ETC-xxx (pseudo-lead) → L-XXXXX (정규 리드) 승격.
+
+    순서 원칙: 새 상태 저장 먼저 → 옛 상태 삭제. 실패 시 최악 = 중복만
+    (유실 없음). 각 단계 성공/실패 로그 명시.
     """
+    message_ts = metadata.get('message_ts', '')
     user_id = body.get('user', {}).get('id', '')
+    new_platform = pending.get('platform', '')
+    new_visit_start = pending.get('visit_start', '')
+    new_visit_end = pending.get('visit_end', '')
+    new_name = pending.get('name', '')
+    new_phone = pending.get('phone', '')
+    new_address = pending.get('address', '')
+    new_consultation = pending.get('consultation', '')
+
+    # 방문 예정일 표시·시트 저장 값
+    new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
+    sheet_visit_value = (
+        f"'{new_visit_display}" if '~' not in new_visit_display else new_visit_display
+    )
+
+    # 기존 ETC metadata 에서 부가 정보 보존 (담당자, 온라인 상담자 등)
+    etc_lead = _etc_get_lead(lead_no) or {}
+    user_name = (
+        etc_lead.get('영업 담당자', '').lstrip('@').strip()
+        or etc_lead.get('온라인 상담자', '').lstrip('@').strip()
+    )
+
+    # 1) 새 정규 리드 발번 + 시트 append
     try:
-        if user_id and channel:
-            client.chat_postEphemeral(
-                channel=channel, user=user_id,
-                text=(
-                    f":warning: `{lead_no}` (기타 → 거래처/소개) 승격은 "
-                    f"아직 구현 중입니다. 잠시 후 지원 예정. "
-                    f"지금은 취소 후 새로 거래처로 등록해 주세요."
-                ),
-            )
+        from dashboard.services.lead_service import add_lead
+        add_result = add_lead({
+            '플랫폼': new_platform,
+            '상태': '방문 예약',
+            '방문 예정일': sheet_visit_value,
+            '고객명': new_name,
+            '고객 연락처': new_phone,
+            '방문 주소': new_address,
+            '문의 내용': '-',
+            '상담 내용': new_consultation,
+            '온라인 상담자': user_name or '-',
+            '영업 담당자': '-',
+            '마지막 연락일': '-',
+        })
+        if not add_result.get('success'):
+            raise RuntimeError(add_result.get('message', 'add_lead 실패'))
+        new_lead_no = add_result.get('lead_no', '')
+        logger.info(
+            f"[VISIT/EDIT/PROMOTE] 시트 append 성공: {lead_no} → {new_lead_no}"
+        )
+    except Exception as exc:
+        logger.error(
+            f"[VISIT/EDIT/PROMOTE] 시트 append 실패 ({lead_no}): {exc}",
+            exc_info=True,
+        )
+        _notify_edit_failure(client, channel, user_id, lead_no,
+                             f'시트 append 실패: {exc}')
+        return
+
+    # 2) Redis ETC metadata 삭제 (실패해도 계속 — TTL 로 자연 소멸)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        rc.delete(_ETC_REDIS_KEY_FMT.format(lead_no))
+    except Exception as exc:
+        logger.warning(
+            f"[VISIT/EDIT/PROMOTE] Redis ETC 삭제 실패 ({lead_no}) — TTL 로 소멸 대기: {exc}"
+        )
+
+    # 3) 카드 chat_update (헤더 lead_no 갱신, 새 필드 값)
+    try:
+        initial = _slack_user_to_initial(client, user_id) or '-'
+        body_text, blocks = _build_visit_notice_blocks(
+            lead_no=new_lead_no, category_display=new_platform, initial=initial,
+            visit_date=new_visit_display,
+            name=new_name, contact=new_phone,
+            visit_address=new_address, consultation=new_consultation,
+        )
+        client.chat_update(
+            channel=channel, ts=message_ts, text=body_text, blocks=blocks,
+        )
+    except Exception as exc:
+        logger.error(
+            f"[VISIT/EDIT/PROMOTE] 카드 update 실패 ({lead_no}→{new_lead_no}): {exc}",
+            exc_info=True,
+        )
+
+    # 4) List webhook — 옛 ETC 아이템 삭제 + 새 정규 아이템 add
+    try:
+        _trigger_visit_list_webhook(
+            'SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, channel, message_ts,
+        )
+    except Exception as exc:
+        logger.warning(f"[VISIT/EDIT/PROMOTE] List 옛 아이템 삭제 실패: {exc}")
+
+    try:
+        new_lead_data = {
+            '리드 No': new_lead_no,
+            '고객명': new_name,
+            '고객 연락처': new_phone,
+            '이메일': etc_lead.get('이메일', ''),
+            '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
+            '방문 주소': new_address,
+            '문의 내용': '-',
+            '키워드': etc_lead.get('키워드', ''),
+            '플랫폼': new_platform,
+        }
+        _post_to_slack_list(
+            client, new_lead_data,
+            modal_fields={
+                'visit_date': new_visit_display,
+                'visit_address': new_address,
+                'consultation': new_consultation,
+                'estimate': '',
+            },
+            channel=channel, message_ts=message_ts,
+            action='visit',
+        )
+    except Exception as exc:
+        logger.warning(f"[VISIT/EDIT/PROMOTE] List 새 아이템 add 실패: {exc}")
+
+    # 5) 감사 로그 답글 + ephemeral 안내
+    try:
+        editor_initial = _slack_user_to_initial(client, user_id) or '-'
+        client.chat_postMessage(
+            channel=channel, thread_ts=message_ts,
+            text=(
+                f":arrows_counterclockwise: *리드 번호 승격*: "
+                f"`{lead_no}` → `{new_lead_no}` "
+                f"(기타 → {new_platform}, 편집자: {editor_initial})"
+            ),
+            unfurl_links=False,
+        )
     except Exception:
         pass
-    logger.warning(f"[VISIT/EDIT/PROMOTE] 미구현 — {lead_no}")
+
+    logger.info(
+        f"[VISIT/EDIT/PROMOTE] 완료: {lead_no} → {new_lead_no} "
+        f"(기타 → {new_platform}, editor={user_id})"
+    )
+
+
+def _notify_edit_failure(client, channel, user_id, lead_no, reason) -> None:
+    """편집 실패 시 매니저에게 ephemeral 알림."""
+    if not (user_id and channel):
+        return
+    try:
+        client.chat_postEphemeral(
+            channel=channel, user=user_id,
+            text=(
+                f":x: `{lead_no}` 정보 수정 실패: {reason}\n"
+                f"관리자에게 문의하거나 잠시 후 다시 시도해 주세요."
+            ),
+        )
+    except Exception:
+        pass
 
 
 def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -> None:
