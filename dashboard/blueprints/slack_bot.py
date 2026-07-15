@@ -5510,27 +5510,11 @@ def _process_visit_thread_files(client, event) -> None:
         return
     lead_no = m.group(0)
 
-    # 기타 방문 (ETC-xxx) 은 사후관리/A/S 임시 방문이라 폴더 생성/드라이브 저장
-    # skip. 스레드 사진은 슬랙 안에만 남음. 첫 첨부 시 매니저 안내 (Redis TTL
-    # 24h 로 중복 방지).
+    # 기타 방문 (ETC-xxx) 은 사후관리/A/S 임시 방문 — 폴더 생성/Drive 저장 skip.
+    # 안내 답글도 없음 (사진마다 답글 뜨는 게 노이즈, 카드 헤더의 ETC- 로
+    # 매니저는 이미 기타 방문임을 인식).
     if _is_etc_lead(lead_no):
-        logger.info(f"[SLACK/방문 사진] {lead_no} 기타 방문 — 폴더 저장 skip")
-        try:
-            from dashboard.utils.redis_client import get_redis_client
-            rc = get_redis_client().redis
-            notice_key = f'etc_photo_notice:{lead_no}'
-            if not rc.get(notice_key):
-                client.chat_postMessage(
-                    channel=channel, thread_ts=thread_ts,
-                    text=(
-                        ":information_source: 기타 방문은 자동 폴더 저장 미지원. "
-                        "사진은 스레드에만 남습니다."
-                    ),
-                    unfurl_links=False,
-                )
-                rc.set(notice_key, '1', ex=86400)
-        except Exception as exc:
-            logger.warning(f"[SLACK/방문 사진] 기타 방문 안내 답글 실패: {exc}")
+        logger.info(f"[SLACK/방문 사진] {lead_no} 기타 방문 — 폴더 저장 skip (조용히)")
         return
 
     # Race condition 방어 (2026-07-10)
