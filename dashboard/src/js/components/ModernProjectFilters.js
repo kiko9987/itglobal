@@ -228,7 +228,7 @@ export default class ModernProjectFilters {
     try {
       const params = new URLSearchParams(window.location.search);
       const knownKeys = ['search', 'company', 'client', 'businessName', 'status',
-                         'data', 'manager', 'outstanding', 'myProjectsOnly'];
+                         'data', 'manager', 'invoice', 'outstanding', 'myProjectsOnly'];
       const restored = {};
       let hasAny = false;
       knownKeys.forEach(k => {
@@ -259,7 +259,7 @@ export default class ModernProjectFilters {
     try {
       const params = new URLSearchParams(window.location.search);
       const knownKeys = ['search', 'company', 'client', 'businessName', 'status',
-                         'data', 'manager', 'outstanding', 'myProjectsOnly'];
+                         'data', 'manager', 'invoice', 'outstanding', 'myProjectsOnly'];
       knownKeys.forEach(k => {
         const v = this.filters[k];
         if (v && v !== '') {
@@ -326,6 +326,7 @@ export default class ModernProjectFilters {
     setSelectSafe(this.statusFilter, 'status');
     setSelectSafe(this.dataFilter, 'data');
     setSelectSafe(this.managerFilter, 'manager');
+    setSelectSafe(this.invoiceFilter, 'invoice');
     setSelectSafe(this.outstandingFilter, 'outstanding');
     if (this.myProjectsOnlyCheckbox && f.myProjectsOnly !== undefined) {
       this.myProjectsOnlyCheckbox.checked = !!f.myProjectsOnly;
@@ -357,6 +358,7 @@ export default class ModernProjectFilters {
     this.statusFilter = document.getElementById('statusFilter');
     this.dataFilter = document.getElementById('dataFilter');
     this.managerFilter = document.getElementById('managerFilter');
+    this.invoiceFilter = document.getElementById('invoiceFilter');
     this.outstandingFilter = document.getElementById('outstandingFilter');
     this.myProjectsOnlyCheckbox = document.getElementById('myProjectsOnly');
     this.resultCountElement = document.getElementById('filterResultCount');
@@ -470,6 +472,20 @@ export default class ModernProjectFilters {
         }
         this.applyFilters(null, true);
         e.target.blur(); // 포커스 제거
+      });
+    }
+
+    // 세금계산서 필터 (시트 Y열 = '계산서' 값)
+    if (this.invoiceFilter) {
+      this.invoiceFilter.addEventListener('change', (e) => {
+        const value = e.target.value;
+        if (value && value !== '' && value !== '전체') {
+          this.filters.invoice = value;
+        } else {
+          delete this.filters.invoice;
+        }
+        this.applyFilters(null, true);
+        e.target.blur();
       });
     }
 
@@ -608,6 +624,14 @@ export default class ModernProjectFilters {
       filteredData = filteredData.filter(item => {
         const statusText = ProjectStatusCalculator.calculateStatus(item);
         return statusText === this.filters.status;
+      });
+    }
+
+    // 세금계산서 필터 (시트 Y열 = '계산서' 필드)
+    if (this.filters.invoice) {
+      filteredData = filteredData.filter(item => {
+        const invoice = String(item['계산서'] || '').trim();
+        return invoice === this.filters.invoice;
       });
     }
 
@@ -750,7 +774,8 @@ export default class ModernProjectFilters {
       client: this.clientFilter?.value || '',
       businessName: this.businessNameFilter?.value || '',
       status: this.statusFilter?.value || '',
-      manager: this.managerFilter?.value || ''
+      manager: this.managerFilter?.value || '',
+      invoice: this.invoiceFilter?.value || ''
     };
 
     // 필터 옵션 재생성
@@ -758,6 +783,7 @@ export default class ModernProjectFilters {
     this.populateClientFilter(data);
     this.populateBusinessNameFilter(data);  // E열 사업자명 (신규)
     this.populateStatusFilter(data);
+    this.populateInvoiceFilter(data);
     this.populateManagerFilter(data);
 
     // 이전 선택값 복원 (옵션이 여전히 존재하는 경우만)
@@ -831,6 +857,18 @@ export default class ModernProjectFilters {
         // 옵션이 더 이상 존재하지 않는 경우 초기화
         this.managerFilter.value = '';
         delete this.filters.manager;
+      }
+    }
+
+    // 세금계산서 필터 복원
+    if (selections.invoice && this.invoiceFilter) {
+      const invoiceOption = Array.from(this.invoiceFilter.options).find(opt => opt.value === selections.invoice);
+      if (invoiceOption) {
+        this.invoiceFilter.value = selections.invoice;
+        this.filters.invoice = selections.invoice;
+      } else {
+        this.invoiceFilter.value = '';
+        delete this.filters.invoice;
       }
     }
   }
@@ -935,6 +973,31 @@ export default class ModernProjectFilters {
   /**
    * 상태 필터 옵션 동적 생성 (계산된 상태값 기반)
    */
+  /**
+   * 세금계산서 필터 옵션 동적 생성 (시트 Y열 '계산서' 필드 unique 값)
+   */
+  populateInvoiceFilter(data) {
+    if (!this.invoiceFilter || !data || !Array.isArray(data)) return;
+
+    const invoiceSet = new Set();
+    data.forEach(item => {
+      const v = String(item['계산서'] || '').trim();
+      if (v) invoiceSet.add(v);
+    });
+
+    // 기존 옵션 제거 (첫 '전체' 유지)
+    while (this.invoiceFilter.children.length > 1) {
+      this.invoiceFilter.removeChild(this.invoiceFilter.lastChild);
+    }
+    const sorted = Array.from(invoiceSet).sort((a, b) => a.localeCompare(b, 'ko'));
+    sorted.forEach(value => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      this.invoiceFilter.appendChild(option);
+    });
+  }
+
   populateStatusFilter(data) {
     if (!this.statusFilter || !data || !Array.isArray(data)) return;
 
@@ -1112,6 +1175,7 @@ export default class ModernProjectFilters {
     if (this.statusFilter) this.statusFilter.value = '';
     if (this.dataFilter) this.dataFilter.value = '';
     if (this.managerFilter) this.managerFilter.value = '';
+    if (this.invoiceFilter) this.invoiceFilter.value = '';
     if (this.outstandingFilter) this.outstandingFilter.value = '';
     if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
 
@@ -1219,6 +1283,7 @@ export default class ModernProjectFilters {
     if (this.filters.status) active.push('상태');
     if (this.filters.data) active.push('데이터');
     if (this.filters.manager) active.push('담당자');
+    if (this.filters.invoice) active.push('세금계산서');
     if (this.filters.outstanding && !receivablesOn) active.push('미수금');
     if (receivablesOn) active.push('수금 관리');
     if (this.filters.myProjectsOnly) active.push('내 공사');
