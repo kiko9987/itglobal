@@ -1281,17 +1281,27 @@ def sync_payments() -> Dict:
                 pass
             continue
 
-        # 값 변경/AA 변경 자체는 baseline 갱신 트리거
+        # 값 변경/AA 변경/메모 변경 자체는 baseline 갱신 트리거.
+        # 메모 변화 감지 (2026-07-15): 매니저가 값 먼저 저장 → 폴링 → 메모 나중
+        # 저장 시나리오. 값·AA 변화 없어서 skip 되던 문제.
+        cur_phash = all_phash_by_row.get(sheet_row, '')
+        prev_phash_raw = prev.get('phash', '')
+        memo_changed = cur_phash != prev_phash_raw
         any_change = (u_val != prev_u) or (v_val != prev_v) or (w_val != prev_w) \
-            or (aa_chk != prev_aa)
+            or (aa_chk != prev_aa) or memo_changed
         if not any_change:
             continue
 
-        # 발송 트리거 — 새 입금(값 증가) 또는 AA 신규 체크만
-        # 값 감소(정정/취소), AA 해제는 baseline만 갱신하고 skip
+        # 발송 트리거 — 새 입금(값 증가), AA 신규 체크, 또는 메모 신규 저장 (값 있고 phash 빈→채워짐).
+        # 값 감소(정정/취소), AA 해제는 baseline만 갱신하고 skip.
         new_payment = (u_val > prev_u) or (v_val > prev_v) or (w_val > prev_w)
         aa_newly_checked = aa_chk and not prev_aa
-        if not (new_payment or aa_newly_checked):
+        # 메모 신규 저장 감지: 값 이미 있고, 이전 phash 빈값 → 지금 phash 있음
+        memo_newly_added = (
+            not prev_phash_raw and cur_phash
+            and (u_val > 0 or v_val > 0 or w_val > 0)
+        )
+        if not (new_payment or aa_newly_checked or memo_newly_added):
             try:
                 rc.hset(key, mapping={
                     'u': u_val, 'v': v_val, 'w': w_val,
