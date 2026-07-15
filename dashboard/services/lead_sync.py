@@ -1492,13 +1492,20 @@ def _batch_delete_sheet_rows(manager, cfg: dict, row_numbers: list) -> None:
 def sync_workflow_phone_leads() -> Dict[str, Any]:
     """슬랙 워크플로우/수동 입력 모달이 메인 시트에 직접 추가한 lead 자동 보정.
 
-    스캔 대상: 리드 No 빈 + 플랫폼 in {'전화', '거래처', '소개'} 행
+    스캔 대상: 리드 No 빈 + 플랫폼 in {'전화', '거래처', '기타', '소개'} 행
       - 전화: 온라인_문의 채널 '전화문의 등록하기' 모달 (법인폰 유입)
-      - 거래처: 방문_일정 채널 인입봇 → 서버가 시트 append (2026-07-15)
-      - 소개: 방문_일정 채널 인입봇 → 서버가 시트 append (2026-07-15)
-      - 기타: 시트 경유 없이 봇이 ETC-xxxxxx pseudo-lead 로 Redis 관리 (2026-07-15)
-        — 방문요청 등록 워크플로가 시트 append 대신 히든 채널에 메시지 발송,
-        방문 일정 알림봇이 감지해서 유형별 분기 처리.
+      - 거래처: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=거래처)
+      - 소개: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=소개)
+      - 기타: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=기타).
+        시트 등록은 스킵하되 카드+List 는 정상. ETC-xxxxxx 임시번호로 Redis 관리.
+        (2026-07-15) 매니저는 시트 안 보고 슬랙+대시보드만 쓴다는 전제.
+
+    동시성 방어 (2026-07-15):
+      1. Redis 락 sync_workflow_phone_leads_lock (nx, TTL 30초) — 중복 sync
+         실행 방지 (매니저 두 명 동시 등록 시 서버가 겹쳐 도는 것 방지).
+      2. 기타 분기의 candidate 는 상담 시간 60초 이내인 것만 처리 — 오래된
+         '기타' 리드가 매니저 수동 등록·과거 sync 실패로 남았으면 다음 sync
+         에서 잡히지 않고 매니저가 대시보드에서 처리하게 유도.
     처리:
       1. lead_no 발번 (max + 1)
       2. 상담 시간 ISO → 'YYYY.MM.DD. HH:MM'
@@ -1508,14 +1515,32 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
       6. 상태='방문 예약' 시 #방문_일정 카드 발송 (방문 수정/취소 버튼 자동 포함)
     """
     result = {'processed': 0, 'visit_notified': 0, 'errors': 0}
+
+    # 동시성 방어 (2026-07-15): 매니저 두 명이 거의 동시에 등록 시 sync 가 중복
+    # 실행되어 같은 리드를 두 번 처리하는 걸 방지. 5분 폴링 + 여러 워크플로
+    # trigger 가 겹칠 때도 유효. TTL 30초 (sync 실제 처리 2~3초 + 여유).
+    _sync_lock = None
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _get_rc_sync
+        _sync_lock = _get_rc_sync().redis
+        _got_sync_lock = _sync_lock.set(
+            'sync_workflow_phone_leads_lock', '1', nx=True, ex=30,
+        )
+        if not _got_sync_lock:
+            logger.debug('[SYNC/전화WF] 다른 인스턴스 진행 중 — 이번 호출 skip')
+            result['skipped_locked'] = True
+            return result
+    except Exception as exc:
+        logger.warning(f'[SYNC/전화WF] 락 획득 실패 — 계속 진행: {exc}')
+        _sync_lock = None
+
     try:
         main_df = load_leads_data(force_refresh=True)
         if main_df is None or main_df.empty:
             return result
 
-        # 빈 lead_no + 플랫폼 in {'전화', '거래처', '소개'}
-        # ('기타' 는 봇이 히든 채널 메시지로 직접 처리 — 시트 경유 X)
-        WF_PLATFORMS = {'전화', '거래처', '소개'}
+        # 빈 lead_no + 플랫폼 in {'전화', '거래처', '기타', '소개'}
+        WF_PLATFORMS = {'전화', '거래처', '기타', '소개'}
         is_empty_no = main_df['리드 No'].astype(str).str.strip() == ''
         is_target = main_df['플랫폼'].astype(str).str.strip().isin(WF_PLATFORMS)
         candidates = main_df[is_empty_no & is_target].copy()
@@ -1552,6 +1577,107 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 continue
 
             _platform_this = str(row.get('플랫폼', '') or '').strip()
+
+            # 기타 방문 (2026-07-15): 시트 등록 스킵, ETC-xxxxxx 임시번호로
+            # Redis 저장 + #방문_일정 카드 + Slack List 만 발송. 방금 append 된
+            # 시트 행은 즉시 삭제 (온라인 리드 시트 오염 방지).
+            # 카드에는 완료/취소/방문일 수정 버튼 정상 포함 (slack_bot.py 헬퍼
+            # _find_lead_by_no / _update_lead_dispatch 가 ETC- 자동 인식).
+            # 동시성 방어: 상담 시간 60초 이내인 것만 처리 (오래된 매니저 수동
+            # 등록·과거 sync 실패 케이스와 구분).
+            if _platform_this == '기타':
+                try:
+                    # 시각 필터 — raw 워크플로 포맷 포함 여러 포맷 fallback
+                    _consult_raw = str(row.get('상담 시간', '')).strip()
+                    _consult_dt = None
+                    for _fmt in ('%Y.%m.%d. %H:%M', '%Y.%m.%d.%H.%M',
+                                 '%Y-%m-%d %H:%M'):
+                        try:
+                            _consult_dt = datetime.strptime(_consult_raw, _fmt)
+                            break
+                        except Exception:
+                            continue
+                    if _consult_dt is not None:
+                        _age_s = (datetime.now() - _consult_dt).total_seconds()
+                        if _age_s > 60:
+                            logger.warning(
+                                f'[SYNC/전화WF/ETC] 오래된 기타 리드 skip '
+                                f'(row {sheet_row}, 상담 시간={_consult_raw!r}, '
+                                f'age={_age_s:.0f}s) — 매니저가 대시보드에서 처리 필요'
+                            )
+                            continue
+
+                    from dashboard.blueprints.slack_bot import (
+                        _etc_new_lead_no, _etc_set_lead,
+                    )
+                    etc_lead_no = _etc_new_lead_no()
+
+                    consult_norm_e = (
+                        _normalize_workflow_datetime(_consult_raw) or _consult_raw
+                    )
+                    visit_raw_e = str(row.get('방문 예정일', '')).strip()
+                    visit_iso_e = _normalize_workflow_date(visit_raw_e) or visit_raw_e
+                    _inquiry_e = (
+                        str(row.get('문의 내용', '') or '').strip() or
+                        str(row.get('상담 내용', '') or '').strip()
+                    )
+                    if _inquiry_e == '-':
+                        _inquiry_e = ''
+                    _user_e = (
+                        str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
+                        or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
+                    )
+                    _kw_e = str(row.get('키워드', '')).strip()
+
+                    # Redis metadata 저장 — 후속 완료/취소/수정 액션이 lookup
+                    _etc_set_lead(etc_lead_no, {
+                        '리드 No': etc_lead_no,
+                        '고객명': _name,
+                        '고객 연락처': _phone,
+                        '이메일': str(row.get('이메일', '')).strip(),
+                        '상담 시간': consult_norm_e,
+                        '방문 주소': str(row.get('방문 주소', '')).strip(),
+                        '문의 내용': _inquiry_e,
+                        '상담 내용': _inquiry_e,
+                        '키워드': _kw_e,
+                        '방문 예정일': visit_iso_e,
+                        '영업 담당자': _user_e,
+                        '온라인 상담자': _user_e,
+                        '플랫폼': '기타',
+                        '상태': '방문 예약',
+                    })
+
+                    # 카드+List 발송 큐에 추가 (아래 notify_visit 처리 로직 재사용)
+                    notify_visit.append({
+                        'lead_no': etc_lead_no,
+                        'name': _name,
+                        'phone': _phone,
+                        'email': str(row.get('이메일', '')).strip(),
+                        'consult_time': consult_norm_e,
+                        'address': str(row.get('방문 주소', '')).strip(),
+                        'visit_date': visit_iso_e,
+                        'inquiry': _inquiry_e,
+                        'keyword': _kw_e,
+                        'user_name': _user_e,
+                        'platform': '기타',
+                    })
+
+                    # 임시 시트 행 삭제 큐 (사이클 끝 batch delete)
+                    temp_rows_to_delete.append(sheet_row)
+                    result.setdefault('etc_processed', 0)
+                    result['etc_processed'] += 1
+                    logger.info(
+                        f'[SYNC/전화WF/ETC] 기타 방문 처리: {etc_lead_no} '
+                        f'({_name}/{_phone}, sheet row {sheet_row} 삭제 예정)'
+                    )
+                    continue
+                except Exception as exc:
+                    logger.error(
+                        f'[SYNC/전화WF/ETC] 기타 처리 실패 (row {sheet_row}): {exc}',
+                        exc_info=True,
+                    )
+                    result['errors'] += 1
+                    continue
 
             # 전화 워크플로 dedup (2026-07-14): 같은 연락처 90일 이내 리드가
             # 이미 있으면 기존 리드 update + 임시 행 삭제 (매니저 수동 시트
@@ -1895,3 +2021,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
     except Exception as exc:
         logger.error(f"[SYNC/전화WF] 동기화 실패: {exc}", exc_info=True)
         return result
+    finally:
+        if _sync_lock is not None:
+            try:
+                _sync_lock.delete('sync_workflow_phone_leads_lock')
+            except Exception:
+                pass
