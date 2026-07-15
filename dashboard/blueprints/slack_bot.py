@@ -382,6 +382,39 @@ def _register_visit_handlers(app):
                 logger.error(f"[SLACK/방문봇] submit_visit_modify 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    # ── [✏️ 정보 수정] 신규 (2026-07-15) ─────────────────────
+    # 확장 모달 — 방문 유형·이름·연락처·주소·상담내용까지 편집 가능.
+    # 유형 변경 시 자동 ETC↔정규 리드 전환 (커밋 3~4에서 추가).
+    @app.action("visit_edit_info")
+    def handle_visit_edit_info(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                lead_no = body["actions"][0].get("value") or ''
+                if not _try_acquire_action_lock(lead_no, 'edit_info'):
+                    logger.info(f'[SLACK/방문봇] visit_edit_info 중복 클릭 skip ({lead_no})')
+                    return
+                channel = body["channel"]["id"]
+                message_ts = body["message"]["ts"]
+                trigger_id = body["trigger_id"]
+                _open_visit_edit_modal(
+                    client, lead_no=lead_no, channel=channel,
+                    message_ts=message_ts, trigger_id=trigger_id,
+                )
+            except Exception as exc:
+                logger.error(f"[SLACK/방문봇] visit_edit_info 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_visit_edit")
+    def handle_submit_visit_edit(ack, body, client, view):
+        ack()
+        def _bg():
+            try:
+                _process_visit_edit(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/방문봇] submit_visit_edit 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     @app.action("visit_cancel")
     def handle_visit_cancel(ack, body, client):
         ack()
@@ -4162,9 +4195,9 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
             "elements": [
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "✏️ 방문일 수정", "emoji": True},
+                    "text": {"type": "plain_text", "text": "✏️ 정보 수정", "emoji": True},
                     "value": lead_no,
-                    "action_id": "visit_modify_date",
+                    "action_id": "visit_edit_info",
                 },
                 {
                     "type": "button",
@@ -4341,6 +4374,242 @@ def _process_visit_date_modify(client, body, view) -> None:
         )
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 메시지 update 실패 ({lead_no}): {exc}",
+                     exc_info=True)
+
+
+# ─────────────────────────────────────────────────────────────
+# [✏️ 정보 수정] 확장 모달 (2026-07-15) — 유형/일정/이름/연락처/주소/상담
+# ─────────────────────────────────────────────────────────────
+# ETC- pseudo-lead 는 Redis metadata, 정규 리드는 시트 셀 update.
+# 유형 변경 시 ETC↔정규 전환은 별도 커밋(3~4)에서 추가. 이 커밋은
+# "유형 동일" case 만 처리 (필드만 update).
+_VISIT_PLATFORM_OPTIONS = ['거래처', '소개', '기타']
+
+
+def _open_visit_edit_modal(client, lead_no: str, channel: str,
+                            message_ts: str, trigger_id: str) -> None:
+    """정보 수정 모달 open — 기존 값 pre-fill."""
+    lead = _find_lead_by_no(lead_no) or {}
+    cur_platform = str(lead.get('플랫폼', '') or '').strip()
+    # 지원 유형 아닌 경우 (온라인/전화 등) 기본값 = 거래처
+    if cur_platform not in _VISIT_PLATFORM_OPTIONS:
+        cur_platform = '거래처'
+
+    # 방문 예정일 시작/종료 분리
+    cur_visit_date = str(lead.get('방문 예정일', '') or '').strip()
+    if cur_visit_date.startswith("'"):
+        cur_visit_date = cur_visit_date[1:]
+    cur_start, cur_end = _split_visit_date_range(cur_visit_date)
+
+    cur_name = str(lead.get('고객명', '') or '').strip()
+    cur_phone = str(lead.get('고객 연락처', '') or '').strip()
+    cur_address = str(lead.get('방문 주소', '') or '').strip()
+    cur_consultation = (
+        str(lead.get('상담 내용', '') or '').strip() or
+        str(lead.get('문의 내용', '') or '').strip()
+    )
+    if cur_consultation == '-':
+        cur_consultation = ''
+
+    metadata = json.dumps({
+        'lead_no': lead_no,
+        'channel': channel,
+        'message_ts': message_ts,
+        'original_platform': cur_platform,  # 유형 변경 감지용
+    }, ensure_ascii=False)
+
+    # 유형 셀렉트
+    platform_opts = [
+        {"text": {"type": "plain_text", "text": p}, "value": p}
+        for p in _VISIT_PLATFORM_OPTIONS
+    ]
+    platform_initial = {
+        "text": {"type": "plain_text", "text": cur_platform},
+        "value": cur_platform,
+    }
+
+    # 날짜 초기값
+    dp_start = {"type": "datepicker", "action_id": "value"}
+    if cur_start:
+        dp_start["initial_date"] = cur_start
+    dp_end = {"type": "datepicker", "action_id": "value"}
+    if cur_end:
+        dp_end["initial_date"] = cur_end
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn",
+            "text": f"*{lead_no}* 정보 수정"}},
+        {
+            "type": "input", "block_id": "platform",
+            "label": {"type": "plain_text", "text": "방문 유형"},
+            "element": {
+                "type": "static_select",
+                "action_id": "value",
+                "options": platform_opts,
+                "initial_option": platform_initial,
+            },
+        },
+        {
+            "type": "input", "block_id": "visit_date",
+            "label": {"type": "plain_text", "text": "방문 예정일 (시작)"},
+            "element": dp_start,
+        },
+        {
+            "type": "input", "block_id": "visit_date_end", "optional": True,
+            "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
+            "hint": {"type": "plain_text",
+                     "text": "범위 방문일 때만 (예: 7/1~7/3)"},
+            "element": dp_end,
+        },
+        {
+            "type": "input", "block_id": "name",
+            "label": {"type": "plain_text", "text": "이름 / 상호"},
+            "element": {
+                "type": "plain_text_input", "action_id": "value",
+                "initial_value": cur_name,
+            },
+        },
+        {
+            "type": "input", "block_id": "phone", "optional": True,
+            "label": {"type": "plain_text", "text": "연락처"},
+            "hint": {"type": "plain_text",
+                     "text": "거래처/소개는 필수, 기타는 선택"},
+            "element": {
+                "type": "plain_text_input", "action_id": "value",
+                "initial_value": cur_phone,
+            },
+        },
+        {
+            "type": "input", "block_id": "address",
+            "label": {"type": "plain_text", "text": "방문 주소"},
+            "element": {
+                "type": "plain_text_input", "action_id": "value",
+                "initial_value": cur_address,
+            },
+        },
+        {
+            "type": "input", "block_id": "consultation", "optional": True,
+            "label": {"type": "plain_text", "text": "상담 내용"},
+            "element": {
+                "type": "plain_text_input", "action_id": "value",
+                "multiline": True,
+                "initial_value": cur_consultation,
+            },
+        },
+    ]
+
+    client.views_open(trigger_id=trigger_id, view={
+        "type": "modal",
+        "callback_id": "submit_visit_edit",
+        "title": {"type": "plain_text", "text": "정보 수정"},
+        "submit": {"type": "plain_text", "text": "저장"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "private_metadata": metadata,
+        "blocks": blocks,
+    })
+
+
+def _process_visit_edit(client, body, view) -> None:
+    """정보 수정 모달 submit 처리.
+
+    커밋 1 스코프: 유형 동일 case 만 처리 (필드만 update).
+    유형 변경 case (ETC↔정규 전환) 는 후속 커밋 3~4 에서 추가.
+    """
+    metadata = json.loads(view.get('private_metadata') or '{}')
+    lead_no = metadata.get('lead_no', '')
+    channel = metadata.get('channel', '')
+    message_ts = metadata.get('message_ts', '')
+    original_platform = metadata.get('original_platform', '')
+
+    state = view['state']['values']
+    new_platform = _v(state, 'platform') or original_platform
+    new_visit_start = _v(state, 'visit_date') or ''
+    new_visit_end = _v(state, 'visit_date_end') or ''
+    new_name = (_v(state, 'name') or '').strip()
+    new_phone = (_v(state, 'phone') or '').strip()
+    new_address = (_v(state, 'address') or '').strip()
+    new_consultation = (_v(state, 'consultation') or '').strip()
+
+    logger.info(
+        f"[SLACK/방문수정] {lead_no} 편집: 플랫폼 {original_platform}→{new_platform}, "
+        f"이름={new_name!r}, 주소={new_address[:30]!r}"
+    )
+
+    # 유형 변경은 커밋 3~4 에서 지원 예정 — 우선 경고 로그 + 진행 skip
+    if new_platform != original_platform:
+        logger.warning(
+            f"[SLACK/방문수정] {lead_no} 유형 변경 요청 {original_platform}→{new_platform} — "
+            f"아직 지원 안 됨 (커밋 3~4 예정). 이번 편집 skip"
+        )
+        try:
+            user_id = body.get('user', {}).get('id', '')
+            if user_id and channel:
+                client.chat_postEphemeral(
+                    channel=channel, user=user_id,
+                    text=(
+                        f":warning: 방문 유형 변경 (`{original_platform}` → `{new_platform}`) "
+                        f"은 아직 지원되지 않습니다. 잠시 후 지원 예정. "
+                        f"현재는 취소 후 재등록해 주세요."
+                    ),
+                )
+        except Exception:
+            pass
+        return
+
+    # 유형 동일 — 필드만 update
+    # 방문 예정일 범위 조립
+    new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
+
+    # 시트 저장 값 (범위 아니면 escape prefix)
+    sheet_visit_value = (
+        f"'{new_visit_display}"
+        if '~' not in new_visit_display else new_visit_display
+    )
+
+    updates = {
+        '방문 예정일': sheet_visit_value,
+        '고객명': new_name,
+        '고객 연락처': new_phone,
+        '방문 주소': new_address,
+        '상담 내용': new_consultation,
+    }
+    try:
+        _update_lead_dispatch(lead_no, updates)
+    except Exception as exc:
+        logger.error(f"[SLACK/방문수정] update 실패 ({lead_no}): {exc}",
+                     exc_info=True)
+        return
+
+    # List update webhook
+    try:
+        _trigger_visit_list_webhook(
+            'SLACK_VISIT_MODIFY_WEBHOOK_URL', lead_no, channel, message_ts,
+            new_visit_date=new_visit_display,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문수정] List update 실패 ({lead_no}): {exc}")
+
+    # 카드 chat_update — 새 값으로 재구성
+    try:
+        lead = _find_lead_by_no(lead_no) or {}
+        platform = str(lead.get('플랫폼', '')).strip()
+        if platform in ('거래처', '기타', '소개'):
+            category_display = platform
+        else:
+            category_display = f"온라인({platform})" if platform else '온라인'
+        user_id = body['user']['id']
+        initial = _slack_user_to_initial(client, user_id) or '-'
+        body_text, blocks = _build_visit_notice_blocks(
+            lead_no=lead_no, category_display=category_display, initial=initial,
+            visit_date=new_visit_display,
+            name=new_name, contact=new_phone,
+            visit_address=new_address, consultation=new_consultation,
+        )
+        client.chat_update(
+            channel=channel, ts=message_ts, text=body_text, blocks=blocks,
+        )
+    except Exception as exc:
+        logger.error(f"[SLACK/방문수정] 카드 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
 
 
