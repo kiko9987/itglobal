@@ -2791,19 +2791,19 @@ def slack_list_assignee():
             except Exception as exc:
                 logger.warning(f"[SLACK/LIST] user_id → 이름 변환 실패: {exc}")
 
-        # 시트 반영 — 빈값/'미정'이면 '-' 로 초기화
-        from dashboard.services.lead_service import update_lead
+        # 반영 — 빈값/'미정'이면 '-' 로 초기화
         if not assignee_name or assignee_name in ('미정', '-'):
             new_value = '-'
         else:
             new_value = assignee_name
 
         try:
-            update_lead(lead_no, {'영업 담당자': new_value})
-            logger.info(f"[SLACK/LIST] 시트 반영: {lead_no} 영업 담당자 → {new_value!r}")
+            # 정규 리드(L-XXXXX) 는 시트, ETC-xxx 는 Redis 로 자동 분기
+            _update_lead_dispatch(lead_no, {'영업 담당자': new_value})
+            logger.info(f"[SLACK/LIST] 담당자 반영: {lead_no} → {new_value!r}")
             return jsonify({"ok": True, "lead_no": lead_no, "assignee": new_value})
         except Exception as exc:
-            logger.error(f"[SLACK/LIST] 시트 반영 실패 ({lead_no}): {exc}", exc_info=True)
+            logger.error(f"[SLACK/LIST] 담당자 반영 실패 ({lead_no}): {exc}", exc_info=True)
             return jsonify({"ok": False, "error": str(exc)}), 500
 
     except Exception as exc:
