@@ -5793,8 +5793,32 @@ def _process_visit_thread_files(client, event) -> None:
             _partial_bits.append(f":warning: 스킵 {skipped_oversize}장 (100MB 초과)")
         _partial_line = ('\n' + ' · '.join(_partial_bits)) if _partial_bits else ''
 
+        # 누적 카운트 — 같은 스레드 이전 배치 답글이 있으면 그 답글 update
+        # (매니저가 10장씩 나눠 여러 배치 올려도 답글은 하나만 유지, 카운트 누적)
+        _cumul_key = f'visit_photo_reply:{channel}:{thread_ts}'
+        _prev_ts = ''
+        _cumul_uploaded = uploaded
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            _rc_reply = get_redis_client().redis
+            _prev_raw = _rc_reply.hgetall(_cumul_key) or {}
+            _prev = {
+                (k.decode() if isinstance(k, bytes) else k):
+                (v.decode() if isinstance(v, bytes) else v)
+                for k, v in _prev_raw.items()
+            }
+            _prev_ts = _prev.get('ts', '')
+            if _prev_ts:
+                try:
+                    _cumul_uploaded = int(_prev.get('count', '0')) + uploaded
+                except ValueError:
+                    _cumul_uploaded = uploaded
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문 사진] 누적 카운트 조회 실패: {exc}")
+            _rc_reply = None
+
         reply_text = (
-            f":file_folder: 사진 {uploaded}장을 드라이브에 저장했습니다{location_suffix}.\n"
+            f":file_folder: 사진 {_cumul_uploaded}장을 드라이브에 저장했습니다{location_suffix}.\n"
             f"📁 {folder_name}"
             f"{_partial_line}"
             f"{win_path_line}\n"
@@ -5804,25 +5828,57 @@ def _process_visit_thread_files(client, event) -> None:
             f">*위치 분류* : 사진 첨부시 댓글에 \"1층\" 등 함께 입력\n"
             f">*추가 사진* : 슬랙 UI 상 10장씩 나눠 올려야 하며, 같은 폴더에 이어서 저장됩니다"
         )
-        # 진행 답글이 있으면 그 자리에 update (스레드 중복 방지), 없으면 새 답글.
-        if _progress_ts:
+
+        # 우선순위: 이전 배치 답글 > 이번 진행 답글 > 새 답글
+        _final_reply_ts = ''
+        _sent = False
+        if _prev_ts:
             try:
-                client.chat_update(
-                    channel=channel, ts=_progress_ts, text=reply_text,
+                client.chat_update(channel=channel, ts=_prev_ts, text=reply_text)
+                _final_reply_ts = _prev_ts
+                _sent = True
+                # 진행 답글이 있으면 삭제 (누적 답글로 통합)
+                if _progress_ts and _progress_ts != _prev_ts:
+                    try:
+                        client.chat_delete(channel=channel, ts=_progress_ts)
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logger.warning(
+                    f"[SLACK/방문 사진] 이전 답글 update 실패, 새 답글로 fallback: {exc}"
                 )
+        if not _sent and _progress_ts:
+            try:
+                client.chat_update(channel=channel, ts=_progress_ts, text=reply_text)
+                _final_reply_ts = _progress_ts
+                _sent = True
             except Exception as exc:
                 logger.warning(
                     f"[SLACK/방문 사진] 진행 답글 update 실패, 새 답글로 fallback: {exc}"
                 )
-                client.chat_postMessage(
+        if not _sent:
+            try:
+                resp = client.chat_postMessage(
                     channel=channel, thread_ts=thread_ts, text=reply_text,
                     unfurl_links=False,
                 )
-        else:
-            client.chat_postMessage(
-                channel=channel, thread_ts=thread_ts, text=reply_text,
-                unfurl_links=False,
-            )
+                if resp and resp.get('ts'):
+                    _final_reply_ts = resp['ts']
+            except Exception as exc:
+                logger.warning(
+                    f"[SLACK/방문 사진] 새 답글 발송 실패: {exc}"
+                )
+
+        # 누적 상태 Redis 저장 (다음 배치에서 이 답글 update)
+        if _final_reply_ts and _rc_reply is not None:
+            try:
+                _rc_reply.hset(_cumul_key, mapping={
+                    'ts': _final_reply_ts,
+                    'count': str(_cumul_uploaded),
+                })
+                _rc_reply.expire(_cumul_key, 60 * 60 * 24 * 30)
+            except Exception as exc:
+                logger.warning(f"[SLACK/방문 사진] 누적 카운트 저장 실패: {exc}")
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] thread 답글 실패: {exc}")
 
