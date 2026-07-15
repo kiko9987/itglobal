@@ -369,7 +369,9 @@
                                             <option value="메인">메인</option>
                                             <option value="서브">서브</option>
                                             <option value="내부">내부</option>
+                                            <option value="일당">일당</option>
                                             <option value="세척">세척</option>
+                                            <option value="기타">기타</option>
                                         </select>
                                     </div>
                                     <div class="col-md-3">
@@ -404,7 +406,13 @@
                                     <button class="nav-link" id="tab-internal" data-bs-toggle="tab" data-bs-target="#constructor-internal" type="button">내부 <span class="badge bg-secondary ms-1" id="count-internal">0</span></button>
                                 </li>
                                 <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="tab-daily" data-bs-toggle="tab" data-bs-target="#constructor-daily" type="button">일당 <span class="badge bg-secondary ms-1" id="count-daily">0</span></button>
+                                </li>
+                                <li class="nav-item" role="presentation">
                                     <button class="nav-link" id="tab-cleaning" data-bs-toggle="tab" data-bs-target="#constructor-cleaning" type="button">세척 <span class="badge bg-secondary ms-1" id="count-cleaning">0</span></button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="tab-etc" data-bs-toggle="tab" data-bs-target="#constructor-etc" type="button">기타 <span class="badge bg-secondary ms-1" id="count-etc">0</span></button>
                                 </li>
                             </ul>
                             <div class="tab-content">
@@ -426,10 +434,22 @@
                                         <tbody id="constructor-tbody-내부"></tbody>
                                     </table>
                                 </div>
+                                <div class="tab-pane fade" id="constructor-daily" role="tabpanel">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead class="table-light"><tr><th style="width:35%">이름</th><th style="width:25%" class="text-center">카테고리</th><th style="width:20%" class="text-center">활성</th><th style="width:20%" class="text-center">삭제</th></tr></thead>
+                                        <tbody id="constructor-tbody-일당"></tbody>
+                                    </table>
+                                </div>
                                 <div class="tab-pane fade" id="constructor-cleaning" role="tabpanel">
                                     <table class="table table-sm table-hover align-middle mb-0">
                                         <thead class="table-light"><tr><th style="width:35%">이름</th><th style="width:25%" class="text-center">카테고리</th><th style="width:20%" class="text-center">활성</th><th style="width:20%" class="text-center">삭제</th></tr></thead>
                                         <tbody id="constructor-tbody-세척"></tbody>
+                                    </table>
+                                </div>
+                                <div class="tab-pane fade" id="constructor-etc" role="tabpanel">
+                                    <table class="table table-sm table-hover align-middle mb-0">
+                                        <thead class="table-light"><tr><th style="width:35%">이름</th><th style="width:25%" class="text-center">카테고리</th><th style="width:20%" class="text-center">활성</th><th style="width:20%" class="text-center">삭제</th></tr></thead>
+                                        <tbody id="constructor-tbody-기타"></tbody>
                                     </table>
                                 </div>
                             </div>
@@ -1212,7 +1232,7 @@
                 }
 
                 // 카테고리별로 그룹화
-                const grouped = { '메인': [], '서브': [], '내부': [], '세척': [] };
+                const grouped = { '메인': [], '서브': [], '내부': [], '일당': [], '세척': [], '기타': [] };
                 for (const c of result.data) {
                     if (grouped[c.category]) grouped[c.category].push(c);
                 }
@@ -1221,13 +1241,17 @@
                 renderConstructorTbody('메인', grouped['메인']);
                 renderConstructorTbody('서브', grouped['서브']);
                 renderConstructorTbody('내부', grouped['내부']);
+                renderConstructorTbody('일당', grouped['일당']);
                 renderConstructorTbody('세척', grouped['세척']);
+                renderConstructorTbody('기타', grouped['기타']);
 
                 // 카운트 업데이트
                 document.getElementById('count-main').textContent = grouped['메인'].length;
                 document.getElementById('count-sub').textContent = grouped['서브'].length;
                 document.getElementById('count-internal').textContent = grouped['내부'].length;
+                document.getElementById('count-daily').textContent = grouped['일당'].length;
                 document.getElementById('count-cleaning').textContent = grouped['세척'].length;
+                document.getElementById('count-etc').textContent = grouped['기타'].length;
 
                 content.style.display = 'block';
             } catch (err) {
@@ -1258,7 +1282,9 @@
                             <option value="메인" ${c.category === '메인' ? 'selected' : ''}>메인</option>
                             <option value="서브" ${c.category === '서브' ? 'selected' : ''}>서브</option>
                             <option value="내부" ${c.category === '내부' ? 'selected' : ''}>내부</option>
+                            <option value="일당" ${c.category === '일당' ? 'selected' : ''}>일당</option>
                             <option value="세척" ${c.category === '세척' ? 'selected' : ''}>세척</option>
+                            <option value="기타" ${c.category === '기타' ? 'selected' : ''}>기타</option>
                         </select>
                     </td>
                     <td class="text-center">
