@@ -477,7 +477,19 @@ def sync_homepage_email() -> Dict[str, Any]:
         # 메인 시트 최근 lead와 1시간 이내 → 중복 (재폴링)
         # 라벨이 없는 메일이 여기 잡혔다 = 이전 폴링에서 시트 등록 후 슬랙 발송 실패
         # → 시트 기존 lead_no 그대로 슬랙만 재발송 (라벨은 발송 성공해야 부착)
+        # 2026-07-15 상담시간 정확 매치도 재발송 대상 (몇 개월 지난 원본 재감지 방어)
         if phone_digits and phone_digits in phone_lookup and new_dt:
+            _exact_entry = next(
+                (e for e in phone_lookup[phone_digits] if e['consult_dt'] == new_dt),
+                None,
+            )
+            if _exact_entry:
+                duplicates += 1
+                lead['_meta_msg_id'] = msg_id
+                lead['_meta_resend_lead_no'] = _exact_entry.get('lead_no', '')
+                resend_leads.append(lead)
+                resend_by_source.setdefault(category, []).append(lead)
+                continue
             latest = phone_lookup[phone_digits][0]
             if latest['consult_dt']:
                 if abs((new_dt - latest['consult_dt']).total_seconds()) < 3600:

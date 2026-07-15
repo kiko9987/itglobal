@@ -426,7 +426,17 @@ def sync_karrot() -> Dict[str, Any]:
                 continue
 
         # 2) 메인 시트의 가장 최근 lead와 1시간 이내 → skip (재폴링 가능성)
+        # 2-1) 상담시간 정확 매치도 skip (몇 개월 지난 원본이 재감지되는 케이스 방어)
+        #      2026-07-15 관측: L-03269~L-03274 이기현 06/16 15:27 문의가 4번 append.
+        #      원인은 phone_lookup 순간적 갱신 지연 (write-behind, force_refresh race).
+        #      상담시간이 정확히 동일하면 동일 문의로 확정 → 무조건 skip.
         if phone_digits and phone_digits in phone_lookup and new_dt:
+            _exact_match = any(
+                e['consult_dt'] == new_dt for e in phone_lookup[phone_digits] if e['consult_dt']
+            )
+            if _exact_match:
+                duplicates += 1
+                continue
             latest = phone_lookup[phone_digits][0]
             if latest['consult_dt']:
                 time_diff = new_dt - latest['consult_dt']
