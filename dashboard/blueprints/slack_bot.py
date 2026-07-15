@@ -2870,13 +2870,16 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
     stats = {
         'scanned': 0, 'visit_cards': 0, 'already_new': 0,
         'no_actions_skip': 0, 'no_lead_no_skip': 0, 'updated': 0, 'errors': 0,
+        'too_old_skip': 0,
     }
-    oldest_ts = str(time.time() - days * 86400)
+    # SDK 의 oldest 파라미터가 서버 환경에서 이상 동작 (msg_count=0) — 회피.
+    # 파라미터 없이 최근 메시지 페이지네이션 후 client-side 로 필터.
+    oldest_ts_num = time.time() - days * 86400
     cursor = None
     pages = 0
     while pages < 20:  # 안전장치 (최대 20 페이지 = 200*20 = 4000 메시지)
         pages += 1
-        kwargs = {'channel': channel, 'limit': 200, 'oldest': oldest_ts}
+        kwargs = {'channel': channel, 'limit': 200}
         if cursor:
             kwargs['cursor'] = cursor
         try:
@@ -2889,9 +2892,22 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
         _msgs = resp.get('messages', []) or []
         logger.info(
             f"[MIGRATE/방문버튼] page {pages}: msg_count={len(_msgs)} "
-            f"has_more={resp.get('has_more', False)} oldest={oldest_ts}"
+            f"has_more={resp.get('has_more', False)}"
         )
+
+        # 이 페이지에서 가장 오래된 ts 가 oldest 보다 이전이면 다음 페이지 skip
+        _reached_old = False
+
         for msg in _msgs:
+            # client-side 시각 필터
+            try:
+                _msg_ts = float(msg.get('ts', '0'))
+                if _msg_ts < oldest_ts_num:
+                    stats['too_old_skip'] += 1
+                    _reached_old = True
+                    continue
+            except (ValueError, TypeError):
+                pass
             stats['scanned'] += 1
             blocks = msg.get('blocks') or []
             if not blocks:
@@ -3025,6 +3041,10 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
                 )
                 stats['errors'] += 1
 
+        # 이 페이지에서 이미 oldest 이전 메시지가 나왔으면 이후 페이지도 다 오래됨 → 중단
+        if _reached_old:
+            logger.info(f"[MIGRATE/방문버튼] {days}일 경계 도달 → 중단")
+            break
         cursor = (resp.get('response_metadata') or {}).get('next_cursor', '')
         if not cursor:
             break
