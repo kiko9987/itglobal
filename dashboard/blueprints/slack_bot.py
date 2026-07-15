@@ -5773,7 +5773,41 @@ def _process_visit_thread_files(client, event) -> None:
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] 폴더 ID 저장 실패 ({lead_no}): {exc}")
 
-    # 5) thread 답글
+    # 5) thread 답글 (debounce)
+    # 매니저가 배치 여러 번 올릴 때 마지막 배치 이후 15초 조용하면 그때 발송.
+    # 그 사이 새 배치 도착 시 tick 갱신 → 이번 답글 skip → 마지막 배치가 발송.
+    # 사진 upload 완료가 봇 event 도착보다 느려서 답글이 사진들 사이에 끼는
+    # UX 방지 (2026-07-15).
+    _DEBOUNCE_SEC = 15
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _get_rc_deb
+        _rc_deb = _get_rc_deb().redis
+        _debounce_key = f'photo_reply_debounce:{lead_no}'
+        _my_tick = f"{time.time():.6f}"
+        _rc_deb.set(_debounce_key, _my_tick, ex=60)
+        time.sleep(_DEBOUNCE_SEC)
+        _current = _rc_deb.get(_debounce_key)
+        _current_str = _current.decode() if isinstance(_current, bytes) else (_current or '')
+        if _current_str != _my_tick:
+            logger.info(
+                f"[SLACK/방문 사진] {lead_no} 다른 배치가 이후 도착 — 이번 답글 skip"
+            )
+            # 진행 답글 (⏳ K/N) 이 남아있으면 삭제 (다음 배치가 최종 답글 발송)
+            if _progress_ts:
+                try:
+                    client.chat_delete(channel=channel, ts=_progress_ts)
+                except Exception:
+                    pass
+            # 자동 완료 처리도 skip (마지막 배치가 담당)
+            try:
+                if _rc_lock:
+                    _rc_lock.delete(_lock_key)
+            except Exception:
+                pass
+            return
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 사진] debounce 실패, 즉시 답글 진행: {exc}")
+
     try:
         location_suffix = f" → 현장사진/{location}" if location else ''
         # 윈도우 탐색기 경로 안내 (구글 드라이브 데스크톱 앱 동기화 경로)
