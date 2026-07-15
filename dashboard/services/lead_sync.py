@@ -526,15 +526,16 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
     mgr = get_sheets_manager()
     df = load_leads_data(force_refresh=True)
 
-    # 다음 리드 No 시퀀스
+    # 다음 리드 No 시퀀스 — L-XXXXX 만 카운트 (ETC-xxxxxx 는 hex 라 제외)
     max_num = 0
     if df is not None and not df.empty and '리드 No' in df.columns:
         for ln in df['리드 No'].dropna().astype(str):
-            digits = re.sub(r'\D', '', ln.strip())
-            try:
-                max_num = max(max_num, int(digits))
-            except ValueError:
-                continue
+            m = re.match(r'^L-(\d+)$', ln.strip())
+            if m:
+                try:
+                    max_num = max(max_num, int(m.group(1)))
+                except ValueError:
+                    continue
 
     # 리드 No 발번 + row 데이터 구성 (15열, LEAD_COLUMN_ORDER 순서)
     lead_nos = []
