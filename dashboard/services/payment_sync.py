@@ -1340,6 +1340,7 @@ def sync_payments() -> Dict:
             'unpaid': _to_int_won(_get(IDX_X)),
             'key': key,
             'phash': prev.get('phash', '') if prev else '',
+            'memo_newly_added': memo_newly_added,  # 값 있고 memo 방금 저장
         })
 
     if not changed_rows:
@@ -1395,6 +1396,24 @@ def sync_payments() -> Dict:
                     stages_increased.append('중도금')
                 if w_val > prev_w:
                     stages_increased.append('잔금')
+
+                # 메모 나중 저장 시나리오 (2026-07-15):
+                # 매니저가 값(u/v/w) 먼저 입력 → 폴링(baseline 저장) → 메모 나중 저장.
+                # 값 변화 없어 stages_increased 빈 리스트 → skip 발생.
+                # 값 있는 stage 를 발송 대상으로 (payments 로부터 어느 stage 에
+                # 실제 payment 있는지 확인).
+                if c.get('memo_newly_added') and not stages_increased:
+                    _stages_with_payment = {p.get('stage') for p in payments}
+                    if '계약금' in _stages_with_payment and u_val > 0:
+                        stages_increased.append('계약금')
+                    if '중도금' in _stages_with_payment and v_val > 0:
+                        stages_increased.append('중도금')
+                    if '잔금' in _stages_with_payment and w_val > 0:
+                        stages_increased.append('잔금')
+                    logger.info(
+                        f"[PAYMENT] memo_newly_added → stages_increased fallback: "
+                        f"{project} row {sheet_row} stages={stages_increased}"
+                    )
 
                 # 메모 미완성 감지 (2026-07-10 · 2026-07-10 조건 완화)
                 # 매니저 실제 워크플로: U/V/W 금액 먼저 입력 → 메모 나중 입력.
