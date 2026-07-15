@@ -378,12 +378,29 @@ def _fmt_vat(v) -> str:
 
 
 def _fmt_date(v) -> str:
-    """날짜값 → 'YYYY-MM-DD'."""
-    if v is None or v == '' or str(v).strip() in ('-', 'NaT'):
+    """날짜값 → 'YYYY-MM-DD'.
+
+    지원 입력:
+      - datetime/date object → strftime
+      - ISO 문자열 ('2026-07-13...') → 앞 10자
+      - Google Sheets serial number (46217) → 1899-12-30 + N일
+      - None/빈문자열/공백/'-'/'NaT' → '-'
+    """
+    if v is None:
         return '-'
     if hasattr(v, 'strftime'):
         return v.strftime('%Y-%m-%d')
     s = str(v).strip()
+    if not s or s in ('-', 'NaT'):
+        return '-'
+    # Google Sheets serial number (2026-07-15 관측 G3857-SH 케이스)
+    try:
+        _serial = int(float(s))
+        if 1 <= _serial <= 100000:
+            from datetime import datetime as _dt, timedelta as _td
+            return (_dt(1899, 12, 30) + _td(days=_serial)).strftime('%Y-%m-%d')
+    except (ValueError, TypeError):
+        pass
     if len(s) >= 10 and s[4] == '-' and s[7] == '-':
         return s[:10]
     return s
