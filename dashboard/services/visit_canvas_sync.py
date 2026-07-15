@@ -207,14 +207,19 @@ def build_canvas_markdown() -> str:
         if not items:
             lines.append('_없음_')
         else:
-            # 방문 시작 날짜 별 그룹핑 (이미 시간순 정렬 상태) — 날짜 바뀌면 빈 줄 삽입
-            prev_key: Optional[str] = None
+            # 방문 시작 날짜 별 그룹핑 → h3 서브헤더 (slack canvas 는 리스트 안
+            # 빈 줄을 무시하므로 헤더로 명확 구분)
+            from collections import OrderedDict
+            by_date: OrderedDict = OrderedDict()
             for lead in items:
-                cur_key = _visit_date_sort_key(lead.get('방문 예정일'))
-                if prev_key is not None and cur_key != prev_key:
-                    lines.append('')  # 날짜 구분 여백
-                lines.append(f'- {_render_item(lead, initial_map)}')
-                prev_key = cur_key
+                dk = _visit_date_sort_key(lead.get('방문 예정일'))
+                by_date.setdefault(dk, []).append(lead)
+            for dk, group in by_date.items():
+                first_display = _fmt_visit_date(group[0].get('방문 예정일'))
+                lines.append(f'### {first_display}')
+                for lead in group:
+                    lines.append(f'- {_render_item(lead, initial_map)}')
+                lines.append('')
         lines.append('')
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
