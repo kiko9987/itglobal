@@ -50,31 +50,33 @@ def index():
 @leads_bp.route('/api/list', methods=['GET'])
 @login_required
 def api_list_leads():
-    """
-    리드 목록 조회 API
+    """리드 목록 조회 API.
+
+    기본적으로 플랫폼='기타' (ETC-xxxxxx 리드번호) 는 제외. 사후관리/A/S/
+    수금 등 리드가 아닌 사이드 항목이라 매니저 UX 오염 방지.
+    ?include_etc=true 로 명시 요청 시 포함.
 
     Returns:
-        {
-            "success": true,
-            "leads": [...],
-            "count": 123
-        }
+        {"success": true, "leads": [...], "count": 123}
     """
     try:
-        # 강제 새로고침 여부
         force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
+        include_etc = request.args.get('include_etc', 'false').lower() == 'true'
 
         if force_refresh:
             invalidate_leads_cache()
 
-        # 리드 목록 조회
         leads = get_lead_records()
 
+        # 시나리오 D (2026-07-15): 기타 방문 (ETC-xxxxxx) 필터
+        if not include_etc:
+            leads = [
+                r for r in leads
+                if str(r.get('플랫폼', '') or '').strip() != '기타'
+            ]
+
         return APIResponse.success(
-            data={
-                'leads': leads,
-                'count': len(leads)
-            }
+            data={'leads': leads, 'count': len(leads)}
         )
 
     except Exception as exc:
