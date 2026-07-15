@@ -101,6 +101,14 @@ def _visit_date_sort_key(raw) -> str:
     return m.group(1) if m else s
 
 
+def _fmt_group_header(date_key: str) -> str:
+    """정렬 키 (YYYY-MM-DD) → 그룹 헤더 표시 (N월 M일)."""
+    m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', date_key)
+    if m:
+        return f'{int(m.group(2))}월 {int(m.group(3))}일'
+    return date_key
+
+
 def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     """캔버스 각 항목 텍스트 렌더.
 
@@ -215,8 +223,7 @@ def build_canvas_markdown() -> str:
                 dk = _visit_date_sort_key(lead.get('방문 예정일'))
                 by_date.setdefault(dk, []).append(lead)
             for dk, group in by_date.items():
-                first_display = _fmt_visit_date(group[0].get('방문 예정일'))
-                lines.append(f'### {first_display}')
+                lines.append(f'### {_fmt_group_header(dk)}')
                 for lead in group:
                     lines.append(f'- {_render_item(lead, initial_map)}')
                 lines.append('')
