@@ -1328,7 +1328,9 @@ export default class ModernProjectFilters {
     const filterElements = [
       { element: this.companyFilter, key: 'company' },
       { element: this.clientFilter, key: 'client' },
+      { element: this.businessNameFilter, key: 'businessName' },
       { element: this.statusFilter, key: 'status' },
+      { element: this.invoiceFilter, key: 'invoice' },
       { element: this.dataFilter, key: 'data' },
       { element: this.managerFilter, key: 'manager' },
       { element: this.outstandingFilter, key: 'outstanding' },
