@@ -407,12 +407,47 @@ def _register_visit_handlers(app):
 
     @app.view("submit_visit_edit")
     def handle_submit_visit_edit(ack, body, client, view):
+        # 필수 검증 (거래처/소개는 연락처 필수, 기타는 선택)
+        state = view.get('state', {}).get('values', {})
+        _new_platform = _v(state, 'platform') or ''
+        _new_phone = (_v(state, 'phone') or '').strip()
+        if _new_platform in ('거래처', '소개') and not _new_phone:
+            ack(response_action='errors', errors={
+                'phone': '거래처/소개는 연락처가 필수입니다.',
+            })
+            return
+
+        # 유형 변경 감지 → 확인 view 로 update
+        metadata = json.loads(view.get('private_metadata') or '{}')
+        _original_platform = metadata.get('original_platform', '')
+        if _new_platform and _new_platform != _original_platform:
+            try:
+                confirm_view = _build_visit_edit_confirm_view(metadata, state)
+                ack(response_action='update', view=confirm_view)
+                return
+            except Exception as exc:
+                logger.error(f"[SLACK/방문봇] confirm view build 실패: {exc}",
+                             exc_info=True)
+                # fallback — 그냥 진행
         ack()
         def _bg():
             try:
                 _process_visit_edit(client, body, view)
             except Exception as exc:
                 logger.error(f"[SLACK/방문봇] submit_visit_edit 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_visit_edit_confirm")
+    def handle_submit_visit_edit_confirm(ack, body, client, view):
+        ack()
+        def _bg():
+            try:
+                _process_visit_edit_confirmed(client, body, view)
+            except Exception as exc:
+                logger.error(
+                    f"[SLACK/방문봇] submit_visit_edit_confirm 실패: {exc}",
+                    exc_info=True,
+                )
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.action("visit_cancel")
@@ -4509,11 +4544,128 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
     })
 
 
-def _process_visit_edit(client, body, view) -> None:
-    """정보 수정 모달 submit 처리.
+def _build_visit_edit_confirm_view(metadata: dict, state: dict) -> dict:
+    """유형 변경 감지 시 확인 modal (submit → view update 로 교체)."""
+    lead_no = metadata.get('lead_no', '')
+    original_platform = metadata.get('original_platform', '')
+    new_platform = _v(state, 'platform') or ''
 
-    커밋 1 스코프: 유형 동일 case 만 처리 (필드만 update).
-    유형 변경 case (ETC↔정규 전환) 는 후속 커밋 3~4 에서 추가.
+    # 편집 값 metadata 에 stash (확인 후 재사용)
+    new_meta = dict(metadata)
+    new_meta['pending_edit'] = {
+        'platform': new_platform,
+        'visit_start': _v(state, 'visit_date') or '',
+        'visit_end': _v(state, 'visit_date_end') or '',
+        'name': (_v(state, 'name') or '').strip(),
+        'phone': (_v(state, 'phone') or '').strip(),
+        'address': (_v(state, 'address') or '').strip(),
+        'consultation': (_v(state, 'consultation') or '').strip(),
+    }
+
+    body_text = f":warning: *{lead_no}* 방문 유형을 변경합니다.\n\n"
+    body_text += f"• 기존: `{original_platform}`\n"
+    body_text += f"• 변경: `{new_platform}`\n\n"
+
+    if original_platform == '기타' and new_platform in ('거래처', '소개'):
+        body_text += (
+            "임시 번호(`ETC-...`) → 정식 리드 번호(`L-XXXXX`) 로 *승격* 됩니다.\n"
+            "온라인 리드 시트에 등록되고 대시보드에서 조회 가능."
+        )
+    elif original_platform in ('거래처', '소개') and new_platform == '기타':
+        body_text += (
+            "정식 리드 번호(`L-...`) → 임시 번호(`ETC-XXXXX`) 로 *강등* 됩니다.\n"
+            "시트에서 삭제되고 대시보드 조회 대상에서 빠집니다."
+        )
+    else:
+        body_text += "방문 유형만 update 됩니다 (리드 번호 형식 불변)."
+
+    return {
+        "type": "modal",
+        "callback_id": "submit_visit_edit_confirm",
+        "title": {"type": "plain_text", "text": "변경 확인"},
+        "submit": {"type": "plain_text", "text": "변경 확정"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "private_metadata": json.dumps(new_meta, ensure_ascii=False),
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": body_text}},
+        ],
+    }
+
+
+def _process_visit_edit_confirmed(client, body, view) -> None:
+    """유형 변경 확인 후 실제 전환 처리.
+
+    커밋 2 스코프: 뼈대만 (전환 로직은 커밋 3/4).
+    """
+    metadata = json.loads(view.get('private_metadata') or '{}')
+    lead_no = metadata.get('lead_no', '')
+    channel = metadata.get('channel', '')
+    original_platform = metadata.get('original_platform', '')
+    pending = metadata.get('pending_edit', {})
+    new_platform = pending.get('platform', '')
+
+    logger.info(
+        f"[VISIT/EDIT] 유형 변경 확정: {lead_no} {original_platform}→{new_platform}"
+    )
+
+    # ETC → 정규 (커밋 3 예정)
+    if _is_etc_lead(lead_no) and new_platform in ('거래처', '소개'):
+        _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending)
+        return
+
+    # 정규 → ETC (커밋 4 예정)
+    if not _is_etc_lead(lead_no) and new_platform == '기타':
+        _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending)
+        return
+
+    logger.warning(
+        f"[VISIT/EDIT] 미지원 전환 조합: {lead_no} ({original_platform}→{new_platform})"
+    )
+
+
+def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -> None:
+    """[커밋 3 예정] ETC-xxx → L-XXXXX 승격.
+    아직 미구현 — 매니저에게 ephemeral 안내.
+    """
+    user_id = body.get('user', {}).get('id', '')
+    try:
+        if user_id and channel:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=(
+                    f":warning: `{lead_no}` (기타 → 거래처/소개) 승격은 "
+                    f"아직 구현 중입니다. 잠시 후 지원 예정. "
+                    f"지금은 취소 후 새로 거래처로 등록해 주세요."
+                ),
+            )
+    except Exception:
+        pass
+    logger.warning(f"[VISIT/EDIT/PROMOTE] 미구현 — {lead_no}")
+
+
+def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -> None:
+    """[커밋 4 예정] L-XXXXX → ETC-xxx 강등.
+    아직 미구현 — 매니저에게 ephemeral 안내.
+    """
+    user_id = body.get('user', {}).get('id', '')
+    try:
+        if user_id and channel:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id,
+                text=(
+                    f":warning: `{lead_no}` (거래처/소개 → 기타) 강등은 "
+                    f"아직 구현 중입니다. 잠시 후 지원 예정. "
+                    f"지금은 취소 후 새로 기타로 등록해 주세요."
+                ),
+            )
+    except Exception:
+        pass
+    logger.warning(f"[VISIT/EDIT/DEMOTE] 미구현 — {lead_no}")
+
+
+def _process_visit_edit(client, body, view) -> None:
+    """정보 수정 모달 submit 처리 — 유형 동일 case 필드만 update.
+    유형 변경 case 는 handler 에서 confirm view 로 라우팅됨.
     """
     metadata = json.loads(view.get('private_metadata') or '{}')
     lead_no = metadata.get('lead_no', '')
@@ -4531,30 +4683,8 @@ def _process_visit_edit(client, body, view) -> None:
     new_consultation = (_v(state, 'consultation') or '').strip()
 
     logger.info(
-        f"[SLACK/방문수정] {lead_no} 편집: 플랫폼 {original_platform}→{new_platform}, "
-        f"이름={new_name!r}, 주소={new_address[:30]!r}"
+        f"[VISIT/EDIT] {lead_no} 필드 update: 이름={new_name!r}, 주소={new_address[:30]!r}"
     )
-
-    # 유형 변경은 커밋 3~4 에서 지원 예정 — 우선 경고 로그 + 진행 skip
-    if new_platform != original_platform:
-        logger.warning(
-            f"[SLACK/방문수정] {lead_no} 유형 변경 요청 {original_platform}→{new_platform} — "
-            f"아직 지원 안 됨 (커밋 3~4 예정). 이번 편집 skip"
-        )
-        try:
-            user_id = body.get('user', {}).get('id', '')
-            if user_id and channel:
-                client.chat_postEphemeral(
-                    channel=channel, user=user_id,
-                    text=(
-                        f":warning: 방문 유형 변경 (`{original_platform}` → `{new_platform}`) "
-                        f"은 아직 지원되지 않습니다. 잠시 후 지원 예정. "
-                        f"현재는 취소 후 재등록해 주세요."
-                    ),
-                )
-        except Exception:
-            pass
-        return
 
     # 유형 동일 — 필드만 update
     # 방문 예정일 범위 조립
