@@ -774,7 +774,10 @@ def _build_stage_message(
             ]
             lines.append(f"({' / '.join(parts)})")
     lines.append(_SEP)
-    lines.append(f"미수금 : {unpaid:,}원")
+    # 미수금은 음수 표기 통일 (2026-07-16 사용자 요청) — 시트 X 가 양수(초과입금)
+    # 여도 카드에는 음수로 표시. 매니저 시각적 일관성.
+    _unpaid_display = -abs(unpaid) if unpaid > 0 else unpaid
+    lines.append(f"미수금 : {_unpaid_display:,}원")
     lines.append('⠀')
     return '\n'.join(lines)
 
@@ -865,7 +868,10 @@ def _build_stage_with_history_message(
         suffix = ' (카드)' if is_c else ''
         lines.append(f"{st}  {d}  {c_disp}  {a:,}원  {pt}{suffix}")
     lines.append(_SEP)
-    lines.append(f"미수금 : {unpaid:,}원")
+    # 미수금은 음수 표기 통일 (2026-07-16 사용자 요청) — 시트 X 가 양수(초과입금)
+    # 여도 카드에는 음수로 표시. 매니저 시각적 일관성.
+    _unpaid_display = -abs(unpaid) if unpaid > 0 else unpaid
+    lines.append(f"미수금 : {_unpaid_display:,}원")
     lines.append(' ')
     lines.append('⠀')
     return '\n'.join(lines)
