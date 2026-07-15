@@ -1864,7 +1864,9 @@ export default class ProjectRowAccordion {
     // 카테고리별 체크박스 HTML 생성 (계산서와 100% 동일 구조, flex-wrap: wrap만 추가)
     // 비활성 시공자 중 현재 프로젝트에 저장된 것은 해당 카테고리에 회색으로 추가 표시
     // 기타는 별도 [기타] 카테고리 row로 분리 (otherHtml에서 처리)
-    const categoryHtml = dropdownOptions.categories.map(category => {
+    const categoryHtml = dropdownOptions.categories
+      .filter(category => category.name !== '기타')  // 하단 '[기타] 직접 입력' 로 대체 (중복 방지)
+      .map(category => {
       // 이 카테고리의 비활성 시공자 중 현재 프로젝트에 저장된 것만 표시
       const inactiveInThisCategory = (category.inactiveOptions || []).filter(name => inactiveSelected.includes(name));
       const inactiveOptionsHtml = inactiveInThisCategory.map(option => `
@@ -1881,7 +1883,7 @@ export default class ProjectRowAccordion {
       return `
         <li class="p-0 bill-category-group constructor-category-group" data-category="${category.name}">
           <div style="display: flex; align-items: flex-start; padding: 0.5rem 0.75rem; gap: 0.75rem;">
-            <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px; padding-top: 0.15rem; flex-shrink: 0;">[${category.name}]</strong>
+            <strong style="font-size: 0.8125rem; color: #495057; min-width: 60px; flex-shrink: 0; line-height: 1.75;">[${category.name}]</strong>
             <div style="display: flex; gap: 0.75rem; flex: 1; flex-wrap: wrap; row-gap: 1rem;">
               ${category.options.map(option => `
                 <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem; min-width: 80px; flex-shrink: 0;">
