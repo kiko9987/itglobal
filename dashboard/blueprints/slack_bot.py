@@ -525,6 +525,84 @@ def _register_visit_handlers(app):
                 args=(client, event), daemon=True,
             ).start()
 
+    # 방문 일정 조정 캔버스 (JW 전용) 파서 (2026-07-15)
+    @app.command("/일정확인")
+    def handle_visit_assignment_dryrun(ack, command, respond):
+        ack()
+        def _bg():
+            try:
+                from dashboard.services.visit_assignment_sync import dry_run
+                result = dry_run()
+                respond(_format_assignment_result(result, committed=False))
+            except Exception as exc:
+                logger.error(f"[일정확인] 예외: {exc}", exc_info=True)
+                respond({'response_type': 'ephemeral',
+                         'text': f':x: 일정 확인 실패: {exc}'})
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.command("/일정확정")
+    def handle_visit_assignment_commit(ack, command, respond):
+        ack()
+        def _bg():
+            try:
+                from dashboard.services.visit_assignment_sync import commit
+                result = commit()
+                respond(_format_assignment_result(result, committed=True))
+            except Exception as exc:
+                logger.error(f"[일정확정] 예외: {exc}", exc_info=True)
+                respond({'response_type': 'ephemeral',
+                         'text': f':x: 일정 확정 실패: {exc}'})
+        threading.Thread(target=_bg, daemon=True).start()
+
+
+def _format_assignment_result(result: dict, committed: bool) -> dict:
+    """visit_assignment_sync 결과 → 슬랙 ephemeral 응답 포맷."""
+    if not result.get('ok'):
+        return {'response_type': 'ephemeral',
+                'text': f':x: 실패: {result.get("reason", "unknown")}'}
+    if committed:
+        lines = [
+            f":white_check_mark: *일정 확정 완료* — {result.get('updated_count', 0)}건 시트 업데이트",
+        ]
+        if result.get('updated'):
+            lines.append('_업데이트된 리드:_ ' + ', '.join(result['updated'][:20]))
+        if result.get('failed_count'):
+            lines.append(f":warning: 실패 {result['failed_count']}건")
+            for ln, err in result.get('failed', [])[:5]:
+                lines.append(f'  - {ln}: {err[:80]}')
+        lines.append('_방문 캔버스 rebuild 백그라운드 진행 중_')
+        return {'response_type': 'ephemeral', 'text': '\n'.join(lines)}
+
+    rows = result.get('rows', [])
+    matched = [r for r in rows if r['matched']]
+    unmatched = [r for r in rows if not r['matched']]
+    changed = [r for r in matched if r['changed']]
+    unchanged = [r for r in matched if not r['changed']]
+    lines = [
+        f":clipboard: *일정 확인 (dry-run)* — 총 {len(rows)}건 파싱",
+        f"   ✓ 시트 매칭 {len(matched)}건 (변경 {len(changed)}, 유지 {len(unchanged)})",
+        f"   ✗ 매칭 실패 {len(unmatched)}건",
+        '',
+    ]
+    if changed:
+        lines.append('*변경 대상:*')
+        for r in changed[:20]:
+            lines.append(
+                f"  `{r['lead_no']}` {r['phone']} : {r['current']} → *{r['assign_names']}*"
+            )
+        if len(changed) > 20:
+            lines.append(f'  ... 외 {len(changed) - 20}건')
+        lines.append('')
+    if unmatched:
+        lines.append('*매칭 실패:*')
+        for r in unmatched[:10]:
+            lines.append(f"  {r['phone']} — 이 연락처 시트에 없음")
+        if len(unmatched) > 10:
+            lines.append(f'  ... 외 {len(unmatched) - 10}건')
+    lines.append('')
+    lines.append('확정하려면 `/일정확정` 실행.')
+    return {'response_type': 'ephemeral', 'text': '\n'.join(lines)}
+
 
 def _register_project_handlers(app):
     """공사 현황 알림 봇 핸들러 — /공사확정 + submit_project"""
