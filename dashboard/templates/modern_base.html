@@ -985,7 +985,7 @@
                 // API 응답: {"메인": [{name, is_active}, ...], ...}
                 // ProjectRowAccordion 기대 형식: {categories: [{name, options, inactiveOptions}]}
                 const categories = [];
-                for (const cat of ['메인', '서브', '내부', '세척']) {
+                for (const cat of ['메인', '서브', '내부', '일당', '세척', '기타']) {
                     const items = result.data[cat] || [];
                     categories.push({
                         name: cat,
