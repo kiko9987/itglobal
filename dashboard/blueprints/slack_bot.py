@@ -6379,6 +6379,12 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         logger.info(
             f"[SLACK/LIST] webhook {op} 완료 (lead={lead.get('리드 No')} action={action})"
         )
+        # 방문 캔버스 자동 sync (2026-07-15) — 시트 상태 변경 → 캔버스 rebuild
+        try:
+            from dashboard.services.visit_canvas_sync import rebuild_canvas_async
+            rebuild_canvas_async()
+        except Exception as _vc_exc:
+            logger.debug(f"[SLACK/LIST] 방문 캔버스 rebuild trigger 실패: {_vc_exc}")
         return True
     except Exception as exc:
         logger.warning(f"[SLACK/LIST] webhook 호출 실패: {exc}")
