@@ -4593,34 +4593,45 @@ def _build_visit_edit_confirm_view(metadata: dict, state: dict) -> dict:
 
 
 def _process_visit_edit_confirmed(client, body, view) -> None:
-    """유형 변경 확인 후 실제 전환 처리.
-
-    커밋 2 스코프: 뼈대만 (전환 로직은 커밋 3/4).
-    """
+    """유형 변경 확인 후 실제 전환 처리. Redis 락으로 동시 실행 방지."""
     metadata = json.loads(view.get('private_metadata') or '{}')
     lead_no = metadata.get('lead_no', '')
     channel = metadata.get('channel', '')
     original_platform = metadata.get('original_platform', '')
     pending = metadata.get('pending_edit', {})
     new_platform = pending.get('platform', '')
+    user_id = body.get('user', {}).get('id', '')
 
-    logger.info(
-        f"[VISIT/EDIT] 유형 변경 확정: {lead_no} {original_platform}→{new_platform}"
-    )
-
-    # ETC → 정규 (커밋 3 예정)
-    if _is_etc_lead(lead_no) and new_platform in ('거래처', '소개'):
-        _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending)
+    edit_rc = _acquire_edit_lock(lead_no, ttl=30)
+    if edit_rc is None:
+        _notify_edit_failure(
+            client, channel, user_id, lead_no,
+            '다른 편집이 진행 중입니다. 30초 후 다시 시도해 주세요.',
+        )
+        logger.warning(
+            f"[VISIT/EDIT] 락 충돌 skip: {lead_no} (editor={user_id})"
+        )
         return
+    try:
+        logger.info(
+            f"[VISIT/EDIT] 유형 변경 확정: {lead_no} "
+            f"{original_platform}→{new_platform} (editor={user_id})"
+        )
 
-    # 정규 → ETC (커밋 4 예정)
-    if not _is_etc_lead(lead_no) and new_platform == '기타':
-        _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending)
-        return
+        if _is_etc_lead(lead_no) and new_platform in ('거래처', '소개'):
+            _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending)
+            return
 
-    logger.warning(
-        f"[VISIT/EDIT] 미지원 전환 조합: {lead_no} ({original_platform}→{new_platform})"
-    )
+        if not _is_etc_lead(lead_no) and new_platform == '기타':
+            _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending)
+            return
+
+        logger.warning(
+            f"[VISIT/EDIT] 미지원 전환 조합: {lead_no} "
+            f"({original_platform}→{new_platform})"
+        )
+    finally:
+        _release_edit_lock(edit_rc, lead_no)
 
 
 def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -> None:
@@ -4778,6 +4789,29 @@ def _notify_edit_failure(client, channel, user_id, lead_no, reason) -> None:
                 f"관리자에게 문의하거나 잠시 후 다시 시도해 주세요."
             ),
         )
+    except Exception:
+        pass
+
+
+def _acquire_edit_lock(lead_no: str, ttl: int = 30):
+    """정보 수정 동시 실행 방지 락. 성공 시 Redis client 반환, 실패 시 None.
+    같은 카드에 두 매니저가 동시에 저장 시도할 때 순차 처리 강제.
+    """
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        got = rc.set(f'visit_edit_lock:{lead_no}', '1', nx=True, ex=ttl)
+        return rc if got else None
+    except Exception as exc:
+        logger.warning(f'[VISIT/EDIT] 락 획득 실패 — lock 없이 진행: {exc}')
+        return None
+
+
+def _release_edit_lock(rc, lead_no: str) -> None:
+    if rc is None:
+        return
+    try:
+        rc.delete(f'visit_edit_lock:{lead_no}')
     except Exception:
         pass
 
@@ -4952,26 +4986,50 @@ def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -
 def _process_visit_edit(client, body, view) -> None:
     """정보 수정 모달 submit 처리 — 유형 동일 case 필드만 update.
     유형 변경 case 는 handler 에서 confirm view 로 라우팅됨.
+    Redis 락으로 동시 편집 방지.
     """
     metadata = json.loads(view.get('private_metadata') or '{}')
     lead_no = metadata.get('lead_no', '')
     channel = metadata.get('channel', '')
     message_ts = metadata.get('message_ts', '')
     original_platform = metadata.get('original_platform', '')
+    user_id = body.get('user', {}).get('id', '')
 
-    state = view['state']['values']
-    new_platform = _v(state, 'platform') or original_platform
-    new_visit_start = _v(state, 'visit_date') or ''
-    new_visit_end = _v(state, 'visit_date_end') or ''
-    new_name = (_v(state, 'name') or '').strip()
-    new_phone = (_v(state, 'phone') or '').strip()
-    new_address = (_v(state, 'address') or '').strip()
-    new_consultation = (_v(state, 'consultation') or '').strip()
+    edit_rc = _acquire_edit_lock(lead_no, ttl=30)
+    if edit_rc is None:
+        _notify_edit_failure(
+            client, channel, user_id, lead_no,
+            '다른 편집이 진행 중입니다. 30초 후 다시 시도해 주세요.',
+        )
+        logger.warning(f"[VISIT/EDIT] 락 충돌 skip: {lead_no} (editor={user_id})")
+        return
+    try:
+        state = view['state']['values']
+        new_platform = _v(state, 'platform') or original_platform
+        new_visit_start = _v(state, 'visit_date') or ''
+        new_visit_end = _v(state, 'visit_date_end') or ''
+        new_name = (_v(state, 'name') or '').strip()
+        new_phone = (_v(state, 'phone') or '').strip()
+        new_address = (_v(state, 'address') or '').strip()
+        new_consultation = (_v(state, 'consultation') or '').strip()
 
-    logger.info(
-        f"[VISIT/EDIT] {lead_no} 필드 update: 이름={new_name!r}, 주소={new_address[:30]!r}"
-    )
+        logger.info(
+            f"[VISIT/EDIT] {lead_no} 필드 update: 이름={new_name!r}, "
+            f"주소={new_address[:30]!r} (editor={user_id})"
+        )
+        _process_visit_edit_same_platform(
+            client, body, lead_no, channel, message_ts,
+            new_visit_start, new_visit_end, new_name, new_phone,
+            new_address, new_consultation,
+        )
+    finally:
+        _release_edit_lock(edit_rc, lead_no)
 
+
+def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts,
+                                       new_visit_start, new_visit_end, new_name,
+                                       new_phone, new_address, new_consultation) -> None:
+    """유형 동일 case 실제 처리 (락 안에서 호출됨)."""
     # 유형 동일 — 필드만 update
     # 방문 예정일 범위 조립
     new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
