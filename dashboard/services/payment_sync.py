@@ -85,6 +85,8 @@ _MANAGER_LINE_RE = re.compile(
 )
 # 단일 숫자(콤마 OK) 라인 — 매니저가 입금액만 적은 경우
 _BARE_AMOUNT_RE = re.compile(r'^([\d,]+)(?:\s*원)?$')
+# 지폐 수량 표기 — "5만원권 74장" = 5 × 10000 × 74 (2026-07-15 R3791-MJ 관측)
+_BILL_COUNT_RE = re.compile(r'(\d+)\s*만\s*원권\s*(\d+)\s*장')
 # 날짜: "2026/03/19", "06/25", "5/27" 등 — MM/DD 추출
 _DATE_RE = re.compile(r'(?:(\d{4})[/.-])?(\d{1,2})[/.-](\d{1,2})')
 # 은행명 추출 — 라인 또는 첫줄 시작
@@ -145,6 +147,13 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             m = _KO_AMOUNT_RE.search(ln)
             if m:
                 amount = int(m.group(1).replace(',', '')) * 10000
+                break
+    # 지폐 수량 (5만원권 74장) — X * 10000 * Y (2026-07-15 R3791-MJ)
+    if amount == 0:
+        for ln in lines:
+            m = _BILL_COUNT_RE.search(ln)
+            if m:
+                amount = int(m.group(1)) * 10000 * int(m.group(2))
                 break
     # 옛 양식 fallback — 메모에 금액 없으면 시트 단계 값 사용
     if amount == 0 and fallback_amount > 0:
@@ -256,6 +265,13 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     # → _resolve_payment_code 에서 'N' 코드 반환
     if not partner and '현금' in '\n'.join(lines):
         partner = '현금 수령'
+
+    # 현금 수령 free text 케이스는 매니저가 날짜 명시 안 하는 경우 많음.
+    # date_md 없으면 오늘 날짜 fallback (매니저가 지금 입력 = 오늘 수령).
+    # incomplete 감지에서 skip 되지 않도록 (2026-07-15 R3791-MJ)
+    if partner == '현금 수령' and not date_md:
+        from datetime import datetime as _dt
+        date_md = _dt.now().strftime('%m/%d')
 
     # 박C 표기 — 대표님 개인 기업통장(추적용 구분)
     note_label = ''
