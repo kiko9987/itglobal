@@ -4608,7 +4608,10 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
     initial = _slack_user_to_initial(client, user_id) if user_id else _to_initial(user_name)
 
     # 카테고리(플랫폼) 표시
-    if platform and platform != category:
+    # 소개 건은 '거래처 (소개)' 로 표시 (2026-07-15 사용자 요청 — 소개 = 거래처 하위)
+    if category == '소개' or platform == '소개':
+        category_display = '거래처 (소개)'
+    elif platform and platform != category:
         category_display = f"{category} ({platform})"
     else:
         category_display = category
