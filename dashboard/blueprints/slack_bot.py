@@ -2839,12 +2839,33 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
     if not channel:
         return {'error': 'SLACK_VISIT_CHANNEL 미설정'}
 
-    global _visit_slack_app
-    if _visit_slack_app is None:
-        _init_visit_slack_app()
-    client = _visit_slack_app.client if _visit_slack_app else None
-    if not client:
-        return {'error': 'visit bot client 로드 실패'}
+    # 방문 봇 client — _visit_slack_app 이 이미 있으면 그대로, 없으면 WebClient
+    # 직접 생성 (fallback). 진단용 로그 포함.
+    client = None
+    try:
+        global _visit_slack_app
+        if _visit_slack_app is None:
+            try:
+                _init_visit_slack_app()
+            except Exception as exc:
+                logger.warning(f"[MIGRATE/방문버튼] _init_visit_slack_app 실패: {exc}")
+        if _visit_slack_app is not None:
+            client = _visit_slack_app.client
+    except Exception as exc:
+        logger.warning(f"[MIGRATE/방문버튼] _visit_slack_app 접근 실패: {exc}")
+
+    if client is None:
+        # Fallback — 봇 토큰으로 WebClient 직접 생성
+        bot_token = os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+        if not bot_token:
+            return {'error': 'SLACK_VISIT_BOT_TOKEN 미설정 + visit app fallback 실패'}
+        try:
+            from slack_sdk import WebClient
+            client = WebClient(token=bot_token)
+            logger.info("[MIGRATE/방문버튼] fallback: WebClient 직접 생성")
+        except Exception as exc:
+            return {'error': f'WebClient 생성 실패: {exc}'}
+    logger.info(f"[MIGRATE/방문버튼] 시작: channel={channel} days={days} dry_run={dry_run}")
 
     stats = {
         'scanned': 0, 'visit_cards': 0, 'already_new': 0,
@@ -2865,7 +2886,12 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
             stats['errors'] += 1
             break
 
-        for msg in resp.get('messages', []):
+        _msgs = resp.get('messages', []) or []
+        logger.info(
+            f"[MIGRATE/방문버튼] page {pages}: msg_count={len(_msgs)} "
+            f"has_more={resp.get('has_more', False)} oldest={oldest_ts}"
+        )
+        for msg in _msgs:
             stats['scanned'] += 1
             blocks = msg.get('blocks') or []
             if not blocks:
