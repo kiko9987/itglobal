@@ -7111,8 +7111,11 @@ def _process_project_uncancel(client, body) -> None:
 def _open_invoice_modal(client, body) -> None:
     """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈.
 
-    2026-07-09: trigger_id 만료(3초) 방지 — Drive API 검증은 모달 오픈 후
-    submit 시점으로 이동. 여기선 오직 pre-fill 후 즉시 views.open 만.
+    2026-07-15: 사업자등록증 검증을 모달 오픈 전으로 복귀 (사용자 요청).
+      미첨부 시 ephemeral 로 안내하고 모달 자체를 열지 않음.
+      Drive API 검증 ~0.5초 + views.open ~0.5초 = trigger_id 3초 안에 완료 가능.
+      Drive API 예외 (지연·타임아웃) 시 검증 skip 후 모달 오픈 (submit 시점
+      재검증으로 방어).
     """
     trigger_id = body["trigger_id"]
     action = body["actions"][0]
@@ -7122,6 +7125,30 @@ def _open_invoice_modal(client, body) -> None:
         payload = {}
 
     code = payload.get('code', '') or '-'
+    channel_id = (body.get('channel') or {}).get('id', '')
+    user_id = (body.get('user') or {}).get('id', '')
+
+    # 사업자등록증 검증 (모달 오픈 전, 2026-07-15) — 미첨부 시 ephemeral + return.
+    if code and code != '-':
+        try:
+            from dashboard.services.business_license_handler import verify_license_exists
+            if not verify_license_exists(code):
+                try:
+                    client.chat_postEphemeral(
+                        channel=channel_id, user=user_id,
+                        text=(f':warning: `{code}` 사업자등록증이 첨부되지 않았습니다.\n'
+                              f'공사 확정 카드 스레드에 사업자등록증(이미지 or PDF)을 '
+                              f'먼저 첨부한 뒤 다시 요청해주세요.'),
+                    )
+                except Exception as exc:
+                    logger.warning(f'[SLACK/계산서] ephemeral 발송 실패: {exc}')
+                logger.info(f'[SLACK/계산서] 사업자등록증 미첨부 → 모달 오픈 차단 ({code})')
+                return
+        except Exception as exc:
+            logger.warning(
+                f'[SLACK/계산서] 사업자등록증 검증 실패 (모달 오픈 진행, submit 시 재검증): {exc}'
+            )
+
     biz = payload.get('biz', '') or ''
     addr = payload.get('addr', '') or ''
     amt = payload.get('amt', '') or ''
@@ -7131,8 +7158,8 @@ def _open_invoice_modal(client, body) -> None:
     # 부가세는 계산서 발행 특성상 항상 '별도' — 필드 제거 (2026-07-13).
     email = payload.get('email', '') or ''
 
-    # button value 는 카드 발송 시점 스냅샷 → OCR 로 갱신된 사업자명·이메일이
-    # 반영되지 않음. 시트 최신값이 있으면 우선 사용 (2026-07-13).
+    # button value 는 카드 발송 시점 스냅샷 → OCR 로 갱신된 사업자명·이메일·총액이
+    # 반영되지 않음. 시트 최신값이 있으면 우선 사용 (2026-07-13, 총액 2026-07-15 추가).
     if code and code != '-':
         try:
             from dashboard.services.project_service import get_project_records
@@ -7148,6 +7175,14 @@ def _open_invoice_modal(client, body) -> None:
                 _email_latest = (_latest.get('발주처 이메일') or '').strip()
                 if _email_latest and _email_latest != '-':
                     email = _email_latest
+                # 총액 1 재조회 (2026-07-15) — 매니저가 나중에 편집한 경우 반영
+                _amt_raw = _latest.get('총액 1', '')
+                try:
+                    _amt_int = int(float(str(_amt_raw).replace(',', '').strip() or '0'))
+                    if _amt_int > 0:
+                        amt = f"{_amt_int:,}"
+                except (ValueError, TypeError):
+                    pass
         except Exception as exc:
             logger.warning(f'[SLACK/계산서] 최신값 조회 실패 (payload fallback): {exc}')
 
