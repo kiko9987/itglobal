@@ -1671,7 +1671,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*'
                             r'(?:\d{1,2}:\d{2}\s*)?'
                         )
-                        _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분|상계|매입)')
+                        _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분|상계|매입|환불|재입금|정정)')
                         _transfer_md_re = re.compile(r'^\d{4}-(\d{1,2})-(\d{1,2})')
                         _special_entries = []  # [(stage, cleaned_line)]
                         for _idx, _note in enumerate(notes):
