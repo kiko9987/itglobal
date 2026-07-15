@@ -5525,14 +5525,29 @@ def _process_visit_thread_files(client, event) -> None:
     from dashboard.utils.redis_client import get_redis_client as _get_rc
     _lock_key = f'visit_photo_lock:{lead_no}'
     _lock_ttl = min(600, 30 + len(files) * 4)  # 1장=34s, 60장=270s, 상한 10분
+    # 락 대기 (spin-wait) — 처리 중이면 skip 대신 대기했다가 획득. 매니저가 사진
+    # 배치를 연속으로 올리는 UX 지원 (2026-07-15). 최대 5분 대기.
+    _rc_lock = None
+    _got_lock = False
     try:
         _rc_lock = _get_rc().redis
-        _got_lock = _rc_lock.set(_lock_key, '1', nx=True, ex=_lock_ttl)
-        if not _got_lock:
+        _wait_start = time.time()
+        _max_wait = 300  # 5분
+        while True:
+            _got_lock = _rc_lock.set(_lock_key, '1', nx=True, ex=_lock_ttl)
+            if _got_lock:
+                break
+            if time.time() - _wait_start > _max_wait:
+                logger.warning(
+                    f'[SLACK/방문 사진] {lead_no} 락 대기 {_max_wait}s 초과 — skip'
+                )
+                return
+            time.sleep(2)
+        _wait_elapsed = time.time() - _wait_start
+        if _wait_elapsed > 1:
             logger.info(
-                f'[SLACK/방문 사진] {lead_no} 다른 스레드가 처리 중 — 이번 이벤트 skip'
+                f'[SLACK/방문 사진] {lead_no} 락 대기 {_wait_elapsed:.0f}s 후 획득'
             )
-            return
     except Exception as exc:
         logger.warning(f'[SLACK/방문 사진] 락 획득 실패 — 계속 진행: {exc}')
         _rc_lock = None
