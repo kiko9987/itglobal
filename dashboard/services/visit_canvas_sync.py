@@ -101,14 +101,6 @@ def _visit_date_sort_key(raw) -> str:
     return m.group(1) if m else s
 
 
-def _fmt_group_header(date_key: str) -> str:
-    """정렬 키 (YYYY-MM-DD) → 그룹 헤더 표시 (N월 M일)."""
-    m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', date_key)
-    if m:
-        return f'{int(m.group(2))}월 {int(m.group(3))}일'
-    return date_key
-
-
 def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     """캔버스 각 항목 텍스트 렌더.
 
@@ -215,18 +207,8 @@ def build_canvas_markdown() -> str:
         if not items:
             lines.append('_없음_')
         else:
-            # 방문 시작 날짜 별 그룹핑 → h3 서브헤더 (slack canvas 는 리스트 안
-            # 빈 줄을 무시하므로 헤더로 명확 구분)
-            from collections import OrderedDict
-            by_date: OrderedDict = OrderedDict()
             for lead in items:
-                dk = _visit_date_sort_key(lead.get('방문 예정일'))
-                by_date.setdefault(dk, []).append(lead)
-            for dk, group in by_date.items():
-                lines.append(f'### {_fmt_group_header(dk)}')
-                for lead in group:
-                    lines.append(f'- {_render_item(lead, initial_map)}')
-                lines.append('')
+                lines.append(f'- {_render_item(lead, initial_map)}')
         lines.append('')
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
