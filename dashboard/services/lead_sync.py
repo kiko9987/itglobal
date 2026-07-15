@@ -196,18 +196,24 @@ def _normalize_address_key(addr: str) -> str:
 
 
 def _get_existing_address_lookup(main_df: Optional[pd.DataFrame]) -> dict:
-    """주소 정규화 키 → entries (재문의 감지: 같은 건물 다른 사람)."""
+    """주소 정규화 키 → entries (재문의 감지: 같은 건물 다른 사람).
+
+    ETC-xxxxxx 리드(기타 방문 pseudo lead) 는 재문의 대상 아님 → skip.
+    """
     lookup: dict = {}
     if main_df is None or main_df.empty:
         return lookup
     for _, row in main_df.iterrows():
+        lead_no_str = str(row.get('리드 No', '') or '').strip()
+        if lead_no_str.startswith('ETC-'):
+            continue  # 기타 방문 pseudo lead 재문의 감지 대상 X (2026-07-15)
         addr_raw = str(row.get('방문 주소', '') or '')
         key = _normalize_address_key(addr_raw)
         if not key:
             continue
         consult_dt = _parse_consult_dt(row.get('상담 시간'))
         entry = {
-            'lead_no': str(row.get('리드 No', '') or ''),
+            'lead_no': lead_no_str,
             'consult_dt': consult_dt,
             'consult_time': str(row.get('상담 시간', '') or ''),
             'status': str(row.get('상태', '') or ''),
@@ -231,18 +237,22 @@ def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
     """연락처 → [{lead_no, consult_time(datetime), status, feedback, platform}, ...] 시간 내림차순.
 
     재문의 감지 + 옛 이력 카드 표시에 사용.
+    ETC-xxxxxx 리드(기타 방문 pseudo lead) 는 재문의 대상 아님 → skip (2026-07-15).
     """
     lookup: dict = {}
     if main_df is None or main_df.empty:
         return lookup
     for _, row in main_df.iterrows():
+        lead_no_str = str(row.get('리드 No', '') or '').strip()
+        if lead_no_str.startswith('ETC-'):
+            continue
         phone_raw = str(row.get('고객 연락처', '') or '')
         digits = re.sub(r'\D', '', phone_raw)
         if len(digits) < 10:
             continue
         consult_dt = _parse_consult_dt(row.get('상담 시간'))
         entry = {
-            'lead_no': str(row.get('리드 No', '') or ''),
+            'lead_no': lead_no_str,
             'consult_dt': consult_dt,
             'consult_time': str(row.get('상담 시간', '') or ''),
             'status': str(row.get('상태', '') or ''),
