@@ -2811,6 +2811,99 @@ def slack_list_assignee():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@slack_bp.route("/migrate-etc-to-sheet", methods=["GET", "POST"])
+def slack_migrate_etc_to_sheet():
+    """관리자 트리거 — 기존 Redis ETC pseudo-lead metadata 를 시트로 이관.
+
+    시나리오 D 전환 후 옛 Redis 저장분 (etc_visit:*) 처리용.
+    ?dry_run=1 (기본, 카운트만) or ?dry_run=0 (실제 실행)
+    """
+    try:
+        dry_run = request.args.get('dry_run', '1') != '0'
+        result = _migrate_etc_redis_to_sheet(dry_run=dry_run)
+        return jsonify({"ok": True, "dry_run": dry_run, **result})
+    except Exception as exc:
+        logger.error(f"[MIGRATE/ETC] 실패: {exc}", exc_info=True)
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def _migrate_etc_redis_to_sheet(dry_run: bool = True) -> dict:
+    """Redis 의 etc_visit:* hash → 시트 append + Redis 삭제."""
+    stats = {'scanned': 0, 'migrated': 0, 'errors': 0}
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        from dashboard.services.lead_service import (
+            _get_sheet_config, get_sheets_manager, LEAD_COLUMN_ORDER,
+            invalidate_leads_cache,
+        )
+        rc = get_redis_client().redis
+        keys = list(rc.scan_iter(match='etc_visit:*'))
+        stats['scanned'] = len(keys)
+        if not keys:
+            logger.info("[MIGRATE/ETC] Redis 에 etc_visit:* 없음 — 이관 대상 zero")
+            return stats
+
+        cfg = _get_sheet_config()
+        if not cfg:
+            return {'error': 'ONLINE_LEADS_SHEET_ID 미설정', **stats}
+        manager = get_sheets_manager()
+
+        for key in keys:
+            try:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                etc_lead_no = key_str.split(':', 1)[1]
+
+                raw = rc.hgetall(key) or {}
+                data = {
+                    (k.decode() if isinstance(k, bytes) else k):
+                    (v.decode() if isinstance(v, bytes) else v)
+                    for k, v in raw.items()
+                }
+
+                _vd = data.get('방문 예정일', '')
+                row_dict = {
+                    '리드 No': etc_lead_no,
+                    '상담 시간': data.get('상담 시간', ''),
+                    '플랫폼': '기타',
+                    '상태': data.get('상태', '방문 예약'),
+                    '방문 예정일': (f"'{_vd}" if _vd and '~' not in _vd else _vd),
+                    '고객 연락처': data.get('고객 연락처', '-'),
+                    '이메일': data.get('이메일', '-'),
+                    '고객명': data.get('고객명', '-'),
+                    '방문 주소': data.get('방문 주소', '-'),
+                    '문의 내용': data.get('문의 내용', '-') or '-',
+                    '상담 내용': data.get('상담 내용', ''),
+                    '키워드': data.get('키워드', '-'),
+                    '온라인 상담자': data.get('온라인 상담자', '-'),
+                    '영업 담당자': data.get('영업 담당자', '-'),
+                    '마지막 연락일': '-',
+                    '폴더 ID': '',
+                }
+                row = [row_dict.get(col, '') for col in LEAD_COLUMN_ORDER]
+
+                if dry_run:
+                    logger.info(f"[MIGRATE/ETC/DRY] would migrate {etc_lead_no}")
+                    stats['migrated'] += 1
+                    continue
+
+                manager.append_row(cfg['sheet_id'], cfg['sheet_name'], row)
+                rc.delete(key)
+                stats['migrated'] += 1
+                logger.info(f"[MIGRATE/ETC] {etc_lead_no} 시트 이관 완료")
+            except Exception as exc:
+                logger.error(f"[MIGRATE/ETC] {key} 이관 실패: {exc}",
+                             exc_info=True)
+                stats['errors'] += 1
+
+        if not dry_run and stats['migrated'] > 0:
+            invalidate_leads_cache()
+    except Exception as exc:
+        logger.error(f"[MIGRATE/ETC] 스캔 실패: {exc}", exc_info=True)
+        stats['errors'] += 1
+
+    return stats
+
+
 @slack_bp.route("/migrate-visit-buttons", methods=["GET", "POST"])
 def slack_migrate_visit_buttons():
     """관리자 트리거 — #방문_일정 채널의 기존 카드 버튼을
