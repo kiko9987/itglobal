@@ -438,6 +438,7 @@ def _to_initial(name: str) -> str:
     """한국 이름 / 이니셜 / 빈값 → 이니셜 통일.
     - 한국 이름 → Redis(관리자 편집) → project_config.json → fallback dict 순 조회
     - 영문 2~5자 → 대문자 ('KiKO' 예외)
+    - 콤마·슬래시 join (예: '빈승정,강정권') → 각각 이니셜 매핑 후 join
     - 매핑 없으면 원본 그대로
     """
     if not name:
@@ -445,6 +446,14 @@ def _to_initial(name: str) -> str:
     name = name.strip()
     if not name or name in ('-', '미정'):
         return ''
+    # 여러 담당자 (콤마/슬래시 join) — 각각 이니셜 후 join
+    if ',' in name or '/' in name:
+        parts = [p.strip() for p in re.split(r'[,/]', name) if p.strip()]
+        if len(parts) > 1:
+            initials = [_to_initial(p) for p in parts]
+            joined = ','.join(i for i in initials if i)
+            if joined:
+                return joined
     looked = _lookup_initial_by_name(name)
     if looked:
         return looked
