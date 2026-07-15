@@ -2886,7 +2886,15 @@ def _migrate_etc_redis_to_sheet(dry_run: bool = True) -> dict:
                     stats['migrated'] += 1
                     continue
 
-                manager.append_row(cfg['sheet_id'], cfg['sheet_name'], row)
+                # manager.append_row 는 '공사 현황' 시트 하드코딩이라
+                # 리드 시트에는 못 씀. values().append() 직접 호출.
+                manager.service.spreadsheets().values().append(
+                    spreadsheetId=cfg['sheet_id'],
+                    range=f"'{cfg['sheet_name']}'!A:P",
+                    valueInputOption='USER_ENTERED',
+                    insertDataOption='INSERT_ROWS',
+                    body={'values': [row]},
+                ).execute()
                 rc.delete(key)
                 stats['migrated'] += 1
                 logger.info(f"[MIGRATE/ETC] {etc_lead_no} 시트 이관 완료")
