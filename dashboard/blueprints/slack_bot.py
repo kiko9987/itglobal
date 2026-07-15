@@ -4783,23 +4783,170 @@ def _notify_edit_failure(client, channel, user_id, lead_no, reason) -> None:
 
 
 def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -> None:
-    """[커밋 4 예정] L-XXXXX → ETC-xxx 강등.
-    아직 미구현 — 매니저에게 ephemeral 안내.
+    """L-XXXXX (정규 리드) → ETC-xxx (pseudo-lead) 강등.
+
+    순서 원칙: 새 상태 저장 먼저 → 옛 상태 삭제. 실패 시 최악 = 중복만.
     """
+    message_ts = metadata.get('message_ts', '')
     user_id = body.get('user', {}).get('id', '')
+    new_visit_start = pending.get('visit_start', '')
+    new_visit_end = pending.get('visit_end', '')
+    new_name = pending.get('name', '')
+    new_phone = pending.get('phone', '')
+    new_address = pending.get('address', '')
+    new_consultation = pending.get('consultation', '')
+
+    new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
+
+    # 기존 정규 lead 에서 부가 정보 (담당자 등) 보존
+    old_lead = _find_lead_by_no(lead_no) or {}
+    user_name = (
+        str(old_lead.get('영업 담당자', '') or '').lstrip('@').strip()
+        or str(old_lead.get('온라인 상담자', '') or '').lstrip('@').strip()
+    )
+
+    # 1) 새 ETC lead_no 발번 + Redis metadata 저장
     try:
-        if user_id and channel:
-            client.chat_postEphemeral(
-                channel=channel, user=user_id,
-                text=(
-                    f":warning: `{lead_no}` (거래처/소개 → 기타) 강등은 "
-                    f"아직 구현 중입니다. 잠시 후 지원 예정. "
-                    f"지금은 취소 후 새로 기타로 등록해 주세요."
-                ),
-            )
+        new_etc_lead_no = _etc_new_lead_no()
+        _etc_set_lead(new_etc_lead_no, {
+            '리드 No': new_etc_lead_no,
+            '고객명': new_name,
+            '고객 연락처': new_phone,
+            '이메일': str(old_lead.get('이메일', '') or '').strip(),
+            '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
+            '방문 주소': new_address,
+            '문의 내용': new_consultation,
+            '상담 내용': new_consultation,
+            '키워드': str(old_lead.get('키워드', '') or '').strip(),
+            '방문 예정일': new_visit_display,
+            '영업 담당자': user_name,
+            '온라인 상담자': user_name,
+            '플랫폼': '기타',
+            '상태': '방문 예약',
+        })
+        logger.info(
+            f"[VISIT/EDIT/DEMOTE] Redis ETC 저장 성공: {lead_no} → {new_etc_lead_no}"
+        )
+    except Exception as exc:
+        logger.error(
+            f"[VISIT/EDIT/DEMOTE] Redis ETC 저장 실패 ({lead_no}): {exc}",
+            exc_info=True,
+        )
+        _notify_edit_failure(client, channel, user_id, lead_no,
+                             f'Redis 저장 실패: {exc}')
+        return
+
+    # 2) 정규 리드 시트 행 삭제
+    try:
+        from dashboard.services.lead_service import (
+            load_leads_data, _get_sheet_config, get_sheets_manager,
+            invalidate_leads_cache,
+        )
+        from dashboard.services.lead_sync import _batch_delete_sheet_rows
+        df = load_leads_data(force_refresh=True)
+        if df is None or df.empty:
+            raise RuntimeError('시트 데이터 로드 실패')
+        matches = df[df['리드 No'].astype(str).str.strip() == lead_no]
+        if matches.empty:
+            raise RuntimeError(f'lead_no {lead_no} 시트에서 못 찾음')
+        sheet_row = int(matches.index[0]) + 2  # 헤더 1 + 0-based
+        cfg = _get_sheet_config()
+        manager = get_sheets_manager()
+        _batch_delete_sheet_rows(manager, cfg, [sheet_row])
+        invalidate_leads_cache()
+        logger.info(
+            f"[VISIT/EDIT/DEMOTE] 시트 행 삭제 성공: {lead_no} (row {sheet_row})"
+        )
+    except Exception as exc:
+        # 시트 삭제 실패해도 카드/List 는 진행 (매니저가 나중에 수동 삭제)
+        logger.error(
+            f"[VISIT/EDIT/DEMOTE] 시트 삭제 실패 ({lead_no}): {exc} — "
+            f"매니저 수동 삭제 필요",
+            exc_info=True,
+        )
+        try:
+            if user_id and channel:
+                client.chat_postEphemeral(
+                    channel=channel, user=user_id,
+                    text=(
+                        f":warning: `{lead_no}` ETC 전환 완료, 단 시트 행 "
+                        f"자동 삭제 실패. 대시보드에서 수동 삭제 부탁드립니다."
+                    ),
+                )
+        except Exception:
+            pass
+
+    # 3) 카드 chat_update (헤더 lead_no → ETC-xxx)
+    try:
+        initial = _slack_user_to_initial(client, user_id) or '-'
+        body_text, blocks = _build_visit_notice_blocks(
+            lead_no=new_etc_lead_no, category_display='기타', initial=initial,
+            visit_date=new_visit_display,
+            name=new_name, contact=new_phone,
+            visit_address=new_address, consultation=new_consultation,
+        )
+        client.chat_update(
+            channel=channel, ts=message_ts, text=body_text, blocks=blocks,
+        )
+    except Exception as exc:
+        logger.error(
+            f"[VISIT/EDIT/DEMOTE] 카드 update 실패 ({lead_no}→{new_etc_lead_no}): {exc}",
+            exc_info=True,
+        )
+
+    # 4) List webhook — 옛 정규 아이템 삭제 + 새 ETC 아이템 add
+    try:
+        _trigger_visit_list_webhook(
+            'SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, channel, message_ts,
+        )
+    except Exception as exc:
+        logger.warning(f"[VISIT/EDIT/DEMOTE] List 옛 아이템 삭제 실패: {exc}")
+
+    try:
+        new_lead_data = {
+            '리드 No': new_etc_lead_no,
+            '고객명': new_name,
+            '고객 연락처': new_phone,
+            '이메일': str(old_lead.get('이메일', '') or '').strip(),
+            '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
+            '방문 주소': new_address,
+            '문의 내용': new_consultation,
+            '키워드': str(old_lead.get('키워드', '') or '').strip(),
+            '플랫폼': '기타',
+        }
+        _post_to_slack_list(
+            client, new_lead_data,
+            modal_fields={
+                'visit_date': new_visit_display,
+                'visit_address': new_address,
+                'consultation': new_consultation,
+                'estimate': '',
+            },
+            channel=channel, message_ts=message_ts,
+            action='visit',
+        )
+    except Exception as exc:
+        logger.warning(f"[VISIT/EDIT/DEMOTE] List 새 아이템 add 실패: {exc}")
+
+    # 5) 감사 로그 답글
+    try:
+        editor_initial = _slack_user_to_initial(client, user_id) or '-'
+        client.chat_postMessage(
+            channel=channel, thread_ts=message_ts,
+            text=(
+                f":arrows_counterclockwise: *리드 번호 강등*: "
+                f"`{lead_no}` → `{new_etc_lead_no}` "
+                f"(정규 → 기타, 편집자: {editor_initial})"
+            ),
+            unfurl_links=False,
+        )
     except Exception:
         pass
-    logger.warning(f"[VISIT/EDIT/DEMOTE] 미구현 — {lead_no}")
+
+    logger.info(
+        f"[VISIT/EDIT/DEMOTE] 완료: {lead_no} → {new_etc_lead_no} "
+        f"(정규 → 기타, editor={user_id})"
+    )
 
 
 def _process_visit_edit(client, body, view) -> None:
