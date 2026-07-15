@@ -224,9 +224,13 @@ def rebuild_canvas() -> Dict:
         result['reason'] = 'SLACK_VISIT_CANVAS_ID 미설정'
         logger.debug(f'[VISIT_CANVAS] {result["reason"]}')
         return result
-    token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    # 방문 일정 봇 (canvases:write scope 필요) 우선, 없으면 기본 봇 fallback
+    token = (
+        os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+        or os.getenv('SLACK_BOT_TOKEN', '').strip()
+    )
     if not token:
-        result['reason'] = 'SLACK_BOT_TOKEN 미설정'
+        result['reason'] = 'SLACK_VISIT_BOT_TOKEN / SLACK_BOT_TOKEN 미설정'
         logger.warning(f'[VISIT_CANVAS] {result["reason"]}')
         return result
 
