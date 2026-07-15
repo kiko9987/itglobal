@@ -1615,8 +1615,26 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     consult_norm_e = (
                         _normalize_workflow_datetime(_consult_raw) or _consult_raw
                     )
+                    # 방문 예정일 — 워크플로가 '시작~종료' 로 조립해서 저장.
+                    # 종료 빈 경우 '2026-07-15~' 로 남으니 파싱 후 재조립.
                     visit_raw_e = str(row.get('방문 예정일', '')).strip()
-                    visit_iso_e = _normalize_workflow_date(visit_raw_e) or visit_raw_e
+                    if visit_raw_e.startswith("'"):
+                        visit_raw_e = visit_raw_e[1:]
+                    if '~' in visit_raw_e:
+                        _vd_parts = [p.strip() for p in visit_raw_e.split('~')]
+                        _vd_parts = [p for p in _vd_parts if p]  # 빈 조각 제거
+                        if len(_vd_parts) == 1:
+                            visit_iso_e = (
+                                _normalize_workflow_date(_vd_parts[0]) or _vd_parts[0]
+                            )
+                        elif len(_vd_parts) >= 2:
+                            _s = _normalize_workflow_date(_vd_parts[0]) or _vd_parts[0]
+                            _e = _normalize_workflow_date(_vd_parts[1]) or _vd_parts[1]
+                            visit_iso_e = _s if _s == _e else f"{_s} ~ {_e}"
+                        else:
+                            visit_iso_e = ''
+                    else:
+                        visit_iso_e = _normalize_workflow_date(visit_raw_e) or visit_raw_e
                     # 상담 내용 우선 (매니저 폼 입력값), 없으면 문의 내용.
                     # '-' 는 워크플로 기본 placeholder → 빈값 취급.
                     def _pick_e(field):
