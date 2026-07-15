@@ -207,8 +207,14 @@ def build_canvas_markdown() -> str:
         if not items:
             lines.append('_없음_')
         else:
+            # 방문 시작 날짜 별 그룹핑 (이미 시간순 정렬 상태) — 날짜 바뀌면 빈 줄 삽입
+            prev_key: Optional[str] = None
             for lead in items:
+                cur_key = _visit_date_sort_key(lead.get('방문 예정일'))
+                if prev_key is not None and cur_key != prev_key:
+                    lines.append('')  # 날짜 구분 여백
                 lines.append(f'- {_render_item(lead, initial_map)}')
+                prev_key = cur_key
         lines.append('')
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
