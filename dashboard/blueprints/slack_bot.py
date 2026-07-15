@@ -5523,8 +5523,8 @@ def _process_visit_thread_files(client, event) -> None:
                 client.chat_postMessage(
                     channel=channel, thread_ts=thread_ts,
                     text=(
-                        ":information_source: 기타 방문은 자동 폴더 저장 미지원 "
-                        "(사후관리/A/S 임시 방문). 사진은 스레드에만 남습니다."
+                        ":information_source: 기타 방문은 자동 폴더 저장 미지원. "
+                        "사진은 스레드에만 남습니다."
                     ),
                     unfurl_links=False,
                 )
