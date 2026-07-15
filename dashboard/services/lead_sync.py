@@ -1497,15 +1497,16 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
       - 거래처: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=거래처)
       - 소개: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=소개)
       - 기타: 방문_일정 채널 '방문요청 등록하기' 모달 (방문 유형=기타).
-        시트 등록은 스킵하되 카드+List 는 정상. ETC-xxxxxx 임시번호로 Redis 관리.
-        (2026-07-15) 매니저는 시트 안 보고 슬랙+대시보드만 쓴다는 전제.
 
-    동시성 방어 (2026-07-15):
-      1. Redis 락 sync_workflow_phone_leads_lock (nx, TTL 30초) — 중복 sync
-         실행 방지 (매니저 두 명 동시 등록 시 서버가 겹쳐 도는 것 방지).
-      2. 기타 분기의 candidate 는 상담 시간 60초 이내인 것만 처리 — 오래된
-         '기타' 리드가 매니저 수동 등록·과거 sync 실패로 남았으면 다음 sync
-         에서 잡히지 않고 매니저가 대시보드에서 처리하게 유도.
+    리드 번호 발번 (2026-07-15 시나리오 D):
+      - 정규 (전화/거래처/소개) → L-XXXXX (연속 순번)
+      - 기타 → ETC-xxxxxx (랜덤 hex, L 번호 소모 안 함)
+      두 경우 모두 시트에 정상 등록. 대시보드 리드 목록은 '플랫폼 != 기타'
+      필터로 기타를 시야에서 감춤. 매니저는 시트 안 보고 슬랙+대시보드만 사용.
+
+    동시성 방어:
+      - Redis 락 sync_workflow_phone_leads_lock (nx, TTL 30초) — 중복 sync
+        실행 방지 (매니저 두 명 동시 등록 시 서버가 겹쳐 도는 것 방지).
     처리:
       1. lead_no 발번 (max + 1)
       2. 상담 시간 ISO → 'YYYY.MM.DD. HH:MM'
@@ -1578,125 +1579,6 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
             _platform_this = str(row.get('플랫폼', '') or '').strip()
 
-            # 기타 방문 (2026-07-15): 시트 등록 스킵, ETC-xxxxxx 임시번호로
-            # Redis 저장 + #방문_일정 카드 + Slack List 만 발송. 방금 append 된
-            # 시트 행은 즉시 삭제 (온라인 리드 시트 오염 방지).
-            # 카드에는 완료/취소/방문일 수정 버튼 정상 포함 (slack_bot.py 헬퍼
-            # _find_lead_by_no / _update_lead_dispatch 가 ETC- 자동 인식).
-            # 동시성 방어: 상담 시간 60초 이내인 것만 처리 (오래된 매니저 수동
-            # 등록·과거 sync 실패 케이스와 구분).
-            if _platform_this == '기타':
-                try:
-                    # 시각 필터 — raw 워크플로 포맷 포함 여러 포맷 fallback
-                    _consult_raw = str(row.get('상담 시간', '')).strip()
-                    _consult_dt = None
-                    for _fmt in ('%Y.%m.%d. %H:%M', '%Y.%m.%d.%H.%M',
-                                 '%Y-%m-%d %H:%M'):
-                        try:
-                            _consult_dt = datetime.strptime(_consult_raw, _fmt)
-                            break
-                        except Exception:
-                            continue
-                    if _consult_dt is not None:
-                        _age_s = (datetime.now() - _consult_dt).total_seconds()
-                        if _age_s > 60:
-                            logger.warning(
-                                f'[SYNC/전화WF/ETC] 오래된 기타 리드 skip '
-                                f'(row {sheet_row}, 상담 시간={_consult_raw!r}, '
-                                f'age={_age_s:.0f}s) — 매니저가 대시보드에서 처리 필요'
-                            )
-                            continue
-
-                    from dashboard.blueprints.slack_bot import (
-                        _etc_new_lead_no, _etc_set_lead,
-                    )
-                    etc_lead_no = _etc_new_lead_no()
-
-                    consult_norm_e = (
-                        _normalize_workflow_datetime(_consult_raw) or _consult_raw
-                    )
-                    # 방문 예정일 — 워크플로가 '시작~종료' 로 조립해서 저장.
-                    # 종료 빈 경우 '2026-07-15~' 로 남으니 파싱 후 재조립.
-                    visit_raw_e = str(row.get('방문 예정일', '')).strip()
-                    if visit_raw_e.startswith("'"):
-                        visit_raw_e = visit_raw_e[1:]
-                    if '~' in visit_raw_e:
-                        _vd_parts = [p.strip() for p in visit_raw_e.split('~')]
-                        _vd_parts = [p for p in _vd_parts if p]  # 빈 조각 제거
-                        if len(_vd_parts) == 1:
-                            visit_iso_e = (
-                                _normalize_workflow_date(_vd_parts[0]) or _vd_parts[0]
-                            )
-                        elif len(_vd_parts) >= 2:
-                            _s = _normalize_workflow_date(_vd_parts[0]) or _vd_parts[0]
-                            _e = _normalize_workflow_date(_vd_parts[1]) or _vd_parts[1]
-                            visit_iso_e = _s if _s == _e else f"{_s} ~ {_e}"
-                        else:
-                            visit_iso_e = ''
-                    else:
-                        visit_iso_e = _normalize_workflow_date(visit_raw_e) or visit_raw_e
-                    # 상담 내용 우선 (매니저 폼 입력값), 없으면 문의 내용.
-                    # '-' 는 워크플로 기본 placeholder → 빈값 취급.
-                    def _pick_e(field):
-                        v = str(row.get(field, '') or '').strip()
-                        return v if v and v != '-' else ''
-                    _inquiry_e = _pick_e('상담 내용') or _pick_e('문의 내용')
-                    _user_e = (
-                        str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
-                        or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
-                    )
-                    _kw_e = str(row.get('키워드', '')).strip()
-
-                    # Redis metadata 저장 — 후속 완료/취소/수정 액션이 lookup
-                    _etc_set_lead(etc_lead_no, {
-                        '리드 No': etc_lead_no,
-                        '고객명': _name,
-                        '고객 연락처': _phone,
-                        '이메일': str(row.get('이메일', '')).strip(),
-                        '상담 시간': consult_norm_e,
-                        '방문 주소': str(row.get('방문 주소', '')).strip(),
-                        '문의 내용': _inquiry_e,
-                        '상담 내용': _inquiry_e,
-                        '키워드': _kw_e,
-                        '방문 예정일': visit_iso_e,
-                        '영업 담당자': _user_e,
-                        '온라인 상담자': _user_e,
-                        '플랫폼': '기타',
-                        '상태': '방문 예약',
-                    })
-
-                    # 카드+List 발송 큐에 추가 (아래 notify_visit 처리 로직 재사용)
-                    notify_visit.append({
-                        'lead_no': etc_lead_no,
-                        'name': _name,
-                        'phone': _phone,
-                        'email': str(row.get('이메일', '')).strip(),
-                        'consult_time': consult_norm_e,
-                        'address': str(row.get('방문 주소', '')).strip(),
-                        'visit_date': visit_iso_e,
-                        'inquiry': _inquiry_e,
-                        'keyword': _kw_e,
-                        'user_name': _user_e,
-                        'platform': '기타',
-                    })
-
-                    # 임시 시트 행 삭제 큐 (사이클 끝 batch delete)
-                    temp_rows_to_delete.append(sheet_row)
-                    result.setdefault('etc_processed', 0)
-                    result['etc_processed'] += 1
-                    logger.info(
-                        f'[SYNC/전화WF/ETC] 기타 방문 처리: {etc_lead_no} '
-                        f'({_name}/{_phone}, sheet row {sheet_row} 삭제 예정)'
-                    )
-                    continue
-                except Exception as exc:
-                    logger.error(
-                        f'[SYNC/전화WF/ETC] 기타 처리 실패 (row {sheet_row}): {exc}',
-                        exc_info=True,
-                    )
-                    result['errors'] += 1
-                    continue
-
             # 전화 워크플로 dedup (2026-07-14): 같은 연락처 90일 이내 리드가
             # 이미 있으면 기존 리드 update + 임시 행 삭제 (매니저 수동 시트
             # 등록 + 워크플로 이중 사용 사고 방지).
@@ -1757,8 +1639,14 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         )
                         # dedup 실패 시 fallthrough → 신규 발번
 
-            new_lead_no = f"L-{next_no_int:05d}"
-            next_no_int += 1
+            # 기타 방문은 L- 대신 ETC-xxxxxx (2026-07-15) — L 번호 연속 유지.
+            # 정규 리드 (거래처/소개/전화) 는 L-XXXXX 순번.
+            if _platform_this == '기타':
+                from dashboard.blueprints.slack_bot import _etc_new_lead_no
+                new_lead_no = _etc_new_lead_no()
+            else:
+                new_lead_no = f"L-{next_no_int:05d}"
+                next_no_int += 1
 
             update_cells = [(f"A{sheet_row}", new_lead_no)]
 
