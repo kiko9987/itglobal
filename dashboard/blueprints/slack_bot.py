@@ -5882,14 +5882,15 @@ def _process_visit_thread_files(client, event) -> None:
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] thread 답글 실패: {exc}")
 
-    # 6) thread root(방문 일정 카드)에 ✅ reaction 추가 — 사진 등록 완료 표시
+    # 6) 자동 방문 완료 처리 — 사진 첨부 = 방문 다녀옴 = 완료 (매니저 UX).
+    # Redis flag 로 중복 방지 (여러 배치 첨부 시 첫 배치에만 완료 트리거).
     try:
-        client.reactions_add(
-            channel=channel, timestamp=thread_ts, name="white_check_mark",
+        _auto_complete_visit_from_photo(
+            client, channel=channel, thread_ts=thread_ts, lead_no=lead_no,
+            event_user_id=event.get('user', ''),
         )
     except Exception as exc:
-        # 이미 reaction 있으면 already_reacted — 무시
-        logger.debug(f"[SLACK/방문 사진] reaction 추가 스킵: {exc}")
+        logger.warning(f"[SLACK/방문 사진] 자동 방문 완료 처리 실패 ({lead_no}): {exc}")
 
     # 7) 락 해제 — 이후 첨부는 즉시 처리 가능하도록 (자연 만료 60초 대신 즉시)
     try:
@@ -5897,6 +5898,83 @@ def _process_visit_thread_files(client, event) -> None:
             _rc_lock.delete(_lock_key)
     except Exception:
         pass
+
+
+def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
+                                      event_user_id) -> None:
+    """사진 첨부 → 폴더 생성 완료 후 카드를 자동으로 [방문 완료] 처리.
+
+    - Redis flag `visit_auto_completed:{lead_no}` (TTL 30일) 로 중복 방지
+      (첫 배치 완료 시만 완료 처리, 이후 배치는 사진만 저장)
+    - List 삭제 웹훅 호출 (SLACK_VISIT_COMPLETE_WEBHOOK_URL)
+    - 원본 카드 회색 처리 (chat.update)
+    """
+    # 중복 방지 flag
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        flag_key = f'visit_auto_completed:{lead_no}'
+        if rc.get(flag_key):
+            logger.debug(f"[SLACK/자동완료] {lead_no} 이미 완료 처리됨 — skip")
+            return
+    except Exception as exc:
+        logger.warning(f"[SLACK/자동완료] flag 조회 실패 — 계속 진행: {exc}")
+        rc = None
+
+    # 1) List 삭제 웹훅
+    try:
+        _trigger_visit_list_webhook(
+            'SLACK_VISIT_COMPLETE_WEBHOOK_URL', lead_no, channel, thread_ts,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/자동완료] List 웹훅 실패 ({lead_no}): {exc}")
+
+    # 2) 원본 카드 회색 처리 — conversations.replies 로 root 메시지 blocks 재조회
+    try:
+        rep = client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=1, inclusive=True,
+        )
+        root = (rep.get('messages') or [{}])[0]
+        original_text = ''
+        for blk in root.get('blocks', []) or []:
+            if blk.get('type') == 'section':
+                bt = (blk.get('text') or {}).get('text', '')
+                if bt:
+                    original_text = bt
+                    break
+        if not original_text:
+            original_text = root.get('text', '')
+
+        cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
+        cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
+        clean_text = '\n'.join(cleaned_lines)
+        clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
+
+        initial = _slack_user_to_initial(client, event_user_id) or '-'
+        complete_time = datetime.now().strftime('%m.%d %H:%M')
+        header_lines = [
+            "⠀",
+            f":white_check_mark: *방문 완료 (사진 첨부 자동)*  `{lead_no}`",
+            f"처리자 : {initial}",
+            f"완료 시간 : {complete_time}",
+        ]
+        new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
+        new_blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+        ]
+        client.chat_update(
+            channel=channel, ts=thread_ts, text=new_text, blocks=new_blocks,
+        )
+        logger.info(f"[SLACK/자동완료] {lead_no} 카드 완료 처리 (처리자={initial})")
+    except Exception as exc:
+        logger.warning(f"[SLACK/자동완료] 카드 update 실패 ({lead_no}): {exc}")
+
+    # 3) flag set (TTL 30일)
+    if rc is not None:
+        try:
+            rc.set(flag_key, '1', ex=60 * 60 * 24 * 30)
+        except Exception:
+            pass
 
 
 def _process_visit_shop_name_update(client, event) -> None:
