@@ -4392,13 +4392,14 @@ def _process_consult_submission(client, body, view):
     # ─────────────────────────────────────────────
     # 3a) #방문_일정 채널에 방문 케이스 메시지 발송 (방문 예약 시만)
     # ─────────────────────────────────────────────
+    visit_notice_channel, visit_notice_ts = '', ''
     if is_visit:
         # 인입 lead의 플랫폼 (홈페이지/당근/카카오톡/전화) — 헤더에 부가 표시
         lead_platform = ''
         if lead_no:
             existing_lead = _find_lead_by_no(lead_no) or {}
             lead_platform = str(existing_lead.get('플랫폼', '')).strip()
-        _post_visit_notice(
+        visit_notice_channel, visit_notice_ts = _post_visit_notice(
             client, lead_no=lead_no, category=category, user_id=user_id,
             visit_date=visit_date_raw, name=name, contact=contact,
             visit_address=visit_address, consultation=consultation,
@@ -4489,38 +4490,55 @@ def _process_consult_submission(client, body, view):
             pass
 
         # 3) thread reply 발송 (slack UI가 reply count 표시 갱신하도록 마지막에)
-        # chat.update 실패 시(옛 ts 삭제됐거나) chat.postMessage fallback
-        # 2026-07-16: 방문 예약은 방문_일정 채널에 이미 root 카드 발송됨 → 스레드 답글
-        #             중복 노이즈라 skip. 유선 상담/견적/드랍/부재중은 답글 유지 (처리 결과 기록).
-        if is_visit:
-            reply_sent = True  # 발송 skip 이지만 아래 fallback 도 skip
-        else:
-            reply_sent = False
-        if not is_visit:
-            if old_reply_ts:
-                try:
-                    client.chat_update(
-                        channel=channel, ts=old_reply_ts, text=reply_text,
-                    )
-                    reply_sent = True
-                except Exception as exc:
-                    logger.warning(
-                        f"[SLACK/상담] 옛 reply update 실패 — 새 reply 발송: {exc}"
-                    )
-            if not reply_sent:
-                try:
-                    resp = client.chat_postMessage(
-                        channel=channel, thread_ts=message_ts, text=reply_text,
-                    )
-                    if resp and resp.get('ok') and resp.get('ts'):
-                        try:
-                            rc.set(
-                                reply_key, resp['ts'], ex=60 * 60 * 24 * 90,
-                            )
-                        except Exception:
-                            pass
-                except Exception as exc:
-                    logger.error(f"[SLACK/상담] thread reply 실패: {exc}", exc_info=True)
+        # 2026-07-16: 방문 예약은 방문_일정 채널 root 카드 permalink 링크만 짧게 발송
+        #             (중복 노이즈 방지). 유선 상담/견적/드랍/부재중은 상세 답글 유지.
+        if is_visit and visit_notice_channel and visit_notice_ts:
+            try:
+                perm = client.chat_getPermalink(
+                    channel=visit_notice_channel, message_ts=visit_notice_ts,
+                )
+                permalink = (perm or {}).get('permalink', '')
+            except Exception as exc:
+                logger.debug(f"[SLACK/상담] 방문 카드 permalink 조회 실패 ({lead_no}): {exc}")
+                permalink = ''
+            ini = _slack_user_to_initial(client, user_id) or '-'
+            if permalink:
+                reply_text = (
+                    f":white_check_mark: *방문 예약 등록* — `{lead_no}` by `{ini}`\n"
+                    f":round_pushpin: <{permalink}|#방문_일정 카드에서 상세 보기>"
+                )
+            else:
+                reply_text = (
+                    f":white_check_mark: *방문 예약 등록* — `{lead_no}` by `{ini}`\n"
+                    f"_(#방문_일정 채널에 카드 발송됨)_"
+                )
+        # (is_visit 아니면 위쪽에서 조립된 상세 reply_text 그대로 사용)
+
+        reply_sent = False
+        if old_reply_ts:
+            try:
+                client.chat_update(
+                    channel=channel, ts=old_reply_ts, text=reply_text,
+                )
+                reply_sent = True
+            except Exception as exc:
+                logger.warning(
+                    f"[SLACK/상담] 옛 reply update 실패 — 새 reply 발송: {exc}"
+                )
+        if not reply_sent:
+            try:
+                resp = client.chat_postMessage(
+                    channel=channel, thread_ts=message_ts, text=reply_text,
+                )
+                if resp and resp.get('ok') and resp.get('ts'):
+                    try:
+                        rc.set(
+                            reply_key, resp['ts'], ex=60 * 60 * 24 * 90,
+                        )
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logger.error(f"[SLACK/상담] thread reply 실패: {exc}", exc_info=True)
     else:
         # 슬래시 진입 케이스 — ephemeral 확인 메시지
         try:
