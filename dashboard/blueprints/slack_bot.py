@@ -4893,15 +4893,29 @@ def _process_visit_date_modify(client, body, view) -> None:
 # 유형 변경 시 ETC↔정규 전환은 별도 커밋(3~4)에서 추가. 이 커밋은
 # "유형 동일" case 만 처리 (필드만 update).
 _VISIT_PLATFORM_OPTIONS = ['거래처', '소개', '기타']
+# 온라인 리드 플랫폼 — 편집 modal 에서 유형 dropdown 을 렌더링하지 않음
+# (platform 은 원본 유입 소스로 고정. 매니저가 임의로 바꾸면 안 됨)
+_ONLINE_LEAD_PLATFORMS = ('당근', '홈페이지', '카카오톡', '전화')
 
 
 def _open_visit_edit_modal(client, lead_no: str, channel: str,
                             message_ts: str, trigger_id: str) -> None:
-    """정보 수정 모달 open — 기존 값 pre-fill."""
+    """정보 수정 모달 open — 기존 값 pre-fill.
+
+    온라인 리드(당근/홈페이지/카카오톡/전화) 는 유형 dropdown 을 숨긴다.
+    - 원본 platform 은 metadata 에 그대로 저장 → submit 시 유지
+    - dropdown 은 거래처/소개/기타 슬래시 진입 case 에서만 표시
+    """
     lead = _find_lead_by_no(lead_no) or {}
-    cur_platform = str(lead.get('플랫폼', '') or '').strip()
-    # 지원 유형 아닌 경우 (온라인/전화 등) 기본값 = 거래처
-    if cur_platform not in _VISIT_PLATFORM_OPTIONS:
+    raw_platform = str(lead.get('플랫폼', '') or '').strip()
+    is_online_lead = raw_platform in _ONLINE_LEAD_PLATFORMS
+    # 온라인 리드는 dropdown 렌더 skip → cur_platform 은 metadata 저장용 원본
+    # 거래처/소개/기타가 아니면서 온라인 리드도 아닌 예외 case 만 '거래처' fallback
+    if is_online_lead:
+        cur_platform = raw_platform
+    elif raw_platform in _VISIT_PLATFORM_OPTIONS:
+        cur_platform = raw_platform
+    else:
         cur_platform = '거래처'
 
     # 방문 예정일 시작/종료 분리
@@ -4948,7 +4962,18 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn",
             "text": f"*{lead_no}* 정보 수정"}},
-        {
+    ]
+    # 온라인 리드는 유형 dropdown 숨김 — 원본 platform 표시만
+    if is_online_lead:
+        blocks.append({
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": f"방문 유형 : `{cur_platform}` (온라인 리드 — 변경 불가)",
+            }],
+        })
+    else:
+        blocks.append({
             "type": "input", "block_id": "platform",
             "label": {"type": "plain_text", "text": "방문 유형"},
             "element": {
@@ -4957,7 +4982,8 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
                 "options": platform_opts,
                 "initial_option": platform_initial,
             },
-        },
+        })
+    blocks.extend([
         {
             "type": "input", "block_id": "visit_date",
             "label": {"type": "plain_text", "text": "방문 예정일 (시작)"},
@@ -5005,7 +5031,7 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
                 "initial_value": cur_consultation,
             },
         },
-    ]
+    ])
 
     client.views_open(trigger_id=trigger_id, view={
         "type": "modal",
