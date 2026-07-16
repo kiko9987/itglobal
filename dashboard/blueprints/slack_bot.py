@@ -7489,6 +7489,29 @@ def _process_invoice_submission(client, body, view) -> None:
         except Exception as upd_exc:
             logger.warning(f"[SLACK/계산서] 첨부 링크 추가 실패 (무시): {upd_exc}")
 
+    # 카드 스레드에 프로젝트 사업자등록증 canonical 파일 자동 첨부.
+    # (2026-07-16 UX 개선 — 매니저가 공사확정 채널 왔다갔다 안 하도록 스레드에서 즉시 열람 가능.)
+    # 실패해도 카드 발송은 유지 — 조용히 warning 로그만.
+    def _attach_license_to_thread():
+        try:
+            from dashboard.services.business_license_handler import fetch_license_canonical
+            lic = fetch_license_canonical(code)
+            if not lic:
+                logger.info(f"[SLACK/계산서] 사업자등록증 canonical 없음 → 스레드 첨부 skip ({code})")
+                return
+            invoice_client.files_upload_v2(
+                channel=channel_id,
+                thread_ts=ts,
+                file=lic['content'],
+                filename=lic['file_name'],
+                initial_comment=f":page_facing_up: 사업자등록증 — `{code}`",
+            )
+            logger.info(f"[SLACK/계산서] 사업자등록증 스레드 첨부 완료: {code} ({lic['file_name']})")
+        except Exception as exc:
+            logger.warning(f"[SLACK/계산서] 사업자등록증 스레드 첨부 실패 (무시, {code}): {exc}")
+
+    threading.Thread(target=_attach_license_to_thread, daemon=True).start()
+
 
 def _auto_complete_invoice_card(
     client, channel: str, message_ts: str, event: dict, meta: dict,

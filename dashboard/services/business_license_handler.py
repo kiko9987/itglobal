@@ -344,6 +344,63 @@ def verify_license_exists(code: str) -> bool:
     return False
 
 
+_MIMETYPE_BY_EXT = {
+    'pdf': 'application/pdf',
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'heic': 'image/heic',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+}
+
+
+def fetch_license_canonical(code: str) -> Optional[dict]:
+    """canonical 사업자등록증 파일 다운로드. 세금계산서 카드 스레드 첨부용.
+
+    Returns: {'file_name': str, 'content': bytes, 'mimetype': str} or None.
+    canonical 여러 확장자면 pdf > png > jpg 우선.
+    """
+    parent = _project_folder_id_for(code)
+    if not parent:
+        return None
+    drive = _get_drive()
+    fid = _find_license_subfolder(drive, parent)
+    if not fid:
+        return None
+    expected_base = f'{code} {LICENSE_BASENAME}'
+    ext_priority = {'pdf': 0, 'png': 1, 'jpg': 2, 'jpeg': 2, 'webp': 3, 'gif': 4, 'heic': 5}
+    candidates = []
+    for f in _list_folder_files(drive, fid):
+        name = f['name']
+        if '.' not in name:
+            continue
+        base, ext = name.rsplit('.', 1)
+        if base != expected_base:
+            continue
+        candidates.append((ext_priority.get(ext.lower(), 99), name, f['id'], ext.lower()))
+    if not candidates:
+        return None
+    candidates.sort()
+    _, name, file_id, ext = candidates[0]
+    try:
+        request = drive.files().get_media(fileId=file_id, supportsAllDrives=True)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        content = buf.getvalue()
+    except Exception as exc:
+        logger.warning(f'[LICENSE/FETCH] Drive 다운로드 실패 ({code}, {name}): {exc}')
+        return None
+    return {
+        'file_name': name,
+        'content': content,
+        'mimetype': _MIMETYPE_BY_EXT.get(ext, 'application/octet-stream'),
+    }
+
+
 def resolve_project_from_thread(channel: str, thread_ts: str, slack_bot_token: str = '') -> Optional[str]:
     """channel|thread_ts → 프로젝트 코드 (없으면 None).
 
