@@ -7337,21 +7337,21 @@ def _open_invoice_modal(client, body) -> None:
                     "text": f"*공사 금액 (시트 원본)*\n`{amt}` 원",
                 },
             },
-            _text_input("amt", "계산서 금액", amt),
+            _text_input("amt", "계산서 발행 금액", amt),
             # VAT radio_buttons — 체크박스 여백 오클릭 사고 방지 (2026-07-16)
             {
                 "type": "input", "block_id": "vat",
-                "label": {"type": "plain_text", "text": "VAT"},
+                "label": {"type": "plain_text", "text": "VAT (부가가치세)"},
                 "element": {
                     "type": "radio_buttons",
                     "action_id": "value",
                     "initial_option": {
-                        "text": {"type": "plain_text", "text": "별도"},
+                        "text": {"type": "plain_text", "text": "VAT 별도"},
                         "value": "sep",
                     },
                     "options": [
-                        {"text": {"type": "plain_text", "text": "별도"}, "value": "sep"},
-                        {"text": {"type": "plain_text", "text": "포함"}, "value": "incl"},
+                        {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
+                        {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
                     ],
                 },
             },
