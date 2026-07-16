@@ -127,17 +127,33 @@ def _fetch_visit_leads() -> List[Dict]:
     """상태 = 방문 예약 + 방문 예정일 오늘 이후 lead 만 fetch.
 
     지난 방문 예정일은 완료 처리 안됐어도 목록에서 자동 제외 (매니저 카톡 원본 관행).
+    방문 완료 처리된 lead (Redis flag `visit_auto_completed:{lead_no}`) 도 제외
+    (2026-07-16 사고: _process_visit_complete 가 시트 상태를 변경하지 않기 때문에
+     시트 필터만으로는 완료 lead 를 걸러내지 못하던 문제).
     """
     from dashboard.services.lead_service import load_leads_data
     df = load_leads_data(force_refresh=True)
     if df is None or df.empty:
         return []
+    # 방문 완료 flag 조회 (Redis) — 있으면 캔버스 제외
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        _rc = get_redis_client().redis
+    except Exception:
+        _rc = None
     today = date.today()
     leads: List[Dict] = []
     for _, row in df.iterrows():
         status = str(row.get('상태') or '').strip()
         if status != '방문 예약':
             continue
+        _lno = str(row.get('리드 No') or '').strip()
+        if _rc is not None and _lno:
+            try:
+                if _rc.get(f'visit_auto_completed:{_lno}'):
+                    continue  # 방문 완료 처리됨
+            except Exception:
+                pass
         # 방문 예정일 파싱 — 오늘 이전이면 제외 (범위면 종료일 기준)
         vd_raw = str(row.get('방문 예정일') or '').strip().lstrip("'")
         vd_date: Optional[date] = None
