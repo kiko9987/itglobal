@@ -422,6 +422,97 @@ def _fmt_field(field: str, value) -> str:
     return str(value).strip()
 
 
+_INVOICE_WATCH_FIELDS = {'총액 1', '부가세', '사업자명'}
+
+
+def notify_invoice_card_amount_change(code: str, field_changes: list) -> bool:
+    """프로젝트 편집 시 계산서 카드 스레드에 금액/부가세/사업자명 변경 알림.
+
+    2026-07-16 추가: 매니저가 계산서 요청 카드 발송 이후 프로젝트 편집으로
+    금액을 수정하는 경우 계산서 발행 담당자가 알아채지 못하는 문제 방지.
+
+    Redis 스캔으로 code 매치 카드 찾음 (invoice_card:{channel}:{ts} → {code, amt, ...}).
+    없으면 조용히 skip.
+    """
+    if not code or not field_changes:
+        return False
+    changes = [c for c in field_changes if c.get('field_name') in _INVOICE_WATCH_FIELDS]
+    if not changes:
+        return False
+
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return False
+
+    token = (
+        os.getenv('SLACK_INVOICE_BOT_TOKEN', '').strip()
+        or os.getenv('SLACK_BOT_TOKEN', '').strip()
+    )
+    if not token:
+        return False
+
+    def _money(v):
+        try:
+            n = int(float(str(v).replace(',', '').strip() or '0'))
+            return f'{n:,}원'
+        except Exception:
+            return str(v) if v else '-'
+
+    def _fmt(field, v):
+        if field == '총액 1':
+            return _money(v)
+        if field == '부가세':
+            s = str(v).strip().upper()
+            if s in ('TRUE', 'Y', 'YES', '1') or v is True:
+                return 'VAT 별도'
+            return 'VAT 포함'
+        return str(v) if v else '-'
+
+    lines = [f':memo: *공사 금액 수정 알림* — `{code}`']
+    for c in changes:
+        label = c['field_name']
+        old = _fmt(label, c.get('old_value'))
+        new = _fmt(label, c.get('new_value'))
+        if old == new:
+            continue
+        lines.append(f'• {label} : `{old}` → *`{new}`*')
+    if len(lines) == 1:
+        return False  # 실제 변경 없음
+    lines.append('')
+    lines.append('_시트 최신 값 기준. 계산서 발행 전 확인 부탁드립니다._')
+    text = '\n'.join(lines)
+
+    posted = 0
+    for k in rc.scan_iter(match='invoice_card:*'):
+        try:
+            v = rc.get(k)
+            if not v:
+                continue
+            meta = json.loads(v.decode() if isinstance(v, bytes) else v)
+            if (meta.get('code') or '').strip() != code:
+                continue
+            ks = k.decode() if isinstance(k, bytes) else k
+            _, channel, ts = ks.split(':', 2)
+            payload = {'channel': channel, 'thread_ts': ts, 'text': text}
+            req = urllib.request.Request(
+                'https://slack.com/api/chat.postMessage',
+                data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                headers={
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'Authorization': f'Bearer {token}',
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                r.read()
+            posted += 1
+            logger.info(f'[INVOICE/EDIT] 스레드 알림 발송: {code} (channel={channel} ts={ts})')
+        except Exception as exc:
+            logger.warning(f'[INVOICE/EDIT] 알림 발송 실패 ({code}, key={k}): {exc}')
+    return posted > 0
+
+
 def notify_project_field_changes(code: str, field_changes: list, latest_data: dict = None) -> bool:
     """편집된 필드들을 공사 확정 카드 스레드에 답글로 전송 + 원본 카드 최신 데이터로 재렌더링.
 

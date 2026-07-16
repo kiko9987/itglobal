@@ -1156,6 +1156,12 @@ def update_project(project_code):
                 )
             except Exception as exc:
                 logger.warning(f"[BG/SLACK] {final_project_code} 알림 처리 오류: {exc}")
+            # 2026-07-16: 총액 1 / 부가세 / 사업자명 변경 시 계산서 카드 스레드에도 알림
+            try:
+                from ..services.project_slack_notifier import notify_invoice_card_amount_change
+                notify_invoice_card_amount_change(final_project_code, field_changes)
+            except Exception as exc:
+                logger.warning(f"[BG/INVOICE] {final_project_code} 알림 처리 오류: {exc}")
             logger.info(f"[BG/DONE] {final_project_code} 알림 처리 완료")
 
         _th.Thread(target=_bg_notifications, daemon=True).start()
