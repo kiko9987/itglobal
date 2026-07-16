@@ -377,6 +377,15 @@ def resolve_project_from_thread(channel: str, thread_ts: str, slack_bot_token: s
         if not msgs:
             return None
         root_text = msgs[0].get('text', '') or ''
+        # 2026-07-16 사고: 세금계산서 발행 완료 카드도 헤더에 프로젝트 코드를 포함
+        # (`[세금계산서 발행 완료] G3560-YG`) → 정규식 매칭만 하면 오라우팅.
+        # 반드시 `[공사 확정]` 헤더가 있는 스레드만 사업자등록증 저장 대상.
+        if '[공사 확정]' not in root_text:
+            logger.info(
+                f'[LICENSE] 스레드 root 에 [공사 확정] 헤더 없음 → skip '
+                f'(channel={channel} ts={thread_ts})'
+            )
+            return None
         # 공사확정 카드 헤더 패턴: G1234-SH / R1234-MW / P1234-YG 등
         # Slack fallback text 는 백틱이 벗겨진 상태로 옴 → 백틱 옵셔널.
         m = re.search(r'`?([GRNP]\d{3,5}-[A-Z]{1,3})`?', root_text)
