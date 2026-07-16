@@ -7665,8 +7665,38 @@ def _auto_complete_invoice_card(
     new_blocks = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': updated_text}},
         attach_block,
-        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
     ]
+
+    # 2026-07-16: 첨부된 이미지 첫 파일을 카드에 image block 으로 embed (매니저 UX 요청).
+    # PDF 는 image block 미지원 (skip). 이미지만 대상. files.sharedPublicURL 호출로
+    # 파일을 public 화 → url_private + ?pub_secret=... 로 image_url 조합.
+    _preview_file = next((f for f in valid_files if (f.get('mimetype') or '').startswith('image/')), None)
+    if _preview_file:
+        try:
+            _fid = _preview_file.get('id')
+            _perm_pub = _preview_file.get('permalink_public') or ''
+            if not _perm_pub:
+                # 아직 공개 안 됨 → sharedPublicURL 호출 (files:write scope 필요)
+                _shared = client.files_sharedPublicURL(file=_fid)
+                _file_info = (_shared.get('file') or {}) if _shared else {}
+                _perm_pub = _file_info.get('permalink_public') or ''
+                _url_private = _file_info.get('url_private') or _preview_file.get('url_private') or ''
+            else:
+                _url_private = _preview_file.get('url_private') or ''
+            if _perm_pub and _url_private:
+                _pub_secret = _perm_pub.rsplit('-', 1)[-1]
+                _image_url = f'{_url_private}?pub_secret={_pub_secret}'
+                new_blocks.append({
+                    'type': 'image',
+                    'image_url': _image_url,
+                    'alt_text': '세금계산서 미리보기',
+                })
+        except Exception as _prev_exc:
+            logger.warning(f"[SLACK/계산서] 미리보기 image block 추가 실패 (계속 진행): {_prev_exc}")
+
+    new_blocks.append(
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
+    )
 
     try:
         client.chat_update(
