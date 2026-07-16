@@ -4767,6 +4767,14 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
     except Exception as exc:
         logger.warning(f"[SLACK/방문 list] {env_key} 호출 실패 ({lead_no}): {exc}")
 
+    # 방문 캔버스 rebuild — 정보 수정 (MODIFY) / 완료 (COMPLETE) / 취소 (CANCEL)
+    # 어느 경로든 시트 상태·방문일이 바뀔 수 있어 캔버스 반영 필요 (2026-07-16).
+    try:
+        from dashboard.services.visit_canvas_sync import rebuild_canvas_async
+        rebuild_canvas_async()
+    except Exception as _vc_exc:
+        logger.debug(f"[SLACK/방문 list] 캔버스 rebuild trigger 실패: {_vc_exc}")
+
 
 def _process_visit_date_modify(client, body, view) -> None:
     """[📅 방문일 수정] 모달 제출 처리 — 시트 update + 메시지 chat.update.
