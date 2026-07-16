@@ -191,14 +191,19 @@ def start_scheduler():
         jobs.append('수금 관리 30초')
 
         # 매니저 실수 감지 일일 요약 — 매일 오전 9시 (평일만, 매니저 출근 시각)
-        _scheduler.add_job(
-            _safe_payment_alert_daily,
-            'cron',
-            day_of_week='mon-fri',
-            hour=9, minute=0,
-            id='payment_alert_daily',
-        )
-        jobs.append('수금 매니저 실수 요약 평일 09시')
+        # 2026-07-17 사용자 요청으로 기본 disable. 활성 원하면 env
+        # PAYMENT_ALERT_DAILY_ENABLED=true 로 재활성.
+        if os.getenv('PAYMENT_ALERT_DAILY_ENABLED', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+            _scheduler.add_job(
+                _safe_payment_alert_daily,
+                'cron',
+                day_of_week='mon-fri',
+                hour=9, minute=0,
+                id='payment_alert_daily',
+            )
+            jobs.append('수금 매니저 실수 요약 평일 09시')
+        else:
+            logger.info('[SCHED] payment_alert_daily 비활성 (PAYMENT_ALERT_DAILY_ENABLED=false)')
 
         # 수금봇 토큰 health check — 매 1시간 (P1-4, 2026-07-10)
         # 토큰 만료·비활성화 시 관리자 DM 알림
