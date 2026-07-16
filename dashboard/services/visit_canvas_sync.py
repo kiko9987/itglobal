@@ -130,8 +130,8 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
         inquiry = inquiry[:200] + '...'
 
     if is_online:
-        # 온라인 방문 — 이니셜 생략
-        return f'{vd} / {phone} / {addr_biz} / {inquiry}'
+        # 온라인 방문 — 이니셜·이름 생략 (2026-07-16 사용자 요청, 개인 리드라 이름은 노이즈)
+        return f'{vd} / {phone} / {address} / {inquiry}'
 
     # 거래처/기타/소개 — 이니셜 (온라인 상담자 기준)
     source_name = _clean(lead.get('온라인 상담자'))
