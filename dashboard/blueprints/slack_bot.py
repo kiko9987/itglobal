@@ -7329,7 +7329,32 @@ def _open_invoice_modal(client, body) -> None:
                 "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
             _text_input("biz", "사업자명", biz),
             _text_input("addr", "현장 주소", addr),
-            _text_input("amt", "금액", amt),
+            # 공사 금액 (시트 원본, read-only 참고) — 2026-07-16 사용자 요청
+            {
+                "type": "context",
+                "elements": [{
+                    "type": "mrkdwn",
+                    "text": f":moneybag: *공사 금액 (시트 원본)* : `{amt}` 원",
+                }],
+            },
+            _text_input("amt", "계산서 금액", amt),
+            # VAT radio_buttons — 체크박스 여백 오클릭 사고 방지 (2026-07-16)
+            {
+                "type": "input", "block_id": "vat",
+                "label": {"type": "plain_text", "text": "VAT"},
+                "element": {
+                    "type": "radio_buttons",
+                    "action_id": "value",
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "별도"},
+                        "value": "sep",
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "별도"}, "value": "sep"},
+                        {"text": {"type": "plain_text", "text": "포함"}, "value": "incl"},
+                    ],
+                },
+            },
             _text_input("email", "발행 이메일", email),
             _text_input(
                 "memo", "추가 요청사항", "",
@@ -7476,9 +7501,10 @@ def _process_invoice_submission(client, body, view) -> None:
     email = _get('email').strip() or '-'
     memo = _get('memo').strip()
 
-    # 부가세는 계산서 발행 특성상 항상 '별도' — 라디오 필드 제거 (2026-07-13).
-    vat_val = 'sep'
-    vat_label = 'VAT 별도'
+    # VAT radio_buttons state — 2026-07-16 라디오 필드 재도입 (매니저 오클릭 방지)
+    _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
+    vat_val = _vat_state.get('value', 'sep') or 'sep'
+    vat_label = 'VAT 별도' if vat_val == 'sep' else 'VAT 포함'
 
     amt_display = _money_kr(amt_digits)
     if amt_display != '-':
