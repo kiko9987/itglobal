@@ -732,6 +732,25 @@ def _register_project_handlers(app):
                 ack(response_action="errors", errors=errors)
                 return
 
+        # 중복 submit 방어 (2026-07-16 사고).
+        #   원인: 검증 (Drive API + 시트 조회) 이 3초 넘어가면 Slack modal 이
+        #        안 닫히고 매니저가 다시 submit → handler 재실행 → 카드 2개.
+        #   방어: view.id 기반 짧은 lock. 두 번째 submit 은 ack + return (skip).
+        #   verification 은 read-only 니 여러 번 실행돼도 무방, 카드 발송만 gate.
+        _view_id = (view.get('id') or '').strip()
+        if _view_id:
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                _rc = get_redis_client().redis
+                if not _rc.set(f'invoice_submit_lock:{_view_id}', '1', nx=True, ex=300):
+                    logger.info(
+                        f'[SLACK/계산서] 중복 submit skip (view_id={_view_id} code={code})'
+                    )
+                    ack()
+                    return
+            except Exception as _lock_exc:
+                logger.warning(f'[SLACK/계산서] idempotency lock 실패 (계속 진행): {_lock_exc}')
+
         ack()
         def _bg():
             try:
