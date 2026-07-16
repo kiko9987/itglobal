@@ -105,8 +105,20 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     """캔버스 각 항목 텍스트 렌더.
 
     양식: (이니셜) MM월 DD일 / 연락처 / 주소 상호 / 내용
+
+    이니셜 우선순위 (방문 카드 로직과 통일, 2026-07-16):
+      - 거래처/소개/기타: 온라인 상담자
+      - 온라인(당근/홈페이지/카카오톡/전화): 영업 담당자 → 온라인 상담자 fallback
     """
-    ini = _initial_from_name(str(lead.get('영업 담당자') or ''), initial_map)
+    def _clean(v):
+        s = str(v or '').strip()
+        return '' if s in ('', '-', '미정') else s
+    _platform = str(lead.get('플랫폼') or '').strip()
+    if _platform in ('거래처', '소개', '기타'):
+        source_name = _clean(lead.get('온라인 상담자'))
+    else:
+        source_name = _clean(lead.get('영업 담당자')) or _clean(lead.get('온라인 상담자'))
+    ini = _initial_from_name(source_name, initial_map) if source_name else '-'
     vd = _fmt_visit_date(lead.get('방문 예정일'))
     phone = str(lead.get('고객 연락처') or '').strip() or '-'
     address = str(lead.get('방문 주소') or '').strip() or '-'
