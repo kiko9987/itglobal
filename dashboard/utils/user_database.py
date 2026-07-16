@@ -1012,11 +1012,15 @@ class ConstructorRepository:
             return [self._row_to_dict(row) for row in cursor.fetchall()]
 
     def get_grouped(self, active_only: bool = False) -> Dict[str, List[Dict]]:
-        """카테고리별로 묶어서 반환: {'메인': [...], '서브': [...], '내부': [...]}"""
+        """카테고리별로 묶어서 반환: {'메인': [...], '서브': [...], '내부': [...]}
+
+        방어: DB 에 있지만 VALID_CATEGORIES 에 아직 없는 카테고리도 setdefault
+              로 수용 (서비스 재시작 전 마이그레이션만 완료된 상황 KeyError 방지).
+        """
         all_rows = self.get_all(active_only=active_only)
         grouped: Dict[str, List[Dict]] = {cat: [] for cat in self.VALID_CATEGORIES}
         for row in all_rows:
-            grouped[row['category']].append(row)
+            grouped.setdefault(row['category'], []).append(row)
         return grouped
 
     def create(self, name: str, category: str, is_active: bool = True,

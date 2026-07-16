@@ -554,13 +554,16 @@ def _safe_daily_backup():
             [_sys.executable, '-X', 'utf8', str(script)],
             capture_output=True, text=True, timeout=180,
         )
+        # result.stdout/stderr None 가능 (Windows 서비스 컨텍스트에서 capture 실패 케이스)
+        _out = (result.stdout or '').strip()
+        _err = (result.stderr or '').strip()
         if result.returncode == 0:
-            logger.info(f'[BACKUP] 완료:\n{result.stdout.strip()}')
+            logger.info(f'[BACKUP] 완료:\n{_out}' if _out else '[BACKUP] 완료 (stdout 없음)')
         else:
-            logger.error(f'[BACKUP] 실패 (exit={result.returncode}):\n{result.stderr.strip()}')
+            logger.error(f'[BACKUP] 실패 (exit={result.returncode}):\n{_err}')
             _notify_admin(
                 'daily_backup_fail',
-                f':warning: 일 백업 실패 (exit={result.returncode})\n```{result.stderr[:1000]}```',
+                f':warning: 일 백업 실패 (exit={result.returncode})\n```{(_err or "(stderr 없음)")[:1000]}```',
             )
     except Exception as exc:
         logger.error(f'[BACKUP] 예외: {exc}', exc_info=True)
