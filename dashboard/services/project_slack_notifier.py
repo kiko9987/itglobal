@@ -144,9 +144,12 @@ def _build_message(
     lines.append("--------------------------------------------")
     # 2026-07-09 사업자등록증 배지는 카드 구분선 바깥 하단에 별도 라인으로 표시.
     # 스레드에 파일 첨부 → Drive 저장 성공 시 chat.update로 True.
-    # 미첨부 상태에서만 옆에 (첨부하기) 스레드 링크 노출.
+    # 첨부됨: (확인하기) 스레드 링크 — 파일 즉시 열람 (2026-07-16 UX 요청)
+    # 미첨부: (첨부하기) 스레드 링크
     if license_attached:
         license_line = "📎 사업자등록증 : ✅ 첨부됨"
+        if thread_permalink:
+            license_line += f"  <{thread_permalink}|(확인하기)>"
     else:
         license_line = "📎 사업자등록증 : ⬜ 미첨부"
         if thread_permalink:
