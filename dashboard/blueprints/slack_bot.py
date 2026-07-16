@@ -5554,6 +5554,20 @@ def _process_visit_complete(client, body) -> None:
     except Exception as exc:
         logger.warning(f"[SLACK/방문완료] chat.update 실패 ({lead_no}): {exc}")
 
+    # 3) 방문 완료 flag set + 캔버스 rebuild trigger (2026-07-16).
+    #    자동 완료 (사진 첨부) 와 flag 명 통일. 캔버스 필터가 이 flag 로 제외.
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        rc.setex(f'visit_auto_completed:{lead_no}', 60 * 60 * 24 * 30, '1')  # 30일
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문완료] flag set 실패 ({lead_no}): {exc}")
+    try:
+        from dashboard.services.visit_canvas_sync import rebuild_canvas_async
+        rebuild_canvas_async()
+    except Exception as exc:
+        logger.debug(f"[SLACK/방문완료] 캔버스 rebuild trigger 실패 ({lead_no}): {exc}")
+
     logger.info(f"[SLACK/방문완료] 처리 완료: {lead_no} by {user_id}")
 
 
