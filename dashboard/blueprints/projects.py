@@ -2123,7 +2123,9 @@ def _build_row_values(data, manager, row_number):
     #   제품대: AA→AB, 도급비: AB→AC, 자재비: AC→AD, 기타비: AD→AE, 순익: AE→AF, 마진율: AF→AG, _version: AN→AO
     formula_fields = {
         'T': data.get('총액 2', f'=IF(S{row_number}=TRUE, R{row_number}+FLOOR(R{row_number}*0.1,1) + IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=1, -1, IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=9, 1, 0)), R{row_number})'),
-        'X': data.get('미수금', f'=($U{row_number}+$V{row_number}+$W{row_number})-$T{row_number}'),
+        # 2026-07-16 시트 수식 반영: X = T - (U+V+W), 반올림 오차(2원 미만)는 0 처리
+        #   X > 0 = 미납, X < 0 = 초과입금. 이전 (U+V+W)-T 는 부호 반대 오류.
+        'X': data.get('미수금', f'=IF(ABS($T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})<2, 0, $T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})'),
         'AF': data.get('순익', f'=R{row_number}-(AB{row_number}+AC{row_number}+AD{row_number}+AE{row_number})'),
         'AG': data.get('마진율', f'=IF(OR(R{row_number}=0, AF{row_number}=0), 0, AF{row_number}/R{row_number})'),
         'AO': data.get('Lead No', ''),  # 리드 연결 (2026-07 신규)
