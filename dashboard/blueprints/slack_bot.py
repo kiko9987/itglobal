@@ -7329,12 +7329,12 @@ def _open_invoice_modal(client, body) -> None:
                 "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
             _text_input("biz", "사업자명", biz),
             _text_input("addr", "현장 주소", addr),
-            # 공사 금액 (시트 원본, read-only 참고) — 라벨 제거, 값만 표시
+            # 공사 금액 (시트 원본, read-only 참고)
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f":moneybag: 공사 금액 : `{amt}` 원",
+                    "text": f"*공사 금액 (시트 원본)*\n{amt} 원",
                 },
             },
             _text_input("amt", "계산서 발행 금액", amt),
