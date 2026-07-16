@@ -775,7 +775,11 @@ def _build_stage_message(
             ]
             lines.append(f"({' / '.join(parts)})")
     lines.append(_SEP)
-    lines.append(f"미수금 : {unpaid:,}원")
+    # 슬랙 카드 미수금 표시는 항상 음수 통일 (2026-07-16 재확정 사용자 요청).
+    # 시트/관리사이트는 양수(미납)로 표기하지만, 카드에서 다른 총액과 시각 혼동
+    # 방지 위해 카드에만 -abs 강제 표시.
+    _unpaid_display = -abs(unpaid) if unpaid != 0 else 0
+    lines.append(f"미수금 : {_unpaid_display:,}원")
     lines.append('⠀')
     return '\n'.join(lines)
 
@@ -866,7 +870,11 @@ def _build_stage_with_history_message(
         suffix = ' (카드)' if is_c else ''
         lines.append(f"{st}  {d}  {c_disp}  {a:,}원  {pt}{suffix}")
     lines.append(_SEP)
-    lines.append(f"미수금 : {unpaid:,}원")
+    # 슬랙 카드 미수금 표시는 항상 음수 통일 (2026-07-16 재확정 사용자 요청).
+    # 시트/관리사이트는 양수(미납)로 표기하지만, 카드에서 다른 총액과 시각 혼동
+    # 방지 위해 카드에만 -abs 강제 표시.
+    _unpaid_display = -abs(unpaid) if unpaid != 0 else 0
+    lines.append(f"미수금 : {_unpaid_display:,}원")
     lines.append(' ')
     lines.append('⠀')
     return '\n'.join(lines)
