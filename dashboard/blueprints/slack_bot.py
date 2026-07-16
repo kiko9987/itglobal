@@ -674,87 +674,13 @@ def _register_project_handlers(app):
 
     @app.view("submit_invoice")
     def handle_submit_invoice(ack, body, client, view):
-        # 두 검증을 병렬로 (trigger_id 만료 방지 + slack view 3초 응답).
-        #   1) 사업자등록증 첨부 여부 (Drive API 파일 존재 확인)
-        #   2) 프로젝트 시트 S열 부가세 체크박스 채워졌는지 (2026-07-13 추가)
-        # 미충족 시 modal errors 로 반려.
-        try:
-            metadata = json.loads(view.get("private_metadata") or "{}")
-            code = (metadata.get("code", "") or "").strip()
-        except Exception:
-            code = ''
-
-        errors = {}
-        if code and code != '-':
-            from concurrent.futures import ThreadPoolExecutor
-
-            def _check_license() -> bool:
-                try:
-                    from dashboard.services.business_license_handler import verify_license_exists
-                    return bool(verify_license_exists(code))
-                except Exception as exc:
-                    logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (통과): {exc}')
-                    return True  # Drive 지연 등은 통과 (관리자 후속 처리)
-
-            def _check_vat_filled() -> bool:
-                try:
-                    from dashboard.services.project_service import get_project_records
-                    records = get_project_records() or []
-                    for r in records:
-                        if (r.get('프로젝트 코드') or '').strip() == code:
-                            vat_raw = r.get('부가세')
-                            # 빈값·None·공백 문자열 = 미체크
-                            if vat_raw in (None, '', ' '):
-                                return False
-                            if isinstance(vat_raw, str) and not vat_raw.strip():
-                                return False
-                            return True
-                    return True  # 프로젝트 못 찾으면 통과
-                except Exception as exc:
-                    logger.warning(f'[SLACK/계산서] 부가세 필드 검증 실패 (통과): {exc}')
-                    return True
-
-            with ThreadPoolExecutor(max_workers=2) as ex:
-                fut_lic = ex.submit(_check_license)
-                fut_vat = ex.submit(_check_vat_filled)
-                lic_ok = fut_lic.result()
-                vat_ok = fut_vat.result()
-
-            if not lic_ok:
-                errors["biz"] = ("사업자등록증이 아직 첨부되지 않았습니다. "
-                                 "공사 확정 카드 스레드에 사업자등록증(이미지 or PDF)을 "
-                                 "첨부한 뒤 다시 요청해주세요.")
-            if not vat_ok:
-                errors["amt"] = ("프로젝트 시트 부가세 항목이 비어있습니다. "
-                                 "관리 사이트에서 프로젝트를 편집해 부가세(포함/미포함) "
-                                 "체크박스를 지정한 뒤 다시 요청해주세요.")
-            if errors:
-                ack(response_action="errors", errors=errors)
-                return
-
-        # 중복 submit 방어 (2026-07-16 사고).
-        #   원인: 검증 (Drive API + 시트 조회) 이 3초 넘어가면 Slack modal 이
-        #        안 닫히고 매니저가 다시 submit → handler 재실행 → 카드 2개.
-        #   방어: view.id 기반 짧은 lock. 두 번째 submit 은 ack + return (skip).
-        #   verification 은 read-only 니 여러 번 실행돼도 무방, 카드 발송만 gate.
-        _view_id = (view.get('id') or '').strip()
-        if _view_id:
-            try:
-                from dashboard.utils.redis_client import get_redis_client
-                _rc = get_redis_client().redis
-                if not _rc.set(f'invoice_submit_lock:{_view_id}', '1', nx=True, ex=300):
-                    logger.info(
-                        f'[SLACK/계산서] 중복 submit skip (view_id={_view_id} code={code})'
-                    )
-                    ack()
-                    return
-            except Exception as _lock_exc:
-                logger.warning(f'[SLACK/계산서] idempotency lock 실패 (계속 진행): {_lock_exc}')
-
+        # UX 개선 (2026-07-16 사고): 검증 (Drive API + 시트 조회) 이 3초 넘어가
+        # modal 이 안 닫히는 문제 → ack() 즉시 호출 + 검증·발송을 BG 스레드로.
+        # 검증 실패 시 매니저에게 chat.postEphemeral (DM fallback) 로 반려 안내.
         ack()
         def _bg():
             try:
-                _process_invoice_submission(client, body, view)
+                _process_invoice_submit_bg(client, body, view)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] submit 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -7367,6 +7293,119 @@ def _open_invoice_modal(client, body) -> None:
         ],
     }
     client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _notify_invoice_submit_error(client, channel_id: str, user_id: str,
+                                   code: str, error_lines: list) -> None:
+    """계산서 요청 검증 실패 안내 (chat.postEphemeral → DM fallback)."""
+    if not user_id or not error_lines:
+        return
+    header = f":x: *[세금계산서 요청 반려]*  `{code or '-'}`"
+    body = header + '\n' + '\n'.join(error_lines) + '\n\n_(수정 후 카드에서 다시 요청해주세요.)_'
+    # 1) 채널 ephemeral (매니저가 그 채널을 보고 있으면 즉시 표시)
+    if channel_id:
+        try:
+            client.chat_postEphemeral(channel=channel_id, user=user_id, text=body)
+            return
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] ephemeral 반려 안내 실패 ({code}): {exc}')
+    # 2) DM fallback
+    try:
+        im = client.conversations_open(users=user_id)
+        dm_ch = ((im.get('channel') or {}) or {}).get('id')
+        if dm_ch:
+            client.chat_postMessage(channel=dm_ch, text=body)
+    except Exception as exc:
+        logger.warning(f'[SLACK/계산서] DM 반려 안내 실패 ({code}): {exc}')
+
+
+def _process_invoice_submit_bg(client, body, view) -> None:
+    """계산서 요청 submit 전체 처리 (검증 + 카드 발송) — BG 스레드용.
+
+    modal 이 이미 ack() 로 닫힌 상태에서 실행되므로, 검증 실패도 modal 오류 대신
+    ephemeral/DM 안내로 처리. view.id 기반 idempotency lock 으로 중복 방어.
+    """
+    try:
+        metadata = json.loads(view.get("private_metadata") or "{}")
+        code = (metadata.get("code", "") or "").strip()
+    except Exception:
+        code = ''
+
+    user_id = body.get('user', {}).get('id', '')
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+
+    # 중복 submit lock — 첫 submit 만 통과. 실패 시 매니저가 다시 요청 카드에서
+    # 열어 새 view_id 로 재제출 가능하므로 lock 유지해도 무방.
+    _view_id = (view.get('id') or '').strip()
+    if _view_id:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            if not rc.set(f'invoice_submit_lock:{_view_id}', '1', nx=True, ex=300):
+                logger.info(f'[SLACK/계산서] 중복 submit skip (view_id={_view_id} code={code})')
+                return
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] idempotency lock 실패 (계속 진행): {exc}')
+
+    # 검증 (병렬)
+    error_lines = []
+    if code and code != '-':
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _check_license() -> bool:
+            try:
+                from dashboard.services.business_license_handler import verify_license_exists
+                return bool(verify_license_exists(code))
+            except Exception as exc:
+                logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (통과): {exc}')
+                return True  # Drive 지연 시 통과 (관리자 후속 처리)
+
+        def _check_vat_filled() -> bool:
+            try:
+                from dashboard.services.project_service import get_project_records
+                records = get_project_records() or []
+                for r in records:
+                    if (r.get('프로젝트 코드') or '').strip() == code:
+                        vat_raw = r.get('부가세')
+                        if vat_raw in (None, '', ' '):
+                            return False
+                        if isinstance(vat_raw, str) and not vat_raw.strip():
+                            return False
+                        return True
+                return True  # 프로젝트 못 찾으면 통과
+            except Exception as exc:
+                logger.warning(f'[SLACK/계산서] 부가세 필드 검증 실패 (통과): {exc}')
+                return True
+
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            fut_lic = ex.submit(_check_license)
+            fut_vat = ex.submit(_check_vat_filled)
+            lic_ok = fut_lic.result()
+            vat_ok = fut_vat.result()
+
+        if not lic_ok:
+            error_lines.append(
+                "• :page_facing_up: *사업자등록증 미첨부* — 공사 확정 카드 스레드에 "
+                "사업자등록증(이미지·PDF)을 먼저 첨부해주세요."
+            )
+        if not vat_ok:
+            error_lines.append(
+                "• :heavy_dollar_sign: *부가세 미지정* — 관리 사이트에서 프로젝트를 "
+                "편집해 부가세(포함/미포함)를 지정해주세요."
+            )
+
+    if error_lines:
+        _notify_invoice_submit_error(client, channel_id, user_id, code, error_lines)
+        # 반려 시 lock 해제 — 매니저가 재제출 시 같은 view.id 로 오지 않지만 안전 차원
+        if _view_id:
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                get_redis_client().redis.delete(f'invoice_submit_lock:{_view_id}')
+            except Exception:
+                pass
+        return
+
+    _process_invoice_submission(client, body, view)
 
 
 def _process_invoice_submission(client, body, view) -> None:
