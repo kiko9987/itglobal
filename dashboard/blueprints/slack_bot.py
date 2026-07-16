@@ -4453,12 +4453,59 @@ def _process_consult_submission(client, body, view):
 
         # 순서 — chat.update(회색 박스) → reaction → thread reply
         # 옛 공사현황 봇과 같은 순서 — slack UI가 reply count 표시 안 되는 케이스 회피
-        # 1) 원본 카드 본문 회색 박스 변환 (부재중은 추후 재상담 필요 → 변환 skip)
+        # 1) 원본 카드 본문 회색 박스 변환 (부재중은 배지만 표시 + 원본 유지, 2026-07-17)
         original_text = metadata.get("original_text", "") if isinstance(metadata, dict) else ''
-        if original_text and status != '부재중':
+        _initial_for_card = _slack_user_to_initial(client, user_id) or '-'
+        _now_for_card = datetime.now().strftime('%m.%d %H:%M')
+
+        if original_text and status == '부재중':
+            # 부재중 — 원본 카드 유지 + 상단에 부재중 배지 (재클릭 시 시각·횟수 갱신)
             try:
-                cancel_time = datetime.now().strftime('%m.%d %H:%M')
-                initial = _slack_user_to_initial(client, user_id) or '-'
+                from dashboard.utils.redis_client import get_redis_client
+                _rc = get_redis_client().redis
+                _count_key = f'consult_missed_count:{lead_no}'
+                _count = int(_rc.incr(_count_key) or 1)
+                _rc.expire(_count_key, 60 * 60 * 24 * 90)
+            except Exception:
+                _count = 1
+
+            _badge_text = (
+                f':repeat: *부재중* — 마지막 시도: `{_now_for_card}` ({_initial_for_card}) · '
+                f'총 *{_count}회*'
+            )
+            try:
+                # 기존 카드 blocks fetch → 상단 배지 replace (기존 배지 있으면 갈아끼우기)
+                _rp = client.conversations_replies(channel=channel, ts=message_ts, limit=1, inclusive=True)
+                _root = ((_rp.get('messages') or [{}])[0]) if _rp else {}
+                _existing_blocks = list(_root.get('blocks') or [])
+                _has_badge = (
+                    _existing_blocks
+                    and _existing_blocks[0].get('type') == 'context'
+                    and any(
+                        '부재중' in ((el.get('text') or '') if isinstance(el, dict) else '')
+                        for el in (_existing_blocks[0].get('elements') or [])
+                    )
+                )
+                _badge_block = {
+                    'type': 'context',
+                    'elements': [{'type': 'mrkdwn', 'text': _badge_text}],
+                }
+                if _has_badge:
+                    _existing_blocks[0] = _badge_block
+                else:
+                    _existing_blocks.insert(0, _badge_block)
+                client.chat_update(
+                    channel=channel, ts=message_ts,
+                    text=_root.get('text', '') or '',
+                    blocks=_existing_blocks,
+                )
+            except Exception as exc:
+                logger.warning(f"[SLACK/상담] 부재중 배지 갱신 실패 ({lead_no}): {exc}")
+
+        elif original_text:
+            try:
+                cancel_time = _now_for_card
+                initial = _initial_for_card
                 cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
                 cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
                 clean_text = '\n'.join(cleaned_lines)
@@ -4475,6 +4522,18 @@ def _process_consult_submission(client, body, view):
                 new_blocks = [
                     {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
                 ]
+                # 재상담 버튼 — 회색 카드에서도 재편집 진입점 유지 (2026-07-17 사용자 요청).
+                # 방문 예약은 별도 방문 카드에 [정보 수정] 있어 여기 재상담 버튼 불필요.
+                if status != '방문 예약' and lead_no:
+                    new_blocks.append({
+                        'type': 'actions',
+                        'elements': [{
+                            'type': 'button',
+                            'text': {'type': 'plain_text', 'text': '✏️ 재상담', 'emoji': True},
+                            'value': lead_no,
+                            'action_id': 'button_visit',  # 기존 상담하기 handler 재사용
+                        }],
+                    })
                 client.chat_update(
                     channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
                 )
