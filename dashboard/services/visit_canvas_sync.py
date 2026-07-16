@@ -104,34 +104,38 @@ def _visit_date_sort_key(raw) -> str:
 def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     """캔버스 각 항목 텍스트 렌더.
 
-    양식: (이니셜) MM월 DD일 / 연락처 / 주소 상호 / 내용
+    양식:
+      - 기타/거래처: (이니셜) MM월 DD일 / 연락처 / 주소 상호 / 내용
+      - 온라인 방문: MM월 DD일 / 연락처 / 주소 상호 / 내용  (이니셜 생략, 2026-07-16 요청)
 
-    이니셜 우선순위 (방문 카드 로직과 통일, 2026-07-16):
-      - 거래처/소개/기타: 온라인 상담자
-      - 온라인(당근/홈페이지/카카오톡/전화): 영업 담당자 → 온라인 상담자 fallback
+    이니셜 우선순위 (기타/거래처, 방문 카드 로직과 통일):
+      온라인 상담자 (거래처/소개/기타 원래 등록자 기준)
     """
+    _platform = str(lead.get('플랫폼') or '').strip()
+    is_online = _platform in ('당근', '홈페이지', '카카오톡', '전화')
+
     def _clean(v):
         s = str(v or '').strip()
         return '' if s in ('', '-', '미정') else s
-    _platform = str(lead.get('플랫폼') or '').strip()
-    if _platform in ('거래처', '소개', '기타'):
-        source_name = _clean(lead.get('온라인 상담자'))
-    else:
-        source_name = _clean(lead.get('영업 담당자')) or _clean(lead.get('온라인 상담자'))
-    ini = _initial_from_name(source_name, initial_map) if source_name else '-'
+
     vd = _fmt_visit_date(lead.get('방문 예정일'))
     phone = str(lead.get('고객 연락처') or '').strip() or '-'
     address = str(lead.get('방문 주소') or '').strip() or '-'
     biz = str(lead.get('고객명') or '').strip()
     inquiry = str(lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
-    # 개행 flatten
     address = re.sub(r'\s*\n\s*', ' ', address)
     inquiry = re.sub(r'\s*\n\s*', ' ', inquiry)
-    # 주소 뒤에 상호 붙이기 (기존 매니저 양식)
     addr_biz = f'{address} {biz}'.strip() if biz else address
-    # 내용 길이 제한 (200자)
     if len(inquiry) > 200:
         inquiry = inquiry[:200] + '...'
+
+    if is_online:
+        # 온라인 방문 — 이니셜 생략
+        return f'{vd} / {phone} / {addr_biz} / {inquiry}'
+
+    # 거래처/기타/소개 — 이니셜 (온라인 상담자 기준)
+    source_name = _clean(lead.get('온라인 상담자'))
+    ini = _initial_from_name(source_name, initial_map) if source_name else '-'
     return f'({ini}) {vd} / {phone} / {addr_biz} / {inquiry}'
 
 
