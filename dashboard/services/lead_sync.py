@@ -867,9 +867,10 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         if addr_level in ('verified', 'level1', 'level2', 'level3', 'level3b', 'level4'):
             address_display = address
         elif not addr_level:
-            address_display = f'{address}  _[주소 확인 필요]_'
+            # 2026-07-17 이탤릭 폰트 이질감 제거 → 이모지 + bold 로 강조
+            address_display = f'{address}  ⚠️ *[주소 확인 필요]*'
         else:
-            address_display = f'{address}  _(추정)_'
+            address_display = f'{address}  ⚠️ *[추정]*'
     else:
         address_display = '-'
 
