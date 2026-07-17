@@ -119,6 +119,12 @@ def load_leads_data(force_refresh: bool = False) -> Optional[pd.DataFrame]:
 
         logger.info(f"[LEADS] Google Sheets 로드 성공: {len(df)}행 / 컬럼 {list(df.columns)}")
 
+        # 방문 주소 영문 대문자 정규화 (2026-07-17 사용자 요청).
+        # Slack 카드·리스트·캔버스 표시 일관성. `.upper()` 는 한글에는 no-op, ASCII 만 변환.
+        # 시트 원본은 유지 (read 시점 정규화만).
+        if '방문 주소' in df.columns:
+            df['방문 주소'] = df['방문 주소'].astype(str).str.upper()
+
         # 캐시 저장
         smart_set(cache_key, df, CacheStrategy.TEMPORARY)
 
