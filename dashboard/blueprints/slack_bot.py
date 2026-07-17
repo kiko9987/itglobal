@@ -4752,20 +4752,20 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     SEP = '--------------------------------------------'
     # lead_no 없으면 (거래처/기타) 헤더에 표시 안 함
     header_suffix = f"  `{lead_no}`" if lead_no else ''
+    # 등록자 라인 — 본인 방문 필수 시 인라인 배지 (2026-07-17)
+    _register_line = f">등록자 : {initial or '-'}"
+    if self_visit_by:
+        _register_line += ' (:raising_hand: *본인 방문 필수*)'
     lines = [
         "⠀",
         f">:bell: *새 방문 일정* — {category_display}{header_suffix}",
-    ]
-    if self_visit_by:
-        lines.append(f">:raising_hand: *본인 방문 필수* — `{self_visit_by}`")
-    lines.extend([
         f">{SEP}",
-        f">등록자 : {initial or '-'}",
+        _register_line,
         f">방문일 : {visit_date or '-'}",
         f">이름 / 상호 : {name or '-'}",
         f">연락처 : {contact or '-'}",
         f">방문 주소 : {visit_address or '-'}",
-    ])
+    ]
     if consultation:
         lines.append(f">상담 내용 :")
         for raw in consultation[:500].split('\n'):
