@@ -129,6 +129,9 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
 
     if is_online:
         # 온라인 방문 — 이니셜 생략 (2026-07-16 요청)
+        # 당근 (중고 플랫폼) 은 견적 시 신경 써야 해서 날짜 앞에 (당) 마커 (2026-07-17 요청, 캔버스 전용)
+        if _platform == '당근':
+            vd = f'(당) {vd}'
         return f'{vd} / {phone} / {address} / {inquiry}'
 
     # 거래처/기타/소개 — 이니셜 (온라인 상담자 기준), 이름은 생략 (2026-07-16 요청)
