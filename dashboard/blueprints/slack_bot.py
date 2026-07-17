@@ -4184,6 +4184,25 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
                     "placeholder": {"type": "plain_text", "text": "날짜 선택"},
                 },
             },
+            # 본인 방문 필수 (2026-07-17) — JW 가 담당자 배정 시 참고
+            {
+                "type": "input", "block_id": "assign_self",
+                "label": {"type": "plain_text", "text": "본인 방문 필수"},
+                "hint": {"type": "plain_text",
+                         "text": "등록자 본인이 꼭 가야 하는 현장이면 '예'. JW 담당자 배정 참고용."},
+                "element": {
+                    "type": "radio_buttons",
+                    "action_id": "value",
+                    "initial_option": {
+                        "text": {"type": "plain_text", "text": "아니오"},
+                        "value": "no",
+                    },
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "아니오"}, "value": "no"},
+                        {"text": {"type": "plain_text", "text": "예 (본인 방문)"}, "value": "yes"},
+                    ],
+                },
+            },
         ])
 
     input_blocks.extend([
@@ -4273,8 +4292,22 @@ def _process_consult_submission(client, body, view):
     visit_address = (_v(state, "visit_address") or '').strip()
     consultation = (_v(state, "consultation") or '').strip()
 
+    # 본인 방문 필수 라디오 (2026-07-17) — JW 담당자 배정 참고용
+    _assign_state = (state.get('assign_self', {}).get('value', {}) or {}).get('selected_option') or {}
+    assign_self_yes = (_assign_state.get('value') == 'yes')
+
     is_visit = (status == '방문 예약')
     is_estimate = (status == '견적 제출')
+
+    # 방문 예약 + 본인 방문 필수 → 상담 내용 앞에 태그 프리픽스
+    # (시트 저장 → 방문 카드/캔버스/List 자동 반영, 매니저는 이니셜로 자신임을 확인)
+    if is_visit and assign_self_yes:
+        _register_initial = _slack_user_to_initial(client, user_id) or '-'
+        _tag = f':raising_hand: 본인 방문 필수({_register_initial})'
+        if consultation:
+            consultation = f'{_tag} — {consultation}'
+        else:
+            consultation = _tag
 
     # 두 차원 매핑 (시트 컬럼)
     category = visit_type   # 플랫폼 컬럼 = 방문 유형
