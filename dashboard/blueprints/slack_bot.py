@@ -4718,6 +4718,21 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
             )
             return (visit_channel, existing_ts)
         except Exception as exc:
+            # 2026-07-17: message_not_found = 매니저가 슬랙에서 카드 message 자체를 삭제.
+            # 이 경우 fallback 신규 발송은 오히려 노이즈 (매니저가 지운 걸 다시 발송하는 꼴).
+            # Redis 매핑만 정리하고 return.
+            _err_str = str(exc)
+            if 'message_not_found' in _err_str:
+                logger.info(
+                    f"[SLACK/방문] 옛 카드 삭제 감지 ({lead_no}, ts={existing_ts}) → "
+                    f"재발송 skip (매니저 의도 존중)"
+                )
+                try:
+                    if redis_key:
+                        rc.delete(redis_key)
+                except Exception:
+                    pass
+                return ('', '')
             logger.warning(f"[SLACK/방문] chat.update 실패 ({lead_no}, ts={existing_ts}): {exc} — 신규 발송 fallback")
 
     try:
