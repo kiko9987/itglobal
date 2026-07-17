@@ -4677,10 +4677,21 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
     else:
         category_display = category
 
+    # 본인 방문 필수 배지 (2026-07-17) — 리드 시트 O열 값 감지
+    _self_visit_by = ''
+    if lead_no:
+        _lead_ctx = _find_lead_by_no(lead_no) or {}
+        _o = str(_lead_ctx.get('본인 방문 여부') or '').strip()
+        if '본인 방문 필수' in _o:
+            # 카드 신청자 이름 = 온라인 상담자 (M열, 워크플로 시작자 기록)
+            _requester = str(_lead_ctx.get('온라인 상담자') or '').strip().lstrip('@')
+            _self_visit_by = _requester if _requester and _requester != '-' else '본인'
+
     body_text, blocks = _build_visit_notice_blocks(
         lead_no=lead_no, category_display=category_display, initial=initial,
         visit_date=visit_date, name=name, contact=contact,
         visit_address=visit_address, consultation=consultation,
+        self_visit_by=_self_visit_by,
     )
     # 재제출이면 기존 방문 카드 메시지를 chat.update — 중복 발송 방지
     redis_key = f"visit_notice_msg:{lead_no}" if lead_no else ''
@@ -4730,10 +4741,13 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
 
 def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str,
                                 visit_date: str, name: str, contact: str,
-                                visit_address: str, consultation: str) -> tuple:
+                                visit_address: str, consultation: str,
+                                self_visit_by: str = '') -> tuple:
     """방문 일정 카드 양식 빌더 — (text, blocks) 반환.
 
     [✏️ 방문일 수정] + [🗑️ 방문 취소] 액션 버튼 포함. 카드 발송/복원 양쪽에서 재사용.
+
+    self_visit_by (2026-07-17): 값 있으면 헤더 아래 '🙋 본인 방문 필수 (name)' 배지.
     """
     SEP = '--------------------------------------------'
     # lead_no 없으면 (거래처/기타) 헤더에 표시 안 함
@@ -4741,13 +4755,17 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     lines = [
         "⠀",
         f">:bell: *새 방문 일정* — {category_display}{header_suffix}",
+    ]
+    if self_visit_by:
+        lines.append(f">:raising_hand: *본인 방문 필수* — `{self_visit_by}`")
+    lines.extend([
         f">{SEP}",
         f">등록자 : {initial or '-'}",
         f">방문일 : {visit_date or '-'}",
         f">이름 / 상호 : {name or '-'}",
         f">연락처 : {contact or '-'}",
         f">방문 주소 : {visit_address or '-'}",
-    ]
+    ])
     if consultation:
         lines.append(f">상담 내용 :")
         for raw in consultation[:500].split('\n'):

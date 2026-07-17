@@ -1,9 +1,10 @@
 """
 고객 리드 관리 서비스
 별도 Google Sheets '온라인 문의 현황' (탭명: '고객 리드 관리')와 연동
-15열 구조: A 리드 No / B 상담 시간 / C 플랫폼 / D 상태 / E 방문 예정일 /
-           F 고객 연락처 / G 이메일 / H 고객명 / I 방문 주소 / J 상담 내용 /
-           K 키워드 / L 온라인 상담자 / M 영업 담당자 / N 마지막 연락일 / O 피드백
+16열 구조: A 리드 No / B 상담 시간 / C 플랫폼 / D 상태 / E 방문 예정일 /
+           F 고객 연락처 / G 이메일 / H 고객명 / I 방문 주소 / J 문의 내용 /
+           K 상담 내용 / L 키워드 / M 온라인 상담자 / N 영업 담당자 /
+           O 본인 방문 여부 (2026-07-17 마지막 연락일에서 재활용) / P 폴더 ID
 """
 
 import logging
@@ -39,7 +40,7 @@ LEAD_COLUMN_MAPPING: Dict[str, str] = {
     '키워드':         'L',
     '온라인 상담자':   'M',
     '영업 담당자':     'N',
-    '마지막 연락일':   'O',
+    '본인 방문 여부':  'O',  # 2026-07-17 재활용 (옛 '마지막 연락일'). 워크플로 라디오 output
     '폴더 ID':        'P',  # 방문 사진 업로드 시 자동 write (2026-07 신규)
 }
 
@@ -48,11 +49,12 @@ LEAD_COLUMN_ORDER: List[str] = list(LEAD_COLUMN_MAPPING.keys())
 
 # 컬럼 alias - 기존 코드 호환을 위해 일부 옛 이름도 받아들임
 LEAD_FIELD_ALIASES: Dict[str, str] = {
-    '거래처':   '플랫폼',
-    '담당자':   '영업 담당자',
-    '연락처':   '고객 연락처',
-    '비고':     '상담 내용',   # 옛 '비고' → 옛 '피드백' → 새 '상담 내용'
-    '피드백':   '상담 내용',   # 옛 '피드백' → 새 '상담 내용' (매니저 입력)
+    '거래처':      '플랫폼',
+    '담당자':      '영업 담당자',
+    '연락처':      '고객 연락처',
+    '비고':        '상담 내용',   # 옛 '비고' → 옛 '피드백' → 새 '상담 내용'
+    '피드백':      '상담 내용',   # 옛 '피드백' → 새 '상담 내용' (매니저 입력)
+    '마지막 연락일': '본인 방문 여부',  # 2026-07-17 재활용 (옛 이름으로 write 하는 코드 호환)
 }
 
 
@@ -114,6 +116,9 @@ def load_leads_data(force_refresh: bool = False) -> Optional[pd.DataFrame]:
         rename_map = {}
         if 'No.' in df.columns and '리드 No' not in df.columns:
             rename_map['No.'] = '리드 No'
+        # 2026-07-17 O열 재활용: 옛 헤더 '마지막 연락일' 도 새 이름으로 정규화
+        if '마지막 연락일' in df.columns and '본인 방문 여부' not in df.columns:
+            rename_map['마지막 연락일'] = '본인 방문 여부'
         if rename_map:
             df = df.rename(columns=rename_map)
 

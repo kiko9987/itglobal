@@ -1727,8 +1727,18 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             # 영업 담당자 (N열) — 2026-07 규칙:
             #   모든 리드에서 N열 = List 배정 방문자. 리드 생성 시점에는 미배정 → '-'.
             #   거래처의 owner 개념은 M열(온라인 상담자)에 있음 — 백엔드가 플랫폼별로 골라 읽음.
+            # 2026-07-17 본인 방문 필수 자동 매핑:
+            #   O열이 "본인 방문 필수" 이면 → M열 (워크플로 시작자) 을 N열 (영업 담당자) 로 복사.
+            #   N열 이미 값 있으면 (매니저 수동 지정) 유지.
             sales_raw = str(row.get('영업 담당자', '') or '').strip()
-            if not sales_raw:
+            self_visit_val = str(row.get('본인 방문 여부', '') or '').strip()
+            if '본인 방문 필수' in self_visit_val and (not sales_raw or sales_raw == '-'):
+                _online_manager = str(row.get('온라인 상담자', '') or '').strip().lstrip('@')
+                if _online_manager and _online_manager != '-':
+                    update_cells.append((f"N{sheet_row}", _online_manager))
+                else:
+                    update_cells.append((f"N{sheet_row}", '-'))
+            elif not sales_raw:
                 update_cells.append((f"N{sheet_row}", '-'))
 
             # 빈 텍스트 셀 정규화 — 워크플로우가 값 안 넣은 옵션 필드는 '-' 로
@@ -1738,7 +1748,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 ('H', '고객명'),
                 ('I', '방문 주소'),
                 ('J', '문의 내용'),
-                ('O', '마지막 연락일'),
+                ('O', '본인 방문 여부'),
             ]
             for col_letter, field in _dash_columns:
                 current = str(row.get(field, '') or '').strip()
