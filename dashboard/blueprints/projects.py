@@ -2029,7 +2029,7 @@ def _prepare_project_defaults(data, row_number):
     #   R=총액1, S=부가세, T=총액2, U=계약금, V=중도금, W=잔금, X=미수금
     #   AB=제품대, AC=도급비, AD=자재비, AE=기타비, AF=순익, AG=마진율
     data['총액 2'] = f'=IF(S{row_number}=TRUE, R{row_number}+FLOOR(R{row_number}*0.1,1) + IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=1, -1, IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=9, 1, 0)), R{row_number})'
-    data['미수금'] = f'=($U{row_number}+$V{row_number}+$W{row_number})-$T{row_number}'
+    data['미수금'] = f'=IF(ABS($T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})<2, 0, $T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})'
     data['순익'] = f'=R{row_number}-(AB{row_number}+AC{row_number}+AD{row_number}+AE{row_number})'
     data['마진율'] = f'=IF(OR(R{row_number}=0, AF{row_number}=0), 0, AF{row_number}/R{row_number})'
 
