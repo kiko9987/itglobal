@@ -4611,6 +4611,7 @@ def _process_consult_submission(client, body, view):
             try:
                 client.chat_update(
                     channel=channel, ts=old_reply_ts, text=reply_text,
+                    unfurl_links=True,
                 )
                 reply_sent = True
             except Exception as exc:
