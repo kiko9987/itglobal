@@ -4608,16 +4608,26 @@ def _process_consult_submission(client, body, view):
 
         reply_sent = False
         if old_reply_ts:
-            try:
-                client.chat_update(
-                    channel=channel, ts=old_reply_ts, text=reply_text,
-                    unfurl_links=True,
-                )
-                reply_sent = True
-            except Exception as exc:
-                logger.warning(
-                    f"[SLACK/상담] 옛 reply update 실패 — 새 reply 발송: {exc}"
-                )
+            if is_visit:
+                # 방문 예약은 방문 카드 unfurl embed 필요 — chat.update 로는
+                # Slack 이 unfurl 재생성 안 함 (unfurl_links 파라미터 미지원).
+                # delete + repost 로 새 chat.postMessage 발송해 unfurl 트리거.
+                try:
+                    client.chat_delete(channel=channel, ts=old_reply_ts)
+                except Exception as exc:
+                    logger.warning(
+                        f"[SLACK/상담] 옛 reply 삭제 실패 — 새 reply 발송: {exc}"
+                    )
+            else:
+                try:
+                    client.chat_update(
+                        channel=channel, ts=old_reply_ts, text=reply_text,
+                    )
+                    reply_sent = True
+                except Exception as exc:
+                    logger.warning(
+                        f"[SLACK/상담] 옛 reply update 실패 — 새 reply 발송: {exc}"
+                    )
         if not reply_sent:
             try:
                 resp = client.chat_postMessage(
