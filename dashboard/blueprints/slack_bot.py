@@ -526,9 +526,31 @@ def _register_visit_handlers(app):
             ).start()
 
     # 방문 일정 조정 캔버스 (JW 전용) 파서 (2026-07-15)
+    # 권한 = 박정우(JW)·박용구(YG)·고광일(KiKO) 만 실행 (2026-07-19)
+    _VISIT_CMD_ALLOWED_EMAILS = {
+        'jw@itg-aircon.com', 'yg@itg-aircon.com', 'kiko@itg-aircon.com',
+    }
+
+    def _check_visit_cmd_permission(command) -> Optional[str]:
+        """권한 없으면 안내 문구 반환, 있으면 None."""
+        user_id = command.get('user_id', '')
+        try:
+            info = _visit_slack_app.client.users_info(user=user_id)
+            email = (info.get('user') or {}).get('profile', {}).get('email', '')
+        except Exception as exc:
+            logger.warning(f"[일정cmd] 권한 조회 실패 ({user_id}): {exc}")
+            email = ''
+        if email not in _VISIT_CMD_ALLOWED_EMAILS:
+            return (':lock: 이 명령은 박정우·박용구·고광일만 실행할 수 있습니다.')
+        return None
+
     @app.command("/일정확인")
     def handle_visit_assignment_dryrun(ack, command, respond):
         ack()
+        deny = _check_visit_cmd_permission(command)
+        if deny:
+            respond({'response_type': 'ephemeral', 'text': deny})
+            return
         def _bg():
             try:
                 from dashboard.services.visit_assignment_sync import dry_run
@@ -543,6 +565,10 @@ def _register_visit_handlers(app):
     @app.command("/일정확정")
     def handle_visit_assignment_commit(ack, command, respond):
         ack()
+        deny = _check_visit_cmd_permission(command)
+        if deny:
+            respond({'response_type': 'ephemeral', 'text': deny})
+            return
         def _bg():
             try:
                 from dashboard.services.visit_assignment_sync import commit
