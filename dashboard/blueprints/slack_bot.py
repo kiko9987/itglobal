@@ -5871,7 +5871,7 @@ def _open_visit_cancel_reason_modal(client, lead_no: str, channel: str,
                 "label": {"type": "plain_text", "text": "취소 사유"},
                 "hint": {
                     "type": "plain_text",
-                    "text": "예: 고객이 다음달로 방문 연기 요청",
+                    "text": "예: 타업체 공사 진행\n예: 다음달로 방문 연기 요청",
                 },
                 "element": {
                     "type": "plain_text_input",
