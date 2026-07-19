@@ -4727,7 +4727,8 @@ def _process_consult_submission(client, body, view):
 def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
                        visit_date: str, name: str, contact: str,
                        visit_address: str, consultation: str,
-                       user_name: str = '', platform: str = '') -> tuple:
+                       user_name: str = '', platform: str = '',
+                       addr_note: Optional[dict] = None) -> tuple:
     """#방문_일정 채널에 방문 케이스 알림 발송 (통합 모달 + 전화 모달 + 워크플로 공용).
 
     헤더 양식:
@@ -4773,7 +4774,7 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
         lead_no=lead_no, category_display=category_display, initial=initial,
         visit_date=visit_date, name=name, contact=contact,
         visit_address=visit_address, consultation=consultation,
-        self_visit_by=_self_visit_by,
+        self_visit_by=_self_visit_by, addr_note=addr_note,
     )
     # 재제출이면 기존 방문 카드 메시지를 chat.update — 중복 발송 방지
     redis_key = f"visit_notice_msg:{lead_no}" if lead_no else ''
@@ -4830,21 +4831,103 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
                 rc.set(redis_key, f"{visit_channel}|{ts}", ex=60 * 60 * 24 * 180)  # 180일
             except Exception as exc:
                 logger.warning(f"[SLACK/방문] ts 저장 실패 ({lead_no}): {exc}")
+        # 주소 정규화 배지 있으면 등록자에게 ephemeral 발송 (신규 카드 한정).
+        # chat.update 케이스는 이미 이전에 발송했으므로 중복 방지 위해 skip.
+        if addr_note:
+            _post_addr_note_ephemeral(
+                client, visit_channel=visit_channel, lead_no=lead_no,
+                user_id=user_id, user_name=user_name, addr_note=addr_note,
+            )
         return (visit_channel, ts)
     except Exception as exc:
         logger.warning(f"[SLACK/방문] #방문_일정 발송 실패: {exc}")
         return ('', '')
 
 
+def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
+                               user_id: str, user_name: str,
+                               addr_note: dict) -> None:
+    """방문 카드 발송 직후 등록자에게 주소 정규화 결과 ephemeral 발송.
+
+    거래처/기타/소개 워크플로 lead 전용 — 매니저가 raw 주소 붙여넣었을 때
+    자동 정정된 결과 or 검증 실패 사실을 본인에게만 알려서 확인·재입력 유도.
+
+    user_id 없으면 user_name → users.db email → users_lookupByEmail 로 조회.
+    lookup 실패 or 채널·kind 미유효 시 조용히 skip.
+    """
+    if not addr_note or not isinstance(addr_note, dict):
+        return
+    if not visit_channel:
+        return
+    _kind = addr_note.get('kind', '')
+    if _kind not in ('normalized', 'failed'):
+        return
+
+    # 등록자 slack user_id 확보
+    target_uid = (user_id or '').strip()
+    if not target_uid and user_name:
+        try:
+            from dashboard.utils.user_database import UserDatabase
+            db = UserDatabase()
+            email = ''
+            for u in db.get_all_users():
+                if (u.get('name') or '').strip() == user_name.strip():
+                    email = (u.get('email') or '').strip()
+                    break
+            if email:
+                u_resp = client.users_lookupByEmail(email=email)
+                target_uid = ((u_resp.get('user') or {}) if u_resp else {}).get('id', '')
+        except Exception as exc:
+            logger.warning(
+                f'[SLACK/방문] ephemeral 대상 lookup 실패 '
+                f'({lead_no}, name={user_name}): {exc}'
+            )
+            return
+    if not target_uid:
+        return
+
+    _orig = (addr_note.get('original') or '').strip()
+    _norm = (addr_note.get('normalized') or '').strip()
+    if _kind == 'normalized':
+        text = (
+            f":mag: 방금 등록한 `{lead_no}` 방문 주소가 "
+            f"카카오 API 로 자동 정정됐어요.\n\n"
+            f"  원본: {_orig}\n"
+            f"  정정: {_norm}\n\n"
+            "정정된 주소가 맞는지 위 카드에서 확인 부탁드립니다.\n"
+            "잘못 매핑됐다면 [✏️ 정보 수정] 으로 다시 입력해주세요."
+        )
+    else:  # failed
+        text = (
+            f":warning: 방금 등록한 `{lead_no}` 방문 주소를 "
+            f"카카오 API 가 인식하지 못했습니다.\n"
+            "위 카드에서 [✏️ 정보 수정] 으로 정확한 주소를 다시 입력해주세요.\n\n"
+            f"  입력값: {_orig}"
+        )
+    try:
+        client.chat_postEphemeral(
+            channel=visit_channel, user=target_uid, text=text,
+        )
+    except Exception as exc:
+        logger.warning(
+            f'[SLACK/방문] 주소 정정 ephemeral 발송 실패 ({lead_no}): {exc}'
+        )
+
+
 def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str,
                                 visit_date: str, name: str, contact: str,
                                 visit_address: str, consultation: str,
-                                self_visit_by: str = '') -> tuple:
+                                self_visit_by: str = '',
+                                addr_note: Optional[dict] = None) -> tuple:
     """방문 일정 카드 양식 빌더 — (text, blocks) 반환.
 
     [✏️ 방문일 수정] + [🗑️ 방문 취소] 액션 버튼 포함. 카드 발송/복원 양쪽에서 재사용.
 
     self_visit_by (2026-07-17): 값 있으면 헤더 아래 '🙋 본인 방문 필수 (name)' 배지.
+    addr_note (2026-07-20): 거래처/기타/소개 워크플로 lead 의 주소 정규화 배지.
+      {'kind': 'normalized', 'original': ..., 'normalized': ...} → 자동 정정 표시
+      {'kind': 'failed',     'original': ..., 'normalized': ''}  → 확인 실패 안내
+      사업자등록증 배지와 동일 패턴 — 본문 구분선 바깥 하단 컨텍스트 라인.
     """
     SEP = '--------------------------------------------'
     # lead_no 없으면 (거래처/기타) 헤더에 표시 안 함
@@ -4872,6 +4955,14 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
             for ln in wrapped.split('\n'):
                 lines.append(f">{ln}")
     lines.append(f">{SEP}")
+    # 주소 정규화 배지 — 구분선 바깥 하단 (사업자등록증 배지와 동일 패턴)
+    if addr_note and isinstance(addr_note, dict):
+        _kind = addr_note.get('kind', '')
+        if _kind == 'normalized':
+            _orig = (addr_note.get('original') or '').strip()
+            lines.append(f":mag: 주소 자동 정정  (원본: {_orig})")
+        elif _kind == 'failed':
+            lines.append(':warning: 주소 확인 실패 — [정보 수정] 으로 재입력 요망')
     body_text = '\n'.join(lines)
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": body_text}},

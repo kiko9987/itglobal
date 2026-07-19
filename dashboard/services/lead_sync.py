@@ -1347,6 +1347,7 @@ def retry_pending_visit_notices() -> Dict[str, Any]:
                     visit_address=p.get('address', ''),
                     consultation=p.get('inquiry', ''),
                     user_name=p.get('user_name', ''),
+                    addr_note=p.get('addr_note'),
                 )
                 rc.delete(k)
                 result['sent'] += 1
@@ -1741,9 +1742,65 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             elif not sales_raw:
                 update_cells.append((f"N{sheet_row}", '-'))
 
+            # 방문 주소 자동 정규화 (2026-07-20) — 거래처/기타/소개 방문 예약 한정.
+            # 매니저가 워크플로 모달에 raw 주소 (예: "경기도 부천시 오정동 810-1
+            # 원일테크노2 4층 402호") 를 붙여넣은 경우 카카오 API로 도로명·건물명
+            # 정정 → 시트 I열 update + notify_visit 에 addr_note 첨부 (카드 배지 +
+            # 등록자 ephemeral). 전화는 매니저 개입 무의미하므로 대상 아님.
+            # 온라인/당근은 별도 정규화 이미 있음 (address_resolver.resolve_address
+            # 동일 함수 사용 → 포맷 일관).
+            addr_raw = str(row.get('방문 주소', '') or '').strip()
+            addr_note: Optional[Dict[str, str]] = None
+            addr_for_notify = addr_raw
+            _addr_target_platforms = {'거래처', '기타', '소개'}
+            _status_early = str(row.get('상태', '') or '').strip()
+            if (
+                addr_raw
+                and _platform_this in _addr_target_platforms
+                and _status_early == '방문 예약'
+            ):
+                try:
+                    from dashboard.services import address_resolver as _ar
+                    from dashboard.services import lead_helpers as _lh
+                    _regex = _lh.extract_korean_address(addr_raw)
+                    _regex_addr = _regex[0] if _regex else None
+                    _regex_lv = _regex[1] if _regex else ''
+                    _norm, _level = _ar.resolve_address(
+                        addr_raw, _regex_addr, _regex_lv,
+                    )
+                    if _level == 'verified' and _norm and _norm != addr_raw:
+                        # 카카오 verified 정정 성공 & 원본과 다름 → 시트 update + 배지
+                        update_cells.append((f"I{sheet_row}", _norm))
+                        addr_for_notify = _norm
+                        addr_note = {
+                            'kind': 'normalized',
+                            'original': addr_raw,
+                            'normalized': _norm,
+                        }
+                    elif _level == 'verified' and _norm == addr_raw:
+                        # verified 성공 & 원본 동일 → 조용히 (배지 없음)
+                        pass
+                    else:
+                        # verified 아닌 모든 경우 (regex/level2/raw/실패) — 신뢰도 낮음.
+                        # 2026-07-20 L-03289 관측: 매니저 오타 (충북 아산시 방배읍…) 가
+                        # regex level2 fallback 으로 조용히 저장돼 오타 잡을 기회 없었음.
+                        # → 원본 유지 + 확인 필요 배지로 매니저 재입력 유도.
+                        addr_note = {
+                            'kind': 'failed',
+                            'original': addr_raw,
+                            'normalized': '',
+                        }
+                except Exception as exc:
+                    logger.warning(
+                        f'[SYNC/전화WF] 주소 정규화 실패 ({new_lead_no}): {exc}'
+                    )
+
             # 빈 텍스트 셀 정규화 — 워크플로우가 값 안 넣은 옵션 필드는 '-' 로
             # J(문의 내용)는 전화 시맨틱상 항상 '-' — 워크플로우 매핑도 '-' 고정
+            # 방문 주소(I) 는 위에서 별도 처리 (거래처 정규화) — 여기서는 원본 빈 값만 '-'.
+            # 고객 연락처(F) 는 기타 방문 요청 시 공란 유입 케이스 대응 (2026-07-20).
             _dash_columns = [
+                ('F', '고객 연락처'),
                 ('G', '이메일'),
                 ('H', '고객명'),
                 ('I', '방문 주소'),
@@ -1814,7 +1871,8 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         'phone': str(row.get('고객 연락처', '')).strip(),
                         'email': str(row.get('이메일', '')).strip(),
                         'consult_time': consult_norm or consult_raw,
-                        'address': str(row.get('방문 주소', '')).strip(),
+                        # 방문 주소: 정규화됐으면 정정본, 아니면 원본
+                        'address': addr_for_notify,
                         'visit_date': visit_date,
                         'inquiry': (
                             # 전화 유입은 문의 내용='-' + 상담 내용에 통화 내용 → '-'를 빈값 취급
@@ -1826,6 +1884,8 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         'keyword': keyword_norm,
                         'user_name': user_name,
                         'platform': str(row.get('플랫폼', '')).strip(),
+                        # 주소 정규화 배지 (거래처/기타/소개 전용). None 이면 배지 없음.
+                        'addr_note': addr_note,
                     })
             except Exception as exc:
                 logger.error(f"[SYNC/전화WF] 보정 실패 (row {sheet_row}): {exc}",
@@ -1866,6 +1926,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         'consult_time': lead.get('consult_time', ''),
                         'keyword': lead.get('keyword', ''),
                         'user_name': lead.get('user_name', ''),
+                        'addr_note': lead.get('addr_note'),
                     }, ensure_ascii=False)
                     rc.set(
                         f'pending_visit_notice:{lead["lead_no"]}', payload,
@@ -1904,6 +1965,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                 visit_address=lead['address'],
                                 consultation=lead['inquiry'],
                                 user_name=lead.get('user_name', ''),
+                                addr_note=lead.get('addr_note'),
                             )
                             result['visit_notified'] += 1
                             card_ok = True

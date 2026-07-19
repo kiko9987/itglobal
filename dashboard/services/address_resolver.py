@@ -26,6 +26,29 @@ logger = get_logger(__name__)
 KAKAO_ENDPOINT = 'https://dapi.kakao.com/v2/local/search/address.json'
 
 
+# 로마숫자 ↔ 아라비아 등가 (2026-07-20) — dedup 판정 전용.
+# 카카오 building_name 이 "원일테크노Ⅱ" 로 오는데 매니저는 "원일테크노2" 로 입력 →
+# dedup 실패로 "원일테크노Ⅱ 원일테크노2" 중복 노출. 등가 판정으로 tail 쪽 아라비아 제거.
+# 카카오 정식 building_name 이 로마숫자면 최종 결과도 로마숫자 유지 (공식 표기 우선).
+# 12까지만 (건물명·차수에서 흔한 범위). Ⅹ = X 오인 방지 위해 명시 매핑.
+_ROMAN_TO_ARABIC = {
+    'Ⅰ': '1', 'Ⅱ': '2', 'Ⅲ': '3', 'Ⅳ': '4', 'Ⅴ': '5', 'Ⅵ': '6',
+    'Ⅶ': '7', 'Ⅷ': '8', 'Ⅸ': '9', 'Ⅹ': '10', 'Ⅺ': '11', 'Ⅻ': '12',
+    'ⅰ': '1', 'ⅱ': '2', 'ⅲ': '3', 'ⅳ': '4', 'ⅴ': '5', 'ⅵ': '6',
+    'ⅶ': '7', 'ⅷ': '8', 'ⅸ': '9', 'ⅹ': '10', 'ⅺ': '11', 'ⅻ': '12',
+}
+
+
+def _roman_to_arabic(s: str) -> str:
+    """건물명·차수 로마숫자를 아라비아로 정규화 (Ⅱ → 2)."""
+    if not s:
+        return s
+    for k, v in _ROMAN_TO_ARABIC.items():
+        if k in s:
+            s = s.replace(k, v)
+    return s
+
+
 def _kakao_key() -> str:
     return os.getenv('KAKAO_REST_API_KEY', '').strip()
 
@@ -532,14 +555,19 @@ def verify_address(
             #     base="...SR프라자" + tail="sr프라자" → 대소문자 무시로 중복 판정
             # 2026-07-13 확장 (L-03190 관측): tail 첫 단어가 base 어디에든 있으면
             #   연속으로 제거해 중간 중복도 잡음. base 끝이 아닌 중간에 있어도 대응.
-            base_lower = base.lower()
-            tail_lower = building_tail.lower()
+            # 2026-07-20 확장 (L-03278 관측): base 안 로마숫자와 tail 아라비아 숫자
+            #   등가 판정 — 카카오 "원일테크노Ⅱ" vs 원본 "원일테크노2" 중복 방지.
+            base_lower = _roman_to_arabic(base.lower())
+            tail_lower = _roman_to_arabic(building_tail.lower())
             if tail_lower in base_lower:
-                pass  # 완전 중복 (대소문자 무시) — skip
+                pass  # 완전 중복 (대소문자·로마숫자 무시) — skip
             else:
                 tail_words = building_tail.split()
                 # 각 tail 단어가 base 안에 있으면 (연속으로) 제거
-                while tail_words and tail_words[0].lower() in base_lower:
+                while (
+                    tail_words
+                    and _roman_to_arabic(tail_words[0].lower()) in base_lower
+                ):
                     tail_words.pop(0)
                 remaining = ' '.join(tail_words).strip()
                 if remaining:
@@ -552,8 +580,11 @@ def verify_address(
         result = ' '.join(parts).strip()
         # 시각적 띄어쓰기 보장
         # 1. 한국 주소·시설 단어 다음 한글 — "단지상가" → "단지 상가"
+        # 2026-07-20 예외: 다음이 도로명 suffix (대로/로/길/번길) 또는 부위 접미
+        #   (동/층/호/관/번지) 면 skip — "인천타워대로" → 그대로, "상가동" → 그대로.
         result = re.sub(
-            r'(단지|상가|아파트|빌딩|타워|오피스텔|맨션|빌라|하우스|클래스원)(?=[가-힣])',
+            r'(단지|상가|아파트|빌딩|타워|오피스텔|맨션|빌라|하우스|클래스원)'
+            r'(?=[가-힣])(?!대로|로|길|번길|동|층|호|관|번지)',
             r'\1 ', result,
         )
         # 2. 한글/영문 다음 숫자+동/호/층/관 — "○○상가101호" → "○○상가 101호"
