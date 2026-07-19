@@ -291,34 +291,550 @@ def dry_run() -> Dict:
 
 
 def commit() -> Dict:
-    """실제 시트 업데이트 + 방문 캔버스 A rebuild."""
+    """실제 시트 업데이트 + Slack List 담당자 + 담당자/온라인 당번 DM + 방문 캔버스 A rebuild.
+
+    2026-07-19 확장:
+      - Slack List 담당자 컬럼 update
+      - 방문 담당자별 DM (v9 양식)
+      - 온라인 당번 DM (v13 양식, 방문 참고 + 휴무 포함)
+      - Redis dm_sent:{lead_no} flag (방문일 변경 시 알림 대상 마킹)
+    """
     from dashboard.services.lead_service import update_lead
     from dashboard.services.visit_canvas_sync import rebuild_canvas_async
 
     with _ASSIGN_LOCK:
-        dr = dry_run()
-        if not dr.get('ok'):
-            return dr
+        # 캔버스 확장 파싱 (assignments + online_duty + off_duty)
+        token = (
+            os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+            or os.getenv('SLACK_BOT_TOKEN', '').strip()
+        )
+        canvas_id = os.getenv('SLACK_VISIT_ASSIGNMENT_CANVAS_ID', '').strip()
+        if not token or not canvas_id:
+            return {'ok': False, 'reason': 'env 미설정'}
+        html = _fetch_canvas_html(token, canvas_id)
+        if html is None:
+            return {'ok': False, 'reason': '캔버스 fetch 실패'}
+        parsed_full = parse_assignment_canvas_full(html)
+
+        assignments = parsed_full['assignments']
+        online_duty = parsed_full['online_duty']
+        off_duty = parsed_full['off_duty']
+
+        initial_to_name, _ = _load_initial_maps()
+        phone_map = _match_leads_by_phone(assignments)
+
+        # 1. 시트 update
         updated: List[str] = []
         failed: List[Tuple[str, str]] = []
-        for row in dr['rows']:
-            if not row['matched'] or not row['changed']:
+        for p in assignments:
+            lead = phone_map.get(p['phone_digits'])
+            if not lead:
                 continue
-            if row['assign_names'] == '-':
+            if not p['assign']:
+                continue
+            new_names = ','.join(initial_to_name.get(i, i) for i in p['assign'])
+            if not new_names or new_names == '-':
+                continue
+            current = str(lead.get('영업 담당자') or '').strip()
+            lno = str(lead.get('리드 No') or '').strip()
+            if not lno:
+                continue
+            if current == new_names:
                 continue
             try:
-                update_lead(row['lead_no'], {'영업 담당자': row['assign_names']})
-                updated.append(row['lead_no'])
+                update_lead(lno, {'영업 담당자': new_names})
+                updated.append(lno)
             except Exception as exc:
-                failed.append((row['lead_no'], str(exc)))
-                logger.error(f'[ASSIGN] {row["lead_no"]} 업데이트 실패: {exc}')
-        # 방문 캔버스 A 재빌드 (백그라운드)
+                failed.append((lno, str(exc)))
+                logger.error(f'[ASSIGN] {lno} 시트 update 실패: {exc}')
+
+        # 2. Slack List 담당자 update
+        list_ok, list_fail = _update_slack_list_managers(assignments, phone_map)
+
+        # 3. DM 발송 (target_date = min(방문일 시작일) > today)
+        dm_result = _send_dms_for_next_visit(
+            assignments, phone_map, initial_to_name, online_duty, off_duty,
+        )
+
+        # 4. 방문 캔버스 A rebuild
         rebuild_canvas_async()
+
         return {
             'ok': True,
-            'total_rows': dr['total'],
+            'total_rows': len(assignments),
             'updated': updated,
             'updated_count': len(updated),
             'failed': failed,
             'failed_count': len(failed),
+            'list_updated': list_ok,
+            'list_failed': list_fail,
+            'dm': dm_result,
+            'online_duty': online_duty,
+            'off_duty': off_duty,
         }
+
+
+# ---------------------------------------------------------------------------
+# 2026-07-19 확장: 온라인 당번·휴무 파싱 + List update + DM 발송
+# ---------------------------------------------------------------------------
+
+# List 담당자 컬럼 option value 매핑 (수동, List 스키마 변경 시 update 필요)
+_LIST_MANAGER_OPT_MAP = {
+    'YG': 'OptAWX1BALL', 'JW': 'OptLHI6MH4Q', 'SH': 'OptBMFT7YWG',
+    'MW': 'OptCZIM11YY', 'TH': 'OptICCHS00T', 'SJ': 'OptYSFJPMBN',
+    'YM': 'OptZU2BGHUF', 'MJ': 'Opt8B8T1Q41', 'MS': 'Opt1ISMAYJ3',
+    'JSH': 'OptGI9Y20NJ', 'JK': 'Opt3Y0WKVEA', 'SD': 'OptD2ZQI8RW',
+}
+_LIST_COL_LEAD = 'Col087VA2RG3G'
+_LIST_COL_MGR = 'Col087WMMT84W'
+
+_SEP = '--------------------------------------------'
+_BLANK = '⠀'
+_EMOJIS = [':one:', ':two:', ':three:', ':four:', ':five:',
+           ':six:', ':seven:', ':eight:', ':nine:', ':keycap_ten:']
+
+
+def parse_assignment_canvas_full(html: str) -> Dict:
+    """캔버스 파싱 확장 — 배정 + 온라인 당번 + 휴무.
+
+    Returns:
+      {'assignments': [...], 'online_duty': ['JK'], 'off_duty': ['JSH', 'YM', 'SJ']}
+    """
+    initial_to_name, _ = _load_initial_maps()
+    lines = _html_to_lines(html)
+    assignments: List[Dict] = []
+    online_duty: List[str] = []
+    off_duty: List[str] = []
+    current_section: Optional[str] = None  # 'YG' etc or '_ONLINE_' or '_OFF_'
+
+    for line in lines:
+        # 휴무인원 ( XX + YY + ZZ ) 라인
+        if '휴무인원' in line:
+            m = re.search(r'\(([^)]+)\)', line)
+            if m:
+                off_duty = [x for x in re.findall(r'[A-Z]{2,4}', m.group(1))
+                            if x in initial_to_name]
+            continue
+
+        phone_m = _PHONE_RE.search(line)
+        if not phone_m:
+            stripped = line.strip()
+            if stripped == '온라인':
+                current_section = '_ONLINE_'
+                continue
+            if stripped == '휴무':
+                current_section = '_OFF_'
+                continue
+            # 온라인 섹션 안 이니셜 = 상담 당번
+            if current_section == '_ONLINE_' and stripped in initial_to_name:
+                if stripped not in online_duty:
+                    online_duty.append(stripped)
+                continue
+            # 개인 담당자 섹션 헤더
+            section = _is_section_header(line, initial_to_name)
+            if section:
+                current_section = section
+            continue
+
+        # phone 있음 = 방문 라인
+        if current_section in (None, '_ONLINE_', '_OFF_'):
+            continue
+
+        phone = phone_m.group(0)
+        phone_digits = _normalize_phone(phone)
+        if len(phone_digits) == 11:
+            phone_normalized = f'{phone_digits[:3]}-{phone_digits[3:7]}-{phone_digits[7:]}'
+        else:
+            phone_normalized = phone
+        assign = _extract_lead_initials(line, initial_to_name)
+        if not assign and current_section:
+            assign = [current_section]
+        original = _extract_bracket_initial(line, initial_to_name)
+        assignments.append({
+            'phone': phone_normalized,
+            'phone_digits': phone_digits,
+            'assign': assign or [],
+            'original': original,
+            'raw': line,
+        })
+
+    return {
+        'assignments': assignments,
+        'online_duty': online_duty,
+        'off_duty': off_duty,
+    }
+
+
+def _parse_visit_date_start(vd) -> Optional['date']:
+    """방문 예정일 → 시작 date."""
+    from datetime import date as _date
+    s = str(vd or '').strip().lstrip("'")
+    if not s:
+        return None
+    m = re.match(r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})', s)
+    if not m:
+        return None
+    try:
+        return _date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def _get_visit_client():
+    """방문봇 client 반환."""
+    from dashboard.blueprints.slack_bot import _init_visit_slack_app, _visit_slack_app
+    _init_visit_slack_app()
+    return _visit_slack_app.client if _visit_slack_app else None
+
+
+def _get_visit_card_permalink(client, lead_no: str) -> str:
+    """Redis visit_notice_msg 매핑 → 방문 카드 permalink."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        v = rc.get(f'visit_notice_msg:{lead_no}')
+        if not v:
+            return ''
+        val = v.decode() if isinstance(v, bytes) else v
+        ch, ts = val.split('|', 1)
+        return client.chat_getPermalink(channel=ch, message_ts=ts).get('permalink', '')
+    except Exception:
+        return ''
+
+
+def _email_from_initial(initial: str, initial_to_name: Dict[str, str]) -> str:
+    """이니셜 → 이메일. users.db 매핑에서 역산."""
+    from dashboard.utils.user_database import UserDatabase
+    try:
+        db = UserDatabase()
+        for u in db.get_all_users():
+            email = (u.get('email') or '').strip()
+            if not email:
+                continue
+            local = email.split('@')[0].strip().upper()
+            if local == initial.upper():
+                return email
+    except Exception:
+        pass
+    return ''
+
+
+def _update_slack_list_managers(assignments: List[Dict],
+                                  phone_map: Dict[str, Dict]) -> Tuple[int, int]:
+    """Slack List 담당자 컬럼 update. (성공, 실패) 반환."""
+    import json as _json
+    import urllib.request
+
+    list_id = os.getenv('SLACK_VISIT_LIST_ID', '').strip()
+    token = os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+    if not list_id or not token:
+        logger.warning('[ASSIGN/LIST] SLACK_VISIT_LIST_ID or token 미설정 — skip')
+        return 0, 0
+
+    client = _get_visit_client()
+    if not client:
+        return 0, 0
+
+    # List 항목 조회 → lead_no → row_id 매핑
+    try:
+        r = client.api_call('slackLists.items.list', http_verb='GET',
+                            params={'list_id': list_id})
+        items = r.data.get('items', []) if hasattr(r, 'data') else r.get('items', [])
+    except Exception as exc:
+        logger.warning(f'[ASSIGN/LIST] items 조회 실패: {exc}')
+        return 0, 0
+
+    lead_to_row: Dict[str, str] = {}
+    for it in items:
+        for f in it.get('fields', []):
+            if f.get('column_id') == _LIST_COL_LEAD:
+                lead_to_row[f.get('text', '')] = it['id']
+                break
+
+    ok = 0
+    fail = 0
+    for p in assignments:
+        lead = phone_map.get(p['phone_digits'])
+        if not lead:
+            continue
+        lno = str(lead.get('리드 No') or '').strip()
+        row_id = lead_to_row.get(lno)
+        if not row_id:
+            continue
+        opts = [_LIST_MANAGER_OPT_MAP[i] for i in p['assign']
+                if i in _LIST_MANAGER_OPT_MAP]
+        if not opts:
+            continue
+        body = {
+            'list_id': list_id,
+            'cells': [{'row_id': row_id, 'column_id': _LIST_COL_MGR, 'select': opts}],
+        }
+        try:
+            req = urllib.request.Request(
+                'https://slack.com/api/slackLists.items.update',
+                data=_json.dumps(body).encode('utf-8'),
+                headers={'Content-Type': 'application/json; charset=utf-8',
+                         'Authorization': f'Bearer {token}'},
+                method='POST',
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = _json.loads(resp.read().decode())
+            if result.get('ok'):
+                ok += 1
+            else:
+                fail += 1
+                logger.warning(f'[ASSIGN/LIST] {lno} update 실패: {result.get("error")}')
+        except Exception as exc:
+            fail += 1
+            logger.warning(f'[ASSIGN/LIST] {lno} 예외: {exc}')
+    return ok, fail
+
+
+def _send_dms_for_next_visit(assignments: List[Dict],
+                              phone_map: Dict[str, Dict],
+                              initial_to_name: Dict[str, str],
+                              online_duty: List[str],
+                              off_duty: List[str]) -> Dict:
+    """min(방문일 시작일) > today 인 리드에 담당자/온라인 당번 DM.
+
+    Returns:
+        {'target_date': 'YYYY-MM-DD' or None,
+         'visit_mgr_sent': N, 'visit_mgr_failed': N,
+         'online_duty_sent': N, 'lead_nos_flagged': [...]}
+    """
+    from datetime import date as _date
+    result = {'target_date': None, 'visit_mgr_sent': 0, 'visit_mgr_failed': 0,
+              'online_duty_sent': 0, 'lead_nos_flagged': []}
+
+    today = _date.today()
+    # 각 assignment → (lead, start_date)
+    enriched = []
+    for p in assignments:
+        lead = phone_map.get(p['phone_digits'])
+        if not lead:
+            continue
+        vd = lead.get('방문 예정일', '')
+        start = _parse_visit_date_start(vd)
+        if start is None or start <= today:
+            continue
+        enriched.append((p, lead, start))
+
+    if not enriched:
+        logger.info('[ASSIGN/DM] 오늘 이후 방문 없음 — skip')
+        return result
+
+    target_date = min(x[2] for x in enriched)
+    result['target_date'] = target_date.isoformat()
+
+    filtered = [(p, lead) for p, lead, s in enriched if s == target_date]
+
+    # 담당자별 그룹핑
+    from collections import defaultdict
+    by_mgr: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
+    lead_to_mgrs: Dict[str, List[str]] = {}
+    for p, lead in filtered:
+        lno = str(lead.get('리드 No') or '').strip()
+        lead_to_mgrs[lno] = p['assign']
+        for ini in p['assign']:
+            by_mgr[ini].append((lno, lead))
+
+    # 방문봇 client
+    client = _get_visit_client()
+    if not client:
+        logger.warning('[ASSIGN/DM] 방문봇 client 초기화 실패')
+        return result
+
+    lead_nos_flagged = set()
+
+    # 담당자별 v9 DM
+    for ini, mgr_leads in by_mgr.items():
+        mgr_name = initial_to_name.get(ini, ini)
+        email = _email_from_initial(ini, initial_to_name)
+        if not email:
+            continue
+        # 동행 계산
+        companions_per_lead = {}
+        for lno, _ in mgr_leads:
+            others = [x for x in lead_to_mgrs.get(lno, []) if x != ini]
+            companions_per_lead[lno] = tuple(others)
+        uniq = set(companions_per_lead.values())
+        common = list(uniq)[0] if len(uniq) == 1 and uniq != {tuple()} else None
+
+        lines = [_BLANK]
+        lines.append(
+            f'>:wave: *{mgr_name}님*, {target_date.isoformat()} '
+            f'배정된 방문 일정 {len(mgr_leads)}건 입니다.'
+        )
+        if common:
+            lines.append(f'>:busts_in_silhouette: 동행 : {"+".join(common)}')
+        lines.append(f'>{_SEP}')
+        for i, (lno, lead) in enumerate(mgr_leads):
+            e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
+            lines.append(f'>{e} *{lno} · {lead.get("고객명") or "-"}*')
+            if not common and companions_per_lead.get(lno):
+                lines.append(
+                    f'>   :busts_in_silhouette: 동행 {"+".join(companions_per_lead[lno])}'
+                )
+            lines.append(f'>   :iphone: {lead.get("고객 연락처") or "-"}')
+            lines.append(f'>   :round_pushpin: {lead.get("방문 주소") or "-"}')
+            note = (lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
+            if note:
+                lines.append(f'>   :speech_balloon: {note[:200]}')
+            pl = _get_visit_card_permalink(client, lno)
+            if pl:
+                lines.append(f'>   :link: <{pl}|방문 카드>')
+            lines.append(f'>{_SEP}')
+            lead_nos_flagged.add(lno)
+        lines.append(_BLANK)
+
+        try:
+            u = client.users_lookupByEmail(email=email)
+            uid = u['user']['id']
+            r = client.chat_postMessage(
+                channel=uid, text='\n'.join(lines),
+                unfurl_links=False, unfurl_media=False,
+            )
+            if r.get('ok'):
+                result['visit_mgr_sent'] += 1
+            else:
+                result['visit_mgr_failed'] += 1
+        except Exception as exc:
+            result['visit_mgr_failed'] += 1
+            logger.warning(f'[ASSIGN/DM] {mgr_name} 발송 실패: {exc}')
+
+    # 온라인 당번 v13 DM
+    if online_duty:
+        # 방문 담당자 참고 (조합별 카운트)
+        combo_counts: Dict[Tuple[str, ...], int] = {}
+        for lno, mgrs in lead_to_mgrs.items():
+            key = tuple(mgrs)
+            combo_counts[key] = combo_counts.get(key, 0) + 1
+        combo_lines = [f'   • {"·".join(k)} ({v}건)'
+                       for k, v in combo_counts.items()]
+
+        for duty_ini in online_duty:
+            duty_name = initial_to_name.get(duty_ini, duty_ini)
+            email = _email_from_initial(duty_ini, initial_to_name)
+            if not email:
+                continue
+            lines = [_BLANK]
+            lines.append(
+                f'>:wave: *{duty_name}님*, {target_date.isoformat()} 온라인 상담 당번입니다.'
+            )
+            lines.append(f'>{_SEP}')
+            lines.append('>:headphones: 사무실에서 문의 응대 부탁드립니다.')
+            lines.append('>')
+            lines.append(f'>:car: *{target_date.isoformat()} 방문 담당자 참고*')
+            for cl in combo_lines:
+                lines.append(f'>{cl}')
+            if off_duty:
+                lines.append('>')
+                lines.append(f'>:palm_tree: *휴무* : {"·".join(off_duty)}')
+            lines.append(f'>{_SEP}')
+            lines.append(_BLANK)
+            try:
+                u = client.users_lookupByEmail(email=email)
+                uid = u['user']['id']
+                r = client.chat_postMessage(
+                    channel=uid, text='\n'.join(lines),
+                    unfurl_links=False, unfurl_media=False,
+                )
+                if r.get('ok'):
+                    result['online_duty_sent'] += 1
+            except Exception as exc:
+                logger.warning(f'[ASSIGN/DM] 당번 {duty_name} 발송 실패: {exc}')
+
+    # Redis dm_sent flag (변경 알림 대상 마킹)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        # TTL = 방문일 + 7일
+        ttl_days = (target_date - today).days + 7
+        ttl = max(ttl_days * 86400, 86400)
+        for lno in lead_nos_flagged:
+            try:
+                rc.set(f'dm_sent:{lno}', target_date.isoformat(), ex=ttl)
+            except Exception:
+                pass
+        result['lead_nos_flagged'] = sorted(lead_nos_flagged)
+    except Exception as exc:
+        logger.warning(f'[ASSIGN/DM] Redis flag 세팅 실패: {exc}')
+
+    return result
+
+
+def send_visit_change_notification(lead_no: str, old_visit_date: str,
+                                     new_visit_date: str, note: str = '') -> bool:
+    """방문일 변경 시 담당자에게 v19 양식 DM. dm_sent flag 있는 lead 만 대상.
+
+    Args:
+        lead_no: 리드 No
+        old_visit_date, new_visit_date: 변경 전/후 방문일 문자열
+        note: 상담 내용 (매니저 변경 사유)
+    """
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        flag = rc.get(f'dm_sent:{lead_no}')
+        if not flag:
+            logger.info(f'[ASSIGN/CHANGE] {lead_no}: dm_sent flag 없음 — skip')
+            return False
+    except Exception:
+        return False
+
+    # 시트에서 lead 조회 → 이름·담당자
+    try:
+        from dashboard.services.lead_service import load_leads_data
+        df = load_leads_data(force_refresh=True)
+        row = df[df['리드 No'] == lead_no]
+        if row.empty:
+            return False
+        lead = row.iloc[0].to_dict()
+    except Exception:
+        return False
+
+    lead_name = lead.get('고객명') or '-'
+    mgr_names_raw = str(lead.get('영업 담당자') or '').strip()
+    if not mgr_names_raw:
+        return False
+
+    initial_to_name, name_to_initial = _load_initial_maps()
+
+    client = _get_visit_client()
+    if not client:
+        return False
+
+    lines = [_BLANK]
+    lines.append(f'>:arrows_counterclockwise: *방문 일정 변경*')
+    lines.append(f'>{_SEP}')
+    lines.append(f'>*{lead_no} · {lead_name}*')
+    lines.append(f'>~{old_visit_date}~ → *{new_visit_date}*')
+    if note:
+        lines.append(f'>:memo: {note[:200]}')
+    lines.append('>:information_source: 변경된 날짜 전날 다시 안내 드릴 예정입니다')
+    lines.append(f'>{_SEP}')
+    lines.append(_BLANK)
+    text = '\n'.join(lines)
+
+    sent = 0
+    for name in [n.strip() for n in mgr_names_raw.split(',') if n.strip()]:
+        ini = name_to_initial.get(name)
+        if not ini:
+            continue
+        email = _email_from_initial(ini, initial_to_name)
+        if not email:
+            continue
+        try:
+            u = client.users_lookupByEmail(email=email)
+            uid = u['user']['id']
+            r = client.chat_postMessage(
+                channel=uid, text=text,
+                unfurl_links=False, unfurl_media=False,
+            )
+            if r.get('ok'):
+                sent += 1
+        except Exception as exc:
+            logger.warning(f'[ASSIGN/CHANGE] {name} 발송 실패: {exc}')
+
+    logger.info(f'[ASSIGN/CHANGE] {lead_no}: {sent}명 변경 알림 발송')
+    return sent > 0

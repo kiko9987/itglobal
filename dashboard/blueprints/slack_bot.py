@@ -562,12 +562,30 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
                 'text': f':x: 실패: {result.get("reason", "unknown")}'}
     if committed:
         lines = [
-            f":white_check_mark: *일정 확정 완료* — {result.get('updated_count', 0)}건 시트 업데이트",
+            f":white_check_mark: *일정 확정 완료* — 시트 {result.get('updated_count', 0)}건",
         ]
+        li_ok = result.get('list_updated', 0)
+        li_fail = result.get('list_failed', 0)
+        if li_ok or li_fail:
+            lines.append(f":clipboard: Slack List 담당자 {li_ok}건 update"
+                         + (f" (실패 {li_fail})" if li_fail else ""))
+        dm = result.get('dm') or {}
+        if dm.get('target_date'):
+            lines.append(
+                f":envelope: {dm['target_date']} 방문 담당자 DM {dm.get('visit_mgr_sent', 0)}명"
+                + (f" (실패 {dm.get('visit_mgr_failed', 0)})"
+                   if dm.get('visit_mgr_failed') else "")
+                + (f" · 온라인 당번 {dm['online_duty_sent']}명"
+                   if dm.get('online_duty_sent') else "")
+            )
+        if result.get('online_duty'):
+            lines.append(f"_온라인 당번:_ {'·'.join(result['online_duty'])}")
+        if result.get('off_duty'):
+            lines.append(f"_휴무:_ {'·'.join(result['off_duty'])}")
         if result.get('updated'):
-            lines.append('_업데이트된 리드:_ ' + ', '.join(result['updated'][:20]))
+            lines.append('_시트 업데이트 리드:_ ' + ', '.join(result['updated'][:20]))
         if result.get('failed_count'):
-            lines.append(f":warning: 실패 {result['failed_count']}건")
+            lines.append(f":warning: 시트 실패 {result['failed_count']}건")
             for ln, err in result.get('failed', [])[:5]:
                 lines.append(f'  - {ln}: {err[:80]}')
         lines.append('_방문 캔버스 rebuild 백그라운드 진행 중_')
@@ -5619,6 +5637,10 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     # E열 셀 서식 '@ 텍스트' 라 escape 불필요
     sheet_visit_value = new_visit_display
 
+    # 방문일 변경 감지용 — old 값 캡처 (2026-07-19)
+    old_lead = _find_lead_by_no(lead_no) or {}
+    old_visit_date = str(old_lead.get('방문 예정일') or '').strip().lstrip("'")
+
     updates = {
         '방문 예정일': sheet_visit_value,
         '고객명': new_name,
@@ -5664,6 +5686,18 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 카드 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
+
+    # 방문일 변경 → dm_sent flag 있는 lead 만 담당자에게 알림 (2026-07-19)
+    if old_visit_date and new_visit_display and old_visit_date != new_visit_display:
+        try:
+            from dashboard.services.visit_assignment_sync import send_visit_change_notification
+            threading.Thread(
+                target=send_visit_change_notification,
+                args=(lead_no, old_visit_date, new_visit_display, new_consultation),
+                daemon=True,
+            ).start()
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문수정] 변경 알림 예약 실패 ({lead_no}): {exc}")
 
 
 def _process_visit_complete(client, body) -> None:
