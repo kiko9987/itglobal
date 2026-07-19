@@ -629,12 +629,19 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
     unmatched = [r for r in rows if not r['matched']]
     changed = [r for r in matched if r['changed']]
     unchanged = [r for r in matched if not r['changed']]
+    header = f":clipboard: *일정 확인 (dry-run)* — 총 {len(rows)}건 파싱"
+    if result.get('target_date'):
+        header += f" · DM 대상 {result['target_date']}"
     lines = [
-        f":clipboard: *일정 확인 (dry-run)* — 총 {len(rows)}건 파싱",
+        header,
         f"   ✓ 시트 매칭 {len(matched)}건 (변경 {len(changed)}, 유지 {len(unchanged)})",
         f"   ✗ 매칭 실패 {len(unmatched)}건",
-        '',
     ]
+    if result.get('online_duty'):
+        lines.append(f"   :headphones: 온라인 당번 : {'·'.join(result['online_duty'])}")
+    if result.get('off_duty'):
+        lines.append(f"   :palm_tree: 휴무 : {'·'.join(result['off_duty'])}")
+    lines.append('')
     if changed:
         lines.append('*변경 대상:*')
         for r in changed[:20]:

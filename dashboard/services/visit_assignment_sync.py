@@ -258,7 +258,11 @@ def _match_leads_by_phone(parsed: List[Dict]) -> Dict[str, Dict]:
 
 
 def dry_run() -> Dict:
-    """캔버스 파싱 결과 표 반환 (변경 X)."""
+    """캔버스 파싱 결과 표 반환 (변경 X).
+
+    2026-07-19 확장: online_duty·off_duty·target_date 도 응답에 포함.
+    """
+    from datetime import date as _date
     token = (
         os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
         or os.getenv('SLACK_BOT_TOKEN', '').strip()
@@ -269,15 +273,24 @@ def dry_run() -> Dict:
     html = _fetch_canvas_html(token, canvas_id)
     if html is None:
         return {'ok': False, 'reason': '캔버스 fetch 실패', 'rows': []}
-    parsed = parse_assignment_canvas(html)
+    parsed_full = parse_assignment_canvas_full(html)
+    parsed = parsed_full['assignments']
+    online_duty = parsed_full['online_duty']
+    off_duty = parsed_full['off_duty']
+
     initial_to_name, _ = _load_initial_maps()
     phone_map = _match_leads_by_phone(parsed)
     rows: List[Dict] = []
+    today = _date.today()
+    future_starts = []
     for p in parsed:
         lead = phone_map.get(p['phone_digits'])
         current_assign = str(lead.get('영업 담당자') or '').strip() if lead else ''
         new_names = ','.join(initial_to_name.get(i, i) for i in p['assign'])
         changed = bool(lead) and (current_assign != new_names)
+        start = _parse_visit_date_start(lead.get('방문 예정일')) if lead else None
+        if start is not None and start > today:
+            future_starts.append(start)
         rows.append({
             'phone': p['phone'],
             'assign_initials': '+'.join(p['assign']) or '-',
@@ -288,7 +301,15 @@ def dry_run() -> Dict:
             'changed': changed,
             'original': p.get('original') or '-',
         })
-    return {'ok': True, 'rows': rows, 'total': len(rows)}
+    target_date = min(future_starts).isoformat() if future_starts else None
+    return {
+        'ok': True,
+        'rows': rows,
+        'total': len(rows),
+        'online_duty': online_duty,
+        'off_duty': off_duty,
+        'target_date': target_date,
+    }
 
 
 def commit() -> Dict:
@@ -873,6 +894,17 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     f'이메일 매핑 실패 — skip'
                 )
                 continue
+            # 재실행 중복 방지 (2026-07-19)
+            duty_flag = f'duty_sent:{target_date.isoformat()}:{duty_ini}'
+            try:
+                if rc_pre is not None and rc_pre.get(duty_flag):
+                    logger.info(
+                        f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) '
+                        f'이미 발송 — skip'
+                    )
+                    continue
+            except Exception:
+                pass
             lines = [_BLANK]
             lines.append(
                 f'>:wave: *{duty_name}님*, {target_date.isoformat()} 온라인 상담 당번입니다.'
@@ -900,6 +932,12 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     logger.info(
                         f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) 발송 OK'
                     )
+                    # 중복 방지 flag 세팅 (3일 TTL)
+                    try:
+                        if rc_pre is not None:
+                            rc_pre.set(duty_flag, '1', ex=86400 * 3)
+                    except Exception:
+                        pass
                 else:
                     logger.warning(
                         f'[ASSIGN/DM] 당번 {duty_name}({duty_ini}) 응답 not ok: '
