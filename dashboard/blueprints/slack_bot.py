@@ -589,6 +589,11 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
             for ln, err in result.get('failed', [])[:5]:
                 lines.append(f'  - {ln}: {err[:80]}')
         lines.append('_방문 캔버스 rebuild 백그라운드 진행 중_')
+        if (result.get('dm') or {}).get('visit_mgr_sent'):
+            lines.append(
+                ':warning: _재실행 시 담당자에게 중복 DM 발송됩니다. '
+                '캔버스 수정 후에만 다시 실행하세요._'
+            )
         return {'response_type': 'ephemeral', 'text': '\n'.join(lines)}
 
     rows = result.get('rows', [])

@@ -651,6 +651,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         mgr_name = initial_to_name.get(ini, ini)
         email = _email_from_initial(ini, initial_to_name)
         if not email:
+            logger.warning(
+                f'[ASSIGN/DM] {mgr_name}({ini}): 이메일 매핑 실패 — skip'
+            )
+            result['visit_mgr_failed'] += 1
             continue
         # 동행 계산
         companions_per_lead = {}
@@ -696,11 +700,17 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             )
             if r.get('ok'):
                 result['visit_mgr_sent'] += 1
+                logger.info(
+                    f'[ASSIGN/DM] {mgr_name}({ini}) → {len(mgr_leads)}건 발송 OK'
+                )
             else:
                 result['visit_mgr_failed'] += 1
+                logger.warning(
+                    f'[ASSIGN/DM] {mgr_name}({ini}) 응답 not ok: {r.get("error")}'
+                )
         except Exception as exc:
             result['visit_mgr_failed'] += 1
-            logger.warning(f'[ASSIGN/DM] {mgr_name} 발송 실패: {exc}')
+            logger.warning(f'[ASSIGN/DM] {mgr_name}({ini}) 발송 예외: {exc}')
 
     # 온라인 당번 v13 DM
     if online_duty:
@@ -716,6 +726,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             duty_name = initial_to_name.get(duty_ini, duty_ini)
             email = _email_from_initial(duty_ini, initial_to_name)
             if not email:
+                logger.warning(
+                    f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}): '
+                    f'이메일 매핑 실패 — skip'
+                )
                 continue
             lines = [_BLANK]
             lines.append(
@@ -741,8 +755,18 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 )
                 if r.get('ok'):
                     result['online_duty_sent'] += 1
+                    logger.info(
+                        f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) 발송 OK'
+                    )
+                else:
+                    logger.warning(
+                        f'[ASSIGN/DM] 당번 {duty_name}({duty_ini}) 응답 not ok: '
+                        f'{r.get("error")}'
+                    )
             except Exception as exc:
-                logger.warning(f'[ASSIGN/DM] 당번 {duty_name} 발송 실패: {exc}')
+                logger.warning(
+                    f'[ASSIGN/DM] 당번 {duty_name}({duty_ini}) 발송 예외: {exc}'
+                )
 
     # Redis dm_sent flag (변경 알림 대상 마킹)
     try:
