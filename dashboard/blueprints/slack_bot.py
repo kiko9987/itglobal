@@ -4976,6 +4976,10 @@ def _process_visit_date_modify(client, body, view) -> None:
     # 범위 양식으로 조립 — end 없거나 start와 같으면 단일
     new_date_display = _format_visit_date_range(new_start, new_end)
 
+    # 방문일 변경 감지용 — old 값 캡처 (2026-07-19)
+    old_lead = _find_lead_by_no(lead_no) or {}
+    old_visit_date = str(old_lead.get('방문 예정일') or '').strip().lstrip("'")
+
     # 1) 시트 update — escape prefix로 시리얼 변환 차단.
     # ETC- 는 Redis metadata 만 갱신 (시트에 없음).
     try:
@@ -5020,6 +5024,18 @@ def _process_visit_date_modify(client, body, view) -> None:
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 메시지 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
+
+    # 방문일 변경 → dm_sent flag 있는 lead 만 담당자에게 알림 (2026-07-19)
+    if old_visit_date and new_date_display and old_visit_date != new_date_display:
+        try:
+            from dashboard.services.visit_assignment_sync import send_visit_change_notification
+            threading.Thread(
+                target=send_visit_change_notification,
+                args=(lead_no, old_visit_date, new_date_display, ''),
+                daemon=True,
+            ).start()
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문수정] 변경 알림 예약 실패 ({lead_no}): {exc}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -5761,12 +5777,14 @@ def _process_visit_complete(client, body) -> None:
     except Exception as exc:
         logger.warning(f"[SLACK/방문완료] chat.update 실패 ({lead_no}): {exc}")
 
-    # 3) 방문 완료 flag set + 캔버스 rebuild trigger (2026-07-16).
+    # 3) 방문 완료 flag set + dm_sent flag 삭제 + 캔버스 rebuild trigger (2026-07-16).
     #    자동 완료 (사진 첨부) 와 flag 명 통일. 캔버스 필터가 이 flag 로 제외.
+    #    dm_sent 는 완료 후 변경 알림 오작동 방지 (2026-07-19).
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
         rc.setex(f'visit_auto_completed:{lead_no}', 60 * 60 * 24 * 30, '1')  # 30일
+        rc.delete(f'dm_sent:{lead_no}')
     except Exception as exc:
         logger.warning(f"[SLACK/방문완료] flag set 실패 ({lead_no}): {exc}")
     try:
@@ -5859,6 +5877,13 @@ def _process_visit_cancel(client, body) -> None:
     except Exception as exc:
         logger.error(f"[SLACK/방문취소] 메시지 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
+
+    # dm_sent flag 삭제 — 취소 후 변경 알림 오작동 방지 (2026-07-19)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.delete(f'dm_sent:{lead_no}')
+    except Exception:
+        pass
 
 
 def _process_visit_thread_files(client, event) -> None:
@@ -6394,10 +6419,11 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
     except Exception as exc:
         logger.warning(f"[SLACK/자동완료] 카드 update 실패 ({lead_no}): {exc}")
 
-    # 3) flag set (TTL 30일)
+    # 3) flag set (TTL 30일) + dm_sent flag 삭제 (2026-07-19)
     if rc is not None:
         try:
             rc.set(flag_key, '1', ex=60 * 60 * 24 * 30)
+            rc.delete(f'dm_sent:{lead_no}')
         except Exception:
             pass
 
