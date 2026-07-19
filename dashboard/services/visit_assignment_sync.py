@@ -143,12 +143,13 @@ def _extract_lead_initials(line: str, initial_to_name: Dict[str, str]) -> Option
     phone_match = _PHONE_RE.search(line)
     prefix = line[:phone_match.start()] if phone_match else line
 
-    # 괄호 앞 이니셜 조합 (JW+MS+JK, SJ+JK, TH, 대표님+SD 등)
+    # 괄호 앞 이니셜 조합 (JW+MS+JK, SJ+JK, TH, 대표님+SD, 대표님 + TH * SD 등)
     # 첫 괄호 or 첫 슬래시 or 첫 숫자 이전 부분
-    m = re.match(r'^([가-힣A-Z+,·/\s]+?)(?:\s*\(|\s*/|\s*\d)', prefix)
+    # 2026-07-19: `*` 도 조합 구분자로 취급 (JW 관행)
+    m = re.match(r'^([가-힣A-Z+,·/*\s]+?)(?:\s*\(|\s*/|\s*\d)', prefix)
     if not m:
         # 첫 워드만 시도
-        m = re.match(r'^([가-힣A-Z+,·/\s]+)', prefix)
+        m = re.match(r'^([가-힣A-Z+,·/*\s]+)', prefix)
     if not m:
         return None
     candidate = m.group(1).strip()
@@ -159,8 +160,8 @@ def _extract_lead_initials(line: str, initial_to_name: Dict[str, str]) -> Option
     for alias, ini in _ALIAS_MAP.items():
         candidate = candidate.replace(alias, ini)
 
-    # 조합 분리 (+, ,, ·, /)
-    tokens = [t.strip().upper() for t in re.split(r'[+,·/]', candidate) if t.strip()]
+    # 조합 분리 (+, ,, ·, /, *)
+    tokens = [t.strip().upper() for t in re.split(r'[+,·/*]', candidate) if t.strip()]
     # 이니셜 매핑 있는 것만
     valid = [t for t in tokens if t in initial_to_name]
     if not valid:
