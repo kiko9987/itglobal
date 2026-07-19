@@ -603,6 +603,8 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
                    if dm.get('visit_mgr_failed') else "")
                 + (f" · 온라인 당번 {dm['online_duty_sent']}명"
                    if dm.get('online_duty_sent') else "")
+                + (f" · 배정 해제 알림 {dm['deassign_sent']}명"
+                   if dm.get('deassign_sent') else "")
             )
         if result.get('online_duty'):
             lines.append(f"_온라인 당번:_ {'·'.join(result['online_duty'])}")

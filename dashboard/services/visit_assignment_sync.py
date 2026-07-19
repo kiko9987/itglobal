@@ -379,15 +379,61 @@ def commit() -> Dict:
 # 2026-07-19 확장: 온라인 당번·휴무 파싱 + List update + DM 발송
 # ---------------------------------------------------------------------------
 
-# List 담당자 컬럼 option value 매핑 (수동, List 스키마 변경 시 update 필요)
-_LIST_MANAGER_OPT_MAP = {
-    'YG': 'OptAWX1BALL', 'JW': 'OptLHI6MH4Q', 'SH': 'OptBMFT7YWG',
-    'MW': 'OptCZIM11YY', 'TH': 'OptICCHS00T', 'SJ': 'OptYSFJPMBN',
-    'YM': 'OptZU2BGHUF', 'MJ': 'Opt8B8T1Q41', 'MS': 'Opt1ISMAYJ3',
-    'JSH': 'OptGI9Y20NJ', 'JK': 'Opt3Y0WKVEA', 'SD': 'OptD2ZQI8RW',
-}
+# List 담당자 컬럼 옵션은 스키마 실시간 조회 (2026-07-19 자동화).
+# 10분 캐시.
 _LIST_COL_LEAD = 'Col087VA2RG3G'
 _LIST_COL_MGR = 'Col087WMMT84W'
+
+_LIST_OPT_CACHE: Dict[str, object] = {'map': {}, 'ts': 0.0}
+
+
+def _load_list_manager_option_map(list_id: str) -> Dict[str, str]:
+    """List 담당자 컬럼 스키마 → {이니셜: option value}.
+
+    Slack List 스키마의 담당자 컬럼 (select) choices 를 users.db 이름 매핑으로
+    이니셜 (email local part 대문자) 로 변환.
+    """
+    if not list_id:
+        return {}
+    client = _get_visit_client()
+    if not client:
+        return {}
+    try:
+        r = client.files_info(file=list_id)
+        schema = r['file'].get('list_metadata', {}).get('schema', [])
+    except Exception as exc:
+        logger.warning(f'[ASSIGN/LIST] 스키마 조회 실패: {exc}')
+        return {}
+
+    _, name_to_initial = _load_initial_maps()
+    result: Dict[str, str] = {}
+    for col in schema:
+        if col.get('id') != _LIST_COL_MGR:
+            continue
+        for ch in col.get('options', {}).get('choices', []):
+            label = (ch.get('label') or '').strip()
+            value = (ch.get('value') or '').strip()
+            if not label or not value:
+                continue
+            ini = name_to_initial.get(label)
+            if ini:
+                result[ini] = value
+    return result
+
+
+def _get_list_manager_option_map(list_id: str) -> Dict[str, str]:
+    """캐시 10분."""
+    import time as _time
+    now = _time.time()
+    ts = float(_LIST_OPT_CACHE.get('ts') or 0)
+    cached = _LIST_OPT_CACHE.get('map') or {}
+    if now - ts < 600 and cached:
+        return cached  # type: ignore
+    fresh = _load_list_manager_option_map(list_id)
+    if fresh:
+        _LIST_OPT_CACHE['map'] = fresh
+        _LIST_OPT_CACHE['ts'] = now
+    return fresh or cached  # type: ignore
 
 _SEP = '--------------------------------------------'
 _BLANK = '⠀'
@@ -536,6 +582,12 @@ def _update_slack_list_managers(assignments: List[Dict],
     if not client:
         return 0, 0
 
+    # 옵션 매핑 실시간 조회 (10분 캐시)
+    opt_map = _get_list_manager_option_map(list_id)
+    if not opt_map:
+        logger.warning('[ASSIGN/LIST] 옵션 매핑 조회 실패 — skip')
+        return 0, 0
+
     # List 항목 조회 → lead_no → row_id 매핑
     try:
         r = client.api_call('slackLists.items.list', http_verb='GET',
@@ -562,8 +614,12 @@ def _update_slack_list_managers(assignments: List[Dict],
         row_id = lead_to_row.get(lno)
         if not row_id:
             continue
-        opts = [_LIST_MANAGER_OPT_MAP[i] for i in p['assign']
-                if i in _LIST_MANAGER_OPT_MAP]
+        missing = [i for i in p['assign'] if i not in opt_map]
+        if missing:
+            logger.warning(
+                f'[ASSIGN/LIST] {lno}: 옵션 매핑 누락 {missing} — 해당만 skip'
+            )
+        opts = [opt_map[i] for i in p['assign'] if i in opt_map]
         if not opts:
             continue
         body = {
@@ -598,14 +654,20 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                               off_duty: List[str]) -> Dict:
     """min(방문일 시작일) > today 인 리드에 담당자/온라인 당번 DM.
 
+    2026-07-19 확장: dm_sent 를 JSON 으로 관리해 재실행 시 신규/유지/제거 분류.
+      - 신규 매니저 → v9 DM
+      - 유지 매니저 → skip (중복 방지)
+      - 제거 매니저 → v20 배정 해제 알림
+
     Returns:
         {'target_date': 'YYYY-MM-DD' or None,
-         'visit_mgr_sent': N, 'visit_mgr_failed': N,
+         'visit_mgr_sent': N, 'visit_mgr_failed': N, 'deassign_sent': N,
          'online_duty_sent': N, 'lead_nos_flagged': [...]}
     """
+    import json as _json
     from datetime import date as _date
     result = {'target_date': None, 'visit_mgr_sent': 0, 'visit_mgr_failed': 0,
-              'online_duty_sent': 0, 'lead_nos_flagged': []}
+              'deassign_sent': 0, 'online_duty_sent': 0, 'lead_nos_flagged': []}
 
     today = _date.today()
     # 각 assignment → (lead, start_date)
@@ -629,15 +691,54 @@ def _send_dms_for_next_visit(assignments: List[Dict],
 
     filtered = [(p, lead) for p, lead, s in enriched if s == target_date]
 
-    # 담당자별 그룹핑
+    # 담당자별 그룹핑 + lead → 담당자 매핑
     from collections import defaultdict
-    by_mgr: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
     lead_to_mgrs: Dict[str, List[str]] = {}
     for p, lead in filtered:
         lno = str(lead.get('리드 No') or '').strip()
         lead_to_mgrs[lno] = p['assign']
-        for ini in p['assign']:
-            by_mgr[ini].append((lno, lead))
+
+    # 각 lead 이전 dm_sent 조회 (JSON) — 신규/유지/제거 분류용
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc_pre = get_redis_client().redis
+    except Exception:
+        rc_pre = None
+
+    prev_mgrs_by_lead: Dict[str, set] = {}
+    for lno in lead_to_mgrs:
+        if rc_pre is None:
+            prev_mgrs_by_lead[lno] = set()
+            continue
+        try:
+            raw = rc_pre.get(f'dm_sent:{lno}')
+            if not raw:
+                prev_mgrs_by_lead[lno] = set()
+                continue
+            val = raw.decode() if isinstance(raw, bytes) else raw
+            # JSON format {"date":..., "mgrs":[...]} 또는 legacy 문자열
+            if val.startswith('{'):
+                data = _json.loads(val)
+                prev_mgrs_by_lead[lno] = set(data.get('mgrs', []))
+            else:
+                # legacy — target_date 만 있고 mgrs 정보 없음, 첫 확장 실행 시엔
+                # 이미 발송된 것으로 간주 (모두 유지) 하려 해도 정보 없으므로 빈 set
+                prev_mgrs_by_lead[lno] = set()
+        except Exception as exc:
+            logger.debug(f'[ASSIGN/DM] dm_sent 파싱 실패 ({lno}): {exc}')
+            prev_mgrs_by_lead[lno] = set()
+
+    # 신규 배정 (첫 발송 대상) 과 제거 (배정 해제) 분류
+    by_mgr_new: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
+    deassigned_by_mgr: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
+    for p, lead in filtered:
+        lno = str(lead.get('리드 No') or '').strip()
+        current_set = set(p['assign'])
+        prev_set = prev_mgrs_by_lead.get(lno, set())
+        for ini in current_set - prev_set:
+            by_mgr_new[ini].append((lno, lead))
+        for ini in prev_set - current_set:
+            deassigned_by_mgr[ini].append((lno, lead))
 
     # 방문봇 client
     client = _get_visit_client()
@@ -647,8 +748,48 @@ def _send_dms_for_next_visit(assignments: List[Dict],
 
     lead_nos_flagged = set()
 
-    # 담당자별 v9 DM
-    for ini, mgr_leads in by_mgr.items():
+    # 배정 해제 알림 (v20)
+    for ini, dea_leads in deassigned_by_mgr.items():
+        mgr_name = initial_to_name.get(ini, ini)
+        email = _email_from_initial(ini, initial_to_name)
+        if not email:
+            logger.warning(
+                f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}): 이메일 매핑 실패 — skip'
+            )
+            continue
+        lines = [_BLANK]
+        lines.append(
+            f'>:no_entry: *{mgr_name}님*, {target_date.isoformat()} '
+            f'방문 배정에서 제외되었습니다 ({len(dea_leads)}건).'
+        )
+        lines.append(f'>{_SEP}')
+        for i, (lno, lead) in enumerate(dea_leads):
+            e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
+            lines.append(f'>{e} *{lno} · {lead.get("고객명") or "-"}*')
+        lines.append(
+            '>:information_source: 다른 매니저에게 재배정되었습니다.'
+        )
+        lines.append(f'>{_SEP}')
+        lines.append(_BLANK)
+        try:
+            u = client.users_lookupByEmail(email=email)
+            uid = u['user']['id']
+            r = client.chat_postMessage(
+                channel=uid, text='\n'.join(lines),
+                unfurl_links=False, unfurl_media=False,
+            )
+            if r.get('ok'):
+                result['deassign_sent'] += 1
+                logger.info(
+                    f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) → {len(dea_leads)}건'
+                )
+        except Exception as exc:
+            logger.warning(
+                f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) 발송 예외: {exc}'
+            )
+
+    # 담당자별 v9 DM — 신규 매니저만 발송
+    for ini, mgr_leads in by_mgr_new.items():
         mgr_name = initial_to_name.get(ini, ini)
         email = _email_from_initial(ini, initial_to_name)
         if not email:
@@ -769,19 +910,25 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     f'[ASSIGN/DM] 당번 {duty_name}({duty_ini}) 발송 예외: {exc}'
                 )
 
-    # Redis dm_sent flag (변경 알림 대상 마킹)
+    # Redis dm_sent JSON 저장 — 모든 filtered lead 에 대해 최종 mgrs 기록.
+    # {"date": "YYYY-MM-DD", "mgrs": ["YG","TH",...]}
+    # 재실행 시 diff 판정용. 신규/유지/제거 분류.
+    all_flagged = set(lead_to_mgrs.keys())
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        # TTL = 방문일 + 7일
         ttl_days = (target_date - today).days + 7
         ttl = max(ttl_days * 86400, 86400)
-        for lno in lead_nos_flagged:
+        for lno in all_flagged:
+            payload = _json.dumps({
+                'date': target_date.isoformat(),
+                'mgrs': list(lead_to_mgrs.get(lno, [])),
+            })
             try:
-                rc.set(f'dm_sent:{lno}', target_date.isoformat(), ex=ttl)
+                rc.set(f'dm_sent:{lno}', payload, ex=ttl)
             except Exception:
                 pass
-        result['lead_nos_flagged'] = sorted(lead_nos_flagged)
+        result['lead_nos_flagged'] = sorted(all_flagged)
     except Exception as exc:
         logger.warning(f'[ASSIGN/DM] Redis flag 세팅 실패: {exc}')
 
