@@ -453,15 +453,28 @@ def _register_visit_handlers(app):
     @app.action("visit_cancel")
     def handle_visit_cancel(ack, body, client):
         ack()
+        # 취소 사유 입력 모달 오픈 (즉시). 모달 submit 시 실제 처리 (2026-07-19).
+        try:
+            lead_no = body["actions"][0].get("value") or ''
+            channel = body["channel"]["id"]
+            message_ts = body["message"]["ts"]
+            trigger_id = body["trigger_id"]
+            _open_visit_cancel_reason_modal(
+                client, lead_no, channel, message_ts, trigger_id,
+            )
+        except Exception as exc:
+            logger.error(f"[SLACK/방문봇] visit_cancel 모달 open 실패: {exc}",
+                         exc_info=True)
+
+    @app.view("submit_visit_cancel_reason")
+    def handle_submit_visit_cancel_reason(ack, body, client, view):
+        ack()
         def _bg():
             try:
-                lead_no = body["actions"][0].get("value") or ''
-                if not _try_acquire_action_lock(lead_no, 'cancel'):
-                    logger.info(f'[SLACK/방문봇] visit_cancel 중복 클릭 skip ({lead_no})')
-                    return
-                _process_visit_cancel(client, body)
+                _process_visit_cancel_confirmed(client, body, view)
             except Exception as exc:
-                logger.error(f"[SLACK/방문봇] visit_cancel 실패: {exc}", exc_info=True)
+                logger.error(f"[SLACK/방문봇] submit_visit_cancel_reason 실패: {exc}",
+                             exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.action("visit_complete")
@@ -4891,13 +4904,8 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
                     "style": "danger",
                     "value": lead_no,
                     "action_id": "visit_cancel",
-                    "confirm": {
-                        "title": {"type": "plain_text", "text": "방문 취소"},
-                        "text": {"type": "plain_text",
-                                 "text": "이 방문 일정을 취소하시겠습니까?"},
-                        "confirm": {"type": "plain_text", "text": "취소 확정"},
-                        "deny": {"type": "plain_text", "text": "되돌리기"},
-                    },
+                    # 2026-07-19: confirm 팝업 대신 사유 입력 모달로 대체.
+                    # 하루~일주일 미루기는 [정보 수정] 으로, 한 달 이상·완전 취소는 이 버튼.
                 },
             ],
         },
@@ -5831,8 +5839,178 @@ def _process_visit_complete(client, body) -> None:
     logger.info(f"[SLACK/방문완료] 처리 완료: {lead_no} by {user_id}")
 
 
+def _open_visit_cancel_reason_modal(client, lead_no: str, channel: str,
+                                     message_ts: str, trigger_id: str) -> None:
+    """방문 취소 사유 입력 모달 (2026-07-19)."""
+    metadata = json.dumps({
+        "lead_no": lead_no,
+        "channel": channel,
+        "message_ts": message_ts,
+    })
+    view = {
+        "type": "modal",
+        "callback_id": "submit_visit_cancel_reason",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": f"방문 취소"},
+        "submit": {"type": "plain_text", "text": "취소 확정"},
+        "close": {"type": "plain_text", "text": "닫기"},
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":warning: *{lead_no}* 방문을 취소합니다.\n"
+                        "_(일주일 이내 미루기는 [정보 수정] 사용)_"
+                    ),
+                },
+            },
+            {
+                "type": "input",
+                "block_id": "reason",
+                "label": {"type": "plain_text", "text": "취소 사유"},
+                "hint": {
+                    "type": "plain_text",
+                    "text": "예: 고객이 다음달로 방문 연기 요청",
+                },
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "reason_input",
+                    "multiline": True,
+                    "min_length": 2,
+                    "max_length": 500,
+                },
+            },
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _process_visit_cancel_confirmed(client, body, view) -> None:
+    """방문 취소 사유 모달 제출 → 시트 update + 상담 내용 append + 카드 update + v21 알림.
+
+    2026-07-19 신설. 상태 = '방문 취소' (기존 '공사 취소' 대신).
+    """
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    lead_no = metadata.get("lead_no", "")
+    channel = metadata.get("channel", "")
+    message_ts = metadata.get("message_ts", "")
+    user_id = body["user"]["id"]
+    if not lead_no:
+        return
+    if not _try_acquire_action_lock(lead_no, 'cancel'):
+        logger.info(f'[SLACK/방문봇] visit_cancel 중복 처리 skip ({lead_no})')
+        return
+
+    state = view["state"]["values"]
+    reason = (_v(state, "reason") or '').strip()
+    if not reason:
+        reason = '(사유 미입력)'
+
+    # old 상담 내용 캡처 → append
+    old_lead = _find_lead_by_no(lead_no) or {}
+    old_note = str(old_lead.get('상담 내용') or '').strip()
+    initial = _slack_user_to_initial(client, user_id) or '-'
+    cancel_date = datetime.now().strftime('%Y-%m-%d')
+    appended_note = (
+        f"{old_note}\n─────────\n"
+        f"[방문 취소 {cancel_date} {initial}]\n{reason}"
+    ).strip()
+
+    # 1) 시트 상태='방문 취소' + 상담 내용 append (ETC- 는 Redis metadata 만 갱신)
+    try:
+        _update_lead_dispatch(lead_no, {
+            '상태': '방문 취소',
+            '상담 내용': appended_note,
+        })
+    except Exception as exc:
+        logger.error(f"[SLACK/방문취소] 시트 update 실패 ({lead_no}): {exc}",
+                     exc_info=True)
+
+    # 2) 슬랙 List 동기화 — 행 삭제
+    _trigger_visit_list_webhook(
+        'SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, channel, message_ts,
+    )
+
+    # 3) 카드 회색 박스 chat.update — 취소 사유도 헤더 표시
+    try:
+        cancel_time = datetime.now().strftime('%Y.%m.%d. %H:%M')
+        # view submit 이벤트는 원본 message 접근 안 됨 — 시트 lead 로 재구성
+        lead = _find_lead_by_no(lead_no) or {}
+        _visit_date = str(lead.get('방문 예정일', '')).strip().lstrip("'") or '-'
+        _name = str(lead.get('고객명', '') or '').strip() or '-'
+        _contact = str(lead.get('고객 연락처', '') or '').strip() or '-'
+        _addr = str(lead.get('방문 주소', '') or '').strip() or '-'
+        clean_body = (
+            f":bell: 방문 일정 취소 — `{lead_no}`\n"
+            f"방문일 : {_visit_date}\n"
+            f"이름 / 상호 : {_name}\n"
+            f"연락처 : {_contact}\n"
+            f"방문 주소 : {_addr}"
+        )
+        new_text = (
+            f"🚫 *고객 요청으로 방문 취소*  `{lead_no}`\n"
+            f"취소한 사람 : {initial}\n"
+            f"취소 시간 : {cancel_time}\n"
+            f"취소 사유 : {reason}\n"
+            f"\n"
+            f"```\n{clean_body}\n```"
+        )
+        new_blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text",
+                                 "text": "↩️ 취소 되돌리기", "emoji": True},
+                        "style": "primary",
+                        "value": lead_no,
+                        "action_id": "visit_uncancel",
+                        "confirm": {
+                            "title": {"type": "plain_text",
+                                      "text": "취소 되돌리기"},
+                            "text": {"type": "plain_text",
+                                     "text": "이 방문 취소를 되돌리시겠습니까?"},
+                            "confirm": {"type": "plain_text",
+                                        "text": "되돌리기"},
+                            "deny": {"type": "plain_text", "text": "닫기"},
+                        },
+                    },
+                ],
+            },
+        ]
+        client.chat_update(
+            channel=channel, ts=message_ts, text=new_text, blocks=new_blocks,
+        )
+    except Exception as exc:
+        logger.error(f"[SLACK/방문취소] 카드 update 실패 ({lead_no}): {exc}",
+                     exc_info=True)
+
+    # 4) 동행 매니저에게 v21 취소 알림 (취소자 제외)
+    try:
+        from dashboard.services.visit_assignment_sync import send_visit_cancel_notification
+        threading.Thread(
+            target=send_visit_cancel_notification,
+            args=(lead_no, initial, reason),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문취소] 알림 예약 실패 ({lead_no}): {exc}")
+
+    # 5) dm_sent flag 삭제 (변경 알림 오작동 방지)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.delete(f'dm_sent:{lead_no}')
+    except Exception:
+        pass
+
+
 def _process_visit_cancel(client, body) -> None:
-    """[🚫 방문 취소] 클릭 처리 — 시트 상태='공사 취소' + 메시지 chat.update."""
+    """(deprecated 2026-07-19) — 사유 입력 없이 즉시 취소하던 옛 flow.
+    호환용으로 남김. 신규 clicks 는 _process_visit_cancel_confirmed 로 라우팅.
+    """
     lead_no = body["actions"][0].get("value") or ''
     channel = body["channel"]["id"]
     message_ts = body["message"]["ts"]
@@ -5840,9 +6018,9 @@ def _process_visit_cancel(client, body) -> None:
     if not lead_no:
         return
 
-    # 1) 시트 상태='공사 취소' (ETC- 는 Redis metadata 만 갱신)
+    # 1) 시트 상태='방문 취소' (2026-07-19 값 변경)
     try:
-        _update_lead_dispatch(lead_no, {'상태': '공사 취소'})
+        _update_lead_dispatch(lead_no, {'상태': '방문 취소'})
     except Exception as exc:
         logger.error(f"[SLACK/방문취소] 시트 update 실패 ({lead_no}): {exc}",
                      exc_info=True)

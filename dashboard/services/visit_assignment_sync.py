@@ -973,6 +973,93 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     return result
 
 
+def send_visit_cancel_notification(lead_no: str, canceller_initial: str,
+                                     reason: str) -> bool:
+    """방문 취소 시 dm_sent JSON 의 mgrs 조회 → 취소자 제외한 매니저에게 v21 알림.
+
+    Args:
+        lead_no: 리드 No
+        canceller_initial: 취소자 이니셜
+        reason: 취소 사유 (모달 입력)
+    """
+    import json as _json
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        raw = rc.get(f'dm_sent:{lead_no}')
+        if not raw:
+            logger.info(f'[ASSIGN/CANCEL] {lead_no}: dm_sent 없음 — skip')
+            return False
+        val = raw.decode() if isinstance(raw, bytes) else raw
+        try:
+            data = _json.loads(val) if val.startswith('{') else {'mgrs': []}
+        except Exception:
+            data = {'mgrs': []}
+        mgrs = list(data.get('mgrs', []))
+    except Exception as exc:
+        logger.warning(f'[ASSIGN/CANCEL] dm_sent 조회 실패 ({lead_no}): {exc}')
+        return False
+
+    # 취소자 제외
+    targets = [i for i in mgrs if i != canceller_initial]
+    if not targets:
+        logger.info(f'[ASSIGN/CANCEL] {lead_no}: 알림 대상 없음 (혼자 배정)')
+        return False
+
+    # 시트 조회
+    try:
+        from dashboard.services.lead_service import load_leads_data
+        df = load_leads_data(force_refresh=True)
+        row = df[df['리드 No'] == lead_no]
+        if row.empty:
+            return False
+        lead = row.iloc[0].to_dict()
+    except Exception:
+        return False
+
+    lead_name = lead.get('고객명') or '-'
+    visit_date = str(lead.get('방문 예정일') or '').strip().lstrip("'") or '-'
+    initial_to_name, _ = _load_initial_maps()
+
+    client = _get_visit_client()
+    if not client:
+        return False
+
+    lines = [_BLANK]
+    lines.append(f'>:x: *방문 취소 알림*')
+    lines.append(f'>{_SEP}')
+    lines.append(f'>*{lead_no} · {lead_name}*')
+    lines.append(f'>{visit_date} 방문이 취소되었습니다.')
+    if reason:
+        lines.append(f'>:memo: {reason[:200]}')
+    lines.append(f'>:information_source: 취소자 : {canceller_initial}')
+    lines.append(f'>{_SEP}')
+    lines.append(_BLANK)
+    text = '\n'.join(lines)
+
+    sent = 0
+    for ini in targets:
+        mgr_name = initial_to_name.get(ini, ini)
+        email = _email_from_initial(ini, initial_to_name)
+        if not email:
+            logger.warning(f'[ASSIGN/CANCEL] {mgr_name}({ini}): 이메일 매핑 실패')
+            continue
+        try:
+            u = client.users_lookupByEmail(email=email)
+            uid = u['user']['id']
+            r = client.chat_postMessage(
+                channel=uid, text=text,
+                unfurl_links=False, unfurl_media=False,
+            )
+            if r.get('ok'):
+                sent += 1
+        except Exception as exc:
+            logger.warning(f'[ASSIGN/CANCEL] {mgr_name}({ini}) 발송 실패: {exc}')
+
+    logger.info(f'[ASSIGN/CANCEL] {lead_no}: {sent}/{len(targets)}명 알림 발송')
+    return sent > 0
+
+
 def send_visit_change_notification(lead_no: str, old_visit_date: str,
                                      new_visit_date: str, note: str = '') -> bool:
     """방문일 변경 시 담당자에게 v19 양식 DM. dm_sent flag 있는 lead 만 대상.
