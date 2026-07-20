@@ -868,6 +868,50 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     return verified_addr
 
 
+def _try_poi_fallback(text: str) -> Optional[str]:
+    """카카오 verified 실패 케이스에서 POI(상호명) 검색으로 도로명 획득.
+
+    보수 조건 (2026-07-20 L-03292 관측, B-1):
+      - 원본에 '구' 있음 & '시/도' 없음 (매니저가 시/도 빼먹은 케이스만 타겟)
+      - 상호 후보 하나가 POI place_name 정확 시작
+      - POI 결과 road_address_name 에 원본 지역 힌트(구·동) 포함
+
+    Returns: normalize_display 결과 or None.
+    """
+    if not text:
+        return None
+    first_line = text.strip().split('\n', 1)[0].strip()
+    if not re.search(r'[가-힣]+구', first_line):
+        return None
+    if re.search(
+        r'(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주|고양|성남|수원|용인|안양|안산|광명|시흥|화성|평택|김포)'
+        r'(?:특별시|광역시|특별자치시|특별자치도|도|시)?',
+        first_line,
+    ):
+        return None
+    candidates = _extract_shop_candidates(text)
+    if not candidates:
+        return None
+    m_region = re.search(r'([가-힣]+동)|([가-힣]+구)', first_line)
+    region = (m_region.group(1) or m_region.group(2)) if m_region else ''
+    for cand in candidates[:5]:
+        results = _kakao_search_poi(f'{cand} {region}'.strip())
+        if not results:
+            continue
+        for place_name, road_name in results:
+            if not place_name or not road_name:
+                continue
+            # 정확 매칭: cand == place_name 또는 place_name 이 "cand " 로 시작
+            if not (place_name == cand or place_name.startswith(cand + ' ')):
+                continue
+            # 지역 힌트 검증 (구/동 이 road_name 에 있어야 함)
+            if region and region not in road_name.replace(' ', ''):
+                continue
+            # 상호명(cand) 부착 — POI 매칭 성공 = 그 상호가 정답. 도로명 뒤에 붙임.
+            return f'{normalize_display(road_name)} {cand}'
+    return None
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -875,6 +919,7 @@ def resolve_address(
     주소 확정 최종 함수. 호출 우선순위:
 
     1. 카카오 verified → ('도로명/지번 주소', 'verified')
+    1b. POI fallback — 시/도 없이 구만 있는 케이스 → ('도로명 주소', 'verified')
     2. 정규식 결과 → (정규식 주소, 원래 level)
     3. 원문 첫 줄 (4~100자 + 한글 포함) → (첫 줄, 'raw')
     4. 다 실패 → ('', '')
@@ -888,6 +933,12 @@ def resolve_address(
         addr, level = verified
         addr = _enrich_verified_address(addr, text, regex_addr)
         return (addr, level)
+
+    # 1b. POI fallback (2026-07-20 L-03292) — 시/도 빠진 케이스 상호 → 도로명
+    poi_road = _try_poi_fallback(text)
+    if poi_road:
+        addr = _enrich_verified_address(poi_road, text, regex_addr)
+        return (addr, 'verified')
 
     # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
     if regex_addr:
