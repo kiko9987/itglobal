@@ -4144,7 +4144,7 @@ def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
         if _dash(phone):  info_lines.append(f"*연락처:* {phone}")
         if _dash(email):  info_lines.append(f"*이메일:* {email}")
         if _dash(device): info_lines.append(f"*설치 희망 기기:* {device}")
-        info_lines.append(f"*상세 문의:* {inquiry[:300]}")
+        info_lines.append(f"*문의 내용:* {inquiry[:300]}")
 
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(info_lines)}},
