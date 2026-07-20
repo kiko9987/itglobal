@@ -2259,7 +2259,15 @@ def _process_as_accept_submission(client, body, view) -> None:
         logger.warning(f'[SLACK/AS] 시트 갱신 실패 ({as_no})')
 
     # 카드 chat.update — 시트 재조회로 완전한 데이터 사용
+    # 2026-07-20 AS-0006 관측: Google Sheets eventual consistency 로 재조회 시 방금
+    # 저장한 J/K/L 값이 아직 반영 안 되어 카드에 '-' 로 표시되는 이슈. 방금 update
+    # 한 값을 직접 덮어써서 지연 우회.
     data = get_as_data(as_no) or {}
+    data['접수자'] = accepter
+    data['접수 일자'] = accept_dt
+    data['방문 예정자'] = visitor
+    data['방문 예정일'] = visit_date
+    data['진행 상태'] = STATUS_ACCEPTED
     text = f"[A/S 접수 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='accepted')
     try:
@@ -2329,7 +2337,10 @@ def _process_as_complete_submission(client, body, view) -> None:
     if not ok:
         logger.warning(f'[SLACK/AS] 완료 갱신 실패 ({as_no})')
 
+    # 2026-07-20 eventual consistency 우회 — 방금 update 한 값 직접 반영
     data = get_as_data(as_no) or {}
+    data['처리 내용'] = resolution
+    data['진행 상태'] = STATUS_COMPLETED
     text = f"[A/S 처리 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='completed')
     try:
