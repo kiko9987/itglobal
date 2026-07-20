@@ -265,6 +265,43 @@ def _match_leads_by_phone(parsed: List[Dict]) -> Dict[str, Dict]:
     return phone_to_lead
 
 
+def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, Dict],
+                                    addr_candidates: List[Dict]) -> Optional[Dict]:
+    """assignment 하나에 대해 lead 매칭. phone 우선, 실패 시 주소 substring fallback.
+
+    2026-07-20: dry_run·commit·DM 발송 모두 이 helper 로 통일. 인투익스·산들해 등
+    phone '-' lead 는 주소 substring 매칭으로 배정 반영.
+    """
+    if a.get('phone_digits'):
+        lead = phone_map.get(a['phone_digits'])
+        if lead:
+            return lead
+    if a.get('address'):
+        cand_addr = str(a['address']).strip()
+        if cand_addr and len(cand_addr) >= 8:
+            for _l in addr_candidates:
+                _sa = str(_l.get('방문 주소','') or '').strip()
+                if not _sa or _sa == '-':
+                    continue
+                if cand_addr in _sa or _sa in cand_addr:
+                    return _l
+    return None
+
+
+def _load_addr_candidates() -> List[Dict]:
+    """주소 fallback 매칭 대상 sheet lead (phone 없는 것만 — 오탐 최소)."""
+    from dashboard.services.lead_service import load_leads_data
+    df = load_leads_data(force_refresh=False)
+    if df is None or df.empty:
+        return []
+    out = []
+    for _, row in df.iterrows():
+        raw = str(row.get('고객 연락처') or '').strip()
+        if raw in ('', '-'):
+            out.append(row.to_dict())
+    return out
+
+
 def dry_run() -> Dict:
     """캔버스 파싱 결과 표 반환 (변경 X).
 
@@ -288,11 +325,12 @@ def dry_run() -> Dict:
 
     initial_to_name, _ = _load_initial_maps()
     phone_map = _match_leads_by_phone(parsed)
+    addr_candidates = _load_addr_candidates()
     rows: List[Dict] = []
     today = _date.today()
     future_starts = []
     for p in parsed:
-        lead = phone_map.get(p['phone_digits'])
+        lead = _resolve_lead_for_assignment(p, phone_map, addr_candidates)
         current_assign = str(lead.get('영업 담당자') or '').strip() if lead else ''
         new_names = ','.join(initial_to_name.get(i, i) for i in p['assign'])
         changed = bool(lead) and (current_assign != new_names)
@@ -352,12 +390,13 @@ def commit() -> Dict:
 
         initial_to_name, _ = _load_initial_maps()
         phone_map = _match_leads_by_phone(assignments)
+        addr_candidates = _load_addr_candidates()
 
         # 1. 시트 update
         updated: List[str] = []
         failed: List[Tuple[str, str]] = []
         for p in assignments:
-            lead = phone_map.get(p['phone_digits'])
+            lead = _resolve_lead_for_assignment(p, phone_map, addr_candidates)
             if not lead:
                 continue
             if not p['assign']:
@@ -391,6 +430,7 @@ def commit() -> Dict:
         # 3. DM 발송 (target_date = min(방문일 시작일) > today)
         dm_result = _send_dms_for_next_visit(
             assignments, phone_map, initial_to_name, online_duty, off_duty,
+            addr_candidates=addr_candidates,
         )
 
         # 4. 방문 캔버스 A rebuild
@@ -741,7 +781,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                               phone_map: Dict[str, Dict],
                               initial_to_name: Dict[str, str],
                               online_duty: List[str],
-                              off_duty: List[str]) -> Dict:
+                              off_duty: List[str],
+                              addr_candidates: Optional[List[Dict]] = None) -> Dict:
     """min(방문일 시작일) > today 인 리드에 담당자/온라인 당번 DM.
 
     2026-07-19 확장: dm_sent 를 JSON 으로 관리해 재실행 시 신규/유지/제거 분류.
@@ -760,10 +801,11 @@ def _send_dms_for_next_visit(assignments: List[Dict],
               'deassign_sent': 0, 'online_duty_sent': 0, 'lead_nos_flagged': []}
 
     today = _date.today()
+    _addr_cands = addr_candidates or _load_addr_candidates()
     # 각 assignment → (lead, start_date)
     enriched = []
     for p in assignments:
-        lead = phone_map.get(p['phone_digits'])
+        lead = _resolve_lead_for_assignment(p, phone_map, _addr_cands)
         if not lead:
             continue
         vd = lead.get('방문 예정일', '')
