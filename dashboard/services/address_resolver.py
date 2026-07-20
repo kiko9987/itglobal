@@ -703,6 +703,18 @@ def _enrich_verified_address(
             if cand and cand not in verified_addr:
                 verified_addr = f'{verified_addr} {cand}'
 
+    # 4. "○○ ○○동" 형태 중복 제거 (2026-07-20 L-03294)
+    #    카카오 building_name = "센트럴 레드" + 원본 tail = "레드동" → "센트럴 레드 레드동"
+    #    정확 조건: 뒤 단어 == 앞 단어 + '동' 만 매치 (김포 vs 김포한강 같은 부분 매칭 회귀 방지)
+    _words = verified_addr.split()
+    _out = []
+    for w in _words:
+        if _out and w == _out[-1] + '동':
+            _out[-1] = w  # 짧은 쪽 (레드) → 상세한 쪽 (레드동) 로 승격
+            continue
+        _out.append(w)
+    verified_addr = ' '.join(_out)
+
     # 1. {도로명} N번길 M 보강 (송미나 케이스)
     m = re.search(
         r'([가-힣]+(?:로|길))\s*(\d+)\s*번길[\s,]*(\d+(?:-\d+)?)',
