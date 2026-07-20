@@ -826,9 +826,16 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     # 담당자별 그룹핑 + lead → 담당자 매핑
     from collections import defaultdict
     lead_to_mgrs: Dict[str, List[str]] = {}
+    # 2026-07-20: 같은 lead 가 여러 assignment 로 나올 때 (동행: 캔버스 두 섹션에
+    # 같은 phone 노출) union 병합. 안 하면 마지막 assign 만 남아 동행자 계산이
+    # 한 쪽 방향에서만 표시됨 (예: TH DM 엔 '동행 MS' 뜨지만 MS DM 엔 안 뜸).
+    _mgrs_by_lead: Dict[str, set] = defaultdict(set)
     for p, lead in filtered:
         lno = str(lead.get('리드 No') or '').strip()
-        lead_to_mgrs[lno] = p['assign']
+        for ini in (p.get('assign') or []):
+            _mgrs_by_lead[lno].add(ini)
+    for lno, s in _mgrs_by_lead.items():
+        lead_to_mgrs[lno] = list(s)
 
     # 각 lead 이전 dm_sent 조회 (JSON) — 신규/유지/제거 분류용
     try:
