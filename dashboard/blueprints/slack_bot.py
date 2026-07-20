@@ -4116,25 +4116,38 @@ def _open_consult_modal(client, body, from_slash: bool = False):
 
 
 def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
-    """상담 모달 상단 인입 정보 블록 — lead 있으면 카드형 정보, 없고 lead_no만 있으면 경고."""
+    """상담 모달 상단 인입 정보 블록 — lead 있으면 카드형 정보, 없고 lead_no만 있으면 경고.
+
+    2026-07-20: 값 없는 필드(이메일 등) 는 UI 노이즈 제거 위해 생략. 재상담 케이스
+    대응으로 이전 상담 내용(K열) 값 있으면 별도 섹션 추가.
+    """
     if lead:
         parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
-        name = str(lead.get('고객명') or '').strip() or '-'
-        phone = str(lead.get('고객 연락처') or '').strip() or '-'
-        email = str(lead.get('이메일') or '').strip() or '-'
+        name = str(lead.get('고객명') or '').strip()
+        phone = str(lead.get('고객 연락처') or '').strip()
+        email = str(lead.get('이메일') or '').strip()
         consult_time = str(lead.get('상담 시간') or '').strip() or '-'
         inquiry = parts.get('inquiry') or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
-        return [
-            {"type": "section", "text": {"type": "mrkdwn", "text": (
-                f"*접수번호:* `{lead_no}`\n"
-                f"*문의시간:* {consult_time}\n"
-                f"*이름 / 상호:* {name}\n"
-                f"*연락처:* {phone}\n"
-                f"*이메일:* {email}\n"
-                f"*상세 문의:* {inquiry[:300]}"
-            )}},
-            {"type": "divider"},
+        prev_consultation = str(lead.get('상담 내용') or '').strip()
+
+        def _dash(v): return v if v and v != '-' else ''
+        info_lines = [f"*접수번호:* `{lead_no}`", f"*문의시간:* {consult_time}"]
+        if _dash(name):  info_lines.append(f"*이름 / 상호:* {name}")
+        if _dash(phone): info_lines.append(f"*연락처:* {phone}")
+        if _dash(email): info_lines.append(f"*이메일:* {email}")
+        info_lines.append(f"*상세 문의:* {inquiry[:300]}")
+
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(info_lines)}},
         ]
+        # 재상담 시 이전 상담 내용 참고용 — 값 있을 때만 별도 섹션
+        if _dash(prev_consultation) and prev_consultation != inquiry:
+            blocks.append({
+                "type": "section", "text": {"type": "mrkdwn",
+                    "text": slack_truncate(f"*상담 내용:*\n{prev_consultation}")},
+            })
+        blocks.append({"type": "divider"})
+        return blocks
     if lead_no:
         return [
             {"type": "section", "text": {"type": "mrkdwn",
@@ -4634,6 +4647,8 @@ def _process_consult_submission(client, body, view):
                 ]
                 # 재상담 버튼 — 회색 카드에서도 재편집 진입점 유지 (2026-07-17 사용자 요청).
                 # 방문 예약은 별도 방문 카드에 [정보 수정] 있어 여기 재상담 버튼 불필요.
+                # 2026-07-20: button_consult (통합 상담 모달) 로 스위칭 — 상담 유형
+                # 드롭다운(유선/방문/견적/드랍/부재중) + 이전 상담 이력 미리보기 포함.
                 if status != '방문 예약' and lead_no:
                     new_blocks.append({
                         'type': 'actions',
@@ -4641,7 +4656,7 @@ def _process_consult_submission(client, body, view):
                             'type': 'button',
                             'text': {'type': 'plain_text', 'text': '✏️ 재상담', 'emoji': True},
                             'value': lead_no,
-                            'action_id': 'button_visit',  # 기존 상담하기 handler 재사용
+                            'action_id': 'button_consult',
                         }],
                     })
                 client.chat_update(
