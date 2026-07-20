@@ -4649,7 +4649,7 @@ def _process_consult_submission(client, body, view):
                     f"처리 시간 : {cancel_time}",
                 ]
                 if consultation:
-                    header_lines.append(f"상담내용 : {consultation}")
+                    header_lines.append(f"상담 내용 : {consultation}")
                 new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
                 new_blocks = [
                     {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
