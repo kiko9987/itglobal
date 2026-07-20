@@ -3454,6 +3454,59 @@ def _find_lead_by_no(lead_no: str):
         return None
 
 
+# 재상담 이력 append/parse (2026-07-20) — 시트 K열은 여러 회차를 누적 저장.
+# 형식: "[MM.DD HH:MM 이니셜 · status] 내용\n─────────\n[…] 내용"
+_CONSULT_DIVIDER = '─────────'
+_CONSULT_ENTRY_RE = re.compile(
+    r'^\[\s*(?P<time>\d{2}\.\d{2}\s+\d{2}:\d{2})\s+'
+    r'(?P<ini>\S+)\s*·\s*(?P<status>[^\]]+)\]\s*(?P<content>.*)$',
+    re.DOTALL,
+)
+
+
+def _format_consultation_entry(consultation: str, initial: str, status: str) -> str:
+    """새 상담 내용을 [시간 이니셜 · status] 헤더 붙여 저장 형식으로."""
+    ts = datetime.now().strftime('%m.%d %H:%M')
+    ini = (initial or '-').strip() or '-'
+    st = (status or '-').strip() or '-'
+    body = (consultation or '').strip()
+    return f'[{ts} {ini} · {st}] {body}'
+
+
+def _append_consultation(old: str, new_entry: str) -> str:
+    """옛 상담 내용에 새 entry 를 divider 로 이어붙임. 옛 값 없으면 새 값만."""
+    old = (old or '').strip()
+    if old in ('', '-'):
+        return new_entry
+    return f'{old}\n{_CONSULT_DIVIDER}\n{new_entry}'
+
+
+def _parse_consultation_entries(text: str) -> list:
+    """저장된 상담 내용 → 회차별 dict 리스트.
+
+    각 회차: {'time':..., 'ini':..., 'status':..., 'content':...}
+    옛 형식(헤더 없음) 은 ini/status 빈 값으로 content 만 채워 반환.
+    """
+    entries = []
+    if not text:
+        return entries
+    for chunk in text.split(_CONSULT_DIVIDER):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        m = _CONSULT_ENTRY_RE.match(chunk)
+        if m:
+            entries.append({
+                'time': m.group('time').strip(),
+                'ini': m.group('ini').strip(),
+                'status': m.group('status').strip(),
+                'content': m.group('content').strip(),
+            })
+        else:
+            entries.append({'time': '', 'ini': '', 'status': '', 'content': chunk})
+    return entries
+
+
 def _split_lead_content(content_text: str) -> dict:
     """
     상담 내용에 합쳐진 '장소: ... / 기기: ... / 문의: ...' 를 분리.
@@ -4412,6 +4465,11 @@ def _process_consult_submission(client, body, view):
     category = visit_type   # 플랫폼 컬럼 = 방문 유형
     sheet_status = status   # 상태 컬럼 = 처리 유형
 
+    # 재상담 이력 append 대비 (2026-07-20) — 시트에 저장되는 최종 상담 내용 (누적).
+    # lead_no 케이스에서 옛 값 조회 후 append. 신규 lead 케이스는 그대로.
+    # 카드 회색 헤더도 이 값을 파싱해 회차별 (n차) 렌더.
+    full_consultation = consultation
+
     # ─────────────────────────────────────────────
     # 1) 인입 리드 케이스 — 기존 lead 시트 업데이트
     # ─────────────────────────────────────────────
@@ -4431,8 +4489,16 @@ def _process_consult_submission(client, body, view):
             if visit_address:
                 update_data['방문 주소'] = visit_address
             if consultation:
-                # 옛 상담 내용은 보존 — 매니저 추가 입력은 피드백 컬럼에 저장
-                update_data['상담 내용'] = consultation
+                # 재상담 이력 append (2026-07-20) — 옛 K열 값에 [시간 이니셜 · status]
+                # 헤더 붙인 새 entry 를 divider 로 이어붙임. 카드 렌더는 이 값 파싱.
+                _cur_lead = _find_lead_by_no(lead_no) or {}
+                _old_consult = str(_cur_lead.get('상담 내용') or '').strip()
+                _initial_now = _slack_user_to_initial(client, user_id) or '-'
+                _new_entry = _format_consultation_entry(
+                    consultation, _initial_now, sheet_status,
+                )
+                full_consultation = _append_consultation(_old_consult, _new_entry)
+                update_data['상담 내용'] = full_consultation
             # 상담하기 누른 매니저 → L열(온라인 상담자) — 드롭다운 값과 매칭되는 한국 이름
             counselor = _slack_user_to_korean_name(client, user_id)
             if counselor:
@@ -4648,7 +4714,21 @@ def _process_consult_submission(client, body, view):
                     f"처리자 : {initial}",
                     f"처리 시간 : {cancel_time}",
                 ]
-                if consultation:
+                # 재상담 이력 회차별 렌더 (2026-07-20) — full_consultation 은 위쪽에서
+                # append 된 최종 값. 각 회차를 (n차) 라벨로 표시. 마지막(최신) 회차는
+                # 이니셜 생략 (헤더 처리자와 동일).
+                _entries = _parse_consultation_entries(full_consultation) if full_consultation else []
+                if _entries:
+                    total = len(_entries)
+                    for i, e in enumerate(_entries):
+                        idx = i + 1
+                        _c = e.get('content', '').strip() or '-'
+                        _ini_tag = e.get('ini', '').strip()
+                        if idx == total or not _ini_tag:
+                            header_lines.append(f"상담 내용 ({idx}차) : {_c}")
+                        else:
+                            header_lines.append(f"상담 내용 ({idx}차) : {_c} ({_ini_tag})")
+                elif consultation:
                     header_lines.append(f"상담 내용 : {consultation}")
                 new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
                 new_blocks = [
