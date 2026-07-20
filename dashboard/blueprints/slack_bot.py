@@ -2186,7 +2186,7 @@ def _open_as_accept_modal(client, body) -> None:
                 "element": {
                     "type": "plain_text_input", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "예: 김철수"},
-                    **({"initial_value": contractor} if contractor else {}),
+                    **({"initial_value": contractor} if contractor and contractor != '-' else {}),
                 },
             },
             {
