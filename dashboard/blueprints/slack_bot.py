@@ -3535,38 +3535,44 @@ def _open_inquiry_modal(client, body, action: str):
             logger.error(f"[SLACK] 에러 모달 update 실패: {exc}", exc_info=True)
         return
 
-    # 상담 내용에서 장소/기기/문의 분리
+    # 상담 내용에서 장소/기기/문의 분리 (옛 Apps Script 형식 지원)
     parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
-    name = str(lead.get('고객명') or '').strip() or '-'
-    phone = str(lead.get('고객 연락처') or '').strip() or '-'
-    email = str(lead.get('이메일') or '').strip() or '-'
-    place = parts['place'] or '-'
-    device = parts['device'] or '-'
+    name = str(lead.get('고객명') or '').strip()
+    phone = str(lead.get('고객 연락처') or '').strip()
+    email = str(lead.get('이메일') or '').strip()
+    # 장소: split 결과만 있음 (시트 컬럼 없음). 값 없으면 UI 에서 생략.
+    place = parts['place'].strip()
+    # 기기: 시트 '키워드' 컬럼 우선 (실제 저장 값), fallback split 결과.
+    #   _meta_device 는 인메모리 전용이라 시트 재조회 시 사라짐 → 키워드 컬럼이 안전.
+    device = str(lead.get('키워드') or '').strip() or parts['device'].strip()
     inquiry = parts['inquiry'] or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
+    # 이전 상담 이력 (재상담 시 참고용) — 값 있을 때만 표시
+    prev_consultation = str(lead.get('상담 내용') or '').strip()
     address = str(lead.get('방문 주소') or '').strip()
     consult_time = str(lead.get('상담 시간') or '').strip() or '-'
 
-    # 모달 상단 - 원본 인입 정보 표시 (옛 Apps Script 패턴)
+    # 모달 상단 정보 — 값 있는 필드만 표시 (당근 리드처럼 이메일·장소·기기 등이
+    # 없는 케이스에서 '-' 로 노출되는 시각적 노이즈 제거, 2026-07-20).
+    def _dash(v): return v if v and v != '-' else ''
+    _info_lines = [f"*접수번호:* `{lead_no}`", f"*문의시간 :* {consult_time}"]
+    if _dash(name):    _info_lines.append(f"*이름 / 상호 :* {name}")
+    if _dash(phone):   _info_lines.append(f"*연락처 :* {phone}")
+    if _dash(email):   _info_lines.append(f"*이메일 :* {email}")
+    if _dash(place):   _info_lines.append(f"*설치 희망 장소 :* {place}")
+    if _dash(device):  _info_lines.append(f"*설치 희망 기기 :* {device}")
     info_blocks = [
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*접수번호:* `{lead_no}`"}},
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*문의시간 :* {consult_time}"}},
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*이름 / 상호 :* {name}"}},
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*연락처 :* {phone}"}},
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*이메일 :* {email}"}},
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*설치 희망 장소 :* {place}"}},
-        {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": f"*설치 희망 기기 :* {device}"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(_info_lines)}},
         # 문의 내용은 3000자 제한 대응 — 넘치면 자동 truncate + 안내
         {"type": "section", "text": {"type": "mrkdwn",
                                       "text": slack_truncate(f"*문의 내용 :*\n{inquiry}")}},
-        {"type": "divider"},
     ]
+    # 이전 상담 내용 (재상담 시 참고) — 값 있을 때만 별도 섹션
+    if prev_consultation and prev_consultation != '-':
+        info_blocks.append({
+            "type": "section", "text": {"type": "mrkdwn",
+                "text": slack_truncate(f"*상담 내용 :*\n{prev_consultation}")},
+        })
+    info_blocks.append({"type": "divider"})
 
     # 입력 블록 — action에 따라 다름 (callback_id, title은 1단계에서 정의됨)
     today_iso = date.today().isoformat()
@@ -3595,7 +3601,7 @@ def _open_inquiry_modal(client, body, action: str):
             {
                 "type": "input",
                 "block_id": "consultation",
-                "label": {"type": "plain_text", "text": "내용 / 특이사항"},
+                "label": {"type": "plain_text", "text": "상담 내용 / 특이사항"},
                 "element": {
                     "type": "plain_text_input",
                     "action_id": "value",
