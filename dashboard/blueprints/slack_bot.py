@@ -6274,20 +6274,46 @@ def _process_visit_thread_files(client, event) -> None:
 
     # 2) 폴더명 생성 — "({이니셜}) {방문 주소} {YY.MM.DD}"
     lead = _find_lead_by_no(lead_no) or {}
-    # 이니셜 — 플랫폼별 규칙 (2026-07):
-    #   거래처/기타/소개: 카드 생성자(온라인 상담자) 기준
-    #   온라인(그 외): List 배정 담당자(=영업 담당자) 우선, fallback 온라인 상담자
+    # 이니셜 — 플랫폼별 규칙 (2026-07-20 개선):
+    #   거래처/기타/소개: 등록자(M열=온라인 상담자) 우선 — 대표님이 등록하고
+    #     매니저 대신 보낸 경우도 폴더는 등록자 이니셜 (관리 주체 개념).
+    #     본인 방문 필수는 M→N 자동 복사돼 동일 이니셜이므로 무관.
+    #   온라인(그 외): List 배정 담당자(N열=영업 담당자) 우선.
+    #     미배정 즉시 방문 케이스 (JK 상담 후 근처 MJ 즉시 방문) 는 N열 없으므로
+    #     → 사진 업로더(event.user) 를 실제 방문자로 취급 → 업로더 이니셜.
+    #     그것도 실패 시 M열(온라인 상담자) fallback.
     #   최종 fallback: 카드 "등록자 :" 정규식 → '미상'
     def _clean(v):
         s = str(v or '').strip()
         return '' if s in ('', '-', '미정') else s
 
     lead_platform = str(lead.get('플랫폼', '')).strip()
-    if lead_platform in ('거래처', '기타', '소개'):
+    _is_partner = lead_platform in ('거래처', '기타', '소개')
+    if _is_partner:
         source_name = _clean(lead.get('온라인 상담자'))
     else:
-        source_name = _clean(lead.get('영업 담당자')) or _clean(lead.get('온라인 상담자'))
+        source_name = _clean(lead.get('영업 담당자'))
     initial = _to_initial(source_name) if source_name else ''
+
+    # 업로더 fallback (event.user) — 온라인 미배정 or 거래처 M열 미기재 케이스.
+    # 온라인 즉시 방문 (당일 근처 매니저가 상담 없이 다녀오는) 시나리오가 주 대상.
+    if not initial:
+        uploader_id = (event.get('user') or '').strip() if isinstance(event, dict) else ''
+        if uploader_id:
+            try:
+                uploader_ini = _slack_user_to_initial(client, uploader_id)
+                if uploader_ini and uploader_ini != '-':
+                    initial = uploader_ini
+            except Exception as exc:
+                logger.debug(f'[SLACK/방문 사진] 업로더 이니셜 조회 실패: {exc}')
+
+    # 온라인 케이스에서 N열도 업로더도 실패한 경우에만 M열(상담자) fallback
+    if not initial and not _is_partner:
+        m_source = _clean(lead.get('온라인 상담자'))
+        if m_source:
+            initial = _to_initial(m_source)
+
+    # 최종 fallback: 카드 텍스트 파싱
     if not initial:
         m_ini = re.search(r'등록자\s*:\s*([A-Za-z가-힣]+)', root_text)
         if m_ini:
