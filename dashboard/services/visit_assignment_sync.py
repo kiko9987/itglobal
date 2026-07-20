@@ -128,6 +128,13 @@ def _is_section_header(line: str, initial_to_name: Dict[str, str]) -> Optional[s
     m = re.match(r'^([A-Z]{1,4})(?:\s*\([^)]*\))?$', stripped)
     if m and m.group(1) in initial_to_name:
         return m.group(1)
+    # 이니셜 조합 (YG+JK, MJ+MW, JW+JSH 등) — 2026-07-20 관측: JW 가 여러 매니저를
+    # 한 섹션 아래 묶는 케이스. 반환은 '+' 로 join 된 문자열, 사용부에서 split.
+    m = re.match(r'^([A-Z]{1,4}(?:\s*\+\s*[A-Z]{1,4})+)$', stripped)
+    if m:
+        parts = [p.strip() for p in re.split(r'\+', m.group(1)) if p.strip()]
+        if parts and all(p in initial_to_name for p in parts):
+            return '+'.join(parts)
     # "온라인 (SD현장지원)" 같이 헤더 카테고리
     if stripped.startswith('온라인'):
         return None  # 온라인은 카테고리 헤더, 배정 대상 아님
@@ -221,7 +228,8 @@ def parse_assignment_canvas(html: str) -> List[Dict]:
             # 배정 이니셜 결정
             assign = _extract_lead_initials(line, initial_to_name)
             if not assign and current_section:
-                assign = [current_section]
+                # 섹션 헤더가 조합('YG+JK') 이면 split 해서 다중 배정.
+                assign = [p for p in re.split(r'\+', current_section) if p]
             original = _extract_bracket_initial(line, initial_to_name)
             results.append({
                 'phone': phone_normalized,
@@ -516,7 +524,8 @@ def parse_assignment_canvas_full(html: str) -> Dict:
             phone_normalized = phone
         assign = _extract_lead_initials(line, initial_to_name)
         if not assign and current_section:
-            assign = [current_section]
+            # 섹션 헤더가 조합('YG+JK') 이면 split 해서 다중 배정.
+            assign = [p for p in re.split(r'\+', current_section) if p]
         original = _extract_bracket_initial(line, initial_to_name)
         assignments.append({
             'phone': phone_normalized,
