@@ -4715,19 +4715,23 @@ def _process_consult_submission(client, body, view):
                     f"처리 시간 : {cancel_time}",
                 ]
                 # 재상담 이력 회차별 렌더 (2026-07-20) — full_consultation 은 위쪽에서
-                # append 된 최종 값. 각 회차를 (n차) 라벨로 표시. 마지막(최신) 회차는
-                # 이니셜 생략 (헤더 처리자와 동일).
+                # append 된 최종 값. 재상담(2회차 이상) 만 (n차) 라벨. 첫 상담(1개 회차)
+                # 은 라벨 없이 그냥 '상담 내용 :' 으로 표시 (노이즈 방지).
                 _entries = _parse_consultation_entries(full_consultation) if full_consultation else []
-                if _entries:
+                if _entries and len(_entries) >= 2:
                     total = len(_entries)
                     for i, e in enumerate(_entries):
                         idx = i + 1
                         _c = e.get('content', '').strip() or '-'
                         _ini_tag = e.get('ini', '').strip()
+                        # 마지막(최신) 회차는 이니셜 생략 (헤더 처리자와 동일)
                         if idx == total or not _ini_tag:
                             header_lines.append(f"상담 내용 ({idx}차) : {_c}")
                         else:
                             header_lines.append(f"상담 내용 ({idx}차) : {_c} ({_ini_tag})")
+                elif _entries:
+                    # 첫 상담 — 회차 라벨 없이 그냥 표시
+                    header_lines.append(f"상담 내용 : {_entries[0].get('content','').strip() or '-'}")
                 elif consultation:
                     header_lines.append(f"상담 내용 : {consultation}")
                 new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
