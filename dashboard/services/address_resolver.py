@@ -399,6 +399,15 @@ def _extract_building_tail(text: str) -> str:
     )
     if m:
         candidates.append(m.group(1).strip())
+    # 3. ○○동 + (번지 없이) 건물명 + 층/호 (2026-07-20 L-03292 관측)
+    #    예: "중원구 상대원동 크란츠테크노 405호" — 상대원동 뒤 번지 없이 건물명·호수만.
+    #    안전을 위해 뒤에 반드시 층/호/관 신호가 있는 케이스만 인정.
+    m = re.search(
+        r'[가-힣]+동\s+([가-힣A-Za-z0-9][가-힣A-Za-z0-9\s]*?\s*[A-Za-z]?\d+\s*(?:층|호|관|호실))',
+        first_line,
+    )
+    if m:
+        candidates.append(m.group(1).strip())
 
     for tail in candidates:
         # 리딩 구분자/부호 정리 (사용자가 ". ", "/ ", "- " 같은 구분자 쓴 케이스)
@@ -411,7 +420,9 @@ def _extract_building_tail(text: str) -> str:
             if 0 <= p < cut_pos:
                 cut_pos = p
         # 자유 구분자(/, |) 뒤의 추가 정보(평수/상세 등) 차단
-        for sep in ('/', '|', '~'):
+        # 2026-07-20: '~' 는 호수 range (A201~205호) 로 흔히 쓰여서 제외.
+        # 평수 range (20~30평) 는 '_TAIL_STOP_WORDS' 의 '평수/평형' 이 차단.
+        for sep in ('/', '|'):
             p = tail.find(sep)
             if 0 <= p < cut_pos:
                 cut_pos = p
@@ -675,9 +686,22 @@ def _enrich_verified_address(
 
     1. {도로명} N번길 M 패턴 — 카카오가 "N"까지만 인식하고 "번길 M" 누락 케이스
     2. verified에 도로명+번지가 없는데 원본/정규식엔 있는 케이스 (행정구역만 매칭)
+    3. 층/호 tail 부착 — verified 에 층/호 없는데 원본에 있으면 뒤에 부착 (2026-07-20 L-03292)
     """
     if not verified_addr or not original_text:
         return verified_addr
+
+    # 3. 층/호 tail 부착 (verified 에 층/호 없으면 원본에서 추출) — L-03292 관측
+    #    지번동+건물명 (번지 없음) 케이스에서 카카오 verified 실패 후 regex fallback
+    #    시 층/호 정보가 유실되는 것 방지. 원본에 "405호"·"A201~205호" 있으면 뒤에 부착.
+    if not re.search(r'\d+\s*(?:층|호|호실|관)', verified_addr):
+        m_floor = re.search(
+            r'([A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관))', original_text,
+        )
+        if m_floor:
+            cand = m_floor.group(1).strip()
+            if cand and cand not in verified_addr:
+                verified_addr = f'{verified_addr} {cand}'
 
     # 1. {도로명} N번길 M 보강 (송미나 케이스)
     m = re.search(
