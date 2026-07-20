@@ -126,9 +126,18 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     vd = _fmt_visit_date(lead.get('방문 예정일'))
     phone = str(lead.get('고객 연락처') or '').strip() or '-'
     address = str(lead.get('방문 주소') or '').strip() or '-'
-    inquiry = str(lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
+    inquiry_raw = str(lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
+    # 재상담 append 형식 파싱 — 최신 회차 content 만 캔버스에 표시.
+    # K열이 '[MM.DD HH:MM 이니셜 · status] 내용 ─── [...]' 로 누적되므로 헤더 제거.
+    try:
+        from dashboard.blueprints.slack_bot import _parse_consultation_entries
+        _entries = _parse_consultation_entries(inquiry_raw)
+        if _entries:
+            inquiry_raw = _entries[-1].get('content', '') or inquiry_raw
+    except Exception:
+        pass
     address = re.sub(r'\s*\n\s*', ' ', address)
-    inquiry = re.sub(r'\s*\n\s*', ' ', inquiry)
+    inquiry = re.sub(r'\s*\n\s*', ' ', inquiry_raw)
     if len(inquiry) > 200:
         inquiry = inquiry[:200] + '...'
 

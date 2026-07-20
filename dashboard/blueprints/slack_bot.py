@@ -4880,6 +4880,12 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
             _requester = str(_lead_ctx.get('온라인 상담자') or '').strip().lstrip('@')
             _self_visit_by = _requester if _requester and _requester != '-' else '본인'
 
+    # 재상담 append 형식이면 최신 회차 content 만 카드에 표시 (헤더 제거).
+    # K열이 '[MM.DD HH:MM 이니셜 · status] 내용 ─── [...]' 로 누적되므로 헤더 노출 방지.
+    _entries = _parse_consultation_entries(consultation) if consultation else []
+    if _entries:
+        consultation = _entries[-1].get('content', '') or consultation
+
     body_text, blocks = _build_visit_notice_blocks(
         lead_no=lead_no, category_display=category_display, initial=initial,
         visit_date=visit_date, name=name, contact=contact,
