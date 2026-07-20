@@ -4093,12 +4093,18 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         'consultation': '',
     }
     full_view = _build_consult_view(info_blocks, metadata, prefilled)
+    # 재상담 여부 판단 — 시트 상태가 이미 처리된 값 (유선 상담/방문 예약/견적 제출/
+    # 문의 드랍/부재중) 이면 재상담. '인입' 이거나 빈 값은 첫 상담. (2026-07-20)
+    _processed_statuses = {'유선 상담', '방문 예약', '견적 제출', '문의 드랍', '부재중', '방문 취소'}
+    _modal_title = '재상담 처리' if sheet_status in _processed_statuses else '상담 처리'
+    # full_view 의 title 을 재상담 여부에 맞게 덮어씀
+    full_view['title'] = {'type': 'plain_text', 'text': _modal_title}
     # 2026-07-12 datepicker 표시 원인 확인 위한 임시 revert — 이전 placeholder +
     #   views_update 방식으로 되돌림. mobile 표시 vs datepicker 로케일 트레이드오프.
     placeholder = {
         "type": "modal",
         "callback_id": "submit_consult",
-        "title": {"type": "plain_text", "text": "상담 처리"},
+        "title": {"type": "plain_text", "text": _modal_title},
         "close": {"type": "plain_text", "text": "취소"},
         "private_metadata": metadata,
         "blocks": [{
@@ -4129,12 +4135,15 @@ def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
         consult_time = str(lead.get('상담 시간') or '').strip() or '-'
         inquiry = parts.get('inquiry') or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-'
         prev_consultation = str(lead.get('상담 내용') or '').strip()
+        # 설치 희망 기기: 시트 '키워드' L열 우선 (재조회에도 유지), fallback split 결과
+        device = str(lead.get('키워드') or '').strip() or parts.get('device', '').strip()
 
         def _dash(v): return v if v and v != '-' else ''
         info_lines = [f"*접수번호:* `{lead_no}`", f"*문의시간:* {consult_time}"]
-        if _dash(name):  info_lines.append(f"*이름 / 상호:* {name}")
-        if _dash(phone): info_lines.append(f"*연락처:* {phone}")
-        if _dash(email): info_lines.append(f"*이메일:* {email}")
+        if _dash(name):   info_lines.append(f"*이름 / 상호:* {name}")
+        if _dash(phone):  info_lines.append(f"*연락처:* {phone}")
+        if _dash(email):  info_lines.append(f"*이메일:* {email}")
+        if _dash(device): info_lines.append(f"*설치 희망 기기:* {device}")
         info_lines.append(f"*상세 문의:* {inquiry[:300]}")
 
         blocks = [
