@@ -860,6 +860,15 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             # "상호 + 공백 + 지점명" 형태만 유의미 (아파트 세부 이름·유사 상호 배제)
             if not place_name.startswith(cand + ' '):
                 continue
+            # 부속시설 blacklist (2026-07-20 L-03299 관측) — POI 두 번째 단어가
+            # 부속시설이면 상호 지점이 아니라 시설 표시라 매니저 오해 소지. skip.
+            # 예: "캠브리지빌딩 주차장" (place_second='주차장') → 원본에 없는 시설 부착
+            _place_words = place_name.split()
+            if len(_place_words) >= 2 and _place_words[1] in (
+                '주차장', '지하주차장', '지상주차장', '지하', '옥상',
+                '화장실', '엘리베이터', '별관', '분관',
+            ):
+                continue
             if cand in verified_addr:
                 # cand 뒤에 이미 지점명(place_name 두 번째 단어) 이 있으면 replace skip
                 # 예: verified='...현대시티아울렛 가산점 5층...' + place='현대시티아울렛 가산점 주차장'
