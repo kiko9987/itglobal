@@ -673,13 +673,14 @@ def _update_slack_list_managers(assignments: List[Dict],
             if _phone in ('', '-'):
                 _addr_candidates.append(_l)
 
-    ok = 0
-    fail = 0
+    # 2026-07-20: 같은 lead 가 여러 assignment 로 나올 때 (동행 방문 — TH 섹션·MS 섹션
+    # 양쪽 나온 경우) 순차 update 로 뒤엣것이 앞엣것을 덮어쓰는 이슈. lead_no 로 병합해
+    # 이니셜 union → 한 번에 update.
+    merged: Dict[str, Dict] = {}  # lead_no → {'row_id': ..., 'inis': set()}
     for p in assignments:
         lead = None
         if p.get('phone_digits'):
             lead = phone_map.get(p['phone_digits'])
-        # phone 없거나 매칭 실패 → 주소 substring fallback
         if not lead and p.get('address'):
             cand_addr = p['address'].strip()
             if cand_addr and len(cand_addr) >= 8:
@@ -687,7 +688,6 @@ def _update_slack_list_managers(assignments: List[Dict],
                     _sheet_addr = str(_l.get('방문 주소','') or '').strip()
                     if not _sheet_addr or _sheet_addr == '-':
                         continue
-                    # 짧은 쪽이 긴 쪽 안에 있으면 매칭 (양방향 substring)
                     if cand_addr in _sheet_addr or _sheet_addr in cand_addr:
                         lead = _l
                         break
@@ -697,17 +697,24 @@ def _update_slack_list_managers(assignments: List[Dict],
         row_id = lead_to_row.get(lno)
         if not row_id:
             continue
-        missing = [i for i in p['assign'] if i not in opt_map]
+        entry = merged.setdefault(lno, {'row_id': row_id, 'inis': set()})
+        for i in (p.get('assign') or []):
+            entry['inis'].add(i)
+
+    ok = 0
+    fail = 0
+    for lno, entry in merged.items():
+        missing = [i for i in entry['inis'] if i not in opt_map]
         if missing:
             logger.warning(
                 f'[ASSIGN/LIST] {lno}: 옵션 매핑 누락 {missing} — 해당만 skip'
             )
-        opts = [opt_map[i] for i in p['assign'] if i in opt_map]
+        opts = [opt_map[i] for i in entry['inis'] if i in opt_map]
         if not opts:
             continue
         body = {
             'list_id': list_id,
-            'cells': [{'row_id': row_id, 'column_id': _LIST_COL_MGR, 'select': opts}],
+            'cells': [{'row_id': entry['row_id'], 'column_id': _LIST_COL_MGR, 'select': opts}],
         }
         try:
             req = urllib.request.Request(
