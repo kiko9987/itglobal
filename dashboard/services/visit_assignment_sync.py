@@ -378,8 +378,15 @@ def commit() -> Dict:
                 failed.append((lno, str(exc)))
                 logger.error(f'[ASSIGN] {lno} 시트 update 실패: {exc}')
 
-        # 2. Slack List 담당자 update
-        list_ok, list_fail = _update_slack_list_managers(assignments, phone_map)
+        # 2. Slack List 담당자 update (주소 fallback 위해 sheet_leads 넘김)
+        try:
+            from dashboard.services.visit_canvas_sync import _fetch_visit_leads
+            _sheet_leads = _fetch_visit_leads()
+        except Exception:
+            _sheet_leads = None
+        list_ok, list_fail = _update_slack_list_managers(
+            assignments, phone_map, sheet_leads=_sheet_leads,
+        )
 
         # 3. DM 발송 (target_date = min(방문일 시작일) > today)
         dm_result = _send_dms_for_next_visit(
@@ -510,6 +517,25 @@ def parse_assignment_canvas_full(html: str) -> Dict:
             section = _is_section_header(line, initial_to_name)
             if section:
                 current_section = section
+                continue
+            # phone 없는 방문 라인 (인투익스 등 연락처 '-' 케이스, 2026-07-20)
+            # '/' 로 여러 필드 구분된 형태에 주소가 있으면 assignment 로 추가 → 주소 fallback 매칭용
+            if current_section and current_section not in ('_ONLINE_', '_OFF_') and line.count('/') >= 2:
+                parts = [p.strip() for p in line.split('/')]
+                # 형태: "(MW) 7월 21일 / - / 주소 / 내용"  →  parts[2] = 주소
+                address = parts[2] if len(parts) >= 3 else ''
+                assign = _extract_lead_initials(line, initial_to_name)
+                if not assign:
+                    assign = [p for p in re.split(r'\+', current_section) if p]
+                if address and address != '-':
+                    assignments.append({
+                        'phone': '',
+                        'phone_digits': '',
+                        'assign': assign or [],
+                        'original': _extract_bracket_initial(line, initial_to_name),
+                        'raw': line,
+                        'address': address,
+                    })
             continue
 
         # phone 있음 = 방문 라인
@@ -597,8 +623,13 @@ def _email_from_initial(initial: str, initial_to_name: Dict[str, str]) -> str:
 
 
 def _update_slack_list_managers(assignments: List[Dict],
-                                  phone_map: Dict[str, Dict]) -> Tuple[int, int]:
-    """Slack List 담당자 컬럼 update. (성공, 실패) 반환."""
+                                  phone_map: Dict[str, Dict],
+                                  sheet_leads: Optional[List[Dict]] = None) -> Tuple[int, int]:
+    """Slack List 담당자 컬럼 update. (성공, 실패) 반환.
+
+    2026-07-20: 주소 fallback 추가. phone 없는 캔버스2 라인은 assignment 의 address 로
+    시트 lead 주소를 substring 매칭. (인투익스·관악구자활센터·산들해 등 phone '-' 대응)
+    """
     import json as _json
     import urllib.request
 
@@ -634,10 +665,32 @@ def _update_slack_list_managers(assignments: List[Dict],
                 lead_to_row[f.get('text', '')] = it['id']
                 break
 
+    # 주소 substring 매칭용 sheet lead 후보 (phone 없는 lead 만 대상 — 오탐 최소)
+    _addr_candidates: List[Dict] = []
+    if sheet_leads:
+        for _l in sheet_leads:
+            _phone = str(_l.get('고객 연락처','') or '').strip()
+            if _phone in ('', '-'):
+                _addr_candidates.append(_l)
+
     ok = 0
     fail = 0
     for p in assignments:
-        lead = phone_map.get(p['phone_digits'])
+        lead = None
+        if p.get('phone_digits'):
+            lead = phone_map.get(p['phone_digits'])
+        # phone 없거나 매칭 실패 → 주소 substring fallback
+        if not lead and p.get('address'):
+            cand_addr = p['address'].strip()
+            if cand_addr and len(cand_addr) >= 8:
+                for _l in _addr_candidates:
+                    _sheet_addr = str(_l.get('방문 주소','') or '').strip()
+                    if not _sheet_addr or _sheet_addr == '-':
+                        continue
+                    # 짧은 쪽이 긴 쪽 안에 있으면 매칭 (양방향 substring)
+                    if cand_addr in _sheet_addr or _sheet_addr in cand_addr:
+                        lead = _l
+                        break
         if not lead:
             continue
         lno = str(lead.get('리드 No') or '').strip()
