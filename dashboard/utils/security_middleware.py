@@ -446,13 +446,15 @@ class SecurityMiddleware:
             limit = 10000
             window = 3600
         elif '/api/' in request.path:
-            # 프로덕션 API — 20명 매니저 동시 편집·조회 대비. 사용자당 50/분 여유.
+            # 프로덕션 API — 20명 매니저 동시 편집·조회 대비. 사용자당 250/분 여유.
             # SocketIO polling은 별도 제외됨.
-            limit = 3000
+            limit = 15000
             window = 3600
         else:
             # 프로덕션 일반 페이지 — 다중 탭·프리페치·백그라운드 폴링 대비.
-            limit = 1000
+            # 2026-07-22 상향: /projects 접속 자체 차단 사고 대응 (1000→10000).
+            # 매니저 브라우저가 여러 폴링 + prefetch 로 시간당 500~800 요청 발생.
+            limit = 10000
             window = 3600
 
         return self.rate_limiter.is_allowed(identifier, limit, window)
