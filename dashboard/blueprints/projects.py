@@ -1629,8 +1629,22 @@ def _prepare_batch_memo_updates(memos, row_number, manager, sheet_id, sheet_name
             old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
             old_memos[cell_address] = old_memo
 
+            # 빈값 저장 방어 (2026-07-22 G3823-SJ 사고):
+            # 프론트가 편집 안 한 필드까지 빈값으로 보내거나 매니저 실수로 memo=''
+            # 저장 요청 → 기존 note 삭제 사고. 명시적 삭제 API 필요 시 별도 endpoint.
+            # 여기선 빈값이면 skip (기존 note 유지) + 성공 처리.
+            if not memo or not memo.strip():
+                results.append({
+                    'field_name': field_name,
+                    'success': True,
+                    'message': '빈값 — 기존 메모 유지 (skip)',
+                    'cell_address': cell_address,
+                    'memo_index': len(results),
+                })
+                continue
+
             # Batch 업데이트 대상에 추가
-            cell_notes_to_update[cell_address] = memo if memo else None
+            cell_notes_to_update[cell_address] = memo
 
             # 결과 목록에 추가 (아직 성공은 아님)
             results.append({
