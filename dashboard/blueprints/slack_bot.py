@@ -483,9 +483,22 @@ def _register_visit_handlers(app):
         def _bg():
             try:
                 lead_no = body["actions"][0].get("value") or ''
+                # 5초 락 (동일 프로세스 내 초근접 중복 방어)
                 if not _try_acquire_action_lock(lead_no, 'complete'):
                     logger.info(f'[SLACK/방문봇] visit_complete 중복 클릭 skip ({lead_no})')
                     return
+                # 이미 완료 처리된 lead 재클릭 방어 (2026-07-21) — 락 TTL 지난 후
+                # 재클릭 시 List 워크플로우가 이미 삭제된 항목 재삭제 시도 → 오류.
+                # visit_auto_completed flag (30일 TTL) 로 확인. Redis 다운 시엔 통과.
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    if get_redis_client().redis.get(f'visit_auto_completed:{lead_no}'):
+                        logger.info(
+                            f'[SLACK/방문봇] visit_complete 이미 완료됨 - 재실행 skip ({lead_no})'
+                        )
+                        return
+                except Exception:
+                    pass
                 _process_visit_complete(client, body)
             except Exception as exc:
                 logger.error(f"[SLACK/방문봇] visit_complete 실패: {exc}", exc_info=True)
@@ -4048,6 +4061,14 @@ def _open_consult_modal(client, body, from_slash: bool = False):
                 if t:
                     block_texts.append(t)
         original_text = '\n'.join(block_texts) if block_texts else (msg.get("text", "") or '')
+        # 재상담 accumulate 방어 (2026-07-21 L-03307 3차 상담 사고):
+        # 이미 chat.update 된 카드는 blocks[section] = "헤더 + ```원본```" 형태.
+        # 이걸 그대로 다음 회색 처리에 넘기면 ```원본``` 안에 (이전헤더+더이전원본)
+        # 이 계속 accumulate. 코드 블록 있으면 그 안만 진짜 원본으로 추출.
+        if original_text:
+            _m_code = re.search(r'```\s*\n(.*?)\n\s*```', original_text, re.DOTALL)
+            if _m_code:
+                original_text = _m_code.group(1).strip()
 
     metadata = json.dumps({
         "lead_no": lead_no,
@@ -4490,6 +4511,12 @@ def _process_consult_submission(client, body, view):
             update_data = {'상태': sheet_status}
             if is_visit and visit_date_for_sheet:
                 update_data['방문 예정일'] = visit_date_for_sheet
+            # 본인 방문 여부 (O열) — 방문 예약 한정. 거래처 워크플로우 저장값과
+            # 동일 형식으로 통일 → JW 담당자 배정·필터링 시 소스 관계없이 동작 (2026-07-21).
+            if is_visit:
+                update_data['본인 방문 여부'] = (
+                    '본인 방문 필수' if assign_self_yes else '아무나 방문 가능'
+                )
             if name:
                 update_data['고객명'] = name
             if contact:
@@ -6097,7 +6124,9 @@ def _open_visit_cancel_reason_modal(client, lead_no: str, channel: str,
                 },
                 "element": {
                     "type": "plain_text_input",
-                    "action_id": "reason_input",
+                    # action_id 는 반드시 "value" — _v(state, block_id) 헬퍼가
+                    # state[block_id]["value"] 를 찾도록 통일된 규약 (2026-07-21 정정).
+                    "action_id": "value",
                     "multiline": True,
                     "min_length": 2,
                     "max_length": 500,
@@ -6157,21 +6186,53 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
     # 3) 카드 회색 박스 chat.update — 취소 사유도 헤더 표시
     try:
         cancel_time = datetime.now().strftime('%Y.%m.%d. %H:%M')
-        # view submit 이벤트는 원본 message 접근 안 됨 — 시트 lead 로 재구성
-        lead = _find_lead_by_no(lead_no) or {}
-        _visit_date = str(lead.get('방문 예정일', '')).strip().lstrip("'") or '-'
-        _name = str(lead.get('고객명', '') or '').strip() or '-'
-        _contact = str(lead.get('고객 연락처', '') or '').strip() or '-'
-        _addr = str(lead.get('방문 주소', '') or '').strip() or '-'
-        clean_body = (
-            f":bell: 방문 일정 취소 — `{lead_no}`\n"
-            f"방문일 : {_visit_date}\n"
-            f"이름 / 상호 : {_name}\n"
-            f"연락처 : {_contact}\n"
-            f"방문 주소 : {_addr}"
-        )
+        # 원본 카드 텍스트 조회 — 완료 카드와 동일한 회색 박스 스타일 위해
+        # (2026-07-21: 이전엔 축약 정보만 담아 완료 카드와 비대칭이었음).
+        original_text = ''
+        try:
+            rep = client.conversations_replies(
+                channel=channel, ts=message_ts, limit=1, inclusive=True,
+            )
+            root = (rep.get('messages') or [{}])[0]
+            for blk in root.get('blocks', []) or []:
+                if blk.get('type') == 'section':
+                    bt = (blk.get('text') or {}).get('text', '')
+                    if bt:
+                        original_text = bt
+                        break
+            if not original_text:
+                original_text = root.get('text', '') or ''
+        except Exception as _exc_repl:
+            logger.debug(
+                f"[SLACK/방문취소] 원본 카드 조회 실패, 재구성 fallback ({lead_no}): {_exc_repl}"
+            )
+        # 원본 없으면 시트 lead 로 축약 재구성 (fallback)
+        if not original_text:
+            lead = _find_lead_by_no(lead_no) or {}
+            _visit_date = str(lead.get('방문 예정일', '')).strip().lstrip("'") or '-'
+            _name = str(lead.get('고객명', '') or '').strip() or '-'
+            _contact = str(lead.get('고객 연락처', '') or '').strip() or '-'
+            _addr = str(lead.get('방문 주소', '') or '').strip() or '-'
+            original_text = (
+                f":bell: 방문 일정 취소 — `{lead_no}`\n"
+                f"방문일 : {_visit_date}\n"
+                f"이름 / 상호 : {_name}\n"
+                f"연락처 : {_contact}\n"
+                f"방문 주소 : {_addr}"
+            )
+        # `>` blockquote 마커·마크다운 강조·앞뒤 공백 정리 (완료 flow 와 동일)
+        cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
+        cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
+        clean_body = '\n'.join(cleaned_lines)
+        clean_body = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_body)
+        # shortcode → unicode 변환 (코드 블록 안에서 :bell: 이 이모지로 렌더)
+        try:
+            from dashboard.blueprints.slack_helpers import _normalize_shortcodes_to_unicode
+            clean_body = _normalize_shortcodes_to_unicode(clean_body)
+        except Exception:
+            pass
         new_text = (
-            f"🚫 *고객 요청으로 방문 취소*  `{lead_no}`\n"
+            f"🚫 *방문 취소*  `{lead_no}`\n"
             f"취소한 사람 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"취소 사유 : {reason}\n"
@@ -6278,7 +6339,7 @@ def _process_visit_cancel(client, body) -> None:
         clean_text = _normalize_shortcodes_to_unicode(clean_text)
 
         new_text = (
-            f"🚫 *고객 요청으로 방문 취소*  `{lead_no}`\n"
+            f"🚫 *방문 취소*  `{lead_no}`\n"
             f"취소한 사람 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
@@ -7874,6 +7935,31 @@ def _process_project_uncancel(client, body) -> None:
         logger.error(f"[SLACK/공사재개] chat.update 실패 ({code}): {exc}", exc_info=True)
 
 
+def _is_license_required(code: str) -> bool:
+    """사업자등록증 첨부 검증 필수 여부.
+
+    2026-07-21 임시 조치: '거래처' 유입만 검증 skip.
+    사업자등록증 마스터 폴더 축적이 부족 (전체 거래처 3,451건 중 258건, 7.5%) 하여
+    거래처 계약 시마다 재첨부 요구가 낭비. 온라인·숨고·당근·홈페이지·전화·소개·기타는
+    신규 사업자 가능성 높아 검증 유지.
+    거래처 마스터 파일 재사용 로직 도입 후 재검토.
+
+    조회 실패 시 안전 default = True (검증 유지).
+    """
+    if not code or code == '-':
+        return True
+    try:
+        from dashboard.services.project_service import get_project_records
+        for r in get_project_records() or []:
+            if (r.get('프로젝트 코드') or '').strip() == code:
+                inflow = str(r.get('유입 구분') or '').strip()
+                return inflow != '거래처'
+        return True
+    except Exception as exc:
+        logger.warning(f'[SLACK/계산서] 유입 구분 조회 실패 → 검증 유지 ({code}): {exc}')
+        return True
+
+
 def _open_invoice_modal(client, body) -> None:
     """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈.
 
@@ -7893,22 +7979,68 @@ def _open_invoice_modal(client, body) -> None:
     code = payload.get('code', '') or '-'
     channel_id = (body.get('channel') or {}).get('id', '')
     user_id = (body.get('user') or {}).get('id', '')
+    # 클릭한 카드의 ts → 안내 모달의 스레드 permalink 링크에 사용.
+    clicked_ts = ((body.get('message') or {}).get('ts') or '').strip()
 
-    # 사업자등록증 검증 (모달 오픈 전, 2026-07-15) — 미첨부 시 ephemeral + return.
-    if code and code != '-':
+    # 사업자등록증 검증 (모달 오픈 전, 2026-07-15) — 미첨부 시 안내 모달 + return.
+    # 2026-07-21: '거래처' 유입만 검증 skip (_is_license_required 참조).
+    # 2026-07-21: ephemeral 이 오래된 카드에선 스크롤 위로 밀려 인지 안 됨.
+    #   → 안내 모달 팝업으로 변경 (화면 중앙 = 100% 인지).
+    if code and code != '-' and _is_license_required(code):
         try:
             from dashboard.services.business_license_handler import verify_license_exists
             if not verify_license_exists(code):
+                permalink = ''
+                if clicked_ts and channel_id:
+                    try:
+                        pr = client.chat_getPermalink(channel=channel_id, message_ts=clicked_ts)
+                        permalink = (pr.get('permalink') or '').strip()
+                    except Exception as exc:
+                        logger.debug(f'[SLACK/계산서] permalink 조회 실패 (무시): {exc}')
+                blocks = [
+                    {"type": "section", "text": {
+                        "type": "mrkdwn",
+                        "text": (f":warning: *`{code}` 사업자등록증이 첨부되지 않았습니다.*\n\n"
+                                 f"공사 확정 카드 스레드에 사업자등록증(이미지 or PDF) 을 "
+                                 f"먼저 첨부한 뒤 다시 [💰 계산서 요청] 을 눌러주세요."),
+                    }},
+                ]
+                if permalink:
+                    blocks.append({
+                        "type": "actions",
+                        "elements": [{
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "📎 공사 확정 카드로 이동", "emoji": True},
+                            "url": permalink,
+                            "action_id": "goto_project_thread",
+                        }],
+                    })
                 try:
-                    client.chat_postEphemeral(
-                        channel=channel_id, user=user_id,
-                        text=(f':warning: `{code}` 사업자등록증이 첨부되지 않았습니다.\n'
-                              f'공사 확정 카드 스레드에 사업자등록증(이미지 or PDF)을 '
-                              f'먼저 첨부한 뒤 다시 요청해주세요.'),
+                    client.views_open(
+                        trigger_id=trigger_id,
+                        view={
+                            "type": "modal",
+                            "title": {"type": "plain_text", "text": "사업자등록증 미첨부"},
+                            "close": {"type": "plain_text", "text": "닫기"},
+                            "blocks": blocks,
+                        },
                     )
                 except Exception as exc:
-                    logger.warning(f'[SLACK/계산서] ephemeral 발송 실패: {exc}')
-                logger.info(f'[SLACK/계산서] 사업자등록증 미첨부 → 모달 오픈 차단 ({code})')
+                    logger.warning(f'[SLACK/계산서] 안내 모달 오픈 실패, ephemeral fallback: {exc}')
+                    # trigger_id 만료 등 예외 시 ephemeral 로 fallback
+                    try:
+                        kwargs = {
+                            'channel': channel_id, 'user': user_id,
+                            'text': (f':warning: `{code}` 사업자등록증이 첨부되지 않았습니다.\n'
+                                     f'공사 확정 카드 스레드에 사업자등록증(이미지 or PDF) 을 '
+                                     f'첨부한 뒤 다시 [💰 계산서 요청] 을 눌러주세요.'),
+                        }
+                        if clicked_ts:
+                            kwargs['thread_ts'] = clicked_ts
+                        client.chat_postEphemeral(**kwargs)
+                    except Exception as exc2:
+                        logger.warning(f'[SLACK/계산서] ephemeral fallback 도 실패: {exc2}')
+                logger.info(f'[SLACK/계산서] 사업자등록증 미첨부 → 안내 모달 표시 ({code})')
                 return
         except Exception as exc:
             logger.warning(
@@ -8017,7 +8149,12 @@ def _open_invoice_modal(client, body) -> None:
                     ],
                 },
             },
-            _text_input("email", "발행 이메일", email),
+            # 이메일 필드 — 거래처 유입만 optional (2026-07-21).
+            # 사업자등록증 검증과 동일 정책: 거래처는 마스터에 이미 있어 매번 재입력 불필요.
+            _text_input(
+                "email", "발행 이메일", email,
+                optional=(not _is_license_required(code)),
+            ),
             _text_input(
                 "memo", "추가 요청사항", "",
                 multiline=True, optional=True,
@@ -8086,6 +8223,9 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
         def _check_license() -> bool:
+            # 2026-07-21: '거래처' 유입은 검증 skip (마스터 재사용 로직 도입 전 임시).
+            if not _is_license_required(code):
+                return True
             try:
                 from dashboard.services.business_license_handler import verify_license_exists
                 return bool(verify_license_exists(code))
