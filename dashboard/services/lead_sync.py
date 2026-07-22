@@ -832,6 +832,14 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
         logger.error(f'[SYNC/전화WF/카드] slack 초기화 실패: {exc}')
         return False
 
+    # lead dict 정규화 (2026-07-22): sync 흐름상 batchUpdate 이전 row 원본이
+    # 넘어옴. 상담 시간 영문 포맷 그대로 카드에 들어가는 이슈 방지.
+    lead = dict(lead)  # shallow copy — 호출자 dict 변형 방지
+    _ct_raw = str(lead.get('상담 시간') or '').strip()
+    _ct_norm = _normalize_workflow_datetime(_ct_raw) or _ct_raw
+    if _ct_norm:
+        lead['상담 시간'] = _ct_norm
+
     # 1. 인입 카드 blocks 로 원본 텍스트 조립 (기존 헬퍼 재사용)
     inquiry_blocks, _fallback = build_inquiry_blocks(lead, lead_no, source='전화')
     original_text = ''
@@ -853,9 +861,12 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
     status = str(lead.get('상태') or '').strip() or '유선 상담'
     _register = str(lead.get('온라인 상담자') or '').strip().lstrip('@').strip()
     try:
-        from dashboard.services.visit_assignment_sync import _load_initial_maps
-        _, name_to_initial = _load_initial_maps()
-        _processor = name_to_initial.get(_register) or _register or '-'
+        # _to_initial 헬퍼 재사용 — KiKO 예외 등 이니셜 정규화 로직 통일 (2026-07-22)
+        from dashboard.blueprints.slack_helpers import _to_initial
+        _processor = _to_initial(_register) or _register or '-'
+        # DB lookup 결과가 'KIKO' 로 오는 케이스 후처리 (사용자 예외 표기)
+        if _processor.upper() == 'KIKO':
+            _processor = 'KiKO'
     except Exception:
         _processor = _register or '-'
     _consult_time = str(lead.get('상담 시간') or '').strip() or '-'
