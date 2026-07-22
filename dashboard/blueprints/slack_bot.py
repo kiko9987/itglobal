@@ -5111,6 +5111,14 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
         f">방문 주소 : {visit_address or '-'}",
     ]
     if consultation:
+        # 재상담 이력 있으면 최신 회차 content 만 표시 (2026-07-22 L-03295 사고)
+        # K열 append 형식 `[MM.DD HH:MM 이니셜 · 상태] content ─── [...]` 그대로 렌더되던 이슈.
+        try:
+            _entries = _parse_consultation_entries(consultation)
+            if _entries:
+                consultation = (_entries[-1].get('content') or '').strip() or consultation
+        except Exception:
+            pass
         lines.append(f">상담 내용 :")
         for raw in consultation[:500].split('\n'):
             wrapped = textwrap.fill(
