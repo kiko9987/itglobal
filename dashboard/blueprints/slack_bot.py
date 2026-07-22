@@ -5132,9 +5132,8 @@ def _wrap_diff_chunk(chunk: str, prev_ch: str, next_ch: str, marker: str) -> str
 def _highlight_addr_diff(original: str, converted: str) -> tuple:
     """원본↔변환 diff 청크를 길이별 스타일로 감싼 (orig, conv) 튜플 반환.
 
-    - 청크 길이 = 1  (자모/숫자 오탈자 벨↔밸)  : 홑따옴표('chunk')
-    - 청크 길이 = 2  (짧은 오탈자)              : 인라인 코드(`chunk`)
-    - 청크 길이 ≥ 3  (지역명·건물명 추가)      : 볼드(*chunk*)
+    - 청크 길이 = 1  (자모 오탈자 벨↔밸)       : 홑따옴표('chunk')
+    - 청크 길이 ≥ 2  (지역명·건물명 추가)      : 볼드(*chunk*)
 
     자모 1자 차이는 어떤 마크다운 스타일로도 폰트상 구분 어려우므로 홑따옴표로
     시선만 유도. 3자 이상은 라벨 부담 완화 위해 볼드. 청크가 한글/영문/숫자
@@ -5178,7 +5177,7 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
             else:
                 conv_parts.append(n)
             continue
-        marker = '`' if max_len == 2 else '*'
+        marker = '*'
         if o:
             prev_ch = original[i1 - 1] if i1 > 0 else ''
             next_ch = original[i2] if i2 < len(original) else ''
