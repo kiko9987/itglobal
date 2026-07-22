@@ -5110,13 +5110,23 @@ _WORD_JOINER = '⁠'  # Slack mrkdwn word-boundary 우회용 (폭 0, 복사·검
 def _wrap_diff_chunk(chunk: str, prev_ch: str, next_ch: str, marker: str) -> str:
     """diff 청크에 mrkdwn marker(*, `) 감싸기.
 
-    한글/영문/숫자가 marker 에 딱 붙으면 Slack 이 리터럴로 렌더하므로
-    필요 시 Word Joiner(U+2060) 삽입해 word boundary 를 만듦.
-    카카오 원본 형식 (공백 없음) 을 시각적으로 유지.
+    - 청크 안쪽 leading/trailing 공백은 마크 밖으로 (`*text *` 형태 회피 — Slack이 리터럴로 렌더).
+    - 한글/영문/숫자가 marker 에 딱 붙으면 Slack이 리터럴로 렌더하므로 Word Joiner 삽입.
+    - 순수 공백 청크는 raw 반환.
     """
+    lead = ''
+    while chunk and chunk[0] in ' \t':
+        lead += chunk[0]
+        chunk = chunk[1:]
+    trail = ''
+    while chunk and chunk[-1] in ' \t':
+        trail = chunk[-1] + trail
+        chunk = chunk[:-1]
+    if not chunk:
+        return lead + trail
     left = _WORD_JOINER if prev_ch and prev_ch.isalnum() else ''
     right = _WORD_JOINER if next_ch and next_ch.isalnum() else ''
-    return f'{left}{marker}{chunk}{marker}{right}'
+    return f'{lead}{left}{marker}{chunk}{marker}{right}{trail}'
 
 
 def _highlight_addr_diff(original: str, converted: str) -> tuple:
@@ -5136,22 +5146,37 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
         return original, converted
     from difflib import SequenceMatcher
     sm = SequenceMatcher(None, original, converted, autojunk=False)
+    opcodes = sm.get_opcodes()
+    # 공백/문장부호만 있는 diff 청크는 equal 로 취급 (하이라이트 스킵).
+    # ' ' vs '' 나 '(주)' vs ''  중 후자는 유효하지만 순수 공백/부호는 노이즈.
+    def _is_noise(chunk: str) -> bool:
+        return chunk != '' and not re.search(r'[가-힣A-Za-z0-9]', chunk)
+    meaningful_chunks = [(t, i1, i2, j1, j2) for t, i1, i2, j1, j2 in opcodes
+                        if t != 'equal' and not (_is_noise(original[i1:i2]) and _is_noise(converted[j1:j2]))]
+    # 청크가 너무 많으면 (오탈자 여러 곳 + 공백 정정) 하이라이트 자체가 노이즈 →
+    # 두 줄 대조만으로도 원본↔변환 쉽게 대조 가능하므로 하이라이트 스킵.
+    if len(meaningful_chunks) > 4:
+        return original, converted
+
     orig_parts = []
     conv_parts = []
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+    for tag, i1, i2, j1, j2 in opcodes:
         o = original[i1:i2]
         n = converted[j1:j2]
-        if tag == 'equal':
+        if tag == 'equal' or (_is_noise(o) and _is_noise(n)):
             orig_parts.append(o)
             conv_parts.append(n)
             continue
         max_len = max(len(o), len(n))
         if max_len == 1:
-            # 홑따옴표는 mrkdwn 이 아니므로 WJ 불필요
             if o:
                 orig_parts.append(f"'{o}'")
+            else:
+                orig_parts.append(o)
             if n:
                 conv_parts.append(f"'{n}'")
+            else:
+                conv_parts.append(n)
             continue
         marker = '`' if max_len == 2 else '*'
         if o:
