@@ -1220,7 +1220,11 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     # 2026-07-11 매 폴링마다 전체 메모 fetch. 통합 입금 그룹 감지에 다른 프로젝트
     #   payments 접근 필요. baseline flag 는 유지하되 매번 fetch 실행 (기존 phash 저장
     #   로직 그대로 사용). 시트 API batch 호출 1번 추가 (~300ms).
-    all_phash_by_row: Dict[int, str] = {}
+    # phash 를 stage 별로 저장 (2026-07-22 G3823-SJ 사고):
+    #   {'u': 계약금_phash, 'v': 중도금_phash, 'w': 잔금_phash, 'all': 전체_phash}
+    # 기존은 프로젝트 전체 phash 하나 → 계약금 phash 있으면 잔금 신규 메모 저장돼도
+    # memo_newly_added False 로 판정 → 알림 유실.
+    all_phash_by_row: Dict[int, Dict[str, str]] = {}
     all_payments_by_row: Dict[int, List[Dict]] = {}  # 통합 그룹 감지용
     try:
         resp_notes = service.spreadsheets().get(
@@ -1244,7 +1248,16 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                     payments_n = _parse_notes(notes_3[:3])
                     if payments_n:
                         row_num = offset_n + 2
-                        all_phash_by_row[row_num] = _hash_payments(payments_n)
+                        # stage 별 phash — 각 셀 노트에 저장된 payment 개별 해시
+                        _u_ps = [p for p in payments_n if p.get('stage') == '계약금']
+                        _v_ps = [p for p in payments_n if p.get('stage') == '중도금']
+                        _w_ps = [p for p in payments_n if p.get('stage') == '잔금']
+                        all_phash_by_row[row_num] = {
+                            'u': _hash_payments(_u_ps),
+                            'v': _hash_payments(_v_ps),
+                            'w': _hash_payments(_w_ps),
+                            'all': _hash_payments(payments_n),  # backward compat
+                        }
                         all_payments_by_row[row_num] = payments_n
         if not baseline_done:
             logger.info(
@@ -1321,45 +1334,75 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         prev_w = int(prev.get('w', 0) or 0)
         prev_aa = str(prev.get('aa', '')).lower() == 'true'
 
-        # 첫 폴링은 baseline만 저장하고 발송 X
+        # stage 별 phash — 신규/기존 매핑
+        _cur_ph = all_phash_by_row.get(sheet_row) or {'u': '', 'v': '', 'w': '', 'all': ''}
+        cur_u_ph, cur_v_ph, cur_w_ph = _cur_ph.get('u', ''), _cur_ph.get('v', ''), _cur_ph.get('w', '')
+
+        # 첫 폴링은 baseline만 저장하고 발송 X (stage 별 phash 함께 저장)
         if not prev:
-            init_phash = all_phash_by_row.get(sheet_row, '')
             try:
                 rc.hset(key, mapping={
                     'u': u_val, 'v': v_val, 'w': w_val,
                     'aa': 'true' if aa_chk else 'false',
-                    'phash': init_phash,
+                    'phash': _cur_ph.get('all', ''),  # backward compat
+                    'u_phash': cur_u_ph,
+                    'v_phash': cur_v_ph,
+                    'w_phash': cur_w_ph,
                 })
                 rc.expire(key, REDIS_TTL)
             except Exception:
                 pass
             continue
 
-        # 값 변경/AA 변경/메모 변경 자체는 baseline 갱신 트리거.
-        # 메모 변화 감지 (2026-07-15): 매니저가 값 먼저 저장 → 폴링 → 메모 나중
-        # 저장 시나리오. 값·AA 변화 없어서 skip 되던 문제.
-        cur_phash = all_phash_by_row.get(sheet_row, '')
-        prev_phash_raw = prev.get('phash', '')
-        memo_changed = cur_phash != prev_phash_raw
+        # 마이그레이션 — 기존 프로젝트는 phash 필드만 있고 u/v/w_phash 없음.
+        # 이번 폴링에서 stage 별 phash baseline 저장하고 skip (2026-07-22).
+        # 다음 폴링부터 stage 별 정확 판정 가능.
+        has_stage_phash = ('u_phash' in prev) or ('v_phash' in prev) or ('w_phash' in prev)
+        if not has_stage_phash:
+            try:
+                rc.hset(key, mapping={
+                    'u': u_val, 'v': v_val, 'w': w_val,
+                    'aa': 'true' if aa_chk else 'false',
+                    'u_phash': cur_u_ph,
+                    'v_phash': cur_v_ph,
+                    'w_phash': cur_w_ph,
+                })
+                rc.expire(key, REDIS_TTL)
+            except Exception:
+                pass
+            continue
+
+        prev_u_ph = prev.get('u_phash', '')
+        prev_v_ph = prev.get('v_phash', '')
+        prev_w_ph = prev.get('w_phash', '')
+        memo_changed = (cur_u_ph != prev_u_ph) or (cur_v_ph != prev_v_ph) or (cur_w_ph != prev_w_ph)
         any_change = (u_val != prev_u) or (v_val != prev_v) or (w_val != prev_w) \
             or (aa_chk != prev_aa) or memo_changed
         if not any_change:
             continue
 
-        # 발송 트리거 — 새 입금(값 증가), AA 신규 체크, 또는 메모 신규 저장 (값 있고 phash 빈→채워짐).
+        # 발송 트리거 — 새 입금(값 증가), AA 신규 체크, 또는 stage 별 메모 신규 저장.
         # 값 감소(정정/취소), AA 해제는 baseline만 갱신하고 skip.
         new_payment = (u_val > prev_u) or (v_val > prev_v) or (w_val > prev_w)
         aa_newly_checked = aa_chk and not prev_aa
-        # 메모 신규 저장 감지: 값 이미 있고, 이전 phash 빈값 → 지금 phash 있음
-        memo_newly_added = (
-            not prev_phash_raw and cur_phash
-            and (u_val > 0 or v_val > 0 or w_val > 0)
-        )
+        # stage 별 memo_newly_added — 각 stage 셀의 노트가 신규 저장됐고 그 stage 값 > 0
+        # (2026-07-22 개선 — 기존은 프로젝트 전체 phash 로 판정해 G3823-SJ 같은
+        #  "계약금 phash 있는데 잔금 신규 저장" 케이스 유실됐음)
+        stage_memo_newly_added = {
+            '계약금': (not prev_u_ph and bool(cur_u_ph) and u_val > 0),
+            '중도금': (not prev_v_ph and bool(cur_v_ph) and v_val > 0),
+            '잔금':   (not prev_w_ph and bool(cur_w_ph) and w_val > 0),
+        }
+        memo_newly_added = any(stage_memo_newly_added.values())
         if not (new_payment or aa_newly_checked or memo_newly_added):
             try:
                 rc.hset(key, mapping={
                     'u': u_val, 'v': v_val, 'w': w_val,
                     'aa': 'true' if aa_chk else 'false',
+                    # stage 별 phash 도 갱신 (다음 신규 저장 감지 위해)
+                    'u_phash': cur_u_ph,
+                    'v_phash': cur_v_ph,
+                    'w_phash': cur_w_ph,
                 })
                 rc.expire(key, REDIS_TTL)
             except Exception:
@@ -1378,7 +1421,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             'unpaid': _to_int_won(_get(IDX_X)),
             'key': key,
             'phash': prev.get('phash', '') if prev else '',
-            'memo_newly_added': memo_newly_added,  # 값 있고 memo 방금 저장
+            'memo_newly_added': memo_newly_added,  # 값 있고 memo 방금 저장 (any stage)
+            'stage_memo_newly_added': stage_memo_newly_added,  # stage 별 dict (2026-07-22)
         })
 
     if not changed_rows:
@@ -1435,18 +1479,20 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 if w_val > prev_w:
                     stages_increased.append('잔금')
 
-                # 메모 나중 저장 시나리오 (2026-07-15):
+                # 메모 나중 저장 시나리오 (2026-07-15 · 2026-07-22 stage 별 정밀화):
                 # 매니저가 값(u/v/w) 먼저 입력 → 폴링(baseline 저장) → 메모 나중 저장.
                 # 값 변화 없어 stages_increased 빈 리스트 → skip 발생.
-                # 값 있는 stage 를 발송 대상으로 (payments 로부터 어느 stage 에
-                # 실제 payment 있는지 확인).
-                if c.get('memo_newly_added') and not stages_increased:
+                # stage_memo_newly_added dict 로 어느 stage 가 신규 저장됐는지 정확 판단.
+                # (기존은 전체 phash 기반 memo_newly_added 라 계약금 이미 있으면 잔금
+                #  신규 저장돼도 모든 stage 를 무차별 발송 → G3823-SJ 사고)
+                _sma = c.get('stage_memo_newly_added') or {}
+                if not stages_increased and any(_sma.values()):
                     _stages_with_payment = {p.get('stage') for p in payments}
-                    if '계약금' in _stages_with_payment and u_val > 0:
+                    if _sma.get('계약금') and '계약금' in _stages_with_payment and u_val > 0:
                         stages_increased.append('계약금')
-                    if '중도금' in _stages_with_payment and v_val > 0:
+                    if _sma.get('중도금') and '중도금' in _stages_with_payment and v_val > 0:
                         stages_increased.append('중도금')
-                    if '잔금' in _stages_with_payment and w_val > 0:
+                    if _sma.get('잔금') and '잔금' in _stages_with_payment and w_val > 0:
                         stages_increased.append('잔금')
                     logger.info(
                         f"[PAYMENT] memo_newly_added → stages_increased fallback: "
@@ -1533,10 +1579,14 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             )
                             # phash 만 갱신 (다음 폴링 재감지 방지)
                             try:
+                                _pd = all_phash_by_row.get(sheet_row) or {}
                                 rc.hset(key, mapping={
                                     'u': u_val, 'v': v_val, 'w': w_val,
                                     'aa': 'true' if aa_chk else 'false',
                                     'phash': new_phash,
+                                    'u_phash': _pd.get('u', '') if isinstance(_pd, dict) else '',
+                                    'v_phash': _pd.get('v', '') if isinstance(_pd, dict) else '',
+                                    'w_phash': _pd.get('w', '') if isinstance(_pd, dict) else '',
                                 })
                                 rc.expire(key, REDIS_TTL)
                             except Exception:
@@ -1567,10 +1617,14 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             # 그룹 저장 갱신 (TTL 10분 재갱신)
                             rc.set(_group_key, _json.dumps(_pending), ex=10 * 60)
                             # 자기 phash / ts 매핑 저장
+                            _pd = all_phash_by_row.get(sheet_row) or {}
                             rc.hset(key, mapping={
                                 'u': u_val, 'v': v_val, 'w': w_val,
                                 'aa': 'true' if aa_chk else 'false',
                                 'phash': new_phash,
+                                'u_phash': _pd.get('u', '') if isinstance(_pd, dict) else '',
+                                'v_phash': _pd.get('v', '') if isinstance(_pd, dict) else '',
+                                'w_phash': _pd.get('w', '') if isinstance(_pd, dict) else '',
                             })
                             rc.expire(key, REDIS_TTL)
                             rc.set(
@@ -1597,10 +1651,14 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                         if sheet_row != _rep_row:
                             # phash 저장 후 skip — 다음 폴링에서 반복 감지 방지.
                             try:
+                                _pd = all_phash_by_row.get(sheet_row) or {}
                                 rc.hset(key, mapping={
                                     'u': u_val, 'v': v_val, 'w': w_val,
                                     'aa': 'true' if aa_chk else 'false',
                                     'phash': new_phash,
+                                    'u_phash': _pd.get('u', '') if isinstance(_pd, dict) else '',
+                                    'v_phash': _pd.get('v', '') if isinstance(_pd, dict) else '',
+                                    'w_phash': _pd.get('w', '') if isinstance(_pd, dict) else '',
                                 })
                                 rc.expire(key, REDIS_TTL)
                             except Exception:
@@ -1763,8 +1821,12 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                                             )
                                             # 그룹 전체 phash 갱신 (개별 발송 중복 방지)
                                             _row_key = f"{REDIS_KEY_PREFIX}{_row_num}"
+                                            _ph_dict = all_phash_by_row.get(_row_num) or {}
                                             rc.hset(_row_key, mapping={
-                                                'phash': all_phash_by_row.get(_row_num, ''),
+                                                'phash': _ph_dict.get('all', '') if isinstance(_ph_dict, dict) else str(_ph_dict),
+                                                'u_phash': _ph_dict.get('u', '') if isinstance(_ph_dict, dict) else '',
+                                                'v_phash': _ph_dict.get('v', '') if isinstance(_ph_dict, dict) else '',
+                                                'w_phash': _ph_dict.get('w', '') if isinstance(_ph_dict, dict) else '',
                                             })
                                             rc.expire(_row_key, REDIS_TTL)
                                         except Exception:
@@ -1834,10 +1896,14 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 logger.warning(f"[PAYMENT_ALERT] 감지 훅 예외 ({project}): {exc}")
 
             # 새 상태 저장
+            _pd = all_phash_by_row.get(c['row']) or {}
             rc.hset(c['key'], mapping={
                 'u': u_val, 'v': v_val, 'w': w_val,
                 'aa': 'true' if aa_chk else 'false',
                 'phash': new_phash,
+                'u_phash': _pd.get('u', '') if isinstance(_pd, dict) else '',
+                'v_phash': _pd.get('v', '') if isinstance(_pd, dict) else '',
+                'w_phash': _pd.get('w', '') if isinstance(_pd, dict) else '',
             })
             rc.expire(c['key'], REDIS_TTL)
             # Phash 이력 저장 (P2-2, 2026-07-10) — 디버깅용, 최근 20개만 유지
