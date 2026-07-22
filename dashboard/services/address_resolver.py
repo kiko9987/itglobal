@@ -149,6 +149,9 @@ def normalize_display(addr: str) -> str:
     return _post_normalize_display(result)
 
 
+_SAME_SUFFIX_DEDUP = ('캠퍼스',)
+
+
 def _post_normalize_display(addr: str) -> str:
     """normalize_display 이후 미세 표기 정정 — 우리 관행에 맞게 (2026-07-22).
 
@@ -157,6 +160,8 @@ def _post_normalize_display(addr: str) -> str:
     - 인접 유사 단어 dedup ('판교제2테크노밸리 판교제2테크노벨리' 처럼 카카오
       building_name 과 원본 오탈자 tail 이 함께 붙는 케이스, ETC-b626fb 관측):
       길이 4자 이상 & 편집 유사도 ≥ 0.9 인 인접 토큰은 뒤 것 제거.
+    - 같은 접미어(캠퍼스 등) 인접 토큰 dedup (ETC-68b96b '서울캠퍼스 안암캠퍼스'):
+      카카오 표준(앞) 유지, 통칭(뒤) 제거.
     """
     if not addr:
         return addr
@@ -167,13 +172,21 @@ def _post_normalize_display(addr: str) -> str:
     tokens = addr.split()
     out = []
     for t in tokens:
-        if out and len(t) >= 4 and len(out[-1]) >= 4:
-            # 임계값 0.85 — '판교제2테크노밸리' vs '판교제2테크노벨리' (8자 중 1자 차이) = 0.875
-            if SequenceMatcher(None, out[-1], t).ratio() >= 0.85:
-                # verified 결과 순서상 앞 = 원본 tail (오탈자 가능), 뒤 = 카카오 표준
-                # → 뒤 것 유지, 앞 것 교체 (2026-07-22 ETC-b626fb)
-                out[-1] = t
-                continue
+        if out:
+            prev = out[-1]
+            # (1) 같은 접미어 dedup — 'X캠퍼스 Y캠퍼스' 시 카카오 표준(앞) 유지
+            _same_suffix = next(
+                (s for s in _SAME_SUFFIX_DEDUP
+                 if prev.endswith(s) and t.endswith(s) and prev != t),
+                None,
+            )
+            if _same_suffix:
+                continue  # 뒤 것 skip (앞의 카카오 표준 유지)
+            # (2) 유사도 dedup — 오탈자 tail
+            if len(t) >= 4 and len(prev) >= 4:
+                if SequenceMatcher(None, prev, t).ratio() >= 0.85:
+                    out[-1] = t  # 뒤 것 (카카오 표준) 유지
+                    continue
         out.append(t)
     return ' '.join(out)
 
