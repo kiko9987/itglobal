@@ -309,6 +309,13 @@ def _try_acquire_action_lock(lead_no: str, action: str, ttl: int = 5) -> bool:
 def _register_visit_handlers(app):
     """방문 일정 알림 봇 핸들러 — [✏️ 방문일 수정] / [✅ 방문 완료] / [🗑️ 방문 취소]"""
 
+    # file_shared 이벤트 no-op (2026-07-22): Slack 이 파일 업로드 시 message.file_share
+    # 이벤트와 별개로 file_shared 도 발송. 우리는 message.file_share 로만 처리 →
+    # file_shared 는 Unhandled request 로그 노이즈. 명시적으로 ack 처리.
+    @app.event("file_shared")
+    def _noop_file_shared_visit(ack):
+        ack()
+
     @app.action("visit_modify_date")
     def handle_visit_modify_date(ack, body, client):
         ack()
@@ -691,6 +698,10 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
 def _register_project_handlers(app):
     """공사 현황 알림 봇 핸들러 — /공사확정 + submit_project"""
 
+    @app.event("file_shared")  # no-op — message.file_share 로 실질 처리 (2026-07-22)
+    def _noop_file_shared_project(ack):
+        ack()
+
     @app.command("/공사확정")
     def handle_project_command(ack, command, client):
         ack()
@@ -973,6 +984,10 @@ def _register_project_handlers(app):
 # ─────────────────────────────────────────────────────────────
 def _register_handlers(app):
     """슬래시 명령, 인터랙티브, 이벤트 핸들러 등록"""
+
+    @app.event("file_shared")  # no-op (2026-07-22)
+    def _noop_file_shared_main(ack):
+        ack()
 
     # ① 슬래시 명령: /상태 (사이트 헬스체크)
     @app.command("/상태")
@@ -1523,6 +1538,13 @@ def _register_handlers(app):
 
 
 def _register_invoice_handlers(app):
+    """계산서 봇 핸들러."""
+
+    @app.event("file_shared")  # no-op (2026-07-22)
+    def _noop_file_shared_invoice(ack):
+        ack()
+
+
     """세금계산서 관리 알림 봇 핸들러.
 
     - message event: #영업_관리 채널 스레드 첨부 감지 → 카드 자동 완료 update
@@ -1596,6 +1618,10 @@ def _register_invoice_handlers(app):
 
 def _register_as_handlers(app):
     """A/S 사후 관리 봇 핸들러 — /as + 3단계 모달 흐름."""
+
+    @app.event("file_shared")  # no-op (2026-07-22)
+    def _noop_file_shared_as(ack):
+        ack()
 
     @app.command("/as")
     def handle_as_command(ack, command, client):

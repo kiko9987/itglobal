@@ -4,8 +4,24 @@ Flask Dashboard Application Factory
 """
 
 import os
+import sys
 import logging
 from flask import Flask
+
+# Windows CP949 콘솔 인코딩으로 인한 로그 traceback 방지 (2026-07-22):
+# 이모지 (⚠️, —, ⏳ 등) 를 로그로 출력할 때 UnicodeEncodeError → traceback 폭주.
+# 서비스 동작에는 영향 없지만 stderr 잡음. sys.stdout/stderr 를 UTF-8 로 강제 재구성.
+# Python 3.7+ reconfigure() 필요. errors='replace' 로 안 매핑되는 문자도 안전.
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 from flask_compress import Compress
 from werkzeug.middleware.proxy_fix import ProxyFix
 

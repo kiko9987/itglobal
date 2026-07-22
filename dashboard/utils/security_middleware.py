@@ -438,6 +438,17 @@ class SecurityMiddleware:
         if request.path.startswith('/slack/'):
             return True
 
+        # 인증된 세션 (로그인 성공한 매니저) 은 rate limit 예외 (2026-07-22):
+        # 매니저 브라우저 다중 탭 + prefetch + 폴링으로 정상 사용 중에도
+        # 1000/시간 초과 → 1시간 IP 차단 사고 발생. 로그인 자체가 신뢰 경계이므로
+        # 인증된 세션은 rate limit skip. 익명 트래픽만 제한.
+        try:
+            from flask import session
+            if session.get('user_email') or session.get('logged_in'):
+                return True
+        except Exception:
+            pass
+
         # 개발 환경에서는 rate limiting 대폭 완화
         is_development = self.app.config.get('DEBUG') or os.getenv('FLASK_ENV') == 'development'
 
