@@ -809,6 +809,110 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
     return sent
 
 
+def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
+    """전화 lead 시트 등록 후 온라인_문의 채널에 회색 처리 카드 + [재상담] 발송.
+
+    2026-07-21 도입 — 매니저 통화 완료 후 등록 시맨틱 반영.
+      - 인입 카드 원본을 code block 안에 담고
+      - 회색 헤더 (상담 완료 - {상태}, 처리자, 처리 시간, 상담 내용) 씌우고
+      - [재상담] 버튼 (action_id=button_consult) 부착
+      - 재통화 시 매니저가 [재상담] 눌러 회차 이력 append (기존 online lead flow 재사용)
+    """
+    import re
+    bot_token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    channel_setting = os.getenv('SLACK_LEAD_CHANNEL', '').strip()
+    if not bot_token or not channel_setting:
+        logger.warning('[SYNC/전화WF/카드] SLACK_BOT_TOKEN/CHANNEL 미설정')
+        return False
+    try:
+        from slack_sdk import WebClient
+        client = WebClient(token=bot_token)
+        channel = _resolve_channel_id(client, channel_setting)
+    except Exception as exc:
+        logger.error(f'[SYNC/전화WF/카드] slack 초기화 실패: {exc}')
+        return False
+
+    # 1. 인입 카드 blocks 로 원본 텍스트 조립 (기존 헬퍼 재사용)
+    inquiry_blocks, _fallback = build_inquiry_blocks(lead, lead_no, source='전화')
+    original_text = ''
+    for blk in inquiry_blocks:
+        if blk.get('type') == 'section':
+            original_text = (blk.get('text') or {}).get('text', '')
+            break
+
+    # 2. blockquote/마크다운 제거 → code block 안 표시용 정리
+    cleaned = [ln.lstrip('>').lstrip().replace('*', '') for ln in original_text.split('\n')]
+    clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', '\n'.join(cleaned))
+    try:
+        from dashboard.blueprints.slack_helpers import _normalize_shortcodes_to_unicode
+        clean_text = _normalize_shortcodes_to_unicode(clean_text)
+    except Exception:
+        pass
+
+    # 3. 헤더 조립 — 매니저 통화 완료 후 등록이므로 처음부터 회색 처리
+    status = str(lead.get('상태') or '').strip() or '유선 상담'
+    _register = str(lead.get('온라인 상담자') or '').strip().lstrip('@').strip()
+    try:
+        from dashboard.services.visit_assignment_sync import _load_initial_maps
+        _, name_to_initial = _load_initial_maps()
+        _processor = name_to_initial.get(_register) or _register or '-'
+    except Exception:
+        _processor = _register or '-'
+    _consult_time = str(lead.get('상담 시간') or '').strip() or '-'
+    _consult = str(lead.get('상담 내용') or '').strip() or '-'
+
+    header_lines = [
+        '⠀',
+        f':white_check_mark: *상담 완료 - {status}*',
+        f'처리자 : {_processor}',
+        f'처리 시간 : {_consult_time}',
+        f'상담 내용 : {_consult}',
+    ]
+    new_text = '\n'.join(header_lines) + f'\n\n```\n{clean_text}\n```'
+    new_blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': new_text}},
+        {'type': 'actions', 'elements': [{
+            'type': 'button',
+            'text': {'type': 'plain_text', 'text': '✏️ 재상담', 'emoji': True},
+            'value': lead_no,
+            'action_id': 'button_consult',
+        }]},
+    ]
+
+    try:
+        client.conversations_join(channel=channel)
+    except Exception:
+        pass
+    try:
+        from dashboard.blueprints.slack_helpers import safe_slack_call
+        resp = safe_slack_call(
+            client.chat_postMessage,
+            channel=channel, text=new_text, blocks=new_blocks,
+            unfurl_links=False,
+        )
+        if resp and resp.get('ok'):
+            msg_ts = resp.get('ts', '')
+            if msg_ts:
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    rc = get_redis_client().redis
+                    rc.set(
+                        f'lead_card_msg:{lead_no}',
+                        f'{channel}|{msg_ts}',
+                        ex=60 * 60 * 24 * 180,
+                    )
+                except Exception as _exc:
+                    logger.warning(
+                        f'[SYNC/전화WF/카드] lead_card_msg 저장 실패 ({lead_no}): {_exc}'
+                    )
+                logger.info(f'[SYNC/전화WF/카드] 발송 완료 ({lead_no}, ts={msg_ts})')
+                return True
+        logger.warning(f'[SYNC/전화WF/카드] 발송 응답 not ok ({lead_no}): {resp}')
+    except Exception as exc:
+        logger.error(f'[SYNC/전화WF/카드] 예외 ({lead_no}): {exc}', exc_info=True)
+    return False
+
+
 # ─────────────────────────────────────────────────────────────
 # 인입 알림 블록 (홈페이지/당근/기타 플랫폼 공용) - 동적 타이틀
 # ─────────────────────────────────────────────────────────────
@@ -1876,6 +1980,19 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
                 result['processed'] += 1
                 logger.info(f"[SYNC/전화WF] 보정 완료: {new_lead_no} ({status})")
+
+                # 전화 lead 온라인_문의 채널 카드 발송 (2026-07-21)
+                # 매니저 통화 완료 후 등록 = 이미 상담 발생 → 회색 처리 카드 + [재상담] 버튼.
+                # 재통화 시 매니저가 [재상담] 눌러 회차 이력 append (기존 online lead flow 재사용).
+                _plat_row = str(row.get('플랫폼', '')).strip()
+                if _plat_row == '전화':
+                    try:
+                        _lead_dict = row.to_dict() if hasattr(row, 'to_dict') else dict(row)
+                        _post_phone_lead_completed_card(_lead_dict, new_lead_no)
+                    except Exception as _exc:
+                        logger.warning(
+                            f'[SYNC/전화WF] 온라인 카드 발송 실패 ({new_lead_no}): {_exc}'
+                        )
 
                 # 방문 예약 시 #방문_일정 카드 + 슬랙 List 후보
                 if status == '방문 예약':
