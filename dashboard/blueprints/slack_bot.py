@@ -5105,13 +5105,15 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
 
 
 def _highlight_addr_diff(original: str, converted: str) -> tuple:
-    """원본↔변환의 diff 조각만 인라인 코드(`chunk`) 로 감싼 (orig, conv) 튜플 반환.
+    """원본↔변환 diff 청크를 길이에 따라 다른 스타일로 감싼 (orig, conv) 튜플 반환.
 
-    자모 1개 (예: 벨→밸) 같은 극미소 변경도 매니저가 즉시 인지하도록
-    monospace 배경으로 강조. difflib.SequenceMatcher 사용.
+    - 청크 길이 ≤ 2 (자모/숫자 오탈자): 인라인 코드(`chunk`) — monospace 회색 배경
+    - 청크 길이 ≥ 3 (지역명·건물명 추가): 볼드(*chunk*)
 
-    주의: 결과 문자열은 blockquote(`>`) 컨텍스트에서만 렌더링됨.
-    회색 코드블록(```) 안에서는 mrkdwn 이 리터럴로 표시되므로 이 함수 사용 X.
+    자모 1자 diff (벨→밸) 는 프로포셔널 폰트에서 안 보이므로 monospace 필수.
+    지역명·건물명 추가는 라벨 부담이 커 볼드로 완화.
+
+    주의: blockquote(>) 컨텍스트 전용. 회색 코드블록(```) 안에선 mrkdwn 리터럴이라 사용 X.
     """
     if not original or not converted or original == converted:
         return original, converted
@@ -5125,13 +5127,13 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
         if tag == 'equal':
             orig_parts.append(o)
             conv_parts.append(n)
-        elif tag == 'delete':
-            orig_parts.append(f'`{o}`')
-        elif tag == 'insert':
-            conv_parts.append(f'`{n}`')
-        elif tag == 'replace':
-            orig_parts.append(f'`{o}`')
-            conv_parts.append(f'`{n}`')
+            continue
+        # replace / insert / delete: 짝 판단 후 통일된 스타일
+        wrap = '`' if max(len(o), len(n)) <= 2 else '*'
+        if o:
+            orig_parts.append(f'{wrap}{o}{wrap}')
+        if n:
+            conv_parts.append(f'{wrap}{n}{wrap}')
     return ''.join(orig_parts), ''.join(conv_parts)
 
 
