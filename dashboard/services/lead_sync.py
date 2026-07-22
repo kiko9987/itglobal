@@ -1887,7 +1887,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             addr_raw = str(row.get('방문 주소', '') or '').strip()
             addr_note: Optional[Dict[str, str]] = None
             addr_for_notify = addr_raw
-            _addr_target_platforms = {'거래처', '기타', '소개'}
+            # 2026-07-22: 전화 추가 — 매니저 통화 후 raw 주소 입력 케이스도 자동 정규화
+            #   (L-03313: '경기도 김포시 하성면 전류리 산57-22' → '김포 하성면 전류리 산 57-22')
+            _addr_target_platforms = {'거래처', '기타', '소개', '전화'}
             _status_early = str(row.get('상태', '') or '').strip()
             if (
                 addr_raw
