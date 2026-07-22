@@ -5104,6 +5104,37 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
         )
 
 
+def _highlight_addr_diff(original: str, converted: str) -> tuple:
+    """원본↔변환의 diff 조각만 인라인 코드(`chunk`) 로 감싼 (orig, conv) 튜플 반환.
+
+    자모 1개 (예: 벨→밸) 같은 극미소 변경도 매니저가 즉시 인지하도록
+    monospace 배경으로 강조. difflib.SequenceMatcher 사용.
+
+    주의: 결과 문자열은 blockquote(`>`) 컨텍스트에서만 렌더링됨.
+    회색 코드블록(```) 안에서는 mrkdwn 이 리터럴로 표시되므로 이 함수 사용 X.
+    """
+    if not original or not converted or original == converted:
+        return original, converted
+    from difflib import SequenceMatcher
+    sm = SequenceMatcher(None, original, converted, autojunk=False)
+    orig_parts = []
+    conv_parts = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        o = original[i1:i2]
+        n = converted[j1:j2]
+        if tag == 'equal':
+            orig_parts.append(o)
+            conv_parts.append(n)
+        elif tag == 'delete':
+            orig_parts.append(f'`{o}`')
+        elif tag == 'insert':
+            conv_parts.append(f'`{n}`')
+        elif tag == 'replace':
+            orig_parts.append(f'`{o}`')
+            conv_parts.append(f'`{n}`')
+    return ''.join(orig_parts), ''.join(conv_parts)
+
+
 def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str,
                                 visit_date: str, name: str, contact: str,
                                 visit_address: str, consultation: str,
@@ -5136,8 +5167,9 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
         _kind = addr_note.get('kind', '')
         _orig = (addr_note.get('original') or '').strip()
         if _kind == 'normalized' and _orig and _orig != (visit_address or '').strip():
-            _addr_lines.append(f">*원본 주소* : {_orig}")
-            _addr_lines.append(f">*변환 주소* : {visit_address or '-'}")
+            _orig_hl, _conv_hl = _highlight_addr_diff(_orig, (visit_address or '').strip())
+            _addr_lines.append(f">*원본 주소* : {_orig_hl}")
+            _addr_lines.append(f">*변환 주소* : {_conv_hl}")
         elif _kind == 'failed':
             _addr_lines.append(
                 f">방문 주소 : {visit_address or '-'}  :warning: *[주소 확인 필요]*"
