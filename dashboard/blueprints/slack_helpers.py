@@ -417,6 +417,31 @@ _SHORTCODE_TO_EMOJI = {
     ':house:': '🏠',
     ':wrench:': '🔧',
     ':gear:': '⚙️',
+    ':headphones:': '🎧',
+    ':busts_in_silhouette:': '👥',
+    ':iphone:': '📱',
+    ':link:': '🔗',
+    ':car:': '🚗',
+    ':palm_tree:': '🌴',
+    ':calendar:': '📅',
+    ':wave:': '👋',
+    ':raising_hand:': '🙋',
+    ':page_facing_up:': '📄',
+    ':mag:': '🔍',
+    ':repeat:': '🔁',
+    ':hourglass_flowing_sand:': '⏳',
+    ':arrows_counterclockwise:': '🔄',
+    # 커스텀 이모지 (2026-07-22 L-03320): Slack 워크스페이스 커스텀 이모지는
+    # 코드 블록 안에서 unicode 렌더 불가 → 유사한 표준 이모지로 대체
+    ':카카오톡:': '💬',
+    ':채널톡:': '🗨️',
+    ':당근:': '🥕',
+    ':숨고:': '📝',
+    ':홈페이지:': '🏠',
+    ':큐플레이스:': '🏬',
+    ':전화:': '📞',
+    ':모바일:': '📲',
+    ':네이버:': '🔎',
 }
 
 

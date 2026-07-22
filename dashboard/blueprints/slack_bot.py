@@ -4746,6 +4746,12 @@ def _process_consult_submission(client, body, view):
                 cleaned_lines = [ln.replace('*', '') for ln in cleaned_lines]
                 clean_text = '\n'.join(cleaned_lines)
                 clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
+                # shortcode → unicode (:bell: → 🔔 등) — 코드 블록 안 이모지 렌더 (2026-07-22)
+                try:
+                    from dashboard.blueprints.slack_helpers import _normalize_shortcodes_to_unicode
+                    clean_text = _normalize_shortcodes_to_unicode(clean_text)
+                except Exception:
+                    pass
                 header_lines = [
                     "⠀",
                     f":white_check_mark: *상담 완료 - {status}*",
