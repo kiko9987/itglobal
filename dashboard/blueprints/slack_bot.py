@@ -5104,6 +5104,21 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
         )
 
 
+_WORD_JOINER = '⁠'  # Slack mrkdwn word-boundary 우회용 (폭 0, 복사·검색 무시)
+
+
+def _wrap_diff_chunk(chunk: str, prev_ch: str, next_ch: str, marker: str) -> str:
+    """diff 청크에 mrkdwn marker(*, `) 감싸기.
+
+    한글/영문/숫자가 marker 에 딱 붙으면 Slack 이 리터럴로 렌더하므로
+    필요 시 Word Joiner(U+2060) 삽입해 word boundary 를 만듦.
+    카카오 원본 형식 (공백 없음) 을 시각적으로 유지.
+    """
+    left = _WORD_JOINER if prev_ch and prev_ch.isalnum() else ''
+    right = _WORD_JOINER if next_ch and next_ch.isalnum() else ''
+    return f'{left}{marker}{chunk}{marker}{right}'
+
+
 def _highlight_addr_diff(original: str, converted: str) -> tuple:
     """원본↔변환 diff 청크를 길이에 따라 다른 스타일로 감싼 (orig, conv) 튜플 반환.
 
@@ -5112,6 +5127,7 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
 
     자모 1자 diff (벨→밸) 는 프로포셔널 폰트에서 안 보이므로 monospace 필수.
     지역명·건물명 추가는 라벨 부담이 커 볼드로 완화.
+    청크가 한글/영문/숫자 사이에 낀 경우 Word Joiner 로 word boundary 확보.
 
     주의: blockquote(>) 컨텍스트 전용. 회색 코드블록(```) 안에선 mrkdwn 리터럴이라 사용 X.
     """
@@ -5128,12 +5144,15 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
             orig_parts.append(o)
             conv_parts.append(n)
             continue
-        # replace / insert / delete: 짝 판단 후 통일된 스타일
-        wrap = '`' if max(len(o), len(n)) <= 2 else '*'
+        marker = '`' if max(len(o), len(n)) <= 2 else '*'
         if o:
-            orig_parts.append(f'{wrap}{o}{wrap}')
+            prev_ch = original[i1 - 1] if i1 > 0 else ''
+            next_ch = original[i2] if i2 < len(original) else ''
+            orig_parts.append(_wrap_diff_chunk(o, prev_ch, next_ch, marker))
         if n:
-            conv_parts.append(f'{wrap}{n}{wrap}')
+            prev_ch = converted[j1 - 1] if j1 > 0 else ''
+            next_ch = converted[j2] if j2 < len(converted) else ''
+            conv_parts.append(_wrap_diff_chunk(n, prev_ch, next_ch, marker))
     return ''.join(orig_parts), ''.join(conv_parts)
 
 
