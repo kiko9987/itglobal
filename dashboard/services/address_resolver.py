@@ -154,11 +154,28 @@ def _post_normalize_display(addr: str) -> str:
 
     - 임야 지번 앞 '산' 접두어와 숫자 사이 공백 제거 ('산 57-22' → '산57-22')
       카카오 verify 결과는 '산 57' 로 띄어쓰나 국내 관행상 붙여 씀.
+    - 인접 유사 단어 dedup ('판교제2테크노밸리 판교제2테크노벨리' 처럼 카카오
+      building_name 과 원본 오탈자 tail 이 함께 붙는 케이스, ETC-b626fb 관측):
+      길이 4자 이상 & 편집 유사도 ≥ 0.9 인 인접 토큰은 뒤 것 제거.
     """
     if not addr:
         return addr
-    # ' 산 (숫자)' → ' 산(숫자)'  (앞 공백 유지 = 다른 토큰 뒤 임을 보장)
-    return re.sub(r' 산 (\d)', r' 산\1', addr)
+    # ' 산 (숫자)' → ' 산(숫자)'
+    addr = re.sub(r' 산 (\d)', r' 산\1', addr)
+    # 인접 유사 단어 dedup
+    from difflib import SequenceMatcher
+    tokens = addr.split()
+    out = []
+    for t in tokens:
+        if out and len(t) >= 4 and len(out[-1]) >= 4:
+            # 임계값 0.85 — '판교제2테크노밸리' vs '판교제2테크노벨리' (8자 중 1자 차이) = 0.875
+            if SequenceMatcher(None, out[-1], t).ratio() >= 0.85:
+                # verified 결과 순서상 앞 = 원본 tail (오탈자 가능), 뒤 = 카카오 표준
+                # → 뒤 것 유지, 앞 것 교체 (2026-07-22 ETC-b626fb)
+                out[-1] = t
+                continue
+        out.append(t)
+    return ' '.join(out)
 
 
 @lru_cache(maxsize=512)
@@ -1031,12 +1048,15 @@ def resolve_address(
     if verified:
         addr, level = verified
         addr = _enrich_verified_address(addr, text, regex_addr)
+        # tail 부착 후 후처리 (인접 유사 단어 dedup 등, 2026-07-22 ETC-b626fb)
+        addr = _post_normalize_display(addr)
         return (addr, level)
 
     # 1b. POI fallback (2026-07-20 L-03292) — 시/도 빠진 케이스 상호 → 도로명
     poi_road = _try_poi_fallback(text)
     if poi_road:
         addr = _enrich_verified_address(poi_road, text, regex_addr)
+        addr = _post_normalize_display(addr)
         return (addr, 'verified')
 
     # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
