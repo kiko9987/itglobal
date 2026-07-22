@@ -386,6 +386,7 @@ def commit() -> Dict:
 
         assignments = parsed_full['assignments']
         online_duty = parsed_full['online_duty']
+        online_duty_shifts = parsed_full.get('online_duty_shifts') or {}
         off_duty = parsed_full['off_duty']
 
         initial_to_name, _ = _load_initial_maps()
@@ -431,6 +432,7 @@ def commit() -> Dict:
         dm_result = _send_dms_for_next_visit(
             assignments, phone_map, initial_to_name, online_duty, off_duty,
             addr_candidates=addr_candidates,
+            online_duty_shifts=online_duty_shifts,
         )
 
         # 4. 방문 캔버스 A rebuild
@@ -527,6 +529,7 @@ def parse_assignment_canvas_full(html: str) -> Dict:
     lines = _html_to_lines(html)
     assignments: List[Dict] = []
     online_duty: List[str] = []
+    online_duty_shifts: Dict[str, str] = {}  # {'SD':'오전', 'MS':'오후'} (2026-07-21)
     off_duty: List[str] = []
     current_section: Optional[str] = None  # 'YG' etc or '_ONLINE_' or '_OFF_'
 
@@ -549,10 +552,24 @@ def parse_assignment_canvas_full(html: str) -> Dict:
                 current_section = '_OFF_'
                 continue
             # 온라인 섹션 안 이니셜 = 상담 당번
-            if current_section == '_ONLINE_' and stripped in initial_to_name:
-                if stripped not in online_duty:
-                    online_duty.append(stripped)
-                continue
+            # 지원 형식 (2026-07-21 L-03081 확장):
+            #   "SD"                  — 단일
+            #   "SD+MS"               — 조합
+            #   "SD(오전)+MS(오후)"   — 시간대별 담당. 이니셜 뒤 괄호 값은 shifts 로 유지
+            if current_section == '_ONLINE_' and stripped:
+                # 이니셜 + (선택) 시간대 표기 매치
+                _matches = re.findall(r'([A-Z]{2,4})(?:\s*\(([^)]+)\))?', stripped)
+                _found_any = False
+                for _ini, _shift in _matches:
+                    if _ini not in initial_to_name:
+                        continue
+                    _found_any = True
+                    if _ini not in online_duty:
+                        online_duty.append(_ini)
+                    if _shift.strip():
+                        online_duty_shifts[_ini] = _shift.strip()
+                if _found_any:
+                    continue
             # 개인 담당자 섹션 헤더
             section = _is_section_header(line, initial_to_name)
             if section:
@@ -604,6 +621,7 @@ def parse_assignment_canvas_full(html: str) -> Dict:
     return {
         'assignments': assignments,
         'online_duty': online_duty,
+        'online_duty_shifts': online_duty_shifts,
         'off_duty': off_duty,
     }
 
@@ -782,7 +800,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                               initial_to_name: Dict[str, str],
                               online_duty: List[str],
                               off_duty: List[str],
-                              addr_candidates: Optional[List[Dict]] = None) -> Dict:
+                              addr_candidates: Optional[List[Dict]] = None,
+                              online_duty_shifts: Optional[Dict[str, str]] = None) -> Dict:
     """min(방문일 시작일) > today 인 리드에 담당자/온라인 당번 DM.
 
     2026-07-19 확장: dm_sent 를 JSON 으로 관리해 재실행 시 신규/유지/제거 분류.
@@ -964,6 +983,16 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             lines.append(f'>   :round_pushpin: {lead.get("방문 주소") or "-"}')
             note = (lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
             if note:
+                # 재상담 이력 있으면 최신 회차 content 만 표시 (2026-07-21)
+                # 방문 카드·캔버스와 동일 처리. 헤더(`[MM.DD HH:MM 이니셜 · 상태]`)
+                # 통째로 매니저 DM 에 나가면 노이즈.
+                try:
+                    from dashboard.blueprints.slack_bot import _parse_consultation_entries
+                    _entries = _parse_consultation_entries(note)
+                    if _entries:
+                        note = (_entries[-1].get('content') or '').strip() or note
+                except Exception:
+                    pass
                 lines.append(f'>   :speech_balloon: {note[:200]}')
             pl = _get_visit_card_permalink(client, lno)
             if pl:
@@ -1003,6 +1032,14 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         combo_lines = [f'   • {"·".join(k)} ({v}건)'
                        for k, v in combo_counts.items()]
 
+        _shifts = online_duty_shifts or {}
+        # 시간대 배정 있으면 header 에 다른 사람 정보도 참고 표기 (SD: 오전, MS: 오후)
+        _shift_summary = ''
+        if _shifts:
+            _shift_summary = '  |  '.join(
+                f'{initial_to_name.get(i, i)} ({_shifts[i]})'
+                for i in online_duty if i in _shifts
+            )
         for duty_ini in online_duty:
             duty_name = initial_to_name.get(duty_ini, duty_ini)
             email = _email_from_initial(duty_ini, initial_to_name)
@@ -1023,11 +1060,17 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     continue
             except Exception:
                 pass
+            # 시간대 표기 (오전/오후 등) — 있으면 header 에 부착 (2026-07-21)
+            _my_shift = _shifts.get(duty_ini, '')
+            _shift_tag = f' ({_my_shift} 담당)' if _my_shift else ''
             lines = [_BLANK]
             lines.append(
-                f'>:wave: *{duty_name}님*, {target_date.isoformat()} 온라인 상담 당번입니다.'
+                f'>:wave: *{duty_name}님*, {target_date.isoformat()} 온라인 상담 당번{_shift_tag} 입니다.'
             )
             lines.append(f'>{_SEP}')
+            if _shift_summary and len(online_duty) >= 2:
+                lines.append(f'>:calendar: *시간대 배정* : {_shift_summary}')
+                lines.append('>')
             lines.append('>:headphones: 사무실에서 문의 응대 부탁드립니다.')
             lines.append('>')
             lines.append(f'>:car: *{target_date.isoformat()} 방문 담당자 참고*')
