@@ -861,12 +861,14 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         # 신뢰도별 표시:
         # - verified (카카오 매칭): 마커 없음 (정확)
         # - level1~4 (정규식 풀 패턴): 마커 없음 (정확)
-        # - level5~7 / regex / raw: _(추정)_ 마커 (영업 검증 필요)
-        # - '' (resolve 완전 실패로 원본 raw 그대로): _[주소 확인 필요]_ 마커
+        # - level5~7: _[추정]_ 마커 (영업 검증 필요)
+        # - '' or 'raw' (resolve 완전 실패로 원본 그대로): _[주소 확인 필요]_ 마커
+        #   → resolver 가 아무 처리 못 함 = "변환 실패" 이므로 [추정] 아닌 [확인 필요]
         #   → 전화번호/오타/문의글이 주소 필드로 들어온 케이스. 매니저 오방문 방지.
+        #   (2026-07-21 raw level 도 [주소 확인 필요] 로 통일 — L-03314 사고)
         if addr_level in ('verified', 'level1', 'level2', 'level3', 'level3b', 'level4'):
             address_display = address
-        elif not addr_level:
+        elif not addr_level or addr_level == 'raw':
             # 2026-07-17 이탤릭 폰트 이질감 제거 → 이모지 + bold 로 강조
             address_display = f'{address}  ⚠️ *[주소 확인 필요]*'
         else:
@@ -891,9 +893,13 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
 
     # 원본 주소 vs 자동 정리 결과 비교 — 다를 때만 두 줄로 표시 (2026-07-13).
     # 매니저가 파싱 결과가 원본에서 어떻게 변형됐는지 즉시 확인 → 오탐/축소 감지.
+    # 공백 여러 개·앞뒤 공백만 다른 경우엔 실질 변화 없음 → 한 줄로 통합 (2026-07-21).
     address_raw = _oneline(lead.get('_meta_address_raw') or '')
+    def _addr_key(s: str) -> str:
+        return re.sub(r'\s+', ' ', (s or '').strip())
     address_field_lines = []
-    if address_raw and address_raw != '-' and address_raw != address:
+    if (address_raw and address_raw != '-'
+            and _addr_key(address_raw) != _addr_key(address)):
         address_field_lines.append(f">*원본 주소* : {address_raw}")
         address_field_lines.append(f">*변환 주소* : {address_display}")
     else:
@@ -1157,8 +1163,22 @@ def retry_pending_slack_notifications() -> Dict[str, Any]:
         for lead, ln, src in zip(pending_leads, pending_nos, pending_sources):
             groups[src].append((lead, ln))
         for src, items in groups.items():
-            leads = [l for l, _ in items]
-            nos = [n for _, n in items]
+            # 재시작 타이밍 방어 (2026-07-21) — 첫 발송이 성공했는데 pending 삭제 전
+            # 재시작되면 pending 큐에 payload 가 남아 이 함수가 두 번째 카드를 발송함
+            # (L-03309 사고). lead_card_msg 이 이미 있으면 pending 정리 후 skip.
+            filtered = []
+            for lead, ln in items:
+                if rc.get(f'lead_card_msg:{ln}'):
+                    logger.info(
+                        f"[SYNC/retry] {ln} lead_card_msg 이미 있음 — pending 정리 후 skip"
+                    )
+                    rc.delete(f'pending_slack_notify:{ln}')
+                    continue
+                filtered.append((lead, ln))
+            if not filtered:
+                continue
+            leads = [l for l, _ in filtered]
+            nos = [n for _, n in filtered]
             sent = _send_slack_notifications(leads, nos, source=src)
             for ln in nos:
                 if ln in sent:

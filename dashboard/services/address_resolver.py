@@ -216,6 +216,55 @@ def _kakao_search_poi(query: str) -> tuple:
         return ()
 
 
+_NAVER_LOCAL_ENDPOINT = 'https://openapi.naver.com/v1/search/local.json'
+
+
+@lru_cache(maxsize=512)
+def _naver_search_local(query: str) -> tuple:
+    """네이버 지역 검색 (2026-07-21 도입) — 카카오 POI 못 잡는 건물명 fallback.
+
+    카카오 대비 강점: 지식산업센터·아파트·상용 건물명 커버리지 넓음.
+    L-03316 사례: '한강듀클래스' → 카카오 미매칭, 네이버 '김포한강듀클래스' 정확 매칭.
+
+    반환: ((place_name, road_address_name), ...) 카카오와 동일 인터페이스.
+    """
+    cid = os.getenv('NAVER_SEARCH_CLIENT_ID', '').strip()
+    csec = os.getenv('NAVER_SEARCH_CLIENT_SECRET', '').strip()
+    if not cid or not csec or not query.strip():
+        return ()
+    try:
+        url = _NAVER_LOCAL_ENDPOINT + '?' + urllib.parse.urlencode(
+            {'query': query.strip(), 'display': 5}
+        )
+        req = urllib.request.Request(url, headers={
+            'X-Naver-Client-Id': cid,
+            'X-Naver-Client-Secret': csec,
+        })
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+        items = data.get('items', []) or []
+        # title 에 <b> 태그 있음 (강조) → 제거
+        return tuple(
+            (
+                re.sub(r'<[^>]+>', '', d.get('title', '') or ''),
+                d.get('roadAddress', '') or '',
+            )
+            for d in items
+        )
+    except Exception as exc:
+        logger.debug(f'[NAVER/POI] {type(exc).__name__}: {query[:40]}')
+        return ()
+
+
+def _search_poi(query: str) -> tuple:
+    """POI 검색 통합 — 카카오 우선 + 네이버 병합 (2026-07-21).
+
+    두 소스 결과 concat 반환 → _enrich_with_poi/_try_poi_fallback 의 매칭 루프가
+    카카오 결과부터 순차 검증, 실패 시 네이버 결과로 자연 이동.
+    """
+    return _kakao_search_poi(query) + _naver_search_local(query)
+
+
 # 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22",
 # "봉은사로 26길 12", "부천로431번길 16")
 # - 한글 2글자 이상으로 도로명 시작 (1글자 "번길" 같은 오인 차단)
@@ -415,11 +464,15 @@ def _extract_building_tail(text: str) -> str:
         # 리딩 구분자/부호 정리 (사용자가 ". ", "/ ", "- " 같은 구분자 쓴 케이스)
         # 예: "완정로 24 . 이성빌딩" → group(1) = ". 이성빌딩" → "이성빌딩"
         tail = re.sub(r'^[,.·\-/\s]+', '', tail).strip()
-        # 종료 키워드까지 자르기
+        # 종료 키워드까지 자르기 — 앞의 여는 괄호도 함께 자름
+        # (2026-07-21 L-03317: "중국마사지샵(예정)" → '예정' 앞 '(' 만 남는 이슈)
         cut_pos = len(tail)
         for sw in _TAIL_STOP_WORDS:
             p = tail.find(sw)
             if 0 <= p < cut_pos:
+                # 앞에 여는 괄호·공백 있으면 그것도 함께 자르기
+                while p > 0 and tail[p-1] in '(（ ':
+                    p -= 1
                 cut_pos = p
         # 자유 구분자(/, |) 뒤의 추가 정보(평수/상세 등) 차단
         # 2026-07-20: '~' 는 호수 range (A201~205호) 로 흔히 쓰여서 제외.
@@ -851,14 +904,23 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
         + [c for c in candidates if c in verified_addr]
     )
     for cand in priority[:5]:
-        results = _kakao_search_poi(f'{cand} {region}'.strip())
+        results = _search_poi(f'{cand} {region}'.strip())
         for place_name, road_name in results:
             if not place_name or not road_name:
                 continue
             if _road_key(road_name) != v_key:
                 continue
-            # "상호 + 공백 + 지점명" 형태만 유의미 (아파트 세부 이름·유사 상호 배제)
-            if not place_name.startswith(cand + ' '):
+            # 매칭 조건 (2026-07-21 L-03316 확장):
+            #   - 정확 매치 or "cand + 공백 + 지점명" (기존, 예: 마성떡볶이 논현역점)
+            #   - place_name.endswith(cand) — 로컬 정식명이 접두 지역명 포함하는 케이스
+            #     (예: 한강듀클래스 → 김포한강듀클래스). endswith 만 허용해 오탐 방지
+            #     (L-03306 위례포레샤인 → 위례포레샤인23단지아파트 로 replace 되는 오탐 차단)
+            _match = (
+                place_name == cand
+                or place_name.startswith(cand + ' ')
+                or (len(cand) >= 4 and place_name.endswith(cand))
+            )
+            if not _match:
                 continue
             # 부속시설 blacklist (2026-07-20 L-03299 관측) — POI 두 번째 단어가
             # 부속시설이면 상호 지점이 아니라 시설 표시라 매니저 오해 소지. skip.
@@ -870,23 +932,27 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             ):
                 continue
             if cand in verified_addr:
-                # cand 뒤에 이미 지점명(place_name 두 번째 단어) 이 있으면 replace skip
-                # 예: verified='...현대시티아울렛 가산점 5층...' + place='현대시티아울렛 가산점 주차장'
-                #     → replace 하면 '현대시티아울렛 가산점 주차장 가산점 5층' 중복 (2026-07-13 L-03190)
                 place_words = place_name.split()
-                if len(place_words) < 2:
-                    continue
-                place_second = place_words[1]
-                verified_words = verified_addr.split()
-                already_has_branch = False
-                for i, w in enumerate(verified_words):
-                    if w == cand and i + 1 < len(verified_words):
-                        if verified_words[i + 1] == place_second:
-                            already_has_branch = True
-                            break
-                if already_has_branch:
-                    return verified_addr  # 이미 지점명 있음
-                return verified_addr.replace(cand, place_name, 1)
+                # 두 단어 이상 (cand + 지점명) — 기존 dedup 체크 후 replace.
+                #   예: verified='...현대시티아울렛 가산점 5층...' + place='현대시티아울렛 가산점 주차장'
+                #     → replace 하면 '현대시티아울렛 가산점 주차장 가산점 5층' 중복 (2026-07-13 L-03190)
+                if len(place_words) >= 2:
+                    place_second = place_words[1]
+                    verified_words = verified_addr.split()
+                    already_has_branch = False
+                    for i, w in enumerate(verified_words):
+                        if w == cand and i + 1 < len(verified_words):
+                            if verified_words[i + 1] == place_second:
+                                already_has_branch = True
+                                break
+                    if already_has_branch:
+                        return verified_addr  # 이미 지점명 있음
+                    return verified_addr.replace(cand, place_name, 1)
+                # 단어 1개 & place_name != cand — 접두 지역명·오탈자 정정 케이스.
+                #   예: cand='한강듀클래스' + place='김포한강듀클래스' → 접두 '김포' 부착 (2026-07-21 L-03316)
+                if place_name != cand:
+                    return verified_addr.replace(cand, place_name, 1)
+                continue  # 완전 동일 → 무의미
             return f'{verified_addr} {place_name}'.strip()
     return verified_addr
 
@@ -894,18 +960,20 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
 def _try_poi_fallback(text: str) -> Optional[str]:
     """카카오 verified 실패 케이스에서 POI(상호명) 검색으로 도로명 획득.
 
-    보수 조건 (2026-07-20 L-03292 관측, B-1):
-      - 원본에 '구' 있음 & '시/도' 없음 (매니저가 시/도 빼먹은 케이스만 타겟)
-      - 상호 후보 하나가 POI place_name 정확 시작
-      - POI 결과 road_address_name 에 원본 지역 힌트(구·동) 포함
+    조건 (2026-07-20 L-03292 최초 · 2026-07-21 L-03314 확장):
+      - 시/도 없음 (매니저가 시/도 빼먹은 케이스만 타겟)
+      - 상호 후보 하나가 POI place_name 정확 매치 (or 'cand ' 로 시작)
+      - POI 결과 road_address_name 이 원본 힌트와 매치:
+          · 구/동 있으면 → 지역 힌트 검증 (강한 필터)
+          · 구/동 없으면 → 도로명 접두어 검증 (오탐 방지)
+      - 구/동/도로명 다 없으면 skip (힌트 없이 검색 = 오탐 위험)
 
     Returns: normalize_display 결과 or None.
     """
     if not text:
         return None
     first_line = text.strip().split('\n', 1)[0].strip()
-    if not re.search(r'[가-힣]+구', first_line):
-        return None
+    # 시/도 있으면 skip (매니저 실수 케이스 대상 아님)
     if re.search(
         r'(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주|고양|성남|수원|용인|안양|안산|광명|시흥|화성|평택|김포)'
         r'(?:특별시|광역시|특별자치시|특별자치도|도|시)?',
@@ -917,8 +985,13 @@ def _try_poi_fallback(text: str) -> Optional[str]:
         return None
     m_region = re.search(r'([가-힣]+동)|([가-힣]+구)', first_line)
     region = (m_region.group(1) or m_region.group(2)) if m_region else ''
+    m_road = re.search(r'([가-힣]{2,}(?:대?로|길))\s*\d', first_line)
+    road_prefix = m_road.group(1) if m_road else ''
+    if not region and not road_prefix:
+        return None  # 힌트 없으면 위험 → skip
     for cand in candidates[:5]:
-        results = _kakao_search_poi(f'{cand} {region}'.strip())
+        query = f'{cand} {region}'.strip() if region else f'{cand} {road_prefix}'.strip()
+        results = _kakao_search_poi(query)
         if not results:
             continue
         for place_name, road_name in results:
@@ -927,8 +1000,11 @@ def _try_poi_fallback(text: str) -> Optional[str]:
             # 정확 매칭: cand == place_name 또는 place_name 이 "cand " 로 시작
             if not (place_name == cand or place_name.startswith(cand + ' ')):
                 continue
-            # 지역 힌트 검증 (구/동 이 road_name 에 있어야 함)
+            # 지역 힌트 있으면 검증 (구/동 이 road_name 에 있어야 함)
             if region and region not in road_name.replace(' ', ''):
+                continue
+            # 구/동 없으면 도로명 접두어 검증 (POI road 에 원본 도로명 포함)
+            if not region and road_prefix and road_prefix not in road_name:
                 continue
             # 상호명(cand) 부착 — POI 매칭 성공 = 그 상호가 정답. 도로명 뒤에 붙임.
             return f'{normalize_display(road_name)} {cand}'
