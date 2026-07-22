@@ -5126,6 +5126,24 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     _register_line = f">등록자 : {initial or '-'}"
     if self_visit_by:
         _register_line += ' (:raising_hand: *본인 방문 필수*)'
+    # 방문 주소 렌더 — 온라인 lead 카드와 동일 스타일로 통일 (2026-07-22)
+    # addr_note 로 정규화 결과 판별:
+    #   normalized + 원본 != 변환 → 원본/변환 두 줄
+    #   failed → 방문 주소 + [주소 확인 필요] 배지
+    #   그 외 (배지 없음) → 방문 주소 한 줄
+    _addr_lines = []
+    if addr_note and isinstance(addr_note, dict):
+        _kind = addr_note.get('kind', '')
+        _orig = (addr_note.get('original') or '').strip()
+        if _kind == 'normalized' and _orig and _orig != (visit_address or '').strip():
+            _addr_lines.append(f">*원본 주소* : {_orig}")
+            _addr_lines.append(f">*변환 주소* : {visit_address or '-'}")
+        elif _kind == 'failed':
+            _addr_lines.append(
+                f">방문 주소 : {visit_address or '-'}  :warning: *[주소 확인 필요]*"
+            )
+    if not _addr_lines:
+        _addr_lines.append(f">방문 주소 : {visit_address or '-'}")
     lines = [
         "⠀",
         f">:bell: *새 방문 일정* — {category_display}{header_suffix}",
@@ -5134,7 +5152,7 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
         f">방문일 : {visit_date or '-'}",
         f">이름 / 상호 : {name or '-'}",
         f">연락처 : {contact or '-'}",
-        f">방문 주소 : {visit_address or '-'}",
+        *_addr_lines,
     ]
     if consultation:
         # 재상담 이력 있으면 최신 회차 content 만 표시 (2026-07-22 L-03295 사고)
@@ -5153,14 +5171,8 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
             for ln in wrapped.split('\n'):
                 lines.append(f">{ln}")
     lines.append(f">{SEP}")
-    # 주소 정규화 배지 — 구분선 바깥 하단 (사업자등록증 배지와 동일 패턴)
-    if addr_note and isinstance(addr_note, dict):
-        _kind = addr_note.get('kind', '')
-        if _kind == 'normalized':
-            _orig = (addr_note.get('original') or '').strip()
-            lines.append(f":mag: 주소 자동 정정  (원본: {_orig})")
-        elif _kind == 'failed':
-            lines.append(':warning: 주소 확인 실패 — [정보 수정] 으로 재입력 요망')
+    # 하단 주소 정규화 배지 제거 (2026-07-22): 본문 상단 "원본/변환" 두 줄로 통합
+    # → 하단 :mag: 이모지가 오히려 시선 끌어 본문 놓치는 이슈 해소.
     body_text = '\n'.join(lines)
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": body_text}},
