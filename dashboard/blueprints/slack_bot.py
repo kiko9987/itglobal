@@ -5120,14 +5120,15 @@ def _wrap_diff_chunk(chunk: str, prev_ch: str, next_ch: str, marker: str) -> str
 
 
 def _highlight_addr_diff(original: str, converted: str) -> tuple:
-    """원본↔변환 diff 청크를 길이에 따라 다른 스타일로 감싼 (orig, conv) 튜플 반환.
+    """원본↔변환 diff 청크를 길이별 스타일로 감싼 (orig, conv) 튜플 반환.
 
-    - 청크 길이 ≤ 2 (자모/숫자 오탈자): 인라인 코드(`chunk`) — monospace 회색 배경
-    - 청크 길이 ≥ 3 (지역명·건물명 추가): 볼드(*chunk*)
+    - 청크 길이 = 1  (자모/숫자 오탈자 벨↔밸)  : 홑따옴표('chunk')
+    - 청크 길이 = 2  (짧은 오탈자)              : 인라인 코드(`chunk`)
+    - 청크 길이 ≥ 3  (지역명·건물명 추가)      : 볼드(*chunk*)
 
-    자모 1자 diff (벨→밸) 는 프로포셔널 폰트에서 안 보이므로 monospace 필수.
-    지역명·건물명 추가는 라벨 부담이 커 볼드로 완화.
-    청크가 한글/영문/숫자 사이에 낀 경우 Word Joiner 로 word boundary 확보.
+    자모 1자 차이는 어떤 마크다운 스타일로도 폰트상 구분 어려우므로 홑따옴표로
+    시선만 유도. 3자 이상은 라벨 부담 완화 위해 볼드. 청크가 한글/영문/숫자
+    사이에 낀 경우 Word Joiner 로 mrkdwn word boundary 확보.
 
     주의: blockquote(>) 컨텍스트 전용. 회색 코드블록(```) 안에선 mrkdwn 리터럴이라 사용 X.
     """
@@ -5144,7 +5145,15 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
             orig_parts.append(o)
             conv_parts.append(n)
             continue
-        marker = '`' if max(len(o), len(n)) <= 2 else '*'
+        max_len = max(len(o), len(n))
+        if max_len == 1:
+            # 홑따옴표는 mrkdwn 이 아니므로 WJ 불필요
+            if o:
+                orig_parts.append(f"'{o}'")
+            if n:
+                conv_parts.append(f"'{n}'")
+            continue
+        marker = '`' if max_len == 2 else '*'
         if o:
             prev_ch = original[i1 - 1] if i1 > 0 else ''
             next_ch = original[i2] if i2 < len(original) else ''
