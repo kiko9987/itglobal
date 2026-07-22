@@ -432,6 +432,12 @@ class SecurityMiddleware:
         """Rate Limiting 확인"""
         identifier = self._get_client_identifier()
 
+        # Slack 이벤트/명령은 Slack signing secret 으로 이미 인증됨.
+        # Slack 서버가 retry·events 대량 발송 시 1000/시간 쉽게 초과 →
+        # slash command 실패 (2026-07-22 /as 사고). rate limit 예외.
+        if request.path.startswith('/slack/'):
+            return True
+
         # 개발 환경에서는 rate limiting 대폭 완화
         is_development = self.app.config.get('DEBUG') or os.getenv('FLASK_ENV') == 'development'
 
