@@ -105,7 +105,7 @@ def normalize_display(addr: str) -> str:
         return ''
     tokens = addr.split()
     if len(tokens) < 2:
-        return addr
+        return _post_normalize_display(addr)
 
     first = tokens[0]
     second = tokens[1]
@@ -116,49 +116,49 @@ def normalize_display(addr: str) -> str:
         first = _PROV_FULL_TO_SHORT[first]
         tokens = [first, second] + rest
 
-    # 1. 서울 → 완전 제거
+    # 아래 모든 분기 결과를 result 로 모아 마지막에 후처리 통과 (2026-07-22)
     if first in _SEOUL:
-        return ' '.join(tokens[1:])
-
-    # 2. 광주광역시 (광주 + ○○구) → "전남 광주" prefix
-    if first in ('광주', '광주광역시') and second.endswith('구'):
-        return ' '.join(['전남', '광주'] + tokens[1:])
-
-    # 3. 광역시 (그대로)
-    if first in _METRO_KEEP:
-        return addr
-    # 풀네임 광역시 → 약식 (드물지만 fallback)
-    if first.endswith('광역시'):
-        short = first.replace('광역시', '')
-        if short in _METRO_KEEP:
-            return ' '.join([short] + tokens[1:])
-    if first in ('인천시', '부산시', '대구시', '대전시', '울산시', '세종시'):
-        return ' '.join([first[:-1]] + tokens[1:])
-
-    # 4. 제주 — "제주 제주" 중복만 한 번으로 (그 외 케이스는 그대로)
-    if first in ('제주도', '제주특별자치도'):
-        # 풀네임 → 약식 (그 다음 토큰은 그대로 유지)
+        result = ' '.join(tokens[1:])
+    elif first in ('광주', '광주광역시') and second.endswith('구'):
+        result = ' '.join(['전남', '광주'] + tokens[1:])
+    elif first in _METRO_KEEP:
+        result = addr
+    elif first.endswith('광역시') and first.replace('광역시', '') in _METRO_KEEP:
+        result = ' '.join([first.replace('광역시', '')] + tokens[1:])
+    elif first in ('인천시', '부산시', '대구시', '대전시', '울산시', '세종시'):
+        result = ' '.join([first[:-1]] + tokens[1:])
+    elif first in ('제주도', '제주특별자치도'):
         if second == '제주시':
-            return ' '.join(['제주'] + rest)
-        return ' '.join(['제주'] + tokens[1:])
-    if first == '제주' and second == '제주시':
-        return ' '.join(['제주'] + rest)
+            result = ' '.join(['제주'] + rest)
+        else:
+            result = ' '.join(['제주'] + tokens[1:])
+    elif first == '제주' and second == '제주시':
+        result = ' '.join(['제주'] + rest)
+    elif first in _PROV_SHORT:
+        if second.endswith('시') or second.endswith('군'):
+            result = ' '.join([second[:-1]] + rest)
+        else:
+            result = ' '.join(tokens[1:])
+    elif (first.endswith('시') and len(first) >= 3
+          and not first.endswith('광역시') and not first.endswith('특별시')
+          and (second.endswith('구') or second.endswith('읍') or second.endswith('면'))):
+        result = ' '.join([first[:-1]] + tokens[1:])
+    else:
+        result = addr
 
-    # 5. 일반 도 + ○○시/군 → prefix·접미 떼기
-    if first in _PROV_SHORT:
-        if second.endswith('시'):
-            return ' '.join([second[:-1]] + rest)
-        if second.endswith('군'):
-            return ' '.join([second[:-1]] + rest)
-        return ' '.join(tokens[1:])
+    return _post_normalize_display(result)
 
-    # 6. 도 prefix 없이 "○○시 ○○구/읍/면" 시작 — "화성시 만세구" → "화성 만세구"
-    if (first.endswith('시') and len(first) >= 3
-            and not first.endswith('광역시') and not first.endswith('특별시')):
-        if second.endswith('구') or second.endswith('읍') or second.endswith('면'):
-            return ' '.join([first[:-1]] + tokens[1:])
 
-    return addr
+def _post_normalize_display(addr: str) -> str:
+    """normalize_display 이후 미세 표기 정정 — 우리 관행에 맞게 (2026-07-22).
+
+    - 임야 지번 앞 '산' 접두어와 숫자 사이 공백 제거 ('산 57-22' → '산57-22')
+      카카오 verify 결과는 '산 57' 로 띄어쓰나 국내 관행상 붙여 씀.
+    """
+    if not addr:
+        return addr
+    # ' 산 (숫자)' → ' 산(숫자)'  (앞 공백 유지 = 다른 토큰 뒤 임을 보장)
+    return re.sub(r' 산 (\d)', r' 산\1', addr)
 
 
 @lru_cache(maxsize=512)
