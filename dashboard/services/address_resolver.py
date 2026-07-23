@@ -560,17 +560,24 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
         )
         if m_admin:
             _push(m_admin.group(1))
+
+    # 도로명+번지 추출 — first_line 통째보다 우선 (2026-07-23 ETC-1ad649)
+    # 카카오 verify 는 tail(상호명 등) 붙은 query 에서 번지를 잘못 근사하는 케이스 있음
+    # 예: '장승배기로20길 46-3 송학대교회' → 46 리턴 (잘못됨) vs
+    #     '장승배기로20길 46-3' → 46-3 리턴 (정확)
+    # 순수 도로명+번지 후보를 우선 시도해 첫 성공이 정확하도록 함.
+    if text:
+        for m in _ROAD_PATTERN.finditer(text):
+            _push(m.group(1))
+
+    if first_line:
         _push(first_line)
 
     if regex_addr:
         _push(regex_addr)
 
-    if first_line:
-        if ',' in first_line:
-            _push(first_line.split(',', 1)[0])
-        # 도로명+번지 추출 (본문 어디든)
-        for m in _ROAD_PATTERN.finditer(text):
-            _push(m.group(1))
+    if first_line and ',' in first_line:
+        _push(first_line.split(',', 1)[0])
 
     return out
 
