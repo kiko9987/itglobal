@@ -3351,7 +3351,7 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
             if platform in ('거래처', '기타', '소개'):
                 category_display = platform
             else:
-                category_display = f"온라인({platform})" if platform else '온라인'
+                category_display = f"온라인 ({platform})" if platform else '온라인'
 
             # 새 blocks 생성
             try:
@@ -5455,7 +5455,7 @@ def _process_visit_date_modify(client, body, view) -> None:
             category_display = category
         else:
             category = '온라인'
-            category_display = f"{category}({platform})" if platform else category
+            category_display = f"{category} ({platform})" if platform else category
 
         user_id = body["user"]["id"]
         initial = _slack_user_to_initial(client, user_id) or '-'
@@ -7246,7 +7246,7 @@ def _process_visit_uncancel(client, body) -> None:
             category_display = category
         else:
             category = '온라인'
-            category_display = f"{category}({platform})" if platform else category
+            category_display = f"{category} ({platform})" if platform else category
 
         initial = _slack_user_to_initial(client, user_id) or '-'
         visit_date_raw = str(lead.get('방문 예정일', '') or '').strip()
