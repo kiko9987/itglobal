@@ -4742,8 +4742,9 @@ def _process_consult_submission(client, body, view):
                 _reason = consultation.strip()
 
             _badge_lines = [
+                '⠀',  # 봇 헤더와 배지 사이 여백 (다른 완료 카드와 동일)
                 f':repeat: *부재중* (총 *{_count}회*)',
-                f'마지막 시도 : `{_now_for_card}` ({_initial_for_card})',
+                f'마지막 시도 : {_now_for_card} ({_initial_for_card})',
             ]
             if _reason:
                 _badge_lines.append(f'사유 : {_reason[:200]}')
