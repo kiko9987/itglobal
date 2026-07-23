@@ -6135,6 +6135,9 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
         logger.warning(f"[SLACK/방문수정] List update 실패 ({lead_no}): {exc}")
 
     # 카드 chat_update — 새 값으로 재구성
+    # 2026-07-23: 주소 변경 시 원본/변환 두 줄 표시 (수정 이력 추적).
+    #   기존 카드에 이미 원본 라인 있으면 그 값을 유지 (여러 번 수정 시 최초 raw 보존)
+    #   없으면 old_address (시트 저장 수정 전 값) 를 원본으로.
     try:
         lead = _find_lead_by_no(lead_no) or {}
         platform = str(lead.get('플랫폼', '')).strip()
@@ -6144,11 +6147,42 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
             category_display = f"온라인({platform})" if platform else '온라인'
         user_id = body['user']['id']
         initial = _slack_user_to_initial(client, user_id) or '-'
+
+        # 주소 변경 감지 → addr_note 조립 (원본/변환 두 줄)
+        old_address = str(old_lead.get('방문 주소') or '').strip()
+        addr_note = None
+        if old_address and old_address != new_address:
+            # 기존 카드에 이미 원본 라인 있으면 그 값을 새 원본으로 (매 수정 이력 손실 방지)
+            _orig_for_note = old_address
+            try:
+                import html as _html_pkg
+                _rp = client.conversations_replies(
+                    channel=channel, ts=message_ts, limit=1, inclusive=True,
+                )
+                _m = (_rp.get('messages') or [{}])[0]
+                _top = _html_pkg.unescape(
+                    ((_m.get('blocks') or [{}])[0].get('text') or {}).get('text', '')
+                )
+                _m_orig = re.search(r'(?m)^>\*원본 주소\* : (.+)$', _top)
+                if _m_orig:
+                    _raw_orig = _m_orig.group(1).strip()
+                    # 마크 문자 (홑따옴표/백틱/별표/WJ/ZWSP) 제거해 raw 복원
+                    _clean_orig = (
+                        _raw_orig.replace('`', '').replace('*', '')
+                        .replace("'", '').replace('⁠', '').replace('​', '')
+                    )
+                    if _clean_orig:
+                        _orig_for_note = _clean_orig
+            except Exception:
+                pass
+            addr_note = {'kind': 'normalized', 'original': _orig_for_note}
+
         body_text, blocks = _build_visit_notice_blocks(
             lead_no=lead_no, category_display=category_display, initial=initial,
             visit_date=new_visit_display,
             name=new_name, contact=new_phone,
             visit_address=new_address, consultation=new_consultation,
+            addr_note=addr_note,
         )
         client.chat_update(
             channel=channel, ts=message_ts, text=body_text, blocks=blocks,
