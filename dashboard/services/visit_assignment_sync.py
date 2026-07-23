@@ -596,7 +596,12 @@ def parse_assignment_canvas_full(html: str) -> Dict:
             continue
 
         # phone 있음 = 방문 라인
-        if current_section in (None, '_ONLINE_', '_OFF_'):
+        # 2026-07-23: 온라인 섹션 아래 phone 라인 = "이 방문 후 온라인 당번" 겸업 케이스.
+        #   앞 이니셜 조합(TH+SD)을 (1) 온라인 당번 등록 (2) 방문 assignment 로 추가.
+        #   (SJ) bracket 은 원 담당 표기로 유지.
+        if current_section == '_OFF_':
+            continue
+        if current_section is None:
             continue
 
         phone = phone_m.group(0)
@@ -606,10 +611,15 @@ def parse_assignment_canvas_full(html: str) -> Dict:
         else:
             phone_normalized = phone
         assign = _extract_lead_initials(line, initial_to_name)
-        if not assign and current_section:
+        if not assign and current_section and current_section != '_ONLINE_':
             # 섹션 헤더가 조합('YG+JK') 이면 split 해서 다중 배정.
             assign = [p for p in re.split(r'\+', current_section) if p]
         original = _extract_bracket_initial(line, initial_to_name)
+        # 온라인 섹션 겸업: 앞 이니셜 조합을 온라인 당번으로도 등록
+        if current_section == '_ONLINE_':
+            for _ini in (assign or []):
+                if _ini in initial_to_name and _ini not in online_duty:
+                    online_duty.append(_ini)
         assignments.append({
             'phone': phone_normalized,
             'phone_digits': phone_digits,
@@ -1072,6 +1082,30 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 lines.append(f'>:calendar: *시간대 배정* : {_shift_summary}')
                 lines.append('>')
             lines.append('>:headphones: 사무실에서 문의 응대 부탁드립니다.')
+            # 방문 겸업 안내 (2026-07-23): 온라인 당번이 방문도 겸업하는 경우
+            # v9 방문 DM 과 시맨틱 연결. 본인 겸업 vs 다른 당번 겸업 구분.
+            _dual_leads_self = []  # 본인이 겸업하는 lead: (name_or_shop, lead_no)
+            _dual_leads_others = []  # 다른 당번이 겸업: (mgr_names_str, name_or_shop, lead_no)
+            for _lno, _mgrs in lead_to_mgrs.items():
+                _lead = next((l for _p, l in filtered if str(l.get('리드 No') or '').strip() == _lno), None)
+                if not _lead:
+                    continue
+                _shop = str(_lead.get('고객명') or '').strip() or '-'
+                if duty_ini in _mgrs:
+                    _dual_leads_self.append((_shop, _lno))
+                elif set(_mgrs) & set(online_duty):
+                    _other_names = '·'.join(
+                        initial_to_name.get(i, i) for i in _mgrs if i in online_duty
+                    )
+                    _dual_leads_others.append((_other_names, _shop, _lno))
+            if _dual_leads_self:
+                lines.append('>')
+                for _shop, _lno in _dual_leads_self:
+                    lines.append(f'>:car: {_shop} 건 방문 후 온라인 상담 부탁드립니다.  `{_lno}`')
+            if _dual_leads_others:
+                lines.append('>')
+                for _names, _shop, _lno in _dual_leads_others:
+                    lines.append(f'>:car: {_names} 님은 {_shop} 건 방문 후 합류 예정입니다.  `{_lno}`')
             lines.append('>')
             lines.append(f'>:car: *{target_date.isoformat()} 방문 담당자 참고*')
             for cl in combo_lines:
