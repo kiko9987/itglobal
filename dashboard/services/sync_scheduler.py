@@ -265,6 +265,16 @@ def start_scheduler():
     )
     jobs.append('일 백업 매일 03:15')
 
+    # 2026-07-23 매일 아침 9시 부재중/미완료 리마인드 (온라인 문의 채널)
+    _scheduler.add_job(
+        _safe_absent_remind_daily,
+        'cron',
+        hour=9, minute=0,
+        id='absent_remind_daily',
+        replace_existing=True,
+    )
+    jobs.append('부재중 리마인드 매일 09:00')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -544,6 +554,16 @@ def _safe_channeltalk_pending_check():
                 logger.warning(f'[SCHED] 미배정 알림 예외: {exc}')
     except Exception as exc:
         logger.error(f'[SCHED] 채널톡 미배정 체크 실패: {exc}', exc_info=True)
+
+
+def _safe_absent_remind_daily():
+    """어제 미처리 문의 리마인드 카드 발송 (매일 아침 9시)."""
+    try:
+        from dashboard.services.absent_remind import send_daily_remind
+        result = send_daily_remind()
+        logger.info(f'[SCHED] 부재중 리마인드 실행 결과: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 부재중 리마인드 실패: {exc}', exc_info=True)
 
 
 def _safe_daily_backup():
