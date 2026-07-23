@@ -749,7 +749,48 @@ def verify_address(
                 and building_name.lower() not in base.lower()
                 and not _tail_has_building
             ):
-                base = f"{base} {building_name}"
+                # 2026-07-23 L-03329 관측: 같은 도로명 주소에 여러 건물 (KBS아레나·
+                # KBS스포츠월드) 이 실제 존재하는 케이스. 카카오 verify 는 이 주소의
+                # 대표 건물명 하나만 리턴 (스포츠월드) 하므로 원본 상호(아레나) 를
+                # 대체해버림. → 원본 상호가 실제 POI 로 존재하면 원본 존중.
+                _skip_bldg = False
+                # base 의 도로명+번지 keyword (POI road 매칭용)
+                _road_m = re.search(
+                    r'([가-힣A-Za-z]+\d*(?:대로|로|길)\s*\d+(?:-\d+)?)', base
+                )
+                _road_key = _road_m.group(1) if _road_m else ''
+                # 원본 상호 후보 리스트 — building_tail 우선, 실패 시 text 에서 도로명+번지 뒤 첫 단어
+                _tail_candidates = []
+                if building_tail:
+                    _tail_candidates.append(building_tail.strip().split()[0])
+                if text and _road_key:
+                    _m_tail = re.search(
+                        re.escape(_road_key) + r'\s+([^\s,·/\-|.]+)', text,
+                    )
+                    if _m_tail:
+                        _tail_candidates.append(_m_tail.group(1).strip())
+                # POI 검증 — 상호가 같은 도로명에 실제 존재하면 원본 유지
+                _confirmed_tail = ''
+                if _road_key:
+                    for _tail_key in _tail_candidates:
+                        if not _tail_key or len(_tail_key) < 2:
+                            continue
+                        # 카카오 building_name 과 같으면 skip 판정 불필요
+                        if _tail_key.lower() == building_name.lower():
+                            break
+                        for _pn, _road in _search_poi(_tail_key):
+                            if (_tail_key.lower() in (_pn or '').lower()
+                                    and _road_key in (_road or '')):
+                                _skip_bldg = True
+                                _confirmed_tail = _tail_key
+                                break
+                        if _skip_bldg:
+                            break
+                if _skip_bldg and _confirmed_tail and _confirmed_tail.lower() not in base.lower():
+                    # 원본 상호를 base 에 부착 (카카오 bldg 대신)
+                    base = f"{base} {_confirmed_tail}"
+                elif not _skip_bldg:
+                    base = f"{base} {building_name}"
             return (_compose(base), 'verified')
         jibun = doc.get('address')
         if jibun and jibun.get('address_name'):
