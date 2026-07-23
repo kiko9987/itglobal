@@ -4744,10 +4744,11 @@ def _process_consult_submission(client, body, view):
             _badge_lines = [
                 '⠀',  # 봇 헤더와 배지 사이 여백 (다른 완료 카드와 동일)
                 f':arrows_counterclockwise: *부재중* (총 *{_count}회*)',
-                f'마지막 시도 : {_now_for_card} ({_initial_for_card})',
+                f'처리자 : {_initial_for_card}',
+                f'처리 시간 : {_now_for_card}',
             ]
             if _reason:
-                _badge_lines.append(f'사유 : {_reason[:200]}')
+                _badge_lines.append(f'상담 내용 : {_reason[:200]}')
             _badge_text = '\n'.join(_badge_lines)
             try:
                 # 기존 카드 blocks fetch → 상단 배지 replace (context/section 둘 다 감지)
@@ -6386,7 +6387,7 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
             pass
         new_text = (
             f"🚫 *방문 취소*  `{lead_no}`\n"
-            f"취소한 사람 : {initial}\n"
+            f"취소자 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"취소 사유 : {reason}\n"
             f"\n"
@@ -6493,7 +6494,7 @@ def _process_visit_cancel(client, body) -> None:
 
         new_text = (
             f"🚫 *방문 취소*  `{lead_no}`\n"
-            f"취소한 사람 : {initial}\n"
+            f"취소자 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
             f"```\n{clean_text}\n```"
@@ -7935,7 +7936,7 @@ def _process_project_cancel(client, body) -> None:
 
         new_text = (
             f"🚫 *고객 요청으로 공사 취소*  `{code}`\n"
-            f"취소한 사람 : {initial}\n"
+            f"취소자 : {initial}\n"
             f"취소 시간 : {cancel_time}\n"
             f"\n"
             f"```\n{clean_text}\n```"
