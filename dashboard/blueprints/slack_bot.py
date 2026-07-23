@@ -5165,9 +5165,10 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
     sm = SequenceMatcher(None, original, converted, autojunk=False)
     opcodes = sm.get_opcodes()
     # 공백/문장부호만 있는 diff 청크는 equal 로 취급 (하이라이트 스킵).
-    # ' ' vs '' 나 '(주)' vs ''  중 후자는 유효하지만 순수 공백/부호는 노이즈.
+    # insert('' vs ' ') / delete(' ' vs '') 도 순수 공백이면 skip (2026-07-23 ETC-678632)
     def _is_noise(chunk: str) -> bool:
-        return chunk != '' and not re.search(r'[가-힣A-Za-z0-9]', chunk)
+        # 빈 문자열도 noise (insert/delete 짝의 반대편 처리)
+        return not re.search(r'[가-힣A-Za-z0-9]', chunk)
     meaningful_chunks = [(t, i1, i2, j1, j2) for t, i1, i2, j1, j2 in opcodes
                         if t != 'equal' and not (_is_noise(original[i1:i2]) and _is_noise(converted[j1:j2]))]
     # 청크가 너무 많으면 (오탈자 여러 곳 + 공백 정정) 하이라이트 자체가 노이즈 →
