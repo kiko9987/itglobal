@@ -4743,6 +4743,7 @@ def _process_consult_submission(client, body, view):
 
             _badge_lines = [
                 '⠀',  # 봇 헤더와 배지 사이 여백 (다른 완료 카드와 동일)
+                # 부재중은 원본 body 그대로 노출 (lead_no 이미 원본에 있음) → 배지에 lead_no 중복 X
                 f':arrows_counterclockwise: *부재중* (총 *{_count}회*)',
                 f'처리자 : {_initial_for_card}',
                 f'처리 시간 : {_now_for_card}',
@@ -4796,9 +4797,10 @@ def _process_consult_submission(client, body, view):
                     clean_text = _normalize_shortcodes_to_unicode(clean_text)
                 except Exception:
                     pass
+                _hdr_lno = f"  `{lead_no}`" if lead_no else ""
                 header_lines = [
                     "⠀",
-                    f":white_check_mark: *상담 완료 - {status}*",
+                    f":white_check_mark: *상담 완료 - {status}*{_hdr_lno}",
                     f"처리자 : {initial}",
                     f"처리 시간 : {cancel_time}",
                 ]
