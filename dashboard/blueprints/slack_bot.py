@@ -4721,7 +4721,9 @@ def _process_consult_submission(client, body, view):
         _now_for_card = datetime.now().strftime('%m.%d %H:%M')
 
         if original_text and status == '부재중':
-            # 부재중 — 원본 카드 유지 + 상단에 부재중 배지 (재클릭 시 시각·횟수 갱신)
+            # 부재중 — 원본 카드 body 유지 (재시도 시 문의 내용·주소 참고 필수) +
+            # 상단에 section 크기 배지. 재클릭 시 배지만 갈아끼우기 (시각·회차·사유 갱신).
+            # (2026-07-23) context → section 승격, 사유 라인 포함.
             try:
                 from dashboard.utils.redis_client import get_redis_client
                 _rc = get_redis_client().redis
@@ -4731,26 +4733,40 @@ def _process_consult_submission(client, body, view):
             except Exception:
                 _count = 1
 
-            _badge_text = (
-                f':repeat: *부재중* — 마지막 시도: `{_now_for_card}` ({_initial_for_card}) · '
-                f'총 *{_count}회*'
-            )
+            # 부재중 사유 — 이번 회차 상담 모달 입력값 or 시트 상담 내용 최신 회차
+            _reason = ''
+            _entries = _parse_consultation_entries(full_consultation) if full_consultation else []
+            if _entries:
+                _reason = (_entries[-1].get('content') or '').strip()
+            elif consultation:
+                _reason = consultation.strip()
+
+            _badge_lines = [
+                f':repeat: *부재중* (총 *{_count}회*)',
+                f'마지막 시도 : `{_now_for_card}` ({_initial_for_card})',
+            ]
+            if _reason:
+                _badge_lines.append(f'사유 : {_reason[:200]}')
+            _badge_text = '\n'.join(_badge_lines)
             try:
-                # 기존 카드 blocks fetch → 상단 배지 replace (기존 배지 있으면 갈아끼우기)
+                # 기존 카드 blocks fetch → 상단 배지 replace (context/section 둘 다 감지)
                 _rp = client.conversations_replies(channel=channel, ts=message_ts, limit=1, inclusive=True)
                 _root = ((_rp.get('messages') or [{}])[0]) if _rp else {}
                 _existing_blocks = list(_root.get('blocks') or [])
-                _has_badge = (
-                    _existing_blocks
-                    and _existing_blocks[0].get('type') == 'context'
-                    and any(
-                        '부재중' in ((el.get('text') or '') if isinstance(el, dict) else '')
-                        for el in (_existing_blocks[0].get('elements') or [])
-                    )
-                )
+                _has_badge = False
+                if _existing_blocks:
+                    _first = _existing_blocks[0]
+                    if _first.get('type') == 'context':
+                        _has_badge = any(
+                            '부재중' in ((el.get('text') or '') if isinstance(el, dict) else '')
+                            for el in (_first.get('elements') or [])
+                        )
+                    elif _first.get('type') == 'section':
+                        _txt = ((_first.get('text') or {}).get('text') or '')
+                        _has_badge = '*부재중*' in _txt and '마지막 시도' in _txt
                 _badge_block = {
-                    'type': 'context',
-                    'elements': [{'type': 'mrkdwn', 'text': _badge_text}],
+                    'type': 'section',
+                    'text': {'type': 'mrkdwn', 'text': _badge_text},
                 }
                 if _has_badge:
                     _existing_blocks[0] = _badge_block
