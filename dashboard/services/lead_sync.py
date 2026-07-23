@@ -924,6 +924,65 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
     return False
 
 
+def _post_visit_link_reply_to_lead_card(client, lead_no: str,
+                                        visit_channel: str, visit_ts: str,
+                                        user_name: str = '') -> None:
+    """온라인 lead 카드 thread 에 방문 카드 permalink 링크 reply.
+
+    매니저 수동 상담 완료(방문 예약) flow 의 permalink reply(_process_consult_submission)
+    와 UX 통일 — 전화 workflow 자동 등록도 같은 형식으로 반영.
+
+    lead_card_msg:{lead_no} → (channel, ts) 조회 후 thread 에 짧은 reply.
+    """
+    if not visit_channel or not visit_ts:
+        return
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        v = rc.get(f'lead_card_msg:{lead_no}')
+    except Exception:
+        return
+    if not v:
+        return
+    raw = v.decode() if isinstance(v, bytes) else v
+    if '|' not in raw:
+        return
+    lead_ch, lead_ts = raw.split('|', 1)
+    # permalink 조회
+    try:
+        perm = client.chat_getPermalink(channel=visit_channel, message_ts=visit_ts)
+        permalink = (perm or {}).get('permalink', '')
+    except Exception as exc:
+        logger.debug(f'[SYNC/전화WF] permalink 조회 실패 ({lead_no}): {exc}')
+        permalink = ''
+    # 등록자 이니셜 (user_name 있으면 이니셜 추출)
+    ini = '-'
+    if user_name:
+        try:
+            from dashboard.blueprints.slack_helpers import _to_initial
+            ini = _to_initial(user_name) or '-'
+        except Exception:
+            pass
+    if permalink:
+        reply_text = (
+            f':white_check_mark: *방문 예약 등록* — `{lead_no}` by `{ini}`\n'
+            f':round_pushpin: <{permalink}|#방문_일정 카드에서 상세 보기>'
+        )
+    else:
+        reply_text = (
+            f':white_check_mark: *방문 예약 등록* — `{lead_no}` by `{ini}`\n'
+            f'_(#방문_일정 채널에 카드 발송됨)_'
+        )
+    try:
+        client.chat_postMessage(
+            channel=lead_ch, thread_ts=lead_ts, text=reply_text,
+            unfurl_links=True,  # 방문 카드 unfurl embed 원함
+        )
+        logger.info(f'[SYNC/전화WF] permalink reply 완료 ({lead_no})')
+    except Exception as exc:
+        logger.warning(f'[SYNC/전화WF] permalink reply postMessage 실패 ({lead_no}): {exc}')
+
+
 # ─────────────────────────────────────────────────────────────
 # 인입 알림 블록 (홈페이지/당근/기타 플랫폼 공용) - 동적 타이틀
 # ─────────────────────────────────────────────────────────────
@@ -2119,6 +2178,18 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                             )
                             result['visit_notified'] += 1
                             card_ok = True
+                            # 2026-07-23: 전화 workflow 로 등록된 방문 예약도 온라인 lead
+                            # 카드 thread 에 방문 카드 permalink 링크 reply.
+                            # (매니저 수동 상담 완료 flow 와 동일 UX — L-03344 사례)
+                            try:
+                                _post_visit_link_reply_to_lead_card(
+                                    client, lead['lead_no'], notice_channel, notice_ts,
+                                    lead.get('user_name', ''),
+                                )
+                            except Exception as _exc:
+                                logger.warning(
+                                    f"[SYNC/전화WF] permalink reply 실패 ({lead['lead_no']}): {_exc}"
+                                )
                         except Exception as exc:
                             logger.error(
                                 f"[SYNC/전화WF] #방문_일정 카드 실패 ({lead['lead_no']}): {exc}",
