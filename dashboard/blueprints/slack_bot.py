@@ -5240,15 +5240,21 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
         _kind = addr_note.get('kind', '')
         _orig = (addr_note.get('original') or '').strip()
         if _kind == 'normalized' and _orig and _orig != (visit_address or '').strip():
-            _orig_hl, _conv_hl = _highlight_addr_diff(_orig, (visit_address or '').strip())
+            # 개행 → 공백 정규화 (2026-07-24 L-03361): 원본/변환 안 개행이 남으면
+            # blockquote 다음 줄이 인용 밖으로 삐져나와 잘못 렌더됨.
+            _orig_norm = re.sub(r'\s+', ' ', _orig).strip()
+            _conv_norm = re.sub(r'\s+', ' ', (visit_address or '').strip())
+            _orig_hl, _conv_hl = _highlight_addr_diff(_orig_norm, _conv_norm)
             _addr_lines.append(f">*원본 주소* : {_orig_hl}")
             _addr_lines.append(f">*변환 주소* : {_conv_hl}")
         elif _kind == 'failed':
+            _va_norm = re.sub(r'\s+', ' ', visit_address or '-').strip()
             _addr_lines.append(
-                f">방문 주소 : {visit_address or '-'}  :warning: *[주소 확인 필요]*"
+                f">방문 주소 : {_va_norm}  :warning: *[주소 확인 필요]*"
             )
     if not _addr_lines:
-        _addr_lines.append(f">방문 주소 : {visit_address or '-'}")
+        _va_norm = re.sub(r'\s+', ' ', visit_address or '-').strip()
+        _addr_lines.append(f">방문 주소 : {_va_norm}")
     lines = [
         "⠀",
         f">:bell: *새 방문 일정* — {category_display}{header_suffix}",
