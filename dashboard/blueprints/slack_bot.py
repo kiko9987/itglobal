@@ -8393,7 +8393,9 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         code = ''
 
     user_id = body.get('user', {}).get('id', '')
-    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    # 2026-07-24: 세금계산서 요청은 #계산서_관리 채널로 분리. 공사수정·취소는 #영업_관리 유지.
+    channel_id = os.getenv('SLACK_INVOICE_REQUEST_CHANNEL_ID', '').strip() \
+        or os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
 
     # 중복 submit lock — 첫 submit 만 통과. 실패 시 매니저가 다시 요청 카드에서
     # 열어 새 view_id 로 재제출 가능하므로 lock 유지해도 무방.
@@ -8473,10 +8475,15 @@ def _process_invoice_submit_bg(client, body, view) -> None:
 
 
 def _process_invoice_submission(client, body, view) -> None:
-    """모달 제출 → #영업_관리 채널에 계산서 요청 카드 발송."""
-    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    """모달 제출 → #계산서_관리 채널에 계산서 요청 카드 발송.
+
+    (2026-07-24) 세금계산서 요청 카드는 #계산서_관리 로 분리 발송.
+    공사수정·취소 알림 (SLACK_INVOICE_CHANNEL_ID) 과는 채널 분리.
+    """
+    channel_id = os.getenv('SLACK_INVOICE_REQUEST_CHANNEL_ID', '').strip() \
+        or os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
     if not channel_id:
-        logger.warning('[SLACK/계산서] SLACK_INVOICE_CHANNEL_ID 미설정 — 발송 skip')
+        logger.warning('[SLACK/계산서] SLACK_INVOICE_REQUEST_CHANNEL_ID 미설정 — 발송 skip')
         return
 
     metadata = json.loads(view.get("private_metadata") or "{}")
