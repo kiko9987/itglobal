@@ -5068,7 +5068,7 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
     if not visit_channel:
         return
     _kind = addr_note.get('kind', '')
-    if _kind not in ('normalized', 'failed'):
+    if _kind not in ('normalized', 'failed', 'note_only'):
         return
 
     # 등록자 slack user_id 확보
@@ -5096,6 +5096,7 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
 
     _orig = (addr_note.get('original') or '').strip()
     _norm = (addr_note.get('normalized') or '').strip()
+    _moved = (addr_note.get('moved_notes') or '').strip()
     if _kind == 'normalized':
         text = (
             f":mag: 방금 등록한 `{lead_no}` 방문 주소가 "
@@ -5105,12 +5106,29 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
             "정정된 주소가 맞는지 위 카드에서 확인 부탁드립니다.\n"
             "잘못 매핑됐다면 [✏️ 정보 수정] 으로 다시 입력해주세요."
         )
-    else:  # failed
+    elif _kind == 'failed':
         text = (
             f":warning: 방금 등록한 `{lead_no}` 방문 주소를 "
             f"카카오 API 가 인식하지 못했습니다.\n"
             "위 카드에서 [✏️ 정보 수정] 으로 정확한 주소를 다시 입력해주세요.\n\n"
             f"  입력값: {_orig}"
+        )
+    else:  # note_only
+        text = (
+            f":memo: 방금 등록한 `{lead_no}` 방문 주소에 특이사항이 함께 있어 "
+            f"자동으로 상담 내용으로 옮겼습니다.\n\n"
+            f"  옮긴 내용: {_moved}\n\n"
+            "*다음부터는 방문 주소 필드에는 주소만*, "
+            "특이사항(방문 전 연락 요망 등) 은 상담 내용 필드에 넣어주세요.\n"
+            "카카오 주소 정규화가 어긋날 수 있어 원문에 넣어주시는 게 정확합니다."
+        )
+
+    # 정규화·실패 알림 발송 시 특이사항 이동도 있으면 뒷부분에 안내 append
+    if _kind in ('normalized', 'failed') and _moved:
+        text += (
+            f"\n\n:memo: 참고 — 방문 주소에 함께 있던 특이사항 "
+            f"`{_moved}` 은 상담 내용으로 옮겨두었습니다.\n"
+            "*다음부터는 특이사항은 상담 내용 필드에 넣어주세요.*"
         )
     try:
         client.chat_postEphemeral(

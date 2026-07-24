@@ -2014,6 +2014,20 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         f'[SYNC/전화WF] 주소 정규화 실패 ({new_lead_no}): {exc}'
                     )
 
+            # 특이사항 이동 사실을 addr_note 에 첨부 (2026-07-24 L-03361)
+            # → _post_addr_note_ephemeral 이 매니저에게만 안내 ephemeral 발송.
+            if extra_notes and _platform_this in {'거래처', '기타', '소개', '전화'}:
+                if addr_note is None:
+                    # 정규화 조건 안 걸림 (성공 & 원본 동일 등) → note_only 로 알림만
+                    addr_note = {
+                        'kind': 'note_only',
+                        'original': addr_raw,
+                        'normalized': addr_raw,
+                        'moved_notes': extra_notes,
+                    }
+                else:
+                    addr_note['moved_notes'] = extra_notes
+
             # 빈 텍스트 셀 정규화 — 워크플로우가 값 안 넣은 옵션 필드는 '-' 로
             # J(문의 내용)는 전화 시맨틱상 항상 '-' — 워크플로우 매핑도 '-' 고정
             # 방문 주소(I) 는 위에서 별도 처리 (거래처 정규화) — 여기서는 원본 빈 값만 '-'.
