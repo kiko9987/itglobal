@@ -5558,6 +5558,11 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
     )
     if cur_consultation == '-':
         cur_consultation = ''
+    # 2026-07-24: 재상담 헤더 (`[MM.DD HH:MM 이니셜 · 상태]`) 포함된 값이 모달
+    # initial_value 로 노출되면 매니저 UX 나쁨. 최신 회차 content 만 pre-fill.
+    # 매니저가 편집 후 저장 시 헤더는 유실되지만 방문 카드 회색 처리에 이력 남음.
+    if cur_consultation:
+        cur_consultation = _extract_latest_consult_content(cur_consultation) or cur_consultation
 
     metadata = json.dumps({
         'lead_no': lead_no,
