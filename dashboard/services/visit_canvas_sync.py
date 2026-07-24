@@ -141,7 +141,7 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     # 본인 방문 필수 마커 (2026-07-17) — O열 값 감지
     _self_visit_marker = ''
     if '본인 방문 필수' in str(lead.get('본인 방문 여부') or ''):
-        _self_visit_marker = ':raising_hand: '
+        _self_visit_marker = ':man-raising-hand: '
 
     vd = _fmt_visit_date(lead.get('방문 예정일'))
     phone = str(lead.get('고객 연락처') or '').strip() or '-'

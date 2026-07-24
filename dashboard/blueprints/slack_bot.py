@@ -4513,7 +4513,7 @@ def _process_consult_submission(client, body, view):
     # (시트 저장 → 방문 카드/캔버스/List 자동 반영, 매니저는 이니셜로 자신임을 확인)
     if is_visit and assign_self_yes:
         _register_initial = _slack_user_to_initial(client, user_id) or '-'
-        _tag = f':raising_hand: 본인 방문 필수({_register_initial})'
+        _tag = f':man-raising-hand: 본인 방문 필수({_register_initial})'
         if consultation:
             consultation = f'{_tag} — {consultation}'
         else:
@@ -5247,7 +5247,7 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     # 등록자 라인 — 본인 방문 필수 시 인라인 배지 (2026-07-17)
     _register_line = f">등록자 : {initial or '-'}"
     if self_visit_by:
-        _register_line += ' (:raising_hand: *본인 방문 필수*)'
+        _register_line += ' (:man-raising-hand: *본인 방문 필수*)'
     # 방문 주소 렌더 — 온라인 lead 카드와 동일 스타일로 통일 (2026-07-22)
     # addr_note 로 정규화 결과 판별:
     #   normalized + 원본 != 변환 → 원본/변환 두 줄

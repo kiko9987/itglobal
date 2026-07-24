@@ -426,6 +426,7 @@ _SHORTCODE_TO_EMOJI = {
     ':calendar:': '📅',
     ':wave:': '👋',
     ':raising_hand:': '🙋',
+    ':man-raising-hand:': '🙋‍♂️',
     ':page_facing_up:': '📄',
     ':mag:': '🔍',
     ':repeat:': '🔁',
