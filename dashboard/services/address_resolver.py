@@ -1022,9 +1022,12 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             # 부속시설이면 상호 지점이 아니라 시설 표시라 매니저 오해 소지. skip.
             # 예: "캠브리지빌딩 주차장" (place_second='주차장') → 원본에 없는 시설 부착
             _place_words = place_name.split()
+            # 2026-07-24 L-03376 추가: '관리단', '관리사무소', '관리소', '사무실', '경비실'
+            #   ('판교디지털센터 관리단' → '관리단' 부착 케이스 방지).
             if len(_place_words) >= 2 and _place_words[1] in (
                 '주차장', '지하주차장', '지상주차장', '지하', '옥상',
                 '화장실', '엘리베이터', '별관', '분관',
+                '관리단', '관리사무소', '관리소', '사무실', '경비실',
             ):
                 continue
             if cand in verified_addr:
