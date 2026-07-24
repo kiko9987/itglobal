@@ -8621,24 +8621,46 @@ def _process_invoice_submission(client, body, view) -> None:
 
     # 카드 스레드에 프로젝트 사업자등록증 canonical 파일 자동 첨부.
     # (2026-07-16 UX 개선 — 매니저가 공사확정 채널 왔다갔다 안 하도록 스레드에서 즉시 열람 가능.)
-    # 실패해도 카드 발송은 유지 — 조용히 warning 로그만.
+    # (2026-07-24 retry 3회 + 실패 시 안내 reply — SSL 일시 실패로 누락되지 않도록.)
     def _attach_license_to_thread():
-        try:
-            from dashboard.services.business_license_handler import fetch_license_canonical
-            lic = fetch_license_canonical(code)
-            if not lic:
-                logger.info(f"[SLACK/계산서] 사업자등록증 canonical 없음 → 스레드 첨부 skip ({code})")
+        from dashboard.services.business_license_handler import fetch_license_canonical
+        backoffs = [0, 2, 5]  # 즉시 → 2초 → 5초 (총 3회)
+        last_exc = None
+        for attempt, delay in enumerate(backoffs, start=1):
+            if delay:
+                time.sleep(delay)
+            try:
+                lic = fetch_license_canonical(code)
+                if not lic:
+                    logger.info(f"[SLACK/계산서] 사업자등록증 canonical 없음 → 스레드 첨부 skip ({code})")
+                    return  # canonical 자체가 없는 건 재시도 무의미
+                invoice_client.files_upload_v2(
+                    channel=channel_id,
+                    thread_ts=ts,
+                    file=lic['content'],
+                    filename=lic['file_name'],
+                    initial_comment=f":page_facing_up: 사업자등록증 — `{code}`",
+                )
+                logger.info(f"[SLACK/계산서] 사업자등록증 스레드 첨부 완료 (attempt={attempt}): {code} ({lic['file_name']})")
                 return
-            invoice_client.files_upload_v2(
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(f"[SLACK/계산서] 사업자등록증 첨부 시도 {attempt}/3 실패 ({code}): {exc}")
+
+        # 3회 모두 실패 — 스레드에 매니저 안내 reply (수동 첨부 유도)
+        logger.error(f"[SLACK/계산서] 사업자등록증 스레드 첨부 최종 실패 ({code}): {last_exc}")
+        try:
+            invoice_client.chat_postMessage(
                 channel=channel_id,
                 thread_ts=ts,
-                file=lic['content'],
-                filename=lic['file_name'],
-                initial_comment=f":page_facing_up: 사업자등록증 — `{code}`",
+                text=(
+                    f":warning: 사업자등록증 자동 첨부 실패 (`{code}`) — "
+                    f"이 스레드에 파일을 수동으로 첨부해주세요."
+                ),
+                unfurl_links=False, unfurl_media=False,
             )
-            logger.info(f"[SLACK/계산서] 사업자등록증 스레드 첨부 완료: {code} ({lic['file_name']})")
-        except Exception as exc:
-            logger.warning(f"[SLACK/계산서] 사업자등록증 스레드 첨부 실패 (무시, {code}): {exc}")
+        except Exception as notify_exc:
+            logger.warning(f"[SLACK/계산서] 실패 안내 reply 발송 실패 ({code}): {notify_exc}")
 
     threading.Thread(target=_attach_license_to_thread, daemon=True).start()
 
