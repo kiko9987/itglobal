@@ -1032,6 +1032,12 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 # 두 단어 이상 (cand + 지점명) — 기존 dedup 체크 후 replace.
                 #   예: verified='...현대시티아울렛 가산점 5층...' + place='현대시티아울렛 가산점 주차장'
                 #     → replace 하면 '현대시티아울렛 가산점 주차장 가산점 5층' 중복 (2026-07-13 L-03190)
+                # 2026-07-24 L-03379 fix: place_words 모든 단어가 verified 안에 이미 있으면 skip.
+                #   기존 `already_has_branch` 는 `verified_words[i] == cand` 정확 매치라
+                #   `미원스페셜티케미칼(주)` 처럼 접미 (주)/㈜ 붙은 형태 인식 못함.
+                #   substring 검사로 확장 — verified 에 상호+지점 모두 있으면 replace 무의미.
+                if len(place_words) >= 2 and all(w in verified_addr for w in place_words):
+                    continue
                 if len(place_words) >= 2:
                     place_second = place_words[1]
                     verified_words = verified_addr.split()
