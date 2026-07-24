@@ -179,12 +179,19 @@ def _fetch_visit_leads() -> List[Dict]:
         if status != '방문 예약':
             continue
         _lno = str(row.get('리드 No') or '').strip()
+        # 이중 필터 (2026-07-24 Redis 대량 손실 사고 이후):
+        #   1) Redis flag `visit_auto_completed:{lead_no}` 있으면 완료
+        #   2) 시트 K열 (상담 내용) 에 `[... · 방문 완료]` 마커 있으면 완료
+        #   → Redis 손실해도 시트가 source of truth 로 커버.
         if _rc is not None and _lno:
             try:
                 if _rc.get(f'visit_auto_completed:{_lno}'):
-                    continue  # 방문 완료 처리됨
+                    continue  # 방문 완료 처리됨 (Redis flag)
             except Exception:
                 pass
+        _consult = str(row.get('상담 내용') or '')
+        if re.search(r'·\s*방문 완료\]', _consult):
+            continue  # 방문 완료 처리됨 (시트 마커)
         # 방문 예정일 파싱 — 오늘 이전이면 제외 (범위면 종료일 기준)
         vd_raw = str(row.get('방문 예정일') or '').strip().lstrip("'")
         vd_date: Optional[date] = None

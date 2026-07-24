@@ -63,7 +63,11 @@ if !errorlevel! equ 0 (
     echo   Redis 컨테이너 실행됨.
 ) else (
     echo   [경고] 기존 redis 컨테이너 없음. 새로 생성...
-    docker run -d --name redis -p 6379:6379 --restart unless-stopped redis:alpine
+    REM 2026-07-24 사고 대응: --appendonly yes 추가.
+    REM AOF (Append-Only File) 로 명령 단위 persistence 확보 → 대량 삭제 사고 시
+    REM RDB 5분 gap 보다 훨씬 촘촘한 복원 가능. 볼륨 -v redis-data:/data 로 파일 유지.
+    docker run -d --name redis -p 6379:6379 --restart unless-stopped ^
+        -v redis-data:/data redis:alpine redis-server --appendonly yes
     if !errorlevel! neq 0 (
         echo   [오류] Redis 컨테이너 생성 실패.
         goto :error

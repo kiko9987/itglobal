@@ -6228,6 +6228,35 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
             logger.warning(f"[SLACK/방문수정] 변경 알림 예약 실패 ({lead_no}): {exc}")
 
 
+def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> None:
+    """시트 K열 (상담 내용) 에 `[MM.DD HH:MM 이니셜 · 방문 완료]` 마커 append.
+
+    2026-07-24 이중 필터 도입 — Redis flag (`visit_auto_completed:*`) 대량 손실 사고 대비.
+    캔버스 sync 가 이 마커로도 완료 판정 → Redis 만 의존하지 않음.
+
+    - ETC 리드는 시트에 없어서 skip
+    - 이미 마커 있으면 중복 append 방지
+    - dt_str 형식: 'MM.DD HH:MM' (호출자에서 이미 datetime.now().strftime)
+    """
+    if _is_etc_lead(lead_no):
+        return
+    try:
+        lead = _find_lead_by_no(lead_no) or {}
+        cur = str(lead.get('상담 내용', '') or '').strip()
+        marker = f'[{dt_str} {initial} · 방문 완료]'
+        if re.search(r'·\s*방문 완료\]', cur):
+            return  # 이미 마커 있음
+        # 재상담 형식과 통일 — 기존 값 뒤에 ─── 구분자 + 마커 append
+        if cur and cur != '-':
+            new_content = f'{cur} ─── {marker}'
+        else:
+            new_content = marker
+        _update_lead_dispatch(lead_no, {'상담 내용': new_content})
+        logger.info(f'[SLACK/방문완료] 시트 마커 append: {lead_no} → {marker}')
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문완료] 시트 마커 append 실패 ({lead_no}): {exc}')
+
+
 def _process_visit_complete(client, body) -> None:
     """[✅ 방문 완료] 클릭 처리 — 슬랙 리스트 삭제 + 카드 회색 박스 변환.
 
@@ -6294,6 +6323,13 @@ def _process_visit_complete(client, body) -> None:
         rc.delete(f'dm_sent:{lead_no}')
     except Exception as exc:
         logger.warning(f"[SLACK/방문완료] flag set 실패 ({lead_no}): {exc}")
+
+    # 3-2) 시트 K열 (상담 내용) 에 방문 완료 마커 append (2026-07-24 이중 필터)
+    #      Redis flag 손실 사고 (07-24 대량 삭제) 대비. 시트가 source of truth.
+    #      캔버스 sync 가 K열 마커도 확인 → flag/시트 둘 중 하나만 있어도 필터 성공.
+    #      ETC 리드는 시트에 없어서 skip.
+    _mark_visit_complete_on_sheet(lead_no, initial=initial, dt_str=complete_time)
+
     try:
         from dashboard.services.visit_canvas_sync import rebuild_canvas_async
         rebuild_canvas_async()
@@ -7295,6 +7331,9 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
             rc.delete(f'dm_sent:{lead_no}')
         except Exception:
             pass
+
+    # 3-2) 시트 K열 (상담 내용) 에 방문 완료 마커 append (2026-07-24 이중 필터)
+    _mark_visit_complete_on_sheet(lead_no, initial=initial, dt_str=complete_time)
 
 
 def _process_visit_shop_name_update(client, event) -> None:
