@@ -830,8 +830,9 @@ def _enrich_verified_address(
     #    지번동+건물명 (번지 없음) 케이스에서 카카오 verified 실패 후 regex fallback
     #    시 층/호 정보가 유실되는 것 방지. 원본에 "405호"·"A201~205호" 있으면 뒤에 부착.
     if not re.search(r'\d+\s*(?:층|호|호실|관)', verified_addr):
+        # 뒤에 한글 오면 skip — '55 관리사무소' 의 '55 관' 을 별개 부속번호로 오인 방지 (2026-07-24 L-03362)
         m_floor = re.search(
-            r'([A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관))', original_text,
+            r'([A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관))(?![가-힣])', original_text,
         )
         if m_floor:
             cand = m_floor.group(1).strip()
