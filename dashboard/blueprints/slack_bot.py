@@ -7483,6 +7483,31 @@ _PHONE_STATUS_OPTIONS = [
 
 
 
+def _extract_latest_consult_content(text: str) -> str:
+    """K열 (상담 내용) 값에서 최신 회차 content 만 추출.
+
+    저장 형식: `[MM.DD HH:MM 이니셜 · 상태] content ─── [다음 헤더] content ...`
+    → 마지막 회차 content 만 반환. 헤더·이전 회차 다 버림.
+    파싱 실패 시 원문 그대로 반환.
+
+    2026-07-24 L-03343 관측: 슬랙 List `상담 내용` 컬럼에 헤더 그대로 노출되던 이슈 대응.
+    방문 카드·캔버스 렌더는 이미 최신 회차만 표시 (task #19), List sync 도 통일.
+    """
+    if not text:
+        return ''
+    text = str(text).strip()
+    if not text:
+        return ''
+    try:
+        entries = _parse_consultation_entries(text)
+        if entries:
+            latest = (entries[-1].get('content') or '').strip()
+            return latest or text
+    except Exception:
+        pass
+    return text
+
+
 def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
                         message_ts: str, action: str) -> bool:
     """슬랙 List 워크플로우 webhook 호출 — 모달 제출 시 자동 등록.
@@ -7564,7 +7589,12 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         "location": parts.get('place') or '-',
         "device": parts.get('device') or str(lead.get('키워드') or '').strip() or '-',
         "visit_address": modal_fields.get('visit_address') or str(lead.get('방문 주소') or '').strip() or '-',
-        "consultation": modal_fields.get('consultation') or '-',
+        # 2026-07-24: K열 헤더 (`[MM.DD HH:MM 이니셜 · 상태]`) 포함된 값이 넘어오는 케이스
+        #   (재편집 promote·update 경로) → 최신 회차 content 만 파싱해 payload 전달.
+        #   방문 카드·캔버스는 이미 최신 회차만 표시 (task #19). List sync 도 통일.
+        "consultation": _extract_latest_consult_content(
+            modal_fields.get('consultation') or '',
+        ) or '-',
         "details": parts.get('inquiry') or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-',
         "visit_date": modal_fields.get('visit_date') or '-',
         "visit_date_start": vd_start_iso or '-',  # 분리 변수 — Slack List datepicker 컬럼용
