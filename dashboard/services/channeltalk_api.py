@@ -68,6 +68,45 @@ def _contains_email(text: str) -> bool:
     return bool(_EMAIL_RE.search(text or ''))
 
 
+# 2026-07-24: 슬랙이 event.text 안 URL/전화/이메일을 자동으로 mrkdwn 링크 문법으로
+# 감쌈 (`<tel:010-...|010-...>`, `<mailto:foo@bar|foo@bar>`, `<http://...|display>`).
+# 채널톡 API blocks 파서는 이 문법을 못 읽어 HTTP 422 (`block value not parsable`) 반환.
+# → 링크 문법을 plain text 로 unescape 후 전송.
+_SLACK_LINK_RE = _re.compile(r'<([^>|]+)(?:\|([^>]+))?>')
+
+
+def _unescape_slack_markup(text: str) -> str:
+    """슬랙 mrkdwn 링크 문법 → plain text.
+
+    - `<tel:010-...|010-...>` → `010-...`
+    - `<mailto:foo@bar|foo@bar>` → `foo@bar`
+    - `<http://x.com|display>` → `display`
+    - `<http://x.com>` → `http://x.com`
+    - `<@USERID>`, `<#CHAN|name>`, `<!subteam...>` 등 mention 은 raw 유지 (드묾).
+    - HTML escape (`&lt;`, `&gt;`, `&amp;`) 해제.
+    """
+    if not text:
+        return text
+
+    def _sub(m):
+        target = m.group(1)
+        display = m.group(2) or ''
+        if target.startswith(('tel:', 'mailto:', 'http://', 'https://')):
+            if display:
+                return display
+            # tel:/mailto: 는 prefix 제거, http(s):// 는 URL 유지
+            if target.startswith('tel:'):
+                return target[4:]
+            if target.startswith('mailto:'):
+                return target[7:]
+            return target
+        return m.group(0)  # mention 등 — raw 유지
+
+    text = _SLACK_LINK_RE.sub(_sub, text)
+    text = text.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    return text
+
+
 def send_manager_message(chat_id: str, manager_id: str, plain_text: str) -> Optional[dict]:
     """매니저(운영자)가 채팅방에 메시지 발신.
 
@@ -84,6 +123,10 @@ def send_manager_message(chat_id: str, manager_id: str, plain_text: str) -> Opti
     """
     if not chat_id or not manager_id or not plain_text:
         return None
+
+    # 2026-07-24: 슬랙 mrkdwn 링크 문법 unescape (전화·이메일·URL 자동 링크화 대응).
+    # 채널톡 API 는 `<tel:...>`, `<mailto:...>` 문법을 못 파싱해 HTTP 422 반환.
+    plain_text = _unescape_slack_markup(plain_text)
 
     body = {
         'managerId': manager_id,
