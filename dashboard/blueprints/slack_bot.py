@@ -3531,6 +3531,35 @@ def _append_consultation(old: str, new_entry: str) -> str:
     return f'{old}\n{_CONSULT_DIVIDER}\n{new_entry}'
 
 
+def _replace_last_consult_content(old_text: str, new_content: str) -> str:
+    """옛 K열 상담 내용의 마지막 회차 content 만 new_content 로 교체.
+
+    2026-07-24 도입 — [정보 수정] 저장 시 이전 회차 이력 유지 + 최신 회차만 편집.
+    옛 형식 (헤더 없음) 이거나 회차 파싱 실패 시 new_content 로 통째 교체.
+
+    예:
+      old = '[07.20 · 유선] 첫 회차 ─── [07.24 · 방문 예약] 최신 회차'
+      new_content = '최신 회차 수정본'
+      → '[07.20 · 유선] 첫 회차 ─── [07.24 · 방문 예약] 최신 회차 수정본'
+    """
+    if not old_text:
+        return new_content or ''
+    entries = _parse_consultation_entries(old_text)
+    if not entries:
+        return new_content or ''
+    def _rebuild_entry(e, body):
+        if e.get('time') and e.get('ini') and e.get('status'):
+            return f"[{e['time']} {e['ini']} · {e['status']}] {body}"
+        return body
+    last = entries[-1]
+    last_str = _rebuild_entry(last, (new_content or '').strip())
+    prev_strs = [_rebuild_entry(e, e['content']) for e in entries[:-1]]
+    if prev_strs:
+        divider = f'\n{_CONSULT_DIVIDER}\n'
+        return divider.join(prev_strs + [last_str])
+    return last_str
+
+
 def _parse_consultation_entries(text: str) -> list:
     """저장된 상담 내용 → 회차별 dict 리스트.
 
@@ -6140,12 +6169,17 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     old_lead = _find_lead_by_no(lead_no) or {}
     old_visit_date = str(old_lead.get('방문 예정일') or '').strip().lstrip("'")
 
+    # 2026-07-24: 상담 내용은 이전 회차 이력 유지 + 마지막 회차만 편집값으로 교체.
+    # (매니저는 pre-fill 로 최신 회차 content 만 봤으므로 편집값도 최신 회차)
+    _old_k = str(old_lead.get('상담 내용', '') or '').strip()
+    new_consultation_merged = _replace_last_consult_content(_old_k, new_consultation)
+
     updates = {
         '방문 예정일': sheet_visit_value,
         '고객명': new_name,
         '고객 연락처': new_phone,
         '방문 주소': new_address,
-        '상담 내용': new_consultation,
+        '상담 내용': new_consultation_merged,
     }
     try:
         _update_lead_dispatch(lead_no, updates)
