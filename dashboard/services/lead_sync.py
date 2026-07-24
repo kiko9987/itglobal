@@ -1943,7 +1943,30 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             # 등록자 ephemeral). 전화는 매니저 개입 무의미하므로 대상 아님.
             # 온라인/당근은 별도 정규화 이미 있음 (address_resolver.resolve_address
             # 동일 함수 사용 → 포맷 일관).
-            addr_raw = str(row.get('방문 주소', '') or '').strip()
+            #
+            # 특이사항 분리 (2026-07-24 L-03361): 매니저가 방문 주소 필드에 개행 후
+            # 특이사항 ("방문 전 연락 요망" 등) 을 함께 입력한 케이스 처리.
+            #   → 첫 줄 = 실제 주소, 2번째 줄+ = 특이사항으로 분리.
+            #   → 상담 내용 (K열) 뒤에 ' / 특이사항' append. 원본 주소는 첫 줄만 유지.
+            addr_raw_full = str(row.get('방문 주소', '') or '').strip()
+            _addr_lines_raw = [
+                ln.strip() for ln in re.split(r'\r?\n', addr_raw_full) if ln.strip()
+            ]
+            addr_raw = _addr_lines_raw[0] if _addr_lines_raw else ''
+            extra_notes = ' / '.join(_addr_lines_raw[1:]) if len(_addr_lines_raw) > 1 else ''
+            if extra_notes and _platform_this in {'거래처', '기타', '소개', '전화'}:
+                _cur_consult = str(row.get('상담 내용', '') or '').strip()
+                if _cur_consult and _cur_consult != '-':
+                    _new_consult = f"{_cur_consult} / {extra_notes}"
+                else:
+                    _new_consult = extra_notes
+                update_cells.append((f"K{sheet_row}", _new_consult))
+                # I열도 첫 줄만으로 축소 (정규화 이전 raw 정리)
+                update_cells.append((f"I{sheet_row}", addr_raw))
+                logger.info(
+                    f'[SYNC/방문주소] 특이사항 분리 ({new_lead_no}): '
+                    f'주소="{addr_raw}", 특이사항="{extra_notes}"'
+                )
             addr_note: Optional[Dict[str, str]] = None
             addr_for_notify = addr_raw
             # 2026-07-22: 전화 추가 — 매니저 통화 후 raw 주소 입력 케이스도 자동 정규화
