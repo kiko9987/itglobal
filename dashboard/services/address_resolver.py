@@ -165,6 +165,9 @@ def _post_normalize_display(addr: str) -> str:
     """
     if not addr:
         return addr
+    # 2026-07-24 L-03367: 매니저가 주소에 콤마 계속 넣는 습관 → `콤마+공백` 만 공백으로 치환.
+    #   `3,4,7호` (호수 콤마+공백 없음) 는 유지, `한라시그마밸리2차, 1층` 만 정리.
+    addr = re.sub(r',\s+', ' ', addr)
     # ' 산 (숫자)' → ' 산(숫자)'
     addr = re.sub(r' 산 (\d)', r' 산\1', addr)
     # 인접 유사 단어 dedup
