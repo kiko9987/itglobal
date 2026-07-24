@@ -8349,11 +8349,13 @@ def _is_license_required(code: str) -> bool:
 def _open_invoice_modal(client, body) -> None:
     """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈.
 
-    2026-07-15: 사업자등록증 검증을 모달 오픈 전으로 복귀 (사용자 요청).
-      미첨부 시 ephemeral 로 안내하고 모달 자체를 열지 않음.
-      Drive API 검증 ~0.5초 + views.open ~0.5초 = trigger_id 3초 안에 완료 가능.
-      Drive API 예외 (지연·타임아웃) 시 검증 skip 후 모달 오픈 (submit 시점
-      재검증으로 방어).
+    2026-07-24 (Redis 손실 사고 후속): trigger_id 3초 제약 대응.
+      이전에는 모달 오픈 전 사업자등록증 검증 (Drive API) + 시트 최신값
+      재조회 (get_project_records, 3910행 로드) 를 수행했으나, Redis 캐시
+      손실 후 시트 재로드가 5~10초 걸려 trigger_id 만료 (expired_trigger_id)
+      로 모달 자체가 안 뜨는 사고. → payload snapshot 만으로 즉시 modal 오픈.
+      사업자등록증 검증·이메일 필수 판정은 submit 시 (_check_license) 로 위임.
+      submit 시 반려 → 매니저 재입력 UX.
     """
     trigger_id = body["trigger_id"]
     action = body["actions"][0]
@@ -8363,112 +8365,13 @@ def _open_invoice_modal(client, body) -> None:
         payload = {}
 
     code = payload.get('code', '') or '-'
-    channel_id = (body.get('channel') or {}).get('id', '')
-    user_id = (body.get('user') or {}).get('id', '')
-    # 클릭한 카드의 ts → 안내 모달의 스레드 permalink 링크에 사용.
-    clicked_ts = ((body.get('message') or {}).get('ts') or '').strip()
-
-    # 사업자등록증 검증 (모달 오픈 전, 2026-07-15) — 미첨부 시 안내 모달 + return.
-    # 2026-07-21: '거래처' 유입만 검증 skip (_is_license_required 참조).
-    # 2026-07-21: ephemeral 이 오래된 카드에선 스크롤 위로 밀려 인지 안 됨.
-    #   → 안내 모달 팝업으로 변경 (화면 중앙 = 100% 인지).
-    if code and code != '-' and _is_license_required(code):
-        try:
-            from dashboard.services.business_license_handler import verify_license_exists
-            if not verify_license_exists(code):
-                permalink = ''
-                if clicked_ts and channel_id:
-                    try:
-                        pr = client.chat_getPermalink(channel=channel_id, message_ts=clicked_ts)
-                        permalink = (pr.get('permalink') or '').strip()
-                    except Exception as exc:
-                        logger.debug(f'[SLACK/계산서] permalink 조회 실패 (무시): {exc}')
-                blocks = [
-                    {"type": "section", "text": {
-                        "type": "mrkdwn",
-                        "text": (f":warning: *`{code}` 사업자등록증이 첨부되지 않았습니다.*\n\n"
-                                 f"공사 확정 카드 스레드에 사업자등록증(이미지 or PDF) 을 "
-                                 f"먼저 첨부한 뒤 다시 [💰 계산서 요청] 을 눌러주세요."),
-                    }},
-                ]
-                if permalink:
-                    blocks.append({
-                        "type": "actions",
-                        "elements": [{
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "📎 공사 확정 카드로 이동", "emoji": True},
-                            "url": permalink,
-                            "action_id": "goto_project_thread",
-                        }],
-                    })
-                try:
-                    client.views_open(
-                        trigger_id=trigger_id,
-                        view={
-                            "type": "modal",
-                            "title": {"type": "plain_text", "text": "사업자등록증 미첨부"},
-                            "close": {"type": "plain_text", "text": "닫기"},
-                            "blocks": blocks,
-                        },
-                    )
-                except Exception as exc:
-                    logger.warning(f'[SLACK/계산서] 안내 모달 오픈 실패, ephemeral fallback: {exc}')
-                    # trigger_id 만료 등 예외 시 ephemeral 로 fallback
-                    try:
-                        kwargs = {
-                            'channel': channel_id, 'user': user_id,
-                            'text': (f':warning: `{code}` 사업자등록증이 첨부되지 않았습니다.\n'
-                                     f'공사 확정 카드 스레드에 사업자등록증(이미지 or PDF) 을 '
-                                     f'첨부한 뒤 다시 [💰 계산서 요청] 을 눌러주세요.'),
-                        }
-                        if clicked_ts:
-                            kwargs['thread_ts'] = clicked_ts
-                        client.chat_postEphemeral(**kwargs)
-                    except Exception as exc2:
-                        logger.warning(f'[SLACK/계산서] ephemeral fallback 도 실패: {exc2}')
-                logger.info(f'[SLACK/계산서] 사업자등록증 미첨부 → 안내 모달 표시 ({code})')
-                return
-        except Exception as exc:
-            logger.warning(
-                f'[SLACK/계산서] 사업자등록증 검증 실패 (모달 오픈 진행, submit 시 재검증): {exc}'
-            )
-
     biz = payload.get('biz', '') or ''
     addr = payload.get('addr', '') or ''
     amt = payload.get('amt', '') or ''
     # pre-fill 시 콤마 자동 포맷 (사용자 가독성)
     if amt.isdigit():
         amt = f"{int(amt):,}"
-    # 부가세는 계산서 발행 특성상 항상 '별도' — 필드 제거 (2026-07-13).
     email = payload.get('email', '') or ''
-
-    # button value 는 카드 발송 시점 스냅샷 → OCR 로 갱신된 사업자명·이메일·총액이
-    # 반영되지 않음. 시트 최신값이 있으면 우선 사용 (2026-07-13, 총액 2026-07-15 추가).
-    if code and code != '-':
-        try:
-            from dashboard.services.project_service import get_project_records
-            _records = get_project_records() or []
-            _latest = next(
-                (r for r in _records if (r.get('프로젝트 코드') or '').strip() == code),
-                None,
-            )
-            if _latest:
-                _biz_latest = (_latest.get('사업자명') or '').strip()
-                if _biz_latest and _biz_latest != '-':
-                    biz = _biz_latest
-                _email_latest = (_latest.get('발주처 이메일') or '').strip()
-                if _email_latest and _email_latest != '-':
-                    email = _email_latest
-                # 총액 1 재조회 (2026-07-15) — 매니저가 나중에 편집한 경우 반영
-                _amt_raw = _latest.get('총액 1', '')
-                try:
-                    _amt_int = int(float(str(_amt_raw).replace(',', '').strip() or '0'))
-                    if _amt_int > 0:
-                        amt = f"{_amt_int:,}"
-                except (ValueError, TypeError):
-                    pass
-        except Exception as exc:
-            logger.warning(f'[SLACK/계산서] 최신값 조회 실패 (payload fallback): {exc}')
 
     metadata = json.dumps({"code": code}, ensure_ascii=False)
 
@@ -8535,12 +8438,10 @@ def _open_invoice_modal(client, body) -> None:
                     ],
                 },
             },
-            # 이메일 필드 — 거래처 유입만 optional (2026-07-21).
-            # 사업자등록증 검증과 동일 정책: 거래처는 마스터에 이미 있어 매번 재입력 불필요.
-            _text_input(
-                "email", "발행 이메일", email,
-                optional=(not _is_license_required(code)),
-            ),
+            # 이메일 필드 — 항상 required (2026-07-24 fix).
+            # 이전엔 _is_license_required(code) 로 optional 판정했으나 시트 로드가
+            # trigger_id 만료 유발. submit 시 재검증에서 반려로 대체.
+            _text_input("email", "발행 이메일", email),
             _text_input(
                 "memo", "추가 요청사항", "",
                 multiline=True, optional=True,
