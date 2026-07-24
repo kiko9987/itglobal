@@ -6300,6 +6300,34 @@ def _process_visit_complete(client, body) -> None:
     except Exception as exc:
         logger.debug(f"[SLACK/방문완료] 캔버스 rebuild trigger 실패 ({lead_no}): {exc}")
 
+    # 4) 폴더 사전 생성 (2026-07-24 투 트랙): 외부 LTE 환경에서 사진 대량 첨부 실패 시
+    #    사무실 복귀 후 첨부해도 이 폴더 안에 저장되도록 완료 버튼 시점에 미리 생성.
+    #    ETC 리드는 helper 안에서 skip. 이미 폴더 있으면 (사진 먼저 첨부된 경우 등) skip.
+    try:
+        _folder = _ensure_visit_folder(
+            client, lead_no,
+            channel=channel, thread_ts=message_ts,
+            uploader_id=user_id,
+        )
+        if _folder and _folder.get('created_now'):
+            # 신규 생성 시 스레드에 폴더 링크 안내 (매니저가 이름 정정·복귀 후 사진 첨부 가이드)
+            _link = _folder.get('lead_folder_link', '')
+            _name = _folder.get('folder_name', '')
+            _reply_text = (
+                f":file_folder: 방문 폴더 생성됨: <{_link}|{_name}>\n"
+                f"_사무실 복귀 후 이 스레드에 사진 첨부 시 위 폴더 안 `현장사진/` 에 저장됩니다._\n"
+                f"_(폴더명 정정이 필요하면 Drive 에서 이름 바꿔주세요. 폴더 ID 로 연결돼있어 무관합니다.)_"
+            )
+            try:
+                client.chat_postMessage(
+                    channel=channel, thread_ts=message_ts,
+                    text=_reply_text, unfurl_links=False,
+                )
+            except Exception as exc:
+                logger.warning(f"[SLACK/방문완료] 폴더 안내 reply 실패 ({lead_no}): {exc}")
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문완료] 폴더 사전 생성 실패 ({lead_no}): {exc}")
+
     logger.info(f"[SLACK/방문완료] 처리 완료: {lead_no} by {user_id}")
 
 
@@ -6597,6 +6625,171 @@ def _process_visit_cancel(client, body) -> None:
         pass
 
 
+def _ensure_visit_folder(
+    client, lead_no: str,
+    channel: str = '', thread_ts: str = '',
+    uploader_id: str = '', root_text: str = '',
+    caption: str = '',
+) -> Optional[dict]:
+    """방문 lead 폴더 확보 (조회 or 생성) — 완료 버튼 & 사진 첨부 공용.
+
+    우선순위 (2026-07-24 투 트랙 도입):
+      1. Redis `visit_folder:{lead_no}` → folder_id 사용 (이름 재계산 X)
+      2. 시트 P열 폴더 ID → folder_id 사용 (Redis 재저장)
+      3. 둘 다 없음 → 이름 계산 (기존 규칙) + find_or_create_folder + Redis + P열 write
+
+    folder_id 로 접근하므로 매니저가 Drive 에서 폴더명 수정해도 그대로 사용.
+    folder_id 유효성 (삭제·이동) 은 get_folder_name 으로 검증 → 실패 시 신규 생성 fallback.
+
+    ETC- 리드는 폴더 skip (기타 방문은 후속 관리 안 함).
+
+    Returns:
+        {
+            'lead_folder_id': str,
+            'lead_folder_link': str,     # webViewLink (created_now=True 일 때만 신뢰)
+            'folder_name': str,          # Drive 실제 이름 or 재계산 이름
+            'prefix': str, 'initial': str, 'address': str, 'date': str,
+            'created_now': bool,         # 이번 호출로 만들어졌는지
+            'source': str,               # 'redis' / 'sheet' / 'new'
+        }
+        or None (ETC 리드 or 설정 미비)
+    """
+    if _is_etc_lead(lead_no):
+        return None
+
+    parent_id = os.getenv('GOOGLE_DRIVE_VISIT_FOLDER_ID', '').strip()
+    if not parent_id:
+        logger.warning("[SLACK/방문 폴더] GOOGLE_DRIVE_VISIT_FOLDER_ID 미설정")
+        return None
+
+    from dashboard.utils.google_drive import find_or_create_folder, get_folder_name
+    from dashboard.utils.redis_client import get_redis_client as _get_rc
+
+    lead = _find_lead_by_no(lead_no) or {}
+
+    # 1) Redis 매핑 → 유효성 검증 후 사용
+    rc = None
+    try:
+        rc = _get_rc().redis
+        cached_id = rc.get(f'visit_folder:{lead_no}')
+        if isinstance(cached_id, bytes):
+            cached_id = cached_id.decode()
+        if cached_id:
+            name = get_folder_name(cached_id)
+            if name:
+                return {
+                    'lead_folder_id': cached_id,
+                    'lead_folder_link': f'https://drive.google.com/drive/folders/{cached_id}',
+                    'folder_name': name,
+                    'prefix': '', 'initial': '', 'address': '', 'date': '',
+                    'created_now': False,
+                    'source': 'redis',
+                }
+            logger.info(
+                f'[SLACK/방문 폴더] {lead_no} Redis folder_id 접근 실패 → 시트/신규 fallback'
+            )
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문 폴더] Redis 조회 실패 ({lead_no}): {exc}')
+
+    # 2) 시트 P열 → 유효성 검증 후 사용 + Redis 재저장
+    sheet_folder_id = str(lead.get('폴더 ID', '') or '').strip()
+    if sheet_folder_id:
+        name = get_folder_name(sheet_folder_id)
+        if name:
+            try:
+                if rc is not None:
+                    rc.set(
+                        f'visit_folder:{lead_no}', sheet_folder_id,
+                        ex=60 * 60 * 24 * 180,
+                    )
+            except Exception:
+                pass
+            return {
+                'lead_folder_id': sheet_folder_id,
+                'lead_folder_link': f'https://drive.google.com/drive/folders/{sheet_folder_id}',
+                'folder_name': name,
+                'prefix': '', 'initial': '', 'address': '', 'date': '',
+                'created_now': False,
+                'source': 'sheet',
+            }
+        logger.info(
+            f'[SLACK/방문 폴더] {lead_no} 시트 P열 folder_id 접근 실패 → 신규 생성'
+        )
+
+    # 3) 신규 생성 — 이름 계산 (기존 로직 재사용)
+    def _clean(v):
+        s = str(v or '').strip()
+        return '' if s in ('', '-', '미정') else s
+
+    lead_platform = str(lead.get('플랫폼', '')).strip()
+    _is_partner = lead_platform in ('거래처', '기타', '소개')
+    if _is_partner:
+        source_name = _clean(lead.get('온라인 상담자'))
+    else:
+        source_name = _clean(lead.get('영업 담당자'))
+    initial = _to_initial(source_name) if source_name else ''
+
+    if not initial and uploader_id:
+        try:
+            uploader_ini = _slack_user_to_initial(client, uploader_id)
+            if uploader_ini and uploader_ini != '-':
+                initial = uploader_ini
+        except Exception as exc:
+            logger.debug(f'[SLACK/방문 폴더] 업로더 이니셜 조회 실패: {exc}')
+
+    if not initial and not _is_partner:
+        m_source = _clean(lead.get('온라인 상담자'))
+        if m_source:
+            initial = _to_initial(m_source)
+
+    if not initial and root_text:
+        m_ini = re.search(r'등록자\s*:\s*([A-Za-z가-힣]+)', root_text)
+        if m_ini:
+            initial = _to_initial(m_ini.group(1).strip())
+    initial = initial or '미상'
+
+    visit_address = str(lead.get('방문 주소', '') or '').strip()
+    if not visit_address or visit_address == '-':
+        visit_address = '주소 미상'
+
+    today_str = datetime.now().strftime('%y.%m.%d')
+    _DEFAULT_PLATFORMS = {'홈페이지', '전화', '카카오톡', '채널톡'}
+    prefix = f"{lead_platform} " if (lead_platform and lead_platform not in _DEFAULT_PLATFORMS) else ''
+
+    folder_name = f"{prefix}({initial}) {visit_address} {today_str}"
+    folder_name = re.sub(r'[\\/:*?"<>|]', '', folder_name).strip()
+
+    lead_folder = find_or_create_folder(folder_name, parent_id)
+    if not lead_folder:
+        logger.error(f"[SLACK/방문 폴더] lead 폴더 생성/조회 실패: {folder_name}")
+        return None
+
+    # Redis + P열 write
+    try:
+        if rc is not None:
+            rc.set(f'visit_folder:{lead_no}', lead_folder['id'], ex=60 * 60 * 24 * 180)
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문 폴더] Redis 저장 실패 ({lead_no}): {exc}')
+    try:
+        _update_lead_dispatch(lead_no, {'폴더 ID': lead_folder['id']})
+        logger.info(
+            f"[SLACK/방문 폴더] 신규 생성: {lead_no} → {folder_name} "
+            f"({lead_folder['id']})"
+        )
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문 폴더] P열 저장 실패 ({lead_no}): {exc}')
+
+    return {
+        'lead_folder_id': lead_folder['id'],
+        'lead_folder_link': lead_folder.get('webViewLink', ''),
+        'folder_name': folder_name,
+        'prefix': prefix, 'initial': initial,
+        'address': visit_address, 'date': today_str,
+        'created_now': True,
+        'source': 'new',
+    }
+
+
 def _process_visit_thread_files(client, event) -> None:
     """#방문_일정 카드 thread에 첨부된 파일을 구글 드라이브로 업로드.
 
@@ -6679,87 +6872,36 @@ def _process_visit_thread_files(client, event) -> None:
         logger.warning(f'[SLACK/방문 사진] 락 획득 실패 — 계속 진행: {exc}')
         _rc_lock = None
 
-    # 2) 폴더명 생성 — "({이니셜}) {방문 주소} {YY.MM.DD}"
-    lead = _find_lead_by_no(lead_no) or {}
-    # 이니셜 — 플랫폼별 규칙 (2026-07-20 개선):
-    #   거래처/기타/소개: 등록자(M열=온라인 상담자) 우선 — 대표님이 등록하고
-    #     매니저 대신 보낸 경우도 폴더는 등록자 이니셜 (관리 주체 개념).
-    #     본인 방문 필수는 M→N 자동 복사돼 동일 이니셜이므로 무관.
-    #   온라인(그 외): List 배정 담당자(N열=영업 담당자) 우선.
-    #     미배정 즉시 방문 케이스 (JK 상담 후 근처 MJ 즉시 방문) 는 N열 없으므로
-    #     → 사진 업로더(event.user) 를 실제 방문자로 취급 → 업로더 이니셜.
-    #     그것도 실패 시 M열(온라인 상담자) fallback.
-    #   최종 fallback: 카드 "등록자 :" 정규식 → '미상'
-    def _clean(v):
-        s = str(v or '').strip()
-        return '' if s in ('', '-', '미정') else s
-
-    lead_platform = str(lead.get('플랫폼', '')).strip()
-    _is_partner = lead_platform in ('거래처', '기타', '소개')
-    if _is_partner:
-        source_name = _clean(lead.get('온라인 상담자'))
-    else:
-        source_name = _clean(lead.get('영업 담당자'))
-    initial = _to_initial(source_name) if source_name else ''
-
-    # 업로더 fallback (event.user) — 온라인 미배정 or 거래처 M열 미기재 케이스.
-    # 온라인 즉시 방문 (당일 근처 매니저가 상담 없이 다녀오는) 시나리오가 주 대상.
-    if not initial:
-        uploader_id = (event.get('user') or '').strip() if isinstance(event, dict) else ''
-        if uploader_id:
-            try:
-                uploader_ini = _slack_user_to_initial(client, uploader_id)
-                if uploader_ini and uploader_ini != '-':
-                    initial = uploader_ini
-            except Exception as exc:
-                logger.debug(f'[SLACK/방문 사진] 업로더 이니셜 조회 실패: {exc}')
-
-    # 온라인 케이스에서 N열도 업로더도 실패한 경우에만 M열(상담자) fallback
-    if not initial and not _is_partner:
-        m_source = _clean(lead.get('온라인 상담자'))
-        if m_source:
-            initial = _to_initial(m_source)
-
-    # 최종 fallback: 카드 텍스트 파싱
-    if not initial:
-        m_ini = re.search(r'등록자\s*:\s*([A-Za-z가-힣]+)', root_text)
-        if m_ini:
-            initial = _to_initial(m_ini.group(1).strip())
-    initial = initial or '미상'
-
-    visit_address = str(lead.get('방문 주소', '') or '').strip()
-    if not visit_address or visit_address == '-':
-        visit_address = '주소 미상'
-
-    today_str = datetime.now().strftime('%y.%m.%d')
-    # 플랫폼 prefix — 홈페이지/전화/카카오톡/채널톡은 디폴트(없음, 광고 플랫폼 X)
-    # 그 외(당근/거래처/숨고/기타)는 prefix 추가
-    platform = str(lead.get('플랫폼', '') or '').strip()
-    _DEFAULT_PLATFORMS = {'홈페이지', '전화', '카카오톡', '채널톡'}
-    prefix = f"{platform} " if (platform and platform not in _DEFAULT_PLATFORMS) else ''
-
-    # 사진 caption(메시지 text) = 위치(서브폴더) 용도. 상호명은 별도 답글로만.
-    # 예: "1층", "2층 휴게실"
+    # 2) lead 폴더 확보 — helper 로 위임 (Redis→P열→신규 순위, 이름 무관 folder_id 재사용)
+    uploader_id = (event.get('user') or '').strip() if isinstance(event, dict) else ''
     caption = (event.get('text') or '').strip()
     location = ''
     if caption and '\n' not in caption and len(caption) <= 30:
         location = re.sub(r'[\\/:*?"<>|]', '', caption).strip()
 
-    folder_name = f"{prefix}({initial}) {visit_address} {today_str}"
-    # 폴더명에 사용 불가한 문자 정리
-    folder_name = re.sub(r'[\\/:*?"<>|]', '', folder_name).strip()
-
-    # 3) 루트 폴더 안에 lead 폴더 + 그 안에 '현장사진' 서브폴더
-    parent_id = os.getenv('GOOGLE_DRIVE_VISIT_FOLDER_ID', '').strip()
-    if not parent_id:
-        logger.warning("[SLACK/방문 사진] GOOGLE_DRIVE_VISIT_FOLDER_ID 미설정")
+    _folder_info = _ensure_visit_folder(
+        client, lead_no,
+        channel=channel, thread_ts=thread_ts,
+        uploader_id=uploader_id, root_text=root_text,
+        caption=caption,
+    )
+    if not _folder_info:
+        logger.error(f"[SLACK/방문 사진] {lead_no} lead 폴더 확보 실패 — skip")
         return
 
     from dashboard.utils.google_drive import find_or_create_folder, upload_file
-    lead_folder = find_or_create_folder(folder_name, parent_id)
-    if not lead_folder:
-        logger.error(f"[SLACK/방문 사진] lead 폴더 생성/조회 실패: {folder_name}")
-        return
+    lead_folder = {
+        'id': _folder_info['lead_folder_id'],
+        'webViewLink': _folder_info['lead_folder_link'],
+    }
+    folder_name = _folder_info['folder_name']
+    # helper 는 신규 생성 시에만 prefix/initial/address/date 채움. 사후 첨부는 빈값.
+    prefix = _folder_info.get('prefix', '')
+    initial = _folder_info.get('initial', '')
+    visit_address = _folder_info.get('address', '')
+    today_str = _folder_info.get('date', '')
+
+    # 3) lead 폴더 안에 '현장사진' 서브폴더 (사진 첨부 시점에만 생성)
     photo_folder = find_or_create_folder('현장사진', lead_folder['id'])
     if not photo_folder:
         logger.error(f"[SLACK/방문 사진] '현장사진' 서브폴더 생성/조회 실패")
@@ -6897,7 +7039,8 @@ def _process_visit_thread_files(client, event) -> None:
         return
 
     # 4) thread → folder 매핑 저장 (상호명 답글로 폴더명 갱신용, TTL 30일)
-    #    + lead_no → folder_id 역인덱스 (프로젝트 등록 모달 '리드 불러오기' 자동 채움용)
+    # visit_folder:{lead_no} 역인덱스 + P열 write 는 _ensure_visit_folder 안에서 이미 완료.
+    # 여기서는 thread 컨텍스트 (photo_folder_id 포함) 만 저장.
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
@@ -6912,19 +7055,8 @@ def _process_visit_thread_files(client, event) -> None:
             'shop_name': '',
         })
         rc.expire(key, 60 * 60 * 24 * 30)
-        # 역인덱스 — lead_no 로 폴더 조회 (프로젝트 등록 시 자동 채움)
-        # 프로젝트 등록까지 여유롭게 180일 TTL (몇 달 뒤 확정 케이스 대응)
-        rc.set(f"visit_folder:{lead_no}", lead_folder['id'], ex=60 * 60 * 24 * 180)
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] Redis 매핑 저장 실패: {exc}")
-
-    # 4-2) 리드 시트 P열 (폴더 ID) 영구 저장 — Redis TTL 만료 대비 + source of truth.
-    # 정상 리드는 시트 P열, ETC- 는 Redis metadata 에 저장 (기타 방문은 후속 조회 편의만).
-    try:
-        _update_lead_dispatch(lead_no, {'폴더 ID': lead_folder['id']})
-        logger.info(f"[SLACK/방문 사진] 폴더 ID 저장: {lead_no} → {lead_folder['id']}")
-    except Exception as exc:
-        logger.warning(f"[SLACK/방문 사진] 폴더 ID 저장 실패 ({lead_no}): {exc}")
 
     # 5) thread 답글 (debounce)
     # 매니저가 배치 여러 번 올릴 때 마지막 배치 이후 15초 조용하면 그때 발송.
