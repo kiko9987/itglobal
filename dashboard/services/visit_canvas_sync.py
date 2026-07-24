@@ -94,11 +94,31 @@ def _fmt_visit_date(raw) -> str:
     return s[:20]
 
 
-def _visit_date_sort_key(raw) -> str:
-    """방문 예정일 정렬 키 — ISO 앞부분 (YYYY-MM-DD)."""
+def _visit_date_sort_key(raw) -> tuple:
+    """방문 예정일 정렬 키 — (시작일, 종료일) 튜플.
+
+    2026-07-24 L-03343 관측: 시작일만으로 정렬하면 `2026-07-27` 과 `2026-07-27~28`
+    이 같은 키라 시트 순서 그대로 유지되어 27 단일들 사이 27~28 이 끼어듦.
+    (시작일, 종료일) 튜플로 정렬해 단일이 범위보다 먼저 오도록.
+    """
     s = str(raw or '').strip().lstrip("'")
-    m = re.match(r'^(\d{4}-\d{1,2}-\d{1,2})', s)
-    return m.group(1) if m else s
+    m = re.match(
+        r'^(\d{4})-(\d{1,2})-(\d{1,2})'
+        r'(?:\s*~\s*(?:(\d{4})[-/])?(?:(\d{1,2})[-/])?(\d{1,2}))?',
+        s,
+    )
+    if not m:
+        return (s, s)
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    start = f'{y:04d}-{mo:02d}-{d:02d}'
+    if m.group(6):  # 범위 표기
+        end_y = int(m.group(4) or y)
+        end_mo = int(m.group(5) or mo)
+        end_d = int(m.group(6))
+        end = f'{end_y:04d}-{end_mo:02d}-{end_d:02d}'
+    else:
+        end = start
+    return (start, end)
 
 
 def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
