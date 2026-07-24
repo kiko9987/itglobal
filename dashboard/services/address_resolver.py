@@ -1031,7 +1031,12 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                     return verified_addr.replace(cand, place_name, 1)
                 # 단어 1개 & place_name != cand — 접두 지역명·오탈자 정정 케이스.
                 #   예: cand='한강듀클래스' + place='김포한강듀클래스' → 접두 '김포' 부착 (2026-07-21 L-03316)
+                # 2026-07-24 L-03361: verified 에 이미 접두어 포함된 상호가 있으면
+                #   (대소문자 무시) replace 하지 말고 skip — 안 그러면 GS스틸타워 + gs스틸타워
+                #   교체가 'GSgs스틸타워' 중복을 만듦.
                 if place_name != cand:
+                    if place_name.lower() in verified_addr.lower():
+                        continue
                     return verified_addr.replace(cand, place_name, 1)
                 continue  # 완전 동일 → 무의미
             return f'{verified_addr} {place_name}'.strip()
