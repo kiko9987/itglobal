@@ -1063,6 +1063,15 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                         continue
                     return verified_addr.replace(cand, place_name, 1)
                 continue  # 완전 동일 → 무의미
+            # append 케이스: 원본에 법인 접두어 ((주)/㈜/주식회사) 있으면 유지
+            # 2026-07-24 L-03372: 원본 '(주)아론' → POI place_name 은 '아론' 만 →
+            #   append 시 접두어 소실. 원본 정보 보존을 위해 접두어 재부착.
+            _m_prefix = re.search(
+                r'((?:\(주\)|㈜|㈠|주식회사)\s*)' + re.escape(cand),
+                original_text,
+            )
+            if _m_prefix:
+                return f'{verified_addr} {_m_prefix.group(1)}{place_name}'.strip()
             return f'{verified_addr} {place_name}'.strip()
     return verified_addr
 
