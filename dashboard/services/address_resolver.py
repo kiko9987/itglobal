@@ -884,7 +884,13 @@ def _enrich_verified_address(
             verified_addr = f"{verified_addr} {shop}".strip()
 
     # 도로명 끝 + 숫자 사이 공백 보강 ("세월길2" → "세월길 2"). 단 "12길" 같은 도로명 일부는 제외
-    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길)', r'\1 \2', verified_addr)
+    # 2026-07-24 L-03374 fix: lookahead 에 `[가-힣]+길` 추가 — `번안길`, `안길` 등
+    #   한글 접두어가 있는 도로명 suffix 도 분리 대상에서 제외. 이전엔 `번안길`
+    #   같은 케이스가 `성현로 135번안길` 로 잘려 `_road_key` 파싱 오차 발생.
+    verified_addr = re.sub(
+        r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길|[가-힣]+길)',
+        r'\1 \2', verified_addr,
+    )
 
     # 2. verified에 도로명+번지 없으면 원본/정규식에서 추출 부착 (황경철 케이스)
     if not re.search(r'(?:로|길)\s*\d', verified_addr):
@@ -904,7 +910,13 @@ def _enrich_verified_address(
                 break
 
     # 최종 — 도로명 + 숫자 사이 공백 보강 (부착 후에도 적용)
-    verified_addr = re.sub(r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길)', r'\1 \2', verified_addr)
+    # 2026-07-24 L-03374 fix: lookahead 에 `[가-힣]+길` 추가 — `번안길`, `안길` 등
+    #   한글 접두어가 있는 도로명 suffix 도 분리 대상에서 제외. 이전엔 `번안길`
+    #   같은 케이스가 `성현로 135번안길` 로 잘려 `_road_key` 파싱 오차 발생.
+    verified_addr = re.sub(
+        r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길|[가-힣]+길)',
+        r'\1 \2', verified_addr,
+    )
 
     # 3. 카카오 POI 검색으로 상호 지점명 부착 (2026-07-13).
     #   원문에 상호 후보가 있고, POI 결과의 도로명이 verified 와 일치하면
@@ -916,7 +928,10 @@ def _enrich_verified_address(
 
 
 # _STOP_WORDS 를 lead_helpers 재사용 (import 순환 방지 — 지연 import)
-_ADMIN_SUFFIX_RE = re.compile(r'(로|길|구|시|군|동|읍|면|리|번지|호|층|가|동로|번길)$')
+# 2026-07-24 L-03374 fix: '호|층' 제거 — '지호창호' 같이 상호가 '호' 로 끝나는 케이스가
+#   후보에서 제외되던 버그. 아파트 부속 표기 (101호, 3층) 은 한글 시작 필터
+#   ([가-힣][가-힣A-Za-z0-9]{1,14}) 로 이미 배제되므로 여기 유지 불필요.
+_ADMIN_SUFFIX_RE = re.compile(r'(로|길|구|시|군|동|읍|면|리|번지|가|동로|번길)$')
 
 
 def _extract_region_hint(verified_addr: str) -> str:
