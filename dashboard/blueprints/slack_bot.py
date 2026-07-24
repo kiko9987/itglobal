@@ -7588,7 +7588,10 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         "inquiry_time": str(lead.get('상담 시간') or '').strip() or '-',
         "location": parts.get('place') or '-',
         "device": parts.get('device') or str(lead.get('키워드') or '').strip() or '-',
-        "visit_address": modal_fields.get('visit_address') or str(lead.get('방문 주소') or '').strip() or '-',
+        # 2026-07-24 L-03374 fix: 시트값 우선 (정규화 후 최종본). modal_fields 는
+        #   매니저 raw 입력 (예: '성현로 135번안길') 이라 방문 카드·캔버스와 불일치 발생.
+        #   시트는 address_resolver 로 정규화된 값 (`성현로135번안길`) → 이걸 truth 로.
+        "visit_address": str(lead.get('방문 주소') or '').strip() or modal_fields.get('visit_address') or '-',
         # 2026-07-24: K열 헤더 (`[MM.DD HH:MM 이니셜 · 상태]`) 포함된 값이 넘어오는 케이스
         #   (재편집 promote·update 경로) → 최신 회차 content 만 파싱해 payload 전달.
         #   방문 카드·캔버스는 이미 최신 회차만 표시 (task #19). List sync 도 통일.
