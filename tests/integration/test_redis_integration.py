@@ -30,13 +30,31 @@ from dashboard.utils.exceptions import ServiceUnavailable
 
 @pytest.fixture
 def redis_client():
-    """Redis 클라이언트 픽스처"""
-    client = get_redis_client()
-    # 테스트 전 Redis 정리
+    """Redis 클라이언트 픽스처.
+
+    ⚠️ 2026-07-24 사고 반영: 프로덕션 Redis (db=0) 를 flushdb 하면 lead_card_msg,
+    visit_auto_completed 등 운영 데이터 대량 손실. 반드시 별도 test DB (db=15) 사용.
+    REDIS_TEST_DB env 로 override 가능. 미설정 시 기본 15.
+
+    또 다중 안전장치:
+    - db=0 이면 강제 skip (assertion) — 실수로 override 해도 프로덕션 안 지움
+    - flushdb 대신 keys("test:*") 만 삭제하는 방식 대안도 있으나 fixture 격리 위해 flushdb 유지
+    """
+    from redis import Redis
+    test_db = int(os.getenv('REDIS_TEST_DB', '15'))
+    assert test_db != 0, (
+        f'REDIS_TEST_DB={test_db} 은 프로덕션 DB — 통합 테스트에서 flushdb 금지. '
+        f'별도 test DB (예: 15) 지정 필수.'
+    )
+    host = os.getenv('REDIS_HOST', 'localhost')
+    port = int(os.getenv('REDIS_PORT', '6379'))
+    client = Redis(host=host, port=port, db=test_db, decode_responses=False)
+    # 테스트 전 Redis 정리 (test DB 만)
     client.flushdb()
     yield client
     # 테스트 후 Redis 정리
     client.flushdb()
+    client.close()
 
 
 @pytest.fixture
