@@ -660,6 +660,31 @@ def _parse_visit_date_start(vd) -> Optional['date']:
         return None
 
 
+def _parse_visit_date_end(vd) -> Optional['date']:
+    """방문 예정일 → 종료 date. 단일이면 start 와 동일, 범위면 마지막 일자.
+
+    2026-07-25 도입: `2026-07-24~27` 같은 range 에서 종료일 파싱.
+    """
+    from datetime import date as _date
+    s = str(vd or '').strip().lstrip("'")
+    if not s:
+        return None
+    m_range = re.match(
+        r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s*~\s*'
+        r'(?:(\d{4})[-./](\d{1,2})[-./])?(\d{1,2})',
+        s,
+    )
+    if m_range:
+        try:
+            y = int(m_range.group(4) or m_range.group(1))
+            mo = int(m_range.group(5) or m_range.group(2))
+            d = int(m_range.group(6))
+            return _date(y, mo, d)
+        except ValueError:
+            return None
+    return _parse_visit_date_start(vd)
+
+
 def _get_visit_client():
     """방문봇 client 반환."""
     from dashboard.blueprints.slack_bot import _init_visit_slack_app, _visit_slack_app
@@ -840,7 +865,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
 
     today = _date.today()
     _addr_cands = addr_candidates or _load_addr_candidates()
-    # 각 assignment → (lead, start_date)
+    # 각 assignment → (lead, start_date, end_date)
+    # 2026-07-25 fix: 범위 방문일 (2026-07-24~27) 종료일 기준 필터.
+    #   기존은 start <= today 이면 skip → 오늘이 range 중간에 걸리면 유효 lead 도
+    #   제외됐음 (L-03357 JW 2건만 받음 사고). end > today 만 skip 하도록 완화.
     enriched = []
     for p in assignments:
         lead = _resolve_lead_for_assignment(p, phone_map, _addr_cands)
@@ -848,18 +876,26 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             continue
         vd = lead.get('방문 예정일', '')
         start = _parse_visit_date_start(vd)
-        if start is None or start <= today:
+        end = _parse_visit_date_end(vd) or start
+        if start is None or end is None:
             continue
-        enriched.append((p, lead, start))
+        if end <= today:  # 종료일이 오늘 이전 = 지난 방문 skip
+            continue
+        enriched.append((p, lead, start, end))
 
     if not enriched:
         logger.info('[ASSIGN/DM] 오늘 이후 방문 없음 — skip')
         return result
 
+    # target_date = 가장 빠른 유효 시작일. 오늘 이전이면 오늘 다음날로 clamp.
+    from datetime import timedelta as _td
     target_date = min(x[2] for x in enriched)
+    if target_date <= today:
+        target_date = today + _td(days=1)
     result['target_date'] = target_date.isoformat()
 
-    filtered = [(p, lead) for p, lead, s in enriched if s == target_date]
+    # 필터: target_date 가 lead 방문 범위 (start ~ end) 안에 있으면 포함
+    filtered = [(p, lead) for p, lead, s, e in enriched if s <= target_date <= e]
 
     # 담당자별 그룹핑 + lead → 담당자 매핑
     from collections import defaultdict
