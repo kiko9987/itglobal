@@ -974,6 +974,12 @@ def _extract_shop_candidates(text: str) -> list:
             continue
         if any(sw in w for sw in _STOP_WORDS):
             continue
+        # 2026-07-25 ETC-841a3c: 층 표기 접두어 (`지하1층`, `옥탑2층` 등) exclude.
+        #   `호|층` 을 _ADMIN_SUFFIX_RE 에서 뺀 후 (지호창호 fix) 층 표기가 shop
+        #   후보로 잘못 뽑히던 이슈. POI 검색 시 우연히 매칭되는 다른 건물 부착
+        #   위험 방지 (예: `하나은행365 엘타워빌딩 지하1층` 오부착).
+        if re.match(r'^(지하|옥탑|옥상|지상)', w):
+            continue
         seen.add(w)
         out.append(w)
     return out
