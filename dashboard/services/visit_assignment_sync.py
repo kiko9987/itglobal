@@ -551,6 +551,15 @@ def parse_assignment_canvas_full(html: str) -> Dict:
             if stripped == '휴무':
                 current_section = '_OFF_'
                 continue
+            # 2026-07-25: 휴무 섹션 아래 이니셜 라인도 인식 (콤마·+·공백 구분).
+            #   기존은 `휴무인원 (XX + YY)` 괄호 형식만 지원 → `휴무` 헤더 + 다음 줄 `SH,SJ`
+            #   형태 (매니저 관행) 도 파싱.
+            if current_section == '_OFF_' and stripped:
+                for _ini in re.findall(r'[A-Z]{2,4}', stripped):
+                    if _ini in initial_to_name and _ini not in off_duty:
+                        off_duty.append(_ini)
+                continue
+
             # 온라인 섹션 안 이니셜 = 상담 당번
             # 지원 형식 (2026-07-21 L-03081 확장):
             #   "SD"                  — 단일
