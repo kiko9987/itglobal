@@ -887,15 +887,19 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         logger.info('[ASSIGN/DM] 오늘 이후 방문 없음 — skip')
         return result
 
-    # target_date = 가장 빠른 유효 시작일. 오늘 이전이면 오늘 다음날로 clamp.
+    # 2026-07-25 재fix: target_date = 발송 대상 date. 각 lead 의 오늘 이후 유효
+    #   시작일 중 가장 많이 등장하는 date (실무 관행상 다음 배정 = 일괄 통합 발송).
+    #   가장 늦은 effective_start 로 잡아 filter 없이 모두 발송 (매니저는 lead 별
+    #   실제 방문일을 카드 안에서 확인).
     from datetime import timedelta as _td
-    target_date = min(x[2] for x in enriched)
-    if target_date <= today:
-        target_date = today + _td(days=1)
+    tomorrow = today + _td(days=1)
+    effective_starts = [max(s, tomorrow) for _, _, s, _ in enriched]
+    target_date = max(effective_starts)  # 대다수 lead 의 방문일
     result['target_date'] = target_date.isoformat()
 
-    # 필터: target_date 가 lead 방문 범위 (start ~ end) 안에 있으면 포함
-    filtered = [(p, lead) for p, lead, s, e in enriched if s <= target_date <= e]
+    # 필터: 오늘 이후 유효한 모든 lead 발송 (end > today 조건은 위 enriched 단계
+    # 이미 통과). range 안 target_date 포함 여부는 검사 안 함.
+    filtered = [(p, lead) for p, lead, _, _ in enriched]
 
     # 담당자별 그룹핑 + lead → 담당자 매핑
     from collections import defaultdict
@@ -1054,6 +1058,13 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 lines.append(f'>   :link: <{pl}|방문 카드>')
             lines.append(f'>{_SEP}')
             lead_nos_flagged.add(lno)
+        # 2026-07-25: 온라인 당번 지정 없으면 (섹션 비어있거나 텍스트만) 방문 매니저
+        #   전원이 나눠서 온라인 대응하도록 안내 라인 append. 특정 이니셜 (JK 등)
+        #   지정 시엔 그 사람이 v13 받으므로 이 안내 skip.
+        if not online_duty:
+            lines.append(
+                '>:speech_balloon: *온라인 문의 대응은 전체 인원이 모두 신경 써주세요.*'
+            )
         lines.append(_BLANK)
 
         try:
