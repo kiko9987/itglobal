@@ -83,11 +83,34 @@ def _find_card_permalink(client, channel: str, lead_no: str,
         return ''
 
 
-def collect_absent_leads(target_date: Optional[date] = None) -> Tuple[List[Dict], Dict[str, List[Dict]]]:
+def _is_business_day(d: date) -> bool:
+    """평일 & 한국 공휴일 아님 → 영업일."""
+    if d.weekday() >= 5:  # 토(5), 일(6)
+        return False
+    try:
+        import holidays
+        return d not in holidays.KR()
+    except Exception:
+        # holidays 미설치 or 오류 → 주말만 skip
+        return True
+
+
+def _previous_business_day(d: date) -> date:
+    """d 이전 첫 영업일. (오늘이 화요일 → 월요일, 월요일 → 지난 금요일)"""
+    prev = d - timedelta(days=1)
+    while not _is_business_day(prev):
+        prev = prev - timedelta(days=1)
+    return prev
+
+
+def collect_absent_leads(target_date: Optional[date] = None,
+                          date_range: Optional[List[date]] = None) -> Tuple[List[Dict], Dict[str, List[Dict]]]:
     """부재중 리마인드 대상 수집.
 
     Args:
-        target_date: 인입 기준일 (기본: 어제)
+        target_date: 단일 date (하위 호환)
+        date_range: 복수 date 리스트 — 우선 사용. 각 date 인입 lead 다 포함.
+                    (주말·공휴일 다음 영업일 리마인드에서 여러 날 잡기 위함)
 
     Returns:
         (unassigned, retry_by_manager)
@@ -95,10 +118,14 @@ def collect_absent_leads(target_date: Optional[date] = None) -> Tuple[List[Dict]
             retry_by_manager: {매니저이름: [lead, ...]}  상태='부재중' & 영업 담당자 없음
     """
     from dashboard.services.lead_service import get_lead_records
-    target_date = target_date or (date.today() - timedelta(days=1))
-    ymd_dot = target_date.strftime('%Y.%m.%d')
+    if date_range is None:
+        date_range = [target_date or (date.today() - timedelta(days=1))]
+    ymd_dots = {d.strftime('%Y.%m.%d') for d in date_range}
     leads = get_lead_records()
-    yday = [l for l in leads if str(l.get('상담 시간', '')).startswith(ymd_dot)]
+    yday = [
+        l for l in leads
+        if any(str(l.get('상담 시간', '')).startswith(p) for p in ymd_dots)
+    ]
 
     unassigned: List[Dict] = []
     retry: Dict[str, List[Dict]] = defaultdict(list)
@@ -169,24 +196,39 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
 def send_daily_remind() -> Dict:
     """어제 미처리 문의 리마인드 카드 발송 — 매일 아침 9시 스케줄러 진입점.
 
-    2026-07-26 주말 skip: 토·일요일은 사무실 근무 X → 매니저 대응 불가 → 발송 skip.
-    (월요일 아침 리마인드는 금요일 미처리 다시 잡히므로 안전.)
+    2026-07-26 주말·공휴일 skip + 직전 영업일 이후 range 수집:
+      - 오늘이 주말·공휴일 → 발송 skip (매니저 대응 불가)
+      - 오늘이 영업일 → 직전 영업일 다음날부터 어제까지 모든 date 대상
+        (예: 월요일 아침 → 금·토·일 3일치 미처리 잡음)
 
     Returns:
         {'ok': bool, 'total': int, 'ts': str or '', 'reason': str or None}
     """
-    from datetime import date as _date
-    weekday = _date.today().weekday()  # 월=0 ~ 일=6
-    if weekday >= 5:  # 토(5), 일(6)
-        logger.info(f'[ABSENT] 주말 (weekday={weekday}) — 리마인드 skip')
-        return {'ok': True, 'total': 0, 'ts': '', 'reason': 'weekend'}
+    today = date.today()
+    if not _is_business_day(today):
+        logger.info(f'[ABSENT] 비영업일 ({today.strftime("%Y-%m-%d %a")}) — 리마인드 skip')
+        return {'ok': True, 'total': 0, 'ts': '', 'reason': 'non_business_day'}
+
+    # 직전 영업일 계산 → 그 다음날부터 어제까지가 리마인드 대상 date range.
+    #   예: today=화 → prev=월, range=[월] (하루)
+    #       today=월 → prev=금, range=[토, 일] (주말 인입)
+    #       today=목(수요일이 공휴일) → prev=화, range=[수] (공휴일 인입)
+    prev_bday = _previous_business_day(today)
+    date_range: List[date] = []
+    d = prev_bday + timedelta(days=1)
+    while d < today:
+        date_range.append(d)
+        d = d + timedelta(days=1)
+    # date_range 가 비어있으면 (연속 영업일 화·수 등) 어제 하나만
+    if not date_range:
+        date_range = [today - timedelta(days=1)]
 
     channel = os.getenv('SLACK_ONLINE_CHANNEL', _ONLINE_CHANNEL_DEFAULT).strip() or _ONLINE_CHANNEL_DEFAULT
     client = _get_online_client()
     if not client:
         return {'ok': False, 'total': 0, 'ts': '', 'reason': 'SLACK_BOT_TOKEN 미설정'}
 
-    unassigned, retry = collect_absent_leads()
+    unassigned, retry = collect_absent_leads(date_range=date_range)
     total = len(unassigned) + sum(len(v) for v in retry.values())
     if total == 0:
         logger.info('[ABSENT] 어제 미처리 문의 0건 — 카드 발송 skip')
