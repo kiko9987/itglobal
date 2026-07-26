@@ -915,47 +915,53 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     for lno, s in _mgrs_by_lead.items():
         lead_to_mgrs[lno] = list(s)
 
-    # 각 lead 이전 dm_sent 조회 (JSON) — 신규/유지/제거 분류용
+    # 각 lead 이전 dm_sent 조회 (JSON) — 방문 취소·변경 flow 에서 사용 (유지)
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc_pre = get_redis_client().redis
     except Exception:
         rc_pre = None
 
-    prev_mgrs_by_lead: Dict[str, set] = {}
-    for lno in lead_to_mgrs:
-        if rc_pre is None:
-            prev_mgrs_by_lead[lno] = set()
-            continue
-        try:
-            raw = rc_pre.get(f'dm_sent:{lno}')
-            if not raw:
-                prev_mgrs_by_lead[lno] = set()
-                continue
-            val = raw.decode() if isinstance(raw, bytes) else raw
-            # JSON format {"date":..., "mgrs":[...]} 또는 legacy 문자열
-            if val.startswith('{'):
-                data = _json.loads(val)
-                prev_mgrs_by_lead[lno] = set(data.get('mgrs', []))
-            else:
-                # legacy — target_date 만 있고 mgrs 정보 없음, 첫 확장 실행 시엔
-                # 이미 발송된 것으로 간주 (모두 유지) 하려 해도 정보 없으므로 빈 set
-                prev_mgrs_by_lead[lno] = set()
-        except Exception as exc:
-            logger.debug(f'[ASSIGN/DM] dm_sent 파싱 실패 ({lno}): {exc}')
-            prev_mgrs_by_lead[lno] = set()
+    # 2026-07-26 개편: 매니저-date 단위 v9 DM 트래킹.
+    #   `dm_v9_msg:{ini}:{date}` = {channel, ts, lead_nos}
+    #   재확정 시 매니저별 배정 lead set 이 바뀌면 기존 v9 삭제 → 총 건수 반영해
+    #   재발송. 매니저는 항상 최신 v9 하나만 참고 → 헷갈림 X.
+    target_date_iso = target_date.isoformat()
 
-    # 신규 배정 (첫 발송 대상) 과 제거 (배정 해제) 분류
-    by_mgr_new: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
-    deassigned_by_mgr: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
+    # 현재 배정 — 매니저별 lead 리스트
+    current_by_mgr: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
     for p, lead in filtered:
         lno = str(lead.get('리드 No') or '').strip()
-        current_set = set(p['assign'])
-        prev_set = prev_mgrs_by_lead.get(lno, set())
-        for ini in current_set - prev_set:
-            by_mgr_new[ini].append((lno, lead))
-        for ini in prev_set - current_set:
-            deassigned_by_mgr[ini].append((lno, lead))
+        for ini in (p.get('assign') or []):
+            current_by_mgr[ini].append((lno, lead))
+
+    # 이전 v9 DM 이력 (매니저별) — 채널·ts·lead_nos 저장돼 있으면 삭제/비교 가능
+    prev_v9_by_mgr: Dict[str, Dict] = {}
+    if rc_pre is not None:
+        # 현재 배정된 매니저 + prev key 스캔 결과 (완전 제거된 매니저 포함)
+        _prev_ini_pool = set(current_by_mgr.keys())
+        try:
+            for _key in rc_pre.scan_iter(f'dm_v9_msg:*:{target_date_iso}', count=200):
+                _kstr = _key.decode() if isinstance(_key, bytes) else _key
+                _parts = _kstr.split(':')
+                if len(_parts) >= 3:
+                    _prev_ini_pool.add(_parts[1])
+        except Exception:
+            pass
+        for ini in _prev_ini_pool:
+            try:
+                raw = rc_pre.get(f'dm_v9_msg:{ini}:{target_date_iso}')
+                if not raw:
+                    continue
+                val = raw.decode() if isinstance(raw, bytes) else raw
+                data = _json.loads(val)
+                prev_v9_by_mgr[ini] = {
+                    'channel': data.get('channel', ''),
+                    'ts': data.get('ts', ''),
+                    'lead_nos': set(data.get('lead_nos') or []),
+                }
+            except Exception as exc:
+                logger.debug(f'[ASSIGN/DM] prev v9 파싱 실패 ({ini}): {exc}')
 
     # 방문봇 client
     client = _get_visit_client()
@@ -965,73 +971,156 @@ def _send_dms_for_next_visit(assignments: List[Dict],
 
     lead_nos_flagged = set()
 
-    # 배정 해제 알림 (v20)
-    for ini, dea_leads in deassigned_by_mgr.items():
+    # 매니저별 분기: same / changed / new / removed
+    _all_inis = set(current_by_mgr.keys()) | set(prev_v9_by_mgr.keys())
+    for ini in _all_inis:
         mgr_name = initial_to_name.get(ini, ini)
         email = _email_from_initial(ini, initial_to_name)
-        if not email:
-            logger.warning(
-                f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}): 이메일 매핑 실패 — skip'
-            )
-            continue
-        lines = [_BLANK]
-        lines.append(
-            f'>:no_entry: *{mgr_name}님*, {target_date.isoformat()} '
-            f'방문 배정에서 제외되었습니다 ({len(dea_leads)}건).'
-        )
-        lines.append(f'>{_SEP}')
-        for i, (lno, lead) in enumerate(dea_leads):
-            e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
-            lines.append(f'>{e} *{lno} · {lead.get("고객명") or "-"}*')
-        lines.append(
-            '>:information_source: 다른 매니저에게 재배정되었습니다.'
-        )
-        lines.append(f'>{_SEP}')
-        lines.append(_BLANK)
-        try:
-            u = client.users_lookupByEmail(email=email)
-            uid = u['user']['id']
-            r = client.chat_postMessage(
-                channel=uid, text='\n'.join(lines),
-                unfurl_links=False, unfurl_media=False,
-            )
-            if r.get('ok'):
-                result['deassign_sent'] += 1
-                logger.info(
-                    f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) → {len(dea_leads)}건'
-                )
-        except Exception as exc:
-            logger.warning(
-                f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) 발송 예외: {exc}'
-            )
+        current_leads = current_by_mgr.get(ini, [])
+        current_set = {lno for lno, _ in current_leads}
+        prev_info = prev_v9_by_mgr.get(ini)
+        prev_set = prev_info['lead_nos'] if prev_info else set()
 
-    # 담당자별 v9 DM — 신규 매니저만 발송
-    for ini, mgr_leads in by_mgr_new.items():
-        mgr_name = initial_to_name.get(ini, ini)
-        email = _email_from_initial(ini, initial_to_name)
+        # ────── (1) 완전 제거 — 기존 v9 삭제 + v20 해제 알림 ──────
+        if not current_leads:
+            if not email:
+                logger.warning(
+                    f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}): 이메일 매핑 실패 — skip'
+                )
+                continue
+            # 기존 v9 삭제
+            _v9_deleted = False
+            if prev_info and prev_info.get('channel') and prev_info.get('ts'):
+                try:
+                    client.chat_delete(
+                        channel=prev_info['channel'], ts=prev_info['ts'],
+                    )
+                    _v9_deleted = True
+                    logger.info(
+                        f'[ASSIGN/DM] {mgr_name}({ini}) 기존 v9 삭제 '
+                        f'(ts={prev_info["ts"]})'
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f'[ASSIGN/DM] {mgr_name}({ini}) 기존 v9 삭제 실패: {exc}'
+                    )
+                try:
+                    rc_pre and rc_pre.delete(f'dm_v9_msg:{ini}:{target_date_iso}')
+                except Exception:
+                    pass
+            # v20 재배정 안내 (매뉴얼 §128: "제외" 가 아니라 "재배정" 뉘앙스)
+            dea_lead_nos = sorted(prev_set)
+            lines = [_BLANK]
+            lines.append(
+                f'>:arrows_counterclockwise: *{mgr_name}님*, {target_date_iso} '
+                f'방문 {len(dea_lead_nos)}건이 다른 매니저에게 재배정되었습니다.'
+            )
+            lines.append(f'>{_SEP}')
+            for i, lno in enumerate(dea_lead_nos):
+                e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
+                # 재배정된 lead 는 이번 배정에 없어서 이름 조회는 dm_sent 에서
+                _cust_name = ''
+                try:
+                    if rc_pre is not None:
+                        _raw = rc_pre.get(f'dm_sent:{lno}')
+                        if _raw:
+                            _val = _raw.decode() if isinstance(_raw, bytes) else _raw
+                            _data = _json.loads(_val) if _val.startswith('{') else {}
+                            _cust_name = _data.get('cust', '')
+                except Exception:
+                    pass
+                lines.append(f'>{e} *{lno} · {_cust_name or "-"}*')
+            if _v9_deleted:
+                lines.append(
+                    '>:information_source: 기존 배정 안내 DM 은 삭제되었습니다.'
+                )
+            lines.append(f'>{_SEP}')
+            lines.append(_BLANK)
+            try:
+                u = client.users_lookupByEmail(email=email)
+                uid = u['user']['id']
+                r = client.chat_postMessage(
+                    channel=uid, text='\n'.join(lines),
+                    unfurl_links=False, unfurl_media=False,
+                )
+                if r.get('ok'):
+                    result['deassign_sent'] += 1
+                    logger.info(
+                        f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) → '
+                        f'{len(dea_lead_nos)}건'
+                    )
+            except Exception as exc:
+                logger.warning(
+                    f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) 발송 예외: {exc}'
+                )
+            continue
+
+        # ────── (2) 배정 동일 (순서 무관) — skip ──────
+        if prev_info and current_set == prev_set:
+            logger.info(
+                f'[ASSIGN/DM] {mgr_name}({ini}) 배정 동일 '
+                f'({len(current_set)}건) → skip'
+            )
+            for lno in current_set:
+                lead_nos_flagged.add(lno)
+            continue
+
+        # ────── (3) 변경/신규 — 기존 v9 삭제 (있으면) + 재발송 ──────
         if not email:
             logger.warning(
                 f'[ASSIGN/DM] {mgr_name}({ini}): 이메일 매핑 실패 — skip'
             )
             result['visit_mgr_failed'] += 1
             continue
+
+        _v9_deleted = False
+        if prev_info and prev_info.get('channel') and prev_info.get('ts'):
+            try:
+                client.chat_delete(
+                    channel=prev_info['channel'], ts=prev_info['ts'],
+                )
+                _v9_deleted = True
+                logger.info(
+                    f'[ASSIGN/DM] {mgr_name}({ini}) 기존 v9 삭제 '
+                    f'(ts={prev_info["ts"]})'
+                )
+            except Exception as exc:
+                logger.warning(
+                    f'[ASSIGN/DM] {mgr_name}({ini}) 기존 v9 삭제 실패: {exc}'
+                )
+            try:
+                rc_pre and rc_pre.delete(f'dm_v9_msg:{ini}:{target_date_iso}')
+            except Exception:
+                pass
+
         # 동행 계산
         companions_per_lead = {}
-        for lno, _ in mgr_leads:
+        for lno, _ in current_leads:
             others = [x for x in lead_to_mgrs.get(lno, []) if x != ini]
             companions_per_lead[lno] = tuple(others)
         uniq = set(companions_per_lead.values())
         common = list(uniq)[0] if len(uniq) == 1 and uniq != {tuple()} else None
 
         lines = [_BLANK]
+        # 변경 재발송 헤더 (담담한 톤) — prev 있고 실제 lead set 다른 케이스만
+        if prev_info and current_set != prev_set:
+            _prev_n = len(prev_set)
+            _cur_n = len(current_set)
+            lines.append(
+                f'>:arrows_counterclockwise: *일정 업데이트 '
+                f'({_prev_n}건 → {_cur_n}건)*'
+            )
+            lines.append('>이전 안내 DM 은 삭제되었습니다.')
+            lines.append('>')
+
         lines.append(
-            f'>:wave: *{mgr_name}님*, {target_date.isoformat()} '
-            f'배정된 방문 일정 {len(mgr_leads)}건 입니다.'
+            f'>:wave: *{mgr_name}님*, {target_date_iso} '
+            f'배정된 방문 일정 {len(current_leads)}건 입니다.'
         )
         if common:
             lines.append(f'>:busts_in_silhouette: 동행 : {"+".join(common)}')
         lines.append(f'>{_SEP}')
-        for i, (lno, lead) in enumerate(mgr_leads):
+        for i, (lno, lead) in enumerate(current_leads):
             e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
             lines.append(f'>{e} *{lno} · {lead.get("고객명") or "-"}*')
             if not common and companions_per_lead.get(lno):
@@ -1043,8 +1132,6 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             note = (lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
             if note:
                 # 재상담 이력 있으면 최신 회차 content 만 표시 (2026-07-21)
-                # 방문 카드·캔버스와 동일 처리. 헤더(`[MM.DD HH:MM 이니셜 · 상태]`)
-                # 통째로 매니저 DM 에 나가면 노이즈.
                 try:
                     from dashboard.blueprints.slack_bot import _parse_consultation_entries
                     _entries = _parse_consultation_entries(note)
@@ -1059,11 +1146,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             lines.append(f'>{_SEP}')
             lead_nos_flagged.add(lno)
         # 2026-07-25: 온라인 당번 지정 없으면 (섹션 비어있거나 텍스트만) 방문 매니저
-        #   전원이 나눠서 온라인 대응하도록 안내 라인 append. 특정 이니셜 (JK 등)
-        #   지정 시엔 그 사람이 v13 받으므로 이 안내 skip.
+        #   전원이 나눠서 온라인 대응하도록 안내 라인 append.
         if not online_duty:
             lines.append(
-                '>:speech_balloon: *온라인 문의 대응은 전체 인원이 모두 신경 써주세요.*'
+                '>:telephone: *온라인 문의 대응은 전체 인원이 모두 신경 써주세요.*'
             )
         lines.append(_BLANK)
 
@@ -1076,9 +1162,27 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             )
             if r.get('ok'):
                 result['visit_mgr_sent'] += 1
+                _tag = '재발송' if prev_info else '신규'
                 logger.info(
-                    f'[ASSIGN/DM] {mgr_name}({ini}) → {len(mgr_leads)}건 발송 OK'
+                    f'[ASSIGN/DM] {mgr_name}({ini}) → {len(current_leads)}건 '
+                    f'{_tag} 발송 OK'
                 )
+                # 매니저-date v9 저장 (재확정 시 삭제·비교용)
+                try:
+                    _payload = _json.dumps({
+                        'channel': r.get('channel', ''),
+                        'ts': r.get('ts', ''),
+                        'lead_nos': sorted(current_set),
+                    })
+                    if rc_pre is not None:
+                        rc_pre.set(
+                            f'dm_v9_msg:{ini}:{target_date_iso}', _payload,
+                            ex=86400 * 7,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        f'[ASSIGN/DM] {mgr_name}({ini}) v9 저장 실패: {exc}'
+                    )
             else:
                 result['visit_mgr_failed'] += 1
                 logger.warning(
@@ -1200,18 +1304,22 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 )
 
     # Redis dm_sent JSON 저장 — 모든 filtered lead 에 대해 최종 mgrs 기록.
-    # {"date": "YYYY-MM-DD", "mgrs": ["YG","TH",...]}
-    # 재실행 시 diff 판정용. 신규/유지/제거 분류.
+    # {"date": "YYYY-MM-DD", "mgrs": ["YG","TH",...], "cust": "홍길동"}
+    # 재실행 시 diff 판정용 (방문 취소·변경 flow 에서 사용).
+    # 2026-07-26: cust 추가 — 제거 매니저 v20 알림 안 lead 이름 표시용.
     all_flagged = set(lead_to_mgrs.keys())
+    _lead_by_no = {str(l.get('리드 No') or '').strip(): l for _, l in filtered}
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
         ttl_days = (target_date - today).days + 7
         ttl = max(ttl_days * 86400, 86400)
         for lno in all_flagged:
+            _lead_obj = _lead_by_no.get(lno) or {}
             payload = _json.dumps({
                 'date': target_date.isoformat(),
                 'mgrs': list(lead_to_mgrs.get(lno, [])),
+                'cust': str(_lead_obj.get('고객명') or '').strip(),
             })
             try:
                 rc.set(f'dm_sent:{lno}', payload, ex=ttl)
