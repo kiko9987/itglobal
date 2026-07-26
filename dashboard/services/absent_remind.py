@@ -169,9 +169,18 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
 def send_daily_remind() -> Dict:
     """어제 미처리 문의 리마인드 카드 발송 — 매일 아침 9시 스케줄러 진입점.
 
+    2026-07-26 주말 skip: 토·일요일은 사무실 근무 X → 매니저 대응 불가 → 발송 skip.
+    (월요일 아침 리마인드는 금요일 미처리 다시 잡히므로 안전.)
+
     Returns:
         {'ok': bool, 'total': int, 'ts': str or '', 'reason': str or None}
     """
+    from datetime import date as _date
+    weekday = _date.today().weekday()  # 월=0 ~ 일=6
+    if weekday >= 5:  # 토(5), 일(6)
+        logger.info(f'[ABSENT] 주말 (weekday={weekday}) — 리마인드 skip')
+        return {'ok': True, 'total': 0, 'ts': '', 'reason': 'weekend'}
+
     channel = os.getenv('SLACK_ONLINE_CHANNEL', _ONLINE_CHANNEL_DEFAULT).strip() or _ONLINE_CHANNEL_DEFAULT
     client = _get_online_client()
     if not client:
