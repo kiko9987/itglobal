@@ -1055,6 +1055,14 @@ def _register_handlers(app):
             if not thread_ts:
                 return  # thread가 아닌 일반 채널 메시지는 무시
 
+            # ③-2-a. lead 카드 스레드 자동 감지 (부재중/드랍) — 2026-07-26
+            # 매니저가 짧은 텍스트만 남겨도 시트·카드 자동 갱신. 매칭 X 시 forward 로 계속.
+            try:
+                if _try_auto_thread_status(client, event):
+                    return
+            except Exception as exc:
+                logger.warning(f"[SLACK/자동감지] 예외 (무시): {exc}")
+
             try:
                 from dashboard.services.channeltalk_threads import get_chat_id
                 from dashboard.services.channeltalk_api import (
@@ -3811,6 +3819,263 @@ _CONSULT_STATUS_OPTIONS = [
     ('문의 드랍', '문의 드랍'),
     ('부재중', '부재중'),
 ]
+
+
+# ─────────────────────────────────────────────────────────────
+# 스레드 텍스트 자동 감지 → 부재중/드랍 자동 처리 (2026-07-26)
+#
+# 매니저가 lead 카드 스레드에 짧은 텍스트만 남기고 [상담하기] 모달 안 눌러도
+# 시트·카드 자동 갱신. 자연어 오탐 방지 위해 정확 매치·짧은 텍스트만 인식.
+# ─────────────────────────────────────────────────────────────
+_AUTO_STATUS_ABSENT_RE = re.compile(
+    r'^(부재중|부재|전화\s*안\s*받음|안\s*받음|노쇼|no\s*show)\s*[.!?~,]*\s*$',
+    re.IGNORECASE,
+)
+_AUTO_STATUS_DROP_RE = re.compile(
+    r'^(문의\s*)?드랍(\s*처리)?\s*[.!?~,]*\s*$',
+    re.IGNORECASE,
+)
+
+
+def _detect_auto_thread_status(text: str) -> Optional[str]:
+    """스레드 reply 텍스트 → 자동 처리 상태 매핑. None 이면 자동 처리 대상 아님.
+
+    자연어 오탐 방지 — 20자 이하 단일 라인 텍스트만 인식.
+    """
+    if not text:
+        return None
+    stripped = text.strip()
+    if len(stripped) > 20 or '\n' in stripped:
+        return None
+    if _AUTO_STATUS_ABSENT_RE.match(stripped):
+        return '부재중'
+    if _AUTO_STATUS_DROP_RE.match(stripped):
+        return '문의 드랍'
+    return None
+
+
+def _extract_lead_no_from_root(root_msg: dict) -> str:
+    """Root 메시지 (lead 카드) 에서 lead_no 추출. `L-XXXXX` 또는 `ETC-xxxxxx` 패턴."""
+    text_pool = [root_msg.get('text') or '']
+    for blk in root_msg.get('blocks') or []:
+        _bt = blk.get('type')
+        if _bt == 'section':
+            _t = (blk.get('text') or {}).get('text', '')
+            if _t:
+                text_pool.append(_t)
+        elif _bt == 'context':
+            for el in blk.get('elements') or []:
+                if isinstance(el, dict):
+                    _t = el.get('text', '')
+                    if _t:
+                        text_pool.append(_t)
+    joined = '\n'.join(text_pool)
+    m = re.search(r'\b(L-\d{4,6}|ETC-[a-f0-9]{4,10})\b', joined)
+    return m.group(1) if m else ''
+
+
+def _apply_auto_absent_badge(client, channel: str, thread_ts: str, root: dict,
+                              lead_no: str, initial: str, hdr_time: str):
+    """부재중 배지 삽입 — 원본 body 유지 + 상단 section 배지 (task #32 정책).
+
+    이미 배지 있으면 갱신 (재시도 케이스 → 회차·시각만 업데이트).
+    """
+    from dashboard.utils.redis_client import get_redis_client
+    rc = get_redis_client().redis
+    _count = int(rc.incr(f'consult_missed_count:{lead_no}') or 1)
+    rc.expire(f'consult_missed_count:{lead_no}', 60 * 60 * 24 * 90)
+
+    badge_text = '\n'.join([
+        '⠀',
+        f':arrows_counterclockwise: *부재중* (총 *{_count}회*)',
+        f'처리자 : {initial}',
+        f'처리 시간 : {hdr_time}',
+        '상담 내용 : 부재중',
+    ])
+    badge_block = {'type': 'section', 'text': {'type': 'mrkdwn', 'text': badge_text}}
+    existing = list(root.get('blocks') or [])
+    _has_badge = False
+    if existing:
+        _first = existing[0]
+        if _first.get('type') == 'section':
+            _txt = ((_first.get('text') or {}).get('text') or '')
+            _has_badge = '*부재중*' in _txt and '처리 시간' in _txt
+    if _has_badge:
+        existing[0] = badge_block
+    else:
+        existing.insert(0, badge_block)
+    client.chat_update(
+        channel=channel, ts=thread_ts,
+        text=root.get('text', '') or '',
+        blocks=existing,
+    )
+
+
+def _apply_auto_dropped_card(client, channel: str, thread_ts: str, root: dict,
+                              lead_no: str, initial: str, hdr_time: str,
+                              reason_text: str):
+    """문의 드랍 회색 완료 카드 — 원본 code block + 회색 헤더 + [재상담] 버튼."""
+    original_text = ''
+    for blk in root.get('blocks') or []:
+        if blk.get('type') == 'section':
+            original_text = (blk.get('text') or {}).get('text', '')
+            break
+    if '```' in original_text and '상담 완료' in original_text:
+        return  # 이미 회색 처리됨
+
+    cleaned = [ln.lstrip('>').lstrip().replace('*', '') for ln in original_text.split('\n')]
+    clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', '\n'.join(cleaned))
+    try:
+        from dashboard.blueprints.slack_helpers import _normalize_shortcodes_to_unicode
+        clean_text = _normalize_shortcodes_to_unicode(clean_text)
+    except Exception:
+        pass
+
+    header_lines = [
+        '⠀',
+        f':white_check_mark: *상담 완료 - 문의 드랍*  `{lead_no}`',
+        f'처리자 : {initial}',
+        f'처리 시간 : {hdr_time}',
+        f'상담 내용 : {reason_text}',
+    ]
+    new_text = '\n'.join(header_lines) + f'\n\n```\n{clean_text}\n```'
+    new_blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': new_text}},
+        {'type': 'actions', 'elements': [{
+            'type': 'button',
+            'text': {'type': 'plain_text', 'text': '✏️ 재상담', 'emoji': True},
+            'value': lead_no,
+            'action_id': 'button_consult',
+        }]},
+    ]
+    client.chat_update(
+        channel=channel, ts=thread_ts, text=new_text, blocks=new_blocks,
+    )
+
+
+def _try_auto_thread_status(client, event: dict) -> bool:
+    """스레드 텍스트 자동 감지 → lead 상태 처리.
+
+    Returns:
+      True — 자동 처리 대상 스레드 (성공/이미 완료된 skip 모두 포함).
+             호출자는 이후 채널톡 forward 등을 건너뛰어야 함.
+      False — 자동 처리 대상 아님 (텍스트 unmatch, lead 카드 아님, 채널 mismatch).
+             호출자는 기존 flow 계속 진행.
+    """
+    text = (event.get('text') or '').strip()
+    new_status = _detect_auto_thread_status(text)
+    if not new_status:
+        return False
+
+    channel = event.get('channel', '')
+    thread_ts = event.get('thread_ts', '')
+    user_id = event.get('user', '')
+    event_ts = event.get('ts', '')
+    if not (channel and thread_ts and user_id and event_ts):
+        return False
+
+    # 채널 필터 — 온라인_문의 채널 only (오탐 예방)
+    try:
+        lead_channel_setting = os.getenv('SLACK_LEAD_CHANNEL', '').strip()
+        if not lead_channel_setting:
+            return False
+        from dashboard.services.lead_sync import _resolve_channel_id
+        if channel != _resolve_channel_id(client, lead_channel_setting):
+            return False
+    except Exception:
+        return False
+
+    # Redis dedup — 동일 이벤트 재처리 방지 (bolt 재전송 대응)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        if not rc.set(f'auto_thread_status:{event_ts}', '1', nx=True, ex=600):
+            return True
+    except Exception:
+        pass
+
+    # Root fetch → lead_no 추출
+    try:
+        rp = client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=1, inclusive=True,
+        )
+    except Exception as exc:
+        logger.warning(f'[SLACK/자동감지] replies fetch 실패: {exc}')
+        return False
+    root = ((rp.get('messages') or [{}])[0]) if rp else {}
+    lead_no = _extract_lead_no_from_root(root)
+    if not lead_no:
+        return False  # lead 카드 아님 — 기존 flow 계속
+
+    try:
+        from dashboard.services.lead_service import get_lead_by_no, update_lead
+        lead = get_lead_by_no(lead_no)
+    except Exception as exc:
+        logger.warning(f'[SLACK/자동감지] lead 조회 실패 ({lead_no}): {exc}')
+        return True  # lead_no 는 감지됐으니 forward 는 방지
+    if not lead:
+        return True
+    cur_status = str(lead.get('상태') or '').strip()
+    # 재처리 허용: 부재중 재시도만. 이미 완료된 lead 는 안내 후 skip.
+    _allow_retry = {'상담 대기', '부재중'} if new_status == '부재중' else {'상담 대기'}
+    if cur_status not in _allow_retry:
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=user_id, thread_ts=thread_ts,
+                text=(
+                    f':information_source: `{lead_no}` 은(는) 이미 `{cur_status}` 상태입니다.\n'
+                    '재상담이 필요하면 [✏️ 재상담] 버튼을 눌러주세요.'
+                ),
+            )
+        except Exception:
+            pass
+        logger.info(f'[SLACK/자동감지] {lead_no} 이미 {cur_status} → skip')
+        return True
+
+    initial = _slack_user_to_initial(client, user_id) or '-'
+    manager_name = _slack_user_to_korean_name(client, user_id) or ''
+    try:
+        _dt = datetime.fromtimestamp(float(event_ts))
+    except Exception:
+        _dt = datetime.now()
+    hdr_time = _dt.strftime('%m.%d %H:%M')
+
+    old_k = str(lead.get('상담 내용') or '').strip()
+    if new_status == '부재중':
+        marker = f'[{hdr_time} {initial} · 부재중] 부재중'
+    else:
+        marker = f'[{hdr_time} {initial} · 문의 드랍] {text}'
+    new_k = f'{old_k} ─── {marker}' if old_k and old_k != '-' else marker
+
+    try:
+        _update = {'상태': new_status, '상담 내용': new_k}
+        if manager_name:
+            _update['온라인 상담자'] = manager_name
+        update_lead(lead_no, _update)
+    except Exception as exc:
+        logger.error(f'[SLACK/자동감지] 시트 update 실패 ({lead_no}): {exc}', exc_info=True)
+        return True
+
+    try:
+        if new_status == '부재중':
+            _apply_auto_absent_badge(client, channel, thread_ts, root, lead_no, initial, hdr_time)
+        else:
+            _apply_auto_dropped_card(client, channel, thread_ts, root, lead_no, initial, hdr_time, text)
+    except Exception as exc:
+        logger.warning(f'[SLACK/자동감지] 카드 회색화 실패 ({lead_no}): {exc}')
+
+    try:
+        client.reactions_add(
+            channel=channel, timestamp=event_ts, name='white_check_mark',
+        )
+    except Exception:
+        pass
+
+    logger.info(
+        f'[SLACK/자동감지] {lead_no} → {new_status} '
+        f'(매니저 {initial}, text={text[:20]!r})'
+    )
+    return True
 
 
 def _search_leads_for_options(query: str, limit: int = 20) -> list:
