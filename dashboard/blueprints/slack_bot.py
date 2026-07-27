@@ -1741,19 +1741,26 @@ def _register_as_handlers(app):
 
     @app.action("value")
     def handle_as_block_action(ack, body, client):
-        """모달 내 external_select 선택 → 프로젝트 정보 pre-fill 갱신."""
+        """모달 내 external_select 선택 → pre-fill / 코드없음 체크박스 → 모드 스왑."""
         ack()
         if not body.get("view"):
             return
         action = (body.get("actions") or [{}])[0]
-        if action.get("block_id") != "as_project_code":
-            return
-        def _bg():
-            try:
-                _update_as_modal_with_project(client, body, action)
-            except Exception as exc:
-                logger.error(f"[SLACK/AS] 모달 갱신 실패: {exc}", exc_info=True)
-        threading.Thread(target=_bg, daemon=True).start()
+        bid = action.get("block_id")
+        if bid == "as_project_code":
+            def _bg():
+                try:
+                    _update_as_modal_with_project(client, body, action)
+                except Exception as exc:
+                    logger.error(f"[SLACK/AS] 모달 갱신 실패: {exc}", exc_info=True)
+            threading.Thread(target=_bg, daemon=True).start()
+        elif bid == "as_manual_toggle":
+            def _bg2():
+                try:
+                    _toggle_as_manual_mode(client, body, action)
+                except Exception as exc:
+                    logger.error(f"[SLACK/AS] 수동모드 토글 실패: {exc}", exc_info=True)
+            threading.Thread(target=_bg2, daemon=True).start()
 
     logger.info(
         "[SLACK/AS봇] 핸들러 등록 완료: /as, submit_as_request, "
@@ -1894,6 +1901,27 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
         lines.append(f"✅ *[A/S 처리 완료]*  `{as_no}`")
     lines.append("--------------------------------------------")
 
+    # 코드 없는 수동 등록 A/S (코드 이전 공사) → 프로젝트 파생 필드 생략, 간소 렌더
+    if not (code and code != '-'):
+        lines.append("🏷️ 구분 : 코드 이전 공사 (수동 등록)")
+        lines.append(f"📍 현장 주소 : {_pick('현장주소', 'address')}")
+        _mwork = _pick('공사내용', 'work_content')
+        if _mwork and _mwork != '-':
+            lines.append(f"📋 공사 내용 : {_mwork}")
+        lines.append("--------------------------------------------")
+        lines.append(f"📝 A/S 요청 내용 : {data.get('요청 내용', '-') or '-'}")
+        lines.append(f"👤 요청자 : {data.get('요청자', '-') or '-'}")
+        if view_state in ('accepted', 'completed'):
+            lines.append("--------------------------------------------")
+            lines.append(f"👷 방문 예정자 : {data.get('방문 예정자', '-') or '-'}")
+            lines.append(f"📅 방문 예정일 : {data.get('방문 예정일', '-') or '-'}")
+            lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
+        if view_state == 'completed':
+            lines.append("--------------------------------------------")
+            lines.append(f"🎯 처리 내용 : {data.get('처리 내용', '-') or '-'}")
+        lines.append("--------------------------------------------")
+        return "⠀\n" + "\n".join(lines)
+
     inflow = (proj or {}).get('inflow', '-') if proj else '-'
     biz = (proj or {}).get('biz', '-') if proj else '-'
 
@@ -1972,49 +2000,149 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
     return blocks
 
 
+# A/S 담당자 드롭다운 제외 대상 — 경영지원팀 (영업 아님). email localpart 소문자.
+_AS_MANAGER_EXCLUDE = {'kiko', 'sb'}
+
+
+def _active_manager_options() -> list:
+    """A/S 수동 등록용 담당자(영업) static_select 옵션 — 활성 영업 인원만.
+
+    users.db 에서 퇴사자(resigned*)·테스트(@example.com)·경영지원팀(_AS_MANAGER_EXCLUDE) 제외.
+    value=email. 2026-07-27 코드 이전 공사 A/S 등록 시 담당자 직접 지정용.
+    """
+    opts: list = []
+    try:
+        from dashboard.utils.user_database import UserDatabase
+        db = UserDatabase()
+        rows = []
+        for u in db.get_all_users():
+            email = (u.get('email') or '').strip()
+            name = (u.get('name') or '').strip()
+            if not email or not name:
+                continue
+            local = email.split('@')[0].strip()
+            if local.lower().startswith('resigned') or email.lower().endswith('@example.com'):
+                continue
+            if local.lower() in _AS_MANAGER_EXCLUDE:
+                continue
+            ini = local.upper()
+            if ini == 'KIKO':
+                ini = 'KiKO'
+            rows.append((name, ini, email))
+        rows.sort(key=lambda r: r[0])
+        for name, ini, email in rows:
+            label = f'{name} ({ini})'
+            opts.append({
+                "text": {"type": "plain_text", "text": label[:75]},
+                "value": email[:75],
+            })
+    except Exception as exc:
+        logger.warning(f'[SLACK/AS] 담당자 옵션 로드 실패: {exc}')
+    return opts
+
+
 def _as_request_view_blocks(
     initial_project_option: Optional[dict] = None,
     project_details: Optional[dict] = None,
     initial_request_content: str = '',
+    manual_mode: bool = False,
 ) -> list:
-    """요청 모달 blocks — 프로젝트 선택 전/후 공용."""
-    project_element = {
-        "type": "external_select", "action_id": "value",
-        "min_query_length": 1,
-        "placeholder": {"type": "plain_text", "text": "예: G3745 / R3845 (1글자부터 검색)"},
-    }
-    if initial_project_option:
-        project_element["initial_option"] = initial_project_option
+    """요청 모달 blocks — 프로젝트 선택 전/후 + 코드 없는 수동 입력 모드 공용.
 
-    blocks: list = [
-        {
+    manual_mode=True (코드 이전 공사) → 코드 external_select 대신 현장 주소·공사 내용·
+    담당자(영업) 직접 입력. 최상단 체크박스로 두 모드 전환 (views.update, 2026-07-27).
+    """
+    # 코드 없음 토글 (actions 블록 — 즉시 block_actions 발동, dispatch_action 불필요)
+    _toggle_opt = {
+        "text": {"type": "plain_text", "text": "프로젝트 코드 없음 (코드 이전 공사)"},
+        "value": "manual",
+    }
+    toggle_checkbox = {
+        "type": "checkboxes", "action_id": "value", "options": [_toggle_opt],
+    }
+    if manual_mode:
+        toggle_checkbox["initial_options"] = [_toggle_opt]
+    blocks: list = [{
+        "type": "actions", "block_id": "as_manual_toggle",
+        "elements": [toggle_checkbox],
+    }]
+
+    if manual_mode:
+        # 코드 없는 공사 — 현장 정보·담당자 직접 입력
+        addr_el = {
+            "type": "plain_text_input", "action_id": "value",
+            "placeholder": {"type": "plain_text",
+                            "text": "예: 반포자이 아파트, 서울 서초구 신반포로 …"},
+        }
+        blocks.append({
+            "type": "input", "block_id": "as_manual_address",
+            "label": {"type": "plain_text", "text": "현장명 / 현장 주소"},
+            "element": addr_el,
+        })
+        work_el = {
+            "type": "plain_text_input", "action_id": "value", "multiline": True,
+            "placeholder": {"type": "plain_text", "text": "예: 천장형 4way 3대 설치 (2023년)"},
+        }
+        blocks.append({
+            "type": "input", "block_id": "as_manual_work", "optional": True,
+            "label": {"type": "plain_text", "text": "공사 내용 (선택)"},
+            "element": work_el,
+        })
+        mgr_options = _active_manager_options()
+        if mgr_options:
+            mgr_el = {
+                "type": "static_select", "action_id": "value",
+                "placeholder": {"type": "plain_text", "text": "담당자 선택 (영업)"},
+                "options": mgr_options,
+            }
+        else:
+            # users.db 로드 실패 fallback — 이름 직접 입력
+            mgr_el = {
+                "type": "plain_text_input", "action_id": "value",
+                "placeholder": {"type": "plain_text", "text": "담당자 이름 (예: 고광일)"},
+            }
+        blocks.append({
+            "type": "input", "block_id": "as_manual_manager",
+            "label": {"type": "plain_text", "text": "담당자 (영업) — 알림 DM 대상"},
+            "element": mgr_el,
+        })
+    else:
+        # 기존 — 확정 프로젝트 코드 검색·선택
+        project_element = {
+            "type": "external_select", "action_id": "value",
+            "min_query_length": 1,
+            "placeholder": {"type": "plain_text", "text": "예: G3745 / R3845 (1글자부터 검색)"},
+        }
+        if initial_project_option:
+            project_element["initial_option"] = initial_project_option
+        blocks.append({
             "type": "input", "block_id": "as_project_code",
             "label": {"type": "plain_text", "text": "프로젝트 코드 (검색해서 선택)"},
             "element": project_element,
             "dispatch_action": True,  # 선택 즉시 block_actions 발동해 상세 pre-fill
-        },
-    ]
-    if project_details:
-        info = (
-            f"*📥 유입 구분 :* {project_details.get('inflow','-') or '-'}\n"
-            f"*🏢 사업자명 :* {project_details.get('biz','-') or '-'}\n"
-            f"*📍 현장 주소 :* {project_details.get('address','-') or '-'}\n"
-            f"*👤 발주처 담당자 :* {project_details.get('client_manager','-') or '-'}\n"
-            f"*📞 발주처 연락처 :* {project_details.get('client_phone','-') or '-'}\n"
-            f"*✉️ 발주처 이메일 :* {project_details.get('client_email','-') or '-'}\n"
-            f"*📋 공사 내용 :* {project_details.get('work_content','-') or '-'}\n"
-            f"*🛠️ 도급 구분 :* {project_details.get('contract_type','-') or '-'}\n"
-            f"*👷 시공자 :* {project_details.get('contractor','-') or '-'}\n"
-            f"*💲 공사 금액 :* {project_details.get('amount','-') or '-'}\n"
-            f"*📅 공사 시작 :* {project_details.get('work_start','-') or '-'}\n"
-            f"*📅 공사 종료 :* {project_details.get('work_end','-') or '-'}"
-        )
-        # 상단 여백 (⠀ context) + 정보 섹션 + 하단 여백 divider
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
-        blocks.append({"type": "divider"})
+        })
+        if project_details:
+            info = (
+                f"*📥 유입 구분 :* {project_details.get('inflow','-') or '-'}\n"
+                f"*🏢 사업자명 :* {project_details.get('biz','-') or '-'}\n"
+                f"*📍 현장 주소 :* {project_details.get('address','-') or '-'}\n"
+                f"*👤 발주처 담당자 :* {project_details.get('client_manager','-') or '-'}\n"
+                f"*📞 발주처 연락처 :* {project_details.get('client_phone','-') or '-'}\n"
+                f"*✉️ 발주처 이메일 :* {project_details.get('client_email','-') or '-'}\n"
+                f"*📋 공사 내용 :* {project_details.get('work_content','-') or '-'}\n"
+                f"*🛠️ 도급 구분 :* {project_details.get('contract_type','-') or '-'}\n"
+                f"*👷 시공자 :* {project_details.get('contractor','-') or '-'}\n"
+                f"*💲 공사 금액 :* {project_details.get('amount','-') or '-'}\n"
+                f"*📅 공사 시작 :* {project_details.get('work_start','-') or '-'}\n"
+                f"*📅 공사 종료 :* {project_details.get('work_end','-') or '-'}"
+            )
+            # 상단 여백 (⠀ context) + 정보 섹션 + 하단 여백 divider
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
+            blocks.append({"type": "divider"})
 
+    # 공통 — A/S 요청 내용
     request_element = {
         "type": "plain_text_input", "action_id": "value", "multiline": True,
         "placeholder": {"type": "plain_text", "text": "예: 실외기 소음 발생, 점검 필요"},
@@ -2089,21 +2217,64 @@ def _update_as_modal_with_project(client, body, action) -> None:
         logger.warning(f"[SLACK/AS] views_update 실패: {exc}")
 
 
+def _toggle_as_manual_mode(client, body, action) -> None:
+    """'프로젝트 코드 없음' 체크박스 토글 → 수동/일반 모드 스왑 후 views.update."""
+    checked = bool(action.get("selected_options"))
+    view = body["view"]
+    view_id = view.get("id", '')
+    view_hash = view.get("hash", '')
+    metadata = view.get("private_metadata", '') or json.dumps({}, ensure_ascii=False)
+    # 이미 입력한 A/S 요청 내용 보존
+    current_content = ''
+    try:
+        current_content = (
+            (view.get("state", {}) or {}).get("values", {})
+            .get("request_content", {}).get("value", {})
+            .get("value", '') or ''
+        )
+    except Exception:
+        current_content = ''
+    new_view = {
+        "type": "modal",
+        "callback_id": "submit_as_request",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "A/S 요청"},
+        "submit": {"type": "plain_text", "text": "제출"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": _as_request_view_blocks(
+            manual_mode=checked,
+            initial_request_content=current_content,
+        ),
+    }
+    try:
+        client.views_update(view_id=view_id, hash=view_hash, view=new_view)
+    except Exception as exc:
+        logger.warning(f"[SLACK/AS] 수동모드 토글 views_update 실패: {exc}")
+
+
 def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
                         proj: Optional[dict] = None,
-                        card_channel: str = '', card_ts: str = '') -> bool:
+                        card_channel: str = '', card_ts: str = '',
+                        override: Optional[dict] = None) -> bool:
     """A/S 요청 등록 시 프로젝트 담당자(영업)에게 알림 DM.
 
     버튼 없는 안내 전용 — "담당하신 현장에 A/S 접수" + 채널 카드 permalink.
     접수는 다른 사람이 할 수 있으므로 담당자에겐 인지만 시킴 (2026-07-27 사용자 요구).
 
+    override={'name','email'} 전달 시 코드 기반 조회 대신 그 담당자로 발송
+    (코드 없는 수동 등록 A/S — 담당자 직접 지정).
+
     Returns: 발송 성공 여부. 담당자 미식별·이미 발송 시 False.
     """
     from dashboard.services.as_service import resolve_project_manager
 
-    mgr_name, email = resolve_project_manager(project_code, proj=proj)
+    if override and (override.get('email') or '').strip():
+        mgr_name = (override.get('name') or '').strip()
+        email = (override.get('email') or '').strip()
+    else:
+        mgr_name, email = resolve_project_manager(project_code, proj=proj)
     if not email:
-        logger.info(f'[SLACK/AS] 담당자 미식별 ({project_code}) — DM skip')
+        logger.info(f'[SLACK/AS] 담당자 미식별 ({project_code or "수동"}) — DM skip')
         return False
 
     # 재발송 방지 (view_submission 재전송 대응)
@@ -2135,15 +2306,20 @@ def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
         '⠀',
         f'🔔 *담당하신 현장에 A/S 요청이 접수되었습니다*  `{as_no}`',
         '--------------------------------------------',
-        f'🔗 프로젝트 코드 : `{project_code}`',
-        f'🏢 사업자명 : {biz}',
-        f'📍 현장 주소 : {address}',
-        f'📋 공사 내용 : {work}',
-        '--------------------------------------------',
-        f'📝 A/S 요청 내용 : {req_content}',
-        f'👤 요청자 : {requester}',
-        '--------------------------------------------',
     ]
+    if project_code:
+        lines.append(f'🔗 프로젝트 코드 : `{project_code}`')
+    else:
+        lines.append('🏷️ 코드 이전 공사 (수동 등록)')
+    if biz and biz != '-':
+        lines.append(f'🏢 사업자명 : {biz}')
+    lines.append(f'📍 현장 주소 : {address}')
+    if work and work != '-':
+        lines.append(f'📋 공사 내용 : {work}')
+    lines.append('--------------------------------------------')
+    lines.append(f'📝 A/S 요청 내용 : {req_content}')
+    lines.append(f'👤 요청자 : {requester}')
+    lines.append('--------------------------------------------')
     if permalink:
         lines.append(f'🔗 <{permalink}|사후 관리 채널에서 상세 보기>')
     lines.append('_접수는 사후 관리 채널에서 진행됩니다._')
@@ -2167,40 +2343,78 @@ def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
 
 
 def _process_as_request_submission(client, body, view) -> None:
-    """요청 제출 → 프로젝트 정보 조회 → 시트 append → 카드 발송."""
+    """요청 제출 → (일반) 프로젝트 조회 또는 (수동) 직접 입력 → 시트 append → 카드 발송.
+
+    수동 모드 = '프로젝트 코드 없음' 체크 (코드 이전 공사). as_manual_address 블록 존재로 판별.
+    """
     from dashboard.services.as_service import get_project_details, create_as_row
 
     values = view["state"]["values"]
-    project_code = ''
-    try:
-        opt = values.get("as_project_code", {}).get("value", {}).get("selected_option", {})
-        project_code = (opt or {}).get("value", "") or ''
-    except Exception:
-        pass
-    request_content = ''
-    try:
-        request_content = (values.get("request_content", {}).get("value", {}) or {}).get("value", '') or ''
-    except Exception:
-        pass
-    request_content = request_content.strip()
-    project_code = project_code.strip()
-
     user_id = body.get("user", {}).get("id", "")
     requester_initial = _slack_user_to_initial(client, user_id) or '-'
 
-    if not project_code:
-        logger.warning('[SLACK/AS] 프로젝트 코드 누락')
-        return
+    def _pt(block_id: str) -> str:
+        try:
+            return ((values.get(block_id, {}).get("value", {}) or {}).get("value", '') or '').strip()
+        except Exception:
+            return ''
 
-    details = get_project_details(project_code) or {}
-    as_no, row_num = create_as_row(
-        project_code=project_code,
-        address=details.get('address', ''),
-        work_content=details.get('work_content', ''),
-        work_end=details.get('work_end', ''),
-        request_content=request_content,
-        requester=requester_initial,
-    )
+    request_content = _pt("request_content")
+    is_manual = "as_manual_address" in values
+
+    if is_manual:
+        # 코드 없는 공사 — 현장 정보·담당자 직접 입력
+        address = _pt("as_manual_address")
+        work_content = _pt("as_manual_work")
+        if not address:
+            logger.warning('[SLACK/AS] 수동 등록 현장 주소 누락')
+            return
+        # 담당자: static_select(value=email) 또는 fallback plain_text(이름)
+        mgr_name, mgr_email = '', ''
+        mgr_state = values.get("as_manual_manager", {}).get("value", {}) or {}
+        opt = mgr_state.get("selected_option")
+        if opt:
+            mgr_email = (opt.get("value") or '').strip()
+            mgr_name = re.sub(
+                r'\s*\([^)]*\)\s*$', '',
+                (opt.get("text", {}) or {}).get("text", '') or '',
+            ).strip()
+        else:
+            mgr_name = (mgr_state.get("value") or '').strip()
+            if mgr_name:
+                from dashboard.services.as_service import _email_from_manager_name
+                mgr_email = _email_from_manager_name(mgr_name)
+        project_code = ''
+        details: dict = {}
+        as_no, row_num = create_as_row(
+            project_code='', address=address, work_content=work_content,
+            work_end='', request_content=request_content, requester=requester_initial,
+        )
+        dm_override = {'name': mgr_name, 'email': mgr_email}
+    else:
+        # 기존 — 확정 프로젝트 코드 선택
+        project_code = ''
+        try:
+            opt = values.get("as_project_code", {}).get("value", {}).get("selected_option", {})
+            project_code = (opt or {}).get("value", "") or ''
+        except Exception:
+            pass
+        project_code = project_code.strip()
+        if not project_code:
+            logger.warning('[SLACK/AS] 프로젝트 코드 누락')
+            return
+        details = get_project_details(project_code) or {}
+        address = details.get('address', '')
+        work_content = details.get('work_content', '')
+        as_no, row_num = create_as_row(
+            project_code=project_code,
+            address=address,
+            work_content=work_content,
+            work_end=details.get('work_end', ''),
+            request_content=request_content,
+            requester=requester_initial,
+        )
+        dm_override = None
 
     channel = os.getenv('SLACK_AS_CHANNEL', '').strip()
     if not channel:
@@ -2210,13 +2424,13 @@ def _process_as_request_submission(client, body, view) -> None:
     card_data = {
         'No': as_no,
         '프로젝트 코드': project_code,
-        '현장주소': details.get('address', ''),
-        '공사내용': details.get('work_content', ''),
-        '공사 종료일': details.get('work_end', ''),
+        '현장주소': address,
+        '공사내용': work_content,
+        '공사 종료일': '' if is_manual else details.get('work_end', ''),
         '요청 내용': request_content,
         '요청자': requester_initial,
     }
-    text = f"[A/S 요청] {as_no} {project_code}"
+    text = f"[A/S 요청] {as_no} {project_code or '(코드 없음)'}"
     blocks = _build_as_blocks(card_data, view_state='requested')
 
     try:
@@ -2232,11 +2446,12 @@ def _process_as_request_submission(client, body, view) -> None:
             rc.set(f'as_card_msg:{as_no}', f'{channel}|{ts}', ex=60 * 60 * 24 * 365)
         except Exception as exc:
             logger.warning(f'[SLACK/AS] card 매핑 저장 실패: {exc}')
-        logger.info(f'[SLACK/AS] 요청 카드 발송 완료: {as_no} ts={ts}')
+        logger.info(f'[SLACK/AS] 요청 카드 발송 완료: {as_no} ts={ts} (manual={is_manual})')
         # 담당자(영업)에게 알림 DM — "담당 현장에 A/S 접수" (버튼 없는 안내)
         try:
             _send_as_manager_dm(client, as_no, project_code, card_data,
-                                proj=details, card_channel=channel, card_ts=ts)
+                                proj=(details or None), card_channel=channel, card_ts=ts,
+                                override=dm_override)
         except Exception as exc:
             logger.warning(f'[SLACK/AS] 담당자 DM 예외 (무시): {exc}')
 
