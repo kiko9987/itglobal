@@ -1859,7 +1859,12 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                     _pick('영업 담당자').lstrip('@').strip()
                                     or _pick('온라인 상담자').lstrip('@').strip()
                                 ),
-                                'platform': _platform_this,
+                                # 기존 리드 플랫폼 우선 (당근 리드가 전화WF dedup 갱신돼도
+                                # 카드는 원래 유입 채널 표시. 2026-07-27 L-03406)
+                                'platform': (
+                                    str(existing_row_data.get('플랫폼', '') or '').strip()
+                                    or _platform_this
+                                ),
                                 'is_dedup_update': True,
                             })
                         continue
