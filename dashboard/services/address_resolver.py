@@ -821,6 +821,36 @@ def verify_address(
     return None
 
 
+def _strip_redundant_legal_dong(addr: str) -> str:
+    """도로명주소에 법정동이 중복으로 낀 경우 제거 (카카오 region_3depth 기준).
+
+    홈페이지 주소검색기(Daum/카카오)가 `성수일로12길 52 (성수동2가, 건물명)` 형태로
+    법정동을 딸려 보내면 resolver 가 인라인으로 남기던 이슈 (2026-07-27 L-03400).
+    도로명주소엔 법정동이 불필요 → 카카오가 알려주는 정확한 법정동만 standalone 제거.
+
+    - 도로명+번지가 있을 때만 동작 (지번주소는 법정동이 본질이라 건드리지 않음)
+    - 카카오 region_3depth_name (예: '성수동2가') 과 정확히 일치하는 토큰만 제거
+    - lookbehind/lookahead 로 건물명 안 부분매칭 방지 ('성수동 롯데캐슬' 의 성수동 보존)
+    """
+    if not addr:
+        return addr
+    m_road = re.search(r'[가-힣\d]+(?:로|길)\s*\d+(?:-\d+)?', addr)
+    if not m_road:
+        return addr  # 도로명+번지 없음 (지번주소 등) → skip
+    doc = _kakao_search(m_road.group(0))  # 도로명+번지로 조회 (lru_cache)
+    if not doc:
+        return addr
+    road = doc.get('road_address') or {}
+    dong = (road.get('region_3depth_name') or '').strip()  # 예: 성수동2가
+    if not dong or dong not in addr:
+        return addr
+    stripped = re.sub(
+        rf'(?<![가-힣]){re.escape(dong)}(?![가-힣])\s*', '', addr,
+    )
+    stripped = re.sub(r'\s+', ' ', stripped).strip()
+    return stripped or addr
+
+
 def _enrich_verified_address(
     verified_addr: str, original_text: str, regex_addr: Optional[str]
 ) -> str:
@@ -1163,6 +1193,8 @@ def resolve_address(
     if verified:
         addr, level = verified
         addr = _enrich_verified_address(addr, text, regex_addr)
+        # 도로명주소에 법정동 중복 제거 (주소검색기 유입, 2026-07-27 L-03400)
+        addr = _strip_redundant_legal_dong(addr)
         # tail 부착 후 후처리 (인접 유사 단어 dedup 등, 2026-07-22 ETC-b626fb)
         addr = _post_normalize_display(addr)
         return (addr, level)
@@ -1171,6 +1203,7 @@ def resolve_address(
     poi_road = _try_poi_fallback(text)
     if poi_road:
         addr = _enrich_verified_address(poi_road, text, regex_addr)
+        addr = _strip_redundant_legal_dong(addr)
         addr = _post_normalize_display(addr)
         return (addr, 'verified')
 
