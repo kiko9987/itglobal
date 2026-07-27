@@ -679,6 +679,29 @@ def verify_address(
                     and _roman_to_arabic(tail_words[0].lower()) in base_lower
                 ):
                     tail_words.pop(0)
+                # 2026-07-27 L-03406: 카카오 building_name 과 원본 tail 이 유사 오탈자인
+                #   케이스 (`유스페이스1` vs `유스페리스1`) — 정확 substring dedup 을
+                #   못 통과해 `유스페이스1 유스페리스1` 중복. 유사도 높고 (>=0.7) 앞 2자
+                #   같고 끝자리 숫자 동일하면 오탈자로 보고 tail 제거 (카카오 표준 유지).
+                #   끝자리 숫자 다르면 (유스페이스1 vs 유스페이스2) 다른 건물이라 유지.
+                if tail_words:
+                    from difflib import SequenceMatcher as _SM
+                    _base_words = base.split()
+                    def _tnum(s):
+                        _m = re.search(r'(\d+)$', s)
+                        return _m.group(1) if _m else ''
+                    _kept = []
+                    for _tw in tail_words:
+                        _dup = any(
+                            len(_tw) >= 4 and len(_bw) >= 4 and _tw != _bw
+                            and _tw[:2] == _bw[:2]
+                            and _tnum(_tw) == _tnum(_bw)
+                            and _SM(None, _tw, _bw).ratio() >= 0.7
+                            for _bw in _base_words
+                        )
+                        if not _dup:
+                            _kept.append(_tw)
+                    tail_words = _kept
                 remaining = ' '.join(tail_words).strip()
                 if remaining:
                     parts.append(remaining)
