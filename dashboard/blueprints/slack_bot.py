@@ -4300,6 +4300,71 @@ def _open_link_lead_modal(client, body, chat_id: str, channel: str, message_ts: 
         logger.error(f"[SLACK/link] 모달 열기 실패: {exc}", exc_info=True)
 
 
+def _grey_out_merged_chat_card(client, channel: str, message_ts: str,
+                               chat_lead_no: str, target_lead_no: str,
+                               initial: str = '-') -> bool:
+    """기존 lead 통합 시 채팅 카드를 회색 '문의 드랍 (통합)' 처리.
+
+    원본 문의 정보는 code block 으로 보존, `채팅 열기` 링크는 clickable 유지,
+    [상담하기]·[기존 lead 연결] 버튼은 제거 (재처리 방지). 2026-07-27.
+    """
+    try:
+        _rp = client.conversations_replies(
+            channel=channel, ts=message_ts, limit=1, inclusive=True,
+        )
+        _root = ((_rp.get('messages') or [{}])[0]) if _rp else {}
+        _blocks = _root.get('blocks') or []
+        # 첫 section 원본 텍스트 추출
+        orig_text = ''
+        for b in _blocks:
+            if b.get('type') == 'section':
+                orig_text = (b.get('text') or {}).get('text', '')
+                break
+        if not orig_text:
+            orig_text = _root.get('text', '') or ''
+
+        # 이미 회색 처리됐으면 skip (재통합 재시도 방어)
+        if '상담 완료 - 문의 드랍' in orig_text and '통합' in orig_text:
+            return False
+
+        # `채팅 열기` 링크 라인 분리 (clickable 유지), 나머지는 code block 으로
+        chat_link_line = ''
+        body_lines = []
+        for ln in orig_text.split('\n'):
+            if '채팅 열기' in ln and '<http' in ln:
+                chat_link_line = ln.strip()
+                continue
+            body_lines.append(ln)
+        # code block 용 정리 — blockquote/마크업/여백 제거
+        cleaned = [l.lstrip('>').lstrip().replace('*', '') for l in body_lines]
+        clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', '\n'.join(cleaned))
+
+        _now = datetime.now().strftime('%m.%d %H:%M')
+        header = '\n'.join([
+            '⠀',
+            f':white_check_mark: *상담 완료 - 문의 드랍*  `{chat_lead_no}`',
+            f'처리자 : {initial}',
+            f'처리 시간 : {_now}',
+            f'상담 내용 : → `{target_lead_no}` 로 통합',
+            '--------------------------------------------',
+        ])
+        new_text = header + f'\n```\n{clean_text}\n```'
+        if chat_link_line:
+            new_text += f'\n{chat_link_line}'
+        new_text += '\n⠀'
+
+        client.chat_update(
+            channel=channel, ts=message_ts,
+            text=f'상담 완료 - 문의 드랍 {chat_lead_no} → {target_lead_no} 통합',
+            blocks=[{'type': 'section', 'text': {'type': 'mrkdwn', 'text': new_text}}],
+        )
+        logger.info(f'[SLACK/link] 채팅 카드 회색 통합 처리: {chat_lead_no} → {target_lead_no}')
+        return True
+    except Exception as exc:
+        logger.warning(f'[SLACK/link] 채팅 카드 회색 처리 실패 ({chat_lead_no}): {exc}')
+        return False
+
+
 def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
                                  channel: str, message_ts: str,
                                  slack_user_id: str = '') -> None:
@@ -4391,6 +4456,19 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
         except Exception as exc:
             logger.debug(f"[SLACK/link] linked_chat 마커 저장 실패: {exc}")
 
+        # === 채팅 카드 회색 '문의 드랍 (통합)' 처리 (2026-07-27) ===
+        # 기존엔 카드 본문 변화 없이 thread 안내만 → 활성 카드로 오인. 회색 처리 +
+        # 버튼 제거로 재처리 방지. 채팅 열기 링크는 유지.
+        if channel and message_ts and chat_lead_no:
+            try:
+                _linker_ini = _slack_user_to_initial(client, slack_user_id) or '-'
+            except Exception:
+                _linker_ini = '-'
+            _grey_out_merged_chat_card(
+                client, channel, message_ts, chat_lead_no, target_lead_no,
+                initial=_linker_ini,
+            )
+
         # === 슬랙 thread 안내 ===
         if channel and message_ts:
             try:
@@ -4404,7 +4482,7 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
             except Exception:
                 pass
 
-        # === 원본 lead 카드에 ✅ reaction (시각적 처리 완료 표시) ===
+        # === 원본(target) lead 카드에 ✅ reaction (시각적 처리 완료 표시) ===
         try:
             card_info = rc.get(f'lead_card_msg:{target_lead_no}')
             if card_info:
