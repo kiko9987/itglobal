@@ -924,6 +924,71 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
     return False
 
 
+def _post_active_phone_lead_card(lead: dict, lead_no: str) -> bool:
+    """전화 lead 중 '견적 요청' 상태 → 회색 완료 카드 대신 활성 인입 카드 발송.
+
+    2026-07-27 도입 — 전화로 "가견적만 달라"는 요청을 접수한 미처리 리드.
+      - '견적 제출'(상담 후 결과) 과 달리 '견적 요청'은 아직 상담 전 단계.
+      - 회색 완료 카드가 아니라 온라인 새 리드처럼 [상담하기] 버튼 달린 활성
+        카드로 발송 → 담당 매니저가 견적 준비 후 [상담하기] 로 처리.
+      - build_inquiry_blocks 재사용 (온라인 lead 와 동일 UX·action_id).
+    """
+    bot_token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    channel_setting = os.getenv('SLACK_LEAD_CHANNEL', '').strip()
+    if not bot_token or not channel_setting:
+        logger.warning('[SYNC/전화WF/견적요청] SLACK_BOT_TOKEN/CHANNEL 미설정')
+        return False
+    try:
+        from slack_sdk import WebClient
+        client = WebClient(token=bot_token)
+        channel = _resolve_channel_id(client, channel_setting)
+    except Exception as exc:
+        logger.error(f'[SYNC/전화WF/견적요청] slack 초기화 실패: {exc}')
+        return False
+
+    # 상담 시간 영문 포맷 정규화 (완료 카드 helper 와 동일 방어)
+    lead = dict(lead)  # shallow copy — 호출자 dict 변형 방지
+    _ct_raw = str(lead.get('상담 시간') or '').strip()
+    _ct_norm = _normalize_workflow_datetime(_ct_raw) or _ct_raw
+    if _ct_norm:
+        lead['상담 시간'] = _ct_norm
+
+    blocks, fallback = build_inquiry_blocks(lead, lead_no, source='전화')
+
+    try:
+        client.conversations_join(channel=channel)
+    except Exception:
+        pass
+    try:
+        from dashboard.blueprints.slack_helpers import safe_slack_call
+        resp = safe_slack_call(
+            client.chat_postMessage,
+            channel=channel, text=fallback, blocks=blocks,
+            unfurl_links=False,
+        )
+        if resp and resp.get('ok'):
+            msg_ts = resp.get('ts', '')
+            if msg_ts:
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    rc = get_redis_client().redis
+                    rc.set(
+                        f'lead_card_msg:{lead_no}',
+                        f'{channel}|{msg_ts}',
+                        ex=60 * 60 * 24 * 180,
+                    )
+                except Exception as _exc:
+                    logger.warning(
+                        f'[SYNC/전화WF/견적요청] lead_card_msg 저장 실패 ({lead_no}): {_exc}'
+                    )
+                logger.info(f'[SYNC/전화WF/견적요청] 활성 카드 발송 완료 ({lead_no}, ts={msg_ts})')
+                return True
+        logger.warning(f'[SYNC/전화WF/견적요청] 발송 응답 not ok ({lead_no}): {resp}')
+    except Exception as exc:
+        logger.error(f'[SYNC/전화WF/견적요청] 예외 ({lead_no}): {exc}', exc_info=True)
+    return False
+
+
 def _post_visit_link_reply_to_lead_card(client, lead_no: str,
                                         visit_channel: str, visit_ts: str,
                                         user_name: str = '') -> None:
@@ -2112,11 +2177,16 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 # 전화 lead 온라인_문의 채널 카드 발송 (2026-07-21)
                 # 매니저 통화 완료 후 등록 = 이미 상담 발생 → 회색 처리 카드 + [재상담] 버튼.
                 # 재통화 시 매니저가 [재상담] 눌러 회차 이력 append (기존 online lead flow 재사용).
+                # 단, '견적 요청'(가견적만 접수·상담 전) 은 회색 없이 활성 카드 (2026-07-27).
                 _plat_row = str(row.get('플랫폼', '')).strip()
                 if _plat_row == '전화':
                     try:
                         _lead_dict = row.to_dict() if hasattr(row, 'to_dict') else dict(row)
-                        _post_phone_lead_completed_card(_lead_dict, new_lead_no)
+                        # 공백 유무 무관 매칭 (워크플로 '견적요청' / 시트 '견적 요청')
+                        if status.replace(' ', '') == '견적요청':
+                            _post_active_phone_lead_card(_lead_dict, new_lead_no)
+                        else:
+                            _post_phone_lead_completed_card(_lead_dict, new_lead_no)
                     except Exception as _exc:
                         logger.warning(
                             f'[SYNC/전화WF] 온라인 카드 발송 실패 ({new_lead_no}): {_exc}'
