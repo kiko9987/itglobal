@@ -248,34 +248,86 @@ def parse_assignment_canvas(html: str) -> List[Dict]:
     return results
 
 
-def _match_leads_by_phone(parsed: List[Dict]) -> Dict[str, Dict]:
-    """전화번호 → lead 매핑 (시트에서 조회)."""
+def _match_leads_by_phone(parsed: List[Dict]) -> Dict[str, List[Dict]]:
+    """전화번호 → lead 리스트 매핑 (시트에서 조회).
+
+    2026-07-27: 공유 전화번호(인테리어 담당자 등 여러 lead 가 같은 번호) 대응 —
+    phone → 단일 lead 에서 phone → 리스트로 변경. 매칭 시 주소로 disambiguate.
+    """
     from dashboard.services.lead_service import load_leads_data
     df = load_leads_data(force_refresh=True)
     if df is None or df.empty:
         return {}
-    phone_to_lead: Dict[str, Dict] = {}
+    phone_to_leads: Dict[str, List[Dict]] = {}
     for _, row in df.iterrows():
         raw = str(row.get('고객 연락처') or '').strip()
         digits = _normalize_phone(raw)
         if not digits:
             continue
-        # 최신 lead 하나만 (시트 순 마지막)
-        phone_to_lead[digits] = row.to_dict()
-    return phone_to_lead
+        phone_to_leads.setdefault(digits, []).append(row.to_dict())
+    return phone_to_leads
 
 
-def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, Dict],
+def _addr_from_assignment(a: Dict) -> str:
+    """assignment 에서 주소 추출 — 'address' 키 우선, 없으면 raw 라인 파싱.
+
+    캔버스2 라인 형태: `(이니셜) 날짜 / 연락처 / 주소 상호 / 내용` → 3번째 필드.
+    """
+    addr = str(a.get('address') or '').strip()
+    if addr and addr != '-':
+        return addr
+    raw = str(a.get('raw') or '')
+    parts = [p.strip() for p in raw.split('/')]
+    if len(parts) >= 3:
+        return parts[2]
+    return ''
+
+
+_ACTIVE_VISIT_STATUS = {'방문 예약', '공사 확정'}
+
+
+def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '') -> Optional[Dict]:
+    """전화번호에 매칭된 lead(들) 중 하나 선택. 공유 번호면 주소로 disambiguate.
+
+    2026-07-27 L-03401/L-03404: 인테리어 담당자 공유 번호(010-4926-2787) 로
+    서로 다른 현장(서울숲 M타워 vs 송파구 동남로)이 한 번호. 캔버스 라인 주소로 구분.
+    같은 번호+주소를 공유하는 과거 lead(완료 등) 도 있어 활성 상태(방문 예약/공사
+    확정) + 최신(시트 뒤쪽) 우선으로 정확한 현행 lead 선택.
+    """
+    if not leads:
+        return None
+    if len(leads) == 1:
+        return leads[0]
+
+    def _prefer(cands: List[Dict]) -> Dict:
+        _active = [c for c in cands if str(c.get('상태') or '').strip() in _ACTIVE_VISIT_STATUS]
+        return (_active or cands)[-1]  # 활성 우선, 그다음 최신(뒤쪽)
+
+    cand = str(address or '').strip()
+    if cand and len(cand) >= 8:
+        matches = []
+        for _l in leads:
+            _sa = str(_l.get('방문 주소', '') or '').strip()
+            if _sa and _sa != '-' and (cand in _sa or _sa in cand):
+                matches.append(_l)
+        if matches:
+            return _prefer(matches)
+    return _prefer(leads)  # 주소 구분 불가 → 활성 우선 최신
+
+
+def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
                                     addr_candidates: List[Dict]) -> Optional[Dict]:
     """assignment 하나에 대해 lead 매칭. phone 우선, 실패 시 주소 substring fallback.
 
     2026-07-20: dry_run·commit·DM 발송 모두 이 helper 로 통일. 인투익스·산들해 등
     phone '-' lead 는 주소 substring 매칭으로 배정 반영.
+    2026-07-27: phone_map 이 phone → 리스트. 공유 번호면 라인 주소로 disambiguate.
     """
     if a.get('phone_digits'):
-        lead = phone_map.get(a['phone_digits'])
-        if lead:
-            return lead
+        leads = phone_map.get(a['phone_digits'])
+        picked = _pick_lead_for_phone(leads, _addr_from_assignment(a))
+        if picked:
+            return picked
     if a.get('address'):
         cand_addr = str(a['address']).strip()
         if cand_addr and len(cand_addr) >= 8:
@@ -725,7 +777,7 @@ def _email_from_initial(initial: str, initial_to_name: Dict[str, str]) -> str:
 
 
 def _update_slack_list_managers(assignments: List[Dict],
-                                  phone_map: Dict[str, Dict],
+                                  phone_map: Dict[str, List[Dict]],
                                   sheet_leads: Optional[List[Dict]] = None) -> Tuple[int, int]:
     """Slack List 담당자 컬럼 update. (성공, 실패) 반환.
 
@@ -782,7 +834,8 @@ def _update_slack_list_managers(assignments: List[Dict],
     for p in assignments:
         lead = None
         if p.get('phone_digits'):
-            lead = phone_map.get(p['phone_digits'])
+            # 공유 번호 disambiguate (2026-07-27) — 라인 주소로 정확한 lead 선택
+            lead = _pick_lead_for_phone(phone_map.get(p['phone_digits']), _addr_from_assignment(p))
         if not lead and p.get('address'):
             cand_addr = p['address'].strip()
             if cand_addr and len(cand_addr) >= 8:
@@ -840,7 +893,7 @@ def _update_slack_list_managers(assignments: List[Dict],
 
 
 def _send_dms_for_next_visit(assignments: List[Dict],
-                              phone_map: Dict[str, Dict],
+                              phone_map: Dict[str, List[Dict]],
                               initial_to_name: Dict[str, str],
                               online_duty: List[str],
                               off_duty: List[str],
