@@ -1421,6 +1421,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             'unpaid': _to_int_won(_get(IDX_X)),
             'key': key,
             'phash': prev.get('phash', '') if prev else '',
+            # 안전장치 재baseline 이 phash 도 저장하도록 cur phash 동봉 (2026-07-27 수렴 fix)
+            'u_phash': cur_u_ph, 'v_phash': cur_v_ph, 'w_phash': cur_w_ph,
             'memo_newly_added': memo_newly_added,  # 값 있고 memo 방금 저장 (any stage)
             'stage_memo_newly_added': stage_memo_newly_added,  # stage 별 dict (2026-07-22)
         })
@@ -1429,6 +1431,9 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         return result
 
     # 안전장치 — 한 폴링에 너무 많은 변경 = 비정상. baseline 재구축만 하고 skip.
+    # 2026-07-27 수렴 fix: phash(u/v/w_phash) 도 함께 저장해야 다음 폴링에서
+    #   memo_newly_added 가 재감지 안 됨. 기존엔 u/v/w/aa 만 저장 → 매 폴링마다
+    #   memo 신규 저장으로 오인 → 무한 재baseline (7/24 flush 후 알림 전면 중단).
     if len(changed_rows) > MAX_PER_TICK * 4:
         logger.warning(
             f"[PAYMENT] 변경 행이 비정상적으로 많음 ({len(changed_rows)}) — baseline 재구축, 발송 skip"
@@ -1438,6 +1443,9 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 rc.hset(c['key'], mapping={
                     'u': c['u'], 'v': c['v'], 'w': c['w'],
                     'aa': 'true' if c['aa'] else 'false',
+                    'u_phash': c.get('u_phash', ''),
+                    'v_phash': c.get('v_phash', ''),
+                    'w_phash': c.get('w_phash', ''),
                 })
                 rc.expire(c['key'], REDIS_TTL)
             except Exception:
