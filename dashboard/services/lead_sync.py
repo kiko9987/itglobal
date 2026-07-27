@@ -1621,8 +1621,11 @@ def _update_existing_lead_from_workflow(
     """
     from dashboard.services.lead_helpers import extract_keywords_from_sources
     # 필드 → 컬럼 매핑
+    # 2026-07-27 (L-03406 중복 폭주): '상담 시간'(B) 은 최초 문의 시간이자 당근
+    #   dedup 의 식별 키. 전화 워크플로 통화시간으로 덮어쓰면 원래 당근 메시지가
+    #   기존 리드와 시간 매치 안 돼 (>1h) 재문의로 오판 → 매 폴링 중복 생성.
+    #   → 상담 시간은 기존값(최초 문의시간) 보존, 워크플로 값으로 덮어쓰지 않음.
     field_col = [
-        ('B', '상담 시간'),
         ('D', '상태'),
         ('E', '방문 예정일'),
         ('F', '고객 연락처'),
@@ -1843,7 +1846,11 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                 'name': _pick('고객명') or _name,
                                 'phone': _pick('고객 연락처') or _phone,
                                 'email': _pick('이메일'),
-                                'consult_time': _pick('상담 시간'),
+                                # 상담 시간은 기존 리드 최초 문의시간 우선 (dedup 키 보존, 2026-07-27)
+                                'consult_time': (
+                                    str(existing_row_data.get('상담 시간', '') or '').strip()
+                                    or _pick('상담 시간')
+                                ),
                                 'address': _pick('방문 주소'),
                                 'visit_date': _visit_date_raw,
                                 'inquiry': _inquiry,
