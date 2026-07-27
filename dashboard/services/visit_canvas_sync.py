@@ -143,6 +143,11 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     if '본인 방문 필수' in str(lead.get('본인 방문 여부') or ''):
         _self_visit_marker = ':man-raising-hand: '
 
+    # 공사 확정 건 구분 마커 (2026-07-27) — 계약 후 현장 핸들링 방문. 방문 예약과 구별.
+    _confirmed_marker = ''
+    if str(lead.get('상태') or '').strip() == '공사 확정':
+        _confirmed_marker = '[공사확정] '
+
     vd = _fmt_visit_date(lead.get('방문 예정일'))
     phone = str(lead.get('고객 연락처') or '').strip() or '-'
     address = str(lead.get('방문 주소') or '').strip() or '-'
@@ -166,12 +171,12 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
         # 당근 (중고 플랫폼) 은 견적 시 신경 써야 해서 날짜 앞에 (당) 마커 (2026-07-17 요청, 캔버스 전용)
         if _platform == '당근':
             vd = f'(당) {vd}'
-        return f'{_self_visit_marker}{vd} / {phone} / {address} / {inquiry}'
+        return f'{_confirmed_marker}{_self_visit_marker}{vd} / {phone} / {address} / {inquiry}'
 
     # 거래처/기타/소개 — 이니셜 (온라인 상담자 기준), 이름은 생략 (2026-07-16 요청)
     source_name = _clean(lead.get('온라인 상담자'))
     ini = _initial_from_name(source_name, initial_map) if source_name else '-'
-    return f'{_self_visit_marker}({ini}) {vd} / {phone} / {address} / {inquiry}'
+    return f'{_confirmed_marker}{_self_visit_marker}({ini}) {vd} / {phone} / {address} / {inquiry}'
 
 
 def _fetch_visit_leads() -> List[Dict]:
@@ -196,7 +201,9 @@ def _fetch_visit_leads() -> List[Dict]:
     leads: List[Dict] = []
     for _, row in df.iterrows():
         status = str(row.get('상태') or '').strip()
-        if status != '방문 예약':
+        # 2026-07-27: 공사 확정 건도 포함 — 계약 후 현장 핸들링·기타 방문 잡기 위함.
+        #   방문 예정일 미래 필터가 이미 있어 완료된 옛 공사 확정은 자동 제외 (1건 수준).
+        if status not in ('방문 예약', '공사 확정'):
             continue
         _lno = str(row.get('리드 No') or '').strip()
         # 이중 필터 (2026-07-24 Redis 대량 손실 사고 이후):
