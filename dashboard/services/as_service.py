@@ -298,6 +298,7 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
         return {
             'code': code,
             'inflow': inflow_disp,
+            'manager': _s('담당자') or '-',  # 영업 담당자 (AS 알림 DM 대상)
             'biz': _s('사업자명') or '-',
             'address': _s('현장 주소') or '-',
             'client_manager': _s('발주처 담당자') or '-',
@@ -313,6 +314,60 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
     except Exception as exc:
         logger.warning(f'[AS] 프로젝트 상세 조회 실패 ({code}): {exc}')
         return None
+
+
+# ─────────────────────────────────────────────────────────────
+# 담당자 식별 (알림 DM 대상)
+# ─────────────────────────────────────────────────────────────
+def _email_from_manager_name(name: str) -> str:
+    """영업 담당자 한국 이름 → 이메일. users.db 매핑."""
+    name = (name or '').strip()
+    if not name or name == '-':
+        return ''
+    try:
+        from dashboard.utils.user_database import UserDatabase
+        db = UserDatabase()
+        for u in db.get_all_users():
+            if (u.get('name') or '').strip() == name:
+                return (u.get('email') or '').strip()
+    except Exception as exc:
+        logger.warning(f'[AS] 담당자 이메일 조회 실패 ({name}): {exc}')
+    return ''
+
+
+def resolve_project_manager(project_code: str,
+                            proj: Optional[Dict[str, str]] = None) -> Tuple[str, str]:
+    """프로젝트 코드 → (담당자 이름, 이메일).
+
+    우선순위:
+      1. 프로젝트 '담당자' 필드 (proj 미전달 시 조회)
+      2. 코드 접미어 이니셜 (`G1038-JW` → JW) → users.db 로컬 파트 매칭 fallback
+
+    Returns: (name, email). 못 찾으면 ('', '').
+    """
+    # 1) 담당자 필드
+    if proj is None:
+        proj = get_project_details(project_code) or {}
+    mgr_name = (proj.get('manager', '') or '').strip()
+    if mgr_name and mgr_name != '-':
+        email = _email_from_manager_name(mgr_name)
+        if email:
+            return mgr_name, email
+
+    # 2) 코드 접미어 이니셜 fallback (G1038-JW → JW)
+    m = re.search(r'-([A-Za-z]{2,4})\s*$', str(project_code or '').strip())
+    if m:
+        ini = m.group(1).upper()
+        try:
+            from dashboard.utils.user_database import UserDatabase
+            db = UserDatabase()
+            for u in db.get_all_users():
+                email = (u.get('email') or '').strip()
+                if email and email.split('@')[0].strip().upper() == ini:
+                    return (u.get('name') or ini).strip(), email
+        except Exception as exc:
+            logger.warning(f'[AS] 코드 접미어 담당자 조회 실패 ({project_code}): {exc}')
+    return mgr_name if mgr_name and mgr_name != '-' else '', ''
 
 
 # ─────────────────────────────────────────────────────────────

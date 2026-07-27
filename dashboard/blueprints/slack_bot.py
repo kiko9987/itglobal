@@ -2089,6 +2089,83 @@ def _update_as_modal_with_project(client, body, action) -> None:
         logger.warning(f"[SLACK/AS] views_update 실패: {exc}")
 
 
+def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
+                        proj: Optional[dict] = None,
+                        card_channel: str = '', card_ts: str = '') -> bool:
+    """A/S 요청 등록 시 프로젝트 담당자(영업)에게 알림 DM.
+
+    버튼 없는 안내 전용 — "담당하신 현장에 A/S 접수" + 채널 카드 permalink.
+    접수는 다른 사람이 할 수 있으므로 담당자에겐 인지만 시킴 (2026-07-27 사용자 요구).
+
+    Returns: 발송 성공 여부. 담당자 미식별·이미 발송 시 False.
+    """
+    from dashboard.services.as_service import resolve_project_manager
+
+    mgr_name, email = resolve_project_manager(project_code, proj=proj)
+    if not email:
+        logger.info(f'[SLACK/AS] 담당자 미식별 ({project_code}) — DM skip')
+        return False
+
+    # 재발송 방지 (view_submission 재전송 대응)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        if not rc.set(f'as_manager_dm:{as_no}', email, nx=True, ex=60 * 60 * 24 * 30):
+            logger.info(f'[SLACK/AS] 담당자 DM 이미 발송 ({as_no}) — skip')
+            return False
+    except Exception:
+        pass
+
+    # 채널 카드 permalink (있으면 상세 보기 링크)
+    permalink = ''
+    if card_channel and card_ts:
+        try:
+            _pl = client.chat_getPermalink(channel=card_channel, message_ts=card_ts)
+            permalink = (_pl or {}).get('permalink', '') or ''
+        except Exception as exc:
+            logger.debug(f'[SLACK/AS] permalink 조회 실패 ({as_no}): {exc}')
+
+    biz = (proj or {}).get('biz', '-') or '-'
+    address = card_data.get('현장주소') or (proj or {}).get('address', '-') or '-'
+    work = card_data.get('공사내용') or (proj or {}).get('work_content', '-') or '-'
+    req_content = card_data.get('요청 내용', '-') or '-'
+    requester = card_data.get('요청자', '-') or '-'
+
+    lines = [
+        '⠀',
+        f'🔔 *담당하신 현장에 A/S 요청이 접수되었습니다*  `{as_no}`',
+        '--------------------------------------------',
+        f'🔗 프로젝트 코드 : `{project_code}`',
+        f'🏢 사업자명 : {biz}',
+        f'📍 현장 주소 : {address}',
+        f'📋 공사 내용 : {work}',
+        '--------------------------------------------',
+        f'📝 A/S 요청 내용 : {req_content}',
+        f'👤 요청자 : {requester}',
+        '--------------------------------------------',
+    ]
+    if permalink:
+        lines.append(f'🔗 <{permalink}|사후 관리 채널에서 상세 보기>')
+    lines.append('_접수는 사후 관리 채널에서 진행됩니다._')
+    lines.append('⠀')
+    dm_text = '\n'.join(lines)
+
+    try:
+        u = client.users_lookupByEmail(email=email)
+        uid = u['user']['id']
+        r = client.chat_postMessage(
+            channel=uid, text=dm_text,
+            unfurl_links=False, unfurl_media=False,
+        )
+        if r.get('ok'):
+            logger.info(f'[SLACK/AS] 담당자 DM 발송 완료: {as_no} → {mgr_name}({email})')
+            return True
+        logger.warning(f'[SLACK/AS] 담당자 DM 응답 not ok ({as_no}): {r.get("error")}')
+    except Exception as exc:
+        logger.warning(f'[SLACK/AS] 담당자 DM 발송 예외 ({as_no}, {email}): {exc}')
+    return False
+
+
 def _process_as_request_submission(client, body, view) -> None:
     """요청 제출 → 프로젝트 정보 조회 → 시트 append → 카드 발송."""
     from dashboard.services.as_service import get_project_details, create_as_row
@@ -2156,6 +2233,12 @@ def _process_as_request_submission(client, body, view) -> None:
         except Exception as exc:
             logger.warning(f'[SLACK/AS] card 매핑 저장 실패: {exc}')
         logger.info(f'[SLACK/AS] 요청 카드 발송 완료: {as_no} ts={ts}')
+        # 담당자(영업)에게 알림 DM — "담당 현장에 A/S 접수" (버튼 없는 안내)
+        try:
+            _send_as_manager_dm(client, as_no, project_code, card_data,
+                                proj=details, card_channel=channel, card_ts=ts)
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] 담당자 DM 예외 (무시): {exc}')
 
 
 def _open_as_accept_modal(client, body) -> None:
