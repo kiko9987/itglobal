@@ -32,11 +32,29 @@ logger = logging.getLogger(__name__)
 _ONLINE_CHANNEL_DEFAULT = 'C0BB9SRMEA1'
 _SEP = '--------------------------------------------'
 _BLANK = '⠀'
+_WEEKDAY_KR = ['월', '화', '수', '목', '금', '토', '일']
 
 
 def _hhmm(t: str) -> str:
     m = re.search(r'(\d{2}):(\d{2})', t or '')
     return f'{m.group(1)}:{m.group(2)}' if m else ''
+
+
+def _md_weekday(d: date) -> str:
+    """`07.26(일)` 형식 — 헤더·라인 date 병기용."""
+    return f'{d.month:02d}.{d.day:02d}({_WEEKDAY_KR[d.weekday()]})'
+
+
+def _lead_date(l: Dict) -> Optional[date]:
+    """lead 의 상담 시간 → date 파싱. `2026.07.26. HH:MM` 포맷."""
+    s = str(l.get('상담 시간') or '')
+    m = re.match(r'(\d{4})\.(\d{1,2})\.(\d{1,2})', s)
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
 
 
 def _get_online_client():
@@ -141,8 +159,14 @@ def collect_absent_leads(target_date: Optional[date] = None,
 
 
 def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
-                       client=None, channel: str = _ONLINE_CHANNEL_DEFAULT) -> Tuple[str, int]:
+                       client=None, channel: str = _ONLINE_CHANNEL_DEFAULT,
+                       date_range: Optional[List[date]] = None) -> Tuple[str, int]:
     """리마인드 카드 텍스트 조립.
+
+    Args:
+        date_range: 리마인드 대상 date 리스트. 크기 별 헤더·라인 표기 분기.
+                    - 1일: `어제 미처리 문의` + 라인 `어제 HH:MM`
+                    - 2일 이상: `{start} ~ {end} 미처리 문의` + 라인 `MM.DD(요일) HH:MM`
 
     Returns: (text, total_count)
     """
@@ -159,6 +183,8 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
             logger.debug(f'[ABSENT] history fetch 실패: {exc}')
 
     total = len(unassigned) + sum(len(v) for v in retry.values())
+    _range = sorted(date_range or [])
+    _multi_day = len(_range) >= 2
 
     def _line(l: Dict, mode: str) -> str:
         lno = str(l.get('리드 No', '')).strip()
@@ -168,11 +194,23 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         plat = str(l.get('플랫폼', ''))
         if mode == 'unassigned':
             t = _hhmm(str(l.get('상담 시간', '')))
+            # range 2일 이상이면 date 병기 (07.26(일) 12:39), 1일이면 `어제 HH:MM`
+            if _multi_day:
+                _d = _lead_date(l)
+                _date_tag = _md_weekday(_d) if _d else '어제'
+                return f'• `{lno}` [{plat}] {name} · {_date_tag} {t}{link}'
             return f'• `{lno}` [{plat}] {name} · 어제 {t}{link}'
         return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{link}'
 
+    # 헤더 문구 — range 크기별 분기
+    if _multi_day:
+        _hdr_range = f'{_md_weekday(_range[0])} ~ {_md_weekday(_range[-1])}'
+        _hdr = f':bell: *{_hdr_range} 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*'
+    else:
+        _hdr = f':bell: *어제 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*'
+
     lines = [_BLANK]
-    lines.append(f':bell: *어제 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*')
+    lines.append(_hdr)
     lines.append(_SEP)
     if unassigned:
         lines.append(f':speech_balloon: *미완료 ({len(unassigned)}건)*')
@@ -234,7 +272,8 @@ def send_daily_remind() -> Dict:
         logger.info('[ABSENT] 어제 미처리 문의 0건 — 카드 발송 skip')
         return {'ok': True, 'total': 0, 'ts': '', 'reason': None}
 
-    text, _ = build_remind_text(unassigned, retry, client=client, channel=channel)
+    text, _ = build_remind_text(unassigned, retry, client=client, channel=channel,
+                                  date_range=date_range)
     try:
         r = client.chat_postMessage(
             channel=channel, text=text,
