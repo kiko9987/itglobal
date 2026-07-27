@@ -1067,10 +1067,16 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             _place_words = place_name.split()
             # 2026-07-24 L-03376 추가: '관리단', '관리사무소', '관리소', '사무실', '경비실'
             #   ('판교디지털센터 관리단' → '관리단' 부착 케이스 방지).
-            if len(_place_words) >= 2 and _place_words[1] in (
-                '주차장', '지하주차장', '지상주차장', '지하', '옥상',
-                '화장실', '엘리베이터', '별관', '분관',
-                '관리단', '관리사무소', '관리소', '사무실', '경비실',
+            # 2026-07-27 ETC-9c87ea: 정확 매치는 '개방화장실'·'지하주차장' 같은 복합어를
+            #   못 걸러 '리젠트오피스텔 개방화장실' 이 부착됨. 시설 명사는 부분 매치로 강화.
+            _fac_exact = {'지하', '옥상', '별관', '분관', '사무실'}
+            _fac_substr = (
+                '주차장', '화장실', '엘리베이터', '승강기', '경비실', '관리실',
+                '관리사무소', '관리소', '관리단', '기계실', '전기실', '방재실',
+            )
+            if len(_place_words) >= 2 and (
+                _place_words[1] in _fac_exact
+                or any(_f in _place_words[1] for _f in _fac_substr)
             ):
                 continue
             if cand in verified_addr:
