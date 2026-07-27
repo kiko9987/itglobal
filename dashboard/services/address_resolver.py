@@ -1096,6 +1096,8 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             _fac_substr = (
                 '주차장', '화장실', '엘리베이터', '승강기', '경비실', '관리실',
                 '관리사무소', '관리소', '관리단', '기계실', '전기실', '방재실',
+                # 2026-07-27 L-03407: 전기차충전소 부착 (충전소). 건물 출입구 시설 포함.
+                '충전소', '정문', '후문', '출입구',
             )
             if len(_place_words) >= 2 and (
                 _place_words[1] in _fac_exact
