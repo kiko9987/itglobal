@@ -379,3 +379,25 @@ def clean_multiline(text: str, sep: str = ', ') -> str:
     # 각 줄 trim
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     return sep.join(lines)
+
+
+ADDRESS_MISSING_LABEL = '주소 미입력'
+
+
+def is_blank_address(addr) -> bool:
+    """주소가 실질적으로 비었는지 판정.
+
+    빈 문자열, '-', 빈 괄호 '()' / '( )', 구두점·괄호·공백만 남는 경우 True.
+    고객이 홈페이지 폼 주소란을 안 채우면 resolver 가 '()' 를 남기는 케이스 대응.
+
+    >>> is_blank_address('')
+    True
+    >>> is_blank_address('()')
+    True
+    >>> is_blank_address('-')
+    True
+    >>> is_blank_address('금천구 가산디지털2로 14')
+    False
+    """
+    core = re.sub(r'[\s()（）\[\]{}.,·\-]', '', str(addr or ''))
+    return not core

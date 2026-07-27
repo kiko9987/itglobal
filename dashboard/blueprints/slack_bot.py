@@ -5708,8 +5708,12 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     #   normalized + 원본 != 변환 → 원본/변환 두 줄
     #   failed → 방문 주소 + [주소 확인 필요] 배지
     #   그 외 (배지 없음) → 방문 주소 한 줄
+    from dashboard.services.lead_helpers import is_blank_address, ADDRESS_MISSING_LABEL
     _addr_lines = []
-    if addr_note and isinstance(addr_note, dict):
+    if is_blank_address(visit_address):
+        # 주소 미입력이면 배지/원본·변환 비교 없이 단일 안내 (2026-07-27)
+        _addr_lines.append(f">방문 주소 : {ADDRESS_MISSING_LABEL}")
+    elif addr_note and isinstance(addr_note, dict):
         _kind = addr_note.get('kind', '')
         _orig = (addr_note.get('original') or '').strip()
         if _kind == 'normalized' and _orig and _orig != (visit_address or '').strip():
@@ -6956,7 +6960,9 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
             _visit_date = str(lead.get('방문 예정일', '')).strip().lstrip("'") or '-'
             _name = str(lead.get('고객명', '') or '').strip() or '-'
             _contact = str(lead.get('고객 연락처', '') or '').strip() or '-'
-            _addr = str(lead.get('방문 주소', '') or '').strip() or '-'
+            from dashboard.services.lead_helpers import is_blank_address, ADDRESS_MISSING_LABEL
+            _addr = str(lead.get('방문 주소', '') or '').strip()
+            _addr = ADDRESS_MISSING_LABEL if is_blank_address(_addr) else _addr
             original_text = (
                 f":bell: 방문 일정 취소 — `{lead_no}`\n"
                 f"방문일 : {_visit_date}\n"

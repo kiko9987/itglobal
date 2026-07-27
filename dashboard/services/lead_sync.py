@@ -1031,7 +1031,11 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     # 방문 주소 (자동 추출 또는 시트에 등록된 값) — 신뢰도 레벨에 따라 표시 분기
     address = (lead.get('방문 주소') or '').strip()
     addr_level = (lead.get('_meta_address_level') or '').strip()
-    if address and address != '-':
+    from dashboard.services.lead_helpers import is_blank_address, ADDRESS_MISSING_LABEL
+    if is_blank_address(address):
+        # 고객이 주소 미기입 (빈 값 or '()' 등) → 명시적 안내 (2026-07-27)
+        address_display = ADDRESS_MISSING_LABEL
+    elif address and address != '-':
         # 신뢰도별 표시:
         # - verified (카카오 매칭): 마커 없음 (정확)
         # - level1~4 (정규식 풀 패턴): 마커 없음 (정확)
@@ -1072,7 +1076,10 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     def _addr_key(s: str) -> str:
         return re.sub(r'\s+', ' ', (s or '').strip())
     address_field_lines = []
-    if (address_raw and address_raw != '-'
+    if is_blank_address(address):
+        # 주소 미입력이면 원본/변환 비교 없이 단일 라인 (2026-07-27)
+        address_field_lines.append(f">*방문 주소* : {address_display}")
+    elif (address_raw and address_raw != '-'
             and _addr_key(address_raw) != _addr_key(address)):
         address_field_lines.append(f">*원본 주소* : {address_raw}")
         address_field_lines.append(f">*변환 주소* : {address_display}")
