@@ -1,10 +1,11 @@
-"""부재중/미완료 리마인드 — 매일 아침 9시.
+"""부재중/미완료/견적요청 리마인드 — 매일 아침 9시.
 
-어제 인입된 lead 중 다음 조건 대상을 온라인 문의 채널에 요약 카드로 발송:
-  A. 상태 = '상담 대기' & 온라인 상담자 미배정 (매니저가 아예 놓친 것)
-  B. 상태 = '부재중' & 영업 담당자 없음  (콜백했으나 미연결, 재연락 필요)
+lead 중 다음 조건 대상을 온라인 문의 채널에 요약 카드로 발송:
+  A. 상태 = '상담 대기' & 온라인 상담자 미배정 (매니저가 아예 놓친 것) — date_range 인입분
+  B. 상태 = '부재중' & 영업 담당자 없음  (콜백했으나 미연결, 재연락 필요) — date_range 인입분
+  C. 상태 = '견적 요청' (견적 미제출) — **날짜 무관 전체 스캔**, 제출·드랍될 때까지 매일 (2026-07-27)
 
-카드 구성 (v6):
+카드 구성 (v7):
   ⠀
   :bell: *어제 미처리 문의 (N건) — 오늘 다시 연락 부탁드립니다*
   ─── SEP ───
@@ -14,8 +15,12 @@
   :phone: *매니저 (INI) 부재중 (Y건)*    # B 케이스 (매니저별 그룹)
   • `lead_no` [플랫폼] 고객명 · 연락처  |  <확인하기>
   ...
+  :receipt: *매니저 (INI) 견적 요청 (미제출) (Z건)*   # C 케이스 (매니저별 그룹, 접수일 병기)
+  • `lead_no` [플랫폼] 고객명 · 07.25(토) HH:MM  |  <확인하기>
+  ...
   ─── SEP ───
   :information_source: 부재중 2번 이상일 시 문의 드랍 처리 해주세요.
+  :information_source: 견적 요청은 견적 제출·방문 예약·드랍 처리 전까지 매일 표시됩니다.
   ⠀
 """
 from __future__ import annotations
@@ -43,6 +48,11 @@ def _hhmm(t: str) -> str:
 def _md_weekday(d: date) -> str:
     """`07.26(일)` 형식 — 헤더·라인 date 병기용."""
     return f'{d.month:02d}.{d.day:02d}({_WEEKDAY_KR[d.weekday()]})'
+
+
+def _disp_ini(ini: str) -> str:
+    """이니셜 표시 정규화 — 이니셜 맵이 'KIKO' 로 주는 케이스를 'KiKO' 로 (사용자 예외 표기)."""
+    return 'KiKO' if str(ini).upper() == 'KIKO' else ini
 
 
 def _lead_date(l: Dict) -> Optional[date]:
@@ -122,7 +132,7 @@ def _previous_business_day(d: date) -> date:
 
 
 def collect_absent_leads(target_date: Optional[date] = None,
-                          date_range: Optional[List[date]] = None) -> Tuple[List[Dict], Dict[str, List[Dict]]]:
+                          date_range: Optional[List[date]] = None) -> Tuple[List[Dict], Dict[str, List[Dict]], Dict[str, List[Dict]]]:
     """부재중 리마인드 대상 수집.
 
     Args:
@@ -131,9 +141,11 @@ def collect_absent_leads(target_date: Optional[date] = None,
                     (주말·공휴일 다음 영업일 리마인드에서 여러 날 잡기 위함)
 
     Returns:
-        (unassigned, retry_by_manager)
-            unassigned: 상담 대기 & 온라인 상담자 미배정
-            retry_by_manager: {매니저이름: [lead, ...]}  상태='부재중' & 영업 담당자 없음
+        (unassigned, retry_by_manager, quote_pending_by_manager)
+            unassigned: 상담 대기 & 온라인 상담자 미배정 (date_range 인입분)
+            retry_by_manager: {매니저이름: [lead, ...]}  상태='부재중' & 영업 담당자 없음 (date_range 인입분)
+            quote_pending_by_manager: {매니저이름: [lead, ...]}  상태='견적 요청' — 견적 제출 전까지
+                **날짜 무관 전체 스캔** (며칠 걸릴 수 있어 제출·드랍될 때까지 매일 리마인드)
     """
     from dashboard.services.lead_service import get_lead_records
     if date_range is None:
@@ -155,23 +167,36 @@ def collect_absent_leads(target_date: Optional[date] = None,
             unassigned.append(l)
         elif status == '부재중' and not sales:
             retry[consultant or '(미배정)'].append(l)
-    return unassigned, dict(retry)
+
+    # 견적 요청 = 견적 제출 전까지 매일 리마인드 (날짜 무관 — 전체 lead 스캔).
+    #   상태가 아직 '견적 요청' 이면 미제출. 제출/방문예약/드랍 시 상태가 바뀌어 자동 이탈.
+    #   등록자(온라인 상담자)별 그룹 — 부재중과 동일 accountability.
+    quote_pending: Dict[str, List[Dict]] = defaultdict(list)
+    for l in leads:
+        if str(l.get('상태', '')).strip().replace(' ', '') == '견적요청':
+            consultant = str(l.get('온라인 상담자', '')).strip()
+            quote_pending[consultant or '(미배정)'].append(l)
+
+    return unassigned, dict(retry), dict(quote_pending)
 
 
 def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
                        client=None, channel: str = _ONLINE_CHANNEL_DEFAULT,
-                       date_range: Optional[List[date]] = None) -> Tuple[str, int]:
+                       date_range: Optional[List[date]] = None,
+                       quote_pending: Optional[Dict[str, List[Dict]]] = None) -> Tuple[str, int]:
     """리마인드 카드 텍스트 조립.
 
     Args:
         date_range: 리마인드 대상 date 리스트. 크기 별 헤더·라인 표기 분기.
                     - 1일: `어제 미처리 문의` + 라인 `어제 HH:MM`
                     - 2일 이상: `{start} ~ {end} 미처리 문의` + 라인 `MM.DD(요일) HH:MM`
+        quote_pending: {매니저: [lead,...]} 상태='견적 요청' 미제출 (날짜 무관). 별도 섹션.
 
     Returns: (text, total_count)
     """
     from dashboard.services.visit_assignment_sync import _load_initial_maps
     _initial_to_name, name_to_initial = _load_initial_maps()
+    quote_pending = quote_pending or {}
 
     # permalink 조회 최적화 — 채널 history 1번만 fetch
     history_cache = None
@@ -182,7 +207,8 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         except Exception as exc:
             logger.debug(f'[ABSENT] history fetch 실패: {exc}')
 
-    total = len(unassigned) + sum(len(v) for v in retry.values())
+    total = (len(unassigned) + sum(len(v) for v in retry.values())
+             + sum(len(v) for v in quote_pending.values()))
     _range = sorted(date_range or [])
     _multi_day = len(_range) >= 2
 
@@ -200,6 +226,12 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
                 _date_tag = _md_weekday(_d) if _d else '어제'
                 return f'• `{lno}` [{plat}] {name} · {_date_tag} {t}{link}'
             return f'• `{lno}` [{plat}] {name} · 어제 {t}{link}'
+        if mode == 'quote':
+            # 날짜 무관 스캔 → 접수일 병기 (얼마나 대기 중인지 파악)
+            t = _hhmm(str(l.get('상담 시간', '')))
+            _d = _lead_date(l)
+            _when = (f'{_md_weekday(_d)} {t}' if _d else t).strip() or '-'
+            return f'• `{lno}` [{plat}] {name} · {_when}{link}'
         return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{link}'
 
     # 헤더 문구 — range 크기별 분기
@@ -218,15 +250,25 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
             lines.append(_line(l, 'unassigned'))
         lines.append('')
     for mgr_name, items in retry.items():
-        ini = name_to_initial.get(mgr_name, '?')
+        ini = _disp_ini(name_to_initial.get(mgr_name, '?'))
         lines.append(f':phone: *{mgr_name} ({ini}) 부재중 ({len(items)}건)*')
         for l in items:
             lines.append(_line(l, 'retry'))
+        lines.append('')
+    # 견적 요청 (미제출) — 매니저별 그룹, 부재중 섹션 뒤에
+    for mgr_name, items in quote_pending.items():
+        ini = _disp_ini(name_to_initial.get(mgr_name, '?'))
+        _mgr_label = f'{mgr_name} ({ini})' if mgr_name != '(미배정)' else '(미배정)'
+        lines.append(f':receipt: *{_mgr_label} 견적 요청 (미제출) ({len(items)}건)*')
+        for l in items:
+            lines.append(_line(l, 'quote'))
         lines.append('')
     while lines and lines[-1] == '':
         lines.pop()
     lines.append(_SEP)
     lines.append(':information_source: 부재중 2번 이상일 시 문의 드랍 처리 해주세요.')
+    if quote_pending:
+        lines.append(':information_source: 견적 요청은 견적 제출·방문 예약·드랍 처리 전까지 매일 표시됩니다.')
     lines.append(_BLANK)
     return '\n'.join(lines), total
 
@@ -266,14 +308,15 @@ def send_daily_remind() -> Dict:
     if not client:
         return {'ok': False, 'total': 0, 'ts': '', 'reason': 'SLACK_BOT_TOKEN 미설정'}
 
-    unassigned, retry = collect_absent_leads(date_range=date_range)
-    total = len(unassigned) + sum(len(v) for v in retry.values())
+    unassigned, retry, quote_pending = collect_absent_leads(date_range=date_range)
+    total = (len(unassigned) + sum(len(v) for v in retry.values())
+             + sum(len(v) for v in quote_pending.values()))
     if total == 0:
-        logger.info('[ABSENT] 어제 미처리 문의 0건 — 카드 발송 skip')
+        logger.info('[ABSENT] 미처리 문의 0건 — 카드 발송 skip')
         return {'ok': True, 'total': 0, 'ts': '', 'reason': None}
 
     text, _ = build_remind_text(unassigned, retry, client=client, channel=channel,
-                                  date_range=date_range)
+                                  date_range=date_range, quote_pending=quote_pending)
     try:
         r = client.chat_postMessage(
             channel=channel, text=text,
