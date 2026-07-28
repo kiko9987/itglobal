@@ -189,7 +189,7 @@ def build_pin_remind_text(data: dict) -> str:
     body = f'\n{_BLANK}\n'.join(sections)   # 섹션 간 빈 줄 한 개
     return (
         f'{_BLANK}\n'
-        f':pushpin: *미처리 정산 {total}건 — 확인 부탁드립니다*\n'
+        f':pushpin: *미처리 정산 {total}건 — 확인 후 각 메시지 카드에 댓글 부탁드립니다*\n'
         f'{_SEP}\n'
         f'{body}\n'
         f'{_SEP}\n'
