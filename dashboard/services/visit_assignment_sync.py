@@ -37,8 +37,8 @@ _ALIAS_MAP = {
 # 채널 태그 (배정 판정에서 제외)
 _CHANNEL_TAGS = {'당', '당근', '카톡', '홈', '홈페이지', '전화', '숨고', '큐플레이스', '메일', '온라인'}
 
-# 연락처 정규식
-_PHONE_RE = re.compile(r'0\d{1,2}-?\d{3,4}-?\d{4}')
+# 연락처 정규식 — 정상(0 시작) + 앞 0 탈락 휴대폰(1[016789] 시작 10~11자리)도 인식
+_PHONE_RE = re.compile(r'(?:0\d{1,2}|1[016789])-?\d{3,4}-?\d{4}')
 
 # 이니셜 조합 (대문자 워드 + / , 로 조합)
 _INITIAL_TOKEN_RE = re.compile(r'\b([A-Z]{1,4})\b')
@@ -198,8 +198,9 @@ def _extract_bracket_initial(line: str, initial_to_name: Dict[str, str]) -> Opti
 
 
 def _normalize_phone(phone: str) -> str:
-    """전화번호 → 숫자만."""
-    return re.sub(r'\D', '', phone)
+    """전화번호 → 숫자만 (앞자리 0 탈락 시 복원 — 시트↔캔버스 대칭 매칭)."""
+    from dashboard.services.lead_helpers import restore_leading_zero
+    return restore_leading_zero(re.sub(r'\D', '', phone))
 
 
 def parse_assignment_canvas(html: str) -> List[Dict]:

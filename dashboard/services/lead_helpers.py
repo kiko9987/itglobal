@@ -81,6 +81,54 @@ def extract_keywords_from_sources(*texts: str) -> str:
 # ─────────────────────────────────────────────────────────────
 _MOBILE_PREFIXES = ('010', '011', '016', '017', '018', '019')
 
+# 유효 한국 전화번호 자릿수 형태 (하이픈 없는 digits 기준).
+# 앞자리 0 복원·정합성 감지 양쪽에서 단일 기준으로 사용.
+_VALID_PHONE_RE = re.compile(
+    r'^(?:'
+    r'01[016789]\d{7,8}'                          # 휴대폰 010/011/016~019
+    r'|02\d{7,8}'                                 # 서울 02
+    r'|0(?:3[1-3]|4[1-4]|5[1-5]|6[1-4])\d{6,7}'   # 지역번호 031~064
+    r'|050\d{7,9}'                                # 평생/안심번호 050
+    r'|070\d{8}'                                  # 인터넷전화 070
+    r'|080\d{6,8}'                                # 수신자부담 080
+    r')$'
+)
+
+
+def is_valid_phone_digits(digits: str) -> bool:
+    """하이픈 없는 숫자열이 유효한 한국 전화번호 형태인지."""
+    return bool(_VALID_PHONE_RE.match(digits or ''))
+
+
+def is_valid_phone(raw) -> bool:
+    """원본 문자열(하이픈·공백 포함)이 유효 한국 전화번호인지. 빈값·'-' 은 False.
+
+    정합성 체크에서 '값은 있는데 형태가 이상한' 연락처 감지용.
+    앞자리 0 이 탈락한 번호는 복원 후 판정하므로 True (자동복원 가능 = 문제 없음).
+    """
+    return is_valid_phone_digits(restore_leading_zero(re.sub(r'\D', '', str(raw or ''))))
+
+
+def restore_leading_zero(digits: str) -> str:
+    """스프레드시트 숫자 서식으로 앞자리 0 이 탈락한 번호 복원.
+
+    구글시트 셀이 숫자 서식이면 '01091501411' 입력이 1091501411(앞 0 탈락)로 저장됨.
+    0 을 붙였을 때 **유효한 한국 전화번호 형태가 되는 경우에만** 복원 — 애매하면 원본 유지.
+    (한국 전화번호는 모두 0 으로 시작하므로, 0 으로 시작 안 하는 것만 복원 대상.)
+
+    >>> restore_leading_zero('1091501411')   # 휴대폰 앞 0 탈락
+    '01091501411'
+    >>> restore_leading_zero('212345678')    # 서울 02 앞 0 탈락
+    '0212345678'
+    >>> restore_leading_zero('01091501411')  # 이미 정상
+    '01091501411'
+    >>> restore_leading_zero('12345')        # 복원해도 유효 아님 → 원본
+    '12345'
+    """
+    if digits and not digits.startswith('0') and is_valid_phone_digits('0' + digits):
+        return '0' + digits
+    return digits
+
 
 def normalize_phone(raw) -> str:
     """
@@ -106,6 +154,7 @@ def normalize_phone(raw) -> str:
         return ''
 
     digits = re.sub(r'\D', '', s)
+    digits = restore_leading_zero(digits)   # 앞자리 0 탈락(시트 숫자서식) 복원
 
     # 휴대폰 11자리 (010~019)
     if len(digits) == 11 and digits.startswith(_MOBILE_PREFIXES):
