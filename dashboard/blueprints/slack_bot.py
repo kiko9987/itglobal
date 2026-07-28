@@ -9287,6 +9287,29 @@ def _process_invoice_submission(client, body, view) -> None:
     email = _get('email').strip() or '-'
     memo = _get('memo').strip()
 
+    # 국세청 조회 기반 폐업/휴업 경고 (거래처 탭 상호 매칭, 2026-07-28).
+    # 폐업 번호로 세금계산서 발행하는 사고 방지 — 카드에 경고 라인 삽입.
+    partner_warn = ''
+    try:
+        from dashboard.services.partner_status_sync import lookup_partner_status_by_name
+        _pst = lookup_partner_status_by_name(biz)
+        if _pst:
+            _f0 = _pst['flagged'][0]
+            _stt = _f0.get('status') or f"{_pst['label']}자"
+            _bno = _f0.get('bno') or '-'
+            if _pst.get('ambiguous'):
+                partner_warn = (
+                    f"⚠️ *국세청 조회 — 동일 상호 중 {_pst['label']} 이력 있음* "
+                    f"(`{_bno}` {_stt}). 발행 전 사업자번호 확인 필요."
+                )
+            else:
+                partner_warn = (
+                    f"⚠️ *국세청 조회 — {_pst['label']} 거래처* (`{_bno}` {_stt}). "
+                    f"발행 전 사업자번호·최신 등록증 확인 필요."
+                )
+    except Exception as _wexc:
+        logger.warning(f'[SLACK/계산서] 거래처 상태 경고 조회 실패 (무시): {_wexc}')
+
     # VAT radio_buttons state — 2026-07-16 라디오 필드 재도입 (매니저 오클릭 방지)
     _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
     vat_val = _vat_state.get('value', 'sep') or 'sep'
@@ -9303,6 +9326,10 @@ def _process_invoice_submission(client, body, view) -> None:
     initial = _slack_user_to_initial(client, user_id) or '-'
     lines = [
         f"🔔 *[세금계산서 발행 요청]*  `{code}`",
+    ]
+    if partner_warn:
+        lines.append(partner_warn)
+    lines += [
         "--------------------------------------------",
         f"🏢 사업자명 : {biz}",
         f"📍 현장 주소 : {addr}",

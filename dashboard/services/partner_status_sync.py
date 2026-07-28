@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import date
 from typing import List, Optional, Tuple
 
@@ -22,6 +23,63 @@ _TAB = '거래처'
 _COL_STATUS = 'J'
 _COL_CHECKED = 'K'
 _WRITE_CHUNK = 500  # batchUpdate 1회 range 수
+
+
+def _norm_name(s: str) -> str:
+    """상호명 정규화 — 공백 제거 + 전각괄호 반각화 + 소문자. exact match 용.
+
+    (주)/주식회사 등 법인표기는 **제거 안 함** — 별개 사업자 오매칭 방지 (정밀 우선).
+    """
+    s = str(s or '').replace('（', '(').replace('）', ')')
+    return re.sub(r'\s+', '', s).strip().lower()
+
+
+def _is_flagged_status(s: str) -> bool:
+    s = str(s or '')
+    return s.startswith('폐업') or s == '휴업자'
+
+
+def lookup_partner_status_by_name(biz_name: str) -> Optional[dict]:
+    """상호명으로 거래처 탭 상태 조회 (정규화 exact match).
+
+    계산서 요청 시 거래처 폐업/휴업 경고용. 계산서 flow 엔 사업자번호가 없어
+    상호명 매칭이 유일한 링크 — 정밀(정규화 exact) 매칭으로 오경보 최소화.
+
+    Returns None (매칭 없음/전부 정상/조회 실패) 또는:
+      {'matches': [{'bno','status'}], 'flagged': [...], 'label': '폐업'|'휴업',
+       'ambiguous': bool}  # ambiguous = 매칭 여러 건이고 일부만 flagged (상호 중복)
+    """
+    key = _norm_name(biz_name)
+    if not key or key == '-':
+        return None
+    try:
+        m, sid = _sheet()
+        vals = m.service.spreadsheets().values().get(
+            spreadsheetId=sid, range=f'{_TAB}!A1:J',
+        ).execute().get('values', [])
+    except Exception as exc:
+        logger.warning(f'[거래처상태] 상호 조회 실패 ({biz_name}): {exc}')
+        return None
+
+    matches = []
+    for r in vals:
+        name = r[1] if len(r) > 1 else ''
+        if _norm_name(name) != key:
+            continue
+        matches.append({
+            'bno': (r[0] if len(r) > 0 else '').strip(),
+            'status': (r[9] if len(r) > 9 else '').strip(),
+        })
+    if not matches:
+        return None
+    flagged = [x for x in matches if _is_flagged_status(x['status'])]
+    if not flagged:
+        return None
+    label = '폐업' if any(x['status'].startswith('폐업') for x in flagged) else '휴업'
+    return {
+        'matches': matches, 'flagged': flagged, 'label': label,
+        'ambiguous': len(matches) > len(flagged),
+    }
 
 
 def _sheet():
