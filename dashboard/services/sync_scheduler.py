@@ -275,6 +275,27 @@ def start_scheduler():
     )
     jobs.append('부재중 리마인드 매일 09:00')
 
+    # 2026-07-28 거래처 탭 국세청 상태 갱신. NTS_SERVICE_KEY 있을 때만.
+    if os.getenv('NTS_SERVICE_KEY', '').strip():
+        # 주간 풀갱신 (매주 월 04:00) — 기존 거래처 폐업/휴업 상태 변경 감지.
+        _scheduler.add_job(
+            _safe_partner_status_refresh,
+            'cron',
+            day_of_week='mon', hour=4, minute=0,
+            id='partner_status_refresh',
+            replace_existing=True,
+        )
+        jobs.append('거래처 상태 주간갱신 월 04:00')
+        # 데일리 증분 (매일 07:00) — 신규 추가 거래처(J 빈 행)만 채움.
+        _scheduler.add_job(
+            _safe_partner_status_fill_new,
+            'cron',
+            hour=7, minute=0,
+            id='partner_status_fill_new',
+            replace_existing=True,
+        )
+        jobs.append('거래처 신규 증분 매일 07:00')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -564,6 +585,47 @@ def _safe_absent_remind_daily():
         logger.info(f'[SCHED] 부재중 리마인드 실행 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 부재중 리마인드 실패: {exc}', exc_info=True)
+
+
+def _safe_partner_status_refresh():
+    """거래처 탭 국세청 사업자등록 상태 주기 갱신 (주 1회). 폐업/휴업 최신화.
+
+    조회 0건(키 미설정/API 실패)이면 refresh_partner_status 내부 가드로
+    시트 쓰기 skip → 기존 값 보존.
+    """
+    try:
+        from dashboard.services.partner_status_sync import refresh_partner_status
+        result = refresh_partner_status(dry_run=False)
+        s = result.get('summary', {})
+        if result.get('skipped_write'):
+            logger.warning('[SCHED] 거래처 상태 갱신 — 조회 0건으로 쓰기 skip (기존 보존)')
+        else:
+            logger.info(
+                f"[SCHED] 거래처 상태 갱신 완료 — 계속 {s.get('계속사업자')}, "
+                f"휴업 {s.get('휴업자')}, 폐업 {s.get('폐업자')}, 조회안됨 {s.get('조회안됨')}"
+            )
+    except Exception as exc:
+        logger.error(f'[SCHED] 거래처 상태 갱신 실패: {exc}', exc_info=True)
+
+
+def _safe_partner_status_fill_new():
+    """신규 추가 거래처 J/K 증분 채움 (매일). J가 빈 행만 조회·기록.
+
+    주간 풀갱신(_safe_partner_status_refresh)은 상태 변경 감지용으로 별도 유지.
+    """
+    try:
+        from dashboard.services.partner_status_sync import refresh_partner_status
+        result = refresh_partner_status(dry_run=False, only_blank=True)
+        if result.get('no_blank'):
+            return  # 채울 행 없음 (조용히)
+        s = result.get('summary', {})
+        logger.info(
+            f"[SCHED] 거래처 신규 증분 채움 — {result.get('total_rows')}행 "
+            f"(계속 {s.get('계속사업자', 0)}, 휴업 {s.get('휴업자', 0)}, "
+            f"폐업 {s.get('폐업자', 0)}, 조회안됨 {s.get('조회안됨', 0)})"
+        )
+    except Exception as exc:
+        logger.error(f'[SCHED] 거래처 신규 증분 채움 실패: {exc}', exc_info=True)
 
 
 def _safe_daily_backup():

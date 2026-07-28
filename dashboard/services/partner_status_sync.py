@@ -96,26 +96,40 @@ def _fmt_end(end: str) -> str:
 
 
 def refresh_partner_status(dry_run: bool = True,
-                            today_str: Optional[str] = None) -> dict:
-    """거래처 탭 등록번호 전체 상태 조회 후 J/K 기록.
+                            today_str: Optional[str] = None,
+                            only_blank: bool = False) -> dict:
+    """거래처 탭 등록번호 상태 조회 후 J/K 기록.
 
     dry_run=True: API 조회·집계만, 시트 미기록. (폐업 건수 확인용)
     dry_run=False: J(상태)/K(최종확인일) 실제 기록 + 헤더 세팅.
+    only_blank=True: **J가 빈 행만** 대상 (신규 추가 거래처 채우기용, 데일리 증분).
+        빈 행 없으면 조회·쓰기 없이 즉시 반환.
 
     Returns: {total_rows, queried, resolved, summary{상태:건수}, closed[(row,bno,end)], ...}
     """
     m, sid = _sheet()
     today = today_str or date.today().strftime('%Y-%m-%d')
 
-    # A열 등록번호 로드 (행 번호 보존)
+    # 등록번호(A) + 현재 상태(J) 로드 (행 번호 보존). only_blank 시 J로 필터.
     a_vals = m.service.spreadsheets().values().get(
-        spreadsheetId=sid, range=f'{_TAB}!A1:A',
+        spreadsheetId=sid, range=f'{_TAB}!A1:J',
     ).execute().get('values', [])
     rows: List[Tuple[int, str]] = []  # (sheet_row_1base, bno_norm)
     for i, r in enumerate(a_vals):
         nb = normalize_bno(r[0] if r else '')
-        if nb:
-            rows.append((i + 1, nb))
+        if not nb:
+            continue
+        if only_blank:
+            cur_j = (r[9] if len(r) > 9 else '').strip()
+            if cur_j:  # 이미 상태 기록됨 → 증분 대상 아님
+                continue
+        rows.append((i + 1, nb))
+
+    if only_blank and not rows:
+        logger.info('[거래처상태] 증분: 채울 빈 행 없음 — skip')
+        return {'total_rows': 0, 'queried': 0, 'resolved': 0,
+                'summary': {}, 'closed': [], 'dry_run': dry_run,
+                'today': today, 'only_blank': True, 'no_blank': True}
 
     bnos = list({nb for _, nb in rows})
     status_map = check_business_status(bnos)
@@ -145,6 +159,13 @@ def refresh_partner_status(dry_run: bool = True,
         'closed': closed, 'dry_run': dry_run, 'today': today,
     }
     if dry_run:
+        return result
+
+    # 안전장치 — 조회할 번호가 있는데 결과 0건이면 (키 미설정/API 전체 실패)
+    # 시트를 '조회안됨'으로 덮어쓰지 않고 기존 J/K 보존 (주기 갱신 사고 방지).
+    if rows and not status_map:
+        logger.warning('[거래처상태] 국세청 조회 0건 (키 미설정/API 실패) — 시트 쓰기 skip (기존 J/K 보존)')
+        result['skipped_write'] = True
         return result
 
     # 실제 기록 — 헤더 + 행별 J:K (비데이터 행 보호 위해 행별 range)
