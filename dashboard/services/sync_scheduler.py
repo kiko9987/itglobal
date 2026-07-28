@@ -275,17 +275,17 @@ def start_scheduler():
     )
     jobs.append('부재중 리마인드 매일 09:00')
 
-    # 2026-07-28 미처리 정산 핀 리마인드 — 매일 09시 #영업_관리 (세금계산서 관리 알림 봇).
+    # 2026-07-28 미처리 정산 핀 리마인드 — 매일 오후 1시 #영업_관리 (세금계산서 관리 알림 봇).
     # 경영지원이 고정한 입금내역·세금계산서(미처리) 요약. pins:read 필요.
     if os.getenv('SLACK_INVOICE_BOT_TOKEN', '').strip() and os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip():
         _scheduler.add_job(
             _safe_pin_remind_daily,
             'cron',
-            hour=9, minute=0,
+            hour=13, minute=0,
             id='pin_remind_daily',
             replace_existing=True,
         )
-        jobs.append('정산 핀 리마인드 매일 09:00')
+        jobs.append('정산 핀 리마인드 매일 13:00')
 
     # 2026-07-28 거래처 탭 국세청 상태 갱신. NTS_SERVICE_KEY 있을 때만.
     if os.getenv('NTS_SERVICE_KEY', '').strip():
