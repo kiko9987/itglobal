@@ -15,6 +15,7 @@ import pytest
 from dashboard.services.lead_helpers import (
     normalize_phone,
     restore_leading_zero,
+    canonical_phone_digits,
     is_valid_phone,
     is_valid_phone_digits,
 )
@@ -52,6 +53,35 @@ class TestRestoreLeadingZero:
     def test_does_not_falsely_repair(self, garbage):
         """복원해서 유효 번호가 안 되면 원본 그대로 (잘못된 조용한 정정 방지)."""
         assert restore_leading_zero(garbage) == garbage
+
+
+class TestCountryCode:
+    """국제표기 +82 / 0082 → 국내 (앞 0 을 뗀 형식이므로 복원)."""
+
+    @pytest.mark.parametrize('intl, out', [
+        ('+82 10-9150-1411', '010-9150-1411'),
+        ('+821091501411', '010-9150-1411'),
+        ('+82-10-9150-1411', '010-9150-1411'),
+        ('821091501411', '010-9150-1411'),
+        ('+82 010-9150-1411', '010-9150-1411'),  # 0 을 잘못 남긴 경우도 흡수
+        ('0082 10 9150 1411', '010-9150-1411'),  # 국제전화 접속코드 00
+        ('+82 2 1234 5678', '02-1234-5678'),     # 서울
+        ('+82 31-777-1234', '031-777-1234'),     # 지역
+    ])
+    def test_intl_to_domestic(self, intl, out):
+        assert normalize_phone(intl) == out
+
+    def test_canonical_digits(self):
+        assert canonical_phone_digits('821091501411') == '01091501411'
+        assert canonical_phone_digits('008210991501411') == '008210991501411'  # 무효 길이 → 원본
+
+    def test_intl_matches_domestic_symmetric(self):
+        """+82 와 국내표기가 같은 매칭 키로 수렴 (시트↔캔버스 대칭)."""
+        assert canonical_phone_digits('821091501411') == canonical_phone_digits('01091501411')
+
+    def test_bad_length_not_disguised(self):
+        """잘못된 길이의 82 접두는 유효번호로 둔갑하지 않음."""
+        assert is_valid_phone('008210991501411') is False
 
 
 class TestNormalizePhoneWithRepair:

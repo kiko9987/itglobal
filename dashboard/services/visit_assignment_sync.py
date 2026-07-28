@@ -198,9 +198,9 @@ def _extract_bracket_initial(line: str, initial_to_name: Dict[str, str]) -> Opti
 
 
 def _normalize_phone(phone: str) -> str:
-    """전화번호 → 숫자만 (앞자리 0 탈락 시 복원 — 시트↔캔버스 대칭 매칭)."""
-    from dashboard.services.lead_helpers import restore_leading_zero
-    return restore_leading_zero(re.sub(r'\D', '', phone))
+    """전화번호 → 숫자만 (국제표기 82 제거 + 앞자리 0 복원 — 시트↔캔버스 대칭 매칭)."""
+    from dashboard.services.lead_helpers import canonical_phone_digits
+    return canonical_phone_digits(re.sub(r'\D', '', phone))
 
 
 def parse_assignment_canvas(html: str) -> List[Dict]:

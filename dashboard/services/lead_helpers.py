@@ -104,9 +104,9 @@ def is_valid_phone(raw) -> bool:
     """원본 문자열(하이픈·공백 포함)이 유효 한국 전화번호인지. 빈값·'-' 은 False.
 
     정합성 체크에서 '값은 있는데 형태가 이상한' 연락처 감지용.
-    앞자리 0 이 탈락한 번호는 복원 후 판정하므로 True (자동복원 가능 = 문제 없음).
+    앞자리 0 탈락·국제표기(+82)는 자동복원 후 판정하므로 True (복원 가능 = 문제 없음).
     """
-    return is_valid_phone_digits(restore_leading_zero(re.sub(r'\D', '', str(raw or ''))))
+    return is_valid_phone_digits(canonical_phone_digits(re.sub(r'\D', '', str(raw or ''))))
 
 
 def restore_leading_zero(digits: str) -> str:
@@ -130,6 +130,38 @@ def restore_leading_zero(digits: str) -> str:
     return digits
 
 
+def _strip_kr_country_code(digits: str) -> str:
+    """국제표기 국가번호 82(+82 / 0082) 제거 → 국내 숫자열.
+
+    +82 는 국내번호 앞 0 을 떼고 붙이는 형식(+82 10-9150-1411 = 010-9150-1411).
+    82 제거 후 0 을 붙였을 때 유효 번호가 되는 경우에만 제거 (오탐 방지).
+    국내번호는 82 로 시작하지 않으므로 안전. 0 복원은 restore_leading_zero 가 담당.
+    """
+    for prefix in ('0082', '82'):
+        if digits.startswith(prefix):
+            rest = digits[len(prefix):]
+            cand = rest if rest.startswith('0') else '0' + rest
+            if is_valid_phone_digits(cand):
+                return rest
+    return digits
+
+
+def canonical_phone_digits(digits: str) -> str:
+    """숫자열 → 표준 국내 숫자열: 국제표기(82) 제거 + 앞자리 0 복원.
+
+    변환 결과가 유효 번호가 되는 경우만 적용, 아니면 원본 유지.
+    유입·표시·매칭·정합성 판정의 단일 정규화 진입점.
+
+    >>> canonical_phone_digits('821091501411')    # +82 휴대폰
+    '01091501411'
+    >>> canonical_phone_digits('1091501411')      # 앞 0 탈락
+    '01091501411'
+    >>> canonical_phone_digits('01091501411')     # 이미 정상
+    '01091501411'
+    """
+    return restore_leading_zero(_strip_kr_country_code(digits))
+
+
 def normalize_phone(raw) -> str:
     """
     한국 전화번호 정규화. 모든 케이스 처리.
@@ -146,6 +178,8 @@ def normalize_phone(raw) -> str:
     '031-777-1234'
     >>> normalize_phone('07012345678') # 070 11자리
     '070-1234-5678'
+    >>> normalize_phone('+82 10-9150-1411')  # 국제표기
+    '010-9150-1411'
     >>> normalize_phone('만료됨')
     ''
     """
@@ -154,7 +188,7 @@ def normalize_phone(raw) -> str:
         return ''
 
     digits = re.sub(r'\D', '', s)
-    digits = restore_leading_zero(digits)   # 앞자리 0 탈락(시트 숫자서식) 복원
+    digits = canonical_phone_digits(digits)   # 국제표기(+82) 제거 + 앞자리 0 탈락 복원
 
     # 휴대폰 11자리 (010~019)
     if len(digits) == 11 and digits.startswith(_MOBILE_PREFIXES):
