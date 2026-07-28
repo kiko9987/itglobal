@@ -1546,11 +1546,10 @@ def _register_handlers(app):
 
 
 # 정산 처리 완료 = 체크 리액션 → 자동 고정 해제 (2026-07-28)
-_SETTLE_DONE_REACTIONS = {
-    'white_check_mark',        # ✅
-    'heavy_check_mark',        # ✔️
-    'ballot_box_with_check',   # ☑️
-}
+# 사용자 요구: ✅(white_check_mark)만, 경영지원(황샛별)이 눌렀을 때만.
+_SETTLE_DONE_REACTIONS = {'white_check_mark'}  # ✅ 만
+# 황샛별 Slack ID (sb@itg-aircon.com). env 로 override 가능.
+_SETTLEMENT_CHECKER_ID = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
 
 
 def _maybe_auto_pin_settlement(client, channel: str, msg: dict) -> None:
@@ -1680,6 +1679,9 @@ def _register_invoice_handlers(app):
         경영지원이 처리 완료 시 핀 수동 해제 대신 체크만 하면 목록에서 빠짐.
         """
         if event.get('reaction', '') not in _SETTLE_DONE_REACTIONS:
+            return
+        # 경영지원(황샛별)이 누른 체크만 인정 — 아무나 ✅ 눌러 해제되면 안 됨.
+        if event.get('user', '') != _SETTLEMENT_CHECKER_ID:
             return
         item = event.get('item', {}) or {}
         if item.get('type') != 'message':
