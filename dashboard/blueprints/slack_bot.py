@@ -9061,16 +9061,20 @@ def _open_invoice_modal(client, body) -> None:
     # pre-fill 시 콤마 자동 포맷 (사용자 가독성)
     if amt.isdigit():
         amt = f"{int(amt):,}"
-    email = payload.get('email', '') or ''
-    # 이메일 자동채움 (2026-07-28) — 거래처(발주처 이메일 빈값)면 상호명으로
-    # 거래처 탭 이메일 캐시 O(1) 조회해 pre-fill. trigger_id 3초 안전 (Redis HGET).
-    # 매번 재입력하던 번거로움 해소. 매니저가 모달에서 확인·수정 가능.
-    if not email and biz and biz != '-':
+    # 발행 이메일 자동채움 (2026-07-28, 우선순위: 거래처 탭 > 발주처).
+    # 세금계산서 모달은 '계산서용' 이메일이 필요 — 거래처 탭 이메일(홈택스 발행
+    # 이력 기반)이 계산서용이라 **최우선**. 발주처 이메일(온라인 리드=견적용)은
+    # fallback (법인은 견적≠계산서 이메일이 흔함, 개인은 대개 동일). 매니저 수정 가능.
+    # trigger_id 3초 안전 (Redis HGET O(1)).
+    email = ''
+    if biz and biz != '-':
         try:
             from dashboard.services.partner_status_sync import get_cached_partner_email
             email = get_cached_partner_email(biz) or ''
         except Exception as _eexc:
             logger.warning(f'[SLACK/계산서] 거래처 이메일 pre-fill 실패 (무시): {_eexc}')
+    if not email:
+        email = payload.get('email', '') or ''  # 발주처(견적) 이메일 fallback
 
     metadata = json.dumps({"code": code}, ensure_ascii=False)
 
