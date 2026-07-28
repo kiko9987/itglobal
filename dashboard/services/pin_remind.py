@@ -50,15 +50,25 @@ def _msg_full_text(m: dict) -> str:
 _INVOICE_RE = re.compile(r'^\s*\d{1,2}/\d{1,2}\s+[GRNgrn]\s+[\d,]+\s*원\s+\S')
 
 
+# ITG 통장 계좌 3종 (마스킹 * 필수 — 전화번호 등 오탐 방지). 기업452=G / 하나255=R / 농협352=N.
+_DEPOSIT_ACCTS = [
+    (re.compile(r'452[\d\-]*\*[\d*\-]*'), 'G'),  # 452***38801011
+    (re.compile(r'255[\d\-]*\*[\d*\-]*'), 'R'),  # 255***31304
+    (re.compile(r'352[\d\-]*\*[\d*\-]*'), 'N'),  # 352-****-1682-33
+]
+
+
+def _deposit_grn(text: str) -> str:
+    """입금 계좌 → G/R/N (없으면 '')."""
+    for pat, code in _DEPOSIT_ACCTS:
+        if pat.search(text or ''):
+            return code
+    return ''
+
+
 def is_deposit(text: str) -> bool:
     """ITG 통장 계좌번호(452 기업 / 255 하나 / 352 농협) 포함 → 입금내역."""
-    try:
-        from dashboard.services.payment_sync import _ACCT_G_RE, _ACCT_R_RE, _ACCT_N_RE
-        return bool(_ACCT_G_RE.search(text) or _ACCT_R_RE.search(text)
-                    or _ACCT_N_RE.search(text))
-    except Exception:
-        return bool(re.search(r'(?:452|255)[\d*\-]{6,}', text)
-                    or re.search(r'352[\-\*][\d*\-]{5,}', text))
+    return bool(_deposit_grn(text))
 
 
 def is_invoice_request(text: str) -> bool:
@@ -84,6 +94,29 @@ def _summary_line(text: str) -> str:
     s = re.sub(r'\s*회신\s*부탁드립니다\.?\s*$', '', s).strip()
     s = re.sub(r'\s{2,}', ' ', s)
     return s[:80] or '(내용 없음)'
+
+
+def _format_deposit_summary(text: str) -> str:
+    """입금내역 → 'MM/DD G/R/N 금액원 거래처' (수금관리 표기와 통일, 은행명 꼬리 제거)."""
+    grn = _deposit_grn(text)  # 원본(마스킹 *)에서 G/R/N 판정
+    s = re.sub(r'[*]', '', text).replace('[Web발신]', ' ')
+    s = re.sub(r'\s+', ' ', s).strip()
+    # 금액
+    am = re.search(r'입금\s*([\d,]+)\s*원', s)
+    amount = am.group(1) if am else ''
+    # 날짜 MM/DD (2026/07/20 or 07/28)
+    dm = re.search(r'(?:\d{4}[/.])?(\d{1,2})[/.](\d{1,2})', s)
+    date = f'{int(dm.group(1)):02d}/{int(dm.group(2)):02d}' if dm else ''
+    # 거래처 — 금액·날짜·시간·계좌·은행명 제거 후 남는 것
+    p = re.sub(r'입금\s*[\d,]+\s*원', ' ', s)
+    p = re.sub(r'(?:\d{4}[/.])?\d{1,2}[/.]\d{1,2}', ' ', p)
+    p = re.sub(r'\d{1,2}:\d{2}', ' ', p)
+    p = re.sub(r'\d{3}[\d*\-]{4,}', ' ', p)   # 계좌번호
+    p = re.sub(r'(기업|하나|국민|신한|우리|농협|카카오|토스|SC|씨티)', ' ', p)
+    p = p.replace('입금', ' ')
+    partner = re.sub(r'\s+', ' ', p).strip(' -·,')[:30]
+    parts = [x for x in [date, grn, (amount + '원' if amount else ''), partner] if x]
+    return ' '.join(parts) or _summary_line(text)
 
 
 def collect_pending_pins() -> Optional[dict]:
@@ -119,13 +152,13 @@ def collect_pending_pins() -> Optional[dict]:
             permalink = (pl or {}).get('permalink', '') or ''
         except Exception:
             pass
-        entry = {'ts': ts, 'summary': _summary_line(text), 'permalink': permalink}
         if is_deposit(text):
-            deposits.append(entry)
+            summary = _format_deposit_summary(text)
+            deposits.append({'ts': ts, 'summary': summary, 'permalink': permalink})
         elif is_invoice_request(text):
-            invoices.append(entry)
+            invoices.append({'ts': ts, 'summary': _summary_line(text), 'permalink': permalink})
         else:
-            others.append(entry)
+            others.append({'ts': ts, 'summary': _summary_line(text), 'permalink': permalink})
 
     return {'deposits': deposits, 'invoices': invoices, 'others': others,
             'total': len(deposits) + len(invoices) + len(others)}
@@ -142,29 +175,26 @@ def build_pin_remind_text(data: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
         return f'• {e["summary"]}{link}'
 
-    lines = [
-        _BLANK,
-        f':pushpin: *미처리 정산 {total}건 — 확인 부탁드립니다*',
-        _SEP,
-    ]
+    def _section(header: str, items: list) -> str:
+        return '\n'.join([header] + [_line(e) for e in items])
+
+    sections = []
     if deposits:
-        lines.append(f':moneybag: *입금내역 ({len(deposits)}건)*')
-        lines += [_line(e) for e in deposits]
-        lines.append('')
+        sections.append(_section(f':moneybag: *입금내역 ({len(deposits)}건)*', deposits))
     if invoices:
-        lines.append(f':receipt: *세금계산서 ({len(invoices)}건)*')
-        lines += [_line(e) for e in invoices]
-        lines.append('')
+        sections.append(_section(f':receipt: *세금계산서 ({len(invoices)}건)*', invoices))
     if others:
-        lines.append(f':pushpin: *기타 ({len(others)}건)*')
-        lines += [_line(e) for e in others]
-        lines.append('')
-    while lines and lines[-1] == '':
-        lines.pop()
-    lines.append(_SEP)
-    lines.append(':information_source: 처리 완료 시 해당 메시지에 :white_check_mark: 체크하면 목록에서 자동으로 빠집니다.')
-    lines.append(_BLANK)
-    return '\n'.join(lines)
+        sections.append(_section(f':pushpin: *기타 ({len(others)}건)*', others))
+
+    body = f'\n{_BLANK}\n'.join(sections)   # 섹션 간 빈 줄 한 개
+    return (
+        f'{_BLANK}\n'
+        f':pushpin: *미처리 정산 {total}건 — 확인 부탁드립니다*\n'
+        f'{_SEP}\n'
+        f'{body}\n'
+        f'{_SEP}\n'
+        f'{_BLANK}'
+    )
 
 
 def send_pin_remind() -> dict:
