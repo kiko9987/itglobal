@@ -213,6 +213,8 @@ def _validate_magic_bytes(data: bytes, expected_ext: str) -> bool:
     if not data or len(data) < 8:
         return False
     ext = (expected_ext or '').lower()
+    if ext == 'jpeg':
+        ext = 'jpg'  # .jpeg 확장자도 JPEG 로 인정 (리사이즈 파일 등)
     # HEIC
     if ext == 'heic':
         return len(data) >= 12 and data[4:8] == b'ftyp' and b'heic' in data[8:16]
@@ -248,7 +250,7 @@ def _guess_ext(filename: str, mimetype: str) -> str:
     if filename and '.' in filename:
         ext = filename.rsplit('.', 1)[1].lower()
         if ext:
-            return ext
+            return 'jpg' if ext == 'jpeg' else ext  # .jpeg → jpg 정규화
     # mimetype fallback
     mime_ext = {
         'image/jpeg': 'jpg',
