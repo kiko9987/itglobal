@@ -1545,6 +1545,14 @@ def _register_handlers(app):
     )
 
 
+# 정산 처리 완료 = 체크 리액션 → 자동 고정 해제 (2026-07-28)
+_SETTLE_DONE_REACTIONS = {
+    'white_check_mark',        # ✅
+    'heavy_check_mark',        # ✔️
+    'ballot_box_with_check',   # ☑️
+}
+
+
 def _maybe_auto_pin_settlement(client, channel: str, msg: dict) -> None:
     """정산 요청 메시지(입금내역·세금계산서)면 자동 고정(pin).
 
@@ -1663,6 +1671,33 @@ def _register_invoice_handlers(app):
                 _auto_complete_invoice_card(client, channel, thread_ts, event, meta)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.event("reaction_added")
+    def handle_invoice_reaction_added(event, client):
+        """#영업_관리 정산 메시지에 체크(✅) 리액션 → 자동 고정 해제 (2026-07-28).
+
+        경영지원이 처리 완료 시 핀 수동 해제 대신 체크만 하면 목록에서 빠짐.
+        """
+        if event.get('reaction', '') not in _SETTLE_DONE_REACTIONS:
+            return
+        item = event.get('item', {}) or {}
+        if item.get('type') != 'message':
+            return
+        channel = item.get('channel', '')
+        ts = item.get('ts', '')
+        inv_ch = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+        if not ts or not channel or channel != inv_ch:
+            return
+
+        def _bg():
+            try:
+                client.pins_remove(channel=channel, timestamp=ts)
+                logger.info(f'[SLACK/정산핀] 체크 리액션 → 자동 고정 해제: ts={ts}')
+            except Exception as exc:
+                if 'no_pin' in str(exc):
+                    return  # 고정 안 돼있던 메시지 — 무해
+                logger.warning(f'[SLACK/정산핀] pins.remove 실패 (ts={ts}): {exc}')
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.action("invoice_complete")

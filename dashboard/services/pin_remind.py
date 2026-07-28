@@ -162,7 +162,7 @@ def build_pin_remind_text(data: dict) -> str:
     while lines and lines[-1] == '':
         lines.pop()
     lines.append(_SEP)
-    lines.append(':information_source: 처리 완료 건은 고정(:pushpin:)에서 내려주세요.')
+    lines.append(':information_source: 처리 완료 시 해당 메시지에 :white_check_mark: 체크하면 목록에서 자동으로 빠집니다.')
     lines.append(_BLANK)
     return '\n'.join(lines)
 
