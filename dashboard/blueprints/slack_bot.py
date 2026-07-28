@@ -9036,6 +9036,109 @@ def _is_license_required(code: str) -> bool:
         return True
 
 
+def _build_invoice_modal_view(code, biz, addr, amt, email, metadata) -> dict:
+    """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28)."""
+    addr = addr or '-'
+    amt = amt or '-'
+
+    def _text_input(block_id, label, value, multiline=False, optional=False, placeholder=''):
+        el = {"type": "plain_text_input", "action_id": "value"}
+        if value:
+            el["initial_value"] = value
+        if placeholder:
+            el["placeholder"] = {"type": "plain_text", "text": placeholder}
+        if multiline:
+            el["multiline"] = True
+        blk = {
+            "type": "input", "block_id": block_id,
+            "label": {"type": "plain_text", "text": label}, "element": el,
+        }
+        if optional:
+            blk["optional"] = True
+        return blk
+
+    return {
+        "type": "modal", "callback_id": "submit_invoice",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "세금계산서 발행 요청"},
+        "submit": {"type": "plain_text", "text": "요청 발송"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+                "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
+            _text_input("biz", "사업자명", biz),
+            _text_input("addr", "현장 주소", addr),
+            {"type": "section", "text": {"type": "mrkdwn",
+                "text": f"*공사 금액 (시트 원본)*\n{amt} 원"}},
+            _text_input("amt", "계산서 발행 금액", amt),
+            {
+                "type": "input", "block_id": "vat",
+                "label": {"type": "plain_text", "text": "VAT (부가가치세)"},
+                "element": {
+                    "type": "radio_buttons", "action_id": "value",
+                    "initial_option": {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
+                        {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
+                    ],
+                },
+            },
+            _text_input("email", "발행 이메일", email),
+            _text_input(
+                "memo", "추가 요청사항", "",
+                multiline=True, optional=True,
+                placeholder='예) 청구 or 영수 발행\n예) 항목이나 비고란에 특정 내용 기재',
+            ),
+        ],
+    }
+
+
+def _refresh_invoice_modal_from_sheet(client, view_id, view_hash, code,
+                                       opened_biz, addr, amt, opened_email) -> None:
+    """계산서 모달 open 직후, 시트 최신값(사업자명·주소·이메일)으로 갱신.
+
+    [💰 계산서 요청] 버튼 payload 는 공사확정 발송 시점 스냅샷이라, 이후 웹/시트에서
+    채워진 사업자명 등을 못 따라감(예: G3901-SJ 발송 시 사업자명 빈값 → 이후 '(주)미덕원'
+    채워졌으나 버튼은 옛 값). open 은 payload 로 즉시(trigger 안전), 직후 views.update 로
+    최신값 반영 (2026-07-28).
+    """
+    import re
+    from dashboard.services.as_service import get_project_details
+
+    def _n(s):
+        return re.sub(r'\s+', '', str(s or '')).strip()
+
+    d = get_project_details(code) or {}
+    fresh_biz = (d.get('biz') or '').strip()
+    fresh_addr = (d.get('address') or '').strip()
+    new_biz, new_addr, new_email = opened_biz, addr, opened_email
+    changed = False
+    if fresh_biz and fresh_biz != '-' and _n(fresh_biz) != _n(opened_biz):
+        new_biz = fresh_biz
+        changed = True
+        # 사업자명 최신화 → 거래처 탭 이메일(계산서용) 재계산 우선 반영
+        try:
+            from dashboard.services.partner_status_sync import get_cached_partner_email
+            _ce = get_cached_partner_email(fresh_biz)
+            if _ce:
+                new_email = _ce
+        except Exception:
+            pass
+    if fresh_addr and fresh_addr != '-' and _n(fresh_addr) != _n(addr or ''):
+        new_addr = fresh_addr
+        changed = True
+    if not changed:
+        return
+    metadata = json.dumps({"code": code}, ensure_ascii=False)
+    view = _build_invoice_modal_view(code, new_biz, new_addr, amt, new_email, metadata)
+    try:
+        client.views_update(view_id=view_id, hash=view_hash, view=view)
+        logger.info(f'[SLACK/계산서] 모달 최신값 반영 ({code}): 사업자명={new_biz!r}')
+    except Exception as exc:
+        # hash 불일치(매니저가 이미 입력 중) 등은 조용히 skip — 입력값 보존
+        logger.debug(f'[SLACK/계산서] 모달 views_update skip ({code}): {exc}')
+
+
 def _open_invoice_modal(client, body) -> None:
     """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈.
 
@@ -9078,81 +9181,27 @@ def _open_invoice_modal(client, body) -> None:
 
     metadata = json.dumps({"code": code}, ensure_ascii=False)
 
-    # 필드별 initial_value 정책 (2026-07-13):
-    #   - 사업자명·이메일: 빈값이면 initial 없이 두어 매니저가 직접 입력 (필수 항목).
-    #     매니저 패턴상 '-' 접두어가 있으면 '-TEST@TEST.COM' 처럼 이어쓰는 경우가 있어
-    #     아예 빈 필드로 유지 → 슬랙이 required error 로 자연스럽게 유도.
-    #   - 현장 주소·금액: '-' 로 채워 매니저가 수정하거나 그대로 요청 가능.
-    addr = addr or '-'
-    amt = amt or '-'
+    # payload 스냅샷으로 즉시 오픈 (trigger_id 3초 안전).
+    view = _build_invoice_modal_view(code, biz, addr, amt, email, metadata)
+    try:
+        resp = client.views_open(trigger_id=trigger_id, view=view)
+    except Exception as exc:
+        logger.warning(f'[SLACK/계산서] 모달 오픈 실패: {exc}')
+        return
 
-    def _text_input(block_id, label, value, multiline=False, optional=False, placeholder=''):
-        el = {"type": "plain_text_input", "action_id": "value"}
-        if value:
-            el["initial_value"] = value
-        if placeholder:
-            el["placeholder"] = {"type": "plain_text", "text": placeholder}
-        if multiline:
-            el["multiline"] = True
-        blk = {
-            "type": "input", "block_id": block_id,
-            "label": {"type": "plain_text", "text": label},
-            "element": el,
-        }
-        if optional:
-            blk["optional"] = True
-        return blk
-
-    view = {
-        "type": "modal",
-        "callback_id": "submit_invoice",
-        "private_metadata": metadata,
-        "title": {"type": "plain_text", "text": "세금계산서 발행 요청"},
-        "submit": {"type": "plain_text", "text": "요청 발송"},
-        "close": {"type": "plain_text", "text": "취소"},
-        "blocks": [
-            {"type": "section", "text": {"type": "mrkdwn",
-                "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
-            _text_input("biz", "사업자명", biz),
-            _text_input("addr", "현장 주소", addr),
-            # 공사 금액 (시트 원본, read-only 참고)
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*공사 금액 (시트 원본)*\n{amt} 원",
-                },
-            },
-            _text_input("amt", "계산서 발행 금액", amt),
-            # VAT radio_buttons — 체크박스 여백 오클릭 사고 방지 (2026-07-16)
-            {
-                "type": "input", "block_id": "vat",
-                "label": {"type": "plain_text", "text": "VAT (부가가치세)"},
-                "element": {
-                    "type": "radio_buttons",
-                    "action_id": "value",
-                    "initial_option": {
-                        "text": {"type": "plain_text", "text": "VAT 별도"},
-                        "value": "sep",
-                    },
-                    "options": [
-                        {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
-                        {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
-                    ],
-                },
-            },
-            # 이메일 필드 — 항상 required (2026-07-24 fix).
-            # 이전엔 _is_license_required(code) 로 optional 판정했으나 시트 로드가
-            # trigger_id 만료 유발. submit 시 재검증에서 반려로 대체.
-            _text_input("email", "발행 이메일", email),
-            _text_input(
-                "memo", "추가 요청사항", "",
-                multiline=True, optional=True,
-                placeholder='예) 청구 or 영수 발행\n예) 항목이나 비고란에 특정 내용 기재',
-            ),
-        ],
-    }
-    client.views_open(trigger_id=trigger_id, view=view)
+    # 버튼 payload 는 공사확정 발송 시점 값 → 이후 채워진 사업자명·주소·이메일을
+    # 백그라운드로 재조회해 views.update 로 반영 (2026-07-28, G3901-SJ 계기).
+    _view = (resp or {}).get('view') or {}
+    view_id, view_hash = _view.get('id', ''), _view.get('hash', '')
+    if view_id:
+        def _bg_refresh():
+            try:
+                _refresh_invoice_modal_from_sheet(
+                    client, view_id, view_hash, code, biz, addr, amt, email,
+                )
+            except Exception as exc:
+                logger.warning(f'[SLACK/계산서] 모달 최신값 반영 실패 (무시): {exc}')
+        threading.Thread(target=_bg_refresh, daemon=True).start()
 
 
 def _notify_invoice_submit_error(client, channel_id: str, user_id: str,
