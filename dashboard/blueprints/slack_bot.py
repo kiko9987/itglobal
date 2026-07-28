@@ -1545,6 +1545,37 @@ def _register_handlers(app):
     )
 
 
+def _maybe_auto_pin_settlement(client, channel: str, msg: dict) -> None:
+    """정산 요청 메시지(입금내역·세금계산서)면 자동 고정(pin).
+
+    #영업_관리 top-level 메시지 대상. 계좌번호(452/255/352) or 세금계산서 양식
+    (MM/DD G/R 금액원 거래처) 매칭 시 pin. 처리는 담당자가 고정 해제로.
+    """
+    from dashboard.services.pin_remind import is_settlement_message, _msg_full_text
+    text = _msg_full_text(msg)
+    if not is_settlement_message(text):
+        return
+    ts = msg.get('ts')
+    if not ts:
+        return
+    # 메시지당 1회만 자동 고정 — 담당자가 처리 후 해제한 걸 편집·언펄(message_changed)로
+    # 재고정하지 않도록 Redis nx 가드 (90일).
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        if not rc.set(f'settlement_pin_seen:{channel}:{ts}', '1', nx=True, ex=60 * 60 * 24 * 90):
+            return
+    except Exception:
+        pass
+    try:
+        client.pins_add(channel=channel, timestamp=ts)
+        logger.info(f'[SLACK/정산핀] 자동 고정: ts={ts} | {text[:40]!r}')
+    except Exception as exc:
+        if 'already_pinned' in str(exc):
+            return
+        logger.warning(f'[SLACK/정산핀] pins.add 실패 (ts={ts}): {exc}')
+
+
 def _register_invoice_handlers(app):
     """계산서 봇 핸들러."""
 
@@ -1584,6 +1615,28 @@ def _register_invoice_handlers(app):
                 except Exception as del_exc:
                     logger.warning(f"[SLACK/계산서] 삭제 알림 처리 실패: {del_exc}")
             return
+
+        # 정산 요청 자동 고정 (2026-07-28) — #영업_관리 top-level 입금/세금계산서 메시지.
+        # 첨부·언펄 편차 대응: 원본(빈 subtype/file_share) + message_changed 둘 다 검사.
+        # 봇 메시지·스레드 답글 제외. pins.add 는 already_pinned 처리 (중복 무해).
+        if channel and not event.get('bot_id'):
+            _pin_msg = None
+            if subtype in ('', 'file_share', None) and not thread_ts:
+                _pin_msg = event
+            elif subtype == 'message_changed':
+                _cand = event.get('message') or {}
+                _cts = _cand.get('thread_ts')
+                if not (_cts and _cts != _cand.get('ts')):  # 스레드 답글 edit 제외
+                    _pin_msg = _cand
+            if _pin_msg and not _pin_msg.get('bot_id'):
+                _pm, _pch = dict(_pin_msg), channel
+
+                def _bg_pin():
+                    try:
+                        _maybe_auto_pin_settlement(client, _pch, _pm)
+                    except Exception as exc:
+                        logger.debug(f'[SLACK/정산핀] 자동 고정 실패 (무시): {exc}')
+                threading.Thread(target=_bg_pin, daemon=True).start()
 
         # 스레드 파일 첨부만 처리 + 봇 자신 메시지 skip
         if not thread_ts or not has_files:

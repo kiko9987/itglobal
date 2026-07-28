@@ -45,14 +45,34 @@ def _msg_full_text(m: dict) -> str:
     return '\n'.join(parts)
 
 
-def _is_deposit(text: str) -> bool:
-    """ITG 통장 계좌번호(452 기업 / 255 하나) 포함 → 입금내역."""
+# 세금계산서(지출) 매칭 요청 — "MM/DD G/R 금액원 거래처 …" (샛별 표준 양식)
+# 이미지 유무 무관. '계약서 진행 여부'·'계산서 미발행건'·정정요청 등은 미매치로 제외.
+_INVOICE_RE = re.compile(r'^\s*\d{1,2}/\d{1,2}\s+[GRNgrn]\s+[\d,]+\s*원\s+\S')
+
+
+def is_deposit(text: str) -> bool:
+    """ITG 통장 계좌번호(452 기업 / 255 하나 / 352 농협) 포함 → 입금내역."""
     try:
-        from dashboard.services.payment_sync import _ACCT_G_RE, _ACCT_R_RE
-        return bool(_ACCT_G_RE.search(text) or _ACCT_R_RE.search(text))
+        from dashboard.services.payment_sync import _ACCT_G_RE, _ACCT_R_RE, _ACCT_N_RE
+        return bool(_ACCT_G_RE.search(text) or _ACCT_R_RE.search(text)
+                    or _ACCT_N_RE.search(text))
     except Exception:
-        # fallback — 마스킹 계좌 패턴
-        return bool(re.search(r'\b(?:452|255)[\d*\-]{6,}', text))
+        return bool(re.search(r'(?:452|255)[\d*\-]{6,}', text)
+                    or re.search(r'352[\-\*][\d*\-]{5,}', text))
+
+
+def is_invoice_request(text: str) -> bool:
+    """세금계산서 매칭 요청 양식(MM/DD G/R 금액원 거래처) → 세금계산서."""
+    return bool(_INVOICE_RE.match(text or ''))
+
+
+def is_settlement_message(text: str) -> bool:
+    """자동 고정 대상 — 입금내역 or 세금계산서 매칭 요청."""
+    return is_deposit(text) or is_invoice_request(text)
+
+
+# 하위 호환 alias
+_is_deposit = is_deposit
 
 
 def _summary_line(text: str) -> str:
@@ -85,6 +105,7 @@ def collect_pending_pins() -> Optional[dict]:
 
     deposits: List[dict] = []
     invoices: List[dict] = []
+    others: List[dict] = []   # 계좌·양식 미매치 수동 핀 (계약서 등)
     for it in resp.get('items', []) or []:
         m = it.get('message', {})
         if not m:
@@ -99,17 +120,23 @@ def collect_pending_pins() -> Optional[dict]:
         except Exception:
             pass
         entry = {'ts': ts, 'summary': _summary_line(text), 'permalink': permalink}
-        (deposits if _is_deposit(text) else invoices).append(entry)
+        if is_deposit(text):
+            deposits.append(entry)
+        elif is_invoice_request(text):
+            invoices.append(entry)
+        else:
+            others.append(entry)
 
-    return {'deposits': deposits, 'invoices': invoices,
-            'total': len(deposits) + len(invoices)}
+    return {'deposits': deposits, 'invoices': invoices, 'others': others,
+            'total': len(deposits) + len(invoices) + len(others)}
 
 
 def build_pin_remind_text(data: dict) -> str:
     """리마인드 카드 텍스트 조립."""
     deposits = data.get('deposits', [])
     invoices = data.get('invoices', [])
-    total = len(deposits) + len(invoices)
+    others = data.get('others', [])
+    total = len(deposits) + len(invoices) + len(others)
 
     def _line(e: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
@@ -127,6 +154,10 @@ def build_pin_remind_text(data: dict) -> str:
     if invoices:
         lines.append(f':receipt: *세금계산서 ({len(invoices)}건)*')
         lines += [_line(e) for e in invoices]
+        lines.append('')
+    if others:
+        lines.append(f':pushpin: *기타 ({len(others)}건)*')
+        lines += [_line(e) for e in others]
         lines.append('')
     while lines and lines[-1] == '':
         lines.pop()
