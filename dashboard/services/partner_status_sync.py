@@ -188,3 +188,58 @@ def refresh_partner_status(dry_run: bool = True,
         f"휴업 {summary['휴업자']}, 조회안됨 {summary['조회안됨']}"
     )
     return result
+
+
+# ─────────────────────────────────────────────────────────────
+# 계산서 모달 이메일 자동채움 — 상호명 → 이메일 Redis 캐시 (2026-07-28)
+# ─────────────────────────────────────────────────────────────
+_EMAIL_CACHE_KEY = 'partner_email_map'  # Redis hash: norm_biz -> email
+
+
+def rebuild_partner_email_cache() -> dict:
+    """거래처 탭 상호명→이메일 Redis 캐시 재구성 (계산서 모달 pre-fill 용).
+
+    **모호(같은 상호가 서로 다른 이메일 여러 개)·빈 이메일은 제외** — 정밀 우선
+    (오발행 리스크 회피, 매니저 확인 전제). 상호별 이메일이 단일할 때만 캐시.
+
+    Returns: {'cached': int, 'ambiguous': int}
+    """
+    m, sid = _sheet()
+    vals = m.service.spreadsheets().values().get(
+        spreadsheetId=sid, range=f'{_TAB}!A1:G',
+    ).execute().get('values', [])
+    name_emails: dict = {}  # norm_biz -> set(email)
+    for r in vals:
+        name = r[1] if len(r) > 1 else ''
+        email = (r[6] if len(r) > 6 else '').strip()
+        key = _norm_name(name)
+        if not key or not email or '@' not in email:
+            continue
+        name_emails.setdefault(key, set()).add(email)
+    cache = {k: next(iter(v)) for k, v in name_emails.items() if len(v) == 1}
+    ambiguous = sum(1 for v in name_emails.values() if len(v) > 1)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        rc.delete(_EMAIL_CACHE_KEY)  # 삭제된 이메일 반영 위해 전체 재구성
+        if cache:
+            rc.hset(_EMAIL_CACHE_KEY, mapping=cache)
+    except Exception as exc:
+        logger.warning(f'[거래처이메일] 캐시 저장 실패: {exc}')
+    logger.info(f'[거래처이메일] 캐시 재구성 — {len(cache)}건 (모호 {ambiguous}건 제외)')
+    return {'cached': len(cache), 'ambiguous': ambiguous}
+
+
+def get_cached_partner_email(biz_name: str) -> Optional[str]:
+    """상호명 → 캐시된 거래처 이메일 (O(1) Redis). 없으면 None. trigger 안전."""
+    key = _norm_name(biz_name)
+    if not key or key == '-':
+        return None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        v = get_redis_client().redis.hget(_EMAIL_CACHE_KEY, key)
+    except Exception:
+        return None
+    if v is None:
+        return None
+    return v.decode() if isinstance(v, bytes) else v

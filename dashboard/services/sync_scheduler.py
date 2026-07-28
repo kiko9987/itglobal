@@ -614,18 +614,21 @@ def _safe_partner_status_fill_new():
     주간 풀갱신(_safe_partner_status_refresh)은 상태 변경 감지용으로 별도 유지.
     """
     try:
-        from dashboard.services.partner_status_sync import refresh_partner_status
-        result = refresh_partner_status(dry_run=False, only_blank=True)
-        if result.get('no_blank'):
-            return  # 채울 행 없음 (조용히)
-        s = result.get('summary', {})
-        logger.info(
-            f"[SCHED] 거래처 신규 증분 채움 — {result.get('total_rows')}행 "
-            f"(계속 {s.get('계속사업자', 0)}, 휴업 {s.get('휴업자', 0)}, "
-            f"폐업 {s.get('폐업자', 0)}, 조회안됨 {s.get('조회안됨', 0)})"
+        from dashboard.services.partner_status_sync import (
+            refresh_partner_status, rebuild_partner_email_cache,
         )
+        result = refresh_partner_status(dry_run=False, only_blank=True)
+        if not result.get('no_blank'):
+            s = result.get('summary', {})
+            logger.info(
+                f"[SCHED] 거래처 신규 증분 채움 — {result.get('total_rows')}행 "
+                f"(계속 {s.get('계속사업자', 0)}, 휴업 {s.get('휴업자', 0)}, "
+                f"폐업 {s.get('폐업자', 0)}, 조회안됨 {s.get('조회안됨', 0)})"
+            )
+        # 계산서 모달 이메일 자동채움용 상호→이메일 캐시도 매일 재구성
+        rebuild_partner_email_cache()
     except Exception as exc:
-        logger.error(f'[SCHED] 거래처 신규 증분 채움 실패: {exc}', exc_info=True)
+        logger.error(f'[SCHED] 거래처 신규 증분/이메일캐시 실패: {exc}', exc_info=True)
 
 
 def _safe_daily_backup():

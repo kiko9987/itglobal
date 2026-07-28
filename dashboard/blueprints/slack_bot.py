@@ -9062,6 +9062,15 @@ def _open_invoice_modal(client, body) -> None:
     if amt.isdigit():
         amt = f"{int(amt):,}"
     email = payload.get('email', '') or ''
+    # 이메일 자동채움 (2026-07-28) — 거래처(발주처 이메일 빈값)면 상호명으로
+    # 거래처 탭 이메일 캐시 O(1) 조회해 pre-fill. trigger_id 3초 안전 (Redis HGET).
+    # 매번 재입력하던 번거로움 해소. 매니저가 모달에서 확인·수정 가능.
+    if not email and biz and biz != '-':
+        try:
+            from dashboard.services.partner_status_sync import get_cached_partner_email
+            email = get_cached_partner_email(biz) or ''
+        except Exception as _eexc:
+            logger.warning(f'[SLACK/계산서] 거래처 이메일 pre-fill 실패 (무시): {_eexc}')
 
     metadata = json.dumps({"code": code}, ensure_ascii=False)
 
