@@ -9036,8 +9036,32 @@ def _is_license_required(code: str) -> bool:
         return True
 
 
-def _build_invoice_modal_view(code, biz, addr, amt, email, metadata) -> dict:
-    """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28)."""
+def _partner_status_warn(biz: str) -> str:
+    """상호명으로 거래처 탭 폐업/휴업 조회 → 경고 문구 (없으면 ''). 카드·모달 공용."""
+    if not biz or biz == '-':
+        return ''
+    try:
+        from dashboard.services.partner_status_sync import lookup_partner_status_by_name
+        st = lookup_partner_status_by_name(biz)
+    except Exception:
+        return ''
+    if not st:
+        return ''
+    f0 = st['flagged'][0]
+    stt = f0.get('status') or f"{st['label']}자"
+    bno = f0.get('bno') or '-'
+    if st.get('ambiguous'):
+        return (f"⚠️ *국세청 조회 — 동일 상호 중 {st['label']} 이력 있음* "
+                f"(`{bno}` {stt}). 발행 전 사업자번호 확인 필요.")
+    return (f"⚠️ *국세청 조회 — {st['label']} 거래처* (`{bno}` {stt}). "
+            f"발행 전 사업자번호·최신 등록증 확인 필요.")
+
+
+def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='') -> dict:
+    """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28).
+
+    partner_warn: 폐업/휴업 경고 문구. 있으면 헤더 바로 아래 section 으로 표시.
+    """
     addr = addr or '-'
     amt = amt or '-'
 
@@ -9057,39 +9081,45 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata) -> dict:
             blk["optional"] = True
         return blk
 
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn",
+            "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
+    ]
+    if partner_warn:
+        # 헤더 바로 아래 폐업/휴업 경고 (요청 전 인지)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": partner_warn}})
+    blocks += [
+        _text_input("biz", "사업자명", biz),
+        _text_input("addr", "현장 주소", addr),
+        {"type": "section", "text": {"type": "mrkdwn",
+            "text": f"*공사 금액 (시트 원본)*\n{amt} 원"}},
+        _text_input("amt", "계산서 발행 금액", amt),
+        {
+            "type": "input", "block_id": "vat",
+            "label": {"type": "plain_text", "text": "VAT (부가가치세)"},
+            "element": {
+                "type": "radio_buttons", "action_id": "value",
+                "initial_option": {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
+                "options": [
+                    {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
+                    {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
+                ],
+            },
+        },
+        _text_input("email", "발행 이메일", email),
+        _text_input(
+            "memo", "추가 요청사항", "",
+            multiline=True, optional=True,
+            placeholder='예) 청구 or 영수 발행\n예) 항목이나 비고란에 특정 내용 기재',
+        ),
+    ]
     return {
         "type": "modal", "callback_id": "submit_invoice",
         "private_metadata": metadata,
         "title": {"type": "plain_text", "text": "세금계산서 발행 요청"},
         "submit": {"type": "plain_text", "text": "요청 발송"},
         "close": {"type": "plain_text", "text": "취소"},
-        "blocks": [
-            {"type": "section", "text": {"type": "mrkdwn",
-                "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
-            _text_input("biz", "사업자명", biz),
-            _text_input("addr", "현장 주소", addr),
-            {"type": "section", "text": {"type": "mrkdwn",
-                "text": f"*공사 금액 (시트 원본)*\n{amt} 원"}},
-            _text_input("amt", "계산서 발행 금액", amt),
-            {
-                "type": "input", "block_id": "vat",
-                "label": {"type": "plain_text", "text": "VAT (부가가치세)"},
-                "element": {
-                    "type": "radio_buttons", "action_id": "value",
-                    "initial_option": {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
-                    "options": [
-                        {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
-                        {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
-                    ],
-                },
-            },
-            _text_input("email", "발행 이메일", email),
-            _text_input(
-                "memo", "추가 요청사항", "",
-                multiline=True, optional=True,
-                placeholder='예) 청구 or 영수 발행\n예) 항목이나 비고란에 특정 내용 기재',
-            ),
-        ],
+        "blocks": blocks,
     }
 
 
@@ -9127,13 +9157,22 @@ def _refresh_invoice_modal_from_sheet(client, view_id, view_hash, code,
     if fresh_addr and fresh_addr != '-' and _n(fresh_addr) != _n(addr or ''):
         new_addr = fresh_addr
         changed = True
-    if not changed:
+
+    # 폐업/휴업 경고 — 최신 사업자명 기준으로 거래처 탭 상태 조회해 모달 헤더 하단 표시
+    partner_warn = _partner_status_warn(new_biz or opened_biz)
+
+    # 사업자명·주소가 바뀌었거나 폐업 경고가 있으면 모달 갱신
+    if not (changed or partner_warn):
         return
     metadata = json.dumps({"code": code}, ensure_ascii=False)
-    view = _build_invoice_modal_view(code, new_biz, new_addr, amt, new_email, metadata)
+    view = _build_invoice_modal_view(code, new_biz, new_addr, amt, new_email, metadata,
+                                     partner_warn=partner_warn)
     try:
         client.views_update(view_id=view_id, hash=view_hash, view=view)
-        logger.info(f'[SLACK/계산서] 모달 최신값 반영 ({code}): 사업자명={new_biz!r}')
+        logger.info(
+            f'[SLACK/계산서] 모달 최신값 반영 ({code}): 사업자명={new_biz!r}'
+            + (' | ⚠️폐업/휴업 경고' if partner_warn else '')
+        )
     except Exception as exc:
         # hash 불일치(매니저가 이미 입력 중) 등은 조용히 skip — 입력값 보존
         logger.debug(f'[SLACK/계산서] 모달 views_update skip ({code}): {exc}')
@@ -9350,27 +9389,8 @@ def _process_invoice_submission(client, body, view) -> None:
     memo = _get('memo').strip()
 
     # 국세청 조회 기반 폐업/휴업 경고 (거래처 탭 상호 매칭, 2026-07-28).
-    # 폐업 번호로 세금계산서 발행하는 사고 방지 — 카드에 경고 라인 삽입.
-    partner_warn = ''
-    try:
-        from dashboard.services.partner_status_sync import lookup_partner_status_by_name
-        _pst = lookup_partner_status_by_name(biz)
-        if _pst:
-            _f0 = _pst['flagged'][0]
-            _stt = _f0.get('status') or f"{_pst['label']}자"
-            _bno = _f0.get('bno') or '-'
-            if _pst.get('ambiguous'):
-                partner_warn = (
-                    f"⚠️ *국세청 조회 — 동일 상호 중 {_pst['label']} 이력 있음* "
-                    f"(`{_bno}` {_stt}). 발행 전 사업자번호 확인 필요."
-                )
-            else:
-                partner_warn = (
-                    f"⚠️ *국세청 조회 — {_pst['label']} 거래처* (`{_bno}` {_stt}). "
-                    f"발행 전 사업자번호·최신 등록증 확인 필요."
-                )
-    except Exception as _wexc:
-        logger.warning(f'[SLACK/계산서] 거래처 상태 경고 조회 실패 (무시): {_wexc}')
+    # 폐업 번호로 세금계산서 발행하는 사고 방지 — 카드에 경고 라인 삽입 (모달과 공용 helper).
+    partner_warn = _partner_status_warn(biz)
 
     # VAT radio_buttons state — 2026-07-16 라디오 필드 재도입 (매니저 오클릭 방지)
     _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
