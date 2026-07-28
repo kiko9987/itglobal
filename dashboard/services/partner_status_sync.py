@@ -191,43 +191,73 @@ def refresh_partner_status(dry_run: bool = True,
 
 
 # ─────────────────────────────────────────────────────────────
-# 계산서 모달 이메일 자동채움 — 상호명 → 이메일 Redis 캐시 (2026-07-28)
+# 거래처 탭 Redis 캐시 — ①상호→이메일(계산서 pre-fill) ②번호→상호(OCR 역조회)
 # ─────────────────────────────────────────────────────────────
-_EMAIL_CACHE_KEY = 'partner_email_map'  # Redis hash: norm_biz -> email
+_EMAIL_CACHE_KEY = 'partner_email_map'      # Redis hash: norm_biz -> email
+_NAME_BY_BNO_KEY = 'partner_name_by_bno'    # Redis hash: bno(10자리) -> 상호
 
 
-def rebuild_partner_email_cache() -> dict:
-    """거래처 탭 상호명→이메일 Redis 캐시 재구성 (계산서 모달 pre-fill 용).
+def rebuild_partner_caches() -> dict:
+    """거래처 탭 캐시 2종 재구성 (거래처 탭 A:G 1회 로드).
 
-    **모호(같은 상호가 서로 다른 이메일 여러 개)·빈 이메일은 제외** — 정밀 우선
-    (오발행 리스크 회피, 매니저 확인 전제). 상호별 이메일이 단일할 때만 캐시.
+    ① 상호→이메일 (계산서 모달 pre-fill) — 모호(같은 상호 다른 이메일)·빈값 제외, 정밀 우선.
+    ② 번호→상호 (사업자등록증 OCR 역조회) — 사업자번호는 유일키라 모호성 없음.
+       숫자 OCR(90%)로 번호만 뽑아 정답 상호를 얻는 용도.
 
-    Returns: {'cached': int, 'ambiguous': int}
+    Returns: {'email_cached', 'ambiguous', 'name_by_bno'}
     """
     m, sid = _sheet()
     vals = m.service.spreadsheets().values().get(
         spreadsheetId=sid, range=f'{_TAB}!A1:G',
     ).execute().get('values', [])
-    name_emails: dict = {}  # norm_biz -> set(email)
+    name_emails: dict = {}   # norm_biz -> set(email)
+    name_by_bno: dict = {}   # bno -> 상호
     for r in vals:
-        name = r[1] if len(r) > 1 else ''
+        bno = normalize_bno(r[0] if len(r) > 0 else '')
+        name = (r[1] if len(r) > 1 else '').strip()
         email = (r[6] if len(r) > 6 else '').strip()
         key = _norm_name(name)
-        if not key or not email or '@' not in email:
-            continue
-        name_emails.setdefault(key, set()).add(email)
-    cache = {k: next(iter(v)) for k, v in name_emails.items() if len(v) == 1}
+        if key and email and '@' in email:
+            name_emails.setdefault(key, set()).add(email)
+        if bno and name:
+            name_by_bno[bno] = name  # 번호 유일 → 마지막 값 (거래처 탭 정렬상 무해)
+    email_cache = {k: next(iter(v)) for k, v in name_emails.items() if len(v) == 1}
     ambiguous = sum(1 for v in name_emails.values() if len(v) > 1)
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        rc.delete(_EMAIL_CACHE_KEY)  # 삭제된 이메일 반영 위해 전체 재구성
-        if cache:
-            rc.hset(_EMAIL_CACHE_KEY, mapping=cache)
+        rc.delete(_EMAIL_CACHE_KEY)
+        if email_cache:
+            rc.hset(_EMAIL_CACHE_KEY, mapping=email_cache)
+        rc.delete(_NAME_BY_BNO_KEY)
+        if name_by_bno:
+            rc.hset(_NAME_BY_BNO_KEY, mapping=name_by_bno)
     except Exception as exc:
-        logger.warning(f'[거래처이메일] 캐시 저장 실패: {exc}')
-    logger.info(f'[거래처이메일] 캐시 재구성 — {len(cache)}건 (모호 {ambiguous}건 제외)')
-    return {'cached': len(cache), 'ambiguous': ambiguous}
+        logger.warning(f'[거래처캐시] 저장 실패: {exc}')
+    logger.info(
+        f'[거래처캐시] 재구성 — 이메일 {len(email_cache)}건(모호 {ambiguous} 제외), '
+        f'번호→상호 {len(name_by_bno)}건'
+    )
+    return {'email_cached': len(email_cache), 'ambiguous': ambiguous,
+            'name_by_bno': len(name_by_bno)}
+
+
+def get_partner_name_by_bno(bno: str) -> Optional[str]:
+    """사업자번호 → 캐시된 거래처 상호 (O(1) Redis). 없으면 None.
+
+    사업자등록증 OCR 역조회용 — 숫자 번호로 정답 상호를 얻어 한글 상호 오인식 회피.
+    """
+    b = normalize_bno(bno)
+    if not b:
+        return None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        v = get_redis_client().redis.hget(_NAME_BY_BNO_KEY, b)
+    except Exception:
+        return None
+    if v is None:
+        return None
+    return v.decode() if isinstance(v, bytes) else v
 
 
 def get_cached_partner_email(biz_name: str) -> Optional[str]:

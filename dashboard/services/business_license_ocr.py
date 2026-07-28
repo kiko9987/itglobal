@@ -43,6 +43,32 @@ def _clean_name(raw: str) -> str:
     return name
 
 
+# 사업자등록번호 (10자리, 하이픈/공백 편차 허용)
+_BNO_RE = re.compile(r'(\d{3})\D?(\d{2})\D?(\d{5})')
+
+
+def _bno_checksum_ok(b: str) -> bool:
+    """국세청 사업자등록번호 체크섬 검증 — OCR 오인식(숫자 오독) 방어."""
+    if len(b) != 10 or not b.isdigit():
+        return False
+    w = [1, 3, 7, 1, 3, 7, 1, 3, 5]
+    s = sum(int(b[i]) * w[i] for i in range(9))
+    s += (int(b[8]) * 5) // 10
+    return (10 - (s % 10)) % 10 == int(b[9])
+
+
+def extract_business_no_from_text(text: str) -> str:
+    """OCR 텍스트에서 **체크섬 유효한** 사업자번호 10자리 추출. 없으면 빈 문자열.
+
+    법인등록번호(13자리)·전화·날짜 등 다른 숫자열은 체크섬으로 걸러짐.
+    """
+    for m in _BNO_RE.finditer(text or ''):
+        b = m.group(1) + m.group(2) + m.group(3)
+        if _bno_checksum_ok(b):
+            return b
+    return ''
+
+
 def extract_business_name_from_text(text: str) -> str:
     """OCR 결과 텍스트에서 법인명/상호 추출. 실패 시 빈 문자열."""
     if not text:
@@ -79,6 +105,21 @@ def ocr_business_license(image_bytes: bytes) -> str:
             logger.warning(f'[LICENSE/OCR] Vision API 에러: {response.error.message}')
             return ''
         full_text = response.full_text_annotation.text if response.full_text_annotation else ''
+
+        # ① 사업자번호(숫자, OCR 90%+체크섬) → 거래처 탭 역조회로 정답 상호.
+        #    한글 상호 오인식(예: 미덕원→이억원) 회피. 번호 미매칭·신규는 ②로.
+        bno = extract_business_no_from_text(full_text)
+        if bno:
+            try:
+                from dashboard.services.partner_status_sync import get_partner_name_by_bno
+                looked = get_partner_name_by_bno(bno)
+                if looked:
+                    logger.info(f'[LICENSE/OCR] 사업자번호 {bno} → 거래처 탭 상호: {looked!r}')
+                    return looked
+            except Exception as exc:
+                logger.debug(f'[LICENSE/OCR] 번호 역조회 실패 (상호 OCR 로 fallback): {exc}')
+
+        # ② 상호 정규식 추출 (거래처 탭에 없는 신규 사업자 or 번호 매칭 실패)
         name = extract_business_name_from_text(full_text)
         if name:
             logger.info(f'[LICENSE/OCR] 법인명·상호 추출 성공: {name!r}')
