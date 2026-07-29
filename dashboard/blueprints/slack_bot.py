@@ -1678,18 +1678,27 @@ def _register_invoice_handlers(app):
 
         경영지원이 처리 완료 시 핀 수동 해제 대신 체크만 하면 목록에서 빠짐.
         """
-        if event.get('reaction', '') not in _SETTLE_DONE_REACTIONS:
-            return
-        # 경영지원(황샛별)이 누른 체크만 인정 — 아무나 ✅ 눌러 해제되면 안 됨.
-        if event.get('user', '') != _SETTLEMENT_CHECKER_ID:
-            return
+        reaction = event.get('reaction', '')
+        user = event.get('user', '')
         item = event.get('item', {}) or {}
-        if item.get('type') != 'message':
-            return
         channel = item.get('channel', '')
         ts = item.get('ts', '')
         inv_ch = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+        # 진단 로그 — 이벤트 도착 자체 확인 (구독 누락 vs 필터링 구분)
+        logger.info(
+            f'[SLACK/정산핀] reaction_added 수신: reaction={reaction} user={user} '
+            f'ch={channel} inv_ch={inv_ch} type={item.get("type")}'
+        )
+        if reaction not in _SETTLE_DONE_REACTIONS:
+            return
+        if item.get('type') != 'message':
+            return
         if not ts or not channel or channel != inv_ch:
+            logger.info(f'[SLACK/정산핀] skip — 채널 불일치 (ch={channel} != inv_ch={inv_ch})')
+            return
+        # 경영지원(황샛별)이 누른 체크만 인정 — 아무나 ✅ 눌러 해제되면 안 됨.
+        if user != _SETTLEMENT_CHECKER_ID:
+            logger.info(f'[SLACK/정산핀] skip — 체커 아님 (user={user} != checker={_SETTLEMENT_CHECKER_ID})')
             return
 
         def _bg():
@@ -3280,6 +3289,17 @@ def slack_invoice_events():
     if _invoice_slack_handler is None:
         if not _init_invoice_slack_app():
             return jsonify({"error": "Invoice Slack bot not configured"}), 503
+
+    # 진단 로그 — 이 앱에 도착하는 이벤트 타입 확인 (reaction_added 구독 여부 판별)
+    try:
+        _b = request.get_json(silent=True) or {}
+        _ev = (_b.get('event') or {})
+        logger.info(
+            f"[SLACK/계산서봇] 이벤트 수신: outer={_b.get('type')} "
+            f"event={_ev.get('type')} reaction={_ev.get('reaction')} user={_ev.get('user')}"
+        )
+    except Exception:
+        pass
 
     if _is_slack_retry_duplicate():
         return jsonify({"ok": True, "dedup": True}), 200
