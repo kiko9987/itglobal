@@ -65,6 +65,11 @@ _AS_SIGNING_SECRET = os.getenv('SLACK_AS_SIGNING_SECRET', '')
 _INVOICE_BOT_TOKEN = os.getenv('SLACK_INVOICE_BOT_TOKEN', '')
 _INVOICE_SIGNING_SECRET = os.getenv('SLACK_INVOICE_SIGNING_SECRET', '')
 
+# 수금 관리 알림 봇 (별도 토큰/secret) — 입금 카드 발송(payment_sync)은 WebClient,
+# 여기선 [🗑 삭제] 버튼 인터랙션만 처리 (정정·취소 회색 카드 정리)
+_PAYMENT_BOT_TOKEN = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '')
+_PAYMENT_SIGNING_SECRET = os.getenv('SLACK_PAYMENT_SIGNING_SECRET', '')
+
 _slack_app = None
 _slack_handler = None
 _project_slack_app = None
@@ -75,6 +80,8 @@ _as_slack_app = None
 _as_slack_handler = None
 _invoice_slack_app = None
 _invoice_slack_handler = None
+_payment_slack_app = None
+_payment_slack_handler = None
 
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
@@ -289,6 +296,76 @@ def _init_invoice_slack_app():
     except Exception as exc:
         logger.error(f"[SLACK/계산서봇] 초기화 실패: {exc}", exc_info=True)
         return False
+
+
+def _init_payment_slack_app():
+    """수금 관리 알림 봇 — 입금 카드 [🗑 삭제] 버튼 인터랙션 처리용 Bolt App.
+
+    카드 발송은 payment_sync 가 WebClient 로 함. 여기선 정정·취소 회색 카드의
+    [🗑 삭제] 버튼(경영지원 한정)만 처리. Interactivity Request URL = /slack/payment-events.
+    """
+    global _payment_slack_app, _payment_slack_handler
+
+    if not _BOT_ENABLED:
+        return False
+    if not _PAYMENT_BOT_TOKEN:
+        logger.warning("[SLACK/수금봇] SLACK_PAYMENT_BOT_TOKEN 미설정 — 인터랙션 비활성화")
+        return False
+    if not _PAYMENT_SIGNING_SECRET:
+        logger.warning("[SLACK/수금봇] SLACK_PAYMENT_SIGNING_SECRET 미설정 — 인터랙션 비활성화")
+        return False
+
+    try:
+        from slack_bolt import App
+        from slack_bolt.adapter.flask import SlackRequestHandler
+
+        _payment_slack_app = App(
+            token=_PAYMENT_BOT_TOKEN,
+            signing_secret=_PAYMENT_SIGNING_SECRET,
+            process_before_response=True,
+        )
+        _payment_slack_handler = SlackRequestHandler(_payment_slack_app)
+
+        _register_payment_handlers(_payment_slack_app)
+        _verify_bot_token(_payment_slack_app.client, '수금봇')
+        logger.info("[SLACK/수금봇] 초기화 완료 ✅")
+        return True
+    except Exception as exc:
+        logger.error(f"[SLACK/수금봇] 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _register_payment_handlers(app):
+    """수금봇 핸들러 — 정정·취소 회색 카드 [🗑 삭제] 버튼 (경영지원 한정)."""
+
+    @app.action("payment_card_delete")
+    def handle_payment_card_delete(ack, body, client):
+        ack()
+        user = (body.get('user') or {}).get('id', '')
+        channel = (body.get('channel') or {}).get('id', '')
+        ts = (body.get('message') or {}).get('ts', '')
+        # 정산 카드 삭제는 경영지원(황샛별)만 — 정산 핀 ✅·금액 게이트와 동일 사상.
+        if user != _SETTLEMENT_CHECKER_ID:
+            try:
+                client.chat_postEphemeral(
+                    channel=channel, user=user,
+                    text=':lock: 정산 카드 삭제는 경영지원(황샛별)만 가능합니다.',
+                )
+            except Exception:
+                pass
+            return
+        if not channel or not ts:
+            return
+
+        def _bg():
+            try:
+                client.chat_delete(channel=channel, ts=ts)
+                logger.info(f'[SLACK/수금봇] 정정 카드 삭제: ts={ts} by {user}')
+            except Exception as exc:
+                logger.warning(f'[SLACK/수금봇] chat_delete 실패 (ts={ts}): {exc}')
+        threading.Thread(target=_bg, daemon=True).start()
+
+    logger.info("[SLACK/수금봇] 핸들러 등록 완료: payment_card_delete")
 
 
 def _try_acquire_action_lock(lead_no: str, action: str, ttl: int = 5) -> bool:
@@ -3345,6 +3422,19 @@ def slack_invoice_events():
         return jsonify({"ok": True, "dedup": True}), 200
 
     return _invoice_slack_handler.handle(request)
+
+
+@slack_bp.route("/payment-events", methods=["POST"])
+def slack_payment_events():
+    """슬랙 → 수금 관리 알림 봇 전용 endpoint (정정 카드 [🗑 삭제] 버튼 인터랙션)"""
+    if _payment_slack_handler is None:
+        if not _init_payment_slack_app():
+            return jsonify({"error": "Payment Slack bot not configured"}), 503
+
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
+
+    return _payment_slack_handler.handle(request)
 
 
 @slack_bp.route("/list-assignee", methods=["POST"])
@@ -10181,3 +10271,4 @@ def _process_invoice_complete(client, body) -> None:
 _init_slack_app()
 _init_visit_slack_app()
 _init_invoice_slack_app()
+_init_payment_slack_app()

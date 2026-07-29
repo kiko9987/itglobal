@@ -722,6 +722,82 @@ _STAGE_EMOJI = {
 _SEP = '--------------------------------------------'
 _SEP_HARD = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
 
+# 자동 회색화 대상 단계 (값 >0 → 0 = 메모 삭제)
+_STAGE_COL_KEY = {'계약금': 'u', '중도금': 'v', '잔금': 'w'}
+
+
+def _same_partner_active_siblings(code: str) -> List[str]:
+    """같은 사업자명의 다른 프로젝트 코드 목록 (코드 혼동 경고용, 2026-07-29).
+
+    취소·중복 정리된 프로젝트는 보통 사업자명이 비어(-) 있어 자동 제외됨.
+    """
+    try:
+        from dashboard.services.project_service import get_project_records
+        recs = get_project_records() or []
+    except Exception:
+        return []
+    me = next((r for r in recs if (r.get('프로젝트 코드') or '').strip() == code), None)
+    if not me:
+        return []
+    biz = (me.get('사업자명') or '').strip()
+    if not biz or biz == '-':
+        return []
+    sibs = []
+    for r in recs:
+        c = (r.get('프로젝트 코드') or '').strip()
+        if not c or c == code:
+            continue
+        if (r.get('사업자명') or '').strip() == biz:
+            sibs.append(c)
+    return sibs
+
+
+def _grey_out_payment_card(slack, channel: str, code: str, stage: str, ts: str) -> bool:
+    """입금 메모 삭제 감지 → 해당 카드를 '정정·취소됨' 회색 처리 + [🗑 삭제] 버튼 (2026-07-29).
+
+    원 카드 텍스트를 조회해 헤더만 취소 표시(취소선+↩️)로 바꾸고 안내 한 줄 추가.
+    삭제 버튼은 수금봇 인터랙션(payment_card_delete, 경영지원 한정)이 처리.
+    """
+    from datetime import datetime
+    from dashboard.blueprints.slack_helpers import safe_slack_call
+    try:
+        r = safe_slack_call(slack.conversations_history, channel=channel,
+                            latest=ts, inclusive=True, limit=1)
+        msgs = (r or {}).get('messages') or []
+        orig = (msgs[0].get('text', '') if msgs else '') or ''
+    except Exception:
+        orig = ''
+    if not orig:
+        return False
+    now = datetime.now().strftime('%m/%d %H:%M')
+    # 헤더(:moneybag:/✅ *...*) → 취소선 + ↩️ (첫 1회만)
+    body = re.sub(r':(?:moneybag|white_check_mark): \*([^*]+)\*',
+                  r'↩️ ~*\1*~  *(정정·취소됨)*', orig, count=1)
+    body = body.rstrip('⠀ \n')
+    body += f"\n_↩️ 시트에서 {stage} 입금이 삭제되어 정정 처리했습니다. ({now})_"
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': body}},
+        {'type': 'actions', 'elements': [{
+            'type': 'button',
+            'text': {'type': 'plain_text', 'text': '🗑 삭제', 'emoji': True},
+            'style': 'danger',
+            'action_id': 'payment_card_delete',
+            'value': f'{code}|{stage}',
+            'confirm': {
+                'title': {'type': 'plain_text', 'text': '카드 삭제'},
+                'text': {'type': 'mrkdwn', 'text': f'`{code}` {stage} 정정 카드를 삭제할까요?'},
+                'confirm': {'type': 'plain_text', 'text': '삭제'},
+                'deny': {'type': 'plain_text', 'text': '취소'},
+            },
+        }]},
+    ]
+    try:
+        safe_slack_call(slack.chat_update, channel=channel, ts=ts, text=body, blocks=blocks)
+        return True
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 카드 회색화 실패 ({code}/{stage}, ts={ts}): {exc}')
+        return False
+
 
 def _build_stage_message(
     stage: str, project: str, address: str,
@@ -781,6 +857,15 @@ def _build_stage_message(
     # 방지 위해 카드에만 -abs 강제 표시.
     _unpaid_display = -abs(unpaid) if unpaid != 0 else 0
     lines.append(f"미수금 : {_unpaid_display:,}원")
+    # 같은 거래처 다중 프로젝트 경고 (코드 혼동 방지 — 2026-07-29)
+    try:
+        _sibs = _same_partner_active_siblings(project)
+    except Exception:
+        _sibs = []
+    if _sibs:
+        _shown = ' / '.join([project] + _sibs[:3]) + ('…' if len(_sibs) > 3 else '')
+        lines.append(_SEP)
+        lines.append(f"⚠️ 같은 거래처 프로젝트 {len(_sibs) + 1}건 ({_shown}) — 코드 확인")
     lines.append('⠀')
     return '\n'.join(lines)
 
@@ -1305,6 +1390,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     # 발송 처리할 변경 행만 모음 (한 폴링당 최대 N건 — SSL 동시 호출 방지)
     MAX_PER_TICK = 5
     changed_rows = []
+    removed_cards = []  # 입금 메모 삭제(값 >0 → 0) 감지 → 카드 회색화 대상
 
     for offset, row in enumerate(rows):
         sheet_row = offset + 2  # 1-based + 헤더 1행
@@ -1396,6 +1482,16 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         }
         memo_newly_added = any(stage_memo_newly_added.values())
         if not (new_payment or aa_newly_checked or memo_newly_added):
+            # 입금 메모 삭제(값 >0 → 0) 감지 → 발송된 카드가 있으면 회색화 대상 수집.
+            # (정정/취소 시 고아 카드 자동 정리. 오입력 후 메모 삭제 대응 — 2026-07-29)
+            for _stg, _cur, _prv in (('계약금', u_val, prev_u), ('중도금', v_val, prev_v), ('잔금', w_val, prev_w)):
+                if _prv > 0 and _cur == 0:
+                    try:
+                        _cts = rc.get(f'payment_slack:ts:{project}:{_stg}')
+                    except Exception:
+                        _cts = None
+                    if _cts:
+                        removed_cards.append({'project': project, 'stage': _stg, 'ts': _cts})
             try:
                 rc.hset(key, mapping={
                     'u': u_val, 'v': v_val, 'w': w_val,
@@ -1427,6 +1523,18 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             'memo_newly_added': memo_newly_added,  # 값 있고 memo 방금 저장 (any stage)
             'stage_memo_newly_added': stage_memo_newly_added,  # stage 별 dict (2026-07-22)
         })
+
+    # 입금 메모 삭제 감지 → 카드 회색화 (changed_rows 유무와 무관하게 먼저 처리).
+    # 안전장치: 한 폴링에 회색화 대상이 비정상적으로 많으면(오류·대량삭제 의심) skip.
+    if removed_cards and len(removed_cards) <= 20:
+        for _rm in removed_cards:
+            try:
+                if _grey_out_payment_card(slack, channel, _rm['project'], _rm['stage'], _rm['ts']):
+                    logger.info(f"[PAYMENT] 입금 삭제 감지 → 카드 회색화: {_rm['project']}/{_rm['stage']}")
+            except Exception as exc:
+                logger.warning(f"[PAYMENT] 카드 회색화 예외 ({_rm['project']}/{_rm['stage']}): {exc}")
+    elif removed_cards:
+        logger.warning(f"[PAYMENT] 회색화 대상 과다({len(removed_cards)}) — 안전상 skip")
 
     if not changed_rows:
         return result
