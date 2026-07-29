@@ -1272,7 +1272,29 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             result['visit_mgr_failed'] += 1
             logger.warning(f'[ASSIGN/DM] {mgr_name}({ini}) 발송 예외: {exc}')
 
-    # 온라인 당번 v13 DM
+    # 온라인 당번 v13 DM — v9 처럼 내용 변경 시 삭제+재발송 (2026-07-30).
+    #   기존 duty_sent boolean flag 는 재확정 시 skip 만 해 참고 건수·휴무 갱신 안 됨.
+    #   dm_v13_msg:{ini}:{date} = {channel, ts, hash} 추적 → 내용 바뀌면 재발송.
+    import hashlib as _hashlib
+    _cur_duty_inis = set(online_duty)
+    # 이전 당번이 online_duty 에서 빠졌으면 기존 v13 삭제 (완전 해제)
+    if rc_pre is not None:
+        try:
+            for _key in rc_pre.scan_iter(f'dm_v13_msg:*:{target_date_iso}', count=200):
+                _kstr = _key.decode() if isinstance(_key, bytes) else _key
+                _parts = _kstr.split(':')
+                if len(_parts) >= 3 and _parts[1] not in _cur_duty_inis:
+                    try:
+                        _raw = rc_pre.get(_kstr)
+                        _pv = _json.loads(_raw.decode() if isinstance(_raw, bytes) else _raw) if _raw else {}
+                        if _pv.get('channel') and _pv.get('ts'):
+                            client.chat_delete(channel=_pv['channel'], ts=_pv['ts'])
+                        rc_pre.delete(_kstr)
+                        logger.info(f'[ASSIGN/DM] 온라인 당번 해제 {_parts[1]} — 기존 v13 삭제')
+                    except Exception as _exc:
+                        logger.debug(f'[ASSIGN/DM] v13 해제 삭제 실패 ({_parts[1]}): {_exc}')
+        except Exception:
+            pass
     if online_duty:
         # 방문 담당자 참고 (조합별 카운트)
         combo_counts: Dict[Tuple[str, ...], int] = {}
@@ -1299,17 +1321,6 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     f'이메일 매핑 실패 — skip'
                 )
                 continue
-            # 재실행 중복 방지 (2026-07-19)
-            duty_flag = f'duty_sent:{target_date.isoformat()}:{duty_ini}'
-            try:
-                if rc_pre is not None and rc_pre.get(duty_flag):
-                    logger.info(
-                        f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) '
-                        f'이미 발송 — skip'
-                    )
-                    continue
-            except Exception:
-                pass
             # 시간대 표기 (오전/오후 등) — 있으면 header 에 부착 (2026-07-21)
             _my_shift = _shifts.get(duty_ini, '')
             _shift_tag = f' ({_my_shift} 담당)' if _my_shift else ''
@@ -1355,11 +1366,46 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 lines.append(f'>:palm_tree: *휴무* : {"·".join(off_duty)}')
             lines.append(f'>{_SEP}')
             lines.append(_BLANK)
+            _text = '\n'.join(lines)
+            # 내용 서명(순서 무관) — 변경 시에만 삭제+재발송 (동일하면 skip = 스팸 방지)
+            _sig = '|'.join([
+                f'shift={_my_shift}', f'summary={_shift_summary}',
+                'combos=' + ','.join(sorted(f'{"·".join(k)}:{v}' for k, v in combo_counts.items())),
+                'self=' + ','.join(sorted(f'{s}:{l}' for s, l in _dual_leads_self)),
+                'others=' + ','.join(sorted(f'{n}:{s}:{l}' for n, s, l in _dual_leads_others)),
+                'off=' + ','.join(sorted(off_duty)),
+            ])
+            _new_hash = _hashlib.md5(_sig.encode('utf-8')).hexdigest()[:16]
+            _v13_key = f'dm_v13_msg:{duty_ini}:{target_date_iso}'
+            _prev_v13 = None
+            try:
+                if rc_pre is not None:
+                    _rawv = rc_pre.get(_v13_key)
+                    if _rawv:
+                        _prev_v13 = _json.loads(_rawv.decode() if isinstance(_rawv, bytes) else _rawv)
+            except Exception:
+                _prev_v13 = None
+            if _prev_v13 and _prev_v13.get('hash') == _new_hash:
+                logger.info(
+                    f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) 변경 없음 — skip'
+                )
+                continue
+            # 내용 변경 or 신규 → 기존 삭제 후 재발송
+            if _prev_v13 and _prev_v13.get('channel') and _prev_v13.get('ts'):
+                try:
+                    client.chat_delete(channel=_prev_v13['channel'], ts=_prev_v13['ts'])
+                    logger.info(
+                        f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) 기존 v13 삭제 재발송'
+                    )
+                except Exception as _exc:
+                    logger.warning(
+                        f'[ASSIGN/DM] {duty_name}({duty_ini}) 기존 v13 삭제 실패: {_exc}'
+                    )
             try:
                 u = client.users_lookupByEmail(email=email)
                 uid = u['user']['id']
                 r = client.chat_postMessage(
-                    channel=uid, text='\n'.join(lines),
+                    channel=uid, text=_text,
                     unfurl_links=False, unfurl_media=False,
                 )
                 if r.get('ok'):
@@ -1367,10 +1413,13 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     logger.info(
                         f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) 발송 OK'
                     )
-                    # 중복 방지 flag 세팅 (3일 TTL)
                     try:
                         if rc_pre is not None:
-                            rc_pre.set(duty_flag, '1', ex=86400 * 3)
+                            rc_pre.set(_v13_key, _json.dumps({
+                                'channel': r.get('channel', ''),
+                                'ts': r.get('ts', ''),
+                                'hash': _new_hash,
+                            }), ex=86400 * 7)
                     except Exception:
                         pass
                 else:
