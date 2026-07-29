@@ -230,7 +230,7 @@ def _build_blocks(
                 },
                 {
                     'type': 'button',
-                    'text': {'type': 'plain_text', 'text': '✏️ 내용 수정', 'emoji': True},
+                    'text': {'type': 'plain_text', 'text': '✏️ 내용 수정 요청', 'emoji': True},
                     'action_id': 'project_edit_open',
                     'value': code,
                 },
