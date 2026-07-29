@@ -213,7 +213,9 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     # 양식 E(농협): 한 라인에 날짜+시간+계좌+거래처 다 들어감 → 토큰 단위 분리 필요
     partner = label_payer  # 매니저 수기 라벨 있으면 우선
     skip_patterns = [
-        re.compile(r'^\d{4}[/.-]\d{1,2}[/.-]\d{1,2}'),  # 날짜
+        # 순수 날짜 라인만 skip. 날짜 뒤에 거래처가 붙은 라인('2026-07-29 한미침례교회')은
+        # skip 안 하고 cleaning 에서 날짜 제거 후 거래처 추출 (2026-07-29 G3814-MS fix).
+        re.compile(r'^\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*$'),  # 순수 날짜(+시간)
         re.compile(r'^일시\s'),
         re.compile(r'^하나[,\s]'),
         re.compile(r'^입금'),
@@ -244,6 +246,8 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             if manager_summary_re.search(ln):
                 continue
             cleaned = ln
+            cleaned = re.sub(r'\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}', '', cleaned)  # yyyy-mm-dd 먼저 (거래처 보존)
+            cleaned = re.sub(r'입금\s*[\d,]+\s*원', '', cleaned)               # '입금 X원' 잔여 제거
             cleaned = re.sub(r'\d{1,2}/\d{1,2}\b', '', cleaned)
             cleaned = re.sub(r'\d{1,2}:\d{2}\b', '', cleaned)
             cleaned = re.sub(r'\d{2,}[\*\-][\d\*\-]+', '', cleaned)
