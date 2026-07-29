@@ -8822,8 +8822,9 @@ def _open_project_edit_modal(client, body) -> None:
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": ("ℹ️ *공사 금액·부가세* 변경은 즉시 반영되지 않고 "
-                         "*경영지원 확인(✅) 후 반영*됩니다. (나머지 항목은 즉시 반영)"),
+                "text": ("ℹ️ *공사 금액·부가세*는 여기서 바로 반영되지 않고 "
+                         "*경영지원(황샛별)에 수정 요청*으로 전달됩니다 — 경영지원이 직접 반영합니다. "
+                         "(나머지 항목은 즉시 반영)"),
             }],
         },
         {
@@ -9094,8 +9095,8 @@ def _notify_project_edit_result(
         amt_names = ', '.join(_label.get(f, f) for f in amount_updates)
         if request_sent:
             parts.append(
-                f':hourglass_flowing_sand: *{amt_names}* 은(는) 경영지원 확인(✅) 후 반영됩니다. '
-                f'반영되면 DM 으로 알려드립니다.'
+                f':hourglass_flowing_sand: *{amt_names}* 은(는) 경영지원에 *수정 요청*으로 전달됐습니다. '
+                f'경영지원이 직접 반영 후 DM 으로 알려드립니다.'
             )
         else:
             parts.append(
@@ -9113,10 +9114,11 @@ def _post_amount_edit_request_card(
     project: dict, amount_updates: dict, reason: str,
     requester_id: str, requester_initial: str,
 ):
-    """공사 금액/부가세 수정 요청 카드 → #영업_관리 (공사봇 발송). 황샛별 ✅ 시 자동 반영.
+    """공사 금액/부가세 수정 요청 카드 → #영업_관리 (공사봇 발송).
 
-    공사 건이므로 '공사 현황 알림 봇' 명의. ✅ 이벤트는 계산서봇이 받지만 카드 갱신은
-    공사봇 클라이언트로 함. Returns 카드 ts / None. Redis pending (project_amount_req:{ch}:{ts}).
+    금액은 경영지원(황샛별)이 PM 에서 **직접 반영** 후 ✅ 하면 카드 완료 + 요청자 DM.
+    (시스템은 시트를 쓰지 않음.) 공사 건이라 '공사 현황 알림 봇' 명의. ✅ 이벤트는
+    계산서봇이 받지만 카드 갱신은 공사봇 클라이언트로. Returns ts / None. Redis pending.
     """
     proj = _project_client()
     if proj is None:
@@ -9152,7 +9154,7 @@ def _post_amount_edit_request_card(
     blocks = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
         {'type': 'context', 'elements': [{'type': 'mrkdwn',
-            'text': '✅ 확인 시 금액이 시트에 반영되고 요청자에게 완료 DM 이 전송됩니다.'}]},
+            'text': '경영지원이 *직접 반영*한 뒤 ✅ 하면 요청자에게 완료 DM 이 전송됩니다.'}]},
     ]
     try:
         proj.conversations_join(channel=channel_id)
@@ -9186,9 +9188,10 @@ def _post_amount_edit_request_card(
 
 
 def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: str) -> bool:
-    """✅(황샛별) on 금액 수정 요청 카드 → perform_edit 반영 + 카드 갱신 + 요청자 완료 DM.
+    """✅(황샛별) on 금액 수정 요청 카드 → 카드 '반영 완료' 갱신 + 요청자 완료 DM.
 
-    처리했으면 True (정산 핀 해제 로직으로 넘어가지 않음). 요청 카드가 아니면 False.
+    금액·부가세는 **경영지원(황샛별)이 PM 에서 직접 수정**하므로 시스템은 시트를 쓰지 않음.
+    ✅ 는 '직접 반영했다'는 완료 신호 → 카드 갱신 + 요청자 통보만. 요청 카드 아니면 False.
     """
     try:
         from dashboard.utils.redis_client import get_redis_client
@@ -9199,7 +9202,7 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
     raw = rc.get(key)
     if not raw:
         return False
-    # 중복 처리 방지 (동시/재전송) — 먼저 잡은 이벤트만 반영
+    # 중복 처리 방지 (동시/재전송) — 먼저 잡은 이벤트만
     if not rc.set(f'{key}:proc', '1', nx=True, ex=120):
         return True
     try:
@@ -9208,30 +9211,13 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
         rc.delete(f'{key}:proc')
         return True
 
-    from dashboard.services.project_slack_actions import perform_edit
     code = data.get('code', '')
-    updates = data.get('updates', {}) or {}
-    reason = data.get('reason', '') or ''
     requester_id = data.get('requester_id', '')
     requester_ini = data.get('requester_initial', '-')
     checker_ini = _slack_user_to_initial(client, checker_user_id) or 'SB'
 
-    result = perform_edit(code, updates, f'{reason} (요청: {requester_ini})', checker_ini)
-    if not result.get('ok'):
-        rc.delete(f'{key}:proc')  # 재시도 허용
-        try:
-            client.chat_postEphemeral(
-                channel=channel, user=checker_user_id,
-                text=f':x: `{code}` 금액 반영 실패: {result.get("reason", "unknown")}. '
-                     f'다시 ✅ 하시거나 PM 사이트에서 처리해주세요.',
-            )
-        except Exception:
-            pass
-        logger.warning(f'[SLACK/공사금액] 반영 실패 {code}: {result.get("reason")}')
-        return True
-
     rc.delete(key)  # pending 소비
-    logger.info(f'[SLACK/공사금액] ✅ 반영 완료 {code} by {checker_ini} (요청 {requester_ini})')
+    logger.info(f'[SLACK/공사금액] ✅ 완료 처리 {code} by {checker_ini} (요청 {requester_ini}) — 경영지원 직접 반영')
     _mark_amount_request_done(channel, ts, data, checker_ini)
     _dm_amount_request_done(requester_id, code, data, checker_ini)
     return True
@@ -9268,11 +9254,12 @@ def _dm_amount_request_done(requester_id: str, code: str, data: dict, checker_in
     updates = data.get('updates', {}) or {}
     before = data.get('before', {}) or {}
     vat_after = _vat_is_sep(updates.get('부가세', before.get('부가세')))
-    lines = [f':white_check_mark: *공사 금액 수정 반영 완료*  `{code}`']
+    lines = [f':white_check_mark: *공사 금액 수정 요청 반영 완료*  `{code}`']
+    lines.append('_(요청 내역)_')
     for f in _AMOUNT_EDIT_FIELDS:
         if f in updates:
             lines.append(_fmt_edit_field_change(f, before.get(f, ''), updates[f], vat_after))
-    lines.append(f'\n경영지원({checker_ini}) 확인 후 반영되었습니다.')
+    lines.append(f'\n경영지원({checker_ini})이 직접 반영 처리했습니다.')
     text = '\n'.join(lines)
     # DM 은 im:write 있는 메인봇으로 (계산서봇은 DM 개설 불가)
     dm = _dm_client()
