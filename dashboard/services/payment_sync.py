@@ -71,6 +71,8 @@ _PROJECT_CODE_RE = re.compile(r'^[GRN]\d{4}-[A-Z]{1,3}$')
 # 매니저 이체 표기 — "2026-07-10 R>g", "2026-07-10 G>N", "2026-07-10 r>g" 등 (2026-07-10)
 # 첫 번째 문자 = 원 계좌, 두 번째 문자 = 이체 후 계좌. 양쪽 대소문자 무관.
 _TRANSFER_RE = re.compile(r'\d{4}-\d{1,2}-\d{1,2}\s+([grnpGRNP])\s*>\s*([grnpGRNP])')
+# 이체 출발 코드 → 원 입금 은행명 (매출이동 목적지를 원 입금 payment 에 매칭)
+_TRANSFER_ORIGIN_BANK = {'R': '하나', 'G': '기업', 'N': '농협'}
 # 라벨 양식 (앱스크립트 자동 + 매니저 수기 덮어쓰기)
 _LABEL_DATE_RE = re.compile(r'^입금일\s*:\s*(.+)$')
 _LABEL_PAYER_RE = re.compile(r'^입금자\s*:\s*(.+)$')
@@ -466,11 +468,15 @@ def _parse_notes(notes: List[str],
         prev_block = ''
         block_count = len(blocks)
         any_parsed = False
+        stage_transfers = []  # 이 stage 의 (출발코드, 이체후코드) 목록
         for bidx, block in enumerate(blocks):
             # 매출이동/계좌이체 블록 skip (2026-07-12 G2965-TH 관측)
             #   "2025-12-05 G>N \n 농협 입금2,450,000원..." 은 앞 블록 입금액을
             #   G(기업)→N(농협) 계좌로 옮긴 것. 새 입금 아님. 파싱 결과에서 제외.
-            if _TRANSFER_RE.search(block):
+            #   단, 이체 방향은 수집해 두었다가 원 입금 payment 에 표시로 부착 (2026-07-29)
+            _tm = _TRANSFER_RE.search(block)
+            if _tm:
+                stage_transfers.append((_tm.group(1).upper(), _tm.group(2).upper()))
                 continue
             # 블록 하나뿐이고 옛 양식이면 fallback amount 적용
             fb = stage_val if block_count == 1 else 0
@@ -506,6 +512,27 @@ def _parse_notes(notes: List[str],
                 parsed['stage'] = stage
                 results.append(parsed)
                 prev_block = block
+        # 매출이동 목적지를 원 입금 payment 에 표시로 부착 (2026-07-29)
+        #   금액·개수·phash 불변 — 카드에 "R → N" 표기만 추가 (순수 표시).
+        #   출발 은행이 일치하는 원 입금에 우선 매칭, 없으면 단건일 때만 부착(모호하면 skip).
+        if stage_transfers:
+            stage_pays = [p for p in results if p.get('stage') == stage]
+            for frm, to in stage_transfers:
+                want_bank = _TRANSFER_ORIGIN_BANK.get(frm)
+                target = None
+                for p in stage_pays:
+                    if p.get('transfer_to'):
+                        continue
+                    if want_bank and p.get('bank') == want_bank:
+                        target = p
+                        break
+                if target is None:
+                    open_pays = [p for p in stage_pays if not p.get('transfer_to')]
+                    if len(open_pays) == 1:
+                        target = open_pays[0]
+                if target is not None:
+                    # 동일 코드 이체(G>G 등)는 카드 빌더가 (transfer_to != code) 로 자동 무시
+                    target['transfer_to'] = to
         # 메모 있지만 어떤 블록도 파싱 실패 + 단계 값 있으면 fallback
         if not any_parsed and stage_val > 0:
             # 2026-07-11 서술식 노트 fallback 강화 (R3779, R3520, G3662 등 관측)
