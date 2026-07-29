@@ -1684,8 +1684,8 @@ def _register_invoice_handlers(app):
         channel = item.get('channel', '')
         ts = item.get('ts', '')
         inv_ch = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
-        # 진단 로그 — 이벤트 도착 자체 확인 (구독 누락 vs 필터링 구분)
-        logger.info(
+        # 진단 로그 (DEBUG) — 이벤트 도착·필터 사유 확인용. 평소 미출력.
+        logger.debug(
             f'[SLACK/정산핀] reaction_added 수신: reaction={reaction} user={user} '
             f'ch={channel} inv_ch={inv_ch} type={item.get("type")}'
         )
@@ -1694,11 +1694,11 @@ def _register_invoice_handlers(app):
         if item.get('type') != 'message':
             return
         if not ts or not channel or channel != inv_ch:
-            logger.info(f'[SLACK/정산핀] skip — 채널 불일치 (ch={channel} != inv_ch={inv_ch})')
+            logger.debug(f'[SLACK/정산핀] skip — 채널 불일치 (ch={channel} != inv_ch={inv_ch})')
             return
         # 경영지원(황샛별)이 누른 체크만 인정 — 아무나 ✅ 눌러 해제되면 안 됨.
         if user != _SETTLEMENT_CHECKER_ID:
-            logger.info(f'[SLACK/정산핀] skip — 체커 아님 (user={user} != checker={_SETTLEMENT_CHECKER_ID})')
+            logger.debug(f'[SLACK/정산핀] skip — 체커 아님 (user={user} != checker={_SETTLEMENT_CHECKER_ID})')
             return
 
         def _bg():
@@ -3290,11 +3290,11 @@ def slack_invoice_events():
         if not _init_invoice_slack_app():
             return jsonify({"error": "Invoice Slack bot not configured"}), 503
 
-    # 진단 로그 — 이 앱에 도착하는 이벤트 타입 확인 (reaction_added 구독 여부 판별)
+    # 진단 로그 (DEBUG) — 필요 시 이 앱 도착 이벤트 타입 확인용. 평소 미출력.
     try:
         _b = request.get_json(silent=True) or {}
         _ev = (_b.get('event') or {})
-        logger.info(
+        logger.debug(
             f"[SLACK/계산서봇] 이벤트 수신: outer={_b.get('type')} "
             f"event={_ev.get('type')} reaction={_ev.get('reaction')} user={_ev.get('user')}"
         )
