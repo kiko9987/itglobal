@@ -752,6 +752,101 @@ def _same_partner_active_siblings(code: str) -> List[str]:
     return sibs
 
 
+def _norm_biz_name(s: str) -> str:
+    """상호/입금자 정규화 — 법인격·공백·기호 제거 후 소문자."""
+    s = re.sub(r'\(주\)|㈜|\(유\)|\(재\)|\(사\)|주식회사|유한회사|재단법인|사단법인', '', s or '')
+    s = re.sub(r'[\s·,\.\-_/()\[\]]', '', s)
+    return s.strip().lower()
+
+
+_LEGAL_TOKENS = {'주', '유', '재', '사', '유한', '주식회사', '유한회사', '재단법인', '사단법인'}
+
+
+def _name_candidates(name: str) -> List[str]:
+    """입금자/상호 → 매칭 후보(정규화). 괄호 안 법인명도 후보(예: 이성민(이즈이노베)).
+
+    단, '(주)' 같은 법인격 토큰(주/유/재/사)은 후보에서 제외 — 안 그러면 모든 법인이
+    '주' 공통으로 오매칭됨. 괄호 후보는 2자 이상만.
+    """
+    cands = []
+    base = _norm_biz_name(name)
+    if base:
+        cands.append(base)
+    for inner in re.findall(r'\(([^)]+)\)', name or ''):
+        if inner.strip() in _LEGAL_TOKENS:
+            continue
+        n = _norm_biz_name(inner)
+        if n and len(n) >= 2 and n not in cands:
+            cands.append(n)
+    return cands
+
+
+def _names_match(a: str, b: str) -> bool:
+    """두 상호/입금자가 같은 거래처인지 — 정규화 후보 **완전일치(2자 이상)** 만.
+
+    부분일치는 오탐 위험(개인명 '정우성' ⊂ 실프로젝트 '정우성형외과')이 커서 제외.
+    돈 관련이라 오경고(crying wolf)가 미탐보다 나쁨 → 정밀도 우선.
+    """
+    ca = {x for x in _name_candidates(a) if len(x) >= 2}
+    cb = {x for x in _name_candidates(b) if len(x) >= 2}
+    return bool(ca & cb)
+
+
+def _partner_misplacement_warning(code: str, partner: str) -> str:
+    """메모 입금자가 이 프로젝트 사업자명과 안 맞는데 '다른 프로젝트' 사업자명과 맞으면 경고.
+
+    - 이 프로젝트와 일치 → '' (정상)
+    - 어느 프로젝트와도 불일치(개인 입금 등) → '' (오탐 방지)
+    - 다른 프로젝트와 일치 → 오입력 의심 경고
+    """
+    partner = (partner or '').strip()
+    if not partner or partner == '-':
+        return ''
+    try:
+        from dashboard.services.project_service import get_project_records
+        recs = get_project_records() or []
+    except Exception:
+        return ''
+    me = next((r for r in recs if (r.get('프로젝트 코드') or '').strip() == code), None)
+    if not me:
+        return ''
+    my_biz = (me.get('사업자명') or '').strip()
+    if my_biz and my_biz != '-' and _names_match(partner, my_biz):
+        return ''  # 이 프로젝트와 일치 = 정상
+    hits = []
+    for r in recs:
+        c = (r.get('프로젝트 코드') or '').strip()
+        if not c or c == code:
+            continue
+        biz = (r.get('사업자명') or '').strip()
+        if biz and biz != '-' and _names_match(partner, biz):
+            hits.append((c, biz))
+    if not hits:
+        return ''  # 개인 입금 등 — 경고 안 함
+    shown = ', '.join(f'{c}({b})' for c, b in hits[:2])
+    more = ' 외' if len(hits) > 2 else ''
+    return f"⚠️ 입금자 '{partner}'가 다른 프로젝트({shown}{more}) 사업자명과 일치 — 이 프로젝트가 맞나요?"
+
+
+def _payment_card_warnings(project: str, partner: str) -> List[str]:
+    """입금 카드 경고 라인 — B(같은 거래처 코드혼동) + C(입금자 다른 프로젝트 일치)."""
+    out: List[str] = []
+    try:
+        sibs = _same_partner_active_siblings(project)
+    except Exception:
+        sibs = []
+    if sibs:
+        shown = ' / '.join([project] + sibs[:3]) + ('…' if len(sibs) > 3 else '')
+        out.append(f"⚠️ 같은 거래처 프로젝트 {len(sibs) + 1}건 ({shown}) — 코드 확인")
+    try:
+        mis = _partner_misplacement_warning(project, partner)
+    except Exception:
+        mis = ''
+    if mis:
+        out.append(mis)
+    return out
+
+
 def _grey_out_payment_card(slack, channel: str, code: str, stage: str, ts: str) -> bool:
     """입금 메모 삭제 감지 → 해당 카드를 '정정·취소됨' 회색 처리 + [🗑 삭제] 버튼 (2026-07-29).
 
@@ -857,15 +952,11 @@ def _build_stage_message(
     # 방지 위해 카드에만 -abs 강제 표시.
     _unpaid_display = -abs(unpaid) if unpaid != 0 else 0
     lines.append(f"미수금 : {_unpaid_display:,}원")
-    # 같은 거래처 다중 프로젝트 경고 (코드 혼동 방지 — 2026-07-29)
-    try:
-        _sibs = _same_partner_active_siblings(project)
-    except Exception:
-        _sibs = []
-    if _sibs:
-        _shown = ' / '.join([project] + _sibs[:3]) + ('…' if len(_sibs) > 3 else '')
+    # 오입력 경고 (2026-07-29): B 같은 거래처 코드혼동 + C 입금자 다른 프로젝트 일치
+    _warns = _payment_card_warnings(project, partner)
+    if _warns:
         lines.append(_SEP)
-        lines.append(f"⚠️ 같은 거래처 프로젝트 {len(_sibs) + 1}건 ({_shown}) — 코드 확인")
+        lines.extend(_warns)
     lines.append('⠀')
     return '\n'.join(lines)
 
@@ -962,6 +1053,11 @@ def _build_stage_with_history_message(
     _unpaid_display = -abs(unpaid) if unpaid != 0 else 0
     lines.append(f"미수금 : {_unpaid_display:,}원")
     lines.append(' ')
+    # 오입력 경고 (B 코드혼동 + C 입금자 다른 프로젝트 일치) — 2026-07-29
+    _warns = _payment_card_warnings(project, partner)
+    if _warns:
+        lines.append(_SEP)
+        lines.extend(_warns)
     lines.append('⠀')
     return '\n'.join(lines)
 
