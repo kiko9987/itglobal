@@ -8822,8 +8822,7 @@ def _open_project_edit_modal(client, body) -> None:
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": ("ℹ️ *금액 및 부가세*는 경영지원에서 직접 반영합니다.\n"
-                         "나머지 항목들은 즉시 반영됩니다."),
+                "text": "ℹ️ *금액 · 부가세*는 경영지원 직접 수정, 나머지 항목들은 즉시 반영",
             }],
         },
         {
