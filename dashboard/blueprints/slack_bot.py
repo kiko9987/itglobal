@@ -1640,11 +1640,7 @@ def _vat_is_sep(v) -> bool:
 
 
 def _invoice_client():
-    """세금계산서 관리 알림 봇 WebClient (크로스봇 카드 발송/수정용). 미가용 시 None.
-
-    금액 요청 카드는 계산서봇이 발송해야 ✅(reaction_added) 수신 봇과 동일 →
-    chat_update(반영 완료 갱신)가 가능. (공사봇이 올린 카드는 계산서봇이 수정 불가.)
-    """
+    """세금계산서 관리 알림 봇 WebClient. 미가용 시 None."""
     global _invoice_slack_app
     if _invoice_slack_app is None:
         try:
@@ -1652,6 +1648,22 @@ def _invoice_client():
         except Exception:
             pass
     return _invoice_slack_app.client if _invoice_slack_app is not None else None
+
+
+def _project_client():
+    """공사 현황 알림 봇 WebClient (공사 정보 수정 카드 발송/수정용). 미가용 시 None.
+
+    금액 수정 요청 카드는 '공사' 건이므로 공사봇 명의로 발송·갱신.
+    ✅(reaction_added) 이벤트는 계산서봇이 수신하지만, 카드 chat_update 는
+    카드를 올린 공사봇 클라이언트로 해야 함(같은 봇만 자기 메시지 수정 가능).
+    """
+    global _project_slack_app
+    if _project_slack_app is None:
+        try:
+            _init_project_slack_app()
+        except Exception:
+            pass
+    return _project_slack_app.client if _project_slack_app is not None else None
 
 
 def _dm_client():
@@ -9101,13 +9113,14 @@ def _post_amount_edit_request_card(
     project: dict, amount_updates: dict, reason: str,
     requester_id: str, requester_initial: str,
 ):
-    """공사 금액/부가세 수정 요청 카드 → #영업_관리 (계산서봇 발송). 황샛별 ✅ 시 자동 반영.
+    """공사 금액/부가세 수정 요청 카드 → #영업_관리 (공사봇 발송). 황샛별 ✅ 시 자동 반영.
 
-    Returns 카드 ts (성공) / None (실패). Redis pending 저장 (project_amount_req:{ch}:{ts}).
+    공사 건이므로 '공사 현황 알림 봇' 명의. ✅ 이벤트는 계산서봇이 받지만 카드 갱신은
+    공사봇 클라이언트로 함. Returns 카드 ts / None. Redis pending (project_amount_req:{ch}:{ts}).
     """
-    inv = _invoice_client()
-    if inv is None:
-        logger.warning('[SLACK/공사금액] 계산서봇 미가용 — 금액 수정 요청 카드 발송 불가')
+    proj = _project_client()
+    if proj is None:
+        logger.warning('[SLACK/공사금액] 공사봇 미가용 — 금액 수정 요청 카드 발송 불가')
         return None
     channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
     if not channel_id:
@@ -9142,10 +9155,10 @@ def _post_amount_edit_request_card(
             'text': '✅ 확인 시 금액이 시트에 반영되고 요청자에게 완료 DM 이 전송됩니다.'}]},
     ]
     try:
-        inv.conversations_join(channel=channel_id)
+        proj.conversations_join(channel=channel_id)
     except Exception:
         pass
-    resp = inv.chat_postMessage(channel=channel_id, text=text, blocks=blocks, unfurl_links=False)
+    resp = proj.chat_postMessage(channel=channel_id, text=text, blocks=blocks, unfurl_links=False)
     if not resp.get('ok'):
         logger.warning(f'[SLACK/공사금액] 요청 카드 발송 실패 ({code}): {resp}')
         return None
@@ -9219,13 +9232,20 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
 
     rc.delete(key)  # pending 소비
     logger.info(f'[SLACK/공사금액] ✅ 반영 완료 {code} by {checker_ini} (요청 {requester_ini})')
-    _mark_amount_request_done(client, channel, ts, data, checker_ini)
+    _mark_amount_request_done(channel, ts, data, checker_ini)
     _dm_amount_request_done(requester_id, code, data, checker_ini)
     return True
 
 
-def _mark_amount_request_done(client, channel: str, ts: str, data: dict, checker_ini: str) -> None:
-    """반영 완료 후 요청 카드 갱신 (헤더 → 완료, 반영자·시각 추가)."""
+def _mark_amount_request_done(channel: str, ts: str, data: dict, checker_ini: str) -> None:
+    """반영 완료 후 요청 카드 갱신 (헤더 → 완료, 반영자·시각 추가).
+
+    카드는 공사봇이 올렸으므로 공사봇 클라이언트로 chat_update (같은 봇만 수정 가능).
+    """
+    proj = _project_client()
+    if proj is None:
+        logger.warning('[SLACK/공사금액] 공사봇 미가용 — 카드 갱신 skip')
+        return
     now_str = datetime.now().strftime('%m.%d %H:%M')
     orig = data.get('card_text', '') or ''
     new_text = orig.replace('🔔 *[공사 금액 수정 요청]*', '✅ *[공사 금액 수정 완료]*')
@@ -9236,7 +9256,7 @@ def _mark_amount_request_done(client, channel: str, ts: str, data: dict, checker
             'text': f'✅ {checker_ini} 확인·반영 완료 · 요청자에게 DM 전송됨'}]},
     ]
     try:
-        client.chat_update(channel=channel, ts=ts, text=new_text, blocks=blocks)
+        proj.chat_update(channel=channel, ts=ts, text=new_text, blocks=blocks)
     except Exception as exc:
         logger.warning(f'[SLACK/공사금액] 카드 갱신 실패 (ts={ts}): {exc}')
 
