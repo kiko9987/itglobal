@@ -1304,6 +1304,98 @@ _SYNC_MUTEX_KEY = 'payment_sync:running'
 _SYNC_MUTEX_TTL = 60  # 안전 상한 — sync 는 5-10초 예상, 정상 종료 시 즉시 해제
 
 
+def _build_stage_card_text(stage: str, project: str, payments: List[Dict],
+                           c: Dict, stage_vals: Dict[str, int]) -> str:
+    """단건(비통합) 카드 텍스트 — 발송 로직과 동일 분기(수금완료/중도금이력/단계).
+
+    메모 정정 시 카드 재빌드용. 통합 카드는 대상 아님(호출부에서 '통합' 헤더로 제외).
+    """
+    stage_payments = [p for p in payments if p.get('stage') == stage]
+    last_payment = stage_payments[-1] if stage_payments else {}
+    if stage == '잔금' and c.get('unpaid', 0) == 0:
+        return _build_complete_message(
+            project=project, address=c.get('address', ''), payments=payments,
+            invoice_value=c.get('invoice', ''), total_t=c.get('total_t', 0),
+            stage_sheet_vals=stage_vals, construction=c.get('construction', ''))
+    if stage in ('중도금', '잔금'):
+        return _build_stage_with_history_message(
+            stage=stage, project=project, address=c.get('address', ''),
+            last_payment=last_payment, all_payments=payments,
+            invoice_value=c.get('invoice', ''), total_r=c.get('total_r', 0),
+            total_t=c.get('total_t', 0), stage_sheet_vals=stage_vals,
+            construction=c.get('construction', ''))
+    return _build_stage_message(
+        stage=stage, project=project, address=c.get('address', ''),
+        payment=last_payment, invoice_value=c.get('invoice', ''),
+        total_r=c.get('total_r', 0), total_t=c.get('total_t', 0),
+        unpaid=c.get('unpaid', 0), stage_sheet_val=stage_vals.get(stage, 0),
+        construction=c.get('construction', ''))
+
+
+def _correct_payment_card(slack, channel: str, corr: Dict,
+                          sheet_id: str, sheet_name: str) -> bool:
+    """메모 정정(phash 변경) → 기존 카드를 스레드에 스냅샷 + 최신 파싱으로 chat_update (2026-07-29).
+
+    - 새 파싱이 미완성(partner/date 빈값)이면 skip (좋은 카드 덮어쓰기 방지).
+    - 통합 카드('통합' 헤더)는 v1 제외.
+    Returns True if 갱신함.
+    """
+    from datetime import datetime
+    from dashboard.blueprints.slack_helpers import safe_slack_call
+    project, stage, ts = corr['project'], corr['stage'], corr['ts']
+    notes = _fetch_row_notes(sheet_id, sheet_name, corr['row'])
+    payments = _parse_notes(notes, stage_vals={
+        '계약금': corr['u'], '중도금': corr['v'], '잔금': corr['w']})
+    stage_payments = [p for p in payments if p.get('stage') == stage]
+    if not stage_payments:
+        return False
+    for p in stage_payments:  # 미완성 파싱이면 갱신 안 함
+        if (not p.get('partner') or p.get('partner') == '-'
+                or not p.get('date_md') or p.get('date_md') == '-'):
+            return False
+    try:
+        r = safe_slack_call(slack.conversations_history, channel=channel,
+                            latest=ts, inclusive=True, limit=1)
+        old = (((r.get('messages') or [{}])[0]).get('text', '')) or ''
+    except Exception:
+        old = ''
+    if '통합' in old:
+        return False  # 통합 카드 제외 (여러 프로젝트 — v1 미대상)
+    stage_vals = {'계약금': corr['u'], '중도금': corr['v'], '잔금': corr['w']}
+    try:
+        new_text = _build_stage_card_text(stage, project, payments, corr, stage_vals)
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 정정 카드 빌드 실패 ({project}/{stage}): {exc}')
+        return False
+    if not new_text or new_text.strip() == old.strip():
+        return False  # 실질 변화 없음
+    # 안전 가드 — 정정된 단계 줄 외에 다른 줄이 바뀌면 자동갱신 skip (수동 확인).
+    # (예: 매출이동으로 다른 단계 은행코드가 파서 재계산과 달라지는 경우 오정정 방지)
+    if old:
+        def _cmp_lines(txt):
+            return [l.strip() for l in txt.splitlines()
+                    if l.strip() and l.strip() != '⠀' and stage not in l]
+        if _cmp_lines(old) != _cmp_lines(new_text):
+            logger.info(
+                f'[PAYMENT] 정정 감지 — {stage} 외 줄도 변경돼 자동갱신 skip (수동 확인): '
+                f'{project} ts={ts}')
+            return False
+    if old:  # 정정 전 스냅샷 → 스레드
+        now = datetime.now().strftime('%m/%d %H:%M')
+        try:
+            safe_slack_call(slack.chat_postMessage, channel=channel, thread_ts=ts,
+                            text=f'🔄 *정정 전* ({now})\n{old.strip()}', unfurl_links=False)
+        except Exception as exc:
+            logger.warning(f'[PAYMENT] 정정 스냅샷 스레드 실패 ({project}): {exc}')
+    try:
+        safe_slack_call(slack.chat_update, channel=channel, ts=ts, text=new_text)
+        logger.info(f'[PAYMENT] 메모 정정 → 카드 갱신 + 스냅샷: {project}/{stage} ts={ts}')
+        return True
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 정정 카드 갱신 실패 ({project}/{stage}): {exc}')
+        return False
+
+
 def sync_payments() -> Dict:
     """공사 현황 시트 폴링 → U/V/W 변경 감지 + AA 체크 변경 감지 → 알림 발송."""
     result = {'processed': 0, 'sent': 0, 'errors': 0}
@@ -1491,6 +1583,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     MAX_PER_TICK = 5
     changed_rows = []
     removed_cards = []  # 입금 메모 삭제(값 >0 → 0) 감지 → 카드 회색화 대상
+    corrected_rows = []  # 입금 메모 정정(phash 변경, 값 증가 아님) → 카드 갱신+스냅샷 대상
 
     for offset, row in enumerate(rows):
         sheet_row = offset + 2  # 1-based + 헤더 1행
@@ -1592,6 +1685,25 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                         _cts = None
                     if _cts:
                         removed_cards.append({'project': project, 'stage': _stg, 'ts': _cts})
+            # 메모 정정 감지 (phash 변경 — 신규도 삭제도 아님, prev·cur 둘 다 존재) + 카드 ts 있음
+            # → 기존 카드를 스레드 스냅샷으로 박제하고 최신 파싱으로 갱신 (2026-07-29)
+            for _stg, _cph, _pph in (('계약금', cur_u_ph, prev_u_ph), ('중도금', cur_v_ph, prev_v_ph), ('잔금', cur_w_ph, prev_w_ph)):
+                if _cph and _pph and _cph != _pph:
+                    try:
+                        _cts2 = rc.get(f'payment_slack:ts:{project}:{_stg}')
+                    except Exception:
+                        _cts2 = None
+                    if _cts2:
+                        corrected_rows.append({
+                            'project': project, 'row': sheet_row, 'stage': _stg, 'ts': _cts2,
+                            'u': u_val, 'v': v_val, 'w': w_val, 'aa': aa_chk,
+                            'address': str(_get(IDX_F)).strip(),
+                            'construction': str(_get(IDX_L)).strip(),
+                            'invoice': str(_get(IDX_Y)).strip(),
+                            'total_r': _to_int_won(_get(IDX_R)),
+                            'total_t': _to_int_won(_get(IDX_T)),
+                            'unpaid': _to_int_won(_get(IDX_X)),
+                        })
             try:
                 rc.hset(key, mapping={
                     'u': u_val, 'v': v_val, 'w': w_val,
@@ -1635,6 +1747,17 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 logger.warning(f"[PAYMENT] 카드 회색화 예외 ({_rm['project']}/{_rm['stage']}): {exc}")
     elif removed_cards:
         logger.warning(f"[PAYMENT] 회색화 대상 과다({len(removed_cards)}) — 안전상 skip")
+
+    # 입금 메모 정정 감지 → 기존 카드 스레드 스냅샷 + 최신 파싱으로 갱신 (changed_rows 무관).
+    # 안전장치: 한 폴링에 정정 대상이 비정상적으로 많으면 skip.
+    if corrected_rows and len(corrected_rows) <= 20:
+        for _cr in corrected_rows:
+            try:
+                _correct_payment_card(slack, channel, _cr, sheet_id, sheet_name)
+            except Exception as exc:
+                logger.warning(f"[PAYMENT] 카드 정정 예외 ({_cr['project']}/{_cr['stage']}): {exc}")
+    elif corrected_rows:
+        logger.warning(f"[PAYMENT] 정정 대상 과다({len(corrected_rows)}) — 안전상 skip")
 
     if not changed_rows:
         return result
