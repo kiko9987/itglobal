@@ -8822,7 +8822,7 @@ def _open_project_edit_modal(client, body) -> None:
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": "ℹ️ *금액 · 부가세*는 경영지원 직접 수정, 그 외 항목은 즉시 반영",
+                "text": "ℹ️ 금액 · 부가세는 경영지원 직접 수정, 그 외 항목은 즉시 반영",
             }],
         },
         {
