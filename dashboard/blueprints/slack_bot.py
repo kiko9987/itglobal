@@ -8769,7 +8769,9 @@ def _open_project_edit_modal(client, body) -> None:
             constructor_names.append(n)
     contractor_initial = _multiselect_options([n for n in contractor_current if n in constructor_names])
 
-    vat_option = {'text': {'type': 'plain_text', 'text': 'VAT 별도'}, 'value': 'sep'}
+    vat_option = {'text': {'type': 'plain_text', 'text': 'VAT 별도'},
+                  'description': {'type': 'plain_text', 'text': '체크 해제 시 VAT 없음'},
+                  'value': 'sep'}
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"프로젝트 `{code}` 수정"}},
