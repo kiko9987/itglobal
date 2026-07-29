@@ -6323,7 +6323,10 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
         'contact': str(lead.get('고객 연락처', '') or '').strip(),
         'message_link': message_link,
         'payload': lead_no,
-        'consultation': str(lead.get('상담 내용', '') or '').strip(),
+        # 2026-07-30 L-03421: K열 재상담 헤더(`[MM.DD HH:MM 이니셜 · 상태]`)가 List
+        #   상담 컬럼에 그대로 노출되던 이슈. _post_to_slack_list(8507)는 이미 stripper
+        #   경유하나 이 방문 수정/취소/완료 경로는 raw 전송 → 최신 회차 content 만 전달.
+        'consultation': _extract_latest_consult_content(str(lead.get('상담 내용', '') or '').strip()),
         'estimate_request': '',
         'visit_date': _strip_escape(str(lead.get('방문 예정일', '') or '')),
         'visit_date_start': _vd_start or '-',
@@ -8473,7 +8476,10 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
             pass
 
     # 상담 내용 파싱 (장소/기기/문의)
-    parts = _split_lead_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', '')))
+    # 2026-07-30: 문의 내용 비고 상담 내용(K열)에 재상담 헤더가 있으면 details 노출 +
+    #   장소/기기 파싱이 헤더 prefix 때문에 깨짐 → 헤더 제거(최신 회차) 후 파싱.
+    parts = _split_lead_content(
+        _extract_latest_consult_content(str(lead.get('문의 내용', '') or lead.get('상담 내용', ''))))
 
     # visit_type — Slack List 방문 유형 컬럼용 3 카테고리 (온라인/거래처/기타)
     # 거래처·소개 → 거래처, 기타 → 기타, 나머지(전화·홈페이지·카카오톡·당근·채널톡·숨고·큐플레이스·메일 등) → 온라인
