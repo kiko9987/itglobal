@@ -1551,6 +1551,42 @@ _SETTLE_DONE_REACTIONS = {'white_check_mark'}  # ✅ 만
 # 황샛별 Slack ID (sb@itg-aircon.com). env 로 override 가능.
 _SETTLEMENT_CHECKER_ID = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
 
+# ── 공사 금액/부가세 수정 요청 (경영지원 ✅ 반영) ────────────────────────────
+# 금액·부가세는 즉시 반영 대신 #영업_관리 요청 카드 발송 → 황샛별 ✅ 시 시스템이 반영.
+# (PM 어드민의 '금액 변경은 어드민만' 사상. 오직 황샛별 ✅ 에서만 금액 확정.)
+_AMOUNT_EDIT_FIELDS = ('총액 1', '부가세')
+
+
+def _vat_is_sep(v) -> bool:
+    """부가세 값(bool/str/int) → VAT 별도 여부."""
+    return v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1
+
+
+def _invoice_client():
+    """세금계산서 관리 알림 봇 WebClient (크로스봇 카드 발송/수정용). 미가용 시 None.
+
+    금액 요청 카드는 계산서봇이 발송해야 ✅(reaction_added) 수신 봇과 동일 →
+    chat_update(반영 완료 갱신)가 가능. (공사봇이 올린 카드는 계산서봇이 수정 불가.)
+    """
+    global _invoice_slack_app
+    if _invoice_slack_app is None:
+        try:
+            _init_invoice_slack_app()
+        except Exception:
+            pass
+    return _invoice_slack_app.client if _invoice_slack_app is not None else None
+
+
+def _dm_client():
+    """개인 DM 발송용 WebClient — im:write 있는 메인봇 토큰 사용.
+
+    계산서봇·공사봇은 im:write 가 없어 conversations.open(DM 개설) 불가.
+    메인봇(SLACK_BOT_TOKEN)은 DM 가능(검증됨) → 완료 DM 은 메인봇으로 발송.
+    """
+    from slack_sdk import WebClient
+    tok = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    return WebClient(token=tok) if tok else None
+
 
 def _maybe_auto_pin_settlement(client, channel: str, msg: dict) -> None:
     """정산 요청 메시지(입금내역·세금계산서)면 자동 고정(pin).
@@ -1703,6 +1739,10 @@ def _register_invoice_handlers(app):
 
         def _bg():
             try:
+                # 1) 공사 금액 수정 요청 카드면 → perform_edit 반영 + 요청자 DM (핀 로직 skip)
+                if _maybe_apply_amount_request(client, channel, ts, user):
+                    return
+                # 2) 정산 핀 자동 해제
                 client.pins_remove(channel=channel, timestamp=ts)
                 logger.info(f'[SLACK/정산핀] 체크 리액션 → 자동 고정 해제: ts={ts}')
             except Exception as exc:
@@ -8677,6 +8717,14 @@ def _open_project_edit_modal(client, body) -> None:
             },
         },
         {
+            "type": "context",
+            "elements": [{
+                "type": "mrkdwn",
+                "text": ("ℹ️ *공사 금액·부가세* 변경은 즉시 반영되지 않고 "
+                         "*경영지원 확인(✅) 후 반영*됩니다. (나머지 항목은 즉시 반영)"),
+            }],
+        },
+        {
             "type": "input", "block_id": "start_date", "optional": True,
             "label": {"type": "plain_text", "text": "공사 시작"},
             "element": {
@@ -8803,32 +8851,39 @@ def _process_project_edit_submission(client, body, view) -> None:
         return
 
     initial = _slack_user_to_initial(client, user_id) or '-'
-    result = perform_edit(code, updates, reason, initial)
 
-    if result.get('ok'):
+    # 금액·부가세는 경영지원 ✅ 반영 요청 / 나머지는 즉시 반영 (한 모달 분기 제출)
+    amount_updates = {k: v for k, v in updates.items() if k in _AMOUNT_EDIT_FIELDS}
+    direct_updates = {k: v for k, v in updates.items() if k not in _AMOUNT_EDIT_FIELDS}
+
+    applied_fields: list = []
+    direct_failed_reason = ''
+    # 1) 즉시 반영 (금액·부가세 외)
+    if direct_updates:
+        result = perform_edit(code, direct_updates, reason, initial)
+        if result.get('ok'):
+            applied_fields = list(direct_updates.keys())
+            try:
+                _post_project_edit_notice_card(client, code, project, direct_updates, reason, initial)
+            except Exception as exc:
+                logger.warning(f'[SLACK/공사수정] 영업_관리 알림 실패 ({code}): {exc}')
+        else:
+            direct_failed_reason = result.get('reason', 'unknown')
+
+    # 2) 금액·부가세 → 경영지원 반영 요청 카드 (계산서봇 발송, ✅ 시 반영)
+    request_sent = False
+    if amount_updates:
         try:
-            summary = ', '.join(updates.keys())
-            client.chat_postEphemeral(
-                channel=channel, user=user_id,
-                text=f':white_check_mark: `{code}` 수정 완료 — {summary}',
-            )
-        except Exception:
-            pass
-        # #영업_관리 채널에 수정 알림 카드 발송 (양식은 계산서 요청과 유사)
-        try:
-            _post_project_edit_notice_card(
-                client, code, project, updates, reason, initial,
-            )
+            req_ts = _post_amount_edit_request_card(project, amount_updates, reason, user_id, initial)
+            request_sent = bool(req_ts)
         except Exception as exc:
-            logger.warning(f'[SLACK/공사수정] 영업_관리 알림 실패 ({code}): {exc}')
-    else:
-        try:
-            client.chat_postEphemeral(
-                channel=channel, user=user_id,
-                text=f':x: `{code}` 수정 실패: {result.get("reason", "unknown")}',
-            )
-        except Exception:
-            pass
+            logger.error(f'[SLACK/공사금액] 요청 카드 발송 예외 ({code}): {exc}', exc_info=True)
+
+    # 3) 요청자 안내
+    _notify_project_edit_result(
+        client, channel, user_id, code,
+        applied_fields, direct_failed_reason, amount_updates, request_sent,
+    )
 
 
 def _fmt_edit_field_change(field: str, old_value, new_value, current_vat_after: bool) -> str:
@@ -8918,6 +8973,209 @@ def _post_project_edit_notice_card(
         )
     else:
         logger.warning(f'[SLACK/공사수정] 영업_관리 알림 실패: {resp}')
+
+
+def _notify_project_edit_result(
+    client, channel: str, user_id: str, code: str,
+    applied_fields: list, direct_failed_reason: str,
+    amount_updates: dict, request_sent: bool,
+) -> None:
+    """공사 정보 수정 제출 결과를 요청자에게 ephemeral 로 안내."""
+    _label = {'총액 1': '공사 금액', '부가세': '부가세'}
+    parts: list = []
+    if applied_fields:
+        names = ', '.join(_label.get(f, f) for f in applied_fields)
+        parts.append(f':white_check_mark: `{code}` 수정 완료 — {names}')
+    if direct_failed_reason:
+        parts.append(f':x: `{code}` 일부 항목 수정 실패: {direct_failed_reason}')
+    if amount_updates:
+        amt_names = ', '.join(_label.get(f, f) for f in amount_updates)
+        if request_sent:
+            parts.append(
+                f':hourglass_flowing_sand: *{amt_names}* 은(는) 경영지원 확인(✅) 후 반영됩니다. '
+                f'반영되면 DM 으로 알려드립니다.'
+            )
+        else:
+            parts.append(
+                f':warning: *{amt_names}* 수정 요청 전달에 실패했습니다. 경영지원에 직접 문의해주세요.'
+            )
+    if not parts:
+        parts.append(':information_source: 변경된 필드가 없어 저장을 skip 했습니다.')
+    try:
+        client.chat_postEphemeral(channel=channel, user=user_id, text='\n'.join(parts))
+    except Exception:
+        pass
+
+
+def _post_amount_edit_request_card(
+    project: dict, amount_updates: dict, reason: str,
+    requester_id: str, requester_initial: str,
+):
+    """공사 금액/부가세 수정 요청 카드 → #영업_관리 (계산서봇 발송). 황샛별 ✅ 시 자동 반영.
+
+    Returns 카드 ts (성공) / None (실패). Redis pending 저장 (project_amount_req:{ch}:{ts}).
+    """
+    inv = _invoice_client()
+    if inv is None:
+        logger.warning('[SLACK/공사금액] 계산서봇 미가용 — 금액 수정 요청 카드 발송 불가')
+        return None
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if not channel_id:
+        logger.warning('[SLACK/공사금액] SLACK_INVOICE_CHANNEL_ID 미설정')
+        return None
+
+    code = (project.get('프로젝트 코드') or '').strip()
+    biz = (project.get('사업자명') or '-').strip() or '-'
+    addr = (project.get('현장 주소') or '-').strip() or '-'
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+    vat_after = _vat_is_sep(amount_updates.get('부가세', project.get('부가세')))
+
+    change_lines = [
+        _fmt_edit_field_change(f, project.get(f, ''), amount_updates[f], vat_after)
+        for f in _AMOUNT_EDIT_FIELDS if f in amount_updates
+    ]
+    lines = [
+        f'🔔 *[공사 금액 수정 요청]*  `{code}`',
+        '--------------------------------------------',
+        f'🏢 사업자명 : {biz}',
+        f'📍 현장 주소 : {addr}',
+        f'📝 수정 사유 : {reason.strip()}',
+        '📋 요청 내역',
+        *change_lines,
+        f'👤 요청자 : {requester_initial}  {now_str}',
+        '--------------------------------------------',
+    ]
+    text = '⠀\n' + '\n'.join(lines)
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn',
+            'text': '✅ 확인 시 금액이 시트에 반영되고 요청자에게 완료 DM 이 전송됩니다.'}]},
+    ]
+    try:
+        inv.conversations_join(channel=channel_id)
+    except Exception:
+        pass
+    resp = inv.chat_postMessage(channel=channel_id, text=text, blocks=blocks, unfurl_links=False)
+    if not resp.get('ok'):
+        logger.warning(f'[SLACK/공사금액] 요청 카드 발송 실패 ({code}): {resp}')
+        return None
+    ts = resp.get('ts')
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        payload = {
+            'code': code,
+            'updates': amount_updates,
+            'reason': reason.strip(),
+            'requester_id': requester_id,
+            'requester_initial': requester_initial,
+            'before': {f: project.get(f, '') for f in _AMOUNT_EDIT_FIELDS},
+            'biz': biz, 'addr': addr, 'requested_at': now_str,
+            'card_text': text,
+        }
+        rc.set(f'project_amount_req:{channel_id}:{ts}',
+               json.dumps(payload, ensure_ascii=False, default=str),
+               ex=60 * 60 * 24 * 60)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사금액] pending 저장 실패 ({code}): {exc}')
+    logger.info(f'[SLACK/공사금액] 수정 요청 카드 발송: {code} ts={ts}')
+    return ts
+
+
+def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: str) -> bool:
+    """✅(황샛별) on 금액 수정 요청 카드 → perform_edit 반영 + 카드 갱신 + 요청자 완료 DM.
+
+    처리했으면 True (정산 핀 해제 로직으로 넘어가지 않음). 요청 카드가 아니면 False.
+    """
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return False
+    key = f'project_amount_req:{channel}:{ts}'
+    raw = rc.get(key)
+    if not raw:
+        return False
+    # 중복 처리 방지 (동시/재전송) — 먼저 잡은 이벤트만 반영
+    if not rc.set(f'{key}:proc', '1', nx=True, ex=120):
+        return True
+    try:
+        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+    except Exception:
+        rc.delete(f'{key}:proc')
+        return True
+
+    from dashboard.services.project_slack_actions import perform_edit
+    code = data.get('code', '')
+    updates = data.get('updates', {}) or {}
+    reason = data.get('reason', '') or ''
+    requester_id = data.get('requester_id', '')
+    requester_ini = data.get('requester_initial', '-')
+    checker_ini = _slack_user_to_initial(client, checker_user_id) or 'SB'
+
+    result = perform_edit(code, updates, f'{reason} (요청: {requester_ini})', checker_ini)
+    if not result.get('ok'):
+        rc.delete(f'{key}:proc')  # 재시도 허용
+        try:
+            client.chat_postEphemeral(
+                channel=channel, user=checker_user_id,
+                text=f':x: `{code}` 금액 반영 실패: {result.get("reason", "unknown")}. '
+                     f'다시 ✅ 하시거나 PM 사이트에서 처리해주세요.',
+            )
+        except Exception:
+            pass
+        logger.warning(f'[SLACK/공사금액] 반영 실패 {code}: {result.get("reason")}')
+        return True
+
+    rc.delete(key)  # pending 소비
+    logger.info(f'[SLACK/공사금액] ✅ 반영 완료 {code} by {checker_ini} (요청 {requester_ini})')
+    _mark_amount_request_done(client, channel, ts, data, checker_ini)
+    _dm_amount_request_done(requester_id, code, data, checker_ini)
+    return True
+
+
+def _mark_amount_request_done(client, channel: str, ts: str, data: dict, checker_ini: str) -> None:
+    """반영 완료 후 요청 카드 갱신 (헤더 → 완료, 반영자·시각 추가)."""
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+    orig = data.get('card_text', '') or ''
+    new_text = orig.replace('🔔 *[공사 금액 수정 요청]*', '✅ *[공사 금액 수정 완료]*')
+    new_text += f'\n☑️ 반영 : {checker_ini}  {now_str}'
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': new_text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn',
+            'text': f'✅ {checker_ini} 확인·반영 완료 · 요청자에게 DM 전송됨'}]},
+    ]
+    try:
+        client.chat_update(channel=channel, ts=ts, text=new_text, blocks=blocks)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사금액] 카드 갱신 실패 (ts={ts}): {exc}')
+
+
+def _dm_amount_request_done(requester_id: str, code: str, data: dict, checker_ini: str) -> None:
+    """요청자에게 금액 반영 완료 DM (im:write 있는 메인봇으로 발송)."""
+    if not requester_id:
+        return
+    updates = data.get('updates', {}) or {}
+    before = data.get('before', {}) or {}
+    vat_after = _vat_is_sep(updates.get('부가세', before.get('부가세')))
+    lines = [f':white_check_mark: *공사 금액 수정 반영 완료*  `{code}`']
+    for f in _AMOUNT_EDIT_FIELDS:
+        if f in updates:
+            lines.append(_fmt_edit_field_change(f, before.get(f, ''), updates[f], vat_after))
+    lines.append(f'\n경영지원({checker_ini}) 확인 후 반영되었습니다.')
+    text = '\n'.join(lines)
+    # DM 은 im:write 있는 메인봇으로 (계산서봇은 DM 개설 불가)
+    dm = _dm_client()
+    if dm is None:
+        logger.warning('[SLACK/공사금액] 메인봇 토큰 미설정 — 완료 DM skip')
+        return
+    try:
+        im = dm.conversations_open(users=requester_id)
+        dm_ch = ((im.get('channel') or {}) or {}).get('id')
+        if dm_ch:
+            dm.chat_postMessage(channel=dm_ch, text=text)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사금액] 완료 DM 실패 (requester={requester_id}): {exc}')
 
 
 def _process_project_cancel(client, body) -> None:
