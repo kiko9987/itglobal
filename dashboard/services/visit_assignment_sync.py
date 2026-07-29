@@ -287,6 +287,30 @@ def _addr_from_assignment(a: Dict) -> str:
 _ACTIVE_VISIT_STATUS = {'방문 예약', '공사 확정'}
 
 
+def _prefer_active_recent(cands: List[Dict]) -> Optional[Dict]:
+    """같은 주소/번호를 공유하는 여러 lead 중 현행 lead 선택.
+
+    우선순위: ①지난 방문(end < today) 제외 → ②활성 상태(방문 예약/공사 확정)
+    → ③최신(시트 뒤쪽). 반복 방문 현장(과천 서울랜드 07-23~24 vs 07-30~31,
+    무전화·동일 주소)에서 옛 lead 오선택 방지 (2026-07-29 ETC-d8b768/ETC-04915c).
+    """
+    if not cands:
+        return None
+    if len(cands) == 1:
+        return cands[0]
+    from datetime import date as _d
+    _today = _d.today()
+
+    def _not_past(c):
+        e = (_parse_visit_date_end(c.get('방문 예정일', ''))
+             or _parse_visit_date_start(c.get('방문 예정일', '')))
+        return e is None or e >= _today
+
+    pool = [c for c in cands if _not_past(c)] or cands
+    active = [c for c in pool if str(c.get('상태') or '').strip() in _ACTIVE_VISIT_STATUS]
+    return (active or pool)[-1]
+
+
 def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '') -> Optional[Dict]:
     """전화번호에 매칭된 lead(들) 중 하나 선택. 공유 번호면 주소로 disambiguate.
 
@@ -300,10 +324,6 @@ def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '') -> Opti
     if len(leads) == 1:
         return leads[0]
 
-    def _prefer(cands: List[Dict]) -> Dict:
-        _active = [c for c in cands if str(c.get('상태') or '').strip() in _ACTIVE_VISIT_STATUS]
-        return (_active or cands)[-1]  # 활성 우선, 그다음 최신(뒤쪽)
-
     cand = str(address or '').strip()
     if cand and len(cand) >= 8:
         matches = []
@@ -312,8 +332,8 @@ def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '') -> Opti
             if _sa and _sa != '-' and (cand in _sa or _sa in cand):
                 matches.append(_l)
         if matches:
-            return _prefer(matches)
-    return _prefer(leads)  # 주소 구분 불가 → 활성 우선 최신
+            return _prefer_active_recent(matches)
+    return _prefer_active_recent(leads)  # 주소 구분 불가 → 지난방문 제외·활성·최신
 
 
 def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
@@ -332,12 +352,18 @@ def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
     if a.get('address'):
         cand_addr = str(a['address']).strip()
         if cand_addr and len(cand_addr) >= 8:
+            # 2026-07-29: 주소 매치 전건 수집 후 지난방문 제외·활성·최신 우선.
+            #   반복 방문 현장(무전화·동일 주소)에서 옛 lead 오선택 방지
+            #   (서울랜드 07-23~24 ETC-d8b768 → 07-30~31 ETC-04915c).
+            matches = []
             for _l in addr_candidates:
                 _sa = str(_l.get('방문 주소','') or '').strip()
                 if not _sa or _sa == '-':
                     continue
                 if cand_addr in _sa or _sa in cand_addr:
-                    return _l
+                    matches.append(_l)
+            if matches:
+                return _prefer_active_recent(matches)
     return None
 
 
