@@ -243,3 +243,33 @@ def upload_file(folder_id: str, filename: str, content: bytes,
         f"{last_exc}"
     )
     return None
+
+
+def list_folder_filenames(folder_id: str) -> set:
+    """folder_id 안(1단계) 파일명 set 반환. 업로드 멱등 dedup 용 (2026-07-30).
+
+    조회 실패 시 빈 set (dedup 못 하면 그냥 업로드 — 안전 방향).
+    """
+    service = _get_drive_service()
+    if not service or not folder_id:
+        return set()
+    names = set()
+    page_token = None
+    try:
+        while True:
+            resp = service.files().list(
+                q=f"'{folder_id}' in parents and trashed=false",
+                fields='nextPageToken, files(name)',
+                pageSize=1000, pageToken=page_token,
+                supportsAllDrives=True, includeItemsFromAllDrives=True,
+            ).execute()
+            for f in resp.get('files', []):
+                if f.get('name'):
+                    names.add(f['name'])
+            page_token = resp.get('nextPageToken')
+            if not page_token:
+                break
+    except Exception as exc:
+        logger.warning(f"[DRIVE] 폴더 파일명 조회 실패 ({folder_id}): {exc}")
+        return set()
+    return names

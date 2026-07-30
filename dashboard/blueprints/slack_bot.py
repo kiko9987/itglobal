@@ -7837,7 +7837,7 @@ def _process_visit_thread_files(client, event) -> None:
         logger.error(f"[SLACK/방문 사진] {lead_no} lead 폴더 확보 실패 — skip")
         return
 
-    from dashboard.utils.google_drive import find_or_create_folder, upload_file
+    from dashboard.utils.google_drive import find_or_create_folder, upload_file, list_folder_filenames
     lead_folder = {
         'id': _folder_info['lead_folder_id'],
         'webViewLink': _folder_info['lead_folder_link'],
@@ -7888,9 +7888,13 @@ def _process_visit_thread_files(client, event) -> None:
         except Exception as exc:
             logger.warning(f"[SLACK/방문 사진] 진행 답글 post 실패: {exc}")
 
+    # 멱등 dedup — 이미 폴더에 있는 파일명은 재업로드 skip (중복 file_shared 이벤트·
+    # 재처리·재시작 복구 시 중복 방지, 2026-07-30)
+    _existing_names = list_folder_filenames(folder_id)
     uploaded = 0
     skipped_oversize = 0
     failed = 0
+    dup_skipped = 0
     for _idx, f in enumerate(files, 1):
         download_url = f.get('url_private_download') or f.get('url_private')
         if not download_url:
@@ -7898,6 +7902,19 @@ def _process_visit_thread_files(client, event) -> None:
             continue
         filename = f.get('name') or f.get('title') or f'photo_{f.get("id","unknown")}.jpg'
         mimetype = f.get('mimetype') or 'application/octet-stream'
+
+        # 이미 폴더에 있으면 재업로드 skip (멱등) — 저장된 것으로 카운트
+        if filename in _existing_names:
+            uploaded += 1
+            dup_skipped += 1
+            if _progress_ts and (_idx % 5 == 0 or _idx == _total):
+                try:
+                    client.chat_update(
+                        channel=channel, ts=_progress_ts,
+                        text=f":hourglass_flowing_sand: 사진 저장 중... ({_idx}/{_total})")
+                except Exception:
+                    pass
+            continue
 
         # 사전 크기 차단: Slack file object 의 size 필드 (bytes)
         size_hint = f.get('size') or 0
@@ -10280,8 +10297,141 @@ def _process_invoice_complete(client, body) -> None:
     logger.info(f"[SLACK/계산서] 발행 완료: {code} by {user_id}")
 
 
+def _recover_stuck_visit_photo_uploads():
+    """서버 시작 시, 재시작 등으로 중단된 '사진 저장 중' 배치를 자동 복구 (2026-07-30).
+
+    #방문_일정 최근 히스토리에서 '사진 저장 중… (N/M)' 로 멈춘 봇 메시지를 찾아,
+    같은 스레드의 배치 파일 메시지를 멱등(dedup) 재업로드 → 누락분만 올리고 메시지 완료 갱신.
+    배치 처리 스레드가 restart 로 죽으면 in-flight 파일이 유실되던 취약점 대응.
+    """
+    import time as _t
+    import urllib.request as _ur
+    channel = os.getenv('SLACK_VISIT_CHANNEL', '').strip()
+    token = (os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+             or os.getenv('SLACK_BOT_TOKEN', '').strip())
+    if not channel or not token:
+        return
+    try:
+        from slack_sdk import WebClient
+        from dashboard.utils.google_drive import (
+            list_folder_filenames, upload_file, find_or_create_folder)
+        from dashboard.utils.redis_client import get_redis_client
+        client = WebClient(token=token)
+        rc = get_redis_client().redis
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문사진복구] 초기화 실패: {exc}')
+        return
+
+    now = _t.time()
+    cutoff = now - 2 * 86400          # 최근 2일만
+    min_age = now - 180              # 3분 이내(진행 중일 수 있음)는 제외
+    stuck = []
+    cur = None
+    try:
+        for _ in range(6):
+            resp = client.conversations_history(
+                channel=channel, limit=200, **({'cursor': cur} if cur else {}))
+            msgs = resp.get('messages', [])
+            if not msgs:
+                break
+            stop = False
+            for m in msgs:
+                ts = float(m.get('ts', 0) or 0)
+                if ts < cutoff:
+                    stop = True
+                    break
+                if ('사진 저장 중' in (m.get('text', '') or '')
+                        and m.get('thread_ts') and ts < min_age):
+                    stuck.append(m)
+            cur = resp.get('response_metadata', {}).get('next_cursor')
+            if stop or not cur:
+                break
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문사진복구] history 조회 실패: {exc}')
+        return
+
+    if not stuck:
+        logger.info('[SLACK/방문사진복구] 중단된 배치 없음')
+        return
+    logger.info(f'[SLACK/방문사진복구] 중단 의심 {len(stuck)}건 점검')
+
+    for sm in stuck:
+        thread_ts, stuck_ts = sm.get('thread_ts'), sm.get('ts')
+        try:
+            reps = client.conversations_replies(
+                channel=channel, ts=thread_ts, limit=100).get('messages', [])
+        except Exception:
+            continue
+        # 배치 = stuck_ts 직전, files 있는 메시지 중 가장 최근
+        batch = None
+        for rm in reps:
+            if rm.get('files') and float(rm['ts']) < float(stuck_ts):
+                if batch is None or float(rm['ts']) > float(batch['ts']):
+                    batch = rm
+        if not batch:
+            continue
+        files = batch.get('files') or []
+        _raw = rc.hgetall(f'visit_thread:{channel}:{thread_ts}') or {}
+        info = {(k.decode() if isinstance(k, bytes) else k):
+                (v.decode() if isinstance(v, bytes) else v) for k, v in _raw.items()}
+        photo_fid = info.get('photo_folder_id', '')
+        if not photo_fid:
+            logger.warning(f'[SLACK/방문사진복구] {thread_ts} 폴더 매핑 없음 — skip(수동)')
+            continue
+        target = photo_fid
+        caption = (batch.get('text') or '').strip()
+        if caption and '\n' not in caption and len(caption) <= 30:
+            loc = re.sub(r'[\\/:*?"<>|]', '', caption).strip()
+            if loc:
+                lf = find_or_create_folder(loc, photo_fid)
+                if lf:
+                    target = lf['id']
+        existing = list_folder_filenames(target)
+        recovered = []
+        for f in files:
+            name = f.get('name') or f.get('title')
+            if not name or name in existing:
+                continue
+            url = f.get('url_private_download') or f.get('url_private')
+            if not url:
+                continue
+            try:
+                req = _ur.Request(url, headers={'Authorization': f'Bearer {token}'})
+                content = _ur.urlopen(req, timeout=30).read()
+                if upload_file(target, name, content, mimetype=f.get('mimetype', 'image/jpeg')):
+                    recovered.append(name)
+            except Exception as exc:
+                logger.warning(f'[SLACK/방문사진복구] 업로드 실패 ({name}): {exc}')
+        try:
+            _sfx = (f' (서버 재시작으로 중단됐던 {len(recovered)}장 복구)'
+                    if recovered else '')
+            client.chat_update(
+                channel=channel, ts=stuck_ts,
+                text=f':white_check_mark: 사진 {len(files)}장을 드라이브에 저장했습니다.{_sfx}')
+        except Exception:
+            pass
+        if recovered:
+            logger.info(f'[SLACK/방문사진복구] {thread_ts} {len(recovered)}장 복구: {recovered}')
+
+
 # 앱 시작 시 한 번 초기화 시도
 _init_slack_app()
 _init_visit_slack_app()
 _init_invoice_slack_app()
 _init_payment_slack_app()
+
+# 재시작으로 중단된 방문 사진 업로드 배치 자동 복구 (백그라운드 — 앱 init 여유 후, 2026-07-30)
+try:
+    import threading as _recov_thr
+
+    def _delayed_visit_photo_recovery():
+        import time as _rt
+        _rt.sleep(25)
+        try:
+            _recover_stuck_visit_photo_uploads()
+        except Exception as _exc:
+            logger.warning(f'[SLACK/방문사진복구] 실행 예외: {_exc}')
+
+    _recov_thr.Thread(target=_delayed_visit_photo_recovery, daemon=True).start()
+except Exception:
+    pass
