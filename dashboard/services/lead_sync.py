@@ -872,9 +872,12 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
     _consult_time = str(lead.get('상담 시간') or '').strip() or '-'
     _consult = str(lead.get('상담 내용') or '').strip() or '-'
 
+    # 리드번호 배지 — 온라인 완료 카드(slack_bot.py 상담완료/취소 헤더)와 동일 컨벤션
+    #   ':white_check_mark: *상담 완료 - {status}*  `{lead_no}`' (두 칸 + 백틱)
+    _hdr_lno = f"  `{lead_no}`" if lead_no else ""
     header_lines = [
         '⠀',
-        f':white_check_mark: *상담 완료 - {status}*',
+        f':white_check_mark: *상담 완료 - {status}*{_hdr_lno}',
         f'처리자 : {_processor}',
         f'처리 시간 : {_consult_time}',
         f'상담 내용 : {_consult}',
