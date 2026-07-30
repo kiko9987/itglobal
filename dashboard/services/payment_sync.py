@@ -228,6 +228,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         re.compile(r'^[\d,]+(?:\s*원)?$'),  # 단일 숫자 라인 (이미 amount로 사용)
         # 은행명 단독 라인 또는 "은행 입금X원" 라인만 skip — "하나90242344" 같은 카드 승인번호 보존
         re.compile(r'^(기업|하나|국민|신한|우리|농협|카카오|토스)(?:\s+입금|\s*$)'),
+        re.compile(r'^잔액'),  # 은행 SMS 잔액 라인 (거래처 아님, 2026-07-29 G3728)
     ]
     # 매니저 수기 요약/설명 라인 skip 패턴 (2026-07-10)
     #   "수령완료", "수령 완료", "수금완료입니다", "입금완료", "6월15일 272만원 현금 YG 수령완료"
@@ -250,9 +251,12 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             cleaned = ln
             cleaned = re.sub(r'\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}', '', cleaned)  # yyyy-mm-dd 먼저 (거래처 보존)
             cleaned = re.sub(r'입금\s*[\d,]+\s*원', '', cleaned)               # '입금 X원' 잔여 제거
+            # 접두 없는 금액 'X원' 제거 (카드 SMS '금액원 승인번호' → 승인번호 고립, 2026-07-29)
+            cleaned = re.sub(r'(?:\d{1,3}(?:,\d{3})+|\d{4,})\s*원', '', cleaned)
             cleaned = re.sub(r'\d{1,2}/\d{1,2}\b', '', cleaned)
             cleaned = re.sub(r'\d{1,2}:\d{2}\b', '', cleaned)
             cleaned = re.sub(r'\d{2,}[\*\-][\d\*\-]+', '', cleaned)
+            cleaned = re.sub(r'\(\s*\)', '', cleaned)  # 금액·계산식 제거 후 남은 빈 괄호만 정리 ('(주)…' 등 엣지 괄호는 보존)
             cleaned = re.sub(r'^적요\s*', '', cleaned)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
             if cleaned and not re.match(r'^[\d*\-,.\s]+$', cleaned):
@@ -276,8 +280,9 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
 
     # 현금 수령 free text 케이스는 매니저가 날짜 명시 안 하는 경우 많음.
     # date_md 없으면 오늘 날짜 fallback (매니저가 지금 입력 = 오늘 수령).
-    # incomplete 감지에서 skip 되지 않도록 (2026-07-15 R3791-MJ)
-    if partner == '현금 수령' and not date_md:
+    # incomplete 감지에서 skip 되지 않도록 (2026-07-15 R3791-MJ). '현금'/'현금 수령' 둘 다
+    # (접두없는 금액 제거로 '현금'만 추출되는 케이스 stuck 방지, 2026-07-29).
+    if partner in ('현금', '현금 수령') and not date_md:
         from datetime import datetime as _dt
         date_md = _dt.now().strftime('%m/%d')
 
@@ -699,8 +704,10 @@ def _parse_notes(notes: List[str],
 _CARD_PARTNER_RE = re.compile(r'^(?=.*[A-Za-z0-9])[0-9A-Z가-힣]{6,18}$')
 
 
+# '삼성카드'(카드 접미) 또는 '삼성 204108778'(카드사+공백+승인번호) 모두 카드로 인식.
+# _is_card_payment(Y='카드결제'/'혼합' 게이트) 안에서만 사용 → 은행 이체엔 영향 없음. (2026-07-29)
 _CARD_BRAND_RE = re.compile(
-    r'(?:비씨|BC|삼성|현대|롯데|신한|하나|국민|KB|NH|SH|SHC|우리|씨티|카카오)\s*카드'
+    r'(?:비씨|BC|삼성|현대|롯데|신한|하나|국민|KB|NH|SH|SHC|우리|씨티|카카오)\s*(?:카드|\d{4,})'
 )
 
 
