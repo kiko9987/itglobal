@@ -768,32 +768,6 @@ _SEP_HARD = '━━━━━━━━━━━━━━━━━━━━━━�
 _STAGE_COL_KEY = {'계약금': 'u', '중도금': 'v', '잔금': 'w'}
 
 
-def _same_partner_active_siblings(code: str) -> List[str]:
-    """같은 사업자명의 다른 프로젝트 코드 목록 (코드 혼동 경고용, 2026-07-29).
-
-    취소·중복 정리된 프로젝트는 보통 사업자명이 비어(-) 있어 자동 제외됨.
-    """
-    try:
-        from dashboard.services.project_service import get_project_records
-        recs = get_project_records() or []
-    except Exception:
-        return []
-    me = next((r for r in recs if (r.get('프로젝트 코드') or '').strip() == code), None)
-    if not me:
-        return []
-    biz = (me.get('사업자명') or '').strip()
-    if not biz or biz == '-':
-        return []
-    sibs = []
-    for r in recs:
-        c = (r.get('프로젝트 코드') or '').strip()
-        if not c or c == code:
-            continue
-        if (r.get('사업자명') or '').strip() == biz:
-            sibs.append(c)
-    return sibs
-
-
 def _norm_biz_name(s: str) -> str:
     """상호/입금자 정규화 — 법인격·공백·기호 제거 후 소문자."""
     s = re.sub(r'\(주\)|㈜|\(유\)|\(재\)|\(사\)|주식회사|유한회사|재단법인|사단법인', '', s or '')
@@ -871,15 +845,14 @@ def _partner_misplacement_warning(code: str, partner: str) -> str:
 
 
 def _payment_card_warnings(project: str, partner: str) -> List[str]:
-    """입금 카드 경고 라인 — B(같은 거래처 코드혼동) + C(입금자 다른 프로젝트 일치)."""
+    """입금 카드 경고 라인 — C(입금자가 다른 프로젝트 사업자명과 일치 = 오배치 의심)만.
+
+    2026-07-30: B(같은 거래처 프로젝트 N건) 제거. 반복 거래처(인테리어 등)는 한 사업자에
+    현장/프로젝트가 여럿이라 매 입금마다 뜨는 노이즈였고, 정상 여부와 무관하게 떠서 확인
+    피로만 유발. 실제 오배치는 C 가 정밀 검출(입금자가 붙인 프로젝트와 다를 때만), 반영자는
+    카드의 주소·공사내용·금액으로 프로젝트를 확인 가능.
+    """
     out: List[str] = []
-    try:
-        sibs = _same_partner_active_siblings(project)
-    except Exception:
-        sibs = []
-    if sibs:
-        shown = ' / '.join([project] + sibs[:3]) + ('…' if len(sibs) > 3 else '')
-        out.append(f"⚠️ 같은 거래처 프로젝트 {len(sibs) + 1}건 ({shown}) — 코드 확인")
     try:
         mis = _partner_misplacement_warning(project, partner)
     except Exception:
