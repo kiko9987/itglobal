@@ -63,5 +63,31 @@ class TestBankTransferRegression:
         assert p['partner'] == '김철수'
 
 
+class TestPayerLabelJunk:
+    """입금자 라벨에 날짜 junk('일시 02/20, 17:23')가 들어가면 거부 → 적요/이름 fallback (R3239)."""
+
+    def test_junk_label_falls_through_to_jeokyo(self):
+        """junk 라벨 무시하고 적요 사용 — 계약금·잔금 슬롯 일관."""
+        memo = ('입금일: \n입금자: 일시 02/20, 17:23\n입금 300,000원\n'
+                '계좌번호 255******31304\n적요 주식회사제우스')
+        for stage, notes in (('계약금', [memo, '', '']), ('잔금', ['', '', memo])):
+            res = _parse_notes(notes, stage_vals={'계약금': 300000, '중도금': 300000, '잔금': 300000})
+            p = next((x for x in res if x.get('stage') == stage), {})
+            assert p.get('partner') == '주식회사제우스', f'{stage}: {p.get("partner")!r}'
+
+    def test_junk_label_no_jeokyo_stuck(self):
+        """junk 라벨 + 적요 없음 → partner 빈값 (stuck → STUCK 체크로 잡힘, 조용히 틀리지 않음)."""
+        memo = '입금일: \n입금자: 일시 02/20, 17:23\n입금 300,000원\n계좌번호 255******31304'
+        res = _parse_notes([memo, '', ''], stage_vals={'계약금': 300000})
+        assert (res[0].get('partner') or '') in ('', '-')
+
+    def test_valid_label_kept(self):
+        """정상 입금자 라벨(현금·현금 수령)은 그대로 유지 (회귀 방지)."""
+        for lp in ('현금', '현금 수령'):
+            res = _parse_notes([f'입금자: {lp}\n입금 500,000원', '', ''],
+                               stage_vals={'계약금': 500000})
+            assert res[0].get('partner') == lp
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

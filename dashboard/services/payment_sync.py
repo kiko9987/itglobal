@@ -191,7 +191,11 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
                 date_md = f"{mm:02d}/{dd:02d}"
         m = _LABEL_PAYER_RE.match(ln)
         if m:
-            label_payer = m.group(1).strip()
+            _lp = m.group(1).strip()
+            # 입금자 라벨에 날짜/시간 junk(예 '일시 02/20, 17:23')가 들어가면 무시 →
+            # 적요/이름 라인으로 fallback (2026-07-29 R3239). 정상 입금자(상호·이름·현금)만 채택.
+            if _lp and not _lp.startswith('일시') and not re.fullmatch(r'[\d\s:,/.\-]+', _lp):
+                label_payer = _lp
 
     # 은행 — ITG 통장 계좌번호 우선 (카드사 약자보다 정확)
     bank = ''
