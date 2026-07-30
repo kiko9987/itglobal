@@ -6287,6 +6287,15 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
 
     lead = _find_lead_by_no(lead_no) or {}
 
+    # 날짜 유실 방어 (2026-07-30): MODIFY/RESTORE 워크플로는 new_visit_date 로 List
+    #   방문 예정일 셀을 세팅한다. 호출자가 빈 값으로 부르면 그 셀이 지워지는 사고
+    #   (소급 스크립트가 new_visit_date 없이 MODIFY 호출 → 날짜 4건 유실). 안 넘겼으면
+    #   시트의 현재 방문 예정일로 채워 유실 방지. CANCEL/COMPLETE 는 행 삭제라 무영향.
+    if not new_visit_date:
+        _cur_vd = str(lead.get('방문 예정일', '') or '').strip().lstrip("'")
+        if _cur_vd:
+            new_visit_date = _cur_vd
+
     # 메시지 permalink
     message_link = ''
     if channel and message_ts:
