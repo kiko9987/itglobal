@@ -4127,7 +4127,10 @@ def _parse_consultation_entries(text: str) -> list:
     entries = []
     if not text:
         return entries
-    for chunk in text.split(_CONSULT_DIVIDER):
+    # 두 divider 형태 대응: 표준 '\n─────────\n'(9칸 라인) + 방문완료 등이 붙이는
+    #   인라인 ' ─── '(3칸). ─ 3개 이상 연속을 구분자로 분할.
+    #   (2026-07-30 L-03371 등: 인라인 divider 미분할 → 뒤 회차 헤더가 content 에 남던 이슈)
+    for chunk in re.split(r'\s*─{3,}\s*', text):
         chunk = chunk.strip()
         if not chunk:
             continue
@@ -8429,9 +8432,13 @@ def _extract_latest_consult_content(text: str) -> str:
         return ''
     try:
         entries = _parse_consultation_entries(text)
-        if entries:
-            latest = (entries[-1].get('content') or '').strip()
-            return latest or text
+        # 최신 회차부터 역순으로 내용 있는 회차를 찾음. 방문 완료·부재중 등
+        #   빈 content 마커 회차는 건너뜀 (2026-07-30 L-03371: 최신이 빈 방문완료라
+        #   entries[-1].content 가 '' → 원문 전체 반환하며 헤더 노출되던 이슈).
+        for e in reversed(entries):
+            content = (e.get('content') or '').strip()
+            if content:
+                return content
     except Exception:
         pass
     return text
