@@ -1392,11 +1392,18 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
                 f'[PAYMENT] 정정 감지 — {stage} 외 줄도 변경돼 자동갱신 skip (수동 확인): '
                 f'{project} ts={ts}')
             return False
-    if old:  # 정정 전 스냅샷 → 스레드
+    if old:  # 정정 전 스냅샷 → 스레드 (무슨 내용인지 명확히 안내, 2026-07-30)
         now = datetime.now().strftime('%m/%d %H:%M')
+        _snap = (
+            f'🔄 *수금 카드가 갱신되었습니다* ({now})\n'
+            f'입금 메모가 정정되어 위 카드를 최신 내용으로 업데이트했습니다.\n'
+            f'아래는 *갱신 전 옛 카드*(기록 보존용) — 최신 금액·입금자는 '
+            f'이 스레드 맨 위 카드를 확인해 주세요.\n'
+            f'{_SEP}\n{old.strip()}'
+        )
         try:
             safe_slack_call(slack.chat_postMessage, channel=channel, thread_ts=ts,
-                            text=f'🔄 *정정 전* ({now})\n{old.strip()}', unfurl_links=False)
+                            text=_snap, unfurl_links=False)
         except Exception as exc:
             logger.warning(f'[PAYMENT] 정정 스냅샷 스레드 실패 ({project}): {exc}')
     try:
