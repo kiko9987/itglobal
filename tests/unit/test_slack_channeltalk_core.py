@@ -86,6 +86,57 @@ class TestSpamDetection:
                '천장형 에어컨 견적 가능할까요?')
         assert _is_spam_message(msg) is False
 
+    # ── 릴레이/포워딩 잡스팸 (2026-07-30 L-03451 펌킨779 케이스) ──
+    def test_real_relay_junk_spam_blocked(self):
+        """실제 유입 스팸 (폭염 안전문자 + skylife 청구서 + 계좌 덤프) → 차단"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        msg = (
+            'ㅃㄴ ㅌㅌ폭염으로 온열질환 발생 위험이 높습니다. ▲논·밭 등 야외작업 자제 [김포시]'
+            '[군포시청][Web발신]\n[skylife 요금청구서]\n납부하실 총 요금 : 26,740원\n'
+            '고객번호 : 0006360688\n납기일 : 2026.7.27\n미납요금 : 17,770원\n'
+            '청구서 이미지로 보기 http://billgate.skylife.co.kr/i/liEjaqBDLE\n'
+            '* 고객님 전용무통장 번호\n국민 378290-71-794373\n농협 136814-64-797605\n'
+            '하나 121-940386-07637\n우리 279-014117-18-537\n신한 562-13416-477475\n'
+            '기업 203-060793-97-281'
+        )
+        assert _is_spam_message(msg) is True
+
+    def test_bank_account_dump_blocked(self):
+        """은행 계좌번호 2개+ 덤프 → 즉시 차단"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        msg = '입금 부탁드립니다 국민 378290-71-794373 농협 136814-64-797605 감사합니다'
+        assert _is_spam_message(msg) is True
+
+    def test_web_send_plus_billing_blocked(self):
+        """[Web발신] + 요금청구서 (2개 카테고리) → URL 없어도 차단"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        msg = ('[Web발신] KT 요금청구서 안내입니다. 납부하실 총 요금 35,000원 '
+               '납기일 2026.8.5 까지 지로납부 바랍니다.')
+        assert _is_spam_message(msg) is True
+
+    def test_leading_jamo_garbage_blocked(self):
+        """선두 단독 자모 도배 → 차단 (긴 본문이어도 선두 포착)"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        assert _is_spam_message('ㅃㄴ ㅌㅌ 안녕하세요 에어컨 견적 문의드립니다 사무실 30평') is True
+
+    def test_laughter_prefix_not_spam(self):
+        """비웃음 낱자(ㅋㅋㅋ) 선두는 정상 — 오탐 방지"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        assert _is_spam_message('ㅋㅋㅋ 안녕하세요 사무실 에어컨 견적 좀 문의드려요 천장형이요') is False
+
+    def test_single_bank_account_not_spam(self):
+        """계좌번호 1개(본인 계좌 안내 등)는 통과 — 2개 미만"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        msg = ('견적 확정되면 국민 123456-78-901234 로 입금드리면 될까요? '
+               '사무실 에어컨 설치 문의합니다.')
+        assert _is_spam_message(msg) is False
+
+    def test_disaster_keyword_alone_not_spam(self):
+        """재난문자 키워드 1개 카테고리만으론 통과 — 2개 카테고리 필요 (오탐 방지)"""
+        from dashboard.blueprints.channeltalk import _is_spam_message
+        msg = '요즘 폭염경보 계속 뜨네요. 사무실 30평 천장형 에어컨 설치 견적 문의드립니다.'
+        assert _is_spam_message(msg) is False
+
 
 @pytest.mark.unit
 class TestSlackCardTruncate:

@@ -65,6 +65,34 @@ _SPAM_KEYWORDS_LOW = [
 ]
 _URL_RE = re.compile(r'https?://\S+')
 
+# ─────────────────────────────────────────────────────────────
+# 릴레이/포워딩 잡스팸 신호 (재난문자·요금청구서·계좌번호 덤프)
+#  — 마케팅 스팸과 별개 계열. 2026-07-30 L-03451(펌킨779) 케이스:
+#    폭염 안전문자 + skylife 청구서 + 은행 9곳 계좌덤프 + [Web발신] 이
+#    마케팅 키워드가 0점이라 기존 필터를 그대로 통과했음.
+# ─────────────────────────────────────────────────────────────
+# 대량/릴레이 발신 마커 — 정상 첫 문의엔 사실상 안 나옴
+_RELAY_MARKERS = ('web발신', '국외발신', '국제발신', '무료수신거부', '수신거부')
+# 요금청구/납부 클러스터
+_BILLING_KEYWORDS = (
+    '요금청구서', '납부하실', '미납요금', '지로납부', '납기일',
+    '청구금액', '무통장 번호', '무통장번호', '전용무통장',
+)
+# 재난·안전 안내문자 클러스터 ('폭염' 단독은 정상 문의에도 흔해 제외, '폭염경보'만)
+_DISASTER_KEYWORDS = (
+    '온열질환', '재난문자', '안전안내문자', '행정안전부', '질병관리청',
+    '기상특보', '한파경보', '호우경보', '대설경보', '폭염경보',
+)
+# 은행명 + 계좌번호 패턴 — 은행명 직후 하이픈/공백 섞인 8자+ 숫자열.
+# ≥2개면 계좌 덤프(정상 문의가 은행 계좌를 여러 개 나열할 일 없음).
+_BANK_ACCOUNT_RE = re.compile(
+    r'(?:국민|농협|하나|우리|신한|기업|부산|수협|케이뱅크|카카오뱅크|토스|'
+    r'씨티|SC제일|대구|광주|전북|경남|새마을|신협|우체국|산업)'
+    r'\s*[:\-]?\s*\d[\d\-\s]{6,}\d'
+)
+# 필터 회피용 선두 자모 도배에서 제외할 비웃음·감정 낱자 (ㅋㅋ/ㅎㅎ/ㅠㅠ/ㅜㅜ/ㅡㅡ)
+_EMOTIVE_JAMO = frozenset('ㅋㅎㅠㅜㅡ')
+
 
 def _spam_score(text_lower: str) -> int:
     """텍스트의 스팸 가중치 점수 합산"""
@@ -131,31 +159,85 @@ def _is_meaningless_short(text: str) -> bool:
     return False
 
 
-def _is_spam_message(text: str) -> bool:
-    """첫 메시지가 스팸 마케팅 패턴인지 판정 — 가중치 + 자모 도배 + 무의미 초단문.
+def _bank_account_dump_count(text: str) -> int:
+    """은행명+계좌번호 패턴 개수. 정상 문의는 0~1, 스팸 계좌덤프는 여러 개."""
+    if not text:
+        return 0
+    return len(_BANK_ACCOUNT_RE.findall(text))
 
-    판정 규칙:
-    - 무의미 초단문 → 즉시 차단 (낱자/기호로만, 또는 5자 이하+기호로 시작)
-    - 자모 도배 → 즉시 차단 (필터 회피용 chaos 텍스트, 10자↑ 대상)
-    - 짧은 메시지 (<50자): URL 1개+ + HIGH 키워드 1개+ (점수≥5) → 차단
-      ('https://channelup.kr 무료체험' 같은 명백한 짧은 광고)
-    - 긴 메시지 (≥50자):
-      · URL 2개+ + 점수≥3 → 차단
-      · URL 1개+ + 점수≥5 → 차단
 
-    정상 메시지가 약한 키워드 (예: '사장님' + '도움 되시' = 2점) 우연 누적으로
-    잘못 차단되는 일 방지 — LOW 키워드만으론 절대 5점 도달 X (총 14개 keyword).
+def _has_leading_jamo_garbage(text: str) -> bool:
+    """선두 15자(공백 제외) 안에 비웃음(ㅋㅎㅠㅜㅡ) 제외 단독 자모가 3개+ → 도배 선두.
+
+    긴 본문 뒤에 붙은 자모 도배는 _has_jamo_flood(비율 25%)가 놓치므로 선두를 따로 포착.
+    'ㅃㄴ ㅌㅌ폭염…' 은 잡고 'ㅋㅋㅋ 안녕하세요…' 는 통과(비웃음 낱자 제외).
     """
     if not text:
         return False
-    # 무의미 초단문 (봇 첫 메시지 패턴) — 즉시 차단
+    count = 0
+    checked = 0
+    for c in text:
+        if c.isspace():
+            continue
+        checked += 1
+        if checked > 15:
+            break
+        # Hangul Compatibility Jamo (ㄱ~ㅣ) 단독 낱자 — 비웃음·감정 낱자는 제외
+        if 'ㄱ' <= c <= 'ㅣ' and c not in _EMOTIVE_JAMO:
+            count += 1
+    return count >= 3
+
+
+def _relay_junk_categories(text: str, text_lower: str) -> int:
+    """릴레이 잡스팸 카테고리 존재 수 (발신마커/청구서/재난문자/계좌덤프)."""
+    cats = 0
+    if any(m in text_lower for m in _RELAY_MARKERS):
+        cats += 1
+    if any(k in text for k in _BILLING_KEYWORDS):
+        cats += 1
+    if any(k in text for k in _DISASTER_KEYWORDS):
+        cats += 1
+    if _bank_account_dump_count(text) >= 1:
+        cats += 1
+    return cats
+
+
+def _is_spam_message(text: str) -> bool:
+    """첫 메시지가 스팸 패턴인지 판정.
+
+    판정 규칙:
+    (1) 무의미 초단문 → 즉시 차단 (낱자/기호로만, 또는 5자 이하+기호로 시작)
+    (2) 자모 도배(비율 25%↑) / 선두 자모 도배 → 즉시 차단 (필터 회피 chaos)
+    (3) 릴레이/포워딩 잡스팸 (마케팅 키워드 0점 회피 계열) — 마케팅 점수와 독립:
+        · 은행 계좌덤프 2개+ → 즉시 차단
+        · 발신마커/청구서/재난문자/계좌덤프 중 2개 카테고리+ → 차단
+    (4) 마케팅 스팸 — 가중치 점수 + URL 조합:
+        · 짧은 메시지 (<50자): URL 1개+ + 점수≥5 → 차단
+        · 긴 메시지 (≥50자): URL 2개+ + 점수≥3, 또는 URL 1개+ + 점수≥5 → 차단
+
+    스팸 판정돼도 파괴적 동작 없음 — 시트 자동등록만 skip, 카드는 '스팸 의심'으로
+    노출 → 오탐이어도 매니저 응답 시 _register_pending_lead_if_any 로 복구 가능.
+    정상 메시지가 약한 키워드 우연 누적으로 잘못 차단되는 일 방지(LOW만으론 5점 X).
+    """
+    if not text:
+        return False
+    # (1)(2) 즉시 차단 시그널
     if _is_meaningless_short(text):
         return True
-    # 자모 도배 (자모+라틴 단독 문자 25%↑) — 즉시 차단
     if _has_jamo_flood(text):
+        return True
+    if _has_leading_jamo_garbage(text):
         return True
 
     text_lower = text.lower()
+
+    # (3) 릴레이/포워딩 잡스팸 — 마케팅 키워드 점수와 독립 (재난문자·청구서·계좌덤프)
+    if _bank_account_dump_count(text) >= 2:
+        return True
+    if _relay_junk_categories(text, text_lower) >= 2:
+        return True
+
+    # (4) 마케팅 스팸 — 가중치 + URL
     url_count = len(_URL_RE.findall(text))
     score = _spam_score(text_lower)
 
