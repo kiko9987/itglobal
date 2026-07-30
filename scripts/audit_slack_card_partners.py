@@ -140,12 +140,56 @@ def main() -> int:
                     'ts': m.get('ts', ''),
                 })
 
+    # 각 이상 건 → 현재 시트 메모 재파싱으로 '올바른 입금자' 제안 (2026-07-29).
+    #   카드 표시(과거 파싱) ↔ 현재 파서 결과 대조 → 정정 대상·값 한눈에.
+    try:
+        from dashboard.services.payment_sync import (
+            _get_payment_service, _parse_notes, _to_int_won)
+        svc = _get_payment_service()
+        _sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+        _sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+        _vals = svc.spreadsheets().values().get(
+            spreadsheetId=_sid, range=f"'{_sn}'!A2:AA10000",
+            valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [])
+        _nr = svc.spreadsheets().get(
+            spreadsheetId=_sid, ranges=[f"'{_sn}'!U2:W10000"],
+            fields='sheets.data.rowData.values.note',
+            includeGridData=True).execute()['sheets'][0]['data'][0].get('rowData', [])
+        _c2 = {}
+        for _off, _r in enumerate(_vals):
+            _cc = str((_r[0] if _r else '')).strip()
+            if _cc:
+                _c2[_cc] = _off
+
+        def _suggest(code, stage):
+            off = _c2.get(code)
+            if off is None:
+                return '(코드없음)'
+            _r = list(_vals[off]) + [''] * (27 - len(_vals[off]))
+            u, v, w = _to_int_won(_r[20]), _to_int_won(_r[21]), _to_int_won(_r[22])  # U/V/W
+            _notes = ['', '', '']
+            if off < len(_nr):
+                _vv = _nr[off].get('values', []) or []
+                for _i in range(min(3, len(_vv))):
+                    _notes[_i] = _vv[_i].get('note', '') or ''
+            for p in (_parse_notes(_notes, {'계약금': u, '중도금': v, '잔금': w}) or []):
+                if p.get('stage') == stage:
+                    return p.get('partner', '') or '(빈값)'
+            return '(파싱없음)'
+        for it in issues:
+            it['suggest'] = _suggest(it['code'], it['stage'])
+    except Exception as exc:
+        print(f'[!] 재파싱 제안 생략 (시트 접근 실패): {exc}')
+        for it in issues:
+            it['suggest'] = '?'
+
     print(f'[*] 이상 이력 라인: {len(issues)}건')
     print()
-    print(f"{'code':<12} {'stage':<3}  {'date':<6}  {'amount':>10}  partner  |  이슈")
-    print('-' * 100)
+    print(f"{'code':<12} {'stage':<3}  {'date':<6}  {'amount':>10}  {'카드표시':<24}  →  {'재파싱 제안':<16}  |  이슈")
+    print('-' * 120)
     for it in issues:
-        print(f"{it['code']:<12} {it['stage']:<3}  {it['date']:<6}  {it['amount']:>10}원  {it['partner']!r:<25}  |  {it['reasons']}")
+        print(f"{it['code']:<12} {it['stage']:<3}  {it['date']:<6}  {it['amount']:>10}원  "
+              f"{it['partner']!r:<24}  →  {it.get('suggest','?')!r:<16}  |  {it['reasons']}")
     return 0
 
 

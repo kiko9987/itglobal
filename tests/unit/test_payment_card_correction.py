@@ -77,5 +77,23 @@ def test_incomplete_parse_skips(monkeypatch):
     assert ps._correct_payment_card(fs, 'C', _CORR, 'sid', 'sn') is False
 
 
+def test_build_stage_card_text_middle_stage_no_crash():
+    """_build_stage_card_text 중도금/잔금-이력 경로 unpaid 인자 누락 크래시 회귀 (2026-07-29).
+
+    _build_stage_with_history_message 는 unpaid 필수인데 _build_stage_card_text 가
+    안 넘겨 중도금 정정 시 TypeError. → unpaid=c.get('unpaid',0) 전달로 수정.
+    """
+    payments = ps._parse_notes(
+        ['일시 07/10\n입금 1,000,000원\n적요 김철수',
+         '일시 07/20\n입금 2,000,000원\n적요 김철수', ''],
+        stage_vals={'계약금': 1000000, '중도금': 2000000, '잔금': 0})
+    c = {'address': 'A', 'construction': 'B', 'invoice': '', 'total_r': 5000000,
+         'total_t': 5000000, 'unpaid': 2000000, 'u': 1000000, 'v': 2000000, 'w': 0}
+    txt = ps._build_stage_card_text('중도금', 'TEST-01', payments, c,
+                                    {'계약금': 1000000, '중도금': 2000000, '잔금': 0})
+    assert '중도금 입금' in txt
+    assert '미수금 : -2,000,000원' in txt
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

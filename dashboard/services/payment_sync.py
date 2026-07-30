@@ -1356,7 +1356,8 @@ def _build_stage_card_text(stage: str, project: str, payments: List[Dict],
             stage=stage, project=project, address=c.get('address', ''),
             last_payment=last_payment, all_payments=payments,
             invoice_value=c.get('invoice', ''), total_r=c.get('total_r', 0),
-            total_t=c.get('total_t', 0), stage_sheet_vals=stage_vals,
+            total_t=c.get('total_t', 0), unpaid=c.get('unpaid', 0),
+            stage_sheet_vals=stage_vals,
             construction=c.get('construction', ''))
     return _build_stage_message(
         stage=stage, project=project, address=c.get('address', ''),
