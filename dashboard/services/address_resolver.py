@@ -350,17 +350,33 @@ _KOREAN_SURNAMES = (
 )
 
 
+# 상호·업종 접미어 — 사람 이름으로 오인돼 잘리면 안 됨 (2026-07-30 L-03475
+#   '남양가 양꼬치' → '양꼬치'(양=성씨 오인) 잘려 '남양가'만 남던 사고).
+_SHOP_NAME_SUFFIX = (
+    '꼬치', '반점', '식당', '국밥', '곱창', '갈비', '분식', '통닭', '치킨',
+    '피자', '숯불', '화로', '카페', '커피', '마트', '약국', '의원', '병원',
+    '한의원', '학원', '정육', '세탁', '미용', '네일', '횟집', '뷔페', '베이커리',
+    '노래방', '당구장', '문구', '철물', '설비', '공인', '부동산', '김밥', '냉면',
+    '족발', '보쌈', '떡집', '방앗간', '포차', '주점', '호프', '실내', '완구',
+)
+
+
 def _strip_personal_name(tail: str) -> str:
     """tail 끝의 한국 사람 이름(성씨 + 1~2자, 총 2~3자)을 제거.
 
     예: '그로브리조트 정승종' → '그로브리조트'
         'ABC빌딩 김지수' → 'ABC빌딩'
+    단, 상호·업종 접미어로 끝나면(양꼬치·홍반점 등) 사람 이름이 아니므로 유지.
     """
     if not tail:
         return tail
-    return re.sub(
-        rf'\s+(?:{_KOREAN_SURNAMES})[가-힣]{{1,2}}$', '', tail,
-    ).strip()
+    m = re.search(rf'\s+((?:{_KOREAN_SURNAMES})[가-힣]{{1,2}})$', tail)
+    if not m:
+        return tail
+    name = m.group(1)
+    if any(name.endswith(s) for s in _SHOP_NAME_SUFFIX):
+        return tail  # 상호·업종어 → 사람 이름 아님, 유지
+    return tail[:m.start()].strip()
 _TAIL_STOP_WORDS = [
     '신축', '상담', '견적', '문의', '연락', '전화', '에어컨', '설치', '예정',
     '냉방', '냉난방', '제품', '면적', '평수', '평형', '시스템',
@@ -523,6 +539,13 @@ def _extract_building_tail(text: str) -> str:
         tail = re.sub(r'[,.\s]+$', '', tail).strip()
         # 끝의 한국 사람 이름 제거 (예: "그로브리조트 정승종" → "그로브리조트")
         tail = _strip_personal_name(tail)
+        # 단위 문자 대문자화 (2026-07-30 L-03475): 'a동/b호' 처럼 동·호 앞 라틴
+        #   소문자를 대문자로 (그랑트윈타워a동 → 그랑트윈타워A동). 앞이 라틴이 아닌
+        #   단독 1~2자만 (건물명 중간 소문자 e/kt 등은 미대상).
+        tail = re.sub(
+            r'(?<![A-Za-z])([a-z]{1,2})(?=동|호|층|관|블록|블럭)',
+            lambda _m: _m.group(1).upper(), tail,
+        )
 
         # 의미 있는 건물·층·호 신호 있는지 검증
         if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):

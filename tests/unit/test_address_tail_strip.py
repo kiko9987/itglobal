@@ -40,5 +40,40 @@ class TestPhoneTailStrip:
         assert '전화' not in r[0]
 
 
+from dashboard.services.address_resolver import (
+    _strip_personal_name, _extract_building_tail,
+)
+
+
+class TestPersonalNameStripShopGuard:
+    """상호·업종 접미어는 사람 이름으로 오인해 자르면 안 됨 (L-03475 남양가 양꼬치)."""
+
+    @pytest.mark.parametrize('tail', [
+        '그랑트윈타워A동 남양가 양꼬치',   # 양꼬치(양=성씨) 유지
+        '강서구 홍반점',                  # 홍반점(홍) 유지
+        '마곡 김밥',                     # 김밥(김) 유지
+        '역삼 오리족발',                  # 족발 유지
+    ])
+    def test_shop_suffix_kept(self, tail):
+        assert _strip_personal_name(tail) == tail
+
+    @pytest.mark.parametrize('tail, expected', [
+        ('그로브리조트 정승종', '그로브리조트'),  # 실제 사람 이름은 여전히 제거
+        ('ABC빌딩 김지수', 'ABC빌딩'),
+    ])
+    def test_real_name_stripped(self, tail, expected):
+        assert _strip_personal_name(tail) == expected
+
+
+class TestLatinUnitUppercase:
+    """동·호 앞 라틴 소문자 대문자화 (L-03475 그랑트윈타워a동 → A동)."""
+
+    def test_a_dong_uppercased_and_shop_kept(self):
+        r = _extract_building_tail('서울시 강서구 마곡동799-7 그랑트윈타워a동 남양가 양꼬치')
+        assert 'A동' in r
+        assert 'a동' not in r
+        assert '양꼬치' in r  # 상호 유지
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
