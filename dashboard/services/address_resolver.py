@@ -1073,11 +1073,19 @@ _ADMIN_SUFFIX_RE = re.compile(r'(로|길|구|시|군|동|읍|면|리|번지|가|
 
 
 def _extract_region_hint(verified_addr: str) -> str:
-    """verified 주소에서 지역 힌트 추출 (첫 시/군/구/광역시)."""
-    for w in verified_addr.split():
+    """verified 주소에서 지역 힌트 추출 (첫 시/군/구/광역시).
+
+    2026-07-31 L-03254: 정규화 주소는 시 접미 없는 축약형(양주·시흥·화성)이 첫
+    토큰이라 `시|군|구|도$` 매칭이 실패 → region 빈값 → POI 쿼리에 지역 없어
+    전국 동명 상호가 나와 도로 불일치 → 지점명(송추점 등) 복원 실패. 구/동 우선,
+    없으면(시+면/리 rural) 첫 토큰(시/도 축약형)으로 fallback.
+    (road_key 일치가 append 를 gate 하므로 힌트 강화는 오탐 없이 매칭만 개선.)
+    """
+    words = verified_addr.split()
+    for w in words:
         if re.search(r'(?:시|군|구|도)$', w):
             return w
-    return ''
+    return words[0] if words else ''
 
 
 def _road_key(addr: str) -> str:
