@@ -207,30 +207,75 @@ def _post_normalize_display(addr: str) -> str:
     return ' '.join(out)
 
 
-@lru_cache(maxsize=512)
-def _kakao_search(query: str) -> Optional[dict]:
-    """카카오 로컬 검색. lru_cache로 동일 쿼리 재호출 방지."""
+class _KakaoTransientError(Exception):
+    """카카오 API 일시 실패(rate-limit/timeout/5xx). lru_cache 가 캐시하면 안 됨."""
+
+
+# 재시도 대상 HTTP — 429 rate-limit(유입 몰릴 때 잦음), 5xx 일시 서버 오류.
+_KAKAO_RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def _kakao_get_json(url: str):
+    """카카오 GET → JSON dict. 일시 실패(429/5xx/timeout/network)는 최대 3회 backoff
+    재시도, 소진 시 _KakaoTransientError raise (호출측 lru_cache 가 실패를 캐시 안 하도록
+    → 순간 장애가 재시작까지 sticky 하며 멀쩡한 주소에 '확인 필요' 오배지 붙던 문제 방지,
+    2026-07-31 L-03476). 인증(401/403)·파싱 오류는 None 반환(영구 상태라 캐시 무방)."""
+    import http.client as _hc
+    import socket
+    import time as _t
     key = _kakao_key()
-    if not key or not query.strip():
+    if not key:
+        return None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                url, headers={'Authorization': f'KakaoAK {key}'})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                logger.warning(
+                    f'[KAKAO] 인증/권한 실패 (HTTP {exc.code}). '
+                    f'developers.kakao.com 콘솔에서 카카오 맵 서비스 활성화 필요.'
+                )
+                return None
+            if exc.code in _KAKAO_RETRY_STATUS:
+                if attempt < 2:
+                    _t.sleep(0.4 * (attempt + 1))
+                    continue
+                raise _KakaoTransientError()  # 재시도 소진
+            logger.debug(f'[KAKAO] HTTP {exc.code}')
+            return None
+        except (socket.timeout, TimeoutError, _hc.IncompleteRead,
+                ConnectionError, OSError):
+            if attempt < 2:
+                _t.sleep(0.4 * (attempt + 1))
+                continue
+            raise _KakaoTransientError()
+        except Exception as exc:
+            logger.debug(f'[KAKAO] {type(exc).__name__}')
+            return None
+    raise _KakaoTransientError()
+
+
+@lru_cache(maxsize=512)
+def _kakao_search_cached(query: str) -> Optional[dict]:
+    url = KAKAO_ENDPOINT + '?' + urllib.parse.urlencode({'query': query})
+    data = _kakao_get_json(url)  # _KakaoTransientError 는 lru_cache 미캐시
+    if data is None:
+        return None
+    docs = data.get('documents', [])
+    return docs[0] if docs else None
+
+
+def _kakao_search(query: str) -> Optional[dict]:
+    """카카오 주소검색 (첫 결과 doc). 성공/유효-빈결과만 캐시(일시 실패는 재시도)."""
+    q = (query or '').strip()
+    if not q:
         return None
     try:
-        url = KAKAO_ENDPOINT + '?' + urllib.parse.urlencode({'query': query.strip()})
-        req = urllib.request.Request(url, headers={'Authorization': f'KakaoAK {key}'})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            data = json.loads(r.read())
-        docs = data.get('documents', [])
-        return docs[0] if docs else None
-    except urllib.error.HTTPError as exc:
-        if exc.code in (401, 403):
-            logger.warning(
-                f'[KAKAO] 인증/권한 실패 (HTTP {exc.code}). '
-                f'developers.kakao.com 콘솔에서 카카오 맵 서비스 활성화 필요.'
-            )
-        else:
-            logger.debug(f'[KAKAO] HTTP {exc.code} on "{query[:40]}"')
-        return None
-    except Exception as exc:
-        logger.debug(f'[KAKAO] {type(exc).__name__}: {query[:40]}')
+        return _kakao_search_cached(q)
+    except _KakaoTransientError:
         return None
 
 
@@ -238,27 +283,28 @@ _KAKAO_POI_ENDPOINT = 'https://dapi.kakao.com/v2/local/search/keyword.json'
 
 
 @lru_cache(maxsize=512)
+def _kakao_search_poi_cached(query: str) -> tuple:
+    url = _KAKAO_POI_ENDPOINT + '?' + urllib.parse.urlencode(
+        {'query': query, 'size': 3})
+    data = _kakao_get_json(url)  # _KakaoTransientError 는 lru_cache 미캐시
+    if data is None:
+        return ()
+    docs = data.get('documents', []) or []
+    return tuple(
+        (d.get('place_name', '') or '', d.get('road_address_name', '') or '')
+        for d in docs
+    )
+
+
 def _kakao_search_poi(query: str) -> tuple:
-    """카카오 POI(키워드) 검색 — 상호명 → 정확한 지점명·주소.
-    반환: ((place_name, road_address_name), ...) 튜플 (lru_cache 호환).
-    """
-    key = _kakao_key()
-    if not key or not query.strip():
+    """카카오 POI(키워드) 검색 — 상호명 → (place_name, road_address_name) 튜플.
+    성공/유효-빈결과만 캐시(일시 실패는 재시도, 2026-07-31 L-03476)."""
+    q = (query or '').strip()
+    if not q:
         return ()
     try:
-        url = _KAKAO_POI_ENDPOINT + '?' + urllib.parse.urlencode(
-            {'query': query.strip(), 'size': 3}
-        )
-        req = urllib.request.Request(url, headers={'Authorization': f'KakaoAK {key}'})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            data = json.loads(r.read())
-        docs = data.get('documents', []) or []
-        return tuple(
-            (d.get('place_name', '') or '', d.get('road_address_name', '') or '')
-            for d in docs
-        )
-    except Exception as exc:
-        logger.debug(f'[KAKAO/POI] {type(exc).__name__}: {query[:40]}')
+        return _kakao_search_poi_cached(q)
+    except _KakaoTransientError:
         return ()
 
 
