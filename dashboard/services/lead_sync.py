@@ -2056,6 +2056,8 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 )
             addr_note: Optional[Dict[str, str]] = None
             addr_for_notify = addr_raw
+            # 온라인 완료 카드 주소 배지 판정용 — resolve 결과 레벨 캡처 (2026-07-31 L-03476)
+            _addr_level_result: Optional[str] = None
             # 2026-07-22: 전화 추가 — 매니저 통화 후 raw 주소 입력 케이스도 자동 정규화
             #   (L-03313: '경기도 김포시 하성면 전류리 산57-22' → '김포 하성면 전류리 산 57-22')
             _addr_target_platforms = {'거래처', '기타', '소개', '전화'}
@@ -2074,6 +2076,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     _norm, _level = _ar.resolve_address(
                         addr_raw, _regex_addr, _regex_lv,
                     )
+                    _addr_level_result = _level
                     if _level == 'verified' and _norm and _norm != addr_raw:
                         # 카카오 verified 정정 성공 & 원본과 다름 → 시트 update + 배지
                         update_cells.append((f"I{sheet_row}", _norm))
@@ -2185,6 +2188,18 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 if _plat_row == '전화':
                     try:
                         _lead_dict = row.to_dict() if hasattr(row, 'to_dict') else dict(row)
+                        # 온라인 완료 카드도 방문 카드와 동일 정규화 소스 사용 (2026-07-31 L-03476)
+                        #   row.to_dict() 는 시트 raw + _meta 미포함 → build_inquiry_blocks 가
+                        #   addr_level='' 로 보고 항상 '주소 확인 필요' 배지를 붙였음. 방문 카드는
+                        #   addr_for_notify(정규화본)를 써 배지 없이 원본/변환 2줄로 나오는데
+                        #   온라인 완료 카드만 raw+배지라 불일치. 정규화 결과를 주입해 온라인 리드와
+                        #   동일하게 원본/변환 표시 — verified=배지없음, 비verified=배지유지(오방문 방지).
+                        if _addr_level_result is not None and addr_raw:
+                            _lead_dict['방문 주소'] = addr_for_notify
+                            _lead_dict['_meta_address_raw'] = addr_raw
+                            _lead_dict['_meta_address_level'] = (
+                                'verified' if _addr_level_result == 'verified' else ''
+                            )
                         # 공백 유무 무관 매칭 (워크플로 '견적요청' / 시트 '견적 요청')
                         if status.replace(' ', '') == '견적요청':
                             _post_active_phone_lead_card(_lead_dict, new_lead_no)
