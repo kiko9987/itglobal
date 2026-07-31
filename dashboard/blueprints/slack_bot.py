@@ -5476,6 +5476,8 @@ def _process_consult_submission(client, body, view):
             if email:
                 update_data['이메일'] = email
             if visit_address:
+                # 방문 모달 주소 정규화 (2026-07-30) — verified 만 정정, 아니면 raw 유지.
+                visit_address = _normalize_visit_address_if_verified(visit_address)
                 update_data['방문 주소'] = visit_address
             if consultation:
                 # 재상담 이력 append (2026-07-20) — 옛 K열 값에 [시간 이니셜 · status]
@@ -8579,6 +8581,33 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         return False
 
 
+def _normalize_visit_address_if_verified(raw_addr: str) -> str:
+    """방문 모달에 입력된 주소를 카카오 verified 일 때만 정규화값으로, 아니면 raw 유지.
+
+    2026-07-30: 당근/온라인 intake·전화 sync(lead_sync 2059)는 이미 resolve_address 로
+    정규화하는데 방문 모달(상담하기·방문요청 submit)만 raw 그대로 저장돼 규격 불일치였음
+    (특히 채널톡·카톡 리드는 모달에서 주소를 처음 입력). 전화 sync 와 동일 사상:
+    verified 확신 있을 때만 도로명·건물명 정정, 미verified(오타 가능)면 raw 보존.
+    """
+    raw = (raw_addr or '').strip()
+    if not raw:
+        return raw
+    try:
+        from dashboard.services import address_resolver as _ar
+        from dashboard.services import lead_helpers as _lh
+        _rx = _lh.extract_korean_address(raw)
+        _norm, _lv = _ar.resolve_address(
+            raw, _rx[0] if _rx else None, _rx[1] if _rx else '',
+        )
+        if _lv == 'verified' and _norm:
+            if _norm != raw:
+                logger.info(f"[SLACK/방문주소] 모달 주소 정규화: '{raw}' → '{_norm}'")
+            return _norm
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문주소] 모달 정규화 실패 (raw 유지): {exc}")
+    return raw
+
+
 def _process_visit_submission(client, body, view):
     """방문 요청 모달 제출 → 메인 시트 업데이트 + 원본 메시지에 답글 + 슬랙 List 등록"""
     metadata = json.loads(view["private_metadata"])
@@ -8591,6 +8620,10 @@ def _process_visit_submission(client, body, view):
     visit_date_raw = (_v(state, "visit_date") or '').strip()  # ISO "2026-06-25" (슬랙 표시용)
     visit_date_for_sheet = _format_date_for_sheet(visit_date_raw) if visit_date_raw else ''
     visit_address = _v(state, "visit_address")
+    # 방문 모달 주소 정규화 (2026-07-30) — verified 만 정정, 아니면 raw 유지.
+    #   시트·List·답글·카드가 모두 이 값을 쓰므로 여기서 한 번 정규화.
+    if visit_address:
+        visit_address = _normalize_visit_address_if_verified(visit_address)
     consultation = _v(state, "consultation")
 
     # 메인 시트 업데이트
