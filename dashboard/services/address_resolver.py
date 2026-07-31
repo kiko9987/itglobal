@@ -1133,6 +1133,40 @@ def _poi_has_facility(place_name: str) -> bool:
     return False
 
 
+def _replace_compound_with_tenant(verified_addr, original_text, candidates, v_key, region):
+    """복합 등록명(A ·B) 건물 → 고객이 지목한 시설의 POI 정식명으로 재구성.
+
+    2026-07-30 ETC-45cab9: 카카오 주소 API 건물 등록명이 '온수 어르신복지회관 ·보훈회관'
+    (한 건물 내 별개 시설 병기)인데 고객은 '온수어르신복지회관'(테넌트)만 방문. 보훈회관은
+    층·구역이 다른 별개 시설이라 방문 주소 노이즈. 고객이 지목한 테넌트가 POI place_name
+    ('온수어르신복지관', 도로 일치)과 유사하면 도로+번지 + POI 정식명 + 층/호 로 재구성.
+    반환: 재구성된 주소 or None(적용 안 함 — 안전 fallback).
+    """
+    from difflib import SequenceMatcher
+    for cand in candidates:
+        if len(cand) < 4:
+            continue
+        for P, road in _search_poi(f'{cand} {region}'.strip()):
+            if not P or not road or _road_key(road) != v_key or _poi_has_facility(P):
+                continue
+            _pn, _cn = P.replace(' ', ''), cand.replace(' ', '')
+            # 같은 시설 판정 — 유사도 0.8+ or 5자+ 공통 접두 (복지관↔복지회관 사소 차이 허용)
+            same = (SequenceMatcher(None, _cn, _pn).ratio() >= 0.8
+                    or (len(_cn) >= 5 and _pn.startswith(_cn[:5])))
+            if not same:
+                continue
+            # 도로+번지 prefix 추출 (로/길 + 번지). 없으면 재구성 포기(안전).
+            m = re.match(
+                r'(.*?[가-힣\dA-Za-z]+(?:로|길)\s+(?:지하\s*)?\d+(?:-\d+)?)', verified_addr)
+            if not m:
+                return None
+            prefix = m.group(1).strip()
+            details = re.findall(r'(?:지하\s*)?\d+(?:-\d+)?\s*(?:층|호|동)', verified_addr)
+            tail = ' '.join(d.strip() for d in details)
+            return (prefix + ' ' + P + ((' ' + tail) if tail else '')).strip()
+    return None
+
+
 def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     """POI 검색으로 상호 지점명 부착.
 
@@ -1151,6 +1185,13 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     candidates = _extract_shop_candidates(original_text)
     if not candidates:
         return verified_addr
+
+    # (B) 복합 등록명(·) 건물 → 고객 지목 시설 POI 정식명 재구성 (2026-07-30 ETC-45cab9)
+    if '·' in verified_addr or '・' in verified_addr:
+        _b = _replace_compound_with_tenant(
+            verified_addr, original_text, candidates, v_key, region)
+        if _b:
+            return _b
 
     # 다단어 상호 → 카카오 정식 place_name 채택 (2026-07-30 G1, L-03475 남양가 양꼬치)
     #   verified 에 실재하는 공백형 상호('남양가 양꼬치')만, 카카오 place_name 이

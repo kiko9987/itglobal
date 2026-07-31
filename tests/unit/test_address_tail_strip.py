@@ -182,5 +182,38 @@ class TestMultiTokenDedup:
         assert '보훈회관' in out
 
 
+class TestCompoundTenantReplace:
+    """복합 등록명(A ·B) → 고객 지목 테넌트 POI 정식명 재구성 (ETC-45cab9, B)."""
+
+    def _patch(self, monkeypatch, results):
+        monkeypatch.setattr(_ar, '_search_poi', lambda q: results)
+
+    def test_compound_replaced_with_tenant(self, monkeypatch):
+        self._patch(monkeypatch, [('온수어르신복지관', '서울 구로구 부일로9길 111')])
+        out = _ar._enrich_with_poi(
+            '구로구 부일로9길 111 온수 어르신복지회관 ·보훈회관 4층 온수어르신복지회관',
+            '구로구 부일로9길 111 , 4층 온수어르신복지회관')
+        assert out == '구로구 부일로9길 111 온수어르신복지관 4층'
+
+    def test_facility_poi_not_used(self, monkeypatch):
+        self._patch(monkeypatch, [('온수어르신복지관 주차장', '서울 구로구 부일로9길 111')])
+        v = '구로구 부일로9길 111 온수 어르신복지회관 ·보훈회관 4층'
+        out = _ar._enrich_with_poi(v, '구로구 부일로9길 111 4층 온수어르신복지회관')
+        assert '주차장' not in out  # 부속시설 POI → 재구성 안 함
+
+    def test_unrelated_poi_not_used(self, monkeypatch):
+        self._patch(monkeypatch, [('전혀다른상호', '서울 구로구 부일로9길 111')])
+        v = '구로구 부일로9길 111 온수 어르신복지회관 ·보훈회관 4층'
+        out = _ar._enrich_with_poi(v, '구로구 부일로9길 111 4층 온수어르신복지회관')
+        assert '전혀다른상호' not in out  # 고객 지목과 무관 → 재구성 안 함
+
+    def test_no_compound_skips_B(self, monkeypatch):
+        # · 없으면 (B) 미적용 (재구성으로 층 순서 안 바뀜)
+        self._patch(monkeypatch, [('온수어르신복지관', '서울 구로구 부일로9길 111')])
+        v = '구로구 부일로9길 111 4층 온수어르신복지회관'
+        out = _ar._enrich_with_poi(v, v)
+        assert out == v
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
