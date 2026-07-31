@@ -1381,6 +1381,22 @@ def _register_handlers(app):
             if errors:
                 ack(response_action="errors", errors=errors)
                 return
+        # 재상담 신원 덮어쓰기 방어 (2026-07-31 L-03367) — 다른 고객의 완료 카드에
+        # 잘못 [재상담] 눌러 기존 리드 고객명/연락처를 덮어쓰는 것 방지. 신원이
+        # 바뀌면 경고 배너를 얹어 값 보존 재렌더 → 매니저가 확인 후 재제출해야 진행.
+        # (같은 고객 재상담은 pre-fill 그대로라 안 걸림 → 정상 흐름 무마찰)
+        try:
+            _meta = json.loads(view.get("private_metadata") or "{}")
+            if _meta.get("lead_no") and not _meta.get("_identity_confirmed"):
+                _old = _find_lead_by_no(_meta["lead_no"]) or {}
+                _idc = _consult_identity_changed(
+                    _old, _v(state, "name"), _v(state, "contact"))
+                if _old and _idc.get("changed"):
+                    ack(response_action="update",
+                        view=_build_consult_identity_confirm_view(_meta, state, _idc))
+                    return
+        except Exception as _gexc:
+            logger.warning(f"[SLACK/상담] 신원 확인 게이트 skip (fallback 진행): {_gexc}")
         ack()
         def _bg():
             try:
@@ -5361,6 +5377,102 @@ def _build_consult_view(info_blocks: list, metadata: str, prefilled: dict) -> di
     }
 
 
+def _consult_identity_changed(old_lead: dict, new_name: str, new_contact: str) -> dict:
+    """재상담이 기존 리드의 신원(고객명/연락처)을 다른 값으로 바꾸는지 판정.
+
+    2026-07-31 L-03367: 매니저가 다른 고객의 완료 카드에서 [재상담] 을 눌러 전혀
+    다른 고객 정보를 입력 → 기존 리드 고객명·주소가 조용히 덮어써져 원 리드가
+    소실됐다. 같은 고객 재상담이면 고객명·연락처가 (pre-fill 그대로라) 동일해 무해.
+    둘 중 하나가 다른 값으로 바뀌면 '다른 카드에 잘못 누른' 신호로 본다.
+    공백·하이픈만 다른 경우는 동일 취급, 옛 값이 비면 비교 불가 → 변경 아님.
+
+    Returns: {'changed': bool, 'name': (old,new)|None, 'contact': (old,new)|None}
+    """
+    def _n(s):
+        return re.sub(r'\s+', '', str(s or '')).strip()
+
+    def _np(s):
+        return re.sub(r'\D', '', str(s or ''))
+
+    old_name, old_contact = _n(old_lead.get('고객명')), _np(old_lead.get('고객 연락처'))
+    nn, nc = _n(new_name), _np(new_contact)
+    name_diff = bool(nn and old_name and nn != old_name)
+    contact_diff = bool(nc and old_contact and nc != old_contact)
+    return {
+        'changed': name_diff or contact_diff,
+        'name': (str(old_lead.get('고객명') or ''), str(new_name or '')) if name_diff else None,
+        'contact': (str(old_lead.get('고객 연락처') or ''), str(new_contact or '')) if contact_diff else None,
+    }
+
+
+def _build_consult_identity_confirm_view(metadata: dict, state: dict, idc: dict) -> dict:
+    """재상담 신원 변경 확인 view — 상담 모달을 값 보존 재렌더 + 경고 배너 prepend.
+
+    resubmit 시 metadata['_identity_confirmed']=True 라 게이트를 통과한다
+    (callback_id 는 그대로 submit_consult → 별도 view 핸들러 불필요).
+    """
+    def _cur(bid):
+        return (_v(state, bid) or '').strip()
+
+    prefilled = {
+        'visit_type': _cur("visit_type") or '온라인',
+        'status': _cur("status") or '유선 상담',
+        'visit_date': _cur("visit_date"),
+        'visit_date_end': _cur("visit_date_end"),
+        'name': _cur("name"),
+        'contact': _cur("contact"),
+        'email': _cur("email"),
+        'visit_address': _cur("visit_address"),
+        'consultation': _cur("consultation"),
+    }
+    new_meta = dict(metadata)
+    new_meta['_identity_confirmed'] = True
+    lead_no = metadata.get('lead_no', '')
+    diff_lines = []
+    if idc.get('name'):
+        diff_lines.append(f"• 고객명: `{idc['name'][0] or '-'}` → `{idc['name'][1] or '-'}`")
+    if idc.get('contact'):
+        diff_lines.append(f"• 연락처: `{idc['contact'][0] or '-'}` → `{idc['contact'][1] or '-'}`")
+    warn = (
+        f":warning: *이 재상담이 기존 리드 `{lead_no}` 의 고객 정보를 덮어씁니다.*\n"
+        + "\n".join(diff_lines) + "\n\n"
+        ":point_right: *같은 고객* 이면 그대로 아래 [등록] 을 다시 눌러 진행하세요.\n"
+        ":point_right: *다른 고객* 이면 이 창을 닫고 [전화 문의 등록하기] 로 새로 "
+        "등록하세요. (그대로 진행하면 기존 리드 정보가 사라집니다)"
+    )
+    info_blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": warn}},
+        {"type": "divider"},
+    ]
+    return _build_consult_view(
+        info_blocks, json.dumps(new_meta, ensure_ascii=False), prefilled)
+
+
+def _backup_consult_overwrite(lead_no: str, old_lead: dict, idc: dict, user_id: str) -> None:
+    """재상담이 신원을 덮어쓰기 직전 이전 행 스냅샷을 Redis 90일 보관 + WARNING.
+
+    확인 게이트를 통과해 진행하더라도(오확인 포함) 원 리드를 복구할 수 있게 한다.
+    key: consult_overwrite_backup:{lead_no}
+    """
+    _fields = ('리드 No', '고객명', '고객 연락처', '이메일', '방문 주소', '방문 예정일',
+               '상태', '상담 내용', '플랫폼', '상담 시간', '온라인 상담자', '영업 담당자')
+    snap = {k: str(old_lead.get(k, '') or '') for k in _fields}
+    snap['_overwritten_by'] = user_id
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.set(
+            f'consult_overwrite_backup:{lead_no}',
+            json.dumps(snap, ensure_ascii=False), ex=60 * 60 * 24 * 90,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/상담] 백업 저장 실패 ({lead_no}): {exc}")
+    logger.warning(
+        f"[SLACK/상담] ⚠ 재상담 신원 덮어쓰기 ({lead_no}) by {user_id}: "
+        f"name={idc.get('name')} contact={idc.get('contact')} "
+        f"— 이전 스냅샷 백업(consult_overwrite_backup:{lead_no}, 90일)"
+    )
+
+
 def _process_consult_submission(client, body, view):
     """통합 상담 모달 제출 → 처리 유형별 분기 (방문/견적/유선/문의 드랍/거래처/기타)"""
     metadata = json.loads(view.get("private_metadata") or "{}")
@@ -5494,6 +5606,15 @@ def _process_consult_submission(client, body, view):
             counselor = _slack_user_to_korean_name(client, user_id)
             if counselor:
                 update_data['온라인 상담자'] = counselor
+            # 재상담 신원 덮어쓰기 백업 (2026-07-31 L-03367) — 게이트를 통과해
+            # 진행하더라도(오확인 포함) 원 리드를 복구할 수 있게 이전 스냅샷 보관.
+            try:
+                _old_for_backup = _find_lead_by_no(lead_no) or {}
+                _idc_bk = _consult_identity_changed(_old_for_backup, name, contact)
+                if _idc_bk.get('changed'):
+                    _backup_consult_overwrite(lead_no, _old_for_backup, _idc_bk, user_id)
+            except Exception as _bkexc:
+                logger.warning(f"[SLACK/상담] 덮어쓰기 백업 실패 ({lead_no}): {_bkexc}")
             update_lead(lead_no, update_data)
         except Exception as exc:
             logger.error(f"[SLACK/상담] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
