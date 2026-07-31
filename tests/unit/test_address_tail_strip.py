@@ -126,5 +126,33 @@ class TestPoiShopAdoption:
         assert _ar._enrich_with_poi(raw, '서울시 강서구 마곡동799-7 그랑트윈타워a동 남양가 양꼬치') == raw
 
 
+class TestPoiFacilityFilter:
+    """POI 상호 뒤 어느 단어든 부속시설이면 부착 skip (2026-07-30 근본 수정)."""
+
+    @pytest.mark.parametrize('place_name, is_fac', [
+        ('롯데마트 고양점 주차장', True),     # 주차장=3번째 (기존 버그: 통과)
+        ('한국화훼농협 ATM 본점', True),      # ATM=2번째 (blacklist 신규)
+        ('삼조빌딩 앞_옥외 102호', True),     # 옥외
+        ('현대백화점 무역센터점 지하주차장', True),
+        ('남양가양꼬치 마곡점', False),        # 정상 지점명
+        ('마성떡볶이 논현역점', False),
+        ('스타벅스 강남R점', False),
+    ])
+    def test_facility_detection(self, place_name, is_fac):
+        assert _ar._poi_has_facility(place_name) is is_fac
+
+    def test_enrich_skips_facility_at_pos3(self, monkeypatch):
+        monkeypatch.setattr(_ar, '_search_poi',
+                            lambda q: [('롯데마트 고양점 주차장', '고양 덕양구 충장로 150')])
+        raw = '고양 덕양구 충장로 150 롯데마트 고양점 2층'
+        assert _ar._enrich_with_poi(raw, raw) == raw  # 주차장 미부착
+
+    def test_enrich_skips_atm(self, monkeypatch):
+        monkeypatch.setattr(_ar, '_search_poi',
+                            lambda q: [('한국화훼농협 ATM 본점', '고양 일산서구 대화로 362')])
+        raw = '고양 일산서구 대화로 362 한국화훼농협'
+        assert _ar._enrich_with_poi(raw, raw) == raw  # ATM 미부착
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

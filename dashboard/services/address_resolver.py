@@ -1095,12 +1095,33 @@ def _joined_shop_candidates(text: str) -> list:
     return out
 
 
-# POI 두 번째 단어가 부속시설이면 상호 지점 아님 (상호 채택 시 blacklist)
+# POI place_name 후행 단어가 부속시설이면 상호 지점 아님 → 부착 skip.
+_POI_FACILITY_EXACT = frozenset({'지하', '옥상', '별관', '분관', '사무실'})
 _POI_FACILITY_SUBSTR = (
     '주차장', '화장실', '엘리베이터', '승강기', '경비실', '관리실',
     '관리사무소', '관리소', '관리단', '기계실', '전기실', '방재실',
     '충전소', '정문', '후문', '출입구',
+    # 2026-07-30 근본 수정: 카카오 POI 가 시설 POI 를 먼저 반환하면 junk 부착됨.
+    #   'ATM'(현금인출기)·'옥외'(앞_옥외 등 옥외 주차/공간).
+    'atm', '옥외',
 )
+
+
+def _poi_has_facility(place_name: str) -> bool:
+    """place_name 의 상호(첫 단어) 이후 **모든** 단어에 부속시설어가 있으면 True.
+
+    2026-07-30 근본 수정: 기존엔 두 번째 단어(place_words[1])만 검사해서
+    '롯데마트 고양점 주차장'(주차장=3번째)·'한국화훼농협 ATM 본점' 같은 시설 POI 가
+    통과해 junk 부착 (신규 등록에도 발생하던 버그, backfill 아님). 상호 뒤 전 단어 검사.
+    """
+    words = place_name.split()
+    for w in words[1:]:
+        wl = w.lower()
+        if w in _POI_FACILITY_EXACT:
+            return True
+        if any(f in wl for f in _POI_FACILITY_SUBSTR):
+            return True
+    return False
 
 
 def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
@@ -1136,9 +1157,8 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             _pn_ns = _pname.replace(' ', '')
             if not _pn_ns.startswith(_jc) or _pn_ns == _jc:
                 continue  # 정식명이 상호로 시작 + 지점명 추가된 경우만
-            _pw = _pname.split()
-            if len(_pw) >= 2 and any(_f in _pw[1] for _f in _POI_FACILITY_SUBSTR):
-                continue  # 부속시설(주차장 등)
+            if _poi_has_facility(_pname):
+                continue  # 부속시설(주차장·ATM 등) POI
             return verified_addr.replace(_spaced, _pname, 1)
 
     # verified 에 이미 있는 후보는 우선순위 낮춤 (원문 신규 상호 먼저 시도)
@@ -1165,25 +1185,12 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             )
             if not _match:
                 continue
-            # 부속시설 blacklist (2026-07-20 L-03299 관측) — POI 두 번째 단어가
-            # 부속시설이면 상호 지점이 아니라 시설 표시라 매니저 오해 소지. skip.
-            # 예: "캠브리지빌딩 주차장" (place_second='주차장') → 원본에 없는 시설 부착
-            _place_words = place_name.split()
-            # 2026-07-24 L-03376 추가: '관리단', '관리사무소', '관리소', '사무실', '경비실'
-            #   ('판교디지털센터 관리단' → '관리단' 부착 케이스 방지).
-            # 2026-07-27 ETC-9c87ea: 정확 매치는 '개방화장실'·'지하주차장' 같은 복합어를
-            #   못 걸러 '리젠트오피스텔 개방화장실' 이 부착됨. 시설 명사는 부분 매치로 강화.
-            _fac_exact = {'지하', '옥상', '별관', '분관', '사무실'}
-            _fac_substr = (
-                '주차장', '화장실', '엘리베이터', '승강기', '경비실', '관리실',
-                '관리사무소', '관리소', '관리단', '기계실', '전기실', '방재실',
-                # 2026-07-27 L-03407: 전기차충전소 부착 (충전소). 건물 출입구 시설 포함.
-                '충전소', '정문', '후문', '출입구',
-            )
-            if len(_place_words) >= 2 and (
-                _place_words[1] in _fac_exact
-                or any(_f in _place_words[1] for _f in _fac_substr)
-            ):
+            # 부속시설 blacklist (2026-07-20 L-03299~) — 상호(첫 단어) 이후 어느
+            # 단어든 부속시설이면 상호 지점 아니라 시설 표시. skip.
+            # 2026-07-30 근본 수정: 기존 `_place_words[1]`(두 번째 단어)만 검사 →
+            #   '롯데마트 고양점 주차장'(주차장=3번째)·'한국화훼농협 ATM 본점' 통과하던
+            #   버그. _poi_has_facility 로 후행 전 단어 검사 + ATM·옥외 추가.
+            if _poi_has_facility(place_name):
                 continue
             if cand in verified_addr:
                 place_words = place_name.split()
