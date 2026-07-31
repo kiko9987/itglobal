@@ -1334,11 +1334,46 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     return verified_addr
 
 
+def _poi_fallback_by_gu(text: str, first_line: str) -> Optional[str]:
+    """(B) 시/도는 있으나 카카오 주소 verify 가 실패한 케이스 POI 구제.
+
+    2026-07-31 L-03473: 매니저가 지번(`인천 부평구 일신동 25`)으로 입력했으나 실제
+    도로명은 `일신로 25`. 카카오 주소 API 는 이 지번을 0건 반환하지만, 건물명 POI
+    (`송암노인요양원`)는 도로명(`인천 부평구 일신로 25`)을 돌려줌. 이때 지번의 '동'은
+    도로명에 없으니(일신동≠일신로) **'구'가 지번↔도로명 공통 안정 단위** → 구로 검증.
+
+    가드: 상호 후보가 POI place_name 정확 매치(or 'cand ' 로 시작) + POI 도로명에 구 포함.
+    구가 없으면 힌트가 약해 오탐 위험 → skip.
+    """
+    m_gu = re.search(r'([가-힣]{2,}구)', first_line)
+    gu = m_gu.group(1) if m_gu else ''
+    if not gu:
+        return None
+    candidates = _extract_shop_candidates(text)
+    if not candidates:
+        return None
+    for cand in candidates[:5]:
+        results = _kakao_search_poi(f'{cand} {gu}'.strip())
+        if not results:
+            continue
+        for place_name, road_name in results:
+            if not place_name or not road_name:
+                continue
+            if not (place_name == cand or place_name.startswith(cand + ' ')):
+                continue
+            if gu not in road_name.replace(' ', ''):
+                continue
+            return f'{normalize_display(road_name)} {cand}'
+    return None
+
+
 def _try_poi_fallback(text: str) -> Optional[str]:
     """카카오 verified 실패 케이스에서 POI(상호명) 검색으로 도로명 획득.
 
     조건 (2026-07-20 L-03292 최초 · 2026-07-21 L-03314 확장):
-      - 시/도 없음 (매니저가 시/도 빼먹은 케이스만 타겟)
+      - (A) 시/도 없음 (매니저가 시/도 빼먹은 케이스) — 아래 본 로직
+      - (B) 시/도 있으나 지번↔도로명 불일치로 verify 실패 (2026-07-31 L-03473)
+            → `_poi_fallback_by_gu` 로 위임 (구 단위 검증)
       - 상호 후보 하나가 POI place_name 정확 매치 (or 'cand ' 로 시작)
       - POI 결과 road_address_name 이 원본 힌트와 매치:
           · 구/동 있으면 → 지역 힌트 검증 (강한 필터)
@@ -1350,13 +1385,13 @@ def _try_poi_fallback(text: str) -> Optional[str]:
     if not text:
         return None
     first_line = text.strip().split('\n', 1)[0].strip()
-    # 시/도 있으면 skip (매니저 실수 케이스 대상 아님)
+    # 시/도 있는데 여기 도달 = 카카오 주소 verify 실패 → (B) 구 기준 POI 구제로 위임.
     if re.search(
         r'(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주|고양|성남|수원|용인|안양|안산|광명|시흥|화성|평택|김포)'
         r'(?:특별시|광역시|특별자치시|특별자치도|도|시)?',
         first_line,
     ):
-        return None
+        return _poi_fallback_by_gu(text, first_line)
     candidates = _extract_shop_candidates(text)
     if not candidates:
         return None
