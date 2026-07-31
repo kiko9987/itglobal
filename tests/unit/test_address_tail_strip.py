@@ -75,5 +75,56 @@ class TestLatinUnitUppercase:
         assert '양꼬치' in r  # 상호 유지
 
 
+from dashboard.services import address_resolver as _ar
+
+
+class TestJoinedShopCandidates:
+    """다단어 상호 결합 후보 (G1, L-03475)."""
+
+    def test_joins_shop_words(self):
+        r = _ar._joined_shop_candidates('서울시 강서구 마곡동799-7 그랑트윈타워a동 남양가 양꼬치')
+        assert ('남양가양꼬치', '남양가 양꼬치') in r
+
+    def test_addr_tokens_excluded(self):
+        # 도로/번지/단위동 은 결합 대상 아님
+        r = _ar._joined_shop_candidates('강서구 마곡중앙4로 10 그랑트윈타워a동 남양가 양꼬치')
+        joined = [x[0] for x in r]
+        assert '남양가양꼬치' in joined
+        assert not any('동' in j or '로' in j for j in joined)
+
+
+class TestPoiShopAdoption:
+    """POI place_name 채택 (G1) — verified 실재 상호만, 정식명이 상호로 시작할 때만."""
+
+    def _patch_poi(self, monkeypatch, results):
+        monkeypatch.setattr(_ar, '_search_poi', lambda q: results)
+
+    def test_adopts_official_place_name(self, monkeypatch):
+        self._patch_poi(monkeypatch, [('남양가양꼬치 마곡점', '서울 강서구 마곡중앙4로 10')])
+        out = _ar._enrich_with_poi(
+            '강서구 마곡중앙4로 10 그랑트윈타워A동 남양가 양꼬치',
+            '서울시 강서구 마곡동799-7 그랑트윈타워a동 남양가 양꼬치',
+        )
+        assert out == '강서구 마곡중앙4로 10 그랑트윈타워A동 남양가양꼬치 마곡점'
+
+    def test_skip_when_place_name_not_startswith(self, monkeypatch):
+        # 정식명이 우리 상호로 시작 안 하면 채택 X (다른 상호 오탐 방지)
+        self._patch_poi(monkeypatch, [('엉뚱한식당 마곡점', '서울 강서구 마곡중앙4로 10')])
+        raw = '강서구 마곡중앙4로 10 그랑트윈타워A동 남양가 양꼬치'
+        assert _ar._enrich_with_poi(raw, '서울시 강서구 마곡동799-7 그랑트윈타워a동 남양가 양꼬치') == raw
+
+    def test_skip_when_road_mismatch(self, monkeypatch):
+        # 도로명 다르면 다른 위치 → 채택 X
+        self._patch_poi(monkeypatch, [('남양가양꼬치 마곡점', '서울 강서구 다른대로 99')])
+        raw = '강서구 마곡중앙4로 10 그랑트윈타워A동 남양가 양꼬치'
+        assert _ar._enrich_with_poi(raw, '서울시 강서구 마곡동799-7 그랑트윈타워a동 남양가 양꼬치') == raw
+
+    def test_skip_facility_second_word(self, monkeypatch):
+        # place 두 번째 단어가 부속시설이면 채택 X
+        self._patch_poi(monkeypatch, [('남양가양꼬치 주차장', '서울 강서구 마곡중앙4로 10')])
+        raw = '강서구 마곡중앙4로 10 그랑트윈타워A동 남양가 양꼬치'
+        assert _ar._enrich_with_poi(raw, '서울시 강서구 마곡동799-7 그랑트윈타워a동 남양가 양꼬치') == raw
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

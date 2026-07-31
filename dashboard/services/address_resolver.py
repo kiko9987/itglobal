@@ -1065,6 +1065,44 @@ def _extract_shop_candidates(text: str) -> list:
     return out
 
 
+def _joined_shop_candidates(text: str) -> list:
+    """인접 상호 단어 2개를 결합한 후보 리스트 (2026-07-30 G1, L-03475).
+
+    개별 단어가 행정동 접미('가' 등)로 _extract_shop_candidates 에서 제외돼도
+    ('남양가' + '양꼬치'), 결합하면 유효 상호('남양가양꼬치')일 수 있어 POI
+    place_name 채택용으로 별도 생성. 주소 토큰(도로/번지/행정구역/단위 동·호·층)은
+    결합 대상에서 제외. 반환: [(joined_nospace, 'a b'(원본 공백형)), ...]
+    """
+    words = re.findall(r'[가-힣][가-힣A-Za-z0-9]{1,14}', text)
+
+    def _is_addr_token(w: str) -> bool:
+        if re.search(r'\d', w):                          # 번지·동번호 등 숫자 포함
+            return True
+        if re.search(r'(?:로|길|구|시|군|읍|면)$', w):      # 도로·행정구역 접미
+            return True
+        if re.search(r'(?:[A-Za-z]동|번지|번길|호|층)$', w):  # 단위 a동/번지/호/층
+            return True
+        return False
+
+    out = []
+    for i in range(len(words) - 1):
+        a, b = words[i], words[i + 1]
+        if _is_addr_token(a) or _is_addr_token(b):
+            continue
+        joined = a + b
+        if len(joined) >= 4:
+            out.append((joined, f'{a} {b}'))
+    return out
+
+
+# POI 두 번째 단어가 부속시설이면 상호 지점 아님 (상호 채택 시 blacklist)
+_POI_FACILITY_SUBSTR = (
+    '주차장', '화장실', '엘리베이터', '승강기', '경비실', '관리실',
+    '관리사무소', '관리소', '관리단', '기계실', '전기실', '방재실',
+    '충전소', '정문', '후문', '출입구',
+)
+
+
 def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     """POI 검색으로 상호 지점명 부착.
 
@@ -1083,6 +1121,26 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     candidates = _extract_shop_candidates(original_text)
     if not candidates:
         return verified_addr
+
+    # 다단어 상호 → 카카오 정식 place_name 채택 (2026-07-30 G1, L-03475 남양가 양꼬치)
+    #   verified 에 실재하는 공백형 상호('남양가 양꼬치')만, 카카오 place_name 이
+    #   그 상호로 시작('남양가양꼬치 마곡점')하고 도로명 일치할 때만 replace.
+    #   가드: 공백형 verified 존재 + place_name startswith 결합형 + 도로 일치 +
+    #        지점 suffix 有 + 부속시설 아님 → 오탐 최소.
+    for _jc, _spaced in _joined_shop_candidates(original_text):
+        if _spaced not in verified_addr:
+            continue
+        for _pname, _road in _search_poi(f'{_jc} {region}'.strip()):
+            if not _pname or not _road or _road_key(_road) != v_key:
+                continue
+            _pn_ns = _pname.replace(' ', '')
+            if not _pn_ns.startswith(_jc) or _pn_ns == _jc:
+                continue  # 정식명이 상호로 시작 + 지점명 추가된 경우만
+            _pw = _pname.split()
+            if len(_pw) >= 2 and any(_f in _pw[1] for _f in _POI_FACILITY_SUBSTR):
+                continue  # 부속시설(주차장 등)
+            return verified_addr.replace(_spaced, _pname, 1)
+
     # verified 에 이미 있는 후보는 우선순위 낮춤 (원문 신규 상호 먼저 시도)
     priority = (
         [c for c in candidates if c not in verified_addr]
