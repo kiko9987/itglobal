@@ -194,6 +194,15 @@ def _post_normalize_display(addr: str) -> str:
                 if SequenceMatcher(None, prev, t).ratio() >= 0.85:
                     out[-1] = t  # 뒤 것 (카카오 표준) 유지
                     continue
+        # (3) 다토큰 near-dup — 정규화(공백·· 제거) 후 이미 나온 앞부분의 substring 이면
+        #   제거 (2026-07-30 ETC-858578: 카카오 '온수 어르신복지회관 ·보훈회관' 뒤에
+        #   고객원문 '온수어르신복지회관' 이 또 붙어 중복. 인접 비교로는 못 잡음).
+        #   숫자 포함(번지·동·호·층) 토큰은 제외, 5자 이상만 (짧은 우연 매칭 방지).
+        _tn = re.sub(r'[\s·・]', '', t)
+        if len(_tn) >= 5 and not re.search(r'\d', t) and out:
+            _pn = re.sub(r'[\s·・]', '', ''.join(out))
+            if _tn in _pn:
+                continue
         out.append(t)
     return ' '.join(out)
 

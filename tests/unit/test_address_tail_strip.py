@@ -154,5 +154,33 @@ class TestPoiFacilityFilter:
         assert _ar._enrich_with_poi(raw, raw) == raw  # ATM 미부착
 
 
+class TestMultiTokenDedup:
+    """다토큰 near-dup 제거 (ETC-858578) — 정규화(공백·· 제거) 후 앞부분 substring."""
+
+    def test_compound_building_dup_removed(self):
+        # 카카오 '온수 어르신복지회관 ·보훈회관' 뒤 고객원문 '온수어르신복지회관' 중복 제거
+        out = _ar._post_normalize_display(
+            '구로구 부일로9길 111 온수 어르신복지회관 ·보훈회관 온수어르신복지회관')
+        assert out == '구로구 부일로9길 111 온수 어르신복지회관 ·보훈회관'
+
+    def test_exact_dup_removed(self):
+        out = _ar._post_normalize_display('강남구 테헤란로 1 스타벅스강남점 스타벅스강남점')
+        assert out == '강남구 테헤란로 1 스타벅스강남점'
+
+    @pytest.mark.parametrize('addr', [
+        '강서구 마곡중앙4로 10 그랑트윈타워A동 남양가양꼬치 마곡점',
+        '수원 권선구 덕영대로 1205 미래타운빌딩 501호',
+        '고양 일산서구 대화로 362 한국화훼농협 본점 케이플라워마트 대화점',
+        '성남 분당구 대왕판교로 660 유스페이스1 지하 115호',
+    ])
+    def test_normal_unchanged(self, addr):
+        assert _ar._post_normalize_display(addr) == addr
+
+    def test_short_token_kept(self):
+        # 4자 이하는 우연 substring 방지로 미검사 → '보훈회관'(4자) 유지
+        out = _ar._post_normalize_display('구로구 부일로9길 111 온수 어르신복지회관 ·보훈회관')
+        assert '보훈회관' in out
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
