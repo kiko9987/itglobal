@@ -5539,6 +5539,12 @@ def _process_consult_submission(client, body, view):
     visit_address = (_v(state, "visit_address") or '').strip()
     consultation = (_v(state, "consultation") or '').strip()
 
+    # 방문 모달 주소 정규화 + 미검증 배지 (2026-07-30 / 2026-08-01) — verified 만 정정,
+    # 미verified(도로명·번지 오타)면 raw 유지 + '확인 필요' addr_note → 방문 카드 배지.
+    _visit_addr_note = None
+    if visit_address:
+        visit_address, _visit_addr_note = _normalize_visit_address_if_verified(visit_address)
+
     # 본인 방문 필수 라디오 (2026-07-17) — JW 담당자 배정 참고용
     _assign_state = (state.get('assign_self', {}).get('value', {}) or {}).get('selected_option') or {}
     assign_self_yes = (_assign_state.get('value') == 'yes')
@@ -5588,9 +5594,7 @@ def _process_consult_submission(client, body, view):
             if email:
                 update_data['이메일'] = email
             if visit_address:
-                # 방문 모달 주소 정규화 (2026-07-30) — verified 만 정정, 아니면 raw 유지.
-                visit_address = _normalize_visit_address_if_verified(visit_address)
-                update_data['방문 주소'] = visit_address
+                update_data['방문 주소'] = visit_address  # 상단에서 이미 정규화됨
             if consultation:
                 # 재상담 이력 append (2026-07-20) — 옛 K열 값에 [시간 이니셜 · status]
                 # 헤더 붙인 새 entry 를 divider 로 이어붙임. 카드 렌더는 이 값 파싱.
@@ -5713,7 +5717,7 @@ def _process_consult_submission(client, body, view):
             client, lead_no=lead_no, category=category, user_id=user_id,
             visit_date=visit_date_raw, name=name, contact=contact,
             visit_address=visit_address, consultation=consultation,
-            platform=lead_platform,
+            platform=lead_platform, addr_note=_visit_addr_note,
         )
 
     # ─────────────────────────────────────────────
@@ -8702,17 +8706,24 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         return False
 
 
-def _normalize_visit_address_if_verified(raw_addr: str) -> str:
-    """방문 모달에 입력된 주소를 카카오 verified 일 때만 정규화값으로, 아니면 raw 유지.
+def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
+    """방문 모달 입력 주소를 카카오 verified 면 정규화값, 아니면 raw 유지 + 미검증 배지.
 
-    2026-07-30: 당근/온라인 intake·전화 sync(lead_sync 2059)는 이미 resolve_address 로
-    정규화하는데 방문 모달(상담하기·방문요청 submit)만 raw 그대로 저장돼 규격 불일치였음
-    (특히 채널톡·카톡 리드는 모달에서 주소를 처음 입력). 전화 sync 와 동일 사상:
-    verified 확신 있을 때만 도로명·건물명 정정, 미verified(오타 가능)면 raw 보존.
+    Returns: (주소, addr_note)
+      - verified: (정규화/raw, None)              — 배지 없음
+      - 미verified: (raw, {'kind':'failed',...})   — 방문 카드/답글에 '주소 확인 필요' 배지
+
+    2026-07-30: 당근/온라인 intake·전화 sync(lead_sync)는 이미 resolve_address 로
+    정규화하는데 방문 모달(상담하기·방문요청 submit)만 raw 저장돼 규격 불일치였음
+    (특히 채널톡·카톡은 모달에서 주소 첫 입력). verified 확신 있을 때만 정정.
+    2026-08-01: 미verified(도로명·번지가 카카오 미확인 = 오타 가능) 시 addr_note 반환
+      → 방문 카드에 '확인 필요' 배지. 호수 오타는 건물서 소통되지만 **도로명·번지를
+      고객이 부른 것과 다르게 받아적으면 엉뚱한 건물 방문 = 돌이킬 수 없음** → 최소
+      방어. (당근/홈페이지 intake·전화 sync 경로와 동일 사상 — 매니저 모달만 무방비였음)
     """
     raw = (raw_addr or '').strip()
     if not raw:
-        return raw
+        return raw, None
     try:
         from dashboard.services import address_resolver as _ar
         from dashboard.services import lead_helpers as _lh
@@ -8723,10 +8734,15 @@ def _normalize_visit_address_if_verified(raw_addr: str) -> str:
         if _lv == 'verified' and _norm:
             if _norm != raw:
                 logger.info(f"[SLACK/방문주소] 모달 주소 정규화: '{raw}' → '{_norm}'")
-            return _norm
+            return _norm, None
+        # 미verified — 도로명+번지가 카카오에 확인 안 됨 → raw 유지 + 확인 필요 배지
+        logger.info(
+            f"[SLACK/방문주소] 모달 주소 미검증(도로·번지 확인 실패) — raw + 배지: '{raw}'"
+        )
+        return raw, {'kind': 'failed', 'original': raw, 'normalized': ''}
     except Exception as exc:
         logger.warning(f"[SLACK/방문주소] 모달 정규화 실패 (raw 유지): {exc}")
-    return raw
+    return raw, None
 
 
 def _process_visit_submission(client, body, view):
@@ -8741,10 +8757,11 @@ def _process_visit_submission(client, body, view):
     visit_date_raw = (_v(state, "visit_date") or '').strip()  # ISO "2026-06-25" (슬랙 표시용)
     visit_date_for_sheet = _format_date_for_sheet(visit_date_raw) if visit_date_raw else ''
     visit_address = _v(state, "visit_address")
-    # 방문 모달 주소 정규화 (2026-07-30) — verified 만 정정, 아니면 raw 유지.
-    #   시트·List·답글·카드가 모두 이 값을 쓰므로 여기서 한 번 정규화.
+    # 방문 모달 주소 정규화 + 미검증 배지 (2026-07-30 / 2026-08-01) — verified 만 정정,
+    #   미verified(도로·번지 오타)면 raw 유지 + 답글에 '확인 필요' 경고.
+    _visit_addr_note = None
     if visit_address:
-        visit_address = _normalize_visit_address_if_verified(visit_address)
+        visit_address, _visit_addr_note = _normalize_visit_address_if_verified(visit_address)
     consultation = _v(state, "consultation")
 
     # 메인 시트 업데이트
@@ -8775,11 +8792,16 @@ def _process_visit_submission(client, body, view):
     )
 
     # 원본 메시지에 답글 (raw 날짜 — 슬랙 표시 깔끔)
+    _addr_warn = (
+        ">:warning: *주소 확인 필요* — 도로명·번지가 확인되지 않았습니다. 재확인 요망\n"
+        if _visit_addr_note else ""
+    )
     reply_text = (
         f":white_check_mark: *방문 요청 등록* — `{lead_no}` by <@{user_id}>\n"
         f">*방문일* : {visit_date_raw or '-'}\n"
         f">*방문 주소* : {visit_address or '-'}\n"
-        f">*내용 / 특이사항* : {consultation or '-'}"
+        + _addr_warn
+        + f">*내용 / 특이사항* : {consultation or '-'}"
     )
     try:
         client.chat_postMessage(
