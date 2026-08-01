@@ -8710,8 +8710,9 @@ def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
     """방문 모달 입력 주소를 카카오 verified 면 정규화값, 아니면 raw 유지 + 미검증 배지.
 
     Returns: (주소, addr_note)
-      - verified: (정규화/raw, None)              — 배지 없음
-      - 미verified: (raw, {'kind':'failed',...})   — 방문 카드/답글에 '주소 확인 필요' 배지
+      - verified & 정정됨: (정규화, {'kind':'normalized',...}) — 방문 카드 원본/변환 2줄 + ephemeral
+      - verified & 원본동일: (raw, None)                       — 배지 없음
+      - 미verified:        (raw, {'kind':'failed',...})       — '주소 확인 필요' 배지
 
     2026-07-30: 당근/온라인 intake·전화 sync(lead_sync)는 이미 resolve_address 로
     정규화하는데 방문 모달(상담하기·방문요청 submit)만 raw 저장돼 규격 불일치였음
@@ -8733,7 +8734,12 @@ def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
         )
         if _lv == 'verified' and _norm:
             if _norm != raw:
+                # verified & 정정됨 → 원본/변환 2줄 + 등록자 ephemeral (2026-08-01):
+                #   워크플로(전화/거래처) 경로와 동일하게 매니저가 "내 입력 → 카카오
+                #   정정" 을 카드에서 확인해 오정규화를 잡도록 통일. (모달만 무표시였음)
                 logger.info(f"[SLACK/방문주소] 모달 주소 정규화: '{raw}' → '{_norm}'")
+                return _norm, {'kind': 'normalized', 'original': raw, 'normalized': _norm}
+            # verified & 원본 동일 → 배지 없음 (조용히 통과)
             return _norm, None
         # 미verified — 도로명+번지가 카카오에 확인 안 됨 → raw 유지 + 확인 필요 배지
         logger.info(

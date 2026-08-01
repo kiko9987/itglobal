@@ -20,11 +20,14 @@ def _patch_resolve(monkeypatch, ret):
 
 
 class TestVisitAddressNormalize:
-    def test_verified_uses_normalized_no_badge(self, monkeypatch):
-        _patch_resolve(monkeypatch, ('수원 권선구 덕영대로 1205 미래타운빌딩 501호', 'verified'))
-        addr, note = slack_bot._normalize_visit_address_if_verified('수원시 권선구 덕영대로 1205 501호')
-        assert addr == '수원 권선구 덕영대로 1205 미래타운빌딩 501호'
-        assert note is None   # verified → 배지 없음
+    def test_verified_different_returns_normalized_note(self, monkeypatch):
+        """verified & 정정됨 → 정규화값 + normalized note (원본/변환 2줄 + ephemeral)."""
+        norm = '수원 권선구 덕영대로 1205 미래타운빌딩 501호'
+        raw = '수원시 권선구 덕영대로 1205 501호'
+        _patch_resolve(monkeypatch, (norm, 'verified'))
+        addr, note = slack_bot._normalize_visit_address_if_verified(raw)
+        assert addr == norm
+        assert note == {'kind': 'normalized', 'original': raw, 'normalized': norm}
 
     @pytest.mark.parametrize('level', ['level3', 'level7', 'raw', 'failed', ''])
     def test_non_verified_keeps_raw_with_badge(self, monkeypatch, level):
