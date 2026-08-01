@@ -975,7 +975,19 @@ def _enrich_verified_address(
         if m_floor:
             cand = m_floor.group(1).strip()
             if cand and cand not in verified_addr:
-                verified_addr = f'{verified_addr} {cand}'
+                # 원문이 '[층] [상호]' 순서(층이 상호 앞)면 그 순서 보존 (2026-08-01).
+                #   '1층 피아노학원'(건물 1층에 입점한 한 층짜리 상호)을 '피아노학원 1층'
+                #   (상호가 건물 통째·그 상호의 1층)으로 뒤집으면 의미가 완전히 달라짐.
+                #   verified 끝 단어(상호, 숫자 아님)가 원문에서 층 바로 뒤에 오면 상호
+                #   앞에 삽입해 어순 유지. 그 외(상호-층 순서·건물명 등)는 기존대로 맨 뒤.
+                _vw = verified_addr.split()
+                _last = _vw[-1] if _vw else ''
+                if (_last and not re.search(r'\d', _last)
+                        and re.search(rf'{re.escape(cand)}\s*{re.escape(_last)}',
+                                      original_text)):
+                    verified_addr = ' '.join(_vw[:-1] + [cand, _last])
+                else:
+                    verified_addr = f'{verified_addr} {cand}'
 
     # 4. "○○ ○○동" 형태 중복 제거 (2026-07-20 L-03294)
     #    카카오 building_name = "센트럴 레드" + 원본 tail = "레드동" → "센트럴 레드 레드동"
