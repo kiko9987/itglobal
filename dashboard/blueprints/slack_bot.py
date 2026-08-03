@@ -9844,6 +9844,15 @@ def _refresh_invoice_modal_from_sheet(client, view_id, view_hash, code,
         new_addr = fresh_addr
         changed = True
 
+    # 금액 최신화 (2026-08-03): [계산서 요청] payload 는 공사확정 발송 시점 스냅샷이라,
+    # 이후 공사 금액을 수정(웹/PM/경영지원 반영)하면 모달에 옛 금액이 뜸. 시트 최신
+    # 총액(amount_raw)으로 갱신. 모달 입력칸 형식(콤마 숫자, 원·VAT 텍스트 없음)에 맞춤.
+    new_amt = amt
+    _fresh_amt = (d.get('amount_raw') or '').strip()
+    if _fresh_amt.isdigit() and re.sub(r'[^\d]', '', str(amt or '')) != _fresh_amt:
+        new_amt = f'{int(_fresh_amt):,}'
+        changed = True
+
     # 폐업/휴업 경고 — 최신 사업자명 기준으로 거래처 탭 상태 조회해 모달 헤더 하단 표시
     partner_warn = _partner_status_warn(new_biz or opened_biz)
 
@@ -9851,7 +9860,7 @@ def _refresh_invoice_modal_from_sheet(client, view_id, view_hash, code,
     if not (changed or partner_warn):
         return
     metadata = json.dumps({"code": code}, ensure_ascii=False)
-    view = _build_invoice_modal_view(code, new_biz, new_addr, amt, new_email, metadata,
+    view = _build_invoice_modal_view(code, new_biz, new_addr, new_amt, new_email, metadata,
                                      partner_warn=partner_warn)
     try:
         client.views_update(view_id=view_id, hash=view_hash, view=view)

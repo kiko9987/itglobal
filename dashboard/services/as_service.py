@@ -277,6 +277,7 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
             amt_int = int(float(str(amt_raw).replace(',', '').strip() or 0))
             amt_disp = f'{amt_int:,}원' if amt_int else '-'
         except (ValueError, TypeError):
+            amt_int = 0
             amt_disp = '-'
         vat_raw = r.get('부가세')
         vat_sep = (
@@ -308,6 +309,7 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
             'contract_type': _s('도급 구분') or '-',
             'contractor': _s('시공자') or '-',
             'amount': amt_disp,
+            'amount_raw': str(amt_int) if amt_int else '',  # 계산서 모달 입력칸용 raw 숫자
             'work_start': _s('공사 시작')[:10] or '-',
             'work_end': _s('공사 종료')[:10] or '-',
         }
