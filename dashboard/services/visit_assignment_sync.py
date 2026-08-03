@@ -644,7 +644,13 @@ def parse_assignment_canvas_full(html: str) -> Dict:
             #   "SD"                  — 단일
             #   "SD+MS"               — 조합
             #   "SD(오전)+MS(오후)"   — 시간대별 담당. 이니셜 뒤 괄호 값은 shifts 로 유지
-            if current_section == '_ONLINE_' and stripped:
+            # 온라인 당번 = 순수 이니셜 라인만 (JK / SD+MS / SD(오전)+MS(오후)).
+            #   '/' 필드가 있는 태스크·방문 라인 (예: 'JK 점심때 (SB) 8월 4일 / - /
+            #   근처 우체국 / 등기발송 2건') 은 온라인 당번이 아니라 별도 업무 →
+            #   이니셜 수집 skip. (2026-08-03 SB 등기발송이 온라인 당번으로 오파싱 →
+            #   commit 시 SB 가 잘못된 온라인 당번 DM 을 받던 사고. SB 의 등기발송은
+            #   개인 섹션 라인에서 별도 assignment 로 이미 잡힘)
+            if current_section == '_ONLINE_' and stripped and '/' not in stripped:
                 # 이니셜 + (선택) 시간대 표기 매치
                 _matches = re.findall(r'([A-Z]{2,4})(?:\s*\(([^)]+)\))?', stripped)
                 _found_any = False
