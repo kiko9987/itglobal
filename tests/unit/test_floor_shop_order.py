@@ -48,6 +48,29 @@ class TestFloorShopOrder:
         )
         assert r == '서울 강남구 테헤란로 1 5층'
 
+    def test_poi_building_after_floor_restored(self, monkeypatch):
+        """카카오 건물명 미등록 → 층 먼저 + POI 건물명 뒤(번지 층 건물). 원문이
+        건물-층이면 건물-층 복원 (L-03485)."""
+        monkeypatch.setattr(ar, '_enrich_with_poi',
+                            lambda a, t: '송파구 올림픽로35다길 32 2층 예전빌딩')
+        r = ar._enrich_verified_address(
+            '송파구 올림픽로35다길 32',
+            '송파구 올림픽로35다길 32 예전빌딩 2층',
+            '송파구 올림픽로35다길 32',
+        )
+        assert r == '송파구 올림픽로35다길 32 예전빌딩 2층'
+
+    def test_poi_floor_first_tenant_preserved(self, monkeypatch):
+        """원문이 층-건물(한 층 입점)이면 POI 경로여도 층-건물 보존(복원 안 함)."""
+        monkeypatch.setattr(ar, '_enrich_with_poi',
+                            lambda a, t: '화성 동탄구 동탄산척로2나길 10-10 1층 피아노학원')
+        r = ar._enrich_verified_address(
+            '화성 동탄구 동탄산척로2나길 10-10',
+            '화성 동탄구 동탄산척로2나길 10-10 , 1층 피아노학원',
+            '화성 동탄구 동탄산척로2나길 10-10',
+        )
+        assert r == '화성 동탄구 동탄산척로2나길 10-10 1층 피아노학원'
+
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

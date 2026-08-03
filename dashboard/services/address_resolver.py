@@ -1074,6 +1074,21 @@ def _enrich_verified_address(
     #   예: "마성떡볶이" + "학동로 지하 102" → "마성떡볶이 논현역점" 부기
     verified_addr = _enrich_with_poi(verified_addr, original_text)
 
+    # 층↔건물명 어순 복원 (2026-08-03 L-03485): 카카오가 번지의 건물명을 미등록이면
+    # verify 는 도로+번지만 주고, 층은 먼저(step 3) 붙고 건물명은 POI 로 맨 뒤에 붙어
+    # '번지 2층 예전빌딩' 처럼 층-건물 역순이 됨. 원문이 '건물명 층'(건물-층) 순서였으면
+    # 건물-층으로 복원. 원문이 층-건물('1층 피아노학원' 한 층 입점 상호)이면 유지
+    # → 어순=의미 보존(9525637 사상을 POI 부착 경로까지 확장).
+    _m_ord = re.search(
+        r'(\d+(?:-\d+)?)\s+([A-Za-z]?\d+(?:~\d+)?(?:층|호|호실|관))\s+([가-힣][가-힣A-Za-z0-9]*)$',
+        verified_addr,
+    )
+    if _m_ord:
+        _fl, _bd = _m_ord.group(2), _m_ord.group(3)
+        _bi, _fi = original_text.find(_bd), original_text.find(_fl)
+        if 0 <= _bi < _fi:  # 원문에서 건물명이 층보다 앞 → 건물-층 순서 복원
+            verified_addr = verified_addr[:_m_ord.start(2)] + f'{_bd} {_fl}'
+
     return verified_addr
 
 
