@@ -6325,7 +6325,10 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     elif addr_note and isinstance(addr_note, dict):
         _kind = addr_note.get('kind', '')
         _orig = (addr_note.get('original') or '').strip()
-        if _kind == 'normalized' and _orig and _orig != (visit_address or '').strip():
+        if (_kind in ('normalized', 'note_only')
+                and _orig and _orig != (visit_address or '').strip()):
+            # note_only 포함 (2026-08-04): 정규화 없이 노트만 이동돼도 원본(노트 포함)/변환
+            # 두 줄로 히스토리 보존 (원본 최대 유지 요청). 정규화 케이스와 동일 렌더.
             # 개행 → 공백 정규화 (2026-07-24 L-03361): 원본/변환 안 개행이 남으면
             # blockquote 다음 줄이 인용 밖으로 삐져나와 잘못 렌더됨.
             _orig_norm = re.sub(r'\s+', ' ', _orig).strip()

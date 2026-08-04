@@ -2036,6 +2036,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             #   → 첫 줄 = 실제 주소, 2번째 줄+ = 특이사항으로 분리.
             #   → 상담 내용 (K열) 뒤에 ' / 특이사항' append. 원본 주소는 첫 줄만 유지.
             addr_raw_full = str(row.get('방문 주소', '') or '').strip()
+            # 원본 보존 (2026-08-04): 카드 '원본 주소'에 매니저 literal 입력 전체를 남겨
+            #   히스토리 유지. I열(방문주소)·변환은 clean 이지만 원본은 노트 포함 full.
+            _orig_addr_display = re.sub(r'\s+', ' ', addr_raw_full).strip()
             _addr_lines_raw = [
                 ln.strip() for ln in re.split(r'\r?\n', addr_raw_full) if ln.strip()
             ]
@@ -2095,7 +2098,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         addr_for_notify = _norm
                         addr_note = {
                             'kind': 'normalized',
-                            'original': addr_raw,
+                            'original': _orig_addr_display,  # full 원본(노트 포함) 보존
                             'normalized': _norm,
                         }
                     elif _level == 'verified' and _norm == addr_raw:
@@ -2108,7 +2111,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         # → 원본 유지 + 확인 필요 배지로 매니저 재입력 유도.
                         addr_note = {
                             'kind': 'failed',
-                            'original': addr_raw,
+                            'original': _orig_addr_display,  # full 원본(노트 포함) 보존
                             'normalized': '',
                         }
                 except Exception as exc:
@@ -2123,7 +2126,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     # 정규화 조건 안 걸림 (성공 & 원본 동일 등) → note_only 로 알림만
                     addr_note = {
                         'kind': 'note_only',
-                        'original': addr_raw,
+                        'original': _orig_addr_display,  # full 원본(노트 포함) 보존
                         'normalized': addr_raw,
                         'moved_notes': extra_notes,
                     }
