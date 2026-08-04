@@ -1353,14 +1353,20 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             #   아닌 한 append 금지 (2026-08-06 L-03541). exact 없으면 지점명 보강 유지
             #   (마성떡볶이 논현역점 — 단독 '마성떡볶이' POI 없어 _has_exact=False).
             _sw = place_name.startswith(cand + ' ')
-            _sw_x = place_name[len(cand):].strip() if _sw else ''
+            # 접두/접미 변형 채택 통합 규칙 (2026-08-06 L-03541 전수검사):
+            #   • 매니저가 원문에 그 정식명을 썼으면(_pn_in_orig) 항상 유지
+            #     (스포타임 엘타워·설원복지재단 안양의집 — 건물 exact 여도 원문 존중).
+            #   • 아니면 cand 가 exact POI(건물)로 실재할 때만 차단 — 입점 업체를 지어
+            #     붙이는 것(스크린파크골프장·롯데리아 서울랜드2호점·PINS어반322) 방지.
+            #   • exact 없으면(마성떡볶이·한강듀클래스) 지점명·지역접두 보강 유지.
+            #     endswith 는 공백 분리 접두(슈퍼스타 어반322=다른 업체) 제외(붙은 것만).
+            _pn_in_orig = place_name.replace(' ', '') in original_text.replace(' ', '')
             _match = (
                 place_name == cand
-                or (_sw and (not _has_exact
-                             or (_sw_x and _sw_x in original_text)  # 매니저가 원문에 쓴 상호/동 → 유지
-                             or re.search(r'(?:지점|\d*호점|점)$', place_name)))  # 지점명 보강
-                or (not _has_exact and _pfx is not None
-                    and _pfx != '' and not _pfx.endswith(' '))
+                or (_sw and (_pn_in_orig or not _has_exact))
+                or (_pfx is not None and _pfx != ''
+                    and (_pn_in_orig
+                         or (not _has_exact and not _pfx.endswith(' '))))
             )
             if not _match:
                 continue
