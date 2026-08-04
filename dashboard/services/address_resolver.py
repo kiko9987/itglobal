@@ -1535,6 +1535,10 @@ def resolve_address(
             and re.search(r'[가-힣]', first_line)
             and has_strict_address
         ):
-            return (first_line, 'raw')
+            # 2026-08-04 L-03398: raw fallback 도 시/도 정규화 적용 (verified·regex 경로만
+            #   normalize_display 를 거쳐, verify 실패한 서울/광역시 주소는 '서울특별시'가
+            #   그대로 남던 갭). 시/도 접두만 정리 — 건물·동·번지·호수는 보존, level='raw'
+            #   유지(확인 필요 배지로 매니저 검토 신호는 그대로).
+            return (normalize_display(first_line), 'raw')
 
     return ('', '')
