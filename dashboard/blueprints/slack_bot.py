@@ -8682,11 +8682,15 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
         # 2026-07-24: K열 헤더 (`[MM.DD HH:MM 이니셜 · 상태]`) 포함된 값이 넘어오는 케이스
         #   (재편집 promote·update 경로) → 최신 회차 content 만 파싱해 payload 전달.
         #   방문 카드·캔버스는 이미 최신 회차만 표시 (task #19). List sync 도 통일.
+        # 2026-08-04: modal_fields 누락 시 시트 lead 로 backfill — 부분 modal_fields 로
+        #   호출(소급 정정 등)하면 빈 값이 '-' 로 기존 List 컬럼(상담 내용·방문 요청일)을
+        #   덮어써 지우는 사고 방지 (L-03530 계기, eb2b462 와 동일 사상). 정상 모달 flow 는
+        #   modal_fields 에 값이 다 있어 no-op.
         "consultation": _extract_latest_consult_content(
-            modal_fields.get('consultation') or '',
+            modal_fields.get('consultation') or str(lead.get('상담 내용') or ''),
         ) or '-',
         "details": parts.get('inquiry') or str(lead.get('문의 내용') or lead.get('상담 내용') or '').strip() or '-',
-        "visit_date": modal_fields.get('visit_date') or '-',
+        "visit_date": modal_fields.get('visit_date') or visit_date_raw or '-',
         "visit_date_start": vd_start_iso or '-',  # 분리 변수 — Slack List datepicker 컬럼용
         "visit_date_end": vd_end_iso or '-',      # 종료일 (단일이면 '-')
         "estimate_request": modal_fields.get('estimate') or '-',
