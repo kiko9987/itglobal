@@ -1307,7 +1307,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         if not online_duty:
             if online_shared:
                 lines.append(
-                    '>:headphones: *오늘 온라인 상담은 전인원 공용입니다.* '
+                    f'>:headphones: *{target_date_iso} 온라인 상담은 전인원 공용입니다.* '
                     '방문 외 시간에 다 같이 나눠서 문의 응대 부탁드립니다.'
                 )
             else:
