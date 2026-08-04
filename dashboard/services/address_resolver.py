@@ -1290,6 +1290,12 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 continue  # 정식명이 상호로 시작 + 지점명 추가된 경우만
             if _poi_has_facility(_pname):
                 continue  # 부속시설(주차장·ATM 등) POI
+            # POI 정식명(지점명 포함)이 이미 verified 에 있으면 replace 시 지점명 이중
+            #   부착 (2026-08-04 L-03451 '케이플라워마트 대화점 대화점', L-03486
+            #   '힙춘향마라 계양점 계양점'). raw 끝에 이미 지점명이 있는데 _spaced 를
+            #   _pname 으로 치환하면 뒤 지점명이 남아 중복 → 이미 있으면 skip (공백 무시).
+            if _pn_ns in verified_addr.replace(' ', ''):
+                continue
             return verified_addr.replace(_spaced, _pname, 1)
 
     # verified 에 이미 있는 후보는 우선순위 낮춤 (원문 신규 상호 먼저 시도)
