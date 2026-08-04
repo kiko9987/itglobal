@@ -801,9 +801,13 @@ def verify_address(
         # 2. 한글 다음 숫자+동/호/층/관 — "○○상가101호" → "○○상가 101호"
         # 영문 제외 (2026-07-23 ETC-678632): "B1층" (지하 1층) 이 "B 1층" 으로 잘못 분리되는 케이스 방지.
         # 영문+숫자+층/호 는 대개 원본에 이미 공백 있음 ("SR타워 3층", "K타워 9층").
-        result = re.sub(r'(?<=[가-힣])(\d+(?:동|호|층|관))', r' \1', result)
+        # 동: 뒤에 시설명(주민센터·사무소·행정복지센터·자치센터)이 오면 행정동명 일부
+        #   ('행당제1동주민센터')라 분리 금지 (2026-08-06 ETC-3b713a). 호/층/관은 기존대로.
+        result = re.sub(r'(?<=[가-힣])(\d+동)(?!주민|사무|행정|복지|자치)', r' \1', result)
+        result = re.sub(r'(?<=[가-힣])(\d+(?:호|층|관))', r' \1', result)
         # 2-b. 층/호/관 다음 한글 (부가 설명·시설 tail) — "7층복도" → "7층 복도"
-        result = re.sub(r'(\d+(?:동|호|층|관|호실))([가-힣])', r'\1 \2', result)
+        result = re.sub(r'(\d+동)(?!주민|사무|행정|복지|자치)([가-힣])', r'\1 \2', result)
+        result = re.sub(r'(\d+(?:호|층|관|호실))([가-힣])', r'\1 \2', result)
         # 2-c. 순수 지번 부기만 제거 — "(걸포동)", "(걸포동 172-1)"
         # 콤마 뒤에 부가정보가 있는 괄호는 보존:
         #   예 "(중계동, 건영아파트 유치원상가 1층 103호, 케이)" ← 층/호/상호 정보
@@ -1392,6 +1396,11 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                         continue
                     return verified_addr.replace(cand, place_name, 1)
                 continue  # 완전 동일 → 무의미
+            # POI 정식명이 공백 차이로 verified 에 이미 있으면 append 중복 방지
+            #   (2026-08-06 ETC-3b713a: verified '행당제 1동 주민센터' + POI
+            #   '행당제1동주민센터' → 중복. 무공백 비교로 skip).
+            if place_name.replace(' ', '') in verified_addr.replace(' ', ''):
+                continue
             # append 케이스: 원본에 법인 접두어 ((주)/㈜/주식회사) 있으면 유지
             # 2026-07-24 L-03372: 원본 '(주)아론' → POI place_name 은 '아론' 만 →
             #   append 시 접두어 소실. 원본 정보 보존을 위해 접두어 재부착.

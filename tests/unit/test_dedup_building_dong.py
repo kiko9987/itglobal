@@ -68,5 +68,30 @@ def test_verify_no_duplicate_building_spaced(monkeypatch):
     assert addr.count('풍무푸르지오') == 1
 
 
+def test_compose_no_split_admin_dong_facility(monkeypatch):
+    """행정동 시설명(행당제1동주민센터)의 'N동'을 아파트 동으로 오인해 쪼개지 않음 (ETC-3b713a)."""
+    monkeypatch.setattr(ar, '_kakao_key', lambda: 'k')
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {
+        'road_address': {
+            'address_name': '서울 성동구 고산자로10길 18',
+            'building_name': '행당제1동주민센터',
+            'region_3depth_name': '행당동',
+        },
+    })
+    addr, lv = ar.verify_address('성동구 고산자로10길 18 행당제1동주민센터 3층')
+    assert lv == 'verified'
+    assert '행당제1동주민센터' in addr
+    assert '행당제 1동' not in addr  # 안 쪼개짐
+
+
+def test_enrich_no_duplicate_spaced_building(monkeypatch):
+    """POI 정식명이 공백 차이로 verified 에 이미 있으면 append 중복 방지 (ETC-3b713a B)."""
+    monkeypatch.setattr(ar, '_search_poi',
+                        lambda q: [('행당제1동주민센터', '서울 성동구 고산자로10길 18')])
+    r = ar._enrich_with_poi('성동구 고산자로10길 18 행당제 1동 주민센터 3층',
+                            '성동구 고산자로10길 18 행당제1동주민센터 3층')
+    assert r.count('주민센터') == 1
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
