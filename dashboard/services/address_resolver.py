@@ -476,6 +476,11 @@ def _flatten_paren_tail(tail: str) -> str:
         # 괄호 자체가 없으면 원본 그대로
         return tail
 
+    # 법인 표기 '(주)/(유)/(사)/(재)' 는 flatten 하면 '주' 홀로 남아 어색
+    #   ('에스티팜 시화공장(주)' → '…시화공장 주') → 원형 유지 (2026-08-06 L-03358).
+    if re.fullmatch(r'[주유사재]', m.group(1).strip()):
+        return tail
+
     before = tail[:m.start()].strip()
     after = tail[m.end():].strip()
     parts = [p.strip() for p in m.group(1).split(',')]

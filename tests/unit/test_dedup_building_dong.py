@@ -93,5 +93,15 @@ def test_enrich_no_duplicate_spaced_building(monkeypatch):
     assert r.count('주민센터') == 1
 
 
+def test_flatten_paren_keeps_corporate_designator():
+    """법인 표기 (주)/(유)/(사)/(재)는 flatten 안 함 — '주' 홀로 남기 방지 (L-03358)."""
+    F = ar._flatten_paren_tail
+    assert F('에스티팜 시화공장(주)') == '에스티팜 시화공장(주)'
+    assert F('(주)가연결혼정보') == '(주)가연결혼정보'
+    # 회귀: 층/지번 괄호 flatten 은 그대로
+    assert F('타임빌딩(2층)') == '타임빌딩 2층'
+    assert F('(가산동, 이앤씨드림타워7차)') == '이앤씨드림타워7차'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
