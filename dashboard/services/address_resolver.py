@@ -1309,10 +1309,14 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             #   - place_name.endswith(cand) — 로컬 정식명이 접두 지역명 포함하는 케이스
             #     (예: 한강듀클래스 → 김포한강듀클래스). endswith 만 허용해 오탐 방지
             #     (L-03306 위례포레샤인 → 위례포레샤인23단지아파트 로 replace 되는 오탐 차단)
+            #   2026-08-04 L-03530: 접두가 '공백으로 분리'되면 다른 업체(예: '슈퍼스타
+            #     어반322' 의 '슈퍼스타 ')라 오부착 → 붙은 접두(김포+한강듀클래스)만 허용.
+            _pfx = (place_name[:-len(cand)]
+                    if (len(cand) >= 4 and place_name.endswith(cand)) else None)
             _match = (
                 place_name == cand
                 or place_name.startswith(cand + ' ')
-                or (len(cand) >= 4 and place_name.endswith(cand))
+                or (_pfx is not None and _pfx != '' and not _pfx.endswith(' '))
             )
             if not _match:
                 continue
