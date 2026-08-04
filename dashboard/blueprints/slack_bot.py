@@ -6939,30 +6939,30 @@ def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -
             exc_info=True,
         )
 
-    # List webhook — 옛 ETC 아이템 삭제 + 새 정규 아이템 add
-    try:
-        _trigger_visit_list_webhook(
-            'SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, channel, message_ts,
-        )
-    except Exception as exc:
-        logger.warning(f"[VISIT/EDIT/PROMOTE] List 옛 아이템 삭제 실패: {exc}")
-    try:
-        _post_to_slack_list(
-            client, {
-                '리드 No': new_lead_no,
-                '고객명': new_name, '고객 연락처': new_phone,
-                '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
-                '방문 주소': new_address, '문의 내용': '-',
-                '플랫폼': new_platform,
-            },
-            modal_fields={
-                'visit_date': new_visit_display, 'visit_address': new_address,
-                'consultation': new_consultation, 'estimate': '',
-            },
-            channel=channel, message_ts=message_ts, action='visit',
-        )
-    except Exception as exc:
-        logger.warning(f"[VISIT/EDIT/PROMOTE] List 새 아이템 add 실패: {exc}")
+    # List·Redis in-place 마이그레이션 (2026-08-06: webhook delete+add 불안정 대체)
+    if not _migrate_visit_list_row(
+        lead_no, new_lead_no, address=new_address,
+        visit_date=new_visit_display, consultation=new_consultation,
+        platform=new_platform,
+    ):
+        try:  # 옛 행 못 찾음 → 신규 add fallback
+            _post_to_slack_list(
+                client, {
+                    '리드 No': new_lead_no,
+                    '고객명': new_name, '고객 연락처': new_phone,
+                    '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
+                    '방문 주소': new_address, '문의 내용': '-',
+                    '플랫폼': new_platform,
+                },
+                modal_fields={
+                    'visit_date': new_visit_display, 'visit_address': new_address,
+                    'consultation': new_consultation, 'estimate': '',
+                },
+                channel=channel, message_ts=message_ts, action='visit',
+            )
+        except Exception as exc:
+            logger.warning(f"[VISIT/EDIT/PROMOTE] List add fallback 실패: {exc}")
+    _migrate_lead_redis_keys(lead_no, new_lead_no)
 
     # 감사 로그 답글
     try:
@@ -7110,39 +7110,33 @@ def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -
             exc_info=True,
         )
 
-    # 4) List webhook — 옛 정규 아이템 삭제 + 새 ETC 아이템 add
-    try:
-        _trigger_visit_list_webhook(
-            'SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, channel, message_ts,
-        )
-    except Exception as exc:
-        logger.warning(f"[VISIT/EDIT/DEMOTE] List 옛 아이템 삭제 실패: {exc}")
-
-    try:
-        new_lead_data = {
-            '리드 No': new_etc_lead_no,
-            '고객명': new_name,
-            '고객 연락처': new_phone,
-            '이메일': str(old_lead.get('이메일', '') or '').strip(),
-            '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
-            '방문 주소': new_address,
-            '문의 내용': new_consultation,
-            '키워드': str(old_lead.get('키워드', '') or '').strip(),
-            '플랫폼': '기타',
-        }
-        _post_to_slack_list(
-            client, new_lead_data,
-            modal_fields={
-                'visit_date': new_visit_display,
-                'visit_address': new_address,
-                'consultation': new_consultation,
-                'estimate': '',
-            },
-            channel=channel, message_ts=message_ts,
-            action='visit',
-        )
-    except Exception as exc:
-        logger.warning(f"[VISIT/EDIT/DEMOTE] List 새 아이템 add 실패: {exc}")
+    # 4) List·Redis in-place 마이그레이션 (2026-08-06 L-03491→ETC 사고: webhook
+    #    delete+add 불안정 + 방문유형·플랫폼·Redis 키 미이관). 직접 API 로 한 행 갱신.
+    if not _migrate_visit_list_row(
+        lead_no, new_etc_lead_no, address=new_address,
+        visit_date=new_visit_display, consultation=new_consultation,
+        platform='기타',
+    ):
+        try:  # 옛 행 못 찾음 → 신규 add fallback
+            _post_to_slack_list(
+                client, {
+                    '리드 No': new_etc_lead_no, '고객명': new_name,
+                    '고객 연락처': new_phone,
+                    '이메일': str(old_lead.get('이메일', '') or '').strip(),
+                    '상담 시간': datetime.now().strftime('%Y.%m.%d. %H:%M'),
+                    '방문 주소': new_address, '문의 내용': new_consultation,
+                    '키워드': str(old_lead.get('키워드', '') or '').strip(),
+                    '플랫폼': '기타',
+                },
+                modal_fields={
+                    'visit_date': new_visit_display, 'visit_address': new_address,
+                    'consultation': new_consultation, 'estimate': '',
+                },
+                channel=channel, message_ts=message_ts, action='visit',
+            )
+        except Exception as exc:
+            logger.warning(f"[VISIT/EDIT/DEMOTE] List add fallback 실패: {exc}")
+    _migrate_lead_redis_keys(lead_no, new_etc_lead_no)
 
     # 5) 감사 로그 답글
     try:
@@ -8723,6 +8717,119 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
     except Exception as exc:
         logger.warning(f"[SLACK/LIST] webhook 호출 실패: {exc}")
         return False
+
+
+# --- 리드 번호 강등/승격 시 List·Redis in-place 마이그레이션 (2026-08-06) ---
+# webhook delete+add 방식은 불안정 (L-03491→ETC-429d99 사고: 옛 행 잔존 + 방문유형·
+#   플랫폼 미변경 + Redis 키 미이관). 직접 API 로 한 행을 in-place 갱신.
+_VLIST_COL = {
+    'lead': 'Col087VA2RG3G', 'addr': 'Col0BDHF203UL', 'date': 'Col088QNV75NU',
+    'consult': 'Col08C6LTR681', 'vtype': 'Col0BCYB7SPHV', 'platform': 'Col089R4CR59P',
+}
+_VLIST_VTYPE_OPT = {'기타': 'OptEAZ7ROVZ', '거래처': 'OptVWBRAB5M', '온라인': 'Opt8SJW8M1Y'}
+_VLIST_PLATFORM_OPT = {
+    '-': 'Opt4L327EU3', '전화': 'OptVGEOC5ZE', '당근': 'Opt7424AJFY',
+    '홈페이지': 'OptEWNT3KYR', '카카오톡': 'OptRKJ0FD6O', '채널톡': 'OptA1YP2AZZ',
+    '숨고': 'OptRF68T6X1', '큐플레이스': 'OptYHURABE1', '메일': 'Opt378Z95JK',
+    '거래처': 'OptIDNGR1EJ', '소개': 'OptFUV84AJ9', '기타': 'OptKF07W16X',
+}
+
+
+def _vlist_rt(text: str) -> list:
+    """List rich_text 셀 값."""
+    return [{'type': 'rich_text', 'elements': [
+        {'type': 'rich_text_section',
+         'elements': [{'type': 'text', 'text': text}]}]}]
+
+
+def _migrate_visit_list_row(old_no: str, new_no: str, address: str = '',
+                            visit_date: str = '', consultation: str = '',
+                            platform: str = '') -> bool:
+    """강등/승격 시 List 행을 직접 API 로 in-place 마이그레이션.
+
+    old_no(또는 이미 바뀐 new_no) 행을 찾아 lead_no + 방문유형(select) + 플랫폼(select)
+    + 주소/날짜/상담 을 한 번에 갱신. 행 못 찾으면 False (호출부가 신규 add fallback).
+    """
+    import urllib.request as _u
+    token = (os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+             or os.getenv('SLACK_BOT_TOKEN', '').strip())
+    lid = os.getenv('SLACK_VISIT_LIST_ID', '').strip()
+    if not token or not lid:
+        return False
+    try:
+        from slack_sdk import WebClient
+        c = WebClient(token=token)
+        resp = c.api_call('slackLists.items.list', http_verb='GET',
+                          params={'list_id': lid})
+        items = resp.data.get('items', []) if hasattr(resp, 'data') else resp.get('items', [])
+        row_id = None
+        for it in items:
+            for f in it.get('fields', []):
+                if f.get('column_id') == _VLIST_COL['lead'] and \
+                        f.get('text') in (old_no, new_no):
+                    row_id = it['id']
+                    break
+            if row_id:
+                break
+        if not row_id:
+            return False
+        vtype = ('거래처' if platform in ('거래처', '소개')
+                 else '기타' if platform == '기타' else '온라인')
+        cells = [
+            {'row_id': row_id, 'column_id': _VLIST_COL['lead'], 'rich_text': _vlist_rt(new_no)},
+            {'row_id': row_id, 'column_id': _VLIST_COL['vtype'], 'select': [_VLIST_VTYPE_OPT[vtype]]},
+        ]
+        if platform in _VLIST_PLATFORM_OPT:
+            cells.append({'row_id': row_id, 'column_id': _VLIST_COL['platform'],
+                          'select': [_VLIST_PLATFORM_OPT[platform]]})
+        if address:
+            cells.append({'row_id': row_id, 'column_id': _VLIST_COL['addr'], 'rich_text': _vlist_rt(address)})
+        if visit_date:
+            cells.append({'row_id': row_id, 'column_id': _VLIST_COL['date'], 'rich_text': _vlist_rt(visit_date)})
+        if consultation:
+            cells.append({'row_id': row_id, 'column_id': _VLIST_COL['consult'],
+                          'rich_text': _vlist_rt(_extract_latest_consult_content(consultation))})
+        body = {'list_id': lid, 'cells': cells}
+        req = _u.Request('https://slack.com/api/slackLists.items.update',
+                         data=json.dumps(body).encode('utf-8'),
+                         headers={'Content-Type': 'application/json; charset=utf-8',
+                                  'Authorization': f'Bearer {token}'}, method='POST')
+        with _u.urlopen(req, timeout=8) as r:
+            ok = json.loads(r.read()).get('ok')
+        logger.info(f"[VISIT/MIGRATE] List row {old_no}→{new_no} 갱신 ok={ok}")
+        return bool(ok)
+    except Exception as exc:
+        logger.warning(f"[VISIT/MIGRATE] List 마이그레이션 실패 ({old_no}→{new_no}): {exc}")
+        return False
+
+
+def _migrate_lead_redis_keys(old_no: str, new_no: str) -> None:
+    """강등/승격 시 lead_no 로 키잉된 Redis 추적 키 이관 (카드ts·List dedup·완료·폴더 등)."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return
+    for prefix, ttl in [
+        ('visit_notice_msg', 60 * 60 * 24 * 180),
+        ('slack_list_posted', 60 * 60 * 24 * 90),
+        ('visit_auto_completed', None), ('visit_folder', None),
+        ('consult_reply', None), ('lead_card_msg', None),
+    ]:
+        try:
+            v = rc.get(f'{prefix}:{old_no}')
+            if v is None:
+                continue
+            v = v.decode() if isinstance(v, bytes) else v
+            _ttl = ttl
+            if _ttl is None:
+                _t = rc.ttl(f'{prefix}:{old_no}')
+                _ttl = _t if (_t and _t > 0) else None
+            rc.set(f'{prefix}:{new_no}', v, ex=_ttl)
+            rc.delete(f'{prefix}:{old_no}')
+        except Exception:
+            pass
+    logger.info(f"[VISIT/MIGRATE] Redis 키 이관 {old_no}→{new_no}")
 
 
 def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
