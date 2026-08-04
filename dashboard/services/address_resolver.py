@@ -1299,6 +1299,14 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     )
     for cand in priority[:5]:
         results = _search_poi(f'{cand} {region}'.strip())
+        # cand 자체가 같은 도로의 정식 POI 로 실재하면 = 그 이름의 건물/장소가 존재.
+        #   이때 'cand 로 끝나는' 접두 변형(PINS어반322, 슈퍼스타 어반322)은 같은
+        #   건물의 다른 입점 업체 → endswith 로 치환/부착하면 건물명을 엉뚱한 테넌트로
+        #   바꿈 (2026-08-04 L-03530 어반322 다세대 건물). 반대로 exact 가 없으면
+        #   endswith 형(김포한강듀클래스)이 그 건물의 정식 전체명(접두 지역 포함)이라 허용.
+        _has_exact = any(
+            pn == cand and _road_key(rd) == v_key for pn, rd in results
+        )
         for place_name, road_name in results:
             if not place_name or not road_name:
                 continue
@@ -1309,14 +1317,16 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             #   - place_name.endswith(cand) — 로컬 정식명이 접두 지역명 포함하는 케이스
             #     (예: 한강듀클래스 → 김포한강듀클래스). endswith 만 허용해 오탐 방지
             #     (L-03306 위례포레샤인 → 위례포레샤인23단지아파트 로 replace 되는 오탐 차단)
-            #   2026-08-04 L-03530: 접두가 '공백으로 분리'되면 다른 업체(예: '슈퍼스타
-            #     어반322' 의 '슈퍼스타 ')라 오부착 → 붙은 접두(김포+한강듀클래스)만 허용.
+            #   2026-08-04 L-03530: (1) 접두가 '공백 분리'면 다른 업체('슈퍼스타 ')라 차단
+            #     (붙은 접두 김포한강듀클래스만), (2) cand 가 exact POI 로 실재하면
+            #     (어반322 건물) 접두형은 입점 업체이므로 endswith 자체를 차단.
             _pfx = (place_name[:-len(cand)]
                     if (len(cand) >= 4 and place_name.endswith(cand)) else None)
             _match = (
                 place_name == cand
                 or place_name.startswith(cand + ' ')
-                or (_pfx is not None and _pfx != '' and not _pfx.endswith(' '))
+                or (not _has_exact and _pfx is not None
+                    and _pfx != '' and not _pfx.endswith(' '))
             )
             if not _match:
                 continue
