@@ -2041,6 +2041,18 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             ]
             addr_raw = _addr_lines_raw[0] if _addr_lines_raw else ''
             extra_notes = ' / '.join(_addr_lines_raw[1:]) if len(_addr_lines_raw) > 1 else ''
+            # 인라인 노트 분리 (2026-08-04 L-03524): 한 줄에 붙여쓴 지시문/노트성 괄호
+            #   ('(현장은 3층) YG 소통 하세요')도 상담으로 이동 — 개행 분리로는 못 잡던 갭.
+            try:
+                from dashboard.services.address_resolver import split_address_notes
+                _clean_addr, _inline_note = split_address_notes(addr_raw)
+                if _inline_note:
+                    addr_raw = _clean_addr
+                    extra_notes = (
+                        f'{extra_notes} / {_inline_note}' if extra_notes else _inline_note
+                    )
+            except Exception as _exc:
+                logger.warning(f'[SYNC/방문주소] 인라인 노트 분리 실패: {_exc}')
             if extra_notes and _platform_this in {'거래처', '기타', '소개', '전화'}:
                 _cur_consult = str(row.get('상담 내용', '') or '').strip()
                 if _cur_consult and _cur_consult != '-':

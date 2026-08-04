@@ -1494,6 +1494,80 @@ def _try_poi_fallback(text: str) -> Optional[str]:
     return None
 
 
+# 방문 주소 필드에 한 줄로 붙여쓴 매니저 지시 노트 분리 (2026-08-04 L-03524).
+#   기존 특이사항 이동(lead_sync)은 개행 분리만 처리 — 인라인('(현장은 3층) YG 소통
+#   하세요')은 주소로 저장됨. 보수적 2-신호로 tail 지시문 + 노트성 괄호만 상담으로 이동.
+_NOTE_VERB_END = re.compile(
+    r'(하세요|해주세요|주세요|주십시오|하십시오|바랍니다|부탁드립니다|부탁드려요'
+    r'|드립니다|드려요|요망|주시면|하시면|바람|주세용)(?:\s|$)'
+)
+_NOTE_TAIL_KW = ('소통', '연락', '요망', '참고', '주의')
+_NOTE_PAREN_KW = _NOTE_TAIL_KW + (
+    '현장', '확인', '문의', '주차', '위치',
+    '정면', '오른쪽', '왼쪽', '좌측', '우측', '뒤편', '맞은편', '건너', '방향', '바라보',
+)
+
+
+def _note_has_signal(text: str) -> bool:
+    """지시문 신호: 정중형 동사어미 or 독립 단어형 노트 키워드."""
+    if _NOTE_VERB_END.search(text):
+        return True
+    return any(
+        re.search(rf'(?:^|\s){re.escape(k)}(?:\s|$)', text) for k in _NOTE_TAIL_KW
+    )
+
+
+def _note_is_addr_token(t: str) -> bool:
+    """주소 토큰이면 True (tail 노트 수집 정지 지점)."""
+    if re.search(r'\d', t):                                    # 번지·층·호·동번호
+        return True
+    if re.search(r'(?:로|길)$', t):                            # 도로명
+        return True
+    if re.search(r'(?:빌딩|타워|아파트|상가|오피스텔|프라자|플라자|스퀘어|맨션|'
+                 r'빌라|하우스|센터|파크|타운|시티|캐슬)$', t):  # 건물 접미
+        return True
+    return False
+
+
+def split_address_notes(addr: str) -> Tuple[str, str]:
+    """방문 주소에서 매니저 지시 노트(트레일링 지시문 + 노트성 괄호)를 분리.
+
+    Returns (clean_addr, note_str). 보수적 — 노트 신호가 있을 때만 분리해 상호·주소
+    오제거를 방지. 예: '한영빌딩 4층 (현장은 3층) YG 소통 하세요'
+      → ('한영빌딩 4층', 'YG 소통 하세요 / 현장은 3층')
+    """
+    if not addr or not addr.strip():
+        return addr, ''
+    notes = []
+    s = addr.strip()
+
+    # 1) 노트성 괄호 — 노트 신호(동사어미/키워드/방향어) 포함 시 이동, 주소성 괄호는 유지
+    def _repl(m):
+        inner = m.group(1).strip()
+        if inner and (_note_has_signal(inner)
+                      or any(k in inner for k in _NOTE_PAREN_KW)):
+            notes.append(inner)
+            return ' '
+        return m.group(0)
+
+    s = re.sub(r'\(([^)]*)\)', _repl, s)
+    s = re.sub(r'\s+', ' ', s).strip()
+
+    # 2) 트레일링 지시 클로즈 — 뒤에서부터 주소 토큰 전까지 모아 노트 신호 있으면 분리
+    toks = s.split()
+    cut = len(toks)
+    for i in range(len(toks) - 1, -1, -1):
+        if _note_is_addr_token(toks[i]):
+            break
+        cut = i
+    tail = toks[cut:]
+    if tail and _note_has_signal(' '.join(tail)):
+        notes.insert(0, ' '.join(tail))
+        s = ' '.join(toks[:cut]).strip()
+
+    return s, ' / '.join(n for n in notes if n)
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
