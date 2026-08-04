@@ -48,5 +48,25 @@ def test_verify_no_duplicate_building(monkeypatch):
     assert addr.count('서울랜드') == 1  # 이중 아님
 
 
+def test_verify_no_duplicate_building_spaced(monkeypatch):
+    """카카오 building_name 이 띄어쓴 형태(풍무 푸르지오)여도 무공백 비교로 tail 중복 감지 (L-03424).
+
+    카카오 주소API building_name='풍무 푸르지오'(띄어쓴 비정식형) + 원본 tail
+    '풍무푸르지오 아파트' → '풍무 푸르지오 풍무푸르지오 아파트' 이중. 무공백 비교로 skip.
+    """
+    monkeypatch.setattr(ar, '_kakao_key', lambda: 'test-key')
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {
+        'road_address': {
+            'address_name': '경기 김포시 유현로 200',
+            'building_name': '풍무 푸르지오',
+            'region_3depth_name': '풍무동',
+        },
+    })
+    addr, lv = ar.verify_address('김포 유현로 200 풍무푸르지오 아파트')
+    assert lv == 'verified'
+    assert '풍무 푸르지오 풍무푸르지오' not in addr
+    assert addr.count('풍무푸르지오') == 1
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
