@@ -400,6 +400,7 @@ def dry_run() -> Dict:
     parsed_full = parse_assignment_canvas_full(html)
     parsed = parsed_full['assignments']
     online_duty = parsed_full['online_duty']
+    online_shared = parsed_full.get('online_shared', False)
     off_duty = parsed_full['off_duty']
 
     initial_to_name, _ = _load_initial_maps()
@@ -432,6 +433,7 @@ def dry_run() -> Dict:
         'rows': rows,
         'total': len(rows),
         'online_duty': online_duty,
+        'online_shared': online_shared,
         'off_duty': off_duty,
         'target_date': target_date,
         'duplicates': parsed_full.get('duplicates', []),
@@ -467,6 +469,7 @@ def commit() -> Dict:
         assignments = parsed_full['assignments']
         online_duty = parsed_full['online_duty']
         online_duty_shifts = parsed_full.get('online_duty_shifts') or {}
+        online_shared = parsed_full.get('online_shared', False)
         off_duty = parsed_full['off_duty']
 
         initial_to_name, _ = _load_initial_maps()
@@ -513,6 +516,7 @@ def commit() -> Dict:
             assignments, phone_map, initial_to_name, online_duty, off_duty,
             addr_candidates=addr_candidates,
             online_duty_shifts=online_duty_shifts,
+            online_shared=online_shared,
         )
 
         # 4. 방문 캔버스 A rebuild
@@ -610,6 +614,7 @@ def parse_assignment_canvas_full(html: str) -> Dict:
     assignments: List[Dict] = []
     online_duty: List[str] = []
     online_duty_shifts: Dict[str, str] = {}  # {'SD':'오전', 'MS':'오후'} (2026-07-21)
+    online_shared = False  # '공용/전인원/제외 없음' 명시 = 특정 당번 없이 전원 분담 (2026-08-04)
     off_duty: List[str] = []
     _online_tasks: List[Dict] = []  # 온라인 섹션 '/' 태스크(등기발송 등) — 중복 감지용
     current_section: Optional[str] = None  # 'YG' etc or '_ONLINE_' or '_OFF_'
@@ -658,6 +663,14 @@ def parse_assignment_canvas_full(html: str) -> Dict:
                     if _t_addr and _t_addr != '-':
                         _online_tasks.append({'addr': _t_addr, 'raw': stripped})
                     continue
+                # 전인원 공용 표기 (공용/전인원/제외 없음) — 특정 당번 대신 전원 분담.
+                #   당번 미지정(깜빡)과 구분해 명시적 '공용' 공지로 안내 (2026-08-04).
+                #   이니셜 조합과 공존 가능 → continue 는 이니셜 미검출 시에만.
+                _shared_marker = bool(
+                    re.search(r'공\s*용|전\s*인\s*원|제외\s*없\s*음', stripped)
+                )
+                if _shared_marker:
+                    online_shared = True
                 # 이니셜 + (선택) 시간대 표기 매치
                 _matches = re.findall(r'([A-Z]{2,4})(?:\s*\(([^)]+)\))?', stripped)
                 _found_any = False
@@ -671,6 +684,8 @@ def parse_assignment_canvas_full(html: str) -> Dict:
                         online_duty_shifts[_ini] = _shift.strip()
                 if _found_any:
                     continue
+                if _shared_marker:
+                    continue  # 공용 표기만 있고 이니셜 없는 순수 텍스트 라인 소비
             # 개인 담당자 섹션 헤더
             section = _is_section_header(line, initial_to_name)
             if section:
@@ -733,6 +748,7 @@ def parse_assignment_canvas_full(html: str) -> Dict:
         'assignments': assignments,
         'online_duty': online_duty,
         'online_duty_shifts': online_duty_shifts,
+        'online_shared': online_shared,
         'off_duty': off_duty,
         'duplicates': _detect_assignment_duplicates(assignments, _online_tasks),
     }
@@ -983,7 +999,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                               online_duty: List[str],
                               off_duty: List[str],
                               addr_candidates: Optional[List[Dict]] = None,
-                              online_duty_shifts: Optional[Dict[str, str]] = None) -> Dict:
+                              online_duty_shifts: Optional[Dict[str, str]] = None,
+                              online_shared: bool = False) -> Dict:
     """min(방문일 시작일) > today 인 리드에 담당자/온라인 당번 DM.
 
     2026-07-19 확장: dm_sent 를 JSON 으로 관리해 재실행 시 신규/유지/제거 분류.
@@ -1285,10 +1302,18 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             lead_nos_flagged.add(lno)
         # 2026-07-25: 온라인 당번 지정 없으면 (섹션 비어있거나 텍스트만) 방문 매니저
         #   전원이 나눠서 온라인 대응하도록 안내 라인 append.
+        # 2026-08-04: 캔버스에 '공용/전인원/제외 없음' 명시(online_shared)면 전인원
+        #   공용임을 분명히 안내. 당번 미지정(깜빡)과 문구 구분.
         if not online_duty:
-            lines.append(
-                '>:telephone: *온라인 문의 대응은 전체 인원이 모두 신경 써주세요.*'
-            )
+            if online_shared:
+                lines.append(
+                    '>:headphones: *오늘 온라인 상담은 전인원 공용입니다.* '
+                    '방문 외 시간에 다 같이 나눠서 문의 응대 부탁드립니다.'
+                )
+            else:
+                lines.append(
+                    '>:telephone: *온라인 문의 대응은 전체 인원이 모두 신경 써주세요.*'
+                )
         lines.append(_BLANK)
 
         try:

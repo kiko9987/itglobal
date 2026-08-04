@@ -36,5 +36,45 @@ def test_online_duty_pure_initials_and_shifts(monkeypatch):
     assert r['online_duty_shifts'] == {'SD': '오전', 'MS': '오후'}
 
 
+def test_online_shared_marker(monkeypatch):
+    """'공용업무 전인원 제외 없음' = online_shared True, 당번은 비움 (2026-08-04)."""
+    monkeypatch.setattr(vas, '_load_initial_maps',
+                        lambda: ({'JK': '강정권'}, {}))
+    r = vas.parse_assignment_canvas_full(
+        '<p>온라인</p><p>공용업무 전인원 제외 없음</p><p>휴무</p>')
+    assert r['online_shared'] is True
+    assert r['online_duty'] == []  # 텍스트만 → 특정 당번 없음
+
+
+def test_online_shared_variants(monkeypatch):
+    """공용/전인원/제외없음 개별 키워드도 각각 감지."""
+    monkeypatch.setattr(vas, '_load_initial_maps',
+                        lambda: ({'JK': '강정권'}, {}))
+    for txt in ('공용', '전 인원', '제외없음', '전인원 공용'):
+        r = vas.parse_assignment_canvas_full(
+            f'<p>온라인</p><p>{txt}</p><p>휴무</p>')
+        assert r['online_shared'] is True, txt
+
+
+def test_online_shared_false_when_duty_assigned(monkeypatch):
+    """특정 당번(JK)만 있으면 online_shared False (공용 아님)."""
+    monkeypatch.setattr(vas, '_load_initial_maps',
+                        lambda: ({'JK': '강정권'}, {}))
+    r = vas.parse_assignment_canvas_full(
+        '<p>온라인</p><p>JK</p><p>휴무</p>')
+    assert r['online_shared'] is False
+    assert r['online_duty'] == ['JK']
+
+
+def test_online_shared_with_initials_coexist(monkeypatch):
+    """공용 표기 + 이니셜 공존 시: shared True 이면서 당번도 수집."""
+    monkeypatch.setattr(vas, '_load_initial_maps',
+                        lambda: ({'JK': '강정권'}, {}))
+    r = vas.parse_assignment_canvas_full(
+        '<p>온라인</p><p>공용 (JK 오전 지원)</p><p>휴무</p>')
+    assert r['online_shared'] is True
+    assert 'JK' in r['online_duty']
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
