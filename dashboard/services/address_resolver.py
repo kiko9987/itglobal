@@ -855,6 +855,11 @@ def verify_address(
             if (
                 building_name
                 and building_name.lower() not in base.lower()
+                # 원본 tail 에 이미 같은 건물명이 있으면 append 안 함 — 안 그러면 카카오
+                #   건물명 + tail 의 건물명 이중 노출 ('서울랜드 후문 서울랜드 산타레스토랑',
+                #   2026-08-04 L-03517). tail 은 _compose 가 항상 뒤에 붙이므로 중복됨.
+                and building_name.replace(' ', '').lower()
+                    not in (building_tail or '').replace(' ', '').lower()
                 and not _tail_has_building
             ):
                 # 2026-07-23 L-03329 관측: 같은 도로명 주소에 여러 건물 (KBS아레나·
@@ -943,11 +948,22 @@ def _strip_redundant_legal_dong(addr: str) -> str:
         return addr
     road = doc.get('road_address') or {}
     dong = (road.get('region_3depth_name') or '').strip()  # 예: 성수동2가
-    if not dong or dong not in addr:
+    if not dong:
         return addr
-    stripped = re.sub(
-        rf'(?<![가-힣]){re.escape(dong)}(?![가-힣])\s*', '', addr,
-    )
+    # 도로suffix 공백 보강(매산로3가→매산로 3가, 2026-08-04 L-03422)으로 법정동이 분리
+    #   저장될 수 있어 원형·공백변형 둘 다 매칭. 도로명주소엔 법정동 불필요 → standalone 제거.
+    _variants = [dong]
+    _spaced = re.sub(r'([로길])(\d)', r'\1 \2', dong)
+    if _spaced != dong:
+        _variants.append(_spaced)
+    _present = [d for d in _variants if d in addr]
+    if not _present:
+        return addr
+    stripped = addr
+    for d in _present:
+        stripped = re.sub(
+            rf'(?<![가-힣]){re.escape(d)}(?![가-힣])\s*', '', stripped,
+        )
     stripped = re.sub(r'\s+', ' ', stripped).strip()
     return stripped or addr
 
