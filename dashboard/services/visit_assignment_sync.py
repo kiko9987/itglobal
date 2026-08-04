@@ -434,6 +434,7 @@ def dry_run() -> Dict:
         'online_duty': online_duty,
         'off_duty': off_duty,
         'target_date': target_date,
+        'duplicates': parsed_full.get('duplicates', []),
     }
 
 
@@ -610,6 +611,7 @@ def parse_assignment_canvas_full(html: str) -> Dict:
     online_duty: List[str] = []
     online_duty_shifts: Dict[str, str] = {}  # {'SD':'오전', 'MS':'오후'} (2026-07-21)
     off_duty: List[str] = []
+    _online_tasks: List[Dict] = []  # 온라인 섹션 '/' 태스크(등기발송 등) — 중복 감지용
     current_section: Optional[str] = None  # 'YG' etc or '_ONLINE_' or '_OFF_'
 
     for line in lines:
@@ -644,13 +646,18 @@ def parse_assignment_canvas_full(html: str) -> Dict:
             #   "SD"                  — 단일
             #   "SD+MS"               — 조합
             #   "SD(오전)+MS(오후)"   — 시간대별 담당. 이니셜 뒤 괄호 값은 shifts 로 유지
-            # 온라인 당번 = 순수 이니셜 라인만 (JK / SD+MS / SD(오전)+MS(오후)).
-            #   '/' 필드가 있는 태스크·방문 라인 (예: 'JK 점심때 (SB) 8월 4일 / - /
-            #   근처 우체국 / 등기발송 2건') 은 온라인 당번이 아니라 별도 업무 →
-            #   이니셜 수집 skip. (2026-08-03 SB 등기발송이 온라인 당번으로 오파싱 →
-            #   commit 시 SB 가 잘못된 온라인 당번 DM 을 받던 사고. SB 의 등기발송은
-            #   개인 섹션 라인에서 별도 assignment 로 이미 잡힘)
-            if current_section == '_ONLINE_' and stripped and '/' not in stripped:
+            # 온라인 섹션 처리:
+            #   순수 이니셜 라인 (JK / SD+MS / SD(오전)+MS(오후)) → online_duty
+            #   '/' 태스크 라인 (예: 'JK 점심때 (SB) … / 근처 우체국 / 등기발송 2건') 은
+            #     온라인 당번이 아니라 별도 업무 → 이니셜 수집 skip (2026-08-03 SB 오파싱).
+            #     대신 주소를 _online_tasks 에 기록 → 다른 섹션 배정과 같은 주소면 중복 감지.
+            if current_section == '_ONLINE_' and stripped:
+                if '/' in stripped:
+                    _pp = [p.strip() for p in stripped.split('/')]
+                    _t_addr = _pp[2] if len(_pp) >= 3 else ''
+                    if _t_addr and _t_addr != '-':
+                        _online_tasks.append({'addr': _t_addr, 'raw': stripped})
+                    continue
                 # 이니셜 + (선택) 시간대 표기 매치
                 _matches = re.findall(r'([A-Z]{2,4})(?:\s*\(([^)]+)\))?', stripped)
                 _found_any = False
@@ -727,7 +734,52 @@ def parse_assignment_canvas_full(html: str) -> Dict:
         'online_duty': online_duty,
         'online_duty_shifts': online_duty_shifts,
         'off_duty': off_duty,
+        'duplicates': _detect_assignment_duplicates(assignments, _online_tasks),
     }
+
+
+def _detect_assignment_duplicates(assignments: List[Dict],
+                                   online_tasks: List[Dict]) -> List[Dict]:
+    """같은 건이 여러 담당/섹션에 걸려 둘 다 DM 나가는 것 감지 (2026-08-04).
+
+    - phone 있는 배정: 같은 전화가 서로 다른 담당(assign)에 2건+ → 중복 (같은 고객 2배정).
+    - phone 없는 태스크(등기발송·우체국 등): 같은 주소가 서로 다른 곳(개인 섹션 배정 /
+      온라인 태스크)에 2건+ → 중복. (예: 우체국 등기발송이 TH+SD 섹션 + 온라인 JK 양쪽)
+    감지만 하고 배정/DM 은 안 건드림 — 매니저가 캔버스에서 잔존 라인 정리하도록 플래그.
+    """
+    def _ak(s):
+        return re.sub(r'[\s,.·・]', '', str(s or ''))
+
+    dups: List[Dict] = []
+    # 1) phone 기준
+    by_phone: Dict[str, list] = {}
+    for a in assignments:
+        pd = a.get('phone_digits') or ''
+        if pd:
+            by_phone.setdefault(pd, []).append('+'.join(a.get('assign') or []) or '?')
+    for pd, labels in by_phone.items():
+        uniq = sorted(set(labels))
+        if len(labels) > 1 and len(uniq) > 1:
+            dups.append({'kind': 'phone', 'key': pd, 'assignees': uniq})
+    # 2) 주소 기준 (phone 없는 배정 + 온라인 태스크)
+    by_addr: Dict[str, Dict] = {}
+    for a in assignments:
+        if a.get('phone_digits'):
+            continue
+        addr = str(a.get('address') or '').strip()
+        if _ak(addr):
+            e = by_addr.setdefault(_ak(addr), {'addr': addr, 'labels': []})
+            e['labels'].append('+'.join(a.get('assign') or []) or '?')
+    for t in online_tasks:
+        addr = str(t.get('addr') or '').strip()
+        if _ak(addr):
+            e = by_addr.setdefault(_ak(addr), {'addr': addr, 'labels': []})
+            e['labels'].append('온라인')
+    for _k, e in by_addr.items():
+        uniq = sorted(set(e['labels']))
+        if len(e['labels']) > 1 and len(uniq) > 1:
+            dups.append({'kind': 'address', 'key': e['addr'], 'assignees': uniq})
+    return dups
 
 
 def _parse_visit_date_start(vd) -> Optional['date']:

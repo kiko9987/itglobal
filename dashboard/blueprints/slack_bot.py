@@ -720,6 +720,12 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
             lines.append(f"_온라인 당번:_ {'·'.join(result['online_duty'])}")
         if result.get('off_duty'):
             lines.append(f"_휴무:_ {'·'.join(result['off_duty'])}")
+        _dups = result.get('duplicates') or []
+        if _dups:
+            lines.append(f":rotating_light: *중복 배정 {len(_dups)}건 — 같은 건이 2곳에 걸림 (캔버스 확인)*")
+            for d in _dups[:8]:
+                _k = '전화' if d.get('kind') == 'phone' else '주소'
+                lines.append(f"  · [{_k}] {d.get('key')} → {' / '.join(d.get('assignees', []))}")
         if result.get('updated'):
             lines.append('_시트 업데이트 리드:_ ' + ', '.join(result['updated'][:20]))
         if result.get('failed_count'):
@@ -751,6 +757,12 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
         lines.append(f"   :headphones: 온라인 당번 : {'·'.join(result['online_duty'])}")
     if result.get('off_duty'):
         lines.append(f"   :palm_tree: 휴무 : {'·'.join(result['off_duty'])}")
+    _dups = result.get('duplicates') or []
+    if _dups:
+        lines.append(f"   :rotating_light: *중복 배정 {len(_dups)}건 — 같은 건이 2곳에 걸림 (커밋 전 캔버스 정리)*")
+        for d in _dups[:8]:
+            _k = '전화' if d.get('kind') == 'phone' else '주소'
+            lines.append(f"      · [{_k}] {d.get('key')} → {' / '.join(d.get('assignees', []))}")
     lines.append('')
     if changed:
         lines.append('*변경 대상:*')
