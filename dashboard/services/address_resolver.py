@@ -1348,9 +1348,17 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             #     (어반322 건물) 접두형은 입점 업체이므로 endswith 자체를 차단.
             _pfx = (place_name[:-len(cand)]
                     if (len(cand) >= 4 and place_name.endswith(cand)) else None)
+            # startswith('cand X'): cand 가 exact POI 로 실재(=건물/장소)하면 X 는 지점명이
+            #   아니라 입점 업체(관악더행복마루 스크린파크골프장) → 지점(점/지점) 접미가
+            #   아닌 한 append 금지 (2026-08-06 L-03541). exact 없으면 지점명 보강 유지
+            #   (마성떡볶이 논현역점 — 단독 '마성떡볶이' POI 없어 _has_exact=False).
+            _sw = place_name.startswith(cand + ' ')
+            _sw_x = place_name[len(cand):].strip() if _sw else ''
             _match = (
                 place_name == cand
-                or place_name.startswith(cand + ' ')
+                or (_sw and (not _has_exact
+                             or (_sw_x and _sw_x in original_text)  # 매니저가 원문에 쓴 상호/동 → 유지
+                             or re.search(r'(?:지점|\d*호점|점)$', place_name)))  # 지점명 보강
                 or (not _has_exact and _pfx is not None
                     and _pfx != '' and not _pfx.endswith(' '))
             )

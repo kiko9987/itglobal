@@ -61,5 +61,27 @@ def test_glued_region_prefix_appends_when_no_exact(monkeypatch):
     assert '김포한강듀클래스' in r
 
 
+def test_startswith_tenant_blocked_when_exact_building(monkeypatch):
+    """건물(관악더행복마루 exact) + 원문에 없는 입점업체(스크린파크골프장)는 append 차단 (L-03541)."""
+    monkeypatch.setattr(ar, '_search_poi', lambda q: [
+        ('관악더행복마루', '서울 관악구 구암5길 8'),
+        ('관악더행복마루 스크린파크골프장', '서울 관악구 구암5길 8'),
+    ])
+    r = ar._enrich_with_poi('관악구 구암5길 8 관악더행복마루 2층',
+                            '관악구 구암5길 8 관악더행복마루 2층')
+    assert '스크린파크골프장' not in r
+
+
+def test_startswith_shop_kept_when_in_original(monkeypatch):
+    """매니저가 원문에 쓴 상호는 exact 건물이어도 유지 (어머니맛나부페)."""
+    monkeypatch.setattr(ar, '_search_poi', lambda q: [
+        ('크란츠테크노', '성남 중원구 둔촌대로 388'),
+        ('크란츠테크노 어머니맛나부페', '성남 중원구 둔촌대로 388'),
+    ])
+    r = ar._enrich_with_poi('성남 중원구 둔촌대로 388 크란츠테크노 405호',
+                            '성남 중원구 둔촌대로 388 크란츠테크노 어머니맛나부페 405호')
+    assert '어머니맛나부페' in r
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
