@@ -8347,6 +8347,22 @@ def _process_visit_thread_files(client, event) -> None:
         pass
 
 
+def _visit_not_yet_reached(visit_date) -> bool:
+    """방문 예정일(범위면 시작일)이 오늘보다 미래면 True = '아직 안 다녀옴'.
+
+    사진 첨부 자동완료 게이트용 (2026-08-05, L-03575 도면 오완료 사고). 방문 전
+    첨부는 참고자료(도면 등)라 완료로 보면 안 됨. 파싱 실패·빈값이면 False —
+    기존 동작(자동완료 허용) 유지해 현장 사진 UX 안 깨뜨림.
+    """
+    try:
+        from dashboard.services.visit_assignment_sync import _parse_visit_date_start
+        from datetime import date as _date
+        start = _parse_visit_date_start(str(visit_date or '').strip())
+        return bool(start and start > _date.today())
+    except Exception:
+        return False
+
+
 def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
                                       event_user_id) -> None:
     """사진 첨부 → 폴더 생성 완료 후 카드를 자동으로 [방문 완료] 처리.
@@ -8367,6 +8383,18 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
     except Exception as exc:
         logger.warning(f"[SLACK/자동완료] flag 조회 실패 — 계속 진행: {exc}")
         rc = None
+
+    # 방문일 미래면 = 아직 안 다녀옴 = 첨부 사진은 참고자료(도면 등) → 자동완료 skip.
+    #   사진은 이미 드라이브에 저장됨(완료만 막음). flag 도 set 안 함 → 실제 방문일에
+    #   현장사진 첨부하면 그때 정상 자동완료. (L-03575 사고: 08-06 방문 건에 도면 참고
+    #   첨부가 08-05 자동완료를 유발. 거래처 방문요청은 등록 시 도면 첨부가 흔함.)
+    _lead_for_date = _find_lead_by_no(lead_no) or {}
+    if _visit_not_yet_reached(_lead_for_date.get('방문 예정일')):
+        logger.info(
+            f"[SLACK/자동완료] {lead_no} 방문일({_lead_for_date.get('방문 예정일')!r}) "
+            f"미래 — 참고사진으로 보고 자동완료 skip (사진은 저장됨)"
+        )
+        return
 
     # 1) List 삭제 웹훅
     try:
