@@ -4534,6 +4534,29 @@ def _apply_auto_dropped_card(client, channel: str, thread_ts: str, root: dict,
     )
 
 
+def _react_card_handled(client, channel: str, ts: str) -> bool:
+    """리드 카드 본체에 ✅(white_check_mark) 리액션 = '리드 처리 완료' 신호.
+
+    모달 완료·기존 lead 연결·자동 스레드 감지(부재중/드랍) 등 모든 처리 경로가
+    이 헬퍼로 카드 root 에 ✅ 를 달아 "카드 ✅ = 리드 처리 완료" 신호를 통일
+    (2026-08-04). 기존은 자동감지만 카드가 아닌 매니저 답글에 ✅ 를 달아
+    채널 스캔 시 처리 여부가 안 보였음.
+
+    already_reacted(재처리) 등 실패는 debug 로그만 — 카드 회색화로 이미 표시되므로
+    치명적 아님. 조용한 except:pass 대신 로그로 원인 추적 가능하게.
+
+    Returns: 성공 True / 실패·skip False.
+    """
+    if not (channel and ts):
+        return False
+    try:
+        client.reactions_add(channel=channel, timestamp=ts, name='white_check_mark')
+        return True
+    except Exception as exc:
+        logger.debug(f'[SLACK] 카드 ✅ 리액션 skip ({channel}/{ts}): {exc}')
+        return False
+
+
 def _try_auto_thread_status(client, event: dict) -> bool:
     """스레드 텍스트 자동 감지 → lead 상태 처리.
 
@@ -4645,12 +4668,15 @@ def _try_auto_thread_status(client, event: dict) -> bool:
     except Exception as exc:
         logger.warning(f'[SLACK/자동감지] 카드 회색화 실패 ({lead_no}): {exc}')
 
+    # 매니저 답글에 ✅ — "봇이 인지·처리함" 피드백 (채널톡 forward 답글 ✅와 동일 의미)
     try:
         client.reactions_add(
             channel=channel, timestamp=event_ts, name='white_check_mark',
         )
     except Exception:
         pass
+    # 카드 본체에도 ✅ — "리드 처리 완료" 채널 스캔 신호 (모달·연결 경로와 통일)
+    _react_card_handled(client, channel, thread_ts)
 
     logger.info(
         f'[SLACK/자동감지] {lead_no} → {new_status} '
@@ -4980,20 +5006,14 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
             except Exception:
                 pass
 
-        # === 원본(target) lead 카드에 ✅ reaction (시각적 처리 완료 표시) ===
+        # === 원본(target) lead 카드에 ✅ reaction (리드 처리 완료, 공통 헬퍼) ===
         try:
             card_info = rc.get(f'lead_card_msg:{target_lead_no}')
             if card_info:
                 card_info_s = card_info.decode('utf-8') if isinstance(card_info, bytes) else card_info
                 if '|' in card_info_s:
                     target_channel, target_ts = card_info_s.split('|', 1)
-                    try:
-                        client.reactions_add(
-                            channel=target_channel, timestamp=target_ts,
-                            name='white_check_mark',
-                        )
-                    except Exception as exc:
-                        logger.debug(f"[SLACK/link] reaction 추가 skip ({target_lead_no}): {exc}")
+                    _react_card_handled(client, target_channel, target_ts)
         except Exception as exc:
             logger.warning(f"[SLACK/link] 원본 카드 reaction 실패: {exc}")
 
@@ -5912,13 +5932,8 @@ def _process_consult_submission(client, body, view):
             except Exception as exc:
                 logger.warning(f"[SLACK/상담] 카드 회색 처리 실패 ({lead_no}): {exc}")
 
-        # 2) 원본 카드 ✅ reaction
-        try:
-            client.reactions_add(
-                channel=channel, timestamp=message_ts, name="white_check_mark",
-            )
-        except Exception:
-            pass
+        # 2) 원본 카드 ✅ reaction — "리드 처리 완료" (공통 헬퍼)
+        _react_card_handled(client, channel, message_ts)
 
         # 3) thread reply 발송 (slack UI가 reply count 표시 갱신하도록 마지막에)
         # 2026-07-23 정책 개편: 방문 예약만 방문_일정 카드 permalink 링크 reply.
