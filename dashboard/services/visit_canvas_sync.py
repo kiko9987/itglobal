@@ -68,9 +68,11 @@ def _categorize(lead: Dict) -> Optional[str]:
         return '기타'
     if platform in ('거래처', '소개'):
         return '거래처'
-    if platform in ('당근', '홈페이지', '카카오톡', '전화'):
-        return '온라인 방문'
-    return None
+    # 나머지 모든 온라인 플랫폼 → 온라인 방문. 기존 화이트리스트(당근·홈페이지·카카오톡·
+    # 전화)는 채널톡·숨고·큐플레이스·메일 등을 누락시켜 해당 방문이 캔버스1에서 통째로
+    # drop → JW 배분·방문 DM 누락 (L-03565 채널톡 사고, 2026-08-05). _fetch_visit_leads
+    # 가 이미 방문예약/공사확정+미래로 게이트했으므로 여기 오는 건 전부 유효 방문.
+    return '온라인 방문'
 
 
 def _fmt_visit_date(raw) -> str:
