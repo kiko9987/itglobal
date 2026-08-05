@@ -93,6 +93,43 @@ def test_enrich_no_duplicate_spaced_building(monkeypatch):
     assert r.count('주민센터') == 1
 
 
+def test_compose_no_split_kakao_building(monkeypatch):
+    """카카오 확정 건물명(타워팰리스)을 스페이싱 규칙이 쪼개지 않음 (L-03553).
+
+    카카오 building_name='타워팰리스'(정식 무공백)인데 규칙1이 '타워'+한글을
+    분리해 '타워 팰리스'로 망치던 갭. base 에 붙어 실재하므로 유지.
+    """
+    monkeypatch.setattr(ar, '_kakao_key', lambda: 'k')
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {
+        'road_address': {
+            'address_name': '서울 강남구 언주로30길 56',
+            'building_name': '타워팰리스',
+            'region_3depth_name': '도곡동',
+        },
+    })
+    addr, lv = ar.verify_address('강남구 언주로30길 56 타워팰리스 제상가동 202호')
+    assert lv == 'verified'
+    assert '타워팰리스' in addr
+    assert '타워 팰리스' not in addr  # 안 쪼개짐
+
+
+def test_compose_still_splits_manager_typo(monkeypatch):
+    """매니저가 붙여 쓴 '단지상가'(base 에 없음)는 기존대로 분리 (규칙1 보존)."""
+    monkeypatch.setattr(ar, '_kakao_key', lambda: 'k')
+    # 카카오는 도로+번지만 확정(건물명 없음), '단지상가'는 원본 tail
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {
+        'road_address': {
+            'address_name': '서울 노원구 동일로 1234',
+            'building_name': '',
+            'region_3depth_name': '상계동',
+        },
+    })
+    monkeypatch.setattr(ar, '_search_poi', lambda q: ())
+    addr, lv = ar.verify_address('노원구 동일로 1234 상계주공아파트 단지상가')
+    # base 에 '단지상가' 없음 → 여전히 분리
+    assert '단지 상가' in addr
+
+
 def test_flatten_paren_keeps_corporate_designator():
     """법인 표기 (주)/(유)/(사)/(재)는 flatten 안 함 — '주' 홀로 남기 방지 (L-03358)."""
     F = ar._flatten_paren_tail

@@ -732,7 +732,7 @@ def verify_address(
     # 괄호로 감싸진 building_tail flatten — module-level 함수로 추출 (테스트 용이).
     building_tail = _flatten_paren_tail(building_tail)
 
-    def _compose(base: str) -> str:
+    def _compose(base: str, protect_name: str = '') -> str:
         parts = [base]
         # base에 도로명+번지가 없으면 원문에서 추출해 부착
         # (m_admin 후보로 검색되면 행정구역까지만 정규화돼 도로명/번지 손실)
@@ -798,10 +798,30 @@ def verify_address(
         # 1. 한국 주소·시설 단어 다음 한글 — "단지상가" → "단지 상가"
         # 2026-07-20 예외: 다음이 도로명 suffix (대로/로/길/번길) 또는 부위 접미
         #   (동/층/호/관/번지) 면 skip — "인천타워대로" → 그대로, "상가동" → 그대로.
+        # 2026-08-05 예외 (L-03553): 카카오 확정 건물명은 원문 존중 — 쪼갠 결과가
+        #   카카오 verified(base) 또는 카카오 building_name(protect_name) 에 붙은 채로
+        #   실재하면 분리 금지 ('타워팰리스' → '타워 팰리스' 오분리 방지). 매니저가
+        #   붙여 쓴 '단지상가' 는 어느 쪽에도 없어 기존대로 분리됨(규칙 1 보존, 회귀 없음).
+        #   ※ 타워팰리스는 tail_has_building 경로라 base 미포함 → building_name 으로 방어.
+        #   ETC-3b713a 동 규칙과 동일 사상(카카오 정확값을 후처리가 망치는 것 방지).
+        _protect_nospace = (
+            (base or '').replace(' ', '') + '\x00' + (protect_name or '').replace(' ', '')
+        )
+
+        def _spacing_guard(m):
+            tok = m.group(1)
+            _fol = re.match(r'[가-힣]+', m.string[m.end():])
+            _combined = tok + (_fol.group(0) if _fol else '')
+            # 쪼개려는 단어(토큰+뒤 한글)가 카카오 base 또는 building_name 에 붙어
+            # 실재 → 정식 건물명, 유지
+            if _combined and _combined in _protect_nospace:
+                return tok
+            return tok + ' '
+
         result = re.sub(
             r'(단지|상가|아파트|빌딩|타워|오피스텔|맨션|빌라|하우스|클래스원)'
             r'(?=[가-힣])(?!대로|로|길|번길|동|층|호|관|번지)',
-            r'\1 ', result,
+            _spacing_guard, result,
         )
         # 2. 한글 다음 숫자+동/호/층/관 — "○○상가101호" → "○○상가 101호"
         # 영문 제외 (2026-07-23 ETC-678632): "B1층" (지하 1층) 이 "B 1층" 으로 잘못 분리되는 케이스 방지.
@@ -913,7 +933,7 @@ def verify_address(
                     base = f"{base} {_confirmed_tail}"
                 elif not _skip_bldg:
                     base = f"{base} {building_name}"
-            return (_compose(base), 'verified')
+            return (_compose(base, protect_name=building_name), 'verified')
         jibun = doc.get('address')
         if jibun and jibun.get('address_name'):
             return (_compose(normalize_display(jibun['address_name'])), 'verified')
