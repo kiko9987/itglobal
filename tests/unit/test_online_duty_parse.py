@@ -66,6 +66,20 @@ def test_online_shared_false_when_duty_assigned(monkeypatch):
     assert r['online_duty'] == ['JK']
 
 
+def test_online_prefix_noise_no_swallow(monkeypatch):
+    """'광고OFF (JSH(오전)+SD(오후))' — 앞 대문자 노이즈(OFF)가 뒤 이니셜을 삼키지 않음.
+
+    OFF 가 [A-Z]{2,4} 로 잡혀 'JSH(오전' 을 시프트로 통째 삼켜 JSH 가 누락되던 버그
+    (2026-08-06 08-07 온라인 당번). 시프트 charset 에 대문자·괄호 제외로 fix.
+    """
+    monkeypatch.setattr(vas, '_load_initial_maps',
+                        lambda: ({'JSH': '정성훈', 'SD': '서동'}, {}))
+    r = vas.parse_assignment_canvas_full(
+        '<p>온라인</p><p>광고OFF (JSH(오전)+SD(오후))</p><p>휴무</p>')
+    assert set(r['online_duty']) == {'JSH', 'SD'}
+    assert r['online_duty_shifts'] == {'JSH': '오전', 'SD': '오후'}
+
+
 def test_online_shared_with_initials_coexist(monkeypatch):
     """공용 표기 + 이니셜 공존 시: shared True 이면서 당번도 수집."""
     monkeypatch.setattr(vas, '_load_initial_maps',

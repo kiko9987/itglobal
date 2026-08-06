@@ -672,7 +672,11 @@ def parse_assignment_canvas_full(html: str) -> Dict:
                 if _shared_marker:
                     online_shared = True
                 # 이니셜 + (선택) 시간대 표기 매치
-                _matches = re.findall(r'([A-Z]{2,4})(?:\s*\(([^)]+)\))?', stripped)
+                # 시프트 그룹 charset 에서 대문자·여는괄호 제외 (2026-08-06). 기존
+                # `[^)]+` 는 '광고OFF (JSH(오전)+SD(오후))' 처럼 앞에 대문자 노이즈
+                # ('OFF')가 있으면 OFF 가 이니셜로 잡혀 뒤 'JSH(오전' 을 통째 시프트로
+                # 삼켜 JSH 누락. 시프트는 오전/오후 등 한글이라 대문자·괄호 불가로 제한.
+                _matches = re.findall(r'([A-Z]{2,4})(?:\s*\(([^)A-Z(]+)\))?', stripped)
                 _found_any = False
                 for _ini, _shift in _matches:
                     if _ini not in initial_to_name:
