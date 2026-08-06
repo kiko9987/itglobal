@@ -134,7 +134,15 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
       온라인 상담자 (거래처/소개/기타 원래 등록자 기준)
     """
     _platform = str(lead.get('플랫폼') or '').strip()
-    is_online = _platform in ('당근', '홈페이지', '카카오톡', '전화')
+    _lead_no = str(lead.get('리드 No') or '').strip()
+    # 온라인 = 거래처/소개·기타(ETC/기타플랫폼) 외 전부. 기존 화이트리스트
+    # (당근·홈페이지·카카오톡·전화)는 채널톡·숨고·큐플레이스·메일을 누락시켜 이들이
+    # 거래처/기타 렌더로 빠져 (온라인 상담자) 이니셜이 잘못 붙었음 — 캔버스 자동
+    # 재생성마다 재부착(수동 삭제해도 되살아남). _categorize 와 동일 사상 catch-all.
+    # (L-03565 채널톡 '(KIKO)' 오부착 사고, 2026-08-06)
+    is_online = not (
+        _lead_no.startswith('ETC-') or _platform in ('기타', '거래처', '소개')
+    )
 
     def _clean(v):
         s = str(v or '').strip()

@@ -48,5 +48,40 @@ def test_empty_platform_defaults_online():
     assert _categorize(_lead('')) == '온라인 방문'
 
 
+# ── _render_item 온라인 이니셜 오부착 회귀 (L-03565 채널톡 '(KIKO)') ──
+from dashboard.services.visit_canvas_sync import _render_item
+
+
+def _full(platform, lead_no='L-00001'):
+    return {'리드 No': lead_no, '플랫폼': platform, '방문 예정일': '2026-08-06',
+            '고객 연락처': '010-0000-0000', '방문 주소': '성남 중원구 둔촌대로 560',
+            '상담 내용': '천장형 견적', '온라인 상담자': '고광일'}
+
+
+def test_render_channeltalk_no_initial():
+    """채널톡 = 온라인 → 이니셜 prefix 없음 (버그 케이스)."""
+    out = _render_item(_full('채널톡'), {'고광일': 'KIKO'})
+    assert '(KIKO)' not in out and not out.strip().startswith('(')
+
+
+def test_render_other_online_no_initial():
+    """숨고·큐플레이스·메일도 온라인 → 이니셜 없음."""
+    for p in ('숨고', '큐플레이스', '메일', '당근'):
+        out = _render_item(_full(p), {'고광일': 'KIKO'})
+        assert '(KIKO)' not in out, p
+
+
+def test_render_partner_keeps_initial():
+    """거래처 = 이니셜 prefix 유지 (온라인 상담자 기준)."""
+    out = _render_item(_full('거래처'), {'고광일': 'KIKO'})
+    assert out.strip().startswith('(')
+
+
+def test_render_etc_keeps_initial():
+    """ETC 리드(기타 취급) = 이니셜 prefix 유지."""
+    out = _render_item(_full('전화', lead_no='ETC-abc123'), {'고광일': 'KIKO'})
+    assert out.strip().startswith('(')
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
