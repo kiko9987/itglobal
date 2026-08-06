@@ -291,7 +291,20 @@ def build_canvas_markdown() -> str:
             lines.append('_없음_')
         else:
             for lead in items:
-                lines.append(f'- {_render_item(lead, initial_map)}')
+                # 리드별 방어 (2026-08-06): _render_item 이 한 건에서 예외를 던져도
+                # 전체 build 가 실패해 캔버스가 통째로 동결(신규 방문 전부 누락)되지 않도록.
+                # 실패 건은 조용히 빼지 말고 ⚠️ placeholder 로 노출 → 매니저가 인지 가능.
+                try:
+                    lines.append(f'- {_render_item(lead, initial_map)}')
+                except Exception as exc:
+                    _lno = str(lead.get('리드 No') or '?')
+                    logger.error(
+                        f'[VISIT_CANVAS] _render_item 실패 — 이 건만 skip ({_lno}): {exc}',
+                        exc_info=True,
+                    )
+                    lines.append(
+                        f'- :warning: `{_lno}` 렌더 오류 — 시트/카드 확인 필요'
+                    )
         lines.append('')
 
     now = datetime.now().strftime('%Y-%m-%d %H:%M')

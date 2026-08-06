@@ -232,6 +232,18 @@ def start_scheduler():
     )
     jobs.append('미발송 방문 카드 재발송 5분')
 
+    # 방문 캔버스1 정기 재생성 (이벤트 훅 누락·write-behind 레이스 안전망) — 10분 주기.
+    # 캔버스1 방문 누락은 업무상 치명적인데 캔버스1은 등록·완료·확정 이벤트에서만
+    # 재생성 → 훅 누락/레이스로 빠지면 다음 이벤트까지 영구 stale (L-03565 계기).
+    # 주기 재생성으로 최대 10분 내 자가 치유. rebuild_canvas 는 env 없으면 no-op.
+    _scheduler.add_job(
+        _safe_rebuild_visit_canvas,
+        'interval',
+        minutes=10,
+        id='rebuild_visit_canvas',
+    )
+    jobs.append('방문 캔버스1 정기 재생성 10분')
+
     # 고아 리드 감지 (시트에 있는데 슬랙 카드 흔적 없음 = Flask 재시작 등으로 발송 유실)
     # — 5분 주기, pending 큐에도 없는 케이스가 대상
     _scheduler.add_job(
@@ -368,6 +380,26 @@ def _safe_workflow_phone_sync():
         if not _is_transient_error(exc):
             _notify_admin('workflow_phone_fail',
                           f':warning: 전화 lead 보정 실패 — `{exc}`.')
+
+
+def _safe_rebuild_visit_canvas():
+    """방문 일정 캔버스1 정기 재생성 안전망 (2026-08-06).
+
+    캔버스1은 방문 등록·완료·확정 이벤트 훅에서만 재생성돼, 훅 누락이나
+    write-behind(시트 반영 지연) 레이스로 방문이 빠지면 다음 이벤트까지 stale.
+    방문 누락은 업무상 치명적이라 10분 주기로 강제 재생성해 자가 치유.
+    rebuild_canvas 는 SLACK_VISIT_CANVAS_ID/토큰 없으면 자체적으로 no-op.
+    """
+    try:
+        from dashboard.services.visit_canvas_sync import rebuild_canvas
+        res = rebuild_canvas()
+        if not res.get('ok') and res.get('reason'):
+            logger.warning(f"[SCHED] 캔버스1 정기 재생성 skip/실패: {res.get('reason')}")
+    except Exception as exc:
+        logger.error(f'[SCHED] 캔버스1 정기 재생성 예외: {exc}', exc_info=True)
+        if not _is_transient_error(exc):
+            _notify_admin('rebuild_canvas_fail',
+                          f':warning: 방문 캔버스1 정기 재생성 실패 — `{exc}`.')
 
 
 def _safe_retry_pending_slack():
