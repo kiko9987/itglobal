@@ -9365,6 +9365,14 @@ def _process_project_edit_submission(client, body, view) -> None:
         result = perform_edit(code, direct_updates, reason, initial)
         if result.get('ok'):
             applied_fields = list(direct_updates.keys())
+            # 원본 공사 확정 카드도 최신 내용으로 재렌더 (2026-08-06). 기존엔 시트·PM 만
+            # 반영되고 카드는 옛 내용으로 stale. latest_data 에 수정값 merge 로 넘겨
+            # write-behind(시트 반영 지연) 레이스 회피.
+            try:
+                from dashboard.services.project_slack_notifier import refresh_project_card_license
+                refresh_project_card_license(code, latest_data={**project, **direct_updates})
+            except Exception as exc:
+                logger.warning(f'[SLACK/공사수정] 공사 확정 카드 재렌더 실패 ({code}): {exc}')
             try:
                 _post_project_edit_notice_card(client, code, project, direct_updates, reason, initial)
             except Exception as exc:
