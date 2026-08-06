@@ -194,8 +194,6 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
 
     Returns: (text, total_count)
     """
-    from dashboard.services.visit_assignment_sync import _load_initial_maps
-    _initial_to_name, name_to_initial = _load_initial_maps()
     quote_pending = quote_pending or {}
 
     # permalink 조회 최적화 — 채널 history 1번만 fetch
@@ -249,18 +247,19 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         for l in unassigned:
             lines.append(_line(l, 'unassigned'))
         lines.append('')
-    for mgr_name, items in retry.items():
-        ini = _disp_ini(name_to_initial.get(mgr_name, '?'))
-        lines.append(f':phone: *{mgr_name} ({ini}) 부재중 ({len(items)}건)*')
-        for l in items:
+    # 부재중 — 담당자 무관 카테고리 단위 (그냥 알림이라 이름/이니셜 그룹 제거, 2026-08-06).
+    #   책임 매니저는 카드 permalink(확인하기)에서 확인 가능 → 헤더 노이즈만 제거.
+    _retry_all = [l for items in retry.values() for l in items]
+    if _retry_all:
+        lines.append(f':phone: *부재중 ({len(_retry_all)}건)*')
+        for l in _retry_all:
             lines.append(_line(l, 'retry'))
         lines.append('')
-    # 견적 요청 (미제출) — 매니저별 그룹, 부재중 섹션 뒤에
-    for mgr_name, items in quote_pending.items():
-        ini = _disp_ini(name_to_initial.get(mgr_name, '?'))
-        _mgr_label = f'{mgr_name} ({ini})' if mgr_name != '(미배정)' else '(미배정)'
-        lines.append(f':receipt: *{_mgr_label} 견적 요청 (미제출) ({len(items)}건)*')
-        for l in items:
+    # 견적 요청 (미제출) — 카테고리 단위 (부재중 섹션 뒤), 날짜 무관 스캔.
+    _quote_all = [l for items in quote_pending.values() for l in items]
+    if _quote_all:
+        lines.append(f':receipt: *견적 요청 (미제출) ({len(_quote_all)}건)*')
+        for l in _quote_all:
             lines.append(_line(l, 'quote'))
         lines.append('')
     while lines and lines[-1] == '':
