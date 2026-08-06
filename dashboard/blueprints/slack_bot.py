@@ -4455,6 +4455,27 @@ def _extract_lead_no_from_root(root_msg: dict) -> str:
     return m.group(1) if m else ''
 
 
+def _is_absent_badge_block(b: dict) -> bool:
+    """카드 blocks 중 부재중 배지 블록인지 판정 (모달·자동감지 공통, 2026-08-06).
+
+    배지 양식: section text 에 '*부재중*' + '처리 시간' (구 context 양식도 감지).
+    새 배지 prepend 전 기존 부재중 배지를 **전부 제거**해 스택(배지 여러 개 쌓임)을
+    방지·자가치유하는 데 사용. (모달 경로가 '마지막 시도' 로 오판정해 매번 삽입 →
+    배지 중복되던 L-03527 사고.)
+    """
+    if not isinstance(b, dict):
+        return False
+    if b.get('type') == 'section':
+        t = ((b.get('text') or {}).get('text') or '')
+        return '*부재중*' in t and '처리 시간' in t
+    if b.get('type') == 'context':
+        return any(
+            '부재중' in ((el.get('text') or '') if isinstance(el, dict) else '')
+            for el in (b.get('elements') or [])
+        )
+    return False
+
+
 def _apply_auto_absent_badge(client, channel: str, thread_ts: str, root: dict,
                               lead_no: str, initial: str, hdr_time: str):
     """부재중 배지 삽입 — 원본 body 유지 + 상단 section 배지 (task #32 정책).
@@ -4474,17 +4495,9 @@ def _apply_auto_absent_badge(client, channel: str, thread_ts: str, root: dict,
         '상담 내용 : 부재중',
     ])
     badge_block = {'type': 'section', 'text': {'type': 'mrkdwn', 'text': badge_text}}
-    existing = list(root.get('blocks') or [])
-    _has_badge = False
-    if existing:
-        _first = existing[0]
-        if _first.get('type') == 'section':
-            _txt = ((_first.get('text') or {}).get('text') or '')
-            _has_badge = '*부재중*' in _txt and '처리 시간' in _txt
-    if _has_badge:
-        existing[0] = badge_block
-    else:
-        existing.insert(0, badge_block)
+    # 기존 부재중 배지 전부 제거 후 최신 1개 prepend (스택 방지·자가치유)
+    existing = [b for b in (root.get('blocks') or []) if not _is_absent_badge_block(b)]
+    existing.insert(0, badge_block)
     client.chat_update(
         channel=channel, ts=thread_ts,
         text=root.get('text', '') or '',
@@ -5817,14 +5830,9 @@ def _process_consult_submission(client, body, view):
             except Exception:
                 _count = 1
 
-            # 부재중 사유 — 이번 회차 상담 모달 입력값 or 시트 상담 내용 최신 회차
-            _reason = ''
+            # 부재중 사유 — 회차별(1차/2차) 표기 (2026-08-06 사용자 요청). K열 재상담
+            # 이력에서 각 회차 content. 2회 이상이면 회차별, 1회면 단일 라인.
             _entries = _parse_consultation_entries(full_consultation) if full_consultation else []
-            if _entries:
-                _reason = (_entries[-1].get('content') or '').strip()
-            elif consultation:
-                _reason = consultation.strip()
-
             _badge_lines = [
                 '⠀',  # 봇 헤더와 배지 사이 여백 (다른 완료 카드와 동일)
                 # 부재중은 원본 body 그대로 노출 (lead_no 이미 원본에 있음) → 배지에 lead_no 중복 X
@@ -5832,33 +5840,34 @@ def _process_consult_submission(client, body, view):
                 f'처리자 : {_initial_for_card}',
                 f'처리 시간 : {_now_for_card}',
             ]
-            if _reason:
-                _badge_lines.append(f'상담 내용 : {_reason[:200]}')
+            if _entries and len(_entries) >= 2:
+                for _i, _e in enumerate(_entries):
+                    _c = (_e.get('content') or '').strip() or '-'
+                    _badge_lines.append(f'상담 내용 ({_i + 1}차) : {_c[:200]}')
+            else:
+                _reason = ''
+                if _entries:
+                    _reason = (_entries[-1].get('content') or '').strip()
+                elif consultation:
+                    _reason = consultation.strip()
+                if _reason:
+                    _badge_lines.append(f'상담 내용 : {_reason[:200]}')
             _badge_text = '\n'.join(_badge_lines)
             try:
-                # 기존 카드 blocks fetch → 상단 배지 replace (context/section 둘 다 감지)
+                # 기존 카드 blocks fetch → 부재중 배지 전부 제거 후 최신 1개만 prepend.
+                # (교체 판정을 '마지막 시도'로 하던 버그로 매번 삽입돼 배지가 쌓이던 것
+                #  해소 + 이미 쌓인 카드 자가치유. L-03527 사고, 2026-08-06.)
                 _rp = client.conversations_replies(channel=channel, ts=message_ts, limit=1, inclusive=True)
                 _root = ((_rp.get('messages') or [{}])[0]) if _rp else {}
-                _existing_blocks = list(_root.get('blocks') or [])
-                _has_badge = False
-                if _existing_blocks:
-                    _first = _existing_blocks[0]
-                    if _first.get('type') == 'context':
-                        _has_badge = any(
-                            '부재중' in ((el.get('text') or '') if isinstance(el, dict) else '')
-                            for el in (_first.get('elements') or [])
-                        )
-                    elif _first.get('type') == 'section':
-                        _txt = ((_first.get('text') or {}).get('text') or '')
-                        _has_badge = '*부재중*' in _txt and '마지막 시도' in _txt
+                _existing_blocks = [
+                    b for b in (_root.get('blocks') or [])
+                    if not _is_absent_badge_block(b)
+                ]
                 _badge_block = {
                     'type': 'section',
                     'text': {'type': 'mrkdwn', 'text': _badge_text},
                 }
-                if _has_badge:
-                    _existing_blocks[0] = _badge_block
-                else:
-                    _existing_blocks.insert(0, _badge_block)
+                _existing_blocks.insert(0, _badge_block)
                 client.chat_update(
                     channel=channel, ts=message_ts,
                     text=_root.get('text', '') or '',
