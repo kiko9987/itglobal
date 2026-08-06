@@ -10,6 +10,7 @@
 카카오 API 미설정 / 비활성 / 5초 타임아웃 → graceful 통과 (None 반환).
 """
 
+import html
 import json
 import os
 import re
@@ -265,7 +266,17 @@ def _kakao_search_cached(query: str) -> Optional[dict]:
     if data is None:
         return None
     docs = data.get('documents', [])
-    return docs[0] if docs else None
+    if not docs:
+        return None
+    doc = docs[0]
+    # 카카오 API HTML escape 정규화 (building_name 등에 &amp; 잔존 방지, L-03583).
+    for _sub in ('road_address', 'address'):
+        _obj = doc.get(_sub)
+        if isinstance(_obj, dict):
+            for _k in ('building_name', 'address_name'):
+                if isinstance(_obj.get(_k), str):
+                    _obj[_k] = html.unescape(_obj[_k])
+    return doc
 
 
 def _kakao_search(query: str) -> Optional[dict]:
@@ -290,8 +301,11 @@ def _kakao_search_poi_cached(query: str) -> tuple:
     if data is None:
         return ()
     docs = data.get('documents', []) or []
+    # 카카오 API 는 place_name 등을 HTML escape 해 반환 ('케이&amp;케이…', L-03583).
+    # 수신 즉시 unescape 해 다운스트림이 clean 텍스트만 보도록 (& → &amp; 잔존 방지).
     return tuple(
-        (d.get('place_name', '') or '', d.get('road_address_name', '') or '')
+        (html.unescape(d.get('place_name', '') or ''),
+         html.unescape(d.get('road_address_name', '') or ''))
         for d in docs
     )
 
@@ -335,11 +349,13 @@ def _naver_search_local(query: str) -> tuple:
         with urllib.request.urlopen(req, timeout=5) as r:
             data = json.loads(r.read())
         items = data.get('items', []) or []
-        # title 에 <b> 태그 있음 (강조) → 제거
+        # title 에 <b> 태그 있음 (강조) → 제거 후 HTML 엔티티 unescape.
+        # 순서 주의: 실제 <b> 태그 먼저 제거 → 그다음 &amp;/&lt; 등 unescape.
+        # (unescape 먼저 하면 name 안 '&lt;' → '<' 이 태그 strip 에 오삭제될 수 있음)
         return tuple(
             (
-                re.sub(r'<[^>]+>', '', d.get('title', '') or ''),
-                d.get('roadAddress', '') or '',
+                html.unescape(re.sub(r'<[^>]+>', '', d.get('title', '') or '')),
+                html.unescape(d.get('roadAddress', '') or ''),
             )
             for d in items
         )

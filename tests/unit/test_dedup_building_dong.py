@@ -93,6 +93,41 @@ def test_enrich_no_duplicate_spaced_building(monkeypatch):
     assert r.count('주민센터') == 1
 
 
+def test_kakao_poi_html_unescape(monkeypatch):
+    """카카오 POI place_name 의 HTML 엔티티(&amp;)를 수신 즉시 unescape (L-03583).
+
+    카카오 keyword API 는 상호 '케이&케이베이스볼아카데미' 를 '케이&amp;케이…' 로
+    escape 해 반환 → 주소에 &amp; 잔존 + line607 .upper() 가 amp→AMP 까지.
+    """
+    ar._kakao_search_poi_cached.cache_clear()
+    monkeypatch.setattr(ar, '_kakao_get_json', lambda url: {
+        'documents': [
+            {'place_name': '케이&amp;케이베이스볼아카데미',
+             'road_address_name': '인천 계양구 서운산업로 30'},
+        ],
+    })
+    pois = ar._kakao_search_poi('케이케이베이스볼')
+    assert pois[0][0] == '케이&케이베이스볼아카데미'
+    assert '&amp;' not in pois[0][0]
+    ar._kakao_search_poi_cached.cache_clear()
+
+
+def test_kakao_search_html_unescape(monkeypatch):
+    """카카오 주소검색 building_name 의 HTML 엔티티도 unescape."""
+    ar._kakao_search_cached.cache_clear()
+    monkeypatch.setattr(ar, '_kakao_get_json', lambda url: {
+        'documents': [{
+            'road_address': {
+                'address_name': '인천 계양구 서운산업로 30',
+                'building_name': 'B&amp;B타워',
+            },
+        }],
+    })
+    doc = ar._kakao_search('서운산업로 30')
+    assert doc['road_address']['building_name'] == 'B&B타워'
+    ar._kakao_search_cached.cache_clear()
+
+
 def test_compose_no_split_kakao_building(monkeypatch):
     """카카오 확정 건물명(타워팰리스)을 스페이싱 규칙이 쪼개지 않음 (L-03553).
 
