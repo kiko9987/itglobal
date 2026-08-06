@@ -9627,6 +9627,19 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
     logger.info(f'[SLACK/공사금액] ✅ 완료 처리 {code} by {checker_ini} (요청 {requester_ini}) — 경영지원 직접 반영')
     _mark_amount_request_done(channel, ts, data, checker_ini)
     _dm_amount_request_done(requester_id, code, data, checker_ini)
+    # 원본 공사 확정 카드도 최신 금액으로 재렌더 (2026-08-06). 경영지원이 PM 에서
+    # 금액을 반영한 뒤 ✅ 를 누르는 순서라, 이 시점 시트엔 실제 반영값이 있음.
+    # 금액은 시스템이 안 써서 요청값이 실제와 다를 수 있으므로 시트를 force_refresh 로
+    # 강제 재조회해 실제 반영값으로 카드 갱신(캐시/write-behind 지연 방어).
+    try:
+        from dashboard.services.project_service import get_project_records
+        from dashboard.services.project_slack_notifier import refresh_project_card_license
+        _recs = get_project_records(force_refresh=True) or []
+        _proj = next((r for r in _recs if (r.get('프로젝트 코드') or '').strip() == code), None)
+        if _proj:
+            refresh_project_card_license(code, latest_data=_proj)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사금액] 공사 확정 카드 재렌더 실패 ({code}): {exc}')
     return True
 
 
