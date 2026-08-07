@@ -1673,6 +1673,32 @@ def _norm_edit_val(v) -> str:
     return '' if s == '-' else s
 
 
+def _amt_int(v) -> int:
+    """금액 문자열/숫자를 정수로 정규화 (콤마·공백·빈값 방어). 반영 여부 비교용."""
+    try:
+        return int(float(str(v).replace(',', '').strip() or 0))
+    except (ValueError, TypeError):
+        return 0
+
+
+def _amount_request_applied(proj, before: dict, updates: dict):
+    """금액 요청이 실제로 시트/캐시에 반영됐는지 판정.
+
+    요청 필드(총액 1·부가세) 중 하나라도 요청 전(before) 값과 달라졌으면 반영됨(True).
+    proj(레코드) 없으면 None(확인 불가 → 호출부는 차단하지 않음). 전부 그대로면 False.
+    실제 반영값이 요청값과 달라도(경영지원 재량 조정) '변경됨'이면 반영으로 인정.
+    """
+    if proj is None:
+        return None
+    before = before or {}
+    updates = updates or {}
+    if '총액 1' in updates and _amt_int(proj.get('총액 1')) != _amt_int(before.get('총액 1')):
+        return True
+    if '부가세' in updates and _vat_is_sep(proj.get('부가세')) != _vat_is_sep(before.get('부가세')):
+        return True
+    return False
+
+
 def _vat_is_sep(v) -> bool:
     """부가세 값(bool/str/int) → VAT 별도 여부."""
     return v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1
@@ -9634,25 +9660,93 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
     requester_id = data.get('requester_id', '')
     requester_ini = data.get('requester_initial', '-')
     checker_ini = _slack_user_to_initial(client, checker_user_id) or 'SB'
+    updates = data.get('updates', {}) or {}
+    before = data.get('before', {}) or {}
 
+    # ── PM 미반영 상태에서 ✅ 감지 (2026-08-07) ──
+    # 금액은 시스템이 안 쓰고 경영지원이 PM 에서 직접 반영하는 구조라, PM 반영 없이
+    # ✅ 만 누르면 요청자에게 '완료' DM 이 잘못 나가고 카드도 완료로 바뀜. 실제 시트에
+    # 요청 필드가 하나도 안 바뀌었으면 완료 처리하지 않고 경고 + pending 유지(재클릭 허용).
+    from dashboard.services.project_service import get_project_records
+    from dashboard.services.project_slack_notifier import refresh_project_card_license
+
+    def _find_proj(force):
+        try:
+            recs = get_project_records(force_refresh=force) or []
+            return next((r for r in recs if (r.get('프로젝트 코드') or '').strip() == code), None)
+        except Exception as exc:
+            logger.warning(f'[SLACK/공사금액] 프로젝트 조회 실패 ({code}, force={force}): {exc}')
+            return None
+
+    # 시트(권위) 우선 → 미반영이면 캐시(PM 편집 시 즉시 갱신) 재확인 → write-behind 지연 오탐 방지
+    proj_sheet = _find_proj(True)
+    applied = _amount_request_applied(proj_sheet, before, updates)
+    render_proj = proj_sheet
+    if applied is False:
+        proj_cache = _find_proj(False)
+        if _amount_request_applied(proj_cache, before, updates) is True:
+            applied = True
+            render_proj = proj_cache
+
+    if applied is False:
+        # 시트·캐시 모두 반영 없음 → PM 미반영 의심. 완료 처리 skip, pending 유지.
+        logger.warning(
+            f'[SLACK/공사금액] ⚠️ PM 미반영 상태 ✅ 감지 ({code}) by {checker_ini} — 완료 처리 skip'
+        )
+        _warn_amount_not_applied(client, channel, ts, code, checker_user_id, before, updates, render_proj)
+        rc.delete(f'{key}:proc')  # 락만 해제 → PM 반영 후 ✅ 재클릭(뗐다 다시) 시 재처리 가능
+        return True
+
+    # ── 정상 완료 처리 (반영 확인됨 또는 조회 불가로 검증 skip) ──
     rc.delete(key)  # pending 소비
     logger.info(f'[SLACK/공사금액] ✅ 완료 처리 {code} by {checker_ini} (요청 {requester_ini}) — 경영지원 직접 반영')
     _mark_amount_request_done(channel, ts, data, checker_ini)
     _dm_amount_request_done(requester_id, code, data, checker_ini)
-    # 원본 공사 확정 카드도 최신 금액으로 재렌더 (2026-08-06). 경영지원이 PM 에서
-    # 금액을 반영한 뒤 ✅ 를 누르는 순서라, 이 시점 시트엔 실제 반영값이 있음.
-    # 금액은 시스템이 안 써서 요청값이 실제와 다를 수 있으므로 시트를 force_refresh 로
-    # 강제 재조회해 실제 반영값으로 카드 갱신(캐시/write-behind 지연 방어).
+    # 원본 공사 확정 카드도 최신 금액으로 재렌더 (2026-08-06). 이미 조회한 레코드 재사용.
     try:
-        from dashboard.services.project_service import get_project_records
-        from dashboard.services.project_slack_notifier import refresh_project_card_license
-        _recs = get_project_records(force_refresh=True) or []
-        _proj = next((r for r in _recs if (r.get('프로젝트 코드') or '').strip() == code), None)
-        if _proj:
-            refresh_project_card_license(code, latest_data=_proj)
+        if render_proj:
+            refresh_project_card_license(code, latest_data=render_proj)
     except Exception as exc:
         logger.warning(f'[SLACK/공사금액] 공사 확정 카드 재렌더 실패 ({code}): {exc}')
     return True
+
+
+def _warn_amount_not_applied(
+    client, channel: str, ts: str, code: str, checker_user_id: str,
+    before: dict, updates: dict, proj,
+) -> None:
+    """✅ 눌렀지만 시트·캐시에 금액 반영이 없을 때 경고 (완료 처리 안 함).
+
+    요청 카드 thread 에 경고(공사봇) + 누른 사람에게 ephemeral. 카드는 '요청'
+    상태 유지 → PM 반영 후 ✅ 를 뗐다 다시 눌러야 완료됨. 2026-08-07.
+    """
+    vat_after = _vat_is_sep(updates.get('부가세', before.get('부가세')))
+    req_lines = [
+        _fmt_edit_field_change(f, before.get(f, ''), updates[f], vat_after)
+        for f in _AMOUNT_EDIT_FIELDS if f in updates
+    ]
+    cur_amt = _amt_int(proj.get('총액 1')) if proj else None
+    cur_line = f'\n• 현재 시트 금액 : {cur_amt:,}원' if cur_amt is not None else ''
+    warn = (
+        f'⚠️ *PM 반영이 확인되지 않아 완료 처리하지 않았습니다*  `{code}`\n'
+        f'요청한 금액이 아직 시트에 반영돼 있지 않습니다. '
+        f'*PM 사이트에서 금액을 먼저 수정*한 뒤 ✅ 를 눌러야 완료됩니다.\n'
+        + ('\n'.join(req_lines) + '\n' if req_lines else '')
+        + cur_line.lstrip('\n')
+        + '\n\n_반영 후, 체크(✅)를 한 번 뗐다가 다시 눌러주세요._'
+    )
+    # 요청 카드 thread 경고 (카드를 올린 공사봇으로)
+    try:
+        proj_client = _project_client()
+        if proj_client:
+            proj_client.chat_postMessage(channel=channel, thread_ts=ts, text=warn)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사금액] 미반영 경고 thread 실패 ({code}): {exc}')
+    # 누른 사람에게 ephemeral (즉시 인지)
+    try:
+        client.chat_postEphemeral(channel=channel, user=checker_user_id, text=warn)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사금액] 미반영 경고 ephemeral 실패 ({code}): {exc}')
 
 
 def _mark_amount_request_done(channel: str, ts: str, data: dict, checker_ini: str) -> None:
