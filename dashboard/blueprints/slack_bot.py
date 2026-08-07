@@ -6293,12 +6293,11 @@ def _wrap_diff_chunk(chunk: str, prev_ch: str, next_ch: str, marker: str) -> str
 def _highlight_addr_diff(original: str, converted: str) -> tuple:
     """원본↔변환 diff 청크를 길이별 스타일로 감싼 (orig, conv) 튜플 반환.
 
-    - 청크 길이 = 1  (자모 오탈자 벨↔밸)       : 홑따옴표('chunk')
-    - 청크 길이 ≥ 2  (지역명·건물명 추가)      : 볼드(*chunk*)
+    - 모든 diff 청크(1자 포함)                 : 볼드(*chunk*)
 
-    자모 1자 차이는 어떤 마크다운 스타일로도 폰트상 구분 어려우므로 홑따옴표로
-    시선만 유도. 3자 이상은 라벨 부담 완화 위해 볼드. 청크가 한글/영문/숫자
-    사이에 낀 경우 Word Joiner 로 mrkdwn word boundary 확보.
+    2026-08-06 통일: 기존엔 1자 차이(벨↔밸)만 홑따옴표('chunk'), 2자↑만 볼드로
+    분기했으나 표기 통일성 위해 1자도 볼드로 일원화 (사용자 요청). 청크가
+    한글/영문/숫자 사이에 낀 경우 Word Joiner 로 mrkdwn word boundary 확보.
 
     주의: blockquote(>) 컨텍스트 전용. 회색 코드블록(```) 안에선 mrkdwn 리터럴이라 사용 X.
     """
@@ -6327,17 +6326,6 @@ def _highlight_addr_diff(original: str, converted: str) -> tuple:
         if tag == 'equal' or (_is_noise(o) and _is_noise(n)):
             orig_parts.append(o)
             conv_parts.append(n)
-            continue
-        max_len = max(len(o), len(n))
-        if max_len == 1:
-            if o:
-                orig_parts.append(f"'{o}'")
-            else:
-                orig_parts.append(o)
-            if n:
-                conv_parts.append(f"'{n}'")
-            else:
-                conv_parts.append(n)
             continue
         marker = '*'
         if o:
