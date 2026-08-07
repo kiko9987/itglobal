@@ -1662,6 +1662,17 @@ _SETTLEMENT_CHECKER_ID = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or
 _AMOUNT_EDIT_FIELDS = ('총액 1', '부가세')
 
 
+def _norm_edit_val(v) -> str:
+    """공사 수정 diff 비교용 정규화 — '-'·빈문자·공백을 모두 빈값으로 취급.
+
+    시트에 '-' 로 저장된 필드(도급 구분·시공자 등)가 모달 빈칸('') 제출과
+    거짓 diff 나서 불필요한 '공사 내용 수정 알림' 카드 + '-'→'' 덮어쓰기를
+    유발하던 것 방지 (2026-08-07 R3906-TH). 실제 값 변경/삭제는 그대로 감지.
+    """
+    s = str(v).strip() if v is not None else ''
+    return '' if s == '-' else s
+
+
 def _vat_is_sep(v) -> bool:
     """부가세 값(bool/str/int) → VAT 별도 여부."""
     return v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1
@@ -9223,7 +9234,8 @@ def _open_project_edit_modal(client, body) -> None:
             "type": "context",
             "elements": [{
                 "type": "mrkdwn",
-                "text": "ℹ️ 금액 · VAT는 경영지원 직접 수정, 그 외 항목은 즉시 반영",
+                "text": ("ℹ️ 금액 · VAT는 *이 칸에 입력*하면 경영지원 확인 후 반영(요청) — "
+                         "사유란에만 적으면 반영 안 됩니다. 그 외 항목은 즉시 반영"),
             }],
         },
         {
@@ -9310,13 +9322,13 @@ def _process_project_edit_submission(client, body, view) -> None:
         return
 
     updates = {}
-    if content and content != (project.get('공사 내용') or '').strip():
+    if content and _norm_edit_val(content) != _norm_edit_val(project.get('공사 내용')):
         updates['공사 내용'] = content
     new_contract = ', '.join(contract_types)
-    if new_contract != (project.get('도급 구분') or '').strip():
+    if _norm_edit_val(new_contract) != _norm_edit_val(project.get('도급 구분')):
         updates['도급 구분'] = new_contract
     new_contractor = ', '.join(contractors)
-    if new_contractor != (project.get('시공자') or '').strip():
+    if _norm_edit_val(new_contractor) != _norm_edit_val(project.get('시공자')):
         updates['시공자'] = new_contractor
     if amount_raw:
         digits = ''.join(ch for ch in amount_raw if ch.isdigit())
