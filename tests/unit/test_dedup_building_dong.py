@@ -107,6 +107,20 @@ def test_enrich_no_prefix_boost_when_glued(monkeypatch):
     assert 'JB미소빌딩' in r
 
 
+def test_enrich_no_dup_on_spacing_variant(monkeypatch):
+    """POI 무공백 정식명이 verified 에 공백형으로 이미 있으면 재부착 안 함 (ETC-f89e73).
+
+    verified '유니트 아이엔씨'(매니저 띄어씀) + POI '유니트아이엔씨'(무공백) →
+    '아이엔씨'→'유니트아이엔씨' 치환이 '유니트 유니트아이엔씨' 중복 만들던 갭.
+    """
+    monkeypatch.setattr(ar, '_search_poi',
+                        lambda q: [('유니트아이엔씨', '서울 구로구 디지털로30길 28')])
+    r = ar._enrich_with_poi('구로구 디지털로30길 28 마리오타워 1504호 유니트 아이엔씨',
+                            '구로구 디지털로30길 28 마리오타워 1504호 유니트 아이엔씨 주식회사')
+    assert '유니트 유니트아이엔씨' not in r
+    assert r == '구로구 디지털로30길 28 마리오타워 1504호 유니트 아이엔씨'
+
+
 def test_enrich_prefix_boost_when_standalone(monkeypatch):
     """standalone cand 는 접두 보강 유지 (회귀, 한강듀클래스→김포한강듀클래스 계열)."""
     monkeypatch.setattr(ar, '_search_poi',

@@ -603,6 +603,12 @@ def _extract_building_tail(text: str) -> str:
             #   ('설치 예정')로 보고 기존대로 절단.
             if sw == '예정' and 0 <= p and tail[p + 2:p + 3] == '지':
                 continue
+            # 2026-08-06 ETC-f89e73: '회사' 가 법인 표기 '주식/유한/합자/합명회사'
+            #   내부를 자르는 것 방지 — 매니저가 붙인 법인 표기 보존(사용자 결정).
+            #   standalone '○○ 회사'(공백 앞)·다른 복합어는 기존대로 절단.
+            if sw == '회사' and 0 <= p and tail[max(0, p - 2):p] in (
+                    '주식', '유한', '합자', '합명'):
+                continue
             if 0 <= p < cut_pos:
                 # 앞에 여는 괄호·공백 있으면 그것도 함께 자르기
                 while p > 0 and tail[p-1] in '(（ ':
@@ -1453,6 +1459,16 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 #   교체가 'GSgs스틸타워' 중복을 만듦.
                 if place_name != cand:
                     if place_name.lower() in verified_addr.lower():
+                        continue
+                    # 2026-08-06 ETC-f89e73: place_name 이 verified 에 '공백만 다른'
+                    #   형태로 이미 있으면 재부착 시 중복 — verified '유니트 아이엔씨'
+                    #   (매니저 띄어쓴 상호) + POI '유니트아이엔씨'(무공백 정식명) →
+                    #   '아이엔씨'→'유니트아이엔씨' 치환이 '유니트 유니트아이엔씨' 중복.
+                    #   무공백 비교로 이미 있으면 skip(같은 상호의 붙임/띄움 차이, 매니저
+                    #   원형 유지). 한강듀클래스→김포한강듀클래스(접두 신규)는 무공백에도
+                    #   없어 통과, JB↔제이비(독음)도 무공백 불일치라 아래 경계가드로 감.
+                    if place_name.replace(' ', '').lower() \
+                            in verified_addr.replace(' ', '').lower():
                         continue
                     # 2026-08-06 L-03597: cand 가 verified 에서 앞 토큰에 '붙어' 있으면
                     #   (예: 'JB미소빌딩' 안의 '미소빌딩') 이미 접두 수식된 건물명이라

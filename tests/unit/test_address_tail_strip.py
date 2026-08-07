@@ -57,6 +57,20 @@ class TestPersonalNameStripShopGuard:
     def test_shop_suffix_kept(self, tail):
         assert _strip_personal_name(tail) == tail
 
+
+class TestCorporateSuffixKept:
+    """법인 표기 '주식/유한회사'는 '회사' 스톱워드로 절단 안 함 (ETC-f89e73)."""
+
+    def test_jusik_hoesa_kept(self):
+        r = _extract_building_tail('구로구 디지털로30길 28 마리오타워 1504호 유니트 아이엔씨 주식회사')
+        assert '주식회사' in r
+
+    def test_standalone_hoesa_still_cut(self):
+        # 공백 앞 '회사'(법인표기 아님)는 기존대로 절단
+        r = _extract_building_tail('강남 테헤란로 152 삼성빌딩 3층 우리 회사입니다')
+        assert '회사' not in r
+        assert r == '삼성빌딩 3층'
+
     @pytest.mark.parametrize('tail, expected', [
         ('그로브리조트 정승종', '그로브리조트'),  # 실제 사람 이름은 여전히 제거
         ('ABC빌딩 김지수', 'ABC빌딩'),
