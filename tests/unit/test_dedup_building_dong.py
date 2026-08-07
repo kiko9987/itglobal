@@ -220,5 +220,32 @@ def test_flatten_paren_keeps_corporate_designator():
     assert F('(가산동, 이앤씨드림타워7차)') == '이앤씨드림타워7차'
 
 
+def test_mark_planned_glued_예정지():
+    """'X예정지'(붙은) → 'X (예정)' + 재부착 중복 축약 (L-03600)."""
+    assert ar._mark_planned('크란츠테크노 지하 1층 중식당예정지') == '크란츠테크노 지하 1층 중식당 (예정)'
+    # 파이프라인 재부착 'X X예정지' 중복도 'X (예정)' 로 축약
+    assert ar._mark_planned('지하 1층 중식당 중식당예정지') == '지하 1층 중식당 (예정)'
+
+
+def test_mark_planned_glued_예정():
+    """'X예정'(지 없음, 붙은) → 'X (예정)'."""
+    assert ar._mark_planned('지하 1층 카페예정') == '지하 1층 카페 (예정)'
+
+
+def test_mark_planned_idempotent_and_verb():
+    """이미 '(예정)'은 유지, '설치 예정'(동사구, 공백)은 미변환(스톱워드가 별도 제거)."""
+    assert ar._mark_planned('지하 1층 중식당 (예정)') == '지하 1층 중식당 (예정)'
+    # '설치 예정' 은 공백 앞 예정 → _mark_planned 미매치 (그대로; 실제론 스톱워드가 제거)
+    assert ar._mark_planned('삼성빌딩 3층 설치 예정') == '삼성빌딩 3층 설치 예정'
+
+
+def test_extract_tail_keeps_예정지_not_truncated():
+    """'예정지'(예정+지)는 스톱워드 절단 대상 아님 — verify tail 보존 (L-03600)."""
+    r = ar._extract_building_tail('성남 둔촌대로 388 크란츠테크노 지하 1층 중식당예정지')
+    assert '중식당예정지' in r  # 절단 전 (변환은 resolve 최종 _mark_planned)
+    r2 = ar._extract_building_tail('성남 둔촌대로 388 크란츠테크노 지하 1층 중식당 예정지')
+    assert '예정지' in r2  # 띄어쓴 예정지도 보존
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

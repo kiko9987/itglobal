@@ -598,6 +598,11 @@ def _extract_building_tail(text: str) -> str:
         cut_pos = len(tail)
         for sw in _TAIL_STOP_WORDS:
             p = tail.find(sw)
+            # 2026-08-06 L-03600: '예정지'(예정+지)는 계획 중 '장소' 표시라 절단 안 함
+            #   (뒤 _mark_planned 가 '(예정)' 으로 변환). '예정'(지 없음)만 동사구
+            #   ('설치 예정')로 보고 기존대로 절단.
+            if sw == '예정' and 0 <= p and tail[p + 2:p + 3] == '지':
+                continue
             if 0 <= p < cut_pos:
                 # 앞에 여는 괄호·공백 있으면 그것도 함께 자르기
                 while p > 0 and tail[p-1] in '(（ ':
@@ -1654,6 +1659,29 @@ def split_address_notes(addr: str) -> Tuple[str, str]:
     return s, ' / '.join(n for n in notes if n)
 
 
+def _mark_planned(addr: str) -> str:
+    """계획 중(미개업) 장소 표시 통일 — 'X예정지'/'X예정'(명사에 붙은) → 'X (예정)'.
+
+    2026-08-06 L-03600 (사용자 요청): 매니저가 '중식당예정지'/'중식당예정'처럼
+    아직 개업 전 장소를 상호 자리에 적으면 '중식당 (예정)' 으로 표기 통일.
+      - '예정지'(장소 접미): 앞 명사에 붙든 띄든 → '(예정)'.
+      - '예정'(지 없음): 앞 명사에 '붙은' 것만. '설치 예정'·'방문 예정' 같은
+        동사구는 _TAIL_STOP_WORDS(구 '예정')가 이미 제거하므로 여기 안 남음
+        (남더라도 공백 앞이라 미매치 → 영향 없음).
+      - 재부착(_enrich m_shop 등)으로 생긴 'X X (예정)' 중복은 축약.
+
+    ※ resolve_address 최종 단계에서만 호출 — 중간 함수(_flatten_paren_tail·_compose
+      괄호 제거)가 '(예정)' 괄호를 벗기거나 재부착하는 것을 회피하기 위함.
+    """
+    if not addr or '예정' not in addr:
+        return addr
+    addr = re.sub(r'([가-힣]{2,})\s*예정지(?=\s|$)', r'\1 (예정)', addr)
+    addr = re.sub(r'([가-힣]{2,})예정(?=\s|$)', r'\1 (예정)', addr)
+    # 파이프라인 재부착이 만든 'X X (예정)' 중복 축약 → 'X (예정)' (L-03600 실측)
+    addr = re.sub(r'([가-힣]{2,})\s+\1\s+\(예정\)', r'\1 (예정)', addr)
+    return re.sub(r'\s+', ' ', addr).strip()
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -1678,6 +1706,7 @@ def resolve_address(
         addr = _strip_redundant_legal_dong(addr)
         # tail 부착 후 후처리 (인접 유사 단어 dedup 등, 2026-07-22 ETC-b626fb)
         addr = _post_normalize_display(addr)
+        addr = _mark_planned(addr)  # 'X예정지/X예정' → 'X (예정)' (L-03600)
         return (addr, level)
 
     # 1b. POI fallback (2026-07-20 L-03292) — 시/도 빠진 케이스 상호 → 도로명
@@ -1686,12 +1715,14 @@ def resolve_address(
         addr = _enrich_verified_address(poi_road, text, regex_addr)
         addr = _strip_redundant_legal_dong(addr)
         addr = _post_normalize_display(addr)
+        addr = _mark_planned(addr)
         return (addr, 'verified')
 
     # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
     if regex_addr:
         addr = normalize_display(regex_addr)
         addr = _enrich_verified_address(addr, text, regex_addr)
+        addr = _mark_planned(addr)
         return (addr, regex_level or 'regex')
 
     # 3. 원문 첫 줄 fallback — 엄격한 주소 패턴이 포함된 경우만
