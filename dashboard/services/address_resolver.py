@@ -1449,6 +1449,15 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 if place_name != cand:
                     if place_name.lower() in verified_addr.lower():
                         continue
+                    # 2026-08-06 L-03597: cand 가 verified 에서 앞 토큰에 '붙어' 있으면
+                    #   (예: 'JB미소빌딩' 안의 '미소빌딩') 이미 접두 수식된 건물명이라
+                    #   POI 접두(제이비)를 재부착하면 'JB제이비미소빌딩' 중복 (JB↔제이비
+                    #   = 영문/한글 독음 동일 건물). cand 가 단어 경계(문두·공백 뒤)로
+                    #   '독립' 등장할 때만 접두 보강 — standalone '미소빌딩'→'제이비미소빌딩'
+                    #   은 유지, glued 'JB미소빌딩' 은 원문 존중(skip). 한강듀클래스(공백
+                    #   뒤 독립)→김포한강듀클래스 는 경계 매치라 정상 유지.
+                    if not re.search(r'(?:^|\s)' + re.escape(cand), verified_addr):
+                        continue
                     return verified_addr.replace(cand, place_name, 1)
                 continue  # 완전 동일 → 무의미
             # POI 정식명이 공백 차이로 verified 에 이미 있으면 append 중복 방지

@@ -93,6 +93,29 @@ def test_enrich_no_duplicate_spaced_building(monkeypatch):
     assert r.count('주민센터') == 1
 
 
+def test_enrich_no_prefix_boost_when_glued(monkeypatch):
+    """cand 가 verified 에서 앞 토큰에 붙어 있으면 접두 재부착 안 함 (L-03597).
+
+    'JB미소빌딩'(=제이비미소빌딩, 영/한 독음 동일)에서 POI '제이비미소빌딩'이
+    '미소빌딩' 접미로 매칭돼 '제이비' 재부착 → 'JB제이비미소빌딩' 중복되던 갭.
+    """
+    monkeypatch.setattr(ar, '_search_poi',
+                        lambda q: [('제이비미소빌딩', '서울 강남구 논현로 841')])
+    r = ar._enrich_with_poi('강남구 논현로 841 JB미소빌딩 2층 경희한의원',
+                            '강남구 논현로 841 JB미소빌딩 2층 경희한의원')
+    assert 'JB제이비미소빌딩' not in r
+    assert 'JB미소빌딩' in r
+
+
+def test_enrich_prefix_boost_when_standalone(monkeypatch):
+    """standalone cand 는 접두 보강 유지 (회귀, 한강듀클래스→김포한강듀클래스 계열)."""
+    monkeypatch.setattr(ar, '_search_poi',
+                        lambda q: [('제이비미소빌딩', '서울 강남구 논현로 841')])
+    r = ar._enrich_with_poi('강남구 논현로 841 미소빌딩 2층',
+                            '강남구 논현로 841 미소빌딩 2층')
+    assert '제이비미소빌딩' in r
+
+
 def test_kakao_poi_html_unescape(monkeypatch):
     """카카오 POI place_name 의 HTML 엔티티(&amp;)를 수신 즉시 unescape (L-03583).
 
