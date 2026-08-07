@@ -9728,9 +9728,8 @@ def _warn_amount_not_applied(
     cur_amt = _amt_int(proj.get('총액 1')) if proj else None
     cur_line = f'\n• 현재 시트 금액 : {cur_amt:,}원' if cur_amt is not None else ''
     warn = (
-        f'⚠️ *PM 반영이 확인되지 않아 완료 처리하지 않았습니다*  `{code}`\n'
-        f'요청한 금액이 아직 시트에 반영돼 있지 않습니다. '
-        f'*PM 사이트에서 금액을 먼저 수정*한 뒤 ✅ 를 눌러야 완료됩니다.\n'
+        f'⚠️ *`{code}` 변경 요청한 금액이 아직 시트에 반영되지 않았습니다.*\n'
+        f'PM 사이트나 구글 시트에 요청 금액을 반영한 뒤 ✅ 를 눌러주세요.\n'
         + ('\n'.join(req_lines) + '\n' if req_lines else '')
         + cur_line.lstrip('\n')
         + '\n\n_반영 후, 체크(✅)를 한 번 뗐다가 다시 눌러주세요._'
