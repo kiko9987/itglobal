@@ -195,6 +195,29 @@ def _normalize_address_key(addr: str) -> str:
     return re.sub(r'\s+', ' ', addr[:m.end()]).strip()
 
 
+def _addr_core(addr: str) -> str:
+    """주소에서 도로명(또는 동)+번지 core 만 추출 (행정구역 prefix·건물·상세 제거).
+
+    같은 번호·다른 주소 dedup 가드 전용 엄격 비교 키.
+      - '성남 수정구 등자로 56' 와 '등자로 56 3층' → 둘 다 '등자로56' (같음)
+      - '등자로 56' 와 '판교로 20' → '등자로56' vs '판교로20' (다름)
+    core 추출 실패(빈 문자열)면 비교 불가 → 가드는 병합 허용(보수적).
+    _normalize_address_key 와 달리 행정구역 prefix 를 뺀 core 만 반환 —
+    prefix 유무 차이('성남 …' vs '…')로 인한 false-conflict 방지.
+    """
+    if not addr:
+        return ''
+    addr = addr.strip()
+    if addr in ('-', ''):
+        return ''
+    m = re.search(r'[가-힣]+(?:로|길)\s*\d+(?:-\d+)?', addr)
+    if not m:
+        m = re.search(r'[가-힣]+동\s*\d+(?:-\d+)?', addr)
+    if not m:
+        return ''
+    return re.sub(r'\s+', '', m.group(0))
+
+
 def _get_existing_address_lookup(main_df: Optional[pd.DataFrame]) -> dict:
     """주소 정규화 키 → entries (재문의 감지: 같은 건물 다른 사람).
 
@@ -807,6 +830,69 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
         except Exception as exc:
             logger.error(f'[SYNC/{source}] 슬랙 전송 실패 ({ln}): {exc}')
     return sent
+
+
+def _post_addr_conflict_alert(new_lead_no: str, conflict: dict) -> bool:
+    """같은 번호·다른 주소로 병합 대신 신규 발번한 경우 매니저 확인용 ⚠️ 경고.
+
+    새 전화 lead 온라인_문의 카드(lead_card_msg) thread 에 reply.
+    카드 ts 없으면 채널 단독 발송. 2026-08-07 L-03367 (센부동산↔성남 소실) 재발 방지.
+    """
+    bot_token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    channel_setting = os.getenv('SLACK_LEAD_CHANNEL', '').strip()
+    if not bot_token or not channel_setting:
+        logger.warning('[SYNC/전화WF/DEDUP-GUARD] SLACK_BOT_TOKEN/CHANNEL 미설정 — 경고 skip')
+        return False
+    existing_no = conflict.get('existing_lead_no', '') or '-'
+    old_addr = conflict.get('old_addr', '') or '-'
+    new_addr = conflict.get('new_addr', '') or '-'
+    phone = conflict.get('phone', '') or '-'
+    text = (
+        f":warning: *같은 번호 · 다른 주소 — 별도 리드로 등록* `{new_lead_no}`\n"
+        f"기존 리드 `{existing_no}` 와 연락처(`{phone}`)가 같지만 방문 주소가 달라 "
+        f"*병합하지 않고 신규 등록*했습니다.\n"
+        f"• 기존 : {old_addr}  (`{existing_no}`)\n"
+        f"• 신규 : {new_addr}  (`{new_lead_no}`)\n"
+        f"번호 오입력이면 확인 후 정리해 주세요."
+    )
+    try:
+        from slack_sdk import WebClient
+        client = WebClient(token=bot_token)
+        channel = _resolve_channel_id(client, channel_setting)
+    except Exception as exc:
+        logger.error(f'[SYNC/전화WF/DEDUP-GUARD] slack 초기화 실패: {exc}')
+        return False
+    # 새 전화 lead 온라인_문의 카드 thread 에 붙이기 (있으면)
+    thread_ts = None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        info = rc.get(f'lead_card_msg:{new_lead_no}')
+        if info:
+            _ch, _ts = str(info).split('|', 1)
+            channel = _ch or channel
+            thread_ts = _ts
+    except Exception:
+        pass
+    try:
+        from dashboard.blueprints.slack_helpers import safe_slack_call
+        kwargs = dict(channel=channel, text=text, unfurl_links=False)
+        if thread_ts:
+            kwargs['thread_ts'] = thread_ts
+        resp = safe_slack_call(client.chat_postMessage, **kwargs)
+        if resp and resp.get('ok'):
+            logger.info(
+                f'[SYNC/전화WF/DEDUP-GUARD] 경고 발송 완료 '
+                f'({new_lead_no}, thread={bool(thread_ts)})'
+            )
+            return True
+        logger.warning(f'[SYNC/전화WF/DEDUP-GUARD] 경고 응답 not ok ({new_lead_no}): {resp}')
+    except Exception as exc:
+        logger.error(
+            f'[SYNC/전화WF/DEDUP-GUARD] 경고 발송 예외 ({new_lead_no}): {exc}',
+            exc_info=True,
+        )
+    return False
 
 
 def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
@@ -1873,12 +1959,37 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 continue
 
             _platform_this = str(row.get('플랫폼', '') or '').strip()
+            _addr_conflict = None  # 주소 충돌 가드 (2026-08-07 L-03367) — 병합 skip 시 경고용
 
             # 전화 워크플로 dedup (2026-07-14): 같은 연락처 90일 이내 리드가
             # 이미 있으면 기존 리드 update + 임시 행 삭제 (매니저 수동 시트
             # 등록 + 워크플로 이중 사용 사고 방지).
             if _platform_this == '전화' and _phone:
                 existing = _find_existing_lead_by_phone(main_df, _phone, within_days=90)
+                # 주소 충돌 가드 (2026-08-07, L-03367): 같은 번호라도 방문 주소가
+                # 명확히 다르면(도로명+번지 core 불일치) 병합하지 않고 신규 발번 +
+                # ⚠️ 경고. 번호 오입력·다른 현장에서 기존 리드 소실 방지.
+                # (센부동산이 성남 등자로 리드를 덮어써 소실된 사고 계기.)
+                if existing is not None:
+                    _guard_no, _guard_sheet_row = existing
+                    _grow = main_df.loc[_guard_sheet_row - 2]
+                    _old_addr_g = str(_grow.get('방문 주소', '') or '').strip()
+                    _new_addr_g = str(row.get('방문 주소', '') or '').strip()
+                    _old_core = _addr_core(_old_addr_g)
+                    _new_core = _addr_core(_new_addr_g)
+                    if _old_core and _new_core and _old_core != _new_core:
+                        _addr_conflict = {
+                            'existing_lead_no': _guard_no,
+                            'old_addr': _old_addr_g,
+                            'new_addr': _new_addr_g,
+                            'phone': _phone,
+                        }
+                        logger.warning(
+                            f'[SYNC/전화WF/DEDUP-GUARD] 같은 번호({_phone}) 다른 주소 '
+                            f'— 병합 skip, 신규 발번. 기존={_guard_no}'
+                            f'("{_old_addr_g}") vs 신규("{_new_addr_g}")'
+                        )
+                        existing = None  # 병합 skip → 아래 신규 발번 로직으로 진행
                 if existing is not None:
                     existing_lead_no, existing_sheet_row = existing
                     try:
@@ -2224,6 +2335,16 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         logger.warning(
                             f'[SYNC/전화WF] 온라인 카드 발송 실패 ({new_lead_no}): {_exc}'
                         )
+
+                    # 주소 충돌 가드 경고 (2026-08-07 L-03367) — 같은 번호·다른 주소로
+                    # 병합 skip + 신규 발번한 경우, 새 카드 thread 에 ⚠️ 안내.
+                    if _addr_conflict:
+                        try:
+                            _post_addr_conflict_alert(new_lead_no, _addr_conflict)
+                        except Exception as _exc:
+                            logger.warning(
+                                f'[SYNC/전화WF/DEDUP-GUARD] 경고 발송 실패 ({new_lead_no}): {_exc}'
+                            )
 
                 # 방문 예약 시 #방문_일정 카드 + 슬랙 List 후보
                 if status == '방문 예약':
