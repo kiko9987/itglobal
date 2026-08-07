@@ -116,6 +116,28 @@ def test_enrich_prefix_boost_when_standalone(monkeypatch):
     assert '제이비미소빌딩' in r
 
 
+def test_enrich_preserve_headoffice_suffix(monkeypatch):
+    """exact POI 부착 시 매니저의 '본사' 접미 보존 (ETC-de6041).
+
+    '보우테이프 본사' → POI exact '보우테이프' 부착하며 '본사' 유실되던 갭.
+    """
+    monkeypatch.setattr(ar, '_search_poi',
+                        lambda q: [('보우테이프', '경기 화성시 만세구 향남읍 발안로 701-5')])
+    r = ar._enrich_with_poi('화성 만세구 향남읍 발안로 701-5',
+                            '화성 향남읍 발안로 701-5 보우테이프 본사')
+    assert r.endswith('보우테이프 본사')
+
+
+def test_enrich_suffix_only_on_exact(monkeypatch):
+    """place_name != cand(지점/공장명 포함)이면 본사 접미 안 붙임 (모순 방지)."""
+    # POI 가 '보우테이프 갈천공장'(지점형)만 반환 → cand '보우테이프' 와 다름
+    monkeypatch.setattr(ar, '_search_poi',
+                        lambda q: [('보우테이프 갈천공장', '경기 화성시 만세구 향남읍 발안로 701-5')])
+    r = ar._enrich_with_poi('화성 만세구 향남읍 발안로 701-5',
+                            '화성 향남읍 발안로 701-5 보우테이프 본사')
+    assert '갈천공장 본사' not in r
+
+
 def test_kakao_poi_html_unescape(monkeypatch):
     """카카오 POI place_name 의 HTML 엔티티(&amp;)를 수신 즉시 unescape (L-03583).
 

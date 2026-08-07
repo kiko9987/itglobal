@@ -1472,9 +1472,22 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 r'((?:\(주\)|㈜|㈠|주식회사)\s*)' + re.escape(cand),
                 original_text,
             )
+            # 2026-08-06 ETC-de6041: 매니저가 상호 뒤 붙인 설명 접미(본사/본점/사옥/
+            #   지사/본부)는 카카오 POI 에 없어 exact POI(place_name==cand) 부착 시
+            #   유실됨 ('보우테이프 본사' → '보우테이프'). 공장/본사 구분 등 방문 맥락이라
+            #   원문에 '상호+접미' 있으면 보존. 지점명(논현역점 등)은 카카오 POI 가
+            #   이미 커버하므로 대상 외 (place_name==cand 인 exact 케이스로 한정 —
+            #   place_name 에 이미 지점/공장명 있으면 접미 부착 안 함, 모순 방지).
+            _sfx = ''
+            if place_name == cand:
+                _m_sfx = re.search(
+                    re.escape(cand) + r'\s*(본사|본점|사옥|지사|본부)', original_text,
+                )
+                if _m_sfx:
+                    _sfx = f' {_m_sfx.group(1)}'
             if _m_prefix:
-                return f'{verified_addr} {_m_prefix.group(1)}{place_name}'.strip()
-            return f'{verified_addr} {place_name}'.strip()
+                return f'{verified_addr} {_m_prefix.group(1)}{place_name}{_sfx}'.strip()
+            return f'{verified_addr} {place_name}{_sfx}'.strip()
     return verified_addr
 
 
