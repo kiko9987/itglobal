@@ -947,33 +947,26 @@ def _update_slack_list_managers(assignments: List[Dict],
                 lead_to_row[f.get('text', '')] = it['id']
                 break
 
-    # 주소 substring 매칭용 sheet lead 후보 (phone 없는 lead 만 대상 — 오탐 최소)
+    # 주소 매칭용 sheet lead 후보 (phone 없는 lead 만 대상 — 오탐 최소)
     _addr_candidates: List[Dict] = []
     if sheet_leads:
         for _l in sheet_leads:
             _phone = str(_l.get('고객 연락처','') or '').strip()
             if _phone in ('', '-'):
                 _addr_candidates.append(_l)
+    if not _addr_candidates:
+        _addr_candidates = _load_addr_candidates()
 
     # 2026-07-20: 같은 lead 가 여러 assignment 로 나올 때 (동행 방문 — TH 섹션·MS 섹션
     # 양쪽 나온 경우) 순차 update 로 뒤엣것이 앞엣것을 덮어쓰는 이슈. lead_no 로 병합해
     # 이니셜 union → 한 번에 update.
+    # 2026-08-11: 리드 매칭을 _resolve_lead_for_assignment 로 통일. 기존엔 여기 inline
+    #   매칭에 len>=8 가드가 남아 '알만 고양점'(6자) 같은 짧은 주소가 List 담당자
+    #   update 에서만 미매칭 → 담당자 미지정됐음 (ETC-4feb23). 전화 suffix(안심번호·
+    #   앞0 탈락)·주소 정확일치 fix 를 List update 에도 동일 적용.
     merged: Dict[str, Dict] = {}  # lead_no → {'row_id': ..., 'inis': set()}
     for p in assignments:
-        lead = None
-        if p.get('phone_digits'):
-            # 공유 번호 disambiguate (2026-07-27) — 라인 주소로 정확한 lead 선택
-            lead = _pick_lead_for_phone(phone_map.get(p['phone_digits']), _addr_from_assignment(p))
-        if not lead and p.get('address'):
-            cand_addr = p['address'].strip()
-            if cand_addr and len(cand_addr) >= 8:
-                for _l in _addr_candidates:
-                    _sheet_addr = str(_l.get('방문 주소','') or '').strip()
-                    if not _sheet_addr or _sheet_addr == '-':
-                        continue
-                    if cand_addr in _sheet_addr or _sheet_addr in cand_addr:
-                        lead = _l
-                        break
+        lead = _resolve_lead_for_assignment(p, phone_map, _addr_candidates)
         if not lead:
             continue
         lno = str(lead.get('리드 No') or '').strip()
