@@ -45,5 +45,25 @@ def test_no_false_positive(addr):
     assert clean == addr and note == ''
 
 
+def test_slash_time_note_moved():
+    """'/' 뒤 시간·지시 노트 상담 이관 (ETC-4c47a2)."""
+    clean, note = S('영등포구 경인로 775 에이스하이테크시티 2동 / 오전 7시 현장설명 / 오후 1시 철거제품 회수 및 결산')
+    assert clean == '영등포구 경인로 775 에이스하이테크시티 2동'
+    assert note == '오전 7시 현장설명 / 오후 1시 철거제품 회수 및 결산'
+
+
+def test_slash_time_note_single():
+    """'/' 뒤 단일 시간 노트 (ETC-1765ea)."""
+    clean, note = S('서울 양천구 목동동로 309 행복한 백화점 5F / 오전 7시')
+    assert clean == '서울 양천구 목동동로 309 행복한 백화점 5F'
+    assert note == '오전 7시'
+
+
+def test_slash_address_continuation_not_split():
+    """'/' 로 이은 주소 연속(301호/302호)은 분리 안 함 — 시간·지시 신호 없음."""
+    assert S('강남구 테헤란로 152 삼성빌딩 301호/302호') == (
+        '강남구 테헤란로 152 삼성빌딩 301호/302호', '')
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

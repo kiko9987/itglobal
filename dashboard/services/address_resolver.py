@@ -1609,6 +1609,8 @@ _NOTE_VERB_END = re.compile(
     r'|드립니다|드려요|요망|주시면|하시면|바람|주세용)(?:\s|$)'
 )
 _NOTE_TAIL_KW = ('소통', '연락', '요망', '참고', '주의')
+# 시간 표현 (방문 스케줄 노트 감지용, 2026-08-06 ETC-4c47a2/1765ea)
+_NOTE_TIME_RE = re.compile(r'오전|오후|새벽|정오|점심|저녁|밤|\d+\s*시(?![가-힣])')
 _NOTE_PAREN_KW = _NOTE_TAIL_KW + (
     '현장', '확인', '문의', '주차', '위치',
     '정면', '오른쪽', '왼쪽', '좌측', '우측', '뒤편', '맞은편', '건너', '방향', '바라보',
@@ -1647,6 +1649,31 @@ def split_address_notes(addr: str) -> Tuple[str, str]:
         return addr, ''
     notes = []
     s = addr.strip()
+
+    # 0) '/' 구분자 트레일링 노트 (2026-08-06 ETC-4c47a2·ETC-1765ea): 매니저가 주소란에
+    #    '주소 / 오전 7시 현장설명 / 오후 1시 회수' 처럼 시간·지시를 '/' 로 붙임.
+    #    기존엔 _extract_building_tail 이 '/' 뒤를 '잘라서' 변환 주소만 clean 하고
+    #    노트는 카드 원본 아카이브에만 남아 상담/List/캔버스에서 유실됐음.
+    #    첫 '/' 앞이 완결 주소(도로+번지 or 층/호/건물)이고 첫 노트 조각에 시간/지시
+    #    신호가 있을 때만 뒤 전체를 노트로 이동 — '301호/302호' 같은 주소 연속은 미분리.
+    if '/' in s:
+        _head, _, _rest = s.partition('/')
+        _head, _rest = _head.strip(), _rest.strip()
+        _first_seg = _rest.split('/', 1)[0].strip()
+        _head_is_addr = re.search(
+            r'(?:로|길)\s*\d|\d+\s*(?:호|층|동|번지)|'
+            r'(?:빌딩|타워|아파트|상가|오피스텔|프라자|플라자|스퀘어|맨션|빌라|'
+            r'하우스|센터|시티|백화점|마트|병원|학교|공장)',
+            _head,
+        )
+        _first_is_note = bool(_NOTE_TIME_RE.search(_first_seg)
+                              or _note_has_signal(_first_seg))
+        if _rest and _head_is_addr and _first_is_note:
+            for _p in _rest.split('/'):
+                _p = _p.strip()
+                if _p:
+                    notes.append(_p)
+            s = _head
 
     # 1) 노트성 괄호 — 노트 신호(동사어미/키워드/방향어) 포함 시 이동, 주소성 괄호는 유지
     def _repl(m):
