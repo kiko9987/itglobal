@@ -345,10 +345,23 @@ def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
     2026-07-27: phone_map 이 phone → 리스트. 공유 번호면 라인 주소로 disambiguate.
     """
     if a.get('phone_digits'):
-        leads = phone_map.get(a['phone_digits'])
-        picked = _pick_lead_for_phone(leads, _addr_from_assignment(a))
+        pd_ = a['phone_digits']
+        picked = _pick_lead_for_phone(phone_map.get(pd_), _addr_from_assignment(a))
         if picked:
             return picked
+        # 안심번호·앞자리 탈락 내성 (2026-08-11 ETC-590dbb: 시트 0507-1384-3577 ↔
+        #   캔버스 07-1384-3577). 정확 키 실패 시, 한쪽 숫자열이 다른 쪽의 뒤자리
+        #   suffix 면 매칭 (양쪽 9자리+ — 로컬부 8자리+국번). 0507↔07, 010↔10,
+        #   82 국가코드 등 앞자리 변형 흡수. 뒤 8자리 단순비교와 달리 '전체 suffix'
+        #   라 다른 국번 번호끼리 오탐 안 됨.
+        if len(pd_) >= 9:
+            for _k, _v in phone_map.items():
+                if _k == pd_ or len(_k) < 9:
+                    continue
+                if _k.endswith(pd_) or pd_.endswith(_k):
+                    picked = _pick_lead_for_phone(_v, _addr_from_assignment(a))
+                    if picked:
+                        return picked
     if a.get('address'):
         cand_addr = str(a['address']).strip()
         _cn = re.sub(r'\s+', '', cand_addr)

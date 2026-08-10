@@ -48,3 +48,27 @@ def test_long_substring_still_matches():
     cand = [_cand('ETC-w', '서울 강남구 테헤란로 152 강남파이낸스센터')]
     r = vas._resolve_lead_for_assignment(a, {}, cand)
     assert r and r.get('리드 No') == 'ETC-w'
+
+
+# ── 전화 suffix 매칭 — 안심번호·앞자리 탈락 내성 (2026-08-11 ETC-590dbb) ──
+def test_phone_suffix_ansim_number():
+    # 시트 0507-1384-3577(안심번호) ↔ 캔버스 07-1384-3577 (앞 05 탈락)
+    phone_map = {'050713843577': [_cand('ETC-590dbb', '인천 계양구 벌말로 553')]}
+    a = {'phone_digits': '0713843577'}
+    r = vas._resolve_lead_for_assignment(a, phone_map, [])
+    assert r and r.get('리드 No') == 'ETC-590dbb'
+
+
+def test_phone_suffix_leading_zero():
+    # 010 앞0 탈락: 시트 01012345678 ↔ 캔버스 1012345678
+    phone_map = {'01012345678': [_cand('L-x', '주소 여덟자이상 테스트')]}
+    a = {'phone_digits': '1012345678'}
+    r = vas._resolve_lead_for_assignment(a, phone_map, [])
+    assert r and r.get('리드 No') == 'L-x'
+
+
+def test_phone_no_false_suffix_across_prefix():
+    # 다른 국번(070 vs 010), 뒤 8자리 같아도 full suffix 아니면 매칭 안 함 (오탐 방지)
+    phone_map = {'01012345678': [_cand('L-a', '주소 여덟자이상 테스트')]}
+    a = {'phone_digits': '07012345678'}  # 070-1234-5678
+    assert vas._resolve_lead_for_assignment(a, phone_map, []) is None
