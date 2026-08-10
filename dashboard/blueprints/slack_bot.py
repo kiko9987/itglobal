@@ -947,9 +947,13 @@ def _register_project_handlers(app):
                     return
                 saved = result.get('saved') or []
                 skipped = result.get('skipped') or []
+                not_license = bool(result.get('not_license'))
+                is_card = bool(result.get('is_card'))
 
                 # reaction 최종 상태 반영
-                if saved and not skipped:
+                if saved and not_license:
+                    _safe_react('warning')  # 저장은 됐으나 사업자등록증 아닐 가능성(오첨부)
+                elif saved and not skipped:
                     _safe_react('white_check_mark')  # 전건 성공
                 elif saved and skipped:
                     _safe_react('warning')  # 부분 성공
@@ -986,6 +990,18 @@ def _register_project_handlers(app):
                         f"_(자동 저장 실패 — 관리 페이지에서 확인 후 수동 입력하세요)_"
                     )
                 # match / '' 인 경우 조용히 skip
+                # 사업자등록증 오첨부 감지 (2026-08-10 G3879-JSH 카드 이미지) — 조용히 넘기지 말고 안내.
+                if not_license and saved:
+                    if is_card:
+                        lines.append(
+                            ":warning: 첨부가 *카드 이미지*로 보입니다 — 사업자등록증이 아닙니다. "
+                            "올바른 사업자등록증인지 확인해 주세요. _(카드결제 건이면 무시하셔도 됩니다.)_"
+                        )
+                    else:
+                        lines.append(
+                            ":warning: 첨부에서 *사업자등록증 정보(사업자번호·상호)를 못 찾았습니다*. "
+                            "사업자등록증이 맞는지 확인해 주세요. _(카드결제 건이면 무시하셔도 됩니다.)_"
+                        )
                 if skipped:
                     lines.append(f":warning: 저장 안 됨:")
                     for s in skipped:

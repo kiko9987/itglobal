@@ -536,10 +536,17 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
     business_name = ''
     biz_update_status = ''  # '' | 'saved' | 'match' | 'mismatch' | 'error'
     biz_update_existing = ''
+    not_license = False   # 사업자번호·상호 둘 다 못 찾음 = 사업자등록증 아닐 가능성(오첨부)
+    is_card = False       # 카드 이미지 키워드 감지
     if ocr_content:
         try:
-            from dashboard.services.business_license_ocr import ocr_business_license
-            business_name = ocr_business_license(ocr_content) or ''
+            from dashboard.services.business_license_ocr import analyze_business_license
+            _an = analyze_business_license(ocr_content)
+            business_name = (_an.get('name') or '')
+            is_card = bool(_an.get('is_card'))
+            # 사업자번호도 상호도 없으면 사업자등록증이 아닐 가능성 (카드·오첨부·판독불가).
+            # 2026-08-10 G3879-JSH (삼성카드 이미지 오첨부) 계기 — 조용히 넘기지 말고 경고.
+            not_license = not business_name and not (_an.get('bno') or '')
         except Exception as exc:
             logger.warning(f'[LICENSE/OCR] 예외: {exc}')
         if business_name:
@@ -579,6 +586,8 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
         'business_name': business_name,
         'biz_update_status': biz_update_status,
         'biz_update_existing': biz_update_existing,
+        'not_license': not_license,
+        'is_card': is_card,
     }
 
 

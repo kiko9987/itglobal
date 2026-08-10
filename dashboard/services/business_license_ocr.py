@@ -129,46 +129,74 @@ def _ocr_full_text(client, image_bytes: bytes) -> str:
     return response.full_text_annotation.text if response.full_text_annotation else ''
 
 
-def ocr_business_license(image_bytes: bytes) -> str:
-    """이미지/PDF 바이트 → Vision API OCR → 법인명·상호 추출.
+# 신용/체크카드 이미지 오첨부 감지 키워드 (2026-08-10 G3879-JSH — 사업자등록증 대신
+# 카드 사진 첨부). OCR 텍스트에 하나라도 있으면 카드 이미지로 추정 (안내 구체화용).
+_CARD_KEYWORDS = (
+    '신용카드', '체크카드', '카드번호', '후불교통', '유효기간',
+    '삼성카드', '신한카드', '현대카드', '국민카드', '롯데카드',
+    '우리카드', '하나카드', '비씨카드', '농협카드',
+    'american express', 'visa', 'mastercard', 'master card',
+    'cardmember', 'valid thru',
+)
 
-    반환: 추출된 이름 or 빈 문자열.
+
+def analyze_business_license(image_bytes: bytes) -> dict:
+    """사업자등록증 OCR 종합 분석 — 이름·사업자번호·카드여부·텍스트유무.
+
+    반환: {'name': str, 'bno': str, 'is_card': bool, 'has_text': bool}
+      - name/bno 둘 다 없음 = 사업자등록증이 아닐 가능성(오첨부·판독불가) → 호출부 경고.
+      - is_card: 카드 이미지 키워드 감지 → 안내 문구 구체화.
+    Vision 은 1회만 호출 (ocr_business_license 도 이걸 재사용).
     """
+    result = {'name': '', 'bno': '', 'is_card': False, 'has_text': False}
     if not image_bytes:
-        return ''
+        return result
     try:
         from google.cloud import vision
     except ImportError:
         logger.warning('[LICENSE/OCR] google-cloud-vision 미설치 — skip')
-        return ''
-
+        return result
     try:
         client = vision.ImageAnnotatorClient()
         # PDF/이미지 자동 분기 (PDF 는 파일 API, 2026-08-10 'Bad image data' fix)
         full_text = _ocr_full_text(client, image_bytes)
+    except Exception as exc:
+        logger.warning(f'[LICENSE/OCR] Vision API 호출 실패: {type(exc).__name__}: {exc}')
+        return result
 
-        # ① 사업자번호(숫자, OCR 90%+체크섬) → 거래처 탭 역조회로 정답 상호.
-        #    한글 상호 오인식(예: 미덕원→이억원) 회피. 번호 미매칭·신규는 ②로.
-        bno = extract_business_no_from_text(full_text)
-        if bno:
-            try:
-                from dashboard.services.partner_status_sync import get_partner_name_by_bno
-                looked = get_partner_name_by_bno(bno)
-                if looked:
-                    # 거래처 탭 상호도 꼬리 영문 괄호 정리 (2026-08-10) — '한글(English…' 통일
-                    looked = _clean_name(looked) or looked
-                    logger.info(f'[LICENSE/OCR] 사업자번호 {bno} → 거래처 탭 상호: {looked!r}')
-                    return looked
-            except Exception as exc:
-                logger.debug(f'[LICENSE/OCR] 번호 역조회 실패 (상호 OCR 로 fallback): {exc}')
+    result['has_text'] = bool((full_text or '').strip())
+    _low = (full_text or '').lower()
+    result['is_card'] = any(k in _low for k in _CARD_KEYWORDS)
 
-        # ② 상호 정규식 추출 (거래처 탭에 없는 신규 사업자 or 번호 매칭 실패)
+    # ① 사업자번호(숫자, OCR 90%+체크섬) → 거래처 탭 역조회로 정답 상호.
+    #    한글 상호 오인식(예: 미덕원→이억원) 회피. 번호 미매칭·신규는 ②로.
+    bno = extract_business_no_from_text(full_text)
+    result['bno'] = bno
+    name = ''
+    if bno:
+        try:
+            from dashboard.services.partner_status_sync import get_partner_name_by_bno
+            looked = get_partner_name_by_bno(bno)
+            if looked:
+                # 거래처 탭 상호도 꼬리 영문 괄호 정리 (2026-08-10) — '한글(English…' 통일
+                name = _clean_name(looked) or looked
+                logger.info(f'[LICENSE/OCR] 사업자번호 {bno} → 거래처 탭 상호: {name!r}')
+        except Exception as exc:
+            logger.debug(f'[LICENSE/OCR] 번호 역조회 실패 (상호 OCR 로 fallback): {exc}')
+    # ② 상호 정규식 추출 (거래처 탭에 없는 신규 사업자 or 번호 매칭 실패)
+    if not name:
         name = extract_business_name_from_text(full_text)
         if name:
             logger.info(f'[LICENSE/OCR] 법인명·상호 추출 성공: {name!r}')
-        else:
-            logger.info('[LICENSE/OCR] 법인명·상호 매치 실패 (OCR 텍스트 확인 필요)')
-        return name
-    except Exception as exc:
-        logger.warning(f'[LICENSE/OCR] Vision API 호출 실패: {type(exc).__name__}: {exc}')
-        return ''
+    if not name:
+        logger.info(
+            f'[LICENSE/OCR] 법인명·상호 매치 실패 '
+            f'(bno={bno or "없음"}, card={result["is_card"]}, {len(full_text or "")}자)'
+        )
+    result['name'] = name
+    return result
+
+
+def ocr_business_license(image_bytes: bytes) -> str:
+    """이미지/PDF 바이트 → 법인명·상호 추출 (name 만, 하위호환 wrapper)."""
+    return analyze_business_license(image_bytes).get('name', '')
