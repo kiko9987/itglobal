@@ -3180,6 +3180,14 @@ def _build_updated_project_from_values(current_values: list, field_to_index: dic
     for field_name in currency_fields:
         if field_name in updated_project:
             cv = updated_project[field_name]
+            # 수식 셀 가드 (2026-08-10 R3826-MJ): current_values 는 FORMULA render 라
+            # 제품대/자재비/기타비 같은 VLOOKUP 금액 셀이 수식 문자열로 들어옴.
+            # safe_parse_currency 가 수식 안 행 참조($A3827)를 금액(3827)으로 오추출 →
+            # 저장 직후 카드에 행번호가 금액처럼 뜨고 순익도 왜곡됨. 수식이면 빈값 처리
+            # (실제값은 시트 수식이 계산 → 다음 로드 때 정상 반영).
+            if isinstance(cv, str) and cv.lstrip().startswith('='):
+                updated_project[field_name] = ''
+                continue
             if cv is not None and cv != '':
                 pa = safe_parse_currency(cv)
                 if pa == int(pa):
