@@ -351,7 +351,8 @@ def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
             return picked
     if a.get('address'):
         cand_addr = str(a['address']).strip()
-        if cand_addr and len(cand_addr) >= 8:
+        _cn = re.sub(r'\s+', '', cand_addr)
+        if _cn:
             # 2026-07-29: 주소 매치 전건 수집 후 지난방문 제외·활성·최신 우선.
             #   반복 방문 현장(무전화·동일 주소)에서 옛 lead 오선택 방지
             #   (서울랜드 07-23~24 ETC-d8b768 → 07-30~31 ETC-04915c).
@@ -360,7 +361,16 @@ def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
                 _sa = str(_l.get('방문 주소','') or '').strip()
                 if not _sa or _sa == '-':
                     continue
-                if cand_addr in _sa or _sa in cand_addr:
+                _sn = re.sub(r'\s+', '', _sa)
+                # 정확 일치(공백무시, 4자+)는 길이 무관 매칭 — 짧은 상호명(예: '알만
+                #   고양점' 6자)도 특정 가능. 8자 미만 substring 은 오탐 위험이라
+                #   정확 일치만 허용. (2026-08-11 ETC-4feb23 '알만 고양점'이 기존
+                #   len>=8 가드에 막혀 미매칭됐던 케이스.)
+                if len(_cn) >= 4 and _cn == _sn:
+                    matches.append(_l)
+                    continue
+                # 부분 일치(substring)는 오탐 방지 위해 8자+ 만 (기존 로직 유지)
+                if len(cand_addr) >= 8 and (cand_addr in _sa or _sa in cand_addr):
                     matches.append(_l)
             if matches:
                 return _prefer_active_recent(matches)
