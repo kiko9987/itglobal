@@ -548,6 +548,30 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
             except Exception as exc:
                 logger.warning(f'[LICENSE/OCR] 사업자명 자동 반영 실패: {exc}')
                 biz_update_status = 'error'
+            # OCR 사업자명이 시트에 새로 저장됐으면 원본 공사 확정 카드도 재렌더 (2026-08-10).
+            # 위 배지 refresh(saved 블록)는 OCR 저장 전에 실행돼 사업자명='-' 상태로 카드가
+            # 그려짐 → 저장 후 한 번 더 갱신해 사업자명을 카드에 반영. 시트 실제값 기준
+            # (force_refresh) 으로 latest_data 주입해 캐시 지연 회피.
+            if biz_update_status == 'saved':
+                try:
+                    from dashboard.services.project_service import get_project_records
+                    from dashboard.services.project_slack_notifier import (
+                        refresh_project_card_license as _refresh_card,
+                    )
+                    _recs = get_project_records(force_refresh=True) or []
+                    _proj = next(
+                        (r for r in _recs
+                         if (r.get('프로젝트 코드') or '').strip() == code), None
+                    )
+                    if _proj:
+                        _refresh_card(
+                            code, latest_data=_proj,
+                            fallback_channel=channel, fallback_message_ts=thread_ts,
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        f'[LICENSE/OCR] 사업자명 반영 후 카드 갱신 실패 ({code}): {exc}'
+                    )
 
     return {
         'code': code, 'saved': saved, 'skipped': skipped,
