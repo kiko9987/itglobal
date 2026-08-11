@@ -224,6 +224,36 @@ def test_compose_still_splits_manager_typo(monkeypatch):
     assert '단지 상가' in addr
 
 
+def test_strip_redundant_jibun(monkeypatch):
+    """도로명+번지 있을 때 카카오 지번과 정확 일치하는 구 지번 제거 (L-03627)."""
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {
+        'road_address': {'address_name': '서울 중랑구 사가정로50길 51'},
+        'address': {'main_address_no': '632', 'sub_address_no': '2'},
+    })
+    assert ar._strip_redundant_jibun('중랑구 사가정로50길 51 열방교회 632-2 1층') == \
+        '중랑구 사가정로50길 51 열방교회 1층'
+
+
+def test_strip_jibun_keeps_unit_number(monkeypatch):
+    """호수(632-2호)는 유닛번호라 보존 — 지번과 숫자 같아도 접미로 구분."""
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {
+        'road_address': {'address_name': '서울 중랑구 사가정로50길 51'},
+        'address': {'main_address_no': '632', 'sub_address_no': '2'},
+    })
+    r = ar._strip_redundant_jibun('중랑구 사가정로50길 51 열방빌딩 632-2호')
+    assert '632-2호' in r
+
+
+def test_strip_jibun_skips_when_equals_road_num(monkeypatch):
+    """지번이 도로명 번지와 같으면(그게 번지) 보존."""
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {
+        'road_address': {'address_name': '서울 강남구 테헤란로 51'},
+        'address': {'main_address_no': '51', 'sub_address_no': ''},
+    })
+    assert ar._strip_redundant_jibun('강남구 테헤란로 51 삼성빌딩') == \
+        '강남구 테헤란로 51 삼성빌딩'
+
+
 def test_flatten_paren_keeps_corporate_designator():
     """법인 표기 (주)/(유)/(사)/(재)는 flatten 안 함 — '주' 홀로 남기 방지 (L-03358)."""
     F = ar._flatten_paren_tail

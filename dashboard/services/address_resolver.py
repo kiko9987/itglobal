@@ -1024,6 +1024,47 @@ def _strip_redundant_legal_dong(addr: str) -> str:
     return stripped or addr
 
 
+def _strip_redundant_jibun(addr: str) -> str:
+    """도로명주소에 딸려온 구 지번(번지)을 제거 — 카카오 jibun 본번-부번과 정확 일치할 때만.
+
+    2026-08-06 L-03627: 고객이 도로명+지번을 함께 적음
+    ('사가정로50길 51 열방교회 632-2 1층' — 632-2 는 면목동 632-2 지번).
+    도로명+번지가 있으면 지번은 중복·불필요 → standalone 제거. _strip_redundant_legal_dong
+    (법정동 제거)과 동일 사상, 지번 번지 버전.
+
+    안전 가드:
+    - 도로명+번지 있을 때만 (지번주소는 지번이 본질 → skip)
+    - 카카오 jibun 본번(-부번) 과 정확 일치하는 토큰만
+    - 도로명 번지와 우연히 같으면 보존(그게 번지)
+    - 호/층/번지/동/관 접미 붙은 건 유닛번호라 보존 (632-2호 등)
+    """
+    if not addr:
+        return addr
+    m_road = re.search(r'[가-힣\d]+(?:로|길)\s*\d+(?:-\d+)?', addr)
+    if not m_road:
+        return addr
+    doc = _kakao_search(m_road.group(0))  # lru_cache (legal_dong 과 공유)
+    if not doc:
+        return addr
+    jibun = doc.get('address') or {}
+    main_no = (jibun.get('main_address_no') or '').strip()
+    sub_no = (jibun.get('sub_address_no') or '').strip()
+    if not main_no:
+        return addr
+    jibun_num = f'{main_no}-{sub_no}' if sub_no and sub_no != '0' else main_no
+    # 도로명 번지 추출 — 지번이 도로명 번지와 같으면 그건 번지라 보존
+    road_num_m = re.search(r'(?:로|길)\s*(\d+(?:-\d+)?)', addr)
+    if road_num_m and road_num_m.group(1) == jibun_num:
+        return addr
+    # standalone 지번 제거 (앞: 숫자/한글 아님, 뒤: 숫자/한글 or 호·층·번지·동·관 접미 아님)
+    stripped = re.sub(
+        rf'(?<![\d가-힣-]){re.escape(jibun_num)}(?![\d가-힣-]|\s*(?:호|층|호실|번지|동|관))\s*',
+        '', addr,
+    )
+    stripped = re.sub(r'\s+', ' ', stripped).strip()
+    return stripped or addr
+
+
 def _enrich_verified_address(
     verified_addr: str, original_text: str, regex_addr: Optional[str]
 ) -> str:
@@ -1747,6 +1788,7 @@ def resolve_address(
         addr = _enrich_verified_address(addr, text, regex_addr)
         # 도로명주소에 법정동 중복 제거 (주소검색기 유입, 2026-07-27 L-03400)
         addr = _strip_redundant_legal_dong(addr)
+        addr = _strip_redundant_jibun(addr)  # 도로명+지번 중복 시 구 지번 제거 (L-03627)
         # tail 부착 후 후처리 (인접 유사 단어 dedup 등, 2026-07-22 ETC-b626fb)
         addr = _post_normalize_display(addr)
         addr = _mark_planned(addr)  # 'X예정지/X예정' → 'X (예정)' (L-03600)
