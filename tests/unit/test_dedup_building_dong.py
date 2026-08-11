@@ -254,6 +254,43 @@ def test_strip_jibun_skips_when_equals_road_num(monkeypatch):
         '강남구 테헤란로 51 삼성빌딩'
 
 
+def test_enrich_building_by_road_bare(monkeypatch):
+    """민숭 주소(번지+동/층/호)에 건물 접미 POI 1개면 부착 (L-03633)."""
+    monkeypatch.setattr(ar, '_search_poi', lambda q: [
+        ('현대테라타워DIMC', '경기 남양주시 다산지금로 202'),
+        ('뽀로로테마파크', '경기 남양주시 다산지금로 202'),        # 접미 없음 → 무시
+        ('GS25 다산테라타워점', '경기 남양주시 다산지금로 202'),   # 점 마커 → 무시
+    ])
+    r = ar._enrich_building_by_road('남양주 다산지금로 202 B동 5F 0001호')
+    assert r == '남양주 다산지금로 202 현대테라타워DIMC B동 5F 0001호'
+
+
+def test_enrich_building_skip_when_has_shop(monkeypatch):
+    """번지 뒤 상호/건물 이미 있으면 skip (민숭 아님)."""
+    monkeypatch.setattr(ar, '_search_poi', lambda q: [
+        ('현대테라타워DIMC', '경기 남양주시 다산지금로 202')])
+    v = '남양주 다산지금로 202 삼성빌딩 3층'
+    assert ar._enrich_building_by_road(v) == v
+
+
+def test_enrich_building_skip_when_ambiguous(monkeypatch):
+    """건물 접미 POI 가 2개 이상이면 모호 → skip."""
+    monkeypatch.setattr(ar, '_search_poi', lambda q: [
+        ('A타워', '경기 남양주시 다산지금로 202'),
+        ('B빌딩', '경기 남양주시 다산지금로 202')])
+    v = '남양주 다산지금로 202 5층'
+    assert ar._enrich_building_by_road(v) == v
+
+
+def test_enrich_building_skip_tenant_only(monkeypatch):
+    """건물 접미 POI 가 입주사 마커뿐이면 부착 안 함."""
+    monkeypatch.setattr(ar, '_search_poi', lambda q: [
+        ('스타벅스 판교타워점', '경기 성남시 분당구 판교역로 235'),
+        ('올리브영 판교스퀘어점', '경기 성남시 분당구 판교역로 235')])
+    v = '성남 분당구 판교역로 235 4층'
+    assert ar._enrich_building_by_road(v) == v
+
+
 def test_flatten_paren_keeps_corporate_designator():
     """법인 표기 (주)/(유)/(사)/(재)는 flatten 안 함 — '주' 홀로 남기 방지 (L-03358)."""
     F = ar._flatten_paren_tail

@@ -1065,6 +1065,68 @@ def _strip_redundant_jibun(addr: str) -> str:
     return stripped or addr
 
 
+# 강한 건물 접미(거의 항상 건물) — 파크/타운/시티/센터 등 모호어는 제외(입주사 오인)
+_BLD_STRONG_SUFFIX_RE = re.compile(
+    r'(타워|빌딩|오피스텔|프라자|플라자|스퀘어|캐슬|테크노|디팰리스|메가시티)'
+)
+# 입주사·부속시설 마커 — 있으면 건물명 아님(그 건물의 한 테넌트)
+_POI_TENANT_MARK_RE = re.compile(
+    r'(점$|지점|주차장|출입구|정문|후문|매장|약국|의원|병원|은행|마트|편의점|'
+    r'충전소|ATM|커피|카페|식당|헬스|피트니스|\d호$|\d층$)'
+)
+# 번지 뒤 유닛 토큰(동/층/호/관/F) 판별 — 모두 유닛이면 '건물명 없는 민숭 주소'
+_UNIT_TOKEN_RE = re.compile(
+    r'^(?:[A-Za-z]?\d+(?:-\d+)?(?:동|층|호|호실|관)?|[A-Za-z]?\d+[Ff]|'
+    r'지하\d*층?|[A-Z]동|B\d*)$'
+)
+
+
+def _enrich_building_by_road(verified_addr: str) -> str:
+    """상호·카카오 building_name 둘 다 없는 '민숭한' 도로명주소에 건물명 부착 (L-03633).
+
+    2026-08-06: 카카오 주소검색 API 가 building_name 을 빈값으로 주고 고객도 건물명
+    없이 '번지 + 동/층/호'만 입력하면(다산지금로 202 B동 5F 0001호) 건물명이 통째
+    누락. 큰 건물(다산 DIMC테라타워)인데도 주소API 엔 없음. 번지로 POI 조회해
+    건물 접미 POI(입주사 마커 없는)가 **정확히 하나**면 부착.
+
+    보수적 가드(입주사 오부착 방지):
+    - 번지 뒤 토큰이 전부 유닛(동/층/호/F)일 때만 = 건물명이 진짜 없는 케이스
+    - 강한 건물 접미(타워/빌딩/오피스텔/…)만, 입주사 마커(점/주차장/N호…) 제외
+    - 같은 도로의 건물 후보가 정확히 1개일 때만 (여러 개면 모호 → skip)
+    """
+    if not verified_addr:
+        return verified_addr
+    m_road = re.search(
+        r'[가-힣A-Za-z0-9]+(?:대?로|길)\s*\d+(?:-\d+)?', verified_addr
+    )
+    if not m_road:
+        return verified_addr
+    after_toks = verified_addr[m_road.end():].split()
+    # 번지 뒤에 유닛이 아닌 토큰(=상호/건물명)이 이미 있으면 skip
+    if after_toks and not all(_UNIT_TOKEN_RE.match(t) for t in after_toks):
+        return verified_addr
+    v_key = _road_key(verified_addr)
+    try:
+        results = _search_poi(m_road.group(0))
+    except Exception:
+        return verified_addr
+    cands = []
+    for pn, road in results:
+        if not pn or _road_key(road) != v_key:
+            continue
+        if _BLD_STRONG_SUFFIX_RE.search(pn) and not _POI_TENANT_MARK_RE.search(pn):
+            cands.append(pn)
+    uniq = list(dict.fromkeys(cands))
+    if len(uniq) != 1:
+        return verified_addr  # 0개 or 모호(2+) → skip
+    building = uniq[0]
+    if building.replace(' ', '') in verified_addr.replace(' ', ''):
+        return verified_addr
+    # 번지 바로 뒤에 삽입 (동/층/호 앞)
+    return (verified_addr[:m_road.end()] + f' {building}'
+            + verified_addr[m_road.end():]).strip()
+
+
 def _enrich_verified_address(
     verified_addr: str, original_text: str, regex_addr: Optional[str]
 ) -> str:
@@ -1789,6 +1851,7 @@ def resolve_address(
         # 도로명주소에 법정동 중복 제거 (주소검색기 유입, 2026-07-27 L-03400)
         addr = _strip_redundant_legal_dong(addr)
         addr = _strip_redundant_jibun(addr)  # 도로명+지번 중복 시 구 지번 제거 (L-03627)
+        addr = _enrich_building_by_road(addr)  # 민숭 주소에 건물명 부착 (L-03633)
         # tail 부착 후 후처리 (인접 유사 단어 dedup 등, 2026-07-22 ETC-b626fb)
         addr = _post_normalize_display(addr)
         addr = _mark_planned(addr)  # 'X예정지/X예정' → 'X (예정)' (L-03600)
