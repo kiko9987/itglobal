@@ -84,8 +84,9 @@ def normalize_display(addr: str) -> str:
     - 다른 광역시 (인천/부산/대구/대전/울산/세종) → 그대로
     - 제주 + 제주시 → "제주" 한 번만
     - 제주 + 서귀포시 → "서귀포"
-    - 다른 도 + ○○시 → 도 prefix 제거 + "시" 제거
-    - 다른 도 + ○○군 → 도 prefix 제거 + "군" 제거
+    - 경기(수도권) + ○○시/군 → 도 prefix 제거 + "시/군" 제거 (수원·성남 등 익숙)
+    - 비수도권 도(전북·전남·경북·경남·강원·충북·충남) + ○○시/군 → 도 유지 + "시/군"
+      제거 ("전북 김제", 담당자 먼 지역 인지용, 2026-08-06 L-03646)
 
     >>> normalize_display('서울 강남구 테헤란로 152')
     '강남구 테헤란로 152'
@@ -95,6 +96,8 @@ def normalize_display(addr: str) -> str:
     '전남 광주 동구 충장로 1'
     >>> normalize_display('경기 광주시 경안로 100')
     '광주 경안로 100'
+    >>> normalize_display('전북특별자치도 김제시 남북로 218')
+    '전북 김제 남북로 218'
     >>> normalize_display('경기 수원시 영통구 광교로 145')
     '수원 영통구 광교로 145'
     >>> normalize_display('제주 제주시 노형동 925')
@@ -136,10 +139,15 @@ def normalize_display(addr: str) -> str:
     elif first == '제주' and second == '제주시':
         result = ' '.join(['제주'] + rest)
     elif first in _PROV_SHORT:
+        # 비수도권 도(전북·전남·경북·경남·강원·충북·충남)는 도 접두 유지 —
+        #   담당자가 '김제'만 보면 먼 지역인지 감이 안 옴 → '전북 김제' (2026-08-06
+        #   L-03646, 사용자 결정). 경기(수도권, 수원·성남 등 익숙)는 기존대로 제거.
+        _keep_do = first != '경기'
         if second.endswith('시') or second.endswith('군'):
-            result = ' '.join([second[:-1]] + rest)
+            _city = second[:-1]
+            result = ' '.join(([first, _city] if _keep_do else [_city]) + rest)
         else:
-            result = ' '.join(tokens[1:])
+            result = ' '.join(tokens if _keep_do else tokens[1:])
     elif (first.endswith('시') and len(first) >= 3
           and not first.endswith('광역시') and not first.endswith('특별시')
           and (second.endswith('구') or second.endswith('읍') or second.endswith('면'))):
