@@ -481,24 +481,71 @@ export default class ModernProjectModal {
       const clientSelect = document.getElementById('modern-client');
       if (!clientSelect || clientSelect.tagName !== 'SELECT') return;
 
-      const currentValue = clientSelect.value;
-      while (clientSelect.children.length > 1) {
-        clientSelect.removeChild(clientSelect.lastChild);
-      }
-      options.forEach((v) => {
-        const opt = document.createElement('option');
-        opt.value = v;
-        opt.textContent = v;
-        clientSelect.appendChild(opt);
-      });
-      // 선택값 복원 (여전히 목록에 있으면)
-      if (currentValue && options.includes(currentValue)) {
-        clientSelect.value = currentValue;
-      }
+      // 마스터 목록 저장 후 사업자별 필터 적용 (선택값 복원은 필터가 처리)
+      this.inflowMasterOptions = options.slice();
+      this.applyInflowCompanyFilter();
       logger.debug(`[ModernProjectModal] 유입 구분 옵션 갱신: ${options.length}개`);
     } catch (err) {
       logger.warn('[ModernProjectModal] 유입 구분 옵션 갱신 예외:', err);
     }
+  }
+
+  /**
+   * 사업자 선택에 따라 유입 구분 드롭다운 옵션을 제한.
+   * - 글로벌 / 플렌트: 거래처·소개·기타만
+   * - 글로벌그룹: 거래처·소개·온라인 제외한 나머지 전부
+   * - 미선택: 마스터 전체
+   * 매번 마스터 목록(this.inflowMasterOptions)에서 재구성하므로 사업자를 바꿔도 원복됨.
+   */
+  applyInflowCompanyFilter() {
+    const clientSelect = document.getElementById('modern-client');
+    if (!clientSelect || clientSelect.tagName !== 'SELECT') return;
+    const master = Array.isArray(this.inflowMasterOptions) ? this.inflowMasterOptions : [];
+    if (!master.length) return;
+
+    const company = (document.getElementById('modern-company')?.value || '').trim();
+    const allowed = this._allowedInflowOptions(company, master);
+    const currentValue = clientSelect.value;
+
+    // 첫 옵션(placeholder "선택")만 유지하고 재구성
+    while (clientSelect.children.length > 1) {
+      clientSelect.removeChild(clientSelect.lastChild);
+    }
+    allowed.forEach((v) => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      clientSelect.appendChild(opt);
+    });
+
+    // 이전 선택값이 허용 목록에 남아있으면 복원, 아니면 미선택으로 리셋
+    if (currentValue && allowed.includes(currentValue)) {
+      clientSelect.value = currentValue;
+    } else {
+      clientSelect.value = '';
+    }
+    // 사업자명 잠금 상태 재동기화 (거래처 여부 변동 반영)
+    this.syncBusinessNameLock();
+  }
+
+  /**
+   * 사업자별 허용 유입 구분 목록 산출.
+   * @param {string} company 사업자 (글로벌 / 글로벌그룹 / 플렌트)
+   * @param {string[]} master 시트 D열 마스터 옵션
+   * @returns {string[]}
+   */
+  _allowedInflowOptions(company, master) {
+    // 사업자 표기 흔들림(플렌트/플랜트) 흡수
+    const GLOBAL_OR_PLANT = new Set(['글로벌', '플렌트', '플랜트']);
+    if (GLOBAL_OR_PLANT.has(company)) {
+      const whitelist = new Set(['거래처', '소개', '기타']);
+      return master.filter((v) => whitelist.has(v));
+    }
+    if (company === '글로벌그룹') {
+      const blacklist = new Set(['거래처', '소개', '온라인']);
+      return master.filter((v) => !blacklist.has(v));
+    }
+    return master.slice();
   }
 
   /**
@@ -617,6 +664,8 @@ export default class ModernProjectModal {
       this._companyChangeHandler = () => {
         console.log('[DEBUG] 사업자 변경됨:', companySelect.value);
         this.updateCodePreview();
+        // 사업자별 유입 구분 옵션 필터 재적용
+        this.applyInflowCompanyFilter();
       };
       companySelect.addEventListener('change', this._companyChangeHandler);
       console.log('[DEBUG] 사업자 이벤트 리스너 연결됨');
@@ -665,16 +714,9 @@ export default class ModernProjectModal {
     const clients = data.options?.clients || data.clients || [];
     const clientSelect = document.getElementById('modern-client');
     if (clientSelect && clientSelect.tagName === 'SELECT') {
-      // 첫 옵션 "선택"만 유지하고 나머지 제거
-      while (clientSelect.children.length > 1) {
-        clientSelect.removeChild(clientSelect.lastChild);
-      }
-      clients.forEach(client => {
-        const option = document.createElement('option');
-        option.value = client;
-        option.textContent = client;
-        clientSelect.appendChild(option);
-      });
+      // 마스터 목록 저장(사업자별 필터 원본). 시트 validation fetch 성공 시 refreshInflowOptions가 덮어씀.
+      this.inflowMasterOptions = clients.slice();
+      this.applyInflowCompanyFilter();
     }
 
     // 사업자명 (E열, 신규) - datalist 자동완성
