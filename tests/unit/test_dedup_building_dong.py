@@ -301,6 +301,17 @@ def test_flatten_paren_keeps_corporate_designator():
     assert F('(가산동, 이앤씨드림타워7차)') == '이앤씨드림타워7차'
 
 
+def test_flatten_paren_keeps_hosu_comma():
+    """괄호 안 호수 나열 콤마 보존 (ETC-45c37b, '숫자 사이 콤마' 규칙과 일관)."""
+    F = ar._flatten_paren_tail
+    assert F('SG타워 3F (301호,302호)') == 'SG타워 3F 301호,302호'
+    assert F('SG타워 (305,306,408호)') == 'SG타워 305,306,408호'
+    # 콤마+공백형도 콤마 유지 (기존 '305, 306, 408호' 처리와 동일)
+    assert F('타워(301호, 302호)') == '타워 301호, 302호'
+    # 동,건물 콤마(호수 아님)는 기존대로 공백 정리
+    assert F('(가산동, 이앤씨드림타워7차)') == '이앤씨드림타워7차'
+
+
 def test_mark_planned_glued_예정지():
     """'X예정지'(붙은) → 'X (예정)' + 재부착 중복 축약 (L-03600)."""
     assert ar._mark_planned('크란츠테크노 지하 1층 중식당예정지') == '크란츠테크노 지하 1층 중식당 (예정)'

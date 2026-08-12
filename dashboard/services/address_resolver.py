@@ -507,7 +507,12 @@ def _flatten_paren_tail(tail: str) -> str:
 
     before = tail[:m.start()].strip()
     after = tail[m.end():].strip()
-    parts = [p.strip() for p in m.group(1).split(',')]
+    # 호수 나열 콤마 (숫자/호 뒤 + 숫자 앞: '301호,302호'·'305,306,408호') 는 보호 —
+    #   split/공백화로 잃지 않게 placeholder 로 (2026-08-06 ETC-45c37b, 괄호 안에서도
+    #   콤마 보존 = _post_normalize 의 '숫자 사이 콤마 보존'과 일관). '중계동, 건물'
+    #   (동 뒤 콤마) 는 미보호 → 공백 정리.
+    _inner = re.sub(r'(?<=[\d호]),(?=\s*\d)', '\x00', m.group(1))
+    parts = [p.strip() for p in _inner.split(',')]
     if parts and re.match(
         r'^[가-힣]+(?:동|가|리)(?:\s+\d+(?:-\d+)?)?$', parts[0]
     ):
@@ -515,9 +520,10 @@ def _flatten_paren_tail(tail: str) -> str:
     inner_flat = ' '.join(p for p in parts if p).strip()
 
     result = ' '.join(x for x in (before, inner_flat, after) if x)
-    # tail 안의 잔여 콤마는 공백으로 flatten (예: "B1, 위플레이스" → "B1 위플레이스")
-    result = re.sub(r'\s*,\s*', ' ', result)
-    result = re.sub(r'\s+', ' ', result).strip()
+    # before/after 의 호수 콤마도 보호 후 나머지 콤마(동,건물 등)만 공백으로 flatten
+    result = re.sub(r'(?<=[\d호]),(?=\s*\d)', '\x00', result)
+    result = re.sub(r'\s*,\s*', ' ', result)  # "B1, 위플레이스" → "B1 위플레이스"
+    result = re.sub(r'\s+', ' ', result).strip().replace('\x00', ',')
     return result
 
 
