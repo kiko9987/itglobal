@@ -60,5 +60,35 @@ class TestVisitAddressNormalize:
         assert note is None
 
 
+class TestRegionCrossCheck:
+    """시/구 교차확인 — 입력과 다른 시/구로 변환되면 region_warn 플래그 (L-03659)."""
+
+    @pytest.mark.parametrize('raw, norm, expected', [
+        ('인천 부평구 경인로 789 서광빌딩', '영등포구 경인로 789 서광빌딩', True),
+        ('인천 부평구 경인로 789', '인천 부평구 경인로 789 서광빌딩', False),
+        ('강남구 테헤란로 152', '강남구 테헤란로 152 삼성빌딩', False),
+        ('서울 강남구 테헤란로 152', '강남구 테헤란로 152', False),  # 서울 생략, 구 동일
+        ('부평구 십정동 572-7', '인천 부평구 경인로 789 서광빌딩', False),  # 지번→도로, 구 동일
+    ])
+    def test_region_changed_detect(self, raw, norm, expected):
+        assert slack_bot._region_changed(raw, norm) is expected
+
+    def test_normalize_sets_region_warn(self, monkeypatch):
+        """정규화로 시/구 바뀌면 addr_note 에 region_warn=True."""
+        _patch_resolve(monkeypatch, ('영등포구 경인로 789 서광빌딩', 'verified'))
+        addr, note = slack_bot._normalize_visit_address_if_verified(
+            '인천 부평구 경인로 789 서광빌딩')
+        assert note['kind'] == 'normalized'
+        assert note.get('region_warn') is True
+
+    def test_normalize_no_warn_same_region(self, monkeypatch):
+        """같은 구로 정규화(건물명만 추가)면 region_warn 없음."""
+        _patch_resolve(monkeypatch, ('인천 부평구 경인로 789 서광빌딩', 'verified'))
+        addr, note = slack_bot._normalize_visit_address_if_verified(
+            '인천 부평구 경인로 789')
+        assert note['kind'] == 'normalized'
+        assert not note.get('region_warn')
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

@@ -365,7 +365,466 @@ def _register_payment_handlers(app):
                 logger.warning(f'[SLACK/수금봇] chat_delete 실패 (ts={ts}): {exc}')
         threading.Thread(target=_bg, daemon=True).start()
 
-    logger.info("[SLACK/수금봇] 핸들러 등록 완료: payment_card_delete")
+    # ─── 은행 입금 SMS 인입 → 프로젝트·수금단계 지정 (2026-08-12) ───
+    # /sms/inbound webhook 이 #수금_입력 채널에 [지정] 버튼 카드 게시 →
+    # 매니저가 모달에서 프로젝트(자동완성)+단계 선택 → 시트 U/V/W 셀 메모 기록 →
+    # 기존 payment_sync 폴러가 감지해 #수금_관리 정식 카드 게시.
+    @app.action("payment_intake_open")
+    def handle_payment_intake_open(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                intake_id = body["actions"][0]["value"]
+                channel = body["channel"]["id"]
+                message_ts = body["message"]["ts"]
+                _open_payment_intake_modal(client, body, intake_id, channel, message_ts)
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] payment_intake_open 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.options("payment_intake_project")
+    def handle_payment_intake_options(ack, body):
+        """external_select — 프로젝트 코드/사업자명 자동완성."""
+        try:
+            query = (body.get("value") or "").strip()
+            ack(options=_build_payment_intake_options(query, limit=30))
+        except Exception as exc:
+            logger.error(f"[SLACK/수금봇] payment_intake options 실패: {exc}", exc_info=True)
+            try:
+                ack(options=[])
+            except Exception:
+                pass
+
+    @app.action("payment_intake_project")
+    def handle_payment_intake_select(ack, body, client):
+        """프로젝트 선택 → 상세(상호·주소·담당자·공사내용) 삽입 재렌더 (반복거래처 확인용)."""
+        ack()
+        def _bg():
+            try:
+                view = body.get("view") or {}
+                action = (body.get("actions") or [{}])[0]
+                sel = action.get("selected_option") or {}
+                code = (sel.get("value") or "").strip()
+                if not code:
+                    return
+                meta = json.loads(view.get("private_metadata") or "{}")
+                state = (view.get("state") or {}).get("values", {})
+                stage_value = (_v(state, "stage") or "").strip()
+                d = _load_intake(meta.get("intake_id", ""))
+                from dashboard.services.as_service import get_project_details
+                details = get_project_details(code) or {}
+                new_view = _build_payment_intake_view(
+                    meta.get("intake_id", ""), meta.get("channel", ""),
+                    meta.get("message_ts", ""), d.get("text") or "",
+                    selected_project=sel, project_details=details, stage_value=stage_value)
+                client.views_update(view_id=view.get("id"), hash=view.get("hash"), view=new_view)
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] payment_intake 프로젝트 선택 상세 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_payment_intake")
+    def handle_submit_payment_intake(ack, body, view, client):
+        # 매니저는 프로젝트·수금단계만 '지정' → 시트 기록은 경영지원(황샛별) 확인 후.
+        try:
+            state = view["state"]["values"]
+            sel = (state.get("project", {})
+                        .get("payment_intake_project", {})
+                        .get("selected_option"))
+            project_code = (sel or {}).get("value", "").strip() if sel else ""
+            stage = (_v(state, "stage") or "").strip()
+            errors = {}
+            if not project_code:
+                errors["project"] = "프로젝트를 검색해서 선택해주세요."
+            if stage not in ("계약금", "중도금", "잔금"):
+                errors["stage"] = "수금 단계를 선택해주세요."
+            if errors:
+                ack(response_action="errors", errors=errors)
+                return
+            ack()
+        except Exception as exc:
+            logger.error(f"[SLACK/수금봇] submit_payment_intake 검증 실패: {exc}", exc_info=True)
+            try:
+                ack()
+            except Exception:
+                pass
+            return
+
+        def _bg():
+            try:
+                meta = json.loads(view.get("private_metadata") or "{}")
+                user_id = (body.get("user") or {}).get("id", "")
+                intake_id = meta.get("intake_id", "")
+                channel = meta.get("channel", "")
+                message_ts = meta.get("message_ts", "")
+                d = _load_intake(intake_id)
+                preview = d.get("preview") or {}
+                amount = int(preview.get("amount") or 0)
+                memo = d.get("text") or ""
+                # 지정 내용만 저장 (아직 시트 기록 X — 샛별 확인 대기)
+                _update_intake(intake_id, designation={
+                    "project_code": project_code, "stage": stage,
+                    "amount": amount, "memo": memo, "by": user_id,
+                })
+                if channel and message_ts:
+                    client.chat_update(
+                        channel=channel, ts=message_ts,
+                        text=f"확인 대기: {project_code} · {stage}",
+                        blocks=_build_intake_pending_blocks(
+                            intake_id, project_code, stage, amount, memo, user_id),
+                    )
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] submit_payment_intake 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("payment_intake_redesignate")
+    def handle_payment_intake_redesignate(ack, body, client):
+        """[✏️ 재지정] — 프로젝트/단계 다시 지정 (모달 재오픈). 아무 매니저 가능."""
+        ack()
+        def _bg():
+            try:
+                intake_id = body["actions"][0]["value"]
+                channel = body["channel"]["id"]
+                message_ts = body["message"]["ts"]
+                _open_payment_intake_modal(client, body, intake_id, channel, message_ts)
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] payment_intake_redesignate 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("payment_intake_confirm")
+    def handle_payment_intake_confirm(ack, body, client):
+        """[✅ 확인 후 기록] — 경영지원(황샛별)만. 이때 비로소 시트에 값+메모 기록."""
+        ack()
+        user = (body.get("user") or {}).get("id", "")
+        channel = (body.get("channel") or {}).get("id", "")
+        ts = (body.get("message") or {}).get("ts", "")
+        intake_id = (body.get("actions") or [{}])[0].get("value", "")
+        # 시트 기록 확인은 경영지원(황샛별)만 — 정산 ✅·금액 게이트와 동일 사상.
+        if user != _SETTLEMENT_CHECKER_ID:
+            _intake_ephemeral(client, channel, user,
+                              ":lock: 시트 기록 확인은 경영지원만 가능합니다.")
+            return
+
+        def _bg():
+            try:
+                d = _load_intake(intake_id)
+                des = d.get("designation") or {}
+                project_code = (des.get("project_code") or "").strip()
+                stage = (des.get("stage") or "").strip()
+                amount = int(des.get("amount") or 0)
+                memo = des.get("memo") or (d.get("text") or "")
+                if not project_code or stage not in ("계약금", "중도금", "잔금"):
+                    _intake_ephemeral(client, channel, user,
+                                      ":warning: 지정 정보가 없습니다. [✏️ 재지정] 후 다시 확인해주세요.")
+                    return
+                if amount <= 0:
+                    _intake_ephemeral(client, channel, user,
+                                      ":warning: 금액이 자동 인식되지 않았습니다. 스레드에서 확인 후 수동 처리해주세요.")
+                    return
+                ok, old_num, new_num, err = _commit_intake_to_sheet(
+                    project_code, stage, amount, memo, user)
+                if not ok:
+                    _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
+                    return
+                if channel and ts:
+                    client.chat_update(
+                        channel=channel, ts=ts,
+                        text=f"✅ {project_code} · {stage} {amount:,}원 확인 완료",
+                        blocks=_build_intake_done_blocks(
+                            project_code, stage, amount, memo, des.get("by", ""), user),
+                    )
+                    # 온라인 리드처럼 카드에 ✅ 리액션 = '처리 완료' 신호 (채널 스캔 가시성)
+                    try:
+                        _react_card_handled(client, channel, ts)
+                    except Exception:
+                        pass
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    get_redis_client().redis.delete(f"sms_intake:{intake_id}")
+                except Exception:
+                    pass
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] payment_intake_confirm 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    logger.info(
+        "[SLACK/수금봇] 핸들러 등록 완료: payment_card_delete, payment_intake_open, "
+        "payment_intake_project, submit_payment_intake, payment_intake_confirm, "
+        "payment_intake_redesignate"
+    )
+
+
+# ─────────────────────────────────────────────
+# 수금 SMS 인입 — 모달/자동완성/시트 기록 헬퍼 (2026-08-12)
+# ─────────────────────────────────────────────
+
+def _build_payment_intake_options(query: str, limit: int = 30) -> list:
+    """수금 인입 모달 프로젝트 자동완성 — 코드/사업자명/주소 매칭.
+
+    반복 거래처(같은 상호 수십 건) 구분을 위해:
+      - 라벨에 현장 주소 표시 (동일 상호 구분)
+      - 주소도 검색어 대상 (예: '에스엘 역삼')
+      - 정렬: 미수금 있는(수금 대기) 건 우선 → 최근(코드 번호 큰) 순
+        → 옛 완납 프로젝트는 아래로 밀려 헷갈림 감소.
+    """
+    try:
+        from dashboard.services.project_service import get_project_records
+        recs = get_project_records() or []
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 프로젝트 레코드 로드 실패: {exc}")
+        return []
+    q = (query or "").strip().lower()
+
+    def _codenum(code):
+        m = re.search(r'\d+', code)
+        return int(m.group()) if m else 0
+
+    def _owes(r):
+        try:
+            return 1 if abs(float(r.get('미수금') or 0)) >= 1 else 0
+        except (TypeError, ValueError):
+            return 0
+
+    matched = []
+    for r in recs:
+        code = str(r.get('프로젝트 코드') or '').strip()
+        if not code:
+            continue
+        biz = str(r.get('사업자명') or '').strip()
+        addr = str(r.get('현장 주소') or '').strip()
+        if q and q not in f"{code} {biz} {addr}".lower():
+            continue
+        # 사업자명이 길어도 주소(동일 상호 구분 핵심)가 안 잘리게 상호는 축약.
+        biz_short = (biz[:13] + '…') if len(biz) > 14 else (biz or '-')
+        label = f"{code} | {biz_short}"
+        if addr:  # 남는 공간에 주소 채움 (Slack 라벨 75자 제한)
+            remain = 74 - len(label) - 3
+            if remain >= 5:
+                label += " | " + addr[:remain]
+        matched.append((_owes(r), _codenum(code), code, label[:75]))
+
+    # 미수금 있는 것 우선 → 그다음 최근(코드 큰) 순
+    matched.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return [
+        {"text": {"type": "plain_text", "text": label}, "value": code}
+        for _owe, _num, code, label in matched[:limit]
+    ]
+
+
+def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
+    """[지정] 버튼 → 프로젝트(자동완성)+수금단계만 지정하는 모달.
+
+    금액·메모는 문자에서 자동 인식(읽기전용 표시)하고, 실제 시트 기록은 경영지원
+    (황샛별)이 '확인 후 기록' 을 눌렀을 때만 반영된다. 여기선 '지정'만 한다.
+    """
+    trigger_id = body["trigger_id"]
+    d = _load_intake(intake_id)
+    text = d.get("text") or ""
+    view = _build_payment_intake_view(intake_id, channel, message_ts, text)
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _build_payment_intake_view(intake_id, channel, message_ts, text,
+                               selected_project=None, project_details=None, stage_value=None):
+    """수금 지정 모달 view 빌더.
+
+    프로젝트 선택 시(dispatch_action) 상세(project_details)를 삽입하고, 이미 고른
+    단계(stage_value)를 보존해 재렌더한다. (A/S 요청 모달과 동일 사상 — 반복거래처
+    상세 확인용)
+    """
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"```{text}```"}},
+        {"type": "divider"},
+    ]
+    project_el = {
+        "type": "external_select",
+        "action_id": "payment_intake_project",
+        "min_query_length": 1,
+        "placeholder": {"type": "plain_text", "text": "코드·상호명·주소 검색"},
+    }
+    if selected_project:
+        project_el["initial_option"] = selected_project
+    blocks.append({
+        "type": "input", "block_id": "project", "dispatch_action": True,
+        "label": {"type": "plain_text", "text": "프로젝트"},
+        "element": project_el,
+    })
+    if project_details:
+        dd = project_details
+        detail = "\n".join([
+            f"*✅ 선택한 프로젝트*  `{dd.get('code', '')}`",
+            f"• 사업자명 : {dd.get('biz', '-')}",
+            f"• 현장 주소 : {dd.get('address', '-')}",
+            f"• 담당자 : {dd.get('manager', '-')}",
+            f"• 공사 내용 : {(dd.get('work_content', '-') or '-')[:120]}",
+        ])
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": detail}})
+    stage_el = {
+        "type": "static_select",
+        "action_id": "value",
+        "placeholder": {"type": "plain_text", "text": "선택"},
+        "options": [
+            {"text": {"type": "plain_text", "text": t}, "value": t}
+            for t in ("계약금", "중도금", "잔금")
+        ],
+    }
+    if stage_value in ("계약금", "중도금", "잔금"):
+        stage_el["initial_option"] = {
+            "text": {"type": "plain_text", "text": stage_value}, "value": stage_value}
+    blocks.append({
+        "type": "input", "block_id": "stage",
+        "label": {"type": "plain_text", "text": "수금 단계"},
+        "element": stage_el,
+    })
+    blocks.append({"type": "context", "elements": [
+        {"type": "mrkdwn", "text": ":lock: 실제 시트 기록은 경영지원 확인 후 반영됩니다."}
+    ]})
+    return {
+        "type": "modal",
+        "callback_id": "submit_payment_intake",
+        "private_metadata": json.dumps({
+            "intake_id": intake_id, "channel": channel, "message_ts": message_ts,
+        }),
+        "title": {"type": "plain_text", "text": "수금 지정"},
+        "submit": {"type": "plain_text", "text": "지정"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": blocks,
+    }
+
+
+def _intake_ephemeral(client, channel, user_id, text):
+    if not channel or not user_id:
+        return
+    try:
+        client.chat_postEphemeral(channel=channel, user=user_id, text=text)
+    except Exception:
+        pass
+
+
+def _load_intake(intake_id):
+    """Redis 인입 레코드 로드 (text/preview/designation)."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        raw = get_redis_client().redis.get(f"sms_intake:{intake_id}")
+        return json.loads(raw) if raw else {}
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 인입 로드 실패: {exc}")
+        return {}
+
+
+def _update_intake(intake_id, **fields):
+    """Redis 인입 레코드 부분 갱신 (TTL 7일 유지)."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        raw = rc.get(f"sms_intake:{intake_id}")
+        d = json.loads(raw) if raw else {}
+        d.update(fields)
+        rc.set(f"sms_intake:{intake_id}", json.dumps(d), ex=60 * 60 * 24 * 7)
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 인입 갱신 실패: {exc}")
+
+
+def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id):
+    """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
+
+    카드 발송 트리거 조건이 '해당 stage 셀 값 > 0' 이므로 값과 노트를 둘 다 쓴다
+    (SB 수동 흐름과 동일). 카드 갱신은 호출자(확인 핸들러)가 담당.
+    Returns: (ok: bool, old_num: int, new_num: int, err: str)
+    """
+    from dashboard.constants import PAYMENT_FIELD_TO_COLUMN
+    from dashboard.services.lead_service import get_sheets_manager
+
+    col = PAYMENT_FIELD_TO_COLUMN.get(stage)
+    if not col:
+        return False, 0, 0, f"알 수 없는 단계 {stage}"
+    sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    if not sheet_id or not sheet_name:
+        return False, 0, 0, "시트 설정 오류(GOOGLE_SHEET_ID/NAME)"
+
+    manager = get_sheets_manager()
+    row = manager.find_row_by_project_code(sheet_id, project_code, f"{sheet_name}!A:A")
+    if not row:
+        return False, 0, 0, f"{project_code} 행을 시트에서 못 찾음"
+
+    cell = f"{col}{row}"
+    # 1) 금액 값 — 기존 값에 합산 (트리거 조건: 값 > 0)
+    old_val_raw = manager.get_cell_value(sheet_id, sheet_name, cell)
+    try:
+        old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
+    except (ValueError, TypeError):
+        old_num = 0
+    new_num = old_num + int(amount)
+    if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
+        return False, old_num, new_num, "금액 기록 실패"
+
+    # 2) 메모(노트) — 기존 있으면 append (분납 대비). 실패해도 값은 기록됨.
+    old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
+    new_note = f"{old_note}\n\n{memo_text.strip()}" if old_note else memo_text.strip()
+    if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
+        logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 기록됨): {cell}")
+
+    try:
+        from dashboard.utils.cache_invalidation import smart_invalidate
+        smart_invalidate(f"cell_notes_{sheet_id}")
+    except Exception:
+        pass
+
+    try:
+        from dashboard.utils.user_database import get_audit_repository
+        get_audit_repository().log_action(
+            user_email=f"slack:{slack_user_id}",
+            action='SMS_INTAKE_PAYMENT',
+            details=f"수금 SMS 인입 확인기록 → {project_code} {stage} +{amount:,}원 (값 {old_num:,}→{new_num:,})",
+            project_code=project_code,
+            field_name=f"{stage}_수금",
+            old_value=f"{old_num:,}",
+            new_value=f"{new_num:,} (+{amount:,})",
+            ip_address=None,
+        )
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 감사 로그 실패: {exc}")
+
+    logger.info(f"[SLACK/수금봇] 수금 인입 기록: {project_code} {stage} +{amount:,}원 "
+                f"값 {old_num:,}→{new_num:,} ({cell}) by {slack_user_id}")
+    return True, old_num, new_num, ""
+
+
+def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, by_user):
+    """지정 완료 → 경영지원 확인 대기 카드 (문자 원문 + 확인/재지정 버튼)."""
+    amt = f"{amount:,}원" if amount else '—'
+    warn = "" if amount else "\n:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요"
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": (
+            f"*🕓 확인 대기 — 경영지원 확인 후 기록*\n"
+            f"*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 <@{by_user}>{warn}")}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"```{(memo or '').strip()}```"}},
+        {"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "✅ 확인 후 기록"},
+             "style": "primary", "action_id": "payment_intake_confirm", "value": intake_id},
+            {"type": "button", "text": {"type": "plain_text", "text": "✏️ 재지정"},
+             "action_id": "payment_intake_redesignate", "value": intake_id},
+        ]},
+        {"type": "context", "elements": [
+            {"type": "mrkdwn", "text": f"intake `{intake_id}`"}
+        ]},
+    ]
+
+
+def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, confirmed_by):
+    """온라인 리드 완료 카드와 동일 양식 — ✅ 헤더 + 메타 + 원문 code block, 버튼 없음."""
+    who = (f"지정 <@{by_user}> · 확인 <@{confirmed_by}>" if by_user
+           else f"확인 <@{confirmed_by}>")
+    header = '\n'.join([
+        '⠀',
+        f":white_check_mark: *확인 완료 - {stage}*  `{project_code}`",
+        f"금액 : {amount:,}원",
+        f"처리 : {who}",
+    ])
+    text = f"{header}\n\n```\n{memo_text.strip()}\n```"
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+    ]
 
 
 def _try_acquire_action_lock(lead_no: str, action: str, ttl: int = 5) -> bool:
@@ -2031,15 +2490,19 @@ def _register_as_handlers(app):
                 matched = search_confirmed_projects(query, limit=100)
                 options = []
                 for p in matched:
-                    biz = (p.get('biz') or '').strip()
-                    if not biz or biz == '-':
-                        biz_disp = '사업자 비어 있음'
-                    else:
-                        biz_disp = biz
-                    label = f'{p["code"]} : {biz_disp}'
+                    code = p["code"]
+                    biz = (p.get('biz') or '').strip() or '사업자 비어 있음'
+                    addr = (p.get('address') or '').strip()
+                    # 사업자명 축약 → 주소(반복거래처 구분 핵심)가 안 잘리게 (수금 인입과 동일)
+                    biz_short = (biz[:13] + '…') if len(biz) > 14 else biz
+                    label = f'{code} | {biz_short}'
+                    if addr:
+                        remain = 74 - len(label) - 3
+                        if remain >= 5:
+                            label += ' | ' + addr[:remain]
                     options.append({
                         "text": {"type": "plain_text", "text": label[:75]},
-                        "value": p["code"][:75],
+                        "value": code[:75],
                     })
                 ack(options=options)
             except Exception as exc:
@@ -6239,9 +6702,17 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
     _norm = (addr_note.get('normalized') or '').strip()
     _moved = (addr_note.get('moved_notes') or '').strip()
     if _kind == 'normalized':
-        text = (
+        _region_warn = bool(addr_note.get('region_warn'))
+        _head = (
+            f":rotating_light: 방금 등록한 `{lead_no}` 방문 주소가 "
+            f"카카오 API 로 정정되며 *시/구가 바뀌었어요*. 오방문 위험이 있어 "
+            f"확인 부탁드립니다.\n\n"
+            if _region_warn else
             f":mag: 방금 등록한 `{lead_no}` 방문 주소가 "
             f"카카오 API 로 자동 정정됐어요.\n\n"
+        )
+        text = (
+            f"{_head}"
             f"  원본: {_orig}\n"
             f"  정정: {_norm}\n\n"
             "정정된 주소가 맞는지 위 카드에서 확인 부탁드립니다.\n"
@@ -6410,6 +6881,11 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
             _orig_hl, _conv_hl = _highlight_addr_diff(_orig_norm, _conv_norm)
             _addr_lines.append(f">*원본 주소* : {_orig_hl}")
             _addr_lines.append(f">*변환 주소* : {_conv_hl}")
+            # 시/구 변경 경고 (2026-08-06 L-03659): 여러 도시 공유 도로명 오매칭 방어
+            if addr_note.get('region_warn'):
+                _addr_lines.append(
+                    ">:rotating_light: *[시/구가 바뀜 — 오방문 주의, 주소 확인 요망]*"
+                )
         elif _kind == 'failed':
             _va_norm = re.sub(r'\s+', ' ', visit_address or '-').strip()
             _addr_lines.append(
@@ -8099,7 +8575,29 @@ def _process_visit_thread_files(client, event) -> None:
     # 4장 이상만 켜서 소량 배치 노이즈 억제. 완료 시 이 메시지를 최종 요약으로 update.
     _total = len(files)
     _progress_ts = None
-    if _total >= 4:
+    _progress_owned = False  # 이번 배치가 새로 post 한 답글인지 (재사용이면 False)
+    # 스레드당 답글 하나만 유지 — 이미 답글(이전 배치의 진행/최종)이 있으면 재사용해
+    # in-place update. 배치마다 새 답글을 올렸다 지우면 팔로워에게 '누가 보냈는지 모를
+    # 빈 스레드 알림'(삭제된 유령 메시지)이 쌓임. 재사용하면 지울 일이 없어 유령 0. (2026-08-12)
+    _cumul_key_e = f'visit_photo_reply:{channel}:{thread_ts}'
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _get_rc_e
+        _ex_ts = _get_rc_e().redis.hget(_cumul_key_e, 'ts')
+        _ex_ts = _ex_ts.decode() if isinstance(_ex_ts, bytes) else (_ex_ts or '')
+    except Exception:
+        _ex_ts = ''
+    if _ex_ts:
+        # 기존 답글 재사용 — 새 답글 post 안 함 (삭제 불필요 → 유령 알림 방지)
+        _progress_ts = _ex_ts
+        if _total >= 4:
+            try:
+                client.chat_update(
+                    channel=channel, ts=_progress_ts,
+                    text=f":hourglass_flowing_sand: 사진 저장 중... (0/{_total})")
+            except Exception as exc:
+                logger.warning(f"[SLACK/방문 사진] 진행 답글 재사용 실패: {exc}")
+                _progress_ts = None
+    if not _progress_ts and _total >= 4:
         try:
             _progress_resp = client.chat_postMessage(
                 channel=channel, thread_ts=thread_ts,
@@ -8107,8 +8605,36 @@ def _process_visit_thread_files(client, event) -> None:
                 unfurl_links=False,
             )
             _progress_ts = _progress_resp.get('ts')
+            _progress_owned = bool(_progress_ts)
+            # 새 답글 ts 즉시 기록 → 동시/후속 배치가 이 답글을 재사용(새 답글 X)
+            if _progress_ts:
+                try:
+                    from dashboard.utils.redis_client import get_redis_client as _get_rc_s
+                    _rc_s = _get_rc_s().redis
+                    _rc_s.hset(_cumul_key_e, 'ts', _progress_ts)
+                    _rc_s.expire(_cumul_key_e, 60 * 60 * 24 * 7)
+                except Exception:
+                    pass
         except Exception as exc:
             logger.warning(f"[SLACK/방문 사진] 진행 답글 post 실패: {exc}")
+
+    # 배치 상태 Redis 기록 — 업로드 hang·재시작으로 루프가 끊겨도 남은 파일을 복구할 수
+    # 있게 {folder_id, 파일목록(name·url·mime)} 저장. 정상 완료 시 삭제. (2026-08-12)
+    # (기존 복구는 conversations.history 에서 '저장 중' 스레드 답글을 찾았으나 history 는
+    #  스레드 답글을 안 돌려줘 한 번도 작동 못 함 → Redis 기반으로 대체.)
+    _batch_key = f"photo_batch:{channel}:{event.get('ts') or thread_ts}"
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _get_rc_b
+        _get_rc_b().redis.set(_batch_key, json.dumps({
+            'channel': channel, 'thread_ts': thread_ts, 'folder_id': folder_id,
+            'reply_ts': _progress_ts or '',
+            'files': [{'name': f.get('name') or f.get('title') or '',
+                       'url': f.get('url_private_download') or f.get('url_private') or '',
+                       'mime': f.get('mimetype') or 'image/jpeg'} for f in files],
+            'created': time.time(),
+        }), ex=2 * 86400)
+    except Exception as _bexc:
+        logger.warning(f"[SLACK/방문 사진] 배치 상태 기록 실패: {_bexc}")
 
     # 멱등 dedup — 이미 폴더에 있는 파일명은 재업로드 skip (중복 file_shared 이벤트·
     # 재처리·재시작 복구 시 중복 방지, 2026-07-30)
@@ -8201,6 +8727,14 @@ def _process_visit_thread_files(client, event) -> None:
             except Exception:
                 pass  # 진행 표시 실패는 무시
 
+    # 루프 정상 완료(실패 0) → 복구 대상에서 제거. 실패/hang 이면 키 유지 → 복구가 재시도.
+    if failed == 0:
+        try:
+            from dashboard.utils.redis_client import get_redis_client as _get_rc_d
+            _get_rc_d().redis.delete(_batch_key)
+        except Exception:
+            pass
+
     if uploaded == 0:
         # 최종 실패 안내 — 진행 답글이 있으면 그걸로 update, 없으면 새 답글.
         _reason_bits = []
@@ -8214,7 +8748,8 @@ def _process_visit_thread_files(client, event) -> None:
             f"잠시 후 다시 시도해 주세요."
         )
         try:
-            if _progress_ts:
+            # 재사용한 답글(이전 배치의 성공 메시지)은 에러로 덮어쓰지 않음 — 새 답글로 안내
+            if _progress_ts and _progress_owned:
                 client.chat_update(channel=channel, ts=_progress_ts, text=_err_text)
             else:
                 client.chat_postMessage(
@@ -8264,12 +8799,8 @@ def _process_visit_thread_files(client, event) -> None:
             logger.info(
                 f"[SLACK/방문 사진] {lead_no} 다른 배치가 이후 도착 — 이번 답글 skip"
             )
-            # 진행 답글 (⏳ K/N) 이 남아있으면 삭제 (다음 배치가 최종 답글 발송)
-            if _progress_ts:
-                try:
-                    client.chat_delete(channel=channel, ts=_progress_ts)
-                except Exception:
-                    pass
+            # 진행 답글은 삭제하지 않음 — 스레드당 답글 하나를 재사용하므로 마지막
+            # 배치가 이 답글을 최종 요약으로 update 함. (삭제 시 유령 알림 발생, 2026-08-12)
             # 자동 완료 처리도 skip (마지막 배치가 담당)
             try:
                 if _rc_lock:
@@ -8934,6 +9465,37 @@ def _migrate_lead_redis_keys(old_no: str, new_no: str) -> None:
     logger.info(f"[VISIT/MIGRATE] Redis 키 이관 {old_no}→{new_no}")
 
 
+_REGION_SIDO_RE = re.compile(
+    r'\s*(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|'
+    r'전북|전남|경북|경남|제주)'
+)
+_REGION_GU_RE = re.compile(r'([가-힣]{2,}(?:구|군))(?:\s|$)')
+
+
+def _addr_region_sig(addr: str) -> tuple:
+    """주소에서 (시/도, 첫 구/군) 시그니처 추출 — 지역 교차확인용."""
+    a = addr or ''
+    m1 = _REGION_SIDO_RE.match(a)
+    m2 = _REGION_GU_RE.search(a)
+    return (m1.group(1) if m1 else '', m2.group(1) if m2 else '')
+
+
+def _region_changed(raw: str, norm: str) -> bool:
+    """입력(raw)과 정규화(norm)의 시/도·구가 '명시적으로' 다른지 (오매칭 감지, L-03659).
+
+    '경인로 789'처럼 여러 도시 공유 도로명에서 카카오가 매니저가 명시한 시/구를
+    다른 시/구로 바꾸는 위험한 오매칭 → 시/구 바뀌면 True → 카드 ⚠️ 플래그.
+    한쪽이 시/구 정보 없으면(비교 불가) False(오탐 방지).
+    """
+    rs, rg = _addr_region_sig(raw)
+    ns, ng = _addr_region_sig(norm)
+    if rg and ng and rg != ng:      # 구/군 양쪽 존재 + 다름 (부평구↔영등포구)
+        return True
+    if rs and ns and rs != ns:      # 시/도 양쪽 존재 + 다름 (인천↔서울)
+        return True
+    return False
+
+
 def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
     """방문 모달 입력 주소를 카카오 verified 면 정규화값, 아니면 raw 유지 + 미검증 배지.
 
@@ -8966,7 +9528,17 @@ def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
                 #   워크플로(전화/거래처) 경로와 동일하게 매니저가 "내 입력 → 카카오
                 #   정정" 을 카드에서 확인해 오정규화를 잡도록 통일. (모달만 무표시였음)
                 logger.info(f"[SLACK/방문주소] 모달 주소 정규화: '{raw}' → '{_norm}'")
-                return _norm, {'kind': 'normalized', 'original': raw, 'normalized': _norm}
+                _note = {'kind': 'normalized', 'original': raw, 'normalized': _norm}
+                # 시/구 교차확인 (2026-08-06 L-03659): 입력에 명시한 시/구와 변환
+                #   결과의 시/구가 다르면 = 여러 도시 공유 도로명 오매칭 위험 →
+                #   ⚠️ 플래그(silent override 금지, 오방문 방어). 매니저가 카드에서 확인.
+                if _region_changed(raw, _norm):
+                    _note['region_warn'] = True
+                    logger.warning(
+                        f"[SLACK/방문주소] ⚠️ 시/구 변경 감지 — 오매칭 의심: "
+                        f"'{raw}' → '{_norm}'"
+                    )
+                return _norm, _note
             # verified & 원본 동일 → 배지 없음 (조용히 통과)
             return _norm, None
         # 미verified — 도로명+번지가 카카오에 확인 안 됨 → raw 유지 + 확인 필요 배지
@@ -10938,6 +11510,102 @@ def _recover_stuck_visit_photo_uploads():
             logger.info(f'[SLACK/방문사진복구] {thread_ts} {len(recovered)}장 복구: {recovered}')
 
 
+def _recover_photo_batches():
+    """Redis 배치 상태(photo_batch:*) 기반으로 중단된 방문 사진 업로드 복구 (2026-08-12).
+
+    _process_visit_thread_files 가 루프 직전 photo_batch:{ch}:{ts} 에
+    {folder_id, files[{name,url,mime}], reply_ts, created} 기록 → 정상 완료 시 삭제.
+    hang·재시작으로 루프가 끊기면 키가 남음 → 폴더에 없는 파일만 멱등 재업로드.
+    (구 _recover_stuck_visit_photo_uploads 는 conversations.history 로 스레드 답글을
+     찾아 한 번도 작동 못 했음 — 이 함수가 대체.)
+    """
+    import urllib.request as _ur
+    token = (os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+             or os.getenv('SLACK_BOT_TOKEN', '').strip())
+    try:
+        from dashboard.utils.google_drive import list_folder_filenames, upload_file
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문사진복구] 초기화 실패: {exc}')
+        return
+    try:
+        keys = [k.decode() if isinstance(k, bytes) else k
+                for k in rc.scan_iter('photo_batch:*', count=200)]
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문사진복구] scan 실패: {exc}')
+        return
+    if not keys:
+        logger.info('[SLACK/방문사진복구] 대기 배치 없음')
+        return
+    now = time.time()
+    checked = rec_total = 0
+    client = None
+    for k in keys:
+        raw = rc.get(k)
+        if not raw:
+            continue
+        try:
+            b = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+        except Exception:
+            rc.delete(k)
+            continue
+        # 3분 이내 배치는 진행 중일 수 있어 skip
+        if now - float(b.get('created', 0) or 0) < 180:
+            continue
+        fid = b.get('folder_id')
+        bfiles = b.get('files') or []
+        if not fid or not bfiles:
+            rc.delete(k)
+            continue
+        checked += 1
+        try:
+            existing = list_folder_filenames(fid)
+        except Exception as exc:
+            logger.warning(f'[SLACK/방문사진복구] 폴더 조회 실패 ({fid}): {exc}')
+            continue
+        missing = [f for f in bfiles if f.get('name') and f['name'] not in existing]
+        if not missing:
+            rc.delete(k)
+            continue
+        rec = []
+        for f in missing:
+            name, url = f.get('name'), f.get('url')
+            if not name or not url:
+                continue
+            try:
+                req = _ur.Request(url, headers={'Authorization': f'Bearer {token}'})
+                content = _ur.urlopen(req, timeout=30).read()
+                if upload_file(fid, name, content, mimetype=f.get('mime', 'image/jpeg')):
+                    rec.append(name)
+            except Exception as exc:
+                logger.warning(f'[SLACK/방문사진복구] 업로드 실패 ({name}): {exc}')
+        rec_total += len(rec)
+        if rec:
+            logger.info(f'[SLACK/방문사진복구] {b.get("thread_ts")} {len(rec)}장 복구: {rec}')
+        # 재확인 후 다 채워졌으면 키 삭제 + (reply_ts 있으면) 스레드 답글 최종 갱신
+        try:
+            still = [f for f in bfiles
+                     if f.get('name') and f['name'] not in list_folder_filenames(fid)]
+        except Exception:
+            still = missing
+        if not still:
+            rc.delete(k)
+            reply_ts = b.get('reply_ts')
+            if reply_ts and rec and token:
+                try:
+                    if client is None:
+                        from slack_sdk import WebClient
+                        client = WebClient(token=token)
+                    client.chat_update(
+                        channel=b.get('channel'), ts=reply_ts,
+                        text=(f':white_check_mark: 사진 {len(bfiles)}장을 드라이브에 '
+                              f'저장했습니다. (중단됐던 {len(rec)}장 자동 복구)'))
+                except Exception:
+                    pass
+    logger.info(f'[SLACK/방문사진복구] 점검 {checked}배치 · 복구 {rec_total}장')
+
+
 # 앱 시작 시 한 번 초기화 시도
 _init_slack_app()
 _init_visit_slack_app()
@@ -10952,7 +11620,7 @@ try:
         import time as _rt
         _rt.sleep(25)
         try:
-            _recover_stuck_visit_photo_uploads()
+            _recover_photo_batches()
         except Exception as _exc:
             logger.warning(f'[SLACK/방문사진복구] 실행 예외: {_exc}')
 
