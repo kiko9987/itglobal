@@ -692,6 +692,21 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
         if m_admin:
             _push(m_admin.group(1))
 
+    # 지역 접두(시/도 + 시/군/구) 추출 — 도로+번지가 여러 도시에 있을 때 카카오가
+    #   엉뚱한 도시를 집는 것 방지 (2026-08-06 L-03659: '인천 부평구 경인로 789' 를
+    #   지역 없는 '경인로 789' 로 조회 → 서울 영등포 경인로 789 오매칭). 지역+도로+번지
+    #   후보를 지역 없는 것보다 먼저 시도.
+    region_prefix = ''
+    if first_line:
+        m_reg = re.match(
+            r'((?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|'
+            r'전북|전남|경북|경남|제주)(?:특별시|광역시|특별자치시|특별자치도|도)?'
+            r'(?:\s+[가-힣]+(?:시|군|구))*)',
+            first_line,
+        )
+        if m_reg and m_reg.group(1).strip():
+            region_prefix = m_reg.group(1).strip()
+
     # 도로명+번지 추출 — first_line 통째보다 우선 (2026-07-23 ETC-1ad649)
     # 카카오 verify 는 tail(상호명 등) 붙은 query 에서 번지를 잘못 근사하는 케이스 있음
     # 예: '장승배기로20길 46-3 송학대교회' → 46 리턴 (잘못됨) vs
@@ -699,7 +714,11 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
     # 순수 도로명+번지 후보를 우선 시도해 첫 성공이 정확하도록 함.
     if text:
         for m in _ROAD_PATTERN.finditer(text):
-            _push(m.group(1))
+            road = m.group(1)
+            # 지역+도로+번지 를 먼저 (도시 모호성 해소), 그다음 지역 없는 버전 (fallback)
+            if region_prefix and region_prefix.replace(' ', '') not in road.replace(' ', ''):
+                _push(f'{region_prefix} {road}')
+            _push(road)
 
     if first_line:
         _push(first_line)

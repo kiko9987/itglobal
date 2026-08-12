@@ -35,5 +35,24 @@ class TestExtractRegionHint:
         assert ar._extract_region_hint('') == ''
 
 
+class TestBuildCandidatesRegionPrefix:
+    """도로+번지 후보에 지역 접두 부착 — 도시 모호 도로 오매칭 방지 (L-03659)."""
+
+    def test_region_prefixed_road_first(self):
+        # '경인로 789'는 서울 영등포·인천 부평 양쪽 존재 → 지역 포함 후보가 먼저
+        cands = ar._build_candidates('인천 부평구 경인로 789 서광빌딩 1층 카센타', None)
+        assert cands[0] == '인천 부평구 경인로 789'
+        assert '경인로 789' in cands  # 지역 없는 fallback 도 존재
+
+    def test_gu_only_region(self):
+        cands = ar._build_candidates('영등포구 경인로 789 카센타', None)
+        # 시/도 없이 구만 있으면 지역접두 미부착(정규식 시/도 시작 요구) → 도로만
+        assert '경인로 789' in cands
+
+    def test_no_region_no_prefix(self):
+        cands = ar._build_candidates('테헤란로 152 삼성빌딩', None)
+        assert '테헤란로 152' in cands
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
