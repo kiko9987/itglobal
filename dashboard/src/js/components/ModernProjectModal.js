@@ -275,7 +275,7 @@ export default class ModernProjectModal {
       this.resetForm();
     });
 
-    // 리드→프로젝트 로더 (기존 리드 불러오기, 방문 예약/견적 제출)
+    // 리드→프로젝트 로더 (방문 현장 불러오기, 방문 예약/견적 제출)
     initLeadProjectLoader({
       inputId: 'modern-lead-search-input',
       resultsId: 'modern-lead-search-results',
@@ -287,6 +287,7 @@ export default class ModernProjectModal {
       badgeTextId: 'lead-linked-badge-text',
       modalId: 'modernProjectModal',
       emailUnknownCheckId: 'modern-email-unknown-check',
+      myOnlyCheckboxId: 'modern-lead-my-only',
       targets: {
         client: 'modern-client',
         siteManager: 'modern-site-manager',

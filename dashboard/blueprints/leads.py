@@ -383,8 +383,13 @@ def api_search_leads_for_project():
                 alias_map = cfg.get('user_alias_map') or {}
                 user_email = (session.get('user') or {}).get('email', '')
                 user_alias = str(alias_map.get(user_email, '') or '').strip()
+                # user_alias_map 미등록 매니저는 세션 실명으로 폴백.
+                # '내 프로젝트만 보기'(user_display_name = session['user']['name'])와
+                # 동일한 신원 출처로 통일 — alias_map(4명만 등록) 구멍 방어.
+                if not user_alias:
+                    user_alias = str((session.get('user') or {}).get('name', '') or '').strip()
             except Exception as exc:
-                logger.warning(f"[API] user_alias_map 조회 실패: {exc}")
+                logger.warning(f"[API] user_alias 조회 실패: {exc}")
 
         # 이미 프로젝트에 등록된 lead_no 목록 (제외용)
         registered_leads = set()

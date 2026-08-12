@@ -69,9 +69,15 @@ export function initLeadProjectLoader(opts) {
     return;
   }
 
+  // "내 방문 현장만 불러오기" 체크박스 — 해제 시 전체 팀 현장 검색(?all=1)
+  const myOnlyCheckbox = opts.myOnlyCheckboxId
+    ? document.getElementById(opts.myOnlyCheckboxId)
+    : null;
+
   const runSearch = async (query) => {
     try {
-      const url = `/leads/api/search-for-project?q=${encodeURIComponent(query)}`;
+      const allParam = (myOnlyCheckbox && !myOnlyCheckbox.checked) ? '&all=1' : '';
+      const url = `/leads/api/search-for-project?q=${encodeURIComponent(query)}${allParam}`;
       const res = await fetch(url, { credentials: 'same-origin' });
       if (!res.ok) {
         renderNoResults(results, `검색 실패 (${res.status})`);
@@ -104,6 +110,14 @@ export function initLeadProjectLoader(opts) {
   input.addEventListener('blur', () => {
     setTimeout(() => hideResults(results), 200);
   });
+
+  // 체크박스 토글 시 현재 검색어로 즉시 재검색 (본인/전체 전환 반영)
+  if (myOnlyCheckbox) {
+    myOnlyCheckbox.addEventListener('change', () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      runSearch(input.value.trim());
+    });
+  }
 
   const unlinkBtn = document.getElementById(opts.unlinkBtnId);
   if (unlinkBtn) {
@@ -265,6 +279,12 @@ function clearLead(opts) {
   if (results) hideResults(results);
   const searchInput = document.getElementById(opts.inputId);
   if (searchInput) searchInput.value = '';
+
+  // "내 방문 현장만" 체크박스는 클리어(모달 닫힘·연결해제) 시 기본 ON 으로 복귀
+  const myOnlyCheckbox = opts.myOnlyCheckboxId
+    ? document.getElementById(opts.myOnlyCheckboxId)
+    : null;
+  if (myOnlyCheckbox) myOnlyCheckbox.checked = true;
 
   // 자동 기입된 필드 비우기 (5개: 유입/담당자/연락처/이메일/주소)
   const targets = opts.targets || {};

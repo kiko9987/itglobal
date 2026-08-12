@@ -102,13 +102,19 @@
                                     <!-- 리드 불러오기 (기존 리드에서 프로젝트 전환) -->
                                     <div class="row mb-3">
                                         <div class="col-12">
-                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem;">
-                                                <i class="fas fa-search" style="color: #17a2b8; font-size: var(--font-size-sm);"></i>
-                                                기존 리드 불러오기
-                                                <small class="text-muted">(본인 담당 리드만 · 리드 No 정확 매칭은 담당 무관)</small>
-                                            </label>
+                                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
+                                                <span class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0; display: flex; align-items: center; gap: 0.4rem;">
+                                                    <i class="fas fa-search" style="color: #17a2b8; font-size: var(--font-size-sm);"></i>
+                                                    방문 현장 불러오기
+                                                    <small class="text-muted">(리드 No 정확 매칭은 담당 무관)</small>
+                                                </span>
+                                                <span class="form-check" style="margin-bottom: 0;">
+                                                    <input class="form-check-input" type="checkbox" id="modern-lead-my-only" checked style="cursor: pointer;">
+                                                    <label class="form-check-label" for="modern-lead-my-only" style="font-size: var(--font-size-sm); color: var(--gray-700); cursor: pointer; user-select: none;">내 방문 현장만 불러오기</label>
+                                                </span>
+                                            </div>
                                             <div class="position-relative" id="modern-lead-search-wrapper">
-                                                <input type="text" class="form-control" id="modern-lead-search-input" autocomplete="off" placeholder="리드 No, 고객명, 연락처, 주소로 검색..." style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
+                                                <input type="text" class="form-control" id="modern-lead-search-input" autocomplete="off" placeholder="현장명·연락처·주소로 검색 (또는 리드 No)" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
                                                 <div id="modern-lead-search-results" class="position-absolute w-100 shadow d-none" style="top: 42px; left: 0; z-index: 1055; background: white; border: 1px solid var(--gray-300); border-radius: var(--border-radius); max-height: 300px; overflow-y: auto;"></div>
                                                 <input type="hidden" id="modern-lead-no" name="Lead No" value="">
                                             </div>
