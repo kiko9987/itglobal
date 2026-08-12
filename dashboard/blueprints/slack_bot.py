@@ -7772,6 +7772,23 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     _old_k = str(old_lead.get('상담 내용', '') or '').strip()
     new_consultation_merged = _replace_last_consult_content(_old_k, new_consultation)
 
+    # 방문 주소 정규화 편입 (2026-08-13 L-03655): [정보 수정] 편집 경로가 정규화를
+    #   통째 건너뛰어(raw 저장) 카카오 verify·시/도 축약·건물명 부착이 하나도 안 됐음
+    #   ('경기도 남양주시 …' 그대로). L-03399(수동 편집은 원본/변환 배지 안 붙임)는
+    #   '배지 미표시' 의도였는데 '정규화 미실행' 부작용이 됨. → 정규화는 실행하되,
+    #   성공(시/구 동일)은 배지 없이 단일 라인 유지(L-03399 존중), 미검증(failed)·
+    #   시/구 변경(region_warn)은 오방문 방어 배지 유지.
+    _edit_addr_note = None
+    if new_address:
+        try:
+            _norm_addr, _addr_note = _normalize_visit_address_if_verified(new_address)
+            new_address = _norm_addr
+            if _addr_note and (_addr_note.get('kind') == 'failed'
+                               or _addr_note.get('region_warn')):
+                _edit_addr_note = _addr_note
+        except Exception as _exc:
+            logger.warning(f"[SLACK/방문수정] 주소 정규화 실패 (raw 유지) ({lead_no}): {_exc}")
+
     updates = {
         '방문 예정일': sheet_visit_value,
         '고객명': new_name,
@@ -7814,7 +7831,7 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
             visit_date=new_visit_display,
             name=new_name, contact=new_phone,
             visit_address=new_address, consultation=new_consultation,
-            addr_note=None,
+            addr_note=_edit_addr_note,  # 성공=None(단일 라인), 미검증·시/구변경만 배지
         )
         client.chat_update(
             channel=channel, ts=message_ts, text=body_text, blocks=blocks,
