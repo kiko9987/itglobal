@@ -96,26 +96,49 @@ def _summary_line(text: str) -> str:
     return s[:80] or '(내용 없음)'
 
 
+# 은행 SMS 필드 라벨 — 하나 라벨형('일시 …/계좌번호 …/적요 거래처')에서 거래처에
+# 섞여 누출되던 단어들 (2026-08-12 백테스트: 146건 중 44건 누출 확인 → 제거)
+_SMS_LABEL_RE = re.compile(r'일시|적요|계좌번호')
+
+
 def _format_deposit_summary(text: str) -> str:
-    """입금내역 → 'MM/DD G/R/N 금액원 거래처' (수금관리 표기와 통일, 은행명 꼬리 제거)."""
+    """입금내역 → 'MM/DD G/R/N 금액원 거래처' (수금관리 표기와 통일).
+
+    2026-08-12: 검증된 파서(_parse_memo_block)를 재사용해 하나 라벨형
+    (일시/계좌번호/적요)에서도 거래처만 깔끔히 추출. 파싱 실패 시 기존 regex 방식으로
+    fallback(라벨 단어 제거 추가). G/R/N 은 계좌번호 기반 판정 유지(신뢰도 높음).
+    """
     grn = _deposit_grn(text)  # 원본(마스킹 *)에서 G/R/N 판정
+    # 1) 검증된 파서 우선 — 라벨형 포함 대부분 정상 추출
+    try:
+        from dashboard.services.sms_intake import strip_balance
+        from dashboard.services.payment_sync import _parse_memo_block
+        res = _parse_memo_block(strip_balance(text)) or {}
+    except Exception:
+        res = {}
+    amount = res.get('amount') or 0
+    partner = (res.get('partner') or '').strip()
+    date = (res.get('date_md') or '').strip()
+    if amount > 0 and partner and partner != '-' and not _SMS_LABEL_RE.search(partner):
+        parts = [x for x in [date, grn, f'{amount:,}원', partner] if x]
+        return ' '.join(parts)
+
+    # 2) fallback — 기존 regex 방식 (라벨 단어 제거 추가)
     s = re.sub(r'[*]', '', text).replace('[Web발신]', ' ')
     s = re.sub(r'\s+', ' ', s).strip()
-    # 금액
     am = re.search(r'입금\s*([\d,]+)\s*원', s)
-    amount = am.group(1) if am else ''
-    # 날짜 MM/DD (2026/07/20 or 07/28)
+    amount_s = am.group(1) if am else ''
     dm = re.search(r'(?:\d{4}[/.])?(\d{1,2})[/.](\d{1,2})', s)
-    date = f'{int(dm.group(1)):02d}/{int(dm.group(2)):02d}' if dm else ''
-    # 거래처 — 금액·날짜·시간·계좌·은행명 제거 후 남는 것
+    date_s = f'{int(dm.group(1)):02d}/{int(dm.group(2)):02d}' if dm else ''
     p = re.sub(r'입금\s*[\d,]+\s*원', ' ', s)
     p = re.sub(r'(?:\d{4}[/.])?\d{1,2}[/.]\d{1,2}', ' ', p)
     p = re.sub(r'\d{1,2}:\d{2}', ' ', p)
     p = re.sub(r'\d{3}[\d*\-]{4,}', ' ', p)   # 계좌번호
     p = re.sub(r'(기업|하나|국민|신한|우리|농협|카카오|토스|SC|씨티)', ' ', p)
+    p = _SMS_LABEL_RE.sub(' ', p)             # 라벨 단어 제거 (일시/적요/계좌번호)
     p = p.replace('입금', ' ')
-    partner = re.sub(r'\s+', ' ', p).strip(' -·,')[:30]
-    parts = [x for x in [date, grn, (amount + '원' if amount else ''), partner] if x]
+    partner_s = re.sub(r'\s+', ' ', p).strip(' -·,')[:30]
+    parts = [x for x in [date_s, grn, (amount_s + '원' if amount_s else ''), partner_s] if x]
     return ' '.join(parts) or _summary_line(text)
 
 
