@@ -650,14 +650,25 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
     })
     if project_details:
         dd = project_details
-        detail = "\n".join([
-            f"*✅ 선택한 프로젝트*  `{dd.get('code', '')}`",
-            f"• 사업자명 : {dd.get('biz', '-')}",
-            f"• 현장 주소 : {dd.get('address', '-')}",
-            f"• 담당자 : {dd.get('manager', '-')}",
-            f"• 공사 내용 : {(dd.get('work_content', '-') or '-')[:120]}",
-        ])
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": detail}})
+        info = (
+            f"*📥 유입 구분 :* {dd.get('inflow', '-') or '-'}\n"
+            f"*🏢 사업자명 :* {dd.get('biz', '-') or '-'}\n"
+            f"*📍 현장 주소 :* {dd.get('address', '-') or '-'}\n"
+            f"*👤 발주처 담당자 :* {dd.get('client_manager', '-') or '-'}\n"
+            f"*📞 발주처 연락처 :* {dd.get('client_phone', '-') or '-'}\n"
+            f"*✉️ 발주처 이메일 :* {dd.get('client_email', '-') or '-'}\n"
+            f"*📋 공사 내용 :* {dd.get('work_content', '-') or '-'}\n"
+            f"*🛠️ 도급 구분 :* {dd.get('contract_type', '-') or '-'}\n"
+            f"*👷 시공자 :* {dd.get('contractor', '-') or '-'}\n"
+            f"*💲 공사 금액 :* {dd.get('amount', '-') or '-'}\n"
+            f"*👔 담당자(영업) :* {dd.get('manager', '-') or '-'}\n"
+            f"*📅 공사 시작 :* {dd.get('work_start', '-') or '-'}\n"
+            f"*📅 공사 종료 :* {dd.get('work_end', '-') or '-'}"
+        )
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
+        blocks.append({"type": "divider"})
     stage_el = {
         "type": "static_select",
         "action_id": "value",
@@ -791,23 +802,23 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
 
 
 def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, by_user):
-    """지정 완료 → 경영지원 확인 대기 카드 (문자 원문 + 확인/재지정 버튼)."""
+    """지정 완료 → 경영지원 확인 대기 카드 (문자 원문 + 확인/재지정 버튼). 활성=인용 스타일."""
+    from dashboard.services.sms_intake import active_display
     amt = f"{amount:,}원" if amount else '—'
     warn = "" if amount else "\n:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요"
     return [
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 상단 여백
         {"type": "section", "text": {"type": "mrkdwn", "text": (
             f"*🕓 확인 대기 — 경영지원 확인 후 기록*\n"
             f"*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 <@{by_user}>{warn}")}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"```{(memo or '').strip()}```"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": active_display(memo)}},
         {"type": "actions", "elements": [
             {"type": "button", "text": {"type": "plain_text", "text": "✅ 확인 후 기록"},
              "style": "primary", "action_id": "payment_intake_confirm", "value": intake_id},
             {"type": "button", "text": {"type": "plain_text", "text": "✏️ 재지정"},
              "action_id": "payment_intake_redesignate", "value": intake_id},
         ]},
-        {"type": "context", "elements": [
-            {"type": "mrkdwn", "text": f"intake `{intake_id}`"}
-        ]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 하단 여백
     ]
 
 
@@ -824,6 +835,7 @@ def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, c
     text = f"{header}\n\n```\n{memo_text.strip()}\n```"
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 하단 여백
     ]
 
 
@@ -10898,6 +10910,26 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         except Exception as exc:
             logger.warning(f'[SLACK/계산서] idempotency lock 실패 (계속 진행): {exc}')
 
+    # 프로젝트 코드 기준 중복 방어 (2026-08-12) — 위 view_id lock 은 '서버오류 → 다시
+    # 작성(새 모달) → 재제출' 을 못 막음(view_id 가 달라짐). 같은 코드로 최근 90초 내
+    # 카드가 이미 나갔으면 재발송 skip + 안내 (계산서 중복 발행 사고 방지, R3970-MW 사례).
+    if code and code != '-':
+        try:
+            from dashboard.utils.redis_client import get_redis_client as _get_rc_id
+            if _get_rc_id().redis.get(f'invoice_request_dedup:{code}'):
+                logger.info(
+                    f'[SLACK/계산서] 코드 중복 재제출 skip (code={code}) — 90초 내 이미 발송')
+                try:
+                    client.chat_postEphemeral(
+                        channel=channel_id, user=user_id,
+                        text=(f':information_source: `{code}` 계산서 요청은 방금 접수됐습니다 '
+                              f'— 중복 방지로 이번 재제출은 건너뜁니다. (카드는 이미 발송됨)'))
+                except Exception:
+                    pass
+                return
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] 코드 dedup 조회 실패 (계속 진행): {exc}')
+
     # 검증 (병렬)
     error_lines = []
     if code and code != '-':
@@ -11066,6 +11098,16 @@ def _process_invoice_submission(client, body, view) -> None:
     logger.info(
         f"[SLACK/계산서] 요청 카드 발송 완료: {code} ts={ts} → {channel_id}"
     )
+
+    # 코드 중복 방어 마킹 — 발송 성공 시에만 기록. 이후 90초 내 같은 코드 재제출은
+    # 위 dedup 게이트에서 skip (서버오류→다시작성 재제출 대응). 검증 실패건은 여기
+    # 도달 안 하므로 마킹 안 됨 → 정상 재시도 허용. (2026-08-12)
+    if code and code != '-':
+        try:
+            from dashboard.utils.redis_client import get_redis_client as _get_rc_ds
+            _get_rc_ds().redis.set(f'invoice_request_dedup:{code}', ts or '1', ex=90)
+        except Exception:
+            pass
 
     # 카드 하단에 '📎 계산서 첨부 (스레드 열기)' 링크 추가 + Redis 에 metadata 저장.
     # 매니저가 스레드에 파일 첨부 시 계산서봇 handler 가 이 metadata 로

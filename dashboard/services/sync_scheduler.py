@@ -232,6 +232,15 @@ def start_scheduler():
     )
     jobs.append('미발송 방문 카드 재발송 5분')
 
+    # 방문 사진 배치 복구 (hang·재시작으로 중단된 업로드의 남은 사진 재저장) — 5분 주기
+    _scheduler.add_job(
+        _safe_recover_photo_batches,
+        'interval',
+        minutes=5,
+        id='recover_photo_batches',
+    )
+    jobs.append('방문 사진 배치 복구 5분')
+
     # 방문 캔버스1 정기 재생성 (이벤트 훅 누락·write-behind 레이스 안전망) — 10분 주기.
     # 캔버스1 방문 누락은 업무상 치명적인데 캔버스1은 등록·완료·확정 이벤트에서만
     # 재생성 → 훅 누락/레이스로 빠지면 다음 이벤트까지 영구 stale (L-03565 계기).
@@ -432,6 +441,17 @@ def _safe_retry_pending_visit_notice():
             return
         _notify_admin('retry_visit_fail',
                       f':warning: 미발송 방문 카드 재발송 실패 — `{exc}`.')
+
+
+def _safe_recover_photo_batches():
+    """중단된 방문 사진 배치(photo_batch:*)의 남은 파일 재저장 — hang·재시작 안전망"""
+    if not _redis_healthy():
+        return
+    try:
+        from dashboard.blueprints.slack_bot import _recover_photo_batches
+        _recover_photo_batches()
+    except Exception as exc:
+        logger.error(f'[SCHED] 방문 사진 배치 복구 실패: {exc}', exc_info=True)
 
 
 def _safe_recover_orphan_leads():

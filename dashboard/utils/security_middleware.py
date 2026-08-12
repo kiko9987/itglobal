@@ -358,6 +358,11 @@ class SecurityMiddleware:
         if request.path.startswith('/channeltalk/'):
             return None
 
+        # 1.7. SMS 인입 webhook 우회 — 폰 SMS 포워딩(로그인 세션 없음).
+        #      기기별 토큰(SMS_INBOUND_TOKENS)으로 sms_inbound 라우트가 자체 인증.
+        if request.path.startswith('/sms/'):
+            return None
+
         # 2. CSRF/인증 검사 (상태 변경 요청)
         if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
             if request.path.startswith('/api/') or request.path.startswith('/admin/api/'):
@@ -436,6 +441,11 @@ class SecurityMiddleware:
         # Slack 서버가 retry·events 대량 발송 시 1000/시간 쉽게 초과 →
         # slash command 실패 (2026-07-22 /as 사고). rate limit 예외.
         if request.path.startswith('/slack/'):
+            return True
+
+        # SMS 인입 webhook 도 rate limit 예외 — 폰 포워딩은 기기 토큰으로 자체 인증,
+        # 입금 몰릴 때 다건 연속 인입이 익명 제한(1000/시간)에 걸려 유실되면 안 됨.
+        if request.path.startswith('/sms/'):
             return True
 
         # 인증된 세션 (로그인 성공한 매니저) 은 rate limit 예외 (2026-07-22):

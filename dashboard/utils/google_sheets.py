@@ -1779,6 +1779,55 @@ class GoogleSheetsManager:
     # 메인 함수 (리팩토링됨)
     # ========================================================================
 
+    def get_cell_value(self, sheet_id, sheet_name, cell_address):
+        """특정 셀의 값(숫자/문자) 조회 — UNFORMATTED_VALUE. 없으면 '' 반환.
+
+        노트(update_cell_note)와 별개인 '셀 값'을 읽는다. 수금 인입에서 기존
+        U/V/W 금액에 이번 입금을 합산하기 위해 사용.
+        """
+        with self._lock:
+            try:
+                range_name = f"'{sheet_name}'!{cell_address}"
+                result = self._execute_with_retry(
+                    lambda: self.service.spreadsheets().values().get(
+                        spreadsheetId=sheet_id,
+                        range=range_name,
+                        valueRenderOption='UNFORMATTED_VALUE',
+                    ),
+                    f"get_cell_value({cell_address})",
+                )
+                vals = (result or {}).get('values', [])
+                if vals and vals[0]:
+                    return vals[0][0]
+                return ''
+            except Exception as e:
+                logger.error(f"[CELL_VALUE_GET] {cell_address} 조회 실패: {e}")
+                return ''
+
+    def update_cell_value(self, sheet_id, sheet_name, cell_address, value):
+        """특정 셀의 값(숫자/문자) 기록 (스레드 안전, 재시도). USER_ENTERED.
+
+        노트가 아닌 '셀 값'을 쓴다. 수금 인입에서 U/V/W 금액 값 기록에 사용.
+        """
+        with self._lock:
+            try:
+                range_name = f"'{sheet_name}'!{cell_address}"
+                body = {'values': [[value]]}
+                self._execute_with_retry(
+                    lambda: self.service.spreadsheets().values().update(
+                        spreadsheetId=sheet_id,
+                        range=range_name,
+                        valueInputOption='USER_ENTERED',
+                        body=body,
+                    ),
+                    f"update_cell_value({cell_address})",
+                )
+                logger.info(f"[CELL_VALUE_SET] {cell_address} = {value}")
+                return True
+            except Exception as e:
+                logger.error(f"[CELL_VALUE_SET] {cell_address} 기록 실패: {e}")
+                return False
+
     def update_cell_note(self, sheet_id, sheet_name, cell_address, note_text):
         """
         특정 셀에 노트(댓글) 추가/수정/삭제 (스레드 안전, 상세 로깅) - 리팩토링됨

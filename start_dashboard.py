@@ -12,9 +12,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# 환경 변수 로드
+# 환경 변수 로드 — override=True: .env를 항상 우선.
+# (기본값은 이미 프로세스/셸에 있는 값을 안 덮어써서, 옛 env가 남아 .env 수정이 반영
+#  안 되는 사고 발생. 2026-08-12 SMS_INBOUND_TOKENS 미반영 계기.)
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 # 로깅 설정 개선
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()

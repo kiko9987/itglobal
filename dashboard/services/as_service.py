@@ -233,15 +233,15 @@ def search_confirmed_projects(query: str, limit: int = 100) -> List[Dict[str, st
             biz = str(r.get('사업자명', '') or '').strip()
             if not code:
                 continue
-            # 코드 OR 사업자명 부분 매칭
-            code_hit = q in code.lower()
-            biz_hit = biz and q in biz.lower()
-            if not (code_hit or biz_hit):
+            address = str(r.get('현장 주소', '') or '').strip()
+            # 코드 OR 사업자명 OR 주소 부분 매칭 (주소로도 좁히기 — 반복거래처 대응)
+            if not (q in code.lower() or (biz and q in biz.lower())
+                    or (address and q in address.lower())):
                 continue
             matched.append({
                 'code': code,
                 'biz': biz,
-                'address': str(r.get('현장 주소', '') or '').strip(),
+                'address': address,
                 'work_content': str(r.get('공사 내용', '') or '').strip(),
                 'work_end': str(r.get('공사 종료', '') or '').strip()[:10],
             })

@@ -1,0 +1,111 @@
+# -*- coding: utf-8 -*-
+"""은행 입금 SMS 인입 — 순수 로직 (Flask/Slack/Redis 미접촉, 단위 테스트 대상).
+
+폰(안드로이드 2 + 아이폰 1)의 SMS 포워딩 앱 → POST /sms/inbound 로 들어온
+은행 입금 문자를 (1) 잔액 라인 제거 (2) 입금 문자 여부 판별 (3) 미리보기 파싱
+하는 순수 함수 모음. 실제 라우트·슬랙 게시·시트 기록은 blueprints/sms_inbound.py.
+
+배경(잔액 제거): 은행 SMS 하단/중간에 통장 잔액이 표시됨.
+  - 기업(공백형) : '잔액 144,153,377원'  (입금액 바로 아래)
+  - 하나(무공백형): '잔액239,612,486원'   (맨 끝줄)
+통장 잔고는 전 직원이 볼 필요가 없으므로 서버 문턱에서 제거한 뒤에만
+슬랙·시트로 넘어가게 한다. 폰 쪽 가공에 의존하지 않는다(3대·2 OS 일관성 리스크).
+"""
+
+import hashlib
+import re
+
+# 잔액/잔고 라인 — 기업(공백) '잔액 144,153,377원' / 하나(무공백) '잔액239,612,486원'.
+# 방어적으로 잔고·현재잔액·출금가능·이체후잔액 도 포함. 반드시 '금액(+원)' 이 따라와야
+# 삭제하여 거래처명 오삭제를 막는다.
+_BALANCE_LINE_RE = re.compile(
+    r'^\s*(?:잔액|잔고|현재\s*잔액|출금\s*가능(?:금?액)?|이체\s*후\s*잔액)\s*[:：]?\s*[\d,]+\s*원?\s*$'
+)
+# 은행 단체문자 머리말 — '[Web발신]', '[국외발신]', '[국제발신]' 등. 줄 앞에서만 제거.
+_WEB_HEADER_RE = re.compile(r'^\s*\[[^\]]*발신\]\s*')
+# 입금 금액 — '입금 407,000원' / '입금5,115,000원'
+_DEPOSIT_RE = re.compile(r'입금\s*[\d,]+\s*원')
+
+
+def strip_balance(text: str) -> str:
+    """은행 SMS에서 잔액 라인 + '[…발신]' 머리말 제거. 나머지 줄은 원문 유지.
+
+    잔액 라인은 통째로 삭제하고, 머리말은 같은 줄의 뒤 내용을 보존한다.
+    앞뒤·연속 빈 줄은 정리한다.
+    """
+    if not text:
+        return ''
+    out = []
+    for raw in text.splitlines():
+        line = _WEB_HEADER_RE.sub('', raw)  # 줄 앞 '[Web발신]' 등 제거 (뒤 내용 보존)
+        if _BALANCE_LINE_RE.match(line):
+            continue  # 잔액 라인 통째 제거
+        out.append(line)
+    cleaned = '\n'.join(out)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)  # 3줄 이상 공백 → 2줄
+    return cleaned.strip()
+
+
+def looks_like_payment(text: str) -> bool:
+    """입금 문자 판별 — '입금 X원' 패턴 존재 여부. (광고·인증·택배 문자 배제)"""
+    if not text:
+        return False
+    return bool(_DEPOSIT_RE.search(text))
+
+
+# ITG 사업자 통장 3종 — 개인 계좌 입금 배제용(같은 은행이라도 개인 건은 계좌 tail 이 다름).
+#   기업 452***38801011 / 하나 255******31304 / 농협 352-****-1682-33
+_BIZ_ACCT_RES = [
+    re.compile(r'452\*+38801011'),
+    re.compile(r'255\*+31304'),
+    re.compile(r'352-\*+-1682-33'),
+]
+
+
+def has_business_account(text: str) -> bool:
+    """ITG 사업자 통장 계좌번호(마스킹) 포함 여부 — 개인 입금(다른 계좌) 배제용."""
+    return any(p.search(text or '') for p in _BIZ_ACCT_RES)
+
+
+def dedup_hash(sender: str, text: str) -> str:
+    """중복 판별 키 — 문자 본문 기준(정규화). 앞 16자.
+
+    같은 은행 문자를 여러 폰(YG·JW·SB)이 동시에 포워딩 → 본문은 동일하므로
+    앱/플랫폼별 공백·'[…발신]' 머리말 차이만 정규화하면 같은 키 → 첫 1건만 카드,
+    나머지는 duplicate 로 skip. 발신번호는 앱마다 표기가 달라 키에서 제외해도
+    본문에 시각·금액·잔액이 있어 서로 다른 입금끼리는 이미 충분히 고유하다.
+    (sender 인자는 호환성 위해 유지하되 키에는 미사용)
+    """
+    norm = re.sub(r'\[[^\]]*발신\]', ' ', text or '')   # '[Web발신]' 등 머리말 제거
+    norm = re.sub(r'\s+', ' ', norm).strip()            # 공백 정규화
+    return hashlib.md5(norm.encode('utf-8')).hexdigest()[:16]
+
+
+def active_display(text: str) -> str:
+    """활성(미완료) 카드용 SMS 표시 — 회색 코드블록 대신 인용(blockquote).
+
+    완료 카드(회색 코드블록)와 시각적으로 구분해 '아직 처리 전'임을 보이게 한다.
+    마스킹 별표(*)는 slack 마크다운 오해석(굵게/기울임) 방지 위해 별표 유사문자(∗)로
+    치환한다 — 표시 전용이라 시트에 기록되는 원문에는 영향 없음.
+    """
+    safe = (text or '').strip().replace('*', '∗')
+    return f">>> {safe}" if safe else ""
+
+
+def parse_preview(stripped_text: str) -> dict:
+    """미리보기용 best-effort 파싱 (금액/은행/입금자/일시).
+
+    실패해도 카드는 원문을 그대로 보여주므로 예외는 삼키고 빈 dict 반환.
+    기존 payment_sync 파서를 재사용한다.
+    """
+    try:
+        from dashboard.services.payment_sync import _parse_memo_block
+        blk = _parse_memo_block(stripped_text) or {}
+        return {
+            'amount': blk.get('amount') or 0,
+            'partner': (blk.get('partner') or '').strip(),
+            'bank': (blk.get('bank') or '').strip(),
+            'date_md': (blk.get('date_md') or '').strip(),
+        }
+    except Exception:
+        return {}
