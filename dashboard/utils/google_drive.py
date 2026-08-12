@@ -169,6 +169,51 @@ def get_folder_name(folder_id: str) -> Optional[str]:
         return None
 
 
+def resolve_folder_id(value: str) -> dict:
+    """프로젝트 '폴더 경로' 값(URL·ID)을 검증해 진짜 폴더 ID로 정규화 (2026-08-12).
+
+    폴더 링크 대신 그 안의 파일 링크를 잘못 붙여넣는 오입력 방지:
+    - Drive URL 이면 ID 추출 (folders/{ID} · /d/{ID} · ?id={ID}).
+    - ID 가 폴더면 그대로.
+    - ID 가 파일이면 그 파일의 **상위 폴더로 자동 교정** (corrected=True).
+    - 비-ID 형식(로컬경로 등)·조회실패·부모없음은 원본/최선값 유지 (파괴하지 않음).
+
+    Returns: {'value': 최종값, 'corrected': bool(파일→상위폴더 교정 시만 True), 'reason': str}
+    """
+    import re as _re
+    raw = str(value or '').strip()
+    if not raw:
+        return {'value': raw, 'corrected': False, 'reason': 'empty'}
+    fid = raw
+    m = (_re.search(r'/folders/([a-zA-Z0-9_-]+)', raw)
+         or _re.search(r'/d/([a-zA-Z0-9_-]+)', raw)
+         or _re.search(r'[?&]id=([a-zA-Z0-9_-]+)', raw))
+    if m:
+        fid = m.group(1)
+    # 폴더 ID 형식(20자+ 영숫자·_-)이 아니면 로컬경로 등 → 손대지 않음
+    if not _re.fullmatch(r'[a-zA-Z0-9_-]{20,}', fid):
+        return {'value': raw, 'corrected': False, 'reason': 'not_id_format'}
+    service = _get_drive_service()
+    if not service:
+        return {'value': fid, 'corrected': False, 'reason': 'no_service'}
+    try:
+        meta = service.files().get(
+            fileId=fid, fields='id,mimeType,parents,trashed',
+            supportsAllDrives=True,
+        ).execute()
+    except Exception as exc:
+        logger.debug(f'[DRIVE] 폴더 검증 조회 실패 ({fid}): {exc}')
+        return {'value': fid, 'corrected': False, 'reason': 'lookup_failed'}
+    if meta.get('mimeType') == 'application/vnd.google-apps.folder':
+        return {'value': fid, 'corrected': False, 'reason': 'ok_folder'}
+    parents = meta.get('parents') or []
+    if parents:
+        logger.info(
+            f'[DRIVE] 폴더경로가 파일({fid}) → 상위폴더({parents[0]})로 자동 교정')
+        return {'value': parents[0], 'corrected': True, 'reason': 'file_to_parent'}
+    return {'value': fid, 'corrected': False, 'reason': 'file_no_parent'}
+
+
 def rename_folder(folder_id: str, new_name: str) -> bool:
     """폴더 이름 변경. 성공 시 True."""
     service = _get_drive_service()

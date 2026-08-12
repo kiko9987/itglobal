@@ -1049,6 +1049,20 @@ def update_project(project_code):
     try:
         data = request.get_json()
 
+        # 폴더 경로 안전장치 — 파일 링크 오입력 시 상위 폴더로 자동 교정 (2026-08-12)
+        try:
+            from ..utils.google_drive import resolve_folder_id
+            _fp = (data or {}).get('견적서 및 계약서 폴더 경로')
+            if _fp:
+                _fr = resolve_folder_id(_fp)
+                data['견적서 및 계약서 폴더 경로'] = _fr['value']
+                if _fr['corrected']:
+                    logger.info(
+                        f"[UPDATE_PROJECT] {project_code} 폴더경로 자동교정"
+                        f"(파일→상위폴더): {_fp} → {_fr['value']}")
+        except Exception as _fexc:
+            logger.warning(f'[UPDATE_PROJECT] 폴더경로 검증 실패(무시): {_fexc}')
+
         # 1. 요청 검증
         error_response = _validate_update_request(data, project_code)
         if error_response:
@@ -2435,6 +2449,22 @@ def add_project_auto():
     try:
         data = request.get_json()
         logger.info(f"[POST /api/projects/auto] 받은 데이터: {data}")
+
+        # 폴더 경로 안전장치 — 폴더 대신 파일 링크를 잘못 붙여넣으면 그 파일의 상위
+        # 폴더로 자동 교정. 안 하면 사업자등록증 등 하위폴더 생성이 parentNotAFolder
+        # 로 실패 (G3949-YG 사례, 2026-08-12).
+        try:
+            from ..utils.google_drive import resolve_folder_id
+            _fp = data.get('견적서 및 계약서 폴더 경로')
+            if _fp:
+                _fr = resolve_folder_id(_fp)
+                data['견적서 및 계약서 폴더 경로'] = _fr['value']
+                if _fr['corrected']:
+                    logger.info(
+                        f"[CREATE_PROJECT] 폴더경로 자동교정(파일→상위폴더): "
+                        f"{_fp} → {_fr['value']}")
+        except Exception as _fexc:
+            logger.warning(f'[CREATE_PROJECT] 폴더경로 검증 실패(무시): {_fexc}')
 
         # === Layer 2: 데이터 기반 dedup 안전망 ===
         dup_code = _find_recent_duplicate(data)
