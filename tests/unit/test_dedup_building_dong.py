@@ -372,6 +372,38 @@ def test_juso_fallback_jibun_bdnm(monkeypatch):
     assert base == '영등포구 은행로 3 익스콘벤처타워'
 
 
+def test_juso_fallback_jibun_multi_road_prefers_building(monkeypatch):
+    """같은 지번이 여러 도로에 걸치면(오정동 810-1) 입력 건물명 매치 결과 우선 —
+    Juso 반환 순서 비의존. 로마숫자↔아라비아 등가(원일테크노Ⅱ↔원일테크노2) (L-03278)."""
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: (
+        ('경기 부천시 오정구 신흥로511번길 13-39 (오정동)',
+         '경기 부천시 오정구 오정동 810-1', ''),                      # 건물명 없는 게 첫 결과
+        ('경기 부천시 오정구 신흥로489번길 56 (오정동)',
+         '경기 부천시 오정구 오정동 810-1 원일테크노Ⅱ', '원일테크노Ⅱ'),
+    ))
+    base, kind = ar._juso_fallback('부천 오정구 오정동 810-1 원일테크노2 4층',
+                                   '부천 오정구 오정동 810-1')
+    assert kind == 'jibun'
+    assert '신흥로489번길 56' in base   # 첫 결과(511번길) 아닌 건물명 매치 우선
+    assert '원일테크노Ⅱ' in base
+
+
+def test_resolve_jibun_juso_verified(monkeypatch):
+    """순수 지번 → 행안부 도로명 verified + 건물명 (카카오 keyword [추정]보다 우선, L-03673)."""
+    monkeypatch.setattr(ar, 'verify_address', lambda t, r=None: None)
+    monkeypatch.setattr(ar, '_try_poi_fallback', lambda t: None)
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: (
+        ('서울특별시 영등포구 은행로 3 (여의도동)',
+         '서울특별시 영등포구 여의도동 15-24 익스콘벤처타워', '익스콘벤처타워'),
+    ))
+    addr, lv = ar.resolve_address('영등포구 여의도동 15-24',
+                                  '영등포구 여의도동 15-24', 'level7')
+    assert lv == 'verified'   # jibun_poi([추정]) 아닌 verified
+    assert addr == '영등포구 은행로 3 익스콘벤처타워'
+
+
 def test_resolve_juso_upgrades_regex_to_verified(monkeypatch):
     """카카오·POI 전부 실패 + 행안부 도로 확인 → regex 문자열 유지 + verified 승격.
 

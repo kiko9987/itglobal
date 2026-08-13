@@ -2051,6 +2051,8 @@ def _juso_fallback(text: str, regex_addr: Optional[str]) -> Optional[Tuple[str, 
     if not results:
         return None
     _bound = re.compile(re.escape(core_ns) + r'(?![\d-])')
+    # 경계+지역 통과 후보 수집 (같은 지번이 여러 도로에 걸친 경우 disambig 위해)
+    _valid = []
     for road_addr, jibun_addr, bd in results:
         road_clean = re.sub(r'\s*\([^)]*\)\s*$', '', road_addr).strip()  # (법정동) 제거
         rk = road_clean.replace(' ', '')
@@ -2062,14 +2064,29 @@ def _juso_fallback(text: str, regex_addr: Optional[str]) -> Optional[Tuple[str, 
         # 지역 토큰 교차확인 (다른 도시 동명 도로/지번 방지)
         if _reg_toks and not any(rt in rk for rt in _reg_toks):
             continue
-        base = normalize_display(road_clean)
-        # Juso 건물명(bdNm) — 강한 건물 접미만 부착 (입주사/모호 접미 제외).
-        #   이후 _enrich_verified_address 가 원문 층/호 tail 을 dedup 부착.
-        if (bd and _BLD_STRONG_SUFFIX_RE.search(bd)
-                and bd.replace(' ', '') not in base.replace(' ', '')):
-            base = f'{base} {bd}'
-        return (base, kind)
-    return None
+        _valid.append((road_clean, bd))
+    if not _valid:
+        return None
+    # 같은 지번이 여러 도로에 걸침(L-03278 오정동 810-1 = 원일테크노Ⅱ/489번길 vs
+    #   511번길) → 입력에 건물명이 있으면 그 bdNm 이 일치하는 결과 우선(Juso 반환 순서
+    #   비의존). 로마숫자↔아라비아(원일테크노Ⅱ↔원일테크노2) 등가 판정.
+    _src_key = _roman_to_arabic((text or '').replace(' ', '').lower())
+    _chosen = None
+    for road_clean, bd in _valid:
+        _bk = _roman_to_arabic((bd or '').replace(' ', '').lower())
+        if _bk and _bk in _src_key:
+            _chosen = (road_clean, bd)
+            break
+    if _chosen is None:
+        _chosen = _valid[0]
+    road_clean, bd = _chosen
+    base = normalize_display(road_clean)
+    # Juso 건물명(bdNm) — 강한 건물 접미만 부착 (입주사/모호 접미 제외).
+    #   이후 _enrich_verified_address 가 원문 층/호 tail 을 dedup 부착.
+    if (bd and _BLD_STRONG_SUFFIX_RE.search(bd)
+            and bd.replace(' ', '') not in base.replace(' ', '')):
+        base = f'{base} {bd}'
+    return (base, kind)
 
 
 # 도로명 번호-길 공백 조인 (2026-08-14 L-03650): '언주로 107 길 27' → '언주로107길 27'.
@@ -2129,9 +2146,24 @@ def resolve_address(
         addr = _mark_planned(addr)
         return (addr, 'verified')
 
-    # 1c. 순수 지번 → keyword 도로명 구제 (2026-08-13 L-03669). 카카오 주소검색은
-    #   순수 지번 0건이지만 keyword 는 그 지번 상호를 줌 → jibun 정확일치 도로명 채택.
-    #   [추정] 유지(level='jibun_poi', 비-verified) — 근처 상호 기반이라 매니저 확인 필요.
+    # 1c-juso. 순수 지번 → 행안부 도로명 verified + 건물명 (2026-08-14 L-03673). 카카오
+    #   keyword 구제(아래 1c, [추정])보다 **권위 우선** — `여의도동 15-24` → `은행로 3
+    #   익스콘벤처타워`(verified). _juso_fallback 은 도로가 있으면 kind='road'(step 2에서
+    #   처리)라, 여기엔 **도로 없는 순수 지번(+번지)만** 도달 → 경계 정확일치·지역 가드로
+    #   지저분한 입력 오매칭(L-03280) 방어. 카카오 verified 와 동일 enrichment 체인.
+    _juso_j = _juso_fallback(text, regex_addr)
+    if _juso_j and _juso_j[1] == 'jibun':
+        addr = _enrich_verified_address(_juso_j[0], text, regex_addr)
+        addr = _strip_redundant_legal_dong(addr)
+        addr = _strip_redundant_jibun(addr)
+        addr = _enrich_building_by_road(addr)
+        addr = _post_normalize_display(addr)
+        addr = _mark_planned(addr)
+        return (addr, 'verified')
+
+    # 1c. 순수 지번 → keyword 도로명 구제 (2026-08-13 L-03669). 행안부(1c-juso) 미매치
+    #   시 fallback. 카카오 주소검색은 순수 지번 0건이지만 keyword 는 그 지번 상호를 줌
+    #   → jibun 정확일치 도로명 채택. [추정] 유지(level='jibun_poi') — 근처 상호 기반.
     _jibun_road = _jibun_road_fallback(text)
     if _jibun_road:
         _floor = re.search(r'[A-Za-z]?\d+\s*(?:층|호|호실|관)', text or '')
