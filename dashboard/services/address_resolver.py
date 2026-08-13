@@ -381,6 +381,47 @@ def _search_poi(query: str) -> tuple:
     return _kakao_search_poi(query) + _naver_search_local(query)
 
 
+# 행안부 도로명주소 검색 API (2026-08-14 L-03671) — 권위 소스.
+#   카카오 address.json·POI 가 0건인 실재 필지(백제고분로19길 13 등 미인덱싱 parcel)를
+#   정부 공식 DB 로 verified 확인. roadAddr·jibunAddr·bdNm(건물명) 반환.
+_JUSO_ENDPOINT = 'https://business.juso.go.kr/addrlink/addrLinkApi.do'
+
+
+def _juso_key() -> str:
+    return os.getenv('JUSO_CONFM_KEY', '').strip()
+
+
+@lru_cache(maxsize=512)
+def _juso_search_cached(query: str) -> tuple:
+    """행안부 도로명주소 검색 — ((roadAddr, jibunAddr, bdNm), ...) 튜플.
+
+    오류·빈결과·키 미설정은 () 반환 (resolve 파이프라인 절대 안 막음).
+    roadAddr 는 '서울특별시 송파구 백제고분로19길 13 (잠실동)' 형태(법정동 괄호 포함).
+    """
+    key = _juso_key()
+    if not key or not query.strip():
+        return ()
+    try:
+        url = _JUSO_ENDPOINT + '?' + urllib.parse.urlencode({
+            'confmKey': key, 'currentPage': 1, 'countPerPage': 10,
+            'keyword': query.strip(), 'resultType': 'json',
+        })
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = json.loads(r.read().decode('utf-8'))
+        common = (data.get('results') or {}).get('common') or {}
+        if str(common.get('errorCode', '')) not in ('0', ''):
+            return ()
+        juso = (data.get('results') or {}).get('juso') or []
+        return tuple(
+            (j.get('roadAddr', '') or '', j.get('jibunAddr', '') or '',
+             j.get('bdNm', '') or '')
+            for j in juso
+        )
+    except Exception as exc:
+        logger.debug(f'[JUSO] {type(exc).__name__}: {query[:40]}')
+        return ()
+
+
 # 도로명+번지 패턴 (예: "갯벌로 36", "테헤란로 152", "강남대로 401-1", "꽃내음1길 19-22",
 # "봉은사로 26길 12", "부천로431번길 16")
 # - 한글 2글자 이상으로 도로명 시작 (1글자 "번길" 같은 오인 차단)
@@ -1944,6 +1985,82 @@ def _road_poi_fallback(text: str) -> Optional[str]:
     return None
 
 
+_JUSO_JIBUN_CORE_RE = re.compile(r'([가-힣]+(?:동|리|가)\s*\d+(?:-\d+)?)')
+_JUSO_REGION_RE = re.compile(
+    r'((?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|'
+    r'전북|전남|경북|경남|제주)(?:특별시|광역시|특별자치시|특별자치도|도)?'
+    r'(?:\s+[가-힣]+(?:시|군|구))*)')
+
+
+def _juso_fallback(text: str, regex_addr: Optional[str]) -> Optional[Tuple[str, str]]:
+    """행안부 도로명주소 검색으로 코어 주소가 실재하는지 확인 (L-03671).
+
+    카카오 address.json·POI 가 0건인데 실재하는 주소(백제고분로19길 13=잠실동 237-5,
+    카카오 미인덱싱)를 정부 공식 DB 로 확인. 도로명+번지 또는 동+지번 '코어'를 추출해
+    지역 포함 쿼리로 조회, 결과 roadAddr/jibunAddr 이 코어와 **경계 정확일치**(번지 뒤
+    숫자·'-' 없음)할 때만 매치 → 퍼지·인접번지(876 vs 876-1) 오매칭 방지.
+
+    Returns: (도로명 base, kind) — kind ∈ {'road','jibun'}. 매치 없으면 None.
+      호출부는 road 케이스에 대해 **regex 문자열은 그대로 두고 level 만 verified 승격**
+      (건물명·호수 유실 방지). base(정규화 도로명+bdNm)는 향후 jibun 치환용.
+    """
+    if not _juso_key():
+        return None
+    src = (regex_addr or '').strip() or (text or '').split('\n', 1)[0].strip()
+    if not src:
+        return None
+    # 코어 주소 추출 (도로명+번지 우선, 없으면 동+지번)
+    m_road = _ROAD_PATTERN.search(src) or _ROAD_PATTERN.search(text or '')
+    if m_road:
+        core, kind = m_road.group(1).strip(), 'road'
+    else:
+        m_jib = _JUSO_JIBUN_CORE_RE.search(src) or _JUSO_JIBUN_CORE_RE.search(text or '')
+        if not m_jib:
+            return None
+        core, kind = m_jib.group(1).strip(), 'jibun'
+    # 지역 접두 (도시 모호성·동명 도로 방지)
+    region = ''
+    m_reg = _JUSO_REGION_RE.match(src) or _JUSO_REGION_RE.match((text or '').strip())
+    if m_reg:
+        region = m_reg.group(1).strip()
+    core_ns = core.replace(' ', '')
+    # 지역 토큰 — 시/도 프리픽스가 없어도(‘송파구 …’) 코어 앞 시/군/구 를 잡음.
+    #   쿼리 정밀도 + 다른 도시 동명 도로/지번 오매칭 가드 양쪽에 사용.
+    _pre = src.split(core, 1)[0] if core in src else src
+    _reg_toks = re.findall(r'[가-힣]{2,}(?:시|군|구)', region or _pre)
+    if region and region.replace(' ', '') not in core_ns:
+        query = f'{region} {core}'.strip()
+    elif _reg_toks and _reg_toks[0] not in core_ns:
+        query = f'{_reg_toks[0]} {core}'
+    else:
+        query = core
+    results = _juso_search_cached(query)
+    if not results and query != core:
+        results = _juso_search_cached(core)
+    if not results:
+        return None
+    _bound = re.compile(re.escape(core_ns) + r'(?![\d-])')
+    for road_addr, jibun_addr, bd in results:
+        road_clean = re.sub(r'\s*\([^)]*\)\s*$', '', road_addr).strip()  # (법정동) 제거
+        rk = road_clean.replace(' ', '')
+        jk = re.sub(r'\s*\([^)]*\)\s*$', '', jibun_addr).replace(' ', '')
+        hit = ((kind == 'road' and _bound.search(rk))
+               or (kind == 'jibun' and _bound.search(jk)))
+        if not hit:
+            continue
+        # 지역 토큰 교차확인 (다른 도시 동명 도로/지번 방지)
+        if _reg_toks and not any(rt in rk for rt in _reg_toks):
+            continue
+        base = normalize_display(road_clean)
+        # Juso 건물명(bdNm) — 강한 건물 접미만 부착 (입주사/모호 접미 제외).
+        #   이후 _enrich_verified_address 가 원문 층/호 tail 을 dedup 부착.
+        if (bd and _BLD_STRONG_SUFFIX_RE.search(bd)
+                and bd.replace(' ', '') not in base.replace(' ', '')):
+            base = f'{base} {bd}'
+        return (base, kind)
+    return None
+
+
 # 도로명 번호-길 공백 조인 (2026-08-14 L-03650): '언주로 107 길 27' → '언주로107길 27'.
 #   고객이 '언주로107길'을 '언주로 107 길'로 띄어써 '언주로 107'(번지 107, 완전 다른
 #   위치=현대2차아파트)로 오파싱되던 심각 버그. 길 뒤가 공백/끝일 때만 조인('길동'
@@ -2021,7 +2138,16 @@ def resolve_address(
         addr = normalize_display(regex_addr)
         addr = _enrich_verified_address(addr, text, regex_addr)
         addr = _mark_planned(addr)
-        return (addr, regex_level or 'regex')
+        _lv = regex_level or 'regex'
+        # 행안부 도로명주소 검증 (2026-08-14 L-03671) — 카카오가 미인덱싱한 실재 도로+번지
+        #   (백제고분로19길 13 등)를 정부 공식 DB 로 확인되면 verified 승격. **문자열은
+        #   regex enriched 그대로 유지**(건물명·호수 유실 0) — level 만 상향해 [주소 확인
+        #   필요]/[추정] 배지 제거. 도로 케이스만(jibun 은 상호 추론 여지 있어 보류).
+        if _lv != 'verified':
+            _juso_hit = _juso_fallback(text, regex_addr)
+            if _juso_hit and _juso_hit[1] == 'road':
+                _lv = 'verified'
+        return (addr, _lv)
 
     # 3. 원문 첫 줄 fallback — 엄격한 주소 패턴이 포함된 경우만
     # "세방정유라는 회사입니다" / "공장동 내에 ..." 같은 본문이 잘못 raw로 들어가는 것 방지

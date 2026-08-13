@@ -321,6 +321,88 @@ def test_road_poi_fallback_region_guard(monkeypatch):
     assert ar._road_poi_fallback('양주 광적면 부흥로 876 1층') is None
 
 
+def test_juso_fallback_road_exact(monkeypatch):
+    """카카오 미인덱싱 도로+번지 → 행안부 경계 정확일치 → (base,'road') (L-03671)."""
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: (
+        ('서울특별시 송파구 백제고분로19길 13 (잠실동)',
+         '서울특별시 송파구 잠실동 237-5', ''),
+    ))
+    assert ar._juso_fallback('송파구 백제고분로19길 13',
+                             '송파구 백제고분로19길 13') == ('송파구 백제고분로19길 13', 'road')
+
+
+def test_juso_fallback_beonji_boundary(monkeypatch):
+    """인접 번지(876 vs 876-1) 경계 구분 — 876 입력에 876-1 채택 안 함."""
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: (
+        ('경기도 양주시 광적면 부흥로 876-1', '경기도 양주시 광적면 가납리 624-1', ''),
+        ('경기도 양주시 광적면 부흥로 876', '경기도 양주시 광적면 가납리 627-2', ''),
+    ))
+    assert ar._juso_fallback('양주 광적면 부흥로 876',
+                             '양주 광적면 부흥로 876') == ('양주 광적면 부흥로 876', 'road')
+
+
+def test_juso_fallback_region_guard(monkeypatch):
+    """지역 토큰(송파구) 불일치 결과는 채택 안 함(다른 도시 동명 도로)."""
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: (
+        ('부산광역시 사하구 백제고분로19길 13', '부산광역시 사하구 괴정동 1-1', ''),
+    ))
+    assert ar._juso_fallback('송파구 백제고분로19길 13',
+                             '송파구 백제고분로19길 13') is None
+
+
+def test_juso_fallback_no_key(monkeypatch):
+    """키 없으면 네트워크 시도 없이 None."""
+    monkeypatch.setattr(ar, '_juso_key', lambda: '')
+    assert ar._juso_fallback('송파구 백제고분로19길 13',
+                             '송파구 백제고분로19길 13') is None
+
+
+def test_juso_fallback_jibun_bdnm(monkeypatch):
+    """동+지번 입력 → jibun kind, 강한 접미 bdNm(익스콘벤처타워) base 부착."""
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: (
+        ('서울특별시 영등포구 은행로 3 (여의도동)',
+         '서울특별시 영등포구 여의도동 15-24', '익스콘벤처타워'),
+    ))
+    base, kind = ar._juso_fallback('영등포구 여의도동 15-24', '영등포구 여의도동 15-24')
+    assert kind == 'jibun'
+    assert base == '영등포구 은행로 3 익스콘벤처타워'
+
+
+def test_resolve_juso_upgrades_regex_to_verified(monkeypatch):
+    """카카오·POI 전부 실패 + 행안부 도로 확인 → regex 문자열 유지 + verified 승격.
+
+    핵심: 건물명·호수 유실 없이(문자열 불변) level 만 상향 → [주소 확인 필요] 배지 제거."""
+    monkeypatch.setattr(ar, 'verify_address', lambda t, r=None: None)
+    monkeypatch.setattr(ar, '_try_poi_fallback', lambda t: None)
+    monkeypatch.setattr(ar, '_jibun_road_fallback', lambda t: None)
+    monkeypatch.setattr(ar, '_road_poi_fallback', lambda t: None)
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: (
+        ('서울특별시 송파구 백제고분로19길 13 (잠실동)',
+         '서울특별시 송파구 잠실동 237-5', ''),
+    ))
+    addr, lv = ar.resolve_address('송파구 백제고분로19길 13',
+                                  '송파구 백제고분로19길 13', 'level3')
+    assert lv == 'verified'
+    assert addr == '송파구 백제고분로19길 13'
+
+
+def test_resolve_juso_absent_keeps_regex_level(monkeypatch):
+    """행안부도 못 찾으면 regex level 유지(가짜 도로 verified 위조 방지)."""
+    monkeypatch.setattr(ar, 'verify_address', lambda t, r=None: None)
+    monkeypatch.setattr(ar, '_try_poi_fallback', lambda t: None)
+    monkeypatch.setattr(ar, '_jibun_road_fallback', lambda t: None)
+    monkeypatch.setattr(ar, '_road_poi_fallback', lambda t: None)
+    monkeypatch.setattr(ar, '_juso_key', lambda: 'K')
+    monkeypatch.setattr(ar, '_juso_search_cached', lambda q: ())
+    addr, lv = ar.resolve_address('없는길 99999', '없는길 99999', 'level3')
+    assert lv == 'level3'
+
+
 def test_road_poi_fallback_attaches_building(monkeypatch):
     """도로명+번지 POI 구제 결과에 건물 POI(다슬빌딩) 부착 (L-03650). address.json
     0건 도로명이 verified 채택돼도 강한 접미 건물 POI 가 유일하면 건물명 부착."""
