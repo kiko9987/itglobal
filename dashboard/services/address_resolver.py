@@ -1751,6 +1751,12 @@ def _try_poi_fallback(text: str) -> Optional[str]:
     if not text:
         return None
     first_line = text.strip().split('\n', 1)[0].strip()
+    # 입력에 도로명+번지가 이미 있으면 상호 POI 로 다른 지점 도로를 갈아치우지 않음
+    #   (L-03644: '강남구 논현로159길 10 신사빌딩' → 서울 생략돼 A분기로 가서 다른
+    #   신사빌딩 '언주로 817' 로 도로 변경). 도로+번지는 _road_poi_fallback·Juso 가
+    #   검증하도록 위임. 본 함수는 도로 없이 상호만(또는 지번) 있는 케이스용.
+    if _ROAD_PATTERN.search(first_line):
+        return None
     # 시/도 있는데 여기 도달 = 카카오 주소 verify 실패 → (B) 구 기준 POI 구제로 위임.
     if re.search(
         r'(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주|고양|성남|수원|용인|안양|안산|광명|시흥|화성|평택|김포)'

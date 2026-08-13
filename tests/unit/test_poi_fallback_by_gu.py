@@ -62,6 +62,12 @@ class TestPoiFallbackByGu:
         out = ar._try_poi_fallback('인천 부평구 일신동 25 송암노인요양원')
         assert out == '인천 부평구 일신로 25 송암노인요양원'
 
+    def test_road_present_no_sido_skips_shop(self, monkeypatch):
+        """시/도 생략된 '강남구 논현로159길 10 신사빌딩' → A분기로 가서 다른 신사빌딩
+        (언주로 817)로 도로 갈아치우던 버그 방지 (L-03644). 도로+번지 있으면 skip."""
+        _patch_poi(monkeypatch, [('신사빌딩', '서울 강남구 언주로 817')])
+        assert ar._try_poi_fallback('강남구 논현로159길 10 신사빌딩 3층') is None
+
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
