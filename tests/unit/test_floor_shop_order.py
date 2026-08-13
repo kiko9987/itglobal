@@ -8,6 +8,7 @@ _enrich_verified_address 의 층 부착이 층을 무조건 맨 뒤로 옮겨 '1
 '피아노학원 1층'으로 뒤집으면 두 의미가 뒤섞인다. 매니저 원문 어순을 보존한다.
 _enrich_with_poi(네트워크)는 monkeypatch 로 무력화.
 """
+import re
 import sys
 sys.path.insert(0, '.')
 
@@ -47,6 +48,25 @@ class TestFloorShopOrder:
             '서울 강남구 테헤란로 1 5층',
         )
         assert r == '서울 강남구 테헤란로 1 5층'
+
+    def test_basement_floor_preserved(self, monkeypatch):
+        """'지하 1층'(공백)에서 '지하' 유실 방지 — 지하 1층 ≠ 1층 (L-03650)."""
+        r = _enrich(
+            monkeypatch,
+            '강남구 언주로107길 27 다슬빌딩',
+            '강남구 언주로107길 27 다슬빌딩 지하 1층',
+        )
+        assert '지하 1층' in r
+        assert not re.search(r'다슬빌딩 1층$', r)  # 지하 없이 1층만 남으면 안 됨
+
+    def test_basement_ground_floor(self, monkeypatch):
+        """'지상 2층' 접두도 보존."""
+        r = _enrich(
+            monkeypatch,
+            '강남구 언주로107길 27 다슬빌딩',
+            '강남구 언주로107길 27 다슬빌딩 지상 2층',
+        )
+        assert '지상 2층' in r
 
     def test_poi_building_after_floor_restored(self, monkeypatch):
         """카카오 건물명 미등록 → 층 먼저 + POI 건물명 뒤(번지 층 건물). 원문이
