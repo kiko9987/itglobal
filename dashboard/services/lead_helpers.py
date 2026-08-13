@@ -230,6 +230,28 @@ _BUILDING = (
     r'프라자|쇼핑몰|백화점|아울렛|마켓|상사|회관|문화회관|체육관)'
 )
 
+# 도로명+번지 붙여쓰기 정규화 (2026-08-14 L-03675/L-03678) — 매니저·고객이 도로명과
+#   번지를 붙여 입력('동탄반석로172', '상도로 13길4')하면 추출 패턴이 번지를 못 떼내
+#   실패·오분리. 세 규칙으로 canonical 스페이싱 복원 (표시·검증 정확도 향상):
+_ROAD_GIL_JOIN_RE = re.compile(r'([가-힣]{2,}로)\s+(\d+번?길)(?=\d|\s|$)')      # 상도로 13길 → 상도로13길
+_ROAD_BEONJI_SPLIT_RE = re.compile(r'([가-힣]{2,}대?로)(\d+(?:-\d+)?)(?![가-힣0-9번])')  # 동탄반석로172 → 동탄반석로 172
+_GIL_BEONJI_SPLIT_RE = re.compile(r'(\d+번?길)(\d+(?:-\d+)?)(?![가-힣0-9])')     # 13길4 → 13길 4
+
+
+def _normalize_road_spacing(s: str) -> str:
+    """도로명+번지 붙여쓰기 → canonical 스페이싱. 도로세그먼트(N길/번길)는 보존.
+
+    가드: '언주로107길'(로+숫자+길)은 도로명 일부라 분리 안 함(뒤 '번/한글/숫자'
+    lookahead). '봉은사로 26길'→'봉은사로26길'(canonical 조인)은 결과 동일(무해).
+    """
+    if not s:
+        return s
+    s = _ROAD_GIL_JOIN_RE.sub(r'\1\2', s)
+    s = _ROAD_BEONJI_SPLIT_RE.sub(r'\1 \2', s)
+    s = _GIL_BEONJI_SPLIT_RE.sub(r'\1 \2', s)
+    return s
+
+
 # 종료 키워드 (이 단어 만나기 직전까지 주소로 확장)
 _STOP_WORDS = [
     '설치', '공간', '면적', '평수', '평형', '신축', '상담', '견적',
@@ -422,6 +444,10 @@ def extract_korean_address(text: str) -> Optional[Tuple[str, str]]:
     """
     if not text or not text.strip():
         return None
+
+    # 도로명+번지 붙여쓰기 정규화 (L-03675/L-03678) — 매니저 워크플로 입력이 붙여쓴
+    #   케이스 자동 복원. 대부분의 방문 주소는 매니저가 워크플로로 입력하므로 중요.
+    text = _normalize_road_spacing(text)
 
     for pattern, level in ADDRESS_PATTERNS:
         m = re.search(pattern, text)

@@ -21,6 +21,7 @@ from functools import lru_cache
 from typing import List, Optional, Tuple
 
 from dashboard.utils.logging_config import get_logger
+from dashboard.services.lead_helpers import _normalize_road_spacing
 
 logger = get_logger(__name__)
 
@@ -2087,6 +2088,10 @@ def resolve_address(
     Returns:
         (주소, 신뢰도) 튜플. 신뢰도가 ''면 빈 결과.
     """
+    # 도로명+번지 붙여쓰기 정규화 (L-03675/L-03678) — kakao verify 도 정규화된 text 로
+    #   조회하도록 resolve 진입 시 적용(extract 와 대칭). '상도로 13길4'→'상도로13길 4'.
+    text = _normalize_road_spacing(text)
+    regex_addr = _normalize_road_spacing(regex_addr)
     # 도로명 번호-길 공백 조인 (L-03650) — '언주로 107 길 27' → '언주로107길 27'
     text = _join_road_gil(text)
     regex_addr = _join_road_gil(regex_addr)

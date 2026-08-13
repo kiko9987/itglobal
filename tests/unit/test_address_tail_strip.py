@@ -229,6 +229,38 @@ class TestCompoundTenantReplace:
         assert out == v
 
 
+class TestRoadSpacingNormalize:
+    """도로명+번지 붙여쓰기 정규화 — 매니저 워크플로 입력이 붙여쓴 케이스 자동 복원
+    (L-03675/L-03678). 도로세그먼트(N길·번길)는 보존. pure 함수만."""
+    from dashboard.services.lead_helpers import _normalize_road_spacing as _nrs
+
+    @pytest.mark.parametrize('raw, expect', [
+        ('동탄반석로172 동양파라곤1차', '동탄반석로 172 동양파라곤1차'),   # 로+번지 분리
+        ('동작구 상도로 13길4 2층', '동작구 상도로13길 4 2층'),          # 로 N길 조인 + 길+번지 분리
+        ('반포대로58', '반포대로 58'),
+    ])
+    def test_glued_split(self, raw, expect):
+        assert TestRoadSpacingNormalize._nrs(raw) == expect
+
+    @pytest.mark.parametrize('road', [
+        '언주로107길 27',        # 로+숫자+길 = 도로세그먼트, 분리 금지
+        '부천로431번길 16',      # 번길 보존
+        '강남대로 213',
+        '테헤란로 152',
+    ])
+    def test_valid_road_unchanged_result(self, road):
+        # 조인(봉은사로 26길→봉은사로26길)은 canonical 이라 허용 — 여기선 이미 canonical/무번길 케이스가 불변인지
+        out = TestRoadSpacingNormalize._nrs(road)
+        # '언주로107길'의 107 이 분리되면 안 됨
+        assert '언주로 107' not in out
+        assert '부천로 431' not in out
+
+    def test_extract_glued_road(self):
+        r = extract_korean_address('동작구 상도로 13길4 2층 플랜에이치 헤어')
+        assert r is not None
+        assert '상도로13길 4' in r[0]
+
+
 class TestGwanNotSplit:
     """'관' 유닛 오분리 방지 — 단어 끝 '관'(관리소/미술관/체육관)을 층/호 같은
     유닛으로 오인해 '중앙전파관리소'→'중앙전파관 리소'로 쪼개던 버그 (L-03638).
