@@ -229,5 +229,29 @@ class TestCompoundTenantReplace:
         assert out == v
 
 
+class TestGwanNotSplit:
+    """'관' 유닛 오분리 방지 — 단어 끝 '관'(관리소/미술관/체육관)을 층/호 같은
+    유닛으로 오인해 '중앙전파관리소'→'중앙전파관 리소'로 쪼개던 버그 (L-03638).
+    '관'은 숫자 뒤(2관)에서만 유닛. pure 함수만."""
+
+    @pytest.mark.parametrize('raw, expect_whole', [
+        ('송파구 송파대로 234 중앙전파관리소 지원과', '중앙전파관리소'),
+        ('서울 노원구 중계동 미술관 앞', '미술관'),
+        ('서울 강남구 테헤란로 152 대치체육관', '대치체육관'),
+    ])
+    def test_gwan_word_kept_whole(self, raw, expect_whole):
+        r = extract_korean_address(raw)
+        assert r is not None
+        assert expect_whole in r[0]
+        # 쪼개진 흔적('관 ' + 다음글자 분리) 없어야
+        assert '관 리' not in r[0]
+
+    def test_extend_unit_still_works(self):
+        """상가동·2층 등 정상 유닛 확장은 유지 (회귀 방어)."""
+        r = extract_korean_address('인천 서구 금정로 11 상가동 2층')
+        assert r is not None
+        assert '상가동' in r[0] and '2층' in r[0]
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
