@@ -28,19 +28,15 @@ _DEPOSIT_RE = re.compile(r'입금\s*[\d,]+\s*원')
 
 
 def strip_balance(text: str) -> str:
-    """은행 SMS에서 잔액 라인 + '[…발신]' 머리말 제거. 나머지 줄은 원문 유지.
+    """은행 SMS에서 **잔액 라인만** 제거. '[Web발신]' 머리말 포함 나머지는 원문 유지.
 
-    잔액 라인은 통째로 삭제하고, 머리말은 같은 줄의 뒤 내용을 보존한다.
-    앞뒤·연속 빈 줄은 정리한다.
+    잔액(=통장 잔고)만 전 직원 노출 방지로 삭제하고, '[…발신]' 머리말 등은 원문
+    그대로 보존한다(사용자 요청 2026-08-13). 파서(_parse_memo_block)가 머리말은
+    내부에서 알아서 무시하므로 보존해도 파싱 영향 없음. 앞뒤·연속 빈 줄만 정리.
     """
     if not text:
         return ''
-    out = []
-    for raw in text.splitlines():
-        line = _WEB_HEADER_RE.sub('', raw)  # 줄 앞 '[Web발신]' 등 제거 (뒤 내용 보존)
-        if _BALANCE_LINE_RE.match(line):
-            continue  # 잔액 라인 통째 제거
-        out.append(line)
+    out = [raw for raw in text.splitlines() if not _BALANCE_LINE_RE.match(raw)]
     cleaned = '\n'.join(out)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)  # 3줄 이상 공백 → 2줄
     return cleaned.strip()
@@ -81,15 +77,23 @@ def dedup_hash(sender: str, text: str) -> str:
     return hashlib.md5(norm.encode('utf-8')).hexdigest()[:16]
 
 
+def _normalize_sms_display(text: str) -> str:
+    """표시 전용 정규화 — 시트에 기록되는 원문엔 영향 없음.
+
+    - '입금5,000원' → '입금 5,000원' (하나 무공백 양식 가독성)
+    - 마스킹 별표(*) → ∗ (slack 마크다운 오해석 방지)
+    """
+    s = re.sub(r'(입금)\s*([\d,])', r'\1 \2', (text or '').strip())
+    return s.replace('*', '∗')
+
+
 def active_display(text: str) -> str:
     """활성(미완료) 카드용 SMS 표시 — 회색 코드블록 대신 인용(blockquote).
 
     완료 카드(회색 코드블록)와 시각적으로 구분해 '아직 처리 전'임을 보이게 한다.
-    마스킹 별표(*)는 slack 마크다운 오해석(굵게/기울임) 방지 위해 별표 유사문자(∗)로
-    치환한다 — 표시 전용이라 시트에 기록되는 원문에는 영향 없음.
     """
-    safe = (text or '').strip().replace('*', '∗')
-    return f">>> {safe}" if safe else ""
+    s = _normalize_sms_display(text)
+    return f">>> {s}" if s else ""
 
 
 def parse_preview(stripped_text: str) -> dict:

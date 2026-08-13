@@ -384,10 +384,13 @@ def _register_payment_handlers(app):
 
     @app.options("payment_intake_project")
     def handle_payment_intake_options(ack, body):
-        """external_select — 프로젝트 코드/사업자명 자동완성."""
+        """external_select — 타이핑=검색 / 빈 클릭=내 담당 수금미완료 프로젝트 최신순."""
         try:
             query = (body.get("value") or "").strip()
-            ack(options=_build_payment_intake_options(query, limit=30))
+            mgr = None
+            if not query:
+                mgr = _resolve_intake_manager_name((body.get("user") or {}).get("id", ""))
+            ack(options=_build_payment_intake_options(query, limit=30, manager_name=mgr))
         except Exception as exc:
             logger.error(f"[SLACK/수금봇] payment_intake options 실패: {exc}", exc_info=True)
             try:
@@ -557,14 +560,71 @@ def _register_payment_handlers(app):
 # 수금 SMS 인입 — 모달/자동완성/시트 기록 헬퍼 (2026-08-12)
 # ─────────────────────────────────────────────
 
-def _build_payment_intake_options(query: str, limit: int = 30) -> list:
-    """수금 인입 모달 프로젝트 자동완성 — 코드/사업자명/주소 매칭.
+def _resolve_intake_manager_name(uid: str):
+    """Slack user_id → 담당자(한글 이름). Redis 1시간 캐시.
 
-    반복 거래처(같은 상호 수십 건) 구분을 위해:
-      - 라벨에 현장 주소 표시 (동일 상호 구분)
-      - 주소도 검색어 대상 (예: '에스엘 역삼')
-      - 정렬: 미수금 있는(수금 대기) 건 우선 → 최근(코드 번호 큰) 순
-        → 옛 완납 프로젝트는 아래로 밀려 헷갈림 감소.
+    매핑 우선순위: ①PM 사용자 DB(email→name, 전 담당자 자동) ②SALES_EMAILS
+    ③Slack display_name. → SALES_EMAILS 수동 관리 없이 전 영업 커버.
+    users_info 는 메인봇(users:read 보유)으로 호출.
+    """
+    if not uid:
+        return None
+    rc = None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        cached = rc.get(f'slack_name:{uid}')
+        if cached is not None:
+            return cached or None
+    except Exception:
+        pass
+    name = ''
+    try:
+        cli = _slack_app.client if _slack_app else None
+        if cli:
+            resp = cli.users_info(user=uid)
+            prof = ((resp.get('user') or {}).get('profile') or {}) if resp.get('ok') else {}
+            email = (prof.get('email') or '').strip().lower()
+            if email:
+                # ① PM 사용자 DB — 전 담당자 email→name (자동, SALES_EMAILS 관리 불필요)
+                try:
+                    from dashboard.utils.user_database import UserDatabase
+                    for u in (UserDatabase().get_all_users() or []):
+                        if (u.get('email') or '').strip().lower() == email:
+                            name = (u.get('name') or '').strip()
+                            break
+                except Exception:
+                    pass
+                # ② SALES_EMAILS fallback
+                if not name:
+                    try:
+                        se = json.loads(os.getenv('SALES_EMAILS', '{}'))
+                        for n, e in se.items():
+                            if str(e).strip().lower() == email:
+                                name = n
+                                break
+                    except Exception:
+                        pass
+            # ③ display_name/real_name fallback
+            if not name:
+                name = (prof.get('display_name') or prof.get('real_name') or '').strip()
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 담당자 이름 조회 실패 ({uid}): {exc}")
+    if rc is not None:
+        try:
+            rc.set(f'slack_name:{uid}', name, ex=3600)
+        except Exception:
+            pass
+    return name or None
+
+
+def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str = None) -> list:
+    """수금 인입 모달 프로젝트 자동완성.
+
+    - 타이핑(검색): 코드/사업자명/주소 매칭. 미수금 우선 + 최근순.
+    - 빈 검색(드롭다운 클릭, manager_name 전달 시): 그 담당자의 수금 미완료(미수금>0)
+      프로젝트만 최신순 → 본인 담당 건 빠른 선택. (manager_name 없으면 빈 목록)
+    반복 거래처(같은 상호 수십 건) 구분 위해 라벨에 현장 주소 표시(상호 축약).
     """
     try:
         from dashboard.services.project_service import get_project_records
@@ -591,8 +651,17 @@ def _build_payment_intake_options(query: str, limit: int = 30) -> list:
             continue
         biz = str(r.get('사업자명') or '').strip()
         addr = str(r.get('현장 주소') or '').strip()
-        if q and q not in f"{code} {biz} {addr}".lower():
-            continue
+        if q:
+            if q not in f"{code} {biz} {addr}".lower():
+                continue
+        else:
+            # 빈 검색(드롭다운 클릭) — 내 담당 & 수금 미완료(미수금>0)만
+            if not manager_name:
+                continue
+            if str(r.get('담당자') or '').strip() != manager_name:
+                continue
+            if not _owes(r):
+                continue
         # 사업자명이 길어도 주소(동일 상호 구분 핵심)가 안 잘리게 상호는 축약.
         biz_short = (biz[:13] + '…') if len(biz) > 14 else (biz or '-')
         label = f"{code} | {biz_short}"
@@ -631,15 +700,16 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
     단계(stage_value)를 보존해 재렌더한다. (A/S 요청 모달과 동일 사상 — 반복거래처
     상세 확인용)
     """
+    from dashboard.services.sms_intake import active_display
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"```{text}```"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": active_display(text)}},
         {"type": "divider"},
     ]
     project_el = {
         "type": "external_select",
         "action_id": "payment_intake_project",
-        "min_query_length": 1,
-        "placeholder": {"type": "plain_text", "text": "코드·상호명·주소 검색"},
+        "min_query_length": 0,  # 빈 클릭 시 내 담당 수금미완료 목록 요청
+        "placeholder": {"type": "plain_text", "text": "클릭=내 담당 미수금 / 입력=코드·상호·주소 검색"},
     }
     if selected_project:
         project_el["initial_option"] = selected_project
@@ -807,9 +877,8 @@ def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, b
     amt = f"{amount:,}원" if amount else '—'
     warn = "" if amount else "\n:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요"
     return [
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 상단 여백
         {"type": "section", "text": {"type": "mrkdwn", "text": (
-            f"*🕓 확인 대기 — 경영지원 확인 후 기록*\n"
+            f"⠀\n*🕓 확인 대기 — 경영지원 확인 후 기록*\n"
             f"*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 <@{by_user}>{warn}")}},
         {"type": "section", "text": {"type": "mrkdwn", "text": active_display(memo)}},
         {"type": "actions", "elements": [
@@ -818,7 +887,6 @@ def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, b
             {"type": "button", "text": {"type": "plain_text", "text": "✏️ 재지정"},
              "action_id": "payment_intake_redesignate", "value": intake_id},
         ]},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 하단 여백
     ]
 
 
@@ -832,10 +900,10 @@ def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, c
         f"금액 : {amount:,}원",
         f"처리 : {who}",
     ])
-    text = f"{header}\n\n```\n{memo_text.strip()}\n```"
+    from dashboard.services.sms_intake import _normalize_sms_display
+    text = f"{header}\n\n```\n{_normalize_sms_display(memo_text)}\n```"
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 하단 여백
     ]
 
 

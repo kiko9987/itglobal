@@ -47,7 +47,7 @@ class TestStripBalance:
         assert '입금 407,000원' in out            # 입금액 보존
         assert '㈜시프트업' in out                # 거래처 보존
         assert '기업' in out                      # 은행 보존
-        assert '[Web발신]' not in out             # 머리말 제거
+        assert '[Web발신]' in out                 # 머리말 보존 (2026-08-13 요청)
 
     def test_hana_balance_removed(self):
         out = strip_balance(HANA_SMS)

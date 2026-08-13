@@ -160,17 +160,20 @@ def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:
 
 def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list:
     # 문자 원문(여러 줄) 그대로 노출 — 매니저가 원문 보고 프로젝트 식별. 잔액만 제거된 상태.
+    bank = (preview or {}).get('bank') or ''
+    bank_label = {
+        '기업': '기업은행 (글로벌)',
+        '하나': '하나은행 (글로벌그룹)',
+        '농협': '농협은행',
+    }.get(bank, '')
+    header = '🔔 새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
     return [
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 상단 여백
-        {"type": "section", "text": {"type": "mrkdwn",
-            "text": "*💰 입금 문자 도착 — 프로젝트 지정 필요*"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"⠀\n*{header}*"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": active_display(clean_text)}},
         {"type": "actions", "elements": [{
             "type": "button",
-            "text": {"type": "plain_text", "text": "📌 프로젝트·수금단계 지정"},
-            "style": "primary",
+            "text": {"type": "plain_text", "text": "🔗 프로젝트 지정하기"},
             "action_id": "payment_intake_open",
             "value": intake_id,
         }]},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},   # 하단 여백
     ]
