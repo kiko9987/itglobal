@@ -2215,8 +2215,20 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     elif _level == 'verified' and _norm == addr_raw:
                         # verified 성공 & 원본 동일 → 조용히 (배지 없음)
                         pass
+                    elif _level == 'jibun_poi' and _norm and _norm != addr_raw:
+                        # 순수 지번 → keyword 도로명 구제 (L-03669, L-03673). 방문/전화
+                        #   카드도 온라인 카드처럼 지번→도로명 채택 + [추정] 배지.
+                        #   지번↔도로 매핑은 keyword jibun 정확일치라 신뢰. 근처 상호 기반
+                        #   이라 [추정] 유지(매니저 재확인 유도). 사용자 결정 2026-08-14.
+                        update_cells.append((f"I{sheet_row}", _norm))
+                        addr_for_notify = _norm
+                        addr_note = {
+                            'kind': 'estimated',
+                            'original': _orig_addr_display,  # full 원본(노트 포함) 보존
+                            'normalized': _norm,
+                        }
                     else:
-                        # verified 아닌 모든 경우 (regex/level2/raw/실패) — 신뢰도 낮음.
+                        # verified/jibun_poi 아닌 모든 경우 (regex/level2/raw/실패) — 신뢰도 낮음.
                         # 2026-07-20 L-03289 관측: 매니저 오타 (충북 아산시 방배읍…) 가
                         # regex level2 fallback 으로 조용히 저장돼 오타 잡을 기회 없었음.
                         # → 원본 유지 + 확인 필요 배지로 매니저 재입력 유도.
@@ -2324,7 +2336,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                             _lead_dict['방문 주소'] = addr_for_notify
                             _lead_dict['_meta_address_raw'] = addr_raw
                             _lead_dict['_meta_address_level'] = (
-                                'verified' if _addr_level_result == 'verified' else ''
+                                _addr_level_result
+                                if _addr_level_result in ('verified', 'jibun_poi')
+                                else ''  # 그 외 비verified 는 '' → [주소 확인 필요] 유지
                             )
                         # 공백 유무 무관 매칭 (워크플로 '견적요청' / 시트 '견적 요청')
                         if status.replace(' ', '') == '견적요청':

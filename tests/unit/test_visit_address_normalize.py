@@ -38,6 +38,27 @@ class TestVisitAddressNormalize:
         assert addr == raw
         assert note == {'kind': 'failed', 'original': raw, 'normalized': ''}
 
+    def test_jibun_poi_returns_estimated(self, monkeypatch):
+        """지번→keyword 도로명 구제(jibun_poi) → 도로명 채택 + estimated note (L-03673).
+
+        온라인 카드처럼 방문/전화 카드도 [추정] 배지로 표시. verified 아니지만
+        raw+확인필요로 접지 않고 도로명 변환값을 살림.
+        """
+        _patch_resolve(monkeypatch, ('영등포구 은행로 3', 'jibun_poi'))
+        raw = '영등포구 여의도동 15-24'
+        addr, note = slack_bot._normalize_visit_address_if_verified(raw)
+        assert addr == '영등포구 은행로 3'
+        assert note == {'kind': 'estimated', 'original': raw,
+                        'normalized': '영등포구 은행로 3'}
+
+    def test_jibun_poi_same_value_falls_through_failed(self, monkeypatch):
+        """jibun_poi 인데 변환값이 원본과 같으면(이례) failed 로 폴백."""
+        _patch_resolve(monkeypatch, ('영등포구 여의도동 15-24', 'jibun_poi'))
+        raw = '영등포구 여의도동 15-24'
+        addr, note = slack_bot._normalize_visit_address_if_verified(raw)
+        assert addr == raw
+        assert note == {'kind': 'failed', 'original': raw, 'normalized': ''}
+
     def test_empty_returns_empty_no_badge(self, monkeypatch):
         _patch_resolve(monkeypatch, ('', 'failed'))
         assert slack_bot._normalize_visit_address_if_verified('') == ('', None)

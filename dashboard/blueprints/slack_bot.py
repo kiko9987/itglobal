@@ -6684,7 +6684,7 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
     if not visit_channel:
         return
     _kind = addr_note.get('kind', '')
-    if _kind not in ('normalized', 'failed', 'note_only'):
+    if _kind not in ('normalized', 'failed', 'note_only', 'estimated'):
         return
 
     # 등록자 slack user_id 확보
@@ -6746,6 +6746,15 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
             "위 카드에서 [✏️ 정보 수정] 으로 정확한 주소를 다시 입력해주세요.\n\n"
             f"  입력값: {_orig}"
         )
+    elif _kind == 'estimated':
+        text = (
+            f":mag: 방금 등록한 `{lead_no}` 방문 주소(지번)를 "
+            f"카카오 API 로 도로명 주소로 변환했어요 (*[추정]* — 근처 상호 기반).\n\n"
+            f"  원본: {_orig}\n"
+            f"  변환: {_norm}\n\n"
+            "변환된 도로명이 맞는지 위 카드에서 확인 부탁드립니다.\n"
+            "다르면 [✏️ 정보 수정] 으로 다시 입력해주세요."
+        )
     else:  # note_only
         text = (
             f":memo: 방금 등록한 `{lead_no}` 방문 주소에 특이사항이 함께 있어 "
@@ -6757,7 +6766,7 @@ def _post_addr_note_ephemeral(client, visit_channel: str, lead_no: str,
         )
 
     # 정규화·실패 알림 발송 시 특이사항 이동도 있으면 뒷부분에 안내 append
-    if _kind in ('normalized', 'failed') and _moved:
+    if _kind in ('normalized', 'failed', 'estimated') and _moved:
         text += (
             f"\n\n:memo: 참고 — 방문 주소에 함께 있던 특이사항 "
             f"`{_moved}` 은 상담 내용으로 옮겨두었습니다.\n"
@@ -6898,6 +6907,15 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
                 _addr_lines.append(
                     ">:rotating_light: *[시/구가 바뀜 — 오방문 주의, 주소 확인 요망]*"
                 )
+        elif (_kind == 'estimated'
+                and _orig and _orig != (visit_address or '').strip()):
+            # 지번→keyword 도로명 구제 (L-03673): 원본(지번)/변환(도로명) 2줄 +
+            #   변환줄 [추정] 배지. 근처 상호 기반이라 verified 아님 → 매니저 재확인.
+            _orig_norm = re.sub(r'\s+', ' ', _orig).strip()
+            _conv_norm = re.sub(r'\s+', ' ', (visit_address or '').strip())
+            _orig_hl, _conv_hl = _highlight_addr_diff(_orig_norm, _conv_norm)
+            _addr_lines.append(f">*원본 주소* : {_orig_hl}")
+            _addr_lines.append(f">*변환 주소* : {_conv_hl}  :warning: *[추정]*")
         elif _kind == 'failed':
             _va_norm = re.sub(r'\s+', ' ', visit_address or '-').strip()
             _addr_lines.append(
@@ -9570,6 +9588,11 @@ def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
                 return _norm, _note
             # verified & 원본 동일 → 배지 없음 (조용히 통과)
             return _norm, None
+        if _lv == 'jibun_poi' and _norm and _norm != raw:
+            # 순수 지번 → keyword 도로명 구제 (L-03673) — 방문 카드도 온라인처럼
+            #   도로명 채택 + [추정] 배지(근처 상호 기반, 매니저 재확인 유도).
+            logger.info(f"[SLACK/방문주소] 지번 도로명 구제([추정]): '{raw}' → '{_norm}'")
+            return _norm, {'kind': 'estimated', 'original': raw, 'normalized': _norm}
         # 미verified — 도로명+번지가 카카오에 확인 안 됨 → raw 유지 + 확인 필요 배지
         logger.info(
             f"[SLACK/방문주소] 모달 주소 미검증(도로·번지 확인 실패) — raw + 배지: '{raw}'"
