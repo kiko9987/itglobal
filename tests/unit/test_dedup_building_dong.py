@@ -291,6 +291,33 @@ def test_enrich_building_skip_tenant_only(monkeypatch):
     assert ar._enrich_building_by_road(v) == v
 
 
+def test_jibun_road_fallback_exact(monkeypatch):
+    """순수 지번 → keyword POI 의 jibun 정확일치 도로명 채택 (L-03669)."""
+    monkeypatch.setattr(ar, '_kakao_get_json', lambda url: {'documents': [
+        {'place_name': '매일부동산', 'address_name': '경기 수원시 팔달구 인계동 1034-6',
+         'road_address_name': '경기 수원시 팔달구 인계로108번길 27-23'},
+    ]})
+    assert ar._jibun_road_fallback('인계동1034-6번지2층') == '수원 팔달구 인계로108번길 27-23'
+
+
+def test_jibun_road_fallback_skip_with_building(monkeypatch):
+    """지번 뒤 건물명(원일테크노2) 있으면 skip — 건물·호수 보존 (L-03278 회귀방지)."""
+    monkeypatch.setattr(ar, '_kakao_get_json', lambda url: {'documents': [
+        {'address_name': '경기 부천시 오정구 오정동 810-1',
+         'road_address_name': '경기 부천시 오정구 신흥로511번길 13-39'},
+    ]})
+    assert ar._jibun_road_fallback('경기도 부천시 오정동 810-1 원일테크노2 4층 402호') is None
+
+
+def test_jibun_road_fallback_no_exact_match(monkeypatch):
+    """POI jibun 이 입력 지번과 다르면(다른 필지) 채택 안 함."""
+    monkeypatch.setattr(ar, '_kakao_get_json', lambda url: {'documents': [
+        {'address_name': '경기 수원시 팔달구 인계동 999-9',  # 번지 다름
+         'road_address_name': '경기 수원시 팔달구 다른로 1'},
+    ]})
+    assert ar._jibun_road_fallback('인계동 1034-6') is None
+
+
 def test_flatten_paren_keeps_corporate_designator():
     """법인 표기 (주)/(유)/(사)/(재)는 flatten 안 함 — '주' 홀로 남기 방지 (L-03358)."""
     F = ar._flatten_paren_tail

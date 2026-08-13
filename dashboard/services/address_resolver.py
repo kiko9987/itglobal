@@ -1861,6 +1861,52 @@ def _mark_planned(addr: str) -> str:
     return re.sub(r'\s+', ' ', addr).strip()
 
 
+def _jibun_road_fallback(text: str) -> Optional[str]:
+    """순수 지번(도로명·건물 없이 '동 번지')을 카카오 keyword 로 도로명 구제 (L-03669).
+
+    카카오 주소검색(address.json)은 순수 지번을 0건 반환하지만 keyword.json 은 그
+    지번의 상호를 반환한다. POI 의 jibun 이 입력 지번과 '정확 일치'(같은 필지)하면
+    그 POI 의 road_address 를 채택. 붙여쓴 지번('인계동1034-6번지2층')도 파싱.
+    ※ 결과는 [추정] 유지용(비-verified level) — 근처 상호 기반 추론이라 매니저 확인 필요.
+    """
+    if not text:
+        return None
+    first = text.strip().split('\n', 1)[0]
+    m = re.search(r'([가-힣]+동)\s*(\d+(?:-\d+)?)', first)
+    if not m:
+        return None
+    dong, beonji = m.group(1), m.group(2)
+    # 지번 뒤에 건물명/상호가 있으면(원일테크노2 등) 이 fallback 대상 아님 —
+    #   순수 지번(+층/호)만. 건물 있으면 기존 regex/POI 경로가 처리(건물·호수 보존).
+    #   L-03278 회귀 방지: '오정동 810-1 원일테크노2 4층 402호' 는 건물 있어 skip.
+    _after = re.sub(r'번지', ' ', first[m.end():])
+    _unit = re.compile(
+        r'^(?:[A-Za-z]?\d+(?:-\d+)?(?:동|층|호|호실|관)?|[A-Za-z]?\d+[Ff]|'
+        r'지하\d*층?|[A-Z]동)$'
+    )
+    if any(t and not _unit.match(t) for t in _after.split()):
+        return None
+    m_gu = re.search(r'([가-힣]{2,}구)', first)
+    gu = m_gu.group(1) if m_gu else ''
+    query = ' '.join(x for x in (gu, dong, beonji) if x)
+    try:
+        url = _KAKAO_POI_ENDPOINT + '?' + urllib.parse.urlencode(
+            {'query': query, 'size': 5})
+        data = _kakao_get_json(url)
+    except _KakaoTransientError:
+        return None
+    if not data:
+        return None
+    # POI jibun 이 '…동 번지' 로 끝나야 = 같은 필지 (정확 일치 가드)
+    _end = re.compile(re.escape(dong) + r'\s+' + re.escape(beonji) + r'$')
+    for d in data.get('documents', []) or []:
+        jibun = d.get('address_name') or ''
+        road = d.get('road_address_name') or ''
+        if road and _end.search(jibun):
+            return normalize_display(road)
+    return None
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -1898,6 +1944,15 @@ def resolve_address(
         addr = _post_normalize_display(addr)
         addr = _mark_planned(addr)
         return (addr, 'verified')
+
+    # 1c. 순수 지번 → keyword 도로명 구제 (2026-08-13 L-03669). 카카오 주소검색은
+    #   순수 지번 0건이지만 keyword 는 그 지번 상호를 줌 → jibun 정확일치 도로명 채택.
+    #   [추정] 유지(level='jibun_poi', 비-verified) — 근처 상호 기반이라 매니저 확인 필요.
+    _jibun_road = _jibun_road_fallback(text)
+    if _jibun_road:
+        _floor = re.search(r'[A-Za-z]?\d+\s*(?:층|호|호실|관)', text or '')
+        _addr = f'{_jibun_road} {_floor.group(0)}'.strip() if _floor else _jibun_road
+        return (_post_normalize_display(_addr), 'jibun_poi')
 
     # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
     if regex_addr:
