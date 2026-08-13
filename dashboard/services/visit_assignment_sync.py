@@ -399,7 +399,9 @@ def _load_addr_candidates() -> List[Dict]:
     out = []
     for _, row in df.iterrows():
         raw = str(row.get('고객 연락처') or '').strip()
-        if raw in ('', '-'):
+        # 숫자 없는 값(공란·'-'·공실 건 '/' 등)은 무전화로 간주 → 주소 fallback 후보.
+        #   '/' 처럼 잡값이 들어와도 제외되지 않도록 (L-03680, 2026-08-13).
+        if not re.search(r'\d', raw):
             out.append(row.to_dict())
     return out
 
@@ -724,6 +726,14 @@ def parse_assignment_canvas_full(html: str) -> Dict:
                 parts = [p.strip() for p in line.split('/')]
                 # 형태: "(MW) 7월 21일 / - / 주소 / 내용"  →  parts[2] = 주소
                 address = parts[2] if len(parts) >= 3 else ''
+                # 전화칸에 '/' 등 잡값이 섞이면 필드가 밀려 parts[2]가 빈 값이 됨.
+                #   그 경우 뒤쪽 파트에서 주소형(로/길/구/동/시/군 등) 첫 파트로 보정
+                #   (L-03680 공실 건 연락처 '/' → '/ / /' 로 밀림, 2026-08-13).
+                if (not address or address == '-') and len(parts) > 3:
+                    for _p in parts[3:]:
+                        if _p and _p != '-' and re.search(r'로|길|구|동|읍|면|시|군|\d', _p):
+                            address = _p
+                            break
                 assign = _extract_lead_initials(line, initial_to_name)
                 if not assign:
                     assign = [p for p in re.split(r'\+', current_section) if p]

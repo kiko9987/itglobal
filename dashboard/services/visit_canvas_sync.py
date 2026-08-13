@@ -159,7 +159,10 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
         _confirmed_marker = '[공사확정] '
 
     vd = _fmt_visit_date(lead.get('방문 예정일'))
-    phone = str(lead.get('고객 연락처') or '').strip() or '-'
+    # 숫자 없는 잡값(공실 건 '/' 등)은 '-'로 정규화 — '/'가 그대로 렌더되면
+    #   `/ {phone} /` 필드 구분자와 겹쳐 배정 파서가 라인을 깨뜨림 (L-03680, 2026-08-13).
+    _raw_phone = str(lead.get('고객 연락처') or '').strip()
+    phone = _raw_phone if re.search(r'\d', _raw_phone) else '-'
     address = str(lead.get('방문 주소') or '').strip() or '-'
     inquiry_raw = str(lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
     # 재상담 append 형식 파싱 — 최신 회차 content 만 캔버스에 표시.
