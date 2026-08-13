@@ -291,6 +291,24 @@ def test_enrich_building_skip_tenant_only(monkeypatch):
     assert ar._enrich_building_by_road(v) == v
 
 
+def test_road_poi_fallback_exact(monkeypatch):
+    """도로명+번지 address.json 0건이지만 POI road 정확일치 → 채택 (L-03667)."""
+    monkeypatch.setattr(ar, '_kakao_search_poi_cached', lambda q: (
+        ('한손커피', '경기 양주시 광적면 부흥로 876'),
+        ('투타상사', '경기 양주시 광적면 부흥로 876'),
+    ))
+    r = ar._road_poi_fallback('양주 광적면 부흥로 876 1층')
+    assert r == '양주 광적면 부흥로 876 1층'
+
+
+def test_road_poi_fallback_region_guard(monkeypatch):
+    """입력 지역 토큰(광적면)이 POI road 에 없으면 채택 안 함(다른 도시 동명 도로)."""
+    monkeypatch.setattr(ar, '_kakao_search_poi_cached', lambda q: (
+        ('딴가게', '서울 강남구 부흥로 876'),  # 광적면 아님
+    ))
+    assert ar._road_poi_fallback('양주 광적면 부흥로 876 1층') is None
+
+
 def test_jibun_road_fallback_exact(monkeypatch):
     """순수 지번 → keyword POI 의 jibun 정확일치 도로명 채택 (L-03669)."""
     monkeypatch.setattr(ar, '_kakao_get_json', lambda url: {'documents': [

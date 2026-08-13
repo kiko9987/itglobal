@@ -1910,6 +1910,40 @@ def _jibun_road_fallback(text: str) -> Optional[str]:
     return None
 
 
+def _road_poi_fallback(text: str) -> Optional[str]:
+    """도로명+번지가 카카오 주소검색(address.json) 0건이지만 POI 로 실재 확인되는
+    케이스 구제 (2026-08-14 L-03667). 시골·고번지 도로명이 address.json 미인덱싱이면
+    verify 실패 → raw/[확인필요]. POI(keyword)는 그 도로에 상호를 반환하고 그
+    road_address 가 입력 도로명+번지와 '정확 일치'하면 도로명 주소를 채택.
+    사용자 결정: verified (배지 제거) — 도로명+번지 자체가 실재 확인됨.
+    """
+    if not text:
+        return None
+    first = re.sub(r'\s+', ' ', text.strip().split('\n', 1)[0])
+    m = _ROAD_PATTERN.search(first)
+    if not m:
+        return None
+    road_beonji = m.group(1).strip()
+    query = first[:m.end()].strip()        # 지역 포함 쿼리 (도시 모호 방지, L-03659)
+    try:
+        results = _kakao_search_poi_cached(query)
+    except _KakaoTransientError:
+        return None
+    road_key = road_beonji.replace(' ', '')
+    # 입력 지역 토큰(광적면 등) — POI road 에 있어야 (다른 도시 동명 도로 오탐 방지)
+    region_toks = re.findall(r'[가-힣]{2,}(?:시|군|구|읍|면|동)', first)
+    for pn, road in results:
+        if not road:
+            continue
+        if road.replace(' ', '').endswith(road_key) and (
+                not region_toks
+                or any(rt in road.replace(' ', '') for rt in region_toks)):
+            tail = first[m.end():].strip()
+            base = normalize_display(road)
+            return f'{base} {tail}'.strip() if tail else base
+    return None
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -1956,6 +1990,13 @@ def resolve_address(
         _floor = re.search(r'[A-Za-z]?\d+\s*(?:층|호|호실|관)', text or '')
         _addr = f'{_jibun_road} {_floor.group(0)}'.strip() if _floor else _jibun_road
         return (_post_normalize_display(_addr), 'jibun_poi')
+
+    # 1d. 도로명+번지 POI 구제 (2026-08-14 L-03667). address.json 0건(시골·고번지
+    #   미인덱싱)이지만 POI road_address 가 정확 일치하면 도로명 채택. 사용자 결정:
+    #   verified(배지 제거) — 도로명+번지 자체가 실재 확인됨.
+    _road = _road_poi_fallback(text)
+    if _road:
+        return (_post_normalize_display(_road), 'verified')
 
     # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
     if regex_addr:
