@@ -1908,6 +1908,9 @@ def _mark_planned(addr: str) -> str:
         return addr
     addr = re.sub(r'([가-힣]{2,})\s*예정지(?=\s|$)', r'\1 (예정)', addr)
     addr = re.sub(r'([가-힣]{2,})예정(?=\s|$)', r'\1 (예정)', addr)
+    # 이미 괄호 친 '한의원(예정)'(공백 없이 붙은) → '한의원 (예정)' (L-03680). 고객·매니저가
+    #   상호에 붙여 쓴 케이스. 앞이 한글일 때만 (숫자/공백은 정상 → 무변).
+    addr = re.sub(r'([가-힣])\(예정\)', r'\1 (예정)', addr)
     # 파이프라인 재부착이 만든 'X X (예정)' 중복 축약 → 'X (예정)' (L-03600 실측)
     addr = re.sub(r'([가-힣]{2,})\s+\1\s+\(예정\)', r'\1 (예정)', addr)
     return re.sub(r'\s+', ' ', addr).strip()
@@ -2133,7 +2136,7 @@ def resolve_address(
     if _jibun_road:
         _floor = re.search(r'[A-Za-z]?\d+\s*(?:층|호|호실|관)', text or '')
         _addr = f'{_jibun_road} {_floor.group(0)}'.strip() if _floor else _jibun_road
-        return (_post_normalize_display(_addr), 'jibun_poi')
+        return (_mark_planned(_post_normalize_display(_addr)), 'jibun_poi')
 
     # 1d. 도로명+번지 POI 구제 (2026-08-14 L-03667). address.json 0건(시골·고번지
     #   미인덱싱)이지만 POI road_address 가 정확 일치하면 도로명 채택. 사용자 결정:
@@ -2143,7 +2146,7 @@ def resolve_address(
         # 도로명만 확인된 민숭 주소에 POI 건물명 부착 (L-03650 다슬빌딩) — verified 경로와
         #   동일하게 강한 접미·입주사 마커 없는 건물 POI 가 유일할 때만.
         _road = _enrich_building_by_road(_road)
-        return (_post_normalize_display(_road), 'verified')
+        return (_mark_planned(_post_normalize_display(_road)), 'verified')
 
     # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
     if regex_addr:

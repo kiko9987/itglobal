@@ -486,6 +486,13 @@ def test_mark_planned_idempotent_and_verb():
     assert ar._mark_planned('삼성빌딩 3층 설치 예정') == '삼성빌딩 3층 설치 예정'
 
 
+def test_mark_planned_glued_paren():
+    """이미 괄호 친 'X(예정)'(공백 없이 붙은) → 'X (예정)' (L-03680)."""
+    assert ar._mark_planned('인하로 79 2층 한의원(예정)') == '인하로 79 2층 한의원 (예정)'
+    # 앞이 공백이면 정상 → 무변 (멱등)
+    assert ar._mark_planned('인하로 79 2층 한의원 (예정)') == '인하로 79 2층 한의원 (예정)'
+
+
 def test_extract_tail_keeps_예정지_not_truncated():
     """'예정지'(예정+지)는 스톱워드 절단 대상 아님 — verify tail 보존 (L-03600)."""
     r = ar._extract_building_tail('성남 둔촌대로 388 크란츠테크노 지하 1층 중식당예정지')
