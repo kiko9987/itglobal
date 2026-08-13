@@ -1704,6 +1704,13 @@ def _poi_fallback_by_gu(text: str, first_line: str) -> Optional[str]:
     가드: 상호 후보가 POI place_name 정확 매치(or 'cand ' 로 시작) + POI 도로명에 구 포함.
     구가 없으면 힌트가 약해 오탐 위험 → skip.
     """
+    # 입력에 도로명+번지가 이미 있으면 상호 POI 로 다른 지점 도로를 갈아치우지 않음
+    #   (L-03679: '분당내곡로 131 … 포케올데이 판교점' → 상호검색이 서현역점 황새울로
+    #   360번길 28 로 도로를 바꿔버림). startswith(cand+' ') 매칭이 느슨해 같은 브랜드
+    #   다른 지점을 먼저 잡는 오매칭. 도로+번지가 있으면 _road_poi_fallback·Juso 가 그
+    #   도로를 검증하도록 위임. (본 경로는 지번만 있고 도로명 없는 케이스용 — L-03473)
+    if _ROAD_PATTERN.search(first_line):
+        return None
     m_gu = re.search(r'([가-힣]{2,}구)', first_line)
     gu = m_gu.group(1) if m_gu else ''
     if not gu:

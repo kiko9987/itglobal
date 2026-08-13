@@ -45,6 +45,23 @@ class TestPoiFallbackByGu:
         _patch_poi(monkeypatch, [])
         assert ar._try_poi_fallback('인천 부평구 일신동 25 송암노인요양원') is None
 
+    def test_road_present_skips_shop_override(self, monkeypatch):
+        """입력에 도로명+번지 이미 있으면 상호 POI 로 다른 지점 도로 갈아치우기 금지
+        (L-03679: '분당내곡로 131 … 포케올데이 판교점' → 서현역점 황새울로 오매칭 방지).
+
+        같은 브랜드 다른 지점(서현역점)을 POI 가 먼저 줘도, 도로+번지가 있으면 채택 안 함
+        → 도로 기반 fallback(_road_poi_fallback·Juso)이 입력 도로를 검증하도록 위임."""
+        _patch_poi(monkeypatch, [('포케올데이 서현역점', '경기 성남시 분당구 황새울로360번길 28')])
+        out = ar._try_poi_fallback(
+            '경기 성남시 분당구 분당내곡로 131 판교 테크원타워 지하 1층 25호 포케올데이 판교점')
+        assert out is None
+
+    def test_jibun_only_still_rescued(self, monkeypatch):
+        """도로명 없는 순수 지번 입력은 기존대로 상호 POI 구제 유지 (회귀 방어)."""
+        _patch_poi(monkeypatch, [('송암노인요양원', '인천 부평구 일신로 25')])
+        out = ar._try_poi_fallback('인천 부평구 일신동 25 송암노인요양원')
+        assert out == '인천 부평구 일신로 25 송암노인요양원'
+
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
