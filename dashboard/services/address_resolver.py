@@ -2011,6 +2011,9 @@ def resolve_address(
     #   verified(배지 제거) — 도로명+번지 자체가 실재 확인됨.
     _road = _road_poi_fallback(text)
     if _road:
+        # 도로명만 확인된 민숭 주소에 POI 건물명 부착 (L-03650 다슬빌딩) — verified 경로와
+        #   동일하게 강한 접미·입주사 마커 없는 건물 POI 가 유일할 때만.
+        _road = _enrich_building_by_road(_road)
         return (_post_normalize_display(_road), 'verified')
 
     # 2. 정규식 결과 (시도 prefix 정규화 적용 + 상호명 보강)
