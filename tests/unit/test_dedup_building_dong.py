@@ -291,6 +291,18 @@ def test_enrich_building_skip_tenant_only(monkeypatch):
     assert ar._enrich_building_by_road(v) == v
 
 
+def test_join_road_gil():
+    """도로명 번호-길 공백 조인 — '언주로 107 길 27' → '언주로107길 27' (L-03650)."""
+    J = ar._join_road_gil
+    assert J('언주로 107 길 27 지하') == '언주로107길 27 지하'
+    assert J('강남구 언주로 107 길 27') == '강남구 언주로107길 27'
+    assert J('테헤란로 107 번길 16') == '테헤란로107번길 16'
+    # 가드: '길동'(동명)·정상 번지·이미 붙은 것은 불변
+    assert J('테헤란로 107 길동') == '테헤란로 107 길동'
+    assert J('테헤란로 152 3층') == '테헤란로 152 3층'
+    assert J('언주로107길 27') == '언주로107길 27'
+
+
 def test_road_poi_fallback_exact(monkeypatch):
     """도로명+번지 address.json 0건이지만 POI road 정확일치 → 채택 (L-03667)."""
     monkeypatch.setattr(ar, '_kakao_search_poi_cached', lambda q: (
