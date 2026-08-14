@@ -541,6 +541,11 @@ def _register_payment_handlers(app):
                         _react_card_handled(client, channel, ts)
                     except Exception:
                         pass
+                    # 미처리 박제 해제 — 기록 완료됐으므로 고정 풀기 (고정 목록=미처리 유지)
+                    try:
+                        client.pins_remove(channel=channel, timestamp=ts)
+                    except Exception:
+                        pass
                 try:
                     from dashboard.utils.redis_client import get_redis_client
                     get_redis_client().redis.delete(f"sms_intake:{intake_id}")

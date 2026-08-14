@@ -158,11 +158,20 @@ def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:
     try:
         from slack_sdk import WebClient
         slack = WebClient(token=bot_token)
-        slack.chat_postMessage(
+        resp = slack.chat_postMessage(
             channel=channel,
             text='입금 문자 도착 — 프로젝트 지정 필요',
             blocks=_build_intake_blocks(intake_id, clean_text, preview),
         )
+        # 미처리 박제 — 프로젝트 지정·기록 전까지 카드 고정(pin). 경영지원 [✅ 확인 후
+        # 기록] 시 자동 해제. 고정 목록 = 아직 처리 안 된 입금. pins:write scope 없으면
+        # 실패해도 카드 게시는 정상(무해).
+        ts = (resp or {}).get('ts')
+        if ts:
+            try:
+                slack.pins_add(channel=channel, timestamp=ts)
+            except Exception as exc:
+                logger.warning(f'[SMS_INBOUND] 인입 카드 고정 실패(무해, pins:write 확인 필요): {exc}')
         return True
     except Exception as exc:
         logger.error(f'[SMS_INBOUND] 카드 게시 실패: {exc}', exc_info=True)
