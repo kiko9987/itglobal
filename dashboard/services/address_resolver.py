@@ -1452,6 +1452,9 @@ _POI_FACILITY_SUBSTR = (
     #   'ATM'(현금인출기)·'옥외'(앞_옥외 등 옥외 주차/공간).
     'atm', '옥외',
 )
+# 접미로만 판정하는 시설어 — substr 로 넣으면 오탐(글로비스⊃로비)이라 endswith 로.
+#   '사무동로비'·'중앙로비' 등 로비/홀 부속공간 (2026-08-14 ETC-1765ea 사무동로비 오삽입).
+_POI_FACILITY_SUFFIX = ('로비',)
 
 
 def _poi_has_facility(place_name: str) -> bool:
@@ -1467,6 +1470,8 @@ def _poi_has_facility(place_name: str) -> bool:
         if w in _POI_FACILITY_EXACT:
             return True
         if any(f in wl for f in _POI_FACILITY_SUBSTR):
+            return True
+        if any(wl.endswith(s) for s in _POI_FACILITY_SUFFIX):
             return True
     return False
 

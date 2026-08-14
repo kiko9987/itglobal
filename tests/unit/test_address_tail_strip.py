@@ -285,5 +285,21 @@ class TestGwanNotSplit:
         assert '상가동' in r[0] and '2층' in r[0]
 
 
+class TestPoiFacilityLobby:
+    """'사무동로비' 등 로비 부속공간 POI 오삽입 방지 (ETC-1765ea).
+    '로비'는 substr 로 넣으면 '글로비스'(현대글로비스) 오탐이라 endswith 로 판정."""
+
+    def test_lobby_flagged_as_facility(self):
+        assert _ar._poi_has_facility('행복한백화점 목동점 사무동로비') is True
+        assert _ar._poi_has_facility('건물명 중앙로비') is True
+
+    def test_globis_not_flagged(self):
+        # '글로비스'는 로비 substr 을 포함하지만 부속시설 아님 → endswith 로 미검출
+        assert _ar._poi_has_facility('현대 글로비스') is False
+
+    def test_normal_building_not_flagged(self):
+        assert _ar._poi_has_facility('행복한백화점 목동점') is False
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
