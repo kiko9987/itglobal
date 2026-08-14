@@ -525,6 +525,20 @@ def test_mark_planned_glued_paren():
     assert ar._mark_planned('인하로 79 2층 한의원 (예정)') == '인하로 79 2층 한의원 (예정)'
 
 
+def test_extract_building_tail_keeps_paren_planned():
+    """verify 경로 tail 추출이 '(예정)' 괄호 지정어를 절단하지 않고 보존 (L-03680).
+    '예정' stop-word 가 '(예정)'까지 잘라 _mark_planned 가 (예정)을 못 살리던 갭."""
+    r = ar._extract_building_tail('인천 미추홀구 인하로 79 , 2층 한의원(예정)')
+    assert '(예정)' in r   # '2층 한의원(예정)' — 예정 보존
+
+
+def test_flatten_paren_keeps_planned():
+    """_flatten_paren_tail 이 '(예정)' 괄호를 벗기지 않음 (뒤 _mark_planned 용)."""
+    assert ar._flatten_paren_tail('2층 한의원(예정)') == '2층 한의원(예정)'
+    # 법정동 괄호는 기존대로 flatten (회귀 방어)
+    assert ar._flatten_paren_tail('건영아파트(중계동)') != '건영아파트(중계동)'
+
+
 def test_extract_tail_keeps_예정지_not_truncated():
     """'예정지'(예정+지)는 스톱워드 절단 대상 아님 — verify tail 보존 (L-03600)."""
     r = ar._extract_building_tail('성남 둔촌대로 388 크란츠테크노 지하 1층 중식당예정지')

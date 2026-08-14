@@ -544,7 +544,8 @@ def _flatten_paren_tail(tail: str) -> str:
 
     # 법인 표기 '(주)/(유)/(사)/(재)' 는 flatten 하면 '주' 홀로 남아 어색
     #   ('에스티팜 시화공장(주)' → '…시화공장 주') → 원형 유지 (2026-08-06 L-03358).
-    if re.fullmatch(r'[주유사재]', m.group(1).strip()):
+    # '(예정)' 지정어도 괄호 유지 → 뒤 _mark_planned 가 'X (예정)' 로 정규화 (L-03680).
+    if re.fullmatch(r'[주유사재]|예정', m.group(1).strip()):
         return tail
 
     before = tail[:m.start()].strip()
@@ -657,7 +658,10 @@ def _extract_building_tail(text: str) -> str:
             # 2026-08-06 L-03600: '예정지'(예정+지)는 계획 중 '장소' 표시라 절단 안 함
             #   (뒤 _mark_planned 가 '(예정)' 으로 변환). '예정'(지 없음)만 동사구
             #   ('설치 예정')로 보고 기존대로 절단.
-            if sw == '예정' and 0 <= p and tail[p + 2:p + 3] == '지':
+            # '예정지'(장소) 및 '(예정)'(괄호 지정어)는 절단 안 함 — 계획 중 장소 표시.
+            #   뒤 _mark_planned 가 'X (예정)' 로 정규화. '설치 예정'(동사구, 괄호X)만 절단.
+            if sw == '예정' and 0 <= p and (
+                    tail[p + 2:p + 3] == '지' or (p > 0 and tail[p - 1] == '(')):
                 continue
             # 2026-08-06 ETC-f89e73: '회사' 가 법인 표기 '주식/유한/합자/합명회사'
             #   내부를 자르는 것 방지 — 매니저가 붙인 법인 표기 보존(사용자 결정).
