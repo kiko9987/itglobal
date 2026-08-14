@@ -187,12 +187,134 @@ def collect_pending_pins() -> Optional[dict]:
             'total': len(deposits) + len(invoices) + len(others)}
 
 
+def _payment_client():
+    from slack_sdk import WebClient
+    tok = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip()
+    return WebClient(token=tok) if tok else None
+
+
+def _payment_channel() -> str:
+    return os.getenv('SLACK_PAYMENT_INTAKE_CHANNEL', '').strip()
+
+
+def _fmt_deposit_line(pv: dict) -> str:
+    """preview(dict) → 'MM/DD G/R/N 금액원 거래처'."""
+    grn = {'기업': 'G', '하나': 'R', '농협': 'N'}.get(pv.get('bank', ''), '')
+    parts = [x for x in [
+        pv.get('date_md', ''), grn,
+        (f"{pv['amount']:,}원" if pv.get('amount') else ''),
+        pv.get('partner', ''),
+    ] if x]
+    return ' '.join(parts) if parts else '(입금 내역)'
+
+
+def _deposit_key(text: str) -> str:
+    """입금 중복 판별 키 '금액|거래처6자' — #영업_관리↔#입금_관리 교차 dedup용.
+
+    검증된 파서(_parse_memo_block)로 금액·거래처 추출해 채널 무관 동일 키 생성.
+    양쪽 문자 표기가 조금 달라도 금액이 강한 식별자라 매칭된다.
+    """
+    try:
+        from dashboard.services.sms_intake import strip_balance
+        from dashboard.services.payment_sync import _parse_memo_block
+        r = _parse_memo_block(strip_balance(text)) or {}
+        amt = r.get('amount') or 0
+        partner = re.sub(r'\s+', '', (r.get('partner') or ''))[:6]
+        if amt:
+            return f'{amt}|{partner}'
+    except Exception:
+        pass
+    return ''
+
+
+def _oam_deposit_keys() -> set:
+    """#영업_관리 최근 입금 메시지 키 집합 — 겸용 중복 제거용.
+
+    거기 올라온 입금(고정=처리 예정 / ✅ 체크=처리 완료 — 둘 다 이력에 남음)은
+    #입금_관리 인입 쪽에서 리마인드 제외. 조회 실패(scope 등) 시 빈 set → dedup skip.
+    """
+    c = _client()
+    ch = _channel()
+    if not c or not ch:
+        return set()
+    try:
+        resp = c.conversations_history(channel=ch, limit=200)
+    except Exception as exc:
+        logger.warning(f'[PIN] 영업관리 history 조회 실패(겸용 dedup skip): {exc}')
+        return set()
+    keys = set()
+    for m in resp.get('messages', []) or []:
+        text = _msg_full_text(m)
+        if is_deposit(text):
+            k = _deposit_key(text)
+            if k:
+                keys.add(k)
+    return keys
+
+
+def collect_intake_pending() -> List[dict]:
+    """#입금_관리 고정(미처리) 인입 카드 조회 → 요약 리스트 (미지정+확인대기).
+
+    수금봇 토큰(pins:read)으로 #입금_관리 pins 조회. 인입 카드만(버튼 action_id 판별)
+    골라 상태(미지정=payment_intake_open / 확인대기=payment_intake_confirm) 표기.
+    Returns [{ts, summary, permalink, state}] (client/channel 미설정·실패 시 []).
+    """
+    c = _payment_client()
+    ch = _payment_channel()
+    if not c or not ch:
+        return []
+    try:
+        resp = c.pins_list(channel=ch)
+    except Exception as exc:
+        logger.warning(f'[PIN] 입금관리 pins.list 실패: {exc}')
+        return []
+    out: List[dict] = []
+    for it in resp.get('items', []) or []:
+        m = it.get('message', {})
+        if not m:
+            continue
+        aid = intake_id = None
+        for b in m.get('blocks', []) or []:
+            if b.get('type') != 'actions':
+                continue
+            for e in b.get('elements', []):
+                if e.get('action_id') in ('payment_intake_open', 'payment_intake_confirm'):
+                    aid, intake_id = e.get('action_id'), e.get('value')
+                    break
+        if not aid:
+            continue   # 인입 카드 아님(수동 핀 등) 제외
+        ts = m.get('ts', '')
+        # Redis 1회 로드 → 요약 + 겸용 dedup 키
+        summary, key = '(입금 내역)', ''
+        try:
+            import json
+            from dashboard.utils.redis_client import get_redis_client
+            raw = get_redis_client().redis.get(f'sms_intake:{intake_id}')
+            if raw:
+                d = json.loads(raw)
+                summary = _fmt_deposit_line(d.get('preview') or {})
+                key = _deposit_key(d.get('text') or '')
+        except Exception:
+            pass
+        permalink = ''
+        try:
+            permalink = (c.chat_getPermalink(channel=ch, message_ts=ts) or {}).get('permalink', '') or ''
+        except Exception:
+            pass
+        out.append({
+            'ts': ts, 'summary': summary, 'key': key, 'permalink': permalink,
+            'state': '미지정' if aid == 'payment_intake_open' else '확인대기',
+        })
+    return out
+
+
 def build_pin_remind_text(data: dict) -> str:
     """리마인드 카드 텍스트 조립."""
     deposits = data.get('deposits', [])
     invoices = data.get('invoices', [])
     others = data.get('others', [])
-    total = len(deposits) + len(invoices) + len(others)
+    intakes = data.get('intakes', [])
+    total = len(deposits) + len(invoices) + len(others) + len(intakes)
 
     def _line(e: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
@@ -201,7 +323,17 @@ def build_pin_remind_text(data: dict) -> str:
     def _section(header: str, items: list) -> str:
         return '\n'.join([header] + [_line(e) for e in items])
 
+    def _intake_line(e: dict) -> str:
+        link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
+        badge = ':hourglass_flowing_sand:' if e.get('state') == '확인대기' else ':link:'
+        return f'• {badge} {e["summary"]}  _{e.get("state", "")}_{link}'
+
     sections = []
+    if intakes:
+        # #입금_관리 미처리 인입 (프로젝트 지정/확인 필요) — 다른 채널이라 바로가기 링크로
+        sections.append('\n'.join(
+            [f':inbox_tray: *미처리 입금 — 지정/확인 필요 ({len(intakes)}건)*']
+            + [_intake_line(e) for e in intakes]))
     if deposits:
         sections.append(_section(f':moneybag: *입금내역 ({len(deposits)}건)*', deposits))
     if invoices:
@@ -212,7 +344,7 @@ def build_pin_remind_text(data: dict) -> str:
     body = f'\n{_BLANK}\n'.join(sections)   # 섹션 간 빈 줄 한 개
     return (
         f'{_BLANK}\n'
-        f':pushpin: *미처리 정산 {total}건 — 확인 후 각 메시지 카드에 댓글 부탁드립니다*\n'
+        f':pushpin: *미처리 정산·입금 {total}건 — 확인 후 처리(지정/댓글) 부탁드립니다*\n'
         f'{_SEP}\n'
         f'{body}\n'
         f'{_SEP}\n'
@@ -236,8 +368,16 @@ def send_pin_remind() -> dict:
     data = collect_pending_pins()
     if data is None:
         return {'ok': False, 'total': 0, 'reason': 'collect_failed'}
+    # #입금_관리 미처리 인입 카드 합류 (다른 채널 — 수금봇 토큰으로 조회)
+    intakes = collect_intake_pending()
+    # 겸용 중복 제거 — #영업_관리에 올라온 입금(처리 예정/완료)과 겹치는 인입은 제외
+    oam_keys = _oam_deposit_keys()
+    if oam_keys:
+        intakes = [i for i in intakes if i.get('key') not in oam_keys]
+    data['intakes'] = intakes
+    data['total'] = data.get('total', 0) + len(intakes)
     if data['total'] == 0:
-        logger.info('[PIN] 미처리 정산 0건 — 발송 skip')
+        logger.info('[PIN] 미처리 정산·입금 0건 — 발송 skip')
         return {'ok': True, 'total': 0, 'reason': None}
 
     c = _client()
