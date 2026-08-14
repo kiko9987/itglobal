@@ -464,8 +464,9 @@ def _register_payment_handlers(app):
                 amount = int(preview.get("amount") or 0)
                 memo = d.get("text") or ""
                 # 지정 내용만 저장 (아직 시트 기록 X — 샛별 확인 대기)
+                # project_option(선택 옵션 전체) 보관 → [재지정] 시 모달 미리 채움
                 _update_intake(intake_id, designation={
-                    "project_code": project_code, "stage": stage,
+                    "project_code": project_code, "project_option": sel, "stage": stage,
                     "amount": amount, "memo": memo, "by": user_id,
                 })
                 if channel and message_ts:
@@ -746,7 +747,21 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
     trigger_id = body["trigger_id"]
     d = _load_intake(intake_id)
     text = d.get("text") or ""
-    view = _build_payment_intake_view(intake_id, channel, message_ts, text)
+    # [재지정] — 이전 지정값(프로젝트+단계) 미리 채움. 최초 [지정]은 designation 없음 → 빈 모달.
+    des = d.get("designation") or {}
+    selected_project = des.get("project_option")
+    stage_value = des.get("stage") or None
+    project_details = None
+    if selected_project and des.get("project_code"):
+        try:
+            from dashboard.services.as_service import get_project_details
+            project_details = get_project_details(des["project_code"]) or None
+        except Exception:
+            project_details = None
+    view = _build_payment_intake_view(
+        intake_id, channel, message_ts, text,
+        selected_project=selected_project, project_details=project_details,
+        stage_value=stage_value)
     client.views_open(trigger_id=trigger_id, view=view)
 
 
