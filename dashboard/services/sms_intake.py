@@ -96,6 +96,20 @@ def active_display(text: str) -> str:
     return f">>> {s}" if s else ""
 
 
+# 인입 카드 3종(활성·확인대기·완료) 공통 구분선 — 입금 문자 폭에 맞춘 25자.
+INTAKE_SEP = '-' * 25
+
+
+def quoted_body(text: str) -> list:
+    """SMS 본문 → '>' 인용 라인 리스트 (표시 정규화 적용).
+
+    카드 3종 공통 레이아웃 — 헤더·구분선·본문을 한 섹션에 전부 '>' 로 감싸
+    섹션 간 여백 없이 온라인/방문 카드와 동일하게 보이게 한다.
+    """
+    norm = _normalize_sms_display(text)
+    return [f">{ln}" for ln in norm.split('\n')]
+
+
 def parse_preview(stripped_text: str) -> dict:
     """미리보기용 best-effort 파싱 (금액/은행/입금자/일시).
 

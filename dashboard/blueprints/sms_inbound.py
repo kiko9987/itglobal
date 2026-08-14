@@ -88,15 +88,31 @@ def sms_inbound():
         logger.info(f'[SMS_INBOUND] 발신번호 미허용 skip: {sender!r} (device={device})')
         return jsonify({'status': 'ignored', 'reason': 'sender'}), 200
 
-    # 입금 문자 판별 (광고·인증·택배 등 배제)
-    if not looks_like_payment(text):
-        logger.info(f'[SMS_INBOUND] 입금 문자 아님 skip (device={device})')
-        return jsonify({'status': 'ignored', 'reason': 'not_payment'}), 200
+    # 입금 문자 판별 → 사업자통장 → dedup → 잔액제거 → Redis → 🔗카드 (공통 파이프라인)
+    result = ingest_deposit(text, source=f'sms:{device}')
+    if result.get('status') == 'ok':
+        logger.info(f"[SMS_INBOUND] 인입 카드 게시: id={result.get('id')} device={device} "
+                    f"partner={(result.get('preview') or {}).get('partner')!r}")
+    else:
+        logger.info(f"[SMS_INBOUND] skip: {result.get('status')}/{result.get('reason','')} (device={device})")
+    result.pop('preview', None)
+    return jsonify(result), 200
 
+
+def ingest_deposit(text: str, source: str = 'sms') -> dict:
+    """은행 입금 문자 1건 처리 — 폰 포워딩과 채널 붙여넣기 공통 코어.
+
+    판별(looks_like_payment) → 사업자통장(has_business_account) → Redis dedup →
+    잔액 제거 → 미리보기 파싱 → Redis 보관 → #수금_입력 🔗 인입 카드 게시.
+    source: 추적용 라벨('sms:{device}' 또는 'channel:{user_id}'). dedup 키엔 미반영
+    (같은 입금이 폰·수동 양쪽으로 와도 본문 동일 → 첫 1건만 카드).
+    Returns: {'status': 'ok'|'ignored'|'duplicate'|'card_failed', 'id'?, 'reason'?, 'preview'?}
+    """
+    if not looks_like_payment(text):
+        return {'status': 'ignored', 'reason': 'not_payment'}
     # 사업자 통장(452/255/352) 입금만 통과 — 개인 계좌 입금(같은 은행이라도) 배제
     if not has_business_account(text):
-        logger.info(f'[SMS_INBOUND] 사업자 통장 계좌 아님 skip — 개인 입금 배제 (device={device})')
-        return jsonify({'status': 'ignored', 'reason': 'not_business_account'}), 200
+        return {'status': 'ignored', 'reason': 'not_business_account'}
 
     # Redis (중복제거·원문 보관)
     rc = None
@@ -105,16 +121,15 @@ def sms_inbound():
     except Exception as exc:
         logger.warning(f'[SMS_INBOUND] Redis 접근 실패 (dedup/보관 skip): {exc}')
 
-    intake_id = dedup_hash(sender, text)
+    intake_id = dedup_hash(source, text)
     if rc is not None:
         if not rc.set(f'sms_intake:seen:{intake_id}', '1', nx=True, ex=_DEDUP_TTL):
-            logger.info(f'[SMS_INBOUND] 중복 문자 skip: id={intake_id} (device={device})')
-            return jsonify({'status': 'duplicate', 'id': intake_id}), 200
+            return {'status': 'duplicate', 'id': intake_id}
 
     # 잔액 제거 (통장 잔고 노출 차단)
     clean = strip_balance(text)
     if not clean:
-        return jsonify({'status': 'ignored', 'reason': 'empty_after_strip'}), 200
+        return {'status': 'ignored', 'reason': 'empty_after_strip'}
 
     preview = parse_preview(clean)
 
@@ -122,19 +137,15 @@ def sms_inbound():
     if rc is not None:
         try:
             rc.set(f'sms_intake:{intake_id}', json.dumps({
-                'text': clean, 'sender': sender, 'device': device,
+                'text': clean, 'sender': source, 'device': source,
                 'preview': preview, 'ts': int(time.time()),
             }), ex=_INTAKE_TTL)
         except Exception as exc:
             logger.warning(f'[SMS_INBOUND] 원문 보관 실패: {exc}')
 
-    # 슬랙 인입 카드 게시
     if not _post_intake_card(intake_id, clean, preview):
-        return jsonify({'status': 'card_failed', 'id': intake_id}), 200
-
-    logger.info(f"[SMS_INBOUND] 인입 카드 게시: id={intake_id} device={device} "
-                f"partner={(preview or {}).get('partner')!r}")
-    return jsonify({'status': 'ok', 'id': intake_id}), 200
+        return {'status': 'card_failed', 'id': intake_id}
+    return {'status': 'ok', 'id': intake_id, 'preview': preview}
 
 
 def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:
@@ -159,17 +170,20 @@ def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:
 
 
 def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list:
-    # 문자 원문(여러 줄) 그대로 노출 — 매니저가 원문 보고 프로젝트 식별. 잔액만 제거된 상태.
+    # 온라인/방문 카드와 동일 구조 — 헤더·구분선·본문·구분선을 한 섹션에 전부 '>' 인용으로
+    # 넣어 섹션 간 여백 제거(2026-08-14). 문자 원문 그대로 노출(잔액만 제거).
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     bank = (preview or {}).get('bank') or ''
     bank_label = {
         '기업': '기업은행 (글로벌)',
         '하나': '하나은행 (글로벌그룹)',
         '농협': '농협은행',
     }.get(bank, '')
-    header = '🔔 새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
+    header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
+    lines = ["⠀", f">🔔 *{header}*", f">{INTAKE_SEP}",
+             *quoted_body(clean_text), f">{INTAKE_SEP}"]
     return [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"⠀\n*{header}*"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": active_display(clean_text)}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}},
         {"type": "actions", "elements": [{
             "type": "button",
             "text": {"type": "plain_text", "text": "🔗 프로젝트 지정하기"},

@@ -549,10 +549,68 @@ def _register_payment_handlers(app):
                 logger.error(f"[SLACK/수금봇] payment_intake_confirm 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    @app.event("message")
+    def handle_payment_channel_message(event, client):
+        """#입금_입력 채널에 사람이 붙여넣은 은행 입금 문자 → 🔗 인입 카드 (농협 등 수동 건).
+
+        폰 포워딩(/sms/inbound)과 동일한 ingest_deposit 코어를 태운다. 여러 건을
+        빈 줄로 붙여넣어도 블록별로 분리해 건별 카드 생성. 봇 자신/수정/삭제/스레드
+        답글은 무시(무한루프·노이즈 방지). 사업자통장 아닌 건은 코어에서 걸러짐.
+        """
+        try:
+            intake_channel = os.getenv('SLACK_PAYMENT_INTAKE_CHANNEL', '').strip()
+            if not intake_channel or event.get('channel') != intake_channel:
+                return
+            # 봇 메시지(자신의 카드 포함)·수정/삭제/파일 등 subtype·스레드 답글 무시
+            if event.get('bot_id') or event.get('subtype'):
+                return
+            if event.get('thread_ts') and event.get('thread_ts') != event.get('ts'):
+                return
+            text = (event.get('text') or '').strip()
+            if not text:
+                return
+            from dashboard.services.sms_intake import looks_like_payment
+            if not looks_like_payment(text):
+                return  # 입금 문자 아니면 조용히 무시 (잡담)
+            user = event.get('user', '')
+            ts = event.get('ts', '')
+
+            def _bg():
+                try:
+                    from dashboard.blueprints.sms_inbound import ingest_deposit
+                    # 여러 건 붙여넣기 대비 — 빈 줄로 블록 분리, 건별 처리
+                    blocks = [b.strip() for b in re.split(r'\n\s*\n', text) if b.strip()]
+                    if not blocks:
+                        blocks = [text]
+                    made = dup = 0
+                    for blk in blocks:
+                        if not looks_like_payment(blk):
+                            continue
+                        res = ingest_deposit(blk, source=f'channel:{user}')
+                        st = res.get('status')
+                        if st == 'ok':
+                            made += 1
+                        elif st == 'duplicate':
+                            dup += 1
+                    # 카드 생성/중복이면 원문에 ✅ 리액션 (reactions:write 없으면 무시)
+                    if (made or dup) and ts:
+                        try:
+                            client.reactions_add(channel=intake_channel, timestamp=ts,
+                                                 name='white_check_mark')
+                        except Exception:
+                            pass
+                    logger.info(f"[SLACK/수금봇] 채널 붙여넣기 인입: made={made} dup={dup} "
+                                f"blocks={len(blocks)} by {user}")
+                except Exception as exc:
+                    logger.error(f"[SLACK/수금봇] 채널 메시지 인입 실패: {exc}", exc_info=True)
+            threading.Thread(target=_bg, daemon=True).start()
+        except Exception as exc:
+            logger.error(f"[SLACK/수금봇] handle_payment_channel_message 실패: {exc}", exc_info=True)
+
     logger.info(
         "[SLACK/수금봇] 핸들러 등록 완료: payment_card_delete, payment_intake_open, "
         "payment_intake_project, submit_payment_intake, payment_intake_confirm, "
-        "payment_intake_redesignate"
+        "payment_intake_redesignate, message(채널 붙여넣기 인입)"
     )
 
 
@@ -872,15 +930,19 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
 
 
 def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, by_user):
-    """지정 완료 → 경영지원 확인 대기 카드 (문자 원문 + 확인/재지정 버튼). 활성=인용 스타일."""
-    from dashboard.services.sms_intake import active_display
+    """지정 완료 → 경영지원 확인 대기 카드. 활성 카드와 동일 구조(한 섹션·전부 '>' 인용·구분선)."""
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     amt = f"{amount:,}원" if amount else '—'
-    warn = "" if amount else "\n:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요"
+    lines = [
+        "⠀",
+        ">🕓 *확인 대기 — 경영지원 확인 후 기록*",
+        f">*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 <@{by_user}>",
+    ]
+    if not amount:
+        lines.append(">:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요")
+    lines += [f">{INTAKE_SEP}", *quoted_body(memo), f">{INTAKE_SEP}"]
     return [
-        {"type": "section", "text": {"type": "mrkdwn", "text": (
-            f"⠀\n*🕓 확인 대기 — 경영지원 확인 후 기록*\n"
-            f"*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 <@{by_user}>{warn}")}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": active_display(memo)}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}},
         {"type": "actions", "elements": [
             {"type": "button", "text": {"type": "plain_text", "text": "✅ 확인 후 기록"},
              "style": "primary", "action_id": "payment_intake_confirm", "value": intake_id},
@@ -891,19 +953,21 @@ def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, b
 
 
 def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, confirmed_by):
-    """온라인 리드 완료 카드와 동일 양식 — ✅ 헤더 + 메타 + 원문 code block, 버튼 없음."""
+    """확인 완료 카드 — 활성·대기와 동일 구조(한 섹션·전부 '>' 인용·구분선), 버튼 없음."""
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     who = (f"지정 <@{by_user}> · 확인 <@{confirmed_by}>" if by_user
            else f"확인 <@{confirmed_by}>")
-    header = '\n'.join([
-        '⠀',
-        f":white_check_mark: *확인 완료 - {stage}*  `{project_code}`",
-        f"금액 : {amount:,}원",
-        f"처리 : {who}",
-    ])
-    from dashboard.services.sms_intake import _normalize_sms_display
-    text = f"{header}\n\n```\n{_normalize_sms_display(memo_text)}\n```"
+    lines = [
+        "⠀",
+        f">✅ *확인 완료 - {stage}*  `{project_code}`",
+        f">금액 : {amount:,}원",
+        f">처리 : {who}",
+        f">{INTAKE_SEP}",
+        *quoted_body(memo_text),
+        f">{INTAKE_SEP}",
+    ]
     return [
-        {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}},
     ]
 
 
