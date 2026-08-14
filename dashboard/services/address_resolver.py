@@ -2089,15 +2089,25 @@ def _juso_fallback(text: str, regex_addr: Optional[str]) -> Optional[Tuple[str, 
     if not results:
         return None
     _bound = re.compile(re.escape(core_ns) + r'(?![\d-])')
+    # 도로/동 '이름' 토큰 (번지 제외) — 시작 경계 검증용. '판교로 393' → '판교로'.
+    #   _bound(nospace)만으론 '판교로393' 이 '대왕판교로393' 안에 부분문자열로 매칭돼
+    #   완전 다른 도로를 verified 로 오승격(L-03686). 이름이 결과의 **온전한 공백 토큰**
+    #   으로 존재할 때만 통과 → '판교로' ⊄ '대왕판교로' 거절. '백제고분로19길'은 통과.
+    _core_name = re.sub(r'\s*\d+(-\d+)?$', '', core).strip()
     # 경계+지역 통과 후보 수집 (같은 지번이 여러 도로에 걸친 경우 disambig 위해)
     _valid = []
     for road_addr, jibun_addr, bd in results:
         road_clean = re.sub(r'\s*\([^)]*\)\s*$', '', road_addr).strip()  # (법정동) 제거
+        jibun_clean = re.sub(r'\s*\([^)]*\)\s*$', '', jibun_addr).strip()
         rk = road_clean.replace(' ', '')
-        jk = re.sub(r'\s*\([^)]*\)\s*$', '', jibun_addr).replace(' ', '')
+        jk = jibun_clean.replace(' ', '')
         hit = ((kind == 'road' and _bound.search(rk))
                or (kind == 'jibun' and _bound.search(jk)))
         if not hit:
+            continue
+        # 시작 경계: 도로/동 이름이 부분문자열이 아니라 온전한 토큰이어야 함
+        _clean_toks = (road_clean if kind == 'road' else jibun_clean).split()
+        if _core_name and _core_name not in _clean_toks:
             continue
         # 지역 토큰 교차확인 (다른 도시 동명 도로/지번 방지)
         if _reg_toks and not any(rt in rk for rt in _reg_toks):
