@@ -124,7 +124,11 @@ def normalize_display(addr: str) -> str:
     # 아래 모든 분기 결과를 result 로 모아 마지막에 후처리 통과 (2026-07-22)
     if first in _SEOUL:
         result = ' '.join(tokens[1:])
-    elif first in ('광주', '광주광역시') and second.endswith('구'):
+    elif ((first in ('광주', '광주광역시')
+           # '전남광주통합특별시' 등 광주 포함 특별시 명칭도 광주광역시로 인식 → '전남 광주'
+           #   (경기 광주시와 구분, L-03672). 광역시는 위 set, 특별시형만 추가 매치.
+           or ('광주' in first and first.endswith('특별시')))
+          and second.endswith('구')):
         result = ' '.join(['전남', '광주'] + tokens[1:])
     elif first in _METRO_KEEP:
         result = addr
@@ -135,10 +139,14 @@ def normalize_display(addr: str) -> str:
     elif first in ('제주도', '제주특별자치도'):
         if second == '제주시':
             result = ' '.join(['제주'] + rest)
+        elif second == '서귀포시':          # 제주도 서귀포시 → 서귀포 (docstring)
+            result = ' '.join(['서귀포'] + rest)
         else:
             result = ' '.join(['제주'] + tokens[1:])
     elif first == '제주' and second == '제주시':
         result = ' '.join(['제주'] + rest)
+    elif first == '제주' and second == '서귀포시':   # 제주 서귀포시 → 서귀포 (pre-existing 갭)
+        result = ' '.join(['서귀포'] + rest)
     elif first in _PROV_SHORT:
         # 비수도권 도(전북·전남·경북·경남·강원·충북·충남)는 도 접두 유지 —
         #   담당자가 '김제'만 보면 먼 지역인지 감이 안 옴 → '전북 김제' (2026-08-06
