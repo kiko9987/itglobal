@@ -372,6 +372,15 @@ def test_juso_fallback_jibun_bdnm(monkeypatch):
     assert base == '영등포구 은행로 3 익스콘벤처타워'
 
 
+def test_kakao_bldg_tenant_re():
+    """입주시설 접미 판정 — 교회/학원 등은 tenant, 빌딩/파라곤은 건물 (L-03627)."""
+    assert ar._KAKAO_BLDG_TENANT_RE.search('열방교회')
+    assert ar._KAKAO_BLDG_TENANT_RE.search('한빛학원')
+    assert ar._KAKAO_BLDG_TENANT_RE.search('행복유치원')
+    assert not ar._KAKAO_BLDG_TENANT_RE.search('국민제2빌딩')
+    assert not ar._KAKAO_BLDG_TENANT_RE.search('동탄 파라곤')
+
+
 def test_partner_alias_lookup(monkeypatch):
     """거래처 약칭 → 등록 주소 lookup (ETC-4feb23). 경계 매치·층 부착."""
     monkeypatch.setattr(ar, '_partner_alias_map',

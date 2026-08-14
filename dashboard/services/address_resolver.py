@@ -778,6 +778,12 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
     return out
 
 
+# 카카오 building_name 이 '건물'이 아니라 상가 입주 시설(교회·학원 등)인 접미 —
+#   고객이 별도 상호를 준 경우 이 건물명 부착 skip (L-03627 열방교회). 종교·소규모
+#   교육시설: 상가 건물의 대표 등록명으로 잡히나 실제론 한 입주 업체.
+_KAKAO_BLDG_TENANT_RE = re.compile(r'(교회|성당|사찰|기도원|어린이집|유치원|학원|독서실|공부방)$')
+
+
 def verify_address(
     text: str, regex_addr: Optional[str] = None
 ) -> Optional[Tuple[str, str]]:
@@ -987,8 +993,17 @@ def verify_address(
                     re.IGNORECASE,
                 )
             )
+            # 카카오 building_name 이 입주 시설(교회·학원 등) 접미인데 고객이 이미 별도
+            #   상호(tail)를 준 경우 = 상가 건물의 한 입주 업체를 건물명으로 잘못 받은 것.
+            #   부착하면 '열방교회 도그버디 면목점'(교회+펫샵) 처럼 엉뚱 (2026-08-14 L-03627,
+            #   사용자: 열방교회는 시장 상가 입주 교회). tail 없으면(그 시설 자체 방문) 유지.
+            _bldg_is_tenant = bool(
+                _KAKAO_BLDG_TENANT_RE.search(building_name)
+                and (building_tail or '').strip()
+            )
             if (
                 building_name
+                and not _bldg_is_tenant
                 and building_name.lower() not in base.lower()
                 # 원본 tail 에 이미 같은 건물명이 있으면 append 안 함 — 안 그러면 카카오
                 #   건물명 + tail 의 건물명 이중 노출 ('서울랜드 후문 서울랜드 산타레스토랑',
