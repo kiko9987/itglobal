@@ -45,6 +45,28 @@ def test_no_false_positive(addr):
     assert clean == addr and note == ''
 
 
+@pytest.mark.parametrize('addr, clean, note', [
+    # 출입/도어 정보 괄호 → 상담 이동 (L-03683)
+    ('동대문구 장한로 27길 29 지하1층 (비밀번호 7080)',
+     '동대문구 장한로 27길 29 지하1층', '비밀번호 7080'),
+    ('마포구 양화로 45 3층 (공동현관 1234#)', '마포구 양화로 45 3층', '공동현관 1234#'),
+    ('서초구 서초대로 396 (도어락 0000)', '서초구 서초대로 396', '도어락 0000'),
+    ('송파구 올림픽로 300 (출입번호 5678)', '송파구 올림픽로 300', '출입번호 5678'),
+])
+def test_access_code_paren_moved(addr, clean, note):
+    """괄호 안 출입 비밀번호/도어락 정보는 상담으로 분리."""
+    assert S(addr) == (clean, note)
+
+
+@pytest.mark.parametrize('addr', [
+    '강남구 테헤란로 152 (101동)',      # 동 번호 — 주소성, 유지
+    '강남구 테헤란로 152 (별관) 3층',    # 부속동 — 주소성, 유지
+])
+def test_address_paren_not_moved(addr):
+    """주소성 괄호(동·별관)는 출입정보 키워드와 무관 — 유지."""
+    assert S(addr) == (addr, '')
+
+
 def test_slash_time_note_moved():
     """'/' 뒤 시간·지시 노트 상담 이관 (ETC-4c47a2)."""
     clean, note = S('영등포구 경인로 775 에이스하이테크시티 2동 / 오전 7시 현장설명 / 오후 1시 철거제품 회수 및 결산')
