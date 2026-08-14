@@ -276,6 +276,17 @@ def _kakao_get_json(url: str):
     raise _KakaoTransientError()
 
 
+# 카카오 building_name 끝의 순수 로마자 괄호 표기 제거 (L-03693): 카카오 등록 건물명이
+#   '브릿지타워(BRIDGE TOWER)' 처럼 국문명+영문 로마자를 병기 → 방문 주소엔 노이즈.
+#   끝 괄호 안이 **로마자/숫자/기호로만** 이뤄지고 로마자 1자 이상일 때만 제거
+#   ('아이파크(IPARK)'→'아이파크'). '(주)'·'(101동)'·'(1234)' 등 국문·순수숫자는 보존.
+_ROMAN_PAREN_TAIL_RE = re.compile(r"\s*\((?=[^)]*[A-Za-z])[A-Za-z0-9 .,&'\-]+\)\s*$")
+
+
+def _strip_roman_paren(s: Optional[str]) -> Optional[str]:
+    return _ROMAN_PAREN_TAIL_RE.sub('', s).strip() if s else s
+
+
 @lru_cache(maxsize=512)
 def _kakao_search_cached(query: str) -> Optional[dict]:
     url = KAKAO_ENDPOINT + '?' + urllib.parse.urlencode({'query': query})
@@ -293,6 +304,9 @@ def _kakao_search_cached(query: str) -> Optional[dict]:
             for _k in ('building_name', 'address_name'):
                 if isinstance(_obj.get(_k), str):
                     _obj[_k] = html.unescape(_obj[_k])
+            # 건물명만 영문 로마자 괄호 제거 (주소 문자열엔 미적용)
+            if isinstance(_obj.get('building_name'), str):
+                _obj['building_name'] = _strip_roman_paren(_obj['building_name'])
     return doc
 
 
