@@ -805,6 +805,44 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
 #   교육시설: 상가 건물의 대표 등록명으로 잡히나 실제론 한 입주 업체.
 _KAKAO_BLDG_TENANT_RE = re.compile(r'(교회|성당|사찰|기도원|어린이집|유치원|학원|독서실|공부방)$')
 
+# 고객이 아파트명을 축약·오기(‘독산동신도아파트’ ← 정식 ‘신도브래뉴아파트’)했을 때
+#   공식명으로 승격 (L-03695). 원문 우선 원칙의 예외 — **아파트에 한해**, 이중 소스
+#   (카카오 building_name == 행안부 bdNm)가 같은 아파트로 일치 + 고객명이 핵심 토큰
+#   (‘신도’)을 공유할 때만. 다른 아파트를 지목했을 가능성(래미안≠신도브래뉴)은 토큰
+#   불일치로 거절 → 원문 유지. 동/호 tail(‘101동 502호’)은 보존.
+_APT_NAME_RE = re.compile(r'^([가-힣]+아파트)(\s.*)?$')
+_LEGAL_DONG_PREFIX_RE = re.compile(r'^[가-힣]{2,3}동(?=[가-힣])')
+
+
+def _maybe_upgrade_apartment_name(base: str, building_tail: str,
+                                  kakao_bldg: str) -> Optional[str]:
+    """고객 아파트 tail 을 이중소스 일치 공식명으로 승격. 조건 미충족 시 None(원문 유지)."""
+    if not (building_tail and kakao_bldg and kakao_bldg.endswith('아파트')):
+        return None
+    m = _APT_NAME_RE.match(building_tail.strip())
+    if not m:
+        return None
+    cust_name, rest = m.group(1), (m.group(2) or '')
+    if cust_name == kakao_bldg:
+        return None  # 이미 공식명
+    # 행안부 bdNm 교차확인 (base = 정규화 도로명+번지)
+    juso_bd = ''
+    try:
+        for _ra, _ji, _bd in (_juso_search_cached(base) or ()):
+            if _bd:
+                juso_bd = _bd.strip()
+                break
+    except Exception:
+        return None
+    if juso_bd != kakao_bldg:   # 이중 소스 불일치 → 승격 안 함
+        return None
+    # 핵심 토큰 공유: 고객명(법정동 접두 제거) 앞부분이 공식명에 포함돼야
+    cust_core = _LEGAL_DONG_PREFIX_RE.sub('', cust_name)          # 독산동신도아파트→신도아파트
+    cust_key = cust_core[:-3] if cust_core.endswith('아파트') else cust_core  # 신도
+    if len(cust_key) >= 2 and cust_key in kakao_bldg:
+        return f'{kakao_bldg}{rest}'
+    return None
+
 
 def verify_address(
     text: str, regex_addr: Optional[str] = None
@@ -980,6 +1018,7 @@ def verify_address(
         return result
 
     def _try_kakao(cand_text: str):
+        nonlocal building_tail  # 아파트명 승격 시 tail 교체 (L-03695)
         doc = _kakao_search(cand_text)
         if not doc:
             return None
@@ -992,6 +1031,13 @@ def verify_address(
         if road and road.get('address_name'):
             base = normalize_display(road['address_name'])
             building_name = (road.get('building_name') or '').strip()
+            # 아파트명 축약·오기 승격 (L-03695): 고객 tail 이 아파트 근사치이고 카카오·
+            #   행안부가 같은 아파트로 일치하면 공식명으로 tail 교체 → 아래 skip 로직이
+            #   중복 없이 공식명 부착. 조건 미충족이면 building_tail 불변(원문 유지).
+            if building_name.endswith('아파트') and building_tail:
+                _apt_up = _maybe_upgrade_apartment_name(base, building_tail, building_name)
+                if _apt_up:
+                    building_tail = _apt_up
             # 원본 tail에 건물명/시설명 신호가 있으면 카카오 building_name 스킵 (원본이 더 상세·정확).
             # 원본 tail이 층/호만 있으면 (건물명 없음) 카카오 building_name도 추가 (양쪽 정보 조합).
             #
