@@ -2115,6 +2115,57 @@ def _join_road_gil(s: Optional[str]) -> Optional[str]:
     return _ROAD_GIL_SPACE_RE.sub(r'\1\2\3', s) if s else s
 
 
+# 거래처 약칭 레지스트리 (2026-08-14 ETC-4feb23) — 자주 방문하는 주 거래처를 줄여
+#   부르는 약칭('알만'=알만에이엠 고양점)의 **주소를 직접 등록**. 상호만 있고 위치
+#   힌트(구/동/도로) 없는 케이스는 resolver 가 안전하게 POI 검색을 못 하므로(보수적),
+#   등록된 거래처는 주소를 lookup 으로 확정. Redis hash `addr:partner_alias`
+#   (field=약칭, value=정식 주소). 등록된 거래처로 한정 → 오탐 0. 60초 캐시·fails-open.
+_PARTNER_ALIAS = {'data': {}, 'ts': 0.0}
+_PARTNER_ALIAS_KEY = 'addr:partner_alias'
+
+
+def _partner_alias_map() -> dict:
+    import time as _t
+    now = _t.time()
+    if _PARTNER_ALIAS['data'] and now - _PARTNER_ALIAS['ts'] < 60:
+        return _PARTNER_ALIAS['data']
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        raw = get_redis_client().redis.hgetall(_PARTNER_ALIAS_KEY) or {}
+        _PARTNER_ALIAS['data'] = {k: v for k, v in raw.items() if k and v}
+        _PARTNER_ALIAS['ts'] = now
+    except Exception:
+        pass  # 장애 시 직전 캐시(없으면 빈 dict) 유지
+    return _PARTNER_ALIAS['data']
+
+
+def _partner_alias_lookup(text: Optional[str]) -> Optional[str]:
+    """등록된 거래처 약칭이 입력에 있으면 등록 주소 반환 ('알만 고양점' → 등록주소).
+
+    가장 긴 약칭 우선(‘알만 고양점’ > ‘알만’). 한글/영숫자 경계 매치(‘알만두’ 오탐
+    방지). 입력의 층/호는 등록 주소 뒤에 부착. 매치 없으면 None.
+    """
+    if not text:
+        return None
+    m = _partner_alias_map()
+    if not m:
+        return None
+    first = text.split('\n', 1)[0]
+    for abbr in sorted(m, key=len, reverse=True):
+        if not abbr:
+            continue
+        if re.search(r'(?<![가-힣A-Za-z0-9])' + re.escape(abbr)
+                     + r'(?![가-힣A-Za-z0-9])', first):
+            base = m[abbr].strip()
+            _fl = re.search(
+                r'((?:지하|지상)?\s*[A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관|[Ff]))'
+                r'(?![가-힣])', text)
+            if _fl and _fl.group(1).replace(' ', '') not in base.replace(' ', ''):
+                return f'{base} {_fl.group(1).strip()}'
+            return base
+    return None
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -2130,6 +2181,11 @@ def resolve_address(
     Returns:
         (주소, 신뢰도) 튜플. 신뢰도가 ''면 빈 결과.
     """
+    # 0. 거래처 약칭 레지스트리 (ETC-4feb23) — 등록된 주 거래처 약칭('알만')이면 등록
+    #   주소를 직접 확정(verified). 상호만 있고 위치힌트 없어 POI 로 못 푸는 케이스 구제.
+    _pa = _partner_alias_lookup(text)
+    if _pa:
+        return (_mark_planned(_post_normalize_display(_pa)), 'verified')
     # 도로명+번지 붙여쓰기 정규화 (L-03675/L-03678) — kakao verify 도 정규화된 text 로
     #   조회하도록 resolve 진입 시 적용(extract 와 대칭). '상도로 13길4'→'상도로13길 4'.
     text = _normalize_road_spacing(text)

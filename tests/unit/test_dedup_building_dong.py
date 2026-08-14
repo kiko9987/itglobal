@@ -372,6 +372,34 @@ def test_juso_fallback_jibun_bdnm(monkeypatch):
     assert base == '영등포구 은행로 3 익스콘벤처타워'
 
 
+def test_partner_alias_lookup(monkeypatch):
+    """거래처 약칭 → 등록 주소 lookup (ETC-4feb23). 경계 매치·층 부착."""
+    monkeypatch.setattr(ar, '_partner_alias_map',
+                        lambda: {'알만': '고양 덕양구 중앙로 118 알만에이엠 고양점'})
+    assert ar._partner_alias_lookup('알만 고양점') == '고양 덕양구 중앙로 118 알만에이엠 고양점'
+    # 입력 층/호 는 등록 주소 뒤 부착
+    assert ar._partner_alias_lookup('알만 고양점 3층') == '고양 덕양구 중앙로 118 알만에이엠 고양점 3층'
+    # 경계: '알만두'(다른 상호)는 매치 안 함
+    assert ar._partner_alias_lookup('알만두 상가 2층') is None
+    assert ar._partner_alias_lookup('강남구 테헤란로 152') is None
+
+
+def test_partner_alias_longest_key_wins(monkeypatch):
+    """여러 약칭 매치 시 가장 긴 키 우선 (알만 부산점 > 알만)."""
+    monkeypatch.setattr(ar, '_partner_alias_map',
+                        lambda: {'알만': 'A주소 알만에이엠', '알만 부산점': 'B주소 부산점'})
+    assert ar._partner_alias_lookup('알만 부산점 방문') == 'B주소 부산점'
+
+
+def test_resolve_partner_alias_verified(monkeypatch):
+    """resolve_address 최우선 — 등록 거래처면 verified 주소 확정 (POI 못 푸는 상호 구제)."""
+    monkeypatch.setattr(ar, '_partner_alias_map',
+                        lambda: {'알만': '고양 덕양구 중앙로 118 알만에이엠 고양점'})
+    addr, lv = ar.resolve_address('알만 고양점', None, '')
+    assert lv == 'verified'
+    assert addr == '고양 덕양구 중앙로 118 알만에이엠 고양점'
+
+
 def test_juso_fallback_jibun_multi_road_prefers_building(monkeypatch):
     """같은 지번이 여러 도로에 걸치면(오정동 810-1) 입력 건물명 매치 결과 우선 —
     Juso 반환 순서 비의존. 로마숫자↔아라비아 등가(원일테크노Ⅱ↔원일테크노2) (L-03278)."""
