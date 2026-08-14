@@ -7043,14 +7043,18 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
     elif addr_note and isinstance(addr_note, dict):
         _kind = addr_note.get('kind', '')
         _orig = (addr_note.get('original') or '').strip()
+        # 원본/변환 비교는 공백 정규화 후 값으로 (2026-08-14 L-03696): raw 문자열은
+        #   같은데 공백 등 미세차만 있어도 '원본 != 변환' 으로 판정돼, 실제 변환이 없는데도
+        #   원본/변환 두 줄이 떠 '자동 변환된 것' 처럼 오해되던 이슈. 정규화 후 동일하면
+        #   아래 분기 모두 skip → 하단 단일 '방문 주소' 한 줄로 렌더.
+        # 개행 → 공백 정규화 (2026-07-24 L-03361): 원본/변환 안 개행이 남으면
+        # blockquote 다음 줄이 인용 밖으로 삐져나와 잘못 렌더됨.
+        _orig_norm = re.sub(r'\s+', ' ', _orig).strip()
+        _conv_norm = re.sub(r'\s+', ' ', (visit_address or '').strip())
         if (_kind in ('normalized', 'note_only')
-                and _orig and _orig != (visit_address or '').strip()):
+                and _orig_norm and _orig_norm != _conv_norm):
             # note_only 포함 (2026-08-04): 정규화 없이 노트만 이동돼도 원본(노트 포함)/변환
             # 두 줄로 히스토리 보존 (원본 최대 유지 요청). 정규화 케이스와 동일 렌더.
-            # 개행 → 공백 정규화 (2026-07-24 L-03361): 원본/변환 안 개행이 남으면
-            # blockquote 다음 줄이 인용 밖으로 삐져나와 잘못 렌더됨.
-            _orig_norm = re.sub(r'\s+', ' ', _orig).strip()
-            _conv_norm = re.sub(r'\s+', ' ', (visit_address or '').strip())
             _orig_hl, _conv_hl = _highlight_addr_diff(_orig_norm, _conv_norm)
             _addr_lines.append(f">*원본 주소* : {_orig_hl}")
             _addr_lines.append(f">*변환 주소* : {_conv_hl}")
@@ -7060,11 +7064,9 @@ def _build_visit_notice_blocks(lead_no: str, category_display: str, initial: str
                     ">:rotating_light: *[시/구가 바뀜 — 오방문 주의, 주소 확인 요망]*"
                 )
         elif (_kind == 'estimated'
-                and _orig and _orig != (visit_address or '').strip()):
+                and _orig_norm and _orig_norm != _conv_norm):
             # 지번→keyword 도로명 구제 (L-03673): 원본(지번)/변환(도로명) 2줄 +
             #   변환줄 [추정] 배지. 근처 상호 기반이라 verified 아님 → 매니저 재확인.
-            _orig_norm = re.sub(r'\s+', ' ', _orig).strip()
-            _conv_norm = re.sub(r'\s+', ' ', (visit_address or '').strip())
             _orig_hl, _conv_hl = _highlight_addr_diff(_orig_norm, _conv_norm)
             _addr_lines.append(f">*원본 주소* : {_orig_hl}")
             _addr_lines.append(f">*변환 주소* : {_conv_hl}  :warning: *[추정]*")
