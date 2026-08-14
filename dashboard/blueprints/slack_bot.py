@@ -7921,8 +7921,12 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
             category_display = platform
         else:
             category_display = f"온라인({platform})" if platform else '온라인'
-        user_id = body['user']['id']
-        initial = _slack_user_to_initial(client, user_id) or '-'
+        # 등록자는 **원 등록자**(영업 담당자 > 온라인 상담자, 시트) 유지 — [정보 수정]
+        #   편집자로 덮어쓰지 않음(생성 경로와 일관). 기존엔 body['user'](편집자)를 등록자
+        #   자리에 넣어, A 등록건을 B가 수정하면 카드 등록자가 A→B로 뒤바뀌던 버그.
+        _orig_reg = (str(lead.get('영업 담당자', '')).strip().lstrip('@').strip()
+                     or str(lead.get('온라인 상담자', '')).strip().lstrip('@').strip())
+        initial = _to_initial(_orig_reg) if _orig_reg else '-'
 
         body_text, blocks = _build_visit_notice_blocks(
             lead_no=lead_no, category_display=category_display, initial=initial,
