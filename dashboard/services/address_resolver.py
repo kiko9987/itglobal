@@ -1725,21 +1725,26 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 #   기존 `already_has_branch` 는 `verified_words[i] == cand` 정확 매치라
                 #   `미원스페셜티케미칼(주)` 처럼 접미 (주)/㈜ 붙은 형태 인식 못함.
                 #   substring 검사로 확장 — verified 에 상호+지점 모두 있으면 replace 무의미.
-                # 2026-08-14 ETC-ad2710: 서수 '제' 접두 정규화 — POI '제4공장' 과 고객
-                #   '4공장' 을 동치로 봐 '제4공장 4공장' 중복 방지.
-                _vf_je = _strip_je_ordinal(verified_addr)
-                if len(place_words) >= 2 and all(
-                        _strip_je_ordinal(w) in _vf_je for w in place_words):
-                    continue
+                # 2026-08-14 ETC-ad2710: 서수 '제' 표기차 처리 — 고객 '4공장' 과 카카오
+                #   공식명 '제4공장' 은 같은 공장. ①정확 일치면 유지 ②표기차(제 유무)만
+                #   다르면 **공식명(제N공장)으로 승격**(중복 방지 + 만년로 제2공장 등과 표기
+                #   통일) ③둘 다 없으면 지점명 부착.
+                if len(place_words) >= 2 and all(w in verified_addr for w in place_words):
+                    continue  # 상호+지점명 정확히 이미 있음
                 if len(place_words) >= 2:
-                    place_second = _strip_je_ordinal(place_words[1])
+                    place_second = place_words[1]          # POI 공식 지점명 (제4공장)
+                    _ps_je = _strip_je_ordinal(place_second)
                     verified_words = verified_addr.split()
                     already_has_branch = False
                     for i, w in enumerate(verified_words):
                         if w == cand and i + 1 < len(verified_words):
-                            if _strip_je_ordinal(verified_words[i + 1]) == place_second:
+                            _vnext = verified_words[i + 1]
+                            if _vnext == place_second:
                                 already_has_branch = True
                                 break
+                            # 서수 '제' 표기차만 다르면 공식명으로 승격 (4공장→제4공장)
+                            if _strip_je_ordinal(_vnext) == _ps_je:
+                                return verified_addr.replace(_vnext, place_second, 1)
                     if already_has_branch:
                         return verified_addr  # 이미 지점명 있음
                     return verified_addr.replace(cand, place_name, 1)
