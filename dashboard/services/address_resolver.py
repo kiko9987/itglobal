@@ -1597,6 +1597,16 @@ def _replace_compound_with_tenant(verified_addr, original_text, candidates, v_ke
     return None
 
 
+# 서수 접두 '제'(제4공장·제2동) 정규화 — dedup 비교용 (2026-08-14 ETC-ad2710).
+#   고객이 '4공장', 카카오 POI 가 '제4공장' 이면 같은 대상인데 dedup 이 다른 것으로 봐
+#   '보우테이프 제4공장 4공장' 중복. 비교 시 '제'+숫자 접두를 제거해 동치 판정.
+_JE_ORDINAL_RE = re.compile(r'제(?=\d)')
+
+
+def _strip_je_ordinal(s: str) -> str:
+    return _JE_ORDINAL_RE.sub('', s or '')
+
+
 def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     """POI 검색으로 상호 지점명 부착.
 
@@ -1715,15 +1725,19 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 #   기존 `already_has_branch` 는 `verified_words[i] == cand` 정확 매치라
                 #   `미원스페셜티케미칼(주)` 처럼 접미 (주)/㈜ 붙은 형태 인식 못함.
                 #   substring 검사로 확장 — verified 에 상호+지점 모두 있으면 replace 무의미.
-                if len(place_words) >= 2 and all(w in verified_addr for w in place_words):
+                # 2026-08-14 ETC-ad2710: 서수 '제' 접두 정규화 — POI '제4공장' 과 고객
+                #   '4공장' 을 동치로 봐 '제4공장 4공장' 중복 방지.
+                _vf_je = _strip_je_ordinal(verified_addr)
+                if len(place_words) >= 2 and all(
+                        _strip_je_ordinal(w) in _vf_je for w in place_words):
                     continue
                 if len(place_words) >= 2:
-                    place_second = place_words[1]
+                    place_second = _strip_je_ordinal(place_words[1])
                     verified_words = verified_addr.split()
                     already_has_branch = False
                     for i, w in enumerate(verified_words):
                         if w == cand and i + 1 < len(verified_words):
-                            if verified_words[i + 1] == place_second:
+                            if _strip_je_ordinal(verified_words[i + 1]) == place_second:
                                 already_has_branch = True
                                 break
                     if already_has_branch:
