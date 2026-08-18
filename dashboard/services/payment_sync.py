@@ -1009,13 +1009,22 @@ def _build_stage_with_history_message(
     total_r: int, total_t: int, unpaid: int,
     stage_sheet_vals: Optional[Dict[str, int]] = None,
     construction: str = '',
+    refund_event: bool = False,
 ) -> str:
-    """단계 카드 + 누적 이력 (중도금 입금 시 사용). 과입금 반환은 이력에 '반환'으로 표시."""
-    # 헤더는 마지막 '입금'(반환 아님) 기준 — 반환은 이력에만 노출 (헤더가 음수로 나가지 않게)
-    _non_refund = [p for p in all_payments
-                   if p.get('stage') == stage and not p.get('is_refund')]
-    if _non_refund:
-        last_payment = _non_refund[-1]
+    """단계 카드 + 누적 이력. 과입금 반환은 이력에 '반환'으로 표시.
+
+    refund_event=True → 헤더가 '{stage} 반환', 헤드라인이 반환액(과입금 환불 발송 카드).
+    False(기본) → 헤드라인은 마지막 '입금'(반환 아님) 기준, 반환은 이력에만 노출.
+    """
+    _same = [p for p in all_payments if p.get('stage') == stage]
+    if refund_event:
+        _refs = [p for p in _same if p.get('is_refund')]
+        if _refs:
+            last_payment = _refs[-1]
+    else:
+        _non_refund = [p for p in _same if not p.get('is_refund')]
+        if _non_refund:
+            last_payment = _non_refund[-1]
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
     is_card = _is_card_payment(invoice_value, last_payment.get('partner', ''))
     code = _resolve_payment_code(invoice_value, last_payment.get('bank', ''), last_payment.get('partner', ''))
@@ -1033,6 +1042,8 @@ def _build_stage_with_history_message(
     amount_label = '결제금액' if is_card else '입금액'
     partner_label = '승인번호' if is_card else '입금자'
     header_action = '결제' if is_card else '입금'
+    if refund_event:   # 과입금 반환 발송 카드 — 기존 이모지 유지, 문구만 '반환'
+        date_label, amount_label, header_action = '반환일', '반환액', '반환'
 
     lines = [
         '⠀',
@@ -1443,6 +1454,44 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
         return False
 
 
+def _send_refund_card(slack, channel: str, rs: Dict,
+                      sheet_id: str, sheet_name: str) -> bool:
+    """과입금 반환 신규 → '반환' 새 카드 발송 (누적이력 포함). 값 감소라 일반 발송 트리거 밖.
+
+    기존 입금 카드는 그대로 두고, 반환 사실을 알리는 새 카드를 추가 게시한다.
+    최신 카드가 되므로 ts 추적을 이 카드로 갱신(이후 정정은 이 카드 대상).
+    """
+    from dashboard.blueprints.slack_helpers import safe_slack_call
+    project, stage = rs['project'], rs['stage']
+    stage_vals = {'계약금': rs['u'], '중도금': rs['v'], '잔금': rs['w']}
+    notes = _fetch_row_notes(sheet_id, sheet_name, rs['row'])
+    payments = _parse_notes(notes, stage_vals=stage_vals)
+    stage_payments = [p for p in payments if p.get('stage') == stage]
+    if not any(p.get('is_refund') for p in stage_payments):
+        return False   # 반환 파싱 실패 시 발송 안 함
+    text = _build_stage_with_history_message(
+        stage=stage, project=project, address=rs['address'],
+        last_payment=stage_payments[-1], all_payments=payments,
+        invoice_value=rs['invoice'], total_r=rs['total_r'], total_t=rs['total_t'],
+        unpaid=rs['unpaid'], stage_sheet_vals=stage_vals,
+        construction=rs['construction'], refund_event=True)
+    try:
+        r = safe_slack_call(slack.chat_postMessage, channel=channel, text=text,
+                            unfurl_links=False)
+        ts = (r or {}).get('ts')
+        if ts:
+            try:
+                get_redis_client().redis.set(
+                    f'payment_slack:ts:{project}:{stage}', ts, ex=60 * 60 * 24 * 90)
+            except Exception:
+                pass
+        logger.info(f'[PAYMENT] 과입금 반환 새 카드 발송: {project}/{stage} ts={ts}')
+        return True
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 반환 카드 발송 실패 ({project}/{stage}): {exc}')
+        return False
+
+
 def sync_payments() -> Dict:
     """공사 현황 시트 폴링 → U/V/W 변경 감지 + AA 체크 변경 감지 → 알림 발송."""
     result = {'processed': 0, 'sent': 0, 'errors': 0}
@@ -1631,6 +1680,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     changed_rows = []
     removed_cards = []  # 입금 메모 삭제(값 >0 → 0) 감지 → 카드 회색화 대상
     corrected_rows = []  # 입금 메모 정정(phash 변경, 값 증가 아님) → 카드 갱신+스냅샷 대상
+    refund_sends = []    # 과입금 반환 신규(단계에 반환 블록 추가) → '반환' 새 카드 발송 대상
 
     for offset, row in enumerate(rows):
         sheet_row = offset + 2  # 1-based + 헤더 1행
@@ -1732,10 +1782,30 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                         _cts = None
                     if _cts:
                         removed_cards.append({'project': project, 'stage': _stg, 'ts': _cts})
+            # 과입금 반환 신규 감지용 — 각 단계의 '반환' payment 만의 phash (2026-08)
+            _row_pays = all_payments_by_row.get(sheet_row) or []
+            def _ref_ph(_s):
+                return _hash_payments([p for p in _row_pays
+                                       if p.get('stage') == _s and p.get('is_refund')])
+            _cur_ref = {'계약금': _ref_ph('계약금'), '중도금': _ref_ph('중도금'), '잔금': _ref_ph('잔금')}
+            _prev_ref = {'계약금': prev.get('u_ref', ''), '중도금': prev.get('v_ref', ''), '잔금': prev.get('w_ref', '')}
             # 메모 정정 감지 (phash 변경 — 신규도 삭제도 아님, prev·cur 둘 다 존재) + 카드 ts 있음
             # → 기존 카드를 스레드 스냅샷으로 박제하고 최신 파싱으로 갱신 (2026-07-29)
+            #   단, 반환 블록이 새로 추가된 단계는 정정(갱신) 대신 '반환' 새 카드 발송 (2026-08)
             for _stg, _cph, _pph in (('계약금', cur_u_ph, prev_u_ph), ('중도금', cur_v_ph, prev_v_ph), ('잔금', cur_w_ph, prev_w_ph)):
                 if _cph and _pph and _cph != _pph:
+                    if not _prev_ref[_stg] and _cur_ref[_stg]:   # 반환 신규 → 새 카드
+                        refund_sends.append({
+                            'project': project, 'row': sheet_row, 'stage': _stg,
+                            'u': u_val, 'v': v_val, 'w': w_val,
+                            'address': str(_get(IDX_F)).strip(),
+                            'construction': str(_get(IDX_L)).strip(),
+                            'invoice': str(_get(IDX_Y)).strip(),
+                            'total_r': _to_int_won(_get(IDX_R)),
+                            'total_t': _to_int_won(_get(IDX_T)),
+                            'unpaid': _to_int_won(_get(IDX_X)),
+                        })
+                        continue
                     try:
                         _cts2 = rc.get(f'payment_slack:ts:{project}:{_stg}')
                     except Exception:
@@ -1759,6 +1829,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                     'u_phash': cur_u_ph,
                     'v_phash': cur_v_ph,
                     'w_phash': cur_w_ph,
+                    # 반환 phash (다음 폴링 재발송 방지)
+                    'u_ref': _cur_ref['계약금'], 'v_ref': _cur_ref['중도금'], 'w_ref': _cur_ref['잔금'],
                 })
                 rc.expire(key, REDIS_TTL)
             except Exception:
@@ -1805,6 +1877,14 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 logger.warning(f"[PAYMENT] 카드 정정 예외 ({_cr['project']}/{_cr['stage']}): {exc}")
     elif corrected_rows:
         logger.warning(f"[PAYMENT] 정정 대상 과다({len(corrected_rows)}) — 안전상 skip")
+
+    # 과입금 반환 신규 → '반환' 새 카드 발송 (2026-08). 값 감소라 일반 발송 트리거엔 안 걸려
+    # 정정 블록에서 수집됨. 기존 입금 카드는 그대로 두고 새 반환 카드를 추가 게시.
+    for _rs in refund_sends:
+        try:
+            _send_refund_card(slack, channel, _rs, sheet_id, sheet_name)
+        except Exception as exc:
+            logger.warning(f"[PAYMENT] 반환 카드 발송 예외 ({_rs['project']}/{_rs['stage']}): {exc}")
 
     if not changed_rows:
         return result
