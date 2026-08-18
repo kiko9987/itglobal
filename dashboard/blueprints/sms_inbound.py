@@ -21,8 +21,8 @@ import time
 from flask import Blueprint, jsonify, request
 
 from dashboard.services.sms_intake import (
-    active_display, dedup_hash, has_business_account, looks_like_payment,
-    normalize_deposit_layout, parse_preview, strip_balance,
+    active_display, dedup_hash, has_business_account, is_bank_interest,
+    looks_like_payment, normalize_deposit_layout, parse_preview, strip_balance,
 )
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.redis_client import get_redis_client
@@ -113,6 +113,10 @@ def ingest_deposit(text: str, source: str = 'sms') -> dict:
     # 사업자 통장(452/255/352) 입금만 통과 — 개인 계좌 입금(같은 은행이라도) 배제
     if not has_business_account(text):
         return {'status': 'ignored', 'reason': 'not_business_account'}
+
+    # 은행 예금 이자·결산 입금 제외 — 프로젝트 입금 아님 (적요 '2026년결산' 등)
+    if is_bank_interest(text):
+        return {'status': 'ignored', 'reason': 'bank_interest'}
 
     # Redis (중복제거·원문 보관)
     rc = None

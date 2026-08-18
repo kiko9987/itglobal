@@ -101,6 +101,16 @@ def has_business_account(text: str) -> bool:
     return any(p.search(text or '') for p in _BIZ_ACCT_RES)
 
 
+# 은행 예금 이자·결산 입금 — 프로젝트 입금 아님(적요 '2026년결산' 등). 인입 제외.
+# '이자'는 '이자카야' 등 상호 오탐 방지로 단독 제외 — '예금이자'·'결산'만.
+_BANK_INTEREST_RE = re.compile(r'결산|예금\s*이자|이자\s*입금')
+
+
+def is_bank_interest(text: str) -> bool:
+    """은행 예금 이자/결산 입금 여부 — 프로젝트 입금이 아니므로 인입 카드 생성 제외."""
+    return bool(_BANK_INTEREST_RE.search(text or ''))
+
+
 def dedup_hash(sender: str, text: str) -> str:
     """중복 판별 키 — 문자 본문 기준(정규화). 앞 16자.
 
