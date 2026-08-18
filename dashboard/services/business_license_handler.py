@@ -51,16 +51,40 @@ def _get_drive():
 
 
 def _project_folder_id_for(code: str) -> Optional[str]:
-    """프로젝트 코드 → 시트의 '견적서 및 계약서 폴더 경로' 값. 폴더 ID 형식이면 반환."""
+    """프로젝트 코드 → 시트의 '견적서 및 계약서 폴더 경로' 값을 진짜 폴더 ID로 정규화.
+
+    2026-08-18: 폴더칸에 폴더가 아니라 그 안의 '파일' 링크를 붙여넣은 오입력(파일→상위폴더)과
+    URL 형태 붙여넣기를 resolve_folder_id 로 저장 시점에 자동 교정. 등록 검증(1c37308)을
+    우회한 옛 데이터까지 여기서 교정된다. 유효한 폴더 ID 를 못 얻으면 None
+    (→ 호출부에서 'no_project_folder' 명확 안내).
+    """
     from dashboard.services.project_service import get_project_records
     records = get_project_records() or []
+    raw = None
     for r in records:
         if (r.get('프로젝트 코드') or '').strip() == code:
             raw = str(r.get('견적서 및 계약서 폴더 경로') or '').strip()
-            if raw and re.match(r'^[a-zA-Z0-9_-]{20,}$', raw):
-                return raw
+            break
+    if not raw:
+        return None
+    try:
+        from dashboard.utils.google_drive import resolve_folder_id
+        res = resolve_folder_id(raw)
+        reason = res.get('reason')
+        # 로컬경로 등 비-ID, 상위폴더조차 없는 파일 → 사용 불가 (명확 안내 유도)
+        if reason in ('not_id_format', 'file_no_parent', 'empty'):
             return None
-    return None
+        # ok_folder·file_to_parent(교정됨)·no_service·lookup_failed → 최선값 사용
+        val = str(res.get('value') or '').strip()
+        if re.fullmatch(r'[a-zA-Z0-9_-]{20,}', val):
+            return val
+        return None
+    except Exception as exc:
+        logger.warning(f'[LICENSE] 폴더 경로 정규화 실패 ({code}): {exc}')
+        # 폴백: 기존 규칙 (bare 폴더 ID 만 인정)
+        if re.match(r'^[a-zA-Z0-9_-]{20,}$', raw):
+            return raw
+        return None
 
 
 def _find_license_subfolder(drive, parent_id: str) -> Optional[str]:
@@ -464,6 +488,29 @@ def resolve_project_from_thread(channel: str, thread_ts: str, slack_bot_token: s
     return None
 
 
+def _reason_message(reason: str) -> str:
+    """save_business_license 실패 reason → 매니저용 명확·조치가능 안내 (2026-08-18)."""
+    r = str(reason or '')
+    if r == 'no_project_folder':
+        return ('⚠️ 견적서·계약서 폴더가 없거나 잘못 입력돼 저장하지 못했습니다. '
+                'PM에서 이 프로젝트의 "견적서 및 계약서 폴더 경로"에 올바른 *폴더* 링크를 '
+                '입력한 뒤 파일을 다시 첨부해 주세요.')
+    if r == 'invalid_file_signature':
+        return ('이미지·PDF 형식이 아니거나 파일이 손상돼 저장하지 못했습니다. '
+                '사업자등록증 원본(사진·PDF)이 맞는지 확인해 주세요.')
+    return f'저장 실패({r})'
+
+
+def _exception_message(exc: Exception) -> str:
+    """저장 중 예외 → 매니저용 명확 안내. parentNotAFolder(폴더칸에 파일 링크) 특별 처리."""
+    detail = str(exc)
+    if 'parentNotAFolder' in detail or 'not a folder' in detail.lower():
+        return ('⚠️ "견적서 및 계약서 폴더 경로"에 폴더가 아니라 파일 링크가 입력돼 있어 '
+                '저장하지 못했습니다. PM에서 해당 칸을 *폴더* 링크로 고친 뒤 다시 첨부해 주세요.')
+    return (f'저장 중 오류가 발생했습니다 ({type(exc).__name__}). '
+            '잠시 후 다시 시도하거나, 계속 실패하면 폴더 경로를 확인해 주세요.')
+
+
 def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict]:
     """슬랙 message.file_share 이벤트 진입점.
 
@@ -512,10 +559,10 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
                 if ocr_content is None:
                     ocr_content = content
             else:
-                skipped.append(f'{name}: 저장 실패({res.get("reason")})')
+                skipped.append(f'{name}: {_reason_message(res.get("reason"))}')
         except Exception as exc:
             logger.error(f'[LICENSE] 처리 예외 ({name}): {exc}', exc_info=True)
-            skipped.append(f'{name}: 예외 {type(exc).__name__}')
+            skipped.append(f'{name}: {_exception_message(exc)}')
 
     # 하나라도 저장 성공했으면 원본 공사 확정 카드의 사업자등록증 배지를 ✅로 갱신.
     # 오래된 카드는 Redis 매핑이 없어 skip 되던 문제 → thread_ts (= 카드 ts) 를
