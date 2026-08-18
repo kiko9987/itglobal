@@ -311,17 +311,45 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
 
     canonical = _canonical_name(code, ext)
 
-    # 저장 파일명 규칙 (2026-07-09 사용자 확정):
-    #   원본이 없으면 '{code} 사업자등록증.{ext}' (canonical)
-    #   원본이 이미 있으면 '{code} 사업자등록증_{N}.{ext}' (N=1,2,3...). 원본은 유지.
-    # 계산서 요청 검증은 항상 canonical 존재 여부만 확인.
+    # 저장 파일명 규칙 (2026-08-18 개정 — '최신이 canonical'):
+    #   새로 올린 파일이 항상 '{code} 사업자등록증.{ext}' (canonical) 가 된다.
+    #   기존 canonical(확장자 무관)이 있으면 '{code} 사업자등록증_{N}.{ext}' 백업으로 밀어낸다.
+    #   → 잘못 첨부 후 정정(삭제→새 첨부) 시 '최신=올바른' 파일이 canonical =
+    #     계산서 요청 때 fetch_license_canonical 이 최신본을 첨부. (R3916-TH 계기)
+    #   구 규칙('first-wins', 2026-07-09)은 정정해도 잘못된 첫 파일이 canonical 로 남아
+    #   계산서에 계속 첨부되던 문제 → 반전.
     existing = _list_folder_files(drive, license_folder)
-    canonical_exists = any(f['name'] == canonical for f in existing)
-    if canonical_exists:
-        next_n = _next_copy_index(existing, code, ext)
-        save_name = f'{code} {LICENSE_BASENAME}_{next_n}.{ext}'
-    else:
+    expected_base = f'{code} {LICENSE_BASENAME}'
+    canonical_cleared = True  # 새 파일을 canonical 로 저장 가능한가 (같은 확장자 canonical 이 안 남았는가)
+    for f in list(existing):
+        nm = f.get('name', '')
+        if '.' not in nm:
+            continue
+        b, e = nm.rsplit('.', 1)
+        if b != expected_base:
+            continue  # 이미 백업(_N)이거나 무관 파일 — 유지
+        e_low = e.lower()
+        n = _next_copy_index(existing, code, e_low)
+        backup_name = f'{code} {LICENSE_BASENAME}_{n}.{e}'
+        try:
+            drive.files().update(
+                fileId=f['id'], body={'name': backup_name},
+                fields='id', supportsAllDrives=True,
+            ).execute()
+            logger.info(f'[LICENSE] 기존본 백업 전환: {nm} → {backup_name} (project={code})')
+        except Exception as exc:
+            logger.warning(f'[LICENSE] 기존본 백업 rename 실패 ({code}, {nm}): {exc}')
+            if e_low == ext:
+                canonical_cleared = False  # 같은 확장자 canonical 이 남음 → 이름충돌·dup 방지
+
+    if canonical_cleared:
         save_name = canonical
+    else:
+        # 폴백: 같은 확장자 canonical 을 못 밀어냄(Drive 오류) → dup 방지 위해 백업명 저장.
+        # 파일 유실 방지 우선(최신이 canonical 은 못 되지만 새 파일은 보존). rename 실패는 드묾.
+        n = _next_copy_index(_list_folder_files(drive, license_folder), code, ext)
+        save_name = f'{code} {LICENSE_BASENAME}_{n}.{ext}'
+        logger.warning(f'[LICENSE] canonical 확보 실패 → 새 파일 백업 저장 ({code}): {save_name}')
 
     # 새 파일 업로드
     media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mimetype or 'application/octet-stream')
