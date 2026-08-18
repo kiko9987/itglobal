@@ -61,6 +61,8 @@ _VALID_PROJECT_RE = re.compile(r'^[GR]\d{4}-[A-Z]+$')
 
 # 금액 추출: "입금 12,100,000원" or "금액 : 12,100,000원" 등
 _AMOUNT_RE = re.compile(r'(?:입금|금액\s*[:：])\s*([\d,]+)(?:\s*원)?')
+# 반환(과입금 환불): "출금-550,000원" / "출금 550,000원" / "반환 550,000원" → 음수 payment
+_REFUND_RE = re.compile(r'(?:출금|반환|환불)\s*-?\s*([\d,]+)\s*원')
 # 한글 금액: "272만원", "272만 원", "1,700만원" 등 → 만 단위 (2026-07-10)
 # "만원권" (지폐 종류) 은 제외. 예: "5만원권 246장" 은 금액 아님.
 _KO_AMOUNT_RE = re.compile(r'([\d,]+)\s*만\s*원(?!권)')
@@ -131,13 +133,22 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             date_md = f"{mm:02d}/{dd:02d}"
             break
 
-    # 금액
+    # 반환(과입금 환불) 우선 감지 — '출금/반환/환불 X원' → 음수 amount (is_refund)
+    is_refund = False
     amount = 0
     for ln in lines:
-        m = _AMOUNT_RE.search(ln)
+        m = _REFUND_RE.search(ln)
         if m:
-            amount = int(m.group(1).replace(',', ''))
+            amount = -abs(int(m.group(1).replace(',', '')))
+            is_refund = True
             break
+    # 금액 (입금) — 반환 아닐 때만
+    if amount == 0:
+        for ln in lines:
+            m = _AMOUNT_RE.search(ln)
+            if m:
+                amount = int(m.group(1).replace(',', ''))
+                break
     # "입금 X원" 패턴 없으면 단일 숫자 라인에서 추출 (매니저 수기 양식)
     if amount == 0:
         for ln in lines:
@@ -226,6 +237,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         re.compile(r'^하나[,\s]'),
         re.compile(r'^농협,'),   # '농협, 08/13 09:16' 헤더 (인입 재구성 양식) — 거래처 오인 방지. 콤마 전용('농협 물산' 등 공백 거래처 보존)
         re.compile(r'^입금'),
+        re.compile(r'^(출금|반환|환불)'),   # 과입금 반환 라인 — 거래처 오인 방지
         re.compile(r'^입금일\s*:'),
         re.compile(r'^입금자\s*:'),
         re.compile(r'^계좌번호'),
@@ -311,6 +323,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         'bank': bank,
         'note_label': note_label,
         'transfer_to': transfer_to,
+        'is_refund': is_refund,        # 과입금 반환(음수) — 카드 이력에 '반환' 표기
         '_meta_only': _has_meta_only,  # 시트값 후처리로 amount 유추 대상
     }
 
@@ -997,7 +1010,12 @@ def _build_stage_with_history_message(
     stage_sheet_vals: Optional[Dict[str, int]] = None,
     construction: str = '',
 ) -> str:
-    """단계 카드 + 누적 이력 (중도금 입금 시 사용)."""
+    """단계 카드 + 누적 이력 (중도금 입금 시 사용). 과입금 반환은 이력에 '반환'으로 표시."""
+    # 헤더는 마지막 '입금'(반환 아님) 기준 — 반환은 이력에만 노출 (헤더가 음수로 나가지 않게)
+    _non_refund = [p for p in all_payments
+                   if p.get('stage') == stage and not p.get('is_refund')]
+    if _non_refund:
+        last_payment = _non_refund[-1]
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
     is_card = _is_card_payment(invoice_value, last_payment.get('partner', ''))
     code = _resolve_payment_code(invoice_value, last_payment.get('bank', ''), last_payment.get('partner', ''))
@@ -1046,7 +1064,7 @@ def _build_stage_with_history_message(
     cur_idx = _STAGE_ORDER.get(stage, 99)
     history = [p for p in all_payments if _STAGE_ORDER.get(p.get('stage'), 99) <= cur_idx]
     for p in history:
-        st = p.get('stage', '-')
+        st = '반환' if p.get('is_refund') else p.get('stage', '-')
         d = p.get('date_md', '-')
         c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
         # 이체 표기 반영 (2026-07-10)
@@ -1384,10 +1402,19 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
         return False  # 실질 변화 없음
     # 안전 가드 — 정정된 단계 줄 외에 다른 줄이 바뀌면 자동갱신 skip (수동 확인).
     # (예: 매출이동으로 다른 단계 은행코드가 파서 재계산과 달라지는 경우 오정정 방지)
+    # 예외(2026-08): '반환' 이력 줄과 '미수금' 줄은 과입금 반환 시 정상적으로 변하므로
+    #   비교에서 제외 → 반환 정정은 자동 허용. 입금액·입금자·주소 등 코어 변경은 계속 감지.
     if old:
         def _cmp_lines(txt):
-            return [l.strip() for l in txt.splitlines()
-                    if l.strip() and l.strip() != '⠀' and stage not in l]
+            out = []
+            for l in txt.splitlines():
+                s = l.strip()
+                if not s or s == '⠀' or stage in s:
+                    continue
+                if s.startswith('반환') or s.startswith('미수금'):
+                    continue
+                out.append(s)
+            return out
         if _cmp_lines(old) != _cmp_lines(new_text):
             logger.info(
                 f'[PAYMENT] 정정 감지 — {stage} 외 줄도 변경돼 자동갱신 skip (수동 확인): '
