@@ -1020,14 +1020,52 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
     return True, old_num, new_num, ""
 
 
+def _resolve_manager_initial(uid: str) -> str:
+    """Slack user_id → 영문 이니셜 (이메일 prefix 대문자, 예: sb@ → 'SB'). Redis 1h 캐시.
+
+    지정/확인 표기를 멘션(한글 표시이름) 대신 영문 이니셜로 — 시스템 다른 곳과 통일 + 핑 없음.
+    이메일 실패 시 한글 이름 fallback, 그것도 없으면 원 uid.
+    """
+    if not uid:
+        return ''
+    rc = None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        cached = rc.get(f'slack_initial:{uid}')
+        if cached is not None:
+            return cached
+    except Exception:
+        pass
+    initial = ''
+    try:
+        cli = _slack_app.client if _slack_app else None
+        if cli:
+            resp = cli.users_info(user=uid)
+            email = (((resp.get('user') or {}).get('profile') or {}).get('email') or '').strip().lower()
+            if '@' in email:
+                initial = email.split('@', 1)[0].upper()
+    except Exception:
+        pass
+    if not initial:
+        initial = _resolve_intake_manager_name(uid) or uid
+    try:
+        if rc is not None:
+            rc.set(f'slack_initial:{uid}', initial, ex=3600)
+    except Exception:
+        pass
+    return initial
+
+
 def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, by_user):
     """지정 완료 → 경영지원 확인 대기 카드. 활성 카드와 동일 구조(한 섹션·전부 '>' 인용·구분선)."""
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     amt = f"{amount:,}원" if amount else '—'
+    _by = _resolve_manager_initial(by_user)
     lines = [
         "⠀",
         ">🕓 *확인 대기 — 경영지원 확인 후 기록*",
-        f">*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 <@{by_user}>",
+        f">*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 {_by}",
     ]
     if not amount:
         lines.append(">:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요")
@@ -1046,8 +1084,9 @@ def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, b
 def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, confirmed_by):
     """확인 완료 카드 — 활성·대기와 동일 구조(한 섹션·전부 '>' 인용·구분선), 버튼 없음."""
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
-    who = (f"지정 <@{by_user}> · 확인 <@{confirmed_by}>" if by_user
-           else f"확인 <@{confirmed_by}>")
+    _conf = _resolve_manager_initial(confirmed_by)
+    who = (f"지정 {_resolve_manager_initial(by_user)} · 확인 {_conf}" if by_user
+           else f"확인 {_conf}")
     lines = [
         "⠀",
         f">✅ *확인 완료 - {stage}*  `{project_code}`",
