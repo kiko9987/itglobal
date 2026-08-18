@@ -49,6 +49,44 @@ def looks_like_payment(text: str) -> bool:
     return bool(_DEPOSIT_RE.search(text))
 
 
+def strip_web_header(text: str) -> str:
+    """'[…발신]' 머리말 라인 제거 — **시트 메모 기록용**(카드 표시엔 유지).
+
+    카드는 실제 포워딩 문자처럼 '[Web발신]'을 보여주되, 시트 노트에는 SB 수동 기록
+    관행(머리말 없이 붙여넣음)과 맞춰 머리말을 뺀다. 파싱엔 영향 없음.
+    """
+    if not text:
+        return text
+    out = [_WEB_HEADER_RE.sub('', ln) for ln in text.splitlines()]
+    return '\n'.join(out).strip()
+
+
+# 농협 2줄 압축 양식 → 하나 카드처럼 재구성용.
+#   원본 : '농협 입금350,000원' + '08/13 09:16 352-****-1682-33 오인석'
+#   변환 : '[Web발신]' / '농협, 08/13 09:16' / '352-****-1682-33' / '입금 350,000원' / '오인석'
+_NH_AMT_RE = re.compile(r'농협\s*입금\s*([\d,]+)\s*원')
+_NH_DETAIL_RE = re.compile(r'(\d{1,2}/\d{1,2})\s+(\d{1,2}:\d{2})\s+(\S+)\s+(.+)')
+
+
+def normalize_deposit_layout(text: str) -> str:
+    """은행별 압축 양식을 하나 카드 양식으로 재구성 (현재 농협만). 실패 시 원문 유지.
+
+    농협 SMS는 '[Web발신]'이 없고 날짜·시각·계좌·입금자가 한 줄에 몰려 기업/하나와
+    달라 보인다. 하나('하나,MM/DD, HH:MM')와 동일하게 '[Web발신]' + '농협, MM/DD HH:MM'
+    헤더로 재배치. 파서는 '농협,' skip 패턴(payment_sync)으로 거래처 오인을 막는다.
+    """
+    if not text:
+        return text
+    m_amt = _NH_AMT_RE.search(text)
+    m_det = _NH_DETAIL_RE.search(text)
+    if not (m_amt and m_det):
+        return text
+    amount = m_amt.group(1)
+    date, tm, acct, partner = (
+        m_det.group(1), m_det.group(2), m_det.group(3), m_det.group(4).strip())
+    return f"[Web발신]\n농협, {date} {tm}\n{acct}\n입금 {amount}원\n{partner}"
+
+
 # ITG 사업자 통장 3종 — 개인 계좌 입금 배제용(같은 은행이라도 개인 건은 계좌 tail 이 다름).
 #   기업 452***38801011 / 하나 255******31304 / 농협 352-****-1682-33
 _BIZ_ACCT_RES = [

@@ -224,6 +224,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         re.compile(r'^\d{4}[/.\-]\d{1,2}[/.\-]\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*$'),  # 순수 날짜(+시간)
         re.compile(r'^일시\s'),
         re.compile(r'^하나[,\s]'),
+        re.compile(r'^농협,'),   # '농협, 08/13 09:16' 헤더 (인입 재구성 양식) — 거래처 오인 방지. 콤마 전용('농협 물산' 등 공백 거래처 보존)
         re.compile(r'^입금'),
         re.compile(r'^입금일\s*:'),
         re.compile(r'^입금자\s*:'),

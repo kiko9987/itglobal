@@ -918,8 +918,11 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         return False, old_num, new_num, "금액 기록 실패"
 
     # 2) 메모(노트) — 기존 있으면 append (분납 대비). 실패해도 값은 기록됨.
+    #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
+    from dashboard.services.sms_intake import strip_web_header
+    memo_sheet = strip_web_header(memo_text)
     old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
-    new_note = f"{old_note}\n\n{memo_text.strip()}" if old_note else memo_text.strip()
+    new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
     if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
         logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 기록됨): {cell}")
 

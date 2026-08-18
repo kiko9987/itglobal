@@ -22,7 +22,7 @@ from flask import Blueprint, jsonify, request
 
 from dashboard.services.sms_intake import (
     active_display, dedup_hash, has_business_account, looks_like_payment,
-    parse_preview, strip_balance,
+    normalize_deposit_layout, parse_preview, strip_balance,
 )
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.redis_client import get_redis_client
@@ -126,12 +126,17 @@ def ingest_deposit(text: str, source: str = 'sms') -> dict:
         if not rc.set(f'sms_intake:seen:{intake_id}', '1', nx=True, ex=_DEDUP_TTL):
             return {'status': 'duplicate', 'id': intake_id}
 
-    # 잔액 제거 (통장 잔고 노출 차단)
+    # 잔액 제거 (통장 잔고 노출 차단) → 은행별 압축 양식 필드 줄바꿈 재구성(농협 등)
     clean = strip_balance(text)
     if not clean:
         return {'status': 'ignored', 'reason': 'empty_after_strip'}
+    clean_conv = normalize_deposit_layout(clean)
+    converted = clean_conv != clean   # 원본 양식 자동 변환됐는지 (농협 등)
+    clean = clean_conv
 
     preview = parse_preview(clean)
+    if converted:
+        preview['converted'] = True   # 카드에 '자동 변환' 배지 표시용
 
     # 원문(잔액 제거본) 보관 — 모달 제출 시 시트에 기록할 내용
     if rc is not None:
@@ -186,12 +191,12 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
     bank_label = {
         '기업': '기업은행 (글로벌)',
         '하나': '하나은행 (글로벌그룹)',
-        '농협': '농협은행',
+        '농협': '농협은행 (N통장)',
     }.get(bank, '')
     header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
     lines = ["⠀", f">🔔 *{header}*", f">{INTAKE_SEP}",
              *quoted_body(clean_text), f">{INTAKE_SEP}"]
-    return [
+    blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}},
         {"type": "actions", "elements": [{
             "type": "button",
@@ -200,3 +205,8 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
             "value": intake_id,
         }]},
     ]
+    # 원본 압축 문자(농협 등)가 표준 양식으로 자동 변환된 경우 배지 표시
+    if (preview or {}).get('converted'):
+        blocks.append({"type": "context", "elements": [
+            {"type": "mrkdwn", "text": "🔄 _원본 농협 문자를 표준 양식으로 자동 변환한 카드입니다._"}]})
+    return blocks
