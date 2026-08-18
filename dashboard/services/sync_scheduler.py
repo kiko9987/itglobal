@@ -307,6 +307,15 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('정산 핀 리마인드 매일 13:00')
+        # 2026-08-18 저녁 재확인 — 하루 처리 후 남은 미처리 다시 리마인드 (동일 내용).
+        _scheduler.add_job(
+            _safe_pin_remind_daily,
+            'cron',
+            hour=17, minute=0,
+            id='pin_remind_evening',
+            replace_existing=True,
+        )
+        jobs.append('정산 핀 리마인드 매일 17:00')
 
     # 2026-07-28 거래처 탭 국세청 상태 갱신. NTS_SERVICE_KEY 있을 때만.
     if os.getenv('NTS_SERVICE_KEY', '').strip():
