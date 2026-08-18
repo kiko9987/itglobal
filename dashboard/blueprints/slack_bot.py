@@ -951,6 +951,12 @@ def _intake_set_dup_warned(intake_id, project, stage):
         pass
 
 
+# 인입 확인 동시 처리(다중 _bg 스레드)가 같은 U/V/W 셀에 겹칠 때 값·노트
+# read-modify-write 를 원자화 — 락 없으면 두 스레드가 같은 old 값을 읽고 각자
+# 덮어써 한 건 유실됨 (2026-08-18 G4006-MW 66,364원 유실 사고). 커밋 드물어 전역 직렬화 무해.
+_INTAKE_SHEET_LOCK = threading.Lock()
+
+
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
@@ -975,24 +981,26 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         return False, 0, 0, f"{project_code} 행을 시트에서 못 찾음"
 
     cell = f"{col}{row}"
-    # 1) 금액 값 — 기존 값에 합산 (트리거 조건: 값 > 0)
-    old_val_raw = manager.get_cell_value(sheet_id, sheet_name, cell)
-    try:
-        old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
-    except (ValueError, TypeError):
-        old_num = 0
-    new_num = old_num + int(amount)
-    if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
-        return False, old_num, new_num, "금액 기록 실패"
+    # 같은 셀 read-modify-write 를 락으로 원자화 — 동시 확인 시 값·노트 유실 방지
+    with _INTAKE_SHEET_LOCK:
+        # 1) 금액 값 — 기존 값에 합산 (트리거 조건: 값 > 0)
+        old_val_raw = manager.get_cell_value(sheet_id, sheet_name, cell)
+        try:
+            old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
+        except (ValueError, TypeError):
+            old_num = 0
+        new_num = old_num + int(amount)
+        if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
+            return False, old_num, new_num, "금액 기록 실패"
 
-    # 2) 메모(노트) — 기존 있으면 append (분납 대비). 실패해도 값은 기록됨.
-    #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
-    from dashboard.services.sms_intake import strip_web_header
-    memo_sheet = strip_web_header(memo_text)
-    old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
-    new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
-    if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
-        logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 기록됨): {cell}")
+        # 2) 메모(노트) — 기존 있으면 append (분납 대비). 실패해도 값은 기록됨.
+        #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
+        from dashboard.services.sms_intake import strip_web_header
+        memo_sheet = strip_web_header(memo_text)
+        old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
+        new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
+        if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
+            logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 기록됨): {cell}")
 
     try:
         from dashboard.utils.cache_invalidation import smart_invalidate
