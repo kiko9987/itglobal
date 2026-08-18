@@ -29,7 +29,7 @@ def test_no_comma_dong_building_unwrapped(addr, expected):
 @pytest.mark.parametrize('addr', [
     '김포 사우중로 1 (걸포동 172-1)',   # 번지형 — 건물부 숫자 시작, 미매치(보존)
     '김포 사우중로 1 (걸포동)',          # 동 단독 — 공백+건물 없음, 미매치(보존)
-    '강남구 테헤란로 (테헤란로 강남빌딩)',  # 도로명(숫자+가 없음) — 법정동 오인 방지, 보존
+    '서초구 방배로 20 (서초대로 삼성빌딩) 3층',  # 도로명(숫자+가 없음) — 법정동 오인 방지, 보존
 ])
 def test_preserved(addr):
     assert P(addr) == addr
