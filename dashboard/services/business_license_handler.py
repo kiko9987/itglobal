@@ -493,7 +493,7 @@ def _reason_message(reason: str) -> str:
     r = str(reason or '')
     if r == 'no_project_folder':
         return ('⚠️ 견적서·계약서 폴더가 없거나 잘못 입력돼 저장하지 못했습니다. '
-                'PM에서 이 프로젝트의 "견적서 및 계약서 폴더 경로"에 올바른 *폴더* 링크를 '
+                'PM 사이트에서 이 프로젝트의 "견적서 및 계약서 폴더 경로"에 올바른 *폴더* 링크를 '
                 '입력한 뒤 파일을 다시 첨부해 주세요.')
     if r == 'invalid_file_signature':
         return ('이미지·PDF 형식이 아니거나 파일이 손상돼 저장하지 못했습니다. '
@@ -506,7 +506,7 @@ def _exception_message(exc: Exception) -> str:
     detail = str(exc)
     if 'parentNotAFolder' in detail or 'not a folder' in detail.lower():
         return ('⚠️ "견적서 및 계약서 폴더 경로"에 폴더가 아니라 파일 링크가 입력돼 있어 '
-                '저장하지 못했습니다. PM에서 해당 칸을 *폴더* 링크로 고친 뒤 다시 첨부해 주세요.')
+                '저장하지 못했습니다. PM 사이트에서 해당 칸을 *폴더* 링크로 고친 뒤 다시 첨부해 주세요.')
     return (f'저장 중 오류가 발생했습니다 ({type(exc).__name__}). '
             '잠시 후 다시 시도하거나, 계속 실패하면 폴더 경로를 확인해 주세요.')
 
