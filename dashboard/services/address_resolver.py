@@ -2418,8 +2418,15 @@ def resolve_address(
         ):
             # 2026-08-04 L-03398: raw fallback 도 시/도 정규화 적용 (verified·regex 경로만
             #   normalize_display 를 거쳐, verify 실패한 서울/광역시 주소는 '서울특별시'가
-            #   그대로 남던 갭). 시/도 접두만 정리 — 건물·동·번지·호수는 보존, level='raw'
-            #   유지(확인 필요 배지로 매니저 검토 신호는 그대로).
-            return (normalize_display(first_line), 'raw')
+            #   그대로 남던 갭). 시/도 접두만 정리 — 건물·동·번지·호수는 보존.
+            _raw = normalize_display(first_line)
+            # 행안부 도로확인 (2026-08-18 L-03709): 시/도 없이 '김포…' 로 시작해
+            #   extract=None → step2(regex) 를 못 타는 실재 도로+번지(카카오 미인덱싱
+            #   신축 등)를 정부 공식 DB 로 verified 승격. 문자열은 그대로(정보 유실 0),
+            #   level 만 상향해 오탐 [주소 확인 필요] 제거. 도로 케이스만(경계+토큰 정확
+            #   일치라 없는 도로/퍼지는 미승격 — 판교로 393 등).
+            _juso_hit3 = _juso_fallback(text, None)
+            _lv3 = 'verified' if (_juso_hit3 and _juso_hit3[1] == 'road') else 'raw'
+            return (_raw, _lv3)
 
     return ('', '')
