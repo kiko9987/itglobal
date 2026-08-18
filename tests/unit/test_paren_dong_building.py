@@ -17,6 +17,10 @@ from dashboard.services.address_resolver import _post_normalize_display as P
     ('은평구 통일로 875 (갈현동 벧엘) 1층 중앙약국', '은평구 통일로 875 벧엘 1층 중앙약국'),
     ('수원 팔달로 1 (매탄동 삼성전자) 2층', '수원 팔달로 1 삼성전자 2층'),
     ('서초구 강남대로 1 (서초동 우성빌딩)', '서초구 강남대로 1 우성빌딩'),
+    # 동N가·로N가 법정동 (L-03707)
+    ('성동구 아차산로 103 (성수동2가 영동테크노타워) 10층 1004호',
+     '성동구 아차산로 103 영동테크노타워 10층 1004호'),
+    ('중구 세종대로 1 (을지로3가 삼성빌딩) 5층', '중구 세종대로 1 삼성빌딩 5층'),
 ])
 def test_no_comma_dong_building_unwrapped(addr, expected):
     assert P(addr) == expected
@@ -25,6 +29,7 @@ def test_no_comma_dong_building_unwrapped(addr, expected):
 @pytest.mark.parametrize('addr', [
     '김포 사우중로 1 (걸포동 172-1)',   # 번지형 — 건물부 숫자 시작, 미매치(보존)
     '김포 사우중로 1 (걸포동)',          # 동 단독 — 공백+건물 없음, 미매치(보존)
+    '강남구 테헤란로 (테헤란로 강남빌딩)',  # 도로명(숫자+가 없음) — 법정동 오인 방지, 보존
 ])
 def test_preserved(addr):
     assert P(addr) == addr
