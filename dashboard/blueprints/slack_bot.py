@@ -443,6 +443,21 @@ def _register_payment_handlers(app):
             if errors:
                 ack(response_action="errors", errors=errors)
                 return
+            # 중복 가드 — 같은 프로젝트·단계에 같은 금액+날짜가 이미 있으면 경고(재제출=override).
+            # 이미 기록된 입금을 실수로 또 지정·확인해 중복되는 사고 방지 (2026-08).
+            meta0 = json.loads(view.get("private_metadata") or "{}")
+            iid0 = meta0.get("intake_id", "")
+            pv0 = (_load_intake(iid0).get("preview") or {})
+            amt0 = int(pv0.get("amount") or 0)
+            date0 = (pv0.get("date_md") or "").strip()
+            dup = _intake_duplicate_check(project_code, stage, amt0, date0)
+            if dup and not _intake_dup_warned(iid0, project_code, stage):
+                _intake_set_dup_warned(iid0, project_code, stage)
+                ack(response_action="errors", errors={"stage": (
+                    f"⚠️ 이미 같은 {stage} {amt0:,}원({date0 or '날짜미상'} · "
+                    f"{dup.get('partner', '') or '거래처미상'})이 기록돼 있습니다 — 중복 의심. "
+                    f"진짜 추가 입금이면 [지정]을 한 번 더 눌러주세요.")})
+                return
             ack()
         except Exception as exc:
             logger.error(f"[SLACK/수금봇] submit_payment_intake 검증 실패: {exc}", exc_info=True)
@@ -881,6 +896,59 @@ def _update_intake(intake_id, **fields):
         rc.set(f"sms_intake:{intake_id}", json.dumps(d), ex=60 * 60 * 24 * 7)
     except Exception as exc:
         logger.warning(f"[SLACK/수금봇] 인입 갱신 실패: {exc}")
+
+
+def _intake_duplicate_check(project_code, stage, amount, date_md):
+    """같은 프로젝트·단계 셀에 같은 금액+날짜가 이미 있으면 그 payment 반환 (중복 의심).
+
+    #입금_관리 확인을 실수로 또 눌러 값·이력이 중복 기록되는 사고 방지 (2026-08 R3983/R3967).
+    금액+날짜 일치 기준 (거래처는 표기 편차 있어 제외 — 경고에만 표시). 실패 시 None(무경고).
+    """
+    if not amount:
+        return None
+    try:
+        from dashboard.constants import PAYMENT_FIELD_TO_COLUMN
+        from dashboard.services.lead_service import get_sheets_manager
+        from dashboard.services.payment_sync import _parse_notes
+        col = PAYMENT_FIELD_TO_COLUMN.get(stage)
+        if not col:
+            return None
+        sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+        sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+        mgr = get_sheets_manager()
+        row = mgr.find_row_by_project_code(sid, project_code, f"{sn}!A:A")
+        if not row:
+            return None
+        note = mgr.get_cell_note(sid, sn, f"{col}{row}") or ""
+        notes = ['', '', '']
+        notes[{'계약금': 0, '중도금': 1, '잔금': 2}[stage]] = note
+        for p in _parse_notes(notes):
+            if (p.get('stage') == stage
+                    and int(p.get('amount') or 0) == int(amount)
+                    and (p.get('date_md') or '').strip() == (date_md or '').strip()):
+                return p
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 중복 체크 실패(무시): {exc}")
+    return None
+
+
+def _intake_dup_warned(intake_id, project, stage):
+    """중복 경고 1회 표시 여부 (재제출=override 판정용). key=intake·프로젝트·단계."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        return bool(get_redis_client().redis.get(
+            f"intake_dup_warn:{intake_id}:{project}:{stage}"))
+    except Exception:
+        return False
+
+
+def _intake_set_dup_warned(intake_id, project, stage):
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.set(
+            f"intake_dup_warn:{intake_id}:{project}:{stage}", "1", ex=600)
+    except Exception:
+        pass
 
 
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id):
