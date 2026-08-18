@@ -1328,7 +1328,7 @@ def _build_stage_card_text(stage: str, project: str, payments: List[Dict],
             project=project, address=c.get('address', ''), payments=payments,
             invoice_value=c.get('invoice', ''), total_t=c.get('total_t', 0),
             stage_sheet_vals=stage_vals, construction=c.get('construction', ''))
-    if stage in ('중도금', '잔금'):
+    if stage in ('계약금', '중도금', '잔금'):   # 계약금도 누적 이력 (분할 계약금 대응, 2026-08)
         return _build_stage_with_history_message(
             stage=stage, project=project, address=c.get('address', ''),
             last_payment=last_payment, all_payments=payments,
@@ -1825,7 +1825,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             note_changed = new_phash != prev_phash
 
             # 단계별 발송 분기 (양수 증가 + 메모 변경된 단계만):
-            #   계약금 → 단일 카드
+            #   계약금 → 단일 카드 + 누적 이력 (분할 계약금 대응, 2026-08)
             #   중도금 → 단일 카드 + 누적 이력
             #   잔금   → 수금완료 + 전체 이력 (잔금 입금 = 수금완료 의미)
             sent_this_row = False
@@ -2055,13 +2055,14 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             stage_sheet_vals=stage_vals,
                             construction=c.get('construction', ''),
                         )
-                    else:  # 계약금
-                        text = _build_stage_message(
+                    else:  # 계약금 — 중도금/잔금처럼 누적 이력 포함 (분할 계약금 대응, 2026-08)
+                        text = _build_stage_with_history_message(
                             stage=stage, project=project, address=c['address'],
-                            payment=last_payment, invoice_value=c['invoice'],
+                            last_payment=last_payment, all_payments=payments,
+                            invoice_value=c['invoice'],
                             total_r=c['total_r'], total_t=c['total_t'],
                             unpaid=c['unpaid'],
-                            stage_sheet_val=stage_vals.get(stage, 0),
+                            stage_sheet_vals=stage_vals,
                             construction=c.get('construction', ''),
                         )
                     # 2026-07-11 통합 입금 힌트 — 메모 amount 합이 시트 stage 값보다
