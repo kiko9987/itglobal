@@ -177,7 +177,8 @@ def collect_pending_pins() -> Optional[dict]:
             pass
         if is_deposit(text):
             summary = _format_deposit_summary(text)
-            deposits.append({'ts': ts, 'summary': summary, 'permalink': permalink})
+            deposits.append({'ts': ts, 'summary': summary, 'permalink': permalink,
+                             'key': _deposit_key(text)})
         elif is_invoice_request(text):
             invoices.append({'ts': ts, 'summary': _summary_line(text), 'permalink': permalink})
         else:
@@ -370,12 +371,14 @@ def send_pin_remind() -> dict:
         return {'ok': False, 'total': 0, 'reason': 'collect_failed'}
     # #입금_관리 미처리 인입 카드 합류 (다른 채널 — 수금봇 토큰으로 조회)
     intakes = collect_intake_pending()
-    # 겸용 중복 제거 — #영업_관리에 올라온 입금(처리 예정/완료)과 겹치는 인입은 제외
-    oam_keys = _oam_deposit_keys()
-    if oam_keys:
-        intakes = [i for i in intakes if i.get('key') not in oam_keys]
+    # 겸용 중복 제거 — 인입(#입금_관리)이 있는 입금은 #영업_관리 입금내역에서 제거해
+    # **인입 링크 우선**(#입금_관리로 연결). 앞으로 입금=#입금_관리 일원화 방침 (2026-08-18).
+    intake_keys = {i.get('key') for i in intakes if i.get('key')}
+    if intake_keys:
+        data['deposits'] = [d for d in data.get('deposits', []) if d.get('key') not in intake_keys]
     data['intakes'] = intakes
-    data['total'] = data.get('total', 0) + len(intakes)
+    data['total'] = (len(data.get('deposits', [])) + len(data.get('invoices', []))
+                     + len(data.get('others', [])) + len(intakes))
     if data['total'] == 0:
         logger.info('[PIN] 미처리 정산·입금 0건 — 발송 skip')
         return {'ok': True, 'total': 0, 'reason': None}
