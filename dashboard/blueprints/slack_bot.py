@@ -546,9 +546,29 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user,
                                       ":warning: 금액이 자동 인식되지 않았습니다. 스레드에서 확인 후 수동 처리해주세요.")
                     return
+                # 멱등 가드 — 같은 인입·지정의 확인이 두 번 전달되면(슬랙 재시도·더블클릭)
+                # _commit_intake_to_sheet 가 금액을 매번 더해 값·노트가 2배가 된다
+                # (2026-08-19 R3833-TH 16,335,000→32,670,000·노트 2블록 사고).
+                # Redis SETNX 로 (인입·프로젝트·단계)당 최초 1회만 커밋을 진행하도록 원자 점유.
+                claim_key = f"intake_commit:{intake_id}:{project_code}:{stage}"
+                rc = None
+                try:
+                    from dashboard.utils.redis_client import get_redis_client
+                    rc = get_redis_client().redis
+                    if not rc.set(claim_key, "1", nx=True, ex=86400):
+                        _intake_ephemeral(client, channel, user,
+                                          ":information_source: 이미 기록된 입금입니다 (중복 확인 무시).")
+                        return
+                except Exception:
+                    rc = None  # Redis 불가 시 기존 동작 유지(차단 안 함)
                 ok, old_num, new_num, err = _commit_intake_to_sheet(
                     project_code, stage, amount, memo, user)
                 if not ok:
+                    if rc is not None:
+                        try:
+                            rc.delete(claim_key)  # 커밋 실패 시 점유 해제 → 재시도 허용
+                        except Exception:
+                            pass
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
                     return
                 if channel and ts:
