@@ -21,6 +21,9 @@ from dashboard.services.address_resolver import _post_normalize_display as P
     ('성동구 아차산로 103 (성수동2가 영동테크노타워) 10층 1004호',
      '성동구 아차산로 103 영동테크노타워 10층 1004호'),
     ('중구 세종대로 1 (을지로3가 삼성빌딩) 5층', '중구 세종대로 1 삼성빌딩 5층'),
+    # 중첩 괄호 (법인 (주)/㈜) — 내부 괄호 보존 unwrap (L-03716)
+    ('시흥 공단1대로195번길 38 (정왕동 (주)삼인)', '시흥 공단1대로195번길 38 (주)삼인'),
+    ('부천 부천로 1 (심곡동 ㈜대성) 2층', '부천 부천로 1 ㈜대성 2층'),
 ])
 def test_no_comma_dong_building_unwrapped(addr, expected):
     assert P(addr) == expected
