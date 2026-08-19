@@ -1049,7 +1049,21 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
     cell = f"{col}{row}"
     # 같은 셀 read-modify-write 를 락으로 원자화 — 동시 확인 시 값·노트 유실 방지
     with _INTAKE_SHEET_LOCK:
-        # 1) 금액 값 — 기존 값에 합산 (트리거 조건: 값 > 0)
+        # ⚠️ 쓰기 순서 = 노트 먼저, 값 나중. payment_sync 폴러 발송 트리거가 '값 > 0'
+        #    이라, 값을 노트보다 먼저 쓰면 커밋 내부 값·노트 쓰기 사이 수 초 갭(시트 API
+        #    지연)에 폴러가 끼어 '값 있고 노트 없는' 상태를 읽고 baseline만 올린 뒤 카드를
+        #    영영 안 보내는 레이스가 난다 (2026-08-19 R3916-TH 잔금 카드 유실).
+        #    노트를 먼저 확정하면 값이 보이는 순간엔 노트가 이미 있어 폴러가 정상 발송한다.
+        # 1) 메모(노트) 먼저 — 기존 있으면 append (분납 대비).
+        #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
+        from dashboard.services.sms_intake import strip_web_header
+        memo_sheet = strip_web_header(memo_text)
+        old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
+        new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
+        if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
+            logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 이어서 기록): {cell}")
+
+        # 2) 금액 값 나중 — 기존 값에 합산 (트리거 조건: 값 > 0). 노트 확정 뒤 마지막에 기록.
         old_val_raw = manager.get_cell_value(sheet_id, sheet_name, cell)
         try:
             old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
@@ -1058,15 +1072,6 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         new_num = old_num + int(amount)
         if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
             return False, old_num, new_num, "금액 기록 실패"
-
-        # 2) 메모(노트) — 기존 있으면 append (분납 대비). 실패해도 값은 기록됨.
-        #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
-        from dashboard.services.sms_intake import strip_web_header
-        memo_sheet = strip_web_header(memo_text)
-        old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
-        new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
-        if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
-            logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 기록됨): {cell}")
 
     try:
         from dashboard.utils.cache_invalidation import smart_invalidate
