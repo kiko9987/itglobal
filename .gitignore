@@ -157,5 +157,5 @@ flask_session/
 # Locust 부하 테스트 산출물 (재현 가능, 커밋 불필요)
 docs/deployment/locust_result_*.csv
 
-# 세션 스크래치패드 (Claude 시뮬레이션 임시 결과)
-scratchpad_*.txt
+# 세션 스크래치패드 (Claude 조사·수정·시뮬 임시 스크립트/결과 — .py/.json/.csv/.txt 등)
+scratchpad_*
