@@ -445,20 +445,27 @@ def _register_payment_handlers(app):
                 return
             # 중복 가드 — 같은 프로젝트·단계에 같은 금액+날짜가 이미 있으면 경고(재제출=override).
             # 이미 기록된 입금을 실수로 또 지정·확인해 중복되는 사고 방지 (2026-08).
+            # ⚠️ 이 블록은 ack() 前이라 Slack 3s ack 예산에 직접 걸린다. 시트 2왕복
+            # (find_row+get_note)이 2~3.7s라 그대로 두면 제출이 간헐 실패(2026-08-19 사고).
+            # → ①재제출(경고 본 뒤)은 시트 재조회 없이 즉시 통과 ②첫 조회는 하드 타임아웃
+            #    (_dup_check_bounded)으로 상한을 둬 ack 마감을 넘기지 않게 한다(초과=무경고 통과).
             meta0 = json.loads(view.get("private_metadata") or "{}")
             iid0 = meta0.get("intake_id", "")
-            pv0 = (_load_intake(iid0).get("preview") or {})
-            amt0 = int(pv0.get("amount") or 0)
-            date0 = (pv0.get("date_md") or "").strip()
-            dup = _intake_duplicate_check(project_code, stage, amt0, date0)
-            if dup and not _intake_dup_warned(iid0, project_code, stage):
-                _intake_set_dup_warned(iid0, project_code, stage)
-                ack(response_action="errors", errors={"stage": (
-                    f"⚠️ 이미 같은 {stage} {amt0:,}원({date0 or '날짜미상'} · "
-                    f"{dup.get('partner', '') or '거래처미상'})이 기록돼 있습니다 — 중복 의심. "
-                    f"진짜 추가 입금이면 [지정]을 한 번 더 눌러주세요.")})
-                return
-            ack()
+            if _intake_dup_warned(iid0, project_code, stage):
+                ack()  # 이미 경고를 본 재제출 = override, 시트 재조회 생략(즉시 ack)
+            else:
+                pv0 = (_load_intake(iid0).get("preview") or {})
+                amt0 = int(pv0.get("amount") or 0)
+                date0 = (pv0.get("date_md") or "").strip()
+                dup = _dup_check_bounded(project_code, stage, amt0, date0, timeout=2.0)
+                if dup:
+                    _intake_set_dup_warned(iid0, project_code, stage)
+                    ack(response_action="errors", errors={"stage": (
+                        f"⚠️ 이미 같은 {stage} {amt0:,}원({date0 or '날짜미상'} · "
+                        f"{dup.get('partner', '') or '거래처미상'})이 기록돼 있습니다 — 중복 의심. "
+                        f"진짜 추가 입금이면 [지정]을 한 번 더 눌러주세요.")})
+                    return
+                ack()
         except Exception as exc:
             logger.error(f"[SLACK/수금봇] submit_payment_intake 검증 실패: {exc}", exc_info=True)
             try:
@@ -898,6 +905,45 @@ def _update_intake(intake_id, **fields):
         logger.warning(f"[SLACK/수금봇] 인입 갱신 실패: {exc}")
 
 
+def _cached_project_row(mgr, sid, sn, project_code):
+    """project_code→행 매핑 Redis 캐시(1h). A:A 전열 스캔(0.8~2.1s)이 중복체크 pre-ack
+    지연의 큰 축이라 캐시해 get_note(~1.5s)만 남긴다. 행은 대개 하단 append라 안정적이고,
+    스테일해도 결과는 '경고' 뿐이라 무해(최악=오경고→재제출). 2026-08-19 제출 실패 fix."""
+    key = f"intake_row_cache:{project_code}"
+    r = None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        r = get_redis_client().redis
+        cached = r.get(key)
+        if cached:
+            return int(cached.decode() if isinstance(cached, bytes) else cached)
+    except Exception:
+        r = None
+    row = mgr.find_row_by_project_code(sid, project_code, f"{sn}!A:A")
+    if row and r is not None:
+        try:
+            r.set(key, str(row), ex=3600)
+        except Exception:
+            pass
+    return row
+
+
+def _dup_check_bounded(project_code, stage, amount, date_md, timeout=2.0):
+    """_intake_duplicate_check 를 하드 타임아웃 내에서만 수행 (Slack view_submission
+    3s ack 예산 보호). 시트 조회가 느려 timeout 초과 시 None(무경고) 반환 — 확인
+    단계(경영지원)가 최종 게이트라 가드를 건너뛰어도 안전하다. 2026-08-19 제출 실패 fix."""
+    box = {}
+    def _run():
+        try:
+            box['v'] = _intake_duplicate_check(project_code, stage, amount, date_md)
+        except Exception:
+            box['v'] = None
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    th.join(timeout)
+    return box.get('v')
+
+
 def _intake_duplicate_check(project_code, stage, amount, date_md):
     """같은 프로젝트·단계 셀에 같은 금액+날짜가 이미 있으면 그 payment 반환 (중복 의심).
 
@@ -916,7 +962,7 @@ def _intake_duplicate_check(project_code, stage, amount, date_md):
         sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
         sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
         mgr = get_sheets_manager()
-        row = mgr.find_row_by_project_code(sid, project_code, f"{sn}!A:A")
+        row = _cached_project_row(mgr, sid, sn, project_code)
         if not row:
             return None
         note = mgr.get_cell_note(sid, sn, f"{col}{row}") or ""
