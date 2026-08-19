@@ -46,6 +46,7 @@ function looksLikeChatNickname(name) {
 
 let debounceTimer = null;
 let currentLead = null;
+let moduleOpts = null;
 
 /**
  * 리드→프로젝트 검색 로더 초기화.
@@ -68,6 +69,7 @@ export function initLeadProjectLoader(opts) {
     console.warn('[LEAD_PROJECT_LOADER] Required elements missing');
     return;
   }
+  moduleOpts = opts;
 
   // "내 방문 현장만 불러오기" 체크박스 — 해제 시 전체 팀 현장 검색(?all=1)
   const myOnlyCheckbox = opts.myOnlyCheckboxId
@@ -185,8 +187,30 @@ function hideResults(container) {
 }
 
 function applyLead(lead, opts) {
-  currentLead = lead;
   const { targets } = opts;
+  const inflow = mapPlatformToInflow(lead.platform);
+
+  // 사업자 ↔ 유입구분 정합성 가드.
+  // #modern-client 셀렉트는 선택된 사업자의 허용 유입구분만 담고 있으므로,
+  // 이 현장의 유입구분이 옵션에 없으면 = 사업자와 안 맞는 현장 → 불러오기 차단.
+  // (사업자 미선택 상태면 전체 옵션이라 통과 → 이후 사업자 변경 시 그쪽에서 경고)
+  const clientEl = targets.client ? document.getElementById(targets.client) : null;
+  const companyEl = document.getElementById('modern-company');
+  const company = companyEl ? (companyEl.value || '').trim() : '';
+  if (company && inflow && clientEl && clientEl.tagName === 'SELECT') {
+    const realOptions = Array.from(clientEl.options).filter((o) => o.value);
+    // 옵션이 아직 로드 안 된 상태(placeholder만)면 판정 보류 → 오차단 방지
+    const allowed = realOptions.length === 0 || realOptions.some((o) => o.value === inflow);
+    if (!allowed) {
+      showMismatchAlert(
+        opts,
+        `${company} 프로젝트에는 이 현장(유입구분: ${inflow})을 지정할 수 없습니다. 사업자를 확인하세요.`,
+      );
+      return; // 어떤 필드도 채우지 않고 리드 링크도 하지 않음
+    }
+  }
+
+  currentLead = lead;
 
   const setVal = (id, val) => {
     if (!id) return;
@@ -198,7 +222,7 @@ function applyLead(lead, opts) {
     el.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
-  setVal(targets.client, mapPlatformToInflow(lead.platform));
+  setVal(targets.client, inflow);
   // 채팅 인입 리드의 랜덤 닉네임(예: "햇님 310")은 auto-fill skip — 실명 확인용 placeholder 강조
   const siteMgrEl = targets.siteManager ? document.getElementById(targets.siteManager) : null;
   if (siteMgrEl && looksLikeChatNickname(lead.name)) {
@@ -313,6 +337,20 @@ function clearLead(opts) {
   clearField(targets.email);
 }
 
+// 사업자-유입구분 불일치로 불러오기가 차단됐을 때 경고 표시.
+// 검색 결과 영역(클릭 지점 바로 아래)에만 인라인 경고 — 상단 배너와 중복 방지.
+function showMismatchAlert(opts, message) {
+  const results = document.getElementById(opts.resultsId);
+  if (results) {
+    results.innerHTML = `
+      <div class="text-danger" style="padding: 0.8rem; font-size: 0.85rem;">
+        <i class="fas fa-exclamation-triangle me-1"></i>${escapeHtml(message)}
+      </div>
+    `;
+    results.classList.remove('d-none');
+  }
+}
+
 function flashHighlight(el) {
   const prevBg = el.style.backgroundColor;
   const prevTr = el.style.transition;
@@ -336,4 +374,12 @@ function escapeHtml(str) {
 
 export function getLinkedLead() {
   return currentLead;
+}
+
+// 외부(모달)에서 연결된 현장을 해제할 때 사용 — 로드된 모든 필드+뱃지 초기화.
+// 사업자를 현장과 안 맞는 값으로 바꿨을 때 현장 연결 자체를 끊는 용도.
+export function clearLinkedLead() {
+  if (currentLead && moduleOpts) {
+    clearLead(moduleOpts);
+  }
 }

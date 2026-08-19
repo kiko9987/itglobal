@@ -4,7 +4,7 @@
 import AmountCalculator from '../utils/AmountCalculator.js';
 import FormValidator from '../utils/FormValidator.js';
 import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
-import { initLeadProjectLoader } from '../utils/leadProjectLoader.js';
+import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
 
 import logger from '../utils/logger.js';
 export default class ModernProjectModal {
@@ -212,6 +212,11 @@ export default class ModernProjectModal {
       clientSelectForLock.addEventListener('change', () => this.syncBusinessNameLock());
       // 초기 로드 시에도 상태 정리 (기본값이 비어있으면 lock 해제)
       this.syncBusinessNameLock();
+    }
+    // '사업자등록증 미수령' 체크 토글 → 사업자명 입력/필수 상태 재동기화
+    const bizPendingCheck = document.getElementById('modern-business-name-pending');
+    if (bizPendingCheck) {
+      bizPendingCheck.addEventListener('change', () => this.syncBusinessNameLock());
     }
 
     // 날짜 입력 필드 클릭 이벤트 (아이콘 클릭 시 날짜 선택창 열기)
@@ -435,18 +440,40 @@ export default class ModernProjectModal {
     const bizInput = document.getElementById('modern-business-name');
     if (!clientSelect || !bizInput) return;
 
+    const requiredMark = document.getElementById('modern-business-name-required');
+    const pendingWrap = document.getElementById('modern-business-name-pending-wrap');
+    const pendingCheck = document.getElementById('modern-business-name-pending');
     const isPartner = clientSelect.value === '거래처';
 
     if (isPartner) {
-      // 거래처 → 편집 가능, 자동완성 복구
-      bizInput.readOnly = false;
-      bizInput.style.backgroundColor = '';
-      bizInput.style.cursor = '';
-      bizInput.setAttribute('list', 'modernBusinessNameList');
-      bizInput.placeholder = '사업자등록증명';
-      if (bizInput.value === '-') bizInput.value = '';
+      // 거래처 → 사업자명 필수. '미수령' 체크 시에만 비워둔 채 등록 허용.
+      if (pendingWrap) pendingWrap.style.display = '';
+      const pending = !!(pendingCheck && pendingCheck.checked);
+
+      if (pending) {
+        // 미수령: 입력 잠금 + 비움 (등록 후 사업자등록증 첨부 → OCR 자동 채움)
+        bizInput.value = '';
+        bizInput.readOnly = true;
+        bizInput.style.backgroundColor = '#e9ecef';
+        bizInput.style.cursor = 'not-allowed';
+        bizInput.removeAttribute('list');
+        bizInput.placeholder = '사업자등록증 수령 후 첨부 시 자동 기재';
+        if (requiredMark) requiredMark.style.display = 'none';
+      } else {
+        // 수령: 편집 가능 + 필수 표시
+        bizInput.readOnly = false;
+        bizInput.style.backgroundColor = '';
+        bizInput.style.cursor = '';
+        bizInput.setAttribute('list', 'modernBusinessNameList');
+        bizInput.placeholder = '사업자등록증명 (필수)';
+        if (bizInput.value === '-') bizInput.value = '';
+        if (requiredMark) requiredMark.style.display = '';
+      }
     } else {
-      // 거래처 외 → '-' 고정, 편집 불가
+      // 거래처 외 → '-' 고정, 편집 불가, 미수령 옵션 숨김/해제
+      if (pendingCheck) pendingCheck.checked = false;
+      if (pendingWrap) pendingWrap.style.display = 'none';
+      if (requiredMark) requiredMark.style.display = 'none';
       bizInput.value = '-';
       bizInput.readOnly = true;
       bizInput.style.backgroundColor = '#e9ecef';
@@ -497,7 +524,7 @@ export default class ModernProjectModal {
    * - 미선택: 마스터 전체
    * 매번 마스터 목록(this.inflowMasterOptions)에서 재구성하므로 사업자를 바꿔도 원복됨.
    */
-  applyInflowCompanyFilter() {
+  applyInflowCompanyFilter(notifyOnDrop = false) {
     const clientSelect = document.getElementById('modern-client');
     if (!clientSelect || clientSelect.tagName !== 'SELECT') return;
     const master = Array.isArray(this.inflowMasterOptions) ? this.inflowMasterOptions : [];
@@ -519,13 +546,34 @@ export default class ModernProjectModal {
     });
 
     // 이전 선택값이 허용 목록에 남아있으면 복원, 아니면 미선택으로 리셋
+    let dropped = '';
     if (currentValue && allowed.includes(currentValue)) {
       clientSelect.value = currentValue;
     } else {
+      if (currentValue) dropped = currentValue;
       clientSelect.value = '';
     }
     // 사업자명 잠금 상태 재동기화 (거래처 여부 변동 반영)
     this.syncBusinessNameLock();
+
+    // 사업자를 바꿔서 기존 유입구분이 무효가 됐을 때만 처리 (초기 옵션 로딩 땐 조용히).
+    if (notifyOnDrop && dropped) {
+      if (getLinkedLead()) {
+        // 불러온 현장이 바뀐 사업자와 안 맞음 → 유입구분만 비우면 다른 값으로 재선택돼
+        // 거래처 현장이 글로벌그룹에 등록되는 허점이 생김. 현장 연결 자체를 해제한다.
+        clearLinkedLead();
+        this.showAlert(
+          `${company}에는 이 현장(유입구분: ${dropped})을 지정할 수 없어 현장 연결을 해제했습니다. 사업자를 확인하세요.`,
+          'warning',
+        );
+      } else {
+        // 리드 없이 수동으로 고른 유입구분이면 그 값만 초기화.
+        this.showAlert(
+          `선택한 사업자(${company})에서는 유입구분 '${dropped}'을(를) 쓸 수 없어 초기화했습니다. 유입구분을 다시 선택하세요.`,
+          'warning',
+        );
+      }
+    }
   }
 
   /**
@@ -664,8 +712,8 @@ export default class ModernProjectModal {
       this._companyChangeHandler = () => {
         console.log('[DEBUG] 사업자 변경됨:', companySelect.value);
         this.updateCodePreview();
-        // 사업자별 유입 구분 옵션 필터 재적용
-        this.applyInflowCompanyFilter();
+        // 사업자별 유입 구분 옵션 필터 재적용 (기존 선택이 무효화되면 경고)
+        this.applyInflowCompanyFilter(true);
       };
       companySelect.addEventListener('change', this._companyChangeHandler);
       console.log('[DEBUG] 사업자 이벤트 리스너 연결됨');
@@ -1219,6 +1267,16 @@ export default class ModernProjectModal {
     if (!owner) errors.push('담당자를 선택해주세요.');
     if (!client || !client.trim()) errors.push('거래처를 입력해주세요.');
     if (!address || !address.trim()) errors.push('현장 주소를 입력해주세요.');
+
+    // 2-1. 거래처 유입은 사업자명(사업자등록증명) 필수 — '미수령' 체크 시에만 예외 허용.
+    //      미수령 건은 비워둔 채 등록 후, 사업자등록증 첨부 시 OCR 자동 채움 흐름으로 처리됨.
+    if (client === '거래처') {
+      const bizName = (document.getElementById('modern-business-name')?.value || '').trim();
+      const bizPending = document.getElementById('modern-business-name-pending')?.checked;
+      if (!bizPending && (!bizName || bizName === '-')) {
+        errors.push('거래처 유입은 사업자명(사업자등록증명)이 필수입니다. 아직 못 받았다면 "사업자등록증 미수령"을 체크하세요.');
+      }
+    }
 
     // 3. 금액 검증
     const totalAmount = document.getElementById('modern-total-amount')?.value;

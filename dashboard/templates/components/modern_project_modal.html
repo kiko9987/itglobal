@@ -135,11 +135,16 @@
                                             </select>
                                         </div>
                                         <div class="col-md-8">
-                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">사업자명</label>
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">사업자명<span id="modern-business-name-required" class="text-danger" style="display: none;"> *</span></label>
                                             <input type="text" class="form-control" id="modern-business-name" name="사업자명" list="modernBusinessNameList" autocomplete="off" placeholder="사업자등록증명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                             <datalist id="modernBusinessNameList">
                                                 <!-- 동적으로 E열 unique 값 채워짐 -->
                                             </datalist>
+                                            <!-- 거래처 유입 시에만 노출: 사업자등록증 아직 못 받았을 때의 명시적 예외 -->
+                                            <div class="form-check mt-1" id="modern-business-name-pending-wrap" style="display: none;">
+                                                <input class="form-check-input" type="checkbox" id="modern-business-name-pending">
+                                                <label class="form-check-label" for="modern-business-name-pending" style="font-size: var(--font-size-sm); color: var(--gray-600);">사업자등록증 미수령 (수령 후 스레드 첨부하면 자동 기재)</label>
+                                            </div>
                                         </div>
                                     </div>
                                     <!-- 2줄: 발주처 담당자·연락처·이메일 (구 담당자 정보 → 현장 정보로 편입) -->
