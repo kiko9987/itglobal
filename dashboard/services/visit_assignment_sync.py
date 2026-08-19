@@ -284,6 +284,25 @@ def _addr_from_assignment(a: Dict) -> str:
     return ''
 
 
+def _line_md_from_assignment(a: Dict) -> Optional[Tuple[int, int]]:
+    """캔버스 라인 raw 에서 'N월 M일'(범위면 시작일) → (월, 일). 못 찾으면 None.
+
+    같은 번호+주소를 공유하는 반복 방문(다른 날짜)을 라인 날짜로 구분하기 위함
+    (ETC-986341 08-20 vs ETC-eccc5c 08-29, 010-3751-3157 동일, 2026-08-18).
+    """
+    m = re.search(r'(\d{1,2})\s*월\s*(\d{1,2})', str(a.get('raw') or ''))
+    if not m:
+        return None
+    mm, dd = int(m.group(1)), int(m.group(2))
+    return (mm, dd) if 1 <= mm <= 12 and 1 <= dd <= 31 else None
+
+
+def _lead_start_md(lead: Dict) -> Optional[Tuple[int, int]]:
+    """lead 방문 예정일 시작일 → (월, 일)."""
+    st = _parse_visit_date_start(lead.get('방문 예정일', ''))
+    return (st.month, st.day) if st else None
+
+
 _ACTIVE_VISIT_STATUS = {'방문 예약', '공사 확정'}
 
 
@@ -311,11 +330,14 @@ def _prefer_active_recent(cands: List[Dict]) -> Optional[Dict]:
     return (active or pool)[-1]
 
 
-def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '') -> Optional[Dict]:
-    """전화번호에 매칭된 lead(들) 중 하나 선택. 공유 번호면 주소로 disambiguate.
+def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '',
+                          line_md: Optional[Tuple[int, int]] = None) -> Optional[Dict]:
+    """전화번호에 매칭된 lead(들) 중 하나 선택. 공유 번호면 주소·날짜로 disambiguate.
 
     2026-07-27 L-03401/L-03404: 인테리어 담당자 공유 번호(010-4926-2787) 로
     서로 다른 현장(서울숲 M타워 vs 송파구 동남로)이 한 번호. 캔버스 라인 주소로 구분.
+    2026-08-18 ETC-986341/ETC-eccc5c: 번호+주소까지 동일한 반복 방문(같은 현장
+    08-20 vs 08-29). 주소로 못 가르니 캔버스 라인 날짜(N월 M일)로 추가 구분.
     같은 번호+주소를 공유하는 과거 lead(완료 등) 도 있어 활성 상태(방문 예약/공사
     확정) + 최신(시트 뒤쪽) 우선으로 정확한 현행 lead 선택.
     """
@@ -325,6 +347,7 @@ def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '') -> Opti
         return leads[0]
 
     cand = str(address or '').strip()
+    pool = leads
     if cand and len(cand) >= 8:
         matches = []
         for _l in leads:
@@ -332,8 +355,13 @@ def _pick_lead_for_phone(leads: Optional[List[Dict]], address: str = '') -> Opti
             if _sa and _sa != '-' and (cand in _sa or _sa in cand):
                 matches.append(_l)
         if matches:
-            return _prefer_active_recent(matches)
-    return _prefer_active_recent(leads)  # 주소 구분 불가 → 지난방문 제외·활성·최신
+            pool = matches
+    # 번호+주소가 같은 반복 방문이면 캔버스 라인 날짜로 정확한 회차 선택.
+    if line_md and len(pool) > 1:
+        _dm = [c for c in pool if _lead_start_md(c) == line_md]
+        if _dm:
+            pool = _dm
+    return _prefer_active_recent(pool)  # 남으면 지난방문 제외·활성·최신
 
 
 def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
@@ -346,7 +374,8 @@ def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
     """
     if a.get('phone_digits'):
         pd_ = a['phone_digits']
-        picked = _pick_lead_for_phone(phone_map.get(pd_), _addr_from_assignment(a))
+        _lmd = _line_md_from_assignment(a)
+        picked = _pick_lead_for_phone(phone_map.get(pd_), _addr_from_assignment(a), _lmd)
         if picked:
             return picked
         # 안심번호·앞자리 탈락 내성 (2026-08-11 ETC-590dbb: 시트 0507-1384-3577 ↔
@@ -359,7 +388,7 @@ def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
                 if _k == pd_ or len(_k) < 9:
                     continue
                 if _k.endswith(pd_) or pd_.endswith(_k):
-                    picked = _pick_lead_for_phone(_v, _addr_from_assignment(a))
+                    picked = _pick_lead_for_phone(_v, _addr_from_assignment(a), _lmd)
                     if picked:
                         return picked
     if a.get('address'):

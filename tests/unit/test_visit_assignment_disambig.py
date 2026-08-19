@@ -68,5 +68,45 @@ class TestResolveAddressFallback:
         assert picked is not None and picked['리드 No'] == 'ETC-04915c'
 
 
+class TestPhoneDateDisambig:
+    """번호+주소가 동일한 반복 방문(다른 날짜)은 캔버스 라인 날짜로 회차 구분.
+
+    ETC-986341(08-20) vs ETC-eccc5c(08-29): 010-3751-3157·관악구 광장빌딩 동일.
+    주소로 못 가르니 _prefer_active_recent 이 '최신(뒤쪽)' = 08-29 를 골라 08-20
+    라인이 엉뚱한 lead 에 붙음 (2026-08-18). 라인 날짜로 정확한 회차 선택.
+    """
+
+    @staticmethod
+    def _md(vd):
+        m, d = int(vd[5:7]), int(vd[8:10])
+        return (m, d)
+
+    def test_line_date_picks_matching_visit(self):
+        early = _lead('ETC-early', _FUT_RANGE)   # today+1~+2 (앞쪽)
+        late = _lead('ETC-late', _FUT)           # today+3 (뒤쪽 = 기본 선택)
+        # 라인 날짜 없으면 기존대로 최신(late)
+        assert vas._pick_lead_for_phone([early, late])['리드 No'] == 'ETC-late'
+        # 라인 날짜가 early 와 같으면 early — 뒤쪽 기본값을 날짜가 뒤집음
+        assert vas._pick_lead_for_phone(
+            [early, late], _ADDR, self._md(_FUT_RANGE))['리드 No'] == 'ETC-early'
+        # 라인 날짜가 late 와 같으면 late
+        assert vas._pick_lead_for_phone(
+            [early, late], _ADDR, self._md(_FUT))['리드 No'] == 'ETC-late'
+
+    def test_line_date_no_match_falls_back(self):
+        """라인 날짜가 어느 후보와도 안 맞으면 기존 로직(최신)으로 폴백."""
+        early = _lead('ETC-early', _FUT_RANGE)
+        late = _lead('ETC-late', _FUT)
+        assert vas._pick_lead_for_phone(
+            [early, late], _ADDR, (1, 1))['리드 No'] == 'ETC-late'
+
+    def test_line_md_parse(self):
+        assert vas._line_md_from_assignment(
+            {'raw': '(MW) 8월 20일 / 010-3751-3157 / 광장빌딩 / 공사'}) == (8, 20)
+        assert vas._line_md_from_assignment(
+            {'raw': '(당) 8월 19~21일 / ... '}) == (8, 19)   # 범위는 시작일
+        assert vas._line_md_from_assignment({'raw': '주소만 / 내용'}) is None
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
