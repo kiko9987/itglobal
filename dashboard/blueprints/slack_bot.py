@@ -11372,7 +11372,8 @@ def _process_invoice_submission(client, body, view) -> None:
     # 카드 헤더·첨부 상태를 완료 표시로 update. 버튼이 매니저에게 "이미 완료?" 오해를 줌.
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
+        {"type": "context", "elements": [{"type": "mrkdwn",
+            "text": "💡 수정발행 필요 시 [세금계산서 요청] 재클릭 · 이메일만 변경 시 스레드 댓글로 새 이메일 남기기"}]},
     ]
 
     # 카드 발송은 세금계산서 관리 알림 봇 (invoice_bot) 으로. 없으면 공사봇 fallback.
@@ -11737,6 +11738,8 @@ def _process_invoice_complete(client, body) -> None:
 
     completed_blocks = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': combined_text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn',
+            'text': '💡 수정발행 필요 시 [세금계산서 요청] 재클릭 · 이메일만 변경 시 스레드 댓글로 새 이메일 남기기'}]},
     ]
 
     try:
