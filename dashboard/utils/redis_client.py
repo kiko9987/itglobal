@@ -322,7 +322,10 @@ class RedisClient:
 
             return self.redis.set(key, serialized_value, ex=ex, nx=nx)
 
-        except (RedisError, TypeError, json.JSONEncodeError) as e:
+        except (RedisError, TypeError, ValueError) as e:
+            # 2026-08-19: json.JSONEncodeError 는 존재하지 않는 이름이라, Redis 블립 시
+            # 이 except 를 평가하다 AttributeError 로 재폭발 → 정상 예외처리를 건너뛰어
+            # 장애가 연쇄 확산되던 버그. json.dumps 직렬화 실패는 ValueError/TypeError 로 커버.
             logger.error(f"Redis set 실패: key={key}, error={e}")
             raise ServiceUnavailable(f"Cache unavailable: {e}")
 

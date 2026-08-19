@@ -159,9 +159,18 @@ class GoogleSheetsManager:
                 self.credentials_file, scopes=self.SCOPES
             )
 
-            # 서비스 객체 생성
-            self.service = build('sheets', 'v4', credentials=creds)
-            logger.info("구글 시트 API 인증 완료 (서비스 계정)")
+            # 서비스 객체 생성 — HTTP 타임아웃 지정 (2026-08-19)
+            # 기본 googleapiclient http 는 소켓 타임아웃이 없어 네트워크 순단 시 시트 호출이
+            # 무한 hang → 락(_INTAKE_SHEET_LOCK 등)을 쥔 채 멎으면 Waitress 스레드풀이
+            # 소진돼 전체 슬랙(버튼·모달)이 멎는 wedge 발생 (2026-08-19 07:20 Redis/도커
+            # 재시작 사고 — 2시간 슬랙 마비, 수동 재시작으로만 복구). 타임아웃으로 hang 을
+            # 유한하게 만들어 기존 재시도(reset_service)가 스스로 복구하도록 한다.
+            import httplib2
+            from google_auth_httplib2 import AuthorizedHttp
+            _timeout = int(os.getenv('SHEETS_HTTP_TIMEOUT', '60'))
+            authed_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=_timeout))
+            self.service = build('sheets', 'v4', http=authed_http, cache_discovery=False)
+            logger.info(f"구글 시트 API 인증 완료 (서비스 계정, http timeout={_timeout}s)")
 
         except Exception as e:
             logger.error(f"구글 API 인증 실패: {str(e)}")
