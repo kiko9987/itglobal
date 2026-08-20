@@ -482,6 +482,15 @@ def _register_payment_handlers(app):
                 channel = meta.get("channel", "")
                 message_ts = meta.get("message_ts", "")
                 d = _load_intake(intake_id)
+                # 이미 확인·기록돼 레코드가 삭제된 인입(또는 TTL 만료)에 뒤늦은 모달 제출이
+                # 오면, 아래 _update_intake 가 text/preview 없는 빈 레코드를 재생성해 카드를
+                # '확인 대기·자동인식 실패' 로 되돌리고 시트엔 이미 기록된 입금을 다시 지정
+                # 상태로 만든다 (2026-08-20 G4025-SD 농협 사고: 확인 완료 후 지정 모달 늦게
+                # 제출된 레이스). 유효 인입은 항상 text 를 가지므로 없으면 처리 완료 → 무시.
+                if not d.get("text"):
+                    _intake_ephemeral(client, channel, user_id,
+                                      ":information_source: 이미 확인·기록된 입금입니다 — 지정을 반영하지 않았습니다.")
+                    return
                 preview = d.get("preview") or {}
                 amount = int(preview.get("amount") or 0)
                 memo = d.get("text") or ""
