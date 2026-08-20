@@ -2392,6 +2392,99 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             )
             result['errors'] += 1
 
+    # ── 유실 카드 자가복구 안전망 (2026-08-20 R3916/G4025 유실 사고) ──────────
+    # 메인 루프의 여러 재baseline 경로 + 시트 값(values.get)·노트(spreadsheets.get)를
+    # 한 사이클 내 별개 API 2회로 읽는 시점차 레이스로, '값>0·노트 존재'인데 카드가
+    # 발송 안 된 채 baseline(phash)만 오르는 유실이 관측됨(phash_history 에 full
+    # phash·sent=0). 정확한 경로를 정적으로 못 잡아도, 불변식 "stage 값>0 + 파싱된
+    # 입금 + 카드 ts 없음" 이면 여기서 강제 발송해 유실을 원천 차단한다. 최근성 게이트
+    # (입금일 최근 4일)로 과거 데이터 대량 재발송 방지 + 멱등(ts 생기면 재발송 안 함).
+    # 메인 루프가 이번 사이클에 정상 발송했으면 그 ts 가 이미 있어 여기서 skip 된다.
+    if baseline_done and os.getenv('PAYMENT_SLACK_DISABLED', '').strip() not in ('1', 'true', 'True'):
+        try:
+            import time as _htime
+            _now_ts = int(_htime.time())
+            # 최근성 게이트 — date_md 는 연도가 없어 작년 동월일 건을 오늘로 오인한다.
+            # 대신 폴러가 이 행을 '최근에 처리'했는지(phash_history 최신 entry 시각)로 판정:
+            # 진짜 유실은 방금 처리돼 sent=0 로 남고, 오래된 안정 행은 phash_history 가 없다.
+            _HEAL_WINDOW = 6 * 3600  # 6시간
+
+            def _recently_processed(_hr):
+                try:
+                    _e = rc.lindex(f'payment_sync:row:{_hr}:phash_history', 0)
+                    if not _e:
+                        return False
+                    _e = _e.decode() if isinstance(_e, bytes) else _e
+                    return (_now_ts - int(_e.split('|')[0])) <= _HEAL_WINDOW
+                except Exception:
+                    return False
+
+            from dashboard.blueprints.slack_helpers import safe_slack_call
+            for _hrow, _hpays in all_payments_by_row.items():
+                _off = _hrow - 2
+                if _off < 0 or _off >= len(rows):
+                    continue
+                # 최근 처리된 행만 — 과거 안정 행(작년 동월일 등) 대량 재발송 방지
+                if not _recently_processed(_hrow):
+                    continue
+                _r = rows[_off]
+
+                def _hg(i, _row=_r):
+                    return _row[i] if i < len(_row) else ''
+                _proj = str(_hg(IDX_A)).strip()
+                if not _proj or not _VALID_PROJECT_RE.match(_proj):
+                    continue
+                _hstage_vals = {
+                    '계약금': _to_int_won(_hg(IDX_U)),
+                    '중도금': _to_int_won(_hg(IDX_V)),
+                    '잔금': _to_int_won(_hg(IDX_W)),
+                }
+                _unpaid = _to_int_won(_hg(IDX_X))
+                for _stg in ('계약금', '중도금', '잔금'):
+                    if _hstage_vals[_stg] <= 0:
+                        continue
+                    _sp = [p for p in _hpays if p.get('stage') == _stg]
+                    if not _sp:
+                        continue
+                    # 미완성 노트(partner/date 빈값) → 다음 폴링 대기 (메인 incomplete 가드와 동일)
+                    if any((not p.get('partner') or p.get('partner') == '-')
+                           or (not p.get('date_md') or p.get('date_md') == '-') for p in _sp):
+                        continue
+                    _tskey = f'payment_slack:ts:{_proj}:{_stg}'
+                    try:
+                        if rc.get(_tskey):
+                            continue  # 이미 카드 있음 = 유실 아님
+                    except Exception:
+                        continue
+                    # 유실 확정 — 기존 빌더로 카드 발송
+                    _addr = str(_hg(IDX_F)).strip()
+                    _constr = str(_hg(IDX_L)).strip()
+                    _inv = str(_hg(IDX_Y)).strip()
+                    _tr = _to_int_won(_hg(IDX_R)); _tt = _to_int_won(_hg(IDX_T))
+                    if _stg == '잔금' and _unpaid == 0:
+                        _txt = _build_complete_message(
+                            project=_proj, address=_addr, payments=_hpays,
+                            invoice_value=_inv, total_t=_tt,
+                            stage_sheet_vals=_hstage_vals, construction=_constr)
+                    else:
+                        _txt = _build_stage_with_history_message(
+                            stage=_stg, project=_proj, address=_addr,
+                            last_payment=_sp[-1], all_payments=_hpays,
+                            invoice_value=_inv, total_r=_tr, total_t=_tt,
+                            unpaid=_unpaid, stage_sheet_vals=_hstage_vals,
+                            construction=_constr)
+                    _resp = safe_slack_call(slack.chat_postMessage, channel=channel, text=_txt)
+                    if _resp and _resp.get('ok'):
+                        result['sent'] += 1
+                        _ts = _resp.get('ts', '')
+                        if _ts:
+                            rc.set(_tskey, _ts, ex=60 * 60 * 24 * 90)
+                        logger.warning(
+                            f"[PAYMENT] ⚠️ 유실 카드 안전망 발송: {_proj} {_stg} "
+                            f"{_hstage_vals[_stg]:,}원 (row {_hrow}) — 메인 루프 발송 누락 자동 복구")
+        except Exception as _hexc:
+            logger.error(f"[PAYMENT] 유실 카드 안전망 오류: {_hexc}", exc_info=True)
+
     # baseline 완료 마커 — 첫 폴링이었으면 표시 (다음 폴링부터 includeGridData 안 호출)
     if not baseline_done:
         try:
