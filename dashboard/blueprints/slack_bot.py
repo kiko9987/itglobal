@@ -618,10 +618,26 @@ def _register_payment_handlers(app):
             intake_channel = os.getenv('SLACK_PAYMENT_INTAKE_CHANNEL', '').strip()
             if not intake_channel or event.get('channel') != intake_channel:
                 return
-            # 봇 메시지(자신의 카드 포함)·수정/삭제/파일 등 subtype·스레드 답글 무시
+            # 봇 메시지(자신의 카드 포함)·수정/삭제/파일 등 subtype 무시
             if event.get('bot_id') or event.get('subtype'):
                 return
+            # 스레드 답글 — 매니저가 옛 습관으로 원본 문자/카드에 댓글 달면, 댓글은 시트·카드에
+            # 반영 안 되므로 본인에게만 보이는 ephemeral 로 카드 지정을 안내(채널 클러터 없음).
+            # 도배 방지: 스레드·유저당 1시간 1회. 2026-08-20 사용자 요청(원본 삭제 부담 경감).
             if event.get('thread_ts') and event.get('thread_ts') != event.get('ts'):
+                try:
+                    _ru = event.get('user', '')
+                    _rk = f"intake_nudge:{event.get('thread_ts')}:{_ru}"
+                    from dashboard.utils.redis_client import get_redis_client
+                    if _ru and get_redis_client().redis.set(_rk, '1', nx=True, ex=3600):
+                        client.chat_postEphemeral(
+                            channel=intake_channel, user=_ru,
+                            thread_ts=event.get('thread_ts'),
+                            text=(":warning: 여기 댓글은 기록에 반영되지 않아요. "
+                                  "입금 문자 카드의 *[🔗 프로젝트 지정]* 버튼으로 지정해주세요."),
+                        )
+                except Exception:
+                    pass
                 return
             text = (event.get('text') or '').strip()
             if not text:
