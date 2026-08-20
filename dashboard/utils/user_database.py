@@ -109,6 +109,10 @@ class UserDatabase:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_sessions_active ON user_sessions(is_active)')
 
             # 감사 로그 테이블 (통합)
+            # user_email 은 actor-agnostic — 슬랙 액션은 'slack:<이니셜>' 로 기록돼(users.email 에 없음)
+            # 과거 FK(user_email→users.email)가 있으면 슬랙 감사 로그(공사취소/되돌리기/내용수정)가
+            # FOREIGN KEY constraint 로 전부 INSERT 거부·유실됐다 (2026-08-20 발견, PM 사이트 실이메일만
+            # 통과하던 버그). FK 제거. (운영 DB 는 별도 마이그레이션으로 테이블 재생성.)
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS audit_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,8 +124,7 @@ class UserDatabase:
                     old_value TEXT,
                     new_value TEXT,
                     ip_address TEXT,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_email) REFERENCES users (email) ON DELETE SET NULL
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
 
