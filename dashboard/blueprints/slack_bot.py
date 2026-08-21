@@ -10514,7 +10514,6 @@ def _post_project_edit_notice_card(
     text = '⠀\n' + '\n'.join(lines)
     blocks = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
-        _code_copy_block(code),
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]},
     ]
 
@@ -10565,12 +10564,6 @@ def _notify_project_edit_result(
         pass
 
 
-def _code_copy_block(code: str) -> dict:
-    """프로젝트 코드만 담은 코드블록 — 데스크톱 슬랙에서 호버 시 Copy 버튼 노출(원클릭 복사).
-    office 카드(계산서·공사수정)에서 코드 복사 편의를 위해 헤더 인라인 코드와 별개로 추가."""
-    return {"type": "section", "text": {"type": "mrkdwn", "text": f"```\n{code}\n```"}}
-
-
 def _post_amount_edit_request_card(
     project: dict, amount_updates: dict, reason: str,
     requester_id: str, requester_initial: str,
@@ -10614,7 +10607,6 @@ def _post_amount_edit_request_card(
     text = '⠀\n' + '\n'.join(lines)
     blocks = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
-        _code_copy_block(code),
         {'type': 'context', 'elements': [{'type': 'mrkdwn',
             'text': '경영지원이 *직접 반영*한 뒤 ✅ 하면 요청자에게 완료 DM 이 전송됩니다.'}]},
     ]
@@ -11476,7 +11468,6 @@ def _process_invoice_submission(client, body, view) -> None:
     # 카드 헤더·첨부 상태를 완료 표시로 update. 버튼이 매니저에게 "이미 완료?" 오해를 줌.
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        _code_copy_block(code),
         {"type": "context", "elements": [{"type": "mrkdwn",
             "text": "💡 수정발행 필요 시 [세금계산서 요청] 재클릭 · 이메일만 변경 시 스레드 댓글로 새 이메일 남기기"}]},
     ]
@@ -11843,7 +11834,6 @@ def _process_invoice_complete(client, body) -> None:
 
     completed_blocks = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': combined_text}},
-        _code_copy_block(code),
         {'type': 'context', 'elements': [{'type': 'mrkdwn',
             'text': '💡 수정발행 필요 시 [세금계산서 요청] 재클릭 · 이메일만 변경 시 스레드 댓글로 새 이메일 남기기'}]},
     ]
