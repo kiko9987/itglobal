@@ -237,6 +237,34 @@ _ROAD_GIL_JOIN_RE = re.compile(r'([가-힣]{2,}로)\s+(\d+번?길)(?=\d|\s|$)') 
 _ROAD_BEONJI_SPLIT_RE = re.compile(r'([가-힣]{2,}대?로)(\d+(?:-\d+)?)(?![가-힣0-9번])')  # 동탄반석로172 → 동탄반석로 172
 _GIL_BEONJI_SPLIT_RE = re.compile(r'(\d+번?길)(\d+(?:-\d+)?)(?![가-힣0-9])')     # 13길4 → 13길 4
 
+# 붙여쓴 행정구역 접두 분리 (2026-08-19 L-03741) — '경기도고양시덕양구도내동' →
+#   '경기도 고양시 덕양구 도내동'. 시/도(short·full) + 시? + 구/군? + 동/읍/면/리, 각
+#   greedy·어간 1~4자('서구'·'우동'·'구로구' 모두 커버). 동 필수 + 2단계 이상 + 매치
+#   구간 무공백일 때만 → 이미 띄어쓴 것·도로명·단일 동은 미변경. 붙여쓴 지번주소가
+#   ADDRESS_PATTERNS(공백 요구)를 못 타 [추정]으로 빠지던 것 방지.
+_ADMIN_PROV = (
+    r'(?:서울특별시|부산광역시|대구광역시|인천광역시|광주광역시|대전광역시|울산광역시|'
+    r'세종특별자치시|경기도|강원특별자치도|강원도|충청북도|충청남도|전라북도|전북특별자치도|'
+    r'전라남도|경상북도|경상남도|제주특별자치도|서울|부산|대구|인천|광주|대전|울산|세종|'
+    r'경기|강원|충북|충남|전북|전남|경북|경남|제주)'
+)
+_GLUED_ADMIN_RE = re.compile(
+    r'(?<![가-힣])(' + _ADMIN_PROV + r')?'
+    r'([가-힣]{2,4}시)?([가-힣]{1,4}[구군])?([가-힣]{1,4}[동읍면리])(?=\s|\d|$)'
+)
+
+
+def _unglue_admin_prefix(s: str) -> str:
+    def _repl(m):
+        seg = m.group(0)
+        if not seg or ' ' in seg:
+            return seg
+        parts = [g for g in m.groups() if g]
+        if len(parts) < 2:                    # 최소 2단계(동 포함) — 단일 동 미변경
+            return seg
+        return ' '.join(parts)
+    return _GLUED_ADMIN_RE.sub(_repl, s)
+
 
 def _normalize_road_spacing(s: str) -> str:
     """도로명+번지 붙여쓰기 → canonical 스페이싱. 도로세그먼트(N길/번길)는 보존.
@@ -246,6 +274,7 @@ def _normalize_road_spacing(s: str) -> str:
     """
     if not s:
         return s
+    s = _unglue_admin_prefix(s)               # 붙여쓴 행정구역 분리 (L-03741)
     s = _ROAD_GIL_JOIN_RE.sub(r'\1\2', s)
     s = _ROAD_BEONJI_SPLIT_RE.sub(r'\1 \2', s)
     s = _GIL_BEONJI_SPLIT_RE.sub(r'\1 \2', s)
