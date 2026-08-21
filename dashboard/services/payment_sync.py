@@ -986,7 +986,6 @@ def _build_stage_message(
     if _warns:
         lines.append(_SEP)
         lines.extend(_warns)
-    lines.append(f"```\n{project}\n```")   # 프로젝트 코드 복사용 (데스크톱 호버 Copy)
     lines.append('⠀')
     return '\n'.join(lines)
 
@@ -1104,7 +1103,6 @@ def _build_stage_with_history_message(
     if _warns:
         lines.append(_SEP)
         lines.extend(_warns)
-    lines.append(f"```\n{project}\n```")   # 프로젝트 코드 복사용 (데스크톱 호버 Copy)
     lines.append('⠀')
     return '\n'.join(lines)
 
