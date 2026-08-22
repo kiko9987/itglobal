@@ -6811,6 +6811,27 @@ def _process_consult_submission(client, body, view):
                     header_lines.append(f"상담 내용 : {_entries[0].get('content','').strip() or '-'}")
                 elif consultation:
                     header_lines.append(f"상담 내용 : {consultation}")
+                # 매니저가 상담 모달에서 새 주소를 입력했으면(원본과 다름) 아카이브의
+                #   방문 주소 라인을 원본/변환 2줄로 갱신 — 유선/견적/드랍 등 방문예약
+                #   아닌 상담도 주소 정정이 카드에 반영되게 (2026-08-22 L-03750). 방문
+                #   예약은 별도 방문 카드가 처리하므로 제외. clean_text 는 ``` 코드블록.
+                if visit_address and not is_visit:
+                    _m_addr = re.search(r'(?m)^방문 주소\s*:\s*(.+)$', clean_text)
+                    if _m_addr:
+                        _orig_addr = re.sub(
+                            r'\s*(?:⚠️|:warning:)?\s*\[[^\]]+\]\s*$', '',
+                            _m_addr.group(1)).strip()
+                        _conv_addr = re.sub(r'\s+', ' ', visit_address).strip()
+                        _fail = bool(_visit_addr_note
+                                     and _visit_addr_note.get('kind') == 'failed')
+                        _badge = '  ⚠️ [주소 확인 필요]' if _fail else ''
+                        if (_orig_addr and _conv_addr and re.sub(r'\s+', '', _orig_addr)
+                                != re.sub(r'\s+', '', _conv_addr)):
+                            _al = f'원본 주소 : {_orig_addr}\n변환 주소 : {_conv_addr}{_badge}'
+                        else:
+                            _al = f'방문 주소 : {_conv_addr}{_badge}'
+                        clean_text = (clean_text[:_m_addr.start()] + _al
+                                      + clean_text[_m_addr.end():])
                 new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
                 new_blocks = [
                     {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
