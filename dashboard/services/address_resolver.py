@@ -216,6 +216,11 @@ def _post_normalize_display(addr: str) -> str:
     addr = re.sub(r'(?<=\d),(?=\s*\d)', '\x00', addr)  # 숫자 사이 콤마 보호
     addr = re.sub(r',\s+', ' ', addr)                   # 나머지 콤마+공백 제거
     addr = addr.replace('\x00', ',')                    # 보호분 복원
+    # 한글+숫자 층/호/관/동 붙임 분리 (2026-08-24 L-03754): '상가2238호'→'상가 2238호'.
+    #   building_tail 은 base normalize(호/층 분리)를 안 거쳐 최종 단계에서 보강.
+    #   'N동주민센터' 등 행정동 접미는 분리 금지(base 규칙과 동일). 이미 공백이면 무변.
+    addr = re.sub(r'(?<=[가-힣])(\d+동)(?!주민|사무|행정|복지|자치)', r' \1', addr)
+    addr = re.sub(r'(?<=[가-힣])(\d+(?:호|층|관|호실))', r' \1', addr)
     # ' 산 (숫자)' → ' 산(숫자)'
     addr = re.sub(r' 산 (\d)', r' 산\1', addr)
     # 인접 유사 단어 dedup
