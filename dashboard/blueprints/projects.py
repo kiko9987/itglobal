@@ -1139,7 +1139,7 @@ def update_project(project_code):
         _record_update_audit_logs(field_changes, project_code)
 
         # 11. updated_project 계산 (시트 재조회 없이 로컬 계산)
-        updated_project = _build_updated_project_from_values(current_values, field_to_index)
+        updated_project = _build_updated_project_from_values(current_values, field_to_index, final_project_code)
 
         # 12. 캐시 부분 갱신 시도 (Google Sheets API 호출 없이 즉시 반영)
         # - 프로젝트 코드 변경 없고 updated_project 있으면 캐시된 DataFrame에서 해당 row만 in-place 교체
@@ -3166,7 +3166,7 @@ def _handle_project_update_sheet(payload: dict) -> None:
         logger.warning(f'[QUEUE/project_update/comments] {code}: {exc}')
 
 
-def _build_updated_project_from_values(current_values: list, field_to_index: dict) -> dict:
+def _build_updated_project_from_values(current_values: list, field_to_index: dict, project_code: str = None) -> dict:
     """`_fetch_and_calculate_updated_project` 의 로컬 변형 — 시트 재조회 없이 계산.
 
     이미 update 를 적용한 current_values 를 그대로 사용해 계산 필드까지 재계산.
@@ -3187,6 +3187,14 @@ def _build_updated_project_from_values(current_values: list, field_to_index: dic
                 updated_project[field_name] = ''
             else:
                 updated_project[field_name] = str(value)
+
+    # 프로젝트 코드 수식 셀 가드 (2026-08-20)
+    #   프로젝트 코드는 시트 수식(=IF($B..사업자..)&SWITCH($C..담당자..)) 셀이라
+    #   current_values(FORMULA render)로 읽으면 수식 문자열이 그대로 들어와,
+    #   저장 직후 행/카드에 '=IF($B3648=...' 수식이 노출됨(새로고침 시 정상).
+    #   PUT 이 아는 최종 코드(final_project_code, 재-key 반영)로 덮어 표시 깨짐 방지.
+    if project_code and str(updated_project.get('프로젝트 코드', '')).lstrip().startswith('='):
+        updated_project['프로젝트 코드'] = project_code
 
     # 날짜 필드 정규화
     #   2026-07-10 회귀 fix — 편집 저장 후 공사 시작/종료가 사라지던 버그.
