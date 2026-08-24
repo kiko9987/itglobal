@@ -13,7 +13,7 @@ from dashboard.services.address_resolver import _post_normalize_display as P
 
 @pytest.mark.parametrize('addr, expected', [
     ('강남구 테헤란로 115 서림빌딩 15층,뉴헤어의원', '강남구 테헤란로 115 서림빌딩 15층 뉴헤어의원'),
-    ('강남구 X로 1 서림빌딩,지하1층', '강남구 X로 1 서림빌딩 지하1층'),
+    ('강남구 X로 1 센트럴스퀘어,관리사무소', '강남구 X로 1 센트럴스퀘어 관리사무소'),
     ('강남구 X로 1 서울숲,강남빌딩', '강남구 X로 1 서울숲 강남빌딩'),
 ])
 def test_comma_hangul_to_space(addr, expected):
