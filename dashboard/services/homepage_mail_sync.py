@@ -299,6 +299,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
     #   2) 구 폼: 문의 내용에서 정규식 → 카카오 검증 → 원문 첫 줄 fallback
     extracted_address = ''
     extract_level = ''
+    _addr_raw = ''   # 원본 주소 (자동 정리 전) — 온라인 카드 원본/변환 2줄용 (2026-08-24 L-03754)
     address_block = (parsed.get('address_block') or '').strip()
     if address_block:
         # 3줄 블록 파싱 — 우편번호 제거 후 도로명 + 상세주소 조합
@@ -308,12 +309,14 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
             lines = lines[1:]
         combined = ' '.join(lines).strip()
         if combined:
+            _addr_raw = combined
             extracted_address, extract_level = resolve_address(combined, combined, 'form')
     if not extracted_address and inquiry:
         # 구 폼 fallback — 문의 내용에서 주소 추출
         regex_result = extract_korean_address(inquiry)
         regex_addr = regex_result[0] if regex_result else None
         regex_level = regex_result[1] if regex_result else ''
+        _addr_raw = regex_addr or _addr_raw
         extracted_address, extract_level = resolve_address(
             inquiry, regex_addr, regex_level
         )
@@ -348,6 +351,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         '_meta_device': device,
         '_meta_inquiry': inquiry,
         '_meta_address_level': extract_level,  # 신뢰도 표시용
+        '_meta_address_raw': _addr_raw,        # 원본 주소 표시용 (원본/변환 2줄, 당근과 통일)
     }
 
 
