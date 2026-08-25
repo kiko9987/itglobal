@@ -185,14 +185,22 @@ class TestCashDetectAndNormalize:
         assert not looks_like_cash('입금 500,000원 홍길동')  # '현금' 없음(은행)
 
     def test_normalize_layout(self):
-        # 자유문장 → '입금 X원 / 현금 수령' 표준 메모 (파서 호환)
+        # 자유문장 → 은행 SMS 틀 미러 ('현금,날짜 / 입금 X원 / 현금 수령'), 파서 호환
         out = normalize_cash_layout('8월25일 권태훈 매니저 현금 240만원 YG 수령 완료')
-        assert out == '08/25 입금 2,400,000원\n현금 수령'
-        # 날짜 없으면 날짜 생략
+        assert out == '현금, 08/25\n입금 2,400,000원\n현금 수령'
+        # 날짜 없으면 헤더 생략 (파서가 당일로 처리)
         out2 = normalize_cash_layout('현금 2,400,000원 안기성')
         assert out2 == '입금 2,400,000원\n현금 수령'
         # 인식 실패 시 원문 유지
         assert normalize_cash_layout('현금 받았어요') == '현금 받았어요'
+
+    def test_normalize_parses_back(self):
+        # 변환 메모가 다운스트림 파서로 금액·거래처·날짜 정확히 파싱되는지 (핵심 계약)
+        from dashboard.services.sms_intake import parse_preview
+        pv = parse_preview(normalize_cash_layout('8월25일 현금 240만원 YG 수령'))
+        assert pv['amount'] == 2_400_000
+        assert pv['partner'] == '현금 수령'   # '현금,' 헤더가 partner 로 안 잡힘
+        assert pv['date_md'] == '08/25'
 
     def test_bank_not_treated_as_cash(self):
         # 사업자계좌 있는 은행 문자는 현금으로 오인 안 함 (라우팅은 계좌 유무로 분리)

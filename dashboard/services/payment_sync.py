@@ -236,6 +236,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         re.compile(r'^일시\s'),
         re.compile(r'^하나[,\s]'),
         re.compile(r'^농협,'),   # '농협, 08/13 09:16' 헤더 (인입 재구성 양식) — 거래처 오인 방지. 콤마 전용('농협 물산' 등 공백 거래처 보존)
+        re.compile(r'^현금,'),   # '현금, 08/25' 헤더 (현금 인입 재구성 양식, 2026-08) — 은행틀 미러. partner 는 '현금 수령' 라인에서. 콤마 전용
         re.compile(r'^입금'),
         re.compile(r'^(출금|반환|환불)'),   # 과입금 반환 라인 — 거래처 오인 방지
         re.compile(r'^입금일\s*:'),

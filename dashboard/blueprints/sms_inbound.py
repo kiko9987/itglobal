@@ -210,9 +210,8 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
     }.get(bank, '')
     is_cash = bool((preview or {}).get('cash'))
     if is_cash:
-        header = '새 현금 수령 알림'
-    else:
-        header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
+        bank_label = '현금'   # 은행명 자리에 '현금' — 은행 카드 헤더 틀 유지
+    header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
     lines = ["⠀", f">🔔 *{header}*", f">{INTAKE_SEP}",
              *quoted_body(clean_text), f">{INTAKE_SEP}"]
     blocks = [

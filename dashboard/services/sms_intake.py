@@ -171,16 +171,22 @@ def looks_like_cash(text: str) -> bool:
 
 
 def normalize_cash_layout(text: str) -> str:
-    """현금 자유문장 → 표준 메모. 파서(_parse_memo_block)가 '입금 X원'+'현금 수령'을 잡게 한다.
-    예: '8월25일 ... 현금 240만원 YG 수령' → '08/25 입금 2,400,000원\\n현금 수령'.
-    ('[현금]' 헤더는 파서가 partner 로 오인해 제외 — '현금 수령' 라인이 현금 표식·partner 역할.)
-    금액 인식 실패 시 원문 유지."""
+    """현금 자유문장 → 은행 SMS 틀을 미러한 표준 메모 (계좌 라인만 없음).
+    은행: '하나,MM/DD, HH:MM / 계좌 / 입금 X원 / 입금자'
+    현금: '현금, MM/DD / 입금 X원 / 현금 수령'
+    예: '8월25일 ... 현금 240만원 YG 수령' → '현금, 08/25\\n입금 2,400,000원\\n현금 수령'.
+    파서는 '^현금,' skip 으로 헤더를 거래처 오인 안 하고, '현금 수령' 라인을 partner 로 잡는다.
+    금액 인식 실패 시 원문 유지. 날짜 없으면 헤더 생략(파서가 당일로 처리)."""
     amount = parse_cash_amount(text)
     if amount <= 0:
         return text
     date_md = _extract_cash_date(text)
-    head = f'{date_md} ' if date_md else ''
-    return f'{head}입금 {amount:,}원\n현금 수령'
+    lines = []
+    if date_md:
+        lines.append(f'현금, {date_md}')   # 은행틀: '은행,날짜' 자리
+    lines.append(f'입금 {amount:,}원')
+    lines.append('현금 수령')              # 은행틀: '입금자' 자리
+    return '\n'.join(lines)
 
 
 # 은행 예금 이자·결산 입금 — 프로젝트 입금 아님(적요 '2026년결산' 등). 인입 제외.
