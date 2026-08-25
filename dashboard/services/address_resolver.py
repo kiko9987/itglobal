@@ -748,6 +748,12 @@ def _extract_building_tail(text: str) -> str:
             p = tail.find(sep)
             if 0 <= p < cut_pos:
                 cut_pos = p
+        # 평수(면적) 이후는 상세/문의라 절단 (2026-08-25 L-03774): '이마트…2층 25평
+        #   인테리어공사시작단계' → '이마트…2층'. 공백+숫자+평(뒤 한글 아님) 지점에서 자름
+        #   ('평택로'·'평화빌딩' 등 오절단 방지 위해 앞 공백+숫자 필수).
+        _mp = re.search(r'\s\d+\s*평(?![가-힣])', tail)
+        if _mp and _mp.start() < cut_pos:
+            cut_pos = _mp.start()
         tail = tail[:cut_pos].strip()
         # 트레일링 부호/공백 정리
         tail = re.sub(r'[,.\s]+$', '', tail).strip()

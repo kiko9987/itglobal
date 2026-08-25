@@ -283,6 +283,10 @@ def _normalize_road_spacing(s: str) -> str:
     if not s:
         return s
     s = _DASH_TO_HYPHEN_RE.sub('-', s)        # 숫자 사이 대시류(ㅡ 등) → '-' (L-03769)
+    # 평수(면적) 이후는 상세/문의라 절단 (2026-08-25 L-03774): '…2층 25평 인테리어공사
+    #   시작단계' → '…2층'. 공백+숫자+평(뒤 한글 아님) 부터 줄 끝까지 제거. '평택로'·
+    #   '평화빌딩'(앞 공백+숫자 없음)은 미매치. 문의 내용은 별도 필드라 영향 없음.
+    s = re.sub(r'\s\d+\s*평(?![가-힣]).*$', '', s)
     s = _unglue_admin_prefix(s)               # 붙여쓴 행정구역 분리 (L-03741)
     s = _ROAD_GIL_JOIN_RE.sub(r'\1\2', s)
     s = _ROAD_BEONJI_SPLIT_RE.sub(r'\1 \2', s)
