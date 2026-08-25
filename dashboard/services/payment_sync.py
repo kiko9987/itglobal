@@ -1132,7 +1132,8 @@ def _build_complete_message(
         '[입금 이력]',
     ])
     for p in payments:
-        stage = p.get('stage', '-')
+        # 과입금/계약 취소 반환(출금)은 단계명 대신 '반환'으로 표시 (2026-08 R4011 계약금 환불)
+        stage = '반환' if p.get('is_refund') else p.get('stage', '-')
         date_md = p.get('date_md', '-')
         code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
         # 이체 표기 반영 (2026-07-10)
