@@ -254,6 +254,22 @@ def _post_normalize_display(addr: str) -> str:
     for t in tokens:
         if out:
             prev = out[-1]
+            # (0-a) 인접 동일 토큰 제거 (2026-08-25 L-03783): base 동-분리가 '자이101동'
+            #   →'자이 101동' 으로 쪼개면 앞 단지명(자이)과 겹쳐 '자이 자이 101동'. 완전
+            #   동일한 인접 토큰은 중복 → 뒤 것 skip. (짧은 단지명은 아래 접두 병합 3자
+            #   가드 밖이라 이 규칙으로 커버.)
+            if t == prev and re.search(r'[가-힣]', t):
+                continue
+            # (0-b) 단지명 반복 접두 병합 (2026-08-25 L-03783): 다음 위젯 building_name
+            #   '종암2차 아이파크' unwrap 후, 고객이 상세에 '아이파크상가동'처럼 단지명을
+            #   다시 붙여 '아이파크 아이파크상가동' 중복. cur 가 prev 로 시작하고 나머지가
+            #   '…동' 건물 구역(상가동·관리동·N동)이면 **접두만** 제거 → '아이파크 상가동'
+            #   (구역 정보 상가동 보존). prev 3자↑ 한글 & 나머지 한글+동 접미로 오제거 방지.
+            if (len(prev) >= 3 and re.search(r'[가-힣]', prev)
+                    and t != prev and t.startswith(prev)):
+                _rem = t[len(prev):]
+                if _rem.endswith('동') and re.search(r'[가-힣]', _rem):
+                    t = _rem
             # (1) 같은 접미어 dedup — 'X캠퍼스 Y캠퍼스' 시 카카오 표준(앞) 유지
             _same_suffix = next(
                 (s for s in _SAME_SUFFIX_DEDUP
