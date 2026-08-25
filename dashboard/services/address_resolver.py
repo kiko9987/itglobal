@@ -257,7 +257,9 @@ def _post_normalize_display(addr: str) -> str:
             if _tn in _pn:
                 continue
         out.append(t)
-    return ' '.join(out)
+    # 끝 마침표·공백 잔재 제거 (2026-08-25 L-03769): 고객이 '2ㅡ9.' 처럼 끝에 붙인 마침표
+    #   가 '… 2-9 .' 로 남던 것 정리.
+    return re.sub(r'[\s.．]+$', '', ' '.join(out))
 
 
 class _KakaoTransientError(Exception):

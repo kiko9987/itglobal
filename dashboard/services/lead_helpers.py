@@ -254,6 +254,14 @@ _GLUED_ADMIN_RE = re.compile(
 )
 
 
+# 숫자 사이 대시류 → 하이픈 (2026-08-25 L-03769) — 갤럭시 등에서 '-' 대신 'ㅡ'(U+3161
+#   한글 모음)·en/em대시·全角하이픈·마이너스를 입력하면 번지(2ㅡ9)가 파싱 실패. 숫자
+#   사이(공백 허용)에서만 치환 → 일반 텍스트 대시 오변환 방지.
+_DASH_TO_HYPHEN_RE = re.compile(
+    r'(?<=\d)\s*[ㅡ‐‑–—―−－]\s*(?=\d)'
+)
+
+
 def _unglue_admin_prefix(s: str) -> str:
     def _repl(m):
         seg = m.group(0)
@@ -274,6 +282,7 @@ def _normalize_road_spacing(s: str) -> str:
     """
     if not s:
         return s
+    s = _DASH_TO_HYPHEN_RE.sub('-', s)        # 숫자 사이 대시류(ㅡ 등) → '-' (L-03769)
     s = _unglue_admin_prefix(s)               # 붙여쓴 행정구역 분리 (L-03741)
     s = _ROAD_GIL_JOIN_RE.sub(r'\1\2', s)
     s = _ROAD_BEONJI_SPLIT_RE.sub(r'\1 \2', s)
