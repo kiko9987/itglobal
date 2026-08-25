@@ -219,14 +219,14 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
         {"type": "actions", "elements": [
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "🔗 프로젝트 지정하기"},
+                "text": {"type": "plain_text", "text": "🔗 프로젝트 지정"},
                 "action_id": "payment_intake_open",
                 "value": intake_id,
             },
             {
                 # 통합 입금(한 문자에 여러 프로젝트 금액) → 프로젝트별 분할 지정
                 "type": "button",
-                "text": {"type": "plain_text", "text": "⚖️ 프로젝트 분할 지정하기"},
+                "text": {"type": "plain_text", "text": "⚖️ 프로젝트 분할 지정"},
                 "action_id": "payment_intake_split_open",
                 "value": intake_id,
             },
