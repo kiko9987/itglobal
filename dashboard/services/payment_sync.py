@@ -1712,21 +1712,23 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         prev_aa = str(prev.get('aa', '')).lower() == 'true'
 
         # stage 별 phash — 신규/기존 매핑.
-        # ⚠️ 값>0 인 단계의 phash 만 인정한다. 폴러는 한 사이클에서 값(values.get)과
+        # ⚠️ 값이 '있는'(≠0) 단계의 phash 만 인정한다. 폴러는 한 사이클에서 값(values.get)과
         # 노트(spreadsheets.get)를 별개 API 로 읽어, 확인 커밋의 노트→값 쓰기 사이에
         # 폴러가 끼면 '노트는 보이는데 값은 아직 0' 상태가 된다. 이때 값 없이 노트 phash 가
         # baseline 에 확정되면, 이후 값이 채워져도 note_changed=False 라 카드가 영영 안 나간다
         # (2026-08 R3916/G4025 유실). 값이 채워지는 사이클에 phash 가 비로소 바뀌어 발송된다.
         # 발송 경로(stages_increased·fallback)는 그대로 값>0 을 요구하므로 오발송은 불가.
+        # 게이트가 ≠0 인 이유: 환불(과입금 반환)은 셀 값이 '음수'(순액)라, >0 로 걸면
+        # 환불 단계 phash 가 '' 로 떨어져 반환 감지(u_ref/w_ref)가 막힌다. 0(미입금)만 제외.
         _val_map = {'계약금': u_val, '중도금': v_val, '잔금': w_val}
         _cur_ph = all_phash_by_row.get(sheet_row) or {'u': '', 'v': '', 'w': '', 'all': ''}
-        cur_u_ph = _cur_ph.get('u', '') if u_val > 0 else ''
-        cur_v_ph = _cur_ph.get('v', '') if v_val > 0 else ''
-        cur_w_ph = _cur_ph.get('w', '') if w_val > 0 else ''
-        # 전체 phash 도 값>0 단계만으로 재계산 (아래 new_phash 와 동일 기준 유지)
+        cur_u_ph = _cur_ph.get('u', '') if u_val != 0 else ''
+        cur_v_ph = _cur_ph.get('v', '') if v_val != 0 else ''
+        cur_w_ph = _cur_ph.get('w', '') if w_val != 0 else ''
+        # 전체 phash 도 값이 있는(≠0) 단계만으로 재계산 (아래 new_phash 와 동일 기준 유지)
         _cur_all_ph = _hash_payments([
             p for p in (all_payments_by_row.get(sheet_row) or [])
-            if _val_map.get(p.get('stage'), 0) > 0])
+            if _val_map.get(p.get('stage'), 0) != 0])
 
         # 첫 폴링은 baseline만 저장하고 발송 X (stage 별 phash 함께 저장)
         if not prev:
@@ -1941,10 +1943,10 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 notes,
                 stage_vals={'계약금': u_val, '중도금': v_val, '잔금': w_val},
             )
-            # new_phash 도 값>0 단계만으로 계산 (위 baseline phash 게이트와 동일 기준 —
-            # 값 없이 노트만 보이는 시점차 사이클에 phash 가 확정돼 카드 유실되는 것 방지)
+            # new_phash 도 값이 있는(≠0) 단계만으로 계산 (위 baseline phash 게이트와 동일 —
+            # 값 없이 노트만 보이는 시점차에 phash 확정돼 유실 방지 + 환불(음수)은 유지)
             _npv = {'계약금': u_val, '중도금': v_val, '잔금': w_val}
-            new_phash = _hash_payments([p for p in payments if _npv.get(p.get('stage'), 0) > 0])
+            new_phash = _hash_payments([p for p in payments if _npv.get(p.get('stage'), 0) != 0])
             prev_phash = c.get('phash', '')
             note_changed = new_phash != prev_phash
 
@@ -2386,9 +2388,9 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 'u': u_val, 'v': v_val, 'w': w_val,
                 'aa': 'true' if aa_chk else 'false',
                 'phash': new_phash,
-                'u_phash': (_pd.get('u', '') if isinstance(_pd, dict) else '') if u_val > 0 else '',
-                'v_phash': (_pd.get('v', '') if isinstance(_pd, dict) else '') if v_val > 0 else '',
-                'w_phash': (_pd.get('w', '') if isinstance(_pd, dict) else '') if w_val > 0 else '',
+                'u_phash': (_pd.get('u', '') if isinstance(_pd, dict) else '') if u_val != 0 else '',
+                'v_phash': (_pd.get('v', '') if isinstance(_pd, dict) else '') if v_val != 0 else '',
+                'w_phash': (_pd.get('w', '') if isinstance(_pd, dict) else '') if w_val != 0 else '',
             })
             rc.expire(c['key'], REDIS_TTL)
             # Phash 이력 저장 (P2-2, 2026-07-10) — 디버깅용, 최근 20개만 유지
