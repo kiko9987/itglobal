@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""괄호 '(법정동 건물명)' 무-콤마 정리 — 법정동 제거·건물명 unwrap (L-03702).
+"""괄호 '(법정동 건물명)' 정리 — 법정동 제거·건물명 unwrap (L-03702·L-03771).
 
-매니저가 '(갈현동 벧엘)' 처럼 법정동+건물을 괄호로 적으면 법정동 빼고 건물명만 밖으로.
-카카오/관행 정식 괄호는 '(법정동, 건물)' 콤마형이라 미매치(괄호 유지). 번지형은 건물부가
-숫자로 시작해 미매치. 순수함수 _post_normalize_display.
+매니저가 '(갈현동 벧엘)'·'(고잔동, Win-Win프라자)' 처럼 법정동+건물을 괄호로 적으면 법정동
+빼고 건물명만 밖으로 (콤마형/무-콤마 둘 다). 번지형('(걸포동 172-1)')은 건물부가 숫자로
+시작해 미매치(보존), 동 단독은 별도 제거 규칙. 순수함수 _post_normalize_display.
 """
 import sys
 sys.path.insert(0, '.')
@@ -24,6 +24,10 @@ from dashboard.services.address_resolver import _post_normalize_display as P
     # 중첩 괄호 (법인 (주)/㈜) — 내부 괄호 보존 unwrap (L-03716)
     ('시흥 공단1대로195번길 38 (정왕동 (주)삼인)', '시흥 공단1대로195번길 38 (주)삼인'),
     ('부천 부천로 1 (심곡동 ㈜대성) 2층', '부천 부천로 1 ㈜대성 2층'),
+    # 콤마형 '(법정동, 건물명)' 도 unwrap (L-03771)
+    ('안산 단원구 광덕4로 260 (고잔동, Win-Win프라자) 4층',
+     '안산 단원구 광덕4로 260 Win-Win프라자 4층'),
+    ('강남구 테헤란로 152 (역삼동, 강남빌딩) 3층', '강남구 테헤란로 152 강남빌딩 3층'),
 ])
 def test_no_comma_dong_building_unwrapped(addr, expected):
     assert P(addr) == expected
@@ -36,12 +40,6 @@ def test_no_comma_dong_building_unwrapped(addr, expected):
 ])
 def test_preserved(addr):
     assert P(addr) == addr
-
-
-def test_comma_form_paren_kept():
-    # 콤마형 '(법정동, 건물)' 은 unwrap 안 함 — 콤마만 정리되고 괄호 유지
-    assert P('강남구 테헤란로 152 (역삼동, 강남빌딩) 3층') \
-        == '강남구 테헤란로 152 (역삼동 강남빌딩) 3층'
 
 
 if __name__ == '__main__':
