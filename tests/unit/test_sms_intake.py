@@ -17,6 +17,7 @@ sys.path.insert(0, '.')
 import pytest
 from dashboard.services.sms_intake import (
     strip_balance, looks_like_payment, dedup_hash, has_business_account,
+    parse_cash_amount, looks_like_cash, normalize_cash_layout,
 )
 
 # 실제 원본 구조 (금액은 샘플). 사용자 제공 원문 기준.
@@ -142,6 +143,63 @@ class TestDedupHash:
 
     def test_len_16(self):
         assert len(dedup_hash('x', 'y')) == 16
+
+
+class TestCashAmount:
+    """현금 금액 파싱 — 콤마·만·억·천만·백만·복합(2천5백만) 다양한 표기."""
+
+    @pytest.mark.parametrize('text,expected', [
+        ('8월25일 권태훈 매니저 현금 240만원 YG 수령 완료', 2_400_000),
+        ('현금 2,400,000원 안기성 YG수령', 2_400_000),
+        ('08/25 현금 2,400,000원 안기성', 2_400_000),
+        ('현금 240만원', 2_400_000),
+        ('현금 2400만원 수령', 24_000_000),
+        ('현금 1,500,000원', 1_500_000),
+        ('현금 1억2천만원', 120_000_000),
+        ('현금 1억', 100_000_000),
+        ('현금 1억5000만원', 150_000_000),
+        ('현금 500만원 YG', 5_000_000),
+        ('현금 5백만원', 5_000_000),
+        ('현금 2천만원', 20_000_000),
+        ('현금 1000만원 수령완료', 10_000_000),
+        ('현금 2천5백만원', 25_000_000),
+        ('현금 3천5백만원 YG수령', 35_000_000),
+        ('현금 240 만원', 2_400_000),
+        ('현금 2,400,000 YG', 2_400_000),
+        ('현금 3억', 300_000_000),
+        ('현금 1천만원', 10_000_000),
+    ])
+    def test_amounts(self, text, expected):
+        assert parse_cash_amount(text) == expected
+
+    def test_no_amount(self):
+        assert parse_cash_amount('현금 받았어요') == 0
+        assert parse_cash_amount('') == 0
+
+
+class TestCashDetectAndNormalize:
+    def test_looks_like_cash(self):
+        assert looks_like_cash('8월25일 현금 240만원 YG 수령')
+        assert looks_like_cash('현금 2,400,000원')
+        assert not looks_like_cash('현금 받았어요')       # 금액 없음
+        assert not looks_like_cash('입금 500,000원 홍길동')  # '현금' 없음(은행)
+
+    def test_normalize_layout(self):
+        # 자유문장 → '입금 X원 / 현금 수령' 표준 메모 (파서 호환)
+        out = normalize_cash_layout('8월25일 권태훈 매니저 현금 240만원 YG 수령 완료')
+        assert out == '08/25 입금 2,400,000원\n현금 수령'
+        # 날짜 없으면 날짜 생략
+        out2 = normalize_cash_layout('현금 2,400,000원 안기성')
+        assert out2 == '입금 2,400,000원\n현금 수령'
+        # 인식 실패 시 원문 유지
+        assert normalize_cash_layout('현금 받았어요') == '현금 받았어요'
+
+    def test_bank_not_treated_as_cash(self):
+        # 사업자계좌 있는 은행 문자는 현금으로 오인 안 함 (라우팅은 계좌 유무로 분리)
+        bank = '[Web발신]\n기업 입금 500,000원\n홍길동\n452***38801011'
+        assert has_business_account(bank)
+        # '현금' 단어가 없으면 looks_like_cash 자체가 False
+        assert not looks_like_cash(bank)
 
 
 if __name__ == '__main__':

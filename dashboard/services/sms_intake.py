@@ -101,6 +101,88 @@ def has_business_account(text: str) -> bool:
     return any(p.search(text or '') for p in _BIZ_ACCT_RES)
 
 
+# ── 현금 수령 인입 (2026-08) ────────────────────────────────────────────────
+# 은행 SMS 가 아닌 '현금 수령' 은 폰 포워딩/계좌 없이 매니저가 #입금_관리에 자유문장으로
+# 올린다("8월25일 권태훈 현금 240만원 YG 수령"). '현금' + 금액이 있으면 표준 메모로 변환해
+# 은행 입금과 동일한 [지정]→[확인]→시트 파이프라인에 태운다. 금액은 콤마·만·억·복합 지원.
+def _kor_coeff(s: str) -> int:
+    """한글 계수 파싱: '2천5백'→2500, '240'→240, '5백'→500, '2천'→2000, '천'→1000."""
+    s = (s or '').strip()
+    if not s:
+        return 0
+    if s.isdigit():
+        return int(s)
+    total = 0
+    for unit, mul in (('천', 1000), ('백', 100), ('십', 10)):
+        m = re.search(r'(\d*)' + unit, s)
+        if m:
+            n = int(m.group(1)) if m.group(1) else 1
+            total += n * mul
+            s = s[:m.start()] + s[m.end():]
+    m = re.search(r'(\d+)', s)  # 남은 일의 자리 숫자
+    if m:
+        total += int(m.group(1))
+    return total
+
+
+def parse_cash_amount(text: str) -> int:
+    """현금 수령 자유문장에서 금액(원) 추출. 콤마·만·억·천만·백만·복합(2천5백만) 지원. 실패=0."""
+    if not text:
+        return 0
+    t = text.replace(' ', '').replace(',', '')
+    total = 0
+    consumed = False
+    m = re.search(r'([\d천백십]+)\s*억', t)          # 억 단위 (계수 숫자/복합)
+    if m:
+        total += _kor_coeff(m.group(1)) * 100_000_000
+        t = t[m.end():]
+        consumed = True
+    m = re.search(r'([\d천백십]+)\s*만', t)          # 만 단위 (2천5백만=2500만 등 복합)
+    if m:
+        total += _kor_coeff(m.group(1)) * 10_000
+        consumed = True
+    if consumed:
+        return total
+    m = re.search(r'(\d{4,})\s*원', t)               # 콤마/일반 숫자 + 원
+    if m:
+        return int(m.group(1))
+    m = re.search(r'(?<!\d)(\d{6,})(?!\d)', t)        # 원 없는 6자리+ (날짜 오인 방지) — 최후
+    if m:
+        return int(m.group(1))
+    return 0
+
+
+def _extract_cash_date(text: str) -> str:
+    """자유문장에서 날짜 MM/DD 추출 ('8월25일' 또는 'MM/DD'). 없으면 ''."""
+    m = re.search(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일', text or '')
+    if m:
+        return f'{int(m.group(1)):02d}/{int(m.group(2)):02d}'
+    m = re.search(r'(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)', text or '')
+    if m:
+        mm, dd = int(m.group(1)), int(m.group(2))
+        if 1 <= mm <= 12 and 1 <= dd <= 31:
+            return f'{mm:02d}/{dd:02d}'
+    return ''
+
+
+def looks_like_cash(text: str) -> bool:
+    """현금 수령 판별 — '현금' 키워드 + 인식 가능한 금액. (계좌 유무는 호출부에서 판단)"""
+    return bool(text) and '현금' in text and parse_cash_amount(text) > 0
+
+
+def normalize_cash_layout(text: str) -> str:
+    """현금 자유문장 → 표준 메모. 파서(_parse_memo_block)가 '입금 X원'+'현금 수령'을 잡게 한다.
+    예: '8월25일 ... 현금 240만원 YG 수령' → '08/25 입금 2,400,000원\\n현금 수령'.
+    ('[현금]' 헤더는 파서가 partner 로 오인해 제외 — '현금 수령' 라인이 현금 표식·partner 역할.)
+    금액 인식 실패 시 원문 유지."""
+    amount = parse_cash_amount(text)
+    if amount <= 0:
+        return text
+    date_md = _extract_cash_date(text)
+    head = f'{date_md} ' if date_md else ''
+    return f'{head}입금 {amount:,}원\n현금 수령'
+
+
 # 은행 예금 이자·결산 입금 — 프로젝트 입금 아님(적요 '2026년결산' 등). 인입 제외.
 # '이자'는 '이자카야' 등 상호 오탐 방지로 단독 제외 — '예금이자'·'결산'만.
 _BANK_INTEREST_RE = re.compile(r'결산|예금\s*이자|이자\s*입금')

@@ -22,7 +22,8 @@ from flask import Blueprint, jsonify, request
 
 from dashboard.services.sms_intake import (
     active_display, dedup_hash, has_business_account, is_bank_interest,
-    looks_like_payment, normalize_deposit_layout, parse_preview, strip_balance,
+    looks_like_cash, looks_like_payment, normalize_cash_layout,
+    normalize_deposit_layout, parse_preview, strip_balance,
 )
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.redis_client import get_redis_client
@@ -108,15 +109,18 @@ def ingest_deposit(text: str, source: str = 'sms') -> dict:
     (같은 입금이 폰·수동 양쪽으로 와도 본문 동일 → 첫 1건만 카드).
     Returns: {'status': 'ok'|'ignored'|'duplicate'|'card_failed', 'id'?, 'reason'?, 'preview'?}
     """
-    if not looks_like_payment(text):
-        return {'status': 'ignored', 'reason': 'not_payment'}
-    # 사업자 통장(452/255/352) 입금만 통과 — 개인 계좌 입금(같은 은행이라도) 배제
-    if not has_business_account(text):
-        return {'status': 'ignored', 'reason': 'not_business_account'}
-
-    # 은행 예금 이자·결산 입금 제외 — 프로젝트 입금 아님 (적요 '2026년결산' 등)
-    if is_bank_interest(text):
-        return {'status': 'ignored', 'reason': 'bank_interest'}
+    # 현금 수령 판별 — '현금' + 금액, 사업자계좌 없음 (은행 SMS 아닌 매니저 자유문장).
+    # 계좌 있으면 은행 입금이므로 현금으로 오인 안 함. (2026-08 현금 인입 도입)
+    is_cash = looks_like_cash(text) and not has_business_account(text)
+    if not is_cash:
+        if not looks_like_payment(text):
+            return {'status': 'ignored', 'reason': 'not_payment'}
+        # 사업자 통장(452/255/352) 입금만 통과 — 개인 계좌 입금(같은 은행이라도) 배제
+        if not has_business_account(text):
+            return {'status': 'ignored', 'reason': 'not_business_account'}
+        # 은행 예금 이자·결산 입금 제외 — 프로젝트 입금 아님 (적요 '2026년결산' 등)
+        if is_bank_interest(text):
+            return {'status': 'ignored', 'reason': 'bank_interest'}
 
     # Redis (중복제거·원문 보관)
     rc = None
@@ -130,17 +134,24 @@ def ingest_deposit(text: str, source: str = 'sms') -> dict:
         if not rc.set(f'sms_intake:seen:{intake_id}', '1', nx=True, ex=_DEDUP_TTL):
             return {'status': 'duplicate', 'id': intake_id}
 
-    # 잔액 제거 (통장 잔고 노출 차단) → 은행별 압축 양식 필드 줄바꿈 재구성(농협 등)
-    clean = strip_balance(text)
-    if not clean:
-        return {'status': 'ignored', 'reason': 'empty_after_strip'}
-    clean_conv = normalize_deposit_layout(clean)
-    converted = clean_conv != clean   # 원본 양식 자동 변환됐는지 (농협 등)
-    clean = clean_conv
+    if is_cash:
+        # 현금 자유문장 → 표준 메모 ('MM/DD 입금 X원 / 현금 수령'). 잔액 제거·계좌 불필요.
+        clean = normalize_cash_layout(text)
+        converted = False
+    else:
+        # 잔액 제거 (통장 잔고 노출 차단) → 은행별 압축 양식 필드 줄바꿈 재구성(농협 등)
+        clean = strip_balance(text)
+        if not clean:
+            return {'status': 'ignored', 'reason': 'empty_after_strip'}
+        clean_conv = normalize_deposit_layout(clean)
+        converted = clean_conv != clean   # 원본 양식 자동 변환됐는지 (농협 등)
+        clean = clean_conv
 
     preview = parse_preview(clean)
     if converted:
-        preview['converted'] = True   # 카드에 '자동 변환' 배지 표시용
+        preview['converted'] = True   # 카드에 '농협 자동 변환' 배지 표시용
+    if is_cash:
+        preview['cash'] = True         # 카드에 '현금 수령 변환' 배지 표시용
 
     # 원문(잔액 제거본) 보관 — 모달 제출 시 시트에 기록할 내용
     if rc is not None:
@@ -197,7 +208,11 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
         '하나': '하나은행 (글로벌그룹)',
         '농협': '농협은행 (N통장)',
     }.get(bank, '')
-    header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
+    is_cash = bool((preview or {}).get('cash'))
+    if is_cash:
+        header = '새 현금 수령 알림'
+    else:
+        header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
     lines = ["⠀", f">🔔 *{header}*", f">{INTAKE_SEP}",
              *quoted_body(clean_text), f">{INTAKE_SEP}"]
     blocks = [
@@ -213,4 +228,7 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
     if (preview or {}).get('converted'):
         blocks.append({"type": "context", "elements": [
             {"type": "mrkdwn", "text": "🔄 _원본 농협 문자를 표준 양식으로 자동 변환한 카드입니다._"}]})
+    if is_cash:
+        blocks.append({"type": "context", "elements": [
+            {"type": "mrkdwn", "text": "💵 _현금 수령 메시지를 표준 양식으로 자동 변환한 카드입니다._"}]})
     return blocks

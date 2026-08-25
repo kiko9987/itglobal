@@ -642,9 +642,9 @@ def _register_payment_handlers(app):
             text = (event.get('text') or '').strip()
             if not text:
                 return
-            from dashboard.services.sms_intake import looks_like_payment
-            if not looks_like_payment(text):
-                return  # 입금 문자 아니면 조용히 무시 (잡담)
+            from dashboard.services.sms_intake import looks_like_payment, looks_like_cash
+            if not looks_like_payment(text) and not looks_like_cash(text):
+                return  # 입금 문자(은행)·현금 수령 아니면 조용히 무시 (잡담)
             user = event.get('user', '')
             ts = event.get('ts', '')
 
@@ -657,7 +657,7 @@ def _register_payment_handlers(app):
                         blocks = [text]
                     made = dup = 0
                     for blk in blocks:
-                        if not looks_like_payment(blk):
+                        if not looks_like_payment(blk) and not looks_like_cash(blk):
                             continue
                         res = ingest_deposit(blk, source=f'channel:{user}')
                         st = res.get('status')
