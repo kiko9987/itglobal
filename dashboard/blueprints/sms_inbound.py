@@ -216,12 +216,21 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
              *quoted_body(clean_text), f">{INTAKE_SEP}"]
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}},
-        {"type": "actions", "elements": [{
-            "type": "button",
-            "text": {"type": "plain_text", "text": "🔗 프로젝트 지정하기"},
-            "action_id": "payment_intake_open",
-            "value": intake_id,
-        }]},
+        {"type": "actions", "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "🔗 프로젝트 지정하기"},
+                "action_id": "payment_intake_open",
+                "value": intake_id,
+            },
+            {
+                # 통합 입금(한 문자에 여러 프로젝트 금액) → 프로젝트별 분할 지정
+                "type": "button",
+                "text": {"type": "plain_text", "text": "➗ 분할 지정"},
+                "action_id": "payment_intake_split_open",
+                "value": intake_id,
+            },
+        ]},
     ]
     # 원본 압축 문자(농협 등)가 표준 양식으로 자동 변환된 경우 배지 표시
     if (preview or {}).get('converted'):

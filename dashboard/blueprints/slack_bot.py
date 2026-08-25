@@ -543,6 +543,61 @@ def _register_payment_handlers(app):
             try:
                 d = _load_intake(intake_id)
                 des = d.get("designation") or {}
+                # ── 분할 지정 처리 (통합 입금 → 여러 프로젝트) ──
+                if des.get("splits"):
+                    _splits = des["splits"]
+                    _total = int(des.get("total") or 0)
+                    _preview = d.get("preview") or {}
+                    _recorded = []
+                    for _s in _splits:
+                        _pc = (_s.get("project_code") or "").strip()
+                        _stg = (_s.get("stage") or "").strip()
+                        _amt = int(_s.get("amount") or 0)
+                        if not _pc or _stg not in ("계약금", "중도금", "잔금") or _amt <= 0:
+                            continue
+                        # 분할별 멱등 (같은 프로젝트·단계 이중기록 방지)
+                        _ckey = f"intake_commit:{intake_id}:{_pc}:{_stg}"
+                        _rc2 = None
+                        try:
+                            from dashboard.utils.redis_client import get_redis_client
+                            _rc2 = get_redis_client().redis
+                            if not _rc2.set(_ckey, "1", nx=True, ex=86400):
+                                continue  # 이미 기록됨
+                        except Exception:
+                            _rc2 = None
+                        _smemo = _build_split_memo(_preview, _amt, _total)
+                        _sok, _o, _n, _serr = _commit_intake_to_sheet(_pc, _stg, _amt, _smemo, user)
+                        if not _sok:
+                            if _rc2 is not None:
+                                try:
+                                    _rc2.delete(_ckey)
+                                except Exception:
+                                    pass
+                            _intake_ephemeral(client, channel, user,
+                                              f":warning: {_pc} {_stg} 기록 실패: {_serr}")
+                        else:
+                            _recorded.append(_s)
+                    if channel and ts:
+                        client.chat_update(
+                            channel=channel, ts=ts,
+                            text=f"✅ 분할 {len(_recorded)}건 기록 완료",
+                            blocks=_build_intake_split_done_blocks(
+                                _splits, _total, des.get("by", ""), user))
+                        try:
+                            _react_card_handled(client, channel, ts)
+                        except Exception:
+                            pass
+                        try:
+                            client.pins_remove(channel=channel, timestamp=ts)
+                        except Exception:
+                            pass
+                    try:
+                        from dashboard.utils.redis_client import get_redis_client
+                        get_redis_client().redis.delete(f"sms_intake:{intake_id}")
+                    except Exception:
+                        pass
+                    return
+                # ── 단일 지정 처리 ──
                 project_code = (des.get("project_code") or "").strip()
                 stage = (des.get("stage") or "").strip()
                 amount = int(des.get("amount") or 0)
@@ -604,6 +659,136 @@ def _register_payment_handlers(app):
                     pass
             except Exception as exc:
                 logger.error(f"[SLACK/수금봇] payment_intake_confirm 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # ── 분할 지정 (통합 입금 → 여러 프로젝트) ──────────────────────────────
+    @app.action("payment_intake_split_open")
+    def handle_payment_intake_split_open(ack, body, client):
+        """[➗ 분할 지정] / [✏️ 재지정](분할) — 분할 모달 오픈 (기본 2행, 이전 분할 미리채움)."""
+        ack()
+        def _bg():
+            try:
+                intake_id = body["actions"][0]["value"]
+                channel = body["channel"]["id"]
+                message_ts = body["message"]["ts"]
+                user_id = (body.get("user") or {}).get("id", "")
+                d = _load_intake(intake_id)
+                if not d.get("text"):
+                    _intake_ephemeral(client, channel, user_id,
+                                      ":information_source: 이미 확인·기록된 입금입니다.")
+                    return
+                total = int((d.get("preview") or {}).get("amount") or 0)
+                memo = d.get("text") or ""
+                prefilled = (d.get("designation") or {}).get("splits") or []
+                rows = max(2, len(prefilled))
+                view = _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, prefilled)
+                client.views_open(trigger_id=body["trigger_id"], view=view)
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] split_open 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action("payment_intake_split_add")
+    def handle_payment_intake_split_add(ack, body, client):
+        """[➕ 분할 행 추가] — views.update 로 행 1개 추가 (입력값 보존)."""
+        ack()
+        def _bg():
+            try:
+                view = body["view"]
+                meta = json.loads(view.get("private_metadata") or "{}")
+                rows = int(meta.get("rows") or 2)
+                new_rows = min(rows + 1, MAX_SPLIT_ROWS)
+                prefilled = _split_state_to_rows(view["state"]["values"], rows)
+                new_view = _build_split_modal_view(
+                    meta.get("intake_id", ""), meta.get("channel", ""), meta.get("message_ts", ""),
+                    int(meta.get("total") or 0), meta.get("memo", ""), new_rows, prefilled)
+                client.views_update(view_id=view["id"], view=new_view)
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] split_add 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    def _handle_split_project_options(ack, body):
+        """분할 행 프로젝트 external_select — 단일 지정과 동일 옵션 소스."""
+        try:
+            query = (body.get("value") or "").strip()
+            mgr = None
+            if not query:
+                mgr = _resolve_intake_manager_name((body.get("user") or {}).get("id", ""))
+            ack(options=_build_payment_intake_options(query, limit=30, manager_name=mgr))
+        except Exception as exc:
+            logger.error(f"[SLACK/수금봇] split options 실패: {exc}", exc_info=True)
+            try:
+                ack(options=[])
+            except Exception:
+                pass
+    # 행별 action_id (split_project_0 ~ N) 각각 등록 (regex 미지원 대비 명시 등록)
+    for _si in range(MAX_SPLIT_ROWS):
+        app.options(f"split_project_{_si}")(_handle_split_project_options)
+
+    @app.view("submit_payment_intake_split")
+    def handle_submit_payment_intake_split(ack, body, view, client):
+        """분할 지정 제출 — 각 행 검증 + 금액 합 == 통합액 검증 (pre-ack, IO 없음)."""
+        try:
+            meta = json.loads(view.get("private_metadata") or "{}")
+            total = int(meta.get("total") or 0)
+            rows = int(meta.get("rows") or 2)
+            parsed = _split_state_to_rows(view["state"]["values"], rows)
+            errors = {}
+            splits = []
+            for r in parsed:
+                i = r["idx"]
+                if not (r["project_code"] or r["stage"] or r["amount"] > 0):
+                    continue  # 빈 행 skip
+                if not r["project_code"]:
+                    errors[f"split_row_{i}_project"] = "프로젝트를 선택하세요."
+                if r["stage"] not in ("계약금", "중도금", "잔금"):
+                    errors[f"split_row_{i}_stage"] = "단계를 선택하세요."
+                if r["amount"] <= 0:
+                    errors[f"split_row_{i}_amount"] = "금액을 숫자로 입력하세요."
+                if r["project_code"] and r["stage"] in ("계약금", "중도금", "잔금") and r["amount"] > 0:
+                    splits.append({"project_code": r["project_code"], "project_option": r["project_option"],
+                                   "stage": r["stage"], "amount": r["amount"]})
+            if errors:
+                ack(response_action="errors", errors=errors)
+                return
+            if len(splits) < 2:
+                ack(response_action="errors",
+                    errors={"split_row_0_amount": "분할은 2건 이상 입력하세요."})
+                return
+            _ssum = sum(s["amount"] for s in splits)
+            if _ssum != total:
+                ack(response_action="errors", errors={"split_row_0_amount":
+                    f"분할 합계 {_ssum:,}원 ≠ 통합 {total:,}원 — 합을 맞춰주세요."})
+                return
+            # 같은 프로젝트+단계 중복 방지
+            _keys = [(s["project_code"], s["stage"]) for s in splits]
+            if len(set(_keys)) != len(_keys):
+                ack(response_action="errors", errors={"split_row_0_project":
+                    "같은 프로젝트·단계가 중복됐습니다."})
+                return
+            ack()
+        except Exception as exc:
+            logger.error(f"[SLACK/수금봇] submit_split 검증 실패: {exc}", exc_info=True)
+            try:
+                ack()
+            except Exception:
+                pass
+            return
+
+        def _bg():
+            try:
+                user_id = (body.get("user") or {}).get("id", "")
+                intake_id = meta.get("intake_id", "")
+                channel = meta.get("channel", "")
+                message_ts = meta.get("message_ts", "")
+                _update_intake(intake_id, designation={
+                    "splits": splits, "total": total, "by": user_id})
+                if channel and message_ts:
+                    client.chat_update(
+                        channel=channel, ts=message_ts,
+                        text=f"확인 대기: 분할 {len(splits)}건",
+                        blocks=_build_intake_split_pending_blocks(intake_id, splits, total, user_id))
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] submit_split 처리 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.event("message")
@@ -683,7 +868,8 @@ def _register_payment_handlers(app):
     logger.info(
         "[SLACK/수금봇] 핸들러 등록 완료: payment_card_delete, payment_intake_open, "
         "payment_intake_project, submit_payment_intake, payment_intake_confirm, "
-        "payment_intake_redesignate, message(채널 붙여넣기 인입)"
+        "payment_intake_redesignate, payment_intake_split_open/add, "
+        "submit_payment_intake_split, split_project_0~N, message(채널 붙여넣기 인입)"
     )
 
 
@@ -915,6 +1101,146 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
         "close": {"type": "plain_text", "text": "취소"},
         "blocks": blocks,
     }
+
+
+# ── 통합 입금 분할 지정 (한 입금 → 여러 프로젝트, 2026-08-25) ──────────────
+MAX_SPLIT_ROWS = 6
+
+
+def _parse_won(s) -> int:
+    """'10,000,000원' / '10000000' → 10000000. 숫자만 추출."""
+    try:
+        return int(re.sub(r'[^\d]', '', str(s or '')))
+    except Exception:
+        return 0
+
+
+def _split_state_to_rows(state: dict, rows: int) -> list:
+    """모달 state → [{idx, project_code, project_option, stage, amount}] (행별)."""
+    out = []
+    for i in range(rows):
+        po = ((state.get(f"split_row_{i}_project") or {})
+              .get(f"split_project_{i}") or {}).get("selected_option")
+        so = ((state.get(f"split_row_{i}_stage") or {})
+              .get(f"split_stage_{i}") or {}).get("selected_option")
+        av = ((state.get(f"split_row_{i}_amount") or {})
+              .get(f"split_amount_{i}") or {}).get("value")
+        out.append({
+            "idx": i,
+            "project_code": (po or {}).get("value", "").strip() if po else "",
+            "project_option": po,
+            "stage": (so or {}).get("value", "").strip() if so else "",
+            "amount": _parse_won(av),
+        })
+    return out
+
+
+def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, prefilled=None):
+    """분할 지정 모달 — 통합액 표시 + N개 (프로젝트+단계+금액) 행 + [행 추가]."""
+    from dashboard.services.sms_intake import active_display
+    prefilled = prefilled or []
+
+    def _pf(i):
+        return prefilled[i] if i < len(prefilled) else {}
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": active_display(memo)}},
+        {"type": "section", "text": {"type": "mrkdwn",
+            "text": f"*통합 입금 {total:,}원* — 프로젝트별로 나눠 지정 (분할 합 = {total:,}원)"}},
+        {"type": "divider"},
+    ]
+    for i in range(rows):
+        pf = _pf(i)
+        proj_el = {"type": "external_select", "action_id": f"split_project_{i}",
+                   "min_query_length": 0,
+                   "placeholder": {"type": "plain_text", "text": f"{i+1}번 프로젝트 검색"}}
+        if pf.get("project_option"):
+            proj_el["initial_option"] = pf["project_option"]
+        blocks.append({"type": "input", "block_id": f"split_row_{i}_project", "optional": True,
+                       "label": {"type": "plain_text", "text": f"프로젝트 {i+1}"}, "element": proj_el})
+        stage_el = {"type": "static_select", "action_id": f"split_stage_{i}",
+                    "placeholder": {"type": "plain_text", "text": "단계"},
+                    "options": [{"text": {"type": "plain_text", "text": t}, "value": t}
+                                for t in ("계약금", "중도금", "잔금")]}
+        if pf.get("stage") in ("계약금", "중도금", "잔금"):
+            stage_el["initial_option"] = {"text": {"type": "plain_text", "text": pf["stage"]},
+                                          "value": pf["stage"]}
+        blocks.append({"type": "input", "block_id": f"split_row_{i}_stage", "optional": True,
+                       "label": {"type": "plain_text", "text": f"단계 {i+1}"}, "element": stage_el})
+        amt_el = {"type": "plain_text_input", "action_id": f"split_amount_{i}",
+                  "placeholder": {"type": "plain_text", "text": "금액 (숫자만, 예: 10000000)"}}
+        if pf.get("amount"):
+            amt_el["initial_value"] = str(pf["amount"])
+        blocks.append({"type": "input", "block_id": f"split_row_{i}_amount", "optional": True,
+                       "label": {"type": "plain_text", "text": f"금액 {i+1}"}, "element": amt_el})
+        blocks.append({"type": "divider"})
+    if rows < MAX_SPLIT_ROWS:
+        blocks.append({"type": "actions", "elements": [
+            {"type": "button", "text": {"type": "plain_text", "text": "➕ 분할 행 추가"},
+             "action_id": "payment_intake_split_add"}]})
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn",
+        "text": ":lock: 시트 기록은 경영지원 확인 후. 분할 금액 합이 통합액과 같아야 지정됩니다."}]})
+    return {"type": "modal", "callback_id": "submit_payment_intake_split",
+            "private_metadata": json.dumps({"intake_id": intake_id, "channel": channel,
+                                            "message_ts": message_ts, "rows": rows,
+                                            "total": total, "memo": memo}),
+            "title": {"type": "plain_text", "text": "수금 분할 지정"},
+            "submit": {"type": "plain_text", "text": "지정"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "blocks": blocks}
+
+
+def _build_split_memo(preview: dict, amount: int, total: int) -> str:
+    """분할 1건 시트 노트 — 파서 호환('입금 X원'+거래처+날짜) + 통합 분할 표기.
+    '입금' 키워드 중복 방지 위해 통합 표기는 '통합 X원 분할'(입금 없음)로."""
+    from datetime import datetime
+    date_md = (preview or {}).get('date_md') or ''
+    partner = (preview or {}).get('partner') or ''
+    lines = []
+    if date_md and '/' in date_md:
+        mm, dd = (date_md.split('/') + ['', ''])[:2]
+        try:
+            lines.append(f'{datetime.now().year}/{int(mm):02d}/{int(dd):02d}')
+        except Exception:
+            pass
+    lines.append(f'입금 {amount:,}원')
+    if partner:
+        lines.append(partner)
+    lines.append(f'· 통합 {total:,}원 분할')
+    return '\n'.join(lines)
+
+
+def _build_intake_split_pending_blocks(intake_id, splits, total, by_user):
+    """분할 확인 대기 카드 — 분할 목록 + [확인 후 기록]/[재지정]."""
+    from dashboard.services.sms_intake import INTAKE_SEP
+    init = _resolve_manager_initial(by_user)
+    lines = ["⠀", ">🕐 *확인 대기 — 경영지원 확인 후 기록 (분할)*",
+             f">통합 {total:,}원 · 지정 {init}", f">{INTAKE_SEP}"]
+    for s in splits:
+        lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
+    lines.append(f">{INTAKE_SEP}")
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+        {"type": "actions", "elements": [
+            {"type": "button", "style": "primary",
+             "text": {"type": "plain_text", "text": "✅ 확인 후 기록"},
+             "action_id": "payment_intake_confirm", "value": intake_id},
+            {"type": "button", "text": {"type": "plain_text", "text": "✏️ 재지정"},
+             "action_id": "payment_intake_split_open", "value": intake_id},
+        ]},
+    ]
+
+
+def _build_intake_split_done_blocks(splits, total, by_user, checker):
+    """분할 확인 완료 카드 — 버튼 없음."""
+    from dashboard.services.sms_intake import INTAKE_SEP
+    by_i = _resolve_manager_initial(by_user)
+    ck = _resolve_manager_initial(checker)
+    lines = ["⠀", ">✅ *확인 완료 — 분할 기록됨*",
+             f">통합 {total:,}원 · 지정 {by_i} · 확인 {ck}", f">{INTAKE_SEP}"]
+    for s in splits:
+        lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
+    lines.append(f">{INTAKE_SEP}")
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
 
 
 def _intake_ephemeral(client, channel, user_id, text):
