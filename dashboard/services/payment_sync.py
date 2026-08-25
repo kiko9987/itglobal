@@ -750,19 +750,23 @@ def _is_card_payment(invoice_value: str, partner: str) -> bool:
 
 
 def _resolve_payment_code(invoice_value: str, bank: str, partner: str = '') -> str:
-    """Y열 값 + 메모 은행 + 거래처 → 'G' / 'N' / 'R'"""
-    iv = (invoice_value or '').strip()
-    if iv == 'N입금':
+    """Y열 값 + 메모 은행 + 거래처 → 'G' / 'N' / 'R'.
+    per-payment(각 입금의 현금 표식·실제 은행)을 우선하고, Y열('N입금')은 fallback.
+    (2026-08 fix: 계약금 하나이체 + 잔금 현금 혼합 프로젝트에서 Y='N입금'이 계약금까지
+     N 으로 강제하던 것 방지 — 각 입금은 자기 은행 코드로 표시.)"""
+    p = (partner or '').strip()
+    # 1) 현금 수령(+수령자, 예: '현금 수령 (YG)') → N
+    if p.startswith('현금'):
         return 'N'
-    # 입금자가 '현금' 또는 '현금 수령' 이면 N으로 강제 (혼합 케이스 매니저 수기 입력)
-    if partner and partner.strip() in ('현금', '현금 수령'):
-        return 'N'
-    # 카드결제 또는 기타 → 메모 은행으로 판별
+    # 2) 메모에 실제 은행이 있으면 그 코드 (프로젝트 Y열보다 각 입금 은행 우선)
     if bank == '기업':
         return 'G'
     if bank == '하나':
         return 'R'
     if bank == '농협':
+        return 'N'
+    # 3) 은행·현금 표식 없을 때만 Y열 fallback
+    if (invoice_value or '').strip() == 'N입금':
         return 'N'
     return 'G'
 
