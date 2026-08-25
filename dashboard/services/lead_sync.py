@@ -122,6 +122,12 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
 
     # 상담 내용: 순수 문의 본문만 (장소/기기는 별도 컬럼/키워드로)
     content = inquiry
+    # 주소칸에 섞여 절단된 평수+상세(예 '25평 인테리어공사시작단계')를 문의 내용으로
+    #   이동 — 버려지지 않게 (2026-08-25 L-03774).
+    from dashboard.services.lead_helpers import extract_address_overflow
+    _ov = extract_address_overflow(address_raw)
+    if _ov and _ov not in content:
+        content = f'{content}\n{_ov}' if content else _ov
 
     # 키워드: KEYWORD_VOCAB 매칭 (device + place + inquiry)
     from dashboard.services.lead_helpers import extract_keywords_from_sources

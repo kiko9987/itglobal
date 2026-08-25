@@ -262,6 +262,22 @@ _DASH_TO_HYPHEN_RE = re.compile(
 )
 
 
+# 주소칸에 섞인 평수+상세(주소에서 절단되는 부분) — 문의 내용으로 이동용 (2026-08-25 L-03774)
+_ADDR_OVERFLOW_RE = re.compile(r'\s(\d+\s*평(?![가-힣]).*)$')
+
+
+def extract_address_overflow(address_raw: str) -> str:
+    """주소칸 뒤에 붙은 '평수 이후'(문의/상세) 텍스트 반환. 없으면 ''.
+
+    _normalize_road_spacing 이 주소에서 잘라내는 것과 동일 구간을 추출해, 온라인 인입이
+    이를 문의 내용으로 옮길 수 있게 함 (버려지지 않도록). 예: '… 25평 인테리어공사시작단계'.
+    """
+    if not address_raw:
+        return ''
+    m = _ADDR_OVERFLOW_RE.search(re.sub(r'\s+', ' ', address_raw).strip())
+    return m.group(1).strip() if m else ''
+
+
 def _unglue_admin_prefix(s: str) -> str:
     def _repl(m):
         seg = m.group(0)

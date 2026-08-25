@@ -329,6 +329,11 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
     # 상담 내용: 순수 문의 본문만 (장소/기기 prefix 제거)
     # 옛 양식: "장소: ... / 기기: ... / 문의: ..." → 문의 본문만
     content = inquiry
+    # 주소칸에 섞여 절단된 평수+상세를 문의 내용으로 이동 (2026-08-25 L-03774)
+    from dashboard.services.lead_helpers import extract_address_overflow
+    _ov = extract_address_overflow(_addr_raw)
+    if _ov and _ov not in content:
+        content = f'{content}\n{_ov}' if content else _ov
 
     return {
         '리드 No': '',

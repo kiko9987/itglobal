@@ -8,7 +8,20 @@ import sys
 sys.path.insert(0, '.')
 
 import pytest
-from dashboard.services.lead_helpers import _normalize_road_spacing as N
+from dashboard.services.lead_helpers import (
+    _normalize_road_spacing as N, extract_address_overflow as OV,
+)
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ('경기도안산시 단원구 원포공원1로 46 이마트안산고잔점2층 25평 인테리어공사시작단계',
+     '25평 인테리어공사시작단계'),
+    ('강남구 X로 1 40평 2대 견적문의', '40평 2대 견적문의'),
+    ('강남구 테헤란로 152 삼성빌딩 3층', ''),   # 평 없음
+    ('평택시 평택로 25 3층', ''),               # 평택(오검출 방지)
+])
+def test_address_overflow(raw, expected):
+    assert OV(raw) == expected
 
 
 @pytest.mark.parametrize('raw, expected', [
