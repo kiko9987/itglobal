@@ -170,6 +170,16 @@ def looks_like_cash(text: str) -> bool:
     return bool(text) and '현금' in text and parse_cash_amount(text) > 0
 
 
+def _extract_cash_receiver(text: str) -> str:
+    """현금 수령자 추출 — '수령' 바로 앞의 이니셜/이름 ('YG 수령'→'YG', '박용구가 수령'→'박용구')."""
+    m = re.search(r'([A-Za-z]{2,4}|[가-힣]{2,4})\s*(?:가|이|께서)?\s*수령', text or '')
+    if m:
+        r = m.group(1).strip()
+        if r not in ('매니저', '현금'):   # 흔한 오추출 배제
+            return r
+    return ''
+
+
 def normalize_cash_layout(text: str) -> str:
     """현금 자유문장 → 은행 SMS 틀을 미러한 표준 메모 (계좌 라인만 없음).
     은행: '하나,MM/DD, HH:MM / 계좌 / 입금 X원 / 입금자'
@@ -181,11 +191,13 @@ def normalize_cash_layout(text: str) -> str:
     if amount <= 0:
         return text
     date_md = _extract_cash_date(text)
+    receiver = _extract_cash_receiver(text)
     lines = []
     if date_md:
         lines.append(f'현금, {date_md}')   # 은행틀: '은행,날짜' 자리
     lines.append(f'입금 {amount:,}원')
-    lines.append('현금 수령')              # 은행틀: '입금자' 자리
+    # 은행틀 '입금자' 자리 = 현금 수령 (+ 수령자 표기)
+    lines.append(f'현금 수령 ({receiver})' if receiver else '현금 수령')
     return '\n'.join(lines)
 
 

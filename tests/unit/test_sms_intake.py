@@ -185,12 +185,14 @@ class TestCashDetectAndNormalize:
         assert not looks_like_cash('입금 500,000원 홍길동')  # '현금' 없음(은행)
 
     def test_normalize_layout(self):
-        # 자유문장 → 은행 SMS 틀 미러 ('현금,날짜 / 입금 X원 / 현금 수령'), 파서 호환
+        # 자유문장 → 은행 SMS 틀 미러 ('현금,날짜 / 입금 X원 / 현금 수령 (수령자)')
         out = normalize_cash_layout('8월25일 권태훈 매니저 현금 240만원 YG 수령 완료')
-        assert out == '현금, 08/25\n입금 2,400,000원\n현금 수령'
-        # 날짜 없으면 헤더 생략 (파서가 당일로 처리)
+        assert out == '현금, 08/25\n입금 2,400,000원\n현금 수령 (YG)'
+        # 날짜 없으면 헤더 생략 + 수령자 없으면 '현금 수령'
         out2 = normalize_cash_layout('현금 2,400,000원 안기성')
         assert out2 == '입금 2,400,000원\n현금 수령'
+        # 수령자(이름/조사) 추출
+        assert normalize_cash_layout('현금 500만원 박용구가 수령') == '입금 5,000,000원\n현금 수령 (박용구)'
         # 인식 실패 시 원문 유지
         assert normalize_cash_layout('현금 받았어요') == '현금 받았어요'
 
@@ -199,7 +201,7 @@ class TestCashDetectAndNormalize:
         from dashboard.services.sms_intake import parse_preview
         pv = parse_preview(normalize_cash_layout('8월25일 현금 240만원 YG 수령'))
         assert pv['amount'] == 2_400_000
-        assert pv['partner'] == '현금 수령'   # '현금,' 헤더가 partner 로 안 잡힘
+        assert pv['partner'] == '현금 수령 (YG)'   # '현금,' 헤더 아닌 수령자 라인
         assert pv['date_md'] == '08/25'
 
     def test_bank_not_treated_as_cash(self):
