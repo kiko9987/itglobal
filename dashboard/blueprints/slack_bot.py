@@ -1145,7 +1145,7 @@ def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, p
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": active_display(memo)}},
         {"type": "section", "text": {"type": "mrkdwn",
-            "text": f"*통합 입금 {total:,}원* — 프로젝트별로 나눠 지정 (분할 합 = {total:,}원)"}},
+            "text": f"*통합 입금 {total:,}원* - 프로젝트별로 금액 지정"}},
         {"type": "divider"},
     ]
     for i in range(rows):
@@ -1165,7 +1165,7 @@ def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, p
             stage_el["initial_option"] = {"text": {"type": "plain_text", "text": pf["stage"]},
                                           "value": pf["stage"]}
         blocks.append({"type": "input", "block_id": f"split_row_{i}_stage", "optional": True,
-                       "label": {"type": "plain_text", "text": f"단계 {i+1}"}, "element": stage_el})
+                       "label": {"type": "plain_text", "text": f"수금 단계 {i+1}"}, "element": stage_el})
         amt_el = {"type": "plain_text_input", "action_id": f"split_amount_{i}",
                   "placeholder": {"type": "plain_text", "text": "금액 (숫자만, 예: 10000000)"}}
         if pf.get("amount"):
