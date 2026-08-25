@@ -1353,26 +1353,31 @@ def _enrich_verified_address(
         # 뒤에 한글 오면 skip — '55 관리사무소' 의 '55 관' 을 별개 부속번호로 오인 방지 (2026-07-24 L-03362)
         # 2026-08-14 L-03650: '지하 1층'(공백)에서 '1층'만 캡처돼 '지하' 유실 → 지하 1층
         #   ≠ 1층(완전 다른 층, 오방문). 층 앞 '지하|지상' 접두 함께 캡처.
-        m_floor = re.search(
-            r'((?:(?:지하|지상)\s*)?[A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관))(?![가-힣])',
-            original_text,
-        )
-        if m_floor:
-            cand = m_floor.group(1).strip()
-            if cand and cand not in verified_addr:
-                # 원문이 '[층] [상호]' 순서(층이 상호 앞)면 그 순서 보존 (2026-08-01).
-                #   '1층 피아노학원'(건물 1층에 입점한 한 층짜리 상호)을 '피아노학원 1층'
-                #   (상호가 건물 통째·그 상호의 1층)으로 뒤집으면 의미가 완전히 달라짐.
-                #   verified 끝 단어(상호, 숫자 아님)가 원문에서 층 바로 뒤에 오면 상호
-                #   앞에 삽입해 어순 유지. 그 외(상호-층 순서·건물명 등)는 기존대로 맨 뒤.
-                _vw = verified_addr.split()
-                _last = _vw[-1] if _vw else ''
-                if (_last and not re.search(r'\d', _last)
-                        and re.search(rf'{re.escape(cand)}\s*{re.escape(_last)}',
-                                      original_text)):
-                    verified_addr = ' '.join(_vw[:-1] + [cand, _last])
-                else:
-                    verified_addr = f'{verified_addr} {cand}'
+        # 층/호 여러 개(예 '지하2층. B207호') 모두 캡처 — 기존 search 는 첫 개만 잡아
+        #   뒤 호수 유실 (2026-08-25 L-03772). finditer 로 순서대로 수집.
+        _floor_re = re.compile(
+            r'((?:(?:지하|지상)\s*)?[A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관))(?![가-힣])')
+        _fcands = [m.group(1).strip() for m in _floor_re.finditer(original_text)]
+        _fcands = [c for c in _fcands if c and c not in verified_addr]
+        if _fcands:
+            cand = _fcands[0]
+            # 원문이 '[층] [상호]' 순서(층이 상호 앞)면 그 순서 보존 (2026-08-01).
+            #   '1층 피아노학원'(건물 1층에 입점한 한 층짜리 상호)을 '피아노학원 1층'
+            #   (상호가 건물 통째·그 상호의 1층)으로 뒤집으면 의미가 완전히 달라짐.
+            #   verified 끝 단어(상호, 숫자 아님)가 원문에서 층 바로 뒤에 오면 상호
+            #   앞에 삽입해 어순 유지. 그 외(상호-층 순서·건물명 등)는 기존대로 맨 뒤.
+            _vw = verified_addr.split()
+            _last = _vw[-1] if _vw else ''
+            if (_last and not re.search(r'\d', _last)
+                    and re.search(rf'{re.escape(cand)}\s*{re.escape(_last)}',
+                                  original_text)):
+                verified_addr = ' '.join(_vw[:-1] + [cand, _last])
+            else:
+                verified_addr = f'{verified_addr} {cand}'
+            # 나머지 층/호(B207호 등)는 순서대로 뒤에 부착
+            for _c in _fcands[1:]:
+                if _c not in verified_addr:
+                    verified_addr = f'{verified_addr} {_c}'
 
     # 4. "○○ ○○동" 형태 중복 제거 (2026-07-20 L-03294)
     #    카카오 building_name = "센트럴 레드" + 원본 tail = "레드동" → "센트럴 레드 레드동"
