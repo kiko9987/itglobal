@@ -153,15 +153,21 @@ def parse_cash_amount(text: str) -> int:
 
 
 def _extract_cash_date(text: str) -> str:
-    """자유문장에서 날짜 MM/DD 추출 ('8월25일' 또는 'MM/DD'). 없으면 ''."""
+    """자유문장에서 날짜 'YYYY/MM/DD' 추출 (기업 SMS 양식). 연도 없으면 당해년도. 없으면 ''.
+    예: '8월25일'→'2026/08/25', '2026/08/25'→그대로, '08/25'→'2026/08/25'."""
+    m = re.search(r'(20\d{2})[/.\-](\d{1,2})[/.\-](\d{1,2})', text or '')
+    if m:
+        return f'{m.group(1)}/{int(m.group(2)):02d}/{int(m.group(3)):02d}'
+    from datetime import datetime
+    yr = datetime.now().year
     m = re.search(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일', text or '')
     if m:
-        return f'{int(m.group(1)):02d}/{int(m.group(2)):02d}'
+        return f'{yr}/{int(m.group(1)):02d}/{int(m.group(2)):02d}'
     m = re.search(r'(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)', text or '')
     if m:
         mm, dd = int(m.group(1)), int(m.group(2))
         if 1 <= mm <= 12 and 1 <= dd <= 31:
-            return f'{mm:02d}/{dd:02d}'
+            return f'{yr}/{mm:02d}/{dd:02d}'
     return ''
 
 
@@ -172,7 +178,7 @@ def looks_like_cash(text: str) -> bool:
 
 def _extract_cash_receiver(text: str) -> str:
     """현금 수령자 추출 — '수령' 바로 앞의 이니셜/이름 ('YG 수령'→'YG', '박용구가 수령'→'박용구')."""
-    m = re.search(r'([A-Za-z]{2,4}|[가-힣]{2,4})\s*(?:가|이|께서)?\s*수령', text or '')
+    m = re.search(r'([A-Za-z]{2,4}|[가-힣]{2,3})\s*(?:가|이|께서)?\s*수령', text or '')
     if m:
         r = m.group(1).strip()
         if r not in ('매니저', '현금'):   # 흔한 오추출 배제
@@ -181,23 +187,23 @@ def _extract_cash_receiver(text: str) -> str:
 
 
 def normalize_cash_layout(text: str) -> str:
-    """현금 자유문장 → 은행 SMS 틀을 미러한 표준 메모 (계좌 라인만 없음).
-    은행: '하나,MM/DD, HH:MM / 계좌 / 입금 X원 / 입금자'
-    현금: '현금, MM/DD / 입금 X원 / 현금 수령'
-    예: '8월25일 ... 현금 240만원 YG 수령' → '현금, 08/25\\n입금 2,400,000원\\n현금 수령'.
-    파서는 '^현금,' skip 으로 헤더를 거래처 오인 안 하고, '현금 수령' 라인을 partner 로 잡는다.
+    """현금 자유문장 → 기업 SMS 틀을 미러한 표준 메모 (계좌 라인만 없음).
+    기업: '2026/08/18 17:09 / 입금 X원 / 입금자 / 계좌 / 기업'
+    현금: 'YYYY/MM/DD / 입금 X원 / 현금 수령 (수령자)'
+    예: '8월25일 ... 현금 240만원 YG 수령' → '2026/08/25\\n입금 2,400,000원\\n현금 수령 (YG)'.
+    '현금'은 입금자 라인 한 곳에만 (헤더는 날짜만 — 사용자 요청 2026-08-25). 날짜 라인은
+    파서의 순수날짜 skip 으로 거래처 오인 안 하고 date_md 추출, partner 는 '현금 수령' 라인.
     금액 인식 실패 시 원문 유지. 날짜 없으면 헤더 생략(파서가 당일로 처리)."""
     amount = parse_cash_amount(text)
     if amount <= 0:
         return text
-    date_md = _extract_cash_date(text)
+    date_full = _extract_cash_date(text)
     receiver = _extract_cash_receiver(text)
     lines = []
-    if date_md:
-        lines.append(f'현금, {date_md}')   # 은행틀: '은행,날짜' 자리
+    if date_full:
+        lines.append(date_full)            # 기업틀: 'YYYY/MM/DD' 날짜 헤더 (현금 단어 없음)
     lines.append(f'입금 {amount:,}원')
-    # 은행틀 '입금자' 자리 = 현금 수령 (+ 수령자 표기)
-    lines.append(f'현금 수령 ({receiver})' if receiver else '현금 수령')
+    lines.append(f'현금 수령 ({receiver})' if receiver else '현금 수령')  # 입금자 자리
     return '\n'.join(lines)
 
 
