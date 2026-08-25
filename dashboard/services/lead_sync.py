@@ -789,6 +789,24 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
 
     for lead, ln in zip(leads, lead_nos):
         try:
+            # 이중 post 방지 — post 직전 원자적 잠금 (2026-08-25 L-03774 폴링 레이스).
+            #   두 폴링 tick 이 ~40ms 차로 동시에 같은 신규 lead 를 post 하던 중복(카드
+            #   추적키 저장은 post 후라 TOCTOU). SETNX 로 한 tick 만 통과. redis 장애 시
+            #   잠금 없이 진행(발송 우선). post 실패 시 아래 else 에서 잠금 해제(재시도 허용).
+            _lock_rc = None
+            _locked = False
+            try:
+                from dashboard.utils.redis_client import get_redis_client as _grc
+                _lock_rc = _grc().redis
+                if _lock_rc.get(f'lead_card_msg:{ln}'):
+                    continue  # 이미 카드 있음 → 확실한 중복, skip
+                _locked = bool(_lock_rc.set(
+                    f'lead_notify_lock:{ln}', '1', nx=True, ex=300))
+                if not _locked:
+                    logger.info(f'[SYNC/{source}] {ln} post 잠금 선점됨 — 중복 skip')
+                    continue  # 다른 tick 이 이 lead 를 post 중 → skip
+            except Exception:
+                pass  # redis 장애 — 잠금 없이 진행
             blocks, fallback = build_inquiry_blocks(lead, ln, source)
             # 2026-07-10 safe_slack_call — 리드 카드 놓치면 매니저가 신규 문의 인지 실패.
             from dashboard.blueprints.slack_helpers import safe_slack_call
@@ -827,6 +845,12 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
                     )
             else:
                 logger.error(f'[SYNC/{source}] 슬랙 전송 응답 not ok ({ln}): {resp}')
+                # post 실패 → 잠금 해제(다음 tick·orphan recovery 재시도 허용)
+                if _locked and _lock_rc is not None:
+                    try:
+                        _lock_rc.delete(f'lead_notify_lock:{ln}')
+                    except Exception:
+                        pass
         except Exception as exc:
             logger.error(f'[SYNC/{source}] 슬랙 전송 실패 ({ln}): {exc}')
     return sent
