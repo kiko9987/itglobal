@@ -1951,6 +1951,17 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         if main_df is None or main_df.empty:
             return result
 
+        # 방어: 시트 헤더 손상(예: A1 '리드 No' 오붙여넣기)으로 컬럼이 없으면
+        # main_df['리드 No'] 가 KeyError → 10초마다 크래시. 크래시 대신 명확 로그 후 skip.
+        # (2026-08-26 헤더 오입력 사고 계기)
+        _missing = [c for c in ('리드 No', '플랫폼') if c not in main_df.columns]
+        if _missing:
+            logger.error(
+                f"[SYNC/전화WF] 리드 관리 시트 필수 컬럼 없음: {_missing} — "
+                f"시트 헤더(A1 '리드 No' 등) 확인 필요. 이번 동기화 skip."
+            )
+            return result
+
         # 빈 lead_no + 플랫폼 in {'전화', '거래처', '기타', '소개'}
         WF_PLATFORMS = {'전화', '거래처', '기타', '소개'}
         is_empty_no = main_df['리드 No'].astype(str).str.strip() == ''
