@@ -2134,10 +2134,16 @@ def _register_project_handlers(app):
         thread_ts = event.get("thread_ts")
         channel = event.get('channel')
         ts = event.get('ts')
+        # 업로더 추적용 (2026-08-26): file_share=event.user, message_changed=message.user,
+        # message_deleted=previous_message.user. 오업로드→삭제 시 누가 올렸는지 로그로 남김.
+        _uploader = (event.get('user')
+                     or (event.get('message') or {}).get('user')
+                     or (event.get('previous_message') or {}).get('user')
+                     or '?')
         logger.info(
             f"[LICENSE/EVT] message 수신: subtype={subtype!r}, "
             f"has_files={has_files}, thread_ts={thread_ts!r}, "
-            f"channel={channel}"
+            f"channel={channel}, user={_uploader}"
         )
 
         # 스레드 파일 첨부만 처리 + 봇 자신 메시지 skip (bot_message subtype 등).
