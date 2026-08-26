@@ -549,35 +549,41 @@ def _register_payment_handlers(app):
                     _total = int(des.get("total") or 0)
                     _preview = d.get("preview") or {}
                     _recorded = []
+                    _failed = []  # 이번에 커밋 못 한 분할 (부분 실패 시 카드 완료처리 보류)
+                    _rc2 = None
+                    try:
+                        from dashboard.utils.redis_client import get_redis_client
+                        _rc2 = get_redis_client().redis
+                    except Exception:
+                        _rc2 = None
                     for _s in _splits:
                         _pc = (_s.get("project_code") or "").strip()
                         _stg = (_s.get("stage") or "").strip()
                         _amt = int(_s.get("amount") or 0)
                         if not _pc or _stg not in ("계약금", "중도금", "잔금") or _amt <= 0:
+                            _failed.append(_s)
                             continue
-                        # 분할별 멱등 (같은 프로젝트·단계 이중기록 방지)
-                        _ckey = f"intake_commit:{intake_id}:{_pc}:{_stg}"
-                        _rc2 = None
-                        try:
-                            from dashboard.utils.redis_client import get_redis_client
-                            _rc2 = get_redis_client().redis
-                            if not _rc2.set(_ckey, "1", nx=True, ex=86400):
-                                continue  # 이미 기록됨
-                        except Exception:
-                            _rc2 = None
+                        # 분할별 멱등 — 단일 경로와 동일(완료마커는 커밋 성공 후에만).
+                        _sst = _intake_acquire(_rc2, intake_id, _pc, _stg)
+                        if _sst == 'done':
+                            _recorded.append(_s)  # 이미 기록됨 = 완료로 집계
+                            continue
+                        if _sst == 'busy':
+                            _failed.append(_s)  # 다른 확인 처리 중 → 보류
+                            continue
                         _smemo = _build_split_memo(_preview, _amt, _total)
                         _sok, _o, _n, _serr = _commit_intake_to_sheet(_pc, _stg, _amt, _smemo, user)
                         if not _sok:
-                            if _rc2 is not None:
-                                try:
-                                    _rc2.delete(_ckey)
-                                except Exception:
-                                    pass
+                            _intake_release(_rc2, intake_id, _pc, _stg)  # 재시도 허용
+                            _failed.append(_s)
                             _intake_ephemeral(client, channel, user,
                                               f":warning: {_pc} {_stg} 기록 실패: {_serr}")
                         else:
+                            _intake_mark_done(_rc2, intake_id, _pc, _stg)  # 성공 후에만 마커
                             _recorded.append(_s)
-                    if channel and ts:
+                    # 전건 성공했을 때만 카드 '분할 기록됨' 완료 처리. 부분 실패 시 카드를
+                    # 대기(버튼 유지) 상태로 남겨 [확인 후 기록] 재클릭으로 재시도할 수 있게 한다.
+                    if channel and ts and not _failed:
                         client.chat_update(
                             channel=channel, ts=ts,
                             text=f"✅ 분할 {len(_recorded)}건 기록 완료",
@@ -591,11 +597,18 @@ def _register_payment_handlers(app):
                             client.pins_remove(channel=channel, timestamp=ts)
                         except Exception:
                             pass
-                    try:
-                        from dashboard.utils.redis_client import get_redis_client
-                        get_redis_client().redis.delete(f"sms_intake:{intake_id}")
-                    except Exception:
-                        pass
+                    elif _failed:
+                        _intake_ephemeral(
+                            client, channel, user,
+                            f":warning: 분할 {len(_recorded)}/{len(_splits)}건 기록됨 — "
+                            f"미기록 {len(_failed)}건은 [확인 후 기록]을 다시 눌러 재시도해주세요.")
+                    # 부분 실패 시 인입 레코드를 지우지 않는다(재시도로 다시 로드해야 하므로).
+                    if not _failed:
+                        try:
+                            from dashboard.utils.redis_client import get_redis_client
+                            get_redis_client().redis.delete(f"sms_intake:{intake_id}")
+                        except Exception:
+                            pass
                     return
                 # ── 단일 지정 처리 ──
                 project_code = (des.get("project_code") or "").strip()
@@ -613,28 +626,29 @@ def _register_payment_handlers(app):
                 # 멱등 가드 — 같은 인입·지정의 확인이 두 번 전달되면(슬랙 재시도·더블클릭)
                 # _commit_intake_to_sheet 가 금액을 매번 더해 값·노트가 2배가 된다
                 # (2026-08-19 R3833-TH 16,335,000→32,670,000·노트 2블록 사고).
-                # Redis SETNX 로 (인입·프로젝트·단계)당 최초 1회만 커밋을 진행하도록 원자 점유.
-                claim_key = f"intake_commit:{intake_id}:{project_code}:{stage}"
+                # 완료마커는 커밋 성공 후에만 — _intake_acquire/mark_done/release 참조.
                 rc = None
                 try:
                     from dashboard.utils.redis_client import get_redis_client
                     rc = get_redis_client().redis
-                    if not rc.set(claim_key, "1", nx=True, ex=86400):
-                        _intake_ephemeral(client, channel, user,
-                                          ":information_source: 이미 기록된 입금입니다 (중복 확인 무시).")
-                        return
                 except Exception:
-                    rc = None  # Redis 불가 시 기존 동작 유지(차단 안 함)
+                    rc = None
+                _st = _intake_acquire(rc, intake_id, project_code, stage)
+                if _st == 'done':
+                    _intake_ephemeral(client, channel, user,
+                                      ":information_source: 이미 기록된 입금입니다 (중복 확인 무시).")
+                    return
+                if _st == 'busy':
+                    _intake_ephemeral(client, channel, user,
+                                      ":hourglass_flowing_sand: 다른 확인이 처리 중입니다. 잠시 후 다시 시도해주세요.")
+                    return
                 ok, old_num, new_num, err = _commit_intake_to_sheet(
                     project_code, stage, amount, memo, user)
                 if not ok:
-                    if rc is not None:
-                        try:
-                            rc.delete(claim_key)  # 커밋 실패 시 점유 해제 → 재시도 허용
-                        except Exception:
-                            pass
+                    _intake_release(rc, intake_id, project_code, stage)  # 재시도 허용
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
                     return
+                _intake_mark_done(rc, intake_id, project_code, stage)  # 성공 후에만 마커
                 if channel and ts:
                     client.chat_update(
                         channel=channel, ts=ts,
@@ -1377,6 +1391,62 @@ def _intake_set_dup_warned(intake_id, project, stage):
 # read-modify-write 를 원자화 — 락 없으면 두 스레드가 같은 old 값을 읽고 각자
 # 덮어써 한 건 유실됨 (2026-08-18 G4006-MW 66,364원 유실 사고). 커밋 드물어 전역 직렬화 무해.
 _INTAKE_SHEET_LOCK = threading.Lock()
+
+
+# ── 인입 확인 멱등 (orphan claim 방지) ────────────────────────────────────
+# 규칙: 완료마커(intake_commit:*)는 시트 커밋이 '성공한 뒤'에만 세운다. 커밋 前엔
+# 짧은 TTL 락(intake_lock:*)만 잡아 동시·재전달(슬랙 재시도·더블클릭)을 막는다.
+# 커밋이 중간에 끊겨도(시트 timeout·서버 재시작) 락이 스스로 만료돼 재시도가 열린다.
+# (기존엔 커밋 前 영구TTL 마커를 세워, 커밋 유실 시 재기록이 영구 차단됐다
+#  — 2026-08-26 G3742-JW 프레임플러스 미기록 사고.)
+_INTAKE_LOCK_TTL = 120      # 커밋 진행중 락 (초). 커밋이 이보다 오래 걸리면 안 됨(시트 timeout 60s).
+_INTAKE_DONE_TTL = 86400    # 완료마커 (초). 하루 내 재전달만 막으면 충분.
+
+
+def _intake_key_pair(intake_id, project_code, stage):
+    return (f"intake_commit:{intake_id}:{project_code}:{stage}",
+            f"intake_lock:{intake_id}:{project_code}:{stage}")
+
+
+def _intake_acquire(rc, intake_id, project_code, stage, lock_ttl=_INTAKE_LOCK_TTL):
+    """멱등 획득. 반환: 'done'(이미 기록됨) · 'busy'(다른 확인 처리중) · 'go'(진행).
+
+    rc=None(레디스 불가) 또는 예외 시 'go' — 기존 동작 유지(차단 안 함).
+    """
+    if rc is None:
+        return 'go'
+    done_key, lock_key = _intake_key_pair(intake_id, project_code, stage)
+    try:
+        if rc.get(done_key):
+            return 'done'
+        if not rc.set(lock_key, "1", nx=True, ex=lock_ttl):
+            return 'busy'
+        return 'go'
+    except Exception:
+        return 'go'
+
+
+def _intake_mark_done(rc, intake_id, project_code, stage, done_ttl=_INTAKE_DONE_TTL):
+    """커밋 성공 후: 완료마커를 세우고 진행 락을 해제한다."""
+    if rc is None:
+        return
+    done_key, lock_key = _intake_key_pair(intake_id, project_code, stage)
+    try:
+        rc.set(done_key, "1", ex=done_ttl)
+        rc.delete(lock_key)
+    except Exception:
+        pass
+
+
+def _intake_release(rc, intake_id, project_code, stage):
+    """커밋 실패 후: 완료마커는 세우지 않고 락만 해제한다 → 즉시 재시도 허용."""
+    if rc is None:
+        return
+    _, lock_key = _intake_key_pair(intake_id, project_code, stage)
+    try:
+        rc.delete(lock_key)
+    except Exception:
+        pass
 
 
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id):
