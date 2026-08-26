@@ -50,16 +50,19 @@ def _get_drive():
     return _drive_service
 
 
-def _project_folder_id_for(code: str) -> Optional[str]:
+def _project_folder_id_for(code: str, fresh: bool = False) -> Optional[str]:
     """프로젝트 코드 → 시트의 '견적서 및 계약서 폴더 경로' 값을 진짜 폴더 ID로 정규화.
 
     2026-08-18: 폴더칸에 폴더가 아니라 그 안의 '파일' 링크를 붙여넣은 오입력(파일→상위폴더)과
     URL 형태 붙여넣기를 resolve_folder_id 로 저장 시점에 자동 교정. 등록 검증(1c37308)을
     우회한 옛 데이터까지 여기서 교정된다. 유효한 폴더 ID 를 못 얻으면 None
     (→ 호출부에서 'no_project_folder' 명확 안내).
+
+    fresh=True: 캐시 대신 시트 강제 재조회. PM에서 폴더 경로를 방금 넣고 바로 재첨부하면
+    캐시 지연으로 '폴더 없음' 오판정되던 문제 방지 (2026-08-26 R4035-JW 계기, 저장 실패 시 재시도용).
     """
     from dashboard.services.project_service import get_project_records
-    records = get_project_records() or []
+    records = get_project_records(force_refresh=fresh) or []
     raw = None
     for r in records:
         if (r.get('프로젝트 코드') or '').strip() == code:
@@ -292,6 +295,9 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
         {'ok': bool, 'reason': str, 'file_name': str, 'file_id': str}
     """
     parent = _project_folder_id_for(code)
+    if not parent:
+        # 캐시 지연 대비: 폴더 경로를 방금 PM에 넣었을 수 있으니 시트 fresh 재조회 후 재판정
+        parent = _project_folder_id_for(code, fresh=True)
     if not parent:
         return {'ok': False, 'reason': 'no_project_folder'}
 
