@@ -1229,8 +1229,8 @@ def _build_intake_split_pending_blocks(intake_id, splits, total, by_user, memo="
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     init = _resolve_manager_initial(by_user)
     _codes = '  '.join(f"`{s['project_code']}`" for s in splits)
-    lines = ["⠀", f">🕓 *확인 대기 — 분할* {_codes}",
-             f">금액 {total:,}원 · 지정 {init}", f">{INTAKE_SEP}",
+    lines = ["⠀", ">🕓 *확인 대기 — 경영지원 확인 후 기록*",
+             f">분할  {_codes}  ·  총 {total:,}원  ·  지정 {init}", f">{INTAKE_SEP}",
              *quoted_body(memo), f">{INTAKE_SEP}"]
     for s in splits:
         lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
