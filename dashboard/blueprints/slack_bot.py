@@ -582,7 +582,7 @@ def _register_payment_handlers(app):
                             channel=channel, ts=ts,
                             text=f"✅ 분할 {len(_recorded)}건 기록 완료",
                             blocks=_build_intake_split_done_blocks(
-                                _splits, _total, des.get("by", ""), user))
+                                _splits, _total, des.get("by", ""), user, d.get("text", "")))
                         try:
                             _react_card_handled(client, channel, ts)
                         except Exception:
@@ -786,7 +786,8 @@ def _register_payment_handlers(app):
                     client.chat_update(
                         channel=channel, ts=message_ts,
                         text=f"확인 대기: 분할 {len(splits)}건",
-                        blocks=_build_intake_split_pending_blocks(intake_id, splits, total, user_id))
+                        blocks=_build_intake_split_pending_blocks(
+                            intake_id, splits, total, user_id, meta.get("memo", "")))
             except Exception as exc:
                 logger.error(f"[SLACK/수금봇] submit_split 처리 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -1209,12 +1210,13 @@ def _build_split_memo(preview: dict, amount: int, total: int) -> str:
     return '\n'.join(lines)
 
 
-def _build_intake_split_pending_blocks(intake_id, splits, total, by_user):
-    """분할 확인 대기 카드 — 분할 목록 + [확인 후 기록]/[재지정]."""
-    from dashboard.services.sms_intake import INTAKE_SEP
+def _build_intake_split_pending_blocks(intake_id, splits, total, by_user, memo=""):
+    """분할 확인 대기 카드 — 원본 입금 문자 유지 + 분할 목록 + [확인 후 기록]/[재지정]."""
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     init = _resolve_manager_initial(by_user)
-    lines = ["⠀", ">🕐 *확인 대기 — 경영지원 확인 후 기록 (분할)*",
-             f">통합 {total:,}원 · 지정 {init}", f">{INTAKE_SEP}"]
+    lines = ["⠀", ">🕓 *확인 대기 — 경영지원 확인 후 기록 (분할)*",
+             f">통합 {total:,}원 · 지정 {init}", f">{INTAKE_SEP}",
+             *quoted_body(memo), f">{INTAKE_SEP}"]
     for s in splits:
         lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
     lines.append(f">{INTAKE_SEP}")
@@ -1230,13 +1232,14 @@ def _build_intake_split_pending_blocks(intake_id, splits, total, by_user):
     ]
 
 
-def _build_intake_split_done_blocks(splits, total, by_user, checker):
-    """분할 확인 완료 카드 — 버튼 없음."""
-    from dashboard.services.sms_intake import INTAKE_SEP
+def _build_intake_split_done_blocks(splits, total, by_user, checker, memo=""):
+    """분할 확인 완료 카드 — 원본 입금 문자 유지 + 분할 목록. 버튼 없음."""
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     by_i = _resolve_manager_initial(by_user)
     ck = _resolve_manager_initial(checker)
     lines = ["⠀", ">✅ *확인 완료 — 분할 기록됨*",
-             f">통합 {total:,}원 · 지정 {by_i} · 확인 {ck}", f">{INTAKE_SEP}"]
+             f">통합 {total:,}원 · 지정 {by_i} · 확인 {ck}", f">{INTAKE_SEP}",
+             *quoted_body(memo), f">{INTAKE_SEP}"]
     for s in splits:
         lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
     lines.append(f">{INTAKE_SEP}")
