@@ -1254,7 +1254,8 @@ def _build_intake_split_done_blocks(splits, total, by_user, checker, memo=""):
     ck = _resolve_manager_initial(checker)
     _codes = '  '.join(f"`{s['project_code']}`" for s in splits)
     lines = ["⠀", f">✅ *확인 완료 — 분할 기록됨* {_codes}",
-             f">금액 {total:,}원 · 지정 {by_i} · 확인 {ck}", f">{INTAKE_SEP}",
+             f">금액 : {total:,}원",
+             f">처리 : 지정 {by_i} · 확인 {ck}", f">{INTAKE_SEP}",
              *quoted_body(memo), f">{INTAKE_SEP}"]
     for s in splits:
         lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
