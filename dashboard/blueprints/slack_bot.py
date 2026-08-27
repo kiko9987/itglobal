@@ -9124,6 +9124,43 @@ def _process_visit_cancel(client, body) -> None:
         pass
 
 
+def _visit_folder_initial(lead: dict) -> str:
+    """방문 폴더 이니셜 = 담당자(영업 담당자 / 거래처류는 온라인 상담자) 기준.
+    업로더는 방문자와 무관(방문 전 참고자료를 관리자·온라인 당번 등 누구나 올릴 수 있음)하므로
+    쓰지 않는다. 담당자 못 찾으면 '' 반환 → 호출부에서 '미정' 처리."""
+    def _c(v):
+        s = str(v or '').strip()
+        return '' if s in ('', '-', '미정') else s
+    plat = str(lead.get('플랫폼', '')).strip()
+    is_partner = plat in ('거래처', '기타', '소개')
+    src = _c(lead.get('온라인 상담자')) if is_partner else _c(lead.get('영업 담당자'))
+    if not src and not is_partner:
+        src = _c(lead.get('온라인 상담자'))
+    return _to_initial(src) if src else ''
+
+
+def _maybe_fix_folder_initial(folder_id: str, current_name: str, lead: dict) -> str:
+    """폴더명이 '(미정)'/'(미상)' 인데 담당자가 나중에 배정됐으면 담당자 이니셜로 1회 자동 교정.
+    정상 이니셜은 절대 안 건드림(미정/미상 패턴일 때만). 성공 시 새 이름, 아니면 원래 이름 반환.
+    (2026-08-27: 방문 전 참고자료 업로드로 담당자 미상 상태에서 폴더가 만들어지는 케이스 자동 보정)"""
+    if not current_name or not re.search(r'\((?:미정|미상)\)', current_name):
+        return current_name
+    new_ini = _visit_folder_initial(lead)
+    if not new_ini:
+        return current_name  # 아직 담당자 없음 → 미정 유지
+    new_name = re.sub(r'\((?:미정|미상)\)', f'({new_ini})', current_name, count=1)
+    if new_name == current_name:
+        return current_name
+    try:
+        from dashboard.utils.google_drive import rename_folder
+        if rename_folder(folder_id, new_name):
+            logger.info(f"[SLACK/방문 폴더] 담당자 확정 자동 교정: {current_name!r} → {new_name!r}")
+            return new_name
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 폴더] 폴더명 자동 교정 실패 ({folder_id}): {exc}")
+    return current_name
+
+
 def _ensure_visit_folder(
     client, lead_no: str,
     channel: str = '', thread_ts: str = '',
@@ -9176,6 +9213,7 @@ def _ensure_visit_folder(
         if cached_id:
             name = get_folder_name(cached_id)
             if name:
+                name = _maybe_fix_folder_initial(cached_id, name, lead)  # 담당자 확정 시 (미정)→담당자 자동 교정
                 return {
                     'lead_folder_id': cached_id,
                     'lead_folder_link': f'https://drive.google.com/drive/folders/{cached_id}',
@@ -9195,6 +9233,7 @@ def _ensure_visit_folder(
     if sheet_folder_id:
         name = get_folder_name(sheet_folder_id)
         if name:
+            name = _maybe_fix_folder_initial(sheet_folder_id, name, lead)  # 담당자 확정 시 (미정)→담당자 자동 교정
             try:
                 if rc is not None:
                     rc.set(
@@ -9228,14 +9267,8 @@ def _ensure_visit_folder(
         source_name = _clean(lead.get('영업 담당자'))
     initial = _to_initial(source_name) if source_name else ''
 
-    if not initial and uploader_id:
-        try:
-            uploader_ini = _slack_user_to_initial(client, uploader_id)
-            if uploader_ini and uploader_ini != '-':
-                initial = uploader_ini
-        except Exception as exc:
-            logger.debug(f'[SLACK/방문 폴더] 업로더 이니셜 조회 실패: {exc}')
-
+    # 2026-08-27: 업로더는 방문자와 무관(방문 전 참고자료를 관리자·온라인 당번 등 누구나 올릴 수
+    # 있음)하므로 이니셜 근거로 쓰지 않는다. 담당자(영업/온라인상담자) 기준만 사용.
     if not initial and not _is_partner:
         m_source = _clean(lead.get('온라인 상담자'))
         if m_source:
@@ -9245,7 +9278,8 @@ def _ensure_visit_folder(
         m_ini = re.search(r'등록자\s*:\s*([A-Za-z가-힣]+)', root_text)
         if m_ini:
             initial = _to_initial(m_ini.group(1).strip())
-    initial = initial or '미상'
+    # 담당자 못 찾으면 '미정' — 나중에 담당자 배정되면 재사용 시 자동 교정(_maybe_fix_folder_initial)
+    initial = initial or '미정'
 
     visit_address = str(lead.get('방문 주소', '') or '').strip()
     if not visit_address or visit_address == '-':
