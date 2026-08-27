@@ -1519,6 +1519,25 @@ def _enrich_verified_address(
         if 0 <= _bi < _fi:  # 원문에서 건물명이 층보다 앞 → 건물-층 순서 복원
             verified_addr = verified_addr[:_m_ord.start(2)] + f'{_bd} {_fl}'
 
+    # 원문 끝 다단어 상호(상호+지점명) 보존 (2026-08-27 L-03811). verify 성공 경로는
+    #   raw tail 을 버리고 POI 보강에만 의존하는데, step 1-b 상호 부착은 **한 단어**만
+    #   잡아 '국면당 공세점'(상호+지점) 같은 다단어는 매치 실패 → POI 가 못 돌려주면
+    #   유실(카카오 address.json 인덱싱 변동에 노출; verify=None 이면 _road_poi_fallback
+    #   이 tail 보존). POI 이후, 원문 끝 '번지/호 + 다단어 상호'의 **상호(첫 단어)가 결과에
+    #   전혀 없을 때만** 부착 → POI 가 이미 상호를 붙인 케이스(지점명 치환 등)는 중복 회피.
+    _mshop2 = re.search(
+        r'(?:[A-Za-z]?\d+(?:-\d+)?(?:호|층|번지|호실|관))\s+'
+        r'([가-힣][가-힣A-Za-z0-9]{1,15}(?:\s+[가-힣][가-힣A-Za-z0-9]{1,15}){1,2})\s*$',
+        original_text.split('\n')[-1].strip().rstrip('.'),
+    )
+    if _mshop2:
+        _phrase = _mshop2.group(1).strip()
+        _fw, _lw = _phrase.split()[0], _phrase.split()[-1]
+        if (not re.search(r'(?:로|길|구|시|군|동|읍|면|층|호|번지)$', _lw)
+                and _fw not in verified_addr
+                and _phrase not in verified_addr):
+            verified_addr = f'{verified_addr} {_phrase}'.strip()
+
     return verified_addr
 
 
