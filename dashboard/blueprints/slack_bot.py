@@ -12435,6 +12435,53 @@ def _recover_stuck_visit_photo_uploads():
             logger.info(f'[SLACK/방문사진복구] {thread_ts} {len(recovered)}장 복구: {recovered}')
 
 
+def _clear_stale_failure_note(batch, rc, token):
+    """복구 스케줄러가 '모든 파일이 이미 폴더에 있음'을 확인한 경우(응답 read timeout 등으로
+    실제론 저장됐는데 실패로 잘못 카운트된 케이스), 카드에 남은 stale ':x: 실패 N장' 표기를
+    정리한다. rich 카드 텍스트(경로·폴더ID·안내)는 보존하고 실패 조각만 제거 + 확인 안내 추가.
+    (2026-08-27: '실패 1장'인데 실제론 저장돼 있어 매니저가 오해하던 문제)"""
+    channel = batch.get('channel'); thread_ts = batch.get('thread_ts')
+    if not (channel and thread_ts and token):
+        return
+    # 최종 카드 ts = 누적 답글 키 우선(멀티 배치 시 배치 reply_ts와 다를 수 있음), 없으면 배치 reply_ts
+    reply_ts = ''
+    try:
+        h = rc.hgetall(f'visit_photo_reply:{channel}:{thread_ts}') or {}
+        v = h.get(b'ts') if b'ts' in h else h.get('ts')
+        reply_ts = v.decode() if isinstance(v, bytes) else (v or '')
+    except Exception:
+        pass
+    reply_ts = reply_ts or batch.get('reply_ts') or ''
+    if not reply_ts:
+        return
+    try:
+        from slack_sdk import WebClient
+        client = WebClient(token=token)
+        msgs = client.conversations_replies(
+            channel=channel, ts=thread_ts, limit=200).get('messages', [])
+        target = next((m for m in msgs if m.get('ts') == reply_ts), None)
+        if not target:
+            return
+        text = target.get('text') or ''
+        m = re.search(r':x: 실패 (\d+)장', text)
+        if not m:
+            return  # 정리할 실패 표기 없음
+        n = m.group(1)
+        nt = text
+        nt = re.sub(r' · :x: 실패 \d+장', '', nt)     # 스킵 표기 뒤에 붙은 경우
+        nt = re.sub(r':x: 실패 \d+장 · ', '', nt)     # 스킵 표기 앞에 붙은 경우
+        nt = re.sub(r'\n:x: 실패 \d+장', '', nt)      # 단독 줄
+        nt = re.sub(r':x: 실패 \d+장', '', nt)        # 그 외
+        if nt == text:
+            return
+        nt = nt.rstrip() + f'\n:white_check_mark: 실패 표시됐던 {n}장, 자동 확인 결과 정상 저장 확인됨'
+        client.chat_update(channel=channel, ts=reply_ts, text=nt)
+        logger.info(
+            f'[SLACK/방문사진복구] stale 실패 표기 정리 ({channel}/{reply_ts}, 실패표시 {n}장→정상)')
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문사진복구] 실패 표기 정리 실패: {exc}')
+
+
 def _recover_photo_batches():
     """Redis 배치 상태(photo_batch:*) 기반으로 중단된 방문 사진 업로드 복구 (2026-08-12).
 
@@ -12491,6 +12538,8 @@ def _recover_photo_batches():
             continue
         missing = [f for f in bfiles if f.get('name') and f['name'] not in existing]
         if not missing:
+            # 전부 폴더에 있음 = 실패로 표시됐지만 실제론 저장된 오탐 케이스 → 카드 실패 표기 정리
+            _clear_stale_failure_note(b, rc, token)
             rc.delete(k)
             continue
         rec = []
