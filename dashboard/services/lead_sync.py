@@ -1009,12 +1009,36 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
         }]},
     ]
 
+    from dashboard.blueprints.slack_helpers import safe_slack_call
+
+    # 재발행(내용 정정 등) 시 기존 카드 있으면 chat_update — 중복 카드 방지·내용 갱신
+    # (_post_visit_notice 와 동일 idempotent 패턴, 2026-08-28). 신규 lead 는 키가 없어 정상 post.
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _grc
+        _lc = _grc().redis.get(f'lead_card_msg:{lead_no}')
+        _lc = _lc.decode() if isinstance(_lc, bytes) else _lc
+        if _lc and '|' in _lc:
+            _lc_ch, _lc_ts = _lc.split('|', 1)
+            if _lc_ch == channel and _lc_ts:
+                resp = safe_slack_call(
+                    client.chat_update,
+                    channel=channel, ts=_lc_ts, text=new_text, blocks=new_blocks,
+                )
+                if resp and resp.get('ok'):
+                    logger.info(f'[SYNC/전화WF/카드] 기존 카드 갱신 ({lead_no}, ts={_lc_ts})')
+                    return True
+                logger.warning(
+                    f'[SYNC/전화WF/카드] chat_update 실패 ({lead_no}, ts={_lc_ts}): {resp} '
+                    f'— 신규 발송 fallback'
+                )
+    except Exception as _uexc:
+        logger.warning(f'[SYNC/전화WF/카드] 기존 카드 갱신 시도 실패 ({lead_no}): {_uexc} — 신규 발송')
+
     try:
         client.conversations_join(channel=channel)
     except Exception:
         pass
     try:
-        from dashboard.blueprints.slack_helpers import safe_slack_call
         resp = safe_slack_call(
             client.chat_postMessage,
             channel=channel, text=new_text, blocks=new_blocks,
