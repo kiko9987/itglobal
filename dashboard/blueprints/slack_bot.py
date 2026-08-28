@@ -9933,6 +9933,24 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
     _mark_visit_complete_on_sheet(lead_no, initial=initial, dt_str=complete_time)
 
 
+def _insert_shop_name(cur_name: str, shop_name: str) -> str:
+    """현재 폴더명에 상호명을 날짜(YY.MM.DD) 앞에 삽입. 날짜 없으면 뒤에 붙임.
+    이미 상호명이 있으면 그대로 반환(중복 방지). (2026-08-28: 재사용 폴더 '() 상호' 깨짐 fix)"""
+    cur = (cur_name or '').strip()
+    shop = (shop_name or '').strip()
+    if not shop:
+        return cur
+    if not cur:
+        return shop
+    if shop in cur:
+        return cur  # 이미 반영됨
+    m = re.search(r'\s(\d{2}\.\d{2}\.\d{2})\s*$', cur)
+    if m:
+        head = cur[:m.start()].rstrip()
+        return f"{head} {shop} {m.group(1)}"
+    return f"{cur} {shop}"
+
+
 def _process_visit_shop_name_update(client, event) -> None:
     """thread 답글의 `상호 XXX` / `상호명 XXX` 패턴 감지 → 드라이브 폴더명 갱신."""
     channel = event.get("channel", "")
@@ -9976,14 +9994,23 @@ def _process_visit_shop_name_update(client, event) -> None:
     if not lead_folder_id:
         return
 
-    prefix = info.get('prefix', '')
-    initial = info.get('initial', '')
-    address = info.get('address', '')
-    date_str = info.get('date', '')
-    new_folder_name = f"{prefix}({initial}) {address} {shop_name} {date_str}"
-    new_folder_name = re.sub(r'[\\/:*?"<>|]', '', new_folder_name).strip()
-
-    from dashboard.utils.google_drive import rename_folder
+    # 폴더명 갱신: 저장된 부분값(prefix/initial/address/date)은 신규 생성 배치에만 채워지고
+    # 재사용(사후 첨부)이면 빈값이라 예전엔 '() 상호'처럼 깨졌다(2026-08-28). → 항상 현재
+    # 실제 폴더명을 읽어 상호명을 날짜 앞에 삽입(수동 리네임·이니셜 자동교정도 보존).
+    from dashboard.utils.google_drive import rename_folder, get_folder_name
+    cur_name = (get_folder_name(lead_folder_id) or '').strip()
+    if not cur_name:
+        # 폴더명 조회 실패 → 저장된 부분값 폴백 (기존 방식)
+        cur_name = (
+            f"{info.get('prefix','')}({info.get('initial','')}) "
+            f"{info.get('address','')} {info.get('date','')}"
+        ).strip()
+    new_folder_name = re.sub(
+        r'[\\/:*?"<>|]', '', _insert_shop_name(cur_name, shop_name)
+    ).strip()
+    if not new_folder_name or new_folder_name == cur_name:
+        logger.info(f"[SLACK/방문 사진] 상호명 이미 반영/변경 없음 — skip: {cur_name!r}")
+        return  # 중복 상호 입력 등 — 오해 댓글 방지 위해 아무 것도 안 함
     if not rename_folder(lead_folder_id, new_folder_name):
         return
 
