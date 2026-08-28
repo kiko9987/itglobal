@@ -18,6 +18,7 @@ Shared Drive 사용 중이라 모든 Drive API 호출에 supportsAllDrives=True 
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import re
@@ -288,13 +289,17 @@ def _guess_ext(filename: str, mimetype: str) -> str:
     return mime_ext.get((mimetype or '').lower(), 'bin')
 
 
-def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype: str) -> dict:
+def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype: str,
+                          parent_override: Optional[str] = None) -> dict:
     """사업자등록증 파일을 프로젝트 폴더에 저장.
+
+    parent_override: 폴더 ID를 직접 지정(자동 재시도용). write-behind 시트 반영 지연을
+        우회해 방금 등록된 폴더에 바로 저장하기 위함.
 
     Returns:
         {'ok': bool, 'reason': str, 'file_name': str, 'file_id': str}
     """
-    parent = _project_folder_id_for(code)
+    parent = str(parent_override or '').strip() or _project_folder_id_for(code)
     if not parent:
         # 캐시 지연 대비: 폴더 경로를 방금 PM에 넣었을 수 있으니 시트 fresh 재조회 후 재판정
         parent = _project_folder_id_for(code, fresh=True)
@@ -569,6 +574,7 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
 
     saved = []
     skipped = []
+    pending_files = []  # 폴더 미등록으로 실패 → 폴더 경로 등록 시 자동 재시도용 (2026-08-28)
     ocr_content = None  # OCR 대상 (첫 번째로 성공 저장된 파일 content)
     for f in files:
         name = f.get('name') or ''
@@ -594,9 +600,28 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
                     ocr_content = content
             else:
                 skipped.append(f'{name}: {_reason_message(res.get("reason"))}')
+                if res.get('reason') == 'no_project_folder':
+                    pending_files.append({'name': name, 'url': url, 'mime': mimetype})
         except Exception as exc:
             logger.error(f'[LICENSE] 처리 예외 ({name}): {exc}', exc_info=True)
             skipped.append(f'{name}: {_exception_message(exc)}')
+
+    # 폴더 미등록으로 실패한 첨부는 기록 → PM에서 폴더 경로 등록되면 자동 재저장
+    # (retry_pending_license, notify_project_field_changes 에서 호출). 성공분 있으면
+    # 이미 폴더 유효한 상태라 기록 안 함.
+    if pending_files and not saved:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            _rc = get_redis_client().redis
+            _rc.set(f'license_pending:{code}', json.dumps({
+                'channel': channel, 'thread_ts': thread_ts,
+                'files': pending_files, 'created': time.time(),
+            }), ex=14 * 86400)
+            logger.info(
+                f'[LICENSE] {code} 폴더 미등록 실패 {len(pending_files)}장 → pending 기록'
+                f'(폴더 경로 등록 시 자동 재시도)')
+        except Exception as exc:
+            logger.warning(f'[LICENSE] pending 기록 실패 ({code}): {exc}')
 
     # 하나라도 저장 성공했으면 원본 공사 확정 카드의 사업자등록증 배지를 ✅로 갱신.
     # 오래된 카드는 Redis 매핑이 없어 skip 되던 문제 → thread_ts (= 카드 ts) 를
@@ -670,6 +695,96 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
         'not_license': not_license,
         'is_card': is_card,
     }
+
+
+def retry_pending_license(code: str, folder_hint: str = '') -> dict:
+    """폴더 미등록으로 실패했던 사업자등록증 첨부를, 폴더 경로가 나중에 등록되면 자동 재저장.
+
+    notify_project_field_changes(견적서 폴더 경로 변경 시)에서 호출. write-behind 시트 반영
+    지연을 피하려 folder_hint(방금 등록된 폴더값)를 받아 그 폴더에 바로 저장. 성공 시
+    배지 갱신 + '저장 완료' 스레드 댓글 + pending 키 삭제. (2026-08-28)
+    """
+    result = {'code': code, 'retried': 0, 'saved': []}
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return result
+    key = f'license_pending:{code}'
+    raw = rc.get(key)
+    if not raw:
+        return result
+    try:
+        pend = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+    except Exception:
+        rc.delete(key)
+        return result
+
+    # 저장할 폴더 ID 결정: hint(방금 등록값) 우선 → 없으면 시트 fresh 재조회
+    parent = ''
+    hint = str(folder_hint or '').strip()
+    if hint:
+        try:
+            from dashboard.utils.google_drive import resolve_folder_id
+            res = resolve_folder_id(hint)
+            if res.get('reason') not in ('not_id_format', 'file_no_parent', 'empty'):
+                v = str(res.get('value') or '').strip()
+                if re.fullmatch(r'[a-zA-Z0-9_-]{20,}', v):
+                    parent = v
+        except Exception as exc:
+            logger.warning(f'[LICENSE/재시도] folder_hint 정규화 실패 ({code}): {exc}')
+    if not parent:
+        parent = _project_folder_id_for(code, fresh=True) or ''
+    if not parent:
+        logger.info(f'[LICENSE/재시도] {code} 유효 폴더 아직 없음 — pending 유지')
+        return result
+
+    token = os.getenv('SLACK_PROJECT_BOT_TOKEN', '').strip()
+    channel = pend.get('channel')
+    thread_ts = pend.get('thread_ts')
+    files = pend.get('files') or []
+    saved = []
+    for f in files:
+        name = f.get('name') or ''
+        url = f.get('url') or ''
+        mime = f.get('mime') or ''
+        if not url:
+            continue
+        try:
+            content = _download_slack_file(url, token)
+            r = save_business_license(code, content, name, mime, parent_override=parent)
+            if r.get('ok'):
+                saved.append(r['file_name'])
+            else:
+                logger.warning(f'[LICENSE/재시도] 저장 실패 ({code}, {name}): {r.get("reason")}')
+        except Exception as exc:
+            logger.warning(f'[LICENSE/재시도] 처리 예외 ({code}, {name}): {exc}')
+    result['retried'] = len(files)
+    result['saved'] = saved
+    if not saved:
+        return result  # pending 유지 (다음 기회 재시도)
+
+    # 배지 갱신
+    try:
+        from dashboard.services.project_slack_notifier import refresh_project_card_license
+        refresh_project_card_license(code, fallback_channel=channel, fallback_message_ts=thread_ts)
+    except Exception as exc:
+        logger.warning(f'[LICENSE/재시도] 배지 갱신 실패 ({code}): {exc}')
+    # '저장 완료' 스레드 댓글
+    if token and channel and thread_ts:
+        try:
+            from slack_sdk import WebClient
+            WebClient(token=token).chat_postMessage(
+                channel=channel, thread_ts=thread_ts,
+                text=(':white_check_mark: 폴더 경로 등록 확인 — 사업자등록증 자동 저장 완료\n'
+                      + '\n'.join(f'  • {fn}' for fn in saved)),
+                unfurl_links=False,
+            )
+        except Exception as exc:
+            logger.warning(f'[LICENSE/재시도] 완료 댓글 실패 ({code}): {exc}')
+    rc.delete(key)
+    logger.info(f'[LICENSE/재시도] {code} 폴더 등록 후 {len(saved)}장 자동 저장 완료')
+    return result
 
 
 def _maybe_update_business_name(code: str, ocr_name: str) -> tuple:

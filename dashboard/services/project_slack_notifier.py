@@ -614,6 +614,22 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
         logger.warning(f'[PROJECT/SLACK/편집] 답글 예외 ({code}): {exc}')
         reply_ok = False
 
+    # 견적서 폴더 경로가 (유효값으로) 등록·변경됐으면, 폴더 미등록으로 실패했던
+    # 사업자등록증 첨부를 자동 재저장 (2026-08-28). folder_hint로 방금 등록된 값을 넘겨
+    # write-behind 시트 반영 지연을 우회.
+    try:
+        _folder_change = next(
+            (c for c in relevant
+             if c.get('field_name') == '견적서 및 계약서 폴더 경로'
+             and str(c.get('new_value') or '').strip()),
+            None,
+        )
+        if _folder_change:
+            from dashboard.services.business_license_handler import retry_pending_license
+            retry_pending_license(code, folder_hint=str(_folder_change.get('new_value') or ''))
+    except Exception as exc:
+        logger.warning(f'[PROJECT/SLACK/편집] 사업자등록증 자동 재시도 예외 ({code}): {exc}')
+
     # 원본 카드도 최신 데이터로 재렌더링 (스레드 답글과 독립적으로 시도)
     if latest_data is not None:
         try:
