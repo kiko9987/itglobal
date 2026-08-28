@@ -1986,6 +1986,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         notify_visit = []
         # 전화 워크플로 dedup 시 삭제할 임시 행 번호 (마지막에 batch delete)
         temp_rows_to_delete = []
+        # intra-run dedup (2026-08-28 L-03836/L-03837 사고): 같은 sync 실행에서 방금 만든
+        # 리드는 main_df 에 아직 없어 cross-run dedup 이 못 잡는다. 실행 내 발번 phone 추적.
+        _seen_phones_in_run: dict = {}  # phone_digits → {'lead_no', 'core'}
 
         for idx, row in candidates.iterrows():
             sheet_row = idx + 2  # 헤더 1행 + 0-based
@@ -2001,6 +2004,25 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
             _platform_this = str(row.get('플랫폼', '') or '').strip()
             _addr_conflict = None  # 주소 충돌 가드 (2026-08-07 L-03367) — 병합 skip 시 경고용
+
+            # intra-run dedup (2026-08-28 L-03836/L-03837): 같은 sync 실행에 같은 번호(주소 core
+            # 일치) 2행 → 두 번째는 중복. cross-run dedup(main_df)은 방금 만든 리드를 몰라서 못
+            # 잡음. 16:26 시트 지연으로 두 워크플로 행이 한 배치에 들어와 둘 다 발번된 사고.
+            if _platform_this == '전화' and _phone:
+                _pd_run = re.sub(r'\D', '', _phone)
+                _acore_run = _addr_core(str(row.get('방문 주소', '') or ''))
+                _seen_run = _seen_phones_in_run.get(_pd_run)
+                if _seen_run is not None and (
+                    not _seen_run['core'] or not _acore_run or _seen_run['core'] == _acore_run
+                ):
+                    temp_rows_to_delete.append(sheet_row)
+                    result.setdefault('intra_run_dup', 0)
+                    result['intra_run_dup'] += 1
+                    logger.warning(
+                        f'[SYNC/전화WF/DEDUP-RUN] 같은 실행 내 중복 번호({_phone}) '
+                        f'— 임시 row {sheet_row} 삭제, 먼저 발번한 {_seen_run["lead_no"]} 유지'
+                    )
+                    continue
 
             # 전화 워크플로 dedup (2026-07-14): 같은 연락처 90일 이내 리드가
             # 이미 있으면 기존 리드 update + 임시 행 삭제 (매니저 수동 시트
@@ -2103,6 +2125,13 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             else:
                 new_lead_no = f"L-{next_no_int:05d}"
                 next_no_int += 1
+
+            # intra-run dedup 기록 (전화) — 같은 배치 뒤 행의 동일 번호 중복 발번 방지 (2026-08-28)
+            if _platform_this == '전화' and _phone:
+                _seen_phones_in_run[re.sub(r'\D', '', _phone)] = {
+                    'lead_no': new_lead_no,
+                    'core': _addr_core(str(row.get('방문 주소', '') or '')),
+                }
 
             update_cells = [(f"A{sheet_row}", new_lead_no)]
 
