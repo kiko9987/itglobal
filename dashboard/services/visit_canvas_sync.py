@@ -203,7 +203,11 @@ def _fetch_visit_leads() -> List[Dict]:
     from dashboard.services.lead_service import load_leads_data
     df = load_leads_data(force_refresh=True)
     if df is None or df.empty:
-        return []
+        # 리드 관리 시트는 항상 수천 행 → 빈 df = 시트 읽기 실패(타임아웃·503 등).
+        # 여기서 [] 반환하면 캔버스가 통째로 '없음'으로 덮어써진다(2026-08-28 16:27 사고:
+        # 시트 일시 장애로 캔버스 wipe → 10분 뒤 자가치유했으나 그 사이 업무 혼란).
+        # → 예외를 올려 rebuild_canvas 가 캔버스를 건드리지 않고 skip(이전 내용 유지)하게 한다.
+        raise RuntimeError('리드 관리 시트 읽기 실패(빈 데이터) — 캔버스 재생성 skip')
     # 방문 완료 flag 조회 (Redis) — 있으면 캔버스 제외
     try:
         from dashboard.utils.redis_client import get_redis_client
