@@ -1844,6 +1844,15 @@ export default class ModernProjectModal {
     container.innerHTML = '';
     container.appendChild(alertElement);
 
+    // 스크롤 위치와 무관하게 알림이 보이도록 화면 안으로 스크롤 (2026-08-29).
+    // 알림은 modal-body 최상단, 등록 버튼은 하단 footer 라, 아래로 스크롤한 상태에서
+    // 검증 실패하면 상단 알림이 시야 밖 → '버튼 눌러도 반응 없음'처럼 느껴지던 UX 문제 해결.
+    try {
+      alertElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (_) {
+      /* scrollIntoView 미지원 환경 무시 */
+    }
+
     setTimeout(() => alertElement.remove(), 5000);
   }
 
