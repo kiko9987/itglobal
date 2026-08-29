@@ -549,6 +549,44 @@ def sync_karrot() -> Dict[str, Any]:
 _APPEND_LEAD_LOCK = threading.Lock()
 
 
+# L-리드번호 원자 발번 (2026-08-29 L-03837 충돌 사고).
+# 근본: 구글시트 지연/write-behind 로 sync 가 stale 한 max 를 읽어 이미 쓴 번호를 재발급
+#   → 서로 다른 sync(전화WF·홈페이지·당근)가 같은 L-번호를 발급하는 충돌.
+# 해결: Redis 워터마크(lead_no_seq)와 시트 max 중 큰 값 기준으로 원자적(Lua) 발급.
+#   - 시트가 stale-low 여도 워터마크가 막고, 워터마크가 stale-low(Redis flush)여도 시트가 막음.
+#   - Redis 실패 시 시트 max 폴백(기존 동작). 발급 후 쓰기 실패 시 번호 gap 은 허용(충돌보다 안전).
+_LEAD_NO_WATERMARK_KEY = 'lead_no_seq'
+_LEAD_NO_ALLOC_LUA = """
+local cur = tonumber(redis.call('GET', KEYS[1]) or '0')
+local floor = tonumber(ARGV[1])
+local count = tonumber(ARGV[2])
+local base = math.max(cur, floor)
+redis.call('SET', KEYS[1], base + count)
+return base + 1
+"""
+
+
+def _allocate_lead_numbers(sheet_max_int: int, count: int) -> List[int]:
+    """L-번호 count개를 원자적으로 발급. 반환: [start, start+1, ..., start+count-1].
+    max(Redis 워터마크, 시트 max) + 1 부터 연속 발급. Redis 실패 시 시트 max 폴백."""
+    if count <= 0:
+        return []
+    try:
+        sheet_max_int = int(sheet_max_int or 0)
+    except (TypeError, ValueError):
+        sheet_max_int = 0
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        start = int(rc.eval(
+            _LEAD_NO_ALLOC_LUA, 1, _LEAD_NO_WATERMARK_KEY, sheet_max_int, int(count),
+        ))
+        return list(range(start, start + count))
+    except Exception as exc:
+        logger.warning(f'[SYNC] Redis 원자 발번 실패 → 시트 max 폴백: {exc}')
+        return list(range(sheet_max_int + 1, sheet_max_int + 1 + count))
+
+
 def _append_leads_to_main(leads: List[Dict[str, Any]]) -> List[str]:
     """
     메인 시트에 일괄 추가 + 리드No 자동 발번.
@@ -587,10 +625,12 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
                     continue
 
     # 리드 No 발번 + row 데이터 구성 (15열, LEAD_COLUMN_ORDER 순서)
+    # 원자 발번(2026-08-29): 시트 max 가 stale-low 여도 Redis 워터마크로 충돌 방지.
+    _nums = _allocate_lead_numbers(max_num, len(leads))
     lead_nos = []
     rows = []
-    for i, lead in enumerate(leads, start=1):
-        ln = f'L-{max_num + i:05d}'
+    for i, lead in enumerate(leads):
+        ln = f'L-{_nums[i]:05d}'
         lead['리드 No'] = ln
         lead_nos.append(ln)
         rows.append([lead.get(col, '') for col in LEAD_COLUMN_ORDER])
@@ -2001,10 +2041,10 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
 
         manager = get_sheets_manager()
 
-        # 다음 lead_no — 시트 max + 1
+        # 다음 lead_no — 시트 max (원자 발번기 _allocate_lead_numbers 의 하한값, 2026-08-29)
         existing_nos = main_df['리드 No'].astype(str).str.extract(r'L-(\d+)')[0]
         existing_nos = pd.to_numeric(existing_nos, errors='coerce').dropna()
-        next_no_int = int(existing_nos.max()) + 1 if len(existing_nos) > 0 else 1
+        _sheet_max_l = int(existing_nos.max()) if len(existing_nos) > 0 else 0
 
         from dashboard.services.lead_helpers import extract_keywords_from_sources
         notify_visit = []
@@ -2147,8 +2187,8 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 from dashboard.blueprints.slack_bot import _etc_new_lead_no
                 new_lead_no = _etc_new_lead_no()
             else:
-                new_lead_no = f"L-{next_no_int:05d}"
-                next_no_int += 1
+                # 원자 발번 (Redis 워터마크, 시트 max 하한) — stale/동시 sync 번호 충돌 방지
+                new_lead_no = f"L-{_allocate_lead_numbers(_sheet_max_l, 1)[0]:05d}"
 
             # intra-run dedup 기록 (전화) — 같은 배치 뒤 행의 동일 번호 중복 발번 방지 (2026-08-28)
             if _platform_this == '전화' and _phone:
