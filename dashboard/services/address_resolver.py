@@ -247,6 +247,11 @@ def _post_normalize_display(addr: str) -> str:
     addr = re.sub(r'(?<=[가-힣])(\d+(?:호|층|관|호실))', r' \1', addr)
     # ' 산 (숫자)' → ' 산(숫자)'
     addr = re.sub(r' 산 (\d)', r' 산\1', addr)
+    # 구분 마침표 제거 (2026-08-29 L-03843): 고객이 번지와 상세 사이에 마침표를 구분자로
+    #   넣은 것('42 . 지하1층'·'42.지하1층') → 공백. 끝 마침표(L-03769)는 아래 return 에서
+    #   별도 처리. 소수점(1.5)은 뒤가 숫자라 미매치(가드).
+    addr = re.sub(r'\s+[.．]\s+', ' ', addr)                    # ' . ' 구분자
+    addr = re.sub(r'(?<=\d)[.．](?=\s*[가-힣])', ' ', addr)     # 번지.상세 (숫자 뒤 한글 앞)
     # 인접 유사 단어 dedup
     from difflib import SequenceMatcher
     tokens = addr.split()
