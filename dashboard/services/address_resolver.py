@@ -2391,6 +2391,18 @@ def _partner_alias_lookup(text: Optional[str]) -> Optional[str]:
     return None
 
 
+# 시/군/구가 하위 행정구역·도로명에 붙은 글루(수원시매영로·수원시영통구매영로)에 공백 삽입
+#   (2026-08-29 L-03839). 후보 생성 전용 — 실제 채택은 resolve_address 가 재귀 verify 로 게이팅.
+#   [가-힣]{2,}? 비탐욕 → 연속 글루(성남시분당구정자로)의 각 경계를 개별 분리. lookahead
+#   어간 2자+ 요구 → '청로'·'민로'(1자+로) 미매치라 시청로·시민로 오분리 1차 차단.
+_SI_ROAD_GLUE_RE = re.compile(r'([가-힣]{2,}?(?:시|군|구))(?=[가-힣]{2,}(?:시|군|구|로|길))')
+
+
+def _unglue_si_before_road(s: Optional[str]) -> Optional[str]:
+    """시/군/구 뒤 도로명·하위 행정구역 글루에 공백 삽입한 후보 문자열 반환 (순수함수)."""
+    return _SI_ROAD_GLUE_RE.sub(r'\1 ', s) if s else s
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -2418,6 +2430,18 @@ def resolve_address(
     # 도로명 번호-길 공백 조인 (L-03650) — '언주로 107 길 27' → '언주로107길 27'
     text = _join_road_gil(text)
     regex_addr = _join_road_gil(regex_addr)
+
+    # 시/군/구가 도로명·하위 행정구역에 붙은 글루 분리 (수원시매영로 → 수원시 매영로,
+    #   2026-08-29 L-03839). 도로명에 청/흥 등이 섞이면 정적 분리는 오분리 위험(시청로·
+    #   시흥대로) → 공백 삽입본을 재귀 resolve 해 **verified 될 때만 채택**(2차 안전망).
+    #   lookahead 어간 2자+ 요구로 청로·민로류(시청로·시민로)는 1차 미매치. sub 이 멱등이라
+    #   재귀 내부에선 _alt==text → 재발동 없음(무한재귀 방지).
+    _alt_text = _unglue_si_before_road(text)
+    if _alt_text != text:
+        _alt_regex = _unglue_si_before_road(regex_addr) if regex_addr else regex_addr
+        _alt_res = resolve_address(_alt_text, _alt_regex, regex_level)
+        if _alt_res[1] == 'verified':
+            return _alt_res
 
     # 1. 카카오 검증 시도
     verified = verify_address(text, regex_addr)
