@@ -129,7 +129,8 @@ export default class AsView {
     this._modal.show();
   }
 
-  async _post(url, payload) {
+  /** POST → {ok, code, message, details}. APIResponse 의 error.{code,message,details} 구조를 정확히 파싱. */
+  async _postRaw(url, payload) {
     try {
       const resp = await fetch(url, {
         method: 'POST', credentials: 'same-origin',
@@ -137,13 +138,19 @@ export default class AsView {
         body: JSON.stringify(payload || {}),
       });
       const json = await resp.json().catch(() => ({}));
-      if (!resp.ok || json.success === false) {
-        return json.message || json.error || `요청 실패 (HTTP ${resp.status})`;
-      }
-      return null;
-    } catch (e) {
-      return '네트워크 오류로 실패했습니다.';
+      const ok = resp.ok && json.success !== false;
+      const e = json.error;
+      const isObj = e && typeof e === 'object';
+      const message = (isObj ? e.message : e) || json.message || (ok ? '' : `요청 실패 (HTTP ${resp.status})`);
+      return { ok, code: (isObj ? e.code : '') || '', message, details: (isObj ? e.details : null) || null };
+    } catch (_) {
+      return { ok: false, code: 'NETWORK', message: '네트워크 오류로 실패했습니다.', details: null };
     }
+  }
+
+  async _post(url, payload) {
+    const r = await this._postRaw(url, payload);
+    return r.ok ? null : r.message;
   }
 
   openAccept(asNo) {
@@ -266,9 +273,18 @@ export default class AsView {
     `, async (el) => {
       const request_content = el.querySelector('#aspContent').value.trim();
       if (!request_content) return '요청 내용은 필수입니다.';
-      const err = await this._post('/as/api/request', { project_code: projectCode, request_content });
-      if (!err && window.showPageAlert) window.showPageAlert(`A/S 요청 등록 완료 (${projectCode})`, 'success');
-      return err;
+      const force = el.dataset.asForce === '1';
+      const r = await this._postRaw('/as/api/request', { project_code: projectCode, request_content, force });
+      // 진행 중 A/S 가 있으면 1차 차단 → 경고 + '그래도 등록' 으로 확인 시에만 중복 등록
+      if (!r.ok && r.code === 'AS_ALREADY_OPEN') {
+        el.dataset.asForce = '1';
+        const sb = el.querySelector('#asModalSubmit');
+        if (sb) sb.textContent = '그래도 등록';
+        return `⚠️ ${r.message} 한 번 더 누르면 새 A/S로 중복 등록됩니다.`;
+      }
+      if (!r.ok) return r.message;
+      if (window.showPageAlert) window.showPageAlert(`A/S 요청 등록 완료 (${projectCode})`, 'success');
+      return null;
     }, { icon: 'fa-screwdriver-wrench', submitLabel: '요청 등록' });
   }
 }

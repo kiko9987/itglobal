@@ -36,6 +36,22 @@ def _current_initial() -> str:
         return name or '-'
 
 
+def _find_open_as(project_code: str):
+    """해당 프로젝트의 진행 중(요청됨/접수완료) A/S 반환 (없으면 None). 중복 요청 방지용."""
+    code = (project_code or '').strip()
+    if not code:
+        return None
+    open_states = {as_service.STATUS_REQUESTED, as_service.STATUS_ACCEPTED}
+    try:
+        for x in as_service.list_as():  # AS 번호 내림차순 → 첫 매치가 최신 진행건
+            if (str(x.get('프로젝트 코드', '')).strip() == code
+                    and str(x.get('진행 상태', '')).strip() in open_states):
+                return x
+    except Exception as exc:
+        logger.warning(f'[AS] 진행 중 A/S 확인 실패 ({code}): {exc}')
+    return None
+
+
 def _sync_slack(as_no: str, send_dm: bool = False, dm_override=None) -> None:
     """슬랙 A/S 카드/DM 동기화 (실패해도 시트 반영은 유지)."""
     try:
@@ -90,6 +106,16 @@ def api_request_as():
         requester = _current_initial()
 
         if project_code:
+            # 중복 방지 — 진행 중(요청됨/접수완료) A/S 가 이미 있으면 force 확인 전까지 차단.
+            #   일반 모드에서 'A/S 요청'을 다시 눌러 미완료 건을 중복 등록하는 사고 방지.
+            if not bool(data.get('force')):
+                existing = _find_open_as(project_code)
+                if existing:
+                    return APIResponse.error(
+                        message=f"이미 진행 중인 A/S 가 있습니다 ({existing.get('No')} · {existing.get('진행 상태')}).",
+                        error_code='AS_ALREADY_OPEN', status_code=409,
+                        details={'as_no': existing.get('No'), 'status': existing.get('진행 상태')},
+                    )
             det = as_service.get_project_details(project_code) or {}
             as_no, _row = as_service.create_as_row(
                 project_code=project_code,
