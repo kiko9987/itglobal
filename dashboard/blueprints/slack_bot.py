@@ -3476,7 +3476,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
             lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
         if view_state == 'completed':
             lines.append("--------------------------------------------")
-            lines.append(f"🎯 처리 내용 : {data.get('처리 내용', '-') or '-'}")
+            lines.append(f"🎯 조치 내용 : {data.get('조치 내용', '-') or '-'}")
         lines.append("--------------------------------------------")
         return "⠀\n" + "\n".join(lines)
 
@@ -3506,7 +3506,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
         lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
     if view_state == 'completed':
         lines.append("--------------------------------------------")
-        lines.append(f"🎯 처리 내용 : {data.get('처리 내용', '-') or '-'}")
+        lines.append(f"🎯 조치 내용 : {data.get('조치 내용', '-') or '-'}")
     lines.append("--------------------------------------------")
     return "⠀\n" + "\n".join(lines)
 
@@ -4263,7 +4263,7 @@ def _process_as_accept_submission(client, body, view) -> None:
 
 
 def _open_as_complete_modal(client, body) -> None:
-    """[🎯 처리 완료] 클릭 → 처리 완료 모달 (처리 내용)."""
+    """[🎯 처리 완료] 클릭 → 처리 완료 모달 (조치 내용)."""
     trigger_id = body["trigger_id"]
     as_no = (body["actions"][0].get("value") or '').strip()
     channel = body.get("channel", {}).get("id", "")
@@ -4283,7 +4283,7 @@ def _open_as_complete_modal(client, body) -> None:
         "blocks": [
             {
                 "type": "input", "block_id": "resolution",
-                "label": {"type": "plain_text", "text": "처리 내용"},
+                "label": {"type": "plain_text", "text": "조치 내용"},
                 "element": {
                     "type": "plain_text_input", "action_id": "value", "multiline": True,
                     "placeholder": {"type": "plain_text", "text": "예: 실외기 팬 교체, 소음 해소 확인"},
@@ -4312,7 +4312,7 @@ def _process_as_complete_submission(client, body, view) -> None:
     resolution = (values.get("resolution", {}).get("value", {}) or {}).get("value", '') or ''
     resolution = resolution.strip()
     if not resolution:
-        logger.warning(f'[SLACK/AS] 처리 내용 누락 ({as_no})')
+        logger.warning(f'[SLACK/AS] 조치 내용 누락 ({as_no})')
         return
 
     ok = update_as_row(as_no, {
@@ -4324,7 +4324,7 @@ def _process_as_complete_submission(client, body, view) -> None:
 
     # 2026-07-20 eventual consistency 우회 — 방금 update 한 값 직접 반영
     data = get_as_data(as_no) or {}
-    data['처리 내용'] = resolution
+    data['조치 내용'] = resolution
     data['진행 상태'] = STATUS_COMPLETED
     text = f"[A/S 처리 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='completed')

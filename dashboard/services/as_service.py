@@ -114,7 +114,7 @@ def get_as_data(as_no: str) -> Optional[Dict[str, Any]]:
         headers = [
             'No', '프로젝트 코드', '현장주소', '공사내용', '공사 종료일',
             '요청 내용', '요청자', '접수자', '접수 일자',
-            '방문 예정자', '방문 예정일', '진행 상태', '처리 내용',
+            '방문 예정자', '방문 예정일', '진행 상태', '조치 내용',
         ]
         return dict(zip(headers, row))
     except Exception as exc:
@@ -125,7 +125,7 @@ def get_as_data(as_no: str) -> Optional[Dict[str, Any]]:
 _AS_HEADERS = [
     'No', '프로젝트 코드', '현장주소', '공사내용', '공사 종료일',
     '요청 내용', '요청자', '접수자', '접수 일자',
-    '방문 예정자', '방문 예정일', '진행 상태', '처리 내용',
+    '방문 예정자', '방문 예정일', '진행 상태', '조치 내용',
 ]
 
 
@@ -190,7 +190,7 @@ def create_as_row(
         '',                  # J (방문 예정자)
         '',                  # K (방문 예정일)
         STATUS_REQUESTED,    # L
-        '',                  # M (처리 내용)
+        '',                  # M (조치 내용)
     ]
     try:
         resp = manager.service.spreadsheets().values().append(

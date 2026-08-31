@@ -749,9 +749,15 @@ export default class ProjectTable {
             const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
             if (!a) return '<span class="text-muted">-</span>';
             const st = String(a['진행 상태'] || '').trim();
+            const asNo = _asEsc(a['No']);
             const map = { '요청됨': ['🔔 요청됨', 'bg-warning text-dark'], '접수 완료': ['📥 접수완료', 'bg-info text-dark'], '처리 완료': ['✅ 처리완료', 'bg-success'] };
             const m = map[st] || [st, 'bg-secondary'];
-            return `<span class="badge ${m[1]}">${_asEsc(m[0])}</span>`;
+            const badge = `<span class="badge ${m[1]}">${_asEsc(m[0])}</span>`;
+            // 다음 액션 버튼은 상태 컬럼에 배치 (조치 내용은 실제 처리 후에만 채워짐).
+            let btn = '';
+            if (st === '요청됨') btn = `<div class="mt-1"><button class="btn btn-primary btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openAccept('${asNo}')">접수</button></div>`;
+            else if (st === '접수 완료') btn = `<div class="mt-1"><button class="btn btn-success btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openComplete('${asNo}')">완료</button></div>`;
+            return `${badge}${btn}`;
           }
         },
         {
@@ -759,12 +765,8 @@ export default class ProjectTable {
           render: (d, t, row) => {
             const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
             if (!a) return '<span class="text-muted">-</span>';
-            const st = String(a['진행 상태'] || '').trim();
-            const asNo = _asEsc(a['No']);
-            // 처리완료 전에는 처리내용이 비어 있으므로 '다음 액션' 버튼만 노출 ('- 완료' 혼동 방지).
-            if (st === '요청됨') return `<button class="btn btn-primary btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openAccept('${asNo}')">접수</button>`;
-            if (st === '접수 완료') return `<button class="btn btn-success btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openComplete('${asNo}')">완료</button>`;
-            const res = a['처리 내용'] || '';
+            // 조치 내용: 실제 처리 완료 시에만 표시, 그 전엔 '-'.
+            const res = a['조치 내용'] || '';
             return res ? `<span style="white-space:normal;" title="${_asEsc(res)}">${_asEsc(res)}</span>` : '<span class="text-muted">-</span>';
           }
         }

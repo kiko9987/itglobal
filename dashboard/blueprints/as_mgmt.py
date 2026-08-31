@@ -184,7 +184,7 @@ def api_complete_as(as_no):
         resolution = (data.get('resolution') or '').strip()
         if not resolution:
             return APIResponse.error(
-                message='처리 내용은 필수입니다',
+                message='조치 내용은 필수입니다',
                 error_code=APIErrorCode.VALIDATION_ERROR, status_code=400,
             )
         as_service.update_as_row(as_no, {
