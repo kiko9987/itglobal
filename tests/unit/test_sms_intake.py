@@ -188,12 +188,13 @@ class TestCashDetectAndNormalize:
         # 자유문장 → 기업 SMS 틀 미러 ('YYYY/MM/DD / 입금 X원 / 현금 수령 (수령자)')
         from datetime import datetime
         yr = datetime.now().year
+        today = datetime.now().strftime('%Y/%m/%d')
         out = normalize_cash_layout('8월25일 권태훈 매니저 현금 240만원 YG 수령 완료')
         assert out == f'{yr}/08/25\n입금 2,400,000원\n현금 수령 (YG)'
-        # 날짜 없으면 헤더 생략 + 수령자 없으면 '현금 수령'
-        assert normalize_cash_layout('현금 2,400,000원 안기성') == '입금 2,400,000원\n현금 수령'
+        # 날짜 없으면 오늘 날짜로 헤더(은행 카드와 일관) + 수령자 없으면 '현금 수령'
+        assert normalize_cash_layout('현금 2,400,000원 안기성') == f'{today}\n입금 2,400,000원\n현금 수령'
         # 수령자(이름/조사) 추출
-        assert normalize_cash_layout('현금 500만원 박용구가 수령') == '입금 5,000,000원\n현금 수령 (박용구)'
+        assert normalize_cash_layout('현금 500만원 박용구가 수령') == f'{today}\n입금 5,000,000원\n현금 수령 (박용구)'
         # 명시 연도는 그대로
         assert normalize_cash_layout('2025/08/25 현금 300만원 JW 수령') == '2025/08/25\n입금 3,000,000원\n현금 수령 (JW)'
         # 인식 실패 시 원문 유지
