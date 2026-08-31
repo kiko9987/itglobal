@@ -765,9 +765,17 @@ export default class ProjectTable {
           render: (d, t, row) => {
             const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
             if (!a) return '<span class="text-muted">-</span>';
-            // 메모/이력: 접수 메모·조치 내용이 시간순 누적된 로그(M열). 줄바꿈 유지.
-            const log = a['조치 내용'] || '';
-            return log ? `<span style="white-space:pre-line;" title="${_asEsc(log)}">${_asEsc(log)}</span>` : '<span class="text-muted">-</span>';
+            // 메모/이력(M열 누적 로그) — PM 컬럼엔 '최신 항목'만 표시.
+            //   접수 단계=마지막이 접수 메모, 완료 단계=마지막이 완료 메모. 전체 이력은 tooltip.
+            const log = String(a['조치 내용'] || '');
+            if (!log.trim()) return '<span class="text-muted">-</span>';
+            const headerRe = /\[\d{1,2}\.\d{1,2}\s+\d{1,2}:\d{2}[^\]]*\]/g;
+            let lastIdx = -1, mm;
+            while ((mm = headerRe.exec(log)) !== null) lastIdx = mm.index;
+            let latest = (lastIdx >= 0 ? log.slice(lastIdx) : log).replace(/^\[[^\]]*\]\s*/, '').trim();
+            return latest
+              ? `<span style="white-space:pre-line;" title="${_asEsc(log)}">${_asEsc(latest)}</span>`
+              : '<span class="text-muted">-</span>';
           }
         }
       ],
