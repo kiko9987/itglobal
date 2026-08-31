@@ -649,7 +649,7 @@ export default class ProjectRowAccordion {
                       <div class="project-actions-container">
                         ${this.generateUnifiedEditButtons(projectCode, projectData)}
                         ${this.generateCancelResumeButton(projectCode, projectData)}
-                        ${this.generateAsRequestButton(projectCode)}
+                        <span class="as-action-slot" data-project-code="${projectCode}">${this.generateAsRequestButton(projectCode)}</span>
                       </div>
                     </div>
                   </div>
@@ -1191,38 +1191,37 @@ export default class ProjectRowAccordion {
   }
 
   generateAsRequestButton(projectCode) {
-    // A/S 요청 — 이 프로젝트 행에서 바로 A/S 등록 (AsView 모달, 슬랙 카드·DM 동기화). 항상 노출.
-    let html = `
-      <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn"
-              title="이 현장 A/S 요청"
-              onclick="window.asView && window.asView.openProjectRequest('${projectCode}')">
-        <i class="fas fa-screwdriver-wrench"></i><span>A/S 요청</span>
-      </button>
-    `;
-    // 진행 중인 A/S 가 있으면 접수/완료 액션도 노출 (A/S 관리 모드에서 조인맵 로드됨).
+    // A/S 단일 액션 버튼 — 상태에 따라 요청 → 접수 → 완료 로 전환 (항상 하나만 노출).
+    // byCode 는 A/S 관리 모드에서 로드됨. 일반 모드/무 A/S/처리완료 이면 '요청' 노출.
     const a = window.asView && window.asView.byCode && window.asView.byCode[String(projectCode || '').trim()];
-    if (a) {
-      const st = String(a['진행 상태'] || '').trim();
-      const asNo = a['No'];
-      if (st === '요청됨') {
-        html += `
+    const st = a ? String(a['진행 상태'] || '').trim() : '';
+    const asNo = a ? a['No'] : '';
+    if (st === '요청됨') {
+      return `
       <button type="button" class="btn btn-primary btn-sm construction-action-btn"
               title="A/S 접수 (${asNo})"
               onclick="window.asView && window.asView.openAccept('${asNo}')">
         <i class="fas fa-clipboard-check"></i><span>A/S 접수</span>
       </button>
     `;
-      } else if (st === '접수 완료') {
-        html += `
+    }
+    if (st === '접수 완료') {
+      return `
       <button type="button" class="btn btn-success btn-sm construction-action-btn"
               title="A/S 처리 완료 (${asNo})"
               onclick="window.asView && window.asView.openComplete('${asNo}')">
         <i class="fas fa-flag-checkered"></i><span>A/S 완료</span>
       </button>
     `;
-      }
     }
-    return html;
+    // 무 A/S 또는 처리완료 → 새 A/S 요청 가능
+    return `
+      <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn"
+              title="이 현장 A/S 요청"
+              onclick="window.asView && window.asView.openProjectRequest('${projectCode}')">
+        <i class="fas fa-screwdriver-wrench"></i><span>A/S 요청</span>
+      </button>
+    `;
   }
 
   /**

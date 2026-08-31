@@ -56,6 +56,21 @@ export default class AsView {
       this.byCode = {};
       this.byNo = {};
     }
+    // 열려있는 아코디언의 A/S 액션 버튼을 최신 상태로 갱신 (요청→접수→완료 전환 반영)
+    this._refreshAccordionButtons();
+  }
+
+  /** 렌더된 모든 A/S 액션 슬롯을 현재 byCode 기준으로 다시 그림 */
+  _refreshAccordionButtons() {
+    try {
+      const acc = window.projectRowAccordion;
+      if (!acc || typeof acc.generateAsRequestButton !== 'function') return;
+      document.querySelectorAll('.as-action-slot[data-project-code]').forEach((slot) => {
+        slot.innerHTML = acc.generateAsRequestButton(slot.getAttribute('data-project-code'));
+      });
+    } catch (err) {
+      logger.debug('[AsView] 아코디언 A/S 버튼 갱신 skip:', err);
+    }
   }
 
   /** 액션 후 조인맵 재로드 + A/S 모드면 필터(has-A/S) 재적용 + 컬럼 재그림 */
