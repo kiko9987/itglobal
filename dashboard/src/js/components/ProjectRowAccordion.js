@@ -648,8 +648,8 @@ export default class ProjectRowAccordion {
                       </div>
                       <div class="project-actions-container">
                         ${this.generateUnifiedEditButtons(projectCode, projectData)}
-                        ${this.generateCancelResumeButton(projectCode, projectData)}
                         <span class="as-action-slot" data-project-code="${projectCode}">${this.generateAsRequestButton(projectCode)}</span>
+                        ${this.generateCancelResumeButton(projectCode, projectData)}
                       </div>
                     </div>
                   </div>
