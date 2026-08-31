@@ -290,20 +290,17 @@ export default class AsView {
 
   /** 프로젝트 행 accordion 'A/S 요청' 버튼 (코드 있는 요청) — 공사 정보 카드 + 요청 내용.
    *  버튼 단계에서 진행 중(요청됨/접수완료) A/S 가 있으면 폼을 열지 않고 즉시 차단한다. */
-  async openProjectRequest(projectCode) {
-    // 1) 버튼 단계 하드 블록 — 미완료 A/S 가 있으면 새 요청 폼을 열지 않음
-    try {
-      const resp = await fetch(`/as/api/open-check/${encodeURIComponent(projectCode)}`, { credentials: 'same-origin' });
-      const json = await resp.json().catch(() => ({}));
-      const d = (json && json.data) || {};
-      if (resp.ok && d.open) {
-        this._showAlert('A/S 요청 불가',
-          `이미 진행 중인 A/S 가 있습니다 (${d.as_no} · ${d.status}).\n기존 A/S 를 완료한 뒤 다시 요청해주세요.`,
-          { icon: 'fa-triangle-exclamation', iconColor: '#e0a800' });
-        return;
-      }
-    } catch (_) {
-      // 확인 실패 시엔 폼은 열되, 서버 /api/request 가드가 최종 차단 (fail-open)
+  openProjectRequest(projectCode) {
+    // 1) 버튼 단계 하드 블록 — 진행 중(요청됨/접수완료) A/S 가 있으면 폼을 열지 않음.
+    //    byCode 는 페이지 로드 시 사전 적재돼 있어 즉시 판정(추가 요청 없음 → 지연 X).
+    //    (미적재/경합 시엔 폼을 열되 서버 /api/request 가드가 최종 차단)
+    const cur = this.byCode && this.byCode[String(projectCode || '').trim()];
+    const st = cur ? String(cur['진행 상태'] || '').trim() : '';
+    if (st === '요청됨' || st === '접수 완료') {
+      this._showAlert('A/S 요청 불가',
+        `이미 진행 중인 A/S 가 있습니다 (${cur['No']} · ${st}).\n기존 A/S 를 완료한 뒤 다시 요청해주세요.`,
+        { icon: 'fa-triangle-exclamation', iconColor: '#e0a800' });
+      return;
     }
     // 2) 진행 중 A/S 없음 → 요청 폼
     const p = this._findProject(projectCode);
