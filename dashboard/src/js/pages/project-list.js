@@ -24,6 +24,7 @@ const UserModal = () => import('../components/UserModal.js');
 const AuditLogModal = () => import('../components/AuditLogModal.js');
 const MobileCardView = () => import('../components/MobileCardView.js');
 const ProjectRowAccordion = () => import('../components/ProjectRowAccordion.js');
+const AsView = () => import('../components/AsView.js');
 
 /**
  * 프로젝트 리스트 페이지 메인 클래스 (Orchestration Only)
@@ -145,6 +146,12 @@ class ProjectListApp {
       // [ROCKET] 핵심 컴포넌트들 초기화 추가
       ProjectRowAccordion().then(module => {
         this.components.accordion = new module.default();
+      }),
+      AsView().then(module => {
+        this.components.asView = new module.default();
+        window.asView = this.components.asView;  // accordion 'A/S 요청' 버튼에서 접근
+      }).catch(err => {
+        logger.error('[ERROR] AsView 로드 실패:', err);
       })
     ];
 

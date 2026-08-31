@@ -109,6 +109,13 @@
                                 style="min-width: 110px; white-space: nowrap;">
                             <i class="fas fa-plus me-1"></i>새 프로젝트
                         </button>
+
+                        <!-- A/S 관리 모드 토글 (테이블을 A/S 목록으로 전환) -->
+                        <button class="btn btn-soft-secondary" id="asModeToggle" aria-pressed="false"
+                                title="A/S 관리 모드 — 메인 테이블을 A/S 목록으로 전환합니다. 다시 누르면 프로젝트로 복귀."
+                                style="min-width: 110px; white-space: nowrap;">
+                            <i class="fas fa-screwdriver-wrench me-1"></i>A/S 관리
+                        </button>
                     </div>
                 </div>
             </div>
@@ -286,6 +293,10 @@
                 <h2 class="sr-only">모바일 디바이스용 프로젝트 카드</h2>
                 <!-- JavaScript로 동적 생성 -->
             </section>
+
+            <!-- A/S 관리 모드 뷰 (토글 시 표시, 프로젝트 뷰 대체) -->
+            <div id="asView" style="display:none; padding: 8px 0;"></div>
+            <style>.as-hidden{display:none !important;}</style>
         </div>
     </div>
 
