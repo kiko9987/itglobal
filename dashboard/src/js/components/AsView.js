@@ -260,8 +260,23 @@ export default class AsView {
     return `<div class="border rounded p-2 mb-3" style="background:var(--surface-secondary,#f8f9fa); font-size:var(--font-size-sm,0.875rem);">${items}</div>`;
   }
 
-  /** 프로젝트 행 accordion 'A/S 요청' 버튼 (코드 있는 요청) — 공사 정보 카드 + 요청 내용 */
-  openProjectRequest(projectCode) {
+  /** 프로젝트 행 accordion 'A/S 요청' 버튼 (코드 있는 요청) — 공사 정보 카드 + 요청 내용.
+   *  버튼 단계에서 진행 중(요청됨/접수완료) A/S 가 있으면 폼을 열지 않고 즉시 차단한다. */
+  async openProjectRequest(projectCode) {
+    // 1) 버튼 단계 하드 블록 — 미완료 A/S 가 있으면 새 요청 폼을 열지 않음
+    try {
+      const resp = await fetch(`/as/api/open-check/${encodeURIComponent(projectCode)}`, { credentials: 'same-origin' });
+      const json = await resp.json().catch(() => ({}));
+      const d = (json && json.data) || {};
+      if (resp.ok && d.open) {
+        const msg = `이미 진행 중인 A/S 가 있습니다 (${d.as_no} · ${d.status}). 완료 후 다시 요청해주세요.`;
+        if (window.showPageAlert) window.showPageAlert(msg, 'warning'); else alert(msg);
+        return;
+      }
+    } catch (_) {
+      // 확인 실패 시엔 폼은 열되, 서버 /api/request 가드가 최종 차단 (fail-open)
+    }
+    // 2) 진행 중 A/S 없음 → 요청 폼
     const p = this._findProject(projectCode);
     const info = p
       ? this._projectInfoCard(p)
@@ -273,18 +288,9 @@ export default class AsView {
     `, async (el) => {
       const request_content = el.querySelector('#aspContent').value.trim();
       if (!request_content) return '요청 내용은 필수입니다.';
-      const force = el.dataset.asForce === '1';
-      const r = await this._postRaw('/as/api/request', { project_code: projectCode, request_content, force });
-      // 진행 중 A/S 가 있으면 1차 차단 → 경고 + '그래도 등록' 으로 확인 시에만 중복 등록
-      if (!r.ok && r.code === 'AS_ALREADY_OPEN') {
-        el.dataset.asForce = '1';
-        const sb = el.querySelector('#asModalSubmit');
-        if (sb) sb.textContent = '그래도 등록';
-        return `⚠️ ${r.message} 한 번 더 누르면 새 A/S로 중복 등록됩니다.`;
-      }
-      if (!r.ok) return r.message;
-      if (window.showPageAlert) window.showPageAlert(`A/S 요청 등록 완료 (${projectCode})`, 'success');
-      return null;
+      const err = await this._post('/as/api/request', { project_code: projectCode, request_content });
+      if (!err && window.showPageAlert) window.showPageAlert(`A/S 요청 등록 완료 (${projectCode})`, 'success');
+      return err;  // AS_ALREADY_OPEN(레이스) 시 서버 메시지 그대로 표시
     }, { icon: 'fa-screwdriver-wrench', submitLabel: '요청 등록' });
   }
 }

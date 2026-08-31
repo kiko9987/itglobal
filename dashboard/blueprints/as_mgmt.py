@@ -92,6 +92,25 @@ def api_list_as():
         )
 
 
+@as_bp.route('/api/open-check/<project_code>', methods=['GET'])
+@login_required
+def api_open_check(project_code):
+    """프로젝트의 진행 중(요청됨/접수완료) A/S 존재 여부 — 'A/S 요청' 버튼 단계 차단용."""
+    try:
+        existing = _find_open_as(project_code)
+        if existing:
+            return APIResponse.success(data={
+                'open': True, 'as_no': existing.get('No'), 'status': existing.get('진행 상태'),
+            })
+        return APIResponse.success(data={'open': False})
+    except Exception as exc:
+        logger.error(f'[AS] open-check 실패 ({project_code}): {exc}', exc_info=True)
+        return APIResponse.error(
+            message='진행 중 A/S 확인 중 오류가 발생했습니다',
+            error_code=APIErrorCode.INTERNAL_ERROR, status_code=500,
+        )
+
+
 @as_bp.route('/api/request', methods=['POST'])
 @editor_required
 def api_request_as():
@@ -106,16 +125,16 @@ def api_request_as():
         requester = _current_initial()
 
         if project_code:
-            # 중복 방지 — 진행 중(요청됨/접수완료) A/S 가 이미 있으면 force 확인 전까지 차단.
-            #   일반 모드에서 'A/S 요청'을 다시 눌러 미완료 건을 중복 등록하는 사고 방지.
-            if not bool(data.get('force')):
-                existing = _find_open_as(project_code)
-                if existing:
-                    return APIResponse.error(
-                        message=f"이미 진행 중인 A/S 가 있습니다 ({existing.get('No')} · {existing.get('진행 상태')}).",
-                        error_code='AS_ALREADY_OPEN', status_code=409,
-                        details={'as_no': existing.get('No'), 'status': existing.get('진행 상태')},
-                    )
+            # 중복 방지(하드 블록) — 진행 중(요청됨/접수완료) A/S 가 있으면 새 요청 거부.
+            #   미완료 A/S 가 있는데 또 요청하는 것은 완료 후 처리해야 하므로, 버튼 단계
+            #   (open-check)에서 먼저 막고 서버에서도 최종 차단한다.
+            existing = _find_open_as(project_code)
+            if existing:
+                return APIResponse.error(
+                    message=f"이미 진행 중인 A/S 가 있습니다 ({existing.get('No')} · {existing.get('진행 상태')}). 완료 후 다시 요청해주세요.",
+                    error_code='AS_ALREADY_OPEN', status_code=409,
+                    details={'as_no': existing.get('No'), 'status': existing.get('진행 상태')},
+                )
             det = as_service.get_project_details(project_code) or {}
             as_no, _row = as_service.create_as_row(
                 project_code=project_code,
