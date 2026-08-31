@@ -1212,7 +1212,7 @@ export default class ProjectRowAccordion {
       if (st === '접수 완료') {
         return `
       <button type="button" class="btn btn-success btn-sm construction-action-btn"
-              title="A/S 처리 완료 (${asNo})"
+              title="A/S 조치 완료 (${asNo})"
               onclick="window.asView && window.asView.openComplete('${asNo}')">
         <i class="fas fa-flag-checkered"></i><span>A/S 완료</span>
       </button>

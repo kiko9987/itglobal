@@ -3456,7 +3456,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
     elif view_state == 'accepted':
         lines.append(f"📥 *[A/S 접수 완료]*  `{as_no}`")
     else:
-        lines.append(f"✅ *[A/S 처리 완료]*  `{as_no}`")
+        lines.append(f"✅ *[A/S 조치 완료]*  `{as_no}`")
     lines.append("--------------------------------------------")
 
     # 코드 없는 수동 등록 A/S (코드 이전 공사) → 프로젝트 파생 필드 생략, 간소 렌더
@@ -3547,7 +3547,7 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
             "type": "actions",
             "elements": [{
                 "type": "button",
-                "text": {"type": "plain_text", "text": "🎯 처리 완료하기", "emoji": True},
+                "text": {"type": "plain_text", "text": "🎯 조치 완료하기", "emoji": True},
                 "style": "primary",
                 "action_id": "as_complete_open",
                 "value": as_no,
@@ -4263,7 +4263,7 @@ def _process_as_accept_submission(client, body, view) -> None:
 
 
 def _open_as_complete_modal(client, body) -> None:
-    """[🎯 처리 완료] 클릭 → 처리 완료 모달 (조치 내용)."""
+    """[🎯 조치 완료] 클릭 → 조치 완료 모달 (조치 내용)."""
     trigger_id = body["trigger_id"]
     as_no = (body["actions"][0].get("value") or '').strip()
     channel = body.get("channel", {}).get("id", "")
@@ -4277,8 +4277,8 @@ def _open_as_complete_modal(client, body) -> None:
         "type": "modal",
         "callback_id": "submit_as_complete",
         "private_metadata": metadata,
-        "title": {"type": "plain_text", "text": "A/S 처리 완료"},
-        "submit": {"type": "plain_text", "text": "처리 완료"},
+        "title": {"type": "plain_text", "text": "A/S 조치 완료"},
+        "submit": {"type": "plain_text", "text": "조치 완료"},
         "close": {"type": "plain_text", "text": "취소"},
         "blocks": [
             {
@@ -4295,7 +4295,7 @@ def _open_as_complete_modal(client, body) -> None:
 
 
 def _process_as_complete_submission(client, body, view) -> None:
-    """처리 완료 제출 → 시트 갱신 → 카드 chat.update (State 3)."""
+    """조치 완료 제출 → 시트 갱신 → 카드 chat.update (State 3)."""
     from dashboard.services.as_service import (
         update_as_row, get_as_data,
         COL_STATUS, COL_RESOLUTION, STATUS_COMPLETED,
@@ -4326,11 +4326,11 @@ def _process_as_complete_submission(client, body, view) -> None:
     data = get_as_data(as_no) or {}
     data['조치 내용'] = resolution
     data['진행 상태'] = STATUS_COMPLETED
-    text = f"[A/S 처리 완료] {as_no}"
+    text = f"[A/S 조치 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='completed')
     try:
         client.chat_update(channel=channel, ts=message_ts, text=text, blocks=blocks)
-        logger.info(f'[SLACK/AS] 처리 완료: {as_no}')
+        logger.info(f'[SLACK/AS] 조치 완료: {as_no}')
     except Exception as exc:
         logger.error(f'[SLACK/AS] chat.update 실패 ({as_no}): {exc}', exc_info=True)
 

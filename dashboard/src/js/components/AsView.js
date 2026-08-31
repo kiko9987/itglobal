@@ -204,14 +204,14 @@ export default class AsView {
   }
 
   openComplete(asNo) {
-    this._showModal(`A/S 처리 완료 — ${asNo}`, `
+    this._showModal(`A/S 조치 완료 — ${asNo}`, `
       <div class="mb-2"><label class="form-label">조치 내용</label>
         <textarea id="asResolution" class="form-control" rows="4" placeholder="조치 결과를 입력하세요"></textarea></div>
     `, async (el) => {
       const resolution = el.querySelector('#asResolution').value.trim();
       if (!resolution) return '조치 내용을 입력해주세요.';
       return this._post(`/as/api/complete/${encodeURIComponent(asNo)}`, { resolution });
-    }, { icon: 'fa-flag-checkered', submitLabel: '처리 완료' });
+    }, { icon: 'fa-flag-checkered', submitLabel: '조치 완료' });
   }
 
   openManualRequest() {

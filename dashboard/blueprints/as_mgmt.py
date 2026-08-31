@@ -223,7 +223,7 @@ def api_accept_as(as_no):
 @as_bp.route('/api/complete/<as_no>', methods=['POST'])
 @editor_required
 def api_complete_as(as_no):
-    """처리 완료. body: {resolution}"""
+    """조치 완료. body: {resolution}"""
     try:
         data = request.get_json(silent=True) or {}
         resolution = (data.get('resolution') or '').strip()
@@ -237,11 +237,11 @@ def api_complete_as(as_no):
             as_service.COL_RESOLUTION: resolution,
         })
         _sync_slack(as_no)
-        logger.info(f'[AS] PM 처리완료: {as_no}')
+        logger.info(f'[AS] PM 조치완료: {as_no}')
         return APIResponse.success(data={'as_no': as_no})
     except Exception as exc:
-        logger.error(f'[AS] 처리완료 실패 ({as_no}): {exc}', exc_info=True)
+        logger.error(f'[AS] 조치완료 실패 ({as_no}): {exc}', exc_info=True)
         return APIResponse.error(
-            message='처리 완료 중 오류가 발생했습니다',
+            message='조치 완료 중 오류가 발생했습니다',
             error_code=APIErrorCode.INTERNAL_ERROR, status_code=500,
         )
