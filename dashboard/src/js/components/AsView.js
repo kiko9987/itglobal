@@ -58,12 +58,16 @@ export default class AsView {
     }
   }
 
-  /** 액션 후 조인맵 재로드 + A/S 모드면 테이블 A/S 컬럼 재그림 */
+  /** 액션 후 조인맵 재로드 + A/S 모드면 필터(has-A/S) 재적용 + 컬럼 재그림 */
   async refresh() {
     await this.loadMap();
     const inst = window.__projectTableInstance;
-    if (inst && inst.table && inst._asModeActive) {
-      try { inst.table.rows().invalidate().draw(false); } catch (_) { inst.table.draw(false); }
+    if (inst && inst._asModeActive) {
+      if (window.modernFilters && window.modernFilters.applyFilters) {
+        window.modernFilters.applyFilters(null, true);
+      } else if (inst.table) {
+        try { inst.table.rows().invalidate().draw(false); } catch (_) { inst.table.draw(false); }
+      }
     }
   }
 

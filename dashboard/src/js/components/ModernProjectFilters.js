@@ -690,6 +690,13 @@ export default class ModernProjectFilters {
       });
     }
 
+    // A/S 관리 모드: A/S 가 있는 프로젝트만 (window.asView.byCode 조인, 2026-08-31)
+    // 수금 미수금 필터와 동일 패턴 — 메인 테이블 A/S 모드에서 A/S 없는 프로젝트 제외.
+    if (window.__projectTableInstance && window.__projectTableInstance._asModeActive) {
+      const byCode = (window.asView && window.asView.byCode) || {};
+      filteredData = filteredData.filter(item => !!byCode[String(item['프로젝트 코드'] || '').trim()]);
+    }
+
     // 필터링 후 프로젝트 코드 기준 숫자 내림차순 정렬
     filteredData.sort((a, b) => {
       const aCode = a['프로젝트 코드'] || '';

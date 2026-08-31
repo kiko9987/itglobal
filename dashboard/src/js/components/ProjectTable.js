@@ -1919,18 +1919,8 @@ export default class ProjectTable {
       return;
     }
     window.__projectTableInstance = this;
-
-    // A/S 전용 DataTables 필터: A/S 모드일 때 A/S 있는 프로젝트만 (1회 등록)
-    if (!ProjectTable._asFilterRegistered) {
-      DataTable.ext.search.push((settings, dataArr, dataIndex, rowObj) => {
-        const inst = window.__projectTableInstance;
-        if (!inst || !inst._asModeActive) return true;
-        if (inst.tableElement && settings.nTable !== inst.tableElement) return true;
-        const code = rowObj && rowObj['프로젝트 코드'];
-        return !!(window.asView && window.asView.byCode && window.asView.byCode[code]);
-      });
-      ProjectTable._asFilterRegistered = true;
-    }
+    // 'A/S 있는 프로젝트만' 필터는 ModernProjectFilters.applyFilters 의 A/S 분기에서
+    // 처리 (수금 미수금 필터와 동일 패턴). window.__projectTableInstance._asModeActive 참조.
 
     toggle.addEventListener('change', async (e) => {
       await this._activateAsMode(toggle, e.target.checked);
