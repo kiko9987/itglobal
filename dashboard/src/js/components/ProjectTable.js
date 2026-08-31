@@ -749,15 +749,10 @@ export default class ProjectTable {
             const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
             if (!a) return '<span class="text-muted">-</span>';
             const st = String(a['진행 상태'] || '').trim();
-            const asNo = _asEsc(a['No']);
+            // 상태 컬럼은 배지만 (액션 버튼은 행 아코디언에서 처리).
             const map = { '요청됨': ['🔔 요청됨', 'bg-warning text-dark'], '접수 완료': ['📥 접수완료', 'bg-info text-dark'], '처리 완료': ['✅ 처리완료', 'bg-success'] };
             const m = map[st] || [st, 'bg-secondary'];
-            const badge = `<span class="badge ${m[1]}">${_asEsc(m[0])}</span>`;
-            // 다음 액션 버튼은 상태 컬럼에 배치 (조치 내용은 실제 처리 후에만 채워짐).
-            let btn = '';
-            if (st === '요청됨') btn = `<div class="mt-1"><button class="btn btn-primary btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openAccept('${asNo}')">접수</button></div>`;
-            else if (st === '접수 완료') btn = `<div class="mt-1"><button class="btn btn-success btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openComplete('${asNo}')">완료</button></div>`;
-            return `${badge}${btn}`;
+            return `<span class="badge ${m[1]}">${_asEsc(m[0])}</span>`;
           }
         },
         {
