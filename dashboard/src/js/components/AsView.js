@@ -197,12 +197,68 @@ export default class AsView {
     });
   }
 
-  /** 프로젝트 행 accordion 'A/S 요청' 버튼 (코드 있는 요청) */
+  /** 프로젝트 코드로 로컬 로드된 프로젝트 데이터 조회 (stateManager → projectsData 순) */
+  _findProject(code) {
+    const c = String(code || '').trim();
+    try {
+      const sm = window.projectListApp && window.projectListApp.stateManager;
+      if (sm && typeof sm.findProject === 'function') {
+        const p = sm.findProject(c);
+        if (p) return p;
+      }
+    } catch (_) { /* noop */ }
+    if (Array.isArray(window.projectsData)) {
+      return window.projectsData.find(x => String(x['프로젝트 코드'] || '').trim() === c) || null;
+    }
+    return null;
+  }
+
+  /** 슬랙 A/S 카드와 동일한 공사 정보 카드 (읽기 전용) */
+  _projectInfoCard(p) {
+    const v = (k) => {
+      const x = p[k];
+      return (x === undefined || x === null || String(x).trim() === '') ? '-' : String(x);
+    };
+    // 공사 금액 = 총액 2 (VAT 포함/별도 표기는 부가세 필드에서)
+    const amtRaw = p['총액 2'] || p['총액2'] || p['총액'] || p['총액 1'] || '';
+    const amtNum = parseFloat(String(amtRaw).replace(/[^\d.-]/g, ''));
+    let amount = amtNum ? `${amtNum.toLocaleString('ko-KR')}원` : '-';
+    const vatRaw = String(p['부가세'] || '');
+    if (amtNum && /별도/.test(vatRaw)) amount += ' (VAT 별도)';
+    else if (amtNum && /포함/.test(vatRaw)) amount += ' (VAT 포함)';
+
+    const rows = [
+      ['📥 유입 구분', v('유입 구분')],
+      ['🏢 사업자명', v('사업자')],
+      ['📍 현장 주소', v('현장 주소')],
+      ['👤 발주처 담당자', v('발주처 담당자')],
+      ['📞 발주처 연락처', v('발주처 연락처')],
+      ['✉️ 발주처 이메일', v('발주처 이메일')],
+      ['📋 공사 내용', v('공사 내용')],
+      ['🛠️ 도급 구분', v('도급 구분')],
+      ['👷 시공자', v('시공자')],
+      ['💲 공사 금액', amount],
+      ['📅 공사 시작', v('공사 시작')],
+      ['📅 공사 종료', v('공사 종료')],
+    ];
+    const items = rows.map(([label, val]) =>
+      `<div class="d-flex" style="gap:0.5rem; padding:0.12rem 0;">
+        <div style="min-width:104px; color:var(--text-muted,#6c757d); white-space:nowrap;">${esc(label)}</div>
+        <div style="flex:1; word-break:break-word;">${esc(val)}</div>
+      </div>`).join('');
+    return `<div class="border rounded p-2 mb-3" style="background:var(--surface-secondary,#f8f9fa); font-size:0.85rem;">${items}</div>`;
+  }
+
+  /** 프로젝트 행 accordion 'A/S 요청' 버튼 (코드 있는 요청) — 공사 정보 카드 + 요청 내용 */
   openProjectRequest(projectCode) {
+    const p = this._findProject(projectCode);
+    const info = p
+      ? this._projectInfoCard(p)
+      : `<div class="small text-muted mb-3">프로젝트 <b>${esc(projectCode)}</b></div>`;
     this._showModal(`A/S 요청 — ${projectCode}`, `
-      <div class="mb-2 small text-muted">프로젝트 <b>${esc(projectCode)}</b> 에 대한 A/S 요청을 등록합니다.</div>
-      <div class="mb-2"><label class="form-label">요청 내용 *</label>
-        <textarea id="aspContent" class="form-control" rows="4" placeholder="A/S 요청 사유"></textarea></div>
+      ${info}
+      <div class="mb-1"><label class="form-label fw-semibold">요청 내용 <span class="text-danger">*</span></label>
+        <textarea id="aspContent" class="form-control" rows="3" placeholder="A/S 요청 사유"></textarea></div>
     `, async (el) => {
       const request_content = el.querySelector('#aspContent').value.trim();
       if (!request_content) return '요청 내용은 필수입니다.';
