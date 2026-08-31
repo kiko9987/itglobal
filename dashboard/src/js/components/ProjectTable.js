@@ -765,9 +765,9 @@ export default class ProjectTable {
           render: (d, t, row) => {
             const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
             if (!a) return '<span class="text-muted">-</span>';
-            // 조치 내용: 실제 처리 완료 시에만 표시, 그 전엔 '-'.
-            const res = a['조치 내용'] || '';
-            return res ? `<span style="white-space:normal;" title="${_asEsc(res)}">${_asEsc(res)}</span>` : '<span class="text-muted">-</span>';
+            // 메모/이력: 접수 메모·조치 내용이 시간순 누적된 로그(M열). 줄바꿈 유지.
+            const log = a['조치 내용'] || '';
+            return log ? `<span style="white-space:pre-line;" title="${_asEsc(log)}">${_asEsc(log)}</span>` : '<span class="text-muted">-</span>';
           }
         }
       ],

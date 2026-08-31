@@ -3474,9 +3474,11 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
             lines.append(f"👷 방문 예정자 : {data.get('방문 예정자', '-') or '-'}")
             lines.append(f"📅 방문 예정일 : {data.get('방문 예정일', '-') or '-'}")
             lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
-        if view_state == 'completed':
+        _memo_log = str(data.get('조치 내용', '') or '').strip()
+        if _memo_log and view_state in ('accepted', 'completed'):
             lines.append("--------------------------------------------")
-            lines.append(f"🎯 조치 내용 : {data.get('조치 내용', '-') or '-'}")
+            lines.append("📝 메모/이력 :")
+            lines.append(_memo_log)
         lines.append("--------------------------------------------")
         return "⠀\n" + "\n".join(lines)
 
@@ -3504,9 +3506,11 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
         lines.append(f"👷 방문 예정자 : {data.get('방문 예정자', '-') or '-'}")
         lines.append(f"📅 방문 예정일 : {data.get('방문 예정일', '-') or '-'}")
         lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
-    if view_state == 'completed':
+    _memo_log = str(data.get('조치 내용', '') or '').strip()
+    if _memo_log and view_state in ('accepted', 'completed'):
         lines.append("--------------------------------------------")
-        lines.append(f"🎯 조치 내용 : {data.get('조치 내용', '-') or '-'}")
+        lines.append("📝 메모/이력 :")
+        lines.append(_memo_log)
     lines.append("--------------------------------------------")
     return "⠀\n" + "\n".join(lines)
 
@@ -4186,6 +4190,16 @@ def _open_as_accept_modal(client, body) -> None:
                          "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
                 "element": {"type": "datepicker", "action_id": "value"},
             },
+            {
+                "type": "input", "block_id": "memo", "optional": True,
+                "label": {"type": "plain_text", "text": "접수 메모 (선택)"},
+                "hint": {"type": "plain_text",
+                         "text": "접수번호·특이사항 등. 메모/이력에 시간·이니셜과 함께 기록됩니다."},
+                "element": {
+                    "type": "plain_text_input", "action_id": "value", "multiline": True,
+                    "placeholder": {"type": "plain_text", "text": "예: 접수번호 SVC-1234, 오전 방문 예정"},
+                },
+            },
         ],
     }
     client.views_open(trigger_id=trigger_id, view=view)
@@ -4194,7 +4208,7 @@ def _open_as_accept_modal(client, body) -> None:
 def _process_as_accept_submission(client, body, view) -> None:
     """접수 제출 → 시트 갱신 → 카드 chat.update (State 2)."""
     from dashboard.services.as_service import (
-        update_as_row, get_as_data,
+        update_as_row, get_as_data, append_as_log,
         COL_ACCEPTER, COL_ACCEPT_DATE, COL_VISITOR, COL_VISIT_DATE, COL_STATUS,
         STATUS_ACCEPTED,
     )
@@ -4228,6 +4242,12 @@ def _process_as_accept_submission(client, body, view) -> None:
     date_start = (values.get("visit_date_start", {}).get("value", {}) or {}).get("selected_date", '') or ''
     date_end = (values.get("visit_date_end", {}).get("value", {}) or {}).get("selected_date", '') or ''
     visit_date = _format_visit_date_range(date_start, date_end)
+    memo = ''
+    try:
+        memo = (values.get("memo", {}).get("value", {}) or {}).get("value", '') or ''
+    except Exception:
+        pass
+    memo = memo.strip()
 
     user_id = body.get("user", {}).get("id", "")
     accepter = _slack_user_to_initial(client, user_id) or '-'
@@ -4247,12 +4267,16 @@ def _process_as_accept_submission(client, body, view) -> None:
     # 2026-07-20 AS-0006 관측: Google Sheets eventual consistency 로 재조회 시 방금
     # 저장한 J/K/L 값이 아직 반영 안 되어 카드에 '-' 로 표시되는 이슈. 방금 update
     # 한 값을 직접 덮어써서 지연 우회.
+    # 접수 메모(선택) — M열(메모/이력)에 누적. 카드엔 방금 값 직접 반영(지연 우회).
+    new_log = append_as_log(as_no, memo, accepter) if memo else None
     data = get_as_data(as_no) or {}
     data['접수자'] = accepter
     data['접수 일자'] = accept_dt
     data['방문 예정자'] = visitor
     data['방문 예정일'] = visit_date
     data['진행 상태'] = STATUS_ACCEPTED
+    if new_log is not None:
+        data['조치 내용'] = new_log
     text = f"[A/S 접수 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='accepted')
     try:
@@ -4297,8 +4321,8 @@ def _open_as_complete_modal(client, body) -> None:
 def _process_as_complete_submission(client, body, view) -> None:
     """조치 완료 제출 → 시트 갱신 → 카드 chat.update (State 3)."""
     from dashboard.services.as_service import (
-        update_as_row, get_as_data,
-        COL_STATUS, COL_RESOLUTION, STATUS_COMPLETED,
+        update_as_row, get_as_data, append_as_log,
+        COL_STATUS, STATUS_COMPLETED,
     )
 
     metadata = json.loads(view.get("private_metadata") or "{}")
@@ -4315,16 +4339,17 @@ def _process_as_complete_submission(client, body, view) -> None:
         logger.warning(f'[SLACK/AS] 조치 내용 누락 ({as_no})')
         return
 
-    ok = update_as_row(as_no, {
-        COL_STATUS: STATUS_COMPLETED,
-        COL_RESOLUTION: resolution,
-    })
+    user_id = body.get("user", {}).get("id", "")
+    completer = _slack_user_to_initial(client, user_id) or '-'
+    ok = update_as_row(as_no, {COL_STATUS: STATUS_COMPLETED})
     if not ok:
         logger.warning(f'[SLACK/AS] 완료 갱신 실패 ({as_no})')
+    # 조치 내용도 M열(메모/이력)에 누적 (덮어쓰지 않음). 카드엔 방금 값 직접 반영(지연 우회).
+    new_log = append_as_log(as_no, resolution, completer)
 
-    # 2026-07-20 eventual consistency 우회 — 방금 update 한 값 직접 반영
     data = get_as_data(as_no) or {}
-    data['조치 내용'] = resolution
+    if new_log is not None:
+        data['조치 내용'] = new_log
     data['진행 상태'] = STATUS_COMPLETED
     text = f"[A/S 조치 완료] {as_no}"
     blocks = _build_as_blocks(data, view_state='completed')

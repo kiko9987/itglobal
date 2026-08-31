@@ -195,11 +195,14 @@ export default class AsView {
         <input id="asVisitStart" type="date" class="form-control"></div>
         <div class="col mb-2"><label class="form-label">종료일 <span class="text-muted small">(선택·범위)</span></label>
         <input id="asVisitEnd" type="date" class="form-control"></div></div>
+      <div class="mb-1"><label class="form-label">접수 메모 <span class="text-muted small">(선택)</span></label>
+        <textarea id="asAcceptMemo" class="form-control" rows="2" placeholder="접수번호·특이사항 등 — 메모/이력에 시간·이니셜과 함께 기록됩니다"></textarea></div>
     `, async (el) => this._post(`/as/api/accept/${encodeURIComponent(asNo)}`, {
       visitor_type: el.querySelector('#asVisitorType').value,
       visitor_name: el.querySelector('#asVisitorName').value.trim(),
       visit_date_start: el.querySelector('#asVisitStart').value,
       visit_date_end: el.querySelector('#asVisitEnd').value,
+      memo: el.querySelector('#asAcceptMemo').value.trim(),
     }), { icon: 'fa-clipboard-check', submitLabel: '접수' });
   }
 

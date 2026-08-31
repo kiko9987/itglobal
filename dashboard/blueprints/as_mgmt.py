@@ -202,15 +202,20 @@ def api_accept_as(as_no):
         except Exception:
             visit_date = f'{start}~{end}' if end and end != start else start
 
+        initial = _current_initial()
         as_service.update_as_row(as_no, {
-            as_service.COL_ACCEPTER: _current_initial(),
+            as_service.COL_ACCEPTER: initial,
             as_service.COL_ACCEPT_DATE: datetime.now().strftime('%Y.%m.%d. %H:%M'),
             as_service.COL_VISITOR: visitor,
             as_service.COL_VISIT_DATE: visit_date,
             as_service.COL_STATUS: as_service.STATUS_ACCEPTED,
         })
+        # 접수 메모(선택) — 새 컬럼 없이 M열(메모/이력)에 누적
+        memo = (data.get('memo') or '').strip()
+        if memo:
+            as_service.append_as_log(as_no, memo, initial)
         _sync_slack(as_no)
-        logger.info(f'[AS] PM 접수: {as_no} (visitor={visitor}, date={visit_date})')
+        logger.info(f'[AS] PM 접수: {as_no} (visitor={visitor}, date={visit_date}, memo={"Y" if memo else "N"})')
         return APIResponse.success(data={'as_no': as_no})
     except Exception as exc:
         logger.error(f'[AS] 접수 실패 ({as_no}): {exc}', exc_info=True)
@@ -234,8 +239,9 @@ def api_complete_as(as_no):
             )
         as_service.update_as_row(as_no, {
             as_service.COL_STATUS: as_service.STATUS_COMPLETED,
-            as_service.COL_RESOLUTION: resolution,
         })
+        # 조치 내용도 M열(메모/이력)에 누적 (덮어쓰지 않음)
+        as_service.append_as_log(as_no, resolution, _current_initial())
         _sync_slack(as_no)
         logger.info(f'[AS] PM 조치완료: {as_no}')
         return APIResponse.success(data={'as_no': as_no})

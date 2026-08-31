@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from dashboard.utils.logging_config import get_logger
@@ -237,6 +238,25 @@ def update_as_row(as_no: str, updates: Dict[str, Any]) -> bool:
     except Exception as exc:
         logger.error(f'[AS] 갱신 큐 실패 ({as_no}): {exc}', exc_info=True)
         return False
+
+
+def append_as_log(as_no: str, content: str, initial: str = '') -> Optional[str]:
+    """M열(메모/이력)에 '[MM.DD HH:MM 이니셜] 내용' 한 줄 append (온라인 리드 누적 방식).
+
+    접수 메모·조치 내용 등 A/S 코멘트를 새 컬럼 없이 M열 한 셀에 시간순 누적한다.
+    반환: append 후의 M열 전체 값 (실패 시 None). content 가 비면 현재 M값 그대로 반환.
+    ※ write-behind 큐 경유라 시트 반영엔 약간의 지연이 있을 수 있음(반환값으로 즉시 표시 가능).
+    """
+    content = (content or '').strip()
+    data = get_as_data(as_no) or {}
+    cur = str(data.get('조치 내용', '') or '')
+    if not content:
+        return cur
+    stamp = datetime.now().strftime('%m.%d %H:%M')
+    entry = f'[{stamp} {initial}] {content}' if initial else f'[{stamp}] {content}'
+    new_val = (cur.rstrip() + '\n' + entry) if cur.strip() else entry
+    ok = update_as_row(as_no, {COL_RESOLUTION: new_val})
+    return new_val if ok else None
 
 
 # ─────────────────────────────────────────────────────────────
