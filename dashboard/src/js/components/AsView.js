@@ -192,9 +192,9 @@ export default class AsView {
       <div class="mb-2"><label class="form-label">방문자 이름 <span class="text-muted small">(내부/외주 필수)</span></label>
         <input id="asVisitorName" type="text" class="form-control" placeholder="예: 강민석"></div>
       <div class="row"><div class="col mb-2"><label class="form-label">방문 예정일</label>
-        <input id="asVisitStart" type="date" class="form-control"></div>
+        <input id="asVisitStart" type="date" class="form-control" onclick="try{this.showPicker()}catch(e){}"></div>
         <div class="col mb-2"><label class="form-label">종료일 <span class="text-muted small">(선택·범위)</span></label>
-        <input id="asVisitEnd" type="date" class="form-control"></div></div>
+        <input id="asVisitEnd" type="date" class="form-control" onclick="try{this.showPicker()}catch(e){}"></div></div>
       <div class="mb-1"><label class="form-label">접수 메모 <span class="text-muted small">(선택)</span></label>
         <textarea id="asAcceptMemo" class="form-control" rows="2" placeholder="접수번호·특이사항 등 — 메모/이력에 시간·이니셜과 함께 기록됩니다"></textarea></div>
     `, async (el) => this._post(`/as/api/accept/${encodeURIComponent(asNo)}`, {

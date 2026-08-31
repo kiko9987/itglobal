@@ -66,6 +66,23 @@
 #asActionModal .form-select {
   font-size: var(--font-size-sm);
 }
+/* 드롭다운 — 새 프로젝트 등록 모달과 동일한 커스텀 화살표/좌측 정렬 */
+#asActionModal .form-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right .75rem center;
+  background-size: 16px 12px;
+  padding: .375rem 2.25rem .375rem .75rem;
+  text-align: left;
+  cursor: pointer;
+}
+/* 날짜 인풋 — 필드 어디를 눌러도 커서 포인터 (클릭 시 showPicker 로 캘린더 오픈) */
+#asActionModal input[type="date"] {
+  cursor: pointer;
+}
 /* 푸터 버튼 — 등록 모달과 동일한 파스텔 빨강(취소)/초록(확인) */
 #asActionModal .modal-footer .btn {
   border-radius: var(--border-radius);
