@@ -55,6 +55,18 @@
   overflow: hidden;
 }
 
+/* A/S 액션 모달 — 새 프로젝트 등록 모달과 동일한 폼 타이포 컨벤션 (라벨·입력 0.875rem) */
+#asActionModal .form-label {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--gray-700);
+  margin-bottom: 0.4rem;
+}
+#asActionModal .form-control,
+#asActionModal .form-select {
+  font-size: var(--font-size-sm);
+}
+
 /* 모달 헤더 */
 .modal-header {
   padding: var(--spacing-lg) var(--spacing-xl);
