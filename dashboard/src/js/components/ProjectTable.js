@@ -750,8 +750,9 @@ export default class ProjectTable {
             if (!a) return '<span class="text-muted">-</span>';
             const st = String(a['진행 상태'] || '').trim();
             // 상태 컬럼은 배지만 (액션 버튼은 행 아코디언에서 처리).
-            const map = { '요청됨': ['🔔 요청됨', 'bg-warning text-dark'], '접수 완료': ['📥 접수완료', 'bg-info text-dark'], '처리 완료': ['✅ 처리완료', 'bg-success'] };
-            const m = map[st] || [st, 'bg-secondary'];
+            // 메인 테이블 상태와 동일한 파스텔 status-* 클래스 재사용 (아이콘 없음).
+            const map = { '요청됨': ['요청됨', 'status-review'], '접수 완료': ['접수완료', 'status-in-progress'], '처리 완료': ['처리완료', 'status-completed'] };
+            const m = map[st] || [st, 'status-waiting'];
             return `<span class="badge ${m[1]}">${_asEsc(m[0])}</span>`;
           }
         },
