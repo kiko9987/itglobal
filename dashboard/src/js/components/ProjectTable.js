@@ -247,7 +247,7 @@ export default class ProjectTable {
     if (data.newMode !== TABLE_MODE.AS && this._asModeActive) {
       this._asModeActive = false;
       const t = document.getElementById('asModeToggle');
-      if (t) { t.classList.remove('active'); t.setAttribute('aria-pressed', 'false'); }
+      if (t) t.checked = false;
       try { sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
       if (this.table) { this._applyAsColumns(false); this.table.columns.adjust(); }
     }
@@ -1506,10 +1506,41 @@ export default class ProjectTable {
     // 컨테이너에 추가
     toggleContainer.appendChild(toggleSwitch);
     toggleContainer.appendChild(label);
+    toggleContainer.style.marginRight = '16px';  // A/S 토글과의 간격 (수금 = 왼쪽)
 
     // lengthContainer에 추가
     lengthContainer.appendChild(toggleContainer);
 
+    // A/S 관리 모드 토글 (수금 오른쪽 = 기존 수금 위치)
+    const asContainer = document.createElement('div');
+    asContainer.className = 'form-check form-switch';
+    asContainer.style.marginRight = '20px';
+    asContainer.style.display = 'flex';
+    asContainer.style.alignItems = 'center';
+
+    const asSwitch = document.createElement('input');
+    asSwitch.type = 'checkbox';
+    asSwitch.id = 'asModeToggle';
+    asSwitch.className = 'form-check-input';
+    asSwitch.style.cursor = 'pointer';
+    asSwitch.style.marginTop = '0';
+    asSwitch.style.verticalAlign = 'middle';
+
+    const asLabel = document.createElement('label');
+    asLabel.className = 'form-check-label';
+    asLabel.setAttribute('for', 'asModeToggle');
+    asLabel.textContent = 'A/S 관리 모드';
+    asLabel.style.cursor = 'pointer';
+    asLabel.style.userSelect = 'none';
+    asLabel.style.marginLeft = '8px';
+    asLabel.style.fontWeight = '500';
+    asLabel.style.lineHeight = '1.5';
+    asLabel.style.verticalAlign = 'middle';
+    asLabel.style.display = 'inline-block';
+
+    asContainer.appendChild(asSwitch);
+    asContainer.appendChild(asLabel);
+    lengthContainer.appendChild(asContainer);
   }
 
   /**
@@ -1901,14 +1932,14 @@ export default class ProjectTable {
       ProjectTable._asFilterRegistered = true;
     }
 
-    toggle.addEventListener('click', async () => {
-      const turningOn = !this.modeManager.isAsMode();
-      await this._activateAsMode(toggle, turningOn);
+    toggle.addEventListener('change', async (e) => {
+      await this._activateAsMode(toggle, e.target.checked);
     });
 
     // 새로고침(F5) 시 A/S 모드 복원
     try {
       if (sessionStorage.getItem('itg_as_mode') === '1') {
+        toggle.checked = true;
         setTimeout(() => this._activateAsMode(toggle, true), 0);
       }
     } catch (_) { /* noop */ }
@@ -1929,12 +1960,11 @@ export default class ProjectTable {
 
     const newMode = on ? TABLE_MODE.AS : TABLE_MODE.NORMAL;
     if (!this.modeManager.setTableMode(newMode)) {
-      toggle.classList.toggle('active', this.modeManager.isAsMode());
+      toggle.checked = this.modeManager.isAsMode();
       return;
     }
     this._asModeActive = on;
-    toggle.classList.toggle('active', on);
-    toggle.setAttribute('aria-pressed', String(on));
+    toggle.checked = on;
     try { on ? sessionStorage.setItem('itg_as_mode', '1') : sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
 
     this.isReceivablesTransitioning = true;  // 빠른 draw 경로 재사용
