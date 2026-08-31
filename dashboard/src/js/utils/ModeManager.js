@@ -92,6 +92,10 @@ export default class ModeManager {
     return this.#tableMode === TABLE_MODE.RECEIVABLES;
   }
 
+  isAsMode() {
+    return this.#tableMode === TABLE_MODE.AS;
+  }
+
   isEditMode() {
     return this.#accordionMode === ACCORDION_MODE.EDIT;
   }

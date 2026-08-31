@@ -1,213 +1,85 @@
 /**
- * AsView — PM 대시보드 A/S 관리 모드 (자체 완결형).
+ * AsView — A/S 데이터 조인맵 + 액션 모달 (경량 모듈).
  *
- * 토글 ON 시 프로젝트 뷰(.filter-section-sticky/.table-section/.mobile-card-container)를
- * 숨기고 #asView(A/S 전용 테이블)를 그 자리에 표시. 프로젝트 DataTable 은 건드리지 않음.
- * 왼쪽은 연결 프로젝트 컬럼, 오른쪽은 A/S 컬럼. 요청/접수/완료는 슬랙 카드·DM 과 동기화(백엔드).
- * 백엔드: /as/api/list · /as/api/request · /as/api/accept/<no> · /as/api/complete/<no>
+ * 테이블 전환·컬럼·필터는 ProjectTable(수금 모드와 동일 구조)이 담당한다.
+ * 이 모듈은 (1) /as/api/list 를 프로젝트 코드→A/S 로 조인한 byCode 맵 제공,
+ * (2) 접수/완료/요청/수동요청 Bootstrap 모달 + POST(슬랙 동기화) 만 담당.
+ * ProjectTable 의 A/S 컬럼 render 와 accordion 'A/S 요청' 버튼이 window.asView 를 참조.
  */
 import logger from '../utils/logger.js';
 
-const STATUS_REQUESTED = '요청됨';
-const STATUS_ACCEPTED = '접수 완료';
-const STATUS_COMPLETED = '처리 완료';
-
-const STATUS_META = {
-  [STATUS_REQUESTED]: { label: '🔔 요청됨', cls: 'bg-warning text-dark' },
-  [STATUS_ACCEPTED]: { label: '📥 접수완료', cls: 'bg-info text-dark' },
-  [STATUS_COMPLETED]: { label: '✅ 처리완료', cls: 'bg-success' },
-};
-
-const PROJECT_VIEW_SELECTORS = ['.filter-section-sticky', '.table-section', '.mobile-card-container'];
-
 function esc(v) {
   return String(v == null ? '' : v)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function isOpen(status) {
+  const s = String(status || '').trim();
+  return s === '요청됨' || s === '접수 완료';
 }
 
 export default class AsView {
   constructor() {
-    this.container = document.getElementById('asView');
-    this.toggleBtn = document.getElementById('asModeToggle');
-    this.active = false;
-    this.items = [];
-    this.filter = { status: '', manager: '', q: '' };
-    this._bound = false;
-    this._modal = null; // bootstrap.Modal 인스턴스
-    if (!this.container || !this.toggleBtn) {
-      logger.warn('[AsView] #asView / #asModeToggle 없음 — 초기화 skip');
-      return;
-    }
-    this._bindToggle();
+    this.byCode = {};     // 프로젝트 코드 → 대표 A/S 건 (열린 것 우선, 그다음 최신)
+    this.byNo = {};       // AS 번호 → A/S 건
+    this._modal = null;
+    window.asView = this; // ProjectTable render / accordion 버튼에서 참조
   }
 
-  _bindToggle() {
-    this.toggleBtn.addEventListener('click', () => this.toggle());
-  }
-
-  toggle() {
-    this.active = !this.active;
-    this._applyMode();
-    this.toggleBtn.classList.toggle('active', this.active);
-    this.toggleBtn.setAttribute('aria-pressed', String(this.active));
-    if (this.active) {
-      this.container.style.display = 'block';
-      this._ensureShell();
-      this.load();
-    } else {
-      this.container.style.display = 'none';
-    }
-  }
-
-  _applyMode() {
-    // 클래스 기반 숨김 — 원래 display(모바일 컨테이너 기본 none 등)를 보존하며 복원.
-    PROJECT_VIEW_SELECTORS.forEach((sel) => {
-      document.querySelectorAll(sel).forEach((el) => {
-        el.classList.toggle('as-hidden', this.active);
-      });
-    });
-  }
-
-  /** 컨테이너 골격(필터바 + 테이블 + 모달)을 1회 구성 */
-  _ensureShell() {
-    if (this._bound) return;
-    this.container.innerHTML = `
-      <div class="filter-section" style="margin-bottom:12px;">
-        <div class="d-flex flex-wrap align-items-end gap-2">
-          <div>
-            <label class="form-label mb-1">상태</label>
-            <select id="asFilterStatus" class="form-select form-select-sm">
-              <option value="">전체</option>
-              <option value="미완료">미완료(요청+접수)</option>
-              <option value="${STATUS_REQUESTED}">요청됨</option>
-              <option value="${STATUS_ACCEPTED}">접수 완료</option>
-              <option value="${STATUS_COMPLETED}">처리 완료</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label mb-1">담당자</label>
-            <select id="asFilterManager" class="form-select form-select-sm"><option value="">전체</option></select>
-          </div>
-          <div style="flex:1;min-width:180px;">
-            <label class="form-label mb-1">검색 (코드/주소/요청)</label>
-            <input id="asFilterSearch" type="text" class="form-control form-control-sm" placeholder="검색어">
-          </div>
-          <div class="ms-auto d-flex gap-2">
-            <button id="asManualRequestBtn" class="btn btn-soft-primary btn-sm">
-              <i class="fas fa-plus me-1"></i>수동 A/S 요청
-            </button>
-            <button id="asReloadBtn" class="btn btn-outline-secondary btn-sm" title="새로고침">
-              <i class="fas fa-sync"></i>
-            </button>
-          </div>
-        </div>
-      </div>
-      <div id="asTableWrap" class="table-responsive"></div>
-      <div id="asModalHost"></div>
-    `;
-    // 이벤트 위임
-    this.container.querySelector('#asFilterStatus').addEventListener('change', (e) => { this.filter.status = e.target.value; this.render(); });
-    this.container.querySelector('#asFilterManager').addEventListener('change', (e) => { this.filter.manager = e.target.value; this.render(); });
-    this.container.querySelector('#asFilterSearch').addEventListener('input', (e) => { this.filter.q = e.target.value.trim(); this.render(); });
-    this.container.querySelector('#asManualRequestBtn').addEventListener('click', () => this._openManualRequest());
-    this.container.querySelector('#asReloadBtn').addEventListener('click', () => this.load());
-    this.container.querySelector('#asTableWrap').addEventListener('click', (e) => this._onTableClick(e));
-    this._bound = true;
-  }
-
-  async load() {
-    const wrap = this.container.querySelector('#asTableWrap');
-    if (wrap) wrap.innerHTML = '<div class="text-center text-muted py-4">불러오는 중…</div>';
+  /** /as/api/list → byCode/byNo 조인맵 구성 */
+  async loadMap() {
     try {
       const resp = await fetch('/as/api/list', { credentials: 'same-origin' });
       const json = await resp.json();
       const data = json.data || json;
-      this.items = (data && data.items) || [];
-      this._populateManagers();
-      this.render();
+      const items = (data && data.items) || [];
+      const byCode = {};
+      const byNo = {};
+      // AS 번호 오름차순 → 뒤(최신)가 덮어씀. 단 열린 건을 완료 건보다 우선.
+      const num = (it) => { const m = /^AS-(\d+)/.exec(String(it.No || '')); return m ? parseInt(m[1], 10) : 0; };
+      items.slice().sort((a, b) => num(a) - num(b)).forEach((it) => {
+        byNo[it.No] = it;
+        const code = String(it['프로젝트 코드'] || '').trim();
+        if (!code) return;
+        const cur = byCode[code];
+        if (!cur) { byCode[code] = it; return; }
+        const iOpen = isOpen(it['진행 상태']);
+        const cOpen = isOpen(cur['진행 상태']);
+        if (iOpen && !cOpen) byCode[code] = it;       // 열린 건 우선
+        else if (iOpen === cOpen) byCode[code] = it;   // 동급이면 최신(뒤) 우선
+      });
+      this.byCode = byCode;
+      this.byNo = byNo;
+      logger.debug(`[AsView] A/S 조인맵 로드: ${items.length}건 → ${Object.keys(byCode).length}개 프로젝트`);
     } catch (err) {
-      logger.error('[AsView] 목록 로드 실패:', err);
-      if (wrap) wrap.innerHTML = '<div class="text-center text-danger py-4">A/S 목록을 불러오지 못했습니다.</div>';
+      logger.error('[AsView] A/S 목록 로드 실패:', err);
+      this.byCode = {};
+      this.byNo = {};
     }
   }
 
-  _populateManagers() {
-    const sel = this.container.querySelector('#asFilterManager');
-    if (!sel) return;
-    const cur = this.filter.manager;
-    const names = [...new Set(this.items.map((i) => (i['담당자'] || '').trim()).filter(Boolean))].sort();
-    sel.innerHTML = '<option value="">전체</option>' + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
-    sel.value = cur;
-  }
-
-  _filtered() {
-    const { status, manager, q } = this.filter;
-    return this.items.filter((it) => {
-      const st = (it['진행 상태'] || '').trim();
-      if (status === '미완료') { if (st === STATUS_COMPLETED) return false; }
-      else if (status) { if (st !== status) return false; }
-      if (manager && (it['담당자'] || '').trim() !== manager) return false;
-      if (q) {
-        const hay = `${it['프로젝트 코드'] || ''} ${it['현장주소'] || ''} ${it['요청 내용'] || ''} ${it['사업자명'] || ''}`.toLowerCase();
-        if (!hay.includes(q.toLowerCase())) return false;
-      }
-      return true;
-    });
-  }
-
-  render() {
-    const wrap = this.container.querySelector('#asTableWrap');
-    if (!wrap) return;
-    const rows = this._filtered();
-    if (!rows.length) {
-      wrap.innerHTML = '<div class="text-center text-muted py-4">해당하는 A/S 건이 없습니다.</div>';
-      return;
+  /** 액션 후 조인맵 재로드 + A/S 모드면 테이블 A/S 컬럼 재그림 */
+  async refresh() {
+    await this.loadMap();
+    const inst = window.__projectTableInstance;
+    if (inst && inst.table && inst._asModeActive) {
+      try { inst.table.rows().invalidate().draw(false); } catch (_) { inst.table.draw(false); }
     }
-    const body = rows.map((it) => {
-      const st = (it['진행 상태'] || '').trim();
-      const meta = STATUS_META[st] || { label: esc(st), cls: 'bg-secondary' };
-      const code = (it['프로젝트 코드'] || '').trim();
-      let action = '';
-      if (st === STATUS_REQUESTED) action = `<button class="btn btn-primary btn-sm" data-as-action="accept" data-as-no="${esc(it.No)}">접수</button>`;
-      else if (st === STATUS_ACCEPTED) action = `<button class="btn btn-success btn-sm" data-as-action="complete" data-as-no="${esc(it.No)}">완료</button>`;
-      return `<tr>
-        <td class="text-nowrap">${code ? esc(code) : '<span class="text-muted">-</span>'}<div class="small text-muted">${esc(it.No)}</div></td>
-        <td>${esc(it['담당자'] || '-')}</td>
-        <td>${esc(it['유입 구분'] || '-')}</td>
-        <td>${esc(it['사업자명'] || '-')}</td>
-        <td>${esc(it['현장주소'] || '-')}</td>
-        <td class="text-nowrap">${esc(it['접수 일자'] || '-')}</td>
-        <td class="text-nowrap">${esc(it['방문 예정일'] || '-')}</td>
-        <td style="max-width:240px;white-space:normal;">${esc(it['요청 내용'] || '-')}</td>
-        <td>${esc(it['방문 예정자'] || '-')}</td>
-        <td><span class="badge ${meta.cls}">${meta.label}</span></td>
-        <td style="max-width:220px;white-space:normal;">${esc(it['처리 내용'] || '-')} ${action}</td>
-      </tr>`;
-    }).join('');
-    wrap.innerHTML = `
-      <table class="table table-sm table-hover align-middle">
-        <thead><tr class="text-nowrap">
-          <th>프로젝트 코드</th><th>담당자</th><th>유입 구분</th><th>사업자명</th><th>현장 주소</th>
-          <th>A/S 접수일</th><th>방문 예정일</th><th>요청 내용</th><th>방문 예정자</th><th>상태</th><th>처리 내용</th>
-        </tr></thead>
-        <tbody>${body}</tbody>
-      </table>
-      <div class="small text-muted">총 ${rows.length}건</div>`;
   }
 
-  _onTableClick(e) {
-    const btn = e.target.closest('[data-as-action]');
-    if (!btn) return;
-    const asNo = btn.getAttribute('data-as-no');
-    const action = btn.getAttribute('data-as-action');
-    if (action === 'accept') this._openAccept(asNo);
-    else if (action === 'complete') this._openComplete(asNo);
+  // ── Bootstrap 모달 ────────────────────────────────────────────
+  _modalHost() {
+    let host = document.getElementById('asModalHost');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'asModalHost';
+      document.body.appendChild(host);
+    }
+    return host;
   }
 
-  // ── 모달 (Bootstrap) ──────────────────────────────────────────
   _showModal(title, bodyHtml, onSubmit) {
-    const host = this.container.querySelector('#asModalHost');
+    const host = this._modalHost();
     host.innerHTML = `
       <div class="modal fade" id="asActionModal" tabindex="-1">
         <div class="modal-dialog"><div class="modal-content">
@@ -222,29 +94,36 @@ export default class AsView {
       </div>`;
     const el = host.querySelector('#asActionModal');
     this._modal = new bootstrap.Modal(el);
-    el.querySelector('#asModalSubmit').addEventListener('click', async () => {
+    const submitBtn = el.querySelector('#asModalSubmit');
+    submitBtn.addEventListener('click', async () => {
+      submitBtn.disabled = true;
       const err = await onSubmit(el);
+      submitBtn.disabled = false;
       if (err) { el.querySelector('#asModalAlert').textContent = err; return; }
       this._modal.hide();
-      this.load();
+      this.refresh();
     });
     this._modal.show();
   }
 
   async _post(url, payload) {
-    const resp = await fetch(url, {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload || {}),
-    });
-    const json = await resp.json().catch(() => ({}));
-    if (!resp.ok || json.success === false) {
-      return json.message || json.error || `요청 실패 (HTTP ${resp.status})`;
+    try {
+      const resp = await fetch(url, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok || json.success === false) {
+        return json.message || json.error || `요청 실패 (HTTP ${resp.status})`;
+      }
+      return null;
+    } catch (e) {
+      return '네트워크 오류로 실패했습니다.';
     }
-    return null;
   }
 
-  _openAccept(asNo) {
+  openAccept(asNo) {
     this._showModal(`A/S 접수 — ${asNo}`, `
       <div class="mb-2"><label class="form-label">방문자 유형</label>
         <select id="asVisitorType" class="form-select">
@@ -258,18 +137,15 @@ export default class AsView {
         <input id="asVisitStart" type="date" class="form-control"></div>
         <div class="col mb-2"><label class="form-label">종료일 <span class="text-muted small">(선택·범위)</span></label>
         <input id="asVisitEnd" type="date" class="form-control"></div></div>
-    `, async (el) => {
-      const payload = {
-        visitor_type: el.querySelector('#asVisitorType').value,
-        visitor_name: el.querySelector('#asVisitorName').value.trim(),
-        visit_date_start: el.querySelector('#asVisitStart').value,
-        visit_date_end: el.querySelector('#asVisitEnd').value,
-      };
-      return this._post(`/as/api/accept/${encodeURIComponent(asNo)}`, payload);
-    });
+    `, async (el) => this._post(`/as/api/accept/${encodeURIComponent(asNo)}`, {
+      visitor_type: el.querySelector('#asVisitorType').value,
+      visitor_name: el.querySelector('#asVisitorName').value.trim(),
+      visit_date_start: el.querySelector('#asVisitStart').value,
+      visit_date_end: el.querySelector('#asVisitEnd').value,
+    }));
   }
 
-  _openComplete(asNo) {
+  openComplete(asNo) {
     this._showModal(`A/S 처리 완료 — ${asNo}`, `
       <div class="mb-2"><label class="form-label">처리 내용</label>
         <textarea id="asResolution" class="form-control" rows="4" placeholder="처리 결과를 입력하세요"></textarea></div>
@@ -280,7 +156,7 @@ export default class AsView {
     });
   }
 
-  _openManualRequest() {
+  openManualRequest() {
     this._showModal('수동 A/S 요청 (코드 없는 옛 공사)', `
       <div class="mb-2"><label class="form-label">현장 주소 *</label>
         <input id="asmAddress" type="text" class="form-control" placeholder="현장명/주소"></div>
@@ -302,7 +178,7 @@ export default class AsView {
     });
   }
 
-  /** 프로젝트 행 accordion 의 'A/S 요청' 버튼에서 호출 (코드 있는 요청) */
+  /** 프로젝트 행 accordion 'A/S 요청' 버튼 (코드 있는 요청) */
   openProjectRequest(projectCode) {
     this._showModal(`A/S 요청 — ${projectCode}`, `
       <div class="mb-2 small text-muted">프로젝트 <b>${esc(projectCode)}</b> 에 대한 A/S 요청을 등록합니다.</div>

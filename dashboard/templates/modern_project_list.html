@@ -143,7 +143,7 @@
                            role="grid"
                            aria-labelledby="table-heading"
                            aria-rowcount="-1"
-                           aria-colcount="16">
+                           aria-colcount="22">
                         <thead role="rowgroup">
                             <tr role="row">
                                 <th class="sorting"
@@ -275,6 +275,19 @@
                                     style="width: 12%; display: none;">
                                     수금 특이사항
                                 </th>
+                                <!-- A/S 모드 컬럼 (A/S 토글 시 표시) -->
+                                <th class="sorting" role="columnheader" aria-sort="none" tabindex="0"
+                                    aria-label="A/S 접수일 정렬" style="width: 7%; display: none;">A/S 접수일</th>
+                                <th class="sorting" role="columnheader" aria-sort="none" tabindex="0"
+                                    aria-label="방문 예정일 정렬" style="width: 7%; display: none;">방문 예정일</th>
+                                <th class="sorting" role="columnheader" aria-sort="none" tabindex="0"
+                                    aria-label="요청 내용 정렬" style="width: 16%; display: none;">요청 내용</th>
+                                <th class="sorting" role="columnheader" aria-sort="none" tabindex="0"
+                                    aria-label="방문 예정자 정렬" style="width: 8%; display: none;">방문 예정자</th>
+                                <th class="sorting" role="columnheader" aria-sort="none" tabindex="0"
+                                    aria-label="A/S 상태 정렬" style="width: 8%; display: none;">상태</th>
+                                <th class="sorting" role="columnheader" aria-sort="none" tabindex="0"
+                                    aria-label="처리 내용 정렬" style="width: 14%; display: none;">처리 내용</th>
                             </tr>
                         </thead>
                         <tbody role="rowgroup">
@@ -293,10 +306,6 @@
                 <h2 class="sr-only">모바일 디바이스용 프로젝트 카드</h2>
                 <!-- JavaScript로 동적 생성 -->
             </section>
-
-            <!-- A/S 관리 모드 뷰 (토글 시 표시, 프로젝트 뷰 대체) -->
-            <div id="asView" style="display:none; padding: 8px 0;"></div>
-            <style>.as-hidden{display:none !important;}</style>
         </div>
     </div>
 

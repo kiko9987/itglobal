@@ -12,6 +12,13 @@ import { getGlobalModeManager } from '../utils/globalModeManager.js';
 import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 import logger from '../utils/logger.js';
+
+/** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
+function _asEsc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 /**
  * 날짜 포맷팅 헬퍼 함수
  */
@@ -236,7 +243,14 @@ export default class ProjectTable {
     logger.debug(`[ProjectTable] 테이블 모드 변경 감지: ${data.oldMode} → ${data.newMode}`);
 
     // 컬럼 visibility 업데이트는 setupReceivablesToggle에서 처리
-    // 여기서는 추가 UI 업데이트나 로깅만 수행
+    // A/S 모드 이탈 시(수금 토글 등으로) A/S 컬럼/상태 정리 — 상호배타 (2026-08-31)
+    if (data.newMode !== TABLE_MODE.AS && this._asModeActive) {
+      this._asModeActive = false;
+      const t = document.getElementById('asModeToggle');
+      if (t) { t.classList.remove('active'); t.setAttribute('aria-pressed', 'false'); }
+      try { sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
+      if (this.table) { this._applyAsColumns(false); this.table.columns.adjust(); }
+    }
   }
 
   /**
@@ -314,6 +328,7 @@ export default class ProjectTable {
     await this.initializeDataTable(); // async/await 적용
     await this.initializeAccordion();
     this.setupReceivablesToggle();
+    this.setupAsToggle();
   }
 
   /**
@@ -690,6 +705,62 @@ export default class ProjectTable {
             }
             return notes;
           }
+        },
+        // ── A/S 모드 컬럼 (A/S 토글 시 표시). data 는 window.asView.byCode[코드] 조인.
+        //    행은 프로젝트 그대로라 아코디언/편집/필터 전부 정상 동작. (2026-08-31)
+        {
+          name: 'asAcceptDate', data: null, className: 'text-center text-nowrap', visible: false,
+          render: (d, t, row) => {
+            const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
+            return (a && a['접수 일자']) ? _asEsc(a['접수 일자']) : '<span class="text-muted">-</span>';
+          }
+        },
+        {
+          name: 'asVisitDate', data: null, className: 'text-center text-nowrap', visible: false,
+          render: (d, t, row) => {
+            const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
+            return (a && a['방문 예정일']) ? _asEsc(a['방문 예정일']) : '<span class="text-muted">-</span>';
+          }
+        },
+        {
+          name: 'asRequest', data: null, className: 'text-left', visible: false,
+          render: (d, t, row) => {
+            const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
+            const v = a ? (a['요청 내용'] || '') : '';
+            return v ? `<span style="white-space:normal;" title="${_asEsc(v)}">${_asEsc(v)}</span>` : '<span class="text-muted">-</span>';
+          }
+        },
+        {
+          name: 'asVisitor', data: null, className: 'text-center', visible: false,
+          render: (d, t, row) => {
+            const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
+            return (a && a['방문 예정자']) ? _asEsc(a['방문 예정자']) : '<span class="text-muted">-</span>';
+          }
+        },
+        {
+          name: 'asStatus', data: null, className: 'text-center', visible: false,
+          render: (d, t, row) => {
+            const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
+            if (!a) return '<span class="text-muted">-</span>';
+            const st = String(a['진행 상태'] || '').trim();
+            const map = { '요청됨': ['🔔 요청됨', 'bg-warning text-dark'], '접수 완료': ['📥 접수완료', 'bg-info text-dark'], '처리 완료': ['✅ 처리완료', 'bg-success'] };
+            const m = map[st] || [st, 'bg-secondary'];
+            return `<span class="badge ${m[1]}">${_asEsc(m[0])}</span>`;
+          }
+        },
+        {
+          name: 'asResolution', data: null, className: 'text-left', visible: false,
+          render: (d, t, row) => {
+            const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
+            if (!a) return '<span class="text-muted">-</span>';
+            const st = String(a['진행 상태'] || '').trim();
+            const asNo = _asEsc(a['No']);
+            let btn = '';
+            if (st === '요청됨') btn = ` <button class="btn btn-primary btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openAccept('${asNo}')">접수</button>`;
+            else if (st === '접수 완료') btn = ` <button class="btn btn-success btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openComplete('${asNo}')">완료</button>`;
+            const res = a['처리 내용'] || '';
+            return `${res ? `<span style="white-space:normal;" title="${_asEsc(res)}">${_asEsc(res)}</span>` : '<span class="text-muted">-</span>'}${btn}`;
+          }
         }
       ],
       columnDefs: [
@@ -904,6 +975,8 @@ export default class ProjectTable {
 
       // 수금 모드 상태 복원
       this.restoreReceivablesMode();
+      // A/S 모드 상태 복원 (컬럼 visibility 재적용)
+      this.restoreAsMode();
 
       // 아코디언 상태 복원
       if (wasOpen && openAccordionCode) {
@@ -970,6 +1043,8 @@ export default class ProjectTable {
 
       // 수금 모드 상태 복원
       this.restoreReceivablesMode();
+      // A/S 모드 상태 복원 (컬럼 visibility 재적용)
+      this.restoreAsMode();
 
       // 아코디언 상태 복원
       if (wasOpen && openAccordionCode) {
@@ -1800,5 +1875,113 @@ export default class ProjectTable {
       this.initializeTooltips();
       logger.debug('[ProjectTable] restoreReceivablesMode: 툴팁 재초기화 완료');
     });
+  }
+
+  /**
+   * A/S 관리 모드 토글 설정 (수금 모드와 동일 구조 — 같은 테이블, 우측 컬럼만 A/S로 교체).
+   * 행은 프로젝트 그대로라 아코디언/편집/필터 전부 정상. A/S 있는 프로젝트만 표시.
+   */
+  setupAsToggle() {
+    const toggle = document.getElementById('asModeToggle');
+    if (!toggle) {
+      logger.warn('[ProjectTable] A/S 관리 토글 버튼을 찾을 수 없습니다.');
+      return;
+    }
+    window.__projectTableInstance = this;
+
+    // A/S 전용 DataTables 필터: A/S 모드일 때 A/S 있는 프로젝트만 (1회 등록)
+    if (!ProjectTable._asFilterRegistered) {
+      DataTable.ext.search.push((settings, dataArr, dataIndex, rowObj) => {
+        const inst = window.__projectTableInstance;
+        if (!inst || !inst._asModeActive) return true;
+        if (inst.tableElement && settings.nTable !== inst.tableElement) return true;
+        const code = rowObj && rowObj['프로젝트 코드'];
+        return !!(window.asView && window.asView.byCode && window.asView.byCode[code]);
+      });
+      ProjectTable._asFilterRegistered = true;
+    }
+
+    toggle.addEventListener('click', async () => {
+      const turningOn = !this.modeManager.isAsMode();
+      await this._activateAsMode(toggle, turningOn);
+    });
+
+    // 새로고침(F5) 시 A/S 모드 복원
+    try {
+      if (sessionStorage.getItem('itg_as_mode') === '1') {
+        setTimeout(() => this._activateAsMode(toggle, true), 0);
+      }
+    } catch (_) { /* noop */ }
+  }
+
+  /** A/S 모드 ON/OFF 실제 전환 */
+  async _activateAsMode(toggle, on) {
+    // 편집 중이면 정리 (수금 토글과 동일 정책)
+    if (this.accordion && this.accordion.modeManager && this.accordion.modeManager.isEditMode()) {
+      this.accordion.cleanupEditMode();
+    }
+    // 수금 모드와 상호배타 — A/S 켜면 수금 토글 시각적으로 끔 (컬럼은 _applyAsColumns가 정리)
+    if (on) {
+      const rt = document.getElementById('receivablesToggle');
+      if (rt && rt.checked) { rt.checked = false; }
+      try { sessionStorage.removeItem('itg_receivables_mode'); } catch (_) { /* noop */ }
+    }
+
+    const newMode = on ? TABLE_MODE.AS : TABLE_MODE.NORMAL;
+    if (!this.modeManager.setTableMode(newMode)) {
+      toggle.classList.toggle('active', this.modeManager.isAsMode());
+      return;
+    }
+    this._asModeActive = on;
+    toggle.classList.toggle('active', on);
+    toggle.setAttribute('aria-pressed', String(on));
+    try { on ? sessionStorage.setItem('itg_as_mode', '1') : sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
+
+    this.isReceivablesTransitioning = true;  // 빠른 draw 경로 재사용
+    this.showSkeletonLoader();
+
+    if (on) {
+      try { if (window.asView && window.asView.loadMap) await window.asView.loadMap(); }
+      catch (e) { logger.warn('[ProjectTable] A/S 맵 로드 실패:', e); }
+    }
+    this._applyAsColumns(on);
+    this.table.columns.adjust();
+
+    this.table.one('draw.dt', () => {
+      this.initializeTooltips();
+      this.hideSkeletonLoader();
+      this.isReceivablesTransitioning = false;
+    });
+    if (window.modernFilters && window.modernFilters.applyFilters) {
+      window.modernFilters.applyFilters(null, true);
+    } else {
+      this.table.draw();
+    }
+  }
+
+  /** A/S 모드 컬럼 visibility 전환 (draw 없이) */
+  _applyAsColumns(on) {
+    if (!this.table) return;
+    const asCols = ['asAcceptDate', 'asVisitDate', 'asRequest', 'asVisitor', 'asStatus', 'asResolution'];
+    const normalRightCols = ['startDate', 'endDate', 'totalAmount', 'outstandingNormal', 'status', 'dataCompleteness'];
+    const receivableCols = ['downPayment', 'midPayment', 'finalPayment', 'outstandingReceivable', 'receivableNotes'];
+    if (on) {
+      normalRightCols.forEach(n => this.table.column(`${n}:name`).visible(false, false));
+      receivableCols.forEach(n => this.table.column(`${n}:name`).visible(false, false));
+      asCols.forEach(n => this.table.column(`${n}:name`).visible(true, false));
+    } else {
+      asCols.forEach(n => this.table.column(`${n}:name`).visible(false, false));
+      normalRightCols.forEach(n => this.table.column(`${n}:name`).visible(true, false));
+      receivableCols.forEach(n => this.table.column(`${n}:name`).visible(false, false));
+    }
+  }
+
+  /** updateData 후 A/S 모드 컬럼 visibility 재적용 (수금 restoreReceivablesMode 와 동일 역할) */
+  restoreAsMode() {
+    if (!this.modeManager.isAsMode() || !this.table) return;
+    this._asModeActive = true;
+    this._applyAsColumns(true);
+    this.table.columns.adjust();
+    requestAnimationFrame(() => this.initializeTooltips());
   }
 }

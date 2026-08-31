@@ -16,7 +16,10 @@ export const TABLE_MODE = {
   NORMAL: 'normal',
 
   /** 프로젝트 수금 관리 모드 - 미수금 프로젝트 중심, 수금 관련 기능 강조 */
-  RECEIVABLES: 'receivables'
+  RECEIVABLES: 'receivables',
+
+  /** A/S 관리 모드 - A/S가 있는 프로젝트 중심, 우측 컬럼을 A/S 정보로 교체 */
+  AS: 'as'
 };
 
 /**
