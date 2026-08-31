@@ -1948,7 +1948,18 @@ export default class ProjectTable {
     // 수금 모드와 상호배타 — A/S 켜면 수금 토글 시각적으로 끔 (컬럼은 _applyAsColumns가 정리)
     if (on) {
       const rt = document.getElementById('receivablesToggle');
-      if (rt && rt.checked) { rt.checked = false; }
+      if (rt && rt.checked) {
+        rt.checked = false;
+        // 수금 관리 모드가 세팅한 미수금 파생 필터(filters.outstanding) 제거 —
+        //   안 지우면 A/S 모드에 미수금 필터가 남아 'A/S 있고 미수금도 있는' 것만 보임.
+        //   '내 프로젝트만 보기'(담당자 필터)는 건드리지 않아 A/S 모드에서도 그대로 작동.
+        if (window.modernFilters && window.modernFilters.filters) {
+          delete window.modernFilters.filters.outstanding;
+        }
+        if (window.modernFilters && window.modernFilters.outstandingFilter) {
+          window.modernFilters.outstandingFilter.value = '';
+        }
+      }
       try { sessionStorage.removeItem('itg_receivables_mode'); } catch (_) { /* noop */ }
     }
 
