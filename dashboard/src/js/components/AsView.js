@@ -167,7 +167,7 @@ export default class AsView {
   openComplete(asNo) {
     this._showModal(`A/S 처리 완료 — ${asNo}`, `
       <div class="mb-2"><label class="form-label">조치 내용</label>
-        <textarea id="asResolution" class="form-control" rows="4" placeholder="조치 결과를 입력하세요"></textarea></div>
+        <textarea id="asResolution" class="form-control" rows="4" style="font-size:0.95rem;" placeholder="조치 결과를 입력하세요"></textarea></div>
     `, async (el) => {
       const resolution = el.querySelector('#asResolution').value.trim();
       if (!resolution) return '조치 내용을 입력해주세요.';
@@ -258,7 +258,7 @@ export default class AsView {
     this._showModal(`A/S 요청 — ${projectCode}`, `
       ${info}
       <div class="mb-1"><label class="form-label fw-semibold">요청 내용 <span class="text-danger">*</span></label>
-        <textarea id="aspContent" class="form-control" rows="3" placeholder="A/S 요청 사유"></textarea></div>
+        <textarea id="aspContent" class="form-control" rows="3" style="font-size:0.95rem;" placeholder="예) 실외기 소음 발생 / 냉방 약함 / 누수 등 A/S 요청 사유를 적어주세요"></textarea></div>
     `, async (el) => {
       const request_content = el.querySelector('#aspContent').value.trim();
       if (!request_content) return '요청 내용은 필수입니다.';
