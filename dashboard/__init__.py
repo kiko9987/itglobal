@@ -433,6 +433,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.folders import folders_bp
         from dashboard.blueprints.metadata import metadata_bp
         from dashboard.blueprints.leads import leads_bp
+        from dashboard.blueprints.as_mgmt import as_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
         from dashboard.blueprints.constructors import constructors_bp
         from dashboard.blueprints.slack_bot import slack_bp
@@ -445,6 +446,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(auth_bp)
         app.register_blueprint(projects_bp)
         app.register_blueprint(leads_bp)
+        app.register_blueprint(as_bp)  # A/S 관리 (PM 대시보드 A/S 모드)
         app.register_blueprint(monitoring_bp)
         app.register_blueprint(admin_bp)
         app.register_blueprint(users_bp)

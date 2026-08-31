@@ -3558,6 +3558,88 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
     return blocks
 
 
+def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dict] = None) -> tuple:
+    """A/S 시트 상태 기준으로 슬랙 카드를 post(신규)/update(기존) + (요청 시)담당자 DM.
+    PM 대시보드와 슬랙 핸들러 공용 (2026-08-29). Returns (channel, ts) or ('', '').
+
+    send_dm=True(요청): 담당자 DM 발송(_send_as_manager_dm 내부 30일 dedup으로 중복 방지).
+    accept/complete: send_dm=False 로 기존 카드만 갱신.
+    """
+    from dashboard.services.as_service import (
+        get_as_data, get_project_details, STATUS_ACCEPTED, STATUS_COMPLETED,
+    )
+    data = get_as_data(as_no)
+    if not data:
+        logger.warning(f'[SLACK/AS] as_refresh_card: 데이터 없음 ({as_no})')
+        return ('', '')
+    status = str(data.get('진행 상태', '') or '').strip()
+    view_state = ('completed' if status == STATUS_COMPLETED
+                  else 'accepted' if status == STATUS_ACCEPTED else 'requested')
+    blocks = _build_as_blocks(data, view_state=view_state)
+    code = str(data.get('프로젝트 코드', '') or '').strip()
+    text = f"[A/S] {as_no} {code or '(코드 없음)'}"
+
+    channel = os.getenv('SLACK_AS_CHANNEL', '').strip()
+    if not channel:
+        logger.warning('[SLACK/AS] SLACK_AS_CHANNEL 미설정 — 카드 skip')
+        return ('', '')
+    if _as_slack_app is not None:
+        client = _as_slack_app.client
+    else:
+        from slack_sdk import WebClient
+        client = WebClient(token=os.getenv('SLACK_AS_BOT_TOKEN', '').strip())
+
+    # 기존 카드 ts 조회
+    rc = None
+    ch, ts = channel, ''
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        stored = rc.get(f'as_card_msg:{as_no}')
+        stored = stored.decode() if isinstance(stored, bytes) else stored
+        if stored and '|' in stored:
+            ch, ts = stored.split('|', 1)
+    except Exception as exc:
+        logger.warning(f'[SLACK/AS] card 매핑 조회 실패 ({as_no}): {exc}')
+
+    if ts:
+        try:
+            client.chat_update(channel=ch, ts=ts, text=text, blocks=blocks)
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] 카드 update 실패 ({as_no}, ts={ts}): {exc}')
+    else:
+        try:
+            client.conversations_join(channel=channel)
+        except Exception:
+            pass
+        try:
+            resp = client.chat_postMessage(channel=channel, text=text, blocks=blocks, unfurl_links=False)
+            if resp.get('ok'):
+                ts = resp.get('ts', ''); ch = channel
+                if rc and ts:
+                    try:
+                        rc.set(f'as_card_msg:{as_no}', f'{channel}|{ts}', ex=60 * 60 * 24 * 365)
+                    except Exception:
+                        pass
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] 카드 post 실패 ({as_no}): {exc}')
+
+    if send_dm and ts:
+        try:
+            proj = get_project_details(code) if code and code != '-' else None
+            card_data = {
+                'No': as_no, '프로젝트 코드': code,
+                '현장주소': data.get('현장주소', ''), '공사내용': data.get('공사내용', ''),
+                '공사 종료일': data.get('공사 종료일', ''),
+                '요청 내용': data.get('요청 내용', ''), '요청자': data.get('요청자', ''),
+            }
+            _send_as_manager_dm(client, as_no, code, card_data, proj=proj,
+                                card_channel=ch, card_ts=ts, override=dm_override)
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] 담당자 DM 예외 ({as_no}): {exc}')
+    return (ch, ts)
+
+
 # A/S 담당자 드롭다운 제외 대상 — 경영지원팀 (영업 아님). email localpart 소문자.
 _AS_MANAGER_EXCLUDE = {'kiko', 'sb'}
 

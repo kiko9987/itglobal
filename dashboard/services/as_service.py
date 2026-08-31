@@ -122,6 +122,49 @@ def get_as_data(as_no: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+_AS_HEADERS = [
+    'No', '프로젝트 코드', '현장주소', '공사내용', '공사 종료일',
+    '요청 내용', '요청자', '접수자', '접수 일자',
+    '방문 예정자', '방문 예정일', '진행 상태', '처리 내용',
+]
+
+
+def list_as(status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
+    """A/S 전체 목록 반환 (AS번호 내림차순, 최신 먼저). PM 대시보드 A/S 모드용.
+
+    status_filter: 지정 시 해당 진행 상태만 (예: STATUS_REQUESTED). None=전체.
+    각 항목: _AS_HEADERS 키 dict + '_row'(시트 행번호).
+    """
+    manager, sheet_id, sheet_name = _get_sheet()
+    try:
+        resp = manager.service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=f'{sheet_name}!A2:M',
+            valueRenderOption='FORMATTED_VALUE',
+        ).execute()
+        rows = resp.get('values', [])
+    except Exception as exc:
+        logger.error(f'[AS] 목록 조회 실패: {exc}', exc_info=True)
+        return []
+    items: List[Dict[str, Any]] = []
+    for i, r in enumerate(rows, start=2):  # 시트 행번호 (헤더=1)
+        if not r or not str(r[0]).strip():
+            continue
+        r = list(r) + [''] * (13 - len(r))
+        d = dict(zip(_AS_HEADERS, r))
+        if status_filter and str(d.get('진행 상태', '')).strip() != status_filter:
+            continue
+        d['_row'] = i
+        items.append(d)
+
+    def _num(d: Dict[str, Any]) -> int:
+        m = re.match(r'^AS-(\d+)', str(d.get('No', '')).strip())
+        return int(m.group(1)) if m else 0
+
+    items.sort(key=_num, reverse=True)
+    return items
+
+
 # ─────────────────────────────────────────────────────────────
 # 시트 mutation
 # ─────────────────────────────────────────────────────────────
