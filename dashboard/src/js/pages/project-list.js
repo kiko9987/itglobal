@@ -708,10 +708,11 @@ class ProjectListApp {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+    // 얇은(py-1) 알림 — alert-dismissible 의 절대위치 X 대신 flex 인라인으로 수직 중앙 정렬
     container.innerHTML = `
-      <div class="alert ${klass} alert-dismissible fade show mb-0 py-1 px-3" role="alert" style="font-size: 0.9rem;">
-        ${escaped}
-        <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert" aria-label="닫기"></button>
+      <div class="alert ${klass} fade show mb-0 py-1 px-3 d-flex align-items-center" role="alert" style="font-size: 0.9rem; gap: 0.5rem;">
+        <span style="flex:1;">${escaped}</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="닫기" style="position:static; padding:0.35rem; margin:0; font-size:0.6rem;"></button>
       </div>
     `;
     setTimeout(() => { container.innerHTML = ''; }, 3000);

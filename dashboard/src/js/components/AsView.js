@@ -129,6 +129,34 @@ export default class AsView {
     this._modal.show();
   }
 
+  /** 단순 안내/차단용 모달 (입력 없음, 확인 버튼 하나) — 페이지 토스트보다 눈에 띔 */
+  _showAlert(title, message, opts = {}) {
+    const host = this._modalHost();
+    const icon = opts.icon || 'fa-triangle-exclamation';
+    const color = opts.iconColor || '#e0a800';
+    host.innerHTML = `
+      <div class="modal fade" id="asActionModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: 460px;"><div class="modal-content">
+          <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
+            <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
+              <i class="fas ${icon}" style="color:${color};"></i>${esc(title)}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body" style="padding:1.25rem;">
+            <div style="display:flex; gap:0.75rem; align-items:flex-start;">
+              <i class="fas ${icon}" style="color:${color}; font-size:1.6rem; line-height:1; margin-top:0.1rem;"></i>
+              <div style="font-size:var(--font-size-sm); line-height:1.55; color:var(--gray-800);">${esc(message).replace(/\n/g, '<br>')}</div>
+            </div>
+          </div>
+          <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:0.85rem 1.25rem;">
+            <button type="button" class="btn as-btn-submit" data-bs-dismiss="modal">확인</button>
+          </div>
+        </div></div>
+      </div>`;
+    const el = host.querySelector('#asActionModal');
+    this._modal = new bootstrap.Modal(el);
+    this._modal.show();
+  }
+
   /** POST → {ok, code, message, details}. APIResponse 의 error.{code,message,details} 구조를 정확히 파싱. */
   async _postRaw(url, payload) {
     try {
@@ -269,8 +297,9 @@ export default class AsView {
       const json = await resp.json().catch(() => ({}));
       const d = (json && json.data) || {};
       if (resp.ok && d.open) {
-        const msg = `이미 진행 중인 A/S 가 있습니다 (${d.as_no} · ${d.status}). 완료 후 다시 요청해주세요.`;
-        if (window.showPageAlert) window.showPageAlert(msg, 'warning'); else alert(msg);
+        this._showAlert('A/S 요청 불가',
+          `이미 진행 중인 A/S 가 있습니다 (${d.as_no} · ${d.status}).\n기존 A/S 를 완료한 뒤 다시 요청해주세요.`,
+          { icon: 'fa-triangle-exclamation', iconColor: '#e0a800' });
         return;
       }
     } catch (_) {
