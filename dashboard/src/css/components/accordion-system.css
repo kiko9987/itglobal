@@ -131,6 +131,10 @@ tr.accordion-row:hover .row-details,
   line-height: 1;
   display: inline-flex;
   align-items: center;
+  /* FA 글리프 광학 보정: flex 에서 무시되는 vertical-align(-0.125em) 대체.
+     아이콘이 텍스트보다 살짝 높게 뜨는 현상을 내려서 수직 중앙 정렬. */
+  position: relative;
+  top: 0.05em;
 }
 
 .unified-edit-buttons .btn span,
