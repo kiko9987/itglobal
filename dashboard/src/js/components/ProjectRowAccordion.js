@@ -649,6 +649,7 @@ export default class ProjectRowAccordion {
                       <div class="project-actions-container">
                         ${this.generateUnifiedEditButtons(projectCode, projectData)}
                         ${this.generateCancelResumeButton(projectCode, projectData)}
+                        ${this.generateAsRequestButton(projectCode)}
                       </div>
                     </div>
                   </div>
@@ -1187,6 +1188,17 @@ export default class ProjectRowAccordion {
         </button>
       `;
     }
+  }
+
+  generateAsRequestButton(projectCode) {
+    // A/S 요청 — 이 프로젝트 행에서 바로 A/S 등록 (AsView 모달, 슬랙 카드·DM 동기화)
+    return `
+      <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn"
+              title="이 현장 A/S 요청"
+              onclick="window.asView && window.asView.openProjectRequest('${projectCode}')">
+        <i class="fas fa-screwdriver-wrench"></i><span>A/S 요청</span>
+      </button>
+    `;
   }
 
   /**
