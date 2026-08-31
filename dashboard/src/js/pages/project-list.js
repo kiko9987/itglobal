@@ -150,8 +150,7 @@ class ProjectListApp {
       AsView().then(module => {
         this.components.asView = new module.default();
         window.asView = this.components.asView;  // accordion 'A/S 요청' 버튼에서 접근
-        // byCode 초기 로드 — 모든 모드에서 아코디언 A/S 버튼이 정확한 상태(요청/접수/완료) 반영
-        this.components.asView.loadMap();
+        // byCode 는 A/S 관리 모드 진입 시에만 로드 (일반 모드는 'A/S 요청'만 노출).
       }).catch(err => {
         logger.error('[ERROR] AsView 로드 실패:', err);
       })

@@ -256,6 +256,10 @@ export default class ProjectTable {
       if (t) t.checked = false;
       try { sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
       if (this.table) { this._applyAsColumns(false); this.table.columns.adjust(); }
+      // 열려있는 아코디언의 A/S 버튼을 일반 모드용('A/S 요청')으로 즉시 되돌림
+      if (window.asView && typeof window.asView._refreshAccordionButtons === 'function') {
+        window.asView._refreshAccordionButtons();
+      }
     }
   }
 

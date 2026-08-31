@@ -1191,30 +1191,35 @@ export default class ProjectRowAccordion {
   }
 
   generateAsRequestButton(projectCode) {
-    // A/S 단일 액션 버튼 — 상태에 따라 요청 → 접수 → 완료 로 전환 (항상 하나만 노출).
-    // byCode 는 A/S 관리 모드에서 로드됨. 일반 모드/무 A/S/처리완료 이면 '요청' 노출.
-    const a = window.asView && window.asView.byCode && window.asView.byCode[String(projectCode || '').trim()];
-    const st = a ? String(a['진행 상태'] || '').trim() : '';
-    const asNo = a ? a['No'] : '';
-    if (st === '요청됨') {
-      return `
+    // 접수/완료 관리 버튼은 A/S 관리 모드에서만 노출한다.
+    //   일반(프로젝트) 모드에서는 항상 'A/S 요청'만 — 일반 뷰에 접수/완료 관리
+    //   버튼이 뜨면 문맥에 안 맞아 생뚱맞기 때문. (2026-08-31)
+    const inst = window.__projectTableInstance;
+    const asMode = !!(inst && inst._asModeActive);
+    if (asMode) {
+      const a = window.asView && window.asView.byCode && window.asView.byCode[String(projectCode || '').trim()];
+      const st = a ? String(a['진행 상태'] || '').trim() : '';
+      const asNo = a ? a['No'] : '';
+      if (st === '요청됨') {
+        return `
       <button type="button" class="btn btn-primary btn-sm construction-action-btn"
               title="A/S 접수 (${asNo})"
               onclick="window.asView && window.asView.openAccept('${asNo}')">
         <i class="fas fa-clipboard-check"></i><span>A/S 접수</span>
       </button>
     `;
-    }
-    if (st === '접수 완료') {
-      return `
+      }
+      if (st === '접수 완료') {
+        return `
       <button type="button" class="btn btn-success btn-sm construction-action-btn"
               title="A/S 처리 완료 (${asNo})"
               onclick="window.asView && window.asView.openComplete('${asNo}')">
         <i class="fas fa-flag-checkered"></i><span>A/S 완료</span>
       </button>
     `;
+      }
     }
-    // 무 A/S 또는 처리완료 → 새 A/S 요청 가능
+    // 일반 모드 / 무 A/S / 처리완료 → 새 A/S 요청
     return `
       <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn"
               title="이 현장 A/S 요청"
