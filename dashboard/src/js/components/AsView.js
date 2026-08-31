@@ -185,6 +185,7 @@ export default class AsView {
     this._showModal(`A/S 접수 — ${asNo}`, `
       <div class="mb-2"><label class="form-label">방문자 유형</label>
         <select id="asVisitorType" class="form-select">
+          <option value="" selected disabled>선택</option>
           <option value="서비스 기사">서비스 기사</option>
           <option value="내부">내부 (아이티)</option>
           <option value="외주">외주 (시공자)</option>
@@ -197,13 +198,20 @@ export default class AsView {
         <input id="asVisitEnd" type="date" class="form-control" onclick="try{this.showPicker()}catch(e){}"></div></div>
       <div class="mb-1"><label class="form-label">접수 메모 <span class="text-muted small">(선택)</span></label>
         <textarea id="asAcceptMemo" class="form-control" rows="2" placeholder="접수번호·특이사항 등 — 메모/이력에 시간·이니셜과 함께 기록됩니다"></textarea></div>
-    `, async (el) => this._post(`/as/api/accept/${encodeURIComponent(asNo)}`, {
-      visitor_type: el.querySelector('#asVisitorType').value,
-      visitor_name: el.querySelector('#asVisitorName').value.trim(),
-      visit_date_start: el.querySelector('#asVisitStart').value,
-      visit_date_end: el.querySelector('#asVisitEnd').value,
-      memo: el.querySelector('#asAcceptMemo').value.trim(),
-    }), { icon: 'fa-clipboard-check', submitLabel: '접수' });
+    `, async (el) => {
+      const visitor_type = el.querySelector('#asVisitorType').value;
+      if (!visitor_type) return '방문자 유형을 선택해주세요.';
+      const visitor_name = el.querySelector('#asVisitorName').value.trim();
+      if ((visitor_type === '내부' || visitor_type === '외주') && !visitor_name) return '내부/외주는 방문자 이름이 필수입니다.';
+      if (!el.querySelector('#asVisitStart').value) return '방문 예정일을 선택해주세요.';
+      return this._post(`/as/api/accept/${encodeURIComponent(asNo)}`, {
+        visitor_type,
+        visitor_name,
+        visit_date_start: el.querySelector('#asVisitStart').value,
+        visit_date_end: el.querySelector('#asVisitEnd').value,
+        memo: el.querySelector('#asAcceptMemo').value.trim(),
+      });
+    }, { icon: 'fa-clipboard-check', submitLabel: '접수' });
   }
 
   openComplete(asNo) {

@@ -184,6 +184,11 @@ def api_accept_as(as_no):
         start = (data.get('visit_date_start') or '').strip()
         end = (data.get('visit_date_end') or '').strip()
 
+        if not vtype:
+            return APIResponse.error(
+                message='방문자 유형을 선택해주세요',
+                error_code=APIErrorCode.VALIDATION_ERROR, status_code=400,
+            )
         if vtype in ('내부', '외주') and not vname:
             return APIResponse.error(
                 message='내부/외주는 방문자 이름이 필수입니다',
