@@ -19,6 +19,12 @@ function _asEsc(v) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** '2026.08.03. 18:15' 등 → 'YYYY-MM-DD' (시간 제거, 방문예정일 형식과 통일). 원본 시간은 시트에만. */
+function _asDateOnly(raw) {
+  const m = /(\d{4})[.\-/]\s*(\d{1,2})[.\-/]\s*(\d{1,2})/.exec(String(raw || ''));
+  return m ? `${m[1]}-${String(m[2]).padStart(2, '0')}-${String(m[3]).padStart(2, '0')}` : String(raw || '');
+}
+
 /**
  * 날짜 포맷팅 헬퍼 함수
  */
@@ -712,7 +718,7 @@ export default class ProjectTable {
           name: 'asAcceptDate', data: null, className: 'text-center text-nowrap', visible: false,
           render: (d, t, row) => {
             const a = window.asView && window.asView.byCode && window.asView.byCode[row['프로젝트 코드']];
-            return (a && a['접수 일자']) ? _asEsc(a['접수 일자']) : '<span class="text-muted">-</span>';
+            return (a && a['접수 일자']) ? _asEsc(_asDateOnly(a['접수 일자'])) : '<span class="text-muted">-</span>';
           }
         },
         {
@@ -755,11 +761,11 @@ export default class ProjectTable {
             if (!a) return '<span class="text-muted">-</span>';
             const st = String(a['진행 상태'] || '').trim();
             const asNo = _asEsc(a['No']);
-            let btn = '';
-            if (st === '요청됨') btn = ` <button class="btn btn-primary btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openAccept('${asNo}')">접수</button>`;
-            else if (st === '접수 완료') btn = ` <button class="btn btn-success btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openComplete('${asNo}')">완료</button>`;
+            // 처리완료 전에는 처리내용이 비어 있으므로 '다음 액션' 버튼만 노출 ('- 완료' 혼동 방지).
+            if (st === '요청됨') return `<button class="btn btn-primary btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openAccept('${asNo}')">접수</button>`;
+            if (st === '접수 완료') return `<button class="btn btn-success btn-sm py-0 px-2" onclick="event.stopPropagation(); window.asView&&window.asView.openComplete('${asNo}')">완료</button>`;
             const res = a['처리 내용'] || '';
-            return `${res ? `<span style="white-space:normal;" title="${_asEsc(res)}">${_asEsc(res)}</span>` : '<span class="text-muted">-</span>'}${btn}`;
+            return res ? `<span style="white-space:normal;" title="${_asEsc(res)}">${_asEsc(res)}</span>` : '<span class="text-muted">-</span>';
           }
         }
       ],
