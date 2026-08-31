@@ -97,17 +97,21 @@ export default class AsView {
     return host;
   }
 
-  _showModal(title, bodyHtml, onSubmit) {
+  _showModal(title, bodyHtml, onSubmit, opts = {}) {
     const host = this._modalHost();
+    const icon = opts.icon || 'fa-screwdriver-wrench';   // A/S 기본 아이콘
+    const submitLabel = opts.submitLabel || '확인';
     host.innerHTML = `
       <div class="modal fade" id="asActionModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered" style="max-width: 520px;"><div class="modal-content">
-          <div class="modal-header"><h5 class="modal-title">${esc(title)}</h5>
+          <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
+            <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
+              <i class="fas ${icon}" style="color:#17a2b8;"></i>${esc(title)}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">${bodyHtml}<div id="asModalAlert" class="text-danger small mt-2"></div></div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
-            <button type="button" class="btn btn-primary" id="asModalSubmit">확인</button>
+          <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:1rem 1.25rem;">
+            <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">취소</button>
+            <button type="button" class="btn as-btn-submit" id="asModalSubmit">${esc(submitLabel)}</button>
           </div>
         </div></div>
       </div>`;
@@ -161,7 +165,7 @@ export default class AsView {
       visitor_name: el.querySelector('#asVisitorName').value.trim(),
       visit_date_start: el.querySelector('#asVisitStart').value,
       visit_date_end: el.querySelector('#asVisitEnd').value,
-    }));
+    }), { icon: 'fa-clipboard-check', submitLabel: '접수' });
   }
 
   openComplete(asNo) {
@@ -172,7 +176,7 @@ export default class AsView {
       const resolution = el.querySelector('#asResolution').value.trim();
       if (!resolution) return '조치 내용을 입력해주세요.';
       return this._post(`/as/api/complete/${encodeURIComponent(asNo)}`, { resolution });
-    });
+    }, { icon: 'fa-flag-checkered', submitLabel: '처리 완료' });
   }
 
   openManualRequest() {
@@ -194,7 +198,7 @@ export default class AsView {
         request_content,
         manual: { address, work_content: el.querySelector('#asmWork').value.trim(), manager_name: el.querySelector('#asmManager').value.trim() },
       });
-    });
+    }, { icon: 'fa-screwdriver-wrench', submitLabel: '요청 등록' });
   }
 
   /** 프로젝트 코드로 로컬 로드된 프로젝트 데이터 조회 (stateManager → projectsData 순) */
@@ -265,6 +269,6 @@ export default class AsView {
       const err = await this._post('/as/api/request', { project_code: projectCode, request_content });
       if (!err && window.showPageAlert) window.showPageAlert(`A/S 요청 등록 완료 (${projectCode})`, 'success');
       return err;
-    });
+    }, { icon: 'fa-screwdriver-wrench', submitLabel: '요청 등록' });
   }
 }

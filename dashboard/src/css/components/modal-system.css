@@ -66,6 +66,33 @@
 #asActionModal .form-select {
   font-size: var(--font-size-sm);
 }
+/* 푸터 버튼 — 등록 모달과 동일한 파스텔 빨강(취소)/초록(확인) */
+#asActionModal .modal-footer .btn {
+  border-radius: var(--border-radius);
+  font-weight: 500;
+  padding: 0.5rem 1.35rem;
+  transition: all 0.2s ease;
+}
+#asActionModal .as-btn-cancel {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+#asActionModal .as-btn-cancel:hover {
+  background-color: #f5c6cb;
+  border-color: #f1b0b7;
+}
+#asActionModal .as-btn-submit {
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+}
+#asActionModal .as-btn-submit:hover {
+  background-color: #c3e6cb;
+  border-color: #b3d7c1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(21, 87, 36, 0.2);
+}
 
 /* 모달 헤더 */
 .modal-header {
