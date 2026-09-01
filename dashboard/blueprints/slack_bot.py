@@ -8995,10 +8995,30 @@ def _process_visit_complete(client, body) -> None:
     if not lead_no:
         return
 
+    # 멱등성 가드 — 이미 완료 처리된 리드면 webhook 재발송 skip.
+    #   완료는 시트 상태를 안 바꿔(취소와 달리) 상태로 판별 불가 → Redis 마커 사용.
+    #   5초 action lock 은 빠른 더블클릭만 막아, 재클릭/stale 시 이미 삭제된 List 항목에
+    #   webhook 이 또 나가 워크플로 'Select a list item' record_not_found 유발 가능. (2026-09-01)
+    _vc_rc = None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        _vc_rc = get_redis_client().redis
+        if _vc_rc.get(f'visit_completed:{lead_no}'):
+            logger.info(f'[SLACK/방문완료] 이미 완료됨 — webhook 재발송 skip ({lead_no})')
+            return
+    except Exception:
+        _vc_rc = None
+
     # 1) 슬랙 리스트에서 행 삭제 (webhook)
     _trigger_visit_list_webhook(
         'SLACK_VISIT_COMPLETE_WEBHOOK_URL', lead_no, channel, message_ts,
     )
+    # 완료 마커 기록 (24h) — 이후 중복 완료 재발송 차단
+    try:
+        if _vc_rc:
+            _vc_rc.set(f'visit_completed:{lead_no}', '1', ex=86400)
+    except Exception:
+        pass
 
     # 2) 원본 카드 회색 박스 변환 (상담 완료와 동일 양식)
     try:
