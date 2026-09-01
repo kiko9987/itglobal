@@ -101,30 +101,33 @@ class TestCardSettlementTarget:
 
 
 class TestItgCardMerchant:
-    """통장 정산 입금자에 ITG 가맹점 승인번호가 있으면 카드로 확정 (Y열 불문)."""
+    """통장 카드매출 정산 적요면 카드로 확정 (Y열 불문). 실제 적요 16종(2026-09-01 제공)."""
 
     @pytest.mark.parametrize('partner', [
-        'SHC0117935',   # 신한 글로벌 117935734
-        '하나90242344',  # 하나 글로벌 902423442
-        '현108017094',   # 현대 글로벌 108017094
-        'NH15415440',   # 농협 글로벌 154154402
-        '삼성204108778',  # 삼성 그룹 204108778
-        '745389850B',   # 비씨 그룹 745389850
+        # 글로벌 (G)
+        '720364972BC', 'BC-720364972', 'KB97390776', 'NH15415440', 'SHC0117935',
+        '롯데59366153', '삼성카드962', '하나90242344', '하나90718642', '현108017094',
+        # 그룹 (R)
+        '현703011838', '삼성204108778', 'KB12194399', '745389850B',
+        '롯데26648732', '신한14322878',
     ])
-    def test_known_merchants_detected(self, partner):
+    def test_real_settlement_descriptors_detected(self, partner):
         assert _is_itg_card_deposit(partner)
 
     @pytest.mark.parametrize('partner', [
         '프레임플러스', 'SK텔레콤', '㈜시프트업', '', '기업', '홍길동',
         '452388010',   # 사업자 계좌 앞자리 — 가맹점 아님
+        '주식회사제우스',
     ])
     def test_non_merchants_ignored(self, partner):
         assert not _is_itg_card_deposit(partner)
 
     def test_is_card_payment_without_y(self):
-        # Y열이 비어도(미수정) 가맹점 승인번호면 카드로 인식
+        # Y열이 비어도(미수정) 카드매출 적요면 카드로 인식
         assert _is_card_payment('', 'SHC0117935')
         assert _is_card_payment('미발행', '하나90242344')
+        assert _is_card_payment('', '롯데59366153')   # 앞자리 절삭형
+        assert _is_card_payment('', '삼성카드962')      # 브랜드+카드
         # 일반 입금자는 Y 없으면 카드 아님
         assert not _is_card_payment('', '프레임플러스')
 
