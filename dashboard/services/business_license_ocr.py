@@ -169,16 +169,17 @@ def analyze_business_license(image_bytes: bytes) -> dict:
     _low = (full_text or '').lower()
     result['is_card'] = any(k in _low for k in _CARD_KEYWORDS)
 
-    # 문서 종류 판별 — '사업자등록증'/'고유번호증' 제목이 있고 세금계산서/정산문서가 아닐 때만
-    #   진짜 사업자등록증으로 인정. 세금계산서·지출품의서는 사업자번호·상호가 있어도 여기서
-    #   걸러 canonical 오저장(덮어쓰기) 방지. (2026-09-01 R3883-SJ 계기)
+    # 문서 종류 판별 (2026-09-01 R3883-SJ 계기, 09-01 재수정):
+    #   ⚠️ 진짜 사업자등록증에도 '전자세금계산서 전용 전자우편주소' 필드가 있어 '세금계산서'
+    #      문자열이 들어감. 따라서 negative 키워드로 등록증을 부정하면 진짜 등록증을 거부하는
+    #      버그가 됨. → **제목 '사업자등록증'/'고유번호증' 유무만으로 판정**.
+    #   세금계산서·지출품의서·견적서 등은 이 제목이 없어(등록번호/공급자 등으로 표기) 걸러짐.
     _norm = re.sub(r'\s+', '', full_text or '')
-    result['doc_negative'] = any(n in _norm for n in (
+    result['is_license'] = any(p in _norm for p in ('사업자등록증', '고유번호증'))
+    # doc_negative: 등록증이 아닌 파일이 '명백한 다른 문서'인지(스킵 사유·소음 억제용). 판정엔 미사용.
+    result['doc_negative'] = (not result['is_license']) and any(n in _norm for n in (
         '세금계산서', '계산서', '지출품의서', '품의서', '견적서', '거래명세',
-        '지불의뢰', '입금표', '거래처원장'))
-    result['is_license'] = (
-        any(p in _norm for p in ('사업자등록증', '고유번호증'))
-        and not result['doc_negative'])
+        '지불의뢰', '입금표', '거래처원장', '지출결의'))
 
     # ① 사업자번호(숫자, OCR 90%+체크섬) → 거래처 탭 역조회로 정답 상호.
     #    한글 상호 오인식(예: 미덕원→이억원) 회피. 번호 미매칭·신규는 ②로.
