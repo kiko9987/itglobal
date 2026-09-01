@@ -1293,6 +1293,8 @@ export default class ModernProjectFilters {
     //   (2026-07-10)
     const receivablesToggle = document.getElementById('receivablesToggle');
     const receivablesOn = !!receivablesToggle?.checked;
+    // A/S 관리 모드도 수금 관리 모드처럼 '모드 자체'를 활성 필터로 카운트 (2026-08-31)
+    const asOn = !!document.getElementById('asModeToggle')?.checked;
     if (this.filters.company) active.push('사업자');
     if (this.filters.client) active.push('유입 구분');
     if (this.filters.businessName) active.push('사업자명');
@@ -1302,6 +1304,7 @@ export default class ModernProjectFilters {
     if (this.filters.invoice) active.push('세금계산서');
     if (this.filters.outstanding && !receivablesOn) active.push('미수금');
     if (receivablesOn) active.push('수금 관리');
+    if (asOn) active.push('A/S 관리');
     if (this.filters.myProjectsOnly) active.push('내 공사');
     if (this.searchInput && this.searchInput.value.trim()) active.push('검색');
     return active;
@@ -1372,6 +1375,13 @@ export default class ModernProjectFilters {
         element.classList.remove('filter-selected');
       }
     });
+
+    // A/S 상태 필터 — A/S 모드가 켜져 있으면 항상 적용 중이므로 강조 (수금 모드의 미수금과 동일 개념)
+    const asf = document.getElementById('asStatusFilter');
+    if (asf) {
+      const asOn = !!document.getElementById('asModeToggle')?.checked;
+      asf.classList.toggle('filter-selected', asOn);
+    }
   }
 
   /**
