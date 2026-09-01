@@ -116,6 +116,20 @@
 
             {% include 'components/project_filters.html' %}
 
+            <!-- A/S 관리 모드 전용 미니 바 (A/S 모드일 때만 표시, 일반 모드 레이아웃 불변) -->
+            <div id="asModeBar" class="d-flex align-items-center justify-content-between"
+                 style="display:none; padding:0.4rem 0.85rem; margin-bottom:0.5rem;
+                        background:var(--gray-50,#f8f9fa); border:1px solid var(--gray-200,#e9ecef); border-radius:0.4rem;">
+                <span style="font-size:0.85rem; font-weight:600; color:var(--gray-700,#495057);">
+                    <i class="fas fa-screwdriver-wrench me-1" style="color:#17a2b8;"></i>A/S 관리 모드
+                </span>
+                <div class="form-check form-switch m-0">
+                    <input class="form-check-input" type="checkbox" id="asShowCompletedToggle" style="cursor:pointer;">
+                    <label class="form-check-label" for="asShowCompletedToggle"
+                           style="font-size:0.85rem; cursor:pointer;">완료 포함</label>
+                </div>
+            </div>
+
             <!-- Modern Table Section with Semantic HTML -->
             <section class="table-section" aria-labelledby="table-heading" role="region" style="position: relative; min-height: 400px;">
                 <h2 id="table-heading" class="sr-only">프로젝트 목록 테이블</h2>

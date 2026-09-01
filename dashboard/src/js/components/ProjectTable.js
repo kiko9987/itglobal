@@ -256,6 +256,8 @@ export default class ProjectTable {
       if (t) t.checked = false;
       try { sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
       if (this.table) { this._applyAsColumns(false); this.table.columns.adjust(); }
+      const asBar = document.getElementById('asModeBar');
+      if (asBar) asBar.style.display = 'none';
       // 열려있는 아코디언의 A/S 버튼을 일반 모드용('A/S 요청')으로 즉시 되돌림
       if (window.asView && typeof window.asView._refreshAccordionButtons === 'function') {
         window.asView._refreshAccordionButtons();
@@ -1942,6 +1944,18 @@ export default class ProjectTable {
       await this._activateAsMode(toggle, e.target.checked);
     });
 
+    // '완료 포함' 토글 (A/S 전용 미니 바) — 진행 중만 ↔ 완료 포함
+    const showCompleted = document.getElementById('asShowCompletedToggle');
+    if (showCompleted) {
+      showCompleted.addEventListener('change', (e) => {
+        this._asShowCompleted = e.target.checked;
+        try { sessionStorage.setItem('itg_as_show_completed', e.target.checked ? '1' : ''); } catch (_) { /* noop */ }
+        if (window.modernFilters && window.modernFilters.applyFilters) {
+          window.modernFilters.applyFilters(null, true);
+        }
+      });
+    }
+
     // 새로고침(F5) 시 A/S 모드 복원
     try {
       if (sessionStorage.getItem('itg_as_mode') === '1') {
@@ -1983,6 +1997,17 @@ export default class ProjectTable {
     this._asModeActive = on;
     toggle.checked = on;
     try { on ? sessionStorage.setItem('itg_as_mode', '1') : sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
+
+    // A/S 전용 미니 바 표시/숨김 + '완료 포함' 상태 복원
+    const bar = document.getElementById('asModeBar');
+    if (bar) bar.style.display = on ? 'flex' : 'none';
+    if (on) {
+      let sc = false;
+      try { sc = sessionStorage.getItem('itg_as_show_completed') === '1'; } catch (_) { /* noop */ }
+      this._asShowCompleted = sc;
+      const sct = document.getElementById('asShowCompletedToggle');
+      if (sct) sct.checked = sc;
+    }
 
     this.isReceivablesTransitioning = true;  // 빠른 draw 경로 재사용
     this.showSkeletonLoader();

@@ -692,9 +692,17 @@ export default class ModernProjectFilters {
 
     // A/S 관리 모드: A/S 가 있는 프로젝트만 (window.asView.byCode 조인, 2026-08-31)
     // 수금 미수금 필터와 동일 패턴 — 메인 테이블 A/S 모드에서 A/S 없는 프로젝트 제외.
+    // 기본은 '진행 중만'(요청됨/접수완료). '완료 포함' 토글 ON 이면 완료 건까지 표시.
     if (window.__projectTableInstance && window.__projectTableInstance._asModeActive) {
       const byCode = (window.asView && window.asView.byCode) || {};
-      filteredData = filteredData.filter(item => !!byCode[String(item['프로젝트 코드'] || '').trim()]);
+      const showCompleted = !!window.__projectTableInstance._asShowCompleted;
+      filteredData = filteredData.filter(item => {
+        const a = byCode[String(item['프로젝트 코드'] || '').trim()];
+        if (!a) return false;
+        if (showCompleted) return true;
+        const st = String(a['진행 상태'] || '').trim();
+        return st === '요청됨' || st === '접수 완료';  // 진행 중만
+      });
     }
 
     // 필터링 후 프로젝트 코드 기준 숫자 내림차순 정렬
