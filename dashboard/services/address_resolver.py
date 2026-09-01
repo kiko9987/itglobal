@@ -159,7 +159,11 @@ def normalize_display(addr: str) -> str:
             result = ' '.join(tokens if _keep_do else tokens[1:])
     elif (first.endswith('시') and len(first) >= 3
           and not first.endswith('광역시') and not first.endswith('특별시')
-          and (second.endswith('구') or second.endswith('읍') or second.endswith('면'))):
+          # 단독 'XX시'(도 접두 없음) 축약 — 뒤가 구/읍/면뿐 아니라 도로명(로/길)·법정동
+          #   (동/리/가)·번지(숫자)여도 시 제거 (2026-09-01 L-03867: 구 없는 시(동두천시)나
+          #   구 생략 입력(수원시 매영로)이 '동두천시 아차노리로…'처럼 시가 남던 갭).
+          and (second.endswith(('구', '읍', '면', '동', '리', '가', '로', '길'))
+               or re.match(r'\d', second))):
         result = ' '.join([first[:-1]] + tokens[1:])
     else:
         result = addr
