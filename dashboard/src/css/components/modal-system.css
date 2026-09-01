@@ -65,6 +65,8 @@
 #asActionModal .form-control,
 #asActionModal .form-select {
   font-size: var(--font-size-sm);
+  /* .modal-body input[type=text] 의 큰 패딩(spacing-md 전방향) 오버라이드 → 다른 컨트롤과 높이 통일 */
+  padding: 0.375rem 0.75rem;
 }
 /* 드롭다운 — 새 프로젝트 등록 모달과 동일한 커스텀 화살표/좌측 정렬 */
 #asActionModal .form-select {
