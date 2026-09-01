@@ -50,12 +50,22 @@
                 </select>
             </div>
 
-            <div class="col-md-1">
+            <div class="col-md-1" id="outstandingFilterCol">
                 <label for="outstandingFilter" class="form-label">미수금</label>
                 <select class="form-select" id="outstandingFilter">
                     <option value="">전체</option>
                     <option value="collected">수금 완료</option>
                     <option value="outstanding">미수금 있음</option>
+                </select>
+            </div>
+
+            <!-- A/S 관리 모드 전용 — 미수금 필터 자리에 교체 표시 (일반 모드에선 숨김) -->
+            <div class="col-md-1" id="asStatusFilterCol" style="display:none;">
+                <label for="asStatusFilter" class="form-label">A/S 상태</label>
+                <select class="form-select" id="asStatusFilter">
+                    <option value="active" selected>진행 중</option>
+                    <option value="completed">완료</option>
+                    <option value="all">전체</option>
                 </select>
             </div>
 

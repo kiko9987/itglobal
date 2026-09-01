@@ -256,8 +256,11 @@ export default class ProjectTable {
       if (t) t.checked = false;
       try { sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
       if (this.table) { this._applyAsColumns(false); this.table.columns.adjust(); }
-      const asBar = document.getElementById('asModeBar');
-      if (asBar) asBar.style.display = 'none';
+      // 필터 바 원복 — A/S 상태 필터 숨기고 미수금 필터 복귀
+      const outCol = document.getElementById('outstandingFilterCol');
+      const asCol = document.getElementById('asStatusFilterCol');
+      if (outCol) outCol.style.display = '';
+      if (asCol) asCol.style.display = 'none';
       // 열려있는 아코디언의 A/S 버튼을 일반 모드용('A/S 요청')으로 즉시 되돌림
       if (window.asView && typeof window.asView._refreshAccordionButtons === 'function') {
         window.asView._refreshAccordionButtons();
@@ -1944,12 +1947,12 @@ export default class ProjectTable {
       await this._activateAsMode(toggle, e.target.checked);
     });
 
-    // '완료 포함' 토글 (A/S 전용 미니 바) — 진행 중만 ↔ 완료 포함
-    const showCompleted = document.getElementById('asShowCompletedToggle');
-    if (showCompleted) {
-      showCompleted.addEventListener('change', (e) => {
-        this._asShowCompleted = e.target.checked;
-        try { sessionStorage.setItem('itg_as_show_completed', e.target.checked ? '1' : ''); } catch (_) { /* noop */ }
+    // 'A/S 상태' 필터 (A/S 모드 시 미수금 필터 자리에 교체 표시) — 진행 중/완료/전체
+    const asStatusFilter = document.getElementById('asStatusFilter');
+    if (asStatusFilter) {
+      asStatusFilter.addEventListener('change', (e) => {
+        this._asStatusFilter = e.target.value || 'active';
+        try { sessionStorage.setItem('itg_as_status_filter', this._asStatusFilter); } catch (_) { /* noop */ }
         if (window.modernFilters && window.modernFilters.applyFilters) {
           window.modernFilters.applyFilters(null, true);
         }
@@ -1998,15 +2001,17 @@ export default class ProjectTable {
     toggle.checked = on;
     try { on ? sessionStorage.setItem('itg_as_mode', '1') : sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
 
-    // A/S 전용 미니 바 표시/숨김 + '완료 포함' 상태 복원
-    const bar = document.getElementById('asModeBar');
-    if (bar) bar.style.display = on ? 'flex' : 'none';
+    // A/S 모드: 미수금 필터 ↔ A/S 상태 필터 교체 (칸 수 동일 → 필터 바 레이아웃 유지)
+    const outCol = document.getElementById('outstandingFilterCol');
+    const asCol = document.getElementById('asStatusFilterCol');
+    if (outCol) outCol.style.display = on ? 'none' : '';
+    if (asCol) asCol.style.display = on ? '' : 'none';
     if (on) {
-      let sc = false;
-      try { sc = sessionStorage.getItem('itg_as_show_completed') === '1'; } catch (_) { /* noop */ }
-      this._asShowCompleted = sc;
-      const sct = document.getElementById('asShowCompletedToggle');
-      if (sct) sct.checked = sc;
+      let sf = 'active';
+      try { sf = sessionStorage.getItem('itg_as_status_filter') || 'active'; } catch (_) { /* noop */ }
+      this._asStatusFilter = sf;
+      const asf = document.getElementById('asStatusFilter');
+      if (asf) asf.value = sf;
     }
 
     this.isReceivablesTransitioning = true;  // 빠른 draw 경로 재사용
