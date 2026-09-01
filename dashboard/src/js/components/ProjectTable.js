@@ -261,6 +261,8 @@ export default class ProjectTable {
       const asCol = document.getElementById('asStatusFilterCol');
       if (outCol) outCol.style.display = '';
       if (asCol) asCol.style.display = 'none';
+      // A/S 모드 이탈 → 폴링 중지
+      if (window.asView && window.asView._stopAsPolling) window.asView._stopAsPolling();
       // 열려있는 아코디언의 A/S 버튼을 일반 모드용('A/S 요청')으로 즉시 되돌림
       if (window.asView && typeof window.asView._refreshAccordionButtons === 'function') {
         window.asView._refreshAccordionButtons();
@@ -2033,6 +2035,12 @@ export default class ProjectTable {
       window.modernFilters.applyFilters(null, true);
     } else {
       this.table.draw();
+    }
+
+    // A/S 모드 경량 폴링 (슬랙→PM 반영). off 면 중지.
+    if (window.asView) {
+      if (on && window.asView._startAsPolling) window.asView._startAsPolling();
+      else if (!on && window.asView._stopAsPolling) window.asView._stopAsPolling();
     }
   }
 

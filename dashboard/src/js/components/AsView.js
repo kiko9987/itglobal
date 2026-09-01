@@ -89,11 +89,46 @@ export default class AsView {
   async refresh() {
     await this.loadMap();
     this._redrawAsMode();
+    this._lastByCodeSig = this._byCodeSignature();
     // update_as_row 는 write-behind 라 방금 값이 시트에 아직 없을 수 있음 → 2.5초 후 재로드로 자동 정합
     if (this._reconcileTimer) { clearTimeout(this._reconcileTimer); }
     this._reconcileTimer = setTimeout(() => {
-      this.loadMap().then(() => this._redrawAsMode()).catch(() => {});
+      this.loadMap().then(() => { this._redrawAsMode(); this._lastByCodeSig = this._byCodeSignature(); }).catch(() => {});
     }, 2500);
+  }
+
+  /** A/S 모드 경량 폴링 — 슬랙 등 외부 변경을 PM에 반영 (변경 감지 시에만 재그림) */
+  _startAsPolling() {
+    this._stopAsPolling();
+    this._lastByCodeSig = this._byCodeSignature();
+    this._asPollTimer = setInterval(() => {
+      const inst = window.__projectTableInstance;
+      if (!inst || !inst._asModeActive) { this._stopAsPolling(); return; }
+      if (typeof document !== 'undefined' && document.hidden) return;  // 탭 숨김이면 skip
+      // 편집 중이면 skip (사용자 작업 방해 방지)
+      if (inst.accordion && inst.accordion.modeManager && inst.accordion.modeManager.isEditMode()) return;
+      this.loadMap().then(() => {
+        const sig = this._byCodeSignature();
+        if (sig !== this._lastByCodeSig) {   // 실제 변경 시에만 재그림 (없으면 화면 그대로)
+          this._lastByCodeSig = sig;
+          this._redrawAsMode();
+        }
+      }).catch(() => {});
+    }, 20000);
+  }
+
+  _stopAsPolling() {
+    if (this._asPollTimer) { clearInterval(this._asPollTimer); this._asPollTimer = null; }
+  }
+
+  /** byCode 상태 시그니처 (외부 변경 감지용) */
+  _byCodeSignature() {
+    try {
+      return Object.keys(this.byCode).sort().map((c) => {
+        const a = this.byCode[c] || {};
+        return `${c}:${a['진행 상태'] || ''}:${a['방문 예정일'] || ''}:${a['방문 예정자'] || ''}:${(a['조치 내용'] || '').length}`;
+      }).join('|');
+    } catch (_) { return ''; }
   }
 
   // ── Bootstrap 모달 ────────────────────────────────────────────
