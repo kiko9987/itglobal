@@ -14,7 +14,7 @@ sys.path.insert(0, '.')
 
 import pytest
 from dashboard.services.payment_sync import (
-    _card_fee_line, _is_itg_card_deposit, _is_card_payment,
+    _card_fee_line, _is_itg_card_deposit, _is_card_payment, _parse_notes,
 )
 from dashboard.blueprints.slack_bot import _card_settlement_target
 
@@ -127,6 +127,21 @@ class TestItgCardMerchant:
         assert _is_card_payment('미발행', '하나90242344')
         # 일반 입금자는 Y 없으면 카드 아님
         assert not _is_card_payment('', '프레임플러스')
+
+
+class TestNoteAnnotationParsesSafely:
+    """자동보정 노트 주석('카드 실결제/수수료' 2줄)이 금액 파서를 흔들면 안 됨 —
+    파서는 순입금(입금 X원)만 읽어야 수수료(실결제W − 순입금) 계산이 맞다."""
+
+    NOTE = ('2026/09/01 07:21\n입금 443,003원\nSHC0117935\n452***38801011\n기업\n'
+            '카드 실결제 453,200원\n수수료 10,197원')
+
+    def test_amount_stays_deposit(self):
+        p = _parse_notes([self.NOTE], stage_vals={'잔금': 453200})
+        assert len(p) == 1                     # 유령 항목 없음
+        assert p[0]['amount'] == 443003        # 순입금(실결제·수수료 줄 무시)
+        assert p[0]['partner'] == 'SHC0117935'
+        assert not p[0].get('is_refund')
 
 
 if __name__ == '__main__':

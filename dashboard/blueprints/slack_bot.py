@@ -1542,7 +1542,7 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
             # '입금' 키워드 없는 주석 줄이라 금액 파서(순입금)엔 영향 없음.
             _real = _card_target - old_num           # 이번 결제 실결제(고객 카드 청구=계약잔액)
             _fee = _real - int(amount)               # 카드 수수료(ITG 부담)
-            memo_sheet = f"{memo_sheet.rstrip()}\n· 카드 실결제 {_real:,}원 (수수료 {_fee:,})"
+            memo_sheet = f"{memo_sheet.rstrip()}\n카드 실결제 {_real:,}원\n수수료 {_fee:,}원"
         old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
         new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
         if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
