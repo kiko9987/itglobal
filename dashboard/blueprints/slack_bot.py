@@ -9164,6 +9164,12 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
 
     # old 상담 내용 캡처 → append
     old_lead = _find_lead_by_no(lead_no) or {}
+    # 멱등성 가드 — 이미 취소된 리드면 재처리·webhook 재발송 skip
+    #   (5초 action lock 은 빠른 더블클릭만 막음. 재제출/재취소 시 이미 삭제된 List
+    #    항목에 webhook 이 또 나가 워크플로 'Select a list item' record_not_found 유발. 2026-09-01)
+    if str(old_lead.get('상태') or '').strip() == '방문 취소':
+        logger.info(f'[SLACK/방문취소] 이미 취소됨 — 재처리/webhook 재발송 skip ({lead_no})')
+        return
     old_note = str(old_lead.get('상담 내용') or '').strip()
     initial = _slack_user_to_initial(client, user_id) or '-'
     cancel_date = datetime.now().strftime('%Y-%m-%d')
