@@ -73,9 +73,8 @@ export default class AsView {
     }
   }
 
-  /** 액션 후 조인맵 재로드 + A/S 모드면 필터(has-A/S) 재적용 + 컬럼 재그림 */
-  async refresh() {
-    await this.loadMap();
+  /** A/S 모드면 필터(has-A/S) 재적용 + 컬럼 재그림 */
+  _redrawAsMode() {
     const inst = window.__projectTableInstance;
     if (inst && inst._asModeActive) {
       if (window.modernFilters && window.modernFilters.applyFilters) {
@@ -84,6 +83,17 @@ export default class AsView {
         try { inst.table.rows().invalidate().draw(false); } catch (_) { inst.table.draw(false); }
       }
     }
+  }
+
+  /** 액션 후 조인맵 재로드 + 재그림. write-behind 큐 flush 지연 대비 잠시 후 1회 재정합. */
+  async refresh() {
+    await this.loadMap();
+    this._redrawAsMode();
+    // update_as_row 는 write-behind 라 방금 값이 시트에 아직 없을 수 있음 → 2.5초 후 재로드로 자동 정합
+    if (this._reconcileTimer) { clearTimeout(this._reconcileTimer); }
+    this._reconcileTimer = setTimeout(() => {
+      this.loadMap().then(() => this._redrawAsMode()).catch(() => {});
+    }, 2500);
   }
 
   // ── Bootstrap 모달 ────────────────────────────────────────────
@@ -301,7 +311,7 @@ export default class AsView {
 
     const rows = [
       ['📥 유입 구분', v('유입 구분')],
-      ['🏢 사업자명', v('사업자')],
+      ['🏢 사업자명', v('사업자명')],
       ['📍 현장 주소', v('현장 주소')],
       ['👤 발주처 담당자', v('발주처 담당자')],
       ['📞 발주처 연락처', v('발주처 연락처')],

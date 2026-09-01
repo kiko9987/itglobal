@@ -3639,7 +3639,8 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
     return blocks
 
 
-def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dict] = None) -> tuple:
+def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dict] = None,
+                    override: Optional[dict] = None) -> tuple:
     """A/S 시트 상태 기준으로 슬랙 카드를 post(신규)/update(기존) + (요청 시)담당자 DM.
     PM 대시보드와 슬랙 핸들러 공용 (2026-08-29). Returns (channel, ts) or ('', '').
 
@@ -3653,6 +3654,8 @@ def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dic
     if not data:
         logger.warning(f'[SLACK/AS] as_refresh_card: 데이터 없음 ({as_no})')
         return ('', '')
+    if override:
+        data = {**data, **override}  # write-behind 지연 우회 — PM 접수/완료가 방금 쓴 값 즉시 반영
     status = str(data.get('진행 상태', '') or '').strip()
     view_state = ('completed' if status == STATUS_COMPLETED
                   else 'accepted' if status == STATUS_ACCEPTED else 'requested')
@@ -4186,6 +4189,7 @@ def _as_accept_view(as_no, channel, message_ts, contractor='', contract_type='',
       내부: 자유 입력. 내부 공사(contract_type=='내부')는 외주 옵션 제외.
     - 날짜/메모/이름은 재렌더 시 기존 입력을 initial_* 로 보존.
     """
+    contractor = '' if str(contractor).strip() == '-' else str(contractor).strip()
     metadata = json.dumps({
         "as_no": as_no, "channel": channel, "message_ts": message_ts,
         "contractor": contractor, "contract_type": contract_type,

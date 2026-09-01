@@ -52,11 +52,15 @@ def _find_open_as(project_code: str):
     return None
 
 
-def _sync_slack(as_no: str, send_dm: bool = False, dm_override=None) -> None:
-    """슬랙 A/S 카드/DM 동기화 (실패해도 시트 반영은 유지)."""
+def _sync_slack(as_no: str, send_dm: bool = False, dm_override=None, override=None) -> None:
+    """슬랙 A/S 카드/DM 동기화 (실패해도 시트 반영은 유지).
+
+    override: 방금 write-behind 큐에 넣은 값(진행 상태·방문 예정자 등)을 카드에 즉시 반영.
+      큐 flush 전에 as_refresh_card 가 시트를 직접 읽으면 이전 상태가 나오므로 우회.
+    """
     try:
         from .slack_bot import as_refresh_card
-        as_refresh_card(as_no, send_dm=send_dm, dm_override=dm_override)
+        as_refresh_card(as_no, send_dm=send_dm, dm_override=dm_override, override=override)
     except Exception as exc:
         logger.warning(f'[AS] 슬랙 동기화 실패 ({as_no}): {exc}')
 
@@ -208,18 +212,26 @@ def api_accept_as(as_no):
             visit_date = f'{start}~{end}' if end and end != start else start
 
         initial = _current_initial()
+        accept_dt = datetime.now().strftime('%Y.%m.%d. %H:%M')
         as_service.update_as_row(as_no, {
             as_service.COL_ACCEPTER: initial,
-            as_service.COL_ACCEPT_DATE: datetime.now().strftime('%Y.%m.%d. %H:%M'),
+            as_service.COL_ACCEPT_DATE: accept_dt,
             as_service.COL_VISITOR: visitor,
             as_service.COL_VISIT_DATE: visit_date,
             as_service.COL_STATUS: as_service.STATUS_ACCEPTED,
         })
         # 접수 메모(선택) — 새 컬럼 없이 M열(메모/이력)에 누적
         memo = (data.get('memo') or '').strip()
-        if memo:
-            as_service.append_as_log(as_no, memo, initial)
-        _sync_slack(as_no)
+        new_log = as_service.append_as_log(as_no, memo, initial) if memo else None
+        # 슬랙 카드에 방금 쓴 값 즉시 반영 (write-behind flush 전 stale read 우회)
+        overr = {
+            '접수자': initial, '접수 일자': accept_dt,
+            '방문 예정자': visitor, '방문 예정일': visit_date,
+            '진행 상태': as_service.STATUS_ACCEPTED,
+        }
+        if new_log is not None:
+            overr['조치 내용'] = new_log
+        _sync_slack(as_no, override=overr)
         logger.info(f'[AS] PM 접수: {as_no} (visitor={visitor}, date={visit_date}, memo={"Y" if memo else "N"})')
         return APIResponse.success(data={'as_no': as_no})
     except Exception as exc:
@@ -246,8 +258,12 @@ def api_complete_as(as_no):
             as_service.COL_STATUS: as_service.STATUS_COMPLETED,
         })
         # 조치 내용도 M열(메모/이력)에 누적 (덮어쓰지 않음)
-        as_service.append_as_log(as_no, resolution, _current_initial())
-        _sync_slack(as_no)
+        new_log = as_service.append_as_log(as_no, resolution, _current_initial())
+        # 슬랙 카드에 방금 쓴 값 즉시 반영 (write-behind flush 전 stale read 우회)
+        overr = {'진행 상태': as_service.STATUS_COMPLETED}
+        if new_log is not None:
+            overr['조치 내용'] = new_log
+        _sync_slack(as_no, override=overr)
         logger.info(f'[AS] PM 조치완료: {as_no}')
         return APIResponse.success(data={'as_no': as_no})
     except Exception as exc:
