@@ -148,7 +148,8 @@ def analyze_business_license(image_bytes: bytes) -> dict:
       - is_card: 카드 이미지 키워드 감지 → 안내 문구 구체화.
     Vision 은 1회만 호출 (ocr_business_license 도 이걸 재사용).
     """
-    result = {'name': '', 'bno': '', 'is_card': False, 'has_text': False}
+    result = {'name': '', 'bno': '', 'is_card': False, 'has_text': False,
+              'is_license': False, 'doc_negative': False}
     if not image_bytes:
         return result
     try:
@@ -167,6 +168,17 @@ def analyze_business_license(image_bytes: bytes) -> dict:
     result['has_text'] = bool((full_text or '').strip())
     _low = (full_text or '').lower()
     result['is_card'] = any(k in _low for k in _CARD_KEYWORDS)
+
+    # 문서 종류 판별 — '사업자등록증'/'고유번호증' 제목이 있고 세금계산서/정산문서가 아닐 때만
+    #   진짜 사업자등록증으로 인정. 세금계산서·지출품의서는 사업자번호·상호가 있어도 여기서
+    #   걸러 canonical 오저장(덮어쓰기) 방지. (2026-09-01 R3883-SJ 계기)
+    _norm = re.sub(r'\s+', '', full_text or '')
+    result['doc_negative'] = any(n in _norm for n in (
+        '세금계산서', '계산서', '지출품의서', '품의서', '견적서', '거래명세',
+        '지불의뢰', '입금표', '거래처원장'))
+    result['is_license'] = (
+        any(p in _norm for p in ('사업자등록증', '고유번호증'))
+        and not result['doc_negative'])
 
     # ① 사업자번호(숫자, OCR 90%+체크섬) → 거래처 탭 역조회로 정답 상호.
     #    한글 상호 오인식(예: 미덕원→이억원) 회피. 번호 미매칭·신규는 ②로.

@@ -575,7 +575,10 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
     saved = []
     skipped = []
     pending_files = []  # 폴더 미등록으로 실패 → 폴더 경로 등록 시 자동 재시도용 (2026-08-28)
-    ocr_content = None  # OCR 대상 (첫 번째로 성공 저장된 파일 content)
+    ocr_result = None       # 저장된 사업자등록증의 OCR 분석 결과 (사업자명 반영·경고 재사용)
+    not_license_any = False  # 사업자등록증 아닌 파일이 하나라도 있었나 (세금계산서·정산문서 등)
+    is_card_any = False
+    ambiguous_any = False    # 정산문서/카드는 아닌데 등록증 제목도 못 잡음 = 흐릿한 등록증 의심(안내)
     for f in files:
         name = f.get('name') or ''
         mimetype = f.get('mimetype') or ''
@@ -592,12 +595,33 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
 
         try:
             content = _download_slack_file(url, slack_bot_token)
+            # 문서 종류 판별 — 사업자등록증/고유번호증만 저장. 세금계산서·지출품의서·정산 PDF 등
+            #   (같은 스레드에 자주 올라옴)이 canonical 을 덮어쓰던 사고 방지 (2026-09-01 R3883-SJ).
+            try:
+                from dashboard.services.business_license_ocr import analyze_business_license
+                _an = analyze_business_license(content)
+            except Exception as exc:
+                logger.warning(f'[LICENSE] OCR 판별 예외 ({name}): {exc}')
+                _an = {}
+            if _an.get('is_card'):
+                is_card_any = True
+            if not _an.get('is_license'):
+                not_license_any = True
+                # 명백한 정산문서(세금계산서 등)·카드가 아니고 텍스트는 있는데 제목만 못 잡았으면
+                #   흐릿한 등록증일 수 있음 → ambiguous(가벼운 안내). 명백한 문서/카드는 조용히 skip
+                #   (공사확정 스레드엔 정산문서가 자주 올라오므로 소음 방지). skipped 에 넣지 않음.
+                if _an.get('has_text') and not _an.get('doc_negative') and not _an.get('is_card'):
+                    ambiguous_any = True
+                logger.info(
+                    f'[LICENSE] 비-등록증 저장 skip ({code}): {_sanitize_filename_for_log(name)} '
+                    f'(neg={_an.get("doc_negative")} card={_an.get("is_card")} text={_an.get("has_text")})')
+                continue
+
             res = save_business_license(code, content, name, mimetype)
             if res.get('ok'):
                 saved.append(res['file_name'])
-                # OCR 은 첫 파일만 (여러 개 첨부해도 하나만 처리 — API cost 절감)
-                if ocr_content is None:
-                    ocr_content = content
+                if ocr_result is None:
+                    ocr_result = _an  # 첫 저장 등록증의 분석 결과 재사용 (재 OCR 안 함)
             else:
                 skipped.append(f'{name}: {_reason_message(res.get("reason"))}')
                 if res.get('reason') == 'no_project_folder':
@@ -637,24 +661,15 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
         except Exception as exc:
             logger.warning(f'[LICENSE] 원본 카드 갱신 실패 ({code}): {exc}')
 
-    # OCR — 첫 저장 파일에서 법인명·상호 추출 (Google Vision API, 2026-07-13).
-    # 실패 시 조용히 skip. 성공 시 시트 사업자명 자동 반영 시도 (안전장치 있음).
+    # 저장된 사업자등록증의 OCR 결과(ocr_result)로 법인명·상호 시트 자동 반영.
+    #   루프에서 문서 종류 판별 시 이미 OCR 했으므로 재호출 안 함 (API cost 절감).
     business_name = ''
     biz_update_status = ''  # '' | 'saved' | 'match' | 'mismatch' | 'error'
     biz_update_existing = ''
-    not_license = False   # 사업자번호·상호 둘 다 못 찾음 = 사업자등록증 아닐 가능성(오첨부)
-    is_card = False       # 카드 이미지 키워드 감지
-    if ocr_content:
-        try:
-            from dashboard.services.business_license_ocr import analyze_business_license
-            _an = analyze_business_license(ocr_content)
-            business_name = (_an.get('name') or '')
-            is_card = bool(_an.get('is_card'))
-            # 사업자번호도 상호도 없으면 사업자등록증이 아닐 가능성 (카드·오첨부·판독불가).
-            # 2026-08-10 G3879-JSH (삼성카드 이미지 오첨부) 계기 — 조용히 넘기지 말고 경고.
-            not_license = not business_name and not (_an.get('bno') or '')
-        except Exception as exc:
-            logger.warning(f'[LICENSE/OCR] 예외: {exc}')
+    not_license = not_license_any  # 사업자등록증 아닌 파일이 하나라도 있었나 (안내용)
+    is_card = is_card_any          # 카드 이미지 감지
+    if ocr_result:
+        business_name = (ocr_result.get('name') or '')
         if business_name:
             try:
                 biz_update_status, biz_update_existing = _maybe_update_business_name(code, business_name)
@@ -694,6 +709,7 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
         'biz_update_existing': biz_update_existing,
         'not_license': not_license,
         'is_card': is_card,
+        'ambiguous': ambiguous_any,
     }
 
 

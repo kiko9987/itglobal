@@ -2248,19 +2248,29 @@ def _register_project_handlers(app):
                             pass
                     return
                 saved = result.get('saved') or []
-                skipped = result.get('skipped') or []
-                not_license = bool(result.get('not_license'))
-                is_card = bool(result.get('is_card'))
+                skipped = result.get('skipped') or []       # 실제 오류만 (비-등록증은 제외)
+                ambiguous = bool(result.get('ambiguous'))   # 정산문서/카드 아닌데 등록증 인식 실패
+
+                # 저장·오류·애매 아무것도 없으면(= 명백한 비-등록증 문서만) 조용히 종료.
+                #   공사확정 스레드엔 정산문서(세금계산서·품의서 등)가 자주 올라오므로 소음 방지.
+                if not saved and not skipped and not ambiguous:
+                    logger.info(f"[LICENSE] 비-등록증 첨부만 — 조용히 skip ({result.get('code')})")
+                    if channel and ts:
+                        try:
+                            client.reactions_remove(channel=channel, timestamp=ts, name=_sand)
+                        except Exception:
+                            pass
+                    return
 
                 # reaction 최종 상태 반영
-                if saved and not_license:
-                    _safe_react('warning')  # 저장은 됐으나 사업자등록증 아닐 가능성(오첨부)
-                elif saved and not skipped:
+                if saved and not skipped:
                     _safe_react('white_check_mark')  # 전건 성공
                 elif saved and skipped:
                     _safe_react('warning')  # 부분 성공
+                elif ambiguous:
+                    _safe_react('grey_question')  # 등록증 인식 실패(애매)
                 else:
-                    _safe_react('x')  # 실패
+                    _safe_react('x')  # 오류
 
                 lines = []
                 if saved:
@@ -2292,20 +2302,16 @@ def _register_project_handlers(app):
                         f"_(자동 저장 실패 — 관리 페이지에서 확인 후 수동 입력하세요)_"
                     )
                 # match / '' 인 경우 조용히 skip
-                # 사업자등록증 오첨부 감지 (2026-08-10 G3879-JSH 카드 이미지) — 조용히 넘기지 말고 안내.
-                if not_license and saved:
-                    if is_card:
-                        lines.append(
-                            ":warning: 첨부가 *카드 이미지*로 보입니다 — 사업자등록증이 아닙니다. "
-                            "올바른 사업자등록증인지 확인해 주세요. _(카드결제 건이면 무시하셔도 됩니다.)_"
-                        )
-                    else:
-                        lines.append(
-                            ":warning: 첨부에서 *사업자등록증 정보(사업자번호·상호)를 못 찾았습니다*. "
-                            "사업자등록증이 맞는지 확인해 주세요. _(카드결제 건이면 무시하셔도 됩니다.)_"
-                        )
+                # 등록증으로 자동 인식 못 함(애매) — 저장된 게 없을 때만 가볍게 안내.
+                #   명백한 정산문서·카드는 handler 에서 조용히 걸러져 여기 안 옴.
+                if ambiguous and not saved:
+                    lines.append(
+                        ":grey_question: 첨부를 *사업자등록증/고유번호증으로 자동 인식하지 못했습니다*. "
+                        "등록증이 맞다면 또렷한 사진/PDF로 다시 올려주세요. "
+                        "_(정산문서·카드 등이면 무시하셔도 됩니다.)_"
+                    )
                 if skipped:
-                    lines.append(f":warning: 저장 안 됨:")
+                    lines.append(":warning: 저장 안 됨:")
                     for s in skipped:
                         lines.append(f"  • {s}")
                 if lines:
