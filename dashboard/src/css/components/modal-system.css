@@ -85,6 +85,14 @@
 #asActionModal input[type="date"] {
   cursor: pointer;
 }
+/* 비활성(잠금) 입력 — 흰색이면 수정 가능 여부를 클릭해봐야 알아서, 회색으로 명확히 표시 */
+#asActionModal .form-control:disabled,
+#asActionModal .form-select:disabled {
+  background-color: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
+  opacity: 1;
+}
 /* 푸터 버튼 — 등록 모달과 동일한 파스텔 빨강(취소)/초록(확인) */
 #asActionModal .modal-footer .btn {
   border-radius: var(--border-radius);
