@@ -1523,25 +1523,33 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         #    지연)에 폴러가 끼어 '값 있고 노트 없는' 상태를 읽고 baseline만 올린 뒤 카드를
         #    영영 안 보내는 레이스가 난다 (2026-08-19 R3916-TH 잔금 카드 유실).
         #    노트를 먼저 확정하면 값이 보이는 순간엔 노트가 이미 있어 폴러가 정상 발송한다.
+        # 값 선독 — 카드 자동보정 판단 + 노트 주석에 필요 (기록 순서는 노트→값 유지)
+        old_val_raw = manager.get_cell_value(sheet_id, sheet_name, cell)
+        try:
+            old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
+        except (ValueError, TypeError):
+            old_num = 0
+        # 카드 결제 자동 수수료 보정 — 순입금 대신 실결제(계약잔액) 기록 (미수금 0).
+        _card_target = _card_settlement_target(
+            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text)
+
         # 1) 메모(노트) 먼저 — 기존 있으면 append (분납 대비).
         #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
         from dashboard.services.sms_intake import strip_web_header
         memo_sheet = strip_web_header(memo_text)
+        if _card_target is not None:
+            # 셀 값(실결제)과 노트(순입금)의 차이를 노트에 명시 — 시트에서 봐도 자명하게.
+            # '입금' 키워드 없는 주석 줄이라 금액 파서(순입금)엔 영향 없음.
+            _real = _card_target - old_num           # 이번 결제 실결제(고객 카드 청구=계약잔액)
+            _fee = _real - int(amount)               # 카드 수수료(ITG 부담)
+            memo_sheet = f"{memo_sheet.rstrip()}\n· 카드 실결제 {_real:,}원 (수수료 {_fee:,})"
         old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
         new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
         if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
             logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 이어서 기록): {cell}")
 
         # 2) 금액 값 나중 — 기존 값에 합산 (트리거 조건: 값 > 0). 노트 확정 뒤 마지막에 기록.
-        old_val_raw = manager.get_cell_value(sheet_id, sheet_name, cell)
-        try:
-            old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
-        except (ValueError, TypeError):
-            old_num = 0
         new_num = old_num + int(amount)
-        # 카드 결제 자동 수수료 보정 — 순입금 대신 실결제(계약잔액) 기록 (미수금 0). 노트는 순입금 유지.
-        _card_target = _card_settlement_target(
-            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text)
         if _card_target is not None and _card_target != new_num:
             logger.info(f"[SLACK/수금봇] 카드 수수료 자동보정: {project_code} {stage} "
                         f"순입금 {amount:,} → 실결제 {_card_target - old_num:,}원 기록 (미수금 0)")
