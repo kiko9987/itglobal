@@ -2408,6 +2408,17 @@ def _unglue_si_before_road(s: Optional[str]) -> Optional[str]:
     return _SI_ROAD_GLUE_RE.sub(r'\1 ', s) if s else s
 
 
+# 옛 '군' → '시' 승격 지명 후보 (포천군→포천시·양주군→양주시 등, 2026-09-01 L-03863).
+#   행정 토큰 'XX군'(뒤 공백/끝)만 — 실제 채택은 resolve_address 가 재귀 verify 로 게이팅
+#   (아직 군인 가평군·양평군은 verify 실패로 원본 유지).
+_GUN_TOKEN_RE = re.compile(r'([가-힣]{2,})군(?=\s|$)')
+
+
+def _promote_gun_to_si(s: Optional[str]) -> Optional[str]:
+    """'XX군' 행정 토큰을 'XX시'로 치환한 후보 문자열 반환 (순수함수)."""
+    return _GUN_TOKEN_RE.sub(r'\1시', s) if s else s
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -2447,6 +2458,16 @@ def resolve_address(
         _alt_res = resolve_address(_alt_text, _alt_regex, regex_level)
         if _alt_res[1] == 'verified':
             return _alt_res
+
+    # 옛 '군' → '시' 승격 지명 반영 (포천군→포천시, 2026-09-01 L-03863). 승격 지명은
+    #   카카오/행안부가 현재명(시)만 인식 → 옛 '군' 지번은 변환 실패. 'XX군'→'XX시' 후보가
+    #   verified 될 때만 채택(아직 군인 가평군 등은 verify 실패 → 원본 유지). sub 멱등→무한재귀 X.
+    _gun_text = _promote_gun_to_si(text)
+    if _gun_text != text:
+        _gun_regex = _promote_gun_to_si(regex_addr) if regex_addr else regex_addr
+        _gun_res = resolve_address(_gun_text, _gun_regex, regex_level)
+        if _gun_res[1] == 'verified':
+            return _gun_res
 
     # 1. 카카오 검증 시도
     verified = verify_address(text, regex_addr)
