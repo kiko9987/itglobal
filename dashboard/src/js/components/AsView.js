@@ -182,14 +182,22 @@ export default class AsView {
   }
 
   openAccept(asNo) {
+    // 프로젝트 도급 구분/시공자 조회 — 옵션 제한 + 이름 자동채움에 사용
+    const asItem = (this.byNo && this.byNo[asNo]) || null;
+    const code = asItem ? String(asItem['프로젝트 코드'] || '').trim() : '';
+    const proj = code ? (this._findProject(code) || {}) : {};
+    const contractType = String(proj['도급 구분'] || '').trim();
+    const contractor = String(proj['시공자'] || '').trim();
+    // 내부 공사는 외주에 A/S 를 맡길 수 없음 → 외주 옵션 제외. (외주 공사는 내부/외주 모두 가능)
+    const allowOutsource = contractType !== '내부';
+    let typeOptions = '<option value="" selected disabled>선택</option>'
+      + '<option value="서비스 기사">서비스 기사</option>'
+      + '<option value="내부">내부 (아이티)</option>'
+      + (allowOutsource ? '<option value="외주">외주 (시공자)</option>' : '');
+
     this._showModal(`A/S 접수 — ${asNo}`, `
       <div class="mb-2"><label class="form-label">방문자 유형</label>
-        <select id="asVisitorType" class="form-select">
-          <option value="" selected disabled>선택</option>
-          <option value="서비스 기사">서비스 기사</option>
-          <option value="내부">내부 (아이티)</option>
-          <option value="외주">외주 (시공자)</option>
-        </select></div>
+        <select id="asVisitorType" class="form-select">${typeOptions}</select></div>
       <div class="mb-2"><label class="form-label">방문자 이름 <span class="text-muted small">(내부/외주 필수)</span></label>
         <input id="asVisitorName" type="text" class="form-control" placeholder="예: 강민석"></div>
       <div class="row"><div class="col mb-2"><label class="form-label">방문 예정일</label>
@@ -212,19 +220,16 @@ export default class AsView {
         memo: el.querySelector('#asAcceptMemo').value.trim(),
       });
     }, { icon: 'fa-clipboard-check', submitLabel: '접수' });
-    // 방문자 유형 = 서비스 기사 → 이름칸 비활성 + '서비스 기사' 자동. 내부/외주 → 활성(직접 입력).
+    // 유형별 이름칸 제어: 서비스 기사=잠금+자동 / 외주=시공자 자동(수정 가능) / 내부=자유 입력
     const host = document.getElementById('asModalHost');
     const sel = host && host.querySelector('#asVisitorType');
     const name = host && host.querySelector('#asVisitorName');
     if (sel && name) {
       const sync = () => {
-        if (sel.value === '서비스 기사') {
-          name.value = '서비스 기사';
-          name.disabled = true;
-        } else {
-          if (name.value === '서비스 기사') name.value = '';
-          name.disabled = false;
-        }
+        const v = sel.value;
+        if (v === '서비스 기사') { name.value = '서비스 기사'; name.disabled = true; }
+        else if (v === '외주') { name.value = contractor || ''; name.disabled = false; }
+        else { name.value = ''; name.disabled = false; }  // 내부 / 선택
       };
       sel.addEventListener('change', sync);
       sync();  // 초기 상태(기본 '선택')에도 반영

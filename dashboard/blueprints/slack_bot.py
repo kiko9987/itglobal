@@ -3217,16 +3217,32 @@ def _register_as_handlers(app):
                 logger.error(f"[SLACK/AS] 접수 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    @app.action("as_accept_type")
+    def handle_as_accept_type(ack, body, client):
+        # 방문자 유형 select 변경 → 이름칸 잠금/자동채움 반영해 모달 재렌더
+        ack()
+        def _bg():
+            try:
+                _handle_as_accept_type_change(client, body)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] 접수 유형 변경 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     @app.view("submit_as_accept")
     def handle_submit_as_accept(ack, body, client, view):
         # 방문 유형이 내부/외주면 담당자 이름 필수 검증
         values = view.get("state", {}).get("values", {})
         visitor_type = ''
         try:
-            opt = values.get("visitor_type", {}).get("value", {}).get("selected_option", {})
+            opt = values.get("visitor_type", {}).get("as_accept_type", {}).get("selected_option", {})
             visitor_type = (opt or {}).get("value", '') or ''
         except Exception:
             pass
+        if not visitor_type:
+            ack(response_action="errors", errors={
+                "visitor_name": "먼저 방문 예정자 유형을 선택해주세요.",
+            })
+            return
         visitor_name = ''
         try:
             visitor_name = (values.get("visitor_name", {}).get("value", {}) or {}).get("value", '') or ''
@@ -3322,7 +3338,7 @@ def _register_as_handlers(app):
 
     logger.info(
         "[SLACK/AS봇] 핸들러 등록 완료: /as, submit_as_request, "
-        "as_accept_open, submit_as_accept, as_complete_open, submit_as_complete, "
+        "as_accept_open, as_accept_type, submit_as_accept, as_complete_open, submit_as_complete, "
         "options(as_project_code)"
     )
 
@@ -3534,7 +3550,11 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
     # button value 에 시공자 이름 함께 저장 — 모달 오픈 시 시트 API 재조회 skip
     # → trigger_id 3초 만료 방지 (2026-07-13 사용자 관측: 모달 늦게 열림).
     contractor = (proj.get('contractor', '') or '').strip() if proj else ''
-    accept_value = json.dumps({'as_no': as_no, 'contractor': contractor}, ensure_ascii=False)
+    contract_type = (proj.get('contract_type', '') or '').strip() if proj else ''
+    accept_value = json.dumps(
+        {'as_no': as_no, 'contractor': contractor, 'contract_type': contract_type},
+        ensure_ascii=False,
+    )
     if view_state == 'requested':
         blocks.append({
             "type": "actions",
@@ -4100,24 +4120,113 @@ def _process_as_request_submission(client, body, view) -> None:
             logger.warning(f'[SLACK/AS] 담당자 DM 예외 (무시): {exc}')
 
 
-def _open_as_accept_modal(client, body) -> None:
-    """[✅ A/S 접수하기] 클릭 → 접수 모달.
+def _as_accept_view(as_no, channel, message_ts, contractor='', contract_type='',
+                    selected_type='', name_val='', date_start='', date_end='', memo=''):
+    """A/S 접수 모달 뷰 빌더 (열기 + 유형 변경 시 views_update 공용).
 
-    방문 유형(서비스 기사/내부/외주) 선택 후 담당자 이름을 별도 칸에 입력.
-    서비스 기사 방문 시 담당자 이름 칸은 비워두면 되고, 그 외에는 필수.
-
-    2026-07-13: 외주 케이스 대비 원본 시공자 이름을 이름 필드에 pre-fill.
-    매니저가 '외주' 선택 시 시공자 이름을 다시 타이핑할 필요 없음. 내부는 지우고
-    담당자 이름으로 변경.
+    - 방문자 유형을 actions 블록 static_select 로 두어 선택 시 block_actions 발생 → 동적 갱신.
+    - 서비스 기사: 이름칸 대신 읽기전용 표시(잠금). 외주: 시공자 자동 채움(수정 가능).
+      내부: 자유 입력. 내부 공사(contract_type=='내부')는 외주 옵션 제외.
+    - 날짜/메모/이름은 재렌더 시 기존 입력을 initial_* 로 보존.
     """
+    metadata = json.dumps({
+        "as_no": as_no, "channel": channel, "message_ts": message_ts,
+        "contractor": contractor, "contract_type": contract_type,
+    }, ensure_ascii=False)
+
+    opts = [
+        {"text": {"type": "plain_text", "text": "서비스 기사"}, "value": "서비스 기사"},
+        {"text": {"type": "plain_text", "text": "내부 (아이티)"}, "value": "내부"},
+    ]
+    if str(contract_type).strip() != '내부':  # 내부 공사는 외주 A/S 불가
+        opts.append({"text": {"type": "plain_text", "text": "외주 (시공자)"}, "value": "외주"})
+    type_elem = {
+        "type": "static_select", "action_id": "as_accept_type",
+        "placeholder": {"type": "plain_text", "text": "선택"},
+        "options": opts,
+    }
+    sel_opt = next((o for o in opts if o["value"] == selected_type), None)
+    if sel_opt:
+        type_elem["initial_option"] = sel_opt
+
+    blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": "*방문 예정자 유형* :"}},
+        {"type": "actions", "block_id": "visitor_type", "elements": [type_elem]},
+    ]
+    # 이름 블록 — 유형별
+    if selected_type == '서비스 기사':
+        blocks.append({
+            "type": "section", "block_id": "visitor_name_ro",
+            "text": {"type": "mrkdwn", "text": "*방문 예정자 이름* : `서비스 기사` _(자동)_"},
+        })
+    elif selected_type in ('내부', '외주'):
+        prefill = contractor if selected_type == '외주' else name_val
+        el = {"type": "plain_text_input", "action_id": "value",
+              "placeholder": {"type": "plain_text", "text": "예: 김철수"}}
+        if prefill:
+            el["initial_value"] = prefill
+        blocks.append({
+            "type": "input", "block_id": "visitor_name", "optional": True,
+            "label": {"type": "plain_text", "text": "방문 예정자 이름"},
+            "element": el,
+        })
+    else:  # 유형 미선택
+        blocks.append({
+            "type": "input", "block_id": "visitor_name", "optional": True,
+            "label": {"type": "plain_text", "text": "방문 예정자 이름"},
+            "hint": {"type": "plain_text", "text": "방문 예정자 유형을 먼저 선택하세요."},
+            "element": {"type": "plain_text_input", "action_id": "value",
+                        "placeholder": {"type": "plain_text", "text": "유형 선택 후 입력"}},
+        })
+
+    ds = {"type": "datepicker", "action_id": "value"}
+    if date_start:
+        ds["initial_date"] = date_start
+    blocks.append({
+        "type": "input", "block_id": "visit_date_start",
+        "label": {"type": "plain_text", "text": "방문 예정일 (시작)"},
+        "element": ds,
+    })
+    de = {"type": "datepicker", "action_id": "value"}
+    if date_end:
+        de["initial_date"] = date_end
+    blocks.append({
+        "type": "input", "block_id": "visit_date_end", "optional": True,
+        "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
+        "hint": {"type": "plain_text", "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
+        "element": de,
+    })
+    me = {"type": "plain_text_input", "action_id": "value", "multiline": True,
+          "placeholder": {"type": "plain_text", "text": "예: 접수번호 SVC-1234, 오전 방문 예정"}}
+    if memo:
+        me["initial_value"] = memo
+    blocks.append({
+        "type": "input", "block_id": "memo", "optional": True,
+        "label": {"type": "plain_text", "text": "접수 메모 (선택)"},
+        "hint": {"type": "plain_text", "text": "접수번호·특이사항 등. 메모/이력에 시간·이니셜과 함께 기록됩니다."},
+        "element": me,
+    })
+
+    return {
+        "type": "modal", "callback_id": "submit_as_accept",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "A/S 접수"},
+        "submit": {"type": "plain_text", "text": "접수 확정"},
+        "close": {"type": "plain_text", "text": "취소"},
+        "blocks": blocks,
+    }
+
+
+def _open_as_accept_modal(client, body) -> None:
+    """[🛠️ A/S 접수하기] 클릭 → 접수 모달 (유형 선택 시 이름칸 동적 잠금/자동채움)."""
     trigger_id = body["trigger_id"]
-    # button value 는 JSON `{as_no, contractor}` 또는 fallback 로 as_no 문자열 (구 카드)
     raw_val = (body["actions"][0].get("value") or '').strip()
-    as_no, contractor = '', ''
+    as_no, contractor, contract_type = '', '', ''
     try:
         payload = json.loads(raw_val) if raw_val.startswith('{') else {}
         as_no = (payload.get('as_no', '') or '').strip()
         contractor = (payload.get('contractor', '') or '').strip()
+        contract_type = (payload.get('contract_type', '') or '').strip()
     except Exception:
         pass
     if not as_no:
@@ -4125,84 +4234,43 @@ def _open_as_accept_modal(client, body) -> None:
     channel = body.get("channel", {}).get("id", "")
     message_ts = body.get("message", {}).get("ts", "")
 
-    metadata = json.dumps({
-        "as_no": as_no, "channel": channel, "message_ts": message_ts,
-    }, ensure_ascii=False)
-
-    # 구 카드로부터 열린 경우 contractor 가 payload 에 없음 → 시트 fallback 조회
-    # (trigger_id 3초 만료 위험 있으나 구 카드에만 해당)
-    if not contractor:
+    # 구 카드(값 없음) → 시트 fallback 조회 (contractor / contract_type)
+    if not contractor or not contract_type:
         try:
             from dashboard.services.as_service import get_as_data, get_project_details
             as_data = get_as_data(as_no) or {}
             code = (as_data.get('프로젝트 코드', '') or '').strip()
             if code and code != '-':
                 proj = get_project_details(code) or {}
-                _c = (proj.get('contractor', '') or '').strip()
-                if _c and _c != '-':
-                    contractor = _c
+                contractor = contractor or (proj.get('contractor', '') or '').strip()
+                contract_type = contract_type or (proj.get('contract_type', '') or '').strip()
         except Exception as exc:
-            logger.warning(f'[SLACK/AS] 시공자 pre-fill 조회 실패 (무시): {exc}')
+            logger.warning(f'[SLACK/AS] 프로젝트 정보 조회 실패 (무시): {exc}')
 
-    visitor_type_options = [
-        {"text": {"type": "plain_text", "text": "서비스 기사"}, "value": "서비스 기사"},
-        {"text": {"type": "plain_text", "text": "내부 (아이티)"}, "value": "내부"},
-        {"text": {"type": "plain_text", "text": "외주 (시공자)"}, "value": "외주"},
-    ]
-
-    view = {
-        "type": "modal",
-        "callback_id": "submit_as_accept",
-        "private_metadata": metadata,
-        "title": {"type": "plain_text", "text": "A/S 접수"},
-        "submit": {"type": "plain_text", "text": "접수 확정"},
-        "close": {"type": "plain_text", "text": "취소"},
-        "blocks": [
-            {
-                "type": "input", "block_id": "visitor_type",
-                "label": {"type": "plain_text", "text": "방문 예정자"},
-                "element": {
-                    "type": "static_select", "action_id": "value",
-                    "placeholder": {"type": "plain_text", "text": "선택"},
-                    "options": visitor_type_options,
-                },
-            },
-            {
-                "type": "input", "block_id": "visitor_name", "optional": True,
-                "label": {"type": "plain_text", "text": "방문 예정자 이름 (내부/외주 방문 시 필수)"},
-                "hint": {"type": "plain_text",
-                         "text": "외주 선택 시 시공자 이름 자동 채워짐. 내부는 담당자 이름으로 변경."},
-                "element": {
-                    "type": "plain_text_input", "action_id": "value",
-                    "placeholder": {"type": "plain_text", "text": "예: 김철수"},
-                    **({"initial_value": contractor} if contractor and contractor != '-' else {}),
-                },
-            },
-            {
-                "type": "input", "block_id": "visit_date_start",
-                "label": {"type": "plain_text", "text": "방문 예정일 (시작)"},
-                "element": {"type": "datepicker", "action_id": "value"},
-            },
-            {
-                "type": "input", "block_id": "visit_date_end", "optional": True,
-                "label": {"type": "plain_text", "text": "방문 예정일 (종료)"},
-                "hint": {"type": "plain_text",
-                         "text": "여러 날 방문 (예: 7/1~7/3) 일 때만 입력. 단일이면 비워두세요."},
-                "element": {"type": "datepicker", "action_id": "value"},
-            },
-            {
-                "type": "input", "block_id": "memo", "optional": True,
-                "label": {"type": "plain_text", "text": "접수 메모 (선택)"},
-                "hint": {"type": "plain_text",
-                         "text": "접수번호·특이사항 등. 메모/이력에 시간·이니셜과 함께 기록됩니다."},
-                "element": {
-                    "type": "plain_text_input", "action_id": "value", "multiline": True,
-                    "placeholder": {"type": "plain_text", "text": "예: 접수번호 SVC-1234, 오전 방문 예정"},
-                },
-            },
-        ],
-    }
+    view = _as_accept_view(as_no, channel, message_ts, contractor, contract_type)
     client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _handle_as_accept_type_change(client, body) -> None:
+    """방문자 유형 변경 → 이름칸 잠금/자동채움 반영해 모달 재렌더 (기존 입력 보존)."""
+    view = body.get("view", {}) or {}
+    meta = json.loads(view.get("private_metadata") or "{}")
+    vals = (view.get("state", {}) or {}).get("values", {}) or {}
+
+    sel = (vals.get("visitor_type", {}).get("as_accept_type", {}) or {}).get("selected_option") or {}
+    selected_type = (sel or {}).get("value", '') or ''
+    name_val = (vals.get("visitor_name", {}).get("value", {}) or {}).get("value", '') or ''
+    date_start = (vals.get("visit_date_start", {}).get("value", {}) or {}).get("selected_date", '') or ''
+    date_end = (vals.get("visit_date_end", {}).get("value", {}) or {}).get("selected_date", '') or ''
+    memo = (vals.get("memo", {}).get("value", {}) or {}).get("value", '') or ''
+
+    new_view = _as_accept_view(
+        meta.get("as_no", ''), meta.get("channel", ''), meta.get("message_ts", ''),
+        meta.get("contractor", ''), meta.get("contract_type", ''),
+        selected_type=selected_type, name_val=name_val,
+        date_start=date_start, date_end=date_end, memo=memo,
+    )
+    client.views_update(view_id=view.get("id"), hash=view.get("hash"), view=new_view)
 
 
 def _process_as_accept_submission(client, body, view) -> None:
@@ -4224,7 +4292,7 @@ def _process_as_accept_submission(client, body, view) -> None:
     values = view["state"]["values"]
     visitor_type = ''
     try:
-        opt = values.get("visitor_type", {}).get("value", {}).get("selected_option", {})
+        opt = values.get("visitor_type", {}).get("as_accept_type", {}).get("selected_option", {})
         visitor_type = (opt or {}).get("value", '') or ''
     except Exception:
         pass
