@@ -4339,7 +4339,7 @@ def _process_as_accept_submission(client, body, view) -> None:
     from dashboard.services.as_service import (
         update_as_row, get_as_data, append_as_log,
         COL_ACCEPTER, COL_ACCEPT_DATE, COL_VISITOR, COL_VISIT_DATE, COL_STATUS,
-        STATUS_ACCEPTED,
+        STATUS_REQUESTED, STATUS_ACCEPTED,
     )
     from dashboard.blueprints.slack_helpers import _format_visit_date_range
 
@@ -4348,6 +4348,20 @@ def _process_as_accept_submission(client, body, view) -> None:
     channel = metadata.get("channel", '')
     message_ts = metadata.get("message_ts", '')
     if not as_no:
+        return
+
+    # 상태 가드 — 요청됨 에서만 접수 (동시편집/중복 방지). 이미 처리됐으면 카드 정정 + 안내.
+    cur_status = str((get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+    if cur_status and cur_status != STATUS_REQUESTED:
+        try:
+            as_refresh_card(as_no)
+            uid = body.get("user", {}).get("id", "")
+            if channel and uid:
+                client.chat_postEphemeral(
+                    channel=channel, user=uid,
+                    text=f'이미 처리된 A/S 입니다 (현재: {cur_status}). 카드를 새로고침했습니다.')
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] 접수 상태 가드 알림 실패 ({as_no}): {exc}')
         return
 
     values = view["state"]["values"]
@@ -4451,7 +4465,7 @@ def _process_as_complete_submission(client, body, view) -> None:
     """조치 완료 제출 → 시트 갱신 → 카드 chat.update (State 3)."""
     from dashboard.services.as_service import (
         update_as_row, get_as_data, append_as_log,
-        COL_STATUS, STATUS_COMPLETED,
+        COL_STATUS, STATUS_ACCEPTED, STATUS_COMPLETED,
     )
 
     metadata = json.loads(view.get("private_metadata") or "{}")
@@ -4466,6 +4480,20 @@ def _process_as_complete_submission(client, body, view) -> None:
     resolution = resolution.strip()
     if not resolution:
         logger.warning(f'[SLACK/AS] 조치 내용 누락 ({as_no})')
+        return
+
+    # 상태 가드 — 접수 완료 에서만 조치완료 (동시편집/중복 방지). 이미 처리됐으면 카드 정정 + 안내.
+    cur_status = str((get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+    if cur_status and cur_status != STATUS_ACCEPTED:
+        try:
+            as_refresh_card(as_no)
+            uid = body.get("user", {}).get("id", "")
+            if channel and uid:
+                client.chat_postEphemeral(
+                    channel=channel, user=uid,
+                    text=f'조치완료할 수 없는 상태입니다 (현재: {cur_status}). 카드를 새로고침했습니다.')
+        except Exception as exc:
+            logger.warning(f'[SLACK/AS] 완료 상태 가드 알림 실패 ({as_no}): {exc}')
         return
 
     user_id = body.get("user", {}).get("id", "")

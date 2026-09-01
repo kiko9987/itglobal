@@ -204,6 +204,14 @@ def api_accept_as(as_no):
                 error_code=APIErrorCode.VALIDATION_ERROR, status_code=400,
             )
 
+        # 상태 가드 — 요청됨 에서만 접수 가능 (stale 버튼/동시편집 중복 접수 방지)
+        cur_status = str((as_service.get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+        if cur_status and cur_status != as_service.STATUS_REQUESTED:
+            return APIResponse.error(
+                message=f'이미 처리된 A/S 입니다 (현재: {cur_status}). 새로고침 후 확인해주세요.',
+                error_code='AS_STATE_CONFLICT', status_code=409,
+            )
+
         visitor = '서비스 기사' if vtype == '서비스 기사' else vname
         try:
             from .slack_helpers import _format_visit_date_range
@@ -253,6 +261,13 @@ def api_complete_as(as_no):
             return APIResponse.error(
                 message='조치 내용은 필수입니다',
                 error_code=APIErrorCode.VALIDATION_ERROR, status_code=400,
+            )
+        # 상태 가드 — 접수 완료 에서만 조치완료 가능 (stale 버튼/동시편집 방지)
+        cur_status = str((as_service.get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+        if cur_status and cur_status != as_service.STATUS_ACCEPTED:
+            return APIResponse.error(
+                message=f'접수 완료 상태에서만 조치완료할 수 있습니다 (현재: {cur_status}). 새로고침 후 확인해주세요.',
+                error_code='AS_STATE_CONFLICT', status_code=409,
             )
         as_service.update_as_row(as_no, {
             as_service.COL_STATUS: as_service.STATUS_COMPLETED,
