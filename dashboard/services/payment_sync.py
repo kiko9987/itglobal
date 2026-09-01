@@ -730,11 +730,40 @@ _CARD_BRAND_RE = re.compile(
 )
 
 
+# ITG 카드 가맹점 승인번호 (사업자별·카드사별, 2026-09-01 대표 제공). 카드사가 통장에 찍는
+# 정산 입금의 '입금자'엔 카드사 약자 + 이 승인번호(앞자리)가 나온다
+# (예: 신한 글로벌 117935734 → 'SHC0117935', 하나 902423442 → '하나90242344',
+#  현대 108017094 → '현108017094', 농협 154154402 → 'NH15415440').
+# 입금자에 이 번호(앞 6자리)가 있으면 100% 카드 결제 → Y열·매니저 입력 무관 확정.
+_ITG_CARD_MERCHANTS = (
+    # 아이티글로벌그룹 (그룹, 코드 R·하나은행) — 롯데/비씨/우리/삼성/신한/하나/현대/농협/국민
+    '9926648732', '745389850', '602649754', '204108778', '143228781',
+    '927341058', '703011838', '180735166', '121943991',
+    # 아이티글로벌 (글로벌, 코드 G·기업은행) — 롯데/비씨/삼성/신한/하나/현대/농협/국민
+    '9959366153', '720364972', '178390962', '117935734', '902423442',
+    '108017094', '154154402', '97390776',
+)
+_ITG_CARD_MERCHANT_PREFIXES = frozenset(m[:6] for m in _ITG_CARD_MERCHANTS)
+
+
+def _is_itg_card_deposit(text: str) -> bool:
+    """입금자(또는 텍스트)에 ITG 카드 가맹점 승인번호(앞 6자리)가 들어있으면 True.
+
+    카드사가 통장에 찍는 정산 입금자 식별 — Y열·매니저 입력에 의존하지 않는 확정 신호.
+    은행 이체 입금자는 상호명(숫자 6자리 연속 거의 없음)이라 오탐 사실상 없음.
+    """
+    digits = re.sub(r'\D', '', text or '')
+    return len(digits) >= 6 and any(pfx in digits for pfx in _ITG_CARD_MERCHANT_PREFIXES)
+
+
 def _is_card_payment(invoice_value: str, partner: str) -> bool:
     """Y열 + 거래처 패턴으로 카드 결제 여부 판별.
     Y='카드결제'/'혼합' 케이스도 단계별로 partner 패턴 확인 — 한 프로젝트에서
     일부 단계만 카드 결제일 수도 있음(예: 계약금 일반, 잔금 카드).
     """
+    # ITG 가맹점 승인번호가 입금자에 있으면 Y열 불문 확정 카드 (매니저가 Y 미수정해도 인식)
+    if _is_itg_card_deposit(partner):
+        return True
     iv = (invoice_value or '').strip()
     if iv in ('카드결제', '혼합'):
         if not partner:
@@ -971,15 +1000,9 @@ def _build_stage_message(
     ])
     if is_card:
         real_payment = _resolve_real_payment(stage_sheet_val, amount, total_t)
-        extra_3pct = round(real_payment * 0.03 / 1.03)
-        fee = real_payment - amount
-        if fee > 0 and extra_3pct > 0:
-            parts = [
-                f"실결제 {real_payment:,}원",
-                f"3% {extra_3pct:,}원",
-                f"카드 수수료 {fee:,}원",
-            ]
-            lines.append(f"({' / '.join(parts)})")
+        _fee_line = _card_fee_line(stage, real_payment, amount, total_t, {stage: stage_sheet_val})
+        if _fee_line:
+            lines.append(_fee_line)
     lines.append(_SEP)
     # 슬랙 카드 미수금 표시는 항상 음수 통일 (2026-07-16 재확정 사용자 요청).
     # 시트/관리사이트는 양수(미납)로 표기하지만, 카드에서 다른 총액과 시각 혼동
@@ -1006,6 +1029,28 @@ def _resolve_real_payment(stage_val: int, amount: int, total_t: int) -> int:
     if stage_val >= amount:
         return stage_val
     return round(stage_val * 1.03)
+
+
+def _card_fee_line(stage: str, real_payment: int, deposit: int,
+                   total_t: int, stage_sheet_vals: Optional[Dict[str, int]]) -> str:
+    """카드 결제 수수료 표시 줄 ('' = 표시 안 함).
+
+    수수료 = 실결제(real_payment) − 순입금(deposit, 통장 실입금).
+    - 실결제 > 이 결제가 커버한 계약잔액 → 고객에게 3% 얹어 청구한 케이스(설치 등)
+      → '(실결제 X / 3% Y / 카드 수수료 Z)'  (기존 표기 유지)
+    - 실결제 = 계약잔액 → ITG 가 카드 수수료 흡수(3% 미고지, 기타 건)
+      → '(실결제 X / 카드 수수료 Z)'  (3% 줄 생략 — 2026-09-01 G3954-TH 계기)
+    """
+    fee = int(real_payment) - int(deposit)
+    if fee <= 0:
+        return ''
+    others = sum(int(v or 0) for k, v in (stage_sheet_vals or {}).items() if k != stage)
+    outstanding = int(total_t) - others          # 이 결제가 커버한 계약 잔액
+    if real_payment > outstanding:               # 3% 얹어 청구한 케이스
+        three_pct = round(real_payment * 0.03 / 1.03)
+        if three_pct > 0:
+            return f"(실결제 {real_payment:,}원 / 3% {three_pct:,}원 / 카드 수수료 {fee:,}원)"
+    return f"(실결제 {real_payment:,}원 / 카드 수수료 {fee:,}원)"
 
 
 def _build_stage_with_history_message(
@@ -1067,12 +1112,9 @@ def _build_stage_with_history_message(
     if is_card:
         stage_val = (stage_sheet_vals or {}).get(stage, 0)
         real_payment = _resolve_real_payment(stage_val, amount, total_t)
-        extra_3pct = round(real_payment * 0.03 / 1.03)
-        fee = real_payment - amount
-        if fee > 0 and extra_3pct > 0:
-            lines.append(
-                f"(실결제 {real_payment:,}원 / 3% {extra_3pct:,}원 / 카드 수수료 {fee:,}원)"
-            )
+        _fee_line = _card_fee_line(stage, real_payment, amount, total_t, stage_sheet_vals)
+        if _fee_line:
+            lines.append(_fee_line)
     lines.append('')
     lines.append('[누적 이력]')
     # 현재 알림 단계까지만 표시 — 매니저가 다음 단계 메모를 미리 입력한 경우 차단
@@ -1163,13 +1205,9 @@ def _build_complete_message(
                 stage_val = stage_sheet_vals.get(stage, 0)
                 same_stage_card_total = sum(c['amount'] for c in same_stage_cards)
                 real_payment = _resolve_real_payment(stage_val, same_stage_card_total, total_t)
-                if real_payment > 0:
-                    fee = real_payment - same_stage_card_total
-                    three_pct = round(real_payment * 0.03 / 1.03)
-                    if fee > 0 and three_pct > 0:
-                        lines.append(
-                            f"  (실결제 {real_payment:,}원 / 3% {three_pct:,}원 / 카드 수수료 {fee:,}원)"
-                        )
+                _fee_line = _card_fee_line(stage, real_payment, same_stage_card_total, total_t, stage_sheet_vals)
+                if _fee_line:
+                    lines.append(f"  {_fee_line}")
     lines.append(_SEP)
     lines.append(f"총액 : {total_t:,}원")
     lines.append('⠀')

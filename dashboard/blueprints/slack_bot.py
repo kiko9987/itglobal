@@ -1450,6 +1450,48 @@ def _intake_release(rc, intake_id, project_code, stage):
         pass
 
 
+def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, deposit, memo_text):
+    """카드 결제 자동 수수료 보정 — 이 단계 셀에 기록할 '목표값'을 돌려준다(아니면 None).
+
+    카드 결제는 통장에 '순입금'(카드사 수수료 뗀 금액)만 들어오는데, 프로젝트 지정 시
+    그 순입금을 그대로 기록하면 실결제(고객 카드 청구액=계약잔액)와의 차이만큼 미수금이
+    남고 수수료도 계산 안 된다(2026-09-01 G3954-TH). 그래서 **순입금이 계약잔액보다
+    카드수수료 수준(≤4%)만큼 작으면**, 이 단계값을 순입금 대신 '계약잔액(=실결제)'으로
+    잡아 미수금 0 + 카드에 수수료 자동 표시(순입금 원문은 노트에 유지).
+
+    카드 판별은 **메모 입금자(승인번호 패턴)** 기준 — Y열에 의존하지 않아 매니저가
+    Y='카드결제'로 안 바꾸고 지정해도 동작한다. 4% 게이트가 일반 부분입금 오탐을 막는다.
+    """
+    try:
+        from dashboard.services.payment_sync import _is_itg_card_deposit, _CARD_BRAND_RE
+        from dashboard.services.sms_intake import parse_preview
+        partner = ((parse_preview(memo_text or '') or {}).get('partner') or '').strip()
+        # ITG 가맹점 승인번호(확정) 또는 카드사+승인번호 패턴이면 카드 결제로 본다.
+        # 승인번호형 정규식(_CARD_PARTNER_RE)은 상호 오탐 위험이 있어 자동 보정엔 미사용.
+        if not (_is_itg_card_deposit(partner) or _CARD_BRAND_RE.search(partner)):
+            return None
+
+        def _num(c):
+            v = manager.get_cell_value(sheet_id, sheet_name, f'{c}{row}')
+            try:
+                return int(float(v)) if str(v).strip() not in ('', 'None') else 0
+            except (ValueError, TypeError):
+                return 0
+        total_t = _num('T')
+        if total_t <= 0:
+            return None
+        paid_others = sum(_num(c) for c in ('U', 'V', 'W') if c != col)
+        outstanding = total_t - paid_others - old_num   # 이 결제가 커버할 계약 잔액
+        if outstanding <= 0:
+            return None
+        gap = outstanding - int(deposit)
+        if 0 < gap <= round(outstanding * 0.04):        # 순입금이 계약잔액보다 ≤4% 작다 = 수수료 흡수
+            return old_num + outstanding                 # 단계값 = 실결제(계약잔액) → 미수금 0
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 카드 수수료 보정 판단 실패(무시): {exc}")
+    return None
+
+
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
@@ -1497,6 +1539,13 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         except (ValueError, TypeError):
             old_num = 0
         new_num = old_num + int(amount)
+        # 카드 결제 자동 수수료 보정 — 순입금 대신 실결제(계약잔액) 기록 (미수금 0). 노트는 순입금 유지.
+        _card_target = _card_settlement_target(
+            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text)
+        if _card_target is not None and _card_target != new_num:
+            logger.info(f"[SLACK/수금봇] 카드 수수료 자동보정: {project_code} {stage} "
+                        f"순입금 {amount:,} → 실결제 {_card_target - old_num:,}원 기록 (미수금 0)")
+            new_num = _card_target
         if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
             return False, old_num, new_num, "금액 기록 실패"
 
