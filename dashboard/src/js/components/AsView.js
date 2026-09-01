@@ -212,6 +212,23 @@ export default class AsView {
         memo: el.querySelector('#asAcceptMemo').value.trim(),
       });
     }, { icon: 'fa-clipboard-check', submitLabel: '접수' });
+    // 방문자 유형 = 서비스 기사 → 이름칸 비활성 + '서비스 기사' 자동. 내부/외주 → 활성(직접 입력).
+    const host = document.getElementById('asModalHost');
+    const sel = host && host.querySelector('#asVisitorType');
+    const name = host && host.querySelector('#asVisitorName');
+    if (sel && name) {
+      const sync = () => {
+        if (sel.value === '서비스 기사') {
+          name.value = '서비스 기사';
+          name.disabled = true;
+        } else {
+          if (name.value === '서비스 기사') name.value = '';
+          name.disabled = false;
+        }
+      };
+      sel.addEventListener('change', sync);
+      sync();  // 초기 상태(기본 '선택')에도 반영
+    }
   }
 
   openComplete(asNo) {
