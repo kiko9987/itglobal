@@ -856,10 +856,13 @@ def _register_payment_handlers(app):
                     if not blocks:
                         blocks = [text]
                     made = dup = 0
+                    # 현금 수령자 미기재 시 올린 사람 이니셜로 채움 (YG/JW/SB = 곧 수령자)
+                    poster_initial = _resolve_manager_initial(user) or ''
                     for blk in blocks:
                         if not looks_like_payment(blk) and not looks_like_cash(blk):
                             continue
-                        res = ingest_deposit(blk, source=f'channel:{user}')
+                        res = ingest_deposit(blk, source=f'channel:{user}',
+                                             cash_receiver=poster_initial)
                         st = res.get('status')
                         if st == 'ok':
                             made += 1
@@ -7404,21 +7407,28 @@ def _process_consult_submission(client, body, view):
 
             # 부재중 사유 — 회차별(1차/2차) 표기 (2026-08-06 사용자 요청). K열 재상담
             # 이력에서 각 회차 content. 2회 이상이면 회차별, 1회면 단일 라인.
+            # ⚠️ **부재중 회차만** 세고 표시한다 — 매니저가 완료↔부재중을 오갈 때 유선상담 등
+            #   다른 상태 회차가 '부재중 N차'로 섞이고 '총 N회'와도 어긋나 보이던 문제 방지
+            #   (2026-09-02 L-03874: 유선상담+부재중이 '총 1회 / 1·2차'로 어긋남).
             _entries = _parse_consultation_entries(full_consultation) if full_consultation else []
+            _missed = [e for e in _entries if (e.get('status') or '').strip() == '부재중']
+            _display_count = max(_count, len(_missed)) if _missed else _count
             _badge_lines = [
                 '⠀',  # 봇 헤더와 배지 사이 여백 (다른 완료 카드와 동일)
                 # 부재중은 원본 body 그대로 노출 (lead_no 이미 원본에 있음) → 배지에 lead_no 중복 X
-                f':arrows_counterclockwise: *부재중* (총 *{_count}회*)',
+                f':arrows_counterclockwise: *부재중* (총 *{_display_count}회*)',
                 f'처리자 : {_initial_for_card}',
                 f'처리 시간 : {_now_for_card}',
             ]
-            if _entries and len(_entries) >= 2:
-                for _i, _e in enumerate(_entries):
+            if len(_missed) >= 2:
+                for _i, _e in enumerate(_missed):
                     _c = (_e.get('content') or '').strip() or '-'
                     _badge_lines.append(f'상담 내용 ({_i + 1}차) : {_c[:200]}')
             else:
                 _reason = ''
-                if _entries:
+                if _missed:
+                    _reason = (_missed[-1].get('content') or '').strip()
+                elif _entries:
                     _reason = (_entries[-1].get('content') or '').strip()
                 elif consultation:
                     _reason = consultation.strip()
@@ -11804,26 +11814,14 @@ def _process_project_uncancel(client, body) -> None:
 def _is_license_required(code: str) -> bool:
     """사업자등록증 첨부 검증 필수 여부.
 
-    2026-07-21 임시 조치: '거래처' 유입만 검증 skip.
-    사업자등록증 마스터 폴더 축적이 부족 (전체 거래처 3,451건 중 258건, 7.5%) 하여
-    거래처 계약 시마다 재첨부 요구가 낭비. 온라인·숨고·당근·홈페이지·전화·소개·기타는
-    신규 사업자 가능성 높아 검증 유지.
-    거래처 마스터 파일 재사용 로직 도입 후 재검토.
-
-    조회 실패 시 안전 default = True (검증 유지).
+    2026-09-02: **모든 유입에 등록증 필수**로 통일 (거래처 blanket 예외 폐지).
+    사유(사용자): 인테리어 업체(거래처) 경유라도 고객과 직접 금전 거래가 많아 프로젝트마다
+    각자 등록증이 필요. 반복 거래처의 재첨부 낭비는 '사업자명 매칭 시 기존 등록증 자동
+    복사 재사용'(business_license_handler.get_license_state/ensure_license, 2026-09-02 도입)으로
+    해소 — 매칭되면 재사용(있음), 매칭 없으면(새/미지정 사업자) 없음 → 차단(업로드 필요).
+    (2026-07-21 '거래처 skip' 임시 조치를 여기서 종료. 검증 필요 여부는 유입과 무관하게 True.)
     """
-    if not code or code == '-':
-        return True
-    try:
-        from dashboard.services.project_service import get_project_records
-        for r in get_project_records() or []:
-            if (r.get('프로젝트 코드') or '').strip() == code:
-                inflow = str(r.get('유입 구분') or '').strip()
-                return inflow != '거래처'
-        return True
-    except Exception as exc:
-        logger.warning(f'[SLACK/계산서] 유입 구분 조회 실패 → 검증 유지 ({code}): {exc}')
-        return True
+    return True
 
 
 def _partner_status_warn(biz: str) -> str:
@@ -12122,12 +12120,11 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
         def _check_license() -> bool:
-            # 2026-07-21: '거래처' 유입은 검증 skip (마스터 재사용 로직 도입 전 임시).
-            if not _is_license_required(code):
-                return True
+            # 2026-09-02: 모든 유입 필수. 단 **재사용 인식** — 자기 폴더 없어도 같은 사업자명의
+            #   기존 등록증이 있으면 통과(계산서 발송 시 ensure_license 가 복사 첨부). 매칭 없으면 차단.
             try:
-                from dashboard.services.business_license_handler import verify_license_exists
-                return bool(verify_license_exists(code))
+                from dashboard.services.business_license_handler import get_license_state
+                return bool(get_license_state(code).get('exists'))
             except Exception as exc:
                 logger.warning(f'[SLACK/계산서] 사업자등록증 검증 실패 (통과): {exc}')
                 return True  # Drive 지연 시 통과 (관리자 후속 처리)
@@ -12181,17 +12178,13 @@ def _process_invoice_submit_bg(client, body, view) -> None:
 
 
 def _process_invoice_submission(client, body, view) -> None:
-    """모달 제출 → #계산서_관리 채널에 계산서 요청 카드 발송.
+    """슬랙 모달 제출 → 파싱 후 post_invoice_request() 로 위임.
 
     (2026-07-24) 세금계산서 요청 카드는 #계산서_관리 로 분리 발송.
-    공사수정·취소 알림 (SLACK_INVOICE_CHANNEL_ID) 과는 채널 분리.
+    (2026-09-01) 카드 발송·첨부 로직을 post_invoice_request() 코어로 분리 —
+    PM 대시보드(invoice_mgmt 블루프린트)에서도 동일 코어 재사용. 이 함수는 슬랙 view
+    파싱만 담당. dedup 은 _process_invoice_submit_bg 진입부에서 이미 확인했으므로 여기선 skip.
     """
-    channel_id = os.getenv('SLACK_INVOICE_REQUEST_CHANNEL_ID', '').strip() \
-        or os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
-    if not channel_id:
-        logger.warning('[SLACK/계산서] SLACK_INVOICE_REQUEST_CHANNEL_ID 미설정 — 발송 skip')
-        return
-
     metadata = json.loads(view.get("private_metadata") or "{}")
     code = metadata.get("code", "-") or '-'
 
@@ -12207,24 +12200,109 @@ def _process_invoice_submission(client, body, view) -> None:
     email = _get('email').strip() or '-'
     memo = _get('memo').strip()
 
+    # VAT radio_buttons state — 2026-07-16 라디오 필드 재도입 (매니저 오클릭 방지)
+    _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
+    vat_val = _vat_state.get('value', 'sep') or 'sep'
+
+    user_id = body.get("user", {}).get("id", "")
+    initial = _slack_user_to_initial(client, user_id) or '-'
+
+    post_invoice_request(
+        code=code, biz=biz, addr=addr, amt_digits=amt_digits, vat_val=vat_val,
+        email=email, memo=memo, requester_initial=initial,
+        dedup_check=False, fallback_client=client,
+    )
+
+
+def _post_partner_info_reply(client, channel, ts, code, biz, req_email='') -> None:
+    """등록증 파일이 없는 계산서 요청(거래처 탭에만 정보) — 등록증 대신 **거래처 탭 정보**를
+    스레드 댓글로 첨부 (2026-09-02, 담당자가 한 채널에서 홈택스 발행하도록 배려).
+
+    이메일: 요청 입력값 우선(모달이 거래처 탭 이메일 프리필), 없으면 거래처 탭 이메일.
+    """
+    try:
+        from dashboard.services.partner_status_sync import get_partner_info
+        info = get_partner_info(biz) or {}
+    except Exception:
+        info = {}
+
+    def _v(x):
+        x = (str(x or '')).strip()
+        return x if x else '-'
+
+    email = (req_email or '').strip()
+    if not email or email == '-':
+        email = (info.get('email') or '').strip()
+    lines = [
+        f'📋 *저장된 사업자등록증이 없어 거래처 탭 정보로 대신합니다.*  `{code}`',
+        f'• 등록번호 : {_v(info.get("bno"))}',
+        f'• 상호명 : {_v(info.get("name") or biz)}',
+        f'• 대표자명 : {_v(info.get("ceo"))}',
+        f'• 사업장소재지 : {_v(info.get("addr"))}',
+        f'• 업태 : {_v(info.get("biz_type"))}',
+        f'• 종목 : {_v(info.get("biz_item"))}',
+        f'• 이메일 : {_v(email)}',
+    ]
+    try:
+        client.chat_postMessage(
+            channel=channel, thread_ts=ts, text='\n'.join(lines),
+            unfurl_links=False, unfurl_media=False,
+        )
+        logger.info(f'[SLACK/계산서] 거래처 탭 정보 댓글(등록증 대체): {code}')
+    except Exception as exc:
+        logger.warning(f'[SLACK/계산서] 거래처 정보 댓글 실패 ({code}): {exc}')
+
+
+def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
+                         requester_initial='-', *, dedup_check=True,
+                         fallback_client=None) -> dict:
+    """세금계산서 발행 요청 카드를 #계산서_관리 채널에 발송 (슬랙·PM 공용 코어, 2026-09-01).
+
+    슬랙 모달(_process_invoice_submission)·PM 엔드포인트(invoice_mgmt) 양쪽에서 호출.
+    파싱된 값을 받아: 폐업경고 → 카드 발송 → dedup 마킹 → permalink/Redis metadata →
+    첨부 안내 라인 → 사업자등록증 canonical 스레드 자동첨부(3회 retry).
+
+    dedup_check=True 면 진입 시 invoice_request_dedup:{code} 확인 → 90초 내 중복이면 미발송.
+    fallback_client: invoice_bot 초기화 실패 시 카드 발송에 쓸 대체 슬랙 client (슬랙 경로용).
+    Returns: {'ok': bool, 'reason': str, 'ts'?, 'channel'?, 'thread_url'?}
+    """
+    channel_id = os.getenv('SLACK_INVOICE_REQUEST_CHANNEL_ID', '').strip() \
+        or os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if not channel_id:
+        logger.warning('[SLACK/계산서] SLACK_INVOICE_REQUEST_CHANNEL_ID 미설정 — 발송 skip')
+        return {'ok': False, 'reason': 'no_channel'}
+
+    code = (code or '-').strip() or '-'
+    biz = (biz or '-').strip() or '-'
+    addr = (addr or '-').strip() or '-'
+    email = (email or '-').strip() or '-'
+    memo = (memo or '').strip()
+    vat_val = vat_val or 'sep'
+    amt_digits = ''.join(ch for ch in str(amt_digits or '') if ch.isdigit())
+
+    # 코드 중복 방어 (진입 게이트) — PM/슬랙 교차 재요청도 90초 내 skip.
+    if dedup_check and code and code != '-':
+        try:
+            from dashboard.utils.redis_client import get_redis_client as _get_rc_id
+            if _get_rc_id().redis.get(f'invoice_request_dedup:{code}'):
+                logger.info(f'[SLACK/계산서] 코드 중복 요청 skip (code={code}) — 90초 내 이미 발송')
+                return {'ok': False, 'reason': 'dedup'}
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] 코드 dedup 조회 실패 (계속 진행): {exc}')
+
     # 국세청 조회 기반 폐업/휴업 경고 (거래처 탭 상호 매칭, 2026-07-28).
     # 폐업 번호로 세금계산서 발행하는 사고 방지 — 카드에 경고 라인 삽입 (모달과 공용 helper).
     partner_warn = _partner_status_warn(biz)
 
-    # VAT radio_buttons state — 2026-07-16 라디오 필드 재도입 (매니저 오클릭 방지)
-    _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
-    vat_val = _vat_state.get('value', 'sep') or 'sep'
     vat_label = 'VAT 별도' if vat_val == 'sep' else 'VAT 포함'
-
     amt_display = _money_kr(amt_digits)
     if amt_display != '-':
         amt_display = f"{amt_display} ({vat_label})"
 
-    user_id = body.get("user", {}).get("id", "")
     now_str = datetime.now().strftime('%m.%d %H:%M')
+    initial = requester_initial or '-'
 
     # 카드 본문
-    initial = _slack_user_to_initial(client, user_id) or '-'
     lines = [
         f"🔔 *[세금계산서 발행 요청]*  `{code}`",
     ]
@@ -12243,17 +12321,6 @@ def _process_invoice_submission(client, body, view) -> None:
     lines.append("--------------------------------------------")
     text = '⠀\n' + '\n'.join(lines)
 
-    # 발행 완료 버튼 value — 완료 문구 자동 생성용.
-    # 원본 카드 텍스트를 함께 저장해서 완료 처리 시 header_context 를 이걸로 재구성
-    # (chat.update 된 body.message.blocks 에서 뽑아쓰면 재클릭 시 중복 표시 발생).
-    complete_value = json.dumps({
-        'code': code,
-        'amt': amt_digits,
-        'biz': biz,
-        'vat': vat_val,
-        'orig': text,
-    }, ensure_ascii=False)
-
     # 카드 발송 — 발행 완료 버튼은 제거 (2026-07-13 UX 개선).
     # 매니저가 스레드에 이미지/PDF 첨부하면 handle_thread_message 가 자동으로
     # 카드 헤더·첨부 상태를 완료 표시로 update. 버튼이 매니저에게 "이미 완료?" 오해를 줌.
@@ -12263,10 +12330,13 @@ def _process_invoice_submission(client, body, view) -> None:
             "text": "💡 수정발행 필요 시 [세금계산서 요청] 재클릭 · 이메일만 변경 시 스레드 댓글로 새 이메일 남기기"}]},
     ]
 
-    # 카드 발송은 세금계산서 관리 알림 봇 (invoice_bot) 으로. 없으면 공사봇 fallback.
+    # 카드 발송은 세금계산서 관리 알림 봇 (invoice_bot) 으로. 없으면 fallback_client.
     if _invoice_slack_app is None:
         _init_invoice_slack_app()
-    invoice_client = _invoice_slack_app.client if _invoice_slack_app else client
+    invoice_client = _invoice_slack_app.client if _invoice_slack_app else fallback_client
+    if invoice_client is None:
+        logger.warning('[SLACK/계산서] invoice_slack_app·fallback 모두 없음 — 발송 skip')
+        return {'ok': False, 'reason': 'no_slack_app'}
 
     # 봇이 채널에 없으면 자동 가입 시도 (public 채널만 성공, private면 사용자가 초대 필요)
     try:
@@ -12279,14 +12349,14 @@ def _process_invoice_submission(client, body, view) -> None:
     )
     if not resp.get('ok'):
         logger.warning(f"[SLACK/계산서] 요청 카드 발송 실패: {resp}")
-        return
+        return {'ok': False, 'reason': 'post_failed'}
 
     ts = resp.get('ts', '')
     logger.info(
         f"[SLACK/계산서] 요청 카드 발송 완료: {code} ts={ts} → {channel_id}"
     )
 
-    # 코드 중복 방어 마킹 — 발송 성공 시에만 기록. 이후 90초 내 같은 코드 재제출은
+    # 코드 중복 방어 마킹 — 발송 성공 시에만 기록. 이후 90초 내 같은 코드 재요청은
     # 위 dedup 게이트에서 skip (서버오류→다시작성 재제출 대응). 검증 실패건은 여기
     # 도달 안 하므로 마킹 안 됨 → 정상 재시도 허용. (2026-08-12)
     if code and code != '-':
@@ -12348,17 +12418,23 @@ def _process_invoice_submission(client, body, view) -> None:
     # (2026-07-16 UX 개선 — 매니저가 공사확정 채널 왔다갔다 안 하도록 스레드에서 즉시 열람 가능.)
     # (2026-07-24 retry 3회 + 실패 시 안내 reply — SSL 일시 실패로 누락되지 않도록.)
     def _attach_license_to_thread():
-        from dashboard.services.business_license_handler import fetch_license_canonical
+        from dashboard.services.business_license_handler import fetch_license_canonical, ensure_license
         backoffs = [0, 2, 5]  # 즉시 → 2초 → 5초 (총 3회)
         last_exc = None
         for attempt, delay in enumerate(backoffs, start=1):
             if delay:
                 time.sleep(delay)
             try:
+                # 자기 폴더에 등록증 없으면 같은 사업자명의 기존 등록증을 이 프로젝트로 복사(재사용).
+                # (반복 거래처: 각 공사가 물리적으로 등록증 보유 → 이후 fetch_canonical 이 찾음.)
+                ensure_license(code)
                 lic = fetch_license_canonical(code)
                 if not lic:
-                    logger.info(f"[SLACK/계산서] 사업자등록증 canonical 없음 → 스레드 첨부 skip ({code})")
-                    return  # canonical 자체가 없는 건 재시도 무의미
+                    # 등록증 파일이 없음 = 게이트를 '거래처 탭 발행가능(partner)'으로 통과한 건.
+                    # 등록증 대신 거래처 탭 정보를 댓글로 첨부 (담당자 홈택스 발행용). 재시도 무의미.
+                    logger.info(f"[SLACK/계산서] 등록증 파일 없음 → 거래처 탭 정보 댓글로 대체 ({code})")
+                    _post_partner_info_reply(invoice_client, channel_id, ts, code, biz, email)
+                    return
                 invoice_client.files_upload_v2(
                     channel=channel_id,
                     thread_ts=ts,
@@ -12388,6 +12464,7 @@ def _process_invoice_submission(client, body, view) -> None:
             logger.warning(f"[SLACK/계산서] 실패 안내 reply 발송 실패 ({code}): {notify_exc}")
 
     threading.Thread(target=_attach_license_to_thread, daemon=True).start()
+    return {'ok': True, 'reason': 'posted', 'ts': ts, 'channel': channel_id, 'thread_url': thread_url}
 
 
 def _auto_complete_invoice_card(

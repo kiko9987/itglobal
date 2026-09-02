@@ -100,7 +100,7 @@ def sms_inbound():
     return jsonify(result), 200
 
 
-def ingest_deposit(text: str, source: str = 'sms') -> dict:
+def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> dict:
     """은행 입금 문자 1건 처리 — 폰 포워딩과 채널 붙여넣기 공통 코어.
 
     판별(looks_like_payment) → 사업자통장(has_business_account) → Redis dedup →
@@ -135,8 +135,9 @@ def ingest_deposit(text: str, source: str = 'sms') -> dict:
             return {'status': 'duplicate', 'id': intake_id}
 
     if is_cash:
-        # 현금 자유문장 → 표준 메모 ('MM/DD 입금 X원 / 현금 수령'). 잔액 제거·계좌 불필요.
-        clean = normalize_cash_layout(text)
+        # 현금 자유문장 → 표준 메모 ('MM/DD 입금 X원 / 현금 수령 (수령자)'). 잔액·계좌 불필요.
+        # 수령자 미기재 시 cash_receiver(올린 사람 이니셜)로 채움 (채널 인입 경로에서 전달).
+        clean = normalize_cash_layout(text, default_receiver=cash_receiver)
         converted = False
     else:
         # 잔액 제거 (통장 잔고 노출 차단) → 은행별 압축 양식 필드 줄바꿈 재구성(농협 등)

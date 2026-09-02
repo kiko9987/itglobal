@@ -200,6 +200,19 @@ class TestCashDetectAndNormalize:
         # 인식 실패 시 원문 유지
         assert normalize_cash_layout('현금 받았어요') == '현금 받았어요'
 
+    def test_default_receiver_fallback(self):
+        # 수령자 미기재 시 올린 사람 이니셜(default_receiver)로 채움 (R4052-TH 계기)
+        from datetime import datetime
+        today = datetime.now().strftime('%Y/%m/%d')
+        assert normalize_cash_layout('255만원 현금 수령 완료 했음', default_receiver='YG') \
+            == f'{today}\n입금 2,550,000원\n현금 수령 (YG)'
+        # 문장에 명시 수령자 있으면 그게 우선 (default 무시)
+        assert normalize_cash_layout('현금 500만원 JW 수령', default_receiver='YG') \
+            == f'{today}\n입금 5,000,000원\n현금 수령 (JW)'
+        # default 없으면 기존대로 수령자 없이 '현금 수령'
+        assert normalize_cash_layout('255만원 현금 수령') \
+            == f'{today}\n입금 2,550,000원\n현금 수령'
+
     def test_normalize_parses_back(self):
         # 변환 메모가 다운스트림 파서로 금액·거래처·날짜 정확히 파싱되는지 (핵심 계약)
         from dashboard.services.sms_intake import parse_preview

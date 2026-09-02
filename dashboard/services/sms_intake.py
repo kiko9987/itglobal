@@ -186,7 +186,7 @@ def _extract_cash_receiver(text: str) -> str:
     return ''
 
 
-def normalize_cash_layout(text: str) -> str:
+def normalize_cash_layout(text: str, default_receiver: str = '') -> str:
     """현금 자유문장 → 기업 SMS 틀을 미러한 표준 메모 (계좌 라인만 없음).
     기업: '2026/08/18 17:09 / 입금 X원 / 입금자 / 계좌 / 기업'
     현금: 'YYYY/MM/DD / 입금 X원 / 현금 수령 (수령자)'
@@ -194,7 +194,11 @@ def normalize_cash_layout(text: str) -> str:
     '현금'은 입금자 라인 한 곳에만 (헤더는 날짜만 — 사용자 요청 2026-08-25). 날짜 라인은
     파서의 순수날짜 skip 으로 거래처 오인 안 하고 date_md 추출, partner 는 '현금 수령' 라인.
     금액 인식 실패 시 원문 유지. 날짜 없으면 오늘 날짜로 헤더(은행 카드와 일관 —
-    현금은 SMS 날짜가 없어 로그 시점=오늘로 기본 표기. 2026-08-31 G3842-YM 계기)."""
+    현금은 SMS 날짜가 없어 로그 시점=오늘로 기본 표기. 2026-08-31 G3842-YM 계기).
+
+    수령자: 문장에서 추출('YG 수령') 우선, 없으면 default_receiver(메시지 올린 사람
+    이니셜)로 채움 — 현금 메시지는 YG/JW/SB 셋만 올리고 그 사람=수령자라, 안 적어도
+    올린 사람으로 붙는다 (2026-09-02 R4052-TH 계기)."""
     amount = parse_cash_amount(text)
     if amount <= 0:
         return text
@@ -202,7 +206,7 @@ def normalize_cash_layout(text: str) -> str:
     if not date_full:
         from datetime import datetime
         date_full = datetime.now().strftime('%Y/%m/%d')   # 날짜 없으면 오늘(로그 시점)
-    receiver = _extract_cash_receiver(text)
+    receiver = _extract_cash_receiver(text) or (default_receiver or '').strip()
     lines = [date_full,                    # 기업틀: 'YYYY/MM/DD' 날짜 헤더 (항상)
              f'입금 {amount:,}원',
              f'현금 수령 ({receiver})' if receiver else '현금 수령']  # 입금자 자리
