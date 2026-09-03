@@ -108,10 +108,19 @@
                                                     방문 현장 불러오기
                                                     <small class="text-muted">(리드 No 정확 매칭은 담당 무관)</small>
                                                 </span>
-                                                <span class="form-check" style="margin-bottom: 0;">
-                                                    <input class="form-check-input" type="checkbox" id="modern-lead-my-only" checked style="cursor: pointer;">
-                                                    <label class="form-check-label" for="modern-lead-my-only" style="font-size: var(--font-size-sm); color: var(--gray-700); cursor: pointer; user-select: none;">내 방문 현장만 불러오기</label>
+                                                <span style="display: flex; align-items: center; gap: 1rem;">
+                                                    <span class="form-check" style="margin-bottom: 0;">
+                                                        <input class="form-check-input" type="checkbox" id="modern-manual-input" style="cursor: pointer;">
+                                                        <label class="form-check-label" for="modern-manual-input" style="font-size: var(--font-size-sm); color: var(--gray-700); cursor: pointer; user-select: none;" title="체크하면 불러오기 없이 직접 입력 가능 (기본은 방문 현장 불러오기로 채우도록 잠금)">수동 입력하기</label>
+                                                    </span>
+                                                    <span class="form-check" style="margin-bottom: 0;">
+                                                        <input class="form-check-input" type="checkbox" id="modern-lead-my-only" checked style="cursor: pointer;">
+                                                        <label class="form-check-label" for="modern-lead-my-only" style="font-size: var(--font-size-sm); color: var(--gray-700); cursor: pointer; user-select: none;">내 방문 현장만 불러오기</label>
+                                                    </span>
                                                 </span>
+                                            </div>
+                                            <div class="d-none" id="modern-manual-hint" style="margin-bottom: 0.6rem; padding: 0.45rem 0.75rem; background-color: #fff8e1; border-left: 3px solid #ffc107; border-radius: 0.25rem; font-size: var(--font-size-sm); color: #856404;">
+                                                💡 수동 입력하기는 <strong>현장 방문을 하지 않은 예외 건</strong> 등록 시에만 체크해주세요.
                                             </div>
                                             <div class="position-relative" id="modern-lead-search-wrapper">
                                                 <input type="text" class="form-control" id="modern-lead-search-input" autocomplete="off" placeholder="현장명·연락처·주소로 검색 (또는 리드 No)" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem;">
@@ -143,7 +152,7 @@
                                             <!-- 거래처 유입 시에만 노출: 사업자등록증 아직 못 받았을 때의 명시적 예외 -->
                                             <div class="form-check mt-1" id="modern-business-name-pending-wrap" style="display: none;">
                                                 <input class="form-check-input" type="checkbox" id="modern-business-name-pending">
-                                                <label class="form-check-label" for="modern-business-name-pending" style="font-size: var(--font-size-sm); color: var(--gray-600);">사업자등록증 미수령 (수령 후 스레드 첨부하면 자동 기재)</label>
+                                                <label class="form-check-label" for="modern-business-name-pending" style="font-size: var(--font-size-sm); color: var(--gray-600);">사업자등록증 미수령 (수령 후 PM·슬랙에 등록증 첨부하면 사업자명 자동 기재)</label>
                                             </div>
                                         </div>
                                     </div>

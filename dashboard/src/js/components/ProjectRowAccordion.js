@@ -649,6 +649,7 @@ export default class ProjectRowAccordion {
                       <div class="project-actions-container">
                         ${this.generateUnifiedEditButtons(projectCode, projectData)}
                         <span class="as-action-slot" data-project-code="${projectCode}">${this.generateAsRequestButton(projectCode)}</span>
+                        ${this.generateInvoiceRequestButton(projectCode)}
                         ${this.generateCancelResumeButton(projectCode, projectData)}
                       </div>
                     </div>
@@ -688,13 +689,16 @@ export default class ProjectRowAccordion {
                 </div>
               </div>
 
-              <!-- 하단 문서 정보 섹션 -->
+              <!-- 하단 문서 정보 섹션 (문서 폴더 · 사업자등록증 · 수금 특이사항 3등분) -->
               <div class="mt-3">
                 <div class="row">
-                  <div class="col-md-6">
+                  <div class="col-md-4">
                     ${this.generateDocumentSection(projectData)}
                   </div>
-                  <div class="col-md-6">
+                  <div class="col-md-4">
+                    ${this.generateInvoiceLicenseSection(projectData['프로젝트 코드'])}
+                  </div>
+                  <div class="col-md-4">
                     ${this.generateCollectionNotesSection(projectData)}
                   </div>
                 </div>
@@ -709,6 +713,13 @@ export default class ProjectRowAccordion {
     // 실시간 계산 이벤트 바인딩 (프로젝트별로 매번 새로 바인딩 필요)
     // 총액1 → 총액2, 결제금액 → 미수금 등의 계산 이벤트
     this.bindCalculationEvents(projectCode);
+
+    // 사업자등록증 상태 lazy 조회 (있음/없음·열람 버튼·계산서 요청 게이트 채움)
+    try {
+      if (window.invoiceLicense && typeof window.invoiceLicense.onAccordionRendered === 'function') {
+        window.invoiceLicense.onAccordionRendered(projectCode);
+      }
+    } catch (_) { /* noop */ }
   }
 
   /**
@@ -1315,6 +1326,53 @@ export default class ProjectRowAccordion {
           </div>
         </div>
       </div>
+    `;
+  }
+
+  /**
+   * 사업자등록증 섹션 — 문서 카드 (2026-09-01, 2026-09-02 편집 게이트화).
+   * 일반 모드: 상태만 노출(있음=열기 링크 / 없음 / 불필요). 업로드·삭제는 **편집 모드에서만**
+   *   (다른 필드와 동일한 편집 게이트) — `.il-edit-controls` 는 기본 숨김, 편집 진입 시 표시.
+   *   있으면 [삭제], 없으면 [업로드] (내용은 onAccordionRendered→_applyStatus 가 채움).
+   * 세금계산서 요청 버튼은 상단 액션바(generateInvoiceRequestButton).
+   */
+  generateInvoiceLicenseSection(projectCode) {
+    const code = String(projectCode || '').trim();
+    if (!code) return '';
+    return `
+      <div class="legacy-card mt-3 invoice-license-card" data-il-code="${code}">
+        <div class="legacy-card-row" style="flex-wrap:wrap;">
+          <div class="legacy-card-main" style="flex-wrap:wrap; gap:8px;">
+            <span class="legacy-card-label">
+              <i class="fas fa-id-card me-2" style="color:#0d6efd;"></i>사업자등록증
+            </span>
+            <span class="il-status" data-il-status="${code}"
+                  style="display:inline-flex; align-items:center; padding:3px 10px; border-radius:12px;
+                         font-size:0.78rem; font-weight:600; background:#eef0f2; color:#6b7280;">확인 중…</span>
+            <span class="il-edit-controls" data-il-edit="${code}"
+                  style="display:none; gap:8px; align-items:center; flex-wrap:wrap;"></span>
+            <input type="file" data-il-file="${code}" accept="image/*,.pdf,.heic" style="display:none;"
+                   onchange="window.invoiceLicense && window.invoiceLicense.onFilePicked('${code}', this)">
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 세금계산서 요청 버튼 — 상단 액션바 (A/S 요청과 나란히, 2026-09-02).
+   * data-il-invoice 로 게이트(등록증 미보유 시 눌러도 안내 모달)는 onAccordionRendered→_applyStatus·openInvoiceModal 가 처리.
+   * invoice-request-btn 클래스로 편집 모드 시 숨김 대상.
+   */
+  generateInvoiceRequestButton(projectCode) {
+    const code = String(projectCode || '').trim();
+    if (!code) return '';
+    return `
+      <button type="button" class="btn btn-outline-primary btn-sm construction-action-btn invoice-request-btn" data-il-invoice="${code}"
+              title="세금계산서 발행 요청"
+              onclick="window.invoiceLicense && window.invoiceLicense.openInvoiceModal('${code}')">
+        <i class="fas fa-file-invoice"></i><span>세금계산서 요청</span>
+      </button>
     `;
   }
 
@@ -5036,13 +5094,20 @@ export default class ProjectRowAccordion {
       // 통합 버튼 상태 변경
       this.updateUnifiedButtons(projectCode, 'editing');
 
-      // 편집 모드 시 공사 취소/재개 버튼 숨김
+      // 편집 모드 시 상단 액션 버튼(A/S 요청 · 공사 취소/재개) 숨김 — 저장/취소만 노출.
+      // ⚠️ '.construction-action-btn' 은 A/S·공사취소·문서카드 등록증/계산서 버튼이 공유하므로
+      //   actions 컨테이너로 스코프 + 특정 클래스 타겟. (기존 querySelector 첫 매치만 숨겨
+      //   A/S 버튼만 사라지고 공사취소가 남던 버그 수정, 2026-09-02.)
       const shell = this.accordionContainer.querySelector(`.accordion-shell[data-project-code="${projectCode}"]`);
       if (shell) {
-        const cancelResumeBtn = shell.querySelector('.construction-action-btn');
-        if (cancelResumeBtn) {
-          cancelResumeBtn.style.display = 'none';
+        const actions = shell.querySelector('.project-actions-container');
+        if (actions) {
+          actions.querySelectorAll('.as-action-slot, .invoice-request-btn, .cancel-construction-btn, .resume-construction-btn')
+            .forEach(el => { el.style.display = 'none'; });
         }
+        // 편집 모드에서만 사업자등록증 업로드/삭제 컨트롤 노출 (일반 모드=열기 링크만)
+        const ilEdit = shell.querySelector('.il-edit-controls');
+        if (ilEdit) ilEdit.style.display = 'inline-flex';
       }
 
       // 🆕 ModeManager를 통한 편집 모드 활성화
@@ -6237,13 +6302,17 @@ export default class ProjectRowAccordion {
     // 통합 버튼 상태 변경
     this.updateUnifiedButtons(projectCode, 'view');
 
-    // 편집 모드 해제 시 공사 취소/재개 버튼 다시 표시
+    // 편집 모드 해제 시 상단 액션 버튼(A/S 요청 · 공사 취소/재개) 복원.
     const shell = this.accordionContainer.querySelector(`.accordion-shell[data-project-code="${projectCode}"]`);
     if (shell) {
-      const cancelResumeBtn = shell.querySelector('.construction-action-btn');
-      if (cancelResumeBtn) {
-        cancelResumeBtn.style.display = '';
+      const actions = shell.querySelector('.project-actions-container');
+      if (actions) {
+        actions.querySelectorAll('.as-action-slot, .invoice-request-btn, .cancel-construction-btn, .resume-construction-btn')
+          .forEach(el => { el.style.display = ''; });
       }
+      // 편집 종료 시 사업자등록증 업로드/삭제 컨트롤 숨김 (일반 모드=열기 링크만)
+      const ilEdit = shell.querySelector('.il-edit-controls');
+      if (ilEdit) ilEdit.style.display = 'none';
     }
 
     // 툴팁 인스턴스가 dispose된 뒤 뷰 모드 마크업으로 복원되므로 재초기화

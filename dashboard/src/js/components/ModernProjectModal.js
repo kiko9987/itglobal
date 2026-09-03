@@ -219,6 +219,13 @@ export default class ModernProjectModal {
       bizPendingCheck.addEventListener('change', () => this.syncBusinessNameLock());
     }
 
+    // '수동 입력' 토글 → 유입구분·담당자·연락처·이메일·주소 잠금/해제 (기본 잠금)
+    const manualInputCheck = document.getElementById('modern-manual-input');
+    if (manualInputCheck) {
+      manualInputCheck.addEventListener('change', () => this.syncManualInputLock());
+    }
+    this.syncManualInputLock();  // 초기 잠금 적용
+
     // 날짜 입력 필드 클릭 이벤트 (아이콘 클릭 시 날짜 선택창 열기)
     const calendarIcons = this.modalElement.querySelectorAll('.calendar-icon');
     calendarIcons.forEach(icon => {
@@ -423,6 +430,9 @@ export default class ModernProjectModal {
       // 유입 구분은 시트 데이터 유효성 검사에서 다시 로드 (사용자가 시트에서 수정한 값 반영)
       this.refreshInflowOptions();
 
+      // 비활성/퇴사 담당자 제외 목록 로드 후 담당자 드롭다운 재필터
+      this.refreshInactiveOwners();
+
       logger.debug('[ModernProjectModal] 옵션 로드 완료 (0ms)');
 
     } catch (error) {
@@ -435,6 +445,38 @@ export default class ModernProjectModal {
    * - 거래처: 편집 가능 + datalist 자동완성 유지 + '-' 이면 값 비움
    * - 그 외: '-' 자동 입력 + readonly + datalist 자동완성 비활성화
    */
+  /**
+   * 수동 입력 잠금 (2026-09-02) — 기본(체크 해제) 시 방문 현장 불러오기가 채우는 필드
+   * (유입구분·발주처담당자·연락처·이메일·현장주소)를 회색 잠금. '수동 입력' 체크 시 해제.
+   * 불러오기 사용을 유도해 사업자 정보 품질 확보. 사업자명은 syncBusinessNameLock(유입구분 연동)이 별도 관리.
+   */
+  syncManualInputLock() {
+    const manualCheck = document.getElementById('modern-manual-input');
+    const manual = !!(manualCheck && manualCheck.checked);
+    const GRAY = '#e9ecef';
+    ['modern-site-manager', 'modern-manager-phone', 'modern-manager-email', 'modern-address'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.readOnly = !manual;
+      el.style.backgroundColor = manual ? '' : GRAY;
+      el.style.cursor = manual ? '' : 'not-allowed';
+    });
+    // 유입구분 select — readOnly 미지원 → pointer-events/tabindex 로 잠금 (값은 불러오기가 설정·submit 유지)
+    const client = document.getElementById('modern-client');
+    if (client) {
+      client.style.pointerEvents = manual ? '' : 'none';
+      client.style.backgroundColor = manual ? '' : GRAY;
+      client.style.cursor = manual ? '' : 'not-allowed';
+      client.tabIndex = manual ? 0 : -1;
+    }
+    // (이메일 '확인 불가' 체크는 불러오기의 이메일 로직과 얽혀 있어 잠그지 않음)
+    // 수동 입력 켜면 '불러오기에 웬만한 건 다 있다' 안내 표시 → 불러오기 재유도
+    const hint = document.getElementById('modern-manual-hint');
+    if (hint) hint.classList.toggle('d-none', !manual);
+    // 사업자명 잠금(유입구분 연동)은 그대로 재적용
+    this.syncBusinessNameLock();
+  }
+
   syncBusinessNameLock() {
     const clientSelect = document.getElementById('modern-client');
     const bizInput = document.getElementById('modern-business-name');
@@ -514,6 +556,36 @@ export default class ModernProjectModal {
       logger.debug(`[ModernProjectModal] 유입 구분 옵션 갱신: ${options.length}개`);
     } catch (err) {
       logger.warn('[ModernProjectModal] 유입 구분 옵션 갱신 예외:', err);
+    }
+  }
+
+  /**
+   * 사용자 관리에서 비활성/퇴사 처리된 담당자를 담당자 드롭다운에서 제외.
+   * 목록은 기존 프로젝트 데이터 기준이라 사용자 상태를 못 반영하므로, DB에서 별도 조회해 거른다.
+   */
+  async refreshInactiveOwners() {
+    try {
+      const res = await fetch('/api/inactive-managers', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      const json = await res.json();
+      const list = Array.isArray(json.inactive_managers) ? json.inactive_managers : [];
+      this.inactiveOwnerSet = new Set(
+        list.map((u) => (u.name || '').trim()).filter(Boolean),
+      );
+
+      // 이미 그려진 담당자 드롭다운에서 비활성/퇴사 인원 옵션 제거
+      const ownerSelect = document.getElementById('modern-owner');
+      if (ownerSelect) {
+        const current = ownerSelect.value;
+        Array.from(ownerSelect.options).forEach((opt) => {
+          if (opt.value && this.inactiveOwnerSet.has(opt.value)) opt.remove();
+        });
+        // 현재 선택값이 제외 대상이었으면 초기화
+        if (current && this.inactiveOwnerSet.has(current)) ownerSelect.value = '';
+      }
+      logger.debug(`[ModernProjectModal] 비활성/퇴사 담당자 제외: ${this.inactiveOwnerSet.size}명`);
+    } catch (err) {
+      logger.warn('[ModernProjectModal] 비활성/퇴사 담당자 목록 로드 예외:', err);
     }
   }
 
@@ -722,9 +794,12 @@ export default class ModernProjectModal {
     }
 
     // 담당자 목록 (제외할 인원 필터링)
+    // - excludedOwners: 비영업 고정 인원(하드코딩)
+    // - inactiveOwnerSet: 사용자 관리에서 비활성/퇴사 처리된 인원 (DB, refreshInactiveOwners로 로드)
     const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '황해승'];
+    const inactiveSet = this.inactiveOwnerSet || new Set();
     const owners = data.options?.owners || data.owners || [];
-    const filteredOwners = owners.filter(owner => !excludedOwners.includes(owner));
+    const filteredOwners = owners.filter(owner => !excludedOwners.includes(owner) && !inactiveSet.has(owner));
     console.log('[DEBUG] 담당자 수:', filteredOwners.length);
 
     const ownerSelect = document.getElementById('modern-owner');
@@ -1735,8 +1810,9 @@ export default class ModernProjectModal {
       this.form.reset();
     }
 
-    // 유입 구분 ↔ 사업자명 잠금 재동기화 (form.reset 은 change 이벤트를 fire 하지 않음)
-    this.syncBusinessNameLock();
+    // 유입 구분 ↔ 사업자명 잠금 + 수동 입력 잠금 재동기화 (form.reset 은 change 이벤트를 fire 하지 않음)
+    // 리셋 시 '수동 입력' 체크 해제 → 기본 잠금 상태 복귀 (syncManualInputLock 이 syncBusinessNameLock 도 호출)
+    this.syncManualInputLock();
 
     // 리드 연결 UI 초기화
     const leadNo = document.getElementById('modern-lead-no');

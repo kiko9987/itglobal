@@ -338,6 +338,20 @@ def start_scheduler():
         )
         jobs.append('거래처 신규 증분 매일 07:00')
 
+    # 2026-09-02 사업자등록증 상태 캐시 워밍 — PM '첫 조회' 지연 제거 (Redis 영구캐시 + 워머).
+    #   미캐시 비취소 프로젝트만 계산·저장(화면 밖 백그라운드). 이미 캐시된 건은 즉시 skip.
+    _scheduler.add_job(
+        _safe_warm_license_states,
+        'interval',
+        hours=6,
+        id='warm_license_states',
+        replace_existing=True,
+    )
+    # Flask 시작 60초 후 1회 즉시 워밍 (재시작 직후에도 캐시 채워둠 → 첫 조회 즉시)
+    import threading as _th_warm
+    _th_warm.Timer(60, _safe_warm_license_states).start()
+    jobs.append('등록증 상태 캐시 워밍 6시간 + 시작 60초 후 1회')
+
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -712,6 +726,20 @@ def _safe_partner_status_fill_new():
         rebuild_partner_caches()
     except Exception as exc:
         logger.error(f'[SCHED] 거래처 신규 증분/캐시 실패: {exc}', exc_info=True)
+
+
+def _safe_warm_license_states():
+    """사업자등록증 상태 캐시 워밍 (백그라운드, 2026-09-02).
+
+    PM 아코디언 '사업자등록증' 상태 조회는 Drive 폴더 조회(~1초)가 필요해 첫 조회가 느리다.
+    Redis 영구캐시(30일) + 이 워머로 미리 채워 사용자 첫 조회도 즉시 응답되게 한다.
+    캐시된 건은 즉시 skip(Drive 호출 X), 비취소·미캐시 건만 계산. 화면 밖 백그라운드 처리.
+    """
+    try:
+        from dashboard.services.business_license_handler import warm_license_states
+        warm_license_states()
+    except Exception as exc:
+        logger.error(f'[SCHED] 등록증 상태 캐시 워밍 실패: {exc}', exc_info=True)
 
 
 def _safe_daily_backup():

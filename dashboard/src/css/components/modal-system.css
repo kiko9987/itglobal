@@ -56,20 +56,25 @@
 }
 
 /* A/S 액션 모달 — 새 프로젝트 등록 모달과 동일한 폼 타이포 컨벤션 (라벨·입력 0.875rem) */
-#asActionModal .form-label {
+/* #ilActionModal = 사업자등록증/세금계산서 모달(InvoiceLicense.js) — A/S 와 동일 스타일 공유 */
+#asActionModal .form-label,
+#ilActionModal .form-label {
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--gray-700);
   margin-bottom: 0.4rem;
 }
 #asActionModal .form-control,
-#asActionModal .form-select {
+#asActionModal .form-select,
+#ilActionModal .form-control,
+#ilActionModal .form-select {
   font-size: var(--font-size-sm);
   /* .modal-body input[type=text] 의 큰 패딩(spacing-md 전방향) 오버라이드 → 다른 컨트롤과 높이 통일 */
   padding: 0.375rem 0.75rem;
 }
 /* 드롭다운 — 새 프로젝트 등록 모달과 동일한 커스텀 화살표/좌측 정렬 */
-#asActionModal .form-select {
+#asActionModal .form-select,
+#ilActionModal .form-select {
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
@@ -82,39 +87,52 @@
   cursor: pointer;
 }
 /* 날짜 인풋 — 필드 어디를 눌러도 커서 포인터 (클릭 시 showPicker 로 캘린더 오픈) */
-#asActionModal input[type="date"] {
+#asActionModal input[type="date"],
+#ilActionModal input[type="date"] {
   cursor: pointer;
+}
+/* textarea — .modal-body textarea 큰 패딩 오버라이드(다른 컨트롤과 통일) */
+#asActionModal textarea.form-control,
+#ilActionModal textarea.form-control {
+  padding: 0.375rem 0.75rem;
 }
 /* 비활성(잠금) 입력 — 흰색이면 수정 가능 여부를 클릭해봐야 알아서, 회색으로 명확히 표시 */
 #asActionModal .form-control:disabled,
-#asActionModal .form-select:disabled {
+#asActionModal .form-select:disabled,
+#ilActionModal .form-control:disabled,
+#ilActionModal .form-select:disabled {
   background-color: #e9ecef;
   color: #6c757d;
   cursor: not-allowed;
   opacity: 1;
 }
 /* 푸터 버튼 — 등록 모달과 동일한 파스텔 빨강(취소)/초록(확인) */
-#asActionModal .modal-footer .btn {
+#asActionModal .modal-footer .btn,
+#ilActionModal .modal-footer .btn {
   border-radius: var(--border-radius);
   font-weight: 500;
   padding: 0.5rem 1.35rem;
   transition: all 0.2s ease;
 }
-#asActionModal .as-btn-cancel {
+#asActionModal .as-btn-cancel,
+#ilActionModal .as-btn-cancel {
   background-color: #f8d7da;
   border: 1px solid #f5c6cb;
   color: #721c24;
 }
-#asActionModal .as-btn-cancel:hover {
+#asActionModal .as-btn-cancel:hover,
+#ilActionModal .as-btn-cancel:hover {
   background-color: #f5c6cb;
   border-color: #f1b0b7;
 }
-#asActionModal .as-btn-submit {
+#asActionModal .as-btn-submit,
+#ilActionModal .as-btn-submit {
   background-color: #d4edda;
   border: 1px solid #c3e6cb;
   color: #155724;
 }
-#asActionModal .as-btn-submit:hover {
+#asActionModal .as-btn-submit:hover,
+#ilActionModal .as-btn-submit:hover {
   background-color: #c3e6cb;
   border-color: #b3d7c1;
   transform: translateY(-1px);

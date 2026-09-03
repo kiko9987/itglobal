@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from typing import Optional, Tuple
 
@@ -37,18 +38,23 @@ LICENSE_FOLDER_NAME = '사업자등록증'
 LICENSE_BASENAME = '사업자등록증'
 DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
 
-_drive_service = None
+# 스레드별 Drive 클라이언트 (프로세스 싱글톤 금지).
+# googleapiclient(httplib2)는 thread-safe 하지 않아 여러 스레드가 한 인스턴스를 공유하면
+# heap corruption 위험 (2026-07-09 GoogleSheetsManager 동일 사고). Waitress 웹 요청 스레드와
+# 슬랙 Bolt 핸들러 스레드가 각자 인스턴스를 갖도록 threading.local 사용.
+_drive_local = threading.local()
 
 
 def _get_drive():
-    global _drive_service
-    if _drive_service is None:
+    svc = getattr(_drive_local, 'service', None)
+    if svc is None:
         creds_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', 'credentials.json')
         credentials = service_account.Credentials.from_service_account_file(
             creds_path, scopes=DRIVE_SCOPES,
         )
-        _drive_service = build('drive', 'v3', credentials=credentials, cache_discovery=False)
-    return _drive_service
+        svc = build('drive', 'v3', credentials=credentials, cache_discovery=False)
+        _drive_local.service = svc
+    return svc
 
 
 def _project_folder_id_for(code: str, fresh: bool = False) -> Optional[str]:
@@ -375,6 +381,12 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
         supportsAllDrives=True,
     ).execute()
     logger.info(f'[LICENSE] 저장 완료: {up["name"]} (project={code}, id={up["id"]})')
+    invalidate_license_state(code)  # 상태 캐시 무효화 → PM 뱃지 즉시 최신 반영 (슬랙·PM 공통)
+    # 사업자명 재사용 인덱스 갱신 — 이후 같은 사업자명의 다른 공사가 이 등록증을 재사용(복사).
+    try:
+        _index_license_source(_project_norm_biz(code), code, up['id'], ext)
+    except Exception as exc:
+        logger.debug(f'[LICENSE] 재사용 인덱스 갱신 실패 ({code}): {exc}')
     return {
         'ok': True,
         'reason': 'saved',
@@ -407,6 +419,395 @@ def verify_license_exists(code: str) -> bool:
         if base == expected_base:
             return True
     return False
+
+
+def get_license_view_url(code: str) -> Optional[str]:
+    """canonical 사업자등록증 파일의 Drive 열람 URL (없으면 None).
+
+    PM '열람' 버튼용 — 새 탭에서 사용자의 구글 세션으로 연다(회사 공유드라이브 접근 권한 전제).
+    canonical 여러 확장자면 fetch_license_canonical 과 동일 우선순위(pdf>png>jpg).
+    """
+    parent = _project_folder_id_for(code)
+    if not parent:
+        return None
+    drive = _get_drive()
+    fid = _find_license_subfolder(drive, parent)
+    if not fid:
+        return None
+    expected_base = f'{code} {LICENSE_BASENAME}'
+    ext_priority = {'pdf': 0, 'png': 1, 'jpg': 2, 'jpeg': 2, 'webp': 3, 'gif': 4, 'heic': 5}
+    candidates = []
+    for f in _list_folder_files(drive, fid):
+        name = f['name']
+        if '.' not in name:
+            continue
+        base, ext = name.rsplit('.', 1)
+        if base != expected_base:
+            continue
+        candidates.append((ext_priority.get(ext.lower(), 99), f['id']))
+    if not candidates:
+        return None
+    candidates.sort()
+    return f'https://drive.google.com/file/d/{candidates[0][1]}/view'
+
+
+_LICENSE_STATE_TTL = 30 * 24 * 3600  # 등록증 상태 캐시 (30일=사실상 영구).
+# 모든 쓰기 경로(save_business_license·trash_license_canonical)가 invalidate 하므로 길게 잡아도 정확.
+# 백그라운드 워머(warm_license_states)가 시작·주기적으로 미리 채워 '첫 조회'도 즉시.
+# (30일 TTL 은 앱 밖 수동 Drive 조작 같은 예외 상황의 자동 자가치유 안전망.)
+
+
+def _license_state_key(code: str) -> str:
+    return f'license_state:{code}'
+
+
+def invalidate_license_state(code: str) -> None:
+    """등록증 상태 캐시 무효화 (업로드/변경 시). save_business_license 성공 시 자동 호출."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.delete(_license_state_key((code or '').strip()))
+    except Exception:
+        pass
+
+
+# ── 사업자명(상호) → 등록증 재사용 인덱스 (2026-09-02) ──
+# 반복 거래처: 같은 사업자명의 기존 프로젝트 등록증을 새 프로젝트로 '복사'해 재사용한다.
+# (거래처 blanket 예외 폐지 → 모든 공사에 등록증 필요. 사업자명 매칭되면 재사용, 아니면 차단.)
+# 이유: 인테리어 업체 경유라도 고객과 직접 금전 거래가 많아 프로젝트마다 각자 등록증이 필요.
+_BIZ_INDEX_KEY = 'license_biz_index'  # Redis hash: norm_biz -> {"code","file_id","ext"}
+_EXT_PRIORITY = {'pdf': 0, 'png': 1, 'jpg': 2, 'jpeg': 2, 'webp': 3, 'gif': 4, 'heic': 5}
+
+
+# 유입 플레이스홀더 — '사업자명' 필드에 상호 대신 유입구분/기본값이 들어간 경우.
+# 이 값들은 회사 식별자가 아니므로 등록증 재사용/인덱싱/거래처 매칭의 키가 되면 안 된다.
+# (예: '온라인' 274건이 한 키로 묶여 무관한 고객의 등록증이 계산서에 오첨부되는 사고 방지. 2026-09-02)
+_PLACEHOLDER_BIZ = {
+    '온라인', '거래처', '전화', '소개', '기타', '카톡', '카카오', '방문',
+    '미정', '개인', '없음', 'none', 'null', 'na', 'n/a',
+}
+
+
+def _norm_biz(name: str) -> str:
+    """사업자명(상호) 정규화 — 상호→이메일 캐시와 동일 규칙(법인표기 유지, 정밀 매칭).
+
+    유입 플레이스홀더(온라인/거래처/- 등)와 1자 이하는 '' 반환 → 등록증 재사용·인덱싱
+    대상에서 제외(무관한 고객 간 등록증 오첨부 방지). own(자기 폴더 파일)은 폴더 기반이라 무영향.
+    """
+    try:
+        from dashboard.services.partner_status_sync import _norm_name
+        nb = _norm_name(name)
+    except Exception:
+        nb = re.sub(r'\s+', '', str(name or '')).strip().lower()
+    if nb in _PLACEHOLDER_BIZ or len(nb) <= 1:
+        return ''
+    return nb
+
+
+def _project_norm_biz(code: str) -> str:
+    try:
+        from dashboard.services.project_service import get_project_records
+        for r in (get_project_records() or []):
+            if (r.get('프로젝트 코드') or '').strip() == code:
+                return _norm_biz(r.get('사업자명') or '')
+    except Exception:
+        pass
+    return ''
+
+
+def _index_license_source(norm_biz: str, code: str, file_id: str, ext: str) -> None:
+    """이 프로젝트를 해당 사업자명의 등록증 '원본 소스'로 인덱싱 (재사용 복사 출처)."""
+    if not norm_biz or not file_id:
+        return
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.hset(
+            _BIZ_INDEX_KEY, norm_biz,
+            json.dumps({'code': code, 'file_id': file_id, 'ext': ext}, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+def _get_license_source(norm_biz: str) -> Optional[dict]:
+    if not norm_biz:
+        return None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        v = get_redis_client().redis.hget(_BIZ_INDEX_KEY, norm_biz)
+        if v:
+            return json.loads(v.decode() if isinstance(v, bytes) else v)
+    except Exception:
+        pass
+    return None
+
+
+def _own_canonical(code: str, drive=None):
+    """프로젝트 자기 폴더의 canonical 등록증 → (file_id, ext) or None."""
+    parent = _project_folder_id_for(code)
+    if not parent:
+        return None
+    drive = drive or _get_drive()
+    fid = _find_license_subfolder(drive, parent)
+    if not fid:
+        return None
+    expected_base = f'{code} {LICENSE_BASENAME}'
+    cands = []
+    for f in _list_folder_files(drive, fid):
+        nm = f['name']
+        if '.' not in nm:
+            continue
+        base, ext = nm.rsplit('.', 1)
+        if base != expected_base:
+            continue
+        cands.append((_EXT_PRIORITY.get(ext.lower(), 99), f['id'], ext.lower()))
+    if not cands:
+        return None
+    cands.sort()
+    return (cands[0][1], cands[0][2])
+
+
+def _copy_license_to_project(code: str, source: dict):
+    """source(다른 프로젝트의 등록증)를 code 프로젝트 폴더로 **복사** → (file_id, ext) or None.
+    반복 거래처 재사용: 각 공사가 물리적으로 등록증을 보유하게 한다 (원본은 유지)."""
+    src_id = (source or {}).get('file_id')
+    ext = ((source or {}).get('ext') or 'pdf').lower()
+    if not src_id:
+        return None
+    parent = _project_folder_id_for(code)
+    if not parent:
+        return None
+    drive = _get_drive()
+    sub = _get_or_create_license_subfolder(drive, parent)
+    new_name = _canonical_name(code, ext)
+    try:
+        r = drive.files().copy(
+            fileId=src_id, body={'name': new_name, 'parents': [sub]},
+            fields='id,name', supportsAllDrives=True,
+        ).execute()
+    except Exception as exc:
+        logger.warning(f'[LICENSE/REUSE] 복사 실패 ({code} ← {source.get("code")}): {exc}')
+        return None
+    logger.info(f'[LICENSE/REUSE] 등록증 재사용 복사: {source.get("code")} → {code} ({new_name})')
+    return (r['id'], ext)
+
+
+def get_license_state(code: str, use_cache: bool = True) -> dict:
+    """등록증 상태 → {'exists','view_url','source'}. source: 'own'|'reuse'|None (표시/게이트용, **복사 안 함**).
+
+    - own: 자기 폴더에 등록증 있음.
+    - reuse: 자기 폴더엔 없지만 **같은 사업자명**의 기존 등록증이 있어 재사용 가능(열람은 원본 링크).
+      실제 물리 복사는 계산서 요청 시 ensure_license() 가 수행.
+    - None: 없음 → 계산서 요청 차단(업로드 필요).
+    Redis 캐시(30일). 업로드·삭제·복사 시 invalidate.
+    """
+    code = (code or '').strip()
+    if not code:
+        return {'exists': False, 'view_url': None, 'source': None}
+    if use_cache:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            raw = get_redis_client().redis.get(_license_state_key(code))
+            if raw:
+                return json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+        except Exception:
+            pass
+
+    state = {'exists': False, 'view_url': None, 'source': None}
+    nb = _project_norm_biz(code)
+    oc = _own_canonical(code)
+    if oc:
+        fid, ext = oc
+        state = {'exists': True, 'view_url': f'https://drive.google.com/file/d/{fid}/view',
+                 'source': 'own', 'file_id': fid, 'ext': ext}
+        _index_license_source(nb, code, fid, ext)  # 인덱스 최신화
+    else:
+        src = _get_license_source(nb)
+        if src and src.get('code') != code and src.get('file_id'):
+            state = {
+                'exists': True,
+                'view_url': f'https://drive.google.com/file/d/{src.get("file_id")}/view',
+                'source': 'reuse',
+            }
+        else:
+            # 등록증 파일이 없어도 **거래처 탭에 상호가 있으면 계산서 발행 가능**
+            # (홈택스 발행 이력 있는 거래처. 사용자 통찰 2026-09-02). 파일 없음 → view_url 없음.
+            try:
+                from dashboard.services.partner_status_sync import is_partner_known
+                if is_partner_known(nb):
+                    state = {'exists': True, 'view_url': None, 'source': 'partner'}
+            except Exception:
+                pass
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.setex(_license_state_key(code), _LICENSE_STATE_TTL, json.dumps(state))
+    except Exception:
+        pass
+    return state
+
+
+def ensure_license(code: str):
+    """계산서 첨부 직전 호출 — 자기 폴더에 등록증을 **보장**(없으면 사업자명 매칭 소스에서 복사).
+
+    Returns (file_id, ext) or None. 복사 시 상태 캐시 무효화(다음 조회 own 반영).
+    """
+    code = (code or '').strip()
+    if not code:
+        return None
+    oc = _own_canonical(code)
+    if oc:
+        return oc
+    src = _get_license_source(_project_norm_biz(code))
+    if src and src.get('code') != code:
+        copied = _copy_license_to_project(code, src)
+        if copied:
+            invalidate_license_state(code)
+            return copied
+    return None
+
+
+def trash_license_canonical(code: str) -> dict:
+    """canonical 사업자등록증을 Drive **휴지통으로 이동**(복구 가능, 영구삭제 아님).
+
+    PM 등록증 [삭제] 버튼용. 오분류·복구 이력이 있어 영구삭제 대신 trashed=True.
+    백업본(_N)은 건드리지 않고 현재 canonical 만 이동 → 상태는 '없음'이 되어 재업로드 유도.
+    Returns {'ok': bool, 'reason': str, 'file_name'?}.
+    """
+    code = (code or '').strip()
+    if not code:
+        return {'ok': False, 'reason': 'no_code'}
+    parent = _project_folder_id_for(code)
+    if not parent:
+        return {'ok': False, 'reason': 'no_project_folder'}
+    drive = _get_drive()
+    fid = _find_license_subfolder(drive, parent)
+    if not fid:
+        return {'ok': False, 'reason': 'no_license'}
+    expected_base = f'{code} {LICENSE_BASENAME}'
+    ext_priority = {'pdf': 0, 'png': 1, 'jpg': 2, 'jpeg': 2, 'webp': 3, 'gif': 4, 'heic': 5}
+    candidates = []
+    for f in _list_folder_files(drive, fid):
+        name = f['name']
+        if '.' not in name:
+            continue
+        base, ext = name.rsplit('.', 1)
+        if base != expected_base:
+            continue
+        candidates.append((ext_priority.get(ext.lower(), 99), name, f['id']))
+    if not candidates:
+        return {'ok': False, 'reason': 'no_license'}
+    candidates.sort()
+    _, name, file_id = candidates[0]
+    try:
+        drive.files().update(
+            fileId=file_id, body={'trashed': True}, supportsAllDrives=True,
+        ).execute()
+    except Exception as exc:
+        logger.warning(f'[LICENSE] 휴지통 이동 실패 ({code}, {name}): {exc}')
+        return {'ok': False, 'reason': 'drive_error'}
+    logger.info(f'[LICENSE] 휴지통 이동(삭제): {name} (project={code}, id={file_id})')
+    invalidate_license_state(code)
+    return {'ok': True, 'reason': 'trashed', 'file_name': name}
+
+
+def warm_license_states(throttle: float = 0.15, limit: Optional[int] = None) -> int:
+    """등록증 상태 캐시 + 사업자명 재사용 인덱스 백그라운드 구축 (2-pass, 2026-09-02).
+
+    Pass A: 비취소 프로젝트 own-check → 사업자명→등록증 인덱스 구축 + own 상태 캐시.
+      (이미 'own' 캐시된 건은 캐시의 file_id/ext 로 인덱싱 → Drive 재호출 없이 재실행 저렴.)
+    Pass B: own 없는 프로젝트 → **인덱스 완성 후** 사업자명 매칭되면 '재사용', 아니면 '없음' 캐시.
+      2-pass 라 '매칭 소스보다 먼저 처리돼 없음으로 굳는' 순서 문제 없음.
+      (물리 복사는 계산서 요청 시 ensure_license 가 수행 — 워머는 상태/인덱스만.)
+    반환: own-check 처리 건수.
+    """
+    try:
+        from dashboard.services.project_service import get_project_records
+        records = get_project_records() or []
+    except Exception as exc:
+        logger.warning(f'[LICENSE/WARM] 프로젝트 목록 로드 실패: {exc}')
+        return 0
+
+    def _code_num(r):
+        m = re.search(r'[GPR](\d+)', str(r.get('프로젝트 코드') or ''))
+        return int(m.group(1)) if m else 0
+    records = sorted(records, key=_code_num, reverse=True)
+    active = [
+        r for r in records
+        if (r.get('프로젝트 코드') or '').strip()
+        and '공사취소' not in str(r.get('수금 관련 특이사항') or '').replace(' ', '')
+    ]
+
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        rc = None
+
+    def _cache(code, st):
+        if rc is not None:
+            try:
+                rc.setex(_license_state_key(code), _LICENSE_STATE_TTL, json.dumps(st))
+            except Exception:
+                pass
+
+    drive = _get_drive()
+    needing = []
+    checked = 0
+    # ── Pass A: 인덱스 구축 + own 캐시 ──
+    for r in active:
+        code = (r.get('프로젝트 코드') or '').strip()
+        nb = _norm_biz(r.get('사업자명') or '')
+        # 이미 own 캐시면 캐시의 file_id/ext 로 인덱싱 (Drive 재호출 회피)
+        cached = None
+        if rc is not None:
+            try:
+                raw = rc.get(_license_state_key(code))
+                cached = json.loads(raw.decode() if isinstance(raw, bytes) else raw) if raw else None
+            except Exception:
+                cached = None
+        # 신포맷 own 캐시(file_id 보유)면 캐시로 인덱싱 → Drive 재호출 회피.
+        # 그 외(구포맷·reuse·없음·미캐시)는 반드시 own-check (구포맷 own 을 needing 오분류 방지).
+        if cached and cached.get('source') == 'own' and cached.get('file_id'):
+            _index_license_source(nb, code, cached.get('file_id'), cached.get('ext') or 'pdf')
+            continue
+        try:
+            oc = _own_canonical(code, drive)
+        except Exception as exc:
+            logger.debug(f'[LICENSE/WARM] {code} own-check 실패: {exc}')
+            continue
+        if oc:
+            fid, ext = oc
+            _index_license_source(nb, code, fid, ext)
+            _cache(code, {'exists': True, 'view_url': f'https://drive.google.com/file/d/{fid}/view',
+                          'source': 'own', 'file_id': fid, 'ext': ext})
+        else:
+            needing.append((code, nb))
+        checked += 1
+        if limit and checked >= limit:
+            break
+        if throttle:
+            time.sleep(throttle)
+
+    # ── Pass B: 재사용 참조 / 거래처 탭 발행가능 / 없음 캐시 (인덱스 완성 후) ──
+    try:
+        from dashboard.services.partner_status_sync import is_partner_known
+    except Exception:
+        is_partner_known = None
+    reused = 0
+    partner = 0
+    for code, nb in needing:
+        src = _get_license_source(nb)
+        if src and src.get('code') != code and src.get('file_id'):
+            _cache(code, {'exists': True,
+                          'view_url': f'https://drive.google.com/file/d/{src.get("file_id")}/view',
+                          'source': 'reuse'})
+            reused += 1
+        elif is_partner_known and is_partner_known(nb):
+            # 등록증 파일 없어도 거래처 탭에 있으면 발행 가능
+            _cache(code, {'exists': True, 'view_url': None, 'source': 'partner'})
+            partner += 1
+        else:
+            _cache(code, {'exists': False, 'view_url': None, 'source': None})
+    logger.info(f'[LICENSE/WARM] 상태·인덱스 워밍: own-check {checked}건 / 재사용 {reused} / 거래처발행가능 {partner} / 대상 {len(active)}')
+    return checked
 
 
 _MIMETYPE_BY_EXT = {

@@ -25,6 +25,7 @@ const AuditLogModal = () => import('../components/AuditLogModal.js');
 const MobileCardView = () => import('../components/MobileCardView.js');
 const ProjectRowAccordion = () => import('../components/ProjectRowAccordion.js');
 const AsView = () => import('../components/AsView.js');
+const InvoiceLicense = () => import('../components/InvoiceLicense.js');
 
 /**
  * 프로젝트 리스트 페이지 메인 클래스 (Orchestration Only)
@@ -155,6 +156,12 @@ class ProjectListApp {
         this.components.asView.loadMap();
       }).catch(err => {
         logger.error('[ERROR] AsView 로드 실패:', err);
+      }),
+      InvoiceLicense().then(module => {
+        this.components.invoiceLicense = new module.default();
+        window.invoiceLicense = this.components.invoiceLicense;  // 아코디언 등록증/계산서 버튼에서 참조
+      }).catch(err => {
+        logger.error('[ERROR] InvoiceLicense 로드 실패:', err);
       })
     ];
 

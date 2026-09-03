@@ -434,6 +434,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.metadata import metadata_bp
         from dashboard.blueprints.leads import leads_bp
         from dashboard.blueprints.as_mgmt import as_bp
+        from dashboard.blueprints.invoice_mgmt import invoice_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
         from dashboard.blueprints.constructors import constructors_bp
         from dashboard.blueprints.slack_bot import slack_bp
@@ -447,6 +448,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(projects_bp)
         app.register_blueprint(leads_bp)
         app.register_blueprint(as_bp)  # A/S 관리 (PM 대시보드 A/S 모드)
+        app.register_blueprint(invoice_bp)  # 세금계산서·사업자등록증 (PM 대시보드)
         app.register_blueprint(monitoring_bp)
         app.register_blueprint(admin_bp)
         app.register_blueprint(users_bp)

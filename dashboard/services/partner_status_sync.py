@@ -195,6 +195,8 @@ def refresh_partner_status(dry_run: bool = True,
 # ─────────────────────────────────────────────────────────────
 _EMAIL_CACHE_KEY = 'partner_email_map'      # Redis hash: norm_biz -> email
 _NAME_BY_BNO_KEY = 'partner_name_by_bno'    # Redis hash: bno(10자리) -> 상호
+_NAME_SET_KEY = 'partner_name_set'          # Redis set: norm_biz (거래처 탭 존재 = 발행 가능)
+_INFO_MAP_KEY = 'partner_info_map'          # Redis hash: norm_biz -> {bno,name,ceo,addr,biz_type,biz_item,email}
 
 
 def rebuild_partner_caches() -> dict:
@@ -210,13 +212,27 @@ def rebuild_partner_caches() -> dict:
     vals = m.service.spreadsheets().values().get(
         spreadsheetId=sid, range=f'{_TAB}!A1:G',
     ).execute().get('values', [])
+    import json as _json
     name_emails: dict = {}   # norm_biz -> set(email)
     name_by_bno: dict = {}   # bno -> 상호
+    name_set: set = set()    # norm_biz 전체 (거래처 탭에 존재 = 계산서 발행 가능 판정용)
+    info_map: dict = {}      # norm_biz -> {bno,name,ceo,addr,biz_type,biz_item,email} (등록증 대체 댓글용)
     for r in vals:
-        bno = normalize_bno(r[0] if len(r) > 0 else '')
+        bno_raw = (r[0] if len(r) > 0 else '').strip()
+        bno = normalize_bno(bno_raw)
         name = (r[1] if len(r) > 1 else '').strip()
         email = (r[6] if len(r) > 6 else '').strip()
         key = _norm_name(name)
+        if key:
+            name_set.add(key)
+            info_map[key] = {  # 마지막 행 우선 (동일 상호 시)
+                'bno': bno_raw, 'name': name,
+                'ceo': (r[2] if len(r) > 2 else '').strip(),
+                'addr': (r[3] if len(r) > 3 else '').strip(),
+                'biz_type': (r[4] if len(r) > 4 else '').strip(),
+                'biz_item': (r[5] if len(r) > 5 else '').strip(),
+                'email': email,
+            }
         if key and email and '@' in email:
             name_emails.setdefault(key, set()).add(email)
         if bno and name:
@@ -232,14 +248,53 @@ def rebuild_partner_caches() -> dict:
         rc.delete(_NAME_BY_BNO_KEY)
         if name_by_bno:
             rc.hset(_NAME_BY_BNO_KEY, mapping=name_by_bno)
+        rc.delete(_NAME_SET_KEY)
+        if name_set:
+            rc.sadd(_NAME_SET_KEY, *name_set)
+        rc.delete(_INFO_MAP_KEY)
+        if info_map:
+            rc.hset(_INFO_MAP_KEY, mapping={k: _json.dumps(v, ensure_ascii=False) for k, v in info_map.items()})
     except Exception as exc:
         logger.warning(f'[거래처캐시] 저장 실패: {exc}')
     logger.info(
         f'[거래처캐시] 재구성 — 이메일 {len(email_cache)}건(모호 {ambiguous} 제외), '
-        f'번호→상호 {len(name_by_bno)}건'
+        f'번호→상호 {len(name_by_bno)}건, 상호세트 {len(name_set)}건, 정보맵 {len(info_map)}건'
     )
     return {'email_cached': len(email_cache), 'ambiguous': ambiguous,
-            'name_by_bno': len(name_by_bno)}
+            'name_by_bno': len(name_by_bno), 'name_set': len(name_set), 'info_map': len(info_map)}
+
+
+def get_partner_info(biz_name: str) -> Optional[dict]:
+    """상호 → 거래처 탭 전체정보 {bno,name,ceo,addr,biz_type,biz_item,email} (없으면 None).
+    등록증 파일 없는 계산서 요청 시 '거래처 탭 정보로 대신' 댓글용 (2026-09-02)."""
+    key = _norm_name(biz_name)
+    if not key or key == '-':
+        return None
+    try:
+        import json as _json
+        from dashboard.utils.redis_client import get_redis_client
+        v = get_redis_client().redis.hget(_INFO_MAP_KEY, key)
+        if v:
+            return _json.loads(v.decode() if isinstance(v, bytes) else v)
+    except Exception:
+        pass
+    return None
+
+
+def is_partner_known(biz_name: str) -> bool:
+    """상호가 거래처 탭에 존재하면 True — '계산서 발행 가능'(홈택스 발행 이력 있는 거래처) 판정.
+
+    등록증 파일이 없어도 거래처 탭에 정보가 있으면 발행 가능(사용자 통찰, 2026-09-02).
+    정규화 exact 매칭. 캐시 미구성/오류 시 False (안전: 미지정으로 취급).
+    """
+    key = _norm_name(biz_name)
+    if not key or key == '-':
+        return False
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        return bool(get_redis_client().redis.sismember(_NAME_SET_KEY, key))
+    except Exception:
+        return False
 
 
 def get_partner_name_by_bno(bno: str) -> Optional[str]:
