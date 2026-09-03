@@ -585,6 +585,41 @@ def get_inflow_options():
         }), 500
 
 
+@projects_bp.route('/api/resolve-address', methods=['POST'])
+@login_required
+def resolve_address_api():
+    """현장 주소 정규화 — 방문 등록과 동일한 파싱 규칙(address_resolver.resolve_address) 적용.
+
+    새 프로젝트 수동 입력 주소를 카카오/도로명 검증으로 정규화. verified 로 확정된
+    경우에만 changed=True 로 반환(프론트가 자동 교정). 그 외엔 입력값 그대로.
+    """
+    raw = ''
+    try:
+        data = request.get_json(silent=True) or {}
+        raw = (data.get('address') or '').strip()
+        if not raw:
+            return jsonify({'success': True, 'normalized': '', 'kind': 'empty',
+                            'level': '', 'changed': False, 'region_changed': False})
+        # 방문 등록과 동일한 공용 파이프라인 (추출 + 정규화 + 레벨 + 시/구 교차확인)
+        from ..services.address_resolver import normalize_input_address
+        r = normalize_input_address(raw)
+        return jsonify({
+            'success': True,
+            'normalized': (r.get('address') or raw),
+            'kind': r.get('kind') or 'failed',
+            'level': r.get('level') or '',
+            'changed': bool(r.get('changed')),
+            'region_changed': bool(r.get('region_changed')),
+        })
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 주소 정규화 실패: {e}", exc_info=True)
+        return jsonify({
+            'success': False, 'normalized': raw, 'level': '', 'changed': False,
+            'error_id': error_id,
+        }), 500
+
+
 @projects_bp.route('/api/next-project-code')
 def get_next_project_code():
     """다음 프로젝트 코드 생성 API"""

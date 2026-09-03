@@ -2577,3 +2577,74 @@ def resolve_address(
             return (_raw, _lv3)
 
     return ('', '')
+
+
+# ─────────────────────────────────────────────────────────────
+# 방문 모달 / PM 새 프로젝트 등록 공용 주소 정규화 (2026-09-03)
+#   slack_bot._normalize_visit_address_if_verified 와 동일 규칙을 서비스 레이어로 승격.
+#   PM 은 resolve_address_api → 이 함수 사용. (슬랙은 후속으로 이 함수를 쓰도록 수렴 예정)
+# ─────────────────────────────────────────────────────────────
+
+# 시/구 교차확인용 정규식 (오매칭 방어 — 여러 도시 공유 도로명에서 시/구가 바뀌면 경고)
+_REGION_SIDO_RE = re.compile(
+    r'\s*(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|'
+    r'전북|전남|경북|경남|제주)'
+)
+_REGION_GU_RE = re.compile(r'([가-힣]{2,}(?:구|군))(?:\s|$)')
+
+
+def _addr_region_sig(addr: str) -> tuple:
+    """주소에서 (시/도, 첫 구/군) 시그니처 추출 — 지역 교차확인용."""
+    a = addr or ''
+    m1 = _REGION_SIDO_RE.match(a)
+    m2 = _REGION_GU_RE.search(a)
+    return (m1.group(1) if m1 else '', m2.group(1) if m2 else '')
+
+
+def _region_changed(raw: str, norm: str) -> bool:
+    """입력(raw)과 정규화(norm)의 시/도·구가 '명시적으로' 다른지 (오매칭 감지, L-03659).
+    한쪽이 시/구 정보 없으면(비교 불가) False(오탐 방지)."""
+    rs, rg = _addr_region_sig(raw)
+    ns, ng = _addr_region_sig(norm)
+    if rg and ng and rg != ng:      # 구/군 양쪽 존재 + 다름 (부평구↔영등포구)
+        return True
+    if rs and ns and rs != ns:      # 시/도 양쪽 존재 + 다름 (인천↔서울)
+        return True
+    return False
+
+
+def normalize_input_address(raw: str) -> dict:
+    """방문 모달/PM 공용 주소 정규화 (slack _normalize_visit_address_if_verified 와 동일 파이프라인).
+
+    extract_korean_address 로 주소 추출 → resolve_address(raw, 정규식주소, level) →
+    레벨별 처리(verified 정정/동일 · jibun_poi [추정] · 미검증 raw 유지) + 시/구 교차확인.
+
+    Returns dict:
+      {
+        'address': str,          # 저장할 주소 (verified/jibun_poi=정규화, 그 외=raw)
+        'kind': str,             # 'normalized'|'same'|'estimated'|'failed'|'empty'
+        'level': str,            # resolve_address 원본 level
+        'region_changed': bool,  # 입력 대비 시/구 바뀜 (오매칭 의심 → ⚠️)
+        'changed': bool,         # 원본과 값이 달라졌는지
+      }
+    """
+    raw = (raw or '').strip()
+    if not raw:
+        return {'address': '', 'kind': 'empty', 'level': '', 'region_changed': False, 'changed': False}
+    try:
+        from dashboard.services.lead_helpers import extract_korean_address
+        rx = extract_korean_address(raw)
+        norm, lv = resolve_address(raw, rx[0] if rx else None, rx[1] if rx else '')
+        if lv == 'verified' and norm:
+            if norm != raw:
+                return {'address': norm, 'kind': 'normalized', 'level': lv,
+                        'region_changed': _region_changed(raw, norm), 'changed': True}
+            return {'address': norm, 'kind': 'same', 'level': lv, 'region_changed': False, 'changed': False}
+        if lv == 'jibun_poi' and norm and norm != raw:
+            # 순수 지번 → keyword 도로명 구제 (근처 상호 기반, 매니저 재확인 유도 = [추정])
+            return {'address': norm, 'kind': 'estimated', 'level': lv,
+                    'region_changed': _region_changed(raw, norm), 'changed': True}
+        # 미검증 — 도로명·번지가 카카오 미확인(오타 가능) → raw 유지
+        return {'address': raw, 'kind': 'failed', 'level': lv or '', 'region_changed': False, 'changed': False}
+    except Exception:
+        return {'address': raw, 'kind': 'failed', 'level': '', 'region_changed': False, 'changed': False}

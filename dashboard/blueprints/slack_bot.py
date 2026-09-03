@@ -8975,12 +8975,11 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
     2026-07-24 이중 필터 도입 — Redis flag (`visit_auto_completed:*`) 대량 손실 사고 대비.
     캔버스 sync 가 이 마커로도 완료 판정 → Redis 만 의존하지 않음.
 
-    - ETC 리드는 시트에 없어서 skip
+    - ETC 리드도 시트에 존재(고객 리드 관리 탭) → 함께 마커·상태 기록.
+      (2026-09-03: 기존 'ETC 시트에 없어서 skip' 은 오래된 가정이라 제거 — 실측 209건 존재)
     - 이미 마커 있으면 중복 append 방지
     - dt_str 형식: 'MM.DD HH:MM' (호출자에서 이미 datetime.now().strftime)
     """
-    if _is_etc_lead(lead_no):
-        return
     try:
         lead = _find_lead_by_no(lead_no) or {}
         cur = str(lead.get('상담 내용', '') or '').strip()

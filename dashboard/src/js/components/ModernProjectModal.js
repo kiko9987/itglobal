@@ -201,7 +201,11 @@ export default class ModernProjectModal {
     // 주소 검증 (도로명/지번)
     const addressInput = document.getElementById('modern-address');
     if (addressInput) {
-      addressInput.addEventListener('blur', () => this.validateAddress());
+      addressInput.addEventListener('blur', () => {
+        this.validateAddress();
+        // 수동 입력 시 방문 등록과 동일한 주소 파싱 규칙(서버) 적용
+        this.normalizeAddressViaServer();
+      });
     }
 
     // 유입 구분 ↔ 사업자명 잠금 연동
@@ -473,6 +477,15 @@ export default class ModernProjectModal {
     // 수동 입력 켜면 '불러오기에 웬만한 건 다 있다' 안내 표시 → 불러오기 재유도
     const hint = document.getElementById('modern-manual-hint');
     if (hint) hint.classList.toggle('d-none', !manual);
+    // 수동 입력 시 방문 현장 불러오기 UI(검색칸 · '내 방문 현장만')는 숨김 — 불러오기를 안 쓰므로
+    const searchWrap = document.getElementById('modern-lead-search-wrapper');
+    if (searchWrap) searchWrap.style.display = manual ? 'none' : '';
+    const myOnlyWrap = document.getElementById('modern-lead-my-only')?.closest('.form-check');
+    if (myOnlyWrap) myOnlyWrap.style.display = manual ? 'none' : '';
+    // 수동 입력 토글 시 유입 구분 초기화 (이전 값 잔존 방지) — 안 하면 '거래처'가 남아
+    // 사업자명이 계속 편집 가능 상태로 남음. (리드 로드는 이 함수를 호출 안 하므로 불러온 유입은 보존)
+    const clientSelForReset = document.getElementById('modern-client');
+    if (clientSelForReset) clientSelForReset.value = '';
     // 사업자명 잠금(유입구분 연동)은 그대로 재적용
     this.syncBusinessNameLock();
   }
@@ -1090,50 +1103,115 @@ export default class ModernProjectModal {
   validateAddress() {
     const addressInput = document.getElementById('modern-address');
     const infoElement = document.getElementById('modern-address-info');
-    const warningElement = document.getElementById('modern-address-warning');
-
     if (!addressInput) return;
 
     const address = addressInput.value.trim();
-
     if (!address) {
       if (infoElement) infoElement.classList.add('d-none');
-      if (warningElement) warningElement.classList.add('d-none');
       return;
     }
 
-    // 지번 주소 패턴 (숫자-숫자 형태)
-    const jibunPattern = /\d+-\d+/;
-
-    // 도로명 주소 키워드
-    const doroKeywords = ['로', '길', '대로'];
-
-    const hasJibun = jibunPattern.test(address);
-    const hasDoro = doroKeywords.some(keyword => address.includes(keyword));
-
-    if (hasJibun && !hasDoro) {
-      // 지번 주소로 판단
-      if (warningElement) {
-        warningElement.classList.remove('d-none');
-      }
-      if (infoElement) {
-        infoElement.classList.add('d-none');
-      }
-    } else if (hasDoro) {
-      // 도로명 주소로 판단
-      if (infoElement) {
-        infoElement.classList.remove('d-none');
-      }
-      if (warningElement) {
-        warningElement.classList.add('d-none');
-      }
-
-      // 자동 정리 (불필요한 공백 제거)
+    // 지번 경고는 제거됨 (2026-09-03) — 지번/도로명 최종 변환은 아래 '변환 주소'가 담당.
+    // 도로명 키워드가 있으면 불필요한 공백만 정리하고 안내 표시.
+    const hasDoro = ['로', '길', '대로'].some(keyword => address.includes(keyword));
+    if (hasDoro) {
       addressInput.value = address.replace(/\s+/g, ' ');
-    } else {
-      // 판단 불가
-      if (infoElement) infoElement.classList.add('d-none');
-      if (warningElement) warningElement.classList.add('d-none');
+      if (infoElement) infoElement.classList.remove('d-none');
+    } else if (infoElement) {
+      infoElement.classList.add('d-none');
+    }
+  }
+
+  /**
+   * 현장 주소 서버 정규화 미리보기 (2026-09-03).
+   * 수동 입력(편집 가능)일 때만, blur 시 방문 등록과 동일한 address_resolver 규칙을 서버에서 적용해
+   * 하단 '변환 주소' 필드에 결과를 보여준다(원본 입력은 그대로 유지). 저장값은 이 변환 주소.
+   * 불러오기로 채워진 readonly 주소는 이미 정규화됨 → 미리보기 skip.
+   */
+  async normalizeAddressViaServer() {
+    const el = document.getElementById('modern-address');
+    const out = document.getElementById('modern-address-normalized');
+    const note = document.getElementById('modern-address-normalized-note');
+    if (!el || el.readOnly || !out) return;    // 수동 입력(편집 가능)일 때만
+    const raw = el.value.trim();
+    if (!raw) {
+      out.value = '';
+      this._normAddr = null;
+      if (note) note.classList.add('d-none');
+      return;
+    }
+    if (raw.length < 4) return;
+    if (this._normAddr && this._normAddr.raw === raw) {  // 이미 변환됨 → 필드만 반영, 재요청 방지
+      out.value = this._normAddr.saved;
+      return;
+    }
+    try {
+      const r = await this._resolveAddress(raw);   // {saved, kind, changed, regionChanged}
+      if (el.value.trim() !== raw) return;         // 대기 중 값 바뀌면 무시
+      out.value = r.saved;
+      if (note) {
+        if (r.regionChanged) {
+          // 입력 대비 시/구가 바뀜 → 여러 도시 공유 도로명 오매칭 위험 (silent override 금지)
+          note.className = 'form-text text-danger';
+          note.innerHTML = '<i class="fas fa-triangle-exclamation me-1"></i>⚠️ 시·구가 바뀌었습니다 — 오매칭 의심, 주소를 꼭 확인하세요';
+        } else if (r.kind === 'normalized') {
+          note.className = 'form-text text-success';
+          note.innerHTML = '<i class="fas fa-check-circle me-1"></i>파싱 규칙 적용됨 (이 값으로 저장)';
+        } else if (r.kind === 'estimated') {
+          note.className = 'form-text text-warning';
+          note.innerHTML = '<i class="fas fa-wand-magic-sparkles me-1"></i>[추정] 지번→도로명 변환 (재확인 권장 · 이 값으로 저장)';
+        } else if (r.kind === 'same') {
+          note.className = 'form-text text-muted';
+          note.textContent = '정규화 확인됨 (이 값으로 저장)';
+        } else {
+          note.className = 'form-text text-warning';
+          note.innerHTML = '<i class="fas fa-exclamation-triangle me-1"></i>변환 불가 — 입력값 그대로 저장';
+        }
+        note.classList.remove('d-none');
+      }
+    } catch (err) {
+      logger.warn('[ModernProjectModal] 주소 정규화 예외:', err);
+    }
+  }
+
+  /**
+   * 서버 주소 정규화 코어. 캐시(this._normAddr={raw,saved}) 갱신 후 {saved,verified,changed} 반환.
+   * verified 아니면 saved=raw(입력값 그대로).
+   */
+  async _resolveAddress(raw) {
+    const res = await fetch('/api/resolve-address', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ address: raw }),
+    });
+    if (!res.ok) throw new Error(`resolve ${res.status}`);
+    const j = await res.json();
+    // 서버(공용 파이프라인)가 이미 저장값(normalized)·kind·region_changed 결정. 프론트는 그대로 사용.
+    const ok = !!(j && j.success);
+    const saved = (ok && j.normalized) ? j.normalized : raw;
+    this._normAddr = { raw, saved };
+    return {
+      saved,
+      kind: ok ? (j.kind || 'failed') : 'failed',
+      changed: !!(ok && j.changed),
+      regionChanged: !!(ok && j.region_changed),
+    };
+  }
+
+  /**
+   * submit 시 저장할 현장 주소(변환값) 확정.
+   * 수동 입력이면 캐시 히트 시 재요청 없이, 아니면 재정규화(실패=raw). 불러오기(readonly)는 이미 정규화됨→그대로.
+   */
+  async resolveSaveAddress() {
+    const el = document.getElementById('modern-address');
+    const raw = (el?.value || '').trim();
+    if (!raw || (el && el.readOnly)) return raw;
+    if (this._normAddr && this._normAddr.raw === raw) return this._normAddr.saved;
+    try {
+      return (await this._resolveAddress(raw)).saved;
+    } catch (_) {
+      return raw;
     }
   }
 
@@ -1488,6 +1566,12 @@ export default class ModernProjectModal {
         projectData[key] = value;
       }
 
+      // 현장 주소 → 변환 주소(파싱 규칙 적용값)로 저장.
+      //   수동 입력: 서버 정규화값(캐시 히트면 재요청 없음, 미스면 재정규화, 실패=입력값).
+      //   불러오기(readonly): 이미 정규화됨 → 입력값 그대로.
+      const _saveAddr = await this.resolveSaveAddress();
+      if (_saveAddr) projectData['현장 주소'] = _saveAddr;
+
       // 프로젝트 코드 추가
       const codeElement = document.getElementById('modern-generated-code');
       const code = codeElement?.textContent.trim();
@@ -1810,6 +1894,13 @@ export default class ModernProjectModal {
       this.form.reset();
     }
 
+    // 변환 주소 미리보기 + 캐시 초기화
+    this._normAddr = null;
+    const normOut = document.getElementById('modern-address-normalized');
+    if (normOut) normOut.value = '';
+    const normNote = document.getElementById('modern-address-normalized-note');
+    if (normNote) normNote.classList.add('d-none');
+
     // 유입 구분 ↔ 사업자명 잠금 + 수동 입력 잠금 재동기화 (form.reset 은 change 이벤트를 fire 하지 않음)
     // 리셋 시 '수동 입력' 체크 해제 → 기본 잠금 상태 복귀 (syncManualInputLock 이 syncBusinessNameLock 도 호출)
     this.syncManualInputLock();
@@ -1895,9 +1986,7 @@ export default class ModernProjectModal {
     // 에러 메시지 숨기기
     this.hideEmailError();
     const addressInfo = document.getElementById('modern-address-info');
-    const addressWarning = document.getElementById('modern-address-warning');
     if (addressInfo) addressInfo.classList.add('d-none');
-    if (addressWarning) addressWarning.classList.add('d-none');
   }
 
   /**

@@ -182,14 +182,15 @@
                                     </div>
                                     <div class="row">
                                         <div class="col-12">
-                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">현장 주소 <span class="text-danger">*</span> <small class="text-muted">(도로명 주소만 입력해주세요)</small></label>
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">현장 주소 <span class="text-danger">*</span> <small class="text-muted">(구주소(지번)·도로명 주소 입력 시 자동 변환)</small></label>
                                             <input type="text" class="form-control" id="modern-address" name="현장 주소" required placeholder="강남구 테헤란로 123 여삼빌딩 5층 505호 OO의원" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                             <div class="form-text text-info d-none" id="modern-address-info">
                                                 <i class="fas fa-info-circle me-1"></i>주소가 자동으로 정리되었습니다.
                                             </div>
-                                            <div class="form-text text-warning d-none" id="modern-address-warning">
-                                                <i class="fas fa-exclamation-triangle me-1"></i>지번 주소가 감지되었습니다. 도로명 주소로 변경해주세요.
-                                            </div>
+                                            <!-- 변환 주소: 파싱 규칙(도로명 검증) 적용 결과 — 실제 저장되는 값 (읽기 전용) -->
+                                            <label class="form-label mt-2" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.35rem;">변환 주소 <small class="text-muted">(파싱 규칙 적용 결과 — 저장되는 값)</small></label>
+                                            <input type="text" class="form-control" id="modern-address-normalized" readonly tabindex="-1" placeholder="현장 주소 입력 시 자동 변환" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); padding: 0.5rem 0.75rem; background:#eef2f7; color:#334155; cursor: default;">
+                                            <div class="form-text text-muted d-none" id="modern-address-normalized-note"></div>
                                         </div>
                                     </div>
                                 </div>
