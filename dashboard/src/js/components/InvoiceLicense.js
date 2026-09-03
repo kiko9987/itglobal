@@ -114,7 +114,7 @@ export default class InvoiceLicense {
         holder.style.color = '';
         holder.innerHTML =
           `<a href="${esc(d.view_url)}" target="_blank" rel="noopener"
-              class="text-decoration-none" style="color:#0d6efd; font-weight:600;"
+              class="text-decoration-none" style="color:#0d6efd;"
               title="사업자등록증 열람 (새 탭)">사업자등록증 열기</a>`;
       } else if (d.source === 'partner') {
         // 등록증 파일은 없지만 거래처 탭에 상호 있음 → 계산서 발행 가능 (긍정 상태, 열람 링크 없음)
@@ -137,10 +137,11 @@ export default class InvoiceLicense {
         holder.style.padding = '3px 10px';
       }
     }
-    // 편집 모드 컨트롤(업로드/삭제) — 있으면 [삭제], 없으면 [업로드]. 컨테이너 표시는 편집 진입 시.
+    // 편집 모드 컨트롤(업로드/삭제) — 내가 올린 파일(source==='own')일 때만 [삭제], 그 외 [업로드].
+    // reuse(다른 폴더 재활용)·partner(거래처 이력, 파일 없음)는 이 프로젝트에 삭제할 파일이 없음.
     const edit = document.querySelector(`[data-il-edit="${attr(c)}"]`);
     if (edit) {
-      edit.innerHTML = d.exists
+      edit.innerHTML = (d.source === 'own')
         ? `<button type="button" class="btn btn-outline-danger btn-sm construction-action-btn"
                    title="사업자등록증 삭제 (휴지통 이동)"
                    onclick="window.invoiceLicense && window.invoiceLicense.deleteLicense('${attr(c)}')">

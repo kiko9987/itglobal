@@ -1348,7 +1348,7 @@ export default class ProjectRowAccordion {
             </span>
             <span class="il-status" data-il-status="${code}"
                   style="display:inline-flex; align-items:center; padding:3px 10px; border-radius:12px;
-                         font-size:0.78rem; font-weight:600; background:#eef0f2; color:#6b7280;">확인 중…</span>
+                         background:#eef0f2; color:#6b7280;">확인 중…</span>
             <span class="il-edit-controls" data-il-edit="${code}"
                   style="display:none; gap:8px; align-items:center; flex-wrap:wrap;"></span>
             <input type="file" data-il-file="${code}" accept="image/*,.pdf,.heic" style="display:none;"
