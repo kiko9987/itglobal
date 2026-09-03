@@ -2685,21 +2685,27 @@ export default class ProjectRowAccordion {
     });
 
     // 🆕 드롭다운 인스턴스 정리
+    // 2026-09-03 버그 fix: dispose() 만 하면 열려있던(.show) 계산서/시공자 드롭다운이
+    // 안 닫히고 죽은 채 계속 떠 있음. auto-close="outside" 라 그 뒤 클릭 한 번을
+    // '바깥 클릭=닫기'로 가로채 버튼이 안 먹는 것처럼 보임. → dispose 전에 hide() 로 확실히 닫는다.
     const dropdownButtons = card.querySelectorAll('.dropdown-toggle');
     dropdownButtons.forEach(button => {
       const bsDropdown = bootstrap.Dropdown.getInstance(button);
       if (bsDropdown) {
+        try { bsDropdown.hide(); } catch (_) { /* 이미 닫힘/전환 중 → 무시 */ }
         bsDropdown.dispose();
       }
+      button.setAttribute('aria-expanded', 'false');
     });
 
-    // 드롭다운 메뉴를 원래 위치로 복귀 (body에 추가된 경우)
+    // 드롭다운 메뉴 정리: body로 옮겨진 경우 복귀 + 열림(.show) 강제 해제 (안전망)
     const dropdownMenus = card.querySelectorAll('.multi-select-dropdown .dropdown-menu');
     dropdownMenus.forEach(menu => {
       const dropdown = menu.closest('.multi-select-dropdown');
       if (dropdown && menu.parentElement === document.body) {
         dropdown.appendChild(menu);
       }
+      menu.classList.remove('show');
     });
 
     // 편집 모드 클래스 제거
