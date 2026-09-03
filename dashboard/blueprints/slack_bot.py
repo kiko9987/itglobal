@@ -6767,7 +6767,7 @@ def _open_consult_modal(client, body, from_slash: bool = False):
     full_view = _build_consult_view(info_blocks, metadata, prefilled)
     # 재상담 여부 판단 — 시트 상태가 이미 처리된 값 (유선 상담/방문 예약/견적 제출/
     # 문의 드랍/부재중) 이면 재상담. '인입' 이거나 빈 값은 첫 상담. (2026-07-20)
-    _processed_statuses = {'유선 상담', '방문 예약', '견적 제출', '문의 드랍', '부재중', '방문 취소'}
+    _processed_statuses = {'유선 상담', '방문 예약', '방문 완료', '견적 제출', '문의 드랍', '부재중', '방문 취소'}
     _modal_title = '재상담 처리' if sheet_status in _processed_statuses else '상담 처리'
     # full_view 의 title 을 재상담 여부에 맞게 덮어씀
     full_view['title'] = {'type': 'plain_text', 'text': _modal_title}
@@ -8984,6 +8984,7 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
     try:
         lead = _find_lead_by_no(lead_no) or {}
         cur = str(lead.get('상담 내용', '') or '').strip()
+        cur_status = str(lead.get('상태', '') or '').strip()
         marker = f'[{dt_str} {initial} · 방문 완료]'
         if re.search(r'·\s*방문 완료\]', cur):
             return  # 이미 마커 있음
@@ -8992,8 +8993,15 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
             new_content = f'{cur} ─── {marker}'
         else:
             new_content = marker
-        _update_lead_dispatch(lead_no, {'상담 내용': new_content})
-        logger.info(f'[SLACK/방문완료] 시트 마커 append: {lead_no} → {marker}')
+        updates = {'상담 내용': new_content}
+        # 상태도 '방문 완료'로 기록 (2026-09-03) — PM 필터가 날짜 추측 대신 상태값으로
+        #   방문완료를 정확히 잡게. 이미 '공사 확정'(프로젝트 등록됨)·'방문 취소'면 되돌리지 않음.
+        if cur_status not in ('공사 확정', '방문 취소'):
+            updates['상태'] = '방문 완료'
+        _update_lead_dispatch(lead_no, updates)
+        logger.info(
+            f'[SLACK/방문완료] 시트 마커 append + 상태={updates.get("상태", cur_status)}: '
+            f'{lead_no} → {marker}')
     except Exception as exc:
         logger.warning(f'[SLACK/방문완료] 시트 마커 append 실패 ({lead_no}): {exc}')
 
