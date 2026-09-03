@@ -103,6 +103,16 @@ _ACCT_R_RE = re.compile(r'255[\*\-]+9?1?0?0?\d*[\*\-]+\d')  # 하나 255******31
 _ACCT_N_RE = re.compile(r'352[\-\*][\d*\-]{5,}')            # 농협 352-****-1682-33
 
 
+def _fmt_payment_date(p: Dict) -> str:
+    """카드 표시용 날짜 — 연도 있으면 'YY/MM/DD', 없으면 'MM/DD'.
+    분납이 여러 해 걸친 오래된 업체 구분용 (2026-09-03 G1897-MW 계기)."""
+    md = p.get('date_md') or '-'
+    yr = str(p.get('date_year') or '')
+    if len(yr) == 4 and md not in ('', '-') and '/' in md:
+        return f"{yr[2:]}/{md}"
+    return md
+
+
 def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     """입금 메모 한 블록 → {'date_md': 'MM/DD', 'amount': int, 'partner': str, 'bank': str}
     fallback_amount: 메모에 금액 라인 없으면 시트 단계 값 사용 (옛 양식 처리).
@@ -121,8 +131,9 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
 
     # 날짜 — 모든 라인에서 첫 매치 (한글 날짜 우선, 없으면 숫자 형식)
     date_md = ''
+    date_year = ''   # 4자리 연도 (분납 다년 구분용, 2026-09-03 G1897-MW 계기). 한글날짜는 없음.
     for ln in lines:
-        m = _KO_DATE_RE.search(ln)  # "6월15일", "6월 15일"
+        m = _KO_DATE_RE.search(ln)  # "6월15일", "6월 15일" (연도 없음)
         if m:
             mm, dd = int(m.group(1)), int(m.group(2))
             date_md = f"{mm:02d}/{dd:02d}"
@@ -131,6 +142,8 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         if m:
             mm, dd = int(m.group(2)), int(m.group(3))
             date_md = f"{mm:02d}/{dd:02d}"
+            if m.group(1):          # 'YYYY/MM/DD'·'YYYY-MM-DD' 형식이면 연도 확보
+                date_year = m.group(1)
             break
 
     # 반환(과입금 환불) 우선 감지 — '출금/반환/환불 X원' → 음수 amount (is_refund)
@@ -200,6 +213,8 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             if md and not date_md:
                 mm, dd = int(md.group(2)), int(md.group(3))
                 date_md = f"{mm:02d}/{dd:02d}"
+                if md.group(1):
+                    date_year = md.group(1)
         m = _LABEL_PAYER_RE.match(ln)
         if m:
             _lp = m.group(1).strip()
@@ -319,6 +334,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
 
     return {
         'date_md': date_md,
+        'date_year': date_year,        # 4자리 연도(있으면) — 카드에 YY/MM/DD 표기
         'amount': amount,
         'partner': partner,
         'bank': bank,
@@ -992,7 +1008,7 @@ def _build_stage_message(
     amount = payment.get('amount', 0)
     partner = payment.get('partner', '-') or '-'
     bank = payment.get('bank', '-') or '-'
-    date_md = payment.get('date_md', '-')
+    date_md = _fmt_payment_date(payment)   # 연도 있으면 YY/MM/DD
 
     date_label = '결제일' if is_card else '입금일'
     amount_label = '결제금액' if is_card else '입금액'
@@ -1101,7 +1117,7 @@ def _build_stage_with_history_message(
     amount = last_payment.get('amount', 0)
     partner = last_payment.get('partner', '-') or '-'
     bank = last_payment.get('bank', '-') or '-'
-    date_md = last_payment.get('date_md', '-')
+    date_md = _fmt_payment_date(last_payment)   # 연도 있으면 YY/MM/DD
 
     date_label = '결제일' if is_card else '입금일'
     amount_label = '결제금액' if is_card else '입금액'
@@ -1138,7 +1154,7 @@ def _build_stage_with_history_message(
     history = [p for p in all_payments if _STAGE_ORDER.get(p.get('stage'), 99) <= cur_idx]
     for p in history:
         st = '반환' if p.get('is_refund') else p.get('stage', '-')
-        d = p.get('date_md', '-')
+        d = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
         c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
         # 이체 표기 반영 (2026-07-10)
         tr = p.get('transfer_to', '')
@@ -1191,7 +1207,7 @@ def _build_complete_message(
     for p in payments:
         # 과입금/계약 취소 반환(출금)은 단계명 대신 '반환'으로 표시 (2026-08 R4011 계약금 환불)
         stage = '반환' if p.get('is_refund') else p.get('stage', '-')
-        date_md = p.get('date_md', '-')
+        date_md = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
         code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
         # 이체 표기 반영 (2026-07-10)
         transfer_to = p.get('transfer_to', '')
@@ -1267,7 +1283,7 @@ def _build_unified_stage_message(
     lines.extend(['', '[입금 이력]'])
     for p in payments:
         stg = p.get('stage', '-')
-        date_md = p.get('date_md', '-')
+        date_md = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
         code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
         transfer_to = p.get('transfer_to', '')
         if transfer_to and transfer_to != code:

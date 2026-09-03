@@ -15,6 +15,7 @@ sys.path.insert(0, '.')
 import pytest
 from dashboard.services.payment_sync import (
     _card_fee_line, _is_itg_card_deposit, _is_card_payment, _parse_notes,
+    _fmt_payment_date, _parse_memo_block,
 )
 from dashboard.blueprints.slack_bot import _card_settlement_target
 
@@ -145,6 +146,35 @@ class TestNoteAnnotationParsesSafely:
         assert p[0]['amount'] == 443003        # 순입금(실결제·수수료 줄 무시)
         assert p[0]['partner'] == 'SHC0117935'
         assert not p[0].get('is_refund')
+
+
+class TestPaymentDateYear:
+    """누적 이력·헤드라인 날짜에 연도 표기 (분납 다년 구분, G1897-MW 계기)."""
+
+    def test_fmt_with_year(self):
+        assert _fmt_payment_date({'date_md': '09/03', 'date_year': '2025'}) == '25/09/03'
+        assert _fmt_payment_date({'date_md': '01/10', 'date_year': '2026'}) == '26/01/10'
+
+    def test_fmt_without_year(self):
+        assert _fmt_payment_date({'date_md': '09/03'}) == '09/03'
+        assert _fmt_payment_date({'date_md': '09/03', 'date_year': ''}) == '09/03'
+        assert _fmt_payment_date({'date_md': '-'}) == '-'
+
+    def test_parse_captures_year_slash(self):
+        p = _parse_memo_block('2025/02/18 20:48\n입금 4,000,000원\n디자인TOV\n452***38801011\n기업')
+        assert p['date_md'] == '02/18' and p['date_year'] == '2025'
+
+    def test_parse_captures_year_label(self):
+        p = _parse_memo_block('입금일: 2025-01-10\n입금 1,330,000원\n디자인TOV\n기업')
+        assert p['date_md'] == '01/10' and p['date_year'] == '2025'
+
+    def test_korean_date_no_year(self):
+        p = _parse_memo_block('6월15일\n입금 100,000원\n홍길동\n기업')
+        assert p['date_md'] == '06/15' and p['date_year'] == ''
+
+    def test_mmdd_only_no_year(self):
+        p = _parse_memo_block('09/03\n입금 76,900원\n고려/디자인TOV\n기업')
+        assert p['date_md'] == '09/03' and p['date_year'] == ''
 
 
 if __name__ == '__main__':
