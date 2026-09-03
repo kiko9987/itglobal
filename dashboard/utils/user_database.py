@@ -415,6 +415,16 @@ class UserDatabase:
             ''')
             return [{'name': row['name'], 'email': row['email']} for row in cursor.fetchall()]
 
+    def get_inactive_managers(self) -> List[Dict]:
+        """담당자 후보에서 제외할 사용자 목록 반환 (비활성 or 퇴사). 이름·이메일."""
+        with self._get_connection() as conn:
+            cursor = conn.execute('''
+                SELECT name, email FROM users
+                WHERE is_active = 0 OR is_resigned = 1
+                ORDER BY name
+            ''')
+            return [{'name': row['name'], 'email': row['email']} for row in cursor.fetchall()]
+
     def create_user(self, name: str, email: str, password: str, permission_level: str = 'viewer') -> Tuple[bool, str]:
         """새 사용자 생성"""
         with self._get_connection() as conn:

@@ -170,6 +170,29 @@ def get_resigned_managers():
             'error_id': error_id
         }), 500
 
+@users_bp.route('/inactive-managers', methods=['GET'])
+@login_required
+def get_inactive_managers():
+    """담당자 후보 제외 대상(비활성+퇴사) 목록 조회 (모든 로그인 사용자).
+
+    새 프로젝트 등록 모달의 담당자 드롭다운에서 이 이름들을 제외한다.
+    """
+    try:
+        from dashboard.utils.user_database import get_user_database
+        user_db = get_user_database()
+        data = user_db.get_inactive_managers()
+        return jsonify({'success': True, 'inactive_managers': data})
+    except Exception as e:
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 비활성/퇴사 담당자 목록 조회 오류: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': '비활성/퇴사 담당자 목록을 불러올 수 없습니다.',
+            'inactive_managers': [],
+            'error_id': error_id
+        }), 500
+
+
 @users_bp.route('/users/permission', methods=['POST'])
 @admin_required
 def update_user_permission():
