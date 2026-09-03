@@ -1344,7 +1344,7 @@ export default class ProjectRowAccordion {
         <div class="legacy-card-row" style="flex-wrap:wrap;">
           <div class="legacy-card-main" style="flex-wrap:wrap; gap:8px;">
             <span class="legacy-card-label">
-              <i class="fas fa-id-card me-2" style="color:#0d6efd;"></i>사업자등록증
+              <i class="fas fa-file-invoice me-2" style="color:#0d6efd;"></i>사업자등록증
             </span>
             <span class="il-status" data-il-status="${code}"
                   style="display:inline-flex; align-items:center; padding:3px 10px; border-radius:12px;

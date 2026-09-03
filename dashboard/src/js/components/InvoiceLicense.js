@@ -115,11 +115,11 @@ export default class InvoiceLicense {
         holder.innerHTML =
           `<a href="${esc(d.view_url)}" target="_blank" rel="noopener"
               class="text-decoration-none" style="color:#0d6efd; font-weight:600;"
-              title="사업자등록증 열람 (새 탭)"><i class="fas fa-file-invoice me-1"></i>사업자등록증 열기</a>`;
+              title="사업자등록증 열람 (새 탭)">사업자등록증 열기</a>`;
       } else if (d.source === 'partner') {
         // 등록증 파일은 없지만 거래처 탭에 상호 있음 → 계산서 발행 가능 (긍정 상태, 열람 링크 없음)
         holder.innerHTML = '';
-        holder.textContent = '발행 가능 (거래처)';
+        holder.textContent = '첨부되지 않음 (기존 거래처 정보 재활용)';
         holder.style.background = '#e3f4e8';
         holder.style.color = '#1c7c3d';
         holder.style.padding = '3px 10px';
@@ -129,7 +129,7 @@ export default class InvoiceLicense {
         let label, bg, fg;
         if (d.exists) { label = '등록증 있음'; bg = '#e3f4e8'; fg = '#1c7c3d'; }  // view_url 없을 때 fallback
         else if (!d.required) { label = '등록증 불필요 (거래처)'; bg = '#eef0f2'; fg = '#6b7280'; }
-        else { label = '등록증 없음'; bg = '#fdeede'; fg = '#b45309'; }
+        else { label = '첨부되지 않음'; bg = '#fdeede'; fg = '#b45309'; }
         holder.innerHTML = '';
         holder.textContent = label;
         holder.style.background = bg;
