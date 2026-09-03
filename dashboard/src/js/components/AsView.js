@@ -2,7 +2,7 @@
  * AsView — A/S 데이터 조인맵 + 액션 모달 (경량 모듈).
  *
  * 테이블 전환·컬럼·필터는 ProjectTable(수금 모드와 동일 구조)이 담당한다.
- * 이 모듈은 (1) /as/api/list 를 프로젝트 코드→A/S 로 조인한 byCode 맵 제공,
+ * 이 모듈은 (1) /api/as/list 를 프로젝트 코드→A/S 로 조인한 byCode 맵 제공,
  * (2) 접수/완료/요청/수동요청 Bootstrap 모달 + POST(슬랙 동기화) 만 담당.
  * ProjectTable 의 A/S 컬럼 render 와 accordion 'A/S 요청' 버튼이 window.asView 를 참조.
  */
@@ -26,10 +26,10 @@ export default class AsView {
     window.asView = this; // ProjectTable render / accordion 버튼에서 참조
   }
 
-  /** /as/api/list → byCode/byNo 조인맵 구성 */
+  /** /api/as/list → byCode/byNo 조인맵 구성 */
   async loadMap() {
     try {
-      const resp = await fetch('/as/api/list', { credentials: 'same-origin' });
+      const resp = await fetch('/api/as/list', { credentials: 'same-origin' });
       const json = await resp.json();
       const data = json.data || json;
       const items = (data && data.items) || [];
@@ -257,7 +257,7 @@ export default class AsView {
       const visitor_name = el.querySelector('#asVisitorName').value.trim();
       if ((visitor_type === '내부' || visitor_type === '외주') && !visitor_name) return '내부/외주는 방문자 이름이 필수입니다.';
       if (!el.querySelector('#asVisitStart').value) return '방문 예정일을 선택해주세요.';
-      return this._post(`/as/api/accept/${encodeURIComponent(asNo)}`, {
+      return this._post(`/api/as/accept/${encodeURIComponent(asNo)}`, {
         visitor_type,
         visitor_name,
         visit_date_start: el.querySelector('#asVisitStart').value,
@@ -288,7 +288,7 @@ export default class AsView {
     `, async (el) => {
       const resolution = el.querySelector('#asResolution').value.trim();
       if (!resolution) return '조치 내용을 입력해주세요.';
-      return this._post(`/as/api/complete/${encodeURIComponent(asNo)}`, { resolution });
+      return this._post(`/api/as/complete/${encodeURIComponent(asNo)}`, { resolution });
     }, { icon: 'fa-flag-checkered', submitLabel: '조치 완료' });
   }
 
@@ -307,7 +307,7 @@ export default class AsView {
       const request_content = el.querySelector('#asmContent').value.trim();
       if (!address) return '현장 주소는 필수입니다.';
       if (!request_content) return '요청 내용은 필수입니다.';
-      return this._post('/as/api/request', {
+      return this._post('/api/as/request', {
         request_content,
         manual: { address, work_content: el.querySelector('#asmWork').value.trim(), manager_name: el.querySelector('#asmManager').value.trim() },
       });
@@ -392,7 +392,7 @@ export default class AsView {
     `, async (el) => {
       const request_content = el.querySelector('#aspContent').value.trim();
       if (!request_content) return '요청 내용은 필수입니다.';
-      const err = await this._post('/as/api/request', { project_code: projectCode, request_content });
+      const err = await this._post('/api/as/request', { project_code: projectCode, request_content });
       if (!err && window.showPageAlert) window.showPageAlert(`A/S 요청 등록 완료 (${projectCode})`, 'success');
       return err;  // AS_ALREADY_OPEN(레이스) 시 서버 메시지 그대로 표시
     }, { icon: 'fa-screwdriver-wrench', submitLabel: '요청 등록' });

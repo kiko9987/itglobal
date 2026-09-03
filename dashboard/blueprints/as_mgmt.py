@@ -16,7 +16,11 @@ from ..utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-as_bp = Blueprint('as_mgmt', __name__, url_prefix='/as')
+# url_prefix 는 반드시 '/api/' 로 시작해야 함 — 프로덕션 보안 미들웨어가 상태변경 POST 를
+# 경로 '/api/' 기준으로 세션 인증 분기(그 외는 CSRF 토큰 요구 → 프론트 미전송 시 403).
+# 2026-09-01: 기존 '/as' 는 이 규칙 위반이라 PM 요청/접수/완료 POST 가 전량 403 이던 것을
+# '/api/as' 로 교정. (reference_pm_api_csrf_prefix)
+as_bp = Blueprint('as_mgmt', __name__, url_prefix='/api/as')
 
 
 def _current_initial() -> str:
@@ -65,7 +69,7 @@ def _sync_slack(as_no: str, send_dm: bool = False, dm_override=None, override=No
         logger.warning(f'[AS] 슬랙 동기화 실패 ({as_no}): {exc}')
 
 
-@as_bp.route('/api/list', methods=['GET'])
+@as_bp.route('/list', methods=['GET'])
 @login_required
 def api_list_as():
     """A/S 목록. 프로젝트 조인으로 담당자/유입 구분/사업자명 채움. ?status=<진행상태> 필터."""
@@ -96,7 +100,7 @@ def api_list_as():
         )
 
 
-@as_bp.route('/api/open-check/<project_code>', methods=['GET'])
+@as_bp.route('/open-check/<project_code>', methods=['GET'])
 @login_required
 def api_open_check(project_code):
     """프로젝트의 진행 중(요청됨/접수완료) A/S 존재 여부 — 'A/S 요청' 버튼 단계 차단용."""
@@ -115,7 +119,7 @@ def api_open_check(project_code):
         )
 
 
-@as_bp.route('/api/request', methods=['POST'])
+@as_bp.route('/request', methods=['POST'])
 @editor_required
 def api_request_as():
     """A/S 요청 생성.
@@ -177,7 +181,7 @@ def api_request_as():
         )
 
 
-@as_bp.route('/api/accept/<as_no>', methods=['POST'])
+@as_bp.route('/accept/<as_no>', methods=['POST'])
 @editor_required
 def api_accept_as(as_no):
     """A/S 접수. body: {visitor_type(서비스 기사/내부/외주), visitor_name, visit_date_start, visit_date_end?}"""
@@ -250,7 +254,7 @@ def api_accept_as(as_no):
         )
 
 
-@as_bp.route('/api/complete/<as_no>', methods=['POST'])
+@as_bp.route('/complete/<as_no>', methods=['POST'])
 @editor_required
 def api_complete_as(as_no):
     """조치 완료. body: {resolution}"""
