@@ -360,6 +360,19 @@ def api_search_leads_for_project():
       }
     """
     import re as _re
+    from datetime import date as _date
+
+    def _visit_date_passed(v):
+        """방문 예정일이 오늘 이전(=이미 방문했을 시점)인지. YYYY-MM-DD/./ 포맷 지원, 그 외/빈값=False."""
+        s = str(v or '').strip()
+        m = _re.match(r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})', s)
+        if not m:
+            return False
+        try:
+            return _date(int(m.group(1)), int(m.group(2)), int(m.group(3))) <= _date.today()
+        except Exception:
+            return False
+
     try:
         q = (request.args.get('q') or '').strip().lower()
         q_digits = _re.sub(r'\D', '', q)
@@ -422,9 +435,21 @@ def api_search_leads_for_project():
             if status == '공사 확정':
                 continue
 
-            # 빈 query 는 현재 파이프라인만 표시 (스크롤 폭탄 방지)
-            if not q and status not in PIPELINE_STATUSES:
-                continue
+            # 빈 query 기본 목록 (2026-09-03 재정의): 실제 방문한 현장만.
+            #   - 견적 제출: 전부 포함 (파이프라인 진행 건)
+            #   - 방문 완료: 전부 포함 (방문완료 버튼→상태 자동기록, 날짜 무관 확정 신호)
+            #   - 방문 예약: 방문 예정일이 오늘 이전(=이미 방문했을 건)만. (방문완료 상태
+            #     기록 전 과거분·미기록 건 폴백. 미래 예정일·예정일 없는 방문 예약은 제외.)
+            #   - 그 외 상태(유선 상담·상담 대기·방문 대기 등)는 검색어로만 조회.
+            if not q:
+                if status == '견적 제출':
+                    pass
+                elif status == '방문 완료':
+                    pass
+                elif status == '방문 예약' and _visit_date_passed(lead.get('방문 예정일')):
+                    pass
+                else:
+                    continue
 
             name = str(lead.get('고객명') or '').strip()
             phone = str(lead.get('고객 연락처') or '').strip()
