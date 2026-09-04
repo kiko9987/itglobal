@@ -1084,6 +1084,40 @@ def _card_fee_line(stage: str, real_payment: int, deposit: int,
     return f"(실결제 {real_payment:,}원 / 카드 수수료 {fee:,}원)"
 
 
+# ── 추심(신용정보) 수수료 ─────────────────────────────────────────────
+# 채무를 신용정보(추심) 업체가 대신 수금 → 수수료 떼고 순입금만 통장에 들어온다.
+# 입금자 '{업체}/{채무자}' (예: '고려/디자인TOV' = 고려신용정보). 수수료율은 부가세 별도.
+# Ⓐ 회계(2026-09-03 대표 결정): 채무자 미수금은 '실추심(gross)' 만큼 줄이고,
+# 수수료는 ITG 부담(비용). 카드 결제와 동일 원리(단계값=실추심, 노트=순입금+수수료).
+_COLLECTION_AGENCIES = {'고려': 0.21}   # 고려신용정보 21% + 부가세 → 실효 23.1%
+
+
+def _collection_gross_fee(partner: str, net: int):
+    """추심 순입금(net) → (실추심 gross, 수수료). 추심 아니면 None.
+
+    gross = net / (1 − 수수료율×1.1). 예: 153,800/0.769=200,000 수수료 46,200.
+    입금자가 '{업체}/...' 또는 '{업체}신용정보' 면 해당 업체 수수료율 적용.
+    """
+    p = (partner or '').strip()
+    net = int(net or 0)
+    if net <= 0:
+        return None
+    for ag, rate in _COLLECTION_AGENCIES.items():
+        if p.startswith(ag + '/') or f'{ag}신용정보' in p:
+            eff = rate * 1.1                      # 부가세 포함 실효율
+            gross = round(net / (1 - eff))
+            fee = gross - net
+            if fee > 0:
+                return gross, fee
+    return None
+
+
+def _collection_fee_line(partner: str, net: int) -> str:
+    """추심 순입금 → '(실추심 X원 / 수수료 Y원)' 표시 줄 ('' = 추심 아님)."""
+    r = _collection_gross_fee(partner, net)
+    return f"(실추심 {r[0]:,}원 / 수수료 {r[1]:,}원)" if r else ''
+
+
 def _build_stage_with_history_message(
     stage: str, project: str, address: str,
     last_payment: Dict, all_payments: List[Dict], invoice_value: str,
@@ -1169,6 +1203,9 @@ def _build_stage_with_history_message(
         is_c = _is_card_payment(invoice_value, pt)
         suffix = ' (카드)' if is_c else ''
         lines.append(f"{st}  {d}  {c_disp}  {a:,}원  {pt}{suffix}")
+        _cl = _collection_fee_line(pt, a)   # 추심이면 (실추심/수수료)
+        if _cl:
+            lines.append(f"  {_cl}")
     lines.append(_SEP)
     # 슬랙 카드 미수금 표시는 항상 음수 통일 (2026-07-16 재확정 사용자 요청).
     # 시트/관리사이트는 양수(미납)로 표기하지만, 카드에서 다른 총액과 시각 혼동
@@ -1224,6 +1261,9 @@ def _build_complete_message(
         lines.append(
             f"{stage}  {date_md}  {code_display}  {amount:,}원  {partner}{suffix}"
         )
+        _cl = _collection_fee_line(partner, amount)   # 추심이면 (실추심/수수료)
+        if _cl:
+            lines.append(f"  {_cl}")
         # 카드 결제 단계 — 부가 정보 라인 추가 (단계 시트 값 = 실결제)
         if is_card and stage_sheet_vals:
             # 같은 단계 카드 결제 중 마지막 입금에서만 부가 정보 1회 표시 (분할 입금 합산)
@@ -1297,6 +1337,9 @@ def _build_unified_stage_message(
         lines.append(
             f"{stg}  {date_md}  {code_display}  {amount:,}원  {partner}"
         )
+        _cl = _collection_fee_line(partner, amount)   # 추심이면 (실추심/수수료)
+        if _cl:
+            lines.append(f"  {_cl}")
 
     # 개별 지점 (짧은 주소)
     lines.extend(['', '[개별 지점 배분]'])

@@ -1495,6 +1495,25 @@ def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, de
     return None
 
 
+def _collection_settlement_target(memo_text, deposit, old_num):
+    """추심(신용정보) 순입금이면 단계값 목표 = old_num + 실추심(gross). 아니면 None.
+
+    입금자가 '{업체}/...'(예 '고려/디자인TOV') 면 미수금을 **실추심(gross)** 만큼 줄인다
+    (Ⓐ 회계, 2026-09-03 대표 결정) — 채무자가 낸 돈 기준. 수수료는 노트/카드 표시.
+    카드 결제와 배타적(추심 입금자엔 숫자 승인번호 없음).
+    """
+    try:
+        from dashboard.services.payment_sync import _collection_gross_fee
+        from dashboard.services.sms_intake import parse_preview
+        partner = ((parse_preview(memo_text or '') or {}).get('partner') or '').strip()
+        r = _collection_gross_fee(partner, int(deposit))
+        if r:
+            return old_num + r[0]   # 단계값 = 실추심(gross) → 미수금 실추심만큼 감소
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 추심 수수료 보정 판단 실패(무시): {exc}")
+    return None
+
+
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
@@ -1532,20 +1551,24 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
             old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
         except (ValueError, TypeError):
             old_num = 0
-        # 카드 결제 자동 수수료 보정 — 순입금 대신 실결제(계약잔액) 기록 (미수금 0).
+        # 정산 자동 수수료 보정 — 순입금 대신 실결제(카드)·실추심(추심) 기록. 배타적.
         _card_target = _card_settlement_target(
             manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text)
+        _coll_target = (_collection_settlement_target(memo_text, int(amount), old_num)
+                        if _card_target is None else None)
 
         # 1) 메모(노트) 먼저 — 기존 있으면 append (분납 대비).
         #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
         from dashboard.services.sms_intake import strip_web_header
         memo_sheet = strip_web_header(memo_text)
+        # 셀 값(실결제/실추심)과 노트(순입금)의 차이를 노트에 명시 — 시트에서 봐도 자명하게.
+        # '입금' 키워드 없는 주석 줄이라 금액 파서(순입금)엔 영향 없음.
         if _card_target is not None:
-            # 셀 값(실결제)과 노트(순입금)의 차이를 노트에 명시 — 시트에서 봐도 자명하게.
-            # '입금' 키워드 없는 주석 줄이라 금액 파서(순입금)엔 영향 없음.
-            _real = _card_target - old_num           # 이번 결제 실결제(고객 카드 청구=계약잔액)
-            _fee = _real - int(amount)               # 카드 수수료(ITG 부담)
-            memo_sheet = f"{memo_sheet.rstrip()}\n카드 실결제 {_real:,}원\n수수료 {_fee:,}원"
+            _real = _card_target - old_num           # 실결제(고객 카드 청구=계약잔액)
+            memo_sheet = f"{memo_sheet.rstrip()}\n카드 실결제 {_real:,}원\n수수료 {_real - int(amount):,}원"
+        elif _coll_target is not None:
+            _real = _coll_target - old_num           # 실추심(채무자가 낸 총액)
+            memo_sheet = f"{memo_sheet.rstrip()}\n실추심 {_real:,}원\n수수료 {_real - int(amount):,}원"
         old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
         new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
         if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
@@ -1553,10 +1576,12 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
 
         # 2) 금액 값 나중 — 기존 값에 합산 (트리거 조건: 값 > 0). 노트 확정 뒤 마지막에 기록.
         new_num = old_num + int(amount)
-        if _card_target is not None and _card_target != new_num:
-            logger.info(f"[SLACK/수금봇] 카드 수수료 자동보정: {project_code} {stage} "
-                        f"순입금 {amount:,} → 실결제 {_card_target - old_num:,}원 기록 (미수금 0)")
-            new_num = _card_target
+        _tgt = _card_target if _card_target is not None else _coll_target
+        if _tgt is not None and _tgt != new_num:
+            _kind = '카드 실결제' if _card_target is not None else '추심 실추심'
+            logger.info(f"[SLACK/수금봇] 정산 자동보정({_kind}): {project_code} {stage} "
+                        f"순입금 {amount:,} → {_tgt - old_num:,}원 기록")
+            new_num = _tgt
         if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
             return False, old_num, new_num, "금액 기록 실패"
 

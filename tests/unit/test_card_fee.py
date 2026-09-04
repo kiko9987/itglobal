@@ -15,9 +15,9 @@ sys.path.insert(0, '.')
 import pytest
 from dashboard.services.payment_sync import (
     _card_fee_line, _is_itg_card_deposit, _is_card_payment, _parse_notes,
-    _fmt_payment_date, _parse_memo_block,
+    _fmt_payment_date, _parse_memo_block, _collection_gross_fee, _collection_fee_line,
 )
-from dashboard.blueprints.slack_bot import _card_settlement_target
+from dashboard.blueprints.slack_bot import _card_settlement_target, _collection_settlement_target
 
 # G3954-TH 실제 카드 정산 메모 (통장 순입금)
 CARD_MEMO = '2026/09/01 07:21\n입금 443,003원\nSHC0117935\n452***38801011\n기업'
@@ -175,6 +175,40 @@ class TestPaymentDateYear:
     def test_mmdd_only_no_year(self):
         p = _parse_memo_block('09/03\n입금 76,900원\n고려/디자인TOV\n기업')
         assert p['date_md'] == '09/03' and p['date_year'] == ''
+
+
+class TestCollectionFee:
+    """추심(고려신용정보) 수수료 — 순입금 → 실추심(gross)·수수료 (21%+VAT=23.1%)."""
+
+    def test_gross_fee(self):
+        assert _collection_gross_fee('고려/디자인TOV', 153800) == (200000, 46200)
+        assert _collection_gross_fee('고려/디자인TOV', 76900) == (100000, 23100)
+        assert _collection_gross_fee('고려신용정보', 76900) == (100000, 23100)
+
+    def test_not_collection(self):
+        assert _collection_gross_fee('디자인TOV', 153800) is None
+        assert _collection_gross_fee('프레임플러스', 100000) is None
+        assert _collection_gross_fee('고려/디자인TOV', 0) is None
+
+    def test_fee_line(self):
+        assert _collection_fee_line('고려/디자인TOV', 153800) == '(실추심 200,000원 / 수수료 46,200원)'
+        assert _collection_fee_line('디자인TOV', 153800) == ''
+
+    def test_settlement_target_records_gross(self):
+        # 추심 순입금 → 단계값 = old + 실추심(gross)
+        memo = '2026/09/03 12:47\n입금 76,900원\n고려/디자인TOV\n452***38801011\n기업'
+        assert _collection_settlement_target(memo, 76900, 0) == 100000
+        assert _collection_settlement_target(memo, 76900, 400000) == 500000
+        # 비추심 → None
+        bank = '2026/09/03 12:47\n입금 76,900원\n디자인TOV\n452***38801011\n기업'
+        assert _collection_settlement_target(bank, 76900, 0) is None
+
+    def test_note_annotation_parses_to_net(self):
+        # '실추심/수수료' 주석이 붙어도 파서는 순입금만 읽어야 (누적 합·수수료 계산 정확)
+        note = ('2026/09/03 12:47\n입금 76,900원\n고려/디자인TOV\n452***38801011\n기업\n'
+                '실추심 100,000원\n수수료 23,100원')
+        p = _parse_notes([note], stage_vals={'잔금': 100000})
+        assert len(p) == 1 and p[0]['amount'] == 76900
 
 
 if __name__ == '__main__':
