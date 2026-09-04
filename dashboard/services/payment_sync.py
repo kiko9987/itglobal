@@ -1092,8 +1092,11 @@ def _card_fee_line(stage: str, real_payment: int, deposit: int,
 # 수수료 = 실추심 − 순입금(건별 실제 차액). 스냅 율이 밴드 밖이면 역산 안 함(순입금대로).
 # Ⓐ 회계(대표 결정): 채무자 미수금은 실추심(gross) 만큼 줄이고 수수료는 ITG 부담.
 _COLLECTION_AGENCIES = ('고려',)               # 고려신용정보 (유일)
-_COLLECTION_RATE_TARGET = 0.23                 # 역산 ballpark (관측 표준 21%+VAT=23.1%)
-_COLLECTION_RATE_MIN, _COLLECTION_RATE_MAX = 0.18, 0.27   # 스냅 검증 밴드(20~24%±마진)
+# 실효 수수료율(부가세 포함) 밴드. 대표 고지 base 22~24%(=실효 24.2~26.4%)에 G1897
+# 실측 23.1%(base 21%)까지 포함 → 실효 23~26.5%로 잡는다. 밴드가 좁아(3.5%p) 소액은
+# 만원 후보가 최대 1개 → 율 무관하게 실추심 확정. 겹치면 밴드 중앙에 가까운 것.
+_COLLECTION_RATE_MIN, _COLLECTION_RATE_MAX = 0.23, 0.265
+_COLLECTION_RATE_MID = (_COLLECTION_RATE_MIN + _COLLECTION_RATE_MAX) / 2
 
 
 def _is_collection_partner(partner: str) -> bool:
@@ -1104,18 +1107,25 @@ def _is_collection_partner(partner: str) -> bool:
 def _collection_gross_fee(partner: str, net: int):
     """추심 순입금(net) → (실추심 gross, 수수료). 추심 아니거나 역산 실패 시 None.
 
-    실추심은 만원 단위 → net/(1−표준율) 근처의 가장 가까운 만원으로 스냅해 율 무관 복원.
-    예: 153,800→200,000(수수료 46,200), 76,900→100,000(수수료 23,100). 스냅 결과 율이
-    밴드[18~27%] 밖이면 None(순입금대로 기록 — 잘못된 스냅·비정상 금액 방어).
+    실추심은 만원 단위 → 만원 배수 중 실효 수수료율이 밴드[23~26.5%] 안인 것을 찾는다
+    (율 무관, 건별 실제 차액=수수료). 예: 153,800→200,000(46,200), 76,900→100,000(23,100),
+    147,200→200,000(52,800). 밴드 안 후보 없으면 None(비정상 금액 방어).
     """
     net = int(net or 0)
     if net <= 0 or not _is_collection_partner(partner):
         return None
-    gross = int(round(net / (1 - _COLLECTION_RATE_TARGET) / 10000) * 10000)   # 만원 스냅
-    fee = gross - net
-    if fee <= 0 or not (_COLLECTION_RATE_MIN <= fee / gross <= _COLLECTION_RATE_MAX):
-        return None
-    return gross, fee
+    import math
+    lo = net / (1 - _COLLECTION_RATE_MIN)    # 최소율 → 최소 gross
+    hi = net / (1 - _COLLECTION_RATE_MAX)    # 최대율 → 최대 gross
+    best = None
+    g = int(math.ceil(lo / 10000) * 10000)
+    while g <= hi + 1:
+        rate = (g - net) / g
+        if _COLLECTION_RATE_MIN <= rate <= _COLLECTION_RATE_MAX:
+            if best is None or abs(rate - _COLLECTION_RATE_MID) < abs((best - net) / best - _COLLECTION_RATE_MID):
+                best = g
+        g += 10000
+    return (best, best - net) if best else None
 
 
 def _collection_fee_line(partner: str, net: int) -> str:
