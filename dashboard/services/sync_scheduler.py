@@ -795,7 +795,8 @@ def _safe_cert_expiry_check():
             _notify_admin(
                 f'cert_expiry_{host}',
                 f':warning: *SSL 인증서 만료 임박* — `{host}` 인증서가 *{days_left}일* 후 만료. '
-                f'Caddy 자동 갱신 상태 확인 필요 (`docker logs caddy --tail 50`).'
+                f'Caddy가 만료 ~30일 전 자동 갱신하므로 보통 곧 해결됨. '
+                f'며칠 뒤에도 이 알림이 계속 오면 자동 갱신 실패 → Caddy(네이티브 프로세스) 로그·재시작 점검.'
             )
         else:
             logger.debug(f'[SCHED] SSL 인증서 만료까지 {days_left}일 ({host})')
