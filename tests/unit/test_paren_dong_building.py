@@ -35,11 +35,24 @@ def test_no_comma_dong_building_unwrapped(addr, expected):
 
 @pytest.mark.parametrize('addr', [
     '김포 사우중로 1 (걸포동 172-1)',   # 번지형 — 건물부 숫자 시작, 미매치(보존)
-    '김포 사우중로 1 (걸포동)',          # 동 단독 — 공백+건물 없음, 미매치(보존)
     '서초구 방배로 20 (서초대로 삼성빌딩) 3층',  # 도로명(숫자+가 없음) — 법정동 오인 방지, 보존
+    '평택 산단로 5 (관리동)',            # 건물 구역동 — L-03779 negative lookahead 제외(보존)
+    '서초구 강남대로 1 우성빌딩 (서초동)',  # 법정동 단독이나 번지 직후 아님 — L-03779 미매치(보존)
 ])
 def test_preserved(addr):
     assert P(addr) == addr
+
+
+@pytest.mark.parametrize('addr, expected', [
+    # 법정동 단독 괄호 '(법정동)' 이 **번지(숫자) 직후** 오면 제거 (2026-08-25 L-03779):
+    #   다음(카카오) 우편번호 위젯 '도로명 번지 (법정동)' 시그니처 → 당근·전화(괄호 없음)와
+    #   표기 통일. (2026-08-18 작성 당시엔 미매치·보존이었으나 L-03779 로 의도 변경됨.)
+    ('김포 사우중로 1 (걸포동)', '김포 사우중로 1'),
+    ('인천 원창로 16-8 (원창동)', '인천 원창로 16-8'),
+    ('평택 산단로 5 (칠괴동) 관리동', '평택 산단로 5 관리동'),  # 법정동 제거·구역동 보존
+])
+def test_standalone_dong_after_bunji_removed(addr, expected):
+    assert P(addr) == expected
 
 
 if __name__ == '__main__':
