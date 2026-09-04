@@ -1086,30 +1086,36 @@ def _card_fee_line(stage: str, real_payment: int, deposit: int,
 
 # ── 추심(신용정보) 수수료 ─────────────────────────────────────────────
 # 채무를 신용정보(추심) 업체가 대신 수금 → 수수료 떼고 순입금만 통장에 들어온다.
-# 입금자 '{업체}/{채무자}' (예: '고려/디자인TOV' = 고려신용정보). 수수료율은 부가세 별도.
-# Ⓐ 회계(2026-09-03 대표 결정): 채무자 미수금은 '실추심(gross)' 만큼 줄이고,
-# 수수료는 ITG 부담(비용). 카드 결제와 동일 원리(단계값=실추심, 노트=순입금+수수료).
-_COLLECTION_AGENCIES = {'고려': 0.21}   # 고려신용정보 21% + 부가세 → 실효 23.1%
+# 추심 업체 = 고려신용정보 하나뿐(입금자 '고려/{채무자}', 2026-09-03 확인).
+# 수수료율은 건마다 20~24%로 다름(부가세 포함 실효). 대신 **실추심(채무자 원금)은 만원
+# 단위로 떨어진다** → 순입금을 만원 단위로 스냅 역산하면 율 무관하게 실추심 복원.
+# 수수료 = 실추심 − 순입금(건별 실제 차액). 스냅 율이 밴드 밖이면 역산 안 함(순입금대로).
+# Ⓐ 회계(대표 결정): 채무자 미수금은 실추심(gross) 만큼 줄이고 수수료는 ITG 부담.
+_COLLECTION_AGENCIES = ('고려',)               # 고려신용정보 (유일)
+_COLLECTION_RATE_TARGET = 0.23                 # 역산 ballpark (관측 표준 21%+VAT=23.1%)
+_COLLECTION_RATE_MIN, _COLLECTION_RATE_MAX = 0.18, 0.27   # 스냅 검증 밴드(20~24%±마진)
+
+
+def _is_collection_partner(partner: str) -> bool:
+    p = (partner or '').strip()
+    return any(p.startswith(ag + '/') or f'{ag}신용정보' in p for ag in _COLLECTION_AGENCIES)
 
 
 def _collection_gross_fee(partner: str, net: int):
-    """추심 순입금(net) → (실추심 gross, 수수료). 추심 아니면 None.
+    """추심 순입금(net) → (실추심 gross, 수수료). 추심 아니거나 역산 실패 시 None.
 
-    gross = net / (1 − 수수료율×1.1). 예: 153,800/0.769=200,000 수수료 46,200.
-    입금자가 '{업체}/...' 또는 '{업체}신용정보' 면 해당 업체 수수료율 적용.
+    실추심은 만원 단위 → net/(1−표준율) 근처의 가장 가까운 만원으로 스냅해 율 무관 복원.
+    예: 153,800→200,000(수수료 46,200), 76,900→100,000(수수료 23,100). 스냅 결과 율이
+    밴드[18~27%] 밖이면 None(순입금대로 기록 — 잘못된 스냅·비정상 금액 방어).
     """
-    p = (partner or '').strip()
     net = int(net or 0)
-    if net <= 0:
+    if net <= 0 or not _is_collection_partner(partner):
         return None
-    for ag, rate in _COLLECTION_AGENCIES.items():
-        if p.startswith(ag + '/') or f'{ag}신용정보' in p:
-            eff = rate * 1.1                      # 부가세 포함 실효율
-            gross = round(net / (1 - eff))
-            fee = gross - net
-            if fee > 0:
-                return gross, fee
-    return None
+    gross = int(round(net / (1 - _COLLECTION_RATE_TARGET) / 10000) * 10000)   # 만원 스냅
+    fee = gross - net
+    if fee <= 0 or not (_COLLECTION_RATE_MIN <= fee / gross <= _COLLECTION_RATE_MAX):
+        return None
+    return gross, fee
 
 
 def _collection_fee_line(partner: str, net: int) -> str:

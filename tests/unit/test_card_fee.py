@@ -185,6 +185,12 @@ class TestCollectionFee:
         assert _collection_gross_fee('고려/디자인TOV', 76900) == (100000, 23100)
         assert _collection_gross_fee('고려신용정보', 76900) == (100000, 23100)
 
+    def test_variable_rate_snaps_to_manwon(self):
+        # 율이 표준(23%) 부근에서 달라도 실추심(만원 단위)을 스냅으로 복원 (율 무관)
+        assert _collection_gross_fee('고려/디자인TOV', 156000) == (200000, 44000)   # 22%
+        assert _collection_gross_fee('고려/디자인TOV', 152000) == (200000, 48000)   # 24%
+        assert _collection_gross_fee('고려/디자인TOV', 380000) == (490000, 110000)  # 만원 단위
+
     def test_not_collection(self):
         assert _collection_gross_fee('디자인TOV', 153800) is None
         assert _collection_gross_fee('프레임플러스', 100000) is None
