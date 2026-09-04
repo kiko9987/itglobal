@@ -1556,6 +1556,16 @@ def _enrich_verified_address(
 #   ([가-힣][가-힣A-Za-z0-9]{1,14}) 로 이미 배제되므로 여기 유지 불필요.
 _ADMIN_SUFFIX_RE = re.compile(r'(로|길|구|시|군|동|읍|면|리|번지|가|동로|번길)$')
 
+# 시/도 이름(광역 행정구역) — 상호 후보에서 제외 (2026-09-04 L-03875). '서울'은 '시'로
+#   안 끝나 _ADMIN_SUFFIX_RE 를 통과 → 순수 지번('서울 서초구 반포동 18-3')에서
+#   유일한 상호 후보로 뽑혀 POI 검색 query('서울 서초구')가 'cand + 공백'으로 시작하는
+#   엉뚱한 장소('서울 헌릉과 인릉')를 정확매치로 채택, 완전 다른 왕릉을 verified 로
+#   반환하던 심각 오매칭. 시/도는 상호가 아니므로 후보에서 배제 (경기도·강원특별자치도
+#   등 접미형 포함). fullmatch 라 '서울대입구'·'세종병원' 등 상호는 그대로 유지.
+_SIDO_WORD_RE = re.compile(
+    r'^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)'
+    r'(?:특별시|광역시|특별자치시|특별자치도|도)?$')
+
 
 def _extract_region_hint(verified_addr: str) -> str:
     """verified 주소에서 지역 힌트 추출 (첫 시/군/구/광역시).
@@ -1599,6 +1609,8 @@ def _extract_shop_candidates(text: str) -> list:
         if w in seen:
             continue
         if _ADMIN_SUFFIX_RE.search(w):
+            continue
+        if _SIDO_WORD_RE.match(w):   # 시/도 이름은 상호 아님 (L-03875 헌인릉 오매칭 차단)
             continue
         if any(sw in w for sw in _STOP_WORDS):
             continue
@@ -2487,20 +2499,14 @@ def resolve_address(
         addr = _mark_planned(addr)  # 'X예정지/X예정' → 'X (예정)' (L-03600)
         return (addr, level)
 
-    # 1b. POI fallback (2026-07-20 L-03292) — 시/도 빠진 케이스 상호 → 도로명
-    poi_road = _try_poi_fallback(text)
-    if poi_road:
-        addr = _enrich_verified_address(poi_road, text, regex_addr)
-        addr = _strip_redundant_legal_dong(addr)
-        addr = _post_normalize_display(addr)
-        addr = _mark_planned(addr)
-        return (addr, 'verified')
-
-    # 1c-juso. 순수 지번 → 행안부 도로명 verified + 건물명 (2026-08-14 L-03673). 카카오
+    # 1b-juso. 순수 지번 → 행안부 도로명 verified + 건물명 (2026-08-14 L-03673). 카카오
     #   keyword 구제(아래 1c, [추정])보다 **권위 우선** — `여의도동 15-24` → `은행로 3
     #   익스콘벤처타워`(verified). _juso_fallback 은 도로가 있으면 kind='road'(step 2에서
     #   처리)라, 여기엔 **도로 없는 순수 지번(+번지)만** 도달 → 경계 정확일치·지역 가드로
     #   지저분한 입력 오매칭(L-03280) 방어. 카카오 verified 와 동일 enrichment 체인.
+    #   ★ 2026-09-04 L-03875: POI 퍼지 폴백(1c-poi)보다 **먼저** 실행. 순수 지번은 행안부
+    #     (정부 공식 DB)가 권위 소스 — POI 가 같은 구의 엉뚱한 장소('반포동 18-3' → 내곡동
+    #     헌인릉)를 정확매치로 verified 반환하던 오방문 버그를, juso 우선으로 원천 차단.
     _juso_j = _juso_fallback(text, regex_addr)
     if _juso_j and _juso_j[1] == 'jibun':
         addr = _enrich_verified_address(_juso_j[0], text, regex_addr)
@@ -2511,7 +2517,18 @@ def resolve_address(
         addr = _mark_planned(addr)
         return (addr, 'verified')
 
-    # 1c. 순수 지번 → keyword 도로명 구제 (2026-08-13 L-03669). 행안부(1c-juso) 미매치
+    # 1c-poi. POI fallback (2026-07-20 L-03292) — 시/도 빠진 케이스 상호 → 도로명.
+    #   행안부(1b-juso) 미매치 시에만 도달(순수 지번은 위에서 이미 처리) → 상호 힌트가
+    #   실재하는 케이스만 POI 로 구제.
+    poi_road = _try_poi_fallback(text)
+    if poi_road:
+        addr = _enrich_verified_address(poi_road, text, regex_addr)
+        addr = _strip_redundant_legal_dong(addr)
+        addr = _post_normalize_display(addr)
+        addr = _mark_planned(addr)
+        return (addr, 'verified')
+
+    # 1c. 순수 지번 → keyword 도로명 구제 (2026-08-13 L-03669). 행안부(1b-juso) 미매치
     #   시 fallback. 카카오 주소검색은 순수 지번 0건이지만 keyword 는 그 지번 상호를 줌
     #   → jibun 정확일치 도로명 채택. [추정] 유지(level='jibun_poi') — 근처 상호 기반.
     _jibun_road = _jibun_road_fallback(text)
