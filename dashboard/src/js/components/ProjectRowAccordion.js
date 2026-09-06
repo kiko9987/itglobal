@@ -1851,7 +1851,7 @@ export default class ProjectRowAccordion {
         ]
       },
 
-      // 계산서 옵션 - 카테고리별 구조화 (각 카테고리에서 1개만 선택, 총 3개까지)
+      // 계산서 옵션 - 카테고리별 구조화 (각 단계=1카테고리, 카테고리는 여러 단계 가능, 총 3개까지)
       '계산서': {
         categories: [
           { name: '일반', options: ['계약금', '중도금', '잔금'] },
@@ -7121,14 +7121,11 @@ export default class ProjectRowAccordion {
                 billSpecialCheckbox.checked = false;
               }
 
-              // 같은 카테고리의 다른 체크박스 모두 해제 (각 카테고리에서 1개만 선택)
-              billStageCheckboxes.forEach(cb => {
-                if (cb.dataset.category === category && cb !== checkbox) {
-                  cb.checked = false;
-                }
-              });
+              // (2026-09-06) 같은 카테고리를 여러 단계에 허용 — 큰 현장은 계약금·중도금·
+              // 잔금 각 단계에서 세금계산서를 별도 발행하므로 일반-계약금 + 일반-중도금 +
+              // 일반-잔금 동시 선택이 필요. 기존 "각 카테고리 1개만" 제약을 제거.
 
-              // 같은 단계의 다른 카테고리 체크박스 해제 (각 단계는 1개 카테고리만)
+              // 같은 단계의 다른 카테고리 체크박스 해제 (각 단계는 1개 카테고리만 — 유지)
               billStageCheckboxes.forEach(cb => {
                 if (cb.value === stage && cb !== checkbox) {
                   cb.checked = false;
