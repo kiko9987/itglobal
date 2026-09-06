@@ -18,6 +18,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
+import { computeBillStages } from '../utils/billStatus.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -924,9 +925,10 @@ export default class ProjectRowAccordion {
   getBillStatusIcon(category) {
     const iconMap = {
       '일반': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
-      'N입금': { icon: 'fas fa-sack-dollar text-danger', label: '현금거래 (계산서 미발행)' },
-      '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제' },
-      '혼합': { icon: 'fas fa-layer-group text-warning', label: '혼합 결제 (카드+현금 등)' }
+      'N입금': { icon: 'fas fa-sack-dollar text-secondary', label: '현금 입금 (세금계산서 불필요)' },
+      '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제 (영수증 자동)' },
+      '미발행': { icon: 'fas fa-exclamation-triangle text-danger', label: '입금 완료 · 세금계산서 미발행' },
+      '혼합': { icon: 'fas fa-question-circle text-warning', label: '혼합 — 단계별 확인 필요' }
     };
 
     const info = iconMap[category];
@@ -952,8 +954,8 @@ export default class ProjectRowAccordion {
       잔금: rowData['잔금'] || 0
     };
 
-    // 계산서 정보 파싱
-    const billStatus = this.parseBillStatus(rowData['계산서']);
+    // 계산서 단계별 상태 (금액 결합: 입금됐는데 미발행이면 ⚠️)
+    const billStages = computeBillStages(rowData['계산서'], rowData);
 
     // 메모 버튼 HTML 생성 (FieldMemoButton이 초기화되어 있을 때만)
     // UX 개선: 아코디언 내부에서는 항상 메모 버튼 표시 (금액 입력 중일 수 있음)
@@ -992,6 +994,8 @@ export default class ProjectRowAccordion {
       const amount = AmountCalculator.safeParseCurrency(rowData[fieldName] || 0);
       const memo = memos[memoKey];
       const formattedAmount = this.formatCurrency(amount);
+      // 계산서 단계별 아이콘 (🧾/💵/💳/⚠️미발행/❓혼합)
+      const billIcon = this.getBillStatusIcon(billStages[fieldName]);
 
       let valueMarkup;
 
@@ -1008,10 +1012,11 @@ export default class ProjectRowAccordion {
             <span class="memo-tooltip-trigger ${stateClass}" data-bs-toggle="tooltip" data-bs-title="${tooltipText}" aria-label="${memoStatus.isEmpty ? '메모를 작성해주세요' : '메모 보기'}">
               <i class="${iconType} fa-sticky-note ${iconColorClass}"></i>
             </span>
+            ${billIcon}
           </span>
         `;
       } else {
-        valueMarkup = formattedAmount;
+        valueMarkup = `${formattedAmount}${billIcon}`;
       }
 
       return `

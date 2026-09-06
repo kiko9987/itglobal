@@ -12,6 +12,7 @@ import { getGlobalModeManager } from '../utils/globalModeManager.js';
 import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 import logger from '../utils/logger.js';
+import { computeBillStages } from '../utils/billStatus.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -91,9 +92,9 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     `${amount.toLocaleString()}원` :
     '-';
 
-  // 계산서 정보 파싱
-  const billStatus = parseBillStatusForTable(row['계산서']);
-  const billIcon = billStatus.stages[stage] ? getBillStatusIconForTable(billStatus.stages[stage]) : '';
+  // 계산서 단계별 상태 → 아이콘 (금액 결합: 입금됐는데 미발행이면 ⚠️)
+  const billStages = computeBillStages(row['계산서'], row);
+  const billIcon = getStageBillIconForTable(billStages[stage]);
 
   // 3단계 시각화: 금액 없음 / 메모 없음(경고) / 메모 있음(정상)
   if (amount > 0) {
@@ -211,19 +212,21 @@ function parseBillStatusForTable(billValue) {
 }
 
 /**
- * 계산서 카테고리에 대한 아이콘 반환 (테이블용)
- * @param {string} category - 카테고리명 (일반, N입금, 카드)
- * @returns {string} 아이콘 HTML
+ * 계산서 단계 상태 → 아이콘 HTML (테이블용).
+ * status ∈ 일반/N입금/카드/미발행/혼합/none (computeBillStages 반환값)
+ *  - 미발행 = 입금됐는데 세금계산서 없음 → ⚠️ (매니저가 잡아야 할 신호)
+ *  - N입금(현금)·카드는 계산서 불필요라 경고 아님(중립/정보색)
  */
-function getBillStatusIconForTable(category) {
+function getStageBillIconForTable(status) {
   const iconMap = {
     '일반': '<i class="fas fa-receipt fa-lg ms-1 text-primary" title="세금계산서 발행"></i>',
-    'N입금': '<i class="fas fa-sack-dollar fa-lg ms-1 text-danger" title="현금거래 (계산서 미발행)"></i>',
-    '카드': '<i class="fas fa-credit-card fa-lg ms-1 text-info" title="카드결제"></i>',
-    '혼합': '<i class="fas fa-layer-group fa-lg ms-1 text-warning" title="혼합 결제 (카드+현금 등)"></i>'
+    'N입금': '<i class="fas fa-sack-dollar fa-lg ms-1 text-secondary" title="현금 입금 (세금계산서 불필요)"></i>',
+    '카드': '<i class="fas fa-credit-card fa-lg ms-1 text-info" title="카드결제 (영수증 자동)"></i>',
+    '미발행': '<i class="fas fa-exclamation-triangle fa-lg ms-1 text-danger" title="입금 완료 · 세금계산서 미발행"></i>',
+    '혼합': '<i class="fas fa-question-circle fa-lg ms-1 text-warning" title="혼합 — 단계별 확인 필요"></i>'
   };
 
-  return iconMap[category] || '';
+  return iconMap[status] || '';
 }
 
 /**
