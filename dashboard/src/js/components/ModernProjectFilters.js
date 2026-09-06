@@ -671,13 +671,25 @@ export default class ModernProjectFilters {
                            collectedValue === 'true' ||
                            collectedValue === 1 ||
                            collectedValue === '1';
+        // 수금 날짜 입력 여부 (Z열)
+        const hasPaymentDate = String(item['수금 날짜'] || '').trim() !== '';
+        // 세금계산서 발행 여부 (Y열 계산서) — '미발행'/공란만 미발행,
+        // 나머지(계약금/중도금/잔금/N입금/카드결제/혼합)는 발행완료로 간주.
+        const billVal = String(item['계산서'] || '').trim();
+        const invoiceIssued = billVal !== '' && billVal !== '미발행';
 
         if (this.filters.outstanding === 'collected') {
           // 수금 완료: 수금확인 체크박스가 체크된 경우만
           return isCollected;
         } else if (this.filters.outstanding === 'outstanding') {
-          // 미수금 있음: 미수금이 0보다 크고 수금확인이 true가 아닌 경우
-          return outstandingAmount > 0 && !isCollected;
+          // 수금 관리 모드 목록 유지 규칙 (2026-09-06, 매니저 요청):
+          //   기존 구글시트 미수금 현황처럼 "완전히 종결된 건"만 목록에서 제외.
+          //   종결 = ①수금 완료(수금확인 체크 AND 수금날짜 입력) AND ②세금계산서 발행완료.
+          //   → 수금은 끝났어도 계산서 미발행이면 계속 노출(주 목적: 발행 누락 잡기).
+          //   → 미수금 금액이 남아있으면 무조건 노출(안전장치).
+          const paymentDone = isCollected && hasPaymentDate;
+          const settled = paymentDone && invoiceIssued;
+          return outstandingAmount > 0 || !settled;
         }
         return true;
       });

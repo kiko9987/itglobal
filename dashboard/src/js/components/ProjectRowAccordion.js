@@ -889,19 +889,28 @@ export default class ProjectRowAccordion {
 
     logger.debug('[parseBillStatus] 파싱 시작:', billValue);
 
-    // 콤마로 분리된 각 항목 처리
-    const items = billValue.split(',').map(s => s.trim());
+    // 콤마로 분리된 각 항목 처리 — 두 형식 모두 지원 (2026-09-06):
+    //  · 하이픈 "카테고리-단계" (사이트 편집기 산물, 예: "일반-잔금")
+    //  · 단일 토큰 (레거시·수동, 실데이터 99%):
+    //      계약금/중도금/잔금 → 그 단계 하나만(일반), N입금/카드결제/혼합 → 잔금 칸
+    const items = billValue.split(',').map(s => s.trim()).filter(Boolean);
 
     items.forEach(item => {
-      // "카테고리-단계" 형식 파싱
-      const parts = item.split('-');
-      if (parts.length === 2) {
+      if (item.includes('-')) {
+        const parts = item.split('-');
         const category = parts[0].trim();
         const stage = parts[1].trim();
-        result.stages[stage] = category;
-        logger.debug(`[parseBillStatus] 매핑: ${stage} => ${category}`);
+        if (stage) result.stages[stage] = category || '일반';
+      } else if (item === '계약금' || item === '중도금' || item === '잔금') {
+        result.stages[item] = '일반';
+      } else if (item === 'N입금') {
+        result.stages['잔금'] = 'N입금';
+      } else if (item === '카드결제') {
+        result.stages['잔금'] = '카드';
+      } else if (item === '혼합') {
+        result.stages['잔금'] = '혼합';
       } else {
-        logger.warn(`[parseBillStatus] 잘못된 형식: "${item}"`);
+        logger.warn(`[parseBillStatus] 미지 토큰 무시: "${item}"`);
       }
     });
 
@@ -916,7 +925,8 @@ export default class ProjectRowAccordion {
     const iconMap = {
       '일반': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
       'N입금': { icon: 'fas fa-sack-dollar text-danger', label: '현금거래 (계산서 미발행)' },
-      '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제' }
+      '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제' },
+      '혼합': { icon: 'fas fa-layer-group text-warning', label: '혼합 결제 (카드+현금 등)' }
     };
 
     const info = iconMap[category];
@@ -1869,10 +1879,26 @@ export default class ProjectRowAccordion {
     if (currentValue === '미발행' || !currentValue || currentValue === '-') {
       isMibalhaeng = currentValue === '미발행';
     } else {
-      // 콤마로 분리해서 각 항목을 파싱
-      const items = currentValue.split(',').map(s => s.trim());
+      // 단일 토큰(레거시·수동, 실데이터 99%)도 하이픈 itemKey 로 정규화해
+      // 체크박스를 올바르게 복원 (2026-09-06). 편집·저장 시 자연스럽게
+      // 하이픈 형식으로 점진 이행됨(대량 마이그레이션 없이).
+      //   계약금/중도금/잔금 → 일반-단계, N입금 → N입금-잔금, 카드결제 → 카드-잔금
+      //   혼합 → 특정 단계로 환원 불가 → 미체크(값은 미편집 시 보존)
+      const SINGLE_TOKEN_TO_KEYS = {
+        '계약금': ['일반-계약금'],
+        '중도금': ['일반-중도금'],
+        '잔금': ['일반-잔금'],
+        'N입금': ['N입금-잔금'],
+        '카드결제': ['카드-잔금'],
+      };
+      const items = currentValue.split(',').map(s => s.trim()).filter(Boolean);
       items.forEach(item => {
-        selectedItems[item] = true;
+        if (item.includes('-')) {
+          selectedItems[item] = true;
+        } else if (SINGLE_TOKEN_TO_KEYS[item]) {
+          SINGLE_TOKEN_TO_KEYS[item].forEach(k => { selectedItems[k] = true; });
+        }
+        // 그 외(혼합·미지 토큰) 무시 — 미체크
       });
     }
 

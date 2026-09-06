@@ -182,16 +182,29 @@ function parseBillStatusForTable(billValue) {
     return result;
   }
 
-  // Split by comma and parse each item
-  const items = billValue.split(',').map(s => s.trim());
+  // 두 형식 모두 처리 (2026-09-06):
+  //  · 하이픈 "카테고리-단계" — 사이트 편집기 산물 (예: "일반-잔금")
+  //  · 단일 토큰 — 레거시·수동 입력 (실데이터 99%). 아이콘 부활 목적.
+  //      계약금/중도금/잔금 → 그 단계 하나만, 세금계산서(일반)
+  //      N입금 → 잔금 칸(현금), 카드결제 → 잔금 칸(카드), 혼합 → 잔금 칸(혼합)
+  const items = billValue.split(',').map(s => s.trim()).filter(Boolean);
 
   items.forEach(item => {
-    const parts = item.split('-');
-    if (parts.length === 2) {
+    if (item.includes('-')) {
+      const parts = item.split('-');
       const category = parts[0].trim();
       const stage = parts[1].trim();
-      result.stages[stage] = category;
+      if (stage) result.stages[stage] = category || '일반';
+    } else if (item === '계약금' || item === '중도금' || item === '잔금') {
+      result.stages[item] = '일반';
+    } else if (item === 'N입금') {
+      result.stages['잔금'] = 'N입금';
+    } else if (item === '카드결제') {
+      result.stages['잔금'] = '카드';
+    } else if (item === '혼합') {
+      result.stages['잔금'] = '혼합';
     }
+    // 그 외 미지 토큰은 무시
   });
 
   return result;
@@ -206,7 +219,8 @@ function getBillStatusIconForTable(category) {
   const iconMap = {
     '일반': '<i class="fas fa-receipt fa-lg ms-1 text-primary" title="세금계산서 발행"></i>',
     'N입금': '<i class="fas fa-sack-dollar fa-lg ms-1 text-danger" title="현금거래 (계산서 미발행)"></i>',
-    '카드': '<i class="fas fa-credit-card fa-lg ms-1 text-info" title="카드결제"></i>'
+    '카드': '<i class="fas fa-credit-card fa-lg ms-1 text-info" title="카드결제"></i>',
+    '혼합': '<i class="fas fa-layer-group fa-lg ms-1 text-warning" title="혼합 결제 (카드+현금 등)"></i>'
   };
 
   return iconMap[category] || '';
