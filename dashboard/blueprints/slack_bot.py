@@ -9225,6 +9225,26 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
         logger.info(f'[SLACK/방문봇] visit_cancel 중복 처리 skip ({lead_no})')
         return
 
+    # 멱등성 가드 — 원자적 Redis 마커(SETNX)로 2차 취소를 함수 최상단에서 차단.
+    #   아래 webhook(List 행 삭제, step 2)·카드 rebuild(step 3) **이전**에 세워,
+    #   이미 처리된 취소의 재제출이 ① 이미 삭제된 List 항목에 webhook 재발사 →
+    #   워크플로 'Select a list item' record_not_found, ② 회색 카드를 다시 코드블록
+    #   으로 감싸 취소 헤더 2겹·코드블록 중첩된 기형 카드가 되는 것을 막는다.
+    #   구 가드(2420d38)는 _find_lead_by_no 의 '상태'=='방문 취소' 로 판별했으나 이
+    #   상태는 write-behind(Redis 큐→Sheets 지연)라, 1차 갱신이 시트에 전파되기 전
+    #   수초 간격 2차 제출이 stale 상태를 읽어 통과했다(2026-09-01 10:55 L-03768).
+    #   시트 상태 무관·원자적 SETNX 로 대체. 되돌리기(uncancel)에서 마커 삭제.
+    #   방문 완료 마커(3b053f9 visit_completed:)와 대칭. (2026-09-06)
+    _vc_rc = None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        _vc_rc = get_redis_client().redis
+        if not _vc_rc.set(f'visit_cancelled:{lead_no}', '1', nx=True, ex=86400):
+            logger.info(f'[SLACK/방문취소] 이미 취소됨 — 재처리/webhook 재발송 skip ({lead_no})')
+            return
+    except Exception:
+        _vc_rc = None  # Redis 다운 시 보수적 진행 (기능 끊지 않음)
+
     state = view["state"]["values"]
     reason = (_v(state, "reason") or '').strip()
     if not reason:
@@ -9232,12 +9252,6 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
 
     # old 상담 내용 캡처 → append
     old_lead = _find_lead_by_no(lead_no) or {}
-    # 멱등성 가드 — 이미 취소된 리드면 재처리·webhook 재발송 skip
-    #   (5초 action lock 은 빠른 더블클릭만 막음. 재제출/재취소 시 이미 삭제된 List
-    #    항목에 webhook 이 또 나가 워크플로 'Select a list item' record_not_found 유발. 2026-09-01)
-    if str(old_lead.get('상태') or '').strip() == '방문 취소':
-        logger.info(f'[SLACK/방문취소] 이미 취소됨 — 재처리/webhook 재발송 skip ({lead_no})')
-        return
     old_note = str(old_lead.get('상담 내용') or '').strip()
     initial = _slack_user_to_initial(client, user_id) or '-'
     cancel_date = datetime.now().strftime('%Y-%m-%d')
@@ -10380,6 +10394,14 @@ def _process_visit_uncancel(client, body) -> None:
     user_id = body["user"]["id"]
     if not lead_no:
         return
+
+    # 0) 취소 멱등성 마커 해제 — 되돌린 뒤 재취소가 정상 통과하도록
+    #    (_process_visit_cancel_confirmed 의 visit_cancelled: SETNX 마커와 대칭)
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.delete(f'visit_cancelled:{lead_no}')
+    except Exception:
+        pass
 
     # 1) 시트 상태 → '방문 예약' 복원 (ETC- 는 Redis metadata 만 갱신)
     try:
