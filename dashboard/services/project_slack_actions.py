@@ -121,11 +121,12 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.warning(f'[SLACK/취소] 스냅샷 저장 실패 ({code}): {exc}')
 
-    # 관리 사이트 _prepare_cancel_updates 와 동일 (2026-09-07 Z/AA/AB 삽입: AH→AK, AA→AD, AM→AP)
+    # 관리 사이트 _prepare_cancel_updates 와 동일 — 컬럼 레터는 get_field_to_letter()로 파생(시프트 자동 정정)
+    col = manager.get_field_to_letter()
     updates = [
-        {'range': f'{sheet_name}!AK{row_number}', 'values': [['공사 취소']]},  # AK: 수금 관련 특이사항
-        {'range': f'{sheet_name}!AD{row_number}', 'values': [['FALSE']]},      # AD: 수금 확인
-        {'range': f'{sheet_name}!AP{row_number}', 'values': [['']]},           # AP: 공사 확정
+        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['공사 취소']]},
+        {'range': f"{sheet_name}!{col['수금 확인']}{row_number}", 'values': [['FALSE']]},
+        {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [['']]},
     ]
 
     # 2026-07-09 write-behind: 시트 write 를 큐로 위임
@@ -212,13 +213,14 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.warning(f'[SLACK/재개] 스냅샷 조회 실패 ({code}): {exc}')
 
+    col = manager.get_field_to_letter()  # 컬럼 레터 파생 (시프트 자동 정정)
     updates = [
-        {'range': f'{sheet_name}!AK{row_number}', 'values': [['']]},            # AK: 수금 관련 특이사항 (AH→AK)
-        {'range': f'{sheet_name}!AP{row_number}', 'values': [[restore_date]]},  # AP: 공사 확정 (AM→AP)
+        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['']]},
+        {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [[restore_date]]},
     ]
     if restore_payment is not None:
         updates.append({
-            'range': f'{sheet_name}!AD{row_number}',  # AD: 수금 확인 (AA→AD, 2026-09-07)
+            'range': f"{sheet_name}!{col['수금 확인']}{row_number}",
             'values': [['TRUE' if restore_payment else 'FALSE']],
         })
     _queue_batch_write(sheet_id, updates, tag=f'slack_uncancel:{code}')

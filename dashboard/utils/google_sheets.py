@@ -1170,6 +1170,14 @@ class GoogleSheetsManager:
             'AS': '_version'   # 2026-09-07 +3 시프트 (옛 AP)
         }
 
+    def get_field_to_letter(self):
+        """필드명 → 컬럼 레터 (get_column_mapping 역방향, 단일 진실원천).
+
+        하드코딩 레터 대신 이걸 써야 컬럼 시프트(예: 2026-09-07 Z/AA/AB 삽입) 시
+        자동 정정됨. 예: get_field_to_letter()['공사 확정'] → 'AP'.
+        """
+        return {field: letter for letter, field in self.get_column_mapping().items()}
+
     def get_field_column_mapping(self):
         """레거시 방식의 필드-컬럼 매핑 (인라인 편집용)
 

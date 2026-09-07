@@ -2929,29 +2929,18 @@ def _check_already_cancelled(project):
     return False, None, None
 
 
-def _prepare_cancel_updates(sheet_name, row_number):
-    """공사 취소 배치 업데이트 준비
+def _prepare_cancel_updates(sheet_name, row_number, manager):
+    """공사 취소 배치 업데이트 준비 — 컬럼 레터를 get_field_to_letter()로 파생.
 
-    Returns:
-        list: Batch update requests (AK: 수금 관련 특이사항, AD: 수금 확인, AP: 공사 확정)
-
-    Note: 2026-09-07 컬럼 시프트 반영 (Z/AA/AB 3열 삽입: AH→AK, AA→AD, AM→AP).
-          하드코딩 레터라 시프트마다 재발 — 옛 매핑은 엉뚱한 열(기타비·중도금계산서·
-          중도금입금자명)에 write하는 데이터 파괴 버그. (근본책=get_column_mapping 파생, 별도 과제)
+    수금 관련 특이사항='공사 취소', 수금 확인=FALSE, 공사 확정=''.
+    하드코딩 레터 금지: 컬럼 시프트마다 엉뚱한 열에 write하는 데이터 파괴가
+    반복돼서(2026-07, 2026-09) 필드명 → 레터 파생으로 전환. 이제 시프트 자동 정정.
     """
+    col = manager.get_field_to_letter()
     return [
-        {
-            'range': f'{sheet_name}!AK{row_number}',  # AK: 수금 관련 특이사항
-            'values': [['공사 취소']]
-        },
-        {
-            'range': f'{sheet_name}!AD{row_number}',  # AD: 수금 확인
-            'values': [['FALSE']]
-        },
-        {
-            'range': f'{sheet_name}!AP{row_number}',  # AP: 공사 확정
-            'values': [['']]
-        }
+        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['공사 취소']]},
+        {'range': f"{sheet_name}!{col['수금 확인']}{row_number}", 'values': [['FALSE']]},
+        {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [['']]},
     ]
 
 
@@ -2984,24 +2973,15 @@ def _check_already_active(project, project_code):
     return False, None, None
 
 
-def _prepare_resume_updates(sheet_name, row_number):
-    """공사 재개 배치 업데이트 준비
+def _prepare_resume_updates(sheet_name, row_number, manager):
+    """공사 재개 배치 업데이트 준비 — 컬럼 레터를 get_field_to_letter()로 파생.
 
-    Returns:
-        list: Batch update requests (AK: '', AP: 현재 날짜)
-
-    Note: 2026-09-07 컬럼 시프트 반영 (Z/AA/AB 3열 삽입: AH→AK, AM→AP).
-          하드코딩 레터라 시프트마다 재발 (근본책=get_column_mapping 파생, 별도 과제).
+    수금 관련 특이사항='', 공사 확정=현재 날짜. (하드코딩 레터 금지 — 시프트 자동 정정)
     """
+    col = manager.get_field_to_letter()
     return [
-        {
-            'range': f'{sheet_name}!AK{row_number}',  # AK: 수금 관련 특이사항
-            'values': [['']]
-        },
-        {
-            'range': f'{sheet_name}!AP{row_number}',  # AP: 공사 확정
-            'values': [[datetime.now().strftime('%Y-%m-%d')]]
-        }
+        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['']]},
+        {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [[datetime.now().strftime('%Y-%m-%d')]]},
     ]
 
 
@@ -3137,7 +3117,7 @@ def _handle_cancel_sheet(payload: dict) -> None:
     sheet_name = payload['sheet_name']
     row_number = payload['row_number']
     project_code = payload.get('project_code', '')
-    updates = _prepare_cancel_updates(sheet_name, row_number)
+    updates = _prepare_cancel_updates(sheet_name, row_number, manager)
     manager.batch_update_cells(sheet_id, updates)
     logger.info(f'[QUEUE/project_cancel] 시트 write 완료: {project_code}')
     # 배경색 (실패해도 큐 재시도 안 하도록 내부 try)
@@ -3295,7 +3275,7 @@ def _handle_resume_sheet(payload: dict) -> None:
     sheet_name = payload['sheet_name']
     row_number = payload['row_number']
     project_code = payload.get('project_code', '')
-    updates = _prepare_resume_updates(sheet_name, row_number)
+    updates = _prepare_resume_updates(sheet_name, row_number, manager)
     manager.batch_update_cells(sheet_id, updates)
     logger.info(f'[QUEUE/project_resume] 시트 write 완료: {project_code}')
     try:

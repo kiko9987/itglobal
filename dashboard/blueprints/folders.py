@@ -227,6 +227,8 @@ def _background_folder_resolve(sheet_id, sheet_name, admin_email, ip_address):
             'drive_api_error': 0,       # API 예외
         }
         sheet_updates = []  # {'range', 'values'}
+        # 폴더 경로 컬럼 레터를 필드명으로 파생 (하드코딩 금지 — 컬럼 시프트 자동 정정)
+        _folder_col = GoogleSheetsManager().get_field_to_letter().get('견적서 및 계약서 폴더 경로', 'AO')
 
         for idx, project in df.iterrows():
             project_code = project.get('프로젝트 코드', '')
@@ -287,7 +289,7 @@ def _background_folder_resolve(sheet_id, sheet_name, admin_email, ip_address):
                 if folder_id != folder_path:
                     sheet_row = idx + 2
                     sheet_updates.append({
-                        'range': f'{sheet_name}!AO{sheet_row}',  # AO: 폴더 경로 (2026-09-07 AL→AO)
+                        'range': f'{sheet_name}!{_folder_col}{sheet_row}',  # 폴더 경로 (필드명 파생)
                         'values': [[folder_id]]
                     })
 
