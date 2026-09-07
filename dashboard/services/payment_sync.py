@@ -1790,7 +1790,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         if _off < 0 or _off >= len(rows):
             continue
         _row = rows[_off]
-        while len(_row) < 27:
+        while len(_row) < 30:
             _row.append('')
         _code = str(_row[IDX_A] if IDX_A < len(_row) else '').strip()
         if not _code or not _VALID_PROJECT_RE.match(_code):
@@ -1819,7 +1819,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     for offset, row in enumerate(rows):
         sheet_row = offset + 2  # 1-based + 헤더 1행
         # 행 길이 부족 시 패딩 (Sheets API trailing trim 방지)
-        while len(row) < 27:
+        while len(row) < 30:
             row.append('')
         def _get(i):
             return row[i] if i < len(row) else ''
@@ -2620,7 +2620,7 @@ def find_overdue_unpaid(days: int = 30) -> List[Dict]:
     cutoff = datetime.now() - timedelta(days=days)
     overdue = []
     for row in rows:
-        while len(row) < 27:
+        while len(row) < 30:
             row.append('')
         a = str(row[0]).strip()
         if not a or not _VALID_PROJECT_RE.match(a):
@@ -2629,10 +2629,10 @@ def find_overdue_unpaid(days: int = 30) -> List[Dict]:
         if unpaid == 0:
             continue
         # 수금 확인 체크 → 미수금 있어도 정리된 케이스
-        if _to_bool(row[26]):
+        if _to_bool(row[29]):
             continue
         # 최종 입금일 — Z열(수금 날짜) 시리얼 → 날짜
-        z_val = row[25]
+        z_val = row[28]
         last_date = None
         if isinstance(z_val, (int, float)) and z_val > 0:
             # 구글 시리얼 (1899-12-30 기준)
