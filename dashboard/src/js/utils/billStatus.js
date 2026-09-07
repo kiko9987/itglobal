@@ -169,11 +169,13 @@ export function computeYSummary(stages) {
   if (vals.includes('확인필요')) return '확인필요';
   const handled = vals.filter((v) => v === '발행' || v === 'N입금' || v === '카드');
   if (handled.length === 0) return '-';
-  const jangeum = normalizeToken(stages && stages['잔금']);
-  const jangeumDone = jangeum === '발행' || jangeum === 'N입금' || jangeum === '카드';
-  if (!jangeumDone) return '발행중';
-  if (handled.includes('발행')) return '발행완료';
+  // 발행(세금계산서)이 있을 때만 발행중/발행완료. 순수 현금/카드는 발행 개념이 없으니 방법 라벨.
+  if (vals.includes('발행')) {
+    const jangeum = normalizeToken(stages && stages['잔금']);
+    const jangeumDone = jangeum === '발행' || jangeum === 'N입금' || jangeum === '카드';
+    return jangeumDone ? '발행완료' : '발행중';
+  }
   if (handled.every((v) => v === '카드')) return '카드결제';
   if (handled.every((v) => v === 'N입금')) return 'N입금';
-  return '확인필요';
+  return '확인필요'; // 발행 없이 카드+현금 혼재
 }
