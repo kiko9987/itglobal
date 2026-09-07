@@ -18,7 +18,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, rollupBillStages, BILL_STAGE_COL } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES } from '../utils/billStatus.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -1882,33 +1882,16 @@ export default class ProjectRowAccordion {
     // 형식: "현금결제-계약금, N입금-중도금, 카드결제-잔금"
     const selectedItems = {};  // { '현금결제-계약금': true, 'N입금-중도금': true }
     let isMibalhaeng = false;
-
-    if (currentValue === '미발행' || !currentValue || currentValue === '-') {
-      isMibalhaeng = currentValue === '미발행';
-    } else {
-      // 단일 토큰(레거시·수동, 실데이터 99%)도 하이픈 itemKey 로 정규화해
-      // 체크박스를 올바르게 복원 (2026-09-06). 편집·저장 시 자연스럽게
-      // 하이픈 형식으로 점진 이행됨(대량 마이그레이션 없이).
-      //   계약금/중도금/잔금 → 일반-단계, N입금 → N입금-잔금, 카드결제 → 카드-잔금
-      //   혼합 → 특정 단계로 환원 불가 → 미체크(값은 미편집 시 보존)
-      const SINGLE_TOKEN_TO_KEYS = {
-        '계약금': ['발행-계약금'],
-        '중도금': ['발행-중도금'],
-        '잔금': ['발행-잔금'],
-        'N입금': ['N입금-잔금'],
-        '카드결제': ['카드-잔금'],
-      };
-      const items = currentValue.split(',').map(s => s.trim()).filter(Boolean);
-      items.forEach(item => {
-        if (item.includes('-')) {
-          // 레거시 '일반-단계' → '발행-단계' 정규화 (체크박스 itemKey 와 일치)
-          selectedItems[item.replace(/^일반-/, '발행-')] = true;
-        } else if (SINGLE_TOKEN_TO_KEYS[item]) {
-          SINGLE_TOKEN_TO_KEYS[item].forEach(k => { selectedItems[k] = true; });
-        }
-        // 그 외(혼합·미지 토큰) 무시 — 미체크
-      });
-    }
+    // (2026-09-07) 단계별 컬럼(source of truth)에서 복원 — Y는 요약값이라 per-stage 파싱 불가.
+    //   계약금/중도금/잔금 계산서 컬럼값(발행/N입금/카드)을 체크박스로 복원.
+    //   미발행/확인필요/공란 → 미체크.
+    const _p = this.currentProject || {};
+    BILL_STAGES.forEach((stage) => {
+      const tok = normalizeToken(_p[BILL_STAGE_COL[stage]]);
+      if (tok === '발행') selectedItems[`발행-${stage}`] = true;
+      else if (tok === 'N입금') selectedItems[`N입금-${stage}`] = true;
+      else if (tok === '카드') selectedItems[`카드-${stage}`] = true;
+    });
 
     // 표시할 텍스트
     const displayText = currentValue && currentValue !== '-' ? currentValue : '선택';
@@ -7342,71 +7325,32 @@ export default class ProjectRowAccordion {
   }
 
   updateBillStatusSelection(billStageCheckboxes, billSpecialCheckbox, selectedText, fieldName) {
-    // ── 단계별 컬럼(source of truth) 갱신 (2026-09-07) ──
-    // 체크된 카테고리를 각 단계 계산서 컬럼(Z/AA/AB)에 기록. 미발행/미선택 단계 → ''
-    // (렌더러가 금액 있으면 미발행 ⚠️ 처리). Y(계산서)는 아래에서 하위호환 롤업으로 유지.
+    // (2026-09-07) 단계별 컬럼(source of truth) 저장 + Y 요약 자동계산.
+    const _amt = (s) => AmountCalculator.safeParseCurrency(this.currentProject?.[s] || 0);
     const stageCat = { 계약금: '', 중도금: '', 잔금: '' };
     const mibalhaeng = !!(billSpecialCheckbox && billSpecialCheckbox.checked);
     if (!mibalhaeng) {
       billStageCheckboxes.forEach((cb) => {
-        if (cb.checked) stageCat[cb.value] = cb.dataset.category; // 일반/N입금/카드
+        if (cb.checked) stageCat[cb.value] = cb.dataset.category; // 발행/N입금/카드
       });
     }
-    if (this.editState && this.editState.isActive) {
-      Object.keys(BILL_STAGE_COL).forEach((stage) => {
-        this.editState.updateField(BILL_STAGE_COL[stage], stageCat[stage] || '');
-      });
-    }
-
-    // ── Y(계산서) 롤업 — 하위호환·필터용 ──
-    // 미발행 체크 여부 확인
-    if (billSpecialCheckbox && billSpecialCheckbox.checked) {
-      selectedText.textContent = '미발행';
-      logger.debug(`✅ [BillStatus] 선택: 미발행`);
-
-      // 🆕 EditState: 계산서 필드 업데이트 (fieldName 파라미터 사용)
-      if (this.editState && this.editState.isActive && fieldName) {
-        this.editState.updateField(fieldName, '미발행');
-        logger.debug(`[EditState] ${fieldName} 업데이트: 미발행`);
-      }
-      return;
-    }
-
-    // 선택된 항목 수집 (각 체크박스의 "카테고리-단계" 형식)
-    const selectedItems = [];
-    const categories = new Set();
-    billStageCheckboxes.forEach(cb => {
-      if (cb.checked) {
-        const category = cb.dataset.category;
-        const stage = cb.value;
-        selectedItems.push(`${category}-${stage}`);
-        categories.add(category);
-      }
+    // 단계별 상태: 체크됨→카테고리 / 미체크+입금있음→미발행 / 그 외→없음
+    const stages = {};
+    BILL_STAGES.forEach((s) => {
+      stages[s] = stageCat[s] ? stageCat[s] : (_amt(s) > 0 ? '미발행' : '');
     });
-
-    // 선택된 값 포맷팅: "카테고리-단계, 카테고리-단계"
-    // 편집 모드에서는 아이콘 없이 텍스트만 표시
-    if (selectedItems.length > 0) {
-      const displayText = selectedItems.join(', ');
-
-      // 편집 모드에서는 텍스트만 표시 (아이콘 제거)
-      selectedText.textContent = displayText;
-      logger.debug(`✅ [BillStatus] 선택: ${displayText}`);
-
-      // 🆕 EditState: 계산서 필드 업데이트 (fieldName 파라미터 사용)
-      if (this.editState && this.editState.isActive && fieldName) {
-        this.editState.updateField(fieldName, displayText);
-        logger.debug(`[EditState] ${fieldName} 업데이트:`, displayText);
-      }
-    } else {
-      selectedText.textContent = '선택';
-      logger.debug(`✅ [BillStatus] 선택 해제`);
-
-      // 🆕 EditState: 계산서 필드 업데이트 (빈 값, fieldName 파라미터 사용)
-      if (this.editState && this.editState.isActive && fieldName) {
-        this.editState.updateField(fieldName, '');
-        logger.debug(`[EditState] ${fieldName} 업데이트: (빈 값)`);
-      }
+    if (this.editState && this.editState.isActive) {
+      // 컬럼(Z/AA/AB) 저장 — 없음은 '-'
+      BILL_STAGES.forEach((s) => {
+        this.editState.updateField(BILL_STAGE_COL[s], stages[s] || '-');
+      });
+    }
+    // Y(계산서) = 프로젝트 단위 요약 자동계산 (미발행/발행중/발행완료/N입금/카드결제/확인필요/-)
+    const ySummary = computeYSummary(stages);
+    if (selectedText) selectedText.textContent = ySummary;
+    if (this.editState && this.editState.isActive && fieldName) {
+      this.editState.updateField(fieldName, ySummary);
+      logger.debug(`[EditState] ${fieldName}(요약) → ${ySummary}`);
     }
   }
 

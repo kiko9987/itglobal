@@ -109,7 +109,7 @@ export const BILL_STAGE_COL = {
   '잔금': '잔금 계산서',
 };
 
-function normalizeToken(t) {
+export function normalizeToken(t) {
   const s = String(t == null ? '' : t).trim();
   if (s === '' || s === '-') return '';   // 빈값·대시(-) = 없음
   if (s === '카드결제') return '카드';
@@ -151,4 +151,29 @@ export function rollupBillStages(stages) {
     if (v && v !== 'none' && v !== '미발행') parts.push(`${v}-${s}`);
   });
   return parts.length ? parts.join(', ') : '미발행';
+}
+
+/**
+ * 단계별 상태 → Y(계산서) 프로젝트 단위 요약 (2026-09-07).
+ * 값: 미발행 / 발행중 / 발행완료 / N입금 / 카드결제 / 확인필요 / '-'(입금없음)
+ *   우선순위: 미발행(⚠️) > 확인필요 > 완료도/방법.
+ *   - 미발행 단계 있음 → 미발행
+ *   - 확인필요(혼합) 있음 → 확인필요
+ *   - 처리된 단계 없음 → '-'
+ *   - 잔금까지 처리: 발행 있으면 발행완료 / 전부 카드 카드결제 / 전부 현금 N입금 / 그 외 확인필요
+ *   - 잔금 미처리(진행중) → 발행중
+ */
+export function computeYSummary(stages) {
+  const vals = BILL_STAGES.map((s) => normalizeToken(stages && stages[s]));
+  if (vals.includes('미발행')) return '미발행';
+  if (vals.includes('확인필요')) return '확인필요';
+  const handled = vals.filter((v) => v === '발행' || v === 'N입금' || v === '카드');
+  if (handled.length === 0) return '-';
+  const jangeum = normalizeToken(stages && stages['잔금']);
+  const jangeumDone = jangeum === '발행' || jangeum === 'N입금' || jangeum === '카드';
+  if (!jangeumDone) return '발행중';
+  if (handled.includes('발행')) return '발행완료';
+  if (handled.every((v) => v === '카드')) return '카드결제';
+  if (handled.every((v) => v === 'N입금')) return 'N입금';
+  return '확인필요';
 }

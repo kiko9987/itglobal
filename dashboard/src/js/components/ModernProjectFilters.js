@@ -673,10 +673,11 @@ export default class ModernProjectFilters {
                            collectedValue === '1';
         // 수금 날짜 입력 여부 (Z열)
         const hasPaymentDate = String(item['수금 날짜'] || '').trim() !== '';
-        // 세금계산서 발행 여부 (Y열 계산서) — '미발행'/공란만 미발행,
-        // 나머지(계약금/중도금/잔금/N입금/카드결제/혼합)는 발행완료로 간주.
+        // 계산서 처리완료 여부 (Y열 요약, 2026-09-07) — 완료 상태만 '처리됨'.
+        //   발행완료(세금계산서)·N입금(현금)·카드결제 = 처리 완료. 나머지(미발행/발행중/
+        //   확인필요/-)는 미완료 → 종결 안 됨(목록 유지).
         const billVal = String(item['계산서'] || '').trim();
-        const invoiceIssued = billVal !== '' && billVal !== '미발행';
+        const invoiceIssued = ['발행완료', 'N입금', '카드결제'].includes(billVal);
 
         if (this.filters.outstanding === 'collected') {
           // 수금 완료: 수금확인 체크박스가 체크된 경우만
