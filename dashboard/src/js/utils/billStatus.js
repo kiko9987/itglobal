@@ -109,6 +109,11 @@ export const BILL_STAGE_COL = {
   '잔금': '잔금 계산서',
 };
 
+// 수금 확인 체크 여부 (수금완료 확정 신호). TRUE/true/1 등 허용.
+export function isCollected(v) {
+  return v === true || v === 'TRUE' || v === 'true' || v === 1 || v === '1';
+}
+
 export function normalizeToken(t) {
   const s = String(t == null ? '' : t).trim();
   if (s === '' || s === '-') return '';   // 빈값·대시(-) = 없음
@@ -125,13 +130,13 @@ export function normalizeToken(t) {
  */
 export function computeBillStagesFromColumns(row) {
   const result = { 계약금: 'none', 중도금: 'none', 잔금: 'none' };
-  // 미수금>0(진행중)이면 미발행은 '발행예정'(정상 대기), 미수금0(수금완료)이면 '미발행'(⚠️ 요청 필요)
-  const pending = toNum(row && row['미수금']) > 0 ? '발행예정' : '미발행';
+  // 수금확인 체크(수금완료 확정)면 미발행은 '미발행'(⚠️ 요청 필요), 아니면(진행중) '발행예정'🕒
+  const uninvoiced = isCollected(row && row['수금 확인']) ? '미발행' : '발행예정';
   let anyCol = false;
   BILL_STAGES.forEach((s) => {
     const v = normalizeToken(row && row[BILL_STAGE_COL[s]]);
-    if (v) { result[s] = (v === '미발행') ? pending : v; anyCol = true; }
-    else if (toNum(row && row[s]) > 0) { result[s] = pending; }
+    if (v) { result[s] = (v === '미발행') ? uninvoiced : v; anyCol = true; }
+    else if (toNum(row && row[s]) > 0) { result[s] = uninvoiced; }
   });
   if (!anyCol) {
     const y = String((row && row['계산서']) == null ? '' : row['계산서']).trim();
@@ -165,8 +170,8 @@ export function rollupBillStages(stages) {
  *   - 잔금까지 처리: 발행 있으면 발행완료 / 전부 카드 카드결제 / 전부 현금 N입금 / 그 외 확인필요
  *   - 잔금 미처리(진행중) → 발행중
  */
-export function computeYSummary(stages, unpaid) {
-  const isPending = toNum(unpaid) > 0; // 미수금>0 = 진행중
+export function computeYSummary(stages, collected) {
+  const isPending = !collected; // 수금확인 미체크 = 진행중
   const vals = BILL_STAGES.map((s) => {
     const v = normalizeToken(stages && stages[s]);
     return (v === '미발행' && isPending) ? '발행예정' : v; // 진행중 미발행 → 발행예정

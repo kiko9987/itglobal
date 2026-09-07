@@ -18,7 +18,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, computeYSummary, computeInvoicedAmount, normalizeToken, BILL_STAGE_COL, BILL_STAGES } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, computeYSummary, computeInvoicedAmount, isCollected, normalizeToken, BILL_STAGE_COL, BILL_STAGES } from '../utils/billStatus.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -7357,7 +7357,7 @@ export default class ProjectRowAccordion {
       });
     }
     // Y(계산서) = 프로젝트 단위 요약 자동계산 (미발행/발행중/발행완료/N입금/카드결제/확인필요/-)
-    const ySummary = computeYSummary(stages, this.currentProject?.['미수금']);
+    const ySummary = computeYSummary(stages, isCollected(this.currentProject?.['수금 확인']));
     if (selectedText) selectedText.textContent = ySummary;
     if (this.editState && this.editState.isActive && fieldName) {
       this.editState.updateField(fieldName, ySummary);
