@@ -745,7 +745,7 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
         - success: (int, None)
         - failure: (None, JsonResponse with 409)
     """
-    current_version = current_values[VERSION_COL_INDEX]  # AP 컬럼 — _version
+    current_version = current_values[VERSION_COL_INDEX]  # AS 컬럼 — _version
 
     # 버전 값 정규화 (빈 문자열/None → '0')
     if not current_version or current_version == '':
@@ -973,13 +973,16 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
     )
 
-    # fresh_values를 40개 컬럼으로 패딩 (AN 컬럼까지, 마지막 열이 비어있을 경우 대비)
-    while len(fresh_values) < 40:
+    # fresh_values를 45개 컬럼(A:AS)으로 패딩 (마지막 열이 비어있을 경우 대비 —
+    #   폴더경로/공사확정/Airtable/Lead No/_version(AO~AS) 유실 방지. 2026-09-07 40→45)
+    while len(fresh_values) < 45:
         fresh_values.append('')
 
-    # [디버깅] fresh_values 내용 확인
+    # [디버깅] fresh_values 내용 확인 (인덱스는 field_to_index 파생 — 컬럼 시프트 자동 정정)
     logger.info(f"[PUT] fresh_values 길이: {len(fresh_values)}")
-    logger.info(f"[PUT] 수금 관련 필드 값들 - 중도금[U/20]:{fresh_values[20] if len(fresh_values) > 20 else 'N/A'}, 잔금[V/21]:{fresh_values[21] if len(fresh_values) > 21 else 'N/A'}, 총액2[S/18]:{fresh_values[18] if len(fresh_values) > 18 else 'N/A'}, 미수금[W/22]:{fresh_values[22] if len(fresh_values) > 22 else 'N/A'}, 마진율[AF/31]:{fresh_values[31] if len(fresh_values) > 31 else 'N/A'}")
+    _dbg = {f: (fresh_values[field_to_index[f]] if f in field_to_index and field_to_index[f] < len(fresh_values) else 'N/A')
+            for f in ('총액 2', '계약금', '중도금', '잔금', '미수금', '마진율', '수금 확인')}
+    logger.info(f"[PUT] 주요 필드값(파생): {_dbg}")
 
     # 업데이트된 행을 딕셔너리로 직접 변환
     updated_project = {}
@@ -2158,13 +2161,13 @@ def _prepare_project_defaults(data, row_number):
 # ===== 헬퍼 함수 5: 행 값 배열 구성 =====
 def _build_row_values(data, manager, row_number):
     """
-    데이터를 Google Sheets 행 배열로 변환 (41 컬럼 A~AO)
+    데이터를 Google Sheets 행 배열로 변환 (45 컬럼 A~AS)
 
     Args:
         row_number: Google Sheets에 삽입될 행 번호 (기본값 수식 생성용)
 
     Returns:
-        list: 42개 요소의 값 배열 (A~AP)
+        list: 45개 요소의 값 배열 (A~AS)
     """
     column_mapping = manager.get_column_mapping()
     values = [''] * 45  # AS 컬럼까지 (2026-09-07 Z/AA/AB 단계별계산서 3열 삽입: 42→45)

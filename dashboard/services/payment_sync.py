@@ -1667,7 +1667,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     if not service:
         return result
     try:
-        # 한 번에 A:AA 가져옴 (광폭 범위) — values만 가벼움
+        # 한 번에 A:AD 가져옴 (광폭 범위) — values만 가벼움 (수금확인 AD까지)
         resp = service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
             range=f"'{sheet_name}'!A2:AD10000",
@@ -2631,7 +2631,7 @@ def find_overdue_unpaid(days: int = 30) -> List[Dict]:
         # 수금 확인 체크 → 미수금 있어도 정리된 케이스
         if _to_bool(row[29]):
             continue
-        # 최종 입금일 — Z열(수금 날짜) 시리얼 → 날짜
+        # 최종 입금일 — AC열(수금 날짜, idx28) 시리얼 → 날짜
         z_val = row[28]
         last_date = None
         if isinstance(z_val, (int, float)) and z_val > 0:

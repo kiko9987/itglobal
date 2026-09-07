@@ -1967,7 +1967,7 @@ class GoogleSheetsManager:
         Returns:
             int: 업데이트된 셀 수
         """
-        range_name = f'{sheet_name}!A{row_number}:AM{row_number}'
+        range_name = f'{sheet_name}!A{row_number}:AS{row_number}'  # A:AS(45열) — AN~AS 잘림 방지 (2026-09-07 시프트)
         body = {'values': [row_values]}
 
         row_result = self._execute_with_retry(

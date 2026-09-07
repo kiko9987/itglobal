@@ -37,8 +37,10 @@ class TestCardSms:
         assert _is_card_payment('카드결제', p['partner']) is True
 
     def test_card_gate_requires_card_y(self):
-        """Y가 카드결제/혼합 아니면 브랜드여도 카드 아님 (게이트 유지)."""
-        assert _is_card_payment('잔금', '삼성 204108778') is False
+        """Y가 카드결제/혼합 아니고 ITG 승인번호도 아니면 카드 아님 (게이트 유지)."""
+        assert _is_card_payment('잔금', '홍길동') is False
+        # ITG 가맹점 승인번호(적요)면 Y 불문 카드 확정 (2026-09 _is_itg_card_deposit 도입)
+        assert _is_card_payment('잔금', '삼성 204108778') is True
 
 
 class TestBankTransferRegression:
