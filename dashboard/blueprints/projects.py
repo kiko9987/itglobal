@@ -2933,22 +2933,23 @@ def _prepare_cancel_updates(sheet_name, row_number):
     """공사 취소 배치 업데이트 준비
 
     Returns:
-        list: Batch update requests (AH: 수금 관련 특이사항, AA: 수금 확인, AM: 공사 확정)
+        list: Batch update requests (AK: 수금 관련 특이사항, AD: 수금 확인, AP: 공사 확정)
 
-    Note: 2026-07 컬럼 시프트 반영 (AG→AH, Z→AA, AL→AM).
-          옛 매핑은 마진율·수금 날짜·폴더 경로에 잘못 write하는 데이터 파괴 버그였음.
+    Note: 2026-09-07 컬럼 시프트 반영 (Z/AA/AB 3열 삽입: AH→AK, AA→AD, AM→AP).
+          하드코딩 레터라 시프트마다 재발 — 옛 매핑은 엉뚱한 열(기타비·중도금계산서·
+          중도금입금자명)에 write하는 데이터 파괴 버그. (근본책=get_column_mapping 파생, 별도 과제)
     """
     return [
         {
-            'range': f'{sheet_name}!AH{row_number}',  # AH: 수금 관련 특이사항
+            'range': f'{sheet_name}!AK{row_number}',  # AK: 수금 관련 특이사항
             'values': [['공사 취소']]
         },
         {
-            'range': f'{sheet_name}!AA{row_number}',  # AA: 수금 확인
+            'range': f'{sheet_name}!AD{row_number}',  # AD: 수금 확인
             'values': [['FALSE']]
         },
         {
-            'range': f'{sheet_name}!AM{row_number}',  # AM: 공사 확정
+            'range': f'{sheet_name}!AP{row_number}',  # AP: 공사 확정
             'values': [['']]
         }
     ]
@@ -2987,18 +2988,18 @@ def _prepare_resume_updates(sheet_name, row_number):
     """공사 재개 배치 업데이트 준비
 
     Returns:
-        list: Batch update requests (AH: '', AM: 현재 날짜)
+        list: Batch update requests (AK: '', AP: 현재 날짜)
 
-    Note: 2026-07 컬럼 시프트 반영 (AG→AH, AL→AM).
-          옛 매핑은 마진율에 빈 값을, 폴더 경로에 날짜를 잘못 write하는 데이터 파괴 버그였음.
+    Note: 2026-09-07 컬럼 시프트 반영 (Z/AA/AB 3열 삽입: AH→AK, AM→AP).
+          하드코딩 레터라 시프트마다 재발 (근본책=get_column_mapping 파생, 별도 과제).
     """
     return [
         {
-            'range': f'{sheet_name}!AH{row_number}',  # AH: 수금 관련 특이사항
+            'range': f'{sheet_name}!AK{row_number}',  # AK: 수금 관련 특이사항
             'values': [['']]
         },
         {
-            'range': f'{sheet_name}!AM{row_number}',  # AM: 공사 확정
+            'range': f'{sheet_name}!AP{row_number}',  # AP: 공사 확정
             'values': [[datetime.now().strftime('%Y-%m-%d')]]
         }
     ]

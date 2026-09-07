@@ -287,7 +287,7 @@ def _background_folder_resolve(sheet_id, sheet_name, admin_email, ip_address):
                 if folder_id != folder_path:
                     sheet_row = idx + 2
                     sheet_updates.append({
-                        'range': f'{sheet_name}!AL{sheet_row}',
+                        'range': f'{sheet_name}!AO{sheet_row}',  # AO: 폴더 경로 (2026-09-07 AL→AO)
                         'values': [[folder_id]]
                     })
 
