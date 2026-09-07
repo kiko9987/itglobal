@@ -11937,29 +11937,30 @@ def _bill_is_collected(v):
     return v is True or v in ('TRUE', 'true', 1, '1')
 
 
-def _bill_y_summary(stage_vals, collected):
-    """단계별 값 → Y(계산서) 요약 (billStatus.js computeYSummary 미러)."""
-    pending = not collected
-    vals = []
-    for s in _BILL_STAGES:
-        v = _bill_norm_token(stage_vals.get(s))
-        vals.append('발행예정' if (v == '미발행' and pending) else v)
-    if '미발행' in vals:
-        return '미발행'
-    if '확인필요' in vals:
-        return '확인필요'
-    handled = [v for v in vals if v in ('발행', 'N입금', '카드')]
-    haspend = '발행예정' in vals
-    if not handled and not haspend:
+def _bill_y_summary(stage_vals, amt):
+    """단계별 값 → Y "{마지막 입금단계} - {상태}" (billStatus.js computeYSummary 미러, 2026-09-07).
+
+    stage_vals: {단계: 계산서토큰}, amt: {단계: 입금금액}. 앵커=금액>0 마지막 단계.
+    상태: 미발행 / 발행완료 / N입금 / 카드결제 / 혼합. 입금 없으면 '-'. ('발행중' 폐기)
+    """
+    paid = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0]
+    if not paid:
         return '-'
-    if '발행' in vals or haspend:
-        # 발행완료 = 진행중(발행예정) 단계 없음. 잔금 유무 무관 (전액 계약금 등 오판 fix).
-        return '발행중' if haspend else '발행완료'
-    if all(v == '카드' for v in handled):
-        return '카드결제'
-    if all(v == 'N입금' for v in handled):
-        return 'N입금'
-    return '확인필요'
+    anchor = paid[-1]
+    vals = {s: _bill_norm_token(stage_vals.get(s)) for s in _BILL_STAGES}
+    if any(vals[s] in ('', '미발행') for s in paid):
+        status = '미발행'
+    elif any(vals[s] == '확인필요' for s in paid):
+        status = '혼합'
+    elif any(vals[s] == '발행' for s in paid):
+        status = '발행완료'
+    elif all(vals[s] == '카드' for s in paid):
+        status = '카드결제'
+    elif all(vals[s] == 'N입금' for s in paid):
+        status = 'N입금'
+    else:
+        status = '혼합'
+    return f'{anchor} - {status}'
 
 
 def _build_invoice_stage_block(code):
@@ -12062,7 +12063,7 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
         col_y = f2l.get('계산서')
         if col_y:
             manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
-                                      _bill_y_summary(cur, collected))
+                                      _bill_y_summary(cur, amt))
         # 프로젝트 데이터 캐시 무효화 (Z/AA/AB·Y 변경 반영)
         try:
             from dashboard.utils.smart_cache_manager import (

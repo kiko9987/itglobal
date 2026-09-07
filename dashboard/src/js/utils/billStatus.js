@@ -114,6 +114,16 @@ export function isCollected(v) {
   return v === true || v === 'TRUE' || v === 'true' || v === 1 || v === '1';
 }
 
+// 수금완료 자동 판정: 미수금≈0 (총액2>0 & 입금>0 가드) 또는 수금확인 체크(보조).
+//   매니저가 수금확인·계산서요청을 깜빡해도 시스템이 "다 받았음"을 스스로 인식 (2026-09-07).
+export function isFullyCollected(row) {
+  const total2 = toNum(row && row['총액 2']);
+  const paidSum = BILL_STAGES.reduce((a, s) => a + toNum(row && row[s]), 0);
+  const unpaid = toNum(row && row['미수금']);
+  const auto = total2 > 0 && paidSum > 0 && Math.abs(unpaid) < 1;
+  return auto || isCollected(row && row['수금 확인']);
+}
+
 export function normalizeToken(t) {
   const s = String(t == null ? '' : t).trim();
   if (s === '' || s === '-') return '';   // 빈값·대시(-) = 없음
@@ -130,8 +140,8 @@ export function normalizeToken(t) {
  */
 export function computeBillStagesFromColumns(row) {
   const result = { 계약금: 'none', 중도금: 'none', 잔금: 'none' };
-  // 수금확인 체크(수금완료 확정)면 미발행은 '미발행'(⚠️ 요청 필요), 아니면(진행중) '발행예정'🕒
-  const uninvoiced = isCollected(row && row['수금 확인']) ? '미발행' : '발행예정';
+  // 수금완료(미수금0 자동 or 수금확인)면 미발행='미발행'(⚠️ 요청 필요), 진행중이면 '발행예정'🕒(조용)
+  const uninvoiced = isFullyCollected(row) ? '미발행' : '발행예정';
   let anyCol = false;
   BILL_STAGES.forEach((s) => {
     const raw = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
@@ -163,35 +173,34 @@ export function rollupBillStages(stages) {
 }
 
 /**
- * 단계별 상태 → Y(계산서) 프로젝트 단위 요약 (2026-09-07).
- * 값: 미발행 / 발행중 / 발행완료 / N입금 / 카드결제 / 확인필요 / '-'(입금없음)
- *   우선순위: 미발행(⚠️) > 확인필요 > 완료도/방법.
- *   - 미발행 단계 있음 → 미발행
- *   - 확인필요(혼합) 있음 → 확인필요
- *   - 처리된 단계 없음 → '-'
- *   - 잔금까지 처리: 발행 있으면 발행완료 / 전부 카드 카드결제 / 전부 현금 N입금 / 그 외 확인필요
- *   - 잔금 미처리(진행중) → 발행중
+ * 단계별 상태 → Y(계산서) 요약 "{마지막 입금단계} - {상태}" (2026-09-07 개편).
+ *   Y = 진행도 요약(어디까지 왔나). 상세는 3열(Z/AA/AB)에. '발행중' 폐기.
+ *   앵커 = 금액 입금된 마지막 단계(계약금<중도금<잔금).
+ *   상태: 미발행 / 발행완료 / N입금 / 카드결제 / 혼합.  입금 없으면 '-'.
+ *     - 입금됐는데 미발행(계산서 없음) 단계 있음 → 미발행 (⚠️ 여부는 아이콘=수금완료 기준)
+ *     - 확인필요/현금+카드 섞임 → 혼합
+ *     - 발행 있음(그 외 방법도 처리됨) → 발행완료
+ *     - 전부 카드 → 카드결제 / 전부 현금 → N입금
+ * @param {object} stages - {계약금,중도금,잔금} 단계별 계산서 토큰
+ * @param {object} row - 프로젝트 레코드(단계 금액 U/V/W 참조용)
  */
-export function computeYSummary(stages, collected) {
-  const isPending = !collected; // 수금확인 미체크 = 진행중
-  const vals = BILL_STAGES.map((s) => {
-    const v = normalizeToken(stages && stages[s]);
-    return (v === '미발행' && isPending) ? '발행예정' : v; // 진행중 미발행 → 발행예정
-  });
-  if (vals.includes('미발행')) return '미발행';   // 수금완료 미발행만 남음 (요청 필요)
-  if (vals.includes('확인필요')) return '확인필요';
-  const handled = vals.filter((v) => v === '발행' || v === 'N입금' || v === '카드');
-  const hasPending = vals.includes('발행예정');
-  if (handled.length === 0 && !hasPending) return '-';
-  // 발행(세금계산서)이 있거나 발행예정이면 발행중/발행완료. 순수 현금/카드는 방법 라벨.
-  // 발행완료 = 진행중(발행예정) 단계 없음 = 금액 있는 모든 단계 처리됨(미발행·발행예정 없음).
-  //   잔금 유무로 판정하면 전액 계약금 등 잔금 금액 없는 건이 발행중으로 오판(2026-09-07 G3721-YG).
-  if (vals.includes('발행') || hasPending) {
-    return hasPending ? '발행중' : '발행완료';
-  }
-  if (handled.every((v) => v === '카드')) return '카드결제';
-  if (handled.every((v) => v === 'N입금')) return 'N입금';
-  return '확인필요'; // 발행 없이 카드+현금 혼재
+export function computeYSummary(stages, row) {
+  const amt = {};
+  BILL_STAGES.forEach((s) => { amt[s] = toNum(row && row[s]); });
+  const paid = BILL_STAGES.filter((s) => amt[s] > 0);
+  if (!paid.length) return '-'; // 입금 없음
+  const anchor = paid[paid.length - 1]; // 마지막 입금 단계
+  const vals = {};
+  BILL_STAGES.forEach((s) => { vals[s] = normalizeToken(stages && stages[s]); });
+  const isUninv = (s) => vals[s] === '' || vals[s] === '미발행'; // 금액 있는데 계산서 없음
+  let status;
+  if (paid.some(isUninv)) status = '미발행';
+  else if (paid.some((s) => vals[s] === '확인필요')) status = '혼합';
+  else if (paid.some((s) => vals[s] === '발행')) status = '발행완료';
+  else if (paid.every((s) => vals[s] === '카드')) status = '카드결제';
+  else if (paid.every((s) => vals[s] === 'N입금')) status = 'N입금';
+  else status = '혼합'; // 현금+카드 혼재
+  return `${anchor} - ${status}`;
 }
 
 /**

@@ -627,11 +627,11 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 세금계산서 필터 (시트 Y열 = '계산서' 필드)
+    // 세금계산서 필터 (시트 Y열 = '계산서' 필드). Y="{단계} - {상태}"라 상태 부분으로 매칭.
     if (this.filters.invoice) {
       filteredData = filteredData.filter(item => {
-        const invoice = String(item['계산서'] || '').trim();
-        return invoice === this.filters.invoice;
+        const invoiceStatus = String(item['계산서'] || '').trim().split(' - ').pop().trim();
+        return invoiceStatus === this.filters.invoice;
       });
     }
 
@@ -676,8 +676,9 @@ export default class ModernProjectFilters {
         // 계산서 처리완료 여부 (Y열 요약, 2026-09-07) — 완료 상태만 '처리됨'.
         //   발행완료(세금계산서)·N입금(현금)·카드결제 = 처리 완료. 나머지(미발행/발행중/
         //   확인필요/-)는 미완료 → 종결 안 됨(목록 유지).
-        const billVal = String(item['계산서'] || '').trim();
-        const invoiceIssued = ['발행완료', 'N입금', '카드결제'].includes(billVal);
+        // Y = "{단계} - {상태}" (2026-09-07) → 상태 부분만 추출해 판정
+        const billStatus = String(item['계산서'] || '').trim().split(' - ').pop().trim();
+        const invoiceIssued = ['발행완료', 'N입금', '카드결제'].includes(billStatus);
 
         if (this.filters.outstanding === 'collected') {
           // 수금 완료: 수금확인 체크박스가 체크된 경우만
@@ -1008,10 +1009,11 @@ export default class ModernProjectFilters {
   populateInvoiceFilter(data) {
     if (!this.invoiceFilter || !data || !Array.isArray(data)) return;
 
+    // Y="{단계} - {상태}"라 상태 부분만 옵션으로 (발행완료/미발행/N입금/카드결제/혼합).
     const invoiceSet = new Set();
     data.forEach(item => {
-      const v = String(item['계산서'] || '').trim();
-      if (v) invoiceSet.add(v);
+      const status = String(item['계산서'] || '').trim().split(' - ').pop().trim();
+      if (status && status !== '-') invoiceSet.add(status);
     });
 
     // 기존 옵션 제거 (첫 '전체' 유지)

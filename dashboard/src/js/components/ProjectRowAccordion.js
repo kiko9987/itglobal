@@ -18,7 +18,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, computeYSummary, computeInvoicedAmount, isCollected, normalizeToken, BILL_STAGE_COL, BILL_STAGES } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES } from '../utils/billStatus.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -959,10 +959,6 @@ export default class ProjectRowAccordion {
 
     // 계산서 단계별 상태 (금액 결합: 입금됐는데 미발행이면 ⚠️)
     const billStages = computeBillStagesFromColumns(rowData);
-    // 계산서 발행 금액 요약 (발행 단계 금액 합 / 총액)
-    const _invoicedAmt = computeInvoicedAmount(rowData);
-    const _totalAmt = AmountCalculator.safeParseCurrency(rowData['총액 2'] || rowData['총액2'] || rowData['총액'] || 0);
-    const _invoicedPct = _totalAmt > 0 ? Math.round((_invoicedAmt / _totalAmt) * 100) : 0;
 
     // 메모 버튼 HTML 생성 (FieldMemoButton이 초기화되어 있을 때만)
     // UX 개선: 아코디언 내부에서는 항상 메모 버튼 표시 (금액 입력 중일 수 있음)
@@ -1043,12 +1039,6 @@ export default class ProjectRowAccordion {
           <div class="card-edit-buttons">
             ${this.generateEditButtons(projectCode, 'collection')}
           </div>
-        </div>
-        <div style="font-size:0.82rem; color:#555; margin:-8px 0 10px; padding:4px 8px; background:#f8f9fa; border-radius:4px;">
-          <i class="fas fa-receipt text-primary"></i> 계산서 발행
-          <b style="color:#0f5132;">${this.formatCurrency(_invoicedAmt)}</b>
-          / 총 ${this.formatCurrency(_totalAmt)}
-          <span style="font-weight:600; color:${_invoicedPct >= 100 ? '#0f5132' : '#842029'};">(${_invoicedPct}%)</span>
         </div>
         <div class="card-grid">
           <div class="compact-item">
@@ -7356,8 +7346,8 @@ export default class ProjectRowAccordion {
         this.editState.updateField(BILL_STAGE_COL[s], stages[s] || '-');
       });
     }
-    // Y(계산서) = 프로젝트 단위 요약 자동계산 (미발행/발행중/발행완료/N입금/카드결제/확인필요/-)
-    const ySummary = computeYSummary(stages, isCollected(this.currentProject?.['수금 확인']));
+    // Y(계산서) = "{마지막 입금단계} - {상태}" 자동계산. 앵커·상태에 단계 금액 필요 → currentProject 전달.
+    const ySummary = computeYSummary(stages, this.currentProject);
     if (selectedText) selectedText.textContent = ySummary;
     if (this.editState && this.editState.isActive && fieldName) {
       this.editState.updateField(fieldName, ySummary);
