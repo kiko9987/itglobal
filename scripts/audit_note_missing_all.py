@@ -37,7 +37,7 @@ def main() -> int:
 
     resp = svc.spreadsheets().values().get(
         spreadsheetId=sheet_id,
-        range=f"'{sheet_name}'!A2:AA10000",
+        range=f"'{sheet_name}'!A2:AD10000",
         valueRenderOption='UNFORMATTED_VALUE',
     ).execute()
     rows = resp.get('values', [])
@@ -45,8 +45,9 @@ def main() -> int:
     def col(c):
         return ord(c) - ord('A')
 
+    # 수금확인 = AD(=29). 2026-09-07 Z/AA/AB(단계별 계산서) 3열 삽입으로 옛 AA(26)→AD(29).
     IDX_A, IDX_F, IDX_U, IDX_V, IDX_W, IDX_AA = (
-        col('A'), col('F'), col('U'), col('V'), col('W'), 26,
+        col('A'), col('F'), col('U'), col('V'), col('W'), 29,
     )
 
     # 노트 batch fetch

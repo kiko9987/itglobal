@@ -56,7 +56,7 @@ def main() -> int:
 
     resp = svc.spreadsheets().values().get(
         spreadsheetId=sheet_id,
-        range=f"'{sheet_name}'!A2:AA10000",
+        range=f"'{sheet_name}'!A2:AD10000",
         valueRenderOption='UNFORMATTED_VALUE',
     ).execute()
     rows = resp.get('values', [])
@@ -74,7 +74,7 @@ def main() -> int:
     IDX_U = col_idx('U')
     IDX_V = col_idx('V')
     IDX_W = col_idx('W')
-    IDX_AA = col_idx('AA')
+    IDX_AA = col_idx('AD')   # 수금확인 (2026-09-07 Z/AA/AB 삽입으로 AA→AD)
 
     rc = get_redis_client().redis
 

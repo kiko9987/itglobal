@@ -68,7 +68,7 @@ def main() -> int:
     # 시트 전체 fetch (row 찾기 위해)
     resp = svc.spreadsheets().values().get(
         spreadsheetId=sheet_id,
-        range=f"'{sheet_name}'!A2:AA10000",
+        range=f"'{sheet_name}'!A2:AD10000",
         valueRenderOption='UNFORMATTED_VALUE',
     ).execute()
     rows = resp.get('values', [])
@@ -78,7 +78,7 @@ def main() -> int:
             return ord(c) - ord('A')
         return (ord(c[0]) - ord('A') + 1) * 26 + (ord(c[1]) - ord('A'))
     IDX = {c: col_idx(c) for c in 'AFLRTUVWXY'}
-    IDX_AA = col_idx('AA')
+    IDX_AA = col_idx('AD')   # 수금확인 (2026-09-07 Z/AA/AB 삽입으로 AA→AD)
 
     for code, target_stage in TARGETS:
         # row 찾기
