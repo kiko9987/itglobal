@@ -125,11 +125,13 @@ export function normalizeToken(t) {
  */
 export function computeBillStagesFromColumns(row) {
   const result = { 계약금: 'none', 중도금: 'none', 잔금: 'none' };
+  // 미수금>0(진행중)이면 미발행은 '발행예정'(정상 대기), 미수금0(수금완료)이면 '미발행'(⚠️ 요청 필요)
+  const pending = toNum(row && row['미수금']) > 0 ? '발행예정' : '미발행';
   let anyCol = false;
   BILL_STAGES.forEach((s) => {
     const v = normalizeToken(row && row[BILL_STAGE_COL[s]]);
-    if (v) { result[s] = v; anyCol = true; }
-    else if (toNum(row && row[s]) > 0) { result[s] = '미발행'; }
+    if (v) { result[s] = (v === '미발행') ? pending : v; anyCol = true; }
+    else if (toNum(row && row[s]) > 0) { result[s] = pending; }
   });
   if (!anyCol) {
     const y = String((row && row['계산서']) == null ? '' : row['계산서']).trim();
@@ -163,14 +165,19 @@ export function rollupBillStages(stages) {
  *   - 잔금까지 처리: 발행 있으면 발행완료 / 전부 카드 카드결제 / 전부 현금 N입금 / 그 외 확인필요
  *   - 잔금 미처리(진행중) → 발행중
  */
-export function computeYSummary(stages) {
-  const vals = BILL_STAGES.map((s) => normalizeToken(stages && stages[s]));
-  if (vals.includes('미발행')) return '미발행';
+export function computeYSummary(stages, unpaid) {
+  const isPending = toNum(unpaid) > 0; // 미수금>0 = 진행중
+  const vals = BILL_STAGES.map((s) => {
+    const v = normalizeToken(stages && stages[s]);
+    return (v === '미발행' && isPending) ? '발행예정' : v; // 진행중 미발행 → 발행예정
+  });
+  if (vals.includes('미발행')) return '미발행';   // 수금완료 미발행만 남음 (요청 필요)
   if (vals.includes('확인필요')) return '확인필요';
   const handled = vals.filter((v) => v === '발행' || v === 'N입금' || v === '카드');
-  if (handled.length === 0) return '-';
-  // 발행(세금계산서)이 있을 때만 발행중/발행완료. 순수 현금/카드는 발행 개념이 없으니 방법 라벨.
-  if (vals.includes('발행')) {
+  const hasPending = vals.includes('발행예정');
+  if (handled.length === 0 && !hasPending) return '-';
+  // 발행(세금계산서)이 있거나 발행예정이면 발행중/발행완료. 순수 현금/카드는 방법 라벨.
+  if (vals.includes('발행') || hasPending) {
     const jangeum = normalizeToken(stages && stages['잔금']);
     const jangeumDone = jangeum === '발행' || jangeum === 'N입금' || jangeum === '카드';
     return jangeumDone ? '발행완료' : '발행중';
@@ -178,4 +185,16 @@ export function computeYSummary(stages) {
   if (handled.every((v) => v === '카드')) return '카드결제';
   if (handled.every((v) => v === 'N입금')) return 'N입금';
   return '확인필요'; // 발행 없이 카드+현금 혼재
+}
+
+/**
+ * 세금계산서 발행 금액 = '발행' 단계의 결제금액 합 (현금/카드는 세금계산서 아니라 제외).
+ * @returns {number}
+ */
+export function computeInvoicedAmount(row) {
+  let sum = 0;
+  BILL_STAGES.forEach((s) => {
+    if (normalizeToken(row && row[BILL_STAGE_COL[s]]) === '발행') sum += toNum(row && row[s]);
+  });
+  return sum;
 }
