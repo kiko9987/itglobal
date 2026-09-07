@@ -11984,10 +11984,12 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
     입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
     셀 노트(Y열 메모 포함) 보존. 단계 정보 없으면(구요청) skip.
 
-    **전체발행 판정**: 요청 금액(invoice_amt)이 시트 총액2(T)와 같으면 = 한 장으로 전체 발행.
-      → 선택 단계='발행', 나머지 미발행/blank 단계(금액>0)는 '-'(전체발행에 포함, covered).
+    **전체발행 판정**: 요청 금액(invoice_amt)이 총액1(공급가) 또는 총액2(합계)와 같으면
+      = 한 장으로 전체 발행 → 선택 단계='발행', 나머지 미발행/blank 단계(금액>0)는
+      '-'(전체발행에 포함, covered). VAT 별도면 모달이 공급가(총액1)로 프리필되므로 총액2만
+      비교하면 안 맞음 → 두 기준 다 허용.
     금액이 다르면(부분 발행) 선택 단계만 '발행'. 현금(N입금)·카드·이미발행은 절대 안 건드림.
-    (계약금 선입금+잔금 한장 1100만=총액2 발행 시 계약금 ⚠️ 자동 해소 + 발행액 100%.)
+    (계약금 선입금+잔금 한장 전체 발행 시 계약금 ⚠️ 자동 해소 + 발행액 100%.)
     """
     code = str(code or '').strip()
     if not code or code == '-':
@@ -12025,11 +12027,18 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
         collected = _bill_is_collected(
             manager.get_cell_value(sheet_id, sheet_name, f"{col_collect}{row}")
             if col_collect else '')
-        col_total2 = f2l.get('총액 2')
+        col_total1 = f2l.get('총액 1')   # 공급가 (모달 기본 프리필값)
+        col_total2 = f2l.get('총액 2')   # 부가세 포함 합계
+        total1 = _bill_to_num(
+            manager.get_cell_value(sheet_id, sheet_name, f"{col_total1}{row}")) if col_total1 else 0
         total2 = _bill_to_num(
             manager.get_cell_value(sheet_id, sheet_name, f"{col_total2}{row}")) if col_total2 else 0
-        # 전체발행 = 요청 금액이 총액2와 일치 (원 단위 반올림 비교)
-        full = total2 > 0 and inv_amt > 0 and round(inv_amt) == round(total2)
+        # 전체발행 = 요청 금액이 총액1(공급가) 또는 총액2(합계)와 일치.
+        #   VAT 별도면 모달이 총액1(공급가)로 프리필 → 총액2와 안 맞음. 두 기준 다 허용해
+        #   요청자가 공급가로 넣든 합계로 넣든 전체발행 인식(부가세 별도 케이스 버그 fix).
+        full = inv_amt > 0 and (
+            (total1 > 0 and round(inv_amt) == round(total1))
+            or (total2 > 0 and round(inv_amt) == round(total2)))
         wrote = []
         for s in _BILL_STAGES:
             if not cols[s]:
