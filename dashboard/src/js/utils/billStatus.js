@@ -134,8 +134,10 @@ export function computeBillStagesFromColumns(row) {
   const uninvoiced = isCollected(row && row['수금 확인']) ? '미발행' : '발행예정';
   let anyCol = false;
   BILL_STAGES.forEach((s) => {
-    const v = normalizeToken(row && row[BILL_STAGE_COL[s]]);
+    const raw = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
+    const v = normalizeToken(raw);
     if (v) { result[s] = (v === '미발행') ? uninvoiced : v; anyCol = true; }
+    else if (raw === '-') { anyCol = true; /* 명시적 '-' = 계산서 불필요/전체발행 포함(covered) → none, ⚠️ 아님 */ }
     else if (toNum(row && row[s]) > 0) { result[s] = uninvoiced; }
   });
   if (!anyCol) {
@@ -199,7 +201,11 @@ export function computeYSummary(stages, collected) {
 export function computeInvoicedAmount(row) {
   let sum = 0;
   BILL_STAGES.forEach((s) => {
-    if (normalizeToken(row && row[BILL_STAGE_COL[s]]) === '발행') sum += toNum(row && row[s]);
+    const raw = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
+    const amt = toNum(row && row[s]);
+    // '발행' = 이 단계 세금계산서 발행. '-'+금액 = 전체발행(총액2 요청)에 포함된 단계(covered).
+    // 현금(N입금)·카드는 세금계산서 아니라 제외.
+    if (normalizeToken(raw) === '발행' || (raw === '-' && amt > 0)) sum += amt;
   });
   return sum;
 }

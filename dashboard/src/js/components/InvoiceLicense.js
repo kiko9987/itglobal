@@ -279,7 +279,7 @@ export default class InvoiceLicense {
       const disabled = anyAmt && x.amt <= 0; // 금액 없는 단계 비활성 (금액 전무면 3단계 허용)
       const amtTxt = x.amt > 0 ? ` (${x.amt.toLocaleString('ko-KR')})` : '';
       const issuedTxt = x.issued ? ' · 발행됨' : '';
-      return `<option value="${x.s}" ${x.s === defaultStage ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${x.s}까지${amtTxt}${issuedTxt}</option>`;
+      return `<option value="${x.s}" ${x.s === defaultStage ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${x.s}${amtTxt}${issuedTxt}</option>`;
     }).join('');
 
     const body = `
@@ -298,7 +298,7 @@ export default class InvoiceLicense {
       </div>
       <div class="mb-2"><label class="form-label">이메일 <span class="text-muted small">(계산서 수신)</span></label>
         <input id="ilEmail" type="text" class="form-control" value="${esc(email)}" placeholder="example@company.com"></div>
-      <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(선택 단계까지 '발행' 기록)</span></label>
+      <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(금액=총액이면 나머지 자동 '-')</span></label>
         <select id="ilStage" class="form-select">${stageOptions}</select></div>
       <div class="mb-1"><label class="form-label">요청사항 <span class="text-muted small">(선택)</span></label>
         <textarea id="ilMemo" class="form-control" rows="2" placeholder="수정발행·특이사항 등"></textarea></div>

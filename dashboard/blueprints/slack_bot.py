@@ -3211,8 +3211,10 @@ def _register_invoice_handlers(app):
             try:
                 done = _auto_complete_invoice_card(client, channel, thread_ts, event, meta)
                 # 첨부 완료 → 시트 해당 단계 계산서='발행' 자동기록 (⚠️ 미발행 자동 해소)
+                # 요청 금액(meta['amt'])==총액2면 나머지 단계 '-'(전체발행 covered) 처리
                 if done:
-                    _mark_invoice_issued_in_sheet(meta.get('code'), meta.get('stages'))
+                    _mark_invoice_issued_in_sheet(
+                        meta.get('code'), meta.get('stages'), meta.get('amt'))
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -11987,9 +11989,9 @@ def _build_invoice_stage_block(code):
     initial = next((o for o in opts if o["value"] == default), opts[-1])
     return {
         "type": "input", "block_id": "stages",
-        "label": {"type": "plain_text", "text": "계산서 발행 단계 (선택 단계까지 발행)"},
+        "label": {"type": "plain_text", "text": "계산서 발행 단계"},
         "hint": {"type": "plain_text",
-                 "text": "첨부되면 선택 단계까지 시트에 '발행'으로 기록됩니다 (앞 단계 현금·카드는 유지)."},
+                 "text": "이 계산서가 귀속될 단계. 요청 금액이 총액과 같으면 나머지 단계는 자동 '-' 처리됩니다."},
         "element": {
             "type": "static_select", "action_id": "value",
             "options": opts, "initial_option": initial,
@@ -11997,15 +11999,16 @@ def _build_invoice_stage_block(code):
     }
 
 
-def _mark_invoice_issued_in_sheet(code, stages_csv):
-    """계산서 첨부 완료 → 해당 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
+def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
+    """계산서 첨부 완료 → 선택 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
 
     입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
     셀 노트(Y열 메모 포함) 보존. 단계 정보 없으면(구요청) skip.
 
-    **누적 발행**: stages_csv 의 최상위 단계까지(계약금→선택단계) 금액 있는 미발행 단계를
-    모두 '발행' 처리. 이미 발행/현금(N입금)/카드/확인필요인 앞 단계는 유지(덮지 않음),
-    금액 없는 단계는 skip. (계약금 선입금+잔금 한장 발행 시 계약금 ⚠️ 자동 해소용.)
+    **전체발행 판정**: 요청 금액(invoice_amt)이 시트 총액2(T)와 같으면 = 한 장으로 전체 발행.
+      → 선택 단계='발행', 나머지 미발행/blank 단계(금액>0)는 '-'(전체발행에 포함, covered).
+    금액이 다르면(부분 발행) 선택 단계만 '발행'. 현금(N입금)·카드·이미발행은 절대 안 건드림.
+    (계약금 선입금+잔금 한장 1100만=총액2 발행 시 계약금 ⚠️ 자동 해소 + 발행액 100%.)
     """
     code = str(code or '').strip()
     if not code or code == '-':
@@ -12015,7 +12018,8 @@ def _mark_invoice_issued_in_sheet(code, stages_csv):
     if not sel:
         logger.info(f"[SLACK/계산서] 단계 정보 없음 → 시트 자동기록 skip ({code})")
         return
-    target_idx = max(_BILL_STAGES.index(s) for s in sel)  # 누적 상한
+    selected = sel[-1]  # 단일 선택(발행 귀속 단계)
+    inv_amt = _bill_to_num(invoice_amt)
     try:
         from dashboard.services.lead_service import get_sheets_manager
         sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
@@ -12030,7 +12034,7 @@ def _mark_invoice_issued_in_sheet(code, stages_csv):
             return
         f2l = manager.get_field_to_letter()
         cols = {s: f2l.get(f'{s} 계산서') for s in _BILL_STAGES}
-        # 현재 3단계 값·금액(U/V/W) + 수금확인 선독 (누적 판정·Y 재계산용)
+        # 현재 3단계 값·금액(U/V/W) + 수금확인 + 총액2 선독
         cur, amt = {}, {}
         for s in _BILL_STAGES:
             c = cols[s]
@@ -12042,19 +12046,29 @@ def _mark_invoice_issued_in_sheet(code, stages_csv):
         collected = _bill_is_collected(
             manager.get_cell_value(sheet_id, sheet_name, f"{col_collect}{row}")
             if col_collect else '')
+        col_total2 = f2l.get('총액 2')
+        total2 = _bill_to_num(
+            manager.get_cell_value(sheet_id, sheet_name, f"{col_total2}{row}")) if col_total2 else 0
+        # 전체발행 = 요청 금액이 총액2와 일치 (원 단위 반올림 비교)
+        full = total2 > 0 and inv_amt > 0 and round(inv_amt) == round(total2)
         wrote = []
-        for i, s in enumerate(_BILL_STAGES):
-            if i > target_idx:               # 누적 상한 초과 — 이후 단계는 미발행 유지
-                break
-            if not cols[s] or amt[s] <= 0:   # 금액 없는 단계는 계산서 불필요
+        for s in _BILL_STAGES:
+            if not cols[s]:
                 continue
-            if _bill_norm_token(cur[s]) in ('발행', 'N입금', '카드', '확인필요'):
-                continue                     # 이미 발행/현금/카드/확인필요 — 유지(덮지 않음)
-            if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '발행'):
-                cur[s] = '발행'
-                wrote.append(s)
+            tok = _bill_norm_token(cur[s])
+            if s == selected:
+                if tok in ('발행', 'N입금', '카드'):   # 이미 처리 — 유지
+                    continue
+                if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '발행'):
+                    cur[s] = '발행'
+                    wrote.append(s)
+            elif full and amt[s] > 0 and cur[s] != '-' and tok in ('', '미발행'):
+                # 전체발행 → 나머지 금액 있는 미발행/blank 단계를 '-'(covered). 현금/카드/발행 유지.
+                if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '-'):
+                    cur[s] = '-'
+                    wrote.append(f'{s}(-)')
         if not wrote:
-            logger.info(f"[SLACK/계산서] 자동기록 — 신규 발행 단계 없음 ({code} ~{_BILL_STAGES[target_idx]})")
+            logger.info(f"[SLACK/계산서] 자동기록 — 변경 없음 ({code} {selected} full={full})")
             return
         # Y(계산서) 요약 재계산 후 기록 (values.update → 셀 노트 보존)
         col_y = f2l.get('계산서')
@@ -12565,7 +12579,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
         f"✉️ 이메일 : {email}",
     ]
     if stages_csv:
-        lines.append(f"📑 발행 단계 : {stages_list[-1]}까지")
+        lines.append(f"📑 발행 단계 : {stages_list[-1]}")
     if memo:
         lines.append(f"📝 요청사항 : {memo}")
     lines.append(f"👤 요청자 : {initial}  {now_str}")
