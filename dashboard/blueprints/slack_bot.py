@@ -3209,7 +3209,10 @@ def _register_invoice_handlers(app):
 
         def _bg():
             try:
-                _auto_complete_invoice_card(client, channel, thread_ts, event, meta)
+                done = _auto_complete_invoice_card(client, channel, thread_ts, event, meta)
+                # 첨부 완료 → 시트 해당 단계 계산서='발행' 자동기록 (⚠️ 미발행 자동 해소)
+                if done:
+                    _mark_invoice_issued_in_sheet(meta.get('code'), meta.get('stages'))
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -11899,6 +11902,180 @@ def _partner_status_warn(biz: str) -> str:
             f"발행 전 사업자번호·최신 등록증 확인 필요.")
 
 
+# ─────────────────────────────────────────────────────────────
+# 계산서 단계(계약금/중도금/잔금) — 요청에 단계를 심고, 첨부 완료 시 시트에 '발행' 자동기록.
+#   입금 SMS 흐름(문자→슬랙→단계 지정→시트 U/V/W)과 대칭. 2026-09-07 루프 닫기.
+# ─────────────────────────────────────────────────────────────
+_BILL_STAGES = ('계약금', '중도금', '잔금')
+
+
+def _bill_to_num(v):
+    try:
+        return float(str(v if v is not None else '').replace(',', '').strip() or 0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _bill_norm_token(t):
+    """단계 계산서 셀 값 정규화 (billStatus.js normalizeToken 파이썬 미러)."""
+    s = str(t if t is not None else '').strip()
+    if s in ('', '-'):
+        return ''
+    if s == '카드결제':
+        return '카드'
+    if s == '일반':
+        return '발행'
+    if s == '혼합':
+        return '확인필요'
+    return s  # 발행 / N입금 / 카드 / 미발행 / 확인필요
+
+
+def _bill_is_collected(v):
+    """수금 확인 체크 여부 (수금완료 확정 신호)."""
+    return v is True or v in ('TRUE', 'true', 1, '1')
+
+
+def _bill_y_summary(stage_vals, collected):
+    """단계별 값 → Y(계산서) 요약 (billStatus.js computeYSummary 미러)."""
+    pending = not collected
+    vals = []
+    for s in _BILL_STAGES:
+        v = _bill_norm_token(stage_vals.get(s))
+        vals.append('발행예정' if (v == '미발행' and pending) else v)
+    if '미발행' in vals:
+        return '미발행'
+    if '확인필요' in vals:
+        return '확인필요'
+    handled = [v for v in vals if v in ('발행', 'N입금', '카드')]
+    haspend = '발행예정' in vals
+    if not handled and not haspend:
+        return '-'
+    if '발행' in vals or haspend:
+        j = _bill_norm_token(stage_vals.get('잔금'))
+        return '발행완료' if j in ('발행', 'N입금', '카드') else '발행중'
+    if all(v == '카드' for v in handled):
+        return '카드결제'
+    if all(v == 'N입금' for v in handled):
+        return 'N입금'
+    return '확인필요'
+
+
+def _invoice_stage_prefill(code):
+    """계산서 요청 모달 단계 프리체크 목록 — 금액>0 이고 아직 '발행' 아닌 단계.
+
+    전부 이미 발행(수정발행 재요청)이거나 판단 불가면 금액 있는 단계 전체(없으면 3단계).
+    get_project_records()는 Redis 캐시 기반이라 모달 open trigger(3s) 안에서도 안전.
+    """
+    fallback = list(_BILL_STAGES)
+    try:
+        from dashboard.services.project_service import get_project_records
+        recs = get_project_records() or []
+        r = next((x for x in recs
+                  if str(x.get('프로젝트 코드', '') or '').strip() == str(code or '').strip()), None)
+        if not r:
+            return fallback
+        with_amt = [s for s in _BILL_STAGES if _bill_to_num(r.get(s)) > 0]
+        unissued = [s for s in with_amt
+                    if _bill_norm_token(r.get(f'{s} 계산서')) != '발행']
+        return unissued or with_amt or fallback
+    except Exception:
+        return fallback
+
+
+def _build_invoice_stage_block(code):
+    """계산서 발행 단계 체크박스 input 블록 (금액>0·미발행 단계 프리체크)."""
+    prefill = set(_invoice_stage_prefill(code))
+    opts = [{"text": {"type": "plain_text", "text": s}, "value": s} for s in _BILL_STAGES]
+    initial = [o for o in opts if o["value"] in prefill] or [opts[0]]
+    return {
+        "type": "input", "block_id": "stages",
+        "label": {"type": "plain_text", "text": "계산서 발행 단계"},
+        "hint": {"type": "plain_text",
+                 "text": "첨부되면 선택 단계가 시트에 '발행'으로 기록됩니다."},
+        "element": {
+            "type": "checkboxes", "action_id": "value",
+            "options": opts, "initial_options": initial,
+        },
+    }
+
+
+def _mark_invoice_issued_in_sheet(code, stages_csv):
+    """계산서 첨부 완료 → 해당 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
+
+    입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
+    셀 노트(Y열 메모 포함) 보존. 단계 정보 없으면(구요청) skip. 멱등(이미 발행이면 무기록).
+    """
+    code = str(code or '').strip()
+    if not code or code == '-':
+        return
+    stages = [s for s in _BILL_STAGES
+              if s in {x.strip() for x in str(stages_csv or '').split(',')}]
+    if not stages:
+        logger.info(f"[SLACK/계산서] 단계 정보 없음 → 시트 자동기록 skip ({code})")
+        return
+    try:
+        from dashboard.services.lead_service import get_sheets_manager
+        sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+        sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+        if not sheet_id or not sheet_name:
+            logger.warning('[SLACK/계산서] 시트 설정 없음 → 자동기록 skip')
+            return
+        manager = get_sheets_manager()
+        row = manager.find_row_by_project_code(sheet_id, code, f"{sheet_name}!A:A")
+        if not row:
+            logger.warning(f"[SLACK/계산서] 시트 자동기록 — 행 못 찾음 ({code})")
+            return
+        f2l = manager.get_field_to_letter()
+        cols = {s: f2l.get(f'{s} 계산서') for s in _BILL_STAGES}
+        # 현재 3단계 값 + 수금확인 선독 (Y 재계산용)
+        cur = {}
+        for s in _BILL_STAGES:
+            c = cols[s]
+            cur[s] = (str(manager.get_cell_value(sheet_id, sheet_name, f"{c}{row}") or '').strip()
+                      if c else '')
+        col_collect = f2l.get('수금 확인')
+        collected = _bill_is_collected(
+            manager.get_cell_value(sheet_id, sheet_name, f"{col_collect}{row}")
+            if col_collect else '')
+        wrote = []
+        for s in stages:
+            if not cols[s]:
+                continue
+            if _bill_norm_token(cur[s]) == '발행':  # 이미 발행 — 멱등 skip
+                continue
+            if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '발행'):
+                cur[s] = '발행'
+                wrote.append(s)
+        if not wrote:
+            logger.info(f"[SLACK/계산서] 자동기록 — 이미 발행 상태 ({code} {stages})")
+            return
+        # Y(계산서) 요약 재계산 후 기록 (values.update → 셀 노트 보존)
+        col_y = f2l.get('계산서')
+        if col_y:
+            manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
+                                      _bill_y_summary(cur, collected))
+        # 프로젝트 데이터 캐시 무효화 (Z/AA/AB·Y 변경 반영)
+        try:
+            from dashboard.utils.smart_cache_manager import (
+                smart_invalidate, smart_set_invalidation_marker)
+            smart_set_invalidation_marker('current_sheet_data')
+            smart_invalidate('current_sheet_data')
+        except Exception as ce:
+            logger.warning(f"[SLACK/계산서] 캐시 무효화 실패 ({code}): {ce}")
+        try:
+            from dashboard.utils.user_database import get_audit_repository
+            get_audit_repository().log_action(
+                user_email='slack:invoice_bot', action='INVOICE_ISSUED_AUTO',
+                details=f"계산서 첨부 완료 → {code} {'·'.join(wrote)} 발행 자동기록",
+                project_code=code, field_name='계산서',
+                old_value='미발행', new_value='발행', ip_address=None)
+        except Exception as ae:
+            logger.warning(f"[SLACK/계산서] 감사 로그 실패 ({code}): {ae}")
+        logger.info(f"[SLACK/계산서] 시트 자동기록 완료: {code} {wrote} = 발행")
+    except Exception as exc:
+        logger.error(f"[SLACK/계산서] 시트 자동기록 실패 ({code}): {exc}", exc_info=True)
+
+
 def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='') -> dict:
     """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28).
 
@@ -11948,6 +12125,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
                 ],
             },
         },
+        _build_invoice_stage_block(code),
         _text_input("email", "발행 이메일", email),
         _text_input(
             "memo", "추가 요청사항", "",
@@ -12258,12 +12436,16 @@ def _process_invoice_submission(client, body, view) -> None:
     _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
     vat_val = _vat_state.get('value', 'sep') or 'sep'
 
+    # 계산서 발행 단계 checkboxes — 첨부 완료 시 시트 '발행' 자동기록용 (2026-09-07)
+    _stage_state = (values.get('stages', {}).get('value', {}) or {}).get('selected_options') or []
+    stages = ','.join(o.get('value', '') for o in _stage_state if o.get('value'))
+
     user_id = body.get("user", {}).get("id", "")
     initial = _slack_user_to_initial(client, user_id) or '-'
 
     post_invoice_request(
         code=code, biz=biz, addr=addr, amt_digits=amt_digits, vat_val=vat_val,
-        email=email, memo=memo, requester_initial=initial,
+        email=email, memo=memo, requester_initial=initial, stages=stages,
         dedup_check=False, fallback_client=client,
     )
 
@@ -12308,7 +12490,7 @@ def _post_partner_info_reply(client, channel, ts, code, biz, req_email='') -> No
 
 
 def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
-                         requester_initial='-', *, dedup_check=True,
+                         requester_initial='-', *, stages='', dedup_check=True,
                          fallback_client=None) -> dict:
     """세금계산서 발행 요청 카드를 #계산서_관리 채널에 발송 (슬랙·PM 공용 코어, 2026-09-01).
 
@@ -12318,8 +12500,14 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
 
     dedup_check=True 면 진입 시 invoice_request_dedup:{code} 확인 → 90초 내 중복이면 미발송.
     fallback_client: invoice_bot 초기화 실패 시 카드 발송에 쓸 대체 슬랙 client (슬랙 경로용).
+    stages: 계산서 발행 단계 CSV(예 '계약금,잔금'). 첨부 완료 시 시트 해당 단계
+            계산서 열을 '발행'으로 자동기록하는 데 사용(2026-09-07 루프 닫기).
     Returns: {'ok': bool, 'reason': str, 'ts'?, 'channel'?, 'thread_url'?}
     """
+    # 단계 정규화 — 계약금/중도금/잔금만 허용, 순서 고정
+    stages_list = [s for s in ('계약금', '중도금', '잔금')
+                   if s in {x.strip() for x in str(stages or '').split(',')}]
+    stages_csv = ','.join(stages_list)
     channel_id = os.getenv('SLACK_INVOICE_REQUEST_CHANNEL_ID', '').strip() \
         or os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
     if not channel_id:
@@ -12369,6 +12557,8 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
         f"💲 금액 : {amt_display}",
         f"✉️ 이메일 : {email}",
     ]
+    if stages_csv:
+        lines.append(f"📑 발행 단계 : {' · '.join(stages_list)}")
     if memo:
         lines.append(f"📝 요청사항 : {memo}")
     lines.append(f"👤 요청자 : {initial}  {now_str}")
@@ -12444,6 +12634,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             json.dumps({
                 'code': code, 'biz': biz, 'amt': amt_digits, 'vat': vat_val,
                 'email': email, 'thread_url': thread_url, 'orig_text': text,
+                'stages': stages_csv,
             }, ensure_ascii=False),
         )
     except Exception as red_exc:

@@ -298,6 +298,12 @@ def api_invoice_request():
     vat = (data.get('vat') or 'sep').strip() or 'sep'
     email = (data.get('email') or '').strip()
     memo = (data.get('memo') or '').strip()
+    # 계산서 발행 단계 CSV(예 '계약금,잔금') — 첨부 완료 시 시트 '발행' 자동기록용 (2026-09-07)
+    _stages_in = data.get('stages')
+    if isinstance(_stages_in, (list, tuple)):
+        stages = ','.join(str(s).strip() for s in _stages_in if str(s).strip())
+    else:
+        stages = str(_stages_in or '').strip()
 
     # 게이트 ① 등록증 (모든 유입 필수). **재사용 인식** — 자기 폴더 없어도 같은 사업자명의
     #   기존 등록증이 있으면 통과(발송 시 ensure_license 가 복사 첨부). 매칭 없으면 차단.
@@ -328,7 +334,7 @@ def api_invoice_request():
         res = post_invoice_request(
             code=code, biz=biz or '-', addr=addr or '-', amt_digits=amt_digits,
             vat_val=vat, email=email or '-', memo=memo, requester_initial=initial,
-            dedup_check=True,
+            stages=stages, dedup_check=True,
         )
     except Exception as exc:
         logger.error(f'[INVOICE] 계산서 요청 발송 실패 ({code}): {exc}', exc_info=True)
