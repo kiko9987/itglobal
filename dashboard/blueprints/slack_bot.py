@@ -11960,41 +11960,39 @@ def _bill_y_summary(stage_vals, collected):
     return '확인필요'
 
 
-def _invoice_stage_prefill(code):
-    """계산서 요청 모달 단계 프리체크 목록 — 금액>0 이고 아직 '발행' 아닌 단계.
+def _invoice_default_stage(code):
+    """계산서 요청 모달 기본 단계 — 금액 있는 최상위 단계(보통 잔금). 없으면 잔금.
 
-    전부 이미 발행(수정발행 재요청)이거나 판단 불가면 금액 있는 단계 전체(없으면 3단계).
+    단일 선택(누적) 드롭다운의 기본값. 입금 SMS 프로젝트 지정과 동일한 단일 선택 UX.
     get_project_records()는 Redis 캐시 기반이라 모달 open trigger(3s) 안에서도 안전.
     """
-    fallback = list(_BILL_STAGES)
     try:
         from dashboard.services.project_service import get_project_records
         recs = get_project_records() or []
         r = next((x for x in recs
                   if str(x.get('프로젝트 코드', '') or '').strip() == str(code or '').strip()), None)
-        if not r:
-            return fallback
-        with_amt = [s for s in _BILL_STAGES if _bill_to_num(r.get(s)) > 0]
-        unissued = [s for s in with_amt
-                    if _bill_norm_token(r.get(f'{s} 계산서')) != '발행']
-        return unissued or with_amt or fallback
+        if r:
+            with_amt = [s for s in _BILL_STAGES if _bill_to_num(r.get(s)) > 0]
+            if with_amt:
+                return with_amt[-1]
     except Exception:
-        return fallback
+        pass
+    return '잔금'
 
 
 def _build_invoice_stage_block(code):
-    """계산서 발행 단계 체크박스 input 블록 (금액>0·미발행 단계 프리체크)."""
-    prefill = set(_invoice_stage_prefill(code))
+    """계산서 발행 단계 단일 선택 드롭다운 (선택 단계까지 누적 발행). 기본=금액 최상위 단계."""
+    default = _invoice_default_stage(code)
     opts = [{"text": {"type": "plain_text", "text": s}, "value": s} for s in _BILL_STAGES]
-    initial = [o for o in opts if o["value"] in prefill] or [opts[0]]
+    initial = next((o for o in opts if o["value"] == default), opts[-1])
     return {
         "type": "input", "block_id": "stages",
-        "label": {"type": "plain_text", "text": "계산서 발행 단계"},
+        "label": {"type": "plain_text", "text": "계산서 발행 단계 (선택 단계까지 발행)"},
         "hint": {"type": "plain_text",
-                 "text": "첨부되면 선택 단계가 시트에 '발행'으로 기록됩니다."},
+                 "text": "첨부되면 선택 단계까지 시트에 '발행'으로 기록됩니다 (앞 단계 현금·카드는 유지)."},
         "element": {
-            "type": "checkboxes", "action_id": "value",
-            "options": opts, "initial_options": initial,
+            "type": "static_select", "action_id": "value",
+            "options": opts, "initial_option": initial,
         },
     }
 
@@ -12003,16 +12001,21 @@ def _mark_invoice_issued_in_sheet(code, stages_csv):
     """계산서 첨부 완료 → 해당 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
 
     입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
-    셀 노트(Y열 메모 포함) 보존. 단계 정보 없으면(구요청) skip. 멱등(이미 발행이면 무기록).
+    셀 노트(Y열 메모 포함) 보존. 단계 정보 없으면(구요청) skip.
+
+    **누적 발행**: stages_csv 의 최상위 단계까지(계약금→선택단계) 금액 있는 미발행 단계를
+    모두 '발행' 처리. 이미 발행/현금(N입금)/카드/확인필요인 앞 단계는 유지(덮지 않음),
+    금액 없는 단계는 skip. (계약금 선입금+잔금 한장 발행 시 계약금 ⚠️ 자동 해소용.)
     """
     code = str(code or '').strip()
     if not code or code == '-':
         return
-    stages = [s for s in _BILL_STAGES
-              if s in {x.strip() for x in str(stages_csv or '').split(',')}]
-    if not stages:
+    sel = [s for s in _BILL_STAGES
+           if s in {x.strip() for x in str(stages_csv or '').split(',')}]
+    if not sel:
         logger.info(f"[SLACK/계산서] 단계 정보 없음 → 시트 자동기록 skip ({code})")
         return
+    target_idx = max(_BILL_STAGES.index(s) for s in sel)  # 누적 상한
     try:
         from dashboard.services.lead_service import get_sheets_manager
         sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
@@ -12027,27 +12030,31 @@ def _mark_invoice_issued_in_sheet(code, stages_csv):
             return
         f2l = manager.get_field_to_letter()
         cols = {s: f2l.get(f'{s} 계산서') for s in _BILL_STAGES}
-        # 현재 3단계 값 + 수금확인 선독 (Y 재계산용)
-        cur = {}
+        # 현재 3단계 값·금액(U/V/W) + 수금확인 선독 (누적 판정·Y 재계산용)
+        cur, amt = {}, {}
         for s in _BILL_STAGES:
             c = cols[s]
             cur[s] = (str(manager.get_cell_value(sheet_id, sheet_name, f"{c}{row}") or '').strip()
                       if c else '')
+            ac = f2l.get(s)
+            amt[s] = _bill_to_num(manager.get_cell_value(sheet_id, sheet_name, f"{ac}{row}")) if ac else 0
         col_collect = f2l.get('수금 확인')
         collected = _bill_is_collected(
             manager.get_cell_value(sheet_id, sheet_name, f"{col_collect}{row}")
             if col_collect else '')
         wrote = []
-        for s in stages:
-            if not cols[s]:
+        for i, s in enumerate(_BILL_STAGES):
+            if i > target_idx:               # 누적 상한 초과 — 이후 단계는 미발행 유지
+                break
+            if not cols[s] or amt[s] <= 0:   # 금액 없는 단계는 계산서 불필요
                 continue
-            if _bill_norm_token(cur[s]) == '발행':  # 이미 발행 — 멱등 skip
-                continue
+            if _bill_norm_token(cur[s]) in ('발행', 'N입금', '카드', '확인필요'):
+                continue                     # 이미 발행/현금/카드/확인필요 — 유지(덮지 않음)
             if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '발행'):
                 cur[s] = '발행'
                 wrote.append(s)
         if not wrote:
-            logger.info(f"[SLACK/계산서] 자동기록 — 이미 발행 상태 ({code} {stages})")
+            logger.info(f"[SLACK/계산서] 자동기록 — 신규 발행 단계 없음 ({code} ~{_BILL_STAGES[target_idx]})")
             return
         # Y(계산서) 요약 재계산 후 기록 (values.update → 셀 노트 보존)
         col_y = f2l.get('계산서')
@@ -12436,9 +12443,9 @@ def _process_invoice_submission(client, body, view) -> None:
     _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
     vat_val = _vat_state.get('value', 'sep') or 'sep'
 
-    # 계산서 발행 단계 checkboxes — 첨부 완료 시 시트 '발행' 자동기록용 (2026-09-07)
-    _stage_state = (values.get('stages', {}).get('value', {}) or {}).get('selected_options') or []
-    stages = ','.join(o.get('value', '') for o in _stage_state if o.get('value'))
+    # 계산서 발행 단계 단일 선택(누적) — 첨부 완료 시 시트 '발행' 자동기록용 (2026-09-07)
+    _stage_state = (values.get('stages', {}).get('value', {}) or {}).get('selected_option') or {}
+    stages = _stage_state.get('value', '') or ''
 
     user_id = body.get("user", {}).get("id", "")
     initial = _slack_user_to_initial(client, user_id) or '-'
@@ -12558,7 +12565,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
         f"✉️ 이메일 : {email}",
     ]
     if stages_csv:
-        lines.append(f"📑 발행 단계 : {' · '.join(stages_list)}")
+        lines.append(f"📑 발행 단계 : {stages_list[-1]}까지")
     if memo:
         lines.append(f"📝 요청사항 : {memo}")
     lines.append(f"👤 요청자 : {initial}  {now_str}")

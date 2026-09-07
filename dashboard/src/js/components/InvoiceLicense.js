@@ -264,7 +264,8 @@ export default class InvoiceLicense {
     // 시트 부가세 truthy = 'VAT 별도'(sep). 슬랙 _build_invoice_button_value 와 동일 규칙.
     const vatSep = /^(true|y|yes|1|별도|vat\s*별도)$/i.test(vatRaw);
 
-    // 계산서 발행 단계 — 금액>0 이고 아직 '발행' 아닌 단계를 프리체크(첨부 완료 시 시트 '발행' 자동기록).
+    // 계산서 발행 단계 — 단일 선택(선택 단계까지 누적 발행). 입금 지정처럼 드롭다운.
+    //   기본값=금액 있는 최상위 단계(보통 잔금). 금액 없는 단계는 비활성.
     const stageInfo = ['계약금', '중도금', '잔금'].map((s) => {
       const amt = Number(String(p[s] ?? '').replace(/,/g, '')) || 0;
       const tok = String(p[`${s} 계산서`] ?? '').trim();
@@ -272,14 +273,13 @@ export default class InvoiceLicense {
       return { s, amt, issued };
     });
     const anyAmt = stageInfo.some((x) => x.amt > 0);
-    const preset = stageInfo.filter((x) => x.amt > 0 && !x.issued);
-    const preKeys = new Set((preset.length ? preset : stageInfo.filter((x) => x.amt > 0)).map((x) => x.s));
-    const stageBoxes = stageInfo.map((x) => {
-      const enabled = anyAmt ? x.amt > 0 : true; // 금액 전무하면 3단계 모두 허용
-      const amtTxt = x.amt > 0 ? ` <span class="text-muted small">(${x.amt.toLocaleString('ko-KR')})</span>` : '';
-      const issuedTxt = x.issued ? ' <span class="text-success small">발행됨</span>' : '';
-      return `<label class="me-3" style="cursor:${enabled ? 'pointer' : 'not-allowed'};">
-        <input type="checkbox" class="ilStage" value="${x.s}" ${preKeys.has(x.s) ? 'checked' : ''} ${enabled ? '' : 'disabled'}> ${x.s}${amtTxt}${issuedTxt}</label>`;
+    const withAmt = stageInfo.filter((x) => x.amt > 0);
+    const defaultStage = withAmt.length ? withAmt[withAmt.length - 1].s : '잔금';
+    const stageOptions = stageInfo.map((x) => {
+      const disabled = anyAmt && x.amt <= 0; // 금액 없는 단계 비활성 (금액 전무면 3단계 허용)
+      const amtTxt = x.amt > 0 ? ` (${x.amt.toLocaleString('ko-KR')})` : '';
+      const issuedTxt = x.issued ? ' · 발행됨' : '';
+      return `<option value="${x.s}" ${x.s === defaultStage ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${x.s}까지${amtTxt}${issuedTxt}</option>`;
     }).join('');
 
     const body = `
@@ -298,16 +298,16 @@ export default class InvoiceLicense {
       </div>
       <div class="mb-2"><label class="form-label">이메일 <span class="text-muted small">(계산서 수신)</span></label>
         <input id="ilEmail" type="text" class="form-control" value="${esc(email)}" placeholder="example@company.com"></div>
-      <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(첨부되면 '발행'으로 기록)</span></label>
-        <div>${stageBoxes}</div></div>
+      <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(선택 단계까지 '발행' 기록)</span></label>
+        <select id="ilStage" class="form-select">${stageOptions}</select></div>
       <div class="mb-1"><label class="form-label">요청사항 <span class="text-muted small">(선택)</span></label>
         <textarea id="ilMemo" class="form-control" rows="2" placeholder="수정발행·특이사항 등"></textarea></div>
     `;
 
     this._showModal(`세금계산서 발행 요청 — ${c}`, body, async (el) => {
       const amt = (el.querySelector('#ilAmt').value || '').replace(/[^\d]/g, '');
-      const stages = Array.from(el.querySelectorAll('.ilStage:checked')).map((cb) => cb.value);
-      if (!stages.length) return '발행 단계를 최소 한 개 선택해주세요.';
+      const stage = (el.querySelector('#ilStage') || {}).value || '';
+      if (!stage) return '발행 단계를 선택해주세요.';
       const payload = {
         code: c,
         biz: (el.querySelector('#ilBiz').value || '').trim(),
@@ -316,7 +316,7 @@ export default class InvoiceLicense {
         vat: el.querySelector('#ilVat').value || 'sep',
         email: (el.querySelector('#ilEmail').value || '').trim(),
         memo: (el.querySelector('#ilMemo').value || '').trim(),
-        stages,
+        stages: stage,
       };
       const err = await this._postRaw('/api/invoice/request', payload);
       if (!err.ok) return err.message;
