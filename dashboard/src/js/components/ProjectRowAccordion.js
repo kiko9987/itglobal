@@ -929,7 +929,8 @@ export default class ProjectRowAccordion {
       'N입금': { icon: 'fas fa-sack-dollar text-secondary', label: '현금 입금 (세금계산서 불필요)' },
       '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제 (영수증 자동)' },
       '미발행': { icon: 'fas fa-exclamation-triangle text-danger', label: '입금 완료 · 세금계산서 미발행' },
-      '혼합': { icon: 'fas fa-question-circle text-warning', label: '혼합 — 단계별 확인 필요' }
+      '확인필요': { icon: 'fas fa-question-circle text-warning', label: '단계별 확인 필요' },
+      '혼합': { icon: 'fas fa-question-circle text-warning', label: '단계별 확인 필요' }
     };
 
     const info = iconMap[category];

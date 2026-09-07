@@ -224,7 +224,8 @@ function getStageBillIconForTable(status) {
     'N입금': '<i class="fas fa-sack-dollar fa-lg ms-1 text-secondary" title="현금 입금 (세금계산서 불필요)"></i>',
     '카드': '<i class="fas fa-credit-card fa-lg ms-1 text-info" title="카드결제 (영수증 자동)"></i>',
     '미발행': '<i class="fas fa-exclamation-triangle fa-lg ms-1 text-danger" title="입금 완료 · 세금계산서 미발행"></i>',
-    '혼합': '<i class="fas fa-question-circle fa-lg ms-1 text-warning" title="혼합 — 단계별 확인 필요"></i>'
+    '확인필요': '<i class="fas fa-question-circle fa-lg ms-1 text-warning" title="단계별 확인 필요"></i>',
+    '혼합': '<i class="fas fa-question-circle fa-lg ms-1 text-warning" title="단계별 확인 필요"></i>'
   };
 
   return iconMap[status] || '';

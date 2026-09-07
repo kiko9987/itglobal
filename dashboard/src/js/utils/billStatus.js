@@ -111,9 +111,11 @@ export const BILL_STAGE_COL = {
 
 function normalizeToken(t) {
   const s = String(t == null ? '' : t).trim();
+  if (s === '' || s === '-') return '';   // 빈값·대시(-) = 없음
   if (s === '카드결제') return '카드';
-  if (s === '일반') return '발행'; // 레거시 '일반' → '발행'(세금계산서 발행됨)
-  return s; // 발행 / N입금 / 카드 / 미발행 / 혼합 / ''
+  if (s === '일반') return '발행';         // 레거시 '일반' → '발행'(세금계산서 발행됨)
+  if (s === '혼합') return '확인필요';     // 레거시 '혼합' → '확인필요'
+  return s; // 발행 / N입금 / 카드 / 미발행 / 확인필요
 }
 
 /**
