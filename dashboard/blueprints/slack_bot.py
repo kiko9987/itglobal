@@ -11962,31 +11962,9 @@ def _bill_y_summary(stage_vals, collected):
     return '확인필요'
 
 
-def _invoice_default_stage(code):
-    """계산서 요청 모달 기본 단계 — 금액 있는 최상위 단계(보통 잔금). 없으면 잔금.
-
-    단일 선택(누적) 드롭다운의 기본값. 입금 SMS 프로젝트 지정과 동일한 단일 선택 UX.
-    get_project_records()는 Redis 캐시 기반이라 모달 open trigger(3s) 안에서도 안전.
-    """
-    try:
-        from dashboard.services.project_service import get_project_records
-        recs = get_project_records() or []
-        r = next((x for x in recs
-                  if str(x.get('프로젝트 코드', '') or '').strip() == str(code or '').strip()), None)
-        if r:
-            with_amt = [s for s in _BILL_STAGES if _bill_to_num(r.get(s)) > 0]
-            if with_amt:
-                return with_amt[-1]
-    except Exception:
-        pass
-    return '잔금'
-
-
 def _build_invoice_stage_block(code):
-    """계산서 발행 단계 단일 선택 드롭다운 (선택 단계까지 누적 발행). 기본=금액 최상위 단계."""
-    default = _invoice_default_stage(code)
+    """계산서 발행 단계 단일 선택 드롭다운. 기본값 없음 — 요청자가 직접 선택(placeholder)."""
     opts = [{"text": {"type": "plain_text", "text": s}, "value": s} for s in _BILL_STAGES]
-    initial = next((o for o in opts if o["value"] == default), opts[-1])
     return {
         "type": "input", "block_id": "stages",
         "label": {"type": "plain_text", "text": "계산서 발행 단계"},
@@ -11994,7 +11972,8 @@ def _build_invoice_stage_block(code):
                  "text": "이 계산서가 귀속될 단계. 요청 금액이 총액과 같으면 나머지 단계는 자동 '-' 처리됩니다."},
         "element": {
             "type": "static_select", "action_id": "value",
-            "options": opts, "initial_option": initial,
+            "placeholder": {"type": "plain_text", "text": "단계 선택"},
+            "options": opts,
         },
     }
 

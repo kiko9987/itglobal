@@ -264,8 +264,8 @@ export default class InvoiceLicense {
     // 시트 부가세 truthy = 'VAT 별도'(sep). 슬랙 _build_invoice_button_value 와 동일 규칙.
     const vatSep = /^(true|y|yes|1|별도|vat\s*별도)$/i.test(vatRaw);
 
-    // 계산서 발행 단계 — 단일 선택(선택 단계까지 누적 발행). 입금 지정처럼 드롭다운.
-    //   기본값=금액 있는 최상위 단계(보통 잔금). 금액 없는 단계는 비활성.
+    // 계산서 발행 단계 — 단일 선택. 기본값 없음(placeholder) → 요청자가 직접 선택.
+    //   금액 표시로 판단 보조. 금액 없는 단계는 비활성.
     const stageInfo = ['계약금', '중도금', '잔금'].map((s) => {
       const amt = Number(String(p[s] ?? '').replace(/,/g, '')) || 0;
       const tok = String(p[`${s} 계산서`] ?? '').trim();
@@ -273,14 +273,14 @@ export default class InvoiceLicense {
       return { s, amt, issued };
     });
     const anyAmt = stageInfo.some((x) => x.amt > 0);
-    const withAmt = stageInfo.filter((x) => x.amt > 0);
-    const defaultStage = withAmt.length ? withAmt[withAmt.length - 1].s : '잔금';
-    const stageOptions = stageInfo.map((x) => {
-      const disabled = anyAmt && x.amt <= 0; // 금액 없는 단계 비활성 (금액 전무면 3단계 허용)
-      const amtTxt = x.amt > 0 ? ` (${x.amt.toLocaleString('ko-KR')})` : '';
-      const issuedTxt = x.issued ? ' · 발행됨' : '';
-      return `<option value="${x.s}" ${x.s === defaultStage ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${x.s}${amtTxt}${issuedTxt}</option>`;
-    }).join('');
+    const stageOptions = ['<option value="" selected disabled>단계 선택</option>'].concat(
+      stageInfo.map((x) => {
+        const disabled = anyAmt && x.amt <= 0; // 금액 없는 단계 비활성 (금액 전무면 3단계 허용)
+        const amtTxt = x.amt > 0 ? ` (${x.amt.toLocaleString('ko-KR')})` : '';
+        const issuedTxt = x.issued ? ' · 발행됨' : '';
+        return `<option value="${x.s}" ${disabled ? 'disabled' : ''}>${x.s}${amtTxt}${issuedTxt}</option>`;
+      }),
+    ).join('');
 
     const body = `
       <div class="mb-2"><label class="form-label">사업자명</label>
