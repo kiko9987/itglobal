@@ -184,10 +184,10 @@ export function computeYSummary(stages, collected) {
   const hasPending = vals.includes('발행예정');
   if (handled.length === 0 && !hasPending) return '-';
   // 발행(세금계산서)이 있거나 발행예정이면 발행중/발행완료. 순수 현금/카드는 방법 라벨.
+  // 발행완료 = 진행중(발행예정) 단계 없음 = 금액 있는 모든 단계 처리됨(미발행·발행예정 없음).
+  //   잔금 유무로 판정하면 전액 계약금 등 잔금 금액 없는 건이 발행중으로 오판(2026-09-07 G3721-YG).
   if (vals.includes('발행') || hasPending) {
-    const jangeum = normalizeToken(stages && stages['잔금']);
-    const jangeumDone = jangeum === '발행' || jangeum === 'N입금' || jangeum === '카드';
-    return jangeumDone ? '발행완료' : '발행중';
+    return hasPending ? '발행중' : '발행완료';
   }
   if (handled.every((v) => v === '카드')) return '카드결제';
   if (handled.every((v) => v === 'N입금')) return 'N입금';

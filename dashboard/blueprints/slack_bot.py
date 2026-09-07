@@ -11953,8 +11953,8 @@ def _bill_y_summary(stage_vals, collected):
     if not handled and not haspend:
         return '-'
     if '발행' in vals or haspend:
-        j = _bill_norm_token(stage_vals.get('잔금'))
-        return '발행완료' if j in ('발행', 'N입금', '카드') else '발행중'
+        # 발행완료 = 진행중(발행예정) 단계 없음. 잔금 유무 무관 (전액 계약금 등 오판 fix).
+        return '발행중' if haspend else '발행완료'
     if all(v == '카드' for v in handled):
         return '카드결제'
     if all(v == 'N입금' for v in handled):
