@@ -45,8 +45,8 @@ COL_UNPAID = 'X'     # 미수금 — 시트 수식: = IF(ABS(T-U-V-W)<2, 0, T-U-
                      # 슬랙 카드 build 는 -abs 처리로 항상 음수 표시 (매니저 시각 통일).
                      # 이전 (U+V+W)-T 주석·수식 (2026-07-10) 은 부호 반대 오류였음.
 COL_INVOICE = 'Y'    # 계산서 (N입금/카드결제/미발행/잔금/중도금/계약금)
-COL_PAYDATE = 'Z'    # 수금 날짜
-COL_CONFIRM = 'AA'   # 수금 확인 체크박스
+COL_PAYDATE = 'AC'   # 수금 날짜 (2026-09-07 Z/AA/AB 삽입으로 Z→AC)
+COL_CONFIRM = 'AD'   # 수금 확인 체크박스 (AA→AD)
 
 REDIS_KEY_PREFIX = 'payment_sync:row:'
 REDIS_TTL = 60 * 60 * 24 * 90  # 90일
@@ -1670,7 +1670,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         # 한 번에 A:AA 가져옴 (광폭 범위) — values만 가벼움
         resp = service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range=f"'{sheet_name}'!A2:AA10000",
+            range=f"'{sheet_name}'!A2:AD10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:
@@ -1717,7 +1717,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     IDX_W = col_idx('W')
     IDX_X = col_idx('X')
     IDX_Y = col_idx('Y')
-    IDX_AA = col_idx('AA')
+    IDX_AA = col_idx('AD')  # 수금 확인 (2026-09-07 AA→AD)
 
     # 첫 폴링 감지 — Redis에 키 하나라도 있는지
     try:
@@ -2610,7 +2610,7 @@ def find_overdue_unpaid(days: int = 30) -> List[Dict]:
         return []
     try:
         resp = service.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AA10000",
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AD10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:
@@ -2683,7 +2683,7 @@ def search_project(project_code: str) -> Optional[str]:
         return None
     try:
         resp = service.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AA10000",
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AD10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:

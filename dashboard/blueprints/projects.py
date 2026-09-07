@@ -54,7 +54,7 @@ from ..schemas.project_schemas import (
 # 시트 컬럼 시프트 시 여기 하나만 수정하면 됨.
 # `AP: '_version'` → index 41 (2026-07 시프트로 옛 AO 에서 이동)
 # ─────────────────────────────────────────────────────────────
-VERSION_COL_INDEX = 41  # AP 열
+VERSION_COL_INDEX = 44  # AS 열 (2026-09-07 Z/AA/AB 3열 삽입으로 +3, 옛 AP=41)
 
 
 def _verify_version_col_index(manager) -> None:
@@ -726,7 +726,7 @@ def _load_project_row(manager, sheet_id, sheet_name, project_code):
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AP',  # AP 컬럼까지 읽기 (_version 포함, 2026-07 컬럼 시프트)
+        end_col='AS',  # (2026-09-07 +3 시프트)AP 컬럼까지 읽기 (_version 포함, 2026-07 컬럼 시프트)
         value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
     )
 
@@ -764,7 +764,7 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AP',
+            end_col='AS',
             value_render_option='FORMATTED_VALUE'
         )
 
@@ -969,7 +969,7 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         sheet_name=sheet_name,
         row_number=row_number,
         start_col='A',
-        end_col='AP',  # AP 컬럼까지 조회 (_version 포함, 2026-07 시프트)
+        end_col='AS',  # (2026-09-07 +3 시프트)AP 컬럼까지 조회 (_version 포함, 2026-07 시프트)
         value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
     )
 
@@ -1155,7 +1155,7 @@ def update_project(project_code):
         field_changes.extend(update_changes)
 
         # 8. 시트 write 를 큐로 위임 (2026-07-09 write-behind)
-        range_name = f'{sheet_name}!A{row_number}:AP{row_number}'
+        range_name = f'{sheet_name}!A{row_number}:AS{row_number}'
         from ..services.sheet_write_queue import enqueue as _q_enqueue
         _q_enqueue('project_update_sheet', {
             'sheet_id': sheet_id,
@@ -2167,7 +2167,7 @@ def _build_row_values(data, manager, row_number):
         list: 42개 요소의 값 배열 (A~AP)
     """
     column_mapping = manager.get_column_mapping()
-    values = [''] * 42  # AP 컬럼까지 (Lead No + _version, 2026-07 shift: 41→42)
+    values = [''] * 45  # AS 컬럼까지 (2026-09-07 Z/AA/AB 단계별계산서 3열 삽입: 42→45)
 
     # 컬럼 매핑에 따라 값 채우기
     for col_letter, field_name in column_mapping.items():
@@ -2195,10 +2195,10 @@ def _build_row_values(data, manager, row_number):
         # 2026-07-16 시트 수식 반영: X = T - (U+V+W), 반올림 오차(2원 미만)는 0 처리
         #   X > 0 = 미납, X < 0 = 초과입금. 이전 (U+V+W)-T 는 부호 반대 오류.
         'X': data.get('미수금', f'=IF(ABS($T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})<2, 0, $T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})'),
-        'AF': data.get('순익', f'=R{row_number}-(AB{row_number}+AC{row_number}+AD{row_number}+AE{row_number})'),
-        'AG': data.get('마진율', f'=IF(OR(R{row_number}=0, AF{row_number}=0), 0, AF{row_number}/R{row_number})'),
-        'AO': data.get('Lead No', ''),  # 리드 연결 (2026-07 신규)
-        'AP': '0'  # _version 초기값 (낙관적 잠금용) — 옛 AO에서 이동
+        'AI': data.get('순익', f'=R{row_number}-(AE{row_number}+AF{row_number}+AG{row_number}+AH{row_number})'),
+        'AJ': data.get('마진율', f'=IF(OR(R{row_number}=0, AI{row_number}=0), 0, AI{row_number}/R{row_number})'),
+        'AR': data.get('Lead No', ''),  # 리드 연결 (2026-07 신규)
+        'AS': '0'  # _version 초기값 (낙관적 잠금용) — 2026-09-07 +3 시프트 (옛 AP)
     }
 
     for col_letter, formula in formula_fields.items():

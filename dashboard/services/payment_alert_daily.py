@@ -54,7 +54,7 @@ def run_daily_scan_and_summary() -> Dict:
     try:
         resp = service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range=f"'{sheet_name}'!A2:AA10000",
+            range=f"'{sheet_name}'!A2:AD10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:
@@ -82,7 +82,7 @@ def run_daily_scan_and_summary() -> Dict:
                 n3.append('')
             row_notes[offset_n + 2] = n3[:3]
 
-    IDX = {c: _col_idx(c) for c in ['A', 'F', 'T', 'U', 'V', 'W', 'X', 'AA']}
+    IDX = {c: _col_idx(c) for c in ['A', 'F', 'T', 'U', 'V', 'W', 'X', 'AD']}  # 수금확인 AA→AD (2026-09-07)
     known_initials = set(_load_initials_from_config().values())
 
     # 참조 정합성 검증용 인덱스 (2026-07-10)
@@ -297,7 +297,7 @@ def run_daily_scan_and_summary() -> Dict:
         v = _int(row[IDX['V']] if len(row) > IDX['V'] else 0)
         w = _int(row[IDX['W']] if len(row) > IDX['W'] else 0)
         unpaid = _int(row[IDX['X']] if len(row) > IDX['X'] else 0)
-        aa_raw = row[IDX['AA']] if len(row) > IDX['AA'] else ''
+        aa_raw = row[IDX['AD']] if len(row) > IDX['AD'] else ''
         aa_chk = (
             aa_raw is True
             or (isinstance(aa_raw, str) and aa_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))

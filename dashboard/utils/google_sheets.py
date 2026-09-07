@@ -505,7 +505,7 @@ class GoogleSheetsManager:
 
         return f"{user_message} (상세: {error_reason})"
     
-    def get_sheet_data(self, sheet_id, range_name='공사 현황!A:AP'):
+    def get_sheet_data(self, sheet_id, range_name='공사 현황!A:AS'):
         """
         구글 시트에서 데이터 가져오기 (에러 처리 강화)
 
@@ -812,7 +812,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 찾기 오류: {str(e)}")
             return None
 
-    def append_row(self, sheet_id, values, range_name='공사 현황!A:AP'):
+    def append_row(self, sheet_id, values, range_name='공사 현황!A:AS'):
         """
         구글 시트의 다음 빈 행에 데이터 추가 (수식이 미리 설정된 행에 덮어쓰기)
         
@@ -833,7 +833,7 @@ class GoogleSheetsManager:
             # 특정 행에 데이터 업데이트 (수식이 있는 빈 행에 덮어쓰기)
             # 2026-06-19 fix: AN → AO (_version 컬럼 포함)
             # 2026-07-03 fix: AO → AP (신규 AO=Lead No 컬럼 + _version이 AP로 이동)
-            actual_range = f'공사 현황!A{next_row}:AP{next_row}'
+            actual_range = f'공사 현황!A{next_row}:AS{next_row}'
             body = {
                 'values': [values]
             }
@@ -855,7 +855,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 데이터 추가 오류: {str(e)}")
             raise
     
-    def update_row(self, sheet_id, row_number, values, range_name='공사 현황!A{row}:AP{row}'):
+    def update_row(self, sheet_id, row_number, values, range_name='공사 현황!A{row}:AS{row}'):
         """
         구글 시트의 특정 행 업데이트
         
@@ -1147,23 +1147,27 @@ class GoogleSheetsManager:
             'W': '잔금',
             'X': '미수금',
             'Y': '계산서',
-            'Z': '수금 날짜',
-            'AA': '수금 확인',
-            'AB': '제품대',
-            'AC': '도급비',
-            'AD': '자재비',
-            'AE': '기타비',
-            'AF': '순익',
-            'AG': '마진율',
-            'AH': '수금 관련 특이사항',
-            'AI': '계약금 입금자명',
-            'AJ': '중도금 입금자명',
-            'AK': '잔금 입금자명',
-            'AL': '견적서 및 계약서 폴더 경로',
-            'AM': '공사 확정',
-            'AN': 'Airtable Record ID',
-            'AO': 'Lead No',   # 리드 연결 (2026-07 신규)
-            'AP': '_version'   # 옛 AO에서 이동
+            # 2026-09-07: Z/AA/AB 에 단계별 계산서 3열 삽입 → 이후 전부 +3 시프트
+            'Z': '계약금 계산서',
+            'AA': '중도금 계산서',
+            'AB': '잔금 계산서',
+            'AC': '수금 날짜',
+            'AD': '수금 확인',
+            'AE': '제품대',
+            'AF': '도급비',
+            'AG': '자재비',
+            'AH': '기타비',
+            'AI': '순익',
+            'AJ': '마진율',
+            'AK': '수금 관련 특이사항',
+            'AL': '계약금 입금자명',
+            'AM': '중도금 입금자명',
+            'AN': '잔금 입금자명',
+            'AO': '견적서 및 계약서 폴더 경로',
+            'AP': '공사 확정',
+            'AQ': 'Airtable Record ID',
+            'AR': 'Lead No',   # 리드 연결 (2026-07 신규)
+            'AS': '_version'   # 2026-09-07 +3 시프트 (옛 AP)
         }
 
     def get_field_column_mapping(self):
@@ -1187,9 +1191,9 @@ class GoogleSheetsManager:
             '공사 시작': 'J',
             '공사 종료': 'K',
             '공사 내용': 'L',
-            '공사 확정': 'AM',
+            '공사 확정': 'AP',
             # 문서 정보
-            '견적서 및 계약서 폴더 경로': 'AL',
+            '견적서 및 계약서 폴더 경로': 'AO',
             # 거래처 정보
             '유입 구분': 'D',
             '사업자명': 'E',
@@ -1491,7 +1495,7 @@ class GoogleSheetsManager:
             logger.warning(f"[DROPDOWN] 유효성 검사 조회 실패 ({column}): {exc}")
             return result_meta
 
-    def get_row_values(self, sheet_id, sheet_name, row_number, start_col='A', end_col='AM', value_render_option='FORMATTED_VALUE'):
+    def get_row_values(self, sheet_id, sheet_name, row_number, start_col='A', end_col='AS', value_render_option='FORMATTED_VALUE'):
         """
         특정 행의 값을 조회 (재시도/로깅/모니터링 포함)
 
