@@ -924,6 +924,7 @@ export default class ProjectRowAccordion {
    */
   getBillStatusIcon(category) {
     const iconMap = {
+      '발행': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
       '일반': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
       'N입금': { icon: 'fas fa-sack-dollar text-secondary', label: '현금 입금 (세금계산서 불필요)' },
       '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제 (영수증 자동)' },
@@ -1859,7 +1860,7 @@ export default class ProjectRowAccordion {
       // 계산서 옵션 - 카테고리별 구조화 (각 단계=1카테고리, 카테고리는 여러 단계 가능, 총 3개까지)
       '계산서': {
         categories: [
-          { name: '일반', options: ['계약금', '중도금', '잔금'] },
+          { name: '발행', options: ['계약금', '중도금', '잔금'] },
           { name: 'N입금', options: ['계약금', '중도금', '잔금'] },
           { name: '카드', options: ['계약금', '중도금', '잔금'] }
         ],
@@ -1890,16 +1891,17 @@ export default class ProjectRowAccordion {
       //   계약금/중도금/잔금 → 일반-단계, N입금 → N입금-잔금, 카드결제 → 카드-잔금
       //   혼합 → 특정 단계로 환원 불가 → 미체크(값은 미편집 시 보존)
       const SINGLE_TOKEN_TO_KEYS = {
-        '계약금': ['일반-계약금'],
-        '중도금': ['일반-중도금'],
-        '잔금': ['일반-잔금'],
+        '계약금': ['발행-계약금'],
+        '중도금': ['발행-중도금'],
+        '잔금': ['발행-잔금'],
         'N입금': ['N입금-잔금'],
         '카드결제': ['카드-잔금'],
       };
       const items = currentValue.split(',').map(s => s.trim()).filter(Boolean);
       items.forEach(item => {
         if (item.includes('-')) {
-          selectedItems[item] = true;
+          // 레거시 '일반-단계' → '발행-단계' 정규화 (체크박스 itemKey 와 일치)
+          selectedItems[item.replace(/^일반-/, '발행-')] = true;
         } else if (SINGLE_TOKEN_TO_KEYS[item]) {
           SINGLE_TOKEN_TO_KEYS[item].forEach(k => { selectedItems[k] = true; });
         }
