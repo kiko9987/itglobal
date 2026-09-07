@@ -929,7 +929,7 @@ export default class ProjectRowAccordion {
       'N입금': { icon: 'fas fa-sack-dollar text-secondary', label: '현금 입금 (세금계산서 불필요)' },
       '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제 (영수증 자동)' },
       '미발행': { icon: 'fas fa-exclamation-triangle text-danger', label: '수금완료 · 세금계산서 미발행 (요청 필요)' },
-      '발행예정': { icon: 'fas fa-clock text-secondary', label: '입금 완료 · 계산서 발행 예정 (진행중)' },
+      // '발행예정'(진행중·수금완료 전)은 액션 불필요 → 아이콘 미표시(노이즈 제거). Y요약 로직엔 유지.
       '확인필요': { icon: 'fas fa-question-circle text-warning', label: '단계별 확인 필요' },
       '혼합': { icon: 'fas fa-question-circle text-warning', label: '단계별 확인 필요' }
     };
