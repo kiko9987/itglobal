@@ -595,7 +595,7 @@ export default class ProjectTable {
           data: null,
           className: 'amount-cell',
           render: function(data, type, row) {
-            const totalAmount = row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0;
+            const totalAmount = row['총액 2'] || row['총액2'] || row['총액'] || 0;
             const numValue = parseFloat(totalAmount) || 0;
 
             if (numValue > 0) {
@@ -613,7 +613,7 @@ export default class ProjectTable {
           render: function(data, type, row) {
             const outstandingData = row['미수금'] || 0;
             const outstandingAmount = parseFloat(outstandingData) || 0;
-            const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0);
+            const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['총액'] || 0);
 
             if (outstandingAmount >= 0) {
               // 총액이 없는데 미수금이 0원인 경우 - 경고 아이콘 표시
@@ -655,7 +655,7 @@ export default class ProjectTable {
           className: 'text-center',
           render: (data, type, row) => {
             // 공사 취소 여부 확인 (띄어쓰기 무시)
-            const collectionNotes = row['수금 관련 특이사항'] || row['AG'] || '';
+            const collectionNotes = row['수금 관련 특이사항'] || '';
             if (collectionNotes && /공사\s*취소/.test(collectionNotes)) {
               return '<i class="fas fa-check-circle" title="공사 취소" style="font-size: 1.2rem; color: #23923c;"></i>';
             }
@@ -706,7 +706,7 @@ export default class ProjectTable {
           render: function(data, type, row) {
             const outstandingData = row['미수금'] || 0;
             const outstandingAmount = parseFloat(outstandingData) || 0;
-            const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['S'] || row['총액'] || 0);
+            const totalAmount = parseFloat(row['총액 2'] || row['총액2'] || row['총액'] || 0);
 
             if (outstandingAmount >= 0) {
               // 총액이 없는데 미수금이 0원인 경우 - 경고 아이콘 표시
@@ -881,7 +881,7 @@ export default class ProjectTable {
         }
 
         // 취소된 공사 체크 및 빨간 취소선 적용 (띄어쓰기 무시)
-        const collectionNotes = data['수금 관련 특이사항'] || data['AG'] || '';
+        const collectionNotes = data['수금 관련 특이사항'] || '';
         if (collectionNotes && /공사\s*취소/.test(collectionNotes)) {
           row.classList.add('project-cancelled-row');
         }
@@ -1235,7 +1235,7 @@ export default class ProjectTable {
    */
   calculateDynamicStatus(rowData) {
     // 공사 취소 여부 확인 (최우선, 띄어쓰기 무시)
-    const collectionNotes = rowData['수금 관련 특이사항'] || rowData['AG'] || '';
+    const collectionNotes = rowData['수금 관련 특이사항'] || '';
     if (collectionNotes && /공사\s*취소/.test(collectionNotes)) {
       return '공사취소';
     }
@@ -1248,10 +1248,10 @@ export default class ProjectTable {
     const midAmount = parseFloat(rowData['중도금'] || 0);
     const finalAmount = parseFloat(rowData['잔금'] || 0);
     const outstandingAmount = parseFloat(rowData['미수금'] || 0);
-    const totalAmount = parseFloat(rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0);
+    const totalAmount = parseFloat(rowData['총액 2'] || rowData['총액2'] || rowData['총액'] || 0);
 
     // 수금 확인 (Z열)
-    const paymentConfirmed = rowData['수금 확인'] || rowData['Z'] || '';
+    const paymentConfirmed = rowData['수금 확인'] || '';
     const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' ||
                               paymentConfirmed === '✓' || paymentConfirmed === 'true' ||
                               paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||

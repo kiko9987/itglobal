@@ -63,7 +63,7 @@ export default class StatusBadge extends BaseBadge {
     }
 
     // 공사 취소 여부 확인 (최우선, 띄어쓰기 무시)
-    const collectionNotes = projectData['수금 관련 특이사항'] || projectData['AG'] || '';
+    const collectionNotes = projectData['수금 관련 특이사항'] || '';
     if (collectionNotes && /공사\s*취소/.test(collectionNotes)) {
       return '공사취소';
     }

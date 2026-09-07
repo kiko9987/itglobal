@@ -13,7 +13,7 @@ export default class ProjectStatusCalculator {
    */
   static calculateStatus(rowData) {
     // 공사 취소 여부 확인 (최우선, 띄어쓰기 무시)
-    const collectionNotes = rowData['수금 관련 특이사항'] || rowData['AG'] || '';
+    const collectionNotes = rowData['수금 관련 특이사항'] || '';
     if (collectionNotes && /공사\s*취소/.test(collectionNotes)) {
       return '공사취소';
     }
@@ -26,10 +26,10 @@ export default class ProjectStatusCalculator {
     const midAmount = AmountCalculator.safeParseCurrency(rowData['중도금'] || 0);
     const finalAmount = AmountCalculator.safeParseCurrency(rowData['잔금'] || 0);
     const outstandingAmount = AmountCalculator.safeParseCurrency(rowData['미수금'] || 0);
-    const totalAmount = AmountCalculator.safeParseCurrency(rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0);
+    const totalAmount = AmountCalculator.safeParseCurrency(rowData['총액 2'] || rowData['총액2'] || rowData['총액'] || 0);
 
     // 수금 확인 (Z열)
-    const paymentConfirmed = rowData['수금 확인'] || rowData['Z'] || '';
+    const paymentConfirmed = rowData['수금 확인'] || '';
     const isPaymentConfirmed = (paymentConfirmed === true || paymentConfirmed === 'TRUE' ||
                               paymentConfirmed === '✓' || paymentConfirmed === 'true' ||
                               paymentConfirmed === 'Y' || paymentConfirmed === 'y' ||

@@ -462,7 +462,7 @@ export default class MobileCardView {
   createCard(data, index) {
     const projectCode = data['프로젝트 코드'] || '';
     const status = data['공사상태'] || '';
-    const totalAmount = parseFloat(data['총액 2'] || data['총액2'] || data['S'] || 0);
+    const totalAmount = parseFloat(data['총액 2'] || data['총액2'] || 0);
     const outstanding = parseFloat(data['미수금'] || 0);
 
     // 컬럼 클래스 결정

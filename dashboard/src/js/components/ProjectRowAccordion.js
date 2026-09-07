@@ -838,7 +838,7 @@ export default class ProjectRowAccordion {
    */
   generateFinancialInfoCard(projectCode, rowData) {
     // 총액2는 API에서 받은 값을 그대로 사용 (재계산하지 않음)
-    const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0;
+    const totalAmount = rowData['총액 2'] || rowData['총액2'] || rowData['총액'] || 0;
     const total2Value = parseFloat(totalAmount) || 0;
     // 총액2 값 설정
 
@@ -1324,7 +1324,7 @@ export default class ProjectRowAccordion {
   }
 
   generateDocumentSection(rowData) {
-    const localPath = (rowData['견적서 및 계약서 폴더 경로'] || rowData['AK'] || '').trim();
+    const localPath = (rowData['견적서 및 계약서 폴더 경로'] || '').trim();
     const projectCode = rowData['프로젝트 코드'];
 
     return `
@@ -3254,7 +3254,7 @@ export default class ProjectRowAccordion {
 
   isProjectCancelled(projectData) {
     if (!projectData) return false;
-    const notes = projectData['수금 관련 특이사항'] || projectData['AG'] || '';
+    const notes = projectData['수금 관련 특이사항'] || '';
     return typeof notes === 'string' && /공사\s*취소/.test(notes);
   }
 
@@ -3728,7 +3728,7 @@ export default class ProjectRowAccordion {
   formatBillStatus(rowData) {
     // 뱃지 형식으로 통일 (2026-07-14) — 부가세 뱃지와 시각적 통일.
     // 미발행/발행완료/현금(N입금)/부분 발행 등을 색으로 구분.
-    const billValue = rowData['계산서'] ?? rowData['X'] ?? '';
+    const billValue = rowData['계산서'] ?? '';
     let displayValue = billValue;
     if (billValue === true || billValue === 'TRUE' || billValue === '✓' || billValue === 'true') {
       displayValue = '발행완료';
@@ -4426,7 +4426,7 @@ export default class ProjectRowAccordion {
         name: '총액 2',
         type: 'currency',
         calculator: () => this.calculateTotal2(rowData),
-        original: rowData['총액 2'] || rowData['총액2'] || rowData['S'] || 0
+        original: rowData['총액 2'] || rowData['총액2'] || 0
       },
       {
         name: '미수금',
@@ -4512,7 +4512,7 @@ export default class ProjectRowAccordion {
   }
 
   calculateOutstandingAmountValue(rowData) {
-    const total = parseFloat(rowData['총액 2'] || rowData['총액2'] || rowData['S'] || rowData['총액'] || 0);
+    const total = parseFloat(rowData['총액 2'] || rowData['총액2'] || rowData['총액'] || 0);
     const contract = parseFloat(rowData['계약금'] || 0);
     const interim = parseFloat(rowData['중도금'] || 0);
     const final = parseFloat(rowData['잔금'] || 0);
