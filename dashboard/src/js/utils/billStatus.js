@@ -96,3 +96,56 @@ export function computeBillStages(billValue, amounts) {
 
   return result; // 미지 토큰 → 표시 없음
 }
+
+// ─────────────────────────────────────────────────────────────
+// (2026-09-07) 단계별 컬럼(Z/AA/AB) = source of truth 로 전환.
+//   계약금 계산서 / 중도금 계산서 / 잔금 계산서 각 셀 = 일반/N입금/카드/미발행/혼합/공란.
+//   Y(계산서)는 하위호환 롤업으로만 유지.
+// ─────────────────────────────────────────────────────────────
+
+export const BILL_STAGE_COL = {
+  '계약금': '계약금 계산서',
+  '중도금': '중도금 계산서',
+  '잔금': '잔금 계산서',
+};
+
+function normalizeToken(t) {
+  const s = String(t == null ? '' : t).trim();
+  if (s === '카드결제') return '카드';
+  return s; // 일반 / N입금 / 카드 / 미발행 / 혼합 / ''
+}
+
+/**
+ * 단계별 컬럼 우선으로 상태 계산. 컬럼 비었으면 금액>0→미발행.
+ * 3열 전부 비었는데 Y에 값 있으면 레거시 Y 파싱 폴백(미마이그레이션·구경로 방어).
+ * @returns {{계약금:string, 중도금:string, 잔금:string}}
+ */
+export function computeBillStagesFromColumns(row) {
+  const result = { 계약금: 'none', 중도금: 'none', 잔금: 'none' };
+  let anyCol = false;
+  BILL_STAGES.forEach((s) => {
+    const v = normalizeToken(row && row[BILL_STAGE_COL[s]]);
+    if (v) { result[s] = v; anyCol = true; }
+    else if (toNum(row && row[s]) > 0) { result[s] = '미발행'; }
+  });
+  if (!anyCol) {
+    const y = String((row && row['계산서']) == null ? '' : row['계산서']).trim();
+    if (y && y !== '미발행' && y !== '-') {
+      return computeBillStages(y, row);
+    }
+  }
+  return result;
+}
+
+/**
+ * 단계별 상태 → Y(계산서) 롤업 문자열 (하위호환·필터용).
+ *   일반/N입금/카드 있는 단계는 "카테고리-단계" 로, 전부 미발행/none 이면 '미발행'.
+ */
+export function rollupBillStages(stages) {
+  const parts = [];
+  BILL_STAGES.forEach((s) => {
+    const v = normalizeToken(stages && stages[s]);
+    if (v && v !== 'none' && v !== '미발행') parts.push(`${v}-${s}`);
+  });
+  return parts.length ? parts.join(', ') : '미발행';
+}

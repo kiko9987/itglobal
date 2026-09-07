@@ -18,7 +18,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
-import { computeBillStages } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, rollupBillStages, BILL_STAGE_COL } from '../utils/billStatus.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -955,7 +955,7 @@ export default class ProjectRowAccordion {
     };
 
     // 계산서 단계별 상태 (금액 결합: 입금됐는데 미발행이면 ⚠️)
-    const billStages = computeBillStages(rowData['계산서'], rowData);
+    const billStages = computeBillStagesFromColumns(rowData);
 
     // 메모 버튼 HTML 생성 (FieldMemoButton이 초기화되어 있을 때만)
     // UX 개선: 아코디언 내부에서는 항상 메모 버튼 표시 (금액 입력 중일 수 있음)
@@ -7339,6 +7339,23 @@ export default class ProjectRowAccordion {
   }
 
   updateBillStatusSelection(billStageCheckboxes, billSpecialCheckbox, selectedText, fieldName) {
+    // ── 단계별 컬럼(source of truth) 갱신 (2026-09-07) ──
+    // 체크된 카테고리를 각 단계 계산서 컬럼(Z/AA/AB)에 기록. 미발행/미선택 단계 → ''
+    // (렌더러가 금액 있으면 미발행 ⚠️ 처리). Y(계산서)는 아래에서 하위호환 롤업으로 유지.
+    const stageCat = { 계약금: '', 중도금: '', 잔금: '' };
+    const mibalhaeng = !!(billSpecialCheckbox && billSpecialCheckbox.checked);
+    if (!mibalhaeng) {
+      billStageCheckboxes.forEach((cb) => {
+        if (cb.checked) stageCat[cb.value] = cb.dataset.category; // 일반/N입금/카드
+      });
+    }
+    if (this.editState && this.editState.isActive) {
+      Object.keys(BILL_STAGE_COL).forEach((stage) => {
+        this.editState.updateField(BILL_STAGE_COL[stage], stageCat[stage] || '');
+      });
+    }
+
+    // ── Y(계산서) 롤업 — 하위호환·필터용 ──
     // 미발행 체크 여부 확인
     if (billSpecialCheckbox && billSpecialCheckbox.checked) {
       selectedText.textContent = '미발행';

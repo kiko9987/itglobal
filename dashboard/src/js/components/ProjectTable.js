@@ -12,7 +12,7 @@ import { getGlobalModeManager } from '../utils/globalModeManager.js';
 import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 import logger from '../utils/logger.js';
-import { computeBillStages } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns } from '../utils/billStatus.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -93,7 +93,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     '-';
 
   // 계산서 단계별 상태 → 아이콘 (금액 결합: 입금됐는데 미발행이면 ⚠️)
-  const billStages = computeBillStages(row['계산서'], row);
+  const billStages = computeBillStagesFromColumns(row);
   const billIcon = getStageBillIconForTable(billStages[stage]);
 
   // 3단계 시각화: 금액 없음 / 메모 없음(경고) / 메모 있음(정상)
