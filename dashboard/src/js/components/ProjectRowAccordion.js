@@ -929,7 +929,7 @@ export default class ProjectRowAccordion {
     const iconMap = {
       '발행': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
       '일반': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
-      'N입금': { icon: 'fas fa-sack-dollar text-secondary', label: '현금 입금 (세금계산서 불필요)' },
+      'N입금': { icon: 'fas fa-sack-dollar text-secondary', label: '현금 입금 (계산서 불필요)' },
       '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제 (영수증 자동)' },
       '미발행': { icon: 'fas fa-exclamation-triangle text-danger', label: '수금완료 · 세금계산서 미발행 (요청 필요)' },
       // '발행예정'(진행중·수금완료 전)은 액션 불필요 → 아이콘 미표시(노이즈 제거). Y요약 로직엔 유지.
