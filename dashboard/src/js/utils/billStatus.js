@@ -195,11 +195,13 @@ export function computeYSummary(stages, row) {
   const isUninv = (s) => vals[s] === '' || vals[s] === '미발행'; // 금액 있는데 계산서 없음
   let status;
   if (paid.some(isUninv)) status = '미발행';
-  else if (paid.some((s) => vals[s] === '확인필요')) status = '혼합';
   else if (paid.some((s) => vals[s] === '발행')) status = '발행완료';
-  else if (paid.every((s) => vals[s] === '카드')) status = '카드결제';
-  else if (paid.every((s) => vals[s] === 'N입금')) status = 'N입금';
-  else status = '혼합'; // 현금+카드 혼재
+  else if (paid.some((s) => vals[s] === '확인필요')) status = '혼합'; // 미해결(드묾)
+  else {
+    // 방법만 있고 발행 없음 → 마지막 입금단계(앵커)의 방법으로 (현금+카드 섞여도, 상세는 3열).
+    const m = vals[anchor];
+    status = m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '혼합';
+  }
   return `${anchor} - ${status}`;
 }
 

@@ -11950,16 +11950,14 @@ def _bill_y_summary(stage_vals, amt):
     vals = {s: _bill_norm_token(stage_vals.get(s)) for s in _BILL_STAGES}
     if any(vals[s] in ('', '미발행') for s in paid):
         status = '미발행'
-    elif any(vals[s] == '확인필요' for s in paid):
-        status = '혼합'
     elif any(vals[s] == '발행' for s in paid):
         status = '발행완료'
-    elif all(vals[s] == '카드' for s in paid):
-        status = '카드결제'
-    elif all(vals[s] == 'N입금' for s in paid):
-        status = 'N입금'
+    elif any(vals[s] == '확인필요' for s in paid):
+        status = '혼합'  # 미해결(드묾)
     else:
-        status = '혼합'
+        # 방법만 있고 발행 없음 → 마지막 입금단계(앵커)의 방법으로 (현금+카드 섞여도)
+        m = vals[anchor]
+        status = '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '혼합'
     return f'{anchor} - {status}'
 
 
