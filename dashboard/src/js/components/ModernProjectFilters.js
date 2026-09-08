@@ -1009,7 +1009,7 @@ export default class ModernProjectFilters {
   populateInvoiceFilter(data) {
     if (!this.invoiceFilter || !data || !Array.isArray(data)) return;
 
-    // Y="{단계} - {상태}"라 상태 부분만 옵션으로 (발행완료/미발행/N입금/카드결제/혼합).
+    // Y="{단계} - {상태}"라 상태 부분만 옵션으로 (미발행/발행완료/N입금/카드결제/기타).
     const invoiceSet = new Set();
     data.forEach(item => {
       const status = String(item['계산서'] || '').trim().split(' - ').pop().trim();
@@ -1020,7 +1020,12 @@ export default class ModernProjectFilters {
     while (this.invoiceFilter.children.length > 1) {
       this.invoiceFilter.removeChild(this.invoiceFilter.lastChild);
     }
-    const sorted = Array.from(invoiceSet).sort((a, b) => a.localeCompare(b, 'ko'));
+    // 의미 순서 고정 (가나다순 대신): 미발행(요청필요) → 발행완료 → 현금 → 카드 → 기타
+    const ORDER = ['미발행', '발행완료', 'N입금', '카드결제', '기타'];
+    const sorted = Array.from(invoiceSet).sort((a, b) => {
+      const ia = ORDER.indexOf(a); const ib = ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b, 'ko');
+    });
     sorted.forEach(value => {
       const option = document.createElement('option');
       option.value = value;
