@@ -18,21 +18,21 @@ export default class InvoiceBadge extends BaseBadge {
 
     // 부가세 뱃지와 동일 톤(부트스트랩 subtle). 미발행 = 부가세 '미포함'과 완전 동일.
     this.categoryConfig = {
-      'none': {       // 그냥 미발행/없음 → 부가세 미포함과 동일
+      'none': {       // 그냥 미발행 → 빨강 (최초 색)
         cssClass: 'invoice-none',
-        style: 'background-color: #f8f9fa; color: #6c757d;',
+        style: 'background-color: #f8d7da; color: #842029;',
       },
-      'unissued': {   // {단계} - 미발행 → 부가세 미포함과 동일
+      'unissued': {   // {단계} - 미발행(입금됨, 계산서 안 끊김) → 빨강 (알람)
         cssClass: 'invoice-unissued',
-        style: 'background-color: #f8f9fa; color: #6c757d;',
+        style: 'background-color: #f8d7da; color: #842029;',
       },
       'issued': {     // 발행완료 → 초록
         cssClass: 'invoice-issued',
         style: 'background-color: #d1e7dd; color: #0f5132;',
       },
-      'cash': {       // N입금 → 빨강/분홍
+      'cash': {       // N입금 → 핑크 (미발행 빨강과 구분)
         cssClass: 'invoice-cash',
-        style: 'background-color: #f8d7da; color: #842029;',
+        style: 'background-color: #f6d5e8; color: #9c3573;',
       },
       'card': {       // 카드결제 → 보라
         cssClass: 'invoice-card',
