@@ -30,9 +30,9 @@ export default class InvoiceBadge extends BaseBadge {
         cssClass: 'invoice-issued',
         style: 'background-color: #d1e7dd; color: #0f5132;',
       },
-      'cash': {       // N입금 → 핑크 (미발행 빨강과 구분)
+      'cash': {       // N입금 → 핑크로 바꾸기 직전 색
         cssClass: 'invoice-cash',
-        style: 'background-color: #f6d5e8; color: #9c3573;',
+        style: 'background-color: #f8d7da; color: #842029;',
       },
       'card': {       // 카드결제 → 보라
         cssClass: 'invoice-card',
