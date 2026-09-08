@@ -201,7 +201,7 @@ def api_license_upload():
         except Exception as exc:
             logger.warning(f'[INVOICE] OCR 게이트 실패 (계속 저장): {exc}')
 
-    res = save_business_license(code, file_bytes, filename, mimetype)
+    res = save_business_license(code, file_bytes, filename, mimetype, ocr_biz=ocr_name)
     if not res.get('ok'):
         reason = res.get('reason', '')
         msg = {

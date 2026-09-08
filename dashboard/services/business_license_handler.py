@@ -296,11 +296,12 @@ def _guess_ext(filename: str, mimetype: str) -> str:
 
 
 def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype: str,
-                          parent_override: Optional[str] = None) -> dict:
+                          parent_override: Optional[str] = None, ocr_biz: str = '') -> dict:
     """사업자등록증 파일을 프로젝트 폴더에 저장.
 
     parent_override: 폴더 ID를 직접 지정(자동 재시도용). write-behind 시트 반영 지연을
         우회해 방금 등록된 폴더에 바로 저장하기 위함.
+    ocr_biz: 이 등록증의 OCR 상호(원문). 재사용 인덱스를 실제 상호로 키잉하기 위해 저장.
 
     Returns:
         {'ok': bool, 'reason': str, 'file_name': str, 'file_id': str}
@@ -382,7 +383,14 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
     ).execute()
     logger.info(f'[LICENSE] 저장 완료: {up["name"]} (project={code}, id={up["id"]})')
     invalidate_license_state(code)  # 상태 캐시 무효화 → PM 뱃지 즉시 최신 반영 (슬랙·PM 공통)
-    # 사업자명 재사용 인덱스 갱신 — 이후 같은 사업자명의 다른 공사가 이 등록증을 재사용(복사).
+    # 등록증 실제 상호(OCR) 저장 → 재사용 인덱스를 실제 상호로 키잉(거래처명 오전파 방지).
+    try:
+        _onb = _norm_biz(ocr_biz) if ocr_biz else ''
+        if _onb:
+            _set_file_biz(up['id'], _onb)
+    except Exception:
+        pass
+    # 재사용 인덱스 갱신 — 실제 상호 우선(미상이면 사업자명). 같은 상호의 다른 공사가 재사용.
     try:
         _index_license_source(_project_norm_biz(code), code, up['id'], ext)
     except Exception as exc:
@@ -487,6 +495,10 @@ def invalidate_license_state(code: str) -> None:
 # (거래처 blanket 예외 폐지 → 모든 공사에 등록증 필요. 사업자명 매칭되면 재사용, 아니면 차단.)
 # 이유: 인테리어 업체 경유라도 고객과 직접 금전 거래가 많아 프로젝트마다 각자 등록증이 필요.
 _BIZ_INDEX_KEY = 'license_biz_index'  # Redis hash: norm_biz -> {"code","file_id","ext"}
+# 등록증 파일의 '실제 상호'(OCR) 저장 — 재사용 인덱스를 사업자명이 아니라 등록증 실제 상호로
+# 키잉해, 인테리어 거래처(디자인성실한 등)에 최종고객 등록증(코나솔루션 등)이 올라가도
+# 그 거래처 이름으로 안 퍼지게 한다 (2026-09-08). Redis hash: file_id -> norm_biz.
+_BIZ_FILE_KEY = 'license_file_biz'
 _EXT_PRIORITY = {'pdf': 0, 'png': 1, 'jpg': 2, 'jpeg': 2, 'webp': 3, 'gif': 4, 'heic': 5}
 
 
@@ -526,14 +538,45 @@ def _project_norm_biz(code: str) -> str:
     return ''
 
 
+def _set_file_biz(file_id: str, norm_biz: str) -> None:
+    """등록증 파일의 실제 상호(OCR, 정규화) 저장 — 재사용 키잉·검증용."""
+    if not file_id or not norm_biz:
+        return
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.hset(_BIZ_FILE_KEY, file_id, norm_biz)
+    except Exception:
+        pass
+
+
+def _file_biz(file_id: str) -> str:
+    """등록증 파일의 실제 상호(OCR) 조회. 없으면 '' (미상)."""
+    if not file_id:
+        return ''
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        v = get_redis_client().redis.hget(_BIZ_FILE_KEY, file_id)
+        return (v.decode() if isinstance(v, bytes) else v) or ''
+    except Exception:
+        return ''
+
+
 def _index_license_source(norm_biz: str, code: str, file_id: str, ext: str) -> None:
-    """이 프로젝트를 해당 사업자명의 등록증 '원본 소스'로 인덱싱 (재사용 복사 출처)."""
-    if not norm_biz or not file_id:
+    """이 프로젝트를 등록증 '원본 소스'로 인덱싱 (재사용 복사 출처).
+
+    **키 = 등록증의 실제 상호(OCR)** 우선 — 미상이면 사업자명(norm_biz)으로 폴백.
+    (인테리어 거래처 프로젝트에 최종고객 등록증이 올라가도, 그 등록증 실제 상호로만
+     인덱싱돼 거래처 이름으로 안 퍼진다. 실제 상호는 업로드 시 _set_file_biz 로 저장.)
+    """
+    if not file_id:
+        return
+    key = _file_biz(file_id) or norm_biz
+    if not key:
         return
     try:
         from dashboard.utils.redis_client import get_redis_client
         get_redis_client().redis.hset(
-            _BIZ_INDEX_KEY, norm_biz,
+            _BIZ_INDEX_KEY, key,
             json.dumps({'code': code, 'file_id': file_id, 'ext': ext}, ensure_ascii=False))
     except Exception:
         pass
@@ -1031,7 +1074,8 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
                     f'(neg={_an.get("doc_negative")} card={_an.get("is_card")} text={_an.get("has_text")})')
                 continue
 
-            res = save_business_license(code, content, name, mimetype)
+            res = save_business_license(code, content, name, mimetype,
+                                        ocr_biz=(_an.get('name') or ''))
             if res.get('ok'):
                 saved.append(res['file_name'])
                 if ocr_result is None:
