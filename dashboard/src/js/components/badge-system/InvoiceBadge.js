@@ -16,30 +16,31 @@ export default class InvoiceBadge extends BaseBadge {
   constructor() {
     super();
 
+    // 파스텔 톤(연한 배경 + 중간 텍스트) — PM 사이트 다른 뱃지와 통일.
     this.categoryConfig = {
-      'none': {       // 그냥 미발행/없음 → 흰색·연한 회색
+      'none': {       // 그냥 미발행/없음 → 거의 흰색
         cssClass: 'invoice-none',
-        style: 'background-color: #f3f3f3; color: #999999;',
+        style: 'background-color: #fbfbfc; color: #aeb4bb;',
       },
-      'unissued': {   // {단계} - 미발행 → 회색
+      'unissued': {   // {단계} - 미발행 → 연한 회색 (부가세 '미포함'과 동일)
         cssClass: 'invoice-unissued',
-        style: 'background-color: #d9d9d9; color: #434343;',
+        style: 'background-color: #f8f9fa; color: #6c757d;',
       },
-      'issued': {     // 발행완료 → 초록
+      'issued': {     // 발행완료 → 연한 초록
         cssClass: 'invoice-issued',
-        style: 'background-color: #d9ead3; color: #38761d;',
+        style: 'background-color: #e7f5e8; color: #3f9142;',
       },
-      'cash': {       // N입금 → 빨강/분홍
+      'cash': {       // N입금 → 연한 빨강/분홍
         cssClass: 'invoice-cash',
-        style: 'background-color: #f4cccc; color: #990000;',
+        style: 'background-color: #fdeceb; color: #c65c5c;',
       },
-      'card': {       // 카드결제 → 보라
+      'card': {       // 카드결제 → 연한 보라
         cssClass: 'invoice-card',
-        style: 'background-color: #d9d2e9; color: #674ea7;',
+        style: 'background-color: #f1ebfa; color: #8368c4;',
       },
-      'other': {      // 기타 → 노랑
+      'other': {      // 기타 → 연한 노랑
         cssClass: 'invoice-other',
-        style: 'background-color: #fff2cc; color: #7f6000;',
+        style: 'background-color: #fdf7e4; color: #b48a2c;',
       },
     };
   }
