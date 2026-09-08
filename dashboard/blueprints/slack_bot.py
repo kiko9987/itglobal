@@ -11948,19 +11948,14 @@ def _bill_y_summary(stage_vals, amt):
     active = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0 or vals[s]]
     if not active:
         return '미발행'  # 입금·계산서 둘 다 없음 → 미발행 통일
+    # 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람)
+    uninv = [s for s in active if _bill_to_num(amt.get(s)) > 0 and vals[s] in ('', '미발행')]
+    if uninv:
+        return f'{uninv[-1]} - 미발행'
+    # 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로
     anchor = active[-1]
-    # 미발행 = 입금됐는데(amt>0) 계산서 없음 (계산서 선발행=amt0+발행 은 미발행 아님)
-    def _uninv(s):
-        return _bill_to_num(amt.get(s)) > 0 and vals[s] in ('', '미발행')
-    if any(_uninv(s) for s in active):
-        status = '미발행'
-    elif any(vals[s] == '발행' for s in active):
-        status = '발행완료'
-    elif any(vals[s] == '기타' for s in active):
-        status = '기타'  # 특이 정산
-    else:
-        m = vals[anchor]
-        status = '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '기타'
+    m = vals[anchor]
+    status = '발행완료' if m == '발행' else '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '기타'
     return f'{anchor} - {status}'
 
 
