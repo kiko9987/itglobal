@@ -456,6 +456,18 @@ _LICENSE_STATE_TTL = 30 * 24 * 3600  # 등록증 상태 캐시 (30일=사실상 
 # 백그라운드 워머(warm_license_states)가 시작·주기적으로 미리 채워 '첫 조회'도 즉시.
 # (30일 TTL 은 앱 밖 수동 Drive 조작 같은 예외 상황의 자동 자가치유 안전망.)
 
+# 음성(exists=False) 결과는 짧게만 캐시 (2026-09-08).
+#   exists=False/source=None 은 사업자명 변경·거래처 탭 신규 등록으로 '통과(reuse/partner)'로
+#   뒤집힐 수 있는데, 이 두 벡터는 invalidate 훅이 없다(무효화는 파일 업로드/삭제/복사뿐).
+#   30일 음성 캐시가 굳으면 거래처 탭에 상호가 추가돼도 계산서 요청이 계속 반려됨
+#   (G2755-YM 외 7건 '주식회사 엠제이디앤엠' 오반려 사고). 음성은 1시간만 캐시해 자가치유.
+_LICENSE_STATE_NEG_TTL = 3600  # 등록증 '없음' 상태 캐시 (1시간, 사업자명·거래처 변경 자가치유).
+
+
+def _license_state_ttl(state: dict) -> int:
+    """상태별 캐시 TTL — 있음=길게(30일), 없음=짧게(1시간, 자가치유)."""
+    return _LICENSE_STATE_TTL if (state or {}).get('exists') else _LICENSE_STATE_NEG_TTL
+
 
 def _license_state_key(code: str) -> str:
     return f'license_state:{code}'
@@ -638,7 +650,8 @@ def get_license_state(code: str, use_cache: bool = True) -> dict:
                 pass
     try:
         from dashboard.utils.redis_client import get_redis_client
-        get_redis_client().redis.setex(_license_state_key(code), _LICENSE_STATE_TTL, json.dumps(state))
+        get_redis_client().redis.setex(
+            _license_state_key(code), _license_state_ttl(state), json.dumps(state))
     except Exception:
         pass
     return state
@@ -744,7 +757,7 @@ def warm_license_states(throttle: float = 0.15, limit: Optional[int] = None) -> 
     def _cache(code, st):
         if rc is not None:
             try:
-                rc.setex(_license_state_key(code), _LICENSE_STATE_TTL, json.dumps(st))
+                rc.setex(_license_state_key(code), _license_state_ttl(st), json.dumps(st))
             except Exception:
                 pass
 
