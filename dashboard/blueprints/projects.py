@@ -2149,6 +2149,8 @@ def _prepare_project_defaults(data, row_number):
         '공사 내용', '도급 구분', '시공자', '유입 구분',
         '수금 관련 특이사항', '계약금 입금자명', '중도금 입금자명', '잔금 입금자명',
         '견적서 및 계약서 폴더 경로',
+        # 계산서 3열: 신규는 미입금이라 '-'(빈칸/해당없음). 입금 시 자동채움이 미발행/카드/N입금으로.
+        '계약금 계산서', '중도금 계산서', '잔금 계산서',
     ]
     for field in text_fields_to_dash:
         if field in _excluded_fields:
