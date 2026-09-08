@@ -1626,6 +1626,27 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
             return False, old_num, new_num, "금액 기록 실패"
 
+        # 3) Y(계산서) 요약 재계산 — 입금이 계산서 상태에 반영되게(예: 계약금 입금→'계약금 - 미발행').
+        #    3열 토큰 + U/V/W 금액으로 _bill_y_summary. update_cell_value=values.update라 Y 노트 보존.
+        try:
+            f2l = manager.get_field_to_letter()
+            _scol = {s: f2l.get(f'{s} 계산서') for s in _BILL_STAGES}
+            _acol = {s: f2l.get(s) for s in _BILL_STAGES}
+            _ycol = f2l.get('계산서')
+            if _ycol and all(_scol.values()) and all(_acol.values()):
+                _tok = {s: (manager.get_cell_value(sheet_id, sheet_name, f"{_scol[s]}{row}") or '')
+                        for s in _BILL_STAGES}
+                _amt = {s: (new_num if s == stage
+                            else _bill_to_num(manager.get_cell_value(sheet_id, sheet_name, f"{_acol[s]}{row}")))
+                        for s in _BILL_STAGES}
+                _new_y = _bill_y_summary(_tok, _amt)
+                _old_y = (manager.get_cell_value(sheet_id, sheet_name, f"{_ycol}{row}") or '').strip()
+                if _new_y != _old_y:
+                    manager.update_cell_value(sheet_id, sheet_name, f"{_ycol}{row}", _new_y)
+                    logger.info(f"[SLACK/수금봇] Y 재계산: {project_code} {_old_y!r} → {_new_y!r}")
+        except Exception as _yexc:
+            logger.warning(f"[SLACK/수금봇] Y 재계산 실패(무시, 값·노트는 기록됨): {_yexc}")
+
     try:
         from dashboard.utils.cache_invalidation import smart_invalidate
         smart_invalidate(f"cell_notes_{sheet_id}")

@@ -142,13 +142,18 @@ export function computeBillStagesFromColumns(row) {
   const result = { 계약금: 'none', 중도금: 'none', 잔금: 'none' };
   // 수금완료(미수금0 자동 or 수금확인)면 미발행='미발행'(⚠️ 요청 필요), 진행중이면 '발행예정'🕒(조용)
   const uninvoiced = isFullyCollected(row) ? '미발행' : '발행예정';
+  // covered('-')는 그 행에 실제 '발행'이 있을 때만 유효(전체발행 한 장에 포함됨). '발행' 없이
+  // '-'만 있으면 빈칸처럼 취급 → 입금 시 미발행으로 잡음 (Y요약 _bill_y_summary와 동일 규칙).
+  const hasIssued = BILL_STAGES.some((s) => normalizeToken(
+    String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim()) === '발행');
   let anyCol = false;
   BILL_STAGES.forEach((s) => {
     const raw = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
     const v = normalizeToken(raw);
     if (v) { result[s] = (v === '미발행') ? uninvoiced : v; anyCol = true; }
-    else if (raw === '-') { anyCol = true; /* 명시적 '-' = 계산서 불필요/전체발행 포함(covered) → none, ⚠️ 아님 */ }
-    else if (toNum(row && row[s]) > 0) { result[s] = uninvoiced; }
+    else if (raw === '-' && hasIssued) { anyCol = true; /* covered = 전체발행 포함(발행됨) → none, ⚠️ 아님 */ }
+    else if (toNum(row && row[s]) > 0) { result[s] = uninvoiced; } // 빈칸·covered아닌'-' + 입금 = 미발행
+    else if (raw === '-') { anyCol = true; /* 발행없는 '-'+금액0 = 표시할 것 없음 */ }
   });
   if (!anyCol) {
     const y = String((row && row['계산서']) == null ? '' : row['계산서']).trim();
