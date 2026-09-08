@@ -1639,7 +1639,13 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                 _amt = {s: (new_num if s == stage
                             else _bill_to_num(manager.get_cell_value(sheet_id, sheet_name, f"{_acol[s]}{row}")))
                         for s in _BILL_STAGES}
-                _new_y = _bill_y_summary(_tok, _amt)
+                # 수금완료 판정: 미수금≈0(총액2>0·입금>0) 또는 수금확인 체크
+                _t2c = f2l.get('총액 2'); _ckc = f2l.get('수금 확인')
+                _t2 = _bill_to_num(manager.get_cell_value(sheet_id, sheet_name, f"{_t2c}{row}")) if _t2c else 0
+                _paid = sum(_amt.values())
+                _coll = ((_t2 > 0 and _paid > 0 and abs(_t2 - _paid) < 1)
+                         or _bill_is_collected(manager.get_cell_value(sheet_id, sheet_name, f"{_ckc}{row}") if _ckc else ''))
+                _new_y = _bill_y_summary(_tok, _amt, _coll)
                 _old_y = (manager.get_cell_value(sheet_id, sheet_name, f"{_ycol}{row}") or '').strip()
                 if _new_y != _old_y:
                     manager.update_cell_value(sheet_id, sheet_name, f"{_ycol}{row}", _new_y)
@@ -12012,11 +12018,13 @@ def _bill_is_collected(v):
     return v is True or v in ('TRUE', 'true', 1, '1')
 
 
-def _bill_y_summary(stage_vals, amt):
-    """단계별 값 → Y "{마지막 입금단계} - {상태}" (billStatus.js computeYSummary 미러, 2026-09-07).
+def _bill_y_summary(stage_vals, amt, collected=False):
+    """단계별 값 → Y "{마지막 진행단계} - {상태}" (billStatus.js computeYSummary 미러).
 
-    stage_vals: {단계: 계산서토큰}, amt: {단계: 입금금액}. 앵커=금액>0 마지막 단계.
-    상태: 미발행 / 발행완료 / N입금 / 카드결제 / 혼합. 입금 없으면 '-'. ('발행중' 폐기)
+    stage_vals: {단계: 계산서토큰}, amt: {단계: 입금금액}, collected: 수금완료 여부.
+    앵커=마지막 진행단계. 상태: 미발행/발행완료/N입금/카드결제/기타.
+    **수금완료 + 마지막 진행단계 발행 = 전체발행 완료 간주** → 앞 단계 미발행 무시(계약금 미발행 알림 X).
+    마지막 단계가 아직 미발행이면 전체발행 아님 → 미발행 우선 노출(단계별 대응).
     """
     raw = {s: str(stage_vals.get(s) if stage_vals.get(s) is not None else '').strip() for s in _BILL_STAGES}
     vals = {s: _bill_norm_token(stage_vals.get(s)) for s in _BILL_STAGES}
@@ -12028,12 +12036,16 @@ def _bill_y_summary(stage_vals, amt):
     active = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0 or vals[s]]
     if not active:
         return '미발행'  # 입금·계산서 둘 다 없음 → 미발행 통일
+    anchor = active[-1]
+    anchor_invoiced = vals[anchor] == '발행' or cov[anchor]
+    # 수금완료 + 마지막 진행단계 발행 = 전체발행 완료 → 앞 미발행 무시
+    if collected and anchor_invoiced:
+        return f'{anchor} - 발행완료'
     # 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람). covered 제외.
     uninv = [s for s in active if _bill_to_num(amt.get(s)) > 0 and vals[s] in ('', '미발행') and not cov[s]]
     if uninv:
         return f'{uninv[-1]} - 미발행'
     # 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로 (covered 앵커 = 발행완료)
-    anchor = active[-1]
     m = vals[anchor]
     status = '발행완료' if (m == '발행' or cov[anchor]) else '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '기타'
     return f'{anchor} - {status}'
@@ -12136,10 +12148,13 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
             logger.info(f"[SLACK/계산서] 자동기록 — 변경 없음 ({code} {selected} full={full})")
             return
         # Y(계산서) 요약 재계산 후 기록 (values.update → 셀 노트 보존)
+        #   수금완료(미수금≈0 or 수금확인) + 마지막단계 발행이면 전체발행 완료로 앞 미발행 무시
+        _paid_sum = sum(_bill_to_num(amt.get(s)) for s in _BILL_STAGES)
+        _coll = collected or (total2 > 0 and _paid_sum > 0 and abs(total2 - _paid_sum) < 1)
         col_y = f2l.get('계산서')
         if col_y:
             manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
-                                      _bill_y_summary(cur, amt))
+                                      _bill_y_summary(cur, amt, _coll))
         # 프로젝트 데이터 캐시 무효화 (Z/AA/AB·Y 변경 반영)
         try:
             from dashboard.utils.smart_cache_manager import (
