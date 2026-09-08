@@ -145,19 +145,21 @@ export function computeBillStagesFromColumns(row) {
   // covered('-')는 그 행에 실제 '발행'이 있을 때만 유효(전체발행 한 장에 포함됨). '발행' 없이
   // '-'만 있으면 빈칸처럼 취급 → 입금 시 미발행으로 잡음 (Y요약 _bill_y_summary와 동일 규칙).
   const rawOf = (s) => String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
-  // '-' = 빈칸/해당없음 (시트 관례). 전체발행 포함(covered)은 '발행'으로 통일 — '-'에 특수의미 없음.
-  // 마지막 진행단계가 발행 + 수금완료면 전체발행 완료 → 앞 단계 미발행은 표시 안 함(⚠️ 아님).
+  const hasIssued = BILL_STAGES.some((s) => normalizeToken(rawOf(s)) === '발행');
+  // 마지막 진행단계(입금 or 계산서 토큰). 수금완료 + 그 단계가 발행이면 전체발행 완료 → 앞 미발행 covered.
   const active = BILL_STAGES.filter((s) => toNum(row && row[s]) > 0 || normalizeToken(rawOf(s)));
   const anchor = active.length ? active[active.length - 1] : null;
-  const anchorInvoiced = anchor && normalizeToken(rawOf(anchor)) === '발행';
+  const anchorInvoiced = anchor && (normalizeToken(rawOf(anchor)) === '발행' || (rawOf(anchor) === '-' && hasIssued));
   const fullDone = isFullyCollected(row) && anchorInvoiced;
   let anyCol = false;
   BILL_STAGES.forEach((s) => {
     const raw = rawOf(s);
-    const v = normalizeToken(raw); // '-'→'' (빈칸)
+    const v = normalizeToken(raw);
+    // 전체발행 완료면 앞 단계 미발행/빈칸은 covered(none) — ⚠️ 안 뜸
     if (v) { result[s] = (v === '미발행') ? (fullDone ? 'none' : uninvoiced) : v; anyCol = true; }
-    else if (toNum(row && row[s]) > 0) { result[s] = fullDone ? 'none' : uninvoiced; } // 빈칸/- + 입금 = 미발행(전체발행완료면 none)
-    else if (raw === '-') { anyCol = true; /* '-'(빈칸) + 금액0 = 표시할 값 없음 */ }
+    else if (raw === '-' && hasIssued) { anyCol = true; /* covered = 전체발행 포함(발행됨) → none, ⚠️ 아님 */ }
+    else if (toNum(row && row[s]) > 0) { result[s] = fullDone ? 'none' : uninvoiced; } // 빈칸+입금: 전체발행완료면 covered, 아니면 미발행
+    else if (raw === '-') { anyCol = true; /* 발행없는 '-'+금액0 = 표시할 것 없음 */ }
   });
   if (!anyCol) {
     const y = String((row && row['계산서']) == null ? '' : row['계산서']).trim();
@@ -195,24 +197,32 @@ export function rollupBillStages(stages) {
  */
 export function computeYSummary(stages, row) {
   const amt = {};
-  BILL_STAGES.forEach((s) => { amt[s] = toNum(row && row[s]); });
+  const rawCol = {};
+  BILL_STAGES.forEach((s) => {
+    amt[s] = toNum(row && row[s]);
+    rawCol[s] = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
+  });
   const vals = {};
-  BILL_STAGES.forEach((s) => { vals[s] = normalizeToken(stages && stages[s]); }); // '-'→'' (빈칸)
-  // '-' = 빈칸/해당없음. 전체발행 포함(covered)은 '발행'으로 통일 — '-'에 특수의미 없음.
+  BILL_STAGES.forEach((s) => { vals[s] = normalizeToken(stages && stages[s]); });
+  // covered('-') = 전체발행 한 장에 포함되어 발행된 단계. 같은 행에 실제 '발행'이 있으면
+  //   covered도 발행완료로 취급(미발행 아님). '발행' 없이 '-'만 있으면 애매 → 빈칸 취급.
+  const hasIssued = BILL_STAGES.some((s) => vals[s] === '발행' || rawCol[s] === '발행' || rawCol[s] === '일반');
+  const cov = {};
+  BILL_STAGES.forEach((s) => { cov[s] = rawCol[s] === '-' && hasIssued; });
   // active = 입금됐거나(amt>0) 계산서 토큰이 있는 단계 (입금 전 계산서 선발행 케이스 포함)
   const active = BILL_STAGES.filter((s) => amt[s] > 0 || vals[s]);
   if (!active.length) return '미발행'; // 입금도 계산서도 없음 → 미발행(앵커 없음, ⚠️ 아님)
   const anchor = active[active.length - 1];
-  const anchorInvoiced = vals[anchor] === '발행';
+  const anchorInvoiced = vals[anchor] === '발행' || cov[anchor];
   // 수금완료 + 마지막 진행단계 발행 = 전체발행 완료로 간주 → 앞 단계 미발행 무시(계약금 미발행 알림 X).
   //   마지막 단계가 아직 미발행이면 전체발행 아님 → 아래 미발행 우선 로직으로 정당하게 노출(단계별 대응).
   if (isFullyCollected(row) && anchorInvoiced) return `${anchor} - 발행완료`;
-  // 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람).
-  const uninv = active.filter((s) => amt[s] > 0 && (vals[s] === '' || vals[s] === '미발행'));
+  // 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람). covered 제외.
+  const uninv = active.filter((s) => amt[s] > 0 && (vals[s] === '' || vals[s] === '미발행') && !cov[s]);
   if (uninv.length) return `${uninv[uninv.length - 1]} - 미발행`;
-  // 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로 (잔금 카드면 카드결제 등)
+  // 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로 (covered 앵커 = 발행완료, 잔금 카드면 카드결제 등)
   const m = vals[anchor];
-  const status = m === '발행' ? '발행완료' : m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '기타';
+  const status = (m === '발행' || cov[anchor]) ? '발행완료' : m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '기타';
   return `${anchor} - ${status}`;
 }
 

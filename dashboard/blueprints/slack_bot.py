@@ -12041,24 +12041,28 @@ def _bill_y_summary(stage_vals, amt, collected=False):
     **수금완료 + 마지막 진행단계 발행 = 전체발행 완료 간주** → 앞 단계 미발행 무시(계약금 미발행 알림 X).
     마지막 단계가 아직 미발행이면 전체발행 아님 → 미발행 우선 노출(단계별 대응).
     """
+    raw = {s: str(stage_vals.get(s) if stage_vals.get(s) is not None else '').strip() for s in _BILL_STAGES}
     vals = {s: _bill_norm_token(stage_vals.get(s)) for s in _BILL_STAGES}  # '-'→'' (빈칸)
-    # '-' = 빈칸/해당없음. 전체발행 포함(covered)은 '발행'으로 통일 — '-'에 특수의미 없음.
+    # covered('-') = 통합발행에 포함되어 발행된 단계(계약금·중도금). 같은 행에 실제 '발행'이 있으면
+    #   covered로 취급(미발행 아님, ⚠️ X). '발행' 없이 '-'만 있으면 빈칸 → 입금 시 미발행. (개별발행=발행)
+    has_issued = any(vals[s] == '발행' for s in _BILL_STAGES)
+    cov = {s: (raw[s] == '-' and has_issued) for s in _BILL_STAGES}
     # active = 입금됐거나(amt>0) 계산서 토큰 있는 단계 (입금 전 계산서 선발행 포함)
     active = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0 or vals[s]]
     if not active:
         return '미발행'  # 입금·계산서 둘 다 없음 → 미발행 통일
     anchor = active[-1]
-    anchor_invoiced = vals[anchor] == '발행'
+    anchor_invoiced = vals[anchor] == '발행' or cov[anchor]
     # 수금완료 + 마지막 진행단계 발행 = 전체발행 완료 → 앞 미발행 무시 (부분발행 오클로즈 방지 게이트)
     if collected and anchor_invoiced:
         return f'{anchor} - 발행완료'
-    # 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람).
-    uninv = [s for s in active if _bill_to_num(amt.get(s)) > 0 and vals[s] in ('', '미발행')]
+    # 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람). covered 제외.
+    uninv = [s for s in active if _bill_to_num(amt.get(s)) > 0 and vals[s] in ('', '미발행') and not cov[s]]
     if uninv:
         return f'{uninv[-1]} - 미발행'
-    # 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로
+    # 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로 (covered 앵커 = 발행완료)
     m = vals[anchor]
-    status = '발행완료' if m == '발행' else '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '기타'
+    status = '발행완료' if (m == '발행' or cov[anchor]) else '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '기타'
     return f'{anchor} - {status}'
 
 
@@ -12150,12 +12154,12 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
                 if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '발행'):
                     cur[s] = '발행'
                     wrote.append(s)
-            elif full and amt[s] > 0 and tok in ('', '미발행'):
-                # 전체발행 → 나머지 금액 있는 미발행/blank 단계도 '발행'(전체발행에 포함되어 발행됨).
-                #   ('-'=빈칸 관례와 충돌 없게 covered를 '발행'으로 통일. 현금/카드/발행은 유지.)
-                if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '발행'):
-                    cur[s] = '발행'
-                    wrote.append(f'{s}(발행)')
+            elif full and amt[s] > 0 and cur[s] != '-' and tok in ('', '미발행'):
+                # 통합발행(전체 한 장) → 나머지 금액 있는 미발행/blank 단계를 '-'(계산서 안 끊음, 통합에 포함).
+                #   개별발행(발행/발행/발행)과 구분됨: 통합=('-'/'-'/발행). 현금/카드/발행은 유지.
+                if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '-'):
+                    cur[s] = '-'
+                    wrote.append(f'{s}(-)')
         if not wrote:
             logger.info(f"[SLACK/계산서] 자동기록 — 변경 없음 ({code} {selected} full={full})")
             return
