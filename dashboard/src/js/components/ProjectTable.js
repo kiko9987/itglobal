@@ -225,8 +225,9 @@ function getStageBillIconForTable(status) {
     '카드': '<i class="fas fa-credit-card fa-lg ms-1 text-info" title="카드결제 (영수증 자동)"></i>',
     '미발행': '<i class="fas fa-exclamation-triangle fa-lg ms-1 text-danger" title="수금완료 · 세금계산서 미발행 (요청 필요)"></i>',
     // '발행예정'(진행중·수금완료 전)은 액션 불필요 → 아이콘 미표시(노이즈 제거). Y요약 로직엔 유지.
-    '확인필요': '<i class="fas fa-question-circle fa-lg ms-1 text-warning" title="단계별 확인 필요"></i>',
-    '혼합': '<i class="fas fa-question-circle fa-lg ms-1 text-warning" title="단계별 확인 필요"></i>'
+    '기타': '<i class="fas fa-circle-question fa-lg ms-1 text-warning" title="특이 정산 (메모 참고)"></i>',
+    '확인필요': '<i class="fas fa-circle-question fa-lg ms-1 text-warning" title="특이 정산 (메모 참고)"></i>',
+    '혼합': '<i class="fas fa-circle-question fa-lg ms-1 text-warning" title="특이 정산 (메모 참고)"></i>'
   };
 
   return iconMap[status] || '';

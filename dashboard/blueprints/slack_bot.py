@@ -11927,9 +11927,9 @@ def _bill_norm_token(t):
         return '카드'
     if s == '일반':
         return '발행'
-    if s == '혼합':
-        return '확인필요'
-    return s  # 발행 / N입금 / 카드 / 미발행 / 확인필요
+    if s in ('혼합', '확인필요'):
+        return '기타'  # 레거시 혼합·확인필요 → 기타
+    return s  # 발행 / N입금 / 카드 / 미발행 / 기타
 
 
 def _bill_is_collected(v):
@@ -11945,19 +11945,19 @@ def _bill_y_summary(stage_vals, amt):
     """
     paid = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0]
     if not paid:
-        return '-'
+        return '미발행'  # 입금 없음 → 미발행 통일
     anchor = paid[-1]
     vals = {s: _bill_norm_token(stage_vals.get(s)) for s in _BILL_STAGES}
     if any(vals[s] in ('', '미발행') for s in paid):
         status = '미발행'
     elif any(vals[s] == '발행' for s in paid):
         status = '발행완료'
-    elif any(vals[s] == '확인필요' for s in paid):
-        status = '혼합'  # 미해결(드묾)
+    elif any(vals[s] == '기타' for s in paid):
+        status = '기타'  # 특이 정산
     else:
         # 방법만 있고 발행 없음 → 마지막 입금단계(앵커)의 방법으로 (현금+카드 섞여도)
         m = vals[anchor]
-        status = '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '혼합'
+        status = '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '기타'
     return f'{anchor} - {status}'
 
 

@@ -129,8 +129,8 @@ export function normalizeToken(t) {
   if (s === '' || s === '-') return '';   // 빈값·대시(-) = 없음
   if (s === '카드결제') return '카드';
   if (s === '일반') return '발행';         // 레거시 '일반' → '발행'(세금계산서 발행됨)
-  if (s === '혼합') return '확인필요';     // 레거시 '혼합' → '확인필요'
-  return s; // 발행 / N입금 / 카드 / 미발행 / 확인필요
+  if (s === '혼합' || s === '확인필요') return '기타'; // 레거시 혼합·확인필요 → '기타'(특이, 메모 참고)
+  return s; // 발행 / N입금 / 카드 / 미발행 / 기타
 }
 
 /**
@@ -188,7 +188,7 @@ export function computeYSummary(stages, row) {
   const amt = {};
   BILL_STAGES.forEach((s) => { amt[s] = toNum(row && row[s]); });
   const paid = BILL_STAGES.filter((s) => amt[s] > 0);
-  if (!paid.length) return '-'; // 입금 없음
+  if (!paid.length) return '미발행'; // 입금 없음 → 미발행으로 통일(앵커 없음, ⚠️는 아님)
   const anchor = paid[paid.length - 1]; // 마지막 입금 단계
   const vals = {};
   BILL_STAGES.forEach((s) => { vals[s] = normalizeToken(stages && stages[s]); });
@@ -196,11 +196,11 @@ export function computeYSummary(stages, row) {
   let status;
   if (paid.some(isUninv)) status = '미발행';
   else if (paid.some((s) => vals[s] === '발행')) status = '발행완료';
-  else if (paid.some((s) => vals[s] === '확인필요')) status = '혼합'; // 미해결(드묾)
+  else if (paid.some((s) => vals[s] === '기타')) status = '기타'; // 특이 정산(보험·도급비·리베이트 등)
   else {
     // 방법만 있고 발행 없음 → 마지막 입금단계(앵커)의 방법으로 (현금+카드 섞여도, 상세는 3열).
     const m = vals[anchor];
-    status = m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '혼합';
+    status = m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '기타';
   }
   return `${anchor} - ${status}`;
 }

@@ -867,7 +867,10 @@ export default class ProjectRowAccordion {
           </div>
           <div class="compact-item">
             <small>계산서</small>
-            <div class="editable-value" data-field="계산서">${this.formatBillStatus(rowData)}</div>
+            <div class="editable-value" data-field="계산서">${this.formatBillStatus(rowData)}${(() => {
+              const m = String(rowData['계산서_메모'] || '').trim();
+              return m ? ` <span class="memo-tooltip-trigger has-memo" data-bs-toggle="tooltip" data-bs-title="${this.escapeHTML(m)}" aria-label="계산서 메모 보기"><i class="fas fa-sticky-note text-success"></i></span>` : '';
+            })()}</div>
           </div>
         </div>
       </div>
@@ -930,8 +933,9 @@ export default class ProjectRowAccordion {
       '카드': { icon: 'fas fa-credit-card text-info', label: '카드결제 (영수증 자동)' },
       '미발행': { icon: 'fas fa-exclamation-triangle text-danger', label: '수금완료 · 세금계산서 미발행 (요청 필요)' },
       // '발행예정'(진행중·수금완료 전)은 액션 불필요 → 아이콘 미표시(노이즈 제거). Y요약 로직엔 유지.
-      '확인필요': { icon: 'fas fa-question-circle text-warning', label: '단계별 확인 필요' },
-      '혼합': { icon: 'fas fa-question-circle text-warning', label: '단계별 확인 필요' }
+      '기타': { icon: 'fas fa-circle-question text-warning', label: '특이 정산 (메모 참고)' },
+      '확인필요': { icon: 'fas fa-circle-question text-warning', label: '특이 정산 (메모 참고)' },
+      '혼합': { icon: 'fas fa-circle-question text-warning', label: '특이 정산 (메모 참고)' }
     };
 
     const info = iconMap[category];

@@ -83,7 +83,7 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
 
             if notes_by_row is None:
                 logger.debug("[PREFETCH] 셀 메모 가져오기")
-                notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W'])
+                notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W', 'Y'])
                 smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)
             else:
                 logger.debug(f"[PREFETCH] 캐시된 셀 메모 사용: {len(notes_by_row)}개 행")
@@ -92,6 +92,7 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
             df['계약금_메모'] = None
             df['중도금_메모'] = None
             df['잔금_메모'] = None
+            df['계산서_메모'] = None  # Y열 노트(계산서 특이사항)
 
             # 행 번호 기준으로 메모 매핑
             for row_num, notes in notes_by_row.items():
@@ -102,13 +103,15 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
                     continue  # 숫자로 변환할 수 없으면 건너뛰기
 
                 if 0 <= df_index < len(df):
-                    # 2026-07 컬럼 시프트 후: 계약금=U, 중도금=V, 잔금=W
+                    # 2026-07 컬럼 시프트 후: 계약금=U, 중도금=V, 잔금=W, 계산서=Y
                     if 'U' in notes:
                         df.at[df_index, '계약금_메모'] = notes['U']
                     if 'V' in notes:
                         df.at[df_index, '중도금_메모'] = notes['V']
                     if 'W' in notes:
                         df.at[df_index, '잔금_메모'] = notes['W']
+                    if 'Y' in notes:
+                        df.at[df_index, '계산서_메모'] = notes['Y']
 
             logger.debug(f"[PREFETCH] 셀 메모 {len(notes_by_row)}개 행 로드 완료")
 
@@ -414,7 +417,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
 
                 if notes_by_row is None or force_refresh:
                     logger.info(f"[LOAD_NOTES] 셀 메모 가져오기 시작: {sheet_name}")
-                    notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W'])
+                    notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W', 'Y'])
 
                     # 셀 메모 캐시에 저장 (TEMPORARY 전략)
                     smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)
@@ -426,6 +429,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 df['계약금_메모'] = None
                 df['중도금_메모'] = None
                 df['잔금_메모'] = None
+                df['계산서_메모'] = None  # Y열 노트(계산서 특이사항)
 
                 # 행 번호 기준으로 메모 매핑 (구글 시트 행 번호 - 2 = DataFrame 인덱스)
                 # 구글 시트: 1행(헤더), 2행(데이터0), 3행(데이터1), ...
@@ -451,6 +455,8 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                             df.at[df_index, '중도금_메모'] = notes['V']
                         if 'W' in notes:
                             df.at[df_index, '잔금_메모'] = notes['W']
+                        if 'Y' in notes:
+                            df.at[df_index, '계산서_메모'] = notes['Y']
                         mapped_count += 1
                     else:
                         if mapped_count < 3:
