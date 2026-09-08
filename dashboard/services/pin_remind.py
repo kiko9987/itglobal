@@ -253,6 +253,65 @@ def _oam_deposit_keys() -> set:
     return keys
 
 
+def _guess_project(partner: str, amount, recs: list) -> str:
+    """미지정 입금의 추정 프로젝트 코드 — 확실할 때만(후보 1개) 반환, 아니면 ''.
+
+    조건(전부 충족 + 후보 유일): ①입금자명↔사업자명 핵심어 일치(양방향, SMS 잘림
+    대응 최장공통 4자) ②미수금>0 ③입금액≤미수금(그 현장이 받을 수 있는 범위).
+    후보 0개/2개↑면 생략(오추정 방지). 단정 아님 — 담당자 확인용 힌트.
+    """
+    import re as _re
+    try:
+        amt = int(float(str(amount).replace(',', '').strip() or 0))
+    except (ValueError, TypeError):
+        amt = 0
+    if not amt or not partner:
+        return ''
+
+    def _norm(s):
+        s = _re.sub(r'\(주\)|\(유\)|㈜|주식회사|유한회사', '', str(s or ''))
+        return _re.sub(r'[\s()\[\]·.,/\-]', '', s)
+
+    def _num(v):
+        try:
+            x = float(str(v).replace(',', '').strip() or 0)
+            return 0 if x != x else int(x)   # NaN 가드
+        except (ValueError, TypeError):
+            return 0
+
+    def _lcs(a, b):
+        """최장 공통 부분문자열 길이."""
+        prev = [0] * (len(b) + 1)
+        best = 0
+        for i in range(1, len(a) + 1):
+            cur = [0] * (len(b) + 1)
+            for j in range(1, len(b) + 1):
+                if a[i - 1] == b[j - 1]:
+                    cur[j] = prev[j - 1] + 1
+                    if cur[j] > best:
+                        best = cur[j]
+            prev = cur
+        return best
+
+    p = _norm(partner)
+    if len(p) < 3:
+        return ''
+    cands = set()
+    for r in recs:
+        code = str(r.get('프로젝트 코드', '')).strip()
+        if not code:
+            continue
+        miss = _num(r.get('미수금'))
+        if miss <= 0 or amt > miss + 1000:
+            continue
+        name = _norm(r.get('사업자명', ''))
+        if len(name) < 3:
+            continue
+        if name[:6] in p or p[:6] in name or _lcs(p, name) >= 4:
+            cands.add(code)
+    return next(iter(cands)) if len(cands) == 1 else ''
+
+
 def collect_intake_pending() -> List[dict]:
     """#입금_관리 고정(미처리) 인입 카드 조회 → 요약 리스트 (미지정+확인대기).
 
@@ -286,15 +345,17 @@ def collect_intake_pending() -> List[dict]:
             continue   # 인입 카드 아님(수동 핀 등) 제외
         ts = m.get('ts', '')
         # Redis 1회 로드 → 요약 + 겸용 dedup 키
-        summary, key = '(입금 내역)', ''
+        summary, key, partner, amount = '(입금 내역)', '', '', 0
         try:
             import json
             from dashboard.utils.redis_client import get_redis_client
             raw = get_redis_client().redis.get(f'sms_intake:{intake_id}')
             if raw:
                 d = json.loads(raw)
-                summary = _fmt_deposit_line(d.get('preview') or {})
+                pv = d.get('preview') or {}
+                summary = _fmt_deposit_line(pv)
                 key = _deposit_key(d.get('text') or '')
+                partner, amount = pv.get('partner', ''), pv.get('amount', 0)
         except Exception:
             pass
         permalink = ''
@@ -305,7 +366,18 @@ def collect_intake_pending() -> List[dict]:
         out.append({
             'ts': ts, 'summary': summary, 'key': key, 'permalink': permalink,
             'state': '미지정' if aid == 'payment_intake_open' else '확인대기',
+            'partner': partner, 'amount': amount,
         })
+    # 미지정 건: 입금자·금액으로 추정 프로젝트 표기 (확실할 때만, 담당자 확인용)
+    if any(e['state'] == '미지정' for e in out):
+        try:
+            from dashboard.services.project_service import get_project_records
+            recs = get_project_records()
+        except Exception:
+            recs = []
+        for e in out:
+            if e['state'] == '미지정':
+                e['guess'] = _guess_project(e.get('partner', ''), e.get('amount', 0), recs)
     return out
 
 
@@ -327,7 +399,12 @@ def build_pin_remind_text(data: dict) -> str:
     def _intake_line(e: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
         badge = ':hourglass_flowing_sand:' if e.get('state') == '확인대기' else ':link:'
-        return f'• {badge} {e["summary"]}  _{e.get("state", "")}_{link}'
+        state = e.get('state', '')
+        hint = ''
+        if state == '미지정':                    # 추정 프로젝트(확실할 때만), 못 잡으면 (추정 불가)
+            guess = e.get('guess', '')
+            hint = f' ({guess} 추정)' if guess else ' (추정 불가)'
+        return f'• {badge} {e["summary"]}  {state}{hint}{link}'
 
     sections = []
     if intakes:
