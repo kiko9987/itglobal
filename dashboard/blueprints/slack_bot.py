@@ -556,6 +556,16 @@ def _register_payment_handlers(app):
                         _rc2 = get_redis_client().redis
                     except Exception:
                         _rc2 = None
+                    # 즉시 '처리 중'으로 (버튼 제거 = 재클릭 원천 차단). ack() 이후라 3초 규칙 무관.
+                    if channel and ts:
+                        try:
+                            client.chat_update(
+                                channel=channel, ts=ts,
+                                text=f"⏳ 통합입금 분할 {len(_splits)}건 확인 처리 중…",
+                                blocks=_build_intake_processing_blocks(
+                                    f"통합입금 분할 {len(_splits)}건 · {_total:,}원", d.get("text", "")))
+                        except Exception:
+                            pass
                     for _s in _splits:
                         _pc = (_s.get("project_code") or "").strip()
                         _stg = (_s.get("stage") or "").strip()
@@ -598,6 +608,16 @@ def _register_payment_handlers(app):
                         except Exception:
                             pass
                     elif _failed:
+                        # 처리 중 카드를 대기(버튼) 카드로 복원 → 재클릭으로 재시도 가능
+                        if channel and ts:
+                            try:
+                                client.chat_update(
+                                    channel=channel, ts=ts,
+                                    text="🕓 통합입금 분할 확인 대기",
+                                    blocks=_build_intake_split_pending_blocks(
+                                        intake_id, _splits, _total, des.get("by", ""), d.get("text", "")))
+                            except Exception:
+                                pass
                         _intake_ephemeral(
                             client, channel, user,
                             f":warning: 분할 {len(_recorded)}/{len(_splits)}건 기록됨 — "
@@ -642,10 +662,31 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user,
                                       ":hourglass_flowing_sand: 다른 확인이 처리 중입니다. 잠시 후 다시 시도해주세요.")
                     return
+                # 락 획득 성공 → 즉시 카드를 '처리 중'으로 (버튼 제거 = 재클릭 원천 차단).
+                # ack() 이후 백그라운드라 3초 규칙 무관.
+                if channel and ts:
+                    try:
+                        client.chat_update(
+                            channel=channel, ts=ts,
+                            text=f"⏳ {project_code} · {stage} 확인 처리 중…",
+                            blocks=_build_intake_processing_blocks(
+                                f"`{project_code}` · {stage} · {amount:,}원", memo))
+                    except Exception:
+                        pass
                 ok, old_num, new_num, err = _commit_intake_to_sheet(
                     project_code, stage, amount, memo, user)
                 if not ok:
                     _intake_release(rc, intake_id, project_code, stage)  # 재시도 허용
+                    # 처리 중 카드를 대기(버튼) 카드로 복원 → 재클릭으로 재시도 가능
+                    if channel and ts:
+                        try:
+                            client.chat_update(
+                                channel=channel, ts=ts,
+                                text=f"🕓 {project_code} · {stage} 확인 대기",
+                                blocks=_build_intake_pending_blocks(
+                                    intake_id, project_code, stage, amount, memo, des.get("by", "")))
+                        except Exception:
+                            pass
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
                     return
                 _intake_mark_done(rc, intake_id, project_code, stage)  # 성공 후에만 마커
@@ -1690,6 +1731,19 @@ def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, c
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}},
     ]
+
+
+def _build_intake_processing_blocks(headline: str, memo_text: str = "") -> list:
+    """확인 처리 중(시트 커밋 진행) 카드 — 버튼 없이 '⏳ 확인 처리 중…'만.
+
+    확인 클릭 직후 즉시 이 상태로 바꿔 버튼을 없애면(재클릭 원천 차단) '다른 확인
+    처리 중' ephemeral이 거의 안 뜬다. 커밋 성공→완료 카드, 실패→대기 카드로 복원.
+    """
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
+    lines = ["⠀", f">⏳ *확인 처리 중…*  {headline}"]
+    if memo_text:
+        lines += [f">{INTAKE_SEP}", *quoted_body(memo_text), f">{INTAKE_SEP}"]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}}]
 
 
 def _try_acquire_action_lock(lead_no: str, action: str, ttl: int = 5) -> bool:
