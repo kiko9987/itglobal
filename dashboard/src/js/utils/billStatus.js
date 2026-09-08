@@ -186,19 +186,28 @@ export function rollupBillStages(stages) {
  */
 export function computeYSummary(stages, row) {
   const amt = {};
-  BILL_STAGES.forEach((s) => { amt[s] = toNum(row && row[s]); });
+  const rawCol = {};
+  BILL_STAGES.forEach((s) => {
+    amt[s] = toNum(row && row[s]);
+    rawCol[s] = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
+  });
   const vals = {};
   BILL_STAGES.forEach((s) => { vals[s] = normalizeToken(stages && stages[s]); });
+  // covered('-') = 전체발행 한 장에 포함되어 발행된 단계. 같은 행에 실제 '발행'이 있으면
+  //   covered도 발행완료로 취급(미발행 아님). '발행' 없이 '-'만 있으면 애매 → 빈칸 취급.
+  const hasIssued = BILL_STAGES.some((s) => vals[s] === '발행' || rawCol[s] === '발행' || rawCol[s] === '일반');
+  const cov = {};
+  BILL_STAGES.forEach((s) => { cov[s] = rawCol[s] === '-' && hasIssued; });
   // active = 입금됐거나(amt>0) 계산서 토큰이 있는 단계 (입금 전 계산서 선발행 케이스 포함)
   const active = BILL_STAGES.filter((s) => amt[s] > 0 || vals[s]);
   if (!active.length) return '미발행'; // 입금도 계산서도 없음 → 미발행(앵커 없음, ⚠️ 아님)
-  // 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람)
-  const uninv = active.filter((s) => amt[s] > 0 && (vals[s] === '' || vals[s] === '미발행'));
+  // 미발행(입금됐는데 계산서 없음) 우선 노출 — 마지막 미발행 단계 앵커 (알람). covered 제외.
+  const uninv = active.filter((s) => amt[s] > 0 && (vals[s] === '' || vals[s] === '미발행') && !cov[s]);
   if (uninv.length) return `${uninv[uninv.length - 1]} - 미발행`;
-  // 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로 (잔금이 카드면 카드결제 등)
+  // 그 외: 마지막 진행단계(앵커)의 실제 상태 그대로 (covered 앵커 = 발행완료, 잔금 카드면 카드결제 등)
   const anchor = active[active.length - 1];
   const m = vals[anchor];
-  const status = m === '발행' ? '발행완료' : m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '기타';
+  const status = (m === '발행' || cov[anchor]) ? '발행완료' : m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '기타';
   return `${anchor} - ${status}`;
 }
 
