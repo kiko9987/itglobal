@@ -2444,6 +2444,106 @@ def _promote_gun_to_si(s: Optional[str]) -> Optional[str]:
     return _GUN_TOKEN_RE.sub(r'\1시', s) if s else s
 
 
+_DONG_ONLY_RE = re.compile(r'([가-힣]{2,}동)(?:\d+가)?')
+
+
+@lru_cache(maxsize=256)
+def _dong_region_count(dong: str) -> int:
+    """행안부에서 법정동이 속한 distinct 시/군/구 수 (다도시 동명 판별용). 실패 시 -1.
+    1 이면 그 법정동은 전국에 한 시/구에만 존재 → 지역 확정 가능(감이동=하남만)."""
+    key = _juso_key()
+    if not key:
+        return -1
+    try:
+        url = 'https://business.juso.go.kr/addrlink/addrLinkApi.do?' + urllib.parse.urlencode(
+            {'confmKey': key, 'currentPage': 1, 'countPerPage': 100,
+             'keyword': dong, 'resultType': 'json'})
+        with urllib.request.urlopen(url, timeout=6) as r:
+            d = json.loads(r.read())
+    except Exception:
+        return -1
+    regs = set()
+    for j in d.get('results', {}).get('juso', []) or []:
+        ra = j.get('roadAddr', '')
+        mm = re.match(r'([가-힣]+(?:특별자치시|특별시|광역시|도))\s+([가-힣]+(?:시|군|구))', ra)
+        if mm:
+            regs.add(mm.group(0))
+        elif ra.startswith('세종'):
+            regs.add('세종')
+    return len(regs)
+
+
+def _dong_building_poi_fallback(text: str) -> Optional[str]:
+    """법정동+건물명만 있고 도로·번지·지역이 없는 입력을 kakao POI keyword 로 구제
+    (2026-09-08 L-03956 '감이동 벨솔레파크'→'하남 감일중앙로 60 감일벨솔레파크').
+
+    강가드(POI 퍼지 오매칭·다도시 동명 왕릉계열 방지):
+      ① 도로(로/길)·번지·지역(시/군/구) 토큰이 **없어야** 진입 (그런 게 있으면 다른 경로 소관)
+      ② POI 결과의 지번(address_name)에 입력 법정동이 **정확 포함**
+      ③ 법정동 일치 결과들의 지역(시+구)이 **만장일치** (다도시 동명이면 거부)
+      ④ 부속시설(주차장·ATM 등) POI 제외 + 건물명 토큰이 place_name 과 일치
+    통과 시 POI road_address 를 도로명으로 채택, 건물명=place_name.
+    """
+    if not text:
+        return None
+    first = re.sub(r'\s+', ' ', text.strip().split('\n', 1)[0])
+    # ① 도로·번지·지역 있으면 진입 안 함 (구제 대상은 '법정동+건물명'만)
+    if re.search(r'(?:로|길)\s*\d|\d+\s*번[길지]|[가-힣]{2,}(?:시|군|구)', first):
+        return None
+    if re.search(r'(?<![가-힣])\d{1,5}(?:-\d+)?(?![가-힣])', first):
+        return None  # 맨 번지 숫자 있으면 지번 경로 소관
+    m = _DONG_ONLY_RE.search(first)
+    if not m:
+        return None
+    dong = m.group(1)
+    # 다도시 동명(신정동·중앙동 등)은 지역 확정 불가 → 거부 (왕릉계열 오방문 방지, 권위 소스).
+    #   법정동이 전국 단일 시/구일 때만 진입(감이동=하남). juso 실패(-1)도 fail-safe 거부.
+    if _dong_region_count(dong) != 1:
+        return None
+    bld = (first[:m.start()] + ' ' + first[m.end():]).strip()
+    if not bld or not re.search(r'[가-힣]{2,}', bld):
+        return None
+    bld_ns = re.sub(r'\s', '', bld)
+    try:
+        url = _KAKAO_POI_ENDPOINT + '?' + urllib.parse.urlencode(
+            {'query': first, 'size': 10})
+        data = _kakao_get_json(url)
+    except _KakaoTransientError:
+        return None
+    if not data:
+        return None
+    dong_ns = dong.replace(' ', '')
+
+    def _region(road: str) -> str:
+        mm = re.search(r'([가-힣]{2,}시)(?:\s+([가-힣]{2,}구))?', road)
+        return mm.group(0) if mm else ''
+
+    cands, regions = [], set()
+    for d in data.get('documents', []) or []:
+        jibun = (d.get('address_name') or '').replace(' ', '')
+        road = d.get('road_address_name') or ''
+        pn = html.unescape(d.get('place_name', '') or '')
+        if not road or dong_ns not in jibun:
+            continue
+        regions.add(_region(road))
+        cands.append((pn, road))
+    if not cands or len(regions) != 1:
+        return None  # ③ 지역 불일치(다도시 동명) → 거부
+    # ④ 건물명 매치 + 부속시설 제외. 건물명은 place_name 의 **꼬리(가장 특정한 부분)**여야
+    #   함 — 감일'벨솔레파크'(endswith) O / '삼성'전자서비스창원센터(endswith X) 거부.
+    #   생활밀착 상호가 우연히 법정동·지역 일치해도(중앙동 삼성 등) 통과 못 하게 하는 핵심 가드.
+    if len(bld_ns) < 3:
+        return None
+    for pn, road in cands:
+        if _poi_has_facility(pn):
+            continue
+        pn_ns = pn.replace(' ', '')
+        if pn_ns == bld_ns or pn_ns.endswith(bld_ns) or (
+                len(pn_ns) >= 3 and bld_ns.endswith(pn_ns)):
+            return f'{normalize_display(road)} {pn}'.strip()
+    return None
+
+
 def resolve_address(
     text: str, regex_addr: Optional[str] = None, regex_level: str = ''
 ) -> Tuple[str, str]:
@@ -2571,6 +2671,11 @@ def resolve_address(
             if _juso_hit and _juso_hit[1] == 'road':
                 _lv = 'verified'
         return (addr, _lv)
+
+    # 2.5 법정동+건물명만(도로·번지·지역 없음) → kakao POI keyword 구제 (2026-09-08 L-03956)
+    _db = _dong_building_poi_fallback(text)
+    if _db:
+        return (_mark_planned(_post_normalize_display(_db)), 'verified')
 
     # 3. 원문 첫 줄 fallback — 엄격한 주소 패턴이 포함된 경우만
     # "세방정유라는 회사입니다" / "공장동 내에 ..." 같은 본문이 잘못 raw로 들어가는 것 방지
