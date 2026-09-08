@@ -11943,19 +11943,22 @@ def _bill_y_summary(stage_vals, amt):
     stage_vals: {단계: 계산서토큰}, amt: {단계: 입금금액}. 앵커=금액>0 마지막 단계.
     상태: 미발행 / 발행완료 / N입금 / 카드결제 / 혼합. 입금 없으면 '-'. ('발행중' 폐기)
     """
-    paid = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0]
-    if not paid:
-        return '미발행'  # 입금 없음 → 미발행 통일
-    anchor = paid[-1]
     vals = {s: _bill_norm_token(stage_vals.get(s)) for s in _BILL_STAGES}
-    if any(vals[s] in ('', '미발행') for s in paid):
+    # active = 입금됐거나(amt>0) 계산서 토큰 있는 단계 (입금 전 계산서 선발행 포함)
+    active = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0 or vals[s]]
+    if not active:
+        return '미발행'  # 입금·계산서 둘 다 없음 → 미발행 통일
+    anchor = active[-1]
+    # 미발행 = 입금됐는데(amt>0) 계산서 없음 (계산서 선발행=amt0+발행 은 미발행 아님)
+    def _uninv(s):
+        return _bill_to_num(amt.get(s)) > 0 and vals[s] in ('', '미발행')
+    if any(_uninv(s) for s in active):
         status = '미발행'
-    elif any(vals[s] == '발행' for s in paid):
+    elif any(vals[s] == '발행' for s in active):
         status = '발행완료'
-    elif any(vals[s] == '기타' for s in paid):
+    elif any(vals[s] == '기타' for s in active):
         status = '기타'  # 특이 정산
     else:
-        # 방법만 있고 발행 없음 → 마지막 입금단계(앵커)의 방법으로 (현금+카드 섞여도)
         m = vals[anchor]
         status = '카드결제' if m == '카드' else 'N입금' if m == 'N입금' else '기타'
     return f'{anchor} - {status}'

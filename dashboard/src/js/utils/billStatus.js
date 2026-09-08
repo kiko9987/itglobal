@@ -187,18 +187,20 @@ export function rollupBillStages(stages) {
 export function computeYSummary(stages, row) {
   const amt = {};
   BILL_STAGES.forEach((s) => { amt[s] = toNum(row && row[s]); });
-  const paid = BILL_STAGES.filter((s) => amt[s] > 0);
-  if (!paid.length) return '미발행'; // 입금 없음 → 미발행으로 통일(앵커 없음, ⚠️는 아님)
-  const anchor = paid[paid.length - 1]; // 마지막 입금 단계
   const vals = {};
   BILL_STAGES.forEach((s) => { vals[s] = normalizeToken(stages && stages[s]); });
-  const isUninv = (s) => vals[s] === '' || vals[s] === '미발행'; // 금액 있는데 계산서 없음
+  // active = 입금됐거나(amt>0) 계산서 토큰이 있는 단계 (입금 전 계산서 선발행 케이스 포함)
+  const active = BILL_STAGES.filter((s) => amt[s] > 0 || vals[s]);
+  if (!active.length) return '미발행'; // 입금도 계산서도 없음 → 미발행(앵커 없음, ⚠️ 아님)
+  const anchor = active[active.length - 1]; // 마지막 진행 단계
+  // 미발행 = 입금됐는데(amt>0) 계산서 없음. (계산서 선발행=amt0+발행 은 미발행 아님)
+  const isUninv = (s) => amt[s] > 0 && (vals[s] === '' || vals[s] === '미발행');
   let status;
-  if (paid.some(isUninv)) status = '미발행';
-  else if (paid.some((s) => vals[s] === '발행')) status = '발행완료';
-  else if (paid.some((s) => vals[s] === '기타')) status = '기타'; // 특이 정산(보험·도급비·리베이트 등)
+  if (active.some(isUninv)) status = '미발행';
+  else if (active.some((s) => vals[s] === '발행')) status = '발행완료';
+  else if (active.some((s) => vals[s] === '기타')) status = '기타'; // 특이 정산(보험·도급비·리베이트 등)
   else {
-    // 방법만 있고 발행 없음 → 마지막 입금단계(앵커)의 방법으로 (현금+카드 섞여도, 상세는 3열).
+    // 방법만 있고 발행 없음 → 마지막 진행단계(앵커)의 방법으로 (현금+카드 섞여도, 상세는 3열).
     const m = vals[anchor];
     status = m === '카드' ? '카드결제' : m === 'N입금' ? 'N입금' : '기타';
   }
