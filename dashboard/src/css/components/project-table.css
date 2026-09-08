@@ -594,7 +594,7 @@ div.dt-container .bottom {
 
 .memo-value-wrapper {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;   /* baseline → center: 금액 텍스트와 📝/🧾 아이콘 세로 중앙 정렬 */
   gap: 2px;
   padding: 1px 2px;
   border-radius: 6px;
