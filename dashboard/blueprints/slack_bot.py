@@ -2423,8 +2423,10 @@ def _register_project_handlers(app):
                     lines.append(
                         f":memo: 사업자등록증 OCR 결과와 시트값이 달라요. "
                         f"어느 쪽이 맞는지 확인해주세요.\n"
-                        f"  • 시트값: *{_biz_existing}*\n"
-                        f"  • OCR 결과: *{_biz}*"
+                        f"  • 시트값(사업자명): *{_biz_existing}*\n"
+                        f"  • OCR 결과: *{_biz}*\n"
+                        f"  ※ 인테리어 업체 등 *거래처를 통한 공사*면 *사업자명*은 거래처(*{_biz_existing}*) 그대로 두세요. "
+                        f"등록증은 실제 발주처라 다른 게 정상입니다."
                     )
                 elif _biz and _biz_status == 'error':
                     lines.append(
@@ -11391,17 +11393,27 @@ def _process_project_edit_submission(client, body, view) -> None:
 
     # 2) 금액·부가세 → 경영지원 반영 요청 카드 (계산서봇 발송, ✅ 시 반영)
     request_sent = False
+    dup_pending = None  # 동일 프로젝트에 같은 미반영 요청이 이미 있으면 중복 카드 skip (2026-09-09)
     if amount_updates:
-        try:
-            req_ts = _post_amount_edit_request_card(project, amount_updates, reason, user_id, initial)
-            request_sent = bool(req_ts)
-        except Exception as exc:
-            logger.error(f'[SLACK/공사금액] 요청 카드 발송 예외 ({code}): {exc}', exc_info=True)
+        _existing = _find_pending_amount_request(code)
+        if _existing and _same_amount_updates(_existing.get('updates', {}), amount_updates):
+            dup_pending = _existing
+            logger.info(
+                f'[SLACK/공사금액] 중복 요청 skip — 동일 미반영 요청 존재 ({code}, '
+                f'기존 {_existing.get("requested_at")} by {_existing.get("requester_initial")})'
+            )
+        else:
+            try:
+                req_ts = _post_amount_edit_request_card(project, amount_updates, reason, user_id, initial)
+                request_sent = bool(req_ts)
+            except Exception as exc:
+                logger.error(f'[SLACK/공사금액] 요청 카드 발송 예외 ({code}): {exc}', exc_info=True)
 
     # 3) 요청자 안내
     _notify_project_edit_result(
         client, channel, user_id, code,
         applied_fields, direct_failed_reason, amount_updates, request_sent,
+        dup_pending=dup_pending,
     )
 
 
@@ -11498,6 +11510,7 @@ def _notify_project_edit_result(
     client, channel: str, user_id: str, code: str,
     applied_fields: list, direct_failed_reason: str,
     amount_updates: dict, request_sent: bool,
+    dup_pending: dict = None,
 ) -> None:
     """공사 정보 수정 제출 결과를 요청자에게 ephemeral 로 안내."""
     _label = {'총액 1': '공사 금액', '부가세': '부가세'}
@@ -11509,7 +11522,14 @@ def _notify_project_edit_result(
         parts.append(f':x: `{code}` 일부 항목 수정 실패: {direct_failed_reason}')
     if amount_updates:
         amt_names = ', '.join(_label.get(f, f) for f in amount_updates)
-        if request_sent:
+        if dup_pending:
+            _when = dup_pending.get('requested_at', '')
+            _who = dup_pending.get('requester_initial', '')
+            parts.append(
+                f':information_source: *{amt_names}* 은(는) 이미 동일한 *미반영 요청*이 대기 중입니다 '
+                f'(요청 {_who} {_when}). 중복 요청은 보내지 않았으니 경영지원 반영을 기다려 주세요.'
+            )
+        elif request_sent:
             parts.append(
                 f':hourglass_flowing_sand: *{amt_names}* 은(는) 경영지원에 *수정 요청*으로 전달됐습니다. '
                 f'경영지원이 직접 반영 후 DM 으로 알려드립니다.'
@@ -11524,6 +11544,52 @@ def _notify_project_edit_result(
         client.chat_postEphemeral(channel=channel, user=user_id, text='\n'.join(parts))
     except Exception:
         pass
+
+
+def _same_amount_updates(a: dict, b: dict) -> bool:
+    """두 금액수정 updates 가 실질 동일한지 (필드·값 정규화 비교). 중복 요청 판정용.
+    금액은 정수화(_amt_int), 부가세는 별도/포함 bool(_vat_is_sep)로 정규화해 비교.
+    """
+    def _norm(d):
+        return {k: (_vat_is_sep(v) if k == '부가세' else _amt_int(v))
+                for k, v in (d or {}).items()}
+    return _norm(a) == _norm(b)
+
+
+def _find_pending_amount_request(code: str):
+    """같은 프로젝트의 '미반영' 금액수정 요청 pending 을 찾는다 (중복 방지용, 2026-09-09).
+
+    pending 키(project_amount_req:{ch}:{ts})는 반영 완료(✅) 시 삭제되므로 '존재=미반영'.
+    반영 지연 중 요청자가 같은 수정을 재요청하면 카드가 중복 생성되던 문제(G4072-YM 2건) 방지.
+    Returns payload dict(+_ts) or None.
+    """
+    code = (code or '').strip()
+    if not code:
+        return None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return None
+    try:
+        for k in rc.scan_iter(match='project_amount_req:*', count=500):
+            ks = k.decode() if isinstance(k, (bytes, bytearray)) else k
+            if ks.endswith(':proc'):  # 처리락 키는 제외
+                continue
+            raw = rc.get(k)
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+            except Exception:
+                continue
+            if (data.get('code') or '').strip() == code:
+                data = dict(data)
+                data['_ts'] = ks.rsplit(':', 1)[-1]
+                return data
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사금액] pending 조회 실패 ({code}): {exc}')
+    return None
 
 
 def _post_amount_edit_request_card(
