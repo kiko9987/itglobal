@@ -1637,7 +1637,13 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                 # 3a) 이번 입금 단계 계산서 칸이 비어 있으면 결제방법대로 자동 채움 (빈칸 방지).
                 #     계좌→미발행(계산서 필요, 나중에 발행 시 _mark_invoice가 '발행'으로 갱신),
                 #     카드→카드, 현금→N입금(계산서 불필요). 이미 값 있으면 안 건드림.
-                if str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip() in ('', '-'):
+                #     단, '-'가 통합발행 covered(같은 행에 실제 '발행' 존재)면 덮지 않는다.
+                #     (통합 선발행 후 입금이 들어와도 covered '-'를 '미발행'으로 되돌리지 않게 — 발행완료 보호)
+                _cur_stage_cell = str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip()
+                _row_has_issued = any(
+                    _bill_norm_token(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[s]}{row}") or '') == '발행'
+                    for s in _BILL_STAGES)
+                if _cur_stage_cell == '' or (_cur_stage_cell == '-' and not _row_has_issued):
                     _is_card = False
                     try:
                         from dashboard.services.payment_sync import _is_itg_card_deposit, _CARD_BRAND_RE
