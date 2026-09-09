@@ -149,6 +149,20 @@ def _nth_previous_business_day(d: date, n: int) -> date:
     return cur
 
 
+def _reminder_ordinal(lead_date: date, today: date) -> int:
+    """접수일 이후 오늘까지 '몇 번째 영업일 알림'인가. 1=첫 알림, 2+=재알림.
+    (lead_date, today] 사이 영업일 수. 접수 다음 영업일=1, 그 다음=2 …
+    주말·공휴일은 알림이 안 나가므로 자동 제외 → 월요일이 금요일 건의 '1일차'로 정확히 계산됨.
+    """
+    n = 0
+    d = today
+    while d > lead_date:
+        if _is_business_day(d):
+            n += 1
+        d = d - timedelta(days=1)
+    return n
+
+
 def collect_absent_leads(target_date: Optional[date] = None,
                           date_range: Optional[List[date]] = None) -> Tuple[List[Dict], Dict[str, List[Dict]], Dict[str, List[Dict]]]:
     """부재중 리마인드 대상 수집.
@@ -248,14 +262,20 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         link = f'  |  <{pl}|확인하기>' if pl else ''
         name = str(l.get('고객명', ''))[:20]
         plat = str(l.get('플랫폼', ''))
+        _d = _lead_date(l)
+        # 재알림 여부 — 1일차 알림에도 처리 안 돼 2영업일째 뜨는 건은 강조 (2026-09-09 사용자 요청).
+        _realert = _d is not None and _reminder_ordinal(_d, date.today()) >= 2
         if mode in ('unassigned', 'quote'):
             # 미완료·견적요청: 접수일 병기. 최근 N영업일 창이라 며칠 전 건일 수 있어
             #   '어제' 고정 대신 실제 접수일(MM.DD(요일) HH:MM)로 표기 (2026-09-09).
             t = _hhmm(str(l.get('상담 시간', '')))
-            _d = _lead_date(l)
             _when = (f'{_md_weekday(_d)} {t}' if _d else t).strip() or '-'
-            return f'• `{lno}` [{plat}] {name} · {_when}{link}'
-        return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{link}'
+            # 미완료 재알림: 어제 알림에도 미배정 → 강조 (견적요청은 원래 지속이라 제외).
+            _esc = ' · :warning: *접수 후 아직 미배정*' if (mode == 'unassigned' and _realert) else ''
+            return f'• `{lno}` [{plat}] {name} · {_when}{_esc}{link}'
+        # 부재중 — 연락처 표기. 재알림이면 접수일 + 재시도 없음 강조.
+        _esc = f' · :warning: *{_md_weekday(_d)} 접수 후 재시도 없음*' if _realert else ''
+        return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{_esc}{link}'
 
     # 헤더 — 미완료·부재중이 최근 N영업일 창이라 '어제' 고정 대신 '최근' (각 라인에 접수일 표기).
     _hdr = f':bell: *최근 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*'
