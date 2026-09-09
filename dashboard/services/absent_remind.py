@@ -131,6 +131,20 @@ def _previous_business_day(d: date) -> date:
     return prev
 
 
+# 부재중 지속 리마인드 범위 (최근 N영업일). 견적요청처럼 처리(재시도 성공·드랍) 전까지
+# 매일 표시하되, 오래된 미처리 백로그(예: 5~7월 47건)가 홍수처럼 딸려오지 않게 하한을 둔다.
+# 2026-09-09: 부재중이 직전영업일 range 만 봐서 다음날 재시도 안 하면 사라지던 누락 해소.
+_RETRY_LOOKBACK_BDAYS = 7
+
+
+def _nth_previous_business_day(d: date, n: int) -> date:
+    """d 로부터 n 영업일 전 date (n>=1). 부재중 지속 리마인드의 하한(cutoff)."""
+    cur = d
+    for _ in range(max(1, n)):
+        cur = _previous_business_day(cur)
+    return cur
+
+
 def collect_absent_leads(target_date: Optional[date] = None,
                           date_range: Optional[List[date]] = None) -> Tuple[List[Dict], Dict[str, List[Dict]], Dict[str, List[Dict]]]:
     """부재중 리마인드 대상 수집.
@@ -157,26 +171,43 @@ def collect_absent_leads(target_date: Optional[date] = None,
         if any(str(l.get('상담 시간', '')).startswith(p) for p in ymd_dots)
     ]
 
+    # A. 미완료 (상태='상담 대기' & 온라인 상담자 미배정) — date_range 인입분만.
+    #   '-' 플레이스홀더는 미배정으로 취급 (빈값과 동일). 2026-09-09:
+    #   큐플레이스 등 수동 등록 리드가 온라인상담자='-' 로 들어오면 not consultant=False →
+    #   미완료 집계에서 조용히 누락됨 (L 김시현 큐플레이스 09-08 상담대기 미리마인드 사고).
+    #   시스템 전반이 '-' 를 빈값 플레이스홀더로 쓰므로 여기서도 빈값으로 정규화.
     unassigned: List[Dict] = []
-    retry: Dict[str, List[Dict]] = defaultdict(list)
     for l in yday:
         status = str(l.get('상태', '')).strip()
         consultant = str(l.get('온라인 상담자', '')).strip()
-        sales = str(l.get('영업 담당자', '')).strip()
-        # '-' 플레이스홀더는 미배정으로 취급 (빈값과 동일). 2026-09-09:
-        #   큐플레이스 등 수동 등록 리드가 온라인상담자='-' 로 들어오면 not consultant=False →
-        #   미완료 집계에서 조용히 누락됨 (L 김시현 큐플레이스 09-08 상담대기 미리마인드 사고).
-        #   시스템 전반이 '-' 를 빈값 플레이스홀더로 쓰므로 여기서도 빈값으로 정규화.
         if consultant == '-':
             consultant = ''
-        if sales == '-':
-            sales = ''
         if status == '상담 대기' and not consultant:
             unassigned.append(l)
-        elif status == '부재중' and not sales:
-            retry[consultant or '(미배정)'].append(l)
 
-    # 견적 요청 = 견적 제출 전까지 매일 리마인드 (날짜 무관 — 전체 lead 스캔).
+    # B. 부재중 (상태='부재중' & 영업 담당자 미배정) — 재시도(성공)·드랍 전까지 매일 리마인드.
+    #   2026-09-09: date_range(직전영업일)만 보면 다음날 재시도 안 하면 사라져 누락됨
+    #   (L-03938 백상현 09-07 건). 견적요청처럼 지속 스캔하되, 오래된 백로그(5~7월 47건)
+    #   홍수 방지 위해 **최근 _RETRY_LOOKBACK_BDAYS 영업일**로 하한(cutoff) 제한.
+    retry: Dict[str, List[Dict]] = defaultdict(list)
+    retry_cutoff = _nth_previous_business_day(date.today(), _RETRY_LOOKBACK_BDAYS)
+    for l in leads:
+        if str(l.get('상태', '')).strip() != '부재중':
+            continue
+        sales = str(l.get('영업 담당자', '')).strip()
+        if sales == '-':
+            sales = ''
+        if sales:
+            continue
+        ld = _lead_date(l)
+        if ld is None or ld < retry_cutoff:
+            continue
+        consultant = str(l.get('온라인 상담자', '')).strip()
+        if consultant == '-':
+            consultant = ''
+        retry[consultant or '(미배정)'].append(l)
+
+    # C. 견적 요청 = 견적 제출 전까지 매일 리마인드 (날짜 무관 — 전체 lead 스캔).
     #   상태가 아직 '견적 요청' 이면 미제출. 제출/방문예약/드랍 시 상태가 바뀌어 자동 이탈.
     #   등록자(온라인 상담자)별 그룹 — 부재중과 동일 accountability.
     quote_pending: Dict[str, List[Dict]] = defaultdict(list)
