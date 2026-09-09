@@ -1,9 +1,10 @@
 """부재중/미완료/견적요청 리마인드 — 매일 아침 9시.
 
 lead 중 다음 조건 대상을 온라인 문의 채널에 요약 카드로 발송:
-  A. 상태 = '상담 대기' & 온라인 상담자 미배정 (매니저가 아예 놓친 것) — date_range 인입분
-  B. 상태 = '부재중' & 영업 담당자 없음  (콜백했으나 미연결, 재연락 필요) — date_range 인입분
+  A. 상태 = '상담 대기' & 온라인 상담자 미배정 (매니저가 아예 놓친 것) — 최근 N영업일 (배정 전까지)
+  B. 상태 = '부재중' & 영업 담당자 없음  (콜백했으나 미연결, 재연락 필요) — 최근 N영업일 (재시도/드랍 전까지)
   C. 상태 = '견적 요청' (견적 미제출) — **날짜 무관 전체 스캔**, 제출·드랍될 때까지 매일 (2026-07-27)
+  A·B 는 _LOOKBACK_BDAYS(2) 영업일 하한(cutoff)까지 지속 (2026-09-09, 하루만 뜨고 사라지던 누락 해소).
 
 카드 구성 (v7):
   ⠀
@@ -131,15 +132,17 @@ def _previous_business_day(d: date) -> date:
     return prev
 
 
-# 부재중 지속 리마인드 범위 (최근 N영업일). 견적요청처럼 처리(재시도 성공·드랍) 전까지
-# 매일 표시하되, 오래된 미처리 백로그(예: 5~7월 47건)가 홍수처럼 딸려오지 않게 하한을 둔다.
-# 2026-09-09: 부재중이 직전영업일 range(=1영업일)만 봐서 다음날 재시도 안 하면 사라지던
-#   누락 해소. 원래 1영업일 → 2영업일로 확장 (사용자 결정: '2일 정도면 됨').
-_RETRY_LOOKBACK_BDAYS = 2
+# 미완료·부재중 지속 리마인드 범위 (최근 N영업일). 처리(배정·재시도 성공·드랍) 전까지
+# 매일 표시하되, 오래된 미처리 백로그(예: 5~7월 부재중 47건, 1~5월 상담대기 등)가 홍수처럼
+# 딸려오지 않게 하한을 둔다.
+# 2026-09-09: 미완료·부재중이 직전영업일 range(=1영업일)만 봐서 다음날 처리 안 하면 사라지던
+#   누락 해소 (부재중 L-03938 백상현 09-07 계기). 원래 1영업일 → 2영업일로 확장
+#   (사용자 결정: '2일 정도면 됨'. 미완료도 동일 적용).
+_LOOKBACK_BDAYS = 2
 
 
 def _nth_previous_business_day(d: date, n: int) -> date:
-    """d 로부터 n 영업일 전 date (n>=1). 부재중 지속 리마인드의 하한(cutoff)."""
+    """d 로부터 n 영업일 전 date (n>=1). 지속 리마인드의 하한(cutoff)."""
     cur = d
     for _ in range(max(1, n)):
         cur = _previous_business_day(cur)
@@ -151,62 +154,54 @@ def collect_absent_leads(target_date: Optional[date] = None,
     """부재중 리마인드 대상 수집.
 
     Args:
-        target_date: 단일 date (하위 호환)
-        date_range: 복수 date 리스트 — 우선 사용. 각 date 인입 lead 다 포함.
-                    (주말·공휴일 다음 영업일 리마인드에서 여러 날 잡기 위함)
+        target_date: 단일 date (하위 호환, 미사용 — 수집은 cutoff 기반)
+        date_range: 하위 호환용 (미사용). 미완료·부재중은 최근 _LOOKBACK_BDAYS 영업일
+                    cutoff 로 수집하고, 견적요청은 날짜 무관 스캔한다.
 
     Returns:
         (unassigned, retry_by_manager, quote_pending_by_manager)
-            unassigned: 상담 대기 & 온라인 상담자 미배정 (date_range 인입분)
-            retry_by_manager: {매니저이름: [lead, ...]}  상태='부재중' & 영업 담당자 없음 (date_range 인입분)
+            unassigned: 상담 대기 & 온라인 상담자 미배정 (최근 N영업일)
+            retry_by_manager: {매니저이름: [lead, ...]}  상태='부재중' & 영업 담당자 없음 (최근 N영업일)
             quote_pending_by_manager: {매니저이름: [lead, ...]}  상태='견적 요청' — 견적 제출 전까지
                 **날짜 무관 전체 스캔** (며칠 걸릴 수 있어 제출·드랍될 때까지 매일 리마인드)
     """
     from dashboard.services.lead_service import get_lead_records
     if date_range is None:
         date_range = [target_date or (date.today() - timedelta(days=1))]
-    ymd_dots = {d.strftime('%Y.%m.%d') for d in date_range}
     leads = get_lead_records()
-    yday = [
-        l for l in leads
-        if any(str(l.get('상담 시간', '')).startswith(p) for p in ymd_dots)
-    ]
 
-    # A. 미완료 (상태='상담 대기' & 온라인 상담자 미배정) — date_range 인입분만.
-    #   '-' 플레이스홀더는 미배정으로 취급 (빈값과 동일). 2026-09-09:
-    #   큐플레이스 등 수동 등록 리드가 온라인상담자='-' 로 들어오면 not consultant=False →
-    #   미완료 집계에서 조용히 누락됨 (L 김시현 큐플레이스 09-08 상담대기 미리마인드 사고).
-    #   시스템 전반이 '-' 를 빈값 플레이스홀더로 쓰므로 여기서도 빈값으로 정규화.
+    # 미완료·부재중 공통 하한(cutoff) — 최근 _LOOKBACK_BDAYS 영업일. 이 날짜 이후 인입분만.
+    #   date_range(직전영업일)만 보던 옛 방식은 다음날 처리 안 하면 사라져 누락됐음.
+    cutoff = _nth_previous_business_day(date.today(), _LOOKBACK_BDAYS)
+
+    def _consultant(l):
+        c = str(l.get('온라인 상담자', '')).strip()
+        return '' if c == '-' else c  # '-' 플레이스홀더 = 미배정 (빈값과 동일)
+
+    def _sales(l):
+        s = str(l.get('영업 담당자', '')).strip()
+        return '' if s == '-' else s
+
+    def _recent(l):
+        ld = _lead_date(l)
+        return ld is not None and ld >= cutoff
+
+    # A. 미완료 (상태='상담 대기' & 온라인 상담자 미배정) — 배정 전까지 매일 (최근 N영업일).
+    #   2026-09-09: '-' 플레이스홀더 정규화(큐플레이스 김시현 누락 사고) + date_range→cutoff 전환
+    #   (부재중과 동일하게, 배정 안 하면 다음날 사라지던 문제 해소. 사용자 결정 '2일 기준').
     unassigned: List[Dict] = []
-    for l in yday:
-        status = str(l.get('상태', '')).strip()
-        consultant = str(l.get('온라인 상담자', '')).strip()
-        if consultant == '-':
-            consultant = ''
-        if status == '상담 대기' and not consultant:
+    for l in leads:
+        if str(l.get('상태', '')).strip() == '상담 대기' and not _consultant(l) and _recent(l):
             unassigned.append(l)
 
-    # B. 부재중 (상태='부재중' & 영업 담당자 미배정) — 재시도(성공)·드랍 전까지 매일 리마인드.
+    # B. 부재중 (상태='부재중' & 영업 담당자 미배정) — 재시도(성공)·드랍 전까지 매일 (최근 N영업일).
     #   2026-09-09: date_range(직전영업일)만 보면 다음날 재시도 안 하면 사라져 누락됨
     #   (L-03938 백상현 09-07 건). 견적요청처럼 지속 스캔하되, 오래된 백로그(5~7월 47건)
-    #   홍수 방지 위해 **최근 _RETRY_LOOKBACK_BDAYS 영업일**로 하한(cutoff) 제한.
+    #   홍수 방지 위해 cutoff(최근 _LOOKBACK_BDAYS 영업일) 제한.
     retry: Dict[str, List[Dict]] = defaultdict(list)
-    retry_cutoff = _nth_previous_business_day(date.today(), _RETRY_LOOKBACK_BDAYS)
     for l in leads:
-        if str(l.get('상태', '')).strip() != '부재중':
-            continue
-        sales = str(l.get('영업 담당자', '')).strip()
-        if sales == '-':
-            sales = ''
-        if sales:
-            continue
-        ld = _lead_date(l)
-        if ld is None or ld < retry_cutoff:
-            continue
-        consultant = str(l.get('온라인 상담자', '')).strip()
-        if consultant == '-':
-            consultant = ''
-        retry[consultant or '(미배정)'].append(l)
+        if str(l.get('상태', '')).strip() == '부재중' and not _sales(l) and _recent(l):
+            retry[_consultant(l) or '(미배정)'].append(l)
 
     # C. 견적 요청 = 견적 제출 전까지 매일 리마인드 (날짜 무관 — 전체 lead 스캔).
     #   상태가 아직 '견적 요청' 이면 미제출. 제출/방문예약/드랍 시 상태가 바뀌어 자동 이탈.
@@ -227,9 +222,8 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
     """리마인드 카드 텍스트 조립.
 
     Args:
-        date_range: 리마인드 대상 date 리스트. 크기 별 헤더·라인 표기 분기.
-                    - 1일: `어제 미처리 문의` + 라인 `어제 HH:MM`
-                    - 2일 이상: `{start} ~ {end} 미처리 문의` + 라인 `MM.DD(요일) HH:MM`
+        date_range: 하위 호환용 (미사용). 헤더는 '최근 미처리 문의', 각 라인은 접수일
+                    (MM.DD(요일) HH:MM) 병기 — 미완료·부재중이 최근 N영업일 창이라.
         quote_pending: {매니저: [lead,...]} 상태='견적 요청' 미제출 (날짜 무관). 별도 섹션.
 
     Returns: (text, total_count)
@@ -247,8 +241,6 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
 
     total = (len(unassigned) + sum(len(v) for v in retry.values())
              + sum(len(v) for v in quote_pending.values()))
-    _range = sorted(date_range or [])
-    _multi_day = len(_range) >= 2
 
     def _line(l: Dict, mode: str) -> str:
         lno = str(l.get('리드 No', '')).strip()
@@ -256,28 +248,17 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         link = f'  |  <{pl}|확인하기>' if pl else ''
         name = str(l.get('고객명', ''))[:20]
         plat = str(l.get('플랫폼', ''))
-        if mode == 'unassigned':
-            t = _hhmm(str(l.get('상담 시간', '')))
-            # range 2일 이상이면 date 병기 (07.26(일) 12:39), 1일이면 `어제 HH:MM`
-            if _multi_day:
-                _d = _lead_date(l)
-                _date_tag = _md_weekday(_d) if _d else '어제'
-                return f'• `{lno}` [{plat}] {name} · {_date_tag} {t}{link}'
-            return f'• `{lno}` [{plat}] {name} · 어제 {t}{link}'
-        if mode == 'quote':
-            # 날짜 무관 스캔 → 접수일 병기 (얼마나 대기 중인지 파악)
+        if mode in ('unassigned', 'quote'):
+            # 미완료·견적요청: 접수일 병기. 최근 N영업일 창이라 며칠 전 건일 수 있어
+            #   '어제' 고정 대신 실제 접수일(MM.DD(요일) HH:MM)로 표기 (2026-09-09).
             t = _hhmm(str(l.get('상담 시간', '')))
             _d = _lead_date(l)
             _when = (f'{_md_weekday(_d)} {t}' if _d else t).strip() or '-'
             return f'• `{lno}` [{plat}] {name} · {_when}{link}'
         return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{link}'
 
-    # 헤더 문구 — range 크기별 분기
-    if _multi_day:
-        _hdr_range = f'{_md_weekday(_range[0])} ~ {_md_weekday(_range[-1])}'
-        _hdr = f':bell: *{_hdr_range} 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*'
-    else:
-        _hdr = f':bell: *어제 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*'
+    # 헤더 — 미완료·부재중이 최근 N영업일 창이라 '어제' 고정 대신 '최근' (각 라인에 접수일 표기).
+    _hdr = f':bell: *최근 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*'
 
     lines = [_BLANK]
     lines.append(_hdr)
