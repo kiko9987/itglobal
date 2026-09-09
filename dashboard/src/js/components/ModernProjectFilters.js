@@ -1241,6 +1241,31 @@ export default class ModernProjectFilters {
   }
 
   /**
+   * 표준(데이터) 필터만 초기화 — A/S 관리 모드 진입 시 사용.
+   * A/S 상태 필터(ProjectTable._asStatusFilter)와 수금/A/S 토글은 건드리지 않는다.
+   * applyFilters 는 호출자가 모드 전환 마지막에 1회 호출(중복 draw 방지).
+   */
+  clearStandardFilters() {
+    this.filters = {};
+
+    if (this.searchInput) this.searchInput.value = '';
+    if (this.companyFilter) this.companyFilter.value = '';
+    if (this.clientFilter) this.clientFilter.value = '';
+    if (this.businessNameFilter) this.businessNameFilter.value = '';
+    if (this.statusFilter) this.statusFilter.value = '';
+    if (this.dataFilter) this.dataFilter.value = '';
+    if (this.managerFilter) this.managerFilter.value = '';
+    if (this.invoiceFilter) this.invoiceFilter.value = '';
+    if (this.outstandingFilter) this.outstandingFilter.value = '';
+    if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
+
+    // 저장된 표준 필터도 삭제 → A/S 모드에서 F5 해도 되살아나지 않음.
+    try { sessionStorage.removeItem('itg_filters_v1'); } catch (_) { /* noop */ }
+
+    this.updateFilterVisualEffects();
+  }
+
+  /**
    * 데이터 상태 초기화
    */
   clearData() {

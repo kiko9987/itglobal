@@ -1601,24 +1601,22 @@ export default class ProjectTable {
     // 초기값 복원: 우선순위 = URL query > sessionStorage > 기본(false)
     // URL query `?receivables=1` → 통계 페이지의 '수금관리' 링크로 진입 시 자동 활성.
     // sessionStorage → 새로고침(F5) 시 이전 모드 유지.
+    // ⚠️ 실제 복원(checked + change dispatch)은 아래 change 핸들러를 바인딩한 "뒤"에 수행한다.
+    //    여기서 바로 dispatch 하면 핸들러가 아직 미바인딩이라 모드 전환이 실행되지 않아,
+    //    토글만 켜지고 테이블은 일반 모드로 남는 버그가 됨(컬럼 visibility 미적용).
+    let initialReceivables = false;
     try {
       const params = new URLSearchParams(window.location.search);
       const fromUrl = params.get('receivables');
       const fromStorage = sessionStorage.getItem('itg_receivables_mode');
-      let initial = false;
       if (fromUrl === '1') {
-        initial = true;
+        initialReceivables = true;
         // URL 파라미터 정리 (다음 새로고침엔 sessionStorage 만 참조)
         params.delete('receivables');
         const clean = window.location.pathname + (params.toString() ? '?' + params : '') + window.location.hash;
         window.history.replaceState({}, '', clean);
       } else if (fromStorage === '1') {
-        initial = true;
-      }
-      if (initial) {
-        toggle.checked = true;
-        // change 이벤트 발생시켜 실제 모드 전환 실행 (컬럼 visibility, 필터 등)
-        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+        initialReceivables = true;
       }
     } catch (err) {
       logger.warn('[ProjectTable] 수금 모드 초기값 복원 실패:', err);
@@ -1783,6 +1781,12 @@ export default class ProjectTable {
       }
     });
 
+    // 초기 모드 복원 (F5/URL 진입) — change 핸들러 바인딩이 끝난 "뒤"에 dispatch 해야
+    //   실제 모드 전환(컬럼 visibility·필터)이 실행됨. (dispatch 를 바인딩 전에 하면 무시됨)
+    if (initialReceivables) {
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    }
   }
 
   /**
@@ -2013,6 +2017,13 @@ export default class ProjectTable {
         }
       }
       try { sessionStorage.removeItem('itg_receivables_mode'); } catch (_) { /* noop */ }
+
+      // A/S 모드 진입 시 표준 필터 전부 초기화 (A/S 상태 필터만 유지).
+      //   기존 필터가 남아 'A/S ∩ 기존조건' 교집합으로 목록이 비는 문제 방지.
+      //   applyFilters 는 아래 모드 전환 마지막에서 1회만 호출.
+      if (window.modernFilters && window.modernFilters.clearStandardFilters) {
+        window.modernFilters.clearStandardFilters();
+      }
     }
 
     const newMode = on ? TABLE_MODE.AS : TABLE_MODE.NORMAL;
