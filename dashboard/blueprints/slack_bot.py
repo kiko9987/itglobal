@@ -9735,11 +9735,10 @@ def _ensure_visit_folder(
         if m_source:
             initial = _to_initial(m_source)
 
-    if not initial and root_text:
-        m_ini = re.search(r'등록자\s*:\s*([A-Za-z가-힣]+)', root_text)
-        if m_ini:
-            initial = _to_initial(m_ini.group(1).strip())
-    # 담당자 못 찾으면 '미정' — 나중에 담당자 배정되면 재사용 시 자동 교정(_maybe_fix_folder_initial)
+    # 담당자(영업/온라인상담자) 없으면 '미정'. 등록자는 방문 담당자가 아니므로 이니셜로 쓰지 않는다.
+    #   (등록자 폴백 제거: 전화 리드 등 담당자 미배정 시 (미정)으로 두면, 담당자 배정 후 폴더
+    #    재사용(사진/방문완료) 시 _maybe_fix_folder_initial 이 자동 교정. 폴백을 쓰면 (미정)이 안 돼
+    #    교정 대상에서 빠져 등록자 이니셜로 굳어버림.)
     initial = initial or '미정'
 
     visit_address = str(lead.get('방문 주소', '') or '').strip()
