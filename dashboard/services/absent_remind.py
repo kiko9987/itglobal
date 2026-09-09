@@ -163,6 +163,14 @@ def collect_absent_leads(target_date: Optional[date] = None,
         status = str(l.get('상태', '')).strip()
         consultant = str(l.get('온라인 상담자', '')).strip()
         sales = str(l.get('영업 담당자', '')).strip()
+        # '-' 플레이스홀더는 미배정으로 취급 (빈값과 동일). 2026-09-09:
+        #   큐플레이스 등 수동 등록 리드가 온라인상담자='-' 로 들어오면 not consultant=False →
+        #   미완료 집계에서 조용히 누락됨 (L 김시현 큐플레이스 09-08 상담대기 미리마인드 사고).
+        #   시스템 전반이 '-' 를 빈값 플레이스홀더로 쓰므로 여기서도 빈값으로 정규화.
+        if consultant == '-':
+            consultant = ''
+        if sales == '-':
+            sales = ''
         if status == '상담 대기' and not consultant:
             unassigned.append(l)
         elif status == '부재중' and not sales:
