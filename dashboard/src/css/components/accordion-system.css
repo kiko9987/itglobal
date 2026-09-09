@@ -1188,6 +1188,15 @@ a[id^="folder-display-"] {
   /* 필요시 뱃지 텍스트도 줄바꿈 허용 */
 }
 
+/* 값 뱃지(부가세=vat-badge·계산서=invoice-badge·수금확인=collection-badge, 공통 .badge)는
+   Bootstrap 기본 vertical-align:baseline 이라 라벨 텍스트보다 아래로 걸린다.
+   middle 로 라벨 텍스트 광학 중앙에 맞춘다(텍스트 옆 뱃지 정렬 표준). */
+.compact-item .editable-value .badge {
+  vertical-align: middle;
+  /* middle 이 라벨보다 살짝 높게 걸려 1px 하강으로 광학 중앙 맞춤 */
+  transform: translateY(1px);
+}
+
 /* ===== 카드별 레이아웃 시스템 V2 (충돌 해결) ===== */
 
 /* === 우선순위 높은 카드별 특화 규칙 === */
