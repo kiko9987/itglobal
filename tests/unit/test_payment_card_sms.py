@@ -91,5 +91,36 @@ class TestPayerLabelJunk:
             assert res[0].get('partner') == lp
 
 
+class TestYStatusNewFormat:
+    """Y열 '{단계} - {상태}' 신형식 상태 추출 회귀 (2026-09-09).
+
+    배경: 계산서 다단계 도입으로 Y('계산서')가 'N입금'/'카드결제'(구) → '잔금 - N입금'/
+    '잔금 - 카드결제'(신)로 바뀌었는데, _resolve_payment_code 는 'N입금' 정확일치,
+    _is_card_payment 는 ('카드결제','혼합') 정확일치로 판정 → 신형식 매칭 실패.
+    결과: 은행 없는 N입금(현금)이 기본값 G 로 오표기(G4026-MS·G4059-MS 'N 분할지정→G' 제보),
+    카드결제도 미인식. _y_status 로 상태 토큰 추출해 해소.
+    """
+
+    def test_n_deposit_new_format_resolves_N(self):
+        # 은행 표식 없으면 Y 상태('N입금')로 N. (신형식 '잔금 - N입금')
+        assert _resolve_payment_code('잔금 - N입금', '', '라은정(색담)') == 'N'
+
+    def test_bank_takes_precedence_over_y(self):
+        # 은행이 있으면 각 입금 은행 코드 우선 (하나→R, 기업→G) — Y fallback 아님.
+        assert _resolve_payment_code('잔금 - N입금', '하나', '김철수') == 'R'
+        assert _resolve_payment_code('잔금 - N입금', '기업', '김철수') == 'G'
+
+    def test_card_new_format_detected(self):
+        # 신형식 '잔금 - 카드결제' + 카드사명 → 카드 인식.
+        assert _is_card_payment('잔금 - 카드결제', '비씨카드') is True
+
+    def test_legacy_bare_format_unchanged(self):
+        # 구형식(바로 상태)도 그대로 동작 (하위호환).
+        assert _resolve_payment_code('N입금', '', '홍길동') == 'N'
+        assert _is_card_payment('카드결제', '삼성 204108778') is True
+        # 비-N입금 신형식은 은행 없으면 기본 G 유지.
+        assert _resolve_payment_code('잔금 - 미발행', '', '홍길동') == 'G'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

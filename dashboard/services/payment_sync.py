@@ -787,6 +787,21 @@ def _is_itg_card_deposit(text: str) -> bool:
     return any(sig in digits or digits in sig for sig in _ITG_CARD_SIGNATURES)
 
 
+def _y_status(invoice_value: str) -> str:
+    """Y열('계산서')에서 상태 토큰만 추출.
+
+    현행 Y 형식(_bill_y_summary)은 '{단계} - {상태}'(예: '잔금 - N입금', '잔금 - 카드결제')
+    또는 바로 '미발행'. 상태 ∈ {발행완료, 미발행, N입금, 카드결제, 기타}(+레거시 발행/혼합).
+    2026-09-09: '{단계} - {상태}' 신형식 도입 후, 상태를 **정확일치**로 보던 _resolve_payment_code
+    ('N입금')·_is_card_payment('카드결제'/'혼합')가 매칭 실패해 N입금이 G로, 카드결제가 미인식되던
+    회귀 수정(G4026-MS·G4059-MS 'N 분할지정→G' 제보). 구형식(바로 '{상태}')·빈값도 안전.
+    """
+    s = (invoice_value or '').strip()
+    if ' - ' in s:
+        s = s.rsplit(' - ', 1)[-1].strip()
+    return s
+
+
 def _is_card_payment(invoice_value: str, partner: str) -> bool:
     """Y열 + 거래처 패턴으로 카드 결제 여부 판별.
     Y='카드결제'/'혼합' 케이스도 단계별로 partner 패턴 확인 — 한 프로젝트에서
@@ -795,7 +810,7 @@ def _is_card_payment(invoice_value: str, partner: str) -> bool:
     # ITG 가맹점 승인번호가 입금자에 있으면 Y열 불문 확정 카드 (매니저가 Y 미수정해도 인식)
     if _is_itg_card_deposit(partner):
         return True
-    iv = (invoice_value or '').strip()
+    iv = _y_status(invoice_value)
     if iv in ('카드결제', '혼합'):
         if not partner:
             return False
@@ -826,7 +841,8 @@ def _resolve_payment_code(invoice_value: str, bank: str, partner: str = '') -> s
     if bank == '농협':
         return 'N'
     # 3) 은행·현금 표식 없을 때만 Y열 fallback
-    if (invoice_value or '').strip() == 'N입금':
+    #    Y 신형식 '{단계} - N입금'·구형식 'N입금' 모두 상태 토큰으로 판정 (2026-09-09 회귀 수정).
+    if _y_status(invoice_value) == 'N입금':
         return 'N'
     return 'G'
 
