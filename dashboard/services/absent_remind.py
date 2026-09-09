@@ -133,8 +133,9 @@ def _previous_business_day(d: date) -> date:
 
 # 부재중 지속 리마인드 범위 (최근 N영업일). 견적요청처럼 처리(재시도 성공·드랍) 전까지
 # 매일 표시하되, 오래된 미처리 백로그(예: 5~7월 47건)가 홍수처럼 딸려오지 않게 하한을 둔다.
-# 2026-09-09: 부재중이 직전영업일 range 만 봐서 다음날 재시도 안 하면 사라지던 누락 해소.
-_RETRY_LOOKBACK_BDAYS = 7
+# 2026-09-09: 부재중이 직전영업일 range(=1영업일)만 봐서 다음날 재시도 안 하면 사라지던
+#   누락 해소. 원래 1영업일 → 2영업일로 확장 (사용자 결정: '2일 정도면 됨').
+_RETRY_LOOKBACK_BDAYS = 2
 
 
 def _nth_previous_business_day(d: date, n: int) -> date:
