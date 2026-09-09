@@ -274,7 +274,7 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
             _esc = ' · :warning: *접수 후 아직 미배정*' if (mode == 'unassigned' and _realert) else ''
             return f'• `{lno}` [{plat}] {name} · {_when}{_esc}{link}'
         # 부재중 — 연락처 표기. 재알림이면 접수일 + 재시도 없음 강조.
-        _esc = f' · :warning: *{_md_weekday(_d)} 접수 후 재시도 없음*' if _realert else ''
+        _esc = f' · :warning: *{_md_weekday(_d)} 부재중 접수 후 재시도 없음*' if _realert else ''
         return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{_esc}{link}'
 
     # 헤더 — 미완료·부재중이 최근 N영업일 창이라 '어제' 고정 대신 '최근' (각 라인에 접수일 표기).
