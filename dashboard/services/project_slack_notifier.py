@@ -15,6 +15,11 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# 공사확정 카드 매핑(project_card_msg / project_thread) TTL.
+#   구 180일 → 3년. 오래된(옛 확정) 프로젝트도 활성으로 재편집·계산서 처리되는 경우가 흔한데
+#   180일 만료 시 시트 직접수정 리컨사일러(project_reconcile) 사각지대가 됨. 넉넉히 연장.
+_CARD_MAP_TTL = 60 * 60 * 24 * 365 * 3
+
 
 def _money_kr(value) -> str:
     """₩1,000 / 1000 / 1000.0 / '1,000' 모두 받아 '1,000원' 형태로 정규화. 빈값은 '-'."""
@@ -305,14 +310,14 @@ def send_project_created_notification(data: dict, code: str) -> bool:
                     rc.set(
                         f'project_card_msg:{code}',
                         f'{channel}|{ts}',
-                        ex=60 * 60 * 24 * 180,
+                        ex=_CARD_MAP_TTL,
                     )
                     # 2026-07-08 역방향 매핑 (사업자등록증 첨부 등 스레드 이벤트 처리용).
                     # 스레드 답글이 들어오면 channel|ts로 프로젝트 코드를 즉시 조회.
                     rc.set(
                         f'project_thread:{channel}|{ts}',
                         code,
-                        ex=60 * 60 * 24 * 180,
+                        ex=_CARD_MAP_TTL,
                     )
                 except Exception as _exc:
                     logger.debug(f'[PROJECT/SLACK] card 매핑 저장 실패 ({code}): {_exc}')
@@ -557,7 +562,7 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
             if mapping:
                 # 새 코드로 재매핑 (정방향)
                 try:
-                    rc.set(f'project_card_msg:{code}', mapping, ex=60 * 60 * 24 * 180)
+                    rc.set(f'project_card_msg:{code}', mapping, ex=_CARD_MAP_TTL)
                     rc.delete(f'project_card_msg:{old_code}')
                 except Exception:
                     pass
@@ -567,7 +572,7 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
                 #   old_code 반환 → 잘못된 프로젝트로 라우팅 위험이 있었음.
                 try:
                     mapping_str = mapping if isinstance(mapping, str) else mapping.decode()
-                    rc.set(f'project_thread:{mapping_str}', code, ex=60 * 60 * 24 * 180)
+                    rc.set(f'project_thread:{mapping_str}', code, ex=_CARD_MAP_TTL)
                 except Exception as _rev_exc:
                     logger.debug(f'[PROJECT/SLACK] 역방향 매핑 갱신 실패 ({old_code}→{code}): {_rev_exc}')
     if not mapping:
@@ -715,7 +720,7 @@ def refresh_project_card_license(
         channel, ts = fallback_channel, fallback_message_ts
         # 다음 첨부는 Redis hit 되도록 매핑 저장 (30일 TTL)
         try:
-            rc.setex(f'project_card_msg:{code}', 86400 * 30, f'{channel}|{ts}')
+            rc.setex(f'project_card_msg:{code}', _CARD_MAP_TTL, f'{channel}|{ts}')
         except Exception:
             pass
     if not channel or not ts:
