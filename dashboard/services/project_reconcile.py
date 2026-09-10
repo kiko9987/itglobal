@@ -136,7 +136,8 @@ def reconcile_project_cards() -> dict:
                 for f in diffs
             ]
             try:
-                notify_project_field_changes(code, field_changes, latest_data=r)
+                notify_project_field_changes(code, field_changes, latest_data=r,
+                                             editor='시트 직접수정')
                 result['reflected'] += 1
                 logger.info(f'[RECONCILE] 시트 직접수정 감지 → 카드 반영+로그: {code} {diffs}')
             except Exception as exc:

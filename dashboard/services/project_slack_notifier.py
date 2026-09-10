@@ -518,7 +518,8 @@ def notify_invoice_card_amount_change(code: str, field_changes: list) -> bool:
     return posted > 0
 
 
-def notify_project_field_changes(code: str, field_changes: list, latest_data: dict = None) -> bool:
+def notify_project_field_changes(code: str, field_changes: list, latest_data: dict = None,
+                                 editor: str = '') -> bool:
     """편집된 필드들을 공사 확정 카드 스레드에 답글로 전송 + 원본 카드 최신 데이터로 재렌더링.
 
     Args:
@@ -585,7 +586,8 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
         return False
 
     # 본문 조립
-    lines = [f'[{code} 데이터 수정 알림]']
+    _who = f'  _({str(editor).strip()})_' if str(editor or '').strip() else ''
+    lines = [f'[{code} 데이터 수정 알림]{_who}']
     for c in relevant:
         f = c['field_name']
         old_disp = _fmt_field(f, c.get('old_value'))

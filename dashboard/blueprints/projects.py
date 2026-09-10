@@ -1196,6 +1196,10 @@ def update_project(project_code):
         # 프로젝트 표준 패턴 (blueprints/slack_bot.py 등에 15+ 곳 사용) 그대로.
         import threading as _th
 
+        # 편집자(변경 알림 댓글에 '수정: 누구' 표기) — 세션은 request 스코프라 스레드 진입 전 캡처.
+        _editor_email = session.get('user', {}).get('email', '') or ''
+        _editor_name = _editor_email.split('@')[0] if '@' in _editor_email else _editor_email
+
         def _bg_notifications():
             logger.info(f"[BG/START] {final_project_code} 알림 백그라운드 시작")
             # 시트 직접수정 리컨사일러 중복 발송 방지 — PM 편집임을 마커로 표시(15분).
@@ -1215,6 +1219,7 @@ def update_project(project_code):
                 from ..services.project_slack_notifier import notify_project_field_changes
                 notify_project_field_changes(
                     final_project_code, field_changes, latest_data=updated_project,
+                    editor=(f'수정: {_editor_name}' if _editor_name else ''),
                 )
             except Exception as exc:
                 logger.warning(f"[BG/SLACK] {final_project_code} 알림 처리 오류: {exc}")
