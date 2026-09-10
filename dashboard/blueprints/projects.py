@@ -1198,6 +1198,15 @@ def update_project(project_code):
 
         def _bg_notifications():
             logger.info(f"[BG/START] {final_project_code} 알림 백그라운드 시작")
+            # 시트 직접수정 리컨사일러 중복 발송 방지 — PM 편집임을 마커로 표시(15분).
+            #   폴러(project_reconcile)는 이 마커 있으면 그 변경을 조용히 스냅샷만 갱신.
+            try:
+                if field_changes:
+                    from dashboard.utils.redis_client import get_redis_client
+                    get_redis_client().redis.setex(
+                        f'project_pm_edit:{final_project_code}', 900, '1')
+            except Exception as _mk_exc:
+                logger.debug(f"[BG] PM 편집 마커 세팅 실패({final_project_code}): {_mk_exc}")
             try:
                 _update_calendar_if_needed(updated_project, project_code, final_project_code)
             except Exception as exc:

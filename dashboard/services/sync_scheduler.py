@@ -253,6 +253,16 @@ def start_scheduler():
     )
     jobs.append('방문 캔버스1 정기 재생성 10분')
 
+    # 시트 직접수정 감지 → 공사확정 카드 반영+로그 (PM 미경유 편집 안전망) — 10분 주기.
+    #   경영지원이 PM 안 거치고 시트를 직접 고치면 카드가 stale → 주기 대조로 자가 치유.
+    _scheduler.add_job(
+        _safe_reconcile_project_cards,
+        'interval',
+        minutes=10,
+        id='reconcile_project_cards',
+    )
+    jobs.append('프로젝트 카드 리컨사일 10분')
+
     # 고아 리드 감지 (시트에 있는데 슬랙 카드 흔적 없음 = Flask 재시작 등으로 발송 유실)
     # — 5분 주기, pending 큐에도 없는 케이스가 대상
     _scheduler.add_job(
@@ -475,6 +485,17 @@ def _safe_recover_photo_batches():
         _recover_photo_batches()
     except Exception as exc:
         logger.error(f'[SCHED] 방문 사진 배치 복구 실패: {exc}', exc_info=True)
+
+
+def _safe_reconcile_project_cards():
+    """시트 직접수정 감지 → 공사확정 카드 반영+로그 (경영지원 PM 미경유 편집 안전망)"""
+    if not _redis_healthy():
+        return
+    try:
+        from dashboard.services.project_reconcile import reconcile_project_cards
+        reconcile_project_cards()
+    except Exception as exc:
+        logger.error(f'[SCHED] 프로젝트 카드 리컨사일 실패: {exc}', exc_info=True)
 
 
 def _safe_recover_orphan_leads():
