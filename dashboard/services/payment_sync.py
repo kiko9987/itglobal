@@ -104,20 +104,36 @@ _ACCT_N_RE = re.compile(r'352[\-\*][\d*\-]{5,}')            # 농협 352-****-16
 
 
 def _fmt_payment_date(p: Dict) -> str:
-    """카드 표시용 날짜 — 항상 'YY/MM/DD' (연도 표기 통일).
+    """카드 표시용 날짜 — 메모에 연도가 있으면 'YY/MM/DD', 없으면 'MM/DD'.
 
-    연도 표기는 다년 분납(오래된 건) 구분용(2317c9a, 2026-09-03 G1897-MW). 메모에 연도가
-    없으면 **당해년도로 채워** 같은 카드 안에서 연도 유무 라인이 '09/08' vs '26/09/08'
-    처럼 엇갈리지 않게 통일한다(2026-09-10 사용자 결정, G4059-MS 제보). 날짜 자체가
-    없으면('-') 그대로."""
-    from datetime import date as _date
+    다년 분납(오래된 미수) 구분용(2317c9a, 2026-09-03 G1897-MW). **연도를 임의로 추정하지
+    않는다** — 옛 분납 건을 당해년도로 오표기하면 안 되므로(2026-09-10 사용자 지적: 한 달씩
+    길게 받는 옛 미수 건 존재). 같은 카드의 '같은 날짜(MM/DD)' 라인이 명시 연도를 가지면
+    _fill_sibling_years 가 렌더 전에 안전하게 채운다(같은 날=같은 해). 그 외 무연도는 MM/DD."""
     md = p.get('date_md') or '-'
-    if md in ('', '-') or '/' not in md:
-        return md
     yr = str(p.get('date_year') or '')
-    if len(yr) != 4:
-        yr = str(_date.today().year)  # 무연도 → 당해년도 채움 (연도 표기 통일)
-    return f"{yr[2:]}/{md}"
+    if len(yr) == 4 and md not in ('', '-') and '/' in md:
+        return f"{yr[2:]}/{md}"
+    return md
+
+
+def _fill_sibling_years(payments: List[Dict]) -> None:
+    """같은 카드 내 '같은 날짜(MM/DD)' 라인이 명시 연도를 가지면, 연도 없는 형제 라인에 그
+    연도를 채운다(같은 날 = 같은 해라 안전). in-place.
+
+    안전 규칙: 같은 MM/DD 에 **서로 다른 명시 연도**가 섞여 있으면(모호) 건드리지 않음.
+    당해년도 등 임의 추정은 절대 하지 않는다 — 옛 분납이 올해로 오표기되는 것 방지."""
+    by_md: Dict[str, set] = {}
+    for p in payments or []:
+        md = p.get('date_md') or ''
+        yr = str(p.get('date_year') or '')
+        if md and '/' in md and len(yr) == 4:
+            by_md.setdefault(md, set()).add(yr)
+    known = {md: next(iter(ys)) for md, ys in by_md.items() if len(ys) == 1}
+    for p in payments or []:
+        md = p.get('date_md') or ''
+        if md in known and len(str(p.get('date_year') or '')) != 4:
+            p['date_year'] = known[md]
 
 
 def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
@@ -1170,6 +1186,7 @@ def _build_stage_with_history_message(
     refund_event=True → 헤더가 '{stage} 반환', 헤드라인이 반환액(과입금 환불 발송 카드).
     False(기본) → 헤드라인은 마지막 '입금'(반환 아님) 기준, 반환은 이력에만 노출.
     """
+    _fill_sibling_years(all_payments)  # 같은 날짜 형제의 명시 연도 채움 (안전, 추측 없음)
     _same = [p for p in all_payments if p.get('stage') == stage]
     if refund_event:
         _refs = [p for p in _same if p.get('is_refund')]
@@ -1268,6 +1285,7 @@ def _build_complete_message(
     construction: str = '',
 ) -> str:
     """수금완료 알림 — 전체 history 취합."""
+    _fill_sibling_years(payments)  # 같은 날짜 형제의 명시 연도 채움 (안전, 추측 없음)
     lines = [
         '⠀',
         f":white_check_mark: *수금완료* — :id: *{project}*",
@@ -1339,6 +1357,7 @@ def _build_unified_stage_message(
     - 개별 카드 4건 대신 통합 카드 1건으로 발송 → 매니저 즉시 인지
     - 그룹 전체 phash 갱신 → 중복 발송 방지
     """
+    _fill_sibling_years(payments)  # 같은 날짜 형제의 명시 연도 채움 (안전, 추측 없음)
     n = len(projects)
     codes = [p['code'] for p in projects]
     headline = ':white_check_mark: *수금완료 (통합 입금)*' if is_complete else f':moneybag: *{stage} 통합 입금*'

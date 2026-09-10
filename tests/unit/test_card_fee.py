@@ -15,7 +15,8 @@ sys.path.insert(0, '.')
 import pytest
 from dashboard.services.payment_sync import (
     _card_fee_line, _is_itg_card_deposit, _is_card_payment, _parse_notes,
-    _fmt_payment_date, _parse_memo_block, _collection_gross_fee, _collection_fee_line,
+    _fmt_payment_date, _fill_sibling_years, _parse_memo_block,
+    _collection_gross_fee, _collection_fee_line,
 )
 from dashboard.blueprints.slack_bot import _card_settlement_target, _collection_settlement_target
 
@@ -152,17 +153,35 @@ class TestPaymentDateYear:
     """누적 이력·헤드라인 날짜에 연도 표기 (분납 다년 구분, G1897-MW 계기)."""
 
     def test_fmt_with_year(self):
-        # 연도 있으면 항상 YY/MM/DD (다년 분납 구분).
+        # 연도 있으면 YY/MM/DD (다년 분납 구분).
         assert _fmt_payment_date({'date_md': '09/03', 'date_year': '2025'}) == '25/09/03'
         assert _fmt_payment_date({'date_md': '01/10', 'date_year': '2026'}) == '26/01/10'
 
-    def test_fmt_without_year_fills_current(self):
-        # 무연도 라인은 당해년도로 채워 통일 (2026-09-10 사용자 결정, G4059-MS 제보).
-        from datetime import date as _date
-        cy2 = str(_date.today().year)[2:]
-        assert _fmt_payment_date({'date_md': '09/03'}) == f'{cy2}/09/03'
-        assert _fmt_payment_date({'date_md': '09/03', 'date_year': ''}) == f'{cy2}/09/03'
-        assert _fmt_payment_date({'date_md': '-'}) == '-'  # 날짜 없으면 그대로
+    def test_fmt_without_year_no_guess(self):
+        # 연도 없으면 MM/DD — 임의 추정 안 함 (옛 분납이 올해로 오표기되면 안 됨, 2026-09-10).
+        assert _fmt_payment_date({'date_md': '09/03'}) == '09/03'
+        assert _fmt_payment_date({'date_md': '09/03', 'date_year': ''}) == '09/03'
+        assert _fmt_payment_date({'date_md': '-'}) == '-'
+
+    def test_fill_sibling_years(self):
+        # 같은 날짜(MM/DD) 형제가 명시 연도를 가지면 연도 없는 형제에 채움 (같은 날=같은 해).
+        ps = [{'date_md': '09/08', 'date_year': '2026'}, {'date_md': '09/08', 'date_year': ''}]
+        _fill_sibling_years(ps)
+        assert ps[1]['date_year'] == '2026'
+
+    def test_fill_sibling_years_diff_date_untouched(self):
+        # 날짜가 다르면 추정하지 않음 (옛 분납 오표기 방지).
+        ps = [{'date_md': '09/08', 'date_year': '2026'}, {'date_md': '11/15', 'date_year': ''}]
+        _fill_sibling_years(ps)
+        assert (ps[1].get('date_year') or '') == ''
+
+    def test_fill_sibling_years_ambiguous_untouched(self):
+        # 같은 MM/DD 에 서로 다른 명시 연도가 섞이면 모호 → 건드리지 않음.
+        ps = [{'date_md': '09/08', 'date_year': '2025'},
+              {'date_md': '09/08', 'date_year': '2026'},
+              {'date_md': '09/08', 'date_year': ''}]
+        _fill_sibling_years(ps)
+        assert (ps[2].get('date_year') or '') == ''
 
     def test_parse_captures_year_slash(self):
         p = _parse_memo_block('2025/02/18 20:48\n입금 4,000,000원\n디자인TOV\n452***38801011\n기업')
