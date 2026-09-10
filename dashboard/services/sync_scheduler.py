@@ -302,11 +302,11 @@ def start_scheduler():
         _scheduler.add_job(
             _safe_pin_remind_daily,
             'cron',
-            hour=13, minute=0,
+            hour=14, minute=0,
             id='pin_remind_daily',
             replace_existing=True,
         )
-        jobs.append('정산 핀 리마인드 매일 13:00')
+        jobs.append('정산 핀 리마인드 매일 14:00')
         # 2026-08-18 저녁 재확인 — 하루 처리 후 남은 미처리 다시 리마인드 (동일 내용).
         _scheduler.add_job(
             _safe_pin_remind_daily,
