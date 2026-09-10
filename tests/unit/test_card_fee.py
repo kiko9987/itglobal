@@ -152,17 +152,17 @@ class TestPaymentDateYear:
     """누적 이력·헤드라인 날짜에 연도 표기 (분납 다년 구분, G1897-MW 계기)."""
 
     def test_fmt_with_year(self):
-        # 과거 연도만 YY 접두 (다년 분납 구분). 당해년도는 연도 생략(MM/DD) — 무연도 라인과
-        # 표기 일관 (2026-09-09, G4059-MS '09/08 vs 26/09/08' 불일치 제보).
-        from datetime import date as _date
-        cy = _date.today().year
-        assert _fmt_payment_date({'date_md': '09/03', 'date_year': str(cy - 1)}) == f'{str(cy - 1)[2:]}/09/03'
-        assert _fmt_payment_date({'date_md': '01/10', 'date_year': str(cy)}) == '01/10'
+        # 연도 있으면 항상 YY/MM/DD (다년 분납 구분).
+        assert _fmt_payment_date({'date_md': '09/03', 'date_year': '2025'}) == '25/09/03'
+        assert _fmt_payment_date({'date_md': '01/10', 'date_year': '2026'}) == '26/01/10'
 
-    def test_fmt_without_year(self):
-        assert _fmt_payment_date({'date_md': '09/03'}) == '09/03'
-        assert _fmt_payment_date({'date_md': '09/03', 'date_year': ''}) == '09/03'
-        assert _fmt_payment_date({'date_md': '-'}) == '-'
+    def test_fmt_without_year_fills_current(self):
+        # 무연도 라인은 당해년도로 채워 통일 (2026-09-10 사용자 결정, G4059-MS 제보).
+        from datetime import date as _date
+        cy2 = str(_date.today().year)[2:]
+        assert _fmt_payment_date({'date_md': '09/03'}) == f'{cy2}/09/03'
+        assert _fmt_payment_date({'date_md': '09/03', 'date_year': ''}) == f'{cy2}/09/03'
+        assert _fmt_payment_date({'date_md': '-'}) == '-'  # 날짜 없으면 그대로
 
     def test_parse_captures_year_slash(self):
         p = _parse_memo_block('2025/02/18 20:48\n입금 4,000,000원\n디자인TOV\n452***38801011\n기업')

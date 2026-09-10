@@ -104,19 +104,20 @@ _ACCT_N_RE = re.compile(r'352[\-\*][\d*\-]{5,}')            # 농협 352-****-16
 
 
 def _fmt_payment_date(p: Dict) -> str:
-    """카드 표시용 날짜 — 다른 해면 'YY/MM/DD', 당해년도·무연도면 'MM/DD'.
+    """카드 표시용 날짜 — 항상 'YY/MM/DD' (연도 표기 통일).
 
-    분납이 여러 해 걸친 오래된 업체 구분용(2026-09-03 G1897-MW 계기). 단 **당해년도는
-    연도 생략**(2026-09-09) — 무연도 라인(메모에 연도 없는 입금)과 표기가 엇갈려
-    같은 카드에서 '09/08' vs '26/09/08' 처럼 불일치하던 문제 해소(G4059-MS 제보).
-    과거 연도만 YY 접두 → 다년 구분 기능은 유지."""
+    연도 표기는 다년 분납(오래된 건) 구분용(2317c9a, 2026-09-03 G1897-MW). 메모에 연도가
+    없으면 **당해년도로 채워** 같은 카드 안에서 연도 유무 라인이 '09/08' vs '26/09/08'
+    처럼 엇갈리지 않게 통일한다(2026-09-10 사용자 결정, G4059-MS 제보). 날짜 자체가
+    없으면('-') 그대로."""
     from datetime import date as _date
     md = p.get('date_md') or '-'
+    if md in ('', '-') or '/' not in md:
+        return md
     yr = str(p.get('date_year') or '')
-    if len(yr) == 4 and md not in ('', '-') and '/' in md:
-        if yr != str(_date.today().year):  # 과거 연도만 표기 (당해년도는 MM/DD 통일)
-            return f"{yr[2:]}/{md}"
-    return md
+    if len(yr) != 4:
+        yr = str(_date.today().year)  # 무연도 → 당해년도 채움 (연도 표기 통일)
+    return f"{yr[2:]}/{md}"
 
 
 def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
