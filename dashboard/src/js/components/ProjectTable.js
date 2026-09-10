@@ -110,7 +110,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
         </span>`;
       return `<div class="payment-field-container">
         <span class="payment-amount">${amountText}</span>
-        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage)}</span>
+        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage, row, billStages[stage])}</span>
       </div>`;
     } else {
       // 금액 있음 + 메모 있음 → 채워진 아이콘 + 초록색 (아이콘에만 툴팁)
@@ -122,7 +122,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
         </span>`;
       return `<div class="payment-field-container">
         <span class="payment-amount">${amountText}</span>
-        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage)}</span>
+        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage, row, billStages[stage])}</span>
       </div>`;
     }
   }
@@ -130,7 +130,34 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
   return '<span class="text-muted">-</span>';
 }
 
-function wrapBillIcon(billIcon, stage) {
+/** 사업자 + 공급가(VAT 별도)/합계(VAT 포함) 툴팁 줄 생성 (발행·카드 공용).
+ *  실제 발행액 = 이 발행이 커버하는 금액. 통합발행이면 바로 앞의 연속된 '-'(covered)
+ *  단계 금액까지 합산해야 맞다(예: 잔금 통합발행이 계약금·중도금까지 포함 → 총액). */
+function _billAmountLines(row, stage) {
+  const lines = [];
+  const biz = String(row['사업자명'] || '').trim();
+  if (biz) lines.push(biz);
+  const STAGES = ['계약금', '중도금', '잔금'];
+  const amtOf = (s) => parseFloat(row[s] || 0);
+  const tokOf = (s) => String(row[`${s} 계산서`] || '').trim();
+  const total2 = parseFloat(row['총액 2'] || row['총액2'] || 0);
+  // 이 발행 단계 + 바로 앞의 연속된 '-'(통합발행 covered) 단계 금액 합 = 실제 발행 합계(VAT 포함)
+  const idx = STAGES.indexOf(stage);
+  let gross = amtOf(stage);
+  for (let i = idx - 1; i >= 0; i--) {
+    if (tokOf(STAGES[i]) === '-') gross += amtOf(STAGES[i]);
+    else break;   // '-'(covered) 아닌 단계 만나면 별도 발행 경계 → 합산 중단
+  }
+  if (gross <= 0) gross = total2;
+  if (gross > 0) {
+    const supply = Math.round(gross / 1.1);         // 공급가 (VAT 별도)
+    lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);
+    lines.push(`합계 ${gross.toLocaleString()}원 (VAT 포함)`);
+  }
+  return lines;
+}
+
+function wrapBillIcon(billIcon, stage, row = {}, status = '') {
   if (!billIcon) return '';
 
   const titleMatch = billIcon.match(/title="([^"]*)"/);
@@ -139,6 +166,62 @@ function wrapBillIcon(billIcon, stage) {
     .replace(/title="([^"]*)"/, '')
     .replace(/ms-1/g, '')
     .replace(/\s{2,}/g, ' ');
+
+  // 세금계산서 '발행' → 사업자·금액 툴팁 + 슬랙 계산서 카드 바로가기(클릭)
+  if (status === '발행') {
+    const code = String(row['프로젝트 코드'] || '').trim();
+    const lines = ['세금계산서 발행완료', ..._billAmountLines(row, stage), '클릭 시 계산서 링크로 이동'];
+    const titleText = lines.join('\n');
+    return `
+      <span class="memo-value-wrapper bill-invoice-issued" role="button" tabindex="0" style="cursor:pointer;"
+            data-invoice-code="${escapeHTML(code)}" data-invoice-stage="${escapeHTML(stage)}"
+            data-bs-toggle="tooltip" data-bs-title="${escapeHTML(titleText)}" aria-label="${escapeHTML(lines.join(', '))}">
+        <span class="memo-tooltip-trigger bill-status">
+          ${sanitizedIcon}
+        </span>
+      </span>`;
+  }
+
+  // 카드결제 → 실결제·수수료·순입금 툴팁 (hover 전용; 카드는 계산서 발행 카드가 없어 클릭 링크 없음).
+  //   ⚠️ 데이터 제각각: 셀이 실결제인 건도, 순입금인 건도 있고 수수료 표기도 여러 형식.
+  //   메모의 '수수료 N(원)'·'입금 N원'을 파싱해 실결제/수수료/순입금을 정합하게 역산.
+  if (status === '카드') {
+    const cardMemo = String(row[`${stage}_메모`] || '');
+    const cell = parseFloat(row[stage] || 0);
+    const _num = (s) => parseInt(String(s).replace(/,/g, ''), 10) || 0;
+    const feeM = cardMemo.match(/(?:카드\s*)?수수료\s*[:：]?\s*([\d,]+)\s*원?/);   // '원' 선택
+    const netM = cardMemo.match(/입금\s*([\d,]+)\s*원/);
+    const feeExplicit = feeM ? _num(feeM[1]) : null;
+    const net = netM ? _num(netM[1]) : null;
+    let gross, fee = 0, netFinal = null;
+    if (feeExplicit != null) {
+      fee = feeExplicit;
+      if (net != null) { netFinal = net; gross = net + fee; }   // 셀이 순입금인 케이스 대응
+      else { gross = cell; netFinal = cell - fee; }             // 셀이 실결제
+    } else if (net != null && cell > net) {                     // 명시 없음 + 셀>입금 → 셀=실결제
+      gross = cell; fee = cell - net; netFinal = net;
+    } else {
+      gross = cell;                                             // 수수료 데이터 없음
+    }
+    const lines = ['카드결제 (영수증 자동)'];
+    const biz = String(row['사업자명'] || '').trim();
+    if (biz) lines.push(biz);
+    if (gross > 0) {
+      lines.push(`${stage} ${Math.round(gross / 1.1).toLocaleString()}원 (VAT 별도)`);
+      lines.push(`합계 ${gross.toLocaleString()}원 (VAT 포함)`);
+    }
+    if (fee > 0) {
+      lines.push(`수수료 ${fee.toLocaleString()}원`);
+      if (netFinal != null) lines.push(`순입금 ${netFinal.toLocaleString()}원`);
+    }
+    const titleText = lines.join('\n');
+    return `
+      <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(titleText)}" aria-label="${escapeHTML(lines.join(', '))}">
+        <span class="memo-tooltip-trigger bill-status">
+          ${sanitizedIcon}
+        </span>
+      </span>`;
+  }
 
   return `
     <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(tooltipText)}" aria-label="${escapeHTML(tooltipText)}">
@@ -260,6 +343,42 @@ export default class ProjectTable {
     // 🆕 테이블 모드 변경 이벤트 리스너 (메모리 누수 방지: bound handler 저장)
     this.boundHandleTableModeChange = this.handleTableModeChange.bind(this);
     this.modeManager.on('tableModeChanged', this.boundHandleTableModeChange);
+
+    // 세금계산서 '발행' 아이콘 클릭 → 슬랙 계산서 카드 열기 (capture: 행 클릭/아코디언 토글보다 먼저)
+    this._boundInvoiceLinkClick = this._handleInvoiceLinkClick.bind(this);
+    document.addEventListener('click', this._boundInvoiceLinkClick, true);
+  }
+
+  /** 세금계산서 발행 아이콘 클릭 위임 핸들러 */
+  _handleInvoiceLinkClick(e) {
+    const trigger = e.target.closest && e.target.closest('.bill-invoice-issued');
+    if (!trigger) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const code = trigger.dataset.invoiceCode || '';
+    const stage = trigger.dataset.invoiceStage || '';
+    this.openInvoiceThread(code, stage);
+  }
+
+  /** 코드·단계로 슬랙 계산서 스레드 링크 조회 후 새 탭 열기 (없으면 안내) */
+  async openInvoiceThread(code, stage) {
+    if (!code) return;
+    try {
+      const res = await fetch(`/api/invoice/thread-url?code=${encodeURIComponent(code)}&stage=${encodeURIComponent(stage || '')}`, {
+        credentials: 'same-origin',
+      });
+      const json = await res.json();
+      const url = json?.data?.url || json?.url || null;
+      if (url) {
+        window.open(url, '_blank', 'noopener');
+      } else {
+        const msg = '이 발행 건은 슬랙 링크 저장 전에 발행되어 바로가기가 없습니다.\n#계산서_관리 채널에서 확인해주세요.';
+        if (window.showSystemAlert) window.showSystemAlert(msg, 'info');
+        else alert(msg);
+      }
+    } catch (err) {
+      logger.warn('[ProjectTable] 계산서 스레드 링크 조회 실패:', err);
+    }
   }
 
   /**

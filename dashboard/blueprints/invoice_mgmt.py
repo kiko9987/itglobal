@@ -358,3 +358,35 @@ def api_invoice_request():
 
     logger.info(f'[INVOICE] PM 계산서 요청: {code} ts={res.get("ts")} (by={initial})')
     return APIResponse.success(data={'ts': res.get('ts'), 'thread_url': res.get('thread_url')})
+
+
+@invoice_bp.route('/thread-url', methods=['GET'])
+@login_required
+def api_invoice_thread_url():
+    """프로젝트 코드(+단계)의 슬랙 계산서 카드 스레드 링크 반환. 없으면 url=None.
+
+    PM 수금관리 모드 세금계산서 아이콘 '바로가기'용. 발행 시 저장된 invoice_thread:{code}(해시) 조회.
+    링크는 발행 요청 시점부터 저장돼 과거(그 이전) 발행 건은 url=None (프론트가 안내 처리).
+    """
+    code = (request.args.get('code') or '').strip()
+    stage = (request.args.get('stage') or '').strip()
+    if not code:
+        return APIResponse.success(data={'url': None, 'code': code, 'stage': stage})
+    url = None
+    try:
+        from ..utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+
+        def _dec(v):
+            return v.decode() if isinstance(v, bytes) else v
+        key = f'invoice_thread:{code}'
+        if stage:
+            v = rc.hget(key, stage)
+            url = _dec(v) if v else None
+        if not url:
+            h = rc.hgetall(key) or {}
+            if h:
+                url = _dec(list(h.values())[0])  # 단계 매칭 없으면 대표 링크
+    except Exception as exc:
+        logger.warning(f'[INVOICE] 스레드 링크 조회 실패 ({code}/{stage}): {exc}')
+    return APIResponse.success(data={'url': url, 'code': code, 'stage': stage})

@@ -12840,6 +12840,20 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     except Exception as red_exc:
         logger.warning(f"[SLACK/계산서] Redis metadata 저장 실패: {red_exc}")
 
+    # 프로젝트 코드 → 단계별 슬랙 스레드 링크 저장 (PM 수금관리 모드 세금계산서 아이콘 '바로가기'용).
+    #   한 프로젝트가 여러 번 발행하면 단계별로 각 카드 링크 보존. TTL 2년(발행 이력 조회).
+    if code and code != '-' and thread_url:
+        try:
+            from dashboard.utils.redis_client import get_redis_client as _get_rc_link
+            _rc = _get_rc_link().redis
+            _key = f'invoice_thread:{code}'
+            _stages = [s.strip() for s in str(stages_csv or '').split(',') if s.strip()] or ['잔금']
+            for _st in _stages:
+                _rc.hset(_key, _st, thread_url)
+            _rc.expire(_key, 86400 * 730)
+        except Exception as _lk_exc:
+            logger.warning(f"[SLACK/계산서] 코드별 스레드 링크 저장 실패: {_lk_exc}")
+
     # 카드 update — 첨부 안내 라인 추가
     if thread_url:
         info_block = blocks[0]

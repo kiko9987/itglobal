@@ -1197,6 +1197,15 @@ a[id^="folder-display-"] {
   transform: translateY(1px);
 }
 
+/* 여러 줄 툴팁(입금 메모·계산서 발행 등): 줄바꿈(\n·<br>)을 그대로 렌더 + 좌측 정렬.
+   기본 white-space:normal 이 \n 을 공백으로 뭉개 단어 중간에서 끊기던 문제 해결.
+   한 줄 툴팁은 \n 이 없어 영향 없음. */
+.tooltip-inner {
+  white-space: pre-line;
+  text-align: left;
+  max-width: 320px;
+}
+
 /* 계산서 메모 버튼 (금액정보 카드) — 편집 모드에서만 드롭다운 우측에 + 아이콘 (수금정보와 동일 UX).
    뷰 모드는 뱃지 옆 sticky-note 아이콘(툴팁)을 그대로 사용하므로 버튼은 숨김. */
 .compact-item--bill .field-memo-btn[data-field="계산서"] {
