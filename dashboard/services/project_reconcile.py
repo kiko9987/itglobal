@@ -23,6 +23,7 @@ _SNAP_TTL = 60 * 60 * 24 * 180        # 180일 (카드 매핑 TTL과 정렬)
 _MUTEX_KEY = 'project_reconcile:running'
 _MUTEX_TTL = 300
 _PM_MARK_PREFIX = 'project_pm_edit:'  # PM 편집 최근 마커 (projects.py 가 세팅)
+_SYS_MARK_PREFIX = 'project_sys_edit:'  # 시스템 자동기록 마커(값=편집자 라벨). 있으면 그 라벨로 표기.
 _MAX_PER_TICK = 30                    # 이 이상 변경 = 비정상(시트 대량수정 등) → 재베이스라인만
 # 리컨사일러 감시 제외 필드 — 공사확정 카드에 표시 안 되고 전용 채널(#수금_관리)이 담당.
 #   계산서(Y)는 유지: 미발행→'잔금 - 발행완료' 변화로 발행 완료를 인지할 수 있어 유용.
@@ -115,7 +116,13 @@ def reconcile_project_cards() -> dict:
                 store_field_snapshot(rc, code, r, watch)
                 continue
 
-            drift.append((code, r, prev, diffs))
+            # 시스템 자동기록 마커면 그 라벨(예: '시스템 자동기록(계산서)'), 아니면 사람 직접수정
+            try:
+                _sysm = rc.get(_SYS_MARK_PREFIX + code)
+            except Exception:
+                _sysm = None
+            sys_label = _dec(_sysm) if _sysm else '시트 직접수정'
+            drift.append((code, r, prev, diffs, sys_label))
 
         if not drift:
             return result
@@ -124,11 +131,11 @@ def reconcile_project_cards() -> dict:
         if len(drift) > _MAX_PER_TICK:
             logger.warning(
                 f'[RECONCILE] 변경 과다({len(drift)}) — 재베이스라인만, 발송 skip')
-            for code, r, prev, diffs in drift:
+            for code, r, prev, diffs, _sl in drift:
                 store_field_snapshot(rc, code, r, watch)
             return result
 
-        for code, r, prev, diffs in drift:
+        for code, r, prev, diffs, sys_label in drift:
             field_changes = [
                 {'field_name': f,
                  'old_value': prev.get(f, ''),
@@ -137,7 +144,7 @@ def reconcile_project_cards() -> dict:
             ]
             try:
                 notify_project_field_changes(code, field_changes, latest_data=r,
-                                             editor='시트 직접수정')
+                                             editor=sys_label)
                 result['reflected'] += 1
                 logger.info(f'[RECONCILE] 시트 직접수정 감지 → 카드 반영+로그: {code} {diffs}')
             except Exception as exc:

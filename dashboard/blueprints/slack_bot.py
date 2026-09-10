@@ -12187,6 +12187,13 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
         logger.info(f"[SLACK/계산서] 단계 정보 없음 → 시트 자동기록 skip ({code})")
         return
     selected = sel[-1]  # 단일 선택(발행 귀속 단계)
+    # 시트 직접수정 리컨사일러가 이 계산서 자동기록을 '시스템'으로 라벨링하도록 마커(15분).
+    #   (마커 없으면 리컨사일러가 '시트 직접수정'=사람으로 오표기)
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _grc_sys
+        _grc_sys().redis.setex(f'project_sys_edit:{code}', 900, '시스템 자동기록(계산서)')
+    except Exception:
+        pass
     inv_amt = _bill_to_num(invoice_amt)
     try:
         from dashboard.services.lead_service import get_sheets_manager
