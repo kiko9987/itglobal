@@ -12191,7 +12191,7 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
     #   (마커 없으면 리컨사일러가 '시트 직접수정'=사람으로 오표기)
     try:
         from dashboard.utils.redis_client import get_redis_client as _grc_sys
-        _grc_sys().redis.setex(f'project_sys_edit:{code}', 900, '시스템 자동기록(계산서)')
+        _grc_sys().redis.setex(f'project_sys_edit:{code}', 900, '시스템 자동기록')
     except Exception:
         pass
     inv_amt = _bill_to_num(invoice_amt)
