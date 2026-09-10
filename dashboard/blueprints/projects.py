@@ -81,7 +81,7 @@ def _verify_version_col_index(manager) -> None:
         logger.debug(f'[VERSION_COL] 검증 skip: {exc}')
 
 # 프로젝트 전역 상수 임포트
-from ..constants import PAYMENT_FIELD_TO_COLUMN, MEMOABLE_FIELDS, ERROR_MESSAGES
+from ..constants import PAYMENT_FIELD_TO_COLUMN, MEMOABLE_FIELDS, PAYMENT_AMOUNT_FIELDS, ERROR_MESSAGES
 
 logger = get_logger(__name__)
 
@@ -872,7 +872,8 @@ def _apply_field_updates(data, current_values, field_to_index, project_code):
 
 def _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, field_changes):
     """금액 필드 변경 시 자동 댓글 생성/삭제 (Apps Script onEdit 로직 재현)"""
-    payment_fields_to_check = MEMOABLE_FIELDS
+    # 금액 전용(계약금/중도금/잔금)만 — 계산서는 금액이 아니라 제외(메모 오삭제 방지)
+    payment_fields_to_check = PAYMENT_AMOUNT_FIELDS
     field_to_column_map = PAYMENT_FIELD_TO_COLUMN
 
     for change in field_changes:

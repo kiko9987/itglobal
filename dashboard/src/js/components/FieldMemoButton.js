@@ -14,8 +14,8 @@ export default class FieldMemoButton {
     this.popoverElement = null;
     this.previousActiveElement = null;  // 포커스 복원용
 
-    // 메모 가능한 필드 목록 (계약금, 중도금, 잔금)
-    this.memoableFields = ['계약금', '중도금', '잔금'];
+    // 메모 가능한 필드 목록 (수금 3단계 + 계산서)
+    this.memoableFields = ['계약금', '중도금', '잔금', '계산서'];
 
     // 툴팁 요소 캐시
     this.activeTooltips = new Map();
@@ -187,8 +187,13 @@ export default class FieldMemoButton {
     const saveBtn = this.popoverElement.querySelector('.memo-save-btn');
     const cancelBtn = this.popoverElement.querySelector('.memo-cancel-btn');
 
-    header.textContent = `${fieldName} 입금 메모`;
+    // 계산서는 '입금 메모'가 아니라 '계산서 메모'로 라벨/placeholder 분기
+    const memoLabel = fieldName === '계산서' ? '계산서 메모' : `${fieldName} 입금 메모`;
+    header.textContent = memoLabel;
     textarea.value = currentMemo || '';
+    textarea.placeholder = fieldName === '계산서'
+      ? '계산서 관련 메모를 입력하세요 (예: 통합발행, 정정 사유 등).'
+      : '입금 정보를 메모하세요.';
 
     // 읽기 모드: 저장/삭제 버튼 숨김, textarea 읽기 전용
     if (!isEditMode) {
@@ -197,7 +202,7 @@ export default class FieldMemoButton {
       deleteBtn.style.display = 'none';
       saveBtn.style.display = 'none';
       cancelBtn.textContent = '닫기';
-      header.textContent = `${fieldName} 입금 메모 (읽기 전용)`;
+      header.textContent = `${memoLabel} (읽기 전용)`;
       logger.debug('[MEMO] 읽기 모드 - 팝오버 읽기 전용으로 표시');
     } else {
       // 편집 모드: 저장/삭제 버튼 표시, textarea 편집 가능

@@ -1197,6 +1197,21 @@ a[id^="folder-display-"] {
   transform: translateY(1px);
 }
 
+/* 계산서 메모 버튼 (금액정보 카드) — 편집 모드에서만 드롭다운 우측에 + 아이콘 (수금정보와 동일 UX).
+   뷰 모드는 뱃지 옆 sticky-note 아이콘(툴팁)을 그대로 사용하므로 버튼은 숨김. */
+.compact-item--bill .field-memo-btn[data-field="계산서"] {
+  display: none;
+}
+.info-card.editing .compact-item--bill .field-memo-btn[data-field="계산서"] {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* 편집 모드에서 계산서 드롭다운이 우측 + 자리를 남기도록 폭 양보 */
+.info-card.editing .compact-item--bill .editable-value[data-field="계산서"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* ===== 카드별 레이아웃 시스템 V2 (충돌 해결) ===== */
 
 /* === 우선순위 높은 카드별 특화 규칙 === */

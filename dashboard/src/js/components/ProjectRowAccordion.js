@@ -531,6 +531,13 @@ export default class ProjectRowAccordion {
           // 아코디언 내부의 모든 툴팁 초기화 (메모 툴팁 포함)
           this.initializeAccordionTooltips();
 
+          // 계산서 메모 버튼 리스너 연결 (금액정보 카드) — 최신 메모는 getter로 제공
+          if (this.fieldMemoButton) {
+            this.fieldMemoButton.attachButtonListeners(financialCard, () => ({
+              '계산서_메모': this.currentProject?.['계산서_메모'] || null,
+            }));
+          }
+
           // 프로젝트 잠금 상태 체크 및 버튼 업데이트
           this.updateEditButtonLockStatus(projectCode);
 
@@ -865,12 +872,13 @@ export default class ProjectRowAccordion {
             <small>총액2</small>
             <div class="editable-value calculated-field" data-field="총액 2" data-original-value="${total2Value}">${total2Value > 0 ? this.formatCurrency(total2Value) : '-'}</div>
           </div>
-          <div class="compact-item">
+          <div class="compact-item compact-item--bill">
             <small>계산서</small>
             <div class="editable-value" data-field="계산서">${this.formatBillStatus(rowData)}${(() => {
               const m = String(rowData['계산서_메모'] || '').trim();
               return m ? ` <span class="memo-tooltip-trigger has-memo" data-bs-toggle="tooltip" data-bs-title="${this.escapeHTML(m)}" aria-label="계산서 메모 보기"><i class="fas fa-sticky-note text-success"></i></span>` : '';
             })()}</div>
+            ${this.fieldMemoButton ? this.fieldMemoButton.createButton('계산서', projectCode, rowData['계산서_메모'] || null, 0, true) : ''}
           </div>
         </div>
       </div>
@@ -4909,7 +4917,8 @@ export default class ProjectRowAccordion {
     this.originalMemos = {
       '계약금_메모': this.currentProject?.['계약금_메모'] || '',
       '중도금_메모': this.currentProject?.['중도금_메모'] || '',
-      '잔금_메모': this.currentProject?.['잔금_메모'] || ''
+      '잔금_메모': this.currentProject?.['잔금_메모'] || '',
+      '계산서_메모': this.currentProject?.['계산서_메모'] || ''
     };
     logger.debug('[편집 모드] 원본 메모 저장:', this.originalMemos);
 
@@ -5664,7 +5673,7 @@ export default class ProjectRowAccordion {
         let updatedProjectData;
         if (result.project) {
           const memoBackup = {};
-          const memoFields = ['계약금_메모', '중도금_메모', '잔금_메모'];
+          const memoFields = ['계약금_메모', '중도금_메모', '잔금_메모', '계산서_메모'];
           memoFields.forEach(field => {
             if (this.currentProject[field] !== undefined) {
               memoBackup[field] = this.currentProject[field];
