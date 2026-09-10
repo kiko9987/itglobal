@@ -1601,7 +1601,12 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         # 1) 메모(노트) 먼저 — 기존 있으면 append (분납 대비).
         #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
         from dashboard.services.sms_intake import strip_web_header
+        from dashboard.services.payment_sync import _ensure_note_year
         memo_sheet = strip_web_header(memo_text)
+        # 근본책(2026-09-10): 저장 시점에 연도를 박아둠 — 날짜에 연도 없으면 당해년도 붙임.
+        #   이후 카드 표시 때 연도 추측 불필요(다년 분납도 각 건 기록 당시 연도로 확정).
+        #   이미 연도 있으면(은행 SMS 풀날짜)·분할 노트면 no-op.
+        memo_sheet = _ensure_note_year(memo_sheet)
         # 셀 값(실결제/실추심)과 노트(순입금)의 차이를 노트에 명시 — 시트에서 봐도 자명하게.
         # '입금' 키워드 없는 주석 줄이라 금액 파서(순입금)엔 영향 없음.
         if _card_target is not None:

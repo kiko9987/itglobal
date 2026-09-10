@@ -15,7 +15,7 @@ sys.path.insert(0, '.')
 
 import pytest
 from dashboard.services.payment_sync import (
-    _parse_notes, _is_card_payment, _resolve_payment_code)
+    _parse_notes, _is_card_payment, _resolve_payment_code, _ensure_note_year)
 
 
 def _w(memo, val=1000000):
@@ -120,6 +120,29 @@ class TestYStatusNewFormat:
         assert _is_card_payment('카드결제', '삼성 204108778') is True
         # 비-N입금 신형식은 은행 없으면 기본 G 유지.
         assert _resolve_payment_code('잔금 - 미발행', '', '홍길동') == 'G'
+
+
+class TestEnsureNoteYear:
+    """저장 시점에 노트 날짜 연도 삽입 (근본책, 2026-09-10 사용자 제안).
+
+    입금 문자→시트 기록 시 연도를 박아두면 표시 때 추측이 불필요 — 다년 분납도 각 건이
+    기록 당시 연도로 확정. 기록 시점 연도(=지금)는 확실하므로 오표기 없음.
+    """
+
+    def test_prepends_current_year_when_missing(self):
+        from datetime import datetime
+        out = _ensure_note_year('입금 800,000원\n09/08 하나\n라은정')
+        assert out.split('\n')[0] == f'{datetime.now().year}/09/08'
+
+    def test_keeps_existing_year(self):
+        # 은행 SMS 풀날짜(연도 포함)면 그대로 (중복 삽입 안 함).
+        memo = '2026-09-08\n입금 800,000원\n라은정'
+        assert _ensure_note_year(memo) == memo
+
+    def test_no_date_unchanged(self):
+        # 날짜 토큰 자체가 없으면 손대지 않음.
+        memo = '입금 500,000원'
+        assert _ensure_note_year(memo) == memo
 
 
 if __name__ == '__main__':

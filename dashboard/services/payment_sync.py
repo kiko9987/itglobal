@@ -368,6 +368,29 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     }
 
 
+def _ensure_note_year(memo: str) -> str:
+    """저장 시점에 노트 날짜에 연도를 박아둔다 — 근본책 (2026-09-10 사용자 제안).
+
+    입금 문자→시트 기록 시 날짜에 연도가 없으면(예 '09/08') 맨 앞에 'YYYY/MM/DD'(당해년도)
+    줄을 붙여 저장한다. 기록 시점의 연도는 확실(=지금)하므로 오표기가 없고, 이후 카드 표시 때
+    연도를 추측할 필요가 사라진다(다년 분납도 각 건이 기록 당시 연도로 확정). 이미 연도가 있거나
+    (은행문자 'YYYY-MM-DD') 날짜가 없으면 그대로 둔다 — 분할 노트(_build_split_memo)는 이미
+    연도 포함이라 no-op. 표시측 _fill_sibling_years 는 옛 무연도 노트 보완용으로 유지."""
+    from datetime import datetime
+    try:
+        p = _parse_memo_block(memo)
+    except Exception:
+        return memo
+    if not p:
+        return memo
+    if str(p.get('date_year') or '').strip():
+        return memo  # 이미 연도 있음 (은행 SMS 풀날짜 등)
+    md = (p.get('date_md') or '').strip()
+    if not md or '/' not in md:
+        return memo  # 날짜 없음 → 손대지 않음
+    return f"{datetime.now().year}/{md}\n{memo.lstrip()}"
+
+
 def _hash_payments(payments: List[Dict]) -> str:
     """payments 리스트 → 짧은 hash. 메모 변경 감지용."""
     if not payments:
