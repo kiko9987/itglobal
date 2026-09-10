@@ -13,9 +13,37 @@ import sys
 sys.path.insert(0, '.')
 
 import pytest
-from dashboard.services.pin_remind import _format_deposit_summary
+from dashboard.services.pin_remind import _format_deposit_summary, is_invoice_request
 
 _LABEL = re.compile(r'일시|적요|계좌번호')
+
+
+class TestInvoiceRequestDetect:
+    """세금계산서 요청 자동 고정 감지 — 구조 기반(단위 '원' 오타 무관, 2026-09-10).
+
+    금액 단위 오타(운/왼/웜 등 IME 슬립)로 자동 고정이 누락되던 것(새서울공조·최우신)을
+    '원' 글자 대신 MM/DD+G/R/N+돈형태금액 구조로 판정하도록 전환.
+    """
+
+    @pytest.mark.parametrize('text', [
+        '09/08 R 1,805,000원 일산캐리어 R4080-JK 회신 부탁드립니다.',  # 정상
+        '09/10 R 1,100,000운 새서울공조 회신 부탁드립니다.',           # 원→운 오타
+        '09/10 G 66,000왼 최우신 회신 부탁드립니다.',                # 원→왼 오타
+        '09/10 N 500,000웜 홍길동',                               # 또다른 오타
+        '9/8 G 66000 최우신',                                     # 단위 없음, 콤마 없음(4자리+)
+        '09/10 G 66,000 최우신',                                  # 단위 없음, 콤마
+    ])
+    def test_matches(self, text):
+        assert is_invoice_request(text) is True
+
+    @pytest.mark.parametrize('text', [
+        '09/10 G 12 회의건',              # 소액/비금액 (콤마·4자리 아님)
+        '09/10 계산서 미발행건 확인 부탁',   # G/R/N 아님
+        '계약서 진행 여부 확인해주세요',       # 양식 아님
+        '09/10 R 3 건',                  # 한 자리 숫자
+    ])
+    def test_no_false_positive(self, text):
+        assert is_invoice_request(text) is False
 
 
 class TestNoLabelLeak:
