@@ -92,8 +92,10 @@ _MANAGER_LINE_RE = re.compile(
 _BARE_AMOUNT_RE = re.compile(r'^([\d,]+)(?:\s*원)?$')
 # 지폐 수량 표기 — "5만원권 74장" = 5 × 10000 × 74 (2026-07-15 R3791-MJ 관측)
 _BILL_COUNT_RE = re.compile(r'(\d+)\s*만\s*원권\s*(\d+)\s*장')
-# 날짜: "2026/03/19", "06/25", "5/27" 등 — MM/DD 추출
-_DATE_RE = re.compile(r'(?:(\d{4})[/.-])?(\d{1,2})[/.-](\d{1,2})')
+# 날짜: "2026/03/19"(4자리 연도), "23.02.22"(2자리 연도), "06/25"·"5/27"(무연도) — MM/DD 추출.
+# 연도 그룹은 2~4자리 허용(은행별로 'YYYY.MM.DD'·'YY.MM.DD' 혼재, 실데이터 2자리연도 490건).
+# 2그룹만(무연도 'MM/DD')이면 연도 그룹은 backtrack 으로 비게 됨.
+_DATE_RE = re.compile(r'(?:(\d{2,4})[/.-])?(\d{1,2})[/.-](\d{1,2})')
 # 은행명 추출 — 라인 또는 첫줄 시작
 _BANK_RE = re.compile(r'(기업|하나|국민|신한|우리|농협|카카오|토스)')
 # ITG 통장 계좌번호 — 카드 결제 시 카드사 약자보다 우선
@@ -164,10 +166,13 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         m = _DATE_RE.search(ln)
         if m:
             mm, dd = int(m.group(2)), int(m.group(3))
-            date_md = f"{mm:02d}/{dd:02d}"
-            if m.group(1):          # 'YYYY/MM/DD'·'YYYY-MM-DD' 형식이면 연도 확보
-                date_year = m.group(1)
-            break
+            if 1 <= mm <= 12 and 1 <= dd <= 31:   # 유효 월/일만 (2자리연도 '23.02.22' 오파싱 방지)
+                date_md = f"{mm:02d}/{dd:02d}"
+                _y = m.group(1)     # 연도 그룹 (2자리 '23' 또는 4자리 '2023')
+                if _y:              # 2자리는 20YY 로 정규화(내부 4자리 통일, 표시는 뒤 2자리)
+                    date_year = _y if len(_y) == 4 else f"20{_y}"
+                break
+            # 월/일 범위 밖(첫 매치가 날짜 아님) → 이 라인 skip, 다음 라인 계속 탐색
 
     # 반환(과입금 환불) 우선 감지 — '출금/반환/환불 X원' → 음수 amount (is_refund)
     is_refund = False
@@ -235,9 +240,11 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
             md = _DATE_RE.search(datestr)
             if md and not date_md:
                 mm, dd = int(md.group(2)), int(md.group(3))
-                date_md = f"{mm:02d}/{dd:02d}"
-                if md.group(1):
-                    date_year = md.group(1)
+                if 1 <= mm <= 12 and 1 <= dd <= 31:
+                    date_md = f"{mm:02d}/{dd:02d}"
+                    _y = md.group(1)
+                    if _y:          # 2자리 연도 '23' → 20YY 정규화
+                        date_year = _y if len(_y) == 4 else f"20{_y}"
         m = _LABEL_PAYER_RE.match(ln)
         if m:
             _lp = m.group(1).strip()

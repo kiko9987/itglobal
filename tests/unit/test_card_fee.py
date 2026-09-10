@@ -163,6 +163,28 @@ class TestPaymentDateYear:
         assert _fmt_payment_date({'date_md': '09/03', 'date_year': ''}) == '09/03'
         assert _fmt_payment_date({'date_md': '-'}) == '-'
 
+    def test_two_digit_year_parsed(self):
+        # 은행 2자리 연도 'YY.MM.DD'(실데이터 490건) → 연도 인식, 일(DD) 안 버림.
+        p = _parse_memo_block('입금 800,000원\n23.02.22\n라은정')
+        assert p['date_md'] == '02/22'
+        assert p['date_year'] == '2023'
+        assert _fmt_payment_date(p) == '23/02/22'
+
+    def test_two_digit_year_label(self):
+        p = _parse_memo_block('입금 500,000원\n입금일: 25/12/03')
+        assert p['date_md'] == '12/03' and p['date_year'] == '2025'
+        assert _fmt_payment_date(p) == '25/12/03'
+
+    def test_no_year_mmdd_unchanged(self):
+        # 무연도 MM/DD 는 그대로 (연도 없음).
+        p = _parse_memo_block('입금 100,000원\n7/17\n홍길동')
+        assert p['date_md'] == '07/17' and (p.get('date_year') or '') == ''
+
+    def test_invalid_month_dropped(self):
+        # 월>12 무연도(13/08)는 날짜로 안 잡힘 (오파싱 방지).
+        p = _parse_memo_block('입금 100,000원\n13/08\n홍길동')
+        assert (p.get('date_md') or '') == ''
+
     def test_fill_sibling_years(self):
         # 같은 날짜(MM/DD) 형제가 명시 연도를 가지면 연도 없는 형제에 채움 (같은 날=같은 해).
         ps = [{'date_md': '09/08', 'date_year': '2026'}, {'date_md': '09/08', 'date_year': ''}]
