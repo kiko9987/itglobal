@@ -144,6 +144,13 @@ class TestEnsureNoteYear:
         memo = '입금 500,000원'
         assert _ensure_note_year(memo) == memo
 
+    def test_no_prepend_on_invalid_month(self):
+        # 2자리 연도('26.09.08')가 month=26 으로 오파싱돼도 연도 삽입 안 함 (깨진 날짜 방지).
+        memo = '입금 800,000원\n26.09.08 하나\n라은정'
+        assert _ensure_note_year(memo) == memo
+        # 월>12 (13/08) 도 마찬가지.
+        assert _ensure_note_year('입금 800,000원\n13/08 하나') == '입금 800,000원\n13/08 하나'
+
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

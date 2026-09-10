@@ -388,6 +388,14 @@ def _ensure_note_year(memo: str) -> str:
     md = (p.get('date_md') or '').strip()
     if not md or '/' not in md:
         return memo  # 날짜 없음 → 손대지 않음
+    # 안전장치: 월/일 범위 검증 — 은행 형식이 이상해 파싱이 의심스러우면(예 2자리 연도
+    # '26.09.08' 이 month=26 으로 오파싱) 연도를 붙이지 않는다(깨진 '2026/26/09' 방지).
+    try:
+        _mm, _dd = md.split('/', 1)
+        if not (1 <= int(_mm) <= 12 and 1 <= int(_dd) <= 31):
+            return memo
+    except (ValueError, TypeError):
+        return memo
     return f"{datetime.now().year}/{md}\n{memo.lstrip()}"
 
 
