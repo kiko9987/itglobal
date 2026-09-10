@@ -24,6 +24,10 @@ _MUTEX_KEY = 'project_reconcile:running'
 _MUTEX_TTL = 300
 _PM_MARK_PREFIX = 'project_pm_edit:'  # PM 편집 최근 마커 (projects.py 가 세팅)
 _MAX_PER_TICK = 30                    # 이 이상 변경 = 비정상(시트 대량수정 등) → 재베이스라인만
+# 리컨사일러 감시 제외 필드 — 공사확정 카드에 표시 안 되고 전용 채널(#수금_관리)이 담당.
+#   계산서(Y)는 유지: 미발행→'잔금 - 발행완료' 변화로 발행 완료를 인지할 수 있어 유용.
+#   수금 3단계·수금날짜는 매 입금마다 바뀌어 노이즈 → 리컨사일러에서만 제외(PM편집 _NOTIFY_FIELDS는 유지).
+_RECONCILE_EXCLUDE = {'계약금', '중도금', '잔금', '수금 날짜'}
 
 
 def _dec(v):
@@ -64,6 +68,7 @@ def reconcile_project_cards() -> dict:
         from dashboard.services.project_slack_notifier import (
             _NOTIFY_FIELDS, _fmt_field, notify_project_field_changes,
         )
+        watch = _NOTIFY_FIELDS - _RECONCILE_EXCLUDE   # 카드 표시 정보 + 계산서 (수금 3단계·수금날짜 제외)
 
         # 카드 매핑 살아있는 코드 집합
         live = set()
@@ -84,7 +89,7 @@ def reconcile_project_cards() -> dict:
             if not code or code not in live:
                 continue
             result['checked'] += 1
-            cur = {f: str(r.get(f) if r.get(f) is not None else '') for f in _NOTIFY_FIELDS}
+            cur = {f: str(r.get(f) if r.get(f) is not None else '') for f in watch}
             try:
                 prev_raw = rc.hgetall(_SNAP_PREFIX + code)
             except Exception:
@@ -92,11 +97,11 @@ def reconcile_project_cards() -> dict:
             prev = {_dec(kk): _dec(vv) for kk, vv in (prev_raw or {}).items()}
 
             if not prev:
-                store_field_snapshot(rc, code, r, _NOTIFY_FIELDS)  # 첫 감지 = 베이스라인
+                store_field_snapshot(rc, code, r, watch)  # 첫 감지 = 베이스라인
                 result['baseline'] += 1
                 continue
 
-            diffs = [f for f in _NOTIFY_FIELDS
+            diffs = [f for f in watch
                      if _fmt_field(f, prev.get(f, '')) != _fmt_field(f, cur.get(f, ''))]
             if not diffs:
                 continue
@@ -107,7 +112,7 @@ def reconcile_project_cards() -> dict:
             except Exception:
                 pm_recent = None
             if pm_recent:
-                store_field_snapshot(rc, code, r, _NOTIFY_FIELDS)
+                store_field_snapshot(rc, code, r, watch)
                 continue
 
             drift.append((code, r, prev, diffs))
@@ -120,7 +125,7 @@ def reconcile_project_cards() -> dict:
             logger.warning(
                 f'[RECONCILE] 변경 과다({len(drift)}) — 재베이스라인만, 발송 skip')
             for code, r, prev, diffs in drift:
-                store_field_snapshot(rc, code, r, _NOTIFY_FIELDS)
+                store_field_snapshot(rc, code, r, watch)
             return result
 
         for code, r, prev, diffs in drift:
@@ -137,7 +142,7 @@ def reconcile_project_cards() -> dict:
             except Exception as exc:
                 logger.warning(f'[RECONCILE] 처리 실패 ({code}): {exc}')
             # notify 성공/실패와 무관하게 스냅샷 갱신 (반복 발송 방지)
-            store_field_snapshot(rc, code, r, _NOTIFY_FIELDS)
+            store_field_snapshot(rc, code, r, watch)
 
         return result
     finally:
