@@ -1249,11 +1249,16 @@ def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, p
 
 
 def _build_split_memo(preview: dict, amount: int, total: int) -> str:
-    """분할 1건 시트 노트 — 파서 호환('입금 X원'+거래처+날짜) + 통합 분할 표기.
-    '입금' 키워드 중복 방지 위해 통합 표기는 '통합 X원 분할'(입금 없음)로."""
+    """분할 1건 시트 노트 — 파서 호환('입금 X원'+거래처+은행+날짜) + 통합 분할 표기.
+    '입금' 키워드 중복 방지 위해 통합 표기는 '통합 X원 분할'(입금 없음)로.
+    2026-09-10: 은행(preview['bank']) 을 거래처 다음 줄에 포함 — 안 넣으면 카드에서
+    은행 공란 + 코드가 기본값 G 로 떨어져 하나(R)/농협(N) 분할이 오표기됨(G3957-JW 계기).
+    거래처 다음·통합표기 앞에 두면 _parse_memo_block 이 은행은 _BANK_RE 로, 거래처는
+    앞 줄로 정확히 재추출(실측 검증). date_md 는 항상 당해년도 붙여 저장."""
     from datetime import datetime
     date_md = (preview or {}).get('date_md') or ''
     partner = (preview or {}).get('partner') or ''
+    bank = (preview or {}).get('bank') or ''
     lines = []
     if date_md and '/' in date_md:
         mm, dd = (date_md.split('/') + ['', ''])[:2]
@@ -1264,6 +1269,8 @@ def _build_split_memo(preview: dict, amount: int, total: int) -> str:
     lines.append(f'입금 {amount:,}원')
     if partner:
         lines.append(partner)
+    if bank:
+        lines.append(bank)   # 거래처 다음·통합표기 앞 (은행/코드 재추출용)
     lines.append(f'· 통합 {total:,}원 분할')
     return '\n'.join(lines)
 
