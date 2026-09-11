@@ -196,8 +196,39 @@ def _sum_won(items) -> str:
     return _won(sum(_num(r.get('미수금')) for r in items))
 
 
+_OLD_DAYS = 90   # 완공 후 이 일수 초과 = '오래된 미수'. 조정 가능.
+
+
+def _is_old(row) -> bool:
+    """완공 후 _OLD_DAYS 초과(오래된 미수). 종료일 없으면 오래된으로 간주(불명=주의)."""
+    from datetime import date
+    s = str(row.get('공사 종료') or '').strip()
+    m = re.search(r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})', s)
+    if not m:
+        return True
+    try:
+        d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return True
+    return (date.today() - d).days > _OLD_DAYS
+
+
+def _cat_block(header: str, items) -> str:
+    """카테고리 헤더 + 그 안을 오래된/최근 미수로 2분할."""
+    old = [r for r in items if _is_old(r)]
+    recent = [r for r in items if not _is_old(r)]
+    lines = [header]
+    if old:
+        lines.append(f':red_circle: *오래된 미수 (완공 {_OLD_DAYS}일↑ · {len(old)}건 · {_sum_won(old)})*')
+        lines += [_collect_line(r) for r in _sort(old)]
+    if recent:
+        lines.append(f':large_green_circle: *최근 미수 ({len(recent)}건 · {_sum_won(recent)})*')
+        lines += [_collect_line(r) for r in _sort(recent)]
+    return '\n'.join(lines)
+
+
 def build_collection_text(buckets) -> str:
-    """주간 미수금 리포트 — 전체 미수금을 카테고리별로."""
+    """주간 미수금 리포트 — ①발행완료 ②미발행, 각 안에서 오래된/최근 미수로 분할."""
     iss = buckets.get('ar_issued', [])
     unv = buckets.get('ar_uninvoiced', [])
     allit = iss + unv
@@ -205,13 +236,11 @@ def build_collection_text(buckets) -> str:
         return ''
     secs = []
     if iss:
-        secs.append(_section(
-            f':receipt: *① 발행 완료 · 미수금 ({len(iss)}건 · {_sum_won(iss)}) — 회수 시급*',
-            iss, _collect_line))
+        secs.append(_cat_block(
+            f':receipt: *① 발행 완료 · 미수금 ({len(iss)}건 · {_sum_won(iss)}) — 회수 시급*', iss))
     if unv:
-        secs.append(_section(
-            f':receipt: *② 미발행 · 미수금 ({len(unv)}건 · {_sum_won(unv)}) — 발행+수금*',
-            unv, _collect_line))
+        secs.append(_cat_block(
+            f':receipt: *② 미발행 · 미수금 ({len(unv)}건 · {_sum_won(unv)}) — 발행+수금*', unv))
     body = f'\n{_BLANK}\n'.join(secs)
     return (
         f'{_BLANK}\n'
