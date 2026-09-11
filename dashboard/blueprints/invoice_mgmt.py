@@ -229,6 +229,17 @@ def api_license_upload():
     except Exception as exc:
         logger.warning(f'[INVOICE] 카드 배지 갱신 실패 ({code}): {exc}')
 
+    # 등록증 부재로 거래처 정보로 대체됐던 계산서 스레드가 있으면 실제 등록증 재첨부.
+    #   (계산서 요청이 등록증 업로드보다 먼저 나간 경우 — 담당자가 스레드에서 바로 열람)
+    #   슬랙 파일 업로드는 느려 응답 블로킹 방지 위해 백그라운드.
+    try:
+        import threading as _th
+        from .slack_bot import attach_license_to_pending_invoice_threads
+        _th.Thread(target=attach_license_to_pending_invoice_threads,
+                   args=(code,), daemon=True).start()
+    except Exception as exc:
+        logger.warning(f'[INVOICE] 계산서 스레드 등록증 재첨부 트리거 실패 ({code}): {exc}')
+
     view_url = None
     try:
         view_url = get_license_state(code).get('view_url')  # 저장으로 캐시 무효화됨 → 최신 재조회

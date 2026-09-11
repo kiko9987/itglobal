@@ -12914,6 +12914,16 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                     # 등록증 대신 거래처 탭 정보를 댓글로 첨부 (담당자 홈택스 발행용). 재시도 무의미.
                     logger.info(f"[SLACK/계산서] 등록증 파일 없음 → 거래처 탭 정보 댓글로 대체 ({code})")
                     _post_partner_info_reply(invoice_client, channel_id, ts, code, biz, email)
+                    # PM에서 나중에 등록증을 올리면 이 스레드에 재첨부하도록 대기 표시.
+                    #   (attach_license_to_pending_invoice_threads 가 업로드 후 순회)
+                    try:
+                        from dashboard.utils.redis_client import get_redis_client as _grc_pend
+                        _rp = _grc_pend().redis
+                        _pk = f'invoice_lic_pending:{code}'
+                        _rp.sadd(_pk, f'{channel_id}|{ts}')
+                        _rp.expire(_pk, 86400 * 730)   # 2년
+                    except Exception:
+                        pass
                     return
                 invoice_client.files_upload_v2(
                     channel=channel_id,
@@ -12945,6 +12955,69 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
 
     threading.Thread(target=_attach_license_to_thread, daemon=True).start()
     return {'ok': True, 'reason': 'posted', 'ts': ts, 'channel': channel_id, 'thread_url': thread_url}
+
+
+def attach_license_to_pending_invoice_threads(code: str) -> int:
+    """PM 등록증 업로드 후, 등록증이 없어 거래처 정보로 대체됐던 계산서 스레드(들)에
+    이제 실제 사업자등록증을 재첨부.
+
+    계산서 요청 시점에 등록증 파일이 없으면 _attach_license_to_thread 가 거래처 정보
+    댓글로 대체하고 invoice_lic_pending:{code} 세트에 'channel|ts' 를 남긴다. PM에서
+    뒤늦게 등록증을 올리면 이 함수가 그 세트를 순회해 실제 등록증을 스레드에 첨부하고
+    성공한 항목은 세트에서 제거(멱등). 등록증이 원래 있던 스레드엔 대기표시가 없어
+    중복 첨부되지 않는다. Returns: 재첨부한 스레드 수.
+    """
+    code = (code or '').strip()
+    if not code or code == '-':
+        return 0
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _grc
+        rc = _grc().redis
+    except Exception:
+        return 0
+    key = f'invoice_lic_pending:{code}'
+    try:
+        members = rc.smembers(key) or []
+    except Exception:
+        return 0
+    if not members:
+        return 0
+    from dashboard.services.business_license_handler import (
+        ensure_license, fetch_license_canonical,
+    )
+    try:
+        ensure_license(code)
+        lic = fetch_license_canonical(code)
+    except Exception as exc:
+        logger.warning(f'[SLACK/계산서] 대기 스레드 재첨부용 등록증 조회 실패 ({code}): {exc}')
+        return 0
+    if not lic:
+        return 0  # 업로드 직후인데도 파일 없음 — 다음 기회로(세트 유지)
+    client = _invoice_client()
+    if client is None:
+        logger.warning(f'[SLACK/계산서] 계산서봇 client 없음 — 대기 스레드 재첨부 skip ({code})')
+        return 0
+    attached = 0
+    for m in members:
+        entry = m.decode() if isinstance(m, bytes) else m
+        if '|' not in entry:
+            try: rc.srem(key, m)
+            except Exception: pass
+            continue
+        ch, ts = entry.split('|', 1)
+        try:
+            client.files_upload_v2(
+                channel=ch, thread_ts=ts, file=lic['content'],
+                filename=lic['file_name'],
+                initial_comment=f":page_facing_up: 사업자등록증 — `{code}` (뒤늦게 첨부)",
+            )
+            try: rc.srem(key, m)
+            except Exception: pass
+            attached += 1
+            logger.info(f'[SLACK/계산서] 대기 계산서 스레드 등록증 재첨부: {code} → {ch}/{ts}')
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] 대기 스레드 재첨부 실패 ({code} {ch}/{ts}): {exc}')
+    return attached
 
 
 def _auto_complete_invoice_card(
