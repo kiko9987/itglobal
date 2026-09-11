@@ -148,6 +148,14 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
     setup_logging()
     logger.info("Flask 앱 팩토리 초기화 시작")
 
+    # 1-1. 큐레이션 에러 슬랙 알림 (ERROR/CRITICAL → 관리자 DM).
+    # setup_logging() 직후 부착해야 root 핸들러가 유지됨. 실패해도 앱 진행.
+    try:
+        from dashboard.utils.error_slack_alerter import install_error_slack_alerter
+        install_error_slack_alerter()
+    except Exception as _alert_exc:
+        logger.warning(f"에러 슬랙 알림 초기화 실패 (무시): {_alert_exc}")
+
     # 2. 환경 변수 검증 및 설정 로딩
     config_class = get_config(config_name)
     strict_env_validation = getattr(config_class, 'STRICT_ENV_VALIDATION', True)
