@@ -7247,6 +7247,7 @@ export default class ProjectRowAccordion {
             if (fieldName === '시공자') {
               const normalCheckedBoxes = Array.from(checkboxes).filter(cb =>
                 cb.checked && !cb.classList.contains('accordion-constructor-other-check')
+                && !cb.classList.contains('constructor-other-check')   // 카테고리형 기타도 제외
               );
               effectiveCount = normalCheckedBoxes.length;
 
@@ -7301,9 +7302,14 @@ export default class ProjectRowAccordion {
    * 아코디언 시공자 선택 업데이트 (일반 체크박스 + 기타 입력값 포함)
    */
   updateAccordionConstructorSelection(checkboxes, selectedText, otherCheck, otherInput, fieldName) {
-    // 기타 체크박스를 제외한 일반 체크박스만 수집
+    // 기타 체크박스를 제외한 일반 체크박스만 수집 (두 클래스 변형 모두 + 'on' 방어).
+    //   카테고리형 드롭다운은 'constructor-other-check', 아코디언형은 'accordion-…'.
+    //   클래스 어긋나 못 걸러내면 체크박스 기본값 'on'이 시공자에 섞임(R4075-SD 사고).
     const checkedBoxes = Array.from(checkboxes).filter(cb =>
-      cb.checked && !cb.classList.contains('accordion-constructor-other-check')
+      cb.checked
+      && !cb.classList.contains('accordion-constructor-other-check')
+      && !cb.classList.contains('constructor-other-check')
+      && cb.value !== 'on'
     );
     const selectedValues = checkedBoxes.map(cb => cb.value);
 
