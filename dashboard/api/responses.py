@@ -159,6 +159,15 @@ class APIResponse:
         return APIResponse.success(data=data, message=message, status_code=201, **meta_extra)
 
     @staticmethod
+    def updated(data: Any = None, message: str = "Resource updated successfully", **meta_extra):
+        """Create 200 response for a successful update (created의 형제 헬퍼).
+
+        누락돼 있어 leads.api_update_lead / api_update_lead_status 가 갱신 성공 후
+        응답 생성에서 AttributeError 로 500 을 내던 버그 수정 (2026-09-11).
+        """
+        return APIResponse.success(data=data, message=message, status_code=200, **meta_extra)
+
+    @staticmethod
     def no_content(message: str = "Operation completed successfully"):
         """Create 204 No Content response"""
         return APIResponse.success(message=message, status_code=204)
