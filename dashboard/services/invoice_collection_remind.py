@@ -17,9 +17,15 @@ logger = get_logger(__name__)
 _SEP = '--------------------------------------------'
 _BLANK = '⠀'
 
-# 제외: 소송 진행 등 리마인드 부적합.
+# 제외(전체): 소송 진행 등 리마인드 부적합.
 #   G0862-MW(소송중, 2026-09-10), R2676-JSH((주)매너마인드 소송건, 2026-09-11).
 _EXCLUDE = {'G0862-MW', 'R2676-JSH'}
+
+# 수금 리마인드만 제외 — 내부 처리 건(수금 데이터 신뢰 불가). 발행(①②)엔 영향 없음. 2026-09-11.
+_COLLECT_EXCLUDE = {
+    'G2217-SH', 'G2646-SH', 'G3288-SH', 'R3642-SH', 'G3645-SH',
+    'G3646-SH', 'G3647-SH', 'G3766-SH', 'G3857-SH', 'G3939-SH',
+}
 
 _STAGES = ['계약금', '중도금', '잔금']
 _COL = {'계약금': '계약금 계산서', '중도금': '중도금 계산서', '잔금': '잔금 계산서'}
@@ -146,7 +152,7 @@ def classify(recs):
             b['issue_collected'].append(r)
         elif has_pending:
             b['issue_partial'].append(r)
-        if _collection_needed(r):
+        if code not in _COLLECT_EXCLUDE and _collection_needed(r):
             b['collect'].append(r)
     return b
 
