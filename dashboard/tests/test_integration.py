@@ -15,6 +15,11 @@ import json
 from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
 
+# 이 모듈의 app fixture 는 create_app('testing') 전체 팩토리를 기동(스케줄러·프리페치·
+# 캐시워밍이 실제 Google Sheets 등 외부 I/O 호출)하므로 통합 테스트로 분류.
+# 기본 실행에서 제외되고 --run-integration 시에만 수행됨 (루트 conftest.py).
+pytestmark = pytest.mark.integration
+
 
 # ===== Fixtures =====
 

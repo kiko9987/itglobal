@@ -57,6 +57,7 @@ class RedisClient:
             socket_timeout = int(os.getenv('REDIS_SOCKET_TIMEOUT', 5))
             socket_connect_timeout = int(os.getenv('REDIS_SOCKET_CONNECT_TIMEOUT', 5))
             redis_db = int(os.getenv('REDIS_DB', 0))
+            self._db = redis_db  # flushdb 프로덕션 방벽에서 참조 (2026-07-24 사고 방지)
 
             # 비밀번호가 빈 문자열이면 None으로 처리
             if redis_password == '':
@@ -488,6 +489,21 @@ class RedisClient:
         # Fallback 모드일 때 메모리 캐시 사용
         if getattr(self, '_use_fallback', False) and self._fallback_cache:
             return self._fallback_cache.flushdb()
+
+        # 🛡️ 프로덕션 방벽 (2026-07-24 flushdb 로 운영 1238키 손실 사고 재발 방지):
+        #   db 0 = 운영 DB. 테스트/실수로 호출돼도 운영 전멸을 물리적으로 차단한다.
+        #   테스트는 REDIS_DB=15 등 별도 DB 사용. 정말 운영 flush 가 필요하면 ALLOW_PROD_FLUSHDB=1.
+        db_num = getattr(self, '_db', None)
+        if db_num is None:
+            try:
+                db_num = self.redis.connection_pool.connection_kwargs.get('db', 0)
+            except Exception:
+                db_num = 0
+        if int(db_num) == 0 and os.getenv('ALLOW_PROD_FLUSHDB', '').strip().lower() not in ('1', 'true', 'yes'):
+            msg = ('flushdb 거부: 프로덕션 DB(db=0) 전체 삭제 차단 (2026-07-24 사고 방지). '
+                   '테스트는 REDIS_DB=15 등 별도 DB, 운영 flush 가 정말 필요하면 ALLOW_PROD_FLUSHDB=1.')
+            logger.error(f"[REDIS_GUARD] {msg}")
+            raise RuntimeError(msg)
 
         try:
             return self.redis.flushdb()
