@@ -105,20 +105,37 @@ def _end_passed(row) -> bool:
         return True
 
 
-def _collection_needed(row) -> bool:
-    """수금 필요 = 완공(공사 종료일 지남) + 발행한 단계인데 그 단계 입금 0 + 미수금 남음.
-
-    '계약금 발행·입금 + 잔금 대기' 같은 정상 진행건은 제외(발행한 단계는 이미 입금됨).
-    공사 종료 전이면 잔금이 아직 안 나올 시점 → 독촉 이르니 제외. 선발행(전액 발행
-    했는데 입금 0)·발행 후 미입금만, 그것도 완공된 건만 걸린다. 전액발행은 잔금='발행'
-    (앞단계 covered '-')이라 잔금 입금 0으로 잡힘.
-    """
-    if _num(row.get('미수금')) <= 0:
-        return False
-    if not _end_passed(row):
-        return False
+def _has_issued(row) -> bool:
+    """이 프로젝트에 세금계산서가 발행된 단계가 있는가."""
     raw = lambda s: str(row.get(_COL[s]) or '').strip()
-    return any(_ntok(raw(s)) == '발행' and _num(row.get(s)) <= 0 for s in _STAGES)
+    return any(_ntok(raw(s)) == '발행' for s in _STAGES)
+
+
+_RECENT_MONTHS = 12   # 미발행·미수금(B)은 완공일 최근 N개월만 (옛 데이터 노이즈 컷). 조정 가능.
+
+
+def _months_ago(n: int):
+    from calendar import monthrange
+    from datetime import date
+    t = date.today()
+    m, y = t.month - n, t.year
+    while m <= 0:
+        m += 12; y -= 1
+    return date(y, m, min(t.day, monthrange(y, m)[1]))
+
+
+def _end_within_months(row, n: int = _RECENT_MONTHS) -> bool:
+    """공사 종료일이 과거이면서 최근 n개월 이내인가(날짜 파싱 가능해야 True — 옛/무일자 제외)."""
+    from datetime import date
+    s = str(row.get('공사 종료') or '').strip()
+    m = re.search(r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})', s)
+    if not m:
+        return False
+    try:
+        d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return False
+    return _months_ago(n) <= d < date.today()
 
 
 _DATE = re.compile(r'\d{2,4}[.\-/]\d{1,2}[.\-/]\d{1,2}')
@@ -136,8 +153,14 @@ def _won(n) -> str:
 
 
 def classify(recs):
-    """프로젝트 → {issue_collected, issue_partial, collect} 3버킷."""
-    b = {'issue_collected': [], 'issue_partial': [], 'collect': []}
+    """프로젝트 → 버킷.
+
+    발행 마감(월간): issue_collected(① 수금완료·미발행), issue_partial(② 부분입금·미발행).
+    수금(주간): collect_issued(발행 O·미수금, 완공 전부), collect_uninvoiced(미발행·미수금,
+      완공 최근 _RECENT_MONTHS 개월만 — 옛 데이터 노이즈 컷).
+    """
+    b = {'issue_collected': [], 'issue_partial': [],
+         'collect_issued': [], 'collect_uninvoiced': []}
     for r in recs:
         code = str(r.get('프로젝트 코드', '')).strip()
         if not code or code in _EXCLUDE:
@@ -152,8 +175,12 @@ def classify(recs):
             b['issue_collected'].append(r)
         elif has_pending:
             b['issue_partial'].append(r)
-        if code not in _COLLECT_EXCLUDE and _collection_needed(r):
-            b['collect'].append(r)
+        # 수금 = 완공 + 미수금. A) 발행 O(전부)  B) 미발행(최근만). 수금 제외셋 적용.
+        if unpaid > 0 and code not in _COLLECT_EXCLUDE:
+            if _has_issued(r) and _end_passed(r):
+                b['collect_issued'].append(r)
+            elif (not _has_issued(r)) and _end_within_months(r):
+                b['collect_uninvoiced'].append(r)
     return b
 
 
@@ -191,14 +218,23 @@ def _section(header, items, line_fn):
 
 
 def build_collection_text(buckets) -> str:
-    """주간 수금 필요 문안 (③ 만)."""
-    coll = buckets.get('collect', [])
-    if not coll:
+    """주간 수금 문안 — 완공 후 미수금 전부. A) 발행 O·미수금  B) 미발행·미수금(최근)."""
+    a = buckets.get('collect_issued', [])
+    b = buckets.get('collect_uninvoiced', [])
+    if not (a or b):
         return ''
-    body = _section(f':moneybag: *수금 필요 ({len(coll)}건)*', coll, _collect_line)
+    secs = []
+    if a:
+        secs.append(_section(
+            f':moneybag: *발행 완료 · 미수금 ({len(a)}건)*', a, _collect_line))
+    if b:
+        secs.append(_section(
+            f':receipt: *미발행 · 미수금 — 발행+수금 ({len(b)}건, 최근 {_RECENT_MONTHS}개월)*',
+            b, _collect_line))
+    body = f'\n{_BLANK}\n'.join(secs)
     return (
         f'{_BLANK}\n'
-        f':moneybag: *수금 필요 — 세금계산서 발행 완료, 미수금 확인 부탁드립니다*\n'
+        f':moneybag: *수금 현황 — 완공 후 미수금 확인·회수 부탁드립니다*\n'
         f'{_SEP}\n'
         f'{body}\n'
         f'{_SEP}\n'
@@ -207,19 +243,16 @@ def build_collection_text(buckets) -> str:
 
 
 def build_monthly_text(buckets) -> str:
-    """매월 10일 문안 (① 수금완료·미발행 ② 부분입금·미발행 ③ 수금 필요)."""
+    """매월 10일 문안 — 계산서 발행 마감 (① 수금완료·미발행 ② 부분입금·미발행)."""
     a = buckets.get('issue_collected', [])
     b = buckets.get('issue_partial', [])
-    c = buckets.get('collect', [])
-    if not (a or b or c):
+    if not (a or b):
         return ''
     secs = []
     if a:
         secs.append(_section(f':receipt: *① 수금완료 · 미발행 ({len(a)}건)*', a, _issue_line))
     if b:
         secs.append(_section(f':receipt: *② 부분입금 · 미발행 ({len(b)}건)*', b, _issue_line))
-    if c:
-        secs.append(_section(f':moneybag: *③ 수금 필요 ({len(c)}건)*', c, _collect_line))
     body = f'\n{_BLANK}\n'.join(secs)
     return (
         f'{_BLANK}\n'
@@ -273,9 +306,11 @@ if __name__ == '__main__':
     except Exception:
         pass
     bk = classify(_load_recs())
-    print(f"[버킷] 수금완료·미발행={len(bk['issue_collected'])}  "
-          f"부분입금·미발행={len(bk['issue_partial'])}  수금필요={len(bk['collect'])}")
-    print("\n===== 주간(수금 필요) 미리보기 =====")
+    print(f"[버킷] ①수금완료·미발행={len(bk['issue_collected'])}  "
+          f"②부분입금·미발행={len(bk['issue_partial'])}  "
+          f"A)발행O·미수금={len(bk['collect_issued'])}  "
+          f"B)미발행·미수금(최근)={len(bk['collect_uninvoiced'])}")
+    print("\n===== 주간(수금 현황) 미리보기 =====")
     print(build_collection_text(bk) or "(대상 0건)")
-    print("\n===== 매월 10일 미리보기 =====")
+    print("\n===== 매월 10일(발행 마감) 미리보기 =====")
     print(build_monthly_text(bk) or "(대상 0건)")
