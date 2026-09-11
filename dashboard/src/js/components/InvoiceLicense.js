@@ -265,8 +265,9 @@ export default class InvoiceLicense {
     const vatSep = /^(true|y|yes|1|별도|vat\s*별도)$/i.test(vatRaw);
 
     // 계산서 발행 단계 — 단일 선택. 기본값 없음(placeholder) → 요청자가 직접 선택.
-    //   금액 표시로 판단 보조. 세금계산서는 입금 전 선발행이 가능하므로 금액 없는
-    //   단계도 선택 허용(슬랙 모달과 동일). 선발행이면 아래 힌트로 조용히 안내.
+    //   드롭다운은 귀속 '단계'만 표시(입금액 미표시 — 그 금액으로 한정된 것처럼 보이지
+    //   않게). 세금계산서는 입금 전 선발행 가능 → 금액 없는 단계도 선택 허용(슬랙과 동일),
+    //   선발행이면 아래 힌트로 조용히 안내. 발행 금액은 '발행 금액' 필드에서 자유 입력.
     const stageInfo = ['계약금', '중도금', '잔금'].map((s) => {
       const amt = Number(String(p[s] ?? '').replace(/,/g, '')) || 0;
       const tok = String(p[`${s} 계산서`] ?? '').trim();
@@ -275,9 +276,8 @@ export default class InvoiceLicense {
     });
     const stageOptions = ['<option value="" selected disabled>단계 선택</option>'].concat(
       stageInfo.map((x) => {
-        const amtTxt = x.amt > 0 ? ` (${x.amt.toLocaleString('ko-KR')})` : '';
         const issuedTxt = x.issued ? ' · 발행됨' : '';
-        return `<option value="${x.s}">${x.s}${amtTxt}${issuedTxt}</option>`;
+        return `<option value="${x.s}">${x.s}${issuedTxt}</option>`;
       }),
     ).join('');
 
