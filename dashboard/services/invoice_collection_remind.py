@@ -111,31 +111,6 @@ def _has_issued(row) -> bool:
     return any(_ntok(raw(s)) == '발행' for s in _STAGES)
 
 
-_RECENT_MONTHS = 12   # 미발행·미수금(B)은 완공일 최근 N개월만 (옛 데이터 노이즈 컷). 조정 가능.
-
-
-def _months_ago(n: int):
-    from calendar import monthrange
-    from datetime import date
-    t = date.today()
-    m, y = t.month - n, t.year
-    while m <= 0:
-        m += 12; y -= 1
-    return date(y, m, min(t.day, monthrange(y, m)[1]))
-
-
-def _end_within_months(row, n: int = _RECENT_MONTHS) -> bool:
-    """공사 종료일이 과거이면서 최근 n개월 이내인가(날짜 파싱 가능해야 True — 옛/무일자 제외)."""
-    from datetime import date
-    s = str(row.get('공사 종료') or '').strip()
-    m = re.search(r'(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})', s)
-    if not m:
-        return False
-    try:
-        d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-    except ValueError:
-        return False
-    return _months_ago(n) <= d < date.today()
 
 
 _DATE = re.compile(r'\d{2,4}[.\-/]\d{1,2}[.\-/]\d{1,2}')
@@ -156,11 +131,11 @@ def classify(recs):
     """프로젝트 → 버킷.
 
     발행 마감(월간): issue_collected(① 수금완료·미발행), issue_partial(② 부분입금·미발행).
-    수금(주간): collect_issued(발행 O·미수금, 완공 전부), collect_uninvoiced(미발행·미수금,
-      완공 최근 _RECENT_MONTHS 개월만 — 옛 데이터 노이즈 컷).
+    미수금 리포트(주간): 미수금>0 전부를 카테고리로 — ar_issued(완공·발행 완료·미수금),
+      ar_uninvoiced(완공·미발행·미수금), ar_ongoing(진행중·미수금, 완공 전=참고).
     """
     b = {'issue_collected': [], 'issue_partial': [],
-         'collect_issued': [], 'collect_uninvoiced': []}
+         'ar_issued': [], 'ar_uninvoiced': [], 'ar_ongoing': []}
     for r in recs:
         code = str(r.get('프로젝트 코드', '')).strip()
         if not code or code in _EXCLUDE:
@@ -175,12 +150,14 @@ def classify(recs):
             b['issue_collected'].append(r)
         elif has_pending:
             b['issue_partial'].append(r)
-        # 수금 = 완공 + 미수금. A) 발행 O(전부)  B) 미발행(최근만). 수금 제외셋 적용.
+        # 미수금 리포트 = 미수금 전부, 카테고리 분류. 수금 제외셋 적용.
         if unpaid > 0 and code not in _COLLECT_EXCLUDE:
-            if _has_issued(r) and _end_passed(r):
-                b['collect_issued'].append(r)
-            elif (not _has_issued(r)) and _end_within_months(r):
-                b['collect_uninvoiced'].append(r)
+            if not _end_passed(r):
+                b['ar_ongoing'].append(r)       # 진행중(완공 전) — 아직 회수 시점 아님(참고)
+            elif _has_issued(r):
+                b['ar_issued'].append(r)        # 완공·발행 완료·미수금 — 회수 시급
+            else:
+                b['ar_uninvoiced'].append(r)    # 완공·미발행·미수금 — 발행+수금
     return b
 
 
@@ -217,24 +194,35 @@ def _section(header, items, line_fn):
     return '\n'.join([header] + [line_fn(r) for r in _sort(items)])
 
 
+def _sum_won(items) -> str:
+    return _won(sum(_num(r.get('미수금')) for r in items))
+
+
 def build_collection_text(buckets) -> str:
-    """주간 수금 문안 — 완공 후 미수금 전부. A) 발행 O·미수금  B) 미발행·미수금(최근)."""
-    a = buckets.get('collect_issued', [])
-    b = buckets.get('collect_uninvoiced', [])
-    if not (a or b):
+    """주간 미수금 리포트 — 전체 미수금을 카테고리별로."""
+    iss = buckets.get('ar_issued', [])
+    unv = buckets.get('ar_uninvoiced', [])
+    ong = buckets.get('ar_ongoing', [])
+    allit = iss + unv + ong
+    if not allit:
         return ''
     secs = []
-    if a:
+    if iss:
         secs.append(_section(
-            f':moneybag: *발행 완료 · 미수금 ({len(a)}건)*', a, _collect_line))
-    if b:
+            f':receipt: *① 발행 완료 · 미수금 ({len(iss)}건 · {_sum_won(iss)}) — 회수 시급*',
+            iss, _collect_line))
+    if unv:
         secs.append(_section(
-            f':receipt: *미발행 · 미수금 — 발행+수금 ({len(b)}건, 최근 {_RECENT_MONTHS}개월)*',
-            b, _collect_line))
+            f':receipt: *② 미발행 · 미수금 ({len(unv)}건 · {_sum_won(unv)}) — 발행+수금*',
+            unv, _collect_line))
+    if ong:
+        secs.append(_section(
+            f':hourglass_flowing_sand: *③ 진행중 · 미수금 ({len(ong)}건 · {_sum_won(ong)}) — 완공 전, 참고*',
+            ong, _collect_line))
     body = f'\n{_BLANK}\n'.join(secs)
     return (
         f'{_BLANK}\n'
-        f':moneybag: *수금 현황 — 완공 후 미수금 확인·회수 부탁드립니다*\n'
+        f':moneybag: *미수금 리포트 — {len(allit)}건 · 합계 {_sum_won(allit)}*\n'
         f'{_SEP}\n'
         f'{body}\n'
         f'{_SEP}\n'
@@ -306,11 +294,10 @@ if __name__ == '__main__':
     except Exception:
         pass
     bk = classify(_load_recs())
-    print(f"[버킷] ①수금완료·미발행={len(bk['issue_collected'])}  "
-          f"②부분입금·미발행={len(bk['issue_partial'])}  "
-          f"A)발행O·미수금={len(bk['collect_issued'])}  "
-          f"B)미발행·미수금(최근)={len(bk['collect_uninvoiced'])}")
-    print("\n===== 주간(수금 현황) 미리보기 =====")
+    print(f"[버킷] 발행마감 ①={len(bk['issue_collected'])} ②={len(bk['issue_partial'])} | "
+          f"미수금 ①발행O={len(bk['ar_issued'])} ②미발행={len(bk['ar_uninvoiced'])} "
+          f"③진행중={len(bk['ar_ongoing'])}")
+    print("\n===== 주간(미수금 리포트) 미리보기 =====")
     print(build_collection_text(bk) or "(대상 0건)")
     print("\n===== 매월 10일(발행 마감) 미리보기 =====")
     print(build_monthly_text(bk) or "(대상 0건)")
