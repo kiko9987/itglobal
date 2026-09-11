@@ -586,7 +586,7 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
         return False
 
     # 본문 조립
-    _who = f'  _({str(editor).strip()})_' if str(editor or '').strip() else ''
+    _who = f'  ({str(editor).strip()})' if str(editor or '').strip() else ''
     lines = [f'[{code} 데이터 수정 알림]{_who}']
     for c in relevant:
         f = c['field_name']

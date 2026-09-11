@@ -1219,7 +1219,7 @@ def update_project(project_code):
                 from ..services.project_slack_notifier import notify_project_field_changes
                 notify_project_field_changes(
                     final_project_code, field_changes, latest_data=updated_project,
-                    editor=(f'수정: {_editor_name}' if _editor_name else ''),
+                    editor=(f'수정 : {_editor_name.upper()}' if _editor_name else ''),
                 )
             except Exception as exc:
                 logger.warning(f"[BG/SLACK] {final_project_code} 알림 처리 오류: {exc}")
