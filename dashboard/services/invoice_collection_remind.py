@@ -131,11 +131,11 @@ def classify(recs):
     """프로젝트 → 버킷.
 
     발행 마감(월간): issue_collected(① 수금완료·미발행), issue_partial(② 부분입금·미발행).
-    미수금 리포트(주간): 미수금>0 전부를 카테고리로 — ar_issued(완공·발행 완료·미수금),
-      ar_uninvoiced(완공·미발행·미수금), ar_ongoing(진행중·미수금, 완공 전=참고).
+    미수금 리포트(주간): 완공된 미수금을 카테고리로 — ar_issued(발행 완료·미수금),
+      ar_uninvoiced(미발행·미수금). 공사 진행중(완공 전)은 제외.
     """
     b = {'issue_collected': [], 'issue_partial': [],
-         'ar_issued': [], 'ar_uninvoiced': [], 'ar_ongoing': []}
+         'ar_issued': [], 'ar_uninvoiced': []}
     for r in recs:
         code = str(r.get('프로젝트 코드', '')).strip()
         if not code or code in _EXCLUDE:
@@ -150,11 +150,9 @@ def classify(recs):
             b['issue_collected'].append(r)
         elif has_pending:
             b['issue_partial'].append(r)
-        # 미수금 리포트 = 미수금 전부, 카테고리 분류. 수금 제외셋 적용.
-        if unpaid > 0 and code not in _COLLECT_EXCLUDE:
-            if not _end_passed(r):
-                b['ar_ongoing'].append(r)       # 진행중(완공 전) — 아직 회수 시점 아님(참고)
-            elif _has_issued(r):
+        # 미수금 리포트 = 완공 미수금(진행중=완공 전 제외). 수금 제외셋 적용.
+        if unpaid > 0 and _end_passed(r) and code not in _COLLECT_EXCLUDE:
+            if _has_issued(r):
                 b['ar_issued'].append(r)        # 완공·발행 완료·미수금 — 회수 시급
             else:
                 b['ar_uninvoiced'].append(r)    # 완공·미발행·미수금 — 발행+수금
@@ -202,8 +200,7 @@ def build_collection_text(buckets) -> str:
     """주간 미수금 리포트 — 전체 미수금을 카테고리별로."""
     iss = buckets.get('ar_issued', [])
     unv = buckets.get('ar_uninvoiced', [])
-    ong = buckets.get('ar_ongoing', [])
-    allit = iss + unv + ong
+    allit = iss + unv
     if not allit:
         return ''
     secs = []
@@ -215,10 +212,6 @@ def build_collection_text(buckets) -> str:
         secs.append(_section(
             f':receipt: *② 미발행 · 미수금 ({len(unv)}건 · {_sum_won(unv)}) — 발행+수금*',
             unv, _collect_line))
-    if ong:
-        secs.append(_section(
-            f':hourglass_flowing_sand: *③ 진행중 · 미수금 ({len(ong)}건 · {_sum_won(ong)}) — 완공 전, 참고*',
-            ong, _collect_line))
     body = f'\n{_BLANK}\n'.join(secs)
     return (
         f'{_BLANK}\n'
@@ -295,8 +288,7 @@ if __name__ == '__main__':
         pass
     bk = classify(_load_recs())
     print(f"[버킷] 발행마감 ①={len(bk['issue_collected'])} ②={len(bk['issue_partial'])} | "
-          f"미수금 ①발행O={len(bk['ar_issued'])} ②미발행={len(bk['ar_uninvoiced'])} "
-          f"③진행중={len(bk['ar_ongoing'])}")
+          f"미수금 ①발행O={len(bk['ar_issued'])} ②미발행={len(bk['ar_uninvoiced'])}")
     print("\n===== 주간(미수금 리포트) 미리보기 =====")
     print(build_collection_text(bk) or "(대상 0건)")
     print("\n===== 매월 10일(발행 마감) 미리보기 =====")
