@@ -18,7 +18,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines } from '../utils/billStatus.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -933,7 +933,7 @@ export default class ProjectRowAccordion {
   /**
    * 계산서 카테고리에 따른 아이콘 반환
    */
-  getBillStatusIcon(category) {
+  getBillStatusIcon(category, rowData = null, stage = '') {
     const iconMap = {
       '발행': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
       '일반': { icon: 'fas fa-receipt text-primary', label: '세금계산서 발행' },
@@ -948,6 +948,27 @@ export default class ProjectRowAccordion {
 
     const info = iconMap[category];
     if (!info) return '';
+
+    // 발행 → 수금 모드 테이블처럼 사업자·발행액 툴팁 + 슬랙 계산서 카드 바로가기(클릭).
+    //   클릭은 ProjectTable 이 document 에 건 위임 핸들러(.bill-invoice-issued)가 처리하므로
+    //   같은 클래스·data 속성만 내면 배선 불필요. rowData·stage 있을 때만 리치 렌더.
+    if ((category === '발행' || category === '일반') && rowData && stage) {
+      const code = String(rowData['프로젝트 코드'] || '').trim();
+      const lines = ['세금계산서 발행완료', ...billAmountLines(rowData, stage), '클릭 시 계산서 링크로 이동'];
+      const title = this.escapeHTML(lines.join('\n'));
+      return ` <span class="memo-tooltip-trigger bill-status bill-invoice-issued" role="button" tabindex="0" style="cursor:pointer;" data-invoice-code="${this.escapeHTML(code)}" data-invoice-stage="${this.escapeHTML(stage)}" data-bs-toggle="tooltip" data-bs-title="${title}" aria-label="${this.escapeHTML(lines.join(', '))}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
+    }
+
+    // 카드 → 사업자·결제액 참고 툴팁(상세 수수료 분해는 테이블 전용).
+    if (category === '카드' && rowData && stage) {
+      const biz = String(rowData['사업자명'] || '').trim();
+      const amt = parseFloat(rowData[stage] || 0);
+      const lines = ['카드결제 (영수증 자동)'];
+      if (biz) lines.push(biz);
+      if (amt > 0) lines.push(`${stage} ${amt.toLocaleString()}원`);
+      const title = this.escapeHTML(lines.join('\n'));
+      return ` <span class="memo-tooltip-trigger bill-status" data-bs-toggle="tooltip" data-bs-title="${title}" aria-label="${this.escapeHTML(lines.join(', '))}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
+    }
 
     return ` <span class="memo-tooltip-trigger bill-status" data-bs-toggle="tooltip" data-bs-title="${info.label}" aria-label="${info.label}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
   }
@@ -1009,8 +1030,8 @@ export default class ProjectRowAccordion {
       const amount = AmountCalculator.safeParseCurrency(rowData[fieldName] || 0);
       const memo = memos[memoKey];
       const formattedAmount = this.formatCurrency(amount);
-      // 계산서 단계별 아이콘 (🧾/💵/💳/⚠️미발행/❓혼합)
-      const billIcon = this.getBillStatusIcon(billStages[fieldName]);
+      // 계산서 단계별 아이콘 (🧾/💵/💳/⚠️미발행/❓혼합) — 발행/카드는 사업자·발행액 툴팁+링크
+      const billIcon = this.getBillStatusIcon(billStages[fieldName], rowData, fieldName);
 
       let valueMarkup;
 

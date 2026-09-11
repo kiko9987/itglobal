@@ -241,3 +241,31 @@ export function computeInvoicedAmount(row) {
   });
   return sum;
 }
+
+/**
+ * 세금계산서 발행 아이콘 툴팁용 금액 줄 — 사업자 + 공급가(VAT별도)/합계(VAT포함).
+ * 실제 발행액 = 이 발행이 커버하는 금액. 통합발행이면 바로 앞의 연속된 '-'(covered)
+ * 단계 금액까지 합산(예: 잔금 통합발행이 계약금·중도금 포함 → 총액).
+ * 테이블(ProjectTable) 과 아코디언(ProjectRowAccordion) 공용 — 툴팁 파리티. @returns {string[]}
+ */
+export function billAmountLines(row, stage) {
+  const lines = [];
+  const biz = String((row && row['사업자명']) || '').trim();
+  if (biz) lines.push(biz);
+  const amtOf = (s) => parseFloat((row && row[s]) || 0);
+  const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
+  const total2 = parseFloat((row && (row['총액 2'] || row['총액2'])) || 0);
+  const idx = BILL_STAGES.indexOf(stage);
+  let gross = amtOf(stage);
+  for (let i = idx - 1; i >= 0; i--) {          // 바로 앞의 연속된 '-'(covered) 단계 합산
+    if (tokOf(BILL_STAGES[i]) === '-') gross += amtOf(BILL_STAGES[i]);
+    else break;
+  }
+  if (gross <= 0) gross = total2;
+  if (gross > 0) {
+    const supply = Math.round(gross / 1.1);     // 공급가 (VAT 별도)
+    lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);
+    lines.push(`합계 ${gross.toLocaleString()}원 (VAT 포함)`);
+  }
+  return lines;
+}
