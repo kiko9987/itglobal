@@ -265,20 +265,19 @@ export default class InvoiceLicense {
     const vatSep = /^(true|y|yes|1|별도|vat\s*별도)$/i.test(vatRaw);
 
     // 계산서 발행 단계 — 단일 선택. 기본값 없음(placeholder) → 요청자가 직접 선택.
-    //   금액 표시로 판단 보조. 금액 없는 단계는 비활성.
+    //   금액 표시로 판단 보조. 세금계산서는 입금 전 선발행이 가능하므로 금액 없는
+    //   단계도 선택 허용(슬랙 모달과 동일). 선발행이면 아래 힌트로 조용히 안내.
     const stageInfo = ['계약금', '중도금', '잔금'].map((s) => {
       const amt = Number(String(p[s] ?? '').replace(/,/g, '')) || 0;
       const tok = String(p[`${s} 계산서`] ?? '').trim();
       const issued = tok === '발행' || tok === '일반';
       return { s, amt, issued };
     });
-    const anyAmt = stageInfo.some((x) => x.amt > 0);
     const stageOptions = ['<option value="" selected disabled>단계 선택</option>'].concat(
       stageInfo.map((x) => {
-        const disabled = anyAmt && x.amt <= 0; // 금액 없는 단계 비활성 (금액 전무면 3단계 허용)
         const amtTxt = x.amt > 0 ? ` (${x.amt.toLocaleString('ko-KR')})` : '';
         const issuedTxt = x.issued ? ' · 발행됨' : '';
-        return `<option value="${x.s}" ${disabled ? 'disabled' : ''}>${x.s}${amtTxt}${issuedTxt}</option>`;
+        return `<option value="${x.s}">${x.s}${amtTxt}${issuedTxt}</option>`;
       }),
     ).join('');
 
@@ -299,7 +298,8 @@ export default class InvoiceLicense {
       <div class="mb-2"><label class="form-label">이메일 <span class="text-muted small">(계산서 수신)</span></label>
         <input id="ilEmail" type="text" class="form-control" value="${esc(email)}" placeholder="example@company.com"></div>
       <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(금액=총액이면 나머지 자동 '-')</span></label>
-        <select id="ilStage" class="form-select">${stageOptions}</select></div>
+        <select id="ilStage" class="form-select">${stageOptions}</select>
+        <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>
       <div class="mb-1"><label class="form-label">요청사항 <span class="text-muted small">(선택)</span></label>
         <textarea id="ilMemo" class="form-control" rows="2" placeholder="수정발행·특이사항 등"></textarea></div>
     `;
@@ -322,7 +322,25 @@ export default class InvoiceLicense {
       if (!err.ok) return err.message;
       this._toast('세금계산서 요청을 #계산서_관리로 발송했습니다.', 'success');
       return null;
-    }, { icon: 'fa-file-invoice-dollar', submitLabel: '요청 발송' });
+    }, {
+      icon: 'fa-file-invoice-dollar', submitLabel: '요청 발송',
+      // 선발행 안내(최소 가이드): 입금 없는 단계를 고르면 조용히 힌트만 — 차단하지 않음.
+      onRender: (el) => {
+        const sel = el.querySelector('#ilStage');
+        const hint = el.querySelector('#ilStageHint');
+        if (!sel || !hint) return;
+        const amtByStage = Object.fromEntries(stageInfo.map((x) => [x.s, x.amt]));
+        sel.addEventListener('change', () => {
+          const paid = amtByStage[sel.value] || 0;
+          if (sel.value && paid <= 0) {
+            hint.textContent = '🕒 선발행 — 이 단계는 아직 입금 내역이 없습니다. 발행 금액을 확인하세요.';
+            hint.style.display = '';
+          } else {
+            hint.style.display = 'none';
+          }
+        });
+      },
+    });
   }
 
   // POST(JSON) → {ok, code, message}. APIResponse error.{code,message} 파싱.
@@ -373,6 +391,7 @@ export default class InvoiceLicense {
       if (err) { el.querySelector('#ilModalAlert').textContent = err; return; }
       this._modal.hide();
     });
+    if (typeof opts.onRender === 'function') { try { opts.onRender(el); } catch (_) {} }
     this._modal.show();
   }
 
