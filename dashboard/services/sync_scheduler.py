@@ -296,6 +296,19 @@ def start_scheduler():
     )
     jobs.append('일 백업 매일 03:15')
 
+    # 2026-09-11 정합성/불변식 점검 — 하루 2회(08:30·18:00). "조용히 틀린 값"(유령 코드·
+    # 고아 수금완료·금액 이상치) 자동 감지 → 관리자 슬랙. dedup 하루 1회. 발송 채널 있을 때만.
+    if os.getenv('INVARIANT_CHECKS_ENABLED', '1').strip().lower() not in ('0', 'false', 'no') \
+            and (os.getenv('INVARIANT_ALERT_CHANNEL', '').strip() or os.getenv('SLACK_ADMIN_CHANNEL', '').strip()):
+        _scheduler.add_job(
+            _safe_invariant_checks,
+            'cron',
+            hour='8,18', minute=30,
+            id='invariant_checks_daily',
+            replace_existing=True,
+        )
+        jobs.append('정합성 점검 매일 08:30·18:30')
+
     # 2026-07-23 매일 아침 9시 부재중/미완료 리마인드 (온라인 문의 채널)
     _scheduler.add_job(
         _safe_absent_remind_daily,
@@ -703,6 +716,16 @@ def _safe_pin_remind_daily():
         logger.info(f'[SCHED] 정산 핀 리마인드 실행 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 정산 핀 리마인드 실패: {exc}', exc_info=True)
+
+
+def _safe_invariant_checks():
+    """정합성/불변식 점검 실행 (하루 2회). 신규 위반만 관리자 슬랙."""
+    try:
+        from dashboard.services.invariant_checks import run_invariant_checks
+        result = run_invariant_checks()
+        logger.info(f'[SCHED] 정합성 점검 결과: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 정합성 점검 실패: {exc}', exc_info=True)
 
 
 def _safe_partner_status_refresh():
