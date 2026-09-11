@@ -1683,6 +1683,20 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                 if _new_y != _old_y:
                     manager.update_cell_value(sheet_id, sheet_name, f"{_ycol}{row}", _new_y)
                     logger.info(f"[SLACK/수금봇] Y 재계산: {project_code} {_old_y!r} → {_new_y!r}")
+                    # 리컨사일러 오탐 방지: 입금이 유발한 계산서 앵커 이동(예: '계약금 - 미발행'
+                    #   → '잔금 - 미발행')은 실제 발행 이벤트가 아니고 그 입금은 이미 #수금_관리가
+                    #   담당한다. 공사확정 카드 스냅샷의 계산서 필드를 이 값으로 맞춰 리컨사일러가
+                    #   이를 '시트 직접수정'으로 오표기·중복 발송하지 않게 한다. (진짜 발행완료 변화는
+                    #   이후 PM/계산서 자동기록이 정상 발송.) 스냅샷 있을 때만 — 없으면 리컨사일러
+                    #   첫 감지가 조용히 베이스라인하므로 손댈 필요 없음.
+                    try:
+                        from dashboard.utils.redis_client import get_redis_client as _grc_snap
+                        _rc_snap = _grc_snap().redis
+                        _snap_key = f'card_field_snap:{project_code}'
+                        if _rc_snap.exists(_snap_key):
+                            _rc_snap.hset(_snap_key, '계산서', _new_y)
+                    except Exception:
+                        pass
         except Exception as _yexc:
             logger.warning(f"[SLACK/수금봇] Y 재계산 실패(무시, 값·노트는 기록됨): {_yexc}")
 
