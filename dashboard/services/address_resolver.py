@@ -2498,6 +2498,33 @@ def _dong_region_count(dong: str) -> int:
     return len(regs)
 
 
+@lru_cache(maxsize=256)
+def _road_region_count(road_core: str) -> int:
+    """행안부에서 도로명(+번지)이 속한 distinct 시/군/구 수 (다도시 동명 도로 판별용).
+    실패 -1. 1 이면 전국 한 시/구에만 존재 → 지역 없는 입력에 지역 접두 확정 가능
+    (풍초로 115=하남만). '중앙로 100'처럼 다도시면 >1 → 지역 부착 보류(오확정 방지)."""
+    key = _juso_key()
+    if not key or not road_core:
+        return -1
+    try:
+        url = 'https://business.juso.go.kr/addrlink/addrLinkApi.do?' + urllib.parse.urlencode(
+            {'confmKey': key, 'currentPage': 1, 'countPerPage': 100,
+             'keyword': road_core, 'resultType': 'json'})
+        with urllib.request.urlopen(url, timeout=6) as r:
+            d = json.loads(r.read())
+    except Exception:
+        return -1
+    regs = set()
+    for j in d.get('results', {}).get('juso', []) or []:
+        ra = j.get('roadAddr', '')
+        mm = re.match(r'([가-힣]+(?:특별자치시|특별시|광역시|도))\s+([가-힣]+(?:시|군|구))', ra)
+        if mm:
+            regs.add(mm.group(0))
+        elif ra.startswith('세종'):
+            regs.add('세종')
+    return len(regs)
+
+
 def _dong_building_poi_fallback(text: str) -> Optional[str]:
     """법정동+건물명만 있고 도로·번지·지역이 없는 입력을 kakao POI keyword 로 구제
     (2026-09-08 L-03956 '감이동 벨솔레파크'→'하남 감일중앙로 60 감일벨솔레파크').
@@ -2730,6 +2757,19 @@ def resolve_address(
             #   일치라 없는 도로/퍼지는 미승격 — 판교로 393 등).
             _juso_hit3 = _juso_fallback(text, None)
             _lv3 = 'verified' if (_juso_hit3 and _juso_hit3[1] == 'road') else 'raw'
+            # 지역 없는 입력 + 도로 전국 유일 → juso 가 아는 지역 접두 부착 (2026-09-11
+            #   L-03988): '풍초로 115'→'하남 풍초로 115'. _raw 에 시/도/구 없고 도로가 한
+            #   시/구에만 있을 때만(다도시 '중앙로 100' 등은 오확정 방지로 보류).
+            if _lv3 == 'verified':
+                _mcore = re.search(r'[가-힣]{2,}(?:로|길)\s*\d+(?:-\d+)?', _raw)
+                _has_reg = re.match(
+                    r'^(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|'
+                    r'전북|전남|경북|경남|제주|[가-힣]{2,}(?:시|군|구))(?:\s|$)', _raw)
+                if _mcore and not _has_reg and _road_region_count(_mcore.group(0)) == 1:
+                    _mreg = re.match(r'^(.+?)\s+(?=[가-힣]{2,}(?:로|길)\s*\d)',
+                                     _juso_hit3[0])
+                    if _mreg and _mreg.group(1).strip() and _mreg.group(1).strip() not in _raw:
+                        _raw = f'{_mreg.group(1).strip()} {_raw}'
             return (_raw, _lv3)
 
     return ('', '')
