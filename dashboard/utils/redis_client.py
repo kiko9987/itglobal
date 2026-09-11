@@ -141,11 +141,20 @@ class RedisClient:
                     decode_responses=False  # bytes 그대로 반환 (pickle 직렬화 지원)
                 )
 
-                # Graceful Degradation: 재시도 후 연결 확인
+                # Graceful Degradation: 시간 기반 재시도 후 연결 확인.
+                #   부팅 시 Redis(도커)가 앱보다 늦게 떠서 앱이 폴백에 갇히던 사고 대응
+                #   (2026-09-11 재부팅: 앱 12s 후 기동 → Redis 아직 안 뜸 → 3회 실패 후 폴백 갇힘).
+                #   짧게 3회가 아니라 REDIS_CONNECT_MAX_WAIT_SEC(기본 60s)까지 재시도해 도커
+                #   기동 지연을 커버. 그래도 안 뜨면 폴백(graceful degradation은 유지).
+                import time
                 connection_success = False
-                max_retries = 3
+                max_wait = int(os.getenv('REDIS_CONNECT_MAX_WAIT_SEC', '60') or 60)
+                retry_interval = 3
+                deadline = time.time() + max_wait
+                attempt = 0
 
-                for attempt in range(max_retries):
+                while True:
+                    attempt += 1
                     try:
                         self.redis.ping()
                         self.redis_binary.ping()
@@ -155,14 +164,14 @@ class RedisClient:
                         connection_success = True
                         break
                     except (ConnectionError, TimeoutError, RedisError) as retry_error:
-                        wait_time = 2 ** attempt  # 1초, 2초, 4초
-                        logger.warning(f"Redis 연결 실패 (시도 {attempt + 1}/{max_retries}): {retry_error}")
-                        if attempt < max_retries - 1:
-                            logger.info(f"{wait_time}초 후 재시도...")
-                            import time
-                            time.sleep(wait_time)
-                        else:
-                            logger.error(f"Redis 연결 최종 실패 ({max_retries}회 시도)")
+                        if time.time() >= deadline:
+                            logger.error(f"Redis 연결 최종 실패 ({attempt}회 시도, {max_wait}s 초과)")
+                            break
+                        logger.warning(
+                            f"Redis 연결 실패 (시도 {attempt}, {retry_interval}s 후 재시도, "
+                            f"최대 {max_wait}s): {retry_error}"
+                        )
+                        time.sleep(retry_interval)
 
                 if not connection_success:
                     # Fallback 모드로 전환 (서버는 계속 실행)
