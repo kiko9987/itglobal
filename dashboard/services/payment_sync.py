@@ -1668,6 +1668,53 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
         return False
 
 
+def _reprice_payment_card(slack, channel: str, rep: Dict,
+                          sheet_id: str, sheet_name: str) -> bool:
+    """미수금(X) 단독 변화 → 기존 카드를 최신 시트값으로 재렌더 (총액/부가세 직접수정 반영).
+
+    _correct_payment_card 와 달리 **스냅샷·정정댓글·라인비교 가드 없음** — 노트는 안 바뀌고
+    미수금/총액만 달라지므로(재파싱 결과 동일) 실질 변화(미수금·총액·수금완료 전환)만
+    chat_update 한다. 미완성 파싱·통합 카드는 skip. (2026-09-11 G3887 부가세 off 계기)
+    """
+    from dashboard.blueprints.slack_helpers import safe_slack_call
+    project, stage, ts = rep['project'], rep['stage'], rep['ts']
+    notes = _fetch_row_notes(sheet_id, sheet_name, rep['row'])
+    payments = _parse_notes(notes, stage_vals={
+        '계약금': rep['u'], '중도금': rep['v'], '잔금': rep['w']})
+    stage_payments = [p for p in payments if p.get('stage') == stage]
+    if not stage_payments:
+        return False
+    for p in stage_payments:   # 미완성 파싱이면 좋은 카드 덮어쓰기 방지
+        if (not p.get('partner') or p.get('partner') == '-'
+                or not p.get('date_md') or p.get('date_md') == '-'):
+            return False
+    stage_vals = {'계약금': rep['u'], '중도금': rep['v'], '잔금': rep['w']}
+    try:
+        new_text = _build_stage_card_text(stage, project, payments, rep, stage_vals)
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 재렌더 카드 빌드 실패 ({project}/{stage}): {exc}')
+        return False
+    if not new_text:
+        return False
+    try:
+        r = safe_slack_call(slack.conversations_history, channel=channel,
+                            latest=ts, inclusive=True, limit=1)
+        old = (((r.get('messages') or [{}])[0]).get('text', '')) or ''
+    except Exception:
+        old = ''
+    if '통합' in old:
+        return False   # 통합 카드 제외 (여러 프로젝트)
+    if new_text.strip() == old.strip():
+        return False   # 실질 변화 없음 (중복 no-op)
+    try:
+        safe_slack_call(slack.chat_update, channel=channel, ts=ts, text=new_text)
+        logger.info(f'[PAYMENT] 미수금 변화 → 카드 재렌더(총액/부가세 반영): {project}/{stage} ts={ts}')
+        return True
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 재렌더 카드 갱신 실패 ({project}/{stage}): {exc}')
+        return False
+
+
 def _send_refund_card(slack, channel: str, rs: Dict,
                       sheet_id: str, sheet_name: str) -> bool:
     """과입금 반환 신규 → '반환' 새 카드 발송 (누적이력 포함). 값 감소라 일반 발송 트리거 밖.
@@ -1895,6 +1942,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     removed_cards = []  # 입금 메모 삭제(값 >0 → 0) 감지 → 카드 회색화 대상
     corrected_rows = []  # 입금 메모 정정(phash 변경, 값 증가 아님) → 카드 갱신+스냅샷 대상
     refund_sends = []    # 과입금 반환 신규(단계에 반환 블록 추가) → '반환' 새 카드 발송 대상
+    reprice_rows = []    # 미수금(X) 단독 변화(총액/부가세 시트 직접수정) → 기존 카드 재렌더 (2026-09-11)
 
     for offset, row in enumerate(rows):
         sheet_row = offset + 2  # 1-based + 헤더 1행
@@ -1906,6 +1954,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         u_val = _to_int_won(_get(IDX_U))
         v_val = _to_int_won(_get(IDX_V))
         w_val = _to_int_won(_get(IDX_W))
+        x_val = _to_int_won(_get(IDX_X))   # 미수금 — 총액/부가세 시트 직접수정 감지용 (2026-09-11)
         aa_chk = _to_bool(_get(IDX_AA))
         project = str(_get(IDX_A)).strip()
         if not project:
@@ -1924,6 +1973,9 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         prev_v = int(prev.get('v', 0) or 0)
         prev_w = int(prev.get('w', 0) or 0)
         prev_aa = str(prev.get('aa', '')).lower() == 'true'
+        # 미수금(X): baseline 에 있을 때만 변화 감지(첫 폴 마이그레이션은 저장만 → mass-reprice 방지).
+        prev_x = prev.get('x')
+        x_changed = (prev_x is not None) and (int(prev_x or 0) != x_val)
 
         # stage 별 phash — 신규/기존 매핑.
         # ⚠️ 값이 '있는'(≠0) 단계의 phash 만 인정한다. 폴러는 한 사이클에서 값(values.get)과
@@ -1948,7 +2000,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         if not prev:
             try:
                 rc.hset(key, mapping={
-                    'u': u_val, 'v': v_val, 'w': w_val,
+                    'u': u_val, 'v': v_val, 'w': w_val, 'x': x_val,
                     'aa': 'true' if aa_chk else 'false',
                     'phash': _cur_all_ph,  # 값>0 단계만 (backward compat)
                     'u_phash': cur_u_ph,
@@ -1967,7 +2019,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         if not has_stage_phash:
             try:
                 rc.hset(key, mapping={
-                    'u': u_val, 'v': v_val, 'w': w_val,
+                    'u': u_val, 'v': v_val, 'w': w_val, 'x': x_val,
                     'aa': 'true' if aa_chk else 'false',
                     'u_phash': cur_u_ph,
                     'v_phash': cur_v_ph,
@@ -1983,8 +2035,13 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         prev_w_ph = prev.get('w_phash', '')
         memo_changed = (cur_u_ph != prev_u_ph) or (cur_v_ph != prev_v_ph) or (cur_w_ph != prev_w_ph)
         any_change = (u_val != prev_u) or (v_val != prev_v) or (w_val != prev_w) \
-            or (aa_chk != prev_aa) or memo_changed
+            or (aa_chk != prev_aa) or memo_changed or x_changed
         if not any_change:
+            if prev_x is None:   # 미수금 baseline 마이그레이션 — 변화 없는 행도 x 저장 (다음 폴부터 감지)
+                try:
+                    rc.hset(key, 'x', x_val)
+                except Exception:
+                    pass
             continue
 
         # 발송 트리거 — 새 입금(값 증가), AA 신규 체크, 또는 stage 별 메모 신규 저장.
@@ -2050,9 +2107,28 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             'total_t': _to_int_won(_get(IDX_T)),
                             'unpaid': _to_int_won(_get(IDX_X)),
                         })
+            # 미수금(X) 단독 변화(총액/부가세 시트 직접수정) — 노트 변화 없이 X 만 바뀌면 발송·정정
+            # 트리거에 안 걸려 카드가 stale (G3887 부가세 off 사례). 기존 카드 있으면 재렌더. (2026-09-11)
+            if x_changed and not memo_changed:
+                for _stg in ('계약금', '중도금', '잔금'):
+                    try:
+                        _rts = rc.get(f'payment_slack:ts:{project}:{_stg}')
+                    except Exception:
+                        _rts = None
+                    if _rts:
+                        reprice_rows.append({
+                            'project': project, 'row': sheet_row, 'stage': _stg, 'ts': _rts,
+                            'u': u_val, 'v': v_val, 'w': w_val,
+                            'address': str(_get(IDX_F)).strip(),
+                            'construction': str(_get(IDX_L)).strip(),
+                            'invoice': str(_get(IDX_Y)).strip(),
+                            'total_r': _to_int_won(_get(IDX_R)),
+                            'total_t': _to_int_won(_get(IDX_T)),
+                            'unpaid': x_val,
+                        })
             try:
                 rc.hset(key, mapping={
-                    'u': u_val, 'v': v_val, 'w': w_val,
+                    'u': u_val, 'v': v_val, 'w': w_val, 'x': x_val,
                     'aa': 'true' if aa_chk else 'false',
                     # stage 별 phash 도 갱신 (다음 신규 저장 감지 위해)
                     'u_phash': cur_u_ph,
@@ -2106,6 +2182,17 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 logger.warning(f"[PAYMENT] 카드 정정 예외 ({_cr['project']}/{_cr['stage']}): {exc}")
     elif corrected_rows:
         logger.warning(f"[PAYMENT] 정정 대상 과다({len(corrected_rows)}) — 안전상 skip")
+
+    # 미수금(X) 단독 변화 → 기존 카드 재렌더 (총액/부가세 시트 직접수정 반영). 스냅샷·정정댓글 없이
+    # chat_update 만, 실질 변화 있을 때만. 안전장치: 대상 과다면 skip(대량 오변경 방지).
+    if reprice_rows and len(reprice_rows) <= 30:
+        for _rp in reprice_rows:
+            try:
+                _reprice_payment_card(slack, channel, _rp, sheet_id, sheet_name)
+            except Exception as exc:
+                logger.warning(f"[PAYMENT] 카드 재렌더(미수금) 예외 ({_rp['project']}/{_rp['stage']}): {exc}")
+    elif reprice_rows:
+        logger.warning(f"[PAYMENT] 미수금 재렌더 대상 과다({len(reprice_rows)}) — 안전상 skip")
 
     # 과입금 반환 신규 → '반환' 새 카드 발송 (2026-08). 값 감소라 일반 발송 트리거엔 안 걸려
     # 정정 블록에서 수집됨. 기존 입금 카드는 그대로 두고 새 반환 카드를 추가 게시.
