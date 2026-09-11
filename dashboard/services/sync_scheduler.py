@@ -339,24 +339,9 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('정산 핀 리마인드 매일 17:00')
-        # 2026-09-11 수금 필요 리마인드 — 매주 월 9시. 완공·계산서 발행·미입금(미수금) 회수.
-        _scheduler.add_job(
-            _safe_weekly_collection_remind,
-            'cron',
-            day_of_week='mon', hour=9, minute=0,
-            id='collection_remind_weekly',
-            replace_existing=True,
-        )
-        jobs.append('수금 필요 리마인드 매주 월 09:00')
-        # 2026-09-11 계산서 마감 리마인드 — 매월 10일 9시. ①수금완료·미발행 ②부분입금·미발행 ③수금필요.
-        _scheduler.add_job(
-            _safe_monthly_invoice_remind,
-            'cron',
-            day=10, hour=9, minute=0,
-            id='invoice_remind_monthly',
-            replace_existing=True,
-        )
-        jobs.append('계산서 마감 리마인드 매월 10일 09:00')
+        # 2026-09-11 미수금/계산서 리마인드는 보류 — 모듈(invoice_collection_remind)은 유지,
+        #   목록 과다(112건)로 스케줄 등록 보류. 정리 후 재활성 시 아래 잡 복구:
+        #   주간 send_weekly_collection_remind(cron mon 09:00) / 월간 send_monthly_invoice_remind(cron day=10 09:00).
 
     # 2026-07-28 거래처 탭 국세청 상태 갱신. NTS_SERVICE_KEY 있을 때만.
     if os.getenv('NTS_SERVICE_KEY', '').strip():
@@ -734,26 +719,6 @@ def _safe_pin_remind_daily():
         logger.info(f'[SCHED] 정산 핀 리마인드 실행 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 정산 핀 리마인드 실패: {exc}', exc_info=True)
-
-
-def _safe_weekly_collection_remind():
-    """수금 필요 리마인드 발송 (매주 월 9시 #영업_관리)."""
-    try:
-        from dashboard.services.invoice_collection_remind import send_weekly_collection_remind
-        result = send_weekly_collection_remind()
-        logger.info(f'[SCHED] 수금 필요 주간 리마인드 결과: {result}')
-    except Exception as exc:
-        logger.error(f'[SCHED] 수금 필요 주간 리마인드 실패: {exc}', exc_info=True)
-
-
-def _safe_monthly_invoice_remind():
-    """계산서 마감 리마인드 발송 (매월 10일 9시 #영업_관리)."""
-    try:
-        from dashboard.services.invoice_collection_remind import send_monthly_invoice_remind
-        result = send_monthly_invoice_remind()
-        logger.info(f'[SCHED] 계산서 마감 월간 리마인드 결과: {result}')
-    except Exception as exc:
-        logger.error(f'[SCHED] 계산서 마감 월간 리마인드 실패: {exc}', exc_info=True)
 
 
 def _safe_invariant_checks():
