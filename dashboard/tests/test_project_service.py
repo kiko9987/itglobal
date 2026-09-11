@@ -170,8 +170,13 @@ def test_build_owner_suffix_map_empty_data():
 
 # ===== Step 3: 비즈니스 로직 함수 테스트 =====
 
-def test_get_sheets_manager_singleton(monkeypatch):
-    """GoogleSheetsManager 싱글톤 패턴 테스트"""
+def test_get_sheets_manager_returns_manager(monkeypatch):
+    """get_sheets_manager 는 GoogleSheetsManager 를 반환한다.
+
+    싱글톤(중복 생성 방지)은 이제 모듈 레벨 캐시(_sheets_manager)가 아니라
+    GoogleSheetsManager 자체가 스레드별(threading.local)로 관리한다
+    (thread-safety 사고 대응). 따라서 여기서는 '매니저를 반환한다'는 계약만 검증.
+    """
     from unittest.mock import Mock
 
     # GoogleSheetsManager를 모킹하여 credentials.json 의존성 제거
@@ -181,18 +186,9 @@ def test_get_sheets_manager_singleton(monkeypatch):
 
     monkeypatch.setattr('dashboard.services.project_service.GoogleSheetsManager', mock_manager_class)
 
-    # 싱글톤 캐시 초기화 (모듈 레벨 변수)
-    monkeypatch.setattr('dashboard.services.project_service._sheets_manager', None)
+    manager = project_service.get_sheets_manager()
 
-    manager1 = project_service.get_sheets_manager()
-    manager2 = project_service.get_sheets_manager()
-
-    # 같은 인스턴스여야 함 (싱글톤 패턴 검증)
-    assert manager1 is manager2
-    assert manager1 is not None
-
-    # GoogleSheetsManager가 한 번만 호출되었는지 확인
-    assert mock_manager_class.call_count == 1
+    assert manager is mock_instance
 
 
 # test_get_project_records_empty_data는 존재하지 않는 clear_current_data() 메서드를

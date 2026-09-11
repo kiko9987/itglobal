@@ -14,8 +14,22 @@ from dashboard.services import address_resolver as ar
 
 
 def _force_raw(monkeypatch):
-    monkeypatch.setattr(ar, 'verify_address', lambda *a, **k: None)
-    monkeypatch.setattr(ar, '_try_poi_fallback', lambda *a, **k: None)
+    """resolve_address 의 모든 verified/비-raw 산출 경로를 차단해 raw fallback 을 강제.
+
+    테스트 최초 작성(2026-08-04) 이후 verified 경로가 계속 추가돼(순수지번 juso, road/
+    dong POI 구제 등) 원래 두 mock(verify_address·_try_poi_fallback)만으로는 kakao/juso
+    키가 로드된 전체 스위트 환경에서 raw 강제가 깨졌다. 아래로 전 경로를 hermetic 차단.
+    """
+    for name in (
+        'verify_address',          # 카카오 주소검증
+        '_try_poi_fallback',       # 시/도 없는 상호 POI
+        '_juso_fallback',          # 행안부 순수지번/도로 (2026-08)
+        '_partner_alias_lookup',   # 거래처 약칭 레지스트리(Redis 상태)
+        '_jibun_road_fallback',    # 지번→keyword 도로 (2026-08-13)
+        '_road_poi_fallback',      # 도로+번지 POI (2026-08-14)
+        '_dong_building_poi_fallback',  # 법정동+건물명 POI (2026-09-08)
+    ):
+        monkeypatch.setattr(ar, name, lambda *a, **k: None)
 
 
 def test_raw_fallback_strips_seoul(monkeypatch):

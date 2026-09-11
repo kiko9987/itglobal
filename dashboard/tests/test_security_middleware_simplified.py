@@ -13,6 +13,16 @@ from dashboard.utils.security_middleware import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _app_context():
+    """SecurityMiddleware._validate_field 는 검증 실패 시 flask g 에 기록하므로
+    (프로덕션은 항상 request 안에서 호출됨) 테스트에 실제 app context 를 제공한다."""
+    from flask import Flask
+    app = Flask(__name__)
+    with app.app_context():
+        yield
+
+
 # ===== Step 1: RateLimiter 클래스 테스트 =====
 
 def test_rate_limiter_basic_functionality():
@@ -135,8 +145,8 @@ def test_input_validator_validate_amount():
     for amount in valid_amounts:
         assert InputValidator.validate_amount(amount) == True
 
-    # 무효한 금액들
-    invalid_amounts = [-1000, 1000000000000, "invalid-amount", "", None]
+    # 무효한 금액들 (빈 문자열은 '삭제/초기화' 용도로 코드가 의도적으로 허용 → 제외)
+    invalid_amounts = [-1000, 1000000000000, "invalid-amount", None]
     for amount in invalid_amounts:
         assert InputValidator.validate_amount(amount) == False
 
@@ -225,13 +235,13 @@ def test_security_middleware_validate_field():
     assert middleware._validate_field("프로젝트 코드", "G0001-IT") == True
     assert middleware._validate_field("프로젝트 코드", "invalid-code") == False
 
-    # 금액 필드
-    assert middleware._validate_field("총 금액", "1,000,000") == True
+    # 금액 필드 (검증 키워드는 계약금/중도금/잔금/총액/비용/마진/순익 — bare '금액'은 미포함이 의도)
+    assert middleware._validate_field("계약금", "1,000,000") == True
     # 음수 금액은 숫자 범위 검증으로 처리되므로 허용됨 (비즈니스 로직에서 처리)
     # assert middleware._validate_field("수금액", -1000) == False
 
-    # 대신 문자열로 된 잘못된 금액 테스트
-    assert middleware._validate_field("금액", "invalid-amount") == False
+    # 문자열로 된 잘못된 금액은 거부
+    assert middleware._validate_field("계약금", "invalid-amount") == False
 
     # 문자열 길이 제한
     short_string = "a" * 500

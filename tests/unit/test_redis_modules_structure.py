@@ -55,7 +55,7 @@ def test_cache_strategy_ttl_mapping():
 
     ttl_map = SimpleCache.TTL_MAP
 
-    assert ttl_map[CacheStrategy.CRITICAL_DATA] == 60  # 60초
+    assert ttl_map[CacheStrategy.CRITICAL_DATA] == 300  # 5분 (프리로더 조화 - API 호출 75% 감소, 2026)
     assert ttl_map[CacheStrategy.STATIC_CONFIG] == 3600  # 1시간
     assert ttl_map[CacheStrategy.FOLDER_MAPPING] == 86400  # 1일
     assert ttl_map[CacheStrategy.UI_STATE] == 300  # 5분
