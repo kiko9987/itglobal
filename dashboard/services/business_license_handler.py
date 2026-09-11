@@ -1326,5 +1326,13 @@ def _maybe_update_business_name(code: str, ocr_name: str) -> tuple:
         except Exception as exc:
             logger.debug(f'[LICENSE/OCR] 캐시 무효화 실패 (무시): {exc}')
 
+    # 시트 직접수정 리컨사일러가 이 OCR 자동기재를 '시스템'으로 라벨링하도록 마커(15분).
+    #   (마커 없으면 사람 '시트 직접수정'으로 오표기 — 실제론 등록증 OCR 자동등록. R4104-SD 계기)
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _grc_sys
+        _grc_sys().redis.setex(f'project_sys_edit:{code}', 900, '시스템 자동기록')
+    except Exception:
+        pass
+
     logger.info(f'[LICENSE/OCR] 사업자명 자동 저장: {code} → {ocr_name!r}')
     return 'saved', ''
