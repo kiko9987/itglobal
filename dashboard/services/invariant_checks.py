@@ -1,8 +1,8 @@
 """정합성/불변식 점검 — "조용히 틀린 값" 자동 감지 (2026-09-11, 관측성 확장).
 
 개념: 운영 데이터에 대해 '항상 참이어야 하는 단언'을 주기적으로 돌려, 현실이 어기면
-관리자 슬랙으로 알림. 예외/크래시는 안 나지만 결과가 틀린 사각지대(9시 알림 누락·N입금이
-G로·수금완료 카드 누락 등)를 잡는다. 과거 사고 하나하나를 영구 불변식으로 박는 문화.
+관리자 슬랙으로 알림. 예외/크래시는 안 나지만 결과가 틀린 사각지대(유령/고아 코드·금액
+이상치 등)를 잡는다. 과거 사고 하나하나를 영구 불변식으로 박는 문화.
 
 설계
 ----
@@ -15,7 +15,6 @@ G로·수금완료 카드 누락 등)를 잡는다. 과거 사고 하나하나�
 --------
   INVARIANT_CHECKS_ENABLED (기본 '1')
   INVARIANT_ALERT_CHANNEL  (기본 SLACK_ADMIN_CHANNEL)
-  INVARIANT_SETTLEMENT_RECENT_DAYS (기본 45; 고아 수금완료 최근 컷오프)
 """
 import hashlib
 import json
@@ -23,7 +22,7 @@ import os
 import re
 import time
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from dashboard.utils.logging_config import get_logger
 
@@ -39,7 +38,6 @@ _AMOUNT_MAX = 99_999_999_999         # 9999억 (validate_amount 와 정렬)
 _AMOUNT_FIELDS = ('총액 1', '계약금', '중도금', '잔금')
 
 _NUM_CLEAN_RE = re.compile(r'[,\s원₩]')
-_DATE_RE = re.compile(r'(?:(\d{2,4})[./-])?(\d{1,2})[./-](\d{1,2})')
 
 
 # ─────────────────────────────────────────────────────────────
@@ -66,30 +64,6 @@ def _parse_amount(raw):
     return f
 
 
-def _recent_date(raw, now, days):
-    """raw 에서 날짜를 찾아 now 기준 days 이내면 True. 파싱 불가/오래됨/미래=False(보수적)."""
-    if not raw:
-        return False
-    m = _DATE_RE.search(str(raw))
-    if not m:
-        return False
-    yy, mm, dd = m.group(1), int(m.group(2)), int(m.group(3))
-    if not (1 <= mm <= 12 and 1 <= dd <= 31):
-        return False
-    if yy:
-        year = int(yy)
-        if year < 100:
-            year += 2000
-    else:
-        year = now.year  # 연도 없으면 올해로 가정 (최근 판정용)
-    try:
-        d = datetime(year, mm, dd)
-    except ValueError:
-        return False
-    delta = (now - d).days
-    return 0 <= delta <= days
-
-
 class Violation(dict):
     """위반 1건. key(dedup용), check(분류), title(코드 등), detail."""
     def __init__(self, check, key, title, detail):
@@ -108,32 +82,6 @@ def check_phantom_codes(ctx):
             out.append(Violation(
                 'phantom_code', f'phantom:{code}', code,
                 '슬랙 카드/입금 기록이 공사현황에 없는 코드를 가리킴 (re-key 고아 또는 유령 코드)'))
-    return out
-
-
-def check_orphan_settlement(ctx):
-    """미수금 0(수금완료)로 보이는 최근 건인데 수금 슬랙 카드가 없음."""
-    out = []
-    for r in ctx['records']:
-        code = (r.get('프로젝트 코드') or '').strip()
-        if not code:
-            continue
-        miss = _parse_amount(r.get('미수금'))
-        if miss != 0.0:  # 미수금이 명확히 0 일 때만 (빈값/파싱불가 제외 — 보수적)
-            continue
-        paid = 0.0
-        for f in ('계약금', '중도금', '잔금'):
-            v = _parse_amount(r.get(f))
-            if isinstance(v, float):
-                paid += v
-        if paid <= 0:
-            continue
-        if not _recent_date(r.get('수금 날짜'), ctx['now'], ctx['recent_days']):
-            continue  # 최근 건만 (옛 시스템前 건 오탐 방지)
-        if code not in ctx['payment_card_codes']:
-            out.append(Violation(
-                'orphan_settlement', f'orphan_settle:{code}', code,
-                '미수금 0(수금완료)·최근 수금인데 수금 슬랙 카드 없음 — 카드 미발송 의심'))
     return out
 
 
@@ -158,15 +106,18 @@ def check_amount_anomaly(ctx):
     return out
 
 
+# check_orphan_settlement(미수금 0인데 수금카드 없음)은 2026-09-14 제거.
+#   전제("수금완료면 카드 있어야")가 거짓 — ①수기 입력 입금은 카드를 안 만듦 ②payment_slack
+#   카드 키는 90일 TTL이라 카드를 보냈어도 만료돼 '없음'으로 잡힘. 즉 "카드 키 없음 ≠ 미발송"
+#   이라 정밀화 불가(수금날짜든 메모날짜든 노이즈). 진짜 미발송은 payment_sync 폴러가 이미
+#   복구하므로 가치 중복. 재추가 금지.
 INVARIANTS = [
     check_phantom_codes,
-    check_orphan_settlement,
     check_amount_anomaly,
 ]
 
 _CHECK_LABEL = {
     'phantom_code': '유령/고아 코드',
-    'orphan_settlement': '고아 수금완료',
     'amount_anomaly': '금액 이상치',
 }
 
@@ -184,14 +135,12 @@ def build_context():
                    for r in records if (r.get('프로젝트 코드') or '').strip()}
 
     rc = get_redis_client().redis
-    card_codes = set()          # 모든 카드/입금 기록이 가리키는 코드
-    payment_card_codes = set()  # payment_slack 카드가 있는 코드
+    card_codes = set()          # 모든 카드/입금 기록이 가리키는 코드 (phantom 검사용)
     try:
         for key in rc.scan_iter('payment_slack:ts:*', count=500):
             parts = _dec(key).split(':')
             if len(parts) >= 4 and parts[2]:
                 card_codes.add(parts[2])
-                payment_card_codes.add(parts[2])
         for key in rc.scan_iter('project_card_msg:*', count=500):
             parts = _dec(key).split(':', 1)
             if len(parts) == 2 and parts[1]:
@@ -203,9 +152,7 @@ def build_context():
         'records': records,
         'valid_codes': valid_codes,
         'card_codes': card_codes,
-        'payment_card_codes': payment_card_codes,
         'now': datetime.now(),
-        'recent_days': int(os.getenv('INVARIANT_SETTLEMENT_RECENT_DAYS', '45') or 45),
     }
 
 
