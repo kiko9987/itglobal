@@ -523,13 +523,16 @@ _AMOUNT_ALERT_FIELDS = ('총액 1', '부가세')  # 영업사원 슬랙 금액 �
 
 def notify_amount_edit_to_settlement(code: str, field_changes: list,
                                      editor_email: str = '',
+                                     editor_label: str = '',
                                      latest_data: dict = None) -> bool:
-    """공사 금액(총액 1·부가세)이 PM에서 직접 수정되면 경영지원(황샛별)에게 별도 DM.
+    """공사 금액(총액 1·부가세)이 경영지원(황샛별)을 거치지 않고 변경되면 샛별에게 별도 DM.
 
-    2026-09-14 신설. 관리자(대표 등)는 금액을 즉시 반영할 권한이 있어 영업사원용
-    요청 게이트(#영업_관리 ✅ 반영)를 우회한다 → 회계·수금 담당(황샛별)이 스레드
-    댓글만으론 놓치기 쉬움. 이미 반영된 변경이므로 ✅승인이 아니라 FYI 알림.
-    황샛별 본인 편집은 자기 알림 노이즈라 skip.
+    2026-09-14 신설. 금액 변경이 샛별 승인(#영업_관리 요청 ✅)을 우회하는 두 경로 모두 커버:
+      ① PM 직접 편집 — `update_project` 호출부가 `editor_email`(세션 이메일) 전달.
+         경영지원 본인 편집이면 자기 알림 노이즈라 skip.
+      ② 시트 직접수정 — 리컨사일러(project_reconcile)가 `editor_label='시트 직접수정'` 전달
+         (편집자 식별 불가라 skip 없음; 총액1·부가세는 시트에서 드물게 바뀌어 노이즈 적음).
+    이미 반영된 변경이므로 ✅승인이 아니라 FYI 알림.
     """
     changes = [
         c for c in (field_changes or [])
@@ -539,11 +542,14 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     ]
     if not changes:
         return False
+    # 시스템 자동기록(OCR 등)은 사람의 무단 변경이 아니므로 제외
+    if editor_label and editor_label.startswith('시스템 자동기록'):
+        return False
 
     checker_id = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
     checker_email = (os.getenv('SLACK_SETTLEMENT_CHECKER_EMAIL', '').strip()
                      or 'sb@itg-aircon.com').lower()
-    # 경영지원 본인이 편집한 경우(요청 ✅ 반영 포함) 자기 알림 방지
+    # 경영지원 본인이 편집한 경우(요청 ✅ 반영 포함) 자기 알림 방지 — 이메일 아는 PM 경로만
     if editor_email and editor_email.strip().lower() == checker_email:
         return False
 
@@ -563,13 +569,14 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     except Exception:
         permalink = ''
 
-    who = ''
-    if editor_email:
-        who = f' (수정: {editor_email.split("@")[0].upper()})'
-    lines = [f':rotating_light: *[공사 금액 직접수정 알림]*  `{code}`{who}']
+    lines = [f':rotating_light: *[공사 금액 변경 알림]*  `{code}`']
     biz = _val(latest_data, '사업자명') if latest_data else ''
     if biz:
         lines.append(f'사업자명 : {biz}')
+    if editor_label:
+        lines.append(f'변경 경로 : {editor_label}')
+    elif editor_email:
+        lines.append(f'변경자 : {editor_email.split("@")[0].upper()} (PM 직접 편집)')
     for c in changes:
         f = c['field_name']
         lines.append(
@@ -577,7 +584,7 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
             f'→ {_fmt_field(f, c.get("new_value"))}'
         )
     lines.append('')
-    lines.append('_관리자 권한으로 이미 반영된 변경입니다. 회계·수금 반영을 확인해 주세요._')
+    lines.append('_샛별님을 거치지 않은 공사 금액 변경입니다. 회계·수금 반영을 확인해 주세요._')
     if permalink:
         lines.append(f'<{permalink}|공사 확정 카드 보기>')
     text = '\n'.join(lines)

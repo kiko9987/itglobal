@@ -149,6 +149,15 @@ def reconcile_project_cards() -> dict:
                 logger.info(f'[RECONCILE] 시트 직접수정 감지 → 카드 반영+로그: {code} {diffs}')
             except Exception as exc:
                 logger.warning(f'[RECONCILE] 처리 실패 ({code}): {exc}')
+            # 공사 금액(총액1·부가세)이 시트에서 직접 변경 = 샛별 우회 → 경영지원 별도 DM
+            #   (편집자 식별 불가라 label='시트 직접수정'. 함수가 금액 필드만 필터·시스템기록 제외.)
+            try:
+                from dashboard.services.project_slack_notifier import (
+                    notify_amount_edit_to_settlement)
+                notify_amount_edit_to_settlement(
+                    code, field_changes, editor_label=sys_label, latest_data=r)
+            except Exception as exc:
+                logger.warning(f'[RECONCILE] 경영지원 금액 DM 오류 ({code}): {exc}')
             # notify 성공/실패와 무관하게 스냅샷 갱신 (반복 발송 방지)
             store_field_snapshot(rc, code, r, watch)
 

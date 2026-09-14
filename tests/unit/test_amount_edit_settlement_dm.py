@@ -86,6 +86,25 @@ def test_vat_change_triggers(monkeypatch):
     assert len(_FakeWeb.posted) == 1
 
 
+def test_sheet_direct_edit_alerts(monkeypatch):
+    """시트 직접수정(편집자 미상) — editor_email 없이 label 만으로도 발송."""
+    _setup(monkeypatch)
+    ok = psn.notify_amount_edit_to_settlement(
+        'G3805-YG', _amt_change(), editor_label='시트 직접수정')
+    assert ok is True
+    assert len(_FakeWeb.posted) == 1
+    assert '시트 직접수정' in _FakeWeb.posted[0]['text']
+
+
+def test_system_autorecord_skipped(monkeypatch):
+    """시스템 자동기록(OCR 등)은 사람 무단변경 아님 → skip."""
+    _setup(monkeypatch)
+    ok = psn.notify_amount_edit_to_settlement(
+        'G3805-YG', _amt_change(), editor_label='시스템 자동기록(계산서)')
+    assert ok is False
+    assert _FakeWeb.posted == []
+
+
 def test_amount_unchanged_value_skipped(monkeypatch):
     _setup(monkeypatch)
     # 표시 동일(콤마 유무 차이만) → 실질 변화 없음으로 skip
