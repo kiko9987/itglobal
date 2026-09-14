@@ -459,9 +459,16 @@ def sync_karrot() -> Dict[str, Any]:
         #      2026-07-15 관측: L-03269~L-03274 이기현 06/16 15:27 문의가 4번 append.
         #      원인은 phone_lookup 순간적 갱신 지연 (write-behind, force_refresh race).
         #      상담시간이 정확히 동일하면 동일 문의로 확정 → 무조건 skip.
+        #      ⚠️ 분(minute) 정밀도로 비교해야 함 (2026-09-14 설희정 무한중복 사고):
+        #      new_dt(_meta_consult_dt)는 당근 시트 '응답 일시'의 초까지 보존하나,
+        #      시트 저장값 '상담 시간'은 _format_main_dt('%H:%M')로 초를 버려 되읽으면
+        #      항상 초=0. 초 비교하면 09:15:37 != 09:15:00 으로 exact-match가 영원히 실패 →
+        #      더 최신 같은번호 리드(예: 거래처 재유입)가 생기면 매 사이클 재문의로 신규 생성.
+        _new_min = new_dt.replace(second=0, microsecond=0) if new_dt else None
         if phone_digits and phone_digits in phone_lookup and new_dt:
             _exact_match = any(
-                e['consult_dt'] == new_dt for e in phone_lookup[phone_digits] if e['consult_dt']
+                e['consult_dt'].replace(second=0, microsecond=0) == _new_min
+                for e in phone_lookup[phone_digits] if e['consult_dt']
             )
             if _exact_match:
                 duplicates += 1
