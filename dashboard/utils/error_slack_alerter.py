@@ -78,6 +78,11 @@ _TRANSIENT_SUBSTR = (
     'TimeoutError', 'read operation timed out', 'The read operation timed out',
     '최대 재시도 횟수', 'Timeout reading from socket', '연결 오류',
     'HttpError 500', 'HttpError 502', 'HttpError 503', 'HttpError 429',
+    # 구글 API 서버측 일시 오류 — 실제 로그 포맷은 'HTTP 5xx / Bad Gateway'
+    # (2026-09-14 보강: get_cell_notes HTTP 502 Bad Gateway 가 transient 미분류로 새던 것)
+    'HTTP 500', 'HTTP 502', 'HTTP 503', 'HTTP 504', 'HTTP 429',
+    'Bad Gateway', 'Service Unavailable', 'Gateway Time-out', 'Internal Server Error',
+    'Google 서버 오류',
     'API 사용량 한도', 'ServerNotFoundError', 'Connection aborted',
     'Connection reset', 'Read timed out', 'Max retries exceeded',
 )

@@ -69,6 +69,16 @@ def test_transient_ignored_until_spike():
     assert g.decide(_rec(msg)) is None
 
 
+def test_google_502_is_transient():
+    """구글 API HTTP 502/Bad Gateway 는 transient — 단건 억제(급증 시에만)."""
+    g = _gate()
+    msg = ('[API 에러] get_cell_notes(공사 현황!U:Y) - HTTP 502: Bad Gateway | '
+           '사용자 메시지: 예상치 못한 오류가 발생했습니다 (HTTP 502) (상세: Bad Gateway)')
+    assert g.decide(_rec(msg, name='dashboard.utils.google_sheets')) is None
+    msg2 = '[ERROR] 셀 노트 읽기 오류: Google Sheets API 오류: 예상치 못한 오류 (HTTP 502) (상세: Bad Gateway)'
+    assert g.decide(_rec(msg2, name='dashboard.utils.google_sheets')) is None
+
+
 # ── normal: new vs recurring + dedup ────────────────────────
 def test_new_signature_after_warmup():
     clock = _Clock()
