@@ -7685,6 +7685,20 @@ def _process_consult_submission(client, body, view):
                             _al = f'{_pfx}방문 주소 : {_conv_addr}{_badge}'
                         clean_text = (clean_text[:_m_addr.start()] + _al
                                       + clean_text[_m_addr.end():])
+                # 연락처도 동일 — 상담 중 받은 연락처를 원본 블록의 '연락처' 라인에 반영
+                #   (카카오톡 등 최초 접수 시 '-' → 유선상담으로 받은 실제 번호). 리드 데이터엔
+                #   이미 저장되나 원본 카드 표시만 '-'로 남던 갭 (2026-09-14 L-04001).
+                #   clean_text 는 ``` 코드블록(평문) — 라벨/접두 보존, 값만 교체.
+                if contact:
+                    from dashboard.services.lead_helpers import normalize_phone as _np_c
+                    _new_ph = _np_c(contact) or contact
+                    _m_ph = re.search(
+                        r'(?m)^(&gt;|>)?\s*(?:고객 )?연락처\s*:\s*.+$', clean_text)
+                    if _m_ph:
+                        _pfx_ph = _m_ph.group(1) or ''
+                        clean_text = (clean_text[:_m_ph.start()]
+                                      + f'{_pfx_ph}연락처 : {_new_ph}'
+                                      + clean_text[_m_ph.end():])
                 new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
                 new_blocks = [
                     {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
