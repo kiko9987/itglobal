@@ -508,6 +508,19 @@ def sync_karrot() -> Dict[str, Any]:
     lead_nos = []
     if new_leads:
         lead_nos = _append_leads_to_main(new_leads)
+        # 멱등 가드로 차단된 건('') 제외 — 후속 pending/Slack 정렬 유지 + dup 카운트 반영
+        _blocked = sum(1 for n in lead_nos if not n)
+        if _blocked:
+            duplicates += _blocked
+            _paired = [(l, n) for l, n in zip(new_leads, lead_nos) if n]
+            new_leads = [l for l, n in _paired]
+            lead_nos = [n for l, n in _paired]
+        if not new_leads:
+            result = {'total': len(karrot_df), 'new_count': 0,
+                      'duplicates': duplicates, 'lead_nos': []}
+            logger.info(f'[SYNC/karrot] total={result["total"]} '
+                        f'new=0 dup={result["duplicates"]} (전량 가드차단)')
+            return result
         # 순서 중요: 시트 등록 성공 직후 → pending 큐 선등록 → Slack 발송 → 성공분 큐에서 삭제
         # (SSL 에러가 Slack 발송 함수 내부 어디서 터지든 안전망 확보)
         # payload에 원본 lead dict(_meta_place/_meta_device 포함) JSON 저장 → 재발송 시 원본 그대로 복원
@@ -594,9 +607,48 @@ def _allocate_lead_numbers(sheet_max_int: int, count: int) -> List[int]:
         return list(range(sheet_max_int + 1, sheet_max_int + 1 + count))
 
 
+def _lead_phone_minute_key(lead: Dict[str, Any]) -> Optional[tuple]:
+    """(연락처digits, 상담시각 분 문자열) — 등록 직전 멱등 가드용 키. 산출 불가면 None.
+
+    저장 정밀도(분)와 동일하게 분 단위로 키잉 — [[project_karrot_dedup_seconds]]
+    초-정밀도 불일치로 dedup 이 뚫린 사고의 재발 방지 안전망.
+    """
+    digits = re.sub(r'\D', '', str(lead.get('고객 연락처', '') or ''))
+    if len(digits) < 10:
+        return None
+    dt = lead.get('_meta_consult_dt')
+    if not isinstance(dt, datetime):
+        dt = _parse_consult_dt(lead.get('상담 시간'))
+    if dt is None:
+        return None
+    return (digits, dt.strftime('%Y%m%d%H%M'))
+
+
+def _build_phone_minute_index(main_df) -> set:
+    """메인 시트의 (연락처digits, 상담분) 집합 — 등록 직전 중복 차단용.
+
+    '방금 새로 읽은' df 기준으로 만들어야 최종 방어선이 됨(호출부 dedup 이 stale/버그여도).
+    """
+    idx: set = set()
+    if main_df is None or main_df.empty:
+        return idx
+    for _, row in main_df.iterrows():
+        digits = re.sub(r'\D', '', str(row.get('고객 연락처', '') or ''))
+        if len(digits) < 10:
+            continue
+        dt = _parse_consult_dt(row.get('상담 시간'))
+        if dt is None:
+            continue
+        idx.add((digits, dt.strftime('%Y%m%d%H%M')))
+    return idx
+
+
 def _append_leads_to_main(leads: List[Dict[str, Any]]) -> List[str]:
     """
     메인 시트에 일괄 추가 + 리드No 자동 발번.
+
+    반환: 입력 leads 와 1:1 정렬된 리드No 리스트. **멱등 가드로 차단된 건은 ''(빈문자)**.
+          (같은 연락처+상담시각(분)이 이미 시트/이번 배치에 있으면 생성 안 함)
 
     Google Sheets API의 spreadsheets.values.append() 직접 호출.
     (mgr.append_row()는 시트명이 '공사 현황'으로 하드코딩돼 있어서 사용 불가)
@@ -620,6 +672,35 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
     mgr = get_sheets_manager()
     df = load_leads_data(force_refresh=True)
 
+    # ── 멱등 가드 (2026-09-14, 재발 방지 안전망) ──────────────────────
+    # 호출부 dedup 이 어떤 이유로든(초-정밀도·write-behind 레이스·stale 읽기·
+    # 새 포맷) 뚫려도, '방금 읽은' 시트에 같은 연락처+상담시각(분)이 이미 있으면
+    # 생성하지 않는다. "연락처+분이 이미 있다 = 그 문의는 이미 등록됨" 이므로
+    # 스킵이 항상 옳고 진짜 새 문의를 놓칠 수 없다. 차단분은 ERROR 로그(→관리자 알림).
+    # 반환은 입력과 1:1 정렬 유지(차단분 = '').  [[project_karrot_dedup_seconds]]
+    existing_pm = _build_phone_minute_index(df)
+    result_nos: List[str] = [''] * len(leads)
+    safe_leads: List[Dict[str, Any]] = []
+    safe_pos: List[int] = []
+    batch_seen: set = set()
+    for i, lead in enumerate(leads):
+        key = _lead_phone_minute_key(lead)
+        if key is not None and (key in existing_pm or key in batch_seen):
+            where = '시트' if key in existing_pm else '동일배치'
+            logger.error(
+                f'[SYNC/GUARD] 중복 리드 생성 차단({where}) — 연락처+상담시각(분) 중복: '
+                f'{lead.get("고객명", "?")} / {lead.get("고객 연락처", "?")} / '
+                f'{lead.get("상담 시간", "?")} / 플랫폼={lead.get("플랫폼", "?")}'
+            )
+            continue
+        if key is not None:
+            batch_seen.add(key)
+        safe_leads.append(lead)
+        safe_pos.append(i)
+
+    if not safe_leads:
+        return result_nos
+
     # 다음 리드 No 시퀀스 — L-XXXXX 만 카운트 (ETC-xxxxxx 는 hex 라 제외)
     max_num = 0
     if df is not None and not df.empty and '리드 No' in df.columns:
@@ -633,13 +714,14 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
 
     # 리드 No 발번 + row 데이터 구성 (15열, LEAD_COLUMN_ORDER 순서)
     # 원자 발번(2026-08-29): 시트 max 가 stale-low 여도 Redis 워터마크로 충돌 방지.
-    _nums = _allocate_lead_numbers(max_num, len(leads))
+    _nums = _allocate_lead_numbers(max_num, len(safe_leads))
     lead_nos = []
     rows = []
-    for i, lead in enumerate(leads):
-        ln = f'L-{_nums[i]:05d}'
+    for j, lead in enumerate(safe_leads):
+        ln = f'L-{_nums[j]:05d}'
         lead['리드 No'] = ln
         lead_nos.append(ln)
+        result_nos[safe_pos[j]] = ln
         rows.append([lead.get(col, '') for col in LEAD_COLUMN_ORDER])
 
     # values.append() 사용 — 자동으로 grid 확장 + 다음 빈 행에 추가
@@ -670,7 +752,7 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
 
     invalidate_leads_cache()
     logger.info(
-        f'[SYNC] 메인 시트 등록 완료: {len(leads)}건 '
+        f'[SYNC] 메인 시트 등록 완료: {len(safe_leads)}건 '
         f'({lead_nos[0]} ~ {lead_nos[-1]}, '
         f'range={updated_range}, '
         f'updatedCells={updates.get("updatedCells", "?")})'
@@ -680,13 +762,13 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
     # - 방문 예약: 연한 노란색 (#fff2cc)
     # - 그 외: 흰색 (INSERT_ROWS의 위 행 색 자동 상속 방지)
     try:
-        statuses = [str(lead.get('상태', '') or '') for lead in leads]
+        statuses = [str(lead.get('상태', '') or '') for lead in safe_leads]
         _reset_row_background(mgr, cfg['sheet_id'], sheet_name, updated_range,
                               num_cols=len(LEAD_COLUMN_ORDER), statuses=statuses)
     except Exception as exc:
         logger.warning(f'[SYNC] 신규 행 배경색 설정 실패 (등록은 정상): {exc}')
 
-    return lead_nos
+    return result_nos
 
 
 _SHEET_GID_CACHE: Dict[str, int] = {}

@@ -547,6 +547,8 @@ def sync_homepage_email() -> Dict[str, Any]:
                 for lead in leads:
                     idx = new_leads.index(lead)
                     ln = lead_nos[idx]
+                    if not ln:
+                        continue  # 멱등 가드로 차단된 건(이미 등록됨) — skip
                     rc.set(
                         f'pending_slack_notify:{ln}',
                         _serialize_pending_payload(src, lead),
@@ -559,12 +561,17 @@ def sync_homepage_email() -> Dict[str, Any]:
         from dashboard.services.lead_sync import _send_slack_notifications
         sent_lead_nos: set = set()
         for src, leads in new_by_source.items():
+            src_leads = []
             src_lead_nos = []
             for lead in leads:
                 idx = new_leads.index(lead)
-                src_lead_nos.append(lead_nos[idx])
+                ln = lead_nos[idx]
+                if not ln:
+                    continue  # 멱등 가드로 차단된 건 — 발송 대상 제외
+                src_leads.append(lead)
+                src_lead_nos.append(ln)
             try:
-                sent = _send_slack_notifications(leads, src_lead_nos, source=src) or set()
+                sent = _send_slack_notifications(src_leads, src_lead_nos, source=src) or set()
             except Exception as exc:
                 logger.error(
                     f'[SYNC/홈페이지] Slack 발송 실패 ({src}) → pending 큐가 자동 재시도: {exc}'
@@ -584,6 +591,15 @@ def sync_homepage_email() -> Dict[str, Any]:
         # 발송 실패 lead의 msg_id는 라벨 미부착 → 다음 폴링에서 재시도
         # 시트 자체 dedup(연락처+시간)으로 중복 등록은 방지됨
         for lead, ln in zip(new_leads, lead_nos):
+            if not ln:
+                # 멱등 가드 차단(이미 등록된 문의) → 재처리 루프 방지 위해 라벨 부착
+                if lead.get('_meta_msg_id'):
+                    processed_msg_ids.append(lead['_meta_msg_id'])
+                    logger.info(
+                        f'[SYNC/홈페이지] 멱등 가드 차단 — 라벨 부착(재처리 방지) '
+                        f'msg_id={lead["_meta_msg_id"]}'
+                    )
+                continue
             if ln in sent_lead_nos and lead.get('_meta_msg_id'):
                 processed_msg_ids.append(lead['_meta_msg_id'])
             elif lead.get('_meta_msg_id'):
