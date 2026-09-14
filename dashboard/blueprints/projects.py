@@ -1229,6 +1229,17 @@ def update_project(project_code):
                 notify_invoice_card_amount_change(final_project_code, field_changes)
             except Exception as exc:
                 logger.warning(f"[BG/INVOICE] {final_project_code} 알림 처리 오류: {exc}")
+            # 2026-09-14: 공사 금액(총액 1·부가세) PM 직접수정 → 경영지원(황샛별) 별도 DM.
+            #   관리자는 영업사원용 금액 요청 게이트를 우회하므로 회계·수금 담당이 놓치기 쉬움.
+            #   (경영지원 본인 편집은 함수 내부에서 skip.)
+            try:
+                from ..services.project_slack_notifier import notify_amount_edit_to_settlement
+                notify_amount_edit_to_settlement(
+                    final_project_code, field_changes,
+                    editor_email=_editor_email, latest_data=updated_project,
+                )
+            except Exception as exc:
+                logger.warning(f"[BG/AMOUNT-DM] {final_project_code} 경영지원 알림 오류: {exc}")
             logger.info(f"[BG/DONE] {final_project_code} 알림 처리 완료")
 
         _th.Thread(target=_bg_notifications, daemon=True).start()

@@ -518,6 +518,86 @@ def notify_invoice_card_amount_change(code: str, field_changes: list) -> bool:
     return posted > 0
 
 
+_AMOUNT_ALERT_FIELDS = ('총액 1', '부가세')  # 영업사원 슬랙 금액 게이트와 동일 범위
+
+
+def notify_amount_edit_to_settlement(code: str, field_changes: list,
+                                     editor_email: str = '',
+                                     latest_data: dict = None) -> bool:
+    """공사 금액(총액 1·부가세)이 PM에서 직접 수정되면 경영지원(황샛별)에게 별도 DM.
+
+    2026-09-14 신설. 관리자(대표 등)는 금액을 즉시 반영할 권한이 있어 영업사원용
+    요청 게이트(#영업_관리 ✅ 반영)를 우회한다 → 회계·수금 담당(황샛별)이 스레드
+    댓글만으론 놓치기 쉬움. 이미 반영된 변경이므로 ✅승인이 아니라 FYI 알림.
+    황샛별 본인 편집은 자기 알림 노이즈라 skip.
+    """
+    changes = [
+        c for c in (field_changes or [])
+        if c.get('field_name') in _AMOUNT_ALERT_FIELDS
+        and _fmt_field(c['field_name'], c.get('old_value'))
+        != _fmt_field(c['field_name'], c.get('new_value'))
+    ]
+    if not changes:
+        return False
+
+    checker_id = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
+    checker_email = (os.getenv('SLACK_SETTLEMENT_CHECKER_EMAIL', '').strip()
+                     or 'sb@itg-aircon.com').lower()
+    # 경영지원 본인이 편집한 경우(요청 ✅ 반영 포함) 자기 알림 방지
+    if editor_email and editor_email.strip().lower() == checker_email:
+        return False
+
+    token = os.getenv('SLACK_BOT_TOKEN', '').strip()  # DM 은 im:write 있는 메인봇
+    if not token:
+        return False
+
+    # 공사 확정 카드 permalink (있으면 첨부)
+    permalink = ''
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        mapping = get_redis_client().redis.get(f'project_card_msg:{code}')
+        if mapping:
+            m = mapping if isinstance(mapping, str) else mapping.decode()
+            ch, ts = m.split('|', 1)
+            permalink = _thread_permalink(ch, ts) or ''
+    except Exception:
+        permalink = ''
+
+    who = ''
+    if editor_email:
+        who = f' (수정: {editor_email.split("@")[0].upper()})'
+    lines = [f':rotating_light: *[공사 금액 직접수정 알림]*  `{code}`{who}']
+    biz = _val(latest_data, '사업자명') if latest_data else ''
+    if biz:
+        lines.append(f'사업자명 : {biz}')
+    for c in changes:
+        f = c['field_name']
+        lines.append(
+            f'- {f}: {_fmt_field(f, c.get("old_value"))} '
+            f'→ {_fmt_field(f, c.get("new_value"))}'
+        )
+    lines.append('')
+    lines.append('_관리자 권한으로 이미 반영된 변경입니다. 회계·수금 반영을 확인해 주세요._')
+    if permalink:
+        lines.append(f'<{permalink}|공사 확정 카드 보기>')
+    text = '\n'.join(lines)
+
+    try:
+        from slack_sdk import WebClient
+        dm = WebClient(token=token)
+        im = dm.conversations_open(users=checker_id)
+        dm_ch = ((im.get('channel') or {}) or {}).get('id')
+        if not dm_ch:
+            logger.warning(f'[PROJECT/SLACK/금액DM] IM 개설 실패 ({code})')
+            return False
+        dm.chat_postMessage(channel=dm_ch, text=text, unfurl_links=False)
+        logger.info(f'[PROJECT/SLACK/금액DM] 경영지원 알림 발송: {code} ({len(changes)}필드)')
+        return True
+    except Exception as exc:
+        logger.warning(f'[PROJECT/SLACK/금액DM] 경영지원 DM 실패 ({code}): {exc}')
+        return False
+
+
 def notify_project_field_changes(code: str, field_changes: list, latest_data: dict = None,
                                  editor: str = '') -> bool:
     """편집된 필드들을 공사 확정 카드 스레드에 답글로 전송 + 원본 카드 최신 데이터로 재렌더링.
