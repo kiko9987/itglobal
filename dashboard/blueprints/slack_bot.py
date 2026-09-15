@@ -11891,6 +11891,14 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
     initial = initial or '-'
     pclient = _project_client()
 
+    # 리컨사일러 중복·오표기 방지 — 취소는 PM 편집이므로 마커(15분). 슬랙 버튼·PM 공통.
+    #   (없으면 10분 폴러가 특이사항·공사확정 변화를 '시트 직접수정'으로 또 댓글)
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _grc_pm
+        _grc_pm().redis.setex(f'project_pm_edit:{code}', 900, '취소')
+    except Exception:
+        pass
+
     # 카드 위치 확보 (슬랙 버튼은 인자로, PM 은 매핑으로)
     if not (channel and ts):
         try:
@@ -12081,6 +12089,13 @@ def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: st
     code = (code or '').strip()
     initial = initial or '-'
     pclient = _project_client()
+
+    # 리컨사일러 중복·오표기 방지 — 재개도 PM 편집이므로 마커(15분). 슬랙 버튼·PM 공통.
+    try:
+        from dashboard.utils.redis_client import get_redis_client as _grc_pm
+        _grc_pm().redis.setex(f'project_pm_edit:{code}', 900, '재개')
+    except Exception:
+        pass
 
     if not (channel and ts):
         try:
