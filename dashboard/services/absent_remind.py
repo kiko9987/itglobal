@@ -186,7 +186,8 @@ def collect_absent_leads(target_date: Optional[date] = None,
 
     # 미완료·부재중 공통 하한(cutoff) — 최근 _LOOKBACK_BDAYS 영업일. 이 날짜 이후 인입분만.
     #   date_range(직전영업일)만 보던 옛 방식은 다음날 처리 안 하면 사라져 누락됐음.
-    cutoff = _nth_previous_business_day(date.today(), _LOOKBACK_BDAYS)
+    _today = date.today()
+    cutoff = _nth_previous_business_day(_today, _LOOKBACK_BDAYS)
 
     def _consultant(l):
         c = str(l.get('온라인 상담자', '')).strip()
@@ -198,7 +199,9 @@ def collect_absent_leads(target_date: Optional[date] = None,
 
     def _recent(l):
         ld = _lead_date(l)
-        return ld is not None and ld >= cutoff
+        # 하한=cutoff(최근 N영업일), 상한=오늘 제외. 방금 온 문의는 아직 응대 전이라
+        # '다시 연락' 대상이 아님(2026-09-15). 오늘 미처리면 내일 리마인드부터 표시.
+        return ld is not None and cutoff <= ld < _today
 
     # A. 미완료 (상태='상담 대기' & 온라인 상담자 미배정) — 배정 전까지 매일 (최근 N영업일).
     #   2026-09-09: '-' 플레이스홀더 정규화(큐플레이스 김시현 누락 사고) + date_range→cutoff 전환
@@ -223,6 +226,8 @@ def collect_absent_leads(target_date: Optional[date] = None,
     quote_pending: Dict[str, List[Dict]] = defaultdict(list)
     for l in leads:
         if str(l.get('상태', '')).strip().replace(' ', '') == '견적요청':
+            if _lead_date(l) == _today:
+                continue  # 오늘 접수 견적요청은 당일 재촉 제외 (미완료·부재중과 동일 상한)
             consultant = str(l.get('온라인 상담자', '')).strip()
             quote_pending[consultant or '(미배정)'].append(l)
 
