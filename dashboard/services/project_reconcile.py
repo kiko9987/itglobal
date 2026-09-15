@@ -152,11 +152,12 @@ def reconcile_project_cards() -> dict:
             try:
                 if _to_cancel:
                     from dashboard.blueprints.slack_bot import apply_project_cancel_to_slack
-                    apply_project_cancel_to_slack(code, r, '시트정리')
+                    # 시트 직접 정리=경영지원 본인이 인지 → 샛별 DM skip(send_dm=False).
+                    apply_project_cancel_to_slack(code, r, '시트정리', send_dm=False)
                     logger.info(f'[RECONCILE] 시트 공사취소 감지 → 카드 취소 반영: {code}')
                 elif _from_cancel:
                     from dashboard.blueprints.slack_bot import apply_project_uncancel_to_slack
-                    apply_project_uncancel_to_slack(code, r, '시트정리')
+                    apply_project_uncancel_to_slack(code, r, '시트정리', send_dm=False)
                     logger.info(f'[RECONCILE] 시트 취소되돌림 감지 → 카드 복원: {code}')
                 else:
                     notify_project_field_changes(code, field_changes, latest_data=r,
