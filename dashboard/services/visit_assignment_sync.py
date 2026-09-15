@@ -27,6 +27,10 @@ import requests
 logger = logging.getLogger(__name__)
 
 _ASSIGN_LOCK = threading.Lock()
+# 일정 확정(commit) 연타/중복 실행 방지 가드 (2026-09-15 JW 연타 race)
+_COMMIT_GUARD_KEY = 'visit_assign_commit:guard'
+_COMMIT_INFLIGHT_TTL = 180   # 실행 중 상한(크래시 안전용, 초)
+_COMMIT_COOLDOWN_TTL = 20    # 완료 직후 연타 흡수 쿨다운(초)
 
 # 이름 → 이니셜 별명
 _ALIAS_MAP = {
@@ -502,7 +506,43 @@ def commit() -> Dict:
       - 방문 담당자별 DM (v9 양식)
       - 온라인 당번 DM (v13 양식, 방문 참고 + 휴무 포함)
       - Redis dm_sent:{lead_no} flag (방문일 변경 시 알림 대상 마킹)
+
+    2026-09-15: 연타/중복 실행 가드. 캔버스 편집 중 확정을 여러 번 누르면 뒤
+      commit 이 앞서 보낸 DM 을 '완전 제거'로 지우는 race (JW 사고) → 실행 중이거나
+      직후 쿨다운 동안 재실행 시 즉시 거절.
     """
+    import time as _time
+    from dashboard.utils.redis_client import get_redis_client
+
+    _guard_rc = None
+    try:
+        _guard_rc = get_redis_client().redis
+        if not _guard_rc.set(_COMMIT_GUARD_KEY, str(_time.time()),
+                             nx=True, ex=_COMMIT_INFLIGHT_TTL):
+            return {'ok': False,
+                    'reason': '⏳ 일정 확정이 방금 실행됐거나 처리 중입니다. '
+                              '잠시 후(약 20초) 다시 눌러주세요.'}
+    except Exception as _exc:
+        _guard_rc = None  # Redis 문제 시 가드 우회 (가용성 우선)
+        logger.warning(f'[ASSIGN] commit 가드 Redis 실패 — 우회: {_exc}')
+
+    try:
+        return _commit_locked()
+    finally:
+        # 완료(또는 예외) 후 짧은 쿨다운으로 전환해 직후 연타 흡수.
+        #   크래시로 finally 를 못 타면 inflight TTL 로 자동 해제.
+        if _guard_rc is not None:
+            try:
+                _guard_rc.expire(_COMMIT_GUARD_KEY, _COMMIT_COOLDOWN_TTL)
+            except Exception:
+                try:
+                    _guard_rc.delete(_COMMIT_GUARD_KEY)
+                except Exception:
+                    pass
+
+
+def _commit_locked() -> Dict:
+    """commit() 본체 — 연타 가드는 commit() 래퍼가 관리."""
     from dashboard.services.lead_service import update_lead
     from dashboard.services.visit_canvas_sync import rebuild_canvas_async
 
