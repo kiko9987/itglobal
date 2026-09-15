@@ -139,6 +139,9 @@ def _previous_business_day(d: date) -> date:
 #   누락 해소 (부재중 L-03938 백상현 09-07 계기). 원래 1영업일 → 2영업일로 확장
 #   (사용자 결정: '2일 정도면 됨'. 미완료도 동일 적용).
 _LOOKBACK_BDAYS = 2
+# 재통화/팔로업(콜백) 전용 창 — 팔로업은 계약/일정 후 다시 연락처럼 호흡이 길어
+#   미완료·부재중(2일)보다 길게. 2026-09-15 사용자 결정 '2주(10영업일)'. env override.
+_CALLBACK_LOOKBACK_BDAYS = int(os.getenv('ABSENT_CALLBACK_LOOKBACK_BDAYS', '10') or 10)
 
 
 def _nth_previous_business_day(d: date, n: int) -> date:
@@ -285,10 +288,15 @@ def collect_absent_leads(target_date: Optional[date] = None,
             quote_pending[consultant or '(미배정)'].append(l)
 
     # D. 유선 상담 중 재통화/팔로업 필요 (2026-09-15) — 상태='유선 상담'이지만 메모가
-    #    '다시 연락'류. 규칙분류 A(곧 재통화)·B(추후 팔로업)만 수집(C·D·E 제외). 최근 창·오늘 제외.
+    #    '다시 연락'류. 규칙분류 A(곧 재통화)·B(추후 팔로업)만 수집(C·D·E 제외).
+    #    콜백은 호흡이 길어 미완료·부재중(2일)보다 긴 _CALLBACK_LOOKBACK_BDAYS 창 사용(오늘 제외).
+    cb_cutoff = _nth_previous_business_day(_today, _CALLBACK_LOOKBACK_BDAYS)
     callback: Dict[str, List[Dict]] = {'A': [], 'B': []}
     for l in leads:
-        if str(l.get('상태', '')).strip() != '유선 상담' or not _recent(l):
+        if str(l.get('상태', '')).strip() != '유선 상담':
+            continue
+        _cd = _lead_date(l)
+        if not _cd or not (cb_cutoff <= _cd < _today):
             continue
         cls = classify_consult_memo(str(l.get('상담 내용', '') or ''))
         if cls in ('A', 'B'):
