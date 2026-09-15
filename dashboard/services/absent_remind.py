@@ -163,8 +163,59 @@ def _reminder_ordinal(lead_date: date, today: date) -> int:
     return n
 
 
+# ─────────────────────────────────────────────────────────────
+# 유선 상담 메모 5분류 (2026-09-15) — '통화됐으나 재연락 필요' 건을 리마인드에 포함.
+#   유선 상담은 '완료' 상태라 리마인드에서 빠지는데, 실제로는 "바빠서 나중에/계약 후
+#   다시 연락" 같은 팔로업 필요 건이 섞여 있음. 자유텍스트라 구조화 입력 대신
+#   규칙 기반으로 분류(실데이터 100건 검증): 메시지엔 A·B만 카테고리 구분 노출.
+#     A=곧 재통화(바쁨·시간조율·오늘/내일) · B=추후 팔로업(계약/일정/협의 후 다시 연락)
+#     C=먼 미래(내년·지원사업) · D=조건부/수동(필요시 연락달라) · E=단순 종결(제외)
+# ─────────────────────────────────────────────────────────────
+_CB_RE = re.compile(  # 향후 연락/팔로업 커밋 신호 (없으면 E)
+    r'재연락|재통화|재문의|다시\s*(연락|전화|통화|문의|줄|드릴|드리|주|받|달라|하기로)|'
+    r'(연락|전화|통화|문의|방문)\s*다시|'
+    r'(연락|전화|통화|문의|회신)\s*(을|를)?\s*(주기로|주신다|주겠다|주시겠|준다|줄\s*예정|'
+    r'받기로|받을|드리기로|드릴|바란|바람|달라|달라고|요청|가능할)|'
+    r'추후\s*(연락|전화|통화|문의|안내|전달|방문|재문의|공사)|'
+    r'(연락|통화|방문|전달|회신|재연락)\s*(예정|받기로|주기로|요청)|'
+    r'보내(준다|주신다|주기로|줄|드린|드릴)|전송\s*(해|받)|'
+    r'가견적\s*(드릴|요청)|드릴\s*예정|줄\s*예정'
+)
+_CB_C_RE = re.compile(r'내년|명년|후년|내후년|지원(사업|금)?\s*(나오면|시작|재개|다시)|예산\s*(나오면|재편)')
+_CB_D_RE = re.compile(r'필요\s*(시|하면|할\s*때|하시면|하실\s*때)|원하시(면|ㄹ\s*때)')
+_CB_A_RE = re.compile(
+    r'바쁘|바쁜|바뻐|이따|오늘|내일|명일|저녁|오전|미팅\s*시간|시간\s*조율|일정\s*조율|'
+    r'다시\s*통화|통화\s*예정|곧|잠시\s*후|추석.{0,5}(끝|후|지나|이후)|연휴.{0,5}(끝|후|지나|이후)'
+)
+
+
+def _consult_latest(memo: str) -> str:
+    """K열 재상담 append('[MM.DD HH:MM 이니셜 · status] content ─── ...')에서 최신 회차 content."""
+    if not memo:
+        return ''
+    parts = re.split(r'─{2,}', memo)
+    last = parts[-1].strip() if parts else memo
+    last = re.sub(r'^\[[^\]]*\]\s*', '', last).strip()
+    return last or memo.strip()
+
+
+def classify_consult_memo(memo: str) -> str:
+    """유선 상담 메모 → 'A'|'B'|'C'|'D'|'E'. 콜백 신호 없으면 E(단순 종결).
+    우선순위: 먼 미래(C) > 조건부(D) > 곧 재통화(A) > 그 외 팔로업(B)."""
+    t = _consult_latest(memo)
+    if not t or not _CB_RE.search(t):
+        return 'E'
+    if _CB_C_RE.search(t):
+        return 'C'
+    if _CB_D_RE.search(t):
+        return 'D'
+    if _CB_A_RE.search(t):
+        return 'A'
+    return 'B'
+
+
 def collect_absent_leads(target_date: Optional[date] = None,
-                          date_range: Optional[List[date]] = None) -> Tuple[List[Dict], Dict[str, List[Dict]], Dict[str, List[Dict]]]:
+                          date_range: Optional[List[date]] = None) -> Tuple[List[Dict], Dict[str, List[Dict]], Dict[str, List[Dict]], Dict[str, List[Dict]]]:
     """부재중 리마인드 대상 수집.
 
     Args:
@@ -173,11 +224,13 @@ def collect_absent_leads(target_date: Optional[date] = None,
                     cutoff 로 수집하고, 견적요청은 날짜 무관 스캔한다.
 
     Returns:
-        (unassigned, retry_by_manager, quote_pending_by_manager)
+        (unassigned, retry_by_manager, quote_pending_by_manager, callback)
             unassigned: 상담 대기 & 온라인 상담자 미배정 (최근 N영업일)
             retry_by_manager: {매니저이름: [lead, ...]}  상태='부재중' & 영업 담당자 없음 (최근 N영업일)
             quote_pending_by_manager: {매니저이름: [lead, ...]}  상태='견적 요청' — 견적 제출 전까지
                 **날짜 무관 전체 스캔** (며칠 걸릴 수 있어 제출·드랍될 때까지 매일 리마인드)
+            callback: {'A': [lead,...], 'B': [lead,...]}  상태='유선 상담'이나 메모가
+                재통화(A=곧)·팔로업(B=추후) 신호 (최근 N영업일, classify_consult_memo)
     """
     from dashboard.services.lead_service import get_lead_records
     if date_range is None:
@@ -231,23 +284,38 @@ def collect_absent_leads(target_date: Optional[date] = None,
             consultant = str(l.get('온라인 상담자', '')).strip()
             quote_pending[consultant or '(미배정)'].append(l)
 
-    return unassigned, dict(retry), dict(quote_pending)
+    # D. 유선 상담 중 재통화/팔로업 필요 (2026-09-15) — 상태='유선 상담'이지만 메모가
+    #    '다시 연락'류. 규칙분류 A(곧 재통화)·B(추후 팔로업)만 수집(C·D·E 제외). 최근 창·오늘 제외.
+    callback: Dict[str, List[Dict]] = {'A': [], 'B': []}
+    for l in leads:
+        if str(l.get('상태', '')).strip() != '유선 상담' or not _recent(l):
+            continue
+        cls = classify_consult_memo(str(l.get('상담 내용', '') or ''))
+        if cls in ('A', 'B'):
+            callback[cls].append(l)
+
+    return unassigned, dict(retry), dict(quote_pending), callback
 
 
 def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
                        client=None, channel: str = _ONLINE_CHANNEL_DEFAULT,
                        date_range: Optional[List[date]] = None,
-                       quote_pending: Optional[Dict[str, List[Dict]]] = None) -> Tuple[str, int]:
+                       quote_pending: Optional[Dict[str, List[Dict]]] = None,
+                       callback: Optional[Dict[str, List[Dict]]] = None) -> Tuple[str, int]:
     """리마인드 카드 텍스트 조립.
 
     Args:
         date_range: 하위 호환용 (미사용). 헤더는 '최근 미처리 문의', 각 라인은 접수일
                     (MM.DD(요일) HH:MM) 병기 — 미완료·부재중이 최근 N영업일 창이라.
         quote_pending: {매니저: [lead,...]} 상태='견적 요청' 미제출 (날짜 무관). 별도 섹션.
+        callback: {'A': [lead,...], 'B': [lead,...]} 유선 상담 중 재통화(A)·추후 팔로업(B).
 
     Returns: (text, total_count)
     """
     quote_pending = quote_pending or {}
+    callback = callback or {}
+    _cb_a = list(callback.get('A', []) or [])
+    _cb_b = list(callback.get('B', []) or [])
 
     # permalink 조회 최적화 — 채널 history 1번만 fetch
     history_cache = None
@@ -259,7 +327,8 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
             logger.debug(f'[ABSENT] history fetch 실패: {exc}')
 
     total = (len(unassigned) + sum(len(v) for v in retry.values())
-             + sum(len(v) for v in quote_pending.values()))
+             + sum(len(v) for v in quote_pending.values())
+             + len(_cb_a) + len(_cb_b))
 
     def _line(l: Dict, mode: str) -> str:
         lno = str(l.get('리드 No', '')).strip()
@@ -270,6 +339,14 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         _d = _lead_date(l)
         # 재알림 여부 — 1일차 알림에도 처리 안 돼 2영업일째 뜨는 건은 강조 (2026-09-09 사용자 요청).
         _realert = _d is not None and _reminder_ordinal(_d, date.today()) >= 2
+        if mode == 'callback':
+            # 재통화·팔로업: 접수일 + 상담 사유 요약(왜 다시 연락해야 하는지 컨텍스트).
+            t = _hhmm(str(l.get('상담 시간', '')))
+            _when = (f'{_md_weekday(_d)} {t}' if _d else t).strip() or '-'
+            memo = _consult_latest(str(l.get('상담 내용', '') or ''))
+            memo = re.sub(r'\s+', ' ', memo)[:40]
+            _why = f' · _{memo}_' if memo else ''
+            return f'• `{lno}` [{plat}] {name} · {_when}{_why}{link}'
         if mode in ('unassigned', 'quote'):
             # 미완료·견적요청: 접수일 병기. 최근 N영업일 창이라 며칠 전 건일 수 있어
             #   '어제' 고정 대신 실제 접수일(MM.DD(요일) HH:MM)로 표기 (2026-09-09).
@@ -300,6 +377,18 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         lines.append(f':phone: *부재중 ({len(_retry_all)}건)*')
         for l in _retry_all:
             lines.append(_line(l, 'retry'))
+        lines.append('')
+    # 재통화 예정(A) — 통화됐으나 바쁨·시간조율 등으로 곧 다시 연락하기로 한 건 (2026-09-15).
+    if _cb_a:
+        lines.append(f':arrows_counterclockwise: *재통화 예정 ({len(_cb_a)}건)*')
+        for l in _cb_a:
+            lines.append(_line(l, 'callback'))
+        lines.append('')
+    # 추후 팔로업(B) — 계약·일정·내부협의 후 다시 연락하기로 한 nurture 건 (2026-09-15).
+    if _cb_b:
+        lines.append(f':seedling: *추후 팔로업 ({len(_cb_b)}건)*')
+        for l in _cb_b:
+            lines.append(_line(l, 'callback'))
         lines.append('')
     # 견적 요청 (미제출) — 카테고리 단위 (부재중 섹션 뒤), 날짜 무관 스캔.
     _quote_all = [l for items in quote_pending.values() for l in items]
@@ -353,15 +442,17 @@ def send_daily_remind() -> Dict:
     if not client:
         return {'ok': False, 'total': 0, 'ts': '', 'reason': 'SLACK_BOT_TOKEN 미설정'}
 
-    unassigned, retry, quote_pending = collect_absent_leads(date_range=date_range)
+    unassigned, retry, quote_pending, callback = collect_absent_leads(date_range=date_range)
     total = (len(unassigned) + sum(len(v) for v in retry.values())
-             + sum(len(v) for v in quote_pending.values()))
+             + sum(len(v) for v in quote_pending.values())
+             + sum(len(v) for v in callback.values()))
     if total == 0:
         logger.info('[ABSENT] 미처리 문의 0건 — 카드 발송 skip')
         return {'ok': True, 'total': 0, 'ts': '', 'reason': None}
 
     text, _ = build_remind_text(unassigned, retry, client=client, channel=channel,
-                                  date_range=date_range, quote_pending=quote_pending)
+                                  date_range=date_range, quote_pending=quote_pending,
+                                  callback=callback)
     try:
         r = client.chat_postMessage(
             channel=channel, text=text,

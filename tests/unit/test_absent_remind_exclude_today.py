@@ -39,7 +39,7 @@ def test_excludes_today_includes_prev_business_day(monkeypatch):
     import dashboard.services.lead_service as ls
     monkeypatch.setattr(ls, 'get_lead_records', lambda: leads)
 
-    unassigned, retry, quote = ar.collect_absent_leads()
+    unassigned, retry, quote, callback = ar.collect_absent_leads()
 
     def _dates(items):
         return [ar._lead_date(l) for l in items]
