@@ -3411,11 +3411,22 @@ def cancel_project_api():
             # 9. 배경색은 큐 핸들러에서 함께 처리. 캘린더 삭제만 백그라운드.
             import threading as _th
 
+            _cancel_initial = (user_email.split('@')[0].upper()
+                               if user_email and '@' in user_email else (user_name or '-'))
+
             def _bg_side_effects():
                 try:
                     _delete_calendar_event(project_code)
                 except Exception as exc:
                     logger.debug(f"[BG/CALENDAR] {project_code} 캘린더 삭제 오류: {exc}")
+                # 슬랙 반영 — 공사확정 원본 카드 회색 업데이트 + 취소 댓글 + 샛별 DM
+                #   (PM 취소도 슬랙 버튼과 동일하게. 2026-09-15 샛별 요청)
+                try:
+                    from .slack_bot import apply_project_cancel_to_slack
+                    apply_project_cancel_to_slack(
+                        project_code, updated_project, _cancel_initial)
+                except Exception as exc:
+                    logger.warning(f"[BG/SLACK] {project_code} 취소 슬랙 반영 오류: {exc}")
 
             _th.Thread(target=_bg_side_effects, daemon=True).start()
 

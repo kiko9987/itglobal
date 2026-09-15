@@ -11876,11 +11876,106 @@ def _dm_amount_request_done(requester_id: str, code: str, data: dict, checker_in
         logger.warning(f'[SLACK/공사금액] 완료 DM 실패 (requester={requester_id}): {exc}')
 
 
+def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
+                                  *, channel: str = None, ts: str = None) -> None:
+    """공사 취소 슬랙 반영 (슬랙 버튼·PM 사이트 공용).
+
+    ① 공사확정 원본 카드를 방문 취소 UI 스타일로 회색 업데이트(+[↩️ 취소 되돌리기])
+    ② 원본 카드 스레드에 취소 댓글
+    ③ 경영지원(샛별)에게 DM (채널 카드 대신 — 2026-09-15 사장님 방침)
+
+    channel/ts 미지정 시 project_card_msg:{code} 로 카드 조회(PM 경로).
+    """
+    code = (code or '').strip()
+    project = project or {}
+    initial = initial or '-'
+    pclient = _project_client()
+
+    # 카드 위치 확보 (슬랙 버튼은 인자로, PM 은 매핑으로)
+    if not (channel and ts):
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            _m = get_redis_client().redis.get(f'project_card_msg:{code}')
+            _m = _m.decode() if isinstance(_m, bytes) else _m
+            if _m and '|' in _m:
+                channel, ts = _m.split('|', 1)
+        except Exception as exc:
+            logger.warning(f'[SLACK/공사취소] 카드 매핑 조회 실패 ({code}): {exc}')
+
+    cancel_time = datetime.now().strftime('%Y.%m.%d. %H:%M')
+
+    # ① 원본 카드 회색 업데이트 + ② 취소 댓글
+    if pclient and channel and ts:
+        try:
+            from dashboard.services.project_slack_notifier import _build_message
+            from dashboard.services.business_license_handler import verify_license_exists
+            try:
+                license_attached = verify_license_exists(code)
+            except Exception:
+                license_attached = False
+            original_text = _build_message(project, code, license_attached=license_attached)
+            clean_text = '\n'.join(ln.replace('*', '') for ln in original_text.split('\n')).strip()
+            new_text = (
+                f"🚫 *고객 요청으로 공사 취소*  `{code}`\n"
+                f"취소자 : {initial}\n"
+                f"취소 시간 : {cancel_time}\n"
+                f"\n```\n{clean_text}\n```"
+            )
+            new_blocks = [
+                {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
+                {"type": "actions", "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "↩️ 취소 되돌리기", "emoji": True},
+                    "style": "primary", "value": code, "action_id": "project_uncancel",
+                    "confirm": {
+                        "title": {"type": "plain_text", "text": "취소 되돌리기"},
+                        "text": {"type": "plain_text", "text": f"{code} 공사 취소를 되돌리시겠습니까?"},
+                        "confirm": {"type": "plain_text", "text": "되돌리기"},
+                        "deny": {"type": "plain_text", "text": "닫기"},
+                    },
+                }]},
+                {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
+            ]
+            pclient.chat_update(channel=channel, ts=ts, text=new_text, blocks=new_blocks)
+        except Exception as exc:
+            logger.error(f"[SLACK/공사취소] 카드 갱신 실패 ({code}): {exc}", exc_info=True)
+        try:
+            pclient.chat_postMessage(
+                channel=channel, thread_ts=ts,
+                text=f"🚫 공사 취소 처리됨 — 취소자 {initial} · {cancel_time}",
+                unfurl_links=False, unfurl_media=False)
+        except Exception as exc:
+            logger.warning(f"[SLACK/공사취소] 취소 댓글 실패 ({code}): {exc}")
+    else:
+        logger.warning(f'[SLACK/공사취소] 카드 없음 — 카드 갱신·댓글 skip ({code})')
+
+    # ③ 경영지원(샛별) DM
+    try:
+        dm = _dm_client()
+        if dm and _SETTLEMENT_CHECKER_ID:
+            biz = (project.get('사업자명') or '-').strip() or '-'
+            addr = (project.get('현장 주소') or '-').strip() or '-'
+            amt_raw = project.get('총액 1', '')
+            try:
+                _a = int(float(str(amt_raw).replace(',', '').strip() or 0))
+                amt_disp = f'{_a:,}원' if _a else '-'
+            except (ValueError, TypeError):
+                amt_disp = '-'
+            dm.chat_postMessage(
+                channel=_SETTLEMENT_CHECKER_ID,
+                text=(f"🚫 *[공사 취소]*  `{code}`\n"
+                      f"🏢 {biz}\n📍 {addr}\n💲 {amt_disp}\n"
+                      f"👤 취소자 : {initial} · {cancel_time}"),
+                unfurl_links=False, unfurl_media=False)
+    except Exception as exc:
+        logger.warning(f"[SLACK/공사취소] 샛별 DM 실패 ({code}): {exc}")
+
+
 def _process_project_cancel(client, body) -> None:
-    """[❌ 공사 취소] 확인 → perform_cancel → 카드 chat.update(방문 취소 UI 스타일).
+    """[❌ 공사 취소] 확인 → perform_cancel → 카드 회색 업데이트 + 취소 댓글 + 샛별 DM.
 
     취소자 표기는 이니셜(방문 취소·기타 알림과 통일). 감사 로그용 by_user 는
-    슬랙 표시명 fallback 이니셜 사용.
+    슬랙 표시명 fallback 이니셜 사용. 슬랙 반영은 apply_project_cancel_to_slack 공용.
     """
     from dashboard.services.project_slack_actions import perform_cancel
 
@@ -11905,62 +12000,10 @@ def _process_project_cancel(client, body) -> None:
             pass
         return
 
-    # 카드 chat.update — 방문 취소 UI 스타일 그대로 (원본 회색 처리)
-    try:
-        cancel_time = datetime.now().strftime('%Y.%m.%d. %H:%M')
-        # 원본 텍스트는 body 대신 프로젝트 스냅샷에서 재생성.
-        # (Slack이 unicode 이모지를 :bell: 같은 shortcode로 정규화 저장해
-        # body에서 읽어오면 shortcode 그대로 나와 코드블록 안에서 렌더 안 됨)
-        from dashboard.services.project_slack_notifier import _build_message
-        from dashboard.services.business_license_handler import verify_license_exists
-        snapshot = result.get('project') or {}
-        try:
-            license_attached = verify_license_exists(code)
-        except Exception:
-            license_attached = False
-        original_text = _build_message(snapshot, code, license_attached=license_attached)
-        cleaned = [ln.replace('*', '') for ln in original_text.split('\n')]
-        clean_text = '\n'.join(cleaned).strip()
-
-        new_text = (
-            f"🚫 *고객 요청으로 공사 취소*  `{code}`\n"
-            f"취소자 : {initial}\n"
-            f"취소 시간 : {cancel_time}\n"
-            f"\n"
-            f"```\n{clean_text}\n```"
-        )
-        new_blocks = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "↩️ 취소 되돌리기", "emoji": True},
-                        "style": "primary",
-                        "value": code,
-                        "action_id": "project_uncancel",
-                        "confirm": {
-                            "title": {"type": "plain_text", "text": "취소 되돌리기"},
-                            "text": {"type": "plain_text",
-                                     "text": f"{code} 공사 취소를 되돌리시겠습니까?"},
-                            "confirm": {"type": "plain_text", "text": "되돌리기"},
-                            "deny": {"type": "plain_text", "text": "닫기"},
-                        },
-                    },
-                ],
-            },
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
-        ]
-        client.chat_update(channel=channel, ts=message_ts, text=new_text, blocks=new_blocks)
-    except Exception as exc:
-        logger.error(f"[SLACK/공사취소] chat.update 실패 ({code}): {exc}", exc_info=True)
-
-    # #영업_관리 채널에 취소 알림 카드 발송 (계산서 요청과 유사한 양식)
-    try:
-        _post_project_cancel_notice_card(client, code, result.get('project') or {}, initial)
-    except Exception as exc:
-        logger.warning(f'[SLACK/공사취소] 영업_관리 알림 실패 ({code}): {exc}')
+    # 슬랙 반영 (카드 회색 업데이트 + 취소 댓글 + 샛별 DM) — PM 취소와 공용.
+    apply_project_cancel_to_slack(
+        code, result.get('project') or {}, initial,
+        channel=channel, ts=message_ts)
 
 
 def _post_project_cancel_notice_card(
