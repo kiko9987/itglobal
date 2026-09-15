@@ -142,22 +142,39 @@ def reconcile_project_cards() -> dict:
                  'new_value': str(r.get(f) if r.get(f) is not None else '')}
                 for f in diffs
             ]
+            # 시트에서 직접 '공사 취소' 정리(총액 0 등)한 건도 카드에 반영 — 버튼 안 눌러도.
+            #   특이사항이 '공사 취소'로 바뀜=취소, 벗어남=재개. 취소/재개는 카드 회색↔복원+댓글
+            #   전담 처리(일반 필드 댓글·금액 DM 대신). 2026-09-15.
+            _spec_prev = str(prev.get('수금 관련 특이사항', '') or '')
+            _spec_cur = str(r.get('수금 관련 특이사항') or '')
+            _to_cancel = ('공사 취소' in _spec_cur) and ('공사 취소' not in _spec_prev)
+            _from_cancel = ('공사 취소' in _spec_prev) and ('공사 취소' not in _spec_cur)
             try:
-                notify_project_field_changes(code, field_changes, latest_data=r,
-                                             editor=sys_label)
+                if _to_cancel:
+                    from dashboard.blueprints.slack_bot import apply_project_cancel_to_slack
+                    apply_project_cancel_to_slack(code, r, '시트정리')
+                    logger.info(f'[RECONCILE] 시트 공사취소 감지 → 카드 취소 반영: {code}')
+                elif _from_cancel:
+                    from dashboard.blueprints.slack_bot import apply_project_uncancel_to_slack
+                    apply_project_uncancel_to_slack(code, r, '시트정리')
+                    logger.info(f'[RECONCILE] 시트 취소되돌림 감지 → 카드 복원: {code}')
+                else:
+                    notify_project_field_changes(code, field_changes, latest_data=r,
+                                                 editor=sys_label)
+                    logger.info(f'[RECONCILE] 시트 직접수정 감지 → 카드 반영+로그: {code} {diffs}')
                 result['reflected'] += 1
-                logger.info(f'[RECONCILE] 시트 직접수정 감지 → 카드 반영+로그: {code} {diffs}')
             except Exception as exc:
                 logger.warning(f'[RECONCILE] 처리 실패 ({code}): {exc}')
-            # 공사 금액(총액1·부가세)이 시트에서 직접 변경 = 샛별 우회 → 경영지원 별도 DM
-            #   (편집자 식별 불가라 label='시트 직접수정'. 함수가 금액 필드만 필터·시스템기록 제외.)
-            try:
-                from dashboard.services.project_slack_notifier import (
-                    notify_amount_edit_to_settlement)
-                notify_amount_edit_to_settlement(
-                    code, field_changes, editor_label=sys_label, latest_data=r)
-            except Exception as exc:
-                logger.warning(f'[RECONCILE] 경영지원 금액 DM 오류 ({code}): {exc}')
+            # 공사 금액(총액1·부가세) 시트 직접 변경 = 샛별 우회 → 경영지원 별도 DM.
+            #   단, 취소/재개(총액 0 정리 등)면 금액수정 아님 → skip.
+            if not (_to_cancel or _from_cancel):
+                try:
+                    from dashboard.services.project_slack_notifier import (
+                        notify_amount_edit_to_settlement)
+                    notify_amount_edit_to_settlement(
+                        code, field_changes, editor_label=sys_label, latest_data=r)
+                except Exception as exc:
+                    logger.warning(f'[RECONCILE] 경영지원 금액 DM 오류 ({code}): {exc}')
             # notify 성공/실패와 무관하게 스냅샷 갱신 (반복 발송 방지)
             store_field_snapshot(rc, code, r, watch)
 
