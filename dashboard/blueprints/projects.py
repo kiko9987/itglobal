@@ -3535,7 +3535,21 @@ def resume_project_api():
             except Exception as exc:
                 logger.warning(f"[SOCKETIO] {project_code} 알림 오류: {exc}")
 
-            # 9. 배경색은 큐 핸들러에서 함께 처리됨.
+            # 9. 배경색은 큐 핸들러에서 함께 처리됨. 슬랙 카드 복원은 백그라운드.
+            _resume_initial = (user_email.split('@')[0].upper()
+                               if user_email and '@' in user_email else (user_name or '-'))
+
+            def _bg_resume_slack():
+                # 공사확정 원본 카드 원상 복원 + 되돌림 댓글 + 샛별 DM (PM 취소와 대칭)
+                try:
+                    from .slack_bot import apply_project_uncancel_to_slack
+                    apply_project_uncancel_to_slack(
+                        project_code, updated_project, _resume_initial)
+                except Exception as exc:
+                    logger.warning(f"[BG/SLACK] {project_code} 재개 슬랙 반영 오류: {exc}")
+
+            import threading as _th
+            _th.Thread(target=_bg_resume_slack, daemon=True).start()
 
             logger.info(f"프로젝트 재개 완료: {project_code} by {user_name}")
 

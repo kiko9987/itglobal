@@ -12069,12 +12069,76 @@ def _post_project_cancel_notice_card(
         logger.warning(f'[SLACK/공사취소] 영업_관리 알림 실패: {resp}')
 
 
+def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: str = '-',
+                                    *, channel: str = None, ts: str = None) -> None:
+    """공사 취소 되돌리기 슬랙 반영 (슬랙 버튼·PM 사이트 공용).
+
+    ① 공사확정 원본 카드를 원상 복원(최신 데이터로 _build_blocks 재렌더)
+    ② 원본 카드 스레드에 되돌림 댓글
+    ③ 경영지원(샛별)에게 DM
+    channel/ts 미지정 시 project_card_msg:{code} 로 카드 조회(PM 경로).
+    """
+    code = (code or '').strip()
+    initial = initial or '-'
+    pclient = _project_client()
+
+    if not (channel and ts):
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            _m = get_redis_client().redis.get(f'project_card_msg:{code}')
+            _m = _m.decode() if isinstance(_m, bytes) else _m
+            if _m and '|' in _m:
+                channel, ts = _m.split('|', 1)
+        except Exception as exc:
+            logger.warning(f'[SLACK/공사재개] 카드 매핑 조회 실패 ({code}): {exc}')
+
+    now = datetime.now().strftime('%Y.%m.%d. %H:%M')
+
+    if pclient and channel and ts:
+        try:
+            from dashboard.services.project_slack_notifier import _build_blocks, _thread_permalink
+            from dashboard.services.business_license_handler import verify_license_exists
+            from dashboard.services.project_service import get_project_records
+            records = get_project_records(force_refresh=True) or []
+            latest = next((r for r in records
+                           if (r.get('프로젝트 코드') or '').strip() == code), None) or (project or {})
+            try:
+                license_attached = verify_license_exists(code)
+            except Exception:
+                license_attached = False
+            permalink = _thread_permalink(channel, ts)
+            new_blocks = _build_blocks(latest, code, license_attached=license_attached,
+                                       thread_permalink=permalink)
+            biz = latest.get('사업자명') or ''
+            fallback = f"[공사 확정] {code} {biz}".strip()
+            pclient.chat_update(channel=channel, ts=ts, text=fallback, blocks=new_blocks)
+        except Exception as exc:
+            logger.error(f"[SLACK/공사재개] 카드 복원 실패 ({code}): {exc}", exc_info=True)
+        try:
+            pclient.chat_postMessage(
+                channel=channel, thread_ts=ts,
+                text=f"↩️ 공사 취소 되돌림 — {initial} · {now}",
+                unfurl_links=False, unfurl_media=False)
+        except Exception as exc:
+            logger.warning(f"[SLACK/공사재개] 되돌림 댓글 실패 ({code}): {exc}")
+    else:
+        logger.warning(f'[SLACK/공사재개] 카드 없음 — 복원·댓글 skip ({code})')
+
+    try:
+        dm = _dm_client()
+        if dm and _SETTLEMENT_CHECKER_ID:
+            biz = ((project or {}).get('사업자명') or '-').strip() or '-'
+            dm.chat_postMessage(
+                channel=_SETTLEMENT_CHECKER_ID,
+                text=(f"↩️ *[공사 취소 되돌림]*  `{code}`\n🏢 {biz}\n👤 {initial} · {now}"),
+                unfurl_links=False, unfurl_media=False)
+    except Exception as exc:
+        logger.warning(f"[SLACK/공사재개] 샛별 DM 실패 ({code}): {exc}")
+
+
 def _process_project_uncancel(client, body) -> None:
-    """[↩️ 취소 되돌리기] → perform_uncancel → 카드 원본 형태로 복원."""
+    """[↩️ 취소 되돌리기] → perform_uncancel → 카드 원복 + 되돌림 댓글 + 샛별 DM (공용)."""
     from dashboard.services.project_slack_actions import perform_uncancel
-    from dashboard.services.project_slack_notifier import _build_blocks
-    from dashboard.services.business_license_handler import verify_license_exists
-    from dashboard.services.project_service import get_project_records
 
     code = (body["actions"][0].get("value") or '').strip()
     channel = body["channel"]["id"]
@@ -12096,28 +12160,10 @@ def _process_project_uncancel(client, body) -> None:
             pass
         return
 
-    # 카드 원본 형태로 재렌더링
-    try:
-        records = get_project_records(force_refresh=True) or []
-        latest = next((r for r in records if (r.get('프로젝트 코드') or '').strip() == code), None)
-        if not latest:
-            return
-        try:
-            license_attached = verify_license_exists(code)
-        except Exception:
-            license_attached = False
-        from dashboard.services.project_slack_notifier import _thread_permalink
-        permalink = _thread_permalink(channel, message_ts)
-        new_blocks = _build_blocks(
-            latest, code,
-            license_attached=license_attached,
-            thread_permalink=permalink,
-        )
-        biz = latest.get('사업자명') or ''
-        fallback = f"[공사 확정] {code} {biz}".strip()
-        client.chat_update(channel=channel, ts=message_ts, text=fallback, blocks=new_blocks)
-    except Exception as exc:
-        logger.error(f"[SLACK/공사재개] chat.update 실패 ({code}): {exc}", exc_info=True)
+    initial = _slack_user_to_initial(client, user_id) or '-'
+    apply_project_uncancel_to_slack(
+        code, result.get('project') or {}, initial,
+        channel=channel, ts=message_ts)
 
 
 def _is_license_required(code: str) -> bool:
