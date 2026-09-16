@@ -3052,17 +3052,80 @@ export default class ProjectRowAccordion {
   }
 
   /**
+   * 공사 취소 사유 입력 모달 (앱 표준 Bootstrap 모달, AsView 스타일과 통일). 2026-09-16.
+   * @returns {Promise<string|null>} 입력한 사유(trim), 닫기/빈값이면 null.
+   */
+  _promptCancelReason(projectCode) {
+    return new Promise((resolve) => {
+      let host = document.getElementById('cancelReasonModalHost');
+      if (!host) {
+        host = document.createElement('div');
+        host.id = 'cancelReasonModalHost';
+        document.body.appendChild(host);
+      }
+      host.innerHTML = `
+        <div class="modal fade" id="cancelReasonModal" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered" style="max-width:520px;"><div class="modal-content">
+            <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
+              <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
+                <i class="fas fa-ban" style="color:#dc3545;"></i>공사 취소 — ${projectCode}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body" style="padding:1.25rem;">
+              <div style="font-size:var(--font-size-sm); color:var(--gray-700); background:var(--gray-50); border:1px solid var(--gray-200); border-radius:6px; padding:0.6rem 0.8rem; margin-bottom:0.9rem;">
+                취소는 <b>바로 반영</b>되며, <b>매출 0원 처리</b>는 경영지원 확인(✅) 후 완료됩니다.
+              </div>
+              <label class="form-label" style="font-weight:600;">취소 사유 <span style="color:#dc3545;">*</span></label>
+              <textarea id="cancelReasonInput" class="form-control" rows="3"
+                placeholder="예: 고객 변심 / 타업체 진행 / 계약 해지"></textarea>
+              <div id="cancelReasonAlert" class="text-danger small mt-2"></div>
+            </div>
+            <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:0.85rem 1.25rem;">
+              <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">닫기</button>
+              <button type="button" class="btn as-btn-submit" id="cancelReasonSubmit"
+                style="background-color:#dc3545; border-color:#dc3545; color:#fff;">취소 확정</button>
+            </div>
+          </div></div>
+        </div>`;
+      const el = host.querySelector('#cancelReasonModal');
+      let modal;
+      try {
+        modal = new bootstrap.Modal(el);
+      } catch (_) {
+        // Bootstrap 미로드 등 fallback — 기본 prompt
+        host.innerHTML = '';
+        const v = (window.prompt('공사 취소 사유 (필수)') || '').trim();
+        resolve(v || null);
+        return;
+      }
+      let submitted = false;
+      const submitBtn = el.querySelector('#cancelReasonSubmit');
+      submitBtn.addEventListener('click', () => {
+        const v = (el.querySelector('#cancelReasonInput').value || '').trim();
+        if (!v) {
+          el.querySelector('#cancelReasonAlert').textContent = '취소 사유를 입력해야 합니다.';
+          return;
+        }
+        submitted = true;
+        resolve(v);
+        modal.hide();
+      });
+      el.addEventListener('hidden.bs.modal', () => {
+        if (!submitted) resolve(null);
+        host.innerHTML = '';
+      }, { once: true });
+      modal.show();
+      setTimeout(() => { try { el.querySelector('#cancelReasonInput').focus(); } catch (_) {} }, 250);
+    });
+  }
+
+  /**
    * 공사 취소 처리
    */
   async cancelConstruction(projectCode) {
-    // 2026-09-16: 취소 사유 필수 입력. 매출(총액)=0 은 경영지원(샛별) 확인 후 반영.
-    const reason = (window.prompt(
-      '공사 취소 사유를 입력하세요 (필수).\n예: 고객 변심 / 타업체 진행 / 계약 해지\n\n' +
-      '※ 취소는 바로 반영되며, 매출 0원 처리는 경영지원 확인 후 완료됩니다.'
-    ) || '').trim();
+    // 2026-09-16: 취소 사유 필수 입력(앱 스타일 모달). 매출(총액)=0 은 경영지원(샛별) 확인 후 반영.
+    const reason = await this._promptCancelReason(projectCode);
     if (!reason) {
-      this.showMessage?.('취소 사유를 입력해야 취소할 수 있습니다.', 'warning');
-      return;
+      return;  // 닫기/빈 사유 → 취소 안 함
     }
 
     // 버튼 찾기 및 로딩 상태 설정
