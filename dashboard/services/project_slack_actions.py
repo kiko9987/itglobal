@@ -79,10 +79,12 @@ def _queue_batch_write(sheet_id: str, updates: list, tag: str) -> None:
 # ─────────────────────────────────────────────────────────────
 # 공사 취소
 # ─────────────────────────────────────────────────────────────
-def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
+def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[str, Any]:
     """관리 사이트 [공사 취소] 버튼과 동일 효과.
 
-    수금 관련 특이사항='공사 취소', 수금 확인=FALSE, 공사 확정=''.
+    수금 관련 특이사항='공사 취소'(+사유), 수금 확인=FALSE, 공사 확정='', 총액 1=0.
+    2026-09-16: 취소 시 매출(총액 1)을 0으로 반환(경영지원 요청) + 재개 시 원복 위해
+    총액 1 원본을 스냅샷에 보존. reason(취소 사유)은 특이사항 병기 + 감사로그.
     감사 로그와 캐시 무효화까지 처리하고 결과 dict 반환.
     """
     project = _load_project(code)
@@ -97,10 +99,11 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
     if not row_number:
         return {'ok': False, 'reason': 'row_not_found'}
 
-    # 되돌리기 시 원본 복원용 Redis 스냅샷. 공사 확정일 + 수금 확인 둘 다 보존
-    # (취소가 두 컬럼을 덮어쓰기 때문). 저장 형태: JSON.
+    # 되돌리기 시 원본 복원용 Redis 스냅샷. 공사 확정일 + 수금 확인 + 총액 1 보존
+    # (취소가 세 컬럼을 덮어쓰기 때문). 저장 형태: JSON.
     import json as _json
     confirmed_date_original = str(project.get('공사 확정', '') or '').strip()
+    total_1_original = project.get('총액 1', '')
     payment_raw = project.get('수금 확인')
     payment_original = (
         payment_raw is True
@@ -115,18 +118,23 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
             _json.dumps({
                 'confirmed_date': confirmed_date_original,
                 'payment_confirmed': payment_original,
+                'total_1': total_1_original,
             }, ensure_ascii=False),
             ex=60 * 60 * 24 * 365,  # 1년
         )
     except Exception as exc:
         logger.warning(f'[SLACK/취소] 스냅샷 저장 실패 ({code}): {exc}')
 
+    _reason = (reason or '').strip()
+    _spec = f'공사 취소 (사유: {_reason})' if _reason else '공사 취소'
+
     # 관리 사이트 _prepare_cancel_updates 와 동일 — 컬럼 레터는 get_field_to_letter()로 파생(시프트 자동 정정)
     col = manager.get_field_to_letter()
     updates = [
-        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['공사 취소']]},
+        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [[_spec]]},
         {'range': f"{sheet_name}!{col['수금 확인']}{row_number}", 'values': [['FALSE']]},
         {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [['']]},
+        {'range': f"{sheet_name}!{col['총액 1']}{row_number}", 'values': [[0]]},  # 매출 0 반환
     ]
 
     # 2026-07-09 write-behind: 시트 write 를 큐로 위임
@@ -139,9 +147,10 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
             invalidate_project_cache,
         )
         cache_updated = update_project_in_cache(code, {
-            '수금 관련 특이사항': '공사 취소',
+            '수금 관련 특이사항': _spec,
             '수금 확인': False,
             '공사 확정': '',
+            '총액 1': 0,
         })
         if not cache_updated:
             invalidate_project_cache(code)
@@ -152,11 +161,12 @@ def perform_cancel(code: str, by_display_name: str) -> Dict[str, Any]:
     _audit_log(
         user_email=f'slack:{by_display_name}',
         action='CANCEL_PROJECT',
-        details=f'프로젝트 공사 취소: {code} (수금확인=FALSE, 공사확정일 초기화)',
+        details=(f'프로젝트 공사 취소: {code} (수금확인=FALSE, 공사확정일 초기화, 총액1=0)'
+                 + (f' 사유: {_reason[:200]}' if _reason else '')),
         project_code=code,
         field_name='수금 관련 특이사항',
         old_value=project.get('수금 관련 특이사항', '-') or '-',
-        new_value='공사 취소',
+        new_value=_spec,
         ip_address='slack-bot',
     )
 
@@ -189,6 +199,7 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     import json as _json
     restore_date = datetime.now().strftime('%Y-%m-%d')
     restore_payment = None  # None 이면 수금 확인 컬럼 미터치 (기존 값 유지)
+    restore_total_1 = None  # None 이면 총액 1 미터치 (옛 스냅샷 등)
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
@@ -205,6 +216,8 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
                         restore_date = d
                     if 'payment_confirmed' in parsed:
                         restore_payment = bool(parsed['payment_confirmed'])
+                    if 'total_1' in parsed:
+                        restore_total_1 = parsed['total_1']
                 except Exception:
                     pass
             elif snap_val:
@@ -222,6 +235,11 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
         updates.append({
             'range': f"{sheet_name}!{col['수금 확인']}{row_number}",
             'values': [['TRUE' if restore_payment else 'FALSE']],
+        })
+    if restore_total_1 is not None:
+        updates.append({
+            'range': f"{sheet_name}!{col['총액 1']}{row_number}",
+            'values': [[restore_total_1]],  # 취소 시 0으로 만든 매출 원복
         })
     _queue_batch_write(sheet_id, updates, tag=f'slack_uncancel:{code}')
 
@@ -243,6 +261,8 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
         }
         if restore_payment is not None:
             cache_payload['수금 확인'] = restore_payment
+        if restore_total_1 is not None:
+            cache_payload['총액 1'] = restore_total_1
         cache_updated = update_project_in_cache(code, cache_payload)
         if not cache_updated:
             invalidate_project_cache(code)

@@ -2527,11 +2527,32 @@ def _register_project_handlers(app):
 
     @app.action("project_cancel_confirm")
     def handle_project_cancel(ack, body, client):
+        # 2026-09-16: 즉시취소 폐지 → 사유 입력 모달 오픈(경영지원 ✅ 게이트).
+        #   trigger_id 는 ~3초 유효 → ack 직후 동기 open (방문취소 패턴 동일).
         ack()
-        _run_bg_with_notify(
-            client, body, '공사 취소',
-            lambda: _process_project_cancel(client, body),
-        )
+        try:
+            _open_project_cancel_reason_modal(client, body)
+        except Exception as exc:
+            logger.error(f"[SLACK/공사취소] 취소 사유 모달 open 실패: {exc}", exc_info=True)
+
+    @app.view("submit_project_cancel_reason")
+    def handle_submit_project_cancel_reason(ack, body, client, view):
+        # 사유 필수 검증 — 빈값이면 modal errors
+        values = view.get("state", {}).get("values", {})
+        try:
+            reason = ((values.get("reason", {}).get("value", {}) or {}).get("value", '') or '')
+        except Exception:
+            reason = ''
+        if not reason.strip():
+            ack(response_action="errors", errors={"reason": "취소 사유를 반드시 입력해야 합니다."})
+            return
+        ack()
+        def _bg():
+            try:
+                _process_project_cancel_request(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/공사취소] 취소 요청 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     @app.action("project_uncancel")
     def handle_project_uncancel(ack, body, client):
@@ -3382,6 +3403,9 @@ def _register_invoice_handlers(app):
             try:
                 # 1) 공사 금액 수정 요청 카드면 → perform_edit 반영 + 요청자 DM (핀 로직 skip)
                 if _maybe_apply_amount_request(client, channel, ts, user):
+                    return
+                # 1-2) 공사 취소 요청 카드면 → perform_cancel(매출0) 반영 + 요청자 DM (2026-09-16)
+                if _maybe_apply_cancel_request(client, channel, ts, user):
                     return
                 # 2) 정산 핀 자동 해제
                 client.pins_remove(channel=channel, timestamp=ts)
@@ -11878,7 +11902,7 @@ def _dm_amount_request_done(requester_id: str, code: str, data: dict, checker_in
 
 def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
                                   *, channel: str = None, ts: str = None,
-                                  send_dm: bool = True) -> None:
+                                  send_dm: bool = True, reason: str = '') -> None:
     """공사 취소 슬랙 반영 (슬랙 버튼·PM 사이트·리컨사일러 공용).
 
     ① 공사확정 원본 카드를 방문 취소 UI 스타일로 회색 업데이트(+[↩️ 취소 되돌리기])
@@ -11925,9 +11949,11 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
                 license_attached = False
             original_text = _build_message(project, code, license_attached=license_attached)
             clean_text = '\n'.join(ln.replace('*', '') for ln in original_text.split('\n')).strip()
+            _reason_line = f"취소 사유 : {reason.strip()}\n" if (reason or '').strip() else ''
             new_text = (
                 f"🚫 *고객 요청으로 공사 취소*  `{code}`\n"
                 f"취소자 : {initial}\n"
+                f"{_reason_line}"
                 f"취소 시간 : {cancel_time}\n"
                 f"\n```\n{clean_text}\n```"
             )
@@ -11950,9 +11976,12 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
         except Exception as exc:
             logger.error(f"[SLACK/공사취소] 카드 갱신 실패 ({code}): {exc}", exc_info=True)
         try:
+            _cmt = f"🚫 공사 취소 처리됨 — 취소자 {initial} · {cancel_time}"
+            if (reason or '').strip():
+                _cmt += f"\n📝 사유 : {reason.strip()}"
             pclient.chat_postMessage(
                 channel=channel, thread_ts=ts,
-                text=f"🚫 공사 취소 처리됨 — 취소자 {initial} · {cancel_time}",
+                text=_cmt,
                 unfurl_links=False, unfurl_media=False)
         except Exception as exc:
             logger.warning(f"[SLACK/공사취소] 취소 댓글 실패 ({code}): {exc}")
@@ -12015,6 +12044,239 @@ def _process_project_cancel(client, body) -> None:
     apply_project_cancel_to_slack(
         code, result.get('project') or {}, initial,
         channel=channel, ts=message_ts)
+
+
+def _open_project_cancel_reason_modal(client, body) -> None:
+    """[❌ 공사 취소] → 취소 사유 입력 모달 (2026-09-16). submit 시 #영업_관리 승인 요청."""
+    code = (body["actions"][0].get("value") or '').strip()
+    channel = body["channel"]["id"]
+    message_ts = body["message"]["ts"]
+    trigger_id = body["trigger_id"]
+    if not code:
+        return
+    metadata = json.dumps({"code": code, "channel": channel, "message_ts": message_ts})
+    view = {
+        "type": "modal",
+        "callback_id": "submit_project_cancel_reason",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "공사 취소"},
+        "submit": {"type": "plain_text", "text": "취소 요청"},
+        "close": {"type": "plain_text", "text": "닫기"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": (
+                f":warning: *{code}* 공사를 취소 요청합니다.\n"
+                "_경영지원(황샛별) 확인(:white_check_mark:) 후 반영되며, 매출은 0원으로 처리됩니다._")}},
+            {"type": "input", "block_id": "reason",
+             "label": {"type": "plain_text", "text": "취소 사유 (필수)"},
+             "hint": {"type": "plain_text", "text": "예: 고객 변심 / 타업체 진행 / 계약 해지"},
+             "element": {"type": "plain_text_input", "action_id": "value",
+                         "multiline": True, "min_length": 2, "max_length": 500}},
+        ],
+    }
+    client.views_open(trigger_id=trigger_id, view=view)
+
+
+def _project_cancel_amount_disp(project: dict) -> str:
+    """취소 요청 카드용 금액 표시 (부가세 반영). _post_project_cancel_notice_card 와 동일 규칙."""
+    amt_raw = project.get('총액 1', '')
+    try:
+        amt_int = int(float(str(amt_raw).replace(',', '').strip() or 0))
+        amt_disp = f'{amt_int:,}원' if amt_int else '-'
+    except (ValueError, TypeError):
+        amt_disp = '-'
+    if amt_disp != '-':
+        vat_raw = project.get('부가세')
+        vat_sep = (vat_raw is True
+                   or (isinstance(vat_raw, str) and vat_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+                   or vat_raw == 1)
+        amt_disp = f"{amt_disp} ({'VAT 별도' if vat_sep else 'VAT 없음'})"
+    return amt_disp
+
+
+def _process_project_cancel_request(client, body, view) -> None:
+    """취소 사유 모달 제출 → #영업_관리 '공사 취소 요청' 카드(공사봇) + Redis pending. 아직 미반영.
+    황샛별 ✅ 시 _maybe_apply_cancel_request 가 perform_cancel(매출0) 실행."""
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    code = (metadata.get("code") or '').strip()
+    orig_channel = metadata.get("channel", "")
+    orig_ts = metadata.get("message_ts", "")
+    user_id = body["user"]["id"]
+    if not code:
+        return
+    values = view.get("state", {}).get("values", {})
+    reason = ((values.get("reason", {}).get("value", {}) or {}).get("value", '') or '').strip()
+    requester_ini = _slack_user_to_initial(client, user_id) or '-'
+
+    # 프로젝트 조회 (사업자/주소/금액 표시용)
+    project = {}
+    try:
+        from dashboard.services.project_service import get_project_records
+        recs = get_project_records() or []
+        project = next((r for r in recs if (r.get('프로젝트 코드') or '').strip() == code), {}) or {}
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사취소] 프로젝트 조회 실패 ({code}): {exc}')
+
+    # 이미 취소된 건이면 요청 불필요
+    if re.search(r'공사\s*취소', str(project.get('수금 관련 특이사항', '') or '')):
+        try:
+            client.chat_postEphemeral(channel=orig_channel, user=user_id,
+                text=f':information_source: `{code}` 는 이미 취소 처리된 건입니다.')
+        except Exception:
+            pass
+        return
+
+    proj_client = _project_client()
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if proj_client is None or not channel_id:
+        logger.warning('[SLACK/공사취소] 공사봇/채널 미가용 — 요청 카드 발송 불가')
+        try:
+            client.chat_postEphemeral(channel=orig_channel, user=user_id,
+                text=f':x: `{code}` 취소 요청 카드 발송 실패(설정 오류). 관리자에게 문의해주세요.')
+        except Exception:
+            pass
+        return
+
+    biz = (project.get('사업자명') or '-').strip() or '-'
+    addr = (project.get('현장 주소') or '-').strip() or '-'
+    amt_disp = _project_cancel_amount_disp(project)
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+    lines = [
+        f'🚫 *[공사 취소 요청]*  `{code}`',
+        '--------------------------------------------',
+        f'🏢 사업자명 : {biz}',
+        f'📍 현장 주소 : {addr}',
+        f'💰 취소 전 금액 : {amt_disp}',
+        f'📝 취소 사유 : {reason}',
+        f'👤 요청자 : {requester_ini}  {now_str}',
+        '--------------------------------------------',
+    ]
+    text = '⠀\n' + '\n'.join(lines)
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn',
+            'text': '경영지원이 :white_check_mark: 하면 취소가 반영되고 매출이 0원으로 처리됩니다.'}]},
+    ]
+    try:
+        proj_client.conversations_join(channel=channel_id)
+    except Exception:
+        pass
+    resp = proj_client.chat_postMessage(channel=channel_id, text=text, blocks=blocks, unfurl_links=False)
+    if not resp.get('ok'):
+        logger.warning(f'[SLACK/공사취소] 요청 카드 발송 실패 ({code}): {resp}')
+        return
+    ts = resp.get('ts')
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        payload = {
+            'code': code, 'reason': reason,
+            'requester_id': user_id, 'requester_initial': requester_ini,
+            'orig_channel': orig_channel, 'orig_ts': orig_ts,
+            'biz': biz, 'addr': addr, 'amt_disp': amt_disp, 'requested_at': now_str,
+            'card_text': text,
+        }
+        rc.set(f'project_cancel_req:{channel_id}:{ts}',
+               json.dumps(payload, ensure_ascii=False, default=str),
+               ex=60 * 60 * 24 * 60)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사취소] pending 저장 실패 ({code}): {exc}')
+    # 요청자 안내
+    try:
+        client.chat_postEphemeral(channel=orig_channel, user=user_id,
+            text=f':hourglass_flowing_sand: `{code}` 취소 요청을 전달했습니다. 경영지원 확인 후 반영됩니다.')
+    except Exception:
+        pass
+    logger.info(f'[SLACK/공사취소] 취소 요청 카드 발송: {code} ts={ts} by {requester_ini}')
+
+
+def _maybe_apply_cancel_request(client, channel: str, ts: str, checker_user_id: str) -> bool:
+    """✅(황샛별) on 공사 취소 요청 카드 → perform_cancel(매출0) 실행 + 원본 공사확정 카드 회색+사유댓글
+    + 요청 카드 '완료' 갱신 + 요청자 DM. 취소 요청 카드 아니면 False."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return False
+    key = f'project_cancel_req:{channel}:{ts}'
+    raw = rc.get(key)
+    if not raw:
+        return False
+    if not rc.set(f'{key}:proc', '1', nx=True, ex=120):
+        return True
+    try:
+        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+    except Exception:
+        rc.delete(f'{key}:proc')
+        return True
+
+    code = data.get('code', '')
+    reason = data.get('reason', '')
+    requester_id = data.get('requester_id', '')
+    requester_ini = data.get('requester_initial', '-')
+    checker_ini = _slack_user_to_initial(client, checker_user_id) or 'SB'
+
+    from dashboard.services.project_slack_actions import perform_cancel
+    result = perform_cancel(code, f'{requester_ini}→{checker_ini}', reason)
+    if not result.get('ok') and result.get('reason') != 'already_cancelled':
+        logger.warning(f'[SLACK/공사취소] ✅ 반영 실패 ({code}): {result.get("reason")}')
+        rc.delete(f'{key}:proc')  # 락만 해제 → 재클릭 재시도 허용
+        try:
+            client.chat_postMessage(channel=channel, thread_ts=ts,
+                text=f':x: `{code}` 취소 반영 실패: {result.get("reason")}. 다시 시도해주세요.')
+        except Exception:
+            pass
+        return True
+
+    rc.delete(key)  # pending 소비
+    before_project = result.get('project') or {}
+    # 원본 공사확정 카드 회색 + 사유 댓글 (샛별 DM skip — 승인자가 샛별 본인)
+    try:
+        apply_project_cancel_to_slack(code, before_project, requester_ini,
+                                      send_dm=False, reason=reason)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사취소] 원본 카드 반영 실패 ({code}): {exc}')
+    _mark_project_cancel_request_done(channel, ts, data, checker_ini)
+    _dm_project_cancel_done(requester_id, code, data, checker_ini)
+    logger.info(f'[SLACK/공사취소] ✅ 취소 반영 완료 {code} by {checker_ini} (요청 {requester_ini})')
+    return True
+
+
+def _mark_project_cancel_request_done(channel: str, ts: str, data: dict, checker_ini: str) -> None:
+    """취소 요청 카드 → '✅ 취소 완료'로 갱신 (공사봇)."""
+    proj = _project_client()
+    if proj is None:
+        return
+    orig = data.get('card_text', '') or ''
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+    new_text = orig.replace('🚫 *[공사 취소 요청]*', '✅ *[공사 취소 완료]*')
+    new_text += f'\n:white_check_mark: 반영 : {checker_ini}  {now_str} · 매출 0원 처리'
+    try:
+        proj.chat_update(channel=channel, ts=ts, text=new_text,
+                         blocks=[{'type': 'section', 'text': {'type': 'mrkdwn', 'text': new_text}}])
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사취소] 요청 카드 완료 갱신 실패 (ts={ts}): {exc}')
+
+
+def _dm_project_cancel_done(requester_id: str, code: str, data: dict, checker_ini: str) -> None:
+    """요청자에게 취소 반영 완료 DM (im:write 있는 메인봇)."""
+    if not requester_id:
+        return
+    lines = [
+        f':white_check_mark: *공사 취소 요청 반영 완료*  `{code}`',
+        f'취소 사유 : {data.get("reason", "-")}',
+        f'\n경영지원({checker_ini})이 확인·반영했습니다. 매출은 0원으로 처리되었습니다.',
+    ]
+    text = '\n'.join(lines)
+    dm = _dm_client()
+    if dm is None:
+        return
+    try:
+        im = dm.conversations_open(users=requester_id)
+        dm_ch = ((im.get('channel') or {}) or {}).get('id')
+        if dm_ch:
+            dm.chat_postMessage(channel=dm_ch, text=text)
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사취소] 완료 DM 실패 (requester={requester_id}): {exc}')
 
 
 def _post_project_cancel_notice_card(
