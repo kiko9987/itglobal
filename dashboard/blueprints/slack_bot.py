@@ -3404,8 +3404,8 @@ def _register_invoice_handlers(app):
                 # 1) 공사 금액 수정 요청 카드면 → perform_edit 반영 + 요청자 DM (핀 로직 skip)
                 if _maybe_apply_amount_request(client, channel, ts, user):
                     return
-                # 1-2) 공사 취소 요청 카드면 → perform_cancel(매출0) 반영 + 요청자 DM (2026-09-16)
-                if _maybe_apply_cancel_request(client, channel, ts, user):
+                # 1-2) 공사 취소 매출0 반영 요청 카드면 → 총액0 반영 + 요청자 DM (2026-09-16)
+                if _maybe_apply_cancel_money_request(client, channel, ts, user):
                     return
                 # 2) 정산 핀 자동 해제
                 client.pins_remove(channel=channel, timestamp=ts)
@@ -12093,9 +12093,65 @@ def _project_cancel_amount_disp(project: dict) -> str:
     return amt_disp
 
 
+def _send_cancel_money_request_card(project: dict, reason: str,
+                                    requester_initial: str, requester_id: str):
+    """공사 취소 '매출 0원 반영 요청' 카드 → #영업_관리(공사봇) + Redis pending. PM·슬랙 공용.
+    황샛별 :white_check_mark: 시 _maybe_apply_cancel_money_request 가 총액 1=0 반영. Returns ts / None."""
+    proj_client = _project_client()
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if proj_client is None or not channel_id:
+        logger.warning('[SLACK/취소매출0] 공사봇/채널 미가용 — 요청 카드 발송 불가')
+        return None
+    code = (project.get('프로젝트 코드') or '').strip()
+    biz = (project.get('사업자명') or '-').strip() or '-'
+    addr = (project.get('현장 주소') or '-').strip() or '-'
+    amt_disp = _project_cancel_amount_disp(project)
+    now_str = datetime.now().strftime('%m.%d %H:%M')
+    lines = [
+        f'💰 *[공사 취소 — 매출 0원 반영 요청]*  `{code}`',
+        '--------------------------------------------',
+        f'🏢 사업자명 : {biz}',
+        f'📍 현장 주소 : {addr}',
+        f'💵 취소 전 금액 : {amt_disp}  →  0원',
+        f'📝 취소 사유 : {reason}',
+        f'👤 요청자 : {requester_initial}  {now_str}',
+        '--------------------------------------------',
+    ]
+    text = '⠀\n' + '\n'.join(lines)
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn',
+            'text': '취소는 이미 반영됨. 경영지원이 :white_check_mark: 하면 매출(총액)이 0원으로 처리됩니다.'}]},
+    ]
+    try:
+        proj_client.conversations_join(channel=channel_id)
+    except Exception:
+        pass
+    resp = proj_client.chat_postMessage(channel=channel_id, text=text, blocks=blocks, unfurl_links=False)
+    if not resp.get('ok'):
+        logger.warning(f'[SLACK/취소매출0] 요청 카드 발송 실패 ({code}): {resp}')
+        return None
+    ts = resp.get('ts')
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        payload = {
+            'code': code, 'reason': reason,
+            'requester_id': requester_id, 'requester_initial': requester_initial,
+            'biz': biz, 'addr': addr, 'amt_disp': amt_disp, 'requested_at': now_str,
+            'card_text': text,
+        }
+        rc.set(f'project_cancel_money_req:{channel_id}:{ts}',
+               json.dumps(payload, ensure_ascii=False, default=str), ex=60 * 60 * 24 * 60)
+    except Exception as exc:
+        logger.warning(f'[SLACK/취소매출0] pending 저장 실패 ({code}): {exc}')
+    logger.info(f'[SLACK/취소매출0] 매출0 반영 요청 카드 발송: {code} ts={ts}')
+    return ts
+
+
 def _process_project_cancel_request(client, body, view) -> None:
-    """취소 사유 모달 제출 → #영업_관리 '공사 취소 요청' 카드(공사봇) + Redis pending. 아직 미반영.
-    황샛별 ✅ 시 _maybe_apply_cancel_request 가 perform_cancel(매출0) 실행."""
+    """취소 사유 모달 제출 → **취소 상태 즉시 반영**(카드 회색+사유) + #영업_관리 '매출 0원 반영 요청'
+    카드(샛별 ✅ 대기). 매출0 은 샛별 ✅ 후 _maybe_apply_cancel_money_request 에서 (2026-09-16)."""
     metadata = json.loads(view.get("private_metadata") or "{}")
     code = (metadata.get("code") or '').strip()
     orig_channel = metadata.get("channel", "")
@@ -12107,97 +12163,46 @@ def _process_project_cancel_request(client, body, view) -> None:
     reason = ((values.get("reason", {}).get("value", {}) or {}).get("value", '') or '').strip()
     requester_ini = _slack_user_to_initial(client, user_id) or '-'
 
-    # 프로젝트 조회 (사업자/주소/금액 표시용)
-    project = {}
-    try:
-        from dashboard.services.project_service import get_project_records
-        recs = get_project_records() or []
-        project = next((r for r in recs if (r.get('프로젝트 코드') or '').strip() == code), {}) or {}
-    except Exception as exc:
-        logger.warning(f'[SLACK/공사취소] 프로젝트 조회 실패 ({code}): {exc}')
-
-    # 이미 취소된 건이면 요청 불필요
-    if re.search(r'공사\s*취소', str(project.get('수금 관련 특이사항', '') or '')):
+    # 취소 상태 즉시 반영
+    from dashboard.services.project_slack_actions import perform_cancel
+    result = perform_cancel(code, requester_ini, reason)
+    if not result.get('ok'):
+        rsn = result.get('reason', 'unknown')
+        msg = (f':information_source: `{code}` 는 이미 취소된 건입니다.'
+               if rsn == 'already_cancelled' else f':x: `{code}` 취소 실패: {rsn}')
         try:
-            client.chat_postEphemeral(channel=orig_channel, user=user_id,
-                text=f':information_source: `{code}` 는 이미 취소 처리된 건입니다.')
+            client.chat_postEphemeral(channel=orig_channel, user=user_id, text=msg)
         except Exception:
             pass
         return
 
-    proj_client = _project_client()
-    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
-    if proj_client is None or not channel_id:
-        logger.warning('[SLACK/공사취소] 공사봇/채널 미가용 — 요청 카드 발송 불가')
-        try:
-            client.chat_postEphemeral(channel=orig_channel, user=user_id,
-                text=f':x: `{code}` 취소 요청 카드 발송 실패(설정 오류). 관리자에게 문의해주세요.')
-        except Exception:
-            pass
-        return
-
-    biz = (project.get('사업자명') or '-').strip() or '-'
-    addr = (project.get('현장 주소') or '-').strip() or '-'
-    amt_disp = _project_cancel_amount_disp(project)
-    now_str = datetime.now().strftime('%m.%d %H:%M')
-    lines = [
-        f'🚫 *[공사 취소 요청]*  `{code}`',
-        '--------------------------------------------',
-        f'🏢 사업자명 : {biz}',
-        f'📍 현장 주소 : {addr}',
-        f'💰 취소 전 금액 : {amt_disp}',
-        f'📝 취소 사유 : {reason}',
-        f'👤 요청자 : {requester_ini}  {now_str}',
-        '--------------------------------------------',
-    ]
-    text = '⠀\n' + '\n'.join(lines)
-    blocks = [
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
-        {'type': 'context', 'elements': [{'type': 'mrkdwn',
-            'text': '경영지원이 :white_check_mark: 하면 취소가 반영되고 매출이 0원으로 처리됩니다.'}]},
-    ]
+    before_project = result.get('project') or {}
+    # 원본 공사확정 카드 회색 + 사유 댓글 (버튼이 눌린 원본 카드 = orig_channel/ts)
     try:
-        proj_client.conversations_join(channel=channel_id)
-    except Exception:
-        pass
-    resp = proj_client.chat_postMessage(channel=channel_id, text=text, blocks=blocks, unfurl_links=False)
-    if not resp.get('ok'):
-        logger.warning(f'[SLACK/공사취소] 요청 카드 발송 실패 ({code}): {resp}')
-        return
-    ts = resp.get('ts')
-    try:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        payload = {
-            'code': code, 'reason': reason,
-            'requester_id': user_id, 'requester_initial': requester_ini,
-            'orig_channel': orig_channel, 'orig_ts': orig_ts,
-            'biz': biz, 'addr': addr, 'amt_disp': amt_disp, 'requested_at': now_str,
-            'card_text': text,
-        }
-        rc.set(f'project_cancel_req:{channel_id}:{ts}',
-               json.dumps(payload, ensure_ascii=False, default=str),
-               ex=60 * 60 * 24 * 60)
+        apply_project_cancel_to_slack(code, before_project, requester_ini,
+                                      channel=orig_channel, ts=orig_ts,
+                                      send_dm=False, reason=reason)
     except Exception as exc:
-        logger.warning(f'[SLACK/공사취소] pending 저장 실패 ({code}): {exc}')
-    # 요청자 안내
+        logger.warning(f'[SLACK/공사취소] 원본 카드 반영 실패 ({code}): {exc}')
+    # 매출 0원 반영 요청 (샛별 ✅ 대기)
+    _send_cancel_money_request_card(before_project, reason, requester_ini, user_id)
     try:
         client.chat_postEphemeral(channel=orig_channel, user=user_id,
-            text=f':hourglass_flowing_sand: `{code}` 취소 요청을 전달했습니다. 경영지원 확인 후 반영됩니다.')
+            text=f':white_check_mark: `{code}` 취소 반영됨. 매출 0원 처리는 경영지원 확인 후 완료됩니다.')
     except Exception:
         pass
-    logger.info(f'[SLACK/공사취소] 취소 요청 카드 발송: {code} ts={ts} by {requester_ini}')
+    logger.info(f'[SLACK/공사취소] 취소 즉시 반영 + 매출0 요청: {code} by {requester_ini}')
 
 
-def _maybe_apply_cancel_request(client, channel: str, ts: str, checker_user_id: str) -> bool:
-    """✅(황샛별) on 공사 취소 요청 카드 → perform_cancel(매출0) 실행 + 원본 공사확정 카드 회색+사유댓글
-    + 요청 카드 '완료' 갱신 + 요청자 DM. 취소 요청 카드 아니면 False."""
+def _maybe_apply_cancel_money_request(client, channel: str, ts: str, checker_user_id: str) -> bool:
+    """✅(황샛별) on '매출 0원 반영 요청' 카드 → 총액 1=0 반영(apply_cancel_zero_total) + 카드 완료 갱신
+    + 요청자 DM. 재개된 건이면 skip. 해당 카드 아니면 False. (2026-09-16)"""
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
     except Exception:
         return False
-    key = f'project_cancel_req:{channel}:{ts}'
+    key = f'project_cancel_money_req:{channel}:{ts}'
     raw = rc.get(key)
     if not raw:
         return False
@@ -12210,61 +12215,63 @@ def _maybe_apply_cancel_request(client, channel: str, ts: str, checker_user_id: 
         return True
 
     code = data.get('code', '')
-    reason = data.get('reason', '')
     requester_id = data.get('requester_id', '')
     requester_ini = data.get('requester_initial', '-')
     checker_ini = _slack_user_to_initial(client, checker_user_id) or 'SB'
 
-    from dashboard.services.project_slack_actions import perform_cancel
-    result = perform_cancel(code, f'{requester_ini}→{checker_ini}', reason)
-    if not result.get('ok') and result.get('reason') != 'already_cancelled':
-        logger.warning(f'[SLACK/공사취소] ✅ 반영 실패 ({code}): {result.get("reason")}')
-        rc.delete(f'{key}:proc')  # 락만 해제 → 재클릭 재시도 허용
+    from dashboard.services.project_slack_actions import apply_cancel_zero_total
+    result = apply_cancel_zero_total(code, checker_ini)
+    if not result.get('ok'):
+        rsn = result.get('reason', '')
+        if rsn == 'not_cancelled':
+            rc.delete(key)  # 재개됨 → 매출0 불필요, pending 소비
+            try:
+                client.chat_postMessage(channel=channel, thread_ts=ts,
+                    text=f':information_source: `{code}` 는 취소가 해제(재개)되어 매출 0원 처리를 건너뜁니다.')
+            except Exception:
+                pass
+            return True
+        logger.warning(f'[SLACK/취소매출0] ✅ 반영 실패 ({code}): {rsn}')
+        rc.delete(f'{key}:proc')  # 재클릭 재시도 허용
         try:
             client.chat_postMessage(channel=channel, thread_ts=ts,
-                text=f':x: `{code}` 취소 반영 실패: {result.get("reason")}. 다시 시도해주세요.')
+                text=f':x: `{code}` 매출 0원 반영 실패: {rsn}. 다시 시도해주세요.')
         except Exception:
             pass
         return True
 
     rc.delete(key)  # pending 소비
-    before_project = result.get('project') or {}
-    # 원본 공사확정 카드 회색 + 사유 댓글 (샛별 DM skip — 승인자가 샛별 본인)
-    try:
-        apply_project_cancel_to_slack(code, before_project, requester_ini,
-                                      send_dm=False, reason=reason)
-    except Exception as exc:
-        logger.warning(f'[SLACK/공사취소] 원본 카드 반영 실패 ({code}): {exc}')
-    _mark_project_cancel_request_done(channel, ts, data, checker_ini)
+    _mark_project_cancel_money_done(channel, ts, data, checker_ini)
     _dm_project_cancel_done(requester_id, code, data, checker_ini)
-    logger.info(f'[SLACK/공사취소] ✅ 취소 반영 완료 {code} by {checker_ini} (요청 {requester_ini})')
+    logger.info(f'[SLACK/취소매출0] ✅ 매출 0원 반영 완료 {code} by {checker_ini} (요청 {requester_ini})')
     return True
 
 
-def _mark_project_cancel_request_done(channel: str, ts: str, data: dict, checker_ini: str) -> None:
-    """취소 요청 카드 → '✅ 취소 완료'로 갱신 (공사봇)."""
+def _mark_project_cancel_money_done(channel: str, ts: str, data: dict, checker_ini: str) -> None:
+    """매출 0원 반영 요청 카드 → '✅ 매출 0원 반영 완료'로 갱신 (공사봇)."""
     proj = _project_client()
     if proj is None:
         return
     orig = data.get('card_text', '') or ''
     now_str = datetime.now().strftime('%m.%d %H:%M')
-    new_text = orig.replace('🚫 *[공사 취소 요청]*', '✅ *[공사 취소 완료]*')
-    new_text += f'\n:white_check_mark: 반영 : {checker_ini}  {now_str} · 매출 0원 처리'
+    new_text = orig.replace('💰 *[공사 취소 — 매출 0원 반영 요청]*',
+                            '✅ *[공사 취소 — 매출 0원 반영 완료]*')
+    new_text += f'\n:white_check_mark: 반영 : {checker_ini}  {now_str} · 총액 0원 처리'
     try:
         proj.chat_update(channel=channel, ts=ts, text=new_text,
                          blocks=[{'type': 'section', 'text': {'type': 'mrkdwn', 'text': new_text}}])
     except Exception as exc:
-        logger.warning(f'[SLACK/공사취소] 요청 카드 완료 갱신 실패 (ts={ts}): {exc}')
+        logger.warning(f'[SLACK/취소매출0] 요청 카드 완료 갱신 실패 (ts={ts}): {exc}')
 
 
 def _dm_project_cancel_done(requester_id: str, code: str, data: dict, checker_ini: str) -> None:
-    """요청자에게 취소 반영 완료 DM (im:write 있는 메인봇)."""
+    """요청자에게 매출 0원 반영 완료 DM (im:write 있는 메인봇)."""
     if not requester_id:
         return
     lines = [
-        f':white_check_mark: *공사 취소 요청 반영 완료*  `{code}`',
+        f':white_check_mark: *공사 취소 — 매출 0원 반영 완료*  `{code}`',
         f'취소 사유 : {data.get("reason", "-")}',
-        f'\n경영지원({checker_ini})이 확인·반영했습니다. 매출은 0원으로 처리되었습니다.',
+        f'\n경영지원({checker_ini})이 확인했습니다. 매출(총액)이 0원으로 처리되었습니다.',
     ]
     text = '\n'.join(lines)
     dm = _dm_client()
@@ -12276,7 +12283,7 @@ def _dm_project_cancel_done(requester_id: str, code: str, data: dict, checker_in
         if dm_ch:
             dm.chat_postMessage(channel=dm_ch, text=text)
     except Exception as exc:
-        logger.warning(f'[SLACK/공사취소] 완료 DM 실패 (requester={requester_id}): {exc}')
+        logger.warning(f'[SLACK/취소매출0] 완료 DM 실패 (requester={requester_id}): {exc}')
 
 
 def _post_project_cancel_notice_card(

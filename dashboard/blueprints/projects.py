@@ -2960,16 +2960,17 @@ def _check_already_cancelled(project):
     return False, None, None
 
 
-def _prepare_cancel_updates(sheet_name, row_number, manager):
+def _prepare_cancel_updates(sheet_name, row_number, manager, spec: str = '공사 취소'):
     """공사 취소 배치 업데이트 준비 — 컬럼 레터를 get_field_to_letter()로 파생.
 
-    수금 관련 특이사항='공사 취소', 수금 확인=FALSE, 공사 확정=''.
+    수금 관련 특이사항=spec('공사 취소' 또는 '공사 취소 (사유: …)'), 수금 확인=FALSE, 공사 확정=''.
+    총액 1(매출)은 여기서 안 건드림 — 샛별 ✅ 후 apply_cancel_zero_total 에서 0 처리 (2026-09-16).
     하드코딩 레터 금지: 컬럼 시프트마다 엉뚱한 열에 write하는 데이터 파괴가
     반복돼서(2026-07, 2026-09) 필드명 → 레터 파생으로 전환. 이제 시프트 자동 정정.
     """
     col = manager.get_field_to_letter()
     return [
-        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['공사 취소']]},
+        {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [[spec or '공사 취소']]},
         {'range': f"{sheet_name}!{col['수금 확인']}{row_number}", 'values': [['FALSE']]},
         {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [['']]},
     ]
@@ -3004,16 +3005,23 @@ def _check_already_active(project, project_code):
     return False, None, None
 
 
-def _prepare_resume_updates(sheet_name, row_number, manager):
+def _prepare_resume_updates(sheet_name, row_number, manager, restore_total_1=None):
     """공사 재개 배치 업데이트 준비 — 컬럼 레터를 get_field_to_letter()로 파생.
 
-    수금 관련 특이사항='', 공사 확정=현재 날짜. (하드코딩 레터 금지 — 시프트 자동 정정)
+    수금 관련 특이사항='', 공사 확정=현재 날짜. restore_total_1 있으면 총액 1 원복(취소 시 0→원값).
+    (하드코딩 레터 금지 — 시프트 자동 정정)
     """
     col = manager.get_field_to_letter()
-    return [
+    updates = [
         {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['']]},
         {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [[datetime.now().strftime('%Y-%m-%d')]]},
     ]
+    if restore_total_1 is not None:
+        updates.append({
+            'range': f"{sheet_name}!{col['총액 1']}{row_number}",
+            'values': [[restore_total_1]],
+        })
+    return updates
 
 
 # ============================================
@@ -3148,7 +3156,8 @@ def _handle_cancel_sheet(payload: dict) -> None:
     sheet_name = payload['sheet_name']
     row_number = payload['row_number']
     project_code = payload.get('project_code', '')
-    updates = _prepare_cancel_updates(sheet_name, row_number, manager)
+    updates = _prepare_cancel_updates(sheet_name, row_number, manager,
+                                      spec=payload.get('spec', '공사 취소'))
     manager.batch_update_cells(sheet_id, updates)
     logger.info(f'[QUEUE/project_cancel] 시트 write 완료: {project_code}')
     # 배경색 (실패해도 큐 재시도 안 하도록 내부 try)
@@ -3306,7 +3315,8 @@ def _handle_resume_sheet(payload: dict) -> None:
     sheet_name = payload['sheet_name']
     row_number = payload['row_number']
     project_code = payload.get('project_code', '')
-    updates = _prepare_resume_updates(sheet_name, row_number, manager)
+    updates = _prepare_resume_updates(sheet_name, row_number, manager,
+                                      restore_total_1=payload.get('restore_total_1'))
     manager.batch_update_cells(sheet_id, updates)
     logger.info(f'[QUEUE/project_resume] 시트 write 완료: {project_code}')
     try:
@@ -3346,11 +3356,34 @@ def cancel_project_api():
         if is_cancelled:
             return response, status_code
 
+        # 2026-09-16: 취소 사유(필수, 프론트 강제) + 매출 0원은 경영지원 ✅ 후 별도 반영.
+        #   취소 상태는 즉시(여기서), 총액 1=0 은 #영업_관리 '매출 0원 반영 요청'→샛별 ✅ 후.
+        _reason = (data.get('reason') or '').strip()
+        _spec = f'공사 취소 (사유: {_reason})' if _reason else '공사 취소'
+        # 재개 복원용 스냅샷(공사확정일·수금확인·총액1) — perform_cancel(슬랙)과 동일 포맷
+        try:
+            import json as _json_c
+            from ..utils.redis_client import get_redis_client as _grc_c
+            _pay_raw = project.get('수금 확인')
+            _pay_orig = (_pay_raw is True
+                         or (isinstance(_pay_raw, str) and _pay_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
+                         or _pay_raw == 1)
+            _grc_c().redis.set(
+                f'project_cancel_snapshot:{project_code}',
+                _json_c.dumps({
+                    'confirmed_date': str(project.get('공사 확정', '') or '').strip(),
+                    'payment_confirmed': _pay_orig,
+                    'total_1': project.get('총액 1', ''),
+                }, ensure_ascii=False),
+                ex=60 * 60 * 24 * 365)
+        except Exception as _snap_exc:
+            logger.warning(f'[PM/취소] 스냅샷 저장 실패 ({project_code}): {_snap_exc}')
+
         # 4. 시트 write 를 큐로 위임 + 캐시 즉시 갱신 (2026-07-09 write-behind)
         try:
-            # 캐시 즉시 반영 — 사용자 응답 및 다음 read 에 즉시 노출
+            # 캐시 즉시 반영 — 사용자 응답 및 다음 read 에 즉시 노출 (총액은 아직 유지)
             cache_updated = update_project_in_cache(project_code, {
-                '수금 관련 특이사항': '공사 취소',
+                '수금 관련 특이사항': _spec,
                 '수금 확인': False,
                 '공사 확정': '',
             })
@@ -3364,6 +3397,7 @@ def cancel_project_api():
                 'sheet_name': sheet_name,
                 'row_number': row_number,
                 'project_code': project_code,
+                'spec': _spec,
             }, meta={'user_email': user_email})
             updated_cells = 3  # AH/AA/AM 3셀 예상값 (응답 호환용)
 
@@ -3375,7 +3409,7 @@ def cancel_project_api():
                 action='CANCEL_PROJECT',
                 field_name='수금 관련 특이사항',
                 old_value=project.get('수금 관련 특이사항', '-'),
-                new_value='공사 취소'
+                new_value=_spec
             )
 
             # 7. 업데이트된 프로젝트 데이터 구성 — 시트 재조회 대신 방금 write한 값을 로컬 반영
@@ -3385,7 +3419,7 @@ def cancel_project_api():
             # 옛 상태로 롤백하는 UX 버그. batch_update_cells 성공했다는 건 write가 확정됐다는
             # 뜻이므로 그 값을 그대로 쓰는 게 안전.
             updated_project = dict(project)
-            updated_project['수금 관련 특이사항'] = '공사 취소'
+            updated_project['수금 관련 특이사항'] = _spec
             updated_project['수금 확인'] = False
             updated_project['공사 확정'] = ''
             sanitized_project = sanitize_project_for_json(updated_project)
@@ -3419,14 +3453,22 @@ def cancel_project_api():
                     _delete_calendar_event(project_code)
                 except Exception as exc:
                     logger.debug(f"[BG/CALENDAR] {project_code} 캘린더 삭제 오류: {exc}")
-                # 슬랙 반영 — 공사확정 원본 카드 회색 업데이트 + 취소 댓글 + 샛별 DM
-                #   (PM 취소도 슬랙 버튼과 동일하게. 2026-09-15 샛별 요청)
+                # 슬랙 반영 — 공사확정 원본 카드 회색+사유 댓글 (2026-09-15 샛별 요청, 2026-09-16 사유)
+                #   샛별 DM 은 아래 '매출 0원 반영 요청' 카드가 대신 → send_dm=False.
                 try:
                     from .slack_bot import apply_project_cancel_to_slack
                     apply_project_cancel_to_slack(
-                        project_code, updated_project, _cancel_initial)
+                        project_code, updated_project, _cancel_initial,
+                        send_dm=False, reason=_reason)
                 except Exception as exc:
                     logger.warning(f"[BG/SLACK] {project_code} 취소 슬랙 반영 오류: {exc}")
+                # 매출 0원 반영 요청 카드 → #영업_관리 (샛별 ✅ 후 총액0). PM·슬랙 공용.
+                try:
+                    from .slack_bot import _send_cancel_money_request_card
+                    _send_cancel_money_request_card(
+                        updated_project, _reason, _cancel_initial, requester_id='')
+                except Exception as exc:
+                    logger.warning(f"[BG/SLACK] {project_code} 매출0 요청 카드 오류: {exc}")
 
             _th.Thread(target=_bg_side_effects, daemon=True).start()
 
@@ -3485,13 +3527,31 @@ def resume_project_api():
         if is_active:
             return response, status_code
 
+        # 2026-09-16: 취소 시 0으로 만든 매출(총액 1)을 스냅샷에서 복원.
+        _restore_total_1 = None
+        try:
+            import json as _json_r
+            from ..utils.redis_client import get_redis_client as _grc_r
+            _snap = _grc_r().redis.get(f'project_cancel_snapshot:{project_code}')
+            if _snap:
+                _sv = _snap.decode() if isinstance(_snap, bytes) else _snap
+                if _sv.strip().startswith('{'):
+                    _sd = _json_r.loads(_sv)
+                    if 'total_1' in _sd:
+                        _restore_total_1 = _sd['total_1']
+        except Exception as _snap_exc:
+            logger.warning(f'[PM/재개] 스냅샷 조회 실패 ({project_code}): {_snap_exc}')
+
         # 4. 시트 write 를 큐로 위임 + 캐시 즉시 갱신 (2026-07-09 write-behind)
         try:
             today_str = datetime.now().strftime('%Y-%m-%d')
-            cache_updated = update_project_in_cache(project_code, {
+            _cache_payload = {
                 '수금 관련 특이사항': '',
                 '공사 확정': today_str,
-            })
+            }
+            if _restore_total_1 is not None:
+                _cache_payload['총액 1'] = _restore_total_1
+            cache_updated = update_project_in_cache(project_code, _cache_payload)
             if not cache_updated:
                 invalidate_project_cache(project_code)
 
@@ -3501,8 +3561,14 @@ def resume_project_api():
                 'sheet_name': sheet_name,
                 'row_number': row_number,
                 'project_code': project_code,
+                'restore_total_1': _restore_total_1,
             }, meta={'user_email': user_email})
             updated_cells = 2  # AH/AM 2셀 예상값 (응답 호환용)
+            # 스냅샷 정리 (복원 반영 후)
+            try:
+                _grc_r().redis.delete(f'project_cancel_snapshot:{project_code}')
+            except Exception:
+                pass
 
             # 6. 감사 로그 기록 (동기 유지)
             _log_project_status_change(

@@ -3055,7 +3055,13 @@ export default class ProjectRowAccordion {
    * 공사 취소 처리
    */
   async cancelConstruction(projectCode) {
-    if (!confirm('공사를 취소하시겠습니까?\n취소 시 편집이 불가합니다.')) {
+    // 2026-09-16: 취소 사유 필수 입력. 매출(총액)=0 은 경영지원(샛별) 확인 후 반영.
+    const reason = (window.prompt(
+      '공사 취소 사유를 입력하세요 (필수).\n예: 고객 변심 / 타업체 진행 / 계약 해지\n\n' +
+      '※ 취소는 바로 반영되며, 매출 0원 처리는 경영지원 확인 후 완료됩니다.'
+    ) || '').trim();
+    if (!reason) {
+      this.showMessage?.('취소 사유를 입력해야 취소할 수 있습니다.', 'warning');
       return;
     }
 
@@ -3083,7 +3089,7 @@ export default class ProjectRowAccordion {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ projectCode }),
+          body: JSON.stringify({ projectCode, reason }),
           ..._to,
         }),
         _minShow,
@@ -3134,7 +3140,7 @@ export default class ProjectRowAccordion {
           }
         }));
 
-        this.showMessage('공사가 취소되었습니다.', 'success');
+        this.showMessage('공사가 취소되었습니다. (매출 0원 반영은 경영지원 확인 후)', 'success');
       } else {
         const err = new Error(result.error || '공사 취소에 실패했습니다.');
         if (result.error_id) err.error_id = result.error_id;

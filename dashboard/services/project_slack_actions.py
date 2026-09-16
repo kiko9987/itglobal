@@ -80,12 +80,12 @@ def _queue_batch_write(sheet_id: str, updates: list, tag: str) -> None:
 # 공사 취소
 # ─────────────────────────────────────────────────────────────
 def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[str, Any]:
-    """관리 사이트 [공사 취소] 버튼과 동일 효과.
+    """관리 사이트 [공사 취소] 버튼과 동일 효과 (취소 상태 즉시 반영).
 
-    수금 관련 특이사항='공사 취소'(+사유), 수금 확인=FALSE, 공사 확정='', 총액 1=0.
-    2026-09-16: 취소 시 매출(총액 1)을 0으로 반환(경영지원 요청) + 재개 시 원복 위해
-    총액 1 원본을 스냅샷에 보존. reason(취소 사유)은 특이사항 병기 + 감사로그.
-    감사 로그와 캐시 무효화까지 처리하고 결과 dict 반환.
+    수금 관련 특이사항='공사 취소'(+사유), 수금 확인=FALSE, 공사 확정=''.
+    2026-09-16 설계: **취소 상태는 즉시**, **매출(총액 1)=0 은 경영지원(황샛별) ✅ 후**
+    별도 적용(apply_cancel_zero_total). 재개 시 원복 위해 총액 1 원본을 스냅샷에 보존.
+    reason(취소 사유)은 특이사항 병기 + 감사로그. 감사 로그·캐시 무효화까지 처리.
     """
     project = _load_project(code)
     if not project:
@@ -129,12 +129,12 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
     _spec = f'공사 취소 (사유: {_reason})' if _reason else '공사 취소'
 
     # 관리 사이트 _prepare_cancel_updates 와 동일 — 컬럼 레터는 get_field_to_letter()로 파생(시프트 자동 정정)
+    # 취소 상태만 즉시 반영 — 총액 1(매출) 0 처리는 샛별 ✅ 후 apply_cancel_zero_total 에서.
     col = manager.get_field_to_letter()
     updates = [
         {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [[_spec]]},
         {'range': f"{sheet_name}!{col['수금 확인']}{row_number}", 'values': [['FALSE']]},
         {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [['']]},
-        {'range': f"{sheet_name}!{col['총액 1']}{row_number}", 'values': [[0]]},  # 매출 0 반환
     ]
 
     # 2026-07-09 write-behind: 시트 write 를 큐로 위임
@@ -150,7 +150,6 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
             '수금 관련 특이사항': _spec,
             '수금 확인': False,
             '공사 확정': '',
-            '총액 1': 0,
         })
         if not cache_updated:
             invalidate_project_cache(code)
@@ -161,7 +160,7 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
     _audit_log(
         user_email=f'slack:{by_display_name}',
         action='CANCEL_PROJECT',
-        details=(f'프로젝트 공사 취소: {code} (수금확인=FALSE, 공사확정일 초기화, 총액1=0)'
+        details=(f'프로젝트 공사 취소: {code} (수금확인=FALSE, 공사확정일 초기화)'
                  + (f' 사유: {_reason[:200]}' if _reason else '')),
         project_code=code,
         field_name='수금 관련 특이사항',
@@ -173,11 +172,74 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
     # 행 배경색 → 진한 회색 (관리 사이트와 동일 UX)
     _queue_bg_color(sheet_id, sheet_name, row_number, 'dark_grey', tag=f'slack_cancel_bg:{code}')
 
-    logger.info(f'[SLACK/취소] 완료: {code} by slack:{by_display_name}')
+    logger.info(f'[SLACK/취소] 완료(상태): {code} by slack:{by_display_name}')
     return {
         'ok': True,
         'project': project,  # 취소 전 스냅샷 (카드 UI 재렌더링용)
     }
+
+
+def apply_cancel_zero_total(code: str, by_display_name: str) -> Dict[str, Any]:
+    """공사 취소건의 매출(총액 1)을 0 처리 — 경영지원(황샛별) ✅ 후 호출 (2026-09-16).
+
+    취소 상태(특이사항='공사 취소')일 때만 적용(재개됐으면 skip). 원본 총액은 취소
+    스냅샷(project_cancel_snapshot)에 보존되어 재개 시 복원. 이미 0이면 no-op.
+    """
+    project = _load_project(code)
+    if not project:
+        return {'ok': False, 'reason': 'not_found'}
+    if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '') or ''):
+        return {'ok': False, 'reason': 'not_cancelled'}  # 재개됨 등 → 0 처리 안 함
+    cur = project.get('총액 1', '')
+    try:
+        cur_int = int(float(str(cur).replace(',', '').replace('₩', '').strip() or 0))
+    except (ValueError, TypeError):
+        cur_int = 0
+    if cur_int == 0:
+        return {'ok': True, 'already_zero': True, 'project': project}
+
+    manager, sheet_id, sheet_name = _get_sheet_context()
+    row_number = _find_row_number(manager, sheet_id, sheet_name, code)
+    if not row_number:
+        return {'ok': False, 'reason': 'row_not_found'}
+
+    # 스냅샷에 원본 총액 보강 (perform_cancel 이 저장했지만 방어적으로 없으면 채움)
+    try:
+        import json as _json
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        snap = rc.get(f'project_cancel_snapshot:{code}')
+        snap_d = {}
+        if snap:
+            sv = snap.decode() if isinstance(snap, bytes) else snap
+            if sv.strip().startswith('{'):
+                snap_d = _json.loads(sv)
+        if 'total_1' not in snap_d:
+            snap_d['total_1'] = cur
+            rc.set(f'project_cancel_snapshot:{code}',
+                   _json.dumps(snap_d, ensure_ascii=False), ex=60 * 60 * 24 * 365)
+    except Exception as exc:
+        logger.warning(f'[SLACK/취소매출0] 스냅샷 보강 실패 ({code}): {exc}')
+
+    col = manager.get_field_to_letter()
+    _queue_batch_write(sheet_id, [
+        {'range': f"{sheet_name}!{col['총액 1']}{row_number}", 'values': [[0]]},
+    ], tag=f'cancel_zero_total:{code}')
+    try:
+        from dashboard.services.project_service import (
+            update_project_in_cache, invalidate_project_cache)
+        if not update_project_in_cache(code, {'총액 1': 0}):
+            invalidate_project_cache(code)
+    except Exception as exc:
+        logger.warning(f'[SLACK/취소매출0] 캐시 갱신 실패 ({code}): {exc}')
+    _audit_log(
+        user_email=f'slack:{by_display_name}', action='CANCEL_ZERO_TOTAL',
+        details=f'공사 취소 매출 0원 반영: {code} (총액1 {cur_int:,}→0)',
+        project_code=code, field_name='총액 1',
+        old_value=str(cur), new_value='0', ip_address='slack-bot',
+    )
+    logger.info(f'[SLACK/취소매출0] 총액1=0 반영: {code} by {by_display_name}')
+    return {'ok': True, 'project': project, 'before_total_1': cur_int}
 
 
 def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
