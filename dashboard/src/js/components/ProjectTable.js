@@ -140,7 +140,6 @@ function _billAmountLines(row, stage) {
   const STAGES = ['계약금', '중도금', '잔금'];
   const amtOf = (s) => parseFloat(row[s] || 0);
   const tokOf = (s) => String(row[`${s} 계산서`] || '').trim();
-  const total2 = parseFloat(row['총액 2'] || row['총액2'] || 0);
   // 이 발행 단계 + 바로 앞의 연속된 '-'(통합발행 covered) 단계 금액 합 = 실제 발행 합계(VAT 포함)
   const idx = STAGES.indexOf(stage);
   let gross = amtOf(stage);
@@ -148,7 +147,7 @@ function _billAmountLines(row, stage) {
     if (tokOf(STAGES[i]) === '-') gross += amtOf(STAGES[i]);
     else break;   // '-'(covered) 아닌 단계 만나면 별도 발행 경계 → 합산 중단
   }
-  if (gross <= 0) gross = total2;
+  // (ⓑ) 선발행(입금 0)은 실제 발행액을 시스템이 모름 → 총액 추정 금지. gross>0 일 때만 표시.
   if (gross > 0) {
     const supply = Math.round(gross / 1.1);         // 공급가 (VAT 별도)
     lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);

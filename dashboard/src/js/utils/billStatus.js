@@ -133,6 +133,19 @@ export function normalizeToken(t) {
   return s; // 발행 / N입금 / 카드 / 미발행 / 기타
 }
 
+// 마지막 '발행' 단계 인덱스(없으면 -1). '-'가 (a)전체발행 covered와 (b)빈 행 두 의미로
+// 겹쳐 쓰이므로, covered는 **마지막 발행 앵커보다 앞 단계**의 '-'만 인정한다.
+// (전체발행 한 장=잔금에 발행, 계약금·중도금 '-' covered. 계약금만 발행이면 뒤 중도금·잔금
+//  '-'는 빈 행=미발행. 2026-09-16 R4112-SJ 선발행-부분 오인 fix.)
+export function lastIssuedIndex(row) {
+  let idx = -1;
+  BILL_STAGES.forEach((s, i) => {
+    const raw = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
+    if (normalizeToken(raw) === '발행') idx = i;
+  });
+  return idx;
+}
+
 /**
  * 단계별 컬럼 우선으로 상태 계산. 컬럼 비었으면 금액>0→미발행.
  * 3열 전부 비었는데 Y에 값 있으면 레거시 Y 파싱 폴백(미마이그레이션·구경로 방어).
@@ -145,11 +158,13 @@ export function computeBillStagesFromColumns(row) {
   // covered('-')는 그 행에 실제 '발행'이 있을 때만 유효(전체발행 한 장에 포함됨). '발행' 없이
   // '-'만 있으면 빈칸처럼 취급 → 입금 시 미발행으로 잡음 (Y요약 _bill_y_summary와 동일 규칙).
   const rawOf = (s) => String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
-  const hasIssued = BILL_STAGES.some((s) => normalizeToken(rawOf(s)) === '발행');
+  const lastIdx = lastIssuedIndex(row);
+  // covered = 마지막 발행 앵커보다 앞 단계의 '-'만 (뒤 '-'는 빈 행=미발행). '-' 겹침 존중.
+  const isCovered = (s) => rawOf(s) === '-' && BILL_STAGES.indexOf(s) < lastIdx;
   // 마지막 진행단계(입금 or 계산서 토큰). 수금완료 + 그 단계가 발행이면 전체발행 완료 → 앞 미발행 covered.
   const active = BILL_STAGES.filter((s) => toNum(row && row[s]) > 0 || normalizeToken(rawOf(s)));
   const anchor = active.length ? active[active.length - 1] : null;
-  const anchorInvoiced = anchor && (normalizeToken(rawOf(anchor)) === '발행' || (rawOf(anchor) === '-' && hasIssued));
+  const anchorInvoiced = anchor && (normalizeToken(rawOf(anchor)) === '발행' || isCovered(anchor));
   const fullDone = isFullyCollected(row) && anchorInvoiced;
   let anyCol = false;
   BILL_STAGES.forEach((s) => {
@@ -157,9 +172,9 @@ export function computeBillStagesFromColumns(row) {
     const v = normalizeToken(raw);
     // 전체발행 완료면 앞 단계 미발행/빈칸은 covered(none) — ⚠️ 안 뜸
     if (v) { result[s] = (v === '미발행') ? (fullDone ? 'none' : uninvoiced) : v; anyCol = true; }
-    else if (raw === '-' && hasIssued) { anyCol = true; /* covered = 전체발행 포함(발행됨) → none, ⚠️ 아님 */ }
+    else if (isCovered(s)) { anyCol = true; /* covered(마지막 발행 앞) = 발행됨 → none, ⚠️ 아님 */ }
     else if (toNum(row && row[s]) > 0) { result[s] = fullDone ? 'none' : uninvoiced; } // 빈칸+입금: 전체발행완료면 covered, 아니면 미발행
-    else if (raw === '-') { anyCol = true; /* 발행없는 '-'+금액0 = 표시할 것 없음 */ }
+    else if (raw === '-') { anyCol = true; /* 발행없는/뒤쪽 '-'+금액0 = 빈 행 */ }
   });
   if (!anyCol) {
     const y = String((row && row['계산서']) == null ? '' : row['계산서']).trim();
@@ -204,11 +219,14 @@ export function computeYSummary(stages, row) {
   });
   const vals = {};
   BILL_STAGES.forEach((s) => { vals[s] = normalizeToken(stages && stages[s]); });
-  // covered('-') = 전체발행 한 장에 포함되어 발행된 단계. 같은 행에 실제 '발행'이 있으면
-  //   covered도 발행완료로 취급(미발행 아님). '발행' 없이 '-'만 있으면 애매 → 빈칸 취급.
-  const hasIssued = BILL_STAGES.some((s) => vals[s] === '발행' || rawCol[s] === '발행' || rawCol[s] === '일반');
+  // covered('-') = 전체발행 한 장에 포함되어 발행된 단계 — **마지막 발행 앵커보다 앞 단계만**.
+  //   뒤쪽 '-'는 빈 행(미발행). '-' 겹침(covered vs 빈칸) 존중 (2026-09-16 R4112 fix).
+  let lastIdx = -1;
+  BILL_STAGES.forEach((s, i) => {
+    if (vals[s] === '발행' || rawCol[s] === '발행' || rawCol[s] === '일반') lastIdx = i;
+  });
   const cov = {};
-  BILL_STAGES.forEach((s) => { cov[s] = rawCol[s] === '-' && hasIssued; });
+  BILL_STAGES.forEach((s, i) => { cov[s] = rawCol[s] === '-' && i < lastIdx; });
   // active = 입금됐거나(amt>0) 계산서 토큰이 있는 단계 (입금 전 계산서 선발행 케이스 포함)
   const active = BILL_STAGES.filter((s) => amt[s] > 0 || vals[s]);
   if (!active.length) return '미발행'; // 입금도 계산서도 없음 → 미발행(앵커 없음, ⚠️ 아님)
@@ -232,12 +250,13 @@ export function computeYSummary(stages, row) {
  */
 export function computeInvoicedAmount(row) {
   let sum = 0;
-  BILL_STAGES.forEach((s) => {
+  const lastIdx = lastIssuedIndex(row);
+  BILL_STAGES.forEach((s, i) => {
     const raw = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
     const amt = toNum(row && row[s]);
-    // '발행' = 이 단계 세금계산서 발행. '-'+금액 = 전체발행(총액2 요청)에 포함된 단계(covered).
+    // '발행' = 이 단계 세금계산서 발행. '-'+금액 = 전체발행 covered(단, 마지막 발행 앞 단계만).
     // 현금(N입금)·카드는 세금계산서 아니라 제외.
-    if (normalizeToken(raw) === '발행' || (raw === '-' && amt > 0)) sum += amt;
+    if (normalizeToken(raw) === '발행' || (raw === '-' && amt > 0 && i < lastIdx)) sum += amt;
   });
   return sum;
 }
@@ -254,14 +273,14 @@ export function billAmountLines(row, stage) {
   if (biz) lines.push(biz);
   const amtOf = (s) => parseFloat((row && row[s]) || 0);
   const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
-  const total2 = parseFloat((row && (row['총액 2'] || row['총액2'])) || 0);
   const idx = BILL_STAGES.indexOf(stage);
   let gross = amtOf(stage);
   for (let i = idx - 1; i >= 0; i--) {          // 바로 앞의 연속된 '-'(covered) 단계 합산
     if (tokOf(BILL_STAGES[i]) === '-') gross += amtOf(BILL_STAGES[i]);
     else break;
   }
-  if (gross <= 0) gross = total2;
+  // (ⓑ) 선발행(입금 0)은 실제 발행액을 시스템이 모름(메모에만) → 총액2 추정 금지.
+  //   gross>0(실입금 커버)일 때만 금액 표시. 아니면 '발행완료'만 노출. 2026-09-16.
   if (gross > 0) {
     const supply = Math.round(gross / 1.1);     // 공급가 (VAT 별도)
     lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);
