@@ -2760,19 +2760,18 @@ def resolve_address(
             #   일치라 없는 도로/퍼지는 미승격 — 판교로 393 등).
             _juso_hit3 = _juso_fallback(text, None)
             _lv3 = 'verified' if (_juso_hit3 and _juso_hit3[1] == 'road') else 'raw'
-            # 지역 없는 입력 + 도로 전국 유일 → juso 가 아는 지역 접두 부착 (2026-09-11
-            #   L-03988): '풍초로 115'→'하남 풍초로 115'. _raw 에 시/도/구 없고 도로가 한
-            #   시/구에만 있을 때만(다도시 '중앙로 100' 등은 오확정 방지로 보류).
-            if _lv3 == 'verified':
+            # 지역/구 보정 (2026-09-11 L-03988 · 2026-09-16 L-04030): 도로가 전국 유일하면
+            #   행안부 base(지역·구·면 포함, 권위)로 도로+번지 앞부분을 **교체**(_raw 의
+            #   도로+번지 이후 tail=건물/호 는 보존). '풍초로 115'→'하남 풍초로 115',
+            #   '화성 정남면 신리길 43-25'→'화성 효행구 정남면 신리길 43-25'(효행구 보정).
+            #   prepend 아닌 rebuild 라 '화성 정남면'+base '화성 효행구 정남면' 중복(L-04030)
+            #   방지. 다도시 도로(중앙로 100 등)는 미보정(오확정 방지, _road_region_count).
+            if _lv3 == 'verified' and _juso_hit3:
                 _mcore = re.search(r'[가-힣]{2,}(?:로|길)\s*\d+(?:-\d+)?', _raw)
-                _has_reg = re.match(
-                    r'^(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|'
-                    r'전북|전남|경북|경남|제주|[가-힣]{2,}(?:시|군|구))(?:\s|$)', _raw)
-                if _mcore and not _has_reg and _road_region_count(_mcore.group(0)) == 1:
-                    _mreg = re.match(r'^(.+?)\s+(?=[가-힣]{2,}(?:로|길)\s*\d)',
-                                     _juso_hit3[0])
-                    if _mreg and _mreg.group(1).strip() and _mreg.group(1).strip() not in _raw:
-                        _raw = f'{_mreg.group(1).strip()} {_raw}'
+                if _mcore and _road_region_count(_mcore.group(0)) == 1:
+                    _tail = _raw[_mcore.end():].strip()
+                    _base = _juso_hit3[0]
+                    _raw = f'{_base} {_tail}'.strip() if _tail else _base
             return (_raw, _lv3)
 
     return ('', '')
