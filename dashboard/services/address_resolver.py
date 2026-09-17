@@ -186,6 +186,20 @@ _INST_PAREN_RE = re.compile(
     r'플라자|스퀘어|시티|타운|호텔|리조트|콘도|교회|성당|백화점|공장|연구원|연구소))\)'
 )
 
+# 단위 문자 대문자화 (2026-07-30 L-03475 · 2026-09-17 L-04038): 'a동/b호'뿐 아니라
+#   'b-104호'(글자 + -숫자 + 호)·'a101호'처럼 글자 뒤 (선택)대시+숫자 후 단위 접미가
+#   와도 대문자로. 앞이 라틴이 아닌 단독 1~2자만 (건물명 중간 e/kt 는 lookbehind 로 미대상).
+_UNIT_LETTER_RE = re.compile(
+    r'(?<![A-Za-z])([a-z]{1,2})(?=(?:-?\d+)?(?:동|호|층|관|호실|블록|블럭))'
+)
+
+
+def _upper_unit_letter(addr: str) -> str:
+    """건물 구역/유닛 앞 라틴 소문자를 대문자로 (b-104호 → B-104호)."""
+    if not addr:
+        return addr
+    return _UNIT_LETTER_RE.sub(lambda m: m.group(1).upper(), addr)
+
 
 def _post_normalize_display(addr: str) -> str:
     """normalize_display 이후 미세 표기 정정 — 우리 관행에 맞게 (2026-07-22).
@@ -326,7 +340,7 @@ def _post_normalize_display(addr: str) -> str:
         out.append(t)
     # 끝 마침표·공백 잔재 제거 (2026-08-25 L-03769): 고객이 '2ㅡ9.' 처럼 끝에 붙인 마침표
     #   가 '… 2-9 .' 로 남던 것 정리.
-    return re.sub(r'[\s.．]+$', '', ' '.join(out))
+    return _upper_unit_letter(re.sub(r'[\s.．]+$', '', ' '.join(out)))
 
 
 class _KakaoTransientError(Exception):
@@ -825,12 +839,9 @@ def _extract_building_tail(text: str) -> str:
         # 끝의 한국 사람 이름 제거 (예: "그로브리조트 정승종" → "그로브리조트")
         tail = _strip_personal_name(tail)
         # 단위 문자 대문자화 (2026-07-30 L-03475): 'a동/b호' 처럼 동·호 앞 라틴
-        #   소문자를 대문자로 (그랑트윈타워a동 → 그랑트윈타워A동). 앞이 라틴이 아닌
-        #   단독 1~2자만 (건물명 중간 소문자 e/kt 등은 미대상).
-        tail = re.sub(
-            r'(?<![A-Za-z])([a-z]{1,2})(?=동|호|층|관|블록|블럭)',
-            lambda _m: _m.group(1).upper(), tail,
-        )
+        #   소문자를 대문자로 (그랑트윈타워a동 → 그랑트윈타워A동). 'b-104호'(대시+숫자)도
+        #   커버 (2026-09-17 L-04038, 공용 _upper_unit_letter).
+        tail = _upper_unit_letter(tail)
 
         # 의미 있는 건물·층·호 신호 있는지 검증
         if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):
@@ -2772,7 +2783,9 @@ def resolve_address(
                     _tail = _raw[_mcore.end():].strip()
                     _base = _juso_hit3[0]
                     _raw = f'{_base} {_tail}'.strip() if _tail else _base
-            return (_raw, _lv3)
+            # 단위 문자 대문자화 (2026-09-17 L-04038): raw 폴백은 _post_normalize_display 를
+            #   안 거쳐 'b-104호' 소문자가 남던 갭 → 공용 헬퍼로 대문자화(문자열 정보 유실 0).
+            return (_upper_unit_letter(_raw), _lv3)
 
     return ('', '')
 
