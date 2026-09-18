@@ -8740,11 +8740,13 @@ def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -
             raise RuntimeError(f'lead_no {lead_no} 시트에서 못 찾음')
         sheet_row = int(matches.index[0]) + 2
 
-        # 새 L- 발번 (max L- + 1)
+        # 새 L- 발번 — 워터마크(lead_no_seq) 경유로 결번 재사용 방지 (온라인 sync 와 동일).
+        # 시트 max 만 보면 삭제된 번호(결번)를 재사용 → 시간역전/중복 위험. max(워터마크, 시트)+1.
         existing_nos = df['리드 No'].astype(str).str.extract(r'L-(\d+)')[0]
         existing_nos = _pd.to_numeric(existing_nos, errors='coerce').dropna()
-        next_no_int = int(existing_nos.max()) + 1 if len(existing_nos) > 0 else 1
-        new_lead_no = f"L-{next_no_int:05d}"
+        _sheet_max_l = int(existing_nos.max()) if len(existing_nos) > 0 else 0
+        from dashboard.services.lead_sync import _allocate_lead_numbers
+        new_lead_no = f"L-{_allocate_lead_numbers(_sheet_max_l, 1)[0]:05d}"
 
         cfg = _get_sheet_config()
         manager = get_sheets_manager()

@@ -216,8 +216,14 @@ def _generate_next_lead_no(df: Optional[pd.DataFrame]) -> str:
             except ValueError:
                 continue
 
-    # 시트의 패턴이 L-00001 (하이픈 + 5자리)이므로 그 포맷을 따름
-    return f"L-{max_number + 1:05d}"
+    # 시트의 패턴이 L-00001 (하이픈 + 5자리)이므로 그 포맷을 따름.
+    # 번호 재사용 방지: Redis 워터마크(lead_no_seq)와 시트 max 중 큰 값 기준 원자 발번
+    # (온라인 sync 와 동일). 삭제된 번호(결번)를 재사용하지 않아 단조 증가 보장.
+    try:
+        from dashboard.services.lead_sync import _allocate_lead_numbers
+        return f"L-{_allocate_lead_numbers(max_number, 1)[0]:05d}"
+    except Exception:
+        return f"L-{max_number + 1:05d}"
 
 
 def create_lead(lead_data: Dict[str, Any]) -> Dict[str, Any]:
