@@ -7318,14 +7318,25 @@ def _process_consult_submission(client, body, view):
                 logger.info(
                     f"[SLACK/상담] {lead_no} 다른 매니저 처리 중 — 중복 제출 무시"
                 )
-                # 슬랙 thread에 안내
-                if channel and message_ts:
+                # 제출한 본인에게만 ephemeral 안내 (카드 공개 댓글 X — 노이즈·오해 방지).
+                # 이미 처리 완료 상태면 "완료" 문구, 아직 진행 중이면 "처리 중" 문구.
+                if channel and user_id:
                     try:
-                        client.chat_postMessage(
-                            channel=channel, thread_ts=message_ts,
-                            text=f":warning: 다른 매니저가 `{lead_no}`를 동시에 처리 중이라 이번 제출은 무시했습니다. "
-                                 f"30초 후 다시 시도해주세요."
-                        )
+                        _cur = _find_lead_by_no(lead_no) or {}
+                        _st = str(_cur.get('상태') or '').strip()
+                        _done_sts = {'유선 상담', '방문 예약', '방문 완료',
+                                     '견적 제출', '문의 드랍', '부재중', '방문 취소'}
+                        if _st in _done_sts:
+                            _msg = (f":information_source: `{lead_no}` 는 이미 다른 매니저가 "
+                                    f"처리 완료했습니다 (상태: {_st}). 이번 제출은 무시됐습니다.\n"
+                                    f"내용을 추가·수정하려면 카드의 [✏️ 재상담] 을 이용해 주세요.")
+                        else:
+                            _msg = (f":hourglass_flowing_sand: 다른 매니저가 `{lead_no}` 를 동시에 "
+                                    f"처리 중이라 이번 제출은 무시됐습니다. 잠시 후 카드 상태를 확인해 주세요.")
+                        _kw = {'channel': channel, 'user': user_id, 'text': _msg}
+                        if message_ts:
+                            _kw['thread_ts'] = message_ts
+                        client.chat_postEphemeral(**_kw)
                     except Exception:
                         pass
                 return
