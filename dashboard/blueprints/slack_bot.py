@@ -6849,9 +6849,28 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         "original_text": original_text,
     }, ensure_ascii=False)
 
-    # 2026-07-12 mobile 대응 — placeholder + views_update 조합이 슬랙 mobile 앱
-    #   에서 반영 안 되는 이슈. 처음부터 full view 로 views_open. Lead 조회는 캐시
-    #   사용 (force_refresh=False) 로 빠르게. trigger_id 3초 유효 시간 안에 완료.
+    # ── expired_trigger_id 방지 (2026-09-20): trigger_id 는 3초 만료. 무거운
+    #   시트/리드 조회 전에 placeholder 모달을 먼저 열고(view_id 확보), 이후
+    #   full_view 로 views_update. view_id 는 만료가 없어 Redis 순단·시트 지연에도
+    #   모달이 항상 뜬다. (구: 조회 다 끝난 뒤 open → 순단 시 3초 초과로 만료 실패)
+    try:
+        _ph_resp = client.views_open(trigger_id=trigger_id, view={
+            "type": "modal",
+            "callback_id": "submit_consult",
+            "title": {"type": "plain_text", "text": "상담 처리"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "private_metadata": metadata,
+            "blocks": [{
+                "type": "section",
+                "text": {"type": "mrkdwn",
+                         "text": ":hourglass_flowing_sand: 모달 준비 중..."},
+            }],
+        })
+        _view_id = _ph_resp["view"]["id"]
+    except Exception as exc:
+        logger.error(f"[SLACK/상담] 모달 open 실패(placeholder): {exc}", exc_info=True)
+        return
+
     # lead_no 있으면 시트 조회 (인입 케이스 prefill) — 캐시 우선
     lead = _find_lead_by_no(lead_no) if lead_no else None
 
@@ -6955,26 +6974,12 @@ def _open_consult_modal(client, body, from_slash: bool = False):
     _modal_title = '재상담 처리' if sheet_status in _processed_statuses else '상담 처리'
     # full_view 의 title 을 재상담 여부에 맞게 덮어씀
     full_view['title'] = {'type': 'plain_text', 'text': _modal_title}
-    # 2026-07-12 datepicker 표시 원인 확인 위한 임시 revert — 이전 placeholder +
-    #   views_update 방식으로 되돌림. mobile 표시 vs datepicker 로케일 트레이드오프.
-    placeholder = {
-        "type": "modal",
-        "callback_id": "submit_consult",
-        "title": {"type": "plain_text", "text": _modal_title},
-        "close": {"type": "plain_text", "text": "취소"},
-        "private_metadata": metadata,
-        "blocks": [{
-            "type": "section",
-            "text": {"type": "mrkdwn",
-                     "text": ":hourglass_flowing_sand: 모달 준비 중..."},
-        }],
-    }
+    # placeholder 는 함수 시작에서 이미 열었다(_view_id). 완성된 full_view 로 갱신.
+    #   views_update 는 view_id 기반이라 trigger_id 3초 만료와 무관.
     try:
-        resp = client.views_open(trigger_id=trigger_id, view=placeholder)
-        view_id = resp["view"]["id"]
-        client.views_update(view_id=view_id, view=full_view)
+        client.views_update(view_id=_view_id, view=full_view)
     except Exception as exc:
-        logger.error(f"[SLACK/상담] 모달 open 실패: {exc}", exc_info=True)
+        logger.error(f"[SLACK/상담] 모달 갱신 실패: {exc}", exc_info=True)
 
 
 def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
