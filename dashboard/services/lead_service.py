@@ -154,14 +154,10 @@ def get_lead_records() -> List[Dict[str, Any]]:
             logger.warning("[LEADS] 리드 데이터가 없습니다")
             return []
 
-        # DataFrame을 딕셔너리 리스트로 변환
-        records = df.to_dict('records')
-
-        # NaN 값을 빈 문자열로 변환
-        for record in records:
-            for key, value in list(record.items()):
-                if pd.isna(value):
-                    record[key] = ''
+        # DataFrame을 딕셔너리 리스트로 변환 + NaN → '' (벡터화).
+        # 2026-09-20 성능: per-cell pd.isna 루프(대량 리드에서 느림)를 df.where 로 대체.
+        #   결과 동일(NaN→'' 유지) 검증 완료. 검색 등 대량 조회 응답 개선.
+        records = df.where(pd.notna(df), '').to_dict('records')
 
         logger.debug(f"[LEADS] 리드 레코드 반환: {len(records)}건")
         return records

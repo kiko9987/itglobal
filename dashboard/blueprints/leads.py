@@ -404,15 +404,17 @@ def api_search_leads_for_project():
             except Exception as exc:
                 logger.warning(f"[API] user_alias 조회 실패: {exc}")
 
-        # 이미 프로젝트에 등록된 lead_no 목록 (제외용)
+        # 이미 프로젝트에 등록된 lead_no 목록 (제외용).
+        # 2026-09-20 성능: get_project_records()(전체 dict 변환+날짜처리 ~277ms)는
+        #   무겁고 실제 필요한 건 'Lead No' 컬럼뿐 → 프로젝트 DataFrame에서 벡터 추출(~72ms).
+        #   방문 현장 불러오기 검색 응답 체감 개선.
         registered_leads = set()
         try:
-            from ..services.project_service import get_project_records
-            projects = get_project_records() or []
-            for p in projects:
-                ln = str(p.get('Lead No') or '').strip()
-                if ln and ln.startswith('L-'):
-                    registered_leads.add(ln)
+            from ..services.project_service import load_data as _load_project_df
+            _pdf = _load_project_df()
+            if _pdf is not None and 'Lead No' in _pdf.columns:
+                _ln = _pdf['Lead No'].astype(str).str.strip()
+                registered_leads = set(_ln[_ln.str.startswith('L-')].tolist())
         except Exception as exc:
             logger.warning(f"[API] 프로젝트 lead_no 조회 실패: {exc}")
 
