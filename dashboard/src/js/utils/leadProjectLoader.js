@@ -288,6 +288,11 @@ function applyLead(lead, opts) {
   const results = document.getElementById(opts.resultsId);
   if (results) hideResults(results);
 
+  // 모달별 로드 후처리 훅 (예: 온라인 유입 사업자등록증 미수령 자동 체크)
+  if (typeof opts.onLinked === 'function') {
+    try { opts.onLinked(lead); } catch (e) { console.warn('[LEAD_PROJECT_LOADER] onLinked error', e); }
+  }
+
   console.log('[LEAD_PROJECT_LOADER] linked lead:', lead.lead_no);
 }
 

@@ -312,6 +312,20 @@ export default class ModernProjectModal {
         address: 'modern-address',
         documentPath: 'modern-document-path',
       },
+      // 온라인 유입이고 사업자명이 아직 없으면 '사업자등록증 미수령' 자동 체크
+      // (상업/의료시설 사업자 고객이 기본 — 개인 고객이면 매니저가 해제). 2026-09-20 B.
+      onLinked: () => {
+        const clientEl = document.getElementById('modern-client');
+        const bizEl = document.getElementById('modern-business-name');
+        const pendingCheck = document.getElementById('modern-business-name-pending');
+        if (!clientEl || !pendingCheck) return;
+        const inflow = (clientEl.value || '').trim();
+        const bizVal = (bizEl?.value || '').trim();
+        if (inflow && inflow !== '거래처' && (!bizVal || bizVal === '-') && !pendingCheck.checked) {
+          pendingCheck.checked = true;
+          pendingCheck.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      },
     });
     logger.info('[ModernProjectModal] Lead-project loader initialized');
   }
@@ -498,34 +512,11 @@ export default class ModernProjectModal {
     const requiredMark = document.getElementById('modern-business-name-required');
     const pendingWrap = document.getElementById('modern-business-name-pending-wrap');
     const pendingCheck = document.getElementById('modern-business-name-pending');
-    const isPartner = clientSelect.value === '거래처';
+    const inflow = (clientSelect.value || '').trim();
+    const isPartner = inflow === '거래처';
 
-    if (isPartner) {
-      // 거래처 → 사업자명 필수. '미수령' 체크 시에만 비워둔 채 등록 허용.
-      if (pendingWrap) pendingWrap.style.display = '';
-      const pending = !!(pendingCheck && pendingCheck.checked);
-
-      if (pending) {
-        // 미수령: 입력 잠금 + 비움 (등록 후 사업자등록증 첨부 → OCR 자동 채움)
-        bizInput.value = '';
-        bizInput.readOnly = true;
-        bizInput.style.backgroundColor = '#e9ecef';
-        bizInput.style.cursor = 'not-allowed';
-        bizInput.removeAttribute('list');
-        bizInput.placeholder = '사업자등록증 수령 후 첨부 시 자동 기재';
-        if (requiredMark) requiredMark.style.display = 'none';
-      } else {
-        // 수령: 편집 가능 + 필수 표시
-        bizInput.readOnly = false;
-        bizInput.style.backgroundColor = '';
-        bizInput.style.cursor = '';
-        bizInput.setAttribute('list', 'modernBusinessNameList');
-        bizInput.placeholder = '사업자등록증명 (필수)';
-        if (bizInput.value === '-') bizInput.value = '';
-        if (requiredMark) requiredMark.style.display = '';
-      }
-    } else {
-      // 거래처 외 → '-' 고정, 편집 불가, 미수령 옵션 숨김/해제
+    // 유입 미선택 → '-' 고정, 미수령 옵션 숨김
+    if (!inflow) {
       if (pendingCheck) pendingCheck.checked = false;
       if (pendingWrap) pendingWrap.style.display = 'none';
       if (requiredMark) requiredMark.style.display = 'none';
@@ -534,7 +525,43 @@ export default class ModernProjectModal {
       bizInput.style.backgroundColor = '#e9ecef';
       bizInput.style.cursor = 'not-allowed';
       bizInput.removeAttribute('list');
-      bizInput.placeholder = '거래처 유입 시에만 입력';
+      bizInput.placeholder = '유입 구분 선택 후 입력';
+      return;
+    }
+
+    // 유입 선택됨(거래처·온라인 모두) → '미수령' 체크박스 노출.
+    // (2026-09-20 B: 온라인 유입도 사업자 고객이 많고 계산서 게이트상 등록증이 필수라
+    //  미수령 추적을 허용. 미수령=등록증 대기(빈칸→첨부 시 OCR 자동채움), 해제=개인/불요('-').)
+    if (pendingWrap) pendingWrap.style.display = '';
+    const pending = !!(pendingCheck && pendingCheck.checked);
+
+    if (pending) {
+      // 미수령: 입력 잠금 + 비움 (등록 후 사업자등록증 첨부 → OCR 자동 채움)
+      bizInput.value = '';
+      bizInput.readOnly = true;
+      bizInput.style.backgroundColor = '#e9ecef';
+      bizInput.style.cursor = 'not-allowed';
+      bizInput.removeAttribute('list');
+      bizInput.placeholder = '사업자등록증 수령 후 첨부 시 자동 기재';
+      if (requiredMark) requiredMark.style.display = 'none';
+    } else if (isPartner) {
+      // 거래처 수령: 편집 가능 + 필수 표시
+      bizInput.readOnly = false;
+      bizInput.style.backgroundColor = '';
+      bizInput.style.cursor = '';
+      bizInput.setAttribute('list', 'modernBusinessNameList');
+      bizInput.placeholder = '사업자등록증명 (필수)';
+      if (bizInput.value === '-') bizInput.value = '';
+      if (requiredMark) requiredMark.style.display = '';
+    } else {
+      // 온라인 + 미수령 해제 = 개인/등록증 불요 → '-' 고정 (직접입력은 거래처만)
+      if (requiredMark) requiredMark.style.display = 'none';
+      bizInput.value = '-';
+      bizInput.readOnly = true;
+      bizInput.style.backgroundColor = '#e9ecef';
+      bizInput.style.cursor = 'not-allowed';
+      bizInput.removeAttribute('list');
+      bizInput.placeholder = '';
     }
   }
 
