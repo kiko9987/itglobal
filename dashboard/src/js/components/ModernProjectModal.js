@@ -370,6 +370,9 @@ export default class ModernProjectModal {
       // 모달 먼저 즉시 표시 (UX 개선)
       this.modal.show();
 
+      // 금액 토글 라벨(부가세 별도/없음)·총액2 초기 동기화
+      this.updateAmount();
+
       // 데이터는 백그라운드에서 로딩 (await 제거)
       this.loadOptionsInBackground();
 
@@ -1000,6 +1003,12 @@ export default class ModernProjectModal {
 
     const amount = parseFloat(hiddenInput.value) || 0;
     const includeVAT = vatCheckbox?.checked || false;
+
+    // 토글 라벨 명확화 (매니저 혼동 방지 2026-09-20): 켜짐=부가세 별도(총액1에 부가세를
+    //   더해 총액2), 꺼짐=부가세 없음(총액2=총액1). 계산·저장(부가세 TRUE/FALSE)은 동일,
+    //   표기만 상태에 맞게 바꿈.
+    const vatLabel = document.querySelector('label[for="modern-vat-included"]');
+    if (vatLabel) vatLabel.textContent = includeVAT ? '부가세 별도' : '부가세 없음';
 
     const result = AmountCalculator.formatAmountDisplay(amount, includeVAT);
 
