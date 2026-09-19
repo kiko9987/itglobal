@@ -184,16 +184,21 @@ export default class ModernProjectModal {
 
       emailUnknownCheck.addEventListener('change', (e) => {
         if (e.target.checked) {
+          // 원래 이메일 보존(복원용) — 실제 값일 때만 저장. 그래야 해제 시 되살림.
+          const cur = (emailInput.value || '').trim();
+          if (cur && cur !== '-') emailInput.dataset.prevEmail = cur;
           emailInput.value = '-';
           emailInput.readOnly = true;  // disabled 대신 readOnly 사용 (FormData에 포함됨)
           emailInput.style.backgroundColor = '#e9ecef';  // 비활성화된 것처럼 보이게
           emailInput.style.cursor = 'not-allowed';
           this.hideEmailError();
         } else {
-          emailInput.value = '';
           emailInput.readOnly = false;
           emailInput.style.backgroundColor = '';
           emailInput.style.cursor = '';
+          // 보존해둔 원래 이메일 복원 (없으면 빈칸)
+          emailInput.value = emailInput.dataset.prevEmail || '';
+          delete emailInput.dataset.prevEmail;
         }
       });
     }
@@ -1998,6 +2003,7 @@ export default class ModernProjectModal {
       emailInput.readOnly = false;
       emailInput.style.backgroundColor = '';
       emailInput.style.cursor = '';
+      delete emailInput.dataset.prevEmail;  // 보존해둔 원래 이메일 정리 (잔여 복원 방지)
     }
 
     // 폴더 경로 입력 초기화
