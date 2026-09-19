@@ -477,12 +477,22 @@ export default class ModernProjectModal {
     const manualCheck = document.getElementById('modern-manual-input');
     const manual = !!(manualCheck && manualCheck.checked);
     const GRAY = '#e9ecef';
-    ['modern-site-manager', 'modern-manager-phone', 'modern-manager-email', 'modern-address'].forEach((id) => {
+    // 유입구분·주소·이메일은 불러오기 품질 위해 수동입력 토글로 잠금 유지.
+    ['modern-manager-email', 'modern-address'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       el.readOnly = !manual;
       el.style.backgroundColor = manual ? '' : GRAY;
       el.style.cursor = manual ? '' : 'not-allowed';
+    });
+    // 발주처 담당자·연락처는 문의자와 실제 발주처가 다를 수 있어 항상 편집 가능
+    //   (불러온 리드 값으로 프리필하되 수정 허용, 2026-09-20 사용자 요청).
+    ['modern-site-manager', 'modern-manager-phone'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.readOnly = false;
+      if (el.style.backgroundColor === GRAY) el.style.backgroundColor = '';
+      if (el.style.cursor === 'not-allowed') el.style.cursor = '';
     });
     // 유입구분 select — readOnly 미지원 → pointer-events/tabindex 로 잠금 (값은 불러오기가 설정·submit 유지)
     const client = document.getElementById('modern-client');
