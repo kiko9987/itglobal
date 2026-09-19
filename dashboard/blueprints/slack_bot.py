@@ -7314,7 +7314,8 @@ def _process_consult_submission(client, body, view):
             from dashboard.utils.redis_client import get_redis_client
             rc = get_redis_client().redis
             lock_key = f'consult_submit_lock:{lead_no}'
-            if not rc.set(lock_key, '1', nx=True, ex=30):
+            # 락 값에 처리자 user_id 저장 → 중복 제출 거부 시 "누가" 처리 중/완료인지 안내.
+            if not rc.set(lock_key, user_id, nx=True, ex=30):
                 logger.info(
                     f"[SLACK/상담] {lead_no} 다른 매니저 처리 중 — 중복 제출 무시"
                 )
@@ -7322,16 +7323,21 @@ def _process_consult_submission(client, body, view):
                 # 이미 처리 완료 상태면 "완료" 문구, 아직 진행 중이면 "처리 중" 문구.
                 if channel and user_id:
                     try:
+                        # 락 값(처리자 user_id) → 이니셜. 만료돼 없으면 "다른 매니저" 폴백.
+                        _holder = rc.get(lock_key)
+                        _holder = _holder.decode() if isinstance(_holder, bytes) else _holder
+                        _who = (_slack_user_to_initial(client, _holder) or '') if _holder else ''
+                        _who_txt = f"*{_who}* 님이" if _who else "다른 매니저가"
                         _cur = _find_lead_by_no(lead_no) or {}
                         _st = str(_cur.get('상태') or '').strip()
                         _done_sts = {'유선 상담', '방문 예약', '방문 완료',
                                      '견적 제출', '문의 드랍', '부재중', '방문 취소'}
                         if _st in _done_sts:
-                            _msg = (f":information_source: `{lead_no}` 는 이미 다른 매니저가 "
+                            _msg = (f":information_source: `{lead_no}` 는 이미 {_who_txt} "
                                     f"처리 완료했습니다 (상태: {_st}). 이번 제출은 무시됐습니다.\n"
                                     f"내용을 추가·수정하려면 카드의 [✏️ 재상담] 을 이용해 주세요.")
                         else:
-                            _msg = (f":hourglass_flowing_sand: 다른 매니저가 `{lead_no}` 를 동시에 "
+                            _msg = (f":hourglass_flowing_sand: {_who_txt} `{lead_no}` 를 "
                                     f"처리 중이라 이번 제출은 무시됐습니다. 잠시 후 카드 상태를 확인해 주세요.")
                         _kw = {'channel': channel, 'user': user_id, 'text': _msg}
                         if message_ts:
