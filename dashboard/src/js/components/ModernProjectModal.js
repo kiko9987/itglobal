@@ -480,8 +480,8 @@ export default class ModernProjectModal {
     const manualCheck = document.getElementById('modern-manual-input');
     const manual = !!(manualCheck && manualCheck.checked);
     const GRAY = '#e9ecef';
-    // 유입구분·주소·이메일은 불러오기 품질 위해 수동입력 토글로 잠금 유지.
-    ['modern-manager-email', 'modern-address'].forEach((id) => {
+    // 주소·유입구분만 불러오기 품질 위해 수동입력 토글로 잠금 유지 (주소=정규화 필요).
+    ['modern-address'].forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
       el.readOnly = !manual;
@@ -497,6 +497,15 @@ export default class ModernProjectModal {
       if (el.style.backgroundColor === GRAY) el.style.backgroundColor = '';
       if (el.style.cursor === 'not-allowed') el.style.cursor = '';
     });
+    // 이메일은 '확인 불가' 토글로만 제어 — 수동입력 껐다 켜면 이메일이 잠기던 버그 수정
+    //   (2026-09-20). 확인 불가 체크면 그대로(잠금 '-') 두고, 아니면 편집 가능하게 보장.
+    const emailEl = document.getElementById('modern-manager-email');
+    const emailUnknown = document.getElementById('modern-email-unknown-check');
+    if (emailEl && !(emailUnknown && emailUnknown.checked)) {
+      emailEl.readOnly = false;
+      if (emailEl.style.backgroundColor === GRAY) emailEl.style.backgroundColor = '';
+      if (emailEl.style.cursor === 'not-allowed') emailEl.style.cursor = '';
+    }
     // 유입구분 select — readOnly 미지원 → pointer-events/tabindex 로 잠금 (값은 불러오기가 설정·submit 유지)
     const client = document.getElementById('modern-client');
     if (client) {
