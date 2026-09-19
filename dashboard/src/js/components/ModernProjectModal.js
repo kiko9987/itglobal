@@ -524,9 +524,13 @@ export default class ModernProjectModal {
     const myOnlyWrap = document.getElementById('modern-lead-my-only')?.closest('.form-check');
     if (myOnlyWrap) myOnlyWrap.style.display = manual ? 'none' : '';
     // 수동 입력 토글 시 유입 구분 초기화 (이전 값 잔존 방지) — 안 하면 '거래처'가 남아
-    // 사업자명이 계속 편집 가능 상태로 남음. (리드 로드는 이 함수를 호출 안 하므로 불러온 유입은 보존)
+    // 사업자명이 계속 편집 가능 상태로 남음.
+    // 단, 방문 현장이 연결된 상태면 불러온 유입을 보존 (2026-09-20: 수동입력 체크 시
+    //   로드된 유입 구분이 '선택'으로 초기화되던 문제 수정).
+    const leadNoEl = document.getElementById('modern-lead-no');
+    const hasLinkedLead = !!(leadNoEl && (leadNoEl.value || '').trim());
     const clientSelForReset = document.getElementById('modern-client');
-    if (clientSelForReset) clientSelForReset.value = '';
+    if (clientSelForReset && !hasLinkedLead) clientSelForReset.value = '';
     // 사업자명 잠금(유입구분 연동)은 그대로 재적용
     this.syncBusinessNameLock();
   }
