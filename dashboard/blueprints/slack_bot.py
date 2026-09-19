@@ -7705,6 +7705,13 @@ def _process_consult_submission(client, body, view):
                     header_lines.append(f"상담 내용 : {_entries[0].get('content','').strip() or '-'}")
                 elif consultation:
                     header_lines.append(f"상담 내용 : {consultation}")
+                # 방문 예약: 방문일·방문 주소를 완료 헤더에도 표시 — 채팅(카카오톡) 인입은
+                #   원본 블록에 주소가 없어 원본 카드만으론 방문 주소를 못 봤음 (2026-09-20).
+                if is_visit:
+                    if visit_date_display:
+                        header_lines.append(f"방문일 : {visit_date_display}")
+                    if visit_address and visit_address != '-':
+                        header_lines.append(f"방문 주소 : {visit_address}")
                 # 매니저가 상담 모달에서 새 주소를 입력했으면(원본과 다름) 아카이브의
                 #   방문 주소 라인을 원본/변환 2줄로 갱신 — 유선/견적/드랍 등 방문예약
                 #   아닌 상담도 주소 정정이 카드에 반영되게 (2026-08-22 L-03750). 방문
