@@ -279,12 +279,18 @@ export function billAmountLines(row, stage) {
     if (tokOf(BILL_STAGES[i]) === '-') gross += amtOf(BILL_STAGES[i]);
     else break;
   }
-  // (ⓑ) 선발행(입금 0)은 실제 발행액을 시스템이 모름(메모에만) → 총액2 추정 금지.
-  //   gross>0(실입금 커버)일 때만 금액 표시. 아니면 '발행완료'만 노출. 2026-09-16.
+  // (ⓑ) 선발행(입금 0)은 실제 발행액을 결제칸으론 모름 → 총액2 추정 금지.
+  //   gross>0(실입금 커버)면 결제칸 기준 금액, 아니면(선발행) 계산서 메모에서 발행액 추출.
   if (gross > 0) {
     const supply = Math.round(gross / 1.1);     // 공급가 (VAT 별도)
     lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);
     lines.push(`합계 ${gross.toLocaleString()}원 (VAT 포함)`);
+  } else {
+    // 선발행: 발행액이 계산서 메모에만 있음 → 메모의 금액이 정확히 하나면 그 값 표시.
+    //   여럿(다단계 선발행)·없음이면 어느 단계 금액인지 모호해 생략(오표기 방지). 2026-09-20.
+    const memo = String((row && row['계산서_메모']) || '');
+    const amts = memo.match(/[\d,]+\s*원/g) || [];
+    if (amts.length === 1) lines.push(`발행액 ${amts[0].replace(/\s+/g, '')} (선발행)`);
   }
   return lines;
 }

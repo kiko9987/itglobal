@@ -147,11 +147,16 @@ function _billAmountLines(row, stage) {
     if (tokOf(STAGES[i]) === '-') gross += amtOf(STAGES[i]);
     else break;   // '-'(covered) 아닌 단계 만나면 별도 발행 경계 → 합산 중단
   }
-  // (ⓑ) 선발행(입금 0)은 실제 발행액을 시스템이 모름 → 총액 추정 금지. gross>0 일 때만 표시.
+  // (ⓑ) 선발행(입금 0)은 결제칸으론 발행액을 모름 → 총액 추정 금지.
+  //   gross>0이면 결제칸 기준, 아니면(선발행) 계산서 메모에서 발행액 추출(하나면 표시). 2026-09-20.
   if (gross > 0) {
     const supply = Math.round(gross / 1.1);         // 공급가 (VAT 별도)
     lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);
     lines.push(`합계 ${gross.toLocaleString()}원 (VAT 포함)`);
+  } else {
+    const memo = String(row['계산서_메모'] || '');
+    const amts = memo.match(/[\d,]+\s*원/g) || [];
+    if (amts.length === 1) lines.push(`발행액 ${amts[0].replace(/\s+/g, '')} (선발행)`);
   }
   return lines;
 }
