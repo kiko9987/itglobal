@@ -6021,7 +6021,8 @@ def _open_inquiry_modal(client, body, action: str):
     phone = str(lead.get('고객 연락처') or '').strip()
     email = str(lead.get('이메일') or '').strip()
     # 장소: split 결과만 있음 (시트 컬럼 없음). 값 없으면 UI 에서 생략.
-    place = parts['place'].strip()
+    # 끝의 대괄호 안내(예: "아파트 / 주거공간 [천장형만 가능]")는 표기에서 제거.
+    place = re.sub(r'\s*\[[^\]]*\]\s*$', '', parts['place'].strip()).strip()
     # 기기: 시트 '키워드' 컬럼 우선 (실제 저장 값), fallback split 결과.
     #   _meta_device 는 인메모리 전용이라 시트 재조회 시 사라짐 → 키워드 컬럼이 안전.
     device = str(lead.get('키워드') or '').strip() or parts['device'].strip()

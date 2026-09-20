@@ -1348,7 +1348,8 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     name = (lead.get('고객명') or '').strip() or '-'
     phone = (lead.get('고객 연락처') or '').strip() or '-'
     email = (lead.get('이메일') or '').strip() or '-'
-    place = (lead.get('_meta_place') or '').strip() or '-'
+    # 시공 장소 끝의 대괄호 안내(예: "아파트 / 주거공간 [천장형만 가능]")는 카드 표기에서 제거
+    place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
     device = (lead.get('_meta_device') or '').strip() or '-'
     # 인입 원본은 새 J열 '문의 내용' — 옛 K열 '상담 내용'은 fallback (마이그레이션 호환)
     # 전화 유입은 J='-' (인입 텍스트 없음) + K에 통화 내용 → '-' 를 빈값처럼 취급해 K로 넘어감
