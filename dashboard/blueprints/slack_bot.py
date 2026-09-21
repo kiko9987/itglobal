@@ -7731,8 +7731,11 @@ def _process_consult_submission(client, body, view):
                             _al = f'{_pfx}방문 주소 : {_conv_addr}{_badge}'
                         clean_text = (clean_text[:_m_addr.start()] + _al
                                       + clean_text[_m_addr.end():])
-                    else:
-                        # 인입 블록에 주소 라인 없음(카카오톡/채널톡) → '문의 내용' 앞 삽입
+                    elif not re.search(
+                            r'(?m)^(?:&gt;|>)?\s*(?:원본|변환) 주소\s*:', clean_text):
+                        # 인입 블록에 주소 라인이 전혀 없을 때만(카카오톡/채널톡) '문의 내용' 앞 삽입.
+                        #   이미 원본/변환 주소가 있으면(당근·큐플레이스·홈페이지) 삽입 안 함
+                        #   — 방문 주소 중복 3줄 방지 (2026-09-21 L-04065 회귀 수정).
                         _m_iq = re.search(
                             r'(?m)^((?:&gt;|>)?)\s*문의 내용\s*:', clean_text)
                         if _m_iq:
