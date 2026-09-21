@@ -532,34 +532,92 @@ def _juso_key() -> str:
     return os.getenv('JUSO_CONFM_KEY', '').strip()
 
 
+class _JusoTransientError(Exception):
+    """행안부 juso API 일시 실패(timeout/5xx/429/네트워크). lru_cache 가 캐시하면 안 됨."""
+
+
+# 재시도 대상 HTTP — 429 rate-limit, 5xx 일시 서버 오류.
+_JUSO_RETRY_STATUS = frozenset({429, 500, 502, 503, 504})
+
+
+def _juso_get_json(query: str):
+    """juso GET → JSON dict. 일시 실패(429/5xx/timeout/network)는 최대 3회 backoff 재시도,
+    소진 시 _JusoTransientError raise (호출측 lru_cache 가 실패를 캐시 안 하도록 → 순간 장애가
+    재시작까지 sticky 하며 **실재 주소가 verified 승격 못 받아 '주소 확인 필요' 오배지** 붙던
+    문제 방지, 2026-09-21 L-04066 · 카카오 L-03476 대칭). 키/빈쿼리·파싱오류는 None(영구
+    상태라 캐시 무방)."""
+    import http.client as _hc
+    import socket
+    import time as _t
+    key = _juso_key()
+    if not key or not query.strip():
+        return None
+    url = _JUSO_ENDPOINT + '?' + urllib.parse.urlencode({
+        'confmKey': key, 'currentPage': 1, 'countPerPage': 10,
+        'keyword': query.strip(), 'resultType': 'json',
+    })
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                data = json.loads(r.read().decode('utf-8'))
+        except urllib.error.HTTPError as exc:
+            if exc.code in _JUSO_RETRY_STATUS:
+                if attempt < 2:
+                    _t.sleep(0.4 * (attempt + 1))
+                    continue
+                raise _JusoTransientError()  # 재시도 소진
+            logger.debug(f'[JUSO] HTTP {exc.code}')
+            return None
+        except (socket.timeout, TimeoutError, _hc.IncompleteRead,
+                ConnectionError, OSError):  # URLError·socket.timeout 포함
+            if attempt < 2:
+                _t.sleep(0.4 * (attempt + 1))
+                continue
+            raise _JusoTransientError()
+        except Exception as exc:
+            logger.debug(f'[JUSO] {type(exc).__name__}: {query[:40]}')
+            return None
+        # errorCode E0001 '승인되지 않은 KEY' = 트래픽/버스트 rate 일시 초과 (승인된 키도
+        #   유입 몰리면 발생, 2026-09-21 L-04066 확인 — 몇 콜만으로도 뜨고 곧 회복). 영구
+        #   상태(잘못된 키)와 문자열은 같지만 우리 키는 정상 동작 이력이 있어 **일시**로 취급
+        #   → **즉시 raise**(캐시 금지, 재조회 무의미한 1.2s 지연 회피 — 버스트 창은 즉시
+        #   재시도로 안 풀림). rate 풀린 뒤 유입되는 실재 주소는 정상 verified 승격.
+        #   다른 errorCode(검색어 오류 E0009 등)는 그대로 반환 → () 로 영구 캐시.
+        _ec = str(((data.get('results') or {}).get('common') or {}).get('errorCode', ''))
+        if _ec == 'E0001':
+            raise _JusoTransientError()
+        return data
+    raise _JusoTransientError()
+
+
 @lru_cache(maxsize=512)
 def _juso_search_cached(query: str) -> tuple:
     """행안부 도로명주소 검색 — ((roadAddr, jibunAddr, bdNm), ...) 튜플.
 
-    오류·빈결과·키 미설정은 () 반환 (resolve 파이프라인 절대 안 막음).
+    빈결과·키 미설정·영구 오류(auth errorCode·파싱)는 () 반환. **일시 실패는
+    _JusoTransientError 를 raise** 해 lru_cache 가 실패를 캐시하지 않게 함(L-04066) →
+    호출부는 반드시 `_juso_search` 래퍼(일시 실패 → ()) 를 쓴다.
     roadAddr 는 '서울특별시 송파구 백제고분로19길 13 (잠실동)' 형태(법정동 괄호 포함).
     """
-    key = _juso_key()
-    if not key or not query.strip():
+    data = _juso_get_json(query)  # _JusoTransientError 는 lru_cache 미캐시
+    if not data:
         return ()
+    common = (data.get('results') or {}).get('common') or {}
+    if str(common.get('errorCode', '')) not in ('0', ''):
+        return ()
+    juso = (data.get('results') or {}).get('juso') or []
+    return tuple(
+        (j.get('roadAddr', '') or '', j.get('jibunAddr', '') or '',
+         j.get('bdNm', '') or '')
+        for j in juso
+    )
+
+
+def _juso_search(query: str) -> tuple:
+    """행안부 검색 공개 래퍼 — 일시 실패는 ()(캐시 미오염). 호출부는 이걸 사용."""
     try:
-        url = _JUSO_ENDPOINT + '?' + urllib.parse.urlencode({
-            'confmKey': key, 'currentPage': 1, 'countPerPage': 10,
-            'keyword': query.strip(), 'resultType': 'json',
-        })
-        with urllib.request.urlopen(url, timeout=5) as r:
-            data = json.loads(r.read().decode('utf-8'))
-        common = (data.get('results') or {}).get('common') or {}
-        if str(common.get('errorCode', '')) not in ('0', ''):
-            return ()
-        juso = (data.get('results') or {}).get('juso') or []
-        return tuple(
-            (j.get('roadAddr', '') or '', j.get('jibunAddr', '') or '',
-             j.get('bdNm', '') or '')
-            for j in juso
-        )
-    except Exception as exc:
-        logger.debug(f'[JUSO] {type(exc).__name__}: {query[:40]}')
+        return _juso_search_cached(query)
+    except _JusoTransientError:
         return ()
 
 
@@ -955,7 +1013,7 @@ def _maybe_upgrade_apartment_name(base: str, building_tail: str,
     # 행안부 bdNm 교차확인 (base = 정규화 도로명+번지)
     juso_bd = ''
     try:
-        for _ra, _ji, _bd in (_juso_search_cached(base) or ()):
+        for _ra, _ji, _bd in (_juso_search(base) or ()):
             if _bd:
                 juso_bd = _bd.strip()
                 break
@@ -2344,9 +2402,9 @@ def _juso_fallback(text: str, regex_addr: Optional[str]) -> Optional[Tuple[str, 
         query = f'{_reg_toks[0]} {core}'
     else:
         query = core
-    results = _juso_search_cached(query)
+    results = _juso_search(query)
     if not results and query != core:
-        results = _juso_search_cached(core)
+        results = _juso_search(core)
     if not results:
         return None
     _bound = re.compile(re.escape(core_ns) + r'(?![\d-])')
