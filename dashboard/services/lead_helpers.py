@@ -537,6 +537,16 @@ def extract_korean_address(text: str) -> Optional[Tuple[str, str]]:
             extended = _extend_address(text, addr, m.end())
             extended = re.sub(r'\s+', ' ', extended).strip()
 
+            # 계획 중 장소 표시 '(예정)'·'예정지' 보존 (2026-09-21 L-04066): ADDRESS_PATTERNS·
+            #   _extend 는 끝의 괄호 노트 '(예정)'(미개업 장소, [[project_lead_address_normalization]]
+            #   _mark_planned L-03600 대상)을 주소 패턴 밖이라 떨궈, 검증돼도 '변환'에서
+            #   (예정)이 사라지던 갭. 원문에 **명시적** 계획표시가 있고 결과에 없으면 되살림
+            #   → resolve_address 의 _mark_planned 가 'X (예정)' 로 정규화. '설치 예정'(동사구,
+            #   괄호·'지' 없음)은 미대상(검증 tail 절단 대상 유지).
+            if ('예정' not in extended
+                    and (re.search(r'\(\s*예정\s*\)', text) or '예정지' in text)):
+                extended = f'{extended} (예정)'
+
             if len(extended) >= 4:
                 return (extended, level)
     return None
