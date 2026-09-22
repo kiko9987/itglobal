@@ -880,6 +880,14 @@ def _register_payment_handlers(app):
             intake_channel = os.getenv('SLACK_PAYMENT_INTAKE_CHANNEL', '').strip()
             if not intake_channel or event.get('channel') != intake_channel:
                 return
+            # [DIAG-FWD 임시] forward(공유) 메시지 구조 확정용 — 첨부 있는 이벤트 전체 덤프.
+            # subtype/text 가드보다 앞에 둬 forward 가 어떤 subtype 으로 오든 잡는다. 확인 후 제거.
+            if event.get('attachments') and not event.get('bot_id'):
+                try:
+                    logger.info('[SLACK/수금봇][DIAG-FWD] %s'
+                                % json.dumps(event, ensure_ascii=False)[:4000])
+                except Exception:
+                    pass
             # 봇 메시지(자신의 카드 포함)·수정/삭제/파일 등 subtype 무시
             if event.get('bot_id') or event.get('subtype'):
                 return
