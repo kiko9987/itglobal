@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 LICENSE_FOLDER_NAME = '사업자등록증'
 LICENSE_BASENAME = '사업자등록증'
 DRIVE_SCOPES = ['https://www.googleapis.com/auth/drive']
+# Drive 일시 오류(5xx·429) 자동 재시도 횟수. googleapiclient 가 지수 백오프로 처리.
+# 2026-09-22 G4122-MJ 사업자등록증 업로드가 순간 HttpError 502(Bad Gateway)로 실패한 사고 —
+# 저장/조회 계열 Drive 호출에 재시도가 없어 구글 순단이 그대로 매니저 실패로 노출됨.
+_DRIVE_RETRIES = 4
 
 # 스레드별 Drive 클라이언트 (프로세스 싱글톤 금지).
 # googleapiclient(httplib2)는 thread-safe 하지 않아 여러 스레드가 한 인스턴스를 공유하면
@@ -109,7 +113,7 @@ def _find_license_subfolder(drive, parent_id: str) -> Optional[str]:
         fields='files(id,name)',
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
-    ).execute()
+    ).execute(num_retries=_DRIVE_RETRIES)
     files = resp.get('files', [])
     return files[0]['id'] if files else None
 
@@ -121,7 +125,9 @@ def _create_license_subfolder(drive, parent_id: str) -> str:
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': [parent_id],
     }
-    resp = drive.files().create(body=body, fields='id', supportsAllDrives=True).execute()
+    resp = drive.files().create(
+        body=body, fields='id', supportsAllDrives=True,
+    ).execute(num_retries=_DRIVE_RETRIES)
     return resp['id']
 
 
@@ -145,7 +151,7 @@ def _list_folder_files(drive, folder_id: str) -> list:
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
         pageSize=100,
-    ).execute()
+    ).execute(num_retries=_DRIVE_RETRIES)
     return resp.get('files', [])
 
 
@@ -353,7 +359,7 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
             drive.files().update(
                 fileId=f['id'], body={'name': backup_name},
                 fields='id', supportsAllDrives=True,
-            ).execute()
+            ).execute(num_retries=_DRIVE_RETRIES)
             logger.info(f'[LICENSE] 기존본 백업 전환: {nm} → {backup_name} (project={code})')
         except Exception as exc:
             logger.warning(f'[LICENSE] 기존본 백업 rename 실패 ({code}, {nm}): {exc}')
@@ -380,7 +386,7 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
         media_body=media,
         fields='id,name',
         supportsAllDrives=True,
-    ).execute()
+    ).execute(num_retries=_DRIVE_RETRIES)
     logger.info(f'[LICENSE] 저장 완료: {up["name"]} (project={code}, id={up["id"]})')
     invalidate_license_state(code)  # 상태 캐시 무효화 → PM 뱃지 즉시 최신 반영 (슬랙·PM 공통)
     # 등록증 실제 상호(OCR) 저장 → 재사용 인덱스를 실제 상호로 키잉(거래처명 오전파 방지).
@@ -637,7 +643,7 @@ def _copy_license_to_project(code: str, source: dict):
         r = drive.files().copy(
             fileId=src_id, body={'name': new_name, 'parents': [sub]},
             fields='id,name', supportsAllDrives=True,
-        ).execute()
+        ).execute(num_retries=_DRIVE_RETRIES)
     except Exception as exc:
         logger.warning(f'[LICENSE/REUSE] 복사 실패 ({code} ← {source.get("code")}): {exc}')
         return None
@@ -755,7 +761,7 @@ def trash_license_canonical(code: str) -> dict:
     try:
         drive.files().update(
             fileId=file_id, body={'trashed': True}, supportsAllDrives=True,
-        ).execute()
+        ).execute(num_retries=_DRIVE_RETRIES)
     except Exception as exc:
         logger.warning(f'[LICENSE] 휴지통 이동 실패 ({code}, {name}): {exc}')
         return {'ok': False, 'reason': 'drive_error'}
