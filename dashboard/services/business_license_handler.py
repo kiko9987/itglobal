@@ -17,6 +17,7 @@ Shared Drive 사용 중이라 모든 Drive API 호출에 supportsAllDrives=True 
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -147,7 +148,7 @@ def _list_folder_files(drive, folder_id: str) -> list:
     )
     resp = drive.files().list(
         q=q,
-        fields='files(id,name)',
+        fields='files(id,name,md5Checksum)',
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
         pageSize=100,
@@ -344,6 +345,40 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
     #   계산서에 계속 첨부되던 문제 → 반전.
     existing = _list_folder_files(drive, license_folder)
     expected_base = f'{code} {LICENSE_BASENAME}'
+
+    # md5 중복 가드 (2026-09-22): 새 파일이 기존 canonical 과 내용 동일(md5)이면 업로드 skip.
+    #   재업로드(매니저가 실패한 줄 알고 다시 올림)·502-실제저장 잔재로 같은 등록증이 백업본
+    #   (_N)으로 쌓이는 걸 방지. 상태/인덱스만 최신화 → 502-실제저장으로 '미첨부'로 남은 카드도
+    #   이때 자동 복구. 내용이 다른 정정본은 md5 가 달라 통과 → '최신=canonical' 로직 유지.
+    try:
+        _incoming_md5 = hashlib.md5(file_bytes).hexdigest()
+    except Exception:
+        _incoming_md5 = ''
+    if _incoming_md5:
+        for _f in existing:
+            _nm = _f.get('name', '')
+            if '.' not in _nm or _nm.rsplit('.', 1)[0] != expected_base:
+                continue  # canonical(정확 basename)만 비교 — 백업 _N 은 제외
+            if _f.get('md5Checksum') == _incoming_md5:
+                logger.info(
+                    f'[LICENSE] 동일 내용(md5) canonical 이미 존재 → 업로드 skip ({code}): {_nm}')
+                invalidate_license_state(code)  # 502-실제저장 등으로 어긋난 상태/뱃지 복구
+                try:
+                    _onb = _norm_biz(ocr_biz) if ocr_biz else ''
+                    if _onb:
+                        _set_file_biz(_f['id'], _onb)
+                except Exception:
+                    pass
+                try:
+                    _index_license_source(
+                        _project_norm_biz(code), code, _f['id'], _nm.rsplit('.', 1)[1].lower())
+                except Exception:
+                    pass
+                return {
+                    'ok': True, 'reason': 'duplicate_skip',
+                    'file_name': _nm, 'file_id': _f['id'], 'dedup': True,
+                }
+
     canonical_cleared = True  # 새 파일을 canonical 로 저장 가능한가 (같은 확장자 canonical 이 안 남았는가)
     for f in list(existing):
         nm = f.get('name', '')
