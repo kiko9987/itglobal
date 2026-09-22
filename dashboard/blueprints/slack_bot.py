@@ -880,14 +880,6 @@ def _register_payment_handlers(app):
             intake_channel = os.getenv('SLACK_PAYMENT_INTAKE_CHANNEL', '').strip()
             if not intake_channel or event.get('channel') != intake_channel:
                 return
-            # [DIAG-FWD 임시] forward(공유) 메시지 구조 확정용 — 첨부 있는 이벤트 전체 덤프.
-            # subtype/text 가드보다 앞에 둬 forward 가 어떤 subtype 으로 오든 잡는다. 확인 후 제거.
-            if event.get('attachments') and not event.get('bot_id'):
-                try:
-                    logger.info('[SLACK/수금봇][DIAG-FWD] %s'
-                                % json.dumps(event, ensure_ascii=False)[:4000])
-                except Exception:
-                    pass
             # 봇 메시지(자신의 카드 포함)·수정/삭제/파일 등 subtype 무시
             if event.get('bot_id') or event.get('subtype'):
                 return
@@ -910,34 +902,50 @@ def _register_payment_handlers(app):
                     pass
                 return
             text = (event.get('text') or '').strip()
-            if not text:
-                return
+            attachments = event.get('attachments') or []
             from dashboard.services.sms_intake import looks_like_payment, looks_like_cash
-            if not looks_like_payment(text) and not looks_like_cash(text):
-                return  # 입금 문자(은행)·현금 수령 아니면 조용히 무시 (잡담)
             user = event.get('user', '')
             ts = event.get('ts', '')
+            # 현금 수령자 미기재 시 올린 사람 이니셜로 채움 (YG/JW/SB = 곧 수령자)
+            poster_initial = _resolve_manager_initial(user) or ''
+
+            # 인입 세그먼트 수집: (텍스트, 수령자 이니셜)
+            #  · 본문 붙여넣기 → 올린 사람 이니셜 (현금 수령자 미기재 시 fallback)
+            #  · forward(공유 첨부) → 원 작성자(author_id) 이니셜. 매니저가 영업채널 글을
+            #    입금채널로 릴레이(전달)해도 collector 가 원 작성자로 정확히 잡힘. 포워더 코멘트
+            #    (event.text)는 잡담일 뿐이라 payment/cash 형태일 때만 별도 세그먼트로 처리.
+            segments = []  # list[(str, str)]
+            if text and (looks_like_payment(text) or looks_like_cash(text)):
+                segments.append((text, poster_initial))
+            for a in attachments:
+                atext = (a.get('text') or '').strip()
+                if not atext or not (looks_like_payment(atext) or looks_like_cash(atext)):
+                    continue
+                aid = (a.get('author_id') or '').strip()
+                a_recv = (_resolve_manager_initial(aid) if aid else '') or poster_initial
+                segments.append((atext, a_recv))
+            if not segments:
+                return  # 입금 문자(은행)·현금 수령·forward 아니면 조용히 무시 (잡담)
 
             def _bg():
                 try:
                     from dashboard.blueprints.sms_inbound import ingest_deposit
-                    # 여러 건 붙여넣기 대비 — 빈 줄로 블록 분리, 건별 처리
-                    blocks = [b.strip() for b in re.split(r'\n\s*\n', text) if b.strip()]
-                    if not blocks:
-                        blocks = [text]
                     made = dup = 0
-                    # 현금 수령자 미기재 시 올린 사람 이니셜로 채움 (YG/JW/SB = 곧 수령자)
-                    poster_initial = _resolve_manager_initial(user) or ''
-                    for blk in blocks:
-                        if not looks_like_payment(blk) and not looks_like_cash(blk):
-                            continue
-                        res = ingest_deposit(blk, source=f'channel:{user}',
-                                             cash_receiver=poster_initial)
-                        st = res.get('status')
-                        if st == 'ok':
-                            made += 1
-                        elif st == 'duplicate':
-                            dup += 1
+                    for seg_text, seg_recv in segments:
+                        # 여러 건 붙여넣기 대비 — 빈 줄로 블록 분리, 건별 처리
+                        blocks = [b.strip() for b in re.split(r'\n\s*\n', seg_text) if b.strip()]
+                        if not blocks:
+                            blocks = [seg_text]
+                        for blk in blocks:
+                            if not looks_like_payment(blk) and not looks_like_cash(blk):
+                                continue
+                            res = ingest_deposit(blk, source=f'channel:{user}',
+                                                 cash_receiver=seg_recv)
+                            st = res.get('status')
+                            if st == 'ok':
+                                made += 1
+                            elif st == 'duplicate':
+                                dup += 1
                     # 카드 생성/중복이면 원문에 ✅ 리액션 (reactions:write 없으면 무시)
                     if (made or dup) and ts:
                         try:
@@ -945,8 +953,8 @@ def _register_payment_handlers(app):
                                                  name='white_check_mark')
                         except Exception:
                             pass
-                    logger.info(f"[SLACK/수금봇] 채널 붙여넣기 인입: made={made} dup={dup} "
-                                f"blocks={len(blocks)} by {user}")
+                    logger.info(f"[SLACK/수금봇] 채널 인입: made={made} dup={dup} "
+                                f"segs={len(segments)} by {user}")
                 except Exception as exc:
                     logger.error(f"[SLACK/수금봇] 채널 메시지 인입 실패: {exc}", exc_info=True)
             threading.Thread(target=_bg, daemon=True).start()
