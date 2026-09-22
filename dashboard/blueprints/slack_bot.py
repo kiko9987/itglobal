@@ -727,17 +727,38 @@ def _register_payment_handlers(app):
                 channel = body["channel"]["id"]
                 message_ts = body["message"]["ts"]
                 user_id = (body.get("user") or {}).get("id", "")
+                # expired_trigger_id 방지 (2026-09-22): _load_intake(Redis) 전에
+                #   placeholder 먼저 열어 view_id 확보 → 이후 views_update. (수금 지정 모달 동일 사상)
+                try:
+                    _ph = client.views_open(trigger_id=body["trigger_id"], view={
+                        "type": "modal",
+                        "callback_id": "submit_payment_intake_split",
+                        "title": {"type": "plain_text", "text": "분할 지정"},
+                        "close": {"type": "plain_text", "text": "취소"},
+                        "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                                    "text": ":hourglass_flowing_sand: 모달 준비 중..."}}],
+                    })
+                    _view_id = _ph["view"]["id"]
+                except Exception as exc:
+                    logger.error(f"[SLACK/수금봇] 분할 모달 open 실패(placeholder): {exc}", exc_info=True)
+                    return
                 d = _load_intake(intake_id)
                 if not d.get("text"):
-                    _intake_ephemeral(client, channel, user_id,
-                                      ":information_source: 이미 확인·기록된 입금입니다.")
+                    # 이미 확인·기록된 입금 → placeholder 를 안내 메시지로 교체 (ephemeral 대체)
+                    client.views_update(view_id=_view_id, view={
+                        "type": "modal",
+                        "title": {"type": "plain_text", "text": "분할 지정"},
+                        "close": {"type": "plain_text", "text": "닫기"},
+                        "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                                    "text": ":information_source: 이미 확인·기록된 입금입니다."}}],
+                    })
                     return
                 total = int((d.get("preview") or {}).get("amount") or 0)
                 memo = d.get("text") or ""
                 prefilled = (d.get("designation") or {}).get("splits") or []
                 rows = max(2, len(prefilled))
                 view = _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, prefilled)
-                client.views_open(trigger_id=body["trigger_id"], view=view)
+                client.views_update(view_id=_view_id, view=view)
             except Exception as exc:
                 logger.error(f"[SLACK/수금봇] split_open 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -1062,6 +1083,32 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
     (황샛별)이 '확인 후 기록' 을 눌렀을 때만 반영된다. 여기선 '지정'만 한다.
     """
     trigger_id = body["trigger_id"]
+
+    # ── expired_trigger_id 방지 (2026-09-22): trigger_id 는 3초 만료. 무거운
+    #   Redis(_load_intake)·시트([재지정] get_project_details) 조회 전에 placeholder
+    #   모달을 먼저 열어(view_id 확보) 이후 full view 로 views_update 한다. view_id 는
+    #   만료가 없어 Redis 순단·시트 지연에도 모달이 항상 뜬다. (상담 모달 40612b7 동일 사상)
+    metadata = json.dumps({
+        "intake_id": intake_id, "channel": channel, "message_ts": message_ts,
+    })
+    try:
+        _ph_resp = client.views_open(trigger_id=trigger_id, view={
+            "type": "modal",
+            "callback_id": "submit_payment_intake",
+            "title": {"type": "plain_text", "text": "수금 지정"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "private_metadata": metadata,
+            "blocks": [{
+                "type": "section",
+                "text": {"type": "mrkdwn",
+                         "text": ":hourglass_flowing_sand: 모달 준비 중..."},
+            }],
+        })
+        _view_id = _ph_resp["view"]["id"]
+    except Exception as exc:
+        logger.error(f"[SLACK/수금봇] 수금 지정 모달 open 실패(placeholder): {exc}", exc_info=True)
+        return
+
     d = _load_intake(intake_id)
     text = d.get("text") or ""
     # [재지정] — 이전 지정값(프로젝트+단계) 미리 채움. 최초 [지정]은 designation 없음 → 빈 모달.
@@ -1079,7 +1126,7 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
         intake_id, channel, message_ts, text,
         selected_project=selected_project, project_details=project_details,
         stage_value=stage_value)
-    client.views_open(trigger_id=trigger_id, view=view)
+    client.views_update(view_id=_view_id, view=view)
 
 
 def _build_payment_intake_view(intake_id, channel, message_ts, text,
