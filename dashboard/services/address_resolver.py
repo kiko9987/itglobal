@@ -1636,10 +1636,18 @@ def _enrich_verified_address(
     #   유실(카카오 address.json 인덱싱 변동에 노출; verify=None 이면 _road_poi_fallback
     #   이 tail 보존). POI 이후, 원문 끝 '번지/호 + 다단어 상호'의 **상호(첫 단어)가 결과에
     #   전혀 없을 때만** 부착 → POI 가 이미 상호를 붙인 케이스(지점명 치환 등)는 중복 회피.
+    # 상호 뒤 전화번호 제거 (2026-09-22 L-04084): 고객이 상호 뒤에 전화를 붙이면
+    #   ('결헤어 미용실 02,308~0834') $ 앵커가 깨져 다단어 상호를 못 잡음. 끝의 전화형
+    #   숫자 blob(숫자 시작·끝 + 구분자[,.~-], 7자↑)만 제거 → 상호 매치 복원. append-only
+    #   라 오제거해도 무해(상호 못 찾으면 기존과 동일). '43-9'(4자)·'102호'(호 접미)는 미매치.
+    _mshop_line = re.sub(
+        r'\s+[\d][\d,.~\-]{5,}\d$', '',
+        original_text.split('\n')[-1].strip().rstrip('.'),
+    )
     _mshop2 = re.search(
         r'(?:[A-Za-z]?\d+(?:-\d+)?(?:호|층|번지|호실|관))\s+'
         r'([가-힣][가-힣A-Za-z0-9]{1,15}(?:\s+[가-힣][가-힣A-Za-z0-9]{1,15}){1,2})\s*$',
-        original_text.split('\n')[-1].strip().rstrip('.'),
+        _mshop_line,
     )
     if _mshop2:
         _phrase = _mshop2.group(1).strip()
