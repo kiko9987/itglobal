@@ -213,6 +213,23 @@ class TestCashDetectAndNormalize:
         assert normalize_cash_layout('255만원 현금 수령') \
             == f'{today}\n입금 2,550,000원\n현금 수령'
 
+    def test_delivery_title_chain(self):
+        # 매니저→상급자(대표/실장) 전달: 'collector → 최종수령' 체인 (2026-09-22 G4120-TH)
+        from datetime import datetime
+        today = datetime.now().strftime('%Y/%m/%d')
+        # 대표님 = YG, 박실장님/실장님 = JW
+        assert normalize_cash_layout('공사잔금 230만원 대표님 현금전달 완료', default_receiver='TH') \
+            == f'{today}\n입금 2,300,000원\n현금 수령 (TH → YG)'
+        assert normalize_cash_layout('현금 200만원 박실장님 전달', default_receiver='TH') \
+            == f'{today}\n입금 2,000,000원\n현금 수령 (TH → JW)'
+        # 최종수령 = 올린 사람과 같으면 체인 없이 단일 (대표 직접수령/실장 본인)
+        assert normalize_cash_layout('공사잔금 150만원 실장님 현금전달', default_receiver='JW') \
+            == f'{today}\n입금 1,500,000원\n현금 수령 (JW)'
+        assert normalize_cash_layout('대표님이 직접 현금 300만원 수령', default_receiver='YG') \
+            == f'{today}\n입금 3,000,000원\n현금 수령 (YG)'
+        # 통화 단어('만원')를 수령자로 오추출하지 않음
+        assert '만원' not in normalize_cash_layout('현금 300만원 수령', default_receiver='YG')
+
     def test_normalize_parses_back(self):
         # 변환 메모가 다운스트림 파서로 금액·거래처·날짜 정확히 파싱되는지 (핵심 계약)
         from dashboard.services.sms_intake import parse_preview

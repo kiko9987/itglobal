@@ -181,8 +181,32 @@ def _extract_cash_receiver(text: str) -> str:
     m = re.search(r'([A-Za-z]{2,4}|[가-힣]{2,3})\s*(?:가|이|께서)?\s*수령', text or '')
     if m:
         r = m.group(1).strip()
-        if r not in ('매니저', '현금'):   # 흔한 오추출 배제
+        if r not in ('매니저', '현금', '만원', '원', '천원'):   # 흔한 오추출·통화 단어 배제
             return r
+    return ''
+
+
+# 현금 전달 직함 → 이니셜 (2026-09-22 대표 지정). 현금이 매니저→상급자로 전달될 때
+# 직함이 '최종 수령자'를 가리킨다. 긴 키워드 먼저(박실장님→박실장→실장님).
+_CASH_TITLE_TO_INITIAL = (
+    ('박실장님', 'JW'), ('박실장', 'JW'), ('실장님', 'JW'),
+    ('대표님', 'YG'), ('대표', 'YG'),
+)
+
+
+def _cash_title_initial(name: str) -> str:
+    """이름/직함에 직함 키워드가 있으면 그 이니셜로 매핑, 없으면 원본 반환."""
+    for kw, ini in _CASH_TITLE_TO_INITIAL:
+        if kw in (name or ''):
+            return ini
+    return name
+
+
+def _extract_cash_delivered_to(text: str) -> str:
+    """현금 최종 수령(전달 대상) 직함 → 이니셜 ('대표님 전달'→'YG', '박실장 전달'→'JW'). 없으면 ''."""
+    for kw, ini in _CASH_TITLE_TO_INITIAL:
+        if kw in (text or ''):
+            return ini
     return ''
 
 
@@ -206,10 +230,17 @@ def normalize_cash_layout(text: str, default_receiver: str = '') -> str:
     if not date_full:
         from datetime import datetime
         date_full = datetime.now().strftime('%Y/%m/%d')   # 날짜 없으면 오늘(로그 시점)
-    receiver = _extract_cash_receiver(text) or (default_receiver or '').strip()
+    _raw = _extract_cash_receiver(text)
+    receiver = _cash_title_initial(_raw) if _raw else (default_receiver or '').strip()
+    # 매니저→상급자(대표/실장) 전달 시: 'collector → 최종수령' 체인 (2026-09-22 G4120-TH 계기).
+    delivered = _extract_cash_delivered_to(text)
+    if delivered and delivered != receiver:
+        label = f'{receiver} → {delivered}' if receiver else delivered
+    else:
+        label = receiver
     lines = [date_full,                    # 기업틀: 'YYYY/MM/DD' 날짜 헤더 (항상)
              f'입금 {amount:,}원',
-             f'현금 수령 ({receiver})' if receiver else '현금 수령']  # 입금자 자리
+             f'현금 수령 ({label})' if label else '현금 수령']  # 입금자 자리
     return '\n'.join(lines)
 
 
