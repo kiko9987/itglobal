@@ -17,6 +17,7 @@
 import os
 import re
 import base64
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -92,6 +93,43 @@ def _get_gmail_service():
     )
     delegated_creds = credentials.with_subject(delegated_user)
     return build('gmail', 'v1', credentials=delegated_creds, cache_discovery=False)
+
+
+def _gmail_execute(request, what: str = 'gmail', tries: int = 4):
+    """Gmail API 호출을 일시 오류에 한해 지수 백오프 재시도 후 실행.
+
+    구글 Gmail 백엔드 순단 대응: 5xx·429 + **400 failedPrecondition**.
+    failedPrecondition 은 구글이 간헐적으로 뱉는 일시 오류인데 400이라
+    googleapiclient 내장 num_retries(5xx·429만)로는 안 잡혀 별도 처리.
+    (2026-09-24 홈페이지 sync labels.list 가 이 오류로 1회 실패한 사고.)
+
+    request: `.execute()` 전의 googleapiclient 요청 객체(재실행 안전).
+    """
+    delay = 0.6
+    last = None
+    for attempt in range(1, tries + 1):
+        try:
+            return request.execute()
+        except HttpError as exc:
+            status = getattr(getattr(exc, 'resp', None), 'status', None)
+            try:
+                status = int(status)
+            except (TypeError, ValueError):
+                status = None
+            is_failed_precond = status == 400 and 'failedPrecondition' in str(exc)
+            transient = status in (429, 500, 502, 503, 504) or is_failed_precond
+            if not transient or attempt == tries:
+                raise
+            last = exc
+            logger.warning(
+                f'[SYNC/홈페이지] {what} 일시 오류(HttpError {status}'
+                f'{"/failedPrecondition" if is_failed_precond else ""}) — '
+                f'{attempt}/{tries} 재시도 {delay:.1f}s'
+            )
+            time.sleep(delay)
+            delay *= 2
+    if last:
+        raise last
 
 
 # ─────────────────────────────────────────────────────────────
@@ -364,18 +402,20 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────
 def _get_or_create_label(service, label_name: str) -> str:
     """라벨 ID 반환 (없으면 생성)"""
-    labels = service.users().labels().list(userId='me').execute().get('labels', [])
+    labels = _gmail_execute(
+        service.users().labels().list(userId='me'), 'labels.list',
+    ).get('labels', [])
     for lbl in labels:
         if lbl['name'] == label_name:
             return lbl['id']
-    new_label = service.users().labels().create(
+    new_label = _gmail_execute(service.users().labels().create(
         userId='me',
         body={
             'name': label_name,
             'labelListVisibility': 'labelShow',
             'messageListVisibility': 'show',
         },
-    ).execute()
+    ), 'labels.create')
     logger.info(f'[SYNC/홈페이지] Gmail 라벨 생성: {label_name}')
     return new_label['id']
 
@@ -383,10 +423,10 @@ def _get_or_create_label(service, label_name: str) -> str:
 def _mark_processed(service, msg_id: str, label_id: str) -> bool:
     """라벨 부착. 성공 여부 반환."""
     try:
-        result = service.users().messages().modify(
+        result = _gmail_execute(service.users().messages().modify(
             userId='me', id=msg_id,
             body={'addLabelIds': [label_id]},
-        ).execute()
+        ), 'messages.modify')
         # 라벨이 정말 추가됐는지 검증
         if label_id in result.get('labelIds', []):
             return True
@@ -416,9 +456,9 @@ def sync_homepage_email() -> Dict[str, Any]:
 
     # 미처리 메일 검색
     try:
-        results = service.users().messages().list(
+        results = _gmail_execute(service.users().messages().list(
             userId='me', q=_search_query(), maxResults=30,
-        ).execute()
+        ), 'messages.list')
         msg_list = results.get('messages', [])
     except HttpError as exc:
         logger.error(f'[SYNC/홈페이지] 메일 검색 실패: {exc}')
@@ -449,9 +489,9 @@ def sync_homepage_email() -> Dict[str, Any]:
     for msg_meta in msg_list:
         msg_id = msg_meta['id']
         try:
-            msg = service.users().messages().get(
+            msg = _gmail_execute(service.users().messages().get(
                 userId='me', id=msg_id, format='full',
-            ).execute()
+            ), 'messages.get')
         except Exception as exc:
             logger.error(f'[SYNC/홈페이지] 메일 가져오기 실패 ({msg_id}): {exc}')
             continue
