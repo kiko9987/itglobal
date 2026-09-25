@@ -1035,14 +1035,14 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
             #   미리보기로 자동 unfurl(embed). (blocks 대신 text 여야 unfurl 확실히 동작)
             #   상호·연락처 등 상세는 unfurl 미리보기에 다 뜨므로 헤더는 최소화.
             msg = (
-                f":soap: *새 에어컨 세척 견적 문의* — `{lead_no}`\n"
+                f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`\n"
                 f":round_pushpin: <{permalink}|온라인 세척 리드 카드에서 상세 보기>"
             )
         else:
             place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
             device = (lead.get('_meta_device') or '').strip() or '-'
             msg = (
-                f":soap: *새 에어컨 세척 견적 문의* — `{lead_no}`  {name} / {phone}\n"
+                f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`  {name} / {phone}\n"
                 f"세척 희망 장소: {place} / 세척 희망 기기: {device}\n"
                 f"_(온라인 채널 카드에서 상세 확인)_"
             )
