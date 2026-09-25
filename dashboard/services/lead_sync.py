@@ -1030,26 +1030,27 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
 
         name = (lead.get('고객명') or '').strip() or '-'
         phone = (lead.get('고객 연락처') or '').strip() or '-'
-        place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
-        device = (lead.get('_meta_device') or '').strip() or '-'
-        lines = [
-            f":soap: *새 에어컨 세척 견적 문의 접수*  `{lead_no}`",
-            f">*상호* : {name}   *연락처* : {phone}",
-            f">*세척 희망 장소* : {place}",
-            f">*세척 희망 기기* : {device}",
-        ]
         if permalink:
-            lines.append(f":point_right: <{permalink}|온라인 세척 리드 카드 열기 →>")
+            # 방문 예약 알림과 동일 방식 — text 에 permalink → 슬랙이 온라인 세척 카드를
+            #   미리보기로 자동 unfurl(embed). (blocks 대신 text 여야 unfurl 확실히 동작)
+            msg = (
+                f":soap: *새 에어컨 세척 견적 문의* — `{lead_no}`  {name} / {phone}\n"
+                f":round_pushpin: <{permalink}|온라인 세척 리드 카드에서 상세 보기>"
+            )
         else:
-            lines.append("_(카드 링크 생성 실패 — 온라인 채널에서 확인)_")
-
+            place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
+            device = (lead.get('_meta_device') or '').strip() or '-'
+            msg = (
+                f":soap: *새 에어컨 세척 견적 문의* — `{lead_no}`  {name} / {phone}\n"
+                f"세척 희망 장소: {place} / 세척 희망 기기: {device}\n"
+                f"_(온라인 채널 카드에서 상세 확인)_"
+            )
         from dashboard.blueprints.slack_helpers import safe_slack_call
         resp = safe_slack_call(
             client.chat_postMessage,
             channel=clean_channel,
-            text=f"새 에어컨 세척 견적 문의 {lead_no} {name}",
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}],
-            unfurl_links=False,
+            text=msg,
+            unfurl_links=True,   # 온라인 세척 카드 permalink 를 미리보기로 unfurl (방문 예약 동일)
         )
         if resp and resp.get('ok'):
             logger.info(f'[SYNC/세척] #세척_관리 알림 발송 ({lead_no})')
