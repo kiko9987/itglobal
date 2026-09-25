@@ -1036,7 +1036,7 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
             #   상호·연락처 등 상세는 unfurl 미리보기에 다 뜨므로 헤더는 최소화.
             msg = (
                 f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`\n"
-                f":round_pushpin: <{permalink}|온라인 세척 리드 카드에서 상세 보기>"
+                f":round_pushpin: <{permalink}|온라인 문의 채널에서 확인하기>"
             )
         else:
             place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
