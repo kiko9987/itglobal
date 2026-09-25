@@ -1033,8 +1033,9 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
         if permalink:
             # 방문 예약 알림과 동일 방식 — text 에 permalink → 슬랙이 온라인 세척 카드를
             #   미리보기로 자동 unfurl(embed). (blocks 대신 text 여야 unfurl 확실히 동작)
+            #   상호·연락처 등 상세는 unfurl 미리보기에 다 뜨므로 헤더는 최소화.
             msg = (
-                f":soap: *새 에어컨 세척 견적 문의* — `{lead_no}`  {name} / {phone}\n"
+                f":soap: *새 에어컨 세척 견적 문의* — `{lead_no}`\n"
                 f":round_pushpin: <{permalink}|온라인 세척 리드 카드에서 상세 보기>"
             )
         else:
