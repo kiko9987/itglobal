@@ -1362,6 +1362,14 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         or _pick(lead.get('상담 내용'))
         or '-'
     )
+    # 세척 견적 문의 감지 (2026-09-25) — 홈페이지 세척 랜딩 리드. 파서가 문의내용 앞에
+    #   [세척] 마커로 영속화(시트·재렌더 유지). 여기서 마커로 감지 → 배지 표시 + 표기에선 마커 제거.
+    is_clean_req = (lead.get('_meta_inquiry_type') or '').strip() == '세척'
+    if isinstance(inquiry, str) and inquiry.lstrip().startswith('[세척]'):
+        is_clean_req = True
+        inquiry = re.sub(r'^\s*\[세척\]\s*\n?', '', inquiry).strip() or '-'
+    place_label = '세척 장소' if is_clean_req else '설치 희망 장소'
+    device_label = '세척 대상 기기' if is_clean_req else '설치 희망 기기'
     # 슬랙 section text 3000자 한도 — 메타데이터 여유분 고려 안전선 2400자
     if len(inquiry) > 2400:
         inquiry = inquiry[:2400] + '\n…(내용이 길어 일부만 표시 — 시트 참조)'
@@ -1435,14 +1443,15 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     main_text = (
         "⠀\n"
         f">:bell: *{title}*  `{lead_no}`\n"
-        f">--------------------------------------------\n"
+        + (">🧼 *에어컨 세척 견적 문의*\n" if is_clean_req else "")
+        + f">--------------------------------------------\n"
         + repeat_section
         + f">*문의시간* : {consult_time}\n"
         f">*이름 / 상호* : {name}\n"
         f">*연락처* : {phone}\n"
         f">*이메일* : {email}\n"
-        f">*설치 희망 장소* : {place}\n"
-        f">*설치 희망 기기* : {device}\n"
+        f">*{place_label}* : {place}\n"
+        f">*{device_label}* : {device}\n"
         + f"{address_field}\n"
         + f">*문의 내용* : \n{inquiry_quoted}\n"
         f">--------------------------------------------"
@@ -1464,7 +1473,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
     ]
-    fallback_text = f"[{source}] {lead_no} {name} / {phone}"
+    fallback_text = f"[{source}]{' 🧼세척' if is_clean_req else ''} {lead_no} {name} / {phone}"
     return blocks, fallback_text
 
 

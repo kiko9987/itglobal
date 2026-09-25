@@ -256,10 +256,14 @@ def parse_mail_body(body: str) -> Dict[str, Any]:
         result['address_block'] = _safe_search(
             r'주소를 입력해 주세요\.\s*([\s\S]+?)\s*문의 내용', body
         ).strip()
-        # 문의 내용 — 라벨 뒤 부가 표기([장문 가능]) 흡수 후 실제 내용만
+        # 문의 내용 — 라벨 뒤 부가 표기([장문 가능]) 흡수 후 실제 내용만.
+        #   세척 랜딩(2026-09-25)은 폼 끝에 숨은 '문의유형' 필드를 붙여 보냄 → 그 값이
+        #   문의 내용에 섞이지 않도록 '문의유형'도 종료 앵커에 포함.
         result['details'] = _clean(
-            _safe_search(r'문의 내용[^\n]*\n\s*([\s\S]+?)(?:입력폼 관리하기|$)', body)
+            _safe_search(r'문의 내용[^\n]*\n\s*([\s\S]+?)(?:문의유형|입력폼 관리하기|$)', body)
         )
+        # 문의유형(설치/세척) — 세척 전용 랜딩이 숨은 라디오로 전송. 없으면 설치(기본).
+        result['inquiry_type'] = _safe_search(r'문의유형\s*\n\s*(\S[^\n]*)', body).strip()
 
     elif category == '게시판':
         result['inquiry_time'] = _safe_search(
@@ -328,6 +332,11 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
     device_raw = (parsed.get('device') or '').strip()
     device = clean_multiline(device_raw, sep=', ') if device_raw else '-'
     inquiry = (parsed.get('details') or '').strip()
+    # 문의유형(설치/세척) — 세척이면 내용 앞에 [세척] 마커를 붙여 영속화(시트·카드 재렌더까지
+    #   유지). 카드 빌더가 이 마커로 세척 배지를 표시하고, 표기 시 마커는 제거. (2026-09-25)
+    inquiry_type = (parsed.get('inquiry_type') or '').strip()
+    if inquiry_type == '세척':
+        inquiry = f'[세척]\n{inquiry}' if inquiry else '[세척]'
     name = (parsed.get('name') or '').strip()
     email = (parsed.get('email') or '').strip() or ''
 
@@ -392,6 +401,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         '_meta_place': place,
         '_meta_device': device,
         '_meta_inquiry': inquiry,
+        '_meta_inquiry_type': inquiry_type,    # 설치/세척 (세척 카드 배지·구분용)
         '_meta_address_level': extract_level,  # 신뢰도 표시용
         '_meta_address_raw': _addr_raw,        # 원본 주소 표시용 (원본/변환 2줄, 당근과 통일)
     }
