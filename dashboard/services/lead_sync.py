@@ -978,6 +978,9 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
                         f'[SYNC/{source}] 슬랙 응답에 ts 없음 ({ln}) — '
                         f'lead_card_msg 저장 스킵. orphan recovery 오탐 가능.'
                     )
+                # 세척 견적 리드면 #세척_관리 채널에 알림 + 온라인 카드 링크 (2026-09-25)
+                if msg_ts:
+                    _notify_clean_lead_channel(client, lead, ln, channel, msg_ts)
             else:
                 logger.error(f'[SYNC/{source}] 슬랙 전송 응답 not ok ({ln}): {resp}')
                 # post 실패 → 잠금 해제(다음 tick·orphan recovery 재시도 허용)
@@ -989,6 +992,71 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
         except Exception as exc:
             logger.error(f'[SYNC/{source}] 슬랙 전송 실패 ({ln}): {exc}')
     return sent
+
+
+def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
+                               card_channel: str, msg_ts: str) -> None:
+    """세척 견적 리드면 #세척_관리 채널에 알림 + 온라인 리드 카드 permalink 발송.
+
+    비차단(실패해도 리드 흐름 영향 없음). 온라인 카드는 그대로 온라인 채널에 남고,
+    #세척_관리 엔 "세척 문의 들어옴 + 카드 열기 링크" 만 크로스포스트한다.
+    채널 ID 는 SLACK_CLEAN_CHANNEL(기본 C0BG84DJRJQ = #세척_관리). 봇('온라인 문의 알림 봇')이
+    해당 채널에 초대돼 있어야 함(2026-09-25 초대 확인). (주의: C0893C7QKHP 는 #수금_관리 이므로 아님)
+    """
+    try:
+        itype = (lead.get('_meta_inquiry_type') or '').strip()
+        is_clean = itype == '세척' or str(lead.get('문의 내용') or '').lstrip().startswith('[세척]')
+        if not is_clean:
+            return
+        clean_channel = os.getenv('SLACK_CLEAN_CHANNEL', 'C0BG84DJRJQ').strip()
+        if not clean_channel:
+            return
+        # 중복 알림 방지 (orphan recovery 재발송 등) — lead_no 당 1회 (30일)
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            _rc = get_redis_client().redis
+            if not _rc.set(f'clean_notify:{lead_no}', '1', nx=True, ex=60 * 60 * 24 * 30):
+                return
+        except Exception:
+            pass  # redis 장애 — 알림 우선(중복 위험 감수)
+
+        permalink = ''
+        try:
+            pr = client.chat_getPermalink(channel=card_channel, message_ts=msg_ts)
+            if pr and pr.get('ok'):
+                permalink = pr.get('permalink', '') or ''
+        except Exception as exc:
+            logger.warning(f'[SYNC/세척] permalink 조회 실패 ({lead_no}): {exc}')
+
+        name = (lead.get('고객명') or '').strip() or '-'
+        phone = (lead.get('고객 연락처') or '').strip() or '-'
+        place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
+        device = (lead.get('_meta_device') or '').strip() or '-'
+        lines = [
+            f":soap: *새 에어컨 세척 견적 문의 접수*  `{lead_no}`",
+            f">*상호* : {name}   *연락처* : {phone}",
+            f">*세척 희망 장소* : {place}",
+            f">*세척 희망 기기* : {device}",
+        ]
+        if permalink:
+            lines.append(f":point_right: <{permalink}|온라인 세척 리드 카드 열기 →>")
+        else:
+            lines.append("_(카드 링크 생성 실패 — 온라인 채널에서 확인)_")
+
+        from dashboard.blueprints.slack_helpers import safe_slack_call
+        resp = safe_slack_call(
+            client.chat_postMessage,
+            channel=clean_channel,
+            text=f"새 에어컨 세척 견적 문의 {lead_no} {name}",
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}],
+            unfurl_links=False,
+        )
+        if resp and resp.get('ok'):
+            logger.info(f'[SYNC/세척] #세척_관리 알림 발송 ({lead_no})')
+        else:
+            logger.error(f'[SYNC/세척] #세척_관리 알림 not ok ({lead_no}): {resp}')
+    except Exception as exc:
+        logger.error(f'[SYNC/세척] #세척_관리 알림 실패 ({lead_no}): {exc}')
 
 
 def _post_addr_conflict_alert(new_lead_no: str, conflict: dict) -> bool:
@@ -1368,8 +1436,8 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     if isinstance(inquiry, str) and inquiry.lstrip().startswith('[세척]'):
         is_clean_req = True
         inquiry = re.sub(r'^\s*\[세척\]\s*\n?', '', inquiry).strip() or '-'
-    place_label = '세척 장소' if is_clean_req else '설치 희망 장소'
-    device_label = '세척 대상 기기' if is_clean_req else '설치 희망 기기'
+    place_label = '세척 희망 장소' if is_clean_req else '설치 희망 장소'
+    device_label = '세척 희망 기기' if is_clean_req else '설치 희망 기기'
     # 슬랙 section text 3000자 한도 — 메타데이터 여유분 고려 안전선 2400자
     if len(inquiry) > 2400:
         inquiry = inquiry[:2400] + '\n…(내용이 길어 일부만 표시 — 시트 참조)'
@@ -1443,8 +1511,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     main_text = (
         "⠀\n"
         f">:bell: *{title}*  `{lead_no}`\n"
-        + (">🧼 *에어컨 세척 견적 문의*\n" if is_clean_req else "")
-        + f">--------------------------------------------\n"
+        f">--------------------------------------------\n"
         + repeat_section
         + f">*문의시간* : {consult_time}\n"
         f">*이름 / 상호* : {name}\n"
@@ -1473,7 +1540,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         },
         {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
     ]
-    fallback_text = f"[{source}]{' 🧼세척' if is_clean_req else ''} {lead_no} {name} / {phone}"
+    fallback_text = f"[{source}] {lead_no} {name} / {phone}"
     return blocks, fallback_text
 
 
