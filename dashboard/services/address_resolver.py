@@ -1693,6 +1693,19 @@ def _extract_region_hint(verified_addr: str) -> str:
     return words[0] if words else ''
 
 
+def _region_prefix(addr: str) -> str:
+    """도로(로/길)·번지(숫자) 이전의 선두 지역 접두 전체 반환 (2026-09-28 L-04114).
+
+    '권선구 오목천로152번길 40'→'권선구', '수원 권선구 오목천로…'→'수원 권선구'. 시 접미
+    없는 축약형(수원·화성)도 포함해 비교 → 고객이 시를 빠뜨린('권선구'←수원 권선구) 케이스를
+    juso base 와 비교 시 감지(_extract_region_hint 는 둘 다 '권선구'라 놓침). 도로 없으면 전체.
+    """
+    if not addr:
+        return ''
+    m = re.search(r'[가-힣]{2,}(?:로|길)|\d', addr)
+    return (addr[:m.start()].strip() if m else addr.strip())
+
+
 def _road_key(addr: str) -> str:
     """주소에서 도로명+번지 정규화 키 추출 (`학동로 지하 102`, `지산2길 20-16`)."""
     m = re.search(
@@ -2811,10 +2824,24 @@ def resolve_address(
                 #   POI 공식 상호명(웰라스 피부과→웰라스피부과의원) 치환. 지역이 같으면
                 #   기존대로 문자열 유지 + level 만 승격(L-03671, 건물·호 유실 0).
                 _jbase = _juso_hit[0]
-                if _extract_region_hint(_jbase) != _extract_region_hint(addr):
-                    _new = _enrich_verified_address(_jbase, text, regex_addr)
-                    _new = _enrich_with_poi(_new, text)  # 상호 부착 후 공식명 치환
-                    return (_mark_planned(_post_normalize_display(_new)), 'verified')
+                # 지역 접두 전체 비교 (2026-09-28 L-04114): '권선구'(시 누락) vs juso
+                #   '수원 권선구' 처럼 시가 빠진 것도 감지(단일 힌트 비교는 둘 다 '권선구'라 놓침).
+                _jpre, _apre = _region_prefix(_jbase), _region_prefix(addr)
+                if _jpre != _apre:
+                    _jtok, _atok = _jpre.split(), _apre.split()
+                    if (_atok and len(_jtok) > len(_atok)
+                            and _jtok[-len(_atok):] == _atok):
+                        # 시 누락형 (권선구 ← 수원 권선구): 고객이 앞 시만 빠뜨림 → 빠진 시만
+                        #   앞에 붙이고 나머지(건물·호·상호)는 그대로 유지(juso 에 건물 없을 때
+                        #   재구성이 '첨단벤처밸리' 등을 드롭하는 것 방지, L-04114).
+                        addr = f"{' '.join(_jtok[:-len(_atok)])} {addr}".strip()
+                    else:
+                        # 지역 토큰 자체가 다름 (남구 ← 강남구): juso base 채택 재구성 —
+                        #   지역·공식 건물명(대치퍼스트빌딩) 반영 + 상호 부착 후 _enrich_with_poi
+                        #   재실행으로 POI 공식 상호명(웰라스 피부과→웰라스피부과의원) 치환 (L-04091).
+                        _new = _enrich_verified_address(_jbase, text, regex_addr)
+                        _new = _enrich_with_poi(_new, text)
+                        return (_mark_planned(_post_normalize_display(_new)), 'verified')
                 _lv = 'verified'
         return (addr, _lv)
 
