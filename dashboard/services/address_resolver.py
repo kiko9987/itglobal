@@ -2468,7 +2468,7 @@ def _juso_fallback(text: str, regex_addr: Optional[str]) -> Optional[Tuple[str, 
 #   고객이 '언주로107길'을 '언주로 107 길'로 띄어써 '언주로 107'(번지 107, 완전 다른
 #   위치=현대2차아파트)로 오파싱되던 심각 버그. 길 뒤가 공백/끝일 때만 조인('길동'
 #   같은 동명 오조인 방지). '번길'도 포함.
-_ROAD_GIL_SPACE_RE = re.compile(r'([가-힣]+(?:대?로))\s+(\d+)\s+(번?길)(?=\s|$)')
+_ROAD_GIL_SPACE_RE = re.compile(r'([가-힣]+(?:대?로))\s+(\d+)\s+(번?안?길)(?=\s|$)')  # 번안길·안길 가족 포함 (L-04089)
 
 
 def _join_road_gil(s: Optional[str]) -> Optional[str]:
