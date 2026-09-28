@@ -12886,14 +12886,20 @@ def _fmt_issued_warn(summary) -> str:
     return txt
 
 
-def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='', issued_warn='') -> dict:
+def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='', issued_warn='',
+                              total_amt=None) -> dict:
     """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28).
 
     partner_warn: 폐업/휴업 경고 문구. 있으면 헤더 바로 아래 section 으로 표시.
     issued_warn: 이미 발행된 계산서 안내. 있으면 '계산서 발행 금액' 입력 바로 위에 표시.
+    amt: '계산서 발행 금액' 입력 기본값(잔여 프리필 등). total_amt: '공사 금액(시트 원본)'
+         section 표시용 원본 총액(없으면 amt 사용). 잔여 프리필 시 둘을 분리해야 원본 총액이
+         잔여로 잘못 보이지 않음.
     """
     addr = addr or '-'
     amt = amt or '-'
+    if total_amt is None:
+        total_amt = amt
 
     def _text_input(block_id, label, value, multiline=False, optional=False, placeholder=''):
         el = {"type": "plain_text_input", "action_id": "value"}
@@ -12922,7 +12928,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
         _text_input("biz", "사업자명", biz),
         _text_input("addr", "현장 주소", addr),
         {"type": "section", "text": {"type": "mrkdwn",
-            "text": f"*공사 금액 (시트 원본)*\n{amt} 원"}},
+            "text": f"*공사 금액 (시트 원본)*\n{total_amt} 원"}},
     ]
     if issued_warn:
         # 이미 발행된 계산서 안내 — 발행 금액 입력 바로 위 (요청 전 인지)
@@ -12967,94 +12973,79 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     }
 
 
-def _refresh_invoice_modal_from_sheet(client, view_id, view_hash, code,
-                                       opened_biz, addr, amt, opened_email) -> None:
-    """계산서 모달 open 직후, 시트 최신값(사업자명·주소·이메일)으로 갱신.
+def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt, p_email) -> None:
+    """placeholder 모달 → 프로젝트 최신값 + 이미발행 잔여로 채워 views_update (2026-09-28).
 
-    [💰 계산서 요청] 버튼 payload 는 공사확정 발송 시점 스냅샷이라, 이후 웹/시트에서
-    채워진 사업자명 등을 못 따라감(예: G3901-SJ 발송 시 사업자명 빈값 → 이후 '(주)미덕원'
-    채워졌으나 버튼은 옛 값). open 은 payload 로 즉시(trigger 안전), 직후 views.update 로
-    최신값 반영 (2026-07-28).
+    placeholder-first 로 전환한 이유: 슬랙 input 은 open 시점에 값이 차 있으면 이후
+    views.update 로 값이 안 바뀜(빈 input 만 새 initial_value 적용). '발행 금액'을 잔여로
+    프리필하려면 input 이 '처음 생성될 때' 잔여여야 함 → placeholder(입력 없음) 뒤 전체 뷰로
+    갱신하면 그때 input 이 처음 생겨 잔여가 확실히 적용됨. (구 open-payload→refresh 방식은
+    payload 값이 고정돼 잔여가 무시되던 버그, R4124-JW.)
+
+    p_*: [계산서 요청] 버튼 payload 스냅샷(공사확정 발송 시점). 시트 최신값이 있으면 우선.
     """
     import re
     from dashboard.services.as_service import get_project_details
 
-    def _n(s):
-        return re.sub(r'\s+', '', str(s or '')).strip()
-
     d = get_project_details(code) or {}
-    fresh_biz = (d.get('biz') or '').strip()
-    fresh_addr = (d.get('address') or '').strip()
-    new_biz, new_addr, new_email = opened_biz, addr, opened_email
-    changed = False
-    if fresh_biz and fresh_biz != '-' and _n(fresh_biz) != _n(opened_biz):
-        new_biz = fresh_biz
-        changed = True
-        # 사업자명 최신화 → 거래처 탭 이메일(계산서용) 재계산 우선 반영
+    biz = (d.get('biz') or '').strip() or p_biz
+    addr = (d.get('address') or '').strip() or p_addr
+
+    # 총액(원본, 시트 최신 amount_raw 우선) — 콤마 포맷
+    _fresh_amt = (d.get('amount_raw') or '').strip()
+    if _fresh_amt.isdigit():
+        total_amt = f'{int(_fresh_amt):,}'
+    else:
+        _pd = re.sub(r'\D', '', str(p_amt or ''))
+        total_amt = f'{int(_pd):,}' if _pd else (str(p_amt or '').strip() or '-')
+
+    # 이메일 — 최신 사업자명 기준 거래처 탭 이메일(계산서용) 우선, 없으면 payload
+    email = p_email
+    if biz and biz != '-':
         try:
             from dashboard.services.partner_status_sync import get_cached_partner_email
-            _ce = get_cached_partner_email(fresh_biz)
+            _ce = get_cached_partner_email(biz)
             if _ce:
-                new_email = _ce
+                email = _ce
         except Exception:
             pass
-    if fresh_addr and fresh_addr != '-' and _n(fresh_addr) != _n(addr or ''):
-        new_addr = fresh_addr
-        changed = True
 
-    # 금액 최신화 (2026-08-03): [계산서 요청] payload 는 공사확정 발송 시점 스냅샷이라,
-    # 이후 공사 금액을 수정(웹/PM/경영지원 반영)하면 모달에 옛 금액이 뜸. 시트 최신
-    # 총액(amount_raw)으로 갱신. 모달 입력칸 형식(콤마 숫자, 원·VAT 텍스트 없음)에 맞춤.
-    new_amt = amt
-    _fresh_amt = (d.get('amount_raw') or '').strip()
-    if _fresh_amt.isdigit() and re.sub(r'[^\d]', '', str(amt or '')) != _fresh_amt:
-        new_amt = f'{int(_fresh_amt):,}'
-        changed = True
-
-    # 폐업/휴업 경고 — 최신 사업자명 기준으로 거래처 탭 상태 조회해 모달 헤더 하단 표시
-    partner_warn = _partner_status_warn(new_biz or opened_biz)
-
-    # 이미 발행된 계산서 — 잔여 금액으로 프리필 + 안내 (2026-09-28). 발행 이력 있으면
-    #   발행 금액 입력을 총액 대신 '잔여(공급가)'로 프리필해 전액 재요청 실수 방지.
+    # 이미 발행된 계산서 → 발행 금액 입력을 '잔여(공급가)'로 프리필 (전액 재요청 방지)
+    amt_input = total_amt
     issued_warn = ''
     try:
         _iss = _project_issued_invoice(code)
         if _iss and (_iss.get('issued_supply', 0) > 0 or _iss.get('uncertain')):
             issued_warn = _fmt_issued_warn(_iss)
-            # 금액이 확인된 경우만 잔여로 프리필. 미상(선발행 메모 불명)이면 경고만, 총액 유지.
-            if _iss.get('issued_supply', 0) > 0:
-                new_amt = f"{_iss['remaining_supply']:,}"
-            changed = True
+            if _iss.get('issued_supply', 0) > 0:  # 금액 확인된 경우만 잔여 프리필
+                amt_input = f"{_iss['remaining_supply']:,}"
     except Exception as _exc:
         logger.debug(f'[SLACK/계산서] 이미발행 계산 실패 ({code}): {_exc}')
 
-    # 사업자명·주소·금액이 바뀌었거나 경고가 있으면 모달 갱신
-    if not (changed or partner_warn or issued_warn):
-        return
+    partner_warn = _partner_status_warn(biz)
     metadata = json.dumps({"code": code}, ensure_ascii=False)
-    view = _build_invoice_modal_view(code, new_biz, new_addr, new_amt, new_email, metadata,
-                                     partner_warn=partner_warn, issued_warn=issued_warn)
+    view = _build_invoice_modal_view(code, biz, addr, amt_input, email, metadata,
+                                     partner_warn=partner_warn, issued_warn=issued_warn,
+                                     total_amt=total_amt)
     try:
-        client.views_update(view_id=view_id, hash=view_hash, view=view)
+        client.views_update(view_id=view_id, view=view)
         logger.info(
-            f'[SLACK/계산서] 모달 최신값 반영 ({code}): 사업자명={new_biz!r}'
-            + (' | ⚠️폐업/휴업 경고' if partner_warn else '')
+            f'[SLACK/계산서] 모달 빌드 완료 ({code}): 총액={total_amt} 발행금액프리필={amt_input}'
+            + (' | ⚠️폐업' if partner_warn else '') + (' | 📋이미발행' if issued_warn else '')
         )
     except Exception as exc:
-        # hash 불일치(매니저가 이미 입력 중) 등은 조용히 skip — 입력값 보존
-        logger.debug(f'[SLACK/계산서] 모달 views_update skip ({code}): {exc}')
+        logger.warning(f'[SLACK/계산서] 모달 views_update 실패 ({code}): {exc}')
 
 
 def _open_invoice_modal(client, body) -> None:
-    """[💰 계산서 요청] 클릭 → 프로젝트 정보 pre-fill 모달 오픈.
+    """[💰 계산서 요청] 클릭 → placeholder 즉시 오픈 후 BG 로 전체 뷰 채움.
 
-    2026-07-24 (Redis 손실 사고 후속): trigger_id 3초 제약 대응.
-      이전에는 모달 오픈 전 사업자등록증 검증 (Drive API) + 시트 최신값
-      재조회 (get_project_records, 3910행 로드) 를 수행했으나, Redis 캐시
-      손실 후 시트 재로드가 5~10초 걸려 trigger_id 만료 (expired_trigger_id)
-      로 모달 자체가 안 뜨는 사고. → payload snapshot 만으로 즉시 modal 오픈.
-      사업자등록증 검증·이메일 필수 판정은 submit 시 (_check_license) 로 위임.
-      submit 시 반려 → 매니저 재입력 UX.
+    2026-07-24: trigger_id 3초 제약 대응(무거운 조회를 open 전에 하지 않음).
+    2026-09-28 placeholder-first 전환: '발행 금액' 잔여 프리필이 슬랙 input 값 보존 특성상
+      input 이 처음 생성되는 시점(placeholder→전체 뷰 update)에 세팅돼야 반영됨. 그래서
+      open 은 placeholder(입력 없음)만 즉시 띄우고, 시트 최신값·이미발행 잔여 조회 후
+      _build_and_update_invoice_modal 로 전체 뷰를 views.update. 사업자등록증 검증·이메일
+      필수 판정은 submit 시(_check_license)로 위임(기존 유지).
     """
     trigger_id = body["trigger_id"]
     action = body["actions"][0]
@@ -13064,50 +13055,36 @@ def _open_invoice_modal(client, body) -> None:
         payload = {}
 
     code = payload.get('code', '') or '-'
-    biz = payload.get('biz', '') or ''
-    addr = payload.get('addr', '') or ''
-    amt = payload.get('amt', '') or ''
-    # pre-fill 시 콤마 자동 포맷 (사용자 가독성)
-    if amt.isdigit():
-        amt = f"{int(amt):,}"
-    # 발행 이메일 자동채움 (2026-07-28, 우선순위: 거래처 탭 > 발주처).
-    # 세금계산서 모달은 '계산서용' 이메일이 필요 — 거래처 탭 이메일(홈택스 발행
-    # 이력 기반)이 계산서용이라 **최우선**. 발주처 이메일(온라인 리드=견적용)은
-    # fallback (법인은 견적≠계산서 이메일이 흔함, 개인은 대개 동일). 매니저 수정 가능.
-    # trigger_id 3초 안전 (Redis HGET O(1)).
-    email = ''
-    if biz and biz != '-':
-        try:
-            from dashboard.services.partner_status_sync import get_cached_partner_email
-            email = get_cached_partner_email(biz) or ''
-        except Exception as _eexc:
-            logger.warning(f'[SLACK/계산서] 거래처 이메일 pre-fill 실패 (무시): {_eexc}')
-    if not email:
-        email = payload.get('email', '') or ''  # 발주처(견적) 이메일 fallback
-
+    p_biz = payload.get('biz', '') or ''
+    p_addr = payload.get('addr', '') or ''
+    p_amt = payload.get('amt', '') or ''
+    p_email = payload.get('email', '') or ''
     metadata = json.dumps({"code": code}, ensure_ascii=False)
 
-    # payload 스냅샷으로 즉시 오픈 (trigger_id 3초 안전).
-    view = _build_invoice_modal_view(code, biz, addr, amt, email, metadata)
+    # placeholder(입력 없음) 즉시 오픈 → trigger_id 3초 안전. 이후 BG 에서 전체 뷰로
+    #   views.update (input 이 그때 처음 생겨 잔여 프리필이 확실히 적용됨).
     try:
-        resp = client.views_open(trigger_id=trigger_id, view=view)
+        resp = client.views_open(trigger_id=trigger_id, view={
+            "type": "modal", "callback_id": "submit_invoice",
+            "private_metadata": metadata,
+            "title": {"type": "plain_text", "text": "세금계산서 발행 요청"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                       "text": ":hourglass_flowing_sand: 프로젝트 정보 불러오는 중..."}}],
+        })
     except Exception as exc:
-        logger.warning(f'[SLACK/계산서] 모달 오픈 실패: {exc}')
+        logger.warning(f'[SLACK/계산서] 모달 placeholder 오픈 실패: {exc}')
+        return
+    view_id = ((resp or {}).get('view') or {}).get('id', '')
+    if not view_id:
         return
 
-    # 버튼 payload 는 공사확정 발송 시점 값 → 이후 채워진 사업자명·주소·이메일을
-    # 백그라운드로 재조회해 views.update 로 반영 (2026-07-28, G3901-SJ 계기).
-    _view = (resp or {}).get('view') or {}
-    view_id, view_hash = _view.get('id', ''), _view.get('hash', '')
-    if view_id:
-        def _bg_refresh():
-            try:
-                _refresh_invoice_modal_from_sheet(
-                    client, view_id, view_hash, code, biz, addr, amt, email,
-                )
-            except Exception as exc:
-                logger.warning(f'[SLACK/계산서] 모달 최신값 반영 실패 (무시): {exc}')
-        threading.Thread(target=_bg_refresh, daemon=True).start()
+    def _bg_build():
+        try:
+            _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt, p_email)
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] 모달 전체 뷰 빌드 실패 ({code}): {exc}')
+    threading.Thread(target=_bg_build, daemon=True).start()
 
 
 def _notify_invoice_submit_error(client, channel_id: str, user_id: str,
