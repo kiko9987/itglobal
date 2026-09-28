@@ -9232,7 +9232,9 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
         if platform in ('거래처', '기타', '소개'):
             category_display = platform
         else:
-            category_display = f"온라인({platform})" if platform else '온라인'
+            # '온라인 (플랫폼)' 공백 유지 — 생성 경로(8523)·타 재구성(5762)과 통일
+            #   (2026-09-28 L-04114: 여기만 공백 빠져 [정보 수정] 재렌더 시 '온라인(당근)' 붙던 갭)
+            category_display = f"온라인 ({platform})" if platform else '온라인'
         # 등록자는 **원 등록자**(영업 담당자 > 온라인 상담자, 시트) 유지 — [정보 수정]
         #   편집자로 덮어쓰지 않음(생성 경로와 일관). 기존엔 body['user'](편집자)를 등록자
         #   자리에 넣어, A 등록건을 B가 수정하면 카드 등록자가 A→B로 뒤바뀌던 버그.
