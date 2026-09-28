@@ -12834,7 +12834,15 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
                 "initial_option": {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
                 "options": [
                     {"text": {"type": "plain_text", "text": "VAT 별도"}, "value": "sep"},
-                    {"text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl"},
+                    {
+                        "text": {"type": "plain_text", "text": "VAT 포함"}, "value": "incl",
+                        # 옵션 description 으로 경고 노출 (슬랙 모달은 텍스트 색상 미지원 → ⚠️ 이모지)
+                        "description": {
+                            "type": "plain_text",
+                            "text": "⚠️ 입력한 발행 금액을 부가세 포함 총액으로 처리 (공급가액 아님)",
+                            "emoji": True,
+                        },
+                    },
                 ],
             },
         },
