@@ -2801,6 +2801,16 @@ def resolve_address(
         if _lv != 'verified':
             _juso_hit = _juso_fallback(text, regex_addr)
             if _juso_hit and _juso_hit[1] == 'road':
+                # 지역 권위 채택 (2026-09-28 L-04091): juso base(정부 DB)의 지역이 정규식과
+                #   다르면(고객 오기 '남구'→'강남구') juso base 를 채택해 재구성 — 지역·공식
+                #   건물명(대치퍼스트빌딩) 반영 + 상호 부착 후 _enrich_with_poi 재실행으로
+                #   POI 공식 상호명(웰라스 피부과→웰라스피부과의원) 치환. 지역이 같으면
+                #   기존대로 문자열 유지 + level 만 승격(L-03671, 건물·호 유실 0).
+                _jbase = _juso_hit[0]
+                if _extract_region_hint(_jbase) != _extract_region_hint(addr):
+                    _new = _enrich_verified_address(_jbase, text, regex_addr)
+                    _new = _enrich_with_poi(_new, text)  # 상호 부착 후 공식명 치환
+                    return (_mark_planned(_post_normalize_display(_new)), 'verified')
                 _lv = 'verified'
         return (addr, _lv)
 
