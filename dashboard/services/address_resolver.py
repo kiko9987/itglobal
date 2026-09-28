@@ -2792,6 +2792,10 @@ def resolve_address(
     if regex_addr:
         addr = normalize_display(regex_addr)
         addr = _enrich_verified_address(addr, text, regex_addr)
+        # 인접 유사 토큰 dedup·표기 정정 (2026-09-28 L-04113): 정규식 경로만 이 후처리를
+        #   빠뜨려 '대륭테크노타운12 대륭테크노타운12차'(extract 가 '차' 떨군 뒤 enrich 가
+        #   원문 tail 재부착) 같은 중복이 남던 갭. 타 경로(kakao·juso·POI)와 순서 통일.
+        addr = _post_normalize_display(addr)
         addr = _mark_planned(addr)
         _lv = regex_level or 'regex'
         # 행안부 도로명주소 검증 (2026-08-14 L-03671) — 카카오가 미인덱싱한 실재 도로+번지
