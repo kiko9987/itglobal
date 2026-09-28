@@ -12789,10 +12789,108 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
         logger.error(f"[SLACK/계산서] 시트 자동기록 실패 ({code}): {exc}", exc_info=True)
 
 
-def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='') -> dict:
+def _project_issued_invoice(code):
+    """이미 발행된 세금계산서 요약 (계산서 요청 모달 잔여 프리필·경고용, 2026-09-28).
+
+    - 발행 단계 = '계약금/중도금/잔금 계산서' 토큰이 '발행'(billStatus 미러). 통합발행('-')은
+      lastIssuedIndex 이전 단계에 한해 흡수(covered).
+    - 단계 금액 = 계약금/중도금/잔금 열(입금액, **VAT 포함 gross**). 선발행(입금 0)은
+      계산서_메모에서 금액 파싱(정확히 1개일 때만 사용, 아니면 uncertain).
+    - gross→공급가 환산 = 총액1/총액2 비율(없으면 부가세 True 면 /1.1, 아니면 1).
+
+    Returns dict 또는 None(조회 실패/발행 이력 없음).
+    """
+    try:
+        from dashboard.services.project_service import get_project_records
+        recs = get_project_records()
+    except Exception as exc:
+        logger.debug(f'[SLACK/계산서] 이미발행 조회 실패 ({code}): {exc}')
+        return None
+    rec = next((r for r in recs if str(r.get('프로젝트 코드') or '').strip() == code), None)
+    if not rec:
+        return None
+
+    total1 = _bill_to_num(rec.get('총액 1'))
+    total2 = _bill_to_num(rec.get('총액 2'))
+    vat_sep = rec.get('부가세') in (True, 'TRUE', 'true', 1, '1')
+    memo = str(rec.get('계산서_메모') or '')
+    stage_amt = {s: _bill_to_num(rec.get(s)) for s in _BILL_STAGES}
+    raw_tok = {s: str(rec.get(f'{s} 계산서') or '').strip() for s in _BILL_STAGES}
+    norm_tok = {s: _bill_norm_token(rec.get(f'{s} 계산서')) for s in _BILL_STAGES}
+
+    last_idx = max((i for i, s in enumerate(_BILL_STAGES) if norm_tok[s] == '발행'), default=-1)
+    if last_idx < 0:
+        return None  # 발행 이력 없음
+
+    issued_gross = 0.0
+    lines = []          # (stage, gross_amt, is_sunbal)
+    uncertain = False
+    for i, s in enumerate(_BILL_STAGES):
+        counted = norm_tok[s] == '발행' or (raw_tok[s] == '-' and stage_amt[s] > 0 and i < last_idx)
+        if not counted:
+            continue
+        amt = stage_amt[s]
+        if amt > 0:
+            issued_gross += amt
+            lines.append((s, amt, False))
+        else:
+            # 선발행 — 계산서_메모에서 금액(정확히 1개일 때만 신뢰; billStatus 가드 미러)
+            found = re.findall(r'[\d,]+\s*원', memo)
+            m_amt = _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
+            if m_amt > 0:
+                issued_gross += m_amt
+                lines.append((s, m_amt, True))
+            else:
+                uncertain = True
+                lines.append((s, 0, True))
+
+    if issued_gross <= 0 and not uncertain:
+        return None
+
+    ratio = (total1 / total2) if (total1 > 0 and total2 > 0) else (1.0 / 1.1 if vat_sep else 1.0)
+    issued_supply = round(issued_gross * ratio)
+    remaining_supply = max(0, round(total1 - issued_supply))
+    return {
+        'total_supply': int(round(total1)),
+        'issued_gross': int(round(issued_gross)),
+        'issued_supply': int(issued_supply),
+        'remaining_supply': int(remaining_supply),
+        'lines': lines,
+        'uncertain': uncertain,
+    }
+
+
+def _fmt_issued_warn(summary) -> str:
+    """_project_issued_invoice 결과 → 모달 경고/안내 문구."""
+    parts = []
+    for s, amt, sunbal in summary['lines']:
+        if amt > 0:
+            parts.append(f"{s} {int(round(amt)):,}원" + ("(선발행)" if sunbal else ""))
+        else:
+            parts.append(f"{s}(선발행·금액미상)")
+    detail = ' · '.join(parts)
+    if summary['issued_supply'] > 0:
+        txt = (
+            f":clipboard: *이미 발행된 계산서 있음* — {detail}\n"
+            f"(발행 합계 {summary['issued_gross']:,}원 / 공급가 {summary['issued_supply']:,}원)  "
+            f"→ 잔여 *{summary['remaining_supply']:,}원*(공급가)을 발행 금액에 자동 입력했습니다. 확인 후 조정하세요."
+        )
+        if summary['uncertain']:
+            txt += "\n:warning: 일부 선발행 금액이 메모에서 확인 안 됨 — 잔여 금액을 직접 확인하세요."
+    else:
+        # 발행 이력은 있으나 금액 확인 불가(선발행 메모 미상 등) → 경고만, 자동차감 안 함
+        txt = (
+            f":warning: *이미 발행 이력 있음* — {detail}\n"
+            f"금액이 메모에서 확인되지 않아 자동 차감하지 못했습니다. 발행 금액을 직접 확인하세요."
+        )
+    return txt
+
+
+def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='', issued_warn='') -> dict:
     """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28).
 
     partner_warn: 폐업/휴업 경고 문구. 있으면 헤더 바로 아래 section 으로 표시.
+    issued_warn: 이미 발행된 계산서 안내. 있으면 '계산서 발행 금액' 입력 바로 위에 표시.
     """
     addr = addr or '-'
     amt = amt or '-'
@@ -12825,6 +12923,11 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
         _text_input("addr", "현장 주소", addr),
         {"type": "section", "text": {"type": "mrkdwn",
             "text": f"*공사 금액 (시트 원본)*\n{amt} 원"}},
+    ]
+    if issued_warn:
+        # 이미 발행된 계산서 안내 — 발행 금액 입력 바로 위 (요청 전 인지)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": issued_warn}})
+    blocks += [
         _text_input("amt", "계산서 발행 금액", amt),
         {
             "type": "input", "block_id": "vat",
@@ -12911,12 +13014,26 @@ def _refresh_invoice_modal_from_sheet(client, view_id, view_hash, code,
     # 폐업/휴업 경고 — 최신 사업자명 기준으로 거래처 탭 상태 조회해 모달 헤더 하단 표시
     partner_warn = _partner_status_warn(new_biz or opened_biz)
 
-    # 사업자명·주소가 바뀌었거나 폐업 경고가 있으면 모달 갱신
-    if not (changed or partner_warn):
+    # 이미 발행된 계산서 — 잔여 금액으로 프리필 + 안내 (2026-09-28). 발행 이력 있으면
+    #   발행 금액 입력을 총액 대신 '잔여(공급가)'로 프리필해 전액 재요청 실수 방지.
+    issued_warn = ''
+    try:
+        _iss = _project_issued_invoice(code)
+        if _iss and (_iss.get('issued_supply', 0) > 0 or _iss.get('uncertain')):
+            issued_warn = _fmt_issued_warn(_iss)
+            # 금액이 확인된 경우만 잔여로 프리필. 미상(선발행 메모 불명)이면 경고만, 총액 유지.
+            if _iss.get('issued_supply', 0) > 0:
+                new_amt = f"{_iss['remaining_supply']:,}"
+            changed = True
+    except Exception as _exc:
+        logger.debug(f'[SLACK/계산서] 이미발행 계산 실패 ({code}): {_exc}')
+
+    # 사업자명·주소·금액이 바뀌었거나 경고가 있으면 모달 갱신
+    if not (changed or partner_warn or issued_warn):
         return
     metadata = json.dumps({"code": code}, ensure_ascii=False)
     view = _build_invoice_modal_view(code, new_biz, new_addr, new_amt, new_email, metadata,
-                                     partner_warn=partner_warn)
+                                     partner_warn=partner_warn, issued_warn=issued_warn)
     try:
         client.views_update(view_id=view_id, hash=view_hash, view=view)
         logger.info(
