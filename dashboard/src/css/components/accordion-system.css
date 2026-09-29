@@ -1187,11 +1187,21 @@ a[id^="folder-display-"] {
   max-width: 100%;
 }
 
-/* 수금정보 단계 값의 메모↔계산서 아이콘 간격 축소 (2026-09-29 사용자 요청).
-   계산서 아이콘 기본 margin-left:6px 라 금액↔메모(2px)보다 유독 벌어져 보였다.
-   2px 로 줄여 간격을 맞추고(좁은 셀에서 한 줄에 더 잘 들어감), 넘칠 때만 wrap. */
-.compact-card[data-card-type="collection"] .memo-tooltip-trigger.bill-status {
-  margin-left: 2px;
+/* 수금정보 단계 값을 한 줄에 담기 위한 축소 (2026-09-29 사용자 요청, FHD 2열 셀 ~155px).
+   원인: 아이콘 span(.memo-tooltip-trigger)이 width:18px 고정 + 계산서 margin-left:6px 라
+   '금액+메모+계산서'가 셀 값 영역(~110px)을 ~8px 초과해 계산서 아이콘이 둘째 줄로 감겼다.
+   → 아이콘 span 폭(18→14px)·글리프·간격을 함께 줄여 한 줄에 들어가게 한다. 금액 텍스트
+   크기·가독성은 유지. 그래도 넘치는 초협소 폭에서는 위 flex-wrap 이 fallback. */
+.compact-card[data-card-type="collection"] .memo-value-wrapper {
+  gap: 1px;
+}
+.compact-card[data-card-type="collection"] .memo-value-wrapper .memo-tooltip-trigger {
+  width: 14px;
+  height: 14px;
+  margin-left: 1px;
+}
+.compact-card[data-card-type="collection"] .memo-value-wrapper i {
+  font-size: 0.8rem;
 }
 
 /* 뱃지가 포함된 값들도 오버플로우 처리 */
