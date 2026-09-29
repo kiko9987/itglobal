@@ -339,9 +339,26 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('정산 핀 리마인드 매일 17:00')
-        # 2026-09-11 미수금/계산서 리마인드는 보류 — 모듈(invoice_collection_remind)은 유지,
-        #   목록 과다(112건)로 스케줄 등록 보류. 정리 후 재활성 시 아래 잡 복구:
-        #   주간 send_weekly_collection_remind(cron mon 09:00) / 월간 send_monthly_invoice_remind(cron day=10 09:00).
+        # 2026-09-29 재활성 (사장님 승인): 경영지원(SB)이 수동으로 올리던 '수금완료 세금계산서
+        #   미발행'을 자동화. 주간=① 수금완료·미발행(즉시 발행 대상, 짧고 급함),
+        #   월간=① + ② 부분입금·미발행(계산서 마감 정리). 대상 0건이면 자동 skip.
+        #   ※ 112건 미수금 리포트(send_weekly_collection_remind)는 계속 보류(데이터 정리 후 재활성).
+        _scheduler.add_job(
+            _safe_weekly_urgent_invoice_remind,
+            'cron',
+            day_of_week='mon', hour=9, minute=0,
+            id='weekly_urgent_invoice_remind',
+            replace_existing=True,
+        )
+        jobs.append('수금완료 미발행 리마인드 매주 월 09:00')
+        _scheduler.add_job(
+            _safe_monthly_invoice_remind,
+            'cron',
+            day=10, hour=9, minute=0,
+            id='monthly_invoice_remind',
+            replace_existing=True,
+        )
+        jobs.append('계산서 마감 리마인드 매월 10일 09:00')
 
     # 2026-07-28 거래처 탭 국세청 상태 갱신. NTS_SERVICE_KEY 있을 때만.
     if os.getenv('NTS_SERVICE_KEY', '').strip():
@@ -719,6 +736,27 @@ def _safe_pin_remind_daily():
         logger.info(f'[SCHED] 정산 핀 리마인드 실행 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 정산 핀 리마인드 실패: {exc}', exc_info=True)
+
+
+def _safe_weekly_urgent_invoice_remind():
+    """수금완료·미발행(즉시 발행 대상, ①) 주간 리마인드 (매주 월 09시 #영업_관리).
+    경영지원(SB) 수동 게시 대체. 대상 0건이면 발송 skip."""
+    try:
+        from dashboard.services.invoice_collection_remind import send_weekly_urgent_invoice_remind
+        result = send_weekly_urgent_invoice_remind()
+        logger.info(f'[SCHED] 수금완료 미발행 주간 리마인드 결과: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 수금완료 미발행 주간 리마인드 실패: {exc}', exc_info=True)
+
+
+def _safe_monthly_invoice_remind():
+    """세금계산서 마감 월간 리마인드 (매월 10일 09시 #영업_관리) — ① 수금완료·미발행 + ② 부분입금·미발행."""
+    try:
+        from dashboard.services.invoice_collection_remind import send_monthly_invoice_remind
+        result = send_monthly_invoice_remind()
+        logger.info(f'[SCHED] 계산서 마감 월간 리마인드 결과: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 계산서 마감 월간 리마인드 실패: {exc}', exc_info=True)
 
 
 def _safe_invariant_checks():

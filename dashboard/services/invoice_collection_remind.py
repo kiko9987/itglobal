@@ -274,6 +274,24 @@ def build_monthly_text(buckets) -> str:
     )
 
 
+def build_urgent_invoice_text(buckets) -> str:
+    """매주 — 수금완료인데 미발행(즉시 발행 대상, classify ①)만. 경영지원(SB)이 수동으로
+    #영업_관리에 올리던 '수금완료 세금계산서 미발행' 리마인드를 자동화한 것.
+    ② 부분입금·미발행/미수금 리포트(112건)와는 별개 — 급하고 짧은 목록만."""
+    a = buckets.get('issue_collected', [])
+    if not a:
+        return ''
+    sec = _section(f':receipt: *수금완료 · 미발행 ({len(a)}건) — 즉시 발행 대상*', a, _issue_line)
+    return (
+        f'{_BLANK}\n'
+        f':receipt: *수금완료 세금계산서 미발행 프로젝트 확인 요청*\n'
+        f'{_SEP}\n'
+        f'{sec}\n'
+        f'{_SEP}\n'
+        f'{_BLANK}'
+    )
+
+
 def _load_recs():
     from dashboard.services.project_service import get_project_records
     return get_project_records(force_refresh=True) or []
@@ -299,6 +317,12 @@ def _post(text: str, tag: str) -> dict:
 def send_weekly_collection_remind() -> dict:
     """매주 월 09시 — 수금 필요 리마인드 진입점."""
     return _post(build_collection_text(classify(_load_recs())), '주간')
+
+
+def send_weekly_urgent_invoice_remind() -> dict:
+    """매주 월 09시 — 수금완료·미발행(즉시 발행 대상, ①만) 리마인드 진입점.
+    경영지원 수동 게시 대체. ② 부분입금/미수금 리포트는 포함 안 함(월간·보류 리포트와 분리)."""
+    return _post(build_urgent_invoice_text(classify(_load_recs())), '주간-수금완료미발행')
 
 
 def send_monthly_invoice_remind() -> dict:
