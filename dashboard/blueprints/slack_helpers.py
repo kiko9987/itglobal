@@ -64,8 +64,13 @@ def safe_slack_call(client_method, *args, max_retries: int = 3, **kwargs):
       필요 시점에 하나씩 이전.
     """
     import time as _t
+    # 재시도해도 절대 성공 못 하는 영구 오류 — 즉시 raise/반환해 호출자 fallback 로 넘긴다.
+    # message_not_found 등 chat.update/delete 계열은 '삭제된 카드 수정' 자기치유 패턴이라
+    # 3회 재시도(6s 낭비)·ERROR 알림(오탐)만 유발했음(2026-09-29 G4109-YG grace update).
     FATAL_ERRORS = {'channel_not_found', 'not_in_channel', 'is_archived',
-                    'not_authed', 'invalid_auth', 'account_inactive'}
+                    'not_authed', 'invalid_auth', 'account_inactive',
+                    'message_not_found', 'cant_update_message',
+                    'edit_window_closed', 'cant_delete_message'}
     last_exc = None
     for attempt in range(max_retries):
         try:
@@ -137,8 +142,13 @@ def safe_slack_post_url(
     import time as _t
     import urllib.request
     import urllib.error
+    # 재시도해도 절대 성공 못 하는 영구 오류 — 즉시 raise/반환해 호출자 fallback 로 넘긴다.
+    # message_not_found 등 chat.update/delete 계열은 '삭제된 카드 수정' 자기치유 패턴이라
+    # 3회 재시도(6s 낭비)·ERROR 알림(오탐)만 유발했음(2026-09-29 G4109-YG grace update).
     FATAL_ERRORS = {'channel_not_found', 'not_in_channel', 'is_archived',
-                    'not_authed', 'invalid_auth', 'account_inactive'}
+                    'not_authed', 'invalid_auth', 'account_inactive',
+                    'message_not_found', 'cant_update_message',
+                    'edit_window_closed', 'cant_delete_message'}
     last_exc: BaseException | None = None
     for attempt in range(max_retries):
         try:
