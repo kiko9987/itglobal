@@ -18,6 +18,7 @@ import pytest
 from dashboard.services.sms_intake import (
     strip_balance, looks_like_payment, dedup_hash, has_business_account,
     parse_cash_amount, looks_like_cash, normalize_cash_layout,
+    strip_bold_markers,
 )
 
 # 실제 원본 구조 (금액은 샘플). 사용자 제공 원문 기준.
@@ -86,6 +87,40 @@ class TestStripBalance:
     def test_empty(self):
         assert strip_balance('') == ''
         assert strip_balance(None) == ''
+
+
+class TestStripBoldMarkers:
+    """렌더된 슬랙 메시지 복사 시 딸려오는 줄별 볼드(*...*) 제거 — 2026-09-29 아이티플레이 건."""
+
+    def test_line_wrappers_removed(self):
+        bold = '*[Web발신]*\n*입금 7,480,000원*\n*(주)아이티플레이*\n*기업*'
+        out = strip_bold_markers(bold)
+        assert out == '[Web발신]\n입금 7,480,000원\n(주)아이티플레이\n기업'
+
+    def test_account_inner_asterisks_preserved(self):
+        # 계좌 마스킹 내부 별표(줄 양끝 아님)는 유지 — 볼드 래퍼만 벗김
+        assert strip_bold_markers('*452***38801011*') == '452***38801011'
+        assert strip_bold_markers('452***38801011') == '452***38801011'
+
+    def test_plain_lines_untouched(self):
+        plain = '[Web발신]\n입금 100,000원\n홍길동'
+        assert strip_bold_markers(plain) == plain
+
+    def test_partner_parses_after_strip(self):
+        # 볼드 붙여넣기가 거래처를 '*[Web발신]*'로 오파싱하던 버그 — 벗기면 정상
+        from dashboard.services.sms_intake import (
+            normalize_deposit_layout, parse_preview,
+        )
+        bold = ('*[Web발신]*\n*2026/09/29 13:46*\n*입금 7,480,000원*\n'
+                '*(주)아이티플레이*\n*452***38801011*\n*기업*')
+        pv = parse_preview(normalize_deposit_layout(strip_bold_markers(bold)))
+        assert pv['partner'] == '(주)아이티플레이'
+        assert pv['amount'] == 7_480_000
+
+    def test_empty_and_no_asterisk(self):
+        assert strip_bold_markers('') == ''
+        assert strip_bold_markers(None) == ''
+        assert strip_bold_markers('입금 100,000원') == '입금 100,000원'
 
 
 class TestLooksLikePayment:

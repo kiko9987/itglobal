@@ -23,7 +23,7 @@ from flask import Blueprint, jsonify, request
 from dashboard.services.sms_intake import (
     active_display, dedup_hash, has_business_account, is_bank_interest,
     looks_like_cash, looks_like_payment, normalize_cash_layout,
-    normalize_deposit_layout, parse_preview, strip_balance,
+    normalize_deposit_layout, parse_preview, strip_balance, strip_bold_markers,
 )
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.redis_client import get_redis_client
@@ -109,6 +109,10 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> d
     (같은 입금이 폰·수동 양쪽으로 와도 본문 동일 → 첫 1건만 카드).
     Returns: {'status': 'ok'|'ignored'|'duplicate'|'card_failed', 'id'?, 'reason'?, 'preview'?}
     """
+    # 렌더된 슬랙 메시지 복사·붙여넣기로 각 줄이 '*줄*' 볼드 마크다운으로 딸려온 경우 제거
+    # (2026-09-29 아이티플레이 건 — 표시 '∗줄∗'·거래처 오파싱·시트 '*' 오염 동시 유발).
+    # 폰/수동/forward 공통 코어라 여기 한 곳이면 전 경로 정상화. 계좌 마스킹 내부 별표는 보존.
+    text = strip_bold_markers(text)
     # 현금 수령 판별 — '현금' + 금액, 사업자계좌 없음 (은행 SMS 아닌 매니저 자유문장).
     # 계좌 있으면 은행 입금이므로 현금으로 오인 안 함. (2026-08 현금 인입 도입)
     is_cash = looks_like_cash(text) and not has_business_account(text)
