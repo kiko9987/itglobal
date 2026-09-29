@@ -1218,6 +1218,17 @@ a[id^="folder-display-"] {
   .compact-card[data-card-type="collection"] .compact-item small {
     min-width: 2rem !important;
   }
+
+  /* 금액정보 카드: col1=총액1·총액2(금액), col2=부가세·계산서 뱃지. 계산서 뱃지
+     ('잔금 - 발행완료' 등)가 길어 균등(1:1) 열에선 우측이 좁아 뱃지가 2줄로 잘림
+     (2026-09-29 사용자 요청: 우측 넓이를 조금 넓혀). → 우측(뱃지) 열을 넓히고 뱃지는
+     줄바꿈 방지. col1(총액)은 억원대까지 들어갈 폭 유지. FHD 전용. */
+  .compact-card[data-card-type="financial"] .card-grid {
+    grid-template-columns: 1fr 1.2fr !important;
+  }
+  .compact-card[data-card-type="financial"] .compact-item--bill .editable-value .badge {
+    white-space: nowrap;
+  }
 }
 
 /* 뱃지가 포함된 값들도 오버플로우 처리 */
