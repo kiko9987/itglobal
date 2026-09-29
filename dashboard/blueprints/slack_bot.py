@@ -4552,6 +4552,24 @@ def _open_as_accept_modal(client, body) -> None:
     channel = body.get("channel", {}).get("id", "")
     message_ts = body.get("message", {}).get("ts", "")
 
+    # placeholder(입력 없음) 즉시 오픈 → trigger_id 3초 안전. 구 카드(값 없음)는 아래
+    #   시트 fallback(get_as_data + get_project_details, 여러 시트 호출)이 무거워 views.open
+    #   앞에서 하면 만료(expired_trigger_id). input 은 update 시 처음 생겨 pre-fill 정상 적용.
+    try:
+        _resp = client.views_open(trigger_id=trigger_id, view={
+            "type": "modal", "callback_id": "submit_as_accept",
+            "title": {"type": "plain_text", "text": "A/S 접수"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                       "text": ":hourglass_flowing_sand: A/S 정보 불러오는 중..."}}],
+        })
+    except Exception as exc:
+        logger.warning(f'[SLACK/AS] 접수 placeholder 오픈 실패 ({as_no}): {exc}')
+        return
+    view_id = ((_resp or {}).get('view') or {}).get('id', '')
+    if not view_id:
+        return
+
     # 구 카드(값 없음) → 시트 fallback 조회 (contractor / contract_type)
     if not contractor or not contract_type:
         try:
@@ -4566,7 +4584,10 @@ def _open_as_accept_modal(client, body) -> None:
             logger.warning(f'[SLACK/AS] 프로젝트 정보 조회 실패 (무시): {exc}')
 
     view = _as_accept_view(as_no, channel, message_ts, contractor, contract_type)
-    client.views_open(trigger_id=trigger_id, view=view)
+    try:
+        client.views_update(view_id=view_id, view=view)
+    except Exception as exc:
+        logger.error(f'[SLACK/AS] 접수 모달 렌더 실패 ({as_no}): {exc}', exc_info=True)
 
 
 def _handle_as_accept_type_change(client, body) -> None:
@@ -8573,6 +8594,24 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
     - 원본 platform 은 metadata 에 그대로 저장 → submit 시 유지
     - dropdown 은 거래처/소개/기타 슬래시 진입 case 에서만 표시
     """
+    # placeholder(입력 없음) 즉시 오픈 → trigger_id 3초 안전. _find_lead_by_no →
+    #   load_leads_data(전체 리드 시트 로드)가 캐시 미스 시 무거워 views.open 앞에서 하면
+    #   만료(expired_trigger_id). input 은 update 시 처음 생겨 pre-fill(initial_value) 정상 적용.
+    try:
+        _resp = client.views_open(trigger_id=trigger_id, view={
+            "type": "modal", "callback_id": "submit_visit_edit",
+            "title": {"type": "plain_text", "text": "정보 수정"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                       "text": ":hourglass_flowing_sand: 리드 정보 불러오는 중..."}}],
+        })
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문봇] 정보수정 placeholder 오픈 실패 ({lead_no}): {exc}')
+        return
+    view_id = ((_resp or {}).get('view') or {}).get('id', '')
+    if not view_id:
+        return
+
     lead = _find_lead_by_no(lead_no) or {}
     raw_platform = str(lead.get('플랫폼', '') or '').strip()
     is_online_lead = raw_platform in _ONLINE_LEAD_PLATFORMS
@@ -8705,15 +8744,18 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
         },
     ])
 
-    client.views_open(trigger_id=trigger_id, view={
-        "type": "modal",
-        "callback_id": "submit_visit_edit",
-        "title": {"type": "plain_text", "text": "정보 수정"},
-        "submit": {"type": "plain_text", "text": "저장"},
-        "close": {"type": "plain_text", "text": "취소"},
-        "private_metadata": metadata,
-        "blocks": blocks,
-    })
+    try:
+        client.views_update(view_id=view_id, view={
+            "type": "modal",
+            "callback_id": "submit_visit_edit",
+            "title": {"type": "plain_text", "text": "정보 수정"},
+            "submit": {"type": "plain_text", "text": "저장"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "private_metadata": metadata,
+            "blocks": blocks,
+        })
+    except Exception as exc:
+        logger.error(f'[SLACK/방문봇] 정보수정 모달 렌더 실패 ({lead_no}): {exc}', exc_info=True)
 
 
 def _build_visit_edit_confirm_view(metadata: dict, state: dict) -> dict:
