@@ -436,6 +436,21 @@ def sync_karrot() -> Dict[str, Any]:
 
     # 메인 시트 (운영 시트) 로드 + dedup 인덱스
     main_df = load_leads_data(force_refresh=True)
+    # 메인 시트 로드 실패/빈 결과 방어 (2026-09-29): load_leads_data 는 구글시트 순단·
+    #   타임아웃 시 None 을 반환(캐시 폴백 없음). 그러면 phone_lookup 이 비어 당근 전건이
+    #   '신규'로 오판되고 폭주 가드가 매 사이클 ERROR 알림을 낸다(오탐). dedup 근거가 없으면
+    #   이 사이클을 건너뛰고 다음 폴에서 재시도한다 — 성공 사이클에서 정상 dedup 되므로
+    #   리드 유실·중복 없음. (메인 시트는 상시 수천 행 → 빈 결과 = 로드 실패로 확정)
+    if main_df is None or main_df.empty:
+        if not karrot_df.empty:
+            logger.warning(
+                f'[SYNC/karrot] 메인 시트 로드 실패/빈 결과 — dedup 불가로 이번 사이클 skip '
+                f'(당근 {len(karrot_df)}건, 다음 폴에서 재시도)'
+            )
+        return {
+            'total': len(karrot_df), 'new_count': 0, 'duplicates': 0,
+            'lead_nos': [], 'skipped': 'main_unavailable',
+        }
     phone_lookup = _get_existing_phone_lookup(main_df)
     # 같은 sync 내 중복 폴링 방지용 (연락처+시간 윈도우)
     seen_in_sync: dict = {}  # phone_digits → consult_dt

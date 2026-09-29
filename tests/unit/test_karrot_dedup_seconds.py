@@ -55,6 +55,42 @@ def test_seconds_bearing_source_still_dedups_by_minute():
     ), '분-정밀도 exact-match 로는 동일 문의로 잡혀 skip 돼야 한다'
 
 
+def test_main_load_failure_skips_cycle_no_send(monkeypatch):
+    """메인 시트 로드 실패(None)·빈 결과면 dedup 불가 → 이 사이클 skip, 발송/append 안 함.
+
+    2026-09-29 회귀: load_leads_data 가 구글시트 순단 시 None 반환 → phone_lookup 빔 →
+    당근 전건 '신규' 오판 → 폭주 가드 ERROR 알림 반복. 조기 skip 으로 오탐 차단.
+    """
+    monkeypatch.setenv('KARROT_AUTO_SHEET_ID', 'FAKE_SHEET')
+
+    karrot_df = pd.DataFrame([
+        _karrot_row('2026-09-29 10:00:00', phone='010-1111-2222', name='가'),
+        _karrot_row('2026-09-29 10:01:00', phone='010-3333-4444', name='나'),
+    ])
+
+    class _FakeMgr:
+        def get_sheet_data(self, sid, rng):
+            return karrot_df
+
+    monkeypatch.setattr(ls, 'get_sheets_manager', lambda: _FakeMgr())
+
+    def _boom_send(*a, **k):
+        raise AssertionError('메인 로드 실패 시 슬랙 발송이 호출되면 안 된다')
+
+    def _boom_append(*a, **k):
+        raise AssertionError('메인 로드 실패 시 메인 append 가 호출되면 안 된다')
+
+    monkeypatch.setattr(ls, '_send_slack_notifications', _boom_send)
+    monkeypatch.setattr(ls, '_append_leads_to_main', _boom_append)
+
+    for main_ret in (None, pd.DataFrame()):
+        monkeypatch.setattr(ls, 'load_leads_data', lambda force_refresh=False: main_ret)
+        result = ls.sync_karrot()
+        assert result.get('skipped') == 'main_unavailable', f'skip 되어야 함: {result}'
+        assert result.get('new_count') == 0
+        assert result.get('total') == 2
+
+
 def test_zero_second_source_unaffected():
     """초가 00 인 소스는 기존과 동일하게 정상 매치(회귀 없음)."""
     row = _karrot_row('2026-07-11 09:15:00')
