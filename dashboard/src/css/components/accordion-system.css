@@ -1211,6 +1211,13 @@ a[id^="folder-display-"] {
   .compact-card[data-card-type="collection"] .compact-item small {
     min-width: 2rem !important;
   }
+  /* 위 라벨 당기기·아이콘 축소로도 천만원대(8자리)·억원대(9자리) 큰 금액은 숫자 폭 자체가
+     넓어 여전히 2줄로 감긴다(금액 글자 폭은 자릿수에 비례). 큰 금액까지 한 줄에 담기 위해
+     FHD 수금정보 금액 텍스트만 ~15% 축소(2026-09-29 사용자 선택). 라벨·나머지 텍스트 크기는
+     유지. QHD 는 미디어쿼리 밖이라 원래 크기. */
+  .compact-card[data-card-type="collection"] .memo-value-wrapper .memo-amount-text {
+    font-size: 0.85em;
+  }
 }
 
 /* 뱃지가 포함된 값들도 오버플로우 처리 */
