@@ -1231,6 +1231,12 @@ a[id^="folder-display-"] {
   }
 }
 
+/* 금액정보 계산서 뱃지 옆 메모 아이콘이 baseline 정렬이라 뱃지(vertical-align:middle)보다
+   1px 위로 걸린다 → 아이콘도 middle 로 맞춰 세로 중앙정렬(2026-09-29 사용자 지적). 전 해상도. */
+.compact-card[data-card-type="financial"] .compact-item--bill .editable-value .memo-tooltip-trigger {
+  vertical-align: middle;
+}
+
 /* 뱃지가 포함된 값들도 오버플로우 처리 */
 .compact-item .editable-value .badge,
 .compact-item .editable-value .status-badge,
