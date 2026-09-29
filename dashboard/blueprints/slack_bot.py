@@ -11291,20 +11291,41 @@ def _open_project_edit_modal(client, body) -> None:
 
     if not code:
         return
+    metadata = json.dumps({'code': code, 'channel': channel, 'message_ts': message_ts}, ensure_ascii=False)
+
+    # placeholder(입력 없음) 즉시 오픈 → trigger_id 3초 안전. get_project_records(전체 로드)·
+    #   시공자 로드가 무거워 views.open 앞에서 하면 만료(expired_trigger_id) → 로딩 먼저 뒤 update.
+    #   input 은 placeholder→전체 전환 시 처음 생겨 pre-fill(initial_value) 정상 적용.
+    try:
+        _resp = client.views_open(trigger_id=trigger_id, view={
+            "type": "modal", "callback_id": "submit_project_edit",
+            "private_metadata": metadata,
+            "title": {"type": "plain_text", "text": "공사 내용 수정"},
+            "close": {"type": "plain_text", "text": "닫기"},
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                       "text": ":hourglass_flowing_sand: 프로젝트 정보 불러오는 중..."}}],
+        })
+    except Exception as exc:
+        logger.warning(f'[SLACK/공사수정] placeholder 오픈 실패: {exc}')
+        return
+    view_id = ((_resp or {}).get('view') or {}).get('id', '')
+    if not view_id:
+        return
 
     records = get_project_records() or []
     project = next((r for r in records if (r.get('프로젝트 코드') or '').strip() == code), None)
     if not project:
         try:
-            client.chat_postEphemeral(
-                channel=channel, user=body["user"]["id"],
-                text=f':warning: `{code}` 프로젝트를 찾을 수 없습니다. (시트에서 삭제/이동됐을 수 있음)',
-            )
+            client.views_update(view_id=view_id, view={
+                "type": "modal", "callback_id": "submit_project_edit",
+                "title": {"type": "plain_text", "text": "공사 내용 수정"},
+                "close": {"type": "plain_text", "text": "닫기"},
+                "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                    "text": f":warning: `{code}` 프로젝트를 찾을 수 없습니다. (시트에서 삭제/이동됐을 수 있음)"}}],
+            })
         except Exception:
             pass
         return
-
-    metadata = json.dumps({'code': code, 'channel': channel, 'message_ts': message_ts}, ensure_ascii=False)
 
     # pre-fill 값 준비
     def _val(field):
@@ -11439,7 +11460,7 @@ def _open_project_edit_modal(client, body) -> None:
         "close": {"type": "plain_text", "text": "닫기"},
         "blocks": blocks,
     }
-    client.views_open(trigger_id=trigger_id, view=view)
+    client.views_update(view_id=view_id, view=view)
 
 
 def _process_project_edit_submission(client, body, view) -> None:
