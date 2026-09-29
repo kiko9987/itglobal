@@ -1187,6 +1187,13 @@ a[id^="folder-display-"] {
   max-width: 100%;
 }
 
+/* 수금정보 단계 값의 메모↔계산서 아이콘 간격 축소 (2026-09-29 사용자 요청).
+   계산서 아이콘 기본 margin-left:6px 라 금액↔메모(2px)보다 유독 벌어져 보였다.
+   2px 로 줄여 간격을 맞추고(좁은 셀에서 한 줄에 더 잘 들어감), 넘칠 때만 wrap. */
+.compact-card[data-card-type="collection"] .memo-tooltip-trigger.bill-status {
+  margin-left: 2px;
+}
+
 /* 뱃지가 포함된 값들도 오버플로우 처리 */
 .compact-item .editable-value .badge,
 .compact-item .editable-value .status-badge,
