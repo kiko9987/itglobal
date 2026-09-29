@@ -3428,7 +3428,8 @@ def _register_invoice_handlers(app):
                 # 요청 금액(meta['amt'])==총액2면 나머지 단계 '-'(전체발행 covered) 처리
                 if done:
                     _mark_invoice_issued_in_sheet(
-                        meta.get('code'), meta.get('stages'), meta.get('amt'))
+                        meta.get('code'), meta.get('stages'), meta.get('amt'),
+                        vat_val=meta.get('vat', 'sep'))
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -12673,11 +12674,14 @@ def _build_invoice_stage_block(code):
     }
 
 
-def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
+def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep'):
     """계산서 첨부 완료 → 선택 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
 
     입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
     셀 노트(Y열 메모 포함) 보존. 단계 정보 없으면(구요청) skip.
+
+    vat_val: 요청 VAT('sep'=공급가 입력 / 'incl'=합계 입력). 선발행(입금0) 발행 시
+      발행액 gross 환산에 사용 → 계산서_메모(Y 노트)에 기록(2026-09-29, 금액미상 방지).
 
     **전체발행 판정**: 요청 금액(invoice_amt)이 총액1(공급가) 또는 총액2(합계)와 같으면
       = 한 장으로 전체 발행 → 선택 단계='발행', 나머지 미발행/blank 단계(금액>0)는
@@ -12769,6 +12773,28 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt=''):
         if col_y:
             manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
                                       _bill_y_summary(cur, amt, _coll))
+        # 선발행(입금 0) 단계를 새로 '발행' 기록 → 발행액을 계산서_메모(Y 노트)에 저장 (2026-09-29).
+        #   입금열이 0이라 금액이 어디에도 안 남아 PM·계산서 모달에서 '금액미상'이 되던 갭 해소.
+        #   통합발행이면 covered('-') 단계 금액은 이 발행에 포함 → 이 단계 순수분 = gross - covered합.
+        if col_y and selected in wrote and amt.get(selected, 0) == 0 and inv_amt > 0:
+            try:
+                if vat_val == 'incl':
+                    inv_gross = inv_amt
+                elif total1 > 0 and total2 > 0:
+                    inv_gross = round(inv_amt * total2 / total1)
+                else:
+                    inv_gross = round(inv_amt * 1.1)
+                covered_sum = sum(amt.get(s, 0) for s in _BILL_STAGES if f'{s}(-)' in wrote)
+                memo_amt = int(round(max(inv_gross - covered_sum, 0)))
+                if memo_amt > 0:
+                    _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
+                    _line = f"{selected} 선발행 {memo_amt:,}원"
+                    if _line not in _note:
+                        _new_note = f"{_note}\n{_line}".strip() if _note.strip() else _line
+                        manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
+                        logger.info(f"[SLACK/계산서] 선발행 발행액 메모 기록 ({code}): {_line}")
+            except Exception as _me:
+                logger.warning(f"[SLACK/계산서] 선발행 메모 기록 실패 ({code}): {_me}")
         # 프로젝트 데이터 캐시 무효화 (Z/AA/AB·Y 변경 반영)
         try:
             from dashboard.utils.smart_cache_manager import (
