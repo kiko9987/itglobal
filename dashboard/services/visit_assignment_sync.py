@@ -928,9 +928,11 @@ def _parse_visit_date_end(vd) -> Optional['date']:
     s = str(vd or '').strip().lstrip("'")
     if not s:
         return None
+    # 범위 종료일: 전체(YYYY-MM-DD)·월일(MM-DD)·일(DD) 모두 허용 (연·월 각각 optional).
+    #   '2026-09-29~10-02'(끝=월-일, 연 생략) 오파싱 방지 (ETC-908d6c, 2026-09-29).
     m_range = re.match(
         r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s*~\s*'
-        r'(?:(\d{4})[-./](\d{1,2})[-./])?(\d{1,2})',
+        r'(?:(\d{4})[-./])?(?:(\d{1,2})[-./])?(\d{1,2})',
         s,
     )
     if m_range:
