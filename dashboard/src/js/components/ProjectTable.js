@@ -12,7 +12,7 @@ import { getGlobalModeManager } from '../utils/globalModeManager.js';
 import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, isFullyCollected } from '../utils/billStatus.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -140,12 +140,20 @@ function _billAmountLines(row, stage) {
   const STAGES = ['계약금', '중도금', '잔금'];
   const amtOf = (s) => parseFloat(row[s] || 0);
   const tokOf = (s) => String(row[`${s} 계산서`] || '').trim();
-  // 이 발행 단계 + 바로 앞의 연속된 '-'(통합발행 covered) 단계 금액 합 = 실제 발행 합계(VAT 포함)
+  // 이 발행 단계 + 앞의 통합발행 covered 단계 금액 합 = 실제 발행 합계(VAT 포함).
+  // '-'(명시적 covered)는 항상 포함, 금액 0(미발생) 단계는 건너뛰어 체인 유지. 완납(미수금 0 =
+  // 1건 총액발행) 프로젝트는 앞의 '미발행'/빈 단계도 이 발행에 포함(매니저 제보 2026-09-29
+  // R4091-SJ: 계약금이 '-' 아닌 '미발행'이라 총액 아닌 잔금만 표기). 별도 발행/현금/카드는 경계.
   const idx = STAGES.indexOf(stage);
   let gross = amtOf(stage);
+  const fully = isFullyCollected(row);
   for (let i = idx - 1; i >= 0; i--) {
-    if (tokOf(STAGES[i]) === '-') gross += amtOf(STAGES[i]);
-    else break;   // '-'(covered) 아닌 단계 만나면 별도 발행 경계 → 합산 중단
+    const t = tokOf(STAGES[i]);
+    const a = amtOf(STAGES[i]);
+    if (t === '-') { gross += a; continue; }              // 명시적 covered
+    if (a === 0) continue;                                // 미발생 단계 → 건너뜀(체인 유지)
+    if ((t === '미발행' || t === '') && fully) { gross += a; continue; }  // 완납 통합발행 포함
+    break;                                                // 별도 발행/현금/카드 → 경계
   }
   // (ⓑ) 선발행(입금 0)은 결제칸으론 발행액을 모름 → 총액 추정 금지.
   //   gross>0이면 결제칸 기준, 아니면(선발행) 계산서 메모에서 발행액 추출(하나면 표시). 2026-09-20.

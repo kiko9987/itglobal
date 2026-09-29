@@ -275,9 +275,18 @@ export function billAmountLines(row, stage) {
   const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
   const idx = BILL_STAGES.indexOf(stage);
   let gross = amtOf(stage);
-  for (let i = idx - 1; i >= 0; i--) {          // 바로 앞의 연속된 '-'(covered) 단계 합산
-    if (tokOf(BILL_STAGES[i]) === '-') gross += amtOf(BILL_STAGES[i]);
-    else break;
+  // 앞 단계 합산(통합발행 커버분). '-'(명시적 covered)는 항상 포함, 금액 0(미발생) 단계는
+  // 건너뛰어 체인 유지. 완납(미수금 0 = 1건 총액발행) 프로젝트는 앞의 '미발행'/빈 단계도
+  // 이 발행에 포함된 것으로 합산(매니저 제보 2026-09-29 R4091-SJ: 계약금이 '-' 아닌 '미발행'
+  // 이라 총액이 아닌 잔금만 표기되던 문제). 별도 발행/현금/카드 단계는 경계로 중단.
+  const fully = isFullyCollected(row);
+  for (let i = idx - 1; i >= 0; i--) {
+    const t = tokOf(BILL_STAGES[i]);
+    const a = amtOf(BILL_STAGES[i]);
+    if (t === '-') { gross += a; continue; }              // 명시적 covered
+    if (a === 0) continue;                                // 미발생 단계 → 건너뜀(체인 유지)
+    if ((t === '미발행' || t === '') && fully) { gross += a; continue; }  // 완납 통합발행 포함
+    break;                                                // 별도 발행/현금/카드 → 경계
   }
   // (ⓑ) 선발행(입금 0)은 실제 발행액을 결제칸으론 모름 → 총액2 추정 금지.
   //   gross>0(실입금 커버)면 결제칸 기준 금액, 아니면(선발행) 계산서 메모에서 발행액 추출.
