@@ -363,6 +363,12 @@ def _register_payment_handlers(app):
                 logger.info(f'[SLACK/수금봇] 정정 카드 삭제: ts={ts} by {user}')
             except Exception as exc:
                 logger.warning(f'[SLACK/수금봇] chat_delete 실패 (ts={ts}): {exc}')
+            # 삭제된 카드는 grace 통합 대상에서 제외 — 유령 ts 무효화(삭제 성공/실패 무관)
+            try:
+                from dashboard.services.payment_sync import _drop_grace_group_by_ts
+                _drop_grace_group_by_ts(ts)
+            except Exception:
+                pass
         threading.Thread(target=_bg, daemon=True).start()
 
     # ─── 은행 입금 SMS 인입 → 프로젝트·수금단계 지정 (2026-08-12) ───

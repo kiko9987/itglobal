@@ -1048,6 +1048,29 @@ def _payment_card_warnings(project: str, partner: str) -> List[str]:
     return out
 
 
+def _drop_grace_group_by_ts(ts: str) -> None:
+    """카드가 회색화/삭제되면 그 카드를 참조하던 grace pending 그룹을 즉시 무효화.
+
+    grace 통합(10분 TTL)은 같은 시그니처(금액·입금자·날짜) 재입금이 오면 원 카드를
+    chat.update 로 통합 카드로 승격한다. 그런데 그 원 카드가 (입금 정정으로) 회색화되거나
+    삭제되면, 남은 grace ts 가 유령이 된다 — 같은 입금을 다른 프로젝트로 재기록(정정
+    워크플로)하면 ①삭제된 카드면 message_not_found ②회색 '취소됨' 카드면 chat.update 로
+    **취소 카드를 잘못 되살려 통합**해 버린다(2026-09-29 G4109-YG↔G4133-YM). 카드가 사라질
+    때 역인덱스(payment_grace_ref:{ts})로 그룹 키를 찾아 함께 지워 원천 차단.
+    """
+    if not ts:
+        return
+    try:
+        rc = get_redis_client().redis
+        ref = f'payment_grace_ref:{ts}'
+        gk = rc.get(ref)
+        if gk:
+            rc.delete(gk if isinstance(gk, str) else gk.decode())
+        rc.delete(ref)
+    except Exception:
+        pass
+
+
 def _grey_out_payment_card(slack, channel: str, code: str, stage: str, ts: str) -> bool:
     """입금 메모 삭제 감지 → 해당 카드를 '정정·취소됨' 회색 처리 + [🗑 삭제] 버튼 (2026-07-29).
 
@@ -1089,6 +1112,8 @@ def _grey_out_payment_card(slack, channel: str, code: str, stage: str, ts: str) 
     ]
     try:
         safe_slack_call(slack.chat_update, channel=channel, ts=ts, text=body, blocks=blocks)
+        # 회색(취소) 카드는 더 이상 grace 통합 대상이 되면 안 됨 — 유령 ts 무효화
+        _drop_grace_group_by_ts(ts)
         return True
     except Exception as exc:
         logger.warning(f'[PAYMENT] 카드 회색화 실패 ({code}/{stage}, ts={ts}): {exc}')
@@ -2491,6 +2516,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             )
                             # 그룹 저장 갱신 (TTL 10분 재갱신)
                             rc.set(_group_key, _json.dumps(_pending), ex=10 * 60)
+                            # 역인덱스(ts→group_key) — 카드 회색화/삭제 시 그룹 즉시 무효화용
+                            rc.set(f"payment_grace_ref:{_pending['ts']}", _group_key, ex=10 * 60)
                             # 자기 phash / ts 매핑 저장
                             _pd = all_phash_by_row.get(sheet_row) or {}
                             rc.hset(key, mapping={
@@ -2740,6 +2767,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                                         _json.dumps(_pending_data, ensure_ascii=False),
                                         ex=10 * 60,  # 10분 grace
                                     )
+                                    # 역인덱스(ts→group_key) — 카드 회색화/삭제 시 그룹 즉시 무효화용
+                                    rc.set(f'payment_grace_ref:{ts}', _group_key, ex=10 * 60)
                                 except Exception as _p_exc:
                                     logger.debug(
                                         f'[PAYMENT] grace 저장 실패 ({project}/{stage}): {_p_exc}'
