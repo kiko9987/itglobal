@@ -1195,6 +1195,13 @@ a[id^="folder-display-"] {
    가로 자리를 확보(글리프 크기는 유지 — span 이 flex 자리라 아이콘은 거의 그대로 보임).
    그래도 넘치는 초협소 폭에서는 위 flex-wrap 이 fallback. */
 @media (max-width: 1920px) {
+  /* 수금정보 2열 그리드에서 col1=계약금·중도금·잔금(긴 금액), col2=미수금·수금확인·수금날짜
+     (짧은 값)이다. 균등(1fr:1fr)이라 금액 열이 좁아 큰 금액이 넘쳤다. → 단계 열을 넓히고
+     짧은값 열을 줄여 금액 여유 확보(2026-09-29 사용자 요청: 값 넓이를 수금확인·수금날짜가
+     안 잘리는 선에서 넓혀). col2 는 좁아져도 라벨(수금확인/수금날짜)+값(뱃지·날짜)이 들어감. */
+  .compact-card[data-card-type="collection"] .card-grid {
+    grid-template-columns: minmax(0, 1fr) 135px !important;
+  }
   .compact-card[data-card-type="collection"] .memo-value-wrapper {
     gap: 1px;
   }
@@ -1210,13 +1217,6 @@ a[id^="folder-display-"] {
      수금날짜)은 콘텐츠가 더 넓어 영향 없음. */
   .compact-card[data-card-type="collection"] .compact-item small {
     min-width: 2rem !important;
-  }
-  /* 위 라벨 당기기·아이콘 축소로도 천만원대(8자리)·억원대(9자리) 큰 금액은 숫자 폭 자체가
-     넓어 여전히 2줄로 감긴다(금액 글자 폭은 자릿수에 비례). 큰 금액까지 한 줄에 담기 위해
-     FHD 수금정보 금액 텍스트만 ~15% 축소(2026-09-29 사용자 선택). 라벨·나머지 텍스트 크기는
-     유지. QHD 는 미디어쿼리 밖이라 원래 크기. */
-  .compact-card[data-card-type="collection"] .memo-value-wrapper .memo-amount-text {
-    font-size: 0.85em;
   }
 }
 
