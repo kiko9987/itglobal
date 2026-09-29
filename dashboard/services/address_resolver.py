@@ -2842,6 +2842,22 @@ def resolve_address(
                         _new = _enrich_verified_address(_jbase, text, regex_addr)
                         _new = _enrich_with_poi(_new, text)
                         return (_mark_planned(_post_normalize_display(_new)), 'verified')
+                else:
+                    # 지역 같음 — juso 건물명(bdNm)이 **고객 텍스트에 있는데** 현재 결과가
+                    #   그와 다르게 mangle 된 경우 juso 기반으로 교정 (2026-09-29 L-04119:
+                    #   공백 건물명 '반도 유스퀘어'를 extract 가 '반도'로 쪼개 enrich 가
+                    #   '반도 405호 반도유스퀘어'처럼 중복·어순뒤바뀜). bdNm 이 텍스트에 없으면
+                    #   (봉이랜드=juso 등록 다른 tenant, L-04118) 미교정 → 오부착 방지.
+                    _jtail = re.sub(
+                        r'^.*?[가-힣]{2,}\d*[가-힣]*(?:로|길)\s*\d+(?:-\d+)?\s*', '', _jbase
+                    ).strip()
+                    if (len(_jtail) >= 2
+                            and _jtail.replace(' ', '') in re.sub(r'\s', '', text)):
+                        _cand = _enrich_verified_address(_jbase, text, regex_addr)
+                        _cand = _enrich_with_poi(_cand, text)
+                        _cand = _mark_planned(_post_normalize_display(_cand))
+                        if _cand != addr:
+                            addr = _cand
                 _lv = 'verified'
         return (addr, _lv)
 
