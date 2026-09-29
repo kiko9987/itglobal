@@ -437,6 +437,36 @@ def _parse_notes(notes: List[str],
                 })
             continue
 
+        # 대체 수금(리베이트 상계·비현금 대체입금) — 매니저 서술형 케이스.
+        #   예: "…\n총 5,280,000원 대체 수금" (G3984-YG). 표준 입금 양식이 아니라
+        #   블록 파서로는 payment 0개 → 카드 미발송이었다(2026-09-29 사용자 제보).
+        #   좁은 트리거('대체 수금')로만 인식해 한 건의 payment 로 만든다.
+        #   '상계/리베이트' 단독 단어는 트리거에서 제외 — 상호 오탐(상계아산내과 등) 과
+        #   과거 건 무더기 소급발송(flood) 방지. 금액은 '총 X원' / 'X원 대체 수금' 에서
+        #   추출(둘 다 없으면 단계 값 fallback). date/bank 없음 → is_substitute 플래그로
+        #   카드 렌더·미완성 가드에서 예외 처리한다.
+        if re.search(r'대체\s*수금', note):
+            _m_sub = (re.search(r'([\d,]+)\s*원\s*대체\s*수금', note)
+                      or re.search(r'총\s*([\d,]+)\s*원', note))
+            _sub_amt = int(_m_sub.group(1).replace(',', '')) if _m_sub else (
+                stage_val if stage_val > 0 else 0)
+            if _sub_amt > 0:
+                _sd = '-'
+                _m_ko = _KO_DATE_RE.search(note)
+                if _m_ko:
+                    _sd = f'{int(_m_ko.group(1)):02d}/{int(_m_ko.group(2)):02d}'
+                else:
+                    _m_full = re.search(r'(?<!\d)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)', note)
+                    if _m_full:
+                        _sd = f'{int(_m_full.group(2)):02d}/{int(_m_full.group(3)):02d}'
+                results.append({
+                    'date_md': _sd, 'amount': _sub_amt, 'partner': '대체수금',
+                    'bank': '', 'note_label': '', 'stage': stage,
+                    'is_substitute': True,
+                })
+                continue
+            # 금액 추출 실패 → 아래 표준 파싱으로 폴백
+
         # 매니저 카톡 양식 우선 검사 — 분할 입금 history를 셀에 복사한 케이스
         # 예: "02/02 G 22,308,000원 프레임플러스" 같은 라인이 여러 개
         katok_payments = []
@@ -1246,6 +1276,7 @@ def _build_stage_with_history_message(
     partner = last_payment.get('partner', '-') or '-'
     bank = last_payment.get('bank', '-') or '-'
     date_md = _fmt_payment_date(last_payment)   # 연도 있으면 YY/MM/DD
+    _is_sub = bool(last_payment.get('is_substitute'))  # 대체수금(비현금 상계·리베이트)
 
     date_label = '결제일' if is_card else '입금일'
     amount_label = '결제금액' if is_card else '입금액'
@@ -1256,24 +1287,31 @@ def _build_stage_with_history_message(
 
     lines = [
         '⠀',
-        f"{emoji} *{stage} {header_action}* — :id: *{project}*",
+        f"{emoji} *{stage} {'대체수금' if _is_sub else header_action}* — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
     ]
     if construction:
         lines.append(f"공사내용 : {construction}")
-    lines.extend([
-        f"{date_label} : {date_md}",
-        f"{amount_label} : {amount:,}원",
-        f"{partner_label} : {partner}",
-        f"은행 : {bank} ({code_display})",
-    ])
-    if is_card:
-        stage_val = (stage_sheet_vals or {}).get(stage, 0)
-        real_payment = _resolve_real_payment(stage_val, amount, total_t)
-        _fee_line = _card_fee_line(stage, real_payment, amount, total_t, stage_sheet_vals)
-        if _fee_line:
-            lines.append(_fee_line)
+    if _is_sub:
+        # 대체수금 — 은행 date/입금자 없음. 오해 소지 은행코드·입금자 라인 생략.
+        lines.extend([
+            f"대체수금액 : {amount:,}원",
+            f"구분 : 대체수금 (비현금 상계·리베이트 등)",
+        ])
+    else:
+        lines.extend([
+            f"{date_label} : {date_md}",
+            f"{amount_label} : {amount:,}원",
+            f"{partner_label} : {partner}",
+            f"은행 : {bank} ({code_display})",
+        ])
+        if is_card:
+            stage_val = (stage_sheet_vals or {}).get(stage, 0)
+            real_payment = _resolve_real_payment(stage_val, amount, total_t)
+            _fee_line = _card_fee_line(stage, real_payment, amount, total_t, stage_sheet_vals)
+            if _fee_line:
+                lines.append(_fee_line)
     lines.append('')
     lines.append('[누적 이력]')
     # 현재 알림 단계까지만 표시 — 매니저가 다음 단계 메모를 미리 입력한 경우 차단
@@ -1281,6 +1319,9 @@ def _build_stage_with_history_message(
     cur_idx = _STAGE_ORDER.get(stage, 99)
     history = [p for p in all_payments if _STAGE_ORDER.get(p.get('stage'), 99) <= cur_idx]
     for p in history:
+        if p.get('is_substitute'):
+            lines.append(f"{p.get('stage','-')}  {_fmt_payment_date(p)}  대체수금  {p.get('amount',0):,}원")
+            continue
         st = '반환' if p.get('is_refund') else p.get('stage', '-')
         d = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
         c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
@@ -1337,6 +1378,10 @@ def _build_complete_message(
         '[입금 이력]',
     ])
     for p in payments:
+        # 대체수금(리베이트 상계 등 비현금) — 은행/입금자 없음. 오해 소지 은행코드 없이 표시.
+        if p.get('is_substitute'):
+            lines.append(f"{p.get('stage','-')}  {_fmt_payment_date(p)}  대체수금  {p.get('amount',0):,}원")
+            continue
         # 과입금/계약 취소 반환(출금)은 단계명 대신 '반환'으로 표시 (2026-08 R4011 계약금 환불)
         stage = '반환' if p.get('is_refund') else p.get('stage', '-')
         date_md = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
@@ -2292,9 +2337,13 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 # 초기 fix: date_md='-' AND partner='-' (완전 fallback) 만 감지
                 # 강화 (G3702-MS 재발 관측): partner 또는 date 하나만 빠져도 skip.
                 # 매니저가 메모 부분만 입력한 중간 상태도 감지 대상.
+                # 대체수금(is_substitute)은 은행 date/입금자가 본래 없다 — 미완성으로 오인해
+                # skip 하면 영영 발송 안 되므로 가드에서 예외(2026-09-29).
                 incomplete = any(
-                    (not p.get('partner') or p.get('partner') == '-')
-                    or (not p.get('date_md') or p.get('date_md') == '-')
+                    (not p.get('is_substitute')) and (
+                        (not p.get('partner') or p.get('partner') == '-')
+                        or (not p.get('date_md') or p.get('date_md') == '-')
+                    )
                     for stage in stages_increased
                     for p in payments
                     if p.get('stage') == stage

@@ -59,5 +59,44 @@ class TestNoFalsePartner:
         assert not p or p in ('', '-'), f'예상치 못한 partner: {p!r}'
 
 
+class TestSubstitutePayment:
+    """대체 수금(리베이트 상계 등 비현금 대체입금) 인식 — 2026-09-29 G3984-YG 제보.
+
+    표준 입금 양식이 아니라 블록 파서로는 payment 0개였다. 좁은 트리거('대체 수금')로만
+    한 건의 payment(is_substitute) 로 인식한다. '상계/리베이트' 단독 단어는 오탐·flood
+    위험으로 트리거에서 제외.
+    """
+
+    def test_g3984_substitute_parsed(self):
+        # G3984-YG 실제 중도금 메모 (리베이트 상계 → 대체 수금)
+        memo = (
+            '프로젝트 / 리베이트 3% / 타공\n'
+            'G1798-YG/915,000/390,000\n'
+            'G2014-YG/585,000/300,000\n'
+            '총 5,280,000원 대체 수금'
+        )
+        # baseline 경로(stage_vals 없이) 에서도 금액 추출돼야 폴러가 감지 가능
+        res = _parse_notes(['', memo, ''])
+        mid = [p for p in res if p.get('stage') == '중도금']
+        assert len(mid) == 1, f'중도금 대체수금 1건 기대, 실제 {res}'
+        assert mid[0]['is_substitute'] is True
+        assert mid[0]['amount'] == 5280000
+        assert mid[0]['partner'] == '대체수금'
+
+    def test_amount_before_keyword(self):
+        # '총 X원' 없이 'X원 대체 수금' 만 있어도 추출
+        res = _parse_notes(['', '3,300,000원 대체 수금', ''])
+        mid = [p for p in res if p.get('stage') == '중도금']
+        assert mid and mid[0]['is_substitute'] and mid[0]['amount'] == 3300000
+
+    def test_narrow_trigger_no_false_positive(self):
+        # '상계'/'리베이트' 단독은 대체수금으로 오인하면 안 됨 (상계아산내과 등 상호 오탐)
+        for memo in ('입금일: 2024-06-07\n입금자: 최지훈(상계아산내과)',
+                     '2025년 12월 삼한 매입금에서 상계처리',
+                     '리베이트 정산 예정'):
+            res = _parse_notes(['', memo, ''], stage_vals={'중도금': 165000})
+            assert not any(p.get('is_substitute') for p in res), f'오탐: {memo!r} → {res}'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
