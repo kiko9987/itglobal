@@ -2373,6 +2373,46 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                         '계약금': c['u'], '중도금': c['v'], '잔금': c['w'],
                     }
 
+                    # 대체수금(is_substitute) 완납 반영 — 이미 수금완료(잔금) 카드가 있는
+                    # 완납(미수금 0) 프로젝트에서 뒤늦게 인식된 대체수금은 새 단계 카드를
+                    # 또 만들지 않고 기존 수금완료 카드의 [입금 이력]에 합쳐 갱신한다
+                    # (이력=총액 정합, 카드 난립 방지 — 2026-09-29 G3984-YG 사용자 요청).
+                    # 완료 카드가 없으면 아래 일반 발송(신규 단계 카드)으로 진행.
+                    if (stage != '잔금' and c['unpaid'] == 0
+                            and all(p.get('is_substitute') for p in stage_payments)):
+                        _done_ts = None
+                        try:
+                            _done_ts = rc.get(f'payment_slack:ts:{project}:잔금')
+                        except Exception:
+                            _done_ts = None
+                        if _done_ts:
+                            from dashboard.blueprints.slack_helpers import safe_slack_call
+                            _done_text = _build_complete_message(
+                                project=project, address=c['address'],
+                                payments=payments, invoice_value=c['invoice'],
+                                total_t=c['total_t'], stage_sheet_vals=stage_vals,
+                                construction=c.get('construction', ''),
+                            )
+                            try:
+                                safe_slack_call(slack.chat_update, channel=channel,
+                                                ts=_done_ts, text=_done_text)
+                                # 이 단계 ts 도 완료 카드로 매핑(후속 정정 참조). baseline
+                                # phash 는 stage 루프 뒤 공통 저장에서 확정된다.
+                                rc.set(f'payment_slack:ts:{project}:{stage}', _done_ts,
+                                       ex=60 * 60 * 24 * 90)
+                                result['sent'] += 1
+                                sent_this_row = True
+                                logger.info(
+                                    f"[PAYMENT] 대체수금 완납 반영 → 기존 수금완료 카드 갱신: "
+                                    f"{project}/{stage} (ts={_done_ts})"
+                                )
+                            except Exception as _sub_exc:
+                                logger.warning(
+                                    f"[PAYMENT] 대체수금 완료카드 갱신 실패 "
+                                    f"({project}/{stage}): {_sub_exc}"
+                                )
+                            continue
+
                     # 2026-07-11 통합 입금 그룹 감지
                     #   sig_index 에 같은 stage 시그니처 가진 프로젝트가 여러개면 그룹.
                     #   시트합 = 메모합 이면 통합 입금 확정 → 통합 카드 1건 발송.
