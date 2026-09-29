@@ -1209,6 +1209,10 @@ a[id^="folder-display-"] {
     width: 15px;
     height: 15px;
     margin-left: 1px;
+    /* 텍스트 광학 중앙에 맞춰 1px 아래로(2026-09-29 사용자 요청 — FHD 아이콘이 살짝 높아 보임).
+       레이아웃 영향 없는 시각적 이동만. */
+    position: relative;
+    top: 1px;
   }
   /* 라벨 예약폭(기본 40px)이 짧은 라벨(계약금·중도금·잔금)에도 고정돼 값 시작점을 정렬용으로
      오른쪽에 밀어놨다 → 값 영역을 깎아 계산서 아이콘이 둘째 줄로 감김(2026-09-29 사용자 요청:
@@ -1228,6 +1232,11 @@ a[id^="folder-display-"] {
   }
   .compact-card[data-card-type="financial"] .compact-item--bill .editable-value .badge {
     white-space: nowrap;
+  }
+  /* 금액정보 계산서 메모 아이콘도 FHD 에서 1px 아래로(수금정보와 통일). */
+  .compact-card[data-card-type="financial"] .compact-item--bill .editable-value .memo-tooltip-trigger {
+    position: relative;
+    top: 1px;
   }
 }
 
