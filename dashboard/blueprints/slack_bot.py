@@ -12897,23 +12897,21 @@ def _fmt_issued_warn(summary) -> str:
         else:
             parts.append(f"{s}(선발행·금액미상)")
     detail = ' · '.join(parts)
-    if summary['issued_supply'] > 0:
-        # 부가세 있는 공사(gross≠공급가)만 'VAT 포함' + 공급가액 병기, 없으면 중복 생략
+    if summary['issued_supply'] > 0 and not summary['uncertain']:
+        # 발행 금액 전부 확인됨 → 잔여 자동 프리필. (부가세 있는 공사만 'VAT 포함'+공급가액 병기)
+        # 볼드(*) 미사용: 슬랙 mrkdwn 은 '원*을'처럼 * 양옆이 한글이면 리터럴 * 로 표시됨
         has_vat = summary['issued_gross'] != summary['issued_supply']
         vat_note = ' / VAT 포함' if has_vat else ''
         supply_note = f"공급가액 {summary['issued_supply']:,}원  " if has_vat else ''
-        # 볼드(*) 미사용: 슬랙 mrkdwn 은 '원*을'처럼 * 양옆이 한글이면 리터럴 * 로 표시됨
         txt = (
             f":clipboard: *이미 발행된 계산서 있음* — {detail}{vat_note}\n"
             f"{supply_note}→ 잔여 공급가액 {summary['remaining_supply']:,}원을 발행 금액에 자동 입력했습니다. 확인 후 조정하세요."
         )
-        if summary['uncertain']:
-            txt += "\n:warning: 일부 선발행 금액이 메모에서 확인 안 됨 — 잔여 금액을 직접 확인하세요."
     else:
-        # 발행 이력은 있으나 금액 확인 불가(선발행 메모 미상 등) → 경고만, 자동차감 안 함
+        # 발행 금액 일부/전부 미상(선발행 메모 없음 등) → 부정확한 잔여 프리필 안 함, 직접 확인 유도
         txt = (
             f":warning: *이미 발행 이력 있음* — {detail}\n"
-            f"금액이 메모에서 확인되지 않아 자동 차감하지 못했습니다. 발행 금액을 직접 확인하세요."
+            f"일부 발행 금액이 확인되지 않아 잔여를 자동 계산하지 못했습니다. 발행 금액을 직접 확인·입력하세요."
         )
     return txt
 
@@ -13049,7 +13047,8 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
         _iss = _project_issued_invoice(code)
         if _iss and (_iss.get('issued_supply', 0) > 0 or _iss.get('uncertain')):
             issued_warn = _fmt_issued_warn(_iss)
-            if _iss.get('issued_supply', 0) > 0:  # 금액 확인된 경우만 잔여 프리필
+            # 금액 전부 확인된 경우만 잔여 프리필. 미상 있으면 부정확한 잔여 대신 총액 유지(경고만).
+            if _iss.get('issued_supply', 0) > 0 and not _iss.get('uncertain'):
                 amt_input = f"{_iss['remaining_supply']:,}"
     except Exception as _exc:
         logger.debug(f'[SLACK/계산서] 이미발행 계산 실패 ({code}): {_exc}')
