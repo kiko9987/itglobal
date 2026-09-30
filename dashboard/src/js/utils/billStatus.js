@@ -303,3 +303,35 @@ export function billAmountLines(row, stage) {
   }
   return lines;
 }
+
+/**
+ * 세금계산서 발행일 — 계산서_메모(Y 노트)에서 추출(툴팁 '발행일' 줄). 없으면 ''.
+ * 발행일은 시트에 따로 남는 칸이 없어 메모가 유일한 출처 (2026-09-30 SB 요청).
+ *  ① 단계 명시 줄 'YYYY-MM-DD {단계} 발행|선발행 …'(시스템 자동기록·슬랙 카드 소급) — 그 단계 최신 줄.
+ *  ② SB 수기 줄 'YYYY-MM-DD … 발행'(단계 표기 없음): ①로 못 정한 발행 단계 수와 줄 수가
+ *     같을 때만 단계 순서(계약금→잔금) ↔ 날짜 순서로 대응. 개수 다르면 모호 → 생략(오표기 방지).
+ * @returns {string} 'YYYY-MM-DD' | ''
+ */
+export function billIssueDate(row, stage) {
+  const memo = String((row && row['계산서_메모']) || '');
+  if (!memo.trim()) return '';
+  const DATE_LINE = /^\s*(\d{4})[-./](\d{1,2})[-./](\d{1,2})(?!\d)(.*)$/;
+  const tagged = [];
+  const untagged = [];
+  memo.split('\n').forEach((ln) => {
+    const m = DATE_LINE.exec(ln);
+    if (!m) return;
+    const date = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    const st = /(계약금|중도금|잔금)\s*선?발행/.exec(m[4]);
+    if (st) tagged.push({ stage: st[1], date });
+    else if (/발행/.test(m[4])) untagged.push(date);
+  });
+  const own = tagged.filter((t) => t.stage === stage);
+  if (own.length) return own[own.length - 1].date;
+  const taggedStages = new Set(tagged.map((t) => t.stage));
+  const remaining = BILL_STAGES.filter((s) => !taggedStages.has(s)
+    && normalizeToken(String((row && row[BILL_STAGE_COL[s]]) ?? '').trim()) === '발행');
+  const i = remaining.indexOf(stage);
+  if (i < 0 || !untagged.length || untagged.length !== remaining.length) return '';
+  return [...untagged].sort()[i];
+}

@@ -69,6 +69,25 @@ def test_prebill_memo_has_issue_date(monkeypatch):
     assert re.findall(r'[\d,]+\s*원', fm.notes['Y10']) == ['2,882,000원']
 
 
+def test_normal_issue_writes_dated_line_without_amount(monkeypatch):
+    fm = _FakeManager()
+    fm.vals['W10'] = 2882000                        # 입금 있는 단계 → 일반 발행
+    fm.notes['Y10'] = '2026-08-14 41,600,000원 부가세 별도 발행'   # SB 수기 메모 보존
+    _run(monkeypatch, fm)
+    today = f'{datetime.now():%Y-%m-%d}'
+    assert fm.vals['AB10'] == '발행'
+    assert fm.notes['Y10'] == f'2026-08-14 41,600,000원 부가세 별도 발행\n{today} 잔금 발행'
+    # '원' 금액 없는 줄 → 금액 파서 결과 불변
+    assert re.findall(r'[\d,]+\s*원', fm.notes['Y10']) == ['41,600,000원']
+
+
+def test_already_issued_stage_writes_nothing(monkeypatch):
+    fm = _FakeManager()
+    fm.vals['AB10'] = '발행'
+    _run(monkeypatch, fm)
+    assert 'Y10' not in fm.notes
+
+
 def test_prebill_memo_not_duplicated_for_old_dateless_line(monkeypatch):
     fm = _FakeManager()
     fm.notes['Y10'] = '잔금 선발행 2,882,000원'     # 날짜 도입 전 기록

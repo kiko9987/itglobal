@@ -21,7 +21,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate } from '../utils/billStatus.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -957,7 +957,9 @@ export default class ProjectRowAccordion {
     //   같은 클래스·data 속성만 내면 배선 불필요. rowData·stage 있을 때만 리치 렌더.
     if ((category === '발행' || category === '일반') && rowData && stage) {
       const code = String(rowData['프로젝트 코드'] || '').trim();
-      const lines = ['세금계산서 발행완료', ...billAmountLines(rowData, stage), '클릭 시 계산서 링크로 이동'];
+      const issued = billIssueDate(rowData, stage);
+      const lines = ['세금계산서 발행완료', ...(issued ? [`발행일 ${issued}`] : []),
+        ...billAmountLines(rowData, stage), '클릭 시 계산서 링크로 이동'];
       const title = this.escapeHTML(lines.join('\n'));
       return ` <span class="memo-tooltip-trigger bill-status bill-invoice-issued" role="button" tabindex="0" style="cursor:pointer;" data-invoice-code="${this.escapeHTML(code)}" data-invoice-stage="${this.escapeHTML(stage)}" data-bs-toggle="tooltip" data-bs-title="${title}" aria-label="${this.escapeHTML(lines.join(', '))}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
     }

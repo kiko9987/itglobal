@@ -12,7 +12,7 @@ import { getGlobalModeManager } from '../utils/globalModeManager.js';
 import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, isFullyCollected } from '../utils/billStatus.js';
+import { computeBillStagesFromColumns, isFullyCollected, billIssueDate } from '../utils/billStatus.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -182,7 +182,9 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
   // 세금계산서 '발행' → 사업자·금액 툴팁 + 슬랙 계산서 카드 바로가기(클릭)
   if (status === '발행') {
     const code = String(row['프로젝트 코드'] || '').trim();
-    const lines = ['세금계산서 발행완료', ..._billAmountLines(row, stage), '클릭 시 계산서 링크로 이동'];
+    const issued = billIssueDate(row, stage);
+    const lines = ['세금계산서 발행완료', ...(issued ? [`발행일 ${issued}`] : []),
+      ..._billAmountLines(row, stage), '클릭 시 계산서 링크로 이동'];
     const titleText = lines.join('\n');
     return `
       <span class="memo-value-wrapper bill-invoice-issued" role="button" tabindex="0" style="cursor:pointer;"

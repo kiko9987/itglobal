@@ -12857,31 +12857,38 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
         if col_y:
             manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
                                       _bill_y_summary(cur, amt, _coll))
-        # 선발행(입금 0) 단계를 새로 '발행' 기록 → 발행액을 계산서_메모(Y 노트)에 저장 (2026-09-29).
-        #   입금열이 0이라 금액이 어디에도 안 남아 PM·계산서 모달에서 '금액미상'이 되던 갭 해소.
-        #   통합발행이면 covered('-') 단계 금액은 이 발행에 포함 → 이 단계 순수분 = gross - covered합.
-        if col_y and selected in wrote and amt.get(selected, 0) == 0 and inv_amt > 0:
+        # 발행일을 계산서_메모(Y 노트)에 기록 — PM 계산서 툴팁 '발행일' 출처 (2026-09-30 SB 요청).
+        #   날짜 선두 = SB 수기 메모 관례('2026-08-14 41,600,000원 … 발행'). 발행일은 시트에 달리
+        #   남는 곳이 없어(3열은 '발행' 표시만) 여기 안 쓰면 유실된다.
+        #   · 선발행(입금 0): 'YYYY-MM-DD 잔금 선발행 X원' — 입금열이 0이라 발행액도 여기만 남음
+        #     (2026-09-29, PM·계산서 모달 '금액미상' 방지). 통합발행이면 covered('-') 단계 금액은
+        #     이 발행에 포함 → 이 단계 순수분 = gross - covered합.
+        #   · 그 외: 'YYYY-MM-DD 잔금 발행' — '원' 금액 없음(선발행 금액 파서 `[\d,]+\s*원` 무영향).
+        if col_y and selected in wrote:
             try:
-                if vat_val == 'incl':
-                    inv_gross = inv_amt
-                elif total1 > 0 and total2 > 0:
-                    inv_gross = round(inv_amt * total2 / total1)
-                else:
-                    inv_gross = round(inv_amt * 1.1)
-                covered_sum = sum(amt.get(s, 0) for s in _BILL_STAGES if f'{s}(-)' in wrote)
-                memo_amt = int(round(max(inv_gross - covered_sum, 0)))
-                if memo_amt > 0:
-                    _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
-                    _core = f"{selected} 선발행 {memo_amt:,}원"
-                    # 발행일을 앞에 — SB 수기 메모 관례('2026-08-14 41,600,000원 … 발행')와 맞춤 (2026-09-30 SB 요청).
-                    #   금액 파서(`[\d,]+\s*원`)는 '원' 붙은 금액만 잡아 날짜 영향 없음.
-                    _line = f"{datetime.now():%Y-%m-%d} {_core}"
-                    if _core not in _note:
-                        _new_note = f"{_note}\n{_line}".strip() if _note.strip() else _line
-                        manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
-                        logger.info(f"[SLACK/계산서] 선발행 발행액 메모 기록 ({code}): {_line}")
+                _today = f"{datetime.now():%Y-%m-%d}"
+                _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
+                _core = f"{selected} 발행"
+                if amt.get(selected, 0) == 0 and inv_amt > 0:
+                    if vat_val == 'incl':
+                        inv_gross = inv_amt
+                    elif total1 > 0 and total2 > 0:
+                        inv_gross = round(inv_amt * total2 / total1)
+                    else:
+                        inv_gross = round(inv_amt * 1.1)
+                    covered_sum = sum(amt.get(s, 0) for s in _BILL_STAGES if f'{s}(-)' in wrote)
+                    memo_amt = int(round(max(inv_gross - covered_sum, 0)))
+                    if memo_amt > 0:
+                        _core = f"{selected} 선발행 {memo_amt:,}원"
+                        if _core in _note:      # 날짜 도입 전 기록 등 — 같은 발행 재기록 안 함
+                            _core = None
+                _line = f"{_today} {_core}" if _core else None
+                if _line and _line not in _note:
+                    _new_note = f"{_note}\n{_line}".strip() if _note.strip() else _line
+                    manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
+                    logger.info(f"[SLACK/계산서] 발행일 메모 기록 ({code}): {_line}")
             except Exception as _me:
-                logger.warning(f"[SLACK/계산서] 선발행 메모 기록 실패 ({code}): {_me}")
+                logger.warning(f"[SLACK/계산서] 발행일 메모 기록 실패 ({code}): {_me}")
         # 프로젝트 데이터 캐시 무효화 (Z/AA/AB·Y 변경 반영)
         try:
             from dashboard.utils.smart_cache_manager import (
