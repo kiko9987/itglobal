@@ -9346,10 +9346,18 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
         #   방문완료를 정확히 잡게. 이미 '공사 확정'(프로젝트 등록됨)·'방문 취소'면 되돌리지 않음.
         if cur_status not in ('공사 확정', '방문 취소'):
             updates['상태'] = '방문 완료'
+        # 방문 예정일 기간("09-23~28") → 실제 방문일로 좁힘 (2026-09-30, L-04083 계기).
+        #   완료 처리일이 예정 기간 안일 때만. 단일 날짜·기간 밖 완료는 그대로 둠 — 완료일은
+        #   '버튼 누른 날/사진 올린 날'이라 늦게 누르면 실제 방문일보다 뒤로 찍히기 때문.
+        #   계획했던 기간은 상담 이력 '방문 예약' 회차에 남음. 완료 건은 캔버스·List 에서 빠지므로 부작용 없음.
+        _today = datetime.now().strftime('%Y-%m-%d')
+        _vs, _ve = _split_visit_date_range(str(lead.get('방문 예정일', '') or ''))
+        if _vs and _ve and _vs <= _today <= _ve:
+            updates['방문 예정일'] = _format_date_for_sheet(_today)
         _update_lead_dispatch(lead_no, updates)
         logger.info(
-            f'[SLACK/방문완료] 시트 마커 append + 상태={updates.get("상태", cur_status)}: '
-            f'{lead_no} → {marker}')
+            f'[SLACK/방문완료] 시트 마커 append + 상태={updates.get("상태", cur_status)}'
+            f'{" + 방문일 " + _today if "방문 예정일" in updates else ""}: {lead_no} → {marker}')
     except Exception as exc:
         logger.warning(f'[SLACK/방문완료] 시트 마커 append 실패 ({lead_no}): {exc}')
 
