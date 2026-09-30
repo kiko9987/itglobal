@@ -35,16 +35,62 @@ def index():
     try:
         user_email = session.get('user', {}).get('email', 'Unknown')
         user_role = get_user_role()
+        # '내 리드만 보기' 신원 — 프로젝트 페이지 '내 프로젝트만 보기'와 같은 출처(세션 실명)
+        user_display_name = str(session.get('user', {}).get('name', '') or '').strip()
 
         return render_template(
             'leads.html',
             user_email=user_email,
-            user_role=user_role
+            user_role=user_role,
+            user_display_name=user_display_name,
         )
 
     except Exception as exc:
         logger.error(f"[LEADS] 페이지 로드 실패: {exc}", exc_info=True)
         return redirect('/projects')
+
+
+def _attach_lead_progress(leads):
+    """리드 레코드에 파생 필드 부착 (원본 캐시 dict 는 건드리지 않고 복사본 반환).
+
+    - _project_code: 공사현황 'Lead No'(AO열)로 연결된 프로젝트 코드 (여러 건이면 콤마)
+    - _folder_id:    방문 사진 폴더 ID — 시트 P열 우선, 없으면 Redis visit_folder:{lead}
+    """
+    out = [dict(r) for r in leads]
+
+    lead_to_codes = {}
+    try:
+        from ..services.project_service import load_data as _load_project_df
+        pdf = _load_project_df()
+        if pdf is not None and 'Lead No' in pdf.columns and '프로젝트 코드' in pdf.columns:
+            for ln, code in zip(pdf['Lead No'].astype(str).str.strip(),
+                                pdf['프로젝트 코드'].astype(str).str.strip()):
+                if ln.startswith('L-') and code and code != 'nan':
+                    lead_to_codes.setdefault(ln, []).append(code)
+    except Exception as exc:
+        logger.warning(f"[LEADS] 연결 프로젝트 조회 실패: {exc}")
+
+    missing_folder = []
+    for r in out:
+        ln = str(r.get('리드 No') or '').strip()
+        r['_project_code'] = ', '.join(lead_to_codes.get(ln, []))
+        fid = str(r.get('폴더 ID') or '').strip()
+        r['_folder_id'] = '' if fid in ('', '-') else fid
+        if not r['_folder_id'] and ln:
+            missing_folder.append(r)
+
+    if missing_folder:
+        try:
+            from ..utils.redis_client import get_redis_client
+            rc = get_redis_client().redis
+            keys = [f"visit_folder:{str(r.get('리드 No')).strip()}" for r in missing_folder]
+            for r, v in zip(missing_folder, rc.mget(keys)):
+                if v:
+                    r['_folder_id'] = v.decode('utf-8') if isinstance(v, bytes) else str(v)
+        except Exception as exc:
+            logger.warning(f"[LEADS] 방문 폴더 Redis 조회 실패: {exc}")
+
+    return out
 
 
 @leads_bp.route('/api/list', methods=['GET'])
@@ -74,6 +120,9 @@ def api_list_leads():
                 r for r in leads
                 if str(r.get('플랫폼', '') or '').strip() != '기타'
             ]
+
+        # 리드 페이지 '진행' 표시용 파생 필드 (_ 접두 = 시트 컬럼 아님)
+        leads = _attach_lead_progress(leads)
 
         return APIResponse.success(
             data={'leads': leads, 'count': len(leads)}
@@ -155,6 +204,57 @@ def api_create_lead():
         )
 
 
+def _normalize_pm_lead_updates(data):
+    """PM 리드 수정값을 슬랙 등록 경로와 같은 규격으로 정규화.
+
+    - 방문 예정일: 단일 ISO 날짜는 ' prefix (USER_ENTERED 가 날짜 시리얼로 바꾸는 것 방지,
+      slack_helpers._format_date_for_sheet 와 동일). 범위("~")·'-' 는 그대로.
+    - 고객 연락처: normalize_phone (하이픈 없는 010… 입력 시 앞 0 탈락 방지).
+    - 방문 주소: normalize_input_address (방문 모달/PM 공용, verified 일 때만 정정).
+
+    Returns: (시트에 쓸 dict, 화면 반영용 saved dict, 주소 정규화 note|None)
+    """
+    out = dict(data)
+    saved = {}
+    addr_note = None
+
+    vd = out.get('방문 예정일')
+    if isinstance(vd, str):
+        vd = vd.strip().lstrip("'")
+        saved['방문 예정일'] = vd
+        if vd and vd != '-':
+            from .slack_helpers import _format_date_for_sheet
+            vd = _format_date_for_sheet(vd)
+        out['방문 예정일'] = vd
+
+    ph = out.get('고객 연락처')
+    if isinstance(ph, str) and ph.strip() and ph.strip() != '-':
+        from ..services.lead_helpers import normalize_phone
+        ph = normalize_phone(ph) or ph.strip()
+        out['고객 연락처'] = ph
+        saved['고객 연락처'] = ph
+
+    addr = out.get('방문 주소')
+    if isinstance(addr, str) and addr.strip() and addr.strip() != '-':
+        try:
+            from ..services.address_resolver import normalize_input_address
+            r = normalize_input_address(addr)
+            out['방문 주소'] = r.get('address') or addr.strip()
+            addr_note = {
+                'kind': r.get('kind') or 'failed',
+                'changed': bool(r.get('changed')),
+                'region_changed': bool(r.get('region_changed')),
+                'original': addr.strip(),
+            }
+        except Exception as exc:
+            logger.warning(f"[LEADS] PM 주소 정규화 실패 (원문 저장): {exc}")
+            out['방문 주소'] = addr.strip()
+        # 읽기 경로(load_leads_data)가 영문을 대문자화하므로 화면도 동일하게
+        saved['방문 주소'] = out['방문 주소'].upper()
+
+    return out, saved, addr_note
+
+
 @leads_bp.route('/api/update/<lead_no>', methods=['PUT'])
 @editor_required
 def api_update_lead(lead_no):
@@ -187,6 +287,9 @@ def api_update_lead(lead_no):
                 status_code=400
             )
 
+        # PM 입력값을 슬랙 등록 경로와 같은 규격으로 정규화 (날짜 escape·전화·주소)
+        data, saved, addr_note = _normalize_pm_lead_updates(data)
+
         # 리드 업데이트
         result = update_lead(lead_no, data)
 
@@ -198,6 +301,7 @@ def api_update_lead(lead_no):
             )
 
         return APIResponse.updated(
+            data={'saved': saved, 'addr_note': addr_note},
             message=result['message']
         )
 
