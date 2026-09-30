@@ -13,6 +13,12 @@
   padding: 0.5rem 0;
 }
 
+/* 프리셋 칩 자리 — 저장된 프리셋이 없으면 접음 (프로젝트·리드 공용). 비어 있어도 inline
+   min-height + mt-2 로 한 줄을 차지해 필터 박스 아래가 빈 직사각형처럼 늘어나 보였음 (2026-09-30) */
+#filterPresetsContainer:empty {
+  display: none !important;
+}
+
 .filter-section {
   /* 레거시 스타일: 회색 배경에 둥근 테두리로 별도 섹션 */
   background: #fafbfc;
