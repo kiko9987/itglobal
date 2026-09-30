@@ -33,6 +33,24 @@ class TestParseVisitDateEnd:
         assert vas._parse_visit_date_start('2026-09-29~10-02') == date(2026, 9, 29)
 
 
+class TestCanvasDateDisplay:
+    """캔버스1 표시 — 월 넘김 범위는 끝 월 명시 (2026-09-30 ETC-afaa5d '9월 30~10일' 오표기)."""
+    @pytest.mark.parametrize('vd,expected', [
+        ('2026-09-30~10-01', '9월 30일~10월 1일'),     # 버그 케이스 (옛: '9월 30~10일')
+        ('2026-09-29~-10-02', '9월 29일~10월 2일'),    # '~-' 오타형
+        ('2026-12-30~2027-01-02', '12월 30일~1월 2일'),
+        ('2026-09-29~30', '9월 29~30일'),               # 같은 달
+        ('2026-09.29~9.30', '9월 29~30일'),             # 점 구분, 같은 달
+        ('2026-09-29~2026-09-30', '9월 29~30일'),
+        ("'2026-10-02", '10월 2일'),                     # 단일(escape)
+        ('2026-09.29', '9월 29일'),
+        ('', '-'),
+        ('미정', '미정'),
+    ])
+    def test_display(self, vd, expected):
+        assert vcs._fmt_visit_date(vd) == expected
+
+
 class _FakeRedis:
     def get(self, *_a, **_k):
         return None

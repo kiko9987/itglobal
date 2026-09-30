@@ -76,20 +76,25 @@ def _categorize(lead: Dict) -> Optional[str]:
 
 
 def _fmt_visit_date(raw) -> str:
-    """방문 예정일 → 'MM월 DD일' 또는 'MM월 DD~DD일' 표시."""
+    """방문 예정일 → 'M월 D일' / 'M월 D~D일' / 월 넘김 'M월 D일~M월 D일' 표시."""
     s = str(raw or '').strip().lstrip("'")
     if not s or s == '-':
         return '-'
-    # YYYY-MM-DD~DD 또는 YYYY-MM-DD ~ YYYY-MM-DD
+    # 범위 끝: DD / MM-DD / YYYY-MM-DD (구분자 -/. 허용, '~-10-02' 오타형도)
     m_range = re.match(
-        r'^(\d{4})-(\d{1,2})-(\d{1,2})\s*~\s*(?:(\d{4})-(\d{1,2})-)?(\d{1,2})',
+        r'^(\d{4})-(\d{1,2})[-.](\d{1,2})\s*~\s*-?(?:(\d{4})[-/.])?(?:(\d{1,2})[-/.])?(\d{1,2})',
         s,
     )
     if m_range:
         mm1, dd1 = int(m_range.group(2)), int(m_range.group(3))
+        mm2 = int(m_range.group(5) or mm1)
         dd2 = int(m_range.group(6))
+        if mm2 != mm1:
+            # 월 넘김 범위는 끝 월 명시 — 옛 표기는 '2026-09-30~10-01'의 끝 월(10)을 일로
+            # 읽어 '9월 30~10일'로 틀리게 나왔다 (2026-09-30 ETC-afaa5d 벽진컴퍼니).
+            return f'{mm1}월 {dd1}일~{mm2}월 {dd2}일'
         return f'{mm1}월 {dd1}~{dd2}일'
-    m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})', s)
+    m = re.match(r'^(\d{4})-(\d{1,2})[-.](\d{1,2})', s)
     if m:
         return f'{int(m.group(2))}월 {int(m.group(3))}일'
     # 이미 사람 읽는 양식이면 그대로
