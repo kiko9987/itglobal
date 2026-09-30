@@ -133,6 +133,14 @@ export function consultDisplay(raw) {
     return `${k.slice(4, 6)}.${k.slice(6, 8)}${hm && hm !== '0000' ? ` ${hm.slice(0, 2)}:${hm.slice(2)}` : ''}`;
 }
 
+/** 상담 시간 전체 표시 — "2026-09-30 11:48" (시각 없으면 날짜만, 해석 불가면 원문) */
+export function consultFull(raw) {
+    const k = consultSortKey(raw);
+    if (!k) return String(raw || '').trim();
+    const hm = k.slice(8, 12);
+    return `${sortKeyToIso(k)}${hm && hm !== '0000' ? ` ${hm.slice(0, 2)}:${hm.slice(2)}` : ''}`;
+}
+
 /** 경과 라벨 — 오늘 / 어제 / n일 전 / n개월 전 / n년 전 */
 export function agoLabel(iso, today = localIso(new Date())) {
     if (!iso) return '';

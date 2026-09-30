@@ -7,18 +7,25 @@
 .table-wrapper #leadsTable td { width: auto; }
 .table-wrapper #leadsTable td { vertical-align: middle; }
 
-.table-wrapper #leadsTable .lcol-no        { width: 7%;  white-space: nowrap; }
-.table-wrapper #leadsTable .lcol-time      { width: 8%;  white-space: nowrap; }
-.table-wrapper #leadsTable .lcol-visit     { width: 9%;  white-space: nowrap; }
+/* 정렬 — project-table.css 는 열 순서(nth-child)로 정렬을 줘서 리드 열과 어긋남 → 열 이름으로 지정.
+   프로젝트 페이지와 같게 식별자(리드 No)·주소는 왼쪽, 나머지 값은 가운데 */
+.table-wrapper #leadsTable tbody td { text-align: center; }
+.table-wrapper #leadsTable tbody td.lcol-no,
+.table-wrapper #leadsTable tbody td.lcol-address { text-align: left; }
+
+.table-wrapper #leadsTable .lcol-no        { width: 7%;  white-space: nowrap !important; }
+.table-wrapper #leadsTable .lcol-time      { width: 8%;  white-space: nowrap !important; }
+.table-wrapper #leadsTable .lcol-visit     { width: 9%;  white-space: nowrap !important; }
 .table-wrapper #leadsTable .lcol-platform  { width: 6%; }
-.table-wrapper #leadsTable .lcol-name      { width: 8%; }
-.table-wrapper #leadsTable .lcol-phone     { width: 9%;  white-space: nowrap; }
-.table-wrapper #leadsTable .lcol-address   { width: 24%; max-width: 0; }
+.table-wrapper #leadsTable .lcol-name      { width: 9%; max-width: 0; }
+.table-wrapper #leadsTable .lcol-phone     { width: 9%;  white-space: nowrap !important; }
+.table-wrapper #leadsTable .lcol-address   { width: 20%; max-width: 0; }
 .table-wrapper #leadsTable .lcol-status    { width: 7%; }
-.table-wrapper #leadsTable .lcol-consultant,
-.table-wrapper #leadsTable .lcol-sales     { width: 7%; }
+/* 공동방문 배지 여러 개가 세로로 쌓여 행이 높아지지 않게 한 줄 */
+.table-wrapper #leadsTable .lcol-consultant { width: 7%;  white-space: nowrap !important; }
+.table-wrapper #leadsTable .lcol-sales      { width: 10%; white-space: nowrap !important; }
 .table-wrapper #leadsTable .lcol-self      { width: 7%; }
-.table-wrapper #leadsTable .lcol-progress  { width: 9%;  white-space: nowrap; }
+.table-wrapper #leadsTable .lcol-progress  { width: 9%;  white-space: nowrap !important; }
 
 #leadsTable tbody tr:not(.accordion-row) { cursor: pointer; }
 
@@ -34,8 +41,18 @@
   color: var(--gray-500, #6c757d);
   line-height: 1.2;
 }
-.lead-sub-today    { color: #d63384; font-weight: 600; }
-.lead-sub-upcoming { color: #0d6efd; font-weight: 600; }
+/* 방문 예정일 옆 D-n (같은 줄) */
+.lead-dday {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #0d6efd;
+  margin-left: 0.2rem;
+}
+.lead-dday-today { color: #d63384; }
+
+/* 공동방문 담당자 배지 여러 개 */
+#leadsTable td.lcol-consultant .badge,
+#leadsTable td.lcol-sales .badge { margin: 1px 0; }
 .lead-empty        { color: var(--gray-400, #adb5bd); font-style: italic; }
 .lead-unassigned   { color: #dc3545; font-weight: 600; font-size: 0.85rem; }
 
@@ -47,12 +64,6 @@
   font-weight: 700;
   color: #007bff;
   white-space: nowrap;
-}
-
-.badge.lead-platform-badge {
-  background: var(--gray-100, #f1f3f5);
-  color: var(--gray-700, #495057);
-  font-weight: 500;
 }
 
 .badge.lead-status {
@@ -108,7 +119,8 @@ a.lead-progress-icon:hover { color: #0d6efd; }
 
 .lead-text-scroll {
   flex: 1;
-  max-height: 260px;
+  /* 카드 높이를 프로젝트 카드(min-height 280, 3줄)와 맞춤 — 긴 원문·이력은 스크롤 */
+  max-height: 185px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;

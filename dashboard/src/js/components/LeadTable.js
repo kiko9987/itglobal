@@ -10,10 +10,23 @@
 import DataTable from 'datatables.net';
 import 'datatables.net-bs5';
 import logger from '../utils/logger.js';
+import UnifiedBadgeSystem from './UnifiedBadgeSystem.js';
 import {
-  consultSortKey, consultDisplay, sortKeyToIso, agoLabel, splitVisitRange, splitOwners,
+  consultSortKey, consultFull, splitVisitRange, splitOwners,
   parseConsultEntries, leadStatusClass, localIso, daysBetween, esc,
 } from '../utils/leadFormat.js';
+
+// 플랫폼·담당자 배지는 프로젝트 페이지와 같은 배지 체계(유입 구분·담당자 색) 재사용
+const badges = new UnifiedBadgeSystem();
+
+/** 이름 목록 → 담당자 배지들 (공동방문 "권태훈,강정권" 은 이름마다 배지) */
+export function managerBadges(raw) {
+  return splitOwners(raw).map((n) => badges.createManagerBadge(n)).join(' ');
+}
+
+export function platformBadge(p) {
+  return p ? badges.createCompanyBadge(p) : '';
+}
 
 const MODE_KEY = 'itg_lead_visit_mode';
 
@@ -93,9 +106,7 @@ export default class LeadTable {
           render: (d, t, r) => {
             const raw = r['상담 시간'];
             if (t === 'sort' || t === 'type') return consultSortKey(raw);
-            if (t !== 'display') return raw;
-            const ago = agoLabel(sortKeyToIso(consultSortKey(raw)), today);
-            return `${esc(consultDisplay(raw) || '-')}${ago ? `<div class="lead-sub">${ago}</div>` : ''}`;
+            return t === 'display' ? esc(consultFull(raw) || '-') : raw;
           },
         },
         {
@@ -110,9 +121,10 @@ export default class LeadTable {
                 ? `<span title="날짜 형식 확인 필요">${esc(raw)}</span>`
                 : '<span class="lead-empty">미정</span>';
             }
+            // D-n 은 줄바꿈 없이 같은 줄에 (행 높이 유지)
             const dd = daysBetween(today, start);
-            const tag = dd === 0 ? '<div class="lead-sub lead-sub-today">오늘</div>'
-              : dd > 0 ? `<div class="lead-sub lead-sub-upcoming">D-${dd}</div>` : '';
+            const tag = dd === 0 ? ' <span class="lead-dday lead-dday-today">오늘</span>'
+              : dd > 0 ? ` <span class="lead-dday">D-${dd}</span>` : '';
             return `${esc(raw)}${tag}`;
           },
         },
@@ -120,12 +132,17 @@ export default class LeadTable {
           name: 'platform', data: null, className: 'lcol-platform',
           render: (d, t, r) => {
             const p = val(r, '플랫폼');
-            return t === 'display' ? (p ? `<span class="badge lead-platform-badge">${esc(p)}</span>` : '-') : p;
+            return t === 'display' ? (platformBadge(p) || '-') : p;
           },
         },
         {
           name: 'name', data: null, className: 'lcol-name',
-          render: (d, t, r) => (t === 'display' ? esc(val(r, '고객명') || '-') : val(r, '고객명')),
+          render: (d, t, r) => {
+            const n = val(r, '고객명');
+            if (t !== 'display') return n;
+            // 긴 상호명이 두 줄로 꺾여 행 높이가 늘지 않게 한 줄 + 말줄임 (전체는 툴팁)
+            return n ? `<span class="lead-ellipsis" title="${esc(n)}">${esc(n)}</span>` : '-';
+          },
         },
         {
           name: 'phone', data: null, className: 'lcol-phone',
@@ -152,7 +169,7 @@ export default class LeadTable {
           name: 'consultant', data: null, className: 'lcol-consultant',
           render: (d, t, r) => {
             const v = splitOwners(r['온라인 상담자']).join(', ');
-            return t === 'display' ? esc(v || '-') : v;
+            return t === 'display' ? (managerBadges(r['온라인 상담자']) || '-') : v;
           },
         },
         {
@@ -160,7 +177,7 @@ export default class LeadTable {
           render: (d, t, r) => {
             const v = splitOwners(r['영업 담당자']).join(', ');
             if (t !== 'display') return v;
-            if (v) return esc(v);
+            if (v) return managerBadges(r['영업 담당자']);
             return val(r, '상태') === '방문 예약' ? '<span class="lead-unassigned">미배정</span>' : '-';
           },
         },

@@ -9,9 +9,9 @@
  */
 import logger from '../utils/logger.js';
 import {
-  splitOwners, parseConsultEntries, consultDisplay, consultSortKey, sortKeyToIso, agoLabel,
-  splitVisitRange, leadStatusClass, esc,
+  splitOwners, parseConsultEntries, consultFull, splitVisitRange, leadStatusClass, esc,
 } from '../utils/leadFormat.js';
+import { managerBadges, platformBadge } from './LeadTable.js';
 
 const val = (r, k) => {
   const v = String(r?.[k] ?? '').trim();
@@ -166,14 +166,21 @@ export default class LeadRowAccordion {
     const consult = splitOwners(lead['온라인 상담자']).join(', ') || '-';
     const sales = splitOwners(lead['영업 담당자']).join(', ') || '미배정';
     const addr = val(lead, '방문 주소') || '주소 정보 없음';
-    const iso = sortKeyToIso(consultSortKey(lead['상담 시간']));
-    const when = [consultDisplay(lead['상담 시간']), agoLabel(iso)].filter(Boolean).join(' · ');
     const platform = val(lead, '플랫폼');
+    const when = consultFull(lead['상담 시간']);
+    // 연결 프로젝트는 헤더에 (카드에서 빼서 카드 3줄 유지)
+    const codes = val(lead, '_project_code').split(',').map((c) => c.trim()).filter(Boolean);
+    const projectLinks = codes.length
+      ? `<div class="project-content-info lead-header-projects"><i class="fas fa-link me-2"></i>${codes.map((c) =>
+        `<a class="badge lead-project-link" href="/projects?search=${encodeURIComponent(c)}" target="_blank"
+            rel="noopener" title="연결된 프로젝트 열기">${esc(c)}</a>`).join(' ')}</div>`
+      : '';
     return `
       <div class="project-code-badge"><i class="fas fa-tag me-2"></i>${esc(no)}</div>
       <div class="project-manager-info"><i class="fas fa-user me-2"></i>상담 ${esc(consult)} · 영업 ${esc(sales)}</div>
       <div class="project-address-info" title="${esc(addr)}"><i class="fas fa-map-marker-alt me-2"></i>${esc(addr)}</div>
-      <div class="project-content-info"><i class="fas fa-inbox me-2"></i>${esc([platform, when].filter(Boolean).join(' · ') || '-')}</div>`;
+      <div class="project-content-info"><i class="fas fa-inbox me-2"></i>${esc([platform, when].filter(Boolean).join(' · ') || '-')}</div>
+      ${projectLinks}`;
   }
 
   item(label, html, { wide = false } = {}) {
@@ -193,10 +200,9 @@ export default class LeadRowAccordion {
         <div class="card-grid">
           ${this.item('고객명', esc(val(lead, '고객명')))}
           ${this.item('연락처', esc(val(lead, '고객 연락처')))}
-          ${this.item('플랫폼', esc(val(lead, '플랫폼')))}
+          ${this.item('플랫폼', platformBadge(val(lead, '플랫폼')))}
           ${this.item('키워드', esc(val(lead, '키워드')))}
           ${this.item('이메일', esc(val(lead, '이메일')), { wide: true })}
-          ${this.item('방문 주소', esc(val(lead, '방문 주소')), { wide: true })}
         </div>
       </div>`;
   }
@@ -209,7 +215,6 @@ export default class LeadRowAccordion {
       ? `${esc(rawVisit)}${start ? '' : ' <i class="fas fa-exclamation-triangle text-warning" title="날짜 형식 확인 필요"></i>'}`
       : '';
     const folder = val(lead, '_folder_id');
-    const codes = val(lead, '_project_code').split(',').map((c) => c.trim()).filter(Boolean);
     return `
       <div class="info-card compact-card">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -218,14 +223,12 @@ export default class LeadRowAccordion {
         <div class="card-grid">
           ${this.item('상태', status ? `<span class="badge lead-status ${leadStatusClass(status)}">${esc(status)}</span>` : '')}
           ${this.item('방문 예정일', visitHtml)}
-          ${this.item('상담자', esc(splitOwners(lead['온라인 상담자']).join(', ')))}
-          ${this.item('영업 담당', esc(splitOwners(lead['영업 담당자']).join(', ')))}
+          ${this.item('상담자', managerBadges(lead['온라인 상담자']))}
+          ${this.item('영업 담당', managerBadges(lead['영업 담당자']))}
           ${this.item('본인 방문', esc(val(lead, '본인 방문 여부')))}
           ${this.item('사진 폴더', folder
             ? `<a href="https://drive.google.com/drive/folders/${esc(folder)}" target="_blank" rel="noopener"><i class="fas fa-folder-open me-1"></i>열기</a>`
             : '')}
-          ${this.item('연결 프로젝트', codes.map((c) => `<a class="badge lead-project-link" href="/projects?search=${encodeURIComponent(c)}"
-              target="_blank" rel="noopener"><i class="fas fa-link me-1"></i>${esc(c)}</a>`).join(' '), { wide: true })}
         </div>
       </div>`;
   }
