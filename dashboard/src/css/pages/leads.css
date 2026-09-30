@@ -2,7 +2,7 @@
 
 /* ── 테이블 열 너비 ─────────────────────────────────────────
    project-table.css 가 `.table-wrapper table th:nth-child(n)` 로 프로젝트 열 너비를 주므로
-   #leadsTable 은 id 로 되돌린 뒤 lcol-* 로 지정 (모드별 열 숨김에도 안전) */
+   #leadsTable 은 id 로 되돌린 뒤 lcol-* 로 지정 */
 .table-wrapper #leadsTable th,
 .table-wrapper #leadsTable td { width: auto; }
 .table-wrapper #leadsTable td { vertical-align: middle; }
@@ -16,18 +16,16 @@
 .table-wrapper #leadsTable tbody tr.accordion-row td { text-align: left; }
 
 .table-wrapper #leadsTable .lcol-no        { width: 7%;  white-space: nowrap !important; }
-.table-wrapper #leadsTable .lcol-time      { width: 8%;  white-space: nowrap !important; }
-.table-wrapper #leadsTable .lcol-visit     { width: 9%;  white-space: nowrap !important; }
-.table-wrapper #leadsTable .lcol-platform  { width: 6%; }
-.table-wrapper #leadsTable .lcol-name      { width: 9%; max-width: 0; }
+.table-wrapper #leadsTable .lcol-time      { width: 9%;  white-space: nowrap !important; }
+.table-wrapper #leadsTable .lcol-platform  { width: 7%; }
+.table-wrapper #leadsTable .lcol-name      { width: 10%; max-width: 0; }
 .table-wrapper #leadsTable .lcol-phone     { width: 9%;  white-space: nowrap !important; }
-.table-wrapper #leadsTable .lcol-address   { width: 20%; max-width: 0; }
+.table-wrapper #leadsTable .lcol-address   { width: 22%; max-width: 0; }
 .table-wrapper #leadsTable .lcol-status    { width: 7%; }
 /* 공동방문 배지 여러 개가 세로로 쌓여 행이 높아지지 않게 한 줄 */
-.table-wrapper #leadsTable .lcol-consultant { width: 7%;  white-space: nowrap !important; }
+.table-wrapper #leadsTable .lcol-consultant { width: 8%;  white-space: nowrap !important; }
 .table-wrapper #leadsTable .lcol-sales      { width: 10%; white-space: nowrap !important; }
-.table-wrapper #leadsTable .lcol-self      { width: 7%; }
-.table-wrapper #leadsTable .lcol-progress  { width: 9%;  white-space: nowrap !important; }
+.table-wrapper #leadsTable .lcol-visit     { width: 11%; white-space: nowrap !important; }
 
 #leadsTable tbody tr:not(.accordion-row) { cursor: pointer; }
 
@@ -98,16 +96,6 @@
 }
 .badge.lead-project-link:hover { background: #d3f9d8; }
 
-.lead-progress { display: inline-flex; align-items: center; gap: 0.5rem; }
-.lead-progress-icon {
-  color: var(--gray-600, #6c757d);
-  text-decoration: none;
-  font-size: 0.85rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-}
-a.lead-progress-icon:hover { color: #0d6efd; }
 
 /* ── 아코디언 ─────────────────────────────────────────── */
 /* 프로젝트 규칙(accordion-system.css .info-card-column)은 카드 5개 기준(최소 360px·초대형 20%)
@@ -157,7 +145,7 @@ a.lead-progress-icon:hover { color: #0d6efd; }
   user-select: auto !important;
 }
 
-/* ── 캘린더 (방문 모드 보기) ───────────────────────────── */
+/* ── 캘린더 보기 ───────────────────────────────────── */
 .calendar-wrapper {
   background: #fff;
   border: 1px solid var(--gray-200, #e9ecef);

@@ -24,8 +24,8 @@
                     </div>
 
                     <div class="d-flex gap-2">
-                        <!-- 방문 모드 전용 보기 전환 -->
-                        <div class="btn-group" role="group" id="viewSwitcher" style="display: none;">
+                        <!-- 보기 전환 (캘린더 = 현재 필터 결과의 방문 예정일) -->
+                        <div class="btn-group" role="group" id="viewSwitcher">
                             <button type="button" class="btn btn-outline-primary active" id="tableViewBtn">
                                 <i class="fas fa-table me-1"></i>테이블
                             </button>
@@ -109,18 +109,17 @@
                     <table class="table projects-table leads-table display nowrap" id="leadsTable" style="width:100%;">
                         <thead>
                             <tr>
+                                <!-- 순서는 LeadTable.js columns 와 반드시 일치 -->
                                 <th>리드 No</th>        <!-- leadNo -->
-                                <th>상담일</th>         <!-- consultTime (기본 모드) -->
-                                <th>방문 예정일</th>     <!-- visitDate (방문 모드) -->
+                                <th>상담일</th>         <!-- consultTime -->
                                 <th>플랫폼</th>         <!-- platform -->
                                 <th>고객명</th>         <!-- name -->
                                 <th>연락처</th>         <!-- phone -->
                                 <th>방문 주소</th>       <!-- address -->
                                 <th>상태</th>           <!-- status -->
-                                <th>상담자</th>         <!-- consultant (기본 모드) -->
+                                <th>상담자</th>         <!-- consultant -->
                                 <th>영업 담당</th>       <!-- sales -->
-                                <th>본인 방문</th>       <!-- selfVisit (방문 모드) -->
-                                <th>진행</th>           <!-- progress -->
+                                <th>방문 예정일</th>     <!-- visitDate -->
                             </tr>
                         </thead>
                         <tbody>
@@ -130,7 +129,7 @@
                 </div>
             </section>
 
-            <!-- 캘린더 (방문 모드 전용 보기) -->
+            <!-- 캘린더 보기 -->
             <div id="calendarView" style="display: none;">
                 <div class="calendar-wrapper">
                     <div id="calendar"></div>

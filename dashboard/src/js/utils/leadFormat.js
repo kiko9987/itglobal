@@ -191,8 +191,3 @@ const STATUS_CLASS = {
 export function leadStatusClass(status) {
     return `lead-status-${STATUS_CLASS[String(status || '').trim()] || 'etc'}`;
 }
-
-/** 방문 모드 대상 — 방문일이 잡혀 있거나 방문 예약 상태인 리드 */
-export function isVisitLead(lead) {
-    return !!splitVisitRange(lead['방문 예정일']).start || String(lead['상태'] || '').trim() === '방문 예약';
-}

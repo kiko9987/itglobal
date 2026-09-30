@@ -3,7 +3,7 @@
  *
  * 골조는 프로젝트 페이지와 동일: 필터 → 읽기 전용 메인 테이블 → 행 클릭 아코디언.
  *   LeadTable(테이블·모드) / LeadRowAccordion(상세) / ModernLeadsFilters(필터·프리셋)
- * 방문 모드에서는 [테이블 | 캘린더] 보기 전환 가능 (캘린더는 현재 필터 결과를 표시).
+ * 헤더 [테이블 | 캘린더] 보기 전환 (캘린더는 현재 필터 결과의 방문 예정일을 표시).
  */
 import 'datatables.net-bs5/css/dataTables.bootstrap5.min.css';
 import '../../css/pages/leads.css';
@@ -32,7 +32,7 @@ const app = {
   table: null,
   accordion: null,
   calendar: null,
-  view: 'table',          // 방문 모드 안에서만 'calendar' 가능
+  view: 'table',          // 'table' | 'calendar'
   lastLoadedAt: 0,
 };
 
@@ -102,7 +102,7 @@ async function refreshData(force = true) {
 }
 window.fullRefresh = () => refreshData(true);
 
-// ── 캘린더 (방문 모드 전용 보기, 1단계 보기 전용) ─────────────────
+// ── 캘린더 (보기 전용 — 일정 클릭 시 테이블의 그 리드로 이동) ─────────
 function ensureCalendar() {
   if (app.calendar) return app.calendar;
   const el = document.getElementById('calendar');
@@ -146,7 +146,7 @@ function loadCalendarEvents() {
 }
 
 function setView(view) {
-  app.view = view === 'calendar' && app.table?.visitMode ? 'calendar' : 'table';
+  app.view = view === 'calendar' ? 'calendar' : 'table';
   const isCal = app.view === 'calendar';
   document.getElementById('tableSection').style.display = isCal ? 'none' : '';
   document.getElementById('calendarView').style.display = isCal ? '' : 'none';
@@ -157,12 +157,6 @@ function setView(view) {
     ensureCalendar()?.render();
     loadCalendarEvents();
   }
-}
-
-function syncViewSwitcher(visitMode) {
-  const group = document.getElementById('viewSwitcher');
-  if (group) group.style.display = visitMode ? '' : 'none';
-  if (!visitMode && app.view === 'calendar') setView('table');
 }
 
 // ── 초기화 ────────────────────────────────────────────────
@@ -190,8 +184,6 @@ async function init() {
     await app.table.firstDraw;
     hideLoadingOverlay();
 
-    syncViewSwitcher(app.table.visitMode);
-    document.addEventListener('leadModeChanged', (e) => syncViewSwitcher(e.detail.visitMode));
     document.getElementById('tableViewBtn')?.addEventListener('click', () => setView('table'));
     document.getElementById('calendarViewBtn')?.addEventListener('click', () => setView('calendar'));
 

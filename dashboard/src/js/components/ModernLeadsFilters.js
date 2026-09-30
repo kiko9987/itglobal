@@ -1,12 +1,12 @@
 import logger from '../utils/logger.js';
 import {
-  LEAD_STATUS_OPTIONS, splitOwners, consultSortKey, sortKeyToIso, localIso, shiftIso, isVisitLead,
+  LEAD_STATUS_OPTIONS, splitOwners, consultSortKey, sortKeyToIso, localIso, shiftIso,
 } from '../utils/leadFormat.js';
 
 /**
  * 고객 리드 필터 — 프로젝트 페이지 ModernProjectFilters 와 같은 구조·동작
  *   드롭다운: 상담자 / 영업 담당 / 플랫폼 / 상태 / 기간(상담일) + 키워드 검색
- *   토글(테이블 상단 바): 내 리드만 보기 / 기타 포함 / 방문 모드
+ *   토글(테이블 상단 바): 내 리드만 보기 / 기타 포함
  *   상태 유지: sessionStorage(현재 필터) + localStorage(프리셋)
  */
 const SESSION_KEY = 'itg_lead_filters_v1';
@@ -22,7 +22,7 @@ const PERIODS = {
 export default class ModernLeadsFilters {
   constructor() {
     this.filters = {};          // consultant / salesOwner / platform / status / period / search
-    this.toggles = { myLeadsOnly: false, includeEtc: false, visitMode: false };
+    this.toggles = { myLeadsOnly: false, includeEtc: false };
     this.callbacks = [];
     this.currentData = null;
     this.searchDebounceTimer = null;
@@ -75,7 +75,7 @@ export default class ModernLeadsFilters {
     this.el.savePreset?.addEventListener('click', () => this.savePresetPrompt());
   }
 
-  /** 테이블 상단 바 토글(내 리드만·기타 포함·방문 모드)에서 호출 */
+  /** 테이블 상단 바 토글(내 리드만·기타 포함)에서 호출 */
   setToggle(name, value) {
     this.toggles[name] = !!value;
     this.applyFilters(null, true);
@@ -100,7 +100,6 @@ export default class ModernLeadsFilters {
     const result = this.currentData.filter((lead) => {
       const platform = String(lead['플랫폼'] || '').trim();
       if (!t.includeEtc && platform === '기타') return false;
-      if (t.visitMode && !isVisitLead(lead)) return false;
 
       const consultants = splitOwners(lead['온라인 상담자']);
       const sales = splitOwners(lead['영업 담당자']);
@@ -215,7 +214,8 @@ export default class ModernLeadsFilters {
       const saved = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null');
       if (saved) {
         this.filters = saved.filters || {};
-        this.toggles = { ...this.toggles, ...(saved.toggles || {}) };
+        const { myLeadsOnly, includeEtc } = saved.toggles || {};
+        this.toggles = { myLeadsOnly: !!myLeadsOnly, includeEtc: !!includeEtc };
       }
     } catch (_) { /* noop */ }
   }
@@ -252,9 +252,9 @@ export default class ModernLeadsFilters {
     const p = this.loadPresets().find((x) => x.name === name);
     if (!p) return;
     this.filters = { ...(p.filters || {}) };
-    this.toggles = { ...this.toggles, ...(p.toggles || {}) };
+    this.toggles = { myLeadsOnly: !!p.toggles?.myLeadsOnly, includeEtc: !!p.toggles?.includeEtc };
     this.syncElementsFromFilters();
-    // 테이블 상단 바 토글 UI(내 리드만·기타 포함·방문 모드)를 프리셋 값으로 맞춤
+    // 테이블 상단 바 토글 UI(내 리드만·기타 포함)를 프리셋 값으로 맞춤
     document.dispatchEvent(new CustomEvent('leadTogglesRestored', { detail: this.toggles }));
     this.applyFilters(null, true);
   }
