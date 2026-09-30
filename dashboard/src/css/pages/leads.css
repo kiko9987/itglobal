@@ -1,3 +1,8 @@
+/* DataTables 2 스타일 — 반드시 이 파일에 포함. JS 에서 import 하면 vendor 청크 CSS 로 묶이는데,
+   프로젝트 페이지는 컴포넌트를 동적 import 해서 Vite 가 그 CSS 를 자동 주입하지만 리드 페이지는
+   정적 import 라 주입되지 않아 헤더 배치가 무너졌음(헤더 79px, 2026-09-30). */
+@import 'datatables.net-bs5/css/dataTables.bootstrap5.css';
+
 /* 고객 리드 관리 — 프로젝트 페이지 공용 스타일(main.css) 위에 리드 전용 차이만 정의 */
 
 /* ── 테이블 열 너비 ─────────────────────────────────────────
@@ -10,8 +15,9 @@
 /* 정렬 — project-table.css 는 열 순서(nth-child)로 정렬을 줘서 리드 열과 어긋남 → 열 이름으로 지정.
    프로젝트 페이지와 같게 식별자(리드 No)·주소는 왼쪽, 나머지 값은 가운데 */
 .table-wrapper #leadsTable tbody td { text-align: center; }
-.table-wrapper #leadsTable tbody td.lcol-no,
 .table-wrapper #leadsTable tbody td.lcol-address { text-align: left; }
+/* 리드 No 가운데 — project-table.css 의 첫 칸(nth-child(1)) 왼쪽 정렬·왼쪽 여백 2rem 을 덮음 */
+.table-wrapper #leadsTable tbody td.lcol-no { text-align: center; padding-left: var(--legacy-table-cell-padding) !important; padding-right: var(--legacy-table-cell-padding) !important; }
 /* 위 가운데 정렬이 아코디언(같은 tbody 안 td)까지 물려 들어가지 않게 */
 .table-wrapper #leadsTable tbody tr.accordion-row td { text-align: left; }
 

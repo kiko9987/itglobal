@@ -5,7 +5,7 @@
  *   - DataTables(npm v2) 설정·언어·dom 동일
  *   - '개씩 보기' 줄에 [내 리드만 보기] [기타 포함] 토글 주입
  *   - 행 클릭 → LeadRowAccordion (편집은 아코디언 편집 모드에서만)
- * 단일 모드 (2026-09-30): 방문 예정일을 기본 테이블 마지막 칸으로 → 방문 모드 폐지.
+ * 단일 모드 (2026-09-30): 방문 예정일을 기본 테이블(상태 다음)로 → 방문 모드 폐지.
  *   방문일 순 = 열 머리글 정렬, 방문 건만 = 상태 필터, 캘린더 = 헤더 보기 전환, 본인 방문 = 아코디언.
  */
 import DataTable from 'datatables.net';
@@ -78,7 +78,7 @@ export default class LeadTable {
       autoWidth: false,
       pageLength: 15,
       lengthMenu: [[15, 25, 50, 100], ['15', '25', '50', '100']],
-      order: [[1, 'desc']],   // 상담일 최신순
+      order: [[0, 'desc']],   // 리드 No 최신순 (프로젝트 페이지 = 프로젝트 코드 순)
       orderMulti: false,
       searching: false,
       stateSave: false,
@@ -97,7 +97,10 @@ export default class LeadTable {
           name: 'leadNo', data: null, className: 'lcol-no',
           render: (d, t, r) => {
             const no = val(r, '리드 No');
-            if (t === 'sort' || t === 'type') return Number((no.match(/\d+/) || ['0'])[0]);
+            if (t === 'sort' || t === 'type') {
+              const m = no.match(/^L-(\d+)$/);   // ETC-xxxx(해시 ID)는 번호 순서가 없어 맨 뒤로
+              return m ? Number(m[1]) : 0;
+            }
             return t === 'display' ? `<span class="lead-no-badge">${esc(no)}</span>` : no;
           },
         },
@@ -147,22 +150,6 @@ export default class LeadTable {
           },
         },
         {
-          name: 'consultant', data: null, className: 'lcol-consultant',
-          render: (d, t, r) => {
-            const v = splitOwners(r['온라인 상담자']).join(', ');
-            return t === 'display' ? (managerBadges(r['온라인 상담자']) || '-') : v;
-          },
-        },
-        {
-          name: 'sales', data: null, className: 'lcol-sales',
-          render: (d, t, r) => {
-            const v = splitOwners(r['영업 담당자']).join(', ');
-            if (t !== 'display') return v;
-            if (v) return managerBadges(r['영업 담당자']);
-            return val(r, '상태') === '방문 예약' ? '<span class="lead-unassigned">미배정</span>' : '-';
-          },
-        },
-        {
           name: 'visitDate', data: null, className: 'lcol-visit',
           render: (d, t, r) => {
             const raw = String(r['방문 예정일'] || '').replace(/^'/, '').trim();
@@ -177,6 +164,22 @@ export default class LeadTable {
             const tag = dd === 0 ? ' <span class="lead-dday lead-dday-today">오늘</span>'
               : dd > 0 ? ` <span class="lead-dday">D-${dd}</span>` : '';
             return `${esc(raw)}${tag}`;
+          },
+        },
+        {
+          name: 'consultant', data: null, className: 'lcol-consultant',
+          render: (d, t, r) => {
+            const v = splitOwners(r['온라인 상담자']).join(', ');
+            return t === 'display' ? (managerBadges(r['온라인 상담자']) || '-') : v;
+          },
+        },
+        {
+          name: 'sales', data: null, className: 'lcol-sales',
+          render: (d, t, r) => {
+            const v = splitOwners(r['영업 담당자']).join(', ');
+            if (t !== 'display') return v;
+            if (v) return managerBadges(r['영업 담당자']);
+            return val(r, '상태') === '방문 예약' ? '<span class="lead-unassigned">미배정</span>' : '-';
           },
         },
       ],

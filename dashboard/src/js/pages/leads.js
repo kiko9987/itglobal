@@ -5,7 +5,6 @@
  *   LeadTable(테이블·모드) / LeadRowAccordion(상세) / ModernLeadsFilters(필터·프리셋)
  * 헤더 [테이블 | 캘린더] 보기 전환 (캘린더는 현재 필터 결과의 방문 예정일을 표시).
  */
-import 'datatables.net-bs5/css/dataTables.bootstrap5.min.css';
 import '../../css/pages/leads.css';
 import logger from '../utils/logger.js';
 import ModernLeadsFilters from '../components/ModernLeadsFilters.js';
