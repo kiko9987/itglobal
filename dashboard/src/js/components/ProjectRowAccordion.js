@@ -11,6 +11,9 @@ import EditState from '../utils/EditState.js';
 import TomSelect from 'tom-select';
 import 'tom-select/dist/css/tom-select.bootstrap5.css';
 import AmountCalculator from '../utils/AmountCalculator.js';
+import {
+  renderItgfolderLink, bindItgfolderProtocolHandler as bindItgfolderProtocolHandlerShared,
+} from '../utils/itgfolder.js';
 
 // 🆕 ModeManager import
 import { getGlobalModeManager } from '../utils/globalModeManager.js';
@@ -1301,62 +1304,17 @@ export default class ProjectRowAccordion {
    */
   renderFolderLink(localPath, projectCode) {
     if (!localPath) return '폴더 경로가 설정되지 않았습니다.';
-    const isFolderId = /^[a-zA-Z0-9_-]{20,}$/.test(localPath);
-    if (isFolderId) {
-      // 2026-07-08 프로토콜 실패 감지: 클릭 후 페이지가 여전히 활성 상태면 프로토콜 미설치로 판단, 설치 안내.
-      return `<a href="itgfolder://${localPath}" class="text-decoration-none itgfolder-link" data-folder-id="${localPath}" style="color: #0d6efd;" title="탐색기에서 열기 (프로토콜 필요)">${localPath}</a>`;
-    }
+    // 폴더 ID 패턴이면 itgfolder:// (탐색기 직접 열기) — 리드 페이지와 공용 유틸
+    const itgLink = renderItgfolderLink(localPath);
+    if (itgLink) return itgLink;
     return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${projectCode}" style="color: #0d6efd;">${localPath}</a>`;
   }
 
   /**
-   * itgfolder:// 링크 클릭 감지 (2026-07-08).
-   * 클릭 후 1.5초 뒤에도 탭이 활성 상태이면 프로토콜 미설치 → 설치 안내 알림.
-   * ProjectRowAccordion 초기화 시 한 번 등록.
+   * itgfolder:// 링크 클릭 감지 (프로토콜 미설치 시 설치 안내) — 공용 유틸로 이동 (utils/itgfolder.js).
    */
   bindItgfolderProtocolHandler() {
-    // 전역 플래그로 중복 등록 방지 (여러 컴포넌트 인스턴스 대응)
-    if (window._itgfolderHandlerBound) return;
-    window._itgfolderHandlerBound = true;
-
-    document.addEventListener('click', (e) => {
-      const link = e.target.closest('.itgfolder-link');
-      if (!link) return;
-      const folderId = link.dataset.folderId;
-      if (!folderId) return;
-
-      // 이미 프로토콜 정상 작동 확인된 브라우저는 매번 안내하지 않음
-      if (localStorage.getItem('itg_folder_protocol_ok') === '1') return;
-
-      // 프로토콜이 실행되면 탐색기(외부 앱)로 focus가 이동 → window blur 발생.
-      // 1.5초 안에 blur 없으면 프로토콜 미설치 유력.
-      let focusLost = false;
-      const onBlur = () => { focusLost = true; };
-      window.addEventListener('blur', onBlur, { once: true });
-
-      setTimeout(() => {
-        window.removeEventListener('blur', onBlur);
-        if (focusLost) {
-          // 성공: 다시 안내 안 하도록 저장
-          localStorage.setItem('itg_folder_protocol_ok', '1');
-          return;
-        }
-        // 미설치 유력
-        const proceed = confirm(
-          '폴더가 열리지 않았나요?\n\n' +
-          '탐색기 프로토콜 미설치일 수 있습니다.\n' +
-          '설치 방법:\n' +
-          '  1) 회사에서 배포한 install-itg-folder.bat 파일을 실행\n' +
-          '  2) 브라우저를 완전히 종료 후 재실행\n' +
-          '  3) 다시 폴더 링크 클릭\n\n' +
-          '설치 가이드가 필요하면 관리자(kiko@itg-aircon.com)에게 문의하세요.\n\n' +
-          '확인을 누르면 폴더 ID를 클립보드에 복사합니다 (Drive에서 직접 열기용).'
-        );
-        if (proceed && navigator.clipboard) {
-          navigator.clipboard.writeText(folderId).catch(() => {});
-        }
-      }, 1500);
-    });
+    bindItgfolderProtocolHandlerShared();
   }
 
   generateDocumentSection(rowData) {

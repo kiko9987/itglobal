@@ -13,6 +13,7 @@ import {
   lastContact, agoLabel,
 } from '../utils/leadFormat.js';
 import { managerBadges, platformBadge, selfVisitLabel } from './LeadTable.js';
+import { renderItgfolderLink, bindItgfolderProtocolHandler } from '../utils/itgfolder.js';
 
 const val = (r, k) => {
   const v = String(r?.[k] ?? '').trim();
@@ -28,6 +29,7 @@ export default class LeadRowAccordion {
     this.container.className = 'project-accordion-container lead-accordion-container';
     this.eventsBound = false;
     this.slackLinkCache = new Map();   // 리드 No → {inquiry, visit} (페이지 머무는 동안)
+    bindItgfolderProtocolHandler();     // 사진 폴더 itgfolder:// 미설치 감지 (프로젝트와 동일)
   }
 
   attachToTable(tableElement, dataTable) {
@@ -251,9 +253,9 @@ export default class LeadRowAccordion {
         <div class="legacy-card-row">
           <div class="legacy-card-main">
             <span class="legacy-card-label"><i class="fab fa-google-drive me-2" style="color: #4285f4;"></i>사진 폴더</span>
-            <div class="editable-value">${folder
-              ? `<a href="https://drive.google.com/drive/folders/${esc(folder)}" target="_blank" rel="noopener">방문 사진 폴더 열기</a>`
-              : '<span class="lead-empty">방문 사진 없음</span>'}</div>
+            <div class="editable-value">${
+              // 프로젝트 문서 폴더와 같은 표기·동작: 폴더 ID 링크 → itgfolder:// 로 탐색기에서 열기
+              (folder && renderItgfolderLink(folder)) || '<span class="lead-empty">방문 사진 없음</span>'}</div>
           </div>
         </div>
       </div>`;

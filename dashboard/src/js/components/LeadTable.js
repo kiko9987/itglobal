@@ -11,6 +11,7 @@ import DataTable from 'datatables.net';
 import 'datatables.net-bs5';
 import logger from '../utils/logger.js';
 import UnifiedBadgeSystem from './UnifiedBadgeSystem.js';
+import { FOLDER_ID_RE } from '../utils/itgfolder.js';
 import {
   consultSortKey, consultFull, splitVisitRange, splitOwners,
   parseConsultEntries, leadStatusClass, localIso, daysBetween, esc,
@@ -225,9 +226,10 @@ export default class LeadTable {
   renderProgress(r) {
     const parts = [];
     const folder = val(r, '_folder_id');
-    if (folder) {
-      parts.push(`<a class="lead-progress-icon" href="https://drive.google.com/drive/folders/${esc(folder)}"
-        target="_blank" rel="noopener" title="방문 사진 폴더"><i class="fas fa-folder"></i></a>`);
+    if (folder && FOLDER_ID_RE.test(folder)) {
+      // itgfolder:// = 탐색기에서 열기 (프로젝트 문서 폴더와 같은 방식, 미설치 감지는 itgfolder-link 클래스로)
+      parts.push(`<a class="lead-progress-icon itgfolder-link" href="itgfolder://${esc(folder)}"
+        data-folder-id="${esc(folder)}" title="방문 사진 폴더 (탐색기에서 열기)"><i class="fas fa-folder"></i></a>`);
     }
     const codes = val(r, '_project_code');
     if (codes) {
