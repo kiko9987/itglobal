@@ -28,6 +28,14 @@ export function platformBadge(p) {
   return p ? badges.createCompanyBadge(p) : '';
 }
 
+/** 본인 방문 여부(O열) 짧은 표시 — 테이블·아코디언 공용 */
+export function selfVisitLabel(v) {
+  const s = String(v || '').trim();
+  if (s === '본인 방문 필수') return '<span class="badge lead-self-required">본인 필수</span>';
+  if (s === '아무나 방문 가능') return '<span class="lead-sub">아무나</span>';
+  return '';
+}
+
 const MODE_KEY = 'itg_lead_visit_mode';
 
 const COLUMN_NAMES = [
@@ -186,9 +194,7 @@ export default class LeadTable {
           render: (d, t, r) => {
             const v = val(r, '본인 방문 여부');
             if (t !== 'display') return v;
-            if (v === '본인 방문 필수') return '<span class="badge lead-self-required">본인 필수</span>';
-            if (v === '아무나 방문 가능') return '<span class="lead-sub">아무나</span>';
-            return '-';
+            return selfVisitLabel(v) || '-';
           },
         },
         {

@@ -654,6 +654,61 @@ def api_search_leads_for_project():
         )
 
 
+@leads_bp.route('/api/<lead_no>/slack-links', methods=['GET'])
+@login_required
+def api_lead_slack_links(lead_no):
+    """리드 아코디언 '슬랙 바로가기' — 온라인 문의 카드·방문 카드 permalink (아코디언 열 때 lazy 조회).
+
+    카드 위치는 Redis 'channel|ts': lead_card_msg:{lead}(온라인 문의, TTL 없음) /
+    visit_notice_msg:{lead}(방문 카드, 180일). permalink 는 불변이라 30일 캐시.
+    카카오톡·채널톡 리드는 lead_card_msg 를 저장하지 않아 문의 카드 링크가 없을 수 있음.
+    """
+    import os
+    lead_no = (lead_no or '').strip()
+    out = {'inquiry': '', 'visit': ''}
+    try:
+        from ..utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return APIResponse.success(data=out)
+
+    def _s(v):
+        return v.decode('utf-8') if isinstance(v, bytes) else (v or '')
+
+    sources = (
+        ('inquiry', f'lead_card_msg:{lead_no}', ('SLACK_BOT_TOKEN', 'SLACK_VISIT_BOT_TOKEN')),
+        ('visit', f'visit_notice_msg:{lead_no}', ('SLACK_VISIT_BOT_TOKEN', 'SLACK_BOT_TOKEN')),
+    )
+    for kind, key, token_envs in sources:
+        try:
+            loc = _s(rc.get(key))
+            if '|' not in loc:
+                continue
+            ch, ts = loc.split('|', 1)
+            cache_key = f'lead_permalink:{ch}:{ts}'
+            cached = _s(rc.get(cache_key))
+            if cached:
+                out[kind] = cached
+                continue
+            from slack_sdk import WebClient
+            for env in token_envs:
+                tok = os.getenv(env, '').strip()
+                if not tok:
+                    continue
+                try:
+                    link = WebClient(token=tok).chat_getPermalink(channel=ch, message_ts=ts).get('permalink', '')
+                except Exception:
+                    link = ''
+                if link:
+                    out[kind] = link
+                    rc.set(cache_key, link, ex=60 * 60 * 24 * 30)
+                    break
+        except Exception as exc:
+            logger.warning(f"[LEADS] 슬랙 링크 조회 실패 ({lead_no}/{kind}): {exc}")
+
+    return APIResponse.success(data=out)
+
+
 @leads_bp.route('/api/<lead_no>', methods=['GET'])
 @login_required
 def api_get_lead(lead_no):

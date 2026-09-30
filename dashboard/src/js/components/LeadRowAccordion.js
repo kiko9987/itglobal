@@ -10,8 +10,9 @@
 import logger from '../utils/logger.js';
 import {
   splitOwners, parseConsultEntries, consultFull, splitVisitRange, leadStatusClass, esc,
+  lastContact, agoLabel,
 } from '../utils/leadFormat.js';
-import { managerBadges, platformBadge } from './LeadTable.js';
+import { managerBadges, platformBadge, selfVisitLabel } from './LeadTable.js';
 
 const val = (r, k) => {
   const v = String(r?.[k] ?? '').trim();
@@ -26,6 +27,7 @@ export default class LeadRowAccordion {
     this.container = document.createElement('div');
     this.container.className = 'project-accordion-container lead-accordion-container';
     this.eventsBound = false;
+    this.slackLinkCache = new Map();   // 리드 No → {inquiry, visit} (페이지 머무는 동안)
   }
 
   attachToTable(tableElement, dataTable) {
@@ -86,6 +88,7 @@ export default class LeadRowAccordion {
       document.querySelectorAll('#leadsTable tbody tr.table-active').forEach((r) => r.classList.remove('table-active'));
       tr.classList.add('table-active');
       this.isOpen = true;
+      this.loadSlackLinks(val(lead, '리드 No'));
     } catch (err) {
       logger.error('[LeadAccordion] 렌더링 오류:', err, lead);
       this.detachQuietly();
@@ -155,6 +158,13 @@ export default class LeadRowAccordion {
                   <div class="col-xl-3 col-lg-6 col-md-6 info-card-column">${this.renderHistoryCard(lead)}</div>
                 </div>
               </div>
+              <!-- 하단 (프로젝트의 문서 폴더·사업자등록증·수금 특이사항 줄과 같은 legacy-card) -->
+              <div class="mt-3">
+                <div class="row">
+                  <div class="col-md-6">${this.renderFolderSection(lead)}</div>
+                  <div class="col-md-6">${this.renderSlackSection(lead)}</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -214,7 +224,10 @@ export default class LeadRowAccordion {
     const visitHtml = rawVisit && rawVisit !== '-'
       ? `${esc(rawVisit)}${start ? '' : ' <i class="fas fa-exclamation-triangle text-warning" title="날짜 형식 확인 필요"></i>'}`
       : '';
-    const folder = val(lead, '_folder_id');
+    const lc = lastContact(lead);
+    const lastHtml = lc.iso
+      ? `${esc(lc.label)}${lc.ini ? ` ${esc(lc.ini)}` : ''}${lc.fromIntake ? ' 접수' : ''} · <span class="lead-sub">${agoLabel(lc.iso)}</span>`
+      : '';
     return `
       <div class="info-card compact-card">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -225,12 +238,65 @@ export default class LeadRowAccordion {
           ${this.item('방문 예정일', visitHtml)}
           ${this.item('상담자', managerBadges(lead['온라인 상담자']))}
           ${this.item('영업 담당', managerBadges(lead['영업 담당자']))}
-          ${this.item('본인 방문', esc(val(lead, '본인 방문 여부')))}
-          ${this.item('사진 폴더', folder
-            ? `<a href="https://drive.google.com/drive/folders/${esc(folder)}" target="_blank" rel="noopener"><i class="fas fa-folder-open me-1"></i>열기</a>`
-            : '')}
+          ${this.item('본인 방문', selfVisitLabel(val(lead, '본인 방문 여부')) || esc(val(lead, '본인 방문 여부')))}
+          ${this.item('최근 연락', lastHtml)}
         </div>
       </div>`;
+  }
+
+  renderFolderSection(lead) {
+    const folder = val(lead, '_folder_id');
+    return `
+      <div class="legacy-card mt-3 document-card ${folder ? '' : 'document-card-empty'}">
+        <div class="legacy-card-row">
+          <div class="legacy-card-main">
+            <span class="legacy-card-label"><i class="fab fa-google-drive me-2" style="color: #4285f4;"></i>사진 폴더</span>
+            <div class="editable-value">${folder
+              ? `<a href="https://drive.google.com/drive/folders/${esc(folder)}" target="_blank" rel="noopener">방문 사진 폴더 열기</a>`
+              : '<span class="lead-empty">방문 사진 없음</span>'}</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  renderSlackSection(lead) {
+    return `
+      <div class="legacy-card mt-3">
+        <div class="legacy-card-row">
+          <div class="legacy-card-main">
+            <span class="legacy-card-label"><i class="fab fa-slack me-2" style="color: #4a154b;"></i>슬랙 바로가기</span>
+            <div class="editable-value lead-slack-links" data-lead-no="${esc(val(lead, '리드 No'))}">
+              <span class="lead-empty">불러오는 중…</span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /** 슬랙 카드 permalink lazy 조회 → 하단 칸 채움 (리드별 캐시) */
+  async loadSlackLinks(leadNo) {
+    if (!leadNo) return;
+    let links = this.slackLinkCache.get(leadNo);
+    if (!links) {
+      try {
+        const res = await fetch(`/leads/api/${encodeURIComponent(leadNo)}/slack-links`, {
+          credentials: 'same-origin', headers: { Accept: 'application/json' },
+        });
+        const json = res.ok ? await res.json() : null;
+        links = json?.data || { inquiry: '', visit: '' };
+        this.slackLinkCache.set(leadNo, links);
+      } catch (_) {
+        links = { inquiry: '', visit: '' };
+      }
+    }
+    const box = this.container.querySelector(`.lead-slack-links[data-lead-no="${CSS.escape(leadNo)}"]`);
+    if (!box) return;   // 그 사이 다른 리드로 전환됨
+    const parts = [];
+    if (links.inquiry) parts.push(`<a href="${esc(links.inquiry)}" target="_blank" rel="noopener"><i class="fas fa-inbox me-1"></i>문의 카드</a>`);
+    if (links.visit) parts.push(`<a href="${esc(links.visit)}" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>방문 카드</a>`);
+    box.innerHTML = parts.length
+      ? parts.join('<span class="text-muted mx-2">·</span>')
+      : '<span class="lead-empty">연결된 슬랙 카드 없음</span>';
   }
 
   renderInquiryCard(lead) {

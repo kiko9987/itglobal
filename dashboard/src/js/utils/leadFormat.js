@@ -110,6 +110,30 @@ export function parseConsultEntries(text) {
         });
 }
 
+/**
+ * 최근 연락 — 상담 이력 마지막 회차(날짜·이니셜). 회차 헤더엔 연도가 없어("MM.DD HH:MM")
+ * 상담 접수 연도에서 시작해 월이 되돌아가면(12월→1월) 해를 넘긴 것으로 본다.
+ * 날짜 있는 회차가 없으면 상담 접수 시각으로 대신한다.
+ * @returns {{iso: string, label: string, ini: string, fromIntake: boolean}}
+ */
+export function lastContact(lead) {
+    const key = consultSortKey(lead['상담 시간']);
+    let year = key ? Number(key.slice(0, 4)) : new Date().getFullYear();
+    let prevMonth = key ? Number(key.slice(4, 6)) : 0;
+    let last = null;
+    parseConsultEntries(lead['상담 내용']).forEach((e) => {
+        const m = String(e.time || '').match(/^(\d{2})\.(\d{2})/);
+        if (!m) return;
+        const mm = Number(m[1]);
+        if (prevMonth && mm < prevMonth) year += 1;
+        prevMonth = mm;
+        last = { iso: `${year}-${m[1]}-${m[2]}`, label: `${m[1]}.${m[2]}`, ini: e.ini || '', fromIntake: false };
+    });
+    if (last) return last;
+    if (!key) return { iso: '', label: '', ini: '', fromIntake: true };
+    return { iso: sortKeyToIso(key), label: `${key.slice(4, 6)}.${key.slice(6, 8)}`, ini: '', fromIntake: true };
+}
+
 /** 상담 시간 정렬 키 YYYYMMDDHHmm — 시트에 형식 8종 혼재 ("2026.09.29. 10:00", "2026. 09. 29. 오후 3:05" 등). */
 export function consultSortKey(raw) {
     const s = String(raw || '');
