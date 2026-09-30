@@ -150,6 +150,13 @@ a.lead-progress-icon:hover { color: #0d6efd; }
 .lead-history-n { font-weight: 700; color: var(--gray-700, #495057); }
 .lead-history-body { white-space: pre-wrap; word-break: break-word; }
 
+/* 취소된 리드 아코디언(project-cancelled)도 하단 사진 폴더·슬랙 바로가기 링크는 클릭 가능하게
+   (main.css 가 취소 아코디언의 .editable-value 를 pointer-events:none 으로 막음) */
+.lead-accordion-shell.project-cancelled .legacy-card .editable-value {
+  pointer-events: auto !important;
+  user-select: auto !important;
+}
+
 /* ── 캘린더 (방문 모드 보기) ───────────────────────────── */
 .calendar-wrapper {
   background: #fff;

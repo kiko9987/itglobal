@@ -29,6 +29,12 @@ export function platformBadge(p) {
   return p ? badges.createCompanyBadge(p) : '';
 }
 
+/** 취소된 리드(방문 취소·공사 취소) — 프로젝트 테이블의 '공사 취소' 효과를 같은 클래스로 적용 */
+export const CANCELLED_STATUSES = ['방문 취소', '공사 취소'];
+export function isCancelledLead(r) {
+  return CANCELLED_STATUSES.includes(String(r?.['상태'] ?? '').trim());
+}
+
 /** 본인 방문 여부(O열) 짧은 표시 — 테이블·아코디언 공용 */
 export function selfVisitLabel(v) {
   const s = String(v || '').trim();
@@ -208,7 +214,10 @@ export default class LeadTable {
       ],
       createdRow: (row, r) => {
         const s = val(r, '상태');
-        if (['문의 드랍', '방문 취소', '공사 취소'].includes(s)) row.classList.add('lead-row-closed');
+        // 상태 칸 식별 — 취소 행에서도 상태 배지는 취소선·흐림 없이 (프로젝트 status-column-cell 과 동일)
+        row.querySelector('td.lcol-status')?.classList.add('status-column-cell');
+        if (isCancelledLead(r)) row.classList.add('project-cancelled-row');   // 프로젝트 '공사 취소' 행 효과
+        else if (s === '문의 드랍') row.classList.add('lead-row-closed');
       },
       initComplete: () => this.injectLengthBarControls(),
       drawCallback: () => {

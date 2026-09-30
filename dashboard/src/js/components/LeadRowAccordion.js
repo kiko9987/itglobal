@@ -12,7 +12,7 @@ import {
   splitOwners, parseConsultEntries, consultFull, splitVisitRange, leadStatusClass, esc,
   lastContact, agoLabel,
 } from '../utils/leadFormat.js';
-import { managerBadges, platformBadge, selfVisitLabel } from './LeadTable.js';
+import { managerBadges, platformBadge, selfVisitLabel, isCancelledLead } from './LeadTable.js';
 import { renderItgfolderLink, bindItgfolderProtocolHandler } from '../utils/itgfolder.js';
 
 const val = (r, k) => {
@@ -137,11 +137,16 @@ export default class LeadRowAccordion {
   // ── 렌더링 ────────────────────────────────────────────────
   renderContent(lead) {
     const no = val(lead, '리드 No');
+    // 취소된 리드는 프로젝트 '공사 취소' 아코디언과 같은 효과 (회색 덮개 + 사선 워터마크)
+    const cancelled = isCancelledLead(lead);
+    const shellClass = `accordion-shell lead-accordion-shell${cancelled ? ' project-cancelled' : ''}`;
+    const watermark = cancelled ? `<div class="cancelled-watermark">${esc(val(lead, '상태'))}</div>` : '';
     return `
-      <div class="accordion-shell lead-accordion-shell" data-lead-no="${esc(no)}">
+      <div class="${shellClass}" data-lead-no="${esc(no)}">
         <div class="row-details">
           <div class="card border-0 shadow-sm">
-            <div class="card-body p-4">
+            <div class="card-body p-4" style="position: relative;">
+              ${watermark}
               <div class="row mb-3">
                 <div class="col-12">
                   <div class="project-title-section" data-lead-no="${esc(no)}">
