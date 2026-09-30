@@ -1734,8 +1734,15 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                     except Exception:
                         pass
                     _fill = '카드' if _is_card else ('N입금' if '현금' in (memo_text or '') else '미발행')
-                    manager.update_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}", _fill)
-                    logger.info(f"[SLACK/수금봇] 계산서 3열 자동채움: {project_code} {stage}={_fill}")
+                    # 쓰기 직전 재확인 — 위 판정~여기(수 초) 사이 PM 저장이 이 칸을 채웠으면 덮지 않는다
+                    #   (2026-09-30 G4139-MJ: SB가 PM에서 지정한 'N입금'을 옛 판정 '미발행'으로 덮음).
+                    _recheck = str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip()
+                    if _recheck == _cur_stage_cell:
+                        manager.update_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}", _fill)
+                        logger.info(f"[SLACK/수금봇] 계산서 3열 자동채움: {project_code} {stage}={_fill}")
+                    else:
+                        logger.info(f"[SLACK/수금봇] 계산서 3열 자동채움 생략(방금 변경됨): "
+                                    f"{project_code} {stage} {_cur_stage_cell!r}→{_recheck!r}")
                 _tok = {s: (manager.get_cell_value(sheet_id, sheet_name, f"{_scol[s]}{row}") or '')
                         for s in _BILL_STAGES}
                 _amt = {s: (new_num if s == stage

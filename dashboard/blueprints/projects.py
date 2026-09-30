@@ -57,6 +57,30 @@ from ..schemas.project_schemas import (
 VERSION_COL_INDEX = 44  # AS 열 (2026-09-07 Z/AA/AB 3열 삽입으로 +3, 옛 AP=41)
 
 
+def _col_letter(idx: int) -> str:
+    """0-based 컬럼 인덱스 → 시트 열 문자 (0→A, 25→Z, 26→AA, 44→AS)."""
+    s = ''
+    idx += 1
+    while idx:
+        idx, r = divmod(idx - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _changed_cells(field_changes, field_to_index, current_values, code_changed=False):
+    """PUT 편집에서 실제로 시트에 쓸 셀만 추림 — 바뀐 필드 + _version (+ 코드 재산출 시 A).
+
+    Returns: [{'col': 'AB', 'value': 'N입금'}, ...] (열 순서)
+    """
+    idx = {field_to_index[ch['field_name']] for ch in field_changes
+           if ch['field_name'] in field_to_index}
+    idx.add(VERSION_COL_INDEX)
+    if code_changed:
+        idx.add(0)
+    return [{'col': _col_letter(i), 'value': current_values[i] if i < len(current_values) else ''}
+            for i in sorted(idx)]
+
+
 def _verify_version_col_index(manager) -> None:
     """부팅·최초 호출 시 상수 vs 실제 매핑 검증. 어긋나면 조용히 로그로 알림.
 
@@ -730,8 +754,8 @@ def _load_project_row(manager, sheet_id, sheet_name, project_code):
         value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
     )
 
-    # 현재 값을 리스트로 확장 (42개 컬럼, AP까지)
-    while len(current_values) < 42:
+    # 현재 값을 리스트로 확장 (A:AS 45개 컬럼 — 뒤쪽 빈 칸은 API 가 잘라서 보냄)
+    while len(current_values) < VERSION_COL_INDEX + 1:
         current_values.append('')
 
     return row_number, current_values, None
@@ -1159,14 +1183,16 @@ def update_project(project_code):
         field_changes.extend(update_changes)
 
         # 8. 시트 write 를 큐로 위임 (2026-07-09 write-behind)
-        range_name = f'{sheet_name}!A{row_number}:AS{row_number}'
+        #    ⚠️ 바뀐 셀만 쓴다 (2026-09-30). 예전엔 PUT 시점 스냅샷(current_values)으로 A:AS 전체 행을
+        #    덮어써, 큐 처리 전 수 초 사이 다른 경로가 쓴 셀을 옛 값으로 되돌렸다 — G4139-MJ: 수금 인입
+        #    확인이 W(잔금)=650,000 기록 → 1.7초 뒤 계산서만 고친 PM 저장이 W 를 0 으로 덮어 수금 카드 유실.
+        cells = _changed_cells(field_changes, field_to_index, current_values, bool(code_change))
         from ..services.sheet_write_queue import enqueue as _q_enqueue
         _q_enqueue('project_update_sheet', {
             'sheet_id': sheet_id,
             'sheet_name': sheet_name,
             'row_number': row_number,
-            'range_name': range_name,
-            'current_values': current_values,
+            'cells': cells,
             'field_changes': field_changes,
             'project_code': final_project_code,
         }, meta={'user_email': session.get('user', {}).get('email', 'unknown')})
@@ -3199,22 +3225,28 @@ def _handle_sheet_bg_color(payload: dict) -> None:
 
 @_q_register('project_update_sheet')
 def _handle_project_update_sheet(payload: dict) -> None:
-    """편집 시트 write — update_row + payment comments.
+    """편집 시트 write — 바뀐 셀만 batch_update_cells + payment comments.
 
     payload:
-      sheet_id, sheet_name, row_number, range_name, current_values, field_changes,
+      sheet_id, sheet_name, row_number, cells([{col, value}]), field_changes,
       project_code (로깅용)
+      (구버전: cells 대신 range_name + current_values — 배포 전 큐 잔여분 호환)
     """
     from ..services.project_service import get_sheets_manager
     manager = get_sheets_manager()
     sheet_id = payload['sheet_id']
     sheet_name = payload['sheet_name']
     row_number = payload['row_number']
-    current_values = payload['current_values']
-    range_name = payload['range_name']
     field_changes = payload.get('field_changes', [])
     code = payload.get('project_code', '')
-    manager.update_row(sheet_id, row_number, current_values, range_name)
+    cells = payload.get('cells')
+    if cells is not None:
+        manager.batch_update_cells(sheet_id, [
+            {'range': f"{sheet_name}!{c['col']}{row_number}", 'values': [[c['value']]]}
+            for c in cells
+        ])
+    else:
+        manager.update_row(sheet_id, row_number, payload['current_values'], payload['range_name'])
     logger.info(f'[QUEUE/project_update] 시트 write 완료: {code}')
     try:
         _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, field_changes)
