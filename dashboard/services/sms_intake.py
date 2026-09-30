@@ -104,18 +104,13 @@ def normalize_deposit_layout(text: str) -> str:
     return f"[Web발신]\n농협, {date} {tm}\n{acct}\n입금 {amount}원\n{partner}"
 
 
-# ITG 사업자 통장 3종 — 개인 계좌 입금 배제용(같은 은행이라도 개인 건은 계좌 tail 이 다름).
-#   기업 452***38801011 / 하나 255******31304 / 농협 352-****-1682-33
-_BIZ_ACCT_RES = [
-    re.compile(r'452\*+38801011'),
-    re.compile(r'255\*+31304'),
-    re.compile(r'352-\*+-1682-33'),
-]
-
-
 def has_business_account(text: str) -> bool:
-    """ITG 사업자 통장 계좌번호(마스킹) 포함 여부 — 개인 입금(다른 계좌) 배제용."""
-    return any(p.search(text or '') for p in _BIZ_ACCT_RES)
+    """ITG 사업자 통장 계좌번호 포함 여부 — 개인 입금(같은 은행이라도 계좌 끝자리 다름) 배제용.
+
+    계좌 목록은 itg_accounts.ITG_ACCOUNTS 단일 진실원천(2026-09-30 하도급지킴이 계좌 추가).
+    """
+    from dashboard.services.itg_accounts import match_account
+    return match_account(text) is not None
 
 
 # ── 현금 수령 인입 (2026-08) ────────────────────────────────────────────────
@@ -331,6 +326,8 @@ def parse_preview(stripped_text: str) -> dict:
             'amount': blk.get('amount') or 0,
             'partner': (blk.get('partner') or '').strip(),
             'bank': (blk.get('bank') or '').strip(),
+            # 계좌로 판정한 사업자 코드(G/R/N) — 은행명만으론 사업자 구분 불가(하도급지킴이)
+            'acct_code': (blk.get('acct_code') or '').strip(),
             'date_md': (blk.get('date_md') or '').strip(),
         }
     except Exception:

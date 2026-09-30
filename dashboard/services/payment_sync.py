@@ -254,9 +254,17 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
                 label_payer = _lp
 
     # 은행 — ITG 통장 계좌번호 우선 (카드사 약자보다 정확)
+    #   1) 등록 계좌 레지스트리: 은행 + 사업자 코드까지 계좌로 판정 (2026-09-30 하도급지킴이 —
+    #      기업은행인데 글로벌그룹 R 이라 은행명만으론 구분 불가).
+    #   2) 레지스트리 미매칭(옛 마스킹 형태 등)은 기존 느슨한 은행 판정 유지 (회귀 방지).
     bank = ''
+    acct_code = ''
     text_join = '\n'.join(lines)
-    if _ACCT_G_RE.search(text_join):
+    from dashboard.services.itg_accounts import match_account
+    _acct = match_account(text_join)
+    if _acct:
+        bank, acct_code = _acct.bank, _acct.code
+    elif _ACCT_G_RE.search(text_join):
         bank = '기업'
     elif _ACCT_R_RE.search(text_join):
         bank = '하나'
@@ -368,6 +376,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         'amount': amount,
         'partner': partner,
         'bank': bank,
+        'acct_code': acct_code,        # 계좌로 판정한 사업자 코드(G/R/N) — 없으면 '' (은행 기준 fallback)
         'note_label': note_label,
         'transfer_to': transfer_to,
         'is_refund': is_refund,        # 과입금 반환(음수) — 카드 이력에 '반환' 표기
@@ -915,15 +924,21 @@ def _is_card_payment(invoice_value: str, partner: str) -> bool:
     return False
 
 
-def _resolve_payment_code(invoice_value: str, bank: str, partner: str = '') -> str:
-    """Y열 값 + 메모 은행 + 거래처 → 'G' / 'N' / 'R'.
+def _resolve_payment_code(invoice_value: str, bank: str, partner: str = '',
+                          acct_code: str = '') -> str:
+    """Y열 값 + 메모 은행 + 거래처 (+계좌 판정 코드) → 'G' / 'N' / 'R'.
     per-payment(각 입금의 현금 표식·실제 은행)을 우선하고, Y열('N입금')은 fallback.
     (2026-08 fix: 계약금 하나이체 + 잔금 현금 혼합 프로젝트에서 Y='N입금'이 계약금까지
-     N 으로 강제하던 것 방지 — 각 입금은 자기 은행 코드로 표시.)"""
+     N 으로 강제하던 것 방지 — 각 입금은 자기 은행 코드로 표시.)
+    acct_code: 메모 계좌로 판정한 사업자 코드(itg_accounts). 있으면 은행명보다 우선 —
+     기업은행 하도급지킴이 계좌는 글로벌그룹 R (2026-09-30)."""
     p = (partner or '').strip()
     # 1) 현금 수령(+수령자, 예: '현금 수령 (YG)') → N
     if p.startswith('현금'):
         return 'N'
+    # 1.5) 등록 계좌로 사업자가 판정됐으면 그 코드 (은행명만으론 사업자 구분 불가)
+    if acct_code in ('G', 'R', 'N'):
+        return acct_code
     # 2) 메모에 실제 은행이 있으면 그 코드 (프로젝트 Y열보다 각 입금 은행 우선)
     if bank == '기업':
         return 'G'
@@ -1130,7 +1145,8 @@ def _build_stage_message(
     """단계별 입금 알림 (계약금/중도금/잔금)."""
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
     is_card = _is_card_payment(invoice_value, payment.get('partner', ''))
-    code = _resolve_payment_code(invoice_value, payment.get('bank', ''), payment.get('partner', ''))
+    code = _resolve_payment_code(invoice_value, payment.get('bank', ''), payment.get('partner', ''),
+                                 payment.get('acct_code', ''))
     note_label = payment.get('note_label', '')
     # 매니저 이체 표기 반영 (2026-07-10): "R>G" 감지 시 원 코드 뒤에 " → 이체 코드" 부기
     transfer_to = payment.get('transfer_to', '')
@@ -1291,7 +1307,8 @@ def _build_stage_with_history_message(
             last_payment = _non_refund[-1]
     emoji = _STAGE_EMOJI.get(stage, ':moneybag:')
     is_card = _is_card_payment(invoice_value, last_payment.get('partner', ''))
-    code = _resolve_payment_code(invoice_value, last_payment.get('bank', ''), last_payment.get('partner', ''))
+    code = _resolve_payment_code(invoice_value, last_payment.get('bank', ''),
+                                 last_payment.get('partner', ''), last_payment.get('acct_code', ''))
     note_label = last_payment.get('note_label', '')
     transfer_to = last_payment.get('transfer_to', '')
     if transfer_to and transfer_to != code:
@@ -1349,7 +1366,8 @@ def _build_stage_with_history_message(
             continue
         st = '반환' if p.get('is_refund') else p.get('stage', '-')
         d = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
-        c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
+        c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''),
+                                  p.get('acct_code', ''))
         # 이체 표기 반영 (2026-07-10)
         tr = p.get('transfer_to', '')
         if tr and tr != c:
@@ -1410,7 +1428,8 @@ def _build_complete_message(
         # 과입금/계약 취소 반환(출금)은 단계명 대신 '반환'으로 표시 (2026-08 R4011 계약금 환불)
         stage = '반환' if p.get('is_refund') else p.get('stage', '-')
         date_md = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
-        code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
+        code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''),
+                                  p.get('acct_code', ''))
         # 이체 표기 반영 (2026-07-10)
         transfer_to = p.get('transfer_to', '')
         if transfer_to and transfer_to != code:
@@ -1490,7 +1509,8 @@ def _build_unified_stage_message(
     for p in payments:
         stg = p.get('stage', '-')
         date_md = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
-        code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''))
+        code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''),
+                                  p.get('acct_code', ''))
         transfer_to = p.get('transfer_to', '')
         if transfer_to and transfer_to != code:
             code = f"{code} → {transfer_to}"

@@ -207,8 +207,12 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
     # 온라인/방문 카드와 동일 구조 — 헤더·구분선·본문·구분선을 한 섹션에 전부 '>' 인용으로
     # 넣어 섹션 간 여백 제거(2026-08-14). 문자 원문 그대로 노출(잔액만 제거).
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
+    # 헤더 은행 라벨 = 계좌로 판정(사업자까지 정확) → 미매칭 시 은행명 기준 기존 라벨.
+    # 기업은행이라도 하도급지킴이 계좌는 '(글로벌그룹)' (2026-09-30).
+    from dashboard.services.itg_accounts import match_account
+    _acct = match_account(clean_text)
     bank = (preview or {}).get('bank') or ''
-    bank_label = {
+    bank_label = _acct.label if _acct else {
         '기업': '기업은행 (글로벌)',
         '하나': '하나은행 (글로벌그룹)',
         '농협': '농협은행 (N통장)',

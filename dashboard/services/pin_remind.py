@@ -64,7 +64,15 @@ _DEPOSIT_ACCTS = [
 
 
 def _deposit_grn(text: str) -> str:
-    """입금 계좌 → G/R/N (없으면 '')."""
+    """입금 계좌 → G/R/N (없으면 '').
+
+    등록 계좌 레지스트리로 사업자까지 판정(기업 하도급지킴이=R, 2026-09-30) → 미매칭 시
+    기존 앞3자리 판정(입금내역 감지 범위는 좁히지 않음).
+    """
+    from dashboard.services.itg_accounts import match_account
+    _acct = match_account(text)
+    if _acct:
+        return _acct.code
     for pat, code in _DEPOSIT_ACCTS:
         if pat.search(text or ''):
             return code
@@ -205,7 +213,8 @@ def _payment_channel() -> str:
 
 def _fmt_deposit_line(pv: dict) -> str:
     """preview(dict) → 'MM/DD G/R/N 금액원 거래처'."""
-    grn = {'기업': 'G', '하나': 'R', '농협': 'N'}.get(pv.get('bank', ''), '')
+    # 계좌 판정 코드 우선(하도급지킴이=기업이지만 R) → 없으면 은행명 기준
+    grn = pv.get('acct_code') or {'기업': 'G', '하나': 'R', '농협': 'N'}.get(pv.get('bank', ''), '')
     parts = [x for x in [
         pv.get('date_md', ''), grn,
         (f"{pv['amount']:,}원" if pv.get('amount') else ''),
