@@ -9,8 +9,10 @@
   background: #ffffff;
   /* 테두리·그림자 없음 (2026-09-30): 그림자가 띠 옆면까지 번지고 아래 테두리와 겹쳐, 필터 박스와
      테이블 박스 사이에 박스가 아래로 연장된 것처럼 보였음. 흰 배경(행 가리기)만으로 충분 */
-  margin-bottom: 0;
-  padding: 0.5rem 0;
+  /* 필터 박스와 테이블 사이 간격은 띠 '바깥'(margin)에 둠 — 띠 안(padding·필터 margin)에 두면
+     스크롤해 고정됐을 때 그 흰 여백까지 따라다니며 내용을 가림 (2026-09-30) */
+  padding: 0.5rem 0 0;
+  margin-bottom: 1.5rem;   /* = 옛 필터 margin 1rem + 띠 아래 padding 0.5rem (평소 간격 동일) */
 }
 
 /* 프리셋 칩 자리 — 저장된 프리셋이 없으면 접음 (프로젝트·리드 공용). 비어 있어도 inline
@@ -26,7 +28,7 @@
   margin: 0;
   border: 1px solid #e9ecef;
   border-radius: var(--radius-lg);
-  margin-bottom: 1rem;
+  margin-bottom: 0;   /* 아래 간격은 .filter-section-sticky margin-bottom 으로 (고정 시 흰 여백 방지) */
 }
 
 /* 필터 폼 요소들 */
