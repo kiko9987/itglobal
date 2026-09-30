@@ -91,6 +91,9 @@ export function formatVisitRange(start, end) {
  * 헤더 없는 옛 형식은 {time:'', ini:'', status:'', content} 한 회차로 돌려준다.
  */
 const CONSULT_ENTRY_RE = /^\[\s*(\d{2}\.\d{2}\s+\d{2}:\d{2})\s+(\S+)\s*·\s*([^\]]+)\]\s*([\s\S]*)$/;
+// 방문 취소 흐름(slack_bot _process_visit_cancel_confirmed)은 다른 헤더를 씀:
+//   "[방문 취소 2026-09-22 YM]\n사유"
+const CANCEL_ENTRY_RE = /^\[\s*(방문 취소)\s+\d{4}-(\d{2})-(\d{2})\s+(\S+?)\s*\]\s*([\s\S]*)$/;
 
 export function parseConsultEntries(text) {
     const v = String(text || '').trim();
@@ -100,9 +103,10 @@ export function parseConsultEntries(text) {
         .filter(Boolean)
         .map((chunk) => {
             const m = chunk.match(CONSULT_ENTRY_RE);
-            return m
-                ? { time: m[1].trim(), ini: m[2].trim(), status: m[3].trim(), content: m[4].trim() }
-                : { time: '', ini: '', status: '', content: chunk };
+            if (m) return { time: m[1].trim(), ini: m[2].trim(), status: m[3].trim(), content: m[4].trim() };
+            const c = chunk.match(CANCEL_ENTRY_RE);
+            if (c) return { time: `${c[2]}.${c[3]}`, ini: c[4].trim(), status: c[1], content: c[5].trim() };
+            return { time: '', ini: '', status: '', content: chunk };
         });
 }
 

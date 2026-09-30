@@ -238,9 +238,9 @@ export default class LeadRowAccordion {
     return `
       <div class="info-card compact-card">
         <div class="d-flex justify-content-between align-items-center mb-3">
-          <h6 class="text-warning"><i class="fas fa-inbox me-1"></i>문의 원문</h6>
+          <h6 class="text-warning"><i class="fas fa-inbox me-1"></i>문의 내용</h6>
         </div>
-        <div class="lead-text-scroll">${text ? esc(text) : '<span class="lead-empty">원문 없음</span>'}</div>
+        <div class="lead-text-scroll">${text ? esc(text) : '<span class="lead-empty">문의 내용 없음</span>'}</div>
       </div>`;
   }
 

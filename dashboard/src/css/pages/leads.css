@@ -12,6 +12,8 @@
 .table-wrapper #leadsTable tbody td { text-align: center; }
 .table-wrapper #leadsTable tbody td.lcol-no,
 .table-wrapper #leadsTable tbody td.lcol-address { text-align: left; }
+/* 위 가운데 정렬이 아코디언(같은 tbody 안 td)까지 물려 들어가지 않게 */
+.table-wrapper #leadsTable tbody tr.accordion-row td { text-align: left; }
 
 .table-wrapper #leadsTable .lcol-no        { width: 7%;  white-space: nowrap !important; }
 .table-wrapper #leadsTable .lcol-time      { width: 8%;  white-space: nowrap !important; }
