@@ -12872,8 +12872,11 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                 memo_amt = int(round(max(inv_gross - covered_sum, 0)))
                 if memo_amt > 0:
                     _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
-                    _line = f"{selected} 선발행 {memo_amt:,}원"
-                    if _line not in _note:
+                    _core = f"{selected} 선발행 {memo_amt:,}원"
+                    # 발행일을 앞에 — SB 수기 메모 관례('2026-08-14 41,600,000원 … 발행')와 맞춤 (2026-09-30 SB 요청).
+                    #   금액 파서(`[\d,]+\s*원`)는 '원' 붙은 금액만 잡아 날짜 영향 없음.
+                    _line = f"{datetime.now():%Y-%m-%d} {_core}"
+                    if _core not in _note:
                         _new_note = f"{_note}\n{_line}".strip() if _note.strip() else _line
                         manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
                         logger.info(f"[SLACK/계산서] 선발행 발행액 메모 기록 ({code}): {_line}")
