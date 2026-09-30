@@ -304,6 +304,12 @@ def update_lead(lead_no: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
         df = load_leads_data(force_refresh=True)
 
         if df is None or df.empty:
+            # 호출자 다수(슬랙 상담·방문 완료 등)가 반환값을 확인하지 않아 여기서 조용히 끝나면
+            # 슬랙은 처리됐는데 시트엔 안 남는 불일치가 됨 → ERROR 로 남겨 관리자 알림에 걸리게.
+            logger.error(
+                f"[LEADS] 리드 {lead_no} 업데이트 실패 — 시트 읽기 실패로 저장 못 함 "
+                f"(누락 필드: {', '.join(map(str, update_data.keys()))})"
+            )
             return {'success': False, 'message': '리드 데이터를 찾을 수 없습니다'}
 
         # 리드 행 찾기 (문자열 strip 비교)
@@ -314,6 +320,7 @@ def update_lead(lead_no: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
                 break
 
         if lead_row_index is None:
+            logger.error(f"[LEADS] 리드 {lead_no} 업데이트 실패 — 시트에 해당 리드 없음")
             return {'success': False, 'message': f'리드 {lead_no}를 찾을 수 없습니다'}
 
         # Google Sheets 행 번호 (헤더 1행 + 0-based → +2)

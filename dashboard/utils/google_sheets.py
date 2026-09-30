@@ -49,8 +49,8 @@ def _should_retry_http_error(exception):
     if not isinstance(exception, HttpError):
         return False
 
-    # Rate Limit 및 서버 오류만 재시도
-    RATE_LIMIT_ERROR_CODES = [429, 500, 503]
+    # Rate Limit 및 서버 오류만 재시도 (502·504 게이트웨이 오류도 일시적 — 2026-09-30 추가)
+    RATE_LIMIT_ERROR_CODES = [429, 500, 502, 503, 504]
     error_code = exception.resp.status
     return error_code in RATE_LIMIT_ERROR_CODES
 
@@ -81,7 +81,9 @@ class GoogleSheetsManager:
     MAX_RETRIES = 5  # 최대 재시도 횟수
     INITIAL_BACKOFF = 1  # 초기 대기 시간 (초)
     MAX_BACKOFF = 32  # 최대 대기 시간 (초)
-    RATE_LIMIT_ERROR_CODES = [429, 500, 503]  # 재시도할 HTTP 에러 코드
+    # 재시도할 HTTP 에러 코드. 502·504(게이트웨이)는 2026-09-30 추가 — 빠져 있어서 리드 시트
+    # 읽기가 502 한 번에 바로 실패 → 슬랙 상담 완료 저장이 통째로 누락 (L-04131, ETC-6e1acd).
+    RATE_LIMIT_ERROR_CODES = [429, 500, 502, 503, 504]
 
     # Backoff Jitter 설정
     JITTER_MIN = 0  # Exponential Backoff 지터 최소값 (초)
