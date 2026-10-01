@@ -1009,6 +1009,29 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
     return sent
 
 
+def _is_clean_lead(lead: dict) -> bool:
+    """세척 견적 리드 판정 (카드 라벨·#세척_관리 알림 공용).
+
+    우선순위:
+    - 홈페이지 폼 명시 `_meta_inquiry_type`: '세척'→True, '설치'→False(내용에 '세척'
+      있어도 설치로 확정 — 설치 리드가 세척채널로 새는 것 방지).
+    - 마커/유형 없는 전화·수동 등록: 내용(_meta_inquiry/문의 내용/상담 내용)에서
+      `[세척]` 마커 또는 정밀 구문(세척 견적/문의/희망/요청) 감지. 그냥 '세척' 단어
+      하나로는 안 터뜨림(예 "세척 방법 문의"·"세척도 궁금"은 매칭 안 됨).
+    """
+    itype = (lead.get('_meta_inquiry_type') or '').strip()
+    if itype == '세척':
+        return True
+    if itype == '설치':
+        return False
+    content = ' '.join(
+        str(lead.get(k) or '') for k in ('_meta_inquiry', '문의 내용', '상담 내용')
+    )
+    if '[세척]' in content:
+        return True
+    return bool(re.search(r'세척\s*(견적|문의|희망|요청)', content))
+
+
 def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
                                card_channel: str, msg_ts: str) -> None:
     """세척 견적 리드면 #세척_관리 채널에 알림 + 온라인 리드 카드 permalink 발송.
@@ -1019,9 +1042,7 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
     해당 채널에 초대돼 있어야 함(2026-09-25 초대 확인). (주의: C0893C7QKHP 는 #수금_관리 이므로 아님)
     """
     try:
-        itype = (lead.get('_meta_inquiry_type') or '').strip()
-        is_clean = itype == '세척' or str(lead.get('문의 내용') or '').lstrip().startswith('[세척]')
-        if not is_clean:
+        if not _is_clean_lead(lead):
             return
         clean_channel = os.getenv('SLACK_CLEAN_CHANNEL', 'C0BG84DJRJQ').strip()
         if not clean_channel:
@@ -1449,9 +1470,8 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     )
     # 세척 견적 문의 감지 (2026-09-25) — 홈페이지 세척 랜딩 리드. 파서가 문의내용 앞에
     #   [세척] 마커로 영속화(시트·재렌더 유지). 여기서 마커로 감지 → 배지 표시 + 표기에선 마커 제거.
-    is_clean_req = (lead.get('_meta_inquiry_type') or '').strip() == '세척'
+    is_clean_req = _is_clean_lead(lead)
     if isinstance(inquiry, str) and inquiry.lstrip().startswith('[세척]'):
-        is_clean_req = True
         inquiry = re.sub(r'^\s*\[세척\]\s*\n?', '', inquiry).strip() or '-'
     place_label = '세척 희망 장소' if is_clean_req else '설치 희망 장소'
     device_label = '세척 희망 기기' if is_clean_req else '설치 희망 기기'
