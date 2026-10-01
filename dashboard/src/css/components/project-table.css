@@ -622,6 +622,12 @@ div.dt-container .bottom {
   margin-left: 6px;
 }
 
+/* 세금계산서 선발행(발행했는데 그 단계 입금 대기) — 발행(파랑 text-primary)과 같은 영수증, 주황.
+   특이 정산 ❓(text-warning 노랑)과 색·모양 모두 구분. 입금되면 자동으로 파랑 (2026-10-01) */
+.bill-preissued {
+  color: #fd7e14 !important;
+}
+
 .memo-value-wrapper i {
   pointer-events: none;
   line-height: 1;

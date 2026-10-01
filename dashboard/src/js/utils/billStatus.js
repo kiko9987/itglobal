@@ -288,20 +288,73 @@ export function billAmountLines(row, stage) {
     if ((t === '미발행' || t === '') && fully) { gross += a; continue; }  // 완납 통합발행 포함
     break;                                                // 별도 발행/현금/카드 → 경계
   }
-  // (ⓑ) 선발행(입금 0)은 실제 발행액을 결제칸으론 모름 → 총액2 추정 금지.
-  //   gross>0(실입금 커버)면 결제칸 기준 금액, 아니면(선발행) 계산서 메모에서 발행액 추출.
+  // 선발행(입금 대기): 발행액 = 앞 단계 입금분(통합발행 covered, gross) + 이 단계 미입금분(메모).
+  //   메모 'X원'은 자동기록 시 covered 를 뺀 순수분(R4080-JK: 638만 통합 = 입금 58만 + 대기 580만).
+  //   더한 값이 총액2 를 넘으면 메모가 이미 전액이었던 것 → 메모 값을 전체 발행액으로.
+  if (isPreIssued(row, stage)) {
+    const pending = preIssuedAmount(row, stage);
+    if (pending > 0) {
+      const total2 = toNum(row && row['총액 2']);
+      let issuedTotal = gross + pending;
+      if (total2 > 0 && issuedTotal > total2 + 1) issuedTotal = pending;
+      lines.push(`발행액 ${issuedTotal.toLocaleString()}원 (VAT 포함)`);
+      if (gross > 0 && issuedTotal > gross) {
+        lines.push(`입금 ${gross.toLocaleString()}원 · 입금 대기 ${(issuedTotal - gross).toLocaleString()}원`);
+      }
+    } else {
+      lines.push(gross > 0
+        ? `발행액 미상 — 입금 ${gross.toLocaleString()}원 외 계산서 메모 확인`
+        : '발행액 미상 — 계산서 메모 확인');
+    }
+    return lines;
+  }
+  // (ⓑ) 입금 0 단계는 실제 발행액을 결제칸으론 모름 → 총액2 추정 금지.
+  //   gross>0(실입금 커버)면 결제칸 기준 금액, 아니면 계산서 메모에서 발행액(preIssuedAmount).
   if (gross > 0) {
     const supply = Math.round(gross / 1.1);     // 공급가 (VAT 별도)
     lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);
     lines.push(`합계 ${gross.toLocaleString()}원 (VAT 포함)`);
   } else {
-    // 선발행: 발행액이 계산서 메모에만 있음 → 메모의 금액이 정확히 하나면 그 값 표시.
-    //   여럿(다단계 선발행)·없음이면 어느 단계 금액인지 모호해 생략(오표기 방지). 2026-09-20.
-    const memo = String((row && row['계산서_메모']) || '');
-    const amts = memo.match(/[\d,]+\s*원/g) || [];
-    if (amts.length === 1) lines.push(`발행액 ${amts[0].replace(/\s+/g, '')} (선발행)`);
+    // 입금 0 이지만 수금 완료(옛 데이터 모양) — 메모에 금액이 있으면 참고로만 표시
+    const issuedAmt = preIssuedAmount(row, stage);
+    if (issuedAmt > 0) lines.push(`발행액 ${issuedAmt.toLocaleString()}원 (VAT 포함)`);
   }
   return lines;
+}
+
+/**
+ * 선발행(입금 대기) — 그 단계에 세금계산서 '발행'이 있는데
+ *   ① 그 단계 입금이 0 이고  ② 프로젝트에 미수금이 남아 있음(수금 미완료).
+ * 상태 기준: 입금이 들어오면(금액>0) 자동으로 '발행완료'. 수금이 끝난 프로젝트(미수금 0·수금확인)는
+ * 입금을 다른 단계 칸에 적은 옛 데이터 모양일 뿐이라 선발행 아님 (2026-10-01 정의, 실측: 입금0+발행
+ * 61건 중 45건이 이 경우). 일부 입금(발행액 > 입금)은 구분하지 않음 → 발행완료.
+ */
+export function isPreIssued(row, stage) {
+  if (!row || !BILL_STAGE_COL[stage]) return false;
+  return normalizeToken(row[BILL_STAGE_COL[stage]]) === '발행'
+    && toNum(row[stage]) === 0
+    && !isFullyCollected(row);
+}
+
+/**
+ * 입금 0 단계의 세금계산서 발행액(VAT 포함, 원). 출처 = 계산서_메모(Y 노트):
+ *   ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원' (2026-09-29~ 계산서 첨부 자동기록) — 그 단계 최신 줄
+ *   ② 메모의 'X원' 이 정확히 하나 (SB 수기 메모 등)
+ *   ③ 없거나 여럿이면 0 (어느 단계 금액인지 모호 → 오표기 방지)
+ */
+export function preIssuedAmount(row, stage) {
+  const memo = String((row && row['계산서_메모']) || '');
+  if (!memo.trim()) return 0;
+  const tagged = [...memo.matchAll(/(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원/g)]
+    .filter((m) => m[1] === stage);
+  if (tagged.length) return toNum(tagged[tagged.length - 1][2]);
+  const amts = memo.match(/[\d,]+\s*원/g) || [];
+  return amts.length === 1 ? toNum(amts[0].replace(/원|\s/g, '')) : 0;
+}
+
+/** 계산서(발행) 툴팁 첫 줄 — 선발행이면 입금 대기 표시 */
+export function billHeadline(row, stage) {
+  return isPreIssued(row, stage) ? '세금계산서 선발행 · 입금 대기' : '세금계산서 발행완료';
 }
 
 /**

@@ -12911,6 +12911,21 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
         logger.error(f"[SLACK/계산서] 시트 자동기록 실패 ({code}): {exc}", exc_info=True)
 
 
+def _pre_issued_amount(memo: str, stage: str) -> float:
+    """입금 0 단계의 세금계산서 발행액(VAT 포함) — billStatus.js preIssuedAmount 미러.
+
+    ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원'(계산서 첨부 자동기록) 중 그 단계 최신 줄
+    ② 메모의 'X원' 이 정확히 하나  ③ 없거나 여럿 → 0 (어느 단계 금액인지 모호)
+    """
+    memo = memo or ''
+    tagged = [m for m in re.finditer(r'(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원', memo)
+              if m.group(1) == stage]
+    if tagged:
+        return _bill_to_num(tagged[-1].group(2))
+    found = re.findall(r'[\d,]+\s*원', memo)
+    return _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
+
+
 def _project_issued_invoice(code):
     """이미 발행된 세금계산서 요약 (계산서 요청 모달 잔여 프리필·경고용, 2026-09-28).
 
@@ -12943,6 +12958,10 @@ def _project_issued_invoice(code):
     last_idx = max((i for i, s in enumerate(_BILL_STAGES) if norm_tok[s] == '발행'), default=-1)
     if last_idx < 0:
         return None  # 발행 이력 없음
+    # 수금 완료(billStatus.isFullyCollected 미러) — 입금 0 발행이어도 선발행 아님(옛 데이터 모양)
+    _paid = sum(stage_amt.values())
+    _collected = (str(rec.get('수금 확인') or '').strip().upper() in ('TRUE', '1')
+                  or (total2 > 0 and _paid > 0 and abs(_bill_to_num(rec.get('미수금'))) < 1))
 
     issued_gross = 0.0
     lines = []          # (stage, gross_amt, is_sunbal)
@@ -12956,15 +12975,21 @@ def _project_issued_invoice(code):
             issued_gross += amt
             lines.append((s, amt, False))
         else:
-            # 선발행 — 계산서_메모에서 금액(정확히 1개일 때만 신뢰; billStatus 가드 미러)
-            found = re.findall(r'[\d,]+\s*원', memo)
-            m_amt = _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
+            # 입금 0 발행 — 발행액은 계산서_메모에서 (billStatus.preIssuedAmount 미러).
+            #   '(선발행)' 표기는 수금 미완료일 때만 (billStatus.isPreIssued 미러, 2026-10-01 정의)
+            m_amt = _pre_issued_amount(memo, s)
+            sunbal = not _collected
             if m_amt > 0:
-                issued_gross += m_amt
-                lines.append((s, m_amt, True))
+                # 메모 금액 = 보통 covered 를 뺀 순수분(자동기록). 더해서 총액2 를 넘으면
+                #   메모가 이미 전액이었던 것 → 메모 값을 전체 발행액으로 (billStatus 미러)
+                if total2 > 0 and issued_gross + m_amt > total2 + 1:
+                    issued_gross = m_amt
+                else:
+                    issued_gross += m_amt
+                lines.append((s, m_amt, sunbal))
             else:
                 uncertain = True
-                lines.append((s, 0, True))
+                lines.append((s, 0, sunbal))
 
     if issued_gross <= 0 and not uncertain:
         return None
@@ -12989,7 +13014,7 @@ def _fmt_issued_warn(summary) -> str:
         if amt > 0:
             parts.append(f"{s} {int(round(amt)):,}원" + ("(선발행)" if sunbal else ""))
         else:
-            parts.append(f"{s}(선발행·금액미상)")
+            parts.append(f"{s}(선발행·금액미상)" if sunbal else f"{s}(금액미상)")
     detail = ' · '.join(parts)
     if summary['issued_supply'] > 0 and not summary['uncertain']:
         # 발행 금액 전부 확인됨 → 잔여 자동 프리필. (부가세 있는 공사만 'VAT 포함'+공급가액 병기)

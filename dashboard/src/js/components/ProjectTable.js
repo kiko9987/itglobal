@@ -12,7 +12,9 @@ import { getGlobalModeManager } from '../utils/globalModeManager.js';
 import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, isFullyCollected, billIssueDate } from '../utils/billStatus.js';
+import {
+  computeBillStagesFromColumns, billIssueDate, billAmountLines, isPreIssued, billHeadline,
+} from '../utils/billStatus.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -93,8 +95,10 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     '-';
 
   // 계산서 단계별 상태 → 아이콘 (금액 결합: 입금됐는데 미발행이면 ⚠️)
+  //   선발행(발행했는데 그 단계 입금 0·미수금 남음)은 주황 🧾 — 입금되면 자동으로 파랑(발행)
   const billStages = computeBillStagesFromColumns(row);
-  const billIcon = getStageBillIconForTable(billStages[stage]);
+  const billStatus = isPreIssued(row, stage) ? '선발행' : billStages[stage];
+  const billIcon = getStageBillIconForTable(billStatus);
 
   // 3단계 시각화: 금액 없음 / 메모 없음(경고) / 메모 있음(정상)
   if (amount > 0) {
@@ -110,7 +114,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
         </span>`;
       return `<div class="payment-field-container">
         <span class="payment-amount">${amountText}</span>
-        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage, row, billStages[stage])}</span>
+        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage, row, billStatus)}</span>
       </div>`;
     } else {
       // 금액 있음 + 메모 있음 → 채워진 아이콘 + 초록색 (아이콘에만 툴팁)
@@ -122,51 +126,20 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
         </span>`;
       return `<div class="payment-field-container">
         <span class="payment-amount">${amountText}</span>
-        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage, row, billStages[stage])}</span>
+        <span class="payment-icons">${memoIcon}${wrapBillIcon(billIcon, stage, row, billStatus)}</span>
       </div>`;
     }
   }
 
-  return '<span class="text-muted">-</span>';
-}
+  // 입금 0 이지만 선발행이면 아이콘은 보여야 함 ('계산서는 나갔고 돈은 아직' 신호)
+  if (billStatus === '선발행') {
+    return `<div class="payment-field-container">
+      <span class="payment-amount text-muted">-</span>
+      <span class="payment-icons">${wrapBillIcon(billIcon, stage, row, billStatus)}</span>
+    </div>`;
+  }
 
-/** 사업자 + 공급가(VAT 별도)/합계(VAT 포함) 툴팁 줄 생성 (발행·카드 공용).
- *  실제 발행액 = 이 발행이 커버하는 금액. 통합발행이면 바로 앞의 연속된 '-'(covered)
- *  단계 금액까지 합산해야 맞다(예: 잔금 통합발행이 계약금·중도금까지 포함 → 총액). */
-function _billAmountLines(row, stage) {
-  const lines = [];
-  const biz = String(row['사업자명'] || '').trim();
-  if (biz) lines.push(biz);
-  const STAGES = ['계약금', '중도금', '잔금'];
-  const amtOf = (s) => parseFloat(row[s] || 0);
-  const tokOf = (s) => String(row[`${s} 계산서`] || '').trim();
-  // 이 발행 단계 + 앞의 통합발행 covered 단계 금액 합 = 실제 발행 합계(VAT 포함).
-  // '-'(명시적 covered)는 항상 포함, 금액 0(미발생) 단계는 건너뛰어 체인 유지. 완납(미수금 0 =
-  // 1건 총액발행) 프로젝트는 앞의 '미발행'/빈 단계도 이 발행에 포함(매니저 제보 2026-09-29
-  // R4091-SJ: 계약금이 '-' 아닌 '미발행'이라 총액 아닌 잔금만 표기). 별도 발행/현금/카드는 경계.
-  const idx = STAGES.indexOf(stage);
-  let gross = amtOf(stage);
-  const fully = isFullyCollected(row);
-  for (let i = idx - 1; i >= 0; i--) {
-    const t = tokOf(STAGES[i]);
-    const a = amtOf(STAGES[i]);
-    if (t === '-') { gross += a; continue; }              // 명시적 covered
-    if (a === 0) continue;                                // 미발생 단계 → 건너뜀(체인 유지)
-    if ((t === '미발행' || t === '') && fully) { gross += a; continue; }  // 완납 통합발행 포함
-    break;                                                // 별도 발행/현금/카드 → 경계
-  }
-  // (ⓑ) 선발행(입금 0)은 결제칸으론 발행액을 모름 → 총액 추정 금지.
-  //   gross>0이면 결제칸 기준, 아니면(선발행) 계산서 메모에서 발행액 추출(하나면 표시). 2026-09-20.
-  if (gross > 0) {
-    const supply = Math.round(gross / 1.1);         // 공급가 (VAT 별도)
-    lines.push(`${stage} ${supply.toLocaleString()}원 (VAT 별도)`);
-    lines.push(`합계 ${gross.toLocaleString()}원 (VAT 포함)`);
-  } else {
-    const memo = String(row['계산서_메모'] || '');
-    const amts = memo.match(/[\d,]+\s*원/g) || [];
-    if (amts.length === 1) lines.push(`발행액 ${amts[0].replace(/\s+/g, '')} (선발행)`);
-  }
-  return lines;
+  return '<span class="text-muted">-</span>';
 }
 
 function wrapBillIcon(billIcon, stage, row = {}, status = '') {
@@ -179,12 +152,12 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
     .replace(/ms-1/g, '')
     .replace(/\s{2,}/g, ' ');
 
-  // 세금계산서 '발행' → 사업자·금액 툴팁 + 슬랙 계산서 카드 바로가기(클릭)
-  if (status === '발행') {
+  // 세금계산서 '발행'·'선발행' → 사업자·금액 툴팁 + 슬랙 계산서 카드 바로가기(클릭)
+  if (status === '발행' || status === '선발행') {
     const code = String(row['프로젝트 코드'] || '').trim();
     const issued = billIssueDate(row, stage);
-    const lines = ['세금계산서 발행완료', ...(issued ? [`발행일 ${issued}`] : []),
-      ..._billAmountLines(row, stage), '클릭 시 계산서 링크로 이동'];
+    const lines = [billHeadline(row, stage), ...(issued ? [`발행일 ${issued}`] : []),
+      ...billAmountLines(row, stage), '클릭 시 계산서 링크로 이동'];
     const titleText = lines.join('\n');
     return `
       <span class="memo-value-wrapper bill-invoice-issued" role="button" tabindex="0" style="cursor:pointer;"
@@ -318,6 +291,7 @@ function getStageBillIconForTable(status) {
   const iconMap = {
     '발행': '<i class="fas fa-receipt fa-lg ms-1 text-primary" title="세금계산서 발행"></i>',
     '일반': '<i class="fas fa-receipt fa-lg ms-1 text-primary" title="세금계산서 발행"></i>',  // 레거시 별칭
+    '선발행': '<i class="fas fa-receipt fa-lg ms-1 bill-preissued" title="세금계산서 선발행 · 입금 대기"></i>',
     'N입금': '<i class="fas fa-sack-dollar fa-lg ms-1 text-secondary" title="현금 입금 (계산서 불필요)"></i>',
     '카드': '<i class="fas fa-credit-card fa-lg ms-1 text-info" title="카드결제 (영수증 자동)"></i>',
     '미발행': '<i class="fas fa-exclamation-triangle fa-lg ms-1 text-danger" title="수금완료 · 세금계산서 미발행 (요청 필요)"></i>',
