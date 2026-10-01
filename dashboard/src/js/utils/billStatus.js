@@ -273,18 +273,19 @@ export function billAmountLines(row, stage) {
   //   (G3991-YM: 시트 'SM CORPORATION' 인데 현재 계산서는 설린·SM 두 장, 2026-10-01).
   //   거래처(인테리어 업체) 경유 공사는 시트 사업자명=거래처, 계산서=실제 발주처 → 둘 다 표시
   //   (G4050-MJ: '오쿠드 (거래처 미공개스튜디오)'). 표기만 다른 같은 회사는 시트값 그대로.
-  const issuedBiz = billIssuedBizNames(row, stage);
+  //   분할 발행은 사업자별 금액도 한 줄씩 (메모 '선발행 X원' 줄에서, 금액 없는 일반 발행 줄은 이름만).
+  const parts = billIssuedParts(row, stage);
   const sheetBiz = String((row && row['사업자명']) || '').trim();
-  let biz = sheetBiz;
-  if (issuedBiz.length) {
-    const partner = sheetBiz && !issuedBiz.some((n) => sameBizName(n, sheetBiz)) ? sheetBiz : '';
-    if (issuedBiz.length > 1) {
-      biz = `${issuedBiz.join(' · ')} (분할 발행${partner ? ` · 거래처 ${partner}` : ''})`;
-    } else if (partner) {
-      biz = `${issuedBiz[0]} (거래처 ${partner})`;
-    }
+  const partner = parts.length && sheetBiz && !parts.some((p) => sameBizName(p.name, sheetBiz))
+    ? sheetBiz : '';
+  if (parts.length > 1) {
+    lines.push(`분할 발행 ${parts.length}장${partner ? ` (거래처 ${partner})` : ''}`);
+    parts.forEach((p) => lines.push(`· ${p.name}${p.amt > 0 ? ` ${p.amt.toLocaleString()}원` : ''}`));
+  } else if (partner) {
+    lines.push(`${parts[0].name} (거래처 ${partner})`);
+  } else if (sheetBiz) {
+    lines.push(sheetBiz);
   }
-  if (biz) lines.push(biz);
   const amtOf = (s) => parseFloat((row && row[s]) || 0);
   const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
   const idx = BILL_STAGES.indexOf(stage);
@@ -311,7 +312,7 @@ export function billAmountLines(row, stage) {
       const total2 = toNum(row && row['총액 2']);
       let issuedTotal = gross + pending;
       if (total2 > 0 && issuedTotal > total2 + 1) issuedTotal = pending;
-      lines.push(`발행액 ${issuedTotal.toLocaleString()}원 (VAT 포함)`);
+      lines.push(`발행액${parts.length > 1 ? ' 합계' : ''} ${issuedTotal.toLocaleString()}원 (VAT 포함)`);
       if (gross > 0 && issuedTotal > gross) {
         lines.push(`입금 ${gross.toLocaleString()}원 · 입금 대기 ${(issuedTotal - gross).toLocaleString()}원`);
       }
@@ -380,24 +381,33 @@ export function preIssuedAmount(row, stage) {
 }
 
 /**
- * 그 단계 가장 최근 발행일의 발행 사업자들 — 계산서_메모 'YYYY-MM-DD {단계} 발행|선발행 X원 · 사업자명'
+ * 그 단계 가장 최근 발행일의 발행 사업자별 금액 — 계산서_메모 'YYYY-MM-DD {단계} 발행|선발행 X원 · 사업자명'
  * (2026-10-01~ 자동기록·소급). 줄 끝 '(수정발행: …)' 같은 설명 괄호는 뺌. 사업자 없는 줄은 무시.
- * @returns {string[]} 중복 제거, 메모 순서
+ * 같은 사업자 여러 줄은 금액 합산. 금액 없는 일반 '발행' 줄은 amt 0.
+ * @returns {{name: string, amt: number}[]} 메모 순서
  */
-export function billIssuedBizNames(row, stage) {
+export function billIssuedParts(row, stage) {
   const memo = String((row && row['계산서_메모']) || '');
   if (!memo.trim()) return [];
-  const LINE = /^\s*(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+(계약금|중도금|잔금)\s*(?:선발행\s*[\d,]+\s*원|발행)\s*·\s*(.+)$/;
+  const LINE = /^\s*(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+(계약금|중도금|잔금)\s*(?:선발행\s*([\d,]+)\s*원|발행)\s*·\s*(.+)$/;
   const items = [];
   memo.split('\n').forEach((ln) => {
     const m = LINE.exec(ln);
     if (!m || m[4] !== stage) return;
-    const name = m[5].replace(/\s+\([^()]*:[^()]*\)\s*$/, '').trim();
-    if (name) items.push({ date: `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`, name });
+    const name = m[6].replace(/\s+\([^()]*:[^()]*\)\s*$/, '').trim();
+    if (name) {
+      items.push({ date: `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`,
+        name, amt: m[5] ? toNum(m[5]) : 0 });
+    }
   });
   if (!items.length) return [];
   const latest = items.reduce((a, t) => (t.date > a ? t.date : a), '');
-  return [...new Set(items.filter((t) => t.date === latest).map((t) => t.name))];
+  const parts = [];
+  items.filter((t) => t.date === latest).forEach((t) => {
+    const p = parts.find((x) => x.name === t.name);
+    if (p) p.amt += t.amt; else parts.push({ name: t.name, amt: t.amt });
+  });
+  return parts;
 }
 
 /**
