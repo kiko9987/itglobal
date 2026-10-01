@@ -1295,6 +1295,8 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
                         f'[SYNC/전화WF/카드] lead_card_msg 저장 실패 ({lead_no}): {_exc}'
                     )
                 logger.info(f'[SYNC/전화WF/카드] 발송 완료 ({lead_no}, ts={msg_ts})')
+                # 세척 견적 리드면 #세척_관리 크로스포스트 (홈페이지 경로와 통일, 2026-10-01)
+                _notify_clean_lead_channel(client, lead, lead_no, channel, msg_ts)
                 return True
         logger.warning(f'[SYNC/전화WF/카드] 발송 응답 not ok ({lead_no}): {resp}')
     except Exception as exc:
@@ -1360,6 +1362,8 @@ def _post_active_phone_lead_card(lead: dict, lead_no: str) -> bool:
                         f'[SYNC/전화WF/견적요청] lead_card_msg 저장 실패 ({lead_no}): {_exc}'
                     )
                 logger.info(f'[SYNC/전화WF/견적요청] 활성 카드 발송 완료 ({lead_no}, ts={msg_ts})')
+                # 세척 견적 리드면 #세척_관리 크로스포스트 (홈페이지 경로와 통일, 2026-10-01)
+                _notify_clean_lead_channel(client, lead, lead_no, channel, msg_ts)
                 return True
         logger.warning(f'[SYNC/전화WF/견적요청] 발송 응답 not ok ({lead_no}): {resp}')
     except Exception as exc:
