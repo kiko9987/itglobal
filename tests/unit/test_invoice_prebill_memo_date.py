@@ -201,18 +201,38 @@ def test_project_issued_invoice_flags_over_issue(monkeypatch):
     assert '총액' in sb._fmt_issued_warn(s) and '대체 표시' in sb._fmt_issued_warn(s)
 
 
-def test_issued_warn_folds_covered_stages_into_full_preissue(monkeypatch):
-    """선발행 메모 금액이 이미 전액(앞 단계 포함)이면 앞 단계를 따로 나열하지 않음 (G4114-SJ)."""
-    rec = {'프로젝트 코드': 'G4114-SJ', '총액 1': 18000000, '총액 2': 19800000, '부가세': True,
-           '계약금': 4800000, '중도금': 10000000, '잔금': 0, '미수금': 5000000,
+def _issued_summary(monkeypatch, memo, **over):
+    rec = {'프로젝트 코드': 'P1', '총액 1': 3100000, '총액 2': 3410000, '부가세': True,
+           '계약금': 0, '중도금': 1705000, '잔금': 0, '미수금': 1705000,
            '계약금 계산서': '-', '중도금 계산서': '-', '잔금 계산서': '발행', '수금 확인': False,
-           '계산서_메모': '2026-09-16 잔금 선발행 19,800,000원 · 정일이앤씨 주식회사'}
+           '계산서_메모': memo}
+    rec.update(over)
     import dashboard.services.project_service as ps
     monkeypatch.setattr(ps, 'get_project_records', lambda: [rec])
-    s = sb._project_issued_invoice('G4114-SJ')
-    assert s['issued_gross'] == 19800000 and s['remaining_supply'] == 0
-    assert '잔금 19,800,000원(선발행, 계약금·중도금 포함)' in sb._fmt_issued_warn(s)
-    assert '계약금 4,800,000원' not in sb._fmt_issued_warn(s)
+    return sb._project_issued_invoice('P1')
+
+
+def test_issued_warn_full(monkeypatch):
+    """전액 발행 → '추가로 발행할 금액 없음' + 기존 계산서 있으면 수정발행 안내 (사용자 확정 문구)."""
+    s = _issued_summary(monkeypatch, G3991)
+    assert sb._fmt_issued_warn(s) == (
+        ':white_check_mark: 총액 3,410,000원(VAT 포함) 전액 발행됨 — 추가로 발행할 금액이 없습니다.\n'
+        '수정발행이 필요할 때만 아래 기존 발행 계산서를 선택하세요.')
+
+
+def test_issued_warn_partial(monkeypatch):
+    s = _issued_summary(monkeypatch, '2026-10-01 중도금 발행 1,705,000원 · (주)설린',
+                        **{'중도금 계산서': '발행', '잔금 계산서': ''})
+    assert sb._fmt_issued_warn(s) == (
+        ':clipboard: 발행됨 1,705,000원 / 총액 3,410,000원 (VAT 포함)\n'
+        '→ 남은 공급가액 1,550,000원이 발행 금액에 입력되었습니다. 확인 후 조정하세요.')
+
+
+def test_issued_warn_uncertain(monkeypatch):
+    s = _issued_summary(monkeypatch, '')        # 입금 0 발행인데 메모에 금액 없음
+    assert s['uncertain']
+    assert sb._fmt_issued_warn(s) == (
+        ':warning: 이미 발행한 계산서가 있지만 금액을 모두 확인하지 못했습니다. 발행 금액을 직접 확인하세요.')
 
 
 def test_modal_replace_checkbox_and_submit_roundtrip(monkeypatch):

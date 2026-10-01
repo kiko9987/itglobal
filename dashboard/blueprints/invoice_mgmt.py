@@ -116,7 +116,7 @@ def api_invoice_issued(code):
                 data['has_issued'] = True
                 # 슬랙 mrkdwn → 평문 (이모지 shortcode·볼드 제거)
                 warn = _fmt_issued_warn(iss)
-                for sc, emo in ((':clipboard:', '📋'), (':warning:', '⚠️')):
+                for sc, emo in ((':clipboard:', '📋'), (':warning:', '⚠️'), (':white_check_mark:', '✅')):
                     warn = warn.replace(sc, emo)
                 data['warn'] = warn.replace('*', '')
                 if iss.get('issued_supply', 0) > 0 and not iss.get('uncertain'):

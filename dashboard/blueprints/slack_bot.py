@@ -13086,7 +13086,6 @@ def _project_issued_invoice(code):
 
     issued_gross = 0.0
     lines = []          # (stage, gross_amt, is_sunbal)
-    included = {}       # stage → 이 발행에 포함된 앞 단계들 (메모 금액이 이미 전액인 통합 선발행)
     uncertain = False
     for i, s in enumerate(_BILL_STAGES):
         counted = norm_tok[s] == '발행' or (raw_tok[s] == '-' and stage_amt[s] > 0 and i < last_idx)
@@ -13106,10 +13105,6 @@ def _project_issued_invoice(code):
                 #   메모가 이미 전액이었던 것 → 메모 값을 전체 발행액으로 (billStatus 미러)
                 if total2 > 0 and issued_gross + m_amt > total2 + 1:
                     issued_gross = m_amt
-                    # 앞 단계(covered)는 이 금액에 포함 → 따로 나열하면 합이 총액을 넘어 보임
-                    #   (G4114-SJ '계약금 480만 · 중도금 1,000만 · 잔금 1,980만' → '잔금 1,980만(…포함)')
-                    included[s] = [ln[0] for ln in lines]
-                    lines = []
                 else:
                     issued_gross += m_amt
                 lines.append((s, m_amt, sunbal))
@@ -13132,7 +13127,6 @@ def _project_issued_invoice(code):
         'issued_supply': int(issued_supply),
         'remaining_supply': int(remaining_supply),
         'lines': lines,
-        'included': included,
         'uncertain': uncertain,
         'active': active,
         # 발행 장 합계가 총액2 초과 = 수정발행(대체) 표시 누락 의심 → 경고 (조용히 틀린 값 대신)
@@ -13142,32 +13136,28 @@ def _project_issued_invoice(code):
 
 
 def _fmt_issued_warn(summary) -> str:
-    """_project_issued_invoice 결과 → 모달 경고/안내 문구."""
-    parts = []
-    for s, amt, sunbal in summary['lines']:
-        if amt > 0:
-            notes = (['선발행'] if sunbal else []) + (
-                [f"{'·'.join(summary['included'][s])} 포함"] if (summary.get('included') or {}).get(s) else [])
-            parts.append(f"{s} {int(round(amt)):,}원" + (f"({', '.join(notes)})" if notes else ""))
-        else:
-            parts.append(f"{s}(선발행·금액미상)" if sunbal else f"{s}(금액미상)")
-    detail = ' · '.join(parts)
+    """_project_issued_invoice 결과 → 모달 안내 문구 (슬랙 mrkdwn, PM 은 평문 변환해 공용).
+
+    2026-10-01 사용자 확정 문구: 요청자에겐 합계만(단계 분해·'선발행' 같은 수금 용어 X) —
+    개별 계산서는 아래 '기존 발행 계산서' 목록에 나옴. 전액 발행이면 '추가로 발행할 금액 없음'.
+    볼드(*) 미사용: 슬랙 mrkdwn 은 '원*을'처럼 * 양옆이 한글이면 리터럴 * 로 표시됨.
+    """
+    total2 = summary.get('total2') or 0
+    has_vat = summary['issued_gross'] != summary['issued_supply']
+    vat = '(VAT 포함)' if has_vat else ''
     if summary['issued_supply'] > 0 and not summary['uncertain']:
-        # 발행 금액 전부 확인됨 → 잔여 자동 프리필. (부가세 있는 공사만 'VAT 포함'+공급가액 병기)
-        # 볼드(*) 미사용: 슬랙 mrkdwn 은 '원*을'처럼 * 양옆이 한글이면 리터럴 * 로 표시됨
-        has_vat = summary['issued_gross'] != summary['issued_supply']
-        vat_note = ' / VAT 포함' if has_vat else ''
-        supply_note = f"공급가액 {summary['issued_supply']:,}원  " if has_vat else ''
-        txt = (
-            f":clipboard: *이미 발행된 계산서 있음* — {detail}{vat_note}\n"
-            f"{supply_note}→ 잔여 공급가액 {summary['remaining_supply']:,}원을 발행 금액에 자동 입력했습니다. 확인 후 조정하세요."
-        )
+        if summary['remaining_supply'] <= 0:
+            txt = (f":white_check_mark: 총액 {total2:,}원{vat} 전액 발행됨 — 추가로 발행할 금액이 없습니다.")
+            if summary.get('active'):
+                txt += "\n수정발행이 필요할 때만 아래 기존 발행 계산서를 선택하세요."
+        else:
+            left = '남은 공급가액' if has_vat else '남은 금액'
+            txt = (f":clipboard: 발행됨 {summary['issued_gross']:,}원 / 총액 {total2:,}원"
+                   + (f" {vat}" if vat else '') + "\n"
+                   f"→ {left} {summary['remaining_supply']:,}원이 발행 금액에 입력되었습니다. 확인 후 조정하세요.")
     else:
-        # 발행 금액 일부/전부 미상(선발행 메모 없음 등) → 부정확한 잔여 프리필 안 함, 직접 확인 유도
-        txt = (
-            f":warning: *이미 발행 이력 있음* — {detail}\n"
-            f"일부 발행 금액이 확인되지 않아 잔여를 자동 계산하지 못했습니다. 발행 금액을 직접 확인·입력하세요."
-        )
+        # 발행 금액 일부/전부 미상(메모에 금액 없음 등) → 부정확한 잔여 프리필 안 함, 직접 확인 유도
+        txt = ":warning: 이미 발행한 계산서가 있지만 금액을 모두 확인하지 못했습니다. 발행 금액을 직접 확인하세요."
     if summary.get('over_issued'):
         txt += (f"\n:warning: 발행 계산서 합계 {summary['over_issued']:,}원이 총액 {summary['total2']:,}원을 "
                 f"넘습니다 — 이전 수정발행의 대체 표시가 빠졌는지 확인하세요.")
