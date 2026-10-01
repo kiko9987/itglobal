@@ -273,7 +273,7 @@ export function billAmountLines(row, stage) {
   //   (G3991-YM: 시트 'SM CORPORATION' 인데 현재 계산서는 설린·SM 두 장, 2026-10-01).
   //   거래처(인테리어 업체) 경유 공사는 시트 사업자명=거래처, 계산서=실제 발주처 → 둘 다 표시
   //   (G4050-MJ: '오쿠드 (거래처 미공개스튜디오)'). 표기만 다른 같은 회사는 시트값 그대로.
-  //   분할 발행은 사업자별 금액도 한 줄씩 (메모 '선발행 X원' 줄에서, 금액 없는 일반 발행 줄은 이름만).
+  //   분할 발행은 사업자별 금액도 한 줄씩 (메모 '발행|선발행 X원' 줄에서, 금액 없는 옛 줄은 이름만).
   const parts = billIssuedParts(row, stage);
   const sheetBiz = String((row && row['사업자명']) || '').trim();
   const partner = parts.length && sheetBiz && !parts.some((p) => sameBizName(p.name, sheetBiz))
@@ -330,6 +330,15 @@ export function billAmountLines(row, stage) {
     }
     return lines;
   }
+  // 분할 발행(장별 금액 있음) — 결제칸 대신 장 합계 기준 (일부만 입금이면 '입금 · 입금 대기')
+  if (parts.length > 1 && parts.every((p) => p.amt > 0)) {
+    const issuedSum = parts.reduce((a, p) => a + p.amt, 0);
+    lines.push(`발행액 합계 ${issuedSum.toLocaleString()}원 (VAT 포함)`);
+    if (gross > 0 && issuedSum > gross + 1) {
+      lines.push(`입금 ${gross.toLocaleString()}원 · 입금 대기 ${(issuedSum - gross).toLocaleString()}원`);
+    }
+    return lines;
+  }
   // (ⓑ) 입금 0 단계는 실제 발행액을 결제칸으론 모름 → 총액2 추정 금지.
   //   gross>0(실입금 커버)면 결제칸 기준 금액, 아니면 계산서 메모에서 발행액(preIssuedAmount).
   if (gross > 0) {
@@ -363,7 +372,7 @@ export function isPreIssued(row, stage) {
  *   ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명' (계산서 첨부 자동기록, 한 줄 = 한 장)
  *      → 그 단계의 **가장 최근 날짜 줄들의 합** = 현재 발행액. 앞 날짜 줄은 수정발행 전 이력으로 보존.
  *      (G3991-YM: 08-27 310만 한 장 → 09-02 고객 요청 사업자 분할 155만+155만 = 310만)
- *   ② 단계 표시 줄이 없으면 메모의 'X원' 이 정확히 하나 (SB 수기 메모 등)
+ *   ② 단계 표시 줄이 없으면 메모의 'X원' 이 정확히 하나 (SB 수기 메모 등, 단계 표시 줄은 제외)
  *   ③ 없거나 여럿이면 0 (어느 단계 금액인지 모호 → 오표기 방지)
  */
 export function preIssuedAmount(row, stage) {
@@ -383,7 +392,10 @@ export function preIssuedAmount(row, stage) {
     if (!latest) return tagged[tagged.length - 1].amt;
     return tagged.filter((t) => t.date === latest).reduce((a, t) => a + t.amt, 0);
   }
-  const amts = memo.match(/[\d,]+\s*원/g) || [];
+  // 단계 표시 줄('YYYY-MM-DD 잔금 발행 X원 · …' = 일반 발행 장 금액, 2026-10-01~)은 폴백에서 제외
+  const STAGE_LINE = /^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*선?발행/;
+  const rest = memo.split('\n').filter((ln) => !STAGE_LINE.test(ln)).join('\n');
+  const amts = rest.match(/[\d,]+\s*원/g) || [];
   return amts.length === 1 ? toNum(amts[0].replace(/원|\s/g, '')) : 0;
 }
 
@@ -396,7 +408,7 @@ export function preIssuedAmount(row, stage) {
 export function billIssuedParts(row, stage) {
   const memo = String((row && row['계산서_메모']) || '');
   if (!memo.trim()) return [];
-  const LINE = /^\s*(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+(계약금|중도금|잔금)\s*(?:선발행\s*([\d,]+)\s*원|발행)\s*·\s*(.+)$/;
+  const LINE = /^\s*(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+(계약금|중도금|잔금)\s*선?발행\s*(?:([\d,]+)\s*원)?\s*·\s*(.+)$/;
   const items = [];
   memo.split('\n').forEach((ln) => {
     const m = LINE.exec(ln);

@@ -12867,7 +12867,8 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
         #   · 선발행(입금 0): 'YYYY-MM-DD 잔금 선발행 X원' — 입금열이 0이라 발행액도 여기만 남음
         #     (2026-09-29, PM·계산서 모달 '금액미상' 방지). 통합발행이면 covered('-') 단계 금액은
         #     이 발행에 포함 → 이 단계 순수분 = gross - covered합.
-        #   · 그 외: 'YYYY-MM-DD 잔금 발행' — '원' 금액 없음(선발행 금액 파서 `[\d,]+\s*원` 무영향).
+        #   · 그 외: 'YYYY-MM-DD 잔금 발행 X원' — 이 장 금액(VAT 포함, 2026-10-01~). 금액 파서의
+        #     'X원 1개' 폴백은 단계 표시 줄을 제외하므로 선발행 금액 판정 무영향.
         #   · 한 줄 = 한 장, 끝에 ' · 사업자명' (2026-10-01): 고객 요청 사업자 분할·수정발행 이력 추적.
         #     같은 날 같은 금액이라도 사업자가 다르면 별도 줄(분할 발행 둘 다 남김). 읽는 쪽은 그 단계
         #     최근 날짜 줄들의 합 = 현재 발행액 (billStatus.preIssuedAmount / _pre_issued_amount).
@@ -12876,17 +12877,22 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                 _today = f"{datetime.now():%Y-%m-%d}"
                 _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
                 _core = f"{selected} 발행"
-                if amt.get(selected, 0) == 0 and inv_amt > 0:
+                if inv_amt > 0:
                     if vat_val == 'incl':
                         inv_gross = inv_amt
                     elif total1 > 0 and total2 > 0:
                         inv_gross = round(inv_amt * total2 / total1)
                     else:
                         inv_gross = round(inv_amt * 1.1)
-                    covered_sum = sum(amt.get(s, 0) for s in _BILL_STAGES if f'{s}(-)' in wrote)
-                    memo_amt = int(round(max(inv_gross - covered_sum, 0)))
-                    if memo_amt > 0:
-                        _core = f"{selected} 선발행 {memo_amt:,}원"
+                    if amt.get(selected, 0) == 0:
+                        covered_sum = sum(amt.get(s, 0) for s in _BILL_STAGES if f'{s}(-)' in wrote)
+                        memo_amt = int(round(max(inv_gross - covered_sum, 0)))
+                        if memo_amt > 0:
+                            _core = f"{selected} 선발행 {memo_amt:,}원"
+                    else:
+                        # 일반 발행도 이 장의 금액(VAT 포함) — 분할 발행 사업자별 금액·입금 대조용
+                        #   (2026-10-01). 금액 파서는 단계 표시 줄을 'X원' 1개 폴백에서 제외.
+                        _core = f"{selected} 발행 {int(round(inv_gross)):,}원"
                 _biz = str(biz or '').strip()
                 if _biz and _biz != '-':
                     _core = f"{_core} · {_biz}"
@@ -12937,7 +12943,8 @@ def _pre_issued_amount(memo: str, stage: str) -> float:
 
     ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명'(계산서 첨부 자동기록, 한 줄=한 장)
        중 그 단계 가장 최근 날짜 줄들의 합 (사업자 분할 발행 합산, 앞 날짜는 수정발행 전 이력)
-    ② 메모의 'X원' 이 정확히 하나  ③ 없거나 여럿 → 0 (어느 단계 금액인지 모호)
+    ② 메모의 'X원' 이 정확히 하나 (단계 표시 줄 'YYYY-MM-DD {단계} 발행 X원' 제외 — 일반 발행 장 금액)
+    ③ 없거나 여럿 → 0 (어느 단계 금액인지 모호)
     """
     memo = memo or ''
     tag_re = re.compile(r'^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?'
@@ -12955,7 +12962,9 @@ def _pre_issued_amount(memo: str, stage: str) -> float:
         if not latest:
             return tagged[-1][1]
         return sum(a for d, a in tagged if d == latest)
-    found = re.findall(r'[\d,]+\s*원', memo)
+    stage_line = re.compile(r'^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*선?발행')
+    rest = '\n'.join(ln for ln in memo.split('\n') if not stage_line.match(ln))
+    found = re.findall(r'[\d,]+\s*원', rest)
     return _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
 
 

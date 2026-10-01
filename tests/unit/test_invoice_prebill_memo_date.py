@@ -85,16 +85,26 @@ def test_prebill_memo_has_issue_date(monkeypatch):
     assert re.findall(r'[\d,]+\s*원', fm.notes['Y10']) == ['2,882,000원']
 
 
-def test_normal_issue_writes_dated_line_without_amount(monkeypatch):
+def test_normal_issue_writes_dated_line_with_amount(monkeypatch):
+    """일반 발행(입금 있는 단계)도 이 장 금액(VAT 포함)·사업자 기록 — 분할 발행 사업자별 금액 (2026-10-01)."""
     fm = _FakeManager()
     fm.vals['W10'] = 2882000                        # 입금 있는 단계 → 일반 발행
     fm.notes['Y10'] = '2026-08-14 41,600,000원 부가세 별도 발행'   # SB 수기 메모 보존
-    _run(monkeypatch, fm)
+    _run(monkeypatch, fm, biz='(주)설린')
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.vals['AB10'] == '발행'
-    assert fm.notes['Y10'] == f'2026-08-14 41,600,000원 부가세 별도 발행\n{today} 잔금 발행'
-    # '원' 금액 없는 줄 → 금액 파서 결과 불변
-    assert re.findall(r'[\d,]+\s*원', fm.notes['Y10']) == ['41,600,000원']
+    assert fm.notes['Y10'] == (f'2026-08-14 41,600,000원 부가세 별도 발행\n'
+                               f'{today} 잔금 발행 2,882,000원 · (주)설린')
+    # 'X원 1개' 폴백은 단계 표시 줄을 빼고 셈 → SB 수기 금액 그대로
+    assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 41600000
+
+
+def test_normal_issue_line_not_taken_as_preissued_amount():
+    """일반 발행 줄의 금액은 선발행 금액으로 쓰지 않음 (다른 단계 선발행 판정 오염 방지)."""
+    memo = '2026-09-01 계약금 발행 1,000,000원 · A'
+    assert sb._pre_issued_amount(memo, '잔금') == 0
+    memo2 = memo + '\n2026-09-05 잔금 선발행 2,000,000원 · A'
+    assert sb._pre_issued_amount(memo2, '잔금') == 2000000
 
 
 def test_already_issued_stage_records_history_only(monkeypatch):
