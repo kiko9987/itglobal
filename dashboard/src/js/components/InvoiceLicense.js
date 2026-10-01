@@ -24,6 +24,7 @@ export default class InvoiceLicense {
   constructor() {
     this._modal = null;
     this._status = {};   // code → {exists, required, view_url}
+    this._issuedP = {};  // code → Promise(이미발행 요약) — 아코디언 렌더 때 미리 조회(모달 즉시 오픈)
     window.invoiceLicense = this;
   }
 
@@ -69,6 +70,8 @@ export default class InvoiceLicense {
     const c = String(code || '').trim();
     if (!c) return;
     this.refreshStatus(c);
+    // 계산서 요청 모달용 이미발행 요약도 미리 (버튼 클릭 시 조회 대기로 모달이 늦게 뜨던 문제)
+    this._issuedP[c] = this._fetchIssued(c);
   }
 
   /** 이미 발행된 계산서 요약(슬랙 모달과 같은 서버 계산). 실패 시 null → 모달은 기존 동작. */
@@ -261,7 +264,8 @@ export default class InvoiceLicense {
       return;
     }
     // 이미 발행된 계산서 → 슬랙 모달과 동일하게 안내 + 발행 금액 '잔여 공급가' 프리필 (전액 재요청 방지)
-    const iss = await this._fetchIssued(c);
+    //   아코디언 렌더 때 미리 받아둔 결과 사용 → 보통 즉시. 없으면 이때 조회.
+    const iss = await (this._issuedP[c] || (this._issuedP[c] = this._fetchIssued(c)));
     const p = this._findProject(c) || {};
     // 시트 빈값 placeholder '-' 는 빈칸으로 (슬랙 _build_invoice_button_value 와 동일).
     const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s === '-' ? '' : s; };
@@ -361,6 +365,7 @@ export default class InvoiceLicense {
       };
       const err = await this._postRaw('/api/invoice/request', payload);
       if (!err.ok) return err.message;
+      delete this._issuedP[c];   // 다음에 열 땐 새로 조회
       this._toast('세금계산서 요청을 #계산서_관리로 발송했습니다.', 'success');
       return null;
     }, {
