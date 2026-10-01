@@ -287,13 +287,13 @@ export default class InvoiceLicense {
     const active = activeInvoiceLines(p['계산서_메모']).filter((it) => it.amt > 0).slice(0, 10);
     const over = overIssuedAmount(p);
     const replaceHtml = active.length ? `
-      <div class="mb-2"><label class="form-label">수정발행 — 대체할 기존 계산서 <span class="text-muted small">(선택)</span></label>
+      <div class="mb-2"><label class="form-label">기존 발행 계산서 <span class="text-muted small">(수정발행 시 선택)</span></label>
         ${active.map((it, i) => `
           <div class="form-check">
             <input class="form-check-input" type="checkbox" id="ilRep${i}" data-rep="${i}">
             <label class="form-check-label small" for="ilRep${i}">${esc(`${it.date ? it.date.slice(5) : '날짜없음'} ${it.stage} ${it.amt.toLocaleString()}원${it.biz ? ` · ${it.biz}` : ''}`)}</label>
           </div>`).join('')}
-        <div class="small text-muted mt-1">이번 계산서가 기존 계산서를 대신할 때만 체크하세요(취소분은 이력으로 남음). 추가 발행·사업자 분할의 추가 장이면 비워두세요.</div>
+        <div class="small text-muted mt-1">· 기존 계산서 수정발행이 필요한 경우에만 체크</div>
         ${over ? `<div class="small mt-1" style="color:#d9480f;">⚠️ 발행 계산서 합계 ${over.toLocaleString()}원이 총액을 넘습니다 — 이전 수정발행의 대체 표시가 빠졌는지 확인하세요.</div>` : ''}
       </div>` : '';
 
