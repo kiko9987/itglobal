@@ -278,14 +278,6 @@ export function billAmountLines(row, stage) {
   const sheetBiz = String((row && row['사업자명']) || '').trim();
   const partner = parts.length && sheetBiz && !parts.some((p) => sameBizName(p.name, sheetBiz))
     ? sheetBiz : '';
-  if (parts.length > 1) {
-    lines.push(`분할 발행 ${parts.length}장${partner ? ` (거래처 ${partner})` : ''}`);
-    parts.forEach((p) => lines.push(`· ${p.name}${p.amt > 0 ? ` ${p.amt.toLocaleString()}원` : ''}`));
-  } else if (partner) {
-    lines.push(`${parts[0].name} (거래처 ${partner})`);
-  } else if (sheetBiz) {
-    lines.push(sheetBiz);
-  }
   const amtOf = (s) => parseFloat((row && row[s]) || 0);
   const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
   const idx = BILL_STAGES.indexOf(stage);
@@ -302,6 +294,21 @@ export function billAmountLines(row, stage) {
     if (a === 0) continue;                                // 미발생 단계 → 건너뜀(체인 유지)
     if ((t === '미발행' || t === '') && fully) { gross += a; continue; }  // 완납 통합발행 포함
     break;                                                // 별도 발행/현금/카드 → 경계
+  }
+  if (parts.length > 1) {
+    // 분할 발행 장별 입금 여부 — 입금 메모의 입금자 ↔ 발행 사업자 대조 (G3991-YM: 09/04 (주)설린 170.5만
+    //   입금 = 설린 계산서와 이름·금액 일치 → 설린 입금, SM 대기). 입금자로 맞춘 장들의 합이 실제 입금액과
+    //   같을 때만 표시 — 거래처가 대신 냈거나 이름이 안 맞으면 표시 안 함(오표기 방지).
+    const paid = parts.map((p) => isPaidByBiz(row, p.name));
+    const paidSum = parts.reduce((a, p, i) => a + (paid[i] ? p.amt : 0), 0);
+    const showPaid = parts.every((p) => p.amt > 0) && paid.some(Boolean) && Math.abs(paidSum - gross) <= 1;
+    lines.push(`분할 발행 ${parts.length}장${partner ? ` (거래처 ${partner})` : ''}`);
+    parts.forEach((p, i) => lines.push(`· ${p.name}${p.amt > 0 ? ` ${p.amt.toLocaleString()}원` : ''}`
+      + (showPaid ? (paid[i] ? ' — 입금' : ' — 입금 대기') : '')));
+  } else if (partner) {
+    lines.push(`${parts[0].name} (거래처 ${partner})`);
+  } else if (sheetBiz) {
+    lines.push(sheetBiz);
   }
   // 선발행(입금 대기): 발행액 = 앞 단계 입금분(통합발행 covered, gross) + 이 단계 미입금분(메모).
   //   메모 'X원'은 자동기록 시 covered 를 뺀 순수분(R4080-JK: 638만 통합 = 입금 58만 + 대기 580만).
@@ -414,11 +421,28 @@ export function billIssuedParts(row, stage) {
  * 같은 회사인지 — 법인 표기((주)·주식회사·㈜·(재) 등)·공백·대소문자 무시, 포함 관계 또는 한 글자 차이까지 같음
  * (G2894-YM 계산서 '엠제이디엔엠' ↔ 시트 '주식회사 엠제이디앤엠' 오탈자 표기).
  */
+const normBizName = (s) => String(s || '').toLowerCase()
+  .replace(/주식회사|유한회사|재단법인|사단법인|\((?:주|유|재|사)\)|[㈜㈔]/g, '')
+  .replace(/[\s.,·()]/g, '');
+
+/**
+ * 입금 메모(계약금/중도금/잔금_메모)에 이 사업자 이름의 입금자가 있는지.
+ * 메모 형식이 여럿('입금자: X', SMS '…\n입금 X원\n(주)설린\n계좌\n은행', '적요 X')이라 줄 단위로 비교.
+ * 은행 SMS 는 입금자명을 잘라 보내므로('(주)삼양발브종') 4자 이상이면 앞부분 일치도 인정. 숫자 있는 줄은 제외.
+ */
+export function isPaidByBiz(row, name) {
+  const n = normBizName(name);
+  if (!n) return false;
+  return BILL_STAGES.some((s) => String((row && row[`${s}_메모`]) || '').split('\n').some((ln) => {
+    if (/\d/.test(ln)) return false;
+    const l = normBizName(ln.replace(/^\s*(?:입금자\s*:|적요)\s*/, ''));
+    if (!l) return false;
+    return l === n || (l.length >= 4 && n.startsWith(l)) || (n.length >= 4 && l.startsWith(n));
+  }));
+}
+
 export function sameBizName(a, b) {
-  const norm = (s) => String(s || '').toLowerCase()
-    .replace(/주식회사|유한회사|재단법인|사단법인|\((?:주|유|재|사)\)|[㈜㈔]/g, '')
-    .replace(/[\s.,·()]/g, '');
-  const x = norm(a), y = norm(b);
+  const x = normBizName(a), y = normBizName(b);
   if (!x || !y) return true;   // 비교 불가 → 같은 것으로 (괜히 두 이름 표시 안 함)
   if (x === y || x.includes(y) || y.includes(x)) return true;
   if (Math.abs(x.length - y.length) > 1 || Math.min(x.length, y.length) < 4) return false;
