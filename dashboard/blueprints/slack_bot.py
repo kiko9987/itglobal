@@ -13086,6 +13086,7 @@ def _project_issued_invoice(code):
 
     issued_gross = 0.0
     lines = []          # (stage, gross_amt, is_sunbal)
+    included = {}       # stage → 이 발행에 포함된 앞 단계들 (메모 금액이 이미 전액인 통합 선발행)
     uncertain = False
     for i, s in enumerate(_BILL_STAGES):
         counted = norm_tok[s] == '발행' or (raw_tok[s] == '-' and stage_amt[s] > 0 and i < last_idx)
@@ -13105,6 +13106,10 @@ def _project_issued_invoice(code):
                 #   메모가 이미 전액이었던 것 → 메모 값을 전체 발행액으로 (billStatus 미러)
                 if total2 > 0 and issued_gross + m_amt > total2 + 1:
                     issued_gross = m_amt
+                    # 앞 단계(covered)는 이 금액에 포함 → 따로 나열하면 합이 총액을 넘어 보임
+                    #   (G4114-SJ '계약금 480만 · 중도금 1,000만 · 잔금 1,980만' → '잔금 1,980만(…포함)')
+                    included[s] = [ln[0] for ln in lines]
+                    lines = []
                 else:
                     issued_gross += m_amt
                 lines.append((s, m_amt, sunbal))
@@ -13127,6 +13132,7 @@ def _project_issued_invoice(code):
         'issued_supply': int(issued_supply),
         'remaining_supply': int(remaining_supply),
         'lines': lines,
+        'included': included,
         'uncertain': uncertain,
         'active': active,
         # 발행 장 합계가 총액2 초과 = 수정발행(대체) 표시 누락 의심 → 경고 (조용히 틀린 값 대신)
@@ -13140,7 +13146,9 @@ def _fmt_issued_warn(summary) -> str:
     parts = []
     for s, amt, sunbal in summary['lines']:
         if amt > 0:
-            parts.append(f"{s} {int(round(amt)):,}원" + ("(선발행)" if sunbal else ""))
+            notes = (['선발행'] if sunbal else []) + (
+                [f"{'·'.join(summary['included'][s])} 포함"] if (summary.get('included') or {}).get(s) else [])
+            parts.append(f"{s} {int(round(amt)):,}원" + (f"({', '.join(notes)})" if notes else ""))
         else:
             parts.append(f"{s}(선발행·금액미상)" if sunbal else f"{s}(금액미상)")
     detail = ' · '.join(parts)

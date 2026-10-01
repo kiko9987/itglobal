@@ -201,6 +201,20 @@ def test_project_issued_invoice_flags_over_issue(monkeypatch):
     assert '총액' in sb._fmt_issued_warn(s) and '대체 표시' in sb._fmt_issued_warn(s)
 
 
+def test_issued_warn_folds_covered_stages_into_full_preissue(monkeypatch):
+    """선발행 메모 금액이 이미 전액(앞 단계 포함)이면 앞 단계를 따로 나열하지 않음 (G4114-SJ)."""
+    rec = {'프로젝트 코드': 'G4114-SJ', '총액 1': 18000000, '총액 2': 19800000, '부가세': True,
+           '계약금': 4800000, '중도금': 10000000, '잔금': 0, '미수금': 5000000,
+           '계약금 계산서': '-', '중도금 계산서': '-', '잔금 계산서': '발행', '수금 확인': False,
+           '계산서_메모': '2026-09-16 잔금 선발행 19,800,000원 · 정일이앤씨 주식회사'}
+    import dashboard.services.project_service as ps
+    monkeypatch.setattr(ps, 'get_project_records', lambda: [rec])
+    s = sb._project_issued_invoice('G4114-SJ')
+    assert s['issued_gross'] == 19800000 and s['remaining_supply'] == 0
+    assert '잔금 19,800,000원(선발행, 계약금·중도금 포함)' in sb._fmt_issued_warn(s)
+    assert '계약금 4,800,000원' not in sb._fmt_issued_warn(s)
+
+
 def test_modal_replace_checkbox_and_submit_roundtrip(monkeypatch):
     """요청 모달: 기존 계산서 있으면 '대체할 기존 계산서' 체크박스(선택) → 제출 시 스냅샷으로 복원."""
     import json as _json

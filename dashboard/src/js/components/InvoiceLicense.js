@@ -71,6 +71,18 @@ export default class InvoiceLicense {
     this.refreshStatus(c);
   }
 
+  /** 이미 발행된 계산서 요약(슬랙 모달과 같은 서버 계산). 실패 시 null → 모달은 기존 동작. */
+  async _fetchIssued(code) {
+    try {
+      const resp = await fetch(`/api/invoice/issued/${encodeURIComponent(code)}`, { credentials: 'same-origin' });
+      const json = await resp.json().catch(() => ({}));
+      return (resp.ok && json.success !== false && json.data) ? json.data : null;
+    } catch (e) {
+      logger.debug('[InvoiceLicense] 이미발행 조회 실패:', e);
+      return null;
+    }
+  }
+
   async refreshStatus(code) {
     const c = String(code || '').trim();
     if (!c) return;
@@ -240,7 +252,7 @@ export default class InvoiceLicense {
   }
 
   // ─────────────────────── ③ 세금계산서 요청 ───────────────────────
-  openInvoiceModal(code) {
+  async openInvoiceModal(code) {
     const c = String(code || '').trim();
     const d = this._status[c] || {};
     if (d.required && !d.exists) {
@@ -248,6 +260,8 @@ export default class InvoiceLicense {
         '이 프로젝트는 세금계산서 발행 전에 사업자등록증이 필요합니다.\n먼저 [등록증 업로드]로 파일을 올려주세요.');
       return;
     }
+    // 이미 발행된 계산서 → 슬랙 모달과 동일하게 안내 + 발행 금액 '잔여 공급가' 프리필 (전액 재요청 방지)
+    const iss = await this._fetchIssued(c);
     const p = this._findProject(c) || {};
     // 시트 빈값 placeholder '-' 는 빈칸으로 (슬랙 _build_invoice_button_value 와 동일).
     const clean = (v) => { const s = String(v == null ? '' : v).trim(); return s === '-' ? '' : s; };
@@ -258,7 +272,9 @@ export default class InvoiceLicense {
     //  int(float()) 와 동일한 방어. 콤마 문자열·숫자·소수 문자열 모두 안전.)
     const amtNum = Number(String(p['총액 1'] ?? '').replace(/,/g, ''));
     const amtDigits = (Number.isFinite(amtNum) && amtNum > 0) ? String(Math.trunc(amtNum)) : '';
-    const amtDisp = amtDigits ? Number(amtDigits).toLocaleString('ko-KR') : '';
+    const remaining = iss && iss.remaining_supply != null ? Number(iss.remaining_supply) : null;
+    const amtDisp = remaining != null ? remaining.toLocaleString('ko-KR')
+      : (amtDigits ? Number(amtDigits).toLocaleString('ko-KR') : '');
     // 이메일: 서버가 해석한 값(거래처 탭 이메일 우선 > 발주처, 슬랙과 동일) → 없으면 발주처 fallback.
     const email = clean(d.email) || clean(p['발주처 이메일']);
     const vatRaw = String(p['부가세'] || '').trim();
@@ -284,8 +300,13 @@ export default class InvoiceLicense {
 
     // 수정발행 — 대체할 기존 계산서 (2026-10-01, 슬랙 모달과 동일). 장 금액이 기록된 현재 유효
     //   계산서만 후보. 체크한 장은 첨부 완료 시 메모에 '취소' 줄로 남아 현재 계산서에서 빠짐.
-    const active = activeInvoiceLines(p['계산서_메모']).filter((it) => it.amt > 0).slice(0, 10);
-    const over = overIssuedAmount(p);
+    //   후보는 서버 목록 우선(요청 시 서버 대조와 같은 기준), 조회 실패면 화면 데이터로 계산.
+    const active = iss ? (iss.active || [])
+      : activeInvoiceLines(p['계산서_메모']).filter((it) => it.amt > 0).slice(0, 10);
+    // 총액 초과 경고는 서버 안내 문구에 포함 → 서버 조회 실패 때만 화면에서 계산
+    const over = iss ? 0 : overIssuedAmount(p);
+    const issuedHtml = iss && iss.warn ? `
+      <div class="mb-2 small" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:0.5rem 0.65rem; white-space:pre-line;">${esc(iss.warn)}</div>` : '';
     const replaceHtml = active.length ? `
       <div class="mb-2"><label class="form-label">기존 발행 계산서 <span class="text-muted small">(수정발행 시 선택)</span></label>
         ${active.map((it, i) => `
@@ -302,6 +323,7 @@ export default class InvoiceLicense {
         <input id="ilBiz" type="text" class="form-control" value="${esc(biz)}" placeholder="예: (주)아이티글로벌"></div>
       <div class="mb-2"><label class="form-label">현장 주소</label>
         <input id="ilAddr" type="text" class="form-control" value="${esc(addr)}" placeholder="현장 주소"></div>
+      ${issuedHtml}
       ${replaceHtml}
       <div class="row">
         <div class="col mb-2"><label class="form-label">발행 금액 <span class="text-muted small">(원)</span></label>

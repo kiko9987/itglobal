@@ -97,6 +97,35 @@ def _vat_decided(code: str) -> bool:
         return True
 
 
+@invoice_bp.route('/issued/<code>', methods=['GET'])
+@login_required
+def api_invoice_issued(code):
+    """이미 발행된 계산서 요약 — PM 계산서 요청 모달용 (슬랙 모달과 같은 계산, 2026-10-01).
+
+    {has_issued, remaining_supply(잔여 공급가, 프리필 가능할 때만), warn(안내 문구, 평문),
+     active([{date, stage, kind, amt, biz}] 수정발행 대체 후보)}
+    """
+    code = (code or '').strip()
+    data = {'has_issued': False, 'remaining_supply': None, 'warn': '', 'active': []}
+    try:
+        from .slack_bot import _project_issued_invoice, _fmt_issued_warn
+        iss = _project_issued_invoice(code)
+        if iss:
+            data['active'] = (iss.get('active') or [])[:10]
+            if iss.get('issued_supply', 0) > 0 or iss.get('uncertain'):
+                data['has_issued'] = True
+                # 슬랙 mrkdwn → 평문 (이모지 shortcode·볼드 제거)
+                warn = _fmt_issued_warn(iss)
+                for sc, emo in ((':clipboard:', '📋'), (':warning:', '⚠️')):
+                    warn = warn.replace(sc, emo)
+                data['warn'] = warn.replace('*', '')
+                if iss.get('issued_supply', 0) > 0 and not iss.get('uncertain'):
+                    data['remaining_supply'] = int(iss['remaining_supply'])
+    except Exception as exc:
+        logger.warning(f'[INVOICE] 이미발행 조회 실패 ({code}): {exc}')
+    return APIResponse.success(data=data)
+
+
 # ─────────────────────────────────────────────────────────────
 # ② 사업자등록증 — 상태 / 업로드 / 열람
 # ─────────────────────────────────────────────────────────────
