@@ -271,10 +271,19 @@ export function billAmountLines(row, stage) {
   const lines = [];
   // 최근 발행이 여러 사업자로 나뉘었으면(고객 요청 사업자 분할) 시트 사업자명 대신 실제 발행 사업자들
   //   (G3991-YM: 시트 'SM CORPORATION' 인데 현재 계산서는 설린·SM 두 장, 2026-10-01).
+  //   거래처(인테리어 업체) 경유 공사는 시트 사업자명=거래처, 계산서=실제 발주처 → 둘 다 표시
+  //   (G4050-MJ: '오쿠드 (거래처 미공개스튜디오)'). 표기만 다른 같은 회사는 시트값 그대로.
   const issuedBiz = billIssuedBizNames(row, stage);
-  const biz = issuedBiz.length > 1
-    ? `${issuedBiz.join(' · ')} (분할 발행)`
-    : String((row && row['사업자명']) || '').trim();
+  const sheetBiz = String((row && row['사업자명']) || '').trim();
+  let biz = sheetBiz;
+  if (issuedBiz.length) {
+    const partner = sheetBiz && !issuedBiz.some((n) => sameBizName(n, sheetBiz)) ? sheetBiz : '';
+    if (issuedBiz.length > 1) {
+      biz = `${issuedBiz.join(' · ')} (분할 발행${partner ? ` · 거래처 ${partner}` : ''})`;
+    } else if (partner) {
+      biz = `${issuedBiz[0]} (거래처 ${partner})`;
+    }
+  }
   if (biz) lines.push(biz);
   const amtOf = (s) => parseFloat((row && row[s]) || 0);
   const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
@@ -389,6 +398,28 @@ export function billIssuedBizNames(row, stage) {
   if (!items.length) return [];
   const latest = items.reduce((a, t) => (t.date > a ? t.date : a), '');
   return [...new Set(items.filter((t) => t.date === latest).map((t) => t.name))];
+}
+
+/**
+ * 같은 회사인지 — 법인 표기((주)·주식회사·㈜·(재) 등)·공백·대소문자 무시, 포함 관계 또는 한 글자 차이까지 같음
+ * (G2894-YM 계산서 '엠제이디엔엠' ↔ 시트 '주식회사 엠제이디앤엠' 오탈자 표기).
+ */
+export function sameBizName(a, b) {
+  const norm = (s) => String(s || '').toLowerCase()
+    .replace(/주식회사|유한회사|재단법인|사단법인|\((?:주|유|재|사)\)|[㈜㈔]/g, '')
+    .replace(/[\s.,·()]/g, '');
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return true;   // 비교 불가 → 같은 것으로 (괜히 두 이름 표시 안 함)
+  if (x === y || x.includes(y) || y.includes(x)) return true;
+  if (Math.abs(x.length - y.length) > 1 || Math.min(x.length, y.length) < 4) return false;
+  // 편집거리 ≤ 1
+  let i = 0, j = 0, diff = 0;
+  while (i < x.length && j < y.length) {
+    if (x[i] === y[j]) { i++; j++; continue; }
+    if (++diff > 1) return false;
+    if (x.length > y.length) i++; else if (y.length > x.length) j++; else { i++; j++; }
+  }
+  return diff + (x.length - i) + (y.length - j) <= 1;
 }
 
 /** 계산서(발행) 툴팁 첫 줄 — 선발행이면 입금 대기 표시 */
