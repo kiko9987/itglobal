@@ -269,7 +269,12 @@ export function computeInvoicedAmount(row) {
  */
 export function billAmountLines(row, stage) {
   const lines = [];
-  const biz = String((row && row['사업자명']) || '').trim();
+  // 최근 발행이 여러 사업자로 나뉘었으면(고객 요청 사업자 분할) 시트 사업자명 대신 실제 발행 사업자들
+  //   (G3991-YM: 시트 'SM CORPORATION' 인데 현재 계산서는 설린·SM 두 장, 2026-10-01).
+  const issuedBiz = billIssuedBizNames(row, stage);
+  const biz = issuedBiz.length > 1
+    ? `${issuedBiz.join(' · ')} (분할 발행)`
+    : String((row && row['사업자명']) || '').trim();
   if (biz) lines.push(biz);
   const amtOf = (s) => parseFloat((row && row[s]) || 0);
   const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
@@ -363,6 +368,27 @@ export function preIssuedAmount(row, stage) {
   }
   const amts = memo.match(/[\d,]+\s*원/g) || [];
   return amts.length === 1 ? toNum(amts[0].replace(/원|\s/g, '')) : 0;
+}
+
+/**
+ * 그 단계 가장 최근 발행일의 발행 사업자들 — 계산서_메모 'YYYY-MM-DD {단계} 발행|선발행 X원 · 사업자명'
+ * (2026-10-01~ 자동기록·소급). 줄 끝 '(수정발행: …)' 같은 설명 괄호는 뺌. 사업자 없는 줄은 무시.
+ * @returns {string[]} 중복 제거, 메모 순서
+ */
+export function billIssuedBizNames(row, stage) {
+  const memo = String((row && row['계산서_메모']) || '');
+  if (!memo.trim()) return [];
+  const LINE = /^\s*(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+(계약금|중도금|잔금)\s*(?:선발행\s*[\d,]+\s*원|발행)\s*·\s*(.+)$/;
+  const items = [];
+  memo.split('\n').forEach((ln) => {
+    const m = LINE.exec(ln);
+    if (!m || m[4] !== stage) return;
+    const name = m[5].replace(/\s+\([^()]*:[^()]*\)\s*$/, '').trim();
+    if (name) items.push({ date: `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`, name });
+  });
+  if (!items.length) return [];
+  const latest = items.reduce((a, t) => (t.date > a ? t.date : a), '');
+  return [...new Set(items.filter((t) => t.date === latest).map((t) => t.name))];
 }
 
 /** 계산서(발행) 툴팁 첫 줄 — 선발행이면 입금 대기 표시 */
