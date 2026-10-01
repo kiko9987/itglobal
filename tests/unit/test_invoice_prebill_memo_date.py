@@ -59,7 +59,7 @@ class _FakeRedis:
         return True
 
 
-def _run(monkeypatch, fm, biz='', card_key='', amt='2620000', fake_redis=None):
+def _run(monkeypatch, fm, biz='', card_key='', amt='2620000', fake_redis=None, replace=None):
     monkeypatch.setenv('GOOGLE_SHEET_ID', 'SID')
     monkeypatch.setenv('GOOGLE_SHEET_NAME', '공사 현황')
     import dashboard.services.lead_service as ls
@@ -72,7 +72,7 @@ def _run(monkeypatch, fm, biz='', card_key='', amt='2620000', fake_redis=None):
         import dashboard.utils.redis_client as rcm
         monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': fake_redis})())
     sb._mark_invoice_issued_in_sheet('R4100-MS', '잔금', invoice_amt=amt, vat_val='sep',
-                                     biz=biz, card_key=card_key)
+                                     biz=biz, card_key=card_key, replace=replace)
 
 
 def test_prebill_memo_has_issue_date(monkeypatch):
@@ -139,6 +139,95 @@ def test_same_card_retrigger_writes_once(monkeypatch):
     first = fm.notes['Y10']
     _run(monkeypatch, fm, biz='오쿠드', card_key='C:9', fake_redis=fr)
     assert fm.notes['Y10'] == first
+
+
+G3991 = '\n'.join([
+    '2026-08-27 SM/설린 50:50 발행',
+    '2026-08-27 잔금 선발행 3,410,000원 · SM CORPORATION',
+    '2026-09-02 잔금 취소 -3,410,000원 · SM CORPORATION (수정발행)',
+    '2026-09-02 잔금 선발행 1,705,000원 · (주)설린 (수정발행: 고객 요청 사업자 분할)',
+    '2026-09-02 잔금 선발행 1,705,000원 · SM CORPORATION (수정발행: 고객 요청 사업자 분할)',
+])
+
+
+def test_active_lines_cancel_removes_replaced_invoice():
+    """수정발행 취소 줄 = 같은 단계·금액·사업자 장을 지움 → 현재 = 분할 두 장 (2026-10-01)."""
+    act = sb._active_invoice_lines(G3991)
+    assert [(a['biz'], a['amt']) for a in act] == [('(주)설린', 1705000), ('SM CORPORATION', 1705000)]
+    assert sb._pre_issued_amount(G3991, '잔금') == 3410000
+
+
+def test_split_on_different_days_sums():
+    """분할 두 장을 다른 날 처리해도 합산 (날짜 묶음 방식의 한계 해소)."""
+    memo = ('2026-10-02 잔금 선발행 1,000,000원 · A상사\n'
+            '2026-10-05 잔금 선발행 1,000,000원 · B상사')
+    assert sb._pre_issued_amount(memo, '잔금') == 2000000
+
+
+def test_cancel_without_match_is_ignored_and_all_cancelled_is_zero():
+    memo = '2026-10-02 잔금 선발행 1,000,000원 · A상사\n2026-10-03 잔금 취소 -999,000원 · A상사 (수정발행)'
+    assert sb._pre_issued_amount(memo, '잔금') == 1000000          # 금액 안 맞는 취소 → 무시
+    memo2 = '2026-10-02 잔금 선발행 1,000,000원 · A상사\n2026-10-03 잔금 취소 -1,000,000원 · A상사 (수정발행)'
+    assert sb._pre_issued_amount(memo2, '잔금') == 0                # 전부 취소 → 0 (폴백 X)
+
+
+def test_replace_writes_cancel_line_before_new_line(monkeypatch):
+    """수정발행 요청 첨부 완료 → 메모에 취소 줄 + 새 장 줄 (G3991 첫 분할 카드 흐름)."""
+    fm = _FakeManager()
+    fm.vals['AB10'] = '발행'
+    fm.notes['Y10'] = '2026-08-27 잔금 선발행 2,882,000원 · SM CORPORATION'
+    _run(monkeypatch, fm, biz='(주)설린', amt='1310000',
+         replace=[{'date': '2026-08-27', 'stage': '잔금', 'amt': 2882000, 'biz': 'SM CORPORATION'}])
+    today = f'{datetime.now():%Y-%m-%d}'
+    assert fm.notes['Y10'] == ('2026-08-27 잔금 선발행 2,882,000원 · SM CORPORATION\n'
+                               f'{today} 잔금 취소 -2,882,000원 · SM CORPORATION (수정발행)\n'
+                               f'{today} 잔금 선발행 1,441,000원 · (주)설린')
+    act = sb._active_invoice_lines(fm.notes['Y10'])
+    assert [(a['biz'], a['amt']) for a in act] == [('(주)설린', 1441000)]
+
+
+def test_project_issued_invoice_flags_over_issue(monkeypatch):
+    """대체 표시 없이 다시 발행 → 장 합계 > 총액2 → over_issued 경고."""
+    rec = {'프로젝트 코드': 'X1', '총액 1': 3100000, '총액 2': 3410000, '부가세': True,
+           '계약금': 0, '중도금': 0, '잔금': 0, '미수금': 3410000,
+           '계약금 계산서': '', '중도금 계산서': '', '잔금 계산서': '발행', '수금 확인': False,
+           '계산서_메모': ('2026-08-27 잔금 선발행 3,410,000원 · SM\n'
+                         '2026-09-02 잔금 선발행 1,705,000원 · 설린\n'
+                         '2026-09-02 잔금 선발행 1,705,000원 · SM')}
+    import dashboard.services.project_service as ps
+    monkeypatch.setattr(ps, 'get_project_records', lambda: [rec])
+    s = sb._project_issued_invoice('X1')
+    assert s['over_issued'] == 6820000 and len(s['active']) == 3
+    assert '총액' in sb._fmt_issued_warn(s) and '대체 표시' in sb._fmt_issued_warn(s)
+
+
+def test_modal_replace_checkbox_and_submit_roundtrip(monkeypatch):
+    """요청 모달: 기존 계산서 있으면 '대체할 기존 계산서' 체크박스(선택) → 제출 시 스냅샷으로 복원."""
+    import json as _json
+    active = sb._active_invoice_lines(G3991)
+    meta = _json.dumps({'code': 'G3991-YM', 'active': [[a['date'], a['stage'], int(a['amt']), a['biz']]
+                                                       for a in active]}, ensure_ascii=False)
+    view = sb._build_invoice_modal_view('G3991-YM', 'SM', '-', '0', '-', meta, active_invoices=active)
+    blk = next(b for b in view['blocks'] if b.get('block_id') == 'replace')
+    assert blk['optional'] is True and blk['element']['type'] == 'checkboxes'
+    assert [o['text']['text'] for o in blk['element']['options']] == [
+        '09-02 잔금 1,705,000원 · (주)설린', '09-02 잔금 1,705,000원 · SM CORPORATION']
+    # 모달 없을 때(기존 계산서 없음)는 블록 자체가 없음
+    assert not any(b.get('block_id') == 'replace'
+                   for b in sb._build_invoice_modal_view('X', 'A', '-', '0', '-', '{}')['blocks'])
+    captured = {}
+    monkeypatch.setattr(sb, 'post_invoice_request', lambda **k: captured.update(k))
+    monkeypatch.setattr(sb, '_slack_user_to_initial', lambda c, u: 'YM')
+    values = {'biz': {'value': {'value': '(주)설린'}}, 'addr': {'value': {'value': '-'}},
+              'amt': {'value': {'value': '1,550,000'}}, 'email': {'value': {'value': 'a@b.c'}},
+              'memo': {'value': {'value': ''}},
+              'vat': {'value': {'selected_option': {'value': 'sep'}}},
+              'stages': {'value': {'selected_option': {'value': '잔금'}}},
+              'replace': {'value': {'selected_options': [{'value': '1'}]}}}
+    sb._process_invoice_submission(None, {'user': {'id': 'U1'}},
+                                   {'private_metadata': meta, 'state': {'values': values}})
+    assert captured['replace'] == [{'date': '2026-09-02', 'stage': '잔금', 'amt': 1705000,
+                                    'biz': 'SM CORPORATION'}]
 
 
 def test_prebill_memo_not_duplicated_for_old_dateless_line(monkeypatch):

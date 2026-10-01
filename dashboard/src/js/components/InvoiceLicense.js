@@ -8,6 +8,7 @@
  * 백엔드 경로는 모두 '/api/invoice/...' (보안 미들웨어 CSRF 통과 위해 /api/ 접두사 필수).
  */
 import logger from '../utils/logger.js';
+import { activeInvoiceLines, overIssuedAmount } from '../utils/billStatus.js';
 
 function esc(v) {
   return String(v == null ? '' : v)
@@ -281,11 +282,27 @@ export default class InvoiceLicense {
       }),
     ).join('');
 
+    // 수정발행 — 대체할 기존 계산서 (2026-10-01, 슬랙 모달과 동일). 장 금액이 기록된 현재 유효
+    //   계산서만 후보. 체크한 장은 첨부 완료 시 메모에 '취소' 줄로 남아 현재 계산서에서 빠짐.
+    const active = activeInvoiceLines(p['계산서_메모']).filter((it) => it.amt > 0).slice(0, 10);
+    const over = overIssuedAmount(p);
+    const replaceHtml = active.length ? `
+      <div class="mb-2"><label class="form-label">수정발행 — 대체할 기존 계산서 <span class="text-muted small">(선택)</span></label>
+        ${active.map((it, i) => `
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="ilRep${i}" data-rep="${i}">
+            <label class="form-check-label small" for="ilRep${i}">${esc(`${it.date ? it.date.slice(5) : '날짜없음'} ${it.stage} ${it.amt.toLocaleString()}원${it.biz ? ` · ${it.biz}` : ''}`)}</label>
+          </div>`).join('')}
+        <div class="small text-muted mt-1">이번 계산서가 기존 계산서를 대신할 때만 체크하세요(취소분은 이력으로 남음). 추가 발행·사업자 분할의 추가 장이면 비워두세요.</div>
+        ${over ? `<div class="small mt-1" style="color:#d9480f;">⚠️ 발행 계산서 합계 ${over.toLocaleString()}원이 총액을 넘습니다 — 이전 수정발행의 대체 표시가 빠졌는지 확인하세요.</div>` : ''}
+      </div>` : '';
+
     const body = `
       <div class="mb-2"><label class="form-label">사업자명</label>
         <input id="ilBiz" type="text" class="form-control" value="${esc(biz)}" placeholder="예: (주)아이티글로벌"></div>
       <div class="mb-2"><label class="form-label">현장 주소</label>
         <input id="ilAddr" type="text" class="form-control" value="${esc(addr)}" placeholder="현장 주소"></div>
+      ${replaceHtml}
       <div class="row">
         <div class="col mb-2"><label class="form-label">발행 금액 <span class="text-muted small">(원)</span></label>
           <input id="ilAmt" type="text" inputmode="numeric" class="form-control" value="${esc(amtDisp)}" placeholder="예: 9,600,000"></div>
@@ -301,7 +318,7 @@ export default class InvoiceLicense {
         <select id="ilStage" class="form-select">${stageOptions}</select>
         <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>
       <div class="mb-1"><label class="form-label">요청사항 <span class="text-muted small">(선택)</span></label>
-        <textarea id="ilMemo" class="form-control" rows="2" placeholder="수정발행·특이사항 등"></textarea></div>
+        <textarea id="ilMemo" class="form-control" rows="2" placeholder="청구/영수 발행·특이사항 등"></textarea></div>
     `;
 
     this._showModal(`세금계산서 발행 요청 — ${c}`, body, async (el) => {
@@ -317,6 +334,8 @@ export default class InvoiceLicense {
         email: (el.querySelector('#ilEmail').value || '').trim(),
         memo: (el.querySelector('#ilMemo').value || '').trim(),
         stages: stage,
+        replace: [...el.querySelectorAll('input[data-rep]:checked')]
+          .map((cb) => active[Number(cb.dataset.rep)]).filter(Boolean),
       };
       const err = await this._postRaw('/api/invoice/request', payload);
       if (!err.ok) return err.message;

@@ -3443,7 +3443,7 @@ def _register_invoice_handlers(app):
                     _mark_invoice_issued_in_sheet(
                         meta.get('code'), meta.get('stages'), meta.get('amt'),
                         vat_val=meta.get('vat', 'sep'), biz=meta.get('biz', ''),
-                        card_key=f'{channel}:{thread_ts}')
+                        card_key=f'{channel}:{thread_ts}', replace=meta.get('replace') or [])
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -12760,7 +12760,7 @@ def _build_invoice_stage_block(code):
 
 
 def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep', biz='',
-                                  card_key=''):
+                                  card_key='', replace=None):
     """계산서 첨부 완료 → 선택 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
 
     입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
@@ -12910,10 +12910,28 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                 _old_dateless = any(ln.strip() == _core.split(' · ')[0] for ln in _note.split('\n'))
                 # 중복 = 날짜·단계·금액·사업자까지 같은 줄만 (같은 날 사업자 분할 두 장은 둘 다 남김)
                 _line = f"{_today} {_core}"
-                if _card_new and not _old_dateless and _line not in _note:
-                    _new_note = f"{_note}\n{_line}".strip() if _note.strip() else _line
+                # 수정발행: 대체한 기존 계산서를 '취소' 줄로 먼저 (홈택스 수정세금계산서 대칭, 2026-10-01).
+                #   읽는 쪽(_active_invoice_lines / activeInvoiceLines)이 같은 단계·금액·사업자 장을 지움.
+                _cancel = []
+                for _r in (replace or []):
+                    try:
+                        _ra = int(round(_bill_to_num(_r.get('amt'))))
+                        if _r.get('stage') not in _BILL_STAGES or _ra <= 0:
+                            continue
+                        _rb = str(_r.get('biz') or '').strip()
+                        _cl = (f"{_today} {_r['stage']} 취소 -{_ra:,}원"
+                               + (f" · {_rb}" if _rb else '') + " (수정발행)")
+                        if _cl not in _note:
+                            _cancel.append(_cl)
+                    except Exception:
+                        continue
+                _add = list(_cancel)
+                if not _old_dateless and _line not in _note:
+                    _add.append(_line)
+                if _card_new and _add:
+                    _new_note = '\n'.join([_note.strip()] + _add) if _note.strip() else '\n'.join(_add)
                     manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
-                    logger.info(f"[SLACK/계산서] 발행일 메모 기록 ({code}): {_line}")
+                    logger.info(f"[SLACK/계산서] 발행일 메모 기록 ({code}): {' | '.join(_add)}")
             except Exception as _me:
                 logger.warning(f"[SLACK/계산서] 발행일 메모 기록 실패 ({code}): {_me}")
         # 프로젝트 데이터 캐시 무효화 (Z/AA/AB·Y 변경 반영)
@@ -12938,31 +12956,92 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
         logger.error(f"[SLACK/계산서] 시트 자동기록 실패 ({code}): {exc}", exc_info=True)
 
 
+_INV_LINE_RE = re.compile(
+    r'^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?(계약금|중도금|잔금)\s*(선발행|발행|취소)'
+    r'\s*(?:(-?[\d,]+)\s*원)?\s*(?:·\s*(.+))?$')
+
+
+def _norm_biz_name(s) -> str:
+    """사업자명 비교용 정규화 — billStatus.js normBizName 미러 (법인 표기·공백·구두점 무시)."""
+    s = str(s or '').lower()
+    s = re.sub(r'주식회사|유한회사|재단법인|사단법인|\((?:주|유|재|사)\)|[㈜㈔]', '', s)
+    return re.sub(r'[\s.,·()]', '', s)
+
+
+def _same_biz_name(a, b) -> bool:
+    """같은 회사인지 — billStatus.js sameBizName 미러 (포함 관계·한 글자 차이까지 같음)."""
+    x, y = _norm_biz_name(a), _norm_biz_name(b)
+    if not x or not y:
+        return True
+    if x == y or x in y or y in x:
+        return True
+    if abs(len(x) - len(y)) > 1 or min(len(x), len(y)) < 4:
+        return False
+    i = j = diff = 0
+    while i < len(x) and j < len(y):
+        if x[i] == y[j]:
+            i += 1; j += 1; continue
+        diff += 1
+        if diff > 1:
+            return False
+        if len(x) > len(y):
+            i += 1
+        elif len(y) > len(x):
+            j += 1
+        else:
+            i += 1; j += 1
+    return diff + (len(x) - i) + (len(y) - j) <= 1
+
+
+def _invoice_line_biz(raw) -> str:
+    """메모 줄 '· 사업자명' 꼬리의 설명 괄호('(수정발행)', '(수정발행: …)', '(…: …)') 제거."""
+    return re.sub(r'\s*\((?:수정발행[^()]*|[^()]*:[^()]*)\)\s*$', '', str(raw or '')).strip()
+
+
+def _active_invoice_lines(memo: str) -> list:
+    """계산서_메모의 '현재 유효한 계산서' 줄들 — billStatus.js activeInvoiceLines 미러 (2026-10-01).
+
+    한 줄 = 한 장: 'YYYY-MM-DD {단계} 발행|선발행 X원 · 사업자명'. 수정발행은 홈택스 수정세금계산서처럼
+    'YYYY-MM-DD {단계} 취소 -X원 · 사업자명 (수정발행)' 줄로 원래 장을 지움(같은 단계·금액·사업자 중
+    앞쪽 첫 장). 날짜와 무관하게 취소 안 된 줄 전부 = 현재 계산서 → 날을 달리한 분할 발행도 합산.
+    Returns: [{'date','stage','kind','amt','biz'}] 메모 순서.
+    """
+    items = []
+    for ln in str(memo or '').split('\n'):
+        m = _INV_LINE_RE.match(ln)
+        if not m:
+            continue
+        date = (f'{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}' if m.group(1) else '')
+        amt = abs(_bill_to_num(m.group(6))) if m.group(6) else 0
+        biz = _invoice_line_biz(m.group(7))
+        if m.group(5) == '취소':
+            for it in items:
+                if (not it['cancelled'] and it['stage'] == m.group(4) and amt > 0
+                        and abs(it['amt'] - amt) <= 1 and (not biz or _same_biz_name(it['biz'], biz))):
+                    it['cancelled'] = True
+                    break
+            continue
+        items.append({'date': date, 'stage': m.group(4), 'kind': m.group(5), 'amt': amt,
+                      'biz': biz, 'cancelled': False})
+    return [{k: v for k, v in it.items() if k != 'cancelled'} for it in items if not it['cancelled']]
+
+
 def _pre_issued_amount(memo: str, stage: str) -> float:
     """입금 0 단계의 세금계산서 발행액(VAT 포함) — billStatus.js preIssuedAmount 미러.
 
     ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명'(계산서 첨부 자동기록, 한 줄=한 장)
-       중 그 단계 가장 최근 날짜 줄들의 합 (사업자 분할 발행 합산, 앞 날짜는 수정발행 전 이력)
-    ② 메모의 'X원' 이 정확히 하나 (단계 표시 줄 'YYYY-MM-DD {단계} 발행 X원' 제외 — 일반 발행 장 금액)
+       중 **취소(수정발행) 안 된 줄들의 합** (사업자 분할 발행 합산, 취소된 장은 이력).
+       그 단계 선발행 줄이 있었는데 전부 취소됐으면 0.
+    ② 메모의 'X원' 이 정확히 하나 (단계 표시 줄 '{단계} 발행|선발행|취소 X원' 제외 — 장 금액)
     ③ 없거나 여럿 → 0 (어느 단계 금액인지 모호)
     """
     memo = memo or ''
-    tag_re = re.compile(r'^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?'
-                        r'(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원')
-    tagged = []
-    for ln in memo.split('\n'):
-        m = tag_re.match(ln)
-        if not m or m.group(4) != stage:
-            continue
-        date = f'{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}' if m.group(1) else ''
-        tagged.append((date, _bill_to_num(m.group(5))))
-    if tagged:
-        # 한 줄 = 한 장. 가장 최근 날짜 줄들의 합 = 현재 발행액(앞 날짜 = 수정발행 전 이력)
-        latest = max(d for d, _ in tagged)
-        if not latest:
-            return tagged[-1][1]
-        return sum(a for d, a in tagged if d == latest)
-    stage_line = re.compile(r'^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*선?발행')
+    had_tag = any((m := _INV_LINE_RE.match(ln)) and m.group(4) == stage and m.group(5) == '선발행'
+                  and m.group(6) for ln in memo.split('\n'))
+    if had_tag:
+        return sum(it['amt'] for it in _active_invoice_lines(memo)
+                   if it['stage'] == stage and it['kind'] == '선발행')
+    stage_line = re.compile(r'^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*(?:선?발행|취소)')
     rest = '\n'.join(ln for ln in memo.split('\n') if not stage_line.match(ln))
     found = re.findall(r'[\d,]+\s*원', rest)
     return _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
@@ -13039,6 +13118,9 @@ def _project_issued_invoice(code):
     ratio = (total1 / total2) if (total1 > 0 and total2 > 0) else (1.0 / 1.1 if vat_sep else 1.0)
     issued_supply = round(issued_gross * ratio)
     remaining_supply = max(0, round(total1 - issued_supply))
+    # 현재 유효한 계산서(장 금액 기록된 것) — 요청 모달 '수정발행 대체 선택' 목록 (2026-10-01)
+    active = [it for it in _active_invoice_lines(memo) if it['amt'] > 0]
+    active_sum = sum(it['amt'] for it in active)
     return {
         'total_supply': int(round(total1)),
         'issued_gross': int(round(issued_gross)),
@@ -13046,6 +13128,10 @@ def _project_issued_invoice(code):
         'remaining_supply': int(remaining_supply),
         'lines': lines,
         'uncertain': uncertain,
+        'active': active,
+        # 발행 장 합계가 총액2 초과 = 수정발행(대체) 표시 누락 의심 → 경고 (조용히 틀린 값 대신)
+        'over_issued': int(round(active_sum)) if total2 > 0 and active_sum > total2 + 1 else 0,
+        'total2': int(round(total2)),
     }
 
 
@@ -13074,11 +13160,21 @@ def _fmt_issued_warn(summary) -> str:
             f":warning: *이미 발행 이력 있음* — {detail}\n"
             f"일부 발행 금액이 확인되지 않아 잔여를 자동 계산하지 못했습니다. 발행 금액을 직접 확인·입력하세요."
         )
+    if summary.get('over_issued'):
+        txt += (f"\n:warning: 발행 계산서 합계 {summary['over_issued']:,}원이 총액 {summary['total2']:,}원을 "
+                f"넘습니다 — 이전 수정발행의 대체 표시가 빠졌는지 확인하세요.")
     return txt
 
 
+def _invoice_active_option_text(it) -> str:
+    """수정발행 대체 선택 체크박스 라벨 — '09-02 잔금 1,705,000원 · 사업자' (슬랙 75자 제한)."""
+    d = (it.get('date') or '')[5:] or '날짜없음'
+    t = f"{d} {it['stage']} {int(round(it['amt'])):,}원" + (f" · {it['biz']}" if it.get('biz') else '')
+    return t if len(t) <= 75 else t[:74] + '…'
+
+
 def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='', issued_warn='',
-                              total_amt=None) -> dict:
+                              total_amt=None, active_invoices=None) -> dict:
     """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28).
 
     partner_warn: 폐업/휴업 경고 문구. 있으면 헤더 바로 아래 section 으로 표시.
@@ -13086,6 +13182,9 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     amt: '계산서 발행 금액' 입력 기본값(잔여 프리필 등). total_amt: '공사 금액(시트 원본)'
          section 표시용 원본 총액(없으면 amt 사용). 잔여 프리필 시 둘을 분리해야 원본 총액이
          잔여로 잘못 보이지 않음.
+    active_invoices: 현재 유효한 기존 계산서(_active_invoice_lines, 금액 있는 것). 있으면
+         '수정발행 — 대체할 기존 계산서' 체크박스(선택 사항) 표시. 옵션 value = 목록 인덱스
+         (목록 스냅샷은 private_metadata 'active').
     """
     addr = addr or '-'
     amt = amt or '-'
@@ -13124,6 +13223,21 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     if issued_warn:
         # 이미 발행된 계산서 안내 — 발행 금액 입력 바로 위 (요청 전 인지)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": issued_warn}})
+    if active_invoices:
+        # 수정발행 = 기존 계산서를 대체 (2026-10-01). 체크한 장은 첨부 완료 시 메모에 '취소' 줄로
+        #   남아 현재 계산서에서 빠짐. 비워두면 추가 발행(분할 포함)으로 합산.
+        blocks.append({
+            "type": "input", "block_id": "replace", "optional": True,
+            "label": {"type": "plain_text", "text": "수정발행 — 대체할 기존 계산서"},
+            "hint": {"type": "plain_text",
+                     "text": "이번 계산서가 기존 계산서를 대신할 때만 체크하세요(취소분은 이력으로 남음). "
+                             "추가 발행·사업자 분할의 추가 장이면 비워두세요."},
+            "element": {
+                "type": "checkboxes", "action_id": "value",
+                "options": [{"text": {"type": "plain_text", "text": _invoice_active_option_text(it)},
+                             "value": str(i)} for i, it in enumerate(active_invoices[:10])],
+            },
+        })
     blocks += [
         _text_input("amt", "계산서 발행 금액", amt),
         {
@@ -13204,6 +13318,7 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
     # 이미 발행된 계산서 → 발행 금액 입력을 '잔여(공급가)'로 프리필 (전액 재요청 방지)
     amt_input = total_amt
     issued_warn = ''
+    active = []
     try:
         _iss = _project_issued_invoice(code)
         if _iss and (_iss.get('issued_supply', 0) > 0 or _iss.get('uncertain')):
@@ -13211,14 +13326,18 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
             # 금액 전부 확인된 경우만 잔여 프리필. 미상 있으면 부정확한 잔여 대신 총액 유지(경고만).
             if _iss.get('issued_supply', 0) > 0 and not _iss.get('uncertain'):
                 amt_input = f"{_iss['remaining_supply']:,}"
+        active = ((_iss or {}).get('active') or [])[:10]
     except Exception as _exc:
         logger.debug(f'[SLACK/계산서] 이미발행 계산 실패 ({code}): {_exc}')
 
     partner_warn = _partner_status_warn(biz)
-    metadata = json.dumps({"code": code}, ensure_ascii=False)
+    # 수정발행 대체 후보 스냅샷 — 제출 시 체크박스 인덱스로 복원 (사업자명 60자 컷: metadata 3000자 제한)
+    metadata = json.dumps({"code": code, "active": [
+        [it['date'], it['stage'], int(round(it['amt'])), (it['biz'] or '')[:60]] for it in active]},
+        ensure_ascii=False)
     view = _build_invoice_modal_view(code, biz, addr, amt_input, email, metadata,
                                      partner_warn=partner_warn, issued_warn=issued_warn,
-                                     total_amt=total_amt)
+                                     total_amt=total_amt, active_invoices=active)
     try:
         client.views_update(view_id=view_id, view=view)
         logger.info(
@@ -13447,13 +13566,23 @@ def _process_invoice_submission(client, body, view) -> None:
     _stage_state = (values.get('stages', {}).get('value', {}) or {}).get('selected_option') or {}
     stages = _stage_state.get('value', '') or ''
 
+    # 수정발행 — 대체할 기존 계산서(체크박스 인덱스 → 모달 열 때 스냅샷) (2026-10-01)
+    replace = []
+    _active_snap = metadata.get('active') or []
+    for _o in ((values.get('replace', {}).get('value', {}) or {}).get('selected_options') or []):
+        try:
+            _d, _s, _a, _b = _active_snap[int(_o.get('value'))]
+            replace.append({'date': _d, 'stage': _s, 'amt': int(_a), 'biz': _b})
+        except Exception:
+            continue
+
     user_id = body.get("user", {}).get("id", "")
     initial = _slack_user_to_initial(client, user_id) or '-'
 
     post_invoice_request(
         code=code, biz=biz, addr=addr, amt_digits=amt_digits, vat_val=vat_val,
         email=email, memo=memo, requester_initial=initial, stages=stages,
-        dedup_check=False, fallback_client=client,
+        dedup_check=False, fallback_client=client, replace=replace,
     )
 
 
@@ -13498,7 +13627,7 @@ def _post_partner_info_reply(client, channel, ts, code, biz, req_email='') -> No
 
 def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                          requester_initial='-', *, stages='', dedup_check=True,
-                         fallback_client=None) -> dict:
+                         fallback_client=None, replace=None) -> dict:
     """세금계산서 발행 요청 카드를 #계산서_관리 채널에 발송 (슬랙·PM 공용 코어, 2026-09-01).
 
     슬랙 모달(_process_invoice_submission)·PM 엔드포인트(invoice_mgmt) 양쪽에서 호출.
@@ -13509,8 +13638,13 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     fallback_client: invoice_bot 초기화 실패 시 카드 발송에 쓸 대체 슬랙 client (슬랙 경로용).
     stages: 계산서 발행 단계 CSV(예 '계약금,잔금'). 첨부 완료 시 시트 해당 단계
             계산서 열을 '발행'으로 자동기록하는 데 사용(2026-09-07 루프 닫기).
+    replace: 수정발행으로 대체할 기존 계산서 [{date, stage, amt, biz}] (2026-10-01). 카드에
+            '🔁 수정발행' 줄로 표시(경영지원이 홈택스 수정세금계산서 처리) + 첨부 완료 시
+            계산서_메모에 '취소' 줄 기록.
     Returns: {'ok': bool, 'reason': str, 'ts'?, 'channel'?, 'thread_url'?}
     """
+    replace = [r for r in (replace or [])
+               if isinstance(r, dict) and r.get('stage') in _BILL_STAGES and _bill_to_num(r.get('amt')) > 0]
     # 단계 정규화 — 계약금/중도금/잔금만 허용, 순서 고정
     stages_list = [s for s in ('계약금', '중도금', '잔금')
                    if s in {x.strip() for x in str(stages or '').split(',')}]
@@ -13566,6 +13700,8 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     ]
     if stages_csv:
         lines.append(f"📑 발행 단계 : {stages_list[-1]}")
+    for _r in replace:
+        lines.append(f"🔁 수정발행 : 기존 계산서 대체 — {_invoice_active_option_text(_r)}")
     if memo:
         lines.append(f"📝 요청사항 : {memo}")
     lines.append(f"👤 요청자 : {initial}  {now_str}")
@@ -13641,7 +13777,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             json.dumps({
                 'code': code, 'biz': biz, 'amt': amt_digits, 'vat': vat_val,
                 'email': email, 'thread_url': thread_url, 'orig_text': text,
-                'stages': stages_csv,
+                'stages': stages_csv, 'replace': replace,
             }, ensure_ascii=False),
         )
     except Exception as red_exc:

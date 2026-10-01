@@ -291,7 +291,8 @@ def api_license_delete():
 @invoice_bp.route('/request', methods=['POST'])
 @editor_required
 def api_invoice_request():
-    """세금계산서 발행 요청. body: {code, biz, addr, amt, vat(sep/incl), email, memo}.
+    """세금계산서 발행 요청. body: {code, biz, addr, amt, vat(sep/incl), email, memo, stages,
+    replace?: [{date, stage, amt, biz}] (수정발행 대체 대상)}.
 
     게이트: 등록증 필요한데 없으면 409(LICENSE_REQUIRED) → 프론트가 업로드 유도.
             부가세 미결정이면 409(VAT_UNDECIDED). 통과 시 슬랙 카드 발송(post_invoice_request).
@@ -340,12 +341,32 @@ def api_invoice_request():
     amt_digits = ''.join(ch for ch in amt if ch.isdigit())
     initial = _current_initial()
 
+    # 수정발행 — 대체할 기존 계산서 (2026-10-01). 클라이언트 값은 서버의 현재 유효 계산서 목록과
+    #   대조해 일치하는 것만 사용 (임의 값으로 메모에 취소 줄이 생기지 않게).
+    replace = []
+    _req_replace = data.get('replace') or []
+    if isinstance(_req_replace, list) and _req_replace:
+        try:
+            from .slack_bot import _project_issued_invoice
+            _active = (_project_issued_invoice(code) or {}).get('active') or []
+            for r in _req_replace:
+                if not isinstance(r, dict):
+                    continue
+                hit = next((it for it in _active
+                            if it['stage'] == r.get('stage') and abs(it['amt'] - float(r.get('amt') or 0)) <= 1
+                            and (it.get('biz') or '') == (r.get('biz') or '')
+                            and (it.get('date') or '') == (r.get('date') or '')), None)
+                if hit and hit not in replace:
+                    replace.append(hit)
+        except Exception as exc:
+            logger.warning(f'[INVOICE] 수정발행 대상 확인 실패 ({code}): {exc}')
+
     try:
         from .slack_bot import post_invoice_request
         res = post_invoice_request(
             code=code, biz=biz or '-', addr=addr or '-', amt_digits=amt_digits,
             vat_val=vat, email=email or '-', memo=memo, requester_initial=initial,
-            stages=stages, dedup_check=True,
+            stages=stages, dedup_check=True, replace=replace,
         )
     except Exception as exc:
         logger.error(f'[INVOICE] 계산서 요청 발송 실패 ({code}): {exc}', exc_info=True)

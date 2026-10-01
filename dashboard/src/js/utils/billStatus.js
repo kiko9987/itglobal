@@ -266,8 +266,19 @@ export function computeInvoicedAmount(row) {
  * 실제 발행액 = 이 발행이 커버하는 금액. 통합발행이면 바로 앞의 연속된 '-'(covered)
  * 단계 금액까지 합산(예: 잔금 통합발행이 계약금·중도금 포함 → 총액).
  * 테이블(ProjectTable) 과 아코디언(ProjectRowAccordion) 공용 — 툴팁 파리티. @returns {string[]}
+ * 발행 계산서 합계가 총액을 넘으면 마지막에 경고 줄 (수정발행 대체 표시 누락 의심, 2026-10-01).
  */
 export function billAmountLines(row, stage) {
+  const lines = billAmountLinesCore(row, stage);
+  const over = overIssuedAmount(row);
+  if (over) {
+    lines.push(`⚠️ 발행 합계 ${over.toLocaleString()}원이 총액 ${toNum(row['총액 2']).toLocaleString()}원 초과`
+      + ' — 수정발행 대체 표시 확인');
+  }
+  return lines;
+}
+
+function billAmountLinesCore(row, stage) {
   const lines = [];
   // 최근 발행이 여러 사업자로 나뉘었으면(고객 요청 사업자 분할) 시트 사업자명 대신 실제 발행 사업자들
   //   (G3991-YM: 시트 'SM CORPORATION' 인데 현재 계산서는 설린·SM 두 장, 2026-10-01).
@@ -367,66 +378,89 @@ export function isPreIssued(row, stage) {
     && !isFullyCollected(row);
 }
 
+const INV_LINE = /^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?(계약금|중도금|잔금)\s*(선발행|발행|취소)\s*(?:(-?[\d,]+)\s*원)?\s*(?:·\s*(.+))?$/;
+
+// 메모 줄 '· 사업자명' 꼬리의 설명 괄호('(수정발행)', '(수정발행: …)', '(…: …)') 제거
+const invoiceLineBiz = (raw) => String(raw || '')
+  .replace(/\s*\((?:수정발행[^()]*|[^()]*:[^()]*)\)\s*$/, '').trim();
+
+/**
+ * 계산서_메모의 '현재 유효한 계산서' 줄들 (2026-10-01, slack_bot._active_invoice_lines 미러).
+ * 한 줄 = 한 장: 'YYYY-MM-DD {단계} 발행|선발행 X원 · 사업자명'. 수정발행은 홈택스 수정세금계산서처럼
+ * 'YYYY-MM-DD {단계} 취소 -X원 · 사업자명 (수정발행)' 줄로 원래 장을 지움(같은 단계·금액·사업자 중 앞쪽 첫 장).
+ * 날짜와 무관하게 취소 안 된 줄 전부 = 현재 계산서 → 날을 달리한 분할 발행도 합산.
+ * @returns {{date: string, stage: string, kind: string, amt: number, biz: string}[]} 메모 순서
+ */
+export function activeInvoiceLines(memo) {
+  const items = [];
+  String(memo || '').split('\n').forEach((ln) => {
+    const m = INV_LINE.exec(ln);
+    if (!m) return;
+    const date = m[1] ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
+    const amt = m[6] ? Math.abs(toNum(m[6])) : 0;
+    const biz = invoiceLineBiz(m[7]);
+    if (m[5] === '취소') {
+      const hit = items.find((it) => !it.cancelled && it.stage === m[4] && amt > 0
+        && Math.abs(it.amt - amt) <= 1 && (!biz || sameBizName(it.biz, biz)));
+      if (hit) hit.cancelled = true;
+      return;
+    }
+    items.push({ date, stage: m[4], kind: m[5], amt, biz, cancelled: false });
+  });
+  return items.filter((it) => !it.cancelled).map(({ cancelled, ...it }) => it);
+}
+
 /**
  * 입금 0 단계의 세금계산서 발행액(VAT 포함, 원). 출처 = 계산서_메모(Y 노트):
  *   ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명' (계산서 첨부 자동기록, 한 줄 = 한 장)
- *      → 그 단계의 **가장 최근 날짜 줄들의 합** = 현재 발행액. 앞 날짜 줄은 수정발행 전 이력으로 보존.
- *      (G3991-YM: 08-27 310만 한 장 → 09-02 고객 요청 사업자 분할 155만+155만 = 310만)
+ *      → 그 단계의 **취소(수정발행) 안 된 줄들의 합** = 현재 발행액. 취소된 장은 이력.
+ *      (G3991-YM: 08-27 341만 → 09-02 취소 + 고객 요청 사업자 분할 170.5만+170.5만 = 341만)
+ *      그 단계 선발행 줄이 있었는데 전부 취소됐으면 0.
  *   ② 단계 표시 줄이 없으면 메모의 'X원' 이 정확히 하나 (SB 수기 메모 등, 단계 표시 줄은 제외)
  *   ③ 없거나 여럿이면 0 (어느 단계 금액인지 모호 → 오표기 방지)
  */
 export function preIssuedAmount(row, stage) {
   const memo = String((row && row['계산서_메모']) || '');
   if (!memo.trim()) return 0;
-  const TAG = /^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원/;
-  const tagged = [];
-  memo.split('\n').forEach((ln, i) => {
-    const m = TAG.exec(ln);
-    if (!m || m[4] !== stage) return;
-    const date = m[1] ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
-    tagged.push({ date, amt: toNum(m[5]), i });
+  const hadTag = memo.split('\n').some((ln) => {
+    const m = INV_LINE.exec(ln);
+    return m && m[4] === stage && m[5] === '선발행' && m[6];
   });
-  if (tagged.length) {
-    const latest = tagged.reduce((a, t) => (t.date > a ? t.date : a), '');
-    // 날짜 없는 옛 형식만 있으면 마지막 줄 하나
-    if (!latest) return tagged[tagged.length - 1].amt;
-    return tagged.filter((t) => t.date === latest).reduce((a, t) => a + t.amt, 0);
+  if (hadTag) {
+    return activeInvoiceLines(memo).filter((it) => it.stage === stage && it.kind === '선발행')
+      .reduce((a, it) => a + it.amt, 0);
   }
-  // 단계 표시 줄('YYYY-MM-DD 잔금 발행 X원 · …' = 일반 발행 장 금액, 2026-10-01~)은 폴백에서 제외
-  const STAGE_LINE = /^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*선?발행/;
+  // 단계 표시 줄('YYYY-MM-DD 잔금 발행|취소 X원 · …' = 장 금액, 2026-10-01~)은 폴백에서 제외
+  const STAGE_LINE = /^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*(?:선?발행|취소)/;
   const rest = memo.split('\n').filter((ln) => !STAGE_LINE.test(ln)).join('\n');
   const amts = rest.match(/[\d,]+\s*원/g) || [];
   return amts.length === 1 ? toNum(amts[0].replace(/원|\s/g, '')) : 0;
 }
 
 /**
- * 그 단계 가장 최근 발행일의 발행 사업자별 금액 — 계산서_메모 'YYYY-MM-DD {단계} 발행|선발행 X원 · 사업자명'
- * (2026-10-01~ 자동기록·소급). 줄 끝 '(수정발행: …)' 같은 설명 괄호는 뺌. 사업자 없는 줄은 무시.
- * 같은 사업자 여러 줄은 금액 합산. 금액 없는 일반 '발행' 줄은 amt 0.
+ * 그 단계의 현재 유효한 계산서 사업자별 금액 (activeInvoiceLines 중 사업자 있는 줄).
+ * 같은 사업자 여러 장은 금액 합산. 금액 없는 옛 '발행' 줄은 amt 0.
  * @returns {{name: string, amt: number}[]} 메모 순서
  */
 export function billIssuedParts(row, stage) {
-  const memo = String((row && row['계산서_메모']) || '');
-  if (!memo.trim()) return [];
-  const LINE = /^\s*(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+(계약금|중도금|잔금)\s*선?발행\s*(?:([\d,]+)\s*원)?\s*·\s*(.+)$/;
-  const items = [];
-  memo.split('\n').forEach((ln) => {
-    const m = LINE.exec(ln);
-    if (!m || m[4] !== stage) return;
-    const name = m[6].replace(/\s+\([^()]*:[^()]*\)\s*$/, '').trim();
-    if (name) {
-      items.push({ date: `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`,
-        name, amt: m[5] ? toNum(m[5]) : 0 });
-    }
-  });
-  if (!items.length) return [];
-  const latest = items.reduce((a, t) => (t.date > a ? t.date : a), '');
   const parts = [];
-  items.filter((t) => t.date === latest).forEach((t) => {
-    const p = parts.find((x) => x.name === t.name);
-    if (p) p.amt += t.amt; else parts.push({ name: t.name, amt: t.amt });
+  activeInvoiceLines(row && row['계산서_메모']).forEach((it) => {
+    if (it.stage !== stage || !it.biz) return;
+    const p = parts.find((x) => x.name === it.biz);
+    if (p) p.amt += it.amt; else parts.push({ name: it.biz, amt: it.amt });
   });
   return parts;
+}
+
+/**
+ * 발행 계산서 합계가 총액2 를 넘으면 그 합계(원), 아니면 0 — 수정발행 '대체' 표시 누락 의심.
+ * (선발행 줄은 covered 를 뺀 순수분이라 합계가 실제보다 작거나 같음 → 오경보 없음)
+ */
+export function overIssuedAmount(row) {
+  const total2 = toNum(row && row['총액 2']);
+  if (!(total2 > 0)) return 0;
+  const sum = activeInvoiceLines(row && row['계산서_메모']).reduce((a, it) => a + it.amt, 0);
+  return sum > total2 + 1 ? sum : 0;
 }
 
 /**
