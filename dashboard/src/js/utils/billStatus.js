@@ -304,7 +304,7 @@ export function billAmountLines(row, stage) {
     const showPaid = parts.every((p) => p.amt > 0) && paid.some(Boolean) && Math.abs(paidSum - gross) <= 1;
     lines.push(`분할 발행 ${parts.length}장${partner ? ` (거래처 ${partner})` : ''}`);
     parts.forEach((p, i) => lines.push(`· ${p.name}${p.amt > 0 ? ` ${p.amt.toLocaleString()}원` : ''}`
-      + (showPaid ? (paid[i] ? ' — 입금' : ' — 입금 대기') : '')));
+      + (showPaid ? (paid[i] ? ' — 입금 완료' : ' — 입금 대기') : '')));
   } else if (partner) {
     lines.push(`${parts[0].name} (거래처 ${partner})`);
   } else if (sheetBiz) {
