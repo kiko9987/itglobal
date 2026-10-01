@@ -13227,7 +13227,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
         blocks.append({
             "type": "input", "block_id": "replace", "optional": True,
             "label": {"type": "plain_text", "text": "기존 발행 계산서 (수정발행 시 선택)"},
-            "hint": {"type": "plain_text", "text": "· 기존 계산서 수정발행이 필요한 경우에만 체크"},
+            "hint": {"type": "plain_text", "text": "🔁 기존 계산서 수정발행이 필요한 경우에만 체크"},
             "element": {
                 "type": "checkboxes", "action_id": "value",
                 "options": [{"text": {"type": "plain_text", "text": _invoice_active_option_text(it)},
