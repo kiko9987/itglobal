@@ -1070,14 +1070,18 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
             # 방문 예약 알림과 동일 방식 — text 에 permalink → 슬랙이 온라인 세척 카드를
             #   미리보기로 자동 unfurl(embed). (blocks 대신 text 여야 unfurl 확실히 동작)
             #   상호·연락처 등 상세는 unfurl 미리보기에 다 뜨므로 헤더는 최소화.
+            #   링크 텍스트는 안내 문구로 — 바로 아래 카드(unfurl)가 곧 그 링크라 "확인하기"
+            #   중복 제거. 상단 ⠀ = 온라인 카드와 동일한 한 줄 여백.
             msg = (
+                "⠀\n"
                 f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`\n"
-                f":round_pushpin: <{permalink}|온라인 문의 채널에서 확인하기>"
+                f":point_down: <{permalink}|아래 카드를 눌러 확인하세요>"
             )
         else:
             place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
             device = (lead.get('_meta_device') or '').strip() or '-'
             msg = (
+                "⠀\n"
                 f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`  {name} / {phone}\n"
                 f"세척 희망 장소: {place} / 세척 희망 기기: {device}\n"
                 f"_(온라인 채널 카드에서 상세 확인)_"
