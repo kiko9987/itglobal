@@ -3442,7 +3442,8 @@ def _register_invoice_handlers(app):
                 if done:
                     _mark_invoice_issued_in_sheet(
                         meta.get('code'), meta.get('stages'), meta.get('amt'),
-                        vat_val=meta.get('vat', 'sep'))
+                        vat_val=meta.get('vat', 'sep'), biz=meta.get('biz', ''),
+                        card_key=f'{channel}:{thread_ts}')
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -12758,7 +12759,8 @@ def _build_invoice_stage_block(code):
     }
 
 
-def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep'):
+def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep', biz='',
+                                  card_key=''):
     """계산서 첨부 완료 → 선택 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
 
     입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
@@ -12846,17 +12848,19 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                 if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '-'):
                     cur[s] = '-'
                     wrote.append(f'{s}(-)')
-        if not wrote:
-            logger.info(f"[SLACK/계산서] 자동기록 — 변경 없음 ({code} {selected} full={full})")
-            return
-        # Y(계산서) 요약 재계산 후 기록 (values.update → 셀 노트 보존)
-        #   수금완료(미수금≈0 or 수금확인) + 마지막단계 발행이면 전체발행 완료로 앞 미발행 무시
-        _paid_sum = sum(_bill_to_num(amt.get(s)) for s in _BILL_STAGES)
-        _coll = collected or (total2 > 0 and _paid_sum > 0 and abs(total2 - _paid_sum) < 1)
         col_y = f2l.get('계산서')
-        if col_y:
-            manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
-                                      _bill_y_summary(cur, amt, _coll))
+        if not wrote:
+            # 이미 '발행'인 단계에 또 발행(수정발행·사업자 분할 두 번째 장 등) — 계산서 칸은 그대로지만
+            #   메모 한 줄(이력)은 아래에서 남긴다 (2026-10-01, 예전엔 여기서 return 해 이력 유실).
+            logger.info(f"[SLACK/계산서] 자동기록 — 계산서 칸 변경 없음, 메모 이력만 ({code} {selected} full={full})")
+        else:
+            # Y(계산서) 요약 재계산 후 기록 (values.update → 셀 노트 보존)
+            #   수금완료(미수금≈0 or 수금확인) + 마지막단계 발행이면 전체발행 완료로 앞 미발행 무시
+            _paid_sum = sum(_bill_to_num(amt.get(s)) for s in _BILL_STAGES)
+            _coll = collected or (total2 > 0 and _paid_sum > 0 and abs(total2 - _paid_sum) < 1)
+            if col_y:
+                manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
+                                          _bill_y_summary(cur, amt, _coll))
         # 발행일을 계산서_메모(Y 노트)에 기록 — PM 계산서 툴팁 '발행일' 출처 (2026-09-30 SB 요청).
         #   날짜 선두 = SB 수기 메모 관례('2026-08-14 41,600,000원 … 발행'). 발행일은 시트에 달리
         #   남는 곳이 없어(3열은 '발행' 표시만) 여기 안 쓰면 유실된다.
@@ -12864,7 +12868,10 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
         #     (2026-09-29, PM·계산서 모달 '금액미상' 방지). 통합발행이면 covered('-') 단계 금액은
         #     이 발행에 포함 → 이 단계 순수분 = gross - covered합.
         #   · 그 외: 'YYYY-MM-DD 잔금 발행' — '원' 금액 없음(선발행 금액 파서 `[\d,]+\s*원` 무영향).
-        if col_y and selected in wrote:
+        #   · 한 줄 = 한 장, 끝에 ' · 사업자명' (2026-10-01): 고객 요청 사업자 분할·수정발행 이력 추적.
+        #     같은 날 같은 금액이라도 사업자가 다르면 별도 줄(분할 발행 둘 다 남김). 읽는 쪽은 그 단계
+        #     최근 날짜 줄들의 합 = 현재 발행액 (billStatus.preIssuedAmount / _pre_issued_amount).
+        if col_y:
             try:
                 _today = f"{datetime.now():%Y-%m-%d}"
                 _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
@@ -12880,10 +12887,24 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                     memo_amt = int(round(max(inv_gross - covered_sum, 0)))
                     if memo_amt > 0:
                         _core = f"{selected} 선발행 {memo_amt:,}원"
-                        if _core in _note:      # 날짜 도입 전 기록 등 — 같은 발행 재기록 안 함
-                            _core = None
-                _line = f"{_today} {_core}" if _core else None
-                if _line and _line not in _note:
+                _biz = str(biz or '').strip()
+                if _biz and _biz != '-':
+                    _core = f"{_core} · {_biz}"
+                # 카드 한 장 = 메모 한 줄: 같은 요청 카드 스레드에 파일을 또 올려 재처리돼도 다시 안 씀
+                #   (카드 완료 처리 자체엔 1회 보장이 없음). 수정발행·사업자 분할은 새 카드라 각각 기록.
+                _card_new = True
+                if card_key:
+                    try:
+                        from dashboard.utils.redis_client import get_redis_client as _grc_memo
+                        _card_new = bool(_grc_memo().redis.set(
+                            f'invoice_memo_card:{card_key}', '1', nx=True, ex=60 * 60 * 24 * 400))
+                    except Exception:
+                        _card_new = True   # Redis 불가 → 아래 줄 중복 검사로만
+                # 날짜 도입 전(날짜 없는) 같은 기록이 이미 있으면 재기록 안 함
+                _old_dateless = any(ln.strip() == _core.split(' · ')[0] for ln in _note.split('\n'))
+                # 중복 = 날짜·단계·금액·사업자까지 같은 줄만 (같은 날 사업자 분할 두 장은 둘 다 남김)
+                _line = f"{_today} {_core}"
+                if _card_new and not _old_dateless and _line not in _note:
                     _new_note = f"{_note}\n{_line}".strip() if _note.strip() else _line
                     manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
                     logger.info(f"[SLACK/계산서] 발행일 메모 기록 ({code}): {_line}")
@@ -12914,14 +12935,26 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
 def _pre_issued_amount(memo: str, stage: str) -> float:
     """입금 0 단계의 세금계산서 발행액(VAT 포함) — billStatus.js preIssuedAmount 미러.
 
-    ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원'(계산서 첨부 자동기록) 중 그 단계 최신 줄
+    ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명'(계산서 첨부 자동기록, 한 줄=한 장)
+       중 그 단계 가장 최근 날짜 줄들의 합 (사업자 분할 발행 합산, 앞 날짜는 수정발행 전 이력)
     ② 메모의 'X원' 이 정확히 하나  ③ 없거나 여럿 → 0 (어느 단계 금액인지 모호)
     """
     memo = memo or ''
-    tagged = [m for m in re.finditer(r'(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원', memo)
-              if m.group(1) == stage]
+    tag_re = re.compile(r'^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?'
+                        r'(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원')
+    tagged = []
+    for ln in memo.split('\n'):
+        m = tag_re.match(ln)
+        if not m or m.group(4) != stage:
+            continue
+        date = f'{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}' if m.group(1) else ''
+        tagged.append((date, _bill_to_num(m.group(5))))
     if tagged:
-        return _bill_to_num(tagged[-1].group(2))
+        # 한 줄 = 한 장. 가장 최근 날짜 줄들의 합 = 현재 발행액(앞 날짜 = 수정발행 전 이력)
+        latest = max(d for d, _ in tagged)
+        if not latest:
+            return tagged[-1][1]
+        return sum(a for d, a in tagged if d == latest)
     found = re.findall(r'[\d,]+\s*원', memo)
     return _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
 

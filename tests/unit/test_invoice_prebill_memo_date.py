@@ -47,7 +47,19 @@ class _FakeManager:
         return True
 
 
-def _run(monkeypatch, fm):
+class _FakeRedis:
+    """invoice_memo_card:{card} nx 마킹만 흉내 (카드 한 장 = 메모 한 줄)."""
+    def __init__(self):
+        self.store = {}
+
+    def set(self, key, val, nx=False, ex=None):
+        if nx and key in self.store:
+            return None
+        self.store[key] = val
+        return True
+
+
+def _run(monkeypatch, fm, biz='', card_key='', amt='2620000', fake_redis=None):
     monkeypatch.setenv('GOOGLE_SHEET_ID', 'SID')
     monkeypatch.setenv('GOOGLE_SHEET_NAME', '공사 현황')
     import dashboard.services.lead_service as ls
@@ -56,7 +68,11 @@ def _run(monkeypatch, fm):
     import dashboard.utils.user_database as udb
     monkeypatch.setattr(udb, 'get_audit_repository',
                         lambda: type('A', (), {'log_action': lambda self, **k: None})())
-    sb._mark_invoice_issued_in_sheet('R4100-MS', '잔금', invoice_amt='2620000', vat_val='sep')
+    if fake_redis is not None:
+        import dashboard.utils.redis_client as rcm
+        monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': fake_redis})())
+    sb._mark_invoice_issued_in_sheet('R4100-MS', '잔금', invoice_amt=amt, vat_val='sep',
+                                     biz=biz, card_key=card_key)
 
 
 def test_prebill_memo_has_issue_date(monkeypatch):
@@ -81,11 +97,38 @@ def test_normal_issue_writes_dated_line_without_amount(monkeypatch):
     assert re.findall(r'[\d,]+\s*원', fm.notes['Y10']) == ['41,600,000원']
 
 
-def test_already_issued_stage_writes_nothing(monkeypatch):
+def test_already_issued_stage_records_history_only(monkeypatch):
+    """이미 '발행'인 단계에 또 발행(수정발행·사업자 분할 두 번째 장) — 계산서 칸·Y 요약은 그대로,
+    메모엔 이력 한 줄 (2026-10-01, 예전엔 아무것도 안 써서 재발행 이력 유실)."""
     fm = _FakeManager()
     fm.vals['AB10'] = '발행'
-    _run(monkeypatch, fm)
-    assert 'Y10' not in fm.notes
+    _run(monkeypatch, fm, biz='SM CORPORATION')
+    today = f'{datetime.now():%Y-%m-%d}'
+    assert fm.vals['AB10'] == '발행'
+    assert fm.vals['Y10'] == '잔금 - 미발행'          # Y 요약 재계산 안 함 (칸 변경 없음)
+    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 · SM CORPORATION'
+
+
+def test_split_issue_same_day_keeps_both_lines(monkeypatch):
+    """고객 요청 사업자 분할 — 같은 날 같은 금액 두 장도 사업자가 다르면 둘 다 기록 (G3991-YM)."""
+    fm = _FakeManager()
+    fr = _FakeRedis()
+    _run(monkeypatch, fm, biz='SM CORPORATION', card_key='C:1', amt='1310000', fake_redis=fr)
+    _run(monkeypatch, fm, biz='(주)설린', card_key='C:2', amt='1310000', fake_redis=fr)
+    today = f'{datetime.now():%Y-%m-%d}'
+    assert fm.notes['Y10'] == (f'{today} 잔금 선발행 1,441,000원 · SM CORPORATION\n'
+                               f'{today} 잔금 선발행 1,441,000원 · (주)설린')
+
+
+def test_same_card_retrigger_writes_once(monkeypatch):
+    """같은 요청 카드 스레드에 파일을 또 올려 재처리돼도 메모는 한 줄 (카드 한 장 = 한 줄)."""
+    fm = _FakeManager()
+    fr = _FakeRedis()
+    _run(monkeypatch, fm, biz='오쿠드', card_key='C:9', fake_redis=fr)
+    fm.notes['Y10'] = fm.notes['Y10']            # 다음 날 재첨부를 흉내: 날짜가 달라도
+    first = fm.notes['Y10']
+    _run(monkeypatch, fm, biz='오쿠드', card_key='C:9', fake_redis=fr)
+    assert fm.notes['Y10'] == first
 
 
 def test_prebill_memo_not_duplicated_for_old_dateless_line(monkeypatch):

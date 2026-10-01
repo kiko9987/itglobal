@@ -338,16 +338,29 @@ export function isPreIssued(row, stage) {
 
 /**
  * 입금 0 단계의 세금계산서 발행액(VAT 포함, 원). 출처 = 계산서_메모(Y 노트):
- *   ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원' (2026-09-29~ 계산서 첨부 자동기록) — 그 단계 최신 줄
- *   ② 메모의 'X원' 이 정확히 하나 (SB 수기 메모 등)
+ *   ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명' (계산서 첨부 자동기록, 한 줄 = 한 장)
+ *      → 그 단계의 **가장 최근 날짜 줄들의 합** = 현재 발행액. 앞 날짜 줄은 수정발행 전 이력으로 보존.
+ *      (G3991-YM: 08-27 310만 한 장 → 09-02 고객 요청 사업자 분할 155만+155만 = 310만)
+ *   ② 단계 표시 줄이 없으면 메모의 'X원' 이 정확히 하나 (SB 수기 메모 등)
  *   ③ 없거나 여럿이면 0 (어느 단계 금액인지 모호 → 오표기 방지)
  */
 export function preIssuedAmount(row, stage) {
   const memo = String((row && row['계산서_메모']) || '');
   if (!memo.trim()) return 0;
-  const tagged = [...memo.matchAll(/(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원/g)]
-    .filter((m) => m[1] === stage);
-  if (tagged.length) return toNum(tagged[tagged.length - 1][2]);
+  const TAG = /^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?(계약금|중도금|잔금)\s*선발행\s*([\d,]+)\s*원/;
+  const tagged = [];
+  memo.split('\n').forEach((ln, i) => {
+    const m = TAG.exec(ln);
+    if (!m || m[4] !== stage) return;
+    const date = m[1] ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
+    tagged.push({ date, amt: toNum(m[5]), i });
+  });
+  if (tagged.length) {
+    const latest = tagged.reduce((a, t) => (t.date > a ? t.date : a), '');
+    // 날짜 없는 옛 형식만 있으면 마지막 줄 하나
+    if (!latest) return tagged[tagged.length - 1].amt;
+    return tagged.filter((t) => t.date === latest).reduce((a, t) => a + t.amt, 0);
+  }
   const amts = memo.match(/[\d,]+\s*원/g) || [];
   return amts.length === 1 ? toNum(amts[0].replace(/원|\s/g, '')) : 0;
 }
