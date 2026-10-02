@@ -460,9 +460,12 @@ def sync_karrot() -> Dict[str, Any]:
     new_leads: List[Dict[str, Any]] = []
     duplicates = 0
     for _, row in karrot_df.iterrows():
-        lead = map_karrot_row_to_lead(row)
-        phone_digits = re.sub(r'\D', '', lead['고객 연락처'])
-        new_dt = lead.get('_meta_consult_dt')
+        # dedup 판정엔 연락처·응답일시만 필요 — map_karrot_row_to_lead(주소 정규화 = 카카오/juso
+        #   API, 행당 ~0.5초)는 dedup 통과한 신규 행에만. (2026-10-02: 매 사이클 당근 시트 전 행
+        #   ~450건을 정규화해 한 회차 ~3.5분 > 주기 2분 → 회차 건너뜀으로 알림 6~8분 지연, L-04152)
+        #   값은 map_karrot_row_to_lead 의 '고객 연락처'·'_meta_consult_dt' 와 동일 계산.
+        phone_digits = re.sub(r'\D', '', normalize_phone(row.get(KCOL_PHONE, '')))
+        new_dt = _parse_consult_dt(row.get(KCOL_CONSULT))
 
         # 1) 같은 sync 내 중복 폴링 (1시간 이내) → skip
         if phone_digits and phone_digits in seen_in_sync:
@@ -495,6 +498,8 @@ def sync_karrot() -> Dict[str, Any]:
                 if abs(time_diff.total_seconds()) < 3600:
                     duplicates += 1
                     continue
+        lead = map_karrot_row_to_lead(row)
+        if phone_digits and phone_digits in phone_lookup and new_dt:
             # 1시간 이상 차이 → 재문의로 간주, 옛 이력 메타에 저장
             lead['_meta_previous_leads'] = phone_lookup[phone_digits]
 
