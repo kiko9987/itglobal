@@ -164,3 +164,21 @@ def test_pending_and_done_cards_show_warning_lines():
         'iid', [{'project_code': 'G1', 'stage': '잔금', 'amount': 1, 'warns': warns},
                 {'project_code': 'R2', 'stage': '잔금', 'amount': 2}], 3, '', G_MEMO)
     assert split[0]['text']['text'].count('과입금 의심') == 1
+
+
+def test_acked_account_mismatch_becomes_fund_move_request(monkeypatch):
+    """매니저가 모달 경고 후 [지정] 재클릭 = 자금 이동 요청 (카드·DM 문구, 2026-10-02 사용자 문구)."""
+    w = sb._intake_warnings('G4139-MJ', 650000, {}, R_HANA, records=_rec('G4139-MJ'))[0]
+    assert '자금 이동을 요청하려면 [지정]을 한 번 더' in w['modal']
+    assert sb._warn_line(w, True).startswith('자금 이동 요청 — 입금: 하나은행 (글로벌그룹)')
+    assert sb._warn_line(w, False).startswith('계좌·사업자 불일치')     # 경고 미표시면 중립
+    ov = {'kind': 'overpay', 'line': '과입금 의심 — x'}
+    assert sb._warn_line(ov, True) == '과입금 의심 — x'
+    fr, dm = _FakeRedis(), _FakeDM()
+    import dashboard.utils.redis_client as rcm
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': fr})())
+    monkeypatch.setattr(sb, '_dm_client', lambda: dm)
+    monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'MJ')
+    sb._notify_intake_warns(_FakeClient(), 'iid9', 'C1', '1.1',
+                            [('G4139-MJ', '잔금', 650000, [sb._warn_line(w, True)])], 'U1', True)
+    assert dm.sent[0]['text'].startswith(':warning: *자금 이동 요청* — 매니저가 계좌·사업자 불일치를 확인하고')

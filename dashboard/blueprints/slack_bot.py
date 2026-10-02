@@ -511,8 +511,9 @@ def _register_payment_handlers(app):
                 memo = d.get("text") or ""
                 # 이상 징후 재계산(ack 예산 없음) — 카드 ⚠️ 줄·경영지원 DM 근거. 모달에서 경고를
                 # 봤으면 warned 마커가 있음(=매니저 확인), 없으면 조회 지연으로 경고 미표시.
-                warn_lines = [w["line"] for w in _intake_warnings(project_code, amount, preview, memo)]
                 acked = _intake_dup_warned(intake_id, project_code, stage)
+                warn_lines = [_warn_line(w, acked)
+                              for w in _intake_warnings(project_code, amount, preview, memo)]
                 # 지정 내용만 저장 (아직 시트 기록 X — 샛별 확인 대기)
                 # project_option(선택 옵션 전체) 보관 → [재지정] 시 모달 미리 채움
                 _update_intake(intake_id, designation={
@@ -903,11 +904,11 @@ def _register_payment_handlers(app):
                 # 행별 이상 징후 재계산 → 분할에 warns 로 저장(카드·완료카드·DM)
                 _d = _load_intake(intake_id)
                 _memo_w = _d.get("text") or meta.get("memo", "")
-                for _s, _ws in zip(splits, _split_warnings_bounded(
-                        splits, _d.get("preview") or {}, _memo_w, timeout=10.0)):
-                    _s["warns"] = [w["line"] for w in _ws]
                 _sig = '|'.join(f"{s['project_code']}:{s['stage']}:{s['amount']}" for s in splits)
                 _acked = _intake_dup_warned(intake_id, 'split', _sig)
+                for _s, _ws in zip(splits, _split_warnings_bounded(
+                        splits, _d.get("preview") or {}, _memo_w, timeout=10.0)):
+                    _s["warns"] = [_warn_line(w, _acked) for w in _ws]
                 _update_intake(intake_id, designation={
                     "splits": splits, "total": total, "by": user_id})
                 if channel and message_ts:
@@ -1578,8 +1579,9 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
         ent = f"{_ENTITY_LABEL[prefix]}({prefix})"
         warns.append({
             'kind': 'account', 'field': 'project',
-            'modal': (f"⚠️ 입금 계좌와 프로젝트의 사업자가 다릅니다 (입금: {acct_label} / 프로젝트: {ent}). "
-                      f"고객 통장 안내를 확인하고, 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
+            # [지정] 재클릭 = 경영지원에 자금 이동(법인 간 이체) 요청 (2026-10-02 사용자 문구)
+            'modal': (f"⚠️ 입금 계좌와 프로젝트의 사업자 코드가 다릅니다 (입금: {acct_label} / 프로젝트: {ent}). "
+                      f"자금 이동을 요청하려면 [지정]을 한 번 더 눌러주세요."),
             'line': f"계좌·사업자 불일치 — 입금: {acct_label} / 프로젝트: {ent}",
         })
     amount = int(amount or 0)
@@ -1633,6 +1635,14 @@ def _intake_precheck_bounded(project_code, stage, amount, date_md, preview, memo
     return box.get('dup'), box.get('warns') or []
 
 
+def _warn_line(w, acked):
+    """카드·DM 줄. 매니저가 모달 경고를 보고 [지정]을 다시 눌렀으면(acked) 계좌 불일치 =
+    '자금 이동 요청'(모달 문구와 일치). 경고 미표시(조회 지연)면 중립 문구 유지."""
+    if acked and w.get('kind') == 'account':
+        return w['line'].replace('계좌·사업자 불일치', '자금 이동 요청', 1)
+    return w['line']
+
+
 def _split_warnings_bounded(splits, preview, memo, timeout=2.0):
     """분할 행별 _intake_warnings (프로젝트 캐시 1회 로드 공유), 하드 타임아웃. 초과=무경고.
     Returns: splits 와 같은 길이의 [[warn, ...], ...]."""
@@ -1678,9 +1688,14 @@ def _notify_intake_warns(client, intake_id, channel, message_ts, items, by_user,
     except Exception:
         pass
     who = _resolve_manager_initial(by_user) if by_user else '-'
-    head = ("매니저가 경고를 확인하고 지정했습니다" if acked
-            else "지정 시 경고가 표시되지 않았습니다(조회 지연)")
-    lines = [f":warning: *입금 지정 확인 요청* — {head}"]
+    _move = any(w.startswith('자금 이동 요청') for it in items for w in it[3])
+    if _move:
+        head = "*자금 이동 요청* — 매니저가 계좌·사업자 불일치를 확인하고 지정했습니다"
+    elif acked:
+        head = "*입금 지정 확인 요청* — 매니저가 경고를 확인하고 지정했습니다"
+    else:
+        head = "*입금 지정 확인 요청* — 지정 시 경고가 표시되지 않았습니다(조회 지연)"
+    lines = [f":warning: {head}"]
     for code, stage, amount, warn_lines in items:
         lines.append(f"• `{code}` · {stage} · {int(amount or 0):,}원 — 지정 {who}")
         lines += [f"     ⚠️ {w}" for w in warn_lines]
