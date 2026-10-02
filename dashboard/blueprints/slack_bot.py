@@ -1578,9 +1578,9 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
         ent = f"{_ENTITY_LABEL[prefix]}({prefix})"
         warns.append({
             'kind': 'account', 'field': 'project',
-            'modal': (f"⚠️ 입금 계좌 {acct_label}와 프로젝트 사업자 {ent}가 다릅니다. 고객 통장 안내를 "
-                      f"확인하고, 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
-            'line': f"계좌·사업자 불일치 — 입금 {acct_label} / 프로젝트 {ent}",
+            'modal': (f"⚠️ 입금 계좌와 프로젝트의 사업자가 다릅니다 (입금: {acct_label} / 프로젝트: {ent}). "
+                      f"고객 통장 안내를 확인하고, 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
+            'line': f"계좌·사업자 불일치 — 입금: {acct_label} / 프로젝트: {ent}",
         })
     amount = int(amount or 0)
     if amount > 0 and code:
@@ -1598,7 +1598,8 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
                         'kind': 'overpay', 'field': 'stage',
                         'modal': (f"⚠️ 입금 {amount:,}원이 현재 미수금 {int(unpaid):,}원보다 많습니다"
                                   f"(과입금 의심). 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
-                        'line': f"과입금 의심 — 입금 {amount:,}원 > 미수금 {int(unpaid):,}원",
+                        # '>' 는 슬랙 인용 기호라 쓰지 않음(카드 줄이 '>' 인용 구조)
+                        'line': f"과입금 의심 — 입금 {amount:,}원이 미수금 {int(unpaid):,}원보다 많음",
                     })
         except Exception as exc:
             logger.warning(f"[SLACK/수금봇] 과입금 점검 실패(무시): {exc}")

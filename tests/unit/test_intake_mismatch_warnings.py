@@ -76,7 +76,8 @@ def test_plant_project_with_G_account_warns():
 def test_overpay():
     w = sb._intake_warnings('G4139-MJ', 500000, {}, G_MEMO, records=_rec('G4139-MJ', 1_000_000, 300_000))
     assert _kinds(w) == ['overpay'] and w[0]['field'] == 'stage'
-    assert '500,000원 > 미수금 300,000원' in w[0]['line']
+    assert '입금 500,000원이 미수금 300,000원보다 많음' in w[0]['line']
+    assert '>' not in w[0]['line']      # 슬랙 인용 기호 금지
 
 
 def test_exact_remaining_not_overpay():
