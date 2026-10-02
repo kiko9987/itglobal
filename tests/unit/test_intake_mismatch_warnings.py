@@ -201,3 +201,72 @@ def test_acked_account_mismatch_becomes_fund_move_request(monkeypatch):
     sb._notify_intake_warns(_FakeClient(), 'iid9', 'C1', '1.1',
                             [('G4139-MJ', '잔금', 650000, [w])], 'U1', True)
     assert ':warning: *자금 이동 요청*  `G4139-MJ`' in dm.sent[0]['text']
+
+
+# ── 시트 메모 이력 (2026-10-02 '잘못 들어왔다는 히스토리는 메모에 다 남기기') ──
+
+from dashboard.services.payment_sync import _parse_notes, _hash_payments  # noqa: E402
+
+_ANN = ['⚠️ 계좌·사업자 불일치: 하나은행 (글로벌그룹) 입금 / 프로젝트 글로벌(G) — 자금 이동 요청 (지정 YM · 확인 SB)',
+        '⚠️ 과입금: 당시 미수금 300,000원 / 초과 200,000원 (지정 YM · 확인 SB)',
+        '⚠️ 반환 200,000원 입금 500,000원 2026-10-02 R>G']   # 위험 단어 섞여도 무시돼야 함
+
+
+def test_parser_ignores_warning_annotation_lines():
+    base = '2026/09/30\n하나,09/30, 17:02\n255******31304\n입금3,014,000원\n대연이엔지주식회'
+    withann = base + '\n' + '\n'.join(_ANN)
+    a = _parse_notes(['', '', base], stage_vals={'잔금': 3014000})
+    b = _parse_notes(['', '', withann], stage_vals={'잔금': 3014000})
+    assert a == b and len(b) == 1 and not b[0]['is_refund'] and b[0]['transfer_to'] == ''
+    assert _hash_payments(a) == _hash_payments(b)     # 폴러 phash 불변 → 카드 정정 안 생김
+
+
+def test_annotation_never_becomes_partner():
+    base = '2026/10/02 15:01\n입금 500,000원\n452***38801011\n기업'      # 입금자 줄 없는 문자
+    b = _parse_notes(['', '', base + '\n' + _ANN[1]], stage_vals={'잔금': 500000})
+    a = _parse_notes(['', '', base], stage_vals={'잔금': 500000})
+    assert a == b
+
+
+def test_warn_note_and_compose(monkeypatch):
+    monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: {'U1': 'YM', 'U2': 'SB'}.get(u, '-'))
+    acc = sb._intake_warnings('G4125-YM', 3014000, {}, R_HANA, records=_rec('G4125-YM', 3014000, 3014000))[0]
+    ov = sb._intake_warnings('G4125-YM', 500000, {}, G_MEMO, records=_rec('G4125-YM', 3014000, 300000))[0]
+    assert sb._warn_note(acc, True) == '⚠️ 계좌·사업자 불일치: 하나은행 (글로벌그룹) 입금 / 프로젝트 글로벌(G) — 자금 이동 요청'
+    assert sb._warn_note(acc, False).endswith('— 지정 시 경고 미표시')
+    assert sb._warn_note(ov, True) == '⚠️ 과입금: 당시 미수금 300,000원 / 초과 200,000원'
+    assert sb._compose_warn_notes([sb._warn_note(ov, True)], 'U1', 'U2') == [
+        '⚠️ 과입금: 당시 미수금 300,000원 / 초과 200,000원 (지정 YM · 확인 SB)']
+    assert sb._compose_warn_notes([], 'U1', 'U2') == []
+
+
+class _CommitMgr:
+    """_commit_intake_to_sheet 용 가짜 시트 (W 잔금 셀만)."""
+    def __init__(self):
+        self.vals = {'W10': 0, 'T10': 3014000, 'U10': 0, 'V10': 0}
+        self.notes = {}
+
+    def find_row_by_project_code(self, *a, **k): return 10
+    def get_cell_value(self, sid, sn, cell): return self.vals.get(cell, '')
+    def update_cell_value(self, sid, sn, cell, v): self.vals[cell] = v; return True
+    def get_cell_note(self, sid, sn, cell): return self.notes.get(cell, '')
+    def update_cell_note(self, sid, sn, cell, n): self.notes[cell] = n; return True
+    def get_field_to_letter(self): return {}      # 계산서/Y 재계산 단계는 건너뜀
+
+
+def test_commit_appends_history_right_below_deposit(monkeypatch):
+    fm = _CommitMgr()
+    monkeypatch.setenv('GOOGLE_SHEET_ID', 'SID'); monkeypatch.setenv('GOOGLE_SHEET_NAME', '공사 현황')
+    import dashboard.services.lead_service as ls
+    monkeypatch.setattr(ls, 'get_sheets_manager', lambda: fm)
+    import dashboard.utils.user_database as udb     # ⚠️ 운영 users.db 감사 로그 차단
+    monkeypatch.setattr(udb, 'get_audit_repository',
+                        lambda: type('A', (), {'log_action': lambda self, **k: None})())
+    memo = '[Web발신]\n하나,09/30, 17:02\n255******31304\n입금 3,014,000원\n대연이엔지주식회'
+    ok, old, new, err = sb._commit_intake_to_sheet('G4125-YM', '잔금', 3014000, memo, 'U2',
+                                                   note_extra=[_ANN[0]])
+    assert ok and new == 3014000 and fm.vals['W10'] == 3014000
+    note = fm.notes['W10']
+    assert note.splitlines()[-1] == _ANN[0] and '대연이엔지주식회' in note.splitlines()[-2]
+    p = _parse_notes(['', '', note], stage_vals={'잔금': 3014000})
+    assert len(p) == 1 and p[0]['partner'] == '대연이엔지주식회' and p[0]['amount'] == 3014000

@@ -519,6 +519,8 @@ def _register_payment_handlers(app):
                 _update_intake(intake_id, designation={
                     "project_code": project_code, "project_option": sel, "stage": stage,
                     "amount": amount, "memo": memo, "by": user_id, "warns": warn_lines,
+                    # 확인 기록 때 시트 메모에 남길 이력 줄 (지정 시점 미수금 기준으로 고정)
+                    "warn_notes": [n for n in (_warn_note(w, acked) for w in _wfull) if n],
                 })
                 if channel and message_ts:
                     client.chat_update(
@@ -606,7 +608,9 @@ def _register_payment_handlers(app):
                             _failed.append(_s)  # 다른 확인 처리 중 → 보류
                             continue
                         _smemo = _build_split_memo(_preview, _amt, _total)
-                        _sok, _o, _n, _serr = _commit_intake_to_sheet(_pc, _stg, _amt, _smemo, user)
+                        _sok, _o, _n, _serr = _commit_intake_to_sheet(
+                            _pc, _stg, _amt, _smemo, user,
+                            note_extra=_compose_warn_notes(_s.get("warn_notes"), des.get("by", ""), user))
                         if not _sok:
                             _intake_release(_rc2, intake_id, _pc, _stg)  # 재시도 허용
                             _failed.append(_s)
@@ -698,7 +702,8 @@ def _register_payment_handlers(app):
                     except Exception:
                         pass
                 ok, old_num, new_num, err = _commit_intake_to_sheet(
-                    project_code, stage, amount, memo, user)
+                    project_code, stage, amount, memo, user,
+                    note_extra=_compose_warn_notes(des.get("warn_notes"), des.get("by", ""), user))
                 if not ok:
                     _intake_release(rc, intake_id, project_code, stage)  # 재시도 허용
                     # 처리 중 카드를 대기(버튼) 카드로 복원 → 재클릭으로 재시도 가능
@@ -910,6 +915,7 @@ def _register_payment_handlers(app):
                 _wfull_rows = _split_warnings_bounded(splits, _d.get("preview") or {}, _memo_w, timeout=10.0)
                 for _s, _ws in zip(splits, _wfull_rows):
                     _s["warns"] = [_warn_line(w, _acked) for w in _ws]
+                    _s["warn_notes"] = [n for n in (_warn_note(w, _acked) for w in _ws) if n]
                 _update_intake(intake_id, designation={
                     "splits": splits, "total": total, "by": user_id})
                 if channel and message_ts:
@@ -1584,6 +1590,8 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
             'modal': (f"⚠️ 입금 계좌와 프로젝트의 사업자 코드가 다릅니다 (입금: {acct_label} / 프로젝트: {ent}). "
                       f"자금 이동을 요청하려면 [지정]을 한 번 더 눌러주세요."),
             'line': f"계좌·사업자 불일치 — 입금: {acct_label} / 프로젝트: {ent}",
+            # 시트 메모 이력 — '⚠' 시작 줄은 수금 파서가 통째로 건너뜀(payment_sync)
+            'note': f"⚠️ 계좌·사업자 불일치: {acct_label} 입금 / 프로젝트 {ent}",
             'acct_label': acct_label, 'ent_code': prefix,   # 경영지원 DM 상세용
         })
     amount = int(amount or 0)
@@ -1604,6 +1612,8 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
                                   f"(과입금 의심). 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
                         # '>' 는 슬랙 인용 기호라 쓰지 않음(카드 줄이 '>' 인용 구조)
                         'line': f"과입금 의심 — 입금 {amount:,}원이 미수금 {int(unpaid):,}원보다 많음",
+                        'note': (f"⚠️ 과입금: 당시 미수금 {int(unpaid):,}원 / "
+                                 f"초과 {amount - int(unpaid):,}원"),
                         'unpaid': int(unpaid),   # 경영지원 DM 상세용
                     })
         except Exception as exc:
@@ -1644,6 +1654,27 @@ def _warn_line(w, acked):
     if acked and w.get('kind') == 'account':
         return w['line'].replace('계좌·사업자 불일치', '자금 이동 요청', 1)
     return w['line']
+
+
+def _warn_note(w, acked):
+    """시트 메모 이력 줄(지정 시점 기준). 매니저 확인 여부까지 남긴다 — '잘못 들어왔다'는
+    히스토리는 메모에 다 남긴다(2026-10-02 사용자 요청)."""
+    note = w.get('note') or ''
+    if not note:
+        return ''
+    if not acked:
+        return f"{note} — 지정 시 경고 미표시"
+    return f"{note} — 자금 이동 요청" if w.get('kind') == 'account' else note
+
+
+def _compose_warn_notes(notes, by_user, checker):
+    """확인 기록 때 메모에 붙일 줄 — 지정자·확인자 이니셜 부착."""
+    notes = [n for n in (notes or []) if n]
+    if not notes:
+        return []
+    by_i = _resolve_manager_initial(by_user) if by_user else '-'
+    ck = _resolve_manager_initial(checker) if checker else '-'
+    return [f"{n} (지정 {by_i} · 확인 {ck})" for n in notes]
 
 
 def _split_warnings_bounded(splits, preview, memo, timeout=2.0):
@@ -1872,11 +1903,12 @@ def _collection_settlement_target(memo_text, deposit, old_num):
     return None
 
 
-def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id):
+def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id, note_extra=None):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
     카드 발송 트리거 조건이 '해당 stage 셀 값 > 0' 이므로 값과 노트를 둘 다 쓴다
     (SB 수동 흐름과 동일). 카드 갱신은 호출자(확인 핸들러)가 담당.
+    note_extra: 이 입금 블록 바로 아래 붙일 이력 줄('⚠' 시작 — 계좌 불일치·과입금, 수금 파서 무시).
     Returns: (ok: bool, old_num: int, new_num: int, err: str)
     """
     from dashboard.constants import PAYMENT_FIELD_TO_COLUMN
@@ -1932,6 +1964,9 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         elif _coll_target is not None:
             _real = _coll_target - old_num           # 실추심(채무자가 낸 총액)
             memo_sheet = f"{memo_sheet.rstrip()}\n실추심 {_real:,}원\n수수료 {_real - int(amount):,}원"
+        # 이상징후 이력(계좌·사업자 불일치·과입금) — 이 입금 블록 바로 아래. '⚠' 줄은 파서 제외.
+        if note_extra:
+            memo_sheet = memo_sheet.rstrip() + "\n" + "\n".join(note_extra)
         old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
         new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
         if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
