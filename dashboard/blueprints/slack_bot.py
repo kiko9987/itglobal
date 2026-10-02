@@ -512,8 +512,8 @@ def _register_payment_handlers(app):
                 # 이상 징후 재계산(ack 예산 없음) — 카드 ⚠️ 줄·경영지원 DM 근거. 모달에서 경고를
                 # 봤으면 warned 마커가 있음(=매니저 확인), 없으면 조회 지연으로 경고 미표시.
                 acked = _intake_dup_warned(intake_id, project_code, stage)
-                warn_lines = [_warn_line(w, acked)
-                              for w in _intake_warnings(project_code, amount, preview, memo)]
+                _wfull = _intake_warnings(project_code, amount, preview, memo)
+                warn_lines = [_warn_line(w, acked) for w in _wfull]
                 # 지정 내용만 저장 (아직 시트 기록 X — 샛별 확인 대기)
                 # project_option(선택 옵션 전체) 보관 → [재지정] 시 모달 미리 채움
                 _update_intake(intake_id, designation={
@@ -527,9 +527,10 @@ def _register_payment_handlers(app):
                         blocks=_build_intake_pending_blocks(
                             intake_id, project_code, stage, amount, memo, user_id, warns=warn_lines),
                     )
-                if warn_lines:
+                if _wfull:
                     _notify_intake_warns(client, intake_id, channel, message_ts,
-                                         [(project_code, stage, amount, warn_lines)], user_id, acked)
+                                         [(project_code, stage, amount, _wfull)], user_id, acked,
+                                         deposit=preview)
             except Exception as exc:
                 logger.error(f"[SLACK/수금봇] submit_payment_intake 처리 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -906,8 +907,8 @@ def _register_payment_handlers(app):
                 _memo_w = _d.get("text") or meta.get("memo", "")
                 _sig = '|'.join(f"{s['project_code']}:{s['stage']}:{s['amount']}" for s in splits)
                 _acked = _intake_dup_warned(intake_id, 'split', _sig)
-                for _s, _ws in zip(splits, _split_warnings_bounded(
-                        splits, _d.get("preview") or {}, _memo_w, timeout=10.0)):
+                _wfull_rows = _split_warnings_bounded(splits, _d.get("preview") or {}, _memo_w, timeout=10.0)
+                for _s, _ws in zip(splits, _wfull_rows):
                     _s["warns"] = [_warn_line(w, _acked) for w in _ws]
                 _update_intake(intake_id, designation={
                     "splits": splits, "total": total, "by": user_id})
@@ -919,8 +920,8 @@ def _register_payment_handlers(app):
                             intake_id, splits, total, user_id, meta.get("memo", "")))
                 _notify_intake_warns(
                     client, intake_id, channel, message_ts,
-                    [(s["project_code"], s["stage"], s["amount"], s.get("warns") or []) for s in splits],
-                    user_id, _acked)
+                    [(s["project_code"], s["stage"], s["amount"], _ws) for s, _ws in zip(splits, _wfull_rows)],
+                    user_id, _acked, deposit=_d.get("preview") or {})
             except Exception as exc:
                 logger.error(f"[SLACK/수금봇] submit_split 처리 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -1583,6 +1584,7 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
             'modal': (f"⚠️ 입금 계좌와 프로젝트의 사업자 코드가 다릅니다 (입금: {acct_label} / 프로젝트: {ent}). "
                       f"자금 이동을 요청하려면 [지정]을 한 번 더 눌러주세요."),
             'line': f"계좌·사업자 불일치 — 입금: {acct_label} / 프로젝트: {ent}",
+            'acct_label': acct_label, 'ent_code': prefix,   # 경영지원 DM 상세용
         })
     amount = int(amount or 0)
     if amount > 0 and code:
@@ -1602,6 +1604,7 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
                                   f"(과입금 의심). 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
                         # '>' 는 슬랙 인용 기호라 쓰지 않음(카드 줄이 '>' 인용 구조)
                         'line': f"과입금 의심 — 입금 {amount:,}원이 미수금 {int(unpaid):,}원보다 많음",
+                        'unpaid': int(unpaid),   # 경영지원 DM 상세용
                     })
         except Exception as exc:
             logger.warning(f"[SLACK/수금봇] 과입금 점검 실패(무시): {exc}")
@@ -1663,10 +1666,58 @@ def _split_warnings_bounded(splits, preview, memo, timeout=2.0):
     return box.get('v') or [[] for _ in splits]
 
 
-def _notify_intake_warns(client, intake_id, channel, message_ts, items, by_user, acked):
+_TARGET_ACCT = {'G': '글로벌 계좌 (기업은행)', 'R': '글로벌그룹 계좌 (하나은행)', 'P': '플렌트 계좌'}
+_WARN_DM_SEP = '-' * 44
+
+
+def _build_intake_warn_dm(items, by_user, acked, deposit=None, link=''):
+    """경영지원 DM 본문 — DM 만 보고 처리할 수 있게 '무엇을 해 달라는지 + 근거'를 담는다.
+
+    items: [(project_code, stage, amount, [warn dict(_intake_warnings 항목), ...]), ...]
+    acked: 매니저가 모달 경고를 보고 [지정]을 다시 눌렀는지. deposit: 입금 문자 인식값
+    {'partner', 'date_md'}.
+    """
+    who = _resolve_manager_initial(by_user) if by_user else '-'
+    kinds = {w.get('kind') for it in items for w in it[3]}
+    titles = []
+    if 'account' in kinds:
+        titles.append('자금 이동 요청' if acked else '계좌·사업자 불일치 확인')
+    if 'overpay' in kinds:
+        titles.append('과입금 확인')
+    asks = []
+    if 'account' in kinds:
+        asks.append('법인 간 이체로 자금을 옮겨 주세요' if acked else '입금 계좌가 맞는지 확인해 주세요')
+    if 'overpay' in kinds:
+        asks.append('고객 확인 후 반환 여부를 판단해 주세요')
+    lead = (f"{who} 님이 경고를 확인하고 입금을 지정했습니다." if acked
+            else f"{who} 님이 입금을 지정했지만, 시트 조회 지연으로 지정 화면에 경고가 표시되지 않았습니다.")
+    dep = deposit or {}
+    dep_bits = ' · '.join(b for b in ((dep.get('partner') or '').strip(), (dep.get('date_md') or '').strip()) if b)
+    codes = '  '.join(f"`{it[0]}`" for it in items)
+    lines = ["⠀", f":warning: *{' · '.join(titles)}*  {codes}",
+             f"{lead} {' / '.join(asks)}.", _WARN_DM_SEP]
+    for code, stage, amount, ws in items:
+        ent = _ENTITY_LABEL.get(code[:1], '')
+        lines.append(f"프로젝트 : {code}{f' ({ent})' if ent else ''} · {stage}")
+        lines.append(f"입금 : {int(amount or 0):,}원" + (f" · {dep_bits}" if dep_bits else ''))
+        for w in ws:
+            if w.get('kind') == 'account':
+                lines.append(f"입금된 계좌 : {w.get('acct_label', '')}")
+                lines.append(f"옮길 곳 : {_TARGET_ACCT.get(w.get('ent_code', ''), '프로젝트 사업자 계좌')}")
+            elif w.get('kind') == 'overpay':
+                _up = int(w.get('unpaid') or 0)
+                lines.append(f"현재 미수금 : {_up:,}원 (초과 {int(amount or 0) - _up:,}원)")
+        lines.append(_WARN_DM_SEP)
+    if link:
+        lines.append(f"<{link}|#입금_관리 카드 바로가기>")
+    lines.append("⠀")
+    return '\n'.join(lines)
+
+
+def _notify_intake_warns(client, intake_id, channel, message_ts, items, by_user, acked, deposit=None):
     """이상 징후 있는 입금 지정 → 경영지원(샛별) DM. 같은 인입·같은 내용은 1회(Redis nx 7일).
 
-    items: [(project_code, stage, amount, [line, ...]), ...] — 단일 지정은 1개, 분할은 행별.
+    items: [(project_code, stage, amount, [warn dict, ...]), ...] — 단일 지정은 1개, 분할은 행별.
     acked: 매니저가 모달 경고를 보고 [지정]을 다시 눌렀는지(아니면 조회 지연으로 경고 미표시).
     """
     items = [it for it in items if it[3]]
@@ -1687,24 +1738,11 @@ def _notify_intake_warns(client, intake_id, channel, message_ts, items, by_user,
             link = (client.chat_getPermalink(channel=channel, message_ts=message_ts) or {}).get('permalink', '')
     except Exception:
         pass
-    who = _resolve_manager_initial(by_user) if by_user else '-'
-    _move = any(w.startswith('자금 이동 요청') for it in items for w in it[3])
-    if _move:
-        head = "*자금 이동 요청* — 매니저가 계좌·사업자 불일치를 확인하고 지정했습니다"
-    elif acked:
-        head = "*입금 지정 확인 요청* — 매니저가 경고를 확인하고 지정했습니다"
-    else:
-        head = "*입금 지정 확인 요청* — 지정 시 경고가 표시되지 않았습니다(조회 지연)"
-    lines = [f":warning: {head}"]
-    for code, stage, amount, warn_lines in items:
-        lines.append(f"• `{code}` · {stage} · {int(amount or 0):,}원 — 지정 {who}")
-        lines += [f"     ⚠️ {w}" for w in warn_lines]
-    if link:
-        lines.append(f"<{link}|#입금_관리 카드 바로가기>")
+    text = _build_intake_warn_dm(items, by_user, acked, deposit=deposit, link=link)
     try:
         dm = _dm_client()
         if dm:
-            dm.chat_postMessage(channel=_SETTLEMENT_CHECKER_ID, text='\n'.join(lines))
+            dm.chat_postMessage(channel=_SETTLEMENT_CHECKER_ID, text=text)
             logger.info(f"[SLACK/수금봇] 이상 징후 지정 → 경영지원 DM ({intake_id}: "
                         f"{[(c, s) for c, s, _, _ in items]})")
     except Exception as exc:

@@ -138,14 +138,33 @@ def test_notify_sends_once_per_intake(monkeypatch):
     monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': fr})())
     monkeypatch.setattr(sb, '_dm_client', lambda: dm)
     monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'MJ')
-    items = [('G4139-MJ', '잔금', 650000, ['계좌·사업자 불일치 — 입금 하나은행 (글로벌그룹) / 프로젝트 글로벌(G)'])]
-    sb._notify_intake_warns(_FakeClient(), 'iid1', 'C1', '1.1', items, 'U1', True)
-    sb._notify_intake_warns(_FakeClient(), 'iid1', 'C1', '1.1', items, 'U1', True)   # 재지정 등 재호출
+    w = sb._intake_warnings('G4139-MJ', 650000, {}, R_HANA, records=_rec('G4139-MJ'))
+    items = [('G4139-MJ', '잔금', 650000, w)]
+    dep = {'partner': '대연이엔지주식회', 'date_md': '09/30'}
+    sb._notify_intake_warns(_FakeClient(), 'iid1', 'C1', '1.1', items, 'U1', True, deposit=dep)
+    sb._notify_intake_warns(_FakeClient(), 'iid1', 'C1', '1.1', items, 'U1', True, deposit=dep)  # 재호출
     assert len(dm.sent) == 1
     txt = dm.sent[0]['text']
     assert dm.sent[0]['channel'] == sb._SETTLEMENT_CHECKER_ID
-    assert '`G4139-MJ` · 잔금 · 650,000원 — 지정 MJ' in txt and '경고를 확인하고' in txt
+    assert '*자금 이동 요청*  `G4139-MJ`' in txt
+    assert 'MJ 님이 경고를 확인하고 입금을 지정했습니다. 법인 간 이체로 자금을 옮겨 주세요.' in txt
+    assert '프로젝트 : G4139-MJ (글로벌) · 잔금' in txt
+    assert '입금 : 650,000원 · 대연이엔지주식회 · 09/30' in txt
+    assert '입금된 계좌 : 하나은행 (글로벌그룹)' in txt
+    assert '옮길 곳 : 글로벌 계좌 (기업은행)' in txt
     assert 'https://slack/x' in txt
+
+
+def test_dm_overpay_and_not_acked_wording(monkeypatch):
+    monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'YM')
+    ov = sb._intake_warnings('G4125-YM', 500000, {}, G_MEMO, records=_rec('G4125-YM', 3_014_000, 300_000))
+    t = sb._build_intake_warn_dm([('G4125-YM', '잔금', 500000, ov)], 'U', True)
+    assert '*과입금 확인*' in t and '고객 확인 후 반환 여부를 판단해 주세요' in t
+    assert '현재 미수금 : 300,000원 (초과 200,000원)' in t
+    acc = sb._intake_warnings('G4125-YM', 3014000, {}, R_HANA, records=_rec('G4125-YM', 3_014_000, 3_014_000))
+    t2 = sb._build_intake_warn_dm([('G4125-YM', '잔금', 3014000, acc)], 'U', False)
+    assert '*계좌·사업자 불일치 확인*' in t2 and '경고가 표시되지 않았습니다' in t2
+    assert '입금 계좌가 맞는지 확인해 주세요' in t2
 
 
 def test_notify_skips_when_no_warnings(monkeypatch):
@@ -180,5 +199,5 @@ def test_acked_account_mismatch_becomes_fund_move_request(monkeypatch):
     monkeypatch.setattr(sb, '_dm_client', lambda: dm)
     monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'MJ')
     sb._notify_intake_warns(_FakeClient(), 'iid9', 'C1', '1.1',
-                            [('G4139-MJ', '잔금', 650000, [sb._warn_line(w, True)])], 'U1', True)
-    assert dm.sent[0]['text'].startswith(':warning: *자금 이동 요청* — 매니저가 계좌·사업자 불일치를 확인하고')
+                            [('G4139-MJ', '잔금', 650000, [w])], 'U1', True)
+    assert ':warning: *자금 이동 요청*  `G4139-MJ`' in dm.sent[0]['text']
