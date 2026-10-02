@@ -448,6 +448,20 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────
 # Gmail 라벨 관리 (처리 완료 마킹)
 # ─────────────────────────────────────────────────────────────
+TEST_SUBMISSION_NAME = '클로드테스트'
+TEST_SUBMISSION_PHONE = '01000000000'
+
+
+def is_test_submission(lead: Dict[str, Any]) -> bool:
+    """폼 점검용 테스트 제출 판정 — 이름 '클로드테스트' **그리고** 연락처 010-0000-0000.
+
+    둘 다 맞아야 skip(실제 고객이 연락처만 0000 으로 적은 문의가 유실되지 않도록).
+    """
+    name = str(lead.get('고객명') or '')
+    digits = re.sub(r'\D', '', str(lead.get('고객 연락처') or ''))
+    return TEST_SUBMISSION_NAME in name and digits == TEST_SUBMISSION_PHONE
+
+
 def _get_or_create_label(service, label_name: str) -> str:
     """라벨 ID 반환 (없으면 생성)"""
     labels = _gmail_execute(
@@ -556,6 +570,16 @@ def sync_homepage_email() -> Dict[str, Any]:
 
         lead = to_lead(parsed)
         phone_digits = re.sub(r'\D', '', lead['고객 연락처'])
+
+        # 테스트 제출(폼·파서 점검용) — 시트·슬랙 없이 파싱 결과만 로그 후 라벨 처리.
+        if is_test_submission(lead):
+            logger.info(
+                f'[SYNC/홈페이지] 테스트 제출 skip (msg_id={msg_id}) '
+                f'유입={lead.get("_meta_inflow")!r} 유형={lead.get("_meta_inquiry_type")!r} '
+                f'문의내용={lead.get("문의 내용")!r}'
+            )
+            processed_msg_ids.append(msg_id)
+            continue
         # 새 lead 시각 파싱
         try:
             new_dt = datetime.strptime(lead.get('상담 시간', ''), '%Y.%m.%d. %H:%M')

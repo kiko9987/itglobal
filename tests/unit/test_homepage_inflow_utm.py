@@ -161,3 +161,49 @@ def test_card_shows_inflow_line_and_hides_marker(itype):
 def test_card_without_inflow_has_no_line():
     lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n')))
     assert '유입 경로' not in _section(lead)
+
+
+# ── 테스트 제출 skip (시트·슬랙 없이 라벨만) ───────────────
+
+def test_is_test_submission_requires_both_name_and_phone():
+    assert h.is_test_submission({'고객명': '클로드테스트', '고객 연락처': '010-0000-0000'})
+    assert not h.is_test_submission({'고객명': '홍길동', '고객 연락처': '010-0000-0000'})
+    assert not h.is_test_submission({'고객명': '클로드테스트', '고객 연락처': '010-1234-5678'})
+
+
+def test_sync_skips_test_submission_without_sheet_or_slack(monkeypatch):
+    import base64
+    import pandas as pd
+    import dashboard.services.lead_sync as ls
+
+    body = _mail('문의유형\r\n설치\r\n', '유입경로\r\ndaangn/web_install/A\r\n')
+    data = base64.urlsafe_b64encode(body.encode('utf-8')).decode().rstrip('=')
+    msg = {'payload': {'mimeType': 'text/plain', 'body': {'data': data}}}
+
+    class _Req:
+        def __init__(self, v): self.v = v
+
+    class _Msgs:
+        def list(self, **k): return _Req({'messages': [{'id': 'm1'}]})
+        def get(self, **k): return _Req(msg)
+
+    class _Svc:
+        def users(self): return self
+        def messages(self): return _Msgs()
+
+    calls = {'append': 0, 'slack': 0, 'marked': []}
+    monkeypatch.setattr(h, '_get_gmail_service', lambda: _Svc())
+    monkeypatch.setattr(h, '_get_or_create_label', lambda s, n: 'L1')
+    monkeypatch.setattr(h, '_gmail_execute', lambda req, what='': req.v)
+    monkeypatch.setattr(h, 'load_leads_data', lambda force_refresh=False: pd.DataFrame())
+    monkeypatch.setattr(ls, '_get_existing_phone_lookup', lambda df: {})
+    monkeypatch.setattr(ls, '_append_leads_to_main',
+                        lambda leads: calls.__setitem__('append', calls['append'] + 1) or [])
+    monkeypatch.setattr(ls, '_send_slack_notifications',
+                        lambda *a, **k: calls.__setitem__('slack', calls['slack'] + 1) or set())
+    monkeypatch.setattr(h, '_mark_processed',
+                        lambda s, mid, lid: calls['marked'].append(mid) or True)
+
+    h.sync_homepage_email()
+    assert calls['append'] == 0 and calls['slack'] == 0
+    assert calls['marked'] == ['m1']   # 재처리 루프 방지
