@@ -1481,9 +1481,9 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     #   [세척] 마커로 영속화(시트·재렌더 유지). 여기서 마커로 감지 → 배지 표시 + 표기에선 마커 제거.
     is_clean_req = _is_clean_lead(lead)
     # 유입 출처(UTM) 마커 [유입:당근/web_install/A] (2026-10-02) — 표기에선 떼고 별도 줄로.
-    from dashboard.services.lead_helpers import split_inflow_marker, format_inflow_marker_display
+    from dashboard.services.lead_helpers import split_inflow_marker, format_inflow_short
     inflow_raw, inquiry = split_inflow_marker(inquiry)
-    inflow_display = format_inflow_marker_display(inflow_raw)
+    inflow_short = format_inflow_short(inflow_raw)
     inquiry = inquiry.strip() or '-'
     if isinstance(inquiry, str) and inquiry.lstrip().startswith('[세척]'):
         inquiry = re.sub(r'^\s*\[세척\]\s*\n?', '', inquiry).strip() or '-'
@@ -1520,7 +1520,12 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         address_display = '-'
 
     from dashboard.services.lead_helpers import format_inflow_display
-    title = f"새 문의 접수 알림 - {format_inflow_display(source)}"
+    inflow_label = format_inflow_display(source)
+    if inflow_short:
+        # 유입 출처(UTM)는 별도 줄 대신 제목 괄호 안에: '온라인 (홈페이지 · 당근 A)'
+        inflow_label = (f'{inflow_label[:-1]} · {inflow_short})' if inflow_label.endswith(')')
+                        else f'{inflow_label} · {inflow_short}')
+    title = f"새 문의 접수 알림 - {inflow_label}"
 
     # 단일 라인 필드는 개행 flatten — 필드값에 \n이 있으면 slack blockquote 구조가 깨져
     # 뒤 필드/구분선까지 밖으로 튀어나옴. (예: 고객이 폼 주소란에 여러 줄 입력)
@@ -1571,7 +1576,6 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*{place_label}* : {place}\n"
         f">*{device_label}* : {device}\n"
         + f"{address_field}\n"
-        + (f">*유입 경로* : {_oneline(inflow_display)}\n" if inflow_display else "")
         + f">*문의 내용* : \n{inquiry_quoted}\n"
         f">--------------------------------------------"
     )

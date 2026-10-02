@@ -364,7 +364,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         inquiry = f'[세척]\n{inquiry}' if inquiry else '[세척]'
     # 유입경로(UTM) — [유입:당근/web_install/A] 마커로 영속화(시트 '문의 내용'에서 필터).
     #   [세척] 다음 줄에 둔다(세척 감지가 startswith('[세척]') 라 순서 유지).
-    #   카드 빌더가 마커를 떼어 '유입 경로' 줄로 표시. (2026-10-02)
+    #   카드 빌더가 마커를 떼어 제목 괄호에 '당근 A' 로 표시. (2026-10-02)
     _inquiry_for_addr = inquiry   # 주소 fallback 은 유입 마커 붙기 전 텍스트로 (기존 동작 유지)
     inflow = normalize_inflow(parsed.get('inflow') or '')
     if inflow:

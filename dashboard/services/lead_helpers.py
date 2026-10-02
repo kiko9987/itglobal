@@ -663,13 +663,20 @@ def split_inflow_marker(text: str) -> Tuple[str, str]:
     return m.group(1).strip(), INFLOW_MARKER_RE.sub('', s, count=1)
 
 
-def format_inflow_marker_display(inflow: str) -> str:
-    """마커 본문 → 카드 표기. '당근/web_install/A' → '당근 · web_install · 소재 A'."""
-    parts = str(inflow or '').split('/')
-    out = []
-    for i, p in enumerate(parts[:3]):
-        p = p.strip()
-        if not p or p == '-':
-            continue
-        out.append(f'소재 {p}' if i == 2 else p)
-    return ' · '.join(out)
+def format_inflow_short(inflow: str) -> str:
+    """마커 본문 → 카드 제목용 짧은 표기(채널 + 소재). 소재 없으면 캠페인.
+
+    >>> format_inflow_short('당근/web_install/A')
+    '당근 A'
+    >>> format_inflow_short('네이버/brand')
+    '네이버 brand'
+    >>> format_inflow_short('구글')
+    '구글'
+    """
+    parts = [p.strip() for p in str(inflow or '').split('/')]
+    parts = [p if p != '-' else '' for p in parts] + ['', '', '']
+    src, cmp, cnt = parts[0], parts[1], parts[2]
+    if not src:
+        return ''
+    tail = cnt or cmp
+    return f'{src} {tail}' if tail else src

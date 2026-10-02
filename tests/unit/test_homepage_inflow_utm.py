@@ -4,7 +4,7 @@
 배경: 당근 '앱/웹사이트 전환' 캠페인(소재 A/B/C) 리드를 시트에서 구분하려고 아임웹 폼에
 숨은 단답 필드 '유입경로'를 추가하고 바디 JS 가 URL utm 값을 "source/campaign/content"
 로 채움. 파서는 ①필드 없는 옛 메일 하위호환 ②값이 문의 내용에 섞이지 않음
-③빈 값(라벨만 남음) 안전 ④[세척] 마커와 공존 ⑤카드에선 마커 떼고 '유입 경로' 줄 표시.
+③빈 값(라벨만 남음) 안전 ④[세척] 마커와 공존 ⑤카드에선 마커 떼고 제목 괄호에 '당근 A' 표기.
 """
 import sys
 sys.path.insert(0, '.')
@@ -13,7 +13,7 @@ import pytest
 
 from dashboard.services import homepage_mail_sync as h
 from dashboard.services.lead_helpers import (
-    normalize_inflow, split_inflow_marker, format_inflow_marker_display,
+    normalize_inflow, split_inflow_marker, format_inflow_short,
 )
 from dashboard.services.lead_sync import build_inquiry_blocks, _is_clean_lead
 
@@ -103,11 +103,12 @@ def test_normalize_inflow(raw, expected):
     assert normalize_inflow(raw) == expected
 
 
-def test_display():
-    assert format_inflow_marker_display('당근/web_install/A') == '당근 · web_install · 소재 A'
-    assert format_inflow_marker_display('당근/-/A') == '당근 · 소재 A'
-    assert format_inflow_marker_display('네이버') == '네이버'
-    assert format_inflow_marker_display('') == ''
+def test_short_label():
+    assert format_inflow_short('당근/web_install/A') == '당근 A'
+    assert format_inflow_short('당근/-/B') == '당근 B'
+    assert format_inflow_short('당근/web_install') == '당근 web_install'
+    assert format_inflow_short('네이버') == '네이버'
+    assert format_inflow_short('') == ''
 
 
 # ── to_lead 영속화 ────────────────────────────────────
@@ -149,18 +150,19 @@ def _section(lead):
 def test_card_shows_inflow_line_and_hides_marker(itype):
     lead = h.to_lead(h.parse_mail_body(_mail(f'문의유형\r\n{itype}\r\n', '유입경로\r\ndaangn/web_install/A\r\n')))
     text = _section(lead)
-    assert '*유입 경로* : 당근 · web_install · 소재 A' in text
+    assert '*새 문의 접수 알림 - 온라인 (홈페이지 · 당근 A)*' in text
+    assert '유입 경로' not in text          # 별도 줄 없음 (제목에만)
     assert '[유입:' not in text and '[세척]' not in text
     assert '테스트 문의입니다.' in text
     # 시트에서 읽어 재렌더(메타 없음)해도 동일
     lead2 = {k: v for k, v in lead.items() if not k.startswith('_meta')}
     text2 = _section(lead2)
-    assert '*유입 경로* : 당근 · web_install · 소재 A' in text2 and '[유입:' not in text2
+    assert '온라인 (홈페이지 · 당근 A)' in text2 and '[유입:' not in text2
 
 
 def test_card_without_inflow_has_no_line():
     lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n')))
-    assert '유입 경로' not in _section(lead)
+    assert '*새 문의 접수 알림 - 온라인 (홈페이지)*' in _section(lead)
 
 
 # ── 테스트 제출 skip (시트·슬랙 없이 라벨만) ───────────────
