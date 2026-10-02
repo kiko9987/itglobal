@@ -595,3 +595,81 @@ def is_blank_address(addr) -> bool:
     """
     core = re.sub(r'[\s()（）\[\]{}.,·\-]', '', str(addr or ''))
     return not core
+
+
+# ─────────────────────────────────────────────────────────────
+# 홈페이지 유입 출처(UTM) 마커 (2026-10-02 당근 웹전환 캠페인)
+# ─────────────────────────────────────────────────────────────
+# 아임웹 폼의 숨은 '유입경로' 필드에 바디 JS 가 "utm_source/utm_campaign/utm_content"
+# (예: "daangn/web_install/A") 를 채워 보냄 → 파서가 정규화해 문의 내용에
+# `[유입:당근/web_install/A]` 한 줄 마커로 영속화(시트 '문의 내용'에서 필터 가능).
+# [세척] 마커가 있으면 그 다음 줄에 붙음(세척 감지는 startswith('[세척]') 이라 순서 유지).
+INFLOW_SOURCE_ALIASES = {
+    'daangn': '당근', 'karrot': '당근', 'danggeun': '당근', '당근': '당근',
+    'google': '구글', 'googleads': '구글', 'adwords': '구글', '구글': '구글',
+    'naver': '네이버', '네이버': '네이버',
+    'kakao': '카카오', '카카오': '카카오',
+    'instagram': '인스타', 'ig': '인스타',
+    'facebook': '페이스북', 'fb': '페이스북', 'meta': '메타',
+    'youtube': '유튜브',
+}
+INFLOW_MARKER_RE = re.compile(r'^[ \t]*\[유입:([^\]\r\n]*)\][ \t]*(?:\r?\n|$)', re.MULTILINE)
+_INFLOW_PART_MAX = 30
+
+
+def _sanitize_inflow_part(part: str) -> str:
+    """UTM 값 한 조각 정리 — 외부 입력(URL)이라 허용 문자만 남기고 길이 제한."""
+    s = re.sub(r'[^0-9A-Za-z가-힣_\-.]', '', str(part or '').strip())
+    return s[:_INFLOW_PART_MAX]
+
+
+def normalize_inflow(raw: str) -> str:
+    """숨은 필드 원값 → 마커 본문. 'daangn/web_install/A' → '당근/web_install/A'.
+
+    자리(source/campaign/content) 유지: 중간 빈 칸은 '-', 끝쪽 빈 칸은 생략.
+    source 는 별칭 사전으로 한글화(모르면 원값). 전부 비면 ''.
+
+    >>> normalize_inflow('daangn/web_install/A')
+    '당근/web_install/A'
+    >>> normalize_inflow('daangn//A')
+    '당근/-/A'
+    >>> normalize_inflow('naver//')
+    '네이버'
+    >>> normalize_inflow(' / / ')
+    ''
+    """
+    parts = re.split(r'[/|]', str(raw or '').strip())[:3]
+    out = []
+    for i, p in enumerate(parts):
+        s = _sanitize_inflow_part(p)
+        if s and i == 0:
+            s = INFLOW_SOURCE_ALIASES.get(s.lower(), s)
+        out.append(s or '-')
+    while out and out[-1] == '-':
+        out.pop()
+    return '/'.join(out)
+
+
+def split_inflow_marker(text: str) -> Tuple[str, str]:
+    r"""문의 내용에서 [유입:...] 마커 분리 → (마커 본문, 마커 제거한 내용).
+
+    >>> split_inflow_marker('[세척]\n[유입:당근/web_install/A]\n견적 문의')
+    ('당근/web_install/A', '[세척]\n견적 문의')
+    """
+    s = str(text or '')
+    m = INFLOW_MARKER_RE.search(s)
+    if not m:
+        return '', s
+    return m.group(1).strip(), INFLOW_MARKER_RE.sub('', s, count=1)
+
+
+def format_inflow_marker_display(inflow: str) -> str:
+    """마커 본문 → 카드 표기. '당근/web_install/A' → '당근 · web_install · 소재 A'."""
+    parts = str(inflow or '').split('/')
+    out = []
+    for i, p in enumerate(parts[:3]):
+        p = p.strip()
+        if not p or p == '-':
+            continue
+        out.append(f'소재 {p}' if i == 2 else p)
+    return ' · '.join(out)

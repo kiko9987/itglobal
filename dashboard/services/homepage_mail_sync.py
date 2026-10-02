@@ -31,6 +31,7 @@ from dashboard.services.lead_helpers import (
     extract_korean_address,
     clean_multiline,
     extract_keywords_from_sources,
+    normalize_inflow,
 )
 from dashboard.services.address_resolver import resolve_address
 from dashboard.utils.logging_config import get_logger
@@ -221,6 +222,21 @@ def _clean(text: str) -> str:
     return text.strip()
 
 
+# 숨은 필드 값 자리에 값 대신 올 수 있는 다음 라벨/꼬리 줄 (값 없음 판정용)
+_HIDDEN_FIELD_STOP_LINES = ('문의유형', '유입경로', '입력폼 관리하기')
+
+
+def _parse_inflow_field(body: str) -> str:
+    """메일 본문의 '유입경로' 숨은 필드 원값 (라벨 줄 바로 다음 한 줄). 없으면 ''."""
+    m = re.search(r'(?m)^[ \t]*유입경로[ \t]*\r?\n[ \t]*([^\r\n]*)', body or '')
+    if not m:
+        return ''
+    val = m.group(1).strip()
+    if not val or val.startswith(_HIDDEN_FIELD_STOP_LINES):
+        return ''
+    return val
+
+
 def parse_mail_body(body: str) -> Dict[str, Any]:
     """아임웹 메일 본문 → 7개 필드 dict. category에 따라 분기."""
     category = _detect_category(body)
@@ -259,11 +275,20 @@ def parse_mail_body(body: str) -> Dict[str, Any]:
         # 문의 내용 — 라벨 뒤 부가 표기([장문 가능]) 흡수 후 실제 내용만.
         #   세척 랜딩(2026-09-25)은 폼 끝에 숨은 '문의유형' 필드를 붙여 보냄 → 그 값이
         #   문의 내용에 섞이지 않도록 '문의유형'도 종료 앵커에 포함.
+        #   유입경로(2026-10-02)도 숨은 필드 → 줄 단위 라벨로 종료 앵커에 포함(필드 순서 무관).
         result['details'] = _clean(
-            _safe_search(r'문의 내용[^\n]*\n\s*([\s\S]+?)(?:문의유형|입력폼 관리하기|$)', body)
+            _safe_search(
+                r'문의 내용[^\n]*\n\s*([\s\S]+?)'
+                r'(?:문의유형|\n[ \t]*유입경로[ \t]*\r?\n|입력폼 관리하기|$)',
+                body,
+            )
         )
         # 문의유형(설치/세척) — 세척 전용 랜딩이 숨은 라디오로 전송. 없으면 설치(기본).
-        result['inquiry_type'] = _safe_search(r'문의유형\s*\n\s*(\S[^\n]*)', body).strip()
+        _itype = _safe_search(r'문의유형\s*\n\s*(\S[^\n]*)', body).strip()
+        result['inquiry_type'] = '' if _itype.startswith(_HIDDEN_FIELD_STOP_LINES) else _itype
+        # 유입경로(UTM) — 숨은 단답 필드. 값 없으면 아임웹이 라벨만 남김 → 바로 다음 줄만
+        #   보고, 빈 줄·다른 라벨이면 ''. 필드 없는 옛 메일도 '' (하위호환).
+        result['inflow'] = _parse_inflow_field(body)
 
     elif category == '게시판':
         result['inquiry_time'] = _safe_search(
@@ -337,6 +362,18 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
     inquiry_type = (parsed.get('inquiry_type') or '').strip()
     if inquiry_type == '세척':
         inquiry = f'[세척]\n{inquiry}' if inquiry else '[세척]'
+    # 유입경로(UTM) — [유입:당근/web_install/A] 마커로 영속화(시트 '문의 내용'에서 필터).
+    #   [세척] 다음 줄에 둔다(세척 감지가 startswith('[세척]') 라 순서 유지).
+    #   카드 빌더가 마커를 떼어 '유입 경로' 줄로 표시. (2026-10-02)
+    _inquiry_for_addr = inquiry   # 주소 fallback 은 유입 마커 붙기 전 텍스트로 (기존 동작 유지)
+    inflow = normalize_inflow(parsed.get('inflow') or '')
+    if inflow:
+        marker = f'[유입:{inflow}]'
+        if inquiry.startswith('[세척]'):
+            rest = inquiry[len('[세척]'):].lstrip('\n')
+            inquiry = f'[세척]\n{marker}' + (f'\n{rest}' if rest else '')
+        else:
+            inquiry = f'{marker}\n{inquiry}' if inquiry else marker
     name = (parsed.get('name') or '').strip()
     email = (parsed.get('email') or '').strip() or ''
 
@@ -357,14 +394,14 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         if combined:
             _addr_raw = combined
             extracted_address, extract_level = resolve_address(combined, combined, 'form')
-    if not extracted_address and inquiry:
+    if not extracted_address and _inquiry_for_addr:
         # 구 폼 fallback — 문의 내용에서 주소 추출
-        regex_result = extract_korean_address(inquiry)
+        regex_result = extract_korean_address(_inquiry_for_addr)
         regex_addr = regex_result[0] if regex_result else None
         regex_level = regex_result[1] if regex_result else ''
         _addr_raw = regex_addr or _addr_raw
         extracted_address, extract_level = resolve_address(
-            inquiry, regex_addr, regex_level
+            _inquiry_for_addr, regex_addr, regex_level
         )
 
     # 키워드: device + place + inquiry 에서 KEYWORD_VOCAB 매칭
@@ -402,6 +439,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         '_meta_device': device,
         '_meta_inquiry': inquiry,
         '_meta_inquiry_type': inquiry_type,    # 설치/세척 (세척 카드 배지·구분용)
+        '_meta_inflow': inflow,                # 유입 출처(UTM) 정규화값 (마커 본문과 동일)
         '_meta_address_level': extract_level,  # 신뢰도 표시용
         '_meta_address_raw': _addr_raw,        # 원본 주소 표시용 (원본/변환 2줄, 당근과 통일)
     }

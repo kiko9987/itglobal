@@ -365,7 +365,8 @@ def _build_repeat_section(lead: dict) -> str:
     most_recent = prev_leads[0]
     prev_no = most_recent.get('lead_no', '')
     prev_time = (most_recent.get('consult_time') or '').strip()
-    prev_inquiry = (most_recent.get('inquiry') or '').strip() or '-'
+    from dashboard.services.lead_helpers import split_inflow_marker
+    prev_inquiry = split_inflow_marker(most_recent.get('inquiry') or '')[1].strip() or '-'
     prev_status = (most_recent.get('status') or '').strip() or '-'
     prev_address = (most_recent.get('address') or '').strip() or '-'
     prev_feedback = (most_recent.get('feedback') or '').strip() or '-'
@@ -1479,6 +1480,11 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     # 세척 견적 문의 감지 (2026-09-25) — 홈페이지 세척 랜딩 리드. 파서가 문의내용 앞에
     #   [세척] 마커로 영속화(시트·재렌더 유지). 여기서 마커로 감지 → 배지 표시 + 표기에선 마커 제거.
     is_clean_req = _is_clean_lead(lead)
+    # 유입 출처(UTM) 마커 [유입:당근/web_install/A] (2026-10-02) — 표기에선 떼고 별도 줄로.
+    from dashboard.services.lead_helpers import split_inflow_marker, format_inflow_marker_display
+    inflow_raw, inquiry = split_inflow_marker(inquiry)
+    inflow_display = format_inflow_marker_display(inflow_raw)
+    inquiry = inquiry.strip() or '-'
     if isinstance(inquiry, str) and inquiry.lstrip().startswith('[세척]'):
         inquiry = re.sub(r'^\s*\[세척\]\s*\n?', '', inquiry).strip() or '-'
     place_label = '세척 희망 장소' if is_clean_req else '설치 희망 장소'
@@ -1565,6 +1571,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         f">*{place_label}* : {place}\n"
         f">*{device_label}* : {device}\n"
         + f"{address_field}\n"
+        + (f">*유입 경로* : {_oneline(inflow_display)}\n" if inflow_display else "")
         + f">*문의 내용* : \n{inquiry_quoted}\n"
         f">--------------------------------------------"
     )
