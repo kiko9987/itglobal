@@ -223,7 +223,7 @@ def _clean(text: str) -> str:
 
 
 # 숨은 필드 값 자리에 값 대신 올 수 있는 다음 라벨/꼬리 줄 (값 없음 판정용)
-_HIDDEN_FIELD_STOP_LINES = ('문의유형', '유입경로', '입력폼 관리하기')
+_HIDDEN_FIELD_STOP_LINES = ('문의유형', '유입경로', 'gclid', '입력폼 관리하기')
 
 
 def _parse_inflow_field(body: str) -> str:
@@ -235,6 +235,19 @@ def _parse_inflow_field(body: str) -> str:
     if not val or val.startswith(_HIDDEN_FIELD_STOP_LINES):
         return ''
     return val
+
+
+def _parse_gclid_field(body: str) -> str:
+    """메일 본문의 'gclid' 숨은 필드 원값 (구글 광고 클릭ID). 라벨 줄 바로 다음 한 줄.
+    광고 외 유입(네이버·자연·당근)은 빈값. gclid 는 공백 없는 단일 토큰이라 첫 토큰만."""
+    m = re.search(r'(?m)^[ \t]*gclid[ \t]*\r?\n[ \t]*([^\r\n]*)', body or '')
+    if not m:
+        return ''
+    val = m.group(1).strip()
+    if not val or val.startswith(_HIDDEN_FIELD_STOP_LINES):
+        return ''
+    parts = val.split()
+    return parts[0] if parts else ''
 
 
 def parse_mail_body(body: str) -> Dict[str, Any]:
@@ -279,7 +292,7 @@ def parse_mail_body(body: str) -> Dict[str, Any]:
         result['details'] = _clean(
             _safe_search(
                 r'문의 내용[^\n]*\n\s*([\s\S]+?)'
-                r'(?:문의유형|\n[ \t]*유입경로[ \t]*\r?\n|입력폼 관리하기|$)',
+                r'(?:문의유형|\n[ \t]*유입경로[ \t]*\r?\n|\n[ \t]*gclid[ \t]*\r?\n|입력폼 관리하기|$)',
                 body,
             )
         )
@@ -289,6 +302,8 @@ def parse_mail_body(body: str) -> Dict[str, Any]:
         # 유입경로(UTM) — 숨은 단답 필드. 값 없으면 아임웹이 라벨만 남김 → 바로 다음 줄만
         #   보고, 빈 줄·다른 라벨이면 ''. 필드 없는 옛 메일도 '' (하위호환).
         result['inflow'] = _parse_inflow_field(body)
+        # gclid — 구글 광고 클릭ID (숨은 단답 필드). 광고 외 유입은 ''. 시트 Q열 영속 저장.
+        result['gclid'] = _parse_gclid_field(body)
 
     elif category == '게시판':
         result['inquiry_time'] = _safe_search(
@@ -434,6 +449,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         '온라인 상담자': '',
         '영업 담당자': '',
         '마지막 연락일': '',
+        'gclid': (parsed.get('gclid') or '').strip(),  # Q열 — 구글 광고 클릭ID (어트리뷰션/오프라인전환)
         # 슬랙 메시지용 메타
         '_meta_place': place,
         '_meta_device': device,

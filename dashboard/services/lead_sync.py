@@ -26,6 +26,7 @@ from dashboard.services.lead_service import (
     _get_sheet_config,
     get_sheets_manager,
     LEAD_COLUMN_ORDER,
+    LEAD_SHEET_LAST_COL,
     invalidate_leads_cache,
 )
 from dashboard.utils.logging_config import get_logger
@@ -746,9 +747,9 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
         rows.append([lead.get(col, '') for col in LEAD_COLUMN_ORDER])
 
     # values.append() 사용 — 자동으로 grid 확장 + 다음 빈 행에 추가
-    # range를 'A1:P1'로 한정해 시트의 다른 컬럼 영향 받지 않게 (헤더 영역만 참조)
+    # range를 헤더 영역(A1:마지막열1)으로 한정 — 마지막 컬럼은 매핑에서 파생(레터 하드코딩 금지).
     sheet_name = cfg['sheet_name']
-    range_name = f"'{sheet_name}'!A1:P1"
+    range_name = f"'{sheet_name}'!A1:{LEAD_SHEET_LAST_COL}1"
 
     result = mgr.service.spreadsheets().values().append(
         spreadsheetId=cfg['sheet_id'],

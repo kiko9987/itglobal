@@ -42,10 +42,13 @@ LEAD_COLUMN_MAPPING: Dict[str, str] = {
     '영업 담당자':     'N',
     '본인 방문 여부':  'O',  # 2026-07-17 재활용 (옛 '마지막 연락일'). 워크플로 라디오 output
     '폴더 ID':        'P',  # 방문 사진 업로드 시 자동 write (2026-07 신규)
+    'gclid':          'Q',  # 2026-10-02 구글 광고 클릭ID(어트리뷰션/오프라인전환). 아임웹 폼 숨은필드→파서→Q열.
 }
 
 # 헤더 순서대로의 컬럼 리스트 (새 행 작성 시 사용)
 LEAD_COLUMN_ORDER: List[str] = list(LEAD_COLUMN_MAPPING.keys())
+# 시트 읽기/쓰기 range 마지막 컬럼 레터 — 매핑에서 파생(레터 하드코딩 금지, 컬럼 추가 시 자동 반영).
+LEAD_SHEET_LAST_COL: str = list(LEAD_COLUMN_MAPPING.values())[-1]
 
 # 컬럼 alias - 기존 코드 호환을 위해 일부 옛 이름도 받아들임
 LEAD_FIELD_ALIASES: Dict[str, str] = {
@@ -102,7 +105,7 @@ def load_leads_data(force_refresh: bool = False) -> Optional[pd.DataFrame]:
             return None
 
         manager = get_sheets_manager()
-        sheet_range = f"{cfg['sheet_name']}!A:P"  # 16열 (A~P, 2026-07 폴더 ID 추가)
+        sheet_range = f"{cfg['sheet_name']}!A:{LEAD_SHEET_LAST_COL}"  # A~Q (gclid 포함, 매핑 파생)
 
         logger.debug(f"[LEADS] Google Sheets 데이터 가져오기: {sheet_range}")
         df = manager.get_sheet_data(cfg['sheet_id'], sheet_range)

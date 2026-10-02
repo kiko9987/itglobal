@@ -5526,7 +5526,7 @@ def _migrate_etc_redis_to_sheet(dry_run: bool = True) -> dict:
         from dashboard.utils.redis_client import get_redis_client
         from dashboard.services.lead_service import (
             _get_sheet_config, get_sheets_manager, LEAD_COLUMN_ORDER,
-            invalidate_leads_cache,
+            LEAD_SHEET_LAST_COL, invalidate_leads_cache,
         )
         rc = get_redis_client().redis
         keys = list(rc.scan_iter(match='etc_visit:*'))
@@ -5582,7 +5582,7 @@ def _migrate_etc_redis_to_sheet(dry_run: bool = True) -> dict:
                 # 리드 시트에는 못 씀. values().append() 직접 호출.
                 manager.service.spreadsheets().values().append(
                     spreadsheetId=cfg['sheet_id'],
-                    range=f"'{cfg['sheet_name']}'!A:P",
+                    range=f"'{cfg['sheet_name']}'!A:{LEAD_SHEET_LAST_COL}",
                     valueInputOption='USER_ENTERED',
                     insertDataOption='INSERT_ROWS',
                     body={'values': [row]},
