@@ -256,13 +256,56 @@ def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:
                 slack.pins_add(channel=channel, timestamp=ts)
             except Exception as exc:
                 logger.warning(f'[SMS_INBOUND] 인입 카드 고정 실패(무해, pins:write 확인 필요): {exc}')
+            if not (preview or {}).get('cash'):
+                _suggest_transfer_async(slack, channel, ts, intake_id, clean_text, preview)
         return True
     except Exception as exc:
         logger.error(f'[SMS_INBOUND] 카드 게시 실패: {exc}', exc_info=True)
         return False
 
 
-def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list:
+def _suggest_transfer_async(slack, channel: str, ts: str, intake_id: str,
+                            clean_text: str, preview: dict) -> None:
+    """게시한 입금 카드가 법인 간 이체로 들어온 돈인지 백그라운드로 점검 → 카드에 안내·버튼 추가.
+
+    대기 중인 자금 이동 요청(시트 메모 원장, fund_transfer)과 도착 사업자·금액·이름 앞부분이
+    맞으면 '[🔁 법인 간 이체로 처리]' + 일치 안내, 맞는 게 없어도 같은 사업자로 가는 대기 요청이
+    있으면 '[🔁 법인 간 이체]'(직접 고르기). 대기 요청 자체가 없으면 카드 그대로(평소 입금 깔끔).
+    """
+    import threading
+
+    def _bg():
+        try:
+            from dashboard.services import fund_transfer as ft
+            to = ft.deposit_entity(clean_text, preview)
+            if to not in ('G', 'R'):
+                return
+            reqs = ft.pending_requests()
+            if not any(r.get('to') == to for r in reqs):
+                return
+            cands = ft.match_deposit(clean_text, preview, reqs)
+            evidence = bool(cands) and bool(
+                ft.outflow_evidence(cands[0], int(time.time()) - 3 * 86400))
+            # 그 사이 매니저가 먼저 지정했으면 카드를 되돌리지 않는다
+            raw = get_redis_client().redis.get(f'sms_intake:{intake_id}')
+            if not raw or (json.loads(raw).get('designation')):
+                return
+            slack.chat_update(
+                channel=channel, ts=ts, text='입금 문자 도착 — 프로젝트 지정 필요',
+                blocks=_build_intake_blocks(intake_id, clean_text, preview, transfer={
+                    'cands': cands, 'evidence': evidence}))
+            if cands:
+                logger.info(f"[FUND_MOVE] 이체 입금 후보 안내: {intake_id} → "
+                            f"{[(c['code'], c['stage']) for c in cands]} 출금증거={evidence}")
+        except Exception as exc:
+            logger.warning(f'[FUND_MOVE] 이체 후보 점검 실패(무해): {exc}')
+
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict,
+                         transfer: dict = None) -> list:
+    """transfer: {'cands': [대기 요청…], 'evidence': bool} — 법인 간 이체 안내·버튼 (2026-10-04)."""
     # 온라인/방문 카드와 동일 구조 — 헤더·구분선·본문·구분선을 한 섹션에 전부 '>' 인용으로
     # 넣어 섹션 간 여백 제거(2026-08-14). 문자 원문 그대로 노출(잔액만 제거).
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
@@ -282,24 +325,49 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict) -> list
     header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
     lines = ["⠀", f">🔔 *{header}*", f">{INTAKE_SEP}",
              *quoted_body(clean_text), f">{INTAKE_SEP}"]
-    blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}},
-        {"type": "actions", "elements": [
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "🔗 프로젝트 지정"},
-                "action_id": "payment_intake_open",
-                "value": intake_id,
-            },
-            {
-                # 통합 입금(한 문자에 여러 프로젝트 금액) → 프로젝트별 분할 지정
-                "type": "button",
-                "text": {"type": "plain_text", "text": "⚖️ 프로젝트 분할 지정"},
-                "action_id": "payment_intake_split_open",
-                "value": intake_id,
-            },
-        ]},
+    elements = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "🔗 프로젝트 지정"},
+            "action_id": "payment_intake_open",
+            "value": intake_id,
+        },
+        {
+            # 통합 입금(한 문자에 여러 프로젝트 금액) → 프로젝트별 분할 지정
+            "type": "button",
+            "text": {"type": "plain_text", "text": "⚖️ 프로젝트 분할 지정"},
+            "action_id": "payment_intake_split_open",
+            "value": intake_id,
+        },
     ]
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}}]
+    if transfer is not None:
+        from dashboard.services.fund_transfer import ENTITY
+        cands = (transfer.get('cands') or [])[:3]
+        if cands:
+            descs = [f"`{c['code']}` {c['stage']} ({c.get('bank', '')} → {ENTITY.get(c['to'], c['to'])} · "
+                     f"{int(c['amount']):,}원 · {c.get('partner', '')})" for c in cands]
+            ev = ' · 출발 계좌 출금 문자 확인됨' if transfer.get('evidence') else ''
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
+                f"🔁 *법인 간 이체로 보입니다* — 자금 이동 요청 {' / '.join(descs)}와 일치{ev}\n"
+                f"_경영지원이 이체한 돈이면 아래 버튼으로 처리하세요. 고객이 보낸 돈이면 평소처럼 지정._")}})
+            tbtns = [{
+                "type": "button", "style": "primary",
+                "text": {"type": "plain_text",
+                         "text": "🔁 법인 간 이체로 처리" if len(cands) == 1 else f"🔁 이체: {c['code']}"},
+                "action_id": f"payment_intake_transfer_{k}",
+                "value": json.dumps({'iid': intake_id, 'code': c['code'], 'stage': c['stage']},
+                                    ensure_ascii=False),
+            } for k, c in enumerate(cands)]
+            elements = tbtns + elements
+        else:
+            elements.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": "🔁 법인 간 이체"},
+                "action_id": "payment_intake_transfer_pick",
+                "value": intake_id,
+            })
+    blocks.append({"type": "actions", "elements": elements})
     # 원본 압축 문자(농협 등)가 표준 양식으로 자동 변환된 경우 배지 표시
     if (preview or {}).get('converted'):
         blocks.append({"type": "context", "elements": [

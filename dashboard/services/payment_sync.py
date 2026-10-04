@@ -1813,6 +1813,49 @@ def _reprice_payment_card(slack, channel: str, rep: Dict,
         return False
 
 
+def rerender_stage_card(project: str, stage: str) -> bool:
+    """프로젝트·단계의 기존 #수금_관리 카드를 현재 시트 메모로 재렌더 (외부 호출용).
+
+    메모만 바뀌고 phash(단계·날짜·금액·거래처)는 그대로인 변경 — 예: 법인 간 이체 매출이동 줄
+    (transfer_to 표시만 추가) — 은 폴러가 감지하지 못하므로 호출부가 직접 갱신한다.
+    카드 ts 가 없으면(옛 카드·TTL 만료) skip. Returns 갱신 여부.
+    """
+    sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    channel = os.getenv('SLACK_PAYMENT_CHANNEL', '').strip()
+    bot_token = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip()
+    if not (sheet_id and sheet_name and channel and bot_token):
+        return False
+    try:
+        ts = get_redis_client().redis.get(f'payment_slack:ts:{project}:{stage}')
+        ts = ts.decode() if isinstance(ts, bytes) else ts
+        if not ts:
+            logger.info(f'[PAYMENT] 재렌더 skip — 카드 ts 없음 ({project}/{stage})')
+            return False
+        svc = _get_payment_service()
+        codes = svc.spreadsheets().values().get(
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:A10000").execute().get('values', [])
+        row = next((i + 2 for i, r in enumerate(codes) if r and str(r[0]).strip() == project), None)
+        if not row:
+            return False
+        vals = svc.spreadsheets().values().get(
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A{row}:AD{row}",
+            valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
+        vals = vals + [''] * (30 - len(vals))
+        rep = {
+            'project': project, 'stage': stage, 'ts': ts, 'row': row,
+            'u': _to_int_won(vals[20]), 'v': _to_int_won(vals[21]), 'w': _to_int_won(vals[22]),
+            'address': str(vals[5]).strip(), 'construction': str(vals[11]).strip(),
+            'invoice': str(vals[24]).strip(), 'total_r': _to_int_won(vals[17]),
+            'total_t': _to_int_won(vals[19]), 'unpaid': _to_int_won(vals[23]),
+        }
+        from slack_sdk import WebClient
+        return _reprice_payment_card(WebClient(token=bot_token), channel, rep, sheet_id, sheet_name)
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 재렌더 실패 ({project}/{stage}): {exc}')
+        return False
+
+
 def _send_refund_card(slack, channel: str, rs: Dict,
                       sheet_id: str, sheet_name: str) -> bool:
     """과입금 반환 신규 → '반환' 새 카드 발송 (누적이력 포함). 값 감소라 일반 발송 트리거 밖.

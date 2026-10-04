@@ -932,6 +932,74 @@ def _register_payment_handlers(app):
                 logger.error(f"[SLACK/수금봇] submit_split 처리 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    # ── 법인 간 이체 (자금 이동 요청 짝 처리, 2026-10-04) ───────────────────────────
+    #   이체로 들어온 입금 카드의 [🔁 법인 간 이체로 처리](일치 후보) / [🔁 법인 간 이체](직접 고르기).
+    #   원 입금 메모에 매출이동 줄 자동 기록 + 이 카드는 기록 없이 닫음. 경영지원만.
+    def _transfer_ctx(body):
+        user = (body.get("user") or {}).get("id", "")
+        channel = ((body.get("channel") or {}).get("id", "")
+                   or (body.get("container") or {}).get("channel_id", ""))
+        ts = ((body.get("message") or {}).get("ts", "")
+              or (body.get("container") or {}).get("message_ts", ""))
+        return user, channel, ts
+
+    @app.action(re.compile(r"^payment_intake_transfer_\d+$"))
+    def handle_payment_intake_transfer(ack, body, client):
+        ack()
+        user, channel, ts = _transfer_ctx(body)
+        if user != _SETTLEMENT_CHECKER_ID:
+            _intake_ephemeral(client, channel, user, "🔒 법인 간 이체 처리는 경영지원만 할 수 있습니다.")
+            return
+        try:
+            v = json.loads(((body.get("actions") or [{}])[0]).get("value") or "{}")
+        except Exception:
+            v = {}
+        threading.Thread(target=_do_intake_transfer, daemon=True, args=(
+            client, user, channel, ts, v.get("iid", ""), v.get("code", ""), v.get("stage", ""))).start()
+
+    @app.action("payment_intake_transfer_pick")
+    def handle_payment_intake_transfer_pick(ack, body, client):
+        ack()
+        user, channel, ts = _transfer_ctx(body)
+        if user != _SETTLEMENT_CHECKER_ID:
+            _intake_ephemeral(client, channel, user, "🔒 법인 간 이체 처리는 경영지원만 할 수 있습니다.")
+            return
+        iid = ((body.get("actions") or [{}])[0]).get("value") or ""
+        # placeholder-first — 대기 요청 스캔(시트 메모 전체, ~2초)이 trigger_id 3초를 넘길 수 있음
+        try:
+            resp = client.views_open(trigger_id=body.get("trigger_id"), view={
+                "type": "modal", "callback_id": "submit_payment_intake_transfer",
+                "title": {"type": "plain_text", "text": "법인 간 이체"},
+                "close": {"type": "plain_text", "text": "취소"},
+                "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                           "text": ":hourglass_flowing_sand: 자금 이동 요청 불러오는 중..."}}]})
+            view_id = ((resp or {}).get("view") or {}).get("id", "")
+        except Exception as exc:
+            logger.warning(f"[FUND_MOVE] 직접 고르기 모달 오픈 실패: {exc}")
+            return
+
+        def _bg():
+            try:
+                client.views_update(view_id=view_id, view=_build_transfer_pick_view(iid, channel, ts))
+            except Exception as exc:
+                logger.warning(f"[FUND_MOVE] 직접 고르기 모달 갱신 실패: {exc}")
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view("submit_payment_intake_transfer")
+    def handle_submit_payment_intake_transfer(ack, body, view, client):
+        meta = json.loads(view.get("private_metadata") or "{}")
+        sel = (((view.get("state") or {}).get("values") or {}).get("req", {})
+               .get("transfer_req", {}).get("selected_option"))
+        if not sel:
+            ack(response_action="errors", errors={"req": "옮긴 입금을 선택하세요."})
+            return
+        ack()
+        v = json.loads(sel.get("value") or "{}")
+        user = (body.get("user") or {}).get("id", "")
+        threading.Thread(target=_do_intake_transfer, daemon=True, args=(
+            client, user, meta.get("channel", ""), meta.get("ts", ""), meta.get("iid", ""),
+            v.get("code", ""), v.get("stage", ""))).start()
+
     @app.event("message")
     def handle_payment_channel_message(event, client):
         """#입금_입력 채널에 사람이 붙여넣은 은행 입금 문자 → 🔗 인입 카드 (농협 등 수동 건).
@@ -1441,6 +1509,120 @@ def _build_intake_split_done_blocks(splits, total, by_user, checker, memo=""):
         lines += [f">     :warning: {w}" for w in (s.get('warns') or [])]
     lines.append(f">{INTAKE_SEP}")
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
+
+
+def _build_transfer_pick_view(intake_id, channel, ts):
+    """[🔁 법인 간 이체] 직접 고르기 모달 — 이 입금 계좌 사업자로 가는 대기 자금 이동 요청 목록."""
+    from dashboard.services import fund_transfer as ft
+    d = _load_intake(intake_id)
+    to = ft.deposit_entity(d.get("text", ""), d.get("preview") or {})
+    reqs = [r for r in ft.pending_requests(force=True) if r.get("to") == to][:100]
+    base = {"type": "modal", "callback_id": "submit_payment_intake_transfer",
+            "title": {"type": "plain_text", "text": "법인 간 이체"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "private_metadata": json.dumps({"iid": intake_id, "channel": channel, "ts": ts})}
+    if not d.get("text"):
+        return {**base, "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                "text": ":information_source: 이미 처리된 입금입니다."}}]}
+    if not reqs:
+        return {**base, "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                "text": f":information_source: {ft.ENTITY.get(to, to)} 계좌로 옮길 대기 중인 자금 이동 요청이 없습니다."}}]}
+    amt = abs(int((d.get("preview") or {}).get("amount") or 0))
+    opts = [{"text": {"type": "plain_text", "text": (
+                f"{r['code']} {r['stage']} · {int(r['amount']):,}원 · {r.get('partner', '')} "
+                f"({r.get('bank', '')}→{ft.ENTITY.get(r['to'], r['to'])}, {r.get('date', '')})")[:75]},
+             "value": json.dumps({"code": r["code"], "stage": r["stage"]}, ensure_ascii=False)}
+            for r in reqs]
+    return {**base, "submit": {"type": "plain_text", "text": "이체로 처리"}, "blocks": [
+        {"type": "section", "text": {"type": "mrkdwn", "text": (
+            f"이 입금(*{amt:,}원*)이 어느 입금을 옮긴 것인지 고르세요.\n"
+            f"원 입금 메모에 매출이동 줄이 기록되고, 이 카드는 시트 기록 없이 닫힙니다.")}},
+        {"type": "input", "block_id": "req", "label": {"type": "plain_text", "text": "자금 이동 요청"},
+         "element": {"type": "static_select", "action_id": "transfer_req", "options": opts,
+                     "placeholder": {"type": "plain_text", "text": "옮긴 입금 선택"}}},
+    ]}
+
+
+def _build_intake_transfer_done_blocks(req, amount, memo, checker):
+    """법인 간 이체 처리 완료 카드 — 원문 유지, 버튼 없음."""
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
+    from dashboard.services import fund_transfer as ft
+    to_bank = ''
+    try:
+        from dashboard.services.itg_accounts import match_account
+        a = match_account(memo or '')
+        to_bank = a.bank if a else ''
+    except Exception:
+        pass
+    ck = _resolve_manager_initial(checker)
+    lines = ["⠀", f">🔁 *법인 간 이체 처리됨*  `{req['code']}` · {req['stage']}",
+             (f">{req.get('bank', '')} ({ft.ENTITY.get(req['from'], req['from'])}) → "
+              f"{to_bank} ({ft.ENTITY.get(req['to'], req['to'])}) · {int(amount):,}원 · 처리 {ck}"),
+             f">원 입금 메모에 매출이동 기록 — 시트 금액 변동 없음",
+             f">{INTAKE_SEP}", *quoted_body(memo), f">{INTAKE_SEP}"]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}}]
+
+
+def _do_intake_transfer(client, user, channel, ts, intake_id, code, stage):
+    """법인 간 이체 처리 — 원 입금 메모에 매출이동 줄 + 이 입금 카드는 기록 없이 닫기 (멱등·락)."""
+    from dashboard.services import fund_transfer as ft
+    rc = None
+    lock = f"intake_transfer_lock:{intake_id}"
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        if not rc.set(lock, user or '1', nx=True, ex=120):
+            _intake_ephemeral(client, channel, user, ":hourglass_flowing_sand: 이미 처리 중입니다.")
+            return
+    except Exception:
+        rc = None
+    try:
+        d = _load_intake(intake_id)
+        if not d.get("text"):
+            _intake_ephemeral(client, channel, user, ":information_source: 이미 처리된 입금입니다.")
+            return
+        pv = d.get("preview") or {}
+        amt = abs(int(pv.get("amount") or 0))
+        cands = [r for r in ft.pending_requests(force=True)
+                 if r.get("code") == code and r.get("stage") == stage]
+        if not cands:
+            _intake_ephemeral(client, channel, user,
+                              f":warning: {code} {stage} 대기 중인 자금 이동 요청을 찾지 못했습니다 "
+                              f"(이미 처리됐거나 메모가 바뀌었습니다).")
+            return
+        req = next((r for r in cands if int(r.get("amount") or 0) == amt), cands[0])
+        with _INTAKE_SHEET_LOCK:
+            ft.apply_transfer(req, d.get("text", ""), pv, _resolve_manager_initial(user))
+        if channel and ts:
+            client.chat_update(channel=channel, ts=ts,
+                               text=f"🔁 법인 간 이체 처리됨: {code} · {stage}",
+                               blocks=_build_intake_transfer_done_blocks(req, amt, d.get("text", ""), user))
+            try:
+                _react_card_handled(client, channel, ts)
+            except Exception:
+                pass
+            try:
+                client.pins_remove(channel=channel, timestamp=ts)
+            except Exception:
+                pass
+        if rc is not None:
+            try:
+                rc.delete(f"sms_intake:{intake_id}")   # 처리 완료 — 지정·확인 대상 아님
+            except Exception:
+                pass
+        diff = ('' if int(req.get('amount') or 0) == amt else
+                f" (요청 금액 {int(req['amount']):,}원 ≠ 이체 입금 {amt:,}원 — 메모 확인 필요)")
+        _intake_ephemeral(client, channel, user,
+                          f":white_check_mark: {code} {stage} 메모에 법인 간 이체(매출이동) 기록 완료{diff}")
+    except Exception as exc:
+        logger.error(f"[FUND_MOVE] 법인 간 이체 처리 실패 ({intake_id} → {code}/{stage}): {exc}", exc_info=True)
+        _intake_ephemeral(client, channel, user, f":warning: 법인 간 이체 처리 실패: {exc}")
+    finally:
+        if rc is not None:
+            try:
+                rc.delete(lock)
+            except Exception:
+                pass
 
 
 def _intake_ephemeral(client, channel, user_id, text):

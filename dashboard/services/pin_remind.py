@@ -401,7 +401,8 @@ def build_pin_remind_text(data: dict) -> str:
     invoices = data.get('invoices', [])
     others = data.get('others', [])
     intakes = data.get('intakes', [])
-    total = len(deposits) + len(invoices) + len(others) + len(intakes)
+    moves = data.get('moves', [])
+    total = len(deposits) + len(invoices) + len(others) + len(intakes) + len(moves)
 
     def _line(e: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
@@ -426,6 +427,18 @@ def build_pin_remind_text(data: dict) -> str:
         sections.append('\n'.join(
             [f':inbox_tray: *미처리 입금 — 지정/확인 필요 ({len(intakes)}건)*']
             + [_intake_line(e) for e in intakes]))
+    if moves:
+        # 계좌·사업자 불일치로 확인 기록된 입금 중 아직 법인 간 이체(매출이동) 안 된 것 (2026-10-04)
+        from dashboard.services.fund_transfer import ENTITY
+
+        def _move_line(m: dict) -> str:
+            when = f" · {m['date']} 입금" if m.get('date') else ''
+            return (f"• {m['code']} {m['stage']} {int(m['amount']):,}원 · {m.get('partner', '')} · "
+                    f"{m.get('bank', '')}({ENTITY.get(m['from'], m['from'])}) → "
+                    f"{ENTITY.get(m['to'], m['to'])}{when}")
+        sections.append('\n'.join(
+            [f':arrows_counterclockwise: *자금 이동 대기 — 법인 간 이체 필요 ({len(moves)}건)*']
+            + [_move_line(m) for m in moves]))
     if deposits:
         sections.append(_section(f':moneybag: *입금내역 ({len(deposits)}건)*', deposits))
     if invoices:
@@ -468,8 +481,15 @@ def send_pin_remind() -> dict:
     if intake_keys:
         data['deposits'] = [d for d in data.get('deposits', []) if d.get('key') not in intake_keys]
     data['intakes'] = intakes
+    # 자금 이동 대기(법인 간 이체 필요) — 시트 메모 원장 기준 (2026-10-04)
+    try:
+        from dashboard.services.fund_transfer import pending_requests
+        data['moves'] = pending_requests(force=True)
+    except Exception as exc:
+        logger.warning(f'[PIN] 자금 이동 대기 조회 실패(무시): {exc}')
+        data['moves'] = []
     data['total'] = (len(data.get('deposits', [])) + len(data.get('invoices', []))
-                     + len(data.get('others', [])) + len(intakes))
+                     + len(data.get('others', [])) + len(intakes) + len(data['moves']))
     if data['total'] == 0:
         logger.info('[PIN] 미처리 정산·입금 0건 — 발송 skip')
         return {'ok': True, 'total': 0, 'reason': None}
