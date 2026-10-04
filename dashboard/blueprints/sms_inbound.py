@@ -22,7 +22,7 @@ from flask import Blueprint, jsonify, request
 
 from dashboard.services.sms_intake import (
     active_display, dedup_hash, has_business_account, is_bank_interest,
-    looks_like_cash, looks_like_payment, normalize_cash_layout,
+    looks_like_cash, looks_like_payment, looks_like_withdrawal, normalize_cash_layout,
     normalize_deposit_layout, parse_preview, strip_balance, strip_bold_markers,
 )
 from dashboard.utils.logging_config import get_logger
@@ -34,6 +34,8 @@ sms_bp = Blueprint('sms_inbound', __name__, url_prefix='/sms')
 
 _INTAKE_TTL = 60 * 60 * 24 * 7   # 원문 보관 7일 (모달 제출까지 여유)
 _DEDUP_TTL = 60 * 60 * 24        # 중복 무시 24시간
+_OUTFLOW_TTL = 60 * 60 * 24 * 14  # 출금 문자 서버 보관 14일 (슬랙 미노출)
+_OUTFLOW_INDEX = 'sms_outflow:index'   # zset(score=수신 시각) — 기간 조회용
 
 
 def _load_device_tokens() -> dict:
@@ -118,6 +120,9 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> d
     is_cash = looks_like_cash(text) and not has_business_account(text)
     if not is_cash:
         if not looks_like_payment(text):
+            # 회사 계좌 출금 문자 — 슬랙 카드 없이 서버에만 보관 (법인 간 이체 짝짓기·진단용)
+            if looks_like_withdrawal(text) and has_business_account(text):
+                return record_outflow(text, source)
             return {'status': 'ignored', 'reason': 'not_payment'}
         # 사업자 통장(452/255/352) 입금만 통과 — 개인 계좌 입금(같은 은행이라도) 배제
         if not has_business_account(text):
@@ -171,6 +176,60 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> d
     if not _post_intake_card(intake_id, clean, preview):
         return {'status': 'card_failed', 'id': intake_id}
     return {'status': 'ok', 'id': intake_id, 'preview': preview}
+
+
+def record_outflow(text: str, source: str = 'sms') -> dict:
+    """회사 계좌 출금 문자 → 서버(Redis)에만 보관. 슬랙 카드·알림 없음 (2026-10-04 사용자 결정).
+
+    용도: ①법인 간 이체 짝짓기 증거(예 하나 출금 3,014,000원 → 1분 뒤 기업 입금 같은 금액·
+    같은 이름, G4125-YM) ②'무시된 문자가 뭐였나' 진단 — 예전엔 출금을 받자마자 버려 원문이
+    남지 않았다. 잔액 제거본만 저장(통장 잔고 비노출 원칙 동일). 폰 3대 동시 포워딩 → 본문 dedup.
+    """
+    try:
+        rc = get_redis_client().redis
+    except Exception as exc:
+        logger.warning(f'[SMS_INBOUND] Redis 접근 실패 (출금 보관 skip): {exc}')
+        return {'status': 'ignored', 'reason': 'outflow_unstored'}
+    oid = dedup_hash(source, text)
+    if not rc.set(f'sms_outflow:seen:{oid}', '1', nx=True, ex=_DEDUP_TTL):
+        return {'status': 'duplicate', 'reason': 'outflow', 'id': oid}
+    clean = strip_balance(text)
+    pv = parse_preview(clean) or {}
+    now = int(time.time())
+    rec = {
+        'text': clean, 'source': source, 'ts': now,
+        'amount': abs(int(pv.get('amount') or 0)),
+        'partner': (pv.get('partner') or '').strip(),
+        'bank': pv.get('bank') or '', 'acct_code': pv.get('acct_code') or '',
+        'date_md': pv.get('date_md') or '',
+    }
+    try:
+        rc.set(f'sms_outflow:{oid}', json.dumps(rec, ensure_ascii=False), ex=_OUTFLOW_TTL)
+        rc.zadd(_OUTFLOW_INDEX, {oid: now})
+        rc.zremrangebyscore(_OUTFLOW_INDEX, 0, now - _OUTFLOW_TTL)
+    except Exception as exc:
+        logger.warning(f'[SMS_INBOUND] 출금 보관 실패: {exc}')
+        return {'status': 'ignored', 'reason': 'outflow_unstored'}
+    logger.info(f"[SMS_INBOUND] 출금 문자 서버 보관(슬랙 미노출): {rec['bank']}({rec['acct_code']}) "
+                f"{rec['amount']:,}원 {rec['partner']!r} id={oid}")
+    return {'status': 'ignored', 'reason': 'outflow_recorded', 'id': oid}
+
+
+def recent_outflows(since_ts: int = 0) -> list:
+    """보관된 출금 문자 목록(수신 시각 오름차순). since_ts 이후만. 짝짓기·진단 조회용."""
+    try:
+        rc = get_redis_client().redis
+        ids = rc.zrangebyscore(_OUTFLOW_INDEX, since_ts, '+inf')
+        out = []
+        for i in ids:
+            i = i.decode() if isinstance(i, bytes) else i
+            raw = rc.get(f'sms_outflow:{i}')
+            if raw:
+                out.append(dict(json.loads(raw), id=i))
+        return out
+    except Exception as exc:
+        logger.warning(f'[SMS_INBOUND] 출금 목록 조회 실패: {exc}')
+        return []
 
 
 def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:

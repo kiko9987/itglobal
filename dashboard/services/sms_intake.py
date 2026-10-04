@@ -25,6 +25,8 @@ _BALANCE_LINE_RE = re.compile(
 _WEB_HEADER_RE = re.compile(r'^\s*\[[^\]]*발신\]\s*')
 # 입금 금액 — '입금 407,000원' / '입금5,115,000원'
 _DEPOSIT_RE = re.compile(r'입금\s*[\d,]+\s*원')
+# 출금 금액 — '출금3,014,000원' (하나) / '출금 200,000원'
+_WITHDRAW_RE = re.compile(r'출금\s*[\d,]+\s*원')
 
 
 def strip_balance(text: str) -> str:
@@ -47,6 +49,14 @@ def looks_like_payment(text: str) -> bool:
     if not text:
         return False
     return bool(_DEPOSIT_RE.search(text))
+
+
+def looks_like_withdrawal(text: str) -> bool:
+    """출금 문자 판별 — '출금 X원' 패턴. 입금 판별(looks_like_payment) 뒤에만 쓴다
+    (입금 문자는 기존 카드 경로 우선)."""
+    if not text:
+        return False
+    return bool(_WITHDRAW_RE.search(text))
 
 
 def strip_web_header(text: str) -> str:
