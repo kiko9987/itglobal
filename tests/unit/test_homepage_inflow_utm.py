@@ -209,3 +209,22 @@ def test_sync_skips_test_submission_without_sheet_or_slack(monkeypatch):
     h.sync_homepage_email()
     assert calls['append'] == 0 and calls['slack'] == 0
     assert calls['marked'] == ['m1']   # 재처리 루프 방지
+
+
+# ── 네이버 자동추적·구글 gclid 유입 (2026-10-04 스니펫 확장) ──
+
+@pytest.mark.parametrize('raw,marker,short', [
+    ('naver/천장형에어컨/천장형 에어컨 설치업체', '네이버/천장형에어컨/천장형에어컨설치업체', '네이버 천장형에어컨설치업체'),
+    ('naver//시스템에어컨 견적', '네이버/-/시스템에어컨견적', '네이버 시스템에어컨견적'),   # 확장검색(등록키워드 없음)
+    ('naver/냉난방기', '네이버/냉난방기', '네이버 냉난방기'),
+    ('google', '구글', '구글'),
+])
+def test_naver_google_inflow(raw, marker, short):
+    assert normalize_inflow(raw) == marker
+    assert format_inflow_short(marker) == short
+
+
+def test_naver_inflow_end_to_end_card():
+    lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n', '유입경로\r\nnaver/천장형에어컨/천장형 에어컨 설치\r\n')))
+    assert lead['문의 내용'].startswith('[유입:네이버/천장형에어컨/천장형에어컨설치]\n')
+    assert '온라인 (홈페이지 · 네이버 천장형에어컨설치)' in _section(lead)

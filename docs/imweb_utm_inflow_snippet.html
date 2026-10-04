@@ -1,41 +1,65 @@
 <!--
-  아임웹 바디 코드용 — 유입경로(UTM) 숨은 필드 자동 채움 (2026-10-02)
-  - 폼마다 '유입경로' 라벨의 단답형 필드를 찾아 숨기고 "utm_source/utm_campaign/utm_content" 를 채움
-    (예: daangn/web_install/A). 서버 파서(homepage_mail_sync.py)가 [유입:당근/web_install/A] 로 기록.
-  - 필드 id 대신 라벨 텍스트로 찾으므로 설치·세척 두 폼 위젯 공통, 기존 '문의유형' 코드와 독립.
-  - 첫 진입 URL 의 utm 을 sessionStorage 에 보관 → 같은 탭에서 다른 페이지로 이동 후 제출해도 유지.
-  - utm 이 없으면 아무것도 채우지 않음(메일엔 라벨만 남고 파서가 빈 값 처리).
+  아임웹 공용 바디 코드 — 유입경로 + gclid 숨은 필드 자동 채움
+  (2026-10-02 UTM 최초 / 같은 날 gclid 병합 / 2026-10-04 네이버·구글 자동 식별 추가)
+
+  유입경로 값 우선순위 (첫 진입 URL 기준, 같은 탭 sessionStorage 유지):
+    1) utm_source/utm_campaign/utm_content  → 예: daangn/web_install/A   → 시트 [유입:당근/web_install/A]
+    2) 네이버 검색광고 자동추적 파라미터     → naver/<등록키워드>/<실제검색어> → [유입:네이버/천장형에어컨/천장형 에어컨 설치업체]
+       (n_keyword / n_query — 네이버 '자동 추적 URL' 이 붙임. 확장검색은 n_keyword 가 비어 검색어만)
+    3) gclid 만 있음(구글 광고)               → google                    → [유입:구글]
+  gclid 는 별도 숨은 필드('gclid')에 원문 그대로 (구글 오프라인 전환용, 자르기 금지).
+
+  - 필드 id 대신 라벨 텍스트('유입경로', 'gclid')로 찾음 → 설치·세척 폼 공통, '문의유형' 코드와 독립.
+  - 서버 파서(homepage_mail_sync.py) 가 정규화·한글화(naver→네이버, google→구글).
+  - ⚠️ 라벨 텍스트를 바꾸면 파서·이 코드 둘 다 깨짐.
 -->
 <script>
 (function () {
   try {
-    var KEY = 'itg_inflow_v1', LABEL = '유입경로';
     var q = new URLSearchParams(location.search);
-    var parts = [q.get('utm_source'), q.get('utm_campaign'), q.get('utm_content')].map(function (v) {
-      return (v || '').replace(/[\/|\r\n]/g, '').trim().slice(0, 30);
-    });
-    var val = parts.join('/').replace(/\/+$/, '');
-    if (val) { try { sessionStorage.setItem(KEY, val); } catch (e) {} }
-    else { try { val = sessionStorage.getItem(KEY) || ''; } catch (e) {} }
+    function part(v) { return (v || '').replace(/[\/|\r\n]/g, '').trim().slice(0, 30); }
+
+    // gclid — 기계 토큰: 자르기/문자제거 금지(개행만 정리)
+    var gclid = (q.get('gclid') || '').replace(/[\r\n\t]/g, '').trim();
+
+    // 유입경로 — 사람이 읽는 라벨
+    var inflow = '';
+    if (q.get('utm_source') || q.get('utm_campaign') || q.get('utm_content')) {
+      inflow = [q.get('utm_source'), q.get('utm_campaign'), q.get('utm_content')].map(part).join('/');
+    } else if (q.get('n_media') || q.get('n_keyword') || q.get('n_query')) {
+      inflow = ['naver', q.get('n_keyword'), q.get('n_query')].map(part).join('/');
+    } else if (gclid) {
+      inflow = 'google';
+    }
+    inflow = inflow.replace(/\/+$/, '');
+
+    if (inflow) { try { sessionStorage.setItem('itg_inflow_v1', inflow); } catch (e) {} }
+    else { try { inflow = sessionStorage.getItem('itg_inflow_v1') || ''; } catch (e) {} }
+    if (gclid) { try { sessionStorage.setItem('itg_gclid_v1', gclid); } catch (e) {} }
+    else { try { gclid = sessionStorage.getItem('itg_gclid_v1') || ''; } catch (e) {} }
+
+    var FIELDS = [{ label: '유입경로', val: inflow }, { label: 'gclid', val: gclid }];
 
     function apply() {
       var labels = document.querySelectorAll('.form-group > label.control-label');
       for (var i = 0; i < labels.length; i++) {
-        if ((labels[i].textContent || '').trim() !== LABEL) continue;
-        var group = labels[i].parentNode;
-        group.style.display = 'none';
-        var input = group.querySelector('input[type="text"], textarea');
-        if (input && val && input.value !== val) {
-          input.value = val;
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
+        var txt = (labels[i].textContent || '').trim();
+        for (var f = 0; f < FIELDS.length; f++) {
+          if (txt !== FIELDS[f].label) continue;
+          var group = labels[i].parentNode;
+          group.style.display = 'none';
+          var val = FIELDS[f].val, input = group.querySelector('input[type="text"], textarea');
+          if (input && val && input.value !== val) {
+            input.value = val;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
         }
       }
     }
     apply();
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply);
     window.addEventListener('load', apply);
-    // 제출 직전에도 한 번 더 (위젯이 늦게 그려지거나 값이 지워진 경우 대비)
     document.addEventListener('click', apply, true);
     document.addEventListener('submit', apply, true);
   } catch (e) {}
