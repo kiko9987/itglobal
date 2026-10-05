@@ -135,7 +135,7 @@
 <meta name="language" content="ko" />
 <meta name="naver-site-verification" content="68924d7dd8e3a621c851e28a68f2df23a44bacdd" />
 
-<!-- 대표주소(canonical) 정리: 광고 파라미터(utm·n_*·gclid 등) 제거, 게시글은 bmode·idx 유지 -->
+<!-- 대표주소(canonical) 정리: 광고 파라미터(utm·n_*·gclid 등) 제거, 게시글은 bmode·idx, 목록 2쪽 이상은 page 유지 -->
 <script>
 (function(){
   try {
@@ -146,6 +146,8 @@
     if (u.searchParams.get('bmode') === 'view' && u.searchParams.get('idx')) {
       p.set('bmode', 'view');
       p.set('idx', u.searchParams.get('idx'));
+    } else if (+u.searchParams.get('page') > 1) {
+      p.set('page', u.searchParams.get('page'));
     }
     var q = p.toString();
     c.href = u.origin + u.pathname + (q ? '?' + q : '');
