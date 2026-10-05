@@ -426,8 +426,27 @@ def send_weekly_urgent_invoice_remind() -> dict:
     return _post(build_urgent_invoice_text(classify(_load_recs())), '주간-수금완료미발행')
 
 
-def send_monthly_invoice_remind() -> dict:
-    """매월 10일 09시 — 계산서 마감 리마인드 진입점."""
+_MONTHLY_DAY = 8   # 계산서 마감(10일) 이틀 전 — 10일 당일 안내는 발행할 시간이 없음 (2026-10-05 사용자 결정)
+
+
+def monthly_remind_date(year: int, month: int):
+    """월간 마감 리마인드 발송일 — 매월 8일, 주말·공휴일이면 직전 영업일."""
+    from datetime import date, timedelta
+    from dashboard.services.absent_remind import _is_business_day
+    d = date(year, month, _MONTHLY_DAY)
+    while not _is_business_day(d):
+        d -= timedelta(days=1)
+    return d
+
+
+def send_monthly_invoice_remind(today=None) -> dict:
+    """계산서 마감 리마인드 진입점 — 스케줄러가 매월 1~8일 09시에 부르고, 발송일(8일 또는 그 전
+    영업일)에만 실제 발송."""
+    from datetime import date
+    today = today or date.today()
+    target = monthly_remind_date(today.year, today.month)
+    if today != target:
+        return {'ok': True, 'skipped': f'발송일 아님(이번 달 발송일 {target})'}
     return _post(build_monthly_text(classify(_load_recs())), '월간')
 
 
@@ -445,5 +464,5 @@ if __name__ == '__main__':
           f"미수금 ①발행O={len(bk['ar_issued'])} ②미발행={len(bk['ar_uninvoiced'])}")
     print("\n===== 주간(미수금 리포트) 미리보기 =====")
     print(build_collection_text(bk) or "(대상 0건)")
-    print("\n===== 매월 10일(발행 마감) 미리보기 =====")
+    print("\n===== 매월 8일(발행 마감 10일 이틀 전) 미리보기 =====")
     print(build_monthly_text(bk) or "(대상 0건)")

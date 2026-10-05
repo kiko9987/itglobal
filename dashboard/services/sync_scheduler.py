@@ -351,14 +351,16 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('수금완료 미발행 리마인드 매주 월 09:00')
+        # 마감(10일) 이틀 전 8일 09시, 8일이 주말·공휴일이면 직전 영업일 — 1~8일 매일 호출하고
+        # 발송일 판정은 send_monthly_invoice_remind 가 한다 (2026-10-05 10일→8일).
         _scheduler.add_job(
             _safe_monthly_invoice_remind,
             'cron',
-            day=10, hour=9, minute=0,
+            day='1-8', hour=9, minute=0,
             id='monthly_invoice_remind',
             replace_existing=True,
         )
-        jobs.append('계산서 마감 리마인드 매월 10일 09:00')
+        jobs.append('계산서 마감 리마인드 매월 8일(직전 영업일) 09:00')
 
     # 2026-07-28 거래처 탭 국세청 상태 갱신. NTS_SERVICE_KEY 있을 때만.
     if os.getenv('NTS_SERVICE_KEY', '').strip():
@@ -750,7 +752,8 @@ def _safe_weekly_urgent_invoice_remind():
 
 
 def _safe_monthly_invoice_remind():
-    """세금계산서 마감 월간 리마인드 (매월 10일 09시 #영업_관리) — ① 수금완료·미발행 + ② 부분입금·미발행."""
+    """세금계산서 마감 월간 리마인드 (매월 8일 또는 직전 영업일 09시 #영업_관리, 마감 10일)
+    — ① 수금완료·미발행 + ② 부분입금·미발행."""
     try:
         from dashboard.services.invoice_collection_remind import send_monthly_invoice_remind
         result = send_monthly_invoice_remind()
