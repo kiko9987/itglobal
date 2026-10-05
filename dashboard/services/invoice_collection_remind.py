@@ -185,15 +185,44 @@ def _collect_line(r) -> str:
     return f'• {_who(r)}  ·  {_addr(r)}  ·  미수금 {_won(_num(r.get("미수금")))}'
 
 
+_SETTLED_LABEL = {'발행': '발행 완료', '카드': '카드결제', 'N입금': 'N입금', '기타': '기타 정산'}
+
+
 def _unbilled(row) -> str:
-    """미발행 단계·금액 — '잔금 3,014,000원' (여러 단계면 ' · '). 판정은 _bill_stages 그대로."""
+    """미발행 단계·금액 + 상황 — '잔금 264,000원 (일시 입금)' / '잔금 3,000,000원 (계약금 발행 완료)'.
+
+    판정은 _bill_stages 그대로. '잔금만' 보일 때 일시 입금인지 앞 단계를 이미 처리한 건지
+    헷갈린다는 피드백(2026-10-05)으로 괄호 설명 추가:
+      다른 단계가 발행·카드·N입금 등으로 처리됨 → '(계약금 발행 완료)'
+      미발행 한 단계가 총액 전부 → '(일시 입금)' / 미발행 여러 단계 합이 총액 → '(전체 미발행)'
+    """
     bs = _bill_stages(row)
-    parts = []
+    un = [s for s in _STAGES if bs[s] in ('미발행', '발행예정')]
+    if not un:
+        return ''
+    parts = [f'{s} {_won(_num(row.get(s)))}' if _num(row.get(s)) > 0 else f'{s} (입금 전)' for s in un]
+    raw = lambda s: str(row.get(_COL[s]) or '').strip()
+    issued_any = _has_issued(row)
+    settled = {}
     for s in _STAGES:
-        if bs[s] in ('미발행', '발행예정'):
-            a = _num(row.get(s))
-            parts.append(f'{s} {_won(a)}' if a > 0 else f'{s} (입금 전)')
-    return ' · '.join(parts)
+        if s in un:
+            continue
+        tok = _ntok(raw(s))
+        amt = _num(row.get(s))
+        lab = _SETTLED_LABEL.get(tok, '')
+        if not lab and raw(s) == '-' and amt > 0 and issued_any:
+            lab = '발행 완료'                      # 통합발행에 포함(covered)
+        if lab and (amt > 0 or tok == '발행'):     # 입금 있는 처리 단계 + 선발행
+            settled.setdefault(lab, []).append(s)
+    total2 = _num(row.get('총액 2'))
+    paid_un = sum(_num(row.get(s)) for s in un)
+    if settled:
+        note = ', '.join(f"{'·'.join(v)} {k}" for k, v in settled.items())
+    elif total2 > 0 and abs(paid_un - total2) < 1:
+        note = '일시 입금' if len(un) == 1 else '전체 미발행'
+    else:
+        note = ''
+    return ' · '.join(parts) + (f' ({note})' if note else '')
 
 
 def _card_links(codes) -> dict:
