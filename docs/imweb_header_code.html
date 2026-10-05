@@ -1,0 +1,603 @@
+<!-- ================== 아이티글로벌 HEADER CODE (2026-10-05 정리본) ================== -->
+
+<!-- ================== IT GLOBAL 공통 레이아웃 ================== -->
+<style>
+
+/* =========================================================
+   1. 사이트 기본 콘텐츠 폭
+   FHD/QHD 모두 1320px을 기본 기준으로 사용
+========================================================= */
+
+.body_inner,
+.site_common_wrap,
+.site_page_container,
+.container_body{
+  max-width:1320px !important;
+}
+
+
+/* =========================================================
+   2. PC ONE-SCREEN AUTO FIT ENGINE
+
+   적용할 코드 섹션만 아래 구조 사용:
+
+   <section class="itg-screen">
+     <div class="itg-screen-fit">
+       기존 섹션
+     </div>
+   </section>
+========================================================= */
+
+:root{
+
+  /* 상단 고정 메뉴 높이 */
+  --itg-top:80px;
+
+  /*
+     현재 사이트 하단에 고정된 주황 CTA가 있으므로
+     그 영역도 화면 높이에서 제외
+  */
+  --itg-bottom:0px;
+
+  /* 위/아래 추가 안전 여백 */
+  --itg-safe-gap:20px;
+
+  /*
+     너무 작게 축소되는 것 방지
+     보통 FHD에서는 이 값까지 내려갈 일은 거의 없음
+  */
+  --itg-min-scale:.74;
+}
+
+
+/* PC */
+
+@media(min-width:1051px){
+
+  .itg-screen{
+    position:relative;
+
+    width:100%;
+
+    /*
+       실제 브라우저 화면
+       - 상단 메뉴
+       - 하단 고정 CTA
+    */
+    height:
+      calc(
+        100dvh
+        - var(--itg-top)
+        - var(--itg-bottom)
+      );
+
+    min-height:0;
+
+    overflow:hidden;
+  }
+
+
+  .itg-screen-fit{
+    position:absolute;
+
+    top:50%;
+    left:50%;
+
+    width:100%;
+
+    transform:
+      translate(-50%,-50%)
+      scale(var(--itg-fit-scale,1));
+
+    transform-origin:center center;
+
+    will-change:transform;
+  }
+
+}
+
+
+/* =========================================================
+   TABLET / MOBILE
+   화면 한 장 강제맞춤 사용하지 않음
+========================================================= */
+
+@media(max-width:1050px){
+
+  .itg-screen{
+    position:relative;
+
+    width:100%;
+
+    height:auto;
+
+    overflow:visible;
+  }
+
+
+  .itg-screen-fit{
+    position:relative;
+
+    top:auto;
+    left:auto;
+
+    width:100%;
+
+    transform:none !important;
+  }
+
+}
+
+</style>
+
+<meta name="robots" content="index,follow" />
+<meta name="author" content="(주)아이티글로벌" />
+<meta name="publisher" content="(주)아이티글로벌" />
+<meta name="language" content="ko" />
+<meta name="naver-site-verification" content="68924d7dd8e3a621c851e28a68f2df23a44bacdd" />
+
+<!-- ================== 광고/트래킹 코드 ================== -->
+
+<!-- gtag 함수 (dataLayer 전달용. 구 UA 태그는 2026-10-05 삭제) -->
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+</script>
+
+<!-- OpenAI Pixel -->
+<script>!function(w,d,s,u){if(w.oaiq)return;var q=function(){q.q.push(arguments)};q.q=[];w.oaiq=q;var j=d.createElement(s);j.async=1;j.src=u;var f=d.getElementsByTagName(s)[0];f.parentNode.insertBefore(j,f)}(window,document,"script","https://bzrcdn.openai.com/sdk/oaiq.min.js");oaiq("init",{pixelId:"X2T6LVkaJfMVejqZBen2ys",debug:false});</script>
+
+<!-- Kakao Pixel (페이지뷰만. '상담' 전환은 바디 코드에서 폼 제출 완료 시 발화) -->
+<script src="https://t1.daumcdn.net/adfit/static/kp.js" charset="UTF-8"></script>
+<script>
+kakaoPixel('711262848861713369').pageView();
+</script>
+
+<!-- Logger (Bizspring) -->
+<script>
+var _TRK_LID = "107601";
+var _L_TD = "ssl.logger.co.kr";
+var _TRK_CDMN = ".itg-aircon.com";
+var _CDN_DOMAIN = location.protocol == "https:" ? "https://fs.bizspring.net" : "http://fs.bizspring.net";
+(function (b,s){var f=b.getElementsByTagName(s)[0],j=b.createElement(s);j.async=true;j.src='https://fs.bizspring.net/fs4/bstrk.1.js';f.parentNode.insertBefore(j,f);})(document,'script');
+</script>
+<noscript><img alt="Logger Script" width="1" height="1" src="https://ssl.logger.co.kr/tracker.1.tsp?u=107601&js=N"/></noscript>
+
+<!-- Meta (Facebook) Pixel -->
+<script>
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)n.callMethod=n.queue=[];n.loaded=!0;n.version='2.0';
+t=b.createElement(e);t.async=!0;t.src=v;
+s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s);
+}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '2073696429470222');
+fbq('track', 'PageView');
+</script>
+<noscript><img height="1" width="1" style="display:none"
+src="https://www.facebook.com/tr?id=2073696429470222&ev=PageView&noscript=1"
+/></noscript>
+
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-WJQJRKX');</script>
+
+
+<!-- Danggeun Market Code -->
+<script>
+  (function (w, d) {
+    if (w.karrotPixel) return;
+    var k = { stub: true, queue: [] };
+    k.init = function () { k.queue.push(['init', arguments, Date.now()]); };
+    k.track = function () { k.queue.push(['track', arguments, Date.now()]); };
+    w.karrotPixel = k;
+    var s = d.createElement('script');
+    s.async = true;
+    s.src = 'https://karrot-pixel.business.daangn.com/karrot-pixel.js';
+    var f = d.getElementsByTagName('script')[0];
+    f && f.parentNode ? f.parentNode.insertBefore(s, f) : d.head.appendChild(s);
+  })(window, document);
+  window.karrotPixel.init('1790840757021003001');
+  window.karrotPixel.track('ViewPage');
+</script>
+<!-- End Danggeun Market Code -->
+
+<!-- Smartlog -->
+<script type="text/javascript">
+var hpt_info={'_account':'UHPT-35793', '_server': 'a30'};
+</script>
+<script language="javascript" src="//cdn.smlog.co.kr/core/smart.js" charset="utf-8"></script>
+<noscript><img src="//a30.smlog.co.kr/smart_bda.php?_account=35793" style="display:none;width:0;height:0;" border="0"/></noscript>
+
+<!-- ================== 구조화데이터 (Organization + VideoObject) ================== -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "아이티글로벌",
+  "url": "https://www.itg-aircon.com",
+  "logo": "https://cdn.imweb.me/thumbnail/20250821/2b805c12024a3.png",
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "telephone": "+82-1899-1377",
+    "contactType": "customer service",
+    "areaServed": "KR",
+    "availableLanguage": "Korean"
+  }
+}
+</script>
+
+<script>
+(function () {
+  var path = (location.pathname || "/").replace(/\/+$/,"") || "/";
+  function injectJSONLD(obj){
+    var s=document.createElement("script");
+    s.type="application/ld+json";
+    s.text=JSON.stringify(obj);
+    document.head.appendChild(s);
+  }
+  var publisher={
+    "@type":"Organization",
+    "name":"아이티글로벌",
+    "logo":{"@type":"ImageObject","url":"https://cdn.imweb.me/thumbnail/20250821/2b805c12024a3.png"}
+  };
+
+  // 메인 / 회사소개
+  if(path==="/"||path==="/home"||path==="/introduce"){
+    injectJSONLD({
+      "@context":"https://schema.org",
+      "@type":"VideoObject",
+      "name":"아이티글로벌 시스템에어컨 시공 영상",
+      "description":"아이티글로벌의 상업용 시스템에어컨 설치 및 시공 현장 영상입니다.",
+      "thumbnailUrl":"https://i.ytimg.com/vi/Lbe3VUdR3nw/hqdefault.jpg",
+      "uploadDate":"2024-07-01",
+      "embedUrl":"https://www.youtube.com/embed/Lbe3VUdR3nw",
+      "publisher":publisher
+    });
+  }
+  // 세척 페이지
+  if(path==="/cleaning"){
+    injectJSONLD({
+      "@context":"https://schema.org",
+      "@type":"VideoObject",
+      "name":"상업용 냉난방기 완전분해 세척 과정",
+      "description":"아이티글로벌이 실제 현장에서 진행한 시스템에어컨 완전분해 세척 영상입니다.",
+      "thumbnailUrl":"https://i.ytimg.com/vi/oge65zFxd0k/hqdefault.jpg",
+      "uploadDate":"2024-07-10",
+      "embedUrl":"https://www.youtube.com/embed/oge65zFxd0k",
+      "publisher":publisher
+    });
+    injectJSONLD({
+      "@context":"https://schema.org",
+      "@type":"VideoObject",
+      "name":"시스템에어컨 세척 전후 비교 영상",
+      "description":"세척 전후의 냉방 효율 및 위생 상태를 비교한 영상입니다.",
+      "thumbnailUrl":"https://i.ytimg.com/vi/J26eCtLpL_A/hqdefault.jpg",
+      "uploadDate":"2024-07-10",
+      "embedUrl":"https://www.youtube.com/embed/J26eCtLpL_A",
+      "publisher":publisher
+    });
+  }
+})();
+</script>
+
+<!-- ================== IT GLOBAL PC SCREEN FIT ENGINE ================== -->
+<script>
+(function(){
+
+  "use strict";
+
+
+  function fitITGScreens(){
+
+    var screens =
+      document.querySelectorAll('.itg-screen');
+
+
+    if(!screens.length){
+      return;
+    }
+
+
+    /* =====================================================
+       모바일 / 태블릿
+       자동축소 기능 완전 해제
+    ===================================================== */
+
+    if(window.innerWidth <= 1050){
+
+      screens.forEach(function(screen){
+
+        var fit =
+          screen.querySelector(
+            ':scope > .itg-screen-fit'
+          );
+
+
+        if(!fit){
+          return;
+        }
+
+
+        fit.style.removeProperty(
+          '--itg-fit-scale'
+        );
+
+      });
+
+
+      return;
+    }
+
+
+
+    /* =====================================================
+       PC
+    ===================================================== */
+
+    screens.forEach(function(screen){
+
+      var fit =
+        screen.querySelector(
+          ':scope > .itg-screen-fit'
+        );
+
+
+      if(!fit){
+        return;
+      }
+
+
+      /*
+         측정하기 전에 반드시 원본 100%로 복원
+      */
+
+      fit.style.setProperty(
+        '--itg-fit-scale',
+        '1'
+      );
+
+
+
+      /*
+         브라우저가 레이아웃을 갱신한 뒤
+         실제 크기 측정
+      */
+
+      var screenHeight =
+        screen.clientHeight;
+
+
+      var naturalHeight =
+        fit.scrollHeight;
+
+
+      if(
+        !screenHeight ||
+        !naturalHeight
+      ){
+        return;
+      }
+
+
+
+      /* CSS 공통 변수 */
+
+      var root =
+        getComputedStyle(
+          document.documentElement
+        );
+
+
+      var safeGap =
+        parseFloat(
+          root.getPropertyValue(
+            '--itg-safe-gap'
+          )
+        ) || 20;
+
+
+      var minScale =
+        parseFloat(
+          root.getPropertyValue(
+            '--itg-min-scale'
+          )
+        ) || .74;
+
+
+
+      /*
+         화면 안에서 실제 사용할 수 있는 높이
+      */
+
+      var availableHeight =
+        Math.max(
+          1,
+          screenHeight - safeGap
+        );
+
+
+
+      /*
+         필요한 축소율
+      */
+
+      var scale =
+        availableHeight /
+        naturalHeight;
+
+
+
+      /*
+         ★ 확대는 절대 하지 않음
+
+         QHD/4K에서 공간이 남더라도
+         디자인 원본 크기 100% 유지
+      */
+
+      scale =
+        Math.min(
+          1,
+          scale
+        );
+
+
+
+      /*
+         지나친 축소 방지
+      */
+
+      scale =
+        Math.max(
+          minScale,
+          scale
+        );
+
+
+
+      fit.style.setProperty(
+        '--itg-fit-scale',
+        scale.toFixed(4)
+      );
+
+    });
+
+  }
+
+
+
+  /* =====================================================
+     RESIZE
+  ===================================================== */
+
+  var resizeTimer;
+
+
+  function scheduleFit(){
+
+    clearTimeout(
+      resizeTimer
+    );
+
+
+    resizeTimer =
+      setTimeout(
+        fitITGScreens,
+        100
+      );
+
+  }
+
+
+
+  /* =====================================================
+     최초 실행
+  ===================================================== */
+
+  if(
+    document.readyState ===
+    'loading'
+  ){
+
+    document.addEventListener(
+      'DOMContentLoaded',
+      fitITGScreens
+    );
+
+  }else{
+
+    fitITGScreens();
+
+  }
+
+
+
+  /* 이미지까지 전부 로딩 */
+
+  window.addEventListener(
+    'load',
+    fitITGScreens
+  );
+
+
+
+  /* 화면 크기 변경 */
+
+  window.addEventListener(
+    'resize',
+    scheduleFit
+  );
+
+
+
+  /* Pretendard 등 폰트 로딩 */
+
+  if(
+    document.fonts &&
+    document.fonts.ready
+  ){
+
+    document.fonts.ready.then(
+      fitITGScreens
+    );
+
+  }
+
+
+
+  /*
+     아임웹 렌더링 타이밍 때문에
+     몇 차례 추가 측정
+  */
+
+  setTimeout(
+    fitITGScreens,
+    300
+  );
+
+  setTimeout(
+    fitITGScreens,
+    800
+  );
+
+  setTimeout(
+    fitITGScreens,
+    1500
+  );
+
+
+
+  /*
+     나중에 콘솔이나 다른 코드에서
+     수동 재계산 가능
+
+     window.ITG_fitScreens();
+  */
+
+  window.ITG_fitScreens =
+    fitITGScreens;
+
+})();
+</script>
+<!-- ================== END HEADER ================== -->
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type": "Question", "name": "아이티글로벌은 어떤 냉난방기 시공 업체인가요?", "acceptedAnswer": {"@type": "Answer", "text": "아이티글로벌은 20년간 1만 건 이상 상업공간 냉난방을 시공해 온 LG·삼성·캐리어 인증점입니다. 사무실·상가·병원·학원·공장 등 서울·경기·인천 수도권 현장을 직접 실측해 공간에 맞는 상업용 냉난방기와 시스템에어컨 설치를 설계·시공합니다. 시공 하자는 하자보증 2년으로 책임지며, 세금계산서 발행이 가능합니다."}},
+    {"@type": "Question", "name": "가정집 냉난방기 설치도 가능한가요?", "acceptedAnswer": {"@type": "Answer", "text": "아이티글로벌은 사무실 · 상가 · 병원 · 공장 · 관공서 등 상업 및 업무공간 냉난방 공사를 중심으로 운영하고 있습니다. 일반 가정용 벽걸이, 스탠드, 2in1 에어컨의 단순 설치 및 이전 설치는 진행하지 않고 있습니다. 다만, 전체 인테리어 공사와 함께 진행되는 주거용 시스템에어컨 설치는 가능합니다. (거주 중 설치 제외)"}},
+    {"@type": "Question", "name": "방문 견적은 무료로 진행되나요?", "acceptedAnswer": {"@type": "Answer", "text": "서울·경기·인천 수도권은 상업용 냉난방기·시스템에어컨 무료 방문 견적을 진행하고 있습니다. 현장에서 공간 구조와 배관·전기·천장 등 설치 조건을 확인한 후 견적을 안내해 드립니다."}},
+    {"@type": "Question", "name": "냉난방기 설치 비용은 어떻게 결정되나요?", "acceptedAnswer": {"@type": "Answer", "text": "장비 종류와 용량, 수량뿐 아니라 배관 길이, 전기공사, 천장 상태 및 실외기 설치 조건 등에 따라 달라집니다. 정확한 비용은 현장 실측 후 안내해 드립니다."}},
+    {"@type": "Question", "name": "천장형과 스탠드형, 어떤 방식이 우리 공간에 적합한가요?", "acceptedAnswer": {"@type": "Answer", "text": "천장형 냉난방기와 스탠드형 냉난방기는 공간의 면적뿐 아니라 용도, 천장 구조, 열부하, 배관 경로와 전기 조건 등에 따라 적합한 방식이 달라집니다. 현장 확인 후 공간에 맞는 장비 구성과 설치 방식을 제안해 드립니다."}},
+    {"@type": "Question", "name": "시스템에어컨 말고 전열교환기·FCU·덕트형도 시공하나요?", "acceptedAnswer": {"@type": "Answer", "text": "네. 시스템에어컨(천장형·스탠드형) 외에도 전열교환기 설치, FCU, 매립 덕트형 냉난방기 시공을 설계부터 시공까지 진행합니다. 사무실·학원·병원처럼 사람이 오래 머무는 공간은 상업용 냉난방기와 환기 설비를 함께 계획하면 배관·덕트 경로를 한 번에 잡을 수 있어 공사가 깔끔해집니다. 현장 실측 후 공간에 맞는 구성을 제안해 드립니다. 다만 식당 주방 후드·배기 덕트 공사는 진행하지 않습니다."}},
+    {"@type": "Question", "name": "기존 냉난방기가 있어도 교체·추가 설치가 가능한가요?", "acceptedAnswer": {"@type": "Answer", "text": "가능합니다. 기존 장비와 배관 상태, 공간 구조 등을 확인한 뒤 기존 설비 활용 여부와 교체 · 추가 설치 방안을 함께 검토해 드립니다."}},
+    {"@type": "Question", "name": "상업용 에어컨·냉난방기 분해 세척도 하나요?", "acceptedAnswer": {"@type": "Answer", "text": "네. 사무실·식당·병원 등 상업용 에어컨을 분해해 약품 세척합니다. 천장형 에어컨 세척은 물론 스탠드형·덕트형 냉난방기 세척도 가능하며, 정기적인 시스템에어컨 청소로 냉방 효율과 실내 공기질을 지킬 수 있습니다. 영업에 지장이 없도록 오픈 전 시간대 작업도 협의해 진행합니다. 자세한 에어컨 분해 세척 안내는 세척 페이지(https://www.itg-aircon.com/cleaning)에서 확인하실 수 있습니다."}}
+  ]
+}
+</script>
