@@ -142,6 +142,7 @@
     var c = document.querySelector('link[rel="canonical"]');
     if (!c) return;
     var u = new URL(c.href, location.origin);
+    if (/^\/index\/?$/.test(u.pathname)) u.pathname = '/';
     var p = new URLSearchParams();
     if (u.searchParams.get('bmode') === 'view' && u.searchParams.get('idx')) {
       p.set('bmode', 'view');
