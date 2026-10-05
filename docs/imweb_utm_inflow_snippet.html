@@ -87,7 +87,8 @@
         var body = JSON.stringify({
           inflow: inflow, gclid: gclid, ref: ref,
           page: location.pathname,
-          btn: (a.className || '').toString().split(/\s+/).slice(0, 2).join(' '),
+          // 버튼 위치 식별용 고유 클래스(itg-hero-btn, btn_6… 등) 하나만
+          btn: ((a.className || '').toString().match(/(?:^|\s)(itg-[\w-]+|btn_\d[\w]*)/) || [, ''])[1],
           mobile: /Mobi|Android|iPhone/i.test(navigator.userAgent)
         });
         var url = 'https://pm.itg-aircon.com/track/call-click';
