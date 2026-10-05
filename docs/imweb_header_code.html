@@ -135,6 +135,24 @@
 <meta name="language" content="ko" />
 <meta name="naver-site-verification" content="68924d7dd8e3a621c851e28a68f2df23a44bacdd" />
 
+<!-- 대표주소(canonical) 정리: 광고 파라미터(utm·n_*·gclid 등) 제거, 게시글은 bmode·idx 유지 -->
+<script>
+(function(){
+  try {
+    var c = document.querySelector('link[rel="canonical"]');
+    if (!c) return;
+    var u = new URL(c.href, location.origin);
+    var p = new URLSearchParams();
+    if (u.searchParams.get('bmode') === 'view' && u.searchParams.get('idx')) {
+      p.set('bmode', 'view');
+      p.set('idx', u.searchParams.get('idx'));
+    }
+    var q = p.toString();
+    c.href = u.origin + u.pathname + (q ? '?' + q : '');
+  } catch (e) {}
+})();
+</script>
+
 <!-- ================== 광고/트래킹 코드 ================== -->
 
 <!-- gtag 함수 (dataLayer 전달용. 구 UA 태그는 2026-10-05 삭제) -->
