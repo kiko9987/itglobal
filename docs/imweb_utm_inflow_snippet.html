@@ -1,6 +1,7 @@
 <!--
   아임웹 공용 바디 코드 — 유입경로 + gclid 숨은 필드 자동 채움
-  (2026-10-02 UTM 최초 / 같은 날 gclid 병합 / 2026-10-04 네이버·구글 자동 식별 추가)
+  (2026-10-02 UTM 최초 / 같은 날 gclid 병합 / 2026-10-04 네이버·구글 자동 식별 추가
+   / 2026-10-05 전화 버튼 클릭 측정 추가)
 
   유입경로 값 우선순위 (첫 진입 URL 기준, 같은 탭 sessionStorage 유지):
     1) utm_source/utm_campaign/utm_content  → 예: daangn/web_install/A   → 시트 [유입:당근/web_install/A]
@@ -12,6 +13,10 @@
   - 필드 id 대신 라벨 텍스트('유입경로', 'gclid')로 찾음 → 설치·세척 폼 공통, '문의유형' 코드와 독립.
   - 서버 파서(homepage_mail_sync.py) 가 정규화·한글화(naver→네이버, google→구글).
   - ⚠️ 라벨 텍스트를 바꾸면 파서·이 코드 둘 다 깨짐.
+
+  전화 버튼 클릭 측정: 페이지의 모든 tel: 링크(플로팅 전화상담·히어로·하단 등) 클릭 시
+  유입경로·gclid·첫 유입 도메인·페이지·버튼 종류·모바일 여부를 서버로 비콘 전송
+  (POST https://pm.itg-aircon.com/track/call-click → Redis, 개인정보 없음). 전화 연결은 막지 않음.
 -->
 <script>
 (function () {
@@ -38,6 +43,17 @@
     if (gclid) { try { sessionStorage.setItem('itg_gclid_v1', gclid); } catch (e) {} }
     else { try { gclid = sessionStorage.getItem('itg_gclid_v1') || ''; } catch (e) {} }
 
+    // 첫 유입 도메인(광고 파라미터 없는 자연검색·직접 방문 구분용) — 우리 사이트 내 이동은 무시
+    var ref = '';
+    try {
+      ref = sessionStorage.getItem('itg_ref_v1');
+      if (ref === null) {
+        var rh = document.referrer ? new URL(document.referrer).hostname : '';
+        ref = (rh && rh.indexOf('itg-aircon.com') === -1) ? rh : '';
+        sessionStorage.setItem('itg_ref_v1', ref);
+      }
+    } catch (e) { ref = ref || ''; }
+
     var FIELDS = [{ label: '유입경로', val: inflow }, { label: 'gclid', val: gclid }];
 
     function apply() {
@@ -62,6 +78,24 @@
     window.addEventListener('load', apply);
     document.addEventListener('click', apply, true);
     document.addEventListener('submit', apply, true);
+
+    // 전화 버튼 클릭 측정 — 전화 연결 동작은 그대로, 기록만 비동기 전송
+    document.addEventListener('click', function (ev) {
+      try {
+        var a = ev.target && ev.target.closest ? ev.target.closest('a[href^="tel:"]') : null;
+        if (!a) return;
+        var body = JSON.stringify({
+          inflow: inflow, gclid: gclid, ref: ref,
+          page: location.pathname,
+          btn: (a.className || '').toString().split(/\s+/).slice(0, 2).join(' '),
+          mobile: /Mobi|Android|iPhone/i.test(navigator.userAgent)
+        });
+        var url = 'https://pm.itg-aircon.com/track/call-click';
+        if (!(navigator.sendBeacon && navigator.sendBeacon(url, body))) {
+          fetch(url, { method: 'POST', body: body, mode: 'no-cors', keepalive: true });
+        }
+      } catch (e) {}
+    }, true);
   } catch (e) {}
 })();
 </script>

@@ -363,6 +363,12 @@ class SecurityMiddleware:
         if request.path.startswith('/sms/'):
             return None
 
+        # 1.8. 홈페이지 전화 클릭 비콘 우회 — 아임웹(외부 도메인) sendBeacon, 세션 없음.
+        #      개인정보 없는 집계용 기록만 받고 call_track 라우트가 Origin·형식·중복을 자체 검증.
+        #      rate limit(위 1번)은 그대로 적용.
+        if request.path.startswith('/track/'):
+            return None
+
         # 2. CSRF/인증 검사 (상태 변경 요청)
         if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
             if request.path.startswith('/api/') or request.path.startswith('/admin/api/'):

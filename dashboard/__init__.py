@@ -448,6 +448,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.slack_bot import slack_bp
         from dashboard.blueprints.channeltalk import channeltalk_bp
         from dashboard.blueprints.sms_inbound import sms_bp
+        from dashboard.blueprints.call_track import call_track_bp
         from dashboard.api.v1.auth import auth_bp as auth_api_bp
 
         # 기본 블루프린트들 등록
@@ -471,6 +472,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(slack_bp)  # Slack 봇 webhook
         app.register_blueprint(channeltalk_bp)  # 채널톡 ↔ 슬랙 webhook
         app.register_blueprint(sms_bp)  # 은행 입금 SMS 인입 webhook (폰 포워딩 → 슬랙)
+        app.register_blueprint(call_track_bp)  # 홈페이지 전화 버튼 클릭 측정 (아임웹 비콘)
         app.register_blueprint(auth_api_bp)  # API v1 인증 엔드포인트
 
         # 시공자 초기 시드 (테이블이 비어있을 때만)
