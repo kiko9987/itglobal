@@ -185,8 +185,74 @@ def _collect_line(r) -> str:
     return f'• {_who(r)}  ·  {_addr(r)}  ·  미수금 {_won(_num(r.get("미수금")))}'
 
 
-def _issue_line(r) -> str:
-    return f'• {_who(r)}  ·  {_addr(r)}'
+def _unbilled(row) -> str:
+    """미발행 단계·금액 — '잔금 3,014,000원' (여러 단계면 ' · '). 판정은 _bill_stages 그대로."""
+    bs = _bill_stages(row)
+    parts = []
+    for s in _STAGES:
+        if bs[s] in ('미발행', '발행예정'):
+            a = _num(row.get(s))
+            parts.append(f'{s} {_won(a)}' if a > 0 else f'{s} (입금 전)')
+    return ' · '.join(parts)
+
+
+def _card_links(codes) -> dict:
+    """프로젝트 코드 → 공사확정 카드 permalink (계산서 요청은 그 카드에서 — 9/10 수동판 관례).
+
+    1) Redis project_card_msg:{code} ('채널|ts', TTL 3년·전 프로젝트 백필)
+    2) 없으면 공사확정 채널 history 스캔(최대 25페이지 — 봇 토큰은 search.messages 불가)
+    실패·미발견은 링크 생략(리마인드 발송은 계속).
+    """
+    tok = os.getenv('SLACK_PROJECT_BOT_TOKEN', '').strip()
+    codes = [c for c in dict.fromkeys(codes) if c]
+    if not tok or not codes:
+        return {}
+    from slack_sdk import WebClient
+    c = WebClient(token=tok)
+    where, missing = {}, []
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        for code in codes:
+            v = rc.get(f'project_card_msg:{code}')
+            v = v.decode() if isinstance(v, bytes) else v
+            if v and '|' in v:
+                where[code] = tuple(v.split('|', 1))
+            else:
+                missing.append(code)
+    except Exception:
+        missing = [x for x in codes if x not in where]
+    ch = os.getenv('SLACK_PROJECT_CHANNEL', '').strip()
+    if missing and ch:
+        try:
+            cursor, left = None, set(missing)
+            for _ in range(25):
+                r = c.conversations_history(channel=ch, limit=200, cursor=cursor)
+                for m in r.get('messages', []):
+                    t = m.get('text') or ''
+                    for code in [x for x in left if x in t]:
+                        where[code] = (ch, m['ts'])
+                        left.discard(code)
+                cursor = (r.get('response_metadata') or {}).get('next_cursor')
+                if not left or not cursor:
+                    break
+        except Exception as exc:
+            logger.warning(f'[REMIND] 공사확정 카드 검색 실패(링크 생략): {exc}')
+    links = {}
+    for code, (cch, ts) in where.items():
+        try:
+            links[code] = (c.chat_getPermalink(channel=cch, message_ts=ts) or {}).get('permalink', '')
+        except Exception:
+            pass
+    return {k: v for k, v in links.items() if v}
+
+
+def _issue_line(r, links=None) -> str:
+    """'• 코드 · 사업자명 · 주소 — 미발행 단계 금액  |  바로가기(있을 때)'."""
+    ub = _unbilled(r)
+    link = (links or {}).get(str(r.get('프로젝트 코드') or '').strip())
+    return (f'• {_who(r)}  ·  {_addr(r)}' + (f'  —  {ub}' if ub else '')
+            + (f'  |  <{link}|바로가기>' if link else ''))
 
 
 def _section(header, items, line_fn):
@@ -261,7 +327,10 @@ def build_monthly_text(buckets) -> str:
         return ''
     secs = []
     if a:
-        secs.append(_section(f':receipt: *① 수금완료 · 미발행 ({len(a)}건)*', a, _issue_line))
+        # ①에만 바로가기 — 즉시 발행 대상이라 공사확정 카드에서 바로 계산서 요청 (9/10 수동판 관례)
+        links = _card_links([str(r.get('프로젝트 코드') or '').strip() for r in a])
+        secs.append(_section(f':receipt: *① 수금완료 · 미발행 ({len(a)}건)*', a,
+                             lambda r: _issue_line(r, links)))
     if b:
         secs.append(_section(f':receipt: *② 부분입금 · 미발행 ({len(b)}건)*', b, _issue_line))
     body = f'\n{_BLANK}\n'.join(secs)
@@ -282,7 +351,9 @@ def build_urgent_invoice_text(buckets) -> str:
     a = buckets.get('issue_collected', [])
     if not a:
         return ''
-    sec = _section(f':receipt: *수금완료 · 미발행 ({len(a)}건) — 즉시 발행 대상*', a, _issue_line)
+    links = _card_links([str(r.get('프로젝트 코드') or '').strip() for r in a])
+    sec = _section(f':receipt: *수금완료 · 미발행 ({len(a)}건) — 즉시 발행 대상*', a,
+                   lambda r: _issue_line(r, links))
     return (
         f'{_BLANK}\n'
         f':receipt: *수금완료 세금계산서 미발행 프로젝트 확인 요청*\n'
