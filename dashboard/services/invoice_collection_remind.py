@@ -173,19 +173,20 @@ def _sort(items):
     return sorted(items, key=lambda r: (_initial(r), str(r.get('프로젝트 코드', ''))))
 
 
-def _biz(row) -> str:
+def _who(row) -> str:
+    """'코드 · 사업자명' — 매니저는 코드로 프로젝트를 찾으므로 코드는 항상 맨 앞, 사업자명은
+    있을 때만 (2026-10-05: 사업자명만 써서 코드가 사업자명 빈 건에만 보이던 문제)."""
+    code = str(row.get('프로젝트 코드') or '').strip()
     b = str(row.get('사업자명') or '').strip()
-    if b and b != '-':
-        return b
-    return str(row.get('프로젝트 코드') or '').strip()   # 사업자명 없으면 코드로
+    return f'{code}  ·  {b}' if b and b != '-' else code
 
 
 def _collect_line(r) -> str:
-    return f'• {_biz(r)}  ·  {_addr(r)}  ·  미수금 {_won(_num(r.get("미수금")))}'
+    return f'• {_who(r)}  ·  {_addr(r)}  ·  미수금 {_won(_num(r.get("미수금")))}'
 
 
 def _issue_line(r) -> str:
-    return f'• {_biz(r)}  ·  {_addr(r)}'
+    return f'• {_who(r)}  ·  {_addr(r)}'
 
 
 def _section(header, items, line_fn):
