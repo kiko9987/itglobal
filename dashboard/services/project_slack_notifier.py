@@ -701,6 +701,13 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
         if resp.get('ok'):
             logger.info(f'[PROJECT/SLACK/편집] 변경 알림 답글 완료: {code} ({len(relevant)}개 필드)')
             reply_ok = True
+            # 알린 변경을 리컨사일러 스냅샷에도 반영 → 같은 변경 '(시트 직접수정)' 중복 댓글 방지
+            #   (PM·슬랙 편집 공통. PM 15분 마커가 서버 재시작 등으로 만료돼도 안전, 2026-10-06)
+            try:
+                from dashboard.services.project_reconcile import sync_snapshot_fields
+                sync_snapshot_fields(code, {c['field_name']: c.get('new_value') for c in relevant})
+            except Exception as _snap_exc:
+                logger.debug(f'[PROJECT/SLACK/편집] 스냅샷 동기화 실패 ({code}): {_snap_exc}')
         else:
             logger.warning(f'[PROJECT/SLACK/편집] 답글 실패 ({code}): {resp.get("error")}')
             reply_ok = False
