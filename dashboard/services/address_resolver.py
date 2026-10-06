@@ -1904,7 +1904,25 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             #   _pname 으로 치환하면 뒤 지점명이 남아 중복 → 이미 있으면 skip (공백 무시).
             if _pn_ns in verified_addr.replace(' ', ''):
                 continue
-            return verified_addr.replace(_spaced, _pname, 1)
+            # 뒤 토큰 흡수 + 일반 건물유형어만 남으면 치환 안 함 (2026-10-06 ETC-ed7d0d):
+            #   '힐스테이트 고덕 센트럴' → POI '힐스테이트고덕센트럴아파트' 는 이미 뒤 토큰
+            #   '센트럴'을 포함해, _spaced('힐스테이트 고덕')만 바꾸면 '…아파트 센트럴' 중복.
+            #   POI명이 이어서 포함하는 뒤 토큰까지 치환 범위로 흡수하고, 흡수 후 남는 게
+            #   '아파트' 같은 일반 유형어뿐이면(고객이 이미 이름 전체를 적음) 치환 이득이 없어
+            #   원문 유지. 지점명('마곡점') 등 실질 정보가 남을 때만 치환(원래 용도).
+            _idx = verified_addr.find(_spaced)
+            _span_end = _idx + len(_spaced)
+            _acc = _jc
+            for _m_tok in re.finditer(r'\s+(\S+)', verified_addr[_span_end:]):
+                _nxt = _acc + _m_tok.group(1)
+                if not _pn_ns.startswith(_nxt):
+                    break
+                _acc = _nxt
+                _span_end += _m_tok.end()
+            _rest = _pn_ns[len(_acc):]
+            if not _rest or re.fullmatch(r'(?:아파트|오피스텔|빌라|맨션)', _rest):
+                continue
+            return verified_addr[:_idx] + _pname + verified_addr[_span_end:]
 
     # verified 에 이미 있는 후보는 우선순위 낮춤 (원문 신규 상호 먼저 시도)
     priority = (
