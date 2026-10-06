@@ -73,6 +73,13 @@ _DENY_MSG_SUBSTR = (
     'I/O operation on closed file', 'Exception while serving /socket.io/',
     'write() before start_response',
 )
+# 모든 조각이 함께 있을 때만 무시 (조각 하나만으론 너무 넓음)
+_DENY_MSG_ALL = (
+    # 모달을 연 사람이 이미 닫았거나 버튼을 다시 눌러 새 모달로 교체된 뒤의 views.update — 무해.
+    # placeholder-first 모달('준비 중'을 먼저 열고 내용을 채움)이라 버튼 연타·즉시 닫기 때 난다
+    # (2026-10-06 15:23 수금 지정, 9/22 10:52 3연속). 'message_not_found' 등과 구분하려 따옴표 포함.
+    ('api/views.update', "'error': 'not_found'"),
+)
 # 일시적/만성 유형: 매 건 무시하되 급증할 때만 경보 (외부 API 순단 신호)
 _TRANSIENT_SUBSTR = (
     'TimeoutError', 'read operation timed out', 'The read operation timed out',
@@ -204,6 +211,8 @@ class _AlertGate:
         if any(name.startswith(p.lower()) for p in _DENY_LOGGER_PREFIXES):
             return None
         if any(s in msg for s in _DENY_MSG_SUBSTR):
+            return None
+        if any(all(s in msg for s in combo) for combo in _DENY_MSG_ALL):
             return None
 
         now = self._now()
