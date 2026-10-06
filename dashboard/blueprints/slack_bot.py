@@ -1646,14 +1646,15 @@ def _load_intake(intake_id):
 
 
 def _update_intake(intake_id, **fields):
-    """Redis 인입 레코드 부분 갱신 (TTL 7일 유지)."""
+    """Redis 인입 레코드 부분 갱신 (TTL = 인입 원문 보관기간 유지)."""
     try:
         from dashboard.utils.redis_client import get_redis_client
+        from dashboard.services.sms_intake import INTAKE_TTL
         rc = get_redis_client().redis
         raw = rc.get(f"sms_intake:{intake_id}")
         d = json.loads(raw) if raw else {}
         d.update(fields)
-        rc.set(f"sms_intake:{intake_id}", json.dumps(d), ex=60 * 60 * 24 * 7)
+        rc.set(f"sms_intake:{intake_id}", json.dumps(d), ex=INTAKE_TTL)
     except Exception as exc:
         logger.warning(f"[SLACK/수금봇] 인입 갱신 실패: {exc}")
 

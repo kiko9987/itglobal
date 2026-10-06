@@ -21,7 +21,7 @@ import time
 from flask import Blueprint, jsonify, request
 
 from dashboard.services.sms_intake import (
-    active_display, dedup_hash, has_business_account, is_bank_interest,
+    INTAKE_TTL, active_display, dedup_hash, has_business_account, is_bank_interest,
     looks_like_cash, looks_like_payment, looks_like_withdrawal, normalize_cash_layout,
     normalize_deposit_layout, parse_preview, strip_balance, strip_bold_markers,
 )
@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 
 sms_bp = Blueprint('sms_inbound', __name__, url_prefix='/sms')
 
-_INTAKE_TTL = 60 * 60 * 24 * 7   # 원문 보관 7일 (모달 제출까지 여유)
+_INTAKE_TTL = INTAKE_TTL          # 원문 보관 90일 (미처리 카드 수명 — sms_intake.INTAKE_TTL)
 _DEDUP_TTL = 60 * 60 * 24        # 중복 무시 24시간
 _OUTFLOW_TTL = 60 * 60 * 24 * 14  # 출금 문자 서버 보관 14일 (슬랙 미노출)
 _OUTFLOW_INDEX = 'sms_outflow:index'   # zset(score=수신 시각) — 기간 조회용

@@ -370,6 +370,15 @@ def collect_intake_pending() -> List[dict]:
                 summary = _fmt_deposit_line(pv)
                 key = _deposit_key(d.get('text') or '')
                 partner, amount = pv.get('partner', ''), pv.get('amount', 0)
+            else:
+                # Redis 원문 없음(만료 등) → 카드 본문의 문자 원문으로 요약 (2026-10-06 9/26 2건)
+                from dashboard.services.sms_intake import intake_text_from_card, parse_preview
+                card_text = intake_text_from_card(m.get('blocks'))
+                if card_text:
+                    pv = parse_preview(card_text)
+                    summary = _fmt_deposit_line(pv)
+                    key = _deposit_key(card_text)
+                    partner, amount = pv.get('partner', ''), pv.get('amount', 0)
         except Exception:
             pass
         permalink = ''
