@@ -626,7 +626,8 @@ def _sanitize_inflow_part(part: str) -> str:
 def normalize_inflow(raw: str) -> str:
     """숨은 필드 원값 → 마커 본문. 'daangn/web_install/A' → '당근/web_install/A'.
 
-    자리(source/campaign/content) 유지: 중간 빈 칸은 '-', 끝쪽 빈 칸은 생략.
+    자리(source/campaign/content/소재ID) 유지: 중간 빈 칸은 '-', 끝쪽 빈 칸은 생략.
+    4번째 칸 = 네이버 소재 ID(n_ad, 2026-10-06 소재 A/B 테스트용) — 카드엔 안 보이고 시트 분석용.
     source 는 별칭 사전으로 한글화(모르면 원값). 전부 비면 ''.
 
     >>> normalize_inflow('daangn/web_install/A')
@@ -637,8 +638,10 @@ def normalize_inflow(raw: str) -> str:
     '네이버'
     >>> normalize_inflow(' / / ')
     ''
+    >>> normalize_inflow('naver/냉난방기설치/냉난방기설치업체/nad-a001-01-000000593496019')
+    '네이버/냉난방기설치/냉난방기설치업체/nad-a001-01-000000593496019'
     """
-    parts = re.split(r'[/|]', str(raw or '').strip())[:3]
+    parts = re.split(r'[/|]', str(raw or '').strip())[:4]
     out = []
     for i, p in enumerate(parts):
         s = _sanitize_inflow_part(p)
@@ -700,6 +703,8 @@ def format_inflow_detail(inflow: str):
     ('광고 소재', 'web_install A')
     >>> format_inflow_detail('구글') is None
     True
+    >>> format_inflow_detail('구글/냉난방기설치')
+    ('검색 키워드', '냉난방기설치')
     """
     parts = [p.strip() for p in str(inflow or '').split('/')]
     parts = [p if p != '-' else '' for p in parts] + ['', '', '']
@@ -709,5 +714,8 @@ def format_inflow_detail(inflow: str):
     if src == '네이버':
         kw = cnt or cmp
         return ('검색 키워드', kw) if kw else None
+    if src == '구글':
+        # 구글 최종 URL 접미사 utm_term={keyword} → 'google/<등록 키워드>' (2026-10-06)
+        return ('검색 키워드', cmp) if cmp else None
     detail = ' '.join(p for p in (cmp, cnt) if p)
     return ('광고 소재', detail) if detail else None

@@ -94,7 +94,7 @@ def test_bad_body_rejected(env, body):
 
 def test_sanitizes_markup_and_length():
     rec = ct.parse_click_payload(json.dumps({'inflow': '<script>alert(1)</script>' + 'a' * 200, 'page': None}).encode())
-    assert '<' not in rec['inflow'] and len(rec['inflow']) <= 90
+    assert '<' not in rec['inflow'] and len(rec['inflow']) <= 130
     assert rec['page'] == '/' and rec['mobile'] == '0'
 
 
@@ -123,3 +123,9 @@ def test_security_middleware_lets_beacon_through_without_csrf():
         c = app.test_client()
         assert _post(c, {'inflow': 'google'}).status_code == 200
         assert c.post('/other').status_code in (400, 403)   # 다른 POST 는 여전히 CSRF 차단
+
+
+def test_naver_inflow_with_ad_id_not_truncated():
+    inflow = 'naver/' + '가' * 30 + '/' + '나' * 30 + '/nad-a001-01-000000593496019'
+    rec = ct.parse_click_payload(json.dumps({'inflow': inflow, 'page': '/'}).encode())
+    assert rec['inflow'].endswith('nad-a001-01-000000593496019')

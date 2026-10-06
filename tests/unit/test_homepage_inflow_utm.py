@@ -221,6 +221,12 @@ def test_sync_skips_test_submission_without_sheet_or_slack(monkeypatch):
     ('naver//시스템에어컨 견적', '네이버/-/시스템에어컨견적', '네이버 시스템에어컨견적'),   # 확장검색(등록키워드 없음)
     ('naver/냉난방기', '네이버/냉난방기', '네이버 냉난방기'),
     ('google', '구글', '구글'),
+    # 2026-10-06 소재 ID(n_ad) 4번째 칸 — 카드 표기는 그대로
+    ('naver/냉난방기설치/냉난방기 설치업체/nad-a001-01-000000593496019',
+     '네이버/냉난방기설치/냉난방기설치업체/nad-a001-01-000000593496019', '네이버 냉난방기설치업체'),
+    ('naver/냉난방기설치//nad-a001-01-000000593496019',
+     '네이버/냉난방기설치/-/nad-a001-01-000000593496019', '네이버 냉난방기설치'),
+    ('google/냉난방기 설치', '구글/냉난방기설치', '구글 냉난방기설치'),
 ])
 def test_naver_google_inflow(raw, marker, short):
     assert normalize_inflow(raw) == marker
@@ -242,6 +248,9 @@ def test_naver_inflow_end_to_end_card():
     ('네이버', None),
     ('당근/web_install/A', ('광고 소재', 'web_install A')),
     ('구글', None),
+    ('구글/냉난방기설치', ('검색 키워드', '냉난방기설치')),
+    ('네이버/냉난방기설치/냉난방기설치업체/nad-a001-01-000000593496019', ('검색 키워드', '냉난방기설치업체')),
+    ('네이버/냉난방기설치/-/nad-a001-01-000000593496019', ('검색 키워드', '냉난방기설치')),
     ('', None),
 ])
 def test_inflow_detail_line(marker, expected):
@@ -252,3 +261,12 @@ def test_google_card_has_channel_only():
     lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n', '유입경로\r\ngoogle\r\n')))
     t = _section(lead)
     assert '온라인 (홈페이지 · 구글)*' in t and '검색 키워드' not in t
+
+
+def test_naver_ad_id_kept_in_marker_but_not_on_card():
+    """소재 ID 는 시트 마커에만 남고(소재별 문의 집계용) 카드엔 노출 안 됨."""
+    lead = h.to_lead(h.parse_mail_body(_mail(
+        '문의유형\r\n설치\r\n', '유입경로\r\nnaver/냉난방기설치/냉난방기 설치업체/nad-a001-01-000000593496019\r\n')))
+    assert lead['문의 내용'].startswith('[유입:네이버/냉난방기설치/냉난방기설치업체/nad-a001-01-000000593496019]\n')
+    t = _section(lead)
+    assert '>*검색 키워드* : 냉난방기설치업체\n' in t and 'nad-' not in t

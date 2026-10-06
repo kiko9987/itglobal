@@ -1,13 +1,16 @@
 <!--
   아임웹 공용 바디 코드 — 유입경로 + gclid 숨은 필드 자동 채움
   (2026-10-02 UTM 최초 / 같은 날 gclid 병합 / 2026-10-04 네이버·구글 자동 식별 추가
-   / 2026-10-05 전화 버튼 클릭 측정 추가)
+   / 2026-10-05 전화 버튼 클릭 측정 추가 / 2026-10-06 네이버 소재 ID·구글 키워드 추가)
 
   유입경로 값 우선순위 (첫 진입 URL 기준, 같은 탭 sessionStorage 유지):
     1) utm_source/utm_campaign/utm_content  → 예: daangn/web_install/A   → 시트 [유입:당근/web_install/A]
-    2) 네이버 검색광고 자동추적 파라미터     → naver/<등록키워드>/<실제검색어> → [유입:네이버/천장형에어컨/천장형 에어컨 설치업체]
-       (n_keyword / n_query — 네이버 '자동 추적 URL' 이 붙임. 확장검색은 n_keyword 가 비어 검색어만)
-    3) gclid 만 있음(구글 광고)               → google                    → [유입:구글]
+    2) 네이버 검색광고 자동추적 파라미터     → naver/<등록키워드>/<실제검색어>/<소재ID>
+       → [유입:네이버/천장형에어컨/천장형에어컨설치업체/nad-a001-01-…]
+       (n_keyword / n_query / n_ad — 네이버 '자동 추적 URL' 이 붙임. 확장검색은 n_keyword 가 비어 검색어만.
+        n_ad = 클릭한 소재 ID → 소재별 문의 비교용, 카드엔 안 보임)
+    3) gclid 있음(구글 광고)                  → google[/<등록키워드>]      → [유입:구글/냉난방기설치]
+       (키워드는 구글 계정 '최종 URL 접미사' 에 utm_term={keyword} 를 넣어야 붙음. 없으면 [유입:구글])
   gclid 는 별도 숨은 필드('gclid')에 원문 그대로 (구글 오프라인 전환용, 자르기 금지).
 
   - 필드 id 대신 라벨 텍스트('유입경로', 'gclid')로 찾음 → 설치·세척 폼 공통, '문의유형' 코드와 독립.
@@ -32,9 +35,9 @@
     if (q.get('utm_source') || q.get('utm_campaign') || q.get('utm_content')) {
       inflow = [q.get('utm_source'), q.get('utm_campaign'), q.get('utm_content')].map(part).join('/');
     } else if (q.get('n_media') || q.get('n_keyword') || q.get('n_query')) {
-      inflow = ['naver', q.get('n_keyword'), q.get('n_query')].map(part).join('/');
+      inflow = ['naver', q.get('n_keyword'), q.get('n_query'), q.get('n_ad')].map(part).join('/');
     } else if (gclid) {
-      inflow = 'google';
+      inflow = ['google', q.get('utm_term')].map(part).join('/');
     }
     inflow = inflow.replace(/\/+$/, '');
 

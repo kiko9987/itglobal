@@ -54,7 +54,7 @@ def parse_click_payload(raw: bytes) -> dict | None:
     if not isinstance(data, dict):
         return None
     return {
-        'inflow': _clean(data.get('inflow'), 90),
+        'inflow': _clean(data.get('inflow'), 130),
         'gclid': _clean(data.get('gclid'), 120),
         'ref': _clean(data.get('ref'), 60),
         'page': _clean(data.get('page'), 80) or '/',
