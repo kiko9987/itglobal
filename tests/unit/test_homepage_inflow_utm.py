@@ -151,14 +151,14 @@ def test_card_shows_inflow_line_and_hides_marker(itype):
     lead = h.to_lead(h.parse_mail_body(_mail(f'문의유형\r\n{itype}\r\n', '유입경로\r\ndaangn/web_install/A\r\n')))
     text = _section(lead)
     assert '*새 문의 접수 알림 - 온라인 (홈페이지 · 당근)*' in text   # 제목엔 채널만
-    assert '>*광고 소재* : web_install A\n' in text                  # 소재는 문의시간 아래 줄
+    assert '>*광고 소재* : 홈피A 신품중고 비교 (동네)\n' in text      # 소재는 문의시간 아래 줄(당근 화면 이름)
     assert text.index('*문의시간*') < text.index('*광고 소재*') < text.index('*이름 / 상호*')
     assert '[유입:' not in text and '[세척]' not in text
     assert '테스트 문의입니다.' in text
     # 시트에서 읽어 재렌더(메타 없음)해도 동일
     lead2 = {k: v for k, v in lead.items() if not k.startswith('_meta')}
     text2 = _section(lead2)
-    assert '온라인 (홈페이지 · 당근)' in text2 and '*광고 소재* : web_install A' in text2 and '[유입:' not in text2
+    assert '온라인 (홈페이지 · 당근)' in text2 and '*광고 소재* : 홈피A 신품중고 비교 (동네)' in text2 and '[유입:' not in text2
 
 
 def test_card_without_inflow_has_no_line():
@@ -246,7 +246,7 @@ def test_naver_inflow_end_to_end_card():
     ('네이버/-/시스템에어컨견적', ('검색 키워드', '시스템에어컨견적')),    # 확장검색
     ('네이버/냉난방기', ('검색 키워드', '냉난방기')),                    # 검색어 없으면 등록 키워드
     ('네이버', None),
-    ('당근/web_install/A', ('광고 소재', 'web_install A')),
+    ('당근/web_install/A', ('광고 소재', '홈피A 신품중고 비교 (동네)')),
     ('구글', None),
     ('구글/냉난방기설치', ('검색 키워드', '냉난방기설치')),
     ('네이버/냉난방기설치/냉난방기설치업체/nad-a001-01-000000593496019', ('검색 키워드', '냉난방기설치업체')),

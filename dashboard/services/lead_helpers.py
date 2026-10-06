@@ -712,6 +712,14 @@ KARROT_MATERIAL_NAMES = {
     '1781068887256983000': '[종료] 사무실 에어컨',
 }
 
+# 당근 '홈페이지' 캠페인 랜딩 UTM(utm_campaign/utm_content) → 당근 화면 소재 이름 (2026-10-06).
+#   [유입:당근/web_install/A] 처럼 들어옴. 새 홈피 소재를 만들면 여기 추가(없으면 'web_install D' 원문).
+KARROT_HOMEPAGE_NAMES = {
+    ('web_install', 'A'): '홈피A 신품중고 비교 (동네)',
+    ('web_install', 'B'): '홈피B 매장 평수',
+    ('web_install', 'C'): '홈피C 업체 찾나요 (시군구)',
+}
+
 
 def karrot_material_label(material_id: str) -> str:
     """당근 소재 ID → 표기 이름. 모르는 ID 는 'ID …끝6자리'."""
@@ -731,7 +739,9 @@ def format_inflow_detail(inflow: str):
     >>> format_inflow_detail('네이버/천장형에어컨/천장형에어컨설치업체')
     ('검색 키워드', '천장형에어컨설치업체')
     >>> format_inflow_detail('당근/web_install/A')
-    ('광고 소재', 'web_install A')
+    ('광고 소재', '홈피A 신품중고 비교 (동네)')
+    >>> format_inflow_detail('당근/web_install/D')
+    ('광고 소재', 'web_install D')
     >>> format_inflow_detail('당근/리드폼/1787591723962696000')
     ('광고 소재', '수동1 무료방문견적 (동네)')
     >>> format_inflow_detail('구글') is None
@@ -753,5 +763,8 @@ def format_inflow_detail(inflow: str):
     if src == '당근' and cmp == '리드폼' and cnt.isdigit():
         # 당근 리드폼(자동연동 시트 '소재 ID') → 소재 문구 (2026-10-06)
         return ('광고 소재', karrot_material_label(cnt))
+    if src == '당근' and (cmp, cnt) in KARROT_HOMEPAGE_NAMES:
+        # 당근 홈페이지 캠페인(UTM A/B/C) → 당근 화면 소재 이름과 통일 (2026-10-06)
+        return ('광고 소재', KARROT_HOMEPAGE_NAMES[(cmp, cnt)])
     detail = ' '.join(p for p in (cmp, cnt) if p)
     return ('광고 소재', detail) if detail else None
