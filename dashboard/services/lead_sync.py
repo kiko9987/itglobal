@@ -48,6 +48,7 @@ KCOL_PLACE = '설치 희망 장소를 선택해주세요'
 KCOL_DEVICE = '설치 희망 기기 종류를 선택해 주세요'
 KCOL_ADDRESS = '방문 견적 받으실 주소를 입력해 주세요'
 KCOL_INQUIRY = '문의 내용을 간단하게 남겨주세요'
+KCOL_MATERIAL = '소재 ID'   # 당근이 채워주는 광고 소재 ID (캠페인 ID·광고그룹 ID 칸도 있음)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -129,6 +130,14 @@ def map_karrot_row_to_lead(row: pd.Series) -> Dict[str, Any]:
     _ov = extract_address_overflow(address_raw)
     if _ov and _ov not in content:
         content = f'{content}\n{_ov}' if content else _ov
+
+    # 광고 소재 — [유입:당근/리드폼/<소재ID>] 마커로 영속화(홈페이지 UTM 마커와 같은 방식).
+    #   카드 빌더가 떼어 '광고 소재' 줄로 표시, 시트에선 소재별 문의·계약 집계용. (2026-10-06)
+    material_id = re.sub(r'\D', '', _s(KCOL_MATERIAL))
+    if material_id:
+        marker = f'[유입:당근/리드폼/{material_id}]'
+        content = f'{marker}\n{content}' if content else marker
+        inquiry = f'{marker}\n{inquiry}' if inquiry else marker
 
     # 키워드: KEYWORD_VOCAB 매칭 (device + place + inquiry)
     from dashboard.services.lead_helpers import extract_keywords_from_sources
@@ -1530,8 +1539,9 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
 
     from dashboard.services.lead_helpers import format_inflow_display
     inflow_label = format_inflow_display(source)
-    if inflow_src:
+    if inflow_src and inflow_src != source:
         # 제목 괄호엔 채널만: '온라인 (홈페이지 · 네이버)'. 키워드·소재는 문의시간 아래 별도 줄.
+        #   당근 리드폼처럼 플랫폼 = 유입 채널이면 '당근 · 당근' 중복이라 생략.
         inflow_label = (f'{inflow_label[:-1]} · {inflow_src})' if inflow_label.endswith(')')
                         else f'{inflow_label} · {inflow_src}')
     title = f"새 문의 접수 알림 - {inflow_label}"

@@ -690,6 +690,34 @@ def format_inflow_source(inflow: str) -> str:
     return str(inflow or '').split('/')[0].strip()
 
 
+# 당근 리드폼 소재 ID → 카드 표기 이름 (2026-10-06). 당근 자동연동 시트 '소재 ID' 칸 값.
+#   서버엔 당근 광고 API 가 없어 정적 매핑 — 새 소재를 만들면 여기 추가(없으면 'ID …끝6자리').
+#   {동네}={region3}·{시군구}={region2} 지역 치환 변수. 사본 = 다른 광고그룹에 복사한 같은 문구.
+KARROT_MATERIAL_NAMES = {
+    # 캠페인_리드폼_202606111038 / 광고그룹_리드폼_수동 입찰 (특정 타겟)
+    '1781143078983516000': '{동네} 상업용 냉난방기 무료 방문 견적 받으세요',
+    '1781143326930907000': '{시군구} 상업용 냉난방기 무료 방문 견적 받으세요',
+    '1781143078913516000': '[무료 방문] 상가 냉난방기 설치 비용, 견적 신청하기',
+    '1781143078942516000': '상업용 냉난방기, 여름 되기 전에 설치해야 저렴해요',
+    # 같은 캠페인 / 리드폼 전환 광고 (수동)
+    '1787591723962696000': '{동네} 상업용 냉난방기 무료 방문 견적 받으세요 (사본1)',
+    '1787592191803713000': '{동네} 상업용 에어컨 무료 방문 견적 받으실 분? (사본2)',
+    # 캠페인_리드폼_202606101322 (꺼짐 — 과거 리드 표기용)
+    '1781066222262253000': '{동네} 상업용 냉난방기 무료 방문 견적 받으세요 (6/10 캠페인)',
+    '1781066222272253000': '[무료 방문] 상가 냉난방기 설치 비용, 견적 신청하기 (6/10 캠페인)',
+    '1781068395714186000': '상업용 냉난방기, 여름 되기 전에 설치해야 저렴해요 (6/10 캠페인)',
+    '1781068887256983000': '[무료 방문] 더워지기 전에 준비하는 사무실 에어컨',
+}
+
+
+def karrot_material_label(material_id: str) -> str:
+    """당근 소재 ID → 표기 이름. 모르는 ID 는 'ID …끝6자리'."""
+    mid = re.sub(r'\D', '', str(material_id or ''))
+    if not mid:
+        return ''
+    return KARROT_MATERIAL_NAMES.get(mid) or f'ID …{mid[-6:]}'
+
+
 def format_inflow_detail(inflow: str):
     """마커 본문 → 카드 본문 한 줄 (라벨, 값). 보여줄 게 없으면 None.
 
@@ -701,6 +729,8 @@ def format_inflow_detail(inflow: str):
     ('검색 키워드', '천장형에어컨설치업체')
     >>> format_inflow_detail('당근/web_install/A')
     ('광고 소재', 'web_install A')
+    >>> format_inflow_detail('당근/리드폼/1787591723962696000')
+    ('광고 소재', '{동네} 상업용 냉난방기 무료 방문 견적 받으세요 (사본1)')
     >>> format_inflow_detail('구글') is None
     True
     >>> format_inflow_detail('구글/냉난방기설치')
@@ -717,5 +747,8 @@ def format_inflow_detail(inflow: str):
     if src == '구글':
         # 구글 최종 URL 접미사 utm_term={keyword} → 'google/<등록 키워드>' (2026-10-06)
         return ('검색 키워드', cmp) if cmp else None
+    if src == '당근' and cmp == '리드폼' and cnt.isdigit():
+        # 당근 리드폼(자동연동 시트 '소재 ID') → 소재 문구 (2026-10-06)
+        return ('광고 소재', karrot_material_label(cnt))
     detail = ' '.join(p for p in (cmp, cnt) if p)
     return ('광고 소재', detail) if detail else None

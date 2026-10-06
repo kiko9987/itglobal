@@ -6501,8 +6501,13 @@ def _split_lead_content(content_text: str) -> dict:
     실패 시 raw 텍스트만 반환.
     """
     place, device, inquiry = '', '', ''
+    # 유입 마커 [유입:네이버/…]·[유입:당근/리드폼/<소재ID>] 는 시트 집계용 — 모달 표기에선 뗌 (2026-10-06)
+    from dashboard.services.lead_helpers import split_inflow_marker
+    marker, content_text = split_inflow_marker(content_text or '')
+    content_text = content_text.strip()
     if not content_text:
-        return {'place': place, 'device': device, 'inquiry': content_text}
+        # 마커만 있던 경우 '-' (호출부 `or 문의 내용` fallback 이 마커 원문을 다시 띄우지 않게)
+        return {'place': place, 'device': device, 'inquiry': '-' if marker else content_text}
     for part in content_text.split(' / '):
         if part.startswith('장소: '):
             place = part[4:].strip()
@@ -9120,6 +9125,9 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
     # 매니저가 편집 후 저장 시 헤더는 유실되지만 방문 카드 회색 처리에 이력 남음.
     if cur_consultation:
         cur_consultation = _extract_latest_consult_content(cur_consultation) or cur_consultation
+        # 문의 내용 fallback 의 유입 마커(시트 집계용)는 편집 모달에 노출 안 함 (2026-10-06)
+        from dashboard.services.lead_helpers import split_inflow_marker
+        cur_consultation = split_inflow_marker(cur_consultation)[1].strip()
 
     metadata = json.dumps({
         'lead_no': lead_no,
