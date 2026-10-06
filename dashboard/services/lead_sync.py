@@ -1487,9 +1487,12 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     #   [세척] 마커로 영속화(시트·재렌더 유지). 여기서 마커로 감지 → 배지 표시 + 표기에선 마커 제거.
     is_clean_req = _is_clean_lead(lead)
     # 유입 출처(UTM) 마커 [유입:당근/web_install/A] (2026-10-02) — 표기에선 떼고 별도 줄로.
-    from dashboard.services.lead_helpers import split_inflow_marker, format_inflow_short
+    from dashboard.services.lead_helpers import (
+        split_inflow_marker, format_inflow_source, format_inflow_detail,
+    )
     inflow_raw, inquiry = split_inflow_marker(inquiry)
-    inflow_short = format_inflow_short(inflow_raw)
+    inflow_src = format_inflow_source(inflow_raw)
+    inflow_detail = format_inflow_detail(inflow_raw)
     inquiry = inquiry.strip() or '-'
     if isinstance(inquiry, str) and inquiry.lstrip().startswith('[세척]'):
         inquiry = re.sub(r'^\s*\[세척\]\s*\n?', '', inquiry).strip() or '-'
@@ -1527,10 +1530,10 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
 
     from dashboard.services.lead_helpers import format_inflow_display
     inflow_label = format_inflow_display(source)
-    if inflow_short:
-        # 유입 출처(UTM)는 별도 줄 대신 제목 괄호 안에: '온라인 (홈페이지 · 당근 A)'
-        inflow_label = (f'{inflow_label[:-1]} · {inflow_short})' if inflow_label.endswith(')')
-                        else f'{inflow_label} · {inflow_short}')
+    if inflow_src:
+        # 제목 괄호엔 채널만: '온라인 (홈페이지 · 네이버)'. 키워드·소재는 문의시간 아래 별도 줄.
+        inflow_label = (f'{inflow_label[:-1]} · {inflow_src})' if inflow_label.endswith(')')
+                        else f'{inflow_label} · {inflow_src}')
     title = f"새 문의 접수 알림 - {inflow_label}"
 
     # 단일 라인 필드는 개행 flatten — 필드값에 \n이 있으면 slack blockquote 구조가 깨져
@@ -1570,13 +1573,17 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     # 같은 blockquote 안 라인은 슬랙이 복사 시 줄바꿈을 정상 보존함.
     # 멀티라인 inquiry는 60자 wrap + 각 줄마다 `>` prefix.
     inquiry_quoted = _wrap_quoted(inquiry.rstrip(), width=60)
+    # 네이버 '검색 키워드' / 당근 등 '광고 소재' — 문의시간 바로 아래 (2026-10-06)
+    inflow_line = (f">*{inflow_detail[0]}* : {_oneline(inflow_detail[1])}\n"
+                   if inflow_detail else '')
     main_text = (
         "⠀\n"
         f">:bell: *{title}*  `{lead_no}`\n"
         f">--------------------------------------------\n"
         + repeat_section
         + f">*문의시간* : {consult_time}\n"
-        f">*이름 / 상호* : {name}\n"
+        + inflow_line
+        + f">*이름 / 상호* : {name}\n"
         f">*연락처* : {phone}\n"
         f">*이메일* : {email}\n"
         f">*{place_label}* : {place}\n"

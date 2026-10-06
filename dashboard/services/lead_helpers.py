@@ -680,3 +680,34 @@ def format_inflow_short(inflow: str) -> str:
         return ''
     tail = cnt or cmp
     return f'{src} {tail}' if tail else src
+
+
+def format_inflow_source(inflow: str) -> str:
+    """마커 본문 → 채널명만 (카드 제목 괄호용). '네이버/천장형에어컨/…' → '네이버'."""
+    return str(inflow or '').split('/')[0].strip()
+
+
+def format_inflow_detail(inflow: str):
+    """마커 본문 → 카드 본문 한 줄 (라벨, 값). 보여줄 게 없으면 None.
+
+    네이버는 고객이 실제 검색한 말(없으면 등록 키워드)을 '검색 키워드'로,
+    그 외 광고(당근 등)는 캠페인·소재를 '광고 소재'로 보여준다. (2026-10-06 사장님 요청:
+    제목엔 채널만, 키워드는 문의시간 아래 별도 줄)
+
+    >>> format_inflow_detail('네이버/천장형에어컨/천장형에어컨설치업체')
+    ('검색 키워드', '천장형에어컨설치업체')
+    >>> format_inflow_detail('당근/web_install/A')
+    ('광고 소재', 'web_install A')
+    >>> format_inflow_detail('구글') is None
+    True
+    """
+    parts = [p.strip() for p in str(inflow or '').split('/')]
+    parts = [p if p != '-' else '' for p in parts] + ['', '', '']
+    src, cmp, cnt = parts[0], parts[1], parts[2]
+    if not src:
+        return None
+    if src == '네이버':
+        kw = cnt or cmp
+        return ('검색 키워드', kw) if kw else None
+    detail = ' '.join(p for p in (cmp, cnt) if p)
+    return ('광고 소재', detail) if detail else None
