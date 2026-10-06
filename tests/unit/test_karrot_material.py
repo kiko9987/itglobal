@@ -34,7 +34,7 @@ def test_marker_saved_in_sheet_content():
 
 def test_card_shows_material_line_and_plain_title():
     t = _text(map_karrot_row_to_lead(_row()))
-    assert '>*광고 소재* : 수동1 무료방문견적 (동네)\n' in t
+    assert '>*광고 소재* : 수동1 무료방문견적 (읍면동)\n' in t
     assert '온라인 (당근)*' in t and '당근 · 당근' not in t
     assert '[유입:' not in t
     assert '10평 상가 천장형 1대 견적' in t
