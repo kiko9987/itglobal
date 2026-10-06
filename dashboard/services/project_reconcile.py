@@ -47,6 +47,28 @@ def store_field_snapshot(rc, code: str, data: dict, fields) -> None:
         logger.debug(f'[RECONCILE] 스냅샷 저장 실패 ({code}): {exc}')
 
 
+def sync_snapshot_fields(code: str, values: dict) -> None:
+    """이미 알림을 보낸 변경을 스냅샷에도 반영 — 리컨사일러가 같은 변경을 '시트 직접수정'으로
+    다시 감지해 댓글을 또 달지 않게 (2026-10-06).
+
+    계기: R4029-JK 9/30 17:02 PM 편집 → 서버 재시작(17:09)으로 리컨사일러 10분 주기가 리셋돼
+    첫 점검이 17:19 → PM 편집 15분 마커(17:17 만료)가 이미 지나 같은 변경에 '(시트 직접수정)'
+    중복 댓글. 마커(시간)에만 기대지 않고 알림 경로가 기준값을 직접 맞춘다.
+    스냅샷이 아직 없으면(첫 감지 전) 건드리지 않음 — 베이스라인은 리컨사일러가 시트에서 잡는다.
+    """
+    if not code or not values:
+        return
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        key = _SNAP_PREFIX + code
+        if not rc.exists(key):
+            return
+        rc.hset(key, mapping={f: ('' if v is None else str(v)) for f, v in values.items()})
+    except Exception as exc:
+        logger.debug(f'[RECONCILE] 스냅샷 동기화 실패 ({code}): {exc}')
+
+
 def reconcile_project_cards() -> dict:
     """공사확정 카드 있는 프로젝트의 시트 직접수정 감지 → 카드 반영 + 로그. 스케줄러 진입점."""
     result = {'checked': 0, 'reflected': 0, 'baseline': 0}

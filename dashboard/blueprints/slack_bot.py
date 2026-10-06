@@ -12575,11 +12575,13 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
     initial = initial or '-'
     pclient = _project_client()
 
-    # 리컨사일러 중복·오표기 방지 — 취소는 PM 편집이므로 마커(15분). 슬랙 버튼·PM 공통.
-    #   (없으면 10분 폴러가 특이사항·공사확정 변화를 '시트 직접수정'으로 또 댓글)
+    # 리컨사일러 중복·오표기 방지 — 취소는 PM 편집이므로 마커. 슬랙 버튼·PM 공통.
+    #   (없으면 10분 폴러가 특이사항·공사확정 변화를 '시트 직접수정'으로 또 댓글·취소 재실행)
+    #   2시간: 15분이면 서버 재시작으로 폴러 주기가 밀릴 때 만료돼 취소가 두 번 처리될 수 있음
+    #   (2026-10-06 R4029-JK 일반 편집 중복 사례). 취소는 드물고 중복 영향이 커서 넉넉히.
     try:
         from dashboard.utils.redis_client import get_redis_client as _grc_pm
-        _grc_pm().redis.setex(f'project_pm_edit:{code}', 900, '취소')
+        _grc_pm().redis.setex(f'project_pm_edit:{code}', 7200, '취소')
     except Exception:
         pass
 
@@ -13021,10 +13023,10 @@ def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: st
     initial = initial or '-'
     pclient = _project_client()
 
-    # 리컨사일러 중복·오표기 방지 — 재개도 PM 편집이므로 마커(15분). 슬랙 버튼·PM 공통.
+    # 리컨사일러 중복·오표기 방지 — 재개도 PM 편집이므로 마커(2시간, 취소와 같은 이유). 슬랙 버튼·PM 공통.
     try:
         from dashboard.utils.redis_client import get_redis_client as _grc_pm
-        _grc_pm().redis.setex(f'project_pm_edit:{code}', 900, '재개')
+        _grc_pm().redis.setex(f'project_pm_edit:{code}', 7200, '재개')
     except Exception:
         pass
 
