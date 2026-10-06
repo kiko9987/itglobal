@@ -1657,6 +1657,31 @@ def _enrich_verified_address(
                 and _phrase not in verified_addr):
             verified_addr = f'{verified_addr} {_phrase}'.strip()
 
+    # 원문 괄호 속 단지명 복원 (2026-10-06 ETC-258cd3): '권율로 1203번길 39-37(홍죽산업단지)'
+    #   의 '(홍죽산업단지)'는 카카오/행안부 검증 주소에 없어 보강 단계에서 통째 유실. L-03962
+    #   정책(단지 괄호 → 괄호 벗기고 도로+번지 바로 뒤로)과 동일하게 결과에 없으면 삽입.
+    #   단지 접미(단지/아파트/마을/타운)로 끝나는 괄호만 — 노트·법정동·콤마형은 미대상.
+    for _cm in re.finditer(r'\(([가-힣][가-힣A-Za-z0-9 ]{1,28}(?:단지|아파트|마을|타운))\)',
+                           original_text or ''):
+        _cx = re.sub(r'\s+', ' ', _cm.group(1)).strip()
+        _core = re.search(r'[가-힣]{2,}\d*[가-힣]*(?:로|길)\s*\d+(?:-\d+)?', verified_addr)
+        if _cx.replace(' ', '') in verified_addr.replace(' ', ''):
+            # 이미 있으나 번지 바로 뒤가 아니면(상가·동·호 뒤 꼬리) 번지 뒤로 이동 —
+            #   L-03962 '단지명은 상가 앞' 정책. 정확한 공백형으로 찾을 때만(오치환 방지).
+            if (_core and f' {_cx}' in verified_addr
+                    and not verified_addr[_core.end():].lstrip().startswith(_cx)):
+                _rest = verified_addr.replace(f' {_cx}', '', 1)
+                _c2 = re.search(r'[가-힣]{2,}\d*[가-힣]*(?:로|길)\s*\d+(?:-\d+)?', _rest)
+                if _c2:
+                    verified_addr = f'{_rest[:_c2.end()]} {_cx}{_rest[_c2.end():]}'.strip()
+            break
+        if _core:
+            _e = _core.end()
+            verified_addr = f'{verified_addr[:_e]} {_cx}{verified_addr[_e:]}'.strip()
+        else:
+            verified_addr = f'{verified_addr} {_cx}'.strip()
+        break
+
     return verified_addr
 
 
