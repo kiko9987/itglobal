@@ -621,6 +621,15 @@ def update_project_in_cache(project_code: str, updated_fields: Dict[str, Any]) -
         )
         return False
 
+    # 편집 시각 마커 → 이 편집 전에 시작해 아직 진행 중인 전체 로드(시트 읽기 8~23초)가 끝나며
+    # 편집 이전 데이터로 캐시를 되돌리는 것 차단 (2026-10-07 R4163-TH: 16:20:02 시작 로드가
+    # 16:20:10 부분 갱신을 16:20:25 에 덮어써 ✅ 금액 반영 확인이 '미반영' 오탐). 마커는 쓰기 거부
+    # 판정에만 쓰이고 읽기엔 무영향. 아래 smart_set 은 fetched_at=현재라 마커에 걸리지 않음.
+    try:
+        from dashboard.utils.smart_cache_manager import smart_set_invalidation_marker
+        smart_set_invalidation_marker("current_sheet_data")
+    except Exception as exc:   # 마커 실패가 편집 반영을 막으면 안 됨
+        logger.warning(f"[CACHE_UPDATE] 편집 마커 설정 실패(무시) ({project_code}): {exc}")
     smart_set("current_sheet_data", cached, CacheStrategy.CRITICAL_DATA)
     logger.info(f"[CACHE_UPDATE] 프로젝트 {project_code} 부분 갱신 완료: {list(updated_fields.keys())}")
     return True

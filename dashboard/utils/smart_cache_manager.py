@@ -21,6 +21,11 @@ from dashboard.utils.cache_invalidation import get_cache_invalidation_service
 
 logger = logging.getLogger(__name__)
 
+# 무효화 마커 수명 — '이 시각 이전에 시작한 로드 결과는 캐시에 쓰지 말라'는 표시라, 가장 긴
+# 시트 로드(API timeout 60s + 계산)보다 길어야 한다. 10초이던 시절 23초짜리 로드가 마커 만료
+# 뒤 PM 편집 이전 데이터로 캐시를 덮음 (2026-10-07 R4163-TH 금액 반영 ✅ 오탐). 읽기엔 무영향.
+INVALIDATION_MARKER_TTL = 120
+
 # pandas import (선택적 - 없어도 동작)
 try:
     import pandas as pd
@@ -377,7 +382,7 @@ class SimpleCache:
             # 무효화 마커 설정 (레이스 컨디션 방지)
             if set_marker:
                 marker_key = f"invalidation:{key}"
-                self.redis.set(marker_key, str(time.time()), ex=10)  # 10초 TTL
+                self.redis.set(marker_key, str(time.time()), ex=INVALIDATION_MARKER_TTL)
                 logger.debug(f"캐시 삭제 + 무효화 마커 설정: {key}")
             else:
                 logger.debug(f"캐시 삭제: {key}")
@@ -811,10 +816,10 @@ class SimpleCache:
 
             # Fallback 모드 체크
             if self._use_fallback and self._fallback_cache:
-                self._fallback_cache.set(marker_key, str(marker_time), ex=10)
+                self._fallback_cache.set(marker_key, str(marker_time), ex=INVALIDATION_MARKER_TTL)
                 logger.debug(f"Fallback 무효화 마커 설정: {key} = {marker_time}")
             else:
-                self.redis.set(marker_key, str(marker_time), ex=10)  # 10초 TTL
+                self.redis.set(marker_key, str(marker_time), ex=INVALIDATION_MARKER_TTL)
                 logger.debug(f"무효화 마커 설정: {key} = {marker_time}")
 
         except ServiceUnavailable:
@@ -824,7 +829,7 @@ class SimpleCache:
             if self._fallback_cache:
                 marker_time = timestamp or time.time()
                 marker_key = f"invalidation:{key}"
-                self._fallback_cache.set(marker_key, str(marker_time), ex=10)
+                self._fallback_cache.set(marker_key, str(marker_time), ex=INVALIDATION_MARKER_TTL)
                 logger.debug(f"Fallback 무효화 마커 설정: {key} = {marker_time}")
             else:
                 logger.warning(f"Fallback 캐시 사용 불가 - 무효화 마커 설정 실패: {key}")
