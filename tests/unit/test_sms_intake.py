@@ -265,6 +265,17 @@ class TestCashDetectAndNormalize:
         # 통화 단어('만원')를 수령자로 오추출하지 않음
         assert '만원' not in normalize_cash_layout('현금 300만원 수령', default_receiver='YG')
 
+    def test_amount_not_glued_to_date_or_code(self):
+        # 같은 줄 날짜 끝자리가 금액에 붙던 버그 (2026-10-07 '2026-10-07 2,600,000원' → 72,600,000)
+        assert parse_cash_amount('2026-10-07 2,600,000원 현금수령 (MW>SB)') == 2_600_000
+        assert parse_cash_amount('10/07 260만원 현금') == 2_600_000
+        assert parse_cash_amount('2026/10/07 14:05 현금 7,200,000원') == 7_200_000
+        assert parse_cash_amount('R4113-SJ 7,200,000원 현금') == 7_200_000
+        assert parse_cash_amount('2026년 10월 7일 현금 1억 2천만원') == 120_000_000
+        assert parse_cash_amount('01012345678 현금 300만원') == 3_000_000
+        assert normalize_cash_layout('2026-10-07 2,600,000원 현금수령 (MW>SB)', default_receiver='SB') \
+            == '2026/10/07\n입금 2,600,000원\n현금 수령 (MW → SB)'
+
     def test_explicit_chain_notation(self):
         # 직접 적은 전달 체인 'A>B' (2026-10-07 SB '2,600,000원 현금수령 (MW>SB)' → MW 유실 계기)
         from datetime import datetime
