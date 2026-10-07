@@ -298,6 +298,7 @@ def _get_existing_phone_lookup(main_df: Optional[pd.DataFrame]) -> dict:
             'feedback': str(row.get('상담 내용', '') or ''),  # 새 K열 (매니저 상담 결과)
             'inquiry': str(row.get('문의 내용', '') or ''),   # 새 J열 (인입 원본)
             'address': str(row.get('방문 주소', '') or ''),   # I열 — 재문의 시 이전 방문지 노출용
+            'customer_name': str(row.get('고객명', '') or ''),  # 재문의 칸 '이전 이름' (2026-10-08)
             'platform': str(row.get('플랫폼', '') or ''),
             'consultant': str(row.get('온라인 상담자', '') or ''),
             'sales_rep': str(row.get('영업 담당자', '') or ''),
@@ -380,6 +381,9 @@ def _build_repeat_section(lead: dict) -> str:
     prev_status = (most_recent.get('status') or '').strip() or '-'
     prev_address = (most_recent.get('address') or '').strip() or '-'
     prev_feedback = (most_recent.get('feedback') or '').strip() or '-'
+    # 이전 이름 — 판정 기준(같은 연락처)과 함께 표시. 같은 사람이 이름↔가게명을 바꿔 남기면
+    # 다른 사람처럼 보임 (2026-10-08 L-04199 '김장하는날' ↔ L-00520 '이창덕').
+    prev_name = re.sub(r'\s+', ' ', (most_recent.get('customer_name') or '')).strip() or '-'
     # 상담자/방문자: 한국 이름 → 이니셜 통일
     from dashboard.blueprints.slack_bot import _to_initial
     prev_consultant_raw = (most_recent.get('consultant') or '').strip()
@@ -408,6 +412,7 @@ def _build_repeat_section(lead: dict) -> str:
     return (
         f">:repeat: *재문의 감지*\n"
         f">*이전 문의* : {prev_label}\n"
+        f">*이전 이름* : {prev_name} (같은 연락처)\n"
         f">*방문 주소* : {prev_address}\n"
         f">*문의 내용* :\n{prev_inquiry_quoted}\n"
         f">*상태* : {prev_status}\n"
