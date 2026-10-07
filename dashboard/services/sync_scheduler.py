@@ -296,28 +296,37 @@ def start_scheduler():
     )
     jobs.append('일 백업 매일 03:15')
 
-    # 2026-09-11 정합성/불변식 점검 — 하루 2회(08:30·18:00). "조용히 틀린 값"(유령 코드·
+    # 2026-09-11 정합성/불변식 점검 — 하루 2회. "조용히 틀린 값"(유령 코드·
     # 고아 수금완료·금액 이상치) 자동 감지 → 관리자 슬랙. dedup 하루 1회. 발송 채널 있을 때만.
     if os.getenv('INVARIANT_CHECKS_ENABLED', '1').strip().lower() not in ('0', 'false', 'no') \
             and (os.getenv('INVARIANT_ALERT_CHANNEL', '').strip() or os.getenv('SLACK_ADMIN_CHANNEL', '').strip()):
+        # 2026-10-07 출퇴근 08~17시 → 출근 전 07:50·퇴근 전 16:30 (기존 08:30·18:30).
         _scheduler.add_job(
             _safe_invariant_checks,
             'cron',
-            hour='8,18', minute=30,
+            hour=7, minute=50,
             id='invariant_checks_daily',
             replace_existing=True,
         )
-        jobs.append('정합성 점검 매일 08:30·18:30')
+        _scheduler.add_job(
+            _safe_invariant_checks,
+            'cron',
+            hour=16, minute=30,
+            id='invariant_checks_evening',
+            replace_existing=True,
+        )
+        jobs.append('정합성 점검 매일 07:50·16:30')
 
-    # 2026-07-23 매일 아침 9시 부재중/미완료 리마인드 (온라인 문의 채널)
+    # 2026-07-23 매일 아침 부재중/미완료 리마인드 (온라인 문의 채널) — 출근 직후.
+    #   2026-10-07 출퇴근 08~17시 변경으로 09:00 → 08:10.
     _scheduler.add_job(
         _safe_absent_remind_daily,
         'cron',
-        hour=9, minute=0,
+        hour=8, minute=10,
         id='absent_remind_daily',
         replace_existing=True,
     )
-    jobs.append('부재중 리마인드 매일 09:00')
+    jobs.append('부재중 리마인드 매일 08:10')
 
     # 2026-07-28 미처리 정산 핀 리마인드 — 매일 오후 1시 #영업_관리 (세금계산서 관리 알림 봇).
     #   2026-10-07 출퇴근 08~17시 변경으로 13:00·16:00 (기존 14:00·17:00 — 17시=퇴근 시각).
@@ -347,21 +356,21 @@ def start_scheduler():
         _scheduler.add_job(
             _safe_weekly_urgent_invoice_remind,
             'cron',
-            day_of_week='mon', hour=9, minute=0,
+            day_of_week='mon', hour=8, minute=10,  # 2026-10-07 09:00→08:10 (출근 08시)
             id='weekly_urgent_invoice_remind',
             replace_existing=True,
         )
-        jobs.append('수금완료 미발행 리마인드 매주 월 09:00')
-        # 마감(10일) 이틀 전 8일 09시, 8일이 주말·공휴일이면 직전 영업일 — 1~8일 매일 호출하고
+        jobs.append('수금완료 미발행 리마인드 매주 월 08:10')
+        # 마감(10일) 이틀 전 8일 08:10(2026-10-07 출근 08시로 09→08:10), 8일이 주말·공휴일이면 직전 영업일 — 1~8일 매일 호출하고
         # 발송일 판정은 send_monthly_invoice_remind 가 한다 (2026-10-05 10일→8일).
         _scheduler.add_job(
             _safe_monthly_invoice_remind,
             'cron',
-            day='1-8', hour=9, minute=0,
+            day='1-8', hour=8, minute=10,
             id='monthly_invoice_remind',
             replace_existing=True,
         )
-        jobs.append('계산서 마감 리마인드 매월 8일(직전 영업일) 09:00')
+        jobs.append('계산서 마감 리마인드 매월 8일(직전 영업일) 08:10')
 
     # 2026-07-28 거래처 탭 국세청 상태 갱신. NTS_SERVICE_KEY 있을 때만.
     if os.getenv('NTS_SERVICE_KEY', '').strip():
