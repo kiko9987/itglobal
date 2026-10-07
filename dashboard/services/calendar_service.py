@@ -31,6 +31,10 @@ def _calendar_id() -> str:
 
 
 def is_calendar_enabled() -> bool:
+    # 운영 스위치 — 연동 일시 중단(설정은 그대로 두고 생성·수정·삭제·5분 동기화 전부 정지).
+    # 2026-10-06 사용자 결정 '캘린더 연동 당분간 안 함'(403 Forbidden 알림 계기). 재개=true/삭제.
+    if os.getenv('GOOGLE_CALENDAR_ENABLED', 'true').strip().lower() in ('0', 'false', 'no', 'off'):
+        return False
     try:
         get_client_secret_file()
     except CalendarConfigurationError:

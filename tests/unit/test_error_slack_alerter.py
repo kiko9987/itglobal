@@ -48,6 +48,22 @@ def test_denies_noise_message():
     assert g.decide(_rec('I/O operation on closed file')) is None
 
 
+def test_denies_closed_modal_views_update_only():
+    """닫힌/교체된 모달의 views.update not_found 만 무시 (2026-10-06 15:23 수금 지정)."""
+    g = _gate()
+    closed = ("[SLACK/수금봇] payment_intake_open 실패: The request to the Slack API failed. "
+              "(url: https://slack.com/api/views.update)\n"
+              "The server responded with: {'ok': False, 'error': 'not_found'}")
+    assert g.decide(_rec(closed)) is None
+    # 다른 API 의 not_found, views.update 의 다른 오류는 그대로 경보 대상
+    other_api = ("chat.update 실패 (url: https://slack.com/api/chat.update)\n"
+                 "The server responded with: {'ok': False, 'error': 'message_not_found'}")
+    other_err = ("모달 갱신 실패 (url: https://slack.com/api/views.update)\n"
+                 "The server responded with: {'ok': False, 'error': 'invalid_blocks'}")
+    assert g.decide(_rec(other_api, lineno=20)) is not None
+    assert g.decide(_rec(other_err, lineno=30)) is not None
+
+
 def test_below_error_level_ignored():
     g = _gate()
     assert g.decide(_rec('just a warning', level=logging.WARNING)) is None

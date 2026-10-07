@@ -271,7 +271,8 @@ def _guess_project(partner: str, amount, recs: list) -> str:
     """미지정 입금의 추정 프로젝트 코드 — 확실할 때만(후보 1개) 반환, 아니면 ''.
 
     조건(전부 충족 + 후보 유일): ①입금자명↔사업자명 핵심어 일치(양방향, SMS 잘림
-    대응 최장공통 4자) ②미수금>0 ③입금액≤미수금(그 현장이 받을 수 있는 범위).
+    대응 최장공통 4자) — 없거나 여럿이면 입금자명 속 현장주소 키워드로 찾기/좁히기
+    ②미수금>0 ③입금액≤미수금(그 현장이 받을 수 있는 범위).
     후보 0개/2개↑면 생략(오추정 방지). 단정 아님 — 담당자 확인용 힌트.
     """
     import re as _re
@@ -307,10 +308,35 @@ def _guess_project(partner: str, amount, recs: list) -> str:
             prev = cur
         return best
 
+    def _addr_hit(p_, addr_, name_):
+        """입금자명 속 현장주소 키워드 — 주소에도 있는 한글 포함 조각(2자↑)을 앞에서부터
+        탐욕적으로 덮어 합 5자↑ + 가장 긴 조각 3자↑. 예 'MJ다산순환로20'↔'…다산순환로20…'(7),
+        'MJ논현동수영장완'↔'…논현로…수영장'(논현2+수영장3). 숫자만 조각('20')은 불인정.
+        그 현장 사업자명에 든 조각은 위치 근거가 아니라 불인정 — 주소 칸에 업체명을 적은
+        옛 현장('해빛디자인 서초 삼풍…')이 같은 업체 다른 현장 입금을 끌어가는 것 방지."""
+        if len(addr_) < 4:
+            return False
+        i = total = best = 0
+        while i < len(p_):
+            k = 0
+            for j in range(len(p_), i + 1, -1):
+                piece = p_[i:j]
+                if _re.search(r'[가-힣]', piece) and piece in addr_:
+                    k = j - i
+                    break
+            if k:
+                if not (len(name_) >= 2 and p_[i:i + k] in name_):
+                    total += k
+                    best = max(best, k)
+                i += k
+            else:
+                i += 1
+        return total >= 5 and best >= 3
+
     p = _norm(partner)
     if len(p) < 3:
         return ''
-    cands = set()
+    by_name, by_addr = set(), set()
     for r in recs:
         code = str(r.get('프로젝트 코드', '')).strip()
         if not code:
@@ -319,11 +345,18 @@ def _guess_project(partner: str, amount, recs: list) -> str:
         if miss <= 0 or amt > miss + 1000:
             continue
         name = _norm(r.get('사업자명', ''))
-        if len(name) < 3:
-            continue
-        if name[:6] in p or p[:6] in name or _lcs(p, name) >= 4:
-            cands.add(code)
-    return next(iter(cands)) if len(cands) == 1 else ''
+        if len(name) >= 3 and (name[:6] in p or p[:6] in name or _lcs(p, name) >= 4):
+            by_name.add(code)
+        if _addr_hit(p, _norm(r.get('현장 주소', '')), name):
+            by_addr.add(code)
+    # 사업자명 우선(기존 동작 그대로). 이름 후보 여럿이면 주소로 좁히고, 이름 후보가 없을 때만
+    # 주소 단독 — 입금자명에 사업자 약칭+현장주소를 쓰는 경우('MJ다산순환로20', 2026-10-06).
+    if len(by_name) == 1:
+        return next(iter(by_name))
+    if by_name:
+        both = by_name & by_addr
+        return next(iter(both)) if len(both) == 1 else ''
+    return next(iter(by_addr)) if len(by_addr) == 1 else ''
 
 
 def collect_intake_pending() -> List[dict]:
@@ -370,6 +403,15 @@ def collect_intake_pending() -> List[dict]:
                 summary = _fmt_deposit_line(pv)
                 key = _deposit_key(d.get('text') or '')
                 partner, amount = pv.get('partner', ''), pv.get('amount', 0)
+            else:
+                # Redis 원문 없음(만료 등) → 카드 본문의 문자 원문으로 요약 (2026-10-06 9/26 2건)
+                from dashboard.services.sms_intake import intake_text_from_card, parse_preview
+                card_text = intake_text_from_card(m.get('blocks'))
+                if card_text:
+                    pv = parse_preview(card_text)
+                    summary = _fmt_deposit_line(pv)
+                    key = _deposit_key(card_text)
+                    partner, amount = pv.get('partner', ''), pv.get('amount', 0)
         except Exception:
             pass
         permalink = ''

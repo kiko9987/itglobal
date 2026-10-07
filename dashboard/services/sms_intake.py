@@ -312,6 +312,32 @@ def active_display(text: str) -> str:
 # 인입 카드 3종(활성·확인대기·완료) 공통 구분선 — 입금 문자 폭에 맞춘 25자.
 INTAKE_SEP = '-' * 25
 
+# 인입 원문 Redis(sms_intake:{id}) 보관 기간. 처리 완료 시엔 명시 삭제되므로 이 TTL 은
+# '미처리로 남은 카드'의 수명이다. 7일이던 시절 9/26 카드 2장이 처리 전에 원문이 만료돼
+# 버튼이 '이미 기록된 입금'으로 막히고 리마인드는 '(입금 내역)'만 표시 (2026-10-06).
+INTAKE_TTL = 60 * 60 * 24 * 90
+
+
+def intake_text_from_card(blocks) -> str:
+    """인입 카드 본문(구분선 두 줄 사이 인용 줄) → 원문 복원. Redis 원문이 없는 카드용 폴백.
+
+    표시 정규화 역변환은 마스킹 '∗'→'*' 만 ('입금X'→'입금 X' 공백 삽입은 파서 무관).
+    슬랙이 돌려주는 '&gt;' 등 HTML 엔티티는 먼저 푼다.
+    """
+    import html
+    for b in blocks or []:
+        if b.get('type') != 'section':
+            continue
+        t = (b.get('text') or {}).get('text') or ''
+        if INTAKE_SEP not in t:
+            continue
+        lines = [html.unescape(ln) for ln in t.split('\n')]
+        lines = [ln[1:] if ln.startswith('>') else ln for ln in lines]
+        idx = [i for i, ln in enumerate(lines) if ln.strip() == INTAKE_SEP]
+        if len(idx) >= 2:
+            return '\n'.join(lines[idx[0] + 1:idx[1]]).replace('∗', '*').strip()
+    return ''
+
 
 def quoted_body(text: str) -> list:
     """SMS 본문 → '>' 인용 라인 리스트 (표시 정규화 적용).

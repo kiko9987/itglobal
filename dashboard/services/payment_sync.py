@@ -22,6 +22,7 @@
 import hashlib
 import os
 import re
+import threading
 from typing import List, Dict, Optional
 
 from dashboard.utils.logging_config import get_logger
@@ -1554,8 +1555,10 @@ def _build_unified_stage_message(
 # 시트 폴링 + 변경 감지 + 발송
 # ─────────────────────────────────────────────
 
-_payment_service = None
-_payment_service_lock = None
+# 스레드별 service — googleapiclient(httplib2)는 thread-safe 하지 않다. 프로세스 싱글톤이던 시절
+# 폴러와 다른 스레드(핀 리마인드의 자금 이동 스캔)가 같은 객체를 동시에 써서 한 SSL 연결이
+# 섞여 양쪽 다 WRONG_VERSION_NUMBER (2026-10-06 14:00). memory: googleapiclient thread-safety.
+_payment_service_tls = threading.local()
 
 
 def _get_sheets_manager():
@@ -1565,10 +1568,10 @@ def _get_sheets_manager():
 
 
 def _get_payment_service():
-    """payment_sync 전용 Sheets API service (다른 폴링과 SSL 충돌 방지용)."""
-    global _payment_service
-    if _payment_service is not None:
-        return _payment_service
+    """payment_sync 전용 Sheets API service (다른 폴링과 SSL 충돌 방지용) — 호출 스레드 전용."""
+    svc = getattr(_payment_service_tls, 'service', None)
+    if svc is not None:
+        return svc
     try:
         from google.oauth2.service_account import Credentials
         from googleapiclient.discovery import build
@@ -1578,19 +1581,19 @@ def _get_payment_service():
         creds = Credentials.from_service_account_file(
             cred_file, scopes=['https://www.googleapis.com/auth/spreadsheets'],
         )
-        _payment_service = build(
+        svc = build(
             'sheets', 'v4', credentials=creds, cache_discovery=False,
         )
-        return _payment_service
+        _payment_service_tls.service = svc
+        return svc
     except Exception as exc:
         logger.error(f"[PAYMENT] service 초기화 실패: {exc}", exc_info=True)
         return None
 
 
 def _reset_payment_service():
-    """SSL 에러 시 service 재생성용"""
-    global _payment_service
-    _payment_service = None
+    """SSL 에러 시 service 재생성용 (호출 스레드의 것만)"""
+    _payment_service_tls.service = None
 
 
 def _fetch_row_notes(spreadsheet_id: str, sheet_name: str, row: int) -> List[str]:
@@ -2040,7 +2043,20 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 f"[PAYMENT] baseline 메모 fetch 완료: {len(all_phash_by_row)}개 행"
             )
     except Exception as exc:
-        logger.error(f"[PAYMENT] 메모 fetch 실패: {exc}", exc_info=True)
+        # 메모를 못 읽은 채 진행하면 전 행 phash 가 '' 로 보여 baseline 이 비워지고, 다음
+        # 사이클에 전 행이 '메모 신규'→대량 재baseline(발송 skip)되어 그 사이 실제 입금이
+        # 묻힌다 (2026-10-06 14:00, 1786행). 값 fetch 실패와 똑같이 이번 사이클을 건너뛴다.
+        err_l = str(exc).lower()
+        if any(k in err_l for k in ('ssl', 'wrong_version', 'decryption', 'handshake')):
+            logger.warning(f"[PAYMENT] 메모 fetch SSL 에러 — service 재생성, 이번 사이클 skip: {exc}")
+            _reset_payment_service()
+        else:
+            logger.error(f"[PAYMENT] 메모 fetch 실패 — 이번 사이클 skip: {exc}", exc_info=True)
+        return result
+    if baseline_done and not all_phash_by_row:
+        # 응답은 왔는데 입금 메모가 한 행도 없다 = 이상 응답. 위와 같은 이유로 skip.
+        logger.warning("[PAYMENT] 메모 fetch 결과 0행 — 이상 응답으로 보고 이번 사이클 skip")
+        return result
 
     # 2026-07-11 통합 입금 그룹 감지용 signature 인덱스.
     #   (stage, sorted_payments_signature) → [(row, code, sheet_val, address, construction)]
