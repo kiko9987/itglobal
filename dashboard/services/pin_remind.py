@@ -500,7 +500,7 @@ def build_pin_remind_text(data: dict) -> str:
 
 
 def send_pin_remind() -> dict:
-    """미처리 정산 핀 리마인드 발송 — 매일 아침 9시 스케줄러 진입점.
+    """미처리 정산 핀 리마인드 발송 — 스케줄러 진입점 (매일 10:00·15:30, sync_scheduler).
 
     주말·공휴일 skip (경영지원 근무일만). 고정 0건이면 발송 skip.
     """

@@ -328,27 +328,28 @@ def start_scheduler():
     )
     jobs.append('부재중 리마인드 매일 08:10')
 
-    # 2026-07-28 미처리 정산 핀 리마인드 — 매일 오후 1시 #영업_관리 (세금계산서 관리 알림 봇).
-    #   2026-10-07 출퇴근 08~17시 변경으로 13:00·16:00 (기존 14:00·17:00 — 17시=퇴근 시각).
+    # 2026-07-28 미처리 정산 핀 리마인드 — #영업_관리 (세금계산서 관리 알림 봇).
+    #   2026-10-07 출퇴근 08~17시 변경으로 13:00·16:00 (기존 14:00·17:00) → 같은 날 경영지원(SB)
+    #   건의로 10:00·15:30 (오전=밤사이·아침 입금 모인 뒤 하루 처리 여유, 오후=퇴근 1시간 반 전 정리).
     # 경영지원이 고정한 입금내역·세금계산서(미처리) 요약. pins:read 필요.
     if os.getenv('SLACK_INVOICE_BOT_TOKEN', '').strip() and os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip():
         _scheduler.add_job(
             _safe_pin_remind_daily,
             'cron',
-            hour=13, minute=0,
+            hour=10, minute=0,
             id='pin_remind_daily',
             replace_existing=True,
         )
-        jobs.append('정산 핀 리마인드 매일 13:00')
-        # 2026-08-18 저녁 재확인 — 하루 처리 후 남은 미처리 다시 리마인드 (동일 내용).
+        jobs.append('정산 핀 리마인드 매일 10:00')
+        # 2026-08-18 오후 재확인 — 하루 처리 후 남은 미처리 다시 리마인드 (동일 내용).
         _scheduler.add_job(
             _safe_pin_remind_daily,
             'cron',
-            hour=16, minute=0,
+            hour=15, minute=30,
             id='pin_remind_evening',
             replace_existing=True,
         )
-        jobs.append('정산 핀 리마인드 매일 16:00')
+        jobs.append('정산 핀 리마인드 매일 15:30')
         # 2026-09-29 재활성 (사장님 승인): 경영지원(SB)이 수동으로 올리던 '수금완료 세금계산서
         #   미발행'을 자동화. 주간=① 수금완료·미발행(즉시 발행 대상, 짧고 급함),
         #   월간=① + ② 부분입금·미발행(계산서 마감 정리). 대상 0건이면 자동 skip.
@@ -741,7 +742,7 @@ def _safe_absent_remind_daily():
 
 
 def _safe_pin_remind_daily():
-    """미처리 정산 핀 리마인드 발송 (매일 13:00·16:00 #영업_관리)."""
+    """미처리 정산 핀 리마인드 발송 (매일 10:00·15:30 #영업_관리)."""
     try:
         from dashboard.services.pin_remind import send_pin_remind
         result = send_pin_remind()
