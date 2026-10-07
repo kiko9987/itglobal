@@ -265,6 +265,27 @@ class TestCashDetectAndNormalize:
         # 통화 단어('만원')를 수령자로 오추출하지 않음
         assert '만원' not in normalize_cash_layout('현금 300만원 수령', default_receiver='YG')
 
+    def test_explicit_chain_notation(self):
+        # 직접 적은 전달 체인 'A>B' (2026-10-07 SB '2,600,000원 현금수령 (MW>SB)' → MW 유실 계기)
+        from datetime import datetime
+        today = datetime.now().strftime('%Y/%m/%d')
+        sb = '황샛별\n2026-10-07\n2,600,000원 현금수령 (MW>SB)'
+        assert normalize_cash_layout(sb, default_receiver='SB') \
+            == '2026/10/07\n입금 2,600,000원\n현금 수령 (MW → SB)'
+        # 화살표 변형·소문자·직함
+        assert normalize_cash_layout('현금 100만원 mw→sb', default_receiver='SB') \
+            == f'{today}\n입금 1,000,000원\n현금 수령 (MW → SB)'
+        assert normalize_cash_layout('현금 100만원 TH -> 대표님', default_receiver='SB') \
+            == f'{today}\n입금 1,000,000원\n현금 수령 (TH → YG)'
+        # 같은 사람끼리면 체인 아님 → 기존 규칙(올린 사람)
+        assert normalize_cash_layout('현금 100만원 (SB>SB)', default_receiver='SB') \
+            == f'{today}\n입금 1,000,000원\n현금 수령 (SB)'
+        # 변환 결과가 파서로 그대로 읽힘
+        from dashboard.services.sms_intake import parse_preview
+        pv = parse_preview(normalize_cash_layout(sb, default_receiver='SB'))
+        assert pv['amount'] == 2_600_000 and pv['partner'] == '현금 수령 (MW → SB)'
+        assert pv['date_md'] == '10/07'
+
     def test_normalize_parses_back(self):
         # 변환 메모가 다운스트림 파서로 금액·거래처·날짜 정확히 파싱되는지 (핵심 계약)
         from dashboard.services.sms_intake import parse_preview

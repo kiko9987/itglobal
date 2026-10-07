@@ -1033,7 +1033,10 @@ def _register_payment_handlers(app):
                 except Exception:
                     pass
                 return
-            text = (event.get('text') or '').strip()
+            # 슬랙 이벤트 본문은 & < > 를 &amp; &lt; &gt; 로 보낸다 → 원문으로 복원 후 인입
+            # (2026-10-07 '(MW>SB)' 가 '(MW&gt;SB)' 로 들어와 전달 체인 인식 실패. 상호 '&' 도 동일)
+            from html import unescape as _unescape
+            text = _unescape((event.get('text') or '').strip())
             attachments = event.get('attachments') or []
             from dashboard.services.sms_intake import looks_like_payment, looks_like_cash
             user = event.get('user', '')
@@ -1050,7 +1053,7 @@ def _register_payment_handlers(app):
             if text and (looks_like_payment(text) or looks_like_cash(text)):
                 segments.append((text, poster_initial))
             for a in attachments:
-                atext = (a.get('text') or '').strip()
+                atext = _unescape((a.get('text') or '').strip())
                 if not atext or not (looks_like_payment(atext) or looks_like_cash(atext)):
                     continue
                 aid = (a.get('author_id') or '').strip()

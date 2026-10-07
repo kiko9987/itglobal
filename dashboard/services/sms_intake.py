@@ -224,6 +224,23 @@ def _cash_title_initial(name: str) -> str:
     return name
 
 
+# 직접 적은 전달 체인 '(MW>SB)'·'MW→SB'·'MW->대표님' — 받은 사람 > 최종 수령자.
+# 2026-10-07 SB '2,600,000원 현금수령 (MW>SB)' 가 '현금 수령 (SB)' 로만 변환돼 MW 유실 계기.
+_CASH_CHAIN_TOKEN = r'(?:[A-Za-z]{2,4}|박실장님|박실장|실장님|대표님|대표)'
+_CASH_CHAIN_RE = re.compile(
+    rf'(?<![A-Za-z])({_CASH_CHAIN_TOKEN})\s*(?:->|=>|→|>)\s*({_CASH_CHAIN_TOKEN})(?![A-Za-z])')
+
+
+def _extract_cash_chain(text: str) -> str:
+    """'MW>SB' → 'MW → SB' (직함은 이니셜로). 없거나 양쪽 같으면 ''."""
+    m = _CASH_CHAIN_RE.search(text or '')
+    if not m:
+        return ''
+    a = _cash_title_initial(m.group(1)).upper()
+    b = _cash_title_initial(m.group(2)).upper()
+    return f'{a} → {b}' if a != b else ''
+
+
 def _extract_cash_delivered_to(text: str) -> str:
     """현금 최종 수령(전달 대상) 직함 → 이니셜 ('대표님 전달'→'YG', '박실장 전달'→'JW'). 없으면 ''."""
     for kw, ini in _CASH_TITLE_TO_INITIAL:
@@ -256,7 +273,10 @@ def normalize_cash_layout(text: str, default_receiver: str = '') -> str:
     receiver = _cash_title_initial(_raw) if _raw else (default_receiver or '').strip()
     # 매니저→상급자(대표/실장) 전달 시: 'collector → 최종수령' 체인 (2026-09-22 G4120-TH 계기).
     delivered = _extract_cash_delivered_to(text)
-    if delivered and delivered != receiver:
+    chain = _extract_cash_chain(text)   # 직접 적은 체인이 최우선 (2026-10-07 MW>SB)
+    if chain:
+        label = chain
+    elif delivered and delivered != receiver:
         label = f'{receiver} → {delivered}' if receiver else delivered
     else:
         label = receiver
