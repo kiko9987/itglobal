@@ -3749,6 +3749,28 @@ def _vat_is_sep(v) -> bool:
     return v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1
 
 
+def _vat_off_paid_warning(project: dict, amount_updates: dict) -> str:
+    """'VAT 별도 → 없음' 요청인데 이미 입금된 프로젝트면 경고 줄, 아니면 ''.
+
+    2026-10-07 경영지원 요청: 계산서 발행 예정이던 건을 고객이 입금 후 현금거래로
+    바꾸는 경우 — 반영 전에 받은 금액·발행된 계산서를 확인하도록 요청 카드에 표시.
+    """
+    if '부가세' not in (amount_updates or {}):
+        return ''
+    if not _vat_is_sep(project.get('부가세')) or _vat_is_sep(amount_updates.get('부가세')):
+        return ''
+    paid = []
+    for stage in ('계약금', '중도금', '잔금'):
+        amt = _amt_int(project.get(stage))
+        if amt > 0:
+            inv = str(project.get(f'{stage} 계산서') or '').strip()
+            paid.append(f"{stage} {amt:,}원" + (f"(계산서 {inv})" if inv and inv != '-' else ''))
+    if not paid:
+        return ''
+    return (f"⚠️ *이미 입금된 프로젝트* — {' · '.join(paid)}\n"
+            f"      받은 금액과 세금계산서 발행 여부를 확인한 뒤 반영해주세요.")
+
+
 def _invoice_client():
     """세금계산서 관리 알림 봇 WebClient. 미가용 시 None."""
     global _invoice_slack_app
@@ -12354,6 +12376,7 @@ def _post_amount_edit_request_card(
         f'📝 수정 사유 : {reason.strip()}',
         '📋 요청 내역',
         *change_lines,
+        *([w] if (w := _vat_off_paid_warning(project, amount_updates)) else []),
         f'👤 요청자 : {requester_initial}  {now_str}',
         '--------------------------------------------',
     ]

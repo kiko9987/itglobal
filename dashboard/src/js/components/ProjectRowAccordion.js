@@ -3928,6 +3928,12 @@ export default class ProjectRowAccordion {
     const vatCheckbox = card.querySelector('[data-field="부가세"] .vat-checkbox');
     if (vatCheckbox) {
       const vatHandler = () => {
+        // 입금된 프로젝트의 '부가세 별도' 해제 → 확인 (취소 시 체크 복원 — change 재발송으로 뱃지·총액2 원복)
+        if (!vatCheckbox.checked && !this._confirmVatOffWithDeposits(projectCode)) {
+          vatCheckbox.checked = true;
+          vatCheckbox.dispatchEvent(new Event('change'));
+          return;
+        }
         this.lastTriggeredField = '부가세';
         this.calculateTotal2FromTotal1(projectCode);
       };
@@ -3963,6 +3969,46 @@ export default class ProjectRowAccordion {
         costInput._calculationHandler = costHandler;
       }
     });
+  }
+
+  /**
+   * 이미 입금된 프로젝트에서 '부가세 별도'를 해제할 때 확인 (2026-10-07 경영지원 요청).
+   * 계산서 발행 예정이던 건을 고객이 입금 후 현금거래로 바꾸는 경우 — 받은 돈·발행된
+   * 계산서를 먼저 확인하도록. 저장값이 '별도'가 아니었거나 입금 0원이면 묻지 않음(true).
+   * @returns {boolean} true=해제 진행, false=취소
+   */
+  _confirmVatOffWithDeposits(projectCode) {
+    const proj = this.currentProject || {};
+    if (proj['프로젝트 코드'] && proj['프로젝트 코드'] !== projectCode) return true;
+    const origSep = this.unifiedBadgeSystem?.vatBadge?.normalizeStatus(proj['부가세']) === 'true';
+    if (!origSep) return true;
+
+    const collectionCard = document.getElementById(`card-collection-${projectCode}`);
+    const financialCard = document.getElementById(`card-financial-${projectCode}`);
+    const readMoney = (cardEl, field, fallback) => {
+      const input = cardEl?.querySelector(`[data-field="${field}"] input`);
+      const raw = (input && input.offsetParent !== null) ? input.value : fallback;
+      return parseFloat(String(raw ?? '').replace(/[^0-9]/g, '') || '0') || 0;
+    };
+    const paid = ['계약금', '중도금', '잔금']
+      .map(stage => [stage, readMoney(collectionCard, stage, proj[stage])])
+      .filter(([, amt]) => amt > 0);
+    if (!paid.length) return true;
+
+    const won = n => `${Math.round(n).toLocaleString('ko-KR')}원`;
+    const total1 = readMoney(financialCard, '총액 1', proj['총액 1']);
+    const lines = paid.map(([stage, amt]) => {
+      const inv = String(proj[`${stage} 계산서`] ?? '').trim();   // 발행 / 미발행 / N입금 …
+      return `· ${stage} ${won(amt)} 입금${inv && inv !== '-' ? ` (계산서 ${inv})` : ''}`;
+    });
+    const totalLine = total1 > 0
+      ? `\n부가세를 해제하면 총액이 ${won(total1 + Math.round(total1 * 0.1))} → ${won(total1)}로 바뀝니다.`
+      : '';
+    return confirm(
+      `⚠️ 이미 입금된 프로젝트입니다.\n${lines.join('\n')}\n${totalLine}\n` +
+      `받은 금액과 세금계산서 발행 여부를 확인한 뒤 진행하세요.\n\n` +
+      `• 확인: 부가세 해제\n• 취소: 부가세 별도 유지`
+    );
   }
 
   /**
