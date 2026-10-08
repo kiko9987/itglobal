@@ -385,12 +385,31 @@ def collect_intake_pending() -> List[dict]:
             if b.get('type') != 'actions':
                 continue
             for e in b.get('elements', []):
-                if e.get('action_id') in ('payment_intake_open', 'payment_intake_confirm'):
+                if e.get('action_id') in ('payment_intake_open', 'payment_intake_confirm',
+                                          'payment_refund_record'):
                     aid, intake_id = e.get('action_id'), e.get('value')
                     break
         if not aid:
             continue   # 인입 카드 아님(수동 핀 등) 제외
         ts = m.get('ts', '')
+        if aid == 'payment_refund_record':
+            # 입금 반환 후보 카드(2026-10-08) — 경영지원 [반환으로 기록] 대기
+            summary = '(반환 후보)'
+            try:
+                from dashboard.services.refund_match import load_candidate
+                _c = (load_candidate(intake_id) or {}).get('cand') or {}
+                if _c:
+                    summary = f"{_c['code']} {_c['stage']} {int(_c['amount']):,}원 출금"
+            except Exception:
+                pass
+            permalink = ''
+            try:
+                permalink = (c.chat_getPermalink(channel=ch, message_ts=ts) or {}).get('permalink', '') or ''
+            except Exception:
+                pass
+            out.append({'ts': ts, 'summary': summary, 'key': '', 'permalink': permalink,
+                        'state': '반환 확인', 'partner': '', 'amount': 0})
+            continue
         # Redis 1회 로드 → 요약 + 겸용 dedup 키
         summary, key, partner, amount = '(입금 내역)', '', '', 0
         try:
@@ -455,7 +474,8 @@ def build_pin_remind_text(data: dict) -> str:
 
     def _intake_line(e: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
-        badge = ':hourglass_flowing_sand:' if e.get('state') == '확인대기' else ':link:'
+        badge = {'확인대기': ':hourglass_flowing_sand:',
+                 '반환 확인': ':leftwards_arrow_with_hook:'}.get(e.get('state'), ':link:')
         state = e.get('state', '')
         hint = ''
         if state == '미지정':                    # 추정 프로젝트(확실할 때만), 못 잡으면 (추정 불가)

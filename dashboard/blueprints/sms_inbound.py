@@ -212,6 +212,12 @@ def record_outflow(text: str, source: str = 'sms') -> dict:
         return {'status': 'ignored', 'reason': 'outflow_unstored'}
     logger.info(f"[SMS_INBOUND] 출금 문자 서버 보관(슬랙 미노출): {rec['bank']}({rec['acct_code']}) "
                 f"{rec['amount']:,}원 {rec['partner']!r} id={oid}")
+    # 기록된 입금의 반환(환불)인지 즉시 짝짓기 — 조건 충족 시만 #입금_관리 후보 카드 (2026-10-08)
+    try:
+        from dashboard.services.refund_match import scan_async
+        scan_async()
+    except Exception:
+        pass
     return {'status': 'ignored', 'reason': 'outflow_recorded', 'id': oid}
 
 

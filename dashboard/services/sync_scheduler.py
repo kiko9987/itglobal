@@ -190,6 +190,18 @@ def start_scheduler():
         )
         jobs.append('수금 관리 30초')
 
+        # 입금 반환(환불) 짝짓기 — 서버 보관 출금 문자 ↔ 시트 입금, 조건 맞으면 #입금_관리 후보 카드
+        #   (2026-10-08 R4163-TH). 환불 뒤에 현금 기록이 들어오는 순서도 있어 주기 재평가.
+        if os.getenv('SLACK_PAYMENT_INTAKE_CHANNEL', '').strip():
+            _scheduler.add_job(
+                _safe_refund_match_scan,
+                'interval',
+                minutes=10,
+                id='refund_match_scan',
+                replace_existing=True,
+            )
+            jobs.append('입금 반환 짝짓기 10분')
+
         # 매니저 실수 감지 일일 요약 — 매일 오전 9시 (평일만, 매니저 출근 시각)
         # 2026-07-17 사용자 요청으로 기본 disable. 활성 원하면 env
         # PAYMENT_ALERT_DAILY_ENABLED=true 로 재활성.
@@ -562,6 +574,19 @@ def _safe_recover_orphan_leads():
             return
         _notify_admin('recover_orphan_fail',
                       f':warning: 고아 리드 재발송 실패 — `{exc}`.')
+
+
+def _safe_refund_match_scan():
+    """출금 문자 ↔ 기록된 입금 반환 짝짓기 → 조건 충족 시 #입금_관리 후보 카드 (10분)."""
+    if not _redis_healthy():
+        return
+    try:
+        from dashboard.services.refund_match import scan_and_propose
+        r = scan_and_propose()
+        if r.get('proposed'):
+            logger.info(f'[SCHED] 입금 반환 짝짓기: {r}')
+    except Exception as exc:
+        logger.warning(f'[SCHED] 입금 반환 짝짓기 실패: {exc}')
 
 
 def _safe_payment_sync():

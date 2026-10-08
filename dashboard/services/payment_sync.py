@@ -1859,6 +1859,92 @@ def rerender_stage_card(project: str, stage: str) -> bool:
         return False
 
 
+def row_baseline_mapping(vals: list, notes: List[str]) -> Dict:
+    """한 행의 폴러 baseline(payment_sync:row:{N}) — 메인 루프와 같은 규칙.
+
+    단계 phash 는 값이 있는(≠0) 단계만 인정(4fb6bfd), 반환 phash 는 is_refund 블록만.
+    """
+    vals = list(vals) + [''] * (30 - len(vals))
+    u, v, w = _to_int_won(vals[20]), _to_int_won(vals[21]), _to_int_won(vals[22])
+    val_map = {'계약금': u, '중도금': v, '잔금': w}
+    pays = _parse_notes((list(notes) + ['', '', ''])[:3])
+
+    def _stage_ph(s):
+        return _hash_payments([p for p in pays if p.get('stage') == s]) if val_map[s] != 0 else ''
+
+    def _ref_ph(s):
+        return _hash_payments([p for p in pays if p.get('stage') == s and p.get('is_refund')])
+
+    return {
+        'u': u, 'v': v, 'w': w, 'x': _to_int_won(vals[23]),
+        'aa': 'true' if _to_bool(vals[29]) else 'false',
+        'phash': _hash_payments([p for p in pays if val_map.get(p.get('stage'), 0) != 0]),
+        'u_phash': _stage_ph('계약금'), 'v_phash': _stage_ph('중도금'), 'w_phash': _stage_ph('잔금'),
+        'u_ref': _ref_ph('계약금'), 'v_ref': _ref_ph('중도금'), 'w_ref': _ref_ph('잔금'),
+    }
+
+
+def acquire_sync_mutex(wait_sec: float = 45.0) -> bool:
+    """폴러 뮤텍스 획득(폴러 사이클 동안 대기). 외부에서 메모·값을 연달아 쓸 때 폴러가 중간
+    상태를 읽지 않게 한다. 획득하면 True — 반드시 release_sync_mutex() 로 해제."""
+    import time as _t
+    rc = get_redis_client().redis
+    deadline = _t.time() + wait_sec
+    while True:
+        if rc.set(_SYNC_MUTEX_KEY, 'external', nx=True, ex=_SYNC_MUTEX_TTL):
+            return True
+        if _t.time() >= deadline:
+            return False
+        _t.sleep(0.5)
+
+
+def release_sync_mutex() -> None:
+    try:
+        get_redis_client().redis.delete(_SYNC_MUTEX_KEY)
+    except Exception:
+        pass
+
+
+def refund_followup(project: str, stage: str) -> bool:
+    """반환(출금) 기록 직후 — 이 행 baseline 을 현재 시트로 맞추고 '💰 {단계} 반환' 카드 직접 발송.
+
+    반환 기록은 메모(출금 블록)→값(순액) 순서로 쓰는데, 폴러가 그 사이·직후를 읽으면 ①전액
+    반환(값 0)은 phash 게이트(값≠0)라 반환 감지가 안 되고 ②'값 >0→0' 이 '입금 메모 삭제'로 보여
+    원래 입금 카드를 '정정·취소됨' 회색 처리한다. 호출부가 acquire_sync_mutex() 를 쥔 채 호출 →
+    baseline 을 폴러 규칙대로 갱신(폴러는 '변화 없음')하고 반환 카드는 여기서 보낸다 (2026-10-08).
+    """
+    sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    channel = os.getenv('SLACK_PAYMENT_CHANNEL', '').strip()
+    bot_token = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip()
+    if not (sheet_id and sheet_name and channel and bot_token):
+        return False
+    svc = _get_payment_service()
+    codes = svc.spreadsheets().values().get(
+        spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:A10000").execute().get('values', [])
+    row = next((i + 2 for i, r in enumerate(codes) if r and str(r[0]).strip() == project), None)
+    if not row:
+        return False
+    vals = svc.spreadsheets().values().get(
+        spreadsheetId=sheet_id, range=f"'{sheet_name}'!A{row}:AD{row}",
+        valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
+    vals = vals + [''] * (30 - len(vals))
+    notes = _fetch_row_notes(sheet_id, sheet_name, row)
+    rc = get_redis_client().redis
+    key = f"{REDIS_KEY_PREFIX}{row}"
+    rc.hset(key, mapping=row_baseline_mapping(vals, notes))
+    rc.expire(key, REDIS_TTL)
+    rs = {
+        'project': project, 'row': row, 'stage': stage,
+        'u': _to_int_won(vals[20]), 'v': _to_int_won(vals[21]), 'w': _to_int_won(vals[22]),
+        'address': str(vals[5]).strip(), 'construction': str(vals[11]).strip(),
+        'invoice': str(vals[24]).strip(), 'total_r': _to_int_won(vals[17]),
+        'total_t': _to_int_won(vals[19]), 'unpaid': _to_int_won(vals[23]),
+    }
+    from slack_sdk import WebClient
+    return _send_refund_card(WebClient(token=bot_token), channel, rs, sheet_id, sheet_name)
+
+
 def _send_refund_card(slack, channel: str, rs: Dict,
                       sheet_id: str, sheet_name: str) -> bool:
     """과입금 반환 신규 → '반환' 새 카드 발송 (누적이력 포함). 값 감소라 일반 발송 트리거 밖.

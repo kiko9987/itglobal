@@ -957,6 +957,29 @@ def _register_payment_handlers(app):
         threading.Thread(target=_do_intake_transfer, daemon=True, args=(
             client, user, channel, ts, v.get("iid", ""), v.get("code", ""), v.get("stage", ""))).start()
 
+    # ─── 입금 반환(환불) 후보 카드 — 경영지원 확인 후 기록 / 반환 아님 (2026-10-08) ───
+    @app.action("payment_refund_record")
+    def handle_payment_refund_record(ack, body, client):
+        ack()
+        user, channel, ts = _transfer_ctx(body)
+        if user != _SETTLEMENT_CHECKER_ID:
+            _intake_ephemeral(client, channel, user, "🔒 반환 기록은 경영지원만 할 수 있습니다.")
+            return
+        oid = ((body.get("actions") or [{}])[0]).get("value") or ""
+        threading.Thread(target=_do_refund_record, daemon=True,
+                         args=(client, user, channel, ts, oid)).start()
+
+    @app.action("payment_refund_dismiss")
+    def handle_payment_refund_dismiss(ack, body, client):
+        ack()
+        user, channel, ts = _transfer_ctx(body)
+        if user != _SETTLEMENT_CHECKER_ID:
+            _intake_ephemeral(client, channel, user, "🔒 반환 후보 정리는 경영지원만 할 수 있습니다.")
+            return
+        oid = ((body.get("actions") or [{}])[0]).get("value") or ""
+        threading.Thread(target=_do_refund_dismiss, daemon=True,
+                         args=(client, user, channel, ts, oid)).start()
+
     @app.action("payment_intake_transfer_pick")
     def handle_payment_intake_transfer_pick(ack, body, client):
         ack()
@@ -1100,7 +1123,8 @@ def _register_payment_handlers(app):
         "[SLACK/수금봇] 핸들러 등록 완료: payment_card_delete, payment_intake_open, "
         "payment_intake_project, submit_payment_intake, payment_intake_confirm, "
         "payment_intake_redesignate, payment_intake_split_open/add, "
-        "submit_payment_intake_split, split_project_0~N, message(채널 붙여넣기 인입)"
+        "submit_payment_intake_split, split_project_0~N, message(채널 붙여넣기 인입), "
+        "payment_refund_record/dismiss(반환 후보)"
     )
 
 
@@ -1628,6 +1652,127 @@ def _do_intake_transfer(client, user, channel, ts, intake_id, code, stage):
                 pass
 
 
+def _do_refund_record(client, user, channel, ts, oid):
+    """반환 후보 [↩️ 반환으로 기록] — 재검증 → 폴러 잠금 → 메모(출금 블록)·값(순액)·계산서 기록 →
+    폴러 baseline 동기화 + '💰 {단계} 반환' 카드 → 후보 카드 완료·원 입금 확인 카드에 반환 표시."""
+    from dashboard.services import refund_match as rm
+    from dashboard.services import payment_sync as ps
+    from dashboard.utils.redis_client import get_redis_client
+    rc = get_redis_client().redis
+    lock = f"refund_match:lock:{oid}"
+    if not rc.set(lock, user or '1', nx=True, ex=180):
+        _intake_ephemeral(client, channel, user, ":hourglass_flowing_sand: 이미 처리 중입니다.")
+        return
+    got_mutex = False
+    done = None
+    try:
+        if rc.exists(rm._DONE + oid):
+            _intake_ephemeral(client, channel, user, ":information_source: 이미 반환 기록된 건입니다.")
+            return
+        data = rm.load_candidate(oid)
+        if not data:
+            _intake_ephemeral(client, channel, user, ":warning: 반환 후보 정보가 만료됐습니다. 시트에 직접 기록해주세요.")
+            return
+        o, c0 = data['outflow'], data['cand']
+        # 제안 이후 시트가 바뀌었을 수 있어 최신 시트로 조건 ①~⑤ 재확인
+        fresh = [x for x in rm.find_candidates(o, rm.load_rows())
+                 if x['code'] == c0['code'] and x['stage'] == c0['stage']]
+        if not fresh:
+            _intake_ephemeral(client, channel, user,
+                              f":warning: `{c0['code']}` 조건이 바뀌어 기록하지 않았습니다 "
+                              f"(받은 돈·총액이 출금액과 맞지 않거나 이미 반환 기록됨). 시트를 확인해주세요.")
+            return
+        c = fresh[0]
+        got_mutex = ps.acquire_sync_mutex(45)
+        if not got_mutex:
+            _intake_ephemeral(client, channel, user, ":hourglass_flowing_sand: 입금 동기화 중이라 잠시 후 다시 눌러주세요.")
+            return
+        ok, old, new, err = _commit_intake_to_sheet(
+            c['code'], c['stage'], -int(c['amount']), o.get('text', ''), user, refund=True)
+        if not ok:
+            _intake_ephemeral(client, channel, user, f":warning: 반환 기록 실패: {err}")
+            return
+        rc.set(rm._DONE + oid, user, ex=rm._KEY_TTL)
+        rc.set(rm._HANDLED + oid, 'recorded', ex=rm._KEY_TTL)
+        try:
+            ps.refund_followup(c['code'], c['stage'])
+        except Exception as exc:
+            logger.warning(f"[REFUND_MATCH] baseline·반환 카드 후속 실패 ({c['code']}): {exc}")
+        done = (o, c, old, new)
+    except Exception as exc:
+        logger.error(f"[REFUND_MATCH] 반환 기록 실패 ({oid}): {exc}", exc_info=True)
+        _intake_ephemeral(client, channel, user, f":warning: 반환 기록 실패: {exc}")
+    finally:
+        if got_mutex:
+            ps.release_sync_mutex()
+        rc.delete(lock)
+    if not done:
+        return
+    o, c, old, new = done
+    checker = _resolve_manager_initial(user) or 'SB'
+    if channel and ts:
+        try:
+            client.chat_update(channel=channel, ts=ts,
+                               text=f"✅ 반환 기록 완료: {c['code']} · {c['stage']} {c['amount']:,}원",
+                               blocks=rm.build_done_blocks(o, c, old, new, checker))
+            client.pins_remove(channel=channel, timestamp=ts)
+        except Exception:
+            pass
+    _annotate_refunded_intake_card(client, channel, c, o, checker)
+    note = ''
+    if new == 0 and _bill_norm_token(c.get('stage_invoice', '')) == '발행':
+        note = f"\n:warning: {c['stage']} 계산서가 *발행*돼 있어 그대로 두었습니다 — 취소·수정발행이 필요한지 확인해주세요."
+    _intake_ephemeral(client, channel, user,
+                      f":white_check_mark: `{c['code']}` {c['stage']} 반환 기록 완료 "
+                      f"({old:,}원 → {new:,}원) · #수금_관리에 반환 카드 발송{note}")
+
+
+def _do_refund_dismiss(client, user, channel, ts, oid):
+    """반환 후보 [반환 아님] — 시트 기록 없이 카드만 정리, 같은 출금 재제안 안 함."""
+    from dashboard.services import refund_match as rm
+    from dashboard.utils.redis_client import get_redis_client
+    rc = get_redis_client().redis
+    data = rm.load_candidate(oid) or {}
+    rc.set(rm._HANDLED + oid, f'dismissed:{user}', ex=rm._KEY_TTL)
+    checker = _resolve_manager_initial(user) or 'SB'
+    if channel and ts and data:
+        try:
+            client.chat_update(channel=channel, ts=ts,
+                               text=f"반환 아님 처리: {data['cand']['code']} {data['cand']['stage']}",
+                               blocks=rm.build_dismissed_blocks(data['outflow'], data['cand'], checker))
+            client.pins_remove(channel=channel, timestamp=ts)
+        except Exception:
+            pass
+    logger.info(f"[REFUND_MATCH] 반환 아님 처리 ({oid}) by {checker}")
+
+
+def _annotate_refunded_intake_card(client, channel, c, outflow, checker):
+    """원 입금의 '확인 완료' 인입 카드에 반환 표시 한 줄 (찾으면, 최근 1,000건 내)."""
+    head = f":white_check_mark: {c['code']} · {c['stage']}"
+    try:
+        cur = None
+        for _ in range(5):
+            r = client.conversations_history(channel=channel, limit=200, cursor=cur)
+            for m in r.get('messages', []):
+                if not (m.get('text') or '').startswith(head) or '반환 기록' in json.dumps(m.get('blocks', []), ensure_ascii=False):
+                    continue
+                blocks = m.get('blocks', [])
+                for b in blocks:
+                    b.pop('block_id', None)
+                from datetime import datetime as _dt
+                when = _dt.fromtimestamp(int(outflow.get('ts') or 0)).strftime('%m/%d')
+                blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text":
+                               f"↩️ {when} 출금 {c['amount']:,}원 *반환 기록* (확인 {checker})"}]})
+                client.chat_update(channel=channel, ts=m['ts'], text=m.get('text', ''), blocks=blocks)
+                return True
+            cur = (r.get('response_metadata') or {}).get('next_cursor')
+            if not cur:
+                break
+    except Exception as exc:
+        logger.warning(f"[REFUND_MATCH] 원 입금 카드 반환 표시 실패 ({c['code']}): {exc}")
+    return False
+
+
 def _intake_ephemeral(client, channel, user_id, text):
     if not channel or not user_id:
         return
@@ -2089,12 +2234,16 @@ def _collection_settlement_target(memo_text, deposit, old_num):
     return None
 
 
-def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id, note_extra=None):
+def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id, note_extra=None,
+                            refund=False):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
     카드 발송 트리거 조건이 '해당 stage 셀 값 > 0' 이므로 값과 노트를 둘 다 쓴다
     (SB 수동 흐름과 동일). 카드 갱신은 호출자(확인 핸들러)가 담당.
     note_extra: 이 입금 블록 바로 아래 붙일 이력 줄('⚠' 시작 — 계좌 불일치·과입금, 수금 파서 무시).
+    refund=True: 반환(출금) 기록 — amount 는 음수, memo_text 는 출금 문자. 같은 단계 메모에 출금
+      블록 append + 값 = 순액(과입금 반환 규칙). 카드·추심 보정·계산서 자동채움 생략, 전액 반환
+      (순액 0)이면 그 단계 계산서 '-' (발행된 계산서는 건드리지 않음). (2026-10-08 R4163-TH)
     Returns: (ok: bool, old_num: int, new_num: int, err: str)
     """
     from dashboard.constants import PAYMENT_FIELD_TO_COLUMN
@@ -2128,10 +2277,10 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         except (ValueError, TypeError):
             old_num = 0
         # 정산 자동 수수료 보정 — 순입금 대신 실결제(카드)·실추심(추심) 기록. 배타적.
-        _card_target = _card_settlement_target(
-            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text)
+        _card_target = (None if refund else _card_settlement_target(
+            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text))
         _coll_target = (_collection_settlement_target(memo_text, int(amount), old_num)
-                        if _card_target is None else None)
+                        if (_card_target is None and not refund) else None)
 
         # 1) 메모(노트) 먼저 — 기존 있으면 append (분납 대비).
         #    시트 노트엔 '[Web발신]' 머리말 제외 (카드엔 유지 — SB 수동 노트 관행 일치)
@@ -2186,7 +2335,14 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                 _row_has_issued = any(
                     _bill_norm_token(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[s]}{row}") or '') == '발행'
                     for s in _BILL_STAGES)
-                if _cur_stage_cell == '' or (_cur_stage_cell == '-' and not _row_has_issued):
+                if refund:
+                    # 전액 반환(순액 0) → 그 단계 계산서 '-' (과입금 반환 규칙). 발행된 계산서는 유지
+                    #   — 취소·수정발행은 사람이 판단 (호출부가 안내).
+                    if new_num == 0 and _bill_norm_token(_cur_stage_cell) != '발행' and _cur_stage_cell != '-':
+                        manager.update_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}", '-')
+                        logger.info(f"[SLACK/수금봇] 반환으로 계산서 3열 정리: {project_code} {stage} "
+                                    f"{_cur_stage_cell!r}→'-'")
+                elif _cur_stage_cell == '' or (_cur_stage_cell == '-' and not _row_has_issued):
                     _is_card = False
                     try:
                         from dashboard.services.payment_sync import _is_itg_card_deposit, _CARD_BRAND_RE
@@ -2248,19 +2404,20 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         from dashboard.utils.user_database import get_audit_repository
         get_audit_repository().log_action(
             user_email=f"slack:{slack_user_id}",
-            action='SMS_INTAKE_PAYMENT',
-            details=f"수금 SMS 인입 확인기록 → {project_code} {stage} +{amount:,}원 (값 {old_num:,}→{new_num:,})",
+            action='SMS_INTAKE_REFUND' if refund else 'SMS_INTAKE_PAYMENT',
+            details=(f"{'반환(출금) 기록' if refund else '수금 SMS 인입 확인기록'} → {project_code} {stage} "
+                     f"{amount:+,}원 (값 {old_num:,}→{new_num:,})"),
             project_code=project_code,
             field_name=f"{stage}_수금",
             old_value=f"{old_num:,}",
-            new_value=f"{new_num:,} (+{amount:,})",
+            new_value=f"{new_num:,} ({amount:+,})",
             ip_address=None,
         )
     except Exception as exc:
         logger.warning(f"[SLACK/수금봇] 감사 로그 실패: {exc}")
 
-    logger.info(f"[SLACK/수금봇] 수금 인입 기록: {project_code} {stage} +{amount:,}원 "
-                f"값 {old_num:,}→{new_num:,} ({cell}) by {slack_user_id}")
+    logger.info(f"[SLACK/수금봇] {'반환 기록' if refund else '수금 인입 기록'}: {project_code} {stage} "
+                f"{amount:+,}원 값 {old_num:,}→{new_num:,} ({cell}) by {slack_user_id}")
     return True, old_num, new_num, ""
 
 
