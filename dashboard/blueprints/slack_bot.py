@@ -3749,6 +3749,49 @@ def _vat_is_sep(v) -> bool:
     return v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1
 
 
+def _apply_consult_to_original_block(clean_text: str, visit_address: str,
+                                     addr_failed: bool, contact: str) -> str:
+    """상담 완료 카드의 회색 원본(코드블록 평문)에 상담 중 받은 주소·연락처 반영.
+
+    당근/홈페이지는 인입 블록에 주소가 있어 원본/변환으로 갱신, 카카오톡/채널톡은 주소 줄이
+    없어 '문의 내용' 앞에 새 줄 삽입(2026-09-20). 원본/변환 주소가 이미 있으면 삽입 안 함
+    (2026-09-21 L-04065 중복 3줄). 연락처 줄은 값만 교체(2026-09-14 L-04001).
+    재문의 칸(이전 문의의 방문 주소·문의 내용)은 건드리지 않게 이번 문의 본문('문의시간' 줄)
+    부터만 찾는다 — 재문의 칸 '방문 주소 : -' 가 먼저 걸려 이번 주소로 덮이던 버그
+    (2026-10-08 L-04199). 볼드·하이라이트 금지, 라인 접두('>'/'&gt;') 보존.
+    """
+    body_pos = 0
+    m_rep = re.search(r'재문의 감지', clean_text)
+    if m_rep:
+        m_body = re.compile(r'(?m)^(?:&gt;|>)?\s*문의시간\s*:').search(clean_text, m_rep.end())
+        if m_body:
+            body_pos = m_body.start()
+    if visit_address and visit_address != '-':
+        conv = re.sub(r'\s+', ' ', visit_address).strip()
+        badge = '  ⚠️ [주소 확인 필요]' if addr_failed else ''
+        m_addr = re.compile(r'(?m)^(&gt;|>)?\s*방문 주소\s*:\s*(.+)$').search(clean_text, body_pos)
+        if m_addr:
+            pfx = m_addr.group(1) or ''
+            orig = re.sub(r'\s*(?:⚠️|:warning:)?\s*\[[^\]]+\]\s*$', '', m_addr.group(2)).strip()
+            if orig and re.sub(r'\s+', '', orig) != re.sub(r'\s+', '', conv):
+                line = f'{pfx}원본 주소 : {orig}\n{pfx}변환 주소 : {conv}{badge}'
+            else:
+                line = f'{pfx}방문 주소 : {conv}{badge}'
+            clean_text = clean_text[:m_addr.start()] + line + clean_text[m_addr.end():]
+        elif not re.compile(r'(?m)^(?:&gt;|>)?\s*(?:원본|변환) 주소\s*:').search(clean_text, body_pos):
+            m_iq = re.compile(r'(?m)^((?:&gt;|>)?)\s*문의 내용\s*:').search(clean_text, body_pos)
+            if m_iq:
+                pfx = m_iq.group(1) or ''
+                clean_text = (clean_text[:m_iq.start()] + f'{pfx}방문 주소 : {conv}{badge}\n'
+                              + clean_text[m_iq.start():])
+    if contact:
+        m_ph = re.compile(r'(?m)^(&gt;|>)?\s*(?:고객 )?연락처\s*:\s*.+$').search(clean_text, body_pos)
+        if m_ph:
+            clean_text = (clean_text[:m_ph.start()] + f'{m_ph.group(1) or ""}연락처 : {contact}'
+                          + clean_text[m_ph.end():])
+    return clean_text
+
+
 def _vat_off_paid_warning(project: dict, amount_updates: dict) -> str:
     """'VAT 별도 → 없음' 요청인데 이미 입금된 프로젝트면 경고 줄, 아니면 ''.
 
@@ -8303,53 +8346,16 @@ def _process_consult_submission(client, body, view):
                 #   원본/변환으로 갱신하고, 카카오톡/채널톡은 인입에 주소가 없어 상담 중
                 #   받은 주소를 '문의 내용' 앞에 새 줄로 삽입. 방문예약·유선/견적/드랍 모두 적용.
                 #   ※ clean_text 는 ``` 코드블록(평문) — 볼드·하이라이트 금지. 라인 접두 보존.
-                if visit_address and visit_address != '-':
-                    _conv_addr = re.sub(r'\s+', ' ', visit_address).strip()
-                    _fail = bool(_visit_addr_note
-                                 and _visit_addr_note.get('kind') == 'failed')
-                    _badge = '  ⚠️ [주소 확인 필요]' if _fail else ''
-                    _m_addr = re.search(
-                        r'(?m)^(&gt;|>)?\s*방문 주소\s*:\s*(.+)$', clean_text)
-                    if _m_addr:
-                        _pfx = _m_addr.group(1) or ''
-                        _orig_addr = re.sub(
-                            r'\s*(?:⚠️|:warning:)?\s*\[[^\]]+\]\s*$', '',
-                            _m_addr.group(2)).strip()
-                        if (_orig_addr and re.sub(r'\s+', '', _orig_addr)
-                                != re.sub(r'\s+', '', _conv_addr)):
-                            _al = (f'{_pfx}원본 주소 : {_orig_addr}\n'
-                                   f'{_pfx}변환 주소 : {_conv_addr}{_badge}')
-                        else:
-                            _al = f'{_pfx}방문 주소 : {_conv_addr}{_badge}'
-                        clean_text = (clean_text[:_m_addr.start()] + _al
-                                      + clean_text[_m_addr.end():])
-                    elif not re.search(
-                            r'(?m)^(?:&gt;|>)?\s*(?:원본|변환) 주소\s*:', clean_text):
-                        # 인입 블록에 주소 라인이 전혀 없을 때만(카카오톡/채널톡) '문의 내용' 앞 삽입.
-                        #   이미 원본/변환 주소가 있으면(당근·큐플레이스·홈페이지) 삽입 안 함
-                        #   — 방문 주소 중복 3줄 방지 (2026-09-21 L-04065 회귀 수정).
-                        _m_iq = re.search(
-                            r'(?m)^((?:&gt;|>)?)\s*문의 내용\s*:', clean_text)
-                        if _m_iq:
-                            _pfx = _m_iq.group(1) or ''
-                            clean_text = (
-                                clean_text[:_m_iq.start()]
-                                + f'{_pfx}방문 주소 : {_conv_addr}{_badge}\n'
-                                + clean_text[_m_iq.start():])
                 # 연락처도 동일 — 상담 중 받은 연락처를 원본 블록의 '연락처' 라인에 반영
-                #   (카카오톡 등 최초 접수 시 '-' → 유선상담으로 받은 실제 번호). 리드 데이터엔
-                #   이미 저장되나 원본 카드 표시만 '-'로 남던 갭 (2026-09-14 L-04001).
-                #   clean_text 는 ``` 코드블록(평문) — 라벨/접두 보존, 값만 교체.
+                #   (카카오톡 등 최초 접수 시 '-' → 유선상담으로 받은 실제 번호, 2026-09-14 L-04001).
+                _new_ph = ''
                 if contact:
                     from dashboard.services.lead_helpers import normalize_phone as _np_c
                     _new_ph = _np_c(contact) or contact
-                    _m_ph = re.search(
-                        r'(?m)^(&gt;|>)?\s*(?:고객 )?연락처\s*:\s*.+$', clean_text)
-                    if _m_ph:
-                        _pfx_ph = _m_ph.group(1) or ''
-                        clean_text = (clean_text[:_m_ph.start()]
-                                      + f'{_pfx_ph}연락처 : {_new_ph}'
-                                      + clean_text[_m_ph.end():])
+                clean_text = _apply_consult_to_original_block(
+                    clean_text, visit_address,
+                    bool(_visit_addr_note and _visit_addr_note.get('kind') == 'failed'),
+                    _new_ph)
                 new_text = '\n'.join(header_lines) + f"\n\n```\n{clean_text}\n```"
                 new_blocks = [
                     {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
