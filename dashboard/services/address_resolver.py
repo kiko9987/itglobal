@@ -1495,8 +1495,12 @@ def _enrich_verified_address(
         #   ≠ 1층(완전 다른 층, 오방문). 층 앞 '지하|지상' 접두 함께 캡처.
         # 층/호 여러 개(예 '지하2층. B207호') 모두 캡처 — 기존 search 는 첫 개만 잡아
         #   뒤 호수 유실 (2026-08-25 L-03772). finditer 로 순서대로 수집.
+        # 아파트 동 번호('102동')도 함께 캡처 (2026-10-12 L-04213: 카카오 검증 주소엔 동이
+        #   없어 '102동 501호'의 '102동' 유실). 앞이 한글·숫자면(성수2동 법정동) 미대상,
+        #   뒤 한글(3동로 도로명)도 미대상.
         _floor_re = re.compile(
-            r'((?:(?:지하|지상)\s*)?[A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관))(?![가-힣])')
+            r'((?:(?:지하|지상)\s*)?[A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관)'
+            r'|(?<![가-힣\d])[A-Za-z]?\d{1,4}동)(?![가-힣])')
         _fcands = [m.group(1).strip() for m in _floor_re.finditer(original_text)]
         _fcands = [c for c in _fcands if c and c not in verified_addr]
         if _fcands:
@@ -1970,8 +1974,19 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
         #   건물의 다른 입점 업체 → endswith 로 치환/부착하면 건물명을 엉뚱한 테넌트로
         #   바꿈 (2026-08-04 L-03530 어반322 다세대 건물). 반대로 exact 가 없으면
         #   endswith 형(김포한강듀클래스)이 그 건물의 정식 전체명(접두 지역 포함)이라 허용.
+        # '후보+건물유형어' POI(역촌센트레빌→역촌센트레빌아파트)도 건물 실재로 간주
+        #   (2026-10-12 L-04213: exact 가 없다고 '역촌센트레빌 공인중개사사무소'의
+        #   '공인중개사사무소'(단지 내 부동산)를 지점명으로 붙이던 갭).
+        _bld_alias = re.compile(
+            re.escape(cand) + r'(?:아파트|오피스텔|빌딩|빌라|맨션|타워|상가)')
         _has_exact = any(
             pn == cand and _road_key(rd) == v_key for pn, rd in results
+        )
+        #   입점 업체 차단(startswith 'cand X')에만 적용 — 접두 정식명(신현동금강아미움,
+        #   L-03316) 채택은 기존대로 _has_exact 로 판단(회귀 방지).
+        _bld_exists = _has_exact or any(
+            _bld_alias.fullmatch((pn or '').replace(' ', ''))
+            and _road_key(rd) == v_key for pn, rd in results
         )
         for place_name, road_name in results:
             if not place_name or not road_name:
@@ -2003,7 +2018,7 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             _pn_in_orig = place_name.replace(' ', '') in original_text.replace(' ', '')
             _match = (
                 place_name == cand
-                or (_sw and (_pn_in_orig or not _has_exact))
+                or (_sw and (_pn_in_orig or not _bld_exists))
                 or (_pfx is not None and _pfx != ''
                     and (_pn_in_orig
                          or (not _has_exact and not _pfx.endswith(' '))))
@@ -2533,7 +2548,7 @@ def _juso_fallback(text: str, regex_addr: Optional[str]) -> Optional[Tuple[str, 
 #   고객이 '언주로107길'을 '언주로 107 길'로 띄어써 '언주로 107'(번지 107, 완전 다른
 #   위치=현대2차아파트)로 오파싱되던 심각 버그. 길 뒤가 공백/끝일 때만 조인('길동'
 #   같은 동명 오조인 방지). '번길'도 포함.
-_ROAD_GIL_SPACE_RE = re.compile(r'([가-힣]+(?:대?로))\s+(\d+)\s+(번?안?길)(?=\s|$)')  # 번안길·안길 가족 포함 (L-04089)
+_ROAD_GIL_SPACE_RE = re.compile(r'([가-힣]+(?:대?로))\s+(\d+)\s+((?:번|[가나다라마바사아자차카타파하])?안?길)(?=\s|$)')  # 번안길·안길·가나다길 가족 (L-04089·L-04213)
 
 
 def _join_road_gil(s: Optional[str]) -> Optional[str]:
