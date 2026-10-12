@@ -113,7 +113,7 @@ export default class CasePhotos {
     if (!job) {
       countPill = pill('없음', 'background:#eef0f2;color:#6b7280;', '사진을 올리거나 카톡 PC에서 이 칸으로 끌어다 놓으세요');
     } else {
-      const text = `사진 ${photos}${orders ? ` · 지시서 ${orders}` : ''}`;
+      const text = `사진 ${photos}${job.has_order_text || job.order_text ? ' · 지시 글' : ''}${orders ? ` · 도면 ${orders}` : ''}`;
       countPill = job.drive_folder_id
         ? `<a href="https://drive.google.com/drive/folders/${encodeURIComponent(job.drive_folder_id)}" target="_blank" rel="noopener"
               title="드라이브 문서 폴더 / 시공사례 열기" style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;background:#e7f5ff;color:#1864ab;text-decoration:none;">${text}</a>`
@@ -131,7 +131,8 @@ export default class CasePhotos {
                onclick="${onclick}"><i class="${icon} me-1"></i>${label}</button>`;
     const actions = [
       btn('사진', 'fas fa-images', `window.casePhotos.pick(${q},'photo')`, '완료 사진 올리기 (여러 장)', 'btn-outline-primary', busy),
-      btn('지시서', 'fas fa-file-alt', `window.casePhotos.pick(${q},'order')`, '작업지시서 올리기 (사진·PDF)', 'btn-outline-secondary', busy),
+      btn('지시서', 'fas fa-file-alt', `window.casePhotos.openOrder(${q})`,
+        '카톡 작업지시 글 붙여넣기 · 도면 올리기', job && (job.has_order_text || job.order_text) ? 'btn-outline-success' : 'btn-outline-secondary', busy),
     ];
     if (job && job.status === 'uploading') {
       actions.push(btn('글 요청', 'fas fa-pen-nib', `window.casePhotos.requestDraft(${q})`,
@@ -172,6 +173,64 @@ export default class CasePhotos {
     const fd = new FormData(); fd.append('code', code);
     const data = await api('/jobs', { method: 'POST', body: fd });
     return data.job.id;
+  }
+
+  /** 작업지시 창 — 카톡 단체방 작업지시 글 붙여넣기 + 도면·지시서 파일. */
+  openOrder(code) {
+    const job = this._jobs[code];
+    const editable = !job || ['uploading', 'queued'].includes(job.status);
+    document.getElementById('cpOrderOverlay')?.remove();
+    const ov = document.createElement('div');
+    ov.id = 'cpOrderOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    const orders = ((job && job.files) || []).filter(f => f.kind === 'order').length;
+    ov.innerHTML = `
+      <div style="background:#fff;border-radius:10px;width:100%;max-width:560px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <b><i class="fas fa-file-alt me-2" style="color:#1c7ed6;"></i>${esc(code)} 작업지시</b>
+          <button type="button" class="btn btn-sm btn-light" data-cp-close>✕</button>
+        </div>
+        <div style="font-size:.85rem;color:#868e96;margin-bottom:6px;">
+          카톡 단체방의 작업지시 글을 길게 눌러(PC는 드래그) 복사한 뒤 붙여넣으세요. 전화번호·호수는 글에 쓰이지 않습니다.
+        </div>
+        <textarea data-cp-order-text rows="12" style="width:100%;border:1px solid #ced4da;border-radius:6px;padding:8px;font-size:.9rem;line-height:1.5;"
+                  placeholder="예)
+날짜 : 10월 13일 오전 9시
+삼성 5마력 냉난방기 4대 설치 공사
+15배관 50M이내 ...
+1. 실외기실은 같은층 발코니 입니다." ${editable ? '' : 'disabled'}></textarea>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-cp-order-file ${editable ? '' : 'disabled'}>
+            <i class="fas fa-paperclip me-1"></i>도면·지시서 파일 추가</button>
+          <span style="font-size:.85rem;color:#495057;">${orders ? `올린 파일 ${orders}개` : ''}</span>
+          <span style="flex:1"></span>
+          <button type="button" class="btn btn-sm btn-light" data-cp-close>닫기</button>
+          <button type="button" class="btn btn-sm btn-primary" data-cp-order-save ${editable ? '' : 'disabled'}>저장</button>
+        </div>
+        ${editable ? '' : '<div style="font-size:.8rem;color:#e8590c;margin-top:6px;">초안이 이미 나온 건이라 바꿀 수 없습니다.</div>'}
+      </div>`;
+    document.body.appendChild(ov);
+    const ta = ov.querySelector('[data-cp-order-text]');
+    ta.value = (job && job.order_text) || '';
+    const close = () => ov.remove();
+    ov.querySelectorAll('[data-cp-close]').forEach(b => b.addEventListener('click', close));
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    ov.querySelector('[data-cp-order-file]').addEventListener('click', () => { close(); this.pick(code, 'order'); });
+    ov.querySelector('[data-cp-order-save]').addEventListener('click', async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        const jobId = await this._ensureJob(code);
+        const fd = new FormData(); fd.append('text', ta.value);
+        await api(`/jobs/${encodeURIComponent(jobId)}/order-text`, { method: 'POST', body: fd });
+        close();
+        this._toast('작업지시를 저장했습니다', 'success');
+        await this.refresh(code);
+      } catch (err) {
+        e.currentTarget.disabled = false;
+        this._toast(err.message, 'error');
+      }
+    });
+    if (editable) ta.focus();
   }
 
   async upload(code, items) {
@@ -216,6 +275,8 @@ export default class CasePhotos {
   async requestDraft(code) {
     const job = this._jobs[code];
     if (!job) return;
+    if (!(job.has_order_text || job.order_text) && !(job.files || []).some(f => f.kind === 'order')
+        && !confirm('작업지시가 없습니다. 사진만으로 쓰면 빈칸(○○)이 많아집니다. 그래도 요청할까요?')) return;
     if (!confirm('이 현장을 시공사례 글로 만들까요?\n다음 평일 아침에 홈페이지·블로그 초안이 만들어집니다.')) return;
     try {
       await api(`/jobs/${encodeURIComponent(job.id)}/submit`, { method: 'POST' });

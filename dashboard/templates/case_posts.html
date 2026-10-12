@@ -81,10 +81,11 @@
     </div>
     <div class="cp-filelist" id="cpList-photo"></div>
 
-    <div class="cp-step">3. 작업지시서 <span class="cp-count">(사진 또는 PDF)</span></div>
+    <div class="cp-step">3. 작업지시 <span class="cp-count">(카톡 단체방 지시 글을 복사해 붙여넣기 · 도면 사진/PDF는 아래에)</span></div>
+    <textarea class="form-control mb-2" id="cpOrderText" rows="6" placeholder="예) 삼성 5마력 냉난방기 4대 설치 공사 / 15배관 50M이내 / 1. 실외기실은 같은층 발코니 입니다."></textarea>
     <div class="cp-drop" data-kind="order">
       <i class="fas fa-file-alt fa-lg mb-1 d-block"></i>
-      눌러서 고르거나 끌어다 놓으세요
+      도면·지시서 파일 — 눌러서 고르거나 끌어다 놓으세요
       <input type="file" accept="image/*,application/pdf" multiple hidden>
     </div>
     <div class="cp-filelist" id="cpList-order"></div>
@@ -227,7 +228,7 @@
     try {
       if (!state.jobId) {
         prog.textContent = '접수 만드는 중…';
-        const r = await api('/jobs', { method: 'POST', body: form({ code: state.project.code, memo: $('#cpMemo').value }) });
+        const r = await api('/jobs', { method: 'POST', body: form({ code: state.project.code, memo: $('#cpMemo').value, order_text: $('#cpOrderText').value }) });
         state.jobId = r.job.id;
       }
       const todo = [];
@@ -271,7 +272,7 @@
   }
   function resetForm() {
     state.project = null; state.jobId = null; state.files = { photo: [], order: [] };
-    renderFiles('photo'); renderFiles('order'); $('#cpMemo').value = ''; $('#cpSearch').value = '';
+    renderFiles('photo'); renderFiles('order'); $('#cpMemo').value = ''; $('#cpOrderText').value = ''; $('#cpSearch').value = '';
     $('#cpPicker').style.display = ''; $('#cpSelected').style.display = 'none';
   }
   $('#cpSubmit').addEventListener('click', submit);
@@ -319,6 +320,8 @@
       el('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', onclick: () => { box.style.display = 'none'; } }, '닫기')));
     box.append(el('div', { class: 'cp-note', text: (job.site || '') + (job.lead_no ? ' · ' + job.lead_no : '') + ' · 접수 ' + (job.created_at || '') + (job.drafted_at ? ' · 초안 ' + job.drafted_at : '') }));
     if (job.memo) box.append(el('div', { class: 'mt-2', text: '메모: ' + job.memo }));
+    if (job.order_text) box.append(el('details', { class: 'mt-2' }, el('summary', { text: '작업지시 글' }),
+      el('div', { style: 'white-space:pre-wrap;font-size:.88rem;background:#f8f9fa;border-radius:6px;padding:8px;margin-top:4px', text: job.order_text })));
     (job.drive_errors || []).forEach(m => box.append(el('div', { class: 'cp-warn', text: '드라이브 백업: ' + m })));
     if (job.draft_error) box.append(el('div', { class: 'cp-warn', text: '초안 작성 메모: ' + job.draft_error }));
 

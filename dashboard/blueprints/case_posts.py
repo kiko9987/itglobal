@@ -49,6 +49,8 @@ _FILE_RE = re.compile(r'^(photo|order)_\d{2,3}\.[a-z]{3,4}$')
 _CODE_RE = re.compile(r'^[A-Za-z0-9-]{2,30}$')
 
 _job_lock = threading.Lock()
+# 작업지시는 대부분 카톡 단체방 글(주소·담당자·배관·전기·지시사항) → 붙여넣기 텍스트로 받는다
+ORDER_TEXT_MAX = 8000
 
 
 # ── 로컬 job 저장소 ────────────────────────────────────────────────
@@ -105,6 +107,7 @@ def _job_summary(job: dict) -> dict:
         'drafted_at': job.get('drafted_at'),
         'posted_at': job.get('posted_at'),
         'photo_count': sum(1 for f in files if f.get('kind') == 'photo'),
+        'has_order_text': bool((job.get('order_text') or '').strip()),
         'order_count': sum(1 for f in files if f.get('kind') == 'order'),
     }
 
@@ -202,6 +205,7 @@ def api_create_job():
     """접수 시작 — 폴더·job.json 생성 (status=uploading, 예약 작업은 아직 안 가져감)."""
     code = (request.form.get('code') or '').strip()
     memo = (request.form.get('memo') or '').strip()[:2000]
+    order_text = (request.form.get('order_text') or '').strip()[:ORDER_TEXT_MAX]
     if not _CODE_RE.match(code):
         return jsonify({'success': False, 'error': '프로젝트 코드를 선택해 주세요.'}), 400
     project = _find_project(code)
@@ -217,6 +221,7 @@ def api_create_job():
         'site': brief['site'],
         'lead_no': brief['lead_no'],
         'memo': memo,
+        'order_text': order_text,
         'status': 'uploading',
         'created_at': _now(),
         'created_by': _current_email(),
@@ -247,7 +252,8 @@ def api_job_by_project(code):
         return jsonify({'success': True, 'job': None})
     return jsonify({'success': True, 'job': {**_job_summary(latest), 'files': latest.get('files', []),
                                              'drive_errors': latest.get('drive_errors', []),
-                                             'drive_folder_id': latest.get('drive_folder_id') or ''}})
+                                             'drive_folder_id': latest.get('drive_folder_id') or '',
+                                             'order_text': latest.get('order_text') or ''}})
 
 
 @case_posts_bp.route('/api/case-posts/jobs/<job_id>/files', methods=['POST'])
@@ -292,6 +298,23 @@ def api_upload_file(job_id):
     return jsonify({'success': True, 'name': name, 'drive_error': drive_err})
 
 
+@case_posts_bp.route('/api/case-posts/jobs/<job_id>/order-text', methods=['POST'])
+@admin_required
+def api_save_order_text(job_id):
+    """카톡 작업지시 글 저장(덮어쓰기). 초안이 나오기 전(사진 보관·접수)까지만."""
+    d = _job_dir(job_id)
+    text = (request.form.get('text') or '').strip()[:ORDER_TEXT_MAX]
+    with _job_lock:
+        job = _read_json(d / 'job.json') or {}
+        if job.get('status') not in ('uploading', 'queued'):
+            return jsonify({'success': False, 'error': '이미 초안이 작성된 건은 지시 글을 바꿀 수 없습니다.'}), 409
+        job['order_text'] = text
+        _write_json(d / 'job.json', job)
+    if text:  # 드라이브에도 같이 백업 (문서 폴더/시공사례/날짜_작업지시.txt)
+        _drive_backup(job_id, job['code'], '작업지시.txt', text.encode('utf-8'), 'text/plain; charset=utf-8')
+    return jsonify({'success': True, 'job': _job_summary(job)})
+
+
 @case_posts_bp.route('/api/case-posts/jobs/<job_id>/submit', methods=['POST'])
 @admin_required
 def api_submit_job(job_id):
@@ -314,7 +337,8 @@ def api_job_detail(job_id):
     draft = _read_json(d / 'draft.json')
     return jsonify({
         'success': True,
-        'job': {**_job_summary(job), 'memo': job.get('memo', ''), 'lead_no': job.get('lead_no', ''),
+        'job': {**_job_summary(job), 'memo': job.get('memo', ''), 'order_text': job.get('order_text', ''),
+                'lead_no': job.get('lead_no', ''),
                 'files': job.get('files', []), 'drive_errors': job.get('drive_errors', []),
                 'draft_error': job.get('draft_error', '')},
         'draft': draft,

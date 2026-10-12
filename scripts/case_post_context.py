@@ -97,6 +97,7 @@ def cmd_show(job_id: str):
         'status': job.get('status'),
         'code': job['code'],
         'memo': job.get('memo', ''),
+        'order_text': job.get('order_text', ''),  # 카톡 단체방 작업지시 글(붙여넣기) — 작업지시서 본문
         'files': [{'kind': f['kind'], 'name': f['name'], 'path': str(d / 'files' / f['name'])}
                   for f in job.get('files', [])],
         'project': project,
