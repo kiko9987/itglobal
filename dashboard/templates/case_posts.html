@@ -1,0 +1,428 @@
+{% extends "modern_base.html" %}
+
+{% block title %}시공사례 접수{% endblock %}
+
+{% block additional_css %}
+<style>
+  .cp-wrap { max-width: 1100px; margin: 0 auto; padding: 12px 16px 60px; }
+  .cp-card { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .cp-card h5 { font-weight: 700; margin-bottom: 12px; }
+  .cp-step { font-size: .85rem; font-weight: 700; color: #495057; margin: 14px 0 6px; }
+  .cp-results { border: 1px solid #e3e6ea; border-radius: 8px; max-height: 260px; overflow-y: auto; margin-top: 6px; }
+  .cp-results button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid #f1f3f5; background: #fff; padding: 8px 10px; font-size: .9rem; }
+  .cp-results button:hover { background: #f1f7ff; }
+  .cp-results .cp-sub { color: #868e96; font-size: .8rem; }
+  .cp-selected { background: #e7f5ff; border: 1px solid #a5d8ff; border-radius: 8px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .cp-drop { border: 2px dashed #ced4da; border-radius: 10px; padding: 18px 12px; text-align: center; color: #868e96; cursor: pointer; background: #fafbfc; }
+  .cp-drop.drag { border-color: #339af0; background: #e7f5ff; color: #1c7ed6; }
+  .cp-filelist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .cp-chip { font-size: .8rem; background: #f1f3f5; border-radius: 14px; padding: 3px 8px 3px 10px; display: inline-flex; align-items: center; gap: 6px; }
+  .cp-chip.fail { background: #ffe3e3; color: #c92a2a; }
+  .cp-chip.done { background: #d3f9d8; color: #2b8a3e; }
+  .cp-chip button { border: 0; background: none; padding: 0; color: #868e96; line-height: 1; }
+  .cp-progress { font-size: .9rem; margin-top: 10px; }
+  .cp-jobs { width: 100%; font-size: .9rem; }
+  .cp-jobs td, .cp-jobs th { padding: 8px 6px; border-bottom: 1px solid #f1f3f5; vertical-align: middle; }
+  .cp-jobs tr.cp-row { cursor: pointer; }
+  .cp-jobs tr.cp-row:hover { background: #f8f9fa; }
+  .cp-badge { font-size: .75rem; border-radius: 10px; padding: 2px 8px; font-weight: 600; white-space: nowrap; }
+  .st-uploading { background: #fff3bf; color: #946200; }
+  .st-queued { background: #e7f5ff; color: #1864ab; }
+  .st-drafted { background: #d3f9d8; color: #2b8a3e; }
+  .st-posted { background: #e9ecef; color: #495057; }
+  .st-cancelled { background: #f1f3f5; color: #adb5bd; text-decoration: line-through; }
+  .cp-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
+  .cp-thumb { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid #e3e6ea; background: #f8f9fa; }
+  .cp-thumb img { width: 100%; height: 110px; object-fit: cover; display: block; }
+  .cp-thumb .cp-tlabel { font-size: .72rem; padding: 3px 5px; color: #495057; }
+  .cp-thumb.mask { border: 2px solid #fa5252; }
+  .cp-thumb .cp-mask { position: absolute; top: 4px; left: 4px; background: #fa5252; color: #fff; font-size: .7rem; border-radius: 6px; padding: 1px 5px; }
+  .cp-thumb .cp-pdf { height: 110px; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #e03131; }
+  .cp-field label { font-size: .8rem; font-weight: 700; color: #495057; display: flex; justify-content: space-between; align-items: center; margin: 10px 0 4px; }
+  .cp-field textarea, .cp-field input { width: 100%; border: 1px solid #ced4da; border-radius: 6px; padding: 8px; font-size: .92rem; line-height: 1.6; }
+  .cp-field textarea.cp-body { min-height: 320px; }
+  .cp-tabs { display: flex; gap: 6px; border-bottom: 1px solid #dee2e6; margin-bottom: 6px; }
+  .cp-tabs button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: #868e96; border-bottom: 2px solid transparent; }
+  .cp-tabs button.on { color: #1c7ed6; border-bottom-color: #1c7ed6; }
+  .cp-list { margin: 0; padding-left: 18px; font-size: .9rem; }
+  .cp-note { font-size: .85rem; color: #868e96; }
+  .cp-warn { font-size: .85rem; color: #e8590c; }
+  .cp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .cp-count { font-weight: 400; color: #adb5bd; font-size: .75rem; }
+  @media (max-width: 576px) {
+    .cp-wrap { padding: 8px 10px 60px; }
+    .cp-jobs .cp-hide-sm { display: none; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cp-wrap">
+
+  <div class="cp-card" id="cpUpload">
+    <h5><i class="fas fa-camera me-2"></i>시공사례 올리기</h5>
+    <div class="cp-note">사진·작업지시서를 올려 두면 평일 아침 7시 반쯤 홈페이지·블로그 초안이 만들어집니다. 게시는 직접 합니다.</div>
+
+    <div class="cp-step">1. 프로젝트</div>
+    <div id="cpPicker">
+      <input type="search" class="form-control" id="cpSearch" placeholder="프로젝트 코드·현장 주소·상호 일부 (비워 두면 최근 공사)" autocomplete="off">
+      <div class="cp-results" id="cpResults"></div>
+    </div>
+    <div class="cp-selected" id="cpSelected" style="display:none">
+      <div id="cpSelectedText"></div>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="cpUnselect">바꾸기</button>
+    </div>
+
+    <div class="cp-step">2. 완료 사진 <span class="cp-count">(여러 장, 시공 전·작업 중 사진이 있으면 같이)</span></div>
+    <div class="cp-drop" data-kind="photo">
+      <i class="fas fa-images fa-lg mb-1 d-block"></i>
+      눌러서 고르거나, 카톡 PC에서 사진을 끌어다 놓으세요
+      <input type="file" accept="image/*" multiple hidden>
+    </div>
+    <div class="cp-filelist" id="cpList-photo"></div>
+
+    <div class="cp-step">3. 작업지시서 <span class="cp-count">(사진 또는 PDF)</span></div>
+    <div class="cp-drop" data-kind="order">
+      <i class="fas fa-file-alt fa-lg mb-1 d-block"></i>
+      눌러서 고르거나 끌어다 놓으세요
+      <input type="file" accept="image/*,application/pdf" multiple hidden>
+    </div>
+    <div class="cp-filelist" id="cpList-order"></div>
+
+    <div class="cp-step">4. 메모 <span class="cp-count">(선택 · 현장 특이사항)</span></div>
+    <textarea class="form-control" id="cpMemo" rows="2" placeholder="예) 천장 높아서 리프트 사용, 영업 중 공사"></textarea>
+
+    <div class="cp-actions">
+      <button type="button" class="btn btn-primary" id="cpSubmit"><i class="fas fa-paper-plane me-1"></i>접수하기</button>
+    </div>
+    <div class="cp-progress" id="cpProgress"></div>
+  </div>
+
+  <div class="cp-card" id="cpDetail" style="display:none"></div>
+
+  <div class="cp-card">
+    <h5 class="d-flex justify-content-between align-items-center">
+      <span><i class="fas fa-list me-2"></i>접수 목록</span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="cpReload"><i class="fas fa-sync-alt"></i></button>
+    </h5>
+    <table class="cp-jobs">
+      <thead><tr><th>상태</th><th>코드</th><th class="cp-hide-sm">현장</th><th>사진</th><th class="cp-hide-sm">접수</th></tr></thead>
+      <tbody id="cpJobs"><tr><td colspan="5" class="cp-note">불러오는 중…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script>
+{% raw %}
+(function () {
+  'use strict';
+  const API = '/api/case-posts';
+  const MAX_EDGE = 2000;
+  const state = { project: null, files: { photo: [], order: [] }, jobId: null, detail: null, tab: 'homepage' };
+
+  const $ = (sel, root) => (root || document).querySelector(sel);
+  function el(tag, attrs, ...children) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === 'class') e.className = v;
+      else if (k === 'text') e.textContent = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else if (v !== null && v !== undefined && v !== false) e.setAttribute(k, v);
+    }
+    for (const c of children) if (c !== null && c !== undefined) e.append(c);
+    return e;
+  }
+  async function api(path, opts) {
+    const res = await fetch(API + path, Object.assign({ credentials: 'same-origin' }, opts || {}));
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* noop */ }
+    if (!res.ok || data.success === false) throw new Error(data.error || ('요청 실패 (' + res.status + ')'));
+    return data;
+  }
+  function form(obj) { const fd = new FormData(); for (const [k, v] of Object.entries(obj)) fd.append(k, v); return fd; }
+
+  // ── 1. 프로젝트 검색 ──
+  let searchTimer = null;
+  async function search() {
+    const q = $('#cpSearch').value.trim();
+    const box = $('#cpResults');
+    box.textContent = '';
+    box.append(el('div', { class: 'cp-note p-2', text: '찾는 중…' }));
+    try {
+      const data = await api('/projects?q=' + encodeURIComponent(q));
+      box.textContent = '';
+      if (!data.items.length) { box.append(el('div', { class: 'cp-note p-2', text: '찾는 프로젝트가 없습니다.' })); return; }
+      for (const p of data.items) {
+        box.append(el('button', { type: 'button', onclick: () => selectProject(p) },
+          el('div', {}, el('b', { text: p.code }), ' ', p.kind ? '· ' + p.kind : '', p.biz && p.biz !== '-' ? ' · ' + p.biz : ''),
+          el('div', { class: 'cp-sub', text: (p.site || '') + (p.start ? '  (' + p.start + (p.end && p.end !== p.start ? ' ~ ' + p.end : '') + ')' : '') })));
+      }
+    } catch (e) { box.textContent = ''; box.append(el('div', { class: 'cp-warn p-2', text: e.message })); }
+  }
+  function selectProject(p) {
+    state.project = p;
+    $('#cpPicker').style.display = 'none';
+    $('#cpSelected').style.display = 'flex';
+    const t = $('#cpSelectedText'); t.textContent = '';
+    t.append(el('b', { text: p.code }), ' ', el('span', { class: 'cp-sub', text: p.site || '' }));
+  }
+  $('#cpSearch').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(search, 300); });
+  $('#cpUnselect').addEventListener('click', () => {
+    if (state.jobId) { alert('업로드를 시작한 뒤에는 프로젝트를 바꿀 수 없습니다. 새로고침 후 다시 해 주세요.'); return; }
+    state.project = null; $('#cpPicker').style.display = ''; $('#cpSelected').style.display = 'none'; $('#cpSearch').focus();
+  });
+
+  // ── 2·3. 파일 고르기 ──
+  function addFiles(kind, fileList) {
+    for (const f of fileList) {
+      const okType = f.type.startsWith('image/') || (kind === 'order' && f.type === 'application/pdf') || /\.(heic|jpe?g|png|webp|pdf)$/i.test(f.name);
+      if (!okType) continue;
+      if (kind === 'photo' && f.type === 'application/pdf') continue;
+      state.files[kind].push({ file: f, status: 'ready' });
+    }
+    renderFiles(kind);
+  }
+  function renderFiles(kind) {
+    const box = $('#cpList-' + kind); box.textContent = '';
+    state.files[kind].forEach((it, i) => {
+      const cls = 'cp-chip' + (it.status === 'done' ? ' done' : it.status === 'fail' ? ' fail' : '');
+      const label = (it.status === 'done' ? '✓ ' : it.status === 'fail' ? '✗ ' : '') + it.file.name;
+      box.append(el('span', { class: cls, title: it.error || '' }, label,
+        it.status === 'done' ? null : el('button', { type: 'button', title: '빼기', onclick: () => { state.files[kind].splice(i, 1); renderFiles(kind); } }, '×')));
+    });
+  }
+  document.querySelectorAll('.cp-drop').forEach(zone => {
+    const kind = zone.dataset.kind; const input = $('input', zone);
+    zone.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => { addFiles(kind, input.files); input.value = ''; });
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+    zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag'); addFiles(kind, e.dataTransfer.files); });
+  });
+
+  // 긴 변 2000px JPEG 로 축소 (8MB 요청 제한·Claude 읽기용). 브라우저가 못 여는 형식(HEIC 등)은 원본 그대로.
+  async function shrink(file) {
+    if (!file.type.startsWith('image/') || file.type === 'image/gif') return { blob: file, name: file.name };
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const scale = Math.min(1, MAX_EDGE / Math.max(bmp.width, bmp.height));
+      if (scale === 1 && file.size < 1.5 * 1024 * 1024) { bmp.close(); return { blob: file, name: file.name }; }
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height); bmp.close();
+      const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+      if (!blob) return { blob: file, name: file.name };
+      return { blob, name: file.name.replace(/\.[^.]+$/, '') + '.jpg' };
+    } catch (e) { return { blob: file, name: file.name }; }
+  }
+
+  // ── 접수 ──
+  async function submit() {
+    const btn = $('#cpSubmit'); const prog = $('#cpProgress');
+    if (!state.project) { alert('프로젝트를 먼저 골라 주세요.'); return; }
+    if (!state.files.photo.length) { alert('사진을 한 장 이상 올려 주세요.'); return; }
+    btn.disabled = true;
+    try {
+      if (!state.jobId) {
+        prog.textContent = '접수 만드는 중…';
+        const r = await api('/jobs', { method: 'POST', body: form({ code: state.project.code, memo: $('#cpMemo').value }) });
+        state.jobId = r.job.id;
+      }
+      const todo = [];
+      for (const kind of ['order', 'photo']) for (const it of state.files[kind]) if (it.status !== 'done') todo.push([kind, it]);
+      let n = 0; const driveErrs = new Set();
+      for (const [kind, it] of todo) {
+        n += 1; prog.textContent = '올리는 중 ' + n + ' / ' + todo.length + ' (' + it.file.name + ')';
+        let ok = false;
+        for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+          try {
+            const s = await shrink(it.file);
+            if (s.blob.size > 7.5 * 1024 * 1024) throw new Error('파일이 너무 큽니다(7.5MB 초과)');
+            const fd = new FormData(); fd.append('kind', kind); fd.append('file', s.blob, s.name);
+            const r = await api('/jobs/' + state.jobId + '/files', { method: 'POST', body: fd });
+            if (r.drive_error) driveErrs.add(r.drive_error);
+            it.status = 'done'; it.error = ''; ok = true;
+          } catch (e) {
+            it.status = 'fail'; it.error = e.message;
+            if (/너무 큽니다|올릴 수 없습니다/.test(e.message)) break;
+          }
+        }
+        renderFiles(kind);
+      }
+      const failed = todo.filter(([, it]) => it.status !== 'done');
+      if (failed.length) {
+        prog.textContent = '';
+        prog.append(el('span', { class: 'cp-warn', text: failed.length + '개를 못 올렸습니다(빨간 표시). 빼거나 [접수하기]를 다시 눌러 주세요.' }));
+        return;
+      }
+      await api('/jobs/' + state.jobId + '/submit', { method: 'POST' });
+      const doneId = state.jobId;
+      resetForm();
+      prog.textContent = '';
+      prog.append(el('span', { class: 'text-success', text: '✓ 접수했습니다. 다음 평일 아침에 초안이 만들어집니다.' }));
+      if (driveErrs.size) prog.append(el('div', { class: 'cp-warn', text: '드라이브 백업: ' + [...driveErrs].join(', ') + ' (초안 작성에는 영향 없음)' }));
+      await loadJobs();
+      openJob(doneId);
+    } catch (e) {
+      prog.textContent = ''; prog.append(el('span', { class: 'cp-warn', text: e.message }));
+    } finally { btn.disabled = false; }
+  }
+  function resetForm() {
+    state.project = null; state.jobId = null; state.files = { photo: [], order: [] };
+    renderFiles('photo'); renderFiles('order'); $('#cpMemo').value = ''; $('#cpSearch').value = '';
+    $('#cpPicker').style.display = ''; $('#cpSelected').style.display = 'none';
+  }
+  $('#cpSubmit').addEventListener('click', submit);
+
+  // ── 목록 ──
+  async function loadJobs() {
+    const tb = $('#cpJobs');
+    try {
+      const data = await api('/jobs');
+      tb.textContent = '';
+      if (!data.items.length) { tb.append(el('tr', {}, el('td', { colspan: 5, class: 'cp-note', text: '아직 접수한 건이 없습니다.' }))); return; }
+      for (const j of data.items) {
+        tb.append(el('tr', { class: 'cp-row', onclick: () => openJob(j.id) },
+          el('td', {}, el('span', { class: 'cp-badge st-' + j.status, text: j.status_label })),
+          el('td', {}, el('b', { text: j.code })),
+          el('td', { class: 'cp-hide-sm', text: shortSite(j.site) }),
+          el('td', { text: j.photo_count + '장' + (j.order_count ? ' · 지시서 ' + j.order_count : '') }),
+          el('td', { class: 'cp-hide-sm', text: j.created_at || '' })));
+      }
+    } catch (e) { tb.textContent = ''; tb.append(el('tr', {}, el('td', { colspan: 5, class: 'cp-warn', text: e.message }))); }
+  }
+  function shortSite(s) { return (s || '').split(' ').slice(0, 3).join(' '); }
+  $('#cpReload').addEventListener('click', loadJobs);
+
+  // ── 상세·초안 ──
+  async function openJob(id) {
+    const box = $('#cpDetail');
+    box.style.display = ''; box.textContent = ''; box.append(el('div', { class: 'cp-note', text: '불러오는 중…' }));
+    try {
+      const data = await api('/jobs/' + encodeURIComponent(id));
+      state.detail = data; state.tab = 'homepage';
+      renderDetail();
+      box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { box.textContent = ''; box.append(el('div', { class: 'cp-warn', text: e.message })); }
+  }
+  function fileUrl(name) { return API + '/jobs/' + encodeURIComponent(state.detail.job.id) + '/files/' + encodeURIComponent(name); }
+
+  function renderDetail() {
+    const { job, draft } = state.detail; const box = $('#cpDetail'); box.textContent = '';
+    const masks = {}; ((draft && draft.mask_photos) || []).forEach(m => { masks[m.file] = m.reason; });
+    const captions = {}; ((draft && draft.homepage && draft.homepage.photo_order) || []).forEach((p, i) => { captions[p.file] = (i + 1) + ') ' + (p.caption || ''); });
+
+    box.append(el('h5', { class: 'd-flex justify-content-between align-items-center' },
+      el('span', {}, el('span', { class: 'cp-badge st-' + job.status + ' me-2', text: job.status_label }), job.code),
+      el('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', onclick: () => { box.style.display = 'none'; } }, '닫기')));
+    box.append(el('div', { class: 'cp-note', text: (job.site || '') + (job.lead_no ? ' · ' + job.lead_no : '') + ' · 접수 ' + (job.created_at || '') + (job.drafted_at ? ' · 초안 ' + job.drafted_at : '') }));
+    if (job.memo) box.append(el('div', { class: 'mt-2', text: '메모: ' + job.memo }));
+    (job.drive_errors || []).forEach(m => box.append(el('div', { class: 'cp-warn', text: '드라이브 백업: ' + m })));
+    if (job.draft_error) box.append(el('div', { class: 'cp-warn', text: '초안 작성 메모: ' + job.draft_error }));
+
+    const thumbs = el('div', { class: 'cp-thumbs mt-3' });
+    for (const f of job.files || []) {
+      const isPdf = /\.pdf$/i.test(f.name);
+      const t = el('a', { class: 'cp-thumb' + (masks[f.name] ? ' mask' : ''), href: fileUrl(f.name), target: '_blank', rel: 'noopener', title: masks[f.name] || f.original || '' },
+        isPdf ? el('div', { class: 'cp-pdf' }, el('i', { class: 'fas fa-file-pdf' })) : el('img', { src: fileUrl(f.name), loading: 'lazy', alt: f.name }),
+        masks[f.name] ? el('span', { class: 'cp-mask', text: '가리기' }) : null,
+        el('div', { class: 'cp-tlabel', text: (f.kind === 'order' ? '지시서 ' : '') + (captions[f.name] || f.name) }));
+      thumbs.append(t);
+    }
+    box.append(thumbs);
+
+    if (!draft) {
+      box.append(el('div', { class: 'cp-note mt-3', text: job.status === 'queued' ? '초안 대기 중입니다. 다음 평일 아침 7시 반쯤 만들어집니다.' : '초안이 없습니다.' }));
+    } else {
+      const tabs = el('div', { class: 'cp-tabs mt-3' });
+      [['homepage', '홈페이지 시공사례'], ['blog', '네이버 블로그'], ['notes', '확인할 것']].forEach(([k, label]) => {
+        tabs.append(el('button', { type: 'button', class: state.tab === k ? 'on' : '', onclick: () => { collectEdits(); state.tab = k; renderDetail(); } }, label));
+      });
+      box.append(tabs);
+      if (state.tab === 'homepage') {
+        const h = draft.homepage || {};
+        box.append(field('제목', 'homepage.title', h.title, 'input'));
+        box.append(field('검색 설명문', 'homepage.meta', h.meta, 'input'));
+        box.append(field('본문', 'homepage.body', h.body, 'body'));
+        const po = h.photo_order || [];
+        if (po.length) box.append(el('div', { class: 'cp-field' }, el('label', { text: '사진 순서 (사진 설명 = 대체 텍스트)' }),
+          el('ol', { class: 'cp-list' }, ...po.map(p => el('li', { text: p.file + ' — ' + (p.caption || '') })))));
+      } else if (state.tab === 'blog') {
+        const b = draft.blog || {};
+        box.append(field('제목', 'blog.title', b.title, 'input'));
+        box.append(field('본문', 'blog.body', b.body, 'body'));
+        box.append(field('해시태그', 'blog.hashtags', b.hashtags, 'input'));
+      } else {
+        box.append(listBlock('가려야 할 사진', (draft.mask_photos || []).map(m => m.file + ': ' + m.reason), '가릴 사진 없음'));
+        box.append(listBlock('확인 필요 (○○ 빈칸·추정)', draft.check || [], '없음'));
+        box.append(listBlock('올린 뒤 할 일', draft.after || [], '없음'));
+      }
+      if (state.tab !== 'notes') {
+        box.append(el('div', { class: 'cp-actions' },
+          el('button', { type: 'button', class: 'btn btn-sm btn-success', onclick: saveDraft }, el('i', { class: 'fas fa-save me-1' }), '수정 저장'),
+          draft.edited_at ? el('span', { class: 'cp-note align-self-center', text: '마지막 수정 ' + draft.edited_at }) : null));
+      }
+    }
+
+    const acts = el('div', { class: 'cp-actions', style: 'border-top:1px solid #f1f3f5;padding-top:12px' });
+    if (job.status === 'drafted') acts.append(statusBtn('posted', '게시함으로 표시', 'btn-primary'));
+    if (job.status === 'posted') acts.append(statusBtn('unposted', '게시 표시 취소', 'btn-outline-secondary'));
+    if (job.status === 'drafted' || job.status === 'cancelled') acts.append(statusBtn('requeue', '내일 아침 다시 작성', 'btn-outline-secondary', '지금 초안을 버리고 다음 아침에 다시 씁니다. 계속할까요?'));
+    if (['uploading', 'queued', 'drafted'].includes(job.status)) acts.append(statusBtn('cancel', '접수 취소', 'btn-outline-danger', '이 접수를 취소할까요? (파일은 지워지지 않습니다)'));
+    box.append(acts);
+  }
+  function field(label, key, value, kind) {
+    const input = kind === 'input'
+      ? el('input', { type: 'text', 'data-key': key })
+      : el('textarea', { class: 'cp-body', 'data-key': key });
+    input.value = value || '';
+    const counter = el('span', { class: 'cp-count', text: (value || '').length + '자' });
+    input.addEventListener('input', () => { counter.textContent = input.value.length + '자'; });
+    return el('div', { class: 'cp-field' },
+      el('label', {}, el('span', {}, label + ' ', counter),
+        el('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: (e) => copyText(input.value, e.currentTarget) }, el('i', { class: 'far fa-copy me-1' }), '복사')),
+      input);
+  }
+  function listBlock(title, items, empty) {
+    return el('div', { class: 'cp-field' }, el('label', { text: title }),
+      items.length ? el('ul', { class: 'cp-list' }, ...items.map(t => el('li', { text: t }))) : el('div', { class: 'cp-note', text: empty }));
+  }
+  function statusBtn(action, label, cls, confirmMsg) {
+    return el('button', { type: 'button', class: 'btn btn-sm ' + cls, onclick: async () => {
+      if (confirmMsg && !confirm(confirmMsg)) return;
+      try { await api('/jobs/' + encodeURIComponent(state.detail.job.id) + '/status', { method: 'POST', body: form({ action }) }); await loadJobs(); openJob(state.detail.job.id); }
+      catch (e) { alert(e.message); }
+    } }, label);
+  }
+  function collectEdits() {
+    const d = state.detail && state.detail.draft; if (!d) return;
+    document.querySelectorAll('#cpDetail [data-key]').forEach(inp => {
+      const [sec, k] = inp.dataset.key.split('.'); d[sec] = d[sec] || {}; d[sec][k] = inp.value;
+    });
+  }
+  async function saveDraft() {
+    collectEdits();
+    const d = state.detail.draft;
+    const payload = { homepage: { title: d.homepage?.title || '', meta: d.homepage?.meta || '', body: d.homepage?.body || '' },
+                      blog: { title: d.blog?.title || '', body: d.blog?.body || '', hashtags: d.blog?.hashtags || '' } };
+    try { await api('/jobs/' + encodeURIComponent(state.detail.job.id) + '/draft', { method: 'POST', body: form({ draft: JSON.stringify(payload) }) });
+          const tab = state.tab; await openJob(state.detail.job.id); state.tab = tab; renderDetail(); }
+    catch (e) { alert(e.message); }
+  }
+  async function copyText(text, btn) {
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {
+      const ta = el('textarea'); ta.value = text; document.body.append(ta); ta.select();
+      try { document.execCommand('copy'); } finally { ta.remove(); }
+    }
+    const old = btn.innerHTML; btn.textContent = '복사됨'; setTimeout(() => { btn.innerHTML = old; }, 1200);
+  }
+
+  loadJobs();
+  const m = location.hash.match(/^#job=(.+)$/); if (m) openJob(decodeURIComponent(m[1]));
+})();
+{% endraw %}
+</script>
+{% endblock %}
