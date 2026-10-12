@@ -1744,6 +1744,25 @@ def _region_prefix(addr: str) -> str:
     return (addr[:m.start()].strip() if m else addr.strip())
 
 
+_ROAD_THEN_FLOOR_RE = re.compile(
+    r'[가-힣]{2,}\d*[가-힣]*(?:로|길)\s*\d+(?:~\d+)?\s*(?:층|호|호실)(?![가-힣])')
+#   번지 숫자 뒤가 한글·물결(15길·3층·2~3층)이면 번지 아님 — '부일로15길'의 '부일로'+'15'
+#   를 도로+번지로 오인하지 않도록.
+_ROAD_THEN_BEONJI_RE = re.compile(
+    r'[가-힣]{2,}\d*[가-힣]*(?:로|길)\s*\d+(?:-\d+)?(?![\d가-힣~∼-])'
+    r'(?!\s*(?:층|호|호실))')
+
+
+def _road_missing_beonji(text: Optional[str]) -> bool:
+    """도로명 바로 뒤가 층/호(번지 없음)인지 (2026-10-12 L-04214).
+
+    '부일로15길 3층 pc방' → True(번지 없음). '테헤란로 152 3층' → False(번지 152 있음).
+    도로명 뒤 번지가 하나라도 있으면 False — 오판으로 정상 주소를 막지 않도록 보수적.
+    """
+    line = (text or '').split('\n', 1)[0]
+    return bool(_ROAD_THEN_FLOOR_RE.search(line)) and not _ROAD_THEN_BEONJI_RE.search(line)
+
+
 def _road_key(addr: str) -> str:
     """주소에서 도로명+번지 정규화 키 추출 (`학동로 지하 102`, `지산2길 20-16`)."""
     m = re.search(
@@ -2805,6 +2824,14 @@ def resolve_address(
         _gun_res = resolve_address(_gun_text, _gun_regex, regex_level)
         if _gun_res[1] == 'verified':
             return _gun_res
+
+    # 번지 누락 도로명 → 검증 생략, 원문 유지 + [주소 확인 필요] (2026-10-12 L-04214):
+    #   '구로구 부일로15길 3층 pc방'처럼 도로명 바로 뒤가 층/호(번지 없음)면 카카오가
+    #   '3층'의 3을 번지로 넘겨짚어 '부일로15길 3'(고객 위치와 무관한 지어낸 번지)을
+    #   verified 로 반환 → 오방문 위험. 번지는 고객에게 확인해야 하므로 raw 로 내보냄.
+    if _road_missing_beonji(text):
+        _first = re.sub(r'\s+', ' ', (text or '').strip().split('\n', 1)[0])
+        return (_upper_unit_letter(_post_normalize_display(normalize_display(_first))), 'raw')
 
     # 1. 카카오 검증 시도
     verified = verify_address(text, regex_addr)
