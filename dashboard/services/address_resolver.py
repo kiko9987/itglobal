@@ -961,6 +961,17 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
         )
         if m_reg and m_reg.group(1).strip():
             region_prefix = m_reg.group(1).strip()
+        else:
+            # 시/도 없이 시·구로 시작('수원 장안구'·'성남시 분당구'·'강남구')도 지역 접두로
+            #   인정 (2026-10-12 L-04219: '수원 장안구 조원로 97-1'이 지역 없는 '조원로 97-1'
+            #   로 먼저 조회돼 서울 관악구 조원로 97-1 오매칭).
+            m_reg = re.match(
+                r'((?:[가-힣]{2,4}(?:시|군)?\s+)?[가-힣]{1,5}(?:시|군|구)'
+                r'(?:\s+[가-힣]{1,5}(?:구|읍|면))?)(?=\s)',
+                first_line,
+            )
+            if m_reg:
+                region_prefix = m_reg.group(1).strip()
 
     # 도로명+번지 추출 — first_line 통째보다 우선 (2026-07-23 ETC-1ad649)
     # 카카오 verify 는 tail(상호명 등) 붙은 query 에서 번지를 잘못 근사하는 케이스 있음
