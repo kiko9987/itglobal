@@ -37,7 +37,7 @@ INBOX = CASE_POST_ROOT / '접수'
 DRIVE_SUBFOLDER = '시공사례'
 
 STATUS_LABELS = {
-    'uploading': '업로드 중',
+    'uploading': '사진 보관',
     'queued': '접수',
     'drafted': '초안 완료',
     'posted': '게시함',
@@ -227,6 +227,26 @@ def api_create_job():
     _write_json(d / 'job.json', job)
     logger.info(f'[CASE_POST] 접수 시작 {job_id} by {job["created_by"]}')
     return jsonify({'success': True, 'job': _job_summary(job)})
+
+
+@case_posts_bp.route('/api/case-posts/by-project/<code>', methods=['GET'])
+@admin_required
+def api_job_by_project(code):
+    """PM 아코디언 '시공 완료 사진' 칸 — 그 프로젝트의 가장 최근 접수(취소 제외) + 파일 목록."""
+    code = (code or '').strip()
+    if not _CODE_RE.match(code):
+        return jsonify({'success': True, 'job': None})
+    latest = None
+    if INBOX.is_dir():
+        for d in INBOX.glob(f'*_{code}'):
+            job = _read_json(d / 'job.json') if d.is_dir() else None
+            if job and job.get('code') == code and job.get('status') != 'cancelled':
+                if latest is None or job['id'] > latest['id']:
+                    latest = job
+    if not latest:
+        return jsonify({'success': True, 'job': None})
+    return jsonify({'success': True, 'job': {**_job_summary(latest), 'files': latest.get('files', []),
+                                             'drive_errors': latest.get('drive_errors', [])}})
 
 
 @case_posts_bp.route('/api/case-posts/jobs/<job_id>/files', methods=['POST'])

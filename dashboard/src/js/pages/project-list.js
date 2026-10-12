@@ -26,6 +26,7 @@ const MobileCardView = () => import('../components/MobileCardView.js');
 const ProjectRowAccordion = () => import('../components/ProjectRowAccordion.js');
 const AsView = () => import('../components/AsView.js');
 const InvoiceLicense = () => import('../components/InvoiceLicense.js');
+const CasePhotos = () => import('../components/CasePhotos.js');
 
 /**
  * 프로젝트 리스트 페이지 메인 클래스 (Orchestration Only)
@@ -162,6 +163,11 @@ class ProjectListApp {
         window.invoiceLicense = this.components.invoiceLicense;  // 아코디언 등록증/계산서 버튼에서 참조
       }).catch(err => {
         logger.error('[ERROR] InvoiceLicense 로드 실패:', err);
+      }),
+      CasePhotos().then(module => {
+        this.components.casePhotos = new module.default();  // window.casePhotos (아코디언 시공 완료 사진 칸)
+      }).catch(err => {
+        logger.error('[ERROR] CasePhotos 로드 실패:', err);
       })
     ];
 

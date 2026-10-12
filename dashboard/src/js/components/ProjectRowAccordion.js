@@ -715,6 +715,8 @@ export default class ProjectRowAccordion {
                 </div>
               </div>
 
+              ${this.generateCasePhotosSection(projectData['프로젝트 코드'])}
+
             </div>
           </div>
         </div>
@@ -729,6 +731,13 @@ export default class ProjectRowAccordion {
     try {
       if (window.invoiceLicense && typeof window.invoiceLicense.onAccordionRendered === 'function') {
         window.invoiceLicense.onAccordionRendered(projectCode);
+      }
+    } catch (_) { /* noop */ }
+
+    // 시공 완료 사진 칸 (관리자 전용) — 최근 접수·썸네일 lazy 조회
+    try {
+      if (window.casePhotos && typeof window.casePhotos.onAccordionRendered === 'function') {
+        window.casePhotos.onAccordionRendered(projectCode);
       }
     } catch (_) { /* noop */ }
   }
@@ -1368,6 +1377,27 @@ export default class ProjectRowAccordion {
             <input type="file" data-il-file="${code}" accept="image/*,.pdf,.heic" style="display:none;"
                    onchange="window.invoiceLicense && window.invoiceLicense.onFilePicked('${code}', this)">
           </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * 시공 완료 사진 칸 — 문서 카드 아래 한 줄 (2026-10-12, 관리자 전용).
+   * 사진·작업지시서 업로드 + [시공사례 글 요청] → 평일 아침 Claude 예약 작업이 초안 작성.
+   * 내용은 onAccordionRendered → window.casePhotos.refresh 가 채운다(CasePhotos.js).
+   */
+  generateCasePhotosSection(projectCode) {
+    const code = String(projectCode || '').trim();
+    const role = window.userRole || 'viewer';
+    if (!code || (role !== 'admin' && role !== 'super_admin')) return '';
+    return `
+      <div class="legacy-card mt-3 case-photos-card" data-cp-card="${code}">
+        <div class="legacy-card-row" style="flex-direction:column; align-items:stretch;">
+          <span class="legacy-card-label mb-2">
+            <i class="fas fa-camera me-2" style="color:#1c7ed6;"></i>시공 완료 사진
+          </span>
+          <div data-cp-body="${code}"><span style="color:#adb5bd;">확인 중…</span></div>
         </div>
       </div>
     `;
