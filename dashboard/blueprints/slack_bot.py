@@ -3260,7 +3260,6 @@ def _register_project_handlers(app):
             client, body, '공사 취소 되돌리기',
             lambda: _process_project_uncancel(client, body),
         )
-        threading.Thread(target=_bg, daemon=True).start()
 
     logger.info(
         "[SLACK/공사봇] 핸들러 등록 완료: /공사확정, submit_project, "
@@ -9732,6 +9731,7 @@ def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -
         if matches.empty:
             raise RuntimeError(f'lead_no {lead_no} 시트에서 못 찾음')
         sheet_row = int(matches.index[0]) + 2
+        old_lead = matches.iloc[0].to_dict()  # List add fallback 의 이메일·키워드
 
         cfg = _get_sheet_config()
         manager = get_sheets_manager()

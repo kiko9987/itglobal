@@ -267,7 +267,10 @@ class CacheInvalidationService:
 
             except Exception as e:
                 msg = str(e)
-                if 'Timeout reading from socket' in msg or 'Connection closed by server' in msg:
+                if not self._running:
+                    # stop()이 pubsub 을 먼저 닫아 생기는 종료 시 예외(I/O operation on closed file)
+                    logger.debug(f"Pub/Sub 종료 중 연결 닫힘: {e}")
+                elif 'Timeout reading from socket' in msg or 'Connection closed by server' in msg:
                     logger.debug(f"Pub/Sub 소켓 idle timeout (재구독): {e}")
                 else:
                     logger.error(f"Pub/Sub 구독자 루프 오류 (재구독): {e}")

@@ -93,6 +93,9 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                     if isinstance(msg, str) and 'Invalid session' in msg and 'engineio' not in msg.lower():
                         # engineio 관련 Invalid session은 무시
                         return None
+                    # 로딩 모달을 사용자가 먼저 닫아 views.update 가 not_found — 무해 (2026-10-12)
+                    if isinstance(msg, str) and 'views.update' in msg and "'not_found'" in msg:
+                        return None
                     # KeyError('Session is disconnected') 예외도 같은 계열
                     exc_type = ''
                     for entry in (event.get('exception', {}).get('values') or []):
