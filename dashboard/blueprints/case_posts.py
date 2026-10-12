@@ -246,7 +246,8 @@ def api_job_by_project(code):
     if not latest:
         return jsonify({'success': True, 'job': None})
     return jsonify({'success': True, 'job': {**_job_summary(latest), 'files': latest.get('files', []),
-                                             'drive_errors': latest.get('drive_errors', [])}})
+                                             'drive_errors': latest.get('drive_errors', []),
+                                             'drive_folder_id': latest.get('drive_folder_id') or ''}})
 
 
 @case_posts_bp.route('/api/case-posts/jobs/<job_id>/files', methods=['POST'])

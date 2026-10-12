@@ -3,12 +3,12 @@
  *
  * 사업자등록증 칸처럼 프로젝트 아코디언에서 바로 완료 사진·작업지시서를 올리고
  * [시공사례 글 요청]을 누르면 평일 아침 Claude 예약 작업이 초안을 쓴다.
- * 초안 확인·수정·복사는 /case-posts 페이지(#job=...)에서.
+ * 초안 확인·수정·복사는 /case-posts 페이지(#job=...)에서. 사진은 화면에 띄우지 않고
+ * 사진 수를 드라이브 '시공사례' 폴더 링크로 보여 준다(문서 폴더에서 확인).
  *
  * 백엔드: /api/case-posts/... (blueprints/case_posts.py). 접수 1건 = job.
  *  - 진행 중 job(사진 보관/접수)이 있으면 거기에 파일을 더하고, 없거나 이미 초안이 나왔으면 새 job.
  * 사진은 긴 변 2000px JPEG 로 줄여 한 장씩 보낸다(프로덕션 요청 8MB 제한).
- * ⚠️ CSP img-src 에 blob: 이 없어 미리보기는 서버 URL 만 쓴다.
  */
 import logger from '../utils/logger.js';
 
@@ -99,57 +99,49 @@ export default class CasePhotos {
     if (!card.dataset.cpBound) this._bindDrop(card, code);
     const job = this._jobs[code];
     if (job === undefined) { body.innerHTML = '<span style="color:#adb5bd;">불러오지 못했습니다</span>'; return; }
+    if (progress) { body.innerHTML = `<span style="color:#1c7ed6;font-size:.85rem;">${esc(progress)}</span>`; return; }
 
     const files = (job && job.files) || [];
-    const photos = files.filter(f => f.kind === 'photo');
-    const orders = files.filter(f => f.kind === 'order');
+    const photos = files.filter(f => f.kind === 'photo').length;
+    const orders = files.filter(f => f.kind === 'order').length;
     const busy = !!this._busy[code];
-    const status = job
-      ? `<span style="padding:2px 9px;border-radius:10px;font-size:.78rem;font-weight:600;${STATUS_STYLE[job.status] || ''}">${esc(job.status_label)}</span>`
-      : '<span style="color:#adb5bd;font-size:.85rem;">아직 없음</span>';
-    const thumbs = files.slice(0, 10).map(f => {
-      const url = `${API}/jobs/${encodeURIComponent(job.id)}/files/${encodeURIComponent(f.name)}`;
-      const inner = /\.pdf$/i.test(f.name)
-        ? '<i class="fas fa-file-pdf" style="font-size:1.4rem;color:#e03131;"></i>'
-        : `<img src="${url}" loading="lazy" alt="" style="width:100%;height:100%;object-fit:cover;">`;
-      return `<a href="${url}" target="_blank" rel="noopener" title="${esc(f.kind === 'order' ? '작업지시서' : '사진')} ${esc(f.original || f.name)}"
-                 style="width:52px;height:52px;border-radius:6px;overflow:hidden;border:1px solid ${f.kind === 'order' ? '#ffc9c9' : '#e3e6ea'};
-                        display:inline-flex;align-items:center;justify-content:center;background:#f8f9fa;">${inner}</a>`;
-    }).join('');
-    const more = files.length > 10 ? `<span style="color:#868e96;font-size:.8rem;align-self:center;">+${files.length - 10}</span>` : '';
+    const pill = (text, style, title = '') =>
+      `<span title="${esc(title)}" style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;${style}">${text}</span>`;
 
-    const btn = (label, icon, onclick, cls = 'btn-outline-secondary', disabled = false) =>
-      `<button type="button" class="btn btn-sm ${cls}" ${disabled ? 'disabled' : ''} onclick="${onclick}">
-         <i class="${icon} me-1"></i>${label}</button>`;
+    // 사진 수 — 드라이브 '시공사례' 폴더가 있으면 그 폴더로 링크(사진은 문서 폴더에서 확인)
+    let countPill;
+    if (!job) {
+      countPill = pill('없음', 'background:#eef0f2;color:#6b7280;', '사진을 올리거나 카톡 PC에서 이 칸으로 끌어다 놓으세요');
+    } else {
+      const text = `사진 ${photos}${orders ? ` · 지시서 ${orders}` : ''}`;
+      countPill = job.drive_folder_id
+        ? `<a href="https://drive.google.com/drive/folders/${encodeURIComponent(job.drive_folder_id)}" target="_blank" rel="noopener"
+              title="드라이브 문서 폴더 / 시공사례 열기" style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;background:#e7f5ff;color:#1864ab;text-decoration:none;">${text}</a>`
+        : pill(text, 'background:#eef0f2;color:#495057;', (job.drive_errors || []).join(' / ') || '드라이브 백업 없음');
+    }
+    const statusPill = !job || job.status === 'uploading' ? ''
+      : pill(esc(job.status_label), STATUS_STYLE[job.status] || '',
+        job.status === 'queued' ? '다음 평일 아침 7시 반쯤 초안이 만들어집니다' : '');
+    const warn = job && (job.drive_errors || []).length
+      ? `<i class="fas fa-exclamation-triangle" style="color:#e8590c;" title="드라이브 백업: ${esc(job.drive_errors.join(' / '))}"></i>` : '';
+
     const q = `'${attr(code)}'`;
+    const btn = (label, icon, onclick, title, cls = 'btn-outline-secondary', disabled = false) =>
+      `<button type="button" class="btn btn-sm ${cls}" style="padding:1px 8px;" title="${esc(title)}" ${disabled ? 'disabled' : ''}
+               onclick="${onclick}"><i class="${icon} me-1"></i>${label}</button>`;
     const actions = [
-      btn('사진 올리기', 'fas fa-images', `window.casePhotos.pick(${q},'photo')`, 'btn-outline-primary', busy),
-      btn('작업지시서', 'fas fa-file-alt', `window.casePhotos.pick(${q},'order')`, 'btn-outline-secondary', busy),
+      btn('사진', 'fas fa-images', `window.casePhotos.pick(${q},'photo')`, '완료 사진 올리기 (여러 장)', 'btn-outline-primary', busy),
+      btn('지시서', 'fas fa-file-alt', `window.casePhotos.pick(${q},'order')`, '작업지시서 올리기 (사진·PDF)', 'btn-outline-secondary', busy),
     ];
     if (job && job.status === 'uploading') {
-      actions.push(btn('시공사례 글 요청', 'fas fa-pen-nib', `window.casePhotos.requestDraft(${q})`, 'btn-primary', busy || !photos.length));
+      actions.push(btn('글 요청', 'fas fa-pen-nib', `window.casePhotos.requestDraft(${q})`,
+        '시공사례 글로 만들기 — 다음 평일 아침에 초안 작성', 'btn-primary', busy || !photos));
     }
     if (job && job.status !== 'uploading') {
-      actions.push(`<a class="btn btn-sm btn-outline-success" href="/case-posts#job=${encodeURIComponent(job.id)}" target="_blank" rel="noopener">
-                      <i class="fas fa-external-link-alt me-1"></i>${job.status === 'queued' ? '접수 보기' : '초안 보기'}</a>`);
+      actions.push(`<a class="btn btn-sm btn-outline-success" style="padding:1px 8px;" href="/case-posts#job=${encodeURIComponent(job.id)}"
+                       target="_blank" rel="noopener" title="시공사례 페이지에서 보기"><i class="fas fa-external-link-alt me-1"></i>${job.status === 'queued' ? '접수' : '초안'}</a>`);
     }
-    const hint = !job ? '사진을 올려 두고, 글로 만들 현장이면 [시공사례 글 요청]을 누르세요. 카톡 PC에서 끌어다 놓아도 됩니다.'
-      : job.status === 'queued' ? '다음 평일 아침 7시 반쯤 초안이 만들어집니다.'
-      : job.status === 'drafted' ? '초안이 나왔습니다. 사진을 더 올리면 새 접수로 보관됩니다.'
-      : '';
-    const warn = ((job && job.drive_errors) || []).map(m => `<div style="color:#e8590c;font-size:.8rem;">드라이브 백업: ${esc(m)}</div>`).join('');
-
-    body.innerHTML = `
-      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
-        ${status}
-        ${job ? `<span style="color:#495057;font-size:.85rem;">사진 ${photos.length}장${orders.length ? ` · 작업지시서 ${orders.length}` : ''}</span>` : ''}
-        <span style="flex:1"></span>
-        ${actions.join('')}
-      </div>
-      ${files.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">${thumbs}${more}</div>` : ''}
-      ${progress ? `<div style="margin-top:6px;font-size:.85rem;color:#1c7ed6;">${esc(progress)}</div>` : ''}
-      ${hint ? `<div style="margin-top:6px;font-size:.8rem;color:#868e96;">${esc(hint)}</div>` : ''}
-      ${warn}`;
+    body.innerHTML = `${countPill}${statusPill}${warn}${actions.join('')}`;
   }
 
   _bindDrop(card, code) {

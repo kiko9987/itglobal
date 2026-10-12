@@ -700,22 +700,27 @@ export default class ProjectRowAccordion {
                 </div>
               </div>
 
-              <!-- 하단 문서 정보 섹션 (문서 폴더 · 사업자등록증 · 수금 특이사항 3등분) -->
+              <!-- 하단 문서 정보 섹션 (문서 폴더 · 사업자등록증 · 수금 특이사항 · 시공 사진[관리자] 3~4등분) -->
               <div class="mt-3">
                 <div class="row">
-                  <div class="col-md-4">
+                  ${(() => {
+                    // 시공 완료 사진 칸(관리자 전용)이 있으면 4등분, 없으면 기존 3등분
+                    const cp = this.generateCasePhotosSection(projectData['프로젝트 코드']);
+                    const col = cp ? 'col-md-3' : 'col-md-4';
+                    return `
+                  <div class="${col}">
                     ${this.generateDocumentSection(projectData)}
                   </div>
-                  <div class="col-md-4">
+                  <div class="${col}">
                     ${this.generateInvoiceLicenseSection(projectData['프로젝트 코드'])}
                   </div>
-                  <div class="col-md-4">
+                  <div class="${col}">
                     ${this.generateCollectionNotesSection(projectData)}
                   </div>
+                  ${cp ? `<div class="col-md-3">${cp}</div>` : ''}`;
+                  })()}
                 </div>
               </div>
-
-              ${this.generateCasePhotosSection(projectData['프로젝트 코드'])}
 
             </div>
           </div>
@@ -1383,9 +1388,9 @@ export default class ProjectRowAccordion {
   }
 
   /**
-   * 시공 완료 사진 칸 — 문서 카드 아래 한 줄 (2026-10-12, 관리자 전용).
-   * 사진·작업지시서 업로드 + [시공사례 글 요청] → 평일 아침 Claude 예약 작업이 초안 작성.
-   * 내용은 onAccordionRendered → window.casePhotos.refresh 가 채운다(CasePhotos.js).
+   * 시공 완료 사진 칸 — 문서 카드 줄의 4번째 칸 (2026-10-12, 관리자 전용).
+   * 사진·작업지시서 업로드 + [글 요청] → 평일 아침 Claude 예약 작업이 초안 작성.
+   * 사진은 화면에 띄우지 않는다(드라이브 문서 폴더/시공사례 에서 확인). 내용은 CasePhotos.js 가 채운다.
    */
   generateCasePhotosSection(projectCode) {
     const code = String(projectCode || '').trim();
@@ -1393,11 +1398,15 @@ export default class ProjectRowAccordion {
     if (!code || (role !== 'admin' && role !== 'super_admin')) return '';
     return `
       <div class="legacy-card mt-3 case-photos-card" data-cp-card="${code}">
-        <div class="legacy-card-row" style="flex-direction:column; align-items:stretch;">
-          <span class="legacy-card-label mb-2">
-            <i class="fas fa-camera me-2" style="color:#1c7ed6;"></i>시공 완료 사진
-          </span>
-          <div data-cp-body="${code}"><span style="color:#adb5bd;">확인 중…</span></div>
+        <div class="legacy-card-row" style="flex-wrap:wrap;">
+          <div class="legacy-card-main" style="flex-wrap:wrap; gap:8px;">
+            <span class="legacy-card-label">
+              <i class="fas fa-camera me-2" style="color:#1c7ed6;"></i>시공 사진
+            </span>
+            <span data-cp-body="${code}" style="display:inline-flex; flex-wrap:wrap; gap:6px; align-items:center;">
+              <span style="color:#adb5bd;">확인 중…</span>
+            </span>
+          </div>
         </div>
       </div>
     `;
