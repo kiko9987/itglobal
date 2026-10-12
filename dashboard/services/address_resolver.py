@@ -834,8 +834,10 @@ def _extract_building_tail(text: str) -> str:
     if m:
         candidates.append(m.group(1).strip())
     # 2. ○○동(○가)? + 번지 + 뒤 (예: "상암동 1605번지 DMC 빌딩 5층", "성수동1가 12-3 신촌도넛")
+    #    '동' 없는 N가 법정동(명륜4가·을지로3가·종로5가)도 지원 (2026-10-12 L-03251: 뒤 '2층
+    #    토리기조쿠 (예정)'이 tail 로 안 잡혀 상호·(예정) 유실).
     m = re.search(
-        r'[가-힣]+동(?:\s*\d+가)?\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]+(.+)',
+        r'[가-힣]+(?:동(?:\s*\d+가)?|\d+가)\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
@@ -1497,10 +1499,11 @@ def _enrich_verified_address(
         #   뒤 호수 유실 (2026-08-25 L-03772). finditer 로 순서대로 수집.
         # 아파트 동 번호('102동')도 함께 캡처 (2026-10-12 L-04213: 카카오 검증 주소엔 동이
         #   없어 '102동 501호'의 '102동' 유실). 앞이 한글·숫자면(성수2동 법정동) 미대상,
-        #   뒤 한글(3동로 도로명)도 미대상.
+        #   뒤 한글(3동로 도로명)도 미대상. 앞은 공백·처음만 허용 — '진관동 67,911동102호'처럼
+        #   쉼표로 지번에 붙은 숫자 동은 미대상(L-04084 결헤어 회귀, 2026-10-12).
         _floor_re = re.compile(
             r'((?:(?:지하|지상)\s*)?[A-Za-z]?\d+(?:~\d+)?\s*(?:층|호|호실|관)'
-            r'|(?<![가-힣\d])[A-Za-z]?\d{1,4}동)(?![가-힣])')
+            r'|(?<!\S)[A-Za-z]?\d{1,4}동)(?![가-힣])')
         _fcands = [m.group(1).strip() for m in _floor_re.finditer(original_text)]
         _fcands = [c for c in _fcands if c and c not in verified_addr]
         if _fcands:
@@ -1580,8 +1583,10 @@ def _enrich_verified_address(
     # 2026-07-24 L-03374 fix: lookahead 에 `[가-힣]+길` 추가 — `번안길`, `안길` 등
     #   한글 접두어가 있는 도로명 suffix 도 분리 대상에서 제외. 이전엔 `번안길`
     #   같은 케이스가 `성현로 135번안길` 로 잘려 `_road_key` 파싱 오차 발생.
+    #   2026-10-12: `가(?![가-힣])` 추가 — 법정동 '을지로3가·한강로2가'를 '을지로 3가'로
+    #   쪼개던 것 방지('3'이 도로 번지처럼 보임). '갈현로3가길'(가나다길)은 기존 [가번]?길.
     verified_addr = re.sub(
-        r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길|[가-힣]+길)',
+        r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길|[가-힣]+길|가(?![가-힣]))',
         r'\1 \2', verified_addr,
     )
 
@@ -1607,7 +1612,7 @@ def _enrich_verified_address(
     #   한글 접두어가 있는 도로명 suffix 도 분리 대상에서 제외. 이전엔 `번안길`
     #   같은 케이스가 `성현로 135번안길` 로 잘려 `_road_key` 파싱 오차 발생.
     verified_addr = re.sub(
-        r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길|[가-힣]+길)',
+        r'([가-힣]+(?:로|길))(\d+)(?![0-9]|[가번]?길|[가-힣]+길|가(?![가-힣]))',
         r'\1 \2', verified_addr,
     )
 
@@ -2945,8 +2950,12 @@ def resolve_address(
                     _jtail = re.sub(
                         r'^.*?[가-힣]{2,}\d*[가-힣]*(?:로|길)\s*\d+(?:-\d+)?\s*', '', _jbase
                     ).strip()
+                    # 단, 결과에 juso base(도로+번지+건물명)가 이미 제자리에 있으면 mangle 아님
+                    #   → 재구성 skip (2026-10-12: '동한빌딩 3층 뷰티샵 (예정)'·'명륜4가 92 2층
+                    #   토리기조쿠 (예정)'을 재구성이 상호·(예정)째 떨구던 회귀, L-03251).
                     if (len(_jtail) >= 2
-                            and _jtail.replace(' ', '') in re.sub(r'\s', '', text)):
+                            and _jtail.replace(' ', '') in re.sub(r'\s', '', text)
+                            and re.sub(r'\s', '', _jbase) not in re.sub(r'\s', '', addr)):
                         _cand = _enrich_verified_address(_jbase, text, regex_addr)
                         _cand = _enrich_with_poi(_cand, text)
                         _cand = _mark_planned(_post_normalize_display(_cand))
