@@ -1364,10 +1364,12 @@ def _strip_redundant_legal_dong(addr: str) -> str:
     _present = [d for d in _variants if d in addr]
     if not _present:
         return addr
+    # 뒤에 숫자가 붙으면 도로명 일부라 미대상 (2026-10-12 ETC-ae8c97: 법정동 '봉담읍 상리'가
+    #   도로명 '상리2길' 앞부분과 겹쳐 '효행구 2길 55'로 도로명이 잘림).
     stripped = addr
     for d in _present:
         stripped = re.sub(
-            rf'(?<![가-힣]){re.escape(d)}(?![가-힣])\s*', '', stripped,
+            rf'(?<![가-힣\d]){re.escape(d)}(?![가-힣\d])\s*', '', stripped,
         )
     stripped = re.sub(r'\s+', ' ', stripped).strip()
     return stripped or addr
