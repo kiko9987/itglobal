@@ -81,14 +81,8 @@
     </div>
     <div class="cp-filelist" id="cpList-photo"></div>
 
-    <div class="cp-step">3. 작업지시 <span class="cp-count">(카톡 단체방 지시 글을 복사해 붙여넣기 · 도면 사진/PDF는 아래에)</span></div>
+    <div class="cp-step">3. 작업지시 <span class="cp-count">(카톡 단체방 지시 글을 복사해 붙여넣기)</span></div>
     <textarea class="form-control mb-2" id="cpOrderText" rows="6" placeholder="예) 삼성 5마력 냉난방기 4대 설치 공사 / 15배관 50M이내 / 1. 실외기실은 같은층 발코니 입니다."></textarea>
-    <div class="cp-drop" data-kind="order">
-      <i class="fas fa-file-alt fa-lg mb-1 d-block"></i>
-      도면·지시서 파일 — 눌러서 고르거나 끌어다 놓으세요
-      <input type="file" accept="image/*,application/pdf" multiple hidden>
-    </div>
-    <div class="cp-filelist" id="cpList-order"></div>
 
     <div class="cp-step">4. 메모 <span class="cp-count">(선택 · 현장 특이사항)</span></div>
     <textarea class="form-control" id="cpMemo" rows="2" placeholder="예) 천장 높아서 리프트 사용, 영업 중 공사"></textarea>
@@ -232,7 +226,7 @@
         state.jobId = r.job.id;
       }
       const todo = [];
-      for (const kind of ['order', 'photo']) for (const it of state.files[kind]) if (it.status !== 'done') todo.push([kind, it]);
+      for (const kind of ['photo']) for (const it of state.files[kind]) if (it.status !== 'done') todo.push([kind, it]);
       let n = 0; const driveErrs = new Set();
       for (const [kind, it] of todo) {
         n += 1; prog.textContent = '올리는 중 ' + n + ' / ' + todo.length + ' (' + it.file.name + ')';
@@ -272,7 +266,7 @@
   }
   function resetForm() {
     state.project = null; state.jobId = null; state.files = { photo: [], order: [] };
-    renderFiles('photo'); renderFiles('order'); $('#cpMemo').value = ''; $('#cpOrderText').value = ''; $('#cpSearch').value = '';
+    renderFiles('photo'); $('#cpMemo').value = ''; $('#cpOrderText').value = ''; $('#cpSearch').value = '';
     $('#cpPicker').style.display = ''; $('#cpSelected').style.display = 'none';
   }
   $('#cpSubmit').addEventListener('click', submit);
@@ -289,7 +283,7 @@
           el('td', {}, el('span', { class: 'cp-badge st-' + j.status, text: j.status_label })),
           el('td', {}, el('b', { text: j.code })),
           el('td', { class: 'cp-hide-sm', text: shortSite(j.site) }),
-          el('td', { text: j.photo_count + '장' + (j.order_count ? ' · 지시서 ' + j.order_count : '') }),
+          el('td', { text: j.photo_count + '장' + (j.has_order_text ? ' · 지시 글' : '') }),
           el('td', { class: 'cp-hide-sm', text: j.created_at || '' })));
       }
     } catch (e) { tb.textContent = ''; tb.append(el('tr', {}, el('td', { colspan: 5, class: 'cp-warn', text: e.message }))); }

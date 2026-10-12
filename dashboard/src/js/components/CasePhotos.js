@@ -132,7 +132,7 @@ export default class CasePhotos {
     const actions = [
       btn('사진', 'fas fa-images', `window.casePhotos.pick(${q},'photo')`, '완료 사진 올리기 (여러 장)', 'btn-outline-primary', busy),
       btn('지시서', 'fas fa-file-alt', `window.casePhotos.openOrder(${q})`,
-        '카톡 작업지시 글 붙여넣기 · 도면 올리기', job && (job.has_order_text || job.order_text) ? 'btn-outline-success' : 'btn-outline-secondary', busy),
+        '카톡 작업지시 글 붙여넣기', job && (job.has_order_text || job.order_text) ? 'btn-outline-success' : 'btn-outline-secondary', busy),
     ];
     if (job && job.status === 'uploading') {
       actions.push(btn('글 요청', 'fas fa-pen-nib', `window.casePhotos.requestDraft(${q})`,
@@ -151,10 +151,9 @@ export default class CasePhotos {
     card.addEventListener('dragleave', () => { card.style.outline = ''; });
     card.addEventListener('drop', e => {
       e.preventDefault(); card.style.outline = '';
-      const all = Array.from(e.dataTransfer.files || []);
-      const pdfs = all.filter(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-      const imgs = all.filter(f => !pdfs.includes(f));
-      this.upload(code, [...pdfs.map(f => ['order', f]), ...imgs.map(f => ['photo', f])]);
+      // 끌어다 놓기는 사진만 (작업지시는 [지시서] 창에 글로)
+      const imgs = Array.from(e.dataTransfer.files || []).filter(f => !/\.pdf$/i.test(f.name) && f.type !== 'application/pdf');
+      this.upload(code, imgs.map(f => ['photo', f]));
     });
   }
 
@@ -175,7 +174,7 @@ export default class CasePhotos {
     return data.job.id;
   }
 
-  /** 작업지시 창 — 카톡 단체방 작업지시 글 붙여넣기 + 도면·지시서 파일. */
+  /** 작업지시 창 — 카톡 단체방 작업지시 글 붙여넣기(텍스트만). */
   openOrder(code) {
     const job = this._jobs[code];
     const editable = !job || ['uploading', 'queued'].includes(job.status);
@@ -183,7 +182,6 @@ export default class CasePhotos {
     const ov = document.createElement('div');
     ov.id = 'cpOrderOverlay';
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;';
-    const orders = ((job && job.files) || []).filter(f => f.kind === 'order').length;
     ov.innerHTML = `
       <div style="background:#fff;border-radius:10px;width:100%;max-width:560px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -200,9 +198,6 @@ export default class CasePhotos {
 15배관 50M이내 ...
 1. 실외기실은 같은층 발코니 입니다." ${editable ? '' : 'disabled'}></textarea>
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-cp-order-file ${editable ? '' : 'disabled'}>
-            <i class="fas fa-paperclip me-1"></i>도면·지시서 파일 추가</button>
-          <span style="font-size:.85rem;color:#495057;">${orders ? `올린 파일 ${orders}개` : ''}</span>
           <span style="flex:1"></span>
           <button type="button" class="btn btn-sm btn-light" data-cp-close>닫기</button>
           <button type="button" class="btn btn-sm btn-primary" data-cp-order-save ${editable ? '' : 'disabled'}>저장</button>
@@ -215,7 +210,6 @@ export default class CasePhotos {
     const close = () => ov.remove();
     ov.querySelectorAll('[data-cp-close]').forEach(b => b.addEventListener('click', close));
     ov.addEventListener('click', e => { if (e.target === ov) close(); });
-    ov.querySelector('[data-cp-order-file]').addEventListener('click', () => { close(); this.pick(code, 'order'); });
     ov.querySelector('[data-cp-order-save]').addEventListener('click', async (e) => {
       e.currentTarget.disabled = true;
       try {
