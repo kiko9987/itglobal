@@ -21,10 +21,22 @@ os.environ['FLASK_ENV'] = 'testing'
 os.environ['REDIS_DB'] = os.environ.get('REDIS_TEST_DB', '15')
 # 테스트 중 외부 발신 차단 (에러 슬랙 알림 등)
 os.environ.setdefault('ERROR_SLACK_ALERTS_ENABLED', '0')
+# 테스트 로그는 임시 폴더로 — 운영 로그(dashboard/logs)에 가짜 발송·장애 기록이 섞여
+#   진단을 오도하던 문제 방지 (2026-09-15·10-06: 테스트 기록을 실제 race/Redis 순단으로 오판).
+import tempfile as _tempfile
+os.environ['LOG_DIR'] = os.environ.get(
+    'TEST_LOG_DIR', os.path.join(_tempfile.gettempdir(), 'itg_pytest_logs')
+)
 
 # 방어: 혹시라도 테스트 DB 가 0 이면 세션 자체를 중단 (import 실패로 전량 차단)
 assert os.environ['REDIS_DB'] != '0', (
     'REDIS_DB=0(프로덕션)에서 테스트 금지. REDIS_TEST_DB 로 별도 DB(예: 15) 지정.'
+)
+# 방어: 테스트 로그 폴더가 운영 로그 폴더면 중단
+_PROD_LOG_DIR = os.path.normcase(os.path.abspath(
+    os.path.join(os.path.dirname(__file__), 'dashboard', 'logs')))
+assert os.path.normcase(os.path.abspath(os.environ['LOG_DIR'])) != _PROD_LOG_DIR, (
+    '테스트 로그가 운영 로그 폴더(dashboard/logs)를 가리킴 — TEST_LOG_DIR 를 다른 폴더로 지정.'
 )
 
 import pytest

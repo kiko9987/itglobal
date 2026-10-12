@@ -120,13 +120,23 @@ class ContextualFormatter(logging.Formatter):
         return message
 
 
+def get_log_dir() -> Path:
+    """로그 폴더. 환경변수 LOG_DIR 이 있으면 그 폴더, 없으면 dashboard/logs.
+
+    테스트(conftest)는 LOG_DIR 을 임시 폴더로 지정한다 — 테스트의 가짜 발송·장애 기록이
+    운영 로그에 섞여 진단을 오도하던 문제(2026-09-15·10-06 헛진단) 방지.
+    """
+    env_dir = os.getenv('LOG_DIR', '').strip()
+    return Path(env_dir) if env_dir else Path(__file__).parent.parent / 'logs'
+
+
 class LoggingConfig:
     """중앙집중식 로깅 설정 관리자"""
 
     def __init__(self, app_name: str = "itglobal_dashboard"):
         self.app_name = app_name
-        self.log_dir = Path(__file__).parent.parent / 'logs'
-        self.log_dir.mkdir(exist_ok=True)
+        self.log_dir = get_log_dir()
+        self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # 로그 레벨 설정
         self.default_level = os.getenv('LOG_LEVEL', 'INFO').upper()

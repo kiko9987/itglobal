@@ -72,7 +72,9 @@ class BaseConfig:
 
     # 로깅 설정
     LOG_LEVEL = 'INFO'
-    LOG_DIR = os.path.join(
+    # 환경변수 LOG_DIR 우선 (테스트는 conftest 가 임시 폴더 지정). 규칙은
+    #   logging_config.get_log_dir() 와 동일 — 운영(.env 미설정)은 dashboard/logs.
+    LOG_DIR = os.getenv('LOG_DIR', '').strip() or os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         'logs'
     )

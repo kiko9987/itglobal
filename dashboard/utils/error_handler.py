@@ -138,7 +138,8 @@ class ErrorHandler:
     """통합 에러 핸들러"""
     
     def __init__(self):
-        self.error_log_path = os.path.join(os.path.dirname(__file__), '..', 'logs', 'errors.json')
+        from dashboard.utils.logging_config import get_log_dir
+        self.error_log_path = os.path.join(str(get_log_dir()), 'errors.json')
         self.ensure_log_directory()
         
     def ensure_log_directory(self):

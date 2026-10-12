@@ -75,7 +75,8 @@ def health_check():
 
         # 파일시스템 체크
         try:
-            log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+            from dashboard.utils.logging_config import get_log_dir
+            log_dir = str(get_log_dir())
             if os.path.exists(log_dir):
                 health_status['services']['filesystem'] = 'accessible'
             else:
