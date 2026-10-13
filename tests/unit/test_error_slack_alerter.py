@@ -95,6 +95,15 @@ def test_google_502_is_transient():
     assert g.decide(_rec(msg2, name='dashboard.utils.google_sheets')) is None
 
 
+def test_google_token_unauthorized_client_is_transient():
+    """도메인 위임 토큰 순간 거부는 단건 억제 — 2분 뒤 다음 폴링은 정상 (2026-10-13 홈페이지 sync)."""
+    g = _gate()
+    msg = ("[SYNC/홈페이지] 라벨 처리 실패: ('unauthorized_client: Client is unauthorized to retrieve "
+           "access tokens using this method, or client not authorized for any of the scopes requested.', "
+           "{'error': 'unauthorized_client'})")
+    assert g.decide(_rec(msg, name='dashboard.services.homepage_mail_sync')) is None
+
+
 # ── normal: new vs recurring + dedup ────────────────────────
 def test_new_signature_after_warmup():
     clock = _Clock()

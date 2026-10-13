@@ -92,6 +92,9 @@ _TRANSIENT_SUBSTR = (
     'Google 서버 오류',
     'API 사용량 한도', 'ServerNotFoundError', 'Connection aborted',
     'Connection reset', 'Read timed out', 'Max retries exceeded',
+    # 구글 토큰 발급(도메인 위임) 순간 거부 — 2분 뒤 다음 폴링은 정상 (2026-10-13 17:10 홈페이지 sync,
+    # 17:12 같은 메일 정상 등록 L-04240). 설정이 정말 끊긴 거면 매 폴링 반복 → 급증 경보로 잡힘.
+    'unauthorized_client',
 )
 
 _CODE_RE = re.compile(r'[GRNgrn]\d{3,4}-[A-Za-z]{1,3}')   # 프로젝트 코드 정규화
