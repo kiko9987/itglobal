@@ -518,19 +518,43 @@ def _mark_processed(service, msg_id: str, label_id: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 # 메인 sync 함수
 # ─────────────────────────────────────────────────────────────
+_connect_fail_streak = 0
+_CONNECT_FAIL_ALERT = 3   # 연속 N회(약 6분) 접속 실패부터 ERROR
+
+
+def _connect_failed(stage: str, exc: Exception) -> Dict[str, Any]:
+    """Gmail 접속 단계 실패 — 이번 회차는 메일을 하나도 안 읽고 건너뜀(누락 아님, 다음 회차가 이어 받음).
+
+    예전엔 첫 Gmail 호출(라벨 조회) 이름을 따 '라벨 처리 실패' ERROR 로 남겨, 인터넷 끊김·구글 토큰
+    순간 거부(2026-10-13 17:10, 10-14 02:11~03:05 12회)가 '메일 라벨 붙이다 실패=중복 위험'처럼 보였다.
+    한두 번은 WARNING, 연속 _CONNECT_FAIL_ALERT 회부터 ERROR(수집이 실제로 멈춤).
+    """
+    global _connect_fail_streak
+    _connect_fail_streak += 1
+    n = _connect_fail_streak
+    if n >= _CONNECT_FAIL_ALERT:
+        logger.error(f'[SYNC/홈페이지] Gmail 접속 {n}회 연속 실패 — 홈페이지 문의 수집 멈춤 ({stage}): {exc}')
+    else:
+        logger.warning(f'[SYNC/홈페이지] Gmail 접속 실패 — 이번 회차 건너뜀, 다음 회차에 다시 확인 '
+                       f'(연속 {n}회, {stage}): {exc}')
+    return {'error': str(exc)}
+
+
 def sync_homepage_email() -> Dict[str, Any]:
     """Gmail 폴링 → 메인 시트 추가 + 슬랙 알림. APScheduler가 주기적으로 호출."""
+    global _connect_fail_streak
     try:
         service = _get_gmail_service()
     except Exception as exc:
-        logger.error(f'[SYNC/홈페이지] Gmail 서비스 초기화 실패: {exc}')
-        return {'error': str(exc)}
+        return _connect_failed('서비스 초기화', exc)
 
     try:
         label_id = _get_or_create_label(service, _processed_label())
     except Exception as exc:
-        logger.error(f'[SYNC/홈페이지] 라벨 처리 실패: {exc}')
-        return {'error': str(exc)}
+        return _connect_failed('라벨 조회', exc)
+    if _connect_fail_streak:
+        logger.info(f'[SYNC/홈페이지] Gmail 접속 복구 (연속 실패 {_connect_fail_streak}회 후)')
+        _connect_fail_streak = 0
 
     # 미처리 메일 검색
     try:
