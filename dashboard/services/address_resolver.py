@@ -1126,11 +1126,26 @@ def verify_address(
                 pass  # 완전 중복 (대소문자·로마숫자 무시) — skip
             else:
                 tail_words = building_tail.split()
-                # 각 tail 단어가 base 안에 있으면 (연속으로) 제거
-                while (
-                    tail_words
-                    and _roman_to_arabic(tail_words[0].lower()) in base_lower
-                ):
+                # 각 tail 단어가 base 안에 있으면 (연속으로) 제거 — 단 base 의 도로+번지 **뒤**
+                #   (카카오 건물명 부분)만 비교 (2026-10-12 L-04230: 건물명 '이천 센트레빌'의
+                #   '이천'이 지역 '이천', '위례 한화 오벨리스크'의 '위례'가 도로 '위례광장로'와
+                #   겹쳐 건물명 앞 단어가 잘리던 버그).
+                #   도로+번지 토큰('103번길'·'37')과 같으면 기존대로 제거(L-04062 원문이
+                #   '행신동 103번길 37 …'처럼 도로를 다시 적은 경우).
+                _bm = None
+                for _bm in re.finditer(r'(?:로|길)\s*\d+(?:-\d+)?(?![\d가-힣-])', base_lower):
+                    break
+                _base_bldg = base_lower[_bm.end():] if _bm else base_lower
+                _road_toks = [
+                    _t for _t in (base_lower[:_bm.end()] if _bm else '').split()
+                    if re.search(r'(?:로|길)$', _t) or re.fullmatch(r'\d+(?:-\d+)?', _t)]
+
+                def _dup_word(_w):
+                    _w = _roman_to_arabic(_w.lower())
+                    return _w in _base_bldg or any(
+                        _t == _w or (_t.endswith(_w) and _w[:1].isdigit())
+                        for _t in _road_toks)
+                while tail_words and _dup_word(tail_words[0]):
                     tail_words.pop(0)
                 # 2026-07-27 L-03406: 카카오 building_name 과 원본 tail 이 유사 오탈자인
                 #   케이스 (`유스페이스1` vs `유스페리스1`) — 정확 substring dedup 을
@@ -1995,7 +2010,11 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 _acc = _nxt
                 _span_end += _m_tok.end()
             _rest = _pn_ns[len(_acc):]
-            if not _rest or re.fullmatch(r'(?:아파트|오피스텔|빌라|맨션)', _rest):
+            if not _rest or re.fullmatch(r'(?:주상복합)?(?:아파트|오피스텔|빌라|맨션)', _rest):
+                continue
+            # 남는 접미가 부속시설·관리조직이면 지점명 아님 (2026-10-12 L-03152:
+            #   '동탄역린스트라우스입주자대표회의' 부착)
+            if any(f in _rest for f in _POI_FACILITY_SUBSTR + ('입주자대표회의',)):
                 continue
             return verified_addr[:_idx] + _pname + verified_addr[_span_end:]
 
@@ -2098,6 +2117,13 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                             # 서수 '제' 표기차만 다르면 공식명으로 승격 (4공장→제4공장)
                             if _strip_je_ordinal(_vnext) == _ps_je:
                                 return verified_addr.replace(_vnext, place_second, 1)
+                            # 원문에 이미 지점명(…점)이 있으면 다른 표기 지점명 미부착
+                            #   (2026-10-13 ETC-841a3c: '산들해 양재동점' + POI '산들해 양재점'
+                            #   → '산들해 양재점 양재동점')
+                            if (len(_vnext) >= 2 and _vnext.endswith('점')
+                                    and place_second.endswith('점')):
+                                already_has_branch = True
+                                break
                     if already_has_branch:
                         return verified_addr  # 이미 지점명 있음
                     return verified_addr.replace(cand, place_name, 1)
@@ -2127,6 +2153,16 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                     #   은 유지, glued 'JB미소빌딩' 은 원문 존중(skip). 한강듀클래스(공백
                     #   뒤 독립)→김포한강듀클래스 는 경계 매치라 정상 유지.
                     if not re.search(r'(?:^|\s)' + re.escape(cand), verified_addr):
+                        continue
+                    # 접두가 cand 앞에 독립 단어로 이미 있으면 치환 시 중복 (2026-10-12
+                    #   L-03754: '위례 한화 오벨리스크' → '위례 한화 위례오벨리스크') → 원문 유지.
+                    _pre = place_name[:-len(cand)].strip() if place_name.endswith(cand) else ''
+                    #   건물명 부분(도로+번지 뒤)에서만 — 지역 '김포'(김포 … 한강듀클래스)는 제외.
+                    _vb = re.sub(r'^.*?(?:로|길)\s*\d+(?:-\d+)?(?![\d가-힣-])', '',
+                                 verified_addr, count=1)
+                    if _pre and re.search(
+                            r'(?:^|\s)' + re.escape(_pre) + r'\s(?:\S+\s)*' + re.escape(cand),
+                            _vb):
                         continue
                     return verified_addr.replace(cand, place_name, 1)
                 continue  # 완전 동일 → 무의미
