@@ -10,6 +10,13 @@
 #   - 재시작·복구·복구실패(에스컬레이션)를 관리자 슬랙 DM 으로 통보
 #   - 쿨다운으로 재시작 폭주(crash-loop) 방지
 #
+#
+# Redis 감시 (2026-10-13 추가): WSL 자동 업데이트로 Docker VM 이 죽어 Redis 가 3.5시간 꺼졌는데
+#   /health 는 200(임시 저장소 모드)이라 워치독이 못 잡았다. 그래서 Redis 를 직접 PING 한다.
+#   - Redis 3분 연속 무응답 → 사용자 세션 작업 'ITGFlask-DockerRecover'(docker_recover.ps1) 시작
+#     (Docker Desktop 은 사용자 세션 앱이라 SYSTEM 에서 직접 못 다룸) + 슬랙 통보
+#   - Redis 는 정상인데 앱이 임시 저장소(fallback_mode)에 갇혀 있으면 → 앱 재시작
+#
 # 설치: 관리자 PowerShell 에서  .\install_watchdog.ps1  1회 실행 (SYSTEM 계정 1분 반복 작업 등록)
 # 점검: .\watchdog.ps1 -SelfTest  → 재시작 없이 슬랙 알림 경로만 점검
 
@@ -25,6 +32,14 @@ $RestartCooldownSec = 600      # 재시작 간 최소 간격 10분 (crash-loop �
 $StartupGraceSec    = 120      # 프로세스 기동 후 2분은 실패 무시 (부팅/재시작 중)
 $EscalateThrottleSec= 1800     # '복구 실패' 알림 최소 간격 30분
 $ServiceName        = 'ITGFlask'
+$ApiHealthUrl       = 'http://localhost:5000/api/health'   # services.cache = redis / fallback_mode
+$RedisHost          = '127.0.0.1'
+$RedisPort          = 6379
+$RedisFailThreshold = 3        # Redis 연속 무응답 N회(약 3분) → 도커 복구 작업 시작
+$RedisRecoverCooldownSec = 600 # 도커 복구 시도 간 최소 간격 10분
+$RedisSlackThrottleSec   = 1800  # 'Redis 꺼짐' 반복 알림 최소 간격 30분
+$FallbackThreshold  = 2        # Redis 정상인데 앱이 임시 저장소 모드 N회 연속 → 앱 재시작
+$DockerTaskName     = 'ITGFlask-DockerRecover'
 $LogPath            = Join-Path $PSScriptRoot 'dashboard\logs\watchdog.log'
 $StatePath          = Join-Path $PSScriptRoot 'dashboard\logs\watchdog_state.json'
 
@@ -71,6 +86,37 @@ function Save-State($s) {
     try { ($s | ConvertTo-Json -Compress) | Set-Content -Path $StatePath -Encoding UTF8 } catch {}
 }
 
+function Set-StateProp($s, $name, $value) {
+    # 옛 상태 파일엔 새 항목이 없음 → 없으면 추가
+    if ($s.PSObject.Properties[$name]) { $s.$name = $value }
+    else { $s | Add-Member -NotePropertyName $name -NotePropertyValue $value }
+}
+
+function Test-Redis {
+    # Redis 에 직접 PING. +PONG(또는 비밀번호 요구 -NOAUTH)이면 살아 있음.
+    try {
+        $c = New-Object System.Net.Sockets.TcpClient
+        $iar = $c.BeginConnect($RedisHost, $RedisPort, $null, $null)
+        if (-not $iar.AsyncWaitHandle.WaitOne(3000)) { $c.Close(); return $false }
+        $c.EndConnect($iar)
+        $st = $c.GetStream(); $st.ReadTimeout = 3000; $st.WriteTimeout = 3000
+        $b = [Text.Encoding]::ASCII.GetBytes("PING`r`n"); $st.Write($b, 0, $b.Length)
+        $buf = New-Object byte[] 64; $n = $st.Read($buf, 0, 64)
+        $c.Close()
+        $resp = [Text.Encoding]::ASCII.GetString($buf, 0, $n)
+        return ($resp -like '+PONG*' -or $resp -like '-NOAUTH*')
+    } catch { return $false }
+}
+
+function Get-AppCacheMode {
+    # /api/health 는 정상이 아니면 503 이라 curl.exe 로 본문만 읽는다
+    try {
+        $raw = & curl.exe -s --max-time 10 $ApiHealthUrl
+        if (-not $raw) { return $null }
+        return (($raw | ConvertFrom-Json).services.cache)
+    } catch { return $null }
+}
+
 function Test-Health {
     try {
         [System.Net.WebRequest]::DefaultWebProxy = $null   # 프록시 자동탐지 지연 제거
@@ -113,6 +159,59 @@ if ($SelfTest) {
 # ── 메인 ──────────────────────────────────────────────────────
 $now   = Now-Unix
 $state = Load-State
+
+# ── Redis 감시 (앱 /health 와 별개) ───────────────────────────
+if (Test-Redis) {
+    if ($state.redisIncidentOpen) {
+        Write-WLog 'REDIS RECOVERED: PING 응답 재개'
+        Send-Slack ':white_check_mark: *[자동복구] Redis 다시 응답* — 서버가 임시 저장소 모드면 곧 자동 재시작합니다.'
+        Set-StateProp $state 'redisIncidentOpen' $false
+    }
+    Set-StateProp $state 'redisFailures' 0
+    # Redis 는 정상인데 앱이 임시 저장소 모드에 갇힘(Redis 가 늦게 뜬 경우) → 앱 재시작해야 풀림
+    if ((Get-AppCacheMode) -eq 'fallback_mode') {
+        $fb = [int]$state.fallbackStreak + 1
+        Set-StateProp $state 'fallbackStreak' $fb
+        $up = Get-AppUptimeSec
+        Write-WLog ('FALLBACK: Redis 정상인데 앱이 임시 저장소 모드 (연속 {0}회)' -f $fb)
+        if ($fb -ge $FallbackThreshold -and $up -ne $null -and $up -ge $StartupGraceSec -and
+                ($now - [int]$state.lastRestartUnix) -ge $RestartCooldownSec) {
+            Write-WLog 'RESTART 실행 (임시 저장소 모드 해제)'
+            $state.lastRestartUnix = $now
+            Set-StateProp $state 'fallbackStreak' 0
+            Save-State $state
+            Invoke-Restart
+            Send-Slack ':arrows_counterclockwise: *[자동복구] ITGFlask 재시작* — Redis 는 정상인데 서버가 임시 저장소 모드에 갇혀 있어 재시작함.'
+        }
+    }
+    else { Set-StateProp $state 'fallbackStreak' 0 }
+}
+else {
+    $rf = [int]$state.redisFailures + 1
+    Set-StateProp $state 'redisFailures' $rf
+    Write-WLog ('REDIS FAIL: PING 무응답 (연속 {0}회)' -f $rf)
+    if ($rf -ge $RedisFailThreshold -and ($now - [int]$state.lastRedisRecoverUnix) -ge $RedisRecoverCooldownSec) {
+        Set-StateProp $state 'lastRedisRecoverUnix' $now
+        Set-StateProp $state 'redisIncidentOpen' $true
+        Save-State $state
+        $started = $false
+        try { Start-ScheduledTask -TaskName $DockerTaskName -ErrorAction Stop; $started = $true } catch {}
+        Write-WLog ('REDIS RECOVER: 도커 복구 작업 {0}' -f $(if ($started) { '시작' } else { '없음/실패' }))
+        if (($now - [int]$state.lastRedisSlackUnix) -ge $RedisSlackThrottleSec) {
+            Set-StateProp $state 'lastRedisSlackUnix' $now
+            if ($started) {
+                Send-Slack ((':rotating_light: *[Redis 꺼짐]* {0}분째 응답 없음 → 도커 자동 재시작 시도 중.' -f $rf) + "`n" +
+                    '_복구되면 다시 알립니다. 그동안 방문 사진·상담 저장이 늦어질 수 있습니다._')
+            }
+            else {
+                Send-Slack ((':rotating_light: *[Redis 꺼짐]* {0}분째 응답 없음.' -f $rf) + "`n" +
+                    '*도커 자동 재시작 작업이 없어 수동 조치 필요* — 이 PC 에서 Docker Desktop 재시작.')
+            }
+        }
+    }
+}
+Save-State $state
+
 $ok    = Test-Health
 
 if ($ok) {

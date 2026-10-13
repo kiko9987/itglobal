@@ -40,7 +40,28 @@ Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings -Force `
     -Description 'ITGFlask /health 워치독: 3회 연속 무응답(wedge) 시 자동 재시작 + 슬랙 통보' | Out-Null
 
-Write-Host "✅ '$TaskName' 등록 완료 — 1분마다 SYSTEM 계정으로 /health 감시." -ForegroundColor Green
+Write-Host "✅ '$TaskName' 등록 완료 — 1분마다 SYSTEM 계정으로 /health·Redis 감시." -ForegroundColor Green
+
+# Redis 복구용 사용자 세션 작업 (2026-10-13) — Docker Desktop 은 사용자 세션 앱이라 SYSTEM 이 직접 못 다룸.
+#   트리거 없음: 워치독이 Redis 3분 무응답 시 Start-ScheduledTask 로 시작.
+#   실행 계정 = 이 관리자 PowerShell 을 연 사용자(도커를 쓰는 로그인 계정), 로그인 중일 때만 실행.
+$DockerTask   = 'ITGFlask-DockerRecover'
+$dockerScript = Join-Path $PSScriptRoot 'docker_recover.ps1'
+if (Test-Path $dockerScript) {
+    $dAction = New-ScheduledTaskAction -Execute 'powershell.exe' `
+        -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}"' -f $dockerScript)
+    $dPrincipal = New-ScheduledTaskPrincipal -UserId ("{0}\{1}" -f $env:USERDOMAIN, $env:USERNAME) `
+        -LogonType Interactive -RunLevel Limited
+    $dSettings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName $DockerTask -Action $dAction -Principal $dPrincipal `
+        -Settings $dSettings -Force `
+        -Description 'Redis 무응답 시 워치독이 시작: docker start redis → docker desktop restart' | Out-Null
+    Write-Host "✅ '$DockerTask' 등록 완료 — Redis 꺼지면 워치독이 Docker Desktop 자동 재시작." -ForegroundColor Green
+}
+else {
+    Write-Host "⚠️ docker_recover.ps1 없음 — Redis 자동 복구 작업은 건너뜀" -ForegroundColor Yellow
+}
 Write-Host "   로그: dashboard\logs\watchdog.log" -ForegroundColor Cyan
 Write-Host "   즉시 1회 실행 테스트: Start-ScheduledTask -TaskName '$TaskName'" -ForegroundColor Cyan
 Write-Host "   제거: Unregister-ScheduledTask -TaskName '$TaskName' -Confirm:`$false" -ForegroundColor DarkGray

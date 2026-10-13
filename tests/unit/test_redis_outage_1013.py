@@ -139,3 +139,27 @@ def test_auto_complete_skips_when_lookup_fails(monkeypatch):
     sb._LOCAL_FLAGS.clear()
     sb._auto_complete_visit_from_photo(None, 'C1', '1.1', 'L-04230', 'U1')
     assert hooks == []  # 방문일을 모르면 도면 첨부를 방문 완료로 오인하지 않음
+
+
+def test_enqueue_writes_directly_when_redis_down(monkeypatch):
+    """큐에 못 넣으면 예전엔 로그만 남기고 끝(시트 미반영) → 그 자리에서 바로 처리."""
+    import dashboard.services.sheet_write_queue as q
+
+    def _down():
+        raise ConnectionError('Error 10061 connecting to localhost:6379')
+
+    done = []
+    monkeypatch.setattr(q, '_rc', _down)
+    monkeypatch.setitem(q._registry, 'test_outage_op', lambda payload: done.append(payload))
+    q.enqueue('test_outage_op', {'row': 4164})
+    assert done == [{'row': 4164}]
+
+
+def test_enqueue_unknown_op_when_redis_down_does_not_raise(monkeypatch):
+    import dashboard.services.sheet_write_queue as q
+
+    def _down():
+        raise ConnectionError('down')
+
+    monkeypatch.setattr(q, '_rc', _down)
+    assert q.enqueue('no_such_op_1013', {'x': 1})

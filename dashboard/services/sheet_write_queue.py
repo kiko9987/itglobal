@@ -145,7 +145,19 @@ def enqueue(op_type: str, payload: dict, meta: Optional[dict] = None) -> str:
         logger.info(f'[QUEUE] enqueue: {op_type} (op_id={op["op_id"][:8]}…)')
         _maybe_alert_depth()  # depth 임계값 알림
     except Exception as exc:
-        logger.error(f'[QUEUE] enqueue 실패 ({op_type}): {exc}', exc_info=True)
+        # Redis 장애로 큐에 못 넣으면 예전엔 로그만 남기고 끝 → 화면(캐시)엔 반영됐는데 시트엔
+        # 안 써지는 조용한 유실. 느려도 그 자리에서 바로 시트에 쓴다 (2026-10-13 Redis 3.5h 장애 점검).
+        handler = _registry.get(op_type)
+        if handler is None:
+            logger.error(f'[QUEUE] enqueue 실패 ({op_type}): {exc}', exc_info=True)
+            return op['op_id']
+        try:
+            handler(payload)
+            logger.warning(f'[QUEUE] Redis 장애 — {op_type} 큐 대신 직접 처리 완료 '
+                           f'(op_id={op["op_id"][:8]}…): {exc}')
+        except Exception as dexc:
+            logger.error(f'[QUEUE] enqueue 실패 + 직접 처리 실패 ({op_type}): {exc} / {dexc}',
+                         exc_info=True)
     return op['op_id']
 
 
