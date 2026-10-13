@@ -10202,10 +10202,13 @@ def _process_visit_complete(client, body) -> None:
             _name = _folder.get('folder_name', '')
             _reply_text = _visit_folder_created_text(_name, _folder.get('lead_folder_id', ''))
             try:
-                client.chat_postMessage(
+                _resp = client.chat_postMessage(
                     channel=channel, thread_ts=message_ts,
                     text=_reply_text, unfurl_links=False,
                 )
+                # 이 안내를 스레드의 '사진 저장 답글' 자리로 등록(0장) → 나중에 사진을 올리면 새 답글 대신
+                # 이 답글이 '사진 N장을 드라이브에 저장했습니다'로 바뀜. 봇 답글은 스레드당 하나 (2026-10-14).
+                _register_photo_reply_anchor(channel, message_ts, (_resp or {}).get('ts') if _resp else '')
             except Exception as exc:
                 logger.warning(f"[SLACK/방문완료] 폴더 안내 reply 실패 ({lead_no}): {exc}")
     except Exception as exc:
@@ -10562,6 +10565,25 @@ def _visit_folder_created_text(folder_name: str, folder_id: str) -> str:
         f">사무실에 돌아와 이 스레드에 사진을 올리면 위 폴더의 `현장사진`에 저장됩니다.\n"
         f">폴더 이름은 드라이브에서 바꿔도 됩니다. 폴더 ID로 연결돼 있습니다."
     )
+
+
+def _register_photo_reply_anchor(channel: str, thread_ts: str, reply_ts: str) -> bool:
+    """폴더 안내 답글을 스레드의 '사진 저장 답글'로 등록(0장). 이미 사진 답글이 있으면 안 건드림.
+    사진 처리(_process_visit_thread_files)는 이 키의 ts 답글을 고쳐 쓰므로 봇 답글이 스레드당 하나가 된다."""
+    if not (channel and thread_ts and reply_ts):
+        return False
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        key = f'visit_photo_reply:{channel}:{thread_ts}'
+        if rc.exists(key):
+            return False
+        rc.hset(key, mapping={'ts': reply_ts, 'count': '0'})
+        rc.expire(key, 60 * 60 * 24 * 30)
+        return True
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문완료] 폴더 안내 답글 등록 실패 ({thread_ts}): {exc}")
+        return False
 
 
 def _maybe_fix_folder_initial(folder_id: str, current_name: str, lead: dict) -> str:

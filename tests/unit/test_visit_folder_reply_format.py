@@ -30,3 +30,39 @@ def test_no_path_line_when_base_unset(monkeypatch):
     monkeypatch.delenv('GOOGLE_DRIVE_WINDOWS_BASE_PATH', raising=False)
     lines = sb._visit_folder_location_lines(NAME, FID)
     assert '탐색기 경로' not in lines and f'```{FID}```' in lines
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.h, self.ttl = {}, {}
+
+    def exists(self, k):
+        return int(k in self.h)
+
+    def hset(self, k, mapping):
+        self.h.setdefault(k, {}).update(mapping)
+
+    def expire(self, k, s):
+        self.ttl[k] = s
+
+
+class _RC:
+    def __init__(self, r):
+        self.redis = r
+
+
+def test_folder_notice_becomes_photo_reply_anchor(monkeypatch):
+    """폴더 안내 답글을 사진 저장 답글 자리(0장)로 등록 → 사진 올리면 이 답글이 'N장 저장'으로 바뀜."""
+    fake = _FakeRedis()
+    monkeypatch.setattr('dashboard.utils.redis_client.get_redis_client', lambda: _RC(fake))
+    assert sb._register_photo_reply_anchor('C1', '111.1', '222.2') is True
+    assert fake.h['visit_photo_reply:C1:111.1'] == {'ts': '222.2', 'count': '0'}
+    assert fake.ttl['visit_photo_reply:C1:111.1'] == 60 * 60 * 24 * 30
+
+
+def test_anchor_does_not_override_existing_photo_reply(monkeypatch):
+    fake = _FakeRedis()
+    fake.h['visit_photo_reply:C1:111.1'] = {'ts': '999.9', 'count': '7'}
+    monkeypatch.setattr('dashboard.utils.redis_client.get_redis_client', lambda: _RC(fake))
+    assert sb._register_photo_reply_anchor('C1', '111.1', '222.2') is False
+    assert fake.h['visit_photo_reply:C1:111.1'] == {'ts': '999.9', 'count': '7'}
