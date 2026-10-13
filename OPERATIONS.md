@@ -242,11 +242,10 @@ Google Sheets API 지연을 사용자 UX에서 완전 분리하기 위한 비동
 ### 운영 알림 (구현됨)
 Redis 다운 / sync 실패 / SSL 인증서 만료 30일 이내 시 자동 알림:
 - 슬랙 DM (`SLACK_ADMIN_CHANNEL=U04UL2ZLJAX`)
-- 이메일 (`ADMIN_NOTIFY_EMAIL=kiko@itg-aircon.com`) — Gmail API send
+- (이메일 발송은 2026-10-13 제거 — 슬랙 DM 으로 충분, gmail.send 위임 권한 없음)
 - 같은 알림은 30분 cooldown (스팸 방지)
 - SSL 인증서: 매일 09시 `SLACK_PUBLIC_HOST` 도메인 체크
 
-**Gmail send scope 요구**: Google Workspace Admin 콘솔 도메인 위임에 `gmail.send` scope 추가 필요.
 
 ## 6. 자주 발생하는 문제
 
@@ -387,7 +386,6 @@ REDIS_DB=0
 # 운영 알림 (Redis 다운, sync 실패, SSL 인증서 만료)
 SLACK_ADMIN_CHANNEL=U04UL2ZLJAX     # 관리자 슬랙 User ID
 SLACK_PUBLIC_HOST=pm.itg-aircon.com  # SSL 인증서 체크 도메인
-ADMIN_NOTIFY_EMAIL=kiko@itg-aircon.com  # 이메일 알림 수신처
 ```
 
 ### 시트 컬럼 참고

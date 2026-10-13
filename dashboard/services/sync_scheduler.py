@@ -23,9 +23,10 @@ _ADMIN_ALERT_COOLDOWN_SEC = 30 * 60  # 같은 알림 30분 1회만
 
 
 def _notify_admin(key: str, text: str) -> None:
-    """슬랙 DM + 이메일로 운영 알림 발송 (Redis 다운, sync 실패 등).
+    """슬랙 DM으로 운영 알림 발송 (Redis 다운, sync 실패 등).
     같은 key는 30분 cooldown — 스팸 방지.
-    외부에 있을 때 대비 — 슬랙 + 이메일 모두 발송.
+    (2026-10-13 이메일 발송 제거: 도메인 위임에 gmail.send 권한이 없어 한 번도 안 갔음.
+     사장님 결정 — 슬랙 DM 으로 충분.)
     """
     now = time.time()
     last = _admin_alert_last_sent.get(key, 0)
@@ -54,45 +55,6 @@ def _notify_admin(key: str, text: str) -> None:
             logger.warning(f'[NOTIFY] 슬랙 DM 발송 실패: {exc}')
     else:
         logger.warning(f'[NOTIFY] SLACK_ADMIN_CHANNEL 미설정 — slack skip')
-
-    # 2) 이메일 (외부에서도 받을 수 있게)
-    admin_email = os.getenv('ADMIN_NOTIFY_EMAIL', '').strip()
-    if admin_email:
-        try:
-            _send_admin_email(admin_email, f'[ITG 운영 알림] {key}', text)
-        except Exception as exc:
-            logger.warning(f'[NOTIFY] 이메일 발송 실패: {exc}')
-
-
-def _send_admin_email(to_email: str, subject: str, body: str) -> None:
-    """Gmail API로 운영 알림 메일 발송 (서비스 계정 도메인 위임).
-    HOMEPAGE_MAIL_USER로 위임된 계정에서 to_email로 발송.
-    필요 scope: https://www.googleapis.com/auth/gmail.send
-    """
-    import base64
-    from email.mime.text import MIMEText
-    from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-
-    creds_file = (
-        os.getenv('GOOGLE_CREDENTIALS_FILE')
-        or os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
-        or 'credentials.json'
-    )
-    delegated_user = os.getenv('HOMEPAGE_MAIL_USER', '').strip() or to_email
-    credentials = service_account.Credentials.from_service_account_file(
-        creds_file,
-        scopes=['https://www.googleapis.com/auth/gmail.send'],
-    )
-    delegated_creds = credentials.with_subject(delegated_user)
-    svc = build('gmail', 'v1', credentials=delegated_creds, cache_discovery=False)
-
-    msg = MIMEText(body, 'plain', 'utf-8')
-    msg['to'] = to_email
-    msg['from'] = delegated_user
-    msg['subject'] = subject
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode('utf-8')
-    svc.users().messages().send(userId='me', body={'raw': raw}).execute()
 
 
 def _redis_healthy() -> bool:
