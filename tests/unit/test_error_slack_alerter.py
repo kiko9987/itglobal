@@ -104,6 +104,20 @@ def test_google_token_unauthorized_client_is_transient():
     assert g.decide(_rec(msg, name='dashboard.services.homepage_mail_sync')) is None
 
 
+def test_internet_down_errors_are_transient():
+    """인터넷 끊김(WinError 10060)은 유형마다 신규 에러로 가지 않고 급증 1건으로 (2026-10-14 새벽)."""
+    g = _gate()
+    for name, msg in (
+        ('dashboard.services.homepage_mail_sync',
+         '[SYNC/홈페이지] 라벨 처리 실패: [WinError 10060] 연결된 구성원으로부터 응답이 없어 연결하지 못했거나'),
+        ('dashboard.services.payment_sync',
+         '[PAYMENT] 시트 값 fetch 실패: [WinError 10060] 연결된 구성원으로부터 응답이 없어'),
+        ('slack_sdk.web.base_client',
+         'Failed to send a request to Slack API server: <urlopen error [WinError 10060] ...>'),
+    ):
+        assert g.decide(_rec(msg, name=name)) is None
+
+
 # ── normal: new vs recurring + dedup ────────────────────────
 def test_new_signature_after_warmup():
     clock = _Clock()

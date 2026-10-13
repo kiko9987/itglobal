@@ -95,6 +95,9 @@ _TRANSIENT_SUBSTR = (
     # 구글 토큰 발급(도메인 위임) 순간 거부 — 2분 뒤 다음 폴링은 정상 (2026-10-13 17:10 홈페이지 sync,
     # 17:12 같은 메일 정상 등록 L-04240). 설정이 정말 끊긴 거면 매 폴링 반복 → 급증 경보로 잡힘.
     'unauthorized_client',
+    # 인터넷 자체가 끊긴 경우(공유기·통신사) — 구글·슬랙 동시 접속 시간 초과.
+    # 2026-10-14 02:10~03:07 한 시간 끊김에 유형별 '신규 에러'가 따로따로 감 → 급증 1건으로 묶음.
+    'WinError 10060', 'ConnectTimeoutError', 'Failed to send a request to Slack API server',
 )
 
 _CODE_RE = re.compile(r'[GRNgrn]\d{3,4}-[A-Za-z]{1,3}')   # 프로젝트 코드 정규화
