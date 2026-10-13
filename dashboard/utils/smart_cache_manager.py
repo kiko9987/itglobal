@@ -247,6 +247,13 @@ class SimpleCache:
         if self._use_fallback and self._fallback_cache:
             cache_key = f"cache:{key}"
             value = self._fallback_cache.get(cache_key)
+            # RedisClient 자체 fallback 이 같은 메모리 캐시에 pickle bytes 로 넣어 둔 값일 수 있음.
+            # 그대로 돌려주면 DataFrame 자리에 bytes 가 가서 리드 조회 전멸 (2026-10-13 Redis 3.5h 장애).
+            if isinstance(value, bytes):
+                try:
+                    value = pickle.loads(value)
+                except Exception:
+                    value = None
             if value is None:
                 self._record_miss(key)
             else:

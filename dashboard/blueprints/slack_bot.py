@@ -2519,19 +2519,45 @@ def _build_intake_processing_blocks(headline: str, memo_text: str = "") -> list:
     return [{"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(lines)}}]
 
 
+# Redis 장애 때 같은 프로세스 안에서라도 중복 실행을 막는 메모리 표시.
+# (2026-10-13 3.5h 장애: Redis 락·완료 표시가 전부 실패해 사진 배치마다 방문 완료가 다시 돌고
+#  카드 헤더가 2~4겹으로 쌓임.) Redis 정상일 땐 쓰지 않는 보조 수단.
+_LOCAL_FLAGS: dict = {}
+_LOCAL_FLAGS_LOCK = threading.Lock()
+
+
+def _local_flag_nx(key: str, ttl: int) -> bool:
+    """메모리 표시 set-if-absent — 처음이면 True, 이미 있으면 False."""
+    now = time.time()
+    with _LOCAL_FLAGS_LOCK:
+        exp = _LOCAL_FLAGS.get(key)
+        if exp and exp > now:
+            return False
+        if len(_LOCAL_FLAGS) > 5000:
+            for k in [k for k, v in _LOCAL_FLAGS.items() if v <= now]:
+                _LOCAL_FLAGS.pop(k, None)
+        _LOCAL_FLAGS[key] = now + ttl
+        return True
+
+
+def _local_flag_get(key: str) -> bool:
+    with _LOCAL_FLAGS_LOCK:
+        exp = _LOCAL_FLAGS.get(key)
+        return bool(exp and exp > time.time())
+
+
 def _try_acquire_action_lock(lead_no: str, action: str, ttl: int = 5) -> bool:
     """동시/더블 클릭 방지 락 — 첫 클릭만 통과. 락 못 잡으면 False.
-    Redis 다운 시 보수적으로 True 반환 (기능 끊지 않음)."""
+    Redis 다운 시 메모리 락으로 대신 (기능은 끊지 않음)."""
     if not lead_no:
         return True
+    key = f'visit_action_lock:{lead_no}:{action}'
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        return bool(rc.set(
-            f'visit_action_lock:{lead_no}:{action}', '1', nx=True, ex=ttl,
-        ))
+        return bool(rc.set(key, '1', nx=True, ex=ttl))
     except Exception:
-        return True
+        return _local_flag_nx(key, ttl)
 
 
 def _register_visit_handlers(app):
@@ -2727,13 +2753,14 @@ def _register_visit_handlers(app):
                 # visit_auto_completed flag (30일 TTL) 로 확인. Redis 다운 시엔 통과.
                 try:
                     from dashboard.utils.redis_client import get_redis_client
-                    if get_redis_client().redis.get(f'visit_auto_completed:{lead_no}'):
-                        logger.info(
-                            f'[SLACK/방문봇] visit_complete 이미 완료됨 - 재실행 skip ({lead_no})'
-                        )
-                        return
+                    _done = get_redis_client().redis.get(f'visit_auto_completed:{lead_no}')
                 except Exception:
-                    pass
+                    _done = _local_flag_get(f'visit_auto_completed:{lead_no}')
+                if _done:
+                    logger.info(
+                        f'[SLACK/방문봇] visit_complete 이미 완료됨 - 재실행 skip ({lead_no})'
+                    )
+                    return
                 _process_visit_complete(client, body)
             except Exception as exc:
                 logger.error(f"[SLACK/방문봇] visit_complete 실패: {exc}", exc_info=True)
@@ -6619,20 +6646,30 @@ def _update_lead_dispatch(lead_no: str, updates: dict) -> None:
 
 
 def _find_lead_by_no(lead_no: str):
-    """리드 No 로 메인 시트 행 dict 반환. 정규·ETC- 모두 시트에서 조회."""
-    try:
-        from dashboard.services.lead_service import load_leads_data
-        df = load_leads_data()
-        if df is None or df.empty:
-            return None
-        target = lead_no.strip()
-        matches = df[df['리드 No'].astype(str).str.strip() == target]
-        if matches.empty:
-            return None
-        return matches.iloc[0].to_dict()
-    except Exception as exc:
-        logger.error(f"[SLACK] 리드 조회 실패 ({lead_no}): {exc}")
-        return None
+    """리드 No 로 메인 시트 행 dict 반환. 정규·ETC- 모두 시트에서 조회.
+
+    캐시 조회가 실패하거나 DataFrame 이 아닌 값을 주면 시트에서 직접 한 번 더 읽는다.
+    (2026-10-13 Redis 3.5h 장애: fallback 캐시가 bytes 를 돌려줘 조회가 전부 None →
+    호출부가 빈 값으로 상담 내용을 덮어쓰고 사진 폴더가 한 곳으로 섞임)
+    """
+    from dashboard.services.lead_service import load_leads_data
+    target = lead_no.strip()
+    for force in (False, True):
+        try:
+            df = load_leads_data(force_refresh=force)
+            if df is not None and not hasattr(df, 'empty'):
+                raise TypeError(f'리드 데이터 형식 이상: {type(df).__name__}')
+            if df is None or df.empty:
+                if force:
+                    return None
+                continue
+            matches = df[df['리드 No'].astype(str).str.strip() == target]
+            if matches.empty:
+                return None
+            return matches.iloc[0].to_dict()
+        except Exception as exc:
+            logger.error(f"[SLACK] 리드 조회 실패 ({lead_no}, 시트 직접={force}): {exc}")
+    return None
 
 
 # 재상담 이력 append/parse (2026-07-20) — 시트 K열은 여러 회차를 누적 저장.
@@ -8216,7 +8253,10 @@ def _process_consult_submission(client, body, view):
             if consultation:
                 # 재상담 이력 append (2026-07-20) — 옛 K열 값에 [시간 이니셜 · status]
                 # 헤더 붙인 새 entry 를 divider 로 이어붙임. 카드 렌더는 이 값 파싱.
-                _cur_lead = _find_lead_by_no(lead_no) or {}
+                _cur_lead = _find_lead_by_no(lead_no)
+                if _cur_lead is None:
+                    # 옛 상담 내용을 못 읽은 채 쓰면 이력이 새 회차 하나로 덮어써진다 (2026-10-13 L-04209)
+                    raise RuntimeError('리드 조회 실패 — 기존 상담 이력 보존을 위해 시트 저장 중단')
                 _old_consult = str(_cur_lead.get('상담 내용') or '').strip()
                 _initial_now = _slack_user_to_initial(client, user_id) or '-'
                 _new_entry = _format_consultation_entry(
@@ -9281,7 +9321,21 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
     if not view_id:
         return
 
-    lead = _find_lead_by_no(lead_no) or {}
+    lead = _find_lead_by_no(lead_no)
+    if lead is None:
+        # 빈 칸으로 열리면 저장 시 기존 정보가 지워진다 → 저장 버튼 없는 안내로 교체
+        try:
+            client.views_update(view_id=view_id, view={
+                "type": "modal", "callback_id": "submit_visit_edit",
+                "title": {"type": "plain_text", "text": "정보 수정"},
+                "close": {"type": "plain_text", "text": "닫기"},
+                "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                           "text": (f":warning: `{lead_no}` 리드 정보를 불러오지 못했습니다.\n"
+                                    "잠시 뒤 [정보 수정]을 다시 눌러 주세요.")}}],
+            })
+        except Exception as exc:
+            logger.warning(f'[SLACK/방문봇] 정보수정 조회실패 안내 실패 ({lead_no}): {exc}')
+        return
     raw_platform = str(lead.get('플랫폼', '') or '').strip()
     is_online_lead = raw_platform in _ONLINE_LEAD_PLATFORMS
     # 온라인 리드는 dropdown 렌더 skip → cur_platform 은 metadata 저장용 원본
@@ -9997,7 +10051,11 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
     - dt_str 형식: 'MM.DD HH:MM' (호출자에서 이미 datetime.now().strftime)
     """
     try:
-        lead = _find_lead_by_no(lead_no) or {}
+        lead = _find_lead_by_no(lead_no)
+        if not lead:
+            # 못 읽은 채 쓰면 기존 상담 내용이 마커 한 줄로 덮어써진다 (2026-10-13 12건)
+            logger.error(f'[SLACK/방문완료] {lead_no} 리드 조회 실패 — 시트 마커 기록 보류')
+            return
         cur = str(lead.get('상담 내용', '') or '').strip()
         cur_status = str(lead.get('상태', '') or '').strip()
         marker = f'[{dt_str} {initial} · 방문 완료]'
@@ -10115,6 +10173,7 @@ def _process_visit_complete(client, body) -> None:
         rc.delete(f'dm_sent:{lead_no}')
     except Exception as exc:
         logger.warning(f"[SLACK/방문완료] flag set 실패 ({lead_no}): {exc}")
+        _local_flag_nx(f'visit_auto_completed:{lead_no}', 60 * 60 * 24 * 30)
 
     # 3-2) 시트 K열 (상담 내용) 에 방문 완료 마커 append (2026-07-24 이중 필터)
     #      Redis flag 손실 사고 (07-24 대량 삭제) 대비. 시트가 source of truth.
@@ -10606,6 +10665,13 @@ def _ensure_visit_folder(
         )
 
     # 3) 신규 생성 — 이름 계산 (기존 로직 재사용)
+    if not lead:
+        # 리드 조회 실패 상태에서 만들면 '(미정) 주소 미상 날짜' 같은 이름이 되고,
+        # find_or_create_folder 가 같은 이름을 재사용해 그날 여러 현장 사진이 한 폴더로 섞인다
+        # (2026-10-13 Redis 장애 중 9건). 기존 폴더 ID 도 모르는 상태라 만들지 않는다.
+        logger.error(f'[SLACK/방문 폴더] {lead_no} 리드 조회 실패 — 폴더 생성 보류')
+        return None
+
     def _clean(v):
         s = str(v or '').strip()
         return '' if s in ('', '-', '미정') else s
@@ -10770,6 +10836,15 @@ def _process_visit_thread_files(client, event) -> None:
     )
     if not _folder_info:
         logger.error(f"[SLACK/방문 사진] {lead_no} lead 폴더 확보 실패 — skip")
+        if not _is_etc_lead(lead_no):
+            try:  # 조용히 넘어가면 사진이 저장 안 된 줄 모름
+                client.chat_postMessage(
+                    channel=channel, thread_ts=thread_ts,
+                    text=(":warning: 리드 정보를 불러오지 못해 사진을 드라이브에 저장하지 못했습니다. "
+                          "잠시 뒤 같은 사진을 이 스레드에 다시 올려 주세요."),
+                )
+            except Exception:
+                pass
         return
 
     from dashboard.utils.google_drive import find_or_create_folder, upload_file, list_folder_filenames
@@ -11200,27 +11275,36 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
     - 원본 카드 회색 처리 (chat.update)
     """
     # 중복 방지 flag
+    flag_key = f'visit_auto_completed:{lead_no}'
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        flag_key = f'visit_auto_completed:{lead_no}'
         if rc.get(flag_key):
             logger.debug(f"[SLACK/자동완료] {lead_no} 이미 완료 처리됨 — skip")
             return
     except Exception as exc:
-        logger.warning(f"[SLACK/자동완료] flag 조회 실패 — 계속 진행: {exc}")
         rc = None
+        logger.warning(f"[SLACK/자동완료] flag 조회 실패 — 메모리 표시로 대신: {exc}")
 
     # 방문일 미래면 = 아직 안 다녀옴 = 첨부 사진은 참고자료(도면 등) → 자동완료 skip.
     #   사진은 이미 드라이브에 저장됨(완료만 막음). flag 도 set 안 함 → 실제 방문일에
     #   현장사진 첨부하면 그때 정상 자동완료. (L-03575 사고: 08-06 방문 건에 도면 참고
     #   첨부가 08-05 자동완료를 유발. 거래처 방문요청은 등록 시 도면 첨부가 흔함.)
-    _lead_for_date = _find_lead_by_no(lead_no) or {}
+    _lead_for_date = _find_lead_by_no(lead_no)
+    if _lead_for_date is None:
+        # 방문일을 모르면 참고자료(도면) 첨부와 실제 방문을 구분 못 함 → 완료 처리하지 않음
+        # (2026-10-13 L-04230: 다음 날 방문 건이 도면 첨부로 완료 처리됨)
+        logger.warning(f"[SLACK/자동완료] {lead_no} 리드 조회 실패 — 자동완료 보류")
+        return
     if _visit_not_yet_reached(_lead_for_date.get('방문 예정일')):
         logger.info(
             f"[SLACK/자동완료] {lead_no} 방문일({_lead_for_date.get('방문 예정일')!r}) "
             f"미래 — 참고사진으로 보고 자동완료 skip (사진은 저장됨)"
         )
+        return
+    # Redis 장애 중이면 메모리 표시로 중복 방지 (처음 한 번만 통과, 바로 표시)
+    if rc is None and not _local_flag_nx(flag_key, 60 * 60 * 24 * 30):
+        logger.debug(f"[SLACK/자동완료] {lead_no} 이미 완료 처리됨(메모리) — skip")
         return
 
     # 1) List 삭제 웹훅
@@ -11232,6 +11316,9 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
         logger.warning(f"[SLACK/자동완료] List 웹훅 실패 ({lead_no}): {exc}")
 
     # 2) 원본 카드 회색 처리 — conversations.replies 로 root 메시지 blocks 재조회
+    #    처리자·시각은 카드 실패와 무관하게 아래 시트 마커에도 쓰므로 먼저 계산.
+    initial = _slack_user_to_initial(client, event_user_id) or '-'
+    complete_time = datetime.now().strftime('%m.%d %H:%M')
     try:
         rep = client.conversations_replies(
             channel=channel, ts=thread_ts, limit=1, inclusive=True,
@@ -11252,8 +11339,6 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
         clean_text = '\n'.join(cleaned_lines)
         clean_text = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', clean_text)
 
-        initial = _slack_user_to_initial(client, event_user_id) or '-'
-        complete_time = datetime.now().strftime('%m.%d %H:%M')
         header_lines = [
             "⠀",
             f":white_check_mark: *방문 완료 (사진 첨부 자동)*  `{lead_no}`",
@@ -11264,10 +11349,14 @@ def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
         new_blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
         ]
-        client.chat_update(
-            channel=channel, ts=thread_ts, text=new_text, blocks=new_blocks,
-        )
-        logger.info(f"[SLACK/자동완료] {lead_no} 카드 완료 처리 (처리자={initial})")
+        if ':white_check_mark: *방문 완료' in original_text[:200]:
+            # 이미 완료 카드(버튼·이전 배치) — 다시 감싸면 완료 헤더가 겹겹이 쌓임 (2026-10-13)
+            logger.info(f"[SLACK/자동완료] {lead_no} 이미 완료 카드 — 카드 갱신 생략")
+        else:
+            client.chat_update(
+                channel=channel, ts=thread_ts, text=new_text, blocks=new_blocks,
+            )
+            logger.info(f"[SLACK/자동완료] {lead_no} 카드 완료 처리 (처리자={initial})")
     except Exception as exc:
         logger.warning(f"[SLACK/자동완료] 카드 update 실패 ({lead_no}): {exc}")
 

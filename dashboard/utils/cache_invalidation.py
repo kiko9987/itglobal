@@ -232,12 +232,15 @@ class CacheInvalidationService:
         """
         import time
         reconnect_delay = 1.0
+        err_streak = 0
+        last_err_log = 0.0
         while self._running:
             try:
                 self._pubsub = self.redis.redis.pubsub()
                 self._pubsub.subscribe(self.CHANNEL_NAME)
                 logger.info(f"Pub/Sub 구독 시작: {self.CHANNEL_NAME}")
                 reconnect_delay = 1.0  # 성공 시 백오프 리셋
+                err_streak = 0
                 last_ping = time.monotonic()
 
                 while self._running:
@@ -273,7 +276,14 @@ class CacheInvalidationService:
                 elif 'Timeout reading from socket' in msg or 'Connection closed by server' in msg:
                     logger.debug(f"Pub/Sub 소켓 idle timeout (재구독): {e}")
                 else:
-                    logger.error(f"Pub/Sub 구독자 루프 오류 (재구독): {e}")
+                    # Redis 장애 중 재구독마다 ERROR 가 쌓이던 문제(2026-10-13 317건) → 첫 번째·5분마다만
+                    err_streak += 1
+                    now = time.monotonic()
+                    if err_streak == 1 or now - last_err_log >= 300:
+                        logger.error(f"Pub/Sub 구독자 루프 오류 (재구독, 연속 {err_streak}회): {e}")
+                        last_err_log = now
+                    else:
+                        logger.debug(f"Pub/Sub 구독자 루프 오류 (재구독, 연속 {err_streak}회): {e}")
             finally:
                 try:
                     if self._pubsub:

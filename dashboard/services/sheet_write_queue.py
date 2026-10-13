@@ -280,11 +280,16 @@ def _worker_loop():
     """
     import time as _time
     logger.info('[QUEUE] 워커 시작 (LPOP 폴링 모드)')
+    fail_streak = 0
+    last_err_log = 0.0
     while True:
         raw = None
         try:
             # Non-blocking pop. 없으면 짧게 sleep.
             raw = _rc().lpop(QUEUE_KEY)
+            if fail_streak:
+                logger.info(f'[QUEUE] 워커 복구 (연속 실패 {fail_streak}회 후)')
+                fail_streak = 0
             if raw is None:
                 _time.sleep(1.0)
                 continue
@@ -339,13 +344,22 @@ def _worker_loop():
                     _rc().rpush(FAILED_KEY, json.dumps(op, ensure_ascii=False))
                     _notify_admin_deadletter(op, exc)
         except Exception as loop_exc:
-            logger.error(f'[QUEUE] 워커 루프 예외: {loop_exc}', exc_info=True)
+            fail_streak += 1
+            now = _time.monotonic()
+            # Redis 장애 동안 1초마다 ERROR 가 쌓이던 문제(2026-10-13 3.5h 동안 1,251건)
+            # → 첫 실패와 5분마다 한 번만 ERROR, 나머지는 DEBUG. 재시도 간격도 최대 10초로 늘림.
+            if fail_streak == 1 or now - last_err_log >= 300:
+                logger.error(f'[QUEUE] 워커 루프 예외 (연속 {fail_streak}회): {loop_exc}',
+                             exc_info=fail_streak == 1)
+                last_err_log = now
+            else:
+                logger.debug(f'[QUEUE] 워커 루프 예외 (연속 {fail_streak}회): {loop_exc}')
             if raw:
                 try:
                     _rc().lrem(PROCESSING_KEY, 1, raw)
                 except Exception:
                     pass
-            time.sleep(1)
+            time.sleep(min(10, fail_streak))
 
 
 def start_worker():
