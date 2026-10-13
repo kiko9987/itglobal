@@ -10197,14 +10197,10 @@ def _process_visit_complete(client, body) -> None:
             uploader_id=user_id,
         )
         if _folder and _folder.get('created_now'):
-            # 신규 생성 시 스레드에 폴더 링크 안내 (매니저가 이름 정정·복귀 후 사진 첨부 가이드)
-            _link = _folder.get('lead_folder_link', '')
+            # 신규 생성 시 스레드에 폴더 위치 안내 — 사진 저장 답글과 같은 형식(탐색기 경로 + 폴더 ID).
+            #   (2026-10-13 통일: 예전엔 드라이브 웹 링크라 같은 스레드에서 두 답글 형식이 달랐음)
             _name = _folder.get('folder_name', '')
-            _reply_text = (
-                f":file_folder: 방문 폴더 생성됨: <{_link}|{_name}>\n"
-                f"_사무실 복귀 후 이 스레드에 사진 첨부 시 위 폴더 안 `현장사진/` 에 저장됩니다._\n"
-                f"_(폴더명 정정이 필요하면 Drive 에서 이름 바꿔주세요. 폴더 ID 로 연결돼있어 무관합니다.)_"
-            )
+            _reply_text = _visit_folder_created_text(_name, _folder.get('lead_folder_id', ''))
             try:
                 client.chat_postMessage(
                     channel=channel, thread_ts=message_ts,
@@ -10547,6 +10543,25 @@ def _visit_folder_initial(lead: dict) -> str:
     if not src and not is_partner:
         src = _c(lead.get('온라인 상담자'))
     return _to_initial(src) if src else ''
+
+
+def _visit_folder_location_lines(folder_name: str, folder_id: str) -> str:
+    """방문 폴더 위치 안내 줄 — 탐색기 경로(구글 드라이브 데스크톱 동기화 경로) + 폴더 ID.
+    사진 저장 답글·폴더 생성 답글 공용 (두 답글 형식 통일, 2026-10-13)."""
+    win_base = os.getenv('GOOGLE_DRIVE_WINDOWS_BASE_PATH', '').strip()
+    path = f"\n💻 *탐색기 경로* :\n```{win_base}\\{folder_name}```" if win_base else ''
+    return f"{path}\n:id: *폴더 ID* (새 프로젝트 등록용) :\n```{folder_id}```"
+
+
+def _visit_folder_created_text(folder_name: str, folder_id: str) -> str:
+    """[방문 완료] 버튼으로 폴더를 미리 만들었을 때 스레드 안내 문구."""
+    return (
+        f":file_folder: 방문 폴더를 만들었습니다.\n"
+        f"📁 {folder_name}"
+        f"{_visit_folder_location_lines(folder_name, folder_id)}\n"
+        f">사무실에 돌아와 이 스레드에 사진을 올리면 위 폴더의 `현장사진`에 저장됩니다.\n"
+        f">폴더 이름은 드라이브에서 바꿔도 됩니다. 폴더 ID로 연결돼 있습니다."
+    )
 
 
 def _maybe_fix_folder_initial(folder_id: str, current_name: str, lead: dict) -> str:
@@ -11125,15 +11140,6 @@ def _process_visit_thread_files(client, event) -> None:
 
     try:
         location_suffix = f" → 현장사진/{location}" if location else ''
-        # 윈도우 탐색기 경로 안내 (구글 드라이브 데스크톱 앱 동기화 경로)
-        # 트리플 백틱 코드 블록 → 슬랙 데스크톱 앱 호버 시 복사 버튼 자동 표시
-        win_base = os.getenv('GOOGLE_DRIVE_WINDOWS_BASE_PATH', '').strip()
-        win_path_line = ''
-        if win_base:
-            win_path_line = (
-                f"\n💻 *탐색기 경로* :\n"
-                f"```{win_base}\\{folder_name}```"
-            )
         # 부분 실패 표기 (일부 성공, 일부 실패/스킵)
         _partial_bits = []
         if failed:
@@ -11170,9 +11176,7 @@ def _process_visit_thread_files(client, event) -> None:
             f":file_folder: 사진 {_cumul_uploaded}장을 드라이브에 저장했습니다{location_suffix}.\n"
             f"📁 {folder_name}"
             f"{_partial_line}"
-            f"{win_path_line}\n"
-            f":id: *폴더 ID* (새 프로젝트 등록용) :\n"
-            f"```{lead_folder['id']}```\n"
+            f"{_visit_folder_location_lines(folder_name, lead_folder['id'])}\n"
             f">*상호명 추가* : 답글에 \"상호 OOO\" 입력\n"
             f">*위치 분류* : 사진 첨부시 댓글에 \"1층\" 등 함께 입력\n"
             f">*추가 사진* : 슬랙 UI 상 10장씩 나눠 올려야 하며, 같은 폴더에 이어서 저장됩니다"
