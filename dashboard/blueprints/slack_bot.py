@@ -9377,6 +9377,8 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
         from dashboard.services.lead_helpers import split_inflow_marker
         cur_consultation = split_inflow_marker(cur_consultation)[1].strip()
 
+    cur_self_visit = '본인 방문 필수' in str(lead.get('본인 방문 여부', '') or '')
+
     metadata = json.dumps({
         'lead_no': lead_no,
         'channel': channel,
@@ -9475,6 +9477,17 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
             },
         },
     ])
+    # 본인 방문 필수 켜고 끄기 (2026-10-14 L-04243: 등록 때 켠 걸 끌 방법이 없었음)
+    _sv_opt = {"text": {"type": "plain_text", "text": "본인 방문 필수 (등록한 사람이 직접 방문)"},
+               "value": "yes"}
+    _sv_el = {"type": "checkboxes", "action_id": "value", "options": [_sv_opt]}
+    if cur_self_visit:
+        _sv_el["initial_options"] = [_sv_opt]
+    blocks.append({
+        "type": "input", "block_id": "self_visit", "optional": True,
+        "label": {"type": "plain_text", "text": "방문 담당"},
+        "element": _sv_el,
+    })
 
     try:
         client.views_update(view_id=view_id, view={
@@ -9924,24 +9937,56 @@ def _process_visit_edit(client, body, view) -> None:
         new_phone = (_v(state, 'phone') or '').strip()
         new_address = (_v(state, 'address') or '').strip()
         new_consultation = (_v(state, 'consultation') or '').strip()
+        new_self_visit = _self_visit_checked(state)
 
         logger.info(
             f"[VISIT/EDIT] {lead_no} 필드 update: 이름={new_name!r}, "
-            f"주소={new_address[:30]!r} (editor={user_id})"
+            f"주소={new_address[:30]!r}, 본인방문={new_self_visit} (editor={user_id})"
         )
         _process_visit_edit_same_platform(
             client, body, lead_no, channel, message_ts,
             new_visit_start, new_visit_end, new_name, new_phone,
-            new_address, new_consultation,
+            new_address, new_consultation, self_visit=new_self_visit,
         )
     finally:
         _release_edit_lock(edit_rc, lead_no)
 
 
+def _self_visit_checked(state) -> Optional[bool]:
+    """정보 수정 모달의 '본인 방문 필수' 체크 여부. 칸이 없는 옛 모달이면 None(안 바꿈)."""
+    blk = (state or {}).get('self_visit')
+    if blk is None:
+        return None
+    return bool((blk.get('value') or {}).get('selected_options'))
+
+
+def _self_visit_updates(lead: dict, on: bool) -> dict:
+    """본인 방문 필수를 켜고 끌 때 시트 O(본인 방문 여부)·N(영업 담당자) 값.
+
+    거래처 워크플로 규칙(lead_sync: O='본인 방문 필수'면 등록자 M → N 자동 복사)과 대칭:
+    - 켜기: 영업 담당자가 비어 있으면 등록자(온라인 상담자)를 넣음
+    - 끄기: 거래처·소개·기타에서 영업 담당자가 등록자와 같으면(=자동으로 들어간 값) '-' 로 비워
+      JW 배정 대상이 되게. 온라인 리드는 상담자와 방문자가 같아도 실제 배정일 수 있어 건드리지 않음.
+    """
+    def _c(v):
+        s = str(v or '').strip().lstrip('@').strip()
+        return '' if s in ('', '-') else s
+    sales, online = _c(lead.get('영업 담당자')), _c(lead.get('온라인 상담자'))
+    partner = str(lead.get('플랫폼', '') or '').strip() in ('거래처', '소개', '기타')
+    upd = {'본인 방문 여부': '본인 방문 필수' if on else '아무나 방문 가능'}
+    if on and not sales and online:
+        upd['영업 담당자'] = online
+    if not on and partner and sales and sales == online:
+        upd['영업 담당자'] = '-'
+    return upd
+
+
 def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts,
                                        new_visit_start, new_visit_end, new_name,
-                                       new_phone, new_address, new_consultation) -> None:
-    """유형 동일 case 실제 처리 (락 안에서 호출됨)."""
+                                       new_phone, new_address, new_consultation,
+                                       self_visit: Optional[bool] = None) -> None:
+    """유형 동일 case 실제 처리 (락 안에서 호출됨).
+    self_visit: 본인 방문 필수 체크 값(None = 칸 없음, 그대로 둠)."""
     # 유형 동일 — 필드만 update
     # 방문 예정일 범위 조립
     new_visit_display = _format_visit_date_range(new_visit_start, new_visit_end)
@@ -9982,6 +10027,11 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
         '방문 주소': new_address,
         '상담 내용': new_consultation_merged,
     }
+    old_self_visit = '본인 방문 필수' in str(old_lead.get('본인 방문 여부', '') or '')
+    if self_visit is not None and old_lead and self_visit != old_self_visit:
+        updates.update(_self_visit_updates(old_lead, self_visit))
+        logger.info(f"[SLACK/방문수정] {lead_no} 본인 방문 필수 {'켬' if self_visit else '끔'}: {updates}")
+    final_self_visit = old_self_visit if self_visit is None else self_visit
     try:
         _update_lead_dispatch(lead_no, updates)
     except Exception as exc:
@@ -10024,6 +10074,8 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
             name=new_name, contact=new_phone,
             visit_address=new_address, consultation=new_consultation,
             addr_note=_edit_addr_note,  # 성공=None(단일 라인), 미검증·시/구변경만 배지
+            # 예전엔 안 넘겨 [정보 수정] 저장마다 🙋 본인 방문 배지가 사라졌음 (2026-10-14)
+            self_visit_by='본인' if final_self_visit else '',
         )
         client.chat_update(
             channel=channel, ts=message_ts, text=body_text, blocks=blocks,
