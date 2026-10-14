@@ -8,10 +8,38 @@ import dashboard.blueprints.slack_bot as sb
 PARTNER = {'플랫폼': '거래처', '온라인 상담자': '박용구', '영업 담당자': '박용구', '본인 방문 여부': '본인 방문 필수'}
 
 
-def test_checkbox_state():
+def _sel(v):
+    return {'self_visit': {'value': {'selected_option': {'value': v}}}}
+
+
+def test_dropdown_state():
     assert sb._self_visit_checked({}) is None  # 칸 없는 옛 모달 → 안 바꿈
+    assert sb._self_visit_checked(_sel('아무나 방문 가능')) is False
+    assert sb._self_visit_checked(_sel('본인 방문 필수')) is True
+    # 잠깐 배포됐던 체크 칸 모달 제출도 처리
     assert sb._self_visit_checked({'self_visit': {'value': {'selected_options': []}}}) is False
     assert sb._self_visit_checked({'self_visit': {'value': {'selected_options': [{'value': 'yes'}]}}}) is True
+
+
+def test_modal_has_same_dropdown_as_registration(monkeypatch):
+    """등록 워크플로 모달처럼 방문 예정일 바로 아래 '본인 방문 여부' 선택 상자, 현재 값으로 선택."""
+    views = []
+
+    class _C:
+        def views_open(self, **kw):
+            return {'view': {'id': 'V1'}}
+
+        def views_update(self, **kw):
+            views.append(kw['view'])
+
+    monkeypatch.setattr(sb, '_find_lead_by_no', lambda no: dict(PARTNER, **{'방문 예정일': '2026-10-15'}))
+    sb._open_visit_edit_modal(_C(), 'L-04243', 'C1', '1.1', 'T1')
+    ids = [b.get('block_id') for b in views[0]['blocks']]
+    assert ids.index('self_visit') == ids.index('visit_date_end') + 1
+    el = views[0]['blocks'][ids.index('self_visit')]['element']
+    assert views[0]['blocks'][ids.index('self_visit')]['label']['text'] == '본인 방문 여부'
+    assert [o['value'] for o in el['options']] == ['아무나 방문 가능', '본인 방문 필수']
+    assert el['initial_option']['value'] == '본인 방문 필수'
 
 
 def test_turn_off_partner_clears_auto_assigned_visitor():

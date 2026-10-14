@@ -9378,6 +9378,7 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
         cur_consultation = split_inflow_marker(cur_consultation)[1].strip()
 
     cur_self_visit = '본인 방문 필수' in str(lead.get('본인 방문 여부', '') or '')
+    _sv_cur = '본인 방문 필수' if cur_self_visit else '아무나 방문 가능'
 
     metadata = json.dumps({
         'lead_no': lead_no,
@@ -9441,6 +9442,18 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
                      "text": "범위 방문일 때만 (예: 7/1~7/3)"},
             "element": dp_end,
         },
+        # 본인 방문 여부 — 거래처/기타 등록 워크플로 모달과 같은 선택지·위치 (2026-10-14 L-04243:
+        #   등록 때 '본인 방문 필수'로 고른 걸 바꿀 방법이 없었음)
+        {
+            "type": "input", "block_id": "self_visit",
+            "label": {"type": "plain_text", "text": "본인 방문 여부"},
+            "element": {
+                "type": "static_select", "action_id": "value",
+                "options": [{"text": {"type": "plain_text", "text": t}, "value": t}
+                            for t in ('아무나 방문 가능', '본인 방문 필수')],
+                "initial_option": {"text": {"type": "plain_text", "text": _sv_cur}, "value": _sv_cur},
+            },
+        },
         {
             "type": "input", "block_id": "name",
             "label": {"type": "plain_text", "text": "이름 / 상호"},
@@ -9477,18 +9490,6 @@ def _open_visit_edit_modal(client, lead_no: str, channel: str,
             },
         },
     ])
-    # 본인 방문 필수 켜고 끄기 (2026-10-14 L-04243: 등록 때 켠 걸 끌 방법이 없었음)
-    _sv_opt = {"text": {"type": "plain_text", "text": "본인 방문 필수 (등록한 사람이 직접 방문)"},
-               "value": "yes"}
-    _sv_el = {"type": "checkboxes", "action_id": "value", "options": [_sv_opt]}
-    if cur_self_visit:
-        _sv_el["initial_options"] = [_sv_opt]
-    blocks.append({
-        "type": "input", "block_id": "self_visit", "optional": True,
-        "label": {"type": "plain_text", "text": "방문 담당"},
-        "element": _sv_el,
-    })
-
     try:
         client.views_update(view_id=view_id, view={
             "type": "modal",
@@ -9953,11 +9954,15 @@ def _process_visit_edit(client, body, view) -> None:
 
 
 def _self_visit_checked(state) -> Optional[bool]:
-    """정보 수정 모달의 '본인 방문 필수' 체크 여부. 칸이 없는 옛 모달이면 None(안 바꿈)."""
+    """정보 수정 모달의 '본인 방문 여부' 선택값 → 본인 방문 필수 여부. 칸이 없는 옛 모달이면 None(안 바꿈)."""
     blk = (state or {}).get('self_visit')
     if blk is None:
         return None
-    return bool((blk.get('value') or {}).get('selected_options'))
+    item = blk.get('value') or {}
+    if 'selected_options' in item:  # 잠깐 배포됐던 체크 칸 모달 제출 호환
+        return bool(item.get('selected_options'))
+    sel = (item.get('selected_option') or {}).get('value')
+    return None if sel is None else sel == '본인 방문 필수'
 
 
 def _self_visit_updates(lead: dict, on: bool) -> dict:
