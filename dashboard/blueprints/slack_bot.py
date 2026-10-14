@@ -9183,17 +9183,23 @@ def _trigger_visit_list_webhook(env_key: str, lead_no: str, channel: str,
     if new_visit_date:
         payload['new_visit_date'] = new_visit_date
 
-    try:
-        data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        req = urllib.request.Request(
-            url, data=data,
-            headers={'Content-Type': 'application/json; charset=utf-8'},
-        )
-        with urllib.request.urlopen(req, timeout=5) as r:
-            r.read()
-        logger.info(f"[SLACK/방문 list] {env_key} 호출 완료 ({lead_no})")
-    except Exception as exc:
-        logger.warning(f"[SLACK/방문 list] {env_key} 호출 실패 ({lead_no}): {exc}")
+    # 행을 연락처로 찾는 워크플로 — 호출 전 연락처 맞춤, 행이 없으면 호출 생략(오류 DM 방지)
+    if env_key in _VLIST_MATCH_WEBHOOKS and _vlist_sync_row_contact(lead_no, payload['contact']) is False:
+        logger.info(f"[SLACK/방문 list] {lead_no} List 에 행 없음 — {env_key} 생략 (이미 정리됨·중복 호출)")
+        url = ''
+
+    if url:
+        try:
+            data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+            req = urllib.request.Request(
+                url, data=data,
+                headers={'Content-Type': 'application/json; charset=utf-8'},
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                r.read()
+            logger.info(f"[SLACK/방문 list] {env_key} 호출 완료 ({lead_no})")
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문 list] {env_key} 호출 실패 ({lead_no}): {exc}")
 
     # 방문 캔버스 rebuild — 정보 수정 (MODIFY) / 완료 (COMPLETE) / 취소 (CANCEL)
     # 어느 경로든 시트 상태·방문일이 바뀔 수 있어 캔버스 반영 필요 (2026-07-16).
@@ -11821,6 +11827,61 @@ def _migrate_visit_list_row(old_no: str, new_no: str, address: str = '',
     except Exception as exc:
         logger.warning(f"[VISIT/MIGRATE] List 마이그레이션 실패 ({old_no}→{new_no}): {exc}")
         return False
+
+
+_VLIST_CONTACT_COL = 'Col08CH6CBUNL'   # 연락처(phone) — 수정·완료·취소 워크플로가 이 값으로 행을 찾음
+_VLIST_MATCH_WEBHOOKS = ('SLACK_VISIT_MODIFY_WEBHOOK_URL', 'SLACK_VISIT_COMPLETE_WEBHOOK_URL',
+                         'SLACK_VISIT_CANCEL_WEBHOOK_URL')
+
+
+def _vlist_sync_row_contact(lead_no: str, contact: str) -> Optional[bool]:
+    """수정·완료·취소 워크플로는 List 행을 '연락처'로 찾는다. 재상담 등으로 연락처가 바뀌면 행을 못 찾아
+    '목록에서 일치하는 기록이 없음' 오류가 나고 행이 그대로 남는다(2026-10-14 L-04225 취소).
+    워크플로 호출 전에 리드 번호로 행을 찾아 연락처 칸을 현재 값으로 맞춘다.
+
+    Returns: True=행 있음(필요하면 연락처 갱신), False=행 없음(이미 정리됨·중복 호출), None=확인 불가.
+    """
+    import urllib.request as _u
+    token = (os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+             or os.getenv('SLACK_BOT_TOKEN', '').strip())
+    lid = os.getenv('SLACK_VISIT_LIST_ID', '').strip()
+    if not token or not lid or not lead_no:
+        return None
+    try:
+        from slack_sdk import WebClient
+        c = WebClient(token=token)
+        row, cursor = None, None
+        while row is None:
+            params = {'list_id': lid, 'limit': 200}
+            if cursor:
+                params['cursor'] = cursor
+            data = c.api_call('slackLists.items.list', http_verb='GET', params=params).data
+            for it in data.get('items', []):
+                if any(f.get('column_id') == _VLIST_COL['lead'] and f.get('text') == lead_no
+                       for f in it.get('fields', [])):
+                    row = it
+                    break
+            cursor = (data.get('response_metadata') or {}).get('next_cursor')
+            if not cursor:
+                break
+        if row is None:
+            return False
+        cur = next((f for f in row.get('fields', []) if f.get('column_id') == _VLIST_CONTACT_COL), {})
+        cur_phone = ((cur.get('phone') or [cur.get('value') or ''])[0]) if cur else ''
+        if contact and re.sub(r'\D', '', cur_phone) != re.sub(r'\D', '', contact):
+            body = {'list_id': lid, 'cells': [{'row_id': row['id'], 'column_id': _VLIST_CONTACT_COL,
+                                               'phone': [contact]}]}
+            req = _u.Request('https://slack.com/api/slackLists.items.update',
+                             data=json.dumps(body).encode('utf-8'),
+                             headers={'Content-Type': 'application/json; charset=utf-8',
+                                      'Authorization': f'Bearer {token}'}, method='POST')
+            with _u.urlopen(req, timeout=8) as r:
+                ok = json.loads(r.read()).get('ok')
+            logger.info(f"[SLACK/방문 list] {lead_no} List 연락처 맞춤 {cur_phone} → {contact} ok={ok}")
+        return True
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문 list] {lead_no} List 행 확인 실패 — 워크플로 그대로 호출: {exc}")
+        return None
 
 
 def _migrate_lead_redis_keys(old_no: str, new_no: str) -> None:
