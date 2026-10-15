@@ -610,7 +610,8 @@ def _register_payment_handlers(app):
                         _smemo = _build_split_memo(_preview, _amt, _total)
                         _sok, _o, _n, _serr = _commit_intake_to_sheet(
                             _pc, _stg, _amt, _smemo, user,
-                            note_extra=_compose_warn_notes(_s.get("warn_notes"), des.get("by", ""), user))
+                            note_extra=_compose_warn_notes(_s.get("warn_notes"), des.get("by", ""), user),
+                            acct_text=d.get("text", ""))
                         if not _sok:
                             _intake_release(_rc2, intake_id, _pc, _stg)  # 재시도 허용
                             _failed.append(_s)
@@ -2235,12 +2236,13 @@ def _collection_settlement_target(memo_text, deposit, old_num):
 
 
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id, note_extra=None,
-                            refund=False):
+                            refund=False, acct_text=None):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
     카드 발송 트리거 조건이 '해당 stage 셀 값 > 0' 이므로 값과 노트를 둘 다 쓴다
     (SB 수동 흐름과 동일). 카드 갱신은 호출자(확인 핸들러)가 담당.
     note_extra: 이 입금 블록 바로 아래 붙일 이력 줄('⚠' 시작 — 계좌 불일치·과입금, 수금 파서 무시).
+    acct_text: 입금 계좌 판정용 원문 — 분할 노트엔 계좌번호가 없어 원 입금 문자를 넘긴다.
     refund=True: 반환(출금) 기록 — amount 는 음수, memo_text 는 출금 문자. 같은 단계 메모에 출금
       블록 append + 값 = 순액(과입금 반환 규칙). 카드·추심 보정·계산서 자동채움 생략, 전액 반환
       (순액 0)이면 그 단계 계산서 '-' (발행된 계산서는 건드리지 않음). (2026-10-08 R4163-TH)
@@ -2328,7 +2330,9 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
             if _ycol and all(_scol.values()) and all(_acol.values()):
                 # 3a) 이번 입금 단계 계산서 칸이 비어 있으면 결제방법대로 자동 채움 (빈칸 방지).
                 #     계좌→미발행(계산서 필요, 나중에 발행 시 _mark_invoice가 '발행'으로 갱신),
-                #     카드→카드, 현금→N입금(계산서 불필요). 이미 값 있으면 안 건드림.
+                #     카드→카드, 현금·농협 N통장→N입금(계산서 불필요). 이미 값 있으면 안 건드림.
+                #     N통장은 계좌번호로 판정 — 시트 실적 농협 통장 입금 계산서 칸 97% 'N입금'
+                #     (2026-10-15). '농협' 글자로 보면 하나·기업 입금의 입금자명('수원원예농협')에 걸림.
                 #     단, '-'가 통합발행 covered(같은 행에 실제 '발행' 존재)면 덮지 않는다.
                 #     (통합 선발행 후 입금이 들어와도 covered '-'를 '미발행'으로 되돌리지 않게 — 발행완료 보호)
                 _cur_stage_cell = str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip()
@@ -2351,7 +2355,15 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                         _is_card = _is_itg_card_deposit(_ptn) or bool(_CARD_BRAND_RE.search(_ptn))
                     except Exception:
                         pass
-                    _fill = '카드' if _is_card else ('N입금' if '현금' in (memo_text or '') else '미발행')
+                    _is_n_acct = False
+                    try:
+                        from dashboard.services.itg_accounts import match_account
+                        _ac = match_account(memo_text or '') or match_account(acct_text or '')
+                        _is_n_acct = bool(_ac and _ac.code == 'N')
+                    except Exception:
+                        pass
+                    _fill = ('카드' if _is_card else
+                             'N입금' if ('현금' in (memo_text or '') or _is_n_acct) else '미발행')
                     # 쓰기 직전 재확인 — 위 판정~여기(수 초) 사이 PM 저장이 이 칸을 채웠으면 덮지 않는다
                     #   (2026-09-30 G4139-MJ: SB가 PM에서 지정한 'N입금'을 옛 판정 '미발행'으로 덮음).
                     _recheck = str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip()
@@ -13668,7 +13680,9 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
       = 한 장으로 전체 발행 → 선택 단계='발행', 나머지 미발행/blank 단계(금액>0)는
       '-'(전체발행에 포함, covered). VAT 별도면 모달이 공급가(총액1)로 프리필되므로 총액2만
       비교하면 안 맞음 → 두 기준 다 허용.
-    금액이 다르면(부분 발행) 선택 단계만 '발행'. 현금(N입금)·카드·이미발행은 절대 안 건드림.
+    금액이 다르면(부분 발행) 선택 단계만 '발행'. 선택 안 한 단계의 현금(N입금)·카드·이미발행은
+    절대 안 건드림. 선택 단계가 'N입금'이면 '발행'으로 — 요청자가 그 단계를 골라 실제로 끊은
+    계산서라 확실함(농협 N통장 입금 자동 'N입금' 도입과 짝, 2026-10-15 G2918-YG 같은 예외).
     (계약금 선입금+잔금 한장 전체 발행 시 계약금 ⚠️ 자동 해소 + 발행액 100%.)
     """
     code = str(code or '').strip()
@@ -13732,7 +13746,7 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                 continue
             tok = _bill_norm_token(cur[s])
             if s == selected:
-                if tok in ('발행', 'N입금', '카드'):   # 이미 처리 — 유지
+                if tok in ('발행', '카드'):   # 이미 처리 — 유지 (N입금은 실제 발행이므로 '발행'으로)
                     continue
                 if manager.update_cell_value(sheet_id, sheet_name, f"{cols[s]}{row}", '발행'):
                     cur[s] = '발행'
