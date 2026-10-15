@@ -512,7 +512,7 @@ def _register_payment_handlers(app):
                 # 이상 징후 재계산(ack 예산 없음) — 카드 ⚠️ 줄·경영지원 DM 근거. 모달에서 경고를
                 # 봤으면 warned 마커가 있음(=매니저 확인), 없으면 조회 지연으로 경고 미표시.
                 acked = _intake_dup_warned(intake_id, project_code, stage)
-                _wfull = _intake_warnings(project_code, amount, preview, memo)
+                _wfull = _intake_warnings(project_code, amount, preview, memo, stage=stage)
                 warn_lines = [_warn_line(w, acked) for w in _wfull]
                 # 지정 내용만 저장 (아직 시트 기록 X — 샛별 확인 대기)
                 # project_option(선택 옵션 전체) 보관 → [재지정] 시 모달 미리 채움
@@ -1887,7 +1887,7 @@ def _intake_set_dup_warned(intake_id, project, stage):
 _ENTITY_LABEL = {'G': '글로벌', 'R': '글로벌그룹', 'P': '플렌트'}
 
 
-def _intake_warnings(project_code, amount, preview, memo, records=None):
+def _intake_warnings(project_code, amount, preview, memo, records=None, stage=None, extra_paid=0):
     """입금 지정 사전 점검 — 매니저 확인 + 경영지원(샛별) 알림 대상 이상 징후 (2026-10-02 SB 건의).
 
     경영지원이 짚어주지 않으면 매니저는 잘못된 입금을 모르는 문제 → 지정 시점에 알린다.
@@ -1898,6 +1898,10 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
     ② 과입금: 입금액 > 현재 미수금. 총액 2 > 0 일 때만(금액 미입력 프로젝트 오탐 방지). 미수금은
        프로젝트 캐시(get_project_records) — 확인 대기 중인 다른 입금은 미반영이라 누락은 있어도
        오경고는 드묾.
+    ③ 잔금 후 미수금(2026-10-15 R4101-JSH): 잔금(=마지막 돈)으로 지정했는데 입금 후에도 미수금이
+       남음 — 할인 등으로 총액을 고쳐야 하거나 단계를 중도금으로 골라야 할 수 있음. 평소 잔금
+       입금 뒤 미수금이 남는 공사는 거의 없음(10/15 기준 2건). 분납 잔금은 [지정] 재클릭으로 통과.
+       extra_paid: 같은 입금(분할)에서 같은 프로젝트 다른 단계로 넣는 금액(남는 금액 계산에 포함).
     Returns: [{'kind', 'field'(모달 오류 칸: project|stage), 'modal'(모달 문구), 'line'(카드·DM 줄)}]
     """
     warns = []
@@ -1948,6 +1952,19 @@ def _intake_warnings(project_code, amount, preview, memo, records=None):
                                  f"초과 {amount - int(unpaid):,}원"),
                         'unpaid': int(unpaid),   # 경영지원 DM 상세용
                     })
+                elif total2 > 0 and stage == '잔금':
+                    left = int(unpaid) - amount - int(extra_paid or 0)
+                    if left > 1:
+                        warns.append({
+                            'kind': 'short_final', 'field': 'stage',
+                            'modal': (f"⚠️ 잔금으로 지정하면 입금 후에도 미수금 {left:,}원이 남습니다. "
+                                      f"더 받을 돈이면 '중도금'으로, 금액이 줄었거나 나눠 받는 잔금이면 "
+                                      f"[지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
+                            'line': f"잔금 후 미수금 남음 — 입금 후에도 {left:,}원 남음",
+                            'note': (f"⚠️ 잔금 후 미수금: {left:,}원 남음 "
+                                     f"(당시 미수금 {int(unpaid):,}원)"),
+                            'unpaid': int(unpaid), 'left': left,   # 경영지원 DM 상세용
+                        })
         except Exception as exc:
             logger.warning(f"[SLACK/수금봇] 과입금 점검 실패(무시): {exc}")
     return warns
@@ -1967,7 +1984,7 @@ def _intake_precheck_bounded(project_code, stage, amount, date_md, preview, memo
 
     def _warn():
         try:
-            box['warns'] = _intake_warnings(project_code, amount, preview, memo)
+            box['warns'] = _intake_warnings(project_code, amount, preview, memo, stage=stage)
         except Exception:
             box['warns'] = []
 
@@ -2018,8 +2035,11 @@ def _split_warnings_bounded(splits, preview, memo, timeout=2.0):
         try:
             from dashboard.services.project_service import get_project_records
             recs = get_project_records() or []
-            box['v'] = [_intake_warnings(s['project_code'], s['amount'], preview, memo, records=recs)
-                        for s in splits]
+            box['v'] = [_intake_warnings(
+                s['project_code'], s['amount'], preview, memo, records=recs, stage=s.get('stage'),
+                extra_paid=sum(int(x['amount']) for x in splits
+                               if x is not s and x['project_code'] == s['project_code']))
+                for s in splits]
         except Exception:
             box['v'] = None
 
@@ -2047,11 +2067,15 @@ def _build_intake_warn_dm(items, by_user, acked, deposit=None, link=''):
         titles.append('자금 이동 요청' if acked else '계좌·사업자 불일치 확인')
     if 'overpay' in kinds:
         titles.append('과입금 확인')
+    if 'short_final' in kinds:
+        titles.append('잔금 후 미수금 확인')
     asks = []
     if 'account' in kinds:
         asks.append('법인 간 이체로 자금을 옮겨 주세요' if acked else '입금 계좌가 맞는지 확인해 주세요')
     if 'overpay' in kinds:
         asks.append('고객 확인 후 반환 여부를 판단해 주세요')
+    if 'short_final' in kinds:
+        asks.append('총액을 고쳐야 하는지(할인 등), 남은 돈을 더 받는지 확인해 주세요')
     lead = (f"{who} 님이 경고를 확인하고 입금을 지정했습니다." if acked
             else f"{who} 님이 입금을 지정했지만, 시트 조회 지연으로 지정 화면에 경고가 표시되지 않았습니다.")
     dep = deposit or {}
@@ -2070,6 +2094,9 @@ def _build_intake_warn_dm(items, by_user, acked, deposit=None, link=''):
             elif w.get('kind') == 'overpay':
                 _up = int(w.get('unpaid') or 0)
                 lines.append(f"현재 미수금 : {_up:,}원 (초과 {int(amount or 0) - _up:,}원)")
+            elif w.get('kind') == 'short_final':
+                lines.append(f"입금 후 미수금 : {int(w.get('left') or 0):,}원 "
+                             f"(현재 미수금 {int(w.get('unpaid') or 0):,}원)")
         lines.append(_WARN_DM_SEP)
     if link:
         lines.append(f"<{link}|#입금_관리 카드 바로가기>")

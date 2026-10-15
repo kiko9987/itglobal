@@ -270,3 +270,60 @@ def test_commit_appends_history_right_below_deposit(monkeypatch):
     assert note.splitlines()[-1] == _ANN[0] and '대연이엔지주식회' in note.splitlines()[-2]
     p = _parse_notes(['', '', note], stage_vals={'잔금': 3014000})
     assert len(p) == 1 and p[0]['partner'] == '대연이엔지주식회' and p[0]['amount'] == 3014000
+
+
+# ── 잔금 후 미수금 (2026-10-15 R4101-JSH: 잔금 10,400,000원 지정 후에도 미수금 1,600,000원) ──
+
+def test_final_payment_leaving_balance_warns():
+    w = sb._intake_warnings('R4101-JSH', 10_400_000, {}, R_HANA,
+                            records=_rec('R4101-JSH', 13_200_000, 12_000_000), stage='잔금')
+    assert _kinds(w) == ['short_final'] and w[0]['field'] == 'stage'
+    assert w[0]['left'] == 1_600_000
+    assert '미수금 1,600,000원이 남습니다' in w[0]['modal'] and "'중도금'" in w[0]['modal']
+    assert w[0]['line'] == '잔금 후 미수금 남음 — 입금 후에도 1,600,000원 남음'
+    assert w[0]['note'].startswith('⚠')            # 수금 파서가 건너뛰는 이력 줄
+    assert '>' not in w[0]['line']
+
+
+def test_final_payment_clearing_balance_no_warning():
+    assert sb._intake_warnings('R4101-JSH', 12_000_000, {}, R_HANA,
+                               records=_rec('R4101-JSH', 13_200_000, 12_000_000), stage='잔금') == []
+
+
+def test_non_final_stage_leaving_balance_no_warning():
+    for st in ('계약금', '중도금', None):
+        assert sb._intake_warnings('R4101-JSH', 10_400_000, {}, R_HANA,
+                                   records=_rec('R4101-JSH', 13_200_000, 12_000_000), stage=st) == []
+
+
+def test_final_overpay_is_overpay_not_short():
+    w = sb._intake_warnings('R4101-JSH', 13_000_000, {}, R_HANA,
+                            records=_rec('R4101-JSH', 13_200_000, 12_000_000), stage='잔금')
+    assert _kinds(w) == ['overpay']
+
+
+def test_final_no_total_amount_no_warning():
+    assert sb._intake_warnings('R4101-JSH', 100_000, {}, R_HANA,
+                               records=_rec('R4101-JSH', 0, 0), stage='잔금') == []
+
+
+def test_split_same_project_other_stage_counts_toward_balance(monkeypatch):
+    # 한 입금을 같은 프로젝트 중도금+잔금으로 나눠 완납 → 경고 없음
+    import dashboard.services.project_service as ps
+    monkeypatch.setattr(ps, 'get_project_records', lambda: _rec('R4101-JSH', 13_200_000, 12_000_000))
+    splits = [{'project_code': 'R4101-JSH', 'stage': '중도금', 'amount': 2_000_000},
+              {'project_code': 'R4101-JSH', 'stage': '잔금', 'amount': 10_000_000}]
+    assert sb._split_warnings_bounded(splits, {}, R_HANA, timeout=2.0) == [[], []]
+    splits[0]['amount'] = 1_000_000                 # 합쳐도 100만 원 남음 → 잔금 행만 경고
+    res = sb._split_warnings_bounded(splits, {}, R_HANA, timeout=2.0)
+    assert res[0] == [] and _kinds(res[1]) == ['short_final'] and res[1][0]['left'] == 1_000_000
+
+
+def test_dm_short_final_wording(monkeypatch):
+    monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'JSH')
+    w = sb._intake_warnings('R4101-JSH', 10_400_000, {}, R_HANA,
+                            records=_rec('R4101-JSH', 13_200_000, 12_000_000), stage='잔금')
+    t = sb._build_intake_warn_dm([('R4101-JSH', '잔금', 10_400_000, w)], 'U', True)
+    assert '*잔금 후 미수금 확인*' in t
+    assert '총액을 고쳐야 하는지(할인 등), 남은 돈을 더 받는지 확인해 주세요' in t
+    assert '입금 후 미수금 : 1,600,000원 (현재 미수금 12,000,000원)' in t
