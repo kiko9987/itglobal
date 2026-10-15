@@ -1827,11 +1827,15 @@ class GoogleSheetsManager:
                 logger.error(f"[CELL_VALUE_GET] {cell_address} 조회 실패: {e}")
                 return ''
 
-    def get_row_values(self, sheet_id, sheet_name, row, last_col='AS'):
+    def get_row_map(self, sheet_id, sheet_name, row, last_col='AS'):
         """한 행 값을 한 번에 — {컬럼 레터: 값} (UNFORMATTED_VALUE, 빈 끝칸은 키 없음). 실패 시 None.
 
         같은 행 여러 칸을 칸마다 get_cell_value 로 읽으면 칸당 0.5~0.7초씩 쌓인다(수금 인입·반환
         기록에서 칸 10여 개 → 6~8초). 한 번에 읽어 dict 로 (2026-10-15 R4101 반환 기록 지연).
+
+        ⚠️ 이름 주의: 처음엔 get_row_values 로 추가돼 위쪽 기존 get_row_values(row_number=…, list 반환,
+        PM 프로젝트 수정 PUT 이 사용)를 덮어써 PM 저장이 전부 500 이 났다(2026-10-16 08:23~). 같은
+        클래스에 같은 이름 메서드를 두면 뒤엣것이 조용히 이긴다 — 새 메서드는 고유한 이름으로.
         """
         with self._lock:
             try:
@@ -1841,7 +1845,7 @@ class GoogleSheetsManager:
                         range=f"'{sheet_name}'!A{row}:{last_col}{row}",
                         valueRenderOption='UNFORMATTED_VALUE',
                     ),
-                    f"get_row_values({row})",
+                    f"get_row_map({row})",
                 )
                 vals = ((result or {}).get('values') or [[]])[0]
                 return {self._number_to_column_letter(i): v for i, v in enumerate(vals)}

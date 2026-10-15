@@ -2229,7 +2229,7 @@ def _row_snapshot(manager, sheet_id, sheet_name, row):
     """행 값 한 번 읽기 {레터: 값} — 매니저가 지원 안 하거나 실패하면 None(칸별 조회로 폴백).
 
     수금 인입·반환 기록이 같은 행 칸 10여 개를 칸마다 읽어 6~8초 걸리던 것 줄이기 (2026-10-15)."""
-    fn = getattr(manager, 'get_row_values', None)
+    fn = getattr(manager, 'get_row_map', None)
     if not callable(fn):
         return None
     try:

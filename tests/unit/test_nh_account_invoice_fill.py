@@ -114,7 +114,7 @@ def test_invoice_on_other_stage_keeps_n_ipgeum(mgr):
 
 
 class _RowMgr(_FakeMgr):
-    """행 한 번 읽기(get_row_values) 지원 매니저 — 칸별 조회 횟수 집계 (2026-10-15 속도 개선)."""
+    """행 한 번 읽기(get_row_map) 지원 매니저 — 칸별 조회 횟수 집계 (2026-10-15 속도 개선)."""
     def __init__(self, **cells):
         super().__init__(**cells)
         self.cell_reads = 0
@@ -123,7 +123,7 @@ class _RowMgr(_FakeMgr):
         self.cell_reads += 1
         return super().get_cell_value(sid, sn, cell)
 
-    def get_row_values(self, sid, sn, row):
+    def get_row_map(self, sid, sn, row):
         return {k[:-len(str(row))]: v for k, v in self.cells.items() if k.endswith(str(row))}
 
 
