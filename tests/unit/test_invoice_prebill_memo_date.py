@@ -11,6 +11,8 @@ from datetime import datetime
 
 sys.path.insert(0, '.')
 
+import pytest
+
 import dashboard.blueprints.slack_bot as sb
 
 F2L = {'계약금': 'U', '중도금': 'V', '잔금': 'W', '계산서': 'Y',
@@ -81,7 +83,7 @@ def test_prebill_memo_has_issue_date(monkeypatch):
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.vals['AB10'] == '발행'
     # 선발행 줄엔 부가세 별도 금액 병기 (2026-10-15 SB 요청)
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (부가세 별도 2,620,000원)'
+    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (2,620,000원 VAT 별도)'
     # 금액 파서(billStatus/_project_issued_invoice 미러)는 발행액(부가세 포함)만 — 병기·날짜 무영향
     assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 2882000
     assert [(a['kind'], a['amt']) for a in sb._active_invoice_lines(fm.notes['Y10'])] == [('선발행', 2882000)]
@@ -118,7 +120,7 @@ def test_already_issued_stage_records_history_only(monkeypatch):
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.vals['AB10'] == '발행'
     assert fm.vals['Y10'] == '잔금 - 미발행'          # Y 요약 재계산 안 함 (칸 변경 없음)
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (부가세 별도 2,620,000원) · SM CORPORATION'
+    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (2,620,000원 VAT 별도) · SM CORPORATION'
     assert sb._active_invoice_lines(fm.notes['Y10'])[0]['biz'] == 'SM CORPORATION'   # 병기는 사업자명에 안 섞임
 
 
@@ -129,8 +131,8 @@ def test_split_issue_same_day_keeps_both_lines(monkeypatch):
     _run(monkeypatch, fm, biz='SM CORPORATION', card_key='C:1', amt='1310000', fake_redis=fr)
     _run(monkeypatch, fm, biz='(주)설린', card_key='C:2', amt='1310000', fake_redis=fr)
     today = f'{datetime.now():%Y-%m-%d}'
-    assert fm.notes['Y10'] == (f'{today} 잔금 선발행 1,441,000원 (부가세 별도 1,310,000원) · SM CORPORATION\n'
-                               f'{today} 잔금 선발행 1,441,000원 (부가세 별도 1,310,000원) · (주)설린')
+    assert fm.notes['Y10'] == (f'{today} 잔금 선발행 1,441,000원 (1,310,000원 VAT 별도) · SM CORPORATION\n'
+                               f'{today} 잔금 선발행 1,441,000원 (1,310,000원 VAT 별도) · (주)설린')
     assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 2882000
 
 
@@ -185,7 +187,7 @@ def test_replace_writes_cancel_line_before_new_line(monkeypatch):
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.notes['Y10'] == ('2026-08-27 잔금 선발행 2,882,000원 · SM CORPORATION\n'
                                f'{today} 잔금 취소 -2,882,000원 · SM CORPORATION (수정발행)\n'
-                               f'{today} 잔금 선발행 1,441,000원 (부가세 별도 1,310,000원) · (주)설린')
+                               f'{today} 잔금 선발행 1,441,000원 (1,310,000원 VAT 별도) · (주)설린')
     act = sb._active_invoice_lines(fm.notes['Y10'])
     assert [(a['biz'], a['amt']) for a in act] == [('(주)설린', 1441000)]
 
@@ -211,7 +213,7 @@ def test_vat_included_request_supply_from_ratio(monkeypatch):
                         lambda: type('A', (), {'log_action': lambda self, **k: None})())
     sb._mark_invoice_issued_in_sheet('R4100-MS', '잔금', invoice_amt='2882000', vat_val='incl')
     today = f'{datetime.now():%Y-%m-%d}'
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (부가세 별도 2,620,000원)'
+    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (2,620,000원 VAT 별도)'
 
 
 def test_project_issued_invoice_flags_over_issue(monkeypatch):
@@ -298,3 +300,13 @@ def test_prebill_memo_not_duplicated_for_old_dateless_line(monkeypatch):
     fm.vals['AB10'] = '미발행'
     _run(monkeypatch, fm)
     assert fm.notes['Y10'] == '잔금 선발행 2,882,000원'
+
+
+@pytest.mark.parametrize('paren', ['(6,701,000원 VAT 별도)', '(6,701,000원 부가세 별도)',
+                                   '(부가세 별도 6,701,000원)', '(공급가 6,701,000원)'])
+def test_supply_note_variants_parsed(paren):
+    """공급가 병기 괄호는 어떤 표기든 건너뛰고 발행액·사업자명만 읽음."""
+    memo = f'2026-10-15 잔금 선발행 7,371,100원 {paren} · 주식회사 제이케이디 학원'
+    act = sb._active_invoice_lines(memo)
+    assert [(a['kind'], a['amt'], a['biz']) for a in act] == [('선발행', 7371100, '주식회사 제이케이디 학원')]
+    assert sb._pre_issued_amount(memo, '잔금') == 7371100
