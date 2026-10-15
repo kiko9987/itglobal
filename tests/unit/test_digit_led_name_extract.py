@@ -37,3 +37,11 @@ def test_no_regression(text, expected):
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
+
+
+def test_room_word_not_stripped_as_person_name():
+    # '기계실'(성씨 '기'+2자)·'방재실'을 사람 이름으로 보고 지우지 않음 (L-04263)
+    import dashboard.services.address_resolver as ar
+    assert ar._strip_personal_name('메세나폴리스 아파트 기계실') == '메세나폴리스 아파트 기계실'
+    assert ar._strip_personal_name('OO빌딩 1층 방재실') == 'OO빌딩 1층 방재실'
+    assert ar._strip_personal_name('그로브리조트 정승종') == '그로브리조트'
