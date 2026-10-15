@@ -1,29 +1,56 @@
 <!--
-  아임웹 '빠른 문의' 메뉴(.itg-contact-pc / .itg-contact-mobile)가 채널톡 상담창을 가리는 문제 수정 (2026-10-15)
+  아임웹 '빠른 문의' 위젯(IT GLOBAL QUICK CONTACT, w20260918e5baa87c03abf) 추가분 (2026-10-15)
 
-  원인: 빠른 문의 위젯(w20260918e5baa87c03abf) CSS 가 z-index 9999, 채널톡(#ch-plugin)은 1000
-        → 상담창을 열어도 빠른 문의 메뉴가 위에 겹쳐 대화 내용을 가림.
-  해결: 채널톡 상담창이 열려 있는 동안만 빠른 문의 메뉴(PC 세로 메뉴·모바일 하단 바)를 숨김.
+  문제: 위젯이 z-index 9999, 채널톡(#ch-plugin)은 1000 → 상담창을 열어도 빠른 문의 메뉴가 위에 겹쳐 대화를 가림.
+  해결: 채널톡 상담창이 열려 있는 동안만 PC 세로 메뉴(.itg-contact-pc)·모바일 하단 바(.itg-contact-mobile) 숨김.
         채널톡이 상담창을 닫을 때 #ch-plugin-script 에 붙이는 'ch-messenger-hidden' 클래스를 지켜봄
-        (채널톡 로딩 순서와 무관하게 동작).
-  붙이는 곳: 아임웹 편집기 → '빠른 문의' HTML 위젯 코드 맨 아래 (또는 환경 설정 → 바디 코드)
-  검증: 2026-10-15 실제 홈페이지(1366px)에서 닫힘=메뉴 보임 / 열림=메뉴 숨김 확인
+        (채널톡 로딩 순서와 무관, 기존 모바일 표시 로직(.is-visible)과 충돌 없음).
+  붙이는 곳: 위젯 코드 맨 끝 — 기존 마지막 </script> 다음 줄. 기존 코드는 손대지 않음.
+  검증: 2026-10-15 실제 홈페이지(1366px)에 주입 — 닫힘=메뉴 보임 / 열림=메뉴 숨김.
 -->
 <style>
-  body.itg-ch-open .itg-contact-pc,
-  body.itg-ch-open .itg-contact-mobile { display: none !important; }
+/* =========================================================
+   CHANNELTALK OPEN
+   채널톡 상담창이 열려 있는 동안 빠른 문의 숨김
+========================================================= */
+
+body.itg-ch-open .itg-contact-pc,
+body.itg-ch-open .itg-contact-mobile{
+  display:none !important;
+}
 </style>
+
 <script>
-  (function bind(tries) {
-    var box = document.getElementById('ch-plugin-script');
-    if (!box) {
-      if (tries < 40) setTimeout(function () { bind(tries + 1); }, 500);
-      return;
-    }
-    var sync = function () {
-      document.body.classList.toggle('itg-ch-open', !box.classList.contains('ch-messenger-hidden'));
-    };
-    new MutationObserver(sync).observe(box, { attributes: true, attributeFilter: ['class'] });
-    sync();
-  })(0);
+/* =========================================================
+   CHANNELTALK OPEN 감지
+
+   채널톡은 상담창을 닫아 둘 때 #ch-plugin-script 에
+   'ch-messenger-hidden' 클래스를 붙임
+   → 이 클래스가 없으면(=열림) body 에 itg-ch-open
+========================================================= */
+
+(function bind(tries){
+
+  var box = document.getElementById('ch-plugin-script');
+
+  if(!box){
+    if(tries < 40) setTimeout(function(){ bind(tries + 1); }, 500);
+    return;
+  }
+
+  function sync(){
+    document.body.classList.toggle(
+      'itg-ch-open',
+      !box.classList.contains('ch-messenger-hidden')
+    );
+  }
+
+  new MutationObserver(sync).observe(box, {
+    attributes:true,
+    attributeFilter:['class']
+  });
+
+  sync();
+
+})(0);
 </script>
