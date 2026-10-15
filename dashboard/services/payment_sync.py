@@ -1975,7 +1975,7 @@ def _reprice_payment_card(slack, channel: str, rep: Dict,
         return False
 
 
-def rerender_stage_card(project: str, stage: str) -> bool:
+def rerender_stage_card(project: str, stage: str, row=None) -> bool:
     """프로젝트·단계의 기존 #수금_관리 카드를 현재 시트 메모로 재렌더 (외부 호출용).
 
     메모만 바뀌고 phash(단계·날짜·금액·거래처)는 그대로인 변경 — 예: 법인 간 이체 매출이동 줄
@@ -1995,15 +1995,9 @@ def rerender_stage_card(project: str, stage: str) -> bool:
             logger.info(f'[PAYMENT] 재렌더 skip — 카드 ts 없음 ({project}/{stage})')
             return False
         svc = _get_payment_service()
-        codes = svc.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:A10000").execute().get('values', [])
-        row = next((i + 2 for i, r in enumerate(codes) if r and str(r[0]).strip() == project), None)
+        row, vals = _find_project_row(svc, sheet_id, sheet_name, project, row)
         if not row:
             return False
-        vals = svc.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A{row}:AD{row}",
-            valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
-        vals = vals + [''] * (30 - len(vals))
         rep = {
             'project': project, 'stage': stage, 'ts': ts, 'row': row,
             'u': _to_int_won(vals[20]), 'v': _to_int_won(vals[21]), 'w': _to_int_won(vals[22]),
@@ -2064,7 +2058,28 @@ def release_sync_mutex() -> None:
         pass
 
 
-def refund_followup(project: str, stage: str) -> bool:
+def _find_project_row(svc, sheet_id: str, sheet_name: str, project: str, row=None):
+    """프로젝트 행 번호 + 그 행 값(A..AD). row 를 알면 그 행만 읽어 코드 확인(코드열 전체 조회 생략,
+    2026-10-15), 코드가 안 맞거나 row 없으면 코드열에서 찾음. Returns (row, vals) 또는 (None, None)."""
+    def _vals(r):
+        v = svc.spreadsheets().values().get(
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A{r}:AD{r}",
+            valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
+        return v + [''] * (30 - len(v))
+    if row:
+        try:
+            v = _vals(int(row))
+            if str(v[0]).strip() == project:
+                return int(row), v
+        except Exception:
+            pass
+    codes = svc.spreadsheets().values().get(
+        spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:A10000").execute().get('values', [])
+    r = next((i + 2 for i, c in enumerate(codes) if c and str(c[0]).strip() == project), None)
+    return (r, _vals(r)) if r else (None, None)
+
+
+def refund_followup(project: str, stage: str, row=None) -> bool:
     """반환(출금) 기록 직후 — 이 행 baseline 을 현재 시트로 맞추고 '💰 {단계} 반환' 카드 직접 발송.
 
     반환 기록은 메모(출금 블록)→값(순액) 순서로 쓰는데, 폴러가 그 사이·직후를 읽으면 ①전액
@@ -2079,15 +2094,9 @@ def refund_followup(project: str, stage: str) -> bool:
     if not (sheet_id and sheet_name and channel and bot_token):
         return False
     svc = _get_payment_service()
-    codes = svc.spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:A10000").execute().get('values', [])
-    row = next((i + 2 for i, r in enumerate(codes) if r and str(r[0]).strip() == project), None)
+    row, vals = _find_project_row(svc, sheet_id, sheet_name, project, row)
     if not row:
         return False
-    vals = svc.spreadsheets().values().get(
-        spreadsheetId=sheet_id, range=f"'{sheet_name}'!A{row}:AD{row}",
-        valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
-    vals = vals + [''] * (30 - len(vals))
     notes = _fetch_row_notes(sheet_id, sheet_name, row)
     rc = get_redis_client().redis
     key = f"{REDIS_KEY_PREFIX}{row}"
@@ -2106,7 +2115,7 @@ def refund_followup(project: str, stage: str) -> bool:
     #   (2026-10-15 R4101-JSH: 반환 카드만 나가고 잔금 카드는 수금완료로 남던 문제)
     if rs['unpaid'] > 0 and stage != '잔금':
         try:
-            rerender_stage_card(project, '잔금')
+            rerender_stage_card(project, '잔금', row=row)
         except Exception as exc:
             logger.warning(f'[PAYMENT] 반환 후 잔금 카드 재렌더 실패 ({project}): {exc}')
     return sent

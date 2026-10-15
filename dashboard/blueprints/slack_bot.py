@@ -1666,6 +1666,8 @@ def _do_refund_record(client, user, channel, ts, oid):
         return
     got_mutex = False
     done = None
+    processing = False          # '⏳ 반환 기록 중' 카드로 바꿨는지 — 실패 시 finally 에서 되돌림
+    o = c0 = None
     try:
         if rc.exists(rm._DONE + oid):
             _intake_ephemeral(client, channel, user, ":information_source: 이미 반환 기록된 건입니다.")
@@ -1675,10 +1677,22 @@ def _do_refund_record(client, user, channel, ts, oid):
             _intake_ephemeral(client, channel, user, ":warning: 반환 후보 정보가 만료됐습니다. 시트에 직접 기록해주세요.")
             return
         o, c0 = data['outflow'], data['cand']
+        # 누른 즉시 '⏳ 반환 기록 중' — 끝날 때까지(수 초) 카드가 그대로라 느려 보이던 것 + 재클릭 차단
+        #   (2026-10-15 R4101). 실패하면 finally 에서 원래 후보 카드로 되돌림.
+        if channel and ts:
+            try:
+                client.chat_update(channel=channel, ts=ts,
+                                   text=f"⏳ 반환 기록 중: {c0['code']} · {c0['stage']}",
+                                   blocks=rm.build_processing_blocks(o, c0))
+                processing = True
+            except Exception:
+                pass
         # 제안 이후 시트가 바뀌었을 수 있어 최신 시트로 조건 ①~⑤ 재확인
         #   ('받은 돈 돌려줌' 후보는 ⑤ 대신 ①~④ + 더 받은 돈 없음, 2026-10-15)
-        fresh = [x for x in rm.find_candidates(o, rm.load_rows(),
-                                               include_reroute=(c0.get('kind') == 'reroute'))
+        #   후보 행만 다시 읽음(전체 시트 조회 생략) — 행이 밀렸으면 전체 조회로.
+        _inc = c0.get('kind') == 'reroute'
+        _rows = rm.load_row(c0['code'], int(c0.get('row') or 0)) or rm.load_rows()
+        fresh = [x for x in rm.find_candidates(o, _rows, include_reroute=_inc)
                  if x['code'] == c0['code'] and x['stage'] == c0['stage']]
         if not fresh:
             _intake_ephemeral(client, channel, user,
@@ -1698,7 +1712,7 @@ def _do_refund_record(client, user, channel, ts, oid):
         rc.set(rm._DONE + oid, user, ex=rm._KEY_TTL)
         rc.set(rm._HANDLED + oid, 'recorded', ex=rm._KEY_TTL)
         try:
-            ps.refund_followup(c['code'], c['stage'])
+            ps.refund_followup(c['code'], c['stage'], row=c.get('row'))
         except Exception as exc:
             logger.warning(f"[REFUND_MATCH] baseline·반환 카드 후속 실패 ({c['code']}): {exc}")
         done = (o, c, old, new)
@@ -1709,6 +1723,14 @@ def _do_refund_record(client, user, channel, ts, oid):
         if got_mutex:
             ps.release_sync_mutex()
         rc.delete(lock)
+        # 기록 못 함 → '기록 중' 카드를 원래 후보 카드(버튼 포함)로 되돌려 다시 누를 수 있게
+        if processing and not done and channel and ts:
+            try:
+                client.chat_update(channel=channel, ts=ts,
+                                   text=f"↩️ 반환 후보: {c0['code']} {c0['stage']} {c0['amount']:,}원",
+                                   blocks=rm.build_candidate_blocks(oid, o, c0))
+            except Exception:
+                pass
     if not done:
         return
     o, c, old, new = done
@@ -2203,7 +2225,22 @@ def _intake_release(rc, intake_id, project_code, stage):
         pass
 
 
-def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, deposit, memo_text):
+def _row_snapshot(manager, sheet_id, sheet_name, row):
+    """행 값 한 번 읽기 {레터: 값} — 매니저가 지원 안 하거나 실패하면 None(칸별 조회로 폴백).
+
+    수금 인입·반환 기록이 같은 행 칸 10여 개를 칸마다 읽어 6~8초 걸리던 것 줄이기 (2026-10-15)."""
+    fn = getattr(manager, 'get_row_values', None)
+    if not callable(fn):
+        return None
+    try:
+        snap = fn(sheet_id, sheet_name, row)
+    except Exception:
+        return None
+    return snap if isinstance(snap, dict) else None
+
+
+def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, deposit, memo_text,
+                            snap=None):
     """카드 결제 자동 수수료 보정 — 이 단계 셀에 기록할 '목표값'을 돌려준다(아니면 None).
 
     카드 결제는 통장에 '순입금'(카드사 수수료 뗀 금액)만 들어오는데, 프로젝트 지정 시
@@ -2225,7 +2262,8 @@ def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, de
             return None
 
         def _num(c):
-            v = manager.get_cell_value(sheet_id, sheet_name, f'{c}{row}')
+            v = (snap.get(c, '') if snap is not None
+                 else manager.get_cell_value(sheet_id, sheet_name, f'{c}{row}'))
             try:
                 return int(float(v)) if str(v).strip() not in ('', 'None') else 0
             except (ValueError, TypeError):
@@ -2302,14 +2340,23 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         #    영영 안 보내는 레이스가 난다 (2026-08-19 R3916-TH 잔금 카드 유실).
         #    노트를 먼저 확정하면 값이 보이는 순간엔 노트가 이미 있어 폴러가 정상 발송한다.
         # 값 선독 — 카드 자동보정 판단 + 노트 주석에 필요 (기록 순서는 노트→값 유지)
-        old_val_raw = manager.get_cell_value(sheet_id, sheet_name, cell)
+        #   행을 한 번에 읽어 아래 계산서 칸 판단까지 재사용 (칸별 조회 6~8초 → 1회, 2026-10-15).
+        #   우리가 쓰는 칸(금액·계산서 칸)은 쓴 뒤 스냅샷에도 반영. 덮어쓰기 직전 재확인만 실시간 조회.
+        _snap = _row_snapshot(manager, sheet_id, sheet_name, row)
+
+        def _rv(letter):
+            if _snap is not None:
+                return _snap.get(letter, '')
+            return manager.get_cell_value(sheet_id, sheet_name, f"{letter}{row}")
+
+        old_val_raw = _rv(col)
         try:
             old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
         except (ValueError, TypeError):
             old_num = 0
         # 정산 자동 수수료 보정 — 순입금 대신 실결제(카드)·실추심(추심) 기록. 배타적.
         _card_target = (None if refund else _card_settlement_target(
-            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text))
+            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text, snap=_snap))
         _coll_target = (_collection_settlement_target(memo_text, int(amount), old_num)
                         if (_card_target is None and not refund) else None)
 
@@ -2348,6 +2395,8 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
             new_num = _tgt
         if not manager.update_cell_value(sheet_id, sheet_name, cell, new_num):
             return False, old_num, new_num, "금액 기록 실패"
+        if _snap is not None:
+            _snap[col] = new_num
 
         # 3) Y(계산서) 요약 재계산 — 입금이 계산서 상태에 반영되게(예: 계약금 입금→'계약금 - 미발행').
         #    3열 토큰 + U/V/W 금액으로 _bill_y_summary. update_cell_value=values.update라 Y 노트 보존.
@@ -2364,15 +2413,16 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                 #     (2026-10-15). '농협' 글자로 보면 하나·기업 입금의 입금자명('수원원예농협')에 걸림.
                 #     단, '-'가 통합발행 covered(같은 행에 실제 '발행' 존재)면 덮지 않는다.
                 #     (통합 선발행 후 입금이 들어와도 covered '-'를 '미발행'으로 되돌리지 않게 — 발행완료 보호)
-                _cur_stage_cell = str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip()
+                _cur_stage_cell = str(_rv(_scol[stage]) or '').strip()
                 _row_has_issued = any(
-                    _bill_norm_token(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[s]}{row}") or '') == '발행'
-                    for s in _BILL_STAGES)
+                    _bill_norm_token(_rv(_scol[s]) or '') == '발행' for s in _BILL_STAGES)
                 if refund:
                     # 전액 반환(순액 0) → 그 단계 계산서 '-' (과입금 반환 규칙). 발행된 계산서는 유지
                     #   — 취소·수정발행은 사람이 판단 (호출부가 안내).
                     if new_num == 0 and _bill_norm_token(_cur_stage_cell) != '발행' and _cur_stage_cell != '-':
                         manager.update_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}", '-')
+                        if _snap is not None:
+                            _snap[_scol[stage]] = '-'
                         logger.info(f"[SLACK/수금봇] 반환으로 계산서 3열 정리: {project_code} {stage} "
                                     f"{_cur_stage_cell!r}→'-'")
                 elif _cur_stage_cell == '' or (_cur_stage_cell == '-' and not _row_has_issued):
@@ -2398,23 +2448,25 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                     _recheck = str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip()
                     if _recheck == _cur_stage_cell:
                         manager.update_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}", _fill)
+                        if _snap is not None:
+                            _snap[_scol[stage]] = _fill
                         logger.info(f"[SLACK/수금봇] 계산서 3열 자동채움: {project_code} {stage}={_fill}")
                     else:
+                        if _snap is not None:
+                            _snap[_scol[stage]] = _recheck
                         logger.info(f"[SLACK/수금봇] 계산서 3열 자동채움 생략(방금 변경됨): "
                                     f"{project_code} {stage} {_cur_stage_cell!r}→{_recheck!r}")
-                _tok = {s: (manager.get_cell_value(sheet_id, sheet_name, f"{_scol[s]}{row}") or '')
-                        for s in _BILL_STAGES}
-                _amt = {s: (new_num if s == stage
-                            else _bill_to_num(manager.get_cell_value(sheet_id, sheet_name, f"{_acol[s]}{row}")))
+                _tok = {s: (_rv(_scol[s]) or '') for s in _BILL_STAGES}
+                _amt = {s: (new_num if s == stage else _bill_to_num(_rv(_acol[s])))
                         for s in _BILL_STAGES}
                 # 수금완료 판정: 미수금≈0(총액2>0·입금>0) 또는 수금확인 체크
                 _t2c = f2l.get('총액 2'); _ckc = f2l.get('수금 확인')
-                _t2 = _bill_to_num(manager.get_cell_value(sheet_id, sheet_name, f"{_t2c}{row}")) if _t2c else 0
+                _t2 = _bill_to_num(_rv(_t2c)) if _t2c else 0
                 _paid = sum(_amt.values())
                 _coll = ((_t2 > 0 and _paid > 0 and abs(_t2 - _paid) < 1)
-                         or _bill_is_collected(manager.get_cell_value(sheet_id, sheet_name, f"{_ckc}{row}") if _ckc else ''))
+                         or _bill_is_collected(_rv(_ckc) if _ckc else ''))
                 _new_y = _bill_y_summary(_tok, _amt, _coll)
-                _old_y = (manager.get_cell_value(sheet_id, sheet_name, f"{_ycol}{row}") or '').strip()
+                _old_y = (_rv(_ycol) or '').strip()
                 if _new_y != _old_y:
                     manager.update_cell_value(sheet_id, sheet_name, f"{_ycol}{row}", _new_y)
                     logger.info(f"[SLACK/수금봇] Y 재계산: {project_code} {_old_y!r} → {_new_y!r}")

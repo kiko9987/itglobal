@@ -1827,6 +1827,28 @@ class GoogleSheetsManager:
                 logger.error(f"[CELL_VALUE_GET] {cell_address} 조회 실패: {e}")
                 return ''
 
+    def get_row_values(self, sheet_id, sheet_name, row, last_col='AS'):
+        """한 행 값을 한 번에 — {컬럼 레터: 값} (UNFORMATTED_VALUE, 빈 끝칸은 키 없음). 실패 시 None.
+
+        같은 행 여러 칸을 칸마다 get_cell_value 로 읽으면 칸당 0.5~0.7초씩 쌓인다(수금 인입·반환
+        기록에서 칸 10여 개 → 6~8초). 한 번에 읽어 dict 로 (2026-10-15 R4101 반환 기록 지연).
+        """
+        with self._lock:
+            try:
+                result = self._execute_with_retry(
+                    lambda: self.service.spreadsheets().values().get(
+                        spreadsheetId=sheet_id,
+                        range=f"'{sheet_name}'!A{row}:{last_col}{row}",
+                        valueRenderOption='UNFORMATTED_VALUE',
+                    ),
+                    f"get_row_values({row})",
+                )
+                vals = ((result or {}).get('values') or [[]])[0]
+                return {self._number_to_column_letter(i): v for i, v in enumerate(vals)}
+            except Exception as e:
+                logger.error(f"[ROW_VALUES_GET] {row}행 조회 실패: {e}")
+                return None
+
     def update_cell_value(self, sheet_id, sheet_name, cell_address, value):
         """특정 셀의 값(숫자/문자) 기록 (스레드 안전, 재시도). USER_ENTERED.
 
@@ -1936,6 +1958,25 @@ class GoogleSheetsManager:
         Returns:
             str: 노트 내용 (없으면 None)
         """
+        # 그 셀 하나만 노트 필드로 조회 (2026-10-15) — 예전엔 열 전체를 includeGridData 로 읽어
+        #   (값·서식 포함, 약 1.3초) 수금 인입·반환 기록이 느렸다. 실패하면 아래 열 전체 방식으로.
+        try:
+            with self._lock:
+                result = self._execute_with_retry(
+                    lambda: self.service.spreadsheets().get(
+                        spreadsheetId=sheet_id, ranges=[f"'{sheet_name}'!{cell_address}"],
+                        includeGridData=True, fields='sheets.data.rowData.values.note'),
+                    f"get_cell_note({cell_address})",
+                )
+            for sh in (result or {}).get('sheets', []) or []:
+                for data in sh.get('data', []) or []:
+                    for rd in data.get('rowData', []) or []:
+                        for cv in rd.get('values', []) or []:
+                            if cv.get('note'):
+                                return cv['note']
+            return None
+        except Exception as e:
+            logger.warning(f"셀 노트 단건 조회 실패 — 열 전체로 재시도 ({cell_address}): {e}")
         try:
             col_letter = ''.join(filter(str.isalpha, cell_address))
 

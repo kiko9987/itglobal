@@ -170,6 +170,33 @@ def load_rows() -> List[Dict]:
     return rows
 
 
+def load_row(code: str, row: int) -> List[Dict]:
+    """후보 한 행만 다시 읽기(반환 기록 재검증용) — load_rows 형식 리스트, 코드가 안 맞으면 [].
+
+    전체 시트(값+메모)를 읽는 load_rows 대신 그 행만 (약 2.7초 → 1초 미만, 2026-10-15)."""
+    from dashboard.services.payment_sync import _get_payment_service, _fetch_row_notes
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    svc = _get_payment_service()
+    if not (svc and sid and sn and row):
+        return []
+    vals = svc.spreadsheets().values().get(
+        spreadsheetId=sid, range=f"'{sn}'!A{row}:AD{row}",
+        valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
+    if not vals or str(vals[0]).strip() != code:
+        return []                      # 행이 밀렸으면 호출부가 전체 조회로
+    return [{'code': code, 'row': row, 'vals': vals,
+             'notes': list(_fetch_row_notes(sid, sn, row) or ['', '', ''])[:3]}]
+
+
+def build_processing_blocks(outflow: Dict, c: Dict) -> list:
+    """[반환으로 기록] 누른 직후 — 버튼 없이 '⏳ 반환 기록 중' (재클릭 차단, 처리 중임을 바로 보여줌)."""
+    from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
+    lines = ["⠀", f">⏳ *반환 기록 중…*  `{c['code']}`  ·  *{c['stage']}*  ·  *{c['amount']:,}원*",
+             f">{INTAKE_SEP}", *quoted_body(outflow.get('text') or ''), f">{INTAKE_SEP}"]
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
+
+
 def _fmt_md(iso_or_ts) -> str:
     try:
         if isinstance(iso_or_ts, (int, float)):

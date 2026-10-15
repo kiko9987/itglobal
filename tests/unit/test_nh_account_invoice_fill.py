@@ -111,3 +111,57 @@ def test_invoice_on_other_stage_keeps_n_ipgeum(mgr):
     sb._mark_invoice_issued_in_sheet('R4101-JSH', '잔금', invoice_amt='12000000', vat_val='sep')
     assert mgr.cells['AB10'] == '발행'
     assert mgr.cells['Z10'] == 'N입금'
+
+
+class _RowMgr(_FakeMgr):
+    """행 한 번 읽기(get_row_values) 지원 매니저 — 칸별 조회 횟수 집계 (2026-10-15 속도 개선)."""
+    def __init__(self, **cells):
+        super().__init__(**cells)
+        self.cell_reads = 0
+
+    def get_cell_value(self, sid, sn, cell):
+        self.cell_reads += 1
+        return super().get_cell_value(sid, sn, cell)
+
+    def get_row_values(self, sid, sn, row):
+        return {k[:-len(str(row))]: v for k, v in self.cells.items() if k.endswith(str(row))}
+
+
+@pytest.mark.parametrize('memo, stage, amount', [(NH, '잔금', 10400000), (HANA, '잔금', 3014000)])
+def test_row_snapshot_same_result_fewer_reads(monkeypatch, memo, stage, amount):
+    import dashboard.services.lead_service as ls
+    import dashboard.utils.user_database as udb
+    monkeypatch.setenv('GOOGLE_SHEET_ID', 'sid'); monkeypatch.setenv('GOOGLE_SHEET_NAME', '공사 현황')
+    monkeypatch.setattr(udb, 'get_audit_repository',
+                        lambda: type('A', (), {'log_action': lambda *a, **k: None})())
+    a, b = _FakeMgr(), _RowMgr()
+    for m in (a, b):
+        monkeypatch.setattr(ls, 'get_sheets_manager', lambda m=m: m)
+        assert sb._commit_intake_to_sheet('X1', stage, amount, memo, 'U_SB')[0]
+    assert a.cells == b.cells and a.notes == b.notes          # 같은 결과
+    assert b.cell_reads <= 1                                  # 덮어쓰기 직전 재확인만 실시간 조회
+
+
+def test_refund_record_restores_card_on_failure(monkeypatch):
+    """[반환으로 기록] → 즉시 '기록 중' 카드, 재검증 실패면 원래 후보 카드로 되돌림."""
+    from dashboard.services import refund_match as rm
+    import dashboard.utils.redis_client as rcm
+
+    class _R:
+        def set(self, *a, **k): return True
+        def delete(self, *a): pass
+        def exists(self, *a): return False
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': _R()})())
+    cand = {'code': 'R4101-JSH', 'stage': '계약금', 'amount': 1200000, 'stage_value': 1200000, 'row': 4102,
+            'kind': 'reroute', 'paid': 12000000, 'total2': 12000000, 'unpaid_before': 0, 'unpaid_after': 1200000,
+            'dep_date': '2026-09-11', 'dep_bank': '하나', 'dep_partner': '김영은', 'reason': 'x'}
+    out = {'id': 'o1', 'text': '출금1,200,000원\n김영은', 'ts': 1792000000, 'bank': '하나', 'partner': '김영은'}
+    monkeypatch.setattr(rm, 'load_candidate', lambda oid: {'outflow': out, 'cand': cand})
+    monkeypatch.setattr(rm, 'load_row', lambda code, row: [{'code': code}])
+    monkeypatch.setattr(rm, 'find_candidates', lambda o, rows, include_reroute=False: [])   # 조건 바뀜
+    monkeypatch.setattr(sb, '_intake_ephemeral', lambda *a, **k: None)
+    updates = []
+    client = type('Cl', (), {'chat_update': lambda self, **k: updates.append(k)})()
+    sb._do_refund_record(client, sb._SETTLEMENT_CHECKER_ID, 'C1', '1.1', 'o1')
+    assert '반환 기록 중' in updates[0]['text']
+    assert updates[-1]['blocks'][1]['elements'][0]['action_id'] == 'payment_refund_record'   # 버튼 복원
