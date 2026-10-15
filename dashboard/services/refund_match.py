@@ -13,6 +13,11 @@
      입금 합계 − 총액2 = 출금액 (과입금 반환), 또는 총액2 = 0(공사 취소)이고 입금 합계 = 출금액
 후보가 정확히 1건일 때만 #입금_관리 카드 → 경영지원 [↩️ 반환으로 기록] 이 최종 판단.
 환불이 먼저 나가고 현금 수령 기록이 나중에 들어오는 순서도 있어(R4163) 주기 스캔으로 재평가.
+
+받은 돈 돌려줌(kind='reroute', 2026-10-15 R4101-JSH): ①~④는 맞는데 ⑤가 아님 — 더 받은 돈이 없는
+공사에서 받은 입금을 그대로 돌려준 출금(사업자 통장으로 받은 계약금을 돌려주고 현금으로 다시 받는
+경우 등). 기록하면 미수금이 다시 생김. 과입금·취소 후보가 없을 때만, 1건일 때만 제안.
+보관 출금 37건(10/6~) 백테스트: 이 규칙으로 새로 걸리는 다른 출금 0건.
 """
 import json
 import logging
@@ -78,10 +83,12 @@ def amount_check(paid: int, total2: int, amount: int) -> str:
     return ''
 
 
-def find_candidates(outflow: Dict, rows: List[Dict]) -> List[Dict]:
+def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = False) -> List[Dict]:
     """출금 1건 → 조건 ①~⑤ 를 모두 만족하는 (프로젝트·단계·입금) 후보 목록.
 
     rows: [{'code', 'row', 'vals'(A..AD 값 리스트), 'notes'([U,V,W 메모])}]
+    include_reroute: ⑤(과입금·취소)가 아니어도 ①~④가 맞으면 kind='reroute'(받은 돈 돌려줌) 후보로 포함.
+    후보 kind: 'overpay'(⑤ 충족) | 'reroute'. unpaid_before/after = 기록 전후 미수금.
     """
     from dashboard.services.fund_transfer import names_match
     from dashboard.services.payment_sync import _parse_notes
@@ -96,8 +103,13 @@ def find_candidates(outflow: Dict, rows: List[Dict]) -> List[Dict]:
         u, v, w, total2 = _num(vals[20]), _num(vals[21]), _num(vals[22]), _num(vals[19])
         paid = u + v + w
         reason = amount_check(paid, total2, amt)           # ⑤ 먼저 — 대부분 행을 싸게 걸러냄
+        kind = 'overpay'
         if not reason:
-            continue
+            # 받은 돈 돌려줌 — 총액이 있고 더 받은 돈이 없는 공사만 (과입금인데 금액이 다른 건 제외)
+            if not (include_reroute and total2 > 0 and paid <= total2 + 1 and paid >= amt):
+                continue
+            kind = 'reroute'
+            reason = f'받은 돈 {paid:,}원 / 총액 {total2:,}원 — 더 받은 돈 없음'
         pays = _parse_notes((list(r.get('notes') or []) + ['', '', ''])[:3],
                             stage_vals={'계약금': u, '중도금': v, '잔금': w})
         for stage, col in zip(_STAGES, _COLS):
@@ -116,7 +128,11 @@ def find_candidates(outflow: Dict, rows: List[Dict]) -> List[Dict]:
                 d = _deposit_date(p, o_date)
                 if not d or d > o_date or (o_date - d).days > MAX_DAYS:  # ④
                     continue
+                if kind == 'reroute' and {'계약금': u, '중도금': v, '잔금': w}[stage] < amt:
+                    continue            # 그 단계에 돌려줄 만큼 남아 있지 않음
                 out.append({
+                    'kind': kind,
+                    'unpaid_before': max(total2 - paid, 0), 'unpaid_after': max(total2 - (paid - amt), 0),
                     'code': r['code'], 'row': r['row'], 'stage': stage, 'col': col,
                     'amount': amt, 'stage_value': {'계약금': u, '중도금': v, '잔금': w}[stage],
                     'paid': paid, 'total2': total2, 'reason': reason,
@@ -168,18 +184,37 @@ def build_candidate_blocks(oid: str, outflow: Dict, c: Dict) -> list:
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     amt = c['amount']
     after = c['stage_value'] - amt
+    reroute = c.get('kind') == 'reroute'
+    if reroute:
+        # 받은 돈 돌려줌 — 더 받은 돈이 아니라 받은 입금을 그대로 돌려준 출금 (2026-10-15 R4101-JSH)
+        head = f">↩️ *반환 후보 — 받은 돈을 돌려준 출금*  `{c['code']}`  ·  *{c['stage']}*  ·  *{amt:,}원*"
+        check = [f">받은 돈 : {c['paid']:,}원 / 총액 {c['total2']:,}원 (더 받은 돈 없음)",
+                 f">기록하면 : {c['stage']} {c['stage_value']:,}원 → {after:,}원  ·  "
+                 f"미수금 {c['unpaid_before']:,}원 → {c['unpaid_after']:,}원 (다시 받을 돈)"]
+    else:
+        head = f">↩️ *반환 후보 — 기록 확인 필요*  `{c['code']}`  ·  *{c['stage']}*  ·  *{amt:,}원*"
+        check = [f">금액 검증 : {c['reason']}"]
     lines = [
         "⠀",
-        f">↩️ *반환 후보 — 기록 확인 필요*  `{c['code']}`  ·  *{c['stage']}*  ·  *{amt:,}원*",
+        head,
         f">{INTAKE_SEP}",
         f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {amt:,}원  {c['dep_partner']}",
         f">출금 : {_fmt_md(outflow.get('ts'))}  {outflow.get('bank', '')}  {amt:,}원  "
         f"{outflow.get('partner', '')}",
-        f">금액 검증 : {c['reason']}",
+        *check,
         f">{INTAKE_SEP}",
         *quoted_body(outflow.get('text') or ''),
         f">{INTAKE_SEP}",
     ]
+    confirm_text = (f"`{c['code']}` {c['stage']} 메모에 출금 내역을 추가하고 "
+                    f"{c['stage']} {c['stage_value']:,}원 → {after:,}원으로 기록할까요?")
+    context = (f"경영지원 확인 후 기록 — {c['stage']} 메모에 출금 내역 추가 · "
+               f"{c['stage']} {c['stage_value']:,}원 → {after:,}원"
+               + (" · 계산서 칸 '-'" if after == 0 else ''))
+    if reroute:
+        confirm_text += f" 미수금이 {c['unpaid_after']:,}원이 됩니다."
+        context = ("다시 받을 돈이면 [반환으로 기록] (예: 사업자 통장으로 받은 돈을 돌려주고 "
+                   "현금으로 다시 받기로 한 경우), 이 공사와 상관없는 출금이면 [반환 아님]")
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
         {"type": "actions", "elements": [
@@ -187,18 +222,13 @@ def build_candidate_blocks(oid: str, outflow: Dict, c: Dict) -> list:
              "text": {"type": "plain_text", "text": "↩️ 반환으로 기록"}, "value": oid,
              "confirm": {
                  "title": {"type": "plain_text", "text": "반환 기록"},
-                 "text": {"type": "mrkdwn", "text":
-                          f"`{c['code']}` {c['stage']} 메모에 출금 내역을 추가하고 "
-                          f"{c['stage']} {c['stage_value']:,}원 → {after:,}원으로 기록할까요?"},
+                 "text": {"type": "mrkdwn", "text": confirm_text},
                  "confirm": {"type": "plain_text", "text": "기록"},
                  "deny": {"type": "plain_text", "text": "취소"}}},
             {"type": "button", "action_id": "payment_refund_dismiss",
              "text": {"type": "plain_text", "text": "반환 아님"}, "value": oid},
         ]},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text":
-            f"경영지원 확인 후 기록 — {c['stage']} 메모에 출금 내역 추가 · "
-            f"{c['stage']} {c['stage_value']:,}원 → {after:,}원"
-            + (" · 계산서 칸 '-'" if after == 0 else '')}]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": context}]},
     ]
 
 
@@ -208,7 +238,8 @@ def build_done_blocks(outflow: Dict, c: Dict, old: int, new: int, checker: str) 
     lines = [
         "⠀",
         f">✅ *반환 기록 완료*  `{c['code']}`  ·  *{c['stage']}*  ·  *{c['amount']:,}원*",
-        f">처리 : 확인 {checker}  ·  {c['stage']} {old:,}원 → {new:,}원",
+        f">처리 : 확인 {checker}  ·  {c['stage']} {old:,}원 → {new:,}원"
+        + (f"  ·  미수금 {c['unpaid_after']:,}원 (다시 받을 돈)" if c.get('kind') == 'reroute' else ''),
         f">{INTAKE_SEP}",
         f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {c['amount']:,}원  {c['dep_partner']}",
         f">출금 : {_fmt_md(outflow.get('ts'))}  {outflow.get('bank', '')}  {c['amount']:,}원  "
@@ -290,12 +321,14 @@ def scan_and_propose(slack=None) -> Dict:
         rows = load_rows()
         proposed = 0
         for o in outs:
-            cands = find_candidates(o, rows)
+            allc = find_candidates(o, rows, include_reroute=True)
+            # 과입금·취소 후보 우선, 없을 때만 '받은 돈 돌려줌' 후보
+            cands = [x for x in allc if x['kind'] != 'reroute'] or allc
             if len(cands) == 1:
                 proposed += int(post_candidate(o['id'], o, cands[0], slack))
             elif len(cands) > 1:
                 logger.info(f"[REFUND_MATCH] 후보 {len(cands)}건 — 모호해서 제안 안 함 (출금 {o['id']}: "
-                            f"{[(x['code'], x['stage']) for x in cands]})")
+                            f"{[(x['code'], x['stage'], x['kind']) for x in cands]})")
         return {'ok': True, 'outflows': len(outs), 'proposed': proposed}
     finally:
         rc.delete(_SCAN_LOCK)

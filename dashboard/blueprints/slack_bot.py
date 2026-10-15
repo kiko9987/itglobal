@@ -1676,7 +1676,9 @@ def _do_refund_record(client, user, channel, ts, oid):
             return
         o, c0 = data['outflow'], data['cand']
         # 제안 이후 시트가 바뀌었을 수 있어 최신 시트로 조건 ①~⑤ 재확인
-        fresh = [x for x in rm.find_candidates(o, rm.load_rows())
+        #   ('받은 돈 돌려줌' 후보는 ⑤ 대신 ①~④ + 더 받은 돈 없음, 2026-10-15)
+        fresh = [x for x in rm.find_candidates(o, rm.load_rows(),
+                                               include_reroute=(c0.get('kind') == 'reroute'))
                  if x['code'] == c0['code'] and x['stage'] == c0['stage']]
         if not fresh:
             _intake_ephemeral(client, channel, user,
