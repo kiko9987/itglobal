@@ -53,3 +53,34 @@ def test_company_name_inside_address_is_not_location_evidence():
 def test_digits_only_piece_not_counted():
     recs = [_r('G5000-AA', '어떤상호', '서울 중구 2025길 205호', 1000000)]
     assert g('김20205', 500000, recs) == ''
+
+
+def _rc(code, name, contact, addr, miss):
+    return {**_r(code, name, addr, miss), '발주처 담당자': contact}
+
+
+def test_contact_name_when_no_business_name():
+    # 10/14 '이혜빈' 2,600,000원 — 개인 고객(사업자명 '-'), 입금자=발주처 담당자 (2026-10-15)
+    recs = [_rc('R4173-YM', '-', '이혜빈', '마포구 성미산로 190-13 2층', 2860000),
+            _rc('R4101-JSH', '-', '일단영어학원', '시흥 서울대학로278번길 19-14', 1600000)]
+    assert g('이혜빈', 2600000, recs) == 'R4173-YM'
+    # 입금액이 미수금보다 크면 후보 아님
+    assert g('이혜빈', 3000000, recs) == ''
+
+
+def test_business_name_beats_contact():
+    recs = [_rc('G6000-AA', '(주)한빛상사', '김철수', '서울 중구 1', 5000000),
+            _rc('G6001-AA', '다른상호', '한빛상사', '서울 중구 2', 5000000)]
+    assert g('(주)한빛상사', 1000000, recs) == 'G6000-AA'
+
+
+def test_contact_ambiguous_returns_empty():
+    recs = [_rc('G7000-AA', '-', '이혜빈', '서울 마포구 1', 3000000),
+            _rc('G7001-AA', '-', '이혜빈', '경기 고양시 2', 3000000)]
+    assert g('이혜빈', 2600000, recs) == ''
+
+
+def test_summary_line_keeps_emoji_shortcode():
+    from dashboard.services.pin_remind import _summary_line
+    s = _summary_line('매출금액 확인 필요\n:white_check_mark: *R4101-JSH* · 잔금 _10,400,000원_ 확인 완료')
+    assert s == '매출금액 확인 필요 :white_check_mark: R4101-JSH · 잔금 10,400,000원 확인 완료'

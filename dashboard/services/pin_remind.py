@@ -102,7 +102,8 @@ def _summary_line(text: str) -> str:
     """한 줄 요약 — 계좌번호·마크다운·개행·꼬리 문구 제거."""
     s = text.replace('[Web발신]', '')
     s = re.sub(r'(?:452|255)[\d*\-]{5,}', '', s)   # 계좌번호 제거 (마스킹 깨짐·노이즈 방지)
-    s = re.sub(r'[*_]', '', s)                       # bold 마크다운 제거
+    # bold/italic 마크다운 제거 — 이모지 코드(:white_check_mark:)의 '_'는 보존
+    s = re.sub(r'(:[a-z0-9_+\-]+:)|[*_]', lambda m: m.group(1) or '', s)
     s = re.sub(r'\s*\n\s*', ' ', s).strip()
     s = re.sub(r'\s*회신\s*부탁드립니다\.?\s*$', '', s).strip()
     s = re.sub(r'\s{2,}', ' ', s)
@@ -271,7 +272,8 @@ def _guess_project(partner: str, amount, recs: list) -> str:
     """미지정 입금의 추정 프로젝트 코드 — 확실할 때만(후보 1개) 반환, 아니면 ''.
 
     조건(전부 충족 + 후보 유일): ①입금자명↔사업자명 핵심어 일치(양방향, SMS 잘림
-    대응 최장공통 4자) — 없거나 여럿이면 입금자명 속 현장주소 키워드로 찾기/좁히기
+    대응 최장공통 4자) — 사업자명 후보가 없으면 같은 규칙으로 발주처 담당자(개인 고객은
+    사업자명 '-'·입금자=담당자 본인), 없거나 여럿이면 입금자명 속 현장주소 키워드로 찾기/좁히기
     ②미수금>0 ③입금액≤미수금(그 현장이 받을 수 있는 범위).
     후보 0개/2개↑면 생략(오추정 방지). 단정 아님 — 담당자 확인용 힌트.
     """
@@ -333,10 +335,13 @@ def _guess_project(partner: str, amount, recs: list) -> str:
                 i += 1
         return total >= 5 and best >= 3
 
+    def _name_hit(p_, name_):
+        return len(name_) >= 3 and (name_[:6] in p_ or p_[:6] in name_ or _lcs(p_, name_) >= 4)
+
     p = _norm(partner)
     if len(p) < 3:
         return ''
-    by_name, by_addr = set(), set()
+    by_name, by_contact, by_addr = set(), set(), set()
     for r in recs:
         code = str(r.get('프로젝트 코드', '')).strip()
         if not code:
@@ -345,17 +350,22 @@ def _guess_project(partner: str, amount, recs: list) -> str:
         if miss <= 0 or amt > miss + 1000:
             continue
         name = _norm(r.get('사업자명', ''))
-        if len(name) >= 3 and (name[:6] in p or p[:6] in name or _lcs(p, name) >= 4):
+        if _name_hit(p, name):
             by_name.add(code)
+        if _name_hit(p, _norm(r.get('발주처 담당자', ''))):
+            by_contact.add(code)
         if _addr_hit(p, _norm(r.get('현장 주소', '')), name):
             by_addr.add(code)
-    # 사업자명 우선(기존 동작 그대로). 이름 후보 여럿이면 주소로 좁히고, 이름 후보가 없을 때만
-    # 주소 단독 — 입금자명에 사업자 약칭+현장주소를 쓰는 경우('MJ다산순환로20', 2026-10-06).
-    if len(by_name) == 1:
-        return next(iter(by_name))
-    if by_name:
-        both = by_name & by_addr
-        return next(iter(both)) if len(both) == 1 else ''
+    # 사업자명 우선(기존 동작 그대로) → 없을 때만 발주처 담당자(10/14 '이혜빈' 2,600,000원 =
+    # R4173-YM 발주처 담당자, 사업자명 '-'라 추정 불가였음). 이름 후보 여럿이면 주소로 좁히고,
+    # 이름 후보가 없을 때만 주소 단독 — 입금자명에 사업자 약칭+현장주소를 쓰는 경우
+    # ('MJ다산순환로20', 2026-10-06).
+    for cands in (by_name, by_contact):
+        if len(cands) == 1:
+            return next(iter(cands))
+        if cands:
+            both = cands & by_addr
+            return next(iter(both)) if len(both) == 1 else ''
     return next(iter(by_addr)) if len(by_addr) == 1 else ''
 
 
