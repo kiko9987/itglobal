@@ -1759,6 +1759,56 @@ _SYNC_MUTEX_KEY = 'payment_sync:running'
 _SYNC_MUTEX_TTL = 60  # 안전 상한 — sync 는 5-10초 예상, 정상 종료 시 즉시 해제
 
 
+_SPECIAL_LINE_RE = re.compile(r'(?:제외|차감|채권추심|반환|안분|상계|매입|환불|재입금|정정)')
+_SPECIAL_DATE_PREFIX_RE = re.compile(
+    r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*(?:\d{1,2}:\d{2}\s*)?')
+_SPECIAL_TRANSFER_MD_RE = re.compile(r'^\d{4}-(\d{1,2})-(\d{1,2})')
+
+
+def _append_special_notes(text: str, notes) -> str:
+    """카드에 [특이사항] 섹션 덧붙이기 — 첫 발송·정정·재렌더 모든 경로 공용.
+
+    2026-07-11 (G1019-MW) 노트에 '제외/차감/채권추심/반환/안분/상계/매입…' 키워드가 있는 줄은
+    정상 payment 로 잡히지 않는 이유를 서술한 것 → 마지막 구분선 위 `[특이사항]` 으로 표시해
+    이력 합·시트 총액 차이 이유를 바로 알게. 앞 날짜/시간은 빼고 단계 접두어를 붙인다.
+    2026-07-12 매출이동/계좌이체 줄('YYYY-MM-DD G>N')도 회계 이력으로 표시(G2965-TH).
+    2026-10-15 함수로 분리 — 전엔 첫 발송에만 붙어 정정·총액 변경 재렌더 때 특이사항이 사라졌다
+    (R4101-JSH 중도금 '중고매입 상계처리').
+    """
+    try:
+        _stage_by_idx = ('계약금', '중도금', '잔금')
+        entries = []  # [(stage, cleaned_line)]
+        for _idx, _note in enumerate(notes or []):
+            if not _note:
+                continue
+            _stage_name = _stage_by_idx[_idx] if _idx < 3 else ''
+            for _ln in _note.splitlines():
+                _ln = _ln.strip()
+                if not _ln or _ln.startswith('입금 '):
+                    continue
+                _tr = _TRANSFER_RE.search(_ln)
+                if _tr:
+                    _md_m = _SPECIAL_TRANSFER_MD_RE.match(_ln)
+                    _md = f'{int(_md_m.group(1)):02d}/{int(_md_m.group(2)):02d}' if _md_m else ''
+                    _cleaned = f'{_md} {_tr.group(1).upper()}>{_tr.group(2).upper()} 매출이동'.strip()
+                elif _SPECIAL_LINE_RE.search(_ln):
+                    _cleaned = _SPECIAL_DATE_PREFIX_RE.sub('', _ln).strip()
+                else:
+                    continue
+                if _cleaned and (_stage_name, _cleaned) not in entries:
+                    entries.append((_stage_name, _cleaned))
+        if not entries:
+            return text
+        block = ['', '[특이사항]'] + [f"{f'{s} ' if s else ''}{c}" for s, c in entries[:5]]
+        special = '\n'.join(block)
+        parts = text.rsplit(_SEP, 1)   # 마지막 구분선 위에 삽입
+        if len(parts) == 2:
+            return parts[0].rstrip() + '\n' + special + '\n' + _SEP + parts[1]
+        return text + '\n' + special
+    except Exception:
+        return text
+
+
 def _build_stage_card_text(stage: str, project: str, payments: List[Dict],
                            c: Dict, stage_vals: Dict[str, int]) -> str:
     """단건(비통합) 카드 텍스트 — 발송 로직과 동일 분기(수금완료/중도금이력/단계).
@@ -1819,7 +1869,8 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
         return False  # 통합 카드 제외 (여러 프로젝트 — v1 미대상)
     stage_vals = {'계약금': corr['u'], '중도금': corr['v'], '잔금': corr['w']}
     try:
-        new_text = _build_stage_card_text(stage, project, payments, corr, stage_vals)
+        new_text = _append_special_notes(
+            _build_stage_card_text(stage, project, payments, corr, stage_vals), notes)
     except Exception as exc:
         logger.warning(f'[PAYMENT] 정정 카드 빌드 실패 ({project}/{stage}): {exc}')
         return False
@@ -1829,12 +1880,20 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
     # (예: 매출이동으로 다른 단계 은행코드가 파서 재계산과 달라지는 경우 오정정 방지)
     # 예외(2026-08): '반환' 이력 줄과 '미수금' 줄은 과입금 반환 시 정상적으로 변하므로
     #   비교에서 제외 → 반환 정정은 자동 허용. 입금액·입금자·주소 등 코어 변경은 계속 감지.
+    #   [특이사항] 섹션도 제외 — 메모 서술을 옮긴 표시용이라(재렌더에서 빠졌던 카드에 다시 붙을 때
+    #   가드에 걸리지 않게, 2026-10-15).
     if old:
         def _cmp_lines(txt):
             out = []
+            in_special = False
             for l in txt.splitlines():
                 s = l.strip()
-                if not s or s == '⠀' or stage in s:
+                if s == '[특이사항]':
+                    in_special = True
+                    continue
+                if s.startswith('-----'):
+                    in_special = False
+                if in_special or not s or s == '⠀' or stage in s:
                     continue
                 if s.startswith('반환') or s.startswith('미수금'):
                     continue
@@ -1890,7 +1949,8 @@ def _reprice_payment_card(slack, channel: str, rep: Dict,
             return False
     stage_vals = {'계약금': rep['u'], '중도금': rep['v'], '잔금': rep['w']}
     try:
-        new_text = _build_stage_card_text(stage, project, payments, rep, stage_vals)
+        new_text = _append_special_notes(
+            _build_stage_card_text(stage, project, payments, rep, stage_vals), notes)
     except Exception as exc:
         logger.warning(f'[PAYMENT] 재렌더 카드 빌드 실패 ({project}/{stage}): {exc}')
         return False
@@ -2684,12 +2744,12 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             _done_ts = None
                         if _done_ts:
                             from dashboard.blueprints.slack_helpers import safe_slack_call
-                            _done_text = _build_complete_message(
+                            _done_text = _append_special_notes(_build_complete_message(
                                 project=project, address=c['address'],
                                 payments=payments, invoice_value=c['invoice'],
                                 total_t=c['total_t'], stage_sheet_vals=stage_vals,
                                 construction=c.get('construction', ''),
-                            )
+                            ), notes)
                             try:
                                 safe_slack_call(slack.chat_update, channel=channel,
                                                 ts=_done_ts, text=_done_text)
@@ -2899,61 +2959,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                         except Exception:
                             pass
 
-                    # 2026-07-11 특이사항 라인 표시 (G1019-MW 관측) — 노트에 '제외/차감/
-                    #   채권추심/반환/안분' 키워드가 있는 라인은 매니저가 정상 payment 로 잡히지
-                    #   않는 이유를 서술한 것. `[입금 이력]` 블록 아래, 마지막 구분선 위에
-                    #   `[특이사항]` 섹션으로 표시해서 매니저가 이력 합·시트 총액 차이 이유를
-                    #   즉시 파악하도록. 앞의 날짜/시간 부분은 제거하고 stage 접두어 추가.
-                    #   2026-07-12 확장 — 매출이동/계좌이체 라인 ("YYYY-MM-DD G>N") 도
-                    #   특이사항으로 표시. 파서는 이체 블록을 skip 하지만 매니저 카드에는
-                    #   회계 이력으로 남아야 함 (G2965-TH 관측).
-                    try:
-                        _stage_by_idx = ('계약금', '중도금', '잔금')
-                        _date_prefix_re = re.compile(
-                            r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*'
-                            r'(?:\d{1,2}:\d{2}\s*)?'
-                        )
-                        _special_re = re.compile(r'(?:제외|차감|채권추심|반환|안분|상계|매입|환불|재입금|정정)')
-                        _transfer_md_re = re.compile(r'^\d{4}-(\d{1,2})-(\d{1,2})')
-                        _special_entries = []  # [(stage, cleaned_line)]
-                        for _idx, _note in enumerate(notes):
-                            if not _note:
-                                continue
-                            _stage_name = _stage_by_idx[_idx] if _idx < 3 else ''
-                            for _ln in _note.splitlines():
-                                _ln = _ln.strip()
-                                if not _ln or _ln.startswith('입금 '):
-                                    continue
-                                _tr = _TRANSFER_RE.search(_ln)
-                                if _tr:
-                                    _md_m = _transfer_md_re.match(_ln)
-                                    _md = f'{int(_md_m.group(1)):02d}/{int(_md_m.group(2)):02d}' if _md_m else ''
-                                    _a, _b = _tr.group(1).upper(), _tr.group(2).upper()
-                                    _cleaned = f'{_md} {_a}>{_b} 매출이동'.strip()
-                                elif _special_re.search(_ln):
-                                    # 날짜/시간 prefix 제거
-                                    _cleaned = _date_prefix_re.sub('', _ln).strip()
-                                else:
-                                    continue
-                                if not _cleaned:
-                                    continue
-                                _entry = (_stage_name, _cleaned)
-                                if _entry not in _special_entries:
-                                    _special_entries.append(_entry)
-                        if _special_entries:
-                            _special_block = ['', '[특이사항]']
-                            for _stg, _cln in _special_entries[:5]:
-                                _prefix = f'{_stg} ' if _stg else ''
-                                _special_block.append(f'{_prefix}{_cln}')
-                            _special_text = '\n'.join(_special_block)
-                            # 마지막 구분선 위에 삽입
-                            _parts = text.rsplit(_SEP, 1)
-                            if len(_parts) == 2:
-                                text = _parts[0].rstrip() + '\n' + _special_text + '\n' + _SEP + _parts[1]
-                            else:
-                                text += '\n' + _special_text
-                    except Exception:
-                        pass
+                    # [특이사항] — 규칙은 _append_special_notes 참고 (재렌더 경로와 공용)
+                    text = _append_special_notes(text, notes)
 
                     # 2026-07-15 rollback: 초기 설계 (122a5bb, 각 stage 완전 독립 카드)
                     #   로 복귀. P2-4 (fd68d48) 스레드 답글 로직 제거 — 프로젝트별 이력

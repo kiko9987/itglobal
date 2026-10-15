@@ -95,5 +95,45 @@ def test_build_stage_card_text_middle_stage_no_crash():
     assert '미수금 : -2,000,000원' in txt
 
 
+# ── [특이사항] 재렌더 경로 유지 (2026-10-15 R4101-JSH: 정정 후 '중고매입 상계처리' 사라짐) ──
+
+_R4101_NOTES = ['2026/09/11\n하나,09/11, 13:00\n255******31304\n입금1,200,000원\n김영은',
+                '대체전표\n2026-10-15\n400,000원\n중고매입 상계처리',
+                '2026/10/12\n농협, 10/12 10:45\n352-****-1682-33\n입금 10,400,000원\n김영은']
+_R4101 = {'project': 'R4101-JSH', 'row': 4102, 'stage': '중도금', 'ts': '9.9',
+          'u': 1200000, 'v': 400000, 'w': 10400000,
+          'address': '시흥 서울대학로278번길 19-14', 'construction': '중고 10마력 천9대 설치공사',
+          'invoice': '잔금 - N입금', 'total_r': 12000000, 'total_t': 12000000, 'unpaid': 0}
+
+
+def test_append_special_notes_inserts_above_last_separator():
+    txt = ps._append_special_notes('⠀\n머리\n' + ps._SEP + '\n본문\n' + ps._SEP + '\n미수금 : 0원\n⠀',
+                                   _R4101_NOTES)
+    assert '[특이사항]\n중도금 중고매입 상계처리\n' + ps._SEP + '\n미수금 : 0원' in txt
+    assert ps._append_special_notes('본문', ['', '', '']) == '본문'     # 해당 줄 없으면 그대로
+
+
+def test_correction_rerender_keeps_special_notes(monkeypatch):
+    # 특이사항만 빠졌던 카드 → 정정 시 특이사항 포함 본문으로 갱신 (같은 줄 비교라 안전 가드 통과)
+    monkeypatch.setattr(ps, '_fetch_row_notes', lambda sid, sn, row: list(_R4101_NOTES))
+    pays = ps._parse_notes(_R4101_NOTES, stage_vals={'계약금': 1200000, '중도금': 400000, '잔금': 10400000})
+    bare = ps._build_stage_card_text('중도금', 'R4101-JSH', pays, _R4101,
+                                     {'계약금': 1200000, '중도금': 400000, '잔금': 10400000})
+    fs = _FakeSlack(bare)
+    assert ps._correct_payment_card(fs, 'C', _R4101, 'sid', 'sn') is True
+    txt = fs.updates[0]['text']
+    assert '중도금 대체수금' in txt and '[특이사항]\n중도금 중고매입 상계처리' in txt
+
+
+def test_reprice_rerender_keeps_special_notes(monkeypatch):
+    monkeypatch.setattr(ps, '_fetch_row_notes', lambda sid, sn, row: list(_R4101_NOTES))
+    fs = _FakeSlack('옛 카드')
+    rep = dict(_R4101, stage='잔금')
+    assert ps._reprice_payment_card(fs, 'C', rep, 'sid', 'sn') is True
+    txt = fs.updates[0]['text']
+    assert '수금완료' in txt and '중도금  10/15  대체수금  400,000원' in txt
+    assert '[특이사항]\n중도금 중고매입 상계처리' in txt
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
