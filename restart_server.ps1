@@ -1,4 +1,4 @@
-# ITGFlask 확실한 재시작 스크립트  (반드시 "관리자 권한" PowerShell 에서)
+﻿# ITGFlask 확실한 재시작 스크립트  (반드시 "관리자 권한" PowerShell 에서)
 #
 # 사용:  cd 프로젝트폴더 후  ->  .\restart_server.ps1     ( 앞에 .\ 필수 )
 #
@@ -11,14 +11,15 @@
 $ErrorActionPreference = 'SilentlyContinue'
 Write-Host "== ITGFlask 재시작 ==" -ForegroundColor Cyan
 
-$before = (Get-NetTCPConnection -LocalPort 5000 -State Listen | Select-Object -First 1).OwningProcess
+# Get-NetTCPConnection 은 $ErrorActionPreference 를 안 따라 '찾을 수 없음'이 빨갛게 뜸 → -ErrorAction 직접 지정
+$before = (Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
 Write-Host "현재 포트5000 PID: $before"
 
 Write-Host "1) Restart-Service..."
 Restart-Service ITGFlask -Force
 Start-Sleep -Seconds 3
 
-$after = (Get-NetTCPConnection -LocalPort 5000 -State Listen | Select-Object -First 1).OwningProcess
+$after = (Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
 if ($after -and $after -eq $before) {
     Write-Host "2) 잔여 프로세스가 남음 -> taskkill 로 트리째 강제 종료..." -ForegroundColor Yellow
     $parent = (Get-CimInstance Win32_Process -Filter "ProcessId=$after").ParentProcessId
