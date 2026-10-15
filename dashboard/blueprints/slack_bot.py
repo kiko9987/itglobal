@@ -3078,6 +3078,13 @@ def _register_project_handlers(app):
         # UX 개선 (2026-07-16 사고): 검증 (Drive API + 시트 조회) 이 3초 넘어가
         # modal 이 안 닫히는 문제 → ack() 즉시 호출 + 검증·발송을 BG 스레드로.
         # 검증 실패 시 매니저에게 chat.postEphemeral (DM fallback) 로 반려 안내.
+        # 금액 사전 점검(2026-10-15)만 ack 전 — 캐시 조회라 빠르고, 하드 타임아웃(1.5초) 초과 시
+        #   무경고 통과. 같은 금액·VAT 로 다시 누르면 통과(확인).
+        _warn = _invoice_submit_amount_check(view)
+        if _warn:
+            ack(response_action="errors",
+                errors={"amt": f"{_warn} 맞으면 [요청 발송]을 한 번 더 눌러주세요."})
+            return
         ack()
         def _bg():
             try:
@@ -13983,6 +13990,50 @@ def _pre_issued_amount(memo: str, stage: str) -> float:
     return _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
 
 
+def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False) -> str:
+    """계산서 요청 금액 사전 점검 — 의심되면 경고 문구, 아니면 '' (2026-10-15).
+
+    계기: G4146-JW 6,887,100원·G4157-JW 10,016,600원 — 부가세 포함 금액을 'VAT 별도'로 요청해
+    부가세가 두 번 붙음(경영지원이 취소·수정발행). 화면에서 확인 후 다시 제출하면 통과.
+    ① 부가세 포함 의심(VAT 별도일 때): 천 원 단위로 안 떨어지는 금액인데 ÷1.1 하면 천 원 단위
+       공급가가 됨. 과거 'VAT 별도' 요청 251건(7/24~10/15) 중 이 두 건만 해당.
+    ② 총액 초과(수정발행 아닐 때): 이미 발행(_project_issued_invoice) + 이번 발행액(부가세 포함)이
+       총액2를 1,000원 넘게 초과. 같은 기간 4건(R3862-YG 등).
+    '입금액과 같은 금액' 규칙은 공급가=입금액 우연 일치가 많아(14건 대부분 정상) 넣지 않음.
+    """
+    try:
+        amt = int(amt_digits or 0)
+    except (TypeError, ValueError):
+        return ''
+    if amt <= 0:
+        return ''
+    sep = (vat_val or 'sep') == 'sep'
+    if sep and amt % 1000 and (amt * 10) % 11 == 0 and (amt * 10 // 11) % 1000 == 0:
+        supply = amt * 10 // 11
+        return (f"⚠️ {amt:,}원은 부가세 포함 금액으로 보입니다(공급가 {supply:,}원 + 부가세). "
+                f"'VAT 별도'로 보내면 {round(amt * 1.1):,}원으로 발행됩니다. 공급가로 고치거나 VAT를 확인하세요.")
+    if has_replace or not code or code == '-':
+        return ''
+    try:
+        from dashboard.services.project_service import get_project_records
+        rec = next((r for r in (get_project_records() or [])
+                    if str(r.get('프로젝트 코드') or '').strip() == code), None)
+    except Exception:
+        rec = None
+    if not rec:
+        return ''
+    total1, total2 = _bill_to_num(rec.get('총액 1')), _bill_to_num(rec.get('총액 2'))
+    if total2 <= 0:
+        return ''
+    gross = round(amt * (total2 / total1 if total1 > 0 else 1.1)) if sep else amt
+    issued = round((_project_issued_invoice(code) or {}).get('issued_gross') or 0)
+    if issued + gross > total2 + 1000:
+        head = (f"이미 발행 {issued:,}원 + 이번 {gross:,}원(부가세 포함) = {issued + gross:,}원으로"
+                if issued > 0 else f"이번 {gross:,}원(부가세 포함)이")
+        return f"⚠️ {head} 총액 {round(total2):,}원을 넘습니다. 금액과 VAT를 확인하세요."
+    return ''
+
+
 def _project_issued_invoice(code):
     """이미 발행된 세금계산서 요약 (계산서 요청 모달 잔여 프리필·경고용, 2026-09-28).
 
@@ -14465,6 +14516,52 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         return
 
     _process_invoice_submission(client, body, view)
+
+
+def _invoice_submit_amount_check(view, timeout=1.5) -> str:
+    """계산서 모달 제출 직전 금액 점검 — 경고 문구(첫 제출) 또는 ''(통과).
+
+    같은 view·금액·VAT 로 경고를 이미 보여줬으면 통과(재제출=확인). 하드 타임아웃 초과·오류는
+    무경고 통과 — 모달 3초 ack 예산 보호.
+    """
+    try:
+        meta = json.loads(view.get("private_metadata") or "{}")
+        values = (view.get("state") or {}).get("values") or {}
+        amt = ''.join(ch for ch in str(((values.get('amt', {}).get('value') or {}).get('value')) or '')
+                      if ch.isdigit())
+        vat = (((values.get('vat', {}).get('value') or {}).get('selected_option')) or {}).get('value') or 'sep'
+        has_rep = bool(((values.get('replace', {}).get('value') or {}).get('selected_options')) or [])
+        code = meta.get("code", "-") or '-'
+    except Exception:
+        return ''
+    if not amt:
+        return ''
+    key = f"invoice_amt_warned:{view.get('id', '')}:{amt}:{vat}"
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        _r = get_redis_client().redis
+        if _r.get(key):
+            return ''
+    except Exception:
+        return ''   # 재제출(확인)을 기억 못 하면 경고가 매번 떠 막히므로 점검 생략
+    box = {}
+
+    def _run():
+        try:
+            box['w'] = _invoice_amount_warning(code, amt, vat, has_replace=has_rep)
+        except Exception:
+            box['w'] = ''
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    th.join(timeout)
+    warn = box.get('w') or ''
+    if warn:
+        try:
+            _r.set(key, '1', ex=900)
+        except Exception:
+            return ''
+        logger.info(f"[SLACK/계산서] 금액 점검 경고 ({code} {amt} {vat}): {warn}")
+    return warn
 
 
 def _process_invoice_submission(client, body, view) -> None:

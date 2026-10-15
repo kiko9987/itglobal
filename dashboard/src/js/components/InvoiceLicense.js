@@ -363,7 +363,12 @@ export default class InvoiceLicense {
         replace: [...el.querySelectorAll('input[data-rep]:checked')]
           .map((cb) => active[Number(cb.dataset.rep)]).filter(Boolean),
       };
-      const err = await this._postRaw('/api/invoice/request', payload);
+      let err = await this._postRaw('/api/invoice/request', payload);
+      // 금액 사전 점검 경고(부가세 포함 금액 의심·총액 초과) — 확인하면 그대로 다시 보냄 (2026-10-15)
+      if (!err.ok && err.code === 'INVOICE_AMOUNT_CHECK') {
+        if (!window.confirm(`${err.message}\n\n이 금액 그대로 요청할까요?`)) return err.message;
+        err = await this._postRaw('/api/invoice/request', { ...payload, confirm_amount: true });
+      }
       if (!err.ok) return err.message;
       delete this._issuedP[c];   // 다음에 열 땐 새로 조회
       this._toast('세금계산서 요청을 #계산서_관리로 발송했습니다.', 'success');

@@ -390,6 +390,18 @@ def api_invoice_request():
         except Exception as exc:
             logger.warning(f'[INVOICE] 수정발행 대상 확인 실패 ({code}): {exc}')
 
+    # 금액 사전 점검 (2026-10-15, 슬랙 모달과 같은 규칙) — 부가세 포함 금액 의심·총액 초과면
+    #   409 로 경고만 돌려주고, 화면에서 확인(confirm_amount=true) 후 다시 보내면 통과.
+    if not data.get('confirm_amount'):
+        try:
+            from .slack_bot import _invoice_amount_warning
+            _warn = _invoice_amount_warning(code, amt_digits, vat, has_replace=bool(replace))
+        except Exception as exc:
+            logger.warning(f'[INVOICE] 금액 점검 실패 (통과): {exc}')
+            _warn = ''
+        if _warn:
+            return APIResponse.error(message=_warn, error_code='INVOICE_AMOUNT_CHECK', status_code=409)
+
     try:
         from .slack_bot import post_invoice_request
         res = post_invoice_request(
