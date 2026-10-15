@@ -76,6 +76,83 @@ _PROJECT_CODE_RE = re.compile(r'^[GRN]\d{4}-[A-Z]{1,3}$')
 _TRANSFER_RE = re.compile(r'\d{4}-\d{1,2}-\d{1,2}\s+([grnpGRNP])\s*>\s*([grnpGRNP])')
 # 이체 출발 코드 → 원 입금 은행명 (매출이동 목적지를 원 입금 payment 에 매칭)
 _TRANSFER_ORIGIN_BANK = {'R': '하나', 'G': '기업', 'N': '농협'}
+# 대체수금(비현금 상계·리베이트) 트리거. '대체 수금'은 그대로 인정, '상계'·'차감'은 은행 입금·
+#   출금 블록이 아니고(입금/출금/반환/환불·ITG 계좌번호 없음) 금액(X원)이 있을 때만 — 상호
+#   ('상계아산내과')·주소('상계동')·라벨 양식('입금자: … 차감 지급') 오탐 방지 (2026-10-15).
+_SUBSTITUTE_RE = re.compile(r'대체\s*수금')
+_OFFSET_WORD_RE = re.compile(r'상계(?!아산|동)|차감')
+_BANK_FLOW_RE = re.compile(r'입금|출금|반환|환불|(?<!\d)(?:452|255|352)[\d*\-∗]{5,}')
+_WON_RE = re.compile(r'(?<![\d,])([\d,]*\d)\s*원(?!권)')
+
+
+def _won_amounts(text: str) -> set:
+    """'400,000원'·'40만원'·'40만 원' → {400000} (만원권 제외)."""
+    out = {int(a.replace(',', '')) for a in _WON_RE.findall(text or '') if a.replace(',', '')}
+    out |= {int(a.replace(',', '')) * 10000 for a in _KO_AMOUNT_RE.findall(text or '')
+            if a.replace(',', '')}
+    return {a for a in out if a > 0}
+
+
+def _is_substitute_text(text: str) -> bool:
+    """대체수금(상계 포함) 서술인지 — 트리거 규칙은 _SUBSTITUTE_RE/_OFFSET_WORD_RE 주석."""
+    if _SUBSTITUTE_RE.search(text or ''):
+        return True
+    return bool(_OFFSET_WORD_RE.search(text or '') and not _BANK_FLOW_RE.search(text or '')
+                and _won_amounts(text))
+
+
+def _substitute_amount(text: str) -> int:
+    """대체수금 금액 — 'X원 대체 수금' > '총 X원' > (금액이 하나뿐이면) 그 금액('40만원' 포함). 없으면 0."""
+    m = (re.search(r'([\d,]+)\s*원\s*대체\s*수금', text or '')
+         or re.search(r'총\s*([\d,]+)\s*원', text or ''))
+    if m:
+        return int(m.group(1).replace(',', '') or 0)
+    amts = _won_amounts(text)
+    return next(iter(amts)) if len(amts) == 1 else 0
+
+
+_BARE_DATE_LINE_RE = re.compile(r'^\s*(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}\s*월\s*\d{1,2}\s*일)\s*$')
+
+
+def _is_substitute_line(line: str) -> bool:
+    return bool((_SUBSTITUTE_RE.search(line) or _OFFSET_WORD_RE.search(line))
+                and _won_amounts(line) and not _BANK_FLOW_RE.search(line))
+
+
+def _isolate_substitute_lines(note: str) -> str:
+    """은행 입금 문자에 빈 줄 없이 붙여 쓴 대체수금(상계) 줄을 별도 블록으로 뗀다.
+
+    예: '…입금 10,400,000원\\n김영은\\n2026/10/15\\n장비 매입 상계 400,000원' → 입금 블록 +
+    '2026/10/15\\n장비 매입 상계 400,000원' 블록. 바로 앞 줄이 날짜만 있는 줄이면 함께 뗀다.
+    나머지에 은행 입금·출금 흔적이 없으면(서술형 메모 전체) 손대지 않는다 — 기존 동작 유지.
+    """
+    lines = (note or '').splitlines()
+    hits = {i for i, ln in enumerate(lines) if _is_substitute_line(ln)}
+    if not hits or len(hits) == len(lines):
+        return note
+    if not _BANK_FLOW_RE.search('\n'.join(ln for i, ln in enumerate(lines) if i not in hits)):
+        return note
+    out: List[str] = []
+    for i, ln in enumerate(lines):
+        if i in hits:
+            carry = out.pop() if out and _BARE_DATE_LINE_RE.match(out[-1]) else None
+            out += ['', carry, ln, ''] if carry is not None else ['', ln, '']
+        else:
+            out.append(ln)
+    return '\n'.join(out)
+
+
+def _substitute_date(text: str) -> str:
+    _m_ko = _KO_DATE_RE.search(text or '')
+    if _m_ko:
+        return f'{int(_m_ko.group(1)):02d}/{int(_m_ko.group(2)):02d}'
+    _m_full = re.search(r'(?<!\d)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)', text or '')
+    if _m_full:
+        return f'{int(_m_full.group(2)):02d}/{int(_m_full.group(3)):02d}'
+    _m_md = re.search(r'(?<![\d/,.])(\d{1,2})/(\d{1,2})(?![\d/:,.])', text or '')
+    if _m_md and 1 <= int(_m_md.group(1)) <= 12 and 1 <= int(_m_md.group(2)) <= 31:
+        return f'{int(_m_md.group(1)):02d}/{int(_m_md.group(2)):02d}'
+    return '-'
 # 라벨 양식 (앱스크립트 자동 + 매니저 수기 덮어쓰기)
 _LABEL_DATE_RE = re.compile(r'^입금일\s*:\s*(.+)$')
 _LABEL_PAYER_RE = re.compile(r'^입금자\s*:\s*(.+)$')
@@ -463,22 +540,38 @@ def _parse_notes(notes: List[str],
         #   과거 건 무더기 소급발송(flood) 방지. 금액은 '총 X원' / 'X원 대체 수금' 에서
         #   추출(둘 다 없으면 단계 값 fallback). date/bank 없음 → is_substitute 플래그로
         #   카드 렌더·미완성 가드에서 예외 처리한다.
-        if re.search(r'대체\s*수금', note):
-            _m_sub = (re.search(r'([\d,]+)\s*원\s*대체\s*수금', note)
-                      or re.search(r'총\s*([\d,]+)\s*원', note))
-            _sub_amt = int(_m_sub.group(1).replace(',', '')) if _m_sub else (
-                stage_val if stage_val > 0 else 0)
-            if _sub_amt > 0:
-                _sd = '-'
-                _m_ko = _KO_DATE_RE.search(note)
-                if _m_ko:
-                    _sd = f'{int(_m_ko.group(1)):02d}/{int(_m_ko.group(2)):02d}'
+        # 2026-10-15 블록 단위: 같은 칸에 은행 입금 블록과 대체수금(상계) 블록이 빈 줄로 나뉘어
+        #   함께 있으면(R4101-JSH 잔금 10,400,000원 입금 + 장비 매입 상계 400,000원) 메모 통째로
+        #   대체수금 한 건이 되어 은행 입금이 사라졌다 → 대체수금 블록만 한 건씩 떼고 나머지는
+        #   아래 표준 파싱. 블록 하나뿐인 메모는 기존 동작 그대로(메모 전체 기준).
+        #   입금 문자 바로 아래 빈 줄 없이 붙여 쓴 대체수금 줄도 먼저 블록으로 뗀다.
+        note = _isolate_substitute_lines(note)
+        _blocks0 = [b for b in re.split(r'\n\s*\n', note.strip()) if b.strip()]
+        _mixed = False
+        if len(_blocks0) >= 2:
+            _subs, _keep = [], []
+            for _b in _blocks0:
+                _ba = _substitute_amount(_b) if _is_substitute_text(_b) else 0
+                if _ba > 0:
+                    _subs.append({
+                        'date_md': _substitute_date(_b), 'amount': _ba, 'partner': '대체수금',
+                        'bank': '', 'note_label': '', 'stage': stage,
+                        'is_substitute': True,
+                    })
                 else:
-                    _m_full = re.search(r'(?<!\d)(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?!\d)', note)
-                    if _m_full:
-                        _sd = f'{int(_m_full.group(2)):02d}/{int(_m_full.group(3)):02d}'
+                    _keep.append(_b)
+            if _subs:
+                results.extend(_subs)
+                if not _keep:
+                    continue
+                note = '\n\n'.join(_keep)
+                stage_val = max(stage_val - sum(p['amount'] for p in _subs), 0)
+                _mixed = True
+        if not _mixed and _is_substitute_text(note):
+            _sub_amt = _substitute_amount(note) or (stage_val if stage_val > 0 else 0)
+            if _sub_amt > 0:
                 results.append({
-                    'date_md': _sd, 'amount': _sub_amt, 'partner': '대체수금',
+                    'date_md': _substitute_date(note), 'amount': _sub_amt, 'partner': '대체수금',
                     'bank': '', 'note_label': '', 'stage': stage,
                     'is_substitute': True,
                 })
@@ -738,6 +831,10 @@ def _parse_notes(notes: List[str],
     # 날짜순 정렬 (월/일 기준) — 양식에 연도 없으면 동일 연도 가정
     def _date_key(p):
         mm_dd = p.get('date_md', '0/0')
+        # 날짜 없이 적은 대체수금(상계)은 보통 입금 뒤에 덧붙인 것 → 단계 맨 뒤
+        #   (카드는 단계 마지막 payment 를 '새 입금'으로 표시, 2026-10-15)
+        if p.get('is_substitute') and mm_dd == '-':
+            return (99, 99)
         try:
             mm, dd = mm_dd.split('/')
             return (int(mm), int(dd))
@@ -829,6 +926,8 @@ def _parse_notes(notes: List[str],
     stage_order2 = {'계약금': 0, '중도금': 1, '잔금': 2}
     def _dk(p):
         mm_dd = p.get('date_md', '0/0')
+        if p.get('is_substitute') and mm_dd == '-':
+            return (99, 99)   # 날짜 없는 대체수금 = 단계 맨 뒤 (_date_key 와 동일)
         try:
             mm, dd = mm_dd.split('/')
             return (int(mm), int(dd))
