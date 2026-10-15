@@ -13832,6 +13832,17 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                         memo_amt = int(round(max(inv_gross - covered_sum, 0)))
                         if memo_amt > 0:
                             _core = f"{selected} 선발행 {memo_amt:,}원"
+                            # 부가세 별도 금액 병기 (2026-10-15 SB 요청 — 홈택스에 넣은 공급가를 바로 확인).
+                            #   부가세 없는 공사(총액1=총액2)는 생략. 읽는 쪽 정규식은 이 괄호를 건너뜀.
+                            _sup = 0
+                            if covered_sum == 0 and vat_val != 'incl' and (total2 > total1 or not total1):
+                                _sup = int(round(inv_amt))
+                            elif total1 > 0 and total2 > total1:
+                                _sup = int(round(memo_amt * total1 / total2))
+                            elif not total1:
+                                _sup = int(round(memo_amt / 1.1))
+                            if 0 < _sup < memo_amt:
+                                _core = f"{_core} (부가세 별도 {_sup:,}원)"
                     else:
                         # 일반 발행도 이 장의 금액(VAT 포함) — 분할 발행 사업자별 금액·입금 대조용
                         #   (2026-10-01). 금액 파서는 단계 표시 줄을 'X원' 1개 폴백에서 제외.
@@ -13850,7 +13861,10 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                     except Exception:
                         _card_new = True   # Redis 불가 → 아래 줄 중복 검사로만
                 # 날짜 도입 전(날짜 없는) 같은 기록이 이미 있으면 재기록 안 함
-                _old_dateless = any(ln.strip() == _core.split(' · ')[0] for ln in _note.split('\n'))
+                #   (부가세 별도 병기 괄호는 비교에서 뺌 — 병기 도입 전 줄과도 같은 기록으로 봄)
+                _core_cmp = _VAT_NOTE_PAREN_RE.sub('', _core.split(' · ')[0]).strip()
+                _old_dateless = any(_VAT_NOTE_PAREN_RE.sub('', ln).strip() == _core_cmp
+                                    for ln in _note.split('\n'))
                 # 중복 = 날짜·단계·금액·사업자까지 같은 줄만 (같은 날 사업자 분할 두 장은 둘 다 남김)
                 _line = f"{_today} {_core}"
                 # 수정발행: 대체한 기존 계산서를 '취소' 줄로 먼저 (홈택스 수정세금계산서 대칭, 2026-10-01).
@@ -13901,7 +13915,9 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
 
 _INV_LINE_RE = re.compile(
     r'^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?(계약금|중도금|잔금)\s*(선발행|발행|취소)'
-    r'\s*(?:(-?[\d,]+)\s*원)?\s*(?:·\s*(.+))?$')
+    r'\s*(?:(-?[\d,]+)\s*원)?\s*(?:\((?:부가세\s*별도|공급가)[^)]*\)\s*)?(?:·\s*(.+))?$')
+# 선발행 줄의 '(부가세 별도 X원)' 병기 (2026-10-15) — 읽을 때 건너뛰고, 중복 비교에선 뺌
+_VAT_NOTE_PAREN_RE = re.compile(r'\s*\((?:부가세\s*별도|공급가)[^)]*\)')
 
 
 def _norm_biz_name(s) -> str:
