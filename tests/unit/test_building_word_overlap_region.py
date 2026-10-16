@@ -63,3 +63,11 @@ def test_branch_still_appended_when_absent(monkeypatch):
         ('마성떡볶이 논현역점', '서울 강남구 학동로 1'),))
     v = '강남구 학동로 1 마성떡볶이'
     assert ar._enrich_with_poi(v, v).endswith('마성떡볶이 논현역점')
+
+
+def test_customer_qualified_name_not_replaced_by_poi_prefix(monkeypatch):
+    # 고객이 '새마을 교통회관'처럼 수식어를 붙였으면 POI '서울시교통회관'으로 섞지 않음 (L-04273)
+    monkeypatch.setattr(ar, '_search_poi', lambda q: (
+        ('서울시교통회관', '서울특별시 송파구 올림픽로 319 새마을 교통회관'),))
+    v = '송파구 올림픽로 319 새마을 교통회관 2층'
+    assert ar._enrich_with_poi(v, v) == v
