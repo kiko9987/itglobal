@@ -144,6 +144,7 @@ def test_unpaid_line_overpay_distinct_from_owed():
     assert ps._unpaid_line(2201320) == '미수금 : -2,201,320원'
     assert ps._unpaid_line(0) == '미수금 : 0원'
     assert ps._unpaid_line(-235000) == '과입금 : 235,000원 (반환 확인)'
+    assert ps._unpaid_line(-2) == '미수금 : -2원'          # 반올림 끝전은 과입금 아님(기존 표시)
     payments = ps._parse_notes(['일시 09/14\n입금 235,000원\n적요 (주)포마그룹', '',
                                 '일시 10/16\n입금 2,750,000원\n적요 박종서'],
                                stage_vals={'계약금': 235000, '중도금': 0, '잔금': 2750000})
