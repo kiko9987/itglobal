@@ -76,7 +76,8 @@ def test_plant_project_with_G_account_warns():
 def test_overpay():
     w = sb._intake_warnings('G4139-MJ', 500000, {}, G_MEMO, records=_rec('G4139-MJ', 1_000_000, 300_000))
     assert _kinds(w) == ['overpay'] and w[0]['field'] == 'stage'
-    assert '입금 500,000원이 미수금 300,000원보다 많음' in w[0]['line']
+    assert w[0]['line'] == '과입금 의심 — 미수금보다 200,000원 더 들어옴 (총액 1,000,000 · 이미 받은 돈 700,000 · 미수금 300,000)'
+    assert '미수금보다 200,000원 더 들어온 입금입니다' in w[0]['modal'] and '이번 입금 500,000' in w[0]['modal']
     assert '>' not in w[0]['line']      # 슬랙 인용 기호 금지
 
 
@@ -160,7 +161,7 @@ def test_dm_overpay_and_not_acked_wording(monkeypatch):
     ov = sb._intake_warnings('G4125-YM', 500000, {}, G_MEMO, records=_rec('G4125-YM', 3_014_000, 300_000))
     t = sb._build_intake_warn_dm([('G4125-YM', '잔금', 500000, ov)], 'U', True)
     assert '*과입금 확인*' in t and '고객 확인 후 반환 여부를 판단해 주세요' in t
-    assert '현재 미수금 : 300,000원 (초과 200,000원)' in t
+    assert '미수금보다 200,000원 더 들어옴 (총액 3,014,000 · 이미 받은 돈 2,714,000 · 미수금 300,000)' in t
     acc = sb._intake_warnings('G4125-YM', 3014000, {}, R_HANA, records=_rec('G4125-YM', 3_014_000, 3_014_000))
     t2 = sb._build_intake_warn_dm([('G4125-YM', '잔금', 3014000, acc)], 'U', False)
     assert '*계좌·사업자 불일치 확인*' in t2 and '경고가 표시되지 않았습니다' in t2
@@ -327,3 +328,10 @@ def test_dm_short_final_wording(monkeypatch):
     assert '*잔금 후 미수금 확인*' in t
     assert '총액을 고쳐야 하는지(할인 등), 남은 돈을 더 받는지 확인해 주세요' in t
     assert '입금 후 미수금 : 1,600,000원 (현재 미수금 12,000,000원)' in t
+
+
+def test_overpay_r4104_wording():
+    """R4104-SD: 총액 2,750,000 · 계약금 235,000 받음 → 전액 2,750,000 입금 = 미수금보다 235,000 더 (2026-10-16)."""
+    w = sb._intake_warnings('R4104-SD', 2750000, {}, R_HANA, records=_rec('R4104-SD', 2_750_000, 2_515_000),
+                            stage='잔금')
+    assert [x for x in w if x['kind'] == 'overpay'][0]['line'] ==         '과입금 의심 — 미수금보다 235,000원 더 들어옴 (총액 2,750,000 · 이미 받은 돈 235,000 · 미수금 2,515,000)'

@@ -1966,15 +1966,20 @@ def _intake_warnings(project_code, amount, preview, memo, records=None, stage=No
                 total2 = _bill_to_num(rec.get('총액 2'))
                 unpaid = _bill_to_num(rec.get('미수금'))
                 if total2 > 0 and amount > unpaid + 1:
+                    # 얼마 더 들어왔는지 + 계산 근거(총액·이미 받은 돈·미수금)를 함께 — 입금액이 총액과
+                    #   같으면 '미수금 2,515,000원'이 어디서 나왔는지 안 보여 헷갈렸다 (2026-10-16 R4104-SD).
+                    _excess = amount - int(unpaid)
+                    _basis = (f"총액 {int(total2):,} · 이미 받은 돈 {int(total2 - unpaid):,} · "
+                              f"미수금 {int(unpaid):,}")
                     warns.append({
                         'kind': 'overpay', 'field': 'stage',
-                        'modal': (f"⚠️ 입금 {amount:,}원이 현재 미수금 {int(unpaid):,}원보다 많습니다"
-                                  f"(과입금 의심). 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
+                        'modal': (f"⚠️ 미수금보다 {_excess:,}원 더 들어온 입금입니다 ({_basis} · "
+                                  f"이번 입금 {amount:,}). 맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
                         # '>' 는 슬랙 인용 기호라 쓰지 않음(카드 줄이 '>' 인용 구조)
-                        'line': f"과입금 의심 — 입금 {amount:,}원이 미수금 {int(unpaid):,}원보다 많음",
+                        'line': f"과입금 의심 — 미수금보다 {_excess:,}원 더 들어옴 ({_basis})",
                         'note': (f"⚠️ 과입금: 당시 미수금 {int(unpaid):,}원 / "
-                                 f"초과 {amount - int(unpaid):,}원"),
-                        'unpaid': int(unpaid),   # 경영지원 DM 상세용
+                                 f"초과 {_excess:,}원"),
+                        'unpaid': int(unpaid), 'excess': _excess, 'basis': _basis,   # 경영지원 DM 상세용
                     })
                 elif total2 > 0 and stage == '잔금':
                     left = int(unpaid) - amount - int(extra_paid or 0)
@@ -2117,7 +2122,9 @@ def _build_intake_warn_dm(items, by_user, acked, deposit=None, link=''):
                 lines.append(f"옮길 곳 : {_TARGET_ACCT.get(w.get('ent_code', ''), '프로젝트 사업자 계좌')}")
             elif w.get('kind') == 'overpay':
                 _up = int(w.get('unpaid') or 0)
-                lines.append(f"현재 미수금 : {_up:,}원 (초과 {int(amount or 0) - _up:,}원)")
+                _ex = int(w.get('excess') or (int(amount or 0) - _up))
+                lines.append(f"미수금보다 {_ex:,}원 더 들어옴"
+                             + (f" ({w['basis']})" if w.get('basis') else f" (현재 미수금 {_up:,}원)"))
             elif w.get('kind') == 'short_final':
                 lines.append(f"입금 후 미수금 : {int(w.get('left') or 0):,}원 "
                              f"(현재 미수금 {int(w.get('unpaid') or 0):,}원)")
