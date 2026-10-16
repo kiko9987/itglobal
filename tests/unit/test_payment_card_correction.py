@@ -153,3 +153,23 @@ def test_unpaid_line_overpay_distinct_from_owed():
     txt = ps._build_stage_card_text('잔금', 'R4104-SD', payments, c,
                                     {'계약금': 235000, '중도금': 0, '잔금': 2750000})
     assert '과입금 : 235,000원 (반환 확인)' in txt and '미수금 :' not in txt
+
+
+def test_refund_card_full_history_and_rerender_keeps_refund():
+    """반환 카드 — 전체 이력(뒤 단계 입금 포함) + 재렌더해도 '반환' 카드 유지 (2026-10-16 R4104-SD)."""
+    notes = ['2026/09/14\n하나,09/14, 15:07\n255******31304\n입금235,000원\n(주)포마그룹\n\n'
+             '2026/10/16\n하나,10/16, 13:20\n255******31304\n출금235,000원\n(주)포마그룹',
+             '', '2026/10/16\n하나,10/16, 12:08\n255******31304\n입금2,750,000원\n박종서']
+    sv = {'계약금': 0, '중도금': 0, '잔금': 2750000}
+    pays = ps._parse_notes(notes, stage_vals=sv)
+    c = {'address': '마포구', 'construction': '컨버터블', 'invoice': '', 'total_r': 2500000,
+         'total_t': 2750000, 'unpaid': 0}
+    txt = ps._build_stage_card_text('계약금', 'R4104-SD', pays, c, sv)
+    assert '*계약금 반환*' in txt and '반환액 : -235,000원' in txt
+    assert '잔금  26/10/16  하나 (R)  2,750,000원  박종서' in txt       # 뒤 단계 입금도 이력에
+    assert '계약금  26/09/14' in txt and '반환  26/10/16' in txt
+    # 일반 단계 카드는 여전히 현재 단계까지만 (다음 단계 미리 적은 메모 차단)
+    pays2 = ps._parse_notes([notes[0].split('\n\n')[0], '', notes[2]], stage_vals={'계약금': 235000, '중도금': 0, '잔금': 2750000})
+    txt2 = ps._build_stage_card_text('계약금', 'R4104-SD', pays2, dict(c, unpaid=-235000),
+                                     {'계약금': 235000, '중도금': 0, '잔금': 2750000})
+    assert '*계약금 입금*' in txt2 and '2,750,000원' not in txt2

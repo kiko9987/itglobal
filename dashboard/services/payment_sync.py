@@ -1460,9 +1460,11 @@ def _build_stage_with_history_message(
                 lines.append(_fee_line)
     lines.append('')
     lines.append('[누적 이력]')
-    # 현재 알림 단계까지만 표시 — 매니저가 다음 단계 메모를 미리 입력한 경우 차단
+    # 현재 알림 단계까지만 표시 — 매니저가 다음 단계 메모를 미리 입력한 경우 차단.
+    #   반환 카드는 예외로 전체 이력 — 반환은 보통 뒤 단계 입금 이후에 일어나서, 계약금 반환 카드에
+    #   계약금 줄만 남으면 이후 잔금 입금이 안 보였다 (2026-10-16 R4104-SD 사용자 지적).
     _STAGE_ORDER = {'계약금': 0, '중도금': 1, '잔금': 2}
-    cur_idx = _STAGE_ORDER.get(stage, 99)
+    cur_idx = 99 if refund_event else _STAGE_ORDER.get(stage, 99)
     history = [p for p in all_payments if _STAGE_ORDER.get(p.get('stage'), 99) <= cur_idx]
     for p in history:
         if p.get('is_substitute'):
@@ -1828,13 +1830,16 @@ def _build_stage_card_text(stage: str, project: str, payments: List[Dict],
             invoice_value=c.get('invoice', ''), total_t=c.get('total_t', 0),
             stage_sheet_vals=stage_vals, construction=c.get('construction', ''))
     if stage in ('계약금', '중도금', '잔금'):   # 계약금도 누적 이력 (분할 계약금 대응, 2026-08)
+        # 그 단계 마지막이 반환이면 반환 카드로 다시 그림 — 반환 뒤엔 추적 카드가 '반환' 카드라,
+        #   재렌더 때 '입금' 카드로 덮어쓰지 않게 (2026-10-16)
         return _build_stage_with_history_message(
             stage=stage, project=project, address=c.get('address', ''),
             last_payment=last_payment, all_payments=payments,
             invoice_value=c.get('invoice', ''), total_r=c.get('total_r', 0),
             total_t=c.get('total_t', 0), unpaid=c.get('unpaid', 0),
             stage_sheet_vals=stage_vals,
-            construction=c.get('construction', ''))
+            construction=c.get('construction', ''),
+            refund_event=bool(last_payment.get('is_refund')))
     return _build_stage_message(
         stage=stage, project=project, address=c.get('address', ''),
         payment=last_payment, invoice_value=c.get('invoice', ''),
