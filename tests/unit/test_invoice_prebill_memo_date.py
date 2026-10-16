@@ -310,3 +310,17 @@ def test_supply_note_variants_parsed(paren):
     act = sb._active_invoice_lines(memo)
     assert [(a['kind'], a['amt'], a['biz']) for a in act] == [('선발행', 7371100, '주식회사 제이케이디 학원')]
     assert sb._pre_issued_amount(memo, '잔금') == 7371100
+
+
+def test_unified_issue_with_covered_deposit_shows_whole_invoice_supply(monkeypatch):
+    """통합발행(계약금 입금분 covered) — 줄 금액은 잔금 몫, 괄호는 계산서 장 전체 공급가 (2026-10-16 R4104-SD).
+
+    예전엔 잔금 몫 2,515,000 을 거꾸로 나눈 2,286,364원(어디에도 없는 숫자)이 찍혔다."""
+    fm = _FakeManager()
+    fm.vals.update({'R10': 2500000, 'T10': 2750000, 'U10': 235000, 'Z10': ''})
+    _run(monkeypatch, fm, biz='까사 포마', amt='2500000')
+    today = f'{datetime.now():%Y-%m-%d}'
+    assert fm.vals['Z10'] == '-' and fm.vals['AB10'] == '발행'
+    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,515,000원 (계산서 전체 2,500,000원 VAT 별도) · 까사 포마'
+    assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 2515000
+    assert sb._active_invoice_lines(fm.notes['Y10'])[0]['biz'] == '까사 포마'

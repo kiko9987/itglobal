@@ -13889,15 +13889,17 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                             # 공급가 병기 (2026-10-15 SB 요청 — 홈택스에 넣은 공급가를 바로 확인).
                             #   표기는 세금계산서 요청 카드·모달과 같은 'VAT 별도'. 부가세 없는 공사(총액1=총액2)는
                             #   생략. 읽는 쪽 정규식은 이 괄호를 건너뜀.
+                            #   괄호 금액 = 이 계산서 장의 공급가(홈택스에 넣은 금액). 통합발행(앞 단계 입금분
+                            #   covered)이면 줄 금액은 잔금 몫이라 장 전체와 달라 '계산서 전체'로 구분
+                            #   (2026-10-16 R4104-SD: 잔금 몫을 거꾸로 나눈 2,286,364원이 찍혀 혼란).
                             _sup = 0
-                            if covered_sum == 0 and vat_val != 'incl' and (total2 > total1 or not total1):
+                            if total1 > 0 and total2 > total1:
+                                _sup = int(round(inv_amt)) if vat_val != 'incl' else int(round(inv_gross * total1 / total2))
+                            elif not total1 and vat_val != 'incl':
                                 _sup = int(round(inv_amt))
-                            elif total1 > 0 and total2 > total1:
-                                _sup = int(round(memo_amt * total1 / total2))
-                            elif not total1:
-                                _sup = int(round(memo_amt / 1.1))
-                            if 0 < _sup < memo_amt:
-                                _core = f"{_core} ({_sup:,}원 VAT 별도)"
+                            if _sup > 0:
+                                _core = (f"{_core} (계산서 전체 {_sup:,}원 VAT 별도)" if covered_sum > 0
+                                         else f"{_core} ({_sup:,}원 VAT 별도)")
                     else:
                         # 일반 발행도 이 장의 금액(VAT 포함) — 분할 발행 사업자별 금액·입금 대조용
                         #   (2026-10-01). 금액 파서는 단계 표시 줄을 'X원' 1개 폴백에서 제외.
@@ -13970,10 +13972,11 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
 
 _INV_LINE_RE = re.compile(
     r'^\s*(?:(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s+)?(계약금|중도금|잔금)\s*(선발행|발행|취소)'
-    r'\s*(?:(-?[\d,]+)\s*원)?\s*(?:\((?:[\d,]+\s*원\s*)?(?:VAT|부가세|공급가)[^)]*\)\s*)?(?:·\s*(.+))?$')
-# 선발행 줄의 '(X원 VAT 별도)' 공급가 병기 (2026-10-15) — 읽을 때 건너뛰고, 중복 비교에선 뺌.
-#   '(X원 부가세 별도)'·'(공급가 X원)' 형식도 같이 인정.
-_VAT_NOTE_PAREN_RE = re.compile(r'\s*\((?:[\d,]+\s*원\s*)?(?:VAT|부가세|공급가)[^)]*\)')
+    r'\s*(?:(-?[\d,]+)\s*원)?\s*(?:\((?:계산서\s*전체\s*)?(?:[\d,]+\s*원\s*)?(?:VAT|부가세|공급가)[^)]*\)\s*)?'
+    r'(?:·\s*(.+))?$')
+# 선발행 줄의 '(X원 VAT 별도)'·'(계산서 전체 X원 VAT 별도)' 공급가 병기 (2026-10-15~16) — 읽을 때
+#   건너뛰고, 중복 비교에선 뺌. '(X원 부가세 별도)'·'(공급가 X원)' 형식도 같이 인정.
+_VAT_NOTE_PAREN_RE = re.compile(r'\s*\((?:계산서\s*전체\s*)?(?:[\d,]+\s*원\s*)?(?:VAT|부가세|공급가)[^)]*\)')
 
 
 def _norm_biz_name(s) -> str:
