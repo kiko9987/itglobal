@@ -1985,6 +1985,24 @@ def _reprice_payment_card(slack, channel: str, rep: Dict,
         return False
 
 
+def _complete_balance_card_if_paid(rc, project: str, stage: str, unpaid: int, row=None) -> bool:
+    """계약금·중도금 입금으로 완납(미수금 0)되면 이미 있는 잔금 카드를 수금완료로 다시 그림.
+
+    수금완료 카드는 '잔금 입금 + 미수금 0'일 때만 나가서, 반환한 계약금을 현금으로 다시 받아
+    계약금으로 지정하는 경우(R4101-JSH) 등은 잔금 카드가 '미수금' 상태로 남았다 (2026-10-16).
+    잔금 카드가 없으면(잔금 입금 전 완납) 아무것도 안 함 — 새 카드는 만들지 않는다.
+    """
+    if stage == '잔금' or unpaid != 0:
+        return False
+    try:
+        if not rc.get(f'payment_slack:ts:{project}:잔금'):
+            return False
+        return bool(rerender_stage_card(project, '잔금', row=row))
+    except Exception as exc:
+        logger.warning(f'[PAYMENT] 완납 후 잔금 카드 재렌더 실패 ({project}): {exc}')
+        return False
+
+
 def rerender_stage_card(project: str, stage: str, row=None) -> bool:
     """프로젝트·단계의 기존 #수금_관리 카드를 현재 시트 메모로 재렌더 (외부 호출용).
 
@@ -3082,6 +3100,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                                     )
                     except Exception as _exc:
                         logger.debug(f'[PAYMENT] ts 저장 실패 ({project}/{stage}): {_exc}')
+                    if not _is_unified:
+                        _complete_balance_card_if_paid(rc, project, stage, c['unpaid'], sheet_row)
                     sent_this_row = True
 
             if not sent_this_row:

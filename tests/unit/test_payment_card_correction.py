@@ -173,3 +173,17 @@ def test_refund_card_full_history_and_rerender_keeps_refund():
     txt2 = ps._build_stage_card_text('계약금', 'R4104-SD', pays2, dict(c, unpaid=-235000),
                                      {'계약금': 235000, '중도금': 0, '잔금': 2750000})
     assert '*계약금 입금*' in txt2 and '2,750,000원' not in txt2
+
+
+def test_complete_balance_card_when_paid_by_deposit_stage(monkeypatch):
+    """계약금·중도금 입금으로 완납되면 기존 잔금 카드를 수금완료로 재렌더 (2026-10-16 R4101-JSH)."""
+    called = []
+    monkeypatch.setattr(ps, 'rerender_stage_card', lambda p, s, row=None: called.append((p, s, row)) or True)
+    rc = type('R', (), {'get': lambda self, k: '1.1' if k == 'payment_slack:ts:R4101-JSH:잔금' else None})()
+    assert ps._complete_balance_card_if_paid(rc, 'R4101-JSH', '계약금', 0, 4102) is True
+    assert called == [('R4101-JSH', '잔금', 4102)]
+    called.clear()
+    assert ps._complete_balance_card_if_paid(rc, 'R4101-JSH', '계약금', 1200000, 4102) is False   # 아직 미수금
+    assert ps._complete_balance_card_if_paid(rc, 'R4101-JSH', '잔금', 0, 4102) is False           # 잔금은 원래 경로
+    assert ps._complete_balance_card_if_paid(rc, 'G0000-AA', '계약금', 0, 10) is False            # 잔금 카드 없음
+    assert called == []
