@@ -8,6 +8,7 @@
 
 import json
 import os
+import re
 import urllib.request
 from typing import Optional
 
@@ -732,7 +733,12 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
         logger.warning(f'[PROJECT/SLACK/편집] 사업자등록증 자동 재시도 예외 ({code}): {exc}')
 
     # 원본 카드도 최신 데이터로 재렌더링 (스레드 답글과 독립적으로 시도)
-    if latest_data is not None:
+    #   취소된 공사는 skip — 원본 카드는 '공사 취소' 회색 카드(+되돌리기 버튼)라 일반 카드로 다시 그리면
+    #   취소 표시·버튼이 사라짐. 관리자 사후 정정(2026-10-16 취소 건 편집 허용)은 스레드 댓글로만 남김.
+    _cancelled = bool(re.search(r'공사\s*취소', str((latest_data or {}).get('수금 관련 특이사항') or '')))
+    if _cancelled:
+        logger.info(f'[PROJECT/SLACK/편집] 취소된 공사 — 원본 카드 재렌더 생략, 댓글만 ({code})')
+    if latest_data is not None and not _cancelled:
         try:
             # 사업자등록증 상태 유지 — 편집으로 카드가 재렌더링되면서 배지가 뒤집히면 안 됨.
             try:

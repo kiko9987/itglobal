@@ -635,6 +635,17 @@ html body div.project-accordion-container div.compact-item input.inline-edit-inp
   user-select: none !important;
 }
 
+/* 관리자는 취소된 공사도 편집 가능 (2026-10-16, 계산서 발행 후 취소 등 사후 정정).
+   취소 표기(회색 오버레이·워터마크)는 유지하고 편집 요소만 다시 살림. */
+.accordion-shell.project-cancelled.admin-editable .editable-value,
+.accordion-shell.project-cancelled.admin-editable .inline-edit-input,
+.accordion-shell.project-cancelled.admin-editable .unified-edit-btn,
+.accordion-shell.project-cancelled.admin-editable .edit-card-btn,
+.accordion-shell.project-cancelled.admin-editable .save-card-btn {
+  pointer-events: auto !important;
+  user-select: auto !important;
+}
+
 /* 워터마크 */
 .cancelled-watermark {
   position: absolute;

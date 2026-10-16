@@ -1213,9 +1213,11 @@ export default class ProjectRowAccordion {
       return '';
     }
 
-    // 공사 취소 상태일 때는 편집 버튼 숨김
+    // 공사 취소 상태: 관리자만 편집 버튼 (계산서 발행 후 취소 등 사후 정정, 2026-10-16). 나머지는 숨김.
+    //   서버(PUT /api/projects)도 같은 규칙 — 관리자 아니면 403.
     const collectionNotes = rowData?.['수금 관련 특이사항'] || '';
-    if (collectionNotes && /공사\s*취소/.test(collectionNotes)) {
+    const cancelled = !!collectionNotes && /공사\s*취소/.test(collectionNotes);
+    if (cancelled && !this.isAdminUser()) {
       return '';
     }
 
@@ -1223,7 +1225,7 @@ export default class ProjectRowAccordion {
       <div class="unified-edit-buttons me-2" data-project-code="${projectCode}">
         <button class="btn btn-outline-secondary btn-sm unified-edit-btn"
                 data-project-code="${projectCode}"
-                title="편집">
+                title="${cancelled ? '편집 (관리자 전용 — 취소된 공사)' : '편집'}">
           <i class="fas fa-edit"></i><span>편집</span>
         </button>
         <button class="btn btn-outline-success btn-sm unified-save-btn d-none"
@@ -3349,6 +3351,12 @@ export default class ProjectRowAccordion {
     return typeof notes === 'string' && /공사\s*취소/.test(notes);
   }
 
+  /** 관리자(admin·super_admin) 여부 — 취소된 공사 편집 허용 판단 */
+  isAdminUser() {
+    const role = window.userRole || '';
+    return role === 'admin' || role === 'super_admin';
+  }
+
   toggleCancelledStyles(projectCode, isCancelled) {
     if (isCancelled) {
       this.applyCancelledProjectStyles(projectCode);
@@ -3373,20 +3381,25 @@ export default class ProjectRowAccordion {
 
     shell.classList.add('project-cancelled');
 
+    // 관리자: 취소 표기(회색·워터마크)는 그대로, 편집은 가능 (2026-10-16). CSS .admin-editable 이
+    //   취소 아코디언의 pointer-events:none 을 풀어줌.
+    if (this.isAdminUser()) {
+      shell.classList.add('admin-editable');
+    } else {
+      // 편집 버튼만 비활성화 (재개 버튼은 제외)
+      const editButtons = shell.querySelectorAll('.unified-edit-btn');
+      editButtons.forEach(btn => {
+        btn.disabled = true;
+        btn.classList.add('disabled');
+      });
 
-    // 편집 버튼만 비활성화 (재개 버튼은 제외)
-    const editButtons = shell.querySelectorAll('.unified-edit-btn');
-    editButtons.forEach(btn => {
-      btn.disabled = true;
-      btn.classList.add('disabled');
-    });
-
-    // 편집 가능한 필드 비활성화
-    const editableFields = shell.querySelectorAll('.editable-value');
-    editableFields.forEach(field => {
-      field.setAttribute('contenteditable', 'false');
-      field.style.pointerEvents = 'none';
-    });
+      // 편집 가능한 필드 비활성화
+      const editableFields = shell.querySelectorAll('.editable-value');
+      editableFields.forEach(field => {
+        field.setAttribute('contenteditable', 'false');
+        field.style.pointerEvents = 'none';
+      });
+    }
 
     // 워터마크 추가
     const cardBody = shell.querySelector('.card-body');
@@ -3417,7 +3430,7 @@ export default class ProjectRowAccordion {
       return;
     }
 
-    shell.classList.remove('project-cancelled');
+    shell.classList.remove('project-cancelled', 'admin-editable');
 
 
     const editButtons = shell.querySelectorAll('.unified-edit-btn');

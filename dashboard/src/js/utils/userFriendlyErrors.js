@@ -91,6 +91,7 @@ export function getFriendlyErrorMessage(error, context = '') {
   if (error instanceof Error) {
     originalMessage = error.message;
     errorType = error.name;
+    if (error.status) errorCode = error.status;   // fetch 실패 시 err.status 를 붙여 던지는 호출부
     if (error.error_id || error.errorId) errorId = error.error_id || error.errorId;
   } else if (typeof error === 'object') {
     // HTTP Response 객체
@@ -132,6 +133,16 @@ export function getFriendlyErrorMessage(error, context = '') {
     errorInfo = {
       message: originalMessage,
       action: '입력값을 수정하고 다시 시도해주세요'
+    };
+  }
+  // 400번대 + 서버가 쓴 한국어 안내 → 그대로 (예: '취소된 공사는 관리자만 수정할 수 있습니다.')
+  //   일반 문구('잘못된 요청입니다', '예상치 못한 오류')로 바꾸면 무엇을 해야 할지 알 수 없음 (2026-10-16)
+  else if (errorCode >= 400 && errorCode < 500 && ![401, 429].includes(errorCode)
+           && /[가-힣]/.test(originalMessage || '')) {
+    errorInfo = {
+      message: originalMessage,
+      action: errorCode === 403 ? '필요하면 관리자에게 요청해주세요' : '내용을 확인한 뒤 다시 시도해주세요',
+      fromServer: true,
     };
   }
   // 1. HTTP 코드로 찾기
@@ -179,6 +190,7 @@ export function getFriendlyErrorMessage(error, context = '') {
     originalError: originalMessage || (typeof error === 'string' ? error : JSON.stringify(error)),
     code: errorCode || errorType || 'UNKNOWN',
     errorId: errorId || null,
+    fromServer: !!errorInfo.fromServer,
   };
 }
 
@@ -247,7 +259,8 @@ export function getProjectSaveError(error) {
     500: '서버에서 저장 중 오류가 발생했습니다. 데이터가 저장되지 않았을 수 있으니 확인 후 다시 시도해주세요'
   };
 
-  if (friendlyError.code && additionalActions[friendlyError.code]) {
+  // 서버가 직접 쓴 안내면 그 안내에 맞는 행동 문구 유지 (일반 400 가이드로 덮지 않음)
+  if (!friendlyError.fromServer && friendlyError.code && additionalActions[friendlyError.code]) {
     friendlyError.action = additionalActions[friendlyError.code];
   }
 

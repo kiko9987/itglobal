@@ -1104,6 +1104,27 @@ def _update_calendar_if_needed(updated_project, project_code, final_project_code
 # 메인 함수: update_project() - 리팩토링됨
 # ============================================================================
 
+def _cancelled_edit_gate(current_values, field_to_index, data, permission_level):
+    """취소된 공사 편집 게이트 (2026-10-16). 막아야 하면 (메시지, HTTP 상태), 아니면 None.
+
+    - 취소된 공사('수금 관련 특이사항'에 '공사 취소')는 관리자(admin·super_admin)만 수정 —
+      계산서 발행 후 공사가 취소되는 경우 등 사후 정정용. 화면도 관리자에게만 편집 버튼.
+    - 관리자라도 '공사 취소' 표기를 편집으로 지우면 안 됨: 재개는 [공사 재개] 경로가 스냅샷(총액1·
+      공사확정일·수금확인) 복원과 슬랙 카드 원복을 함께 하므로, 편집으로 풀면 그게 빠진다.
+    """
+    idx = field_to_index.get('수금 관련 특이사항')
+    cur = str(current_values[idx] or '') if idx is not None and idx < len(current_values) else ''
+    if not re.search(r'공사\s*취소', cur):
+        return None
+    if permission_level not in ('admin', 'super_admin'):
+        return '취소된 공사는 관리자만 수정할 수 있습니다.', 403
+    if '수금 관련 특이사항' in (data or {}) and not re.search(
+            r'공사\s*취소', str((data or {}).get('수금 관련 특이사항') or '')):
+        return ("'공사 취소' 표기는 편집으로 지울 수 없습니다. "
+                "공사를 되살리려면 [공사 재개] 버튼을 사용하세요.", 400)
+    return None
+
+
 @projects_bp.route('/api/projects/<project_code>', methods=['PUT'])
 @editor_required
 @track_business_operation("api_project_update")
@@ -1167,6 +1188,13 @@ def update_project(project_code):
             else:
                 column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
             field_to_index[field_name] = column_index
+
+        # 5-1. 취소된 공사 = 관리자만 수정 (2026-10-16)
+        _gate = _cancelled_edit_gate(
+            current_values, field_to_index, data,
+            (session.get('user') or {}).get('permission_level', 'viewer'))
+        if _gate:
+            return jsonify({'success': False, 'error': _gate[0]}), _gate[1]
 
         # 6. 프로젝트 코드 자동 업데이트 (사업자/담당자 변경 시)
         final_project_code, code_change = _update_project_code_if_needed(
