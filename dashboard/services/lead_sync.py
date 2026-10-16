@@ -2062,6 +2062,33 @@ def retry_pending_visit_notices() -> Dict[str, Any]:
     return result
 
 
+def _looks_like_phone(value: str) -> bool:
+    """전화번호 형태(숫자 9~11자리 + 구분자만)인지."""
+    s = (value or '').strip()
+    if not s or re.search(r'[^\d\s\-.()+]', s):
+        return False
+    return 9 <= len(re.sub(r'\D', '', s)) <= 11
+
+
+def _fix_swapped_contact_fields(name: str, phone: str, email: str) -> Optional[Dict[str, str]]:
+    """워크플로 입력 칸 밀림 교정 — 연락처 칸에 숫자가 없고 이메일·고객명 칸에 전화번호가
+    있으면 제자리로 (2026-10-16 L-04268: 연락처='김보경', 이메일='010-…', 고객명='-').
+
+    반환: 바뀐 필드만 {'고객 연락처'|'이메일'|'고객명': 값}, 교정 불필요면 None.
+    """
+    name, phone, email = (name or '').strip(), (phone or '').strip(), (email or '').strip()
+    if not phone or phone == '-' or re.search(r'\d', phone):
+        return None
+    if _looks_like_phone(email):
+        fixed = {'고객 연락처': email, '이메일': '-'}
+        if not name or name == '-':
+            fixed['고객명'] = phone      # 연락처 칸의 글자 = 이름
+        return fixed
+    if _looks_like_phone(name):
+        return {'고객 연락처': name, '고객명': phone}
+    return None
+
+
 # ─────────────────────────────────────────────────────────────
 # 전화 워크플로 dedup helpers (2026-07-14)
 # ─────────────────────────────────────────────────────────────
@@ -2316,6 +2343,21 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 )
                 continue
 
+            # 입력 칸 밀림 교정 (2026-10-16 L-04268) — dedup·카드가 바른 연락처를 쓰도록
+            #   row 자체를 고치고, 시트 셀(F 연락처·G 이메일·H 고객명)은 아래 update_cells 로.
+            _contact_fix_cells = []
+            _contact_fix = _fix_swapped_contact_fields(
+                _name, _phone, str(row.get('이메일', '') or ''))
+            if _contact_fix:
+                _col = {'고객 연락처': 'F', '이메일': 'G', '고객명': 'H'}
+                for _f, _v in _contact_fix.items():
+                    row[_f] = _v
+                    _contact_fix_cells.append((f'{_col[_f]}{sheet_row}', _v))
+                _name = str(row.get('고객명', '') or '').strip()
+                _phone = str(row.get('고객 연락처', '') or '').strip()
+                logger.warning(
+                    f'[SYNC/전화WF] 입력 칸 밀림 교정 (row {sheet_row}): {_contact_fix}')
+
             _platform_this = str(row.get('플랫폼', '') or '').strip()
             _addr_conflict = None  # 주소 충돌 가드 (2026-08-07 L-03367) — 병합 skip 시 경고용
 
@@ -2447,7 +2489,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                     'core': _addr_core(str(row.get('방문 주소', '') or '')),
                 }
 
-            update_cells = [(f"A{sheet_row}", new_lead_no)]
+            update_cells = [(f"A{sheet_row}", new_lead_no)] + _contact_fix_cells
 
             # 상담 시간 정규화
             consult_raw = str(row.get('상담 시간', '')).strip()
