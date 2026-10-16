@@ -1291,11 +1291,7 @@ def _build_stage_message(
         if _fee_line:
             lines.append(_fee_line)
     lines.append(_SEP)
-    # 슬랙 카드 미수금 표시는 항상 음수 통일 (2026-07-16 재확정 사용자 요청).
-    # 시트/관리사이트는 양수(미납)로 표기하지만, 카드에서 다른 총액과 시각 혼동
-    # 방지 위해 카드에만 -abs 강제 표시.
-    _unpaid_display = -abs(unpaid) if unpaid != 0 else 0
-    lines.append(f"미수금 : {_unpaid_display:,}원")
+    lines.append(_unpaid_line(unpaid))
     # 오입력 경고 (2026-07-29): B 같은 거래처 코드혼동 + C 입금자 다른 프로젝트 일치
     _warns = _payment_card_warnings(project, partner)
     if _warns:
@@ -1493,11 +1489,7 @@ def _build_stage_with_history_message(
         if _cl:
             lines.append(f"  {_cl}")
     lines.append(_SEP)
-    # 슬랙 카드 미수금 표시는 항상 음수 통일 (2026-07-16 재확정 사용자 요청).
-    # 시트/관리사이트는 양수(미납)로 표기하지만, 카드에서 다른 총액과 시각 혼동
-    # 방지 위해 카드에만 -abs 강제 표시.
-    _unpaid_display = -abs(unpaid) if unpaid != 0 else 0
-    lines.append(f"미수금 : {_unpaid_display:,}원")
+    lines.append(_unpaid_line(unpaid))
     lines.append(' ')
     # 오입력 경고 (B 코드혼동 + C 입금자 다른 프로젝트 일치) — 2026-07-29
     _warns = _payment_card_warnings(project, partner)
@@ -1759,6 +1751,18 @@ _SYNC_MUTEX_KEY = 'payment_sync:running'
 _SYNC_MUTEX_TTL = 60  # 안전 상한 — sync 는 5-10초 예상, 정상 종료 시 즉시 해제
 
 
+def _unpaid_line(unpaid: int) -> str:
+    """카드 맨 아래 미수금 줄. unpaid = 시트 미수금(총액 − 받은 돈, 양수=덜 받음·음수=더 받음).
+
+    덜 받음은 항상 음수로 '미수금 : -X원'(2026-07-16 사용자 요청 — 카드에서 다른 총액과 혼동 방지).
+    더 받음은 '과입금 : X원 (반환 확인)' — 예전엔 똑같이 '-X원'으로 보여 덜 받은 것과 구분이 안 됐다
+    (2026-10-16 R4104-SD 사업자 변경 전액 입금, 계약금 235,000원 반환 대기).
+    """
+    if unpaid < 0:
+        return f"과입금 : {abs(unpaid):,}원 (반환 확인)"
+    return f"미수금 : {-abs(unpaid) if unpaid else 0:,}원"
+
+
 _SPECIAL_LINE_RE = re.compile(r'(?:제외|차감|채권추심|반환|안분|상계|매입|환불|재입금|정정)')
 _SPECIAL_DATE_PREFIX_RE = re.compile(
     r'^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2})\s*(?:\d{1,2}:\d{2}\s*)?')
@@ -1895,7 +1899,7 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
                     in_special = False
                 if in_special or not s or s == '⠀' or stage in s:
                     continue
-                if s.startswith('반환') or s.startswith('미수금'):
+                if s.startswith('반환') or s.startswith('미수금') or s.startswith('과입금'):
                     continue
                 out.append(s)
             return out

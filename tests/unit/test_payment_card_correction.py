@@ -137,3 +137,18 @@ def test_reprice_rerender_keeps_special_notes(monkeypatch):
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
+
+
+def test_unpaid_line_overpay_distinct_from_owed():
+    """카드 맨 아래 줄 — 덜 받음 '미수금 : -X', 더 받음 '과입금 : X (반환 확인)' (2026-10-16 R4104-SD)."""
+    assert ps._unpaid_line(2201320) == '미수금 : -2,201,320원'
+    assert ps._unpaid_line(0) == '미수금 : 0원'
+    assert ps._unpaid_line(-235000) == '과입금 : 235,000원 (반환 확인)'
+    payments = ps._parse_notes(['일시 09/14\n입금 235,000원\n적요 (주)포마그룹', '',
+                                '일시 10/16\n입금 2,750,000원\n적요 박종서'],
+                               stage_vals={'계약금': 235000, '중도금': 0, '잔금': 2750000})
+    c = {'address': 'A', 'construction': 'B', 'invoice': '', 'total_r': 2500000,
+         'total_t': 2750000, 'unpaid': -235000}
+    txt = ps._build_stage_card_text('잔금', 'R4104-SD', payments, c,
+                                    {'계약금': 235000, '중도금': 0, '잔금': 2750000})
+    assert '과입금 : 235,000원 (반환 확인)' in txt and '미수금 :' not in txt
