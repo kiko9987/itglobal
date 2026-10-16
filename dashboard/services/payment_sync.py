@@ -2111,9 +2111,10 @@ def refund_followup(project: str, stage: str, row=None) -> bool:
     }
     from slack_sdk import WebClient
     sent = _send_refund_card(WebClient(token=bot_token), channel, rs, sheet_id, sheet_name)
-    # 받은 돈 돌려줌(반환 뒤 미수금이 다시 생김) — '수금완료'였던 잔금 카드도 미수금 표시로 되돌림
-    #   (2026-10-15 R4101-JSH: 반환 카드만 나가고 잔금 카드는 수금완료로 남던 문제)
-    if rs['unpaid'] > 0 and stage != '잔금':
+    # 잔금 카드도 반환 뒤 상태로 다시 그림 (내용 같으면 그대로) — 양방향:
+    #   받은 돈 돌려줌(미수금 다시 생김) → '수금완료' 해제 (2026-10-15 R4101-JSH)
+    #   과입금 반환(미수금 0 됨) → '잔금 입금(과입금)' 카드가 '수금완료'로 (2026-10-16 R4104-SD 시나리오)
+    if stage != '잔금':
         try:
             rerender_stage_card(project, '잔금', row=row)
         except Exception as exc:

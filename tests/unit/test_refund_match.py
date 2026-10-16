@@ -222,3 +222,26 @@ def test_scan_prefers_overpay_over_reroute(monkeypatch):
     monkeypatch.setattr(rm, 'post_candidate', lambda oid, o, c, slack=None: posted.append(c) or True)
     monkeypatch.setattr(rm, 'load_rows', lambda: [_r4101()])
     assert rm.scan_and_propose()['proposed'] == 1 and posted[0]['kind'] == 'reroute'
+
+
+@pytest.mark.parametrize('unpaid', [1200000, 0])
+def test_refund_followup_rerenders_balance_card_both_ways(monkeypatch, unpaid):
+    """반환 뒤 잔금 카드 재렌더 — 미수금이 생길 때(R4101)도, 0이 될 때(과입금 반환, R4104 시나리오)도."""
+    import dashboard.services.payment_sync as ps
+    vals = [''] * 30
+    vals[0], vals[19], vals[20], vals[22], vals[23] = 'R4104-SD', 2750000, 0, 2750000, unpaid
+
+    class _R:
+        def hset(self, *a, **k): pass
+        def expire(self, *a): pass
+    monkeypatch.setenv('GOOGLE_SHEET_ID', 'sid'); monkeypatch.setenv('GOOGLE_SHEET_NAME', 'sn')
+    monkeypatch.setenv('SLACK_PAYMENT_CHANNEL', 'C'); monkeypatch.setenv('SLACK_PAYMENT_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.setattr(ps, '_get_payment_service', lambda: object())
+    monkeypatch.setattr(ps, '_find_project_row', lambda svc, sid, sn, p, row=None: (4105, vals))
+    monkeypatch.setattr(ps, '_fetch_row_notes', lambda sid, sn, row: ['', '', ''])
+    monkeypatch.setattr(ps, 'get_redis_client', lambda: type('C', (), {'redis': _R()})())
+    monkeypatch.setattr(ps, '_send_refund_card', lambda *a, **k: True)
+    called = []
+    monkeypatch.setattr(ps, 'rerender_stage_card', lambda p, s, row=None: called.append((p, s, row)) or True)
+    assert ps.refund_followup('R4104-SD', '계약금', row=4105)
+    assert called == [('R4104-SD', '잔금', 4105)]
