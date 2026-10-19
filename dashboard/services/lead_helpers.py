@@ -630,7 +630,18 @@ INFLOW_SOURCE_ALIASES = {
     'instagram': '인스타', 'ig': '인스타',
     'facebook': '페이스북', 'fb': '페이스북', 'meta': '메타',
     'youtube': '유튜브',
+    # AI 검색 답변의 링크 — ChatGPT 는 링크에 utm_source=chatgpt.com 을 붙임 (2026-10-19, L-04289 첫 사례)
+    'chatgpt.com': 'ChatGPT', 'chat.openai.com': 'ChatGPT', 'chatgpt': 'ChatGPT', 'openai': 'ChatGPT',
+    'perplexity.ai': 'Perplexity', 'www.perplexity.ai': 'Perplexity', 'perplexity': 'Perplexity',
+    'gemini.google.com': 'Gemini', 'gemini': 'Gemini',
+    'claude.ai': 'Claude', 'copilot.microsoft.com': 'Copilot', 'copilot': 'Copilot',
 }
+
+
+def _inflow_source_label(src: str) -> str:
+    """마커 source 칸 → 표기명. 옛 마커(별칭 추가 전 원값 저장, 예 'chatgpt.com')도 같은 이름으로."""
+    s = str(src or '').strip()
+    return INFLOW_SOURCE_ALIASES.get(s.lower(), s)
 INFLOW_MARKER_RE = re.compile(r'^[ \t]*\[유입:([^\]\r\n]*)\][ \t]*(?:\r?\n|$)', re.MULTILINE)
 _INFLOW_PART_MAX = 30
 
@@ -693,10 +704,12 @@ def format_inflow_short(inflow: str) -> str:
     '네이버 brand'
     >>> format_inflow_short('구글')
     '구글'
+    >>> format_inflow_short('chatgpt.com')
+    'ChatGPT'
     """
     parts = [p.strip() for p in str(inflow or '').split('/')]
     parts = [p if p != '-' else '' for p in parts] + ['', '', '']
-    src, cmp, cnt = parts[0], parts[1], parts[2]
+    src, cmp, cnt = _inflow_source_label(parts[0]), parts[1], parts[2]
     if not src:
         return ''
     tail = cnt or cmp
@@ -704,8 +717,8 @@ def format_inflow_short(inflow: str) -> str:
 
 
 def format_inflow_source(inflow: str) -> str:
-    """마커 본문 → 채널명만 (카드 제목 괄호용). '네이버/천장형에어컨/…' → '네이버'."""
-    return str(inflow or '').split('/')[0].strip()
+    """마커 본문 → 채널명만 (카드 제목 괄호용). '네이버/천장형에어컨/…' → '네이버', 'chatgpt.com' → 'ChatGPT'."""
+    return _inflow_source_label(str(inflow or '').split('/')[0])
 
 
 # 당근 리드폼 소재 ID → 카드 표기 이름 (2026-10-06). 당근 자동연동 시트 '소재 ID' 칸 값.

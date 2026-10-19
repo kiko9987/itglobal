@@ -111,6 +111,34 @@ def test_short_label():
     assert format_inflow_short('') == ''
 
 
+# ── AI 검색 유입 (ChatGPT 링크는 utm_source=chatgpt.com) ──
+
+@pytest.mark.parametrize('raw,expected', [
+    ('chatgpt.com', 'ChatGPT'),
+    ('ChatGPT.com', 'ChatGPT'),
+    ('perplexity.ai', 'Perplexity'),
+    ('gemini.google.com', 'Gemini'),
+    ('claude.ai', 'Claude'),
+])
+def test_normalize_inflow_ai_sources(raw, expected):
+    assert normalize_inflow(raw) == expected
+
+
+def test_ai_source_label_for_old_marker():
+    # 별칭 추가 전에 원값으로 저장된 마커(L-04289 '[유입:chatgpt.com]')도 카드엔 서비스명으로
+    from dashboard.services.lead_helpers import format_inflow_source
+    assert format_inflow_source('chatgpt.com') == 'ChatGPT'
+    assert format_inflow_short('chatgpt.com') == 'ChatGPT'
+    assert format_inflow_source('네이버/천장형에어컨/천장형에어컨설치업체') == '네이버'
+    assert format_inflow_source('newsite') == 'newsite'
+
+
+def test_to_lead_marker_chatgpt():
+    lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n', '유입경로\r\nchatgpt.com\r\n')))
+    assert lead['문의 내용'].startswith('[유입:ChatGPT]\n')
+    assert lead['_meta_inflow'] == 'ChatGPT'
+
+
 # ── to_lead 영속화 ────────────────────────────────────
 
 def test_to_lead_marker_install():
