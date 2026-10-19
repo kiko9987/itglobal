@@ -167,10 +167,17 @@ function gtag(){dataLayer.push(arguments);}
 <!-- OpenAI Pixel -->
 <script>!function(w,d,s,u){if(w.oaiq)return;var q=function(){q.q.push(arguments)};q.q=[];w.oaiq=q;var j=d.createElement(s);j.async=1;j.src=u;var f=d.getElementsByTagName(s)[0];f.parentNode.insertBefore(j,f)}(window,document,"script","https://bzrcdn.openai.com/sdk/oaiq.min.js");oaiq("init",{pixelId:"X2T6LVkaJfMVejqZBen2ys",debug:false});</script>
 
-<!-- Kakao Pixel (페이지뷰만. '상담' 전환은 바디 코드에서 폼 제출 완료 시 발화) -->
-<script src="https://t1.daumcdn.net/adfit/static/kp.js" charset="UTF-8"></script>
+<!-- Kakao Pixel (페이지뷰만. '상담' 전환은 바디 코드에서 폼 제출 완료 시 발화)
+     2026-10-19 비동기 로드로 변경: 동기 kp.js가 모바일 렌더링을 약 1.7초 막던 것 해소 -->
 <script>
-kakaoPixel('711262848861713369').pageView();
+(function(){
+  var s = document.createElement('script');
+  s.src = 'https://t1.daumcdn.net/adfit/static/kp.js';
+  s.async = true;
+  s.charset = 'UTF-8';
+  s.onload = function(){ kakaoPixel('711262848861713369').pageView(); };
+  document.head.appendChild(s);
+})();
 </script>
 
 <!-- Meta (Facebook) Pixel -->
