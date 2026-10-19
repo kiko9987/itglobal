@@ -22,7 +22,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
 import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate, isPreIssued, billHeadline } from '../utils/billStatus.js';
-import { stageLabel, payerLine } from '../utils/payerSplit.js';
+import { getStagePayer, payerLine } from '../utils/payerSplit.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -1086,11 +1086,13 @@ export default class ProjectRowAccordion {
       `;
     };
 
-    // 나눠 내는 공사(2026-10-19): 이름표만 '계약금(임대인)'으로, 마우스를 올리면 부담자 한 줄. 배치는 그대로.
+    // 나눠 내는 공사(2026-10-19): 이름표를 '계약금' 대신 '임대인'으로(같은 글자 수 — '계약금(임대인)'은
+    //   좁은 카드에서 금액이 줄바꿈됨). 마우스를 올리면 '계약금 칸 · 임대인 이희승 · 부담 … · 남음 …'.
     const stageTitle = (s) => {
-      const pl = payerLine(rowData, s);
-      if (!pl) return `<small>${s}</small>`;
-      return `<small data-bs-toggle="tooltip" data-bs-title="${this.escapeHTML(pl)}" aria-label="${this.escapeHTML(pl)}">${this.escapeHTML(stageLabel(rowData, s))}</small>`;
+      const py = getStagePayer(rowData, s);
+      if (!py) return `<small>${s}</small>`;
+      const tip = `${s} 칸 · ${payerLine(rowData, s)}`;
+      return `<small data-bs-toggle="tooltip" data-bs-title="${this.escapeHTML(tip)}" aria-label="${this.escapeHTML(tip)}">${this.escapeHTML(py.role)}</small>`;
     };
 
     return `
