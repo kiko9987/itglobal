@@ -22,7 +22,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
 import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate, isPreIssued, billHeadline } from '../utils/billStatus.js';
-import { getStagePayer, payerLine } from '../utils/payerSplit.js';
+import { payerLine } from '../utils/payerSplit.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -974,7 +974,8 @@ export default class ProjectRowAccordion {
     if ((category === '발행' || category === '일반' || category === '선발행') && rowData && stage) {
       const code = String(rowData['프로젝트 코드'] || '').trim();
       const issued = billIssueDate(rowData, stage);
-      const lines = [billHeadline(rowData, stage), ...(issued ? [`발행일 ${issued}`] : []),
+      const pl = payerLine(rowData, stage);   // 나눠 내는 공사: 이 칸 부담자 (없으면 '')
+      const lines = [...(pl ? [pl] : []), billHeadline(rowData, stage), ...(issued ? [`발행일 ${issued}`] : []),
         ...billAmountLines(rowData, stage), '클릭 시 계산서 링크로 이동'];
       const title = this.escapeHTML(lines.join('\n'));
       return ` <span class="memo-tooltip-trigger bill-status bill-invoice-issued" role="button" tabindex="0" style="cursor:pointer;" data-invoice-code="${this.escapeHTML(code)}" data-invoice-stage="${this.escapeHTML(stage)}" data-bs-toggle="tooltip" data-bs-title="${title}" aria-label="${this.escapeHTML(lines.join(', '))}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
@@ -984,7 +985,8 @@ export default class ProjectRowAccordion {
     if (category === '카드' && rowData && stage) {
       const biz = String(rowData['사업자명'] || '').trim();
       const amt = parseFloat(rowData[stage] || 0);
-      const lines = ['카드결제 (영수증 자동)'];
+      const pl = payerLine(rowData, stage);
+      const lines = [...(pl ? [pl] : []), '카드결제 (영수증 자동)'];
       if (biz) lines.push(biz);
       if (amt > 0) lines.push(`${stage} ${amt.toLocaleString()}원`);
       const title = this.escapeHTML(lines.join('\n'));
@@ -1057,10 +1059,13 @@ export default class ProjectRowAccordion {
       const billIcon = this.getBillStatusIcon(billCategory, rowData, fieldName);
 
       let valueMarkup;
+      // 나눠 내는 공사(2026-10-19): 이 칸 부담자(임대인·임차인)는 메모 툴팁 맨 위에 — 이름표는 그대로
+      const pLine = payerLine(rowData, fieldName);
 
       if (amount > 0) {
         const memoStatus = checkMemoStatus(memo);
-        const tooltipText = memoStatus.isEmpty ? '메모를 작성해주세요' : this.escapeHTML(memo);
+        const memoText = memoStatus.isEmpty ? '메모를 작성해주세요' : memo;
+        const tooltipText = this.escapeHTML(pLine ? `${pLine}\n──────\n${memoText}` : memoText);
         const iconType = memoStatus.isEmpty ? 'far' : 'fas';
         const stateClass = memoStatus.isEmpty ? 'no-memo' : 'has-memo';
         const iconColorClass = 'text-success';  // 금액이 있으면 항상 초록색
@@ -1074,6 +1079,9 @@ export default class ProjectRowAccordion {
             ${billIcon}
           </span>
         `;
+      } else if (pLine) {
+        // 아직 안 낸 부담자 칸 — '-' 위에 마우스를 올리면 누가 얼마 낼지
+        valueMarkup = `<span data-bs-toggle="tooltip" data-bs-title="${this.escapeHTML(pLine)}" aria-label="${this.escapeHTML(pLine)}">${formattedAmount}</span>${billIcon}`;
       } else {
         valueMarkup = `${formattedAmount}${billIcon}`;
       }
@@ -1084,15 +1092,6 @@ export default class ProjectRowAccordion {
         </div>
         ${getMemoButton(memoKey)}
       `;
-    };
-
-    // 나눠 내는 공사(2026-10-19): 이름표를 '계약금' 대신 '임대인'으로(같은 글자 수 — '계약금(임대인)'은
-    //   좁은 카드에서 금액이 줄바꿈됨). 마우스를 올리면 '계약금 칸 · 임대인 이희승 · 부담 … · 남음 …'.
-    const stageTitle = (s) => {
-      const py = getStagePayer(rowData, s);
-      if (!py) return `<small>${s}</small>`;
-      const tip = `${s} 칸 · ${payerLine(rowData, s)}`;
-      return `<small data-bs-toggle="tooltip" data-bs-title="${this.escapeHTML(tip)}" aria-label="${this.escapeHTML(tip)}">${this.escapeHTML(py.role)}</small>`;
     };
 
     return `
@@ -1107,7 +1106,7 @@ export default class ProjectRowAccordion {
         </div>
         <div class="card-grid">
           <div class="compact-item">
-            ${stageTitle('계약금')}
+            <small>계약금</small>
             <div class="editable-value-wrapper">
               ${createMemoField('계약금', '계약금')}
             </div>
@@ -1123,7 +1122,7 @@ export default class ProjectRowAccordion {
             })()}</div>
           </div>
           <div class="compact-item">
-            ${stageTitle('중도금')}
+            <small>중도금</small>
             <div class="editable-value-wrapper">
               ${createMemoField('중도금', '중도금')}
             </div>
@@ -1133,7 +1132,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="수금 확인" data-original-value="${this.unifiedBadgeSystem.collectionBadge.normalizeStatus(rowData['수금 확인'])}">${this.formatCollectionStatus(rowData['수금 확인'])}</div>
           </div>
           <div class="compact-item">
-            ${stageTitle('잔금')}
+            <small>잔금</small>
             <div class="editable-value-wrapper">
               ${createMemoField('잔금', '잔금')}
             </div>
