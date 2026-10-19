@@ -106,6 +106,42 @@ def check_amount_anomaly(ctx):
     return out
 
 
+_CELL_KNOWN_KEY = 'invariant_known_cell_anomalies'   # Redis set: 처음 본 기존 이상 칸(알림 제외 기준)
+_CELL_COLS = (('T', '총액 2', 'err'), ('X', '미수금', 'err'), ('AD', '수금 확인', 'bool'),
+              ('AE', '제품대', 'num'), ('AF', '도급비', 'num'), ('AG', '자재비', 'num'), ('AH', '기타비', 'num'),
+              ('AI', '순익', 'err'), ('AJ', '마진율', 'err'))
+
+
+def sheet_cell_anomalies(rows):
+    """시트 원본 칸 이상 — 수식 오류(#REF! 등)·금액 칸 글자·수금 확인 체크박스 칸 글자.
+
+    rows: [(행번호, 코드, {열: 값})] (UNFORMATTED). Returns [(key, 코드, 문구)].
+    계기: 2026-10-19 14:58 브라우저에서 칸을 끌어 옮겨 AL 글자가 AH(기타비)·AD(수금 확인)로 가고
+    AI(순익) 수식이 #REF! — 프로젝트 레코드는 값이 정리돼 들어와 기존 점검이 못 잡았다.
+    """
+    out = []
+    for row, code, cells in rows:
+        for letter, label, kind in _CELL_COLS:
+            v = cells.get(letter, '')
+            msg = ''
+            if isinstance(v, str) and v.startswith('#'):
+                msg = f"{label}({letter}{row}) 수식 오류 {v.split(' ')[0]}"
+            elif kind == 'bool' and not isinstance(v, bool) and v not in ('', None):
+                msg = f"{label}({letter}{row}) 체크박스 칸에 값 {str(v)[:30]!r}"
+            elif kind == 'num' and isinstance(v, str) and v.strip() not in ('', '-'):
+                msg = f"{label}({letter}{row}) 금액 칸에 글자 {v[:30]!r}"
+            if msg:
+                out.append((f'cell:{letter}{row}:{str(v)[:40]}', code, msg))
+    return out
+
+
+def check_sheet_cells(ctx):
+    """시트 원본 칸 이상 중 **새로 생긴 것만** (처음 실행 때 있던 106칸은 기준으로 기억 — 옛 #DIV/0! 등)."""
+    known = ctx.get('known_cell_anomalies') or set()
+    return [Violation('sheet_cell', key, code, msg)
+            for key, code, msg in ctx.get('cell_anomalies') or [] if key not in known]
+
+
 def check_split_payers(ctx):
     """나눠 내는 공사(○○ 부담자 칸) — 칸 형식 오류·부담액 합계≠총액2·부담자 없는 칸에 입금 (2026-10-19)."""
     from dashboard.services.payer_split import split_problems
@@ -128,12 +164,14 @@ INVARIANTS = [
     check_phantom_codes,
     check_amount_anomaly,
     check_split_payers,
+    check_sheet_cells,
 ]
 
 _CHECK_LABEL = {
     'phantom_code': '유령/고아 코드',
     'amount_anomaly': '금액 이상치',
     'split_payer': '나눠 내는 공사(부담자 칸)',
+    'sheet_cell': '시트 칸 이상(수식 오류·칸 이동 의심)',
 }
 
 
@@ -163,12 +201,55 @@ def build_context():
     except Exception as exc:
         logger.warning(f'[INVARIANT] Redis 스캔 일부 실패: {exc}')
 
+    # 시트 원본 칸 이상(수식 오류·칸 이동 의심) — 처음 실행 때 있던 것은 기준으로 기억, 새로 생긴 것만 알림
+    cell_anomalies, known = [], set()
+    try:
+        cell_anomalies = sheet_cell_anomalies(_read_sheet_cells())
+        if not rc.exists(_CELL_KNOWN_KEY):
+            if cell_anomalies:
+                rc.sadd(_CELL_KNOWN_KEY, *[k for k, _, _ in cell_anomalies])
+            else:
+                rc.sadd(_CELL_KNOWN_KEY, '__seeded__')
+            logger.info(f'[INVARIANT] 시트 칸 이상 기준 저장: {len(cell_anomalies)}칸')
+        known = {_dec(x) for x in (rc.smembers(_CELL_KNOWN_KEY) or set())}
+    except Exception as exc:
+        logger.warning(f'[INVARIANT] 시트 칸 점검 준비 실패(건너뜀): {exc}')
+        cell_anomalies = []
+
     return {
         'records': records,
         'valid_codes': valid_codes,
         'card_codes': card_codes,
+        'cell_anomalies': cell_anomalies,
+        'known_cell_anomalies': known,
         'now': datetime.now(),
     }
+
+
+def _read_sheet_cells():
+    """공사 현황 A·T·X·AD:AJ 원본(UNFORMATTED) → [(행, 코드, {열: 값})] — API 1회."""
+    from dashboard.services.payment_sync import _get_payment_service
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    if not sid or not sn:
+        return []
+    vr = _get_payment_service().spreadsheets().values().batchGet(
+        spreadsheetId=sid, valueRenderOption='UNFORMATTED_VALUE',
+        ranges=[f"'{sn}'!A2:A6000", f"'{sn}'!T2:T6000", f"'{sn}'!X2:X6000", f"'{sn}'!AD2:AJ6000"],
+    ).execute().get('valueRanges', [])
+    col = lambda k: vr[k].get('values', []) if len(vr) > k else []
+    codes, t, x, adj = col(0), col(1), col(2), col(3)
+    out = []
+    for i, c in enumerate(codes):
+        code = str(c[0] if c else '').strip()
+        if not code:
+            continue
+        cells = {'T': (t[i][0] if i < len(t) and t[i] else ''), 'X': (x[i][0] if i < len(x) and x[i] else '')}
+        row = adj[i] if i < len(adj) else []
+        for j, letter in enumerate(('AD', 'AE', 'AF', 'AG', 'AH', 'AI', 'AJ')):
+            cells[letter] = row[j] if j < len(row) else ''
+        out.append((i + 2, code, cells))
+    return out
 
 
 # ─────────────────────────────────────────────────────────────
