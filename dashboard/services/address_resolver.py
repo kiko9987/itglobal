@@ -81,6 +81,7 @@ def normalize_display(addr: str) -> str:
     규칙:
     - 서울 → 완전 제거 (구부터 표기)
     - 광주광역시 (광주 + ○○구) → "전남 광주" (전남광주특별시 출범 대비)
+    - 전남광주통합특별시 + ○○구 → "전남 광주", + ○○시/군 → "전남 ○○" (L-04297)
     - 경기 광주시 → "광주" (일반 도 규칙 적용)
     - 다른 광역시 (인천/부산/대구/대전/울산/세종) → 그대로
     - 제주 + 제주시 → "제주" 한 번만
@@ -95,6 +96,10 @@ def normalize_display(addr: str) -> str:
     '인천 연수구 갯벌로 36'
     >>> normalize_display('광주 동구 충장로 1')
     '전남 광주 동구 충장로 1'
+    >>> normalize_display('전남광주통합특별시 광산구 하남산단로 1')
+    '전남 광주 광산구 하남산단로 1'
+    >>> normalize_display('전남광주통합특별시 나주시 빛가람로 838')
+    '전남 나주 빛가람로 838'
     >>> normalize_display('경기 광주시 경안로 100')
     '광주 경안로 100'
     >>> normalize_display('전북특별자치도 김제시 남북로 218')
@@ -130,6 +135,12 @@ def normalize_display(addr: str) -> str:
            or ('광주' in first and first.endswith('특별시')))
           and second.endswith('구')):
         result = ' '.join(['전남', '광주'] + tokens[1:])
+    elif ('광주' in first and first.endswith('특별시')
+          and (second.endswith('시') or second.endswith('군'))):
+        # 통합특별시 아래 옛 전남 시·군 → 비수도권 도 규칙과 같게 '전남 나주' (2026-10-19
+        #   L-04297). _PROV_FULL_TO_SHORT 로 '전남' 매핑하면 위 광주 구 분기를 못 타
+        #   '전남 광산구'로 광주가 빠지므로 별도 분기.
+        result = ' '.join(['전남', second[:-1]] + rest)
     elif first in ('세종', '세종시', '세종특별자치시'):
         # 세종은 구 없음 + 특별자치시 접미 → '세종 [도로/동]'로 정리 (2026-09-06 L-03929).
         #   '세종특별자치시'를 일반 '시' 축약(first[:-1])하면 '세종특별자치'로 깨짐.

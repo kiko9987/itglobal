@@ -20,6 +20,8 @@ from dashboard.services.lead_helpers import _unglue_admin_prefix as U
     ('수원시팔달구인계동 111', '수원시 팔달구 인계동 111'),
     ('경기광주시오포동 5', '경기 광주시 오포동 5'),
     ('인천중구운서동 2840', '인천 중구 운서동 2840'),
+    ('전남광주통합특별시나주시빛가람동 1', '전남광주통합특별시 나주시 빛가람동 1'),   # L-04297
+    ('전남광주통합특별시광산구수완동 1', '전남광주통합특별시 광산구 수완동 1'),
 ])
 def test_glued_admin_split(glued, expected):
     assert U(glued) == expected
