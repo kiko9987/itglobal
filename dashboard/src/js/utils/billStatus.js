@@ -321,16 +321,27 @@ function billAmountLinesCore(row, stage) {
   } else if (sheetBiz) {
     lines.push(sheetBiz);
   }
-  // 선발행(입금 대기): 발행액 = 앞 단계 입금분(통합발행 covered, gross) + 이 단계 미입금분(메모).
-  //   메모 'X원'은 자동기록 시 covered 를 뺀 순수분(R4080-JK: 638만 통합 = 입금 58만 + 대기 580만).
-  //   더한 값이 총액2 를 넘으면 메모가 이미 전액이었던 것 → 메모 값을 전체 발행액으로.
+  // 2026-10-19: 장 금액 줄(한 줄 = 한 장 합계)이 있으면 발행액 = 장 합계, 입금 대기 = 장 합계 − 입금(gross).
+  //   (G4145: 잔금 장 9,132,200 / 중도금 입금 7,305,760 → 입금 대기 1,826,440)
+  const sheets = stageSheets(row, stage);
+  if (sheets.length) {
+    const issuedTotal = sheets.reduce((a, s) => a + s.gross, 0);
+    lines.push(`발행액${sheets.length > 1 ? ' 합계' : ''} ${issuedTotal.toLocaleString()}원 (VAT 포함)`);
+    if (issuedTotal > gross + 1 && !fully) {
+      lines.push(gross > 0
+        ? `입금 ${gross.toLocaleString()}원 · 입금 대기 ${(issuedTotal - gross).toLocaleString()}원`
+        : `입금 대기 ${issuedTotal.toLocaleString()}원`);
+    }
+    return lines;
+  }
+  // 장 금액 줄이 없는 옛 기록 — 선발행(입금 대기)이면 메모의 금액 하나(SB 수기)로
   if (isPreIssued(row, stage)) {
     const pending = preIssuedAmount(row, stage);
     if (pending > 0) {
       const total2 = toNum(row && row['총액 2']);
       let issuedTotal = gross + pending;
       if (total2 > 0 && issuedTotal > total2 + 1) issuedTotal = pending;
-      lines.push(`발행액${parts.length > 1 ? ' 합계' : ''} ${issuedTotal.toLocaleString()}원 (VAT 포함)`);
+      lines.push(`발행액 ${issuedTotal.toLocaleString()}원 (VAT 포함)`);
       if (gross > 0 && issuedTotal > gross) {
         lines.push(`입금 ${gross.toLocaleString()}원 · 입금 대기 ${(issuedTotal - gross).toLocaleString()}원`);
       }
@@ -338,15 +349,6 @@ function billAmountLinesCore(row, stage) {
       lines.push(gross > 0
         ? `발행액 미상 — 입금 ${gross.toLocaleString()}원 외 계산서 메모 확인`
         : '발행액 미상 — 계산서 메모 확인');
-    }
-    return lines;
-  }
-  // 분할 발행(장별 금액 있음) — 결제칸 대신 장 합계 기준 (일부만 입금이면 '입금 · 입금 대기')
-  if (parts.length > 1 && parts.every((p) => p.amt > 0)) {
-    const issuedSum = parts.reduce((a, p) => a + p.amt, 0);
-    lines.push(`발행액 합계 ${issuedSum.toLocaleString()}원 (VAT 포함)`);
-    if (gross > 0 && issuedSum > gross + 1) {
-      lines.push(`입금 ${gross.toLocaleString()}원 · 입금 대기 ${(issuedSum - gross).toLocaleString()}원`);
     }
     return lines;
   }
@@ -406,36 +408,83 @@ export function activeInvoiceLines(memo) {
       if (hit) hit.cancelled = true;
       return;
     }
-    items.push({ date, stage: m[4], kind: m[5], amt, biz, cancelled: false });
+    const pm = PAREN_AMT.exec(ln);
+    items.push({ date, stage: m[4], kind: m[5], amt, biz, cancelled: false,
+      // 괄호 공급가: 'total' = '(계산서 전체 X원 VAT 별도)'(옛 통합발행 몫 줄), 'plain' = '(X원 VAT 별도)'
+      paren: pm ? (pm[1] ? 'total' : 'plain') : '', parenAmt: pm ? toNum(pm[2]) : 0 });
   });
   return items.filter((it) => !it.cancelled).map(({ cancelled, ...it }) => it);
 }
 
-/**
- * 입금 0 단계의 세금계산서 발행액(VAT 포함, 원). 출처 = 계산서_메모(Y 노트):
- *   ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명' (계산서 첨부 자동기록, 한 줄 = 한 장)
- *      → 그 단계의 **취소(수정발행) 안 된 줄들의 합** = 현재 발행액. 취소된 장은 이력.
- *      (G3991-YM: 08-27 341만 → 09-02 취소 + 고객 요청 사업자 분할 170.5만+170.5만 = 341만)
- *      그 단계 선발행 줄이 있었는데 전부 취소됐으면 0.
- *   ② 단계 표시 줄이 없으면 메모의 'X원' 이 정확히 하나 (SB 수기 메모 등, 단계 표시 줄은 제외)
- *   ③ 없거나 여럿이면 0 (어느 단계 금액인지 모호 → 오표기 방지)
- */
-export function preIssuedAmount(row, stage) {
-  const memo = String((row && row['계산서_메모']) || '');
-  if (!memo.trim()) return 0;
-  const hadTag = memo.split('\n').some((ln) => {
-    const m = INV_LINE.exec(ln);
-    return m && m[4] === stage && m[5] === '선발행' && m[6];
-  });
-  if (hadTag) {
-    return activeInvoiceLines(memo).filter((it) => it.stage === stage && it.kind === '선발행')
-      .reduce((a, it) => a + it.amt, 0);
-  }
-  // 단계 표시 줄('YYYY-MM-DD 잔금 발행|취소 X원 · …' = 장 금액, 2026-10-01~)은 폴백에서 제외
-  const STAGE_LINE = /^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*(?:선?발행|취소)/;
-  const rest = memo.split('\n').filter((ln) => !STAGE_LINE.test(ln)).join('\n');
+// 줄의 공급가 괄호 금액 — slack_bot._PAREN_AMT_RE 미러
+const PAREN_AMT = /\((계산서\s*전체\s*)?([\d,]+)\s*원\s*(?:VAT|부가세)/;
+const STAGE_LINE = /^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*(?:선?발행|취소)/;
+
+/** 단계 표시 줄을 뺀 메모에 'X원'이 정확히 하나면 그 금액(SB 수기 메모), 아니면 0 — slack_bot._memo_single_amount 미러 */
+function memoSingleAmount(memo) {
+  const rest = String(memo || '').split('\n').filter((ln) => !STAGE_LINE.test(ln)).join('\n');
   const amts = rest.match(/[\d,]+\s*원/g) || [];
   return amts.length === 1 ? toNum(amts[0].replace(/원|\s/g, '')) : 0;
+}
+
+/** 이 단계 계산서(통합발행 한 장)에 포함된 앞 단계 — 바로 앞부터 연속된 '-'(입금 0 단계는 건너뜀). slack_bot._covered_chain 미러 */
+function coveredChain(row, stage) {
+  const out = [];
+  for (let i = BILL_STAGES.indexOf(stage) - 1; i >= 0; i--) {
+    const s = BILL_STAGES[i];
+    const t = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
+    if (t === '-') { out.push(s); continue; }
+    if (!toNum(row && row[s])) continue;
+    break;
+  }
+  return out;
+}
+
+/**
+ * 계산서 메모 한 줄 → 그 계산서 한 장의 합계(VAT 포함) — slack_bot._line_sheet_gross 미러.
+ * 2026-10-19 근본 정리: 줄 금액 = 그 장 합계(사실). 옛 '선발행' 줄만 보정 — '(X원 VAT 별도)' 있으면 이미 장 합계,
+ * '(계산서 전체 X원 VAT 별도)'는 X × 총액2/총액1, 괄호 없으면 앞 단계 입금(통합발행 포함분)을 뺀 몫이라 더함
+ * (더해 총액2를 넘으면 원래 전액).
+ */
+export function lineSheetGross(row, it) {
+  if (it.kind !== '선발행' || it.paren === 'plain') return it.amt;
+  // 같은 단계에 장이 여러 개(사업자 분할)면 몫 보정 안 함 (G3991: 1,705,000 × 2장)
+  const multi = activeInvoiceLines(row && row['계산서_메모'])
+    .filter((x) => x.stage === it.stage && x.amt > 0).length > 1;
+  if (multi && it.paren !== 'total') return it.amt;
+  const total1 = toNum(row && row['총액 1']);
+  const total2 = toNum(row && row['총액 2']);
+  if (it.paren === 'total' && it.parenAmt) {
+    const ratio = total1 > 0 && total2 > total1 ? total2 / total1 : 1;
+    return Math.round(it.parenAmt * ratio);
+  }
+  const cov = coveredChain(row, it.stage).reduce((a, s) => a + toNum(row && row[s]), 0);
+  if (total2 > 0 && it.amt + cov > total2 + 1) return it.amt;
+  return it.amt + cov;
+}
+
+/** 그 단계에 장 금액이 적힌 현재 계산서들 [{biz, gross}] */
+function stageSheets(row, stage) {
+  return activeInvoiceLines(row && row['계산서_메모'])
+    .filter((it) => it.stage === stage && it.amt > 0)
+    .map((it) => ({ biz: it.biz, gross: lineSheetGross(row, it) }));
+}
+
+/**
+ * 그 단계 계산서 중 아직 입금 안 된 금액(입금 대기, VAT 포함, 원) — 2026-10-19 근본 정리.
+ *   ① 그 단계에 장 금액 줄이 있으면: 장 합계 − (그 단계 입금 + 그 장에 포함된 앞 단계 입금), 0 미만이면 0
+ *      (G4145: 잔금 장 9,132,200 − 중도금 입금 7,305,760 = 1,826,440)
+ *   ② 장 금액 줄이 없으면(옛 기록): 메모의 'X원'이 정확히 하나일 때 그 금액(SB 수기), 아니면 0
+ */
+export function preIssuedAmount(row, stage) {
+  const sheets = stageSheets(row, stage);
+  if (sheets.length) {
+    const total = sheets.reduce((a, s) => a + s.gross, 0);
+    const paid = toNum(row && row[stage])
+      + coveredChain(row, stage).reduce((a, s) => a + toNum(row && row[s]), 0);
+    return Math.max(0, total - paid);
+  }
+  return memoSingleAmount(row && row['계산서_메모']);
 }
 
 /**
@@ -447,20 +496,22 @@ export function billIssuedParts(row, stage) {
   const parts = [];
   activeInvoiceLines(row && row['계산서_메모']).forEach((it) => {
     if (it.stage !== stage || !it.biz) return;
+    const g = it.amt > 0 ? lineSheetGross(row, it) : 0;   // 장 합계 (옛 선발행 몫 줄은 보정)
     const p = parts.find((x) => x.name === it.biz);
-    if (p) p.amt += it.amt; else parts.push({ name: it.biz, amt: it.amt });
+    if (p) p.amt += g; else parts.push({ name: it.biz, amt: g });
   });
   return parts;
 }
 
 /**
  * 발행 계산서 합계가 총액2 를 넘으면 그 합계(원), 아니면 0 — 수정발행 '대체' 표시 누락 의심.
- * (선발행 줄은 covered 를 뺀 순수분이라 합계가 실제보다 작거나 같음 → 오경보 없음)
+ * (2026-10-19~ 줄 금액 = 장 합계, 옛 선발행 몫 줄은 lineSheetGross 로 보정해 합산)
  */
 export function overIssuedAmount(row) {
   const total2 = toNum(row && row['총액 2']);
   if (!(total2 > 0)) return 0;
-  const sum = activeInvoiceLines(row && row['계산서_메모']).reduce((a, it) => a + it.amt, 0);
+  const sum = activeInvoiceLines(row && row['계산서_메모'])
+    .reduce((a, it) => a + (it.amt > 0 ? lineSheetGross(row, it) : 0), 0);
   return sum > total2 + 1 ? sum : 0;
 }
 

@@ -3,7 +3,8 @@
 
 선발행(입금 0) 단계를 '발행'으로 자동기록할 때 계산서_메모(Y 노트)에 발행액을 남기는데,
 날짜가 없어 SB 수기 메모('2026-08-14 41,600,000원 … 발행')와 달리 언제 발행했는지 몰랐다.
-→ 'YYYY-MM-DD {단계} 선발행 X원'. 재호출 시 중복 기록 없음 + 금액 파서는 금액 1개만 인식.
+→ 'YYYY-MM-DD {단계} 발행 X원'. 재호출 시 중복 기록 없음.
+2026-10-19 근본 정리: 줄 금액 = 계산서 한 장 합계(사실). '선발행'·입금 대기 몫은 적지 않고 읽을 때 계산.
 """
 import re
 import sys
@@ -82,11 +83,9 @@ def test_prebill_memo_has_issue_date(monkeypatch):
     _run(monkeypatch, fm)
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.vals['AB10'] == '발행'
-    # 선발행 줄엔 부가세 별도 금액 병기 (2026-10-15 SB 요청)
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (2,620,000원 VAT 별도)'
-    # 금액 파서(billStatus/_project_issued_invoice 미러)는 발행액(부가세 포함)만 — 병기·날짜 무영향
-    assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 2882000
-    assert [(a['kind'], a['amt']) for a in sb._active_invoice_lines(fm.notes['Y10'])] == [('선발행', 2882000)]
+    # 한 줄 = 한 장 합계 + 공급가 병기 (입금 0 단계여도 '선발행'·몫 아님, 2026-10-19)
+    assert fm.notes['Y10'] == f'{today} 잔금 발행 2,882,000원 (2,620,000원 VAT 별도)'
+    assert [(a['kind'], a['amt']) for a in sb._active_invoice_lines(fm.notes['Y10'])] == [('발행', 2882000)]
 
 
 def test_normal_issue_writes_dated_line_with_amount(monkeypatch):
@@ -98,17 +97,16 @@ def test_normal_issue_writes_dated_line_with_amount(monkeypatch):
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.vals['AB10'] == '발행'
     assert fm.notes['Y10'] == (f'2026-08-14 41,600,000원 부가세 별도 발행\n'
-                               f'{today} 잔금 발행 2,882,000원 · (주)설린')
+                               f'{today} 잔금 발행 2,882,000원 (2,620,000원 VAT 별도) · (주)설린')
     # 'X원 1개' 폴백은 단계 표시 줄을 빼고 셈 → SB 수기 금액 그대로
-    assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 41600000
+    assert sb._memo_single_amount(fm.notes['Y10']) == 41600000
 
 
-def test_normal_issue_line_not_taken_as_preissued_amount():
-    """일반 발행 줄의 금액은 선발행 금액으로 쓰지 않음 (다른 단계 선발행 판정 오염 방지)."""
+def test_stage_lines_not_taken_as_single_memo_amount():
+    """단계 표시 줄(장 금액)은 SB 수기 'X원 하나' 폴백에서 제외."""
     memo = '2026-09-01 계약금 발행 1,000,000원 · A'
-    assert sb._pre_issued_amount(memo, '잔금') == 0
-    memo2 = memo + '\n2026-09-05 잔금 선발행 2,000,000원 · A'
-    assert sb._pre_issued_amount(memo2, '잔금') == 2000000
+    assert sb._memo_single_amount(memo) == 0
+    assert sb._memo_single_amount(memo + '\n2026-08-14 41,600,000원 부가세 별도 발행') == 41600000
 
 
 def test_already_issued_stage_records_history_only(monkeypatch):
@@ -120,7 +118,7 @@ def test_already_issued_stage_records_history_only(monkeypatch):
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.vals['AB10'] == '발행'
     assert fm.vals['Y10'] == '잔금 - 미발행'          # Y 요약 재계산 안 함 (칸 변경 없음)
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (2,620,000원 VAT 별도) · SM CORPORATION'
+    assert fm.notes['Y10'] == f'{today} 잔금 발행 2,882,000원 (2,620,000원 VAT 별도) · SM CORPORATION'
     assert sb._active_invoice_lines(fm.notes['Y10'])[0]['biz'] == 'SM CORPORATION'   # 병기는 사업자명에 안 섞임
 
 
@@ -131,9 +129,9 @@ def test_split_issue_same_day_keeps_both_lines(monkeypatch):
     _run(monkeypatch, fm, biz='SM CORPORATION', card_key='C:1', amt='1310000', fake_redis=fr)
     _run(monkeypatch, fm, biz='(주)설린', card_key='C:2', amt='1310000', fake_redis=fr)
     today = f'{datetime.now():%Y-%m-%d}'
-    assert fm.notes['Y10'] == (f'{today} 잔금 선발행 1,441,000원 (1,310,000원 VAT 별도) · SM CORPORATION\n'
-                               f'{today} 잔금 선발행 1,441,000원 (1,310,000원 VAT 별도) · (주)설린')
-    assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 2882000
+    assert fm.notes['Y10'] == (f'{today} 잔금 발행 1,441,000원 (1,310,000원 VAT 별도) · SM CORPORATION\n'
+                               f'{today} 잔금 발행 1,441,000원 (1,310,000원 VAT 별도) · (주)설린')
+    assert sum(a['amt'] for a in sb._active_invoice_lines(fm.notes['Y10'])) == 2882000
 
 
 def test_same_card_retrigger_writes_once(monkeypatch):
@@ -160,21 +158,20 @@ def test_active_lines_cancel_removes_replaced_invoice():
     """수정발행 취소 줄 = 같은 단계·금액·사업자 장을 지움 → 현재 = 분할 두 장 (2026-10-01)."""
     act = sb._active_invoice_lines(G3991)
     assert [(a['biz'], a['amt']) for a in act] == [('(주)설린', 1705000), ('SM CORPORATION', 1705000)]
-    assert sb._pre_issued_amount(G3991, '잔금') == 3410000
 
 
 def test_split_on_different_days_sums():
     """분할 두 장을 다른 날 처리해도 합산 (날짜 묶음 방식의 한계 해소)."""
     memo = ('2026-10-02 잔금 선발행 1,000,000원 · A상사\n'
             '2026-10-05 잔금 선발행 1,000,000원 · B상사')
-    assert sb._pre_issued_amount(memo, '잔금') == 2000000
+    assert sum(a['amt'] for a in sb._active_invoice_lines(memo)) == 2000000
 
 
 def test_cancel_without_match_is_ignored_and_all_cancelled_is_zero():
     memo = '2026-10-02 잔금 선발행 1,000,000원 · A상사\n2026-10-03 잔금 취소 -999,000원 · A상사 (수정발행)'
-    assert sb._pre_issued_amount(memo, '잔금') == 1000000          # 금액 안 맞는 취소 → 무시
+    assert [a['amt'] for a in sb._active_invoice_lines(memo)] == [1000000]   # 금액 안 맞는 취소 → 무시
     memo2 = '2026-10-02 잔금 선발행 1,000,000원 · A상사\n2026-10-03 잔금 취소 -1,000,000원 · A상사 (수정발행)'
-    assert sb._pre_issued_amount(memo2, '잔금') == 0                # 전부 취소 → 0 (폴백 X)
+    assert sb._active_invoice_lines(memo2) == []                              # 전부 취소
 
 
 def test_replace_writes_cancel_line_before_new_line(monkeypatch):
@@ -187,7 +184,7 @@ def test_replace_writes_cancel_line_before_new_line(monkeypatch):
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.notes['Y10'] == ('2026-08-27 잔금 선발행 2,882,000원 · SM CORPORATION\n'
                                f'{today} 잔금 취소 -2,882,000원 · SM CORPORATION (수정발행)\n'
-                               f'{today} 잔금 선발행 1,441,000원 (1,310,000원 VAT 별도) · (주)설린')
+                               f'{today} 잔금 발행 1,441,000원 (1,310,000원 VAT 별도) · (주)설린')
     act = sb._active_invoice_lines(fm.notes['Y10'])
     assert [(a['biz'], a['amt']) for a in act] == [('(주)설린', 1441000)]
 
@@ -198,7 +195,7 @@ def test_vat_free_project_no_supply_note(monkeypatch):
     fm.vals.update({'R10': 2620000, 'T10': 2620000})
     _run(monkeypatch, fm)
     today = f'{datetime.now():%Y-%m-%d}'
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,620,000원'
+    assert fm.notes['Y10'] == f'{today} 잔금 발행 2,620,000원'
 
 
 def test_vat_included_request_supply_from_ratio(monkeypatch):
@@ -213,7 +210,7 @@ def test_vat_included_request_supply_from_ratio(monkeypatch):
                         lambda: type('A', (), {'log_action': lambda self, **k: None})())
     sb._mark_invoice_issued_in_sheet('R4100-MS', '잔금', invoice_amt='2882000', vat_val='incl')
     today = f'{datetime.now():%Y-%m-%d}'
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,882,000원 (2,620,000원 VAT 별도)'
+    assert fm.notes['Y10'] == f'{today} 잔금 발행 2,882,000원 (2,620,000원 VAT 별도)'
 
 
 def test_project_issued_invoice_flags_over_issue(monkeypatch):
@@ -309,18 +306,62 @@ def test_supply_note_variants_parsed(paren):
     memo = f'2026-10-15 잔금 선발행 7,371,100원 {paren} · 주식회사 제이케이디 학원'
     act = sb._active_invoice_lines(memo)
     assert [(a['kind'], a['amt'], a['biz']) for a in act] == [('선발행', 7371100, '주식회사 제이케이디 학원')]
-    assert sb._pre_issued_amount(memo, '잔금') == 7371100
 
 
-def test_unified_issue_with_covered_deposit_shows_whole_invoice_supply(monkeypatch):
-    """통합발행(계약금 입금분 covered) — 줄 금액은 잔금 몫, 괄호는 계산서 장 전체 공급가 (2026-10-16 R4104-SD).
+def test_unified_issue_with_covered_deposit_records_whole_sheet(monkeypatch):
+    """통합발행(계약금 입금분 covered) — 줄 금액 = 계산서 한 장 합계 (2026-10-19 근본 정리).
 
-    예전엔 잔금 몫 2,515,000 을 거꾸로 나눈 2,286,364원(어디에도 없는 숫자)이 찍혔다."""
+    예전엔 잔금 몫(2,515,000 = 2,750,000 − 계약금 입금 235,000)을 '선발행'으로 적어, 같은 계산서라도
+    발행 시점의 입금 상태에 따라 숫자의 뜻이 달랐다(R4104-SD·G4145-JW)."""
     fm = _FakeManager()
     fm.vals.update({'R10': 2500000, 'T10': 2750000, 'U10': 235000, 'Z10': ''})
     _run(monkeypatch, fm, biz='까사 포마', amt='2500000')
     today = f'{datetime.now():%Y-%m-%d}'
     assert fm.vals['Z10'] == '-' and fm.vals['AB10'] == '발행'
-    assert fm.notes['Y10'] == f'{today} 잔금 선발행 2,515,000원 (계산서 전체 2,500,000원 VAT 별도) · 까사 포마'
-    assert sb._pre_issued_amount(fm.notes['Y10'], '잔금') == 2515000
+    assert fm.notes['Y10'] == f'{today} 잔금 발행 2,750,000원 (2,500,000원 VAT 별도) · 까사 포마'
     assert sb._active_invoice_lines(fm.notes['Y10'])[0]['biz'] == '까사 포마'
+
+
+# ── 읽는 쪽: 장 합계 기준 + 옛 선발행 몫 줄 보정 (2026-10-19) ──
+G4145_REC = {'프로젝트 코드': 'G4145-JW', '총액 1': 8302000, '총액 2': 9132200, '부가세': True,
+             '계약금': 0, '중도금': 7305760, '잔금': 0, '미수금': 1826440,
+             '계약금 계산서': '-', '중도금 계산서': '-', '잔금 계산서': '발행', '수금 확인': False}
+
+
+@pytest.mark.parametrize('line', [
+    '2026-10-15 잔금 발행 9,132,200원 (8,302,000원 VAT 별도) · 이희승',              # 새 기준
+    '2026-10-15 잔금 선발행 1,826,440원 (계산서 전체 8,302,000원 VAT 별도) · 이희승',  # 10/16 형식
+    '2026-10-15 잔금 선발행 1,826,440원 · 이희승',                                     # 10/15 이전 형식(몫)
+])
+def test_g4145_all_line_forms_give_same_issued(monkeypatch, line):
+    """같은 계산서(9,132,200원 한 장)는 어떤 형식으로 적혔든 발행액·남은 공급가가 같다."""
+    import dashboard.services.project_service as psv
+    monkeypatch.setattr(psv, 'get_project_records', lambda: [dict(G4145_REC, **{'계산서_메모': line})])
+    s = sb._project_issued_invoice('G4145-JW')
+    assert s['issued_gross'] == 9132200 and s['remaining_supply'] == 0 and not s['uncertain']
+    assert s['over_issued'] == 0 and s['active'][0]['gross'] == 9132200
+
+
+def test_old_full_amount_prebill_line_with_later_deposits_not_doubled(monkeypatch):
+    """G4154: 입금 전에 전액으로 적힌 옛 선발행 줄 + 나중 입금 → 두 배로 세지 않음(13,488,200)."""
+    rec = {'프로젝트 코드': 'G4154-JW', '총액 1': 12262000, '총액 2': 13488200, '부가세': True,
+           '계약금': 4046460, '중도금': 6744100, '잔금': 2697640, '미수금': 0,
+           '계약금 계산서': '-', '중도금 계산서': '-', '잔금 계산서': '발행', '수금 확인': False,
+           '계산서_메모': '2026-10-01 잔금 선발행 13,488,200원 · 이명순'}
+    import dashboard.services.project_service as psv
+    monkeypatch.setattr(psv, 'get_project_records', lambda: [rec])
+    s = sb._project_issued_invoice('G4154-JW')
+    assert s['issued_gross'] == 13488200 and s['remaining_supply'] == 0 and s['over_issued'] == 0
+
+
+def test_line_stage_and_covered_not_counted_again(monkeypatch):
+    """장 금액 줄이 있는 단계·그 장에 포함된 앞 단계('-') 입금은 다시 세지 않고, 따로 발행된 옛 단계만 입금액으로."""
+    rec = {'프로젝트 코드': 'X9', '총액 1': 10000000, '총액 2': 11000000, '부가세': True,
+           '계약금': 1100000, '중도금': 0, '잔금': 0, '미수금': 9900000,
+           '계약금 계산서': '발행', '중도금 계산서': '', '잔금 계산서': '발행', '수금 확인': False,
+           '계산서_메모': '2026-09-11 계약금 발행\n2026-10-19 잔금 발행 9,900,000원 (9,000,000원 VAT 별도) · A'}
+    import dashboard.services.project_service as psv
+    monkeypatch.setattr(psv, 'get_project_records', lambda: [rec])
+    s = sb._project_issued_invoice('X9')
+    # 계약금(금액 없는 옛 줄) = 입금 1,100,000 + 잔금 장 9,900,000
+    assert s['issued_gross'] == 11000000 and s['remaining_supply'] == 0

@@ -13924,17 +13924,16 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
             if col_y:
                 manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
                                           _bill_y_summary(cur, amt, _coll))
-        # 발행일을 계산서_메모(Y 노트)에 기록 — PM 계산서 툴팁 '발행일' 출처 (2026-09-30 SB 요청).
+        # 발행일·장 금액을 계산서_메모(Y 노트)에 기록 — PM 계산서 툴팁 출처 (2026-09-30 SB 요청).
         #   날짜 선두 = SB 수기 메모 관례('2026-08-14 41,600,000원 … 발행'). 발행일은 시트에 달리
         #   남는 곳이 없어(3열은 '발행' 표시만) 여기 안 쓰면 유실된다.
-        #   · 선발행(입금 0): 'YYYY-MM-DD 잔금 선발행 X원' — 입금열이 0이라 발행액도 여기만 남음
-        #     (2026-09-29, PM·계산서 모달 '금액미상' 방지). 통합발행이면 covered('-') 단계 금액은
-        #     이 발행에 포함 → 이 단계 순수분 = gross - covered합.
-        #   · 그 외: 'YYYY-MM-DD 잔금 발행 X원' — 이 장 금액(VAT 포함, 2026-10-01~). 금액 파서의
-        #     'X원 1개' 폴백은 단계 표시 줄을 제외하므로 선발행 금액 판정 무영향.
-        #   · 한 줄 = 한 장, 끝에 ' · 사업자명' (2026-10-01): 고객 요청 사업자 분할·수정발행 이력 추적.
-        #     같은 날 같은 금액이라도 사업자가 다르면 별도 줄(분할 발행 둘 다 남김). 읽는 쪽은 그 단계
-        #     최근 날짜 줄들의 합 = 현재 발행액 (billStatus.preIssuedAmount / _pre_issued_amount).
+        #   · 한 줄 = 계산서 한 장의 **사실**만: 'YYYY-MM-DD {단계} 발행 {합계}원 ({공급가}원 VAT 별도) · 사업자명'
+        #     (2026-10-19 근본 정리). 예전엔 입금 0 단계면 '선발행' + 앞 단계 입금을 뺀 몫을 적어, 같은 계산서라도
+        #     발행 시점의 입금 상태에 따라 숫자의 뜻이 달랐다(G4145 1,826,440 vs G4154 13,488,200).
+        #     선발행·입금 대기 금액은 적지 않고 읽을 때 계산(_project_issued_invoice / billStatus.billAmountLines).
+        #   · 공급가 괄호 = 홈택스에 넣은 공급가(2026-10-15 SB 요청). 부가세 없는 공사(총액1=총액2)는 생략.
+        #   · 끝 ' · 사업자명' (2026-10-01): 고객 요청 사업자 분할·수정발행 이력 추적. 같은 날 같은 금액이라도
+        #     사업자가 다르면 별도 줄. 읽는 쪽은 취소 안 된 줄 전부 = 현재 계산서.
         if col_y:
             try:
                 _today = f"{datetime.now():%Y-%m-%d}"
@@ -13947,29 +13946,14 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                         inv_gross = round(inv_amt * total2 / total1)
                     else:
                         inv_gross = round(inv_amt * 1.1)
-                    if amt.get(selected, 0) == 0:
-                        covered_sum = sum(amt.get(s, 0) for s in _BILL_STAGES if f'{s}(-)' in wrote)
-                        memo_amt = int(round(max(inv_gross - covered_sum, 0)))
-                        if memo_amt > 0:
-                            _core = f"{selected} 선발행 {memo_amt:,}원"
-                            # 공급가 병기 (2026-10-15 SB 요청 — 홈택스에 넣은 공급가를 바로 확인).
-                            #   표기는 세금계산서 요청 카드·모달과 같은 'VAT 별도'. 부가세 없는 공사(총액1=총액2)는
-                            #   생략. 읽는 쪽 정규식은 이 괄호를 건너뜀.
-                            #   괄호 금액 = 이 계산서 장의 공급가(홈택스에 넣은 금액). 통합발행(앞 단계 입금분
-                            #   covered)이면 줄 금액은 잔금 몫이라 장 전체와 달라 '계산서 전체'로 구분
-                            #   (2026-10-16 R4104-SD: 잔금 몫을 거꾸로 나눈 2,286,364원이 찍혀 혼란).
-                            _sup = 0
-                            if total1 > 0 and total2 > total1:
-                                _sup = int(round(inv_amt)) if vat_val != 'incl' else int(round(inv_gross * total1 / total2))
-                            elif not total1 and vat_val != 'incl':
-                                _sup = int(round(inv_amt))
-                            if _sup > 0:
-                                _core = (f"{_core} (계산서 전체 {_sup:,}원 VAT 별도)" if covered_sum > 0
-                                         else f"{_core} ({_sup:,}원 VAT 별도)")
-                    else:
-                        # 일반 발행도 이 장의 금액(VAT 포함) — 분할 발행 사업자별 금액·입금 대조용
-                        #   (2026-10-01). 금액 파서는 단계 표시 줄을 'X원' 1개 폴백에서 제외.
-                        _core = f"{selected} 발행 {int(round(inv_gross)):,}원"
+                    _core = f"{selected} 발행 {int(round(inv_gross)):,}원"
+                    _sup = 0
+                    if total1 > 0 and total2 > total1:
+                        _sup = int(round(inv_amt)) if vat_val != 'incl' else int(round(inv_gross * total1 / total2))
+                    elif not total1 and vat_val != 'incl':
+                        _sup = int(round(inv_amt))
+                    if _sup > 0:
+                        _core = f"{_core} ({_sup:,}원 VAT 별도)"
                 _biz = str(biz or '').strip()
                 if _biz and _biz != '-':
                     _core = f"{_core} · {_biz}"
@@ -13985,8 +13969,9 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                         _card_new = True   # Redis 불가 → 아래 줄 중복 검사로만
                 # 날짜 도입 전(날짜 없는) 같은 기록이 이미 있으면 재기록 안 함
                 #   (부가세 별도 병기 괄호는 비교에서 뺌 — 병기 도입 전 줄과도 같은 기록으로 봄)
+                #   ('선발행'은 옛 표기 — '발행'과 같은 기록으로 봄, 2026-10-19)
                 _core_cmp = _VAT_NOTE_PAREN_RE.sub('', _core.split(' · ')[0]).strip()
-                _old_dateless = any(_VAT_NOTE_PAREN_RE.sub('', ln).strip() == _core_cmp
+                _old_dateless = any(_VAT_NOTE_PAREN_RE.sub('', ln).replace('선발행', '발행').strip() == _core_cmp
                                     for ln in _note.split('\n'))
                 # 중복 = 날짜·단계·금액·사업자까지 같은 줄만 (같은 날 사업자 분할 두 장은 둘 다 남김)
                 _line = f"{_today} {_core}"
@@ -14105,30 +14090,59 @@ def _active_invoice_lines(memo: str) -> list:
                     it['cancelled'] = True
                     break
             continue
+        pm = _PAREN_AMT_RE.search(ln)
         items.append({'date': date, 'stage': m.group(4), 'kind': m.group(5), 'amt': amt,
-                      'biz': biz, 'cancelled': False})
+                      'biz': biz, 'cancelled': False,
+                      # 괄호 공급가: 'total' = '(계산서 전체 X원 VAT 별도)'(옛 통합발행 몫 줄), 'plain' = '(X원 VAT 별도)'
+                      'paren': ('total' if pm.group(1) else 'plain') if pm else '',
+                      'paren_amt': _bill_to_num(pm.group(2)) if pm else 0})
     return [{k: v for k, v in it.items() if k != 'cancelled'} for it in items if not it['cancelled']]
 
 
-def _pre_issued_amount(memo: str, stage: str) -> float:
-    """입금 0 단계의 세금계산서 발행액(VAT 포함) — billStatus.js preIssuedAmount 미러.
+# 줄의 공급가 괄호 금액 — '(8,302,000원 VAT 별도)' / '(계산서 전체 8,302,000원 VAT 별도)'
+_PAREN_AMT_RE = re.compile(r'\((계산서\s*전체\s*)?([\d,]+)\s*원\s*(?:VAT|부가세)')
+_STAGE_LINE_RE = re.compile(r'^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*(?:선?발행|취소)')
 
-    ① 단계 표시 줄 'YYYY-MM-DD {단계} 선발행 X원 · 사업자명'(계산서 첨부 자동기록, 한 줄=한 장)
-       중 **취소(수정발행) 안 된 줄들의 합** (사업자 분할 발행 합산, 취소된 장은 이력).
-       그 단계 선발행 줄이 있었는데 전부 취소됐으면 0.
-    ② 메모의 'X원' 이 정확히 하나 (단계 표시 줄 '{단계} 발행|선발행|취소 X원' 제외 — 장 금액)
-    ③ 없거나 여럿 → 0 (어느 단계 금액인지 모호)
-    """
-    memo = memo or ''
-    had_tag = any((m := _INV_LINE_RE.match(ln)) and m.group(4) == stage and m.group(5) == '선발행'
-                  and m.group(6) for ln in memo.split('\n'))
-    if had_tag:
-        return sum(it['amt'] for it in _active_invoice_lines(memo)
-                   if it['stage'] == stage and it['kind'] == '선발행')
-    stage_line = re.compile(r'^\s*(?:\d{4}[-./]\d{1,2}[-./]\d{1,2}\s+)?(계약금|중도금|잔금)\s*(?:선?발행|취소)')
-    rest = '\n'.join(ln for ln in memo.split('\n') if not stage_line.match(ln))
+
+def _memo_single_amount(memo: str) -> float:
+    """단계 표시 줄을 뺀 메모에 'X원'이 정확히 하나면 그 금액(SB 수기 메모), 아니면 0 — billStatus.js 미러."""
+    rest = '\n'.join(ln for ln in str(memo or '').split('\n') if not _STAGE_LINE_RE.match(ln))
     found = re.findall(r'[\d,]+\s*원', rest)
     return _bill_to_num(found[0].replace('원', '')) if len(found) == 1 else 0
+
+
+def _covered_chain(stage, stage_amt, raw_tok) -> list:
+    """이 단계 계산서(통합발행 한 장)에 포함된 앞 단계 — 바로 앞부터 연속된 '-'(입금 0 단계는 건너뜀)."""
+    out = []
+    for j in range(_BILL_STAGES.index(stage) - 1, -1, -1):
+        s = _BILL_STAGES[j]
+        if raw_tok.get(s) == '-':
+            out.append(s)
+            continue
+        if not stage_amt.get(s):
+            continue
+        break
+    return out
+
+
+def _line_sheet_gross(it, stage_amt, raw_tok, total1, total2, multi=False) -> float:
+    """계산서 메모 한 줄 → 그 계산서 한 장의 합계(VAT 포함) — billStatus.js lineSheetGross 미러.
+
+    2026-10-19 근본 정리: 줄 금액 = 그 장 합계(사실). 옛 '선발행' 줄만 보정 —
+    '(X원 VAT 별도)' 있는 줄은 이미 장 합계, '(계산서 전체 X원 VAT 별도)'는 X × 총액2/총액1,
+    괄호 없는 줄은 앞 단계 입금(통합발행 포함분)을 뺀 몫이었으므로 그만큼 더함(더해 총액2를 넘으면 원래 전액).
+    multi=True(같은 단계에 장이 여러 개 — 사업자 분할)면 몫 보정 안 함(G3991: 1,705,000 × 2장).
+    """
+    amt = it['amt']
+    if it.get('kind') != '선발행' or it.get('paren') == 'plain' or (multi and it.get('paren') != 'total'):
+        return amt
+    if it.get('paren') == 'total' and it.get('paren_amt'):
+        ratio = (total2 / total1) if (total1 > 0 and total2 > total1) else 1.0
+        return round(it['paren_amt'] * ratio)
+    cov = sum(stage_amt.get(s, 0) for s in _covered_chain(it['stage'], stage_amt, raw_tok))
+    if total2 > 0 and amt + cov > total2 + 1:
+        return amt
+    return amt + cov
 
 
 def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False) -> str:
@@ -14178,10 +14192,10 @@ def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False) -> str
 def _project_issued_invoice(code):
     """이미 발행된 세금계산서 요약 (계산서 요청 모달 잔여 프리필·경고용, 2026-09-28).
 
-    - 발행 단계 = '계약금/중도금/잔금 계산서' 토큰이 '발행'(billStatus 미러). 통합발행('-')은
-      lastIssuedIndex 이전 단계에 한해 흡수(covered).
-    - 단계 금액 = 계약금/중도금/잔금 열(입금액, **VAT 포함 gross**). 선발행(입금 0)은
-      계산서_메모에서 금액 파싱(정확히 1개일 때만 사용, 아니면 uncertain).
+    - 2026-10-19: 계산서_메모의 장 금액 줄(한 줄 = 한 장 합계)이 있으면 그 합이 발행액. 그 장이 있는 단계와
+      그 장에 포함된 앞 단계('-')는 입금액으로 다시 세지 않음. 옛 '선발행' 몫 줄은 _line_sheet_gross 로 보정.
+    - 장 금액 줄이 없는 옛 발행 = '발행' 토큰 단계(통합발행 '-'는 lastIssuedIndex 이전만)의 입금액(VAT 포함).
+      입금 0 이면 메모의 금액 하나(SB 수기), 없으면 uncertain.
     - gross→공급가 환산 = 총액1/총액2 비율(없으면 부가세 True 면 /1.1, 아니면 1).
 
     Returns dict 또는 None(조회 실패/발행 이력 없음).
@@ -14205,40 +14219,44 @@ def _project_issued_invoice(code):
     norm_tok = {s: _bill_norm_token(rec.get(f'{s} 계산서')) for s in _BILL_STAGES}
 
     last_idx = max((i for i, s in enumerate(_BILL_STAGES) if norm_tok[s] == '발행'), default=-1)
-    if last_idx < 0:
+    # 현재 유효한 계산서 장(금액 기록된 줄) — 2026-10-19: 줄 금액 = 그 장 합계. 옛 선발행 줄은 보정.
+    active = [it for it in _active_invoice_lines(memo) if it['amt'] > 0]
+    _per_stage = {s: sum(1 for x in active if x['stage'] == s) for s in _BILL_STAGES}
+    for it in active:
+        it['gross'] = int(round(_line_sheet_gross(it, stage_amt, raw_tok, total1, total2,
+                                                  multi=_per_stage[it['stage']] > 1)))
+    if last_idx < 0 and not active:
         return None  # 발행 이력 없음
     # 수금 완료(billStatus.isFullyCollected 미러) — 입금 0 발행이어도 선발행 아님(옛 데이터 모양)
     _paid = sum(stage_amt.values())
     _collected = (str(rec.get('수금 확인') or '').strip().upper() in ('TRUE', '1')
                   or (total2 > 0 and _paid > 0 and abs(_bill_to_num(rec.get('미수금'))) < 1))
 
-    issued_gross = 0.0
-    lines = []          # (stage, gross_amt, is_sunbal)
+    # ① 장 금액이 적힌 줄 = 발행액 그대로. 그 줄이 있는 단계와 그 장에 포함된 앞 단계('-')는 ②에서 빼고
+    # ② 줄 금액이 없는 옛 발행(9월 이전 기록·발행일만 적힌 줄)은 입금액으로(입금 0이면 메모의 금액 하나, 없으면 미상)
+    issued_gross = float(sum(it['gross'] for it in active))
+    lines = [(it['stage'], it['gross'], (not _collected) and stage_amt[it['stage']] == 0) for it in active]
+    line_cov = set()
+    for it in active:
+        line_cov.add(it['stage'])
+        line_cov.update(_covered_chain(it['stage'], stage_amt, raw_tok))
     uncertain = False
     for i, s in enumerate(_BILL_STAGES):
         counted = norm_tok[s] == '발행' or (raw_tok[s] == '-' and stage_amt[s] > 0 and i < last_idx)
-        if not counted:
+        if not counted or s in line_cov:
             continue
         amt = stage_amt[s]
         if amt > 0:
             issued_gross += amt
             lines.append((s, amt, False))
         else:
-            # 입금 0 발행 — 발행액은 계산서_메모에서 (billStatus.preIssuedAmount 미러).
-            #   '(선발행)' 표기는 수금 미완료일 때만 (billStatus.isPreIssued 미러, 2026-10-01 정의)
-            m_amt = _pre_issued_amount(memo, s)
-            sunbal = not _collected
+            m_amt = _memo_single_amount(memo)
             if m_amt > 0:
-                # 메모 금액 = 보통 covered 를 뺀 순수분(자동기록). 더해서 총액2 를 넘으면
-                #   메모가 이미 전액이었던 것 → 메모 값을 전체 발행액으로 (billStatus 미러)
-                if total2 > 0 and issued_gross + m_amt > total2 + 1:
-                    issued_gross = m_amt
-                else:
-                    issued_gross += m_amt
-                lines.append((s, m_amt, sunbal))
+                issued_gross = m_amt if (total2 > 0 and issued_gross + m_amt > total2 + 1) else issued_gross + m_amt
+                lines.append((s, m_amt, not _collected))
             else:
                 uncertain = True
-                lines.append((s, 0, sunbal))
+                lines.append((s, 0, not _collected))
 
     if issued_gross <= 0 and not uncertain:
         return None
@@ -14246,9 +14264,7 @@ def _project_issued_invoice(code):
     ratio = (total1 / total2) if (total1 > 0 and total2 > 0) else (1.0 / 1.1 if vat_sep else 1.0)
     issued_supply = round(issued_gross * ratio)
     remaining_supply = max(0, round(total1 - issued_supply))
-    # 현재 유효한 계산서(장 금액 기록된 것) — 요청 모달 '수정발행 대체 선택' 목록 (2026-10-01)
-    active = [it for it in _active_invoice_lines(memo) if it['amt'] > 0]
-    active_sum = sum(it['amt'] for it in active)
+    active_sum = sum(it['gross'] for it in active)
     return {
         'total_supply': int(round(total1)),
         'issued_gross': int(round(issued_gross)),
