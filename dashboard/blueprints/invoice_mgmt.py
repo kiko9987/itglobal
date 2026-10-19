@@ -191,15 +191,23 @@ def _payer_rec_from_sheet(code: str):
 
 
 def _payer_rec_cached(code: str):
-    """캐시된 공사 레코드(get_project_records) — [부담자 설정] 창 초기값용. 없으면 None.
+    """캐시된 공사 데이터에서 그 행만 {필드: 값} — [부담자 설정] 창 초기값용. 없으면 None.
 
     2026-10-20: 창을 열 때마다 시트를 직접 읽어(A열 전체 + 그 행 = 1.5~2.6초) 버튼 반응이 느리다는 제보.
     화면 초기값은 캐시로 충분하고(저장 시 update_project_in_cache 로 갱신), 저장(api_payers_save)은
     칸 배정·입금 보호 판단 때문에 계속 _payer_rec_from_sheet 최신값으로 다시 읽는다.
+    get_project_records()는 4,200행 전체를 dict 로 바꿔 0.27초 → 아코디언마다 미리 조회하므로 한 행만 꺼냄(0.01초).
     """
-    from ..services.project_service import get_project_records
-    return next((r for r in (get_project_records() or [])
-                 if str(r.get('프로젝트 코드') or '').strip() == code), None)
+    import pandas as pd
+    from ..services.project_service import load_data
+    df = load_data()
+    if not isinstance(df, pd.DataFrame) or df.empty or '프로젝트 코드' not in df.columns:
+        return None
+    sub = df[df['프로젝트 코드'].astype(str).str.strip() == code]
+    if sub.empty:
+        return None
+    row = sub.iloc[0]
+    return row.where(pd.notna(row), None).to_dict()
 
 
 def _payer_rows(rec: dict) -> list:

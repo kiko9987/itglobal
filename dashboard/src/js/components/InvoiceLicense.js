@@ -26,6 +26,7 @@ export default class InvoiceLicense {
     this._modal = null;
     this._status = {};   // code → {exists, required, view_url}
     this._issuedP = {};  // code → Promise(이미발행 요약) — 아코디언 렌더 때 미리 조회(모달 즉시 오픈)
+    this._payersP = {};  // code → Promise(부담자 창 초기값) — 같은 방식(2026-10-20 '부담자 설정 느림' 제보)
     window.invoiceLicense = this;
   }
 
@@ -73,6 +74,22 @@ export default class InvoiceLicense {
     this.refreshStatus(c);
     // 계산서 요청 모달용 이미발행 요약도 미리 (버튼 클릭 시 조회 대기로 모달이 늦게 뜨던 문제)
     this._issuedP[c] = this._fetchIssued(c);
+    // [부담자 설정] 버튼이 보이는 사람(편집자 이상)만 — 창 초기값 미리
+    if (['editor', 'admin', 'super_admin'].includes(window.userRole || 'viewer')) {
+      this._payersP[c] = this._fetchPayers(c);
+    }
+  }
+
+  /** 부담자 창 초기값 {payers, total2, stage_values}. 실패·행 없음이면 null. */
+  async _fetchPayers(code) {
+    try {
+      const resp = await fetch(`/api/invoice/payers/${encodeURIComponent(code)}`, { credentials: 'same-origin' });
+      const json = await resp.json().catch(() => ({}));
+      return (resp.ok && json.success !== false && json.data) ? json.data : null;
+    } catch (e) {
+      logger.debug('[InvoiceLicense] 부담자 조회 실패:', e);
+      return null;
+    }
   }
 
   /** 이미 발행된 계산서 요약(슬랙 모달과 같은 서버 계산). 실패 시 null → 모달은 기존 동작. */
@@ -444,18 +461,14 @@ export default class InvoiceLicense {
    *  칸 메모 맨 윗줄('◆ 임대인 이희승')을 형식대로 기록한다. */
   async openPayerModal(code, opts = {}) {
     const c = String(code || '').trim();
-    let info = null;
+    // 아코디언을 펼칠 때 미리 받아 둔 값 → 클릭 즉시 열림. 저장 때 서버가 시트 최신값으로 다시 검사한다.
+    let info = opts.waitForRow ? null : await (this._payersP[c] || (this._payersP[c] = this._fetchPayers(c)));
+    if (!info) delete this._payersP[c];   // 실패한 조회는 재사용하지 않음
     // 새 공사 등록 직후(waitForRow)는 시트 기록이 백그라운드라 행이 아직 없을 수 있음 → 최대 30초 재시도
-    const tries = opts.waitForRow ? 15 : 1;
+    const tries = info ? 0 : (opts.waitForRow ? 15 : 1);
     for (let t = 0; t < tries && !info; t += 1) {
       if (t) await new Promise((res) => setTimeout(res, 2000));
-      try {
-        const resp = await fetch(`/api/invoice/payers/${encodeURIComponent(c)}`, { credentials: 'same-origin' });
-        const json = await resp.json().catch(() => ({}));
-        if (resp.ok && json.success !== false && json.data) info = json.data;
-      } catch (e) {
-        logger.debug('[InvoiceLicense] 부담자 조회 실패:', e);
-      }
+      info = await this._fetchPayers(c);
     }
     if (!info) {
       this._toast('부담자 정보를 불러오지 못했습니다. 새로고침 후 다시 시도하세요.', 'error');
@@ -574,6 +587,7 @@ export default class InvoiceLicense {
         r = await this._postRaw(`/api/invoice/payers/${encodeURIComponent(c)}`, { payers, confirm_total: true });
       }
       if (!r.ok) return r.message;
+      this._payersP[c] = this._fetchPayers(c);   // 저장한 값으로 다음 열기 준비
       const fields = (r.data && r.data.fields) || {};
       try {
         if (window.projectRowAccordion && Object.keys(fields).length) {
