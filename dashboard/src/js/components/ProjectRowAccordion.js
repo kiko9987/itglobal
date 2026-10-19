@@ -662,6 +662,7 @@ export default class ProjectRowAccordion {
                         ${this.generateUnifiedEditButtons(projectCode, projectData)}
                         <span class="as-action-slot" data-project-code="${projectCode}">${this.generateAsRequestButton(projectCode)}</span>
                         ${this.generateInvoiceRequestButton(projectCode)}
+                        ${this.generatePayerSplitButton(projectCode, projectData)}
                         ${this.generateCancelResumeButton(projectCode, projectData)}
                       </div>
                     </div>
@@ -1059,13 +1060,13 @@ export default class ProjectRowAccordion {
       const billIcon = this.getBillStatusIcon(billCategory, rowData, fieldName);
 
       let valueMarkup;
-      // 나눠 내는 공사(2026-10-19): 이 칸 부담자(임대인·임차인)는 메모 툴팁 맨 위에 — 이름표는 그대로
+      // 나눠 내는 공사(2026-10-19): 메모 툴팁은 실제 시트 메모 그대로(부담자 '◆' 줄은 메모에 기록됨).
+      //   아직 안 낸 칸은 '-' 툴팁에 부담자 한 줄.
       const pLine = payerLine(rowData, fieldName);
 
       if (amount > 0) {
         const memoStatus = checkMemoStatus(memo);
-        const memoText = memoStatus.isEmpty ? '메모를 작성해주세요' : memo;
-        const tooltipText = this.escapeHTML(pLine ? `${pLine}\n──────\n${memoText}` : memoText);
+        const tooltipText = memoStatus.isEmpty ? '메모를 작성해주세요' : this.escapeHTML(memo);
         const iconType = memoStatus.isEmpty ? 'far' : 'fas';
         const stateClass = memoStatus.isEmpty ? 'no-memo' : 'has-memo';
         const iconColorClass = 'text-success';  // 금액이 있으면 항상 초록색
@@ -1438,6 +1439,46 @@ export default class ProjectRowAccordion {
         <i class="fas fa-file-invoice"></i><span>세금계산서 요청</span>
       </button>
     `;
+  }
+
+  /**
+   * 부담자 설정 버튼 — 나눠 내는 공사(임대인·임차인 등) 부담자 입력 (2026-10-19, 편집자 이상 = 매니저도).
+   * 이미 나눠 내는 공사면 사람 수 표시. invoice-request-btn 클래스 → 편집 모드 때 함께 숨김.
+   */
+  generatePayerSplitButton(projectCode, projectData = {}) {
+    const code = String(projectCode || '').trim();
+    const role = window.userRole || 'viewer';
+    if (!code || !['editor', 'admin', 'super_admin'].includes(role)) return '';
+    const n = ['계약금', '중도금', '잔금'].filter((s) => payerLine(projectData || {}, s)).length;
+    return `
+      <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn invoice-request-btn"
+              title="나눠 내는 공사의 부담자(임대인·임차인 등) 설정"
+              onclick="window.invoiceLicense && window.invoiceLicense.openPayerModal('${code}')">
+        <i class="fas fa-people-arrows"></i><span>부담자 설정${n ? ` (${n})` : ''}</span>
+      </button>
+    `;
+  }
+
+  /**
+   * 외부(부담자 설정 등)에서 바뀐 필드를 테이블 행·열린 아코디언에 반영 (2026-10-19).
+   */
+  applyExternalFields(projectCode, fields) {
+    try {
+      const table = window.projectListApp?.components?.table?.table || this.dataTable;
+      if (!table || !fields) return;
+      const idx = table.rows().indexes().toArray()
+        .find((i) => (table.row(i).data() || {})['프로젝트 코드'] === projectCode);
+      if (idx === undefined) return;
+      const row = table.row(idx);
+      const data = { ...row.data(), ...fields };
+      row.data(data).invalidate().draw(false);
+      if (this.isOpen && this.currentProject?.['프로젝트 코드'] === projectCode) {
+        this.currentProject = { ...this.currentProject, ...fields };
+        this.reopenAccordion(projectCode, data);
+      }
+    } catch (e) {
+      logger.error('[applyExternalFields] 오류:', e);
+    }
   }
 
   /**

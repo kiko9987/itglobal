@@ -159,6 +159,126 @@ def api_license_status(code):
     })
 
 
+# ─────────────────────────────────────────────────────────────
+# ④ 나눠 내는 공사 — 부담자 설정 (2026-10-19 오남프라자, 매니저도 사용)
+# ─────────────────────────────────────────────────────────────
+@invoice_bp.route('/partner-search', methods=['GET'])
+@login_required
+def api_partner_search():
+    """거래처 탭 자동완성 — [부담자 설정] 사업자명 칸. {items: [{name, bno, ceo, email}]}"""
+    q = (request.args.get('q') or '').strip()
+    try:
+        from ..services.partner_status_sync import search_partners
+        items = search_partners(q)
+    except Exception as exc:
+        logger.warning(f'[PAYER] 거래처 검색 실패 ({q!r}): {exc}')
+        items = []
+    return APIResponse.success(data={'items': items})
+
+
+def _payer_rec_from_sheet(code: str):
+    """그 공사 행을 시트에서 바로 읽어 {필드: 값} — 칸 배정·입금 보호 판단은 캐시 말고 최신값으로."""
+    import os
+    from ..services.lead_service import get_sheets_manager
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    mgr = get_sheets_manager()
+    row = mgr.find_row_by_project_code(sid, code, f"{sn}!A:A")
+    if not row:
+        return None
+    rm = mgr.get_row_map(sid, sn, row) or {}
+    return {f: rm.get(letter, '') for f, letter in mgr.get_field_to_letter().items()}
+
+
+def _payer_rows(rec: dict) -> list:
+    from ..services.payer_split import stage_payers
+    return [{'stage': s, 'role': p['role'], 'name': p['name'], 'biz_no': p['biz_no'],
+             'email': p['email'], 'amount': p['amount'], 'method': p['method'],
+             'received': p['received']}
+            for s, p in stage_payers(rec).items()]
+
+
+@invoice_bp.route('/payers/<code>', methods=['GET'])
+@login_required
+def api_payers_get(code):
+    """[부담자 설정] 창 초기값 — {payers, total2, stage_values}."""
+    code = (code or '').strip()
+    try:
+        rec = _payer_rec_from_sheet(code)
+    except Exception as exc:
+        logger.warning(f'[PAYER] 조회 실패 ({code}): {exc}')
+        rec = None
+    if rec is None:
+        return APIResponse.error(message='프로젝트를 시트에서 찾지 못했습니다.',
+                                 error_code=APIErrorCode.PROJECT_NOT_FOUND, status_code=404)
+    from ..services.payer_split import _num, STAGES
+    return APIResponse.success(data={
+        'code': code, 'payers': _payer_rows(rec), 'total2': _num(rec.get('총액 2')),
+        'stage_values': {s: _num(rec.get(s)) for s in STAGES},
+    })
+
+
+@invoice_bp.route('/payers/<code>', methods=['POST'])
+@editor_required
+def api_payers_save(code):
+    """[부담자 설정] 저장 — 칸 자동 배정 → '○○ 부담자' 칸 + 칸 메모 맨 윗줄 기록.
+
+    body: {payers: [{role, name, biz_no, email, amount, method, stage?}], confirm_total?: bool}
+    400 = 입력 오류(이름·금액 누락, 입금 있는 칸에 부담자 빠짐 등), 409 PAYER_TOTAL_CHECK = 부담액 합계 ≠
+    총액 2(화면에서 확인하면 confirm_total=true 로 다시 보냄). payers=[] 이면 나눠 내기 해제.
+    """
+    code = (code or '').strip()
+    data = request.get_json(silent=True) or {}
+    rows = data.get('payers')
+    if not isinstance(rows, list):
+        return APIResponse.error(message='부담자 목록 형식이 올바르지 않습니다.',
+                                 error_code=APIErrorCode.VALIDATION_ERROR, status_code=400)
+    try:
+        rec = _payer_rec_from_sheet(code)
+    except Exception as exc:
+        logger.warning(f'[PAYER] 조회 실패 ({code}): {exc}')
+        rec = None
+    if rec is None:
+        return APIResponse.error(message='프로젝트를 시트에서 찾지 못했습니다.',
+                                 error_code=APIErrorCode.PROJECT_NOT_FOUND, status_code=404)
+    from ..services.payer_split import plan_payers, save_payers, PAYER_FIELD
+    plan, errors, warns = plan_payers(rows, rec)
+    if errors:
+        return APIResponse.error(message='\n'.join(errors),
+                                 error_code=APIErrorCode.VALIDATION_ERROR, status_code=400)
+    if warns and not data.get('confirm_total'):
+        return APIResponse.error(message='\n'.join(warns), error_code='PAYER_TOTAL_CHECK', status_code=409)
+    before = {f: str(rec.get(f) or '') for f in PAYER_FIELD.values()}
+    try:
+        changed = save_payers(code, plan)
+    except Exception as exc:
+        logger.error(f'[PAYER] 저장 실패 ({code}): {exc}', exc_info=True)
+        return APIResponse.error(message='부담자 저장 중 오류가 났습니다. 잠시 후 다시 시도해 주세요.',
+                                 error_code=APIErrorCode.INTERNAL_ERROR, status_code=500)
+    if changed:
+        try:
+            from ..services.project_service import update_project_in_cache, invalidate_project_cache
+            if not update_project_in_cache(code, changed):
+                invalidate_project_cache()
+        except Exception as exc:
+            logger.warning(f'[PAYER] 캐시 갱신 실패 ({code}): {exc}')
+        try:
+            from ..utils.user_database import get_audit_repository
+            email = (session.get('user', {}) or {}).get('email', '') or ''
+            for f in PAYER_FIELD.values():
+                if f in changed:
+                    get_audit_repository().log_action(
+                        email, 'payer_split_update', details='PM 부담자 설정', project_code=code,
+                        field_name=f, old_value=before.get(f, ''), new_value=changed[f])
+        except Exception as exc:
+            logger.warning(f'[PAYER] 감사 로그 실패 ({code}): {exc}')
+    logger.info(f'[PAYER] 부담자 설정: {code} by {_current_initial()} → '
+                f'{ {s: p["name"] for s, p in plan.items()} } (바뀐 칸 {len(changed)})')
+    rec2 = dict(rec)
+    rec2.update({k: v for k, v in changed.items() if k in PAYER_FIELD.values()})
+    return APIResponse.success(data={'fields': changed, 'payers': _payer_rows(rec2)})
+
+
 def _payer_invoice_prefill(code: str) -> dict:
     """나눠 내는 공사 — 부담자별 계산서 프리필 {단계: {name, email}} (2026-10-19 오남프라자).
 

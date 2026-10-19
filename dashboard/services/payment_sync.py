@@ -232,7 +232,8 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     # '⚠' 주석 줄 제거 — 입금 지정 이상징후 이력(계좌·사업자 불일치·과입금, 2026-10-02). 금액·
     #   '반환' 등 단어가 있어도 입금/환불/거래처로 오인되지 않게 통째로 파싱 제외(도입 전 기존
     #   메모엔 '⚠' 로 시작하는 줄 0건 확인).
-    lines = [l for l in lines if not l.startswith('⚠')]
+    #   '◆' 줄 = 나눠 내는 공사의 부담자 표시('◆ 임대인 이희승', payer_split, 2026-10-19) — 입금 아님.
+    lines = [l for l in lines if not l.startswith(('⚠', '◆'))]
     if not lines:
         return None
 
@@ -521,8 +522,10 @@ def _parse_notes(notes: List[str],
         stage_val = (stage_vals or {}).get(stage, 0)
         # '⚠' 주석 줄(입금 지정 이상징후 이력)은 메모 단위 스캔(대체수금·카톡·요약 양식·블록
         #   분리·매출이동 방향 수집) 전에 통째로 제거 — 어떤 단어가 있어도 파싱 무영향.
-        if note and '⚠' in note:
-            note = '\n'.join(l for l in note.splitlines() if not l.strip().startswith('⚠'))
+        #   '◆' 부담자 표시 줄(나눠 내는 공사, 2026-10-19)도 같은 방식으로 제거 — 입금 없는 칸에
+        #   이 줄만 있어도 payment 0개(카드 발송 없음).
+        if note and ('⚠' in note or '◆' in note):
+            note = '\n'.join(l for l in note.splitlines() if not l.strip().startswith(('⚠', '◆'))).strip()
         if not note:
             # 메모 없는데 단계 값 있으면 fallback payment 추가 (옛 데이터)
             if stage_val > 0:
@@ -1791,7 +1794,7 @@ def _append_special_notes(text: str, notes) -> str:
             _stage_name = _stage_by_idx[_idx] if _idx < 3 else ''
             for _ln in _note.splitlines():
                 _ln = _ln.strip()
-                if not _ln or _ln.startswith('입금 '):
+                if not _ln or _ln.startswith(('입금 ', '◆')):   # ◆ = 부담자 표시 줄(특이사항 아님)
                     continue
                 _tr = _TRANSFER_RE.search(_ln)
                 if _tr:

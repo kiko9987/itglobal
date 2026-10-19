@@ -482,6 +482,7 @@ export function isPaidByBiz(row, name) {
   if (!n) return false;
   return BILL_STAGES.some((s) => String((row && row[`${s}_메모`]) || '').split('\n').some((ln) => {
     if (/\d/.test(ln)) return false;
+    if (/^\s*◆/.test(ln)) return false;   // 부담자 표시 줄('◆ 임대인 이희승') — 입금 아님 (2026-10-19)
     const l = normBizName(ln.replace(/^\s*(?:입금자\s*:|적요)\s*/, ''));
     if (!l) return false;
     return l === n || (l.length >= 4 && n.startsWith(l)) || (n.length >= 4 && l.startsWith(n));

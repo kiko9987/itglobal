@@ -100,9 +100,9 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
   const billStages = computeBillStagesFromColumns(row);
   const billStatus = isPreIssued(row, stage) ? '선발행' : billStages[stage];
   const billIcon = getStageBillIconForTable(billStatus);
-  // 나눠 내는 공사(2026-10-19): 이 칸 부담자 한 줄을 툴팁 맨 위에 — 화면 모양은 그대로
+  // 나눠 내는 공사(2026-10-19): 메모 툴팁은 실제 시트 메모 그대로(부담자 '◆' 줄은 메모에 기록됨).
+  //   아직 안 낸 칸의 '-'·계산서 아이콘에만 부담자 한 줄.
   const pLine = payerLine(row, stage);
-  const withPayer = (txt) => (pLine ? `${pLine}\n──────\n${txt}` : txt);
 
   // 3단계 시각화: 금액 없음 / 메모 없음(경고) / 메모 있음(정상)
   if (amount > 0) {
@@ -111,7 +111,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     if (memoStatus.isEmpty) {
       // 금액 있음 + 메모 없음 → 빈 아이콘 + 초록색 (금액이 있으니 중요)
       const memoIcon = `
-        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(withPayer('메모를 작성해주세요'))}" aria-label="메모를 작성해주세요">
+        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="메모를 작성해주세요" aria-label="메모를 작성해주세요">
           <span class="memo-tooltip-trigger no-memo">
             <i class="far fa-sticky-note fa-lg text-success"></i>
           </span>
@@ -123,7 +123,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     } else {
       // 금액 있음 + 메모 있음 → 채워진 아이콘 + 초록색 (아이콘에만 툴팁)
       const memoIcon = `
-        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(withPayer(memo))}" aria-label="메모 보기">
+        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(memo)}" aria-label="메모 보기">
           <span class="memo-tooltip-trigger has-memo">
             <i class="fas fa-sticky-note fa-lg text-success"></i>
           </span>

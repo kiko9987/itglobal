@@ -8,7 +8,7 @@
  * 백엔드 경로는 모두 '/api/invoice/...' (보안 미들웨어 CSRF 통과 위해 /api/ 접두사 필수).
  */
 import logger from '../utils/logger.js';
-import { activeInvoiceLines, overIssuedAmount } from '../utils/billStatus.js';
+import { activeInvoiceLines, overIssuedAmount, sameBizName } from '../utils/billStatus.js';
 import { stagePayers } from '../utils/payerSplit.js';
 
 function esc(v) {
@@ -328,11 +328,20 @@ export default class InvoiceLicense {
         ${over ? `<div class="small mt-1" style="color:#d9480f;">⚠️ 발행 계산서 합계 ${over.toLocaleString()}원이 총액을 넘습니다 — 이전 수정발행의 대체 표시가 빠졌는지 확인하세요.</div>` : ''}
       </div>` : '';
 
+    // 부담자 설정이 안 된 나눠 내는 공사 의심 — 이미 다른 사업자로 발행된 계산서가 있으면 안내 (2026-10-19).
+    //   과거 기록상 이런 공사는 드물어(2건) 엉뚱하게 뜨는 일이 거의 없다.
+    const otherBiz = !Object.keys(payers).length && biz
+      && active.some((it) => it.biz && !sameBizName(it.biz, biz));
+    const payerHint = otherBiz ? `
+      <div class="small mb-2" style="color:#0a7ea4;">👥 이 공사에 다른 사업자로 발행된 계산서가 있습니다.
+        여러 사람이 나눠 내는 공사라면 <a href="#" data-pl-open>부담자 설정</a>을 먼저 해 주세요.</div>` : '';
+
     const body = `
       <div class="mb-2"><label class="form-label">사업자명</label>
         <input id="ilBiz" type="text" class="form-control" value="${esc(biz)}" placeholder="예: (주)아이티글로벌"></div>
       <div class="mb-2"><label class="form-label">현장 주소</label>
         <input id="ilAddr" type="text" class="form-control" value="${esc(addr)}" placeholder="현장 주소"></div>
+      ${payerHint}
       ${issuedHtml}
       ${replaceHtml}
       <div class="row">
@@ -383,6 +392,14 @@ export default class InvoiceLicense {
       icon: 'fa-file-invoice-dollar', submitLabel: '요청 발송',
       // 선발행 안내(최소 가이드): 입금 없는 단계를 고르면 조용히 힌트만 — 차단하지 않음.
       onRender: (el) => {
+        const plOpen = el.querySelector('[data-pl-open]');
+        if (plOpen) {
+          plOpen.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            el.addEventListener('hidden.bs.modal', () => this.openPayerModal(c), { once: true });
+            this._modal.hide();
+          });
+        }
         const sel = el.querySelector('#ilStage');
         const hint = el.querySelector('#ilStageHint');
         if (!sel || !hint) return;
@@ -421,7 +438,172 @@ export default class InvoiceLicense {
     });
   }
 
-  // POST(JSON) → {ok, code, message}. APIResponse error.{code,message} 파싱.
+  // ─────────────────────── ④ 부담자 설정 (나눠 내는 공사) ───────────────────────
+  /** 한 공사를 여러 사람(임대인·임차인 등)이 나눠 내는 경우의 부담자 설정 — 매니저도 사용 (2026-10-19).
+   *  사람은 고르기·숫자만 입력하고, 서버가 칸(첫째=계약금·둘째=잔금·셋째=중도금)을 정해 '○○ 부담자' 칸과
+   *  칸 메모 맨 윗줄('◆ 임대인 이희승')을 형식대로 기록한다. */
+  async openPayerModal(code, opts = {}) {
+    const c = String(code || '').trim();
+    let info = null;
+    // 새 공사 등록 직후(waitForRow)는 시트 기록이 백그라운드라 행이 아직 없을 수 있음 → 최대 30초 재시도
+    const tries = opts.waitForRow ? 15 : 1;
+    for (let t = 0; t < tries && !info; t += 1) {
+      if (t) await new Promise((res) => setTimeout(res, 2000));
+      try {
+        const resp = await fetch(`/api/invoice/payers/${encodeURIComponent(c)}`, { credentials: 'same-origin' });
+        const json = await resp.json().catch(() => ({}));
+        if (resp.ok && json.success !== false && json.data) info = json.data;
+      } catch (e) {
+        logger.debug('[InvoiceLicense] 부담자 조회 실패:', e);
+      }
+    }
+    if (!info) {
+      this._toast('부담자 정보를 불러오지 못했습니다. 새로고침 후 다시 시도하세요.', 'error');
+      return;
+    }
+    const total2 = Number(info.total2 || 0);
+    const sv = info.stage_values || {};
+    const fmt = (n) => (Number(n) || 0).toLocaleString('ko-KR');
+    const STAGES3 = ['계약금', '중도금', '잔금'];
+    const init = (info.payers && info.payers.length) ? info.payers
+      : [{ role: '임대인', method: '계산서' }, { role: '임차인', method: '계산서' }];
+    const rowHtml = (p) => `
+      <div class="pl-row mb-2" style="border:1px solid var(--gray-200); border-radius:8px; padding:.6rem .7rem;">
+        <div class="d-flex gap-2 mb-2">
+          <input class="form-control form-control-sm" data-f="role" list="plRoleList" value="${esc(p.role || '')}"
+                 placeholder="구분" style="max-width:96px;">
+          <input class="form-control form-control-sm" data-f="name" value="${esc(p.name || '')}"
+                 placeholder="사업자명 (거래처 탭에서 검색)" autocomplete="off">
+          <button type="button" class="btn btn-sm btn-outline-danger" data-pl-del title="이 줄 빼기">
+            <i class="fas fa-xmark"></i></button>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <input class="form-control form-control-sm" data-f="amount" inputmode="numeric"
+                 value="${p.amount ? fmt(p.amount) : ''}" placeholder="부담액 (부가세 포함)" style="max-width:150px;">
+          <select class="form-select form-select-sm" data-f="method" style="max-width:96px;">
+            ${['계산서', '현금', '카드'].map((m) => `<option ${p.method === m ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+          <select class="form-select form-select-sm" data-f="stage" style="max-width:112px;" title="이 사람 돈이 쌓일 칸">
+            <option value="">칸 자동</option>
+            ${STAGES3.map((s) => `<option value="${s}" ${p.stage === s ? 'selected' : ''}>${s} 칸</option>`).join('')}
+          </select>
+          <input class="form-control form-control-sm" data-f="biz_no" value="${esc(p.biz_no || '')}"
+                 placeholder="사업자번호" style="max-width:130px;">
+          <input class="form-control form-control-sm" data-f="email" value="${esc(p.email || '')}"
+                 placeholder="계산서 받을 이메일" style="min-width:150px; flex:1;">
+        </div>
+        <div class="pl-suggest small" style="display:none; margin-top:.35rem;"></div>
+      </div>`;
+    const deposits = STAGES3.map((s) => `${s} ${fmt(sv[s])}`).join(' · ');
+    const body = `
+      <div class="small text-muted mb-2">한 공사를 여러 사람이 나눠 내는 경우에만 설정합니다.
+        칸은 첫째 = 계약금, 둘째 = 잔금, 셋째 = 중도금으로 정해지고, 각자 낸 돈은 자기 칸에 쌓입니다.</div>
+      <div class="small mb-2" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:.4rem .6rem;">
+        지금까지 입금 — ${deposits}원 · 공사 총액 ${fmt(total2)}원</div>
+      <datalist id="plRoleList"><option value="임대인"></option><option value="임차인"></option></datalist>
+      <div id="plRows">${init.map(rowHtml).join('')}</div>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="plAdd"><i class="fas fa-plus"></i> 부담자 추가</button>
+      <div id="plSum" class="small mt-2"></div>
+      <div class="small text-muted mt-1">모두 빼고 저장하면 나눠 내기가 해제됩니다.</div>`;
+
+    const collect = (el) => [...el.querySelectorAll('.pl-row')].map((r) => {
+      const v = (f) => ((r.querySelector(`[data-f="${f}"]`) || {}).value || '').trim();
+      return { role: v('role'), name: v('name'), amount: v('amount').replace(/[^\d]/g, ''),
+        method: v('method'), stage: v('stage'), biz_no: v('biz_no'), email: v('email') };
+    }).filter((p) => p.name || p.amount);
+
+    const refreshSum = (el) => {
+      const sum = collect(el).reduce((a, p) => a + (Number(p.amount) || 0), 0);
+      const box = el.querySelector('#plSum');
+      if (!box) return;
+      const same = !total2 || Math.abs(sum - total2) <= 1;
+      box.textContent = `부담액 합계 ${fmt(sum)}원 / 공사 총액 ${fmt(total2)}원${same ? '' : ` (차이 ${fmt(total2 - sum)}원)`}`;
+      box.style.color = same ? '#1c7c3d' : '#d9480f';
+    };
+
+    const bindRow = (el, r) => {
+      const del = r.querySelector('[data-pl-del]');
+      if (del) del.addEventListener('click', () => { r.remove(); refreshSum(el); });
+      const amt = r.querySelector('[data-f="amount"]');
+      if (amt) {
+        amt.addEventListener('input', () => refreshSum(el));
+        amt.addEventListener('blur', () => {
+          const n = Number(String(amt.value).replace(/[^\d]/g, ''));
+          amt.value = n ? fmt(n) : '';
+        });
+      }
+      // 거래처 탭 자동완성 — 고르면 사업자명·사업자번호·이메일 채움
+      const name = r.querySelector('[data-f="name"]');
+      const sug = r.querySelector('.pl-suggest');
+      let timer = null;
+      if (name && sug) {
+        name.addEventListener('input', () => {
+          clearTimeout(timer);
+          const q = name.value.trim();
+          if (q.length < 2) { sug.style.display = 'none'; return; }
+          timer = setTimeout(async () => {
+            try {
+              const resp = await fetch(`/api/invoice/partner-search?q=${encodeURIComponent(q)}`, { credentials: 'same-origin' });
+              const json = await resp.json().catch(() => ({}));
+              const items = (json.data && json.data.items) || [];
+              if (!items.length) { sug.style.display = 'none'; return; }
+              sug.innerHTML = items.map((it, k) => `<a href="#" data-k="${k}" class="d-block text-decoration-none"
+                  style="padding:2px 4px;">${esc(it.name)} <span class="text-muted">${esc(it.bno || '')}${it.ceo ? ` · ${esc(it.ceo)}` : ''}</span></a>`).join('');
+              sug.style.display = '';
+              sug.querySelectorAll('a[data-k]').forEach((a) => a.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                const it = items[Number(a.dataset.k)] || {};
+                name.value = it.name || name.value;
+                const bn = r.querySelector('[data-f="biz_no"]');
+                const em = r.querySelector('[data-f="email"]');
+                if (bn && it.bno) bn.value = it.bno;
+                if (em && it.email) em.value = it.email;
+                sug.style.display = 'none';
+              }));
+            } catch (_) { sug.style.display = 'none'; }
+          }, 250);
+        });
+      }
+    };
+
+    this._showModal(`부담자 설정 — ${c}`, body, async (el) => {
+      const payers = collect(el);
+      let r = await this._postRaw(`/api/invoice/payers/${encodeURIComponent(c)}`, { payers });
+      if (!r.ok && r.code === 'PAYER_TOTAL_CHECK') {
+        if (!window.confirm(`${r.message}\n\n그대로 저장할까요?`)) return r.message;
+        r = await this._postRaw(`/api/invoice/payers/${encodeURIComponent(c)}`, { payers, confirm_total: true });
+      }
+      if (!r.ok) return r.message;
+      const fields = (r.data && r.data.fields) || {};
+      try {
+        if (window.projectRowAccordion && Object.keys(fields).length) {
+          window.projectRowAccordion.applyExternalFields(c, fields);
+        }
+      } catch (_) { /* noop */ }
+      this._toast(payers.length ? '부담자를 저장했습니다.' : '나눠 내기를 해제했습니다.', 'success');
+      return null;
+    }, {
+      icon: 'fa-people-arrows', submitLabel: '저장', maxWidth: 640,
+      onRender: (el) => {
+        el.querySelectorAll('.pl-row').forEach((r) => bindRow(el, r));
+        refreshSum(el);
+        const add = el.querySelector('#plAdd');
+        if (add) {
+          add.addEventListener('click', () => {
+            const rows = el.querySelector('#plRows');
+            if (!rows || rows.querySelectorAll('.pl-row').length >= 3) {
+              this._toast('부담자는 3명까지 정할 수 있습니다.', 'warning');
+              return;
+            }
+            rows.insertAdjacentHTML('beforeend', rowHtml({ method: '계산서' }));
+            bindRow(el, rows.lastElementChild);
+          });
+        }
+      },
+    });
+  }
+
+  // POST(JSON) → {ok, code, message, data}. APIResponse error.{code,message} 파싱.
   async _postRaw(url, payload) {
     try {
       const resp = await fetch(url, {
@@ -434,7 +616,7 @@ export default class InvoiceLicense {
       const e = json.error;
       const isObj = e && typeof e === 'object';
       const message = (isObj ? e.message : e) || json.message || (ok ? '' : `요청 실패 (HTTP ${resp.status})`);
-      return { ok, code: (isObj ? e.code : '') || '', message };
+      return { ok, code: (isObj ? e.code : '') || '', message, data: json.data };
     } catch (_) {
       return { ok: false, code: 'NETWORK', message: '네트워크 오류로 실패했습니다.' };
     }
@@ -447,12 +629,12 @@ export default class InvoiceLicense {
     const submitLabel = opts.submitLabel || '확인';
     host.innerHTML = `
       <div class="modal fade" id="ilActionModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered" style="max-width: 520px;"><div class="modal-content">
+        <div class="modal-dialog modal-dialog-centered" style="max-width: ${Number(opts.maxWidth) || 520}px;"><div class="modal-content">
           <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
             <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
               <i class="fas ${icon}" style="color:#17a2b8;"></i>${esc(title)}</h5>
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-          <div class="modal-body">${bodyHtml}<div id="ilModalAlert" class="text-danger small mt-2"></div></div>
+          <div class="modal-body">${bodyHtml}<div id="ilModalAlert" class="text-danger small mt-2" style="white-space:pre-line;"></div></div>
           <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:1rem 1.25rem;">
             <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">취소</button>
             <button type="button" class="btn as-btn-submit" id="ilModalSubmit">${esc(submitLabel)}</button>

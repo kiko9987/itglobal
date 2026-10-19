@@ -281,6 +281,48 @@ def get_partner_info(biz_name: str) -> Optional[dict]:
     return None
 
 
+_SEARCH_CACHE = {'at': 0.0, 'rows': []}
+
+
+def search_partners(query: str, limit: int = 8) -> list:
+    """거래처 탭 상호·사업자번호·대표자 부분 검색 — PM [부담자 설정] 자동완성 (2026-10-19).
+
+    Redis 정보맵(partner_info_map) 전체를 5분 캐시해 메모리에서 찾는다(3,500건 내외).
+    Returns [{name, bno, ceo, email}] — 상호가 검색어로 시작하는 것 먼저.
+    """
+    import json as _json
+    import time as _time
+    q = _norm_name(query)
+    q_digits = re.sub(r'\D', '', str(query or ''))
+    if len(q) < 2 and len(q_digits) < 3:
+        return []
+    if _time.time() - _SEARCH_CACHE['at'] > 300 or not _SEARCH_CACHE['rows']:
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            raw = get_redis_client().redis.hgetall(_INFO_MAP_KEY) or {}
+            rows = []
+            for v in raw.values():
+                try:
+                    d = _json.loads(v.decode() if isinstance(v, bytes) else v)
+                except Exception:
+                    continue
+                if d.get('name'):
+                    rows.append(d)
+            _SEARCH_CACHE.update(at=_time.time(), rows=rows)
+        except Exception:
+            return []
+    hits = []
+    for d in _SEARCH_CACHE['rows']:
+        nm = _norm_name(d.get('name'))
+        bno = re.sub(r'\D', '', str(d.get('bno') or ''))
+        ceo = _norm_name(d.get('ceo'))
+        if (q and (q in nm or q in ceo)) or (len(q_digits) >= 3 and q_digits in bno):
+            hits.append((0 if nm.startswith(q) else 1, d))
+    hits.sort(key=lambda t: (t[0], len(str(t[1].get('name') or ''))))
+    return [{'name': d.get('name') or '', 'bno': d.get('bno') or '', 'ceo': d.get('ceo') or '',
+             'email': d.get('email') or ''} for _, d in hits[:limit]]
+
+
 def is_partner_known(biz_name: str) -> bool:
     """상호가 거래처 탭에 존재하면 True — '계산서 발행 가능'(홈택스 발행 이력 있는 거래처) 판정.
 
