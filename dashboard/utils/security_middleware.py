@@ -625,10 +625,10 @@ class SecurityMiddleware:
                     }
                 return result
             # 금액 필드 명시적 리스트 (날짜 제외, '수금' 단독 키워드 제거)
-            #   단, '계산서'(발행/미발행/-·텍스트)·'입금자명'(이름·텍스트)은 이름에 계약금/중도금/잔금이
-            #   들어가도 금액 아님 → 제외 (2026-09-07 '잔금 계산서'='발행' 저장 오류 fix)
+            #   단, '계산서'(발행/미발행/-·텍스트)·'입금자명'·'부담자'(이름·텍스트)는 이름에 계약금/중도금/잔금이
+            #   들어가도 금액 아님 → 제외 (2026-09-07 '잔금 계산서'='발행' 저장 오류 fix, 10-19 부담자)
             elif (any(keyword in field_name for keyword in ['계약금', '중도금', '잔금', '총액', '비용', '마진', '순익'])
-                  and not any(txt in field_name for txt in ['계산서', '입금자명'])):
+                  and not any(txt in field_name for txt in ['계산서', '입금자명', '부담자'])):
                 result = self.validator.validate_amount(value)
                 logger.debug(f"[VALIDATION] {'✓' if result else '✗'} {field_name}: 금액 검증 - {value}")
                 if not result:

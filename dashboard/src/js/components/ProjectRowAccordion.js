@@ -22,6 +22,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
 import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate, isPreIssued, billHeadline } from '../utils/billStatus.js';
+import { stageLabel, payerLine } from '../utils/payerSplit.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -1085,6 +1086,13 @@ export default class ProjectRowAccordion {
       `;
     };
 
+    // 나눠 내는 공사(2026-10-19): 이름표만 '계약금(임대인)'으로, 마우스를 올리면 부담자 한 줄. 배치는 그대로.
+    const stageTitle = (s) => {
+      const pl = payerLine(rowData, s);
+      if (!pl) return `<small>${s}</small>`;
+      return `<small data-bs-toggle="tooltip" data-bs-title="${this.escapeHTML(pl)}" aria-label="${this.escapeHTML(pl)}">${this.escapeHTML(stageLabel(rowData, s))}</small>`;
+    };
+
     return `
       <div class="info-card compact-card" id="card-collection-${projectCode}" data-card-type="collection">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -1097,7 +1105,7 @@ export default class ProjectRowAccordion {
         </div>
         <div class="card-grid">
           <div class="compact-item">
-            <small>계약금</small>
+            ${stageTitle('계약금')}
             <div class="editable-value-wrapper">
               ${createMemoField('계약금', '계약금')}
             </div>
@@ -1113,7 +1121,7 @@ export default class ProjectRowAccordion {
             })()}</div>
           </div>
           <div class="compact-item">
-            <small>중도금</small>
+            ${stageTitle('중도금')}
             <div class="editable-value-wrapper">
               ${createMemoField('중도금', '중도금')}
             </div>
@@ -1123,7 +1131,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="수금 확인" data-original-value="${this.unifiedBadgeSystem.collectionBadge.normalizeStatus(rowData['수금 확인'])}">${this.formatCollectionStatus(rowData['수금 확인'])}</div>
           </div>
           <div class="compact-item">
-            <small>잔금</small>
+            ${stageTitle('잔금')}
             <div class="editable-value-wrapper">
               ${createMemoField('잔금', '잔금')}
             </div>

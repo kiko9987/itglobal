@@ -9,6 +9,7 @@
  */
 import logger from '../utils/logger.js';
 import { activeInvoiceLines, overIssuedAmount } from '../utils/billStatus.js';
+import { stagePayers } from '../utils/payerSplit.js';
 
 function esc(v) {
   return String(v == null ? '' : v)
@@ -295,10 +296,15 @@ export default class InvoiceLicense {
       const issued = tok === '발행' || tok === '일반';
       return { s, amt, issued };
     });
+    // 나눠 내는 공사(2026-10-19): 단계 = 부담자 칸 → 목록에 부담자 이름, 고르면 그 사람 정보로 채움
+    const payers = stagePayers(p);
+    const payerPrefill = (d && d.payers) || {};
     const stageOptions = ['<option value="" selected disabled>단계 선택</option>'].concat(
       stageInfo.map((x) => {
         const issuedTxt = x.issued ? ' · 발행됨' : '';
-        return `<option value="${x.s}">${x.s}${issuedTxt}</option>`;
+        const py = payers[x.s];
+        const who = py ? ` · ${py.role} ${py.name}` : '';
+        return `<option value="${x.s}">${esc(`${x.s}${who}${issuedTxt}`)}</option>`;
       }),
     ).join('');
 
@@ -381,14 +387,35 @@ export default class InvoiceLicense {
         const hint = el.querySelector('#ilStageHint');
         if (!sel || !hint) return;
         const amtByStage = Object.fromEntries(stageInfo.map((x) => [x.s, x.amt]));
+        const issuedByStage = Object.fromEntries(stageInfo.map((x) => [x.s, x.issued]));
         sel.addEventListener('change', () => {
           const paid = amtByStage[sel.value] || 0;
-          if (sel.value && paid <= 0) {
-            hint.textContent = '🕒 선발행 — 이 단계는 아직 입금 내역이 없습니다. 발행 금액을 확인하세요.';
-            hint.style.display = '';
-          } else {
-            hint.style.display = 'none';
+          const notes = [];
+          // 나눠 내는 공사: 부담자 칸을 고르면 사업자명·이메일·발행 금액(부담액)을 그 사람 것으로
+          const py = payers[sel.value];
+          if (py) {
+            const pre = payerPrefill[sel.value] || {};
+            const bizEl = el.querySelector('#ilBiz');
+            const emailEl = el.querySelector('#ilEmail');
+            const amtEl = el.querySelector('#ilAmt');
+            const vatEl = el.querySelector('#ilVat');
+            if (bizEl) bizEl.value = pre.name || py.name;
+            if (emailEl) emailEl.value = pre.email || py.email || '';
+            if (issuedByStage[sel.value]) {
+              notes.push(`🧾 ${py.role} ${py.name} 계산서는 이미 발행됐습니다. 수정발행이면 위에서 기존 계산서를 체크하세요.`);
+            } else if (amtEl && vatEl) {
+              vatEl.value = 'sep';
+              amtEl.value = Math.round(py.amount / 1.1).toLocaleString('ko-KR');
+              notes.push(`👥 ${py.role} ${py.name} 부담액 ${py.amount.toLocaleString()}원(부가세 포함) 기준으로 채웠습니다.`);
+            }
+            if (py.method === '현금') notes.push('💵 이 부담자는 계산서 없이 현금으로 내기로 돼 있습니다. 맞는지 확인하세요.');
           }
+          if (sel.value && paid <= 0) {
+            notes.push('🕒 선발행 — 이 단계는 아직 입금 내역이 없습니다. 발행 금액을 확인하세요.');
+          }
+          hint.textContent = notes.join('\n');
+          hint.style.whiteSpace = 'pre-line';
+          hint.style.display = notes.length ? '' : 'none';
         });
       },
     });

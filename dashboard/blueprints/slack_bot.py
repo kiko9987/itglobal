@@ -1217,6 +1217,8 @@ def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str
         except (TypeError, ValueError):
             return 0
 
+    from dashboard.services.payer_split import stage_payers
+
     matched = []
     for r in recs:
         code = str(r.get('프로젝트 코드') or '').strip()
@@ -1225,7 +1227,9 @@ def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str
         biz = str(r.get('사업자명') or '').strip()
         addr = str(r.get('현장 주소') or '').strip()
         if q:
-            if q not in f"{code} {biz} {addr}".lower():
+            # 나눠 내는 공사는 부담자 이름으로도 찾기 (임대인 '이현주' 입력 → 그 호실들)
+            payer_names = ' '.join(p['name'] for p in stage_payers(r).values())
+            if q not in f"{code} {biz} {addr} {payer_names}".lower():
                 continue
         else:
             # 빈 검색(드롭다운 클릭) — 내 담당 & 수금 미완료(미수금>0)만
@@ -1352,23 +1356,53 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
         blocks.append({"type": "divider"})
+    # 나눠 내는 공사(부담자 칸 있음, 2026-10-19 오남프라자): 단계 옵션에 부담자 이름을 붙이고,
+    #   입금자명·금액으로 칸이 확실하면 미리 골라 둔다(값은 그대로 계약금/중도금/잔금).
+    payers = {}
+    if project_details and selected_project:
+        try:
+            from dashboard.services.payer_split import stage_payers
+            from dashboard.services.project_service import get_project_records
+            _code = str((selected_project or {}).get('value') or '').strip()
+            _rec = next((r for r in (get_project_records() or [])
+                         if str(r.get('프로젝트 코드') or '').strip() == _code), None)
+            payers = stage_payers(_rec) if _rec else {}
+        except Exception as exc:
+            logger.warning(f"[SLACK/수금봇] 부담자 조회 실패(무시): {exc}")
+            payers = {}
+
+    def _stage_text(t):
+        p = payers.get(t)
+        return f"{t} · {p['role']} {p['name']}"[:75] if p else t
+
+    stage_options = [{"text": {"type": "plain_text", "text": _stage_text(t)}, "value": t}
+                     for t in ("계약금", "중도금", "잔금")]
     stage_el = {
         "type": "static_select",
         "action_id": "value",
         "placeholder": {"type": "plain_text", "text": "선택"},
-        "options": [
-            {"text": {"type": "plain_text", "text": t}, "value": t}
-            for t in ("계약금", "중도금", "잔금")
-        ],
+        "options": stage_options,
     }
+    if payers and stage_value not in ("계약금", "중도금", "잔금"):
+        try:
+            from dashboard.services.payer_split import match_deposit_stage
+            from dashboard.services.sms_intake import parse_preview
+            _pv = parse_preview(text or '') or {}
+            stage_value = match_deposit_stage(payers, _pv.get('partner') or '', _pv.get('amount') or 0) or None
+        except Exception:
+            stage_value = None
     if stage_value in ("계약금", "중도금", "잔금"):
-        stage_el["initial_option"] = {
-            "text": {"type": "plain_text", "text": stage_value}, "value": stage_value}
+        stage_el["initial_option"] = next(o for o in stage_options if o["value"] == stage_value)
     blocks.append({
         "type": "input", "block_id": "stage",
         "label": {"type": "plain_text", "text": "수금 단계"},
         "element": stage_el,
     })
+    if payers:
+        from dashboard.services.payer_split import payer_line
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
+            ":busts_in_silhouette: 나눠 내는 공사입니다 — 각 부담자의 돈은 자기 칸에 넣어 주세요.\n"
+            + "\n".join(f"{s} 칸 = {payer_line(p)}" for s, p in payers.items()))}]})
     blocks.append({"type": "context", "elements": [
         {"type": "mrkdwn", "text": ":lock: 실제 시트 기록은 경영지원 확인 후 반영됩니다."}
     ]})
@@ -1911,6 +1945,15 @@ def _intake_set_dup_warned(intake_id, project, stage):
 _ENTITY_LABEL = {'G': '글로벌', 'R': '글로벌그룹', 'P': '플렌트'}
 
 
+def _payer_split_rec(rec) -> bool:
+    """나눠 내는 공사(○○ 부담자 칸 있음)인지 — 실패해도 False (경고·자동채움 보조 판단용)."""
+    try:
+        from dashboard.services.payer_split import is_split
+        return is_split(rec or {})
+    except Exception:
+        return False
+
+
 def _intake_warnings(project_code, amount, preview, memo, records=None, stage=None, extra_paid=0):
     """입금 지정 사전 점검 — 매니저 확인 + 경영지원(샛별) 알림 대상 이상 징후 (2026-10-02 SB 건의).
 
@@ -1981,7 +2024,9 @@ def _intake_warnings(project_code, amount, preview, memo, records=None, stage=No
                                  f"초과 {_excess:,}원"),
                         'unpaid': int(unpaid), 'excess': _excess, 'basis': _basis,   # 경영지원 DM 상세용
                     })
-                elif total2 > 0 and stage == '잔금':
+                elif total2 > 0 and stage == '잔금' and not _payer_split_rec(rec):
+                    # 나눠 내는 공사는 잔금 칸 = 임차인 등 '부담자 칸'이라 다른 부담자 몫이 남는 게 정상
+                    #   → 이 경고 생략 (2026-10-19 오남프라자).
                     left = int(unpaid) - amount - int(extra_paid or 0)
                     if left > 1:
                         warns.append({
@@ -2450,6 +2495,20 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                         pass
                     _fill = ('카드' if _is_card else
                              'N입금' if ('현금' in (memo_text or '') or _is_n_acct) else '미발행')
+                    # 나눠 내는 공사: 그 칸 부담자의 결제 방식이 현금(계산서 없음)·카드면 그대로 따름
+                    #   — 계산서 없이 현금으로 내는 부담자가 기업·하나 통장으로 보내도 '미발행' 경고가 안 뜨게
+                    #   (2026-10-19 오남프라자 301호 등).
+                    try:
+                        _pcol = f2l.get(f'{stage} 부담자')
+                        if _pcol and not _is_card:
+                            from dashboard.services.payer_split import parse_payer_cell
+                            _payer = parse_payer_cell(_rv(_pcol))
+                            if _payer and _payer['method'] == '현금':
+                                _fill = 'N입금'
+                            elif _payer and _payer['method'] == '카드':
+                                _fill = '카드'
+                    except Exception:
+                        pass
                     # 쓰기 직전 재확인 — 위 판정~여기(수 초) 사이 PM 저장이 이 칸을 채웠으면 덮지 않는다
                     #   (2026-09-30 G4139-MJ: SB가 PM에서 지정한 'N입금'을 옛 판정 '미발행'으로 덮음).
                     _recheck = str(manager.get_cell_value(sheet_id, sheet_name, f"{_scol[stage]}{row}") or '').strip()
@@ -14736,6 +14795,46 @@ def _post_partner_info_reply(client, channel, ts, code, biz, req_email='') -> No
         logger.warning(f'[SLACK/계산서] 거래처 정보 댓글 실패 ({code}): {exc}')
 
 
+def _split_payer_license(code, biz):
+    """나눠 내는 공사의 계산서 요청 → 그 부담자 사업자등록증 고르기 (2026-10-19 오남프라자).
+
+    프로젝트 등록증(canonical)은 한 사람 것뿐이라, 다른 부담자 계산서에 그대로 붙이면 엉뚱한
+    등록증이 간다(303·506호는 경영지원이 '_1' 파일로 따로 붙였음).
+    Returns None → 기존 동작(프로젝트 등록증) / ('use', lic) → 이 파일 첨부 /
+            ('skip', None) → 첨부 안 함(그 부담자 등록증을 못 찾음 — 엉뚱한 첨부 방지).
+    """
+    try:
+        from dashboard.services.payer_split import stage_payers, payer_for_biz
+        from dashboard.services.project_service import get_project_records
+        rec = next((r for r in (get_project_records() or [])
+                    if str(r.get('프로젝트 코드') or '').strip() == code), None)
+        payers = stage_payers(rec) if rec else {}
+        if not payers:
+            return None
+        p = payer_for_biz(payers, biz)
+        if not p:
+            return None            # 부담자와 무관한 사업자명 → 기존 동작
+        from dashboard.services import business_license_handler as blh
+        nb = blh._norm_biz(p['name'])
+        own = blh._own_canonical(code)
+        if own:
+            fb = blh._file_biz(own[0])
+            if fb and nb and (fb == nb or fb in nb or nb in fb):
+                return None        # 프로젝트 등록증이 이 부담자 것
+            if not fb and nb and blh._project_norm_biz(code) == nb:
+                return None        # OCR 미상이지만 프로젝트 사업자명이 이 부담자
+        for key in (nb, blh._norm_biz(biz)):
+            src = blh._get_license_source(key) if key else None
+            if src and src.get('code') and src.get('code') != code:
+                lic = blh.fetch_license_canonical(src['code'])
+                if lic:
+                    return ('use', lic)
+        return ('skip', None)
+    except Exception as exc:
+        logger.warning(f"[SLACK/계산서] 부담자 등록증 선택 실패(기존 동작) ({code}): {exc}")
+        return None
+
+
 def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                          requester_initial='-', *, stages='', dedup_check=True,
                          fallback_client=None, replace=None) -> dict:
@@ -14938,6 +15037,32 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             if delay:
                 time.sleep(delay)
             try:
+                # 나눠 내는 공사: 요청 사업자(부담자)의 등록증을 따로 고름 — 프로젝트 등록증이 다른
+                #   부담자 것이면 붙이지 않는다 (2026-10-19 오남프라자).
+                _sp = _split_payer_license(code, biz)
+                if _sp and _sp[0] == 'skip':
+                    try:
+                        from dashboard.services.partner_status_sync import get_partner_info
+                        _known = bool(get_partner_info(biz))
+                    except Exception:
+                        _known = False
+                    if _known:
+                        _post_partner_info_reply(invoice_client, channel_id, ts, code, biz, email)
+                    else:
+                        invoice_client.chat_postMessage(
+                            channel=channel_id, thread_ts=ts, unfurl_links=False, unfurl_media=False,
+                            text=(f":warning: 나눠 내는 공사라 `{biz}` 부담자의 사업자등록증을 따로 찾지 "
+                                  f"못했습니다 (`{code}`). 이 스레드에 직접 첨부해 주세요."))
+                    logger.info(f"[SLACK/계산서] 부담자 등록증 없음 → 프로젝트 등록증 첨부 생략 ({code}, {biz})")
+                    return
+                if _sp and _sp[0] == 'use':
+                    lic = _sp[1]
+                    invoice_client.files_upload_v2(
+                        channel=channel_id, thread_ts=ts, file=lic['content'], filename=lic['file_name'],
+                        initial_comment=f":page_facing_up: 사업자등록증 — `{code}` · {biz}",
+                    )
+                    logger.info(f"[SLACK/계산서] 부담자 등록증 첨부: {code} {biz} ({lic['file_name']})")
+                    return
                 # 자기 폴더에 등록증 없으면 같은 사업자명의 기존 등록증을 이 프로젝트로 복사(재사용).
                 # (반복 거래처: 각 공사가 물리적으로 등록증 보유 → 이후 fetch_canonical 이 찾음.)
                 ensure_license(code)

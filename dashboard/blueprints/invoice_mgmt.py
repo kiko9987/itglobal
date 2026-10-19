@@ -155,7 +155,31 @@ def api_license_status(code):
     return APIResponse.success(data={
         'code': code, 'exists': exists, 'required': required,
         'view_url': view_url, 'source': source, 'email': email,
+        'payers': _payer_invoice_prefill(code),
     })
+
+
+def _payer_invoice_prefill(code: str) -> dict:
+    """나눠 내는 공사 — 부담자별 계산서 프리필 {단계: {name, email}} (2026-10-19 오남프라자).
+
+    사업자명은 거래처 탭 정식 상호(사업자번호로 찾음) 우선, 이메일은 부담자 칸 > 거래처 탭.
+    부담자 칸이 없는 평범한 공사는 {}.
+    """
+    out = {}
+    try:
+        from ..services.payer_split import stage_payers
+        from ..services.project_service import get_project_records
+        from ..services.partner_status_sync import get_partner_info, get_partner_name_by_bno
+        rec = next((r for r in (get_project_records() or [])
+                    if str(r.get('프로젝트 코드') or '').strip() == code), None)
+        for stage, p in (stage_payers(rec) if rec else {}).items():
+            official = get_partner_name_by_bno(p['biz_no']) if p.get('biz_no') else None
+            info = get_partner_info(official or p['name']) or {}
+            out[stage] = {'name': official or p['name'],
+                          'email': p.get('email') or info.get('email') or ''}
+    except Exception as exc:
+        logger.warning(f'[INVOICE] 부담자 프리필 실패 ({code}): {exc}')
+    return out
 
 
 @invoice_bp.route('/license/upload', methods=['POST'])

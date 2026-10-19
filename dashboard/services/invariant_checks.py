@@ -106,6 +106,19 @@ def check_amount_anomaly(ctx):
     return out
 
 
+def check_split_payers(ctx):
+    """나눠 내는 공사(○○ 부담자 칸) — 칸 형식 오류·부담액 합계≠총액2·부담자 없는 칸에 입금 (2026-10-19)."""
+    from dashboard.services.payer_split import split_problems
+    out = []
+    for r in ctx['records']:
+        code = (r.get('프로젝트 코드') or '').strip()
+        if not code:
+            continue
+        for msg in split_problems(r):
+            out.append(Violation('split_payer', f'split:{code}:{msg}', code, msg))
+    return out
+
+
 # check_orphan_settlement(미수금 0인데 수금카드 없음)은 2026-09-14 제거.
 #   전제("수금완료면 카드 있어야")가 거짓 — ①수기 입력 입금은 카드를 안 만듦 ②payment_slack
 #   카드 키는 90일 TTL이라 카드를 보냈어도 만료돼 '없음'으로 잡힘. 즉 "카드 키 없음 ≠ 미발송"
@@ -114,11 +127,13 @@ def check_amount_anomaly(ctx):
 INVARIANTS = [
     check_phantom_codes,
     check_amount_anomaly,
+    check_split_payers,
 ]
 
 _CHECK_LABEL = {
     'phantom_code': '유령/고아 코드',
     'amount_anomaly': '금액 이상치',
+    'split_payer': '나눠 내는 공사(부담자 칸)',
 }
 
 

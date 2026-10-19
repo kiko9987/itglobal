@@ -15,6 +15,7 @@ import logger from '../utils/logger.js';
 import {
   computeBillStagesFromColumns, billIssueDate, billAmountLines, isPreIssued, billHeadline,
 } from '../utils/billStatus.js';
+import { payerLine } from '../utils/payerSplit.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -99,6 +100,9 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
   const billStages = computeBillStagesFromColumns(row);
   const billStatus = isPreIssued(row, stage) ? '선발행' : billStages[stage];
   const billIcon = getStageBillIconForTable(billStatus);
+  // 나눠 내는 공사(2026-10-19): 이 칸 부담자 한 줄을 툴팁 맨 위에 — 화면 모양은 그대로
+  const pLine = payerLine(row, stage);
+  const withPayer = (txt) => (pLine ? `${pLine}\n──────\n${txt}` : txt);
 
   // 3단계 시각화: 금액 없음 / 메모 없음(경고) / 메모 있음(정상)
   if (amount > 0) {
@@ -107,7 +111,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     if (memoStatus.isEmpty) {
       // 금액 있음 + 메모 없음 → 빈 아이콘 + 초록색 (금액이 있으니 중요)
       const memoIcon = `
-        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="메모를 작성해주세요" aria-label="메모를 작성해주세요">
+        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(withPayer('메모를 작성해주세요'))}" aria-label="메모를 작성해주세요">
           <span class="memo-tooltip-trigger no-memo">
             <i class="far fa-sticky-note fa-lg text-success"></i>
           </span>
@@ -119,7 +123,7 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     } else {
       // 금액 있음 + 메모 있음 → 채워진 아이콘 + 초록색 (아이콘에만 툴팁)
       const memoIcon = `
-        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(memo)}" aria-label="메모 보기">
+        <span class="memo-value-wrapper" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(withPayer(memo))}" aria-label="메모 보기">
           <span class="memo-tooltip-trigger has-memo">
             <i class="fas fa-sticky-note fa-lg text-success"></i>
           </span>
@@ -139,6 +143,10 @@ function renderPaymentFieldWithMemo(data, row, memoFieldName, stage) {
     </div>`;
   }
 
+  // 아직 안 낸 부담자 칸도 '-' 위에 마우스를 올리면 누가 얼마 낼지 보이게
+  if (pLine) {
+    return `<span class="text-muted" data-bs-toggle="tooltip" data-bs-title="${escapeHTML(pLine)}" aria-label="${escapeHTML(pLine)}">-</span>`;
+  }
   return '<span class="text-muted">-</span>';
 }
 
@@ -146,7 +154,8 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
   if (!billIcon) return '';
 
   const titleMatch = billIcon.match(/title="([^"]*)"/);
-  const tooltipText = titleMatch ? titleMatch[1] : `${stage} 단계 계산서`;
+  const pl = payerLine(row, stage);   // 나눠 내는 공사: 이 칸 부담자 (없으면 '')
+  const tooltipText = [pl, titleMatch ? titleMatch[1] : `${stage} 단계 계산서`].filter(Boolean).join('\n');
   const sanitizedIcon = billIcon
     .replace(/title="([^"]*)"/, '')
     .replace(/ms-1/g, '')
@@ -156,7 +165,7 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
   if (status === '발행' || status === '선발행') {
     const code = String(row['프로젝트 코드'] || '').trim();
     const issued = billIssueDate(row, stage);
-    const lines = [billHeadline(row, stage), ...(issued ? [`발행일 ${issued}`] : []),
+    const lines = [...(pl ? [pl] : []), billHeadline(row, stage), ...(issued ? [`발행일 ${issued}`] : []),
       ...billAmountLines(row, stage), '클릭 시 계산서 링크로 이동'];
     const titleText = lines.join('\n');
     return `
@@ -190,7 +199,7 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
     } else {
       gross = cell;                                             // 수수료 데이터 없음
     }
-    const lines = ['카드결제 (영수증 자동)'];
+    const lines = [...(pl ? [pl] : []), '카드결제 (영수증 자동)'];
     const biz = String(row['사업자명'] || '').trim();
     if (biz) lines.push(biz);
     if (gross > 0) {

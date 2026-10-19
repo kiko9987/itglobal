@@ -338,6 +338,15 @@ def _guess_project(partner: str, amount, recs: list) -> str:
     def _name_hit(p_, name_):
         return len(name_) >= 3 and (name_[:6] in p_ or p_[:6] in name_ or _lcs(p_, name_) >= 4)
 
+    # 나눠 내는 공사 먼저(2026-10-19 오남프라자): 부담자 이름+남은 돈으로 '코드 구분'까지
+    #   (예 '이현주이비인임대' → 'G4157-JW 임대인'). 같은 임대인이 여러 호실이어도 금액으로 좁힘.
+    try:
+        from dashboard.services.payer_split import guess_split_payer
+        _sp = guess_split_payer(partner, amt, recs)
+        if _sp:
+            return _sp
+    except Exception:
+        pass
     p = _norm(partner)
     if len(p) < 3:
         return ''
