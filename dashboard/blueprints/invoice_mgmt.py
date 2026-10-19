@@ -190,6 +190,18 @@ def _payer_rec_from_sheet(code: str):
     return {f: rm.get(letter, '') for f, letter in mgr.get_field_to_letter().items()}
 
 
+def _payer_rec_cached(code: str):
+    """캐시된 공사 레코드(get_project_records) — [부담자 설정] 창 초기값용. 없으면 None.
+
+    2026-10-20: 창을 열 때마다 시트를 직접 읽어(A열 전체 + 그 행 = 1.5~2.6초) 버튼 반응이 느리다는 제보.
+    화면 초기값은 캐시로 충분하고(저장 시 update_project_in_cache 로 갱신), 저장(api_payers_save)은
+    칸 배정·입금 보호 판단 때문에 계속 _payer_rec_from_sheet 최신값으로 다시 읽는다.
+    """
+    from ..services.project_service import get_project_records
+    return next((r for r in (get_project_records() or [])
+                 if str(r.get('프로젝트 코드') or '').strip() == code), None)
+
+
 def _payer_rows(rec: dict) -> list:
     from ..services.payer_split import stage_payers
     return [{'stage': s, 'role': p['role'], 'name': p['name'], 'biz_no': p['biz_no'],
@@ -201,13 +213,19 @@ def _payer_rows(rec: dict) -> list:
 @invoice_bp.route('/payers/<code>', methods=['GET'])
 @login_required
 def api_payers_get(code):
-    """[부담자 설정] 창 초기값 — {payers, total2, stage_values}."""
+    """[부담자 설정] 창 초기값 — {payers, total2, stage_values}. 캐시 우선, 없으면(막 등록한 공사) 시트."""
     code = (code or '').strip()
+    rec = None
     try:
-        rec = _payer_rec_from_sheet(code)
+        rec = _payer_rec_cached(code)
     except Exception as exc:
-        logger.warning(f'[PAYER] 조회 실패 ({code}): {exc}')
-        rec = None
+        logger.debug(f'[PAYER] 캐시 조회 실패 ({code}): {exc}')
+    if rec is None:
+        try:
+            rec = _payer_rec_from_sheet(code)
+        except Exception as exc:
+            logger.warning(f'[PAYER] 조회 실패 ({code}): {exc}')
+            rec = None
     if rec is None:
         return APIResponse.error(message='프로젝트를 시트에서 찾지 못했습니다.',
                                  error_code=APIErrorCode.PROJECT_NOT_FOUND, status_code=404)
