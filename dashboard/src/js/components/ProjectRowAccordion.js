@@ -2024,12 +2024,12 @@ export default class ProjectRowAccordion {
           <div style="display: flex; gap: 0.75rem; flex: 1;">
             ${category.options.map(option => {
               const itemKey = `${category.name}-${option}`;
-              const payer = getStagePayer(_p, option);   // 나눠 내는 공사: 칸 = 사람 → '계약금(임대인)'
-              const optLabel = payer ? `${option}<span class="text-muted">(${this.escapeHTML(payer.role)})</span>` : option;
+              // 나눠 내는 공사: 이름표는 칸 이름 그대로(10-19 결정 — '계약금(임대인)'은 줄바꿈), 사람은 마우스 올릴 때만
+              const payer = getStagePayer(_p, option);
               return `
                 <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;"
                        ${payer ? `title="${this.escapeHTML(payerTitle(payer))}"` : ''}>
-                  <span style="font-size: 0.8125rem; white-space: nowrap;">${optLabel}</span>
+                  <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
                   <input class="form-check-input m-0 bill-stage-checkbox" type="checkbox"
                          value="${option}"
                          data-category="${category.name}"
