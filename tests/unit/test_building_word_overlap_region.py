@@ -71,3 +71,36 @@ def test_customer_qualified_name_not_replaced_by_poi_prefix(monkeypatch):
         ('서울시교통회관', '서울특별시 송파구 올림픽로 319 새마을 교통회관'),))
     v = '송파구 올림픽로 319 새마을 교통회관 2층'
     assert ar._enrich_with_poi(v, v) == v
+
+
+def test_joined_building_tenant_not_attached(monkeypatch):
+    # '크란츠 테크노'(건물) → POI '크란츠테크노 어머니맛나부페'(입점 식당)로 치환 금지 (L-04307)
+    monkeypatch.setattr(ar, '_search_poi', lambda q: (
+        ('크란츠테크노', '경기 성남시 중원구 둔촌대로 388'),
+        ('크란츠테크노 어머니맛나부페', '경기도 성남시 중원구 둔촌대로 388'),))
+    v = '성남 중원구 둔촌대로 388 크란츠 테크노 1301호 영진바이오크롬'
+    assert '부페' not in ar._enrich_with_poi(v, v)
+
+
+def test_joined_branch_still_adopted_without_building(monkeypatch):
+    # 결합형 정식 POI(건물)가 없으면 지점명 채택 유지 (L-03475 남양가 양꼬치)
+    monkeypatch.setattr(ar, '_search_poi', lambda q: (
+        ('남양가양꼬치 마곡점', '서울 강서구 마곡중앙로 1'),))
+    v = '강서구 마곡중앙로 1 남양가 양꼬치'
+    assert ar._enrich_with_poi(v, v).endswith('남양가양꼬치 마곡점')
+
+
+def test_customer_next_word_blocks_tenant_insert(monkeypatch):
+    # 고객이 '고려대학교 서울캠퍼스'처럼 cand 뒤를 이미 적었으면 '고려대학교 화정체육관' 미삽입 (ETC-83d22d)
+    monkeypatch.setattr(ar, '_search_poi', lambda q: (
+        ('고려대학교 화정체육관', '서울 성북구 안암로 145'),))
+    v = '성북구 안암로 145 고려대학교 서울캠퍼스 국제관 4층 25호 UNDP'
+    assert ar._enrich_with_poi(v, v) == v
+
+
+def test_spaced_prefix_poi_not_adopted(monkeypatch):
+    # '이마트24 경희대푸른솔문화관'(다른 업체) 의 접두를 정식명으로 채택하지 않음 (L-03738)
+    monkeypatch.setattr(ar, '_search_poi', lambda q: (
+        ('이마트24 경희대푸른솔문화관', '서울특별시 동대문구 경희대로 26'),))
+    v = '동대문구 경희대로 26 경희대학교 푸른솔문화관 115호'
+    assert ar._enrich_with_poi(v, v) == v

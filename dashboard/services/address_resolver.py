@@ -1997,7 +1997,17 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     for _jc, _spaced in _joined_shop_candidates(original_text):
         if _spaced not in verified_addr:
             continue
-        for _pname, _road in _search_poi(f'{_jc} {region}'.strip()):
+        _jresults = _search_poi(f'{_jc} {region}'.strip())
+        # 결합형 자체가 같은 도로의 정식 POI(=건물)면 '결합형 X'의 X는 입점 업체 →
+        #   치환 금지 (2026-10-20 L-04307: '크란츠 테크노' → '크란츠테크노 어머니맛나부페',
+        #   L-04213 _bld_exists 와 같은 원리). 원문에 그 이름이 있으면 기존대로.
+        _jexact = any(
+            (_p or '').replace(' ', '') == _jc and _road_key(_r or '') == v_key
+            for _p, _r in _jresults)
+        for _pname, _road in _jresults:
+            if (_jexact and _pname and _pname.replace(' ', '') != _jc
+                    and _pname.replace(' ', '') not in original_text.replace(' ', '')):
+                continue
             if not _pname or not _road or _road_key(_road) != v_key:
                 continue
             _pn_ns = _pname.replace(' ', '')
@@ -2076,11 +2086,24 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             #     (어반322 건물) 접두형은 입점 업체이므로 endswith 자체를 차단.
             _pfx = (place_name[:-len(cand)]
                     if (len(cand) >= 4 and place_name.endswith(cand)) else None)
+            # 접두 안에 공백이 있으면 다른 업체명+지점 표기('이마트24 경희대푸른솔문화관')라
+            #   지역 접두 정식명이 아님 → 미채택 (2026-10-20 L-03738)
+            if (_pfx and ' ' in _pfx.strip()
+                    and place_name.replace(' ', '') not in original_text.replace(' ', '')):
+                _pfx = None
             # startswith('cand X'): cand 가 exact POI 로 실재(=건물/장소)하면 X 는 지점명이
             #   아니라 입점 업체(관악더행복마루 스크린파크골프장) → 지점(점/지점) 접미가
             #   아닌 한 append 금지 (2026-08-06 L-03541). exact 없으면 지점명 보강 유지
             #   (마성떡볶이 논현역점 — 단독 '마성떡볶이' POI 없어 _has_exact=False).
             _sw = place_name.startswith(cand + ' ')
+            # 고객이 cand 바로 뒤에 이미 이름(한글·영문 단어)을 적었으면 그게 지점·건물 지정 →
+            #   POI 의 다른 'cand X'(입점 시설)를 끼워 넣지 않음 (2026-10-20 ETC-83d22d:
+            #   '고려대학교 서울캠퍼스 국제관' → '고려대학교 화정체육관 서울캠퍼스 …').
+            if _sw and place_name.replace(' ', '') not in original_text.replace(' ', ''):
+                _m_next = re.search(
+                    r'(?:^|\s)' + re.escape(cand) + r'\s+([가-힣A-Za-z]\S*)', verified_addr)
+                if _m_next and _m_next.group(1) != place_name[len(cand) + 1:].split()[0]:
+                    continue
             # 접두/접미 변형 채택 통합 규칙 (2026-08-06 L-03541 전수검사):
             #   • 매니저가 원문에 그 정식명을 썼으면(_pn_in_orig) 항상 유지
             #     (스포타임 엘타워·설원복지재단 안양의집 — 건물 exact 여도 원문 존중).
@@ -2106,6 +2129,10 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             if _poi_has_facility(place_name):
                 continue
             if cand in verified_addr:
+                # 띄어쓰기만 다른 같은 이름이 이미 있으면 치환 시 중복 (2026-10-20 L-03553:
+                #   '설성목장 타워 팰리스점' + POI '설성목장 타워팰리스점')
+                if place_name.replace(' ', '') in verified_addr.replace(' ', ''):
+                    continue
                 place_words = place_name.split()
                 # 두 단어 이상 (cand + 지점명) — 기존 dedup 체크 후 replace.
                 #   예: verified='...현대시티아울렛 가산점 5층...' + place='현대시티아울렛 가산점 주차장'
