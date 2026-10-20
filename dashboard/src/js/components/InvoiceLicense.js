@@ -555,7 +555,7 @@ export default class InvoiceLicense {
       // data-*: 손대지 않고 저장하면 원래 받을 돈 그대로 보냄(1원 반올림 어긋남 방지), 받은 돈·칸은 안내 줄용
       return `
       <div class="pl-row mb-2" style="border:1px solid var(--gray-200); border-radius:8px; padding:.6rem .7rem;"
-           data-orig-gross="${gross}" data-orig-supply="${sup}" data-orig-method="${esc(mval)}"
+           data-orig-gross="${gross}" data-orig-supply="${sup}"
            data-received="${Number(p.received) || 0}" data-saved-stage="${esc(p.stage || '')}">
         <div class="d-flex gap-2 mb-2">
           <input class="form-control form-control-sm" data-f="role" list="plRoleList" value="${esc(p.role || '')}"
@@ -585,14 +585,13 @@ export default class InvoiceLicense {
       </div>`;
     };
     // 줄 아래 안내: '받을 돈 X원 (VAT 포함) · 계약금 칸 · 받은 돈 Y원 · 남음 Z원' — 금액·결제 방식 바꾸면 바로 갱신
+    // 금액 칸을 손대지 않았으면(마지막으로 창이 채운 값 그대로) 받을 돈 = 원래 값 — 결제 방식만 바꿔도 받을 돈은 유지
+    const autoSupply = (r) => Number(r.dataset.autoSupply != null ? r.dataset.autoSupply : r.dataset.origSupply);
     const rowGross = (r) => {
       const v = (f) => ((r.querySelector(`[data-f="${f}"]`) || {}).value || '').trim();
       const supply = num(v('amount'));
-      const vf = v('method') === NOVAT;
-      if (supply === Number(r.dataset.origSupply) && v('method') === r.dataset.origMethod && Number(r.dataset.origGross)) {
-        return Number(r.dataset.origGross);   // 손대지 않음 → 원래 받을 돈 그대로
-      }
-      return grossOf(supply, vf);
+      if (Number(r.dataset.origGross) && supply === autoSupply(r)) return Number(r.dataset.origGross);
+      return grossOf(supply, v('method') === NOVAT);
     };
     const refreshInfo = (r) => {
       const box = r.querySelector('.pl-info');
@@ -678,7 +677,20 @@ export default class InvoiceLicense {
         });
       }
       const meth = r.querySelector('[data-f="method"]');
-      if (meth) meth.addEventListener('change', () => { refreshInfo(r); refreshSum(el); });
+      if (meth) {
+        meth.addEventListener('change', () => {
+          // 저장된 줄을 '현금 · 부가세 없음'으로 바꾸면(또는 되돌리면) 받을 돈은 그대로 두고 금액 칸만 맞춰 바꿈
+          //   (G4148 임대인 600만: 5,454,545 → 6,000,000). 금액을 직접 고친 줄은 건드리지 않음.
+          const og = Number(r.dataset.origGross);
+          if (amt && og && num(amt.value) === autoSupply(r)) {
+            const ns = supplyOf(og, meth.value === NOVAT);
+            amt.value = fmt(ns);
+            r.dataset.autoSupply = String(ns);
+          }
+          refreshInfo(r);
+          refreshSum(el);
+        });
+      }
       refreshInfo(r);
       // 거래처 탭 자동완성 — 고르면 사업자명·사업자번호·이메일 채움
       const name = r.querySelector('[data-f="name"]');
