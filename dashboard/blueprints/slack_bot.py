@@ -6084,40 +6084,38 @@ def _run_bg_with_notify(client, body, action_label: str, work_fn) -> None:
 
 
 def _is_slack_retry_duplicate() -> bool:
-    """Slack 이 3초 timeout 후 재전송한 요청인지 감지.
+    """같은 Slack 이벤트(event_id)가 다시 들어왔는지 — 이미 처리한 것이면 True(건너뜀).
 
-    Slack Events API 는 200 응답 못 받으면 3회 재전송. 실제로는 처리 성공했는데
-    응답 지연이면 idempotency 를 위해 중복 처리 skip 필요.
+    Slack Events API 는 3초 안에 200 을 못 받으면 같은 event_id 로 최대 3회 재전송.
+    Headers: X-Slack-Retry-Num(1, 2, 3) · X-Slack-Retry-Reason('http_timeout' 등)
 
-    Headers:
-    - X-Slack-Retry-Num: 재시도 회수 (1, 2, 3)
-    - X-Slack-Retry-Reason: 'http_timeout' 등
+    2026-10-20: 예전엔 재전송이 왔을 때부터 event_id 를 기록해, 원본 + 1차 재전송이 둘 다 처리됐다
+      (R4187-MJ 사업자등록증 저장·안내 2번 + Drive 파일 2개 — 공사봇이 재시작 후 첫 요청에서
+      초기화하느라 응답이 3초를 넘김). → 원본 요청부터 기록(NX)하고, 이미 본 event_id 면 건너뜀.
     """
     retry_num = request.headers.get('X-Slack-Retry-Num', '')
     retry_reason = request.headers.get('X-Slack-Retry-Reason', '')
-    if not retry_num:
-        return False
-    # 재시도 헤더 있으면 원본 event_id 로 dedup key 만들어 Redis 캐시 확인
     try:
         body = request.get_json(silent=True) or {}
     except Exception:
         body = {}
-    event_id = body.get('event_id') or ''
+    event_id = (body.get('event_id') or '') if isinstance(body, dict) else ''
     # slash command / interactive payload 는 event_id 없음 — 처리
     if not event_id:
-        # slash command 재시도 케이스는 상황상 매우 드묾. 로그만 남기고 계속 진행
-        logger.info(f'[SLACK/RETRY] event_id 없는 재시도 (reason={retry_reason}) — 계속 진행')
+        if retry_num:
+            # slash command 재시도 케이스는 상황상 매우 드묾. 로그만 남기고 계속 진행
+            logger.info(f'[SLACK/RETRY] event_id 없는 재시도 (reason={retry_reason}) — 계속 진행')
         return False
     try:
         from dashboard.utils.redis_client import get_redis_client as _grc
         rc = _grc().redis
-        dedup_key = f'slack_event_seen:{event_id}'
+        dedup_key = f"slack_event_seen:{body.get('api_app_id') or ''}:{event_id}"
         # NX + 1시간 TTL — 처음 보는 event 면 마킹하고 처리 진행
-        first_seen = rc.set(dedup_key, retry_num, nx=True, ex=3600)
+        first_seen = rc.set(dedup_key, retry_num or '0', nx=True, ex=3600)
         if not first_seen:
             logger.warning(
                 f'[SLACK/RETRY] 중복 event 무시: event_id={event_id[:12]}… '
-                f'retry={retry_num} reason={retry_reason}'
+                f'retry={retry_num or "-"} reason={retry_reason or "-"}'
             )
             return True
     except Exception as exc:
