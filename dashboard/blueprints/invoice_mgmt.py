@@ -565,7 +565,8 @@ def api_invoice_request():
     if not data.get('confirm_amount'):
         try:
             from .slack_bot import _invoice_amount_warning
-            _warn = _invoice_amount_warning(code, amt_digits, vat, has_replace=bool(replace))
+            _warn = _invoice_amount_warning(code, amt_digits, vat, has_replace=bool(replace),
+                                            stage=(stages.split(',')[-1].strip() or None))
         except Exception as exc:
             logger.warning(f'[INVOICE] 금액 점검 실패 (통과): {exc}')
             _warn = ''

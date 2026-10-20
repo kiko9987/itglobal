@@ -233,7 +233,8 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     #   '반환' 등 단어가 있어도 입금/환불/거래처로 오인되지 않게 통째로 파싱 제외(도입 전 기존
     #   메모엔 '⚠' 로 시작하는 줄 0건 확인).
     #   '◆' 줄 = 나눠 내는 공사의 부담자 표시('◆ 임대인 이희승', payer_split, 2026-10-19) — 입금 아님.
-    lines = [l for l in lines if not l.startswith(('⚠', '◆'))]
+    #   '◇' 줄 = 그 입금의 차수('◇ 차수 중도금', 2026-10-20) — 입금 아님(거래처 오인 방지).
+    lines = [l for l in lines if not l.startswith(('⚠', '◆', '◇'))]
     if not lines:
         return None
 
@@ -510,11 +511,14 @@ def _hash_payments(payments: List[Dict]) -> str:
 
 
 def _parse_notes(notes: List[str],
-                 stage_vals: Optional[Dict[str, int]] = None) -> List[Dict]:
+                 stage_vals: Optional[Dict[str, int]] = None,
+                 split: bool = False) -> List[Dict]:
     """U/V/W 셀 메모 3개를 모두 파싱 → [{stage:'계약금', ...}, {stage:'중도금', ...}, ...]
     파싱 실패한 블록 또는 partner 빈 블록은 직전 블록과 합쳐서 재시도
     (매니저가 한 입금 안에서 빈 줄 입력해서 잘못 분리되는 케이스 보정).
     stage_vals: 단계별 시트 값(U/V/W) — 옛 양식(금액 라인 없음) 처리용 fallback.
+    split: 나눠 내는 공사(칸 = 사람) — 앞 칸과 금액이 같은 첫 줄을 '누적 복사'로 보고 지우는 규칙을 끈다
+      (부담액이 같은 두 사람이면 진짜 입금이 사라짐, 2026-10-20).
     """
     results = []
     stages = ['계약금', '중도금', '잔금']
@@ -523,9 +527,10 @@ def _parse_notes(notes: List[str],
         # '⚠' 주석 줄(입금 지정 이상징후 이력)은 메모 단위 스캔(대체수금·카톡·요약 양식·블록
         #   분리·매출이동 방향 수집) 전에 통째로 제거 — 어떤 단어가 있어도 파싱 무영향.
         #   '◆' 부담자 표시 줄(나눠 내는 공사, 2026-10-19)도 같은 방식으로 제거 — 입금 없는 칸에
-        #   이 줄만 있어도 payment 0개(카드 발송 없음).
-        if note and ('⚠' in note or '◆' in note):
-            note = '\n'.join(l for l in note.splitlines() if not l.strip().startswith(('⚠', '◆'))).strip()
+        #   이 줄만 있어도 payment 0개(카드 발송 없음). '◇' 차수 줄(2026-10-20)도 같다.
+        if note and ('⚠' in note or '◆' in note or '◇' in note):
+            note = '\n'.join(l for l in note.splitlines()
+                             if not l.strip().startswith(('⚠', '◆', '◇'))).strip()
         if not note:
             # 메모 없는데 단계 값 있으면 fallback payment 추가 (옛 데이터)
             if stage_val > 0:
@@ -626,7 +631,7 @@ def _parse_notes(notes: List[str],
         if len(katok_payments) >= 2:
             # 매니저가 history 누적 — 이전 단계와 중복되는 첫 라인들 제외
             # 예: V 메모의 첫 라인이 U값과 동일하면 계약금 입금 중복
-            prev_amounts = {p.get('amount') for p in results}
+            prev_amounts = {p.get('amount') for p in results} if not split else set()
             while katok_payments and katok_payments[0].get('amount') in prev_amounts:
                 katok_payments.pop(0)
             # 이체 중복 제거 (2026-07-10 G3240-HS) — "매출이동" 언급 있으면 같은 date+amount 는 하나만
@@ -660,7 +665,7 @@ def _parse_notes(notes: List[str],
                     'stage': stage,
                 })
         if manager_payments:
-            prev_amounts = {p.get('amount') for p in results}
+            prev_amounts = {p.get('amount') for p in results} if not split else set()
             while manager_payments and manager_payments[0].get('amount') in prev_amounts:
                 manager_payments.pop(0)
             results.extend(manager_payments)
@@ -1794,7 +1799,7 @@ def _append_special_notes(text: str, notes) -> str:
             _stage_name = _stage_by_idx[_idx] if _idx < 3 else ''
             for _ln in _note.splitlines():
                 _ln = _ln.strip()
-                if not _ln or _ln.startswith(('입금 ', '◆')):   # ◆ = 부담자 표시 줄(특이사항 아님)
+                if not _ln or _ln.startswith(('입금 ', '◆', '◇')):   # ◆ 부담자 · ◇ 차수 줄(특이사항 아님)
                     continue
                 _tr = _TRANSFER_RE.search(_ln)
                 if _tr:

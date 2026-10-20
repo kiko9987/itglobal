@@ -16,6 +16,13 @@
 칸을 정하고 save_payers 가 이 칸과 **칸 메모 맨 윗줄('◆ 임대인 이희승')**을 함께 기록한다(시트 메모 = PM 메모).
 입금 파서(payment_sync)는 '◆' 줄을 건너뛴다.
 
+2026-10-20 차수·범용화 (오남 입금 칸 어긋남 계기):
+  - 칸 = 사람(고정). 사람마다 여러 번 나눠 내는 '차수'(계약금·중도금·잔금·일시불)는 칸이 아니라 그 입금 메모
+    블록 안의 '◇ 차수 중도금' 줄로 남긴다(입금 파서는 '◇' 줄도 건너뜀).
+  - 부담자는 임대인·임차인만이 아니다(한 법인의 두 사업자, 병원 + 원장 개인사업자 …) — 구분은 자유 문구.
+  - 계산서 상태는 사람별: '-'(통합 발행 포함) 규칙·'수금완료 + 마지막 칸 발행 = 전체 완료' 규칙을 쓰지 않고,
+    그 칸에 발행한 금액(계산서_메모 줄) ↔ 부담액·받은 돈으로 판단(payer_bill_state).
+
 JS 미러: dashboard/src/js/utils/payerSplit.js (규칙 바꾸면 같이 바꿀 것).
 """
 import re
@@ -26,9 +33,13 @@ PAYER_FIELD = {s: f'{s} 부담자' for s in STAGES}
 # 칸 메모 맨 윗줄 부담자 표시 — 시트 메모와 PM 메모가 같게(2026-10-19 사용자 요청).
 #   payment_sync 입금 파서는 이 기호로 시작하는 줄을 건너뛴다(입금 아님).
 PAYER_NOTE_PREFIX = '◆'
-# 저장 시 칸 자동 배정 순서: 첫째 = 계약금 칸(임대인), 둘째 = 잔금 칸(임차인), 셋째 = 중도금 칸
+# 저장 시 칸 자동 배정 순서: 첫째 = 계약금 칸, 둘째 = 잔금 칸, 셋째 = 중도금 칸 (구분 이름과 무관, 줄 순서)
 ASSIGN_ORDER = ('계약금', '잔금', '중도금')
 METHODS = ('계산서', '현금', '카드')
+# 차수 — 한 사람이 여러 번 나눠 낼 때 몇 번째 돈인지. 입금 메모 블록 안 '◇ 차수 중도금' 줄.
+INSTALLMENTS = ('계약금', '중도금', '잔금', '일시불')
+INSTALLMENT_PREFIX = '◇'
+_INST_RE = re.compile(r'^\s*◇\s*차수\s*(계약금|중도금|잔금|일시불)')
 
 _SEP_RE = re.compile(r'\s*[·|｜]\s*')
 _BIZNO_RE = re.compile(r'^(\d{3})-?(\d{2})-?(\d{5})$')
@@ -108,6 +119,147 @@ def is_split(rec: dict) -> bool:
 def stage_label(stage: str, payer: Optional[dict]) -> str:
     """'계약금' → '계약금(임대인)' (부담자 없으면 그대로)."""
     return f"{stage}({payer['role']})" if payer else stage
+
+
+def payer_title(payer: Optional[dict], stage: str = '') -> str:
+    """카드·안내용 사람 이름 — '임차인 김지민(다정약국)' (부담자 없으면 단계 이름)."""
+    if not payer:
+        return stage
+    return f"{payer['role']} {payer['name']}"
+
+
+def installment_line(inst: str) -> str:
+    """입금 메모 블록에 넣는 차수 줄 — '◇ 차수 중도금' (모르는 값이면 '')."""
+    return f"{INSTALLMENT_PREFIX} 차수 {inst}" if inst in INSTALLMENTS else ''
+
+
+def parse_installment(text) -> str:
+    """메모 블록(여러 줄)에서 차수 — '중도금' (없으면 '')."""
+    for ln in str(text or '').split('\n'):
+        m = _INST_RE.match(ln)
+        if m:
+            return m.group(1)
+    return ''
+
+
+def resolve_deposit_column(payers: Dict[str, dict], stage: str, partner: str, amount,
+                           installment: str = '') -> dict:
+    """나눠 내는 공사 입금 → 기록할 칸·차수 결정 (지정 확인·기록 공용). 순수 함수.
+
+    installment 가 있으면(새 지정 창: 사람 + 차수) stage = 사람 칸 그대로, 사람 칸이 아니면 오류.
+    없으면(옛 지정: '수금 단계'를 들어온 순서로 고른 것) 입금자명·금액으로 사람을 찾아 그 칸에 기록하고,
+    지정된 단계는 차수로 남긴다. 사람을 못 찾으면 지정 칸이 사람 칸일 때만 그대로(대리 입금 등), 아니면 오류.
+
+    Returns {'stage': 기록 칸 or '', 'installment': 차수 or '', 'moved': 지정 칸과 다르게 기록하나,
+             'error': 문구 or ''}
+    """
+    out = {'stage': '', 'installment': '', 'moved': False, 'error': ''}
+    names = ', '.join(f"{payer_title(p)}({s} 칸)" for s, p in payers.items())
+    if installment in INSTALLMENTS:
+        if stage not in payers:
+            out['error'] = f"{stage} 칸에는 부담자가 없습니다 — 누가 낸 돈인지 골라 주세요: {names}"
+            return out
+        out.update(stage=stage, installment=installment)
+        return out
+    hit = match_deposit_stage(payers, partner, amount)
+    if hit:
+        out.update(stage=hit, installment=stage if stage in INSTALLMENTS else '', moved=hit != stage)
+        return out
+    if stage in payers:
+        out.update(stage=stage)
+        return out
+    out['error'] = (f"누가 낸 돈인지 알 수 없습니다(입금자 {partner or '미상'}) — [재지정]에서 부담자와 차수를 "
+                    f"골라 주세요: {names}")
+    return out
+
+
+def _bill_tok(t) -> str:
+    """계산서 칸 값 정규화 — slack_bot._bill_norm_token 과 같은 규칙('-'·빈칸 = '')."""
+    s = str(t if t is not None else '').strip()
+    if s in ('', '-'):
+        return ''
+    return {'카드결제': '카드', '일반': '발행', '혼합': '기타', '확인필요': '기타'}.get(s, s)
+
+
+def payer_bill_state(payer: dict, token, issued_amt: int = 0, has_lines: bool = False) -> dict:
+    """한 사람(칸)의 계산서 상태 — 그 칸에 발행한 금액 ↔ 부담액·받은 돈 (나눠 내는 공사 전용).
+
+    issued_amt = 계산서_메모에서 그 칸(단계)으로 적힌 장 금액 합(VAT 포함), has_lines = 그런 줄이 있나.
+    줄이 없는데 칸이 '발행'이면 옛·수기 기록으로 보고 부담액 전액 발행으로 친다.
+    state:
+      issued   — 부담액만큼 발행 (preissued=True 면 아직 다 안 받음 → 선발행·입금 대기 표시)
+      partial  — 일부만 발행(to_issue 남음). need=True 면 받은 돈이 발행액보다 많고 그 사람 완납 → ⚠️
+      needed   — 발행 없음 + 그 사람 완납 → ⚠️ 미발행
+      pending  — 발행 없음 + 아직 다 안 받음 → 발행예정(조용)
+      cash / card / other — 계산서 대상 아님(현금·카드·기타)
+      none     — 받은 돈도 발행도 없음
+    """
+    amount = int(payer.get('amount') or 0)
+    received = int(payer.get('received') or 0)
+    remaining = amount - received
+    tok = _bill_tok(token)
+    base = {'state': 'none', 'issued': 0, 'to_issue': 0, 'preissued': False, 'need': False,
+            'pending': 0}
+    if tok == '카드':
+        return dict(base, state='card')
+    if tok == 'N입금':
+        return dict(base, state='cash')
+    if tok == '기타':
+        return dict(base, state='other')
+    iss = int(issued_amt or 0) if has_lines else (amount if tok == '발행' else 0)
+    if iss <= 0 and payer.get('method') == '현금':
+        return dict(base, state='cash')
+    if iss <= 0 and payer.get('method') == '카드':
+        return dict(base, state='card')
+    if iss >= amount - 1 and amount > 0:
+        return dict(base, state='issued', issued=iss, preissued=remaining > 1,
+                    pending=max(0, iss - received))
+    if iss > 0:
+        need = received > iss + 1 and remaining <= 1
+        return dict(base, state='partial', issued=iss, to_issue=amount - iss, need=need,
+                    pending=max(0, iss - received))
+    if received > 0:
+        return dict(base, state='needed' if remaining <= 1 else 'pending')
+    return base
+
+
+def payer_bill_states(rec: dict, active_lines: list) -> Dict[str, dict]:
+    """나눠 내는 공사 → {단계: payer_bill_state(...) + payer}. active_lines = 취소 안 된 계산서 장 줄
+    [{'stage','amt'}] (slack_bot._active_invoice_lines 결과 — 호출부가 넘김, 이 모듈은 순수 유지)."""
+    payers = stage_payers(rec)
+    out = {}
+    for s, p in payers.items():
+        mine = [it for it in (active_lines or []) if it.get('stage') == s and int(it.get('amt') or 0) > 0]
+        st = payer_bill_state(p, (rec or {}).get(f'{s} 계산서'),
+                              sum(int(it['amt']) for it in mine), bool(mine))
+        out[s] = dict(st, payer=p)
+    return out
+
+
+def split_y_summary(states: Dict[str, dict]) -> str:
+    """나눠 내는 공사의 계산서 요약(Y, 드롭다운 '{칸} - {상태}' 형식 유지) — 사람별 상태로.
+
+    손볼 사람(⚠️ 미발행·덜 발행) → '{칸} - 미발행' 우선, 다음 아직 발행 안 한 입금(발행예정) → '{칸} - 미발행',
+    그 외는 마지막으로 움직인 칸(계약금 → 잔금 → 중도금 순)의 상태. 움직임 없으면 '미발행'.
+    """
+    order = [s for s in ASSIGN_ORDER if s in states]
+    urgent = [s for s in order if states[s]['state'] == 'needed'
+              or (states[s]['state'] == 'partial' and states[s]['need'])]
+    if urgent:
+        return f"{urgent[0]} - 미발행"
+    def _uninvoiced_paid(st):   # 받은 돈 중 아직 계산서 안 끊은 몫이 있나
+        got = int(st['payer'].get('received') or 0)
+        return (st['state'] == 'pending' and got > 0) or (st['state'] == 'partial' and got > st['issued'] + 1)
+    quiet = [s for s in order if _uninvoiced_paid(states[s])]
+    if quiet:
+        return f"{quiet[0]} - 미발행"
+    active = [s for s in order if states[s]['state'] != 'none']
+    if not active:
+        return '미발행'
+    s = active[-1]
+    label = {'issued': '발행완료', 'partial': '발행완료', 'cash': 'N입금', 'card': '카드결제'}.get(
+        states[s]['state'], '기타')
+    return f"{s} - {label}"
 
 
 def payer_line(payer: dict) -> str:
@@ -257,7 +409,7 @@ def plan_payers(rows: list, rec: dict) -> Tuple[Dict[str, dict], List[str], List
         if not name and not amount:
             continue
         if not role:
-            errors.append(f"{i}번째 줄: 구분(임대인·임차인 등)을 정해 주세요.")
+            errors.append(f"{i}번째 줄: 구분을 적어 주세요(예: 임대인·병원·본점).")
         elif len(role) > 12 or _SEP_RE.search(role):
             errors.append(f"{i}번째 줄: 구분은 12자 이내, '·' 없이 적어 주세요.")
         if not name:
@@ -372,4 +524,12 @@ def split_problems(rec: dict) -> List[str]:
     for s in STAGES:
         if s not in payers and _num(rec.get(s)) > 0:
             out.append(f"{s} 칸에 입금 {_num(rec.get(s)):,}원이 있는데 부담자가 없음")
+    for s, p in payers.items():
+        if p['remaining'] < -1:
+            out.append(f"{payer_title(p)}({s} 칸) 부담액 {p['amount']:,}원보다 {-p['remaining']:,}원 더 받음")
+        memo_key = f'{s}_메모'
+        if memo_key in (rec or {}):
+            first = next((l.strip() for l in str(rec.get(memo_key) or '').split('\n') if l.strip()), '')
+            if first != payer_note_line(p):
+                out.append(f"{s} 칸 메모 맨 윗줄에 부담자 표시('{payer_note_line(p)}')가 없음")
     return out

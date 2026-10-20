@@ -106,9 +106,15 @@ def test_intake_view_shows_payers_and_preselects(monkeypatch):
         selected_project={'text': {'type': 'plain_text', 'text': 'G4146-JW'}, 'value': 'G4146-JW'},
         project_details={'biz': '이희승'})
     stage = next(b for b in view['blocks'] if b.get('block_id') == 'stage')
+    # 2026-10-20: 사람 칸만(부담자 없는 중도금 칸은 못 고름) + 남은 돈, 라벨 '누가 낸 돈인가요', 차수 칸 필수
+    assert [o['value'] for o in stage['element']['options']] == ['계약금', '잔금']
     texts = [o['text']['text'] for o in stage['element']['options']]
-    assert texts == ['계약금 · 임대인 이희승', '중도금', '잔금 · 임차인 주식회사 제이케이디학원']
+    assert texts[0].startswith('임대인 이희승 · 남은 돈') and texts[1].startswith('임차인 주식회사 제이케이디학원')
+    assert stage['label']['text'] == '누가 낸 돈인가요'
     assert stage['element']['initial_option']['value'] == '계약금'
+    inst = next(b for b in view['blocks'] if b.get('block_id') == 'installment')
+    assert [o['value'] for o in inst['element']['options']] == ['계약금', '중도금', '잔금', '일시불']
+    assert not inst.get('optional')
     assert any('나눠 내는 공사' in str(b) for b in view['blocks'])
 
 

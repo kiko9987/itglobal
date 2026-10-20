@@ -419,13 +419,15 @@ def _register_payment_handlers(app):
                 meta = json.loads(view.get("private_metadata") or "{}")
                 state = (view.get("state") or {}).get("values", {})
                 stage_value = (_v(state, "stage") or "").strip()
+                inst_value = (_v(state, "installment") or "").strip()
                 d = _load_intake(meta.get("intake_id", ""))
                 from dashboard.services.as_service import get_project_details
                 details = get_project_details(code) or {}
                 new_view = _build_payment_intake_view(
                     meta.get("intake_id", ""), meta.get("channel", ""),
                     meta.get("message_ts", ""), d.get("text") or "",
-                    selected_project=sel, project_details=details, stage_value=stage_value)
+                    selected_project=sel, project_details=details, stage_value=stage_value,
+                    installment_value=inst_value)
                 client.views_update(view_id=view.get("id"), hash=view.get("hash"), view=new_view)
             except Exception as exc:
                 logger.error(f"[SLACK/수금봇] payment_intake 프로젝트 선택 상세 실패: {exc}", exc_info=True)
@@ -441,11 +443,26 @@ def _register_payment_handlers(app):
                         .get("selected_option"))
             project_code = (sel or {}).get("value", "").strip() if sel else ""
             stage = (_v(state, "stage") or "").strip()
+            installment = (_v(state, "installment") or "").strip()
             errors = {}
             if not project_code:
                 errors["project"] = "프로젝트를 검색해서 선택해주세요."
             if stage not in ("계약금", "중도금", "잔금"):
                 errors["stage"] = "수금 단계를 선택해주세요."
+            if not errors:
+                # 나눠 내는 공사 — 사람 칸 + 차수 필수 (2026-10-20). 프로젝트 캐시 조회(짧음).
+                _sp = _intake_split_payers(project_code)
+                if _sp:
+                    from dashboard.services.payer_split import INSTALLMENTS
+                    if "installment" not in state:
+                        errors["stage"] = ("나눠 내는 공사입니다 — 프로젝트를 다시 골라 '누가 낸 돈'과 "
+                                           "'차수'를 지정해 주세요.")
+                    elif stage not in _sp:
+                        errors["stage"] = "누가 낸 돈인지 골라 주세요(부담자가 있는 칸만 기록됩니다)."
+                    elif installment not in INSTALLMENTS:
+                        errors["installment"] = "차수를 골라 주세요."
+                else:
+                    installment = ""
             if errors:
                 ack(response_action="errors", errors=errors)
                 return
@@ -521,13 +538,17 @@ def _register_payment_handlers(app):
                     "amount": amount, "memo": memo, "by": user_id, "warns": warn_lines,
                     # 확인 기록 때 시트 메모에 남길 이력 줄 (지정 시점 미수금 기준으로 고정)
                     "warn_notes": [n for n in (_warn_note(w, acked) for w in _wfull) if n],
+                    # 나눠 내는 공사의 차수(없으면 '') — 확인 기록 때 '◇ 차수 …' 줄
+                    "installment": installment,
                 })
+                _who = _intake_payer_title(project_code, stage)
                 if channel and message_ts:
                     client.chat_update(
                         channel=channel, ts=message_ts,
-                        text=f"확인 대기: {project_code} · {stage}",
+                        text=f"확인 대기: {project_code} · {_who or stage}",
                         blocks=_build_intake_pending_blocks(
-                            intake_id, project_code, stage, amount, memo, user_id, warns=warn_lines),
+                            intake_id, project_code, stage, amount, memo, user_id, warns=warn_lines,
+                            who=_who, installment=installment),
                     )
                 if _wfull:
                     _notify_intake_warns(client, intake_id, channel, message_ts,
@@ -599,6 +620,19 @@ def _register_payment_handlers(app):
                         if not _pc or _stg not in ("계약금", "중도금", "잔금") or _amt <= 0:
                             _failed.append(_s)
                             continue
+                        # 나눠 내는 공사 — 사람 칸·차수 결정(옛 지정은 입금자명으로 자동 맞춤, 2026-10-20)
+                        _res = _resolve_intake_payer(_pc, _stg, _amt, _preview.get("partner") or "",
+                                                     _s.get("installment") or "")
+                        if _res.get("error"):
+                            _failed.append(_s)
+                            _intake_ephemeral(client, channel, user, f":warning: {_pc} — {_res['error']}")
+                            continue
+                        if _res.get("who"):
+                            if _res.get("moved"):
+                                _s.setdefault("warns", []).append(
+                                    f"부담자 칸으로 기록 — 지정 {_stg} → {_res['stage']} 칸({_res['who']})")
+                            _stg = _res["stage"]
+                            _s.update(stage=_stg, who=_res["who"], installment=_res.get("installment", ""))
                         # 분할별 멱등 — 단일 경로와 동일(완료마커는 커밋 성공 후에만).
                         _sst = _intake_acquire(_rc2, intake_id, _pc, _stg)
                         if _sst == 'done':
@@ -611,7 +645,7 @@ def _register_payment_handlers(app):
                         _sok, _o, _n, _serr = _commit_intake_to_sheet(
                             _pc, _stg, _amt, _smemo, user,
                             note_extra=_compose_warn_notes(_s.get("warn_notes"), des.get("by", ""), user),
-                            acct_text=d.get("text", ""))
+                            acct_text=d.get("text", ""), installment=_s.get("installment") or "")
                         if not _sok:
                             _intake_release(_rc2, intake_id, _pc, _stg)  # 재시도 허용
                             _failed.append(_s)
@@ -672,6 +706,22 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user,
                                       ":warning: 금액이 자동 인식되지 않았습니다. 스레드에서 확인 후 수동 처리해주세요.")
                     return
+                # 나눠 내는 공사 — 기록할 사람 칸·차수 결정 (2026-10-20). 새 지정(사람+차수)은 그대로,
+                #   옛 지정('수금 단계'를 들어온 순서로 고른 것)은 입금자명으로 사람을 찾아 그 칸에 기록하고
+                #   지정 단계는 차수로 남긴다. 사람을 모르면 기록하지 않고 재지정 요청(카드는 대기 그대로).
+                _res = _resolve_intake_payer(project_code, stage, amount,
+                                             (d.get("preview") or {}).get("partner") or "",
+                                             des.get("installment") or "")
+                if _res.get("error"):
+                    _intake_ephemeral(client, channel, user, f":warning: {project_code} — {_res['error']}")
+                    return
+                _who, _inst = _res.get("who", ""), _res.get("installment", "")
+                _warns_done = list(des.get("warns") or [])
+                if _who and _res.get("moved"):
+                    _warns_done.append(f"부담자 칸으로 기록 — 지정 {stage} → {_res['stage']} 칸({_who})")
+                    logger.info(f"[SLACK/수금봇] 부담자 칸 자동 맞춤: {project_code} 지정 {stage} → "
+                                f"{_res['stage']} ({_who}, 차수 {_inst or '-'})")
+                stage = _res.get("stage") or stage
                 # 멱등 가드 — 같은 인입·지정의 확인이 두 번 전달되면(슬랙 재시도·더블클릭)
                 # _commit_intake_to_sheet 가 금액을 매번 더해 값·노트가 2배가 된다
                 # (2026-08-19 R3833-TH 16,335,000→32,670,000·노트 2블록 사고).
@@ -704,7 +754,8 @@ def _register_payment_handlers(app):
                         pass
                 ok, old_num, new_num, err = _commit_intake_to_sheet(
                     project_code, stage, amount, memo, user,
-                    note_extra=_compose_warn_notes(des.get("warn_notes"), des.get("by", ""), user))
+                    note_extra=_compose_warn_notes(des.get("warn_notes"), des.get("by", ""), user),
+                    installment=_inst)
                 if not ok:
                     _intake_release(rc, intake_id, project_code, stage)  # 재시도 허용
                     # 처리 중 카드를 대기(버튼) 카드로 복원 → 재클릭으로 재시도 가능
@@ -714,8 +765,10 @@ def _register_payment_handlers(app):
                                 channel=channel, ts=ts,
                                 text=f"🕓 {project_code} · {stage} 확인 대기",
                                 blocks=_build_intake_pending_blocks(
-                                    intake_id, project_code, stage, amount, memo, des.get("by", ""),
-                                    warns=des.get("warns")))
+                                    intake_id, project_code, des.get("stage") or stage, amount, memo,
+                                    des.get("by", ""), warns=des.get("warns"),
+                                    who=_intake_payer_title(project_code, des.get("stage") or stage),
+                                    installment=des.get("installment") or ""))
                         except Exception:
                             pass
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
@@ -724,10 +777,10 @@ def _register_payment_handlers(app):
                 if channel and ts:
                     client.chat_update(
                         channel=channel, ts=ts,
-                        text=f"✅ {project_code} · {stage} {amount:,}원 확인 완료",
+                        text=f"✅ {project_code} · {_who or stage} {amount:,}원 확인 완료",
                         blocks=_build_intake_done_blocks(
                             project_code, stage, amount, memo, des.get("by", ""), user,
-                            warns=des.get("warns")),
+                            warns=_warns_done, payer_who=_who, installment=_inst),
                     )
                     # 온라인 리드처럼 카드에 ✅ 리액션 = '처리 완료' 신호 (채널 스캔 가시성)
                     try:
@@ -828,9 +881,28 @@ def _register_payment_handlers(app):
                 ack(options=[])
             except Exception:
                 pass
+    def _handle_split_project_select(ack, body, client):
+        """분할 행 프로젝트 선택 → 다시 그림(입력값 보존). 나눠 내는 공사 행은 사람·차수 칸으로 (2026-10-20)."""
+        ack()
+
+        def _bg():
+            try:
+                view = body["view"]
+                meta = json.loads(view.get("private_metadata") or "{}")
+                rows = int(meta.get("rows") or 2)
+                prefilled = _split_state_to_rows(view["state"]["values"], rows)
+                new_view = _build_split_modal_view(
+                    meta.get("intake_id", ""), meta.get("channel", ""), meta.get("message_ts", ""),
+                    int(meta.get("total") or 0), meta.get("memo", ""), rows, prefilled)
+                client.views_update(view_id=view["id"], hash=view.get("hash"), view=new_view)
+            except Exception as exc:
+                logger.error(f"[SLACK/수금봇] split 프로젝트 선택 재렌더 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     # 행별 action_id (split_project_0 ~ N) 각각 등록 (regex 미지원 대비 명시 등록)
     for _si in range(MAX_SPLIT_ROWS):
         app.options(f"split_project_{_si}")(_handle_split_project_options)
+        app.action(f"split_project_{_si}")(_handle_split_project_select)
 
     @app.view("submit_payment_intake_split")
     def handle_submit_payment_intake_split(ack, body, view, client):
@@ -843,6 +915,8 @@ def _register_payment_handlers(app):
             errors = {}
             splits = []
             split_idx = []   # splits[k] 의 모달 행 번호 (행별 경고 표시용)
+            from dashboard.services.payer_split import INSTALLMENTS as _INSTS
+            _sp_cache = {}
             for r in parsed:
                 i = r["idx"]
                 if not (r["project_code"] or r["stage"] or r["amount"] > 0):
@@ -853,9 +927,25 @@ def _register_payment_handlers(app):
                     errors[f"split_row_{i}_stage"] = "단계를 선택하세요."
                 if r["amount"] <= 0:
                     errors[f"split_row_{i}_amount"] = "금액을 숫자로 입력하세요."
+                # 나눠 내는 공사 행 — 사람 칸 + 차수 필수 (2026-10-20)
+                _inst = ""
+                if r["project_code"]:
+                    if r["project_code"] not in _sp_cache:
+                        _sp_cache[r["project_code"]] = _intake_split_payers(r["project_code"])
+                    _sp = _sp_cache[r["project_code"]]
+                    if _sp:
+                        if not r.get("has_inst"):
+                            errors[f"split_row_{i}_project"] = ("나눠 내는 공사입니다 — 프로젝트를 다시 골라 "
+                                                                "'누가 낸 돈'과 '차수'를 지정해 주세요.")
+                        elif r["stage"] in ("계약금", "중도금", "잔금") and r["stage"] not in _sp:
+                            errors[f"split_row_{i}_stage"] = "누가 낸 돈인지 골라 주세요."
+                        elif r.get("installment") not in _INSTS:
+                            errors[f"split_row_{i}_inst"] = "차수를 골라 주세요."
+                        else:
+                            _inst = r["installment"]
                 if r["project_code"] and r["stage"] in ("계약금", "중도금", "잔금") and r["amount"] > 0:
                     splits.append({"project_code": r["project_code"], "project_option": r["project_option"],
-                                   "stage": r["stage"], "amount": r["amount"]})
+                                   "stage": r["stage"], "amount": r["amount"], "installment": _inst})
                     split_idx.append(i)
             if errors:
                 ack(response_action="errors", errors=errors)
@@ -917,6 +1007,7 @@ def _register_payment_handlers(app):
                 for _s, _ws in zip(splits, _wfull_rows):
                     _s["warns"] = [_warn_line(w, _acked) for w in _ws]
                     _s["warn_notes"] = [n for n in (_warn_note(w, _acked) for w in _ws) if n]
+                    _s["who"] = _intake_payer_title(_s["project_code"], _s["stage"])   # 카드 표기(나눠 내는 공사)
                 _update_intake(intake_id, designation={
                     "splits": splits, "total": total, "by": user_id})
                 if channel and message_ts:
@@ -1305,17 +1396,20 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
     view = _build_payment_intake_view(
         intake_id, channel, message_ts, text,
         selected_project=selected_project, project_details=project_details,
-        stage_value=stage_value)
+        stage_value=stage_value, installment_value=des.get("installment") or None)
     client.views_update(view_id=_view_id, view=view)
 
 
 def _build_payment_intake_view(intake_id, channel, message_ts, text,
-                               selected_project=None, project_details=None, stage_value=None):
+                               selected_project=None, project_details=None, stage_value=None,
+                               installment_value=None):
     """수금 지정 모달 view 빌더.
 
     프로젝트 선택 시(dispatch_action) 상세(project_details)를 삽입하고, 이미 고른
     단계(stage_value)를 보존해 재렌더한다. (A/S 요청 모달과 동일 사상 — 반복거래처
     상세 확인용)
+    나눠 내는 공사(2026-10-20): 'stage' 칸 = '누가 낸 돈'(사람 칸만, 입금자명으로 미리 선택),
+    'installment' 칸 = 차수(계약금·중도금·잔금·일시불, 필수).
     """
     from dashboard.services.sms_intake import active_display
     blocks = [
@@ -1371,38 +1465,57 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
             logger.warning(f"[SLACK/수금봇] 부담자 조회 실패(무시): {exc}")
             payers = {}
 
-    def _stage_text(t):
-        p = payers.get(t)
-        return f"{t} · {p['role']} {p['name']}"[:75] if p else t
-
-    stage_options = [{"text": {"type": "plain_text", "text": _stage_text(t)}, "value": t}
-                     for t in ("계약금", "중도금", "잔금")]
+    if payers:
+        # 나눠 내는 공사 — 칸 = 사람. 사람 칸만 고를 수 있게(부담자 없는 칸 선택 원천 차단)
+        from dashboard.services.payer_split import ASSIGN_ORDER, INSTALLMENTS, payer_title
+        stage_options = []
+        for t in [s for s in ASSIGN_ORDER if s in payers]:
+            p = payers[t]
+            rem = int(p['remaining'])
+            tail = '완납' if rem <= 0 else f"남은 돈 {rem:,}원"
+            stage_options.append({"text": {"type": "plain_text", "text": f"{payer_title(p)} · {tail}"[:75]},
+                                  "value": t})
+        if stage_value not in payers:
+            try:
+                from dashboard.services.payer_split import match_deposit_stage
+                from dashboard.services.sms_intake import parse_preview
+                _pv = parse_preview(text or '') or {}
+                stage_value = match_deposit_stage(payers, _pv.get('partner') or '', _pv.get('amount') or 0) or None
+            except Exception:
+                stage_value = None
+        stage_label_text = "누가 낸 돈인가요"
+    else:
+        stage_options = [{"text": {"type": "plain_text", "text": t}, "value": t}
+                         for t in ("계약금", "중도금", "잔금")]
+        stage_label_text = "수금 단계"
     stage_el = {
         "type": "static_select",
         "action_id": "value",
         "placeholder": {"type": "plain_text", "text": "선택"},
         "options": stage_options,
     }
-    if payers and stage_value not in ("계약금", "중도금", "잔금"):
-        try:
-            from dashboard.services.payer_split import match_deposit_stage
-            from dashboard.services.sms_intake import parse_preview
-            _pv = parse_preview(text or '') or {}
-            stage_value = match_deposit_stage(payers, _pv.get('partner') or '', _pv.get('amount') or 0) or None
-        except Exception:
-            stage_value = None
-    if stage_value in ("계약금", "중도금", "잔금"):
-        stage_el["initial_option"] = next(o for o in stage_options if o["value"] == stage_value)
+    _init = next((o for o in stage_options if o["value"] == stage_value), None)
+    if _init:
+        stage_el["initial_option"] = _init
     blocks.append({
         "type": "input", "block_id": "stage",
-        "label": {"type": "plain_text", "text": "수금 단계"},
+        "label": {"type": "plain_text", "text": stage_label_text},
         "element": stage_el,
     })
     if payers:
+        inst_options = [{"text": {"type": "plain_text", "text": t}, "value": t} for t in INSTALLMENTS]
+        inst_el = {"type": "static_select", "action_id": "value",
+                   "placeholder": {"type": "plain_text", "text": "몇 번째 돈인지"},
+                   "options": inst_options}
+        _ii = next((o for o in inst_options if o["value"] == installment_value), None)
+        if _ii:
+            inst_el["initial_option"] = _ii
+        blocks.append({"type": "input", "block_id": "installment",
+                       "label": {"type": "plain_text", "text": "차수"}, "element": inst_el})
         from dashboard.services.payer_split import payer_line
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
-            ":busts_in_silhouette: 나눠 내는 공사입니다 — 각 부담자의 돈은 자기 칸에 넣어 주세요.\n"
-            + "\n".join(f"{s} 칸 = {payer_line(p)}" for s, p in payers.items()))}]})
+            ":busts_in_silhouette: 나눠 내는 공사입니다. 낸 사람의 칸에 쌓이고, 차수는 입금 메모에 남습니다.\n"
+            + "\n".join(f"{s} 칸 = {payer_line(payers[s])}" for s in ASSIGN_ORDER if s in payers))}]})
     blocks.append({"type": "context", "elements": [
         {"type": "mrkdwn", "text": ":lock: 실제 시트 기록은 경영지원 확인 후 반영됩니다."}
     ]})
@@ -1432,7 +1545,8 @@ def _parse_won(s) -> int:
 
 
 def _split_state_to_rows(state: dict, rows: int) -> list:
-    """모달 state → [{idx, project_code, project_option, stage, amount}] (행별)."""
+    """모달 state → [{idx, project_code, project_option, stage, amount, installment, has_inst}] (행별).
+    installment/has_inst: 나눠 내는 공사 행의 차수 칸(split_row_{i}_inst)이 있었나·고른 값."""
     out = []
     for i in range(rows):
         po = ((state.get(f"split_row_{i}_project") or {})
@@ -1441,20 +1555,31 @@ def _split_state_to_rows(state: dict, rows: int) -> list:
               .get(f"split_stage_{i}") or {}).get("selected_option")
         av = ((state.get(f"split_row_{i}_amount") or {})
               .get(f"split_amount_{i}") or {}).get("value")
+        io = ((state.get(f"split_row_{i}_inst") or {})
+              .get(f"split_inst_{i}") or {}).get("selected_option")
         out.append({
             "idx": i,
             "project_code": (po or {}).get("value", "").strip() if po else "",
             "project_option": po,
             "stage": (so or {}).get("value", "").strip() if so else "",
             "amount": _parse_won(av),
+            "installment": (io or {}).get("value", "").strip() if io else "",
+            "has_inst": f"split_row_{i}_inst" in state,
         })
     return out
 
 
 def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, prefilled=None):
-    """분할 지정 모달 — 통합액 표시 + N개 (프로젝트+단계+금액) 행 + [행 추가]."""
-    from dashboard.services.sms_intake import active_display
+    """분할 지정 모달 — 통합액 표시 + N개 (프로젝트+단계+금액) 행 + [행 추가].
+
+    프로젝트를 고르면(dispatch_action) 다시 그려, 나눠 내는 공사 행은 '누가 낸 돈'(사람 칸만, 입금자명으로
+    미리 선택) + '차수' 칸으로 바뀐다(2026-10-20).
+    """
+    from dashboard.services.sms_intake import active_display, parse_preview
+    from dashboard.services.payer_split import (ASSIGN_ORDER, INSTALLMENTS, payer_title,
+                                                match_deposit_stage)
     prefilled = prefilled or []
+    _partner = ((parse_preview(memo or '') or {}).get('partner') or '')
 
     def _pf(i):
         return prefilled[i] if i < len(prefilled) else {}
@@ -1472,16 +1597,44 @@ def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, p
         if pf.get("project_option"):
             proj_el["initial_option"] = pf["project_option"]
         blocks.append({"type": "input", "block_id": f"split_row_{i}_project", "optional": True,
+                       "dispatch_action": True,
                        "label": {"type": "plain_text", "text": f"프로젝트 {i+1}"}, "element": proj_el})
-        stage_el = {"type": "static_select", "action_id": f"split_stage_{i}",
-                    "placeholder": {"type": "plain_text", "text": "단계"},
-                    "options": [{"text": {"type": "plain_text", "text": t}, "value": t}
-                                for t in ("계약금", "중도금", "잔금")]}
-        if pf.get("stage") in ("계약금", "중도금", "잔금"):
-            stage_el["initial_option"] = {"text": {"type": "plain_text", "text": pf["stage"]},
-                                          "value": pf["stage"]}
-        blocks.append({"type": "input", "block_id": f"split_row_{i}_stage", "optional": True,
-                       "label": {"type": "plain_text", "text": f"수금 단계 {i+1}"}, "element": stage_el})
+        _payers = _intake_split_payers(pf.get("project_code")) if pf.get("project_code") else {}
+        if _payers:
+            _opts = []
+            for t in [s for s in ASSIGN_ORDER if s in _payers]:
+                p = _payers[t]
+                rem = int(p['remaining'])
+                tail = '완납' if rem <= 0 else f"남은 돈 {rem:,}원"
+                _opts.append({"text": {"type": "plain_text", "text": f"{payer_title(p)} · {tail}"[:75]},
+                              "value": t})
+            _sv = pf.get("stage") if pf.get("stage") in _payers else (
+                match_deposit_stage(_payers, _partner, pf.get("amount") or 0) or None)
+            stage_el = {"type": "static_select", "action_id": f"split_stage_{i}",
+                        "placeholder": {"type": "plain_text", "text": "누가 낸 돈"}, "options": _opts}
+            _init = next((o for o in _opts if o["value"] == _sv), None)
+            if _init:
+                stage_el["initial_option"] = _init
+            blocks.append({"type": "input", "block_id": f"split_row_{i}_stage", "optional": True,
+                           "label": {"type": "plain_text", "text": f"누가 낸 돈 {i+1}"}, "element": stage_el})
+            _iopts = [{"text": {"type": "plain_text", "text": t}, "value": t} for t in INSTALLMENTS]
+            inst_el = {"type": "static_select", "action_id": f"split_inst_{i}",
+                       "placeholder": {"type": "plain_text", "text": "몇 번째 돈인지"}, "options": _iopts}
+            _ii = next((o for o in _iopts if o["value"] == pf.get("installment")), None)
+            if _ii:
+                inst_el["initial_option"] = _ii
+            blocks.append({"type": "input", "block_id": f"split_row_{i}_inst", "optional": True,
+                           "label": {"type": "plain_text", "text": f"차수 {i+1}"}, "element": inst_el})
+        else:
+            stage_el = {"type": "static_select", "action_id": f"split_stage_{i}",
+                        "placeholder": {"type": "plain_text", "text": "단계"},
+                        "options": [{"text": {"type": "plain_text", "text": t}, "value": t}
+                                    for t in ("계약금", "중도금", "잔금")]}
+            if pf.get("stage") in ("계약금", "중도금", "잔금"):
+                stage_el["initial_option"] = {"text": {"type": "plain_text", "text": pf["stage"]},
+                                              "value": pf["stage"]}
+            blocks.append({"type": "input", "block_id": f"split_row_{i}_stage", "optional": True,
+                           "label": {"type": "plain_text", "text": f"수금 단계 {i+1}"}, "element": stage_el})
         amt_el = {"type": "plain_text_input", "action_id": f"split_amount_{i}",
                   "placeholder": {"type": "plain_text", "text": "금액 (숫자만, 예: 10000000)"}}
         if pf.get("amount"):
@@ -1541,7 +1694,8 @@ def _build_intake_split_pending_blocks(intake_id, splits, total, by_user, memo="
              f">분할  {_codes}  ·  총 {total:,}원  ·  지정 {init}", f">{INTAKE_SEP}",
              *quoted_body(memo), f">{INTAKE_SEP}"]
     for s in splits:
-        lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
+        _sd = _stage_display(s['stage'], s.get('who', ''), s.get('installment', ''))
+        lines.append(f">• {s['project_code']} · {_sd} · {int(s['amount']):,}원")
         lines += [f">     :warning: *{w}*" for w in (s.get('warns') or [])]
     lines.append(f">{INTAKE_SEP}")
     return [
@@ -1567,7 +1721,8 @@ def _build_intake_split_done_blocks(splits, total, by_user, checker, memo=""):
              f">처리 : 지정 {by_i} · 확인 {ck}", f">{INTAKE_SEP}",
              *quoted_body(memo), f">{INTAKE_SEP}"]
     for s in splits:
-        lines.append(f">• {s['project_code']} · {s['stage']} · {int(s['amount']):,}원")
+        _sd = _stage_display(s['stage'], s.get('who', ''), s.get('installment', ''))
+        lines.append(f">• {s['project_code']} · {_sd} · {int(s['amount']):,}원")
         lines += [f">     :warning: {w}" for w in (s.get('warns') or [])]
     lines.append(f">{INTAKE_SEP}")
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
@@ -1954,6 +2109,55 @@ def _payer_split_rec(rec) -> bool:
         return False
 
 
+def _intake_split_payers(project_code) -> dict:
+    """프로젝트 캐시(그 행만)로 나눠 내는 공사 부담자 {단계: payer} — 아니면·실패 {}.
+
+    모달 제출(ack 3초 예산)에서도 부르므로 get_project_records(4,200행 변환 0.3초) 대신 캐시 DataFrame 한 행.
+    """
+    try:
+        import pandas as pd
+        from dashboard.services.payer_split import stage_payers
+        from dashboard.services.project_service import load_data
+        df = load_data()
+        if not isinstance(df, pd.DataFrame) or df.empty or '프로젝트 코드' not in df.columns:
+            return {}
+        sub = df[df['프로젝트 코드'].astype(str).str.strip() == str(project_code or '').strip()]
+        if sub.empty:
+            return {}
+        row = sub.iloc[0]
+        return stage_payers(row.where(pd.notna(row), None).to_dict())
+    except Exception as exc:
+        logger.debug(f"[SLACK/수금봇] 부담자 조회 실패({project_code}): {exc}")
+        return {}
+
+
+def _resolve_intake_payer(project_code, stage, amount, partner, installment='') -> dict:
+    """확인 기록 직전 — 나눠 내는 공사면 기록할 사람 칸·차수 결정(payer_split.resolve_deposit_column).
+    일반 공사는 지정 그대로. Returns {'stage','installment','moved','error','who'}."""
+    from dashboard.services.payer_split import resolve_deposit_column, payer_title
+    payers = _intake_split_payers(project_code)
+    if not payers:
+        return {'stage': stage, 'installment': '', 'moved': False, 'error': '', 'who': ''}
+    r = resolve_deposit_column(payers, stage, partner, amount, installment)
+    r['who'] = payer_title(payers[r['stage']]) if r.get('stage') in payers else ''
+    return r
+
+
+def _intake_payer_title(project_code, stage) -> str:
+    """카드 표기용 사람 이름('임차인 김지민') — 나눠 내는 공사 아니면 ''."""
+    from dashboard.services.payer_split import payer_title
+    p = _intake_split_payers(project_code).get(stage)
+    return payer_title(p) if p else ''
+
+
+def _stage_display(stage, who='', installment='') -> str:
+    """카드의 단계 표기 — 나눠 내는 공사면 '임차인 김지민(잔금 칸) · 차수 중도금', 아니면 단계 그대로."""
+    if not who:
+        return stage
+    s = f"{who}({stage} 칸)"
+    return f"{s} · 차수 {installment}" if installment else s
+
+
 def _intake_warnings(project_code, amount, preview, memo, records=None, stage=None, extra_paid=0):
     """입금 지정 사전 점검 — 매니저 확인 + 경영지원(샛별) 알림 대상 이상 징후 (2026-10-02 SB 건의).
 
@@ -2038,6 +2242,36 @@ def _intake_warnings(project_code, amount, preview, memo, records=None, stage=No
                             'note': (f"⚠️ 잔금 후 미수금: {left:,}원 남음 "
                                      f"(당시 미수금 {int(unpaid):,}원)"),
                             'unpaid': int(unpaid), 'left': left,   # 경영지원 DM 상세용
+                        })
+                # 나눠 내는 공사 — 사람(칸) 기준 점검 (2026-10-20). 공사 전체 미수금만 보면 한 사람이 자기
+                #   몫보다 더 내도(다른 사람이 아직 덜 냄) 경고가 안 뜬다.
+                from dashboard.services.payer_split import stage_payers, name_matches, payer_title
+                _payers = stage_payers(rec)
+                _p = _payers.get(stage) if stage else None
+                if _p:
+                    # extra_paid(같은 분할의 같은 공사 다른 행)는 다른 칸 몫 — 같은 칸 중복은 분할 검증이 막음
+                    _left = int(_p['remaining'])
+                    if amount > _left + 1:
+                        _ex = amount - _left
+                        _who = payer_title(_p)
+                        warns.append({
+                            'kind': 'payer_over', 'field': 'stage',
+                            'modal': (f"⚠️ {_who}의 남은 돈({_left:,}원)보다 {_ex:,}원 더 들어온 입금입니다 "
+                                      f"(부담 {_p['amount']:,} · 받은 돈 {_p['received']:,}). "
+                                      f"맞으면 [지정]을 한 번 더 눌러주세요(경영지원에 알림)."),
+                            'line': f"부담자 과입금 의심 — {_who} 남은 돈보다 {_ex:,}원 더 들어옴",
+                            'note': f"⚠️ 부담자 과입금: {_who} 당시 남은 돈 {_left:,}원 / 초과 {_ex:,}원",
+                        })
+                    _partner = str((preview or {}).get('partner') or '')
+                    _named = [p for p in _payers.values() if name_matches(_partner, p)]
+                    if len(_named) == 1 and _named[0]['stage'] != stage:
+                        _o = _named[0]
+                        warns.append({
+                            'kind': 'payer_mismatch', 'field': 'stage',
+                            'modal': (f"⚠️ 입금자({_partner})는 {payer_title(_o)}({_o['stage']} 칸)으로 보입니다. "
+                                      f"{payer_title(_p)}의 돈이 맞으면 [지정]을 한 번 더 눌러주세요."),
+                            'line': f"부담자 확인 — 입금자 {_partner} / 지정 {payer_title(_p)}",
+                            'note': f"⚠️ 부담자 확인: 입금자 {_partner} · 지정 {payer_title(_p)}",
                         })
         except Exception as exc:
             logger.warning(f"[SLACK/수금봇] 과입금 점검 실패(무시): {exc}")
@@ -2291,8 +2525,26 @@ def _row_snapshot(manager, sheet_id, sheet_name, row):
     return snap if isinstance(snap, dict) else None
 
 
+def _split_rec_from_row(get_val, f2l) -> dict:
+    """행 값 조회 함수(레터 → 값)로 나눠 내는 공사 판단용 레코드 — 단계 금액·계산서 칸·부담자 칸·총액 2."""
+    from dashboard.services.payer_split import PAYER_FIELD, STAGES
+    rec = {}
+    fields = ['총액 2'] + [f for s in STAGES for f in (s, f'{s} 계산서', PAYER_FIELD[s])]
+    for fld in fields:
+        col = f2l.get(fld)
+        if col:
+            rec[fld] = get_val(col)
+    return rec
+
+
+def _split_y_summary_for(rec, invoice_memo) -> str:
+    """나눠 내는 공사 계산서 요약(Y) — 사람별 상태(payer_split.split_y_summary). billStatus.js 미러."""
+    from dashboard.services.payer_split import payer_bill_states, split_y_summary
+    return split_y_summary(payer_bill_states(rec, _active_invoice_lines(invoice_memo or '')))
+
+
 def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, deposit, memo_text,
-                            snap=None):
+                            snap=None, payer_amount=None):
     """카드 결제 자동 수수료 보정 — 이 단계 셀에 기록할 '목표값'을 돌려준다(아니면 None).
 
     카드 결제는 통장에 '순입금'(카드사 수수료 뗀 금액)만 들어오는데, 프로젝트 지정 시
@@ -2303,6 +2555,8 @@ def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, de
 
     카드 판별은 **메모 입금자(승인번호 패턴)** 기준 — Y열에 의존하지 않아 매니저가
     Y='카드결제'로 안 바꾸고 지정해도 동작한다. 4% 게이트가 일반 부분입금 오탐을 막는다.
+    payer_amount: 나눠 내는 공사면 이 칸 부담자의 부담액 — 계약 잔액 대신 '그 사람 남은 돈' 기준
+      (다른 사람이 아직 덜 냈으면 공사 잔액이 커서 보정이 영영 안 걸리던 문제, 2026-10-20).
     """
     try:
         from dashboard.services.payment_sync import _is_itg_card_deposit, _CARD_BRAND_RE
@@ -2320,11 +2574,14 @@ def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, de
                 return int(float(v)) if str(v).strip() not in ('', 'None') else 0
             except (ValueError, TypeError):
                 return 0
-        total_t = _num('T')
-        if total_t <= 0:
-            return None
-        paid_others = sum(_num(c) for c in ('U', 'V', 'W') if c != col)
-        outstanding = total_t - paid_others - old_num   # 이 결제가 커버할 계약 잔액
+        if payer_amount:
+            outstanding = int(payer_amount) - old_num      # 이 사람이 아직 낼 돈
+        else:
+            total_t = _num('T')
+            if total_t <= 0:
+                return None
+            paid_others = sum(_num(c) for c in ('U', 'V', 'W') if c != col)
+            outstanding = total_t - paid_others - old_num   # 이 결제가 커버할 계약 잔액
         if outstanding <= 0:
             return None
         gap = outstanding - int(deposit)
@@ -2355,12 +2612,14 @@ def _collection_settlement_target(memo_text, deposit, old_num):
 
 
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id, note_extra=None,
-                            refund=False, acct_text=None):
+                            refund=False, acct_text=None, installment=''):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
     카드 발송 트리거 조건이 '해당 stage 셀 값 > 0' 이므로 값과 노트를 둘 다 쓴다
     (SB 수동 흐름과 동일). 카드 갱신은 호출자(확인 핸들러)가 담당.
     note_extra: 이 입금 블록 바로 아래 붙일 이력 줄('⚠' 시작 — 계좌 불일치·과입금, 수금 파서 무시).
+    installment: 나눠 내는 공사의 차수(계약금·중도금·잔금·일시불) — 입금 블록 안 '◇ 차수 …' 줄(파서 무시).
+      stage 는 이미 사람 칸(resolve_deposit_column 결과). 계산서 칸·Y·카드 수수료 보정도 사람 기준(2026-10-20).
     acct_text: 입금 계좌 판정용 원문 — 분할 노트엔 계좌번호가 없어 원 입금 문자를 넘긴다.
     refund=True: 반환(출금) 기록 — amount 는 음수, memo_text 는 출금 문자. 같은 단계 메모에 출금
       블록 append + 값 = 순액(과입금 반환 규칙). 카드·추심 보정·계산서 자동채움 생략, 전액 반환
@@ -2406,9 +2665,19 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
             old_num = int(float(old_val_raw)) if str(old_val_raw).strip() not in ('', 'None') else 0
         except (ValueError, TypeError):
             old_num = 0
+        # 나눠 내는 공사(칸 = 사람) 판단 — 부담자 칸(AL·AM·AN)은 같은 행 스냅샷에 있음
+        _payers = {}
+        try:
+            from dashboard.services.payer_split import stage_payers as _stage_payers
+            _f2l0 = manager.get_field_to_letter()
+            _payers = _stage_payers(_split_rec_from_row(_rv, _f2l0))
+        except Exception as _pexc:
+            logger.warning(f"[SLACK/수금봇] 부담자 판단 실패(일반 공사로 처리): {_pexc}")
+        _my_payer = _payers.get(stage)
         # 정산 자동 수수료 보정 — 순입금 대신 실결제(카드)·실추심(추심) 기록. 배타적.
         _card_target = (None if refund else _card_settlement_target(
-            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text, snap=_snap))
+            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text, snap=_snap,
+            payer_amount=(_my_payer or {}).get('amount')))
         _coll_target = (_collection_settlement_target(memo_text, int(amount), old_num)
                         if (_card_target is None and not refund) else None)
 
@@ -2429,6 +2698,12 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         elif _coll_target is not None:
             _real = _coll_target - old_num           # 실추심(채무자가 낸 총액)
             memo_sheet = f"{memo_sheet.rstrip()}\n실추심 {_real:,}원\n수수료 {_real - int(amount):,}원"
+        # 나눠 내는 공사의 차수 — 이 입금 블록 안 '◇ 차수 중도금' (파서·특이사항 제외 기호)
+        if installment and not refund:
+            from dashboard.services.payer_split import installment_line as _inst_line
+            _il = _inst_line(installment)
+            if _il:
+                memo_sheet = memo_sheet.rstrip() + "\n" + _il
         # 이상징후 이력(계좌·사업자 불일치·과입금) — 이 입금 블록 바로 아래. '⚠' 줄은 파서 제외.
         if note_extra:
             memo_sheet = memo_sheet.rstrip() + "\n" + "\n".join(note_extra)
@@ -2477,7 +2752,10 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                             _snap[_scol[stage]] = '-'
                         logger.info(f"[SLACK/수금봇] 반환으로 계산서 3열 정리: {project_code} {stage} "
                                     f"{_cur_stage_cell!r}→'-'")
-                elif _cur_stage_cell == '' or (_cur_stage_cell == '-' and not _row_has_issued):
+                # 나눠 내는 공사는 칸마다 다른 사람 → 다른 칸의 '발행'은 이 사람 계산서가 아님.
+                #   '-'를 통합 발행 포함(covered)으로 보지 않고 항상 결제 방식대로 채운다(2026-10-20
+                #   G4146 중도금 7,371,100원 입금인데 칸이 '-'로 남아 미발행이 숨은 사고).
+                elif _cur_stage_cell == '' or (_cur_stage_cell == '-' and (_payers or not _row_has_issued)):
                     _is_card = False
                     try:
                         from dashboard.services.payment_sync import _is_itg_card_deposit, _CARD_BRAND_RE
@@ -2531,7 +2809,15 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
                 _paid = sum(_amt.values())
                 _coll = ((_t2 > 0 and _paid > 0 and abs(_t2 - _paid) < 1)
                          or _bill_is_collected(_rv(_ckc) if _ckc else ''))
-                _new_y = _bill_y_summary(_tok, _amt, _coll)
+                if _payers:
+                    # 나눠 내는 공사 — 사람별 계산서 상태로 요약(앵커·covered·전체완료 규칙 없음)
+                    _srec = _split_rec_from_row(_rv, f2l)
+                    _srec.update({s: _amt[s] for s in _BILL_STAGES})
+                    _srec.update({f'{s} 계산서': _tok[s] for s in _BILL_STAGES})
+                    _ymemo = manager.get_cell_note(sheet_id, sheet_name, f"{_ycol}{row}") or ''
+                    _new_y = _split_y_summary_for(_srec, _ymemo)
+                else:
+                    _new_y = _bill_y_summary(_tok, _amt, _coll)
                 _old_y = (_rv(_ycol) or '').strip()
                 if _new_y != _old_y:
                     manager.update_cell_value(sheet_id, sheet_name, f"{_ycol}{row}", _new_y)
@@ -2617,16 +2903,18 @@ def _resolve_manager_initial(uid: str) -> str:
     return initial
 
 
-def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, by_user, warns=None):
+def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, by_user, warns=None,
+                                 who='', installment=''):
     """지정 완료 → 경영지원 확인 대기 카드. 활성 카드와 동일 구조(한 섹션·전부 '>' 인용·구분선).
-    warns: 이상 징후 줄(_intake_warnings 'line') — 계좌·사업자 불일치·과입금."""
+    warns: 이상 징후 줄(_intake_warnings 'line') — 계좌·사업자 불일치·과입금.
+    who/installment: 나눠 내는 공사의 사람·차수(_stage_display)."""
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     amt = f"{amount:,}원" if amount else '—'
     _by = _resolve_manager_initial(by_user)
     lines = [
         "⠀",
         ">🕓 *확인 대기 — 경영지원 확인 후 기록*",
-        f">*{project_code}*  ·  *{stage}*  ·  *{amt}*   ·   지정 {_by}",
+        f">*{project_code}*  ·  *{_stage_display(stage, who, installment)}*  ·  *{amt}*   ·   지정 {_by}",
     ]
     if not amount:
         lines.append(">:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요")
@@ -2643,16 +2931,18 @@ def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, b
     ]
 
 
-def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, confirmed_by, warns=None):
+def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, confirmed_by, warns=None,
+                              payer_who='', installment=''):
     """확인 완료 카드 — 활성·대기와 동일 구조(한 섹션·전부 '>' 인용·구분선), 버튼 없음.
-    warns: 지정 때 이상 징후 — 완료 후에도 이력으로 남김."""
+    warns: 지정 때 이상 징후 — 완료 후에도 이력으로 남김.
+    payer_who/installment: 나눠 내는 공사의 사람·차수(_stage_display)."""
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     _conf = _resolve_manager_initial(confirmed_by)
     who = (f"지정 {_resolve_manager_initial(by_user)} · 확인 {_conf}" if by_user
            else f"확인 {_conf}")
     lines = [
         "⠀",
-        f">✅ *확인 완료 - {stage}*  `{project_code}`",
+        f">✅ *확인 완료 - {_stage_display(stage, payer_who, installment)}*  `{project_code}`",
         f">금액 : {amount:,}원",
         f">처리 : {who}",
         *[f">:warning: {w}" for w in (warns or [])],
@@ -3193,6 +3483,23 @@ def _register_project_handlers(app):
                 logger.error(f"[SLACK/계산서] 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    @app.action("invoice_payer_pick")
+    def handle_invoice_payer_pick(ack, body, client):
+        """나눠 내는 공사 계산서 창 — '누구 계산서인가요' 선택 → 그 사람 기준으로 다시 채움 (2026-10-20)."""
+        ack()
+
+        def _bg():
+            try:
+                view = body.get("view") or {}
+                meta = json.loads(view.get("private_metadata") or "{}")
+                picked = (((body.get("actions") or [{}])[0].get("selected_option")) or {}).get("value") or ''
+                p = (meta.get("p") or ['', '', '', '']) + ['', '', '', '']
+                _build_and_update_invoice_modal(client, view.get("id"), meta.get("code", "-"),
+                                                p[0], p[1], p[2], p[3], payer_stage=picked)
+            except Exception as exc:
+                logger.error(f"[SLACK/계산서] 부담자 선택 재렌더 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     @app.view("submit_invoice")
     def handle_submit_invoice(ack, body, client, view):
         # UX 개선 (2026-07-16 사고): 검증 (Drive API + 시트 조회) 이 3초 넘어가
@@ -3203,7 +3510,7 @@ def _register_project_handlers(app):
         _warn = _invoice_submit_amount_check(view)
         if _warn:
             ack(response_action="errors",
-                errors={"amt": f"{_warn} 맞으면 [요청 발송]을 한 번 더 눌러주세요."})
+                errors={_invoice_block_id(view, "amt"): f"{_warn} 맞으면 [요청 발송]을 한 번 더 눌러주세요."})
             return
         ack()
         def _bg():
@@ -13911,6 +14218,37 @@ def _bill_y_summary(stage_vals, amt, collected=False):
     return f'{anchor} - {status}'
 
 
+_PAYER_BLOCK_SFX = {'계약금': '__c', '중도금': '__m', '잔금': '__f'}
+
+
+def _invoice_view_values(view) -> dict:
+    """계산서 모달 state → {블록 이름: 액션 값}. 나눠 내는 공사 창은 사람을 바꿔 고를 때 입력칸을 새로 만들려고
+    블록 이름에 '__c/__m/__f' 를 붙이므로(슬랙 input 은 같은 이름이면 값이 안 바뀜) 원래 이름으로 돌려 준다."""
+    raw = (view.get('state') or {}).get('values') or {}
+    out = {}
+    for bid, acts in raw.items():
+        if isinstance(acts, dict) and acts:
+            out[bid.split('__')[0]] = acts.get('value') or next(iter(acts.values()))
+    return out
+
+
+def _invoice_block_id(view, base: str) -> str:
+    """모달 오류 표시용 실제 블록 이름(접미사 포함) — 없으면 base."""
+    for b in (view.get('blocks') or []):
+        bid = b.get('block_id') or ''
+        if bid == base or bid.startswith(base + '__'):
+            return bid
+    return base
+
+
+def _invoice_dedup_key(code, stages='') -> str:
+    """계산서 요청 90초 중복 방지 키 — 나눠 내는 공사는 사람(칸)마다 따로(임대인·임차인 연달아 요청 허용)."""
+    st = str(stages or '').split(',')[-1].strip()
+    if st and _intake_split_payers(code):
+        return f'invoice_request_dedup:{code}:{st}'
+    return f'invoice_request_dedup:{code}'
+
+
 def _build_invoice_stage_block(code):
     """계산서 발행 단계 단일 선택 드롭다운. 기본값 없음 — 요청자가 직접 선택(placeholder)."""
     opts = [{"text": {"type": "plain_text", "text": s}, "value": s} for s in _BILL_STAGES]
@@ -13995,10 +14333,24 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
             manager.get_cell_value(sheet_id, sheet_name, f"{col_total1}{row}")) if col_total1 else 0
         total2 = _bill_to_num(
             manager.get_cell_value(sheet_id, sheet_name, f"{col_total2}{row}")) if col_total2 else 0
+        # 나눠 내는 공사(칸 = 사람)인지 — 부담자 칸(AL·AM·AN)
+        _payers = {}
+        _snapm = _row_snapshot(manager, sheet_id, sheet_name, row)
+
+        def _getv(c):   # 행 스냅샷이 없으면 칸별 조회
+            if _snapm is not None:
+                return _snapm.get(c, '')
+            return manager.get_cell_value(sheet_id, sheet_name, f"{c}{row}")
+        try:
+            from dashboard.services.payer_split import stage_payers as _stage_payers
+            _payers = _stage_payers(_split_rec_from_row(_getv, f2l))
+        except Exception as _pexc:
+            logger.warning(f"[SLACK/계산서] 부담자 판단 실패(일반 공사로 처리) ({code}): {_pexc}")
         # 전체발행 = 요청 금액이 총액1(공급가) 또는 총액2(합계)와 일치.
         #   VAT 별도면 모달이 총액1(공급가)로 프리필 → 총액2와 안 맞음. 두 기준 다 허용해
         #   요청자가 공급가로 넣든 합계로 넣든 전체발행 인식(부가세 별도 케이스 버그 fix).
-        full = inv_amt > 0 and (
+        #   나눠 내는 공사는 칸마다 다른 사람 → 한 사람 계산서로 다른 사람 칸을 '-'로 덮지 않는다(2026-10-20).
+        full = (not _payers) and inv_amt > 0 and (
             (total1 > 0 and round(inv_amt) == round(total1))
             or (total2 > 0 and round(inv_amt) == round(total2)))
         wrote = []
@@ -14028,7 +14380,7 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
             #   수금완료(미수금≈0 or 수금확인) + 마지막단계 발행이면 전체발행 완료로 앞 미발행 무시
             _paid_sum = sum(_bill_to_num(amt.get(s)) for s in _BILL_STAGES)
             _coll = collected or (total2 > 0 and _paid_sum > 0 and abs(total2 - _paid_sum) < 1)
-            if col_y:
+            if col_y and not _payers:   # 나눠 내는 공사는 메모 줄 기록 뒤 사람별로 계산(아래)
                 manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}",
                                           _bill_y_summary(cur, amt, _coll))
         # 발행일·장 금액을 계산서_메모(Y 노트)에 기록 — PM 계산서 툴팁 출처 (2026-09-30 SB 요청).
@@ -14106,6 +14458,21 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                     logger.info(f"[SLACK/계산서] 발행일 메모 기록 ({code}): {' | '.join(_add)}")
             except Exception as _me:
                 logger.warning(f"[SLACK/계산서] 발행일 메모 기록 실패 ({code}): {_me}")
+        # 나눠 내는 공사 — 방금 적은 장 금액 줄까지 반영해 사람별 계산서 상태로 요약(Y). 같은 사람 2차 발행처럼
+        #   칸 값('발행')이 그대로여도 상태(일부 발행 → 발행완료)가 바뀔 수 있어 항상 다시 계산 (2026-10-20).
+        if col_y and _payers:
+            try:
+                _memo_now = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
+                _srec = _split_rec_from_row(_getv, f2l)
+                _srec.update({s: amt[s] for s in _BILL_STAGES})
+                _srec.update({f'{s} 계산서': cur[s] for s in _BILL_STAGES})
+                _ny = _split_y_summary_for(_srec, _memo_now)
+                _oy = str(manager.get_cell_value(sheet_id, sheet_name, f"{col_y}{row}") or '').strip()
+                if _ny != _oy:
+                    manager.update_cell_value(sheet_id, sheet_name, f"{col_y}{row}", _ny)
+                    logger.info(f"[SLACK/계산서] Y 재계산(나눠 내는 공사): {code} {_oy!r} → {_ny!r}")
+            except Exception as _ye:
+                logger.warning(f"[SLACK/계산서] Y 재계산 실패(나눠 내는 공사) ({code}): {_ye}")
         # 프로젝트 데이터 캐시 무효화 (Z/AA/AB·Y 변경 반영)
         try:
             from dashboard.utils.smart_cache_manager import (
@@ -14252,7 +14619,7 @@ def _line_sheet_gross(it, stage_amt, raw_tok, total1, total2, multi=False) -> fl
     return amt + cov
 
 
-def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False) -> str:
+def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False, stage=None) -> str:
     """계산서 요청 금액 사전 점검 — 의심되면 경고 문구, 아니면 '' (2026-10-15).
 
     계기: G4146-JW 6,887,100원·G4157-JW 10,016,600원 — 부가세 포함 금액을 'VAT 별도'로 요청해
@@ -14288,6 +14655,19 @@ def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False) -> str
     if total2 <= 0:
         return ''
     gross = round(amt * (total2 / total1 if total1 > 0 else 1.1)) if sep else amt
+    # 나눠 내는 공사 — 그 사람(칸) 부담액 기준 초과도 본다 (2026-10-20)
+    try:
+        from dashboard.services.payer_split import stage_payers as _sp, payer_title as _pt
+        _p = _sp(rec).get(stage) if stage else None
+    except Exception:
+        _p = None
+    if _p:
+        _iss_p = round((_project_issued_invoice(code, stage=stage) or {}).get('issued_gross') or 0)
+        if _iss_p + gross > int(_p['amount']) + 1000:
+            head = (f"이미 발행 {_iss_p:,}원 + 이번 {gross:,}원(부가세 포함) = {_iss_p + gross:,}원으로"
+                    if _iss_p > 0 else f"이번 {gross:,}원(부가세 포함)이")
+            return (f"⚠️ {head} {_pt(_p)}의 부담액 {int(_p['amount']):,}원을 넘습니다. "
+                    f"금액·VAT·발행 단계(누구 계산서인지)를 확인하세요.")
     issued = round((_project_issued_invoice(code) or {}).get('issued_gross') or 0)
     if issued + gross > total2 + 1000:
         head = (f"이미 발행 {issued:,}원 + 이번 {gross:,}원(부가세 포함) = {issued + gross:,}원으로"
@@ -14296,7 +14676,7 @@ def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False) -> str
     return ''
 
 
-def _project_issued_invoice(code):
+def _project_issued_invoice(code, stage=None):
     """이미 발행된 세금계산서 요약 (계산서 요청 모달 잔여 프리필·경고용, 2026-09-28).
 
     - 2026-10-19: 계산서_메모의 장 금액 줄(한 줄 = 한 장 합계)이 있으면 그 합이 발행액. 그 장이 있는 단계와
@@ -14304,6 +14684,8 @@ def _project_issued_invoice(code):
     - 장 금액 줄이 없는 옛 발행 = '발행' 토큰 단계(통합발행 '-'는 lastIssuedIndex 이전만)의 입금액(VAT 포함).
       입금 0 이면 메모의 금액 하나(SB 수기), 없으면 uncertain.
     - gross→공급가 환산 = 총액1/총액2 비율(없으면 부가세 True 면 /1.1, 아니면 1).
+    - 나눠 내는 공사(2026-10-20): 칸 = 사람이라 '-' 포함(covered) 규칙·옛 선발행 보정을 쓰지 않는다. 사람별
+      발행액은 'payers' 에({단계: {issued, amount, to_issue}}), stage 를 주면 그 사람 기준 요약(총액 = 부담액).
 
     Returns dict 또는 None(조회 실패/발행 이력 없음).
     """
@@ -14329,9 +14711,17 @@ def _project_issued_invoice(code):
     # 현재 유효한 계산서 장(금액 기록된 줄) — 2026-10-19: 줄 금액 = 그 장 합계. 옛 선발행 줄은 보정.
     active = [it for it in _active_invoice_lines(memo) if it['amt'] > 0]
     _per_stage = {s: sum(1 for x in active if x['stage'] == s) for s in _BILL_STAGES}
+    try:
+        from dashboard.services.payer_split import stage_payers as _stage_payers
+        _payers = _stage_payers(rec)
+    except Exception:
+        _payers = {}
     for it in active:
-        it['gross'] = int(round(_line_sheet_gross(it, stage_amt, raw_tok, total1, total2,
-                                                  multi=_per_stage[it['stage']] > 1)))
+        it['gross'] = (int(it['amt']) if _payers else
+                       int(round(_line_sheet_gross(it, stage_amt, raw_tok, total1, total2,
+                                                   multi=_per_stage[it['stage']] > 1))))
+    if _payers:
+        return _split_issued_summary(rec, _payers, active, norm_tok, total1, total2, vat_sep, stage)
     if last_idx < 0 and not active:
         return None  # 발행 이력 없음
     # 수금 완료(billStatus.isFullyCollected 미러) — 입금 0 발행이어도 선발행 아님(옛 데이터 모양)
@@ -14386,6 +14776,54 @@ def _project_issued_invoice(code):
     }
 
 
+def _split_issued_summary(rec, payers, active, norm_tok, total1, total2, vat_sep, stage=None):
+    """나눠 내는 공사의 이미 발행 요약 — 사람(칸)별. _project_issued_invoice 와 같은 키 + 'payers'.
+
+    사람별 발행액 = 그 칸으로 적힌 장 줄 합. 줄 없이 칸만 '발행'(옛·수기) = 부담액 전액 발행으로 본다
+    (payer_split.payer_bill_state 와 같은 규칙). stage 를 주면 총액·잔여·초과를 그 사람 기준으로.
+    """
+    ratio = (total1 / total2) if (total1 > 0 and total2 > 0) else (1.0 / 1.1 if vat_sep else 1.0)
+    per = {}
+    lines = []
+    for s, p in payers.items():
+        mine = [it for it in active if it.get('stage') == s]
+        if mine:
+            iss = sum(int(it['gross']) for it in mine)
+            lines += [(s, int(it['gross']), int(p['received']) < int(it['gross'])) for it in mine]
+        elif norm_tok.get(s) == '발행':
+            iss = int(p['amount'])
+            lines.append((s, iss, False))
+        else:
+            iss = 0
+        per[s] = {'issued': iss, 'amount': int(p['amount']), 'to_issue': max(0, int(p['amount']) - iss),
+                  'received': int(p['received'])}
+    active_sum = sum(int(it['gross']) for it in active)
+    if stage in per:
+        tgt = per[stage]
+        issued_gross, scope_total2 = tgt['issued'], tgt['amount']
+        over = issued_gross if issued_gross > scope_total2 + 1 else 0
+    else:
+        issued_gross, scope_total2 = sum(v['issued'] for v in per.values()), total2
+        over = int(round(active_sum)) if total2 > 0 and active_sum > total2 + 1 else 0
+    if issued_gross <= 0 and stage not in per:
+        return None
+    issued_supply = round(issued_gross * ratio)
+    scope_supply = round(scope_total2 * ratio)
+    return {
+        'total_supply': int(scope_supply),
+        'issued_gross': int(round(issued_gross)),
+        'issued_supply': int(issued_supply),
+        'remaining_supply': int(max(0, scope_supply - issued_supply)),
+        'lines': lines,
+        'uncertain': False,
+        'active': active,
+        'over_issued': int(over),
+        'total2': int(round(scope_total2)),
+        'payers': per,
+        'stage': stage if stage in per else None,
+    }
+
+
 def _fmt_issued_warn(summary) -> str:
     """_project_issued_invoice 결과 → 모달 안내 문구 (슬랙 mrkdwn, PM 은 평문 변환해 공용).
 
@@ -14423,7 +14861,8 @@ def _invoice_active_option_text(it) -> str:
 
 
 def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='', issued_warn='',
-                              total_amt=None, active_invoices=None) -> dict:
+                              total_amt=None, active_invoices=None, payer_opts=None, payer_stage=None,
+                              total_label='공사 금액 (시트 원본)') -> dict:
     """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28).
 
     partner_warn: 폐업/휴업 경고 문구. 있으면 헤더 바로 아래 section 으로 표시.
@@ -14434,13 +14873,18 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     active_invoices: 현재 유효한 기존 계산서(_active_invoice_lines, 금액 있는 것). 있으면
          '수정발행 — 대체할 기존 계산서' 체크박스(선택 사항) 표시. 옵션 value = 목록 인덱스
          (목록 스냅샷은 private_metadata 'active').
+    payer_opts: 나눠 내는 공사(2026-10-20) — '누구 계산서인가요' 선택지(사람 칸만). 맨 위에 두고 고르면 다시 그려
+         그 사람 사업자·이메일·발행할 금액으로 입력칸을 새로 만든다(블록 이름에 칸 접미사). 고르기 전엔 입력칸·[요청 발송] 없음.
     """
     addr = addr or '-'
     amt = amt or '-'
     if total_amt is None:
         total_amt = amt
+    split = payer_opts is not None
+    sfx = _PAYER_BLOCK_SFX.get(payer_stage or '', '') if split else ''
 
     def _text_input(block_id, label, value, multiline=False, optional=False, placeholder=''):
+        block_id = f"{block_id}{sfx}"
         el = {"type": "plain_text_input", "action_id": "value"}
         if value:
             el["initial_value"] = value
@@ -14463,11 +14907,30 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     if partner_warn:
         # 헤더 바로 아래 폐업/휴업 경고 (요청 전 인지)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": partner_warn}})
+    if split:
+        _st_el = {"type": "static_select", "action_id": "invoice_payer_pick",
+                  "placeholder": {"type": "plain_text", "text": "누구 계산서인지 선택"}, "options": payer_opts}
+        _init = next((o for o in payer_opts if o["value"] == payer_stage), None)
+        if _init:
+            _st_el["initial_option"] = _init
+        blocks.append({"type": "input", "block_id": "stages", "dispatch_action": True,
+                       "label": {"type": "plain_text", "text": "누구 계산서인가요"}, "element": _st_el})
+        if not payer_stage:
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
+                ":busts_in_silhouette: 나눠 내는 공사입니다. 누구 계산서인지 고르면 그 사람의 사업자명·이메일·"
+                "발행할 금액이 채워집니다.")}]})
+            return {
+                "type": "modal", "callback_id": "submit_invoice",
+                "private_metadata": metadata,
+                "title": {"type": "plain_text", "text": "세금계산서 발행 요청"},
+                "close": {"type": "plain_text", "text": "취소"},
+                "blocks": blocks,
+            }
     blocks += [
         _text_input("biz", "사업자명", biz),
         _text_input("addr", "현장 주소", addr),
         {"type": "section", "text": {"type": "mrkdwn",
-            "text": f"*공사 금액 (시트 원본)*\n{total_amt} 원"}},
+            "text": f"*{total_label}*\n{total_amt} 원"}},
     ]
     if issued_warn:
         # 이미 발행된 계산서 안내 — 발행 금액 입력 바로 위 (요청 전 인지)
@@ -14476,7 +14939,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
         # 수정발행 = 기존 계산서를 대체 (2026-10-01). 체크한 장은 첨부 완료 시 메모에 '취소' 줄로
         #   남아 현재 계산서에서 빠짐. 비워두면 추가 발행(분할 포함)으로 합산.
         blocks.append({
-            "type": "input", "block_id": "replace", "optional": True,
+            "type": "input", "block_id": f"replace{sfx}", "optional": True,
             "label": {"type": "plain_text", "text": "기존 발행 계산서 (수정발행 시 선택)"},
             "hint": {"type": "plain_text", "text": "🔁 기존 계산서 수정발행이 필요한 경우에만 체크"},
             "element": {
@@ -14488,7 +14951,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     blocks += [
         _text_input("amt", "계산서 발행 금액", amt),
         {
-            "type": "input", "block_id": "vat",
+            "type": "input", "block_id": f"vat{sfx}",
             "label": {"type": "plain_text", "text": "VAT (부가가치세)"},
             "element": {
                 "type": "radio_buttons", "action_id": "value",
@@ -14507,7 +14970,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
                 ],
             },
         },
-        _build_invoice_stage_block(code),
+        *([] if split else [_build_invoice_stage_block(code)]),
         _text_input("email", "발행 이메일", email),
         _text_input(
             "memo", "추가 요청사항", "",
@@ -14525,7 +14988,65 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     }
 
 
-def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt, p_email) -> None:
+def _build_split_invoice_modal(client, view_id, code, payers, biz, addr, total_amt, p_meta,
+                               payer_stage=None) -> None:
+    """나눠 내는 공사의 계산서 요청 창 — 먼저 '누구 계산서인가요', 고르면 그 사람 기준으로 채움 (2026-10-20).
+
+    사업자명·이메일 = 부담자 칸(거래처 탭 정식 상호·이메일 우선, invoice_mgmt._payer_invoice_prefill),
+    발행 금액 = 그 사람 부담액 − 이미 발행(공급가), 수정발행 후보 = 그 사람 칸 계산서만.
+    """
+    from dashboard.services.payer_split import ASSIGN_ORDER, payer_title
+    try:
+        _all = _project_issued_invoice(code) or {}
+    except Exception:
+        _all = {}
+    _per = _all.get('payers') or {}
+    opts = []
+    for s in [x for x in ASSIGN_ORDER if x in payers]:
+        p = payers[s]
+        iss = int((_per.get(s) or {}).get('issued') or 0)
+        tail = f" · 발행 {iss:,}" if iss else ''
+        opts.append({"text": {"type": "plain_text", "text": f"{payer_title(p)} · 부담 {int(p['amount']):,}{tail}"[:75]},
+                     "value": s})
+    if payer_stage not in payers:
+        metadata = json.dumps({"code": code, "p": p_meta}, ensure_ascii=False)
+        view = _build_invoice_modal_view(code, biz, addr, '', '', metadata, total_amt=total_amt,
+                                         payer_opts=opts, payer_stage=None)
+        client.views_update(view_id=view_id, view=view)
+        return
+    p = payers[payer_stage]
+    try:
+        from dashboard.blueprints.invoice_mgmt import _payer_invoice_prefill
+        pre = (_payer_invoice_prefill(code) or {}).get(payer_stage) or {}
+    except Exception:
+        pre = {}
+    p_biz = pre.get('name') or p['name']
+    p_email = pre.get('email') or p.get('email') or ''
+    amt_input = ''
+    issued_warn = ''
+    active = []
+    try:
+        _iss = _project_issued_invoice(code, stage=payer_stage) or {}
+        amt_input = f"{int(_iss.get('remaining_supply') or 0):,}" if _iss else ''
+        if int(_iss.get('issued_gross') or 0) > 0:
+            issued_warn = _fmt_issued_warn(_iss)
+        active = [it for it in (_iss.get('active') or []) if it.get('stage') == payer_stage][:10]
+    except Exception as _exc:
+        logger.debug(f'[SLACK/계산서] 부담자 이미발행 계산 실패 ({code} {payer_stage}): {_exc}')
+    metadata = json.dumps({"code": code, "p": p_meta, "active": [
+        [it['date'], it['stage'], int(round(it['amt'])), (it['biz'] or '')[:60]] for it in active]},
+        ensure_ascii=False)
+    view = _build_invoice_modal_view(
+        code, p_biz, addr, amt_input, p_email, metadata,
+        partner_warn=_partner_status_warn(p_biz), issued_warn=issued_warn,
+        total_amt=f"{int(p['amount']):,}", active_invoices=active,
+        payer_opts=opts, payer_stage=payer_stage, total_label=f"{payer_title(p)} 부담액 (부가세 포함)")
+    client.views_update(view_id=view_id, view=view)
+    logger.info(f'[SLACK/계산서] 나눠 내는 공사 모달 ({code} {payer_stage}): 발행금액프리필={amt_input}')
+
+
+def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt, p_email,
+                                    payer_stage=None) -> None:
     """placeholder 모달 → 프로젝트 최신값 + 이미발행 잔여로 채워 views_update (2026-09-28).
 
     placeholder-first 로 전환한 이유: 슬랙 input 은 open 시점에 값이 차 있으면 이후
@@ -14550,6 +15071,16 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
     else:
         _pd = re.sub(r'\D', '', str(p_amt or ''))
         total_amt = f'{int(_pd):,}' if _pd else (str(p_amt or '').strip() or '-')
+
+    # 나눠 내는 공사 — 사람별 계산서 창 (2026-10-20)
+    _payers = _intake_split_payers(code)
+    if _payers:
+        try:
+            _build_split_invoice_modal(client, view_id, code, _payers, biz, addr, total_amt,
+                                       [p_biz, p_addr, p_amt, p_email], payer_stage=payer_stage)
+        except Exception as exc:
+            logger.warning(f'[SLACK/계산서] 나눠 내는 공사 모달 실패 ({code}): {exc}')
+        return
 
     # 이메일 — 최신 사업자명 기준 거래처 탭 이메일(계산서용) 우선, 없으면 payload
     email = p_email
@@ -14705,7 +15236,8 @@ def _process_invoice_submit_bg(client, body, view) -> None:
     if code and code != '-':
         try:
             from dashboard.utils.redis_client import get_redis_client as _get_rc_id
-            if _get_rc_id().redis.get(f'invoice_request_dedup:{code}'):
+            _vst = (((_invoice_view_values(view).get('stages') or {}).get('selected_option')) or {}).get('value') or ''
+            if _get_rc_id().redis.get(_invoice_dedup_key(code, _vst)):
                 logger.info(
                     f'[SLACK/계산서] 코드 중복 재제출 skip (code={code}) — 90초 내 이미 발송')
                 try:
@@ -14790,11 +15322,11 @@ def _invoice_submit_amount_check(view, timeout=1.5) -> str:
     """
     try:
         meta = json.loads(view.get("private_metadata") or "{}")
-        values = (view.get("state") or {}).get("values") or {}
-        amt = ''.join(ch for ch in str(((values.get('amt', {}).get('value') or {}).get('value')) or '')
-                      if ch.isdigit())
-        vat = (((values.get('vat', {}).get('value') or {}).get('selected_option')) or {}).get('value') or 'sep'
-        has_rep = bool(((values.get('replace', {}).get('value') or {}).get('selected_options')) or [])
+        values = _invoice_view_values(view)
+        amt = ''.join(ch for ch in str((values.get('amt') or {}).get('value') or '') if ch.isdigit())
+        vat = ((values.get('vat') or {}).get('selected_option') or {}).get('value') or 'sep'
+        has_rep = bool((values.get('replace') or {}).get('selected_options') or [])
+        stage = ((values.get('stages') or {}).get('selected_option') or {}).get('value') or None
         code = meta.get("code", "-") or '-'
     except Exception:
         return ''
@@ -14812,7 +15344,7 @@ def _invoice_submit_amount_check(view, timeout=1.5) -> str:
 
     def _run():
         try:
-            box['w'] = _invoice_amount_warning(code, amt, vat, has_replace=has_rep)
+            box['w'] = _invoice_amount_warning(code, amt, vat, has_replace=has_rep, stage=stage)
         except Exception:
             box['w'] = ''
     th = threading.Thread(target=_run, daemon=True)
@@ -14839,10 +15371,11 @@ def _process_invoice_submission(client, body, view) -> None:
     metadata = json.loads(view.get("private_metadata") or "{}")
     code = metadata.get("code", "-") or '-'
 
-    values = view["state"]["values"]
+    # 나눠 내는 공사 창은 블록 이름에 칸 접미사('__c' 등)가 붙고 단계 선택 액션 이름이 달라 공용 해석기로 읽는다
+    values = _invoice_view_values(view)
 
     def _get(block_id):
-        return (values.get(block_id, {}).get('value', {}) or {}).get('value', '') or ''
+        return (values.get(block_id) or {}).get('value', '') or ''
 
     biz = _get('biz').strip() or '-'
     addr = _get('addr').strip() or '-'
@@ -14852,17 +15385,17 @@ def _process_invoice_submission(client, body, view) -> None:
     memo = _get('memo').strip()
 
     # VAT radio_buttons state — 2026-07-16 라디오 필드 재도입 (매니저 오클릭 방지)
-    _vat_state = (values.get('vat', {}).get('value', {}) or {}).get('selected_option') or {}
+    _vat_state = (values.get('vat') or {}).get('selected_option') or {}
     vat_val = _vat_state.get('value', 'sep') or 'sep'
 
     # 계산서 발행 단계 단일 선택(누적) — 첨부 완료 시 시트 '발행' 자동기록용 (2026-09-07)
-    _stage_state = (values.get('stages', {}).get('value', {}) or {}).get('selected_option') or {}
+    _stage_state = (values.get('stages') or {}).get('selected_option') or {}
     stages = _stage_state.get('value', '') or ''
 
     # 수정발행 — 대체할 기존 계산서(체크박스 인덱스 → 모달 열 때 스냅샷) (2026-10-01)
     replace = []
     _active_snap = metadata.get('active') or []
-    for _o in ((values.get('replace', {}).get('value', {}) or {}).get('selected_options') or []):
+    for _o in ((values.get('replace') or {}).get('selected_options') or []):
         try:
             _d, _s, _a, _b = _active_snap[int(_o.get('value'))]
             replace.append({'date': _d, 'stage': _s, 'amt': int(_a), 'biz': _b})
@@ -15000,7 +15533,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     if dedup_check and code and code != '-':
         try:
             from dashboard.utils.redis_client import get_redis_client as _get_rc_id
-            if _get_rc_id().redis.get(f'invoice_request_dedup:{code}'):
+            if _get_rc_id().redis.get(_invoice_dedup_key(code, stages)):
                 logger.info(f'[SLACK/계산서] 코드 중복 요청 skip (code={code}) — 90초 내 이미 발송')
                 return {'ok': False, 'reason': 'dedup'}
         except Exception as exc:
@@ -15082,7 +15615,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     if code and code != '-':
         try:
             from dashboard.utils.redis_client import get_redis_client as _get_rc_ds
-            _get_rc_ds().redis.set(f'invoice_request_dedup:{code}', ts or '1', ex=90)
+            _get_rc_ds().redis.set(_invoice_dedup_key(code, stages), ts or '1', ex=90)
         except Exception:
             pass
 
