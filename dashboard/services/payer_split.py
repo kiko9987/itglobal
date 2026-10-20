@@ -409,7 +409,7 @@ def plan_payers(rows: list, rec: dict) -> Tuple[Dict[str, dict], List[str], List
         if not name and not amount:
             continue
         if not role:
-            errors.append(f"{i}번째 줄: 구분을 적어 주세요(예: 임대인·병원·본점).")
+            errors.append(f"{i}번째 줄: 구분을 적어 주세요(예: 임대인·임차인·본점).")
         elif len(role) > 12 or _SEP_RE.search(role):
             errors.append(f"{i}번째 줄: 구분은 12자 이내, '·' 없이 적어 주세요.")
         if not name:

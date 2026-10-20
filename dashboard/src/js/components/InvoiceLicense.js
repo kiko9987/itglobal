@@ -569,10 +569,11 @@ export default class InvoiceLicense {
         ${recvLine(p) ? `<div class="small text-muted" style="margin-top:.35rem;">${esc(recvLine(p))}</div>` : ''}
       </div>`;
     const deposits = STAGES3.map((s) => `${s} ${fmt(sv[s])}`).join(' · ');
-    const ROLE_EXAMPLES = ['임대인', '임차인', '본점', '지점', '병원', '원장', '법인', '개인사업자'];
+    // 기본 예시는 흔한 경우만 (병원·원장 같은 특수한 경우는 직접 입력 — 2026-10-21 사용자 결정)
+    const ROLE_EXAMPLES = ['임대인', '임차인', '본점', '지점', '법인', '개인사업자'];
     const body = `
       <div class="small text-muted mb-2">한 공사를 여러 사람이 나눠 낼 때만 설정합니다.
-        예: 임대인과 임차인, 한 법인의 두 사업자, 병원과 원장 개인사업자.<br>
+        예: 임대인과 임차인, 한 법인의 두 사업자.<br>
         사람마다 칸이 하나씩 정해집니다(첫째 계약금 칸, 둘째 잔금 칸, 셋째 중도금 칸). 각자 낸 돈은 자기 칸에 쌓이고,
         몇 번째 돈인지(계약금·중도금·잔금·일시불)는 입금 메모에 차수로 남습니다.</div>
       <div class="small mb-2" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:.4rem .6rem;">

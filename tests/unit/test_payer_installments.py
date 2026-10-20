@@ -138,4 +138,4 @@ def test_split_problems_overpay_and_missing_payer_line():
 
 def test_plan_payers_role_error_is_generic():
     _, errs, _ = ps.plan_payers([{'name': '○○의원', 'amount': '1000000'}], {})
-    assert errs and '예: 임대인·병원·본점' in errs[0]
+    assert errs and '예: 임대인·임차인·본점' in errs[0]

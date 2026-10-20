@@ -1473,7 +1473,7 @@ export default class ProjectRowAccordion {
     const n = Object.keys(stagePayers(projectData || {})).length;
     return `
       <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn invoice-request-btn"
-              title="한 공사를 여러 사람이 나눠 낼 때 누가 얼마를 내는지 설정 (임대인·임차인, 병원·원장 등)"
+              title="한 공사를 여러 사람이 나눠 낼 때 누가 얼마를 내는지 설정 (임대인·임차인 등)"
               onclick="window.invoiceLicense && window.invoiceLicense.openPayerModal('${code}')">
         <i class="fas fa-people-arrows"></i><span>부담자 설정${n ? ` (${n})` : ''}</span>
       </button>
