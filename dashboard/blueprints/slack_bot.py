@@ -6885,13 +6885,20 @@ def _replace_last_consult_content(old_text: str, new_content: str) -> str:
         if e.get('time') and e.get('ini') and e.get('status'):
             return f"[{e['time']} {e['ini']} · {e['status']}] {body}"
         return body
+    # 끝에 붙은 '방문 완료' 마커(내용 없는 회차)는 보존하고, 편집값은 그 앞 마지막 상담
+    #   회차에 반영 (2026-10-20 L-04289: 완료 후 [정보 수정] 시 마커가 본문으로 덮이던 갭)
+    tail = []
+    while (len(entries) > 1 and '방문 완료' in str(entries[-1].get('status') or '')
+           and not str(entries[-1].get('content') or '').strip()):
+        tail.insert(0, entries.pop())
+    tail_str = ''.join(f" ─── [{t['time']} {t['ini']} · {t['status']}]" for t in tail)
     last = entries[-1]
     last_str = _rebuild_entry(last, (new_content or '').strip())
     prev_strs = [_rebuild_entry(e, e['content']) for e in entries[:-1]]
     if prev_strs:
         divider = f'\n{_CONSULT_DIVIDER}\n'
-        return divider.join(prev_strs + [last_str])
-    return last_str
+        return divider.join(prev_strs + [last_str]) + tail_str
+    return last_str + tail_str
 
 
 def _parse_consultation_entries(text: str) -> list:
@@ -9728,7 +9735,7 @@ def _process_visit_edit_confirmed(client, body, view) -> None:
     new_platform = pending.get('platform', '')
     user_id = body.get('user', {}).get('id', '')
 
-    edit_rc = _acquire_edit_lock(lead_no, ttl=30)
+    edit_rc = _acquire_edit_lock(lead_no, ttl=30, wait=20)  # 진행 중 완료·수정 끝날 때까지 대기
     if edit_rc is None:
         _notify_edit_failure(
             client, channel, user_id, lead_no,
@@ -9916,18 +9923,40 @@ def _notify_edit_failure(client, channel, user_id, lead_no, reason) -> None:
         pass
 
 
-def _acquire_edit_lock(lead_no: str, ttl: int = 30):
-    """정보 수정 동시 실행 방지 락. 성공 시 Redis client 반환, 실패 시 None.
+def _acquire_edit_lock(lead_no: str, ttl: int = 30, wait: float = 0):
+    """같은 리드 카드 변경을 한 줄로 세우는 락. 성공 시 Redis client 반환, 실패 시 None.
     같은 카드에 두 매니저가 동시에 저장 시도할 때 순차 처리 강제.
+
+    2026-10-20 L-04289: [방문 완료] 버튼·사진 자동완료도 같은 락을 쓴다 — [정보 수정]과
+      겹치면 늦게 끝난 쪽이 카드를 덮어써 완료 카드가 '진행 중'으로 되살아났음.
+      wait>0 이면 락이 풀릴 때까지 최대 wait 초 기다림(0.5초 간격).
     """
+    import time as _time
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        got = rc.set(f'visit_edit_lock:{lead_no}', '1', nx=True, ex=ttl)
-        return rc if got else None
+        deadline = _time.monotonic() + max(0.0, float(wait or 0))
+        while True:
+            if rc.set(f'visit_edit_lock:{lead_no}', '1', nx=True, ex=ttl):
+                return rc
+            if _time.monotonic() >= deadline:
+                return None
+            _time.sleep(0.5)
     except Exception as exc:
         logger.warning(f'[VISIT/EDIT] 락 획득 실패 — lock 없이 진행: {exc}')
         return None
+
+
+def _visit_is_completed(lead_no: str, consult_text: str = '') -> bool:
+    """방문 완료 여부 — Redis 완료 표시(visit_auto_completed) 또는 시트 K열 '방문 완료' 마커."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        if get_redis_client().redis.get(f'visit_auto_completed:{lead_no}'):
+            return True
+    except Exception:
+        if _local_flag_get(f'visit_auto_completed:{lead_no}'):
+            return True
+    return bool(re.search(r'·\s*방문 완료\]', consult_text or ''))
 
 
 def _release_edit_lock(rc, lead_no: str) -> None:
@@ -10087,7 +10116,7 @@ def _process_visit_edit(client, body, view) -> None:
     original_platform = metadata.get('original_platform', '')
     user_id = body.get('user', {}).get('id', '')
 
-    edit_rc = _acquire_edit_lock(lead_no, ttl=30)
+    edit_rc = _acquire_edit_lock(lead_no, ttl=30, wait=20)  # 진행 중 완료·수정 끝날 때까지 대기
     if edit_rc is None:
         _notify_edit_failure(
             client, channel, user_id, lead_no,
@@ -10173,6 +10202,9 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     # (매니저는 pre-fill 로 최신 회차 content 만 봤으므로 편집값도 최신 회차)
     _old_k = str(old_lead.get('상담 내용', '') or '').strip()
     new_consultation_merged = _replace_last_consult_content(_old_k, new_consultation)
+    # 이미 방문 완료된 리드면 카드를 '진행 중'으로 되살리지 않음 (2026-10-20 L-04289:
+    #   사진 자동완료와 [정보 수정]이 겹쳐 회색 완료 카드가 활성 카드로 덮였음)
+    _already_done = _visit_is_completed(lead_no, _old_k)
 
     # 방문 주소 정규화 편입 (2026-08-13 L-03655): [정보 수정] 편집 경로가 정규화를
     #   통째 건너뛰어(raw 저장) 카카오 verify·시/도 축약·건물명 부착이 하나도 안 됐음
@@ -10248,9 +10280,12 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
             # 예전엔 안 넘겨 [정보 수정] 저장마다 🙋 본인 방문 배지가 사라졌음 (2026-10-14)
             self_visit_by='본인' if final_self_visit else '',
         )
-        client.chat_update(
-            channel=channel, ts=message_ts, text=body_text, blocks=blocks,
-        )
+        if _already_done:
+            logger.info(f"[SLACK/방문수정] {lead_no} 이미 방문 완료 — 완료 카드 유지(진행 중으로 되살리지 않음)")
+        else:
+            client.chat_update(
+                channel=channel, ts=message_ts, text=body_text, blocks=blocks,
+            )
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] 카드 update 실패 ({lead_no}): {exc}",
                      exc_info=True)
@@ -10317,6 +10352,22 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
 
 
 def _process_visit_complete(client, body) -> None:
+    """[✅ 방문 완료] 클릭 — 같은 리드의 [정보 수정]·사진 자동완료와 락을 공유해 순서대로 처리.
+
+    2026-10-20 L-04289: 완료와 [정보 수정]이 겹치면 늦게 끝난 쪽이 카드를 덮어썼음.
+    락 대기 초과(드묾)·Redis 장애 시엔 완료가 유실되지 않게 락 없이 진행.
+    """
+    lead_no = ((body.get("actions") or [{}])[0] or {}).get("value") or ''
+    _lk = _acquire_edit_lock(lead_no, ttl=60, wait=30) if lead_no else None
+    if lead_no and _lk is None:
+        logger.warning(f"[SLACK/방문완료] {lead_no} 락 대기 초과 — 락 없이 진행")
+    try:
+        _process_visit_complete_locked(client, body)
+    finally:
+        _release_edit_lock(_lk, lead_no)
+
+
+def _process_visit_complete_locked(client, body) -> None:
     """[✅ 방문 완료] 클릭 처리 — 슬랙 리스트 삭제 + 카드 회색 박스 변환.
 
     시트 상태는 변경하지 않음. 나중에 프로젝트 등록 시 자동으로 '공사 확정'으로 이동.
@@ -10340,6 +10391,10 @@ def _process_visit_complete(client, body) -> None:
         if _vc_rc.get(f'visit_completed:{lead_no}'):
             logger.info(f'[SLACK/방문완료] 이미 완료됨 — webhook 재발송 skip ({lead_no})')
             return
+        # 락 대기 중 사진 자동완료가 먼저 끝났으면 중복 완료 skip (2026-10-20)
+        if _vc_rc.get(f'visit_auto_completed:{lead_no}'):
+            logger.info(f'[SLACK/방문완료] 이미 완료됨(사진 자동완료 등) — skip ({lead_no})')
+            return
     except Exception:
         _vc_rc = None
 
@@ -10359,16 +10414,25 @@ def _process_visit_complete(client, body) -> None:
         initial = _slack_user_to_initial(client, user_id) or '-'
         complete_time = datetime.now().strftime('%m.%d %H:%M')
 
-        # 원본 message 의 section text 추출
+        # 원본 message 의 section text 추출 — 락 대기 중 [정보 수정]이 카드를 바꿨을 수
+        #   있어 클릭 시점 사본(body) 대신 현재 카드를 다시 읽음 (2026-10-20, 실패 시 사본)
+        _cur_msg = body["message"]
+        try:
+            _rep = client.conversations_replies(
+                channel=channel, ts=message_ts, limit=1, inclusive=True,
+            )
+            _cur_msg = (_rep.get('messages') or [None])[0] or _cur_msg
+        except Exception as _exc:
+            logger.debug(f"[SLACK/방문완료] 현재 카드 재조회 실패 — 클릭 시점 사본 사용 ({lead_no}): {_exc}")
         original_text = ''
-        for blk in body["message"].get("blocks", []):
+        for blk in _cur_msg.get("blocks", []) or []:
             if blk.get("type") == "section":
                 bt = blk.get("text", {}).get("text", "")
                 if bt:
                     original_text = bt
                     break
         if not original_text:
-            original_text = body["message"].get("text", "")
+            original_text = _cur_msg.get("text", "")
 
         # `>` blockquote 마커·마크다운 강조·앞뒤 공백 제거
         cleaned_lines = [ln.lstrip('>').lstrip() for ln in original_text.split('\n')]
@@ -11549,6 +11613,24 @@ def _visit_not_yet_reached(visit_date) -> bool:
 
 def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
                                       event_user_id) -> None:
+    """사진 자동완료 — 같은 리드의 [정보 수정]·[방문 완료] 버튼과 락을 공유해 순서대로 처리.
+
+    2026-10-20 L-04289: 자동완료와 [정보 수정]이 3초 차로 겹쳐 회색 카드가 활성으로 덮였음.
+    락을 잡은 뒤 완료 표시를 다시 확인하므로(본체 첫 단계) 중복 완료도 막힘.
+    """
+    _lk = _acquire_edit_lock(lead_no, ttl=60, wait=30) if lead_no else None
+    if lead_no and _lk is None:
+        logger.warning(f"[SLACK/자동완료] {lead_no} 락 대기 초과 — 락 없이 진행")
+    try:
+        _auto_complete_visit_from_photo_locked(
+            client, channel, thread_ts, lead_no, event_user_id,
+        )
+    finally:
+        _release_edit_lock(_lk, lead_no)
+
+
+def _auto_complete_visit_from_photo_locked(client, channel, thread_ts, lead_no,
+                                             event_user_id) -> None:
     """사진 첨부 → 폴더 생성 완료 후 카드를 자동으로 [방문 완료] 처리.
 
     - Redis flag `visit_auto_completed:{lead_no}` (TTL 30일) 로 중복 방지
