@@ -83,12 +83,28 @@ def amount_check(paid: int, total2: int, amount: int) -> str:
     return ''
 
 
+_PAYER_IDX = {'계약금': 37, '중도금': 38, '잔금': 39}   # AL·AM·AN '○○ 부담자' (공사현황 45열 고정 배치)
+
+
+def _row_payers(vals: list, u: int, v: int, w: int) -> Dict:
+    """행 값으로 나눠 내는 공사 부담자 {단계: payer} — 아니면 {}."""
+    try:
+        from dashboard.services.payer_split import stage_payers
+        rec = {f'{s} 부담자': (vals[i] if i < len(vals) else '') for s, i in _PAYER_IDX.items()}
+        rec.update({'계약금': u, '중도금': v, '잔금': w})
+        return stage_payers(rec)
+    except Exception:
+        return {}
+
+
 def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = False) -> List[Dict]:
     """출금 1건 → 조건 ①~⑤ 를 모두 만족하는 (프로젝트·단계·입금) 후보 목록.
 
-    rows: [{'code', 'row', 'vals'(A..AD 값 리스트), 'notes'([U,V,W 메모])}]
+    rows: [{'code', 'row', 'vals'(A..AN 값 리스트), 'notes'([U,V,W 메모])}]
     include_reroute: ⑤(과입금·취소)가 아니어도 ①~④가 맞으면 kind='reroute'(받은 돈 돌려줌) 후보로 포함.
     후보 kind: 'overpay'(⑤ 충족) | 'reroute'. unpaid_before/after = 기록 전후 미수금.
+    나눠 내는 공사(2026-10-20): ⑤를 칸(사람) 기준 — 그 칸 받은 돈 − 그 사람 부담액 = 출금액. 공사 전체로 보면
+      한 사람이 더 내고 다른 사람이 덜 냈을 때 과입금이 안 보이고 '더 받은 돈 없음'으로 잘못 나온다.
     """
     from dashboard.services.fund_transfer import names_match
     from dashboard.services.payment_sync import _parse_notes
@@ -102,17 +118,37 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
         vals = list(r.get('vals') or []) + [''] * 30
         u, v, w, total2 = _num(vals[20]), _num(vals[21]), _num(vals[22]), _num(vals[19])
         paid = u + v + w
-        reason = amount_check(paid, total2, amt)           # ⑤ 먼저 — 대부분 행을 싸게 걸러냄
-        kind = 'overpay'
-        if not reason:
-            # 받은 돈 돌려줌 — 총액이 있고 더 받은 돈이 없는 공사만 (과입금인데 금액이 다른 건 제외)
-            if not (include_reroute and total2 > 0 and paid <= total2 + 1 and paid >= amt):
+        col_kind = {}       # 나눠 내는 공사: {단계: (kind, reason)}
+        _payers = _row_payers(vals, u, v, w)
+        if _payers:
+            for _s, _cv in zip(_STAGES, (u, v, w)):
+                _p = _payers.get(_s)
+                if not _p:
+                    continue
+                _who = f"{_p['role']} {_p['name']}"
+                if abs((_cv - _p['amount']) - amt) <= 1:
+                    col_kind[_s] = ('overpay', f"{_who} 받은 돈 {_cv:,}원 − 부담액 {_p['amount']:,}원 = {amt:,}원")
+                elif include_reroute and _cv <= _p['amount'] + 1 and _cv >= amt:
+                    col_kind[_s] = ('reroute', f"{_who} 받은 돈 {_cv:,}원 / 부담액 {_p['amount']:,}원 — 더 받은 돈 없음")
+            if not col_kind:
                 continue
-            kind = 'reroute'
-            reason = f'받은 돈 {paid:,}원 / 총액 {total2:,}원 — 더 받은 돈 없음'
+            kind, reason = 'overpay', ''
+        else:
+            reason = amount_check(paid, total2, amt)           # ⑤ 먼저 — 대부분 행을 싸게 걸러냄
+            kind = 'overpay'
+            if not reason:
+                # 받은 돈 돌려줌 — 총액이 있고 더 받은 돈이 없는 공사만 (과입금인데 금액이 다른 건 제외)
+                if not (include_reroute and total2 > 0 and paid <= total2 + 1 and paid >= amt):
+                    continue
+                kind = 'reroute'
+                reason = f'받은 돈 {paid:,}원 / 총액 {total2:,}원 — 더 받은 돈 없음'
         pays = _parse_notes((list(r.get('notes') or []) + ['', '', ''])[:3],
-                            stage_vals={'계약금': u, '중도금': v, '잔금': w})
+                            stage_vals={'계약금': u, '중도금': v, '잔금': w}, split=bool(_payers))
         for stage, col in zip(_STAGES, _COLS):
+            if _payers:
+                if stage not in col_kind:
+                    continue
+                kind, reason = col_kind[stage]
             stage_pays = [p for p in pays if p.get('stage') == stage]
             # 이미 이 반환이 기록된 단계(같은 금액·이름의 반환 블록)는 제외
             if any(p.get('is_refund') and abs(abs(_num(p.get('amount'))) - amt) <= 1
@@ -152,8 +188,8 @@ def load_rows() -> List[Dict]:
     svc = _get_payment_service()
     if not (svc and sid and sn):
         return []
-    vals = svc.spreadsheets().values().get(
-        spreadsheetId=sid, range=f"'{sn}'!A2:AD10000",
+    vals = svc.spreadsheets().values().get(       # AN 까지 — 부담자 칸(AL·AM·AN, 나눠 내는 공사)
+        spreadsheetId=sid, range=f"'{sn}'!A2:AN10000",
         valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [])
     nd = svc.spreadsheets().get(
         spreadsheetId=sid, ranges=[f"'{sn}'!U2:W10000"],
@@ -180,8 +216,8 @@ def load_row(code: str, row: int) -> List[Dict]:
     svc = _get_payment_service()
     if not (svc and sid and sn and row):
         return []
-    vals = svc.spreadsheets().values().get(
-        spreadsheetId=sid, range=f"'{sn}'!A{row}:AD{row}",
+    vals = svc.spreadsheets().values().get(       # AN 까지 — 부담자 칸(나눠 내는 공사)
+        spreadsheetId=sid, range=f"'{sn}'!A{row}:AN{row}",
         valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
     if not vals or str(vals[0]).strip() != code:
         return []                      # 행이 밀렸으면 호출부가 전체 조회로

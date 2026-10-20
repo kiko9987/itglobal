@@ -223,6 +223,9 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     lines = [l.strip() for l in block.splitlines() if l.strip()]
     if not lines:
         return None
+    # 나눠 내는 공사의 차수('◇ 차수 중도금', 2026-10-20) — 아래에서 줄은 빼지만 값은 카드 표기용으로 보관
+    _inst_m = next((re.match(r'^◇\s*차수\s*(계약금|중도금|잔금|일시불)', l) for l in lines if l.startswith('◇')), None)
+    installment = _inst_m.group(1) if _inst_m else ''
     # 은행 단체 문자 머리말 제거 (예: '[Web발신]')
     lines = [l for l in lines if not l.startswith('[Web발신]')]
     # 이메일 답장 prefix 제거 ('RE:하나,...' → '하나,...')
@@ -465,6 +468,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
         'transfer_to': transfer_to,
         'is_refund': is_refund,        # 과입금 반환(음수) — 카드 이력에 '반환' 표기
         '_meta_only': _has_meta_only,  # 시트값 후처리로 amount 유추 대상
+        'installment': installment,    # 나눠 내는 공사 차수('◇ 차수 …') — 카드 표기용, 해시엔 안 씀
     }
 
 
@@ -527,10 +531,11 @@ def _parse_notes(notes: List[str],
         # '⚠' 주석 줄(입금 지정 이상징후 이력)은 메모 단위 스캔(대체수금·카톡·요약 양식·블록
         #   분리·매출이동 방향 수집) 전에 통째로 제거 — 어떤 단어가 있어도 파싱 무영향.
         #   '◆' 부담자 표시 줄(나눠 내는 공사, 2026-10-19)도 같은 방식으로 제거 — 입금 없는 칸에
-        #   이 줄만 있어도 payment 0개(카드 발송 없음). '◇' 차수 줄(2026-10-20)도 같다.
-        if note and ('⚠' in note or '◆' in note or '◇' in note):
+        #   이 줄만 있어도 payment 0개(카드 발송 없음). '◇' 차수 줄(2026-10-20)은 블록 안에 두고
+        #   _parse_memo_block 이 값만 읽고 뺀다(카드에 차수 표기) — 메모 단위 스캔엔 걸리는 단어 없음.
+        if note and ('⚠' in note or '◆' in note):
             note = '\n'.join(l for l in note.splitlines()
-                             if not l.strip().startswith(('⚠', '◆', '◇'))).strip()
+                             if not l.strip().startswith(('⚠', '◆'))).strip()
         if not note:
             # 메모 없는데 단계 값 있으면 fallback payment 추가 (옛 데이터)
             if stage_val > 0:
@@ -1251,6 +1256,56 @@ def _grey_out_payment_card(slack, channel: str, code: str, stage: str, ts: str) 
         return False
 
 
+def _split_payers_for(project: str) -> Dict[str, Dict]:
+    """나눠 내는 공사면 {단계: 부담자} — 프로젝트 캐시의 그 행(카드 표기 전용). 아니면·실패 {}.
+
+    폴러는 A:AD 만 읽어 부담자 칸(AL·AM·AN)이 없으므로 캐시로 본다. 받은 돈은 호출부가 시트 값으로 다시 넣는다.
+    """
+    try:
+        import pandas as pd
+        from dashboard.services.project_service import load_data
+        from dashboard.services.payer_split import stage_payers
+        df = load_data()
+        if not isinstance(df, pd.DataFrame) or df.empty or '프로젝트 코드' not in df.columns:
+            return {}
+        sub = df[df['프로젝트 코드'].astype(str).str.strip() == str(project or '').strip()]
+        if sub.empty:
+            return {}
+        row = sub.iloc[0]
+        return stage_payers(row.where(pd.notna(row), None).to_dict())
+    except Exception as exc:
+        logger.debug(f'[PAYMENT] 부담자 조회 실패({project}): {exc}')
+        return {}
+
+
+def _payer_status_line(payer: Dict, received: int) -> str:
+    """카드 아래 사람 줄 — '임차인 김지민 · 부담 1,472,350원 · 받음 1,177,880원 · 남음 294,470원'."""
+    amt = int(payer.get('amount') or 0)
+    rem = amt - int(received or 0)
+    tail = '완납' if rem <= 0 else f"남음 {rem:,}원"
+    return f"{payer['role']} {payer['name']} · 부담 {amt:,}원 · 받음 {int(received or 0):,}원 · {tail}"
+
+
+_SPLIT_COMPLETE_KEY = 'payment_split_complete:{}'   # 나눠 내는 공사: 수금완료 카드가 된 칸(단계)
+
+
+def _split_complete_stage(project: str) -> str:
+    """나눠 내는 공사의 수금완료 카드가 된 칸('' = 없음)."""
+    try:
+        v = get_redis_client().redis.get(_SPLIT_COMPLETE_KEY.format(project))
+        return (v.decode() if isinstance(v, bytes) else v) or ''
+    except Exception:
+        return ''
+
+
+def _completes_project(stage: str, project: str, unpaid: int) -> bool:
+    """이 입금 카드가 수금완료 카드인가 — 일반 공사는 잔금 + 미수금 0, 나눠 내는 공사는 어느 칸이든
+    마지막으로 완납시킨 칸(칸 = 사람이라 잔금 칸이 마지막 돈이 아님, 2026-10-20)."""
+    if int(unpaid or 0) != 0:
+        return False
+    return stage == '잔금' or bool(_split_payers_for(project))
+
+
 def _build_stage_message(
     stage: str, project: str, address: str,
     payment: Dict, invoice_value: str,
@@ -1439,9 +1494,18 @@ def _build_stage_with_history_message(
     if refund_event:   # 과입금 반환 발송 카드 — 기존 이모지 유지, 문구만 '반환'
         date_label, amount_label, header_action = '반환일', '반환액', '반환'
 
+    # 나눠 내는 공사(2026-10-20): 칸 = 사람 → 제목은 '{구분} {이름} 입금 · 차수 …', 이력은 그 사람 칸만
+    _payer = _split_payers_for(project).get(stage)
+    _act = '대체수금' if _is_sub else header_action
+    if _payer:
+        _inst = last_payment.get('installment') or ''
+        _title = (f"{emoji} *{_payer['role']} {_payer['name']} {_act}*"
+                  + (f" · 차수 {_inst}" if _inst and not refund_event else '') + f" ({stage} 칸)")
+    else:
+        _title = f"{emoji} *{stage} {_act}*"
     lines = [
         '⠀',
-        f"{emoji} *{stage} {'대체수금' if _is_sub else header_action}* — :id: *{project}*",
+        f"{_title} — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
     ]
@@ -1473,12 +1537,19 @@ def _build_stage_with_history_message(
     #   계약금 줄만 남으면 이후 잔금 입금이 안 보였다 (2026-10-16 R4104-SD 사용자 지적).
     _STAGE_ORDER = {'계약금': 0, '중도금': 1, '잔금': 2}
     cur_idx = 99 if refund_event else _STAGE_ORDER.get(stage, 99)
-    history = [p for p in all_payments if _STAGE_ORDER.get(p.get('stage'), 99) <= cur_idx]
+    if _payer:
+        # 나눠 내는 공사 — 다른 칸은 다른 사람 돈이라 섞지 않는다. 줄 머리는 차수(없으면 '-').
+        history = [p for p in all_payments if p.get('stage') == stage]
+    else:
+        history = [p for p in all_payments if _STAGE_ORDER.get(p.get('stage'), 99) <= cur_idx]
     for p in history:
         if p.get('is_substitute'):
             lines.append(f"{p.get('stage','-')}  {_fmt_payment_date(p)}  대체수금  {p.get('amount',0):,}원")
             continue
-        st = '반환' if p.get('is_refund') else p.get('stage', '-')
+        if _payer:
+            st = '반환' if p.get('is_refund') else (p.get('installment') or '-')
+        else:
+            st = '반환' if p.get('is_refund') else p.get('stage', '-')
         d = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
         c = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''),
                                   p.get('acct_code', ''))
@@ -1498,6 +1569,9 @@ def _build_stage_with_history_message(
         _cl = _collection_fee_line(pt, a)   # 추심이면 (실추심/수수료)
         if _cl:
             lines.append(f"  {_cl}")
+    if _payer:
+        _got = int((stage_sheet_vals or {}).get(stage, _payer.get('received', 0)) or 0)
+        lines.append(_payer_status_line(_payer, _got))
     lines.append(_SEP)
     lines.append(_unpaid_line(unpaid))
     lines.append(' ')
@@ -1516,8 +1590,9 @@ def _build_complete_message(
     stage_sheet_vals: Optional[Dict[str, int]] = None,
     construction: str = '',
 ) -> str:
-    """수금완료 알림 — 전체 history 취합."""
+    """수금완료 알림 — 전체 history 취합. 나눠 내는 공사는 줄 머리 = '{구분} {차수}' + 사람별 줄."""
     _fill_sibling_years(payments)  # 같은 날짜 형제의 명시 연도 채움 (안전, 추측 없음)
+    _payers = _split_payers_for(project)
     lines = [
         '⠀',
         f":white_check_mark: *수금완료* — :id: *{project}*",
@@ -1537,6 +1612,10 @@ def _build_complete_message(
             continue
         # 과입금/계약 취소 반환(출금)은 단계명 대신 '반환'으로 표시 (2026-08 R4011 계약금 환불)
         stage = '반환' if p.get('is_refund') else p.get('stage', '-')
+        _pp = _payers.get(p.get('stage'))
+        label = stage
+        if _pp and not p.get('is_refund'):
+            label = f"{_pp['role']} {p.get('installment') or ''}".strip()
         date_md = _fmt_payment_date(p)   # 연도 있으면 YY/MM/DD
         code = _resolve_payment_code(invoice_value, p.get('bank', ''), p.get('partner', ''),
                                   p.get('acct_code', ''))
@@ -1553,7 +1632,7 @@ def _build_complete_message(
         is_card = _is_card_payment(invoice_value, partner)
         suffix = ' (카드)' if is_card else ''
         lines.append(
-            f"{stage}  {date_md}  {code_display}  {amount:,}원  {partner}{suffix}"
+            f"{label}  {date_md}  {code_display}  {amount:,}원  {partner}{suffix}"
         )
         _cl = _collection_fee_line(partner, amount)   # 추심이면 (실추심/수수료)
         if _cl:
@@ -1573,6 +1652,12 @@ def _build_complete_message(
                 _fee_line = _card_fee_line(stage, real_payment, same_stage_card_total, total_t, stage_sheet_vals)
                 if _fee_line:
                     lines.append(f"  {_fee_line}")
+    if _payers:
+        lines.append('')
+        for _s in ('계약금', '잔금', '중도금'):
+            if _s in _payers:
+                lines.append(_payer_status_line(
+                    _payers[_s], int((stage_sheet_vals or {}).get(_s, _payers[_s].get('received', 0)) or 0)))
     lines.append(_SEP)
     lines.append(f"총액 : {total_t:,}원")
     lines.append('⠀')
@@ -1832,7 +1917,11 @@ def _build_stage_card_text(stage: str, project: str, payments: List[Dict],
     """
     stage_payments = [p for p in payments if p.get('stage') == stage]
     last_payment = stage_payments[-1] if stage_payments else {}
-    if stage == '잔금' and c.get('unpaid', 0) == 0:
+    # 수금완료 카드 = 일반 공사는 잔금, 나눠 내는 공사는 마지막으로 완납시킨 칸(기억해 둔 칸)만 (2026-10-20)
+    _split = bool(_split_payers_for(project))
+    _is_done_card = c.get('unpaid', 0) == 0 and (
+        (not _split and stage == '잔금') or (_split and _split_complete_stage(project) == stage))
+    if _is_done_card:
         return _build_complete_message(
             project=project, address=c.get('address', ''), payments=payments,
             invoice_value=c.get('invoice', ''), total_t=c.get('total_t', 0),
@@ -2002,6 +2091,8 @@ def _complete_balance_card_if_paid(rc, project: str, stage: str, unpaid: int, ro
     """
     if stage == '잔금' or unpaid != 0:
         return False
+    if _split_payers_for(project):
+        return False   # 나눠 내는 공사는 완납시킨 칸의 카드가 수금완료 카드(잔금 칸은 다른 사람)
     try:
         if not rc.get(f'payment_slack:ts:{project}:잔금'):
             return False
@@ -2793,7 +2884,8 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             and all(p.get('is_substitute') for p in stage_payments)):
                         _done_ts = None
                         try:
-                            _done_ts = rc.get(f'payment_slack:ts:{project}:잔금')
+                            _done_stage = _split_complete_stage(project) or '잔금'
+                            _done_ts = rc.get(f'payment_slack:ts:{project}:{_done_stage}')
                         except Exception:
                             _done_ts = None
                         if _done_ts:
@@ -2890,7 +2982,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             projects=_pending['projects'],
                             payments=_pending.get('payments', stage_payments),
                             invoice_value=_pending.get('invoice_value', c['invoice']),
-                            is_complete=(stage == '잔금' and c['unpaid'] == 0),
+                            is_complete=_completes_project(stage, project, c['unpaid']),
                         )
                         try:
                             from dashboard.blueprints.slack_helpers import safe_slack_call
@@ -2962,10 +3054,15 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             projects=_unified_projects,
                             payments=stage_payments,
                             invoice_value=c['invoice'],
-                            is_complete=(stage == '잔금' and c['unpaid'] == 0),
+                            is_complete=_completes_project(stage, project, c['unpaid']),
                         )
-                    elif stage == '잔금' and c['unpaid'] == 0:
-                        # 잔금 + 미수금 0 → 수금완료
+                    elif _completes_project(stage, project, c['unpaid']):
+                        # 잔금 + 미수금 0 → 수금완료 (나눠 내는 공사는 마지막으로 완납시킨 칸, 그 칸을 기억)
+                        if stage != '잔금' or _split_payers_for(project):
+                            try:
+                                rc.set(_SPLIT_COMPLETE_KEY.format(project), stage, ex=60 * 60 * 24 * 365)
+                            except Exception:
+                                pass
                         text = _build_complete_message(
                             project=project, address=c['address'],
                             payments=payments, invoice_value=c['invoice'],

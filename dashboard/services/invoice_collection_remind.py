@@ -69,8 +69,38 @@ def _collected(row) -> bool:
     return auto or str(row.get('수금 확인')).strip() in ('TRUE', 'true', '1', 'True')
 
 
+def _split_states(row) -> dict:
+    """나눠 내는 공사면 사람별 계산서 상태 {단계: payer_bill_state+payer} (아니면 {})."""
+    try:
+        from dashboard.services.payer_split import payer_bill_states, stage_payers
+        if not stage_payers(row):
+            return {}
+        from dashboard.blueprints.slack_bot import _active_invoice_lines
+        return payer_bill_states(row, _active_invoice_lines(str(row.get('계산서_메모') or '')))
+    except Exception:
+        return {}
+
+
+_SPLIT_TO_STAGE_STATE = {'issued': '발행', 'cash': 'N입금', 'card': '카드', 'other': '기타',
+                         'needed': '미발행', 'pending': '발행예정', 'none': 'none'}
+
+
 def _bill_stages(row):
-    """billStatus.js computeBillStagesFromColumns 미러 → {단계: 상태}."""
+    """billStatus.js computeBillStagesFromColumns 미러 → {단계: 상태}.
+
+    나눠 내는 공사(2026-10-20): 칸 = 사람이라 '-' covered·'수금완료+마지막 칸 발행' 규칙 대신 사람별 상태 —
+    그 사람 완납 + 계산서 없음(또는 덜 발행) = '미발행', 아직 덜 받음 = '발행예정'.
+    """
+    _ss = _split_states(row)
+    if _ss:
+        res = {s: 'none' for s in _STAGES}
+        for s, st in _ss.items():
+            if st['state'] == 'partial':
+                got = int(st['payer'].get('received') or 0)
+                res[s] = '미발행' if st['need'] else ('발행예정' if got > st['issued'] + 1 else '발행')
+            else:
+                res[s] = _SPLIT_TO_STAGE_STATE.get(st['state'], 'none')
+        return res
     res = {s: 'none' for s in _STAGES}
     uninv = '미발행' if _collected(row) else '발행예정'
     raw = lambda s: str(row.get(_COL[s]) or '').strip()
@@ -106,7 +136,11 @@ def _end_passed(row) -> bool:
 
 
 def _has_issued(row) -> bool:
-    """이 프로젝트에 세금계산서가 발행된 단계가 있는가."""
+    """이 프로젝트에 세금계산서가 발행된 단계가 있는가.
+    나눠 내는 공사는 '모든 사람이 계산서 처리됨'일 때만(한 사람만 발행이면 미발행 쪽, 2026-10-20)."""
+    _ss = _split_states(row)
+    if _ss:
+        return all(st['state'] in ('issued', 'cash', 'card', 'other') for st in _ss.values())
     raw = lambda s: str(row.get(_COL[s]) or '').strip()
     return any(_ntok(raw(s)) == '발행' for s in _STAGES)
 
@@ -201,6 +235,20 @@ def _unbilled(row) -> str:
     un = [s for s in _STAGES if bs[s] in ('미발행', '발행예정')]
     if not un:
         return ''
+    _ss = _split_states(row)
+    if _ss:
+        # 나눠 내는 공사 — 사람 이름으로: '임대인 이현주 6,424,880원 · 임차인 민선홍 6,160,880원 (각자 계산서)'
+        _parts = []
+        for s in un:
+            st = _ss.get(s)
+            if not st:
+                continue
+            p = st['payer']
+            todo = max(0, int(p.get('received') or 0) - int(st.get('issued') or 0))
+            _parts.append(f"{p['role']} {p['name']} {_won(todo)}")
+        done = [f"{_ss[s]['payer']['role']} {_SETTLED_LABEL.get(bs[s], '')}".strip()
+                for s in _ss if s not in un and bs[s] in _SETTLED_LABEL]
+        return ' · '.join(_parts) + (f" ({', '.join(done)})" if done else ' (각자 계산서)')
     parts = [f'{s} {_won(_num(row.get(s)))}' if _num(row.get(s)) > 0 else f'{s} (입금 전)' for s in un]
     raw = lambda s: str(row.get(_COL[s]) or '').strip()
     issued_any = _has_issued(row)

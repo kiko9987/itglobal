@@ -7,7 +7,48 @@ sys.path.insert(0, '.')
 import pytest
 
 import dashboard.blueprints.slack_bot as sb
-from tests.unit.test_payer_split_integration import _PayerMgr, HANA, REC_303
+
+HANA = '[Web발신]\n하나,09/30, 17:02\n255******31304\n입금 3,014,000원\n대연이엔지주식회'
+REC_303 = {
+    '프로젝트 코드': 'G4146-JW', '총액 1': '12962000', '총액 2': '14258200', '미수금': '8748520',
+    '계약금': '5509680', '중도금': '0', '잔금': '0', '사업자명': '이희승',
+    '계약금 부담자': '임대인 · 이희승 · 122-15-41208 · 6,887,100 · 계산서',
+    '중도금 부담자': '-',
+    '잔금 부담자': '임차인 · 주식회사 제이케이디학원 · 405-81-13558 · 7,371,100 · 계산서',
+}
+
+
+class _PayerMgr:
+    """시트 매니저 대역 (test_payer_split_integration 과 같은 모양 — 전체 수집에서 파일 간 import 불가라 복사)."""
+    F2L = {'계약금': 'U', '중도금': 'V', '잔금': 'W', '계산서': 'Y', '총액 1': 'R', '총액 2': 'T',
+           '수금 확인': 'AD', '계약금 계산서': 'Z', '중도금 계산서': 'AA', '잔금 계산서': 'AB',
+           '계약금 부담자': 'AL', '중도금 부담자': 'AM', '잔금 부담자': 'AN'}
+
+    def __init__(self):
+        self.cells = {'R10': 12000000, 'T10': 13200000, 'U10': 1200000, 'V10': 0, 'W10': 0,
+                      'Y10': '계약금 - 미발행', 'Z10': '미발행', 'AA10': '-', 'AB10': '', 'AD10': 'FALSE'}
+        self.notes = {}
+
+    def find_row_by_project_code(self, *a, **k):
+        return 10
+
+    def get_cell_value(self, sid, sn, cell):
+        return self.cells.get(cell, '')
+
+    def update_cell_value(self, sid, sn, cell, v):
+        self.cells[cell] = v
+        return True
+
+    def get_cell_note(self, sid, sn, cell):
+        return self.notes.get(cell, '')
+
+    def update_cell_note(self, sid, sn, cell, note):
+        self.notes[cell] = note
+        return True
+
+    def get_field_to_letter(self):
+        return dict(self.F2L)
+
 
 LESSOR = '임대인 · 갑상사 · 1,200,000 · 계산서'
 TENANT = '임차인 · 을학원 · 3,014,000 · 계산서'
