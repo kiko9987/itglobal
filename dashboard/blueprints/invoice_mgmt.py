@@ -104,9 +104,17 @@ def api_invoice_issued(code):
 
     {has_issued, remaining_supply(잔여 공급가, 프리필 가능할 때만), warn(안내 문구, 평문),
      active([{date, stage, kind, amt, biz}] 수정발행 대체 후보)}
+    나눠 내는 공사(2026-10-20)는 split=True + payers {단계: {issued, remaining_supply, warn}} — 창에서 '누구 계산서'를
+    고르면 그 사람 기준(부담액 − 이미 발행)으로 채운다. 전체 기준 warn·remaining_supply 는 비움.
     """
     code = (code or '').strip()
     data = {'has_issued': False, 'remaining_supply': None, 'warn': '', 'active': []}
+
+    def _plain(txt: str) -> str:   # 슬랙 mrkdwn → 평문 (이모지 shortcode·볼드 제거)
+        for sc, emo in ((':clipboard:', '📋'), (':warning:', '⚠️'), (':white_check_mark:', '✅')):
+            txt = txt.replace(sc, emo)
+        return txt.replace('*', '')
+
     try:
         from .slack_bot import _project_issued_invoice, _fmt_issued_warn
         iss = _project_issued_invoice(code)
@@ -114,13 +122,24 @@ def api_invoice_issued(code):
             data['active'] = (iss.get('active') or [])[:10]
             if iss.get('issued_supply', 0) > 0 or iss.get('uncertain'):
                 data['has_issued'] = True
-                # 슬랙 mrkdwn → 평문 (이모지 shortcode·볼드 제거)
-                warn = _fmt_issued_warn(iss)
-                for sc, emo in ((':clipboard:', '📋'), (':warning:', '⚠️'), (':white_check_mark:', '✅')):
-                    warn = warn.replace(sc, emo)
-                data['warn'] = warn.replace('*', '')
+                data['warn'] = _plain(_fmt_issued_warn(iss))
                 if iss.get('issued_supply', 0) > 0 and not iss.get('uncertain'):
                     data['remaining_supply'] = int(iss['remaining_supply'])
+        try:
+            from ..services.payer_split import stage_payers
+            payers = stage_payers(_payer_rec_cached(code) or {})
+        except Exception:
+            payers = {}
+        if payers:
+            per = {}
+            for s in payers:
+                one = _project_issued_invoice(code, stage=s) or {}
+                per[s] = {
+                    'issued': int(one.get('issued_gross') or 0),
+                    'remaining_supply': int(one['remaining_supply']) if one else None,
+                    'warn': _plain(_fmt_issued_warn(one)) if int(one.get('issued_gross') or 0) > 0 else '',
+                }
+            data.update(split=True, payers=per, warn='', remaining_supply=None)
     except Exception as exc:
         logger.warning(f'[INVOICE] 이미발행 조회 실패 ({code}): {exc}')
     return APIResponse.success(data=data)

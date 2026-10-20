@@ -9,6 +9,13 @@
 
 export const PAYER_STAGES = ['계약금', '중도금', '잔금'];
 export const PAYER_FIELD = { 계약금: '계약금 부담자', 중도금: '중도금 부담자', 잔금: '잔금 부담자' };
+// 칸 배정 순서(줄 순서): 첫째 = 계약금 칸, 둘째 = 잔금 칸, 셋째 = 중도금 칸 — 화면 표시 순서도 이것
+export const PAYER_ORDER = ['계약금', '잔금', '중도금'];
+// 차수(2026-10-20) — 한 사람이 여러 번 나눠 낼 때 몇 번째 돈인지. 입금 메모 블록 안 '◇ 차수 중도금' 줄.
+export const INSTALLMENTS = ['계약금', '중도금', '잔금', '일시불'];
+export const PAYER_NOTE_PREFIX = '◆';
+export const INSTALLMENT_PREFIX = '◇';
+const INST_RE = /^\s*◇\s*차수\s*(계약금|중도금|잔금|일시불)/;
 
 const SEP_RE = /\s*[·|｜]\s*/;
 const BIZNO_RE = /^(\d{3})-?(\d{2})-?(\d{5})$/;
@@ -82,4 +89,121 @@ export function payerLine(row, stage) {
   if (!p) return '';
   const tail = p.remaining <= 0 ? '완납' : `남음 ${p.remaining.toLocaleString()}`;
   return `${p.role} ${p.name} · 부담 ${p.amount.toLocaleString()} · ${tail}`;
+}
+
+export function isSplit(row) {
+  return Object.keys(stagePayers(row)).length > 0;
+}
+
+/** '임대인 이희승' (부담자 없으면 단계 이름) */
+export function payerTitle(payer, stage = '') {
+  return payer ? `${payer.role} ${payer.name}` : stage;
+}
+
+/** 입금 메모 블록의 차수 줄 '◇ 차수 중도금' (모르는 값이면 '') */
+export function installmentLine(inst) {
+  return INSTALLMENTS.includes(inst) ? `${INSTALLMENT_PREFIX} 차수 ${inst}` : '';
+}
+
+/** 메모 블록(여러 줄)에서 차수 '중도금' (없으면 '') */
+export function parseInstallment(text) {
+  for (const ln of String(text || '').split('\n')) {
+    const m = INST_RE.exec(ln);
+    if (m) return m[1];
+  }
+  return '';
+}
+
+/** 칸 메모에서 맨 위 '◆ 부담자' 줄(과 바로 아래 빈 줄)을 뺀 나머지 — 메모 편집·'메모 있음' 판단용 */
+export function stripPayerLine(memo) {
+  const body = String(memo || '').split('\n').filter((l) => !l.trim().startsWith(PAYER_NOTE_PREFIX));
+  while (body.length && !body[0].trim()) body.shift();
+  return body.join('\n').replace(/\s+$/, '');
+}
+
+/** 칸 메모의 맨 위 '◆' 줄을 line 하나로 맞춤(line='' 이면 지움) — payer_split.apply_note_line 미러 */
+export function applyPayerLine(memo, line) {
+  const text = stripPayerLine(memo);
+  if (!line) return text;
+  return text ? `${line}\n\n${text}` : line;
+}
+
+function billTok(t) {
+  const s = String(t == null ? '' : t).trim();
+  if (s === '' || s === '-') return '';
+  return { 카드결제: '카드', 일반: '발행', 혼합: '기타', 확인필요: '기타' }[s] || s;
+}
+
+/**
+ * 한 사람(칸)의 계산서 상태 — 그 칸에 발행한 금액 ↔ 부담액·받은 돈 (payer_split.payer_bill_state 미러).
+ * state: issued(preissued=덜 받음) / partial(to_issue, need=⚠️) / needed(⚠️) / pending / cash / card / other / none
+ */
+export function payerBillState(payer, token, issuedAmt = 0, hasLines = false) {
+  const amount = Number(payer.amount) || 0;
+  const received = Number(payer.received) || 0;
+  const remaining = amount - received;
+  const tok = billTok(token);
+  const base = { state: 'none', issued: 0, toIssue: 0, preissued: false, need: false, pending: 0 };
+  if (tok === '카드') return { ...base, state: 'card' };
+  if (tok === 'N입금') return { ...base, state: 'cash' };
+  if (tok === '기타') return { ...base, state: 'other' };
+  const iss = hasLines ? (Number(issuedAmt) || 0) : (tok === '발행' ? amount : 0);
+  if (iss <= 0 && payer.method === '현금') return { ...base, state: 'cash' };
+  if (iss <= 0 && payer.method === '카드') return { ...base, state: 'card' };
+  if (iss >= amount - 1 && amount > 0) {
+    return { ...base, state: 'issued', issued: iss, preissued: remaining > 1, pending: Math.max(0, iss - received) };
+  }
+  if (iss > 0) {
+    return { ...base, state: 'partial', issued: iss, toIssue: amount - iss,
+      need: received > iss + 1 && remaining <= 1, pending: Math.max(0, iss - received) };
+  }
+  if (received > 0) return { ...base, state: remaining <= 1 ? 'needed' : 'pending' };
+  return base;
+}
+
+/** 나눠 내는 공사 → {단계: 상태 + payer}. activeLines = billStatus.activeInvoiceLines(계산서_메모) */
+export function payerBillStates(row, activeLines) {
+  const out = {};
+  Object.entries(stagePayers(row)).forEach(([s, p]) => {
+    const mine = (activeLines || []).filter((it) => it.stage === s && Number(it.amt) > 0);
+    const st = payerBillState(p, (row || {})[`${s} 계산서`],
+      mine.reduce((a, it) => a + Number(it.amt), 0), mine.length > 0);
+    out[s] = { ...st, payer: p };
+  });
+  return out;
+}
+
+/** 나눠 내는 공사 계산서 요약(Y '{칸} - {상태}') — payer_split.split_y_summary 미러 */
+export function splitYSummary(states) {
+  const order = PAYER_ORDER.filter((s) => states[s]);
+  const urgent = order.filter((s) => states[s].state === 'needed'
+    || (states[s].state === 'partial' && states[s].need));
+  if (urgent.length) return `${urgent[0]} - 미발행`;
+  const uninvPaid = (st) => {
+    const got = Number(st.payer.received) || 0;
+    return (st.state === 'pending' && got > 0) || (st.state === 'partial' && got > st.issued + 1);
+  };
+  const quiet = order.filter((s) => uninvPaid(states[s]));
+  if (quiet.length) return `${quiet[0]} - 미발행`;
+  const active = order.filter((s) => states[s].state !== 'none');
+  if (!active.length) return '미발행';
+  const s = active[active.length - 1];
+  const label = { issued: '발행완료', partial: '발행완료', cash: 'N입금', card: '카드결제' }[states[s].state] || '기타';
+  return `${s} - ${label}`;
+}
+
+/** 칸 메모 맨 윗줄 '◆ 임대인 이희승' — payer_split.payer_note_line 미러 */
+export function payerNoteLine(payer) {
+  return `${PAYER_NOTE_PREFIX} ${payer.role} ${payer.name}`;
+}
+
+/**
+ * 사람 상태 → 계산서 아이콘 상태(billStatus 아이콘 값).
+ * 일부만 발행(partial)은 이미 나간 계산서가 있으니 발행 아이콘(툴팁에 '남은 발행'), 그 사람 완납인데 덜 발행이면 ⚠️.
+ */
+export function payerBillIcon(st) {
+  if (!st) return 'none';
+  if (st.state === 'partial') return st.need ? '미발행' : '발행';
+  return { issued: '발행', needed: '미발행', pending: '발행예정', cash: 'N입금', card: '카드', other: '기타' }[st.state]
+    || 'none';
 }

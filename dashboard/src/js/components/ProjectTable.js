@@ -13,9 +13,9 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 import logger from '../utils/logger.js';
 import {
-  computeBillStagesFromColumns, billIssueDate, billAmountLines, isPreIssued, billHeadline,
+  computeBillStagesFromColumns, billIssueDate, billAmountLines, isPreIssued, billHeadline, splitBillNote,
 } from '../utils/billStatus.js';
-import { payerLine } from '../utils/payerSplit.js';
+import { payerLine, isSplit, stripPayerLine } from '../utils/payerSplit.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -155,7 +155,9 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
 
   const titleMatch = billIcon.match(/title="([^"]*)"/);
   const pl = payerLine(row, stage);   // 나눠 내는 공사: 이 칸 부담자 (없으면 '')
-  const tooltipText = [pl, titleMatch ? titleMatch[1] : `${stage} 단계 계산서`].filter(Boolean).join('\n');
+  // 나눠 내는 공사 ⚠️ = 그 사람 완납 + 계산서 없음/덜 나감 → 사람 기준 문구로
+  const note = status === '미발행' ? splitBillNote(row, stage) : '';
+  const tooltipText = [pl, note || (titleMatch ? titleMatch[1] : `${stage} 단계 계산서`)].filter(Boolean).join('\n');
   const sanitizedIcon = billIcon
     .replace(/title="([^"]*)"/, '')
     .replace(/ms-1/g, '')
@@ -200,7 +202,8 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
       gross = cell;                                             // 수수료 데이터 없음
     }
     const lines = [...(pl ? [pl] : []), '카드결제 (영수증 자동)'];
-    const biz = String(row['사업자명'] || '').trim();
+    // 나눠 내는 공사는 맨 위 사람 줄이 결제한 사람 — 시트 사업자명(한 사람 몫)은 붙이지 않음
+    const biz = pl ? '' : String(row['사업자명'] || '').trim();
     if (biz) lines.push(biz);
     if (gross > 0) {
       lines.push(`${stage} ${Math.round(gross / 1.1).toLocaleString()}원 (VAT 별도)`);
@@ -233,6 +236,8 @@ function wrapBillIcon(billIcon, stage, row = {}, status = '') {
  * @returns {object} { isEmpty: boolean, isTemplate: boolean }
  */
 function checkMemoStatus(memo) {
+  // 나눠 내는 공사의 '◆ 부담자' 줄만 있는 메모 = 입금 기록 없음
+  memo = stripPayerLine(memo);
   if (!memo || !memo.trim()) {
     return { isEmpty: true, isTemplate: false };
   }
@@ -1418,7 +1423,9 @@ export default class ProjectTable {
 
     // 3. 🟠 확인필요: 이상한 상황들 + 데이터 부족
     if ((totalAmount > 0 && totalPaidAmount === totalAmount && outstandingAmount > 0) ||
-        (totalAmount > 0 && totalPaidAmount < totalAmount && contractAmount > 0 && midAmount > 0 && finalAmount > 0) ||
+        // 세 칸 모두 입금 + 미수금 = 이상(일반 공사). 나눠 내는 공사는 칸 = 사람이라 정상 → 제외
+        (totalAmount > 0 && totalPaidAmount < totalAmount && contractAmount > 0 && midAmount > 0 && finalAmount > 0
+          && !isSplit(rowData)) ||
         (totalAmount === 0 && outstandingAmount > 0 && contractAmount > 0 && midAmount > 0 && finalAmount > 0) ||
         (totalPaidAmount === 0 && outstandingAmount === 0) || // 모든 금액 정보 없음
         (!startDateStr && !endDateStr)) { // 날짜 정보 없음

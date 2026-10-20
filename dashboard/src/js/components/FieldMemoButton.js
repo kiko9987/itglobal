@@ -4,6 +4,9 @@
  * 구글 시트의 메모 기능과 동일한 UX
  */
 import logger from '../utils/logger.js';
+import {
+  getStagePayer, payerNoteLine, stripPayerLine, applyPayerLine, INSTALLMENTS, installmentLine,
+} from '../utils/payerSplit.js';
 
 export default class FieldMemoButton {
   constructor() {
@@ -45,9 +48,14 @@ export default class FieldMemoButton {
         </button>
       </div>
       <div class="memo-popover-body">
+        <div class="memo-payer-line small text-muted mb-1" style="display:none;"></div>
         <textarea class="memo-textarea form-control"
                   placeholder="입금 정보를 메모하세요."
                   rows="4"></textarea>
+        <div class="memo-inst-bar small mt-1" style="display:none;">
+          <span class="text-muted me-1">차수 넣기</span>
+          ${INSTALLMENTS.map((i) => `<button type="button" class="btn btn-link btn-sm p-0 me-2 memo-inst-btn" data-inst="${i}">${i}</button>`).join('')}
+        </div>
       </div>
       <div class="memo-popover-footer">
         <button type="button" class="btn btn-sm btn-outline-danger memo-delete-btn" style="display:none;">
@@ -78,6 +86,10 @@ export default class FieldMemoButton {
     this.popoverElement.querySelector('.memo-cancel-btn').addEventListener('click', () => this.hidePopover());
     this.popoverElement.querySelector('.memo-save-btn').addEventListener('click', () => this.saveMemo());
     this.popoverElement.querySelector('.memo-delete-btn').addEventListener('click', () => this.deleteMemo());
+    // 나눠 내는 공사: 커서가 있는 줄 아래에 '◇ 차수 X' 줄 넣기 (그 입금 기록 블록 안)
+    this.popoverElement.querySelectorAll('.memo-inst-btn').forEach((b) => {
+      b.addEventListener('click', () => this.insertInstallmentLine(b.dataset.inst));
+    });
 
     // 외부 클릭으로 팝오버 닫기
     document.addEventListener('click', (e) => {
@@ -110,7 +122,7 @@ export default class FieldMemoButton {
       return '';
     }
 
-    const hasMemo = memo && memo.trim();
+    const hasMemo = memo && stripPayerLine(memo).trim();   // '◆ 부담자' 줄만 있으면 메모 없음
     const hasAmount = amount && parseFloat(amount) > 0;
 
     // UX 개선: 편집 모드가 아닐 때만 금액 체크
@@ -191,6 +203,22 @@ export default class FieldMemoButton {
     const memoLabel = fieldName === '계산서' ? '계산서 메모' : `${fieldName} 입금 메모`;
     header.textContent = memoLabel;
     textarea.value = currentMemo || '';
+
+    // 나눠 내는 공사(2026-10-20): 칸 메모 맨 윗줄 '◆ 부담자'는 [부담자 설정]이 관리 → 편집창에선 고정 표시,
+    //   저장 때 다시 맨 위에 붙임(지워지거나 바뀌면 사람 구분이 깨짐). 차수 넣기 버튼은 이 공사에서만.
+    const payerLineEl = this.popoverElement.querySelector('.memo-payer-line');
+    const instBar = this.popoverElement.querySelector('.memo-inst-bar');
+    const payer = fieldName !== '계산서' ? getStagePayer(this._projectRow(projectCode), fieldName) : null;
+    this.currentPayerLine = payer ? payerNoteLine(payer) : '';
+    if (payer) {
+      textarea.value = stripPayerLine(currentMemo);
+      payerLineEl.textContent = `${this.currentPayerLine}  (부담자 설정에서 바꿈)`;
+      payerLineEl.style.display = 'block';
+      instBar.style.display = isEditMode ? 'block' : 'none';
+    } else {
+      payerLineEl.style.display = 'none';
+      instBar.style.display = 'none';
+    }
     textarea.placeholder = fieldName === '계산서'
       ? '계산서 관련 메모를 입력하세요 (예: 통합발행, 정정 사유 등).'
       : '입금 정보를 메모하세요.';
@@ -208,7 +236,8 @@ export default class FieldMemoButton {
       // 편집 모드: 저장/삭제 버튼 표시, textarea 편집 가능
       textarea.removeAttribute('readonly');
       textarea.classList.remove('readonly');
-      deleteBtn.style.display = currentMemo ? 'inline-block' : 'none';
+      // 나눠 내는 공사는 '◆' 줄만 있으면 지울 입금 메모가 없음
+      deleteBtn.style.display = (this.currentPayerLine ? textarea.value : currentMemo) ? 'inline-block' : 'none';
       saveBtn.style.display = 'inline-block';
       cancelBtn.textContent = '취소';
       logger.debug('[MEMO] 편집 모드 - 팝오버 편집 가능으로 표시');
@@ -268,7 +297,49 @@ export default class FieldMemoButton {
     this.currentFieldName = null;  // fieldKey → fieldName
     this.currentProjectCode = null;
     this.currentMemo = null;
+    this.currentPayerLine = '';
     this.previousActiveElement = null;  // 포커스 복원용 초기화
+  }
+
+  /** 프로젝트 행 데이터(부담자 칸 확인용) — 테이블 캐시 → 열린 아코디언 → 전역 순 */
+  _projectRow(projectCode) {
+    try {
+      const table = window.projectListApp?.components?.table?.table;
+      if (table) {
+        const row = table.rows().data().toArray().find((r) => r['프로젝트 코드'] === projectCode);
+        if (row) return row;
+      }
+      const acc = window.projectListApp?.components?.table?.accordion?.currentProject;
+      if (acc && acc['프로젝트 코드'] === projectCode) return acc;
+      return (window.projectsData || []).find((r) => r['프로젝트 코드'] === projectCode) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  /** 커서가 있는 줄 바로 아래에 '◇ 차수 X' 줄을 넣음 (커서 없으면 맨 끝) */
+  insertInstallmentLine(inst) {
+    const textarea = this.popoverElement.querySelector('.memo-textarea');
+    const line = installmentLine(inst);
+    if (!textarea || !line || textarea.hasAttribute('readonly')) return;
+    // 같은 블록에 이미 차수 줄이 있으면 그 줄을 바꿈
+    const v = textarea.value;
+    const pos = textarea.selectionStart ?? v.length;
+    const blockStart = v.lastIndexOf('\n\n', Math.max(0, pos - 1));
+    const bs = blockStart < 0 ? 0 : blockStart + 2;
+    const be0 = v.indexOf('\n\n', pos);
+    const be = be0 < 0 ? v.length : be0;
+    const block = v.slice(bs, be);
+    let next;
+    if (/^[ \t]*◇.*$/m.test(block)) {
+      next = v.slice(0, bs) + block.replace(/^[ \t]*◇.*$/m, line) + v.slice(be);
+    } else {
+      const eol0 = v.indexOf('\n', pos);
+      const eol = eol0 < 0 ? v.length : eol0;
+      next = `${v.slice(0, eol)}${v.slice(0, eol).length ? '\n' : ''}${line}${v.slice(eol)}`;
+    }
+    textarea.value = next;
+    textarea.focus();
   }
 
   /**
@@ -276,7 +347,9 @@ export default class FieldMemoButton {
    */
   async saveMemo() {
     const textarea = this.popoverElement.querySelector('.memo-textarea');
-    const newMemo = textarea.value.trim();
+    let newMemo = textarea.value.trim();
+    // 나눠 내는 공사: 편집창에서 뺀 '◆ 부담자' 줄을 맨 위에 다시 붙임 (메모를 지워도 이 줄은 남음)
+    if (this.currentPayerLine) newMemo = applyPayerLine(newMemo, this.currentPayerLine);
 
     if (!this.currentProjectCode || !this.currentFieldName) {
       logger.error('[ERROR] 메모 저장 실패: 프로젝트 코드 또는 필드명 없음');
@@ -574,7 +647,7 @@ export default class FieldMemoButton {
       return;
     }
 
-    const hasMemo = memo && memo.trim();
+    const hasMemo = memo && stripPayerLine(memo).trim();   // '◆ 부담자' 줄만 있으면 메모 없음
 
     if (hasMemo) {
       icon.className = 'fas fa-sticky-note';

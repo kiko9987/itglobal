@@ -16,6 +16,10 @@
  *   ('none' = 표시 없음: 금액도 없고 발행정보도 없음)
  */
 
+import {
+  isSplit, payerBillStates, splitYSummary, payerBillIcon,
+} from './payerSplit.js';
+
 export const BILL_STAGES = ['계약금', '중도금', '잔금'];
 
 function toNum(v) {
@@ -124,6 +128,30 @@ export function isFullyCollected(row) {
   return auto || isCollected(row && row['수금 확인']);
 }
 
+/**
+ * 나눠 내는 공사(부담자 칸 있음)면 사람(칸)별 계산서 상태 {단계: {state, issued, toIssue, pending, need, payer}},
+ * 아니면 null (2026-10-20). 칸 = 사람이라 통합발행 '-' covered·앞 칸 합산 규칙을 쓰지 않는다.
+ */
+export function splitStates(row) {
+  if (!row || !isSplit(row)) return null;
+  return payerBillStates(row, activeInvoiceLines(row['계산서_메모']));
+}
+
+/**
+ * 나눠 내는 공사 ⚠️ 툴팁 문구 — 그 사람이 다 냈는데 계산서가 없거나 덜 나갔을 때. 아니면 ''.
+ */
+export function splitBillNote(row, stage) {
+  const ss = splitStates(row);
+  const st = ss && ss[stage];
+  if (!st) return '';
+  if (st.state === 'needed') return '완납 · 세금계산서 미발행 (요청 필요)';
+  if (st.state === 'partial' && st.need) {
+    return `발행 ${st.issued.toLocaleString()}원 · 받은 돈 ${st.payer.received.toLocaleString()}원`
+      + ` — 남은 ${st.toIssue.toLocaleString()}원 계산서 요청 필요`;
+  }
+  return '';
+}
+
 export function normalizeToken(t) {
   const s = String(t == null ? '' : t).trim();
   if (s === '' || s === '-') return '';   // 빈값·대시(-) = 없음
@@ -153,6 +181,12 @@ export function lastIssuedIndex(row) {
  */
 export function computeBillStagesFromColumns(row) {
   const result = { 계약금: 'none', 중도금: 'none', 잔금: 'none' };
+  // 나눠 내는 공사(2026-10-20): 칸 = 사람. '-' covered·'수금완료+마지막 칸 발행' 대신 사람별 상태.
+  const ss = splitStates(row);
+  if (ss) {
+    Object.entries(ss).forEach(([s, st]) => { result[s] = payerBillIcon(st); });
+    return result;
+  }
   // 수금완료(미수금0 자동 or 수금확인)면 미발행='미발행'(⚠️ 요청 필요), 진행중이면 '발행예정'🕒(조용)
   const uninvoiced = isFullyCollected(row) ? '미발행' : '발행예정';
   // covered('-')는 그 행에 실제 '발행'이 있을 때만 유효(전체발행 한 장에 포함됨). '발행' 없이
@@ -211,6 +245,8 @@ export function rollupBillStages(stages) {
  * @param {object} row - 프로젝트 레코드(단계 금액 U/V/W 참조용)
  */
 export function computeYSummary(stages, row) {
+  const ss = splitStates(row);
+  if (ss) return splitYSummary(ss);   // 나눠 내는 공사 — payer_split.split_y_summary 와 같은 결과
   const amt = {};
   const rawCol = {};
   BILL_STAGES.forEach((s) => {
@@ -249,6 +285,8 @@ export function computeYSummary(stages, row) {
  * @returns {number}
  */
 export function computeInvoicedAmount(row) {
+  const ss = splitStates(row);
+  if (ss) return Object.values(ss).reduce((a, st) => a + (st.issued || 0), 0);
   let sum = 0;
   const lastIdx = lastIssuedIndex(row);
   BILL_STAGES.forEach((s, i) => {
@@ -278,7 +316,37 @@ export function billAmountLines(row, stage) {
   return lines;
 }
 
+/**
+ * 나눠 내는 공사 툴팁 금액 줄 — 그 사람(칸)만: 발행액 ↔ 부담액·받은 돈 (앞 칸 합산·거래처 표기 없음).
+ * 맨 위 사람 줄(payerLine: 부담·남음)은 호출부가 붙인다.
+ */
+function splitAmountLines(row, stage, st) {
+  if (!st) return [];
+  const p = st.payer;
+  const lines = [];
+  const parts = billIssuedParts(row, stage);
+  if (parts.length > 1) {
+    lines.push(`분할 발행 ${parts.length}장`);
+    parts.forEach((x) => lines.push(`· ${x.name}${x.amt > 0 ? ` ${x.amt.toLocaleString()}원` : ''}`));
+  } else if (parts.length === 1 && !sameBizName(parts[0].name, p.name)) {
+    lines.push(`발행 상호 ${parts[0].name}`);   // 부담자 이름과 다를 때만 (병원·법인 상호 등)
+  }
+  if (st.issued > 0) lines.push(`발행액 ${st.issued.toLocaleString()}원 (VAT 포함)`);
+  if (st.toIssue > 1) lines.push(`남은 발행 ${st.toIssue.toLocaleString()}원`);
+  if (st.pending > 1) {
+    lines.push(p.received > 0
+      ? `입금 ${p.received.toLocaleString()}원 · 입금 대기 ${st.pending.toLocaleString()}원`
+      : `입금 대기 ${st.pending.toLocaleString()}원`);
+  }
+  if (st.issued > p.amount + 1) {
+    lines.push(`⚠️ 발행 ${st.issued.toLocaleString()}원이 부담액보다 ${(st.issued - p.amount).toLocaleString()}원 많음`);
+  }
+  return lines;
+}
+
 function billAmountLinesCore(row, stage) {
+  const ss = splitStates(row);
+  if (ss) return splitAmountLines(row, stage, ss[stage]);
   const lines = [];
   // 최근 발행이 여러 사업자로 나뉘었으면(고객 요청 사업자 분할) 시트 사업자명 대신 실제 발행 사업자들
   //   (G3991-YM: 시트 'SM CORPORATION' 인데 현재 계산서는 설린·SM 두 장, 2026-10-01).
@@ -375,6 +443,11 @@ function billAmountLinesCore(row, stage) {
  */
 export function isPreIssued(row, stage) {
   if (!row || !BILL_STAGE_COL[stage]) return false;
+  const ss = splitStates(row);
+  if (ss) {   // 나눠 내는 공사: 그 사람에게 발행한 금액 > 그 사람이 낸 돈
+    const st = ss[stage];
+    return !!st && (st.state === 'issued' || st.state === 'partial') && st.pending > 1;
+  }
   return normalizeToken(row[BILL_STAGE_COL[stage]]) === '발행'
     && toNum(row[stage]) === 0
     && !isFullyCollected(row);
@@ -430,6 +503,7 @@ function memoSingleAmount(memo) {
 /** 이 단계 계산서(통합발행 한 장)에 포함된 앞 단계 — 바로 앞부터 연속된 '-'(입금 0 단계는 건너뜀). slack_bot._covered_chain 미러 */
 function coveredChain(row, stage) {
   const out = [];
+  if (isSplit(row)) return out;   // 나눠 내는 공사: 칸 = 사람, 한 장이 다른 사람 칸을 포함하지 않음
   for (let i = BILL_STAGES.indexOf(stage) - 1; i >= 0; i--) {
     const s = BILL_STAGES[i];
     const t = String((row && row[BILL_STAGE_COL[s]]) == null ? '' : row[BILL_STAGE_COL[s]]).trim();
@@ -448,6 +522,7 @@ function coveredChain(row, stage) {
  */
 export function lineSheetGross(row, it) {
   if (it.kind !== '선발행' || it.paren === 'plain') return it.amt;
+  if (isSplit(row)) return it.amt;   // 나눠 내는 공사: 줄 금액 = 그 사람 장 합계
   // 같은 단계에 장이 여러 개(사업자 분할)면 몫 보정 안 함 (G3991: 1,705,000 × 2장)
   const multi = activeInvoiceLines(row && row['계산서_메모'])
     .filter((x) => x.stage === it.stage && x.amt > 0).length > 1;
@@ -477,6 +552,8 @@ function stageSheets(row, stage) {
  *   ② 장 금액 줄이 없으면(옛 기록): 메모의 'X원'이 정확히 하나일 때 그 금액(SB 수기), 아니면 0
  */
 export function preIssuedAmount(row, stage) {
+  const ss = splitStates(row);
+  if (ss) return ss[stage] ? ss[stage].pending : 0;
   const sheets = stageSheets(row, stage);
   if (sheets.length) {
     const total = sheets.reduce((a, s) => a + s.gross, 0);
@@ -533,7 +610,7 @@ export function isPaidByBiz(row, name) {
   if (!n) return false;
   return BILL_STAGES.some((s) => String((row && row[`${s}_메모`]) || '').split('\n').some((ln) => {
     if (/\d/.test(ln)) return false;
-    if (/^\s*◆/.test(ln)) return false;   // 부담자 표시 줄('◆ 임대인 이희승') — 입금 아님 (2026-10-19)
+    if (/^\s*[◆◇]/.test(ln)) return false;   // 부담자('◆ 임대인 이희승')·차수('◇ 차수 중도금') 줄 — 입금자 아님
     const l = normBizName(ln.replace(/^\s*(?:입금자\s*:|적요)\s*/, ''));
     if (!l) return false;
     return l === n || (l.length >= 4 && n.startsWith(l)) || (n.length >= 4 && l.startsWith(n));
@@ -557,7 +634,10 @@ export function sameBizName(a, b) {
 
 /** 계산서(발행) 툴팁 첫 줄 — 선발행이면 입금 대기 표시 */
 export function billHeadline(row, stage) {
-  return isPreIssued(row, stage) ? '세금계산서 선발행 · 입금 대기' : '세금계산서 발행완료';
+  if (isPreIssued(row, stage)) return '세금계산서 선발행 · 입금 대기';
+  const ss = splitStates(row);
+  if (ss && ss[stage] && ss[stage].state === 'partial') return '세금계산서 일부 발행';
+  return '세금계산서 발행완료';
 }
 
 /**
@@ -584,6 +664,7 @@ export function billIssueDate(row, stage) {
   });
   const own = tagged.filter((t) => t.stage === stage);
   if (own.length) return own[own.length - 1].date;
+  if (isSplit(row)) return '';   // 나눠 내는 공사: 칸 순서 ↔ 날짜 순서 대응이 성립 안 함 → 단계 명시 줄만
   const taggedStages = new Set(tagged.map((t) => t.stage));
   const remaining = BILL_STAGES.filter((s) => !taggedStages.has(s)
     && normalizeToken(String((row && row[BILL_STAGE_COL[s]]) ?? '').trim()) === '발행');

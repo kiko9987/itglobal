@@ -9,7 +9,7 @@
  */
 import logger from '../utils/logger.js';
 import { activeInvoiceLines, overIssuedAmount, sameBizName } from '../utils/billStatus.js';
-import { stagePayers } from '../utils/payerSplit.js';
+import { stagePayers, payerTitle, PAYER_ORDER } from '../utils/payerSplit.js';
 
 function esc(v) {
   return String(v == null ? '' : v)
@@ -313,17 +313,34 @@ export default class InvoiceLicense {
       const issued = tok === '발행' || tok === '일반';
       return { s, amt, issued };
     });
-    // 나눠 내는 공사(2026-10-19): 단계 = 부담자 칸 → 목록에 부담자 이름, 고르면 그 사람 정보로 채움
+    // 나눠 내는 공사(2026-10-19·20): 칸 = 사람 → '누구 계산서인가요'(부담자 칸만, 칸 배정 순서)를 맨 위에서 고르고,
+    //   고르면 사업자명·이메일·발행 금액(그 사람 부담액 − 이미 발행)·수정발행 후보를 그 사람 것으로 바꿈.
     const payers = stagePayers(p);
+    const split = Object.keys(payers).length > 0;
     const payerPrefill = (d && d.payers) || {};
-    const stageOptions = ['<option value="" selected disabled>단계 선택</option>'].concat(
-      stageInfo.map((x) => {
-        const issuedTxt = x.issued ? ' · 발행됨' : '';
-        const py = payers[x.s];
-        const who = py ? ` · ${py.role} ${py.name}` : '';
-        return `<option value="${x.s}">${esc(`${x.s}${who}${issuedTxt}`)}</option>`;
-      }),
-    ).join('');
+    const perIssued = (iss && iss.payers) || {};
+    // 서버 조회 실패 때 화면 데이터로 그 사람 발행액(그 칸 장 줄 합, 줄 없이 '발행'이면 부담액)
+    const localIssued = (s) => {
+      const lines = activeInvoiceLines(p['계산서_메모']).filter((it) => it.stage === s && it.amt > 0);
+      if (lines.length) return lines.reduce((a, it) => a + it.amt, 0);
+      return stageInfo.find((x) => x.s === s)?.issued ? payers[s].amount : 0;
+    };
+    const issuedOf = (s) => (perIssued[s] ? Number(perIssued[s].issued) || 0 : localIssued(s));
+    const stageOptions = split
+      ? ['<option value="" selected disabled>부담자 선택</option>'].concat(
+        PAYER_ORDER.filter((s) => payers[s]).map((s) => {
+          const py = payers[s];
+          const got = issuedOf(s);
+          const tail = got >= py.amount - 1 ? ' · 발행 완료' : (got > 0 ? ` · 발행 ${got.toLocaleString()}원` : '');
+          return `<option value="${s}">${esc(`${payerTitle(py)} · 부담 ${py.amount.toLocaleString()}원${tail}`)}</option>`;
+        }),
+      ).join('')
+      : ['<option value="" selected disabled>단계 선택</option>'].concat(
+        stageInfo.map((x) => {
+          const issuedTxt = x.issued ? ' · 발행됨' : '';
+          return `<option value="${x.s}">${esc(`${x.s}${issuedTxt}`)}</option>`;
+        }),
+      ).join('');
 
     // 수정발행 — 대체할 기존 계산서 (2026-10-01, 슬랙 모달과 동일). 장 금액이 기록된 현재 유효
     //   계산서만 후보. 체크한 장은 첨부 완료 시 메모에 '취소' 줄로 남아 현재 계산서에서 빠짐.
@@ -332,12 +349,15 @@ export default class InvoiceLicense {
       : activeInvoiceLines(p['계산서_메모']).filter((it) => it.amt > 0).slice(0, 10);
     // 총액 초과 경고는 서버 안내 문구에 포함 → 서버 조회 실패 때만 화면에서 계산
     const over = iss ? 0 : overIssuedAmount(p);
-    const issuedHtml = iss && iss.warn ? `
-      <div class="mb-2 small" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:0.5rem 0.65rem; white-space:pre-line;">${esc(iss.warn)}</div>` : '';
+    // 나눠 내는 공사는 사람을 고른 뒤 그 사람 안내로 채움(#ilIssuedBox), 수정발행 후보도 그 사람 칸만 보임
+    const issuedHtml = split ? `
+      <div id="ilIssuedBox" class="mb-2 small" style="display:none; background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:0.5rem 0.65rem; white-space:pre-line;"></div>`
+      : (iss && iss.warn ? `
+      <div class="mb-2 small" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:0.5rem 0.65rem; white-space:pre-line;">${esc(iss.warn)}</div>` : '');
     const replaceHtml = active.length ? `
-      <div class="mb-2"><label class="form-label">기존 발행 계산서 <span class="text-muted small">(수정발행 시 선택)</span></label>
+      <div class="mb-2" id="ilRepBox" ${split ? 'style="display:none;"' : ''}><label class="form-label">기존 발행 계산서 <span class="text-muted small">(수정발행 시 선택)</span></label>
         ${active.map((it, i) => `
-          <div class="form-check">
+          <div class="form-check" data-rep-stage="${esc(it.stage)}">
             <input class="form-check-input" type="checkbox" id="ilRep${i}" data-rep="${i}">
             <label class="form-check-label small" for="ilRep${i}">${esc(`${it.date ? it.date.slice(5) : '날짜없음'} ${it.stage} ${it.amt.toLocaleString()}원${it.biz ? ` · ${it.biz}` : ''}`)}</label>
           </div>`).join('')}
@@ -353,9 +373,18 @@ export default class InvoiceLicense {
       <div class="small mb-2" style="color:#0a7ea4;">👥 이 공사에 다른 사업자로 발행된 계산서가 있습니다.
         여러 사람이 나눠 내는 공사라면 <a href="#" data-pl-open>부담자 설정</a>을 먼저 해 주세요.</div>` : '';
 
+    const stageBlock = split ? `
+      <div class="mb-2"><label class="form-label">누구 계산서인가요</label>
+        <select id="ilStage" class="form-select">${stageOptions}</select>
+        <div class="small text-muted mt-1">나눠 내는 공사입니다. 고른 사람 기준으로 아래 칸이 채워집니다.</div>
+        <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>` : `
+      <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(금액=총액이면 나머지 자동 '-')</span></label>
+        <select id="ilStage" class="form-select">${stageOptions}</select>
+        <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>`;
     const body = `
+      ${split ? stageBlock : ''}
       <div class="mb-2"><label class="form-label">사업자명</label>
-        <input id="ilBiz" type="text" class="form-control" value="${esc(biz)}" placeholder="예: (주)아이티글로벌"></div>
+        <input id="ilBiz" type="text" class="form-control" value="${esc(split ? '' : biz)}" placeholder="예: (주)아이티글로벌"></div>
       <div class="mb-2"><label class="form-label">현장 주소</label>
         <input id="ilAddr" type="text" class="form-control" value="${esc(addr)}" placeholder="현장 주소"></div>
       ${payerHint}
@@ -363,7 +392,7 @@ export default class InvoiceLicense {
       ${replaceHtml}
       <div class="row">
         <div class="col mb-2"><label class="form-label">발행 금액 <span class="text-muted small">(원)</span></label>
-          <input id="ilAmt" type="text" inputmode="numeric" class="form-control" value="${esc(amtDisp)}" placeholder="예: 9,600,000"></div>
+          <input id="ilAmt" type="text" inputmode="numeric" class="form-control" value="${esc(split ? '' : amtDisp)}" placeholder="예: 9,600,000"></div>
         <div class="col mb-2"><label class="form-label">부가세</label>
           <select id="ilVat" class="form-select">
             <option value="sep" ${vatSep ? 'selected' : ''}>VAT 별도</option>
@@ -371,10 +400,8 @@ export default class InvoiceLicense {
           </select></div>
       </div>
       <div class="mb-2"><label class="form-label">이메일 <span class="text-muted small">(계산서 수신)</span></label>
-        <input id="ilEmail" type="text" class="form-control" value="${esc(email)}" placeholder="example@company.com"></div>
-      <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(금액=총액이면 나머지 자동 '-')</span></label>
-        <select id="ilStage" class="form-select">${stageOptions}</select>
-        <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>
+        <input id="ilEmail" type="text" class="form-control" value="${esc(split ? '' : email)}" placeholder="example@company.com"></div>
+      ${split ? '' : stageBlock}
       <div class="mb-1"><label class="form-label">요청사항 <span class="text-muted small">(선택)</span></label>
         <textarea id="ilMemo" class="form-control" rows="2" placeholder="청구/영수 발행·특이사항 등"></textarea></div>
     `;
@@ -382,7 +409,7 @@ export default class InvoiceLicense {
     this._showModal(`세금계산서 발행 요청 — ${c}`, body, async (el) => {
       const amt = (el.querySelector('#ilAmt').value || '').replace(/[^\d]/g, '');
       const stage = (el.querySelector('#ilStage') || {}).value || '';
-      if (!stage) return '발행 단계를 선택해주세요.';
+      if (!stage) return split ? '누구 계산서인지 골라 주세요.' : '발행 단계를 선택해주세요.';
       const payload = {
         code: c,
         biz: (el.querySelector('#ilBiz').value || '').trim(),
@@ -421,30 +448,54 @@ export default class InvoiceLicense {
         const hint = el.querySelector('#ilStageHint');
         if (!sel || !hint) return;
         const amtByStage = Object.fromEntries(stageInfo.map((x) => [x.s, x.amt]));
-        const issuedByStage = Object.fromEntries(stageInfo.map((x) => [x.s, x.issued]));
         sel.addEventListener('change', () => {
           const paid = amtByStage[sel.value] || 0;
           const notes = [];
-          // 나눠 내는 공사: 부담자 칸을 고르면 사업자명·이메일·발행 금액(부담액)을 그 사람 것으로
+          // 나눠 내는 공사: 사람을 고르면 사업자명·이메일·발행 금액(부담액 − 이미 발행)·안내·수정발행 후보를 그 사람 것으로
           const py = payers[sel.value];
           if (py) {
-            const pre = payerPrefill[sel.value] || {};
+            const s = sel.value;
+            const pre = payerPrefill[s] || {};
             const bizEl = el.querySelector('#ilBiz');
             const emailEl = el.querySelector('#ilEmail');
             const amtEl = el.querySelector('#ilAmt');
-            const vatEl = el.querySelector('#ilVat');
             if (bizEl) bizEl.value = pre.name || py.name;
             if (emailEl) emailEl.value = pre.email || py.email || '';
-            if (issuedByStage[sel.value]) {
-              notes.push(`🧾 ${py.role} ${py.name} 계산서는 이미 발행됐습니다. 수정발행이면 위에서 기존 계산서를 체크하세요.`);
-            } else if (amtEl && vatEl) {
-              vatEl.value = 'sep';
-              amtEl.value = Math.round(py.amount / 1.1).toLocaleString('ko-KR');
-              notes.push(`👥 ${py.role} ${py.name} 부담액 ${py.amount.toLocaleString()}원(부가세 포함) 기준으로 채웠습니다.`);
+            const per = perIssued[s] || {};
+            const got = issuedOf(s);
+            // 남은 공급가 = 서버 계산(총액1/총액2 비율) 우선, 조회 실패면 부가세 설정대로 환산
+            const vatNow = (el.querySelector('#ilVat') || {}).value === 'sep';
+            const leftGross = Math.max(0, py.amount - got);
+            const leftSupply = per.remaining_supply != null ? Number(per.remaining_supply)
+              : (vatNow ? Math.round(leftGross / 1.1) : leftGross);
+            if (amtEl) amtEl.value = leftSupply > 0 ? leftSupply.toLocaleString('ko-KR') : '';
+            const box = el.querySelector('#ilIssuedBox');
+            if (box) {
+              const txt = per.warn || (got > 0
+                ? `📋 ${payerTitle(py)} 발행됨 ${got.toLocaleString()}원 / 부담액 ${py.amount.toLocaleString()}원`
+                : '');
+              box.textContent = txt;
+              box.style.display = txt ? '' : 'none';
             }
-            if (py.method === '현금') notes.push('💵 이 부담자는 계산서 없이 현금으로 내기로 돼 있습니다. 맞는지 확인하세요.');
-          }
-          if (sel.value && paid <= 0) {
+            // 수정발행 후보 = 그 사람 칸 계산서만 (다른 사람 것은 숨기고 체크 해제)
+            const repBox = el.querySelector('#ilRepBox');
+            if (repBox) {
+              let shown = 0;
+              repBox.querySelectorAll('[data-rep-stage]').forEach((row) => {
+                const mine = row.dataset.repStage === s;
+                row.style.display = mine ? '' : 'none';
+                if (!mine) { const cb = row.querySelector('input'); if (cb) cb.checked = false; }
+                if (mine) shown += 1;
+              });
+              repBox.style.display = shown ? '' : 'none';
+            }
+            if (got >= py.amount - 1) {
+              notes.push(`🧾 ${payerTitle(py)} 계산서는 부담액만큼 이미 발행됐습니다. 수정발행이면 기존 계산서를 체크하세요.`);
+            }
+            if (py.method === '현금') notes.push('💵 이 사람은 계산서 없이 현금으로 내기로 돼 있습니다. 맞는지 확인하세요.');
+            if (py.method === '카드') notes.push('💳 이 사람은 카드로 내기로 돼 있습니다. 맞는지 확인하세요.');
+            if ((Number(py.received) || 0) <= 0) notes.push('🕒 선발행 — 이 사람은 아직 입금이 없습니다. 발행 금액을 확인하세요.');
+          } else if (sel.value && paid <= 0) {
             notes.push('🕒 선발행 — 이 단계는 아직 입금 내역이 없습니다. 발행 금액을 확인하세요.');
           }
           hint.textContent = notes.join('\n');
@@ -456,9 +507,10 @@ export default class InvoiceLicense {
   }
 
   // ─────────────────────── ④ 부담자 설정 (나눠 내는 공사) ───────────────────────
-  /** 한 공사를 여러 사람(임대인·임차인 등)이 나눠 내는 경우의 부담자 설정 — 매니저도 사용 (2026-10-19).
+  /** 한 공사를 여러 사람이 나눠 내는 경우의 부담자 설정 — 매니저도 사용 (2026-10-19).
+   *  구분은 자유(임대인·임차인, 한 법인의 두 사업자, 병원·원장 등 — 2026-10-20 범용화).
    *  사람은 고르기·숫자만 입력하고, 서버가 칸(첫째=계약금·둘째=잔금·셋째=중도금)을 정해 '○○ 부담자' 칸과
-   *  칸 메모 맨 윗줄('◆ 임대인 이희승')을 형식대로 기록한다. */
+   *  칸 메모 맨 윗줄('◆ 임대인 이희승')을 형식대로 기록한다. 차수(몇 번째 돈)는 입금 기록 때 메모에 남는다. */
   async openPayerModal(code, opts = {}) {
     const c = String(code || '').trim();
     // 아코디언을 펼칠 때 미리 받아 둔 값 → 클릭 즉시 열림. 저장 때 서버가 시트 최신값으로 다시 검사한다.
@@ -478,13 +530,21 @@ export default class InvoiceLicense {
     const sv = info.stage_values || {};
     const fmt = (n) => (Number(n) || 0).toLocaleString('ko-KR');
     const STAGES3 = ['계약금', '중도금', '잔금'];
-    const init = (info.payers && info.payers.length) ? info.payers
-      : [{ role: '임대인', method: '계산서' }, { role: '임차인', method: '계산서' }];
+    // 저장된 사람은 칸 배정 순서(계약금 → 잔금 → 중도금)대로 — 서버가 줄 순서로 칸을 정하므로 다시 저장해도 그대로
+    const saved = (info.payers || []).slice()
+      .sort((a, b) => PAYER_ORDER.indexOf(a.stage) - PAYER_ORDER.indexOf(b.stage));
+    const init = saved.length ? saved : [{ role: '', method: '계산서' }, { role: '', method: '계산서' }];
+    const recvLine = (p) => {
+      if (!p.stage || !p.amount) return '';
+      const got = Number(p.received) || 0;
+      const left = (Number(p.amount) || 0) - got;
+      return `${p.stage} 칸 · 받은 돈 ${fmt(got)}원 · ${left <= 0 ? '완납' : `남음 ${fmt(left)}원`}`;
+    };
     const rowHtml = (p) => `
       <div class="pl-row mb-2" style="border:1px solid var(--gray-200); border-radius:8px; padding:.6rem .7rem;">
         <div class="d-flex gap-2 mb-2">
           <input class="form-control form-control-sm" data-f="role" list="plRoleList" value="${esc(p.role || '')}"
-                 placeholder="구분" style="max-width:96px;">
+                 placeholder="구분 (예: 임대인)" style="max-width:128px;">
           <input class="form-control form-control-sm" data-f="name" value="${esc(p.name || '')}"
                  placeholder="사업자명 (거래처 탭에서 검색)" autocomplete="off">
           <button type="button" class="btn btn-sm btn-outline-danger" data-pl-del title="이 줄 빼기">
@@ -496,9 +556,9 @@ export default class InvoiceLicense {
           <select class="form-select form-select-sm" data-f="method" style="max-width:96px;">
             ${['계산서', '현금', '카드'].map((m) => `<option ${p.method === m ? 'selected' : ''}>${m}</option>`).join('')}
           </select>
-          <select class="form-select form-select-sm" data-f="stage" style="max-width:112px;" title="이 사람 돈이 쌓일 칸">
+          <select class="form-select form-select-sm" data-f="stage" style="max-width:120px;" title="이 사람 돈이 쌓일 칸 (보통은 자동)">
             <option value="">칸 자동</option>
-            ${STAGES3.map((s) => `<option value="${s}" ${p.stage === s ? 'selected' : ''}>${s} 칸</option>`).join('')}
+            ${PAYER_ORDER.map((s) => `<option value="${s}" ${p.stage === s ? 'selected' : ''}>${s} 칸</option>`).join('')}
           </select>
           <input class="form-control form-control-sm" data-f="biz_no" value="${esc(p.biz_no || '')}"
                  placeholder="사업자번호" style="max-width:130px;">
@@ -506,14 +566,18 @@ export default class InvoiceLicense {
                  placeholder="계산서 받을 이메일" style="min-width:150px; flex:1;">
         </div>
         <div class="pl-suggest small" style="display:none; margin-top:.35rem;"></div>
+        ${recvLine(p) ? `<div class="small text-muted" style="margin-top:.35rem;">${esc(recvLine(p))}</div>` : ''}
       </div>`;
     const deposits = STAGES3.map((s) => `${s} ${fmt(sv[s])}`).join(' · ');
+    const ROLE_EXAMPLES = ['임대인', '임차인', '본점', '지점', '병원', '원장', '법인', '개인사업자'];
     const body = `
-      <div class="small text-muted mb-2">한 공사를 여러 사람이 나눠 내는 경우에만 설정합니다.
-        칸은 첫째 = 계약금, 둘째 = 잔금, 셋째 = 중도금으로 정해지고, 각자 낸 돈은 자기 칸에 쌓입니다.</div>
+      <div class="small text-muted mb-2">한 공사를 여러 사람이 나눠 낼 때만 설정합니다.
+        예: 임대인과 임차인, 한 법인의 두 사업자, 병원과 원장 개인사업자.<br>
+        사람마다 칸이 하나씩 정해집니다(첫째 계약금 칸, 둘째 잔금 칸, 셋째 중도금 칸). 각자 낸 돈은 자기 칸에 쌓이고,
+        몇 번째 돈인지(계약금·중도금·잔금·일시불)는 입금 메모에 차수로 남습니다.</div>
       <div class="small mb-2" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:.4rem .6rem;">
         지금까지 입금 — ${deposits}원 · 공사 총액 ${fmt(total2)}원</div>
-      <datalist id="plRoleList"><option value="임대인"></option><option value="임차인"></option></datalist>
+      <datalist id="plRoleList">${ROLE_EXAMPLES.map((r) => `<option value="${r}"></option>`).join('')}</datalist>
       <div id="plRows">${init.map(rowHtml).join('')}</div>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="plAdd"><i class="fas fa-plus"></i> 부담자 추가</button>
       <div id="plSum" class="small mt-2"></div>

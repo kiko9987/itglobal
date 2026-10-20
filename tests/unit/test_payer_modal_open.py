@@ -77,3 +77,35 @@ def test_open_not_found_anywhere_is_404(app):
          patch.object(im, '_payer_rec_from_sheet', return_value=None):
         body, status = _get(app, 'X0000-NO')
     assert status == 404
+
+
+# ── PM 계산서 요청 창의 이미 발행 요약(GET /api/invoice/issued/<code>) — 나눠 내는 공사는 사람별 (2026-10-20) ──
+RECS = 'dashboard.services.project_service.get_project_records'
+ISSUED_REC = dict(REC, **{'총액 1': 16042000, '부가세': True, '계약금 계산서': '발행', '중도금': 0,
+                          '계산서_메모': '2026-10-18 계약금 발행 8,000,000원 · 홍길동'})
+
+
+def _issued(app, code):
+    with app.test_request_context(f'/api/invoice/issued/{code}'):
+        resp = im.api_invoice_issued.__wrapped__(code)
+        resp = resp[0] if isinstance(resp, tuple) else resp
+        return resp.get_json()['data']
+
+
+def test_issued_split_returns_per_payer(app):
+    with patch(LOAD, return_value=pd.DataFrame([ISSUED_REC])), patch(RECS, return_value=[ISSUED_REC]):
+        data = _issued(app, 'G4148-JW')
+    assert data['split'] is True and data['warn'] == '' and data['remaining_supply'] is None
+    lessor, tenant = data['payers']['계약금'], data['payers']['잔금']
+    assert lessor['issued'] == 8000000 and lessor['remaining_supply'] == 0 and '전액 발행됨' in lessor['warn']
+    assert tenant['issued'] == 0 and tenant['warn'] == ''
+    assert tenant['remaining_supply'] == round(9646200 * 16042000 / 17646200)   # 부담액의 공급가 전부
+    assert [it['stage'] for it in data['active']] == ['계약금']
+
+
+def test_issued_plain_project_has_no_split_keys(app):
+    plain = dict(ISSUED_REC, **{'계약금 부담자': '-', '잔금 부담자': '-'})
+    with patch(LOAD, return_value=pd.DataFrame([plain])), patch(RECS, return_value=[plain]):
+        data = _issued(app, 'G4148-JW')
+    assert 'split' not in data and 'payers' not in data
+    assert data['has_issued'] is True and data['remaining_supply'] is not None

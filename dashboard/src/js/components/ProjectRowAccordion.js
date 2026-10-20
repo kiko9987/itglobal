@@ -21,8 +21,8 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
-import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate, isPreIssued, billHeadline } from '../utils/billStatus.js';
-import { payerLine } from '../utils/payerSplit.js';
+import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate, isPreIssued, billHeadline, splitBillNote } from '../utils/billStatus.js';
+import { payerLine, getStagePayer, stagePayers, stripPayerLine, payerTitle } from '../utils/payerSplit.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -30,6 +30,8 @@ import { payerLine } from '../utils/payerSplit.js';
  * @returns {object} { isEmpty: boolean, isTemplate: boolean }
  */
 function checkMemoStatus(memo) {
+  // 나눠 내는 공사의 '◆ 부담자' 줄만 있는 메모 = 입금 기록 없음
+  memo = stripPayerLine(memo);
   if (!memo || !memo.trim()) {
     return { isEmpty: true, isTemplate: false };
   }
@@ -984,14 +986,25 @@ export default class ProjectRowAccordion {
 
     // 카드 → 사업자·결제액 참고 툴팁(상세 수수료 분해는 테이블 전용).
     if (category === '카드' && rowData && stage) {
-      const biz = String(rowData['사업자명'] || '').trim();
       const amt = parseFloat(rowData[stage] || 0);
       const pl = payerLine(rowData, stage);
+      // 나눠 내는 공사는 맨 위 사람 줄이 결제한 사람 — 시트 사업자명(한 사람 몫)은 붙이지 않음
+      const biz = pl ? '' : String(rowData['사업자명'] || '').trim();
       const lines = [...(pl ? [pl] : []), '카드결제 (영수증 자동)'];
       if (biz) lines.push(biz);
       if (amt > 0) lines.push(`${stage} ${amt.toLocaleString()}원`);
       const title = this.escapeHTML(lines.join('\n'));
       return ` <span class="memo-tooltip-trigger bill-status" data-bs-toggle="tooltip" data-bs-title="${title}" aria-label="${this.escapeHTML(lines.join(', '))}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
+    }
+
+    // 나눠 내는 공사 ⚠️ = 그 사람 완납 + 계산서 없음/덜 나감 → 사람 줄 + 사람 기준 문구
+    if (category === '미발행' && rowData && stage) {
+      const note = splitBillNote(rowData, stage);
+      if (note) {
+        const lines = [payerLine(rowData, stage), note].filter(Boolean);
+        const title = this.escapeHTML(lines.join('\n'));
+        return ` <span class="memo-tooltip-trigger bill-status" data-bs-toggle="tooltip" data-bs-title="${title}" aria-label="${this.escapeHTML(lines.join(', '))}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
+      }
     }
 
     return ` <span class="memo-tooltip-trigger bill-status" data-bs-toggle="tooltip" data-bs-title="${info.label}" aria-label="${info.label}"><span class="bill-icon-spacer"></span><i class="${info.icon}"></i></span>`;
@@ -1095,6 +1108,12 @@ export default class ProjectRowAccordion {
       `;
     };
 
+    // 나눠 내는 공사: 칸 이름 옆에 그 칸 사람('계약금 · 임대인 이희승') — 칸 = 사람, 차수는 입금 메모에
+    const stageTitle = (s) => {
+      const p = getStagePayer(rowData, s);
+      return p ? `${s} <span class="text-muted">· ${this.escapeHTML(payerTitle(p))}</span>` : s;
+    };
+
     return `
       <div class="info-card compact-card" id="card-collection-${projectCode}" data-card-type="collection">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -1107,7 +1126,7 @@ export default class ProjectRowAccordion {
         </div>
         <div class="card-grid">
           <div class="compact-item">
-            <small>계약금</small>
+            <small>${stageTitle('계약금')}</small>
             <div class="editable-value-wrapper">
               ${createMemoField('계약금', '계약금')}
             </div>
@@ -1123,7 +1142,7 @@ export default class ProjectRowAccordion {
             })()}</div>
           </div>
           <div class="compact-item">
-            <small>중도금</small>
+            <small>${stageTitle('중도금')}</small>
             <div class="editable-value-wrapper">
               ${createMemoField('중도금', '중도금')}
             </div>
@@ -1133,7 +1152,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="수금 확인" data-original-value="${this.unifiedBadgeSystem.collectionBadge.normalizeStatus(rowData['수금 확인'])}">${this.formatCollectionStatus(rowData['수금 확인'])}</div>
           </div>
           <div class="compact-item">
-            <small>잔금</small>
+            <small>${stageTitle('잔금')}</small>
             <div class="editable-value-wrapper">
               ${createMemoField('잔금', '잔금')}
             </div>
@@ -1442,17 +1461,18 @@ export default class ProjectRowAccordion {
   }
 
   /**
-   * 부담자 설정 버튼 — 나눠 내는 공사(임대인·임차인 등) 부담자 입력 (2026-10-19, 편집자 이상 = 매니저도).
-   * 이미 나눠 내는 공사면 사람 수 표시. invoice-request-btn 클래스 → 편집 모드 때 함께 숨김.
+   * 부담자 설정 버튼 — 한 공사를 여러 사람이 나눠 낼 때(임대인·임차인, 한 법인의 두 사업자, 병원·원장 등)
+   * 부담자 입력 (2026-10-19, 편집자 이상 = 매니저도). 이미 나눠 내는 공사면 사람 수 표시.
+   * invoice-request-btn 클래스 → 편집 모드 때 함께 숨김.
    */
   generatePayerSplitButton(projectCode, projectData = {}) {
     const code = String(projectCode || '').trim();
     const role = window.userRole || 'viewer';
     if (!code || !['editor', 'admin', 'super_admin'].includes(role)) return '';
-    const n = ['계약금', '중도금', '잔금'].filter((s) => payerLine(projectData || {}, s)).length;
+    const n = Object.keys(stagePayers(projectData || {})).length;
     return `
       <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn invoice-request-btn"
-              title="나눠 내는 공사의 부담자(임대인·임차인 등) 설정"
+              title="한 공사를 여러 사람이 나눠 낼 때 누가 얼마를 내는지 설정 (임대인·임차인, 병원·원장 등)"
               onclick="window.invoiceLicense && window.invoiceLicense.openPayerModal('${code}')">
         <i class="fas fa-people-arrows"></i><span>부담자 설정${n ? ` (${n})` : ''}</span>
       </button>
@@ -2003,9 +2023,12 @@ export default class ProjectRowAccordion {
           <div style="display: flex; gap: 0.75rem; flex: 1;">
             ${category.options.map(option => {
               const itemKey = `${category.name}-${option}`;
+              const payer = getStagePayer(_p, option);   // 나눠 내는 공사: 칸 = 사람 → '계약금(임대인)'
+              const optLabel = payer ? `${option}<span class="text-muted">(${this.escapeHTML(payer.role)})</span>` : option;
               return `
-                <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;">
-                  <span style="font-size: 0.8125rem; white-space: nowrap;">${option}</span>
+                <label class="d-flex align-items-center m-0 cursor-pointer" style="gap: 0.25rem;"
+                       ${payer ? `title="${this.escapeHTML(payerTitle(payer))}"` : ''}>
+                  <span style="font-size: 0.8125rem; white-space: nowrap;">${optLabel}</span>
                   <input class="form-check-input m-0 bill-stage-checkbox" type="checkbox"
                          value="${option}"
                          data-category="${category.name}"
@@ -4050,11 +4073,13 @@ export default class ProjectRowAccordion {
       if (paymentInput) {
         const paymentHandler = () => {
           this.lastTriggeredField = fieldName;
-          
+
           this.calculateOutstandingAmount(projectCode);
+          this._showPayerAmountHint(paymentInput, fieldName);
         };
         paymentInput.addEventListener('input', paymentHandler);
         paymentInput._calculationHandler = paymentHandler;
+        this._showPayerAmountHint(paymentInput, fieldName);   // 편집 시작 때도 칸 주인 표시
       }
     });
 
@@ -4071,6 +4096,37 @@ export default class ProjectRowAccordion {
         costInput._calculationHandler = costHandler;
       }
     });
+  }
+
+  /**
+   * 나눠 내는 공사 편집 중 금액 칸 안내 (2026-10-20) — 칸 = 사람.
+   *  · 부담자 칸: '임대인 이희승 · 부담 6,887,100원' (부담액보다 많이 적으면 빨간 경고)
+   *  · 부담자 없는 칸에 금액: 낸 사람의 칸에 적으라는 경고
+   * 편집을 마치면 칸 내용이 다시 그려져 안내도 같이 사라진다.
+   */
+  _showPayerAmountHint(input, stage) {
+    const wrap = input && input.closest('[data-field]');
+    if (!wrap) return;
+    let hint = wrap.querySelector('.payer-amount-hint');
+    const payers = stagePayers(this.currentProject || {});
+    const val = parseFloat(String(input.value || '').replace(/[^0-9]/g, '') || '0') || 0;
+    const p = payers[stage];
+    let text = '';
+    let warn = false;
+    if (p) {
+      text = `${payerTitle(p)} · 부담 ${p.amount.toLocaleString()}원`;
+      if (val > p.amount + 1) { text += ` — ${(val - p.amount).toLocaleString()}원 더 많음`; warn = true; }
+    } else if (Object.keys(payers).length && val > 0) {
+      text = '이 칸엔 부담자가 없습니다. 낸 사람의 칸에 적어 주세요.';
+      warn = true;
+    }
+    if (!text) { if (hint) hint.remove(); return; }
+    if (!hint) {
+      hint = document.createElement('div');
+      wrap.appendChild(hint);
+    }
+    hint.className = `payer-amount-hint small mt-1 ${warn ? 'text-danger' : 'text-muted'}`;
+    hint.textContent = text;
   }
 
   /**
@@ -4101,13 +4157,18 @@ export default class ProjectRowAccordion {
     const total1 = readMoney(financialCard, '총액 1', proj['총액 1']);
     const lines = paid.map(([stage, amt]) => {
       const inv = String(proj[`${stage} 계산서`] ?? '').trim();   // 발행 / 미발행 / N입금 …
-      return `· ${stage} ${won(amt)} 입금${inv && inv !== '-' ? ` (계산서 ${inv})` : ''}`;
+      const p = getStagePayer(proj, stage);                        // 나눠 내는 공사: 그 칸 사람
+      return `· ${stage}${p ? `(${payerTitle(p)})` : ''} ${won(amt)} 입금${inv && inv !== '-' ? ` (계산서 ${inv})` : ''}`;
     });
     const totalLine = total1 > 0
       ? `\n부가세를 해제하면 총액이 ${won(total1 + Math.round(total1 * 0.1))} → ${won(total1)}로 바뀝니다.`
       : '';
+    // 나눠 내는 공사: 사람별 부담액은 부가세 포함 금액이라 저절로 안 바뀜
+    const payerLineMsg = Object.keys(stagePayers(proj)).length
+      ? '\n나눠 내는 공사입니다. 사람별 부담액은 그대로 남으니 [부담자 설정]에서 함께 고쳐 주세요.\n'
+      : '';
     return confirm(
-      `⚠️ 이미 입금된 프로젝트입니다.\n${lines.join('\n')}\n${totalLine}\n` +
+      `⚠️ 이미 입금된 프로젝트입니다.\n${lines.join('\n')}\n${totalLine}\n${payerLineMsg}` +
       `받은 금액과 세금계산서 발행 여부를 확인한 뒤 진행하세요.\n\n` +
       `• 확인: 부가세 해제\n• 취소: 부가세 별도 유지`
     );
@@ -7567,7 +7628,13 @@ export default class ProjectRowAccordion {
       });
     }
     // Y(계산서) = "{마지막 입금단계} - {상태}" 자동계산. 앵커·상태에 단계 금액 필요 → currentProject 전달.
-    const ySummary = computeYSummary(stages, this.currentProject);
+    //   나눠 내는 공사는 사람별 상태를 행의 칸 값으로 계산하므로 방금 고른 값을 얹어서 넘김.
+    let yRow = this.currentProject;
+    if (Object.keys(stagePayers(yRow || {})).length) {
+      yRow = { ...yRow };
+      BILL_STAGES.forEach((s) => { yRow[BILL_STAGE_COL[s]] = stages[s] || '-'; });
+    }
+    const ySummary = computeYSummary(stages, yRow);
     if (selectedText) selectedText.textContent = ySummary;
     if (this.editState && this.editState.isActive && fieldName) {
       this.editState.updateField(fieldName, ySummary);

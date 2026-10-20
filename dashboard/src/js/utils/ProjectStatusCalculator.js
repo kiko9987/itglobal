@@ -1,4 +1,5 @@
 import AmountCalculator from './AmountCalculator.js';
+import { isSplit } from './payerSplit.js';
 
 import logger from '../utils/logger.js';
 /**
@@ -87,7 +88,9 @@ export default class ProjectStatusCalculator {
 
     // 3. 🟠 확인필요: 이상한 상황들 + 데이터 부족
     if ((totalAmount > 0 && totalPaidAmount === totalAmount && outstandingAmount > 0) ||
-        (totalAmount > 0 && totalPaidAmount < totalAmount && contractAmount > 0 && midAmount > 0 && finalAmount > 0) ||
+        // 세 칸 모두 입금 + 미수금 = 이상(일반 공사). 나눠 내는 공사는 칸 = 사람이라 정상 → 제외
+        (totalAmount > 0 && totalPaidAmount < totalAmount && contractAmount > 0 && midAmount > 0 && finalAmount > 0
+          && !isSplit(rowData)) ||
         (totalAmount === 0 && outstandingAmount > 0 && contractAmount > 0 && midAmount > 0 && finalAmount > 0) ||
         (totalPaidAmount === 0 && outstandingAmount === 0) || // 모든 금액 정보 없음
         (!startDateStr && !endDateStr)) { // 날짜 정보 없음
