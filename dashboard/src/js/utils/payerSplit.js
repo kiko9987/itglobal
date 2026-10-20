@@ -23,6 +23,9 @@ const AMT_RE = /^(?:₩\s*)?(\d[\d,]*)\s*원?$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CASH_WORDS = new Set(['현금', '계산서x', '계산서없음', '계산서미발행', 'n입금', 'x']);
 const METHOD_WORDS = { 계산서: '계산서', 세금계산서: '계산서', 카드: '카드', 미정: '미정' };
+// 현금을 부가세 없이 받는 사람 표시(2026-10-21) — 칸 금액은 받을 돈 그대로, 부가세 별도 화면에서 1.1로 안 나눔
+export const VAT_FREE_TOKEN = '부가세 없음';
+const VAT_FREE_WORDS = new Set(['부가세없음', 'vat없음']);
 
 const toNum = (v) => {
   const s = String(v == null ? '' : v).replace(/[^\d.-]/g, '');
@@ -36,7 +39,7 @@ function methodOf(tok) {
   return METHOD_WORDS[t] || '';
 }
 
-/** 부담자 칸 → {role, name, bizNo, email, amount, method, note} 또는 null */
+/** 부담자 칸 → {role, name, bizNo, email, amount, method, vatFree, note} 또는 null */
 export function parsePayerCell(text) {
   const s = String(text == null ? '' : text).trim();
   if (!s || s === '-' || !SEP_RE.test(s)) return null;
@@ -44,7 +47,7 @@ export function parsePayerCell(text) {
   if (toks.length < 3) return null;
   const role = toks[0];
   if (role.length > 12 || AMT_RE.test(role) || BIZNO_RE.test(role) || role.includes('@') || methodOf(role)) return null;
-  let name = ''; let bizNo = ''; let email = ''; let method = ''; let amount = 0;
+  let name = ''; let bizNo = ''; let email = ''; let method = ''; let amount = 0; let vatFree = false;
   const notes = [];
   toks.slice(1).forEach((t) => {
     const mBiz = t.match(BIZNO_RE);
@@ -53,11 +56,13 @@ export function parsePayerCell(text) {
     else if (!email && EMAIL_RE.test(t)) email = t;
     else if (!amount && mAmt && toNum(mAmt[1]) >= 1000) amount = toNum(mAmt[1]);
     else if (!method && methodOf(t)) method = methodOf(t);
+    else if (!vatFree && VAT_FREE_WORDS.has(t.replace(/\s+/g, '').toLowerCase())) vatFree = true;
     else if (!name) name = t;
     else notes.push(t);
   });
   if (!name || amount <= 0) return null;
-  return { role, name, bizNo, email, amount, method: method || '계산서', note: notes.join(' · ') };
+  const m = method || '계산서';
+  return { role, name, bizNo, email, amount, method: m, vatFree: vatFree && m === '현금', note: notes.join(' · ') };
 }
 
 /** 프로젝트 행 → {단계: 부담자(+received, remaining)} */

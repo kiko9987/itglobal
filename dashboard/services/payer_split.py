@@ -9,6 +9,8 @@
     임차인 · 기종원(위너스골프) · bell8517@nate.com · 18,471,200 · 계산서
   - 첫 토큰 = 구분(임대인/임차인/본사 …), 금액 = 부담액(부가세 포함 실제로 받을 돈)
   - 사업자번호·이메일·결제 방식(계산서/현금/카드)은 있으면 인식, 결제 방식 없으면 '계산서'
+  - 현금 뒤 '부가세 없음' = 부가세 없이 받는 사람(2026-10-21). PM 창은 부가세 별도로 보여 주고 입력받되
+    (다른 화면과 같게) 칸에는 받을 돈으로 환산해 적는다 — 이 표시가 있으면 1.1 환산을 하지 않음.
   - 구분 기호가 없거나 금액·이름이 없으면 부담자가 아님(None) → 옛 입금자명 값('25/02/11 고희원 R')은 무시
   하나라도 해석되면 그 공사는 '나눠 내는 공사'. 받은 돈 = 그 칸의 금액(입금 메모 합), 남은 돈 = 부담액 − 받은 돈.
 
@@ -47,6 +49,10 @@ _AMT_RE = re.compile(r'^(?:₩\s*)?(\d[\d,]*)\s*원?$')
 _EMAIL_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
 _CASH_WORDS = {'현금', '계산서x', '계산서없음', '계산서미발행', 'n입금', 'x'}
 _METHOD_WORDS = {'계산서': '계산서', '세금계산서': '계산서', '카드': '카드', '미정': '미정'}
+# 현금을 부가세 없이 받는 사람 표시(2026-10-21) — 칸 금액은 그대로 '실제로 받을 돈'이고, 이 표시가 있으면
+#   부가세 별도 화면에서 금액을 1.1로 나누지 않는다(G4148 임대인 600만 현금 = 부가세 없음, G4151·G4152 현금은 부가세 포함).
+VAT_FREE_TOKEN = '부가세 없음'
+_VAT_FREE_WORDS = {'부가세없음', 'vat없음'}
 
 
 def _num(v) -> int:
@@ -78,6 +84,7 @@ def parse_payer_cell(text) -> Optional[dict]:
         return None
     name = biz_no = email = method = ''
     amount = 0
+    vat_free = False
     notes = []
     for t in toks[1:]:
         m_biz = _BIZNO_RE.match(t)
@@ -90,14 +97,18 @@ def parse_payer_cell(text) -> Optional[dict]:
             amount = _num(m_amt.group(1))
         elif not method and _method_of(t):
             method = _method_of(t)
+        elif not vat_free and re.sub(r'\s+', '', t).lower() in _VAT_FREE_WORDS:
+            vat_free = True
         elif not name:
             name = t
         else:
             notes.append(t)
     if not name or amount <= 0:
         return None
+    method = method or '계산서'
     return {'role': role, 'name': name, 'biz_no': biz_no, 'email': email, 'amount': amount,
-            'method': method or '계산서', 'note': ' · '.join(notes), 'raw': s}
+            'method': method, 'vat_free': vat_free and method == '현금',
+            'note': ' · '.join(notes), 'raw': s}
 
 
 def stage_payers(rec: dict) -> Dict[str, dict]:
@@ -380,8 +391,48 @@ def format_payer_cell(p: dict) -> str:
     if email and _EMAIL_RE.match(email):
         parts.append(email)
     parts.append(f"{_num(p.get('amount')):,}")
-    parts.append(p.get('method') if p.get('method') in METHODS else '계산서')
+    method = p.get('method') if p.get('method') in METHODS else '계산서'
+    parts.append(method)
+    if p.get('vat_free') and method == '현금':
+        parts.append(VAT_FREE_TOKEN)
     return ' · '.join(parts)
+
+
+def vat_ratio(rec: dict) -> float:
+    """총액 2 / 총액 1 — 부가세 별도 공사면 ≈1.1, 아니면 1. 부담액(받을 돈) ↔ 부가세 별도 금액 환산용."""
+    t1, t2 = _num((rec or {}).get('총액 1')), _num((rec or {}).get('총액 2'))
+    return t2 / t1 if t1 > 0 and t2 > t1 else 1.0
+
+
+def payer_supply(payer: dict, ratio: float) -> int:
+    """부담액(받을 돈) → 부가세 별도 금액. 현금·부가세 없음은 받을 돈 그대로."""
+    amt = int(payer.get('amount') or 0)
+    return amt if payer.get('vat_free') or ratio <= 1 else int(round(amt / ratio))
+
+
+def share_check(payers: list, rec: dict) -> str:
+    """부담액 합계 점검 문구(맞으면 '') — PM 저장 경고·정합성 점검 공용 (2026-10-21 부가세 별도 기준).
+
+    부가세 별도 공사: 부가세 별도 금액 합 ↔ 총액 1. 그 합은 맞는데 부가세 없이 받는 사람 때문에 받을 돈 합이
+    총액 2 보다 적으면 그것도 알린다(다 받아도 미수금이 남음 → 총액 조정은 경영지원 판단, G4148).
+    부가세 없는 공사(총액 1 = 총액 2)나 총액 1 이 없으면: 받을 돈 합 ↔ 총액 2.
+    """
+    rec = rec or {}
+    t1, t2 = _num(rec.get('총액 1')), _num(rec.get('총액 2'))
+    ratio = vat_ratio(rec)
+    gross = sum(int(p.get('amount') or 0) for p in payers)
+    tol = max(1, len(payers))   # 사람마다 원 단위 반올림
+    if ratio > 1:
+        supply = sum(payer_supply(p, ratio) for p in payers)
+        if abs(t1 - supply) > tol:
+            return f"부담액 합계(VAT 별도) {supply:,}원이 공사 총액(총액 1) {t1:,}원과 {t1 - supply:+,}원 다릅니다."
+        if abs(t2 - gross) > tol and any(p.get('vat_free') for p in payers):
+            return (f"부가세 없이 받는 사람이 있어 받을 돈 합계 {gross:,}원이 총액 2 {t2:,}원보다 {t2 - gross:,}원 "
+                    "적습니다. 다 받아도 미수금이 남으니 총액 조정이 필요한지 경영지원에 확인해 주세요.")
+        return ''
+    if t2 > 0 and abs(t2 - gross) > 1:
+        return f"부담액 합계 {gross:,}원이 공사 총액 {t2:,}원과 {t2 - gross:+,}원 다릅니다."
+    return ''
 
 
 def _same_person(a: dict, b: dict) -> bool:
@@ -394,10 +445,11 @@ def _same_person(a: dict, b: dict) -> bool:
 def plan_payers(rows: list, rec: dict) -> Tuple[Dict[str, dict], List[str], List[str]]:
     """PM [부담자 설정] 입력 → (칸 배정 {단계: 부담자}, 오류 목록, 경고 목록). 순수 함수.
 
-    rows: [{role, name, biz_no, email, amount, method, stage?}] — 빈 줄(이름·금액 모두 없음)은 무시, 최대 3명.
+    rows: [{role, name, biz_no, email, amount, method, vat_free?, stage?}] — amount = 받을 돈(부가세 포함, 화면이
+    부가세 별도 입력을 환산해 보냄). 빈 줄(이름·금액 모두 없음)은 무시, 최대 3명.
     칸: 요청한 stage(중복 불가) → 기존에 같은 사람(번호·이름)이 있던 칸 → 남은 칸(계약금→잔금→중도금).
     오류: 구분·이름·금액 누락, 4명 이상, 같은 칸 중복, 입금이 있는 칸에 부담자가 빠짐(그 돈 주인 미상).
-    경고: 부담액 합계 ≠ 총액 2.  rows 가 비면 '나눠 내기 해제'(입금 있어도 허용 — 평범한 공사로 복귀).
+    경고: share_check(부가세 별도 합 ≠ 총액 1 등).  rows 가 비면 '나눠 내기 해제'(입금 있어도 허용).
     """
     errors, warns = [], []
     clean = []
@@ -422,7 +474,8 @@ def plan_payers(rows: list, rec: dict) -> Tuple[Dict[str, dict], List[str], List
         stage = r.get('stage') if r.get('stage') in STAGES else ''
         clean.append({'role': role, 'name': name, 'biz_no': str(r.get('biz_no') or '').strip(),
                       'email': str(r.get('email') or '').strip(), 'amount': amount,
-                      'method': method, 'stage': stage})
+                      'method': method, 'vat_free': bool(r.get('vat_free')) and method == '현금',
+                      'stage': stage})
     if len(clean) > 3:
         errors.append('부담자는 3명까지 정할 수 있습니다(칸이 계약금·중도금·잔금 3개).')
     if errors:
@@ -454,10 +507,9 @@ def plan_payers(rows: list, rec: dict) -> Tuple[Dict[str, dict], List[str], List
         got = _num((rec or {}).get(s))
         if got > 0 and s not in taken:
             errors.append(f"{s} 칸에 이미 입금 {got:,}원이 있습니다 — 그 돈을 낸 부담자를 {s} 칸에 지정해 주세요.")
-    total2 = _num((rec or {}).get('총액 2'))
-    share = sum(p['amount'] for p in clean)
-    if total2 > 0 and abs(total2 - share) > 1:
-        warns.append(f"부담액 합계 {share:,}원이 공사 총액(총액 2) {total2:,}원과 {total2 - share:+,}원 다릅니다.")
+    msg = share_check(clean, rec)
+    if msg:
+        warns.append(msg)
     return ({p['stage']: p for p in clean} if not errors else {}), errors, warns
 
 
@@ -517,10 +569,9 @@ def split_problems(rec: dict) -> List[str]:
             out.append(f"{PAYER_FIELD[s]} 칸 형식 확인 필요: {raw[:40]!r}")
     if not payers:
         return out
-    total2 = _num(rec.get('총액 2'))
-    share = sum(p['amount'] for p in payers.values())
-    if total2 > 0 and abs(total2 - share) > 1:
-        out.append(f"부담액 합계 {share:,}원 ≠ 총액 2 {total2:,}원 (차이 {total2 - share:+,}원)")
+    msg = share_check(list(payers.values()), rec)
+    if msg:
+        out.append(msg)
     for s in STAGES:
         if s not in payers and _num(rec.get(s)) > 0:
             out.append(f"{s} 칸에 입금 {_num(rec.get(s)):,}원이 있는데 부담자가 없음")

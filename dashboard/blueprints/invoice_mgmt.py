@@ -233,7 +233,7 @@ def _payer_rows(rec: dict) -> list:
     from ..services.payer_split import stage_payers
     return [{'stage': s, 'role': p['role'], 'name': p['name'], 'biz_no': p['biz_no'],
              'email': p['email'], 'amount': p['amount'], 'method': p['method'],
-             'received': p['received']}
+             'vat_free': bool(p.get('vat_free')), 'received': p['received']}
             for s, p in stage_payers(rec).items()]
 
 
@@ -256,9 +256,11 @@ def api_payers_get(code):
     if rec is None:
         return APIResponse.error(message='프로젝트를 시트에서 찾지 못했습니다.',
                                  error_code=APIErrorCode.PROJECT_NOT_FOUND, status_code=404)
-    from ..services.payer_split import _num, STAGES
+    from ..services.payer_split import _num, STAGES, vat_ratio
+    # total1·vat_ratio: 창이 부담액을 부가세 별도로 보여 주고 입력받기 위해(2026-10-21) — 칸에는 받을 돈으로 저장
     return APIResponse.success(data={
         'code': code, 'payers': _payer_rows(rec), 'total2': _num(rec.get('총액 2')),
+        'total1': _num(rec.get('총액 1')), 'vat_ratio': vat_ratio(rec),
         'stage_values': {s: _num(rec.get(s)) for s in STAGES},
     })
 

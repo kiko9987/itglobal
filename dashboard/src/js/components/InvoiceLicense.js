@@ -529,19 +529,34 @@ export default class InvoiceLicense {
     const total2 = Number(info.total2 || 0);
     const sv = info.stage_values || {};
     const fmt = (n) => (Number(n) || 0).toLocaleString('ko-KR');
+    const num = (v) => Number(String(v == null ? '' : v).replace(/[^\d]/g, '')) || 0;
     const STAGES3 = ['계약금', '중도금', '잔금'];
+    // 부가세 별도 표기(2026-10-21 사용자 요청 — 다른 화면과 같게). 칸에는 지금처럼 '받을 돈'(부가세 포함)을 적고,
+    //   창에서만 부가세 별도로 보여 주고 입력받는다. 비율 = 총액 2 / 총액 1 (서버 payer_split.vat_ratio 와 같음).
+    //   현금을 부가세 없이 받는 사람('현금 · 부가세 없음')은 나누지 않음 — G4148 임대인 600만, G4151·52 현금은 부가세 포함.
+    const proj = this._findProject(c) || {};
+    const total1 = Number(info.total1 != null ? info.total1 : num(proj['총액 1'])) || 0;
+    const ratio = Number(info.vat_ratio) || (total1 > 0 && total2 > total1 ? total2 / total1 : 1);
+    const vatSep = ratio > 1;
+    const NOVAT = '현금·부가세없음';   // 결제 방식 select 값(서버엔 method=현금 + vat_free 로 보냄)
+    const supplyOf = (gross, vatFree) => (vatFree || !vatSep ? gross : Math.round(gross / ratio));
+    const grossOf = (supply, vatFree) => (vatFree || !vatSep ? supply : Math.round(supply * ratio));
     // 저장된 사람은 칸 배정 순서(계약금 → 잔금 → 중도금)대로 — 서버가 줄 순서로 칸을 정하므로 다시 저장해도 그대로
     const saved = (info.payers || []).slice()
       .sort((a, b) => PAYER_ORDER.indexOf(a.stage) - PAYER_ORDER.indexOf(b.stage));
     const init = saved.length ? saved : [{ role: '', method: '계산서' }, { role: '', method: '계산서' }];
-    const recvLine = (p) => {
-      if (!p.stage || !p.amount) return '';
-      const got = Number(p.received) || 0;
-      const left = (Number(p.amount) || 0) - got;
-      return `${p.stage} 칸 · 받은 돈 ${fmt(got)}원 · ${left <= 0 ? '완납' : `남음 ${fmt(left)}원`}`;
-    };
-    const rowHtml = (p) => `
-      <div class="pl-row mb-2" style="border:1px solid var(--gray-200); border-radius:8px; padding:.6rem .7rem;">
+    const methodOpts = [['계산서', '계산서'], ['현금', '현금'], ['카드', '카드']]
+      .concat(vatSep ? [[NOVAT, '현금 · 부가세 없음']] : []);
+    const rowHtml = (p) => {
+      const vf = !!p.vat_free;
+      const gross = Number(p.amount) || 0;
+      const sup = gross ? supplyOf(gross, vf) : 0;
+      const mval = vf && vatSep ? NOVAT : (p.method || '계산서');
+      // data-*: 손대지 않고 저장하면 원래 받을 돈 그대로 보냄(1원 반올림 어긋남 방지), 받은 돈·칸은 안내 줄용
+      return `
+      <div class="pl-row mb-2" style="border:1px solid var(--gray-200); border-radius:8px; padding:.6rem .7rem;"
+           data-orig-gross="${gross}" data-orig-supply="${sup}" data-orig-method="${esc(mval)}"
+           data-received="${Number(p.received) || 0}" data-saved-stage="${esc(p.stage || '')}">
         <div class="d-flex gap-2 mb-2">
           <input class="form-control form-control-sm" data-f="role" list="plRoleList" value="${esc(p.role || '')}"
                  placeholder="구분 (예: 임대인)" style="max-width:128px;">
@@ -552,9 +567,9 @@ export default class InvoiceLicense {
         </div>
         <div class="d-flex gap-2 flex-wrap">
           <input class="form-control form-control-sm" data-f="amount" inputmode="numeric"
-                 value="${p.amount ? fmt(p.amount) : ''}" placeholder="부담액 (부가세 포함)" style="max-width:150px;">
-          <select class="form-select form-select-sm" data-f="method" style="max-width:96px;">
-            ${['계산서', '현금', '카드'].map((m) => `<option ${p.method === m ? 'selected' : ''}>${m}</option>`).join('')}
+                 value="${sup ? fmt(sup) : ''}" placeholder="${vatSep ? '부담액 (VAT 별도)' : '부담액'}" style="max-width:150px;">
+          <select class="form-select form-select-sm" data-f="method" style="max-width:${vatSep ? 160 : 96}px;">
+            ${methodOpts.map(([v, label]) => `<option value="${v}" ${mval === v ? 'selected' : ''}>${label}</option>`).join('')}
           </select>
           <select class="form-select form-select-sm" data-f="stage" style="max-width:120px;" title="이 사람 돈이 쌓일 칸 (보통은 자동)">
             <option value="">칸 자동</option>
@@ -566,9 +581,37 @@ export default class InvoiceLicense {
                  placeholder="계산서 받을 이메일" style="min-width:150px; flex:1;">
         </div>
         <div class="pl-suggest small" style="display:none; margin-top:.35rem;"></div>
-        ${recvLine(p) ? `<div class="small text-muted" style="margin-top:.35rem;">${esc(recvLine(p))}</div>` : ''}
+        <div class="pl-info small text-muted" style="margin-top:.35rem;"></div>
       </div>`;
+    };
+    // 줄 아래 안내: '받을 돈 X원 (VAT 포함) · 계약금 칸 · 받은 돈 Y원 · 남음 Z원' — 금액·결제 방식 바꾸면 바로 갱신
+    const rowGross = (r) => {
+      const v = (f) => ((r.querySelector(`[data-f="${f}"]`) || {}).value || '').trim();
+      const supply = num(v('amount'));
+      const vf = v('method') === NOVAT;
+      if (supply === Number(r.dataset.origSupply) && v('method') === r.dataset.origMethod && Number(r.dataset.origGross)) {
+        return Number(r.dataset.origGross);   // 손대지 않음 → 원래 받을 돈 그대로
+      }
+      return grossOf(supply, vf);
+    };
+    const refreshInfo = (r) => {
+      const box = r.querySelector('.pl-info');
+      if (!box) return;
+      const gross = rowGross(r);
+      const vf = ((r.querySelector('[data-f="method"]') || {}).value || '') === NOVAT;
+      const parts = [];
+      if (vatSep && gross) parts.push(`받을 돈 ${fmt(gross)}원 (${vf ? '부가세 없음' : 'VAT 포함'})`);
+      const stage = r.dataset.savedStage;
+      if (stage && gross) {
+        const got = Number(r.dataset.received) || 0;
+        const left = gross - got;
+        parts.push(`${stage} 칸 · 받은 돈 ${fmt(got)}원 · ${left <= 0 ? '완납' : `남음 ${fmt(left)}원`}`);
+      }
+      box.textContent = parts.join(' · ');
+      box.style.display = parts.length ? '' : 'none';
+    };
     const deposits = STAGES3.map((s) => `${s} ${fmt(sv[s])}`).join(' · ');
+    const totalTxt = vatSep ? `${fmt(total1)}원 (VAT 별도)` : `${fmt(total2)}원`;
     // 기본 예시는 흔한 경우만 (병원·원장 같은 특수한 경우는 직접 입력 — 2026-10-21 사용자 결정)
     const ROLE_EXAMPLES = ['임대인', '임차인', '본점', '지점', '법인', '개인사업자'];
     const body = `
@@ -577,26 +620,50 @@ export default class InvoiceLicense {
         사람마다 칸이 하나씩 정해집니다(첫째 계약금 칸, 둘째 잔금 칸, 셋째 중도금 칸). 각자 낸 돈은 자기 칸에 쌓이고,
         몇 번째 돈인지(계약금·중도금·잔금·일시불)는 입금 메모에 차수로 남습니다.</div>
       <div class="small mb-2" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:.4rem .6rem;">
-        지금까지 입금 — ${deposits}원 · 공사 총액 ${fmt(total2)}원</div>
+        지금까지 입금 — ${deposits}원 · 공사 총액 ${totalTxt}</div>
       <datalist id="plRoleList">${ROLE_EXAMPLES.map((r) => `<option value="${r}"></option>`).join('')}</datalist>
       <div id="plRows">${init.map(rowHtml).join('')}</div>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="plAdd"><i class="fas fa-plus"></i> 부담자 추가</button>
       <div id="plSum" class="small mt-2"></div>
       <div class="small text-muted mt-1">모두 빼고 저장하면 나눠 내기가 해제됩니다.</div>`;
 
+    // 서버로는 받을 돈(부가세 포함)으로 환산해 보냄 — amount = 받을 돈, vat_free = 현금·부가세 없음
     const collect = (el) => [...el.querySelectorAll('.pl-row')].map((r) => {
       const v = (f) => ((r.querySelector(`[data-f="${f}"]`) || {}).value || '').trim();
-      return { role: v('role'), name: v('name'), amount: v('amount').replace(/[^\d]/g, ''),
-        method: v('method'), stage: v('stage'), biz_no: v('biz_no'), email: v('email') };
+      const m = v('method');
+      const supply = num(v('amount'));
+      return { role: v('role'), name: v('name'), amount: supply ? String(rowGross(r)) : '', supply,
+        method: m === NOVAT ? '현금' : m, vat_free: m === NOVAT,
+        stage: v('stage'), biz_no: v('biz_no'), email: v('email') };
     }).filter((p) => p.name || p.amount);
 
+    // 합계 확인 — 서버 payer_split.share_check 와 같은 기준(부가세 별도 합 ↔ 총액 1)
     const refreshSum = (el) => {
-      const sum = collect(el).reduce((a, p) => a + (Number(p.amount) || 0), 0);
+      const rows = collect(el);
       const box = el.querySelector('#plSum');
       if (!box) return;
-      const same = !total2 || Math.abs(sum - total2) <= 1;
-      box.textContent = `부담액 합계 ${fmt(sum)}원 / 공사 총액 ${fmt(total2)}원${same ? '' : ` (차이 ${fmt(total2 - sum)}원)`}`;
-      box.style.color = same ? '#1c7c3d' : '#d9480f';
+      const tol = Math.max(1, rows.length);
+      if (!vatSep) {
+        const sum = rows.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+        const same = !total2 || Math.abs(sum - total2) <= 1;
+        box.textContent = `부담액 합계 ${fmt(sum)}원 / 공사 총액 ${fmt(total2)}원${same ? '' : ` (차이 ${fmt(total2 - sum)}원)`}`;
+        box.style.color = same ? '#1c7c3d' : '#d9480f';
+        return;
+      }
+      const supplySum = rows.reduce((a, p) => a + p.supply, 0);
+      const grossSum = rows.reduce((a, p) => a + (Number(p.amount) || 0), 0);
+      const same = !total1 || Math.abs(supplySum - total1) <= tol;
+      let txt = `부담액 합계 ${fmt(supplySum)}원 / 공사 총액 ${fmt(total1)}원 (VAT 별도)`
+        + (same ? '' : ` — 차이 ${fmt(total1 - supplySum)}원`);
+      let warn = !same;
+      if (same && rows.some((p) => p.vat_free) && total2 && Math.abs(total2 - grossSum) > tol) {
+        txt += `\n부가세 없이 받는 사람이 있어 받을 돈 합계 ${fmt(grossSum)}원이 총액 2보다 ${fmt(total2 - grossSum)}원 적습니다.`
+          + ' 다 받아도 미수금이 남으니 총액 조정이 필요한지 경영지원에 확인해 주세요.';
+        warn = true;
+      }
+      box.textContent = txt;
+      box.style.whiteSpace = 'pre-line';
+      box.style.color = warn ? '#d9480f' : '#1c7c3d';
     };
 
     const bindRow = (el, r) => {
@@ -604,12 +671,15 @@ export default class InvoiceLicense {
       if (del) del.addEventListener('click', () => { r.remove(); refreshSum(el); });
       const amt = r.querySelector('[data-f="amount"]');
       if (amt) {
-        amt.addEventListener('input', () => refreshSum(el));
+        amt.addEventListener('input', () => { refreshInfo(r); refreshSum(el); });
         amt.addEventListener('blur', () => {
-          const n = Number(String(amt.value).replace(/[^\d]/g, ''));
+          const n = num(amt.value);
           amt.value = n ? fmt(n) : '';
         });
       }
+      const meth = r.querySelector('[data-f="method"]');
+      if (meth) meth.addEventListener('change', () => { refreshInfo(r); refreshSum(el); });
+      refreshInfo(r);
       // 거래처 탭 자동완성 — 고르면 사업자명·사업자번호·이메일 채움
       const name = r.querySelector('[data-f="name"]');
       const sug = r.querySelector('.pl-suggest');
