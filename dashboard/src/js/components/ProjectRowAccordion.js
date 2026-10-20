@@ -1108,10 +1108,11 @@ export default class ProjectRowAccordion {
       `;
     };
 
-    // 나눠 내는 공사: 칸 이름 옆에 그 칸 사람('계약금 · 임대인 이희승') — 칸 = 사람, 차수는 입금 메모에
+    // 나눠 내는 공사: 칸 이름은 그대로 두고 마우스를 올리면 그 칸 사람('임대인 이희승') — 이름을 붙이면
+    //   길어서 금액·메모 아이콘이 밀려남(2026-10-20 사용자 지적)
     const stageTitle = (s) => {
       const p = getStagePayer(rowData, s);
-      return p ? `${s} <span class="text-muted">· ${this.escapeHTML(payerTitle(p))}</span>` : s;
+      return p ? `<span title="${this.escapeHTML(payerLine(rowData, s))}">${s}</span>` : s;
     };
 
     return `
