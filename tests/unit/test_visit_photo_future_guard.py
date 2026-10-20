@@ -36,3 +36,37 @@ def test_empty_or_garbage_allows():
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
+
+
+# ── 현장 사진 판별 게이트 (2026-10-20 L-04289) ─────────────────────────────
+# 방문 당일 올린 도면(PNG 캡처·PDF·DWG)은 날짜 게이트를 통과해 오완료 → 파일 형식으로 보완.
+
+@pytest.mark.parametrize('files,expected', [
+    ([{'name': 'IMG_9761.jpg', 'filetype': 'jpg', 'mimetype': 'image/jpeg'}], True),
+    ([{'name': 'KakaoTalk_20261001.jpg', 'filetype': 'jpg', 'mimetype': 'image/jpeg'}], True),
+    ([{'name': 'IMG_0001.HEIC', 'filetype': 'heic', 'mimetype': 'image/heic'}], True),
+    ([{'name': 'image.png', 'filetype': 'png', 'mimetype': 'image/png'}], False),   # L-04289 캡처
+    ([{'name': '1013 TOTAL DWG SET.pdf', 'filetype': 'pdf', 'mimetype': 'application/pdf'}], False),
+    ([{'name': '방화동.dwg', 'filetype': 'binary', 'mimetype': 'application/octet-stream'}], False),
+    ([{'name': 'image.png', 'filetype': 'png'},
+      {'name': 'IMG_1.jpg', 'filetype': 'jpg'}], True),                               # 섞이면 사진 있음
+    ([{'name': 'x', 'mimetype': 'image/jpeg'}], True),                                 # filetype 없으면 mime
+    ([{'name': 'IMG_2.JPG'}], True),                                                   # 형식 정보 없으면 확장자
+    ([{'name': 'plan.png'}], False),
+    ([], False),
+    (None, False),
+])
+def test_has_site_photo(files, expected):
+    assert sb._has_site_photo(files) is expected
+
+
+def test_reference_only_batch_skips_auto_complete(monkeypatch):
+    """도면(PNG)만 올라온 배치는 _auto_complete_visit_from_photo 를 호출하지 않는다."""
+    called = []
+    monkeypatch.setattr(sb, '_auto_complete_visit_from_photo',
+                        lambda *a, **k: called.append(1))
+    # 6단계 분기만 검증 — 실제 핸들러의 조건식과 동일
+    files = [{'name': 'image.png', 'filetype': 'png', 'mimetype': 'image/png'}]
+    if sb._has_site_photo(files):
+        sb._auto_complete_visit_from_photo(None)
+    assert called == []

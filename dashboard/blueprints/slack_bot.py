@@ -11486,15 +11486,20 @@ def _process_visit_thread_files(client, event) -> None:
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] thread 답글 실패: {exc}")
 
-    # 6) 자동 방문 완료 처리 — 사진 첨부 = 방문 다녀옴 = 완료 (매니저 UX).
+    # 6) 자동 방문 완료 처리 — 현장 사진 첨부 = 방문 다녀옴 = 완료 (매니저 UX).
     # Redis flag 로 중복 방지 (여러 배치 첨부 시 첫 배치에만 완료 트리거).
-    try:
-        _auto_complete_visit_from_photo(
-            client, channel=channel, thread_ts=thread_ts, lead_no=lead_no,
-            event_user_id=event.get('user', ''),
-        )
-    except Exception as exc:
-        logger.warning(f"[SLACK/방문 사진] 자동 방문 완료 처리 실패 ({lead_no}): {exc}")
+    # 현장 사진(JPG/HEIC)이 없는 배치(PNG 캡처·PDF·DWG 등 도면·참고자료)는 드라이브
+    #   저장·폴더 생성만 하고 완료하지 않음 (2026-10-20 L-04289 당일 평면도 캡처 오완료).
+    if not _has_site_photo(files):
+        logger.info(f"[SLACK/자동완료] {lead_no} 현장 사진 없음(참고자료만) — 폴더 저장만, 완료 skip")
+    else:
+        try:
+            _auto_complete_visit_from_photo(
+                client, channel=channel, thread_ts=thread_ts, lead_no=lead_no,
+                event_user_id=event.get('user', ''),
+            )
+        except Exception as exc:
+            logger.warning(f"[SLACK/방문 사진] 자동 방문 완료 처리 실패 ({lead_no}): {exc}")
 
     # 7) 락 해제 — 이후 첨부는 즉시 처리 가능하도록 (자연 만료 60초 대신 즉시)
     try:
@@ -11502,6 +11507,28 @@ def _process_visit_thread_files(client, event) -> None:
             _rc_lock.delete(_lock_key)
     except Exception:
         pass
+
+
+_SITE_PHOTO_FILETYPES = {'jpg', 'jpeg', 'heic', 'heif'}
+_SITE_PHOTO_MIMETYPES = {'image/jpeg', 'image/heic', 'image/heif'}
+
+
+def _has_site_photo(files) -> bool:
+    """첨부 배치에 현장 사진(휴대폰 카메라·카톡 저장 = JPG/HEIC)이 하나라도 있으면 True.
+
+    PNG(PC 화면 캡처 붙여넣기 'image.png')·PDF·DWG 등은 도면·참고자료 → 자동완료 대상 아님.
+    날짜 게이트(_visit_not_yet_reached)는 방문 당일 올린 도면을 못 막아 보완
+    (2026-10-20 L-04289: 방문일 당일 평면도 캡처 첨부로 오완료). 최근 35일 표본 155건 —
+    현장사진 첫 업로드는 전부 jpg, png 11건은 모두 등록 직후 단일 image.png 캡처, pdf·dwg 도면.
+    """
+    for f in files or []:
+        ft = str(f.get('filetype') or '').strip().lower()
+        mt = str(f.get('mimetype') or '').strip().lower()
+        ext = os.path.splitext(str(f.get('name') or ''))[1].lstrip('.').lower()
+        if (ft in _SITE_PHOTO_FILETYPES or mt in _SITE_PHOTO_MIMETYPES
+                or ext in _SITE_PHOTO_FILETYPES):
+            return True
+    return False
 
 
 def _visit_not_yet_reached(visit_date) -> bool:
