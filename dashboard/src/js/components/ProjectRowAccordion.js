@@ -4450,8 +4450,12 @@ export default class ProjectRowAccordion {
                    vatField.classList.contains('vat-included');
     }
 
-    // 총액2 계산: 부가세 포함이면 +10%, 아니면 그대로
-    const total2 = vatIncluded ? total1 + Math.round(total1 * 0.1) : total1;
+    // 총액2 계산 — 서버 _calculate_total2 와 같은 규칙(calcTotal2: 부가세 절사 + 끝자리 1/9원 보정,
+    //   나눠 내는 공사의 '현금 · 부가세 없음' 몫은 부가세 없이). 아코디언을 펼칠 때마다 불려 API 값을 덮어쓰므로
+    //   예전 '총액1 + 10%' 그대로면 305호가 17,646,200 으로 보였음(10-21 사용자 제보).
+    const proj = (this.currentProject && this.currentProject['프로젝트 코드'] === projectCode) ? this.currentProject : {};
+    const vatFree = vatIncluded ? vatFreeAmount({ ...proj, 부가세: true }) : 0;
+    const total2 = calcTotal2(total1, vatIncluded, vatFree);
 
     // 총액2 필드 업데이트
     const total2Field = financialCard.querySelector('[data-field="총액 2"], [data-field="총액2"]');
