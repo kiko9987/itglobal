@@ -642,7 +642,9 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
     else:
         lines.append("- 사유: '현금 · 부가세 없음' 부담자를 빼서 총액 2를 원래 계산으로 되돌림")
     lines.append('')
-    lines.append('_부담자 설정에 따라 시스템이 바꾼 금액입니다. 회계·수금 반영을 확인해 주세요._')
+    # 10-21 G4148: '반영을 확인해 주세요'만 있으니 경영지원이 총액 1 을 직접 줄여 부가세가 두 번 빠짐 → 손댈 것 없음을 분명히
+    lines.append('_총액 2·미수금은 시스템이 이미 바꿨습니다. 총액 1은 그대로 두세요(부가세 없는 몫도 총액 1에 그대로 포함). '
+                 '회계 쪽 반영만 확인해 주세요._')
     text = '\n'.join(lines)
     try:
         from slack_sdk import WebClient

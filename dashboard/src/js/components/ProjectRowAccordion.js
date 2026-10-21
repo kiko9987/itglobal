@@ -4103,14 +4103,12 @@ export default class ProjectRowAccordion {
 
   /**
    * 나눠 내는 공사 편집 중 금액 칸 안내 (2026-10-20) — 칸 = 사람.
-   *  · 부담자 칸: '임대인 이희승 · 부담 6,887,100원' (부담액보다 많이 적으면 빨간 경고)
-   *  · 부담자 없는 칸에 금액: 낸 사람의 칸에 적으라는 경고
-   * 편집을 마치면 칸 내용이 다시 그려져 안내도 같이 사라진다.
+   *  · 부담자 칸: 마우스를 올리면 '임대인 이희승 · 부담 6,887,100원' (부담액보다 많이 적으면 빨간 테두리)
+   *  · 부담자 없는 칸에 금액: 빨간 테두리 + 낸 사람의 칸에 적으라는 안내
+   * 칸 옆에 글을 붙이면 좁은 칸이 세로로 길어져서(10-21 사용자 지적) 툴팁(title)·테두리로만 표시.
    */
   _showPayerAmountHint(input, stage) {
-    const wrap = input && input.closest('[data-field]');
-    if (!wrap) return;
-    let hint = wrap.querySelector('.payer-amount-hint');
+    if (!input) return;
     const payers = stagePayers(this.currentProject || {});
     const val = parseFloat(String(input.value || '').replace(/[^0-9]/g, '') || '0') || 0;
     const p = payers[stage];
@@ -4123,13 +4121,8 @@ export default class ProjectRowAccordion {
       text = '이 칸엔 부담자가 없습니다. 낸 사람의 칸에 적어 주세요.';
       warn = true;
     }
-    if (!text) { if (hint) hint.remove(); return; }
-    if (!hint) {
-      hint = document.createElement('div');
-      wrap.appendChild(hint);
-    }
-    hint.className = `payer-amount-hint small mt-1 ${warn ? 'text-danger' : 'text-muted'}`;
-    hint.textContent = text;
+    if (text) input.title = text; else input.removeAttribute('title');
+    input.classList.toggle('is-invalid', warn);
   }
 
   /**
