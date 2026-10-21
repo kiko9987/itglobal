@@ -264,7 +264,9 @@ def split_y_summary(states: Dict[str, dict]) -> str:
     quiet = [s for s in order if _uninvoiced_paid(states[s])]
     if quiet:
         return f"{quiet[0]} - 미발행"
-    active = [s for s in order if states[s]['state'] != 'none']
+    # 현금·카드로 내기로 한 사람은 아직 한 푼도 안 냈으면 움직임 없음(10-21 305호: 입금 전인데 'N입금'으로 잡힘)
+    active = [s for s in order if states[s]['state'] != 'none'
+              and not (states[s]['state'] in ('cash', 'card') and int(states[s]['payer'].get('received') or 0) <= 0)]
     if not active:
         return '미발행'
     s = active[-1]

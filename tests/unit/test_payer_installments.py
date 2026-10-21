@@ -125,6 +125,15 @@ def test_split_y_summary_cash_payer():
     assert ps.split_y_summary(ps.payer_bill_states(rec, [])) == '계약금 - N입금'
 
 
+def test_split_y_summary_cash_payer_not_paid_yet():
+    """현금 사람이 아직 안 냈으면 움직임 없음 — 입금 전인데 'N입금'으로 잡히던 문제(10-21 305호)."""
+    cash = '임대인 · 유미숙 · 6,000,000 · 현금 · 부가세 없음'
+    rec = _rec(**{'계약금 부담자': cash})
+    assert ps.split_y_summary(ps.payer_bill_states(rec, [])) == '미발행'
+    rec = _rec(**{'계약금 부담자': cash, '잔금': 7701100, '잔금 계산서': '발행'})
+    assert ps.split_y_summary(ps.payer_bill_states(rec, [{'stage': '잔금', 'amt': 7701100}])) == '잔금 - 발행완료'
+
+
 # ── 정합성 ──
 def test_split_problems_overpay_and_missing_payer_line():
     rec = _rec(**{'계약금': 9000000, '계약금_메모': '2026/10/17\n입금 9,000,000원', '잔금_메모': None})

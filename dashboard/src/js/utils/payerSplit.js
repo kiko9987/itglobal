@@ -215,6 +215,9 @@ export function payerBillStates(row, activeLines) {
   return out;
 }
 
+// 현금·카드로 내기로 했지만 아직 받은 돈이 없음 — 아이콘·요약에서 '움직임 없음'으로
+const unpaidCashCard = (st) => (st.state === 'cash' || st.state === 'card') && !((Number(st.payer.received) || 0) > 0);
+
 /** 나눠 내는 공사 계산서 요약(Y '{칸} - {상태}') — payer_split.split_y_summary 미러 */
 export function splitYSummary(states) {
   const order = PAYER_ORDER.filter((s) => states[s]);
@@ -227,7 +230,8 @@ export function splitYSummary(states) {
   };
   const quiet = order.filter((s) => uninvPaid(states[s]));
   if (quiet.length) return `${quiet[0]} - 미발행`;
-  const active = order.filter((s) => states[s].state !== 'none');
+  // 현금·카드로 내기로 한 사람은 아직 한 푼도 안 냈으면 움직임 없음 (payer_split.split_y_summary 미러, 10-21)
+  const active = order.filter((s) => states[s].state !== 'none' && !unpaidCashCard(states[s]));
   if (!active.length) return '미발행';
   const s = active[active.length - 1];
   const label = { issued: '발행완료', partial: '발행완료', cash: 'N입금', card: '카드결제' }[states[s].state] || '기타';
@@ -245,6 +249,8 @@ export function payerNoteLine(payer) {
  */
 export function payerBillIcon(st) {
   if (!st) return 'none';
+  // 입금 전 현금·카드 사람에게 '현금 입금(계산서 불필요)' 아이콘이 뜨던 문제(10-21 305호) — 받은 돈이 있을 때만
+  if (unpaidCashCard(st)) return 'none';
   if (st.state === 'partial') return st.need ? '미발행' : '발행';
   return { issued: '발행', needed: '미발행', pending: '발행예정', cash: 'N입금', card: '카드', other: '기타' }[st.state]
     || 'none';
