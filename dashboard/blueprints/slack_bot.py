@@ -1282,6 +1282,18 @@ def _resolve_intake_manager_name(uid: str):
     return name or None
 
 
+def _intake_option_label(code: str, biz: str, addr: str) -> str:
+    """수금 지정 모달 프로젝트 항목 라벨 'G4144-JW | 상호 | 주소' — 목록·미리 채움 공용.
+    사업자명이 길어도 주소(동일 상호 구분 핵심)가 안 잘리게 상호는 축약, Slack 라벨 75자 제한."""
+    biz_short = (biz[:13] + '…') if len(biz) > 14 else (biz or '-')
+    label = f"{code} | {biz_short}"
+    if addr:  # 남는 공간에 주소 채움
+        remain = 74 - len(label) - 3
+        if remain >= 5:
+            label += " | " + addr[:remain]
+    return label[:75]
+
+
 def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str = None) -> list:
     """수금 인입 모달 프로젝트 자동완성.
 
@@ -1330,14 +1342,7 @@ def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str
                 continue
             if not _owes(r):
                 continue
-        # 사업자명이 길어도 주소(동일 상호 구분 핵심)가 안 잘리게 상호는 축약.
-        biz_short = (biz[:13] + '…') if len(biz) > 14 else (biz or '-')
-        label = f"{code} | {biz_short}"
-        if addr:  # 남는 공간에 주소 채움 (Slack 라벨 75자 제한)
-            remain = 74 - len(label) - 3
-            if remain >= 5:
-                label += " | " + addr[:remain]
-        matched.append((_owes(r), _codenum(code), code, label[:75]))
+        matched.append((_owes(r), _codenum(code), code, _intake_option_label(code, biz, addr)))
 
     # 미수금 있는 것 우선 → 그다음 최근(코드 큰) 순
     matched.sort(key=lambda t: (t[0], t[1]), reverse=True)
@@ -1393,16 +1398,47 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
             project_details = get_project_details(des["project_code"]) or None
         except Exception:
             project_details = None
+    # 최초 [지정] — 나눠 내는 공사 입금이면 입금자명('301호임대인'·부담자 이름)으로 프로젝트·낸 사람을 미리 채움
+    #   (2026-10-21 사용자 요청). 확실할 때만(guess_intake_target), 아니면 지금처럼 빈 창.
+    guessed = False
+    if not selected_project:
+        selected_project, stage_value, project_details, guessed = _guess_intake_prefill(text, stage_value)
     view = _build_payment_intake_view(
         intake_id, channel, message_ts, text,
         selected_project=selected_project, project_details=project_details,
-        stage_value=stage_value, installment_value=des.get("installment") or None)
+        stage_value=stage_value, installment_value=des.get("installment") or None, guessed=guessed)
     client.views_update(view_id=_view_id, view=view)
+
+
+def _guess_intake_prefill(text, stage_value=None):
+    """입금 문자 → (프로젝트 옵션, 칸, 상세, 미리 채웠나). 못 정하면 (None, stage_value, None, False)."""
+    try:
+        from dashboard.services.sms_intake import parse_preview
+        from dashboard.services.payer_split import guess_intake_target
+        from dashboard.services.project_service import get_project_records
+        pv = parse_preview(text or '') or {}
+        recs = get_project_records() or []
+        g = guess_intake_target(pv.get('partner') or '', pv.get('amount') or 0, recs)
+        if not g:
+            return None, stage_value, None, False
+        code, stage = g
+        r = next((x for x in recs if str(x.get('프로젝트 코드') or '').strip() == code), None) or {}
+        from dashboard.services.as_service import get_project_details
+        details = get_project_details(code) or None
+        if not details:
+            return None, stage_value, None, False
+        opt = {"text": {"type": "plain_text", "text": _intake_option_label(
+            code, str(r.get('사업자명') or '').strip(), str(r.get('현장 주소') or '').strip())}, "value": code}
+        logger.info(f"[SLACK/수금봇] 수금 지정 미리 채움: {pv.get('partner')!r} {pv.get('amount')} → {code} {stage}")
+        return opt, stage, details, True
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 수금 지정 미리 채움 실패(빈 창으로): {exc}")
+        return None, stage_value, None, False
 
 
 def _build_payment_intake_view(intake_id, channel, message_ts, text,
                                selected_project=None, project_details=None, stage_value=None,
-                               installment_value=None):
+                               installment_value=None, guessed=False):
     """수금 지정 모달 view 빌더.
 
     프로젝트 선택 시(dispatch_action) 상세(project_details)를 삽입하고, 이미 고른
@@ -1429,6 +1465,9 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
         "label": {"type": "plain_text", "text": "프로젝트"},
         "element": project_el,
     })
+    if guessed:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
+            ":mag: 입금자명으로 프로젝트와 낸 사람을 미리 골랐습니다. 다르면 바꿔 주세요.")}]})
     if project_details:
         dd = project_details
         info = (

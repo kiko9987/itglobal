@@ -340,6 +340,45 @@ def match_deposit_stage(payers: Dict[str, dict], partner: str, amount) -> str:
     return exact[0]['stage'] if len(exact) == 1 else ''
 
 
+_ROOM_RE = re.compile(r'(?<!\d)(\d{3,4})\s*호')
+
+
+def guess_intake_target(partner: str, amount, recs: list) -> Optional[Tuple[str, str]]:
+    """미지정 입금 → (공사 코드, 부담자 칸) — 입금 지정 창 미리 채움용(2026-10-21). 확실할 때만, 아니면 None.
+
+    ① 입금자명에 호실('301호임대인')이 있으면: 현장 주소에 그 호실이 있는 나눠 내는 공사의 부담자 중
+       입금자명에 든 구분(임대인 등) → 없으면 이름이 맞는 사람 → 없으면 전원에서
+    ② 호실이 없으면: 이름이 맞는 부담자(guess_split_payer 와 같은 규칙)
+    금액이 남은 돈 안에 드는 후보만. 여럿이면 남은 돈과 금액이 같은(마지막 입금) 후보가 하나일 때만.
+    """
+    amt = _num(amount)
+    if amt <= 0 or not partner:
+        return None
+    pn = _norm(partner)
+    rooms = set(_ROOM_RE.findall(str(partner)))
+    cands = []
+    for r in recs or []:
+        payers = stage_payers(r)
+        if not payers:
+            continue
+        code = str(r.get('프로젝트 코드') or '').strip()
+        named = [p for p in payers.values() if name_matches(partner, p)]
+        if rooms:
+            addr = str(r.get('현장 주소') or '')
+            if not any(re.search(rf'(?<!\d){rm}\s*호', addr) for rm in rooms):
+                continue
+            roled = [p for p in payers.values() if _norm(p['role']) and _norm(p['role']) in pn]
+            pool = roled or named or list(payers.values())
+        else:
+            pool = named
+        cands += [(code, p) for p in pool if amt <= p['remaining'] + 1000]
+    if len(cands) > 1:
+        cands = [c for c in cands if abs(c[1]['remaining'] - amt) <= 1]
+    if len(cands) == 1:
+        return cands[0][0], cands[0][1]['stage']
+    return None
+
+
 def guess_split_payer(partner: str, amount, recs: list) -> str:
     """미지정 입금 → 나눠 내는 공사의 '코드 구분' 추정(예 'G4157-JW 임대인'). 확실할 때만, 아니면 ''.
 
