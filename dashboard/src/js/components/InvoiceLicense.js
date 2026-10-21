@@ -657,9 +657,9 @@ export default class InvoiceLicense {
       const hadVf = (info.payers || []).some((p) => p.vat_free);   // 원래 있었다가 빼면 표준 계산으로 되돌아감
       const newT2 = calcTotal2(total1, true, vf);
       const t2Changes = (vf > 0 || hadVf) && total2 > 0 && newT2 !== total2;
-      // '총액 2 17,046,200원'은 2와 숫자가 붙어 2억으로 읽힘(10-21 사용자 지적) → 콜론으로 구분
-      if (vf > 0) txt += `\n총액 2: ${fmt(newT2)}원 (부가세 없이 받는 몫 ${fmt(vf)}원엔 부가세를 붙이지 않음)`;
-      if (t2Changes) txt += `\n저장하면 총액 2가 ${fmt(total2)}원 → ${fmt(newT2)}원으로 바뀌고 경영지원에 알림이 갑니다.`;
+      // 표기는 PM 화면과 같게 '총액2'(붙여 씀), 금액과는 콜론으로 구분 — '총액 2 17,046,200원'이 2억으로 읽혔음(10-21)
+      if (vf > 0) txt += `\n총액2: ${fmt(newT2)}원 (부가세 없이 받는 몫 ${fmt(vf)}원엔 부가세를 붙이지 않음)`;
+      if (t2Changes) txt += `\n저장하면 총액2가 ${fmt(total2)}원 → ${fmt(newT2)}원으로 바뀌고 경영지원에 알림이 갑니다.`;
       box.textContent = txt;
       box.style.whiteSpace = 'pre-line';
       box.style.color = !same ? '#d9480f' : (t2Changes ? '#0a7ea4' : '#1c7c3d');

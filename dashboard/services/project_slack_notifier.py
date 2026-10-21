@@ -634,16 +634,16 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
         lines.append(f'현장 주소 : {addr}')
     who = editor_email.split('@')[0].upper() if editor_email else '-'
     lines.append(f'변경 경로 : PM 부담자 설정 ({who})')
-    lines.append(f'- 총액 2: {int(old_total2):,}원 → {int(new_total2):,}원')
+    lines.append(f'- 총액2: {int(old_total2):,}원 → {int(new_total2):,}원')   # PM 화면 표기와 같게 붙여 씀
     if free:
         for p in free:
             lines.append(f"- 사유: {p.get('role', '')} {p.get('name', '')} {int(p.get('amount') or 0):,}원을 "
                          "'현금 · 부가세 없음'으로 설정해 그 몫엔 부가세를 붙이지 않음")
     else:
-        lines.append("- 사유: '현금 · 부가세 없음' 부담자를 빼서 총액 2를 원래 계산으로 되돌림")
+        lines.append("- 사유: '현금 · 부가세 없음' 부담자를 빼서 총액2를 원래 계산으로 되돌림")
     lines.append('')
     # 10-21 G4148: '반영을 확인해 주세요'만 있으니 경영지원이 총액 1 을 직접 줄여 부가세가 두 번 빠짐 → 손댈 것 없음을 분명히
-    lines.append('_총액 2·미수금은 시스템이 이미 바꿨습니다. 총액 1은 그대로 두세요(부가세 없는 몫도 총액 1에 그대로 포함). '
+    lines.append('_총액2·미수금은 시스템이 이미 바꿨습니다. 총액1은 그대로 두세요(부가세 없는 몫도 총액1에 그대로 포함). '
                  '회계 쪽 반영만 확인해 주세요._')
     text = '\n'.join(lines)
     try:

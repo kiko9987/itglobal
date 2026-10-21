@@ -55,7 +55,7 @@ def test_share_check_vat_basis():
     assert ps.share_check(list(ps.stage_payers(G4144).values()), G4144) == ''   # 부가세 없는 공사
     # G4148 표시 없음 → 임대인 600만을 부가세 포함으로 보고 별도 합이 총액 1 과 안 맞음
     msg = ps.share_check(list(ps.stage_payers(G4148).values()), G4148)
-    assert msg.startswith('부담액 합계(VAT 별도) 15,496,545원') and '총액 1' in msg
+    assert msg.startswith('부담액 합계(VAT 별도) 15,496,545원') and '총액1' in msg
     # 표시 있음 → 별도 합이 총액 1 과 맞음. 총액 2 는 시스템이 그 몫을 빼고 계산하므로(10-21 test_payer_total2)
     #   '받을 돈 ≠ 총액 2' 경고는 더 이상 없음
     assert ps.share_check(list(ps.stage_payers(G4148_NOVAT).values()), G4148_NOVAT) == ''

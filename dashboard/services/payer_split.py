@@ -502,10 +502,10 @@ def share_check(payers: list, rec: dict) -> str:
     if ratio > 1 and t1 > 0:
         supply = sum(payer_supply(p, ratio) for p in payers)
         if abs(t1 - supply) > tol:
-            return f"부담액 합계(VAT 별도) {supply:,}원이 공사 총액(총액 1) {t1:,}원과 {t1 - supply:+,}원 다릅니다."
+            return f"부담액 합계(VAT 별도) {supply:,}원이 공사 총액(총액1) {t1:,}원과 {t1 - supply:+,}원 다릅니다."
         if t2 > 0 and abs(t2 - gross) > tol and not any(p.get('vat_free') for p in payers):
-            # '총액 2 16,446,200원'은 2와 숫자가 붙어 2억으로 읽힘 → 괄호로 구분 (10-21)
-            return f"부담액 합계(받을 돈) {gross:,}원이 총액 2({t2:,}원)와 {t2 - gross:+,}원 다릅니다."
+            # 표기는 PM 화면과 같게 '총액2', 금액과는 괄호로 구분('총액 2 16,446,200원'이 2억으로 읽힘, 10-21)
+            return f"부담액 합계(받을 돈) {gross:,}원이 총액2({t2:,}원)와 {t2 - gross:+,}원 다릅니다."
         return ''
     if t2 > 0 and abs(t2 - gross) > 1:
         return f"부담액 합계 {gross:,}원이 공사 총액 {t2:,}원과 {t2 - gross:+,}원 다릅니다."
