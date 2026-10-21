@@ -1787,10 +1787,6 @@ export default class ModernProjectModal {
         //   개선: 서버 응답 받자마자 모달 닫음. 동기화는 fire-and-forget.
         const projectCode = result.project_code;
         const projectData = result.project_data;
-        // 나눠 내는 공사 체크 → 등록 직후 [부담자 설정] 창 (2026-10-19). 다음 등록에 남지 않게 바로 해제.
-        const _payerSplitCb = document.getElementById('modern-payer-split');
-        const openPayerAfter = !!(_payerSplitCb && _payerSplitCb.checked && projectCode && !result.deduped);
-        if (_payerSplitCb) _payerSplitCb.checked = false;
 
         this.hideProgressBanner();
         // hide.bs.modal 이벤트 preventDefault 방지를 위해 먼저 flag 내림.
@@ -1833,10 +1829,6 @@ export default class ModernProjectModal {
           window.showPageAlert(successMsg, 'success');
         } else {
           this.showSuccessMessage(successMsg);
-        }
-        if (openPayerAfter && window.invoiceLicense) {
-          // 시트 기록(백그라운드)이 끝날 때까지 창이 기다렸다 열림
-          setTimeout(() => window.invoiceLicense.openPayerModal(projectCode, { waitForRow: true }), 600);
         }
 
         // 13-b. 수금관리 모드에서 완납(미수금=0) 프로젝트는 필터에 안 잡혀 안 보임 → 사용자 안내

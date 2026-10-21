@@ -510,16 +510,14 @@ export default class InvoiceLicense {
   /** 한 공사를 여러 사람이 나눠 내는 경우의 부담자 설정 — 매니저도 사용 (2026-10-19).
    *  구분은 자유(임대인·임차인, 한 법인의 두 사업자, 병원·원장 등 — 2026-10-20 범용화).
    *  사람은 고르기·숫자만 입력하고, 서버가 칸(첫째=계약금·둘째=잔금·셋째=중도금)을 정해 '○○ 부담자' 칸과
-   *  칸 메모 맨 윗줄('◆ 임대인 이희승')을 형식대로 기록한다. 차수(몇 번째 돈)는 입금 기록 때 메모에 남는다. */
-  async openPayerModal(code, opts = {}) {
+   *  칸 메모 맨 윗줄('◆ 임대인 이희승')을 형식대로 기록한다. 차수(몇 번째 돈)는 입금 기록 때 메모에 남는다.
+   *  여는 곳은 아코디언 [부담자 설정]뿐(2026-10-21 등록 창 체크박스 제거 — 공사 뒤에 협의되는 경우가 많음). */
+  async openPayerModal(code) {
     const c = String(code || '').trim();
     // 아코디언을 펼칠 때 미리 받아 둔 값 → 클릭 즉시 열림. 저장 때 서버가 시트 최신값으로 다시 검사한다.
-    let info = opts.waitForRow ? null : await (this._payersP[c] || (this._payersP[c] = this._fetchPayers(c)));
-    if (!info) delete this._payersP[c];   // 실패한 조회는 재사용하지 않음
-    // 새 공사 등록 직후(waitForRow)는 시트 기록이 백그라운드라 행이 아직 없을 수 있음 → 최대 30초 재시도
-    const tries = info ? 0 : (opts.waitForRow ? 15 : 1);
-    for (let t = 0; t < tries && !info; t += 1) {
-      if (t) await new Promise((res) => setTimeout(res, 2000));
+    let info = await (this._payersP[c] || (this._payersP[c] = this._fetchPayers(c)));
+    if (!info) {
+      delete this._payersP[c];   // 실패한 조회는 재사용하지 않고 한 번 더
       info = await this._fetchPayers(c);
     }
     if (!info) {
