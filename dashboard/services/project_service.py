@@ -194,8 +194,29 @@ def _parse_vat_flag(vat_value: Any) -> bool:
     return False
 
 
-def _calculate_total2(total1: float, vat_flag: bool) -> float:
+def _row_vat_free(row) -> int:
+    """나눠 내는 공사에서 부가세 없이 받는 몫('현금 · 부가세 없음' 부담자 금액 합, 2026-10-21) — 없으면 0.
+
+    row 는 dict 또는 pandas Series. 부담자 칸에 '부가세'/'vat' 글자가 없으면 바로 0(대부분 행, 빠른 길).
+    """
+    try:
+        from dashboard.services.payer_split import vat_free_amount, PAYER_FIELD
+        cells = {f: row.get(f) for f in PAYER_FIELD.values()}
+        if not any(isinstance(v, str) and ('부가세' in v or 'vat' in v.lower()) for v in cells.values()):
+            return 0
+        rec = dict(cells)
+        rec.update({'부가세': row.get('부가세'), '총액 1': row.get('총액 1'), '총액 2': row.get('총액 2')})
+        return int(vat_free_amount(rec))
+    except Exception as exc:
+        logger.debug(f"[BACKEND_CALC] 부가세 없는 몫 계산 실패(0으로): {exc}")
+        return 0
+
+
+def _calculate_total2(total1: float, vat_flag: bool, vat_free: float = 0) -> float:
     """총액2 계산: 부가세 플래그에 따라 총액1에 10% 부가세 적용 여부 결정
+
+    vat_free(2026-10-21): 나눠 내는 공사에서 부가세 없이 받는 몫. 그 몫(최대 총액1)은 그대로 두고 나머지에만
+    부가세 — 시트 계산식 payer_split.total2_formula 와 같은 결과(305호: 600만 + 10,042,000×1.1 = 17,046,200).
 
     Google Sheets 수식과 동일한 절사 + 끝자리 1/9원 보정 방식 사용:
     =IF(R:R=TRUE, Q:Q+FLOOR(Q:Q*0.1,1) + IF(MOD(Q:Q+FLOOR(Q:Q*0.1,1), 10)=1, -1, IF(MOD(Q:Q+FLOOR(Q:Q*0.1,1), 10)=9, 1, 0)), Q:Q)
@@ -211,6 +232,9 @@ def _calculate_total2(total1: float, vat_flag: bool) -> float:
     Returns:
         총액2 (부가세 포함 금액)
     """
+    if vat_flag and vat_free and vat_free > 0:
+        vf = min(float(vat_free), float(total1))
+        return float(vf + _calculate_total2(float(total1) - vf, True))
     if vat_flag:
         # 부가세 포함: 총액2 = 총액1 + FLOOR(총액1 × 0.1, 1) + 끝자리 1/9원 보정
         # 절사 (FLOOR/ROUNDDOWN) - 실무 표준
@@ -251,10 +275,10 @@ def _calculate_outstanding_amount(row: pd.Series) -> float:
     Returns:
         미수금 금액
     """
-    # 총액2 계산 (부가세 플래그 기반)
+    # 총액2 계산 (부가세 플래그 기반, 나눠 내는 공사의 부가세 없는 몫 제외)
     total1 = _safe_parse_amount(row.get('총액 1', 0))
     vat_flag = _parse_vat_flag(row.get('부가세'))
-    total2 = _calculate_total2(total1, vat_flag)
+    total2 = _calculate_total2(total1, vat_flag, _row_vat_free(row))
 
     contract = _safe_parse_amount(row.get('계약금', 0))
     mid = _safe_parse_amount(row.get('중도금', 0))
@@ -343,7 +367,7 @@ def _apply_backend_calculations(df: pd.DataFrame) -> pd.DataFrame:
     def calculate_total2_for_row(row):
         total1 = _safe_parse_amount(row.get('총액 1', 0))
         vat_flag = _parse_vat_flag(row.get('부가세'))
-        return _calculate_total2(total1, vat_flag)
+        return _calculate_total2(total1, vat_flag, _row_vat_free(row))
 
     df['총액 2'] = df.apply(calculate_total2_for_row, axis=1)
 

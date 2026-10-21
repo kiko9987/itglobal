@@ -606,6 +606,60 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
         return False
 
 
+def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan: dict,
+                               editor_email: str = '', latest_data: dict = None) -> bool:
+    """나눠 내는 공사 부담자 설정으로 총액 2 가 바뀌면 경영지원(황샛별)에게 DM (2026-10-21).
+
+    '현금 · 부가세 없음' 부담자 몫엔 부가세를 붙이지 않아 총액 2 가 시스템으로 바뀐다(매니저도 설정 가능 →
+    사용자 결정: 누구나 + 경영지원 알림). notify_amount_edit_to_settlement 와 같은 DM 경로·본인 편집 제외.
+    """
+    if not old_total2 or int(old_total2) == int(new_total2):
+        return False
+    checker_id = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
+    checker_email = (os.getenv('SLACK_SETTLEMENT_CHECKER_EMAIL', '').strip()
+                     or 'sb@itg-aircon.com').lower()
+    if editor_email and editor_email.strip().lower() == checker_email:
+        return False
+    token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    if not token:
+        return False
+
+    free = [p for p in (plan or {}).values() if p and p.get('vat_free')]
+    lines = [f':rotating_light: *[공사 금액 변경 알림]*  `{code}`']
+    biz = _val(latest_data, '사업자명') if latest_data else ''
+    addr = _val(latest_data, '현장 주소') if latest_data else ''
+    if biz:
+        lines.append(f'사업자명 : {biz}')
+    if addr:
+        lines.append(f'현장 주소 : {addr}')
+    who = editor_email.split('@')[0].upper() if editor_email else '-'
+    lines.append(f'변경 경로 : PM 부담자 설정 ({who})')
+    lines.append(f'- 총액 2: {int(old_total2):,}원 → {int(new_total2):,}원')
+    if free:
+        for p in free:
+            lines.append(f"- 사유: {p.get('role', '')} {p.get('name', '')} {int(p.get('amount') or 0):,}원을 "
+                         "'현금 · 부가세 없음'으로 설정해 그 몫엔 부가세를 붙이지 않음")
+    else:
+        lines.append("- 사유: '현금 · 부가세 없음' 부담자를 빼서 총액 2를 원래 계산으로 되돌림")
+    lines.append('')
+    lines.append('_부담자 설정에 따라 시스템이 바꾼 금액입니다. 회계·수금 반영을 확인해 주세요._')
+    text = '\n'.join(lines)
+    try:
+        from slack_sdk import WebClient
+        dm = WebClient(token=token)
+        im = dm.conversations_open(users=checker_id)
+        dm_ch = ((im.get('channel') or {}) or {}).get('id')
+        if not dm_ch:
+            logger.warning(f'[PROJECT/SLACK/총액2DM] IM 개설 실패 ({code})')
+            return False
+        dm.chat_postMessage(channel=dm_ch, text=text, unfurl_links=False)
+        logger.info(f'[PROJECT/SLACK/총액2DM] 경영지원 알림 발송: {code} {int(old_total2):,}→{int(new_total2):,}')
+        return True
+    except Exception as exc:
+        logger.warning(f'[PROJECT/SLACK/총액2DM] 경영지원 DM 실패 ({code}): {exc}')
+        return False
+
+
 def notify_project_field_changes(code: str, field_changes: list, latest_data: dict = None,
                                  editor: str = '') -> bool:
     """편집된 필드들을 공사 확정 카드 스레드에 답글로 전송 + 원본 카드 최신 데이터로 재렌더링.

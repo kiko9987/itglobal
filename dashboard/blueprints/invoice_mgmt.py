@@ -321,6 +321,16 @@ def api_payers_save(code):
             logger.warning(f'[PAYER] 감사 로그 실패 ({code}): {exc}')
     logger.info(f'[PAYER] 부담자 설정: {code} by {_current_initial()} → '
                 f'{ {s: p["name"] for s, p in plan.items()} } (바뀐 칸 {len(changed)})')
+    # 총액 2 가 바뀌었으면('현금 · 부가세 없음' 몫 반영) 경영지원에 알림 — 2026-10-21 사용자 결정(누구나 + 알림)
+    if '총액 2' in changed:
+        try:
+            from ..services.project_slack_notifier import notify_total2_payer_change
+            from ..services.payer_split import _num
+            email = (session.get('user', {}) or {}).get('email', '') or ''
+            notify_total2_payer_change(code, _num(rec.get('총액 2')), int(changed['총액 2']), plan,
+                                       editor_email=email, latest_data=rec)
+        except Exception as exc:
+            logger.warning(f'[PAYER] 총액 2 변경 알림 실패 ({code}): {exc}')
     rec2 = dict(rec)
     rec2.update({k: v for k, v in changed.items() if k in PAYER_FIELD.values()})
     return APIResponse.success(data={'fields': changed, 'payers': _payer_rows(rec2)})

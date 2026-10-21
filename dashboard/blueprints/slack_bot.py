@@ -14654,7 +14654,15 @@ def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False, stage=
     total1, total2 = _bill_to_num(rec.get('총액 1')), _bill_to_num(rec.get('총액 2'))
     if total2 <= 0:
         return ''
-    gross = round(amt * (total2 / total1 if total1 > 0 else 1.1)) if sep else amt
+    # 공급가 → 발행액. 총액 비율로 환산하되, '현금 · 부가세 없음' 몫이 있는 나눠 내는 공사는 총액 2 가 줄어
+    #   비율이 틀어지므로 부가세 10% 그대로(2026-10-21 G4148)
+    try:
+        from dashboard.services.payer_split import vat_free_amount as _vfa
+        _has_vf = _vfa(rec) > 0
+    except Exception:
+        _has_vf = False
+    ratio = 1.1 if (_has_vf or total1 <= 0) else total2 / total1
+    gross = round(amt * ratio) if sep else amt
     # 나눠 내는 공사 — 그 사람(칸) 부담액 기준 초과도 본다 (2026-10-20)
     try:
         from dashboard.services.payer_split import stage_payers as _sp, payer_title as _pt
@@ -14781,8 +14789,12 @@ def _split_issued_summary(rec, payers, active, norm_tok, total1, total2, vat_sep
 
     사람별 발행액 = 그 칸으로 적힌 장 줄 합. 줄 없이 칸만 '발행'(옛·수기) = 부담액 전액 발행으로 본다
     (payer_split.payer_bill_state 와 같은 규칙). stage 를 주면 총액·잔여·초과를 그 사람 기준으로.
+    공급가 환산은 부가세 10% 고정(총액 비율 아님) — '현금 · 부가세 없음' 몫이 있으면 총액 2 가 줄어 비율이
+    틀어진다(2026-10-21 G4148). 그 사람 몫의 공급가는 payer_supply(부가세 없음이면 받을 돈 그대로).
     """
-    ratio = (total1 / total2) if (total1 > 0 and total2 > 0) else (1.0 / 1.1 if vat_sep else 1.0)
+    from dashboard.services.payer_split import payer_supply
+    ratio = 1.0 / 1.1 if vat_sep else 1.0
+    _vr = 1.1 if vat_sep else 1.0
     per = {}
     lines = []
     for s, p in payers.items():
@@ -14808,7 +14820,8 @@ def _split_issued_summary(rec, payers, active, norm_tok, total1, total2, vat_sep
     if issued_gross <= 0 and stage not in per:
         return None
     issued_supply = round(issued_gross * ratio)
-    scope_supply = round(scope_total2 * ratio)
+    scope_supply = (payer_supply(payers[stage], _vr) if stage in per
+                    else sum(payer_supply(p, _vr) for p in payers.values()))
     return {
         'total_supply': int(scope_supply),
         'issued_gross': int(round(issued_gross)),

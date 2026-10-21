@@ -1829,6 +1829,28 @@ class GoogleSheetsManager:
                 logger.error(f"[CELL_VALUE_GET] {cell_address} 조회 실패: {e}")
                 return ''
 
+    def get_cell_formula(self, sheet_id, sheet_name, cell_address):
+        """특정 셀의 계산식(수식 칸이면 '=...', 아니면 값) — FORMULA render. 실패·빈칸이면 ''.
+
+        나눠 내는 공사 총액 2 계산식 맞춤(payer_split.sync_total2_formula)에서 지금 식을 비교하려고 추가
+        (2026-10-21). get_cell_value 는 계산 결과만 준다.
+        """
+        with self._lock:
+            try:
+                result = self._execute_with_retry(
+                    lambda: self.service.spreadsheets().values().get(
+                        spreadsheetId=sheet_id,
+                        range=f"'{sheet_name}'!{cell_address}",
+                        valueRenderOption='FORMULA',
+                    ),
+                    f"get_cell_formula({cell_address})",
+                )
+                vals = (result or {}).get('values', [])
+                return vals[0][0] if vals and vals[0] else ''
+            except Exception as e:
+                logger.error(f"[CELL_FORMULA_GET] {cell_address} 조회 실패: {e}")
+                return ''
+
     def get_row_map(self, sheet_id, sheet_name, row, last_col='AS'):
         """한 행 값을 한 번에 — {컬럼 레터: 값} (UNFORMATTED_VALUE, 빈 끝칸은 키 없음). 실패 시 None.
 

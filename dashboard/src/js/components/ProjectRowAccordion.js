@@ -22,7 +22,9 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 // 🆕 전역 로거 import
 import logger from '../utils/logger.js';
 import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate, isPreIssued, billHeadline, splitBillNote } from '../utils/billStatus.js';
-import { payerLine, getStagePayer, stagePayers, stripPayerLine, payerTitle } from '../utils/payerSplit.js';
+import {
+  payerLine, getStagePayer, stagePayers, stripPayerLine, payerTitle, vatFreeAmount, calcTotal2,
+} from '../utils/payerSplit.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -4161,8 +4163,10 @@ export default class ProjectRowAccordion {
       const p = getStagePayer(proj, stage);                        // 나눠 내는 공사: 그 칸 사람
       return `· ${stage}${p ? `(${payerTitle(p)})` : ''} ${won(amt)} 입금${inv && inv !== '-' ? ` (계산서 ${inv})` : ''}`;
     });
+    // 지금 총액 2 — 나눠 내는 공사의 '현금 · 부가세 없음' 몫은 부가세 없이 (2026-10-21)
+    const total2Now = calcTotal2(total1, true, vatFreeAmount({ ...proj, 부가세: true }));
     const totalLine = total1 > 0
-      ? `\n부가세를 해제하면 총액이 ${won(total1 + Math.round(total1 * 0.1))} → ${won(total1)}로 바뀝니다.`
+      ? `\n부가세를 해제하면 총액이 ${won(total2Now)} → ${won(total1)}로 바뀝니다.`
       : '';
     // 나눠 내는 공사: 사람별 부담액은 부가세 포함 금액이라 저절로 안 바뀜
     const payerLineMsg = Object.keys(stagePayers(proj)).length
@@ -4222,9 +4226,14 @@ export default class ProjectRowAccordion {
     const vatCheckbox = financialCard.querySelector('[data-field="부가세"] .vat-checkbox');
     const vatIncluded = vatCheckbox.checked;
 
+    // 나눠 내는 공사: '현금 · 부가세 없음' 몫엔 부가세를 안 붙임 — 서버 _calculate_total2 와 같은 계산 (2026-10-21)
+    const vatFree = vatIncluded ? vatFreeAmount({ ...(this.currentProject || {}), 부가세: true }) : 0;
+
     // 총액2 계산: 한국 회계 실무 방식
     let total2Value;
-    if (vatIncluded) {
+    if (vatIncluded && vatFree > 0) {
+      total2Value = calcTotal2(total1Value, true, vatFree);
+    } else if (vatIncluded) {
       // 부가세 = ROUND(공급가액 × 0.1, 0)
       const vat = Math.round(total1Value * 0.1);
       // 총액2 = 공급가액 + 부가세

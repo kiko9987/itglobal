@@ -9,7 +9,7 @@
  */
 import logger from '../utils/logger.js';
 import { activeInvoiceLines, overIssuedAmount, sameBizName } from '../utils/billStatus.js';
-import { stagePayers, payerTitle, PAYER_ORDER } from '../utils/payerSplit.js';
+import { stagePayers, payerTitle, PAYER_ORDER, vatFlag, calcTotal2 } from '../utils/payerSplit.js';
 
 function esc(v) {
   return String(v == null ? '' : v)
@@ -532,11 +532,12 @@ export default class InvoiceLicense {
     const num = (v) => Number(String(v == null ? '' : v).replace(/[^\d]/g, '')) || 0;
     const STAGES3 = ['계약금', '중도금', '잔금'];
     // 부가세 별도 표기(2026-10-21 사용자 요청 — 다른 화면과 같게). 칸에는 지금처럼 '받을 돈'(부가세 포함)을 적고,
-    //   창에서만 부가세 별도로 보여 주고 입력받는다. 비율 = 총액 2 / 총액 1 (서버 payer_split.vat_ratio 와 같음).
+    //   창에서만 부가세 별도로 보여 주고 입력받는다. 비율 = 부가세 별도 공사면 1.1 (서버 payer_split.vat_ratio 와 같음,
+    //   총액 비율 아님 — '현금 · 부가세 없음' 몫이 있으면 총액 2 가 줄어 비율이 틀어짐).
     //   현금을 부가세 없이 받는 사람('현금 · 부가세 없음')은 나누지 않음 — G4148 임대인 600만, G4151·52 현금은 부가세 포함.
     const proj = this._findProject(c) || {};
     const total1 = Number(info.total1 != null ? info.total1 : num(proj['총액 1'])) || 0;
-    const ratio = Number(info.vat_ratio) || (total1 > 0 && total2 > total1 ? total2 / total1 : 1);
+    const ratio = Number(info.vat_ratio) || (vatFlag({ ...proj, '총액 1': total1, '총액 2': total2 }) ? 1.1 : 1);
     const vatSep = ratio > 1;
     const NOVAT = '현금·부가세없음';   // 결제 방식 select 값(서버엔 method=현금 + vat_free 로 보냄)
     const supplyOf = (gross, vatFree) => (vatFree || !vatSep ? gross : Math.round(gross / ratio));
@@ -650,19 +651,19 @@ export default class InvoiceLicense {
         return;
       }
       const supplySum = rows.reduce((a, p) => a + p.supply, 0);
-      const grossSum = rows.reduce((a, p) => a + (Number(p.amount) || 0), 0);
       const same = !total1 || Math.abs(supplySum - total1) <= tol;
       let txt = `부담액 합계 ${fmt(supplySum)}원 / 공사 총액 ${fmt(total1)}원 (VAT 별도)`
         + (same ? '' : ` — 차이 ${fmt(total1 - supplySum)}원`);
-      let warn = !same;
-      if (same && rows.some((p) => p.vat_free) && total2 && Math.abs(total2 - grossSum) > tol) {
-        txt += `\n부가세 없이 받는 사람이 있어 받을 돈 합계 ${fmt(grossSum)}원이 총액 2보다 ${fmt(total2 - grossSum)}원 적습니다.`
-          + ' 다 받아도 미수금이 남으니 총액 조정이 필요한지 경영지원에 확인해 주세요.';
-        warn = true;
-      }
+      // '현금 · 부가세 없음' 몫엔 부가세를 안 붙여 총액 2 를 시스템이 다시 계산(저장 때 시트·PM 반영 + 경영지원 알림)
+      const vf = rows.filter((p) => p.vat_free).reduce((a, p) => a + (Number(p.amount) || 0), 0);
+      const hadVf = (info.payers || []).some((p) => p.vat_free);   // 원래 있었다가 빼면 표준 계산으로 되돌아감
+      const newT2 = calcTotal2(total1, true, vf);
+      const t2Changes = (vf > 0 || hadVf) && total2 > 0 && newT2 !== total2;
+      if (vf > 0) txt += `\n총액 2 ${fmt(newT2)}원 — 부가세 없이 받는 몫 ${fmt(vf)}원엔 부가세를 붙이지 않습니다.`;
+      if (t2Changes) txt += `\n저장하면 총액 2가 ${fmt(total2)}원 → ${fmt(newT2)}원으로 바뀌고 경영지원에 알림이 갑니다.`;
       box.textContent = txt;
       box.style.whiteSpace = 'pre-line';
-      box.style.color = warn ? '#d9480f' : '#1c7c3d';
+      box.style.color = !same ? '#d9480f' : (t2Changes ? '#0a7ea4' : '#1c7c3d');
     };
 
     const bindRow = (el, r) => {

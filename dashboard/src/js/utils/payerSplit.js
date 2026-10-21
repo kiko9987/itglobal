@@ -100,6 +100,42 @@ export function isSplit(row) {
   return Object.keys(stagePayers(row)).length > 0;
 }
 
+/** 부가세 별도 공사인가 — '부가세' 칸, 없으면 총액 2 > 총액 1 (payer_split.vat_flag 미러) */
+export function vatFlag(row) {
+  const r = row || {};
+  const v = r['부가세'];
+  if (v == null || v === '' || (typeof v === 'number' && Number.isNaN(v))) {
+    const t1 = toNum(r['총액 1']); const t2 = toNum(r['총액 2']);
+    return t1 > 0 && t2 > t1;
+  }
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v === 1;
+  return ['포함', 'true', 'yes', '1', 'vat 포함', 'y'].includes(String(v).trim().toLowerCase());
+}
+
+/** 부가세 별도 공사에서 부가세 없이 받는 몫 합('현금 · 부가세 없음', payer_split.vat_free_amount 미러) */
+export function vatFreeAmount(row) {
+  if (!vatFlag(row)) return 0;
+  return Object.values(stagePayers(row)).filter((p) => p.vatFree).reduce((a, p) => a + p.amount, 0);
+}
+
+/**
+ * 총액 2 — 부가세 절사 + 끝자리 1/9원 보정, 부가세 없는 몫은 그대로 (project_service._calculate_total2 미러).
+ * 305호: calcTotal2(16,042,000, true, 6,000,000) = 6,000,000 + 11,046,200 = 17,046,200
+ */
+export function calcTotal2(total1, vatSep, vatFree = 0) {
+  const t1 = Number(total1) || 0;
+  const std = (x) => {
+    if (!x) return 0;
+    const base = x + Math.floor(x * 0.1);
+    const d = base % 10;
+    return base + (d === 1 ? -1 : d === 9 ? 1 : 0);
+  };
+  if (!vatSep) return t1;
+  const vf = Math.min(Math.max(Number(vatFree) || 0, 0), t1);
+  return vf + std(t1 - vf);
+}
+
 /** '임대인 이희승' (부담자 없으면 단계 이름) */
 export function payerTitle(payer, stage = '') {
   return payer ? `${payer.role} ${payer.name}` : stage;

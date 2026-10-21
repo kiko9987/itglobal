@@ -983,6 +983,7 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         _safe_parse_amount,
         _parse_vat_flag,
         _calculate_total2,
+        _row_vat_free,
         _calculate_outstanding_amount,
         _calculate_net_profit,
         _calculate_margin_rate
@@ -1065,10 +1066,10 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         # 저장 직후 fresh_values는 수식 재계산 전이라 잘못된 값일 수 있음
         row_series = pd.Series(updated_project)
 
-        # 총액2 계산 (부가세 플래그 기반)
+        # 총액2 계산 (부가세 플래그 기반, 나눠 내는 공사의 '현금 · 부가세 없음' 몫 제외 — 2026-10-21)
         total1 = _safe_parse_amount(updated_project.get('총액 1', 0))
         vat_flag = _parse_vat_flag(updated_project.get('부가세'))
-        total2 = _calculate_total2(total1, vat_flag)
+        total2 = _calculate_total2(total1, vat_flag, _row_vat_free(updated_project))
 
         # 미수금, 순익, 마진율 계산
         outstanding = _calculate_outstanding_amount(row_series)
@@ -3291,7 +3292,7 @@ def _build_updated_project_from_values(current_values: list, field_to_index: dic
     import pandas as pd
     from dashboard.services.project_service import (
         _safe_parse_amount, _parse_vat_flag,
-        _calculate_total2, _calculate_outstanding_amount,
+        _calculate_total2, _row_vat_free, _calculate_outstanding_amount,
         _calculate_net_profit, _calculate_margin_rate,
     )
 
@@ -3355,7 +3356,7 @@ def _build_updated_project_from_values(current_values: list, field_to_index: dic
     row_series = pd.Series(updated_project)
     total1 = _safe_parse_amount(updated_project.get('총액 1', 0))
     vat_flag = _parse_vat_flag(updated_project.get('부가세'))
-    total2 = _calculate_total2(total1, vat_flag)
+    total2 = _calculate_total2(total1, vat_flag, _row_vat_free(updated_project))
     outstanding = _calculate_outstanding_amount(row_series)
     net_profit = _calculate_net_profit(row_series)
     margin_rate = _calculate_margin_rate(row_series, net_profit)

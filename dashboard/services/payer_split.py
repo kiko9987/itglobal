@@ -398,10 +398,25 @@ def format_payer_cell(p: dict) -> str:
     return ' · '.join(parts)
 
 
+def vat_flag(rec) -> bool:
+    """부가세 별도 공사인가 — '부가세' 칸(시트 체크박스). 칸이 없는 레코드는 총액 2 > 총액 1 로 판단.
+    project_service._parse_vat_flag 와 같은 값을 참으로 본다."""
+    rec = rec if rec is not None else {}
+    v = rec.get('부가세')
+    if v is None or (isinstance(v, float) and v != v) or (isinstance(v, str) and not v.strip()):
+        t1, t2 = _num(rec.get('총액 1')), _num(rec.get('총액 2'))
+        return t1 > 0 and t2 > t1
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v == 1
+    return str(v).strip().lower() in ('포함', 'true', 'yes', '1', 'vat 포함', 'y')
+
+
 def vat_ratio(rec: dict) -> float:
-    """총액 2 / 총액 1 — 부가세 별도 공사면 ≈1.1, 아니면 1. 부담액(받을 돈) ↔ 부가세 별도 금액 환산용."""
-    t1, t2 = _num((rec or {}).get('총액 1')), _num((rec or {}).get('총액 2'))
-    return t2 / t1 if t1 > 0 and t2 > t1 else 1.0
+    """부담액(받을 돈) ↔ 부가세 별도 금액 환산 비율 — 부가세 별도 공사면 1.1, 아니면 1.
+    (2026-10-21: 총액2/총액1 은 '부가세 없음' 사람이 있으면 총액 2 가 줄어 비율이 틀어지므로 10% 고정)"""
+    return 1.1 if vat_flag(rec) else 1.0
 
 
 def payer_supply(payer: dict, ratio: float) -> int:
@@ -410,25 +425,45 @@ def payer_supply(payer: dict, ratio: float) -> int:
     return amt if payer.get('vat_free') or ratio <= 1 else int(round(amt / ratio))
 
 
+def vat_free_amount(rec) -> int:
+    """부가세 별도 공사에서 부가세 없이 받는 몫의 합('현금 · 부가세 없음' 부담자 금액, 2026-10-21).
+    총액 2 는 이 몫엔 부가세를 붙이지 않는다 — 시트 계산식(total2_formula)·서버 계산(project_service) 공용."""
+    if not vat_flag(rec):
+        return 0
+    return sum(int(p['amount']) for p in stage_payers(rec).values() if p.get('vat_free'))
+
+
+def total2_formula(row: int, r_col: str, s_col: str, vat_free: int = 0) -> str:
+    """시트 총액 2 칸 계산식. vat_free=0 이면 기존 표준식과 글자 하나 다르지 않게(projects.py 신규 행과 같음).
+    vat_free>0: 총액 1 중 그 몫(MIN(총액1, 몫))은 그대로, 나머지에만 부가세(절사 + 끝자리 1/9원 보정)."""
+    R, S = f'{r_col}{row}', f'{s_col}{row}'
+    if not vat_free or vat_free <= 0:
+        return (f'=IF({S}=TRUE, {R}+FLOOR({R}*0.1,1) + IF(MOD({R}+FLOOR({R}*0.1,1), 10)=1, -1, '
+                f'IF(MOD({R}+FLOOR({R}*0.1,1), 10)=9, 1, 0)), {R})')
+    vf = int(vat_free)
+    x = f'MAX({R}-{vf},0)'
+    b = f'{x}+FLOOR({x}*0.1,1)'
+    return f'=IF({S}=TRUE, MIN({R},{vf})+{b} + IF(MOD({b}, 10)=1, -1, IF(MOD({b}, 10)=9, 1, 0)), {R})'
+
+
 def share_check(payers: list, rec: dict) -> str:
     """부담액 합계 점검 문구(맞으면 '') — PM 저장 경고·정합성 점검 공용 (2026-10-21 부가세 별도 기준).
 
-    부가세 별도 공사: 부가세 별도 금액 합 ↔ 총액 1. 그 합은 맞는데 부가세 없이 받는 사람 때문에 받을 돈 합이
-    총액 2 보다 적으면 그것도 알린다(다 받아도 미수금이 남음 → 총액 조정은 경영지원 판단, G4148).
-    부가세 없는 공사(총액 1 = 총액 2)나 총액 1 이 없으면: 받을 돈 합 ↔ 총액 2.
+    부가세 별도 공사: ① 부가세 별도 금액 합 ↔ 총액 1  ② 받을 돈 합 ↔ 총액 2 (총액 2 만 따로 고쳐진 경우).
+    ②는 '현금 · 부가세 없음' 사람이 있으면 건너뜀 — 총액 2 는 저장 때 시스템이 그 몫을 빼고 맞추므로(저장 전
+    시트의 옛 총액 2 와 비교하면 엉뚱한 경고). 부가세 없는 공사나 총액 1 이 없으면: 받을 돈 합 ↔ 총액 2.
     """
     rec = rec or {}
     t1, t2 = _num(rec.get('총액 1')), _num(rec.get('총액 2'))
     ratio = vat_ratio(rec)
     gross = sum(int(p.get('amount') or 0) for p in payers)
     tol = max(1, len(payers))   # 사람마다 원 단위 반올림
-    if ratio > 1:
+    if ratio > 1 and t1 > 0:
         supply = sum(payer_supply(p, ratio) for p in payers)
         if abs(t1 - supply) > tol:
             return f"부담액 합계(VAT 별도) {supply:,}원이 공사 총액(총액 1) {t1:,}원과 {t1 - supply:+,}원 다릅니다."
-        if abs(t2 - gross) > tol and any(p.get('vat_free') for p in payers):
-            return (f"부가세 없이 받는 사람이 있어 받을 돈 합계 {gross:,}원이 총액 2 {t2:,}원보다 {t2 - gross:,}원 "
-                    "적습니다. 다 받아도 미수금이 남으니 총액 조정이 필요한지 경영지원에 확인해 주세요.")
+        if t2 > 0 and abs(t2 - gross) > tol and not any(p.get('vat_free') for p in payers):
+            return f"부담액 합계(받을 돈) {gross:,}원이 총액 2 {t2:,}원과 {t2 - gross:+,}원 다릅니다."
         return ''
     if t2 > 0 and abs(t2 - gross) > 1:
         return f"부담액 합계 {gross:,}원이 공사 총액 {t2:,}원과 {t2 - gross:+,}원 다릅니다."
@@ -556,7 +591,40 @@ def save_payers(code: str, plan: Dict[str, dict]) -> dict:
                     if not mgr.update_cell_note(sid, sn, f'{ncol}{row}', new_note):
                         raise RuntimeError(f'{s} 메모 기록 실패')
                     changed[f'{s}_메모'] = new_note
+        changed.update(sync_total2_formula(mgr, sid, sn, row, f2l, plan))
     return changed
+
+
+def _norm_fx(s) -> str:
+    return re.sub(r'\s+', '', str(s or '')).upper()
+
+
+def sync_total2_formula(mgr, sid: str, sn: str, row: int, f2l: dict, plan: Dict[str, dict]) -> dict:
+    """총액 2 칸 계산식을 부담자 설정에 맞춤(2026-10-21) — '현금 · 부가세 없음' 몫엔 부가세를 안 붙인다.
+
+    부가세 없는 몫이 있으면 그 몫을 뺀 계산식, 없어졌으면 표준식으로 되돌림. 처음부터 표준식(또는 값)이고
+    부가세 없는 몫도 없으면 칸을 건드리지 않음. 바뀌면 새 총액 2·미수금(서버 계산 규칙과 같음)을 돌려줘
+    PM 캐시·화면에 바로 반영. Returns {'총액 2': float, '미수금': float} 또는 {}.
+    """
+    tcol, rcol, scol = f2l.get('총액 2'), f2l.get('총액 1'), f2l.get('부가세')
+    if not (tcol and rcol and scol):
+        return {}
+    vf = sum(int(p.get('amount') or 0) for p in (plan or {}).values() if p and p.get('vat_free'))
+    cur = str(mgr.get_cell_formula(sid, sn, f'{tcol}{row}') or '')
+    if vf <= 0 and 'MAX(' not in cur.upper():
+        return {}
+    want = total2_formula(row, rcol, scol, vf)
+    if _norm_fx(cur) == _norm_fx(want):
+        return {}
+    if not mgr.update_cell_value(sid, sn, f'{tcol}{row}', want):
+        raise RuntimeError('총액 2 계산식 기록 실패')
+    rm = mgr.get_row_map(sid, sn, row) or {}
+    from dashboard.services.project_service import _calculate_total2
+    t1 = _num(rm.get(rcol))
+    flag = vat_flag({'부가세': rm.get(scol), '총액 1': t1})
+    total2 = _calculate_total2(float(t1), flag, vf if flag else 0)
+    paid = sum(_num(rm.get(f2l.get(s))) for s in STAGES if f2l.get(s))
+    return {'총액 2': float(total2), '미수금': float(total2 - paid)}
 
 
 def split_problems(rec: dict) -> List[str]:

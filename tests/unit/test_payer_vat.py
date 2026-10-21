@@ -56,14 +56,14 @@ def test_share_check_vat_basis():
     # G4148 표시 없음 → 임대인 600만을 부가세 포함으로 보고 별도 합이 총액 1 과 안 맞음
     msg = ps.share_check(list(ps.stage_payers(G4148).values()), G4148)
     assert msg.startswith('부담액 합계(VAT 별도) 15,496,545원') and '총액 1' in msg
-    # 표시 있음 → 별도 합은 맞고, 받을 돈이 총액 2 보다 60만 적다는 안내(총액 조정 판단)
-    msg2 = ps.share_check(list(ps.stage_payers(G4148_NOVAT).values()), G4148_NOVAT)
-    assert '부가세 없이 받는 사람' in msg2 and '600,000원' in msg2 and '경영지원' in msg2
+    # 표시 있음 → 별도 합이 총액 1 과 맞음. 총액 2 는 시스템이 그 몫을 빼고 계산하므로(10-21 test_payer_total2)
+    #   '받을 돈 ≠ 총액 2' 경고는 더 이상 없음
+    assert ps.share_check(list(ps.stage_payers(G4148_NOVAT).values()), G4148_NOVAT) == ''
 
 
 def test_split_problems_uses_same_check():
-    probs = ps.split_problems(G4148_NOVAT)
-    assert any('부가세 없이 받는 사람' in p for p in probs)
+    assert not any('부담액 합계' in p for p in ps.split_problems(G4148_NOVAT))
+    assert any('부담액 합계' in p for p in ps.split_problems(G4148))
     assert not any('부담액 합계' in p for p in ps.split_problems(dict(G4151, **{'계약금': 0, '잔금': 0})))
 
 
@@ -74,7 +74,7 @@ def test_plan_payers_keeps_vat_free_for_cash_only():
     assert not errs
     assert plan['계약금']['vat_free'] is True and plan['잔금']['vat_free'] is False
     assert ps.format_payer_cell(plan['계약금']).endswith('현금 · 부가세 없음')
-    assert warns and '부가세 없이 받는 사람' in warns[0]
+    assert warns == []      # 별도 합 = 총액 1, 총액 2 는 저장 때 시스템이 맞춤
 
 
 def test_payers_api_gives_total1_ratio_and_flag():
