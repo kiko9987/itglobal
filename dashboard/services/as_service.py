@@ -349,7 +349,18 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
             or vat_raw == 1
         )
         if amt_disp != '-':
-            amt_disp = f"{amt_disp} ({'VAT 별도' if vat_sep else 'VAT 없음'})"
+            # 나눠 내는 공사에서 현금을 부가세 없이 받는 몫이 있으면 그 금액도 (2026-10-21 305호)
+            vf = 0
+            if vat_sep:
+                try:
+                    from dashboard.services.payer_split import vat_free_amount
+                    vf = vat_free_amount(r)
+                except Exception:
+                    vf = 0
+            if vf > 0:
+                amt_disp = f"{amt_disp} (VAT 별도 · 그중 {vf:,}원은 부가세 없음)"
+            else:
+                amt_disp = f"{amt_disp} ({'VAT 별도' if vat_sep else 'VAT 없음'})"
 
         # 유입 구분 표시 정규화 (공사 확정 카드 _format_inflow 와 동일)
         raw_inflow = _s('유입 구분')

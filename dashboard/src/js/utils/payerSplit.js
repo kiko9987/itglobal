@@ -93,7 +93,8 @@ export function payerLine(row, stage) {
   const p = getStagePayer(row, stage);
   if (!p) return '';
   const tail = p.remaining <= 0 ? '완납' : `남음 ${p.remaining.toLocaleString()}`;
-  return `${p.role} ${p.name} · 부담 ${p.amount.toLocaleString()} · ${tail}`;
+  const vf = p.vatFree ? ' · 현금·부가세 없음' : '';   // payer_split.payer_line 미러 (2026-10-21)
+  return `${p.role} ${p.name} · 부담 ${p.amount.toLocaleString()}${vf} · ${tail}`;
 }
 
 export function isSplit(row) {

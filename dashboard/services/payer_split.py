@@ -274,10 +274,12 @@ def split_y_summary(states: Dict[str, dict]) -> str:
 
 
 def payer_line(payer: dict) -> str:
-    """'임대인 이희승 · 부담 6,887,100 · 남음 1,377,420' (카드·툴팁용 한 줄)."""
+    """'임대인 이희승 · 부담 6,887,100 · 남음 1,377,420' (카드·툴팁용 한 줄).
+    현금을 부가세 없이 받는 사람은 '· 현금·부가세 없음'을 붙인다(2026-10-21, 입금 지정 모달·PM 툴팁)."""
     rem = int(payer.get('remaining', payer['amount']))
     tail = '완납' if rem <= 0 else f'남음 {rem:,}'
-    return f"{payer['role']} {payer['name']} · 부담 {payer['amount']:,} · {tail}"
+    vf = ' · 현금·부가세 없음' if payer.get('vat_free') else ''
+    return f"{payer['role']} {payer['name']} · 부담 {payer['amount']:,}{vf} · {tail}"
 
 
 def _norm(s) -> str:

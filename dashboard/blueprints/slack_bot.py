@@ -15019,7 +15019,9 @@ def _build_split_invoice_modal(client, view_id, code, payers, biz, addr, total_a
         p = payers[s]
         iss = int((_per.get(s) or {}).get('issued') or 0)
         tail = f" · 발행 {iss:,}" if iss else ''
-        opts.append({"text": {"type": "plain_text", "text": f"{payer_title(p)} · 부담 {int(p['amount']):,}{tail}"[:75]},
+        # 계산서 안 받는 사람(현금·카드)은 고를 때 알아보게 (2026-10-21, PM 창과 같게)
+        meth = ' · 현금·부가세 없음' if p.get('vat_free') else (f" · {p['method']}" if p.get('method') in ('현금', '카드') else '')
+        opts.append({"text": {"type": "plain_text", "text": f"{payer_title(p)} · 부담 {int(p['amount']):,}{meth}{tail}"[:75]},
                      "value": s})
     if payer_stage not in payers:
         metadata = json.dumps({"code": code, "p": p_meta}, ensure_ascii=False)
@@ -15046,6 +15048,11 @@ def _build_split_invoice_modal(client, view_id, code, payers, biz, addr, total_a
         active = [it for it in (_iss.get('active') or []) if it.get('stage') == payer_stage][:10]
     except Exception as _exc:
         logger.debug(f'[SLACK/계산서] 부담자 이미발행 계산 실패 ({code} {payer_stage}): {_exc}')
+    # 현금·카드로 내기로 한 사람이면 확인 안내(PM 계산서 창과 같은 문구, 2026-10-21)
+    _cash = {'현금': ':dollar: 이 사람은 계산서 없이 현금으로 내기로 돼 있습니다. 맞는지 확인하세요.',
+             '카드': ':credit_card: 이 사람은 카드로 내기로 돼 있습니다. 맞는지 확인하세요.'}.get(p.get('method'))
+    if _cash:
+        issued_warn = _cash + (f"\n{issued_warn}" if issued_warn else '')
     metadata = json.dumps({"code": code, "p": p_meta, "active": [
         [it['date'], it['stage'], int(round(it['amt'])), (it['biz'] or '')[:60]] for it in active]},
         ensure_ascii=False)
@@ -15053,7 +15060,8 @@ def _build_split_invoice_modal(client, view_id, code, payers, biz, addr, total_a
         code, p_biz, addr, amt_input, p_email, metadata,
         partner_warn=_partner_status_warn(p_biz), issued_warn=issued_warn,
         total_amt=f"{int(p['amount']):,}", active_invoices=active,
-        payer_opts=opts, payer_stage=payer_stage, total_label=f"{payer_title(p)} 부담액 (부가세 포함)")
+        payer_opts=opts, payer_stage=payer_stage,
+        total_label=f"{payer_title(p)} 부담액 ({'부가세 없음' if p.get('vat_free') else '부가세 포함'})")
     client.views_update(view_id=view_id, view=view)
     logger.info(f'[SLACK/계산서] 나눠 내는 공사 모달 ({code} {payer_stage}): 발행금액프리필={amt_input}')
 
