@@ -690,6 +690,16 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
     if not relevant:
         return False
 
+    # 사업자명·폴더가 바뀌면 등록증 판정(거래처 탭·재사용·자기 폴더)이 뒤집힐 수 있다 → 판정 캐시 비움.
+    #   '없음' 판정은 1시간 캐시라, 사업자명을 '-'에서 채워도 그동안 계산서 요청이 막혔다
+    #   (2026-10-22 G4058 — 시트에 사업자명을 넣었는데 이전 '없음' 판정이 남아 있었음).
+    if any(c.get('field_name') in ('사업자명', '견적서 및 계약서 폴더 경로') for c in relevant):
+        try:
+            from dashboard.services.business_license_handler import invalidate_license_state
+            invalidate_license_state(code)
+        except Exception as exc:
+            logger.debug(f'[PROJECT/SLACK/편집] 등록증 판정 캐시 비우기 실패 ({code}): {exc}')
+
     # Redis에서 채널|ts 조회 (코드가 변경됐으면 old_code로도 시도)
     try:
         from dashboard.utils.redis_client import get_redis_client
