@@ -47,6 +47,7 @@ function looksLikeChatNickname(name) {
 let debounceTimer = null;
 let currentLead = null;
 let moduleOpts = null;
+let searchSeq = 0;   // 늦게 도착한 검색 결과가 목록을 다시 여는 것 방지 (2026-10-23)
 
 /**
  * 리드→프로젝트 검색 로더 초기화.
@@ -77,15 +78,21 @@ export function initLeadProjectLoader(opts) {
     : null;
 
   const runSearch = async (query) => {
+    const seq = ++searchSeq;
+    // 결과가 도착했을 때 검색칸에 커서가 없거나(현장 고른 뒤·다른 칸 클릭) 더 새 검색이 있으면 버림 —
+    //   안 그러면 고른 뒤 늦게 온 결과가 목록을 다시 연다 (2026-10-23 "시도때도 없이 뜬다")
+    const stale = () => seq !== searchSeq || document.activeElement !== input;
     try {
       const allParam = (myOnlyCheckbox && !myOnlyCheckbox.checked) ? '&all=1' : '';
       const url = `/leads/api/search-for-project?q=${encodeURIComponent(query)}${allParam}`;
       const res = await fetch(url, { credentials: 'same-origin' });
+      if (stale()) return;
       if (!res.ok) {
         renderNoResults(results, `검색 실패 (${res.status})`);
         return;
       }
       const json = await res.json();
+      if (stale()) return;
       const leads = (json.data && json.data.leads) || json.leads || [];
       if (!leads.length) {
         renderNoResults(results, query ? '검색 결과가 없습니다' : '표시할 리드가 없습니다');
@@ -94,7 +101,7 @@ export function initLeadProjectLoader(opts) {
       renderResults(results, leads, (lead) => applyLead(lead, opts));
     } catch (err) {
       console.error('[LEAD_PROJECT_LOADER] search error', err);
-      renderNoResults(results, '검색 중 오류가 발생했습니다');
+      if (!stale()) renderNoResults(results, '검색 중 오류가 발생했습니다');
     }
   };
 
@@ -110,14 +117,17 @@ export function initLeadProjectLoader(opts) {
   });
 
   input.addEventListener('blur', () => {
+    if (debounceTimer) clearTimeout(debounceTimer);   // 커서가 떠나면 대기 중 검색도 취소
     setTimeout(() => hideResults(results), 200);
   });
 
-  // 체크박스 토글 시 현재 검색어로 즉시 재검색 (본인/전체 전환 반영)
+  // 체크박스 토글 시 검색칸에 커서를 넣어 현재 검색어로 다시 검색 (본인/전체 전환 반영).
+  //   체크박스를 누르면 커서가 검색칸을 떠나므로, 커서를 돌려줘야 결과를 버리지 않고 보여 줌
   if (myOnlyCheckbox) {
     myOnlyCheckbox.addEventListener('change', () => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      runSearch(input.value.trim());
+      if (document.activeElement === input) runSearch(input.value.trim());
+      else input.focus();                              // focus 핸들러가 검색
     });
   }
 
@@ -269,7 +279,14 @@ function applyLead(lead, opts) {
   if (leadNoInput) leadNoInput.value = lead.lead_no || '';
 
   const searchInput = document.getElementById(opts.inputId);
-  if (searchInput) searchInput.value = '';
+  if (searchInput) {
+    searchInput.value = '';
+    // 고른 뒤 커서를 검색칸에서 뺌 — 남아 있으면 다른 창·탭에서 돌아올 때 focus 가 다시 일어나 목록이
+    //   열렸다 (2026-10-23 "시도때도 없이 뜬다"). 진행 중인 검색 결과도 버리게 번호를 올림
+    searchSeq += 1;
+    if (debounceTimer) clearTimeout(debounceTimer);
+    searchInput.blur();
+  }
 
   const linkedInfo = document.getElementById(opts.linkedInfoId);
   const linkedText = document.getElementById(opts.linkedInfoTextId);
