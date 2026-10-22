@@ -761,6 +761,7 @@ KARROT_HOMEPAGE_NAMES = {
     ('web_install', 'A'): '홈피A 신품중고 비교 (읍면동)',
     ('web_install', 'B'): '홈피B 매장 평수',
     ('web_install', 'C'): '홈피C 업체 찾나요 (시군구)',
+    ('web_install', 'D'): '홈피D 무료방문견적 (읍면동)',   # 2026-10-22 C 대체(수동1 문안의 홈페이지판)
 }
 
 
