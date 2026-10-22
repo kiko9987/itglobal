@@ -627,7 +627,7 @@ export default class ModernProjectModal {
     if (found) {
       input.value = found;
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      this._partnerLeadHint = '불러온 현장의 거래처명으로 자동 채움. 다른 경우 직접 입력해주세요.';
+      this._partnerLeadHint = '불러온 현장의 거래처명으로 자동 입력. 다른 경우 직접 입력해주세요.';
     } else {
       this._partnerLeadHint = `불러온 현장 이름(${name})이 거래처 목록에 없습니다. 일을 맡긴 업체를 고르거나 입력하세요.`;
     }
