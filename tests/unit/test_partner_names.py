@@ -54,6 +54,11 @@ def test_short_name_and_is_partner_name():
     ('(ABC)', '(ABC)'),                                              # 다 빠지면 원래 이름
     ('건축사사무소 VINZIP', '건축사사무소 VINZIP'),                   # 업종 이름 뒤 영문 = 실제 상호
     ('세무회계컨설팅 SONG&PARTNERS', '세무회계컨설팅 SONG&PARTNERS'),
+    ('관악산 휴먼시아아파트 입주자대표회의', '관악산 휴먼시아아파트'),       # 건물 관리 단체 꼬리 (10-23 요청)
+    ('샘마을한양대우아파트입주자대표회의', '샘마을한양대우아파트'),
+    ('코오롱싸이언스밸리1차 운영위원회', '코오롱싸이언스밸리1차'),
+    ('케이비 중앙 타워 관리단', '케이비 중앙 타워'),
+    ('관리단', '관리단'),                                             # 꼬리만 있으면 그대로
 ])
 def test_short_name_extended(raw, short):
     assert pn.short_name(raw) == short

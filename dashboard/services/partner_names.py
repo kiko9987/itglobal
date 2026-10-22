@@ -37,6 +37,8 @@ _FOREIGN_TAIL_RE = re.compile(r'^(.*[가-힣].*?)\s+([^가-힣]+)$')
 _ROMAN_RE = re.compile(r'^[IVX]+$')
 # 앞이 업종 이름뿐이면 영문 꼬리가 실제 상호 — '건축사사무소 VINZIP', '세무회계컨설팅 SONG&PARTNERS'
 _GENERIC_HEAD_RE = re.compile(r'(사무소|사무실|컨설팅|법무법인|회계법인|특허법인|세무법인|건축사)$')
+# 건물 관리 단체 꼬리 — '관악산 휴먼시아아파트 입주자대표회의' → '관악산 휴먼시아아파트' (10-23 사용자 요청)
+_ORG_SUFFIX_RE = re.compile(r'\s*(입주자\s*대표\s*회의?|관리\s*사무소|관리단|관리\s*위원회|운영\s*위원회)$')
 
 
 def inflow_group(inflow: str) -> str:
@@ -51,7 +53,8 @@ def short_name(name: str) -> str:
     """부르는 이름 — '주식회사 메이드바이디자인' → '메이드바이디자인'.
 
     빼는 것: 법인 표기((주)·(재)·재단법인 등·[폐업]), 한글 없는 괄호('(PK)', '(suum)'), 닫히지 않은 영문 괄호
-    꼬리, 한글 이름 뒤 영문·한자 꼬리('完 Design Interior'). 남기는 것: 지점('신도림점')·한글 괄호('(송파점)')
+    꼬리, 한글 이름 뒤 영문·한자 꼬리('完 Design Interior'), 건물 관리 단체 꼬리('입주자대표회의'·'관리사무소'·
+    '관리단'·'운영위원회'). 남기는 것: 지점('신도림점')·한글 괄호('(송파점)')
     — 다른 지점이 한 곳으로 묶이지 않게. 다 빼서 비면 법인 표기만 뺀 이름. JS shortPartnerName 과 같게.
     """
     base = re.sub(r'\s+', ' ', _LEGAL_MARK_RE.sub(' ', str(name or ''))).strip()
@@ -63,6 +66,9 @@ def short_name(name: str) -> str:
         if not _ROMAN_RE.match(tail) and not _GENERIC_HEAD_RE.search(m.group(1).strip()) \
                 and (len(re.findall(r'[A-Za-z]', tail)) >= 2 or re.search(r'[一-鿿]', tail)):
             s = m.group(1)
+    t = _ORG_SUFFIX_RE.sub('', s).strip()
+    if len(re.findall(r'[가-힣]', t)) >= 2:      # '관리단'만 있으면 그대로
+        s = t
     s = s.strip(' .,-_/·')
     return s if re.search(r'[가-힣A-Za-z0-9]', s) else base
 

@@ -25,6 +25,8 @@ const FOREIGN_TAIL_RE = /^(.*[가-힣].*?)\s+([^가-힣]+)$/;  // '완디자인 
 const ROMAN_RE = /^[IVX]+$/;
 // 앞이 업종 이름뿐이면 영문 꼬리가 실제 상호 — '건축사사무소 VINZIP'
 const GENERIC_HEAD_RE = /(사무소|사무실|컨설팅|법무법인|회계법인|특허법인|세무법인|건축사)$/;
+// 건물 관리 단체 꼬리 — '관악산 휴먼시아아파트 입주자대표회의' → '관악산 휴먼시아아파트'
+const ORG_SUFFIX_RE = /\s*(입주자\s*대표\s*회의?|관리\s*사무소|관리단|관리\s*위원회|운영\s*위원회)$/;
 
 /** 유입 구분 → 거래처가 아닐 때 거래처명에 들어가는 묶음 (온라인 계열·빈칸은 '온라인') */
 export function inflowGroup(inflow) {
@@ -35,7 +37,8 @@ export function inflowGroup(inflow) {
 
 /**
  * 부르는 이름 — '주식회사 메이드바이디자인' → '메이드바이디자인'.
- * 법인 표기·한글 없는 괄호·닫히지 않은 영문 괄호·한글 뒤 영문/한자 꼬리를 뺌. 지점·한글 괄호는 남김.
+ * 법인 표기·한글 없는 괄호·닫히지 않은 영문 괄호·한글 뒤 영문/한자 꼬리·건물 관리 단체 꼬리를 뺌.
+ * 지점·한글 괄호는 남김.
  */
 export function shortPartnerName(name) {
   const base = String(name ?? '').replace(LEGAL_MARK_RE, ' ').replace(/\s+/g, ' ').trim();
@@ -48,6 +51,8 @@ export function shortPartnerName(name) {
       s = m[1];
     }
   }
+  const t = s.replace(ORG_SUFFIX_RE, '').trim();
+  if ((t.match(/[가-힣]/g) || []).length >= 2) s = t;   // '관리단'만 있으면 그대로
   s = s.replace(/^[\s.,\-_/·]+|[\s.,\-_/·]+$/g, '');
   return /[가-힣A-Za-z0-9]/.test(s) ? s : base;
 }
