@@ -666,9 +666,9 @@ export default class ProjectTable {
         },
         {
           // 거래처 / 사업자명 - 연한 회색 라벨 (2026-10-22 거래처명 열 추가)
-          //   거래처명(일을 맡긴 곳)이 이름이면 그것을 먼저, 등록증 상호(사업자명)가 다른 곳이면 아래 작게.
-          //   거래처명이 온라인·전화 같은 묶음이면 지금처럼 사업자명만. 열을 따로 늘리면 열 순서 기준
-          //   CSS(project-list.css nth-child)가 밀려서 한 칸에 둘을 표시.
+          //   거래처명(일을 맡긴 곳)이 이름이면 그것만, 등록증 상호(사업자명)가 다르면 마우스 올릴 때만
+          //   (10-23 사용자: 아래 줄로 따로 보이는 건 필요 없음). 거래처명이 온라인·전화 같은 묶음이면
+          //   사업자명. 열을 따로 늘리면 열 순서 기준 CSS(project-list.css nth-child)가 밀려서 한 칸에.
           name: 'businessName',
           data: '사업자명',
           defaultContent: '',
@@ -682,10 +682,8 @@ export default class ProjectTable {
             if (!named) {
               return biz && biz !== '-' ? badge(biz, '사업자명') : '<span class="text-muted">-</span>';
             }
-            const sub = biz && biz !== '-' && partnerPlaceKey(biz) !== partnerPlaceKey(partner)
-              ? `<div class="text-muted" title="사업자명 (등록증 상호)" style="font-size: 0.72rem; margin-top: 2px; white-space: normal;">${esc(biz)}</div>`
-              : '';
-            return badge(partner, '거래처명') + sub;
+            const differs = biz && biz !== '-' && partnerPlaceKey(biz) !== partnerPlaceKey(partner);
+            return badge(partner, differs ? `사업자명: ${esc(biz)}` : '거래처명');
           }
         },
         {
