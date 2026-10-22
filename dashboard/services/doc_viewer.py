@@ -2,8 +2,9 @@
 """슬랙 문서 보기 — HWP·PDF 등을 kordoc 으로 글로 바꿔 스레드에 답글 (2026-10-22).
 
 관공서 공고·과업지시서는 HWP 로 오는데 슬랙 모바일은 HWP 미리보기가 안 돼
-현장 매니저가 열어 볼 방법이 없었다. 전용 채널(SLACK_DOC_VIEW_CHANNEL)이나
-메인봇 DM 에 파일을 올리면 내용을 글로 바꿔 그 스레드에 달아 준다.
+현장 매니저가 열어 볼 방법이 없었다.
+- 리드·방문 카드 스레드 등 채널에 HWP·HWPX 를 올리면 자동으로 내용을 답글.
+- 봇 DM(또는 전용 채널 SLACK_DOC_VIEW_CHANNEL)에 올리면 PDF·엑셀 등 모든 형식 변환.
 
 - 변환: tools/kordoc 의 kordoc CLI(Node) 를 subprocess 로 호출. 설치는 그 폴더에서 `npm ci`.
 - 외부 통신 차단(KORDOC_OFFLINE=1)·접근 폴더를 임시 폴더로 제한(KORDOC_ROOT)·OCR 끔.
@@ -230,32 +231,75 @@ def _react(client, channel: str, ts: str, add: str = '', remove: str = '') -> No
             pass
 
 
-def is_doc_view_target(event: dict) -> bool:
-    """문서 보기 대상 메시지인가 — 전용 채널 최상위 글 또는 DM 의 파일 첨부."""
+HWP_EXTS = {'hwp', 'hwpx'}
+
+
+def doc_view_mode(event: dict) -> Optional[str]:
+    """문서 보기 대상이면 'all'(모든 형식) / 'hwp'(HWP·HWPX만), 아니면 None.
+
+    - DM·전용 채널(SLACK_DOC_VIEW_CHANNEL) 최상위 글: 'all' — 일부러 보내 온 파일.
+    - 그 밖의 채널(리드·방문 카드 스레드 등): HWP·HWPX 가 있을 때만 'hwp'. PDF 는 슬랙이
+      미리보기를 해 주고 우리 견적서 PDF 가 스레드에 자주 올라와, 변환하면 답글만 쌓인다.
+    """
     if event.get('bot_id') or event.get('subtype') not in ('file_share', None, ''):
-        return False
-    if not event.get('files'):
-        return False
+        return None
+    files = event.get('files') or []
+    if not files:
+        return None
     if event.get('channel_type') == 'im':
-        return True
-    target = os.getenv('SLACK_DOC_VIEW_CHANNEL', '').strip()
-    if not target or event.get('channel') != target:
-        return False
-    # 스레드 안 답글 첨부는 대화로 보고 건드리지 않는다
+        return 'all'
     thread_ts = event.get('thread_ts')
-    return not thread_ts or thread_ts == event.get('ts')
+    top_level = not thread_ts or thread_ts == event.get('ts')
+    target = os.getenv('SLACK_DOC_VIEW_CHANNEL', '').strip()
+    if target and event.get('channel') == target and top_level:
+        return 'all'
+    if any(file_ext(f.get('name') or '') in HWP_EXTS for f in files):
+        return 'hwp'
+    return None
 
 
-def handle_doc_view(event: dict, client, token: str) -> None:
-    """파일마다 변환해 그 메시지 스레드에 답글. 백그라운드 스레드에서 호출."""
+DM_GUIDE = (
+    ':page_facing_up: HWP·PDF·워드·엑셀·PPT 파일을 여기로 보내 주시면 내용을 글로 바꿔 답해 드려요.\n'
+    '리드·방문 카드 스레드에 올린 HWP 파일은 따로 보내지 않아도 자동으로 바꿔 드립니다.'
+)
+
+
+def start_doc_view(event: dict, client, token: str) -> Optional[str]:
+    """대상이면 백그라운드로 변환을 시작하고 mode 를, 아니면 None 을 돌려준다.
+
+    슬랙 핸들러(process_before_response)가 바로 반환하도록 변환은 스레드로 넘긴다.
+    같은 채널에 봇이 둘 있어도 _claim(파일·메시지당 1회)으로 답글은 한 번만 달린다.
+    """
+    mode = doc_view_mode(event)
+    if not mode:
+        return None
+
+    def _bg():
+        try:
+            handle_doc_view(event, client, token, mode)
+        except Exception as exc:
+            logger.error(f'[DOCVIEW] 처리 실패: {exc}', exc_info=True)
+    threading.Thread(target=_bg, daemon=True).start()
+    return mode
+
+
+def handle_doc_view(event: dict, client, token: str, mode: str = 'all') -> None:
+    """파일마다 변환해 그 메시지 스레드에 답글. 백그라운드 스레드에서 호출.
+
+    답글은 원 메시지가 스레드 답글이면 그 스레드에, 최상위 글이면 그 글의 스레드에 단다.
+    """
     channel = event.get('channel')
     ts = event.get('ts')
+    reply_ts = event.get('thread_ts') or ts
     files = event.get('files') or []
-    targets = [f for f in files if is_supported(f.get('name') or '')]
+    allowed = SUPPORTED_EXTS if mode == 'all' else HWP_EXTS
+    targets = [f for f in files if file_ext(f.get('name') or '') in allowed]
     if not targets:
+        if mode != 'all':
+            return
         names = ', '.join(f.get('name') or '?' for f in files)
         client.chat_postMessage(
-            channel=channel, thread_ts=ts,
+            channel=channel, thread_ts=reply_ts,
             text=f':information_source: {names} — 글로 바꿀 수 있는 파일은 HWP·HWPX·PDF·워드·엑셀·PPT 입니다.',
         )
         return
@@ -274,16 +318,16 @@ def handle_doc_view(event: dict, client, token: str) -> None:
             body = markdown_to_slack(md)
             if not body:
                 raise DocConvertError('글자를 찾지 못했습니다. 스캔본(사진으로 된 PDF)은 아직 읽지 못합니다.')
-            _post_result(client, channel, ts, name, body)
+            _post_result(client, channel, reply_ts, name, body)
             _react(client, channel, ts, add='white_check_mark', remove='hourglass_flowing_sand')
             logger.info(f'[DOCVIEW] 완료 {name} chars={len(body)}')
         except DocConvertError as exc:
-            client.chat_postMessage(channel=channel, thread_ts=ts, text=f':x: *{name}* — {exc}')
+            client.chat_postMessage(channel=channel, thread_ts=reply_ts, text=f':x: *{name}* — {exc}')
             _react(client, channel, ts, add='x', remove='hourglass_flowing_sand')
         except Exception as exc:
             logger.error(f'[DOCVIEW] 예외 {name}: {exc}', exc_info=True)
             client.chat_postMessage(
-                channel=channel, thread_ts=ts,
+                channel=channel, thread_ts=reply_ts,
                 text=f':x: *{name}* — 변환 중 오류가 났습니다. 관리자에게 알려 주세요.',
             )
             _react(client, channel, ts, add='x', remove='hourglass_flowing_sand')

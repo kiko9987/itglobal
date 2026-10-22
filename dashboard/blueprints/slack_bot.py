@@ -3279,6 +3279,13 @@ def _register_visit_handlers(app):
             f"[SLACK/방문봇] message event: thread_ts={thread_ts} "
             f"subtype={subtype} bot_id={bot_id} text={text_preview!r}"
         )
+        # 문서 보기 (2026-10-22) — 방문 채널에 올린 HWP 를 글로 바꿔 답글(백그라운드).
+        #   사진 저장 흐름은 아래에서 그대로 진행(HWP 도 방문 폴더에 저장됨).
+        try:
+            from dashboard.services.doc_viewer import start_doc_view
+            start_doc_view(event, client, _VISIT_BOT_TOKEN)
+        except Exception as exc:
+            logger.error(f"[DOCVIEW/방문봇] 진입 실패: {exc}", exc_info=True)
         if not thread_ts:
             return
         if bot_id:  # 봇 메시지는 무시 (echo 방지)
@@ -3880,26 +3887,21 @@ def _register_handlers(app):
 
         channel_type = event.get("channel_type")
 
-        # ③-0. 문서 보기 (2026-10-22) — 전용 채널(SLACK_DOC_VIEW_CHANNEL)·DM 에 올린
-        #   HWP·PDF 등을 kordoc 으로 글로 바꿔 스레드 답글. 변환이 수십 초 걸릴 수 있어
-        #   process_before_response 재전송을 피하려 백그라운드로 넘기고 즉시 반환.
+        # ③-0. 문서 보기 (2026-10-22) — DM 파일·채널의 HWP 를 kordoc 으로 글로 바꿔 답글.
+        #   변환은 백그라운드. 채널 스레드는 아래 흐름(채널톡 forward·자동 감지)을 그대로 잇는다
+        #   — 매니저가 파일과 함께 쓴 글이 고객에게 안 가는 일이 없도록 여기서 return 하지 않음.
         try:
-            from dashboard.services.doc_viewer import is_doc_view_target, handle_doc_view
-            if is_doc_view_target(event):
-                def _doc_view_bg():
-                    try:
-                        handle_doc_view(event, client, _BOT_TOKEN)
-                    except Exception as exc:
-                        logger.error(f"[DOCVIEW] 처리 실패: {exc}", exc_info=True)
-                threading.Thread(target=_doc_view_bg, daemon=True).start()
-                return
+            from dashboard.services.doc_viewer import start_doc_view, DM_GUIDE
+            doc_mode = start_doc_view(event, client, _BOT_TOKEN)
         except Exception as exc:
+            doc_mode = None
             logger.error(f"[DOCVIEW] 진입 실패: {exc}", exc_info=True)
 
-        # ③-1. DM: 안내 메시지
+        # ③-1. DM: 파일이면 문서 보기가 답하고, 글이면 사용 안내.
+        #   (im:history 권한이 2026-10-22 에야 붙어 이전엔 DM 이벤트가 오지 않았다)
         if channel_type == "im":
-            text = event.get("text", "")
-            say(f"메시지 받았습니다: _{text}_\n슬래시 명령 `/상태`, `/전화`, `/청소`도 사용 가능합니다.")
+            if not doc_mode:
+                say(DM_GUIDE)
             return
 
         # ③-2. 채널 thread 답글 — 채널톡 thread면 채널톡으로 forward

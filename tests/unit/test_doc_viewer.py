@@ -66,17 +66,38 @@ def _event(**kw):
     return base
 
 
-def test_is_doc_view_target(monkeypatch):
+PDF_FILES = [{'id': 'F9', 'name': '견적서.pdf', 'url_private': 'https://x'}]
+
+
+def test_doc_view_mode(monkeypatch):
+    monkeypatch.delenv('SLACK_DOC_VIEW_CHANNEL', raising=False)
+    # DM 은 모든 형식
+    assert dv.doc_view_mode(_event(channel='DXX', channel_type='im', files=PDF_FILES)) == 'all'
+    # 일반 채널·카드 스레드는 HWP 가 있을 때만
+    assert dv.doc_view_mode(_event(channel='CLEAD', thread_ts='99.0')) == 'hwp'
+    assert dv.doc_view_mode(_event(channel='CLEAD')) == 'hwp'
+    assert dv.doc_view_mode(_event(channel='CLEAD', thread_ts='99.0', files=PDF_FILES)) is None
+    # 봇·빈 첨부·수정 이벤트는 제외
+    assert dv.doc_view_mode(_event(bot_id='B1')) is None
+    assert dv.doc_view_mode(_event(files=[])) is None
+    assert dv.doc_view_mode(_event(subtype='message_changed')) is None
+    # 전용 채널 최상위 글은 모든 형식, 그 채널의 스레드 답글은 일반 규칙
     monkeypatch.setenv('SLACK_DOC_VIEW_CHANNEL', 'CDOC')
-    assert dv.is_doc_view_target(_event())
-    assert dv.is_doc_view_target(_event(channel='DXX', channel_type='im'))
-    assert not dv.is_doc_view_target(_event(channel='COTHER'))
-    assert not dv.is_doc_view_target(_event(thread_ts='99.0'))          # 스레드 답글 첨부
-    assert not dv.is_doc_view_target(_event(bot_id='B1'))
-    assert not dv.is_doc_view_target(_event(files=[]))
-    assert not dv.is_doc_view_target(_event(subtype='message_changed'))
-    monkeypatch.delenv('SLACK_DOC_VIEW_CHANNEL')
-    assert not dv.is_doc_view_target(_event())                          # 채널 미설정이면 꺼짐
+    assert dv.doc_view_mode(_event(files=PDF_FILES)) == 'all'
+    assert dv.doc_view_mode(_event(thread_ts='99.0', files=PDF_FILES)) is None
+
+
+def test_start_doc_view_runs_in_background(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dv, 'handle_doc_view', lambda e, c, t, m: calls.append(m))
+    assert dv.start_doc_view(_event(channel='CLEAD', thread_ts='99.0'), None, 'xoxb') == 'hwp'
+    assert dv.start_doc_view(_event(channel='CLEAD', files=PDF_FILES), None, 'xoxb') is None
+    import time
+    for _ in range(50):
+        if calls:
+            break
+        time.sleep(0.01)
+    assert calls == ['hwp']
 
 
 class FakeClient:
@@ -157,6 +178,23 @@ def test_handle_doc_view_unsupported_file_gets_guide(no_redis):
     dv.handle_doc_view(_event(files=[{'id': 'F2', 'name': '사진.jpg'}]), c, 'xoxb')
     assert 'HWP·HWPX·PDF' in c.posts[0]['text']
     assert c.reactions == []
+
+
+def test_handle_doc_view_hwp_mode_converts_only_hwp_into_card_thread(monkeypatch, no_redis):
+    seen = []
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: seen.append(ext) or '공고 본문')
+    c = FakeClient()
+    files = [{'id': 'F1', 'name': '공고.hwp', 'url_private': 'u'}, PDF_FILES[0],
+             {'id': 'F3', 'name': '사진.jpg', 'url_private': 'u'}]
+    dv.handle_doc_view(_event(thread_ts='99.0', files=files), c, 'xoxb', 'hwp')
+    assert seen == ['hwp']                                  # PDF·사진은 건드리지 않음
+    assert len(c.posts) == 1 and c.posts[0]['thread_ts'] == '99.0'   # 카드 스레드에 답글
+
+
+def test_handle_doc_view_hwp_mode_silent_without_hwp(no_redis):
+    c = FakeClient()
+    dv.handle_doc_view(_event(files=PDF_FILES), c, 'xoxb', 'hwp')
+    assert c.posts == [] and c.reactions == []
 
 
 def _minimal_docx(text: str) -> bytes:
