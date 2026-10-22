@@ -165,3 +165,8 @@ def test_refund_record_restores_card_on_failure(monkeypatch):
     sb._do_refund_record(client, sb._SETTLEMENT_CHECKER_ID, 'C1', '1.1', 'o1')
     assert '반환 기록 중' in updates[0]['text']
     assert updates[-1]['blocks'][1]['elements'][0]['action_id'] == 'payment_refund_record'   # 버튼 복원
+
+# 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사
+#   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
+import pytest as _pytest  # noqa: E402
+pytestmark = _pytest.mark.usefixtures('sheet_layout_45')

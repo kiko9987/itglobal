@@ -112,14 +112,19 @@ _CELL_KNOWN_KEY = 'invariant_known_cell_anomalies_v2'
 _CELL_KNOWN_KEY_V1 = 'invariant_known_cell_anomalies'   # 옛 키 'cell:AH4149:값' (열 글자는 10-22 이전 배치)
 
 
+# v1 키가 쓰던 열 글자 — 10-22 거래처명 삽입 전 배치(고정). 기본 배치(_STATIC_COLUMN_MAPPING)는 시트를
+#   따라 바뀌므로 옮길 때 쓰면 안 된다. v1 이 점검한 칸만.
+_V1_CELL_LETTERS = {'T': '총액 2', 'X': '미수금', 'AD': '수금 확인', 'AE': '제품대', 'AF': '도급비', 'AG': '자재비',
+                    'AH': '기타비', 'AI': '순익', 'AJ': '마진율'}
+
+
 def _migrate_known_v1(keys):
-    """v1 'cell:{열}{행}:{값}' → v2 'cell:{필드명}:{행}:{값}'. 열 글자는 10-22 이전 기본 배치로 읽는다."""
-    from dashboard.utils.google_sheets import _STATIC_COLUMN_MAPPING
+    """v1 'cell:{열}{행}:{값}' → v2 'cell:{필드명}:{행}:{값}'. 열 글자는 10-22 이전 배치로 읽는다."""
     out = set()
     for k in keys:
         m = re.match(r'^cell:([A-Z]+)(\d+):(.*)$', str(k), re.S)
-        if m and m.group(1) in _STATIC_COLUMN_MAPPING:
-            out.add(f'cell:{_STATIC_COLUMN_MAPPING[m.group(1)]}:{m.group(2)}:{m.group(3)}')
+        if m and m.group(1) in _V1_CELL_LETTERS:
+            out.add(f'cell:{_V1_CELL_LETTERS[m.group(1)]}:{m.group(2)}:{m.group(3)}')
     return out
 _CELL_FIELDS = (('총액 2', 'err'), ('미수금', 'err'), ('수금 확인', 'bool'),
                 ('제품대', 'num'), ('도급비', 'num'), ('자재비', 'num'), ('기타비', 'num'),

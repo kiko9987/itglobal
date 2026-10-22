@@ -233,3 +233,8 @@ def test_mark_invoice_split_no_full_dash_and_split_y(pmgr, monkeypatch):
     assert pmgr.cells['AB10'] == '발행' and pmgr.cells['Z10'] == '미발행'
     assert '잔금 발행' in pmgr.notes['Y10']
     assert pmgr.cells['Y10'] == '계약금 - 미발행'      # 임대인 완납·미발행이 요약에 드러남
+
+# 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사
+#   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
+import pytest as _pytest  # noqa: E402
+pytestmark = _pytest.mark.usefixtures('sheet_layout_45')

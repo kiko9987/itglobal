@@ -141,3 +141,8 @@ def test_done_card_and_reminder_text(monkeypatch):
     rt = build_pin_remind_text({'moves': [r]})
     assert '자금 이동 대기 — 법인 간 이체 필요 (1건)' in rt
     assert 'G4125-YM 잔금 3,014,000원 · 대연이엔지주식회 · 하나(글로벌그룹) → 글로벌 · 2026/09/30 입금' in rt
+
+# 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사
+#   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
+import pytest as _pytest  # noqa: E402
+pytestmark = _pytest.mark.usefixtures('sheet_layout_45')

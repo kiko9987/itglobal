@@ -106,3 +106,8 @@ def test_refund_match_split_column_overpay():
     out = rm.find_candidates({'amount': 1000000, 'partner': '김지민', 'bank': '기업', 'ts': time.time()}, rows)
     assert len(out) == 1 and out[0]['stage'] == '잔금' and out[0]['kind'] == 'overpay'
     assert '부담액 1,472,350원' in out[0]['reason']
+
+# 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사
+#   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
+import pytest as _pytest  # noqa: E402
+pytestmark = _pytest.mark.usefixtures('sheet_layout_45')

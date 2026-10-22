@@ -335,3 +335,8 @@ def test_overpay_r4104_wording():
     w = sb._intake_warnings('R4104-SD', 2750000, {}, R_HANA, records=_rec('R4104-SD', 2_750_000, 2_515_000),
                             stage='잔금')
     assert [x for x in w if x['kind'] == 'overpay'][0]['line'] ==         '과입금 의심 — 미수금보다 235,000원 더 들어옴 (총액 2,750,000 · 이미 받은 돈 235,000 · 미수금 2,515,000)'
+
+# 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사
+#   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
+import pytest as _pytest  # noqa: E402
+pytestmark = _pytest.mark.usefixtures('sheet_layout_45')

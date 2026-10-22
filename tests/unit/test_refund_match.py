@@ -245,3 +245,8 @@ def test_refund_followup_rerenders_balance_card_both_ways(monkeypatch, unpaid):
     monkeypatch.setattr(ps, 'rerender_stage_card', lambda p, s, row=None: called.append((p, s, row)) or True)
     assert ps.refund_followup('R4104-SD', '계약금', row=4105)
     assert called == [('R4104-SD', '잔금', 4105)]
+
+# 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사
+#   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
+import pytest as _pytest  # noqa: E402
+pytestmark = _pytest.mark.usefixtures('sheet_layout_45')

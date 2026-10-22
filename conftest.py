@@ -60,6 +60,20 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_integration)
 
 
+# ── 공사 현황 옛 45열 배치 (2026-10-22 거래처명 삽입 전) ───────────────────
+@pytest.fixture
+def sheet_layout_45(monkeypatch):
+    """테스트 데이터를 옛 열 위치(계약금=U, 버전=AS 등)로 짠 테스트용 — 기본 배치를 45열로 고정.
+
+    코드는 헤더 지도를 따라가므로 어떤 배치에서도 같은 논리를 검사한다. pytest 중 헤더 지도 =
+    _STATIC_COLUMN_MAPPING 이라 이걸 45열(거래처명 빼고)로 바꾼다.
+    """
+    import dashboard.utils.google_sheets as gs
+    fields = [f for _, f in sorted(gs._STATIC_COLUMN_MAPPING.items(), key=lambda kv: gs.column_index(kv[0]))
+              if f != '거래처명']
+    monkeypatch.setattr(gs, '_STATIC_COLUMN_MAPPING', {gs.column_letter(i): f for i, f in enumerate(fields)})
+
+
 # ── 세션 tripwire: 앱 Redis 싱글톤이 비-프로덕션 DB 에 묶였는지 검증 ───
 @pytest.fixture(autouse=True, scope='session')
 def _assert_redis_isolated():

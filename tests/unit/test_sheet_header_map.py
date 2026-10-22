@@ -15,7 +15,10 @@ import pytest
 
 import dashboard.utils.google_sheets as gs
 
-CURRENT = dict(gs._STATIC_COLUMN_MAPPING)
+# CURRENT = 거래처명 삽입 전 45열 배치, _shifted() = D 뒤에 거래처명을 넣은 배치(= 지금 실제 46열)
+CURRENT = {gs.column_letter(i): f for i, f in enumerate(
+    [f for _, f in sorted(gs._STATIC_COLUMN_MAPPING.items(), key=lambda kv: gs.column_index(kv[0]))
+     if f != '거래처명'])}
 
 
 def _shifted():
@@ -23,6 +26,11 @@ def _shifted():
     fields = [CURRENT[l] for l in sorted(CURRENT, key=gs.column_index)]
     fields.insert(4, '거래처명')
     return {gs.column_letter(i): f for i, f in enumerate(fields)}
+
+
+def test_static_layout_is_the_real_46_column_sheet():
+    # 헤더를 못 읽을 때 쓰는 기본 배치 = 10-22 거래처명 삽입 뒤 실제 시트 (A:AT)
+    assert gs._STATIC_COLUMN_MAPPING == _shifted() and len(_shifted()) == 46
 
 
 class _Svc:
@@ -110,12 +118,12 @@ def test_read_failure_uses_last_good_then_static(live):
     assert gs.main_column_mapping(_Svc(fail=True)) == _shifted()        # 마지막 지도
     gs._header_map_cache.update(at=0.0, map=None)
     live.d.clear()
-    assert gs.main_column_mapping(_Svc(fail=True)) == CURRENT           # 기본 배치
+    assert gs.main_column_mapping(_Svc(fail=True)) == gs._STATIC_COLUMN_MAPPING   # 기본 배치
 
 
 def test_pytest_default_is_static(monkeypatch):
     monkeypatch.delenv('SHEET_HEADER_MAP_FORCE', raising=False)
-    assert gs.main_column_mapping() == CURRENT
+    assert gs.main_column_mapping() == gs._STATIC_COLUMN_MAPPING
 
 
 # ── 열이 끼어든 배치 흉내 ──
