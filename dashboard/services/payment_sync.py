@@ -2799,6 +2799,16 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         except Exception as exc:
             logger.warning(f"[PAYMENT] 반환 카드 발송 예외 ({_rs['project']}/{_rs['stage']}): {exc}")
 
+    # baseline 완료 마커 — 행별 기준값은 위 루프에서 이미 저장됨. '변경 없음' 조기 종료보다 먼저 표시해야
+    #   한다: 예전엔 맨 끝에서만 세워, 마커가 만료(90일 TTL, 2026-10-22 = 7/24 flush 뒤 재생성분)되고
+    #   변경 행이 없는 사이클이 이어지면 영영 안 세워졌다 → 매 사이클 'baseline 메모 fetch' 로그 +
+    #   '메모 0행 이상 응답 skip' 안전장치(10-06 사고 대책)가 꺼진 채로 동작.
+    if not baseline_done:
+        try:
+            rc.set('payment_sync:baseline_done', '1', ex=REDIS_TTL)
+        except Exception:
+            pass
+
     if not changed_rows:
         return result
 
@@ -3311,13 +3321,6 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 exc_info=True,
             )
             result['errors'] += 1
-
-    # baseline 완료 마커 — 첫 폴링이었으면 표시 (다음 폴링부터 includeGridData 안 호출)
-    if not baseline_done:
-        try:
-            rc.set('payment_sync:baseline_done', '1', ex=REDIS_TTL)
-        except Exception:
-            pass
 
     # 일일 통계 누적 (오늘 발송 건수)
     if result['sent'] > 0:

@@ -79,6 +79,41 @@ def test_empty_notes_response_after_baseline_skips(monkeypatch):
     assert fr.writes == []
 
 
+def test_baseline_marker_set_even_when_no_rows_changed(monkeypatch):
+    """마커가 만료된 뒤 변경 없는 사이클이어도 마커를 다시 세움 (2026-10-22 만료 → 매 사이클 재baseline 로그,
+    '메모 0행 skip' 안전장치 꺼짐)."""
+    class _NoMarkRedis(_FakeRedis):
+        def __init__(self):
+            super().__init__()
+            self.kv = {}
+
+        def exists(self, k):
+            return k in self.kv
+
+        def hgetall(self, k):
+            return {'u': '0', 'v': '0', 'w': '0', 'aa': 'false', 'x': '0',
+                    'u_phash': '', 'v_phash': '', 'w_phash': ''}   # 기준값과 같음 = 변경 없음
+
+        def set(self, k, v, ex=None, nx=False):
+            self.kv[k] = v
+            return True
+
+    from dashboard.utils.google_sheets import main_field_to_index
+    idx = main_field_to_index()
+    row = [''] * (max(idx.values()) + 1)
+    row[idx['프로젝트 코드']] = 'G4139-MJ'
+    row[idx['계약금']] = 0
+    row[idx['미수금']] = 0
+    svc = MagicMock()
+    svc.spreadsheets.return_value.values.return_value.get.return_value.execute.return_value = {'values': [row]}
+    svc.spreadsheets.return_value.get.return_value.execute.return_value = {'sheets': [{'data': [{'rowData': []}]}]}
+    fr = _NoMarkRedis()
+    monkeypatch.setattr(ps, '_get_payment_service', lambda: svc)
+    monkeypatch.setattr(ps, 'get_redis_client', lambda: MagicMock(redis=fr))
+    ps._sync_payments_locked({'processed': 0, 'sent': 0, 'errors': 0}, 'sid', '공사 현황', 'C1', 'xoxb-test')
+    assert fr.kv.get('payment_sync:baseline_done') == '1'
+
+
 def test_payment_service_is_per_thread(monkeypatch):
     import googleapiclient.discovery as disc
     from google.oauth2 import service_account
