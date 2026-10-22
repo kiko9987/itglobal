@@ -37,10 +37,14 @@ _TRAILING_LABEL_RE = re.compile(
     r'개\s*업\s*연\s*월\s*일|사\s*업\s*장|생\s*년\s*월\s*일|주\s*소).*$'
 )
 
+# 상호 칸이 빈 개인 등록증(임대업 등): '상호 :' 다음 줄 '성명 : 이현주' 까지 잡혀 '명 : 이현주' 가
+#   되던 문제 → 앞 라벨을 떼고 성명 값을 상호로 쓴다 (2026-10-22 G4159 임대인).
+_LEADING_NAME_LABEL_RE = re.compile(r'^(?:성\s*)?명\s*[:：]\s*')
+
 
 def _clean_name(raw: str) -> str:
     """추출된 원문에서 뒤따르는 다른 라벨·괄호 노이즈 제거."""
-    name = raw.strip()
+    name = _LEADING_NAME_LABEL_RE.sub('', raw.strip()).strip()
     # 뒤 라벨 자름 (예: '(주)크리스아이티 대표자 홍길동' → '(주)크리스아이티')
     name = _TRAILING_LABEL_RE.sub('', name).strip()
     # 꼬리 영문 괄호 제거 (2026-08-10): 법인명이 '한글상호 (English Co., Ltd.)' 형태일 때
@@ -149,7 +153,7 @@ def analyze_business_license(image_bytes: bytes) -> dict:
     Vision 은 1회만 호출 (ocr_business_license 도 이걸 재사용).
     """
     result = {'name': '', 'bno': '', 'is_card': False, 'has_text': False,
-              'is_license': False, 'doc_negative': False}
+              'is_license': False, 'doc_negative': False, 'invoice_like': False}
     if not image_bytes:
         return result
     try:
@@ -180,6 +184,9 @@ def analyze_business_license(image_bytes: bytes) -> dict:
     result['doc_negative'] = (not result['is_license']) and any(n in _norm for n in (
         '세금계산서', '계산서', '지출품의서', '품의서', '견적서', '거래명세',
         '지불의뢰', '입금표', '거래처원장', '지출결의'))
+    # invoice_like: 발행한 세금계산서·홈택스 발급 화면에만 있는 말 (등록증엔 없음). 계산서 스레드에서
+    #   '등록증' 판별을 보수적으로 — 홈택스 메뉴의 '사업자등록증' 글자가 함께 찍힌 화면 대비 (2026-10-22).
+    result['invoice_like'] = any(k in _norm for k in ('공급가액', '공급받는자', '승인번호', '합계금액'))
 
     # ① 사업자번호(숫자, OCR 90%+체크섬) → 거래처 탭 역조회로 정답 상호.
     #    한글 상호 오인식(예: 미덕원→이억원) 회피. 번호 미매칭·신규는 ②로.

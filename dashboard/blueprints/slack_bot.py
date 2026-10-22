@@ -3679,9 +3679,17 @@ def _register_project_handlers(app):
                 _biz = (result.get('business_name') or '').strip()
                 _biz_status = result.get('biz_update_status') or ''
                 _biz_existing = (result.get('biz_update_existing') or '').strip()
+                _payer_label = (result.get('payer_label') or '').strip()
                 if _biz and _biz_status == 'saved':
                     lines.append(
                         f":memo: OCR 자동 등록 — 사업자명: *{_biz}* (시트에 저장됨)"
+                    )
+                # 나눠 내는 공사: 부담자마다 등록증이 따로라 사업자명과 달라도 정상 → 어느 부담자
+                #   등록증인지 안내 (2026-10-22 G4159 임대인 등록증에 '시트값과 달라요' 오안내).
+                if _payer_label:
+                    lines.append(
+                        f":memo: 나눠 내는 공사 — *{_payer_label}* 부담자의 등록증으로 확인했습니다. "
+                        f"이 부담자의 계산서를 요청하면 자동으로 붙습니다."
                     )
                 elif _biz and _biz_status == 'mismatch':
                     lines.append(
@@ -4662,6 +4670,9 @@ def _register_invoice_handlers(app):
 
         def _bg():
             try:
+                # 사업자등록증만 올라왔으면 발행 완료로 바꾸지 않고 등록증으로 저장 (2026-10-22 G4159)
+                if _save_license_from_invoice_thread(client, channel, thread_ts, event, meta):
+                    return
                 done = _auto_complete_invoice_card(client, channel, thread_ts, event, meta)
                 # 첨부 완료 → 시트 해당 단계 계산서='발행' 자동기록 (⚠️ 미발행 자동 해소)
                 # 요청 금액(meta['amt'])==총액2면 나머지 단계 '-'(전체발행 covered) 처리
@@ -15516,6 +15527,8 @@ def _split_payer_license(code, biz):
 
     프로젝트 등록증(canonical)은 한 사람 것뿐이라, 다른 부담자 계산서에 그대로 붙이면 엉뚱한
     등록증이 간다(303·506호는 경영지원이 '_1' 파일로 따로 붙였음).
+    다른 부담자 등록증은 find_payer_license 가 공사 폴더 전체(백업 _N 포함)·상호 색인에서
+    OCR 상호로 찾는다 (2026-10-22 G4159 — 임차인·임대인 순으로 올려 임차인 것이 _1 로 밀림).
     Returns None → 기존 동작(프로젝트 등록증) / ('use', lic) → 이 파일 첨부 /
             ('skip', None) → 첨부 안 함(그 부담자 등록증을 못 찾음 — 엉뚱한 첨부 방지).
     """
@@ -15531,20 +15544,20 @@ def _split_payer_license(code, biz):
         if not p:
             return None            # 부담자와 무관한 사업자명 → 기존 동작
         from dashboard.services import business_license_handler as blh
-        nb = blh._norm_biz(p['name'])
+        one = {'_': p}
         own = blh._own_canonical(code)
         if own:
             fb = blh._file_biz(own[0])
-            if fb and nb and (fb == nb or fb in nb or nb in fb):
+            if fb and payer_for_biz(one, fb):
                 return None        # 프로젝트 등록증이 이 부담자 것
-            if not fb and nb and blh._project_norm_biz(code) == nb:
+            pb = blh._project_norm_biz(code)
+            if not fb and pb and payer_for_biz(one, pb):
                 return None        # OCR 미상이지만 프로젝트 사업자명이 이 부담자
-        for key in (nb, blh._norm_biz(biz)):
-            src = blh._get_license_source(key) if key else None
-            if src and src.get('code') and src.get('code') != code:
-                lic = blh.fetch_license_canonical(src['code'])
-                if lic:
-                    return ('use', lic)
+        lic = blh.find_payer_license(code, p)
+        if lic:
+            ext = lic['file_name'].rsplit('.', 1)[-1]
+            # 다른 호실·백업 파일명 대신 이 공사·부담자 이름으로 (스레드에서 헷갈리지 않게)
+            return ('use', dict(lic, file_name=f"{code} {blh.LICENSE_BASENAME}_{p['name']}.{ext}"))
         return ('skip', None)
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] 부담자 등록증 선택 실패(기존 동작) ({code}): {exc}")
@@ -15767,8 +15780,9 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                     else:
                         invoice_client.chat_postMessage(
                             channel=channel_id, thread_ts=ts, unfurl_links=False, unfurl_media=False,
-                            text=(f":warning: 나눠 내는 공사라 `{biz}` 부담자의 사업자등록증을 따로 찾지 "
-                                  f"못했습니다 (`{code}`). 이 스레드에 직접 첨부해 주세요."))
+                            text=(f":warning: 나눠 내는 공사라 `{biz}` 부담자의 사업자등록증을 찾지 "
+                                  f"못했습니다 (`{code}`). 등록증을 이 스레드에 올려 주시면 저장해 두고 "
+                                  f"다음 계산서부터 자동으로 붙입니다."))
                     logger.info(f"[SLACK/계산서] 부담자 등록증 없음 → 프로젝트 등록증 첨부 생략 ({code}, {biz})")
                     return
                 if _sp and _sp[0] == 'use':
@@ -15942,6 +15956,85 @@ def attach_license_to_pending_invoice_threads(code: str) -> int:
         except Exception as exc:
             logger.warning(f'[SLACK/계산서] 대기 스레드 재첨부 실패 ({code} {ch}/{ts}): {exc}')
     return attached
+
+
+def _save_license_from_invoice_thread(client, channel: str, thread_ts: str, event: dict, meta: dict) -> bool:
+    """계산서 스레드에 올라온 파일이 전부 사업자등록증이면 → 등록증으로 저장하고 True.
+
+    스레드 첨부는 '발행한 계산서'로 보고 카드를 발행 완료로 바꾸는데, '부담자 등록증을 못
+    찾았습니다 — 이 스레드에 올려 주세요' 안내대로 등록증을 올리면 발행 안 된 계산서가 발행
+    완료로 기록될 뻔했다 (2026-10-22 G4159). 공사확정 스레드와 같은 판별(제목 '사업자등록증/
+    고유번호증')에 계산서 글자(공급가액 등)가 없을 때만 등록증으로 본다. 계산서가 하나라도
+    섞였거나 다운로드·판별이 실패하면 False → 기존 동작(발행 완료).
+    프로젝트 대표 등록증은 바꾸지 않는다(keep_canonical — 다른 부담자·사업자 것일 수 있음).
+    """
+    files = [f for f in (event.get('files') or [])
+             if (f.get('mimetype') or '').startswith('image/') or f.get('mimetype') == 'application/pdf']
+    if not files:
+        return False
+    try:
+        from dashboard.services.business_license_handler import (
+            _download_slack_file, _reason_message, save_business_license, split_payer_label)
+        from dashboard.services.business_license_ocr import analyze_business_license
+    except Exception:
+        return False
+    token = (_INVOICE_BOT_TOKEN or getattr(client, 'token', '') or '').strip()
+    found = []
+    for f in files:
+        url = f.get('url_private_download') or f.get('url_private')
+        if not url:
+            return False
+        try:
+            content = _download_slack_file(url, token)
+            an = analyze_business_license(content)
+        except Exception as exc:
+            logger.warning(f"[SLACK/계산서] 첨부 파일 등록증 판별 실패 → 기존 동작: {exc}")
+            return False
+        if not an.get('is_license') or an.get('invoice_like'):
+            return False
+        found.append((f, content, an))
+
+    code = str(meta.get('code') or '').strip()
+    lines = []
+    for f, content, an in found:
+        ocr = (an.get('name') or '').strip()
+        res = {'ok': False, 'reason': 'no_project_folder'}
+        if code and code != '-':
+            try:
+                res = save_business_license(code, content, f.get('name') or 'license',
+                                            f.get('mimetype') or '', ocr_biz=ocr, keep_canonical=True)
+            except Exception as exc:
+                logger.warning(f"[SLACK/계산서] 계산서 스레드 등록증 저장 실패 ({code}): {exc}")
+                res = {'ok': False, 'reason': ''}
+        shown = f" (상호: {ocr})" if ocr else ''
+        if res.get('ok') and res.get('dedup'):
+            lines.append(f":page_facing_up: 사업자등록증으로 확인했습니다{shown}. "
+                         f"`{code}` 등록증 폴더에 이미 있는 파일입니다.")
+        elif res.get('ok'):
+            lines.append(f":page_facing_up: 사업자등록증으로 확인해 `{code}` 등록증 폴더에 저장했습니다{shown}.")
+        else:
+            lines.append(f":page_facing_up: 사업자등록증으로 확인했습니다{shown}.")
+            lines.append(_reason_message(res['reason']) if res.get('reason') else
+                         ':warning: 저장 중 오류가 나서 등록증 폴더에 저장하지 못했습니다. '
+                         '공사 확정 카드 스레드에 다시 올려 주세요.')
+        label = split_payer_label(code, ocr) if (res.get('ok') and ocr) else ''
+        if label:
+            lines.append(f"*{label}* 부담자의 계산서를 요청하면 다음부터 자동으로 붙습니다.")
+        logger.info(f"[SLACK/계산서] 계산서 스레드 첨부 = 사업자등록증 → 발행 완료 처리 안 함 "
+                    f"({code}, {ocr or '상호 미상'}, {res.get('reason')})")
+    lines.append("_계산서 발행 완료는 발행한 계산서를 이 스레드에 올리면 표시됩니다._")
+    # 등록증 없어 거래처 정보로 대신했던 스레드면, 이제 등록증이 올라왔으니 대기 표시 정리
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.srem(f'invoice_lic_pending:{code}', f'{channel}|{thread_ts}')
+    except Exception:
+        pass
+    try:
+        client.chat_postMessage(channel=channel, thread_ts=thread_ts, text='\n'.join(lines),
+                                unfurl_links=False, unfurl_media=False)
+    except Exception as exc:
+        logger.warning(f"[SLACK/계산서] 등록증 저장 안내 발송 실패 ({code}): {exc}")
+    return True
 
 
 def _auto_complete_invoice_card(

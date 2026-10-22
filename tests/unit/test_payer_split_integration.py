@@ -156,19 +156,26 @@ def test_split_payer_license_choice(monkeypatch):
     monkeypatch.setattr(psv, 'get_project_records', lambda: [REC_303, PLAIN])
     monkeypatch.setattr(blh, '_own_canonical', lambda code, drive=None: ('F_OWN', 'jpg'))
     monkeypatch.setattr(blh, '_file_biz', lambda fid: blh._norm_biz('이희승') if fid == 'F_OWN' else '')
-    jkd = blh._norm_biz('주식회사 제이케이디학원')
-    monkeypatch.setattr(blh, '_get_license_source',
-                        lambda key: {'code': 'G3999-XX', 'file_id': 'F_JKD', 'ext': 'pdf'} if key == jkd else None)
-    monkeypatch.setattr(blh, 'fetch_license_canonical',
-                        lambda code: {'content': b'x', 'file_name': f'{code}.pdf'} if code == 'G3999-XX' else None)
+    asked = []
+
+    def _find(code, payer):
+        asked.append(payer['name'])
+        if payer['name'] == '주식회사 제이케이디학원':
+            return {'content': b'x', 'file_name': 'G3999-XX 사업자등록증.pdf', 'mimetype': 'application/pdf'}
+        return None
+    monkeypatch.setattr(blh, 'find_payer_license', _find)
     # 프로젝트 등록증 = 임대인 것 → 임대인 요청은 기존 동작
     assert sb._split_payer_license('G4146-JW', '이희승') is None
-    # 임차인 요청 → 임차인 등록증(다른 공사에 있던 것)
+    # 임차인 요청 → 임차인 등록증(다른 파일) — 이 공사·부담자 이름으로 붙임
     kind, lic = sb._split_payer_license('G4146-JW', '주식회사 제이케이디 학원')
-    assert kind == 'use' and lic['file_name'] == 'G3999-XX.pdf'
+    assert kind == 'use' and lic['file_name'] == 'G4146-JW 사업자등록증_주식회사 제이케이디학원.pdf'
+    assert lic['content'] == b'x' and asked == ['주식회사 제이케이디학원']
     # 임차인 등록증을 못 찾으면 붙이지 않음(엉뚱한 첨부 방지)
-    monkeypatch.setattr(blh, '_get_license_source', lambda key: None)
+    monkeypatch.setattr(blh, 'find_payer_license', lambda code, payer: None)
     assert sb._split_payer_license('G4146-JW', '주식회사 제이케이디 학원') == ('skip', None)
+    # OCR 이 '명:이현주'처럼 읽힌 프로젝트 등록증도 그 부담자 것으로 인정
+    monkeypatch.setattr(blh, '_file_biz', lambda fid: '명:이희승' if fid == 'F_OWN' else '')
+    assert sb._split_payer_license('G4146-JW', '이희승') is None
     # 평범한 공사·부담자와 무관한 사업자명은 기존 동작
     assert sb._split_payer_license('R4101-JSH', '아무개') is None
     assert sb._split_payer_license('G4146-JW', '전혀다른회사') is None

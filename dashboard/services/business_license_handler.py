@@ -148,7 +148,7 @@ def _list_folder_files(drive, folder_id: str) -> list:
     )
     resp = drive.files().list(
         q=q,
-        fields='files(id,name,md5Checksum)',
+        fields='files(id,name,md5Checksum,createdTime)',
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
         pageSize=100,
@@ -303,12 +303,16 @@ def _guess_ext(filename: str, mimetype: str) -> str:
 
 
 def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype: str,
-                          parent_override: Optional[str] = None, ocr_biz: str = '') -> dict:
+                          parent_override: Optional[str] = None, ocr_biz: str = '',
+                          keep_canonical: bool = False) -> dict:
     """사업자등록증 파일을 프로젝트 폴더에 저장.
 
     parent_override: 폴더 ID를 직접 지정(자동 재시도용). write-behind 시트 반영 지연을
         우회해 방금 등록된 폴더에 바로 저장하기 위함.
     ocr_biz: 이 등록증의 OCR 상호(원문). 재사용 인덱스를 실제 상호로 키잉하기 위해 저장.
+    keep_canonical: 이미 canonical 이 있으면 밀어내지 않고 백업(_N)으로 저장 (2026-10-22).
+        계산서 스레드에 올린 등록증은 다른 부담자·다른 사업자 것일 수 있어 프로젝트 대표
+        등록증을 바꾸지 않는다. 같은 내용(md5)이 폴더 어디에 있든 업로드 skip.
 
     Returns:
         {'ok': bool, 'reason': str, 'file_name': str, 'file_id': str}
@@ -357,7 +361,9 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
     if _incoming_md5:
         for _f in existing:
             _nm = _f.get('name', '')
-            if '.' not in _nm or _nm.rsplit('.', 1)[0] != expected_base:
+            if '.' not in _nm:
+                continue
+            if not keep_canonical and _nm.rsplit('.', 1)[0] != expected_base:
                 continue  # canonical(정확 basename)만 비교 — 백업 _N 은 제외
             if _f.get('md5Checksum') == _incoming_md5:
                 logger.info(
@@ -365,22 +371,25 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
                 invalidate_license_state(code)  # 502-실제저장 등으로 어긋난 상태/뱃지 복구
                 try:
                     _onb = _norm_biz(ocr_biz) if ocr_biz else ''
-                    if _onb:
+                    if _onb and not (keep_canonical and _file_biz(_f['id'])):
                         _set_file_biz(_f['id'], _onb)
                 except Exception:
                     pass
-                try:
-                    _index_license_source(
-                        _project_norm_biz(code), code, _f['id'], _nm.rsplit('.', 1)[1].lower())
-                except Exception:
-                    pass
+                if not keep_canonical:  # 백업·다른 공사 파일일 수 있음 → 색인은 그대로 둔다
+                    try:
+                        _index_license_source(
+                            _project_norm_biz(code), code, _f['id'], _nm.rsplit('.', 1)[1].lower())
+                    except Exception:
+                        pass
                 return {
                     'ok': True, 'reason': 'duplicate_skip',
                     'file_name': _nm, 'file_id': _f['id'], 'dedup': True,
                 }
 
+    backup_only = keep_canonical and any(
+        '.' in f.get('name', '') and f['name'].rsplit('.', 1)[0] == expected_base for f in existing)
     canonical_cleared = True  # 새 파일을 canonical 로 저장 가능한가 (같은 확장자 canonical 이 안 남았는가)
-    for f in list(existing):
+    for f in ([] if backup_only else list(existing)):
         nm = f.get('name', '')
         if '.' not in nm:
             continue
@@ -401,7 +410,9 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
             if e_low == ext:
                 canonical_cleared = False  # 같은 확장자 canonical 이 남음 → 이름충돌·dup 방지
 
-    if canonical_cleared:
+    if backup_only:
+        save_name = f'{code} {LICENSE_BASENAME}_{_next_copy_index(existing, code, ext)}.{ext}'
+    elif canonical_cleared:
         save_name = canonical
     else:
         # 폴백: 같은 확장자 canonical 을 못 밀어냄(Drive 오류) → dup 방지 위해 백업명 저장.
@@ -432,15 +443,18 @@ def save_business_license(code: str, file_bytes: bytes, filename: str, mimetype:
     except Exception:
         pass
     # 재사용 인덱스 갱신 — 실제 상호 우선(미상이면 사업자명). 같은 상호의 다른 공사가 재사용.
-    try:
-        _index_license_source(_project_norm_biz(code), code, up['id'], ext)
-    except Exception as exc:
-        logger.debug(f'[LICENSE] 재사용 인덱스 갱신 실패 ({code}): {exc}')
+    #   백업으로 저장한 파일은 상호를 읽었을 때만 (사업자명으로 키잉하면 엉뚱한 사업자에 퍼짐).
+    if not backup_only or _file_biz(up['id']):
+        try:
+            _index_license_source(_project_norm_biz(code), code, up['id'], ext)
+        except Exception as exc:
+            logger.debug(f'[LICENSE] 재사용 인덱스 갱신 실패 ({code}): {exc}')
     return {
         'ok': True,
         'reason': 'saved',
         'file_name': up['name'],
         'file_id': up['id'],
+        'backup': backup_only,
     }
 
 
@@ -684,6 +698,81 @@ def _copy_license_to_project(code: str, source: dict):
         return None
     logger.info(f'[LICENSE/REUSE] 등록증 재사용 복사: {source.get("code")} → {code} ({new_name})')
     return (r['id'], ext)
+
+
+def _download_drive_file(drive, file_id: str) -> bytes:
+    request = drive.files().get_media(fileId=file_id, supportsAllDrives=True)
+    buf = io.BytesIO()
+    downloader = MediaIoBaseDownload(buf, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    return buf.getvalue()
+
+
+def find_payer_license(code: str, payer: dict) -> Optional[dict]:
+    """나눠 내는 공사 부담자의 사업자등록증 → {'file_name','content','mimetype'} or None.
+
+    프로젝트 등록증(canonical)은 마지막에 올린 한 장뿐이라, 임차인 → 임대인 순으로 올리면
+    임차인 것이 백업(_1)으로 밀려 계산서 요청 때 못 찾았다 (2026-10-22 G4159 다정약국). 그래서
+      ① 이 공사 등록증 폴더의 파일 전부(백업 _N, 같은 폴더를 쓰는 옆 호실 공사 파일 포함)를
+         저장 때 OCR 로 읽어 둔 상호로 부담자와 대조 — 이 공사 이름 파일 → 최근 파일 순.
+      ② 없으면 상호 색인(다른 공사 폴더)에서 부담자 이름과 정확히 같은 등록증.
+    상호를 못 읽은 파일은 쓰지 않는다 (엉뚱한 등록증 첨부 방지).
+    """
+    from dashboard.services.payer_split import payer_for_biz, _name_keys
+    name = str((payer or {}).get('name') or '').strip()
+    if not name:
+        return None
+    one = {'_': payer}
+    drive = _get_drive()
+    parent = _project_folder_id_for(code)
+    sub = _find_license_subfolder(drive, parent) if parent else None
+    hits = []
+    for f in (_list_folder_files(drive, sub) if sub else []):
+        fb = _file_biz(f['id'])
+        if fb and '.' in f.get('name', '') and payer_for_biz(one, fb):
+            hits.append(f)
+    hits.sort(key=lambda f: f.get('createdTime') or '', reverse=True)
+    hits.sort(key=lambda f: 0 if f['name'].startswith(f'{code} ') else 1)
+    cands = [(f['id'], f['name']) for f in hits]
+    keys = []
+    for k in [name] + _name_keys(name):
+        nk = _norm_biz(k)
+        if nk and nk not in keys:
+            keys.append(nk)
+    for k in keys:
+        src = _get_license_source(k)
+        if src and src.get('file_id') and src['file_id'] not in {c[0] for c in cands}:
+            cands.append((src['file_id'], f"{src.get('code') or code} {LICENSE_BASENAME}.{src.get('ext') or 'pdf'}"))
+    for fid, nm in cands:
+        try:
+            content = _download_drive_file(drive, fid)
+        except Exception as exc:
+            logger.warning(f'[LICENSE/PAYER] 다운로드 실패 ({code}, {nm}): {exc}')
+            continue
+        ext = nm.rsplit('.', 1)[-1].lower()
+        logger.info(f'[LICENSE/PAYER] 부담자 등록증 선택: {code} {name} → {nm}')
+        return {'file_name': nm, 'content': content,
+                'mimetype': _MIMETYPE_BY_EXT.get(ext, 'application/octet-stream')}
+    return None
+
+
+def split_payer_label(code: str, ocr_name: str) -> str:
+    """나눠 내는 공사에서 등록증 OCR 상호가 어느 부담자인지 → '임대인 이현주' (모르면 '')."""
+    if not code or not ocr_name:
+        return ''
+    try:
+        from dashboard.services.payer_split import stage_payers, payer_for_biz
+        from dashboard.services.project_service import get_project_records
+        rec = next((r for r in (get_project_records() or [])
+                    if (r.get('프로젝트 코드') or '').strip() == code), None)
+        payers = stage_payers(rec) if rec else {}
+        p = payer_for_biz(payers, ocr_name) if payers else None
+        return f"{p.get('role') or ''} {p.get('name') or ''}".strip() if p else ''
+    except Exception as exc:
+        logger.debug(f'[LICENSE/PAYER] 부담자 대조 실패 ({code}): {exc}')
+        return ''
 
 
 def get_license_state(code: str, use_cache: bool = True) -> dict:
@@ -1206,6 +1295,8 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
         'business_name': business_name,
         'biz_update_status': biz_update_status,
         'biz_update_existing': biz_update_existing,
+        # 나눠 내는 공사: 이 등록증이 어느 부담자 것인지 (등록증이 사업자명과 달라도 정상)
+        'payer_label': split_payer_label(code, business_name) if (saved and business_name) else '',
         'not_license': not_license,
         'is_card': is_card,
         'ambiguous': ambiguous_any,

@@ -56,6 +56,16 @@ def test_garbled_fallback_ignores_number_values():
     assert extract_business_name_from_text('등록번호: 131-91-11717\n성명: 서영이') == ''
 
 
+def test_blank_sangho_uses_person_name():
+    # 상호 칸이 빈 개인 등록증(임대업) — 다음 줄 성명까지 잡혀 '명 : 이현주'가 되던 문제 (2026-10-22 G4159)
+    assert _clean_name('명 : 이현주') == '이현주'
+    assert _clean_name('성 명 : 이현주') == '이현주'
+    assert extract_business_name_from_text('사업자등록증\n상 호 :\n성 명 : 이현주\n생년월일 : 1979') == '이현주'
+    assert extract_business_name_from_text('상성\n호:\n명: 이현주') == '이현주'
+    # 일반 상호는 그대로
+    assert _clean_name('명가식당') == '명가식당'
+
+
 def test_corp_name_wins_over_fallback():
     # 법인명 패턴이 fallback 보다 우선
     text = '법인명(단체명) : (주)크리스아이티\n호 : 노이즈'
