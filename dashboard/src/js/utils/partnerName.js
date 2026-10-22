@@ -14,7 +14,17 @@ const PLACEHOLDER = new Set([
   '온라인', '거래처', '전화', '소개', '기타', '카톡', '카카오', '방문',
   '미정', '개인', '없음', 'none', 'null', 'na', 'n/a',
 ]);
-const LEGAL_MARK_RE = /\[\s*폐업\s*\]|주식회사|\(주\)|㈜|유한회사|\(유\)/g;
+// 부르는 이름에서 빼는 것 — 서버 partner_names.short_name 과 같은 규칙 (10-23 넓힘)
+const LEGAL_MARK_RE = new RegExp(
+  '\\[\\s*폐업\\s*\\]|주식회사|유한책임회사|유한회사|합자회사|합명회사|재단법인|사단법인|의료법인|학교법인'
+  + '|사회복지법인|농업회사법인|\\(\\s*(?:주|유|재|사|의|학|복|합)\\s*\\)|㈜|㈔|㈐', 'g',
+);
+const PAREN_NO_HANGUL_RE = /\(([^()가-힣]*)\)/g;          // (PK) (suum) (AB STUDI0) (完)
+const OPEN_PAREN_TAIL_RE = /\([^()가-힣]*$/;               // 닫히지 않은 꼬리 '(JH ENG Co.,Ltd.'
+const FOREIGN_TAIL_RE = /^(.*[가-힣].*?)\s+([^가-힣]+)$/;  // '완디자인 完 Design Interior'
+const ROMAN_RE = /^[IVX]+$/;
+// 앞이 업종 이름뿐이면 영문 꼬리가 실제 상호 — '건축사사무소 VINZIP'
+const GENERIC_HEAD_RE = /(사무소|사무실|컨설팅|법무법인|회계법인|특허법인|세무법인|건축사)$/;
 
 /** 유입 구분 → 거래처가 아닐 때 거래처명에 들어가는 묶음 (온라인 계열·빈칸은 '온라인') */
 export function inflowGroup(inflow) {
@@ -23,9 +33,23 @@ export function inflowGroup(inflow) {
   return !s || ONLINE_INFLOWS.includes(s) ? '온라인' : '기타';
 }
 
-/** 부르는 이름 — '주식회사 메이드바이디자인' → '메이드바이디자인' */
+/**
+ * 부르는 이름 — '주식회사 메이드바이디자인' → '메이드바이디자인'.
+ * 법인 표기·한글 없는 괄호·닫히지 않은 영문 괄호·한글 뒤 영문/한자 꼬리를 뺌. 지점·한글 괄호는 남김.
+ */
 export function shortPartnerName(name) {
-  return String(name ?? '').replace(LEGAL_MARK_RE, ' ').replace(/\s+/g, ' ').trim();
+  const base = String(name ?? '').replace(LEGAL_MARK_RE, ' ').replace(/\s+/g, ' ').trim();
+  let s = base.replace(PAREN_NO_HANGUL_RE, '').replace(OPEN_PAREN_TAIL_RE, '').replace(/\s+/g, ' ').trim();
+  const m = FOREIGN_TAIL_RE.exec(s);
+  if (m) {
+    const tail = m[2].trim();
+    if (!ROMAN_RE.test(tail) && !GENERIC_HEAD_RE.test(m[1].trim())
+        && ((tail.match(/[A-Za-z]/g) || []).length >= 2 || /[一-鿿]/.test(tail))) {
+      s = m[1];
+    }
+  }
+  s = s.replace(/^[\s.,\-_/·]+|[\s.,\-_/·]+$/g, '');
+  return /[가-힣A-Za-z0-9]/.test(s) ? s : base;
 }
 
 function normName(s) {

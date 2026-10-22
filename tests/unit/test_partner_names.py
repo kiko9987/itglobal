@@ -38,6 +38,27 @@ def test_short_name_and_is_partner_name():
     assert pn.place_key('메이드바이 디자인') == pn.place_key('(주)메이드바이디자인')
 
 
+@pytest.mark.parametrize('raw,short', [
+    ('피케이(PK)대치스파르타 신도림점', '피케이대치스파르타 신도림점'),   # 지점은 남김
+    ('(재)성곡미술문화재단', '성곡미술문화재단'),
+    ('재단법인 천주교수원교구유지재단', '천주교수원교구유지재단'),
+    ('완디자인 完 Design Interior', '완디자인'),
+    ('제이에이취엔지니어링 (JH ENG Co.,Ltd.', '제이에이취엔지니어링'),
+    ('카페 숨(suum)', '카페 숨'),
+    ('에이비 스튜디오(AB STUDI0)', '에이비 스튜디오'),
+    ('산들해(송파지점)', '산들해(송파지점)'),                       # 한글 괄호 = 지점 → 남김
+    ('선릉롯데골드로즈 II', '선릉롯데골드로즈 II'),                 # 로마 숫자 = 건물 이름
+    ('KBS비즈니스', 'KBS비즈니스'),
+    ('메가존클라우드 Inc.', '메가존클라우드'),
+    ('(사)서울특별시 교통회관', '서울특별시 교통회관'),
+    ('(ABC)', '(ABC)'),                                              # 다 빠지면 원래 이름
+    ('건축사사무소 VINZIP', '건축사사무소 VINZIP'),                   # 업종 이름 뒤 영문 = 실제 상호
+    ('세무회계컨설팅 SONG&PARTNERS', '세무회계컨설팅 SONG&PARTNERS'),
+])
+def test_short_name_extended(raw, short):
+    assert pn.short_name(raw) == short
+
+
 def test_display_name_prefers_partner():
     assert pn.display_name({'거래처명': '메이드바이', '사업자명': '홍길동'}) == '메이드바이'
     assert pn.display_name({'거래처명': '온라인', '사업자명': '(주)한빛'}) == '(주)한빛'

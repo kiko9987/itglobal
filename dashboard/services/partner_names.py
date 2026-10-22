@@ -25,7 +25,18 @@ logger = logging.getLogger(__name__)
 GROUP_LABELS = ('온라인', '전화', '소개', '중고판매', '기타')
 _ONLINE_INFLOWS = {'온라인', '당근', '홈페이지', '숨고', '큐플레이스', '카카오톡', '채널톡', '메일'}
 _NOT_NAMES = set(GROUP_LABELS) | _ONLINE_INFLOWS | {'거래처', '-', '', 'nan'}   # nan = 판다스 빈 칸
-_LEGAL_MARK_RE = re.compile(r'\[\s*폐업\s*\]|주식회사|\(주\)|㈜|유한회사|\(유\)')
+# 부르는 이름에서 빼는 것 (10-23 넓힘 — '(재)성곡미술문화재단', '카페 숨(suum)'이 그대로 남았음)
+_LEGAL_MARK_RE = re.compile(
+    r'\[\s*폐업\s*\]|주식회사|유한책임회사|유한회사|합자회사|합명회사|재단법인|사단법인|의료법인|학교법인'
+    r'|사회복지법인|농업회사법인|\(\s*(?:주|유|재|사|의|학|복|합)\s*\)|㈜|㈔|㈐')
+_PAREN_NO_HANGUL_RE = re.compile(r'\(([^()가-힣]*)\)')        # 한글 없는 괄호: (PK) (suum) (AB STUDI0) (完)
+_OPEN_PAREN_TAIL_RE = re.compile(r'\([^()가-힣]*$')           # 닫히지 않은 꼬리: '(JH ENG Co.,Ltd.'
+# 한글 이름 뒤 영문·한자 꼬리: '완디자인 完 Design Interior' → '완디자인'. 꼬리에 영문 2자 이상이나 한자가
+#   있어야 하고 로마 숫자('골드로즈 II')·숫자만은 남김
+_FOREIGN_TAIL_RE = re.compile(r'^(.*[가-힣].*?)\s+([^가-힣]+)$')
+_ROMAN_RE = re.compile(r'^[IVX]+$')
+# 앞이 업종 이름뿐이면 영문 꼬리가 실제 상호 — '건축사사무소 VINZIP', '세무회계컨설팅 SONG&PARTNERS'
+_GENERIC_HEAD_RE = re.compile(r'(사무소|사무실|컨설팅|법무법인|회계법인|특허법인|세무법인|건축사)$')
 
 
 def inflow_group(inflow: str) -> str:
@@ -37,8 +48,23 @@ def inflow_group(inflow: str) -> str:
 
 
 def short_name(name: str) -> str:
-    """부르는 이름 — '주식회사 메이드바이디자인' → '메이드바이디자인' (법인 표기·[폐업] 빼고 공백 정리)."""
-    return re.sub(r'\s+', ' ', _LEGAL_MARK_RE.sub(' ', str(name or ''))).strip()
+    """부르는 이름 — '주식회사 메이드바이디자인' → '메이드바이디자인'.
+
+    빼는 것: 법인 표기((주)·(재)·재단법인 등·[폐업]), 한글 없는 괄호('(PK)', '(suum)'), 닫히지 않은 영문 괄호
+    꼬리, 한글 이름 뒤 영문·한자 꼬리('完 Design Interior'). 남기는 것: 지점('신도림점')·한글 괄호('(송파점)')
+    — 다른 지점이 한 곳으로 묶이지 않게. 다 빼서 비면 법인 표기만 뺀 이름. JS shortPartnerName 과 같게.
+    """
+    base = re.sub(r'\s+', ' ', _LEGAL_MARK_RE.sub(' ', str(name or ''))).strip()
+    s = _OPEN_PAREN_TAIL_RE.sub('', _PAREN_NO_HANGUL_RE.sub('', base))   # '피케이(PK)대치' → '피케이대치'
+    s = re.sub(r'\s+', ' ', s).strip()
+    m = _FOREIGN_TAIL_RE.match(s)
+    if m:
+        tail = m.group(2).strip()
+        if not _ROMAN_RE.match(tail) and not _GENERIC_HEAD_RE.search(m.group(1).strip()) \
+                and (len(re.findall(r'[A-Za-z]', tail)) >= 2 or re.search(r'[一-鿿]', tail)):
+            s = m.group(1)
+    s = s.strip(' .,-_/·')
+    return s if re.search(r'[가-힣A-Za-z0-9]', s) else base
 
 
 def _norm(name: str) -> str:
