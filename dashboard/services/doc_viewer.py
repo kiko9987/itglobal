@@ -9,8 +9,9 @@
 - 변환: tools/kordoc 의 kordoc CLI(Node) 를 subprocess 로 호출. 설치는 그 폴더에서 `npm ci`.
 - 외부 통신 차단(KORDOC_OFFLINE=1)·접근 폴더를 임시 폴더로 제한(KORDOC_ROOT)·OCR 끔.
 - 표는 슬랙이 그리지 못하므로 줄마다 '• 칸 · 칸 · 칸' 으로 풀어 쓴다.
-- 답글은 문서당 하나: 3만 자까지는 메시지 하나(슬랙이 길면 '더 보기'로 접음), 그보다
-  길면 .txt 파일 하나에 앞부분 미리보기를 붙여 올린다.
+- 답글은 문서당 하나. 슬랙은 4,000자 넘는 text 를 메시지 여러 개로 쪼개므로
+  3,900자까지는 text 하나, 1만 2천 자까지는 section block 여러 칸을 담은 메시지 하나,
+  그보다 길면 .txt 파일 하나에 앞부분 미리보기를 붙여 올린다.
 """
 import json
 import logging
@@ -29,7 +30,9 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTS = {'hwp', 'hwpx', 'pdf', 'docx', 'xlsx', 'xls', 'pptx'}
 _MAX_BYTES = 30 * 1024 * 1024        # 슬랙 다운로드·변환 상한 30MB
 _CONVERT_TIMEOUT = 120               # kordoc 한 건 상한(초)
-_MESSAGE_LIMIT = 30000               # 메시지 하나에 담을 상한(슬랙 한도 4만 자) — 넘으면 .txt 하나로
+_MESSAGE_LIMIT = 3900                # text 메시지 상한 — 슬랙이 4,000자 넘으면 여러 메시지로 쪼갬(10-22 실측)
+_BLOCKS_LIMIT = 12000                # section block 으로 메시지 하나에 담을 상한 — 넘으면 .txt 하나로
+_BLOCK_CHARS = 2900                  # section block 한 칸 글자 수(슬랙 한도 3,000)
 _PREVIEW_LIMIT = 3000                # .txt 로 올릴 때 붙이는 앞부분 미리보기
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _KORDOC_CLI = _PROJECT_ROOT / 'tools' / 'kordoc' / 'node_modules' / 'kordoc' / 'dist' / 'cli.js'
@@ -201,6 +204,19 @@ def split_for_message(text: str, limit: int = _MESSAGE_LIMIT) -> tuple:
     return text[:cut].rstrip(), True
 
 
+def split_into_parts(text: str, limit: int) -> list:
+    """문단 경계에서 limit 이하 조각들로 나눈다(section block 칸 나누기용)."""
+    parts = []
+    rest = text
+    while rest:
+        head, truncated = split_for_message(rest, limit)
+        parts.append(head)
+        if not truncated:
+            break
+        rest = rest[len(head):].lstrip('\n')
+    return parts
+
+
 # ─────────────────────────────────────────────────────────────
 # 슬랙 연결
 # ─────────────────────────────────────────────────────────────
@@ -345,6 +361,15 @@ def _post_result(client, channel: str, ts: str, name: str, body: str) -> None:
         client.chat_postMessage(
             channel=channel, thread_ts=ts, text=f'{title}\n\n{body}',
             unfurl_links=False, unfurl_media=False,
+        )
+        return
+    if len(body) <= _BLOCKS_LIMIT:
+        blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': title}}]
+        blocks += [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': part}}
+                   for part in split_into_parts(body, _BLOCK_CHARS)]
+        client.chat_postMessage(
+            channel=channel, thread_ts=ts, text=f'{_clean_inline(name)} 내용',
+            blocks=blocks, unfurl_links=False, unfurl_media=False,
         )
         return
     head, _ = split_for_message(body, _PREVIEW_LIMIT)

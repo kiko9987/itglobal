@@ -152,13 +152,25 @@ def test_handle_doc_view_posts_converted_text(monkeypatch, no_redis):
     assert len(c.posts) == 1
 
 
-def test_handle_doc_view_long_text_is_still_one_message(monkeypatch, no_redis):
-    long_md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(200))   # 약 1.6만 자
-    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: long_md)
+def test_handle_doc_view_medium_text_is_one_message_of_blocks(monkeypatch, no_redis):
+    # 슬랙은 4,000자 넘는 text 를 메시지 여러 개로 쪼갠다(과업지시서 6,145자가 답글 2개로 달림)
+    md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(80))       # 약 6.5천 자
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
     c = FakeClient()
     dv.handle_doc_view(_event(), c, 'xoxb')
     assert len(c.posts) == 1 and c.uploads == []
-    assert '제199조' in c.posts[0]['text']
+    blocks = c.posts[0]['blocks']
+    assert '공고.hwp' in blocks[0]['text']['text']
+    assert all(len(b['text']['text']) <= 3000 for b in blocks)
+    joined = '\n\n'.join(b['text']['text'] for b in blocks[1:])
+    assert joined == dv.markdown_to_slack(md)                    # 칸을 나눠도 빠지는 글 없음
+
+
+def test_handle_doc_view_short_text_is_plain_message(monkeypatch, no_redis):
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: '짧은 공고 ' * 100)
+    c = FakeClient()
+    dv.handle_doc_view(_event(), c, 'xoxb')
+    assert len(c.posts) == 1 and 'blocks' not in c.posts[0]
 
 
 def test_handle_doc_view_huge_text_is_one_file_with_preview(monkeypatch, no_redis):
