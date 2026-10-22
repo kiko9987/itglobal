@@ -30,24 +30,51 @@ from dashboard.utils.redis_client import get_redis_client
 
 logger = get_logger(__name__)
 
-# 시트 컬럼 (공사 현황 시트 1-based 컬럼)
-COL_PROJECT = 'A'    # 프로젝트 코드-이니셜 (예: G3491-YG)
-COL_ADDRESS = 'F'    # 현장 주소
-COL_TOTAL_R = 'R'    # 총액 1 (부가세 미포함)
-COL_VAT = 'S'        # 부가세 체크박스
-COL_TOTAL_T = 'T'    # 총액 2 (R + VAT)
-COL_DEPOSIT = 'U'    # 계약금
-COL_MIDDLE = 'V'     # 중도금
-COL_BALANCE = 'W'    # 잔금
-COL_UNPAID = 'X'     # 미수금 — 시트 수식: = IF(ABS(T-U-V-W)<2, 0, T-U-V-W)  (2026-07-16 재확인)
-                     #   X > 0 : 정상 미납 (총액 대비 입금 부족)
-                     #   X = 0 : 완납 (2원 미만 부동소수 오차 포함)
-                     #   X < 0 : 초과 입금 (매니저 실수 or 정정 필요)
-                     # 슬랙 카드 build 는 -abs 처리로 항상 음수 표시 (매니저 시각 통일).
-                     # 이전 (U+V+W)-T 주석·수식 (2026-07-10) 은 부호 반대 오류였음.
-COL_INVOICE = 'Y'    # 계산서 (N입금/카드결제/미발행/잔금/중도금/계약금)
-COL_PAYDATE = 'AC'   # 수금 날짜 (2026-09-07 Z/AA/AB 삽입으로 Z→AC)
-COL_CONFIRM = 'AD'   # 수금 확인 체크박스 (AA→AD)
+# 시트 열 위치는 헤더 지도에서 읽는다 (2026-10-22). 예전 COL_*·IDX_* 고정 글자(U/V/W/AD …)는
+# 열을 끼워 넣으면 수금 카드·기준값이 엉뚱한 칸을 읽었다.
+# 미수금 시트 수식 = IF(ABS(총액2-계약금-중도금-잔금)<2, 0, …): >0 미납 / 0 완납(2원 미만 오차 포함) /
+#   <0 초과 입금. 슬랙 카드 build 는 -abs 처리로 항상 음수 표시 (매니저 시각 통일).
+def _sheet_idx() -> Dict[str, int]:
+    """공사 현황 필드명 → 0-based 열 번호 (헤더 지도)."""
+    from dashboard.utils.google_sheets import main_field_to_index
+    return main_field_to_index()
+
+
+def _col_letter0(index: int) -> str:
+    from dashboard.utils.google_sheets import column_letter
+    return column_letter(index)
+
+
+def _sheet_col(field: str, idx: Dict[str, int] = None) -> str:
+    """공사 현황 필드명 → 열 글자."""
+    return _col_letter0((idx or _sheet_idx())[field])
+
+
+# 수금 폴러·카드가 읽는 칸 — 행을 이 중 가장 오른쪽 칸까지만 읽는다(매 30초 전체 행 조회라 폭 최소)
+_POLL_FIELDS = ('프로젝트 코드', '현장 주소', '공사 내용', '총액 1', '총액 2', '계약금', '중도금', '잔금',
+                '미수금', '계산서', '수금 날짜', '수금 확인')
+
+
+def _poll_width(idx: Dict[str, int]) -> int:
+    return max(idx[f] for f in _POLL_FIELDS) + 1
+
+
+def _pad_row(vals, width: int) -> list:
+    """행 값을 width 칸까지 채움 (뒤쪽 빈 칸은 API 가 잘라 보냄)."""
+    vals = list(vals or [])
+    return vals + [''] * (width - len(vals))
+
+
+def _card_fields(vals, idx: Dict[str, int]) -> Dict:
+    """카드 렌더용 값 — 계약금·중도금·잔금·주소·공사 내용·계산서·총액·미수금."""
+    return {
+        'u': _to_int_won(vals[idx['계약금']]), 'v': _to_int_won(vals[idx['중도금']]),
+        'w': _to_int_won(vals[idx['잔금']]),
+        'address': str(vals[idx['현장 주소']]).strip(), 'construction': str(vals[idx['공사 내용']]).strip(),
+        'invoice': str(vals[idx['계산서']]).strip(), 'total_r': _to_int_won(vals[idx['총액 1']]),
+        'total_t': _to_int_won(vals[idx['총액 2']]), 'unpaid': _to_int_won(vals[idx['미수금']]),
+    }
+
 
 REDIS_KEY_PREFIX = 'payment_sync:row:'
 REDIS_TTL = 60 * 60 * 24 * 90  # 90일
@@ -1783,14 +1810,15 @@ def _reset_payment_service():
 
 
 def _fetch_row_notes(spreadsheet_id: str, sheet_name: str, row: int) -> List[str]:
-    """U/V/W 셀 메모 3개 fetch."""
+    """계약금·중도금·잔금 셀 메모 3개 fetch."""
     service = _get_payment_service()
     if not service:
         return ['', '', '']
     try:
+        _i = _sheet_idx()
         resp = service.spreadsheets().get(
             spreadsheetId=spreadsheet_id,
-            ranges=[f"'{sheet_name}'!U{row}:W{row}"],
+            ranges=[f"'{sheet_name}'!{_sheet_col('계약금', _i)}{row}:{_sheet_col('잔금', _i)}{row}"],
             fields='sheets.data.rowData.values.note',
             includeGridData=True,
         ).execute()
@@ -2125,13 +2153,8 @@ def rerender_stage_card(project: str, stage: str, row=None) -> bool:
         row, vals = _find_project_row(svc, sheet_id, sheet_name, project, row)
         if not row:
             return False
-        rep = {
-            'project': project, 'stage': stage, 'ts': ts, 'row': row,
-            'u': _to_int_won(vals[20]), 'v': _to_int_won(vals[21]), 'w': _to_int_won(vals[22]),
-            'address': str(vals[5]).strip(), 'construction': str(vals[11]).strip(),
-            'invoice': str(vals[24]).strip(), 'total_r': _to_int_won(vals[17]),
-            'total_t': _to_int_won(vals[19]), 'unpaid': _to_int_won(vals[23]),
-        }
+        rep = {'project': project, 'stage': stage, 'ts': ts, 'row': row,
+               **_card_fields(vals, _sheet_idx())}
         from slack_sdk import WebClient
         return _reprice_payment_card(WebClient(token=bot_token), channel, rep, sheet_id, sheet_name)
     except Exception as exc:
@@ -2144,8 +2167,9 @@ def row_baseline_mapping(vals: list, notes: List[str]) -> Dict:
 
     단계 phash 는 값이 있는(≠0) 단계만 인정(4fb6bfd), 반환 phash 는 is_refund 블록만.
     """
-    vals = list(vals) + [''] * (30 - len(vals))
-    u, v, w = _to_int_won(vals[20]), _to_int_won(vals[21]), _to_int_won(vals[22])
+    _i = _sheet_idx()
+    vals = _pad_row(vals, _poll_width(_i))
+    u, v, w = (_to_int_won(vals[_i[f]]) for f in ('계약금', '중도금', '잔금'))
     val_map = {'계약금': u, '중도금': v, '잔금': w}
     pays = _parse_notes((list(notes) + ['', '', ''])[:3])
 
@@ -2156,8 +2180,8 @@ def row_baseline_mapping(vals: list, notes: List[str]) -> Dict:
         return _hash_payments([p for p in pays if p.get('stage') == s and p.get('is_refund')])
 
     return {
-        'u': u, 'v': v, 'w': w, 'x': _to_int_won(vals[23]),
-        'aa': 'true' if _to_bool(vals[29]) else 'false',
+        'u': u, 'v': v, 'w': w, 'x': _to_int_won(vals[_i['미수금']]),
+        'aa': 'true' if _to_bool(vals[_i['수금 확인']]) else 'false',
         'phash': _hash_payments([p for p in pays if val_map.get(p.get('stage'), 0) != 0]),
         'u_phash': _stage_ph('계약금'), 'v_phash': _stage_ph('중도금'), 'w_phash': _stage_ph('잔금'),
         'u_ref': _ref_ph('계약금'), 'v_ref': _ref_ph('중도금'), 'w_ref': _ref_ph('잔금'),
@@ -2186,13 +2210,15 @@ def release_sync_mutex() -> None:
 
 
 def _find_project_row(svc, sheet_id: str, sheet_name: str, project: str, row=None):
-    """프로젝트 행 번호 + 그 행 값(A..AD). row 를 알면 그 행만 읽어 코드 확인(코드열 전체 조회 생략,
+    """프로젝트 행 번호 + 그 행 값(A..수금 확인). row 를 알면 그 행만 읽어 코드 확인(코드열 전체 조회 생략,
     2026-10-15), 코드가 안 맞거나 row 없으면 코드열에서 찾음. Returns (row, vals) 또는 (None, None)."""
+    _width = _poll_width(_sheet_idx())
+
     def _vals(r):
         v = svc.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A{r}:AD{r}",
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A{r}:{_col_letter0(_width - 1)}{r}",
             valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
-        return v + [''] * (30 - len(v))
+        return _pad_row(v, _width)
     if row:
         try:
             v = _vals(int(row))
@@ -2229,13 +2255,7 @@ def refund_followup(project: str, stage: str, row=None) -> bool:
     key = f"{REDIS_KEY_PREFIX}{row}"
     rc.hset(key, mapping=row_baseline_mapping(vals, notes))
     rc.expire(key, REDIS_TTL)
-    rs = {
-        'project': project, 'row': row, 'stage': stage,
-        'u': _to_int_won(vals[20]), 'v': _to_int_won(vals[21]), 'w': _to_int_won(vals[22]),
-        'address': str(vals[5]).strip(), 'construction': str(vals[11]).strip(),
-        'invoice': str(vals[24]).strip(), 'total_r': _to_int_won(vals[17]),
-        'total_t': _to_int_won(vals[19]), 'unpaid': _to_int_won(vals[23]),
-    }
+    rs = {'project': project, 'row': row, 'stage': stage, **_card_fields(vals, _sheet_idx())}
     from slack_sdk import WebClient
     sent = _send_refund_card(WebClient(token=bot_token), channel, rs, sheet_id, sheet_name)
     # 잔금 카드도 반환 뒤 상태로 다시 그림 (내용 같으면 그대로) — 양방향:
@@ -2328,10 +2348,12 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     if not service:
         return result
     try:
-        # 한 번에 A:AD 가져옴 (광폭 범위) — values만 가벼움 (수금확인 AD까지)
+        # 한 번에 A~수금 확인 열까지 (광폭 범위) — values만 가벼움. 열 위치는 헤더 지도.
+        _I = _sheet_idx()
+        _W = _poll_width(_I)
         resp = service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range=f"'{sheet_name}'!A2:AD10000",
+            range=f"'{sheet_name}'!A2:{_col_letter0(_W - 1)}10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:
@@ -2362,23 +2384,18 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         logger.error(f"[PAYMENT] Slack client 초기화 실패: {exc}")
         return result
 
-    # 컬럼 인덱스 (0-based)
-    def col_idx(col: str) -> int:
-        if len(col) == 1:
-            return ord(col) - ord('A')
-        return (ord(col[0]) - ord('A') + 1) * 26 + (ord(col[1]) - ord('A'))
-
-    IDX_A = col_idx('A')
-    IDX_F = col_idx('F')
-    IDX_L = col_idx('L')
-    IDX_R = col_idx('R')
-    IDX_T = col_idx('T')
-    IDX_U = col_idx('U')
-    IDX_V = col_idx('V')
-    IDX_W = col_idx('W')
-    IDX_X = col_idx('X')
-    IDX_Y = col_idx('Y')
-    IDX_AA = col_idx('AD')  # 수금 확인 (2026-09-07 AA→AD)
+    # 컬럼 인덱스 (0-based) — 헤더 지도에서 (예전 col_idx('U') 등 고정 글자)
+    IDX_A = _I['프로젝트 코드']
+    IDX_F = _I['현장 주소']
+    IDX_L = _I['공사 내용']
+    IDX_R = _I['총액 1']
+    IDX_T = _I['총액 2']
+    IDX_U = _I['계약금']
+    IDX_V = _I['중도금']
+    IDX_W = _I['잔금']
+    IDX_X = _I['미수금']
+    IDX_Y = _I['계산서']
+    IDX_AA = _I['수금 확인']
 
     # 첫 폴링 감지 — Redis에 키 하나라도 있는지
     try:
@@ -2398,7 +2415,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     try:
         resp_notes = service.spreadsheets().get(
             spreadsheetId=sheet_id,
-            ranges=[f"'{sheet_name}'!U2:W10000"],
+            ranges=[f"'{sheet_name}'!{_sheet_col('계약금', _I)}2:{_sheet_col('잔금', _I)}10000"],
             fields='sheets.data.rowData.values.note',
             includeGridData=True,
         ).execute()
@@ -2464,7 +2481,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
         if _off < 0 or _off >= len(rows):
             continue
         _row = rows[_off]
-        while len(_row) < 30:
+        while len(_row) < _W:
             _row.append('')
         _code = str(_row[IDX_A] if IDX_A < len(_row) else '').strip()
         if not _code or not _VALID_PROJECT_RE.match(_code):
@@ -2494,7 +2511,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     for offset, row in enumerate(rows):
         sheet_row = offset + 2  # 1-based + 헤더 1행
         # 행 길이 부족 시 패딩 (Sheets API trailing trim 방지)
-        while len(row) < 30:
+        while len(row) < _W:
             row.append('')
         def _get(i):
             return row[i] if i < len(row) else ''
@@ -3325,9 +3342,11 @@ def find_overdue_unpaid(days: int = 30) -> List[Dict]:
     service = _get_payment_service()
     if not service:
         return []
+    _I = _sheet_idx()
+    _W = _poll_width(_I)
     try:
         resp = service.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AD10000",
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:{_col_letter0(_W - 1)}10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:
@@ -3337,19 +3356,18 @@ def find_overdue_unpaid(days: int = 30) -> List[Dict]:
     cutoff = datetime.now() - timedelta(days=days)
     overdue = []
     for row in rows:
-        while len(row) < 30:
-            row.append('')
-        a = str(row[0]).strip()
+        row = _pad_row(row, _W)
+        a = str(row[_I['프로젝트 코드']]).strip()
         if not a or not _VALID_PROJECT_RE.match(a):
             continue
-        unpaid = _to_int_won(row[23])
+        unpaid = _to_int_won(row[_I['미수금']])
         if unpaid == 0:
             continue
         # 수금 확인 체크 → 미수금 있어도 정리된 케이스
-        if _to_bool(row[29]):
+        if _to_bool(row[_I['수금 확인']]):
             continue
-        # 최종 입금일 — AC열(수금 날짜, idx28) 시리얼 → 날짜
-        z_val = row[28]
+        # 최종 입금일 — 수금 날짜 칸 시리얼 → 날짜
+        z_val = row[_I['수금 날짜']]
         last_date = None
         if isinstance(z_val, (int, float)) and z_val > 0:
             # 구글 시리얼 (1899-12-30 기준)
@@ -3361,7 +3379,7 @@ def find_overdue_unpaid(days: int = 30) -> List[Dict]:
             continue
         overdue.append({
             'project': a,
-            'address': str(row[5]).strip(),
+            'address': str(row[_I['현장 주소']]).strip(),
             'unpaid': unpaid,
             'last_date': last_date.strftime('%Y-%m-%d'),
         })
@@ -3398,9 +3416,11 @@ def search_project(project_code: str) -> Optional[str]:
     service = _get_payment_service()
     if not service:
         return None
+    _I = _sheet_idx()
+    _W = _poll_width(_I)
     try:
         resp = service.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:AD10000",
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!A2:{_col_letter0(_W - 1)}10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:
@@ -3409,24 +3429,18 @@ def search_project(project_code: str) -> Optional[str]:
     rows = resp.get('values', [])
     code = project_code.strip().upper()
     for off, row in enumerate(rows):
-        while len(row) < 27:
-            row.append('')
-        if str(row[0]).strip().upper() != code:
+        row = _pad_row(row, _W)
+        if str(row[_I['프로젝트 코드']]).strip().upper() != code:
             continue
         sheet_row = off + 2
         notes = _fetch_row_notes(sheet_id, sheet_name, sheet_row)
-        u_val = _to_int_won(row[20])
-        v_val = _to_int_won(row[21])
-        w_val = _to_int_won(row[22])
-        stage_vals = {'계약금': u_val, '중도금': v_val, '잔금': w_val}
+        f = _card_fields(row, _I)
+        stage_vals = {'계약금': f['u'], '중도금': f['v'], '잔금': f['w']}
         payments = _parse_notes(notes, stage_vals=stage_vals)
         if not payments:
             return f"`{code}` — 수금 메모 없음 (시트 메모 미입력)"
-        address = str(row[5]).strip()
-        construction = str(row[11]).strip() if len(row) > 11 else ''
-        total_t = _to_int_won(row[19])
-        unpaid = _to_int_won(row[23])
-        invoice = str(row[24]).strip()
+        address, construction = f['address'], f['construction']
+        total_t, unpaid, invoice = f['total_t'], f['unpaid'], f['invoice']
         msg = _build_complete_message(
             code, address, payments, invoice, total_t,
             stage_sheet_vals=stage_vals,

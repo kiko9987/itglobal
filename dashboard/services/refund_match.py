@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 MAX_DAYS = 90
 OUTFLOW_LOOKBACK_SEC = 60 * 60 * 24 * 14     # 출금 문자 서버 보관 기간과 동일
 _STAGES = ('계약금', '중도금', '잔금')
-_COLS = ('U', 'V', 'W')
 _HANDLED = 'refund_match:handled:'           # 제안·무시·기록된 출금 id (재제안 방지)
 _CAND = 'refund_match:cand:'                 # 제안 카드 페이로드
 _DONE = 'refund_match:done:'                 # 기록 완료 (멱등)
@@ -83,14 +82,19 @@ def amount_check(paid: int, total2: int, amount: int) -> str:
     return ''
 
 
-_PAYER_IDX = {'계약금': 37, '중도금': 38, '잔금': 39}   # AL·AM·AN '○○ 부담자' (공사현황 45열 고정 배치)
+def _idx() -> Dict[str, int]:
+    """공사 현황 {필드명: 0-based 열 번호} — 헤더 지도 (2026-10-22, 예전 U/V/W·37~39·25+ 고정)."""
+    from dashboard.utils.google_sheets import main_field_to_index
+    return main_field_to_index()
 
 
 def _row_payers(vals: list, u: int, v: int, w: int) -> Dict:
     """행 값으로 나눠 내는 공사 부담자 {단계: payer} — 아니면 {}."""
     try:
         from dashboard.services.payer_split import stage_payers
-        rec = {f'{s} 부담자': (vals[i] if i < len(vals) else '') for s, i in _PAYER_IDX.items()}
+        I = _idx()
+        rec = {f'{s} 부담자': (vals[I[f'{s} 부담자']] if I[f'{s} 부담자'] < len(vals) else '')
+               for s in _STAGES}
         rec.update({'계약금': u, '중도금': v, '잔금': w})
         return stage_payers(rec)
     except Exception:
@@ -114,9 +118,12 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
         return []
     o_date = datetime.fromtimestamp(int(outflow.get('ts') or time.time())).date()
     out: List[Dict] = []
+    from dashboard.utils.google_sheets import column_letter
+    I = _idx()
+    _cols = tuple(column_letter(I[s]) for s in _STAGES)
     for r in rows:
-        vals = list(r.get('vals') or []) + [''] * 30
-        u, v, w, total2 = _num(vals[20]), _num(vals[21]), _num(vals[22]), _num(vals[19])
+        vals = list(r.get('vals') or []) + [''] * (max(I.values()) + 1)
+        u, v, w, total2 = (_num(vals[I[f]]) for f in ('계약금', '중도금', '잔금', '총액 2'))
         paid = u + v + w
         col_kind = {}       # 나눠 내는 공사: {단계: (kind, reason)}
         _payers = _row_payers(vals, u, v, w)
@@ -144,7 +151,7 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                 reason = f'받은 돈 {paid:,}원 / 총액 {total2:,}원 — 더 받은 돈 없음'
         pays = _parse_notes((list(r.get('notes') or []) + ['', '', ''])[:3],
                             stage_vals={'계약금': u, '중도금': v, '잔금': w}, split=bool(_payers))
-        for stage, col in zip(_STAGES, _COLS):
+        for stage, col in zip(_STAGES, _cols):
             if _payers:
                 if stage not in col_kind:
                     continue
@@ -174,8 +181,8 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     'paid': paid, 'total2': total2, 'reason': reason,
                     'dep_date': d.isoformat(), 'dep_partner': p.get('partner', ''),
                     'dep_bank': p.get('bank', ''), 'dep_acct': p.get('acct_code', ''),
-                    # 단계 계산서 칸(Z/AA/AB) — 발행돼 있으면 반환 시 취소·수정발행 안내
-                    'stage_invoice': str(vals[25 + _STAGES.index(stage)] or '').strip(),
+                    # 단계 계산서 칸 — 발행돼 있으면 반환 시 취소·수정발행 안내
+                    'stage_invoice': str(vals[I[f'{stage} 계산서']] or '').strip(),
                 })
     return out
 
@@ -188,11 +195,14 @@ def load_rows() -> List[Dict]:
     svc = _get_payment_service()
     if not (svc and sid and sn):
         return []
-    vals = svc.spreadsheets().values().get(       # AN 까지 — 부담자 칸(AL·AM·AN, 나눠 내는 공사)
-        spreadsheetId=sid, range=f"'{sn}'!A2:AN10000",
+    from dashboard.utils.google_sheets import column_letter
+    I = _idx()
+    vals = svc.spreadsheets().values().get(       # 잔금 부담자 칸까지 — 부담자 칸(나눠 내는 공사)
+        spreadsheetId=sid, range=f"'{sn}'!A2:{column_letter(I['잔금 부담자'])}10000",
         valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [])
     nd = svc.spreadsheets().get(
-        spreadsheetId=sid, ranges=[f"'{sn}'!U2:W10000"],
+        spreadsheetId=sid,
+        ranges=[f"'{sn}'!{column_letter(I['계약금'])}2:{column_letter(I['잔금'])}10000"],
         fields='sheets.data.rowData.values.note', includeGridData=True).execute()
     note_rows = (((nd.get('sheets') or [{}])[0].get('data') or [{}])[0].get('rowData') or [])
     rows = []
@@ -216,8 +226,10 @@ def load_row(code: str, row: int) -> List[Dict]:
     svc = _get_payment_service()
     if not (svc and sid and sn and row):
         return []
-    vals = svc.spreadsheets().values().get(       # AN 까지 — 부담자 칸(나눠 내는 공사)
-        spreadsheetId=sid, range=f"'{sn}'!A{row}:AN{row}",
+    from dashboard.utils.google_sheets import column_letter
+    _last = column_letter(_idx()['잔금 부담자'])
+    vals = svc.spreadsheets().values().get(       # 잔금 부담자 칸까지 — 부담자 칸(나눠 내는 공사)
+        spreadsheetId=sid, range=f"'{sn}'!A{row}:{_last}{row}",
         valueRenderOption='UNFORMATTED_VALUE').execute().get('values', [[]])[0]
     if not vals or str(vals[0]).strip() != code:
         return []                      # 행이 밀렸으면 호출부가 전체 조회로

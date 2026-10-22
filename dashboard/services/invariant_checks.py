@@ -106,23 +106,42 @@ def check_amount_anomaly(ctx):
     return out
 
 
-_CELL_KNOWN_KEY = 'invariant_known_cell_anomalies'   # Redis set: 처음 본 기존 이상 칸(알림 제외 기준)
-_CELL_COLS = (('T', '총액 2', 'err'), ('X', '미수금', 'err'), ('AD', '수금 확인', 'bool'),
-              ('AE', '제품대', 'num'), ('AF', '도급비', 'num'), ('AG', '자재비', 'num'), ('AH', '기타비', 'num'),
-              ('AI', '순익', 'err'), ('AJ', '마진율', 'err'))
+# Redis set: 처음 본 기존 이상 칸(알림 제외 기준). v2 = 키에 열 글자 대신 필드명 (2026-10-22) —
+#   열을 끼워 넣어도 기존 이상 칸이 '새 이상'으로 쏟아지지 않게. v2 가 없으면 첫 실행이 다시 기준을 잡음.
+_CELL_KNOWN_KEY = 'invariant_known_cell_anomalies_v2'
+_CELL_KNOWN_KEY_V1 = 'invariant_known_cell_anomalies'   # 옛 키 'cell:AH4149:값' (열 글자는 10-22 이전 배치)
 
 
-def sheet_cell_anomalies(rows):
+def _migrate_known_v1(keys):
+    """v1 'cell:{열}{행}:{값}' → v2 'cell:{필드명}:{행}:{값}'. 열 글자는 10-22 이전 기본 배치로 읽는다."""
+    from dashboard.utils.google_sheets import _STATIC_COLUMN_MAPPING
+    out = set()
+    for k in keys:
+        m = re.match(r'^cell:([A-Z]+)(\d+):(.*)$', str(k), re.S)
+        if m and m.group(1) in _STATIC_COLUMN_MAPPING:
+            out.add(f'cell:{_STATIC_COLUMN_MAPPING[m.group(1)]}:{m.group(2)}:{m.group(3)}')
+    return out
+_CELL_FIELDS = (('총액 2', 'err'), ('미수금', 'err'), ('수금 확인', 'bool'),
+                ('제품대', 'num'), ('도급비', 'num'), ('자재비', 'num'), ('기타비', 'num'),
+                ('순익', 'err'), ('마진율', 'err'))
+
+
+def sheet_cell_anomalies(rows, f2l=None):
     """시트 원본 칸 이상 — 수식 오류(#REF! 등)·금액 칸 글자·수금 확인 체크박스 칸 글자.
 
-    rows: [(행번호, 코드, {열: 값})] (UNFORMATTED). Returns [(key, 코드, 문구)].
+    rows: [(행번호, 코드, {필드명: 값})] (UNFORMATTED). Returns [(key, 코드, 문구)].
     계기: 2026-10-19 14:58 브라우저에서 칸을 끌어 옮겨 AL 글자가 AH(기타비)·AD(수금 확인)로 가고
     AI(순익) 수식이 #REF! — 프로젝트 레코드는 값이 정리돼 들어와 기존 점검이 못 잡았다.
+    문구의 열 글자는 헤더 지도(f2l)에서, 기억 키는 필드명 기준(열 이동 무관).
     """
+    if f2l is None:
+        from dashboard.utils.google_sheets import main_field_to_letter
+        f2l = main_field_to_letter()
     out = []
     for row, code, cells in rows:
-        for letter, label, kind in _CELL_COLS:
-            v = cells.get(letter, '')
+        for label, kind in _CELL_FIELDS:
+            v = cells.get(label, '')
+            letter = f2l.get(label, '?')
             msg = ''
             if isinstance(v, str) and v.startswith('#'):
                 msg = f"{label}({letter}{row}) 수식 오류 {v.split(' ')[0]}"
@@ -131,7 +150,7 @@ def sheet_cell_anomalies(rows):
             elif kind == 'num' and isinstance(v, str) and v.strip() not in ('', '-'):
                 msg = f"{label}({letter}{row}) 금액 칸에 글자 {v[:30]!r}"
             if msg:
-                out.append((f'cell:{letter}{row}:{str(v)[:40]}', code, msg))
+                out.append((f'cell:{label}:{row}:{str(v)[:40]}', code, msg))
     return out
 
 
@@ -205,6 +224,11 @@ def build_context():
     cell_anomalies, known = [], set()
     try:
         cell_anomalies = sheet_cell_anomalies(_read_sheet_cells())
+        if not rc.exists(_CELL_KNOWN_KEY) and rc.exists(_CELL_KNOWN_KEY_V1):
+            # v1(열 글자 키) → v2(필드명 키) 옮김 — 옮긴 뒤 새로 생긴 이상만 알림 (2026-10-22)
+            migrated = _migrate_known_v1({_dec(x) for x in (rc.smembers(_CELL_KNOWN_KEY_V1) or set())})
+            rc.sadd(_CELL_KNOWN_KEY, '__seeded__', *migrated)
+            logger.info(f'[INVARIANT] 시트 칸 이상 기준 v1→v2 옮김: {len(migrated)}칸')
         if not rc.exists(_CELL_KNOWN_KEY):
             if cell_anomalies:
                 rc.sadd(_CELL_KNOWN_KEY, *[k for k, _, _ in cell_anomalies])
@@ -227,27 +251,29 @@ def build_context():
 
 
 def _read_sheet_cells():
-    """공사 현황 A·T·X·AD:AJ 원본(UNFORMATTED) → [(행, 코드, {열: 값})] — API 1회."""
+    """공사 현황 코드 + 점검 칸(_CELL_FIELDS) 원본(UNFORMATTED) → [(행, 코드, {필드명: 값})] — API 1회.
+
+    열 위치는 헤더 지도에서 (예전 T·X·AD:AJ 고정, 2026-10-22)."""
     from dashboard.services.payment_sync import _get_payment_service
+    from dashboard.utils.google_sheets import main_field_to_letter
     sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
     sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
     if not sid or not sn:
         return []
+    f2l = main_field_to_letter()
+    fields = [f for f, _ in _CELL_FIELDS]
+    ranges = [f"'{sn}'!A2:A6000"] + [f"'{sn}'!{f2l[f]}2:{f2l[f]}6000" for f in fields]
     vr = _get_payment_service().spreadsheets().values().batchGet(
-        spreadsheetId=sid, valueRenderOption='UNFORMATTED_VALUE',
-        ranges=[f"'{sn}'!A2:A6000", f"'{sn}'!T2:T6000", f"'{sn}'!X2:X6000", f"'{sn}'!AD2:AJ6000"],
+        spreadsheetId=sid, valueRenderOption='UNFORMATTED_VALUE', ranges=ranges,
     ).execute().get('valueRanges', [])
-    col = lambda k: vr[k].get('values', []) if len(vr) > k else []
-    codes, t, x, adj = col(0), col(1), col(2), col(3)
+    cols = [vr[k].get('values', []) if len(vr) > k else [] for k in range(len(ranges))]
     out = []
-    for i, c in enumerate(codes):
+    for i, c in enumerate(cols[0]):
         code = str(c[0] if c else '').strip()
         if not code:
             continue
-        cells = {'T': (t[i][0] if i < len(t) and t[i] else ''), 'X': (x[i][0] if i < len(x) and x[i] else '')}
-        row = adj[i] if i < len(adj) else []
-        for j, letter in enumerate(('AD', 'AE', 'AF', 'AG', 'AH', 'AI', 'AJ')):
-            cells[letter] = row[j] if j < len(row) else ''
+        cells = {f: (cols[j + 1][i][0] if i < len(cols[j + 1]) and cols[j + 1][i] else '')
+                 for j, f in enumerate(fields)}
         out.append((i + 2, code, cells))
     return out
 

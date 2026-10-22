@@ -2150,10 +2150,10 @@ def _intake_duplicate_check(project_code, stage, amount, date_md):
     if not amount:
         return None
     try:
-        from dashboard.constants import PAYMENT_FIELD_TO_COLUMN
+        from dashboard.constants import payment_field_column
         from dashboard.services.lead_service import get_sheets_manager
         from dashboard.services.payment_sync import _parse_notes
-        col = PAYMENT_FIELD_TO_COLUMN.get(stage)
+        col = payment_field_column(stage)
         if not col:
             return None
         sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
@@ -2674,10 +2674,12 @@ def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, de
         if payer_amount:
             outstanding = int(payer_amount) - old_num      # 이 사람이 아직 낼 돈
         else:
-            total_t = _num('T')
+            from dashboard.utils.google_sheets import main_field_to_letter
+            _f2l = main_field_to_letter()                  # 열 글자는 헤더 지도에서 (2026-10-22)
+            total_t = _num(_f2l['총액 2'])
             if total_t <= 0:
                 return None
-            paid_others = sum(_num(c) for c in ('U', 'V', 'W') if c != col)
+            paid_others = sum(_num(_f2l[s]) for s in ('계약금', '중도금', '잔금') if _f2l[s] != col)
             outstanding = total_t - paid_others - old_num   # 이 결제가 커버할 계약 잔액
         if outstanding <= 0:
             return None
@@ -2723,10 +2725,10 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
       (순액 0)이면 그 단계 계산서 '-' (발행된 계산서는 건드리지 않음). (2026-10-08 R4163-TH)
     Returns: (ok: bool, old_num: int, new_num: int, err: str)
     """
-    from dashboard.constants import PAYMENT_FIELD_TO_COLUMN
     from dashboard.services.lead_service import get_sheets_manager
+    from dashboard.utils.google_sheets import main_field_to_letter
 
-    col = PAYMENT_FIELD_TO_COLUMN.get(stage)
+    col = main_field_to_letter().get(stage) if stage in ('계약금', '중도금', '잔금') else None
     if not col:
         return False, 0, 0, f"알 수 없는 단계 {stage}"
     sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
@@ -6429,7 +6431,7 @@ def _slack_create_project(data: dict) -> str:
     data['프로젝트 코드'] = code
 
     manager = get_sheets_manager()
-    _prepare_project_defaults(data, next_row)
+    _prepare_project_defaults(data, next_row, manager)
     values = _build_row_values(data, manager, next_row)
     result = manager.append_row(sheet_id, values)
     if not result:

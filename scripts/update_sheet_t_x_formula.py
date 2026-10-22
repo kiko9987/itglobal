@@ -27,6 +27,11 @@ X_FORMULA = '=IF(ABS($T:T-$U:U-$V:V-$W:W)<2, 0, $T:T-$U:U-$V:V-$W:W)'
 
 
 def main() -> int:
+    # 2026-10-22: 옛 수식(ROUND·T/X 고정 열)과 옛 열 배치용 일회성 스크립트 — 지금 시트에 다시 돌리면
+    #   총액 2 수식(절사+1/9원 보정·부가세 없는 몫)과 열 위치가 어긋난 수식으로 덮인다. 실행 막음.
+    print('이 스크립트는 2026-07 옛 수식·열 배치용입니다. 다시 실행하지 마세요 '
+          '(총액 2 수식은 payer_split.total2_formula, 새 행은 projects._new_row_formulas).')
+    return 1
     sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()
     sheet_name = os.getenv('GOOGLE_SHEET_NAME', '').strip()
     from dashboard.services.payment_sync import _get_payment_service

@@ -42,6 +42,44 @@ def get_sheets_manager() -> GoogleSheetsManager:
     return GoogleSheetsManager()
 
 
+def _project_sheet_range(manager) -> str:
+    """공사 현황 읽기 범위 — 끝 열은 헤더 지도의 마지막 열 (config 'A1:AS5000' 의 열 글자는 무시, 2026-10-22).
+
+    config 끝 열이 고정이면 열을 끼워 넣었을 때 마지막 열(_version)이 잘려 PM 저장이 모두 409 가 난다.
+    """
+    import re as _re
+    rng = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AS')
+    m = _re.match(r'^(.*)!([A-Z]+)(\d*):([A-Z]+)(\d*)$', rng)
+    if not m:
+        return rng
+    return f"{m.group(1)}!{m.group(2)}{m.group(3)}:{manager.get_last_column_letter()}{m.group(5)}"
+
+
+def _note_columns(manager) -> dict:
+    """메모를 읽을 열 {열 글자: DataFrame 메모 컬럼} — 계약금·중도금·잔금·계산서 (헤더 지도)."""
+    f2l = manager.get_field_to_letter()
+    return {f2l[f]: f'{f}_메모' for f in ('계약금', '중도금', '잔금', '계산서')}
+
+
+def _load_notes_by_memo_col(manager, sheet_id, sheet_name, cache_key, force=False) -> dict:
+    """셀 메모 {행: {'계약금_메모': …}} — 캐시엔 열 글자 대신 메모 컬럼 이름으로 저장 (2026-10-22).
+
+    열 글자 키로 캐시하면 열을 끼워 넣은 직후 옛 캐시가 엉뚱한 메모를 붙였다. 옛 형식(열 글자 키)
+    캐시는 버리고 다시 읽는다. 캐시 키(cell_notes_{sheet_id})는 메모 저장 때 비우는 곳과 같게 유지.
+    """
+    notes_by_row = None if force else smart_get(cache_key, CacheStrategy.TEMPORARY)
+    if notes_by_row:
+        sample = next((d for d in notes_by_row.values() if d), {})
+        if sample and not all(str(k).endswith('_메모') for k in sample):
+            notes_by_row = None          # 옛 형식(열 글자 키)
+    if notes_by_row is None:
+        cols = _note_columns(manager)
+        raw = manager.get_cell_notes(sheet_id, sheet_name, list(cols)) or {}
+        notes_by_row = {r: {cols[l]: n for l, n in d.items() if l in cols} for r, d in raw.items()}
+        smart_set(cache_key, notes_by_row, CacheStrategy.TEMPORARY)
+    return notes_by_row
+
+
 def get_last_update() -> Optional[datetime]:
     """캐시된 데이터의 마지막 업데이트 시간 반환
 
@@ -65,7 +103,7 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
             return None
 
         manager = get_sheets_manager()
-        sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AS')
+        sheet_range = _project_sheet_range(manager)
         logger.debug("[PREFETCH] Google Sheets 데이터 가져오기 시작")
         df = manager.get_sheet_data(sheet_id, sheet_range)
 
@@ -77,16 +115,9 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
         try:
             sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황')
 
-            # 셀 메모 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
+            # 셀 메모 (캐시 TEMPORARY — 메모리 부하 최적화)
             notes_cache_key = f"cell_notes_{sheet_id}"
-            notes_by_row = smart_get(notes_cache_key, CacheStrategy.TEMPORARY)
-
-            if notes_by_row is None:
-                logger.debug("[PREFETCH] 셀 메모 가져오기")
-                notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W', 'Y'])
-                smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)
-            else:
-                logger.debug(f"[PREFETCH] 캐시된 셀 메모 사용: {len(notes_by_row)}개 행")
+            notes_by_row = _load_notes_by_memo_col(manager, sheet_id, sheet_name, notes_cache_key)
 
             # DataFrame에 메모 컬럼 추가
             df['계약금_메모'] = None
@@ -103,15 +134,8 @@ def _fetch_fresh_data() -> Optional[pd.DataFrame]:
                     continue  # 숫자로 변환할 수 없으면 건너뛰기
 
                 if 0 <= df_index < len(df):
-                    # 2026-07 컬럼 시프트 후: 계약금=U, 중도금=V, 잔금=W, 계산서=Y
-                    if 'U' in notes:
-                        df.at[df_index, '계약금_메모'] = notes['U']
-                    if 'V' in notes:
-                        df.at[df_index, '중도금_메모'] = notes['V']
-                    if 'W' in notes:
-                        df.at[df_index, '잔금_메모'] = notes['W']
-                    if 'Y' in notes:
-                        df.at[df_index, '계산서_메모'] = notes['Y']
+                    for _memo_col, _note in notes.items():
+                        df.at[df_index, _memo_col] = _note
 
             logger.debug(f"[PREFETCH] 셀 메모 {len(notes_by_row)}개 행 로드 완료")
 
@@ -423,7 +447,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 return None
 
             manager = get_sheets_manager()
-            sheet_range = PROJECT_CONFIG.get('sheet_range', '공사 현황!A:AS')
+            sheet_range = _project_sheet_range(manager)
             logger.info(f"Loading project data from range: {sheet_range}")
             df = manager.get_sheet_data(sheet_id, sheet_range)
 
@@ -435,19 +459,11 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
             try:
                 sheet_name = PROJECT_CONFIG.get('sheet_name', '공사 현황')
 
-                # 셀 메모 캐시 확인 (메모리 부하 최적화: TEMPORARY 전략 사용)
+                # 셀 메모 (캐시 TEMPORARY — 메모리 부하 최적화)
                 notes_cache_key = f"cell_notes_{sheet_id}"
-                notes_by_row = smart_get(notes_cache_key, CacheStrategy.TEMPORARY)
-
-                if notes_by_row is None or force_refresh:
-                    logger.info(f"[LOAD_NOTES] 셀 메모 가져오기 시작: {sheet_name}")
-                    notes_by_row = manager.get_cell_notes(sheet_id, sheet_name, ['U', 'V', 'W', 'Y'])
-
-                    # 셀 메모 캐시에 저장 (TEMPORARY 전략)
-                    smart_set(notes_cache_key, notes_by_row, CacheStrategy.TEMPORARY)
-                    logger.info(f"[LOAD_NOTES] 셀 메모 캐시 저장: {len(notes_by_row)}개 행")
-                else:
-                    logger.info(f"[LOAD_NOTES] 캐시된 셀 메모 사용: {len(notes_by_row)}개 행")
+                notes_by_row = _load_notes_by_memo_col(manager, sheet_id, sheet_name, notes_cache_key,
+                                                       force=force_refresh)
+                logger.info(f"[LOAD_NOTES] 셀 메모 {len(notes_by_row)}개 행")
 
                 # DataFrame에 메모 컬럼 추가
                 df['계약금_메모'] = None
@@ -470,17 +486,8 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                         logger.info(f"[MEMO_MAP] 시트 행 {row_num} → DF 인덱스 {df_index}, notes: {notes}")
 
                     if 0 <= df_index < len(df):
-                        # 2026-07 컬럼 시프트 후: 계약금=U, 중도금=V, 잔금=W
-                        if 'U' in notes:
-                            df.at[df_index, '계약금_메모'] = notes['U']
-                            if mapped_count < 3:
-                                logger.info(f"[MEMO_MAP] 계약금_메모 매핑 완료: '{notes['U']}'")
-                        if 'V' in notes:
-                            df.at[df_index, '중도금_메모'] = notes['V']
-                        if 'W' in notes:
-                            df.at[df_index, '잔금_메모'] = notes['W']
-                        if 'Y' in notes:
-                            df.at[df_index, '계산서_메모'] = notes['Y']
+                        for _memo_col, _note in notes.items():
+                            df.at[df_index, _memo_col] = _note
                         mapped_count += 1
                     else:
                         if mapped_count < 3:

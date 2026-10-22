@@ -55,6 +55,193 @@ def _should_retry_http_error(exception):
     return error_code in RATE_LIMIT_ERROR_CODES
 
 
+# ── 공사 현황 열 지도: 헤더 행에서 읽는다 (2026-10-22) ──────────────────────────────
+# 열을 끼워 넣을 때마다(05-22 E 사업자명, 09-07 Z~AB 계산서 3열) 코드에 박힌 열 글자가 어긋나
+# 엉뚱한 칸에 쓰였다. 헤더 행을 읽어 {열 글자: 필드명}을 만들고 1분 캐시한다. 읽기에 실패하면
+# 마지막으로 읽은 지도(Redis) → 코드의 기본 배치(_STATIC_COLUMN_MAPPING) 순. pytest 중에는 기본 배치.
+import threading as _threading
+
+_STATIC_COLUMN_MAPPING = {
+    'A': '프로젝트 코드',
+    'B': '사업자',
+    'C': '담당자',
+    'D': '유입 구분',
+    'E': '사업자명',
+    'F': '현장 주소',
+    'G': '공사 구분',
+    'H': '기계 분류',
+    'I': '브랜드',
+    'J': '공사 시작',
+    'K': '공사 종료',
+    'L': '공사 내용',
+    'M': '도급 구분',
+    'N': '시공자',
+    'O': '발주처 담당자',
+    'P': '발주처 연락처',
+    'Q': '발주처 이메일',
+    'R': '총액 1',
+    'S': '부가세',
+    'T': '총액 2',
+    'U': '계약금',
+    'V': '중도금',
+    'W': '잔금',
+    'X': '미수금',
+    'Y': '계산서',
+    # 2026-09-07: Z/AA/AB 에 단계별 계산서 3열 삽입 → 이후 전부 +3 시프트
+    'Z': '계약금 계산서',
+    'AA': '중도금 계산서',
+    'AB': '잔금 계산서',
+    'AC': '수금 날짜',
+    'AD': '수금 확인',
+    'AE': '제품대',
+    'AF': '도급비',
+    'AG': '자재비',
+    'AH': '기타비',
+    'AI': '순익',
+    'AJ': '마진율',
+    'AK': '수금 관련 특이사항',
+    # 2026-10-19: 옛 '○○ 입금자명'(2025-03 이후 미사용) → 나눠 내는 공사의 '○○ 부담자'
+    #   (형식·해석은 services/payer_split.py)
+    'AL': '계약금 부담자',
+    'AM': '중도금 부담자',
+    'AN': '잔금 부담자',
+    'AO': '견적서 및 계약서 폴더 경로',
+    'AP': '공사 확정',
+    'AQ': 'Airtable Record ID',
+    'AR': 'Lead No',   # 리드 연결 (2026-07 신규)
+    'AS': '_version'   # 2026-09-07 +3 시프트 (옛 AP)
+}
+
+_HEADER_MAP_TTL = 60
+_header_map_cache = {'at': 0.0, 'map': None}
+_header_map_lock = _threading.Lock()
+# 이 헤더들이 없으면(이름이 바뀌었거나 행이 깨짐) 헤더 지도를 믿지 않는다
+_REQUIRED_HEADERS = ('프로젝트 코드', '사업자명', '총액 1', '총액 2', '계약금', '중도금', '잔금',
+                     '미수금', '_version')
+
+
+def column_letter(index: int) -> str:
+    """0-based 열 번호 → 열 글자 (0→A, 25→Z, 26→AA)."""
+    s = ''
+    n = int(index) + 1
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def column_index(letter: str) -> int:
+    """열 글자 → 0-based 열 번호 (A→0, AA→26)."""
+    n = 0
+    for ch in str(letter).strip().upper():
+        n = n * 26 + (ord(ch) - 64)
+    return n - 1
+
+
+def main_sheet_name() -> str:
+    return os.getenv('GOOGLE_SHEET_NAME', '').strip() or '공사 현황'
+
+
+def _header_lookup_enabled() -> bool:
+    return 'PYTEST_CURRENT_TEST' not in os.environ or os.getenv('SHEET_HEADER_MAP_FORCE') == '1'
+
+
+def _read_header_mapping(service):
+    """공사 현황 헤더 행 → {열 글자: 필드명}. 쓸 수 없는 헤더면 None."""
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    if service is None or not sid:
+        return None
+    resp = service.spreadsheets().values().get(
+        spreadsheetId=sid, range=f"'{main_sheet_name()}'!1:1").execute()
+    rows = resp.get('values') if isinstance(resp, dict) else None
+    header = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], list) else []
+    mapping, seen = {}, set()
+    for i, h in enumerate(header):
+        h = str(h or '').strip()
+        if not h:
+            continue
+        if h in seen:
+            logger.error(f'[SHEET/열] 헤더 {h!r} 가 두 번 — 헤더 지도 사용 안 함')
+            return None
+        seen.add(h)
+        mapping[column_letter(i)] = h
+    missing = [f for f in _REQUIRED_HEADERS if f not in seen]
+    if missing:
+        logger.error(f'[SHEET/열] 필수 헤더 없음 {missing} — 헤더 지도 사용 안 함')
+        return None
+    return mapping
+
+
+def _header_map_redis_key() -> str:
+    return f"sheet_header_map:{os.getenv('GOOGLE_SHEET_ID', '').strip()}:{main_sheet_name()}"
+
+
+def main_column_mapping(service=None) -> dict:
+    """공사 현황 {열 글자: 필드명} — 헤더 기준(1분 캐시). 실패 시 마지막 지도 → 기본 배치."""
+    if not _header_lookup_enabled():
+        return dict(_STATIC_COLUMN_MAPPING)
+    cache = _header_map_cache
+    if cache['map'] is not None and time.time() - cache['at'] < _HEADER_MAP_TTL:
+        return dict(cache['map'])
+    # 다른 스레드가 헤더를 읽는 중이면 기다리지 않고 직전 지도 사용 — 시트 API 가 늦을 때 요청 스레드가
+    #   줄줄이 이 락에 묶이지 않게 (08-19 무타임아웃 hang 으로 Waitress 소진 사고 참고)
+    # 지도가 아직 없으면(시작 직후) 기다려서 받음
+    held = _header_map_lock.acquire(blocking=cache['map'] is None)
+    if not held:
+        return dict(cache['map'])
+    try:
+        if cache['map'] is not None and time.time() - cache['at'] < _HEADER_MAP_TTL:
+            return dict(cache['map'])
+        fresh = None
+        try:
+            if service is None:   # 매니저 없이 호출된 경우 — 이 스레드의 매니저 service 로 읽음
+                service = getattr(GoogleSheetsManager(), 'service', None)
+            fresh = _read_header_mapping(service)
+        except Exception as exc:
+            logger.warning(f'[SHEET/열] 헤더 읽기 실패 — 마지막 지도 사용: {exc}')
+        if fresh:
+            if cache['map'] is not None and fresh != cache['map']:
+                moved = sorted(set(fresh.items()) ^ set(cache['map'].items()))
+                logger.warning(f'[SHEET/열] 공사 현황 열 배치가 바뀜 — {moved[:12]}')
+            cache.update(map=fresh, at=time.time())
+            try:
+                import json as _json
+                from .redis_client import get_redis_client
+                get_redis_client().redis.set(_header_map_redis_key(), _json.dumps(fresh, ensure_ascii=False))
+            except Exception:
+                pass
+        else:
+            if cache['map'] is None:
+                last = None
+                try:
+                    import json as _json
+                    from .redis_client import get_redis_client
+                    raw = get_redis_client().redis.get(_header_map_redis_key())
+                    last = _json.loads(raw) if raw else None
+                except Exception:
+                    last = None
+                cache['map'] = last or dict(_STATIC_COLUMN_MAPPING)
+            cache['at'] = time.time() - _HEADER_MAP_TTL + 30   # 30초 뒤 다시 읽기
+        return dict(cache['map'])
+    finally:
+        _header_map_lock.release()
+
+
+def invalidate_main_column_mapping() -> None:
+    """다음 조회 때 헤더를 다시 읽게 함 (열을 넣은 직후 등)."""
+    _header_map_cache['at'] = 0.0
+
+
+def main_field_to_letter() -> dict:
+    """공사 현황 {필드명: 열 글자} — 매니저 없이 쓰는 헤더 지도."""
+    return {field: letter for letter, field in main_column_mapping().items()}
+
+
+def main_field_to_index() -> dict:
+    """공사 현황 {필드명: 0-based 열 번호} — 행 값 리스트에서 꺼낼 때."""
+    return {field: column_index(letter) for letter, field in main_column_mapping().items()}
+
+
 class GoogleSheetsManager:
     """구글 시트 연동 관리 클래스 (스레드별 인스턴스).
 
@@ -507,17 +694,19 @@ class GoogleSheetsManager:
 
         return f"{user_message} (상세: {error_reason})"
     
-    def get_sheet_data(self, sheet_id, range_name='공사 현황!A:AS'):
+    def get_sheet_data(self, sheet_id, range_name=None):
         """
         구글 시트에서 데이터 가져오기 (에러 처리 강화)
 
         Args:
             sheet_id: 구글 시트 ID
-            range_name: 데이터 범위
+            range_name: 데이터 범위 (없으면 공사 현황 A~마지막 열)
 
         Returns:
             pandas.DataFrame: 시트 데이터
         """
+        if not range_name:
+            range_name = f'{main_sheet_name()}!A:{self.get_last_column_letter()}'
         # API 모니터링 시작
         monitor = get_api_monitor()
         request_id = monitor.start_request('google_sheets')
@@ -814,7 +1003,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 찾기 오류: {str(e)}")
             return None
 
-    def append_row(self, sheet_id, values, range_name='공사 현황!A:AS'):
+    def append_row(self, sheet_id, values, range_name=None):
         """
         구글 시트의 다음 빈 행에 데이터 추가 (수식이 미리 설정된 행에 덮어쓰기)
         
@@ -833,9 +1022,8 @@ class GoogleSheetsManager:
                 raise Exception("다음 빈 행을 찾을 수 없습니다")
             
             # 특정 행에 데이터 업데이트 (수식이 있는 빈 행에 덮어쓰기)
-            # 2026-06-19 fix: AN → AO (_version 컬럼 포함)
-            # 2026-07-03 fix: AO → AP (신규 AO=Lead No 컬럼 + _version이 AP로 이동)
-            actual_range = f'공사 현황!A{next_row}:AS{next_row}'
+            #   범위 끝 = 값 개수만큼 (예전엔 'AS' 고정 → 열을 넣을 때마다 고쳐야 했음, 2026-10-22)
+            actual_range = f'{main_sheet_name()}!A{next_row}:{column_letter(len(values) - 1)}{next_row}'
             body = {
                 'values': [values]
             }
@@ -857,7 +1045,7 @@ class GoogleSheetsManager:
             logger.error(f"빈 행 데이터 추가 오류: {str(e)}")
             raise
     
-    def update_row(self, sheet_id, row_number, values, range_name='공사 현황!A{row}:AS{row}'):
+    def update_row(self, sheet_id, row_number, values, range_name=None):
         """
         구글 시트의 특정 행 업데이트
         
@@ -871,7 +1059,9 @@ class GoogleSheetsManager:
             dict: 업데이트 결과
         """
         try:
-            # 범위 설정
+            # 범위 설정 — 기본은 공사 현황 A~값 개수만큼 (2026-10-22, 예전 'AS' 고정)
+            if not range_name:
+                range_name = f'{main_sheet_name()}!A{{row}}:{column_letter(len(values) - 1)}{{row}}'
             actual_range = range_name.format(row=row_number)
             
             body = {
@@ -1116,63 +1306,13 @@ class GoogleSheetsManager:
             return f"G0001-{region_code}"
     
     def get_column_mapping(self):
-        """컬럼 매핑 정보 반환
+        """공사 현황 열 지도 {열 글자: 필드명} — 헤더 행 기준 (main_column_mapping, 2026-10-22).
 
-        2026-05-22 변경: E열에 '사업자명' 추가로 기존 E~AN이 F~AO로 한 칸 시프트.
-        2026-06-19 변경: D열 헤더 '거래처' → '유입 구분' (값=거래처/온라인/당근/소개/숨고)
-        - D열 '유입 구분': 유입 채널 카테고리 (거래처/온라인/당근/소개/숨고)
-        - E열 '사업자명': 신규, 실제 사업자등록증명
+        예전엔 여기 열 글자를 박아 둬서 열을 끼워 넣을 때마다(05-22 E 사업자명, 09-07 Z~AB 계산서)
+        코드가 어긋났다. 이제 헤더를 읽으므로 시트에 열을 넣어도 따라간다. 기본 배치는
+        _STATIC_COLUMN_MAPPING (헤더를 못 읽을 때만 사용).
         """
-        return {
-            'A': '프로젝트 코드',
-            'B': '사업자',
-            'C': '담당자',
-            'D': '유입 구분',
-            'E': '사업자명',
-            'F': '현장 주소',
-            'G': '공사 구분',
-            'H': '기계 분류',
-            'I': '브랜드',
-            'J': '공사 시작',
-            'K': '공사 종료',
-            'L': '공사 내용',
-            'M': '도급 구분',
-            'N': '시공자',
-            'O': '발주처 담당자',
-            'P': '발주처 연락처',
-            'Q': '발주처 이메일',
-            'R': '총액 1',
-            'S': '부가세',
-            'T': '총액 2',
-            'U': '계약금',
-            'V': '중도금',
-            'W': '잔금',
-            'X': '미수금',
-            'Y': '계산서',
-            # 2026-09-07: Z/AA/AB 에 단계별 계산서 3열 삽입 → 이후 전부 +3 시프트
-            'Z': '계약금 계산서',
-            'AA': '중도금 계산서',
-            'AB': '잔금 계산서',
-            'AC': '수금 날짜',
-            'AD': '수금 확인',
-            'AE': '제품대',
-            'AF': '도급비',
-            'AG': '자재비',
-            'AH': '기타비',
-            'AI': '순익',
-            'AJ': '마진율',
-            'AK': '수금 관련 특이사항',
-            # 2026-10-19: 옛 '○○ 입금자명'(2025-03 이후 미사용) → 나눠 내는 공사의 '○○ 부담자'
-            #   (형식·해석은 services/payer_split.py)
-            'AL': '계약금 부담자',
-            'AM': '중도금 부담자',
-            'AN': '잔금 부담자',
-            'AO': '견적서 및 계약서 폴더 경로',
-            'AP': '공사 확정',
-            'AQ': 'Airtable Record ID',
-            'AR': 'Lead No',   # 리드 연결 (2026-07 신규)
-            'AS': '_version'   # 2026-09-07 +3 시프트 (옛 AP)
-        }
+        return main_column_mapping(getattr(self, 'service', None))
 
     def get_field_to_letter(self):
         """필드명 → 컬럼 레터 (get_column_mapping 역방향, 단일 진실원천).
@@ -1182,35 +1322,28 @@ class GoogleSheetsManager:
         """
         return {field: letter for letter, field in self.get_column_mapping().items()}
 
-    def get_field_column_mapping(self):
-        """레거시 방식의 필드-컬럼 매핑 (인라인 편집용)
+    # 인라인 편집(batch_update_fields)으로 바꿀 수 있는 필드 — 열 글자는 헤더 지도에서 (2026-10-22)
+    _INLINE_EDIT_FIELDS = (
+        '사업자', '발주처 담당자', '도급 구분', '발주처 연락처', '시공자', '발주처 이메일', '현장 주소',
+        '공사 구분', '기계 분류', '브랜드', '공사 시작', '공사 종료', '공사 내용', '공사 확정',
+        '견적서 및 계약서 폴더 경로', '유입 구분', '거래처명', '사업자명', '담당자',
+    )
 
-        2026-05-22 변경: E열 '사업자명' 추가, 기존 E~AL이 F~AM으로 시프트
+    def get_field_column_mapping(self):
+        """인라인 편집용 {필드명: 열 글자} — 헤더 지도에서 편집 가능한 필드만.
+
+        예전엔 따로 열 글자를 박은 두 번째 지도였다(05-22 시프트 때 같이 고쳐야 했음).
         """
-        return {
-            # 기본정보
-            '사업자': 'B',
-            '발주처 담당자': 'O',
-            '도급 구분': 'M',
-            '발주처 연락처': 'P',
-            '시공자': 'N',
-            '발주처 이메일': 'Q',
-            '현장 주소': 'F',
-            # 공사정보
-            '공사 구분': 'G',
-            '기계 분류': 'H',
-            '브랜드': 'I',
-            '공사 시작': 'J',
-            '공사 종료': 'K',
-            '공사 내용': 'L',
-            '공사 확정': 'AP',
-            # 문서 정보
-            '견적서 및 계약서 폴더 경로': 'AO',
-            # 거래처 정보
-            '유입 구분': 'D',
-            '사업자명': 'E',
-            '담당자': 'C'
-        }
+        f2l = self.get_field_to_letter()
+        return {f: f2l[f] for f in self._INLINE_EDIT_FIELDS if f in f2l}
+
+    def get_field_to_index(self):
+        """필드명 → 0-based 열 번호 (행 값 리스트에서 꺼낼 때). 예: ['계약금'] → 20."""
+        return {field: column_index(letter) for letter, field in self.get_column_mapping().items()}
+
+    def get_last_column_letter(self):
+        """공사 현황 마지막 열 글자 (읽기·쓰기 범위 끝). 지금은 AS."""
+        return column_letter(max(column_index(l) for l in self.get_column_mapping()))
 
     def _fetch_current_cell_value(self, sheet_id, sheet_name, column, row_number, field_name):
         """
@@ -1507,7 +1640,7 @@ class GoogleSheetsManager:
             logger.warning(f"[DROPDOWN] 유효성 검사 조회 실패 ({column}): {exc}")
             return result_meta
 
-    def get_row_values(self, sheet_id, sheet_name, row_number, start_col='A', end_col='AS', value_render_option='FORMATTED_VALUE'):
+    def get_row_values(self, sheet_id, sheet_name, row_number, start_col='A', end_col=None, value_render_option='FORMATTED_VALUE'):
         """
         특정 행의 값을 조회 (재시도/로깅/모니터링 포함)
 
@@ -1516,7 +1649,7 @@ class GoogleSheetsManager:
             sheet_name: 시트 이름
             row_number: 행 번호 (1부터 시작)
             start_col: 시작 컬럼 (기본값: 'A')
-            end_col: 끝 컬럼 (기본값: 'AM')
+            end_col: 끝 컬럼 (없으면 공사 현황 마지막 열)
             value_render_option: 값 렌더링 옵션
                 - 'FORMATTED_VALUE': 포맷된 값 (기본값)
                 - 'UNFORMATTED_VALUE': 포맷되지 않은 원시 값
@@ -1528,6 +1661,7 @@ class GoogleSheetsManager:
         Raises:
             Exception: API 호출 실패 시 (재시도 후에도 실패하면)
         """
+        end_col = end_col or self.get_last_column_letter()
         row_range = f'{sheet_name}!{start_col}{row_number}:{end_col}{row_number}'
 
         # _execute_with_retry를 사용하여 재시도/로깅/모니터링 적용
@@ -1577,7 +1711,7 @@ class GoogleSheetsManager:
                 break
         return result
 
-    def get_cell_notes(self, sheet_id, sheet_name='공사 현황', columns=['U', 'V', 'W']):
+    def get_cell_notes(self, sheet_id, sheet_name='공사 현황', columns=None):
         """
         특정 컬럼들의 셀 노트(댓글)를 모두 가져오기
 
@@ -1601,10 +1735,13 @@ class GoogleSheetsManager:
                 10: {'W': '입금일: 2025-03-20\\n입금자: 이영희'}
             }
         """
+        if not columns:   # 기본: 계약금·중도금·잔금 열 (헤더 지도 기준)
+            _f2l = self.get_field_to_letter()
+            columns = [_f2l['계약금'], _f2l['중도금'], _f2l['잔금']]
         try:
-            # 컬럼 범위 구성 (예: T:V)
-            start_col = min(columns)
-            end_col = max(columns)
+            # 컬럼 범위 구성 (예: T:V) — 글자 비교 말고 열 번호로 (Z < AA)
+            start_col = min(columns, key=column_index)
+            end_col = max(columns, key=column_index)
             range_name = f"{sheet_name}!{start_col}:{end_col}"
 
             logger.info(f"[GET_CELL_NOTES] 셀 노트 읽기 시작: {range_name}")
@@ -1851,7 +1988,7 @@ class GoogleSheetsManager:
                 logger.error(f"[CELL_FORMULA_GET] {cell_address} 조회 실패: {e}")
                 return ''
 
-    def get_row_map(self, sheet_id, sheet_name, row, last_col='AS'):
+    def get_row_map(self, sheet_id, sheet_name, row, last_col=None):
         """한 행 값을 한 번에 — {컬럼 레터: 값} (UNFORMATTED_VALUE, 빈 끝칸은 키 없음). 실패 시 None.
 
         같은 행 여러 칸을 칸마다 get_cell_value 로 읽으면 칸당 0.5~0.7초씩 쌓인다(수금 인입·반환
@@ -1861,6 +1998,7 @@ class GoogleSheetsManager:
         PM 프로젝트 수정 PUT 이 사용)를 덮어써 PM 저장이 전부 500 이 났다(2026-10-16 08:23~). 같은
         클래스에 같은 이름 메서드를 두면 뒤엣것이 조용히 이긴다 — 새 메서드는 고유한 이름으로.
         """
+        last_col = last_col or self.get_last_column_letter()
         with self._lock:
             try:
                 result = self._execute_with_retry(
@@ -2038,7 +2176,7 @@ class GoogleSheetsManager:
         Returns:
             int: 업데이트된 셀 수
         """
-        range_name = f'{sheet_name}!A{row_number}:AS{row_number}'  # A:AS(45열) — AN~AS 잘림 방지 (2026-09-07 시프트)
+        range_name = f'{sheet_name}!A{row_number}:{self.get_last_column_letter()}{row_number}'  # 마지막 열까지 (잘림 방지)
         body = {'values': [row_values]}
 
         row_result = self._execute_with_retry(

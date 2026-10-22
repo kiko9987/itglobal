@@ -23,15 +23,11 @@ def _int(v) -> int:
         return 0
 
 
-def _col_idx(col: str) -> int:
-    if len(col) == 1:
-        return ord(col) - ord('A')
-    return (ord(col[0]) - ord('A') + 1) * 26 + (ord(col[1]) - ord('A'))
-
-
 def run_daily_scan_and_summary() -> Dict:
     """전체 시트 스캔 → 감지 → 매니저 친화적 요약 채널 발송."""
-    from dashboard.services.payment_sync import _get_payment_service, _parse_notes
+    from dashboard.services.payment_sync import (
+        _get_payment_service, _parse_notes, _sheet_idx, _sheet_col, _poll_width, _col_letter0,
+    )
     from dashboard.services.payment_alert import (
         detect_note_missing, detect_amount_typo, detect_required_missing,
         detect_complete_untick, detect_unpaid_invalid, detect_unknown_initial,
@@ -51,10 +47,12 @@ def run_daily_scan_and_summary() -> Dict:
         logger.warning('[PAYMENT_ALERT_DAILY] Google Sheets service 초기화 실패')
         return result
 
+    # 열 위치는 헤더 지도에서 (2026-10-22, 예전 A2:AD·U2:W·col 'U' 고정)
+    IDX = _sheet_idx()
     try:
         resp = service.spreadsheets().values().get(
             spreadsheetId=sheet_id,
-            range=f"'{sheet_name}'!A2:AD10000",
+            range=f"'{sheet_name}'!A2:{_col_letter0(_poll_width(IDX) - 1)}10000",
             valueRenderOption='UNFORMATTED_VALUE',
         ).execute()
     except Exception as exc:
@@ -65,7 +63,7 @@ def run_daily_scan_and_summary() -> Dict:
     try:
         resp_notes = service.spreadsheets().get(
             spreadsheetId=sheet_id,
-            ranges=[f"'{sheet_name}'!U2:W10000"],
+            ranges=[f"'{sheet_name}'!{_sheet_col('계약금', IDX)}2:{_sheet_col('잔금', IDX)}10000"],
             fields='sheets.data.rowData.values.note',
             includeGridData=True,
         ).execute()
@@ -82,7 +80,6 @@ def run_daily_scan_and_summary() -> Dict:
                 n3.append('')
             row_notes[offset_n + 2] = n3[:3]
 
-    IDX = {c: _col_idx(c) for c in ['A', 'F', 'T', 'U', 'V', 'W', 'X', 'AD']}  # 수금확인 AA→AD (2026-09-07)
     known_initials = set(_load_initials_from_config().values())
 
     # 참조 정합성 검증용 인덱스 (2026-07-10)
@@ -94,12 +91,12 @@ def run_daily_scan_and_summary() -> Dict:
     # 1차 순회: 모든 프로젝트의 payments 파싱해 인덱스 구축
     all_parsed = {}  # (i) → {'code', 'payments', 'row'}
     for i, row in enumerate(rows, start=2):
-        code = (row[IDX['A']] if len(row) > IDX['A'] else '').strip()
+        code = (row[IDX['프로젝트 코드']] if len(row) > IDX['프로젝트 코드'] else '').strip()
         if not code:
             continue
-        u = _int(row[IDX['U']] if len(row) > IDX['U'] else 0)
-        v = _int(row[IDX['V']] if len(row) > IDX['V'] else 0)
-        w = _int(row[IDX['W']] if len(row) > IDX['W'] else 0)
+        u = _int(row[IDX['계약금']] if len(row) > IDX['계약금'] else 0)
+        v = _int(row[IDX['중도금']] if len(row) > IDX['중도금'] else 0)
+        w = _int(row[IDX['잔금']] if len(row) > IDX['잔금'] else 0)
         notes = row_notes.get(i, ['', '', ''])
         payments = _parse_notes(notes, stage_vals={'계약금': u, '중도금': v, '잔금': w})
         all_parsed[i] = {'code': code, 'payments': payments, 'row': row, 'u': u, 'v': v, 'w': w}
@@ -153,7 +150,7 @@ def run_daily_scan_and_summary() -> Dict:
             # 확정 — 그룹 등록
             codes = [all_parsed[_i]['code'] for _i in indices]
             addrs = [
-                (all_parsed[_i]['row'][IDX['F']] if len(all_parsed[_i]['row']) > IDX['F'] else '')[:40]
+                (all_parsed[_i]['row'][IDX['현장 주소']] if len(all_parsed[_i]['row']) > IDX['현장 주소'] else '')[:40]
                 for _i in indices
             ]
             partners = sorted({p for _, p, _ in sig if p and p != '-'})
@@ -285,19 +282,19 @@ def run_daily_scan_and_summary() -> Dict:
 
     alerts: List[Dict] = []
     for i, row in enumerate(rows, start=2):
-        code = (row[IDX['A']] if len(row) > IDX['A'] else '').strip()
+        code = (row[IDX['프로젝트 코드']] if len(row) > IDX['프로젝트 코드'] else '').strip()
         if not code:
             continue
         # 담당자 퇴사한 옛 프로젝트도 우리가 시공한 건이라 감지 대상 (2026-07-10 사용자 결정).
         # AA(수금완료) 된 건은 감지 함수 안에서 각자 skip.
         result['scanned'] += 1
-        address = (row[IDX['F']] if len(row) > IDX['F'] else '').strip()
-        total_t = _int(row[IDX['T']] if len(row) > IDX['T'] else 0)
-        u = _int(row[IDX['U']] if len(row) > IDX['U'] else 0)
-        v = _int(row[IDX['V']] if len(row) > IDX['V'] else 0)
-        w = _int(row[IDX['W']] if len(row) > IDX['W'] else 0)
-        unpaid = _int(row[IDX['X']] if len(row) > IDX['X'] else 0)
-        aa_raw = row[IDX['AD']] if len(row) > IDX['AD'] else ''
+        address = (row[IDX['현장 주소']] if len(row) > IDX['현장 주소'] else '').strip()
+        total_t = _int(row[IDX['총액 2']] if len(row) > IDX['총액 2'] else 0)
+        u = _int(row[IDX['계약금']] if len(row) > IDX['계약금'] else 0)
+        v = _int(row[IDX['중도금']] if len(row) > IDX['중도금'] else 0)
+        w = _int(row[IDX['잔금']] if len(row) > IDX['잔금'] else 0)
+        unpaid = _int(row[IDX['미수금']] if len(row) > IDX['미수금'] else 0)
+        aa_raw = row[IDX['수금 확인']] if len(row) > IDX['수금 확인'] else ''
         aa_chk = (
             aa_raw is True
             or (isinstance(aa_raw, str) and aa_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))

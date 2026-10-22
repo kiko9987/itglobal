@@ -12,26 +12,39 @@ sys.path.insert(0, '.')
 from dashboard.blueprints import projects as P
 
 
+VERSION_IDX = 44   # 지금 배치의 _version(AS) — 코드에선 헤더 지도에서 찾음 (2026-10-22, 상수 제거)
+
+
 def test_col_letter():
     assert P._col_letter(0) == 'A'
     assert P._col_letter(22) == 'W'
     assert P._col_letter(25) == 'Z'
     assert P._col_letter(26) == 'AA'
     assert P._col_letter(27) == 'AB'
-    assert P._col_letter(P.VERSION_COL_INDEX) == 'AS'
+    assert P._col_letter(VERSION_IDX) == 'AS'
+    assert [P._col_index(c) for c in ('A', 'W', 'Z', 'AA', 'AS')] == [0, 22, 25, 26, 44]
 
 
 def _row():
-    vals = [''] * (P.VERSION_COL_INDEX + 1)
+    vals = [''] * (VERSION_IDX + 1)
     vals[0] = 'G4139-MJ'
     vals[22] = ''            # W 잔금 — 스냅샷 시점엔 비어 있었음
     vals[24] = '잔금 - N입금'  # Y 계산서 (변경 후)
     vals[27] = 'N입금'        # AB 잔금 계산서 (변경 후)
-    vals[P.VERSION_COL_INDEX] = '1'
+    vals[VERSION_IDX] = '1'
     return vals
 
 
-F2I = {'프로젝트 코드': 0, '잔금': 22, '계산서': 24, '잔금 계산서': 27, '_version': 44}
+F2I = {'프로젝트 코드': 0, '잔금': 22, '계산서': 24, '잔금 계산서': 27, '_version': VERSION_IDX}
+
+
+def test_changed_cells_version_column_follows_layout():
+    # 열이 한 칸 밀린 배치 — 버전 칸도 지도대로 (예전 상수 44 면 Lead No 칸에 썼음)
+    shifted = {k: (v + 1 if v >= 4 else v) for k, v in F2I.items()}
+    vals = [''] * 46
+    vals[45] = '3'
+    cells = P._changed_cells([], shifted, vals)
+    assert cells == [{'col': 'AT', 'value': '3'}]
 
 
 def test_changed_cells_excludes_untouched_payment_cell():

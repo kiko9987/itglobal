@@ -258,12 +258,12 @@ class CalendarSyncScheduler:
                 logger.debug(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
                 return False
 
-            # 날짜 필드 비우기 (공사 시작: J열, 공사 종료: K열)
-            # 2026-05-22 컬럼 시프트 반영: 옛 I/J → J/K
+            # 날짜 필드 비우기 (공사 시작·공사 종료) — 열은 헤더 지도에서 (2026-10-22, 예전 J/K 고정)
             # batch_update_cells 사용하여 락 보호 적용
+            _f2l = sheets_manager.get_field_to_letter()
             updates = [
-                {'range': f"{sheet_name}!J{row_index}", 'values': [['']]},  # 공사 시작
-                {'range': f"{sheet_name}!K{row_index}", 'values': [['']]}   # 공사 종료
+                {'range': f"{sheet_name}!{_f2l['공사 시작']}{row_index}", 'values': [['']]},
+                {'range': f"{sheet_name}!{_f2l['공사 종료']}{row_index}", 'values': [['']]},
             ]
 
             sheets_manager.batch_update_cells(sheet_id, updates)
@@ -317,12 +317,12 @@ class CalendarSyncScheduler:
                 logger.debug(f"[CALENDAR_SYNC] 프로젝트를 찾을 수 없습니다: {project_code}")
                 return False
 
-            # 날짜 필드 업데이트 (공사 시작: J열, 공사 종료: K열)
-            # 2026-05-22 컬럼 시프트 반영: 옛 I/J → J/K
+            # 날짜 필드 업데이트 (공사 시작·공사 종료) — 열은 헤더 지도에서 (2026-10-22, 예전 J/K 고정)
             # batch_update_cells 사용하여 락 보호 적용
+            _f2l = sheets_manager.get_field_to_letter()
             updates = [
-                {'range': f"{sheet_name}!J{row_index}", 'values': [[start_date]]},  # 공사 시작
-                {'range': f"{sheet_name}!K{row_index}", 'values': [[end_date]]}     # 공사 종료
+                {'range': f"{sheet_name}!{_f2l['공사 시작']}{row_index}", 'values': [[start_date]]},
+                {'range': f"{sheet_name}!{_f2l['공사 종료']}{row_index}", 'values': [[end_date]]},
             ]
 
             sheets_manager.batch_update_cells(sheet_id, updates)

@@ -49,12 +49,12 @@ from ..schemas.project_schemas import (
     ProjectAutoCreateSchema
 )
 
-# ─────────────────────────────────────────────────────────────
-# 컬럼 인덱스 상수 (google_sheets.py column_mapping 과 반드시 일치)
-# 시트 컬럼 시프트 시 여기 하나만 수정하면 됨.
-# `AP: '_version'` → index 41 (2026-07 시프트로 옛 AO 에서 이동)
-# ─────────────────────────────────────────────────────────────
-VERSION_COL_INDEX = 44  # AS 열 (2026-09-07 Z/AA/AB 3열 삽입으로 +3, 옛 AP=41)
+def _version_col_index(manager) -> int:
+    """_version 열의 0-based 번호 — 헤더 지도에서 (2026-10-22, 예전엔 상수 44).
+
+    열을 끼워 넣으면 상수가 Lead No 를 가리켜 편집 잠금이 Lead No 를 버전으로 읽고 쓸 상황이었다.
+    """
+    return manager.get_field_to_index()['_version']
 
 
 def _col_letter(idx: int) -> str:
@@ -67,6 +67,14 @@ def _col_letter(idx: int) -> str:
     return s
 
 
+def _col_index(letter: str) -> int:
+    """시트 열 문자 → 0-based 인덱스 (A→0, AA→26)."""
+    n = 0
+    for ch in letter:
+        n = n * 26 + (ord(ch) - 64)
+    return n - 1
+
+
 def _changed_cells(field_changes, field_to_index, current_values, code_changed=False):
     """PUT 편집에서 실제로 시트에 쓸 셀만 추림 — 바뀐 필드 + _version (+ 코드 재산출 시 A).
 
@@ -74,38 +82,15 @@ def _changed_cells(field_changes, field_to_index, current_values, code_changed=F
     """
     idx = {field_to_index[ch['field_name']] for ch in field_changes
            if ch['field_name'] in field_to_index}
-    idx.add(VERSION_COL_INDEX)
+    idx.add(field_to_index['_version'])
     if code_changed:
         idx.add(0)
     return [{'col': _col_letter(i), 'value': current_values[i] if i < len(current_values) else ''}
             for i in sorted(idx)]
 
 
-def _verify_version_col_index(manager) -> None:
-    """부팅·최초 호출 시 상수 vs 실제 매핑 검증. 어긋나면 조용히 로그로 알림.
-
-    회귀 감지용 — 실제 오류는 다음 편집 시도 시 튀지만, 로그에서 조기 발견 가능.
-    """
-    try:
-        column_mapping = manager.get_column_mapping()
-        for col_letter, field_name in column_mapping.items():
-            if field_name == '_version':
-                if len(col_letter) == 1:
-                    actual = ord(col_letter) - ord('A')
-                else:
-                    actual = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-                if actual != VERSION_COL_INDEX:
-                    logger.error(
-                        f'[VERSION_COL] 상수 불일치! VERSION_COL_INDEX={VERSION_COL_INDEX} '
-                        f'실제 _version 컬럼={col_letter}(idx={actual}) — projects.py 수정 필요'
-                    )
-                return
-        logger.warning('[VERSION_COL] column_mapping 에 _version 필드 없음 — 시트 스키마 확인 필요')
-    except Exception as exc:
-        logger.debug(f'[VERSION_COL] 검증 skip: {exc}')
-
 # 프로젝트 전역 상수 임포트
-from ..constants import PAYMENT_FIELD_TO_COLUMN, MEMOABLE_FIELDS, PAYMENT_AMOUNT_FIELDS, ERROR_MESSAGES
+from ..constants import payment_field_column, MEMOABLE_FIELDS, PAYMENT_AMOUNT_FIELDS, ERROR_MESSAGES
 
 logger = get_logger(__name__)
 
@@ -749,13 +734,13 @@ def _load_project_row(manager, sheet_id, sheet_name, project_code):
         sheet_id=sheet_id,
         sheet_name=sheet_name,
         row_number=row_number,
-        start_col='A',
-        end_col='AS',  # (2026-09-07 +3 시프트)AP 컬럼까지 읽기 (_version 포함, 2026-07 컬럼 시프트)
+        start_col='A',  # 끝 열 = 헤더 지도의 마지막 열 (_version 포함)
         value_render_option='FORMULA'  # 수식을 그대로 가져옴 (계산 필드 보존)
     )
 
-    # 현재 값을 리스트로 확장 (A:AS 45개 컬럼 — 뒤쪽 빈 칸은 API 가 잘라서 보냄)
-    while len(current_values) < VERSION_COL_INDEX + 1:
+    # 현재 값을 리스트로 확장 (마지막 열까지 — 뒤쪽 빈 칸은 API 가 잘라서 보냄)
+    _width = max(manager.get_field_to_index().values()) + 1
+    while len(current_values) < _width:
         current_values.append('')
 
     return row_number, current_values, None
@@ -769,7 +754,7 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
         - success: (int, None)
         - failure: (None, JsonResponse with 409)
     """
-    current_version = current_values[VERSION_COL_INDEX]  # AS 컬럼 — _version
+    current_version = current_values[_version_col_index(manager)]
 
     # 버전 값 정규화 (빈 문자열/None → '0')
     if not current_version or current_version == '':
@@ -788,7 +773,6 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
             sheet_name=sheet_name,
             row_number=row_number,
             start_col='A',
-            end_col='AS',
             value_render_option='FORMATTED_VALUE'
         )
 
@@ -898,7 +882,6 @@ def _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, f
     """금액 필드 변경 시 자동 댓글 생성/삭제 (Apps Script onEdit 로직 재현)"""
     # 금액 전용(계약금/중도금/잔금)만 — 계산서는 금액이 아니라 제외(메모 오삭제 방지)
     payment_fields_to_check = PAYMENT_AMOUNT_FIELDS
-    field_to_column_map = PAYMENT_FIELD_TO_COLUMN
 
     for change in field_changes:
         field_name = change['field_name']
@@ -908,7 +891,7 @@ def _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, f
             try:
                 # 금액 파싱
                 amount = safe_parse_currency(new_value)
-                column = field_to_column_map[field_name]
+                column = payment_field_column(field_name)
                 cell_address = f"{column}{row_number}"
 
                 logger.info(f"[AUTO_COMMENT] {field_name} 변경 감지: {amount}원 → 셀 {cell_address}")
@@ -994,14 +977,12 @@ def _fetch_and_calculate_updated_project(manager, sheet_id, sheet_name, row_numb
         sheet_id=sheet_id,
         sheet_name=sheet_name,
         row_number=row_number,
-        start_col='A',
-        end_col='AS',  # (2026-09-07 +3 시프트)AP 컬럼까지 조회 (_version 포함, 2026-07 시프트)
+        start_col='A',  # 끝 열 = 헤더 지도의 마지막 열 (_version 포함)
         value_render_option='FORMATTED_VALUE'  # 계산된 값 가져오기
     )
 
-    # fresh_values를 45개 컬럼(A:AS)으로 패딩 (마지막 열이 비어있을 경우 대비 —
-    #   폴더경로/공사확정/Airtable/Lead No/_version(AO~AS) 유실 방지. 2026-09-07 40→45)
-    while len(fresh_values) < 45:
+    # fresh_values를 마지막 열까지 패딩 (뒤쪽 빈 칸 유실 방지 — 폴더경로·Lead No·_version 등)
+    while len(fresh_values) < max(field_to_index.values()) + 1:
         fresh_values.append('')
 
     # [디버깅] fresh_values 내용 확인 (인덱스는 field_to_index 파생 — 컬럼 시프트 자동 정정)
@@ -1178,7 +1159,7 @@ def update_project(project_code):
             return error_response
 
         # 버전 업데이트
-        current_values[VERSION_COL_INDEX] = str(new_version)  # AP 컬럼 — _version
+        current_values[_version_col_index(manager)] = str(new_version)
 
         # 5. 필드 매핑 생성
         column_mapping = manager.get_column_mapping()
@@ -1479,7 +1460,7 @@ def _validate_single_memo_request(data):
         }), 400)
 
     # 3. 컬럼 매핑
-    column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
+    column = payment_field_column(field_name)
     if not column:
         return None, (jsonify({
             'success': False,
@@ -1745,7 +1726,7 @@ def _prepare_batch_memo_updates(memos, row_number, manager, sheet_id, sheet_name
                 continue
 
             # 컬럼 매핑
-            column = PAYMENT_FIELD_TO_COLUMN.get(field_name)
+            column = payment_field_column(field_name)
             if not column:
                 results.append({
                     'field_name': field_name,
@@ -2147,7 +2128,25 @@ def _initialize_sheets_manager():
 
 
 # ===== 헬퍼 함수 4: 기본값 설정 =====
-def _prepare_project_defaults(data, row_number):
+def _new_row_formulas(f2l: dict, row: int) -> dict:
+    """새 공사 행의 계산 칸 수식 {필드명: 수식} — 열 글자는 헤더 지도(f2l)에서 (2026-10-22).
+
+    예전엔 R/S/T/U/V/W/AE~AJ 를 박아 둬서 열을 끼워 넣으면 수식이 엉뚱한 칸을 가리켰다.
+    지금 배치에서 만든 수식은 예전 수식과 글자 하나 다르지 않다(테스트로 고정).
+    """
+    from ..services.payer_split import total2_formula
+    c = {k: f'{f2l[k]}{row}' for k in ('총액 1', '총액 2', '계약금', '중도금', '잔금', '제품대', '도급비',
+                                        '자재비', '기타비', '순익')}
+    _T, _U, _V, _W = (f'${f2l[k]}{row}' for k in ('총액 2', '계약금', '중도금', '잔금'))
+    return {
+        '총액 2': total2_formula(row, f2l['총액 1'], f2l['부가세']),
+        '미수금': f'=IF(ABS({_T}-{_U}-{_V}-{_W})<2, 0, {_T}-{_U}-{_V}-{_W})',
+        '순익': f"={c['총액 1']}-({c['제품대']}+{c['도급비']}+{c['자재비']}+{c['기타비']})",
+        '마진율': f"=IF(OR({c['총액 1']}=0, {c['순익']}=0), 0, {c['순익']}/{c['총액 1']})",
+    }
+
+
+def _prepare_project_defaults(data, row_number, manager=None):
     """
     프로젝트 데이터에 기본값 설정 (금액, 수식, 날짜, VAT 등)
 
@@ -2169,16 +2168,11 @@ def _prepare_project_defaults(data, row_number):
         if value is None or str(value).strip() == '':
             data[field] = '₩0'
 
-    # 수식 필드 자동 삽입 (행 번호 동적 삽입 - 성능 최적화 및 가독성 개선)
-    # 총액2는 끝자리 1/9원만 보정 (깔끔한 금액 유지)
-    #
-    # 컬럼 매핑 (2026-09-07 Z/AA/AB 단계별계산서 3열 삽입 반영, 제품대~마진율 +3):
-    #   R=총액1, S=부가세, T=총액2, U=계약금, V=중도금, W=잔금, X=미수금
-    #   AE=제품대, AF=도급비, AG=자재비, AH=기타비, AI=순익, AJ=마진율
-    data['총액 2'] = f'=IF(S{row_number}=TRUE, R{row_number}+FLOOR(R{row_number}*0.1,1) + IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=1, -1, IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=9, 1, 0)), R{row_number})'
-    data['미수금'] = f'=IF(ABS($T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})<2, 0, $T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})'
-    data['순익'] = f'=R{row_number}-(AE{row_number}+AF{row_number}+AG{row_number}+AH{row_number})'
-    data['마진율'] = f'=IF(OR(R{row_number}=0, AI{row_number}=0), 0, AI{row_number}/R{row_number})'
+    # 수식 필드 자동 삽입 — 총액2(끝자리 1/9원 보정)·미수금·순익·마진율. 열 글자는 헤더 지도에서.
+    if manager is None:
+        from ..utils.google_sheets import GoogleSheetsManager
+        manager = GoogleSheetsManager()
+    data.update(_new_row_formulas(manager.get_field_to_letter(), row_number))
 
     # 기타 필드 기본값
     if '계산서' not in data or not data.get('계산서'):
@@ -2244,24 +2238,20 @@ def _prepare_project_defaults(data, row_number):
 # ===== 헬퍼 함수 5: 행 값 배열 구성 =====
 def _build_row_values(data, manager, row_number):
     """
-    데이터를 Google Sheets 행 배열로 변환 (45 컬럼 A~AS)
+    데이터를 Google Sheets 행 배열로 변환 (A~마지막 열, 헤더 지도 기준)
 
     Args:
         row_number: Google Sheets에 삽입될 행 번호 (기본값 수식 생성용)
 
     Returns:
-        list: 45개 요소의 값 배열 (A~AS)
+        list: 열 개수만큼의 값 배열
     """
     column_mapping = manager.get_column_mapping()
-    values = [''] * 45  # AS 컬럼까지 (2026-09-07 Z/AA/AB 단계별계산서 3열 삽입: 42→45)
+    field_to_index = {field: _col_index(letter) for letter, field in column_mapping.items()}
+    values = [''] * (max(field_to_index.values()) + 1)   # 마지막 열까지 (예전 45 고정)
 
     # 컬럼 매핑에 따라 값 채우기
-    for col_letter, field_name in column_mapping.items():
-        if len(col_letter) == 1:
-            column_index = ord(col_letter) - ord('A')
-        else:
-            column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-
+    for field_name, column_index in field_to_index.items():
         if field_name in data:
             value = data[field_name]
             if value is None:
@@ -2271,28 +2261,19 @@ def _build_row_values(data, manager, row_number):
             else:
                 values[column_index] = str(value)
 
-    # 수식 필드 강제 삽입 (컬럼 매핑에 없어도 삽입)
-    # 부가세 계산: 절사(FLOOR) 방식 + 끝자리 1/9원 보정 (실무 표준, 행 번호 동적 삽입)
-    # 2026-05-22 시프트: 모든 letter가 한 칸씩 뒤로 (E열 사업자명 추가)
-    #   총액1: Q→R, 부가세: R→S, 총액2: S→T, 계약금: T→U, 중도금: U→V, 잔금: V→W, 미수금: W→X
-    #   제품대: AA→AB, 도급비: AB→AC, 자재비: AC→AD, 기타비: AD→AE, 순익: AE→AF, 마진율: AF→AG, _version: AN→AO
-    formula_fields = {
-        'T': data.get('총액 2', f'=IF(S{row_number}=TRUE, R{row_number}+FLOOR(R{row_number}*0.1,1) + IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=1, -1, IF(MOD(R{row_number}+FLOOR(R{row_number}*0.1,1), 10)=9, 1, 0)), R{row_number})'),
-        # 2026-07-16 시트 수식 반영: X = T - (U+V+W), 반올림 오차(2원 미만)는 0 처리
-        #   X > 0 = 미납, X < 0 = 초과입금. 이전 (U+V+W)-T 는 부호 반대 오류.
-        'X': data.get('미수금', f'=IF(ABS($T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})<2, 0, $T{row_number}-$U{row_number}-$V{row_number}-$W{row_number})'),
-        'AI': data.get('순익', f'=R{row_number}-(AE{row_number}+AF{row_number}+AG{row_number}+AH{row_number})'),
-        'AJ': data.get('마진율', f'=IF(OR(R{row_number}=0, AI{row_number}=0), 0, AI{row_number}/R{row_number})'),
-        'AR': data.get('Lead No', ''),  # 리드 연결 (2026-07 신규)
-        'AS': '0'  # _version 초기값 (낙관적 잠금용) — 2026-09-07 +3 시프트 (옛 AP)
+    # 수식·고정 칸 강제 삽입 (data 에 없어도) — 열은 필드명으로 찾음 (예전엔 'T','X','AI','AJ','AR','AS')
+    formulas = _new_row_formulas(manager.get_field_to_letter(), row_number)
+    forced = {
+        '총액 2': data.get('총액 2', formulas['총액 2']),
+        # X = T - (U+V+W), 반올림 오차(2원 미만)는 0 처리. X > 0 = 미납, X < 0 = 초과입금.
+        '미수금': data.get('미수금', formulas['미수금']),
+        '순익': data.get('순익', formulas['순익']),
+        '마진율': data.get('마진율', formulas['마진율']),
+        'Lead No': data.get('Lead No', ''),  # 리드 연결 (2026-07 신규)
+        '_version': '0',                      # 낙관적 잠금 초기값
     }
-
-    for col_letter, formula in formula_fields.items():
-        if len(col_letter) == 1:
-            column_index = ord(col_letter) - ord('A')
-        else:
-            column_index = (ord(col_letter[0]) - ord('A') + 1) * 26 + (ord(col_letter[1]) - ord('A'))
-        values[column_index] = formula
+    for field_name, formula in forced.items():
+        values[field_to_index[field_name]] = formula
 
     return values
 
@@ -2641,7 +2622,7 @@ def add_project_auto():
 
         # 4. 기본값·행 값 구성 (시트 append 없이도 가능)
         next_row = len(df) + 2
-        _prepare_project_defaults(data, next_row)
+        _prepare_project_defaults(data, next_row, manager)
         values = _build_row_values(data, manager, next_row)
 
         # 5. 응답 데이터 구성 (계산 필드 포함) — 프론트가 즉시 렌더할 데이터

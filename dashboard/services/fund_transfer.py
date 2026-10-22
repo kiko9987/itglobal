@@ -24,7 +24,6 @@ logger = get_logger(__name__)
 
 _REQ_LINE_RE = re.compile(r'^\s*⚠.*계좌·사업자 불일치.*자금 이동 요청')
 _STAGES = ('계약금', '중도금', '잔금')
-_COLS = ('U', 'V', 'W')
 _BANK_CODE = {'기업': 'G', '하나': 'R', '농협': 'N'}
 _CODE_BANK = {'G': '기업', 'R': '하나', 'N': '농협'}
 ENTITY = {'G': '글로벌', 'R': '글로벌그룹', 'P': '플렌트'}
@@ -94,10 +93,13 @@ def _scan_sheet() -> List[Dict]:
     svc = _get_payment_service()
     if not (svc and sid and sn):
         return []
+    from dashboard.utils.google_sheets import main_field_to_letter
+    _f2l = main_field_to_letter()                 # 열 글자는 헤더 지도에서 (2026-10-22, 예전 U/V/W 고정)
+    _cols = tuple(_f2l[s] for s in _STAGES)
     codes = svc.spreadsheets().values().get(
         spreadsheetId=sid, range=f"'{sn}'!A2:A10000").execute().get('values', [])
     nd = svc.spreadsheets().get(
-        spreadsheetId=sid, ranges=[f"'{sn}'!U2:W10000"],
+        spreadsheetId=sid, ranges=[f"'{sn}'!{_cols[0]}2:{_cols[-1]}10000"],
         fields='sheets.data.rowData.values.note', includeGridData=True).execute()
     rows = (((nd.get('sheets') or [{}])[0].get('data') or [{}])[0].get('rowData') or [])
     out: List[Dict] = []
@@ -108,7 +110,7 @@ def _scan_sheet() -> List[Dict]:
         for j, v in enumerate(rd.get('values', [])[:3]):
             note = v.get('note') or ''
             if '자금 이동 요청' in note:
-                out += find_pending_in_note(note, code, i + 2, _STAGES[j], _COLS[j])
+                out += find_pending_in_note(note, code, i + 2, _STAGES[j], _cols[j])
     return out
 
 
@@ -223,7 +225,9 @@ def apply_transfer(req: Dict, deposit_text: str, preview: dict, checker: str) ->
     row = mgr.find_row_by_project_code(sid, req['code'], f"{sn}!A:A")
     if not row:
         raise RuntimeError(f"{req['code']} 행을 시트에서 못 찾음")
-    cell = f"{req['col']}{row}"
+    # 열은 단계로 다시 찾음 — 색인(5분 캐시)에 남은 옛 열 글자로 쓰지 않게 (2026-10-22)
+    from dashboard.utils.google_sheets import main_field_to_letter
+    cell = f"{main_field_to_letter().get(req.get('stage')) or req['col']}{row}"
     line = transfer_line(req, deposit_text, preview, checker)
     note = mgr.get_cell_note(sid, sn, cell) or ''
     if line in note:
