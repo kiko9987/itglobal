@@ -3942,8 +3942,8 @@ def _register_handlers(app):
         #   파일을 보낸 경우만 문서변환봇으로 안내 (2026-10-22 문서 변환 분리).
         if channel_type == "im":
             if event.get("files"):
-                say(":page_facing_up: 문서 내용 보기는 *문서변환봇*이 맡고 있어요. "
-                    "문서변환봇에게 파일을 보내 주세요.")
+                say(":page_facing_up: 문서 내용 보기는 *문서 변환 봇*이 맡고 있어요. "
+                    "문서 변환 봇에게 파일을 보내 주세요.")
             return
 
         # ③-2. 채널 thread 답글 — 채널톡 thread면 채널톡으로 forward
