@@ -13,7 +13,7 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   bot_user:
-    display_name: 문서변환봇
+    display_name: docview_bot   # 슬랙이 봇 표시 이름에 한글을 거부(앱 이름 name 은 한글 OK)
     always_online: true
 oauth_config:
   scopes:
