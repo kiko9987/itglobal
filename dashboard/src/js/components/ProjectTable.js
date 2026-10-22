@@ -16,7 +16,7 @@ import {
   computeBillStagesFromColumns, billIssueDate, billAmountLines, isPreIssued, billHeadline, splitBillNote,
 } from '../utils/billStatus.js';
 import { payerLine, isSplit, stripPayerLine } from '../utils/payerSplit.js';
-import { isPartnerName, partnerPlaceKey } from '../utils/partnerName.js';
+import { isPartnerName } from '../utils/partnerName.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -666,9 +666,10 @@ export default class ProjectTable {
         },
         {
           // 거래처 / 사업자명 - 연한 회색 라벨 (2026-10-22 거래처명 열 추가)
-          //   거래처명(일을 맡긴 곳)이 이름이면 그것만, 등록증 상호(사업자명)가 다르면 마우스 올릴 때만
-          //   (10-23 사용자: 아래 줄로 따로 보이는 건 필요 없음). 거래처명이 온라인·전화 같은 묶음이면
-          //   사업자명. 열을 따로 늘리면 열 순서 기준 CSS(project-list.css nth-child)가 밀려서 한 칸에.
+          //   거래처명(일을 맡긴 곳)이 이름이면 그것만, 등록증 상호(사업자명)는 마우스 올릴 때 항상
+          //   (10-23 사용자: 아래 줄로 따로 보이는 건 필요 없고, 올렸을 땐 계산서 상호가 보여야 함).
+          //   거래처명이 온라인·전화 같은 묶음이면 사업자명. 열을 따로 늘리면 열 순서 기준
+          //   CSS(project-list.css nth-child)가 밀려서 한 칸에.
           name: 'businessName',
           data: '사업자명',
           defaultContent: '',
@@ -679,11 +680,11 @@ export default class ProjectTable {
             if (type !== 'display') return named ? partner : biz;   // 정렬은 보이는 이름 기준
             const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
             const badge = (text, title) => `<span class="badge business-name-badge" title="${title}" style="background-color: #e9ecef; color: #495057; font-weight: 500; padding: 0.3em 0.55em; font-size: 0.8125rem; white-space: normal; text-align: left; max-width: 100%;">${esc(text)}</span>`;
+            const hasBiz = biz && biz !== '-';
             if (!named) {
-              return biz && biz !== '-' ? badge(biz, '사업자명') : '<span class="text-muted">-</span>';
+              return hasBiz ? badge(biz, `사업자명: ${esc(biz)}`) : '<span class="text-muted">-</span>';
             }
-            const differs = biz && biz !== '-' && partnerPlaceKey(biz) !== partnerPlaceKey(partner);
-            return badge(partner, differs ? `사업자명: ${esc(biz)}` : '거래처명');
+            return badge(partner, hasBiz ? `사업자명: ${esc(biz)}` : '사업자명 없음');
           }
         },
         {
