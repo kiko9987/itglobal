@@ -3880,6 +3880,22 @@ def _register_handlers(app):
 
         channel_type = event.get("channel_type")
 
+        # ③-0. 문서 보기 (2026-10-22) — 전용 채널(SLACK_DOC_VIEW_CHANNEL)·DM 에 올린
+        #   HWP·PDF 등을 kordoc 으로 글로 바꿔 스레드 답글. 변환이 수십 초 걸릴 수 있어
+        #   process_before_response 재전송을 피하려 백그라운드로 넘기고 즉시 반환.
+        try:
+            from dashboard.services.doc_viewer import is_doc_view_target, handle_doc_view
+            if is_doc_view_target(event):
+                def _doc_view_bg():
+                    try:
+                        handle_doc_view(event, client, _BOT_TOKEN)
+                    except Exception as exc:
+                        logger.error(f"[DOCVIEW] 처리 실패: {exc}", exc_info=True)
+                threading.Thread(target=_doc_view_bg, daemon=True).start()
+                return
+        except Exception as exc:
+            logger.error(f"[DOCVIEW] 진입 실패: {exc}", exc_info=True)
+
         # ③-1. DM: 안내 메시지
         if channel_type == "im":
             text = event.get("text", "")
