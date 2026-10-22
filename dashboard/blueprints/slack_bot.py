@@ -70,6 +70,11 @@ _INVOICE_SIGNING_SECRET = os.getenv('SLACK_INVOICE_SIGNING_SECRET', '')
 _PAYMENT_BOT_TOKEN = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '')
 _PAYMENT_SIGNING_SECRET = os.getenv('SLACK_PAYMENT_SIGNING_SECRET', '')
 
+# 문서변환봇 (별도 토큰/secret, 2026-10-22) — HWP·PDF 를 글로 바꿔 답글.
+# 알림 봇들과 역할을 섞지 않으려 분리(온라인 문의 봇이 공고 내용을 답하면 헷갈림).
+_DOCVIEW_BOT_TOKEN = os.getenv('SLACK_DOCVIEW_BOT_TOKEN', '')
+_DOCVIEW_SIGNING_SECRET = os.getenv('SLACK_DOCVIEW_SIGNING_SECRET', '')
+
 _slack_app = None
 _slack_handler = None
 _project_slack_app = None
@@ -82,6 +87,8 @@ _invoice_slack_app = None
 _invoice_slack_handler = None
 _payment_slack_app = None
 _payment_slack_handler = None
+_docview_slack_app = None
+_docview_slack_handler = None
 
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
@@ -230,6 +237,57 @@ def _init_visit_slack_app():
     except Exception as exc:
         logger.error(f"[SLACK/방문봇] 초기화 실패: {exc}", exc_info=True)
         return False
+
+
+def _init_docview_slack_app():
+    """문서변환봇 — 별도 Bolt App 인스턴스. 채널 HWP 자동 변환 + DM 파일 변환."""
+    global _docview_slack_app, _docview_slack_handler
+
+    if not _BOT_ENABLED:
+        return False
+    if not _DOCVIEW_BOT_TOKEN:
+        logger.warning("[SLACK/문서변환봇] SLACK_DOCVIEW_BOT_TOKEN 미설정 — 비활성화")
+        return False
+    if not _DOCVIEW_SIGNING_SECRET:
+        logger.warning("[SLACK/문서변환봇] SLACK_DOCVIEW_SIGNING_SECRET 미설정 — 비활성화")
+        return False
+
+    try:
+        from slack_bolt import App
+        from slack_bolt.adapter.flask import SlackRequestHandler
+
+        _docview_slack_app = App(
+            token=_DOCVIEW_BOT_TOKEN,
+            signing_secret=_DOCVIEW_SIGNING_SECRET,
+            process_before_response=True,
+        )
+        _docview_slack_handler = SlackRequestHandler(_docview_slack_app)
+
+        _register_docview_handlers(_docview_slack_app)
+        _verify_bot_token(_docview_slack_app.client, '문서변환봇')
+        logger.info("[SLACK/문서변환봇] 초기화 완료 ✅")
+        return True
+    except Exception as exc:
+        logger.error(f"[SLACK/문서변환봇] 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _register_docview_handlers(app):
+    """문서변환봇 이벤트 — 초대된 채널의 HWP·HWPX 자동 변환, DM 은 모든 형식."""
+
+    @app.event("file_shared")  # no-op — message.file_share 로 처리
+    def _noop_file_shared_docview(ack):
+        ack()
+
+    @app.event("message")
+    def handle_docview_message(event, say, client):
+        if event.get("bot_id") or event.get("subtype") == "bot_message":
+            return
+        from dashboard.services.doc_viewer import start_doc_view, DM_GUIDE
+        mode = start_doc_view(event, client, _DOCVIEW_BOT_TOKEN)
+        # DM 에 글만 보낸 경우 사용 안내 (수정·삭제 등 subtype 이벤트엔 답하지 않음)
+        if event.get("channel_type") == "im" and not mode and not event.get("subtype"):
+            say(DM_GUIDE)
 
 
 def _init_as_slack_app():
@@ -3279,13 +3337,6 @@ def _register_visit_handlers(app):
             f"[SLACK/방문봇] message event: thread_ts={thread_ts} "
             f"subtype={subtype} bot_id={bot_id} text={text_preview!r}"
         )
-        # 문서 보기 (2026-10-22) — 방문 채널에 올린 HWP 를 글로 바꿔 답글(백그라운드).
-        #   사진 저장 흐름은 아래에서 그대로 진행(HWP 도 방문 폴더에 저장됨).
-        try:
-            from dashboard.services.doc_viewer import start_doc_view
-            start_doc_view(event, client, _VISIT_BOT_TOKEN)
-        except Exception as exc:
-            logger.error(f"[DOCVIEW/방문봇] 진입 실패: {exc}", exc_info=True)
         if not thread_ts:
             return
         if bot_id:  # 봇 메시지는 무시 (echo 방지)
@@ -3887,21 +3938,12 @@ def _register_handlers(app):
 
         channel_type = event.get("channel_type")
 
-        # ③-0. 문서 보기 (2026-10-22) — DM 파일·채널의 HWP 를 kordoc 으로 글로 바꿔 답글.
-        #   변환은 백그라운드. 채널 스레드는 아래 흐름(채널톡 forward·자동 감지)을 그대로 잇는다
-        #   — 매니저가 파일과 함께 쓴 글이 고객에게 안 가는 일이 없도록 여기서 return 하지 않음.
-        try:
-            from dashboard.services.doc_viewer import start_doc_view, DM_GUIDE
-            doc_mode = start_doc_view(event, client, _BOT_TOKEN)
-        except Exception as exc:
-            doc_mode = None
-            logger.error(f"[DOCVIEW] 진입 실패: {exc}", exc_info=True)
-
-        # ③-1. DM: 파일이면 문서 보기가 답하고, 글이면 사용 안내.
-        #   (im:history 권한이 2026-10-22 에야 붙어 이전엔 DM 이벤트가 오지 않았다)
+        # ③-1. DM: 메인봇 DM 은 알림(계산서 완료·수금 실수 등)을 보내는 곳이라 글엔 답하지 않는다.
+        #   파일을 보낸 경우만 문서변환봇으로 안내 (2026-10-22 문서 변환 분리).
         if channel_type == "im":
-            if not doc_mode:
-                say(DM_GUIDE)
+            if event.get("files"):
+                say(":page_facing_up: 문서 내용 보기는 *문서변환봇*이 맡고 있어요. "
+                    "문서변환봇에게 파일을 보내 주세요.")
             return
 
         # ③-2. 채널 thread 답글 — 채널톡 thread면 채널톡으로 forward
@@ -6586,6 +6628,25 @@ def slack_payment_events():
         return jsonify({"ok": True, "dedup": True}), 200
 
     return _payment_slack_handler.handle(request)
+
+
+@slack_bp.route("/docview-events", methods=["POST"])
+def slack_docview_events():
+    """슬랙 → 문서변환봇 전용 endpoint (채널 HWP 자동 변환 + DM 파일 변환)"""
+    # 앱 생성 시 슬랙이 이 주소를 검증(url_verification)하는데, 그 시점엔 아직 토큰·
+    # 서명키를 .env 에 넣기 전이라 Bolt 를 띄울 수 없다. challenge 는 받은 값을 그대로
+    # 돌려줄 뿐이라 서명 확인 없이 응답해도 위험이 없다.
+    if _docview_slack_handler is None:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict) and body.get('type') == 'url_verification':
+            return jsonify({"challenge": str(body.get('challenge', ''))}), 200
+        if not _init_docview_slack_app():
+            return jsonify({"error": "Docview Slack bot not configured"}), 503
+
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
+
+    return _docview_slack_handler.handle(request)
 
 
 @slack_bp.route("/list-assignee", methods=["POST"])
@@ -16579,6 +16640,7 @@ _init_slack_app()
 _init_visit_slack_app()
 _init_invoice_slack_app()
 _init_payment_slack_app()
+_init_docview_slack_app()
 
 # 재시작으로 중단된 방문 사진 업로드 배치 자동 복구 (백그라운드 — 앱 init 여유 후, 2026-07-30)
 try:
