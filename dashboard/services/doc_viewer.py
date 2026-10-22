@@ -9,7 +9,8 @@
 - 변환: tools/kordoc 의 kordoc CLI(Node) 를 subprocess 로 호출. 설치는 그 폴더에서 `npm ci`.
 - 외부 통신 차단(KORDOC_OFFLINE=1)·접근 폴더를 임시 폴더로 제한(KORDOC_ROOT)·OCR 끔.
 - 표는 슬랙이 그리지 못하므로 줄마다 '• 칸 · 칸 · 칸' 으로 풀어 쓴다.
-- 긴 문서는 앞부분만 메시지로, 전체는 .txt 파일로 같은 스레드에 첨부.
+- 답글은 문서당 하나: 3만 자까지는 메시지 하나(슬랙이 길면 '더 보기'로 접음), 그보다
+  길면 .txt 파일 하나에 앞부분 미리보기를 붙여 올린다.
 """
 import json
 import logging
@@ -28,7 +29,8 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTS = {'hwp', 'hwpx', 'pdf', 'docx', 'xlsx', 'xls', 'pptx'}
 _MAX_BYTES = 30 * 1024 * 1024        # 슬랙 다운로드·변환 상한 30MB
 _CONVERT_TIMEOUT = 120               # kordoc 한 건 상한(초)
-_MESSAGE_LIMIT = 3500                # 스레드 본문 메시지 글자 수 — 넘으면 .txt 첨부
+_MESSAGE_LIMIT = 30000               # 메시지 하나에 담을 상한(슬랙 한도 4만 자) — 넘으면 .txt 하나로
+_PREVIEW_LIMIT = 3000                # .txt 로 올릴 때 붙이는 앞부분 미리보기
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _KORDOC_CLI = _PROJECT_ROOT / 'tools' / 'kordoc' / 'node_modules' / 'kordoc' / 'dist' / 'cli.js'
 
@@ -337,19 +339,20 @@ def handle_doc_view(event: dict, client, token: str, mode: str = 'all') -> None:
 
 
 def _post_result(client, channel: str, ts: str, name: str, body: str) -> None:
-    head, truncated = split_for_message(body)
+    """답글 하나로 올린다 — 앞부분 메시지 + 전체 파일을 따로 달면 같은 내용이 겹쳐 보였다."""
     title = f':page_facing_up: *{_clean_inline(name)}* 내용'
-    if truncated:
-        title += ' (앞부분 · 전체는 아래 파일)'
-    client.chat_postMessage(
-        channel=channel, thread_ts=ts, text=f'{title}\n\n{head}',
-        unfurl_links=False, unfurl_media=False,
-    )
-    if truncated:
-        stem = name.rsplit('.', 1)[0]
-        plain = body.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
-        client.files_upload_v2(
-            channel=channel, thread_ts=ts,
-            filename=f'{stem}_내용.txt', title=f'{stem} 전체 내용',
-            content=plain,
+    if len(body) <= _MESSAGE_LIMIT:
+        client.chat_postMessage(
+            channel=channel, thread_ts=ts, text=f'{title}\n\n{body}',
+            unfurl_links=False, unfurl_media=False,
         )
+        return
+    head, _ = split_for_message(body, _PREVIEW_LIMIT)
+    stem = name.rsplit('.', 1)[0]
+    plain = body.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    client.files_upload_v2(
+        channel=channel, thread_ts=ts,
+        filename=f'{stem}_내용.txt', title=f'{stem} 전체 내용',
+        content=plain,
+        initial_comment=f'{title} (앞부분 · 전체는 첨부 파일)\n\n{head}',
+    )

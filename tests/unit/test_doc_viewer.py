@@ -152,15 +152,25 @@ def test_handle_doc_view_posts_converted_text(monkeypatch, no_redis):
     assert len(c.posts) == 1
 
 
-def test_handle_doc_view_long_text_attaches_file(monkeypatch, no_redis):
-    long_md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(400))
+def test_handle_doc_view_long_text_is_still_one_message(monkeypatch, no_redis):
+    long_md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(200))   # 약 1.6만 자
     monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: long_md)
     c = FakeClient()
     dv.handle_doc_view(_event(), c, 'xoxb')
-    assert '전체는 아래 파일' in c.posts[0]['text']
-    assert len(c.posts[0]['text']) < 3700
-    assert c.uploads[0]['filename'] == '공고_내용.txt'
-    assert '제399조' in c.uploads[0]['content']
+    assert len(c.posts) == 1 and c.uploads == []
+    assert '제199조' in c.posts[0]['text']
+
+
+def test_handle_doc_view_huge_text_is_one_file_with_preview(monkeypatch, no_redis):
+    huge_md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(800))   # 약 6.6만 자
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: huge_md)
+    c = FakeClient()
+    dv.handle_doc_view(_event(), c, 'xoxb')
+    assert c.posts == [] and len(c.uploads) == 1             # 답글은 파일 하나뿐
+    up = c.uploads[0]
+    assert up['filename'] == '공고_내용.txt' and up['thread_ts'] == '100.1'
+    assert '제799조' in up['content']
+    assert '전체는 첨부 파일' in up['initial_comment'] and len(up['initial_comment']) < 3200
 
 
 def test_handle_doc_view_reports_failure_in_korean(monkeypatch, no_redis):
