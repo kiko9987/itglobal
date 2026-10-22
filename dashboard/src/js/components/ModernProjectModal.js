@@ -236,7 +236,10 @@ export default class ModernProjectModal {
     // 거래처명을 넣으면 사업자명 목록을 그 거래처 공사에 쓰인 상호로 좁힘 (2026-10-23 사용자 요청)
     const partnerInputForBiz = document.getElementById('modern-partner-name');
     if (partnerInputForBiz) {
-      partnerInputForBiz.addEventListener('input', () => this.filterBusinessNamesByPartner());
+      partnerInputForBiz.addEventListener('input', (e) => {
+        this.filterBusinessNamesByPartner();
+        this.onPartnerTyped(e);
+      });
     }
     const bizInputForPartner = document.getElementById('modern-business-name');
     if (bizInputForPartner) {
@@ -575,10 +578,12 @@ export default class ModernProjectModal {
       if (hint) hint.textContent = hintText;
     };
     if (!inflow) {
+      this._partnerLeadHint = '';
       lock('유입 구분 선택 후 입력', '');
       return;
     }
     if (inflow !== '거래처') {
+      this._partnerLeadHint = '';
       lock('등록하면 자동으로 채웁니다',
         `사업자명이 있으면 그 이름(짧게), 없으면 '${inflowGroup(inflow)}' 묶음으로 채웁니다.`);
       return;
@@ -589,8 +594,20 @@ export default class ModernProjectModal {
     input.setAttribute('list', 'modernPartnerNameList');
     input.placeholder = '일을 맡긴 업체 (목록에서 고르거나 입력)';
     if (requiredMark) requiredMark.style.display = '';
-    if (hint) hint.textContent = '고객이 직접 돈을 내도 일을 맡긴 업체 이름을 넣으세요.';
+    // 방문 현장을 불러와 생긴 안내는 '미수령' 체크 등으로 다시 맞출 때도 유지 (2026-10-23 — 덮어써서 안 돌아왔음)
+    if (hint) hint.textContent = this._partnerLeadHint || ModernProjectModal.PARTNER_HINT;
     this.suggestPartnerName();
+  }
+
+  /** 거래처명 칸 기본 안내 (거래처 유입) */
+  static PARTNER_HINT = '공사를 맡긴 업체명을 입력해주세요. 결제는 고객이 해도 업체명으로 적습니다.';
+
+  /** 거래처명을 손으로 고치면 '불러온 현장' 안내는 맞지 않으니 기본 안내로 */
+  onPartnerTyped(e) {
+    if (!e.isTrusted || !this._partnerLeadHint) return;
+    this._partnerLeadHint = '';
+    const hint = document.getElementById('modern-partner-name-hint');
+    if (hint) hint.textContent = ModernProjectModal.PARTNER_HINT;
   }
 
   /**
@@ -610,10 +627,11 @@ export default class ModernProjectModal {
     if (found) {
       input.value = found;
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      if (hint) hint.textContent = '불러온 현장의 거래처명으로 자동 채움. 다른 경우 직접 입력해주세요.';
-    } else if (hint) {
-      hint.textContent = `불러온 현장 이름(${name})이 거래처 목록에 없습니다. 일을 맡긴 업체를 고르거나 입력하세요.`;
+      this._partnerLeadHint = '불러온 현장의 거래처명으로 자동 채움. 다른 경우 직접 입력해주세요.';
+    } else {
+      this._partnerLeadHint = `불러온 현장 이름(${name})이 거래처 목록에 없습니다. 일을 맡긴 업체를 고르거나 입력하세요.`;
     }
+    if (hint) hint.textContent = this._partnerLeadHint;
   }
 
   /** 거래처 유입이고 거래처명이 비어 있으면 사업자명으로 제안 (같은 곳 기존 이름 > 짧은 사업자명) */
