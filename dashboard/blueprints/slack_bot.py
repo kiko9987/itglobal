@@ -16452,6 +16452,9 @@ def _clear_stale_failure_note(batch, rc, token):
         logger.warning(f'[SLACK/방문사진복구] 실패 표기 정리 실패: {exc}')
 
 
+_PROC_STARTED_AT = time.time()   # 이 프로세스 시작 시각 — 그 전 배치는 진행 중일 수 없음
+
+
 def _recover_photo_batches():
     """Redis 배치 상태(photo_batch:*) 기반으로 중단된 방문 사진 업로드 복구 (2026-08-12).
 
@@ -16492,8 +16495,11 @@ def _recover_photo_batches():
         except Exception:
             rc.delete(k)
             continue
-        # 3분 이내 배치는 진행 중일 수 있어 skip
-        if now - float(b.get('created', 0) or 0) < 180:
+        # 3분 이내 배치는 진행 중일 수 있어 skip — 단 이 프로세스 시작 전 배치는 재시작으로 끊긴
+        #   것이라 바로 복구 (2026-10-22 L-04320: 재시작 직전 배치를 시작 복구가 3분 규칙으로 넘겨
+        #   5분 뒤에야 복구 → 그사이 '저장 중 (0/9)'로 멈춘 줄 알고 매니저가 사진을 다시 올림).
+        _created = float(b.get('created', 0) or 0)
+        if _created >= _PROC_STARTED_AT and now - _created < 180:
             continue
         fid = b.get('folder_id')
         bfiles = b.get('files') or []
