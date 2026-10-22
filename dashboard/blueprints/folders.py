@@ -228,7 +228,8 @@ def _background_folder_resolve(sheet_id, sheet_name, admin_email, ip_address):
         }
         sheet_updates = []  # {'range', 'values'}
         # 폴더 경로 컬럼 레터를 필드명으로 파생 (하드코딩 금지 — 컬럼 시프트 자동 정정)
-        _folder_col = GoogleSheetsManager().get_field_to_letter().get('견적서 및 계약서 폴더 경로', 'AO')
+        #   (예전 기본값 'AO' 는 열이 늘며 틀린 칸이 됨 → 기본값 없이 헤더 지도에서만, 2026-10-22)
+        _folder_col = GoogleSheetsManager().get_field_to_letter()['견적서 및 계약서 폴더 경로']
 
         for idx, project in df.iterrows():
             project_code = project.get('프로젝트 코드', '')

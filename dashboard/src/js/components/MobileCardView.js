@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { partnerDisplayName } from '../utils/partnerName.js';
 
 /**
  * MobileCardView 컴포넌트
@@ -374,7 +375,7 @@ export default class MobileCardView {
     // 검색어 적용
     if (this.searchTerm) {
       filtered = filtered.filter(item => {
-        const searchFields = ['프로젝트 코드', '담당자', '유입 구분', '현장 주소', '공사 내용'];
+        const searchFields = ['프로젝트 코드', '담당자', '유입 구분', '거래처명', '사업자명', '현장 주소', '공사 내용'];
         return searchFields.some(field =>
           String(item[field] || '').toLowerCase().includes(this.searchTerm.toLowerCase())
         );
@@ -498,6 +499,13 @@ export default class MobileCardView {
                 <i class="fas fa-building me-1"></i>유입 구분
               </span>
               <span class="info-value">${this.badgeSystem ? this.badgeSystem.createCompanyBadge(data['유입 구분']) : (data['유입 구분'] || '-')}</span>
+            </div>
+
+            <div class="info-row">
+              <span class="info-label">
+                <i class="fas fa-handshake me-1"></i>거래처
+              </span>
+              <span class="info-value text-truncate" title="거래처명 (없으면 사업자명)">${partnerDisplayName(data)}</span>
             </div>
 
             <div class="info-row">

@@ -39,6 +39,10 @@ def _int(v):
 
 
 def main() -> int:
+    # 2026-10-22: 옛 열 배치(고정 열 글자)로 시트를 읽어 슬랙 카드를 고치는 일회성 스크립트 —
+    #   열이 늘어난 지금 다시 돌리면 엉뚱한 칸 값으로 카드를 덮어쓴다. 실행 막음.
+    print('이 스크립트는 옛 열 배치용 일회성 스크립트입니다. 다시 실행하지 마세요.')
+    return 1
     if len(sys.argv) < 2:
         print('usage: update_single_card.py <CODE> [<STAGE>]')
         return 1

@@ -52,6 +52,10 @@ def _int_floor(v):
 
 
 def main() -> int:
+    # 2026-10-22: 옛 열 배치(고정 열 글자)로 시트를 읽어 슬랙 카드를 고치는 일회성 스크립트 —
+    #   열이 늘어난 지금 다시 돌리면 엉뚱한 칸 값으로 카드를 덮어쓴다. 실행 막음.
+    print('이 스크립트는 옛 열 배치용 일회성 스크립트입니다. 다시 실행하지 마세요.')
+    return 1
     channel = os.getenv('SLACK_PAYMENT_CHANNEL', '').strip()
     token = os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip()
     sheet_id = os.getenv('GOOGLE_SHEET_ID', '').strip()

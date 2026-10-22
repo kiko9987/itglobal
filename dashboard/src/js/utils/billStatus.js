@@ -19,6 +19,7 @@
 import {
   isSplit, payerBillStates, splitYSummary, payerBillIcon,
 } from './payerSplit.js';
+import { isPartnerName } from './partnerName.js';
 
 export const BILL_STAGES = ['계약금', '중도금', '잔금'];
 
@@ -353,10 +354,17 @@ function billAmountLinesCore(row, stage) {
   //   거래처(인테리어 업체) 경유 공사는 시트 사업자명=거래처, 계산서=실제 발주처 → 둘 다 표시
   //   (G4050-MJ: '오쿠드 (거래처 미공개스튜디오)'). 표기만 다른 같은 회사는 시트값 그대로.
   //   분할 발행은 사업자별 금액도 한 줄씩 (메모 '발행|선발행 X원' 줄에서, 금액 없는 옛 줄은 이름만).
+  //   2026-10-22 거래처명 열: '(거래처 X)'는 거래처명(일을 맡긴 곳)이 이름이면 그것으로. 거래처명이
+  //   온라인·전화 같은 묶음이면 예전처럼 시트 사업자명이 발행 상호와 다를 때만.
   const parts = billIssuedParts(row, stage);
   const sheetBiz = String((row && row['사업자명']) || '').trim();
-  const partner = parts.length && sheetBiz && !parts.some((p) => sameBizName(p.name, sheetBiz))
-    ? sheetBiz : '';
+  const partnerCol = String((row && row['거래처명']) || '').trim();
+  const issuedOther = (n) => !!n && !parts.some((p) => sameBizName(p.name, n));
+  let partner = '';
+  if (parts.length) {
+    if (isPartnerName(partnerCol)) partner = issuedOther(partnerCol) ? partnerCol : '';
+    else partner = issuedOther(sheetBiz) ? sheetBiz : '';
+  }
   const amtOf = (s) => parseFloat((row && row[s]) || 0);
   const tokOf = (s) => String((row && row[`${s} 계산서`]) || '').trim();
   const idx = BILL_STAGES.indexOf(stage);

@@ -25,6 +25,7 @@ import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STA
 import {
   payerLine, getStagePayer, stagePayers, stripPayerLine, payerTitle, vatFreeAmount, calcTotal2,
 } from '../utils/payerSplit.js';
+import { PARTNER_GROUP_LABELS, isPartnerName } from '../utils/partnerName.js';
 
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
@@ -790,6 +791,14 @@ export default class ProjectRowAccordion {
           </div>
         </div>
         <div class="card-grid">
+          <div class="compact-item">
+            <small title="일을 맡긴 곳 (거래처가 아니면 온라인·전화 등 유입 묶음)">거래처명</small>
+            <div class="editable-value" data-field="거래처명">${rowData['거래처명'] || '-'}</div>
+          </div>
+          <div class="compact-item">
+            <small title="사업자등록증 상호 (계산서 기준)">사업자명</small>
+            <div class="editable-value" data-field="사업자명">${rowData['사업자명'] || '-'}</div>
+          </div>
           <div class="compact-item">
             <small>사업자</small>
             <div class="editable-value" data-field="사업자">${rowData['사업자'] || '-'}</div>
@@ -2422,9 +2431,37 @@ export default class ProjectRowAccordion {
       `;
     }
 
+    // 거래처명 (2026-10-22) — 일을 맡긴 곳. 기존 거래처 이름 + 유입 묶음 자동완성
+    if (fieldName === '거래처명') {
+      return `<input type="text" class="form-control form-control-sm inline-edit-input text-input"
+                     list="${this.ensurePartnerNameDatalist()}" autocomplete="off"
+                     value="${currentValue}">`;
+    }
+
     // 기본 텍스트 필드 (레거시 동일 - placeholder 없음)
     return `<input type="text" class="form-control form-control-sm inline-edit-input text-input"
                    value="${currentValue}">`;
+  }
+
+  /** 거래처명 자동완성 목록 — 유입 묶음(온라인·전화 등) 먼저, 그다음 실제 거래처 이름 가나다순 */
+  ensurePartnerNameDatalist() {
+    const id = 'accordionPartnerNameList';
+    let list = document.getElementById(id);
+    if (!list) {
+      list = document.createElement('datalist');
+      list.id = id;
+      document.body.appendChild(list);
+    }
+    const rows = window.projectsData || window.ITGlobalApp?.api?.getCurrentData?.() || [];
+    const names = [...new Set(rows.map((r) => String(r['거래처명'] || '').trim()).filter((n) => isPartnerName(n)))]
+      .sort((a, b) => a.localeCompare(b, 'ko'));
+    list.innerHTML = '';
+    [...PARTNER_GROUP_LABELS, ...names].forEach((n) => {
+      const opt = document.createElement('option');
+      opt.value = n;
+      list.appendChild(opt);
+    });
+    return id;
   }
 
   /**

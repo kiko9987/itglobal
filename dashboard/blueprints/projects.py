@@ -2153,8 +2153,14 @@ def _prepare_project_defaults(data, row_number, manager=None):
     Args:
         data: 원본 데이터 딕셔너리 (in-place 수정됨)
         row_number: Google Sheets에 삽입될 행 번호 (수식에 사용)
+
+    Returns:
+        (소급할 같은 곳 공사 코드, 그곳 이름) — 행 추가 뒤 _promote_partner_after_create 에 넘김
     """
     from datetime import datetime
+
+    # 거래처명 — 비어 있으면 같은 곳(사업자명) 이전 공사·유입 구분으로 자동 (2026-10-22)
+    partner_promote = _apply_partner_name(data)
 
     # 공사 종료일 기본값
     if '공사 시작' in data and data['공사 시작']:
@@ -2219,7 +2225,7 @@ def _prepare_project_defaults(data, row_number, manager=None):
         '수금 날짜',  # 빈값 의도적
     }
     text_fields_to_dash = [
-        '사업자명', '발주처 담당자', '발주처 연락처', '발주처 이메일',
+        '거래처명', '사업자명', '발주처 담당자', '발주처 연락처', '발주처 이메일',
         '현장 주소', '공사 구분', '기계 분류', '브랜드',
         '공사 내용', '도급 구분', '시공자', '유입 구분',
         '수금 관련 특이사항', '계약금 부담자', '중도금 부담자', '잔금 부담자',
@@ -2233,6 +2239,39 @@ def _prepare_project_defaults(data, row_number, manager=None):
         value = data.get(field)
         if value is None or (isinstance(value, str) and value.strip() == ''):
             data[field] = '-'
+
+    return partner_promote
+
+
+def _apply_partner_name(data):
+    """새 공사의 거래처명을 정함 (입력값 > 같은 곳 이전 공사 > 거래처 유입=짧은 사업자명 > 유입 묶음).
+
+    Returns: (소급할 같은 곳 공사 코드 목록, 그곳 이름). 공사 목록을 못 읽으면 같은 곳 판단 없이 진행.
+    """
+    from ..services.partner_names import resolve_new_partner
+    try:
+        from ..services.project_service import get_project_records
+        records = get_project_records() or []
+    except Exception as exc:
+        logger.warning(f'[CREATE_PROJECT] 거래처명 판단용 공사 목록 조회 실패(같은 곳 판단 생략): {exc}')
+        records = []
+    name, promote, place = resolve_new_partner(
+        data.get('유입 구분'), data.get('사업자명'), data.get('거래처명'), records,
+        code=str(data.get('프로젝트 코드') or '').strip())
+    data['거래처명'] = name
+    return promote, place
+
+
+def _promote_partner_after_create(code, partner_promote, editor=''):
+    """행 추가 뒤 — 같은 곳 이전 공사의 거래처명(유입 묶음)을 그곳 이름으로 소급. 실패해도 등록은 유지."""
+    codes, place = partner_promote or ([], '')
+    if not codes:
+        return
+    try:
+        from ..services.partner_names import promote_previous
+        promote_previous(codes, place, why=f'같은 곳 공사 {code} 등록', editor=editor)
+    except Exception as exc:
+        logger.warning(f'[CREATE_PROJECT] 거래처명 소급 실패 ({code}): {exc}')
 
 
 # ===== 헬퍼 함수 5: 행 값 배열 구성 =====
@@ -2401,6 +2440,8 @@ def _build_project_response_data(code, data):
         '프로젝트 코드': code,
         '사업자': data.get('사업자', ''),
         '유입 구분': data.get('유입 구분', ''),
+        '거래처명': data.get('거래처명', ''),
+        '사업자명': data.get('사업자명', ''),
         '담당자': data.get('담당자', ''),
         '발주처 연락처': data.get('발주처 연락처', ''),
         '발주처 이메일': data.get('발주처 이메일', ''),
@@ -2622,7 +2663,7 @@ def add_project_auto():
 
         # 4. 기본값·행 값 구성 (시트 append 없이도 가능)
         next_row = len(df) + 2
-        _prepare_project_defaults(data, next_row, manager)
+        partner_promote = _prepare_project_defaults(data, next_row, manager)
         values = _build_row_values(data, manager, next_row)
 
         # 5. 응답 데이터 구성 (계산 필드 포함) — 프론트가 즉시 렌더할 데이터
@@ -2678,6 +2719,7 @@ def add_project_auto():
                             code, data, project_data,
                             user_email=_bg_user_email, ip_address=_bg_ip,
                         )
+                        _promote_partner_after_create(code, partner_promote, _bg_user_email)
                         logger.info(f"[CREATE_PROJECT/BG] 시트 append + 후처리 완료: {code}")
                         return
                     else:

@@ -1,6 +1,7 @@
 import ProjectStatusCalculator from '../utils/ProjectStatusCalculator.js';
 import UnifiedBadgeSystem from './UnifiedBadgeSystem.js';
 import AmountCalculator from '../utils/AmountCalculator.js';
+import { partnerDisplayName } from '../utils/partnerName.js';
 
 import logger from '../utils/logger.js';
 /**
@@ -27,7 +28,8 @@ export default class ModernProjectFilters {
       '프로젝트 코드',
       '유입 구분',
       '담당자',
-      '사업자명',  // E열 신규: 사업자등록증명
+      '거래처명',  // 일을 맡긴 곳 (2026-10-22)
+      '사업자명',  // 사업자등록증명
       '현장 주소',
       '공사 내용',
       '사업자',
@@ -615,11 +617,12 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 사업자명 필터 (E열 신규)
+    // 거래처·사업자명 필터 — 보이는 이름(거래처명이 이름이면 그것, 아니면 사업자명) 기준.
+    //   예전에 저장된 사업자명 선택값도 맞도록 사업자명 일치도 허용 (2026-10-22)
     if (this.filters.businessName) {
       filteredData = filteredData.filter(item => {
-        const businessName = item['사업자명'] || '';
-        return businessName.toString().trim() === this.filters.businessName;
+        const businessName = (item['사업자명'] || '').toString().trim();
+        return partnerDisplayName(item) === this.filters.businessName || businessName === this.filters.businessName;
       });
     }
 
@@ -982,13 +985,13 @@ export default class ModernProjectFilters {
   }
 
   /**
-   * 사업자명 필터 옵션 동적 생성 (E열, 신규)
+   * 거래처·사업자명 필터 옵션 동적 생성 — 거래처명이 이름이면 그것, 아니면 사업자명 (2026-10-22)
    */
   populateBusinessNameFilter(data) {
     if (!this.businessNameFilter || !data || !Array.isArray(data)) return;
 
-    // 고유한 사업자명 목록 추출
-    const businessNames = [...new Set(data.map(item => (item['사업자명'] || '').trim()).filter(name => name))];
+    // 고유한 이름 목록 추출 ('-' 제외)
+    const businessNames = [...new Set(data.map(item => partnerDisplayName(item)).filter(name => name && name !== '-'))];
 
     // 기존 옵션 제거 (첫 번째 "전체" 옵션은 유지)
     while (this.businessNameFilter.children.length > 1) {
@@ -1346,7 +1349,7 @@ export default class ModernProjectFilters {
     const asOn = !!document.getElementById('asModeToggle')?.checked;
     if (this.filters.company) active.push('사업자');
     if (this.filters.client) active.push('유입 구분');
-    if (this.filters.businessName) active.push('사업자명');
+    if (this.filters.businessName) active.push('거래처·사업자명');
     if (this.filters.status) active.push('상태');
     if (this.filters.data) active.push('데이터');
     if (this.filters.manager) active.push('담당자');

@@ -134,16 +134,25 @@
                                         </div>
                                     </div>
 
-                                    <!-- 1줄: 유입 구분 + 사업자명 -->
+                                    <!-- 1줄: 유입 구분 + 거래처명 + 사업자명 -->
                                     <div class="row mb-3">
-                                        <div class="col-md-4">
+                                        <div class="col-md-3">
                                             <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">유입 구분 <span class="text-danger">*</span></label>
                                             <select class="form-select" id="modern-client" name="유입 구분" required style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                                 <option value="">선택</option>
                                                 <!-- 동적으로 D열 unique 값 채워짐 (유입 채널 카테고리: 거래처/온라인/당근/소개/숨고 등) -->
                                             </select>
                                         </div>
-                                        <div class="col-md-8">
+                                        <!-- 거래처명 (2026-10-22): 일을 맡긴 업체. 거래처 유입이면 필수, 그 밖은 등록 때 자동 -->
+                                        <div class="col-md-4">
+                                            <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">거래처명<span id="modern-partner-name-required" class="text-danger" style="display: none;"> *</span></label>
+                                            <input type="text" class="form-control" id="modern-partner-name" name="거래처명" list="modernPartnerNameList" autocomplete="off" placeholder="유입 구분 선택 후 입력" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
+                                            <datalist id="modernPartnerNameList">
+                                                <!-- 동적으로 거래처명 중 실제 이름(온라인·전화 등 분류 제외) 채워짐 -->
+                                            </datalist>
+                                            <div class="form-text" id="modern-partner-name-hint" style="font-size: 0.75rem;"></div>
+                                        </div>
+                                        <div class="col-md-5">
                                             <label class="form-label" style="font-weight: 500; color: var(--gray-700); font-size: var(--font-size-sm); margin-bottom: 0.5rem;">사업자명<span id="modern-business-name-required" class="text-danger" style="display: none;"> *</span></label>
                                             <input type="text" class="form-control" id="modern-business-name" name="사업자명" list="modernBusinessNameList" autocomplete="off" placeholder="사업자등록증명" style="border-radius: var(--border-radius); border: 1px solid var(--gray-300); font-size: var(--font-size-sm); height: 38px; padding: 0.5rem 0.75rem; transition: all 0.2s ease;">
                                             <datalist id="modernBusinessNameList">

@@ -19,8 +19,11 @@ def cleared(monkeypatch):
     import dashboard.services.business_license_handler as blh
     monkeypatch.setattr(rcm, 'get_redis_client',
                         lambda: type('C', (), {'redis': type('R', (), {'get': lambda self, k: None})()})())
+    import dashboard.services.partner_names as pn
     out = []
     monkeypatch.setattr(blh, 'invalidate_license_state', lambda code: out.append(code))
+    # 사업자명 변경은 같은 곳 거래처명 묶기도 부름 — 여기선 실제 시트를 읽지 않게 막음
+    monkeypatch.setattr(pn, 'apply_place_on_biz_change', lambda code, biz, editor='': 0)
     return out
 
 

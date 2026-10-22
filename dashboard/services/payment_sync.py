@@ -59,6 +59,31 @@ def _poll_width(idx: Dict[str, int]) -> int:
     return max(idx[f] for f in _POLL_FIELDS) + 1
 
 
+def _poll_header_ok(service, sheet_id: str, sheet_name: str, idx: Dict[str, int]) -> bool:
+    """폴러가 읽을 칸의 실제 헤더가 열 지도와 같은가 — 다르면 지도를 다시 읽게 하고 False(이번 사이클 skip).
+
+    2026-10-22 거래처명 열을 넣은 직후 밀린 칸을 읽어 기준값을 엉뚱하게 다시 만들고, 다음 사이클에
+    R4173 계약금 카드를 잘못 회색 처리했다. 지도는 1분 캐시라 열을 넣은 뒤 최대 1분은 옛 위치를 가리킨다.
+    헤더 지도를 안 쓰는 테스트에선 건너뜀.
+    """
+    from dashboard.utils.google_sheets import _header_lookup_enabled, invalidate_main_column_mapping
+    if not _header_lookup_enabled():
+        return True
+    try:
+        resp = service.spreadsheets().values().get(
+            spreadsheetId=sheet_id, range=f"'{sheet_name}'!1:1").execute()
+        hdr = [str(h or '').strip() for h in ((resp.get('values') or [[]])[0])]
+    except Exception as exc:
+        logger.warning(f"[PAYMENT] 헤더 확인 실패 — 이번 사이클 skip: {exc}")
+        return False
+    bad = [f for f in _POLL_FIELDS if idx[f] >= len(hdr) or hdr[idx[f]] != f]
+    if bad:
+        logger.warning(f"[PAYMENT] 열 지도와 실제 헤더가 다름 {bad[:4]} — 열 배치가 바뀐 듯, 지도 다시 읽고 이번 사이클 skip")
+        invalidate_main_column_mapping()
+        return False
+    return True
+
+
 def _pad_row(vals, width: int) -> list:
     """행 값을 width 칸까지 채움 (뒤쪽 빈 칸은 API 가 잘라 보냄)."""
     vals = list(vals or [])
@@ -1178,6 +1203,11 @@ def _partner_misplacement_warning(code: str, partner: str) -> str:
     my_biz = (me.get('사업자명') or '').strip()
     if my_biz and my_biz != '-' and _names_match(partner, my_biz):
         return ''  # 이 프로젝트와 일치 = 정상
+    # 거래처명(일을 맡긴 인테리어 등)이 입금한 경우도 정상 — 고객이 사업자명, 인테리어가 돈을 냄 (2026-10-22)
+    from dashboard.services.partner_names import is_partner_name
+    my_partner = (me.get('거래처명') or '').strip()
+    if is_partner_name(my_partner) and _names_match(partner, my_partner):
+        return ''
     hits = []
     for r in recs:
         c = (r.get('프로젝트 코드') or '').strip()
@@ -2364,6 +2394,9 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             _reset_payment_service()
         else:
             logger.error(f"[PAYMENT] 시트 값 fetch 실패: {exc}", exc_info=True)
+        return result
+
+    if not _poll_header_ok(service, sheet_id, sheet_name, _I):
         return result
 
     rows = resp.get('values', [])

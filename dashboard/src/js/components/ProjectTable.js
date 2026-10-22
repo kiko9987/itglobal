@@ -16,6 +16,7 @@ import {
   computeBillStagesFromColumns, billIssueDate, billAmountLines, isPreIssued, billHeadline, splitBillNote,
 } from '../utils/billStatus.js';
 import { payerLine, isSplit, stripPayerLine } from '../utils/payerSplit.js';
+import { isPartnerName, partnerPlaceKey } from '../utils/partnerName.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -664,18 +665,27 @@ export default class ProjectTable {
           }.bind(this)
         },
         {
-          // 사업자명 (E열, 신규) - 연한 회색 라벨
+          // 거래처 / 사업자명 - 연한 회색 라벨 (2026-10-22 거래처명 열 추가)
+          //   거래처명(일을 맡긴 곳)이 이름이면 그것을 먼저, 등록증 상호(사업자명)가 다른 곳이면 아래 작게.
+          //   거래처명이 온라인·전화 같은 묶음이면 지금처럼 사업자명만. 열을 따로 늘리면 열 순서 기준
+          //   CSS(project-list.css nth-child)가 밀려서 한 칸에 둘을 표시.
           name: 'businessName',
           data: '사업자명',
           defaultContent: '',
-          render: function(data) {
-            if (data && data.trim() !== '') {
-              // HTML 이스케이프 (간단)
-              const safe = String(data).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-              return `<span class="badge business-name-badge" style="background-color: #e9ecef; color: #495057; font-weight: 500; padding: 0.3em 0.55em; font-size: 0.8125rem; white-space: normal; text-align: left; max-width: 100%;">${safe}</span>`;
-            } else {
-              return '<span class="text-muted">-</span>';
+          render: function(data, type, row) {
+            const partner = String(row['거래처명'] || '').trim();
+            const biz = String(data || '').trim();
+            const named = isPartnerName(partner);
+            if (type !== 'display') return named ? partner : biz;   // 정렬은 보이는 이름 기준
+            const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const badge = (text, title) => `<span class="badge business-name-badge" title="${title}" style="background-color: #e9ecef; color: #495057; font-weight: 500; padding: 0.3em 0.55em; font-size: 0.8125rem; white-space: normal; text-align: left; max-width: 100%;">${esc(text)}</span>`;
+            if (!named) {
+              return biz && biz !== '-' ? badge(biz, '사업자명') : '<span class="text-muted">-</span>';
             }
+            const sub = biz && biz !== '-' && partnerPlaceKey(biz) !== partnerPlaceKey(partner)
+              ? `<div class="text-muted" title="사업자명 (등록증 상호)" style="font-size: 0.72rem; margin-top: 2px; white-space: normal;">${esc(biz)}</div>`
+              : '';
+            return badge(partner, '거래처명') + sub;
           }
         },
         {
@@ -942,7 +952,7 @@ export default class ProjectTable {
           className: 'text-left'
         },
         {
-          // 사업자명: 가운데 정렬
+          // 거래처 / 사업자명: 가운데 정렬
           targets: [3],
           className: 'text-center'
         },

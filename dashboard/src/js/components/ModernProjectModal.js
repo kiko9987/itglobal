@@ -5,6 +5,7 @@ import AmountCalculator from '../utils/AmountCalculator.js';
 import FormValidator from '../utils/FormValidator.js';
 import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
 import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
+import { inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz } from '../utils/partnerName.js';
 
 import logger from '../utils/logger.js';
 export default class ModernProjectModal {
@@ -226,6 +227,12 @@ export default class ModernProjectModal {
     const bizPendingCheck = document.getElementById('modern-business-name-pending');
     if (bizPendingCheck) {
       bizPendingCheck.addEventListener('change', () => this.syncBusinessNameLock());
+    }
+    // 거래처 유입: 사업자명을 넣으면 같은 곳 기존 거래처명(없으면 짧은 사업자명)을 거래처명 칸에 제안.
+    //   이미 고른 거래처명은 건드리지 않음 (고객이 돈 내는 인테리어 경유 공사는 직접 고름)
+    const bizInputForPartner = document.getElementById('modern-business-name');
+    if (bizInputForPartner) {
+      bizInputForPartner.addEventListener('change', () => this.suggestPartnerName());
     }
 
     // '수동 입력' 토글 → 유입구분·담당자·연락처·이메일·주소 잠금/해제 (기본 잠금)
@@ -535,7 +542,59 @@ export default class ModernProjectModal {
     this.syncBusinessNameLock();
   }
 
+  /**
+   * 유입 구분 값에 따라 거래처명 칸 상태 동기화 (2026-10-22).
+   * - 거래처: 입력 가능 + 필수 + 목록 자동완성 (일을 맡긴 업체 — 고객이 돈을 내도 인테리어 이름)
+   * - 그 밖: 잠금 + 비움 → 서버가 등록 때 자동으로 채움 (같은 곳 공사가 있으면 그 이름, 없으면 유입 묶음)
+   */
+  syncPartnerNameLock() {
+    const clientSelect = document.getElementById('modern-client');
+    const input = document.getElementById('modern-partner-name');
+    if (!clientSelect || !input) return;
+    const requiredMark = document.getElementById('modern-partner-name-required');
+    const hint = document.getElementById('modern-partner-name-hint');
+    const inflow = (clientSelect.value || '').trim();
+    const lock = (placeholder, hintText) => {
+      input.value = '';
+      input.readOnly = true;
+      input.style.backgroundColor = '#e9ecef';
+      input.style.cursor = 'not-allowed';
+      input.removeAttribute('list');
+      input.placeholder = placeholder;
+      if (requiredMark) requiredMark.style.display = 'none';
+      if (hint) hint.textContent = hintText;
+    };
+    if (!inflow) {
+      lock('유입 구분 선택 후 입력', '');
+      return;
+    }
+    if (inflow !== '거래처') {
+      lock('등록하면 자동으로 채웁니다',
+        `같은 곳 공사가 있으면 그곳 이름, 처음이면 '${inflowGroup(inflow)}' 묶음으로 채웁니다.`);
+      return;
+    }
+    input.readOnly = false;
+    input.style.backgroundColor = '';
+    input.style.cursor = '';
+    input.setAttribute('list', 'modernPartnerNameList');
+    input.placeholder = '일을 맡긴 업체 (목록에서 고르거나 입력)';
+    if (requiredMark) requiredMark.style.display = '';
+    if (hint) hint.textContent = '고객이 직접 돈을 내도 일을 맡긴 업체 이름을 넣으세요.';
+    this.suggestPartnerName();
+  }
+
+  /** 거래처 유입이고 거래처명이 비어 있으면 사업자명으로 제안 (같은 곳 기존 이름 > 짧은 사업자명) */
+  suggestPartnerName() {
+    const inflow = (document.getElementById('modern-client')?.value || '').trim();
+    const input = document.getElementById('modern-partner-name');
+    if (inflow !== '거래처' || !input || (input.value || '').trim()) return;
+    const biz = (document.getElementById('modern-business-name')?.value || '').trim();
+    if (!isPartnerName(biz)) return;
+    input.value = suggestPartnerForBiz(biz, this._projectRows) || shortPartnerName(biz);
+  }
+
   syncBusinessNameLock() {
+    this.syncPartnerNameLock();
     const clientSelect = document.getElementById('modern-client');
     const bizInput = document.getElementById('modern-business-name');
     if (!clientSelect || !bizInput) return;
@@ -772,7 +831,15 @@ export default class ModernProjectModal {
         .filter(name => name)
     )].sort((a, b) => a.localeCompare(b, 'ko'));
 
-    return { owners, companies, clients, businessNames };
+    // 거래처명 목록 — 실제 이름만 (온라인·전화 등 분류값 제외). 같은 곳 제안용으로 공사 목록도 보관
+    const partnerNames = [...new Set(
+      projectData
+        .map(item => (item['거래처명'] || '').trim())
+        .filter(name => isPartnerName(name))
+    )].sort((a, b) => a.localeCompare(b, 'ko'));
+    this._projectRows = projectData;
+
+    return { owners, companies, clients, businessNames, partnerNames };
   }
 
   /**
@@ -922,6 +989,18 @@ export default class ModernProjectModal {
         const option = document.createElement('option');
         option.value = name;
         businessNameList.appendChild(option);
+      });
+    }
+
+    // 거래처명 - datalist 자동완성 (실제 이름만)
+    const partnerNames = data.options?.partnerNames || data.partnerNames || [];
+    const partnerNameList = document.getElementById('modernPartnerNameList');
+    if (partnerNameList) {
+      partnerNameList.innerHTML = '';
+      partnerNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        partnerNameList.appendChild(option);
       });
     }
   }
@@ -1492,6 +1571,11 @@ export default class ModernProjectModal {
       const bizPending = document.getElementById('modern-business-name-pending')?.checked;
       if (!bizPending && (!bizName || bizName === '-')) {
         errors.push('거래처 유입은 사업자명(사업자등록증명)이 필수입니다. 아직 못 받았다면 "사업자등록증 미수령"을 체크하세요.');
+      }
+      // 2-2. 거래처 유입은 거래처명(일을 맡긴 업체)도 필수 (2026-10-22)
+      const partnerName = (document.getElementById('modern-partner-name')?.value || '').trim();
+      if (!isPartnerName(partnerName)) {
+        errors.push('거래처 유입은 거래처명이 필요합니다. 일을 맡긴 업체를 목록에서 고르거나 입력하세요.');
       }
     }
 

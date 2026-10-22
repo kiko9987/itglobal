@@ -289,6 +289,7 @@ def search_confirmed_projects(query: str, limit: int = 100) -> List[Dict[str, st
         else:
             filtered = df
 
+        from dashboard.services.partner_names import is_partner_name
         q = query.lower()
         matched = []
         for _, r in filtered.iterrows():
@@ -297,13 +298,17 @@ def search_confirmed_projects(query: str, limit: int = 100) -> List[Dict[str, st
             if not code:
                 continue
             address = str(r.get('현장 주소', '') or '').strip()
-            # 코드 OR 사업자명 OR 주소 부분 매칭 (주소로도 좁히기 — 반복거래처 대응)
+            partner = str(r.get('거래처명', '') or '').strip()
+            partner = partner if is_partner_name(partner) else ''   # 온라인·전화 등 분류값 제외
+            # 코드 OR 사업자명 OR 거래처명 OR 주소 부분 매칭 (주소로도 좁히기 — 반복거래처 대응)
             if not (q in code.lower() or (biz and q in biz.lower())
+                    or (partner and q in partner.lower())
                     or (address and q in address.lower())):
                 continue
             matched.append({
                 'code': code,
                 'biz': biz,
+                'partner': partner,
                 'address': address,
                 'work_content': str(r.get('공사 내용', '') or '').strip(),
                 'work_end': str(r.get('공사 종료', '') or '').strip()[:10],
@@ -374,6 +379,7 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
             'code': code,
             'inflow': inflow_disp,
             'manager': _s('담당자') or '-',  # 영업 담당자 (AS 알림 DM 대상)
+            'partner': _s('거래처명') or '-',  # 일을 맡긴 곳 (2026-10-22)
             'biz': _s('사업자명') or '-',
             'address': _s('현장 주소') or '-',
             'client_manager': _s('발주처 담당자') or '-',

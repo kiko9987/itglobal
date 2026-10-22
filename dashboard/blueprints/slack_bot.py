@@ -1379,6 +1379,7 @@ def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str
             return 0
 
     from dashboard.services.payer_split import stage_payers
+    from dashboard.services.partner_names import is_partner_name
 
     matched = []
     for r in recs:
@@ -1390,7 +1391,10 @@ def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str
         if q:
             # 나눠 내는 공사는 부담자 이름으로도 찾기 (임대인 '이현주' 입력 → 그 호실들)
             payer_names = ' '.join(p['name'] for p in stage_payers(r).values())
-            if q not in f"{code} {biz} {addr} {payer_names}".lower():
+            # 인테리어가 입금하면 입금자=거래처명 → 거래처명으로도 찾기 (온라인·전화 등 분류값은 무시, 2026-10-22)
+            partner = str(r.get('거래처명') or '').strip()
+            partner = partner if is_partner_name(partner) else ''
+            if q not in f"{code} {biz} {addr} {payer_names} {partner}".lower():
                 continue
         else:
             # 빈 검색(드롭다운 클릭) — 내 담당 & 수금 미완료(미수금>0)만
@@ -3541,6 +3545,12 @@ def _register_project_handlers(app):
                 "end_date": f"공사 종료일({end_date})은 시작일({start_date})보다 이후여야 합니다.",
             })
             return
+        # 거래처 유입은 일을 맡긴 업체(거래처명)가 있어야 함 — 고객이 돈을 내도 거래처는 인테리어 (2026-10-22)
+        if (_v(state, "source") or '') == '거래처' and not (_v(state, "partner_name") or '').strip():
+            ack(response_action="errors", errors={
+                "partner_name": "거래처 유입은 거래처명이 필요합니다. 일을 맡긴 업체를 고르세요.",
+            })
+            return
         ack()
         _run_bg_with_notify(
             client, body, '공사 확정',
@@ -3565,6 +3575,12 @@ def _register_project_handlers(app):
                 ack(options=options)
             except Exception as exc:
                 logger.warning(f"[SLACK/공사확정] 사업자명 검색 실패: {exc}", exc_info=True)
+                ack(options=[])
+        elif block_id == "partner_name":
+            try:
+                ack(options=_search_partner_names(query))
+            except Exception as exc:
+                logger.warning(f"[SLACK/공사확정] 거래처명 검색 실패: {exc}", exc_info=True)
                 ack(options=[])
         else:
             ack(options=[])
@@ -3752,13 +3768,14 @@ def _register_project_handlers(app):
                         f"이 부담자의 계산서를 요청하면 자동으로 붙습니다."
                     )
                 elif _biz and _biz_status == 'mismatch':
+                    # 2026-10-22 거래처명 열 추가 — 사업자명=계산서 받는 곳의 등록증 상호, 일을 맡긴
+                    #   인테리어는 거래처명. 예전 안내('거래처 공사면 사업자명은 거래처 그대로')는 반대였음.
                     lines.append(
-                        f":memo: 사업자등록증 OCR 결과와 시트값이 달라요. "
-                        f"어느 쪽이 맞는지 확인해주세요.\n"
-                        f"  • 시트값(사업자명): *{_biz_existing}*\n"
-                        f"  • OCR 결과: *{_biz}*\n"
-                        f"  ※ 인테리어 업체 등 *거래처를 통한 공사*면 *사업자명*은 거래처(*{_biz_existing}*) 그대로 두세요. "
-                        f"등록증은 실제 발주처라 다른 게 정상입니다."
+                        f":memo: 등록증 상호와 시트 사업자명이 달라요. 어느 쪽이 맞는지 확인해 주세요.\n"
+                        f"  • 시트 사업자명: *{_biz_existing}*\n"
+                        f"  • 등록증 상호: *{_biz}*\n"
+                        f"  ※ 사업자명에는 계산서를 받는 곳의 등록증 상호를 씁니다. 이 등록증이 맞다면 "
+                        f"PM에서 사업자명을 등록증 상호로 고쳐 주세요. 일을 맡긴 인테리어 업체는 거래처명에 그대로 둡니다."
                     )
                 elif _biz and _biz_status == 'error':
                     lines.append(
@@ -4920,7 +4937,8 @@ def _register_as_handlers(app):
                 options = []
                 for p in matched:
                     code = p["code"]
-                    biz = (p.get('biz') or '').strip() or '사업자 비어 있음'
+                    # 거래처명이 이름이면 그것 먼저(일을 맡긴 곳으로 찾는 경우가 많음), 아니면 사업자명
+                    biz = (p.get('partner') or p.get('biz') or '').strip() or '사업자 비어 있음'
                     addr = (p.get('address') or '').strip()
                     # 사업자명 축약 → 주소(반복거래처 구분 핵심)가 안 잘리게 (수금 인입과 동일)
                     biz_short = (biz[:13] + '…') if len(biz) > 14 else biz
@@ -5130,6 +5148,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
 
     lines.append(f"🔗 프로젝트 코드 : `{code or '-'}`")
     lines.append(f"📥 유입 구분 : {inflow or '-'}")
+    lines.append(f"🤝 거래처명 : {(proj or {}).get('partner', '-') or '-'}")
     lines.append(f"🏢 사업자명 : {biz or '-'}")
     lines.append(f"📍 현장 주소 : {_pick('현장주소', 'address')}")
     lines.append(f"👤 발주처 담당자 : {(proj or {}).get('client_manager', '-') or '-'}")
@@ -5418,6 +5437,7 @@ def _as_request_view_blocks(
         if project_details:
             info = (
                 f"*📥 유입 구분 :* {project_details.get('inflow','-') or '-'}\n"
+                f"*🤝 거래처명 :* {project_details.get('partner','-') or '-'}\n"
                 f"*🏢 사업자명 :* {project_details.get('biz','-') or '-'}\n"
                 f"*📍 현장 주소 :* {project_details.get('address','-') or '-'}\n"
                 f"*👤 발주처 담당자 :* {project_details.get('client_manager','-') or '-'}\n"
@@ -5605,6 +5625,10 @@ def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
         lines.append(f'🔗 프로젝트 코드 : `{project_code}`')
     else:
         lines.append('🏷️ 코드 이전 공사 (수동 등록)')
+    from dashboard.services.partner_names import is_partner_name
+    _partner = (proj or {}).get('partner', '-') or '-'
+    if is_partner_name(_partner):          # 온라인·전화 등 분류값은 DM 에선 생략
+        lines.append(f'🤝 거래처명 : {_partner}')
     if biz and biz != '-':
         lines.append(f'🏢 사업자명 : {biz}')
     lines.append(f'📍 현장 주소 : {address}')
@@ -6221,6 +6245,26 @@ def _search_company_names(query: str) -> list:
     ]
 
 
+def _search_partner_names(query: str) -> list:
+    """/공사확정 거래처명 검색 — 시트 거래처명 중 실제 이름(온라인·전화 등 분류값 제외) 부분 매칭.
+
+    목록에 똑같은 이름이 없으면 입력한 그대로를 '새 거래처'로 맨 위에 둔다(외부 선택은 자유 입력이 없어서).
+    """
+    q = (query or '').strip()
+    if not q:
+        return []
+    from dashboard.services.partner_names import is_partner_name, known_partner_names, short_name
+    from dashboard.services.project_service import get_project_records
+    names = known_partner_names(get_project_records() or [])
+    ql = q.lower().replace(' ', '')
+    matched = [n for n in names if ql in n.lower().replace(' ', '')][:99]
+    options = [{"text": {"type": "plain_text", "text": n[:75]}, "value": n[:75]} for n in matched]
+    new = short_name(q)[:75]
+    if is_partner_name(new) and new not in matched:
+        options.insert(0, {"text": {"type": "plain_text", "text": f"새 거래처: {new}"[:75]}, "value": new})
+    return options[:100]
+
+
 def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
     """공사 확정 등록 모달 — 핵심 11개 필드."""
     def _select_options(values):
@@ -6257,16 +6301,31 @@ def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
                 },
             },
             {
+                "type": "input", "block_id": "partner_name",
+                "optional": True,
+                "label": {"type": "plain_text", "text": "거래처명 (일을 맡긴 업체)"},
+                "hint": {
+                    "type": "plain_text",
+                    "text": "유입 구분이 거래처면 꼭 고르세요. 그 밖은 비워 두면 자동으로 채웁니다.",
+                },
+                "element": {
+                    "type": "external_select",
+                    "action_id": "value",
+                    "min_query_length": 1,
+                    "placeholder": {"type": "plain_text", "text": "예: 메이드바이 (목록에 없으면 이름 입력)"},
+                },
+            },
+            {
                 "type": "input", "block_id": "company_name",
                 "optional": True,
-                "label": {"type": "plain_text", "text": "사업자명 (고객사)"},
+                "label": {"type": "plain_text", "text": "사업자명 (사업자등록증 상호)"},
                 "element": {
                     "type": "external_select",
                     "action_id": "value",
                     "min_query_length": 1,
                     "placeholder": {
                         "type": "plain_text",
-                        "text": "예: 삼성 / 한국 / 김밥 (신규 거래처면 비워두세요)",
+                        "text": "예: 삼성 / 한국 / 김밥 (등록증 받기 전이면 비워 두세요)",
                     },
                 },
             },
@@ -6343,6 +6402,7 @@ def _process_project_submission(client, body, view):
     # 모달 입력
     company = _v(state, "company")
     source = _v(state, "source")
+    partner_name = (_v(state, "partner_name") or '').strip()        # 비면 자동 (_prepare_project_defaults)
     company_name = (_v(state, "company_name") or '').strip() or '-'  # 선택 입력
     address = (_v(state, "address") or '').strip()
     customer = (_v(state, "customer") or '').strip()
@@ -6372,6 +6432,7 @@ def _process_project_submission(client, body, view):
         '사업자': company,
         '담당자': manager_name,
         '유입 구분': source,
+        '거래처명': partner_name,
         '사업자명': company_name,
         '현장 주소': address,
         '발주처 담당자': customer,
@@ -6385,8 +6446,10 @@ def _process_project_submission(client, body, view):
 
     try:
         code = _slack_create_project(data)
+        from dashboard.services.partner_names import display_name
+        _title = display_name(data)
         msg = (
-            f":white_check_mark: *{company_name or '공사'}* 등록 완료 — "
+            f":white_check_mark: *{_title if _title != '-' else '공사'}* 등록 완료 — "
             f"`{code}`\n_담당자: {manager_name} · 시작: {start_date} · "
             f"금액: {int(amount_digits or 0):,}원_"
         )
@@ -6412,6 +6475,7 @@ def _slack_create_project(data: dict) -> str:
     )
     from dashboard.blueprints.projects import (
         _prepare_project_defaults, _build_row_values, _build_project_response_data,
+        _promote_partner_after_create,
     )
     from dashboard.services.calendar_service import create_project_calendar_event
     from dashboard.services.project_slack_notifier import send_project_created_notification
@@ -6431,7 +6495,7 @@ def _slack_create_project(data: dict) -> str:
     data['프로젝트 코드'] = code
 
     manager = get_sheets_manager()
-    _prepare_project_defaults(data, next_row, manager)
+    partner_promote = _prepare_project_defaults(data, next_row, manager)
     values = _build_row_values(data, manager, next_row)
     result = manager.append_row(sheet_id, values)
     if not result:
@@ -6454,6 +6518,7 @@ def _slack_create_project(data: dict) -> str:
     except Exception as exc:
         logger.warning(f"[SLACK/공사확정] #공사_확정 알림 실패: {exc}")
 
+    _promote_partner_after_create(code, partner_promote, data.get('담당자', ''))
     return code
 
 
@@ -13072,9 +13137,21 @@ def _open_project_edit_modal(client, body) -> None:
     vat_option = {'text': {'type': 'plain_text', 'text': 'VAT 별도'},
                   'description': {'type': 'plain_text', 'text': '체크 해제 시 VAT 없음'},
                   'value': 'sep'}
+    partner = _val('거래처명')[:75]
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"프로젝트 `{code}` 수정"}},
+        {
+            # 거래처명 = 일을 맡긴 업체 (사업자명=등록증 상호는 계산서 기준이라 여기서 안 고침). 2026-10-22
+            "type": "input", "block_id": "partner_name", "optional": True,
+            "label": {"type": "plain_text", "text": "거래처명 (일을 맡긴 업체)"},
+            "element": {
+                "type": "external_select", "action_id": "value", "min_query_length": 1,
+                "placeholder": {"type": "plain_text", "text": "예: 메이드바이 (목록에 없으면 이름 입력)"},
+                **({"initial_option": {"text": {"type": "plain_text", "text": partner}, "value": partner}}
+                   if partner else {}),
+            },
+        },
         {
             "type": "input", "block_id": "content", "optional": True,
             "label": {"type": "plain_text", "text": "공사 내용"},
@@ -13195,6 +13272,7 @@ def _process_project_edit_submission(client, body, view) -> None:
         opts = (values.get(bid, {}).get('value', {}) or {}).get('selected_options', []) or []
         return bool(opts)
 
+    partner = ((values.get('partner_name', {}).get('value', {}) or {}).get('selected_option') or {}).get('value', '')
     content = _text('content').strip()
     contract_types = _multi('contract_type')
     contractors = _multi('contractor')
@@ -13212,6 +13290,8 @@ def _process_project_edit_submission(client, body, view) -> None:
         return
 
     updates = {}
+    if partner.strip() and partner.strip() != str(project.get('거래처명') or '').strip():
+        updates['거래처명'] = partner.strip()
     if content and _norm_edit_val(content) != _norm_edit_val(project.get('공사 내용')):
         updates['공사 내용'] = content
     new_contract = ', '.join(contract_types)
@@ -13359,7 +13439,7 @@ def _post_project_edit_notice_card(
 
     change_lines = []
     # 표시 순서 고정 (모달 순서와 동일)
-    field_order = ['공사 내용', '도급 구분', '시공자', '총액 1', '부가세', '공사 시작', '공사 종료']
+    field_order = ['거래처명', '공사 내용', '도급 구분', '시공자', '총액 1', '부가세', '공사 시작', '공사 종료']
     for f in field_order:
         if f not in updates:
             continue

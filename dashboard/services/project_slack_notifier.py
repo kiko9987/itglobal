@@ -133,6 +133,9 @@ def _build_message(
         f"🔔 *[공사 확정 알림]*  `{code_safe}`",
         "--------------------------------------------",
         f"📥 유입 구분 : {_format_inflow(_val(data, '유입 구분'))}",
+        # 거래처명 = 일을 맡긴 곳(2건 이상·거래처 유입이면 이름, 아니면 온라인·전화 등 묶음),
+        # 사업자명 = 등록증 상호(계산서 기준). 2026-10-22 열 추가
+        f"🤝 거래처명 : {_val(data, '거래처명')}",
         f"🏢 사업자명 : {_val(data, '사업자명')}",
         f"📍 현장 주소 : {_val(data, '현장 주소')}",
         f"👤 발주처 담당자 : {_val(data, '발주처 담당자')}",
@@ -355,7 +358,7 @@ def send_project_created_notification(data: dict, code: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 # 알림 대상 필드 (audit-worthy) — 잡음 필드는 제외
 _NOTIFY_FIELDS = {
-    '사업자', '유입 구분', '사업자명', '현장 주소',
+    '사업자', '유입 구분', '거래처명', '사업자명', '현장 주소',
     '공사 구분', '기계 분류', '브랜드',
     '공사 시작', '공사 종료', '공사 내용', '도급 구분', '시공자',
     '발주처 담당자', '발주처 연락처', '발주처 이메일',
@@ -699,6 +702,20 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
             invalidate_license_state(code)
         except Exception as exc:
             logger.debug(f'[PROJECT/SLACK/편집] 등록증 판정 캐시 비우기 실패 ({code}): {exc}')
+
+    # 사업자명이 채워지거나 바뀌면 같은 곳 공사 묶기(거래처명 소급) — 온라인 고객은 등록 때 사업자명이
+    #   비어 있다가 등록증 OCR·편집으로 채워진다(2026-10-22). 소급 쪽 알림은 거래처명만 바꿔 여기로 안 돌아옴.
+    #   시트를 몇 번 읽으므로 따로 돌려 이 답글을 늦추지 않음.
+    _biz_change = next((c for c in relevant if c.get('field_name') == '사업자명'), None)
+    if _biz_change:
+        def _bind_place(_biz=str(_biz_change.get('new_value') or '')):
+            try:
+                from dashboard.services.partner_names import apply_place_on_biz_change
+                apply_place_on_biz_change(code, _biz)
+            except Exception as exc:
+                logger.warning(f'[PROJECT/SLACK/편집] 같은 곳 거래처명 묶기 실패 ({code}): {exc}')
+        import threading as _th
+        _th.Thread(target=_bind_place, daemon=True).start()
 
     # Redis에서 채널|ts 조회 (코드가 변경됐으면 old_code로도 시도)
     try:

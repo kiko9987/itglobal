@@ -124,6 +124,16 @@ def reconcile_project_cards() -> dict:
                 result['baseline'] += 1
                 continue
 
+            # 감시 필드가 새로 생긴 경우(예: 2026-10-22 거래처명) 스냅샷에 없는 필드는 지금 값을
+            # 조용히 기준값으로 — 없으면 '' → 현재값 변화로 보여 카드 수백 장에 댓글이 쏟아진다.
+            missing = {f: cur.get(f, '') for f in watch if f not in prev}
+            if missing:
+                try:
+                    rc.hset(_SNAP_PREFIX + code, mapping=missing)
+                except Exception as exc:
+                    logger.debug(f'[RECONCILE] 새 필드 기준값 저장 실패 ({code}): {exc}')
+                prev.update(missing)
+
             diffs = [f for f in watch
                      if _fmt_field(f, prev.get(f, '')) != _fmt_field(f, cur.get(f, ''))]
             if not diffs:

@@ -1466,5 +1466,16 @@ def _maybe_update_business_name(code: str, ocr_name: str) -> tuple:
     except Exception:
         pass
 
+    # 같은 곳 공사가 있으면 거래처명 묶기 — 온라인 고객은 여기서 처음 사업자명이 생긴다(2026-10-22).
+    #   공사확정 카드가 없는 공사는 리컨사일러가 안 보므로 여기서 직접 부름.
+    def _bind_place():
+        try:
+            from dashboard.services.partner_names import apply_place_on_biz_change
+            apply_place_on_biz_change(code, ocr_name)
+        except Exception as exc:
+            logger.warning(f'[LICENSE/OCR] 같은 곳 거래처명 묶기 실패 ({code}): {exc}')
+    import threading as _th
+    _th.Thread(target=_bind_place, daemon=True).start()
+
     logger.info(f'[LICENSE/OCR] 사업자명 자동 저장: {code} → {ocr_name!r}')
     return 'saved', ''
