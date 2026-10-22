@@ -368,6 +368,17 @@ def start_scheduler():
         )
         jobs.append('거래처 신규 증분 매일 07:00')
 
+    # 2026-10-22 거래처 탭 캐시 10분마다 — 새 줄이 다음 날 아침까지 반영 안 되던 문제.
+    #   (원래 07:00 국세청 증분에 묶여 있었음. 캐시는 시트 읽기뿐이라 국세청 키와 무관하게 등록.)
+    _scheduler.add_job(
+        _safe_partner_cache_rebuild,
+        'interval',
+        minutes=10,
+        id='partner_cache_rebuild',
+        replace_existing=True,
+    )
+    jobs.append('거래처 캐시 재구성 10분마다')
+
     # 2026-09-02 사업자등록증 상태 캐시 워밍 — PM '첫 조회' 지연 제거 (Redis 영구캐시 + 워머).
     #   미캐시 비취소 프로젝트만 계산·저장(화면 밖 백그라운드). 이미 캐시된 건은 즉시 skip.
     _scheduler.add_job(
@@ -812,6 +823,19 @@ def _safe_partner_status_fill_new():
         rebuild_partner_caches()
     except Exception as exc:
         logger.error(f'[SCHED] 거래처 신규 증분/캐시 실패: {exc}', exc_info=True)
+
+
+def _safe_partner_cache_rebuild():
+    """거래처 탭 캐시만 다시 만들기 (10분마다, 시트 읽기 1회 — 쓰기 없음).
+
+    거래처 탭 새 줄이 다음 날 07:00 까지 계산서 창·발행 가능 판정에 안 잡히던 문제 (2026-10-22).
+    국세청 상태(J/K) 증분은 매일 07:00 그대로 — 입력 중인 줄을 조회해 '조회안됨'으로 굳히지 않게.
+    """
+    try:
+        from dashboard.services.partner_status_sync import rebuild_partner_caches
+        rebuild_partner_caches()
+    except Exception as exc:
+        logger.warning(f'[SCHED] 거래처 캐시 재구성 실패 (다음 주기 재시도): {exc}')
 
 
 def _safe_warm_license_states():

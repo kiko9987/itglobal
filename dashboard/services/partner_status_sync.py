@@ -200,7 +200,10 @@ _INFO_MAP_KEY = 'partner_info_map'          # Redis hash: norm_biz -> {bno,name,
 
 
 def rebuild_partner_caches() -> dict:
-    """거래처 탭 캐시 2종 재구성 (거래처 탭 A:G 1회 로드).
+    """거래처 탭 캐시 재구성 (거래처 탭 A:G 1회 로드). 10분마다 + 매일 07:00 국세청 증분 뒤.
+
+    거래처 탭에 줄을 넣으면 10분 안에 계산서 창 이메일·등록증 대신 발행 가능 판정에 반영
+    (2026-10-22 — 원래 매일 07:00 국세청 증분 잡에 묶여 다음 날 아침에야 반영됐음).
 
     ① 상호→이메일 (계산서 모달 pre-fill) — 모호(같은 상호 다른 이메일)·빈값 제외, 정밀 우선.
     ② 번호→상호 (사업자등록증 OCR 역조회) — 사업자번호는 유일키라 모호성 없음.
@@ -239,29 +242,62 @@ def rebuild_partner_caches() -> dict:
             name_by_bno[bno] = name  # 번호 유일 → 마지막 값 (거래처 탭 정렬상 무해)
     email_cache = {k: next(iter(v)) for k, v in name_emails.items() if len(v) == 1}
     ambiguous = sum(1 for v in name_emails.values() if len(v) > 1)
+    added = set()
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        rc.delete(_EMAIL_CACHE_KEY)
+        old_names = set(rc.smembers(_NAME_SET_KEY) or [])
+        # 지우기+쓰기를 한 트랜잭션으로 — 10분마다 다시 만들 때 조회가 빈 캐시를 만나
+        #   '거래처 아님(발행 불가)'으로 잘못 판정되지 않게 (2026-10-22 매일 07:00 → 10분).
+        pipe = rc.pipeline(transaction=True)
+        pipe.delete(_EMAIL_CACHE_KEY)
         if email_cache:
-            rc.hset(_EMAIL_CACHE_KEY, mapping=email_cache)
-        rc.delete(_NAME_BY_BNO_KEY)
+            pipe.hset(_EMAIL_CACHE_KEY, mapping=email_cache)
+        pipe.delete(_NAME_BY_BNO_KEY)
         if name_by_bno:
-            rc.hset(_NAME_BY_BNO_KEY, mapping=name_by_bno)
-        rc.delete(_NAME_SET_KEY)
+            pipe.hset(_NAME_BY_BNO_KEY, mapping=name_by_bno)
+        pipe.delete(_NAME_SET_KEY)
         if name_set:
-            rc.sadd(_NAME_SET_KEY, *name_set)
-        rc.delete(_INFO_MAP_KEY)
+            pipe.sadd(_NAME_SET_KEY, *name_set)
+        pipe.delete(_INFO_MAP_KEY)
         if info_map:
-            rc.hset(_INFO_MAP_KEY, mapping={k: _json.dumps(v, ensure_ascii=False) for k, v in info_map.items()})
+            pipe.hset(_INFO_MAP_KEY, mapping={k: _json.dumps(v, ensure_ascii=False) for k, v in info_map.items()})
+        pipe.execute()
+        if old_names:  # 처음 만들 때(빈 캐시)는 전부 '새 상호'라 제외
+            added = name_set - old_names
     except Exception as exc:
         logger.warning(f'[거래처캐시] 저장 실패: {exc}')
-    logger.info(
+    if added:
+        _clear_license_negatives(added)
+    (logger.info if added else logger.debug)(
         f'[거래처캐시] 재구성 — 이메일 {len(email_cache)}건(모호 {ambiguous} 제외), '
         f'번호→상호 {len(name_by_bno)}건, 상호세트 {len(name_set)}건, 정보맵 {len(info_map)}건'
+        + (f', 새 상호 {len(added)}건' if added else '')
     )
     return {'email_cached': len(email_cache), 'ambiguous': ambiguous,
-            'name_by_bno': len(name_by_bno), 'name_set': len(name_set), 'info_map': len(info_map)}
+            'name_by_bno': len(name_by_bno), 'name_set': len(name_set), 'info_map': len(info_map),
+            'added': len(added)}
+
+
+def _clear_license_negatives(names: set) -> int:
+    """거래처 탭에 새로 들어온 상호의 공사 → 등록증 판정 캐시 비움.
+
+    거래처 탭에 있으면 등록증 파일 없이도 계산서 발행 가능('partner')인데, 그 전에 내려진
+    '등록증 없음' 판정(1시간 캐시)이 남아 있으면 줄을 넣은 뒤에도 요청이 막힌다 (2026-10-22).
+    """
+    n = 0
+    try:
+        from dashboard.services.project_service import get_project_records
+        from dashboard.services.business_license_handler import invalidate_license_state
+        for r in (get_project_records() or []):
+            if _norm_name(r.get('사업자명') or '') in names:
+                invalidate_license_state(str(r.get('프로젝트 코드') or '').strip())
+                n += 1
+    except Exception as exc:
+        logger.warning(f'[거래처캐시] 등록증 판정 캐시 비우기 실패: {exc}')
+    if n:
+        logger.info(f'[거래처캐시] 새 거래처 {len(names)}건 → 공사 {n}건 등록증 판정 다시 계산')
+    return n
 
 
 def get_partner_info(biz_name: str) -> Optional[dict]:
