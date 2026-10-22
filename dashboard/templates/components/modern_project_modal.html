@@ -161,7 +161,8 @@
                                             <!-- 거래처 유입 시에만 노출: 사업자등록증 아직 못 받았을 때의 명시적 예외 -->
                                             <div class="form-check mt-1" id="modern-business-name-pending-wrap" style="display: none;">
                                                 <input class="form-check-input" type="checkbox" id="modern-business-name-pending">
-                                                <label class="form-check-label" for="modern-business-name-pending" style="font-size: var(--font-size-sm); color: var(--gray-600);">사업자등록증 미수령 (수령 후 PM·슬랙에 등록증 첨부하면 사업자명 자동 기재)</label>
+                                                <!-- 2026-10-23: 거래처명 칸이 생겨 칸이 좁아짐 → 옆 안내 글씨(0.75rem)와 같은 크기·한 줄로. 자세한 설명은 마우스 올리면 -->
+                                                <label class="form-check-label" for="modern-business-name-pending" title="받은 뒤 PM이나 슬랙에 등록증을 첨부하면 사업자명이 자동으로 들어갑니다." style="font-size: 0.75rem; color: var(--gray-600);">사업자등록증 미수령 (첨부하면 자동 기재)</label>
                                             </div>
                                         </div>
                                     </div>

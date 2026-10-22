@@ -5,7 +5,9 @@ import AmountCalculator from '../utils/AmountCalculator.js';
 import FormValidator from '../utils/FormValidator.js';
 import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
 import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
-import { inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz } from '../utils/partnerName.js';
+import {
+  inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz, suggestPartnerFromText,
+} from '../utils/partnerName.js';
 
 import logger from '../utils/logger.js';
 export default class ModernProjectModal {
@@ -326,7 +328,9 @@ export default class ModernProjectModal {
       },
       // 온라인 유입이고 사업자명이 아직 없으면 '사업자등록증 미수령' 자동 체크
       // (상업/의료시설 사업자 고객이 기본 — 개인 고객이면 매니저가 해제). 2026-09-20 B.
-      onLinked: () => {
+      onLinked: (lead) => {
+        // 거래처 현장이면 고객명으로 거래처명 채우기 (기존 거래처명과 맞을 때만)
+        this.fillPartnerFromLead(lead);
         const clientEl = document.getElementById('modern-client');
         const bizEl = document.getElementById('modern-business-name');
         const pendingCheck = document.getElementById('modern-business-name-pending');
@@ -581,6 +585,29 @@ export default class ModernProjectModal {
     if (requiredMark) requiredMark.style.display = '';
     if (hint) hint.textContent = '고객이 직접 돈을 내도 일을 맡긴 업체 이름을 넣으세요.';
     this.suggestPartnerName();
+  }
+
+  /**
+   * 방문 현장(거래처 리드)을 불러왔을 때 거래처명 채우기 (2026-10-23).
+   * 리드 고객명은 자유 입력('인투익스', '양준혁/코나아이', '안산 인테리어 실장')이라, 기존 거래처명과
+   * 맞을 때만 채우고 아니면 불러온 이름을 안내만 한다 — 사람·최종 고객 이름이 거래처명으로 들어가지 않게.
+   */
+  fillPartnerFromLead(lead) {
+    const inflow = (document.getElementById('modern-client')?.value || '').trim();
+    const input = document.getElementById('modern-partner-name');
+    const hint = document.getElementById('modern-partner-name-hint');
+    if (inflow !== '거래처' || !input || (input.value || '').trim()) return;
+    const name = String(lead?.name || '').trim();
+    if (!name || name === '-') return;
+    const rows = window.ITGlobalApp?.api?.getCurrentData?.() || this._projectRows || [];
+    const found = suggestPartnerFromText(name, rows);
+    if (found) {
+      input.value = found;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (hint) hint.textContent = `불러온 현장(${name})의 거래처로 채웠습니다. 다르면 고쳐 주세요.`;
+    } else if (hint) {
+      hint.textContent = `불러온 현장 이름(${name})이 거래처 목록에 없습니다. 일을 맡긴 업체를 고르거나 입력하세요.`;
+    }
   }
 
   /** 거래처 유입이고 거래처명이 비어 있으면 사업자명으로 제안 (같은 곳 기존 이름 > 짧은 사업자명) */

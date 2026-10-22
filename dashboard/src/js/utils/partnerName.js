@@ -67,3 +67,31 @@ export function suggestPartnerForBiz(biz, rows) {
   counts.forEach((n, p) => { if (n > bestN) { best = p; bestN = n; } });
   return best;
 }
+
+/**
+ * 자유 입력 이름(방문 현장 고객명 등)에서 기존 거래처명 찾기 — 확실할 때만.
+ * ① 같은 곳(띄어쓰기·법인 표기 무시) ② 기존 거래처명(3자 이상)이 그대로 들어 있음('양준혁/코나아이' → 코나아이),
+ * 후보가 여럿이면 가장 긴 것, 같은 길이로 갈리면 '' (2026-10-23 거래처 리드 70건 대조: 제안 18건 중 13건 일치,
+ * 나머지도 대부분 공사 쪽 거래처명이 고객으로 잘못 들어간 경우). 고객명이 사람·고객이면 '' → 직접 고름.
+ */
+export function suggestPartnerFromText(text, rows) {
+  const counts = new Map();
+  (rows || []).forEach((r) => {
+    const p = String(r?.['거래처명'] ?? '').trim();
+    if (isPartnerName(p)) counts.set(p, (counts.get(p) || 0) + 1);
+  });
+  const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a));
+  const key = partnerPlaceKey(text);
+  if (key) {
+    const same = names.find((n) => partnerPlaceKey(n) === key);
+    if (same) return same;
+  }
+  const flat = (s) => shortPartnerName(s).replace(/\s+/g, '').toLowerCase();
+  const q = flat(text);
+  if (!q) return '';
+  const cands = names.filter((n) => flat(n).length >= 3 && q.includes(flat(n)));
+  if (!cands.length) return '';
+  const best = Math.max(...cands.map((n) => flat(n).length));
+  const top = [...new Set(cands.filter((n) => flat(n).length === best).map((n) => partnerPlaceKey(n)))];
+  return top.length === 1 ? cands.find((n) => flat(n).length === best) : '';
+}
