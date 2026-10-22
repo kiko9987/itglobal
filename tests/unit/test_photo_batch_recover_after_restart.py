@@ -36,7 +36,7 @@ def env(monkeypatch):
     import dashboard.utils.redis_client as rcm
     folder = set()
     uploads = []
-    monkeypatch.setattr(gd, 'list_folder_filenames', lambda fid: set(folder))
+    monkeypatch.setattr(gd, 'list_folder_filenames', lambda fid, strict=False: set(folder))
 
     def _up(fid, name, content, mimetype=''):
         uploads.append(name)

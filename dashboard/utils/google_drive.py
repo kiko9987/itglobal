@@ -290,13 +290,17 @@ def upload_file(folder_id: str, filename: str, content: bytes,
     return None
 
 
-def list_folder_filenames(folder_id: str) -> set:
+def list_folder_filenames(folder_id: str, strict: bool = False) -> set:
     """folder_id 안(1단계) 파일명 set 반환. 업로드 멱등 dedup 용 (2026-07-30).
 
     조회 실패 시 빈 set (dedup 못 하면 그냥 업로드 — 안전 방향).
+    strict=True 면 실패를 예외로 올림 — 재시작 복구처럼 '빈 폴더'로 보면 이미 올라간 사진을
+    다시 올려 겹치는 곳용 (2026-10-22 L-04307 확인 단계 HttpError 500).
     """
     service = _get_drive_service()
     if not service or not folder_id:
+        if strict and folder_id:
+            raise RuntimeError('Drive 서비스 없음')
         return set()
     names = set()
     page_token = None
@@ -316,5 +320,7 @@ def list_folder_filenames(folder_id: str) -> set:
                 break
     except Exception as exc:
         logger.warning(f"[DRIVE] 폴더 파일명 조회 실패 ({folder_id}): {exc}")
+        if strict:
+            raise
         return set()
     return names

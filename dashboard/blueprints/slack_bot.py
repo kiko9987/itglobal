@@ -11708,9 +11708,38 @@ def _process_visit_thread_files(client, event) -> None:
                        'url': f.get('url_private_download') or f.get('url_private') or '',
                        'mime': f.get('mimetype') or 'image/jpeg'} for f in files],
             'created': time.time(),
+            # 재시작이 루프 뒤 단계(최종 답글·방문 완료)까지 끊어도 복구가 마무리하도록 (2026-10-22)
+            'lead_no': lead_no, 'user': uploader_id,
+            'lead_folder_id': lead_folder['id'], 'photo_folder_id': photo_folder['id'],
+            'folder_name': folder_name, 'location': location,
         }), ex=2 * 86400)
     except Exception as _bexc:
         logger.warning(f"[SLACK/방문 사진] 배치 상태 기록 실패: {_bexc}")
+
+    def _batch_update(**fields):
+        """배치 기록 갱신 — replied(최종 답글 끝남)·done(루프 뒤 단계까지 끝남)."""
+        try:
+            from dashboard.utils.redis_client import get_redis_client as _get_rc_u
+            _rcu = _get_rc_u().redis
+            _raw = _rcu.get(_batch_key)
+            if _raw:
+                _d = json.loads(_raw.decode() if isinstance(_raw, bytes) else _raw)
+                _d.update(fields)
+                _rcu.set(_batch_key, json.dumps(_d), ex=2 * 86400)
+        except Exception:
+            pass
+
+    def _batch_finished():
+        """루프 뒤 단계(답글·방문 완료)까지 끝남 → 실패 0 이면 배치 삭제, 실패가 있으면 done 표시
+        (복구는 빠진 파일만 다시 올림). 그 전에 재시작이 끊으면 키가 남아 복구가 마무리한다."""
+        if failed:
+            _batch_update(done=True)
+            return
+        try:
+            from dashboard.utils.redis_client import get_redis_client as _get_rc_d
+            _get_rc_d().redis.delete(_batch_key)
+        except Exception:
+            pass
 
     # 멱등 dedup — 이미 폴더에 있는 파일명은 재업로드 skip (중복 file_shared 이벤트·
     # 재처리·재시작 복구 시 중복 방지, 2026-07-30)
@@ -11803,13 +11832,8 @@ def _process_visit_thread_files(client, event) -> None:
             except Exception:
                 pass  # 진행 표시 실패는 무시
 
-    # 루프 정상 완료(실패 0) → 복구 대상에서 제거. 실패/hang 이면 키 유지 → 복구가 재시도.
-    if failed == 0:
-        try:
-            from dashboard.utils.redis_client import get_redis_client as _get_rc_d
-            _get_rc_d().redis.delete(_batch_key)
-        except Exception:
-            pass
+    # 배치 기록은 루프 뒤 단계(최종 답글·방문 완료)까지 끝난 뒤 정리(_batch_finished) — 루프 직후
+    #   지우면 그 사이 재시작 때 답글이 '저장 중'으로 남고 방문 완료도 빠졌다 (2026-10-22 L-04307).
 
     if uploaded == 0:
         # 최종 실패 안내 — 진행 답글이 있으면 그걸로 update, 없으면 새 답글.
@@ -11834,6 +11858,8 @@ def _process_visit_thread_files(client, event) -> None:
                 )
         except Exception as exc:
             logger.warning(f"[SLACK/방문 사진] 실패 답글 전송 실패: {exc}")
+        if failed == 0:   # 크기 초과뿐 — 다시 올릴 게 없음. 실패가 있으면 키를 남겨 복구가 재시도·마무리
+            _batch_finished()
         return
 
     # 4) thread → folder 매핑 저장 (상호명 답글로 폴더명 갱신용, TTL 30일)
@@ -11878,6 +11904,8 @@ def _process_visit_thread_files(client, event) -> None:
             # 진행 답글은 삭제하지 않음 — 스레드당 답글 하나를 재사용하므로 마지막
             # 배치가 이 답글을 최종 요약으로 update 함. (삭제 시 유령 알림 발생, 2026-08-12)
             # 자동 완료 처리도 skip (마지막 배치가 담당)
+            _batch_update(replied=True)
+            _batch_finished()
             try:
                 if _rc_lock:
                     _rc_lock.delete(_lock_key)
@@ -11888,7 +11916,6 @@ def _process_visit_thread_files(client, event) -> None:
         logger.warning(f"[SLACK/방문 사진] debounce 실패, 즉시 답글 진행: {exc}")
 
     try:
-        location_suffix = f" → 현장사진/{location}" if location else ''
         # 부분 실패 표기 (일부 성공, 일부 실패/스킵)
         _partial_bits = []
         if failed:
@@ -11921,15 +11948,8 @@ def _process_visit_thread_files(client, event) -> None:
             logger.warning(f"[SLACK/방문 사진] 누적 카운트 조회 실패: {exc}")
             _rc_reply = None
 
-        reply_text = (
-            f":file_folder: 사진 {_cumul_uploaded}장을 드라이브에 저장했습니다{location_suffix}.\n"
-            f"📁 {folder_name}"
-            f"{_partial_line}"
-            f"{_visit_folder_location_lines(folder_name, lead_folder['id'])}\n"
-            f">*상호명 추가* : 답글에 \"상호 OOO\" 입력\n"
-            f">*위치 분류* : 사진 첨부시 댓글에 \"1층\" 등 함께 입력\n"
-            f">*추가 사진* : 슬랙 UI 상 10장씩 나눠 올려야 하며, 같은 폴더에 이어서 저장됩니다"
-        )
+        reply_text = _visit_photo_reply_text(
+            _cumul_uploaded, folder_name, lead_folder['id'], location, _partial_line)
 
         # 우선순위: 이전 배치 답글 > 이번 진행 답글 > 새 답글
         _final_reply_ts = ''
@@ -11981,6 +12001,8 @@ def _process_visit_thread_files(client, event) -> None:
                 _rc_reply.expire(_cumul_key, 60 * 60 * 24 * 30)
             except Exception as exc:
                 logger.warning(f"[SLACK/방문 사진] 누적 카운트 저장 실패: {exc}")
+        if _final_reply_ts:
+            _batch_update(replied=True)   # 복구가 마무리할 때 장수를 두 번 더하지 않게
     except Exception as exc:
         logger.warning(f"[SLACK/방문 사진] thread 답글 실패: {exc}")
 
@@ -11998,6 +12020,7 @@ def _process_visit_thread_files(client, event) -> None:
             )
         except Exception as exc:
             logger.warning(f"[SLACK/방문 사진] 자동 방문 완료 처리 실패 ({lead_no}): {exc}")
+    _batch_finished()
 
     # 7) 락 해제 — 이후 첨부는 즉시 처리 가능하도록 (자연 만료 60초 대신 즉시)
     try:
@@ -12005,6 +12028,20 @@ def _process_visit_thread_files(client, event) -> None:
             _rc_lock.delete(_lock_key)
     except Exception:
         pass
+
+
+def _visit_photo_reply_text(count, folder_name, lead_folder_id, location='', partial_line='') -> str:
+    """방문 사진 저장 최종 답글 — 저장 루프·재시작 복구(_finish_photo_batch) 공용."""
+    location_suffix = f" → 현장사진/{location}" if location else ''
+    return (
+        f":file_folder: 사진 {count}장을 드라이브에 저장했습니다{location_suffix}.\n"
+        f"📁 {folder_name}"
+        f"{partial_line}"
+        f"{_visit_folder_location_lines(folder_name, lead_folder_id)}\n"
+        f">*상호명 추가* : 답글에 \"상호 OOO\" 입력\n"
+        f">*위치 분류* : 사진 첨부시 댓글에 \"1층\" 등 함께 입력\n"
+        f">*추가 사진* : 슬랙 UI 상 10장씩 나눠 올려야 하며, 같은 폴더에 이어서 저장됩니다"
+    )
 
 
 _SITE_PHOTO_FILETYPES = {'jpg', 'jpeg', 'heic', 'heif'}
@@ -16531,6 +16568,82 @@ def _clear_stale_failure_note(batch, rc, token):
         logger.warning(f'[SLACK/방문사진복구] 실패 표기 정리 실패: {exc}')
 
 
+def _finish_photo_batch(b: dict, rc, token: str, recovered: int = 0) -> None:
+    """재시작으로 끊긴 방문 사진 배치 마무리 — 저장 루프 뒤 단계를 대신 한다 (2026-10-22).
+
+    L-04307: 사진 저장 중 재시작 → 복구가 남은 사진은 올렸지만 답글이 '저장 중 (5/10)'으로
+    남고 방문 완료도 안 됐다. ① 최종 답글(누적 장수, 이미 답했으면 생략) ② 스레드→폴더 매핑
+    (없을 때만) ③ 현장 사진이면 자동 방문 완료(_auto_complete_visit_from_photo — 중복·방문일 확인 포함).
+    """
+    channel, thread_ts = b.get('channel'), b.get('thread_ts')
+    if not (channel and thread_ts and token):
+        return
+    from slack_sdk import WebClient
+    client = WebClient(token=token)
+    lead_no = b.get('lead_no') or ''
+    if not lead_no:  # 옛 배치(필드 추가 전) — 카드에서 리드 번호를 읽음
+        try:
+            root = (client.conversations_replies(channel=channel, ts=thread_ts, limit=1,
+                                                 inclusive=True).get('messages') or [{}])[0]
+            txt = root.get('text', '') + ' ' + ' '.join(
+                (blk.get('text') or {}).get('text', '') for blk in (root.get('blocks') or []))
+            m = re.search(r'L-\d{5}', txt)
+            lead_no = m.group(0) if m else ''
+        except Exception:
+            pass
+    bfiles = b.get('files') or []
+
+    if not b.get('replied'):
+        ckey = f'visit_photo_reply:{channel}:{thread_ts}'
+        try:
+            prev = {(k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
+                    for k, v in (rc.hgetall(ckey) or {}).items()}
+        except Exception:
+            prev = {}
+        try:
+            count = int(prev.get('count') or 0) + len(bfiles)
+        except ValueError:
+            count = len(bfiles)
+        if b.get('folder_name') and b.get('lead_folder_id'):
+            text = _visit_photo_reply_text(count, b['folder_name'], b['lead_folder_id'], b.get('location') or '')
+        else:
+            text = f':file_folder: 사진 {count}장을 드라이브에 저장했습니다.'
+        if recovered:
+            first, _, rest = text.partition('\n')
+            text = f'{first}\n_(서버 재시작으로 끊겼던 {recovered}장은 자동으로 이어서 저장했습니다)_' + (f'\n{rest}' if rest else '')
+        ts = prev.get('ts') or b.get('reply_ts') or ''
+        try:
+            if ts:
+                client.chat_update(channel=channel, ts=ts, text=text)
+            else:
+                ts = (client.chat_postMessage(channel=channel, thread_ts=thread_ts, text=text,
+                                              unfurl_links=False) or {}).get('ts') or ''
+            if ts:
+                rc.hset(ckey, mapping={'ts': ts, 'count': str(count)})
+                rc.expire(ckey, 60 * 60 * 24 * 30)
+        except Exception as exc:
+            logger.warning(f'[SLACK/방문사진복구] 최종 답글 갱신 실패 ({lead_no}): {exc}')
+
+    if b.get('lead_folder_id') and b.get('photo_folder_id'):
+        try:
+            vkey = f'visit_thread:{channel}:{thread_ts}'
+            if not rc.exists(vkey):  # 저장 루프가 이미 남겼으면 그대로(상호명 등 보존)
+                rc.hset(vkey, mapping={
+                    'lead_folder_id': b['lead_folder_id'], 'photo_folder_id': b['photo_folder_id'],
+                    'prefix': '', 'initial': '', 'address': '', 'date': '', 'shop_name': ''})
+                rc.expire(vkey, 60 * 60 * 24 * 30)
+        except Exception:
+            pass
+
+    if lead_no and _has_site_photo([{'name': f.get('name'), 'mimetype': f.get('mime')} for f in bfiles]):
+        try:
+            _auto_complete_visit_from_photo(client, channel=channel, thread_ts=thread_ts,
+                                            lead_no=lead_no, event_user_id=b.get('user') or '')
+        except Exception as exc:
+            logger.warning(f'[SLACK/방문사진복구] 자동 방문 완료 실패 ({lead_no}): {exc}')
+    logger.info(f'[SLACK/방문사진복구] {lead_no or thread_ts} 끊긴 배치 마무리 (사진 {len(bfiles)}장, 이어서 저장 {recovered}장)')
+
+
 _PROC_STARTED_AT = time.time()   # 이 프로세스 시작 시각 — 그 전 배치는 진행 중일 수 없음
 
 
@@ -16578,7 +16691,10 @@ def _recover_photo_batches():
         #   것이라 바로 복구 (2026-10-22 L-04320: 재시작 직전 배치를 시작 복구가 3분 규칙으로 넘겨
         #   5분 뒤에야 복구 → 그사이 '저장 중 (0/9)'로 멈춘 줄 알고 매니저가 사진을 다시 올림).
         _created = float(b.get('created', 0) or 0)
-        if _created >= _PROC_STARTED_AT and now - _created < 180:
+        if _created >= _PROC_STARTED_AT and (
+                now - _created < 180
+                # 저장 루프가 아직 그 리드 사진 락을 잡고 있으면(큰 배치는 3분 넘게 걸림) 진행 중
+                or (b.get('lead_no') and rc.exists(f"visit_photo_lock:{b['lead_no']}"))):
             continue
         fid = b.get('folder_id')
         bfiles = b.get('files') or []
@@ -16587,14 +16703,19 @@ def _recover_photo_batches():
             continue
         checked += 1
         try:
-            existing = list_folder_filenames(fid)
+            # strict — 조회 실패를 '빈 폴더'로 보면 이미 올라간 사진까지 다시 올려 겹친다
+            existing = list_folder_filenames(fid, strict=True)
         except Exception as exc:
-            logger.warning(f'[SLACK/방문사진복구] 폴더 조회 실패 ({fid}): {exc}')
+            logger.warning(f'[SLACK/방문사진복구] 폴더 조회 실패 — 다음 주기에 다시 ({fid}): {exc}')
             continue
         missing = [f for f in bfiles if f.get('name') and f['name'] not in existing]
         if not missing:
-            # 전부 폴더에 있음 = 실패로 표시됐지만 실제론 저장된 오탐 케이스 → 카드 실패 표기 정리
-            _clear_stale_failure_note(b, rc, token)
+            if b.get('done'):
+                # 저장 루프가 답글·완료까지 마쳤는데 실패로 셌던 오탐 → 카드 실패 표기 정리
+                _clear_stale_failure_note(b, rc, token)
+            else:
+                # 루프 뒤 단계(최종 답글·방문 완료)가 재시작으로 끊긴 배치 → 마무리 (2026-10-22 L-04307)
+                _finish_photo_batch(b, rc, token, recovered=int(b.get('recovered') or 0))
             rc.delete(k)
             continue
         rec = []
@@ -16614,12 +16735,21 @@ def _recover_photo_batches():
             logger.info(f'[SLACK/방문사진복구] {b.get("thread_ts")} {len(rec)}장 복구: {rec}')
         # 재확인 후 다 채워졌으면 키 삭제 + (reply_ts 있으면) 스레드 답글 최종 갱신
         try:
-            still = [f for f in bfiles
-                     if f.get('name') and f['name'] not in list_folder_filenames(fid)]
+            _now_names = list_folder_filenames(fid, strict=True)
+            still = [f for f in bfiles if f.get('name') and f['name'] not in _now_names]
         except Exception:
-            still = missing
+            still = missing   # 확인 못 함 — 키를 남겨 다음 주기가 확인·마무리
+        if still and rec:     # 다음 주기가 마무리할 때 '이어서 저장한 장수'를 알 수 있게
+            try:
+                b['recovered'] = int(b.get('recovered') or 0) + len(rec)
+                rc.set(k, json.dumps(b), ex=2 * 86400)
+            except Exception:
+                pass
         if not still:
             rc.delete(k)
+            if not b.get('done'):
+                _finish_photo_batch(b, rc, token, recovered=int(b.get('recovered') or 0) + len(rec))
+                continue
             reply_ts = b.get('reply_ts')
             if reply_ts and rec and token:
                 try:
