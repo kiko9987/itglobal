@@ -51,6 +51,21 @@ def test_new_online_first_project_gets_group():
     assert (name, promote, place) == ('온라인', [], '')
 
 
+def test_new_online_with_biz_gets_short_biz():
+    """10-23 사용자 요청: 거래처가 아니어도 사업자명이 있으면 짧은 사업자명(시트에서 누군지 보이게)."""
+    assert pn.resolve_new_partner('당근', '(주)한빛상사', '', [])[0] == '한빛상사'
+    assert pn.resolve_new_partner('전화', '개인', '', [])[0] == '전화'
+
+
+@pytest.mark.parametrize('when,quiet', [
+    ('2026-10-23 01:00', True), ('2026-10-23 08:00', False), ('2026-10-23 16:59', False),
+    ('2026-10-23 17:00', True), ('2026-10-24 11:00', True),          # 토요일
+])
+def test_quiet_hours(when, quiet):
+    from datetime import datetime
+    assert pn.quiet_hours(datetime.strptime(when, '%Y-%m-%d %H:%M')) is quiet
+
+
 def test_new_partner_inflow_uses_short_biz_or_dash():
     assert pn.resolve_new_partner('거래처', '주식회사 한빛인테리어', '', [])[0] == '한빛인테리어'
     assert pn.resolve_new_partner('거래처', '-', '', [])[0] == '-'          # 확인 필요
@@ -122,13 +137,13 @@ def promote_env(monkeypatch):
     import dashboard.utils.redis_client as rcm
     import dashboard.utils.user_database as udb
     import dashboard.services.project_slack_notifier as psn
-    out = {'enq': [], 'cache': [], 'notify': [], 'mgr': None, 'recs': []}
+    out = {'enq': [], 'cache': [], 'notify': [], 'mgr': None, 'recs': [], 'marks': []}
     monkeypatch.setattr(ls, 'get_sheets_manager', lambda: out['mgr'])
     monkeypatch.setattr(ps, 'get_project_records', lambda force_refresh=False: out['recs'])
     monkeypatch.setattr(ps, 'update_project_in_cache', lambda c, f: out['cache'].append((c, f)) or True)
     monkeypatch.setattr(q, 'enqueue', lambda op, payload, meta=None: out['enq'].append((op, payload)))
-    monkeypatch.setattr(rcm, 'get_redis_client',
-                        lambda: type('C', (), {'redis': type('R', (), {'setex': lambda *a: None})()})())
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': type('R', (), {
+        'setex': lambda self, k, t, v: out['marks'].append(k)})()})())
     monkeypatch.setattr(udb, 'get_audit_repository',
                         lambda: type('A', (), {'log_action': lambda *a, **k: True})())
     monkeypatch.setattr(psn, 'notify_project_field_changes', lambda *a, **k: out['notify'].append((a, k)) or True)
@@ -142,8 +157,9 @@ def test_promote_writes_partner_and_bumps_version(promote_env):
         'G3': (12, {'프로젝트 코드': 'G3', '거래처명': '-', '_version': '0'}),            # 확인 필요 → 그대로
     })
     promote_env['recs'] = [{'프로젝트 코드': 'G1', '거래처명': '온라인', '_version': '5'}]   # 큐에 남은 PM 저장
-    n = pn.promote_previous(['G1', 'G2', 'G3'], '한빛', why='같은 곳 공사 G9 등록')
+    n = pn.promote_previous(['G1', 'G2', 'G3'], '한빛', why='같은 곳 공사 G9 등록', quiet=False)
     assert n == 1
+    assert promote_env['marks'] == ['project_sys_edit:G1']
     (op, payload), = promote_env['enq']
     f2l = main_field_to_letter()
     assert op == 'project_update_sheet' and payload['row_number'] == 10
@@ -154,6 +170,20 @@ def test_promote_writes_partner_and_bumps_version(promote_env):
     assert kw['editor'] == '시스템 자동기록 · 같은 곳 공사 G9 등록'
 
 
+def test_promote_quiet_sets_pm_marker_without_comment(promote_env):
+    """업무시간 밖(quiet) — 카드 댓글 없이 PM 편집 마커만 (리컨사일러가 기준값만 맞춤)."""
+    promote_env['mgr'] = _Mgr({'G1': (10, {'프로젝트 코드': 'G1', '거래처명': '온라인', '_version': '1'})})
+    assert pn.promote_previous(['G1'], '한빛', quiet=True) == 1
+    assert promote_env['marks'] == ['project_pm_edit:G1'] and promote_env['notify'] == []
+
+
+def test_promote_replace_follows_old_biz_name(promote_env):
+    promote_env['mgr'] = _Mgr({'G1': (10, {'프로젝트 코드': 'G1', '거래처명': '한빛', '_version': '1'})})
+    assert pn.promote_previous(['G1'], '두리상사', quiet=True) == 0                     # 이름이면 기본은 그대로
+    assert pn.promote_previous(['G1'], '두리상사', replace={'G1': '(주)한빛'}, quiet=True) == 1
+    assert promote_env['enq'][0][1]['cells'][0]['value'] == '두리상사'
+
+
 def test_promote_ignores_non_name():
     assert pn.promote_previous(['G1'], '온라인') == 0
     assert pn.promote_previous([], '한빛') == 0
@@ -161,15 +191,26 @@ def test_promote_ignores_non_name():
 
 def test_biz_change_binds_same_place(monkeypatch):
     import dashboard.services.project_service as ps
-    recs = [_rec('G1', '당근', '한빛', '온라인'), _rec('G5', '숨고', '-', '온라인')]
+    recs = [_rec('G1', '당근', '한빛', '온라인'), _rec('G5', '숨고', '-', '온라인'),
+            _rec('G7', '당근', '(주)한빛', '한빛'), _rec('G8', '거래처', '메이드바이', '메이드바이')]
     monkeypatch.setattr(ps, 'get_project_records', lambda force_refresh=False: recs)
     got = []
-    monkeypatch.setattr(pn, 'promote_previous', lambda codes, name, why='', editor='': got.append((codes, name)) or 2)
+    monkeypatch.setattr(pn, 'promote_previous',
+                        lambda codes, name, why='', editor='', replace=None, quiet=None:
+                        got.append((codes, name, replace or {}, quiet)) or len(codes))
+    # 같은 곳(G1·G7)이 있는 사업자명이 채워짐 → 이 공사는 조용히, 묶음으로 남은 G1 은 소급
     assert pn.apply_place_on_biz_change('G5', '(주)한빛') == 2
-    assert got == [(['G5', 'G1'], '한빛')]
-    # 같은 곳이 없으면 아무것도 안 함
+    assert got == [(['G5'], '한빛', {}, True), (['G1'], '한빛', {}, None)]
+    # 같은 곳이 없어도 이 공사는 짧은 사업자명
     got.clear()
-    assert pn.apply_place_on_biz_change('G5', '다른상호') == 0 and got == []
+    assert pn.apply_place_on_biz_change('G5', '다른상호') == 1
+    assert got == [(['G5'], '다른상호', {}, True)]
+    # 사업자명을 고침 — 옛 사업자명에서 나온 거래처명은 따라감, 거래처 유입(일 준 업체)은 그대로
+    got.clear()
+    pn.apply_place_on_biz_change('G7', '두리상사', old_biz='(주)한빛')
+    assert got == [(['G7'], '두리상사', {'G7': '한빛'}, True)]
+    got.clear()
+    assert pn.apply_place_on_biz_change('G8', '홍길동상회', old_biz='메이드바이') == 0 and got == []
     assert pn.apply_place_on_biz_change('G5', '-') == 0
 
 

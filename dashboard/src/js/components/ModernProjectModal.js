@@ -6,7 +6,8 @@ import FormValidator from '../utils/FormValidator.js';
 import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
 import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
 import {
-  inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz, suggestPartnerFromText,
+  businessNamesForPartner, inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz,
+  suggestPartnerFromText,
 } from '../utils/partnerName.js';
 
 import logger from '../utils/logger.js';
@@ -232,6 +233,11 @@ export default class ModernProjectModal {
     }
     // 거래처 유입: 사업자명을 넣으면 같은 곳 기존 거래처명(없으면 짧은 사업자명)을 거래처명 칸에 제안.
     //   이미 고른 거래처명은 건드리지 않음 (고객이 돈 내는 인테리어 경유 공사는 직접 고름)
+    // 거래처명을 넣으면 사업자명 목록을 그 거래처 공사에 쓰인 상호로 좁힘 (2026-10-23 사용자 요청)
+    const partnerInputForBiz = document.getElementById('modern-partner-name');
+    if (partnerInputForBiz) {
+      partnerInputForBiz.addEventListener('input', () => this.filterBusinessNamesByPartner());
+    }
     const bizInputForPartner = document.getElementById('modern-business-name');
     if (bizInputForPartner) {
       bizInputForPartner.addEventListener('change', () => this.suggestPartnerName());
@@ -574,7 +580,7 @@ export default class ModernProjectModal {
     }
     if (inflow !== '거래처') {
       lock('등록하면 자동으로 채웁니다',
-        `같은 곳 공사가 있으면 그곳 이름, 처음이면 '${inflowGroup(inflow)}' 묶음으로 채웁니다.`);
+        `사업자명이 있으면 그 이름(짧게), 없으면 '${inflowGroup(inflow)}' 묶음으로 채웁니다.`);
       return;
     }
     input.readOnly = false;
@@ -618,10 +624,36 @@ export default class ModernProjectModal {
     const biz = (document.getElementById('modern-business-name')?.value || '').trim();
     if (!isPartnerName(biz)) return;
     input.value = suggestPartnerForBiz(biz, this._projectRows) || shortPartnerName(biz);
+    this.filterBusinessNamesByPartner();
+  }
+
+  /**
+   * 사업자명 자동완성 목록 — 거래처 유입이고 거래처명이 있으면 그 거래처 공사에 쓰인 상호만
+   * (거래처 자신 상호 먼저, 그다음 그 거래처를 통해 돈 낸 고객 상호). 해당 상호가 없는 새 거래처거나
+   * 거래처명이 비면 전체 목록. 목록 밖 상호도 직접 입력 가능(datalist).
+   */
+  filterBusinessNamesByPartner() {
+    const list = document.getElementById('modernBusinessNameList');
+    if (!list) return;
+    const inflow = (document.getElementById('modern-client')?.value || '').trim();
+    const partner = (document.getElementById('modern-partner-name')?.value || '').trim();
+    let names = this._allBusinessNames || [];
+    if (inflow === '거래처' && isPartnerName(partner)) {
+      const rows = window.ITGlobalApp?.api?.getCurrentData?.() || this._projectRows || [];
+      const narrowed = businessNamesForPartner(partner, rows);
+      if (narrowed.length) names = narrowed;
+    }
+    list.innerHTML = '';
+    names.forEach((name) => {
+      const option = document.createElement('option');
+      option.value = name;
+      list.appendChild(option);
+    });
   }
 
   syncBusinessNameLock() {
     this.syncPartnerNameLock();
+    this.filterBusinessNamesByPartner();
     const clientSelect = document.getElementById('modern-client');
     const bizInput = document.getElementById('modern-business-name');
     if (!clientSelect || !bizInput) return;
@@ -1009,15 +1041,9 @@ export default class ModernProjectModal {
 
     // 사업자명 (E열, 신규) - datalist 자동완성
     const businessNames = data.options?.businessNames || data.businessNames || [];
-    const businessNameList = document.getElementById('modernBusinessNameList');
-    if (businessNameList) {
-      businessNameList.innerHTML = '';
-      businessNames.forEach(name => {
-        const option = document.createElement('option');
-        option.value = name;
-        businessNameList.appendChild(option);
-      });
-    }
+    // 전체 목록은 보관 — 거래처 유입이면 filterBusinessNamesByPartner 가 그 거래처 상호로 좁힘
+    this._allBusinessNames = businessNames;
+    this.filterBusinessNamesByPartner();
 
     // 거래처명 - datalist 자동완성 (실제 이름만)
     const partnerNames = data.options?.partnerNames || data.partnerNames || [];

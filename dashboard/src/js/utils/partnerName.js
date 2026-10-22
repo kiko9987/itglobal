@@ -69,6 +69,26 @@ export function suggestPartnerForBiz(biz, rows) {
 }
 
 /**
+ * 이 거래처 공사들에 쓰인 사업자명 — 거래처 자신의 상호 먼저, 그다음 그 거래처를 통해 돈 낸 고객 상호
+ * (각각 공사 수 많은 순). 거래처 유입 등록 때 사업자명 목록을 좁히는 데 씀 (2026-10-23 사용자 요청).
+ */
+export function businessNamesForPartner(partner, rows) {
+  const key = partnerPlaceKey(partner);
+  if (!key) return [];
+  const own = new Map();
+  const others = new Map();
+  (rows || []).forEach((r) => {
+    if (partnerPlaceKey(r?.['거래처명']) !== key) return;
+    const biz = String(r?.['사업자명'] ?? '').trim();
+    if (!isPartnerName(biz)) return;
+    const m = partnerPlaceKey(biz) === key ? own : others;
+    m.set(biz, (m.get(biz) || 0) + 1);
+  });
+  const byCount = (m) => [...m.keys()].sort((a, b) => m.get(b) - m.get(a) || a.localeCompare(b, 'ko'));
+  return [...byCount(own), ...byCount(others)];
+}
+
+/**
  * 자유 입력 이름(방문 현장 고객명 등)에서 기존 거래처명 찾기 — 확실할 때만.
  * ① 같은 곳(띄어쓰기·법인 표기 무시) ② 기존 거래처명(3자 이상)이 그대로 들어 있음('양준혁/코나아이' → 코나아이),
  * 후보가 여럿이면 가장 긴 것, 같은 길이로 갈리면 '' (2026-10-23 거래처 리드 70건 대조: 제안 18건 중 13건 일치,

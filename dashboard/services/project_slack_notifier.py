@@ -708,10 +708,11 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
     #   시트를 몇 번 읽으므로 따로 돌려 이 답글을 늦추지 않음.
     _biz_change = next((c for c in relevant if c.get('field_name') == '사업자명'), None)
     if _biz_change:
-        def _bind_place(_biz=str(_biz_change.get('new_value') or '')):
+        def _bind_place(_biz=str(_biz_change.get('new_value') or ''),
+                        _old=str(_biz_change.get('old_value') or '')):
             try:
                 from dashboard.services.partner_names import apply_place_on_biz_change
-                apply_place_on_biz_change(code, _biz)
+                apply_place_on_biz_change(code, _biz, old_biz=_old)
             except Exception as exc:
                 logger.warning(f'[PROJECT/SLACK/편집] 같은 곳 거래처명 묶기 실패 ({code}): {exc}')
         import threading as _th

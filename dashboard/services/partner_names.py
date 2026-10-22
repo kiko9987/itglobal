@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-"""거래처명(공사 현황 '거래처명' 열) 규칙 — PM·슬랙 공용 (2026-10-22 사용자 확정).
+"""거래처명(공사 현황 '거래처명' 열) 규칙 — PM·슬랙 공용 (2026-10-22 사용자 확정, 10-23 보완).
 
-- 유입 구분: 이 공사가 들어온 경로. 공사별로 그대로 둔다(광고 성과 분석 기준).
-- 거래처명: 이 공사를 맡긴 상대(곳). 거래처(인테리어 등)거나 두 번 이상 공사한 곳이면 그 이름(법인 표기를
-  뺀 부르는 이름), 아니면 유입 묶음(온라인·전화·소개·중고판매·기타). 같은 곳의 두 번째 공사가 생기면
-  첫 공사의 유입 묶음도 그 이름으로 바꾼다(유입 구분은 그대로).
+- 유입 구분: 이 공사가 들어온 경로. 공사별로 그대로 둔다(광고 성과 분석 기준). 진짜 거래처(인테리어 등)
+  여부는 이 칸('거래처')으로 본다.
+- 거래처명: 이 공사를 맡긴 곳의 부르는 이름(법인 표기 뺀). 거래처 유입이면 일을 준 업체, 그 밖은 고객 자신
+  (짧은 사업자명, 10-23 사용자 요청 — 시트에서 '온라인'만 보여 누군지 몰랐음). 사업자명이 없을 때만 유입
+  묶음(온라인·전화·소개·중고판매·기타). 같은 곳 공사가 있으면 그곳 이름을 이어 쓰고, 앞 공사의 묶음도 소급.
 - 사업자명: 실제 사업자등록증 상호 — 계산서·등록증·입금 매칭의 기준. 거래처명으로 바꾸지 말 것.
 
 '같은 곳' = 짧은 사업자명이 같은 공사. 온라인 고객은 등록 때 사업자명이 비어 있다가 등록증 OCR·편집으로
-나중에 채워지므로, 등록 때와 사업자명이 바뀔 때 두 번 묶는다(apply_place_on_biz_change).
+나중에 채워지므로, 등록 때와 사업자명이 바뀔 때 두 번 정한다(apply_place_on_biz_change).
 """
 from __future__ import annotations
 
@@ -109,10 +110,9 @@ def resolve_new_partner(inflow: str, biz: str, given: str, records: Iterable[dic
                         code: str = '') -> Tuple[str, List[str], str]:
     """새 공사의 거래처명 + 소급할 같은 곳 공사 코드 + 그곳 이름.
 
-    새 공사: ① 입력한 거래처명이 이름이면 그것 ② 같은 곳 공사가 있으면 그곳 이름 ③ 유입 '거래처'면
-    짧은 사업자명(이름이 아니면 '-' = 확인 필요) ④ 그 밖은 유입 묶음.
-    소급: 같은 곳 공사가 있으면 그중 거래처명이 유입 묶음인 것 → 그곳 이름(새 공사가 인테리어 경유여도
-    그곳 자체는 2건 이상이 됐으므로). Returns (거래처명, 소급 코드, 그곳 이름).
+    새 공사: ① 입력한 거래처명이 이름이면 그것 ② 같은 곳 공사가 있으면 그곳 이름 ③ 사업자명이 있으면
+    짧은 사업자명 ④ 없으면 거래처 유입은 '-'(확인 필요), 그 밖은 유입 묶음.
+    소급: 같은 곳 공사가 있으면 그중 거래처명이 유입 묶음인 것 → 그곳 이름. Returns (거래처명, 소급 코드, 그곳 이름).
     """
     prev = same_place(biz, list(records or []), exclude_code=code)
     pname = place_name(biz, prev) if prev else ''
@@ -120,22 +120,36 @@ def resolve_new_partner(inflow: str, biz: str, given: str, records: Iterable[dic
         name = str(given).strip()
     elif prev:
         name = pname
+    elif is_partner_name(biz):
+        name = short_name(biz)
     elif str(inflow or '').strip() == '거래처':
-        name = short_name(biz) if is_partner_name(biz) else '-'
+        name = '-'
     else:
         name = inflow_group(inflow)
     return name, (_labelled(prev) if prev else []), pname
 
 
-def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '') -> int:
+def quiet_hours(now=None) -> bool:
+    """업무시간(평일 08~17시) 밖이면 True — 카드 댓글(슬랙 알림) 없이 조용히 기록 (10-23 새벽 알림 계기)."""
+    from datetime import datetime
+    now = now or datetime.now()
+    return now.weekday() >= 5 or not (8 <= now.hour < 17)
+
+
+def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '',
+                     replace: Optional[dict] = None, quiet: Optional[bool] = None) -> int:
     """공사들의 거래처명(유입 묶음) → 거래처 이름. 공사확정 카드에 '시스템 자동기록' 댓글.
 
     PM 편집과 같은 길: 시트 행을 새로 읽어 지금 값이 유입 묶음일 때만, 쓰기 큐로 거래처명 + _version(+1)
     두 칸만 쓴다(버전을 올려야 오래 열린 PM 화면 저장이 덮어쓰지 못함). 캐시·감사 로그·카드 댓글.
+    replace={코드: 옛 이름} — 그 공사는 지금 값이 그 옛 이름(같은 곳)이어도 바꿈(사업자명을 고쳐 자동 이름이
+    따라가는 경우). quiet(기본=업무시간 밖) — 댓글 없이 PM 편집 마커만(리컨사일러가 기준값만 맞춤).
     실패한 공사는 건너뜀. Returns 바꾼 수.
     """
     if not codes or not is_partner_name(name):
         return 0
+    quiet = quiet_hours() if quiet is None else quiet
+    replace = replace or {}
     from dashboard.services.lead_service import get_sheets_manager
     from dashboard.services.project_service import get_project_records, update_project_in_cache
     from dashboard.services.sheet_write_queue import enqueue
@@ -157,8 +171,9 @@ def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '
             if cell('프로젝트 코드') != code:
                 continue
             old = cell('거래처명')
-            if is_partner_name(old) or old == '-':
-                continue                  # 그 사이 이름이 생겼거나 '확인 필요' 표시 → 그대로
+            replaceable = code in replace and is_partner_name(old) and place_key(old) == place_key(replace[code])
+            if (is_partner_name(old) and not replaceable) or old == '-' or place_key(old) == place_key(name):
+                continue                  # 그 사이 이름이 생겼거나 '확인 필요' 표시·이미 같은 이름 → 그대로
             # 버전: 시트 값과 캐시 값(큐에 아직 안 쓰인 PM 저장) 중 큰 쪽 + 1
             vers = []
             for v in (cell('_version'), rec.get('_version')):
@@ -180,7 +195,10 @@ def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '
             continue
         try:
             from dashboard.utils.redis_client import get_redis_client
-            get_redis_client().redis.setex(f'project_sys_edit:{code}', 900, '시스템 자동기록')
+            if quiet:   # 리컨사일러가 댓글 없이 기준값만 맞춤 (project_reconcile PM 편집 마커)
+                get_redis_client().redis.setex(f'project_pm_edit:{code}', 900, '1')
+            else:
+                get_redis_client().redis.setex(f'project_sys_edit:{code}', 900, '시스템 자동기록')
         except Exception:
             pass
         try:
@@ -190,6 +208,8 @@ def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '
                 project_code=code, field_name='거래처명', old_value=old, new_value=name)
         except Exception:
             pass
+        if quiet:
+            continue
         try:
             from dashboard.services.project_slack_notifier import notify_project_field_changes
             notify_project_field_changes(
@@ -202,23 +222,34 @@ def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '
     return done
 
 
-def apply_place_on_biz_change(code: str, biz: str, editor: str = '') -> int:
-    """사업자명이 새로 채워지거나 바뀐 공사 — 같은 곳 공사가 있으면 이 공사와 그 공사들의 유입 묶음을
-    그곳 이름으로 묶는다(등록 때 사업자명이 비어 있던 온라인 고객이 등록증으로 채워지는 경우 등).
+def apply_place_on_biz_change(code: str, biz: str, editor: str = '', old_biz: str = '') -> int:
+    """사업자명이 새로 채워지거나 바뀐 공사의 거래처명 맞추기 (등록 때 사업자명이 비어 있던 온라인 고객이
+    등록증으로 채워지는 경우 등). 이름 = 같은 곳 공사가 있으면 그곳 이름, 없으면 짧은 사업자명.
+    - 이 공사: 거래처명이 유입 묶음이면 바꿈. 거래처 유입이 아니고 거래처명이 옛 사업자명에서 나온 이름이면
+      (old_biz) 새 이름으로 따라감 — 거래처 유입의 거래처명(일 준 업체)은 사업자명이 바뀌어도 그대로.
+      이 공사 쪽은 사업자명 변경 알림이 따로 나가므로 조용히(댓글 없이).
+    - 같은 곳 다른 공사: 유입 묶음으로 남은 것을 그곳 이름으로 소급.
     Returns 바꾼 수."""
     if not code or not is_partner_name(biz):
         return 0
     from dashboard.services.project_service import get_project_records
     records = get_project_records() or []
     prev = same_place(biz, records, exclude_code=code)
-    if not prev:
-        return 0
-    me = [r for r in records if _code(r) == code] or [{'프로젝트 코드': code, '거래처명': ''}]
-    targets = _labelled(me + prev)
-    if not targets:
-        return 0
-    return promote_previous(targets, place_name(biz, prev), why=f'{code} 사업자명 확인 — 같은 곳 공사 묶음',
-                            editor=editor)
+    name = place_name(biz, prev) if prev else short_name(biz)
+    me = next((r for r in records if _code(r) == code), None) or {'프로젝트 코드': code, '거래처명': ''}
+    cur = str(me.get('거래처명') or '').strip()
+    replace = {}
+    if str(me.get('유입 구분') or '').strip() != '거래처' and is_partner_name(old_biz) \
+            and is_partner_name(cur) and place_key(cur) == place_key(old_biz):
+        replace[code] = cur
+    done = 0
+    if _labelled([me]) or replace:
+        done += promote_previous([code], name, why=f'{code} 사업자명 확인', editor=editor,
+                                 replace=replace, quiet=True)
+    others = _labelled(prev)
+    if others:
+        done += promote_previous(others, name, why=f'{code} 사업자명 확인 — 같은 곳 공사 묶음', editor=editor)
+    return done
 
 
 def known_partner_names(records: Iterable[dict], limit: Optional[int] = None) -> List[str]:
