@@ -47,6 +47,13 @@ def test_markdown_to_slack_flattens_tables_and_drops_noise():
     assert not any(line.strip() == ':' for line in out.split('\n'))
 
 
+def test_markdown_to_slack_drops_decorative_separator_lines():
+    md = ('제한경쟁 / 적격심사\n\n' + '\\*' * 84 + '\n\n이 입찰 설명서는\n\n' + '-' * 150
+          + '\n\n- 다 음 -\n\n═══════\n\n1. 물품구매')
+    out = dv.markdown_to_slack(md)
+    assert out.split('\n\n') == ['제한경쟁 / 적격심사', '이 입찰 설명서는', '- 다 음 -', '1. 물품구매']
+
+
 def test_markdown_to_slack_escapes_slack_control_chars():
     out = dv.markdown_to_slack('A <b>굵게</b> & B < C')
     assert out == 'A 굵게 &amp; B &lt; C'

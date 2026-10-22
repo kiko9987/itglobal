@@ -106,6 +106,8 @@ def _kordoc_error(stdout: str) -> str:
 _TAG_RE = re.compile(r'<[^>]+>')
 _IMAGE_RE = re.compile(r'^!\[[^\]]*\]\([^)]*\)$')
 _SEPARATOR_RE = re.compile(r'^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?$')
+# 공고문의 '*****…'·'-----…'·'═══…' 장식 구분선 — 휴대폰에서 여러 줄을 차지해 뺀다
+_DECOR_LINE_RE = re.compile(r'^[\s*\-=_~─━═·.]{5,}$')
 
 
 def _clean_inline(text: str) -> str:
@@ -149,7 +151,8 @@ def markdown_to_slack(md: str) -> str:
             continue
 
         i += 1
-        if not stripped or stripped == ':' or _IMAGE_RE.match(stripped):
+        if (not stripped or stripped == ':' or _IMAGE_RE.match(stripped)
+                or _DECOR_LINE_RE.match(stripped.replace('\\', ''))):
             out.append('')
             continue
         if stripped.startswith('<!--'):
