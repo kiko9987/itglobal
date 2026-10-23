@@ -118,6 +118,29 @@ export function businessNamesForPartner(partner, rows) {
 }
 
 /**
+ * 연락처로 기존 거래처명 찾기 — 같은 발주처 연락처를 쓴 공사들의 거래처명이 한 곳으로 모일 때만.
+ * 여러 곳으로 갈리면(직원 번호 등) '' (2026-10-23 '북서울꿈의숲' 리드 = 디자인킴스 번호. 거래처 리드 대조:
+ * 제안 38건 중 37건 일치, 갈린 8건은 안 채움).
+ */
+export function suggestPartnerFromPhone(phone, rows) {
+  const digits = (s) => String(s ?? '').replace(/\D/g, '');
+  const p = digits(phone);
+  if (p.length < 9) return '';
+  const byKey = new Map();          // 같은 곳 → { 이름: 횟수 }
+  (rows || []).forEach((r) => {
+    if (digits(r?.['발주처 연락처']) !== p) return;
+    const n = String(r?.['거래처명'] ?? '').trim();
+    if (!isPartnerName(n)) return;
+    const k = partnerPlaceKey(n);
+    if (!byKey.has(k)) byKey.set(k, new Map());
+    byKey.get(k).set(n, (byKey.get(k).get(n) || 0) + 1);
+  });
+  if (byKey.size !== 1) return '';
+  const names = [...byKey.values()][0];
+  return [...names.keys()].sort((a, b) => names.get(b) - names.get(a))[0];
+}
+
+/**
  * 자유 입력 이름(방문 현장 고객명 등)에서 기존 거래처명 찾기 — 확실할 때만.
  * ① 같은 곳(띄어쓰기·법인 표기 무시) ② 기존 거래처명(3자 이상)이 그대로 들어 있음('양준혁/코나아이' → 코나아이),
  * 후보가 여럿이면 가장 긴 것, 같은 길이로 갈리면 '' (2026-10-23 거래처 리드 70건 대조: 제안 18건 중 13건 일치,

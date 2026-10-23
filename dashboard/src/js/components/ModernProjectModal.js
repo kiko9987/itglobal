@@ -7,7 +7,7 @@ import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
 import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
 import {
   businessNamesForPartner, inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz,
-  suggestPartnerFromText,
+  suggestPartnerFromPhone, suggestPartnerFromText,
 } from '../utils/partnerName.js';
 
 import logger from '../utils/logger.js';
@@ -612,8 +612,9 @@ export default class ModernProjectModal {
 
   /**
    * 방문 현장(거래처 리드)을 불러왔을 때 거래처명 채우기 (2026-10-23).
-   * 리드 고객명은 자유 입력('인투익스', '양준혁/코나아이', '안산 인테리어 실장')이라, 기존 거래처명과
-   * 맞을 때만 채우고 아니면 불러온 이름을 안내만 한다 — 사람·최종 고객 이름이 거래처명으로 들어가지 않게.
+   * 리드 고객명은 자유 입력('인투익스', '양준혁/코나아이', '안산 인테리어 실장', 현장 이름 '북서울꿈의숲')이라
+   * ① 고객명이 기존 거래처명과 맞을 때 ② 아니면 연락처가 같은 이전 공사들이 한 거래처로 모일 때만 채우고,
+   * 둘 다 아니면 불러온 이름을 안내만 한다 — 사람·최종 고객 이름이 거래처명으로 들어가지 않게.
    */
   fillPartnerFromLead(lead) {
     const inflow = (document.getElementById('modern-client')?.value || '').trim();
@@ -621,15 +622,17 @@ export default class ModernProjectModal {
     const hint = document.getElementById('modern-partner-name-hint');
     if (inflow !== '거래처' || !input || (input.value || '').trim()) return;
     const name = String(lead?.name || '').trim();
-    if (!name || name === '-') return;
     const rows = window.ITGlobalApp?.api?.getCurrentData?.() || this._projectRows || [];
-    const found = suggestPartnerFromText(name, rows);
+    const found = (name && name !== '-' ? suggestPartnerFromText(name, rows) : '')
+      || suggestPartnerFromPhone(lead?.phone, rows);
     if (found) {
       input.value = found;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       this._partnerLeadHint = '불러온 현장의 거래처명으로 자동 입력. 다른 경우 직접 입력해주세요.';
-    } else {
+    } else if (name && name !== '-') {
       this._partnerLeadHint = `불러온 현장 이름(${name})이 거래처 목록에 없습니다. 일을 맡긴 업체를 고르거나 입력하세요.`;
+    } else {
+      return;                                   // 이름·연락처 모두 단서 없음 → 기본 안내 그대로
     }
     if (hint) hint.textContent = this._partnerLeadHint;
   }
