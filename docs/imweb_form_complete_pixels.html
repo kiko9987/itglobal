@@ -1,0 +1,33 @@
+<!--
+  아임웹 공용 바디 코드 — 폼 제출 완료 시 광고 픽셀 전환 발화
+  (같은 바디 코드 칸의 '유입경로 + gclid' 스니펫 docs/imweb_utm_inflow_snippet.html 바로 위에 있는 블록)
+
+  아임웹 입력폼 제출이 끝나면 뜨는 완료 모달(#input_form_complete_modal_*)이 보이는 순간 1회만:
+    - 당근 픽셀 Lead
+    - 카카오 픽셀 Consulting
+    - OpenAI(ChatGPT 광고) 픽셀 lead_created   ← 2026-10-23 추가
+  2026-10-23: 당근 픽셀이 없으면 아예 안 쏘던 가드(!window.karrotPixel)를 없애고 픽셀마다 따로 try —
+    한 픽셀이 실패해도 나머지는 발화. 픽셀 로드 코드는 헤더 코드(docs/imweb_header_code.html).
+-->
+<script>
+(function () {
+  var fired = false;
+  function check() {
+    if (fired) return;
+    var modals = document.querySelectorAll('[id^="input_form_complete_modal_"]');
+    for (var i = 0; i < modals.length; i++) {
+      if (getComputedStyle(modals[i]).display !== 'none') {
+        fired = true;
+        try { window.karrotPixel && window.karrotPixel.track('Lead'); } catch (e) {}
+        try { kakaoPixel('711262848861713369').participation('Consulting'); } catch (e) {}
+        try { window.oaiq && window.oaiq('measure', 'lead_created', { type: 'customer_action' }); } catch (e) {}
+        return;
+      }
+    }
+  }
+  new MutationObserver(check).observe(document.body, {
+    attributes: true, childList: true, subtree: true,
+    attributeFilter: ['style', 'class']
+  });
+})();
+</script>
