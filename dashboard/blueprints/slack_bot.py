@@ -4760,6 +4760,8 @@ def _register_invoice_handlers(app):
                         meta.get('code'), meta.get('stages'), meta.get('amt'),
                         vat_val=meta.get('vat', 'sep'), biz=meta.get('biz', ''),
                         card_key=f'{channel}:{thread_ts}', replace=meta.get('replace') or [])
+                    # 발행한 계산서의 공급받는자를 거래처 탭에 — 다음 계산서부터 등록증 없이도 발행 정보 제공
+                    _learn_partner_from_invoice(client, event, meta)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -15684,17 +15686,19 @@ def _process_invoice_submission(client, body, view) -> None:
     )
 
 
-def _post_partner_info_reply(client, channel, ts, code, biz, req_email='') -> None:
+def _post_partner_info_reply(client, channel, ts, code, biz, req_email='', info=None) -> None:
     """등록증 파일이 없는 계산서 요청(거래처 탭에만 정보) — 등록증 대신 **거래처 탭 정보**를
     스레드 댓글로 첨부 (2026-09-02, 담당자가 한 채널에서 홈택스 발행하도록 배려).
 
     이메일: 요청 입력값 우선(모달이 거래처 탭 이메일 프리필), 없으면 거래처 탭 이메일.
+    info: 이미 찾은 거래처 정보(부담자 사업자번호로 찾은 경우) — 없으면 사업자명으로 찾음.
     """
-    try:
-        from dashboard.services.partner_status_sync import get_partner_info
-        info = get_partner_info(biz) or {}
-    except Exception:
-        info = {}
+    if not info:
+        try:
+            from dashboard.services.partner_status_sync import get_partner_info
+            info = get_partner_info(biz) or {}
+        except Exception:
+            info = {}
 
     def _v(x):
         x = (str(x or '')).strip()
@@ -15723,6 +15727,16 @@ def _post_partner_info_reply(client, channel, ts, code, biz, req_email='') -> No
         logger.warning(f'[SLACK/계산서] 거래처 정보 댓글 실패 ({code}): {exc}')
 
 
+def _payer_partner_info(biz, payer=None):
+    """부담자의 거래처 탭 정보 — 요청 사업자명으로, 없으면 부담자 칸 사업자번호로 (2026-10-23 G4158:
+    칸에는 '민선홍(서울아산가정의학)', 거래처 탭에는 '서울아산가정의학과의원'으로 적혀 이름으로는 못 찾음)."""
+    try:
+        from dashboard.services.partner_status_sync import get_partner_info, get_partner_info_by_bno
+        return get_partner_info(biz) or (get_partner_info_by_bno((payer or {}).get('biz_no') or '') if payer else None)
+    except Exception:
+        return None
+
+
 def _split_payer_license(code, biz):
     """나눠 내는 공사의 계산서 요청 → 그 부담자 사업자등록증 고르기 (2026-10-19 오남프라자).
 
@@ -15731,7 +15745,8 @@ def _split_payer_license(code, biz):
     다른 부담자 등록증은 find_payer_license 가 공사 폴더 전체(백업 _N 포함)·상호 색인에서
     OCR 상호로 찾는다 (2026-10-22 G4159 — 임차인·임대인 순으로 올려 임차인 것이 _1 로 밀림).
     Returns None → 기존 동작(프로젝트 등록증) / ('use', lic) → 이 파일 첨부 /
-            ('skip', None) → 첨부 안 함(그 부담자 등록증을 못 찾음 — 엉뚱한 첨부 방지).
+            ('skip', 부담자) → 첨부 안 함(그 부담자 등록증을 못 찾음 — 엉뚱한 첨부 방지).
+            부담자 dict 는 거래처 탭을 사업자번호로 찾는 데 쓴다.
     """
     try:
         from dashboard.services.payer_split import stage_payers, payer_for_biz
@@ -15759,7 +15774,7 @@ def _split_payer_license(code, biz):
             ext = lic['file_name'].rsplit('.', 1)[-1]
             # 다른 호실·백업 파일명 대신 이 공사·부담자 이름으로 (스레드에서 헷갈리지 않게)
             return ('use', dict(lic, file_name=f"{code} {blh.LICENSE_BASENAME}_{p['name']}.{ext}"))
-        return ('skip', None)
+        return ('skip', p)
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] 부담자 등록증 선택 실패(기존 동작) ({code}): {exc}")
         return None
@@ -15971,13 +15986,9 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                 #   부담자 것이면 붙이지 않는다 (2026-10-19 오남프라자).
                 _sp = _split_payer_license(code, biz)
                 if _sp and _sp[0] == 'skip':
-                    try:
-                        from dashboard.services.partner_status_sync import get_partner_info
-                        _known = bool(get_partner_info(biz))
-                    except Exception:
-                        _known = False
-                    if _known:
-                        _post_partner_info_reply(invoice_client, channel_id, ts, code, biz, email)
+                    _info = _payer_partner_info(biz, _sp[1])
+                    if _info:
+                        _post_partner_info_reply(invoice_client, channel_id, ts, code, biz, email, info=_info)
                     else:
                         invoice_client.chat_postMessage(
                             channel=channel_id, thread_ts=ts, unfurl_links=False, unfurl_media=False,
@@ -16047,11 +16058,12 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     return {'ok': True, 'reason': 'posted', 'ts': ts, 'channel': channel_id, 'thread_url': thread_url}
 
 
-def _fill_payer_from_invoice(code, stages, biz, email):
+def _fill_payer_from_invoice(code, stages, biz, email, bno=''):
     """나눠 내는 공사 계산서 요청 → 그 칸 부담자의 비어 있는 이메일·사업자번호를 채운다 (2026-10-19).
 
     한 단계만 요청했고, 요청 사업자가 그 칸 부담자와 같을 때만. 이미 적힌 값은 바꾸지 않는다
-    (수정발행 등으로 다른 사업자에 발행하는 경우를 덮지 않게). 사업자번호는 거래처 탭에서 찾는다.
+    (수정발행 등으로 다른 사업자에 발행하는 경우를 덮지 않게). 사업자번호는 bno(발행된 계산서에서
+    읽은 번호, 2026-10-23) → 없으면 거래처 탭에서 찾는다.
     """
     try:
         st = [s.strip() for s in str(stages or '').split(',') if s.strip()]
@@ -16071,11 +16083,14 @@ def _fill_payer_from_invoice(code, stages, biz, email):
         if not p.get('email') and em and em != '-' and _EMAIL_RE.match(em):
             upd['email'] = em
         if not p.get('biz_no'):
-            try:
-                from dashboard.services.partner_status_sync import get_partner_info
-                upd['biz_no'] = str((get_partner_info(biz) or {}).get('bno') or '')
-            except Exception:
-                pass
+            if bno:
+                upd['biz_no'] = bno
+            else:
+                try:
+                    from dashboard.services.partner_status_sync import get_partner_info
+                    upd['biz_no'] = str((get_partner_info(biz) or {}).get('bno') or '')
+                except Exception:
+                    pass
         new_val = format_payer_cell(upd)
         if new_val == format_payer_cell(p):
             return
@@ -16094,6 +16109,43 @@ def _fill_payer_from_invoice(code, stages, biz, email):
                 pass
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] 부담자 정보 보완 실패(무시) ({code}): {exc}")
+
+
+def _learn_partner_from_invoice(client, event: dict, meta: dict) -> int:
+    """발행 완료로 처리된 계산서 스레드 첨부(세금계산서)의 공급받는자 → 거래처 탭, 나눠 내는 공사면
+    그 부담자 칸 사업자번호도 채운다 (2026-10-23 G4158 — 홈택스엔 있는데 거래처 탭(예전 내보내기)엔
+    없던 서울아산가정의학과의원 때문에 '부담자 등록증을 찾지 못했습니다' 경고가 떴음).
+    홈택스 계산서 양식이 아니거나 못 읽으면 건너뛴다. 실패해도 발행 완료 처리에는 영향 없음.
+    Returns 거래처 탭에 반영(추가·채움·이미 같음)한 수."""
+    files = [f for f in (event.get('files') or [])
+             if (f.get('mimetype') or '').startswith('image/') or f.get('mimetype') == 'application/pdf']
+    if not files:
+        return 0
+    from dashboard.services.business_license_handler import _download_slack_file
+    from dashboard.services.invoice_ocr import read_invoice_buyer
+    from dashboard.services.partner_status_sync import upsert_partner_from_invoice
+    token = (_INVOICE_BOT_TOKEN or getattr(client, 'token', '') or '').strip()
+    code = str(meta.get('code') or '').strip()
+    n = 0
+    for f in files:
+        url = f.get('url_private_download') or f.get('url_private')
+        if not url:
+            continue
+        try:
+            buyer = read_invoice_buyer(_download_slack_file(url, token))
+            if not buyer:
+                continue
+            res = upsert_partner_from_invoice(buyer)
+        except Exception as exc:
+            logger.warning(f"[SLACK/계산서] 세금계산서 공급받는자 읽기 실패(무시) ({code}): {exc}")
+            continue
+        logger.info(f"[SLACK/계산서] 세금계산서 공급받는자 → 거래처 탭 {res}: {code} {buyer['bno']} {buyer['name']}")
+        if res != 'skip':
+            n += 1
+        if code and code != '-':
+            _fill_payer_from_invoice(code, meta.get('stages'), meta.get('biz', ''), buyer.get('email') or '',
+                                     bno=buyer['bno'])
+    return n
 
 
 def attach_license_to_pending_invoice_threads(code: str) -> int:

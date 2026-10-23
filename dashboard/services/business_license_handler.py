@@ -563,7 +563,24 @@ _EXT_PRIORITY = {'pdf': 0, 'png': 1, 'jpg': 2, 'jpeg': 2, 'webp': 3, 'gif': 4, '
 _PLACEHOLDER_BIZ = {
     '온라인', '거래처', '전화', '소개', '기타', '카톡', '카카오', '방문',
     '미정', '개인', '없음', 'none', 'null', 'na', 'n/a',
+    # 유입 채널 이름 — 옛 공사 사업자명에 남아 있었고 거래처 탭 맨 위에도 등록번호 없이 들어 있어
+    #   '거래처 탭에 있음 = 계산서 발행 가능'으로 잘못 판정됐음 (2026-10-23, 45건)
+    '당근', '당근마켓', '숨고', '홈페이지', '중고판매', '큐플레이스', '채널톡', '카카오톡', '메일',
 }
+
+
+def is_placeholder_biz(name: str) -> bool:
+    """사업자명이 상호가 아닌 자리표시('-'·빈칸·'온라인'·'거래처'·유입 채널 이름 등)인가.
+    _norm_biz 와 달리 한 글자 상호('한' 일식집)는 자리표시로 보지 않는다."""
+    s = str(name or '').strip()
+    if s in ('', '-'):
+        return True
+    try:
+        from dashboard.services.partner_status_sync import _norm_name
+        nb = _norm_name(s)
+    except Exception:
+        nb = re.sub(r'\s+', '', s).lower()
+    return nb in _PLACEHOLDER_BIZ
 
 
 def _norm_biz(name: str) -> str:
@@ -1424,8 +1441,9 @@ def _maybe_update_business_name(code: str, ocr_name: str) -> tuple:
         import re
         return re.sub(r'\s+', '', s).strip()
 
-    # '-' 도 미기입으로 간주 (2026-07-13 사용자 정책)
-    if existing and existing != '-':
+    # '-' 도 미기입으로 간주 (2026-07-13 사용자 정책). 자리표시('온라인'·'거래처'·'당근' 등)도 같음 —
+    #   옛 공사에 남은 '온라인'이 등록증 상호 자동 기재를 막고 '불일치' 안내만 띄웠음 (2026-10-23)
+    if existing and not is_placeholder_biz(existing):
         if _norm(existing) == _norm(ocr_name):
             return 'match', existing
         return 'mismatch', existing

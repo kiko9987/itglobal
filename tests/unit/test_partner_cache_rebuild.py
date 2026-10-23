@@ -111,6 +111,20 @@ def test_first_build_does_not_clear_all(env):
     assert res['added'] == 0 and cleared == []
 
 
+def test_placeholder_rows_are_not_partners(env, monkeypatch):
+    """탭 맨 위 등록번호 없는 '당근'·'온라인' 줄이 '거래처 탭에 있음 = 발행 가능'으로 판정되던 문제 (10-23)."""
+    rows = ROWS + [['', '당근'], ['', '온라인'], ['', '중고판매'], ['216-11-12674', '한', '황유미']]
+    monkeypatch.setattr(ps, '_sheet', lambda: (type('M', (), {'service': type('S', (), {
+        'spreadsheets': lambda self: type('SS', (), {'values': lambda self: type('V', (), {
+            'get': lambda self, **k: type('E', (), {'execute': lambda self: {'values': rows}})()})()})()})()})(), 'SID'))
+    use, _ = env
+    r = use()
+    ps.rebuild_partner_caches()
+    names = r.data[ps._NAME_SET_KEY]
+    assert '당근' not in names and '온라인' not in names and '중고판매' not in names
+    assert '한' in names                                          # 한 글자 실제 상호(일식집)는 거래처
+
+
 def test_no_change_no_clear(env):
     use, cleared = env
     names = {ps._norm_name(x[1]) for x in ROWS}

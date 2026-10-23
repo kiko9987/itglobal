@@ -170,9 +170,10 @@ def test_split_payer_license_choice(monkeypatch):
     kind, lic = sb._split_payer_license('G4146-JW', '주식회사 제이케이디 학원')
     assert kind == 'use' and lic['file_name'] == 'G4146-JW 사업자등록증_주식회사 제이케이디학원.pdf'
     assert lic['content'] == b'x' and asked == ['주식회사 제이케이디학원']
-    # 임차인 등록증을 못 찾으면 붙이지 않음(엉뚱한 첨부 방지)
+    # 임차인 등록증을 못 찾으면 붙이지 않음(엉뚱한 첨부 방지) — 부담자를 돌려줘 거래처 탭을 번호로도 찾게
     monkeypatch.setattr(blh, 'find_payer_license', lambda code, payer: None)
-    assert sb._split_payer_license('G4146-JW', '주식회사 제이케이디 학원') == ('skip', None)
+    kind, payer = sb._split_payer_license('G4146-JW', '주식회사 제이케이디 학원')
+    assert kind == 'skip' and payer['name'] == '주식회사 제이케이디학원'
     # OCR 이 '명:이현주'처럼 읽힌 프로젝트 등록증도 그 부담자 것으로 인정
     monkeypatch.setattr(blh, '_file_biz', lambda fid: '명:이희승' if fid == 'F_OWN' else '')
     assert sb._split_payer_license('G4146-JW', '이희승') is None

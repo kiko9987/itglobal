@@ -13,6 +13,7 @@ const NOT_NAMES = new Set([...PARTNER_GROUP_LABELS, ...ONLINE_INFLOWS, '거래�
 const PLACEHOLDER = new Set([
   '온라인', '거래처', '전화', '소개', '기타', '카톡', '카카오', '방문',
   '미정', '개인', '없음', 'none', 'null', 'na', 'n/a',
+  '당근', '당근마켓', '숨고', '홈페이지', '중고판매', '큐플레이스', '채널톡', '카카오톡', '메일',
 ]);
 // 부르는 이름에서 빼는 것 — 서버 partner_names.short_name 과 같은 규칙 (10-23 넓힘)
 const LEGAL_MARK_RE = new RegExp(

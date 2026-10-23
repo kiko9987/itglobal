@@ -220,11 +220,14 @@ def rebuild_partner_caches() -> dict:
     name_by_bno: dict = {}   # bno -> 상호
     name_set: set = set()    # norm_biz 전체 (거래처 탭에 존재 = 계산서 발행 가능 판정용)
     info_map: dict = {}      # norm_biz -> {bno,name,ceo,addr,biz_type,biz_item,email} (등록증 대체 댓글용)
+    from dashboard.services.business_license_handler import is_placeholder_biz
     for r in vals:
         bno_raw = (r[0] if len(r) > 0 else '').strip()
         bno = normalize_bno(bno_raw)
         name = (r[1] if len(r) > 1 else '').strip()
         email = (r[6] if len(r) > 6 else '').strip()
+        if is_placeholder_biz(name):
+            continue   # 탭 맨 위 '당근'·'온라인' 같은 줄(등록번호 없음)은 거래처가 아님 (2026-10-23)
         key = _norm_name(name)
         if key:
             name_set.add(key)
@@ -391,6 +394,72 @@ def get_partner_name_by_bno(bno: str) -> Optional[str]:
     if v is None:
         return None
     return v.decode() if isinstance(v, bytes) else v
+
+
+def get_partner_info_by_bno(bno: str) -> Optional[dict]:
+    """사업자번호 → 거래처 탭 전체정보 (없으면 None). 부담자 칸 이름이 상호와 다르게 적혀도
+    ('민선홍(서울아산가정의학)' ↔ '서울아산가정의학과의원') 번호로 찾는다 (2026-10-23 G4158)."""
+    name = get_partner_name_by_bno(bno)
+    return get_partner_info(name) if name else None
+
+
+_UPSERT_LOCK_KEY = 'partner_tab_upsert_lock'
+
+
+def upsert_partner_from_invoice(info: dict) -> str:
+    """발행된 세금계산서의 공급받는자 → 거래처 탭 (2026-10-23 G4158).
+
+    거래처 탭은 예전 홈택스 내보내기라 그 뒤 홈택스에 생긴 거래처가 없다(서울아산가정의학과의원).
+    계산서가 나갈 때마다 넣어 두면 다음 계산서부터 등록증 없이도 거래처 정보로 발행할 수 있다.
+    - 같은 등록번호 줄이 있으면 빈 칸만 채운다(이미 적힌 상호·대표자 등은 그대로) → 'filled' / 'same'
+    - 없으면 맨 아래 새 줄(A~G) → 'added'. J·K(국세청 상태)는 증분 잡이 채운다.
+    - 등록번호(체크섬)·상호가 없으면 'skip'. 탭을 바꿨으면 캐시를 바로 다시 만든다.
+    """
+    from dashboard.services.business_license_ocr import _bno_checksum_ok
+    bno = normalize_bno((info or {}).get('bno'))
+    name = str((info or {}).get('name') or '').strip()
+    if not bno or not _bno_checksum_ok(bno) or not name:
+        return 'skip'
+    new = [f'{bno[:3]}-{bno[3:5]}-{bno[5:]}', name] + [
+        str(info.get(k) or '').strip() for k in ('ceo', 'addr', 'biz_type', 'biz_item', 'email')]
+    import time as _time
+    from dashboard.utils.redis_client import get_redis_client
+    rc = get_redis_client().redis
+    for _ in range(20):                       # 동시에 두 계산서가 같은 새 줄 번호에 쓰지 않게
+        if rc.set(_UPSERT_LOCK_KEY, '1', nx=True, ex=30):
+            break
+        _time.sleep(0.5)
+    else:
+        logger.warning(f'[거래처탭] 줄 넣기 잠금 대기 초과 — 건너뜀 ({name})')
+        return 'skip'
+    try:
+        m, sid = _sheet()
+        vals = m.service.spreadsheets().values().get(
+            spreadsheetId=sid, range=f'{_TAB}!A1:K').execute().get('values', [])
+        row = next((i + 1 for i, r in enumerate(vals) if r and normalize_bno(r[0]) == bno), None)
+        if row:
+            cur = vals[row - 1] + [''] * 7
+            data = [{'range': f'{_TAB}!{"ABCDEFG"[j]}{row}', 'values': [[new[j]]]}
+                    for j in range(1, 7) if new[j] and not str(cur[j]).strip()]
+            if not data:
+                return 'same'
+            m.service.spreadsheets().values().batchUpdate(
+                spreadsheetId=sid, body={'valueInputOption': 'RAW', 'data': data}).execute()
+            result = 'filled'
+        else:
+            row = len(vals) + 1
+            m.service.spreadsheets().values().update(
+                spreadsheetId=sid, range=f'{_TAB}!A{row}:G{row}', valueInputOption='RAW',
+                body={'values': [new]}).execute()
+            result = 'added'
+    finally:
+        rc.delete(_UPSERT_LOCK_KEY)
+    logger.info(f'[거래처탭] 세금계산서 공급받는자 {result}: {new[0]} {name} ({row}행)')
+    try:
+        rebuild_partner_caches()
+    except Exception as exc:
+        logger.warning(f'[거래처탭] 줄 넣은 뒤 캐시 재구성 실패(10분 뒤 자동): {exc}')
+    return result
 
 
 def get_cached_partner_email(biz_name: str) -> Optional[str]:
