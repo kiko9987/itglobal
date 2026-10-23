@@ -11,7 +11,7 @@
    → 기존 payment_sync 폴러가 감지 → #수금_관리 정식 카드 (여기부턴 기존 파이프라인)
 
 보안: 로그인 세션 없는 기계 webhook. security_middleware 가 /sms/ 는 CSRF 우회
-(기기 토큰으로 자체 인증). 실제 값은 URL/쿼리에 싣지 않고 JSON body 로만 받는다.
+(기기 토큰으로 자체 인증). 실제 값은 URL/쿼리에 싣지 않고 body(JSON 또는 폼)로만 받는다.
 """
 
 import json
@@ -73,7 +73,13 @@ def sms_inbound():
         logger.error('[SMS_INBOUND] SMS_INBOUND_TOKENS 미설정 — 인입 비활성화')
         return jsonify({'error': 'not configured'}), 503
 
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or not data:
+        # 폼(application/x-www-form-urlencoded)도 받는다 — 갤럭시 SmsForwarder 웹훅 폼 템플릿
+        # 'token=…&sender=[from]&text=[org_content]'. 앱이 값을 URL 인코딩해 여러 줄 은행 문자·
+        # 따옴표에도 안전(JSON 본문은 앱의 이스케이프 여부가 미문서화 — 깨지면 본문이 통째로
+        # 비어 조용히 무시됨). 2026-10-23 샛별 폰 교체 세팅.
+        data = request.form.to_dict() if request.form else {}
     token = (data.get('token') or request.headers.get('X-SMS-Token') or '').strip()
     device = tokens.get(token)
     if not device:
@@ -83,6 +89,9 @@ def sms_inbound():
     sender = (data.get('sender') or '').strip()
     text = (data.get('text') or '').strip()
     if not text:
+        # 인증은 됐는데 본문이 빔 = 폰 웹훅 템플릿 오류(필드명·JSON 깨짐) 신호 — 조용히 넘기지 않음
+        logger.warning(f'[SMS_INBOUND] 본문 비어 무시 (device={device}, '
+                       f'content_type={request.content_type!r}) — 폰 웹훅 템플릿 확인 필요')
         return jsonify({'status': 'empty'}), 200
 
     # 발신번호 allowlist (설정된 경우에만 적용)
