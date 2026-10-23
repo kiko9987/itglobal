@@ -6215,7 +6215,10 @@ def _run_sweep(client, channel: str, response_url: str, mode: str, value: int):
 # /공사확정 — 슬랙 모달로 공사 확정 등록 (모바일 친화)
 # ─────────────────────────────────────────────────────────────
 _PROJECT_COMPANY_OPTIONS = ["글로벌", "글로벌그룹", "플랜트"]
-_PROJECT_SOURCE_OPTIONS = ["거래처", "온라인", "당근", "소개", "숨고"]
+# 유입 구분 = 실제 플랫폼 (시트 D열 드롭다운과 같은 값). '온라인'은 플랫폼을 알 수 없는 옛 공사 전용이라
+# 새 등록에선 뺌 — PM도 글로벌그룹에서 '온라인'을 못 고름 (2026-10-23)
+_PROJECT_SOURCE_OPTIONS = ["거래처", "홈페이지", "전화", "당근", "카카오톡", "채널톡", "큐플레이스", "숨고",
+                           "메일", "소개", "중고판매", "기타"]
 
 
 def _search_company_names(query: str) -> list:
