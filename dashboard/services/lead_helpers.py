@@ -633,6 +633,8 @@ INFLOW_SOURCE_ALIASES = {
     'youtube': '유튜브',
     # AI 검색 답변의 링크 — ChatGPT 는 링크에 utm_source=chatgpt.com 을 붙임 (2026-10-19, L-04289 첫 사례)
     'chatgpt.com': 'ChatGPT', 'chat.openai.com': 'ChatGPT', 'chatgpt': 'ChatGPT', 'openai': 'ChatGPT',
+    # ChatGPT 유료 광고(2026-10-26~) — 광고 추적 매개변수 utm_source=chatgpt_ads 로 자연 유입(chatgpt.com)과 구분
+    'chatgpt_ads': 'ChatGPT 광고', 'openai_ads': 'ChatGPT 광고',
     'perplexity.ai': 'Perplexity', 'www.perplexity.ai': 'Perplexity', 'perplexity': 'Perplexity',
     'gemini.google.com': 'Gemini', 'gemini': 'Gemini',
     'claude.ai': 'Claude', 'copilot.microsoft.com': 'Copilot', 'copilot': 'Copilot',
