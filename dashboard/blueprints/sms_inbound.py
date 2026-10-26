@@ -100,6 +100,16 @@ def sms_inbound():
         logger.info(f'[SMS_INBOUND] 발신번호 미허용 skip: {sender!r} (device={device})')
         return jsonify({'status': 'ignored', 'reason': 'sender'}), 200
 
+    # 농협(N통장)은 폰 자동 인입 안 함 — 사람이 #입금_관리에 붙여넣는 방식만 (사용자 결정).
+    # 2026-10-26 JW폰 필터에 농협 제외가 빠져 자동 인입됐고 잔액까지 노출됨 → 서버에서도 차단.
+    # 계좌(352-…-1682-33)로 판정: '농협' 글자로 막으면 기업·하나로 들어온 '(주)농협유통' 같은
+    # 입금자명까지 막힘. 입금·출금 모두 거절(출금 서버 보관도 안 함). 채널 붙여넣기는 이 경로가 아님.
+    from dashboard.services.itg_accounts import match_account
+    _acct = match_account(text)
+    if _acct and _acct.code == 'N':
+        logger.info(f'[SMS_INBOUND] 농협 문자 폰 인입 차단 (수동 붙여넣기 정책, device={device})')
+        return jsonify({'status': 'ignored', 'reason': 'nh_manual_only'}), 200
+
     # 입금 문자 판별 → 사업자통장 → dedup → 잔액제거 → Redis → 🔗카드 (공통 파이프라인)
     result = ingest_deposit(text, source=f'sms:{device}')
     if result.get('status') == 'ok':
