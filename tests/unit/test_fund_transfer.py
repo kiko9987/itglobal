@@ -142,6 +142,71 @@ def test_done_card_and_reminder_text(monkeypatch):
     assert '자금 이동 대기 — 법인 간 이체 필요 (1건)' in rt
     assert 'G4125-YM 잔금 3,014,000원 · 대연이엔지주식회 · 하나(글로벌그룹) → 글로벌 · 2026/09/30 입금' in rt
 
+def test_no_move_reply_and_line():
+    """경영지원 '자금 이동없이 그룹으로 전액발행' 댓글 → 요청 아래 '⚠️ 자금 이동 없음' 줄 (2026-10-26 G3982)."""
+    for t in ('자금 이동없이 그룹으로 전액발행 및 전액수금완료', '이동 안 함', '자금 이동 불필요', '이동 필요 없어요'):
+        assert ft.NO_MOVE_REPLY_RE.search(t), t
+    for t in ('자금 이동 부탁드려요', '이체 완료했습니다', '이동했습니다'):
+        assert not ft.NO_MOVE_REPLY_RE.search(t), t
+    from datetime import datetime
+    line = ft.no_move_line('그룹으로 발행 2026-10-23 R>G', 'SB', datetime(2026, 10, 23))
+    assert line.startswith('⚠️ 자금 이동 없음: ') and line.endswith('(확인 SB 10/23)')
+    from dashboard.services.payment_sync import _TRANSFER_RE
+    assert not _TRANSFER_RE.search(line)                          # 매출이동으로 읽히지 않음
+    later = '2026/10/10 09:00\n입금 500,000원\n대연이엔지\n452***38801011\n기업'
+    new = ft.insert_no_move_line(DEP_HANA + '\n\n' + later, REQ, line)
+    blocks = new.split('\n\n')
+    assert blocks[0] == DEP_HANA + '\n' + line and blocks[1] == later   # 같은 입금 블록, 뒤 입금 보존
+    assert _pend(new) == []                                       # 대기에서 빠짐
+    p = _parse_notes(['', '', new], stage_vals={'잔금': 3514000})
+    assert [x['amount'] for x in p] == [3014000, 500000]          # 금액 파싱 영향 없음
+    assert ft.insert_no_move_line('다른 메모', REQ, line) is None
+
+
+def test_apply_no_move(monkeypatch):
+    m = _Mgr(DEP_HANA)
+    import dashboard.services.lead_service as ls
+    monkeypatch.setattr(ls, 'get_sheets_manager', lambda: m)
+    monkeypatch.setattr(ft, 'invalidate', lambda: None)
+    r = _pend(DEP_HANA)[0]
+    line = ft.apply_no_move(r, '자금 이동없이 그룹으로 전액발행', 'SB')
+    assert m.notes['W4126'] == DEP_HANA + '\n' + line and _pend(m.notes['W4126']) == []
+
+
+def test_close_fund_move_by_reply(monkeypatch):
+    import dashboard.blueprints.slack_bot as sb
+    r = _pend(DEP_HANA)[0]
+    applied, posted = [], []
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
+    monkeypatch.setattr(ft, 'apply_no_move', lambda req, reason, checker: applied.append((req['code'], reason, checker)))
+    monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'SB')
+
+    class _T:                               # 백그라운드 스레드를 바로 실행
+        def __init__(self, target, daemon=None):
+            self.t = target
+
+        def start(self):
+            self.t()
+    monkeypatch.setattr(sb.threading, 'Thread', _T)
+
+    class _C:
+        def conversations_replies(self, **k):
+            return {'messages': [{'text': '분할 2건 기록 완료', 'blocks': [{'text': {'text': 'G4125-YM · 잔금'}}]}]}
+
+        def chat_postMessage(self, **k):
+            posted.append(k['text'])
+
+        def chat_postEphemeral(self, **k):
+            posted.append('eph:' + k['text'])
+    ev = {'user': sb._SETTLEMENT_CHECKER_ID, 'text': '자금 이동없이 그룹으로 전액발행', 'thread_ts': '1.0', 'ts': '2.0'}
+    assert sb._close_fund_move_by_reply(_C(), 'CH', ev) is True
+    assert applied == [('G4125-YM', '자금 이동없이 그룹으로 전액발행', 'SB')]
+    assert '자금 이동 없이 처리로 기록했습니다' in posted[0] and 'G4125-YM' in posted[0]
+    # 경영지원이 아니거나, 이동 부정 표현이 아니면 기존 댓글 안내로
+    assert sb._close_fund_move_by_reply(_C(), 'CH', dict(ev, user='U_OTHER')) is False
+    assert sb._close_fund_move_by_reply(_C(), 'CH', dict(ev, text='확인했습니다')) is False
+
+
 # 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사
 #   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
 import pytest as _pytest  # noqa: E402

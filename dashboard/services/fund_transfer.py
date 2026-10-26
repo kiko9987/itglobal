@@ -5,6 +5,8 @@
   대기 = '⚠️ 계좌·사업자 불일치 … — 자금 이동 요청' 줄이 있는 입금 블록 중, 같은 셀 메모에서
          그 뒤로 같은 방향(출발→도착) 매출이동 줄('YYYY-MM-DD R>G …')이 아직 없는 것.
   완료 = 매출이동 줄이 붙음 — #입금_관리 [법인 간 이체로 처리] 버튼이 자동으로 붙인다.
+  이동 없음 = 요청 줄 바로 아래 '⚠️ 자금 이동 없음: …' 줄 — 경영지원이 카드 스레드에 '자금 이동
+         없이 …' 댓글을 달면 붙는다(2026-10-26 G3982: 그룹으로 발행·수금해 이체가 필요 없었음).
 
 짝짓기 = 이체로 들어온 입금 문자 ↔ 대기 요청: 도착 사업자(계좌)·금액이 같고, 최초 입금자 이름의
   앞부분이 같음. 경영지원이 이체할 때 받는 분 표시에 최초 입금자명을 그대로 넣고, 은행은 이름을
@@ -23,6 +25,9 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 _REQ_LINE_RE = re.compile(r'^\s*⚠.*계좌·사업자 불일치.*자금 이동 요청')
+_NO_MOVE_LINE_RE = re.compile(r'^\s*⚠.*자금 이동 없음')
+# 경영지원 댓글 — '이동' + 부정('자금 이동없이 그룹으로 전액발행', '이동 안 함', '이동 불필요')
+NO_MOVE_REPLY_RE = re.compile(r'이동\s*(?:없이|없음|안\s*함|안\s*해|불필요|필요\s*없|하지\s*않)')
 _STAGES = ('계약금', '중도금', '잔금')
 _BANK_CODE = {'기업': 'G', '하나': 'R', '농협': 'N'}
 _CODE_BANK = {'G': '기업', 'R': '하나', 'N': '농협'}
@@ -62,6 +67,8 @@ def find_pending_in_note(note: str, code: str, row: int, stage: str, col: str) -
     for blk in _blocks(note):
         req_line = next((l.strip() for l in blk.splitlines() if _REQ_LINE_RE.match(l)), None)
         if req_line:
+            if any(_NO_MOVE_LINE_RE.match(l) for l in blk.splitlines()):
+                continue        # 경영지원이 '자금 이동 없이 처리'로 닫은 요청
             p = _parse_memo_block(blk) or {}
             frm = (p.get('acct_code') or _BANK_CODE.get(p.get('bank') or '', '')).upper()
             if frm and frm != to:
@@ -213,6 +220,49 @@ def insert_transfer_line(note: str, req_line: str, line: str) -> str:
     m = re.compile(r'\n\s*\n').search(note, idx)
     end = m.start() if m else len(note.rstrip())
     return f"{note[:end].rstrip()}\n\n{line}{note[end:]}"
+
+
+def no_move_line(reason: str, checker: str, when: Optional[datetime] = None) -> str:
+    """'이동 없이 처리' 메모 줄 — '⚠'로 시작해 수금 파서가 통째로 건너뛰고, 'YYYY-MM-DD R>G' 꼴이
+    아니라 매출이동으로 읽히지 않는다(댓글의 '>'는 '→'로)."""
+    reason = re.sub(r'\s+', ' ', (reason or '').replace('>', '→')).strip()[:60]
+    return f"⚠️ 자금 이동 없음: {reason} (확인 {checker} {(when or datetime.now()):%m/%d})"
+
+
+def insert_no_move_line(note: str, req_line: str, line: str) -> Optional[str]:
+    """요청 줄 바로 아래(같은 입금 블록)에 '이동 없음' 줄 삽입. 요청 줄을 못 찾으면 None —
+    다른 블록에 붙으면 어느 요청을 닫는지 모호해지므로 쓰지 않는다."""
+    note = note or ''
+    idx = note.find(req_line) if req_line else -1
+    if idx < 0:
+        return None
+    end = note.find('\n', idx)
+    end = len(note) if end < 0 else end
+    return f"{note[:end]}\n{line}{note[end:]}"
+
+
+def apply_no_move(req: Dict, reason: str, checker: str, when: Optional[datetime] = None) -> str:
+    """대기 요청을 '이동 없이 처리'로 닫음 — 원 입금 셀 메모의 요청 줄 아래에 기록(시트 금액은 그대로).
+    Returns 기록한 줄. 호출부가 같은 셀 RMW 직렬화(_INTAKE_SHEET_LOCK)를 책임진다."""
+    from dashboard.services.lead_service import get_sheets_manager
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    mgr = get_sheets_manager()
+    row = mgr.find_row_by_project_code(sid, req['code'], f"{sn}!A:A")
+    if not row:
+        raise RuntimeError(f"{req['code']} 행을 시트에서 못 찾음")
+    from dashboard.utils.google_sheets import main_field_to_letter
+    cell = f"{main_field_to_letter().get(req.get('stage')) or req['col']}{row}"
+    line = no_move_line(reason, checker, when)
+    note = mgr.get_cell_note(sid, sn, cell) or ''
+    new_note = insert_no_move_line(note, req.get('req_line', ''), line)
+    if new_note is None:
+        raise RuntimeError(f"{cell} 메모에서 자금 이동 요청 줄을 못 찾음")
+    if not mgr.update_cell_note(sid, sn, cell, new_note):
+        raise RuntimeError(f"{cell} 메모 기록 실패")
+    invalidate()
+    logger.info(f"[FUND_MOVE] 자금 이동 없이 처리: {req['code']} {req['stage']} {cell} — {line}")
+    return line
 
 
 def apply_transfer(req: Dict, deposit_text: str, preview: dict, checker: str) -> str:

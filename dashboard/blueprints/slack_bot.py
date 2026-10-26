@@ -1192,6 +1192,9 @@ def _register_payment_handlers(app):
             # 반영 안 되므로 본인에게만 보이는 ephemeral 로 카드 지정을 안내(채널 클러터 없음).
             # 도배 방지: 스레드·유저당 1시간 1회. 2026-08-20 사용자 요청(원본 삭제 부담 경감).
             if event.get('thread_ts') and event.get('thread_ts') != event.get('ts'):
+                # 경영지원의 '자금 이동없이 …' 댓글은 기록한다 (2026-10-26 G3982)
+                if _close_fund_move_by_reply(client, intake_channel, event):
+                    return
                 try:
                     _ru = event.get('user', '')
                     _rk = f"intake_nudge:{event.get('thread_ts')}:{_ru}"
@@ -1827,6 +1830,46 @@ def _build_intake_split_done_blocks(splits, total, by_user, checker, memo=""):
         lines += [f">     :warning: {w}" for w in (s.get('warns') or [])]
     lines.append(f">{INTAKE_SEP}")
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
+
+
+def _close_fund_move_by_reply(client, channel, event) -> bool:
+    """#입금_관리 카드 스레드에 경영지원이 '자금 이동없이 …' 댓글 → 그 카드 프로젝트의 대기 자금 이동
+    요청을 '이동 없이 처리'로 시트 메모에 기록 (2026-10-26 G3982: 그룹으로 발행·수금해 이체가 필요 없다고
+    SB가 댓글을 달았는데, 댓글은 기록에 안 남아 정산 알림에 '자금 이동 대기'로 계속 나왔음).
+    경영지원 + '이동' 부정 표현일 때만 True(나머지 처리는 백그라운드) — 아니면 False(기존 댓글 안내)."""
+    from html import unescape as _unescape
+    from dashboard.services import fund_transfer as ft
+    user = event.get('user', '')
+    text = _unescape((event.get('text') or '').strip())
+    if user != _SETTLEMENT_CHECKER_ID or not ft.NO_MOVE_REPLY_RE.search(text):
+        return False
+    thread_ts = event.get('thread_ts')
+
+    def _bg():
+        try:
+            parent = (client.conversations_replies(channel=channel, ts=thread_ts, limit=1).get('messages') or [{}])[0]
+            blob = (parent.get('text') or '') + json.dumps(parent.get('blocks') or [], ensure_ascii=False)
+            codes = set(re.findall(r'[GRP]\d{4}-[A-Z]{1,3}', blob))
+            reqs = [r for r in ft.pending_requests(force=True) if r['code'] in codes]
+            if not reqs:
+                client.chat_postEphemeral(
+                    channel=channel, user=user, thread_ts=thread_ts,
+                    text=":information_source: 이 카드에는 대기 중인 자금 이동 요청이 없어 바뀐 기록은 없습니다.")
+                return
+            checker = _resolve_manager_initial(user) or '-'
+            done = []
+            with _INTAKE_SHEET_LOCK:
+                for r in reqs:
+                    ft.apply_no_move(r, text, checker)
+                    done.append(f"`{r['code']}` {r['stage']} {int(r['amount']):,}원")
+            client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts, unfurl_links=False, unfurl_media=False,
+                text=(f":white_check_mark: 자금 이동 없이 처리로 기록했습니다 — {', '.join(done)}. "
+                      f"정산 알림의 '자금 이동 대기'에서 빠집니다."))
+        except Exception as exc:
+            logger.error(f"[SLACK/수금봇] 자금 이동 없이 처리 실패 (thread={thread_ts}): {exc}", exc_info=True)
+    threading.Thread(target=_bg, daemon=True).start()
+    return True
 
 
 def _build_transfer_pick_view(intake_id, channel, ts):
