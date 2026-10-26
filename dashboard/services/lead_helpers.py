@@ -759,7 +759,7 @@ KARROT_MATERIAL_NAMES = {
 }
 
 # 당근 '홈페이지' 캠페인 랜딩 UTM(utm_campaign/utm_content) → 당근 화면 소재 이름 (2026-10-06).
-#   [유입:당근/web_install/A] 처럼 들어옴. 새 홈피 소재를 만들면 여기 추가(없으면 'web_install D' 원문).
+#   [유입:당근/web_install/A] 처럼 들어옴. 새 홈피 소재를 만들면 여기 추가(없으면 'web_install E' 원문).
 KARROT_HOMEPAGE_NAMES = {
     ('web_install', 'A'): '홈피A 신품중고 비교 (읍면동)',
     ('web_install', 'B'): '홈피B 매장 평수',
@@ -787,8 +787,8 @@ def format_inflow_detail(inflow: str):
     ('검색 키워드', '천장형에어컨설치업체')
     >>> format_inflow_detail('당근/web_install/A')
     ('광고 소재', '홈피A 신품중고 비교 (읍면동)')
-    >>> format_inflow_detail('당근/web_install/D')
-    ('광고 소재', 'web_install D')
+    >>> format_inflow_detail('당근/web_install/E')
+    ('광고 소재', 'web_install E')
     >>> format_inflow_detail('당근/리드폼/1787591723962696000')
     ('광고 소재', '수동1 무료방문견적 (읍면동)')
     >>> format_inflow_detail('구글') is None
