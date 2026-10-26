@@ -173,16 +173,45 @@ def test_handle_doc_view_short_text_is_plain_message(monkeypatch, no_redis):
     assert len(c.posts) == 1 and 'blocks' not in c.posts[0]
 
 
-def test_handle_doc_view_huge_text_is_one_file_with_preview(monkeypatch, no_redis):
-    huge_md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(800))   # 약 6.6만 자
+def test_handle_doc_view_long_spec_is_whole_in_one_message(monkeypatch, no_redis):
+    # L-04373 공사시방서(25,801자)가 앞부분 3천 자 + .txt 로 가 '잘린 것 같다' → 전부 한 메시지에
+    md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(330))       # 약 2.7만 자
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
+    c = FakeClient()
+    dv.handle_doc_view(_event(), c, 'xoxb')
+    assert len(c.posts) == 1 and c.uploads == []
+    blocks = c.posts[0]['blocks']
+    assert len(blocks) <= 50
+    assert '제329조' in blocks[-1]['text']['text']
+
+
+def test_handle_doc_view_falls_back_to_file_when_slack_rejects_length(monkeypatch, no_redis):
+    md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(330))
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
+
+    class Rejecting(FakeClient):
+        def chat_postMessage(self, **kw):
+            if 'blocks' in kw:
+                raise RuntimeError("The server responded with: {'ok': False, 'error': 'msg_blocks_too_long'}")
+            super().chat_postMessage(**kw)
+    c = Rejecting()
+    dv.handle_doc_view(_event(), c, 'xoxb')
+    assert len(c.uploads) == 1 and '제329조' in c.uploads[0]['content']
+    assert ('+', 'white_check_mark') in c.reactions
+
+
+def test_handle_doc_view_huge_text_is_one_file_with_clear_preview_end(monkeypatch, no_redis):
+    huge_md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(3000))  # 약 19만 자 > 5만 자
     monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: huge_md)
     c = FakeClient()
     dv.handle_doc_view(_event(), c, 'xoxb')
     assert c.posts == [] and len(c.uploads) == 1             # 답글은 파일 하나뿐
     up = c.uploads[0]
     assert up['filename'] == '공고_내용.txt' and up['thread_ts'] == '100.1'
-    assert '제799조' in up['content']
-    assert '전체는 첨부 파일' in up['initial_comment'] and len(up['initial_comment']) < 3200
+    assert '제2999조' in up['content']
+    comment = up['initial_comment']
+    assert comment.rstrip().endswith('첨부 파일에 있어요._')     # 말없이 끊기지 않게
+    assert '약 19만 자' in comment and len(comment) < 3300
 
 
 def test_handle_doc_view_reports_failure_in_korean(monkeypatch, no_redis):
