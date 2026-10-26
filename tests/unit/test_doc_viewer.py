@@ -59,11 +59,9 @@ def test_markdown_to_slack_escapes_slack_control_chars():
     assert out == 'A 굵게 &amp; B &lt; C'
 
 
-def test_split_for_message_cuts_on_line_boundary():
-    text = '\n'.join(f'줄{i:04d}' for i in range(2000))
-    head, truncated = dv.split_for_message(text, limit=100)
-    assert truncated and len(head) <= 100 and head.endswith(head.split('\n')[-1])
-    assert dv.split_for_message('짧음', limit=100) == ('짧음', False)
+def test_to_plain_text_unescapes_and_strips_whole_line_bold():
+    body = '*영등포지사 시방서*\n*2026. 10.*\n• 1 · 실내기 · 1 · 대\nA &amp; B &lt;표&gt; *부분* 굵게'
+    assert dv.to_plain_text(body) == '영등포지사 시방서\n2026. 10.\n• 1 · 실내기 · 1 · 대\nA & B <표> *부분* 굵게'
 
 
 def _event(**kw):
@@ -152,66 +150,32 @@ def test_handle_doc_view_posts_converted_text(monkeypatch, no_redis):
     assert len(c.posts) == 1
 
 
-def test_handle_doc_view_medium_text_is_one_message_of_blocks(monkeypatch, no_redis):
-    # 슬랙은 4,000자 넘는 text 를 메시지 여러 개로 쪼갠다(과업지시서 6,145자가 답글 2개로 달림)
-    md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(80))       # 약 6.5천 자
-    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
-    c = FakeClient()
-    dv.handle_doc_view(_event(), c, 'xoxb')
-    assert len(c.posts) == 1 and c.uploads == []
-    blocks = c.posts[0]['blocks']
-    assert '공고.hwp' in blocks[0]['text']['text']
-    assert all(len(b['text']['text']) <= 3000 for b in blocks)
-    joined = '\n\n'.join(b['text']['text'] for b in blocks[1:])
-    assert joined == dv.markdown_to_slack(md)                    # 칸을 나눠도 빠지는 글 없음
-
-
 def test_handle_doc_view_short_text_is_plain_message(monkeypatch, no_redis):
     monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: '짧은 공고 ' * 100)
     c = FakeClient()
     dv.handle_doc_view(_event(), c, 'xoxb')
-    assert len(c.posts) == 1 and 'blocks' not in c.posts[0]
+    assert len(c.posts) == 1 and c.uploads == [] and 'blocks' not in c.posts[0]
 
 
-def test_handle_doc_view_long_spec_is_whole_in_one_message(monkeypatch, no_redis):
-    # L-04373 공사시방서(25,801자)가 앞부분 3천 자 + .txt 로 가 '잘린 것 같다' → 전부 한 메시지에
-    md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(330))       # 약 2.7만 자
+def test_handle_doc_view_long_text_is_one_file_with_one_line_title(monkeypatch, no_redis):
+    # 10-26 L-04373: 긴 글을 메시지에 다 넣으면 '자세히 보기'로 접혀 파일 미리보기보다 불편 → 파일 하나
+    md = '# 시방서\n\n' + '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(330))   # 19,585자
     monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
     c = FakeClient()
     dv.handle_doc_view(_event(), c, 'xoxb')
-    assert len(c.posts) == 1 and c.uploads == []
-    blocks = c.posts[0]['blocks']
-    assert len(blocks) <= 50
-    assert '제329조' in blocks[-1]['text']['text']
-
-
-def test_handle_doc_view_falls_back_to_file_when_slack_rejects_length(monkeypatch, no_redis):
-    md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(330))
-    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
-
-    class Rejecting(FakeClient):
-        def chat_postMessage(self, **kw):
-            if 'blocks' in kw:
-                raise RuntimeError("The server responded with: {'ok': False, 'error': 'msg_blocks_too_long'}")
-            super().chat_postMessage(**kw)
-    c = Rejecting()
-    dv.handle_doc_view(_event(), c, 'xoxb')
-    assert len(c.uploads) == 1 and '제329조' in c.uploads[0]['content']
+    assert c.posts == [] and len(c.uploads) == 1                 # 답글은 파일 하나뿐
+    up = c.uploads[0]
+    assert up['filename'] == '공고_내용.txt' and up['thread_ts'] == '100.1'
+    assert up['content'].startswith('시방서\n') and '제329조' in up['content']   # 굵게 별표 없이 전체
+    assert '\n' not in up['initial_comment'] and '(약 2만 자 ·' in up['initial_comment']
     assert ('+', 'white_check_mark') in c.reactions
 
 
-def test_handle_doc_view_huge_text_is_one_file_with_clear_preview_end(monkeypatch, no_redis):
-    huge_md = '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(3000))  # 약 19만 자 > 5만 자
-    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: huge_md)
+def test_handle_doc_view_just_over_limit_shows_exact_count(monkeypatch, no_redis):
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: '가' * 5000)
     c = FakeClient()
     dv.handle_doc_view(_event(), c, 'xoxb')
-    assert c.posts == [] and len(c.uploads) == 1             # 답글은 파일 하나뿐
-    up = c.uploads[0]
-    assert up['filename'] == '공고_내용.txt' and up['thread_ts'] == '100.1'
-    assert '제2999조' in up['content']
-    comment = up['initial_comment']
-    assert comment.rstrip().endswith('첨부 파일에 있어요._')     # 말없이 끊기지 않게
-    assert '약 19만 자' in comment and len(comment) < 3300
+    assert len(c.uploads) == 1 and '(5,000자 ·' in c.uploads[0]['initial_comment']
 
 
 def test_handle_doc_view_reports_failure_in_korean(monkeypatch, no_redis):

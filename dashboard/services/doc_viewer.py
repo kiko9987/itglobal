@@ -9,9 +9,8 @@
 - 변환: tools/kordoc 의 kordoc CLI(Node) 를 subprocess 로 호출. 설치는 그 폴더에서 `npm ci`.
 - 외부 통신 차단(KORDOC_OFFLINE=1)·접근 폴더를 임시 폴더로 제한(KORDOC_ROOT)·OCR 끔.
 - 표는 슬랙이 그리지 못하므로 줄마다 '• 칸 · 칸 · 칸' 으로 풀어 쓴다.
-- 답글은 문서당 하나. 슬랙은 4,000자 넘는 text 를 메시지 여러 개로 쪼개므로
-  3,900자까지는 text 하나, 5만 자까지는 section block 여러 칸을 담은 메시지 하나,
-  그보다 길면 .txt 파일 하나에 앞부분 미리보기를 붙여 올린다.
+- 답글은 문서당 하나: 3,900자까지는 메시지, 그보다 길면 .txt 파일 하나(제목 한 줄 + 파일
+  미리보기로 펼쳐 읽음).
 """
 import json
 import logging
@@ -30,14 +29,9 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTS = {'hwp', 'hwpx', 'pdf', 'docx', 'xlsx', 'xls', 'pptx'}
 _MAX_BYTES = 30 * 1024 * 1024        # 슬랙 다운로드·변환 상한 30MB
 _CONVERT_TIMEOUT = 120               # kordoc 한 건 상한(초)
-_MESSAGE_LIMIT = 3900                # text 메시지 상한 — 슬랙이 4,000자 넘으면 여러 메시지로 쪼갬(10-22 실측)
-_BLOCKS_LIMIT = 50000                # block 메시지 하나에 담을 글자 상한 — 넘으면 .txt 하나로
-_MAX_BODY_BLOCKS = 49                # 본문 칸 수 상한(슬랙 한도 50칸 − 제목 1칸)
-_BLOCK_CHARS = 2900                  # section block 한 칸 글자 수(슬랙 한도 3,000)
-# 10-26 실측(#영업_관리 시험 스레드, 보낸 뒤 삭제): 25,801자 10칸 메시지 하나로 손실 없이 유지,
-# 62,500자까지 성공·63,750자부터 msg_blocks_too_long 거절 → 여유 두고 5만 자.
-# 그 전엔 1만 2천 자 상한이라 미리보기 3천 자 + .txt 로 가 '잘린 것 같다'는 제보(L-04373).
-_PREVIEW_LIMIT = 3000                # .txt 로 올릴 때 붙이는 앞부분 미리보기
+_MESSAGE_LIMIT = 3900                # 메시지로 보여 줄 상한 — 넘으면 .txt 파일 하나로
+# 슬랙은 4,000자 넘는 text 를 메시지 여러 개로 쪼갬(10-22 실측). block 메시지는 약 6.3만 자까지
+# 들어가지만(10-26 실측) 길면 '자세히 보기'로 접혀 파일 미리보기보다 읽기 불편해 쓰지 않는다.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _KORDOC_CLI = _PROJECT_ROOT / 'tools' / 'kordoc' / 'node_modules' / 'kordoc' / 'dist' / 'cli.js'
 
@@ -198,29 +192,6 @@ def _table_to_lines(block: list) -> list:
     return lines
 
 
-def split_for_message(text: str, limit: int = _MESSAGE_LIMIT) -> tuple:
-    """(메시지에 넣을 앞부분, 잘렸는지). 문단 경계에서 자른다."""
-    if len(text) <= limit:
-        return text, False
-    cut = text.rfind('\n', 0, limit)
-    if cut < limit // 2:
-        cut = limit
-    return text[:cut].rstrip(), True
-
-
-def split_into_parts(text: str, limit: int) -> list:
-    """문단 경계에서 limit 이하 조각들로 나눈다(section block 칸 나누기용)."""
-    parts = []
-    rest = text
-    while rest:
-        head, truncated = split_for_message(rest, limit)
-        parts.append(head)
-        if not truncated:
-            break
-        rest = rest[len(head):].lstrip('\n')
-    return parts
-
-
 # ─────────────────────────────────────────────────────────────
 # 슬랙 연결
 # ─────────────────────────────────────────────────────────────
@@ -358,8 +329,19 @@ def handle_doc_view(event: dict, client, token: str, mode: str = 'all') -> None:
             _react(client, channel, ts, add='x', remove='hourglass_flowing_sand')
 
 
+def to_plain_text(body: str) -> str:
+    """슬랙용 글 → .txt 용 평문. escape 를 풀고, 줄 전체를 감싼 굵게 표시(*…*)를 벗긴다."""
+    plain = body.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    return re.sub(r'(?m)^\*(.+)\*$', r'\1', plain)
+
+
 def _post_result(client, channel: str, ts: str, name: str, body: str) -> None:
-    """답글 하나로 올린다 — 앞부분 메시지 + 전체 파일을 따로 달면 같은 내용이 겹쳐 보였다."""
+    """문서당 답글 하나. 짧으면 메시지, 길면 .txt 파일 하나.
+
+    긴 글을 메시지로 보내면 슬랙이 '자세히 보기'로 접어 어차피 한눈에 못 보고, 파일 미리보기
+    (줄 번호·스크롤)가 더 읽기 편하다는 KiKO 판단(10-26, L-04373). 메시지와 파일을 함께 두면
+    같은 내용이 두 번 나온다.
+    """
     title = f':page_facing_up: *{_clean_inline(name)}* 내용'
     if len(body) <= _MESSAGE_LIMIT:
         client.chat_postMessage(
@@ -367,30 +349,11 @@ def _post_result(client, channel: str, ts: str, name: str, body: str) -> None:
             unfurl_links=False, unfurl_media=False,
         )
         return
-    parts = split_into_parts(body, _BLOCK_CHARS)
-    if len(body) <= _BLOCKS_LIMIT and len(parts) <= _MAX_BODY_BLOCKS:
-        blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': title}}]
-        blocks += [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': part}} for part in parts]
-        try:
-            client.chat_postMessage(
-                channel=channel, thread_ts=ts, text=f'{_clean_inline(name)} 내용',
-                blocks=blocks, unfurl_links=False, unfurl_media=False,
-            )
-            return
-        except Exception as exc:
-            # 상한 안쪽인데도 슬랙이 길다고 거절하면 답글 없이 끝나지 않도록 파일로 넘긴다
-            if 'msg_blocks_too_long' not in str(exc):
-                raise
-            logger.warning(f'[DOCVIEW] block 메시지 거절(msg_blocks_too_long) → 파일로 chars={len(body)}')
-    # 5만 자 넘는 문서만 파일로. 미리보기가 말없이 끊기면 잘린 줄 알아서 끝을 분명히 적는다.
-    head, _ = split_for_message(body, _PREVIEW_LIMIT)
     stem = name.rsplit('.', 1)[0]
-    plain = body.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
-    total = f'{len(body) // 10000}만 자' if len(body) >= 10000 else f'{len(body):,}자'
+    total = f'약 {len(body) / 10000:.1f}만 자'.replace('.0만', '만') if len(body) >= 10000 else f'{len(body):,}자'
     client.files_upload_v2(
         channel=channel, thread_ts=ts,
         filename=f'{stem}_내용.txt', title=f'{stem} 전체 내용',
-        content=plain,
-        initial_comment=(f'{title} (문서가 길어 앞부분만 보여 드려요)\n\n{head}\n\n'
-                         f'… _이하 생략 — 전체(약 {total})는 아래 첨부 파일에 있어요._'),
+        content=to_plain_text(body),
+        initial_comment=f'{title} ({total} · 아래 파일에서 바로 펼쳐 보세요)',
     )
