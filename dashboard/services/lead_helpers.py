@@ -302,11 +302,24 @@ def extract_address_overflow(address_raw: str) -> str:
     return m.group(1).strip() if m else ''
 
 
+# 시 약칭('시' 생략) — 이름+'구'인 실제 구는 없음. '김포구래동'을 '김포구 래동'이 아니라
+#   '김포 구래동'으로 나누는 데 사용 (2026-10-26 L-04376). 시도 약칭(광주 등)은 _ADMIN_PROV 가 먼저 잡음.
+_CITY_SHORT = frozenset((
+    '수원 성남 고양 용인 부천 안산 안양 남양주 화성 평택 의정부 시흥 파주 김포 광명 군포 하남 '
+    '오산 이천 안성 의왕 양주 구리 포천 동두천 과천 여주 춘천 원주 강릉 동해 태백 속초 삼척 '
+    '청주 충주 제천 천안 공주 보령 아산 서산 논산 계룡 당진 전주 군산 익산 정읍 남원 김제 '
+    '목포 여수 순천 나주 광양 포항 경주 김천 안동 구미 영주 영천 상주 문경 경산 창원 진주 '
+    '통영 사천 김해 밀양 거제 양산 서귀포').split())
+
+
 def _unglue_admin_prefix(s: str) -> str:
     def _repl(m):
         seg = m.group(0)
         if not seg or ' ' in seg:
             return seg
+        prov, city, gu, dong = m.groups()
+        if not prov and not city and gu and gu.endswith('구') and gu[:-1] in _CITY_SHORT:
+            return f'{gu[:-1]} 구{dong}'      # 김포구래동 → 김포 구래동
         parts = [g for g in m.groups() if g]
         if len(parts) < 2:                    # 최소 2단계(동 포함) — 단일 동 미변경
             return seg

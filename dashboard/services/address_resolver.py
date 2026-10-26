@@ -2836,9 +2836,15 @@ def _dong_building_poi_fallback(text: str) -> Optional[str]:
     if _dong_region_count(dong) != 1:
         return None
     bld = (first[:m.start()] + ' ' + first[m.end():]).strip()
+    # 앞에 붙은 시 약칭('김포 구래동 카림에비뉴'의 '김포')은 건물명 아님 (2026-10-26 L-04376)
+    from dashboard.services.lead_helpers import _CITY_SHORT
+    _btoks = bld.split()
+    while len(_btoks) > 1 and _btoks[0] in _CITY_SHORT:
+        _btoks.pop(0)
+    bld = ' '.join(_btoks)
     if not bld or not re.search(r'[가-힣]{2,}', bld):
         return None
-    bld_ns = re.sub(r'\s', '', bld)
+    bld_ns = _ae_fold(re.sub(r'\s', '', bld))
     try:
         url = _KAKAO_POI_ENDPOINT + '?' + urllib.parse.urlencode(
             {'query': first, 'size': 10})
@@ -2872,11 +2878,29 @@ def _dong_building_poi_fallback(text: str) -> Optional[str]:
     for pn, road in cands:
         if _poi_has_facility(pn):
             continue
-        pn_ns = pn.replace(' ', '')
+        pn_ns = _ae_fold(pn.replace(' ', ''))
+        # 'X김포'처럼 정식명 뒤에 시 약칭만 붙은 경우도 같은 건물 (카림애비뉴김포)
+        _tail = pn_ns[len(bld_ns):] if pn_ns.startswith(bld_ns) else None
         if pn_ns == bld_ns or pn_ns.endswith(bld_ns) or (
-                len(pn_ns) >= 3 and bld_ns.endswith(pn_ns)):
+                len(pn_ns) >= 3 and bld_ns.endswith(pn_ns)) or (
+                _tail and _tail in _CITY_SHORT):
             return f'{normalize_display(road)} {pn}'.strip()
     return None
+
+
+def _ae_fold(s: str) -> str:
+    """ㅐ/ㅔ·ㅒ/ㅖ 를 같은 모음으로 접음 — 표기 흔들림(카림에비뉴/카림애비뉴) 비교용."""
+    out = []
+    for ch in s or '':
+        c = ord(ch) - 0xAC00
+        if 0 <= c < 11172:
+            jung = (c // 28) % 21
+            if jung in (1, 3):  # ㅐ→ㅔ, ㅒ→ㅖ
+                c += (4 * 28)
+            out.append(chr(0xAC00 + c))
+        else:
+            out.append(ch)
+    return ''.join(out)
 
 
 def resolve_address(
