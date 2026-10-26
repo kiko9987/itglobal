@@ -14751,15 +14751,31 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                 _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
                 _core = f"{selected} 발행"
                 if inv_amt > 0:
+                    # '현금 · 부가세 없음' 몫이 있는 나눠 내는 공사는 총액 2 가 그만큼 덜 커서 총액2/총액1 비율이
+                    #   10%보다 작다 → 계산서 한 장은 부가세 10% 그대로 (2026-10-26 G4148: 공급가 10,042,000원을
+                    #   10,670,611원으로 적어 두 번째 입금 때 '잔금 - 미발행' 오판. 요청 모달 점검은 10-21 에 같은 수정).
+                    _vf_mix = False
+                    try:
+                        from dashboard.services.project_service import get_project_records as _gpr_vf
+                        from dashboard.services.payer_split import vat_free_amount as _vfa_m
+                        _prec = next((r for r in (_gpr_vf() or [])
+                                      if str(r.get('프로젝트 코드') or '').strip() == code), None)
+                        _vf_mix = bool(_prec) and _vfa_m(_prec) > 0
+                    except Exception:
+                        _vf_mix = False
                     if vat_val == 'incl':
                         inv_gross = inv_amt
+                    elif _vf_mix:
+                        inv_gross = round(inv_amt * 1.1)
                     elif total1 > 0 and total2 > 0:
                         inv_gross = round(inv_amt * total2 / total1)
                     else:
                         inv_gross = round(inv_amt * 1.1)
                     _core = f"{selected} 발행 {int(round(inv_gross)):,}원"
                     _sup = 0
-                    if total1 > 0 and total2 > total1:
+                    if _vf_mix:
+                        _sup = int(round(inv_amt)) if vat_val != 'incl' else int(round(inv_gross / 1.1))
+                    elif total1 > 0 and total2 > total1:
                         _sup = int(round(inv_amt)) if vat_val != 'incl' else int(round(inv_gross * total1 / total2))
                     elif not total1 and vat_val != 'incl':
                         _sup = int(round(inv_amt))

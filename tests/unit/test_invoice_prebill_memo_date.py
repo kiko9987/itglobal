@@ -365,3 +365,21 @@ def test_line_stage_and_covered_not_counted_again(monkeypatch):
     s = sb._project_issued_invoice('X9')
     # 계약금(금액 없는 옛 줄) = 입금 1,100,000 + 잔금 장 9,900,000
     assert s['issued_gross'] == 11000000 and s['remaining_supply'] == 0
+
+
+def test_vat_free_payer_project_uses_10pct(monkeypatch):
+    """'현금 · 부가세 없음' 부담자가 있는 나눠 내는 공사 — 총액2/총액1(≈1.063) 아닌 부가세 10%로 장 합계
+    (2026-10-26 G4148-JW: 10,042,000원 → 10,670,611원 오기 → 두 번째 입금 때 '잔금 - 미발행' 오판)."""
+    fm = _FakeManager()
+    fm.vals.update({'R10': 16042000, 'T10': 17046200, 'U10': 6000000, 'W10': 8836960,
+                    'Z10': 'N입금', 'AB10': '미발행'})
+    rec = {'프로젝트 코드': 'R4100-MS', '부가세': True, '총액 1': 16042000, '총액 2': 17046200,
+           '계약금': 6000000, '중도금': 0, '잔금': 8836960,
+           '계약금 부담자': '임대인 · 유미숙 · 6,000,000 · 현금 · 부가세 없음', '중도금 부담자': '-',
+           '잔금 부담자': '임차인 · 주식회사 제이케이디학원 · 405-81-13558 · 11,046,200 · 계산서'}
+    import dashboard.services.project_service as ps
+    monkeypatch.setattr(ps, 'get_project_records', lambda *a, **k: [rec])
+    _run(monkeypatch, fm, biz='제이케이디 영재학원', amt='10042000')
+    today = f'{datetime.now():%Y-%m-%d}'
+    assert fm.notes['Y10'].endswith(
+        f'{today} 잔금 발행 11,046,200원 (10,042,000원 VAT 별도) · 제이케이디 영재학원')
