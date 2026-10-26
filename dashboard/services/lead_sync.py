@@ -753,9 +753,12 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
     _nums = _allocate_lead_numbers(max_num, len(safe_leads))
     lead_nos = []
     rows = []
+    from dashboard.services.lead_helpers import tidy_phone_for_sheet as _tidy_ph
     for j, lead in enumerate(safe_leads):
         ln = f'L-{_nums[j]:05d}'
         lead['리드 No'] = ln
+        if lead.get('고객 연락처'):
+            lead['고객 연락처'] = _tidy_ph(lead['고객 연락처'])  # 공백 섞인 번호 정리 (ETC-587764)
         lead_nos.append(ln)
         result_nos[safe_pos[j]] = ln
         rows.append([lead.get(col, '') for col in LEAD_COLUMN_ORDER])
@@ -2697,6 +2700,14 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 current = str(row.get(field, '') or '').strip()
                 if not current:
                     update_cells.append((f"{col_letter}{sheet_row}", '-'))
+            # 연락처 공백·표기 정리 — 워크플로 입력 '010- 4327-1111' 이 캔버스1→캔버스2로 옮겨져
+            #   캔버스2 전화 인식 실패·DM 누락 (2026-10-26 ETC-587764). 번호만인 유효 번호만 바꿈.
+            from dashboard.services.lead_helpers import tidy_phone_for_sheet as _tidy_ph
+            _ph_cur = str(row.get('고객 연락처', '') or '').strip()
+            _ph_new = _tidy_ph(_ph_cur)
+            if _ph_cur and _ph_new != _ph_cur:
+                update_cells.append((f"F{sheet_row}", _ph_new))
+                row['고객 연락처'] = _ph_new
 
             # batchUpdate — SSL/transient 에러 시 즉시 1회 재시도
             import time as _t

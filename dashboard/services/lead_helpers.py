@@ -126,6 +126,26 @@ def is_valid_phone(raw) -> bool:
     return is_valid_phone_digits(canonical_phone_digits(re.sub(r'\D', '', str(raw or ''))))
 
 
+_PHONE_ONLY_RE = re.compile(r'^[\d\s\-.()+]+$')
+
+
+def tidy_phone_for_sheet(raw):
+    """시트에 쓸 연락처 정리 — 번호만 있는 유효 번호면 표준 표기(010-1234-5678)로, 아니면 그대로.
+
+    공백 섞인 번호('010- 4327-1111')가 캔버스1에 그대로 찍히고 JW가 캔버스2로 옮겨 적으면서
+    캔버스2 전화 인식이 실패, 담당 DM 누락 (2026-10-26 ETC-587764).
+    '-'·'/'·메모·주소·번호 여러 개 등 번호만이 아닌 값과 형태가 이상한 번호는 건드리지 않음.
+    """
+    if raw is None:
+        return raw
+    t = str(raw).strip()
+    if not t or not _PHONE_ONLY_RE.match(t) or len(re.findall(r'\d', t)) > 13:
+        return raw
+    if not is_valid_phone(t):
+        return raw
+    return normalize_phone(t) or raw
+
+
 def restore_leading_zero(digits: str) -> str:
     """스프레드시트 숫자 서식으로 앞자리 0 이 탈락한 번호 복원.
 

@@ -346,6 +346,10 @@ def update_lead(lead_no: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
             # 리드 No는 식별자이므로 업데이트 금지
             if canonical == '리드 No':
                 continue
+            if canonical == '고객 연락처':
+                # 공백 섞인 번호 정리 (2026-10-26 ETC-587764) — 번호만인 유효 번호만 바꿈
+                from dashboard.services.lead_helpers import tidy_phone_for_sheet
+                value = tidy_phone_for_sheet(value)
             cell_range = f"{col}{sheet_row_number}"
             updates.append((cell_range, value))
 
