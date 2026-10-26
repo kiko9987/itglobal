@@ -21,6 +21,12 @@ import re
 _BALANCE_LINE_RE = re.compile(
     r'^\s*(?:잔액|잔고|현재\s*잔액|출금\s*가능(?:금?액)?|이체\s*후\s*잔액)\s*[:：]?\s*[\d,]+\s*원?\s*$'
 )
+# 다른 내용과 같은 줄에 붙은 잔액 — 농협 압축 양식 '… 352-****-1682-33 이재철(푸른 잔액82,517,408원'.
+# 줄 단위 제거로는 못 지워 거래처 줄째로 슬랙에 노출됐다(2026-10-26 JW폰 자동 포워딩 첫 농협 입금).
+# 앞이 공백·줄머리일 때만 + 뒤 금액 필수 → '잔다르크상사' 같은 거래처명은 보존.
+_BALANCE_INLINE_RE = re.compile(
+    r'(?:(?<=\s)|^)(?:잔액|잔고|현재\s*잔액|출금\s*가능(?:금?액)?|이체\s*후\s*잔액)\s*[:：]?\s*[\d,]+\s*원?'
+)
 # 은행 단체문자 머리말 — '[Web발신]', '[국외발신]', '[국제발신]' 등. 줄 앞에서만 제거.
 _WEB_HEADER_RE = re.compile(r'^\s*\[[^\]]*발신\]\s*')
 # 입금 금액 — '입금 407,000원' / '입금5,115,000원'
@@ -38,7 +44,16 @@ def strip_balance(text: str) -> str:
     """
     if not text:
         return ''
-    out = [raw for raw in text.splitlines() if not _BALANCE_LINE_RE.match(raw)]
+    out = []
+    for raw in text.splitlines():
+        if _BALANCE_LINE_RE.match(raw):
+            continue
+        ln = _BALANCE_INLINE_RE.sub('', raw)
+        if ln != raw:
+            ln = ln.rstrip()
+            if not ln.strip():
+                continue
+        out.append(ln)
     cleaned = '\n'.join(out)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)  # 3줄 이상 공백 → 2줄
     return cleaned.strip()

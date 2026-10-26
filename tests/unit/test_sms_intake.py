@@ -79,6 +79,27 @@ class TestStripBalance:
         assert '홍길동' in out
         assert '입금 100,000원' in out
 
+    def test_nh_inline_balance_removed(self):
+        # 농협 압축 양식 — 잔액이 거래처와 같은 줄 끝 (2026-10-26 이재철 7,450,600 슬랙 노출 사고)
+        sms = "[Web발신]\n농협 입금7,450,600원\n10/26 09:15 352-****-1682-33 이재철(푸른 잔액82,517,408원"
+        out = strip_balance(sms)
+        assert '잔액' not in out and '82,517,408' not in out
+        assert '이재철(푸른' in out and '입금7,450,600원' in out
+        from dashboard.services.sms_intake import normalize_deposit_layout, parse_preview
+        pv = parse_preview(normalize_deposit_layout(out))
+        assert pv['partner'] == '이재철(푸른'
+        assert pv['amount'] == 7_450_600
+
+    def test_nh_outflow_inline_balance_removed(self):
+        sms = "[Web발신]\n농협 출금750,000원\n10/23 14:44 352-****-1682-33 주영민 잔액12,345,678원"
+        out = strip_balance(sms)
+        assert '12,345,678' not in out and '주영민' in out
+
+    def test_inline_balance_needs_space_and_amount(self):
+        # 거래처명에 '잔액'이 붙어 있거나 금액이 없으면 건드리지 않음
+        assert strip_balance("입금 1,000원\n홍길동잔액상사") == "입금 1,000원\n홍길동잔액상사"
+        assert strip_balance("입금 1,000원\n잔액정리 홍길동") == "입금 1,000원\n잔액정리 홍길동"
+
     def test_partner_not_falsely_stripped(self):
         # 거래처명이 '잔' 으로 시작해도 금액이 안 붙으면 보존
         out = strip_balance("입금 100,000원\n잔다르크상사\n기업")
