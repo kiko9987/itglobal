@@ -355,5 +355,7 @@ def _post_result(client, channel: str, ts: str, name: str, body: str) -> None:
         channel=channel, thread_ts=ts,
         filename=f'{stem}_내용.txt', title=f'{stem} 전체 내용',
         content=to_plain_text(body),
-        initial_comment=f'{title} ({total} · 아래 파일에서 바로 펼쳐 보세요)',
+        # 슬랙 미리보기는 약 600줄에서 끊긴다(preview_is_truncated, 10-26 L-04373 1,162줄 중 610줄)
+        # → 펼친 미리보기가 전부인 줄 알지 않게, 파일을 열어야 전체가 보인다고 적는다.
+        initial_comment=f'{title} ({total} · 미리보기는 일부만 보여요, 파일 제목을 누르면 전체가 열려요)',
     )
