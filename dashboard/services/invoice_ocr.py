@@ -178,8 +178,9 @@ def parse_invoice_buyer(words: List[dict]) -> Dict[str, str]:
     return res
 
 
-def read_invoice_buyer(content: bytes) -> Optional[Dict[str, str]]:
-    """세금계산서 파일 → 공급받는자 정보. 홈택스 계산서 양식이 아니거나 등록번호·상호를 못 읽으면 None."""
+def read_invoice(content: bytes) -> Optional[Dict[str, str]]:
+    """세금계산서 파일 → 읽은 칸 전부(공급받는자 + supplier_bno). 홈택스 계산서 양식이 아니면 None.
+    공급받는자를 못 읽어도(주민번호 발행 등) 공급자 번호는 쓸 수 있다(어느 법인이 냈는지)."""
     try:
         words = ocr_words(content)
     except Exception as exc:
@@ -188,7 +189,15 @@ def read_invoice_buyer(content: bytes) -> Optional[Dict[str, str]]:
     text = ''.join(w['text'] for w in words)
     if not any(k in text for k in ('공급받는자', '공급가액', '승인번호')):
         return None
-    r = parse_invoice_buyer(words)
-    if not (r['bno'] and r['name']) or r['bno'] == r.get('supplier_bno'):
-        return None
-    return r
+    return parse_invoice_buyer(words)
+
+
+def buyer_ok(r: Optional[Dict[str, str]]) -> bool:
+    """공급받는자 등록번호·상호를 읽었고 공급자 번호와 다르면(잘못 읽지 않았으면) True."""
+    return bool(r and r['bno'] and r['name'] and r['bno'] != r.get('supplier_bno'))
+
+
+def read_invoice_buyer(content: bytes) -> Optional[Dict[str, str]]:
+    """세금계산서 파일 → 공급받는자 정보. 홈택스 계산서 양식이 아니거나 등록번호·상호를 못 읽으면 None."""
+    r = read_invoice(content)
+    return r if buyer_ok(r) else None

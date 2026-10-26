@@ -5,8 +5,10 @@
   대기 = '⚠️ 계좌·사업자 불일치 … — 자금 이동 요청' 줄이 있는 입금 블록 중, 같은 셀 메모에서
          그 뒤로 같은 방향(출발→도착) 매출이동 줄('YYYY-MM-DD R>G …')이 아직 없는 것.
   완료 = 매출이동 줄이 붙음 — #입금_관리 [법인 간 이체로 처리] 버튼이 자동으로 붙인다.
-  이동 없음 = 요청 줄 바로 아래 '⚠️ 자금 이동 없음: …' 줄 — 경영지원이 카드 스레드에 '자금 이동
-         없이 …' 댓글을 달면 붙는다(2026-10-26 G3982: 그룹으로 발행·수금해 이체가 필요 없었음).
+  이동 없음 = 요청 줄 바로 아래 '⚠️ 자금 이동 없음: …' 줄 (2026-10-26 G3982: 그룹으로 발행·수금해
+         이체가 필요 없었는데 SB 댓글은 기록에 안 남아 정산 알림에 계속 나왔음). 붙는 길 두 가지:
+         ① 자동 — 그 단계 세금계산서의 공급자 법인 = 돈이 들어온 법인(close_by_invoice)
+         ② 경영지원 — #입금_관리 카드 스레드에 댓글(문구 무관)을 달면 뜨는 [이동 없이 처리] 버튼
 
 짝짓기 = 이체로 들어온 입금 문자 ↔ 대기 요청: 도착 사업자(계좌)·금액이 같고, 최초 입금자 이름의
   앞부분이 같음. 경영지원이 이체할 때 받는 분 표시에 최초 입금자명을 그대로 넣고, 은행은 이름을
@@ -26,8 +28,6 @@ logger = get_logger(__name__)
 
 _REQ_LINE_RE = re.compile(r'^\s*⚠.*계좌·사업자 불일치.*자금 이동 요청')
 _NO_MOVE_LINE_RE = re.compile(r'^\s*⚠.*자금 이동 없음')
-# 경영지원 댓글 — '이동' + 부정('자금 이동없이 그룹으로 전액발행', '이동 안 함', '이동 불필요')
-NO_MOVE_REPLY_RE = re.compile(r'이동\s*(?:없이|없음|안\s*함|안\s*해|불필요|필요\s*없|하지\s*않)')
 _STAGES = ('계약금', '중도금', '잔금')
 _BANK_CODE = {'기업': 'G', '하나': 'R', '농협': 'N'}
 _CODE_BANK = {'G': '기업', 'R': '하나', 'N': '농협'}
@@ -263,6 +263,58 @@ def apply_no_move(req: Dict, reason: str, checker: str, when: Optional[datetime]
     invalidate()
     logger.info(f"[FUND_MOVE] 자금 이동 없이 처리: {req['code']} {req['stage']} {cell} — {line}")
     return line
+
+
+_ISSUER_KEY = 'invoice_issuer'   # Redis hash '코드|단계' → 그 단계 세금계산서를 낸 법인(G/R)
+
+
+def record_invoice_issuer(code: str, stages: str, entity: str) -> None:
+    """발행한 세금계산서의 공급자 법인 기억 — 계산서가 입금보다 먼저 나간 경우(G3982: 10/22 발행, 10/23 입금)
+    나중에 생긴 자금 이동 요청도 정산 알림 전에 대조해 닫기 위해. 수정발행이면 최신 값으로 덮음."""
+    st = [s.strip() for s in str(stages or '').split(',') if s.strip()]
+    if not (code and st and entity in ('G', 'R')):
+        return
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        get_redis_client().redis.hset(_ISSUER_KEY, mapping={f'{code}|{s}': entity for s in st})
+    except Exception as exc:
+        logger.warning(f'[FUND_MOVE] 계산서 발행 법인 기록 실패({code}): {exc}')
+
+
+def invoice_issuer(code: str, stage: str) -> str:
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        v = get_redis_client().redis.hget(_ISSUER_KEY, f'{code}|{stage}')
+        return (v.decode() if isinstance(v, bytes) else v) or ''
+    except Exception:
+        return ''
+
+
+def close_by_recorded_issuers(when: Optional[datetime] = None) -> List[Dict]:
+    """대기 요청 중 그 단계 계산서를 이미 돈이 들어온 법인 이름으로 낸 것 → '이동 없음' 기록.
+    정산 알림 직전에 부른다. 호출부가 같은 셀 RMW 직렬화(_INTAKE_SHEET_LOCK)를 책임진다."""
+    done = []
+    for r in pending_requests(force=True):
+        sup = invoice_issuer(r['code'], r['stage'])
+        if sup and sup == r['from']:
+            apply_no_move(r, f"{ENTITY[sup]} 이름으로 계산서 발행 — 돈과 계산서 사업자가 같음", '자동', when)
+            done.append(r)
+    return done
+
+
+def close_by_invoice(code: str, stages: str, supplier: str, when: Optional[datetime] = None) -> List[Dict]:
+    """발행한 세금계산서의 공급자 법인(supplier G/R)이 돈이 들어온 법인과 같으면, 그 공사·그 단계의 자금 이동
+    요청은 옮길 이유가 없다(돈과 계산서가 같은 사업자) → '이동 없음' 기록. 다른 단계 요청은 그대로.
+    Returns 닫은 요청. 호출부가 같은 셀 RMW 직렬화(_INTAKE_SHEET_LOCK)를 책임진다."""
+    st = {s.strip() for s in str(stages or '').split(',') if s.strip()}
+    if not (code and st and supplier in ('G', 'R')):
+        return []
+    done = []
+    for r in pending_requests(force=True):
+        if r['code'] == code and r['stage'] in st and r['from'] == supplier:
+            apply_no_move(r, f"{ENTITY[supplier]} 이름으로 계산서 발행 — 돈과 계산서 사업자가 같음", '자동', when)
+            done.append(r)
+    return done
 
 
 def apply_transfer(req: Dict, deposit_text: str, preview: dict, checker: str) -> str:

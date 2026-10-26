@@ -142,12 +142,8 @@ def test_done_card_and_reminder_text(monkeypatch):
     assert '자금 이동 대기 — 법인 간 이체 필요 (1건)' in rt
     assert 'G4125-YM 잔금 3,014,000원 · 대연이엔지주식회 · 하나(글로벌그룹) → 글로벌 · 2026/09/30 입금' in rt
 
-def test_no_move_reply_and_line():
-    """경영지원 '자금 이동없이 그룹으로 전액발행' 댓글 → 요청 아래 '⚠️ 자금 이동 없음' 줄 (2026-10-26 G3982)."""
-    for t in ('자금 이동없이 그룹으로 전액발행 및 전액수금완료', '이동 안 함', '자금 이동 불필요', '이동 필요 없어요'):
-        assert ft.NO_MOVE_REPLY_RE.search(t), t
-    for t in ('자금 이동 부탁드려요', '이체 완료했습니다', '이동했습니다'):
-        assert not ft.NO_MOVE_REPLY_RE.search(t), t
+def test_no_move_line():
+    """'이동 없이 처리' → 요청 아래 '⚠️ 자금 이동 없음' 줄 (2026-10-26 G3982)."""
     from datetime import datetime
     line = ft.no_move_line('그룹으로 발행 2026-10-23 R>G', 'SB', datetime(2026, 10, 23))
     assert line.startswith('⚠️ 자금 이동 없음: ') and line.endswith('(확인 SB 10/23)')
@@ -173,38 +169,118 @@ def test_apply_no_move(monkeypatch):
     assert m.notes['W4126'] == DEP_HANA + '\n' + line and _pend(m.notes['W4126']) == []
 
 
-def test_close_fund_move_by_reply(monkeypatch):
+def test_close_by_invoice_same_entity_only(monkeypatch):
+    """그 단계 계산서를 돈이 들어온 법인(R) 이름으로 냈으면 이동 필요 없음 — 다른 법인·다른 단계는 그대로."""
+    r = _pend(DEP_HANA)[0]                                      # 하나(R) 입금 → 프로젝트 G, 잔금
+    closed = []
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
+    monkeypatch.setattr(ft, 'apply_no_move', lambda req, reason, checker, when=None: closed.append((reason, checker)))
+    assert ft.close_by_invoice('G4125-YM', '잔금', 'G') == [] and not closed       # 글로벌 발행 = 옮겨야 함
+    assert ft.close_by_invoice('G4125-YM', '계약금', 'R') == [] and not closed     # 다른 단계
+    assert ft.close_by_invoice('G4125-YM', '', 'R') == []                           # 단계 모름 = 안 닫음
+    assert ft.close_by_invoice('G4125-YM', '계약금,잔금', 'R') == [r]
+    assert closed == [('글로벌그룹 이름으로 계산서 발행 — 돈과 계산서 사업자가 같음', '자동')]
+    from dashboard.services.itg_accounts import entity_for_bno
+    assert entity_for_bno('533-88-02845') == 'R' and entity_for_bno('884-81-01425') == 'G'
+    assert entity_for_bno('224-81-28302') == ''
+
+
+def test_invoice_before_deposit_closed_by_recorded_issuer(monkeypatch):
+    """계산서가 입금보다 먼저 나간 경우(G3982: 10/22 그룹 발행 → 10/23 하나 입금) — 발행 법인을 기억해 두고
+    정산 알림 전에 대조해 닫는다."""
+    store = {}
+
+    class _R:
+        def hset(self, k, mapping):
+            store.update(mapping)
+
+        def hget(self, k, f):
+            return store.get(f)
+    import dashboard.utils.redis_client as rcm
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': _R()})())
+    ft.record_invoice_issuer('G4125-YM', '잔금', 'R')
+    assert ft.invoice_issuer('G4125-YM', '잔금') == 'R' and ft.invoice_issuer('G4125-YM', '계약금') == ''
+    r = _pend(DEP_HANA)[0]
+    closed = []
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
+    monkeypatch.setattr(ft, 'apply_no_move', lambda req, reason, checker, when=None: closed.append(req['code']))
+    assert ft.close_by_recorded_issuers() == [r] and closed == ['G4125-YM']
+    ft.record_invoice_issuer('G4125-YM', '잔금', 'G')              # 글로벌로 (수정)발행 → 옮겨야 함
+    closed.clear()
+    assert ft.close_by_recorded_issuers() == [] and not closed
+
+
+class _Now:                                 # 백그라운드 스레드를 바로 실행
+    def __init__(self, target, daemon=None, args=()):
+        self.t, self.a = target, args
+
+    def start(self):
+        self.t(*self.a)
+
+
+class _SlackC:
+    def __init__(self, codes_text='G4125-YM · 잔금'):
+        self.codes_text, self.posted, self.eph = codes_text, [], []
+
+    def conversations_replies(self, **k):
+        return {'messages': [{'text': '분할 2건 기록 완료', 'blocks': [{'text': {'text': self.codes_text}}]}]}
+
+    def chat_postMessage(self, **k):
+        self.posted.append(k['text'])
+
+    def chat_postEphemeral(self, **k):
+        self.eph.append(k)
+
+
+def test_reply_prompts_button_regardless_of_wording(monkeypatch):
+    """경영지원 댓글이면 문구와 상관없이, 그 카드에 대기 요청이 있으면 본인에게만 [이동 없이 처리] 버튼."""
     import dashboard.blueprints.slack_bot as sb
     r = _pend(DEP_HANA)[0]
-    applied, posted = [], []
     monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
-    monkeypatch.setattr(ft, 'apply_no_move', lambda req, reason, checker: applied.append((req['code'], reason, checker)))
+    monkeypatch.setattr(sb.threading, 'Thread', _Now)
+    c = _SlackC()
+    ev = {'user': sb._SETTLEMENT_CHECKER_ID, 'text': '그룹으로 전액 발행했어요', 'thread_ts': '1.0', 'ts': '2.0'}
+    assert sb._prompt_fund_move_on_reply(c, 'CH', ev) is True
+    blocks = c.eph[0]['blocks']
+    btn = blocks[1]['elements'][0]
+    assert btn['action_id'] == 'fund_move_no_move_0' and btn['text']['text'] == '이동 없이 처리'
+    v = json.loads(btn['value'])
+    assert (v['code'], v['stage'], v['amount'], v['from'], v['reason']) == ('G4125-YM', '잔금', 3014000, 'R', '그룹으로 전액 발행했어요')
+    assert 'G4125-YM' in blocks[0]['text']['text'] and not c.posted               # 아직 기록 안 함
+    # 경영지원이 아니면 기존 안내 경로(False)
+    assert sb._prompt_fund_move_on_reply(_SlackC(), 'CH', dict(ev, user='U_OTHER')) is False
+
+
+def test_reply_without_pending_gets_old_nudge(monkeypatch):
+    import dashboard.blueprints.slack_bot as sb
+    import dashboard.utils.redis_client as rcm
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [])
+    monkeypatch.setattr(sb.threading, 'Thread', _Now)
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': type('R', (), {'set': lambda *a, **k: True})()})())
+    c = _SlackC()
+    ev = {'user': sb._SETTLEMENT_CHECKER_ID, 'text': '확인했습니다', 'thread_ts': '1.0', 'ts': '2.0'}
+    assert sb._prompt_fund_move_on_reply(c, 'CH', ev) is True
+    assert c.eph[0]['text'] == sb._INTAKE_REPLY_NUDGE and 'blocks' not in c.eph[0]
+
+
+def test_no_move_button_records_once(monkeypatch):
+    import dashboard.blueprints.slack_bot as sb
+    r = _pend(DEP_HANA)[0]
+    state = {'pending': [r]}
+    applied = []
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: list(state['pending']))
+
+    def _apply(req, reason, checker, when=None):
+        applied.append((req['code'], reason, checker))
+        state['pending'] = []
+    monkeypatch.setattr(ft, 'apply_no_move', _apply)
     monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'SB')
-
-    class _T:                               # 백그라운드 스레드를 바로 실행
-        def __init__(self, target, daemon=None):
-            self.t = target
-
-        def start(self):
-            self.t()
-    monkeypatch.setattr(sb.threading, 'Thread', _T)
-
-    class _C:
-        def conversations_replies(self, **k):
-            return {'messages': [{'text': '분할 2건 기록 완료', 'blocks': [{'text': {'text': 'G4125-YM · 잔금'}}]}]}
-
-        def chat_postMessage(self, **k):
-            posted.append(k['text'])
-
-        def chat_postEphemeral(self, **k):
-            posted.append('eph:' + k['text'])
-    ev = {'user': sb._SETTLEMENT_CHECKER_ID, 'text': '자금 이동없이 그룹으로 전액발행', 'thread_ts': '1.0', 'ts': '2.0'}
-    assert sb._close_fund_move_by_reply(_C(), 'CH', ev) is True
-    assert applied == [('G4125-YM', '자금 이동없이 그룹으로 전액발행', 'SB')]
-    assert '자금 이동 없이 처리로 기록했습니다' in posted[0] and 'G4125-YM' in posted[0]
-    # 경영지원이 아니거나, 이동 부정 표현이 아니면 기존 댓글 안내로
-    assert sb._close_fund_move_by_reply(_C(), 'CH', dict(ev, user='U_OTHER')) is False
-    assert sb._close_fund_move_by_reply(_C(), 'CH', dict(ev, text='확인했습니다')) is False
+    c = _SlackC()
+    v = {'code': 'G4125-YM', 'stage': '잔금', 'amount': 3014000, 'from': 'R', 'thread_ts': '1.0', 'reason': '그룹으로 발행'}
+    sb._do_fund_move_no_move(c, 'U', 'CH', v)
+    assert applied == [('G4125-YM', '그룹으로 발행', 'SB')] and '이동 없이 처리로 기록했습니다' in c.posted[0]
+    sb._do_fund_move_no_move(c, 'U', 'CH', v)                    # 두 번 눌러도 한 번만
+    assert len(applied) == 1 and len(c.posted) == 1
 
 
 # 테스트 데이터를 옛 45열 위치(계약금=U·버전=AS 등)로 짰다 — 기본 배치를 45열로 고정해 검사

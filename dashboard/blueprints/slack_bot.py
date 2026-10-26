@@ -1107,6 +1107,21 @@ def _register_payment_handlers(app):
         threading.Thread(target=_do_intake_transfer, daemon=True, args=(
             client, user, channel, ts, v.get("iid", ""), v.get("code", ""), v.get("stage", ""))).start()
 
+    @app.action(re.compile(r"^fund_move_no_move_\d+$"))
+    def handle_fund_move_no_move(ack, body, client):
+        """카드 스레드 댓글에 뜬 [이동 없이 처리] — 자금 이동 요청을 이체 없이 닫음 (2026-10-26 G3982)."""
+        ack()
+        user, channel, _ts = _transfer_ctx(body)
+        if user != _SETTLEMENT_CHECKER_ID:
+            _intake_ephemeral(client, channel, user, "🔒 자금 이동 요청 정리는 경영지원만 할 수 있습니다.")
+            return
+        try:
+            v = json.loads(((body.get("actions") or [{}])[0]).get("value") or "{}")
+        except Exception:
+            v = {}
+        threading.Thread(target=_do_fund_move_no_move, daemon=True,
+                         args=(client, user, channel, v, body.get("response_url") or "")).start()
+
     # ─── 입금 반환(환불) 후보 카드 — 경영지원 확인 후 기록 / 반환 아님 (2026-10-08) ───
     @app.action("payment_refund_record")
     def handle_payment_refund_record(ack, body, client):
@@ -1192,8 +1207,8 @@ def _register_payment_handlers(app):
             # 반영 안 되므로 본인에게만 보이는 ephemeral 로 카드 지정을 안내(채널 클러터 없음).
             # 도배 방지: 스레드·유저당 1시간 1회. 2026-08-20 사용자 요청(원본 삭제 부담 경감).
             if event.get('thread_ts') and event.get('thread_ts') != event.get('ts'):
-                # 경영지원의 '자금 이동없이 …' 댓글은 기록한다 (2026-10-26 G3982)
-                if _close_fund_move_by_reply(client, intake_channel, event):
+                # 경영지원 댓글 — 그 카드에 자금 이동 요청이 남아 있으면 [이동 없이 처리] 버튼 (2026-10-26)
+                if _prompt_fund_move_on_reply(client, intake_channel, event):
                     return
                 try:
                     _ru = event.get('user', '')
@@ -1202,9 +1217,7 @@ def _register_payment_handlers(app):
                     if _ru and get_redis_client().redis.set(_rk, '1', nx=True, ex=3600):
                         client.chat_postEphemeral(
                             channel=intake_channel, user=_ru,
-                            thread_ts=event.get('thread_ts'),
-                            text=(":warning: 여기 댓글은 기록에 반영되지 않아요. "
-                                  "입금 문자 카드의 *[🔗 프로젝트 지정]* 버튼으로 지정해주세요."),
+                            thread_ts=event.get('thread_ts'), text=_INTAKE_REPLY_NUDGE,
                         )
                 except Exception:
                     pass
@@ -1832,17 +1845,42 @@ def _build_intake_split_done_blocks(splits, total, by_user, checker, memo=""):
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
 
 
-def _close_fund_move_by_reply(client, channel, event) -> bool:
-    """#입금_관리 카드 스레드에 경영지원이 '자금 이동없이 …' 댓글 → 그 카드 프로젝트의 대기 자금 이동
-    요청을 '이동 없이 처리'로 시트 메모에 기록 (2026-10-26 G3982: 그룹으로 발행·수금해 이체가 필요 없다고
-    SB가 댓글을 달았는데, 댓글은 기록에 안 남아 정산 알림에 '자금 이동 대기'로 계속 나왔음).
-    경영지원 + '이동' 부정 표현일 때만 True(나머지 처리는 백그라운드) — 아니면 False(기존 댓글 안내)."""
+_INTAKE_REPLY_NUDGE = (":warning: 여기 댓글은 기록에 반영되지 않아요. "
+                       "입금 문자 카드의 *[🔗 프로젝트 지정]* 버튼으로 지정해주세요.")
+
+
+def _move_desc(r) -> str:
+    from dashboard.services import fund_transfer as ft
+    return (f"`{r['code']}` {r['stage']} {int(r['amount']):,}원 — "
+            f"{r.get('bank') or ''}({ft.ENTITY.get(r['from'], r['from'])})로 입금 / 프로젝트 {ft.ENTITY.get(r['to'], r['to'])}")
+
+
+def _build_fund_move_prompt(reqs, reason, thread_ts):
+    """경영지원에게만 보이는 [이동 없이 처리] 버튼 — 댓글 문구와 상관없이 (2026-10-26 G3982)."""
+    lines = [":information_source: 이 카드에 자금 이동 요청이 남아 있어요."] + [f"• {_move_desc(r)}" for r in reqs]
+    lines.append("이체 없이 마무리된 건이면 눌러 주세요. 법인 간 이체를 했다면 이체 입금 문자 카드에서 처리됩니다.")
+    btns = []
+    for i, r in enumerate(reqs[:5]):
+        v = {'code': r['code'], 'stage': r['stage'], 'amount': int(r['amount']), 'from': r['from'],
+             'thread_ts': thread_ts, 'reason': re.sub(r'\s+', ' ', reason or '')[:60]}
+        label = "이동 없이 처리" if len(reqs) == 1 else f"이동 없이 처리: {r['code']} {r['stage']}"
+        btns.append({"type": "button", "action_id": f"fund_move_no_move_{i}", "value": json.dumps(v, ensure_ascii=False),
+                     "text": {"type": "plain_text", "text": label[:75]}})
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+            {"type": "actions", "elements": btns}]
+
+
+def _prompt_fund_move_on_reply(client, channel, event) -> bool:
+    """#입금_관리 카드 스레드에 경영지원이 댓글을 달면(문구 무관) 그 카드 프로젝트에 대기 중인 자금 이동 요청이
+    있을 때 본인에게만 [이동 없이 처리] 버튼을 띄운다. 요청이 없으면 기존 '댓글은 기록에 안 남아요' 안내.
+    (2026-10-26 G3982: SB가 '자금 이동없이 그룹으로 전액발행' 댓글을 달았지만 기록에 안 남아 정산 알림에 계속
+    '자금 이동 대기'로 나왔음 — 사람마다 문구가 달라 글자 인식 대신 버튼으로.) 경영지원 댓글이면 True."""
+    user = event.get('user', '')
+    if user != _SETTLEMENT_CHECKER_ID:
+        return False
     from html import unescape as _unescape
     from dashboard.services import fund_transfer as ft
-    user = event.get('user', '')
     text = _unescape((event.get('text') or '').strip())
-    if user != _SETTLEMENT_CHECKER_ID or not ft.NO_MOVE_REPLY_RE.search(text):
-        return False
     thread_ts = event.get('thread_ts')
 
     def _bg():
@@ -1850,26 +1888,44 @@ def _close_fund_move_by_reply(client, channel, event) -> bool:
             parent = (client.conversations_replies(channel=channel, ts=thread_ts, limit=1).get('messages') or [{}])[0]
             blob = (parent.get('text') or '') + json.dumps(parent.get('blocks') or [], ensure_ascii=False)
             codes = set(re.findall(r'[GRP]\d{4}-[A-Z]{1,3}', blob))
-            reqs = [r for r in ft.pending_requests(force=True) if r['code'] in codes]
-            if not reqs:
-                client.chat_postEphemeral(
-                    channel=channel, user=user, thread_ts=thread_ts,
-                    text=":information_source: 이 카드에는 대기 중인 자금 이동 요청이 없어 바뀐 기록은 없습니다.")
+            reqs = [r for r in ft.pending_requests(force=True) if r['code'] in codes] if codes else []
+            if reqs:
+                client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts,
+                                          text="자금 이동 요청이 남아 있어요",
+                                          blocks=_build_fund_move_prompt(reqs, text, thread_ts))
                 return
-            checker = _resolve_manager_initial(user) or '-'
-            done = []
-            with _INTAKE_SHEET_LOCK:
-                for r in reqs:
-                    ft.apply_no_move(r, text, checker)
-                    done.append(f"`{r['code']}` {r['stage']} {int(r['amount']):,}원")
-            client.chat_postMessage(
-                channel=channel, thread_ts=thread_ts, unfurl_links=False, unfurl_media=False,
-                text=(f":white_check_mark: 자금 이동 없이 처리로 기록했습니다 — {', '.join(done)}. "
-                      f"정산 알림의 '자금 이동 대기'에서 빠집니다."))
+            from dashboard.utils.redis_client import get_redis_client
+            if get_redis_client().redis.set(f"intake_nudge:{thread_ts}:{user}", '1', nx=True, ex=3600):
+                client.chat_postEphemeral(channel=channel, user=user, thread_ts=thread_ts, text=_INTAKE_REPLY_NUDGE)
         except Exception as exc:
-            logger.error(f"[SLACK/수금봇] 자금 이동 없이 처리 실패 (thread={thread_ts}): {exc}", exc_info=True)
+            logger.warning(f"[SLACK/수금봇] 카드 댓글 자금 이동 확인 실패 (thread={thread_ts}): {exc}")
     threading.Thread(target=_bg, daemon=True).start()
     return True
+
+
+def _do_fund_move_no_move(client, user, channel, v, response_url=''):
+    """[이동 없이 처리] — 그 요청이 아직 대기면 메모에 '이동 없음' 기록, 스레드에 남기고 버튼 안내를 바꿈."""
+    from dashboard.services import fund_transfer as ft
+    try:
+        r = next((x for x in ft.pending_requests(force=True)
+                  if x['code'] == v.get('code') and x['stage'] == v.get('stage')
+                  and int(x['amount']) == int(v.get('amount') or 0) and x['from'] == v.get('from')), None)
+        if not r:
+            msg = f":information_source: `{v.get('code')}` {v.get('stage')} 자금 이동 요청은 이미 처리됐습니다."
+        else:
+            checker = _resolve_manager_initial(user) or '-'
+            with _INTAKE_SHEET_LOCK:
+                ft.apply_no_move(r, v.get('reason') or '이체 없이 처리', checker)
+            msg = f":white_check_mark: 이동 없이 처리로 기록했습니다 — {_move_desc(r)} (확인 {checker})"
+            if v.get('thread_ts'):
+                client.chat_postMessage(channel=channel, thread_ts=v['thread_ts'], unfurl_links=False,
+                                        unfurl_media=False, text=f"{msg}. 정산 알림의 '자금 이동 대기'에서 빠집니다.")
+        if response_url:
+            import requests as _rq
+            _rq.post(response_url, json={'replace_original': True, 'text': msg}, timeout=10)
+    except Exception as exc:
+        logger.error(f"[SLACK/수금봇] 이동 없이 처리 실패 ({v}): {exc}", exc_info=True)
+        _intake_ephemeral(client, channel, user, f":x: 기록하지 못했습니다: {exc}")
 
 
 def _build_transfer_pick_view(intake_id, channel, ts):
@@ -4803,8 +4859,8 @@ def _register_invoice_handlers(app):
                         meta.get('code'), meta.get('stages'), meta.get('amt'),
                         vat_val=meta.get('vat', 'sep'), biz=meta.get('biz', ''),
                         card_key=f'{channel}:{thread_ts}', replace=meta.get('replace') or [])
-                    # 발행한 계산서의 공급받는자를 거래처 탭에 — 다음 계산서부터 등록증 없이도 발행 정보 제공
-                    _learn_partner_from_invoice(client, event, meta)
+                    # 발행한 계산서 읽기 — 같은 법인 발행이면 자금 이동 요청 정리, 공급받는자는 거래처 탭에
+                    _learn_from_issued_invoice(client, event, meta)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -16154,10 +16210,36 @@ def _fill_payer_from_invoice(code, stages, biz, email, bno=''):
         logger.warning(f"[SLACK/계산서] 부담자 정보 보완 실패(무시) ({code}): {exc}")
 
 
-def _learn_partner_from_invoice(client, event: dict, meta: dict) -> int:
-    """발행 완료로 처리된 계산서 스레드 첨부(세금계산서)의 공급받는자 → 거래처 탭, 나눠 내는 공사면
-    그 부담자 칸 사업자번호도 채운다 (2026-10-23 G4158 — 홈택스엔 있는데 거래처 탭(예전 내보내기)엔
-    없던 서울아산가정의학과의원 때문에 '부담자 등록증을 찾지 못했습니다' 경고가 떴음).
+def _close_fund_moves_by_invoice(client, channel, thread_ts, meta, inv) -> int:
+    """발행한 세금계산서의 공급자 법인 = 돈이 들어온 법인이면 그 단계 자금 이동 요청을 '이동 없이 처리'로
+    (2026-10-26 G3982: 하나(글로벌그룹)로 받은 잔금을 글로벌그룹 이름으로 발행 — 옮길 필요가 없었는데 정산
+    알림에 '자금 이동 대기'로 계속 나왔음). 닫았으면 계산서 스레드에 한 줄 남김. Returns 닫은 수."""
+    from dashboard.services import fund_transfer as ft
+    from dashboard.services.itg_accounts import entity_for_bno
+    sup = entity_for_bno((inv or {}).get('supplier_bno'))
+    code = str(meta.get('code') or '').strip()
+    if not sup or not code or code == '-':
+        return 0
+    ft.record_invoice_issuer(code, meta.get('stages'), sup)    # 입금이 나중에 와도 정산 알림 전에 대조
+    with _INTAKE_SHEET_LOCK:
+        done = ft.close_by_invoice(code, meta.get('stages'), sup)
+    if done and channel and thread_ts:
+        items = ', '.join(f"`{r['code']}` {r['stage']} {int(r['amount']):,}원" for r in done)
+        try:
+            client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts, unfurl_links=False, unfurl_media=False,
+                text=(f":white_check_mark: {items}은 {ft.ENTITY[sup]} 계좌로 들어온 돈이고 계산서도 "
+                      f"{ft.ENTITY[sup]} 이름으로 나가 자금 이동이 필요 없습니다. 정산 알림의 '자금 이동 대기'에서 뺐습니다."))
+        except Exception as exc:
+            logger.warning(f"[SLACK/계산서] 자금 이동 정리 안내 실패(기록은 됨) ({code}): {exc}")
+    return len(done)
+
+
+def _learn_from_issued_invoice(client, event: dict, meta: dict) -> int:
+    """발행 완료로 처리된 계산서 스레드 첨부(세금계산서) 읽기 —
+    ① 공급자 법인 = 돈이 들어온 법인이면 그 단계 자금 이동 요청 정리(_close_fund_moves_by_invoice, 10-26 G3982)
+    ② 공급받는자 → 거래처 탭, 나눠 내는 공사면 그 부담자 칸 사업자번호도 (2026-10-23 G4158 — 홈택스엔 있는데
+       거래처 탭(예전 내보내기)엔 없던 서울아산가정의학과의원 때문에 '부담자 등록증을 찾지 못했습니다' 경고).
     홈택스 계산서 양식이 아니거나 못 읽으면 건너뛴다. 실패해도 발행 완료 처리에는 영향 없음.
     Returns 거래처 탭에 반영(추가·채움·이미 같음)한 수."""
     files = [f for f in (event.get('files') or [])
@@ -16165,7 +16247,7 @@ def _learn_partner_from_invoice(client, event: dict, meta: dict) -> int:
     if not files:
         return 0
     from dashboard.services.business_license_handler import _download_slack_file
-    from dashboard.services.invoice_ocr import read_invoice_buyer
+    from dashboard.services.invoice_ocr import read_invoice, buyer_ok
     from dashboard.services.partner_status_sync import upsert_partner_from_invoice
     token = (_INVOICE_BOT_TOKEN or getattr(client, 'token', '') or '').strip()
     code = str(meta.get('code') or '').strip()
@@ -16175,9 +16257,16 @@ def _learn_partner_from_invoice(client, event: dict, meta: dict) -> int:
         if not url:
             continue
         try:
-            buyer = read_invoice_buyer(_download_slack_file(url, token))
-            if not buyer:
+            inv = read_invoice(_download_slack_file(url, token))
+            if not inv:
                 continue
+            try:
+                _close_fund_moves_by_invoice(client, event.get('channel'), event.get('thread_ts'), meta, inv)
+            except Exception as exc:
+                logger.warning(f"[SLACK/계산서] 자금 이동 요청 정리 실패(무시) ({code}): {exc}")
+            if not buyer_ok(inv):
+                continue
+            buyer = inv
             res = upsert_partner_from_invoice(buyer)
         except Exception as exc:
             logger.warning(f"[SLACK/계산서] 세금계산서 공급받는자 읽기 실패(무시) ({code}): {exc}")

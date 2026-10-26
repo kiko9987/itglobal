@@ -564,7 +564,17 @@ def send_pin_remind() -> dict:
     data['intakes'] = intakes
     # 자금 이동 대기(법인 간 이체 필요) — 시트 메모 원장 기준 (2026-10-04)
     try:
-        from dashboard.services.fund_transfer import pending_requests
+        from dashboard.services.fund_transfer import pending_requests, close_by_recorded_issuers
+        # 그 단계 계산서를 이미 돈이 들어온 법인 이름으로 냈으면 옮길 필요 없음 → 먼저 정리 (2026-10-26 G3982)
+        try:
+            from dashboard.blueprints.slack_bot import _INTAKE_SHEET_LOCK
+            with _INTAKE_SHEET_LOCK:
+                _closed = close_by_recorded_issuers()
+            if _closed:
+                logger.info(f"[PIN] 자금 이동 요청 자동 정리(같은 법인 발행) {len(_closed)}건: "
+                            f"{[(r['code'], r['stage']) for r in _closed]}")
+        except Exception as exc:
+            logger.warning(f'[PIN] 자금 이동 요청 자동 정리 실패(무시): {exc}')
         data['moves'] = pending_requests(force=True)
     except Exception as exc:
         logger.warning(f'[PIN] 자금 이동 대기 조회 실패(무시): {exc}')

@@ -175,24 +175,48 @@ def test_payer_partner_info_falls_back_to_bno(monkeypatch):
     assert sb._payer_partner_info('민선홍(서울아산가정의학)', {'name': 'x'}) is None
 
 
-def test_learn_partner_from_invoice(monkeypatch):
+def test_learn_from_issued_invoice(monkeypatch):
     import dashboard.blueprints.slack_bot as sb
     import dashboard.services.business_license_handler as blh
     monkeypatch.setattr(blh, '_download_slack_file', lambda url, token: b'img')
-    monkeypatch.setattr(io_, 'read_invoice_buyer', lambda content: dict(BUYER))
-    got, filled = [], []
+    monkeypatch.setattr(io_, 'read_invoice', lambda content: dict(BUYER, supplier_bno='884-81-01425'))
+    got, filled, moves = [], [], []
     monkeypatch.setattr(ps, 'upsert_partner_from_invoice', lambda info: got.append(info['bno']) or 'added')
     monkeypatch.setattr(sb, '_fill_payer_from_invoice', lambda *a, **k: filled.append((a, k)))
-    event = {'files': [{'mimetype': 'image/png', 'url_private': 'u'}, {'mimetype': 'text/plain', 'url_private': 'v'}]}
+    monkeypatch.setattr(sb, '_close_fund_moves_by_invoice',
+                        lambda client, ch, ts, meta, inv: moves.append((ch, ts, inv['supplier_bno'])) or 0)
+    event = {'channel': 'CINV', 'thread_ts': '9.0',
+             'files': [{'mimetype': 'image/png', 'url_private': 'u'}, {'mimetype': 'text/plain', 'url_private': 'v'}]}
     meta = {'code': 'G4158-JW', 'stages': '잔금', 'biz': '민선홍(서울아산가정의학)'}
-    assert sb._learn_partner_from_invoice(None, event, meta) == 1
-    assert got == ['831-03-01097']
+    assert sb._learn_from_issued_invoice(None, event, meta) == 1
+    assert got == ['831-03-01097'] and moves == [('CINV', '9.0', '884-81-01425')]
     (args, kw), = filled
     assert args[:3] == ('G4158-JW', '잔금', '민선홍(서울아산가정의학)') and kw == {'bno': '831-03-01097'}
+    # 공급받는자를 못 읽어도(주민번호 발행) 자금 이동 정리는 함, 거래처 탭은 안 건드림
+    monkeypatch.setattr(io_, 'read_invoice', lambda content: dict(BUYER, bno='', supplier_bno='533-88-02845'))
+    got.clear(), filled.clear(), moves.clear()
+    assert sb._learn_from_issued_invoice(None, event, meta) == 0 and not got and not filled and len(moves) == 1
     # 계산서 양식이 아니면 아무것도 안 함
-    monkeypatch.setattr(io_, 'read_invoice_buyer', lambda content: None)
-    got.clear(), filled.clear()
-    assert sb._learn_partner_from_invoice(None, event, meta) == 0 and not got and not filled
+    monkeypatch.setattr(io_, 'read_invoice', lambda content: None)
+    moves.clear()
+    assert sb._learn_from_issued_invoice(None, event, meta) == 0 and not got and not moves
+
+
+def test_close_fund_moves_by_invoice_posts_note(monkeypatch):
+    import dashboard.blueprints.slack_bot as sb
+    import dashboard.services.fund_transfer as ft
+    req = {'code': 'G3982-JW', 'stage': '잔금', 'amount': 2310000}
+    calls = []
+    monkeypatch.setattr(ft, 'close_by_invoice', lambda code, stages, sup: calls.append((code, stages, sup)) or [req])
+    posted = []
+    c = type('C', (), {'chat_postMessage': lambda self, **k: posted.append(k['text'])})()
+    n = sb._close_fund_moves_by_invoice(c, 'CINV', '9.0', {'code': 'G3982-JW', 'stages': '잔금'},
+                                        {'supplier_bno': '533-88-02845'})
+    assert n == 1 and calls == [('G3982-JW', '잔금', 'R')]
+    assert '글로벌그룹 계좌로 들어온 돈이고 계산서도 글로벌그룹 이름으로' in posted[0]
+    # 우리 법인 번호가 아니면(못 읽음) 아무것도 안 함
+    assert sb._close_fund_moves_by_invoice(c, 'CINV', '9.0', {'code': 'G3982-JW', 'stages': '잔금'},
+                                           {'supplier_bno': ''}) == 0 and len(calls) == 1
 
 
 # ── 자리표시 사업자명 ──
