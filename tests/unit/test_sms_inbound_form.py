@@ -59,12 +59,34 @@ NH_IN = "[Web발신]\n농협 입금7,450,600원\n10/26 09:15 352-****-1682-33 �
 NH_OUT = "[Web발신]\n농협 출금750,000원\n10/23 14:44 352-****-1682-33 주영민 잔액12,345,678원"
 
 
-@pytest.mark.parametrize('text', [NH_IN, NH_OUT])
-def test_nh_phone_forward_blocked(client, text):
-    # 농협은 폰 자동 인입 안 함 (붙여넣기만) — 입금·출금 모두 코어에 안 넘김
-    r = client.post('/sms/inbound', json={'token': 'secretSB', 'sender': '15882100', 'text': text})
-    assert r.get_json() == {'status': 'ignored', 'reason': 'nh_manual_only'}
+def test_nh_inflow_server_only(client):
+    # 농협 입금(폰) — 서버에만 보관, 슬랙 카드 코어(ingest_deposit)는 안 탐
+    import json as _json
+    from dashboard.utils.redis_client import get_redis_client
+    rc = get_redis_client().redis
+    r = client.post('/sms/inbound', json={'token': 'secretSB', 'sender': '15882100', 'text': NH_IN})
+    body = r.get_json()
+    assert body['reason'] == 'nh_inflow_recorded'
     assert client.calls == []
+    oid = si.dedup_hash('', NH_IN)
+    try:
+        rec = _json.loads(rc.get(f'sms_nh_inflow:{oid}'))
+        assert '82,517,408' not in rec['text'] and '잔액' not in rec['text']   # 잔액 제거본만
+        assert rec['partner'] == '이재철(푸른' and rec['amount'] == 7_450_600
+        # 인입 카드 dedup 키는 건드리지 않음 → 나중에 같은 문자 붙여넣으면 카드 정상 생성
+        assert rc.get(f'sms_intake:seen:{oid}') is None
+        # 같은 문자 재수신(폰 여러 대) → 중복 처리
+        r2 = client.post('/sms/inbound', json={'token': 'secretSB', 'sender': 'x', 'text': NH_IN})
+        assert r2.get_json()['status'] == 'duplicate'
+    finally:
+        rc.delete(f'sms_nh_inflow:{oid}', f'sms_nh_inflow:seen:{oid}')
+        rc.zrem('sms_nh_inflow:index', oid)
+
+
+def test_nh_outflow_goes_to_common_path(client):
+    # 농협 출금은 기존처럼 공통 코어 → 출금 서버 보관 경로
+    client.post('/sms/inbound', json={'token': 'secretSB', 'sender': 'x', 'text': NH_OUT})
+    assert client.calls == [(NH_OUT, 'sms:sb')]
 
 
 def test_ibk_with_nonghyup_named_payer_not_blocked(client):

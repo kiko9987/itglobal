@@ -36,6 +36,7 @@ _INTAKE_TTL = INTAKE_TTL          # 원문 보관 90일 (미처리 카드 수명
 _DEDUP_TTL = 60 * 60 * 24        # 중복 무시 24시간
 _OUTFLOW_TTL = 60 * 60 * 24 * 14  # 출금 문자 서버 보관 14일 (슬랙 미노출)
 _OUTFLOW_INDEX = 'sms_outflow:index'   # zset(score=수신 시각) — 기간 조회용
+_NH_INFLOW_INDEX = 'sms_nh_inflow:index'   # 농협 입금(폰 수신) 서버 보관 — 슬랙 미노출
 
 
 def _load_device_tokens() -> dict:
@@ -100,15 +101,18 @@ def sms_inbound():
         logger.info(f'[SMS_INBOUND] 발신번호 미허용 skip: {sender!r} (device={device})')
         return jsonify({'status': 'ignored', 'reason': 'sender'}), 200
 
-    # 농협(N통장)은 폰 자동 인입 안 함 — 사람이 #입금_관리에 붙여넣는 방식만 (사용자 결정).
-    # 2026-10-26 JW폰 필터에 농협 제외가 빠져 자동 인입됐고 잔액까지 노출됨 → 서버에서도 차단.
-    # 계좌(352-…-1682-33)로 판정: '농협' 글자로 막으면 기업·하나로 들어온 '(주)농협유통' 같은
-    # 입금자명까지 막힘. 입금·출금 모두 거절(출금 서버 보관도 안 함). 채널 붙여넣기는 이 경로가 아님.
+    # 농협(N통장) 입금은 폰으로 받으면 서버에만 보관하고 슬랙 카드는 안 띄움 — 카드는 사람이
+    # #입금_관리에 붙여넣어 만든다 (2026-10-26 사용자 결정. 필터에 농협 제외가 빠진 JW폰이 자동
+    # 카드를 띄우고 잔액까지 노출된 사고 계기). 농협 출금은 아래 공통 경로에서 기존처럼 서버 보관.
+    # 계좌(352-…-1682-33)로 판정: '농협' 글자로 가르면 기업·하나로 온 '(주)농협유통' 입금까지 걸림.
     from dashboard.services.itg_accounts import match_account
-    _acct = match_account(text)
-    if _acct and _acct.code == 'N':
-        logger.info(f'[SMS_INBOUND] 농협 문자 폰 인입 차단 (수동 붙여넣기 정책, device={device})')
-        return jsonify({'status': 'ignored', 'reason': 'nh_manual_only'}), 200
+    _clean_in = strip_bold_markers(text)
+    _acct = match_account(_clean_in)
+    if _acct and _acct.code == 'N' and looks_like_payment(_clean_in):
+        res = record_nh_inflow(_clean_in, source=f'sms:{device}')
+        if res.get('reason') != 'nh_inflow_recorded':
+            logger.info(f"[SMS_INBOUND] skip: {res.get('status')}/{res.get('reason','')} (device={device})")
+        return jsonify({'status': res.get('status'), 'reason': res.get('reason', '')}), 200
 
     # 입금 문자 판별 → 사업자통장 → dedup → 잔액제거 → Redis → 🔗카드 (공통 파이프라인)
     result = ingest_deposit(text, source=f'sms:{device}')
@@ -238,6 +242,61 @@ def record_outflow(text: str, source: str = 'sms') -> dict:
     except Exception:
         pass
     return {'status': 'ignored', 'reason': 'outflow_recorded', 'id': oid}
+
+
+def record_nh_inflow(text: str, source: str = 'sms') -> dict:
+    """농협(N통장) 입금 문자(폰 자동 인입) → 서버(Redis)에만 보관. 슬랙 카드 없음 (2026-10-26 사용자 결정).
+
+    농협 입금 카드는 사람이 #입금_관리에 붙여넣어 만든다 — 폰 수신분은 기록·대조용 사본만 남긴다.
+    ①출금 보관(sms_outflow)과 분리: 반환 짝짓기가 입금을 출금으로 오인하지 않게.
+    ②dedup 키를 인입 카드(sms_intake:seen)와 분리: 나중에 같은 문자를 붙여넣어도 카드 정상 생성.
+    잔액 제거본만 저장. 보관 기간은 인입 원문과 같은 90일.
+    """
+    try:
+        rc = get_redis_client().redis
+    except Exception as exc:
+        logger.warning(f'[SMS_INBOUND] Redis 접근 실패 (농협 입금 보관 skip): {exc}')
+        return {'status': 'ignored', 'reason': 'nh_inflow_unstored'}
+    oid = dedup_hash(source, text)
+    if not rc.set(f'sms_nh_inflow:seen:{oid}', '1', nx=True, ex=_DEDUP_TTL):
+        return {'status': 'duplicate', 'reason': 'nh_inflow', 'id': oid}
+    clean = normalize_deposit_layout(strip_balance(text))
+    pv = parse_preview(clean) or {}
+    now = int(time.time())
+    rec = {
+        'text': clean, 'source': source, 'ts': now,
+        'amount': abs(int(pv.get('amount') or 0)),
+        'partner': (pv.get('partner') or '').strip(),
+        'bank': pv.get('bank') or '', 'acct_code': pv.get('acct_code') or '',
+        'date_md': pv.get('date_md') or '',
+    }
+    try:
+        rc.set(f'sms_nh_inflow:{oid}', json.dumps(rec, ensure_ascii=False), ex=_INTAKE_TTL)
+        rc.zadd(_NH_INFLOW_INDEX, {oid: now})
+        rc.zremrangebyscore(_NH_INFLOW_INDEX, 0, now - _INTAKE_TTL)
+    except Exception as exc:
+        logger.warning(f'[SMS_INBOUND] 농협 입금 보관 실패: {exc}')
+        return {'status': 'ignored', 'reason': 'nh_inflow_unstored'}
+    logger.info(f"[SMS_INBOUND] 농협 입금 서버 보관(슬랙 미노출): {rec['amount']:,}원 "
+                f"{rec['partner']!r} id={oid}")
+    return {'status': 'ignored', 'reason': 'nh_inflow_recorded', 'id': oid}
+
+
+def recent_nh_inflows(since_ts: int = 0) -> list:
+    """보관된 농협 입금 문자 목록(수신 시각 오름차순). since_ts 이후만. 대조·진단 조회용."""
+    try:
+        rc = get_redis_client().redis
+        ids = rc.zrangebyscore(_NH_INFLOW_INDEX, since_ts, '+inf')
+        out = []
+        for i in ids:
+            i = i.decode() if isinstance(i, bytes) else i
+            raw = rc.get(f'sms_nh_inflow:{i}')
+            if raw:
+                out.append(dict(json.loads(raw), id=i))
+        return out
+    except Exception as exc:
+        logger.warning(f'[SMS_INBOUND] 농협 입금 목록 조회 실패: {exc}')
+        return []
 
 
 def recent_outflows(since_ts: int = 0) -> list:
