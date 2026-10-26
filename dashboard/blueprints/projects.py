@@ -1283,12 +1283,25 @@ def update_project(project_code):
         # 14. 최종 응답 반환
         logger.info(f"[PUT] 최종 응답 - project 필드 존재: {updated_project is not None}, 필드 개수: {len(updated_project) if updated_project else 0}")
 
+        # 나눠 내는 공사: 공사 금액·부가세를 바꿨는데 사람별 부담액 합계가 안 맞으면 저장한 사람에게 바로 안내
+        #   (부담액은 자동으로 안 바뀜 — 2026-10-26 308호 -30만·309호 부가세 없앰이 어긋난 채 남음)
+        payer_warning = ''
+        try:
+            if any(c.get('field_name') in ('총액 1', '부가세') for c in (field_changes or [])):
+                from ..services.payer_split import split_share_notice
+                payer_warning = split_share_notice(updated_project or {})
+                if payer_warning:
+                    logger.info(f"[PUT] 나눠 내는 공사 부담액 불일치 안내: {final_project_code} — {payer_warning}")
+        except Exception as _pw_exc:
+            logger.debug(f"[PUT] 부담액 합계 점검 실패(무시): {_pw_exc}")
+
         return jsonify({
             'success': True,
             'message': '성공적으로 업데이트되었습니다.',
             'project_code': final_project_code,
             'old_project_code': project_code if final_project_code != project_code else None,
-            'project': updated_project
+            'project': updated_project,
+            'payer_warning': payer_warning,
         })
 
     except Exception as e:

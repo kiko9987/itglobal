@@ -5973,7 +5973,16 @@ export default class ProjectRowAccordion {
           saveBtn.innerHTML = '<i class="fas fa-check-double me-1"></i>저장 완료!';
         }, 300);
 
-        
+        // 나눠 내는 공사: 공사 금액·부가세를 바꿨는데 사람별 부담액 합계가 안 맞으면 바로 안내
+        //   (부담액은 자동으로 안 바뀜 — 2026-10-26 308호·309호). 저장 완료 표시 뒤에 띄움.
+        if (result.payer_warning) {
+          setTimeout(() => this.showMessage(
+            `⚠️ 부담자 금액도 고쳐 주세요\n\n나눠 내는 공사인데, 바뀐 공사 금액과 사람별 부담액 합계가 맞지 않습니다.\n`
+            + `• ${result.payer_warning}\n\n💡 이 화면의 [부담자 설정]에서 사람별 부담액을 새 공사 금액에 맞춰 주세요.`,
+            'warning'), 600);
+        }
+
+
 
         // 서버 응답을 반영하여 currentProject 업데이트
         let updatedProjectData;

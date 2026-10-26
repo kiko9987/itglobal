@@ -13815,6 +13815,7 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
     logger.info(f'[SLACK/공사금액] ✅ 완료 처리 {code} by {checker_ini} (요청 {requester_ini}) — 경영지원 직접 반영')
     _mark_amount_request_done(channel, ts, data, checker_ini)
     _dm_amount_request_done(requester_id, code, data, checker_ini)
+    _notify_payer_share_after_amount_edit(channel, ts, code, render_proj, requester_id, checker_user_id)
     # 원본 공사 확정 카드도 최신 금액으로 재렌더 (2026-08-06). 이미 조회한 레코드 재사용.
     try:
         if render_proj:
@@ -13822,6 +13823,44 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
     except Exception as exc:
         logger.warning(f'[SLACK/공사금액] 공사 확정 카드 재렌더 실패 ({code}): {exc}')
     return True
+
+
+def _notify_payer_share_after_amount_edit(channel: str, ts: str, code: str, proj,
+                                         requester_id: str, checker_user_id: str) -> None:
+    """금액 수정 반영(✅) 후 — 나눠 내는 공사인데 사람별 부담액 합계가 새 공사 금액과 안 맞으면
+    요청 카드 스레드(요청자·반영자 멘션)와 요청자 DM 으로 '부담자 설정도 고쳐 달라' 안내 (2026-10-26).
+    부담액은 공사 금액을 따라 자동으로 안 바뀌어 308호(-30만)·309호(부가세 없앰)가 어긋난 채 남았다."""
+    if not proj:
+        return
+    try:
+        from dashboard.services.payer_split import split_share_notice, SHARE_NOTICE_ACTION
+        msg = split_share_notice(proj)
+    except Exception as exc:
+        logger.debug(f'[SLACK/공사금액] 부담액 합계 점검 실패 ({code}): {exc}')
+        return
+    if not msg:
+        return
+    body = (f"⚠️ *부담자 금액도 고쳐 주세요*  `{code}`\n"
+            f"나눠 내는 공사인데, 바뀐 공사 금액과 사람별 부담액 합계가 맞지 않습니다.\n"
+            f"• {msg}\n{SHARE_NOTICE_ACTION}")
+    mentions = ' '.join(f'<@{u}>' for u in dict.fromkeys([requester_id, checker_user_id]) if u)
+    proj_cli = _project_client()
+    if proj_cli is not None:
+        try:
+            proj_cli.chat_postMessage(channel=channel, thread_ts=ts,
+                                      text=(f'{mentions}\n' if mentions else '') + body)
+        except Exception as exc:
+            logger.warning(f'[SLACK/공사금액] 부담액 안내 댓글 실패 ({code}): {exc}')
+    dm = _dm_client()
+    if dm is not None and requester_id:
+        try:
+            im = dm.conversations_open(users=requester_id)
+            dm_ch = ((im.get('channel') or {}) or {}).get('id')
+            if dm_ch:
+                dm.chat_postMessage(channel=dm_ch, text=body)
+        except Exception as exc:
+            logger.warning(f'[SLACK/공사금액] 부담액 안내 DM 실패 ({code}): {exc}')
+    logger.info(f'[SLACK/공사금액] 나눠 내는 공사 부담액 불일치 안내 ({code}): {msg}')
 
 
 def _warn_amount_not_applied(

@@ -514,6 +514,18 @@ def share_check(payers: list, rec: dict) -> str:
     return ''
 
 
+def split_share_notice(rec: dict) -> str:
+    """나눠 내는 공사인데 사람별 부담액 합계가 공사 금액과 안 맞으면 share_check 문구, 아니면 ''.
+
+    공사 금액·부가세를 바꿔도 부담액은 따라 바뀌지 않는다(2026-10-26 308호 -30만·309호 부가세 없앰).
+    바꾸는 순간 바꾼 사람·요청한 사람에게 '부담자 설정도 고쳐 달라'고 알리는 데 쓴다(PM 저장·금액 수정 ✅)."""
+    payers = stage_payers(rec or {})
+    return share_check(list(payers.values()), rec) if payers else ''
+
+
+SHARE_NOTICE_ACTION = 'PM 아코디언 [부담자 설정]에서 사람별 부담액을 새 공사 금액에 맞춰 주세요.'
+
+
 def _same_person(a: dict, b: dict) -> bool:
     da, db = re.sub(r'\D', '', a.get('biz_no') or ''), re.sub(r'\D', '', b.get('biz_no') or '')
     if da and db:
