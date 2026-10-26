@@ -157,18 +157,42 @@ def test_handle_doc_view_short_text_is_plain_message(monkeypatch, no_redis):
     assert len(c.posts) == 1 and c.uploads == [] and 'blocks' not in c.posts[0]
 
 
-def test_handle_doc_view_long_text_is_one_file_with_one_line_title(monkeypatch, no_redis):
-    # 10-26 L-04373: 긴 글을 메시지에 다 넣으면 '자세히 보기'로 접혀 파일 미리보기보다 불편 → 파일 하나
-    md = '# 시방서\n\n' + '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(330))   # 19,585자
+def test_split_by_bytes_keeps_lines_and_limit():
+    text = '\n'.join(f'{i}번째 줄 한글 내용' for i in range(3000))
+    chunks = dv.split_by_bytes(text, 25000)
+    assert len(chunks) > 1
+    assert all(len(c.encode('utf-8')) <= 25000 for c in chunks)
+    assert '\n'.join(chunks) == text                             # 줄을 자르거나 빠뜨리지 않음
+    assert dv.split_by_bytes('짧은 글', 25000) == ['짧은 글']
+
+
+def test_handle_doc_view_long_text_is_chunk_files_in_one_reply(monkeypatch, no_redis):
+    # 10-26 L-04373: 슬랙 미리보기가 약 29KB 에서 끊겨(610줄) 25KB 조각으로 나눠 한 답글에 붙인다
+    md = '# 시방서\n\n' + '\n\n'.join(f'제{i}조 내용입니다 ' * 5 for i in range(330))   # 19,585자 ≈ 5만 바이트
     monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
     c = FakeClient()
     dv.handle_doc_view(_event(), c, 'xoxb')
-    assert c.posts == [] and len(c.uploads) == 1                 # 답글은 파일 하나뿐
+    assert c.posts == [] and len(c.uploads) == 1                 # 답글은 하나(파일 여러 개 첨부)
     up = c.uploads[0]
-    assert up['filename'] == '공고_내용.txt' and up['thread_ts'] == '100.1'
-    assert up['content'].startswith('시방서\n') and '제329조' in up['content']   # 굵게 별표 없이 전체
-    assert '\n' not in up['initial_comment'] and '(약 2만 자 ·' in up['initial_comment']
+    parts = up['file_uploads']
+    n = len(parts)
+    assert n >= 2 and up['thread_ts'] == '100.1'
+    assert [p['filename'] for p in parts] == [f'공고_내용_{i}of{n}.txt' for i in range(1, n + 1)]
+    assert all(len(p['content'].encode('utf-8')) <= 25000 for p in parts)
+    joined = '\n'.join(p['content'] for p in parts)
+    assert joined.startswith('시방서\n') and '제329조' in joined         # 굵게 별표 없이 전체
+    assert '\n' not in up['initial_comment'] and f'{n}개 파일로 나눴어요' in up['initial_comment']
     assert ('+', 'white_check_mark') in c.reactions
+
+
+def test_handle_doc_view_very_long_text_is_single_file_with_download_hint(monkeypatch, no_redis):
+    md = '\n'.join('가나다라마바사아자차카타파하 ' * 10 for _ in range(2000))   # 약 90만 바이트 > 10조각
+    monkeypatch.setattr(dv, 'convert_to_markdown', lambda data, ext: md)
+    c = FakeClient()
+    dv.handle_doc_view(_event(), c, 'xoxb')
+    up = c.uploads[0]
+    assert 'file_uploads' not in up and up['filename'] == '공고_내용.txt'
+    assert '내려받아' in up['initial_comment']
 
 
 def test_handle_doc_view_just_over_limit_shows_exact_count(monkeypatch, no_redis):

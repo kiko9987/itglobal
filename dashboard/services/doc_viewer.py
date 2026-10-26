@@ -9,8 +9,8 @@
 - 변환: tools/kordoc 의 kordoc CLI(Node) 를 subprocess 로 호출. 설치는 그 폴더에서 `npm ci`.
 - 외부 통신 차단(KORDOC_OFFLINE=1)·접근 폴더를 임시 폴더로 제한(KORDOC_ROOT)·OCR 끔.
 - 표는 슬랙이 그리지 못하므로 줄마다 '• 칸 · 칸 · 칸' 으로 풀어 쓴다.
-- 답글은 문서당 하나: 3,900자까지는 메시지, 그보다 길면 .txt 파일 하나(제목 한 줄 + 파일
-  미리보기로 펼쳐 읽음).
+- 답글은 문서당 하나: 3,900자까지는 메시지, 그보다 길면 제목 한 줄 + .txt 파일. 슬랙 미리보기가
+  약 29KB 에서 끊겨 25KB 넘으면 조각 파일 여러 개(한 답글)로 나눈다.
 """
 import json
 import logging
@@ -32,6 +32,9 @@ _CONVERT_TIMEOUT = 120               # kordoc 한 건 상한(초)
 _MESSAGE_LIMIT = 3900                # 메시지로 보여 줄 상한 — 넘으면 .txt 파일 하나로
 # 슬랙은 4,000자 넘는 text 를 메시지 여러 개로 쪼갬(10-22 실측). block 메시지는 약 6.3만 자까지
 # 들어가지만(10-26 실측) 길면 '자세히 보기'로 접혀 파일 미리보기보다 읽기 불편해 쓰지 않는다.
+_FILE_PREVIEW_BYTES = 25000          # .txt 조각 상한 — 슬랙 앱 미리보기가 약 29.3KB 에서 끊김(10-26 실측,
+                                     # API 는 잘림을 알려 주지 않음). 25KB 조각 3개는 끝까지 보임(KiKO 화면 확인)
+_MAX_FILES_PER_MESSAGE = 10          # 한 답글에 붙일 조각 수 상한 — 넘으면 파일 하나 + 내려받기 안내
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _KORDOC_CLI = _PROJECT_ROOT / 'tools' / 'kordoc' / 'node_modules' / 'kordoc' / 'dist' / 'cli.js'
 
@@ -329,6 +332,21 @@ def handle_doc_view(event: dict, client, token: str, mode: str = 'all') -> None:
             _react(client, channel, ts, add='x', remove='hourglass_flowing_sand')
 
 
+def split_by_bytes(text: str, limit: int) -> list:
+    """줄 경계에서 UTF-8 limit 바이트 이하 조각들로 나눈다(한 줄이 limit 보다 길면 그 줄만 단독)."""
+    chunks, cur, size = [], [], 0
+    for line in text.split('\n'):
+        b = len(line.encode('utf-8')) + 1
+        if cur and size + b > limit:
+            chunks.append('\n'.join(cur))
+            cur, size = [], 0
+        cur.append(line)
+        size += b
+    if cur:
+        chunks.append('\n'.join(cur))
+    return chunks
+
+
 def to_plain_text(body: str) -> str:
     """슬랙용 글 → .txt 용 평문. escape 를 풀고, 줄 전체를 감싼 굵게 표시(*…*)를 벗긴다."""
     plain = body.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
@@ -336,7 +354,7 @@ def to_plain_text(body: str) -> str:
 
 
 def _post_result(client, channel: str, ts: str, name: str, body: str) -> None:
-    """문서당 답글 하나. 짧으면 메시지, 길면 .txt 파일 하나.
+    """문서당 답글 하나. 짧으면 메시지, 길면 .txt 파일(25KB 넘으면 조각 여러 개를 한 답글에).
 
     긴 글을 메시지로 보내면 슬랙이 '자세히 보기'로 접어 어차피 한눈에 못 보고, 파일 미리보기
     (줄 번호·스크롤)가 더 읽기 편하다는 KiKO 판단(10-26, L-04373). 메시지와 파일을 함께 두면
@@ -351,11 +369,29 @@ def _post_result(client, channel: str, ts: str, name: str, body: str) -> None:
         return
     stem = name.rsplit('.', 1)[0]
     total = f'약 {len(body) / 10000:.1f}만 자'.replace('.0만', '만') if len(body) >= 10000 else f'{len(body):,}자'
+    plain = to_plain_text(body)
+    chunks = split_by_bytes(plain, _FILE_PREVIEW_BYTES)
+    if len(chunks) == 1:
+        client.files_upload_v2(
+            channel=channel, thread_ts=ts,
+            filename=f'{stem}_내용.txt', title=f'{stem} 내용', content=plain,
+            initial_comment=f'{title} ({total} · 아래 파일을 펼치면 끝까지 보여요)',
+        )
+        return
+    if len(chunks) > _MAX_FILES_PER_MESSAGE:
+        # 아주 긴 문서: 조각이 너무 많아 파일 하나로. 미리보기가 앞부분만 보인다는 걸 분명히 적는다.
+        client.files_upload_v2(
+            channel=channel, thread_ts=ts,
+            filename=f'{stem}_내용.txt', title=f'{stem} 전체 내용', content=plain,
+            initial_comment=(f'{title} ({total} · 문서가 아주 길어 미리보기에는 앞부분만 보여요. '
+                             f'전체는 파일을 내려받아 보세요)'),
+        )
+        return
+    n = len(chunks)
     client.files_upload_v2(
         channel=channel, thread_ts=ts,
-        filename=f'{stem}_내용.txt', title=f'{stem} 전체 내용',
-        content=to_plain_text(body),
-        # 슬랙 미리보기는 약 600줄에서 끊긴다(preview_is_truncated, 10-26 L-04373 1,162줄 중 610줄)
-        # → 펼친 미리보기가 전부인 줄 알지 않게, 파일을 열어야 전체가 보인다고 적는다.
-        initial_comment=f'{title} ({total} · 미리보기는 일부만 보여요, 파일 제목을 누르면 전체가 열려요)',
+        file_uploads=[{'content': part, 'filename': f'{stem}_내용_{i}of{n}.txt',
+                       'title': f'{stem} 내용 ({i}/{n})'}
+                      for i, part in enumerate(chunks, 1)],
+        initial_comment=f'{title} ({total} · 길어서 {n}개 파일로 나눴어요. 차례로 펼쳐 보세요)',
     )
