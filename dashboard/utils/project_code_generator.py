@@ -62,6 +62,7 @@ def generate_project_code(row_number, company, manager):
         '강민석': '-MS',
         '강정권': '-JK',
         '이상덕': '-SD',
+        '김지훈': '-JH',
     }
 
     suffix = manager_suffix.get(manager, '')
@@ -127,6 +128,7 @@ def parse_project_code(project_code):
             '-MS': '강민석',
             '-JK': '강정권',
             '-SD': '이상덕',
+            '-JH': '김지훈',
         }
         manager = suffix_to_manager.get(suffix, '')
 

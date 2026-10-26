@@ -6893,7 +6893,8 @@ export default class ProjectRowAccordion {
       '박용구': '-YG', '박정우': '-JW', '강성환': '-SH', '박민우': '-MW',
       '이근혁': '-GH', '김호중': '-HJ', '아이티': '-IT', '김단이': '-DN',
       '권태훈': '-TH', '주영민': '-YM', '심장원': '-SJW', '빈승정': '-SJ',
-      '박민재': '-MJ', '조성헌': '-JSH', '황해승': '-HS', '강민석': '-MS'
+      '박민재': '-MJ', '조성헌': '-JSH', '황해승': '-HS', '강민석': '-MS',
+      '강정권': '-JK', '이상덕': '-SD', '김지훈': '-JH'
     };
     const suffix = managerSuffix[manager] || '';
 

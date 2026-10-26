@@ -77,7 +77,8 @@ export default class ProjectCodeGenerator {
           '황해승': 'HS',
           '강민석': 'MS',
           '강정권': 'JK',
-          '이상덕': 'SD'
+          '이상덕': 'SD',
+          '김지훈': 'JH'
         };
         const ownerSuffix = ownerMapping[owner] || (owner.length >= 2 ? owner.substring(0, 2).toUpperCase() : owner.toUpperCase());
 
