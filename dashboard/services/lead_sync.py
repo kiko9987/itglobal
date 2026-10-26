@@ -2323,7 +2323,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         existing_nos = pd.to_numeric(existing_nos, errors='coerce').dropna()
         _sheet_max_l = int(existing_nos.max()) if len(existing_nos) > 0 else 0
 
-        from dashboard.services.lead_helpers import extract_keywords_from_sources
+        from dashboard.services.lead_helpers import extract_keywords_from_sources, registrant_name
         notify_visit = []
         # 전화 워크플로 dedup 시 삭제할 임시 행 번호 (마지막에 batch delete)
         temp_rows_to_delete = []
@@ -2453,10 +2453,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                 'visit_date': _visit_date_raw,
                                 'inquiry': _inquiry,
                                 'keyword': _pick('키워드'),
-                                'user_name': (
-                                    _pick('영업 담당자').lstrip('@').strip()
-                                    or _pick('온라인 상담자').lstrip('@').strip()
-                                ),
+                                'user_name': registrant_name({
+                                    '영업 담당자': _pick('영업 담당자'),
+                                    '온라인 상담자': _pick('온라인 상담자')}),
                                 # 기존 리드 플랫폼 우선 (당근 리드가 전화WF dedup 갱신돼도
                                 # 카드는 원래 유입 채널 표시. 2026-07-27 L-03406)
                                 'platform': (
@@ -2789,11 +2788,8 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 # 방문 예약 시 #방문_일정 카드 + 슬랙 List 후보
                 if status == '방문 예약':
                     # 등록자: 영업 담당자 > 온라인 상담자 (둘 다 한국 이름 가정)
-                    # 워크플로우가 "@고광일" 형태로 write 하므로 @ 제거
-                    user_name = (
-                        str(row.get('영업 담당자', '')).strip().lstrip('@').strip()
-                        or str(row.get('온라인 상담자', '')).strip().lstrip('@').strip()
-                    )
+                    # 워크플로우가 "@고광일" 형태로 write 하므로 @ 제거, '-'(미배정)는 건너뜀
+                    user_name = registrant_name(row)
                     notify_visit.append({
                         'lead_no': new_lead_no,
                         'name': str(row.get('고객명', '')).strip(),

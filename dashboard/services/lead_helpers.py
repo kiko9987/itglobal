@@ -24,6 +24,23 @@ KEYWORD_VOCAB: List[str] = [
 ]
 
 
+def registrant_name(lead: dict) -> str:
+    """방문 카드 등록자 이름 — 영업 담당자 > 온라인 상담자 (시트 실명). 워크플로가 쓰는 '@'는 떼고,
+    '-'(미배정)는 빈칸으로 본다. 없으면 ''.
+
+    (2026-10-26 ETC-a1a726: 기타·거래처 '아무나 방문 가능'은 영업 담당자가 '-'라 그 '-'가 이름으로
+    잡혀, [정보 수정] 뒤 카드 등록자가 고광일 → '-'로 바뀜.)
+    """
+    if lead is None:            # dict·판다스 행 둘 다 받음 (행은 'lead or {}'로 쓰면 오류)
+        return ''
+    for field in ('영업 담당자', '온라인 상담자'):
+        v = lead.get(field)
+        v = '' if v is None or (isinstance(v, float) and v != v) else str(v).strip().lstrip('@').strip()
+        if v and v != '-':
+            return v
+    return ''
+
+
 def format_inflow_display(platform: str) -> str:
     """플랫폼(유입 채널) → 카드 헤더/유입 구분 표기.
 
