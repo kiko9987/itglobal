@@ -128,6 +128,9 @@ def _visit_date_sort_key(raw) -> tuple:
     return (start, end)
 
 
+_INITIAL_ONLY_WHEN_SELF_VISIT = {'KIKO'}   # 대표 — 본인 방문 필수가 아니면 캔버스 이니셜 생략
+
+
 def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     """캔버스 각 항목 텍스트 렌더.
 
@@ -194,6 +197,10 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     # 거래처/기타/소개 — 이니셜 (온라인 상담자 기준), 이름은 생략 (2026-07-16 요청)
     source_name = _clean(lead.get('온라인 상담자'))
     ini = _initial_from_name(source_name, initial_map) if source_name else '-'
+    # 대표가 등록만 한 건은 '대표가 가는 일정'으로 읽혀서 본인 방문 필수일 때만 이니셜을 붙임
+    #   (2026-10-27 ETC-a1a726 사장님 요청 — 다른 직원 이니셜은 연락 담당 표시로도 써서 그대로)
+    if ini in _INITIAL_ONLY_WHEN_SELF_VISIT and not _self_visit_marker:
+        return f'{_confirmed_marker}{vd} / {phone} / {address} / {inquiry}'
     return f'{_confirmed_marker}{_self_visit_marker}({ini}) {vd} / {phone} / {address} / {inquiry}'
 
 

@@ -71,16 +71,47 @@ def test_render_other_online_no_initial():
         assert '(KIKO)' not in out, p
 
 
+def _staff(lead):
+    return {**lead, '온라인 상담자': '박민우'}
+
+
+_MAP = {'고광일': 'KIKO', '박민우': 'MW'}
+
+
 def test_render_partner_keeps_initial():
     """거래처 = 이니셜 prefix 유지 (온라인 상담자 기준)."""
-    out = _render_item(_full('거래처'), {'고광일': 'KIKO'})
-    assert out.strip().startswith('(')
+    out = _render_item(_staff(_full('거래처')), _MAP)
+    assert out.strip().startswith('(MW) ')
 
 
 def test_render_etc_keeps_initial():
     """ETC 리드(기타 취급) = 이니셜 prefix 유지."""
-    out = _render_item(_full('전화', lead_no='ETC-abc123'), {'고광일': 'KIKO'})
-    assert out.strip().startswith('(')
+    out = _render_item(_staff(_full('전화', lead_no='ETC-abc123')), _MAP)
+    assert out.strip().startswith('(MW) ')
+
+
+# ── 대표 등록 건 — 본인 방문 필수일 때만 (KIKO) (2026-10-27 ETC-a1a726) ──
+
+@pytest.mark.parametrize('platform,lead_no', [('기타', 'ETC-a1a726'), ('거래처', 'L-00001')])
+def test_render_kiko_initial_hidden_unless_self_visit(platform, lead_no):
+    lead = {**_full(platform, lead_no=lead_no), '본인 방문 여부': '아무나 방문 가능'}
+    out = _render_item(lead, _MAP)
+    assert '(KIKO)' not in out and out.startswith('8월 6일 / 010-0000-0000 / ')
+
+
+def test_render_kiko_initial_kept_when_self_visit():
+    lead = {**_full('기타', lead_no='ETC-a1a726'), '본인 방문 여부': '본인 방문 필수'}
+    assert '(KIKO) 8월 6일' in _render_item(lead, _MAP)
+
+
+def test_render_kiko_confirmed_marker_kept():
+    lead = {**_full('거래처'), '상태': '공사 확정'}
+    assert _render_item(lead, _MAP).startswith('[공사확정] 8월 6일')
+
+
+def test_render_staff_initial_kept_without_self_visit():
+    lead = {**_staff(_full('기타', lead_no='ETC-d966e7')), '본인 방문 여부': '아무나 방문 가능'}
+    assert _render_item(lead, _MAP).startswith('(MW) ')
 
 
 if __name__ == '__main__':
