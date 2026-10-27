@@ -155,6 +155,29 @@ def test_to_lead_marker_coexists_with_clean():
     assert _is_clean_lead({'문의 내용': lead['문의 내용']})   # 시트 재렌더 경로
 
 
+def test_install_form_with_cleaning_device_notifies_clean_channel():
+    # L-04396: 설치 폼(문의유형=설치)에서 기기 '분해 세척' 선택 → 카드는 설치 라벨, #세척_관리 알림은 보냄
+    from dashboard.services.lead_sync import _wants_cleaning
+    lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n')))
+    assert not _wants_cleaning(lead)
+    lead['_meta_device'] = '천장형, 스탠드, 분해 세척'
+    assert not _is_clean_lead(lead)
+    assert _wants_cleaning(lead)
+
+
+def test_chatgpt_ad_ids_show_ad_name():
+    from dashboard.services.lead_helpers import format_inflow_detail
+    # 홈페이지 스니펫이 30자로 자른 ID 도 앞부분 일치로 찾음, 서버 재시작 전 원값(chatgpt_ads)도 동일
+    for src in ('ChatGPT 광고', 'chatgpt_ads'):
+        assert format_inflow_detail(f'{src}/cmpn_7ad5b17f5904819187a476d19/ad_ec5f6668cd5c819081ec96d8389') == (
+            '광고 소재', '수도권 상업용 냉난방기 · 시스템에어컨 설치')
+    assert format_inflow_detail('ChatGPT 광고/cmpn_7ad5b17f5904819187a476d19/ad_zzzzzzzzzzzz') == (
+        '광고 소재', '아이티글로벌 GPT 광고')
+    assert format_inflow_detail('ChatGPT 광고/cmpn_unknown123456/ad_unknown123456') == (
+        '광고 소재', 'ChatGPT 광고 (이름 미등록)')
+    assert format_inflow_detail('ChatGPT') is None
+
+
 def test_to_lead_no_inflow_no_marker():
     lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n')))
     assert '[유입:' not in lead['문의 내용']

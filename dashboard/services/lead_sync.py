@@ -1058,6 +1058,16 @@ def _is_clean_lead(lead: dict) -> bool:
     return bool(re.search(r'세척\s*(견적|문의|희망|요청)', content))
 
 
+def _wants_cleaning(lead: dict) -> bool:
+    """#세척_관리 알림 대상 — 세척 리드이거나, 설치 폼에서 기기 선택지 '분해 세척'을 고른 리드.
+
+    설치 폼은 숨은 문의유형을 '설치'로 보내 _is_clean_lead 가 False 로 확정하지만, 고객이 기기 칸에서
+    '분해 세척'을 직접 고르면 세척 요청이 맞다(L-04396 가산 SK V1 4way 71대 분해세척, 2026-10-27 누락).
+    카드 라벨(설치/세척 희망)은 _is_clean_lead 그대로 두고 알림만 넓힌다.
+    """
+    return _is_clean_lead(lead) or '세척' in str(lead.get('_meta_device') or '')
+
+
 def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
                                card_channel: str, msg_ts: str) -> None:
     """세척 견적 리드면 #세척_관리 채널에 알림 + 온라인 리드 카드 permalink 발송.
@@ -1068,7 +1078,7 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
     해당 채널에 초대돼 있어야 함(2026-09-25 초대 확인). (주의: C0893C7QKHP 는 #수금_관리 이므로 아님)
     """
     try:
-        if not _is_clean_lead(lead):
+        if not _wants_cleaning(lead):
             return
         clean_channel = os.getenv('SLACK_CLEAN_CHANNEL', 'C0BG84DJRJQ').strip()
         if not clean_channel:

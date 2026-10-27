@@ -896,6 +896,37 @@ KARROT_HOMEPAGE_NAMES = {
 }
 
 
+# ChatGPT 광고 추적 매개변수 utm_campaign={campaign_id}·utm_content={ad_id} → Ads Manager 이름 (2026-10-27).
+#   [유입:ChatGPT 광고/cmpn_…/ad_…] 처럼 들어오는데 홈페이지 스니펫이 값을 30자로 잘라 보내므로
+#   앞부분 일치로 찾는다. 새 광고·캠페인을 만들면 여기 추가(없으면 'ChatGPT 광고 (이름 미등록)').
+OPENAI_AD_NAMES = {
+    'ad_ec5f6668cd5c819081ec96d8389dc440': '수도권 상업용 냉난방기 · 시스템에어컨 설치',
+    'ad_5fcdfb6f02d88198b71b0ce926406f7e': '아이티글로벌 온라인 광고 추천 광고',
+    'ad_6a41bb4460cc81a28aacb9290f8ad200': '[종료] 상업용 광고',
+}
+OPENAI_CAMPAIGN_NAMES = {
+    'cmpn_7ad5b17f5904819187a476d192034463': '아이티글로벌 GPT 광고',
+}
+_OPENAI_SOURCES = ('ChatGPT 광고', 'chatgpt_ads', 'openai_ads')
+
+
+def _prefix_lookup(table: dict, value: str) -> str:
+    v = str(value or '').strip()
+    if len(v) < 8:
+        return ''
+    for full, name in table.items():
+        if full.startswith(v) or v.startswith(full):
+            return name
+    return ''
+
+
+def openai_ad_label(campaign: str, ad: str) -> str:
+    """ChatGPT 광고 캠페인·광고 ID(잘린 값 포함) → 표기 이름. 광고 이름 우선, 없으면 캠페인 이름."""
+    return (_prefix_lookup(OPENAI_AD_NAMES, ad)
+            or _prefix_lookup(OPENAI_CAMPAIGN_NAMES, campaign)
+            or 'ChatGPT 광고 (이름 미등록)')
+
+
 def karrot_material_label(material_id: str) -> str:
     """당근 소재 ID → 표기 이름. 모르는 ID 는 'ID …끝6자리'."""
     mid = re.sub(r'\D', '', str(material_id or ''))
@@ -923,6 +954,8 @@ def format_inflow_detail(inflow: str):
     True
     >>> format_inflow_detail('구글/냉난방기설치')
     ('검색 키워드', '냉난방기설치')
+    >>> format_inflow_detail('ChatGPT 광고/cmpn_7ad5b17f5904819187a476d19/ad_ec5f6668cd5c819081ec96d8389')
+    ('광고 소재', '수도권 상업용 냉난방기 · 시스템에어컨 설치')
     """
     parts = [p.strip() for p in str(inflow or '').split('/')]
     parts = [p if p != '-' else '' for p in parts] + ['', '', '']
@@ -941,5 +974,8 @@ def format_inflow_detail(inflow: str):
     if src == '당근' and (cmp, cnt) in KARROT_HOMEPAGE_NAMES:
         # 당근 홈페이지 캠페인(UTM A/B/C) → 당근 화면 소재 이름과 통일 (2026-10-06)
         return ('광고 소재', KARROT_HOMEPAGE_NAMES[(cmp, cnt)])
+    if src in _OPENAI_SOURCES:
+        # ChatGPT 광고 cmpn_…/ad_… ID → Ads Manager 광고 이름 (2026-10-27 사장님: ID 표기 어려움)
+        return ('광고 소재', openai_ad_label(cmp, cnt)) if (cmp or cnt) else None
     detail = ' '.join(p for p in (cmp, cnt) if p)
     return ('광고 소재', detail) if detail else None
