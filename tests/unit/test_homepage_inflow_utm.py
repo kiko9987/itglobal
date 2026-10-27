@@ -114,8 +114,8 @@ def test_short_label():
 # ── AI 검색 유입 (ChatGPT 링크는 utm_source=chatgpt.com) ──
 
 @pytest.mark.parametrize('raw,expected', [
-    ('chatgpt.com', 'ChatGPT'),
-    ('ChatGPT.com', 'ChatGPT'),
+    ('chatgpt.com', 'ChatGPT 검색'),
+    ('ChatGPT.com', 'ChatGPT 검색'),
     ('perplexity.ai', 'Perplexity'),
     ('gemini.google.com', 'Gemini'),
     ('claude.ai', 'Claude'),
@@ -127,16 +127,17 @@ def test_normalize_inflow_ai_sources(raw, expected):
 def test_ai_source_label_for_old_marker():
     # 별칭 추가 전에 원값으로 저장된 마커(L-04289 '[유입:chatgpt.com]')도 카드엔 서비스명으로
     from dashboard.services.lead_helpers import format_inflow_source
-    assert format_inflow_source('chatgpt.com') == 'ChatGPT'
-    assert format_inflow_short('chatgpt.com') == 'ChatGPT'
+    assert format_inflow_source('chatgpt.com') == 'ChatGPT 검색'
+    assert format_inflow_short('chatgpt.com') == 'ChatGPT 검색'
+    assert format_inflow_source('ChatGPT') == 'ChatGPT 검색'   # 10/27 이전 마커 '[유입:ChatGPT]'
     assert format_inflow_source('네이버/천장형에어컨/천장형에어컨설치업체') == '네이버'
     assert format_inflow_source('newsite') == 'newsite'
 
 
 def test_to_lead_marker_chatgpt():
     lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n', '유입경로\r\nchatgpt.com\r\n')))
-    assert lead['문의 내용'].startswith('[유입:ChatGPT]\n')
-    assert lead['_meta_inflow'] == 'ChatGPT'
+    assert lead['문의 내용'].startswith('[유입:ChatGPT 검색]\n')
+    assert lead['_meta_inflow'] == 'ChatGPT 검색'
 
 
 # ── to_lead 영속화 ────────────────────────────────────
@@ -334,7 +335,7 @@ def test_naver_ad_id_kept_in_marker_but_not_on_card():
     ('ref/www.google.com', 'ref/www.google.com', '구글 검색'),
     ('ref/www.google.co.kr', 'ref/www.google.co.kr', '구글 검색'),
     ('ref/m.search.daum.net', 'ref/m.search.daum.net', '다음 검색'),
-    ('ref/chatgpt.com', 'ref/chatgpt.com', 'ChatGPT'),
+    ('ref/chatgpt.com', 'ref/chatgpt.com', 'ChatGPT 검색'),
     ('ref/ratingintent.com', 'ref/ratingintent.com', 'ratingintent.com'),
     ('ref/www.somewhere.co.kr', 'ref/www.somewhere.co.kr', 'somewhere.co.kr'),
     ('direct', 'direct', '직접 방문 등'),

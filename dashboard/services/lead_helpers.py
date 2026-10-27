@@ -700,7 +700,8 @@ INFLOW_SOURCE_ALIASES = {
     'facebook': '페이스북', 'fb': '페이스북', 'meta': '메타',
     'youtube': '유튜브',
     # AI 검색 답변의 링크 — ChatGPT 는 링크에 utm_source=chatgpt.com 을 붙임 (2026-10-19, L-04289 첫 사례)
-    'chatgpt.com': 'ChatGPT', 'chat.openai.com': 'ChatGPT', 'chatgpt': 'ChatGPT', 'openai': 'ChatGPT',
+    #   카드 표기 'ChatGPT 검색'(2026-10-27 사장님: 유료 'ChatGPT 광고'와 구분). 옛 마커 '[유입:ChatGPT]'도 'chatgpt' 별칭으로 같은 이름.
+    'chatgpt.com': 'ChatGPT 검색', 'chat.openai.com': 'ChatGPT 검색', 'chatgpt': 'ChatGPT 검색', 'openai': 'ChatGPT 검색',
     # ChatGPT 유료 광고(2026-10-26~) — 광고 추적 매개변수 utm_source=chatgpt_ads 로 자연 유입(chatgpt.com)과 구분
     'chatgpt_ads': 'ChatGPT 광고', 'openai_ads': 'ChatGPT 광고',
     'perplexity.ai': 'Perplexity', 'www.perplexity.ai': 'Perplexity', 'perplexity': 'Perplexity',
@@ -744,7 +745,7 @@ def referrer_label(host: str) -> str:
     >>> referrer_label('www.google.co.kr')
     '구글 검색'
     >>> referrer_label('chatgpt.com')
-    'ChatGPT'
+    'ChatGPT 검색'
     >>> referrer_label('www.example.co.kr')
     'example.co.kr'
     """
@@ -830,7 +831,7 @@ def format_inflow_short(inflow: str) -> str:
     >>> format_inflow_short('구글')
     '구글'
     >>> format_inflow_short('chatgpt.com')
-    'ChatGPT'
+    'ChatGPT 검색'
     >>> format_inflow_short('ref/search.naver.com')
     '네이버 검색'
     """
@@ -846,7 +847,7 @@ def format_inflow_short(inflow: str) -> str:
 
 
 def format_inflow_source(inflow: str) -> str:
-    """마커 본문 → 채널명만 (카드 제목 괄호용). '네이버/천장형에어컨/…' → '네이버', 'chatgpt.com' → 'ChatGPT',
+    """마커 본문 → 채널명만 (카드 제목 괄호용). '네이버/천장형에어컨/…' → '네이버', 'chatgpt.com' → 'ChatGPT 검색',
     'ref/m.search.naver.com' → '네이버 검색', 'direct' → '직접 방문 등'."""
     s = str(inflow or '').strip()
     return _inflow_channel(s.split('/')) if s else ''
