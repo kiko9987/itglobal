@@ -298,3 +298,45 @@ def test_naver_ad_id_kept_in_marker_but_not_on_card():
     assert lead['문의 내용'].startswith('[유입:네이버/냉난방기설치/냉난방기설치업체/nad-a001-01-000000593496019]\n')
     t = _section(lead)
     assert '>*검색 키워드* : 냉난방기설치업체\n' in t and 'nad-' not in t
+
+
+# ── 광고 표시 없는 방문 — 이전 사이트 도메인 / direct (2026-10-27 L-04391 계기) ──
+
+@pytest.mark.parametrize('raw,marker,channel', [
+    ('ref/m.search.naver.com', 'ref/m.search.naver.com', '네이버 검색'),
+    ('ref/search.naver.com', 'ref/search.naver.com', '네이버 검색'),
+    ('ref/m.ad.search.naver.com', 'ref/m.ad.search.naver.com', '네이버 검색'),
+    ('ref/m.blog.naver.com', 'ref/m.blog.naver.com', '네이버 블로그'),
+    ('ref/m.place.naver.com', 'ref/m.place.naver.com', '네이버 지도'),
+    ('ref/www.google.com', 'ref/www.google.com', '구글 검색'),
+    ('ref/www.google.co.kr', 'ref/www.google.co.kr', '구글 검색'),
+    ('ref/m.search.daum.net', 'ref/m.search.daum.net', '다음 검색'),
+    ('ref/chatgpt.com', 'ref/chatgpt.com', 'ChatGPT'),
+    ('ref/ratingintent.com', 'ref/ratingintent.com', 'ratingintent.com'),
+    ('ref/www.somewhere.co.kr', 'ref/www.somewhere.co.kr', 'somewhere.co.kr'),
+    ('direct', 'direct', '직접 방문 등'),
+])
+def test_referrer_inflow(raw, marker, channel):
+    from dashboard.services.lead_helpers import format_inflow_source
+    assert normalize_inflow(raw) == marker
+    assert format_inflow_source(marker) == channel
+    assert format_inflow_short(marker) == channel
+    assert format_inflow_detail(marker) is None     # 광고 소재 줄 없음
+
+
+def test_lookalike_domain_is_not_google_search():
+    from dashboard.services.lead_helpers import referrer_label
+    assert referrer_label('evil-google.com') == 'evil-google.com'
+
+
+def test_referrer_card_title():
+    lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n', '유입경로\r\nref/m.search.naver.com\r\n')))
+    assert lead['문의 내용'].startswith('[유입:ref/m.search.naver.com]\n')
+    t = _section(lead)
+    assert '온라인 (홈페이지 · 네이버 검색)*' in t and '광고 소재' not in t and '[유입' not in t
+
+
+def test_direct_card_title():
+    lead = h.to_lead(h.parse_mail_body(_mail('문의유형\r\n설치\r\n', '유입경로\r\ndirect\r\n')))
+    t = _section(lead)
+    assert '온라인 (홈페이지 · 직접 방문 등)*' in t

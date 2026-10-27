@@ -713,6 +713,60 @@ def _inflow_source_label(src: str) -> str:
     """마커 source 칸 → 표기명. 옛 마커(별칭 추가 전 원값 저장, 예 'chatgpt.com')도 같은 이름으로."""
     s = str(src or '').strip()
     return INFLOW_SOURCE_ALIASES.get(s.lower(), s)
+
+
+# 광고 표시(utm·n_keyword·gclid) 없이 들어온 방문 (2026-10-27 L-04391 계기) — 바디 JS 가
+#   첫 진입 직전 사이트 도메인을 'ref/<도메인>', 그것도 없으면 'direct' 로 보냄.
+#   마커엔 원값을 남기고(분석용) 카드엔 아래 이름으로. 앞에서부터 처음 맞는 규칙.
+INFLOW_DIRECT_LABEL = '직접 방문 등'   # 주소 입력·즐겨찾기 + 이전 주소를 안 넘기는 앱 안 브라우저
+_REFERRER_RULES = (
+    (re.compile(r'(^|\.)search\.naver\.com$'), '네이버 검색'),
+    (re.compile(r'(^|\.)blog\.naver\.com$'), '네이버 블로그'),
+    (re.compile(r'(^|\.)cafe\.naver\.com$'), '네이버 카페'),
+    (re.compile(r'(^|\.)(map|place)\.naver\.com$'), '네이버 지도'),
+    (re.compile(r'(^|\.)naver\.com$'), '네이버'),
+    (re.compile(r'(^|\.)google\.[a-z.]+$'), '구글 검색'),
+    (re.compile(r'(^|\.)search\.daum\.net$'), '다음 검색'),
+    (re.compile(r'(^|\.)daum\.net$'), '다음'),
+    (re.compile(r'(^|\.)map\.kakao\.com$'), '카카오맵'),
+    (re.compile(r'(^|\.)bing\.com$'), 'Bing 검색'),
+    (re.compile(r'(^|\.)youtube\.com$'), '유튜브'),
+    (re.compile(r'(^|\.)instagram\.com$'), '인스타'),
+    (re.compile(r'(^|\.)facebook\.com$'), '페이스북'),
+)
+
+
+def referrer_label(host: str) -> str:
+    """이전 사이트 도메인 → 채널 이름. 모르는 곳은 도메인 그대로(www. 뗌).
+
+    >>> referrer_label('m.search.naver.com')
+    '네이버 검색'
+    >>> referrer_label('www.google.co.kr')
+    '구글 검색'
+    >>> referrer_label('chatgpt.com')
+    'ChatGPT'
+    >>> referrer_label('www.example.co.kr')
+    'example.co.kr'
+    """
+    h = str(host or '').strip().lower()
+    if not h:
+        return INFLOW_DIRECT_LABEL
+    if h in INFLOW_SOURCE_ALIASES:
+        return INFLOW_SOURCE_ALIASES[h]
+    for rx, label in _REFERRER_RULES:
+        if rx.search(h):
+            return label
+    return h[4:] if h.startswith('www.') else h
+
+
+def _inflow_channel(parts) -> str:
+    """마커 칸 목록 → 채널 이름 (광고 source 별칭 / ref·direct 는 도메인 이름)."""
+    src = parts[0] if parts else ''
+    if src == 'direct':
+        return INFLOW_DIRECT_LABEL
+    if src == 'ref':
+        return referrer_label(parts[1] if len(parts) > 1 else '')
+    return _inflow_source_label(src)
 INFLOW_MARKER_RE = re.compile(r'^[ \t]*\[유입:([^\]\r\n]*)\][ \t]*(?:\r?\n|$)', re.MULTILINE)
 _INFLOW_PART_MAX = 30
 
@@ -777,9 +831,13 @@ def format_inflow_short(inflow: str) -> str:
     '구글'
     >>> format_inflow_short('chatgpt.com')
     'ChatGPT'
+    >>> format_inflow_short('ref/search.naver.com')
+    '네이버 검색'
     """
     parts = [p.strip() for p in str(inflow or '').split('/')]
     parts = [p if p != '-' else '' for p in parts] + ['', '', '']
+    if parts[0] in ('ref', 'direct'):
+        return _inflow_channel(parts)
     src, cmp, cnt = _inflow_source_label(parts[0]), parts[1], parts[2]
     if not src:
         return ''
@@ -788,8 +846,10 @@ def format_inflow_short(inflow: str) -> str:
 
 
 def format_inflow_source(inflow: str) -> str:
-    """마커 본문 → 채널명만 (카드 제목 괄호용). '네이버/천장형에어컨/…' → '네이버', 'chatgpt.com' → 'ChatGPT'."""
-    return _inflow_source_label(str(inflow or '').split('/')[0])
+    """마커 본문 → 채널명만 (카드 제목 괄호용). '네이버/천장형에어컨/…' → '네이버', 'chatgpt.com' → 'ChatGPT',
+    'ref/m.search.naver.com' → '네이버 검색', 'direct' → '직접 방문 등'."""
+    s = str(inflow or '').strip()
+    return _inflow_channel(s.split('/')) if s else ''
 
 
 # 당근 리드폼 소재 ID → 카드 표기 이름 (2026-10-06). 당근 자동연동 시트 '소재 ID' 칸 값.
@@ -867,7 +927,7 @@ def format_inflow_detail(inflow: str):
     parts = [p.strip() for p in str(inflow or '').split('/')]
     parts = [p if p != '-' else '' for p in parts] + ['', '', '']
     src, cmp, cnt = parts[0], parts[1], parts[2]
-    if not src:
+    if not src or src in ('ref', 'direct'):   # 광고 아닌 방문 — 채널 이름은 제목에, 소재 없음
         return None
     if src == '네이버':
         kw = cnt or cmp
