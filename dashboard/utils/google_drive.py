@@ -22,6 +22,24 @@ logger = get_logger(__name__)
 # 429 rate limit (bulk 업로드 시 자주), 5xx 는 서버 측 일시 오류.
 _DRIVE_RETRIABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
+
+def _drive_retriable(exc) -> bool:
+    """다시 시도할 Drive 오류 — 429·5xx + 403 요청 한도(userRateLimitExceeded·rateLimitExceeded).
+    (2026-10-27 L-04377: 현장 폴더를 만든 3초 뒤 '현장사진' 폴더 만들기가 403 요청 한도로 한 번 막혀
+    사진이 하나도 저장되지 않았음 — 403 은 권한 오류와 같은 코드라 사유로 구분.)"""
+    status = getattr(getattr(exc, 'resp', None), 'status', 0)
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        status = 0
+    if status in _DRIVE_RETRIABLE_STATUS:
+        return True
+    if status != 403:
+        return False
+    content = getattr(exc, 'content', b'') or b''
+    text = str(exc) + (content.decode('utf-8', 'replace') if isinstance(content, bytes) else str(content))
+    return 'rateLimitExceeded' in text or 'userRateLimitExceeded' in text
+
 _SCOPES = [
     'https://www.googleapis.com/auth/drive',
 ]
@@ -61,7 +79,7 @@ def _get_drive_service():
 def find_or_create_folder(name: str, parent_id: str) -> Optional[dict]:
     """parent_id 안에서 name과 일치하는 폴더를 찾거나 새로 생성. {'id', 'webViewLink'} 반환.
 
-    2026-07-09 네트워크 timeout 재시도 (최대 3회 지수 백오프).
+    2026-07-09 네트워크 timeout 재시도. 2026-10-27 요청 한도(403·429)·5xx 도 지수 백오프로 재시도(최대 5회).
     """
     import http.client as _http_client
     import socket
@@ -85,7 +103,8 @@ def find_or_create_folder(name: str, parent_id: str) -> Optional[dict]:
     }
 
     last_exc = None
-    for attempt in range(3):
+    tries = 5
+    for attempt in range(tries):
         try:
             resp = service.files().list(
                 q=query, fields='files(id, name, webViewLink)',
@@ -105,14 +124,22 @@ def find_or_create_folder(name: str, parent_id: str) -> Optional[dict]:
             last_exc = exc
             wait = 0.5 * (attempt + 1)
             logger.warning(
-                f"[DRIVE] 네트워크 에러 ({type(exc).__name__}) 재시도 {attempt+1}/3 "
+                f"[DRIVE] 네트워크 에러 ({type(exc).__name__}) 재시도 {attempt+1}/{tries} "
                 f"— {wait}s 후 ({name})"
             )
+            _time.sleep(wait)
+        except HttpError as exc:
+            if not _drive_retriable(exc) or attempt == tries - 1:
+                logger.error(f"[DRIVE] 폴더 생성/조회 실패 ({name}): {exc}", exc_info=True)
+                return None
+            last_exc = exc
+            wait = 2 ** attempt + 0.5          # 1.5, 2.5, 4.5, 8.5s
+            logger.warning(f"[DRIVE] 요청 한도·일시 오류 재시도 {attempt+1}/{tries} — {wait}s 후 ({name})")
             _time.sleep(wait)
         except Exception as exc:
             logger.error(f"[DRIVE] 폴더 생성/조회 실패 ({name}): {exc}", exc_info=True)
             return None
-    logger.error(f"[DRIVE] 폴더 생성/조회 3회 재시도 모두 실패 ({name}): {last_exc}")
+    logger.error(f"[DRIVE] 폴더 생성/조회 {tries}회 재시도 모두 실패 ({name}): {last_exc}")
     return None
 
 
@@ -234,11 +261,11 @@ def rename_folder(folder_id: str, new_name: str) -> bool:
 
 def upload_file(folder_id: str, filename: str, content: bytes,
                 mimetype: str = 'application/octet-stream',
-                max_retries: int = 3) -> Optional[dict]:
+                max_retries: int = 4) -> Optional[dict]:
     """folder_id 안에 파일 업로드. {'id', 'name', 'webViewLink'} 반환.
 
-    HTTP 429/5xx 는 지수 백오프로 최대 max_retries 회 재시도.
-    현장 사진 50~60장 bulk 업로드 시 Drive quota 로 429 발생 가능성 대응.
+    HTTP 429/5xx·403 요청 한도는 지수 백오프로 최대 max_retries 회 재시도.
+    현장 사진 50~60장 bulk 업로드 시 Drive quota 로 429·403 발생 가능성 대응.
     """
     service = _get_drive_service()
     if not service:
@@ -266,7 +293,7 @@ def upload_file(folder_id: str, filename: str, content: bytes,
                 status = int(status)
             except (TypeError, ValueError):
                 status = 0
-            if status in _DRIVE_RETRIABLE_STATUS and attempt < max_retries - 1:
+            if _drive_retriable(exc) and attempt < max_retries - 1:
                 delay = 2 ** attempt + 0.5  # 1.5, 2.5, 4.5s
                 logger.warning(
                     f"[DRIVE] 업로드 재시도 예정 ({filename}) — HTTP {status} "

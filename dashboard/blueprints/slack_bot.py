@@ -11674,6 +11674,48 @@ def _ensure_visit_folder(
     }
 
 
+_PHOTO_RETRY_DELAYS = (90, 300)   # 드라이브 요청 한도는 보통 1~2분이면 풀린다
+
+
+def _retry_visit_photos_later(client, event, lead_no) -> int:
+    """'현장사진' 폴더를 못 만들어 사진을 하나도 못 올렸을 때 같은 첨부를 자동으로 다시 저장.
+    (2026-10-27 L-04377: 드라이브 요청 한도로 폴더 만들기가 막혔는데 답글도 재시도도 없어 사진이 빠짐.)
+    첫 실패면 스레드에 안내, 정해진 횟수를 넘기면 다시 올려 달라고 안내. Returns 이번이 몇 번째 실패인지."""
+    channel, thread_ts = event.get('channel', ''), event.get('thread_ts', '')
+    n = 1
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        key = f"photo_folder_retry:{channel}:{event.get('ts') or thread_ts}"
+        n = int(rc.incr(key))
+        rc.expire(key, 3600)
+    except Exception:
+        pass
+    if n <= len(_PHOTO_RETRY_DELAYS):
+        if n == 1:
+            try:
+                client.chat_postMessage(
+                    channel=channel, thread_ts=thread_ts,
+                    text=(":hourglass_flowing_sand: 구글 드라이브가 잠시 요청을 막아 사진 저장이 늦어지고 있습니다. "
+                          "몇 분 안에 자동으로 다시 저장합니다."))
+            except Exception:
+                pass
+        t = threading.Timer(_PHOTO_RETRY_DELAYS[n - 1], _process_visit_thread_files, args=(client, event))
+        t.daemon = True
+        t.start()
+        logger.warning(f"[SLACK/방문 사진] {lead_no} 현장사진 폴더 실패 {n}회 — {_PHOTO_RETRY_DELAYS[n - 1]}s 뒤 다시 저장")
+    else:
+        try:
+            client.chat_postMessage(
+                channel=channel, thread_ts=thread_ts,
+                text=(":warning: 사진을 드라이브에 저장하지 못했습니다. "
+                      "같은 사진을 이 스레드에 다시 올려 주세요."))
+        except Exception:
+            pass
+        logger.error(f"[SLACK/방문 사진] {lead_no} 현장사진 폴더 {n}회 실패 — 재업로드 안내")
+    return n
+
+
 def _process_visit_thread_files(client, event) -> None:
     """#방문_일정 카드 thread에 첨부된 파일을 구글 드라이브로 업로드.
 
@@ -11798,6 +11840,12 @@ def _process_visit_thread_files(client, event) -> None:
     photo_folder = find_or_create_folder('현장사진', lead_folder['id'])
     if not photo_folder:
         logger.error(f"[SLACK/방문 사진] '현장사진' 서브폴더 생성/조회 실패")
+        if _rc_lock is not None and _got_lock:        # 다시 시도가 락을 기다리지 않게
+            try:
+                _rc_lock.delete(_lock_key)
+            except Exception:
+                pass
+        _retry_visit_photos_later(client, event, lead_no)
         return
 
     # caption(위치) 있으면 현장사진/{위치}/ 서브폴더 생성, 없으면 현장사진/ 직접
