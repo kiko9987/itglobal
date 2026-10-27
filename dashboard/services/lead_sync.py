@@ -200,8 +200,8 @@ def _normalize_address_key(addr: str) -> str:
     addr = addr.strip()
     if addr in ('-', ''):
         return ''
-    # 도로명/길 + 번지 패턴
-    m = re.search(r'[가-힣]+(?:로|길)\s*\d+(?:-\d+)?', addr)
+    # 도로명/길(+N번길) + 번지 패턴 — 'N번길' 앞 숫자에서 끊기면 같은 길 다른 건물이 한 키가 됨
+    m = re.search(r'[가-힣]+(?:로|길)(?:\s*\d+번?길)?\s*\d+(?:-\d+)?', addr)
     if not m:
         # 도로명 없으면 지번 형태 시도: 동 + 번지
         m = re.search(r'[가-힣]+동\s*\d+(?:-\d+)?', addr)
@@ -226,7 +226,9 @@ def _addr_core(addr: str) -> str:
     addr = addr.strip()
     if addr in ('-', ''):
         return ''
-    m = re.search(r'[가-힣]+(?:로|길)\s*\d+(?:-\d+)?', addr)
+    # 'N번길'까지 잡아야 '부천로86번길 34'와 '부천로 86번길 66'이 둘 다 '부천로86'으로
+    #   같아지지 않음 (2026-10-19 L-04264: 다른 현장이 같은 번호로 병합)
+    m = re.search(r'[가-힣]+(?:로|길)(?:\s*\d+번?길)?\s*\d+(?:-\d+)?', addr)
     if not m:
         m = re.search(r'[가-힣]+동\s*\d+(?:-\d+)?', addr)
     if not m:
@@ -2140,12 +2142,30 @@ def _find_existing_lead_by_phone(
     return (ln, sr)
 
 
+def _append_workflow_consult(old, new: str, workflow_row) -> str:
+    """기존 상담 이력 뒤에 워크플로 상담을 새 회차로 이어 붙임.
+
+    덮어쓰면 이전 상담 이력이 사라짐 (2026-10-19 L-04264 부재중·유선 상담 이력 소실).
+    """
+    old = str(old or '').strip()
+    if old in ('', '-'):
+        return new
+    if old.endswith(new):
+        return old  # 같은 워크플로 재처리
+    from dashboard.blueprints.slack_helpers import _to_initial
+    who = str(workflow_row.get('온라인 상담자', '') or '').lstrip('@').strip()
+    ini = (_to_initial(who) if who else '') or who or '-'
+    status = str(workflow_row.get('상태', '') or '').strip() or '-'
+    return f"{old}\n─────────\n[{datetime.now().strftime('%m.%d %H:%M')} {ini} · {status}] {new}"
+
+
 def _update_existing_lead_from_workflow(
-    manager, cfg: dict, existing_sheet_row: int, workflow_row,
+    manager, cfg: dict, existing_sheet_row: int, workflow_row, existing_row=None,
 ) -> None:
     """워크플로 임시 행의 값을 기존 리드 행에 덮어쓰기.
 
     정책: 빈 값이나 '-' 는 skip (기존값 보존). 워크플로 매니저가 채운 값만 반영.
+    상담 내용은 existing_row 가 있으면 덮어쓰지 않고 새 회차로 이어 붙임.
     """
     from dashboard.services.lead_helpers import extract_keywords_from_sources
     # 필드 → 컬럼 매핑
@@ -2184,6 +2204,8 @@ def _update_existing_lead_from_workflow(
                 iso = _normalize_workflow_date(v)
                 if iso:
                     v = iso  # E열 셀 서식 '@ 텍스트' 라 escape 불필요
+        elif field == '상담 내용' and existing_row is not None:
+            v = _append_workflow_consult(existing_row.get('상담 내용'), v, workflow_row)
         elif field == '키워드':
             v = extract_keywords_from_sources(v) or v
         elif field == '온라인 상담자' or field == '영업 담당자':
@@ -2326,7 +2348,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         existing_nos = pd.to_numeric(existing_nos, errors='coerce').dropna()
         _sheet_max_l = int(existing_nos.max()) if len(existing_nos) > 0 else 0
 
-        from dashboard.services.lead_helpers import extract_keywords_from_sources, registrant_name
+        from dashboard.services.lead_helpers import (
+            consult_visit_done, extract_keywords_from_sources, registrant_name,
+        )
         notify_visit = []
         # 전화 워크플로 dedup 시 삭제할 임시 행 번호 (마지막에 batch delete)
         temp_rows_to_delete = []
@@ -2412,11 +2436,24 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                             f'("{_old_addr_g}") vs 신규("{_new_addr_g}")'
                         )
                         existing = None  # 병합 skip → 아래 신규 발번 로직으로 진행
+                # 방문이 끝났거나 공사 확정된 리드엔 합치지 않고 새 리드로 (2026-10-27 L-04129:
+                #   공사 확정 리드에 새 방문이 병합돼 상태가 '방문 예약'으로 내려가고 옛 완료 표시로
+                #   새 방문이 캔버스1·완료 처리에서 빠짐. 매니저도 2분 뒤 L-04347 을 따로 만듦)
+                if existing is not None:
+                    _drow = main_df.loc[existing[1] - 2]
+                    _dst = str(_drow.get('상태', '') or '').strip()
+                    if _dst in ('공사 확정', '방문 완료') or consult_visit_done(_drow.get('상담 내용')):
+                        logger.info(
+                            f'[SYNC/전화WF/DEDUP] 기존 리드 {existing[0]}는 방문 완료·공사 확정'
+                            f"('{_dst}') — 병합 skip, 신규 발번 (연락처: {_phone})"
+                        )
+                        existing = None
                 if existing is not None:
                     existing_lead_no, existing_sheet_row = existing
                     try:
                         _update_existing_lead_from_workflow(
                             manager, cfg, existing_sheet_row, row,
+                            existing_row=main_df.loc[existing_sheet_row - 2],
                         )
                         temp_rows_to_delete.append(sheet_row)
                         result.setdefault('updated_existing', 0)
