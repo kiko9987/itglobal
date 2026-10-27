@@ -4048,6 +4048,35 @@ def _register_handlers(app):
             logger.error(f"[SLACK] /상태 실패: {exc}", exc_info=True)
             respond({"text": f"❌ 상태 조회 실패: {exc}"})
 
+    # ①-1 서버 재시작 승인 카드 [지금 재시작] [취소] (2026-10-28) — 승인만 기록하고,
+    #   실제 재시작은 SYSTEM 워치독(watchdog.ps1)이 1분 안에 한다(이 프로세스는 자기 자신을 못 죽임).
+    def _handle_restart_decision(body, client, approve: bool):
+        from dashboard.services.restart_request import decide
+        user_id = (body.get('user') or {}).get('id', '')
+        request_id = ((body.get('actions') or [{}])[0]).get('value', '')
+        try:
+            notice = decide(request_id, user_id, approve, client)
+        except Exception as exc:
+            logger.error(f"[RESTART] 승인 처리 실패: {exc}", exc_info=True)
+            notice = '처리 중 오류가 났습니다. 로그를 확인해 주세요.'
+        logger.info(f"[RESTART] {'승인' if approve else '취소'} 버튼 user={user_id} req={request_id} → {notice or 'OK'}")
+        if notice:
+            try:
+                client.chat_postEphemeral(channel=(body.get('channel') or {}).get('id', ''),
+                                          user=user_id, text=notice)
+            except Exception:
+                pass
+
+    @app.action("server_restart_approve")
+    def handle_server_restart_approve(ack, body, client):
+        ack()
+        threading.Thread(target=_handle_restart_decision, args=(body, client, True), daemon=True).start()
+
+    @app.action("server_restart_cancel")
+    def handle_server_restart_cancel(ack, body, client):
+        ack()
+        threading.Thread(target=_handle_restart_decision, args=(body, client, False), daemon=True).start()
+
     # ② 봇 멘션 이벤트 (예: @ITG관리봇 안녕)
     @app.event("app_mention")
     def handle_mention(event, say):

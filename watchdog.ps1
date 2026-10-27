@@ -17,10 +17,17 @@
 #     (Docker Desktop 은 사용자 세션 앱이라 SYSTEM 에서 직접 못 다룸) + 슬랙 통보
 #   - Redis 는 정상인데 앱이 임시 저장소(fallback_mode)에 갇혀 있으면 → 앱 재시작
 #
+#
+# 재시작 승인 요청 (2026-10-28 추가): 사장님이 슬랙 카드에서 [지금 재시작]을 누르면 서버가
+#   dashboard\logs\restart_request.json 을 'approved' 로 바꾼다. 서버(LocalSystem 서비스)는 자기
+#   자신을 못 죽이므로 이 워치독(SYSTEM)이 1분 안에 재시작하고 카드에 결과를 적는다.
+#   (dashboard/services/restart_request.py, scripts/request_restart.py)
+#
 # 설치: 관리자 PowerShell 에서  .\install_watchdog.ps1  1회 실행 (SYSTEM 계정 1분 반복 작업 등록)
 # 점검: .\watchdog.ps1 -SelfTest  → 재시작 없이 슬랙 알림 경로만 점검
+#       .\watchdog.ps1 -RestartRequestDryRun  → 승인된 요청을 실제 재시작 없이 처리해 카드 갱신까지 점검
 
-param([switch]$SelfTest)
+param([switch]$SelfTest, [switch]$RestartRequestDryRun)
 
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -42,6 +49,11 @@ $FallbackThreshold  = 2        # Redis 정상인데 앱이 임시 저장소 모�
 $DockerTaskName     = 'ITGFlask-DockerRecover'
 $LogPath            = Join-Path $PSScriptRoot 'dashboard\logs\watchdog.log'
 $StatePath          = Join-Path $PSScriptRoot 'dashboard\logs\watchdog_state.json'
+$RequestPath        = Join-Path $PSScriptRoot 'dashboard\logs\restart_request.json'
+$PendingTtlSec      = 1800     # 승인 안 된 재시작 요청은 30분 뒤 만료
+$ApprovedTtlSec     = 600      # 승인 후 10분 안에 못 돌리면(워치독 멈춤 등) 실행하지 않음
+$ManualMinGapSec    = 120      # 직전 재시작 2분 안이면 다음 실행으로 미룸
+$RestartWaitSec     = 150      # 재시작 후 새 프로세스·/health 기다리는 최대 시간
 
 # ── 유틸 ──────────────────────────────────────────────────────
 function Now-Unix { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
@@ -148,6 +160,107 @@ function Invoke-Restart {
     }
 }
 
+# ── 재시작 승인 요청 처리 ─────────────────────────────────────
+function Read-RestartRequest {
+    if (-not (Test-Path $RequestPath)) { return $null }
+    try { return (Get-Content $RequestPath -Raw -Encoding UTF8 | ConvertFrom-Json) } catch { return $null }
+}
+
+function Write-RestartRequest($r) {
+    try { ($r | ConvertTo-Json -Depth 5) | Set-Content -Path $RequestPath -Encoding UTF8 } catch {}
+}
+
+function Update-RestartCard($r, $head) {
+    # 카드는 서버가 처음 보낸 것 — 버튼을 빼고 결과 한 덩어리로 바꾼다
+    try {
+        $token = Get-EnvVal 'SLACK_BOT_TOKEN'
+        if (-not $token -or -not $r.channel -or -not $r.ts) { return }
+        $lines = @($head)
+        foreach ($x in @($r.reasons)) { if ($x) { $lines += ('• ' + $x) } }
+        $n = @($r.commits).Count
+        if ($n -gt 0) { $lines += ('반영 커밋 {0}개' -f $n) }
+        if ($r.result) { $lines += ''; $lines += $r.result }
+        $text = $lines -join "`n"
+        $body = (@{ channel = $r.channel; ts = $r.ts; text = $text; blocks = @() } | ConvertTo-Json -Compress)
+        $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+        Invoke-RestMethod -Uri 'https://slack.com/api/chat.update' -Method Post -TimeoutSec 8 `
+            -Headers @{ Authorization = "Bearer $token" } `
+            -ContentType 'application/json; charset=utf-8' -Body $bytes | Out-Null
+    } catch { Write-WLog ('RESTART-REQ 카드 갱신 실패: ' + $_.Exception.Message) }
+}
+
+function Get-ListenerPid {
+    (Get-NetTCPConnection -LocalPort 5000 -State Listen -EA SilentlyContinue | Select-Object -First 1).OwningProcess
+}
+
+function Invoke-RestartRequest($state, $now) {
+    $r = Read-RestartRequest
+    if (-not $r) { return }
+    if ($r.status -eq 'pending') {
+        if (($now - [double]$r.created_at) -gt $PendingTtlSec) {
+            $r.status = 'expired'; Write-RestartRequest $r
+            Update-RestartCard $r ':zzz: *재시작 요청 만료* — 30분 동안 승인이 없었습니다.'
+            Write-WLog ('RESTART-REQ 만료 (승인 없음) id={0}' -f $r.id)
+        }
+        return
+    }
+    if ($r.status -ne 'approved') { return }
+    if (($now - [double]$r.approved_at) -gt $ApprovedTtlSec) {
+        $r.status = 'expired'; Write-RestartRequest $r
+        Update-RestartCard $r ':zzz: *재시작 요청 만료* — 승인 후 10분 안에 실행하지 못했습니다. 다시 요청해 주세요.'
+        Write-WLog ('RESTART-REQ 만료 (승인 후 미실행) id={0}' -f $r.id)
+        return
+    }
+    if (-not $RestartRequestDryRun -and ($now - [int]$state.lastRestartUnix) -lt $ManualMinGapSec) {
+        Write-WLog 'RESTART-REQ 직전 재시작 2분 이내 — 다음 실행으로 미룸'
+        return
+    }
+
+    $r.status = 'running'; Write-RestartRequest $r
+    Update-RestartCard $r ':hourglass_flowing_sand: *재시작 중…* (1~2분)'
+    $before = Get-ListenerPid
+    Write-WLog ('RESTART-REQ 실행 id={0} pid={1} dryrun={2}' -f $r.id, $before, [bool]$RestartRequestDryRun)
+
+    $after = $null; $healthy = $false; $started = ''
+    if ($RestartRequestDryRun) {
+        $after = $before; $healthy = (Test-Health)
+    }
+    else {
+        $state.lastRestartUnix = $now
+        Save-State $state
+        Invoke-Restart
+        $deadline = (Get-Date).AddSeconds($RestartWaitSec)
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 5
+            $after = Get-ListenerPid
+            if ($after -and $after -ne $before -and (Test-Health)) { $healthy = $true; break }
+        }
+    }
+    if ($after) {
+        $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $after) -EA SilentlyContinue
+        if ($p) { $started = ([datetime]$p.CreationDate).ToString('HH:mm:ss') }
+    }
+    $cache = Get-AppCacheMode
+    $ok = $healthy -and ($RestartRequestDryRun -or ($after -and $after -ne $before))
+    $detail = ('PID {0} → {1} · 기동 {2} · /health {3} · 저장소 {4}' -f $before, $after, $started,
+        $(if ($healthy) { '정상' } else { '무응답' }), $(if ($cache) { $cache } else { '알 수 없음' }))
+    if ($RestartRequestDryRun) { $detail = '(시험 실행 — 실제 재시작 안 함) ' + $detail }
+    Set-StateProp $r 'result' $detail
+    Set-StateProp $r 'finished_at' (Now-Unix)
+    $r.status = $(if ($ok) { 'done' } else { 'failed' })
+    Write-RestartRequest $r
+    if ($ok) { Update-RestartCard $r ':white_check_mark: *재시작 완료*' }
+    else { Update-RestartCard $r ':x: *재시작 실패* — 워치독 자동 복구가 이어서 시도합니다. dashboard\logs 확인 필요.' }
+    Write-WLog ('RESTART-REQ {0} {1}' -f $r.status, $detail)
+}
+
+# ── 승인 요청 시험 실행: 재시작 없이 처리·카드 갱신만 ───────────
+if ($RestartRequestDryRun) {
+    Invoke-RestartRequest (Load-State) (Now-Unix)
+    Write-Output 'RestartRequestDryRun 완료 — 슬랙 카드와 dashboard\logs\watchdog.log 확인'
+    return
+}
+
 # ── 셀프테스트: 다운타임/재시작 없이 알림 경로만 점검 ─────────
 if ($SelfTest) {
     Write-WLog 'SELFTEST: 슬랙 알림 경로 점검'
@@ -211,6 +324,9 @@ else {
     }
 }
 Save-State $state
+
+# 사장님이 승인한 재시작 요청 (헬스 점검 앞 — 재시작 뒤 같은 회차에 /health 를 다시 본다)
+Invoke-RestartRequest $state $now
 
 $ok    = Test-Health
 
