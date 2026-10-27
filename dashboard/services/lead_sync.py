@@ -1110,7 +1110,7 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
             #   중복 제거. 상단 ⠀ = 온라인 카드와 동일한 한 줄 여백.
             msg = (
                 "⠀\n"
-                f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`\n"
+                f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`\n\n"   # 한 줄 띄움(2026-10-27 사장님)
                 f":point_down: <{permalink}|아래 카드를 눌러 확인하세요>"
             )
         else:
