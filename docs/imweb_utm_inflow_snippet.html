@@ -16,6 +16,10 @@
        → 도메인도 없음(주소 입력·즐겨찾기·앱 안 브라우저) direct → [유입:direct] (카드: 직접 방문 등)
        폼 칸에만 넣고 전화 클릭 비콘의 inflow 는 광고값 그대로(ref 는 따로 보냄).
   gclid 는 별도 숨은 필드('gclid')에 원문 그대로 (구글 오프라인 전환용, 자르기 금지).
+  gclid 만 90일 보관 (2026-10-28 추가, localStorage): 구글 광고를 눌렀던 사람이 나중에 네이버·당근·직접으로
+  다시 와서 제출해도 gclid 칸이 채워짐. 구글은 쿠키로 이런 문의를 구글 전환으로 세는데 시트는 같은 탭만 봐서
+  못 잡았음(9/29~10/27 구글 전환 12 vs 시트 9). 유입경로 라벨은 그대로 마지막 경로 → 시트 채널 구분은 안 바뀜.
+  ⚠️ 그래서 'gclid 있음 = 구글 유입'이 아님. 구글 유입 판단은 [유입:구글] 마커로.
 
   - 필드 id 대신 라벨 텍스트('유입경로', 'gclid')로 찾음 → 설치·세척 폼 공통, '문의유형' 코드와 독립.
   - 서버 파서(homepage_mail_sync.py) 가 정규화·한글화(naver→네이버, google→구글).
@@ -49,6 +53,18 @@
     else { try { inflow = sessionStorage.getItem('itg_inflow_v1') || ''; } catch (e) {} }
     if (gclid) { try { sessionStorage.setItem('itg_gclid_v1', gclid); } catch (e) {} }
     else { try { gclid = sessionStorage.getItem('itg_gclid_v1') || ''; } catch (e) {} }
+
+    // gclid 90일 보관 — 새 광고 클릭(주소에 gclid)이면 덮어쓰고, 없으면 90일 안의 마지막 값을 씀
+    var GCLID_KEY = 'itg_gclid_90d', GCLID_TTL = 90 * 24 * 60 * 60 * 1000;
+    try {
+      if (q.get('gclid') && gclid) {
+        localStorage.setItem(GCLID_KEY, JSON.stringify({ v: gclid, t: Date.now() }));
+      } else if (!gclid) {
+        var kept = JSON.parse(localStorage.getItem(GCLID_KEY) || 'null');
+        if (kept && kept.v && Date.now() - kept.t < GCLID_TTL) gclid = String(kept.v);
+        else if (kept) localStorage.removeItem(GCLID_KEY);
+      }
+    } catch (e) {}
 
     // 첫 유입 도메인(광고 파라미터 없는 자연검색·직접 방문 구분용) — 우리 사이트 내 이동은 무시
     var ref = '';
