@@ -206,6 +206,7 @@ def _fetch_visit_leads() -> List[Dict]:
      시트 필터만으로는 완료 lead 를 걸러내지 못하던 문제).
     """
     from dashboard.services.lead_service import load_leads_data
+    from dashboard.services.lead_helpers import consult_visit_done
     df = load_leads_data(force_refresh=True)
     if df is None or df.empty:
         # 리드 관리 시트는 항상 수천 행 → 빈 df = 시트 읽기 실패(타임아웃·503 등).
@@ -239,8 +240,8 @@ def _fetch_visit_leads() -> List[Dict]:
             except Exception:
                 pass
         _consult = str(row.get('상담 내용') or '')
-        if re.search(r'·\s*방문 완료\]', _consult):
-            continue  # 방문 완료 처리됨 (시트 마커)
+        if consult_visit_done(_consult):
+            continue  # 방문 완료 처리됨 (시트 마커 — 그 뒤 새 방문 예약 회차가 없을 때)
         # 방문 예정일 파싱 — 오늘 이전이면 제외 (범위면 종료일 기준)
         vd_raw = str(row.get('방문 예정일') or '').strip().lstrip("'")
         vd_date: Optional[date] = None

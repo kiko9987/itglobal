@@ -9462,6 +9462,9 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
     if not visit_channel:
         return ('', '')
 
+    # 카드가 다시 진행 중으로 뜨는 시점 = 새 방문 — 이전 방문 완료 표시 해제
+    _clear_visit_completion(lead_no)
+
     # 방문 일정 봇 client 우선 사용 (액션 매칭을 위해 카드도 visit bot 명의로)
     if _visit_slack_handler is None:
         _init_visit_slack_app()
@@ -10578,7 +10581,28 @@ def _visit_is_completed(lead_no: str, consult_text: str = '') -> bool:
     except Exception:
         if _local_flag_get(f'visit_auto_completed:{lead_no}'):
             return True
-    return bool(re.search(r'·\s*방문 완료\]', consult_text or ''))
+    from dashboard.services.lead_helpers import consult_visit_done
+    return consult_visit_done(consult_text)
+
+
+def _clear_visit_completion(lead_no: str) -> None:
+    """새 방문이 등록·병합되면 이전 방문의 완료 표시를 지움.
+
+    완료 표시가 남으면 새 방문이 캔버스1에서 빠지고 사진 자동완료·[방문 완료] 버튼이 모두
+    '이미 완료'로 skip (2026-10-27 L-04129: 10-01 완료 건에 10-23 전화 워크플로로 10-26 방문 병합).
+    """
+    if not lead_no:
+        return
+    keys = (f'visit_auto_completed:{lead_no}', f'visit_completed:{lead_no}')
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        if get_redis_client().redis.delete(*keys):
+            logger.info(f'[SLACK/방문] {lead_no} 새 방문 등록 — 이전 방문 완료 표시 해제')
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문] {lead_no} 완료 표시 해제 실패: {exc}')
+    with _LOCAL_FLAGS_LOCK:
+        for k in keys:
+            _LOCAL_FLAGS.pop(k, None)
 
 
 def _release_edit_lock(rc, lead_no: str) -> None:
@@ -10945,8 +10969,9 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
         cur = str(lead.get('상담 내용', '') or '').strip()
         cur_status = str(lead.get('상태', '') or '').strip()
         marker = f'[{dt_str} {initial} · 방문 완료]'
-        if re.search(r'·\s*방문 완료\]', cur):
-            return  # 이미 마커 있음
+        from dashboard.services.lead_helpers import consult_visit_done
+        if consult_visit_done(cur):
+            return  # 이미 마커 있음 (마지막 방문 예약 회차 뒤에)
         # 재상담 형식과 통일 — 기존 값 뒤에 ─── 구분자 + 마커 append
         if cur and cur != '-':
             new_content = f'{cur} ─── {marker}'

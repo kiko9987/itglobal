@@ -146,6 +146,24 @@ def tidy_phone_for_sheet(raw):
     return normalize_phone(t) or raw
 
 
+_VISIT_DONE_MARK_RE = re.compile(r'·\s*방문 완료\]')
+_VISIT_BOOK_MARK_RE = re.compile(r'·\s*방문 예약\]')
+
+
+def consult_visit_done(consult_text) -> bool:
+    """K열 상담 이력 기준 방문 완료 여부 — '방문 완료' 마커가 마지막 '방문 예약' 회차보다 뒤에 있을 때만.
+
+    완료 뒤 재상담으로 새 '방문 예약' 회차가 붙으면 그 방문은 아직 안 끝난 것.
+    옛 마커만 보고 완료로 치면 새 방문이 캔버스1에서 빠지고 완료 처리도 막힘 (2026-10-27 L-04129).
+    """
+    t = str(consult_text or '')
+    done = [m.end() for m in _VISIT_DONE_MARK_RE.finditer(t)]
+    if not done:
+        return False
+    book = [m.end() for m in _VISIT_BOOK_MARK_RE.finditer(t)]
+    return not book or done[-1] > book[-1]
+
+
 def restore_leading_zero(digits: str) -> str:
     """스프레드시트 숫자 서식으로 앞자리 0 이 탈락한 번호 복원.
 
