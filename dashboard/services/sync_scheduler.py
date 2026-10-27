@@ -291,6 +291,19 @@ def start_scheduler():
         )
         jobs.append('정합성 점검 매일 07:50·16:30')
 
+    # 2026-10-27 방문 일정 ↔ 캔버스1 누락 점검 — 평일 16:00(일정확정 전), 문제 있을 때만
+    #   사장님 DM. 공휴일은 작업 안에서 skip. 일정확정 직후 점검은 /일정확정 핸들러에서.
+    if os.getenv('VISIT_CANVAS_AUDIT_ENABLED', '1').strip().lower() not in ('0', 'false', 'no') \
+            and (os.getenv('VISIT_AUDIT_ALERT_CHANNEL', '').strip() or os.getenv('SLACK_ADMIN_CHANNEL', '').strip()):
+        _scheduler.add_job(
+            _safe_visit_canvas_audit,
+            'cron',
+            day_of_week='mon-fri', hour=16, minute=0,
+            id='visit_canvas_audit_daily',
+            replace_existing=True,
+        )
+        jobs.append('방문 일정↔캔버스1 점검 평일 16:00')
+
     # 2026-07-23 매일 아침 부재중/미완료 리마인드 (온라인 문의 채널) — 출근 직후.
     #   2026-10-07 출퇴근 08~17시 변경으로 09:00 → 08:10.
     _scheduler.add_job(
@@ -769,6 +782,16 @@ def _safe_monthly_invoice_remind():
         logger.info(f'[SCHED] 계산서 마감 월간 리마인드 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 계산서 마감 월간 리마인드 실패: {exc}', exc_info=True)
+
+
+def _safe_visit_canvas_audit():
+    """방문 일정 ↔ 캔버스1 누락 점검 (평일 16:00). 문제 있을 때만 사장님 DM."""
+    try:
+        from dashboard.services.visit_canvas_audit import run_daily_canvas1_audit
+        result = run_daily_canvas1_audit()
+        logger.info(f'[SCHED] 방문 일정↔캔버스1 점검 결과: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 방문 일정↔캔버스1 점검 실패: {exc}', exc_info=True)
 
 
 def _safe_invariant_checks():

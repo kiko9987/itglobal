@@ -3512,7 +3512,24 @@ def _register_visit_handlers(app):
             try:
                 from dashboard.services.visit_assignment_sync import commit
                 result = commit()
-                respond(_format_assignment_result(result, committed=True))
+                resp = _format_assignment_result(result, committed=True)
+                # 2026-10-27 일정확정 직후 누락 점검 — 카드↔캔버스1, 캔버스1↔캔버스2(대상일),
+                #   캔버스2 매칭 실패 줄. 확인할 게 있으면 실행자 화면 + 사장님 DM.
+                if result.get('ok'):
+                    try:
+                        from dashboard.services.visit_canvas_audit import (
+                            audit_after_commit, format_commit_audit, send_admin_dm,
+                        )
+                        _audit_txt = format_commit_audit(audit_after_commit(result))
+                        if _audit_txt:
+                            resp['text'] = f"{resp.get('text', '')}\n\n{_audit_txt}"
+                            _runner = command.get('user_id', '')
+                            if _runner != os.getenv('SLACK_ADMIN_CHANNEL', '').strip():
+                                send_admin_dm(
+                                    f":clipboard: *일정확정 확인 필요* (실행: <@{_runner}>)\n{_audit_txt}")
+                    except Exception as _aexc:
+                        logger.warning(f"[일정확정] 누락 점검 실패(발송은 정상): {_aexc}", exc_info=True)
+                respond(resp)
             except Exception as exc:
                 logger.error(f"[일정확정] 예외: {exc}", exc_info=True)
                 respond({'response_type': 'ephemeral',

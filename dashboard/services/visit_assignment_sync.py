@@ -486,6 +486,7 @@ def dry_run() -> Dict:
             'current': current_assign or '-',
             'changed': changed,
             'original': p.get('original') or '-',
+            'raw': str(p.get('raw') or '')[:160],  # 매칭 실패 줄 원문 안내용 (visit_canvas_audit)
         })
     target_date = min(future_starts).isoformat() if future_starts else None
     return {
