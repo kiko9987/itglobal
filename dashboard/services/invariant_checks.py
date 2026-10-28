@@ -166,6 +166,40 @@ def check_sheet_cells(ctx):
             for key, code, msg in ctx.get('cell_anomalies') or [] if key not in known]
 
 
+# 칸 참조(A1·$U$12) — 앞뒤가 글자·숫자면 아님(LOG10 같은 함수 이름), 뒤에 '(' 면 함수(ATAN2( 등)
+_CELL_REF_RE = re.compile(r'(?<![A-Za-z0-9_$])\$?([A-Z]{1,3})\$?(\d+)(?![\dA-Za-z_(])')
+
+
+def formula_row_mismatches(rows, f2l=None):
+    """수식 칸이 자기 행이 아닌 다른 행을 계산 — [(key, 코드, 문구)].
+
+    rows: [(행번호, 코드, {열 글자: 수식})] (FORMULA). 다른 탭('!')·전체 열(A:A) 참조는 대상 아님.
+    계기: 2026-10-28 G4153(4154행) 총액2·미수금·순익·마진율이 4153행(G4152)을 가리켜 시트와 입금 카드가
+    G4152 값(받을 돈 2,248,400)을 보였다. PM 은 서버가 따로 계산해 정상이라 아무도 몰랐다.
+    """
+    if f2l is None:
+        from dashboard.utils.google_sheets import main_field_to_letter
+        f2l = main_field_to_letter()
+    l2f = {v: k for k, v in f2l.items()}
+    out = []
+    for row, code, cells in rows:
+        for letter, f in cells.items():
+            if not isinstance(f, str) or not f.startswith('=') or '!' in f:
+                continue
+            others = sorted({int(n) for _, n in _CELL_REF_RE.findall(re.sub(r'"[^"]*"', '', f))} - {row})
+            if others:
+                label = l2f.get(letter, letter)
+                out.append((f'formula_row:{code}:{label}:{row}', code,
+                            f"{label}({letter}{row}) 수식이 {', '.join(map(str, others))}행을 계산 — "
+                            f"시트·입금 카드에 다른 공사 값이 보임"))
+    return out
+
+
+def check_formula_rows(ctx):
+    """수식 칸이 다른 행을 가리킴 — 시트 전체, 자기 행으로 고칠 때까지 매일 알림."""
+    return [Violation('formula_row', key, code, msg) for key, code, msg in ctx.get('formula_mismatches') or []]
+
+
 def check_split_payers(ctx):
     """나눠 내는 공사(○○ 부담자 칸) — 칸 형식 오류·부담액 합계≠총액2·부담자 없는 칸에 입금 (2026-10-19)."""
     from dashboard.services.payer_split import split_problems
@@ -189,6 +223,7 @@ INVARIANTS = [
     check_amount_anomaly,
     check_split_payers,
     check_sheet_cells,
+    check_formula_rows,
 ]
 
 _CHECK_LABEL = {
@@ -196,6 +231,7 @@ _CHECK_LABEL = {
     'amount_anomaly': '금액 이상치',
     'split_payer': '나눠 내는 공사(부담자 칸)',
     'sheet_cell': '시트 칸 이상(수식 오류·칸 이동 의심)',
+    'formula_row': '수식 행 어긋남(다른 행을 계산)',
 }
 
 
@@ -245,12 +281,19 @@ def build_context():
         logger.warning(f'[INVARIANT] 시트 칸 점검 준비 실패(건너뜀): {exc}')
         cell_anomalies = []
 
+    formula_mismatches = []
+    try:
+        formula_mismatches = formula_row_mismatches(_read_sheet_formulas())
+    except Exception as exc:
+        logger.warning(f'[INVARIANT] 수식 행 점검 준비 실패(건너뜀): {exc}')
+
     return {
         'records': records,
         'valid_codes': valid_codes,
         'card_codes': card_codes,
         'cell_anomalies': cell_anomalies,
         'known_cell_anomalies': known,
+        'formula_mismatches': formula_mismatches,
         'now': datetime.now(),
     }
 
@@ -280,6 +323,42 @@ def _read_sheet_cells():
         cells = {f: (cols[j + 1][i][0] if i < len(cols[j + 1]) and cols[j + 1][i] else '')
                  for j, f in enumerate(fields)}
         out.append((i + 2, code, cells))
+    return out
+
+
+def _read_sheet_formulas():
+    """공사 현황 전체 행의 수식(FORMULA) → [(행, 코드, {열 글자: 수식})] — API 1회. 수식 칸만 담는다."""
+    from dashboard.services.payment_sync import _get_payment_service
+    from dashboard.utils.google_sheets import main_field_to_letter
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    if not sid or not sn:
+        return []
+
+    def _idx(letter):
+        n = 0
+        for ch in letter:
+            n = n * 26 + ord(ch) - 64
+        return n - 1
+
+    def _letter(i):
+        s = ''
+        i += 1
+        while i:
+            i, r = divmod(i - 1, 26)
+            s = chr(65 + r) + s
+        return s
+
+    last = max(main_field_to_letter().values(), key=_idx)
+    rows = _get_payment_service().spreadsheets().values().get(
+        spreadsheetId=sid, range=f"'{sn}'!A2:{last}6000", valueRenderOption='FORMULA',
+    ).execute().get('values', [])
+    out = []
+    for i, r in enumerate(rows):
+        code = str(r[0] if r else '').strip()
+        cells = {_letter(j): v for j, v in enumerate(r) if isinstance(v, str) and v.startswith('=')}
+        if code and cells:
+            out.append((i + 2, code, cells))
     return out
 
 
