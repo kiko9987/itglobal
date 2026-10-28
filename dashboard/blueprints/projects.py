@@ -814,14 +814,23 @@ def _update_project_code_if_needed(data, current_values, row_number, manager, pr
     Returns:
         tuple: (final_project_code, code_change_dict or None)
     """
-    from dashboard.utils.project_code_generator import generate_project_code, should_update_project_code
+    from dashboard.utils.project_code_generator import regenerate_project_code
 
-    company = data.get('사업자') or current_values[field_to_index.get('사업자', 1)]
-    manager_field = data.get('담당자') or current_values[field_to_index.get('담당자', 2)]
+    def _cur(field, default_idx):
+        i = field_to_index.get(field, default_idx)
+        return str(current_values[i] or '').strip() if i is not None and i < len(current_values) else ''
 
-    # 사업자 또는 담당자가 변경되었는지 확인하고 프로젝트 코드 재생성
-    if should_update_project_code(project_code, row_number, company, manager_field):
-        new_project_code = generate_project_code(row_number, company, manager_field)
+    # 실제로 바뀐 칸만 본다 — 안 고친 칸이 같이 넘어와도 코드를 건드리지 않게 (2026-10-28 3차:
+    #   번호는 지금 코드 그대로, 앞 글자·접미사만 staff_directory 표로. 예전엔 시트 행번호로 다시 매겼음)
+    new_company = str(data.get('사업자') or '').strip()
+    new_manager = str(data.get('담당자') or '').strip()
+    company = new_company if new_company and new_company != _cur('사업자', 1) else ''
+    manager_field = new_manager if new_manager and new_manager != _cur('담당자', 2) else ''
+
+    if company or manager_field:
+        new_project_code, err = regenerate_project_code(project_code, company, manager_field)
+        if err:
+            raise ValueError(err)
         if new_project_code and new_project_code != project_code:
             logger.info(f"[PUT] 프로젝트 코드 자동 업데이트: {project_code} → {new_project_code}")
             # 프로젝트 코드 업데이트
@@ -1248,9 +1257,12 @@ def update_project(project_code):
             return jsonify({'success': False, 'error': _gate[0]}), _gate[1]
 
         # 6. 프로젝트 코드 자동 업데이트 (사업자/담당자 변경 시)
-        final_project_code, code_change = _update_project_code_if_needed(
-            data, current_values, row_number, manager, project_code, field_to_index
-        )
+        try:
+            final_project_code, code_change = _update_project_code_if_needed(
+                data, current_values, row_number, manager, project_code, field_to_index
+            )
+        except ValueError as _code_err:   # 접미사 없는 담당자로 바꾸려 함 — 코드 깨지기 전에 막음
+            return jsonify({'success': False, 'error': str(_code_err)}), 400
 
         # 프로젝트 코드 변경사항 추적
         field_changes = []

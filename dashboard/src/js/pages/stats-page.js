@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { isStatsExcluded } from '../utils/staffDirectory.js';
 
 /**
  * Stats Page Manager
@@ -131,7 +132,6 @@ class StatsManager {
     }
 
     setupManagerColors() {
-        const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '이미영', '황해승'];
         const managers2025 = new Set();
         const managers2026 = new Set();
 
@@ -141,7 +141,7 @@ class StatsManager {
             if (confirmDate) {
                 const year = new Date(confirmDate).getFullYear();
                 const manager = project['담당자'];
-                if (manager && !excludedOwners.includes(manager)) {
+                if (manager && !isStatsExcluded(manager)) {
                     if (year === 2025) managers2025.add(manager);
                     if (year === 2026) managers2026.add(manager);
                 }
@@ -412,7 +412,6 @@ class StatsManager {
     }
 
     getManagerRevenue(year) {
-        const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '이미영', '황해승'];
         const managerRevenue = {};
 
         this.projectsData.forEach(project => {
@@ -421,7 +420,7 @@ class StatsManager {
                 const confirmDateObj = new Date(confirmDate);
                 if (confirmDateObj.getFullYear() === year) {
                     const manager = project['담당자'];
-                    if (manager && !excludedOwners.includes(manager)) {
+                    if (manager && !isStatsExcluded(manager)) {
                         const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
                         managerRevenue[manager] = (managerRevenue[manager] || 0) + amount;
                     }

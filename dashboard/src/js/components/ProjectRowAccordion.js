@@ -26,6 +26,7 @@ import {
   payerLine, getStagePayer, stagePayers, stripPayerLine, payerTitle, vatFreeAmount, calcTotal2, isSplit, bizDisplay,
 } from '../utils/payerSplit.js';
 import { PARTNER_GROUP_LABELS, isPartnerName } from '../utils/partnerName.js';
+import { activeSalesManagers, ownerSuffix, companyPrefix } from '../utils/staffDirectory.js';
 
 // 부가세 칸 글자 → 켜짐(부가세 별도) 여부. 2026-10-28 표기 '포함/미포함' → '별도/없음'(새 공사 창·슬랙과 같게,
 //   예전 '포함'이 실제로는 '총액1에 부가세를 더함=별도'라 반대로 읽혔음). 옛 표기·'VAT 별도/포함'도 받음.
@@ -6891,13 +6892,12 @@ export default class ProjectRowAccordion {
       });
     }
 
-    // 3. 기본 목록 + 실제 사용 중인 담당자 합치기
-    const resignedTeam = this.unifiedBadgeSystem.managerBadge.resignedTeam;
-    const allManagers = new Set([...baseManagers, ...dataTableManagers]);
-
-    // 4. 퇴사자 및 경영지원팀 제외
-    const excludedManagers = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '이미영', '황해승'];
-    const activeManagers = Array.from(allManagers).filter(m => !excludedManagers.includes(m));
+    // 3~4. 서버 직원 명단(staffDirectory) 기준 지금 영업 담당자 — 새 사람은 나오고 퇴사·비영업은 빠짐
+    //   (2026-10-28 3차: 예전 하드코딩 목록이라 신입이 안 나오고 퇴사자가 남았음). 서버를 못 부르면
+    //   화면 표 이름에서 비영업·퇴사만 뺀다. 지금 공사의 담당자는 목록에 없어도 선택값 유지용으로 넣음.
+    const activeManagers = activeSalesManagers([...baseManagers, ...dataTableManagers]);
+    const curManager = String(this.currentProject?.['담당자'] || '').trim();
+    if (curManager && curManager !== '-' && !activeManagers.includes(curManager)) activeManagers.push(curManager);
 
     // 5. 가나다순 정렬
     return activeManagers.sort((a, b) => a.localeCompare(b, 'ko-KR'));
@@ -6919,33 +6919,16 @@ export default class ProjectRowAccordion {
   }
 
   /**
-   * 프로젝트 코드 생성 (클라이언트 사이드)
-   * - 백엔드 project_code_generator.py와 동일한 로직
+   * 프로젝트 코드 미리보기 — 서버 project_code_generator.regenerate_project_code 와 같은 규칙:
+   * 번호는 지금 코드 그대로, 앞 글자(사업자)·접미사(담당자)만 직원 명단(staffDirectory)으로.
+   * 접미사를 모르는 담당자면 지금 접미사 유지(서버가 저장 때 막고 안내).
    */
-  generateProjectCode(rowNumber, company, manager) {
-    // 1. 사업자 → Prefix
-    const companyPrefix = {
-      '플렌트': 'P',
-      '글로벌': 'G',
-      '글로벌그룹': 'R'
-    };
-    const prefix = companyPrefix[company] || '';
-
-    // 2. 행번호 4자리
-    const numberPart = String(rowNumber).padStart(4, '0');
-
-    // 3. 담당자 → Suffix
-    const managerSuffix = {
-      '박용구': '-YG', '박정우': '-JW', '강성환': '-SH', '박민우': '-MW',
-      '이근혁': '-GH', '김호중': '-HJ', '아이티': '-IT', '김단이': '-DN',
-      '권태훈': '-TH', '주영민': '-YM', '심장원': '-SJW', '빈승정': '-SJ',
-      '박민재': '-MJ', '조성헌': '-JSH', '황해승': '-HS', '강민석': '-MS',
-      '강정권': '-JK', '이상덕': '-SD', '김지훈': '-JH'
-    };
-    const suffix = managerSuffix[manager] || '';
-
-    // 4. 조합
-    return `${prefix}${numberPart}${suffix}`;
+  generateProjectCode(oldCode, company, manager) {
+    const m = String(oldCode || '').match(/^([A-Z])(\d+)(-[A-Za-z]+)?$/);
+    if (!m) return oldCode;
+    const prefix = companyPrefix(company) || m[1];
+    const sfx = ownerSuffix(manager);
+    return `${prefix}${m[2]}${sfx ? '-' + sfx : (m[3] || '')}`;
   }
 
   /**
@@ -7016,12 +6999,7 @@ export default class ProjectRowAccordion {
    * 헤더 프로젝트 코드 실시간 업데이트
    */
   updateHeaderProjectCode(oldProjectCode) {
-    // 저장된 행 번호 사용 (아코디언 열 때 저장됨)
-    const rowNumber = this.currentRowNumber;
-    if (!rowNumber) {
-      logger.warn('[헤더 업데이트] 행번호를 찾을 수 없음');
-      return oldProjectCode;
-    }
+    // 번호는 지금 코드 그대로(서버 regenerate_project_code 와 같음) — 행 번호는 더 안 씀 (2026-10-28 3차)
 
     // 현재 선택된 사업자/담당자 가져오기
     const headerContainer = document.getElementById(`header-${oldProjectCode}`);
@@ -7047,7 +7025,7 @@ export default class ProjectRowAccordion {
       }
     }
     // 새 프로젝트 코드 생성
-    const newProjectCode = this.generateProjectCode(rowNumber, company, manager);
+    const newProjectCode = this.generateProjectCode(oldProjectCode, company, manager);
 
     // 헤더 배지 텍스트만 업데이트 (미리보기 용도)
     const codeBadge = document.getElementById(`code-badge-${oldProjectCode}`);

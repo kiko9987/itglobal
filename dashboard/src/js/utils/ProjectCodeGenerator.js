@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { ownerSuffix as staffOwnerSuffix, companyPrefix } from './staffDirectory.js';
 
 /**
  * ProjectCodeGenerator - 프로젝트 코드 생성 유틸리티
@@ -50,37 +51,11 @@ export default class ProjectCodeGenerator {
 
         console.log('[DEBUG] 프로젝트 데이터 로드 완료:', projectData.length, '건');
 
-        // 회사 코드 매핑
-        const companyMapping = {
-          '플렌트': 'P',
-          '글로벌': 'G',
-          '글로벌그룹': 'R'
-        };
-        const companyCode = companyMapping[company] || 'G';
+        // 회사 코드 — 서버 직원 명단(staffDirectory) 기준 (2026-10-28 3차, 예전 하드코딩)
+        const companyCode = companyPrefix(company) || 'G';
 
-        // 담당자 코드 매핑
-        const ownerMapping = {
-          '박용구': 'YG',
-          '박정우': 'JW',
-          '강성환': 'SH',
-          '박민우': 'MW',
-          '이근혁': 'GH',
-          '김호중': 'HJ',
-          '아이티': 'IT',
-          '김단이': 'DN',
-          '권태훈': 'TH',
-          '주영민': 'YM',
-          '심장원': 'SJW',
-          '빈승정': 'SJ',
-          '박민재': 'MJ',
-          '조성헌': 'JSH',
-          '황해승': 'HS',
-          '강민석': 'MS',
-          '강정권': 'JK',
-          '이상덕': 'SD',
-          '김지훈': 'JH'
-        };
-        const ownerSuffix = ownerMapping[owner] || (owner.length >= 2 ? owner.substring(0, 2).toUpperCase() : owner.toUpperCase());
+        // 담당자 접미사 — 서버 직원 명단(staffDirectory). 없으면 예전처럼 이름 앞 두 글자
+        const ownerSuffix = staffOwnerSuffix(owner) || (owner.length >= 2 ? owner.substring(0, 2).toUpperCase() : owner.toUpperCase());
 
         // 기존 프로젝트 코드에서 최대 순번 찾기
         let maxSequence = 0;

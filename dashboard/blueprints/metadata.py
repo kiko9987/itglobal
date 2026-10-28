@@ -148,6 +148,19 @@ def preview_project_code():
             "error_id": error_id
         })
 
+@metadata_bp.route('/staff-directory', methods=['GET'])
+@login_required
+def get_staff_directory():
+    """직원 명단 한곳 — 코드 접미사·비영업·퇴사·현재 영업 담당자 (2026-10-28 3차, staff_directory).
+    화면(staffDirectory.js)이 하드코딩 표 대신 이걸 쓴다."""
+    try:
+        from dashboard.services.staff_directory import directory
+        return jsonify({'ok': True, **directory()})
+    except Exception as exc:
+        logger.error(f"[STAFF] 명단 조회 실패: {exc}", exc_info=True)
+        return jsonify({'ok': False, 'error': '직원 명단을 불러오지 못했습니다.'}), 500
+
+
 @metadata_bp.route('/meta/options', methods=['GET'])
 @login_required
 def get_meta_options():

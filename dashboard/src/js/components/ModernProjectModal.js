@@ -4,6 +4,7 @@
 import AmountCalculator from '../utils/AmountCalculator.js';
 import FormValidator from '../utils/FormValidator.js';
 import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
+import { isNonSales } from '../utils/staffDirectory.js';
 import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
 import {
   businessNamesForPartner, inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz,
@@ -1013,12 +1014,11 @@ export default class ModernProjectModal {
     }
 
     // 담당자 목록 (제외할 인원 필터링)
-    // - excludedOwners: 비영업 고정 인원(하드코딩)
+    // - isNonSales: 서버 직원 명단(staffDirectory)의 비영업·퇴사 인원 (2026-10-28 3차 — 예전 하드코딩)
     // - inactiveOwnerSet: 사용자 관리에서 비활성/퇴사 처리된 인원 (DB, refreshInactiveOwners로 로드)
-    const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '이미영', '황해승'];
     const inactiveSet = this.inactiveOwnerSet || new Set();
     const owners = data.options?.owners || data.owners || [];
-    const filteredOwners = owners.filter(owner => !excludedOwners.includes(owner) && !inactiveSet.has(owner));
+    const filteredOwners = owners.filter(owner => !isNonSales(owner) && !inactiveSet.has(owner));
     console.log('[DEBUG] 담당자 수:', filteredOwners.length);
 
     const ownerSelect = document.getElementById('modern-owner');
