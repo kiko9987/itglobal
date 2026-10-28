@@ -373,6 +373,12 @@ def _build_repeat_section(lead: dict) -> str:
     빈값은 '-'로 통일.
     """
     prev_leads = lead.get('_meta_previous_leads') or []
+    if isinstance(prev_leads, str):   # 옛 재발송 대기열에 글자로 저장된 것 (2026-10-28 이전) — 읽을 수 있으면 살림
+        try:
+            prev_leads = json.loads(prev_leads)
+        except Exception:
+            prev_leads = []
+    prev_leads = [p for p in (prev_leads if isinstance(prev_leads, list) else []) if isinstance(p, dict)]
     if not prev_leads:
         return ''
     most_recent = prev_leads[0]
@@ -504,13 +510,17 @@ def sync_karrot() -> Dict[str, Any]:
         if phone_digits and phone_digits in phone_lookup and new_dt:
             _exact_match = any(
                 e['consult_dt'].replace(second=0, microsecond=0) == _new_min
-                for e in phone_lookup[phone_digits] if e['consult_dt']
+                for e in phone_lookup[phone_digits]
+                if e['consult_dt'] and (e.get('platform') or '').strip() == KARROT_PLATFORM
             )
             if _exact_match:
                 duplicates += 1
                 continue
-            latest = phone_lookup[phone_digits][0]
-            if latest['consult_dt']:
+            # 1시간 중복은 **당근 리드끼리만** (2026-10-28 5차: 같은 번호의 전화·홈페이지 리드가 1시간 안에 있으면
+            #   당근 문의를 이름도 없이 dup 로 버렸음 — 다른 채널이면 아래 '재문의'로 등록)
+            latest = next((e for e in phone_lookup[phone_digits]
+                           if (e.get('platform') or '').strip() == KARROT_PLATFORM), None)
+            if latest and latest['consult_dt']:
                 time_diff = new_dt - latest['consult_dt']
                 if abs(time_diff.total_seconds()) < 3600:
                     duplicates += 1
@@ -1032,6 +1042,12 @@ def _send_slack_notifications(leads: List[Dict[str, Any]], lead_nos: List[str],
                         pass
         except Exception as exc:
             logger.error(f'[SYNC/{source}] 슬랙 전송 실패 ({ln}): {exc}')
+            # 카드 만들다 예외 → 잠금 풀어 다음 재시도가 바로 가능하게 (예전엔 5분 잠금이 남았음)
+            if _locked and _lock_rc is not None:
+                try:
+                    _lock_rc.delete(f'lead_notify_lock:{ln}')
+                except Exception:
+                    pass
     return sent
 
 
@@ -1342,6 +1358,48 @@ def _post_phone_lead_completed_card(lead: dict, lead_no: str) -> bool:
     except Exception as exc:
         logger.error(f'[SYNC/전화WF/카드] 예외 ({lead_no}): {exc}', exc_info=True)
     return False
+
+
+def _notify_merged_phone_quote(lead_no: str, existing_row, wf_row) -> bool:
+    """같은 번호 기존 리드에 합쳐진 전화 '견적 요청' 안내 (2026-10-28 5차).
+
+    기존 리드 카드가 있으면 그 스레드에 "전화로 견적 요청이 다시 들어왔다" 댓글(새 내용 포함), 없으면 활성 카드를
+    새로 올린다(기존 리드 번호). 값은 워크플로 새 값 우선, 없으면 기존 리드 값."""
+    def _pick(field):
+        v = str((wf_row.get(field, '') if hasattr(wf_row, 'get') else '') or '').strip()
+        if v and v != '-':
+            return v
+        v2 = str((existing_row.get(field, '') if hasattr(existing_row, 'get') else '') or '').strip()
+        return v2 if v2 and v2 != '-' else ''
+    lead = {f: _pick(f) for f in ('고객명', '고객 연락처', '이메일', '방문 주소', '문의 내용', '상담 내용', '키워드',
+                                   '온라인 상담자', '영업 담당자', '상담 시간')}
+    lead['플랫폼'] = '전화'
+    lead['상태'] = '견적 요청'
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        m = get_redis_client().redis.get(f'lead_card_msg:{lead_no}')
+        m = m.decode() if isinstance(m, bytes) else m
+    except Exception:
+        m = None
+    if m and '|' in m:
+        ch, ts = m.split('|', 1)
+        token = os.getenv('SLACK_BOT_TOKEN', '').strip()
+        try:
+            from slack_sdk import WebClient
+            from dashboard.blueprints.slack_helpers import safe_slack_call
+            body = lead.get('상담 내용') or lead.get('문의 내용') or '-'
+            resp = safe_slack_call(WebClient(token=token).chat_postMessage, channel=ch, thread_ts=ts, text=(
+                f':telephone_receiver: *전화로 견적 요청이 다시 들어왔습니다* `{lead_no}`\n'
+                f"• 내용: {body[:300]}\n• 담당: {lead.get('영업 담당자') or lead.get('온라인 상담자') or '-'}"))
+            if resp and resp.get('ok'):
+                logger.info(f'[SYNC/전화WF/DEDUP] 합쳐진 견적 요청 → 기존 카드 스레드 안내 ({lead_no})')
+                return True
+        except Exception as exc:
+            logger.warning(f'[SYNC/전화WF/DEDUP] 기존 카드 스레드 안내 실패 ({lead_no}): {exc}')
+    ok = _post_active_phone_lead_card(lead, lead_no)
+    if not ok:
+        logger.error(f'[SYNC/전화WF/DEDUP] 합쳐진 견적 요청 카드 발송 실패 ({lead_no}) — 수동 확인 필요')
+    return ok
 
 
 def _post_active_phone_lead_card(lead: dict, lead_no: str) -> bool:
@@ -1776,9 +1834,11 @@ def _serialize_pending_payload(source: str, lead: Dict[str, Any]) -> str:
             except Exception:
                 safe_lead[k] = str(v)
         elif isinstance(v, (list, dict)):
+            # 안의 datetime 등은 글자로 (2026-10-28 5차: 재문의 리드의 _meta_previous_leads 에 consult_dt(datetime)가
+            #   있어 json 검증이 실패 → 통째로 str(v) 저장 → 재발송 때 prev_leads[0] 이 '[' 한 글자라 AttributeError,
+            #   재문의 고객 카드가 첫 발송 실패 후 영영 안 나갔음)
             try:
-                json.dumps(v, ensure_ascii=False)  # 검증
-                safe_lead[k] = v
+                safe_lead[k] = json.loads(json.dumps(v, ensure_ascii=False, default=str))
             except Exception:
                 safe_lead[k] = str(v)
         else:
@@ -2474,6 +2534,13 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         )
                         # 상태가 방문 예약이면 갱신 카드 발송 (기존 lead_no)
                         _status = str(row.get('상태', '') or '').strip()
+                        if _status.replace(' ', '') == '견적요청':
+                            # 기존 리드에 합쳐진 '견적 요청'도 직원에게 보이게 (2026-10-28 5차: 예전엔 상태·이름만 조용히
+                            #   바뀌고 카드도 댓글도 없었음) — 기존 카드 있으면 그 스레드에 안내, 없으면 활성 카드
+                            try:
+                                _notify_merged_phone_quote(existing_lead_no, main_df.loc[existing_sheet_row - 2], row)
+                            except Exception as _mq_exc:
+                                logger.error(f'[SYNC/전화WF/DEDUP] 합쳐진 견적 요청 안내 실패 ({existing_lead_no}): {_mq_exc}')
                         if _status == '방문 예약':
                             # 슬랙 카드 값 병합 — 워크플로 새 값 우선, 없으면 기존 리드값.
                             # (dedup 로직이 시트엔 기존값 유지시켰지만 카드 build 는
@@ -2825,11 +2892,15 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                             )
                         # 공백 유무 무관 매칭 (워크플로 '견적요청' / 시트 '견적 요청')
                         if status.replace(' ', '') == '견적요청':
-                            _post_active_phone_lead_card(_lead_dict, new_lead_no)
+                            _card_ok = _post_active_phone_lead_card(_lead_dict, new_lead_no)
                         else:
-                            _post_phone_lead_completed_card(_lead_dict, new_lead_no)
+                            _card_ok = _post_phone_lead_completed_card(_lead_dict, new_lead_no)
+                        if not _card_ok:
+                            # 재시도(safe_slack_call) 뒤에도 실패 — ERROR 로 남겨 관리자 알림 (2026-10-28 5차: 예전엔
+                            #   반환값을 안 봐 '견적 요청' 활성 카드가 조용히 사라질 수 있었음)
+                            logger.error(f'[SYNC/전화WF] 온라인 카드 발송 실패 ({new_lead_no}, {status}) — 수동 확인 필요')
                     except Exception as _exc:
-                        logger.warning(
+                        logger.error(
                             f'[SYNC/전화WF] 온라인 카드 발송 실패 ({new_lead_no}): {_exc}'
                         )
 

@@ -3573,6 +3573,9 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
             lines.append(f"_온라인 당번:_ {'·'.join(result['online_duty'])}")
         if result.get('off_duty'):
             lines.append(f"_휴무:_ {'·'.join(result['off_duty'])}")
+        for _u in (result.get('unreadable') or [])[:8]:
+            lines.append(f":warning: 이니셜 판독 불가 `{'·'.join(_u.get('tokens') or [])}` → 섹션({_u.get('section') or '-'}) "
+                         f"담당자로 배정됨: {_u.get('raw', '')[:80]}")
         _dups = result.get('duplicates') or []
         if _dups:
             lines.append(f":rotating_light: *중복 배정 {len(_dups)}건 — 같은 건이 2곳에 걸림 (캔버스 확인)*")
@@ -3610,6 +3613,11 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
         lines.append(f"   :headphones: 온라인 당번 : {'·'.join(result['online_duty'])}")
     if result.get('off_duty'):
         lines.append(f"   :palm_tree: 휴무 : {'·'.join(result['off_duty'])}")
+    _unr = result.get('unreadable') or []
+    if _unr:
+        lines.append(f"   :warning: *이니셜 판독 불가 {len(_unr)}줄 — 섹션 담당자로 대신 배정됨 (커밋 전 캔버스 확인)*")
+        for _u in _unr[:8]:
+            lines.append(f"      · `{'·'.join(_u.get('tokens') or [])}` ({_u.get('section') or '-'}) {_u.get('raw', '')[:80]}")
     _dups = result.get('duplicates') or []
     if _dups:
         lines.append(f"   :rotating_light: *중복 배정 {len(_dups)}건 — 같은 건이 2곳에 걸림 (커밋 전 캔버스 정리)*")
@@ -5875,6 +5883,23 @@ def _as_tell_requester(client, body, text: str) -> None:
         logger.debug(f'[SLACK/AS] 요청자 안내 실패 (무시): {exc}')
 
 
+def _as_tell_actor(client, body, channel: str, text: str) -> None:
+    """A/S 접수·완료를 누른 사람에게만 안내 — 카드 채널에 본인만, 안 되면 DM (2026-10-28 5차)."""
+    user = (body.get('user') or {}).get('id', '')
+    if not user:
+        return
+    if channel:
+        try:
+            client.chat_postEphemeral(channel=channel, user=user, text=text)
+            return
+        except Exception:
+            pass
+    try:
+        client.chat_postMessage(channel=user, text=text)
+    except Exception as exc:
+        logger.debug(f'[SLACK/AS] 안내 실패 (무시): {exc}')
+
+
 def _process_as_request_submission(client, body, view) -> None:
     """요청 제출 → (일반) 프로젝트 조회 또는 (수동) 직접 입력 → 시트 append → 카드 발송.
 
@@ -5934,6 +5959,19 @@ def _process_as_request_submission(client, body, view) -> None:
         except Exception:
             pass
         project_code = project_code.strip()
+        if project_code:
+            # 같은 공사에 진행 중 A/S 가 있으면 새로 만들지 않음 — PM 과 같은 규칙 (2026-10-28 5차: 슬랙만 안 막아
+            #   '요청됨' 이 둘 생기고 옛 건은 PM 에 안 보였음)
+            try:
+                from dashboard.blueprints.as_mgmt import _find_open_as
+                _open = _find_open_as(project_code)
+            except Exception:
+                _open = None
+            if _open:
+                _as_tell_requester(client, body, (
+                    f":information_source: `{project_code}` 에 이미 진행 중인 A/S *{_open.get('No')}* "
+                    f"({_open.get('진행 상태')})가 있어 새로 만들지 않았습니다. 그 카드에서 이어서 처리해 주세요."))
+                return
         if not project_code:
             logger.warning('[SLACK/AS] 프로젝트 코드 누락')
             _as_tell_requester(client, body, ':x: 공사를 고르지 않아 A/S 요청을 접수하지 않았습니다. 다시 /as 로 요청해 주세요.')
@@ -5950,6 +5988,11 @@ def _process_as_request_submission(client, body, view) -> None:
             requester=requester_initial,
         )
         dm_override = None
+
+    if not row_num:
+        # 시트에 못 씀(또는 번호를 못 정함) — 카드·DM 없이 중단 (2026-10-28 5차: 예전엔 슬랙에만 있는 A/S 가 생겼음)
+        _as_tell_requester(client, body, ':x: A/S 요청을 시트에 저장하지 못했습니다. 잠시 후 다시 /as 로 요청해 주세요.')
+        return
 
     channel = os.getenv('SLACK_AS_CHANNEL', '').strip()
     if not channel:
@@ -6193,7 +6236,11 @@ def _process_as_accept_submission(client, body, view) -> None:
         return
 
     # 상태 가드 — 요청됨 에서만 접수 (동시편집/중복 방지). 이미 처리됐으면 카드 정정 + 안내.
-    cur_status = str((get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+    _cur = get_as_data(as_no)
+    if _cur is None:   # 못 읽으면 통과시키지 않음 (2026-10-28 5차)
+        _as_tell_actor(client, body, channel, f':x: `{as_no}` 정보를 읽지 못해 접수하지 않았습니다. 잠시 후 다시 눌러 주세요.')
+        return
+    cur_status = str(_cur.get('진행 상태', '')).strip()
     if cur_status and cur_status != STATUS_REQUESTED:
         try:
             as_refresh_card(as_no)
@@ -6246,7 +6293,9 @@ def _process_as_accept_submission(client, body, view) -> None:
         COL_STATUS: STATUS_ACCEPTED,
     })
     if not ok:
-        logger.warning(f'[SLACK/AS] 시트 갱신 실패 ({as_no})')
+        logger.error(f'[SLACK/AS] 시트 갱신 실패 ({as_no})')
+        _as_tell_actor(client, body, channel, f':x: `{as_no}` 접수를 시트에 저장하지 못했습니다. 카드는 그대로 두었으니 잠시 후 다시 해 주세요.')
+        return
 
     # 카드 chat.update — 시트 재조회로 완전한 데이터 사용
     # 2026-07-20 AS-0006 관측: Google Sheets eventual consistency 로 재조회 시 방금
@@ -6325,7 +6374,11 @@ def _process_as_complete_submission(client, body, view) -> None:
         return
 
     # 상태 가드 — 접수 완료 에서만 조치완료 (동시편집/중복 방지). 이미 처리됐으면 카드 정정 + 안내.
-    cur_status = str((get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+    _cur = get_as_data(as_no)
+    if _cur is None:
+        _as_tell_actor(client, body, channel, f':x: `{as_no}` 정보를 읽지 못해 조치완료하지 않았습니다. 잠시 후 다시 눌러 주세요.')
+        return
+    cur_status = str(_cur.get('진행 상태', '')).strip()
     if cur_status and cur_status != STATUS_ACCEPTED:
         try:
             as_refresh_card(as_no)
@@ -6342,7 +6395,9 @@ def _process_as_complete_submission(client, body, view) -> None:
     completer = _slack_user_to_initial(client, user_id) or '-'
     ok = update_as_row(as_no, {COL_STATUS: STATUS_COMPLETED})
     if not ok:
-        logger.warning(f'[SLACK/AS] 완료 갱신 실패 ({as_no})')
+        logger.error(f'[SLACK/AS] 완료 갱신 실패 ({as_no})')
+        _as_tell_actor(client, body, channel, f':x: `{as_no}` 조치완료를 시트에 저장하지 못했습니다. 카드는 그대로 두었으니 잠시 후 다시 해 주세요.')
+        return
     # 조치 내용도 M열(메모/이력)에 누적 (덮어쓰지 않음). 카드엔 방금 값 직접 반영(지연 우회).
     new_log = append_as_log(as_no, resolution, completer)
 
@@ -7529,9 +7584,22 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
     return stats
 
 
+def _manual_trigger_denied():
+    """수동 동기화 주소는 PM 관리자 로그인만 (2026-10-28 5차: /slack/ 경로라 인증·rate limit 을 모두 건너뛰어
+    누구나 부를 수 있었음. 부르는 자동 경로는 없음 — 관리자가 브라우저로 여는 용도)."""
+    from flask import session
+    u = session.get('user') or {}
+    if u.get('permission_level') in ('admin', 'super_admin'):
+        return None
+    return jsonify({"ok": False, "error": "관리자 로그인 필요"}), 403
+
+
 @slack_bp.route("/sync-karrot", methods=["GET", "POST"])
 def slack_sync_karrot_now():
     """관리자 트리거 — 당근 시트 즉시 동기화 (테스트/긴급용)"""
+    _deny = _manual_trigger_denied()
+    if _deny:
+        return _deny
     try:
         from dashboard.services.sync_scheduler import trigger_karrot_sync_now
         result = trigger_karrot_sync_now()
@@ -7544,6 +7612,9 @@ def slack_sync_karrot_now():
 @slack_bp.route("/sync-homepage", methods=["GET", "POST"])
 def slack_sync_homepage_now():
     """관리자 트리거 — 홈페이지 메일 즉시 동기화"""
+    _deny = _manual_trigger_denied()
+    if _deny:
+        return _deny
     try:
         from dashboard.services.sync_scheduler import trigger_homepage_sync_now
         result = trigger_homepage_sync_now()

@@ -639,8 +639,13 @@ def sync_homepage_email() -> Dict[str, Any]:
         # → 시트 기존 lead_no 그대로 슬랙만 재발송 (라벨은 발송 성공해야 부착)
         # 2026-07-15 상담시간 정확 매치도 재발송 대상 (몇 개월 지난 원본 재감지 방어)
         if phone_digits and phone_digits in phone_lookup and new_dt:
+            # 중복·재발송 판단은 **홈페이지로 들어온 리드끼리만** (2026-10-28 5차: 같은 번호의 전화·카톡 리드가
+            #   1시간 안에 있으면 폼을 '중복'으로 버려 폼 내용·주소·gclid 가 사라지고 메일이 3일간 막혔음.
+            #   다른 채널이면 아래 '재문의'로 등록해 이전 이력과 함께 보여 줌)
+            _same_ch = [e for e in phone_lookup[phone_digits]
+                        if (e.get('platform') or '').strip() == HOMEPAGE_PLATFORM]
             _exact_entry = next(
-                (e for e in phone_lookup[phone_digits] if e['consult_dt'] == new_dt),
+                (e for e in _same_ch if e['consult_dt'] == new_dt),
                 None,
             )
             if _exact_entry:
@@ -650,8 +655,8 @@ def sync_homepage_email() -> Dict[str, Any]:
                 resend_leads.append(lead)
                 resend_by_source.setdefault(category, []).append(lead)
                 continue
-            latest = phone_lookup[phone_digits][0]
-            if latest['consult_dt']:
+            latest = _same_ch[0] if _same_ch else None
+            if latest and latest['consult_dt']:
                 if abs((new_dt - latest['consult_dt']).total_seconds()) < 3600:
                     duplicates += 1
                     lead['_meta_msg_id'] = msg_id

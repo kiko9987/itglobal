@@ -256,9 +256,15 @@ def create_lead(lead_data: Dict[str, Any]) -> Dict[str, Any]:
 
         manager = get_sheets_manager()
 
-        # 다음 리드 번호 생성
+        # 다음 리드 번호 — 다른 경로(당근·홈페이지·채널톡·전화)와 같은 워터마크 발번 (2026-10-28 5차: 시트 최댓값+1 만
+        #   봐서 동시 등록 때 같은 번호가 날 수 있었음)
         df = load_leads_data(force_refresh=True)
         new_lead_no = _generate_next_lead_no(df)
+        try:
+            from dashboard.services.lead_sync import _allocate_lead_numbers
+            new_lead_no = f"L-{_allocate_lead_numbers(int(new_lead_no.split('-')[1]) - 1, 1)[0]:05d}"
+        except Exception as _ae:
+            logger.warning(f"[LEADS] 워터마크 발번 실패 — 시트 기준 번호 사용: {_ae}")
 
         # 상담 시간 기본값 (현재 시각)
         if not normalized.get('상담 시간'):
@@ -274,7 +280,18 @@ def create_lead(lead_data: Dict[str, Any]) -> Dict[str, Any]:
         # 헤더 순서에 맞춰 행 데이터 구성
         new_row = [normalized.get(col, '') for col in LEAD_COLUMN_ORDER]
 
-        manager.append_row(cfg['sheet_id'], cfg['sheet_name'], new_row)
+        # 리드 탭 끝에 추가 — 예전 manager.append_row(시트, 탭이름, 행)는 인자 순서가 달라(append_row(시트, 값, 범위))
+        #   '공사 현황' 탭에 쓰려다 실패했음 (2026-10-28 5차, 부르는 화면이 없어 드러나지 않았음)
+        manager._execute_with_retry(
+            lambda: manager.service.spreadsheets().values().append(
+                spreadsheetId=cfg['sheet_id'],
+                range=f"'{cfg['sheet_name']}'!A:{chr(ord('A') + len(new_row) - 1)}",
+                valueInputOption='USER_ENTERED',
+                insertDataOption='INSERT_ROWS',
+                body={'values': [new_row]},
+            ),
+            f'create_lead({new_lead_no})',
+        )
 
         logger.info(f"[LEADS] 새 리드 생성 완료: {new_lead_no}")
 

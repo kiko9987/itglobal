@@ -255,6 +255,39 @@ def _normalize_pm_lead_updates(data):
     return out, saved, addr_note
 
 
+def _after_pm_visit_change(lead_no: str, new_status, date_changed: bool) -> None:
+    """PM 에서 '방문 예약'으로 바꾸거나 방문일을 고쳤을 때 — 슬랙 재예약과 같게 캔버스1에 다시 올림 (2026-10-28 5차).
+
+    완료 표시(Redis)가 남거나 상담 내용(K)의 마지막 회차가 '방문 완료'면 캔버스1 에서 계속 빠졌음. 완료 표시를 지우고,
+    다시 예약이면 K 에 '방문 예약' 회차 줄을 붙인 뒤 캔버스를 다시 만든다."""
+    if new_status != '방문 예약' and not date_changed:
+        return
+    try:
+        from dashboard.blueprints.slack_bot import _clear_visit_completion
+        _clear_visit_completion(lead_no)
+    except Exception as exc:
+        logger.warning(f'[LEADS] {lead_no} 완료 표시 해제 실패: {exc}')
+    if new_status == '방문 예약':
+        try:
+            from datetime import datetime as _dt
+            from flask import session
+            from dashboard.services.lead_helpers import consult_visit_done
+            from dashboard.services.lead_service import get_lead_by_no
+            lead = get_lead_by_no(lead_no) or {}
+            cur = str(lead.get('상담 내용', '') or '').strip()
+            if consult_visit_done(cur):
+                ini = ((session.get('user') or {}).get('email', '') or 'PM').split('@')[0].upper()
+                mark = f"[{_dt.now().strftime('%m.%d %H:%M')} {ini} · 방문 예약]"
+                update_lead(lead_no, {'상담 내용': f'{cur} ─── {mark}' if cur and cur != '-' else mark})
+        except Exception as exc:
+            logger.warning(f'[LEADS] {lead_no} 재예약 회차 기록 실패: {exc}')
+    try:
+        from dashboard.services.visit_canvas_sync import rebuild_canvas_async
+        rebuild_canvas_async()
+    except Exception as exc:
+        logger.debug(f'[LEADS] 캔버스 재생성 실패: {exc}')
+
+
 @leads_bp.route('/api/update/<lead_no>', methods=['PUT'])
 @editor_required
 def api_update_lead(lead_no):
@@ -299,6 +332,7 @@ def api_update_lead(lead_no):
                 error_code=APIErrorCode.NOT_FOUND,
                 status_code=404
             )
+        _after_pm_visit_change(lead_no, data.get('상태'), '방문 예정일' in data)
 
         return APIResponse.updated(
             data={'saved': saved, 'addr_note': addr_note},
@@ -369,6 +403,7 @@ def api_update_lead_status(lead_no):
                 error_code=APIErrorCode.NOT_FOUND,
                 status_code=404
             )
+        _after_pm_visit_change(lead_no, new_status, False)
 
         return APIResponse.updated(
             message=result['message']

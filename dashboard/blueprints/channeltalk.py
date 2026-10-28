@@ -13,6 +13,7 @@
 import json
 import os
 import threading
+import time
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -196,7 +197,7 @@ def _lead_is_processed(lead_no: str) -> bool:
 # ─────────────────────────────────────────────────────────────
 # Slack API 헬퍼
 # ─────────────────────────────────────────────────────────────
-def _slack_post(api_path: str, body: dict) -> Optional[dict]:
+def _slack_post(api_path: str, body: dict, timeout: float = 5) -> Optional[dict]:
     token = _slack_token()
     if not token:
         return None
@@ -210,7 +211,7 @@ def _slack_post(api_path: str, body: dict) -> Optional[dict]:
                 'Authorization': f'Bearer {token}',
             },
         )
-        with urllib.request.urlopen(req, timeout=5) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             resp = json.loads(r.read())
             if not resp.get('ok'):
                 logger.warning(f'[ChannelTalk/Slack] {api_path} 실패: {resp.get("error")}')
@@ -806,25 +807,40 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
         card_text = card['text']
         if is_spam_suspect:
             card_text = ':no_entry: *스팸 의심* (미응답 알림 skip)\n' + card_text
-        resp = _slack_post('chat.postMessage', {
-            'channel': channel,
-            'text': card_text,
-            'unfurl_links': False,
-        })
-        if resp and resp.get('ok') and resp.get('ts'):
-            thread_ts = resp['ts']
-            _threads.set_thread_ts(chat_id, thread_ts)
+        # 새 카드는 놓치면 매니저가 문의를 모름. 첫 시도는 지금 바로(웹훅 응답을 늦추지 않게), 실패하면 뒤에서
+        #   2번 더 시도, 그래도 실패면 ERROR(관리자 알림) — 2026-10-28 5차: 예전엔 5초 1회 시도 후 WARNING 만이라
+        #   시트엔 등록됐는데 카드·5분 미응답 알림이 없었음.
+        def _card_done(resp_):
+            ts_ = resp_['ts']
+            _threads.set_thread_ts(chat_id, ts_)
             # 스팸 의심이면 미응답 알림 큐에 등록 안 함 (5분 알림 skip)
             if not is_spam_suspect:
-                _threads.add_pending(chat_id, thread_ts)
+                _threads.add_pending(chat_id, ts_)
             else:
                 logger.info(
                     f'[ChannelTalk] 스팸 의심 — 미응답 큐 skip (chat_id={chat_id})'
                 )
             # 카드 하단에 [💬 채팅 열기] 링크 — 클릭 시 슬랙 thread로 이동
-            _attach_chat_open_button(channel, thread_ts, card_text, lead_no=lead_no, chat_id=chat_id)
+            _attach_chat_open_button(channel, ts_, card_text, lead_no=lead_no, chat_id=chat_id)
+
+        _card_body = {'channel': channel, 'text': card_text, 'unfurl_links': False}
+        resp = _slack_post('chat.postMessage', _card_body)
+        if resp and resp.get('ok') and resp.get('ts'):
+            _card_done(resp)
         else:
-            logger.warning(f'[ChannelTalk] 새 카드 발송 실패 (chat_id={chat_id})')
+            def _retry_card():
+                for _try in range(2):
+                    time.sleep(2 * (_try + 1))
+                    if _threads.get_thread_ts(chat_id):
+                        return   # 그 사이 다른 경로가 카드를 만듦
+                    r2 = _slack_post('chat.postMessage', _card_body, timeout=10)
+                    if r2 and r2.get('ok') and r2.get('ts'):
+                        logger.info(f'[ChannelTalk] 새 카드 재시도 성공 (chat_id={chat_id}, {_try + 2}번째)')
+                        _card_done(r2)
+                        return
+                logger.error(f'[ChannelTalk] 새 카드 발송 실패 (chat_id={chat_id}, lead={lead_no}) — '
+                             f'시트엔 등록됨, 카드 수동 확인 필요')
+            threading.Thread(target=_retry_card, daemon=True).start()
     elif not has_files:
         # 기존 thread + 텍스트만 → reply
         _slack_post('chat.postMessage', {
@@ -986,6 +1002,16 @@ def health():
 def events():
     if request.method == 'GET':
         return jsonify({'ok': True, 'message': 'channeltalk webhook endpoint'})
+
+    # 웹훅 확인 토큰 (2026-10-28 5차) — 이 주소엔 서명 검증이 없어 누구나 가짜 문의를 넣을 수 있었음.
+    #   .env 에 CHANNELTALK_WEBHOOK_TOKEN 을 넣고 채널톡 웹훅 주소 끝에 ?token=같은값 을 붙이면 그 값이 맞을 때만 받음.
+    #   값을 안 넣으면 예전처럼 다 받음(채널톡 설정을 바꾸기 전까지 끊기지 않게).
+    _need = os.getenv('CHANNELTALK_WEBHOOK_TOKEN', '').strip()
+    if _need:
+        import hmac
+        if not hmac.compare_digest(str(request.args.get('token') or ''), _need):
+            logger.warning(f'[ChannelTalk] 웹훅 토큰 불일치 — 거부 (ip={request.remote_addr})')
+            return jsonify({'ok': False}), 403
 
     try:
         payload = request.get_json(silent=True) or {}

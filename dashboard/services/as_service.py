@@ -63,8 +63,9 @@ def get_next_as_no() -> str:
         ).execute()
         values = resp.get('values', [])
     except Exception as exc:
+        # 예전엔 'AS-0001'을 돌려줘 옛 번호와 겹쳤음(7/9 실제 2회) — 번호를 못 정하면 등록을 멈춘다 (2026-10-28 5차)
         logger.error(f'[AS] A열 조회 실패: {exc}', exc_info=True)
-        return 'AS-0001'
+        raise RuntimeError('A/S 번호를 정하지 못했습니다(시트 읽기 실패). 잠시 후 다시 시도해 주세요.')
     max_n = 0
     for row in values[1:]:  # header skip
         if not row:
@@ -173,9 +174,51 @@ def create_as_row(
     project_code: str, address: str, work_content: str, work_end: str,
     request_content: str, requester: str,
 ) -> Tuple[str, Optional[int]]:
-    """새 A/S 행 생성. (as_no, row_number) 반환. 실패 시 (as_no, None)."""
+    """새 A/S 행 생성. (as_no, row_number) 반환. 실패 시 (as_no 또는 '', None) — 호출부는 row 가 None 이면 중단.
+
+    번호는 잠금 안에서 '시트 최댓값'과 Redis 워터마크(as_no_seq) 중 큰 값 + 1 (2026-10-28 5차: 슬랙 /as 와 PM 요청이
+    동시에 오면 같은 번호가 나갔음 — 겹치면 접수·완료가 엉뚱한 행에 기록되고 카드 연결이 덮였음)."""
     manager, sheet_id, sheet_name = _get_sheet()
-    as_no = get_next_as_no()
+    rc = None
+    got = False
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        import time as _t
+        for _ in range(40):                       # 최대 ~10초 대기
+            if rc.set('as_no_lock', '1', nx=True, ex=30):
+                got = True
+                break
+            _t.sleep(0.25)
+    except Exception as exc:
+        logger.warning(f'[AS] 번호 잠금 불가 — 잠금 없이 진행: {exc}')
+    try:
+        try:
+            as_no = get_next_as_no()
+        except RuntimeError as exc:
+            logger.error(f'[AS] 행 추가 중단: {exc}')
+            return '', None
+        if rc is not None:
+            try:
+                seq = int(rc.get('as_no_seq') or 0)
+                n = int(as_no.split('-')[1])
+                if seq >= n:
+                    as_no = f'AS-{seq + 1:04d}'
+                rc.set('as_no_seq', int(as_no.split('-')[1]))
+            except Exception as exc:
+                logger.warning(f'[AS] 번호 워터마크 처리 실패(시트 기준 번호 사용): {exc}')
+        return _append_as_row(manager, sheet_id, sheet_name, as_no, project_code, address, work_content,
+                              work_end, request_content, requester)
+    finally:
+        if got and rc is not None:
+            try:
+                rc.delete('as_no_lock')
+            except Exception:
+                pass
+
+
+def _append_as_row(manager, sheet_id, sheet_name, as_no, project_code, address, work_content,
+                   work_end, request_content, requester):
     # 요청 시각 — 접수 완료 시점이 아니라 요청 발생 시점을 I열 대신 별도 저장하지 않음.
     # 시트 스키마상 요청 일자 컬럼이 없어 진행 상태에만 요청됨 기록.
     row_values = [

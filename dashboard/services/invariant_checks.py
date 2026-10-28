@@ -200,6 +200,89 @@ def check_formula_rows(ctx):
     return [Violation('formula_row', key, code, msg) for key, code, msg in ctx.get('formula_mismatches') or []]
 
 
+# 채널별로 영업일 기준 이만큼 새 문의가 없으면 '유입 멈춤 의심' (2026-10-28 5차). 지난 1년 하루 평균:
+#   당근 ~5건·전화 ~4건·홈페이지 ~2건. 아임웹 알림 메일 문구가 바뀌거나 당근 연동 시트가 멈추면 문의가 0건으로
+#   조용히 이어지는데 알려 주는 곳이 없었다.
+_INFLOW_RULES = {'당근': 1, '전화': 2, '홈페이지': 2}
+
+
+def _is_business_day(d) -> bool:
+    if d.weekday() >= 5:
+        return False
+    try:
+        import holidays
+        return d not in holidays.KR()
+    except Exception:
+        return True
+
+
+def lead_inflow_gaps(leads, today=None):
+    """[(채널, 마지막 문의 날짜, 그 뒤로 지난 영업일 수)] — 규칙 이상 비었을 때만. 오늘은 셈에서 뺌."""
+    from datetime import date, timedelta
+    from dashboard.services.lead_sync import _parse_consult_dt
+    today = today or date.today()
+    last = {}
+    for l in leads or []:
+        p = str(l.get('플랫폼') or '').strip()
+        if p not in _INFLOW_RULES:
+            continue
+        dt = _parse_consult_dt(l.get('상담 시간'))
+        if dt and (p not in last or dt.date() > last[p]):
+            last[p] = dt.date()
+    out = []
+    for p, need in _INFLOW_RULES.items():
+        d0 = last.get(p)
+        if not d0:
+            continue
+        gap = sum(1 for k in range(1, (today - d0).days) if _is_business_day(d0 + timedelta(days=k)))
+        if gap >= need:
+            out.append((p, d0, gap))
+    return out
+
+
+def check_lead_inflow(ctx):
+    """채널별 새 문의가 영업일 기준 일정 기간 없음 — 메일 문구 변경·연동 중단 의심. 영업일에만 알림."""
+    from datetime import date
+    if not _is_business_day(ctx.get('today') or date.today()):
+        return []
+    return [Violation('lead_inflow', f'inflow:{p}:{d0}', p,
+                      f'{d0.month}/{d0.day} 이후 새 문의 없음 (영업일 {gap}일) — 알림 메일 문구 변경·연동 중단 확인')
+            for p, d0, gap in ctx.get('lead_inflow_gaps') or []]
+
+
+def check_overpay_lingering(ctx):
+    """미수금이 마이너스(과입금)인 채 7일 넘게 남은 공사 — 반환했는데 시트 기록이 빠진 것일 수 있음 (2026-10-28 R4182).
+
+    입금 메모의 '⚠️ 과입금' 표시 날짜(메모 첫 줄 날짜) 기준. 날짜를 못 읽으면 알리지 않음(오탐 방지)."""
+    from datetime import date, datetime
+    today = ctx.get('today') or date.today()
+    out = []
+    for r in ctx['records']:
+        code = (r.get('프로젝트 코드') or '').strip()
+        v = _parse_amount(r.get('미수금'))
+        if not code or not isinstance(v, float) or v > -2:
+            continue
+        if re.search(r'공사\s*취소', str(r.get('수금 관련 특이사항') or '')):
+            continue
+        when = None
+        for s in ('잔금', '중도금', '계약금'):
+            note = str(r.get(f'{s}_메모') or '')
+            if '과입금' not in note:
+                continue
+            ds = re.findall(r'(\d{4})/(\d{1,2})/(\d{1,2})', note)
+            if ds:
+                try:
+                    when = max(datetime(int(y), int(m), int(d)).date() for y, m, d in ds)
+                except ValueError:
+                    when = None
+            break
+        if when and (today - when).days > 7:
+            out.append(Violation('overpay_lingering', f'overpay:{code}:{int(v)}', code,
+                                 f'과입금 {-int(v):,}원이 {(today - when).days}일째 남음 — 반환했으면 반환 카드로 기록, '
+                                 f'안 돌려줬으면 처리 방법 결정'))
+    return out
+
+
 def check_split_payers(ctx):
     """나눠 내는 공사(○○ 부담자 칸) — 칸 형식 오류·부담액 합계≠총액2·부담자 없는 칸에 입금 (2026-10-19)."""
     from dashboard.services.payer_split import split_problems
@@ -224,6 +307,8 @@ INVARIANTS = [
     check_split_payers,
     check_sheet_cells,
     check_formula_rows,
+    check_lead_inflow,
+    check_overpay_lingering,
 ]
 
 _CHECK_LABEL = {
@@ -232,6 +317,8 @@ _CHECK_LABEL = {
     'split_payer': '나눠 내는 공사(부담자 칸)',
     'sheet_cell': '시트 칸 이상(수식 오류·칸 이동 의심)',
     'formula_row': '수식 행 어긋남(다른 행을 계산)',
+    'lead_inflow': '문의 유입 멈춤 의심',
+    'overpay_lingering': '과입금 7일 넘게 남음',
 }
 
 
@@ -287,6 +374,13 @@ def build_context():
     except Exception as exc:
         logger.warning(f'[INVARIANT] 수식 행 점검 준비 실패(건너뜀): {exc}')
 
+    inflow_gaps = []
+    try:
+        from dashboard.services.lead_service import get_lead_records
+        inflow_gaps = lead_inflow_gaps(get_lead_records() or [])
+    except Exception as exc:
+        logger.warning(f'[INVARIANT] 문의 유입 점검 준비 실패(건너뜀): {exc}')
+
     return {
         'records': records,
         'valid_codes': valid_codes,
@@ -294,6 +388,7 @@ def build_context():
         'cell_anomalies': cell_anomalies,
         'known_cell_anomalies': known,
         'formula_mismatches': formula_mismatches,
+        'lead_inflow_gaps': inflow_gaps,
         'now': datetime.now(),
     }
 

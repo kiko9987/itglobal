@@ -175,11 +175,33 @@ def _extract_lead_initials(line: str, initial_to_name: Dict[str, str]) -> Option
 
     # 조합 분리 (+, ,, ·, /, *)
     tokens = [t.strip().upper() for t in re.split(r'[+,·/*]', candidate) if t.strip()]
+    # 한글 이름(예: '박민재')도 이니셜로 (2026-10-28 5차: 별명 둘만 받아 이름으로 쓰면 섹션 담당자로 잘못 배정됐음)
+    _name_to_ini = {v: k for k, v in initial_to_name.items()}
+    tokens = [_name_to_ini.get(t, t) for t in tokens]
     # 이니셜 매핑 있는 것만
     valid = [t for t in tokens if t in initial_to_name]
     if not valid:
         return None
     return valid
+
+
+def _unread_initial_tokens(line: str, initial_to_name: Dict[str, str]) -> List[str]:
+    """줄 앞에 이니셜처럼 보이는데 직원 명단에 없는 글자(오타·퇴사자 등) — 있으면 섹션 담당자로 대신 배정되므로
+    결과에 '판독 불가'로 보여 준다 (2026-10-28 5차: 조용히 엉뚱한 사람에게 배정되던 것)."""
+    phone_match = _PHONE_RE.search(line)
+    prefix = line[:phone_match.start()] if phone_match else line
+    m = (re.match(r'^([가-힣A-Za-z+,·/*\s]+?)(?:\s*\(|\s*/|\s*\d)', prefix)
+         or re.match(r'^([가-힣A-Za-z+,·/*\s]+)', prefix))
+    if not m:
+        return []
+    cand = m.group(1).strip()
+    for alias, ini in _ALIAS_MAP.items():
+        cand = cand.replace(alias, ini)
+    out = []
+    for t in (x.strip() for x in re.split(r'[+,·/*]', cand) if x.strip()):
+        if re.fullmatch(r'[A-Za-z]{1,4}', t) and t.upper() not in initial_to_name:
+            out.append(t)
+    return out
 
 
 def _extract_bracket_initial(line: str, initial_to_name: Dict[str, str]) -> Optional[str]:
@@ -498,6 +520,7 @@ def dry_run() -> Dict:
         'off_duty': off_duty,
         'target_date': target_date,
         'duplicates': parsed_full.get('duplicates', []),
+        'unreadable': parsed_full.get('unreadable', []),
     }
 
 
@@ -571,6 +594,9 @@ def _commit_locked() -> Dict:
 
         initial_to_name, _ = _load_initial_maps()
         phone_map = _match_leads_by_phone(assignments)
+        if not phone_map and any(p.get('phone_digits') for p in assignments):
+            # 리드 시트를 못 읽었는데 '0건 완료'로 끝나던 것 (2026-10-28 5차)
+            return {'ok': False, 'reason': '리드 시트를 읽지 못했습니다. 잠시 후 다시 실행해 주세요.'}
         addr_candidates = _load_addr_candidates()
 
         # 1. 시트 update
@@ -592,7 +618,9 @@ def _commit_locked() -> Dict:
             if current == new_names:
                 continue
             try:
-                update_lead(lno, {'영업 담당자': new_names})
+                _res = update_lead(lno, {'영업 담당자': new_names})
+                if isinstance(_res, dict) and _res.get('success') is False:   # 실패를 예외 없이 돌려줌 (5차)
+                    raise RuntimeError(_res.get('message') or '시트 저장 실패')
                 updated.append(lno)
             except Exception as exc:
                 failed.append((lno, str(exc)))
@@ -631,6 +659,8 @@ def _commit_locked() -> Dict:
             'dm': dm_result,
             'online_duty': online_duty,
             'off_duty': off_duty,
+            'duplicates': parsed_full.get('duplicates', []),     # 예전엔 확정 결과에 빠져 경고가 안 나왔음
+            'unreadable': parsed_full.get('unreadable', []),
         }
 
 
@@ -709,6 +739,7 @@ def parse_assignment_canvas_full(html: str) -> Dict:
     initial_to_name, _ = _load_initial_maps()
     lines = _html_to_lines(html)
     assignments: List[Dict] = []
+    unreadable: List[Dict] = []   # 이니셜을 못 읽어 섹션 담당자로 대신 배정한 줄 (결과에 표시)
     online_duty: List[str] = []
     online_duty_shifts: Dict[str, str] = {}  # {'SD':'오전', 'MS':'오후'} (2026-07-21)
     online_shared = False  # '공용/전인원/제외 없음' 명시 = 특정 당번 없이 전원 분담 (2026-08-04)
@@ -808,6 +839,9 @@ def parse_assignment_canvas_full(html: str) -> Dict:
                             break
                 assign = _extract_lead_initials(line, initial_to_name)
                 if not assign:
+                    _unread = _unread_initial_tokens(line, initial_to_name)
+                    if _unread:
+                        unreadable.append({'raw': line[:160], 'tokens': _unread, 'section': current_section})
                     assign = [p for p in re.split(r'\+', current_section) if p]
                 if address and address != '-':
                     assignments.append({
@@ -836,6 +870,9 @@ def parse_assignment_canvas_full(html: str) -> Dict:
         else:
             phone_normalized = phone
         assign = _extract_lead_initials(line, initial_to_name)
+        _unread = [] if assign else _unread_initial_tokens(line, initial_to_name)
+        if _unread:
+            unreadable.append({'raw': line[:160], 'tokens': _unread, 'section': current_section})
         if not assign and current_section and current_section != '_ONLINE_':
             # 섹션 헤더가 조합('YG+JK') 이면 split 해서 다중 배정.
             assign = [p for p in re.split(r'\+', current_section) if p]
@@ -860,6 +897,7 @@ def parse_assignment_canvas_full(html: str) -> Dict:
         'online_shared': online_shared,
         'off_duty': off_duty,
         'duplicates': _detect_assignment_duplicates(assignments, _online_tasks),
+        'unreadable': unreadable,
     }
 
 

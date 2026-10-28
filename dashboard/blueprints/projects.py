@@ -1331,6 +1331,22 @@ def update_project(project_code):
             'version': new_version,
         }, meta={'user_email': session.get('user', {}).get('email', 'unknown')})
         _pending_version_set(final_project_code, new_version)   # 시트에 쓰일 때까지 '지금 버전'으로 인정
+        # 리드 번호를 새로 붙이면 그 리드 상태도 '공사 확정'으로 — 공사 등록 때 리드를 고르면 바뀌는데, 등록 뒤 PM 에서
+        #   붙이면 그대로라 리드 쪽 통계·필터가 어긋났음(최근 11건, 2026-10-28 5차). 이미 취소된 리드는 안 건드림.
+        _lead_ch = next((c for c in field_changes if c.get('field_name') == 'Lead No'
+                         and str(c.get('new_value') or '').strip() not in ('', '-')), None)
+        if _lead_ch:
+            def _confirm_linked_lead(_no=str(_lead_ch['new_value']).strip()):
+                try:
+                    from ..services.lead_service import get_lead_by_no, update_lead_status
+                    _st = str((get_lead_by_no(_no) or {}).get('상태', '') or '').strip()
+                    if _st and _st not in ('공사 확정', '공사 취소'):
+                        update_lead_status(_no, '공사 확정')
+                        logger.info(f"[PUT] 리드 연결 → {_no} 상태 '{_st}' → '공사 확정' ({final_project_code})")
+                except Exception as _le:
+                    logger.warning(f"[PUT] 연결 리드 상태 갱신 실패 ({_no}): {_le}")
+            import threading as _th_l
+            _th_l.Thread(target=_confirm_linked_lead, daemon=True).start()
         if code_change:
             # 코드가 바뀌면 계산서 스레드·입금 카드·등록증 상태 등 Redis 연결도 새 코드로 (2026-10-28 4차)
             try:

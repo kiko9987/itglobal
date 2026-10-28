@@ -170,6 +170,11 @@ def api_request_as():
                 'email': (manual.get('manager_email') or '').strip(),
             }
 
+        if not _row:   # 시트에 못 씀 → 카드·DM 없이 실패로 (2026-10-28 5차: 예전엔 성공으로 보였음)
+            return APIResponse.error(
+                message='A/S 요청을 시트에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+                error_code=APIErrorCode.INTERNAL_ERROR, status_code=503,
+            )
         _sync_slack(as_no, send_dm=True, dm_override=dm_override)
         logger.info(f'[AS] PM 요청 생성: {as_no} (code={project_code or "수동"}, by={requester})')
         return APIResponse.success(data={'as_no': as_no})
@@ -209,7 +214,11 @@ def api_accept_as(as_no):
             )
 
         # 상태 가드 — 요청됨 에서만 접수 가능 (stale 버튼/동시편집 중복 접수 방지)
-        cur_status = str((as_service.get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+        _cur = as_service.get_as_data(as_no)
+        if _cur is None:   # 못 읽으면 통과시키지 않음 (2026-10-28 5차)
+            return APIResponse.error(message='A/S 정보를 읽지 못했습니다. 새로고침 후 다시 시도해 주세요.',
+                                     error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
+        cur_status = str(_cur.get('진행 상태', '')).strip()
         if cur_status and cur_status != as_service.STATUS_REQUESTED:
             return APIResponse.error(
                 message=f'이미 처리된 A/S 입니다 (현재: {cur_status}). 새로고침 후 확인해주세요.',
@@ -225,13 +234,15 @@ def api_accept_as(as_no):
 
         initial = _current_initial()
         accept_dt = datetime.now().strftime('%Y.%m.%d. %H:%M')
-        as_service.update_as_row(as_no, {
+        if not as_service.update_as_row(as_no, {
             as_service.COL_ACCEPTER: initial,
             as_service.COL_ACCEPT_DATE: accept_dt,
             as_service.COL_VISITOR: visitor,
             as_service.COL_VISIT_DATE: visit_date,
             as_service.COL_STATUS: as_service.STATUS_ACCEPTED,
-        })
+        }):
+            return APIResponse.error(message='접수를 시트에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+                                     error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
         # 접수 메모(선택) — 새 컬럼 없이 M열(메모/이력)에 누적
         memo = (data.get('memo') or '').strip()
         new_log = as_service.append_as_log(as_no, memo, initial) if memo else None
@@ -267,15 +278,21 @@ def api_complete_as(as_no):
                 error_code=APIErrorCode.VALIDATION_ERROR, status_code=400,
             )
         # 상태 가드 — 접수 완료 에서만 조치완료 가능 (stale 버튼/동시편집 방지)
-        cur_status = str((as_service.get_as_data(as_no) or {}).get('진행 상태', '')).strip()
+        _cur = as_service.get_as_data(as_no)
+        if _cur is None:
+            return APIResponse.error(message='A/S 정보를 읽지 못했습니다. 새로고침 후 다시 시도해 주세요.',
+                                     error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
+        cur_status = str(_cur.get('진행 상태', '')).strip()
         if cur_status and cur_status != as_service.STATUS_ACCEPTED:
             return APIResponse.error(
                 message=f'접수 완료 상태에서만 조치완료할 수 있습니다 (현재: {cur_status}). 새로고침 후 확인해주세요.',
                 error_code='AS_STATE_CONFLICT', status_code=409,
             )
-        as_service.update_as_row(as_no, {
+        if not as_service.update_as_row(as_no, {
             as_service.COL_STATUS: as_service.STATUS_COMPLETED,
-        })
+        }):
+            return APIResponse.error(message='조치완료를 시트에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+                                     error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
         # 조치 내용도 M열(메모/이력)에 누적 (덮어쓰지 않음)
         new_log = as_service.append_as_log(as_no, resolution, _current_initial())
         # 슬랙 카드에 방금 쓴 값 즉시 반영 (write-behind flush 전 stale read 우회)

@@ -496,8 +496,31 @@ def _safe_rebuild_visit_canvas():
     try:
         from dashboard.services.visit_canvas_sync import rebuild_canvas
         res = rebuild_canvas()
+        # 연속 실패 수 — 3번(30분) 넘게 실패하면 관리자 알림 (2026-10-28 5차: canvases.edit 가 ok=false 를
+        #   돌려주는 실패(토큰·권한·캔버스 삭제)는 예외가 아니라 WARNING 만 남아 캔버스가 며칠 멈춰도 몰랐음)
+        _streak_key = 'canvas_rebuild_fail_streak'
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            _rc = get_redis_client().redis
+        except Exception:
+            _rc = None
         if not res.get('ok') and res.get('reason'):
             logger.warning(f"[SCHED] 캔버스1 정기 재생성 skip/실패: {res.get('reason')}")
+            _reason = str(res.get('reason'))
+            if _rc is not None and 'env' not in _reason and '미설정' not in _reason:
+                try:
+                    n = _rc.incr(_streak_key)
+                    _rc.expire(_streak_key, 6 * 3600)
+                    if n >= 3:
+                        _notify_admin('rebuild_canvas_fail',
+                                      f':warning: 방문 캔버스1이 {n}번 연속 갱신되지 않았습니다 — `{_reason[:150]}`')
+                except Exception:
+                    pass
+        elif _rc is not None:
+            try:
+                _rc.delete(_streak_key)
+            except Exception:
+                pass
     except Exception as exc:
         logger.error(f'[SCHED] 캔버스1 정기 재생성 예외: {exc}', exc_info=True)
         if not _is_transient_error(exc):
