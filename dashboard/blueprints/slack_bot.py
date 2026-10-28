@@ -13534,7 +13534,11 @@ def _open_project_edit_modal(client, body) -> None:
     vat_option = {'text': {'type': 'plain_text', 'text': 'VAT 별도'},
                   'description': {'type': 'plain_text', 'text': '체크 해제 시 VAT 없음'},
                   'value': 'sep'}
-    partner = _val('거래처명')[:75]
+    # 분류값('온라인'·'전화')·'-'는 미리 채우지 않음 — 업체 이름처럼 보여 그대로 저장되던 것 (2026-10-28 4차).
+    #   비워 두고 제출하면 거래처명은 안 바뀜(아래 제출 처리: 값이 있을 때만 반영).
+    from dashboard.services.partner_names import card_partner as _card_partner
+    partner = _card_partner(_val('거래처명'))
+    partner = '' if partner == '-' else partner[:75]
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"프로젝트 `{code}` 수정"}},
@@ -14298,7 +14302,7 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
             clean_text = '\n'.join(ln.replace('*', '') for ln in original_text.split('\n')).strip()
             _reason_line = f"취소 사유 : {reason.strip()}\n" if (reason or '').strip() else ''
             new_text = (
-                f"🚫 *고객 요청으로 공사 취소*  `{code}`\n"
+                f"🚫 *공사 취소*  `{code}`\n"   # 사유는 아래 줄 — 예전 '고객 요청으로'는 사유와 상관없이 고정(10-28 4차)
                 f"취소자 : {initial}\n"
                 f"{_reason_line}"
                 f"취소 시간 : {cancel_time}\n"

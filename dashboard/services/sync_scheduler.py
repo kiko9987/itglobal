@@ -7,6 +7,7 @@ APScheduler 백그라운드 폴링 스케줄러
 
 import os
 import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -160,6 +161,7 @@ def start_scheduler():
                 'interval',
                 minutes=10,
                 id='refund_match_scan',
+                next_run_time=_stagger(7.5),
                 replace_existing=True,
             )
             jobs.append('입금 반환 짝짓기 10분')
@@ -194,6 +196,7 @@ def start_scheduler():
         'interval',
         minutes=5,
         id='retry_pending_slack',
+        next_run_time=_stagger(0.75),
     )
     jobs.append('미발송 슬랙 재발송 5분')
 
@@ -203,6 +206,7 @@ def start_scheduler():
         'interval',
         minutes=5,
         id='retry_pending_visit_notice',
+        next_run_time=_stagger(1.75),
     )
     jobs.append('미발송 방문 카드 재발송 5분')
 
@@ -212,6 +216,7 @@ def start_scheduler():
         'interval',
         minutes=5,
         id='recover_photo_batches',
+        next_run_time=_stagger(2.75),
     )
     jobs.append('방문 사진 배치 복구 5분')
 
@@ -224,6 +229,7 @@ def start_scheduler():
         'interval',
         minutes=10,
         id='rebuild_visit_canvas',
+        next_run_time=_stagger(5),
     )
     jobs.append('방문 캔버스1 정기 재생성 10분')
 
@@ -234,6 +240,7 @@ def start_scheduler():
         'interval',
         minutes=10,
         id='reconcile_project_cards',
+        next_run_time=_stagger(2.5),
     )
     jobs.append('프로젝트 카드 리컨사일 10분')
 
@@ -244,6 +251,7 @@ def start_scheduler():
         'interval',
         minutes=5,
         id='recover_orphan_leads',
+        next_run_time=_stagger(3.75),
     )
     jobs.append('고아 리드 재발송 5분')
 
@@ -388,6 +396,7 @@ def start_scheduler():
         'interval',
         minutes=10,
         id='partner_cache_rebuild',
+        next_run_time=_stagger(9),
         replace_existing=True,
     )
     jobs.append('거래처 캐시 재구성 10분마다')
@@ -466,6 +475,14 @@ def _safe_workflow_phone_sync():
         if not _is_transient_error(exc):
             _notify_admin('workflow_phone_fail',
                           f':warning: 전화 lead 보정 실패 — `{exc}`.')
+
+
+def _stagger(minutes: float):
+    """첫 실행 시각을 부팅 뒤 N분으로 — 같은 주기 작업이 같은 순간에 몰리지 않게 (2026-10-28 4차).
+
+    10분 주기 작업 넷(공사 카드 점검·방문 캔버스·반환 짝짓기·거래처 캐시)이 매번 같은 초에 시작해,
+    그때마다 30초 주기 입금 폴러가 30~70초 걸려 다음 회차를 건너뛰었다(3일 400회, 정확히 10분 간격)."""
+    return datetime.now() + timedelta(minutes=minutes)
 
 
 def _safe_rebuild_visit_canvas():

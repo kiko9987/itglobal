@@ -504,10 +504,8 @@ class SecurityMiddleware:
         """API 인증 검증"""
         # Authorization 헤더 확인
         auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
-            # JWT 토큰 검증 로직 (구현 필요)
-            return self._validate_jwt_token(token)
+        if auth_header.startswith('Bearer ') and self._validate_jwt_token(auth_header[7:]):
+            return True   # (토큰 인증 미사용 — 지금은 항상 False 라 아래 세션 확인으로)
 
         # 세션 기반 인증 확인
         if 'user' in session:
@@ -516,15 +514,12 @@ class SecurityMiddleware:
         return False
 
     def _validate_jwt_token(self, token: str) -> bool:
-        """JWT 토큰 검증 (구현 필요)"""
-        # JWT 라이브러리를 사용한 토큰 검증
-        try:
-            # import jwt
-            # payload = jwt.decode(token, self.secret_key, algorithms=['HS256'])
-            # return True
-            return True  # 임시로 True 반환
-        except Exception:
-            return False
+        """JWT 토큰 검증 — 이 서비스는 토큰 인증을 쓰지 않아 항상 거부 (2026-10-28 4차).
+
+        예전엔 구현 전 임시로 True 를 돌려줘 'Authorization: Bearer 아무거나' 요청이 이 검사를 통과했다.
+        각 경로의 login_required(세션)가 따로 막아 실제로 뚫린 곳은 없었지만, 빈틈을 닫아 둔다.
+        토큰 인증이 필요해지면 여기서 서명 검증을 구현할 것."""
+        return False
 
     def _validate_json_input(self, data: Any) -> bool:
         """JSON 입력값 검증"""
@@ -554,24 +549,24 @@ class SecurityMiddleware:
         """필드별 검증"""
         # 수금 확인 필드만 WARNING 레벨로 로깅
         if '수금' in field_name or '확인' in field_name:
-            logger.warning(f"[VALIDATION] 필드 검증 시작: field_name={field_name}, value={repr(value)[:100]}, type={type(value).__name__}")
+            logger.debug(f"[VALIDATION] 필드 검증 시작: field_name={field_name}, value={repr(value)[:100]}, type={type(value).__name__}")
 
         if value is None:
             if '수금' in field_name or '확인' in field_name:
-                logger.warning(f"[VALIDATION] ✓ {field_name}: None 허용")
+                logger.debug(f"[VALIDATION] ✓ {field_name}: None 허용")
             return True
 
         # Boolean 타입은 항상 허용 (int의 서브클래스이므로 먼저 체크)
         if isinstance(value, bool):
             if '수금' in field_name or '확인' in field_name:
-                logger.warning(f"[VALIDATION] ✓ {field_name}: Boolean 값 허용 - {value}")
+                logger.debug(f"[VALIDATION] ✓ {field_name}: Boolean 값 허용 - {value}")
             return True
 
         if isinstance(value, str):
             # Boolean 문자열('true', 'false')도 허용
             if value.lower() in ('true', 'false'):
                 if '수금' in field_name or '확인' in field_name:
-                    logger.warning(f"[VALIDATION] ✓ {field_name}: Boolean 문자열 허용 - {value}")
+                    logger.debug(f"[VALIDATION] ✓ {field_name}: Boolean 문자열 허용 - {value}")
                 return True
             # HTML/특수문자 허용 필드는 패턴 매칭으로 확인
             # XSS/SQL/Command 검증을 건너뛰고 길이만 체크

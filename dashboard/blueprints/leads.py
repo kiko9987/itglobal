@@ -743,3 +743,11 @@ def api_get_lead(lead_no):
             error_code=APIErrorCode.INTERNAL_ERROR,
             status_code=500
         )
+
+# 상태를 바꾸는 리드 API 를 /api/leads/... 에도 연결 (2026-10-28 4차). 보안 미들웨어는 /api/ 로 시작하는
+#   주소만 세션 확인으로 통과시키고 나머지는 CSRF 토큰을 요구해, /leads/api/create·update·status 를 화면에서
+#   부르면 403 이 났다(지금은 부르는 곳이 없음). 리드 편집(리드 재설계 ②)을 붙일 땐 아래 주소를 쓸 것.
+leads_api_bp = Blueprint('leads_api', __name__, url_prefix='/api/leads')
+leads_api_bp.add_url_rule('/create', view_func=api_create_lead, methods=['POST'])
+leads_api_bp.add_url_rule('/update/<lead_no>', view_func=api_update_lead, methods=['PUT'])
+leads_api_bp.add_url_rule('/status/<lead_no>', view_func=api_update_lead_status, methods=['PATCH'])

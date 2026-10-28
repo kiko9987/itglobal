@@ -443,7 +443,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.locks import locks_bp
         from dashboard.blueprints.folders import folders_bp
         from dashboard.blueprints.metadata import metadata_bp
-        from dashboard.blueprints.leads import leads_bp
+        from dashboard.blueprints.leads import leads_bp, leads_api_bp
         from dashboard.blueprints.as_mgmt import as_bp
         from dashboard.blueprints.invoice_mgmt import invoice_bp
         from dashboard.blueprints.case_posts import case_posts_bp
@@ -460,6 +460,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(auth_bp)
         app.register_blueprint(projects_bp)
         app.register_blueprint(leads_bp)
+        app.register_blueprint(leads_api_bp)  # 리드 상태 변경 API /api/leads/... (CSRF 경로 규칙)
         app.register_blueprint(as_bp)  # A/S 관리 (PM 대시보드 A/S 모드)
         app.register_blueprint(invoice_bp)  # 세금계산서·사업자등록증 (PM 대시보드)
         app.register_blueprint(case_posts_bp)  # 시공사례 사진·작업지시서 접수 → 아침 자동 초안
@@ -564,6 +565,10 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             )
             logger.info(f"SocketIO 초기화 완료 (async_mode={socketio_instance.async_mode}, message_queue={redis_url}, ping_timeout={SOCKETIO_PING_TIMEOUT}s, ping_interval={SOCKETIO_PING_INTERVAL}s)")
             logger.info("SocketIO Redis Pub/Sub 활성화 (멀티 워커 간 실시간 이벤트 브로드캐스트)")
+            # 재시작 직후 브라우저가 옛 소켓 세션으로 재접속하며 남기는 'Invalid session' 은 정상(자동 재연결) —
+            #   ERROR 로 찍혀 진짜 오류를 가렸음(3일 50건). 이 문구만 거름 (2026-10-28 4차).
+            import logging as _lg
+            _lg.getLogger('engineio.server').addFilter(lambda r: 'Invalid session' not in r.getMessage())
 
             # 전역 socketio 변수에 할당 (블루프린트에서 import 가능)
             global socketio

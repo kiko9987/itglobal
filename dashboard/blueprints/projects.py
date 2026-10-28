@@ -746,6 +746,40 @@ def _load_project_row(manager, sheet_id, sheet_name, project_code):
     return row_number, current_values, None
 
 
+_PENDING_VERSION_KEY = 'project_pending_version:{}'
+_PENDING_VERSION_TTL = 600
+
+
+def _pending_version_get(code: str):
+    try:
+        from ..utils.redis_client import get_redis_client
+        v = get_redis_client().redis.get(_PENDING_VERSION_KEY.format(code))
+        return (v.decode() if isinstance(v, bytes) else v) if v else None
+    except Exception:
+        return None
+
+
+def _pending_version_set(code: str, version) -> None:
+    try:
+        from ..utils.redis_client import get_redis_client
+        get_redis_client().redis.setex(_PENDING_VERSION_KEY.format(code), _PENDING_VERSION_TTL, str(version))
+    except Exception:
+        pass
+
+
+def _pending_version_clear(code: str, version) -> None:
+    """시트에 쓴 버전이 대기 표시와 같으면 지움 (그 뒤 저장이 또 대기 중이면 남김)."""
+    try:
+        from ..utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+        cur = rc.get(_PENDING_VERSION_KEY.format(code))
+        cur = cur.decode() if isinstance(cur, bytes) else cur
+        if cur is not None and str(cur) == str(version):
+            rc.delete(_PENDING_VERSION_KEY.format(code))
+    except Exception:
+        pass
+
+
 def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, row_number, current_values, expected_version):
     """Optimistic Lock 버전 검증
 
@@ -761,6 +795,14 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
         current_version = '0'
     if not expected_version or expected_version == '':
         expected_version = '0'
+
+    # 시트 반영 대기 중인 내 저장의 버전도 '지금 버전'으로 인정 (2026-10-28 4차) — 저장은 큐를 거쳐 나중에
+    #   시트에 쓰이는데 버전은 시트에서 바로 읽어서, 큐가 밀린 사이 다시 저장하면 본인 저장인데도 충돌로 막혔음.
+    if str(current_version) != str(expected_version):
+        _pend = _pending_version_get(project_code)
+        if _pend and str(_pend) == str(expected_version):
+            logger.info(f"[OPTIMISTIC_LOCK] 시트 반영 대기 중 버전 일치 — 통과: {project_code} v{expected_version}")
+            current_version = expected_version
 
     # 버전 불일치 → 409 Conflict
     if str(current_version) != str(expected_version):
@@ -1286,7 +1328,16 @@ def update_project(project_code):
             'cells': cells,
             'field_changes': field_changes,
             'project_code': final_project_code,
+            'version': new_version,
         }, meta={'user_email': session.get('user', {}).get('email', 'unknown')})
+        _pending_version_set(final_project_code, new_version)   # 시트에 쓰일 때까지 '지금 버전'으로 인정
+        if code_change:
+            # 코드가 바뀌면 계산서 스레드·입금 카드·등록증 상태 등 Redis 연결도 새 코드로 (2026-10-28 4차)
+            try:
+                from ..services.project_rekey import rekey_project_redis
+                rekey_project_redis(project_code, final_project_code)
+            except Exception as _rk_exc:
+                logger.warning(f"[PUT] 코드 변경 Redis 연결 옮기기 실패 ({project_code}→{final_project_code}): {_rk_exc}")
         logger.info(
             f"[PUT] 시트 write 큐 위임 완료: {final_project_code}, {len(field_changes)}개 필드"
         )
@@ -1887,6 +1938,20 @@ def _prepare_batch_memo_updates(memos, row_number, manager, sheet_id, sheet_name
             # 프론트가 편집 안 한 필드까지 빈값으로 보내거나 매니저 실수로 memo=''
             # 저장 요청 → 기존 note 삭제 사고. 명시적 삭제 API 필요 시 별도 endpoint.
             # 여기선 빈값이면 skip (기존 note 유지) + 성공 처리.
+            # 단, 화면이 '처음 본 메모'(original_memo)를 함께 보냈고 그게 지금 시트 메모와 같으면 = 사람이 그 메모를
+            #   보고 지운 것 → 지움 (2026-10-28 4차: 편집 화면에서 지우면 '저장 완료'인데 새로고침하면 되살아났음).
+            #   충돌(다르면)은 위에서 이미 막힘.
+            if (not memo or not memo.strip()) and _memo_norm(memo_data.get('original_memo')) \
+                    and _memo_norm(old_memo) == _memo_norm(memo_data.get('original_memo')):
+                cell_notes_to_update[cell_address] = ''
+                results.append({
+                    'field_name': field_name,
+                    'success': None,
+                    'message': '대기 중 (메모 지움)',
+                    'cell_address': cell_address,
+                    'memo_index': len(results),
+                })
+                continue
             if not memo or not memo.strip():
                 results.append({
                     'field_name': field_name,
@@ -3447,6 +3512,8 @@ def _handle_project_update_sheet(payload: dict) -> None:
         ])
     else:
         manager.update_row(sheet_id, row_number, payload['current_values'], payload['range_name'])
+    if payload.get('version') is not None:
+        _pending_version_clear(code, payload['version'])
     logger.info(f'[QUEUE/project_update] 시트 write 완료: {code}')
     try:
         _process_payment_field_comments(manager, sheet_id, sheet_name, row_number, field_changes)
