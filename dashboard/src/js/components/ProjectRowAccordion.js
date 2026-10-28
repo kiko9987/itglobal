@@ -800,7 +800,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="사업자명">${rowData['사업자명'] || '-'}</div>
           </div>
           <div class="compact-item">
-            <small title="이 공사를 맡은 우리 법인 (시트 '사업자' 칸) — 고객 상호는 사업자명">우리 법인</small>
+            <small title="이 공사를 맡은 우리 쪽 사업자 (시트 '사업자' 칸) — 고객 상호는 사업자명">내부 사업자</small>
             <div class="editable-value" data-field="사업자">${rowData['사업자'] || '-'}</div>
           </div>
           <div class="compact-item">

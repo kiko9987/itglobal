@@ -1347,7 +1347,7 @@ export default class ModernProjectFilters {
     const receivablesOn = !!receivablesToggle?.checked;
     // A/S 관리 모드도 수금 관리 모드처럼 '모드 자체'를 활성 필터로 카운트 (2026-08-31)
     const asOn = !!document.getElementById('asModeToggle')?.checked;
-    if (this.filters.company) active.push('우리 법인');
+    if (this.filters.company) active.push('내부 사업자');
     if (this.filters.client) active.push('유입 구분');
     if (this.filters.businessName) active.push('거래처·사업자명');
     if (this.filters.status) active.push('상태');
