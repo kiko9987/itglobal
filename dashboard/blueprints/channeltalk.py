@@ -1006,12 +1006,21 @@ def events():
     # 웹훅 확인 토큰 (2026-10-28 5차) — 이 주소엔 서명 검증이 없어 누구나 가짜 문의를 넣을 수 있었음.
     #   .env 에 CHANNELTALK_WEBHOOK_TOKEN 을 넣고 채널톡 웹훅 주소 끝에 ?token=같은값 을 붙이면 그 값이 맞을 때만 받음.
     #   값을 안 넣으면 예전처럼 다 받음(채널톡 설정을 바꾸기 전까지 끊기지 않게).
+    #   채널톡은 웹훅마다 발급한 token 을 ?token= 으로 붙여 보냄(개발자 문서) → 그 값을 .env 에 넣으면 됨.
+    #   CHANNELTALK_WEBHOOK_TOKEN_ENFORCE=1 일 때만 거부, 아니면 결과만 기록 — 실제 요청에 토큰이 오는지
+    #   확인 전에 거부하면 문의가 빠지고 100회 연속 실패 시 채널톡이 웹훅을 막음 (2026-10-28).
     _need = os.getenv('CHANNELTALK_WEBHOOK_TOKEN', '').strip()
     if _need:
         import hmac
-        if not hmac.compare_digest(str(request.args.get('token') or ''), _need):
-            logger.warning(f'[ChannelTalk] 웹훅 토큰 불일치 — 거부 (ip={request.remote_addr})')
-            return jsonify({'ok': False}), 403
+        _ok = hmac.compare_digest(str(request.args.get('token') or ''), _need)
+        _enforce = os.getenv('CHANNELTALK_WEBHOOK_TOKEN_ENFORCE', '').strip() == '1'
+        if not _ok:
+            logger.warning(f"[ChannelTalk] 웹훅 토큰 불일치 — {'거부' if _enforce else '기록만(받음)'} "
+                           f"(token 있음={'token' in request.args}, ip={request.remote_addr})")
+            if _enforce:
+                return jsonify({'ok': False}), 403
+        elif not _enforce:
+            logger.info('[ChannelTalk] 웹훅 토큰 일치 (기록만 — 거부는 ENFORCE=1 일 때)')
 
     try:
         payload = request.get_json(silent=True) or {}
