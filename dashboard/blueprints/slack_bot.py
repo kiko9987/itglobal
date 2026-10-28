@@ -1650,7 +1650,7 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
 
 
 # ── 통합 입금 분할 지정 (한 입금 → 여러 프로젝트, 2026-08-25) ──────────────
-MAX_SPLIT_ROWS = 6
+MAX_SPLIT_ROWS = 10   # 6 → 10 (2026-10-28 유닛블랙랩스 31,130,000원 = 7개 프로젝트). 행당 블록 4~5개라 슬랙 100블록 안
 
 
 def _parse_won(s) -> int:

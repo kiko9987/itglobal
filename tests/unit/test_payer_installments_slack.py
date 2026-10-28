@@ -238,3 +238,18 @@ def test_mark_invoice_split_no_full_dash_and_split_y(pmgr, monkeypatch):
 #   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
 import pytest as _pytest  # noqa: E402
 pytestmark = _pytest.mark.usefixtures('sheet_layout_45')
+
+
+def test_split_modal_up_to_10_rows_within_slack_block_limit(monkeypatch):
+    """분할 지정 최대 10행 (2026-10-28 한 입금 = 7개 프로젝트). 전부 나눠 내는 공사 행이어도 슬랙 100블록 안."""
+    from dashboard.services.payer_split import stage_payers
+    payers = stage_payers(REC_303)
+    monkeypatch.setattr(sb, '_intake_split_payers', lambda code: payers)
+    assert sb.MAX_SPLIT_ROWS == 10
+    pre = [{'project_code': 'G4146-JW', 'project_option': None, 'stage': '', 'amount': 1000} for _ in range(10)]
+    view = sb._build_split_modal_view('iid', 'C', '1', 10000, '입금 10,000원', 10, pre)
+    ids = [b.get('block_id') for b in view['blocks']]
+    assert 'split_row_9_project' in ids and len(view['blocks']) <= 100
+    assert not any(b['type'] == 'actions' for b in view['blocks'])          # 10행이면 [행 추가] 없음
+    view9 = sb._build_split_modal_view('iid', 'C', '1', 10000, '입금 10,000원', 9, pre)
+    assert any(b['type'] == 'actions' for b in view9['blocks'])
