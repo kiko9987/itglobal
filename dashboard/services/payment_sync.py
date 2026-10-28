@@ -313,6 +313,14 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
                 break
             # 월/일 범위 밖(첫 매치가 날짜 아님) → 이 라인 skip, 다음 라인 계속 탐색
 
+    # 시각 — 은행 문자 '하나,10/17, 17:12' 의 'HH:MM' (반환 후보 카드 입금 줄 표기용, 2026-10-28)
+    time_hm = ''
+    for ln in lines:
+        m = re.search(r'\b\d{1,2}/\d{1,2}\b[,\s]*(\d{1,2}):(\d{2})\b', ln)
+        if m and int(m.group(1)) < 24 and int(m.group(2)) < 60:
+            time_hm = f"{int(m.group(1)):02d}:{m.group(2)}"
+            break
+
     # 반환(과입금 환불) 우선 감지 — '출금/반환/환불 X원' → 음수 amount (is_refund)
     is_refund = False
     amount = 0
@@ -512,6 +520,7 @@ def _parse_memo_block(block: str, fallback_amount: int = 0) -> Optional[Dict]:
     return {
         'date_md': date_md,
         'date_year': date_year,        # 4자리 연도(있으면) — 카드에 YY/MM/DD 표기
+        'time_hm': time_hm,            # 은행 문자 시각 'HH:MM'(없으면 '')
         'amount': amount,
         'partner': partner,
         'bank': bank,
