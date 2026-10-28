@@ -162,7 +162,11 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                    and names_match(p.get('partner', ''), name) for p in stage_pays):
                 continue
             for p in stage_pays:
-                if p.get('is_refund') or abs(_num(p.get('amount')) - amt) > 1:
+                # ② 금액 — 받은 돈 돌려줌(reroute)은 그 입금 한 건 전액과 같아야. 과입금(overpay)은 더 받은 몫만
+                #   돌려주니 그 입금이 반환액 이상이면 됨 (2026-10-28 R4182-SJ: 495만 입금 중 초과 5천 반환이
+                #   '입금액=출금액' 조건에 걸려 후보 카드가 안 떠 시트에 기록되지 않았음). 어느 입금인지는 ①③④로 좁힘.
+                _pamt = _num(p.get('amount'))
+                if p.get('is_refund') or (abs(_pamt - amt) > 1 if kind == 'reroute' else _pamt < amt - 1):
                     continue                                            # ②
                 if not _same_account(p, outflow):                       # ①
                     continue
@@ -185,6 +189,20 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     'stage_invoice': str(vals[I[f'{stage} 계산서']] or '').strip(),
                 })
     return out
+
+
+def pick_overpay_deposit(cands: List[Dict]) -> List[Dict]:
+    """과입금 후보가 한 공사 안 여러 입금(같은 사람·계좌)이면 가장 최근 입금 하나로 — 마지막 입금이 총액을 넘긴 것.
+
+    2026-10-28 R4182-SJ: 계약금 50만·잔금 495만 둘 다 임서희라 후보 2개 → '모호' 로 제안 안 됨. 다른 공사가
+    섞였거나 가장 최근 날짜가 둘 이상이면 그대로(모호 → 제안 안 함)."""
+    if len(cands) < 2 or any(c.get('kind') != 'overpay' for c in cands):
+        return cands
+    if len({c['code'] for c in cands}) != 1:
+        return cands
+    latest = max(c.get('dep_date') or '' for c in cands)
+    top = [c for c in cands if (c.get('dep_date') or '') == latest]
+    return top if len(top) == 1 else cands
 
 
 def load_rows() -> List[Dict]:
@@ -399,6 +417,7 @@ def scan_and_propose(slack=None) -> Dict:
             allc = find_candidates(o, rows, include_reroute=True)
             # 과입금·취소 후보 우선, 없을 때만 '받은 돈 돌려줌' 후보
             cands = [x for x in allc if x['kind'] != 'reroute'] or allc
+            cands = pick_overpay_deposit(cands)
             if len(cands) == 1:
                 proposed += int(post_candidate(o['id'], o, cands[0], slack))
             elif len(cands) > 1:

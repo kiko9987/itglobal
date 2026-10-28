@@ -53,6 +53,27 @@ def test_each_condition_required(change):
     assert rm.find_candidates(o, [row]) == []
 
 
+def test_partial_overpay_refund_matches_larger_deposit():
+    """R4182-SJ (2026-10-28): 잔금 495만 입금 중 초과 5천만 반환 — 입금액≠출금액이어도 과입금이면 후보."""
+    dep_w = '2026/10/17\n하나,10/17, 17:12\n255******31304\n입금4,950,000원\n임서희'
+    out = {'id': 'o2', 'amount': 5000, 'partner': '임서희', 'bank': '하나', 'acct_code': 'R',
+           'ts': int(datetime(2026, 10, 20, 15, 2).timestamp())}
+    dep_u = '2026/10/14\n하나,10/14, 13:51\n255******31304\n입금500,000원\n임서희'
+    row = _row(u=500000, w=4950000, total2=5445000, notes=(dep_u, '', dep_w))
+    c = rm.find_candidates(out, [row])
+    # 계약금 50만·잔금 495만 둘 다 반환액 이상 → 두 후보(같은 이름·계좌) → 가장 최근 입금(잔금) 하나로
+    assert {x['stage'] for x in c} == {'계약금', '잔금'} and all(x['kind'] == 'overpay' for x in c)
+    picked = rm.pick_overpay_deposit(c)
+    assert len(picked) == 1 and picked[0]['stage'] == '잔금' and picked[0]['dep_date'] == '2026-10-17'
+
+
+def test_partial_refund_needs_deposit_at_least_amount():
+    # 받은 돈 70만(계약금 20만+잔금 50만) − 총액 10만 = 60만 과입금인데 입금 한 건이 모두 60만보다 작으면 후보 아님
+    dep_w = '2026/10/05\n하나,10/05, 10:00\n255******31304\n입금500,000원\n김보라(오라라(O'
+    o = dict(OUT, amount=600000)
+    assert rm.find_candidates(o, [_row(u=200000, w=500000, total2=100000, notes=(DEP, '', dep_w))]) == []
+
+
 def test_cancelled_project_full_refund():
     c = rm.find_candidates(OUT, [_row(w=0, total2=0)])
     assert len(c) == 1 and '공사 취소' in c[0]['reason']
