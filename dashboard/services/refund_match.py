@@ -184,6 +184,7 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     'amount': amt, 'stage_value': {'계약금': u, '중도금': v, '잔금': w}[stage],
                     'paid': paid, 'total2': total2, 'reason': reason,
                     'dep_date': d.isoformat(), 'dep_partner': p.get('partner', ''),
+                    'dep_amount': _pamt,    # 과입금이면 반환액보다 큼 — 카드 '입금' 줄은 이 값 (2026-10-28 R4182)
                     'dep_bank': p.get('bank', ''), 'dep_acct': p.get('acct_code', ''),
                     # 단계 계산서 칸 — 발행돼 있으면 반환 시 취소·수정발행 안내
                     'stage_invoice': str(vals[I[f'{stage} 계산서']] or '').strip(),
@@ -255,6 +256,15 @@ def load_row(code: str, row: int) -> List[Dict]:
              'notes': list(_fetch_row_notes(sid, sn, row) or ['', '', ''])[:3]}]
 
 
+def _deposit_line(c: Dict) -> str:
+    """카드 '입금' 줄 — 실제 입금액. 과입금 부분 반환이면 그중 더 받은 몫을 함께 (2026-10-28 R4182-SJ:
+    495만 입금 중 5천 반환이 '입금 5,000원'으로 보여 5천 원을 따로 받은 것처럼 읽혔음)."""
+    amt = int(c['amount'])
+    dep = int(c.get('dep_amount') or amt)
+    extra = f"  (이 중 {amt:,}원 더 받음)" if dep - amt > 1 else ''
+    return f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {dep:,}원  {c['dep_partner']}{extra}"
+
+
 def build_processing_blocks(outflow: Dict, c: Dict) -> list:
     """[반환으로 기록] 누른 직후 — 버튼 없이 '⏳ 반환 기록 중' (재클릭 차단, 처리 중임을 바로 보여줌)."""
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
@@ -291,7 +301,7 @@ def build_candidate_blocks(oid: str, outflow: Dict, c: Dict) -> list:
         "⠀",
         head,
         f">{INTAKE_SEP}",
-        f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {amt:,}원  {c['dep_partner']}",
+        _deposit_line(c),
         f">출금 : {_fmt_md(outflow.get('ts'))}  {outflow.get('bank', '')}  {amt:,}원  "
         f"{outflow.get('partner', '')}",
         *check,
@@ -334,7 +344,7 @@ def build_done_blocks(outflow: Dict, c: Dict, old: int, new: int, checker: str) 
         f">처리 : 확인 {checker}  ·  {c['stage']} {old:,}원 → {new:,}원"
         + (f"  ·  미수금 {c['unpaid_after']:,}원 (다시 받을 돈)" if c.get('kind') == 'reroute' else ''),
         f">{INTAKE_SEP}",
-        f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {c['amount']:,}원  {c['dep_partner']}",
+        _deposit_line(c),
         f">출금 : {_fmt_md(outflow.get('ts'))}  {outflow.get('bank', '')}  {c['amount']:,}원  "
         f"{outflow.get('partner', '')}",
         f">{INTAKE_SEP}",
