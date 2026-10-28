@@ -7,7 +7,7 @@ import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
 import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
 import {
   businessNamesForPartner, inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz,
-  suggestPartnerFromPhone, suggestPartnerFromText,
+  suggestPartnerFromPhone, suggestPartnerFromText, isSplitBizValue,
 } from '../utils/partnerName.js';
 
 import logger from '../utils/logger.js';
@@ -905,11 +905,11 @@ export default class ModernProjectModal {
         .filter(client => client)
     )].sort((a, b) => a.localeCompare(b, 'ko'));
 
-    // 사업자명 목록 추출 (E열, 신규)
+    // 사업자명 목록 추출 (E열, 신규). 나눠 내는 공사의 '최영희 / 기종원' 모음은 상호가 아니라 뺌 (2026-10-28)
     const businessNames = [...new Set(
       projectData
         .map(item => (item['사업자명'] || '').trim())
-        .filter(name => name)
+        .filter(name => name && !isSplitBizValue(name))
     )].sort((a, b) => a.localeCompare(b, 'ko'));
 
     // 거래처명 목록 — 실제 이름만 (온라인·전화 등 분류값 제외). 같은 곳 제안용으로 공사 목록도 보관

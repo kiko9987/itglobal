@@ -3883,6 +3883,12 @@ def _register_project_handlers(app):
                         f":memo: 나눠 내는 공사 — *{_payer_label}* 부담자의 등록증으로 확인했습니다. "
                         f"이 부담자의 계산서를 요청하면 자동으로 붙습니다."
                     )
+                elif _biz and _biz_status == 'split':
+                    # 나눠 내는 공사인데 부담자 칸 어느 사람과도 상호가 안 맞음 (2026-10-28)
+                    lines.append(
+                        f":memo: 나눠 내는 공사입니다. 등록증 상호 *{_biz}*가 부담자 칸에 없습니다. "
+                        f"이 등록증 주인이 부담자라면 PM [부담자 설정]에서 상호를 고쳐 주세요."
+                    )
                 elif _biz and _biz_status == 'mismatch':
                     # 2026-10-22 거래처명 열 추가 — 사업자명=계산서 받는 곳의 등록증 상호, 일을 맡긴
                     #   인테리어는 거래처명. 예전 안내('거래처 공사면 사업자명은 거래처 그대로')는 반대였음.
@@ -6389,7 +6395,9 @@ def _search_company_names(query: str) -> list:
         return []
     # 시트의 사업자명 unique (캐시돼 있어 빠름)
     names = df['사업자명'].dropna().astype(str).str.strip().unique().tolist()
-    names = [n for n in names if n and n != '-']
+    # 나눠 내는 공사의 '최영희 / 기종원' 모음은 상호가 아니라 뺌 (2026-10-28)
+    from dashboard.services.payer_split import is_split_biz_value
+    names = [n for n in names if n and n != '-' and not is_split_biz_value(n)]
     # 부분 매칭 (대소문자 무관)
     q = query.lower()
     matched = [n for n in names if q in n.lower()]

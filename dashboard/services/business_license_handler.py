@@ -1269,7 +1269,7 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
     # 저장된 사업자등록증의 OCR 결과(ocr_result)로 법인명·상호 시트 자동 반영.
     #   루프에서 문서 종류 판별 시 이미 OCR 했으므로 재호출 안 함 (API cost 절감).
     business_name = ''
-    biz_update_status = ''  # '' | 'saved' | 'match' | 'mismatch' | 'error'
+    biz_update_status = ''  # '' | 'saved' | 'match' | 'mismatch' | 'split'(나눠 내는 공사) | 'error'
     biz_update_existing = ''
     not_license = not_license_any  # 사업자등록증 아닌 파일이 하나라도 있었나 (안내용)
     is_card = is_card_any          # 카드 이미지 감지
@@ -1435,6 +1435,15 @@ def _maybe_update_business_name(code: str, ocr_name: str) -> tuple:
     if target_row is None:
         logger.warning(f'[LICENSE/OCR] 프로젝트 못 찾음: {code}')
         return '', ''
+
+    # 나눠 내는 공사: 사업자명 = 부담자 이름들(시스템이 [부담자 설정] 때 씀) — 등록증 한 장 상호로 덮거나
+    #   '상호가 달라요' 안내를 띄우지 않음. 어느 부담자 등록증인지는 payer_label 로 따로 안내 (2026-10-28)
+    try:
+        from dashboard.services.payer_split import is_split
+        if is_split(records[target_row - 2]):
+            return 'split', existing
+    except Exception:
+        pass
 
     # 정규화 비교 (공백 무시)
     def _norm(s: str) -> str:

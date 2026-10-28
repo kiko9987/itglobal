@@ -1217,9 +1217,20 @@ def _partner_misplacement_warning(code: str, partner: str) -> str:
     except Exception:
         pass
     hits = []
+    try:
+        from dashboard.services.payer_split import name_matches as _nm, stage_payers as _sp
+    except Exception:
+        _nm = _sp = None
     for r in recs:
         c = (r.get('프로젝트 코드') or '').strip()
         if not c or c == code:
+            continue
+        # 나눠 내는 공사는 사업자명이 '최영희 / 기종원' 모음 — 사람별 부담자 이름으로 대조·표시 (2026-10-28)
+        _payers = _sp(r) if _sp else {}
+        if _payers:
+            p = next((p for p in _payers.values() if _nm(partner, p)), None)
+            if p:
+                hits.append((c, p['name']))
             continue
         biz = (r.get('사업자명') or '').strip()
         if biz and biz != '-' and _names_match(partner, biz):

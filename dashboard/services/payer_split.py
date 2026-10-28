@@ -127,6 +127,22 @@ def is_split(rec: dict) -> bool:
     return bool(stage_payers(rec))
 
 
+SPLIT_BIZ_SEP = ' / '
+
+
+def split_biz_value(payers: Dict[str, dict]) -> str:
+    """나눠 내는 공사의 시트 사업자명 칸 값 — 부담자 이름을 칸 순서로 '최영희 / 기종원(위너스골프)' (2026-10-28).
+
+    부담자 칸이 기준이고 이 칸은 시스템이 [부담자 설정] 저장 때 따라 씀. 두 이름이 붙은 글자라 상호 대조
+    (등록증 OCR·거래처명 규칙·입금 오배치 경고·사업자명 목록)에는 쓰지 않는다 — is_split_biz_value."""
+    return SPLIT_BIZ_SEP.join(payers[s]['name'] for s in STAGES if payers and s in payers)
+
+
+def is_split_biz_value(value) -> bool:
+    """시스템이 넣은 나눠 내는 공사 사업자명('A / B')인가. 기존 사업자명엔 ' / '가 없음(10-28 확인 0건)."""
+    return SPLIT_BIZ_SEP in str(value or '')
+
+
 def biz_display(rec: dict) -> str:
     """화면에 보일 사업자명 — 나눠 내는 공사면 '임대인 최영희 / 임차인 기종원(위너스골프)', 아니면 시트 사업자명.
 
@@ -658,8 +674,35 @@ def save_payers(code: str, plan: Dict[str, dict]) -> dict:
                     if not mgr.update_cell_note(sid, sn, f'{ncol}{row}', new_note):
                         raise RuntimeError(f'{s} 메모 기록 실패')
                     changed[f'{s}_메모'] = new_note
+        changed.update(sync_biz_cell(mgr, sid, sn, row, f2l, plan))
         changed.update(sync_total2_formula(mgr, sid, sn, row, f2l, plan))
     return changed
+
+
+def sync_biz_cell(mgr, sid: str, sn: str, row: int, f2l: dict, plan: Dict[str, dict]) -> dict:
+    """사업자명 칸을 부담자에 맞춤 (2026-10-28 사용자 — 한 사람만 있으면 누가 메인인지 모름, 둘 다가 원칙).
+
+    나눠 내는 공사 = 부담자 이름 'A / B'. 해제하면 시스템이 넣었던 값('A / B')일 때만 '-'(원래 상호는 모름).
+    _version 도 올려 오래 열린 PM 화면 저장이 옛 사업자명으로 덮지 못하게. 카드·리컨사일러는 조용히
+    (카드 사업자명은 원래 부담자 기준 biz_display 라 그대로). Returns 바뀐 필드."""
+    bcol, vcol = f2l.get('사업자명'), f2l.get('_version')
+    if not bcol:
+        return {}
+    cur = str(mgr.get_cell_value(sid, sn, f'{bcol}{row}') or '').strip()
+    want = split_biz_value(plan) if plan else ('-' if is_split_biz_value(cur) else cur)
+    if not want or want == cur:
+        return {}
+    if not mgr.update_cell_value(sid, sn, f'{bcol}{row}', want):
+        raise RuntimeError('사업자명 기록 실패')
+    out = {'사업자명': want}
+    if vcol:
+        try:
+            ver = int(float(str(mgr.get_cell_value(sid, sn, f'{vcol}{row}') or '0').strip() or '0')) + 1
+            if mgr.update_cell_value(sid, sn, f'{vcol}{row}', str(ver)):
+                out['_version'] = str(ver)
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def _norm_fx(s) -> str:
@@ -704,6 +747,9 @@ def split_problems(rec: dict) -> List[str]:
             out.append(f"{PAYER_FIELD[s]} 칸 형식 확인 필요: {raw[:40]!r}")
     if not payers:
         return out
+    biz = str((rec or {}).get('사업자명') or '').strip()
+    if biz != split_biz_value(payers):     # 시트에서 손으로 바뀜 — [부담자 설정] 저장하면 다시 맞춰짐 (2026-10-28)
+        out.append(f"사업자명 칸 '{biz}'이 부담자 이름('{split_biz_value(payers)}')과 다름")
     msg = share_check(list(payers.values()), rec)
     if msg:
         out.append(msg)

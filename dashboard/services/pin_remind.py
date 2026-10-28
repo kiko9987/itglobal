@@ -340,6 +340,7 @@ def _guess_project(partner: str, amount, recs: list) -> str:
 
     # 나눠 내는 공사 먼저(2026-10-19 오남프라자): 부담자 이름+남은 돈으로 '코드 구분'까지
     #   (예 '이현주이비인임대' → 'G4157-JW 임대인'). 같은 임대인이 여러 호실이어도 금액으로 좁힘.
+    from dashboard.services.payer_split import is_split_biz_value
     try:
         from dashboard.services.payer_split import guess_split_payer
         _sp = guess_split_payer(partner, amt, recs)
@@ -358,7 +359,8 @@ def _guess_project(partner: str, amount, recs: list) -> str:
         miss = _num(r.get('미수금'))
         if miss <= 0 or amt > miss + 1000:
             continue
-        name = _norm(r.get('사업자명', ''))
+        # 나눠 내는 공사의 '최영희 / 기종원' 모음은 위 guess_split_payer 가 사람별로 봄 — 여기선 대조 안 함 (2026-10-28)
+        name = '' if is_split_biz_value(r.get('사업자명', '')) else _norm(r.get('사업자명', ''))
         if _name_hit(p, name):
             by_name.add(code)
         if _name_hit(p, _norm(r.get('발주처 담당자', ''))):

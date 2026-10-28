@@ -29,6 +29,14 @@ const GENERIC_HEAD_RE = /(사무소|사무실|컨설팅|법무법인|회계법�
 // 건물 관리 단체 꼬리 — '관악산 휴먼시아아파트 입주자대표회의' → '관악산 휴먼시아아파트'
 const ORG_SUFFIX_RE = /\s*(입주자\s*대표\s*회의?|관리\s*사무소|관리단|관리\s*위원회|운영\s*위원회)$/;
 
+/**
+ * 나눠 내는 공사의 시트 사업자명('최영희 / 기종원(위너스골프)') — 시스템이 부담자 이름을 모아 씀.
+ * 상호가 아니라 목록·대조에서 뺀다 (서버 payer_split.is_split_biz_value 와 같게, 2026-10-28)
+ */
+export function isSplitBizValue(value) {
+  return String(value ?? '').includes(' / ');
+}
+
 /** 유입 구분 → 거래처가 아닐 때 거래처명에 들어가는 묶음 (온라인 계열·빈칸은 '온라인') */
 export function inflowGroup(inflow) {
   const s = String(inflow ?? '').trim();
@@ -120,7 +128,7 @@ export function businessNamesForPartner(partner, rows) {
   (rows || []).forEach((r) => {
     if (partnerPlaceKey(r?.['거래처명']) !== key) return;
     const biz = String(r?.['사업자명'] ?? '').trim();
-    if (!isPartnerName(biz)) return;
+    if (!isPartnerName(biz) || isSplitBizValue(biz)) return;
     const m = partnerPlaceKey(biz) === key ? own : others;
     m.set(biz, (m.get(biz) || 0) + 1);
   });

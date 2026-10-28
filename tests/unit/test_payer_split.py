@@ -3,7 +3,7 @@ from dashboard.services import payer_split as ps
 
 
 def _rec(**kw):
-    base = {'프로젝트 코드': 'G4146-JW', '총액 2': '14258200',
+    base = {'프로젝트 코드': 'G4146-JW', '총액 2': '14258200', '사업자명': '이희승 / 주식회사 제이케이디학원',
             '계약금': '5509680', '중도금': '0', '잔금': '0',
             '계약금 부담자': '임대인 · 이희승 · 122-15-41208 · 6,887,100 · 계산서',
             '중도금 부담자': '-',
@@ -128,3 +128,69 @@ def test_deposit_from_own_payer_is_not_misplacement(monkeypatch):
     assert _partner_misplacement_warning('G4156-JW', '이현주') == ''
     assert _partner_misplacement_warning('G4156-JW', '홍은희') == ''
     assert '다른 프로젝트' in _partner_misplacement_warning('G4156-JW', '홍길동상사')   # 진짜 오배치는 그대로
+
+
+
+# ── 시트 사업자명 = 부담자 이름 모음 (2026-10-28) ──────────────────
+
+class _BizMgr:
+    def __init__(self, biz, ver='3'):
+        self.cells = {'F10': biz, 'AT10': ver}
+    def get_cell_value(self, sid, sn, a): return self.cells.get(a, '')
+    def update_cell_value(self, sid, sn, a, v): self.cells[a] = v; return True
+
+
+def test_split_biz_value_and_marker():
+    payers = ps.stage_payers(_rec())
+    assert ps.split_biz_value(payers) == '이희승 / 주식회사 제이케이디학원'
+    assert ps.is_split_biz_value('이희승 / 주식회사 제이케이디학원')
+    assert not ps.is_split_biz_value('주식회사 칸도') and not ps.is_split_biz_value('A/B상사')
+
+
+def test_sync_biz_cell_writes_names_and_bumps_version():
+    f2l = {'사업자명': 'F', '_version': 'AT'}
+    m = _BizMgr('위너스 골프존')
+    out = ps.sync_biz_cell(m, 's', 'n', 10, f2l, ps.stage_payers(_rec()))
+    assert out == {'사업자명': '이희승 / 주식회사 제이케이디학원', '_version': '4'}
+    assert ps.sync_biz_cell(m, 's', 'n', 10, f2l, ps.stage_payers(_rec())) == {}      # 같으면 안 씀
+    assert ps.sync_biz_cell(m, 's', 'n', 10, f2l, {}) == {'사업자명': '-', '_version': '5'}   # 해제 → '-'
+    m2 = _BizMgr('주식회사 칸도')
+    assert ps.sync_biz_cell(m2, 's', 'n', 10, f2l, {}) == {}                          # 원래 상호는 그대로
+
+
+def test_split_problems_flags_hand_edited_biz():
+    assert ps.split_problems(_rec()) == []
+    assert any('사업자명 칸' in p for p in ps.split_problems(_rec(사업자명='위너스 골프존')))
+
+
+def test_ocr_does_not_touch_split_biz(monkeypatch):
+    import dashboard.services.project_service as psvc
+    from dashboard.services.business_license_handler import _maybe_update_business_name
+    monkeypatch.setattr(psvc, 'get_project_records', lambda force_refresh=False: [_rec()])
+    assert _maybe_update_business_name('G4146-JW', '주식회사 제이케이디학원') == ('split', '이희승 / 주식회사 제이케이디학원')
+
+
+def test_partner_rule_ignores_split_biz(monkeypatch):
+    from dashboard.services import partner_names as pn
+    called = []
+    monkeypatch.setattr(pn, 'promote_previous', lambda *a, **k: called.append(a) or 1)
+    assert pn.apply_place_on_biz_change('G4146-JW', '이희승 / 주식회사 제이케이디학원') == 0
+    assert called == []
+
+
+def test_company_name_search_excludes_split_value(monkeypatch):
+    import pandas as pd
+    import dashboard.services.project_service as psvc
+    from dashboard.blueprints.slack_bot import _search_company_names
+    monkeypatch.setattr(psvc, 'load_data', lambda force_refresh=False: pd.DataFrame(
+        {'사업자명': ['이희승 / 주식회사 제이케이디학원', '주식회사 제이케이디학원']}))
+    assert [o['value'] for o in _search_company_names('제이케이디')] == ['주식회사 제이케이디학원']
+
+
+def test_misplacement_uses_payer_names_of_other_split_projects(monkeypatch):
+    import dashboard.services.project_service as psvc
+    from dashboard.services.payment_sync import _partner_misplacement_warning
+    recs = [_rec(), {'프로젝트 코드': 'G9000-AA', '사업자명': '홍길동상사', '거래처명': '홍길동상사'}]
+    monkeypatch.setattr(psvc, 'get_project_records', lambda force_refresh=False: recs)
+    w = _partner_misplacement_warning('G9000-AA', '이희승')
+    assert 'G4146-JW(이희승)' in w                                   # 모음 글자 말고 그 사람 이름으로 표시

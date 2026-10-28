@@ -282,8 +282,14 @@ def apply_place_on_biz_change(code: str, biz: str, editor: str = '', old_biz: st
     Returns 바꾼 수."""
     if not code or not is_partner_name(biz):
         return 0
+    # 나눠 내는 공사의 사업자명('최영희 / 기종원')은 부담자 이름 모음이라 '곳' 이름이 아님 (2026-10-28)
+    from dashboard.services.payer_split import is_split, is_split_biz_value
+    if is_split_biz_value(biz):
+        return 0
     from dashboard.services.project_service import get_project_records
     records = get_project_records() or []
+    if is_split(next((r for r in records if _code(r) == code), None) or {}):
+        return 0
     prev = same_place(biz, records, exclude_code=code)
     name = place_name(biz, prev) if prev else short_name(biz)
     me = next((r for r in records if _code(r) == code), None) or {'프로젝트 코드': code, '거래처명': ''}

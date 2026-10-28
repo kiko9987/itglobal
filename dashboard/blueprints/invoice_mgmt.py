@@ -295,7 +295,7 @@ def api_payers_save(code):
                                  error_code=APIErrorCode.VALIDATION_ERROR, status_code=400)
     if warns and not data.get('confirm_total'):
         return APIResponse.error(message='\n'.join(warns), error_code='PAYER_TOTAL_CHECK', status_code=409)
-    before = {f: str(rec.get(f) or '') for f in PAYER_FIELD.values()}
+    before = {f: str(rec.get(f) or '') for f in (*PAYER_FIELD.values(), '사업자명')}
     try:
         changed = save_payers(code, plan)
     except Exception as exc:
@@ -309,10 +309,17 @@ def api_payers_save(code):
                 invalidate_project_cache()
         except Exception as exc:
             logger.warning(f'[PAYER] 캐시 갱신 실패 ({code}): {exc}')
+        if '사업자명' in changed:
+            # 사업자명은 부담자 이름으로 자동(sync_biz_cell) — 리컨사일러가 '시트 직접수정' 댓글 없이 기준값만 맞춤
+            try:
+                from ..utils.redis_client import get_redis_client
+                get_redis_client().redis.setex(f'project_pm_edit:{code}', 900, '1')
+            except Exception as exc:
+                logger.debug(f'[PAYER] PM 편집 마커 실패 ({code}): {exc}')
         try:
             from ..utils.user_database import get_audit_repository
             email = (session.get('user', {}) or {}).get('email', '') or ''
-            for f in PAYER_FIELD.values():
+            for f in (*PAYER_FIELD.values(), '사업자명'):
                 if f in changed:
                     get_audit_repository().log_action(
                         email, 'payer_split_update', details='PM 부담자 설정', project_code=code,
