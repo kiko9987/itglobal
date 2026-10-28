@@ -389,9 +389,22 @@ export default class FieldMemoButton {
         body: JSON.stringify({
           project_code: this.currentProjectCode,
           field_name: this.currentFieldName,  // field_key → field_name으로 변경
-          memo: newMemo || null // 빈 메모는 null로 저장 (셀 메모 삭제)
+          memo: newMemo || null, // 빈 메모는 null로 저장 (셀 메모 삭제)
+          original_memo: this.currentMemo || '' // 처음 본 메모 — 그 사이 바뀌었으면 서버가 409 (입금 줄 보호)
         })
       });
+
+      if (response.status === 409) {
+        const conflict = await response.json().catch(() => ({}));
+        const latest = conflict.current_memo || '';
+        this.updateLocalMemoData(latest);
+        this.updateButtonIcon(this.activePopover, latest);
+        this.currentMemo = latest;
+        const ta = this.popoverElement.querySelector('.memo-textarea');
+        if (ta) ta.value = this.currentPayerLine ? stripPayerLine(latest) : latest;
+        alert(conflict.message || '그 사이 메모가 바뀌어 저장하지 않았습니다. 새 메모를 확인하고 다시 입력해 주세요.');
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`메모 저장 실패: ${response.status}`);

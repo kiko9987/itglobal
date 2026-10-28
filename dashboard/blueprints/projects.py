@@ -1107,6 +1107,44 @@ def _cancelled_edit_gate(current_values, field_to_index, data, permission_level)
     return None
 
 
+# 화면에서 관리자만 고칠 수 있는 금액·수금 칸 (ProjectRowAccordion CARD_EDIT_PERMISSIONS financial·collection).
+_ADMIN_ONLY_FIELDS = ('총액 1', '부가세', '계약금', '중도금', '잔금', '수금 날짜', '수금 확인',
+                      '계산서', '계약금 계산서', '중도금 계산서', '잔금 계산서')
+
+
+def _gate_norm(v) -> str:
+    """값 비교용 — 콤마·원·공백, '-'/빈칸/0/FALSE, TRUE/true, 1000/1000.0 차이는 같은 값으로."""
+    s = re.sub(r'[,\s원₩]', '', str(v if v is not None else '')).strip()
+    if s.lower() in ('', '-', 'false'):
+        return ''
+    if s.lower() == 'true':
+        return 'true'
+    try:
+        f = float(s)
+        return '' if f == 0 else (str(int(f)) if f == int(f) else str(f))
+    except ValueError:
+        return s
+
+
+def _money_edit_gate(current_values, field_to_index, data, permission_level):
+    """금액·수금 칸은 관리자만 바꿀 수 있게 서버에서도 막음 (2026-10-28 점검 — 화면에서만 막혀 있어 편집 권한
+    매니저가 화면을 우회하면 총액·입금·수금 확인을 바꿀 수 있었음). 값이 실제로 바뀐 칸만 본다."""
+    if permission_level in ('admin', 'super_admin'):
+        return None
+    changed = []
+    for f in _ADMIN_ONLY_FIELDS:
+        if f not in (data or {}):
+            continue
+        i = field_to_index.get(f)
+        cur = current_values[i] if i is not None and i < len(current_values) else ''
+        if _gate_norm(data.get(f)) != _gate_norm(cur):
+            changed.append(f)
+    if changed:
+        return (f"금액·수금 칸({', '.join(changed)})은 관리자만 수정할 수 있습니다. "
+                "공사 금액 변경은 슬랙 [내용 수정]으로 요청해 주세요."), 403
+    return None
+
+
 def _partner_edit_gate(current_values, field_to_index, data):
     """거래처 유입 공사의 거래처명을 온라인·전화 같은 분류값으로 바꾸는 저장을 막음 (2026-10-28).
 
@@ -1196,6 +1234,11 @@ def update_project(project_code):
 
         # 5-1. 취소된 공사 = 관리자만 수정 (2026-10-16)
         _gate = _cancelled_edit_gate(
+            current_values, field_to_index, data,
+            (session.get('user') or {}).get('permission_level', 'viewer'))
+        if _gate:
+            return jsonify({'success': False, 'error': _gate[0]}), _gate[1]
+        _gate = _money_edit_gate(
             current_values, field_to_index, data,
             (session.get('user') or {}).get('permission_level', 'viewer'))
         if _gate:
@@ -1568,26 +1611,58 @@ def _validate_memo_schema(memo, row_number, column, project_code, field_name):
     return validated_data, None
 
 
+def _memo_norm(s) -> str:
+    """메모 비교용 — 줄바꿈·줄 끝 공백 차이는 같은 메모로 본다."""
+    return '\n'.join(ln.rstrip() for ln in str(s or '').replace('\r\n', '\n').split('\n')).strip()
+
+
+MEMO_CONFLICT_MESSAGE = ('그 사이 다른 곳(입금 기록 등)에서 메모가 먼저 바뀌어 저장하지 않았습니다. '
+                         '새로 불러온 메모를 확인하고 다시 입력해 주세요.')
+
+
+def _memo_write_lock():
+    """입금 기록·부담자 설정과 같은 셀 메모 락 (읽고-비교-쓰기 사이에 끼어들지 않게)."""
+    try:
+        from dashboard.blueprints.slack_bot import _INTAKE_SHEET_LOCK
+        return _INTAKE_SHEET_LOCK
+    except Exception:
+        import contextlib
+        return contextlib.nullcontext()
+
+
 # ===== 헬퍼 함수 4: 메모 저장, 캐시 무효화, 감사 로그 =====
-def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name):
+def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name,
+                         original_memo=None):
     """
     메모 저장 + 캐시 무효화 + 감사 로그 기록
+
+    original_memo: 화면이 처음 본 메모. 주면 지금 시트 메모와 다를 때 409 로 막는다 (2026-10-28 —
+      아침에 연 화면에서 메모를 저장하면 낮에 은행 문자로 붙은 입금 줄이 통째로 지워질 수 있었음).
 
     Returns:
         tuple: (success, response_data or error_response)
     """
     logger.info(f"[FIELD_MEMO] 셀 메모 저장 시작: {project_code} / {cell_address}")
 
-    # 기존 메모 값 조회 (감사 로그용)
-    old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
+    with _memo_write_lock():
+        # 기존 메모 값 조회 (감사 로그용 + 충돌 확인)
+        old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
+        if original_memo is not None and _memo_norm(old_memo) != _memo_norm(original_memo):
+            logger.warning(f"[FIELD_MEMO] 충돌 — 저장 안 함: {project_code} / {cell_address}")
+            return False, (jsonify({
+                'success': False,
+                'conflict': True,
+                'message': MEMO_CONFLICT_MESSAGE,
+                'current_memo': old_memo,
+            }), 409)
 
-    # 구글 시트 셀 메모에 저장
-    success = manager.update_cell_note(
-        sheet_id,
-        sheet_name,
-        cell_address,
-        memo if memo else None  # 빈 메모는 삭제
-    )
+        # 구글 시트 셀 메모에 저장
+        success = manager.update_cell_note(
+            sheet_id,
+            sheet_name,
+            cell_address,
+            memo if memo else None  # 빈 메모는 삭제
+        )
 
     if not success:
         return False, (jsonify({
@@ -1677,9 +1752,10 @@ def save_field_memo():
         # 4. 셀 주소 구성
         cell_address = f"{column}{row_number}"
 
-        # 5. 메모 저장, 캐시 무효화, 감사 로그
+        # 5. 메모 저장, 캐시 무효화, 감사 로그 (original_memo 를 보내면 그 사이 바뀐 메모는 덮지 않음)
         success, response = _save_memo_and_audit(
-            manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name
+            manager, sheet_id, sheet_name, cell_address, memo, project_code, field_name,
+            original_memo=data.get('original_memo')
         )
 
         if success:
@@ -1778,9 +1854,22 @@ def _prepare_batch_memo_updates(memos, row_number, manager, sheet_id, sheet_name
             # 셀 주소 구성
             cell_address = f"{column}{row_number}"
 
-            # 기존 메모 값 조회 (감사 로그용)
+            # 기존 메모 값 조회 (감사 로그용 + 충돌 확인)
             old_memo = manager.get_cell_note(sheet_id, sheet_name, cell_address) or ''
             old_memos[cell_address] = old_memo
+
+            # 화면이 처음 본 메모와 지금 시트 메모가 다르면 덮지 않음 (2026-10-28 — 그 사이 입금 기록 줄 보호)
+            if 'original_memo' in memo_data and _memo_norm(old_memo) != _memo_norm(memo_data.get('original_memo')):
+                logger.warning(f"[BATCH_MEMO] 충돌 — 저장 안 함: {project_code} / {cell_address}")
+                results.append({
+                    'field_name': field_name,
+                    'success': False,
+                    'conflict': True,
+                    'message': MEMO_CONFLICT_MESSAGE,
+                    'current_memo': old_memo,
+                })
+                failed_count += 1
+                continue
 
             # 빈값 저장 방어 (2026-07-22 G3823-SJ 사고):
             # 프론트가 편집 안 한 필드까지 빈값으로 보내거나 매니저 실수로 memo=''
@@ -2013,15 +2102,14 @@ def save_field_memos_batch():
 
         manager, sheet_id, sheet_name, row_number = result
 
-        # 2. 메모 업데이트 준비
-        results, failed_count, cell_notes_to_update, old_memos = _prepare_batch_memo_updates(
-            memos, row_number, manager, sheet_id, sheet_name, project_code
-        )
-
-        # 3. Batch Update 실행
-        batch_success = _execute_batch_memo_update(
-            cell_notes_to_update, manager, sheet_id, sheet_name
-        )
+        # 2~3. 메모 준비(충돌 확인) + Batch Update — 입금 기록과 같은 락 안에서 읽고-비교-쓰기
+        with _memo_write_lock():
+            results, failed_count, cell_notes_to_update, old_memos = _prepare_batch_memo_updates(
+                memos, row_number, manager, sheet_id, sheet_name, project_code
+            )
+            batch_success = _execute_batch_memo_update(
+                cell_notes_to_update, manager, sheet_id, sheet_name
+            )
 
         # 4. 결과 업데이트 및 감사 로그 준비
         success_count, failed_count, audit_actions = _build_batch_audit_logs(
@@ -3122,17 +3210,26 @@ def _check_already_active(project, project_code):
     return False, None, None
 
 
-def _prepare_resume_updates(sheet_name, row_number, manager, restore_total_1=None):
+def _prepare_resume_updates(sheet_name, row_number, manager, restore_total_1=None,
+                            restore_date=None, restore_payment=None):
     """공사 재개 배치 업데이트 준비 — 컬럼 레터를 get_field_to_letter()로 파생.
 
-    수금 관련 특이사항='', 공사 확정=현재 날짜. restore_total_1 있으면 총액 1 원복(취소 시 0→원값).
+    수금 관련 특이사항='', 공사 확정=취소 전 확정일(스냅샷, 없으면 오늘). restore_payment 가 None 이 아니면
+    수금 확인 원복, restore_total_1 있으면 총액 1 원복(취소 시 0→원값). 슬랙 재개와 같은 규칙 (2026-10-28 —
+    PM 재개만 확정일을 오늘로 쓰고 수금 확인을 안 되돌려 통계 연·월과 수금완료가 바뀌던 것).
     (하드코딩 레터 금지 — 시프트 자동 정정)
     """
     col = manager.get_field_to_letter()
     updates = [
         {'range': f"{sheet_name}!{col['수금 관련 특이사항']}{row_number}", 'values': [['']]},
-        {'range': f"{sheet_name}!{col['공사 확정']}{row_number}", 'values': [[datetime.now().strftime('%Y-%m-%d')]]},
+        {'range': f"{sheet_name}!{col['공사 확정']}{row_number}",
+         'values': [[restore_date or datetime.now().strftime('%Y-%m-%d')]]},
     ]
+    if restore_payment is not None:
+        updates.append({
+            'range': f"{sheet_name}!{col['수금 확인']}{row_number}",
+            'values': [['TRUE' if restore_payment else 'FALSE']],
+        })
     if restore_total_1 is not None:
         updates.append({
             'range': f"{sheet_name}!{col['총액 1']}{row_number}",
@@ -3439,7 +3536,9 @@ def _handle_resume_sheet(payload: dict) -> None:
     row_number = payload['row_number']
     project_code = payload.get('project_code', '')
     updates = _prepare_resume_updates(sheet_name, row_number, manager,
-                                      restore_total_1=payload.get('restore_total_1'))
+                                      restore_total_1=payload.get('restore_total_1'),
+                                      restore_date=payload.get('restore_date'),
+                                      restore_payment=payload.get('restore_payment'))
     manager.batch_update_cells(sheet_id, updates)
     logger.info(f'[QUEUE/project_resume] 시트 write 완료: {project_code}')
     try:
@@ -3651,27 +3750,37 @@ def resume_project_api():
             return response, status_code
 
         # 2026-09-16: 취소 시 0으로 만든 매출(총액 1)을 스냅샷에서 복원.
+        # 2026-10-28: 공사 확정일·수금 확인도 복원 (슬랙 재개와 같게 — 예전엔 확정일=오늘, 수금 확인 미복원)
         _restore_total_1 = None
+        _restore_date = None
+        _restore_payment = None
         try:
             import json as _json_r
             from ..utils.redis_client import get_redis_client as _grc_r
             _snap = _grc_r().redis.get(f'project_cancel_snapshot:{project_code}')
             if _snap:
-                _sv = _snap.decode() if isinstance(_snap, bytes) else _snap
-                if _sv.strip().startswith('{'):
+                _sv = (_snap.decode() if isinstance(_snap, bytes) else _snap).strip()
+                if _sv.startswith('{'):
                     _sd = _json_r.loads(_sv)
                     if 'total_1' in _sd:
                         _restore_total_1 = _sd['total_1']
+                    _restore_date = str(_sd.get('confirmed_date') or '').strip() or None
+                    if 'payment_confirmed' in _sd:
+                        _restore_payment = bool(_sd['payment_confirmed'])
+                elif _sv:
+                    _restore_date = _sv   # 옛 문자열 스냅샷 = 확정일만
         except Exception as _snap_exc:
             logger.warning(f'[PM/재개] 스냅샷 조회 실패 ({project_code}): {_snap_exc}')
 
         # 4. 시트 write 를 큐로 위임 + 캐시 즉시 갱신 (2026-07-09 write-behind)
         try:
-            today_str = datetime.now().strftime('%Y-%m-%d')
+            today_str = _restore_date or datetime.now().strftime('%Y-%m-%d')
             _cache_payload = {
                 '수금 관련 특이사항': '',
                 '공사 확정': today_str,
             }
+            if _restore_payment is not None:
+                _cache_payload['수금 확인'] = _restore_payment
             if _restore_total_1 is not None:
                 _cache_payload['총액 1'] = _restore_total_1
             cache_updated = update_project_in_cache(project_code, _cache_payload)
@@ -3685,6 +3794,8 @@ def resume_project_api():
                 'row_number': row_number,
                 'project_code': project_code,
                 'restore_total_1': _restore_total_1,
+                'restore_date': _restore_date,
+                'restore_payment': _restore_payment,
             }, meta={'user_email': user_email})
             updated_cells = 2  # AH/AM 2셀 예상값 (응답 호환용)
             # 스냅샷 정리 (복원 반영 후)

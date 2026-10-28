@@ -6375,6 +6375,9 @@ def _run_sweep(client, channel: str, response_url: str, mode: str, value: int):
 # /공사확정 — 슬랙 모달로 공사 확정 등록 (모바일 친화)
 # ─────────────────────────────────────────────────────────────
 _PROJECT_COMPANY_OPTIONS = ["글로벌", "글로벌그룹", "플랜트"]
+# 화면 표기 '플랜트' → 시트·코드 규칙 값 '플렌트' (company_prefix_map·시트 B열·PM 이 '플렌트'). 안 바꾸면
+#   코드 접두사를 못 찾아 등록이 매번 실패했음 (2026-10-28 점검).
+_PROJECT_COMPANY_SHEET_VALUE = {"플랜트": "플렌트"}
 # 유입 구분 = 실제 플랫폼 (시트 D열 드롭다운과 같은 값). '온라인'은 플랫폼을 알 수 없는 옛 공사 전용이라
 # 새 등록에선 뺌 — PM도 글로벌그룹에서 '온라인'을 못 고름 (2026-10-23)
 _PROJECT_SOURCE_OPTIONS = ["거래처", "홈페이지", "전화", "당근", "카카오톡", "채널톡", "큐플레이스", "숨고",
@@ -6567,6 +6570,7 @@ def _process_project_submission(client, body, view):
 
     # 모달 입력
     company = _v(state, "company")
+    company = _PROJECT_COMPANY_SHEET_VALUE.get(company, company)
     source = _v(state, "source")
     partner_name = (_v(state, "partner_name") or '').strip()        # 비면 자동 (_prepare_project_defaults)
     company_name = (_v(state, "company_name") or '').strip() or '-'  # 선택 입력
@@ -6714,20 +6718,31 @@ def _run_bg_with_notify(client, body, action_label: str, work_fn) -> None:
                 f'[SLACK/BG] {action_label} 실패 (error_id={error_id}): {exc}',
                 exc_info=True,
             )
-            # 매니저에게 ephemeral 안내
+            # 매니저에게 안내 — 버튼은 body.channel, 모달 제출은 private_metadata 의 channel, 둘 다 없으면 DM
+            #   (예전엔 모달 제출에 channel 이 없어 공사 정보 수정 실패 안내가 한 번도 안 나갔음, 2026-10-28)
             try:
                 user_id = (body.get('user') or {}).get('id', '')
                 channel = (body.get('channel') or {}).get('id', '') or \
                           (body.get('container') or {}).get('channel_id', '')
+                if not channel:
+                    try:
+                        _md = json.loads(((body.get('view') or {}).get('private_metadata')) or '{}')
+                        channel = (_md.get('channel') or _md.get('channel_id') or '') if isinstance(_md, dict) else ''
+                    except Exception:
+                        channel = ''
+                text = (
+                    f':x: *{action_label}* 처리 중 오류가 발생했습니다.\n'
+                    f'잠시 후 다시 시도해 주세요.\n'
+                    f'오류 ID: `{error_id}` (관리자 문의 시 전달)'
+                )
                 if user_id and channel:
-                    client.chat_postEphemeral(
-                        channel=channel, user=user_id,
-                        text=(
-                            f':x: *{action_label}* 처리 중 오류가 발생했습니다.\n'
-                            f'잠시 후 다시 시도해 주세요.\n'
-                            f'오류 ID: `{error_id}` (관리자 문의 시 전달)'
-                        ),
-                    )
+                    try:
+                        client.chat_postEphemeral(channel=channel, user=user_id, text=text)
+                        channel = 'sent'
+                    except Exception:
+                        channel = ''
+                if user_id and channel != 'sent':
+                    client.chat_postMessage(channel=user_id, text=text)
             except Exception as notify_exc:
                 logger.debug(f'[SLACK/BG] 매니저 알림 실패 (무시): {notify_exc}')
     threading.Thread(target=_run, daemon=True).start()
@@ -7473,9 +7488,14 @@ def _etc_new_lead_no() -> str:
 
 
 def _update_lead_dispatch(lead_no: str, updates: dict) -> None:
-    """정규 리드·ETC- 모두 시트 update (시나리오 D)."""
+    """정규 리드·ETC- 모두 시트 update (시나리오 D).
+
+    update_lead 는 실패해도 예외 없이 {'success': False} 만 돌려줘서, 호출부의 except(실패 안내·중단)가
+    한 번도 안 탔다 — 시트는 안 바뀌었는데 카드만 바뀔 수 있었음. 실패면 예외로 올린다 (2026-10-28)."""
     from dashboard.services.lead_service import update_lead
-    update_lead(lead_no, updates)
+    res = update_lead(lead_no, updates)
+    if isinstance(res, dict) and res.get('success') is False:
+        raise RuntimeError(res.get('message') or '리드 시트 저장 실패')
 
 
 def _find_lead_by_no(lead_no: str):
@@ -9117,9 +9137,19 @@ def _process_consult_submission(client, body, view):
                     _backup_consult_overwrite(lead_no, _old_for_backup, _idc_bk, user_id)
             except Exception as _bkexc:
                 logger.warning(f"[SLACK/상담] 덮어쓰기 백업 실패 ({lead_no}): {_bkexc}")
-            update_lead(lead_no, update_data)
+            _res = update_lead(lead_no, update_data)
+            if isinstance(_res, dict) and _res.get('success') is False:   # 실패를 예외 없이 돌려줌 (2026-10-28)
+                raise RuntimeError(_res.get('message') or '리드 시트 저장 실패')
         except Exception as exc:
             logger.error(f"[SLACK/상담] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
+            try:
+                if channel and user_id:
+                    client.chat_postEphemeral(
+                        channel=channel, user=user_id,
+                        text=(f":warning: `{lead_no}` 상담 내용이 시트에 저장되지 않았습니다. "
+                              "카드는 바뀌었을 수 있으니, 잠시 후 [정보 수정]으로 다시 저장하거나 관리자에게 알려 주세요."))
+            except Exception:
+                pass
 
         # 슬랙 List webhook — 방문 예약 한정 (유선 상담/견적/드랍은 list 미등록)
         if is_visit:
@@ -10931,6 +10961,8 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     except Exception as exc:
         logger.error(f"[SLACK/방문수정] update 실패 ({lead_no}): {exc}",
                      exc_info=True)
+        _notify_edit_failure(client, channel, (body.get('user') or {}).get('id', ''), lead_no,
+                             '시트에 저장하지 못해 카드도 바꾸지 않았습니다')
         return
 
     # List update webhook
@@ -14250,12 +14282,13 @@ def _open_project_cancel_reason_modal(client, body) -> None:
         "callback_id": "submit_project_cancel_reason",
         "private_metadata": metadata,
         "title": {"type": "plain_text", "text": "공사 취소"},
-        "submit": {"type": "plain_text", "text": "취소 요청"},
+        "submit": {"type": "plain_text", "text": "공사 취소"},
         "close": {"type": "plain_text", "text": "닫기"},
         "blocks": [
+            # 2026-10-28: 예전 문구('취소 요청 · 경영지원 확인 후 반영')와 달리 제출 즉시 취소된다 — 기다리는 건 매출 0원뿐
             {"type": "section", "text": {"type": "mrkdwn", "text": (
-                f":warning: *{code}* 공사를 취소 요청합니다.\n"
-                "_경영지원 확인(:white_check_mark:) 후 반영되며, 매출은 0원으로 처리됩니다._")}},
+                f":warning: 제출하면 *{code}* 공사가 바로 취소됩니다.\n"
+                "_매출 0원 처리만 경영지원 확인(:white_check_mark:) 뒤에 반영됩니다._")}},
             {"type": "input", "block_id": "reason",
              "label": {"type": "plain_text", "text": "취소 사유 (필수)"},
              "hint": {"type": "plain_text", "text": "예: 고객 변심 / 타업체 진행 / 계약 해지"},
@@ -14724,10 +14757,15 @@ def _bill_y_summary(stage_vals, amt, collected=False):
     """
     raw = {s: str(stage_vals.get(s) if stage_vals.get(s) is not None else '').strip() for s in _BILL_STAGES}
     vals = {s: _bill_norm_token(stage_vals.get(s)) for s in _BILL_STAGES}  # '-'→'' (빈칸)
-    # covered('-') = 통합발행에 포함되어 발행된 단계(계약금·중도금). 같은 행에 실제 '발행'이 있으면
-    #   covered로 취급(미발행 아님, ⚠️ X). '발행' 없이 '-'만 있으면 빈칸 → 입금 시 미발행. (개별발행=발행)
-    has_issued = any(vals[s] == '발행' for s in _BILL_STAGES)
-    cov = {s: (raw[s] == '-' and has_issued) for s in _BILL_STAGES}
+    # covered('-') = 통합발행 한 장에 포함되어 발행된 단계 — **마지막 '발행' 단계보다 앞의 '-'만**.
+    #   뒤쪽 '-'는 빈 행(미발행). billStatus.js computeYSummary 와 같은 규칙 (2026-09-16 R4112 수정이
+    #   JS 에만 들어가 있던 것을 2026-10-28 맞춤 — 예전엔 행에 '발행'이 하나라도 있으면 모든 '-'를 covered로
+    #   봐서 잔금 계산서를 안 끊은 공사가 '잔금 - 발행완료'로 써지고 발행 누락 목록에서 빠질 수 있었음).
+    last_idx = -1
+    for i, s in enumerate(_BILL_STAGES):
+        if vals[s] == '발행' or raw[s] in ('발행', '일반'):
+            last_idx = i
+    cov = {s: (raw[s] == '-' and i < last_idx) for i, s in enumerate(_BILL_STAGES)}
     # active = 입금됐거나(amt>0) 계산서 토큰 있는 단계 (입금 전 계산서 선발행 포함)
     active = [s for s in _BILL_STAGES if _bill_to_num(amt.get(s)) > 0 or vals[s]]
     if not active:

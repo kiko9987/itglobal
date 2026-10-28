@@ -3876,18 +3876,16 @@ export default class ProjectRowAccordion {
    * 수금 날짜를 오늘로 설정 (레거시 동일)
    */
   setCollectionDateToToday(projectCode) {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD 형식
+    // 이미 수금 날짜가 있으면 그대로 둠 — 다 받은 공사의 금액 오타만 고쳐도 날짜가 오늘로 바뀌던 것 (2026-10-28).
+    //   날짜는 로컬(한국) 기준: toISOString()은 UTC라 08:00~08:59 에는 어제 날짜가 들어갔음.
+    //   Returns 실제로 넣은 날짜('' = 안 바꿈).
     const collectionCard = document.getElementById(`card-collection-${projectCode}`);
-
-    if (collectionCard) {
-      const dateField = collectionCard.querySelector('[data-field="수금 날짜"]');
-      if (dateField) {
-        // 편집 모드인지 확인
-        const dateInput = dateField.querySelector('input[type="date"]');
-        if (dateInput) {
-          dateInput.value = today;        }
-      }
-    }
+    const dateInput = collectionCard?.querySelector('[data-field="수금 날짜"] input[type="date"]');
+    if (!dateInput || dateInput.value) return '';
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    dateInput.value = today;
+    return today;
   }
 
   /**
@@ -4422,7 +4420,7 @@ export default class ProjectRowAccordion {
     const outstandingDisplay = collectionCard.querySelector('[data-field="미수금"].editable-value.calculated-field');
 
     if (outstandingDisplay) {
-      const colorClass = outstandingAmount === 0 ? 'text-success fw-semibold' : 'text-danger fw-semibold';
+      const colorClass = Math.abs(outstandingAmount) < 2 ? 'text-success fw-semibold' : 'text-danger fw-semibold';
       const displayValue = this.formatCurrency(outstandingAmount);
       outstandingDisplay.innerHTML = `<span class="${colorClass}">${displayValue}</span>`;
       
@@ -4436,8 +4434,9 @@ export default class ProjectRowAccordion {
       const confirmBadge = collectionCard.querySelector('[data-field="수금 확인"] .collection-status-badge');
       const dateInput = collectionCard.querySelector('[data-field="수금 날짜"] input');
 
-      if (outstandingAmount === 0) {
-        // 미수금이 0이면 수금확인 = 완료, 수금날짜 = 오늘
+      // 2원 미만 차이는 0 (시트 미수금 수식 ABS(...)<2 와 같은 기준 — 333만3,333원씩 3번 받은 공사 등)
+      if (Math.abs(outstandingAmount) < 2) {
+        // 미수금이 0이면 수금확인 = 완료, 수금날짜 = (비어 있을 때만) 오늘
         if (confirmBadge) {
           confirmBadge.dataset.status = 'true';
           confirmBadge.textContent = '완료';
@@ -4457,14 +4456,13 @@ export default class ProjectRowAccordion {
             logger.debug('[EditState] 수금 확인 자동 설정: true');
           }
         }
-        // 수금 날짜 자동 설정 (레거시 setCollectionDateToToday 동일)
-        this.setCollectionDateToToday(projectCode);
+        // 수금 날짜 자동 설정 — 이미 날짜가 있으면 유지
+        const setDate = this.setCollectionDateToToday(projectCode);
 
-        // 🆕 EditState에 수금 날짜 기록
-        if (this.editState && this.editState.isActive) {
-          const today = new Date().toISOString().split('T')[0];
-          this.editState.updateField('수금 날짜', today);
-          logger.debug('[EditState] 수금 날짜 자동 설정:', today);
+        // 🆕 EditState에 수금 날짜 기록 (새로 넣었을 때만)
+        if (setDate && this.editState && this.editState.isActive) {
+          this.editState.updateField('수금 날짜', setDate);
+          logger.debug('[EditState] 수금 날짜 자동 설정:', setDate);
         }
       } else {
         // 미수금이 0보다 크면 수금확인 = 대기, 수금날짜 클리어
@@ -5927,9 +5925,11 @@ export default class ProjectRowAccordion {
         saveBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin me-1"></i>메모 저장중...';
 
         // 메모 배열 구성
+        // original_memo = 편집 시작 때 본 메모 — 그 사이 입금 기록 등으로 바뀌었으면 서버가 덮지 않음 (2026-10-28)
         const memos = Object.entries(memoChanges).map(([memoKey, memoValue]) => ({
           field_name: memoKey.replace('_메모', ''),
-          memo: memoValue || null
+          memo: memoValue || null,
+          original_memo: (this.originalMemos && this.originalMemos[memoKey]) || ''
         }));
 
         logger.debug(`[통합 저장] Batch API로 ${memos.length}개 메모 저장 요청 (프로젝트 코드: ${finalProjectCode})`);
@@ -5967,6 +5967,15 @@ export default class ProjectRowAccordion {
 
           // 실패한 메모가 있으면 에러 발생
           if (batchResult.failed_count > 0) {
+            // 충돌난 칸은 지금 시트 메모로 바꿔 둠 → 다시 편집하면 최신 메모에서 시작
+            const conflicts = batchResult.results.filter(r => r.conflict);
+            conflicts.forEach(r => {
+              this.currentProject[`${r.field_name}_메모`] = r.current_memo || '';
+              if (this.originalMemos) this.originalMemos[`${r.field_name}_메모`] = r.current_memo || '';
+            });
+            if (conflicts.length) {
+              throw new Error(`${conflicts.map(r => r.field_name).join(', ')} 메모: ${conflicts[0].message}`);
+            }
             const failedFields = batchResult.results
               .filter(r => !r.success)
               .map(r => `${r.field_name} (${r.message})`)
