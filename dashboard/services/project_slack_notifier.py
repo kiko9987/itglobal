@@ -567,9 +567,12 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     if editor_label and editor_label.startswith('시스템 자동기록'):
         return False
 
-    from dashboard.services.settlement_checkers import checker_ids, checker_emails
-    # 경영지원 본인이 편집한 경우(요청 ✅ 반영 포함) 자기 알림 방지 — 이메일 아는 PM 경로만
-    if editor_email and editor_email.strip().lower() in checker_emails():
+    from dashboard.services.settlement_checkers import checkers
+    # 승인자 본인이 편집한 경우(요청 ✅ 반영 포함) 그 사람 DM 만 건너뜀 — 나머지 승인자는 알아야 함
+    #   (10-29 JW·YG 도 승인자가 되면서 '누구든 승인자면 전부 skip' 이면 영업이 자기 공사 금액을 바꿔도 아무도 모름)
+    _me = (editor_email or '').strip().lower()
+    _to = [cid for cid, em in checkers() if not (_me and em == _me)]
+    if not _to:
         return False
 
     token = os.getenv('SLACK_BOT_TOKEN', '').strip()  # DM 은 im:write 있는 메인봇
@@ -610,7 +613,7 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
         from slack_sdk import WebClient
         dm = WebClient(token=token)
         sent = 0
-        for checker_id in checker_ids():
+        for checker_id in _to:
             im = dm.conversations_open(users=checker_id)
             dm_ch = ((im.get('channel') or {}) or {}).get('id')
             if not dm_ch:
@@ -629,15 +632,17 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
 
 def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan: dict,
                                editor_email: str = '', latest_data: dict = None) -> bool:
-    """나눠 내는 공사 부담자 설정으로 총액 2 가 바뀌면 경영지원(황샛별)에게 DM (2026-10-21).
+    """나눠 내는 공사 부담자 설정으로 총액 2 가 바뀌면 경영지원(정산 승인자)에게 DM (2026-10-21).
 
     '현금 · 부가세 없음' 부담자 몫엔 부가세를 붙이지 않아 총액 2 가 시스템으로 바뀐다(매니저도 설정 가능 →
     사용자 결정: 누구나 + 경영지원 알림). notify_amount_edit_to_settlement 와 같은 DM 경로·본인 편집 제외.
     """
     if not old_total2 or int(old_total2) == int(new_total2):
         return False
-    from dashboard.services.settlement_checkers import checker_ids, checker_emails
-    if editor_email and editor_email.strip().lower() in checker_emails():
+    from dashboard.services.settlement_checkers import checkers
+    _me = (editor_email or '').strip().lower()
+    _to = [cid for cid, em in checkers() if not (_me and em == _me)]   # 편집한 승인자 본인만 빼고
+    if not _to:
         return False
     token = os.getenv('SLACK_BOT_TOKEN', '').strip()
     if not token:
@@ -667,7 +672,7 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
         from slack_sdk import WebClient
         dm = WebClient(token=token)
         sent = 0
-        for checker_id in checker_ids():
+        for checker_id in _to:
             im = dm.conversations_open(users=checker_id)
             dm_ch = ((im.get('channel') or {}) or {}).get('id')
             if not dm_ch:

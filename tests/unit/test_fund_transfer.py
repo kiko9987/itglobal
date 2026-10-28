@@ -249,9 +249,9 @@ def test_reply_prompts_button_regardless_of_wording(monkeypatch):
     assert 'G4125-YM' in blocks[0]['text']['text'] and not c.posted               # 아직 기록 안 함
     # 경영지원이 아니면 기존 안내 경로(False)
     assert sb._prompt_fund_move_on_reply(_SlackC(), 'CH', dict(ev, user='U_OTHER')) is False
-    # 후임 MY(이미영, 2026-10-28~)도 같은 권한
-    assert 'U0CCV2M1V36' in sb._SETTLEMENT_CHECKER_IDS
-    assert sb._prompt_fund_move_on_reply(_SlackC(), 'CH', dict(ev, user='U0CCV2M1V36')) is True
+    # JW(박정우, 2026-10-29~)도 같은 권한, 퇴사한 MY(이미영)는 없음
+    assert 'U051ENK8AAY' in sb._SETTLEMENT_CHECKER_IDS and 'U0CCV2M1V36' not in sb._SETTLEMENT_CHECKER_IDS
+    assert sb._prompt_fund_move_on_reply(_SlackC(), 'CH', dict(ev, user='U051ENK8AAY')) is True
 
 
 def test_reply_without_pending_gets_old_nudge(monkeypatch):

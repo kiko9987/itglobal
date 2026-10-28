@@ -105,26 +105,43 @@ def test_system_autorecord_skipped(monkeypatch):
     assert _FakeWeb.posted == []
 
 
-def test_all_checkers_get_dm_and_any_checker_edit_skipped(monkeypatch):
-    """경영지원 여러 명(2026-10-28 SB+MY) — 전원에게 DM, 누구 본인 편집이든 skip."""
+def test_all_checkers_get_dm_and_only_editor_skipped(monkeypatch):
+    """승인자 여러 명 — 전원에게 DM, 승인자 본인이 편집하면 그 사람 DM 만 빠짐 (10-29 JW·YG 승인자 추가)."""
     _setup(monkeypatch)
-    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_ID', 'U_SB, U_MY')
-    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_EMAIL', 'sb@itg-aircon.com,my@itg-aircon.com')
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_ID', 'U_SB, U_JW')
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_EMAIL', 'sb@itg-aircon.com,jw@itg-aircon.com')
     assert psn.notify_amount_edit_to_settlement(
         'G3805-YG', _amt_change(), editor_email='kiko@itg-aircon.com') is True
-    assert _FakeWeb.opened == ['U_SB', 'U_MY'] and len(_FakeWeb.posted) == 2
-    _FakeWeb.posted = []
+    assert _FakeWeb.opened == ['U_SB', 'U_JW'] and len(_FakeWeb.posted) == 2
+    _FakeWeb.posted, _FakeWeb.opened = [], []
     assert psn.notify_amount_edit_to_settlement(
-        'G3805-YG', _amt_change(), editor_email='MY@itg-aircon.com') is False
-    assert _FakeWeb.posted == []
+        'G3805-YG', _amt_change(), editor_email='JW@itg-aircon.com') is True
+    assert _FakeWeb.opened == ['U_SB'] and len(_FakeWeb.posted) == 1
 
 
-def test_default_checkers_include_sb_and_my(monkeypatch):
+def test_total2_change_skips_only_editor(monkeypatch):
+    _setup(monkeypatch)
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_ID', 'U_SB,U_YG')
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_EMAIL', 'sb@itg-aircon.com,yg@itg-aircon.com')
+    assert psn.notify_total2_payer_change('G3805-YG', 11000000, 10500000, {}, editor_email='yg@itg-aircon.com') is True
+    assert _FakeWeb.opened == ['U_SB']
+
+
+def test_env_lists_mismatched_skip_nobody(monkeypatch):
+    from dashboard.services import settlement_checkers as sc
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_ID', 'U_A,U_B')
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_EMAIL', 'a@itg-aircon.com')
+    assert sc.checkers() == [('U_A', ''), ('U_B', '')]
+
+
+def test_default_checkers_sb_kiko_jw_yg(monkeypatch):
     from dashboard.services import settlement_checkers as sc
     monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_ID', raising=False)
     monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_EMAIL', raising=False)
-    assert sc.checker_ids() == ('U0BHC2JV7U5', 'U0CCV2M1V36')
-    assert sc.checker_emails() == {'sb@itg-aircon.com', 'my@itg-aircon.com'}
+    assert sc.checker_ids() == ('U0BHC2JV7U5', 'U04UL2ZLJAX', 'U051ENK8AAY', 'U050XNG5VBR')
+    assert sc.checker_emails() == {'sb@itg-aircon.com', 'kiko@itg-aircon.com',
+                                   'jw@itg-aircon.com', 'yg@itg-aircon.com'}
+    assert 'U0CCV2M1V36' not in sc.checker_ids()   # 이미영 10-29 퇴사
 
 
 def test_amount_unchanged_value_skipped(monkeypatch):

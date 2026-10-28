@@ -38,9 +38,15 @@ def test_outstanding_under_two_won_is_zero():
     assert _calculate_outstanding_amount(row2) == 334
 
 
-def test_as_manager_exclude_follows_settlement_list():
-    from dashboard.blueprints.slack_bot import _AS_MANAGER_EXCLUDE
-    assert {'kiko', 'sb', 'my'} <= _AS_MANAGER_EXCLUDE
+def test_as_manager_options_keep_sales_approvers(monkeypatch):
+    """A/S 담당자 목록 — 비영업(황샛별·이미영)·KiKO 는 빠지고, 정산 승인자가 된 JW·YG 는 남는다(10-29)."""
+    import dashboard.blueprints.slack_bot as sb
+    import dashboard.utils.user_database as udb
+    users = [{'email': f'{l}@itg-aircon.com', 'name': n} for l, n in
+             [('sb', '황샛별'), ('my', '이미영'), ('kiko', '고광일'), ('jw', '박정우'), ('yg', '박용구')]]
+    monkeypatch.setattr(udb, 'UserDatabase', lambda: type('D', (), {'get_all_users': lambda self: users})())
+    vals = {o['value'] for o in sb._active_manager_options()}
+    assert vals == {'jw@itg-aircon.com', 'yg@itg-aircon.com'}
 
 
 class _C:

@@ -4692,7 +4692,7 @@ def _register_handlers(app):
 # 정산 처리 완료 = 체크 리액션 → 자동 고정 해제 (2026-07-28)
 # 사용자 요구: ✅(white_check_mark)만, 경영지원이 눌렀을 때만.
 _SETTLE_DONE_REACTIONS = {'white_check_mark'}  # ✅ 만
-# 경영지원 Slack ID 들 — 황샛별 + 이미영(2026-10-28~, 인수인계). 명단은 settlement_checkers 한곳.
+# 정산 승인자 Slack ID 들 — 황샛별 + KiKO·JW·YG(2026-10-29~). 명단은 settlement_checkers 한곳.
 from dashboard.services.settlement_checkers import checker_ids as _settlement_checker_ids
 _SETTLEMENT_CHECKER_IDS = _settlement_checker_ids()
 
@@ -5551,21 +5551,22 @@ def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dic
     return (ch, ts)
 
 
-# A/S 담당자 드롭다운 제외 대상 — 경영지원팀 (영업 아님). email localpart 소문자.
-#   경영지원 명단(settlement_checkers)을 따라감 — 10-28 이미영(MY) 합류 때 PM 에서만 빠지고 여기선 나왔음
-from dashboard.services.settlement_checkers import checker_emails as _checker_emails
-_AS_MANAGER_EXCLUDE = {'kiko'} | {e.split('@')[0] for e in _checker_emails()}
+# A/S 담당자 드롭다운 제외 대상 — 영업 아닌 사람. email localpart 소문자 + 이름은 staff_directory 비영업 명단.
+#   정산 승인 명단(settlement_checkers)은 안 씀 — 10-29 JW·YG 도 승인자가 돼 거기 따르면 영업이 목록에서 빠짐.
+_AS_MANAGER_EXCLUDE = {'kiko'}
 
 
 def _active_manager_options() -> list:
     """A/S 수동 등록용 담당자(영업) static_select 옵션 — 활성 영업 인원만.
 
-    users.db 에서 퇴사자(resigned*)·테스트(@example.com)·경영지원팀(_AS_MANAGER_EXCLUDE) 제외.
+    users.db 에서 퇴사자(resigned*)·테스트(@example.com)·KiKO·비영업(staff_directory) 제외.
     value=email. 2026-07-27 코드 이전 공사 A/S 등록 시 담당자 직접 지정용.
     """
     opts: list = []
     try:
         from dashboard.utils.user_database import UserDatabase
+        from dashboard.services.staff_directory import non_sales_owners
+        _non_sales = set(non_sales_owners())
         db = UserDatabase()
         rows = []
         for u in db.get_all_users():
@@ -5576,7 +5577,7 @@ def _active_manager_options() -> list:
             local = email.split('@')[0].strip()
             if local.lower().startswith('resigned') or email.lower().endswith('@example.com'):
                 continue
-            if local.lower() in _AS_MANAGER_EXCLUDE:
+            if local.lower() in _AS_MANAGER_EXCLUDE or name in _non_sales:
                 continue
             ini = local.upper()
             if ini == 'KIKO':
