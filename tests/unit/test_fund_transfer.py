@@ -287,3 +287,29 @@ def test_no_move_button_records_once(monkeypatch):
 #   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
 import pytest as _pytest  # noqa: E402
 pytestmark = _pytest.mark.usefixtures('sheet_layout_45')
+
+
+# ── 이체 문자 두 장을 각각 지정한 경우 (2026-10-28 G4166-YM) ──
+_G66_REQ = ('2026/10/27\n하나,10/27, 14:45\n255******31304\n입금2,090,000원\n(주)다원아이디앤\n'
+            '⚠️ 계좌·사업자 불일치: 하나은행 (글로벌그룹) 입금 / 프로젝트 글로벌(G) — 자금 이동 요청 (지정 YM · 확인 SB)')
+_G66_OUT = '2026/10/27\n하나,10/27, 15:26\n255******31304\n출금2,090,000원\n(주)다원아이디앤'
+_G66_IN = '2026/10/27 15:26\n입금 2,090,000원\n(주)다원아이디앤\n452***38801011\n기업'
+
+
+def _pend66(*blocks):
+    return ft.find_pending_in_note('\n\n'.join(blocks), 'G4166-YM', 4167, '계약금', 'U')
+
+
+def test_out_and_in_blocks_close_request():
+    """보낸 법인 출금 + 받은 법인 입금(같은 금액)이 요청 뒤에 따로 기록돼도 이체 완료."""
+    assert _pend66(_G66_REQ, _G66_OUT, _G66_IN) == []
+
+
+def test_out_only_or_different_amount_stays_pending():
+    p = _pend66(_G66_REQ, _G66_OUT)                                   # 출금만(받은 법인 입금 없음)
+    assert len(p) == 1 and '_after' not in p[0] and p[0]['amount'] == 2090000
+    assert len(_pend66(_G66_REQ, _G66_OUT, _G66_IN.replace('2,090,000', '1,090,000'))) == 1
+
+
+def test_moves_before_request_do_not_count():
+    assert len(_pend66(_G66_OUT, _G66_IN, _G66_REQ)) == 1                # 요청보다 앞선 출금·입금은 짝 아님

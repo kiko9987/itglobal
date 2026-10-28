@@ -64,6 +64,7 @@ def find_pending_in_note(note: str, code: str, row: int, stage: str, col: str) -
     from dashboard.services.payment_sync import _TRANSFER_RE, _parse_memo_block
     to = (code or '')[:1].upper()
     open_reqs: List[Dict] = []
+    moves: List[tuple] = []     # 요청 뒤에 따로 기록된 출금(-)·입금(+) 블록 (법인 코드, 금액)
     for blk in _blocks(note):
         req_line = next((l.strip() for l in blk.splitlines() if _REQ_LINE_RE.match(l)), None)
         if req_line:
@@ -81,6 +82,7 @@ def find_pending_in_note(note: str, code: str, row: int, stage: str, col: str) -
                     'from': frm, 'to': to,
                     'date': f"{yr}/{p.get('date_md')}" if len(yr) == 4 else (p.get('date_md') or ''),
                     'req_line': req_line,
+                    '_after': len(moves),
                 })
             continue
         m = _TRANSFER_RE.search(blk)
@@ -90,7 +92,26 @@ def find_pending_in_note(note: str, code: str, row: int, stage: str, col: str) -
                 if (r['from'], r['to']) == d:
                     open_reqs.pop(i)
                     break
-    return open_reqs
+            continue
+        p = _parse_memo_block(blk) or {}
+        ent = (p.get('acct_code') or _BANK_CODE.get(p.get('bank') or '', '')).upper()
+        if ent and int(p.get('amount') or 0):
+            moves.append((ent, int(p.get('amount') or 0)))
+    # '법인 간 이체' 버튼 대신 이체 문자 두 장(보낸 법인 출금 + 받은 법인 입금, 같은 금액)을 각각 이 칸에
+    #   지정한 경우도 이체 완료 (2026-10-28 G4166-YM: 하나 출금·기업 입금 15:26 기록됐는데 정산 알림에 계속 남음)
+    used = set()
+    still = []
+    for r in open_reqs:
+        later = [(i, e, a) for i, (e, a) in enumerate(moves) if i >= r['_after'] and i not in used]
+        out = next((i for i, e, a in later if e == r['from'] and a == -r['amount']), None)
+        inn = next((i for i, e, a in later if e == r['to'] and a == r['amount']), None)
+        if out is not None and inn is not None:
+            used.update((out, inn))
+            continue
+        still.append(r)
+    for r in still:
+        r.pop('_after', None)
+    return still
 
 
 def _scan_sheet() -> List[Dict]:
