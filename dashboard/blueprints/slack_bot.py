@@ -500,7 +500,7 @@ def _register_payment_handlers(app):
             sel = (state.get("project", {})
                         .get("payment_intake_project", {})
                         .get("selected_option"))
-            project_code = (sel or {}).get("value", "").strip() if sel else ""
+            project_code = _cur_code((sel or {}).get("value", "")) if sel else ""
             stage = (_v(state, "stage") or "").strip()
             installment = (_v(state, "installment") or "").strip()
             errors = {}
@@ -1681,7 +1681,7 @@ def _split_state_to_rows(state: dict, rows: int) -> list:
               .get(f"split_inst_{i}") or {}).get("selected_option")
         out.append({
             "idx": i,
-            "project_code": (po or {}).get("value", "").strip() if po else "",
+            "project_code": _cur_code((po or {}).get("value", "")) if po else "",
             "project_option": po,
             "stage": (so or {}).get("value", "").strip() if so else "",
             "amount": _parse_won(av),
@@ -1911,6 +1911,7 @@ def _prompt_fund_move_on_reply(client, channel, event) -> bool:
 def _do_fund_move_no_move(client, user, channel, v, response_url=''):
     """[이동 없이 처리] — 그 요청이 아직 대기면 메모에 '이동 없음' 기록, 스레드에 남기고 버튼 안내를 바꿈."""
     from dashboard.services import fund_transfer as ft
+    v = dict(v or {}, code=_cur_code((v or {}).get('code')))
     try:
         r = next((x for x in ft.pending_requests(force=True)
                   if x['code'] == v.get('code') and x['stage'] == v.get('stage')
@@ -1988,6 +1989,7 @@ def _build_intake_transfer_done_blocks(req, amount, memo, checker):
 def _do_intake_transfer(client, user, channel, ts, intake_id, code, stage):
     """법인 간 이체 처리 — 원 입금 메모에 매출이동 줄 + 이 입금 카드는 기록 없이 닫기 (멱등·락)."""
     from dashboard.services import fund_transfer as ft
+    code = _cur_code(code)
     rc = None
     lock = f"intake_transfer_lock:{intake_id}"
     try:
@@ -2071,6 +2073,7 @@ def _do_refund_record(client, user, channel, ts, oid):
             _intake_ephemeral(client, channel, user, ":warning: 반환 후보 정보가 만료됐습니다. 시트에 직접 기록해주세요.")
             return
         o, c0 = data['outflow'], data['cand']
+        c0['code'] = _cur_code(c0.get('code'))
         # 누른 즉시 '⏳ 반환 기록 중' — 끝날 때까지(수 초) 카드가 그대로라 느려 보이던 것 + 재클릭 차단
         #   (2026-10-15 R4101). 실패하면 finally 에서 원래 후보 카드로 되돌림.
         if channel and ts:
@@ -2201,12 +2204,51 @@ def _intake_ephemeral(client, channel, user_id, text):
         pass
 
 
+def _cur_code(code) -> str:
+    """버튼 값·모달 메타·Redis 값에서 꺼낸 공사 코드 → 지금 코드.
+
+    PM 에서 담당자·사업자를 바꾸면 코드가 바뀌는데(번호는 그대로) 이미 올라간 카드 버튼·열린 창·
+    입금 지정 기록은 옛 코드를 들고 있어 '공사를 찾지 못했습니다'·조용한 무시가 났다 (2026-10-28).
+    코드 변경 때 남긴 연결(project_code_alias)을 따라감. '-'·빈 값은 그대로."""
+    code = (code or '').strip()
+    if not code or code == '-':
+        return code
+    from dashboard.services.project_rekey import resolve_project_code
+    return resolve_project_code(code)
+
+
+def _intake_fix_codes(d: dict) -> dict:
+    """입금 지정 기록(designation·splits)의 옛 코드를 지금 코드로 — 확인·재지정·분할 창 미리 채움 공용."""
+    des = (d or {}).get("designation") or {}
+
+    def _fix(x):
+        old = (x.get("project_code") or "").strip()
+        new = _cur_code(old)
+        if not old or new == old:
+            return
+        x["project_code"] = new
+        opt = x.get("project_option")
+        if isinstance(opt, dict):
+            if opt.get("value") == old:
+                opt["value"] = new
+            t = opt.get("text")
+            if isinstance(t, dict) and isinstance(t.get("text"), str):
+                t["text"] = t["text"].replace(old, new)
+
+    if isinstance(des, dict):
+        _fix(des)
+        for sp in des.get("splits") or []:
+            if isinstance(sp, dict):
+                _fix(sp)
+    return d
+
+
 def _load_intake(intake_id):
-    """Redis 인입 레코드 로드 (text/preview/designation)."""
+    """Redis 인입 레코드 로드 (text/preview/designation). 지정된 공사 코드는 지금 코드로."""
     try:
         from dashboard.utils.redis_client import get_redis_client
         raw = get_redis_client().redis.get(f"sms_intake:{intake_id}")
-        return json.loads(raw) if raw else {}
+        return _intake_fix_codes(json.loads(raw)) if raw else {}
     except Exception as exc:
         logger.warning(f"[SLACK/수금봇] 인입 로드 실패: {exc}")
         return {}
@@ -3742,7 +3784,7 @@ def _register_project_handlers(app):
                 meta = json.loads(view.get("private_metadata") or "{}")
                 picked = (((body.get("actions") or [{}])[0].get("selected_option")) or {}).get("value") or ''
                 p = (meta.get("p") or ['', '', '', '']) + ['', '', '', '']
-                _build_and_update_invoice_modal(client, view.get("id"), meta.get("code", "-"),
+                _build_and_update_invoice_modal(client, view.get("id"), _cur_code(meta.get("code", "-")) or '-',
                                                 p[0], p[1], p[2], p[3], payer_stage=picked)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 부담자 선택 재렌더 실패: {exc}", exc_info=True)
@@ -13521,7 +13563,7 @@ def _open_project_edit_modal(client, body) -> None:
     from dashboard.services.project_service import get_project_records
 
     trigger_id = body["trigger_id"]
-    code = (body["actions"][0].get("value") or '').strip()
+    code = _cur_code(body["actions"][0].get("value"))
     channel = body.get("channel", {}).get("id", "") or body.get("container", {}).get("channel_id", "")
     message_ts = body.get("message", {}).get("ts", "") or body.get("container", {}).get("message_ts", "")
 
@@ -13721,7 +13763,7 @@ def _process_project_edit_submission(client, body, view) -> None:
     from dashboard.services.project_slack_actions import perform_edit
 
     metadata = json.loads(view.get("private_metadata") or "{}")
-    code = metadata.get("code", "")
+    code = _cur_code(metadata.get("code", ""))
     if not code:
         return
 
@@ -14137,7 +14179,7 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
         rc.delete(f'{key}:proc')
         return True
 
-    code = data.get('code', '')
+    code = _cur_code(data.get('code', ''))
     requester_id = data.get('requester_id', '')
     requester_ini = data.get('requester_initial', '-')
     checker_ini = _slack_user_to_initial(client, checker_user_id) or '-'
@@ -14442,7 +14484,7 @@ def _process_project_cancel(client, body) -> None:
     """
     from dashboard.services.project_slack_actions import perform_cancel
 
-    code = (body["actions"][0].get("value") or '').strip()
+    code = _cur_code(body["actions"][0].get("value"))
     channel = body["channel"]["id"]
     message_ts = body["message"]["ts"]
     user_id = body["user"]["id"]
@@ -14471,7 +14513,7 @@ def _process_project_cancel(client, body) -> None:
 
 def _open_project_cancel_reason_modal(client, body) -> None:
     """[❌ 공사 취소] → 취소 사유 입력 모달 (2026-09-16). submit 시 #영업_관리 승인 요청."""
-    code = (body["actions"][0].get("value") or '').strip()
+    code = _cur_code(body["actions"][0].get("value"))
     channel = body["channel"]["id"]
     message_ts = body["message"]["ts"]
     trigger_id = body["trigger_id"]
@@ -14577,7 +14619,7 @@ def _process_project_cancel_request(client, body, view) -> None:
     """취소 사유 모달 제출 → **취소 상태 즉시 반영**(카드 회색+사유) + #영업_관리 '매출 0원 반영 요청'
     카드(샛별 ✅ 대기). 매출0 은 샛별 ✅ 후 _maybe_apply_cancel_money_request 에서 (2026-09-16)."""
     metadata = json.loads(view.get("private_metadata") or "{}")
-    code = (metadata.get("code") or '').strip()
+    code = _cur_code(metadata.get("code"))
     orig_channel = metadata.get("channel", "")
     orig_ts = metadata.get("message_ts", "")
     user_id = body["user"]["id"]
@@ -14638,7 +14680,7 @@ def _maybe_apply_cancel_money_request(client, channel: str, ts: str, checker_use
         rc.delete(f'{key}:proc')
         return True
 
-    code = data.get('code', '')
+    code = _cur_code(data.get('code', ''))
     requester_id = data.get('requester_id', '')
     requester_ini = data.get('requester_initial', '-')
     checker_ini = _slack_user_to_initial(client, checker_user_id) or '-'
@@ -14854,7 +14896,7 @@ def _process_project_uncancel(client, body) -> None:
     """[↩️ 취소 되돌리기] → perform_uncancel → 카드 원복 + 되돌림 댓글 (공용)."""
     from dashboard.services.project_slack_actions import perform_uncancel
 
-    code = (body["actions"][0].get("value") or '').strip()
+    code = _cur_code(body["actions"][0].get("value"))
     channel = body["channel"]["id"]
     message_ts = body["message"]["ts"]
     user_id = body["user"]["id"]
@@ -15948,7 +15990,7 @@ def _open_invoice_modal(client, body) -> None:
     except Exception:
         payload = {}
 
-    code = payload.get('code', '') or '-'
+    code = _cur_code(payload.get('code', '')) or '-'
     p_biz = payload.get('biz', '') or ''
     p_addr = payload.get('addr', '') or ''
     p_amt = payload.get('amt', '') or ''
@@ -16014,7 +16056,7 @@ def _process_invoice_submit_bg(client, body, view) -> None:
     """
     try:
         metadata = json.loads(view.get("private_metadata") or "{}")
-        code = (metadata.get("code", "") or "").strip()
+        code = _cur_code(metadata.get("code", ""))
     except Exception:
         code = ''
 
@@ -16133,7 +16175,7 @@ def _invoice_submit_amount_check(view, timeout=1.5) -> str:
         vat = ((values.get('vat') or {}).get('selected_option') or {}).get('value') or 'sep'
         has_rep = bool((values.get('replace') or {}).get('selected_options') or [])
         stage = ((values.get('stages') or {}).get('selected_option') or {}).get('value') or None
-        code = meta.get("code", "-") or '-'
+        code = _cur_code(meta.get("code", "-")) or '-'
     except Exception:
         return ''
     if not amt:
@@ -16175,7 +16217,7 @@ def _process_invoice_submission(client, body, view) -> None:
     파싱만 담당. dedup 은 _process_invoice_submit_bg 진입부에서 이미 확인했으므로 여기선 skip.
     """
     metadata = json.loads(view.get("private_metadata") or "{}")
-    code = metadata.get("code", "-") or '-'
+    code = _cur_code(metadata.get("code", "-")) or '-'
 
     # 나눠 내는 공사 창은 블록 이름에 칸 접미사('__c' 등)가 붙고 단계 선택 액션 이름이 달라 공용 해석기로 읽는다
     values = _invoice_view_values(view)

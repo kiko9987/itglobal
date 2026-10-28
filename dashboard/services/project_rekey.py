@@ -24,14 +24,61 @@ def _token_re(code: str):
     return re.compile(rf'(?<![A-Za-z0-9\-]){re.escape(code)}(?![A-Za-z0-9\-])')
 
 
+_ALIAS = 'project_code_alias'   # hash 옛 코드 → 새 코드 (영구) — 옛 슬랙 카드 버튼이 들고 있는 코드를 새 코드로
+
+
+def _rc(rc=None):
+    if rc is None:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    return rc
+
+
+def record_code_alias(old_code: str, new_code: str, rc=None) -> None:
+    """코드 변경 기록. 되돌린 경우(A→B→A)는 B→A 만 남기고 A 의 연결은 지움(A 가 다시 살아 있는 코드)."""
+    rc = _rc(rc)
+    rc.hset(_ALIAS, old_code, new_code)
+    rc.hdel(_ALIAS, new_code)
+
+
+def resolve_project_code(code: str, rc=None) -> str:
+    """버튼·모달·Redis 값에서 꺼낸 공사 코드 → 지금 코드 (2026-10-28).
+
+    PM 에서 담당자·사업자를 바꾸면 코드가 바뀌는데(번호는 그대로), 이미 올라간 카드 버튼 값·모달 메타·
+    Redis 값(입금 지정·반환 후보 등)은 옛 코드를 들고 있어 누르면 '공사를 찾지 못했습니다'·조용한 무시가 났다.
+    연결이 없거나 Redis 장애면 받은 코드 그대로."""
+    code = (code or '').strip()
+    if not code:
+        return code
+    try:
+        rc = _rc(rc)
+        seen = {code}
+        cur = code
+        for _ in range(5):
+            nxt = rc.hget(_ALIAS, cur)
+            nxt = nxt.decode() if isinstance(nxt, bytes) else nxt
+            if not nxt or nxt in seen:
+                break
+            seen.add(nxt)
+            cur = nxt
+        if cur != code:
+            logger.info(f'[REKEY] 옛 코드 {code} → 지금 코드 {cur}')
+        return cur
+    except Exception as exc:
+        logger.debug(f'[REKEY] 코드 연결 조회 실패({code}): {exc}')
+        return code
+
+
 def rekey_project_redis(old_code: str, new_code: str, rc=None) -> List[Tuple[str, str]]:
     """old_code 가 한 토큰으로 들어간 Redis 키를 new_code 로 이름 바꿈. Returns [(옛 키, 새 키)]."""
     old_code, new_code = (old_code or '').strip(), (new_code or '').strip()
     if not old_code or not new_code or old_code == new_code:
         return []
-    if rc is None:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
+    rc = _rc(rc)
+    try:
+        record_code_alias(old_code, new_code, rc)
+    except Exception as exc:
+        logger.warning(f'[REKEY] 코드 연결 기록 실패 {old_code}→{new_code}: {exc}')
     pat = _token_re(old_code)
     moved = []
     for k in rc.scan_iter(match=f'*{old_code}*', count=1000):
