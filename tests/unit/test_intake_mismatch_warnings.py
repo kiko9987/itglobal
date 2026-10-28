@@ -144,9 +144,8 @@ def test_notify_sends_once_per_intake(monkeypatch):
     dep = {'partner': '대연이엔지주식회', 'date_md': '09/30'}
     sb._notify_intake_warns(_FakeClient(), 'iid1', 'C1', '1.1', items, 'U1', True, deposit=dep)
     sb._notify_intake_warns(_FakeClient(), 'iid1', 'C1', '1.1', items, 'U1', True, deposit=dep)  # 재호출
-    assert len(dm.sent) == 1
+    assert [m['channel'] for m in dm.sent] == list(sb._SETTLEMENT_CHECKER_IDS)   # 경영지원 전원에 1회씩
     txt = dm.sent[0]['text']
-    assert dm.sent[0]['channel'] == sb._SETTLEMENT_CHECKER_ID
     assert '*자금 이동 요청*  `G4139-MJ`' in txt
     assert 'MJ 님이 경고를 확인하고 입금을 지정했습니다. 법인 간 이체로 자금을 옮겨 주세요.' in txt
     assert '프로젝트 : G4139-MJ (글로벌) · 잔금' in txt

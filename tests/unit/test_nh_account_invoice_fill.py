@@ -162,7 +162,7 @@ def test_refund_record_restores_card_on_failure(monkeypatch):
     monkeypatch.setattr(sb, '_intake_ephemeral', lambda *a, **k: None)
     updates = []
     client = type('Cl', (), {'chat_update': lambda self, **k: updates.append(k)})()
-    sb._do_refund_record(client, sb._SETTLEMENT_CHECKER_ID, 'C1', '1.1', 'o1')
+    sb._do_refund_record(client, sb._SETTLEMENT_CHECKER_IDS[0], 'C1', '1.1', 'o1')
     assert '반환 기록 중' in updates[0]['text']
     assert updates[-1]['blocks'][1]['elements'][0]['action_id'] == 'payment_refund_record'   # 버튼 복원
 

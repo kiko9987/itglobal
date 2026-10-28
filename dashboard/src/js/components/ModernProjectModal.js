@@ -1015,7 +1015,7 @@ export default class ModernProjectModal {
     // 담당자 목록 (제외할 인원 필터링)
     // - excludedOwners: 비영업 고정 인원(하드코딩)
     // - inactiveOwnerSet: 사용자 관리에서 비활성/퇴사 처리된 인원 (DB, refreshInactiveOwners로 로드)
-    const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '황해승'];
+    const excludedOwners = ['김단이', '심장원', '아이티', '이근혁', '황샛별', '이미영', '황해승'];
     const inactiveSet = this.inactiveOwnerSet || new Set();
     const owners = data.options?.owners || data.owners || [];
     const filteredOwners = owners.filter(owner => !excludedOwners.includes(owner) && !inactiveSet.has(owner));

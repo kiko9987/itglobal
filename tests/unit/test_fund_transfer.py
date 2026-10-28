@@ -239,7 +239,7 @@ def test_reply_prompts_button_regardless_of_wording(monkeypatch):
     monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
     monkeypatch.setattr(sb.threading, 'Thread', _Now)
     c = _SlackC()
-    ev = {'user': sb._SETTLEMENT_CHECKER_ID, 'text': '그룹으로 전액 발행했어요', 'thread_ts': '1.0', 'ts': '2.0'}
+    ev = {'user': sb._SETTLEMENT_CHECKER_IDS[0], 'text': '그룹으로 전액 발행했어요', 'thread_ts': '1.0', 'ts': '2.0'}
     assert sb._prompt_fund_move_on_reply(c, 'CH', ev) is True
     blocks = c.eph[0]['blocks']
     btn = blocks[1]['elements'][0]
@@ -249,6 +249,9 @@ def test_reply_prompts_button_regardless_of_wording(monkeypatch):
     assert 'G4125-YM' in blocks[0]['text']['text'] and not c.posted               # 아직 기록 안 함
     # 경영지원이 아니면 기존 안내 경로(False)
     assert sb._prompt_fund_move_on_reply(_SlackC(), 'CH', dict(ev, user='U_OTHER')) is False
+    # 후임 MY(이미영, 2026-10-28~)도 같은 권한
+    assert 'U0CCV2M1V36' in sb._SETTLEMENT_CHECKER_IDS
+    assert sb._prompt_fund_move_on_reply(_SlackC(), 'CH', dict(ev, user='U0CCV2M1V36')) is True
 
 
 def test_reply_without_pending_gets_old_nudge(monkeypatch):
@@ -258,7 +261,7 @@ def test_reply_without_pending_gets_old_nudge(monkeypatch):
     monkeypatch.setattr(sb.threading, 'Thread', _Now)
     monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': type('R', (), {'set': lambda *a, **k: True})()})())
     c = _SlackC()
-    ev = {'user': sb._SETTLEMENT_CHECKER_ID, 'text': '확인했습니다', 'thread_ts': '1.0', 'ts': '2.0'}
+    ev = {'user': sb._SETTLEMENT_CHECKER_IDS[0], 'text': '확인했습니다', 'thread_ts': '1.0', 'ts': '2.0'}
     assert sb._prompt_fund_move_on_reply(c, 'CH', ev) is True
     assert c.eph[0]['text'] == sb._INTAKE_REPLY_NUDGE and 'blocks' not in c.eph[0]
 

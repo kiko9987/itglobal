@@ -403,11 +403,11 @@ def _register_payment_handlers(app):
         channel = (body.get('channel') or {}).get('id', '')
         ts = (body.get('message') or {}).get('ts', '')
         # 정산 카드 삭제는 경영지원(황샛별)만 — 정산 핀 ✅·금액 게이트와 동일 사상.
-        if user != _SETTLEMENT_CHECKER_ID:
+        if user not in _SETTLEMENT_CHECKER_IDS:
             try:
                 client.chat_postEphemeral(
                     channel=channel, user=user,
-                    text=':lock: 정산 카드 삭제는 경영지원(황샛별)만 가능합니다.',
+                    text=':lock: 정산 카드 삭제는 경영지원만 가능합니다.',
                 )
             except Exception:
                 pass
@@ -639,7 +639,7 @@ def _register_payment_handlers(app):
         ts = (body.get("message") or {}).get("ts", "")
         intake_id = (body.get("actions") or [{}])[0].get("value", "")
         # 시트 기록 확인은 경영지원(황샛별)만 — 정산 ✅·금액 게이트와 동일 사상.
-        if user != _SETTLEMENT_CHECKER_ID:
+        if user not in _SETTLEMENT_CHECKER_IDS:
             _intake_ephemeral(client, channel, user,
                               ":lock: 시트 기록 확인은 경영지원만 가능합니다.")
             return
@@ -1097,7 +1097,7 @@ def _register_payment_handlers(app):
     def handle_payment_intake_transfer(ack, body, client):
         ack()
         user, channel, ts = _transfer_ctx(body)
-        if user != _SETTLEMENT_CHECKER_ID:
+        if user not in _SETTLEMENT_CHECKER_IDS:
             _intake_ephemeral(client, channel, user, "🔒 법인 간 이체 처리는 경영지원만 할 수 있습니다.")
             return
         try:
@@ -1112,7 +1112,7 @@ def _register_payment_handlers(app):
         """카드 스레드 댓글에 뜬 [이동 없이 처리] — 자금 이동 요청을 이체 없이 닫음 (2026-10-26 G3982)."""
         ack()
         user, channel, _ts = _transfer_ctx(body)
-        if user != _SETTLEMENT_CHECKER_ID:
+        if user not in _SETTLEMENT_CHECKER_IDS:
             _intake_ephemeral(client, channel, user, "🔒 자금 이동 요청 정리는 경영지원만 할 수 있습니다.")
             return
         try:
@@ -1127,7 +1127,7 @@ def _register_payment_handlers(app):
     def handle_payment_refund_record(ack, body, client):
         ack()
         user, channel, ts = _transfer_ctx(body)
-        if user != _SETTLEMENT_CHECKER_ID:
+        if user not in _SETTLEMENT_CHECKER_IDS:
             _intake_ephemeral(client, channel, user, "🔒 반환 기록은 경영지원만 할 수 있습니다.")
             return
         oid = ((body.get("actions") or [{}])[0]).get("value") or ""
@@ -1138,7 +1138,7 @@ def _register_payment_handlers(app):
     def handle_payment_refund_dismiss(ack, body, client):
         ack()
         user, channel, ts = _transfer_ctx(body)
-        if user != _SETTLEMENT_CHECKER_ID:
+        if user not in _SETTLEMENT_CHECKER_IDS:
             _intake_ephemeral(client, channel, user, "🔒 반환 후보 정리는 경영지원만 할 수 있습니다.")
             return
         oid = ((body.get("actions") or [{}])[0]).get("value") or ""
@@ -1149,7 +1149,7 @@ def _register_payment_handlers(app):
     def handle_payment_intake_transfer_pick(ack, body, client):
         ack()
         user, channel, ts = _transfer_ctx(body)
-        if user != _SETTLEMENT_CHECKER_ID:
+        if user not in _SETTLEMENT_CHECKER_IDS:
             _intake_ephemeral(client, channel, user, "🔒 법인 간 이체 처리는 경영지원만 할 수 있습니다.")
             return
         iid = ((body.get("actions") or [{}])[0]).get("value") or ""
@@ -1876,7 +1876,7 @@ def _prompt_fund_move_on_reply(client, channel, event) -> bool:
     (2026-10-26 G3982: SB가 '자금 이동없이 그룹으로 전액발행' 댓글을 달았지만 기록에 안 남아 정산 알림에 계속
     '자금 이동 대기'로 나왔음 — 사람마다 문구가 달라 글자 인식 대신 버튼으로.) 경영지원 댓글이면 True."""
     user = event.get('user', '')
-    if user != _SETTLEMENT_CHECKER_ID:
+    if user not in _SETTLEMENT_CHECKER_IDS:
         return False
     from html import unescape as _unescape
     from dashboard.services import fund_transfer as ft
@@ -2642,7 +2642,8 @@ def _notify_intake_warns(client, intake_id, channel, message_ts, items, by_user,
     try:
         dm = _dm_client()
         if dm:
-            dm.chat_postMessage(channel=_SETTLEMENT_CHECKER_ID, text=text)
+            for _cid in _SETTLEMENT_CHECKER_IDS:
+                dm.chat_postMessage(channel=_cid, text=text)
             logger.info(f"[SLACK/수금봇] 이상 징후 지정 → 경영지원 DM ({intake_id}: "
                         f"{[(c, s) for c, s, _, _ in items]})")
     except Exception as exc:
@@ -4629,10 +4630,11 @@ def _register_handlers(app):
 
 
 # 정산 처리 완료 = 체크 리액션 → 자동 고정 해제 (2026-07-28)
-# 사용자 요구: ✅(white_check_mark)만, 경영지원(황샛별)이 눌렀을 때만.
+# 사용자 요구: ✅(white_check_mark)만, 경영지원이 눌렀을 때만.
 _SETTLE_DONE_REACTIONS = {'white_check_mark'}  # ✅ 만
-# 황샛별 Slack ID (sb@itg-aircon.com). env 로 override 가능.
-_SETTLEMENT_CHECKER_ID = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
+# 경영지원 Slack ID 들 — 황샛별 + 이미영(2026-10-28~, 인수인계). 명단은 settlement_checkers 한곳.
+from dashboard.services.settlement_checkers import checker_ids as _settlement_checker_ids
+_SETTLEMENT_CHECKER_IDS = _settlement_checker_ids()
 
 # ── 공사 금액/부가세 수정 요청 (경영지원 ✅ 반영) ────────────────────────────
 # 금액·부가세는 즉시 반영 대신 #영업_관리 요청 카드 발송 → 황샛별 ✅ 시 시스템이 반영.
@@ -4942,8 +4944,8 @@ def _register_invoice_handlers(app):
             logger.debug(f'[SLACK/정산핀] skip — 채널 불일치 (ch={channel} != inv_ch={inv_ch})')
             return
         # 경영지원(황샛별)이 누른 체크만 인정 — 아무나 ✅ 눌러 해제되면 안 됨.
-        if user != _SETTLEMENT_CHECKER_ID:
-            logger.debug(f'[SLACK/정산핀] skip — 체커 아님 (user={user} != checker={_SETTLEMENT_CHECKER_ID})')
+        if user not in _SETTLEMENT_CHECKER_IDS:
+            logger.debug(f'[SLACK/정산핀] skip — 체커 아님 (user={user} != checker={_SETTLEMENT_CHECKER_IDS})')
             return
 
         def _bg():
@@ -14179,7 +14181,7 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
     if send_dm:
         try:
             dm = _dm_client()
-            if dm and _SETTLEMENT_CHECKER_ID:
+            if dm:
                 biz = (project.get('사업자명') or '-').strip() or '-'
                 addr = (project.get('현장 주소') or '-').strip() or '-'
                 amt_raw = project.get('총액 1', '')
@@ -14188,12 +14190,13 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
                     amt_disp = f'{_a:,}원' if _a else '-'
                 except (ValueError, TypeError):
                     amt_disp = '-'
-                dm.chat_postMessage(
-                    channel=_SETTLEMENT_CHECKER_ID,
-                    text=(f"🚫 *[공사 취소]*  `{code}`\n"
-                          f"🏢 {biz}\n📍 {addr}\n💲 {amt_disp}\n"
-                          f"👤 취소자 : {initial} · {cancel_time}"),
-                    unfurl_links=False, unfurl_media=False)
+                for _cid in _SETTLEMENT_CHECKER_IDS:
+                    dm.chat_postMessage(
+                        channel=_cid,
+                        text=(f"🚫 *[공사 취소]*  `{code}`\n"
+                              f"🏢 {biz}\n📍 {addr}\n💲 {amt_disp}\n"
+                              f"👤 취소자 : {initial} · {cancel_time}"),
+                        unfurl_links=False, unfurl_media=False)
         except Exception as exc:
             logger.warning(f"[SLACK/공사취소] 샛별 DM 실패 ({code}): {exc}")
 
@@ -14252,7 +14255,7 @@ def _open_project_cancel_reason_modal(client, body) -> None:
         "blocks": [
             {"type": "section", "text": {"type": "mrkdwn", "text": (
                 f":warning: *{code}* 공사를 취소 요청합니다.\n"
-                "_경영지원(황샛별) 확인(:white_check_mark:) 후 반영되며, 매출은 0원으로 처리됩니다._")}},
+                "_경영지원 확인(:white_check_mark:) 후 반영되며, 매출은 0원으로 처리됩니다._")}},
             {"type": "input", "block_id": "reason",
              "label": {"type": "plain_text", "text": "취소 사유 (필수)"},
              "hint": {"type": "plain_text", "text": "예: 고객 변심 / 타업체 진행 / 계약 해지"},
@@ -14602,12 +14605,13 @@ def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: st
     if send_dm:
         try:
             dm = _dm_client()
-            if dm and _SETTLEMENT_CHECKER_ID:
+            if dm:
                 biz = ((project or {}).get('사업자명') or '-').strip() or '-'
-                dm.chat_postMessage(
-                    channel=_SETTLEMENT_CHECKER_ID,
-                    text=(f"↩️ *[공사 취소 되돌림]*  `{code}`\n🏢 {biz}\n👤 {initial} · {now}"),
-                    unfurl_links=False, unfurl_media=False)
+                for _cid in _SETTLEMENT_CHECKER_IDS:
+                    dm.chat_postMessage(
+                        channel=_cid,
+                        text=(f"↩️ *[공사 취소 되돌림]*  `{code}`\n🏢 {biz}\n👤 {initial} · {now}"),
+                        unfurl_links=False, unfurl_media=False)
         except Exception as exc:
             logger.warning(f"[SLACK/공사재개] 샛별 DM 실패 ({code}): {exc}")
 

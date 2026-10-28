@@ -105,6 +105,28 @@ def test_system_autorecord_skipped(monkeypatch):
     assert _FakeWeb.posted == []
 
 
+def test_all_checkers_get_dm_and_any_checker_edit_skipped(monkeypatch):
+    """경영지원 여러 명(2026-10-28 SB+MY) — 전원에게 DM, 누구 본인 편집이든 skip."""
+    _setup(monkeypatch)
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_ID', 'U_SB, U_MY')
+    monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_EMAIL', 'sb@itg-aircon.com,my@itg-aircon.com')
+    assert psn.notify_amount_edit_to_settlement(
+        'G3805-YG', _amt_change(), editor_email='kiko@itg-aircon.com') is True
+    assert _FakeWeb.opened == ['U_SB', 'U_MY'] and len(_FakeWeb.posted) == 2
+    _FakeWeb.posted = []
+    assert psn.notify_amount_edit_to_settlement(
+        'G3805-YG', _amt_change(), editor_email='MY@itg-aircon.com') is False
+    assert _FakeWeb.posted == []
+
+
+def test_default_checkers_include_sb_and_my(monkeypatch):
+    from dashboard.services import settlement_checkers as sc
+    monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_ID', raising=False)
+    monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_EMAIL', raising=False)
+    assert sc.checker_ids() == ('U0BHC2JV7U5', 'U0CCV2M1V36')
+    assert sc.checker_emails() == {'sb@itg-aircon.com', 'my@itg-aircon.com'}
+
+
 def test_amount_unchanged_value_skipped(monkeypatch):
     _setup(monkeypatch)
     # 표시 동일(콤마 유무 차이만) → 실질 변화 없음으로 skip

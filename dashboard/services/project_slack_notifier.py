@@ -535,7 +535,7 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
                                      editor_email: str = '',
                                      editor_label: str = '',
                                      latest_data: dict = None) -> bool:
-    """공사 금액(총액 1·부가세)이 경영지원(황샛별)을 거치지 않고 변경되면 샛별에게 별도 DM.
+    """공사 금액(총액 1·부가세)이 경영지원을 거치지 않고 변경되면 경영지원(settlement_checkers)에게 별도 DM.
 
     2026-09-14 신설. 금액 변경이 샛별 승인(#영업_관리 요청 ✅)을 우회하는 두 경로 모두 커버:
       ① PM 직접 편집 — `update_project` 호출부가 `editor_email`(세션 이메일) 전달.
@@ -556,11 +556,9 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     if editor_label and editor_label.startswith('시스템 자동기록'):
         return False
 
-    checker_id = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
-    checker_email = (os.getenv('SLACK_SETTLEMENT_CHECKER_EMAIL', '').strip()
-                     or 'sb@itg-aircon.com').lower()
+    from dashboard.services.settlement_checkers import checker_ids, checker_emails
     # 경영지원 본인이 편집한 경우(요청 ✅ 반영 포함) 자기 알림 방지 — 이메일 아는 PM 경로만
-    if editor_email and editor_email.strip().lower() == checker_email:
+    if editor_email and editor_email.strip().lower() in checker_emails():
         return False
 
     token = os.getenv('SLACK_BOT_TOKEN', '').strip()  # DM 은 im:write 있는 메인봇
@@ -594,7 +592,7 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
             f'→ {_fmt_field(f, c.get("new_value"))}'
         )
     lines.append('')
-    lines.append('_샛별님을 거치지 않은 공사 금액 변경입니다. 회계·수금 반영을 확인해 주세요._')
+    lines.append('_경영지원을 거치지 않은 공사 금액 변경입니다. 회계·수금 반영을 확인해 주세요._')
     if permalink:
         lines.append(f'<{permalink}|공사 확정 카드 보기>')
     text = '\n'.join(lines)
@@ -602,12 +600,17 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     try:
         from slack_sdk import WebClient
         dm = WebClient(token=token)
-        im = dm.conversations_open(users=checker_id)
-        dm_ch = ((im.get('channel') or {}) or {}).get('id')
-        if not dm_ch:
-            logger.warning(f'[PROJECT/SLACK/금액DM] IM 개설 실패 ({code})')
+        sent = 0
+        for checker_id in checker_ids():
+            im = dm.conversations_open(users=checker_id)
+            dm_ch = ((im.get('channel') or {}) or {}).get('id')
+            if not dm_ch:
+                logger.warning(f'[PROJECT/SLACK/금액DM] IM 개설 실패 ({code}, {checker_id})')
+                continue
+            dm.chat_postMessage(channel=dm_ch, text=text, unfurl_links=False)
+            sent += 1
+        if not sent:
             return False
-        dm.chat_postMessage(channel=dm_ch, text=text, unfurl_links=False)
         logger.info(f'[PROJECT/SLACK/금액DM] 경영지원 알림 발송: {code} ({len(changes)}필드)')
         return True
     except Exception as exc:
@@ -624,10 +627,8 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
     """
     if not old_total2 or int(old_total2) == int(new_total2):
         return False
-    checker_id = os.getenv('SLACK_SETTLEMENT_CHECKER_ID', '').strip() or 'U0BHC2JV7U5'
-    checker_email = (os.getenv('SLACK_SETTLEMENT_CHECKER_EMAIL', '').strip()
-                     or 'sb@itg-aircon.com').lower()
-    if editor_email and editor_email.strip().lower() == checker_email:
+    from dashboard.services.settlement_checkers import checker_ids, checker_emails
+    if editor_email and editor_email.strip().lower() in checker_emails():
         return False
     token = os.getenv('SLACK_BOT_TOKEN', '').strip()
     if not token:
@@ -658,12 +659,17 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
     try:
         from slack_sdk import WebClient
         dm = WebClient(token=token)
-        im = dm.conversations_open(users=checker_id)
-        dm_ch = ((im.get('channel') or {}) or {}).get('id')
-        if not dm_ch:
-            logger.warning(f'[PROJECT/SLACK/총액2DM] IM 개설 실패 ({code})')
+        sent = 0
+        for checker_id in checker_ids():
+            im = dm.conversations_open(users=checker_id)
+            dm_ch = ((im.get('channel') or {}) or {}).get('id')
+            if not dm_ch:
+                logger.warning(f'[PROJECT/SLACK/총액2DM] IM 개설 실패 ({code}, {checker_id})')
+                continue
+            dm.chat_postMessage(channel=dm_ch, text=text, unfurl_links=False)
+            sent += 1
+        if not sent:
             return False
-        dm.chat_postMessage(channel=dm_ch, text=text, unfurl_links=False)
         logger.info(f'[PROJECT/SLACK/총액2DM] 경영지원 알림 발송: {code} {int(old_total2):,}→{int(new_total2):,}')
         return True
     except Exception as exc:
