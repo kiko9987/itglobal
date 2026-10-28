@@ -125,7 +125,7 @@ export function isFullyCollected(row) {
   const total2 = toNum(row && row['총액 2']);
   const paidSum = BILL_STAGES.reduce((a, s) => a + toNum(row && row[s]), 0);
   const unpaid = toNum(row && row['미수금']);
-  const auto = total2 > 0 && paidSum > 0 && Math.abs(unpaid) < 1;
+  const auto = total2 > 0 && paidSum > 0 && Math.abs(unpaid) < 2;   // 2원 미만=0 (시트 미수금 수식 ABS(...)<2 와 같게)
   return auto || isCollected(row && row['수금 확인']);
 }
 

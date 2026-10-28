@@ -1465,9 +1465,12 @@ export default class ProjectTable {
 
     const missingFields = [];
 
+    // '-'도 빈 칸 — 새 공사는 빈 글자 칸을 '-'로 채움. '데이터' 필터(ModernProjectFilters.isDataIncomplete)와
+    //   같은 기준 (2026-10-28: 칸엔 완료 체크인데 '미완료' 필터에 나오던 것)
     requiredFields.forEach(field => {
       const value = row[field];
-      if (!value || (typeof value === 'string' && value.trim() === '')) {
+      const s = value == null ? '' : String(value).trim();
+      if (!value || s === '' || s === '-' || s === 'null' || s === 'undefined') {
         missingFields.push(field);
       }
     });

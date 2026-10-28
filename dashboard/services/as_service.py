@@ -376,13 +376,10 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
             else:
                 amt_disp = f"{amt_disp} ({'VAT 별도' if vat_sep else 'VAT 없음'})"
 
-        # 유입 구분 표시 정규화 (공사 확정 카드 _format_inflow 와 동일)
-        raw_inflow = _s('유입 구분')
-        online_platforms = {'홈페이지', '카카오톡', '당근', '기타'}
-        if raw_inflow in online_platforms:
-            inflow_disp = f'온라인 ({raw_inflow})'
-        else:
-            inflow_disp = raw_inflow or '-'
+        # 유입 구분 표시 — 공사 확정 카드와 같은 공용 함수 (2026-10-28: 따로 둔 목록이 달라 같은 공사가
+        #   공사 카드엔 '온라인 (전화)', A/S 카드엔 '전화'로 나왔음)
+        from dashboard.services.lead_helpers import format_inflow_display
+        inflow_disp = format_inflow_display(_s('유입 구분'))
 
         return {
             'code': code,

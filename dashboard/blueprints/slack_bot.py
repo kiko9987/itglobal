@@ -443,6 +443,7 @@ def _register_payment_handlers(app):
                 message_ts = body["message"]["ts"]
                 _open_payment_intake_modal(client, body, intake_id, channel, message_ts)
             except Exception as exc:
+                _notify_modal_open_failed(client, body)
                 logger.error(f"[SLACK/수금봇] payment_intake_open 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -883,6 +884,7 @@ def _register_payment_handlers(app):
                     })
                     _view_id = _ph["view"]["id"]
                 except Exception as exc:
+                    _notify_modal_open_failed(client, body)
                     logger.error(f"[SLACK/수금봇] 분할 모달 open 실패(placeholder): {exc}", exc_info=True)
                     return
                 d = _load_intake(intake_id)
@@ -903,6 +905,7 @@ def _register_payment_handlers(app):
                 view = _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, prefilled)
                 client.views_update(view_id=_view_id, view=view)
             except Exception as exc:
+                _notify_modal_open_failed(client, body)
                 logger.error(f"[SLACK/수금봇] split_open 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -1163,6 +1166,7 @@ def _register_payment_handlers(app):
                            "text": ":hourglass_flowing_sand: 자금 이동 요청 불러오는 중..."}}]})
             view_id = ((resp or {}).get("view") or {}).get("id", "")
         except Exception as exc:
+            _notify_modal_open_failed(client, body)
             logger.warning(f"[FUND_MOVE] 직접 고르기 모달 오픈 실패: {exc}")
             return
 
@@ -1460,6 +1464,7 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
         })
         _view_id = _ph_resp["view"]["id"]
     except Exception as exc:
+        _notify_modal_open_failed(client, body)
         logger.error(f"[SLACK/수금봇] 수금 지정 모달 open 실패(placeholder): {exc}", exc_info=True)
         return
 
@@ -2123,7 +2128,7 @@ def _do_refund_record(client, user, channel, ts, oid):
     if not done:
         return
     o, c, old, new = done
-    checker = _resolve_manager_initial(user) or 'SB'
+    checker = _resolve_manager_initial(user) or '-'   # 예전 'SB' 고정 — 다른 경영지원이 눌러도 SB로 남았음
     if channel and ts:
         try:
             client.chat_update(channel=channel, ts=ts,
@@ -2148,7 +2153,7 @@ def _do_refund_dismiss(client, user, channel, ts, oid):
     rc = get_redis_client().redis
     data = rm.load_candidate(oid) or {}
     rc.set(rm._HANDLED + oid, f'dismissed:{user}', ex=rm._KEY_TTL)
-    checker = _resolve_manager_initial(user) or 'SB'
+    checker = _resolve_manager_initial(user) or '-'   # 예전 'SB' 고정 — 다른 경영지원이 눌러도 SB로 남았음
     if channel and ts and data:
         try:
             client.chat_update(channel=channel, ts=ts,
@@ -3376,6 +3381,7 @@ def _register_visit_handlers(app):
                 client, lead_no, channel, message_ts, trigger_id,
             )
         except Exception as exc:
+            _notify_modal_open_failed(client, body)
             logger.error(f"[SLACK/방문봇] visit_cancel 모달 open 실패: {exc}",
                          exc_info=True)
 
@@ -3649,6 +3655,7 @@ def _register_project_handlers(app):
         try:
             _open_project_modal(client, trigger_id, channel, user_id)
         except Exception as exc:
+            _notify_modal_open_failed(client, command)
             logger.error(f"[SLACK/공사확정] 모달 열기 실패: {exc}", exc_info=True)
 
     @app.view("submit_project")
@@ -3712,6 +3719,7 @@ def _register_project_handlers(app):
             try:
                 _open_invoice_modal(client, body)
             except Exception as exc:
+                _notify_modal_open_failed(client, body)
                 logger.error(f"[SLACK/계산서] 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -3942,6 +3950,7 @@ def _register_project_handlers(app):
             try:
                 _open_project_edit_modal(client, body)
             except Exception as exc:
+                _notify_modal_open_failed(client, body)
                 logger.error(f"[SLACK/공사수정] 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -3979,6 +3988,7 @@ def _register_project_handlers(app):
         try:
             _open_project_cancel_reason_modal(client, body)
         except Exception as exc:
+            _notify_modal_open_failed(client, body)
             logger.error(f"[SLACK/공사취소] 취소 사유 모달 open 실패: {exc}", exc_info=True)
 
     @app.view("submit_project_cancel_reason")
@@ -4679,6 +4689,22 @@ def _amount_request_applied(proj, before: dict, updates: dict):
     return False
 
 
+def _site_head_lines(project: dict) -> list:
+    """#영업_관리 카드·경영지원 DM 머리 — 공사 확정 카드와 같게 거래처명(온라인·전화 같은 분류값이면 생략) +
+    사업자명(나눠 내는 공사는 두 사람). 예전엔 사업자명만 있어 등록증 전 고객은 '사업자명 : -'로 현장을 못 찾았음
+    (2026-10-28 점검)."""
+    from dashboard.services.partner_names import card_partner
+    from dashboard.services.payer_split import biz_display
+    project = project or {}
+    partner = card_partner(project.get('거래처명'))
+    biz = (str(biz_display(project) or project.get('사업자명') or '-')).strip() or '-'
+    return ([f'🤝 거래처명 : {partner}'] if partner else []) + [f'🏢 사업자명 : {biz}']
+
+
+def _site_head_text(project: dict) -> str:
+    return '\n'.join(_site_head_lines(project))
+
+
 def _vat_is_sep(v) -> bool:
     """부가세 값(bool/str/int) → VAT 별도 여부."""
     return v is True or (isinstance(v, str) and v.strip().upper() in ('TRUE', 'Y', 'YES', '1')) or v == 1
@@ -4992,8 +5018,9 @@ def _register_as_handlers(app):
         if not trigger_id:
             return
         try:
-            _open_as_request_modal(client, trigger_id, user_id)
+            _open_as_request_modal(client, trigger_id, user_id, command.get("channel_id", ""))
         except Exception as exc:
+            _notify_modal_open_failed(client, command)
             logger.error(f"[SLACK/AS] 요청 모달 열기 실패: {exc}", exc_info=True)
 
     @app.view("submit_as_request")
@@ -5004,6 +5031,7 @@ def _register_as_handlers(app):
                 _process_as_request_submission(client, body, view)
             except Exception as exc:
                 logger.error(f"[SLACK/AS] submit_as_request 실패: {exc}", exc_info=True)
+                _as_tell_requester(client, body, ':x: A/S 요청 접수 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.')
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.action("as_accept_open")
@@ -5013,6 +5041,7 @@ def _register_as_handlers(app):
             try:
                 _open_as_accept_modal(client, body)
             except Exception as exc:
+                _notify_modal_open_failed(client, body)
                 logger.error(f"[SLACK/AS] 접수 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -5067,6 +5096,7 @@ def _register_as_handlers(app):
             try:
                 _open_as_complete_modal(client, body)
             except Exception as exc:
+                _notify_modal_open_failed(client, body)
                 logger.error(f"[SLACK/AS] 완료 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
@@ -5472,7 +5502,9 @@ def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dic
 
 
 # A/S 담당자 드롭다운 제외 대상 — 경영지원팀 (영업 아님). email localpart 소문자.
-_AS_MANAGER_EXCLUDE = {'kiko', 'sb'}
+#   경영지원 명단(settlement_checkers)을 따라감 — 10-28 이미영(MY) 합류 때 PM 에서만 빠지고 여기선 나왔음
+from dashboard.services.settlement_checkers import checker_emails as _checker_emails
+_AS_MANAGER_EXCLUDE = {'kiko'} | {e.split('@')[0] for e in _checker_emails()}
 
 
 def _active_manager_options() -> list:
@@ -5631,9 +5663,9 @@ def _as_request_view_blocks(
     return blocks
 
 
-def _open_as_request_modal(client, trigger_id: str, user_id: str) -> None:
-    """`/as` 슬래시 → 요청 모달."""
-    metadata = json.dumps({"user_id": user_id}, ensure_ascii=False)
+def _open_as_request_modal(client, trigger_id: str, user_id: str, channel_id: str = '') -> None:
+    """`/as` 슬래시 → 요청 모달. channel_id = 명령을 친 채널(접수 결과 안내용, 2026-10-28)."""
+    metadata = json.dumps({"user_id": user_id, "channel_id": channel_id}, ensure_ascii=False)
     view = {
         "type": "modal",
         "callback_id": "submit_as_request",
@@ -5820,6 +5852,29 @@ def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
     return False
 
 
+def _as_tell_requester(client, body, text: str) -> None:
+    """/as 요청자에게 접수 결과 안내 — 명령 친 채널에 본인만 보이게, 안 되면 DM (2026-10-28 점검: 성공·실패 모두
+    아무 말이 없어 다른 채널에서 친 사람은 결과를 알 길이 없었음)."""
+    user = (body.get('user') or {}).get('id', '')
+    if not user:
+        return
+    try:
+        md = json.loads(((body.get('view') or {}).get('private_metadata')) or '{}')
+    except Exception:
+        md = {}
+    ch = (md or {}).get('channel_id', '') if isinstance(md, dict) else ''
+    if ch:
+        try:
+            client.chat_postEphemeral(channel=ch, user=user, text=text)
+            return
+        except Exception:
+            pass
+    try:
+        client.chat_postMessage(channel=user, text=text)
+    except Exception as exc:
+        logger.debug(f'[SLACK/AS] 요청자 안내 실패 (무시): {exc}')
+
+
 def _process_as_request_submission(client, body, view) -> None:
     """요청 제출 → (일반) 프로젝트 조회 또는 (수동) 직접 입력 → 시트 append → 카드 발송.
 
@@ -5846,6 +5901,7 @@ def _process_as_request_submission(client, body, view) -> None:
         work_content = _pt("as_manual_work")
         if not address:
             logger.warning('[SLACK/AS] 수동 등록 현장 주소 누락')
+            _as_tell_requester(client, body, ':x: 현장 주소가 비어 있어 A/S 요청을 접수하지 않았습니다. 다시 /as 로 요청해 주세요.')
             return
         # 담당자: static_select(value=email) 또는 fallback plain_text(이름)
         mgr_name, mgr_email = '', ''
@@ -5880,6 +5936,7 @@ def _process_as_request_submission(client, body, view) -> None:
         project_code = project_code.strip()
         if not project_code:
             logger.warning('[SLACK/AS] 프로젝트 코드 누락')
+            _as_tell_requester(client, body, ':x: 공사를 고르지 않아 A/S 요청을 접수하지 않았습니다. 다시 /as 로 요청해 주세요.')
             return
         details = get_project_details(project_code) or {}
         address = details.get('address', '')
@@ -5897,6 +5954,7 @@ def _process_as_request_submission(client, body, view) -> None:
     channel = os.getenv('SLACK_AS_CHANNEL', '').strip()
     if not channel:
         logger.warning('[SLACK/AS] SLACK_AS_CHANNEL 미설정 — 카드 발송 skip')
+        _as_tell_requester(client, body, f':warning: A/S 요청 {as_no} 은 등록했지만 A/S 채널 설정이 없어 카드를 올리지 못했습니다. 관리자에게 알려 주세요.')
         return
 
     card_data = {
@@ -5925,6 +5983,14 @@ def _process_as_request_submission(client, body, view) -> None:
         except Exception as exc:
             logger.warning(f'[SLACK/AS] card 매핑 저장 실패: {exc}')
         logger.info(f'[SLACK/AS] 요청 카드 발송 완료: {as_no} ts={ts} (manual={is_manual})')
+        _link = ''
+        try:
+            _link = (client.chat_getPermalink(channel=channel, message_ts=ts) or {}).get('permalink', '')
+        except Exception:
+            pass
+        _as_tell_requester(client, body, (
+            f':white_check_mark: A/S 요청 *{as_no}* 접수됐습니다 ({project_code or "코드 없는 공사"}).'
+            + (f' <{_link}|카드 보기>' if _link else '')))
         # 담당자(영업)에게 알림 DM — "담당 현장에 A/S 접수" (버튼 없는 안내)
         try:
             _send_as_manager_dm(client, as_no, project_code, card_data,
@@ -6061,6 +6127,7 @@ def _open_as_accept_modal(client, body) -> None:
                        "text": ":hourglass_flowing_sand: A/S 정보 불러오는 중..."}}],
         })
     except Exception as exc:
+        _notify_modal_open_failed(client, body)
         logger.warning(f'[SLACK/AS] 접수 placeholder 오픈 실패 ({as_no}): {exc}')
         return
     view_id = ((_resp or {}).get('view') or {}).get('id', '')
@@ -6453,7 +6520,7 @@ def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
         "blocks": [
             {
                 "type": "input", "block_id": "company",
-                "label": {"type": "plain_text", "text": "사업자"},
+                "label": {"type": "plain_text", "text": "내부 사업자 (우리 회사)"},
                 "element": {
                     "type": "static_select", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "선택"},
@@ -6630,7 +6697,7 @@ def _process_project_submission(client, body, view):
         logger.error(f"[SLACK/공사확정] 등록 실패: {exc}", exc_info=True)
         client.chat_postEphemeral(
             channel=channel or user_id, user=user_id,
-            text=f":x: 등록 실패: {type(exc).__name__}: {exc}",
+            text=(":x: 공사 등록에 실패했습니다. 잠시 후 다시 시도하거나 관리자에게 알려 주세요." f" (사유: {_reason_ko(str(exc))})"),
         )
 
 
@@ -6695,6 +6762,61 @@ def _slack_create_project(data: dict) -> str:
 # ─────────────────────────────────────────────────────────────
 # Flask endpoint — 슬랙이 호출하는 단일 진입점
 # ─────────────────────────────────────────────────────────────
+_MODAL_FAIL_NOTIFIED: dict = {}   # trigger_id → 시각 (같은 클릭에 안내 두 번 방지)
+
+
+_REASON_KO = {
+    'row_not_found': '시트에서 이 공사를 찾지 못했습니다',
+    'already_active': '취소된 공사가 아닙니다(이미 진행 중)',
+    'already_cancelled': '이미 취소된 공사입니다',
+    'no_changes': '바뀐 내용이 없습니다',
+    'not_found': '공사를 찾지 못했습니다',
+}
+
+
+def _reason_ko(reason) -> str:
+    """처리 결과 사유 코드·예외 문구 → 직원이 읽을 한국어 (2026-10-28 점검 — row_not_found 같은 코드가 그대로
+    나갔음). 한글이 섞인 문장은 그대로, 모르는 영어 코드는 '처리 중 오류'로."""
+    s = str(reason or '').strip()
+    if s in _REASON_KO:
+        return _REASON_KO[s]
+    if re.search(r'[가-힣]', s):
+        return s[:120]
+    return '처리 중 오류가 발생했습니다'
+
+
+def _notify_modal_open_failed(client, body) -> None:
+    """버튼·명령을 눌렀는데 창이 안 열렸을 때 누른 사람에게만 '다시 눌러 주세요' (2026-10-28 점검 —
+    예전엔 로그만 남고 화면엔 아무 일도 없어 매니저가 눌린 줄도 몰랐음. 재시작 직후·응답 지연으로 trigger_id
+    3초가 지나는 경우 등). body = 버튼 body 또는 슬래시 command."""
+    try:
+        body = body or {}
+        user = (body.get('user') or {}).get('id', '') if isinstance(body.get('user'), dict) else ''
+        user = user or body.get('user_id', '')
+        channel = ((body.get('channel') or {}).get('id', '') if isinstance(body.get('channel'), dict) else '') \
+            or (body.get('container') or {}).get('channel_id', '') or body.get('channel_id', '')
+        tid = body.get('trigger_id') or ''
+        if not user:
+            return
+        now = time.time()
+        if tid:
+            if tid in _MODAL_FAIL_NOTIFIED:
+                return
+            _MODAL_FAIL_NOTIFIED[tid] = now
+            for k in [k for k, t in _MODAL_FAIL_NOTIFIED.items() if now - t > 600]:
+                _MODAL_FAIL_NOTIFIED.pop(k, None)
+        text = ':warning: 창을 여는 데 실패했습니다. 잠시 후 버튼(또는 명령)을 한 번 더 눌러 주세요.'
+        if channel:
+            try:
+                client.chat_postEphemeral(channel=channel, user=user, text=text)
+                return
+            except Exception:
+                pass
+        client.chat_postMessage(channel=user, text=text)
+    except Exception as exc:
+        logger.debug(f'[SLACK] 창 열기 실패 안내 실패 (무시): {exc}')
+
+
 def _run_bg_with_notify(client, body, action_label: str, work_fn) -> None:
     """배경 스레드 실행 유틸. 실패 시 매니저에게 ephemeral 안내 (2026-07-10).
 
@@ -7682,6 +7804,7 @@ def _open_inquiry_modal(client, body, action: str):
         resp = client.views_open(trigger_id=trigger_id, view=placeholder_view)
         view_id = resp["view"]["id"]
     except Exception as exc:
+        _notify_modal_open_failed(client, body)
         logger.error(f"[SLACK] placeholder views_open 실패 ({lead_no}): {exc}", exc_info=True)
         return
 
@@ -8282,6 +8405,7 @@ def _open_link_lead_modal(client, body, chat_id: str, channel: str, message_ts: 
     try:
         client.views_open(trigger_id=trigger_id, view=view)
     except Exception as exc:
+        _notify_modal_open_failed(client, body)
         logger.error(f"[SLACK/link] 모달 열기 실패: {exc}", exc_info=True)
 
 
@@ -8557,6 +8681,7 @@ def _open_consult_modal(client, body, from_slash: bool = False):
         })
         _view_id = _ph_resp["view"]["id"]
     except Exception as exc:
+        _notify_modal_open_failed(client, body)
         logger.error(f"[SLACK/상담] 모달 open 실패(placeholder): {exc}", exc_info=True)
         return
 
@@ -13346,6 +13471,7 @@ def _open_project_edit_modal(client, body) -> None:
                        "text": ":hourglass_flowing_sand: 프로젝트 정보 불러오는 중..."}}],
         })
     except Exception as exc:
+        _notify_modal_open_failed(client, body)
         logger.warning(f'[SLACK/공사수정] placeholder 오픈 실패: {exc}')
         return
     view_id = ((_resp or {}).get('view') or {}).get('id', '')
@@ -13599,7 +13725,7 @@ def _process_project_edit_submission(client, body, view) -> None:
         try:
             client.chat_postEphemeral(
                 channel=channel, user=user_id,
-                text=':information_source: 변경된 필드가 없어 저장을 skip 했습니다.',
+                text=':information_source: 바뀐 내용이 없어 저장하지 않았습니다.',
             )
         except Exception:
             pass
@@ -13719,7 +13845,7 @@ def _post_project_edit_notice_card(
     lines = [
         f'🔔 *[공사 내용 수정 알림]*  `{code}`',
         '--------------------------------------------',
-        f'🏢 사업자명 : {biz}',
+        *_site_head_lines(before_project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
         f'📍 현장 주소 : {addr}',
         f'📝 수정 사유 : {reason.strip()}',
         '📋 변경 내역',
@@ -13761,7 +13887,7 @@ def _notify_project_edit_result(
         names = ', '.join(_label.get(f, f) for f in applied_fields)
         parts.append(f':white_check_mark: `{code}` 수정 완료 — {names}')
     if direct_failed_reason:
-        parts.append(f':x: `{code}` 일부 항목 수정 실패: {direct_failed_reason}')
+        parts.append(f':x: `{code}` 일부 항목 수정 실패: {_reason_ko(direct_failed_reason)}')
     if amount_updates:
         amt_names = ', '.join(_label.get(f, f) for f in amount_updates)
         if dup_pending:
@@ -13781,7 +13907,7 @@ def _notify_project_edit_result(
                 f':warning: *{amt_names}* 수정 요청 전달에 실패했습니다. 경영지원에 직접 문의해주세요.'
             )
     if not parts:
-        parts.append(':information_source: 변경된 필드가 없어 저장을 skip 했습니다.')
+        parts.append(':information_source: 바뀐 내용이 없어 저장하지 않았습니다.')
     try:
         client.chat_postEphemeral(channel=channel, user=user_id, text='\n'.join(parts))
     except Exception:
@@ -13866,7 +13992,7 @@ def _post_amount_edit_request_card(
     lines = [
         f'🔔 *[공사 금액 수정 요청]*  `{code}`',
         '--------------------------------------------',
-        f'🏢 사업자명 : {biz}',
+        *_site_head_lines(project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
         f'📍 현장 주소 : {addr}',
         f'📝 수정 사유 : {reason.strip()}',
         '📋 요청 내역',
@@ -13939,7 +14065,7 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
     code = data.get('code', '')
     requester_id = data.get('requester_id', '')
     requester_ini = data.get('requester_initial', '-')
-    checker_ini = _slack_user_to_initial(client, checker_user_id) or 'SB'
+    checker_ini = _slack_user_to_initial(client, checker_user_id) or '-'
     updates = data.get('updates', {}) or {}
     before = data.get('before', {}) or {}
 
@@ -14226,7 +14352,7 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
                     dm.chat_postMessage(
                         channel=_cid,
                         text=(f"🚫 *[공사 취소]*  `{code}`\n"
-                              f"🏢 {biz}\n📍 {addr}\n💲 {amt_disp}\n"
+                              f"{_site_head_text(project)}\n📍 {addr}\n💲 {amt_disp}\n"
                               f"👤 취소자 : {initial} · {cancel_time}"),
                         unfurl_links=False, unfurl_media=False)
         except Exception as exc:
@@ -14256,7 +14382,7 @@ def _process_project_cancel(client, body) -> None:
         try:
             client.chat_postEphemeral(
                 channel=channel, user=user_id,
-                text=f':x: `{code}` 취소 실패: {reason}',
+                text=f':x: `{code}` 취소 실패: {_reason_ko(reason)}',
             )
         except Exception:
             pass
@@ -14333,7 +14459,7 @@ def _send_cancel_money_request_card(project: dict, reason: str,
     lines = [
         f'💰 *[공사 취소 — 매출 0원 반영 요청]*  `{code}`',
         '--------------------------------------------',
-        f'🏢 사업자명 : {biz}',
+        *_site_head_lines(project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
         f'📍 현장 주소 : {addr}',
         f'💵 취소 전 금액 : {amt_disp}  →  0원',
         f'📝 취소 사유 : {reason}',
@@ -14392,7 +14518,7 @@ def _process_project_cancel_request(client, body, view) -> None:
     if not result.get('ok'):
         rsn = result.get('reason', 'unknown')
         msg = (f':information_source: `{code}` 는 이미 취소된 건입니다.'
-               if rsn == 'already_cancelled' else f':x: `{code}` 취소 실패: {rsn}')
+               if rsn == 'already_cancelled' else f':x: `{code}` 취소 실패: {_reason_ko(rsn)}')
         try:
             client.chat_postEphemeral(channel=orig_channel, user=user_id, text=msg)
         except Exception:
@@ -14440,7 +14566,7 @@ def _maybe_apply_cancel_money_request(client, channel: str, ts: str, checker_use
     code = data.get('code', '')
     requester_id = data.get('requester_id', '')
     requester_ini = data.get('requester_initial', '-')
-    checker_ini = _slack_user_to_initial(client, checker_user_id) or 'SB'
+    checker_ini = _slack_user_to_initial(client, checker_user_id) or '-'
 
     from dashboard.services.project_slack_actions import apply_cancel_zero_total
     result = apply_cancel_zero_total(code, checker_ini)
@@ -14544,7 +14670,7 @@ def _post_project_cancel_notice_card(
     lines = [
         f'🔔 *[공사 취소 알림]*  `{code}`',
         '--------------------------------------------',
-        f'🏢 사업자명 : {biz}',
+        *_site_head_lines(before_project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
         f'📍 현장 주소 : {addr}',
         f'💲 공사 금액 : {amt_disp}',
         f'📅 공사 확정일 : {confirmed_disp}',
@@ -14643,7 +14769,7 @@ def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: st
                 for _cid in _SETTLEMENT_CHECKER_IDS:
                     dm.chat_postMessage(
                         channel=_cid,
-                        text=(f"↩️ *[공사 취소 되돌림]*  `{code}`\n🏢 {biz}\n👤 {initial} · {now}"),
+                        text=(f"↩️ *[공사 취소 되돌림]*  `{code}`\n{_site_head_text(project or {})}\n👤 {initial} · {now}"),
                         unfurl_links=False, unfurl_media=False)
         except Exception as exc:
             logger.warning(f"[SLACK/공사재개] 샛별 DM 실패 ({code}): {exc}")
@@ -14667,7 +14793,7 @@ def _process_project_uncancel(client, body) -> None:
         try:
             client.chat_postEphemeral(
                 channel=channel, user=user_id,
-                text=f':x: `{code}` 재개 실패: {result.get("reason", "unknown")}',
+                text=f':x: `{code}` 취소 되돌리기 실패: {_reason_ko(result.get("reason", ""))}',
             )
         except Exception:
             pass
@@ -15766,6 +15892,7 @@ def _open_invoice_modal(client, body) -> None:
                        "text": ":hourglass_flowing_sand: 프로젝트 정보 불러오는 중..."}}],
         })
     except Exception as exc:
+        _notify_modal_open_failed(client, body)
         logger.warning(f'[SLACK/계산서] 모달 placeholder 오픈 실패: {exc}')
         return
     view_id = ((resp or {}).get('view') or {}).get('id', '')
@@ -15901,7 +16028,7 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         if not vat_ok:
             error_lines.append(
                 "• :heavy_dollar_sign: *부가세 미지정* — 관리 사이트에서 프로젝트를 "
-                "편집해 부가세(포함/미포함)를 지정해주세요."
+                "편집해 부가세(별도/없음)를 지정해주세요."
             )
 
     if error_lines:

@@ -59,6 +59,8 @@ def format_inflow_display(platform: str) -> str:
         return '거래처 (소개)'
     if v == '기타':
         return '기타'
+    if v == '온라인':   # 플랫폼을 모르는 옛 공사 — '온라인 (온라인)'으로 나오던 것 (2026-10-28)
+        return '온라인'
     return f'온라인 ({v})'
 
 

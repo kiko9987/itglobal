@@ -309,6 +309,10 @@ def _calculate_outstanding_amount(row: pd.Series) -> float:
     final = _safe_parse_amount(row.get('잔금', 0))
 
     outstanding = total2 - (contract + mid + final)
+    # 2원 미만 차이는 0 — 시트 미수금 수식 IF(ABS(...)<2, 0, ...) 와 같은 기준 (2026-10-28: 333만3,333원씩
+    #   3번 받은 공사가 시트엔 0인데 PM엔 '미수금 1원'으로 남던 것)
+    if abs(outstanding) < 2:
+        return 0
     return outstanding
 
 

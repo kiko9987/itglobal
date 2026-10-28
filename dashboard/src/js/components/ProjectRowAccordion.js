@@ -27,6 +27,14 @@ import {
 } from '../utils/payerSplit.js';
 import { PARTNER_GROUP_LABELS, isPartnerName } from '../utils/partnerName.js';
 
+// 부가세 칸 글자 → 켜짐(부가세 별도) 여부. 2026-10-28 표기 '포함/미포함' → '별도/없음'(새 공사 창·슬랙과 같게,
+//   예전 '포함'이 실제로는 '총액1에 부가세를 더함=별도'라 반대로 읽혔음). 옛 표기·'VAT 별도/포함'도 받음.
+function isVatOnText(t) {
+  const s = String(t == null ? '' : t);
+  if (/없음|미포함/.test(s)) return false;
+  return /별도|포함|true/i.test(s);
+}
+
 /**
  * 메모 상태 확인 (빈 메모 vs 실제 메모)
  * @param {string} memo - 메모 내용
@@ -802,7 +810,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="사업자">${rowData['사업자'] || '-'}</div>
           </div>
           <div class="compact-item">
-            <small>현장담당자</small>
+            <small>발주처 담당자</small>
             <div class="editable-value" data-field="발주처 담당자">${rowData['발주처 담당자'] || '-'}</div>
           </div>
           <div class="compact-item">
@@ -810,7 +818,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="도급 구분">${rowData['도급 구분'] || '-'}</div>
           </div>
           <div class="compact-item">
-            <small>연락처</small>
+            <small>발주처 연락처</small>
             <div class="editable-value" data-field="발주처 연락처">${rowData['발주처 연락처'] || '-'}</div>
           </div>
           <div class="compact-item">
@@ -818,7 +826,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="시공자">${this.formatConstructorField(rowData['시공자'])}</div>
           </div>
           <div class="compact-item">
-            <small>이메일</small>
+            <small>발주처 이메일</small>
             <div class="editable-value" data-field="발주처 이메일">${rowData['발주처 이메일'] || '-'}</div>
           </div>
         </div>
@@ -1786,7 +1794,7 @@ export default class ProjectRowAccordion {
         const existingInput = field.querySelector('input, textarea, select');
         if (existingInput) {
           if (existingInput.type === 'checkbox') {
-            currentValue = existingInput.checked ? '포함' : '미포함';
+            currentValue = existingInput.checked ? '별도' : '없음';
           } else {
             currentValue = existingInput.value || '';
           }
@@ -2404,7 +2412,7 @@ export default class ProjectRowAccordion {
 
     // 부가세 필드 - Bootstrap form-switch with badge (토글+뱃지)
     if (fieldName === '부가세') {
-      const isChecked = currentValue.includes('포함') && !currentValue.includes('미포함');
+      const isChecked = isVatOnText(currentValue);
       const checkboxId = 'vat-checkbox-' + Math.random().toString(36).substr(2, 9);
       return `
         <div class="form-check form-switch">
@@ -2415,7 +2423,7 @@ export default class ProjectRowAccordion {
                  onchange="
                    const badge = this.nextElementSibling;
                    const isChecked = this.checked;
-                   badge.textContent = isChecked ? '포함' : '미포함';
+                   badge.textContent = isChecked ? '별도' : '없음';
                    badge.className = 'badge ms-2 vat-status-badge';
                    badge.style.backgroundColor = isChecked ? '#cfe2ff' : '#f8f9fa';
                    badge.style.color = isChecked ? '#084298' : '#6c757d';
@@ -2424,7 +2432,7 @@ export default class ProjectRowAccordion {
           <span class="badge ms-2 vat-status-badge"
                 style="background-color: ${isChecked ? '#cfe2ff' : '#f8f9fa'}; color: ${isChecked ? '#084298' : '#6c757d'};"
                 data-vat-status="${isChecked ? 'true' : 'false'}">
-            ${isChecked ? '포함' : '미포함'}
+            ${isChecked ? '별도' : '없음'}
           </span>
         </div>
       `;
@@ -2722,7 +2730,7 @@ export default class ProjectRowAccordion {
       } else if (fieldName === '부가세') {
         // 부가세는 뱃지로 복원
         
-        const vatValue = originalValue === 'true' ? '포함' : '미포함';
+        const vatValue = originalValue === 'true' ? '별도' : '없음';
         const badge = this.unifiedBadgeSystem.createBadge('vat', vatValue);
         
         element.innerHTML = badge;
@@ -4294,19 +4302,9 @@ export default class ProjectRowAccordion {
     // 나눠 내는 공사: '현금 · 부가세 없음' 몫엔 부가세를 안 붙임 — 서버 _calculate_total2 와 같은 계산 (2026-10-21)
     const vatFree = vatIncluded ? vatFreeAmount({ ...(this.currentProject || {}), 부가세: true }) : 0;
 
-    // 총액2 계산: 한국 회계 실무 방식
-    let total2Value;
-    if (vatIncluded && vatFree > 0) {
-      total2Value = calcTotal2(total1Value, true, vatFree);
-    } else if (vatIncluded) {
-      // 부가세 = ROUND(공급가액 × 0.1, 0)
-      const vat = Math.round(total1Value * 0.1);
-      // 총액2 = 공급가액 + 부가세
-      total2Value = total1Value + vat;
-    } else {
-      // 부가세 미포함 시 공급가액 그대로
-      total2Value = total1Value;
-    }
+    // 총액2 계산 — 서버·시트 수식과 같은 버림 + 끝자리 1/9원 보정 (2026-10-28: 일반 공사만 반올림이라
+    //   편집 중 미리보기가 저장 결과와 1원 다르던 것)
+    let total2Value = calcTotal2(total1Value, vatIncluded, vatFree);
 
     // NaN/Infinity 검증 및 안전 처리
     if (!Number.isFinite(total2Value)) {
@@ -4517,8 +4515,7 @@ export default class ProjectRowAccordion {
     let vatIncluded = false;
     if (vatField) {
       const vatText = vatField.textContent || '';
-      vatIncluded = (vatText.includes('포함') && !vatText.includes('미포함')) ||
-                   vatText.includes('VAT 포함') ||
+      vatIncluded = isVatOnText(vatText) ||
                    vatField.classList.contains('vat-included');
     }
 
@@ -4845,7 +4842,7 @@ export default class ProjectRowAccordion {
   calculateTotal2(rowData) {
     const total1 = parseFloat(rowData['총액'] || rowData['총액 1'] || 0);
     const vatValue = rowData['부가세'];
-    const vatIncluded = vatValue && typeof vatValue === 'string' && vatValue.includes('포함');
+    const vatIncluded = vatValue === true || (typeof vatValue === 'string' && isVatOnText(vatValue));
 
     // AmountCalculator 사용 (FLOOR + 끝자리 1/9원 보정 적용)
     return AmountCalculator.calculateWithVAT(total1, vatIncluded);
@@ -6007,7 +6004,7 @@ export default class ProjectRowAccordion {
       if (result.success) {
         // 성공 애니메이션 - 테두리에서 채움 초록색으로 변경
         // 🆕 Google Sheets 반영 상태 UI 피드백
-        saveBtn.innerHTML = '<i class="fas fa-database me-1"></i>DB 저장 완료 · <i class="fas fa-table me-1"></i>Sheets 반영 중...';
+        saveBtn.innerHTML = '<i class="fas fa-check me-1"></i>저장됨 · <i class="fas fa-table me-1"></i>시트 반영 중...';
         saveBtn.classList.remove('btn-outline-success');
         saveBtn.classList.add('btn-success');
         saveBtn.style.transform = 'scale(1.05)';
@@ -6567,8 +6564,8 @@ export default class ProjectRowAccordion {
             if (fieldName === '부가세') {
               const vatValue = originalValue === 'true';
               const badge = this.unifiedBadgeSystem
-                ? this.unifiedBadgeSystem.createBadge('vat', vatValue ? '포함' : '미포함')
-                : (vatValue ? '포함' : '미포함');
+                ? this.unifiedBadgeSystem.createBadge('vat', vatValue ? '별도' : '없음')
+                : (vatValue ? '별도' : '없음');
               field.innerHTML = badge;
               return;
             }

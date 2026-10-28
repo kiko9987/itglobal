@@ -572,7 +572,7 @@ def api_invoice_request():
     # 게이트 ② 부가세 결정 여부
     if not _vat_decided(code):
         return APIResponse.error(
-            message='부가세(포함/미포함)가 지정되지 않았습니다. 프로젝트 편집에서 먼저 지정해주세요.',
+            message='부가세(별도/없음)가 지정되지 않았습니다. 프로젝트 편집에서 먼저 지정해주세요.',
             error_code='VAT_UNDECIDED', status_code=409,
         )
 

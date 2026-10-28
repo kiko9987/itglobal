@@ -182,7 +182,7 @@ export default class BadgeFactory {
     tempDiv.innerHTML = badgeHtml;
     const text = tempDiv.textContent.trim();
 
-    if (['완료', '미완료', '포함', '별도'].includes(text)) {
+    if (['완료', '미완료', '포함', '별도', '없음'].includes(text)) {
       return html.includes('collection') ? 'collection' : 'vat';
     }
 

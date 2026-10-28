@@ -531,6 +531,17 @@ def notify_invoice_card_amount_change(code: str, field_changes: list) -> bool:
 _AMOUNT_ALERT_FIELDS = ('총액 1', '부가세')  # 영업사원 슬랙 금액 게이트와 동일 범위
 
 
+def _dm_site_lines(data) -> list:
+    """경영지원 DM 의 현장 줄 — 거래처명(분류값이면 생략) + 사업자명(나눠 내는 공사는 두 사람)."""
+    if not data:
+        return []
+    from dashboard.services.partner_names import card_partner
+    from dashboard.services.payer_split import biz_display
+    partner = card_partner(_val(data, '거래처명'))
+    biz = (str(biz_display(data) or _val(data, '사업자명') or '')).strip()
+    return ([f'거래처명 : {partner}'] if partner else []) + ([f'사업자명 : {biz}'] if biz and biz != '-' else [])
+
+
 def notify_amount_edit_to_settlement(code: str, field_changes: list,
                                      editor_email: str = '',
                                      editor_label: str = '',
@@ -578,9 +589,7 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
         permalink = ''
 
     lines = [f':rotating_light: *[공사 금액 변경 알림]*  `{code}`']
-    biz = _val(latest_data, '사업자명') if latest_data else ''
-    if biz:
-        lines.append(f'사업자명 : {biz}')
+    lines.extend(_dm_site_lines(latest_data))   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
     if editor_label:
         lines.append(f'변경 경로 : {editor_label}')
     elif editor_email:
@@ -636,10 +645,8 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
 
     free = [p for p in (plan or {}).values() if p and p.get('vat_free')]
     lines = [f':rotating_light: *[공사 금액 변경 알림]*  `{code}`']
-    biz = _val(latest_data, '사업자명') if latest_data else ''
     addr = _val(latest_data, '현장 주소') if latest_data else ''
-    if biz:
-        lines.append(f'사업자명 : {biz}')
+    lines.extend(_dm_site_lines(latest_data))   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
     if addr:
         lines.append(f'현장 주소 : {addr}')
     who = editor_email.split('@')[0].upper() if editor_email else '-'

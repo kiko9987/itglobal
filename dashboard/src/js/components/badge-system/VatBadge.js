@@ -11,12 +11,12 @@ export default class VatBadge extends BaseBadge {
     // 부가세 상태별 설정
     this.statusConfig = {
       true: {
-        text: '포함',
+        text: '별도',
         cssClass: 'vat-included',
         style: 'background-color: #cfe2ff; color: #084298;'
       },
       false: {
-        text: '미포함',
+        text: '없음',
         cssClass: 'vat-excluded',
         style: 'background-color: #f8f9fa; color: #6c757d;'
       },
@@ -30,7 +30,7 @@ export default class VatBadge extends BaseBadge {
 
   /**
    * 부가세 뱃지 생성 (수금확인과 비슷한 시각적 스타일)
-   * @param {any} status - 부가세 상태 (true, false, '포함', '별도', '-' 등)
+   * @param {any} status - 부가세 상태 (true, false, '별도', '없음', 옛 '포함'/'미포함', '-' 등)
    * @param {Object} options - 옵션
    * @returns {string} HTML 문자열
    */
@@ -64,16 +64,17 @@ export default class VatBadge extends BaseBadge {
     // 문자열 변환 후 소문자로 처리
     const statusStr = String(status).toLowerCase().trim();
 
-    // true 값들 (포함)
-    if (status === true || statusStr === 'true' || statusStr === '포함' ||
+    // true 값들 (부가세 별도 = 총액1에 부가세를 더함). 2026-10-28 표기 '별도/없음'으로 — 옛 '포함'도 받음
+    if (status === true || statusStr === 'true' || statusStr === '별도' || statusStr === '부가세 별도' ||
+        statusStr === '포함' ||
         statusStr === 'included' || statusStr === 'y' || statusStr === 'yes' ||
         statusStr === '1' || status === 1) {
       return 'true';
     }
 
-    // false 값들 (별도)
-    if (status === false || statusStr === 'false' || statusStr === '별도' ||
-        statusStr === '미포함' || statusStr === 'excluded' || statusStr === 'n' ||
+    // false 값들 (부가세 없음)
+    if (status === false || statusStr === 'false' || statusStr === '없음' ||
+        statusStr === '부가세 없음' || statusStr === '미포함' || statusStr === 'excluded' || statusStr === 'n' ||
         statusStr === 'no' || statusStr === '0' || status === 0) {
       return 'false';
     }
@@ -101,8 +102,8 @@ export default class VatBadge extends BaseBadge {
 
     // 텍스트 내용으로 판단
     const text = tempDiv.textContent.trim();
-    if (text === '포함') return 'true';
-    if (text === '별도') return 'false';
+    if (text === '별도' || text === '포함') return 'true';
+    if (text === '없음' || text === '미포함') return 'false';
 
     return '-';
   }

@@ -1033,10 +1033,12 @@ export default class ModernProjectFilters {
       const ia = ORDER.indexOf(a); const ib = ORDER.indexOf(b);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b, 'ko');
     });
+    // 보이는 글자만 직원 말로 (값은 시트 그대로 — 필터 비교용). 2026-10-28: 'N입금'이 그대로 나왔음
+    const LABEL = { 'N입금': '현금', '카드결제': '카드' };
     sorted.forEach(value => {
       const option = document.createElement('option');
       option.value = value;
-      option.textContent = value;
+      option.textContent = LABEL[value] || value;
       this.invoiceFilter.appendChild(option);
     });
   }
