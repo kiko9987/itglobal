@@ -15,7 +15,7 @@ import logger from '../utils/logger.js';
 import {
   computeBillStagesFromColumns, billIssueDate, billAmountLines, isPreIssued, billHeadline, splitBillNote,
 } from '../utils/billStatus.js';
-import { payerLine, isSplit, stripPayerLine } from '../utils/payerSplit.js';
+import { payerLine, isSplit, stripPayerLine, bizDisplay } from '../utils/payerSplit.js';
 import { isPartnerName } from '../utils/partnerName.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
@@ -675,7 +675,8 @@ export default class ProjectTable {
           defaultContent: '',
           render: function(data, type, row) {
             const partner = String(row['거래처명'] || '').trim();
-            const biz = String(data || '').trim();
+            // 나눠 내는 공사는 부담자 두 사람 (시트 사업자명은 한 사람 몫, 2026-10-28 G4155)
+            const biz = String(bizDisplay(row) || '').trim();
             const named = isPartnerName(partner);
             if (type !== 'display') return named ? partner : biz;   // 정렬은 보이는 이름 기준
             const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

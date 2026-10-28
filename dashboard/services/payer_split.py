@@ -127,6 +127,17 @@ def is_split(rec: dict) -> bool:
     return bool(stage_payers(rec))
 
 
+def biz_display(rec: dict) -> str:
+    """화면에 보일 사업자명 — 나눠 내는 공사면 '임대인 최영희 / 임차인 기종원(위너스골프)', 아니면 시트 사업자명.
+
+    시트 사업자명 칸은 한 상호 기준(등록증 재사용·거래처 탭·입금자 경고·OCR 대조)이라 그대로 두고 화면에서만
+    두 사람을 보여 줌 (2026-10-28 사용자 결정 — G4155 카드에 임차인 상호 하나만 보였음)."""
+    payers = stage_payers(rec)
+    if payers:
+        return ' / '.join(payer_title(payers[s]) for s in STAGES if s in payers)
+    return str((rec or {}).get('사업자명') or '').strip()
+
+
 def stage_label(stage: str, payer: Optional[dict]) -> str:
     """'계약금' → '계약금(임대인)' (부담자 없으면 그대로)."""
     return f"{stage}({payer['role']})" if payer else stage

@@ -82,3 +82,31 @@ def test_split_problems():
     assert any('형식 확인' in b for b in ps.split_problems(_rec(**{'중도금 부담자': '임대인 · 이름만'})))
     # 평범한 공사(부담자 없음)는 문제 없음 — 옛 입금자명 값도 무시
     assert ps.split_problems({'계약금 부담자': '25/02/11 고희원 R', '계약금': '1000000'}) == []
+
+
+# ── 화면용 사업자명 (2026-10-28 G4155 — 카드에 임차인 상호 하나만 보였음) ──
+
+def test_biz_display_shows_both_payers_in_stage_order():
+    assert ps.biz_display(_rec(사업자명='이희승')) == '임대인 이희승 / 임차인 주식회사 제이케이디학원'
+    assert ps.biz_display(_rec(사업자명='-')) == '임대인 이희승 / 임차인 주식회사 제이케이디학원'
+
+
+def test_biz_display_plain_project_keeps_sheet_name():
+    rec = _rec(사업자명='주식회사 칸도', **{'계약금 부담자': '', '잔금 부담자': '김연종'})   # 옛 입금자명 값은 부담자 아님
+    assert ps.biz_display(rec) == '주식회사 칸도'
+    assert ps.biz_display({'사업자명': None}) == ''
+
+
+def test_project_card_shows_both_payers():
+    from dashboard.services.project_slack_notifier import _build_message
+    text = _build_message(_rec(사업자명='위너스 골프존', **{'유입 구분': '거래처', '거래처명': '오남프라자'}), 'G4146-JW')
+    assert '🏢 사업자명 : 임대인 이희승 / 임차인 주식회사 제이케이디학원' in text
+
+
+def test_as_details_biz_display(monkeypatch):
+    import dashboard.services.project_service as psvc
+    from dashboard.services.as_service import get_project_details
+    monkeypatch.setattr(psvc, 'get_project_records', lambda force_refresh=False: [_rec(사업자명='이희승')])
+    d = get_project_details('G4146-JW')
+    assert d['biz'] == '이희승'                                            # 원래 값은 그대로(다른 곳 대조용)
+    assert d['biz_display'] == '임대인 이희승 / 임차인 주식회사 제이케이디학원'

@@ -321,6 +321,15 @@ def search_confirmed_projects(query: str, limit: int = 100) -> List[Dict[str, st
         return []
 
 
+def _biz_display(rec: dict) -> str:
+    """화면용 사업자명 (나눠 내는 공사면 부담자 두 사람) — 실패하면 시트 사업자명."""
+    try:
+        from dashboard.services.payer_split import biz_display
+        return biz_display(rec)
+    except Exception:
+        return str((rec or {}).get('사업자명') or '').strip()
+
+
 def get_project_details(code: str) -> Optional[Dict[str, str]]:
     """프로젝트 코드로 상세 조회 (모달 pre-fill 용).
 
@@ -381,6 +390,7 @@ def get_project_details(code: str) -> Optional[Dict[str, str]]:
             'manager': _s('담당자') or '-',  # 영업 담당자 (AS 알림 DM 대상)
             'partner': _s('거래처명') or '-',  # 일을 맡긴 곳 (2026-10-22)
             'biz': _s('사업자명') or '-',
+            'biz_display': _biz_display(r) or '-',   # 화면용 — 나눠 내는 공사면 부담자 두 사람 (2026-10-28)
             'address': _s('현장 주소') or '-',
             'client_manager': _s('발주처 담당자') or '-',
             'client_phone': _s('발주처 연락처') or '-',

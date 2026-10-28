@@ -8,6 +8,7 @@
  */
 import logger from '../utils/logger.js';
 import { cardPartner } from '../utils/partnerName.js';
+import { bizDisplay } from '../utils/payerSplit.js';
 
 function esc(v) {
   return String(v == null ? '' : v)
@@ -350,7 +351,7 @@ export default class AsView {
     const rows = [
       ['📥 유입 구분', v('유입 구분')],
       ...(partner ? [['🤝 거래처명', partner]] : []),
-      ['🏢 사업자명', v('사업자명')],
+      ['🏢 사업자명', bizDisplay(p) || '-'],   // 나눠 내는 공사=부담자 두 사람
       ['📍 현장 주소', v('현장 주소')],
       ['👤 발주처 담당자', v('발주처 담당자')],
       ['📞 발주처 연락처', v('발주처 연락처')],

@@ -131,6 +131,9 @@ def _build_message(
     #   기준). 2026-10-22 열 추가. 아직 온라인·전화 같은 묶음이면 줄 생략 — 유입 구분과 같은 말(10-28)
     from dashboard.services.partner_names import card_partner
     _partner = card_partner(data.get('거래처명'))
+    # 나눠 내는 공사는 사업자명 = 부담자 두 사람(시트 칸은 한 상호라 그대로, 2026-10-28 G4155)
+    from dashboard.services.payer_split import biz_display
+    _biz = biz_display(data) or '-'
 
     # 이모지는 raw Unicode 사용 — 취소 시 카드가 ``` 코드블록으로 감싸져도 정상 렌더됨
     # (:bell: 같은 shortcode는 코드블록 안에서 텍스트로 남음).
@@ -139,7 +142,7 @@ def _build_message(
         "--------------------------------------------",
         f"📥 유입 구분 : {_format_inflow(_val(data, '유입 구분'))}",
         *([f"🤝 거래처명 : {_partner}"] if _partner else []),
-        f"🏢 사업자명 : {_val(data, '사업자명')}",
+        f"🏢 사업자명 : {_biz}",
         f"📍 현장 주소 : {_val(data, '현장 주소')}",
         f"👤 발주처 담당자 : {_val(data, '발주처 담당자')}",
         f"📞 발주처 연락처 : {_val(data, '발주처 연락처')}",

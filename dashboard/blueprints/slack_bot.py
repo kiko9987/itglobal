@@ -1550,7 +1550,7 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
         dd = project_details
         info = (
             f"*📥 유입 구분 :* {dd.get('inflow', '-') or '-'}\n"
-            f"*🏢 사업자명 :* {dd.get('biz', '-') or '-'}\n"
+            f"*🏢 사업자명 :* {dd.get('biz_display') or dd.get('biz', '-') or '-'}\n"
             f"*📍 현장 주소 :* {dd.get('address', '-') or '-'}\n"
             f"*👤 발주처 담당자 :* {dd.get('client_manager', '-') or '-'}\n"
             f"*📞 발주처 연락처 :* {dd.get('client_phone', '-') or '-'}\n"
@@ -5291,7 +5291,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
         return "⠀\n" + "\n".join(lines)
 
     inflow = (proj or {}).get('inflow', '-') if proj else '-'
-    biz = (proj or {}).get('biz', '-') if proj else '-'
+    biz = ((proj or {}).get('biz_display') or (proj or {}).get('biz', '-')) if proj else '-'   # 나눠 내는 공사=두 사람
 
     lines.append(f"🔗 프로젝트 코드 : `{code or '-'}`")
     lines.append(f"📥 유입 구분 : {inflow or '-'}")
@@ -5590,7 +5590,7 @@ def _as_request_view_blocks(
             info = (
                 f"*📥 유입 구분 :* {project_details.get('inflow','-') or '-'}\n"
                 + (f"*🤝 거래처명 :* {_partner}\n" if _partner else '') +
-                f"*🏢 사업자명 :* {project_details.get('biz','-') or '-'}\n"
+                f"*🏢 사업자명 :* {project_details.get('biz_display') or project_details.get('biz','-') or '-'}\n"
                 f"*📍 현장 주소 :* {project_details.get('address','-') or '-'}\n"
                 f"*👤 발주처 담당자 :* {project_details.get('client_manager','-') or '-'}\n"
                 f"*📞 발주처 연락처 :* {project_details.get('client_phone','-') or '-'}\n"
@@ -5762,7 +5762,7 @@ def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
         except Exception as exc:
             logger.debug(f'[SLACK/AS] permalink 조회 실패 ({as_no}): {exc}')
 
-    biz = (proj or {}).get('biz', '-') or '-'
+    biz = (proj or {}).get('biz_display') or (proj or {}).get('biz', '-') or '-'   # 나눠 내는 공사=두 사람
     address = card_data.get('현장주소') or (proj or {}).get('address', '-') or '-'
     work = card_data.get('공사내용') or (proj or {}).get('work_content', '-') or '-'
     req_content = card_data.get('요청 내용', '-') or '-'

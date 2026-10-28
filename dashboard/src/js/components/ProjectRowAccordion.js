@@ -23,7 +23,7 @@ import { TABLE_MODE, ACCORDION_MODE } from '../constants/ViewModes.js';
 import logger from '../utils/logger.js';
 import { computeBillStagesFromColumns, computeYSummary, normalizeToken, BILL_STAGE_COL, BILL_STAGES, billAmountLines, billIssueDate, isPreIssued, billHeadline, splitBillNote } from '../utils/billStatus.js';
 import {
-  payerLine, getStagePayer, stagePayers, stripPayerLine, payerTitle, vatFreeAmount, calcTotal2,
+  payerLine, getStagePayer, stagePayers, stripPayerLine, payerTitle, vatFreeAmount, calcTotal2, isSplit, bizDisplay,
 } from '../utils/payerSplit.js';
 import { PARTNER_GROUP_LABELS, isPartnerName } from '../utils/partnerName.js';
 
@@ -795,10 +795,7 @@ export default class ProjectRowAccordion {
             <small title="일을 맡긴 곳 — 거래처 유입이면 그 업체, 아니면 고객 상호(사업자명을 짧게)">거래처명</small>
             <div class="editable-value" data-field="거래처명">${this.partnerValueHtml(rowData['거래처명'])}</div>
           </div>
-          <div class="compact-item">
-            <small title="사업자등록증 상호 (계산서 기준)">사업자명</small>
-            <div class="editable-value" data-field="사업자명">${rowData['사업자명'] || '-'}</div>
-          </div>
+          ${this.bizNameItemHtml(rowData)}
           <div class="compact-item">
             <small title="이 공사를 맡은 우리 쪽 사업자 (시트 '사업자' 칸) — 고객 상호는 사업자명">내부 사업자</small>
             <div class="editable-value" data-field="사업자">${rowData['사업자'] || '-'}</div>
@@ -837,6 +834,24 @@ export default class ProjectRowAccordion {
     const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     if (s === '-' || isPartnerName(s)) return esc;
     return `<span class="text-muted" title="아직 이름 없음 — 사업자명이 채워지면 그 상호로 자동으로 바뀝니다">${esc}</span>`;
+  }
+
+  /**
+   * 기본정보 '사업자명' 칸. 나눠 내는 공사는 부담자 두 사람을 보여 주고 이 칸에서는 안 고침 —
+   * 수정 칸으로 두면 화면 글자(두 사람)가 그대로 시트 사업자명에 저장됨. 사람별 상호는 [부담자 설정]에서 (2026-10-28).
+   */
+  bizNameItemHtml(rowData) {
+    if (!isSplit(rowData)) {
+      return `<div class="compact-item">
+            <small title="사업자등록증 상호 (계산서 기준)">사업자명</small>
+            <div class="editable-value" data-field="사업자명">${rowData['사업자명'] || '-'}</div>
+          </div>`;
+    }
+    const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    return `<div class="compact-item">
+            <small title="나눠 내는 공사 — 사람별 상호는 [부담자 설정]에서 바꿉니다">사업자명</small>
+            <div title="나눠 내는 공사 — 사람별 상호는 [부담자 설정]에서 바꿉니다">${esc(bizDisplay(rowData))}</div>
+          </div>`;
   }
 
   /**

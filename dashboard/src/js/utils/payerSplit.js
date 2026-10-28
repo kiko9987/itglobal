@@ -101,6 +101,16 @@ export function isSplit(row) {
   return Object.keys(stagePayers(row)).length > 0;
 }
 
+/**
+ * 화면에 보일 사업자명 — 나눠 내는 공사면 '임대인 최영희 / 임차인 기종원(위너스골프)', 아니면 시트 사업자명.
+ * 시트 칸은 한 상호 기준(등록증·입금 대조)이라 그대로 (payer_split.biz_display 미러, 2026-10-28)
+ */
+export function bizDisplay(row) {
+  const payers = stagePayers(row);
+  const people = PAYER_STAGES.filter((s) => payers[s]).map((s) => payerTitle(payers[s]));
+  return people.length ? people.join(' / ') : String((row || {})['사업자명'] ?? '').trim();
+}
+
 /** 부가세 별도 공사인가 — '부가세' 칸, 없으면 총액 2 > 총액 1 (payer_split.vat_flag 미러) */
 export function vatFlag(row) {
   const r = row || {};
