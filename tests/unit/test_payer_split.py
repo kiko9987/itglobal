@@ -110,3 +110,21 @@ def test_as_details_biz_display(monkeypatch):
     d = get_project_details('G4146-JW')
     assert d['biz'] == '이희승'                                            # 원래 값은 그대로(다른 곳 대조용)
     assert d['biz_display'] == '임대인 이희승 / 임차인 주식회사 제이케이디학원'
+
+
+def test_deposit_from_own_payer_is_not_misplacement(monkeypatch):
+    """임대인 이현주가 여러 호실에 걸친 경우 — 다른 호실 사업자명이 '이현주'여도 이 공사 부담자면 경고 안 함 (2026-10-28)."""
+    import dashboard.services.project_service as psvc
+    from dashboard.services.payment_sync import _partner_misplacement_warning
+    lessor = '임대인 · 이현주 · 414-02-62330 · 1,802,350 · 계산서'
+    recs = [
+        {'프로젝트 코드': 'G4156-JW', '사업자명': '-', '거래처명': '오남프라자',
+         '계약금 부담자': lessor, '잔금 부담자': '임차인 · 홍은희(루카수학) · 1,472,350 · 계산서'},
+        {'프로젝트 코드': 'G4158-JW', '사업자명': '이현주', '거래처명': '오남프라자',
+         '계약금 부담자': lessor, '잔금 부담자': '임차인 · 민선홍(서울아산가정의학) · 1,472,350 · 계산서'},
+        {'프로젝트 코드': 'G9000-AA', '사업자명': '홍길동상사', '거래처명': '홍길동상사'},
+    ]
+    monkeypatch.setattr(psvc, 'get_project_records', lambda force_refresh=False: recs)
+    assert _partner_misplacement_warning('G4156-JW', '이현주') == ''
+    assert _partner_misplacement_warning('G4156-JW', '홍은희') == ''
+    assert '다른 프로젝트' in _partner_misplacement_warning('G4156-JW', '홍길동상사')   # 진짜 오배치는 그대로

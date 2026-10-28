@@ -1208,6 +1208,14 @@ def _partner_misplacement_warning(code: str, partner: str) -> str:
     my_partner = (me.get('거래처명') or '').strip()
     if is_partner_name(my_partner) and _names_match(partner, my_partner):
         return ''
+    # 나눠 내는 공사: 입금자가 이 공사 부담자 중 한 명이면 정상 — 시트 사업자명은 한 사람 몫이거나 '-'라서,
+    #   임대인 이현주(G4156~60 5건)가 낸 돈이 등록증으로 사업자명이 '이현주'가 된 다른 호실과 맞아 경고가 뜰 수 있었음 (2026-10-28)
+    try:
+        from dashboard.services.payer_split import name_matches, stage_payers
+        if any(name_matches(partner, p) for p in stage_payers(me).values()):
+            return ''
+    except Exception:
+        pass
     hits = []
     for r in recs:
         c = (r.get('프로젝트 코드') or '').strip()
