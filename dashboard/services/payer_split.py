@@ -560,6 +560,41 @@ def _same_person(a: dict, b: dict) -> bool:
     return _norm(a.get('name')) == _norm(b.get('name')) and bool(_norm(a.get('name')))
 
 
+def official_payer_name(biz: str, ceo: str = '', current: str = '') -> str:
+    """부담자 칸 이름 = 실제 계산서·등록증 상호, 대표자가 상호와 다르면 '상호(대표자)' (2026-10-28 사용자 —
+    '실제 발행 상호로 통일'). 입금 문자엔 대표자 개인 이름이 자주 찍혀('기중현(위너스 골') 괄호에 남겨 입금 칸
+    자동 지정이 알아보게. 대표자를 모르면 지금 이름에서 상호가 아닌 부분(사람 이름)을 씀."""
+    biz = str(biz or '').strip()
+    if not biz:
+        return str(current or '').strip()
+    ceo = re.split(r'[,，/]', re.sub(r'\(.*?\)|외\s*\d+\s*(명|인)', '', str(ceo or '')))[0].strip()   # '김현준(단독대표)'
+    if not ceo:
+        parts = [x.strip() for x in re.split(r'[()]', str(current or '')) if x.strip()]
+        nb = _norm(biz)
+        ceo = next((x for x in parts if _norm(x) and _norm(x) not in nb and nb not in _norm(x)), '')
+    if not ceo or _norm(ceo) == _norm(biz):
+        return biz
+    return f'{biz}({ceo})'
+
+
+def normalize_payer_names(plan: Dict[str, dict]) -> Dict[str, dict]:
+    """사업자번호가 거래처 탭(홈택스 발행 이력·발행 계산서 OCR)에 있는 부담자는 이름을 그 상호(대표자)로.
+    번호가 없거나 거래처 탭에 없으면 그대로 (현금 부담자·첫 발행 전). 거래처 탭을 못 읽으면 그대로."""
+    try:
+        from dashboard.services.partner_status_sync import get_partner_info, get_partner_name_by_bno
+    except Exception:
+        return plan
+    for p in (plan or {}).values():
+        try:
+            official = get_partner_name_by_bno(p.get('biz_no')) if p.get('biz_no') else None
+            if official:
+                p['name'] = official_payer_name(official, (get_partner_info(official) or {}).get('ceo', ''),
+                                                p.get('name', ''))
+        except Exception:
+            continue
+    return plan
+
+
 def plan_payers(rows: list, rec: dict) -> Tuple[Dict[str, dict], List[str], List[str]]:
     """PM [부담자 설정] 입력 → (칸 배정 {단계: 부담자}, 오류 목록, 경고 목록). 순수 함수.
 

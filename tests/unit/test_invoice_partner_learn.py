@@ -191,7 +191,8 @@ def test_learn_from_issued_invoice(monkeypatch):
     assert sb._learn_from_issued_invoice(None, event, meta) == 1
     assert got == ['831-03-01097'] and moves == [('CINV', '9.0', '884-81-01425')]
     (args, kw), = filled
-    assert args[:3] == ('G4158-JW', '잔금', '민선홍(서울아산가정의학)') and kw == {'bno': '831-03-01097'}
+    assert args[:3] == ('G4158-JW', '잔금', '민선홍(서울아산가정의학)')
+    assert kw == {'bno': '831-03-01097', 'buyer_name': '서울아산가정의학과의원', 'buyer_ceo': '민선홍'}
     # 공급받는자를 못 읽어도(주민번호 발행) 자금 이동 정리는 함, 거래처 탭은 안 건드림
     monkeypatch.setattr(io_, 'read_invoice', lambda content: dict(BUYER, bno='', supplier_bno='533-88-02845'))
     got.clear(), filled.clear(), moves.clear()
@@ -248,3 +249,60 @@ def test_ocr_fills_over_placeholder_biz(monkeypatch):
     assert blh._maybe_update_business_name('R1-X', '데이즈헤어') == ('saved', '')
     assert writes and writes[0][3] == {'사업자명': '데이즈헤어'}
     assert blh._maybe_update_business_name('R2-X', '다른상호') == ('mismatch', '한')   # 한 글자 실제 상호는 지킴
+
+
+
+# ── 부담자 이름 = 실제 발행 상호(대표자) (2026-10-28) ─────────────────
+
+def test_official_payer_name():
+    from dashboard.services.payer_split import official_payer_name as on
+    assert on('위너스 골프존', '기중현', '기종원(위너스골프)') == '위너스 골프존(기중현)'
+    assert on('제이케이디 영재학원', '김현준', '주식회사 제이케이디학원') == '제이케이디 영재학원(김현준)'
+    assert on('주식회사 제이케이디학원', '김현준(단독 대표)', '') == '주식회사 제이케이디학원(김현준)'
+    assert on('이현주', '이현주', '이현주') == '이현주'                       # 개인 사업자 = 이름만
+    assert on('다정약국', '', '김지민(다정약국)') == '다정약국(김지민)'        # 대표자 모르면 지금 이름의 사람 부분
+    assert on('서울아산가정의학과의원', '', '서울아산가정의학과의원') == '서울아산가정의학과의원'
+    assert on('', '홍길동', '홍길동상사') == '홍길동상사'
+
+
+def _split_rec(name, bno):
+    return {'프로젝트 코드': 'G4155-JW', '계약금': '0', '잔금': '0',
+            '계약금 부담자': '임대인 · 최영희 · 132-38-00668 · 19,791,200 · 계산서', '중도금 부담자': '-',
+            '잔금 부담자': f"임차인 · {name}{' · ' + bno if bno else ''} · 18,471,200 · 계산서"}
+
+
+def test_fill_payer_renames_to_issued_buyer(monkeypatch):
+    import dashboard.blueprints.slack_bot as sb
+    import dashboard.services.project_service as psvc
+    import dashboard.services.payer_split as psp
+    saved = []
+    monkeypatch.setattr(psvc, 'get_project_records', lambda force_refresh=False: [_split_rec('기종원(위너스골프)', '443-05-03193')])
+    monkeypatch.setattr(ps, 'get_partner_info', lambda n: {'ceo': '기중현'} if n == '위너스 골프존' else None)
+    monkeypatch.setattr(psp, 'save_payers', lambda code, plan: saved.append(plan) or {})
+    sb._fill_payer_from_invoice('G4155-JW', '잔금', '기종원(위너스골프)', '', bno='443-05-03193',
+                                buyer_name='위너스 골프존', buyer_ceo='기현')    # OCR 대표 '기현'보다 거래처 탭 '기중현'
+    (plan,), = [saved]
+    assert plan['잔금']['name'] == '위너스 골프존(기중현)' and plan['계약금']['name'] == '최영희'
+
+
+def test_fill_payer_keeps_name_when_issued_to_other_business(monkeypatch):
+    """칸 번호와 발행 번호가 다르면(수정발행·다른 사업자) 이름을 바꾸지 않음 — G4148 같은 건은 사람이 정정."""
+    import dashboard.blueprints.slack_bot as sb
+    import dashboard.services.project_service as psvc
+    import dashboard.services.payer_split as psp
+    saved = []
+    monkeypatch.setattr(psvc, 'get_project_records',
+                        lambda force_refresh=False: [_split_rec('제이케이디 영재학원', '405-81-13558')])
+    monkeypatch.setattr(psp, 'save_payers', lambda code, plan: saved.append(plan) or {})
+    sb._fill_payer_from_invoice('G4155-JW', '잔금', '제이케이디 영재학원', '', bno='310-96-05190',
+                                buyer_name='제이케이디 영재학원', buyer_ceo='김현준')
+    assert saved == []
+
+
+def test_normalize_payer_names_by_bno(monkeypatch):
+    from dashboard.services.payer_split import normalize_payer_names
+    monkeypatch.setattr(ps, 'get_partner_name_by_bno', lambda b: '다정약국' if b == '799-29-00421' else None)
+    monkeypatch.setattr(ps, 'get_partner_info', lambda n: {'ceo': '김지민'} if n == '다정약국' else None)
+    plan = {'잔금': {'name': '김지민', 'biz_no': '799-29-00421'}, '계약금': {'name': '임기환', 'biz_no': ''}}
+    out = normalize_payer_names(plan)
+    assert out['잔금']['name'] == '다정약국(김지민)' and out['계약금']['name'] == '임기환'

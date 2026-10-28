@@ -288,8 +288,9 @@ def api_payers_save(code):
     if rec is None:
         return APIResponse.error(message='프로젝트를 시트에서 찾지 못했습니다.',
                                  error_code=APIErrorCode.PROJECT_NOT_FOUND, status_code=404)
-    from ..services.payer_split import plan_payers, save_payers, PAYER_FIELD
+    from ..services.payer_split import plan_payers, save_payers, normalize_payer_names, PAYER_FIELD
     plan, errors, warns = plan_payers(rows, rec)
+    plan = normalize_payer_names(plan)   # 번호가 거래처 탭에 있으면 이름 = 발행 상호(대표자) (2026-10-28)
     if errors:
         return APIResponse.error(message='\n'.join(errors),
                                  error_code=APIErrorCode.VALIDATION_ERROR, status_code=400)

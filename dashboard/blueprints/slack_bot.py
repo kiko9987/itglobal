@@ -16346,19 +16346,23 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     return {'ok': True, 'reason': 'posted', 'ts': ts, 'channel': channel_id, 'thread_url': thread_url}
 
 
-def _fill_payer_from_invoice(code, stages, biz, email, bno=''):
+def _fill_payer_from_invoice(code, stages, biz, email, bno='', buyer_name='', buyer_ceo=''):
     """나눠 내는 공사 계산서 요청 → 그 칸 부담자의 비어 있는 이메일·사업자번호를 채운다 (2026-10-19).
 
     한 단계만 요청했고, 요청 사업자가 그 칸 부담자와 같을 때만. 이미 적힌 값은 바꾸지 않는다
     (수정발행 등으로 다른 사업자에 발행하는 경우를 덮지 않게). 사업자번호는 bno(발행된 계산서에서
     읽은 번호, 2026-10-23) → 없으면 거래처 탭에서 찾는다.
+    이름: 발행된 계산서 공급받는자(buyer_name)와 번호가 같으면(또는 칸에 번호가 없으면) 부담자 이름을
+    '발행 상호(대표자)'로 맞춘다 (2026-10-28 — '기종원(위너스골프)'처럼 적힌 칸을 실제 발행 상호로 통일).
+    대표자는 거래처 탭 > 지금 이름의 사람 부분 > 계산서 OCR 순(OCR 이 '기중현'을 '기현'으로 읽은 적 있음).
+    저장은 [부담자 설정]과 같은 save_payers — 칸 메모 ◆줄·시트 사업자명도 같이 맞춰짐.
     """
     try:
         st = [s.strip() for s in str(stages or '').split(',') if s.strip()]
         if len(st) != 1:
             return
         from dashboard.services.payer_split import (
-            stage_payers, payer_for_biz, format_payer_cell, PAYER_FIELD, _EMAIL_RE)
+            stage_payers, payer_for_biz, format_payer_cell, official_payer_name, save_payers, _EMAIL_RE)
         from dashboard.services.project_service import get_project_records
         rec = next((r for r in (get_project_records() or [])
                     if str(r.get('프로젝트 코드') or '').strip() == code), None)
@@ -16379,22 +16383,31 @@ def _fill_payer_from_invoice(code, stages, biz, email, bno=''):
                     upd['biz_no'] = str((get_partner_info(biz) or {}).get('bno') or '')
                 except Exception:
                     pass
-        new_val = format_payer_cell(upd)
-        if new_val == format_payer_cell(p):
-            return
-        sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
-        sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
-        from dashboard.services.lead_service import get_sheets_manager
-        mgr = get_sheets_manager()
-        row = mgr.find_row_by_project_code(sid, code, f"{sn}!A:A")
-        col = mgr.get_field_to_letter().get(PAYER_FIELD[st[0]])
-        if row and col and mgr.update_cell_value(sid, sn, f'{col}{row}', new_val):
-            logger.info(f"[SLACK/계산서] 부담자 정보 보완: {code} {st[0]} → {new_val}")
+        _digits = lambda v: re.sub(r'\D', '', str(v or ''))
+        if buyer_name and bno and (not p.get('biz_no') or _digits(p['biz_no']) == _digits(bno)):
+            ceo = ''
             try:
-                from dashboard.services.project_service import update_project_in_cache
-                update_project_in_cache(code, {PAYER_FIELD[st[0]]: new_val})
+                from dashboard.services.partner_status_sync import get_partner_info
+                ceo = str((get_partner_info(buyer_name) or {}).get('ceo') or '')
             except Exception:
                 pass
+            nm = official_payer_name(buyer_name, ceo, p['name'])
+            if not ceo and nm == buyer_name and buyer_ceo:
+                nm = official_payer_name(buyer_name, buyer_ceo, p['name'])
+            upd['name'] = nm
+        if format_payer_cell(upd) == format_payer_cell(p):
+            return
+        plan = {s: (upd if s == st[0] else dict(v)) for s, v in payers.items()}
+        changed = save_payers(code, plan)
+        logger.info(f"[SLACK/계산서] 부담자 정보 보완: {code} {st[0]} → {format_payer_cell(upd)}")
+        try:
+            from dashboard.services.project_service import update_project_in_cache
+            update_project_in_cache(code, changed)
+            if '사업자명' in changed:   # 사업자명은 부담자 이름 모음 — 리컨사일러 '시트 직접수정' 댓글 없이
+                from dashboard.utils.redis_client import get_redis_client
+                get_redis_client().redis.setex(f'project_pm_edit:{code}', 900, '1')
+        except Exception:
+            pass
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] 부담자 정보 보완 실패(무시) ({code}): {exc}")
 
@@ -16465,7 +16478,8 @@ def _learn_from_issued_invoice(client, event: dict, meta: dict) -> int:
             n += 1
         if code and code != '-':
             _fill_payer_from_invoice(code, meta.get('stages'), meta.get('biz', ''), buyer.get('email') or '',
-                                     bno=buyer['bno'])
+                                     bno=buyer['bno'], buyer_name=buyer.get('name') or '',
+                                     buyer_ceo=buyer.get('ceo') or '')
     return n
 
 
