@@ -1258,7 +1258,7 @@ def _register_payment_handlers(app):
             def _bg():
                 try:
                     from dashboard.blueprints.sms_inbound import ingest_deposit
-                    made = dup = 0
+                    made = dup = failed = 0
                     for seg_text, seg_recv in segments:
                         # 여러 건 붙여넣기 대비 — 빈 줄로 블록 분리, 건별 처리
                         blocks = [b.strip() for b in re.split(r'\n\s*\n', seg_text) if b.strip()]
@@ -1274,11 +1274,14 @@ def _register_payment_handlers(app):
                                 made += 1
                             elif st == 'duplicate':
                                 dup += 1
-                    # 카드 생성/중복이면 원문에 ✅ 리액션 (reactions:write 없으면 무시)
-                    if (made or dup) and ts:
+                            elif st == 'card_failed':
+                                failed += 1
+                    # 카드 생성/중복이면 원문에 ✅, 카드를 못 만든 건이 있으면 ⚠️ — 다시 붙여넣으면 됨
+                    #   (예전엔 실패해도 다른 건이 있으면 ✅ 라 놓쳤음, 2026-10-29) (reactions:write 없으면 무시)
+                    if ts and (made or dup or failed):
                         try:
                             client.reactions_add(channel=intake_channel, timestamp=ts,
-                                                 name='white_check_mark')
+                                                 name='warning' if failed else 'white_check_mark')
                         except Exception:
                             pass
                     logger.info(f"[SLACK/수금봇] 채널 인입: made={made} dup={dup} "
@@ -1795,7 +1798,8 @@ def _build_split_memo(preview: dict, amount: int, total: int) -> str:
     if date_md and '/' in date_md:
         mm, dd = (date_md.split('/') + ['', ''])[:2]
         try:
-            lines.append(f'{datetime.now().year}/{int(mm):02d}/{int(dd):02d}')
+            from dashboard.services.sms_intake import year_for_md   # 미래 날짜면 작년 (2026-10-29)
+            lines.append(f'{year_for_md(int(mm), int(dd))}/{int(mm):02d}/{int(dd):02d}')
         except Exception:
             pass
     lines.append(f'입금 {amount:,}원')
@@ -8353,9 +8357,10 @@ def _try_auto_thread_status(client, event: dict) -> bool:
         _update = {'상태': new_status, '상담 내용': new_k}
         if manager_name:
             _update['온라인 상담자'] = manager_name
-        update_lead(lead_no, _update)
+        _update_lead_dispatch(lead_no, _update)   # 실패면 예외 — 시트는 그대로인데 카드만 회색·✅ 되던 것 (2026-10-29)
     except Exception as exc:
-        logger.error(f'[SLACK/자동감지] 시트 update 실패 ({lead_no}): {exc}', exc_info=True)
+        logger.error(f'[SLACK/자동감지] 시트 update 실패 — 카드 안 바꿈 ({lead_no}): {exc}', exc_info=True,
+                     extra={'force_alert': True})
         return True
 
     try:
@@ -11311,7 +11316,9 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
             f'[SLACK/방문완료] 시트 마커 append + 상태={updates.get("상태", cur_status)}'
             f'{" + 방문일 " + _today if "방문 예정일" in updates else ""}: {lead_no} → {marker}')
     except Exception as exc:
-        logger.warning(f'[SLACK/방문완료] 시트 마커 append 실패 ({lead_no}): {exc}')
+        # 카드는 이미 회색·List 행 삭제 — 시트만 '방문 예약'으로 남으므로 알림 (2026-10-29, 예전 WARNING)
+        logger.error(f'[SLACK/방문완료] 시트 마커·상태 기록 실패 — 카드는 완료, 시트 확인 필요 ({lead_no}): {exc}',
+                     extra={'force_alert': True})
 
 
 def _process_visit_complete(client, body) -> None:
@@ -15281,10 +15288,21 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                     _add.append(_line)
                 if _card_new and _add:
                     _new_note = '\n'.join([_note.strip()] + _add) if _note.strip() else '\n'.join(_add)
-                    manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
+                    try:
+                        manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
+                    except Exception:
+                        # 못 썼으면 '이 카드는 기록함' 표시를 풀어 둠 — 남아 있으면 다시 첨부해도 400일간 안 써져
+                        #   Y칸은 '발행'인데 금액 줄이 없는 채로 남았음 (2026-10-29 점검)
+                        if card_key:
+                            try:
+                                _grc_memo().redis.delete(f'invoice_memo_card:{card_key}')
+                            except Exception:
+                                pass
+                        raise
                     logger.info(f"[SLACK/계산서] 발행일 메모 기록 ({code}): {' | '.join(_add)}")
             except Exception as _me:
-                logger.warning(f"[SLACK/계산서] 발행일 메모 기록 실패 ({code}): {_me}")
+                logger.error(f"[SLACK/계산서] 발행일 메모 기록 실패 — 계산서 메모(Y) 확인 필요 ({code}): {_me}",
+                             extra={'force_alert': True})
         # 나눠 내는 공사 — 방금 적은 장 금액 줄까지 반영해 사람별 계산서 상태로 요약(Y). 같은 사람 2차 발행처럼
         #   칸 값('발행')이 그대로여도 상태(일부 발행 → 발행완료)가 바뀔 수 있어 항상 다시 계산 (2026-10-20).
         if col_y and _payers:
@@ -15319,7 +15337,8 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
             logger.warning(f"[SLACK/계산서] 감사 로그 실패 ({code}): {ae}")
         logger.info(f"[SLACK/계산서] 시트 자동기록 완료: {code} {wrote} = 발행")
     except Exception as exc:
-        logger.error(f"[SLACK/계산서] 시트 자동기록 실패 ({code}): {exc}", exc_info=True)
+        logger.error(f"[SLACK/계산서] 시트 자동기록 실패 — 카드는 완료, 시트 계산서 칸 확인 필요 ({code}): {exc}",
+                     exc_info=True, extra={'force_alert': True})
 
 
 _INV_LINE_RE = re.compile(
@@ -16497,13 +16516,15 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     except Exception as perm_exc:
         logger.warning(f"[SLACK/계산서] permalink 조회 실패 (링크 생략): {perm_exc}")
 
-    # Redis 저장 (30일 TTL) — 스레드 첨부 감지 시 auto-complete 처리용
+    # Redis 저장 (730일) — 스레드 첨부 감지 시 auto-complete 처리용. 30일이던 때는 선발행·등록증 대기로
+    #   한 달 넘게 걸린 건의 첨부가 '계산서 스레드 아님'으로 조용히 무시됨(완료·시트 발행 기록 X) —
+    #   invoice_thread(730일)와 맞춤 (2026-10-29)
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
         rc.setex(
             f'invoice_card:{channel_id}:{ts}',
-            86400 * 30,
+            86400 * 730,
             json.dumps({
                 'code': code, 'biz': biz, 'amt': amt_digits, 'vat': vat_val,
                 'email': email, 'thread_url': thread_url, 'orig_text': text,

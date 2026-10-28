@@ -268,6 +268,11 @@ def _fetch_visit_leads() -> List[Dict]:
                 mo = int(m_range.group(5) or m_range.group(2))
                 d = int(m_range.group(6))
                 vd_date = date(y, mo, d)
+                # '2026-12-30~01-02'(끝에 연도 없음, 해 넘김) — 11·12월 시작 → 1·2월 끝일 때만 다음 해
+                #   (2026-10-29). 같은 달 오기('10-24~20')는 그대로.
+                if (not m_range.group(4) and m_range.group(5)
+                        and int(m_range.group(2)) >= 11 and mo <= 2):
+                    vd_date = date(y + 1, mo, d)
             elif m_single:
                 vd_date = date(
                     int(m_single.group(1)),

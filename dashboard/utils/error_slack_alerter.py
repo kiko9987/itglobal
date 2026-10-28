@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 # ── 임계값/상수 ────────────────────────────────────────────────
 _MIN_LEVEL = logging.ERROR
+ALWAYS_ALERT = {'force_alert': True}                     # logger.error(..., extra=ALWAYS_ALERT) — 일시 오류 문구여도 알림
 SPIKE_WINDOW_SEC = 300                                    # 급증 판정 창 (5분)
 SPIKE_THRESHOLD = int(os.getenv('ERROR_ALERT_SPIKE_THRESHOLD', '20') or 20)
 SPIKE_COOLDOWN_SEC = 1800                                 # 급증 경보 후 동일 sig 30분 억제
@@ -224,7 +225,11 @@ class _AlertGate:
         now = self._now()
         sig = _signature(record, msg)
         is_critical = record.levelno >= logging.CRITICAL
-        transient = any(s in msg for s in _TRANSIENT_SUBSTR)
+        # 업무 데이터가 빠지는 한 번뿐인 실패(리드 저장·입금 카드·계산서 기록 등)는 문구에 '최대 재시도'·'502'
+        #   가 있어도 일시 잡음으로 묻지 않음 — logger.error(..., extra=ALWAYS_ALERT) (2026-10-29: 5분 20건
+        #   급증 기준에 걸려 사실상 알림이 안 가던 것)
+        transient = (not getattr(record, 'force_alert', False)
+                     and any(s in msg for s in _TRANSIENT_SUBSTR))
 
         # 급증 판정용 윈도우 갱신
         with self._lock:

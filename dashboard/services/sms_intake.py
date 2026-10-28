@@ -202,22 +202,37 @@ def parse_cash_amount(text: str) -> int:
     return 0
 
 
+def year_for_md(mm: int, dd: int, today=None) -> int:
+    """연도 없는 '월/일'(은행 문자·현금 메모)의 연도 — 오늘보다 하루 넘게 뒤면 작년.
+
+    12/31 입금을 새해 1/4 에 지정·기록하면 '올해'를 붙여 2027/12/31(미래)로 영구 저장되고, 반환 짝짓기·
+    과입금 점검이 그 날짜를 기준으로 1년 내내 어긋났다 (2026-10-29 점검). 입금 날짜는 지난 날짜뿐이라
+    미래가 될 수 없음(하루 여유는 자정 무렵 시차)."""
+    from datetime import date, timedelta
+    today = today or date.today()
+    try:
+        if date(today.year, int(mm), int(dd)) > today + timedelta(days=1):
+            return today.year - 1
+    except (ValueError, TypeError):
+        pass
+    return today.year
+
+
 def _extract_cash_date(text: str) -> str:
-    """자유문장에서 날짜 'YYYY/MM/DD' 추출 (기업 SMS 양식). 연도 없으면 당해년도. 없으면 ''.
+    """자유문장에서 날짜 'YYYY/MM/DD' 추출 (기업 SMS 양식). 연도 없으면 올해(미래면 작년). 없으면 ''.
     예: '8월25일'→'2026/08/25', '2026/08/25'→그대로, '08/25'→'2026/08/25'."""
     m = re.search(r'(20\d{2})[/.\-](\d{1,2})[/.\-](\d{1,2})', text or '')
     if m:
         return f'{m.group(1)}/{int(m.group(2)):02d}/{int(m.group(3)):02d}'
-    from datetime import datetime
-    yr = datetime.now().year
     m = re.search(r'(\d{1,2})\s*월\s*(\d{1,2})\s*일', text or '')
     if m:
-        return f'{yr}/{int(m.group(1)):02d}/{int(m.group(2)):02d}'
+        mm, dd = int(m.group(1)), int(m.group(2))
+        return f'{year_for_md(mm, dd)}/{mm:02d}/{dd:02d}'
     m = re.search(r'(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)', text or '')
     if m:
         mm, dd = int(m.group(1)), int(m.group(2))
         if 1 <= mm <= 12 and 1 <= dd <= 31:
-            return f'{yr}/{mm:02d}/{dd:02d}'
+            return f'{year_for_md(mm, dd)}/{mm:02d}/{dd:02d}'
     return ''
 
 

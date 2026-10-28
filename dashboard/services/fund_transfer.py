@@ -218,7 +218,8 @@ def transfer_line(req: Dict, deposit_text: str, preview: dict, checker: str) -> 
     md, yr = (pv.get('date_md') or '').strip(), str(pv.get('date_year') or '').strip()
     try:
         mm, dd = (int(x) for x in md.split('/'))
-        date = f"{int(yr) if len(yr) == 4 else datetime.now().year:04d}-{mm:02d}-{dd:02d}"
+        from dashboard.services.sms_intake import year_for_md   # 연도 없으면 올해, 미래면 작년 (2026-10-29)
+        date = f"{int(yr) if len(yr) == 4 else year_for_md(mm, dd):04d}-{mm:02d}-{dd:02d}"
     except Exception:
         date = datetime.now().strftime('%Y-%m-%d')
     try:

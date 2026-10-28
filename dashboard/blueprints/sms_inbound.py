@@ -197,6 +197,14 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> d
             logger.warning(f'[SMS_INBOUND] 원문 보관 실패: {exc}')
 
     if not _post_intake_card(intake_id, clean, preview):
+        # 카드를 못 올렸으면 중복 표시를 풀어 둠 — 같은 문자를 다른 폰(3대 동시 포워딩)·수동 붙여넣기로
+        #   다시 받으면 카드가 생기게. 예전엔 표시가 남아 나머지가 '중복'으로 버려져 입금 카드가 영영
+        #   안 떴음 (2026-10-29 점검)
+        if rc is not None:
+            try:
+                rc.delete(f'sms_intake:seen:{intake_id}')
+            except Exception:
+                pass
         return {'status': 'card_failed', 'id': intake_id}
     return {'status': 'ok', 'id': intake_id, 'preview': preview}
 
@@ -326,11 +334,19 @@ def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:
     try:
         from slack_sdk import WebClient
         slack = WebClient(token=bot_token)
-        resp = slack.chat_postMessage(
-            channel=channel,
-            text='입금 문자 도착 — 프로젝트 지정 필요',
-            blocks=_build_intake_blocks(intake_id, clean_text, preview),
-        )
+        resp = None
+        for _try in range(2):          # 슬랙 순간 오류 한 번은 다시 (2026-10-29)
+            try:
+                resp = slack.chat_postMessage(
+                    channel=channel,
+                    text='입금 문자 도착 — 프로젝트 지정 필요',
+                    blocks=_build_intake_blocks(intake_id, clean_text, preview),
+                )
+                break
+            except Exception:
+                if _try == 1:
+                    raise
+                time.sleep(3)
         # 미처리 박제 — 프로젝트 지정·기록 전까지 카드 고정(pin). 경영지원 [✅ 확인 후
         # 기록] 시 자동 해제. 고정 목록 = 아직 처리 안 된 입금. pins:write scope 없으면
         # 실패해도 카드 게시는 정상(무해).
@@ -344,7 +360,9 @@ def _post_intake_card(intake_id: str, clean_text: str, preview: dict) -> bool:
                 _suggest_transfer_async(slack, channel, ts, intake_id, clean_text, preview)
         return True
     except Exception as exc:
-        logger.error(f'[SMS_INBOUND] 카드 게시 실패: {exc}', exc_info=True)
+        logger.error(f'[SMS_INBOUND] 입금 카드 게시 실패 — 입금 문자 확인 필요 '
+                     f'({(preview or {}).get("amount")}원 {(preview or {}).get("partner")}): {exc}',
+                     exc_info=True, extra={'force_alert': True})
         return False
 
 

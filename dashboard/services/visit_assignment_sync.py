@@ -981,7 +981,13 @@ def _parse_visit_date_end(vd) -> Optional['date']:
             y = int(m_range.group(4) or m_range.group(1))
             mo = int(m_range.group(5) or m_range.group(2))
             d = int(m_range.group(6))
-            return _date(y, mo, d)
+            end = _date(y, mo, d)
+            # '2026-12-30~01-02'(끝에 연도 없음, 해 넘김) — 11·12월 시작 → 1·2월 끝일 때만 다음 해
+            #   (2026-10-29). '10-24~20' 같은 같은 달 오기는 그대로 둬 '끝이 시작보다 앞' 경고가 잡게.
+            if (not m_range.group(4) and m_range.group(5)
+                    and int(m_range.group(2)) >= 11 and mo <= 2):
+                end = _date(y + 1, mo, d)
+            return end
         except ValueError:
             return None
     return _parse_visit_date_start(vd)

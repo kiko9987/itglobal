@@ -352,10 +352,13 @@ def send_project_created_notification(data: dict, code: str) -> bool:
                 except Exception as _exc:
                     logger.debug(f'[PROJECT/SLACK] 첨부 링크 삽입 실패 ({code}): {_exc}')
             return True
-        logger.warning(f"[PROJECT/SLACK] 슬랙 API 실패 ({code}): {resp.get('error')}")
+        # 카드가 없으면 그 공사는 계산서 요청 버튼·리컨사일러 대상에서 빠짐 → 알림 (2026-10-29, 예전 WARNING)
+        logger.error(f"[PROJECT/SLACK] 공사 확정 카드 발송 실패 — 카드 없음 ({code}): {resp.get('error')}",
+                     extra={'force_alert': True})
         return False
     except Exception as exc:
-        logger.warning(f"[PROJECT/SLACK] 발송 예외 ({code}): {exc}")
+        logger.error(f"[PROJECT/SLACK] 공사 확정 카드 발송 실패 — 카드 없음 ({code}): {exc}",
+                     extra={'force_alert': True})
         return False
 
 

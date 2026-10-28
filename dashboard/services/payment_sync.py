@@ -102,7 +102,8 @@ def _card_fields(vals, idx: Dict[str, int]) -> Dict:
 
 
 REDIS_KEY_PREFIX = 'payment_sync:row:'
-REDIS_TTL = 60 * 60 * 24 * 90  # 90일
+REDIS_TTL = 60 * 60 * 24 * 400  # 400일 — 90일이면 안 바뀐 행이 조용히 만료·재기준(그 사이 입금 카드 누락) (2026-10-29)
+PAYMENT_CARD_TS_TTL = 60 * 60 * 24 * 365 * 3  # 단계 카드 ts 3년 — 몇 달 나눠 받는 공사도 정정·회색·병합이 카드를 찾게 (90일→, 2026-10-29)
 
 # 정식 프로젝트 코드 패턴 — 예: G3491-YG, R3625-JK
 # 비표준(옛 프로젝트 1035, "0 중고...") 행은 알림 skip
@@ -528,11 +529,11 @@ def _ensure_note_year(memo: str) -> str:
     """저장 시점에 노트 날짜에 연도를 박아둔다 — 근본책 (2026-09-10 사용자 제안).
 
     입금 문자→시트 기록 시 날짜에 연도가 없으면(예 '09/08') 맨 앞에 'YYYY/MM/DD'(당해년도)
-    줄을 붙여 저장한다. 기록 시점의 연도는 확실(=지금)하므로 오표기가 없고, 이후 카드 표시 때
+    줄을 붙여 저장한다. 연도는 기록 시점 기준(그 날짜가 미래면 작년 — 12/31 입금을 1/4 에 기록,
+    2026-10-29)이라 오표기가 없고, 이후 카드 표시 때
     연도를 추측할 필요가 사라진다(다년 분납도 각 건이 기록 당시 연도로 확정). 이미 연도가 있거나
     (은행문자 'YYYY-MM-DD') 날짜가 없으면 그대로 둔다 — 분할 노트(_build_split_memo)는 이미
     연도 포함이라 no-op. 표시측 _fill_sibling_years 는 옛 무연도 노트 보완용으로 유지."""
-    from datetime import datetime
     try:
         p = _parse_memo_block(memo)
     except Exception:
@@ -552,7 +553,8 @@ def _ensure_note_year(memo: str) -> str:
             return memo
     except (ValueError, TypeError):
         return memo
-    return f"{datetime.now().year}/{md}\n{memo.lstrip()}"
+    from dashboard.services.sms_intake import year_for_md   # 새해에 지난해 12월 입금 기록 → 작년 (2026-10-29)
+    return f"{year_for_md(int(_mm), int(_dd))}/{md}\n{memo.lstrip()}"
 
 
 def _hash_payments(payments: List[Dict]) -> str:
@@ -2346,13 +2348,15 @@ def _send_refund_card(slack, channel: str, rs: Dict,
         if ts:
             try:
                 get_redis_client().redis.set(
-                    f'payment_slack:ts:{project}:{stage}', ts, ex=60 * 60 * 24 * 90)
+                    f'payment_slack:ts:{project}:{stage}', ts, ex=PAYMENT_CARD_TS_TTL)
             except Exception:
                 pass
         logger.info(f'[PAYMENT] 과입금 반환 새 카드 발송: {project}/{stage} ts={ts}')
         return True
     except Exception as exc:
-        logger.warning(f'[PAYMENT] 반환 카드 발송 실패 ({project}/{stage}): {exc}')
+        # 기준값은 이미 반환 뒤로 갱신돼 폴러가 다시 안 보냄 → 알림 (2026-10-29, 예전 WARNING)
+        logger.error(f'[PAYMENT] 반환 카드 발송 실패 — 시트엔 기록됨, 카드 없음 ({project}/{stage}): {exc}',
+                     extra={'force_alert': True})
         return False
 
 
@@ -2981,7 +2985,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                                 # 이 단계 ts 도 완료 카드로 매핑(후속 정정 참조). baseline
                                 # phash 는 stage 루프 뒤 공통 저장에서 확정된다.
                                 rc.set(f'payment_slack:ts:{project}:{stage}', _done_ts,
-                                       ex=60 * 60 * 24 * 90)
+                                       ex=PAYMENT_CARD_TS_TTL)
                                 result['sent'] += 1
                                 sent_this_row = True
                                 logger.info(
@@ -3089,7 +3093,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                             rc.set(
                                 f'payment_slack:ts:{project}:{stage}',
                                 _pending['ts'],
-                                ex=60 * 60 * 24 * 90,
+                                ex=PAYMENT_CARD_TS_TTL,
                             )
                             logger.info(
                                 f"[PAYMENT] grace 통합 승격: {project} → 그룹 {len(_pending['projects'])}건 "
@@ -3213,7 +3217,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                                 rc.set(
                                     f'payment_slack:ts:{project}:{stage}',
                                     ts,
-                                    ex=60 * 60 * 24 * 90,  # 90일 보관
+                                    ex=PAYMENT_CARD_TS_TTL,
                                 )
                                 # 2026-07-11 통합 카드였으면 그룹 전체 프로젝트에도 동일 ts 저장.
                                 #   각 지점 코드로 카드 조회하는 후속 처리 (편집 답글 등) 가
@@ -3229,7 +3233,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                                             rc.set(
                                                 f'payment_slack:ts:{_code_g}:{stage}',
                                                 ts,
-                                                ex=60 * 60 * 24 * 90,
+                                                ex=PAYMENT_CARD_TS_TTL,
                                             )
                                             # 그룹 전체 phash 갱신 (개별 발송 중복 방지)
                                             _row_key = f"{REDIS_KEY_PREFIX}{_row_num}"

@@ -422,7 +422,9 @@ def update_lead(lead_no: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     except Exception as exc:
-        logger.error(f"[LEADS] 리드 업데이트 실패: {exc}", exc_info=True)
+        # 한 번뿐인 저장 실패 — 일시 오류 문구여도 알림(force_alert), 어느 리드인지 남김 (2026-10-29)
+        logger.error(f"[LEADS] 리드 {lead_no} 업데이트 실패 ({', '.join(map(str, update_data.keys()))}): {exc}",
+                     exc_info=True, extra={'force_alert': True})
         return {'success': False, 'message': f'리드 업데이트 중 오류 발생: {str(exc)}'}
 
 

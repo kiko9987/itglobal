@@ -603,9 +603,14 @@ def sync_homepage_email() -> Dict[str, Any]:
         category = parsed.get('category', '기타')
 
         if category == '기타':
+            # 검색이 폼 응답 메일만 고르므로 '기타' = 폼 해석 실패(폼 문구·라벨 변경 등). 처리 완료 라벨을
+            #   붙이면 그 문의가 리드로 안 남고 사라지므로 라벨 없이 두고 알림 — 파서를 고치면 다음 동기화에서
+            #   자동 등록 (2026-10-29 점검. 최근 30일 발생 0건이라 평소 잡음 없음)
             unknown += 1
-            logger.warning(f'[SYNC/홈페이지] 알 수 없는 메일 형식 (id={msg_id})')
-            processed_msg_ids.append(msg_id)
+            subj = next((h.get('value', '') for h in (msg.get('payload') or {}).get('headers', [])
+                         if h.get('name', '').lower() == 'subject'), '')
+            logger.error(f'[SYNC/홈페이지] 문의 메일 해석 실패 — 리드 미등록, 폼 형식 확인 필요 '
+                         f'(id={msg_id}, 제목={subj[:40]!r})', extra={'force_alert': True})
             continue
 
         lead = to_lead(parsed)
@@ -783,7 +788,7 @@ def sync_homepage_email() -> Dict[str, Any]:
                     f'[SYNC/홈페이지] 재발송 실패 → 라벨 보류 ({ln}, msg_id={lead["_meta_msg_id"]})'
                 )
 
-    # 처리 완료 라벨 부착 (dup/unknown은 즉시, new_lead/resend는 슬랙 성공한 것만)
+    # 처리 완료 라벨 부착 (dup 은 즉시, new_lead/resend 는 슬랙 성공한 것만, 해석 실패는 안 붙임)
     for msg_id in processed_msg_ids:
         _mark_processed(service, msg_id, label_id)
 
