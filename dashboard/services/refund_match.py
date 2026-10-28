@@ -274,9 +274,10 @@ def build_processing_blocks(outflow: Dict, c: Dict) -> list:
 
 
 def _fmt_md(iso_or_ts) -> str:
+    """카드 입금·출금 줄 날짜 'MM/DD' — 다른 수금 카드처럼 날짜만(시각은 아래 문자 원문에 있음, 2026-10-28)."""
     try:
         if isinstance(iso_or_ts, (int, float)):
-            return datetime.fromtimestamp(int(iso_or_ts)).strftime('%m/%d %H:%M')
+            return datetime.fromtimestamp(int(iso_or_ts)).strftime('%m/%d')
         return datetime.fromisoformat(str(iso_or_ts)).strftime('%m/%d')
     except Exception:
         return '-'

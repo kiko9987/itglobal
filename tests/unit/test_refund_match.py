@@ -69,7 +69,9 @@ def test_partial_overpay_refund_matches_larger_deposit():
     body = rm.build_candidate_blocks('o2', out, picked[0])[0]['text']['text']
     assert '>입금 : 10/17  하나  4,950,000원  임서희  (5,000원 과입금)' in body
     assert '입금 : 10/17  하나  5,000원' not in body
-    done = rm.build_done_blocks(out, picked[0], 4950000, 4945000, 'MY')[0]['text']['text']
+    # 입금·출금 줄 모두 날짜만 (다른 수금 카드와 같은 표기, 시각은 아래 문자 원문)
+    assert '>출금 : 10/20  하나  5,000원  임서희' in body
+    done =rm.build_done_blocks(out, picked[0], 4950000, 4945000, 'MY')[0]['text']['text']
     assert '4,950,000원  임서희  (5,000원 과입금)' in done
     # 옛 후보(dep_amount 없음)는 반환액 그대로
     old_c = {k: v for k, v in picked[0].items() if k != 'dep_amount'}
