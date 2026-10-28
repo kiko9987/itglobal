@@ -381,10 +381,12 @@ export default class InvoiceLicense {
       <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(금액=총액이면 나머지 자동 '-')</span></label>
         <select id="ilStage" class="form-select">${stageOptions}</select>
         <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>`;
+    // 나눠 내는 공사: 부담자를 고르기 전엔 사업자명·금액·이메일이 비어 있음 — 왜 비었는지 안내 (2026-10-28)
+    const SPLIT_PH = '부담자 선택 시 자동으로 기입됩니다';
     const body = `
       ${split ? stageBlock : ''}
       <div class="mb-2"><label class="form-label">사업자명</label>
-        <input id="ilBiz" type="text" class="form-control" value="${esc(split ? '' : biz)}" placeholder="예: (주)아이티글로벌"></div>
+        <input id="ilBiz" type="text" class="form-control" value="${esc(split ? '' : biz)}" placeholder="${split ? SPLIT_PH : '예: (주)아이티글로벌'}"></div>
       <div class="mb-2"><label class="form-label">현장 주소</label>
         <input id="ilAddr" type="text" class="form-control" value="${esc(addr)}" placeholder="현장 주소"></div>
       ${payerHint}
@@ -392,7 +394,7 @@ export default class InvoiceLicense {
       ${replaceHtml}
       <div class="row">
         <div class="col mb-2"><label class="form-label">발행 금액 <span class="text-muted small">(원)</span></label>
-          <input id="ilAmt" type="text" inputmode="numeric" class="form-control" value="${esc(split ? '' : amtDisp)}" placeholder="예: 9,600,000"></div>
+          <input id="ilAmt" type="text" inputmode="numeric" class="form-control" value="${esc(split ? '' : amtDisp)}" placeholder="${split ? SPLIT_PH : '예: 9,600,000'}"></div>
         <div class="col mb-2"><label class="form-label">부가세</label>
           <select id="ilVat" class="form-select">
             <option value="sep" ${vatSep ? 'selected' : ''}>VAT 별도</option>
@@ -400,7 +402,7 @@ export default class InvoiceLicense {
           </select></div>
       </div>
       <div class="mb-2"><label class="form-label">이메일 <span class="text-muted small">(계산서 수신)</span></label>
-        <input id="ilEmail" type="text" class="form-control" value="${esc(split ? '' : email)}" placeholder="example@company.com"></div>
+        <input id="ilEmail" type="text" class="form-control" value="${esc(split ? '' : email)}" placeholder="${split ? SPLIT_PH : 'example@company.com'}"></div>
       ${split ? '' : stageBlock}
       <div class="mb-1"><label class="form-label">요청사항 <span class="text-muted small">(선택)</span></label>
         <textarea id="ilMemo" class="form-control" rows="2" placeholder="청구/영수 발행·특이사항 등"></textarea></div>
