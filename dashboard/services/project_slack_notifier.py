@@ -127,15 +127,18 @@ def _build_message(
     else:
         folder_line = None
 
+    # 거래처명 = 일을 맡긴 곳(거래처 유입이면 업체, 그 밖은 짧은 사업자명), 사업자명 = 등록증 상호(계산서
+    #   기준). 2026-10-22 열 추가. 아직 온라인·전화 같은 묶음이면 줄 생략 — 유입 구분과 같은 말(10-28)
+    from dashboard.services.partner_names import card_partner
+    _partner = card_partner(data.get('거래처명'))
+
     # 이모지는 raw Unicode 사용 — 취소 시 카드가 ``` 코드블록으로 감싸져도 정상 렌더됨
     # (:bell: 같은 shortcode는 코드블록 안에서 텍스트로 남음).
     lines = [
         f"🔔 *[공사 확정 알림]*  `{code_safe}`",
         "--------------------------------------------",
         f"📥 유입 구분 : {_format_inflow(_val(data, '유입 구분'))}",
-        # 거래처명 = 일을 맡긴 곳(2건 이상·거래처 유입이면 이름, 아니면 온라인·전화 등 묶음),
-        # 사업자명 = 등록증 상호(계산서 기준). 2026-10-22 열 추가
-        f"🤝 거래처명 : {_val(data, '거래처명')}",
+        *([f"🤝 거래처명 : {_partner}"] if _partner else []),
         f"🏢 사업자명 : {_val(data, '사업자명')}",
         f"📍 현장 주소 : {_val(data, '현장 주소')}",
         f"👤 발주처 담당자 : {_val(data, '발주처 담당자')}",
@@ -665,6 +668,23 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
         return False
 
 
+def _with_cached_partner(code: str, data: dict) -> dict:
+    """카드에 그릴 data 의 거래처명이 아직 묶음(온라인·전화…)이고 캐시엔 이름이 있으면 캐시 이름으로.
+
+    사람이 고친 이름을 옛 캐시로 덮지 않도록 묶음 → 이름 방향만 바꾼다."""
+    try:
+        from dashboard.services.partner_names import is_partner_name
+        if is_partner_name(data.get('거래처명')):
+            return data
+        from dashboard.services.project_service import get_project_records
+        rec = next((r for r in get_project_records() or []
+                    if str(r.get('프로젝트 코드') or '').strip() == code), None)
+        cached = str((rec or {}).get('거래처명') or '').strip()
+        return dict(data, 거래처명=cached) if is_partner_name(cached) else data
+    except Exception:
+        return data
+
+
 def notify_project_field_changes(code: str, field_changes: list, latest_data: dict = None,
                                  editor: str = '') -> bool:
     """편집된 필드들을 공사 확정 카드 스레드에 답글로 전송 + 원본 카드 최신 데이터로 재렌더링.
@@ -823,6 +843,10 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
     if _cancelled:
         logger.info(f'[PROJECT/SLACK/편집] 취소된 공사 — 원본 카드 재렌더 생략, 댓글만 ({code})')
     if latest_data is not None and not _cancelled:
+        if _biz_change:
+            # 사업자명이 바뀌면 거래처명이 따로(_bind_place) 따라 바뀜 — 그쪽이 먼저 끝났으면 캐시의 새 이름으로
+            #   그림. 늦게 끝나면 그쪽이 카드를 다시 그림(promote_previous). 2026-10-28 R4227 등 6장 옛 이름
+            latest_data = _with_cached_partner(code, latest_data)
         try:
             # 사업자등록증 상태 유지 — 편집으로 카드가 재렌더링되면서 배지가 뒤집히면 안 됨.
             try:
@@ -926,6 +950,12 @@ def refresh_project_card_license(
     if not latest_data:
         logger.debug(f'[PROJECT/SLACK/사업자] 프로젝트 데이터 조회 실패, skip ({code})')
         return False
+    # 취소된 공사는 원본 카드가 '공사 취소' 회색 카드(+되돌리기 버튼) — 일반 카드로 그리면 취소 표시가 사라짐
+    #   (notify_project_field_changes 와 같은 기준. 2026-10-28 거래처명 자동 변경 후 카드 갱신에도 씀)
+    if re.search(r'공사\s*취소', str(latest_data.get('수금 관련 특이사항') or '')):
+        logger.info(f'[PROJECT/SLACK/사업자] 취소된 공사 — 원본 카드 갱신 생략 ({code})')
+        return False
+    latest_data = _with_cached_partner(code, latest_data)
 
     try:
         from dashboard.services.business_license_handler import verify_license_exists

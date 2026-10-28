@@ -163,7 +163,7 @@ def promote_env(monkeypatch):
     import dashboard.utils.redis_client as rcm
     import dashboard.utils.user_database as udb
     import dashboard.services.project_slack_notifier as psn
-    out = {'enq': [], 'cache': [], 'notify': [], 'mgr': None, 'recs': [], 'marks': []}
+    out = {'enq': [], 'cache': [], 'notify': [], 'mgr': None, 'recs': [], 'marks': [], 'refresh': []}
     monkeypatch.setattr(ls, 'get_sheets_manager', lambda: out['mgr'])
     monkeypatch.setattr(ps, 'get_project_records', lambda force_refresh=False: out['recs'])
     monkeypatch.setattr(ps, 'update_project_in_cache', lambda c, f: out['cache'].append((c, f)) or True)
@@ -173,6 +173,8 @@ def promote_env(monkeypatch):
     monkeypatch.setattr(udb, 'get_audit_repository',
                         lambda: type('A', (), {'log_action': lambda *a, **k: True})())
     monkeypatch.setattr(psn, 'notify_project_field_changes', lambda *a, **k: out['notify'].append((a, k)) or True)
+    monkeypatch.setattr(psn, 'refresh_project_card_license',
+                        lambda code, latest_data=None, **k: out['refresh'].append((code, latest_data)) or True)
     return out
 
 
@@ -185,6 +187,7 @@ def test_promote_writes_partner_and_bumps_version(promote_env):
     promote_env['recs'] = [{'프로젝트 코드': 'G1', '거래처명': '온라인', '_version': '5'}]   # 큐에 남은 PM 저장
     n = pn.promote_previous(['G1', 'G2', 'G3'], '한빛', why='같은 곳 공사 G9 등록', quiet=False)
     assert n == 1
+    assert promote_env['refresh'] == []        # 댓글 경로(notify)가 카드도 다시 그림
     assert promote_env['marks'] == ['project_sys_edit:G1']
     (op, payload), = promote_env['enq']
     f2l = main_field_to_letter()
@@ -199,8 +202,12 @@ def test_promote_writes_partner_and_bumps_version(promote_env):
 def test_promote_quiet_sets_pm_marker_without_comment(promote_env):
     """업무시간 밖(quiet) — 카드 댓글 없이 PM 편집 마커만 (리컨사일러가 기준값만 맞춤)."""
     promote_env['mgr'] = _Mgr({'G1': (10, {'프로젝트 코드': 'G1', '거래처명': '온라인', '_version': '1'})})
+    promote_env['recs'] = [{'프로젝트 코드': 'G1', '거래처명': '온라인', '사업자명': '(주)한빛', '_version': '1'}]
     assert pn.promote_previous(['G1'], '한빛', quiet=True) == 1
     assert promote_env['marks'] == ['project_pm_edit:G1'] and promote_env['notify'] == []
+    # 댓글은 없어도 원본 카드는 새 이름으로 다시 그림 (2026-10-28 카드에 '거래처명 : 전화'가 남던 문제)
+    (code, data), = promote_env['refresh']
+    assert code == 'G1' and data['거래처명'] == '한빛' and data['사업자명'] == '(주)한빛'
 
 
 def test_promote_replace_follows_old_biz_name(promote_env):
@@ -351,8 +358,67 @@ def test_slack_partner_search(monkeypatch):
     from dashboard.blueprints.slack_bot import _search_partner_names
     recs = [_rec('G1', '', '', '메이드바이'), _rec('G2', '', '', '온라인'), _rec('G3', '', '', '메이드바이 2호')]
     monkeypatch.setattr(ps, 'get_project_records', lambda force_refresh=False: recs)
-    vals = [o['value'] for o in _search_partner_names('메이드')]
-    assert vals[0] == '메이드' and set(vals[1:]) == {'메이드바이', '메이드바이 2호'}   # 새 거래처 먼저
+    opts = _search_partner_names('메이드')
+    vals = [o['value'] for o in opts]
+    assert set(vals[:-1]) == {'메이드바이', '메이드바이 2호'} and vals[-1] == '메이드'   # 비슷한 이름 먼저, 새 거래처는 맨 아래
+    assert opts[-1]['text']['text'] == '새 거래처로 추가: 메이드'
+    assert [o['value'] for o in _search_partner_names('하루')] == ['하루']             # 비슷한 이름 없으면 새 거래처만
     vals = [o['value'] for o in _search_partner_names('메이드바이')]
     assert '온라인' not in vals and vals[0] in ('메이드바이', '메이드바이 2호')        # 똑같은 이름 있으면 새 항목 없음
     assert _search_partner_names('온라인') == []                                       # 분류값은 새 거래처로 안 만듦
+
+
+# ── 슬랙 카드 표시 (2026-10-28 매니저 UX 점검) ─────────────────
+
+@pytest.mark.parametrize('value,shown', [
+    ('메이드바이', '메이드바이'), ('-', '-'),
+    ('온라인', ''), ('전화', ''), ('소개', ''), ('중고판매', ''), ('기타', ''), ('거래처', ''), ('', ''), (None, ''),
+])
+def test_card_partner(value, shown):
+    assert pn.card_partner(value) == shown
+
+
+def _card_text(data):
+    from dashboard.services.project_slack_notifier import _build_message
+    return _build_message(dict({'프로젝트 코드': 'R1', '유입 구분': '전화', '사업자명': '-'}, **data), 'R1')
+
+
+def test_project_card_hides_group_partner():
+    """'거래처명 : 전화'가 '전화'라는 업체로 읽힘 → 분류값이면 줄 생략(유입 구분 줄에 이미 있음)."""
+    assert '거래처명' not in _card_text({'거래처명': '전화'})
+    assert '🤝 거래처명 : 평촌트리지아 아파트' in _card_text({'거래처명': '평촌트리지아 아파트'})
+    assert '🤝 거래처명 : -' in _card_text({'유입 구분': '거래처', '거래처명': '-'})
+
+
+def test_card_render_prefers_cached_name_over_group(monkeypatch):
+    """사업자명 변경 알림이 카드를 그릴 때 거래처명이 이미 따로 바뀌었으면 새 이름으로 (묶음 → 이름 방향만)."""
+    import dashboard.services.project_service as ps
+    from dashboard.services.project_slack_notifier import _with_cached_partner
+    monkeypatch.setattr(ps, 'get_project_records',
+                        lambda force_refresh=False: [{'프로젝트 코드': 'R1', '거래처명': '칸도'}])
+    assert _with_cached_partner('R1', {'거래처명': '온라인'})['거래처명'] == '칸도'
+    assert _with_cached_partner('R1', {'거래처명': '하루 디자인'})['거래처명'] == '하루 디자인'   # 사람이 고친 이름은 그대로
+    monkeypatch.setattr(ps, 'get_project_records',
+                        lambda force_refresh=False: [{'프로젝트 코드': 'R1', '거래처명': '온라인'}])
+    assert _with_cached_partner('R1', {'거래처명': '전화'})['거래처명'] == '전화'
+
+
+def test_refresh_card_skips_cancelled_project(monkeypatch):
+    """취소된 공사 카드는 회색 '공사 취소' 카드 — 일반 카드로 다시 그리면 취소 표시가 사라짐."""
+    import dashboard.services.project_slack_notifier as psn
+    import dashboard.utils.redis_client as rcm
+    monkeypatch.setenv('SLACK_PROJECT_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': type('R', (), {
+        'get': lambda self, k: 'C1|1.0'})()})())
+    called = []
+    monkeypatch.setattr(psn.urllib.request, 'urlopen', lambda *a, **k: called.append(a) or (_ for _ in ()).throw(AssertionError))
+    data = {'프로젝트 코드': 'R1', '거래처명': '칸도', '수금 관련 특이사항': '2026-10-20 공사 취소 (고객 사정)'}
+    assert psn.refresh_project_card_license('R1', latest_data=data) is False
+    assert called == []
+
+
+def test_as_card_hides_group_partner():
+    from dashboard.blueprints.slack_bot import _build_as_card_text
+    data = {'프로젝트 코드': 'R1', 'A/S 번호': 'AS-1', '요청 내용': '냉방 안 됨'}
+    assert '거래처명' not in _build_as_card_text(data, proj={'partner': '전화', 'biz': '평촌트리지아 아파트'})
+    assert '🤝 거래처명 : 칸도' in _build_as_card_text(data, proj={'partner': '칸도', 'biz': '주식회사 칸도'})

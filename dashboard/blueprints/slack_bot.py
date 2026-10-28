@@ -5295,7 +5295,10 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
 
     lines.append(f"🔗 프로젝트 코드 : `{code or '-'}`")
     lines.append(f"📥 유입 구분 : {inflow or '-'}")
-    lines.append(f"🤝 거래처명 : {(proj or {}).get('partner', '-') or '-'}")
+    from dashboard.services.partner_names import card_partner
+    _partner = card_partner((proj or {}).get('partner', '-'))
+    if _partner:                           # 온라인·전화 등 분류값은 생략 — 업체 이름으로 읽힘(2026-10-28)
+        lines.append(f"🤝 거래처명 : {_partner}")
     lines.append(f"🏢 사업자명 : {biz or '-'}")
     lines.append(f"📍 현장 주소 : {_pick('현장주소', 'address')}")
     lines.append(f"👤 발주처 담당자 : {(proj or {}).get('client_manager', '-') or '-'}")
@@ -5582,9 +5585,11 @@ def _as_request_view_blocks(
             "dispatch_action": True,  # 선택 즉시 block_actions 발동해 상세 pre-fill
         })
         if project_details:
+            from dashboard.services.partner_names import card_partner
+            _partner = card_partner(project_details.get('partner', '-'))
             info = (
                 f"*📥 유입 구분 :* {project_details.get('inflow','-') or '-'}\n"
-                f"*🤝 거래처명 :* {project_details.get('partner','-') or '-'}\n"
+                + (f"*🤝 거래처명 :* {_partner}\n" if _partner else '') +
                 f"*🏢 사업자명 :* {project_details.get('biz','-') or '-'}\n"
                 f"*📍 현장 주소 :* {project_details.get('address','-') or '-'}\n"
                 f"*👤 발주처 담당자 :* {project_details.get('client_manager','-') or '-'}\n"
@@ -6398,7 +6403,8 @@ def _search_company_names(query: str) -> list:
 def _search_partner_names(query: str) -> list:
     """/공사확정 거래처명 검색 — 시트 거래처명 중 실제 이름(온라인·전화 등 분류값 제외) 부분 매칭.
 
-    목록에 똑같은 이름이 없으면 입력한 그대로를 '새 거래처'로 맨 위에 둔다(외부 선택은 자유 입력이 없어서).
+    목록에 똑같은 이름이 없으면 입력한 그대로를 '새 거래처'로 둔다(외부 선택은 자유 입력이 없어서). 비슷한
+    이름이 있으면 맨 아래 — 맨 위면 '메이드'까지 치고 습관대로 눌러 잘린 거래처가 생김(2026-10-28).
     """
     q = (query or '').strip()
     if not q:
@@ -6411,7 +6417,7 @@ def _search_partner_names(query: str) -> list:
     options = [{"text": {"type": "plain_text", "text": n[:75]}, "value": n[:75]} for n in matched]
     new = short_name(q)[:75]
     if is_partner_name(new) and new not in matched:
-        options.insert(0, {"text": {"type": "plain_text", "text": f"새 거래처: {new}"[:75]}, "value": new})
+        options.append({"text": {"type": "plain_text", "text": f"새 거래처로 추가: {new}"[:75]}, "value": new})
     return options[:100]
 
 
@@ -14658,7 +14664,8 @@ def _partner_status_warn(biz: str) -> str:
     if st.get('ambiguous'):
         return (f"⚠️ *국세청 조회 — 동일 상호 중 {st['label']} 이력 있음* "
                 f"(`{bno}` {stt}). 발행 전 사업자번호 확인 필요.")
-    return (f"⚠️ *국세청 조회 — {st['label']} 거래처* (`{bno}` {stt}). "
+    # '거래처'라 쓰면 거래처명(일을 맡긴 인테리어)이 폐업한 걸로 읽힘 — 조회 기준은 사업자명(2026-10-28)
+    return (f"⚠️ *국세청 조회 — {st['label']} 사업자* (`{bno}` {stt}). "
             f"발행 전 사업자번호·최신 등록증 확인 필요.")
 
 

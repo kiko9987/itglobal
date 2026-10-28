@@ -87,6 +87,17 @@ def is_partner_name(value) -> bool:
     return bool(s) and s not in _NOT_NAMES and bool(_norm(s))
 
 
+def card_partner(value) -> str:
+    """슬랙 카드 '🤝 거래처명' 줄에 쓸 값 — 이름이면 그대로, '-'(이름 미입력)는 '-', 분류값은 ''(줄 생략).
+
+    '거래처명 : 전화'가 '전화'라는 업체로 읽혀서 분류값은 안 보임 — 유입 구분 줄에 이미 나옴(2026-10-28).
+    """
+    s = str(value or '').strip()
+    if is_partner_name(s):
+        return s
+    return '-' if s == '-' else ''
+
+
 def place_key(name) -> str:
     """같은 곳 판단 키 — 짧은 이름을 정규화(공백·대소문자 무시). 이름이 아니면 ''."""
     return _norm(short_name(name)) if is_partner_name(name) else ''
@@ -241,6 +252,13 @@ def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '
         except Exception:
             pass
         if quiet:
+            # 댓글은 없이 원본 카드만 새 이름으로 — 안 그러면 카드에 '거래처명 : 전화'가 그대로 남음
+            #   (2026-10-28 R4227·R4209 등 6장). 캐시가 비워져 있을 수 있어(등록증 OCR) 이름을 직접 넣어 그림
+            try:
+                from dashboard.services.project_slack_notifier import refresh_project_card_license
+                refresh_project_card_license(code, latest_data=dict(rec, 거래처명=name) if rec else None)
+            except Exception as exc:
+                logger.debug(f'[PARTNER] 카드 갱신 실패 {code}: {exc}')
             continue
         try:
             from dashboard.services.project_slack_notifier import notify_project_field_changes
