@@ -306,3 +306,10 @@ def test_normalize_payer_names_by_bno(monkeypatch):
     plan = {'잔금': {'name': '김지민', 'biz_no': '799-29-00421'}, '계약금': {'name': '임기환', 'biz_no': ''}}
     out = normalize_payer_names(plan)
     assert out['잔금']['name'] == '다정약국(김지민)' and out['계약금']['name'] == '임기환'
+
+
+def test_bno_pattern_ignores_approval_number():
+    """승인번호 속 숫자를 사업자번호로 잘라 읽지 않음 (G4157 잔금 계산서 공급자 610-11-10261 오독, 2026-10-28)."""
+    assert io_._BNO_RE.search('20261011-10261016-11365625') is None
+    assert ''.join(io_._BNO_RE.search('884-81-01425').groups()) == '8848101425'
+    assert ''.join(io_._BNO_RE.search('등록번호 4140262330').groups()) == '4140262330'
