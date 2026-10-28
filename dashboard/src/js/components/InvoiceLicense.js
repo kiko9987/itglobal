@@ -153,16 +153,16 @@ export default class InvoiceLicense {
       } else if (d.source === 'partner') {
         // 등록증 파일은 없지만 거래처 탭에 상호 있음 → 계산서 발행 가능 (긍정 상태, 열람 링크 없음)
         holder.innerHTML = '';
-        holder.textContent = '첨부되지 않음 (기존 거래처 정보 재활용)';
+        //   ('거래처 정보'라 쓰면 거래처명=일을 맡긴 업체 정보로 읽혀서 문구 바꿈, 2026-10-28)
+        holder.textContent = '첨부되지 않음 (이전 계산서 발행 정보 있음)';
         holder.style.background = '#e3f4e8';
         holder.style.color = '#1c7c3d';
         holder.style.padding = '3px 10px';
-        holder.title = '거래처 탭에 사업자 정보가 있어 계산서 발행 가능 (등록증 파일 없음 — 업로드하면 열람·첨부 가능)';
+        holder.title = '이 상호로 계산서를 발행한 기록이 있어 계산서 요청 가능 (등록증 파일 없음 — 업로드하면 열람·첨부 가능)';
       } else {
-        // 없음 / 불필요(거래처) → pill 뱃지
+        // 없음 → pill 뱃지. (예전 '등록증 불필요 (거래처)'는 09-02부터 모든 공사 등록증 필수라 지움)
         let label, bg, fg;
         if (d.exists) { label = '등록증 있음'; bg = '#e3f4e8'; fg = '#1c7c3d'; }  // view_url 없을 때 fallback
-        else if (!d.required) { label = '등록증 불필요 (거래처)'; bg = '#eef0f2'; fg = '#6b7280'; }
         else { label = '첨부되지 않음'; bg = '#fdeede'; fg = '#b45309'; }
         holder.innerHTML = '';
         holder.textContent = label;

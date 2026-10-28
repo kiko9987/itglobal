@@ -1,8 +1,8 @@
 /**
  * 거래처명(공사 현황 '거래처명' 열) 규칙 — 서버 dashboard/services/partner_names.py 미러 (2026-10-22).
  *
- * - 거래처명: 일을 맡긴 곳. 거래처(인테리어 등)거나 두 번 이상 공사한 곳이면 이름, 아니면 유입 묶음
- *   (온라인·전화·소개·중고판매·기타). 묶음 값은 이름이 아니므로 이름처럼 묶거나 고르게 하면 안 됨.
+ * - 거래처명: 일을 맡긴 곳. 거래처 유입이면 일을 준 업체, 그 밖은 짧은 사업자명(10-23). 사업자명이 없을 때만
+ *   유입 묶음(온라인·전화·소개·중고판매·기타). 묶음 값은 이름이 아니므로 이름처럼 묶거나 고르게 하면 안 됨.
  * - 사업자명: 사업자등록증 상호 — 계산서 기준.
  */
 
@@ -67,6 +67,16 @@ function normName(s) {
 export function isPartnerName(value) {
   const s = shortPartnerName(value);
   return !!s && !NOT_NAMES.has(s) && !!normName(s);
+}
+
+/**
+ * 화면 '거래처명' 줄에 쓸 값 — 이름이면 그대로, '-'는 '-', 온라인·전화 같은 분류값은 ''(줄 생략).
+ * '거래처명 : 전화'가 '전화'라는 업체로 읽혀서 (서버 partner_names.card_partner 와 같게, 2026-10-28)
+ */
+export function cardPartner(value) {
+  const s = String(value ?? '').trim();
+  if (isPartnerName(s)) return s;
+  return s === '-' ? '-' : '';
 }
 
 /** 같은 곳 판단 키 (띄어쓰기·대소문자 무시). 이름이 아니면 '' */

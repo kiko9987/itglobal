@@ -1107,6 +1107,29 @@ def _cancelled_edit_gate(current_values, field_to_index, data, permission_level)
     return None
 
 
+def _partner_edit_gate(current_values, field_to_index, data):
+    """거래처 유입 공사의 거래처명을 온라인·전화 같은 분류값으로 바꾸는 저장을 막음 (2026-10-28).
+
+    등록 때는 막는데(거래처 유입=일을 맡긴 업체 필수) 수정 땐 막는 곳이 없었고, 펼침 수정 목록 맨 위에 분류값이
+    떠서 잘못 누르면 진짜 거래처명이 덮였다. 값이 바뀔 때만 본다 — 기본정보 카드는 안 고친 칸도 같이 보내고,
+    이름을 모르는 '-' 공사(약 150건)도 다른 칸은 고칠 수 있어야 함. '-'로 바꾸는 건 허용(모름 표시).
+    """
+    if '거래처명' not in (data or {}):
+        return None
+    from ..services.partner_names import is_partner_name
+
+    def _cur(field):
+        i = field_to_index.get(field)
+        return str(current_values[i] or '').strip() if i is not None and i < len(current_values) else ''
+
+    inflow = str(data.get('유입 구분') or _cur('유입 구분')).strip()
+    new = str(data.get('거래처명') or '').strip()
+    if inflow != '거래처' or new == _cur('거래처명') or new in ('', '-') or is_partner_name(new):
+        return None
+    return ('거래처 유입 공사는 거래처명에 일을 맡긴 업체 이름을 넣어 주세요. '
+            "('온라인'·'전화' 같은 값은 넣을 수 없고, 모르면 '-')"), 400
+
+
 @projects_bp.route('/api/projects/<project_code>', methods=['PUT'])
 @editor_required
 @track_business_operation("api_project_update")
@@ -1175,6 +1198,9 @@ def update_project(project_code):
         _gate = _cancelled_edit_gate(
             current_values, field_to_index, data,
             (session.get('user') or {}).get('permission_level', 'viewer'))
+        if _gate:
+            return jsonify({'success': False, 'error': _gate[0]}), _gate[1]
+        _gate = _partner_edit_gate(current_values, field_to_index, data)
         if _gate:
             return jsonify({'success': False, 'error': _gate[0]}), _gate[1]
 

@@ -792,15 +792,15 @@ export default class ProjectRowAccordion {
         </div>
         <div class="card-grid">
           <div class="compact-item">
-            <small title="일을 맡긴 곳 (거래처가 아니면 온라인·전화 등 유입 묶음)">거래처명</small>
-            <div class="editable-value" data-field="거래처명">${rowData['거래처명'] || '-'}</div>
+            <small title="일을 맡긴 곳 — 거래처 유입이면 그 업체, 아니면 고객 상호(사업자명을 짧게)">거래처명</small>
+            <div class="editable-value" data-field="거래처명">${this.partnerValueHtml(rowData['거래처명'])}</div>
           </div>
           <div class="compact-item">
             <small title="사업자등록증 상호 (계산서 기준)">사업자명</small>
             <div class="editable-value" data-field="사업자명">${rowData['사업자명'] || '-'}</div>
           </div>
           <div class="compact-item">
-            <small>사업자</small>
+            <small title="이 공사를 맡은 우리 법인 (시트 '사업자' 칸) — 고객 상호는 사업자명">우리 법인</small>
             <div class="editable-value" data-field="사업자">${rowData['사업자'] || '-'}</div>
           </div>
           <div class="compact-item">
@@ -826,6 +826,17 @@ export default class ProjectRowAccordion {
         </div>
       </div>
     `;
+  }
+
+  /**
+   * 거래처명 표시 — 온라인·전화 같은 분류값은 회색 + '아직 이름 없음' 툴팁(업체 이름으로 읽혀서, 2026-10-28).
+   * 글자는 그대로라 수정 칸 값(textContent)도 그대로.
+   */
+  partnerValueHtml(value) {
+    const s = String(value ?? '').trim() || '-';
+    const esc = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    if (s === '-' || isPartnerName(s)) return esc;
+    return `<span class="text-muted" title="아직 이름 없음 — 사업자명이 채워지면 그 상호로 자동으로 바뀝니다">${esc}</span>`;
   }
 
   /**
@@ -2433,8 +2444,9 @@ export default class ProjectRowAccordion {
 
     // 거래처명 (2026-10-22) — 일을 맡긴 곳. 기존 거래처 이름 + 유입 묶음 자동완성
     if (fieldName === '거래처명') {
+      const inflow = String(this.currentProject?.['유입 구분'] || '').trim();
       return `<input type="text" class="form-control form-control-sm inline-edit-input text-input"
-                     list="${this.ensurePartnerNameDatalist()}" autocomplete="off"
+                     list="${this.ensurePartnerNameDatalist(inflow)}" autocomplete="off"
                      value="${currentValue}">`;
     }
 
@@ -2443,8 +2455,12 @@ export default class ProjectRowAccordion {
                    value="${currentValue}">`;
   }
 
-  /** 거래처명 자동완성 목록 — 유입 묶음(온라인·전화 등) 먼저, 그다음 실제 거래처 이름 가나다순 */
-  ensurePartnerNameDatalist() {
+  /**
+   * 거래처명 자동완성 목록 — 실제 거래처 이름 가나다순, 유입 묶음(온라인·전화 등)은 맨 아래.
+   * 거래처 유입 공사는 묶음 값을 아예 안 띄움(일을 맡긴 업체 이름만 — 서버도 저장 거부).
+   * 예전엔 묶음이 맨 위라 잘못 누르면 진짜 거래처명이 '온라인'으로 덮였음 (2026-10-28).
+   */
+  ensurePartnerNameDatalist(inflow = '') {
     const id = 'accordionPartnerNameList';
     let list = document.getElementById(id);
     if (!list) {
@@ -2456,7 +2472,7 @@ export default class ProjectRowAccordion {
     const names = [...new Set(rows.map((r) => String(r['거래처명'] || '').trim()).filter((n) => isPartnerName(n)))]
       .sort((a, b) => a.localeCompare(b, 'ko'));
     list.innerHTML = '';
-    [...PARTNER_GROUP_LABELS, ...names].forEach((n) => {
+    [...names, ...(inflow === '거래처' ? [] : PARTNER_GROUP_LABELS)].forEach((n) => {
       const opt = document.createElement('option');
       opt.value = n;
       list.appendChild(opt);
@@ -2825,6 +2841,8 @@ export default class ProjectRowAccordion {
           } else if (fieldName === '수금 확인') {
             // 🔥 normalizeStatus를 사용하여 다양한 형식("완료", "true", true 등) 처리
             displayValue = this.formatCollectionStatus(newValues[fieldName]);
+          } else if (fieldName === '거래처명') {
+            displayValue = this.partnerValueHtml(displayValue);
           }
 
           // 색상 클래스 적용
@@ -2999,6 +3017,8 @@ export default class ProjectRowAccordion {
         } else if (fieldName === '수금 확인') {
           // 🔥 normalizeStatus를 사용하여 다양한 형식("완료", "true", true 등) 처리
           displayValue = this.formatCollectionStatus(newValue);
+        } else if (fieldName === '거래처명') {
+          displayValue = this.partnerValueHtml(displayValue);
         }
 
         // 색상 클래스 적용하여 innerHTML 업데이트
@@ -6557,6 +6577,8 @@ export default class ProjectRowAccordion {
                             numValue < 0 ? 'text-danger fw-bold' : 'text-muted';
               } else if (fieldName.includes('날짜') || fieldName.includes('시작') || fieldName.includes('종료')) {
                 displayValue = this.formatDate(displayValue);
+              } else if (fieldName === '거래처명' && !/</.test(displayValue)) {
+                displayValue = this.partnerValueHtml(displayValue);   // 저장된 원본이 글자면 회색 표시 다시
               }
 
               if (colorClass) {

@@ -584,8 +584,9 @@ export default class ModernProjectModal {
     }
     if (inflow !== '거래처') {
       this._partnerLeadHint = '';
+      // 이 경우 등록 창에선 사업자명을 못 넣음('-' 고정·미수령) → 등록증이 들어올 때 바뀐다는 것만 (2026-10-28)
       lock('등록하면 자동으로 채웁니다',
-        `사업자명이 있으면 그 이름(짧게), 없으면 '${inflowGroup(inflow)}' 묶음으로 채웁니다.`);
+        `등록증이 첨부돼 사업자명이 채워지면 그 상호로 자동으로 바뀝니다. 그 전에는 '${inflowGroup(inflow)}'으로 표시됩니다.`);
       return;
     }
     input.readOnly = false;
@@ -720,7 +721,7 @@ export default class ModernProjectModal {
       bizInput.style.backgroundColor = '';
       bizInput.style.cursor = '';
       bizInput.setAttribute('list', 'modernBusinessNameList');
-      bizInput.placeholder = '사업자등록증명 (필수)';
+      bizInput.placeholder = '사업자등록증 상호 (필수)';
       if (bizInput.value === '-') bizInput.value = '';
       if (requiredMark) requiredMark.style.display = '';
     } else {
@@ -971,7 +972,7 @@ export default class ModernProjectModal {
       }
       if (businessNameInput) {
         businessNameInput.disabled = false;
-        businessNameInput.placeholder = '사업자등록증명';
+        businessNameInput.placeholder = '사업자등록증 상호';
       }
     }
   }
@@ -1638,13 +1639,13 @@ export default class ModernProjectModal {
     if (!client || !client.trim()) errors.push('거래처를 입력해주세요.');
     if (!address || !address.trim()) errors.push('현장 주소를 입력해주세요.');
 
-    // 2-1. 거래처 유입은 사업자명(사업자등록증명) 필수 — '미수령' 체크 시에만 예외 허용.
+    // 2-1. 거래처 유입은 사업자명(사업자등록증 상호) 필수 — '미수령' 체크 시에만 예외 허용.
     //      미수령 건은 비워둔 채 등록 후, 사업자등록증 첨부 시 OCR 자동 채움 흐름으로 처리됨.
     if (client === '거래처') {
       const bizName = (document.getElementById('modern-business-name')?.value || '').trim();
       const bizPending = document.getElementById('modern-business-name-pending')?.checked;
       if (!bizPending && (!bizName || bizName === '-')) {
-        errors.push('거래처 유입은 사업자명(사업자등록증명)이 필수입니다. 아직 못 받았다면 "사업자등록증 미수령"을 체크하세요.');
+        errors.push('거래처 유입은 사업자명(사업자등록증 상호)이 필수입니다. 아직 못 받았다면 "사업자등록증 미수령"을 체크하세요.');
       }
       // 2-2. 거래처 유입은 거래처명(일을 맡긴 업체)도 필수 (2026-10-22)
       const partnerName = (document.getElementById('modern-partner-name')?.value || '').trim();

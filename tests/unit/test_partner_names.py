@@ -422,3 +422,31 @@ def test_as_card_hides_group_partner():
     data = {'프로젝트 코드': 'R1', 'A/S 번호': 'AS-1', '요청 내용': '냉방 안 됨'}
     assert '거래처명' not in _build_as_card_text(data, proj={'partner': '전화', 'biz': '평촌트리지아 아파트'})
     assert '🤝 거래처명 : 칸도' in _build_as_card_text(data, proj={'partner': '칸도', 'biz': '주식회사 칸도'})
+
+
+# ── PM 수정 저장 게이트 (2026-10-28) ─────────────────────────
+
+def _gate(cur_inflow, cur_partner, data):
+    from dashboard.blueprints.projects import _partner_edit_gate
+    f2i = {'유입 구분': 0, '거래처명': 1}
+    return _partner_edit_gate([cur_inflow, cur_partner], f2i, data)
+
+
+def test_pm_edit_blocks_group_label_on_partner_inflow():
+    """거래처 유입 공사 거래처명을 '온라인' 같은 분류값으로 바꾸는 저장은 막음 (등록 때와 같은 기준)."""
+    msg, status = _gate('거래처', '메이드바이', {'거래처명': '온라인'})
+    assert status == 400 and '일을 맡긴 업체' in msg
+    assert _gate('거래처', '메이드바이', {'거래처명': '전화'})
+    assert _gate('온라인', '온라인', {'유입 구분': '거래처', '거래처명': '기타'})    # 같은 저장에서 유입도 거래처로
+
+
+@pytest.mark.parametrize('cur_inflow,cur_partner,data', [
+    ('거래처', '-', {'거래처명': '-'}),                 # 안 고친 칸 같이 보냄 — '-' 공사도 다른 칸은 고칠 수 있어야
+    ('거래처', '온라인', {'거래처명': '온라인'}),       # 값이 안 바뀜
+    ('거래처', '메이드바이', {'거래처명': '-'}),        # 모름 표시로 바꾸는 건 허용
+    ('거래처', '메이드바이', {'거래처명': '하루 디자인'}),
+    ('홈페이지', '칸도', {'거래처명': '온라인'}),        # 거래처 유입이 아니면 분류값 허용
+    ('거래처', '메이드바이', {'사업자명': '(주)메이드바이'}),   # 거래처명 안 보냄
+])
+def test_pm_edit_allows(cur_inflow, cur_partner, data):
+    assert _gate(cur_inflow, cur_partner, data) is None

@@ -7,6 +7,7 @@
  * ProjectTable 의 A/S 컬럼 render 와 accordion 'A/S 요청' 버튼이 window.asView 를 참조.
  */
 import logger from '../utils/logger.js';
+import { cardPartner } from '../utils/partnerName.js';
 
 function esc(v) {
   return String(v == null ? '' : v)
@@ -344,9 +345,11 @@ export default class AsView {
     if (amtNum && /별도/.test(vatRaw)) amount += ' (VAT 별도)';
     else if (amtNum && /포함/.test(vatRaw)) amount += ' (VAT 포함)';
 
+    // 거래처명이 온라인·전화 같은 분류값이면 줄 생략 — 업체 이름으로 읽힘 (슬랙 A/S 카드와 같게, 2026-10-28)
+    const partner = cardPartner(p['거래처명']);
     const rows = [
       ['📥 유입 구분', v('유입 구분')],
-      ['🤝 거래처명', v('거래처명')],
+      ...(partner ? [['🤝 거래처명', partner]] : []),
       ['🏢 사업자명', v('사업자명')],
       ['📍 현장 주소', v('현장 주소')],
       ['👤 발주처 담당자', v('발주처 담당자')],
