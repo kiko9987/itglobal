@@ -258,10 +258,10 @@ def load_row(code: str, row: int) -> List[Dict]:
 
 def _deposit_line(c: Dict) -> str:
     """카드 '입금' 줄 — 실제 입금액. 과입금 부분 반환이면 그중 더 받은 몫을 함께 (2026-10-28 R4182-SJ:
-    495만 입금 중 5천 반환이 '입금 5,000원'으로 보여 5천 원을 따로 받은 것처럼 읽혔음)."""
+    495만 입금 중 5천 반환이 '입금 5,000원'으로 보여 5천 원을 따로 받은 것처럼 읽혔음. 표기 '(5,000원 과입금)')."""
     amt = int(c['amount'])
     dep = int(c.get('dep_amount') or amt)
-    extra = f"  (이 중 {amt:,}원 더 받음)" if dep - amt > 1 else ''
+    extra = f"  ({amt:,}원 과입금)" if dep - amt > 1 else ''
     return f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {dep:,}원  {c['dep_partner']}{extra}"
 
 
