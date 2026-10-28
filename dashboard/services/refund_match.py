@@ -184,7 +184,6 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     'amount': amt, 'stage_value': {'계약금': u, '중도금': v, '잔금': w}[stage],
                     'paid': paid, 'total2': total2, 'reason': reason,
                     'dep_date': d.isoformat(), 'dep_partner': p.get('partner', ''),
-                    'dep_time': p.get('time_hm', ''),     # 입금 문자 시각 — 카드 입금 줄(출금 줄처럼 시각까지)
                     'dep_amount': _pamt,    # 과입금이면 반환액보다 큼 — 카드 '입금' 줄은 이 값 (2026-10-28 R4182)
                     'dep_bank': p.get('bank', ''), 'dep_acct': p.get('acct_code', ''),
                     # 단계 계산서 칸 — 발행돼 있으면 반환 시 취소·수정발행 안내
@@ -263,8 +262,7 @@ def _deposit_line(c: Dict) -> str:
     amt = int(c['amount'])
     dep = int(c.get('dep_amount') or amt)
     extra = f"  ({amt:,}원 과입금)" if dep - amt > 1 else ''
-    when = _fmt_md(c['dep_date']) + (f" {c['dep_time']}" if c.get('dep_time') else '')
-    return f">입금 : {when}  {c['dep_bank']}  {dep:,}원  {c['dep_partner']}{extra}"
+    return f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {dep:,}원  {c['dep_partner']}{extra}"
 
 
 def build_processing_blocks(outflow: Dict, c: Dict) -> list:
