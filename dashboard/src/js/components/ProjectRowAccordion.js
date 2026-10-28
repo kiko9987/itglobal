@@ -596,6 +596,7 @@ export default class ProjectRowAccordion {
    */
   closeAccordion() {
     if (!this.isOpen) return;
+    this.restorePortalMenus(true);
 
     // 편집 모드 정리
     this.cleanupEditMode();
@@ -2820,6 +2821,7 @@ export default class ProjectRowAccordion {
    * 카드 편집 모드 해제
    */
   disableCardEditing(projectCode, cardType, newValues = null) {
+    this.restorePortalMenus(true);     // 편집 칸이 글자로 바뀌기 전에 떠 있던 메뉴부터 제자리로
     const card = document.getElementById(`card-${cardType}-${projectCode}`);
 
     // 새 값이 있으면 적용
@@ -5497,6 +5499,7 @@ export default class ProjectRowAccordion {
       // 🔥 Tom Select 멀티셀렉트 초기화 전에 기존 드롭다운 인스턴스 정리
       setTimeout(() => {
         // 기존 Bootstrap Dropdown 인스턴스 제거
+        this.restorePortalMenus(true);   // dispose 하면 '닫힘' 신호가 안 와 떠 있던 메뉴가 남음 (2026-10-28)
         allCardTypes.forEach(cardType => {
           const card = document.getElementById(`card-${cardType}-${projectCode}`);
           if (card) {
@@ -7355,11 +7358,44 @@ export default class ProjectRowAccordion {
   }
 
   /**
+   * 화면 맨 위층(body)으로 옮겨 띄운 체크박스 메뉴(계산서·시공자 등)를 제자리로 (2026-10-28).
+   * 메뉴가 열린 채로 카드가 다시 그려지거나(저장·취소·재초기화) 펼침이 닫히면 원래 버튼이 사라져 '닫힘'
+   * 신호가 안 와서 메뉴가 화면에 그대로 남았음. force=true 면 열린 것도 전부, 아니면 버튼이 없어졌거나
+   * 이미 닫힌 것만.
+   */
+  restorePortalMenus(force = false) {
+    document.querySelectorAll('body > .dropdown-menu[data-portal="1"]').forEach((m) => {
+      const owner = m._portalOwner;
+      const open = owner && owner.button.isConnected && owner.button.classList.contains('show');
+      if (!force && open) return;
+      if (owner && owner.button.isConnected) {
+        try { bootstrap.Dropdown.getInstance(owner.button)?.hide(); } catch (e) { /* 이미 정리됨 */ }
+      }
+      if (m.dataset.portal === '1') {    // hide 가 restoreMenu 를 못 불렀으면 직접
+        if (owner && owner.restore) owner.restore();
+        else m.remove();
+      }
+    });
+  }
+
+  /** 남은 메뉴 정리 리스너 — 화면 어디를 눌러도·스크롤·창 크기 바꿔도 주인 없는 메뉴는 치움 (한 번만 등록) */
+  ensurePortalMenuSweeper() {
+    if (window.__itgPortalMenuSweeper) return;
+    window.__itgPortalMenuSweeper = true;
+    const sweep = () => this.restorePortalMenus(false);
+    document.addEventListener('mousedown', sweep, true);
+    window.addEventListener('resize', sweep);
+    document.addEventListener('scroll', sweep, true);
+  }
+
+  /**
    * 체크박스 드롭다운 멀티셀렉트 초기화
    * - Bootstrap 드롭다운 + 체크박스
    * - 최대 2개 선택 제한
    */
   initializeTomSelectMultiSelects() {
+    this.restorePortalMenus(true);     // 다시 초기화 전에 떠 있던 메뉴부터 제자리로
+    this.ensurePortalMenuSweeper();
     const multiSelectDropdowns = this.accordionContainer.querySelectorAll('.multi-select-dropdown');
     logger.debug(`🔧 [CheckboxDropdown] 초기화 대상: ${multiSelectDropdowns.length}개 필드`);
 
@@ -7387,10 +7423,17 @@ export default class ProjectRowAccordion {
 
       // 드롭다운 열릴 때 body에 추가
       button.addEventListener('shown.bs.dropdown', () => {
+        // 버튼이 화면에 없으면(카드 다시 그리는 중 등) 열지 않음 — 위치가 0,0 으로 계산돼 왼쪽 위에 남았음 (2026-10-28)
+        const rect = button.getBoundingClientRect();
+        if (!button.isConnected || (rect.width === 0 && rect.height === 0)) {
+          bsDropdown.hide();
+          return;
+        }
         document.body.appendChild(dropdownMenu);
+        dropdownMenu.dataset.portal = '1';
+        dropdownMenu._portalOwner = { button, restore: restoreMenu };
 
         // 위치 계산
-        const rect = button.getBoundingClientRect();
         dropdownMenu.style.position = 'fixed';
         dropdownMenu.style.top = `${rect.bottom + 2}px`;
         dropdownMenu.style.left = `${rect.left}px`;
@@ -7421,8 +7464,14 @@ export default class ProjectRowAccordion {
         dropdownMenu.style.display = 'block';
       });
 
-      // 드롭다운 닫힐 때 원래 위치로 복귀
-      button.addEventListener('hidden.bs.dropdown', () => {
+      // 드롭다운 닫힐 때 원래 위치로 복귀 — 닫힘 신호 없이 버튼이 사라진 경우도 restorePortalMenus 가 이걸 부름
+      const restoreMenu = () => {
+        delete dropdownMenu.dataset.portal;
+        dropdownMenu._portalOwner = null;
+        if (!dropdown.isConnected) {      // 카드가 다시 그려져 원래 자리가 없어짐 → 메뉴도 치움
+          dropdownMenu.remove();
+          return;
+        }
         dropdown.appendChild(dropdownMenu);
         // 스타일 초기화
         dropdownMenu.style.position = '';
@@ -7460,7 +7509,8 @@ export default class ProjectRowAccordion {
             }
           });
         }
-      });
+      };
+      button.addEventListener('hidden.bs.dropdown', restoreMenu);
 
       // 계산서 필드: 카테고리별 체크박스 이벤트 처리
       if (fieldName === '계산서') {
