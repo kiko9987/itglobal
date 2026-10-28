@@ -17247,6 +17247,10 @@ _init_visit_slack_app()
 _init_invoice_slack_app()
 _init_payment_slack_app()
 _init_docview_slack_app()
+# 공사봇·A/S봇도 부팅 때 — 첫 요청 때 초기화하면 재시작 직후 첫 버튼(공사 취소 등)의 trigger_id(3초)가
+# 초기화 중에 만료돼 창이 안 열림 (2026-10-28 13:19 expired_trigger_id)
+_init_project_slack_app()
+_init_as_slack_app()
 
 # 재시작으로 중단된 방문 사진 업로드 배치 자동 복구 (백그라운드 — 앱 init 여유 후, 2026-07-30)
 try:
