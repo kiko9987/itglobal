@@ -84,7 +84,14 @@ if (Test-Path $SqliteSrc) {
 Write-Log "Redis BGSAVE 트리거"
 if (-not $DryRun) {
     try {
-        $bgSave = docker exec redis redis-cli BGSAVE 2>&1
+        # REDIS_PASSWORD (2026-10-29): without auth BGSAVE replies NOAUTH and silently saves nothing
+        $redisPw = ((Get-Content (Join-Path $ProjectRoot ".env") -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match '^REDIS_PASSWORD=' } | Select-Object -First 1) -replace '^REDIS_PASSWORD=', '').Trim()
+        if ($redisPw) {
+            $bgSave = docker exec -e "REDISCLI_AUTH=$redisPw" redis redis-cli BGSAVE 2>&1
+        } else {
+            $bgSave = docker exec redis redis-cli BGSAVE 2>&1
+        }
         Start-Sleep -Seconds 3
 
         # Redis 컨테이너 volume에서 dump.rdb 복사

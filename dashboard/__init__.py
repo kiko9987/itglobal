@@ -547,6 +547,11 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             redis_port = int(os.getenv('REDIS_PORT', 6379))
             redis_db = int(os.getenv('REDIS_DB', 0))
             redis_url = f'redis://{redis_host}:{redis_port}/{redis_db}'
+            # 비밀번호(2026-10-29~) — 접속 주소에만 넣고 로그엔 비밀번호 없는 주소(redis_url)를 남김
+            _redis_pw = (os.getenv('REDIS_PASSWORD') or '').strip()
+            from urllib.parse import quote as _quote
+            mq_url = (f'redis://:{_quote(_redis_pw, safe="")}@{redis_host}:{redis_port}/{redis_db}'
+                      if _redis_pw else redis_url)
 
             # 긴급 조치: eventlet 메모리 크래시 방지 (SIGSEGV 해결)
             # threading 모드로 강제 설정하여 안정성 확보
@@ -558,7 +563,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                 ping_interval=SOCKETIO_PING_INTERVAL,
                 async_mode='threading',  # threading 모드로 강제 (메모리 크래시 방지)
                 max_http_buffer_size=SOCKETIO_MAX_HTTP_BUFFER_SIZE,
-                message_queue=redis_url,  # Redis Pub/Sub for multi-worker support
+                message_queue=mq_url,  # Redis Pub/Sub for multi-worker support
                 engineio_logger=False,  # 로그 부하 감소
                 logger=False,           # 로그 부하 감소
                 transports=['polling']  # WebSocket 비활성화 (개발 환경 Werkzeug 호환성)

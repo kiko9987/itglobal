@@ -79,7 +79,7 @@ echo.
 echo [4/5] Redis PING 응답 대기...
 set /a wait=0
 :redis_wait
-docker exec redis redis-cli ping 2>nul | findstr /I PONG >nul
+docker exec redis redis-cli ping 2>nul | findstr /I "PONG NOAUTH" >nul
 if !errorlevel! equ 0 (
     echo   Redis PONG 응답 확인 ^(대기 !wait!초^).
     goto redis_ready

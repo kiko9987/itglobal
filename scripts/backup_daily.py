@@ -33,6 +33,21 @@ RETENTION_DAYS = 30
 LOG_RETENTION_DAYS = 30
 
 
+def redis_cli_cmd(*args: str) -> list:
+    """컨테이너 안 redis-cli 명령 — 비밀번호(REDIS_PASSWORD)가 있으면 REDISCLI_AUTH 로 전달 (2026-10-29 Redis 비밀번호 적용).
+
+    비밀번호 없이 BGSAVE 하면 'NOAUTH' 를 돌려주고도 종료 코드가 0 이라, 옛 dump.rdb 를 복사하고 OK 로 남는다."""
+    pw = (os.getenv('REDIS_PASSWORD') or '').strip()
+    auth = ['-e', f'REDISCLI_AUTH={pw}'] if pw else []
+    return ['docker', 'exec', *auth, REDIS_CONTAINER, 'redis-cli', *args]
+
+
+def bgsave_started(out: str) -> bool:
+    """BGSAVE 응답이 실제로 저장을 시작했는지 (진행 중인 저장이 있어도 OK)."""
+    o = (out or '').lower()
+    return 'background saving started' in o or 'already in progress' in o or 'scheduled' in o
+
+
 def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
@@ -92,10 +107,10 @@ def backup_redis() -> str:
         )
         if REDIS_CONTAINER in (exists.stdout or ''):
             bg = subprocess.run(
-                ['docker', 'exec', REDIS_CONTAINER, 'redis-cli', 'BGSAVE'],
+                redis_cli_cmd('BGSAVE'),
                 capture_output=True, text=True, timeout=15,
             )
-            if bg.returncode == 0:
+            if bg.returncode == 0 and bgsave_started(bg.stdout):
                 _time.sleep(3)  # BGSAVE 완료 대기 (dump.rdb 크기 작으면 즉시)
                 cp = subprocess.run(
                     ['docker', 'cp', f'{REDIS_CONTAINER}:/data/dump.rdb', str(dest)],
@@ -105,7 +120,7 @@ def backup_redis() -> str:
                     pruned = _prune(dest_dir, RETENTION_DAYS)
                     return f'OK: {dest.name} ({dest.stat().st_size // 1024} KB, docker), 정리 {pruned}건'
                 return f'docker cp 실패: {cp.stderr[:200]}'
-            return f'docker BGSAVE 실패: {bg.stderr[:200]}'
+            return f'docker BGSAVE 실패: {(bg.stderr or bg.stdout or "")[:200]}'
     except FileNotFoundError:
         pass  # docker 명령 없음 → fallback
     except subprocess.TimeoutExpired:
@@ -216,6 +231,11 @@ def failed_items(result: dict) -> list:
 
 
 if __name__ == '__main__':
+    try:    # 수동 실행 때도 REDIS_PASSWORD 등 .env 값 사용 (스케줄 실행은 서버 환경을 물려받음)
+        from dotenv import load_dotenv
+        load_dotenv(PROJECT_ROOT / '.env')
+    except ImportError:
+        pass
     _bad = failed_items(run_all())
     if _bad:
         print('[BACKUP] 일부 실패:\n  ' + '\n  '.join(_bad), file=sys.stderr)
