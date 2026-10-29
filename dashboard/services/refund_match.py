@@ -73,6 +73,32 @@ def _deposit_date(p: Dict, ref: date) -> Optional[date]:
     return d
 
 
+def _one_edit(a: str, b: str) -> bool:
+    """두 문자열이 한 글자 바꿈·빠짐·더함 이내로 같은지."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i + (len(a) == len(b)):] == b[i + 1:]
+
+
+def name_typo(a: str, b: str) -> bool:
+    """③ 이름 — 앞부분 일치는 아니지만 5글자 이상에서 한 글자만 다름(출금 받는 분 이름 오타).
+
+    2026-10-29 R4080-JK: 계약금 입금자 '나항in일산밤리단'에게 과입금 58만을 돌려줬는데 출금 문자가 '냐항in일산밤리단'
+    이라 이름 조건에서 떨어져 후보 카드가 안 떴음. 계좌·금액(받은 돈−총액=출금액)·기간이 함께 맞아야 후보가 되고,
+    카드에 두 이름과 '이름 한 글자 다름'이 보여 경영지원이 확인 후 기록한다. 은행이 자른 이름은 짧은 쪽 길이로 비교."""
+    from dashboard.services.fund_transfer import norm_name
+    na, nb = norm_name(a), norm_name(b)
+    n = min(len(na), len(nb))
+    if n < 5:
+        return False
+    return _one_edit(na, nb) or sum(x != y for x, y in zip(na[:n], nb[:n])) <= 1
+
+
 def amount_check(paid: int, total2: int, amount: int) -> str:
     """⑤ 금액 검증 → 사유 문자열('' = 불충족)."""
     if total2 > 0 and abs((paid - total2) - amount) <= 1:
@@ -159,7 +185,8 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
             stage_pays = [p for p in pays if p.get('stage') == stage]
             # 이미 이 반환이 기록된 단계(같은 금액·이름의 반환 블록)는 제외
             if any(p.get('is_refund') and abs(abs(_num(p.get('amount'))) - amt) <= 1
-                   and names_match(p.get('partner', ''), name) for p in stage_pays):
+                   and (names_match(p.get('partner', ''), name) or name_typo(p.get('partner', ''), name))
+                   for p in stage_pays):
                 continue
             for p in stage_pays:
                 # ② 금액 — 받은 돈 돌려줌(reroute)은 그 입금 한 건 전액과 같아야. 과입금(overpay)은 더 받은 몫만
@@ -170,7 +197,8 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     continue                                            # ②
                 if not _same_account(p, outflow):                       # ①
                     continue
-                if not names_match(p.get('partner', ''), name):         # ③
+                _typo = not names_match(p.get('partner', ''), name)
+                if _typo and not name_typo(p.get('partner', ''), name):  # ③
                     continue
                 d = _deposit_date(p, o_date)
                 if not d or d > o_date or (o_date - d).days > MAX_DAYS:  # ④
@@ -185,6 +213,7 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     'paid': paid, 'total2': total2, 'reason': reason,
                     'dep_date': d.isoformat(), 'dep_partner': p.get('partner', ''),
                     'dep_amount': _pamt,    # 과입금이면 반환액보다 큼 — 카드 '입금' 줄은 이 값 (2026-10-28 R4182)
+                    'name_typo': _typo,     # 입금·출금 이름 한 글자 다름 — 카드에 확인 줄
                     'dep_bank': p.get('bank', ''), 'dep_acct': p.get('acct_code', ''),
                     # 단계 계산서 칸 — 발행돼 있으면 반환 시 취소·수정발행 안내
                     'stage_invoice': str(vals[I[f'{stage} 계산서']] or '').strip(),
@@ -298,6 +327,8 @@ def build_candidate_blocks(oid: str, outflow: Dict, c: Dict) -> list:
     else:
         head = f">↩️ *반환 후보 — 기록 확인 필요*  `{c['code']}`  ·  *{c['stage']}*  ·  *{amt:,}원*"
         check = [f">금액 검증 : {c['reason']}"]
+    if c.get('name_typo'):
+        check.append(f">이름 확인 : 입금 {c['dep_partner']} / 출금 {outflow.get('partner', '')} — 한 글자 다름")
     lines = [
         "⠀",
         head,

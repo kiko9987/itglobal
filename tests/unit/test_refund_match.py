@@ -79,6 +79,37 @@ def test_partial_overpay_refund_matches_larger_deposit():
     assert '>입금 : 10/17  하나  5,000원  임서희' in old_body and '과입금' not in old_body
 
 
+def test_r4080_one_char_name_typo_still_candidate():
+    """R4080-JK (2026-10-29): 계약금 입금자 '나항in일산밤리단'에게 과입금 58만 반환 — 출금 문자는 '냐항in…' 오타."""
+    dep_u = '하나,09/04, 19:25\n255******31304\n입금580,000원\n나항in일산밤리단'
+    dep_w = '2026/10/27\n하나,10/27, 17:43\n255******31304\n입금6,380,000원\n주식회사포레스'
+    out = {'id': 'o3', 'amount': 580000, 'partner': '냐항in일산밤리단', 'bank': '하나', 'acct_code': 'R',
+           'ts': int(datetime(2026, 10, 29, 15, 0).timestamp())}
+    row = _row(u=580000, w=6380000, total2=6380000, notes=(dep_u, '', dep_w))
+    c = rm.find_candidates(out, [row], include_reroute=True)
+    assert len(c) == 1 and (c[0]['stage'], c[0]['kind'], c[0]['name_typo']) == ('계약금', 'overpay', True)
+    body = rm.build_candidate_blocks('o3', out, c[0])[0]['text']['text']
+    assert '>이름 확인 : 입금 나항in일산밤리단 / 출금 냐항in일산밤리단 — 한 글자 다름' in body
+    # 기록된 뒤(같은 금액·오타 이름 반환 블록)엔 다시 제안 안 함
+    refunded = dep_u + '\n\n하나,10/29, 15:00\n255******31304\n출금580,000원\n냐항in일산밤리단'
+    assert rm.find_candidates(out, [_row(u=0, w=6380000, total2=6380000, notes=(refunded, '', dep_w))]) == []
+    # 이름이 정확히 맞는 기존 후보엔 확인 줄 없음
+    exact = rm.find_candidates(OUT, [_row()])[0]
+    assert exact['name_typo'] is False and '이름 확인' not in rm.build_candidate_blocks('o1', OUT, exact)[0]['text']['text']
+
+
+@pytest.mark.parametrize('a,b,ok', [
+    ('나항in일산밤리단', '냐항in일산밤리단', True),      # 한 글자 바뀜
+    ('나항in일산밤리단', '나항in일산리단', True),        # 한 글자 빠짐
+    ('나항in일산밤리단점', '냐항in일산밤리', True),      # 은행이 자른 이름 + 한 글자 다름
+    ('김보라', '김보람', False),                          # 짧은 이름은 오타 허용 안 함
+    ('나항in일산밤리단', '너행in일산밤리단', False),      # 두 글자 다름
+    ('주식회사포레스', '냐항in일산밤리단', False),
+])
+def test_name_typo(a, b, ok):
+    assert rm.name_typo(a, b) is ok
+
+
 def test_partial_refund_needs_deposit_at_least_amount():
     # 받은 돈 70만(계약금 20만+잔금 50만) − 총액 10만 = 60만 과입금인데 입금 한 건이 모두 60만보다 작으면 후보 아님
     dep_w = '2026/10/05\n하나,10/05, 10:00\n255******31304\n입금500,000원\n김보라(오라라(O'
