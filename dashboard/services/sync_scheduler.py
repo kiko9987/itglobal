@@ -917,6 +917,9 @@ def _safe_pin_remind_daily():
     except Exception as exc:
         logger.error(f'[SCHED] 정산 핀 리마인드 실패: {exc}', exc_info=True)
     # 2026-10-30 이어서 경영지원(SB) 개인 DM — 금액 반영 대기 + 이카운트 매출전표 목록 (이카운트엔 안 보냄)
+    #   사용자 지시로 기본 꺼짐 — .env SETTLEMENT_TODO_DM_ENABLED=true 로 켤 때까지 재시작해도 안 보냄
+    if os.getenv('SETTLEMENT_TODO_DM_ENABLED', '').strip().lower() not in ('1', 'true', 'yes', 'on'):
+        return
     try:
         from dashboard.services.ecount_sales import send_todo_dm
         result = send_todo_dm()

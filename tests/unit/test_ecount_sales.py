@@ -138,3 +138,18 @@ def test_ledger_record_once_and_seed(tmp_db):
     assert ecs.record_entry('G1', 50, 5, '금액 변경', key, by='slack:SB') is False   # 두 번 눌림
     assert ecs.ledger_totals() == {'G1': (150, 15), 'G2': (200, 0)}
     assert ecs.compute_pending([_rec('G1', 150, 165)], ecs.ledger_totals()) == []
+
+
+def test_todo_dm_off_unless_enabled(monkeypatch):
+    """재시작해도 켜기 전엔 SB DM 을 보내지 않는다 (2026-10-30 사용자 지시)."""
+    from dashboard.services import sync_scheduler as ss
+    import dashboard.services.pin_remind as pr
+    sent = []
+    monkeypatch.setattr(pr, 'send_pin_remind', lambda: {'ok': True})
+    monkeypatch.setattr(ecs, 'send_todo_dm', lambda: sent.append(1) or {'ok': True})
+    monkeypatch.delenv('SETTLEMENT_TODO_DM_ENABLED', raising=False)
+    ss._safe_pin_remind_daily()
+    assert sent == []
+    monkeypatch.setenv('SETTLEMENT_TODO_DM_ENABLED', 'true')
+    ss._safe_pin_remind_daily()
+    assert sent == [1]
