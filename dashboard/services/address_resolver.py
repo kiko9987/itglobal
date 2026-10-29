@@ -678,6 +678,9 @@ _TAIL_SIGNAL = re.compile(
     r'|(?:지층|반지하|지하|옥탑|옥상)(?![가-힣])'
     # 아파트 부속 시설 (단독으로 인정) — 2026-07-20 ETC-d656f2 관측: "관리사무소" 유실
     r'|관리사무소|경비실|정문|후문|어린이집|커뮤니티센터'
+    # 단지·건물 안 공용 시설 (2026-10-29 L-04238: '별내대원칸타빌 헬스장'이 신호 없음으로
+    #   tail 통째 유실 → 카카오 건물명 '대원 칸타빌'만 남음)
+    r'|헬스장|피트니스|독서실|도서관|경로당|수영장|골프연습장|사우나'
     r'|[가-힣A-Za-z0-9]+\s*'
     r'(?:아파트|빌딩|타워|오피스텔|마을|클래스원|클래스|센터|'
     r'힐스테이트|자이|푸르지오|아이파크|래미안|롯데캐슬|이편한세상|위브|더샵|'
@@ -936,6 +939,12 @@ def _extract_building_tail(text: str) -> str:
         #   소문자를 대문자로 (그랑트윈타워a동 → 그랑트윈타워A동). 'b-104호'(대시+숫자)도
         #   커버 (2026-09-17 L-04038, 공용 _upper_unit_letter).
         tail = _upper_unit_letter(tail)
+        # 끝의 '호' 없는 3~4자리 숫자 = 호수 (2026-10-29 L-04247 '시티렉스 407',
+        #   L-04367 '(청학동) 202'): 신호 없음으로 tail 째 버려지던 것 → 'N호'.
+        #   앞 토큰도 숫자면 전화번호 조각, 도로명이면 번지라 제외('천마산로 113').
+        _m_room = re.search(r'(?<![\d\S])(\d{3,4})$', tail)
+        if _m_room and not re.search(r'(?:\d|로|길)\s+\d{3,4}$', tail):
+            tail = tail[:_m_room.start()] + _m_room.group(1) + '호'
 
         # 의미 있는 건물·층·호 신호 있는지 검증
         if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):
@@ -2354,25 +2363,50 @@ def _try_poi_fallback(text: str) -> Optional[str]:
     ):
         return _poi_fallback_by_gu(text, first_line)
     candidates = _extract_shop_candidates(text)
+    # 띄어 쓴 건물명의 붙임형('현대프리미어 캠퍼스' → '현대프리미어캠퍼스')도 후보로
+    #   (2026-10-29 L-04332). 카카오 정식명이 붙임형이라 띄어 쓴 단어로는 정확 매치 안 됨.
+    candidates += [j for j, _ in _joined_shop_candidates(text) if j not in candidates]
     if not candidates:
         return None
     m_region = re.search(r'([가-힣]+동)|([가-힣]+구)', first_line)
     region = (m_region.group(1) or m_region.group(2)) if m_region else ''
+    # 구·동 없이 'XX시'만 있으면 시를 지역 힌트로 (2026-10-29 L-04332 '오산시 세마역 …')
+    if not region:
+        m_si = re.search(r'([가-힣]{2,}시)(?![가-힣])', first_line)
+        region = m_si.group(1) if m_si else ''
+        if region:
+            # 시 단위 힌트는 약함 → 긴(구체적) 건물명부터, 역 이름·짧은 단어는 제외
+            #   ('세마역'이 역 POI 로 정확 매치돼 '세마역 1호선로 88' 로 가던 것 방지)
+            candidates = sorted(
+                (c for c in candidates if len(c) >= 4 and not c.endswith('역')),
+                key=len, reverse=True)
     m_road = re.search(r'([가-힣]{2,}(?:대?로|길))\s*\d', first_line)
     road_prefix = m_road.group(1) if m_road else ''
     if not region and not road_prefix:
         return None  # 힌트 없으면 위험 → skip
-    for cand in candidates[:5]:
+    for cand in candidates[:8]:
         query = f'{cand} {region}'.strip() if region else f'{cand} {road_prefix}'.strip()
         results = _kakao_search_poi(query)
         if not results:
             continue
         for place_name, road_name in results:
-            if not place_name or not road_name:
+            if not place_name:
                 continue
             # 정확 매칭: cand == place_name 또는 place_name 이 "cand " 로 시작
             if not (place_name == cand or place_name.startswith(cand + ' ')):
                 continue
+            if not road_name:
+                # 건물 POI 자체엔 도로명이 없는 경우(지번만 등록) — 같은 검색 결과에서
+                #   이름에 그 건물명이 들어간 입점 POI 의 도로명을 빌림 (L-04332
+                #   '현대프리미어캠퍼스 세마역' 도로명 없음, 입점 카페 '…현대프리미어캠퍼스점'
+                #   은 경기대로761번길 30). 입점 POI 도 지역 힌트를 통과해야 함.
+                road_name = next(
+                    (r for p, r in results
+                     if r and p != place_name and cand in (p or '').replace(' ', '')
+                     and (not region or region in r.replace(' ', ''))),
+                    '')
+                if not road_name:
+                    continue
             # 지역 힌트 있으면 검증 (구/동 이 road_name 에 있어야 함)
             if region and region not in road_name.replace(' ', ''):
                 continue

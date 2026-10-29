@@ -97,5 +97,53 @@ def test_input_normalization(raw, expected):
     assert N(raw) == expected
 
 
+@pytest.mark.parametrize('text, expected', [
+    ('인천 연수구 청명로 26 (청학동) 202', '(청학동) 202호'),
+    ('금천구 시흥대로 399 시티렉스 407', '시티렉스 407호'),
+    ('강남구 테헤란로 152 강남파이낸스센터 1203', '강남파이낸스센터 1203호'),
+    ('남양주시 순화궁로 384, 별내대원칸타빌 헬스장', '별내대원칸타빌 헬스장'),
+])
+def test_building_tail_room_and_facility(text, expected):
+    assert ar._extract_building_tail(text) == expected
+
+
+@pytest.mark.parametrize('text', [
+    '성북구 종암로 129 010 1234 5678',   # 전화번호 조각
+    '성북구 종암로 129 12',               # 두 자리 숫자
+    '남양주 천마산로 113 1층 천마산로 113',  # 도로명 뒤 숫자 = 번지
+])
+def test_building_tail_no_false_room(text):
+    assert '호' not in ar._extract_building_tail(text)
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ('시흥대로 399시티렉스 407', '시흥대로 399 시티렉스 407'),
+    ('중앙로 12가길 5', '중앙로12가길 5'),          # 도로 접미는 그대로
+    ('종로 5가 12', '종로 5가 12'),
+    ('테헤란로 152층', '테헤란로 152층'),
+])
+def test_spaced_road_beonji_building_split(raw, expected):
+    assert N(raw) == expected
+
+
+def test_poi_fallback_si_hint_borrows_tenant_road(monkeypatch):
+    def poi(q):
+        if q.startswith('현대프리미어캠퍼스'):
+            return (('현대프리미어캠퍼스 세마역', ''),
+                    ('메가MGC커피 세마현대프리미어캠퍼스점', '경기 오산시 경기대로761번길 30'))
+        if q.startswith('세마역'):
+            return (('세마역 1호선', '경기 오산시 세마역1호선로 88'),)
+        return ()
+    monkeypatch.setattr(ar, '_kakao_search_poi', poi)
+    r = ar._try_poi_fallback('오산시 세마역 현대프리미어 캠퍼스')
+    assert r and '경기대로761번길 30' in r and '현대프리미어캠퍼스' in r
+
+
+def test_poi_fallback_si_hint_skips_station_only(monkeypatch):
+    monkeypatch.setattr(ar, '_kakao_search_poi', lambda q: (
+        ('세마역 1호선', '경기 오산시 세마역1호선로 88'),))
+    assert ar._try_poi_fallback('오산시 세마역') is None
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
