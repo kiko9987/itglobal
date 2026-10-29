@@ -800,6 +800,13 @@ def _safe_pin_remind_daily():
         logger.info(f'[SCHED] 정산 핀 리마인드 실행 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 정산 핀 리마인드 실패: {exc}', exc_info=True)
+    # 2026-10-30 이어서 이카운트 매출전표 목록 (경영지원 오늘 할 일 — [넣음] 버튼, 이카운트엔 안 보냄)
+    try:
+        from dashboard.services.ecount_sales import send_ecount_sales_list
+        result = send_ecount_sales_list()
+        logger.info(f'[SCHED] 이카운트 매출전표 목록 결과: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 이카운트 매출전표 목록 실패: {exc}', exc_info=True)
 
 
 def _safe_weekly_urgent_invoice_remind():

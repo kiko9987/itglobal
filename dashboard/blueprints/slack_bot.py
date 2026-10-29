@@ -5056,6 +5056,17 @@ def _register_invoice_handlers(app):
                 logger.error(f"[SLACK/계산서] complete 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    @app.action("ecount_sales_done")
+    def handle_ecount_sales_done(ack, body, client):
+        """이카운트 매출전표 목록 [넣음] — 경영지원이 손으로 넣은 전표를 장부에 적는다 (2026-10-30)."""
+        ack()
+        def _bg():
+            try:
+                _process_ecount_sales_done(client, body)
+            except Exception as exc:
+                logger.error(f"[ECOUNT] [넣음] 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
 
 def _register_as_handlers(app):
     """A/S 사후 관리 봇 핸들러 — /as + 3단계 모달 흐름."""
@@ -17037,6 +17048,35 @@ def _auto_complete_invoice_card(
     except Exception as exc:
         logger.warning(f"[SLACK/계산서] 자동 완료 update 실패: {exc}")
         return False
+
+
+def _process_ecount_sales_done(client, body) -> None:
+    """[넣음] → 장부에 적고 그 줄을 '넣음' 표시로. 정산 승인자만, 같은 전표는 한 번만 (2026-10-30)."""
+    from dashboard.services import ecount_sales as ecs
+    user_id = (body.get('user') or {}).get('id', '')
+    channel = (body.get('channel') or {}).get('id', '')
+    msg = body.get('message') or {}
+    if user_id not in _SETTLEMENT_CHECKER_IDS:
+        client.chat_postEphemeral(channel=channel, user=user_id,
+                                  text='이카운트 매출전표 기록은 경영지원 승인자만 할 수 있습니다.')
+        return
+    action = (body.get('actions') or [{}])[0]
+    try:
+        v = json.loads(action.get('value') or '{}')
+    except ValueError:
+        return
+    who = _slack_user_to_initial(client, user_id) or user_id
+    added = ecs.record_entry(v['c'], v['s'], v['v'], v.get('kd', ''), v['k'], by=f'slack:{who}')
+    if not added:
+        client.chat_postEphemeral(channel=channel, user=user_id,
+                                  text=f"{v['c']} 은 이미 장부에 적혀 있습니다.")
+    else:
+        logger.info(f"[ECOUNT] [넣음] {v['c']} {v.get('kd')} 공급가 {v['s']:,} 부가세 {v['v']:,} by {who}")
+    try:
+        client.chat_update(channel=channel, ts=msg.get('ts'), text=msg.get('text') or '이카운트 매출전표',
+                           blocks=ecs.mark_done_blocks(msg.get('blocks') or [], v['k'], who, datetime.now()))
+    except Exception as exc:
+        logger.warning(f"[ECOUNT] 목록 갱신 실패 (장부는 기록됨): {exc}")
 
 
 def _process_invoice_complete(client, body) -> None:

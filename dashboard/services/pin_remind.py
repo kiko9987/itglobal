@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -477,6 +478,69 @@ def collect_intake_pending() -> List[dict]:
     return out
 
 
+def _amount_req_summary(kind: str, d: dict) -> str:
+    """금액 반영 요청 한 줄 — '`G4152-JW` 부가세 있음→없음 · 요청 JW 10.26 13:39'."""
+    code = d.get('code', '')
+    if kind == 'cancel':
+        what = f"공사 취소 매출 0원 ({d.get('amt_disp', '')} → 0원)"
+    else:
+        parts = []
+        before, upd = d.get('before') or {}, d.get('updates') or {}
+        if '총액 1' in upd:
+            def _w(v):
+                try:
+                    return f'{int(float(str(v).replace(",", "") or 0)):,}원'
+                except ValueError:
+                    return str(v)
+            parts.append(f"총액 1 {_w(before.get('총액 1'))}→{_w(upd['총액 1'])}")
+        if '부가세' in upd:
+            def _vat(v):
+                return '있음' if str(v).strip().lower() in ('true', '1', '포함', 'yes', 'y') else '없음'
+            parts.append(f"부가세 {_vat(before.get('부가세'))}→{_vat(upd['부가세'])}")
+        what = ' · '.join(parts) or '금액 수정'
+    who = d.get('requester_initial') or ''
+    when = d.get('requested_at') or ''
+    return f"`{code}` {what} · 요청 {who} {when}".rstrip()
+
+
+def collect_amount_requests() -> List[dict]:
+    """경영지원 반영 대기 중인 금액 수정·매출 0원 요청 (Redis pending — 반영 ✅ 시 지워짐, 2026-10-30)."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        return []
+    c = _client()
+    out: List[dict] = []
+    for pattern, kind in (('project_amount_req:*', 'amount'), ('project_cancel_money_req:*', 'cancel')):
+        try:
+            keys = list(rc.scan_iter(match=pattern, count=500))
+        except Exception as exc:
+            logger.warning(f'[PIN] 금액 요청 조회 실패: {exc}')
+            continue
+        for k in keys:
+            ks = k.decode() if isinstance(k, (bytes, bytearray)) else k
+            if ks.endswith(':proc'):
+                continue
+            try:
+                raw = rc.get(k)
+                d = json.loads(raw.decode() if isinstance(raw, bytes) else raw) if raw else None
+            except Exception:
+                d = None
+            if not d:
+                continue
+            _, ch, ts = ks.split(':', 2)
+            permalink = ''
+            if c:
+                try:
+                    permalink = (c.chat_getPermalink(channel=ch, message_ts=ts) or {}).get('permalink', '') or ''
+                except Exception:
+                    pass
+            out.append({'ts': ts, 'summary': _amount_req_summary(kind, d), 'permalink': permalink})
+    out.sort(key=lambda e: e['ts'])
+    return out
+
+
 def build_pin_remind_text(data: dict) -> str:
     """리마인드 카드 텍스트 조립."""
     deposits = data.get('deposits', [])
@@ -484,7 +548,9 @@ def build_pin_remind_text(data: dict) -> str:
     others = data.get('others', [])
     intakes = data.get('intakes', [])
     moves = data.get('moves', [])
-    total = len(deposits) + len(invoices) + len(others) + len(intakes) + len(moves)
+    amount_reqs = data.get('amount_reqs', [])
+    total = (len(deposits) + len(invoices) + len(others) + len(intakes) + len(moves)
+             + len(amount_reqs))
 
     def _line(e: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
@@ -522,6 +588,10 @@ def build_pin_remind_text(data: dict) -> str:
         sections.append('\n'.join(
             [f':arrows_counterclockwise: *자금 이동 대기 — 법인 간 이체 필요 ({len(moves)}건)*']
             + [_move_line(m) for m in moves]))
+    if amount_reqs:
+        # 금액·부가세 수정, 취소 매출 0원 — PM 에 반영하고 카드에 ✅ (반영하면 이카운트 차액도 다음 목록에 뜸)
+        sections.append(_section(
+            f':pencil2: *금액 반영 대기 — PM 반영 후 ✅ ({len(amount_reqs)}건)*', amount_reqs))
     if deposits:
         sections.append(_section(f':moneybag: *입금내역 ({len(deposits)}건)*', deposits))
     if invoices:
@@ -532,7 +602,7 @@ def build_pin_remind_text(data: dict) -> str:
     body = f'\n{_BLANK}\n'.join(sections)   # 섹션 간 빈 줄 한 개
     return (
         f'{_BLANK}\n'
-        f':pushpin: *미처리 정산·입금 {total}건 — 확인 후 처리(지정/댓글) 부탁드립니다*\n'
+        f':clipboard: *경영지원 오늘 할 일 {total}건 — 확인 후 처리(지정/댓글/✅) 부탁드립니다*\n'
         f'{_SEP}\n'
         f'{body}\n'
         f'{_SEP}\n'
@@ -581,8 +651,14 @@ def send_pin_remind() -> dict:
     except Exception as exc:
         logger.warning(f'[PIN] 자금 이동 대기 조회 실패(무시): {exc}')
         data['moves'] = []
+    try:
+        data['amount_reqs'] = collect_amount_requests()
+    except Exception as exc:
+        logger.warning(f'[PIN] 금액 반영 대기 조회 실패(무시): {exc}')
+        data['amount_reqs'] = []
     data['total'] = (len(data.get('deposits', [])) + len(data.get('invoices', []))
-                     + len(data.get('others', [])) + len(intakes) + len(data['moves']))
+                     + len(data.get('others', [])) + len(intakes) + len(data['moves'])
+                     + len(data['amount_reqs']))
     if data['total'] == 0:
         logger.info('[PIN] 미처리 정산·입금 0건 — 발송 skip')
         return {'ok': True, 'total': 0, 'reason': None}
