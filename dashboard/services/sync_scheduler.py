@@ -58,6 +58,98 @@ def _notify_admin(key: str, text: str) -> None:
         logger.warning(f'[NOTIFY] SLACK_ADMIN_CHANNEL 미설정 — slack skip')
 
 
+def _notify_admin_bg(key: str, text: str) -> None:
+    """스케줄러 이벤트 리스너용 — 리스너는 스케줄러 스레드에서 돌아 슬랙 호출(최대 5초)로 막지 않게 별도 스레드."""
+    import threading
+    threading.Thread(target=_notify_admin, args=(key, text), daemon=True).start()
+
+
+# ── 예약 작업 감시 (2026-10-30 3묶음) ──────────────────────────────
+#   작업 함수가 예외를 삼키고 WARNING 만 남기거나, 작업이 멈춰 다음 회차가 계속 건너뛰어져도(max_instances)
+#   아무도 몰랐다. 리스너로 마지막 완료 시각·연속 건너뜀을 모으고, 5분마다 오래 안 돈 작업을 알린다.
+_job_last_done: dict = {}        # job_id → 마지막 실행 종료 시각
+_job_skip_streak: dict = {}      # job_id → 이전 실행이 안 끝나 건너뛴 연속 횟수
+_fail_streaks: dict = {}         # 작업 내부 실패 연속 횟수 (_fail_streak)
+_scheduler_started_at = 0.0
+_SKIP_ALERT_STREAK = 3           # 연속 건너뜀 알림 최소 횟수 (주기×횟수가 2분도 넘어야 — _on_job_event)
+_STALE_MIN_SEC = 15 * 60
+
+
+def _on_job_event(event) -> None:
+    from apscheduler.events import EVENT_JOB_MAX_INSTANCES, EVENT_JOB_MISSED
+    jid = getattr(event, 'job_id', '')
+    try:
+        if event.code == EVENT_JOB_MAX_INSTANCES:
+            n = _job_skip_streak[jid] = _job_skip_streak.get(jid, 0) + 1
+            job = _scheduler.get_job(jid) if _scheduler is not None else None
+            iv = getattr(getattr(job, 'trigger', None), 'interval', None)
+            # 최소 3회 + 2분 넘게 막혔을 때만 — 10초 주기 작업은 구글 지연 한 번(최대 60초)에도 여러 번 건너뛴다
+            need = max(_SKIP_ALERT_STREAK, -(-120 // int(iv.total_seconds())) if iv else 0)
+            if n >= need:
+                _notify_admin_bg(f'job_stuck_{jid}',
+                                 f':warning: 예약 작업 `{jid}` 이 이전 실행이 안 끝나 {n}회 연속 건너뜀 — '
+                                 f'멈춰 있을 수 있습니다. 계속되면 서버 재시작 필요.')
+        elif event.code == EVENT_JOB_MISSED:
+            from apscheduler.triggers.cron import CronTrigger
+            job = _scheduler.get_job(jid) if _scheduler is not None else None
+            if job is not None and isinstance(job.trigger, CronTrigger):
+                _notify_admin_bg(f'job_missed_{jid}',
+                                 f':warning: 정해진 시각 작업 `{jid}` 이 제시간에 실행되지 못해 건너뛰었습니다 '
+                                 f'(예정 {getattr(event, "scheduled_run_time", "")}).')
+        else:
+            _job_skip_streak.pop(jid, None)
+            _job_last_done[jid] = time.time()
+    except Exception as exc:
+        logger.warning(f'[SCHED] 작업 이벤트 처리 실패 ({jid}): {exc}')
+
+
+def _stale_interval_jobs(now: float) -> list:
+    """주기 작업 중 주기의 3배(최소 15분) 넘게 한 번도 끝나지 않은 것 [(job_id, 지난 분)]."""
+    out = []
+    for job in (_scheduler.get_jobs() if _scheduler is not None else []):
+        iv = getattr(job.trigger, 'interval', None)
+        if iv is None:
+            continue
+        limit = max(3 * iv.total_seconds(), _STALE_MIN_SEC)
+        last = _job_last_done.get(job.id, _scheduler_started_at)
+        if last and now - last > limit:
+            out.append((job.id, int((now - last) // 60)))
+    return out
+
+
+def _fail_streak(key: str, failed: bool, text: str, threshold: int = 3) -> None:
+    """작업 내부 실패(예외를 삼키고 WARNING 만 남기는 작업)가 threshold 번 이어지면 관리자 알림."""
+    if not failed:
+        _fail_streaks.pop(key, None)
+        return
+    n = _fail_streaks[key] = _fail_streaks.get(key, 0) + 1
+    if n >= threshold:
+        _notify_admin(f'fail_streak_{key}', f':warning: {text} — {n}번 연속 실패')
+
+
+def _safe_ops_watch():
+    """5분마다: 오래 안 돈 주기 작업, 시트 쓰기 대기열(워커 생존·가장 오래 기다린 op)."""
+    try:
+        now = time.time()
+        stale = _stale_interval_jobs(now)
+        if stale:
+            _notify_admin('jobs_stale',
+                          ':warning: 예약 작업이 오래 실행되지 않았습니다 — '
+                          + ', '.join(f'`{j}` {m}분' for j, m in stale))
+        from dashboard.services import sheet_write_queue as q
+        if not q.worker_alive():
+            _notify_admin('sheet_queue_worker_dead',
+                          ':rotating_light: 시트 쓰기 워커가 멈췄습니다 — 관리 사이트 편집이 시트에 안 써집니다. 서버 재시작 필요.')
+        age = q.oldest_pending_age()
+        if age > 600:
+            st = q.get_stats()
+            _notify_admin('sheet_queue_stale',
+                          f':warning: 시트 쓰기 대기열이 {int(age // 60)}분째 줄지 않습니다 '
+                          f'(대기 {st.get("pending")}건·처리 중 {st.get("processing")}건) — 구글 시트 지연 또는 워커 멈춤.')
+    except Exception as exc:
+        logger.warning(f'[SCHED] 운영 감시 실패: {exc}')
+
+
 def _redis_healthy() -> bool:
     """Redis ping 체크 — 죽었으면 모든 sync 작업 skip (폭주 방지 circuit breaker).
     Redis가 죽으면 dedup 키 조회 실패 → 모든 리드를 신규로 인식 → 슬랙 메시지 폭주.
@@ -161,7 +253,7 @@ def start_scheduler():
                 'interval',
                 minutes=10,
                 id='refund_match_scan',
-                next_run_time=_stagger(7.5),
+                next_run_time=_stagger(7.25),
                 replace_existing=True,
             )
             jobs.append('입금 반환 짝짓기 10분')
@@ -229,7 +321,7 @@ def start_scheduler():
         'interval',
         minutes=10,
         id='rebuild_visit_canvas',
-        next_run_time=_stagger(5),
+        next_run_time=_stagger(5.25),
     )
     jobs.append('방문 캔버스1 정기 재생성 10분')
 
@@ -240,7 +332,7 @@ def start_scheduler():
         'interval',
         minutes=10,
         id='reconcile_project_cards',
-        next_run_time=_stagger(2.5),
+        next_run_time=_stagger(2.25),
     )
     jobs.append('프로젝트 카드 리컨사일 10분')
 
@@ -396,7 +488,7 @@ def start_scheduler():
         'interval',
         minutes=10,
         id='partner_cache_rebuild',
-        next_run_time=_stagger(9),
+        next_run_time=_stagger(9.25),
         replace_existing=True,
     )
     jobs.append('거래처 캐시 재구성 10분마다')
@@ -415,6 +507,26 @@ def start_scheduler():
     _th_warm.Timer(60, _safe_warm_license_states).start()
     jobs.append('등록증 상태 캐시 워밍 6시간 + 시작 60초 후 1회')
 
+    # 2026-10-30 예약 작업·시트 쓰기 대기열 감시 — 5분마다
+    _scheduler.add_job(
+        _safe_ops_watch,
+        'interval',
+        minutes=5,
+        id='ops_watch',
+        next_run_time=_stagger(4.25),
+        replace_existing=True,
+    )
+    jobs.append('예약 작업·시트 쓰기 감시 5분')
+
+    from apscheduler.events import (
+        EVENT_JOB_ERROR, EVENT_JOB_EXECUTED, EVENT_JOB_MAX_INSTANCES, EVENT_JOB_MISSED,
+    )
+    global _scheduler_started_at
+    _scheduler_started_at = time.time()
+    _scheduler.add_listener(
+        _on_job_event,
+        EVENT_JOB_EXECUTED | EVENT_JOB_ERROR | EVENT_JOB_MAX_INSTANCES | EVENT_JOB_MISSED,
+    )
     _scheduler.start()
     logger.info(f'[SCHED] 백그라운드 스케줄러 시작 ({" / ".join(jobs)} 주기)')
 
@@ -481,7 +593,9 @@ def _stagger(minutes: float):
     """첫 실행 시각을 부팅 뒤 N분으로 — 같은 주기 작업이 같은 순간에 몰리지 않게 (2026-10-28 4차).
 
     10분 주기 작업 넷(공사 카드 점검·방문 캔버스·반환 짝짓기·거래처 캐시)이 매번 같은 초에 시작해,
-    그때마다 30초 주기 입금 폴러가 30~70초 걸려 다음 회차를 건너뛰었다(3일 400회, 정확히 10분 간격)."""
+    그때마다 30초 주기 입금 폴러가 30~70초 걸려 다음 회차를 건너뛰었다(3일 400회, 정확히 10분 간격).
+    2026-10-30: 2.5·5·7.5·9분은 30초의 배수라 여전히 입금 폴러와 같은 초에 시작했다(반환 짝짓기와 겹쳐
+    10분마다 건너뜀 47회/9시간). 무거운 10분 작업은 x.25분 — 입금 폴러 회차 사이(15초 뒤)에 시작."""
     return datetime.now() + timedelta(minutes=minutes)
 
 
@@ -611,8 +725,10 @@ def _safe_refund_match_scan():
         r = scan_and_propose()
         if r.get('proposed'):
             logger.info(f'[SCHED] 입금 반환 짝짓기: {r}')
+        _fail_streak('refund_match', False, '')
     except Exception as exc:
         logger.warning(f'[SCHED] 입금 반환 짝짓기 실패: {exc}')
+        _fail_streak('refund_match', True, f'입금 반환 짝짓기(10분) 실패 `{str(exc)[:150]}` — 반환 후보 카드가 안 뜹니다')
 
 
 def _safe_payment_sync():
@@ -904,8 +1020,10 @@ def _safe_partner_cache_rebuild():
     try:
         from dashboard.services.partner_status_sync import rebuild_partner_caches
         rebuild_partner_caches()
+        _fail_streak('partner_cache', False, '')
     except Exception as exc:
         logger.warning(f'[SCHED] 거래처 캐시 재구성 실패 (다음 주기 재시도): {exc}')
+        _fail_streak('partner_cache', True, f'거래처 탭 캐시(10분) 재구성 실패 `{str(exc)[:150]}` — 계산서 창 거래처가 옛 정보')
 
 
 def _safe_warm_license_states():
@@ -950,9 +1068,23 @@ def _safe_daily_backup():
         logger.error(f'[BACKUP] 예외: {exc}', exc_info=True)
 
 
+def _cert_alert_days(cert: dict) -> int:
+    """알림 기준 남은 날 = 유효기간의 1/5 (최소 3일).
+
+    2026-10-30: 예전엔 30일 고정 — Caddy 가 90일 인증서를 '30일 남았을 때' 갱신하니 정상인데도 갱신 직전마다
+    알림이 떴다. 기간이 짧은 인증서(Let's Encrypt 45일 전환)도 같은 비율로: 90일→18일, 45일→9일."""
+    from datetime import datetime as _dt
+    try:
+        nb = _dt.strptime(cert['notBefore'], '%b %d %H:%M:%S %Y %Z')
+        na = _dt.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+        return max(3, (na - nb).days // 5)
+    except Exception:
+        return 18
+
+
 def _safe_cert_expiry_check():
     """SLACK_PUBLIC_HOST 도메인의 SSL 인증서 만료일 체크.
-    30일 이내 만료면 관리자 알림 (Caddy 자동 갱신 실패 대비).
+    유효기간 1/5 이하로 남으면 관리자 알림 (Caddy 자동 갱신 실패 대비).
     """
     host = os.getenv('SLACK_PUBLIC_HOST', '').strip()
     if not host:
@@ -971,12 +1103,12 @@ def _safe_cert_expiry_check():
         # 'Jun 30 09:00:00 2026 GMT' 양식
         expiry = _dt.strptime(not_after, '%b %d %H:%M:%S %Y %Z')
         days_left = (expiry - _dt.utcnow()).days
-        if days_left <= 30:
+        if days_left <= _cert_alert_days(cert):
             _notify_admin(
                 f'cert_expiry_{host}',
                 f':warning: *SSL 인증서 만료 임박* — `{host}` 인증서가 *{days_left}일* 후 만료. '
-                f'Caddy가 만료 ~30일 전 자동 갱신하므로 보통 곧 해결됨. '
-                f'며칠 뒤에도 이 알림이 계속 오면 자동 갱신 실패 → Caddy(네이티브 프로세스) 로그·재시작 점검.'
+                f'Caddy 는 유효기간이 1/3 남으면 자동 갱신하는데 아직 안 됐습니다 → '
+                f'Caddy 로그(C:\\Users\\SECOM\\caddy\\service_stderr.log)·재시작 점검.'
             )
         else:
             logger.debug(f'[SCHED] SSL 인증서 만료까지 {days_left}일 ({host})')

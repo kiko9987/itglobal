@@ -195,6 +195,7 @@ def retry_failed(op_id: str) -> bool:
         if op.get('op_id') == op_id:
             op['attempts'] = 0
             op['last_error'] = ''
+            op['requeued_at'] = time.time()     # 대기 나이 감시가 옛 created_at 으로 오탐하지 않게
             rc.lrem(FAILED_KEY, 1, raw)
             rc.rpush(QUEUE_KEY, json.dumps(op, ensure_ascii=False))
             logger.info(f'[QUEUE] failed→queue 재시도: op_id={op_id[:8]}…')
@@ -283,6 +284,64 @@ def _drain_processing_on_startup():
         logger.warning(f'[QUEUE] 부팅 시 processing 드레인 실패: {exc}')
 
 
+def _run_op(op: dict, raw, handler, sleep=time.sleep) -> bool:
+    """op 하나를 끝까지(성공 또는 데드레터) 처리. 재시도는 그 자리에서 기다렸다가 한다.
+
+    2026-10-30: 예전엔 실패한 op 를 processing 에서 빼고 2·4초 뒤 Timer 로 큐 맨 뒤에 다시 넣었다.
+      ① 그 몇 초 사이 재시작되면 op 가 어디에도 없어 조용히 유실, ② 뒤에 있던 같은 칸의 나중 편집이
+      먼저 써진 다음 옛 op 가 덮어써 옛 값으로 돌아갈 수 있었다. 이제 processing 에 둔 채 재시도해
+      순서를 지키고(뒤 op 는 몇 초 기다림), 재시작돼도 부팅 시 processing → 큐로 복구된다."""
+    op_type = op.get('op_type', '')
+    op_id = op.get('op_id', '')[:8]
+    while True:
+        try:
+            handler(op['payload'])
+            _rc().lrem(PROCESSING_KEY, 1, raw)
+            logger.info(f'[QUEUE] {op_type} 처리 완료 (op_id={op_id}…)')
+            _bump_processed_and_maybe_rollup()
+            return True
+        except Exception as exc:
+            op['attempts'] = int(op.get('attempts', 0)) + 1
+            op['last_error'] = str(exc)[:500]
+            if op['attempts'] < MAX_ATTEMPTS:
+                wait = 2.0 ** op['attempts']
+                logger.warning(
+                    f'[QUEUE] {op_type} 실패 {op["attempts"]}/{MAX_ATTEMPTS} (op_id={op_id}…), '
+                    f'{wait}s 후 재시도: {exc}'
+                )
+                sleep(wait)
+                continue
+            logger.error(
+                f'[QUEUE] {op_type} {MAX_ATTEMPTS}회 실패 → 데드레터 '
+                f'(op_id={op_id}…): {exc}',
+                exc_info=True,
+            )
+            _rc().rpush(FAILED_KEY, json.dumps(op, ensure_ascii=False))
+            _rc().lrem(PROCESSING_KEY, 1, raw)
+            _notify_admin_deadletter(op, exc)
+            return False
+
+
+def oldest_pending_age() -> float:
+    """처리 대기 중 가장 오래된 op 의 나이(초) — 큐 맨 앞(processing 포함). 비었으면 0."""
+    rc = _rc()
+    now = time.time()
+    ages = []
+    for key in (PROCESSING_KEY, QUEUE_KEY):
+        raw = rc.lindex(key, 0)
+        if raw:
+            try:
+                op = json.loads(raw)
+                ages.append(now - float(op.get('requeued_at') or op.get('created_at') or now))
+            except Exception:
+                pass
+    return max(ages) if ages else 0.0
+
+
+def worker_alive() -> bool:
+    return any(t.name == 'SheetWriteWorker' and t.is_alive() for t in threading.enumerate())
+
+
 def _worker_loop():
     """워커 메인 루프. LPOP + RPUSH 로 낮은 오버헤드 폴링.
 
@@ -326,35 +385,7 @@ def _worker_loop():
                 _rc().lrem(PROCESSING_KEY, 1, raw)
                 continue
 
-            try:
-                handler(op['payload'])
-                # 성공 → processing 제거
-                _rc().lrem(PROCESSING_KEY, 1, raw)
-                logger.info(f'[QUEUE] {op_type} 처리 완료 (op_id={op_id}…)')
-                _bump_processed_and_maybe_rollup()
-            except Exception as exc:
-                op['attempts'] = int(op.get('attempts', 0)) + 1
-                op['last_error'] = str(exc)[:500]
-                _rc().lrem(PROCESSING_KEY, 1, raw)
-                if op['attempts'] < MAX_ATTEMPTS:
-                    # 지수 백오프 후 재큐잉
-                    wait = 2.0 ** op['attempts']
-                    logger.warning(
-                        f'[QUEUE] {op_type} 실패 {op["attempts"]}/{MAX_ATTEMPTS} (op_id={op_id}…), '
-                        f'{wait}s 후 재시도: {exc}'
-                    )
-                    threading.Timer(
-                        wait,
-                        lambda o=op: _rc().rpush(QUEUE_KEY, json.dumps(o, ensure_ascii=False)),
-                    ).start()
-                else:
-                    logger.error(
-                        f'[QUEUE] {op_type} {MAX_ATTEMPTS}회 실패 → 데드레터 '
-                        f'(op_id={op_id}…): {exc}',
-                        exc_info=True,
-                    )
-                    _rc().rpush(FAILED_KEY, json.dumps(op, ensure_ascii=False))
-                    _notify_admin_deadletter(op, exc)
+            _run_op(op, raw, handler)
         except Exception as loop_exc:
             fail_streak += 1
             now = _time.monotonic()

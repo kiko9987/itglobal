@@ -317,6 +317,20 @@ def check_backup_fresh(ctx):
     return out
 
 
+def check_sheet_write_failed(ctx):
+    """시트 쓰기 데드레터(3회 실패한 편집)가 남아 있음 — 발생 순간 DM 한 번뿐이라 놓치면 영영 묻혔다 (2026-10-30).
+    화면(캐시)엔 저장돼 보이지만 시트엔 안 써진 편집. /api/admin/sheet-write-queue 에서 재시도."""
+    out = []
+    for op in ctx.get('queue_failed') or []:
+        p = op.get('payload') or {}
+        tag = p.get('tag') or p.get('project_code') or ''
+        when = datetime.fromtimestamp(float(op.get('created_at') or 0)).strftime('%m/%d %H:%M')
+        day = (ctx.get('now') or datetime.now()).strftime('%Y-%m-%d')    # 남아 있는 동안 하루 한 번씩 다시
+        out.append(Violation('sheet_write_failed', f"sheetq:{op.get('op_id', '')}:{day}", tag or op.get('op_type', ''),
+                             f"{when} {op.get('op_type', '')} 시트 쓰기 실패 — `{str(op.get('last_error', ''))[:120]}`"))
+    return out
+
+
 def check_split_payers(ctx):
     """나눠 내는 공사(○○ 부담자 칸) — 칸 형식 오류·부담액 합계≠총액2·부담자 없는 칸에 입금 (2026-10-19)."""
     from dashboard.services.payer_split import split_problems
@@ -344,6 +358,7 @@ INVARIANTS = [
     check_lead_inflow,
     check_overpay_lingering,
     check_backup_fresh,
+    check_sheet_write_failed,
 ]
 
 _CHECK_LABEL = {
@@ -355,6 +370,7 @@ _CHECK_LABEL = {
     'lead_inflow': '문의 유입 멈춤 의심',
     'overpay_lingering': '과입금 7일 넘게 남음',
     'backup_stale': '일일 백업 멈춤',
+    'sheet_write_failed': '시트에 안 써진 편집(쓰기 실패)',
 }
 
 
@@ -417,8 +433,16 @@ def build_context():
     except Exception as exc:
         logger.warning(f'[INVARIANT] 문의 유입 점검 준비 실패(건너뜀): {exc}')
 
+    queue_failed = []
+    try:
+        from dashboard.services.sheet_write_queue import peek_failed
+        queue_failed = peek_failed(50)
+    except Exception as exc:
+        logger.warning(f'[INVARIANT] 시트 쓰기 실패 목록 조회 실패(건너뜀): {exc}')
+
     return {
         'records': records,
+        'queue_failed': queue_failed,
         'valid_codes': valid_codes,
         'card_codes': card_codes,
         'cell_anomalies': cell_anomalies,

@@ -2563,6 +2563,19 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     corrected_rows = []  # 입금 메모 정정(phash 변경, 값 증가 아님) → 카드 갱신+스냅샷 대상
     refund_sends = []    # 과입금 반환 신규(단계에 반환 블록 추가) → '반환' 새 카드 발송 대상
     reprice_rows = []    # 미수금(X) 단독 변화(총액/부가세 시트 직접수정) → 기존 카드 재렌더 (2026-09-11)
+    p_updates = []       # (기준값 키, 지금 그 행의 공사 코드) — 루프 뒤 한 번에 기록 (2026-10-30)
+
+    # 행별 기준값을 한 번에 — 예전엔 행마다 hgetall(5천 번 왕복 2.3초, 폴러 한 회차 5초 중 절반).
+    #   파이프라인 0.2초 (2026-10-30 실측). 실패하면 예전처럼 행마다 읽는다.
+    prev_map: Dict[int, dict] = {}
+    try:
+        _pipe = rc.pipeline(transaction=False)
+        for _off in range(len(rows)):
+            _pipe.hgetall(f"{REDIS_KEY_PREFIX}{_off + 2}")
+        prev_map = {_off + 2: (h or {}) for _off, h in enumerate(_pipe.execute())}
+    except Exception as exc:
+        logger.warning(f"[PAYMENT] 기준값 일괄 조회 실패 — 행별 조회: {exc}")
+        prev_map = {}
 
     for offset, row in enumerate(rows):
         sheet_row = offset + 2  # 1-based + 헤더 1행
@@ -2585,14 +2598,21 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
 
         # Redis 옛 상태 비교
         key = f"{REDIS_KEY_PREFIX}{sheet_row}"
-        try:
-            prev = rc.hgetall(key)
-        except Exception:
-            prev = {}
+        if sheet_row in prev_map:
+            prev = prev_map[sheet_row]
+        else:
+            try:
+                prev = rc.hgetall(key)
+            except Exception:
+                prev = {}
         prev_u = int(prev.get('u', 0) or 0)
         prev_v = int(prev.get('v', 0) or 0)
         prev_w = int(prev.get('w', 0) or 0)
         prev_aa = str(prev.get('aa', '')).lower() == 'true'
+        # 기준값을 저장할 때 그 행에 있던 공사 코드 — 행 삽입·정렬로 밀린 행과 실제 변경을 가른다(아래 '과다' 안전장치).
+        prev_p = prev.get('p')
+        if prev_p != project:
+            p_updates.append((key, project))
         # 미수금(X): baseline 에 있을 때만 변화 감지(첫 폴 마이그레이션은 저장만 → mass-reprice 방지).
         prev_x = prev.get('x')
         x_changed = (prev_x is not None) and (int(prev_x or 0) != x_val)
@@ -2766,6 +2786,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             'row': sheet_row, 'project': project,
             'u': u_val, 'v': v_val, 'w': w_val, 'aa': aa_chk,
             'prev_u': prev_u, 'prev_v': prev_v, 'prev_w': prev_w, 'prev_aa': prev_aa,
+            'prev_p': prev_p,
             'address': str(_get(IDX_F)).strip(),
             'construction': str(_get(IDX_L)).strip(),
             'invoice': str(_get(IDX_Y)).strip(),
@@ -2779,6 +2800,15 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             'memo_newly_added': memo_newly_added,  # 값 있고 memo 방금 저장 (any stage)
             'stage_memo_newly_added': stage_memo_newly_added,  # stage 별 dict (2026-07-22)
         })
+
+    if p_updates:
+        try:
+            _pipe = rc.pipeline(transaction=False)
+            for _k, _p in p_updates:
+                _pipe.hset(_k, 'p', _p)
+            _pipe.execute()
+        except Exception as exc:
+            logger.warning(f"[PAYMENT] 기준값 공사 코드 기록 실패 ({len(p_updates)}행): {exc}")
 
     # 입금 메모 삭제 감지 → 카드 회색화 (changed_rows 유무와 무관하게 먼저 처리).
     # 안전장치: 한 폴링에 회색화 대상이 비정상적으로 많으면(오류·대량삭제 의심) skip.
@@ -2839,11 +2869,25 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     # 2026-07-27 수렴 fix: phash(u/v/w_phash) 도 함께 저장해야 다음 폴링에서
     #   memo_newly_added 가 재감지 안 됨. 기존엔 u/v/w/aa 만 저장 → 매 폴링마다
     #   memo 신규 저장으로 오인 → 무한 재baseline (7/24 flush 후 알림 전면 중단).
+    #   2026-10-30: 기준값에 그 행의 공사 코드(p)를 함께 두어, 코드가 그대로인 행(진짜 변경)은 발송하고
+    #   코드가 바뀐 행(행 삽입·정렬로 밀림)만 재구축한다. 예전엔 경영지원이 입금 20여 건을 한꺼번에
+    #   붙여 넣어도 전부 재구축돼 카드가 조용히 안 나갔다. 그래도 많으면 재구축 + 관리자 알림.
     if len(changed_rows) > MAX_PER_TICK * 4:
-        logger.warning(
-            f"[PAYMENT] 변경 행이 비정상적으로 많음 ({len(changed_rows)}) — baseline 재구축, 발송 skip"
-        )
-        for c in changed_rows:
+        _same = [c for c in changed_rows if c.get('prev_p') == c['project']]
+        if _same and len(_same) <= MAX_PER_TICK * 12:     # 같은 공사 60행까지(한 폴링 5행씩 발송)
+            _moved = [c for c in changed_rows if c.get('prev_p') != c['project']]
+            logger.warning(
+                f"[PAYMENT] 변경 행 {len(changed_rows)}개 중 {len(_moved)}개는 행이 밀린 것 — 기준값만 재구축, "
+                f"같은 공사 {len(_same)}개는 그대로 발송"
+            )
+        else:
+            _moved = changed_rows
+            logger.error(
+                f"[PAYMENT] 변경 행이 비정상적으로 많음 ({len(changed_rows)}, 같은 공사 {len(_same)}) — "
+                f"baseline 재구축, 입금 카드 발송 건너뜀. 그사이 들어온 입금은 카드가 없을 수 있음",
+                extra={'force_alert': True},
+            )
+        for c in _moved:
             try:
                 rc.hset(c['key'], mapping={
                     'u': c['u'], 'v': c['v'], 'w': c['w'],
@@ -2855,7 +2899,9 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 rc.expire(c['key'], REDIS_TTL)
             except Exception:
                 pass
-        return result
+        if _moved is changed_rows:
+            return result
+        changed_rows = _same
 
     # 변경 행 발송 — 한 폴링당 MAX_PER_TICK까지만 (SSL 동시 호출 방지)
     # 분기:

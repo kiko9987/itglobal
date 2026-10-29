@@ -7158,10 +7158,15 @@ def slack_list_assignee():
         data = request.get_json(silent=True) or {}
         lead_no = str(data.get('lead_no') or '').strip()
         assignee_raw = str(data.get('assignee') or '').strip()
-        logger.info(f"[SLACK/LIST] 담당자 배정 수신: lead={lead_no}, assignee={assignee_raw!r}")
+        logger.info(f"[SLACK/LIST] 담당자 배정 수신: lead={lead_no}, assignee={assignee_raw!r}"
+                    + ('' if expected else ' (비밀값 없이 호출)'))
 
         if not lead_no:
             return jsonify({"ok": False, "error": "lead_no 누락"}), 400
+        # 비밀값이 없어 주소만 알면 누구나 부를 수 있다 — 리드 번호 형식·재직 직원 이름만 받는다 (2026-10-30 점검)
+        if not re.match(r'^(L-\d{4,6}|ETC-[0-9a-fA-F]{4,})$', lead_no):
+            logger.warning(f"[SLACK/LIST] list-assignee: 리드 번호 형식 아님 {lead_no!r}")
+            return jsonify({"ok": False, "error": "lead_no 형식 오류"}), 400
 
         # 슬랙 user_id(U01234...) 형식이면 한국 이름으로 변환
         assignee_name = assignee_raw
@@ -7182,6 +7187,15 @@ def slack_list_assignee():
             new_value = '-'
         else:
             new_value = assignee_name
+            try:
+                from dashboard.utils.user_database import get_user_database
+                _staff = {(u.get('name') or '').strip() for u in (get_user_database().get_all_users() or [])
+                          if not u.get('is_resigned') and u.get('is_active', True)}
+            except Exception:
+                _staff = set()
+            if _staff and new_value not in _staff:
+                logger.warning(f"[SLACK/LIST] list-assignee: 재직 직원 이름 아님 {new_value!r} ({lead_no})")
+                return jsonify({"ok": False, "error": "담당자 이름 확인 필요"}), 400
 
         try:
             # 정규 리드(L-XXXXX) 는 시트, ETC-xxx 는 Redis 로 자동 분기
@@ -7692,6 +7706,9 @@ def slack_sync_homepage_now():
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+_wf_trigger_last = 0.0
+
+
 @slack_bp.route("/workflow-phone-trigger", methods=["GET", "POST"])
 def slack_workflow_phone_trigger():
     """슬랙 워크플로 form → 시트 추가 직후 즉시 호출 — 봇 보정 흐름을 즉시 실행.
@@ -7699,7 +7716,16 @@ def slack_workflow_phone_trigger():
     워크플로 빌더 "웹 요청 보내기" step에서 이 URL 호출:
     https://pm.itg-aircon.com/slack/workflow-phone-trigger
     body는 비워도 됨 (전체 시트 보정 폴링이라 행 정보 불필요).
+    인증이 없어(워크플로 웹 요청) 반복 호출되면 스레드가 쌓이므로 3초 안의 재호출은 건너뜀 — 10초 주기
+    폴링이 어차피 돌고, 동기화 자체도 Redis 락으로 겹치지 않는다 (2026-10-30 점검).
     """
+    global _wf_trigger_last
+    now = time.time()
+    if now - _wf_trigger_last < 3:
+        return jsonify({"ok": True, "skipped": "recent"}), 200
+    _wf_trigger_last = now
+    logger.info("[SLACK] 워크플로 즉시 트리거 수신")
+
     def _bg():
         try:
             from dashboard.services.lead_sync import sync_workflow_phone_leads

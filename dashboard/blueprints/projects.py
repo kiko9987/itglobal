@@ -3679,24 +3679,13 @@ def cancel_project_api():
         #   취소 상태는 즉시(여기서), 총액 1=0 은 #영업_관리 '매출 0원 반영 요청'→샛별 ✅ 후.
         _reason = (data.get('reason') or '').strip()
         _spec = f'공사 취소 (사유: {_reason})' if _reason else '공사 취소'
-        # 재개 복원용 스냅샷(공사확정일·수금확인·총액1) — perform_cancel(슬랙)과 동일 포맷
-        try:
-            import json as _json_c
-            from ..utils.redis_client import get_redis_client as _grc_c
-            _pay_raw = project.get('수금 확인')
-            _pay_orig = (_pay_raw is True
-                         or (isinstance(_pay_raw, str) and _pay_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
-                         or _pay_raw == 1)
-            _grc_c().redis.set(
-                f'project_cancel_snapshot:{project_code}',
-                _json_c.dumps({
-                    'confirmed_date': str(project.get('공사 확정', '') or '').strip(),
-                    'payment_confirmed': _pay_orig,
-                    'total_1': project.get('총액 1', ''),
-                }, ensure_ascii=False),
-                ex=60 * 60 * 24 * 365)
-        except Exception as _snap_exc:
-            logger.warning(f'[PM/취소] 스냅샷 저장 실패 ({project_code}): {_snap_exc}')
+        # 재개 복원용 스냅샷(공사확정일·수금확인·총액1) — perform_cancel(슬랙)과 동일 포맷, Redis + 감사 기록
+        from ..services import cancel_snapshot as _csnap
+        _csnap.save(project_code, {
+            'confirmed_date': str(project.get('공사 확정', '') or '').strip(),
+            'payment_confirmed': _csnap.payment_confirmed(project.get('수금 확인')),
+            'total_1': project.get('총액 1', ''),
+        }, by=user_email)
 
         # 4. 시트 write 를 큐로 위임 + 캐시 즉시 갱신 (2026-07-09 write-behind)
         try:
@@ -3851,12 +3840,12 @@ def resume_project_api():
         _restore_total_1 = None
         _restore_date = None
         _restore_payment = None
+        from ..services import cancel_snapshot as _csnap
         try:
             import json as _json_r
-            from ..utils.redis_client import get_redis_client as _grc_r
-            _snap = _grc_r().redis.get(f'project_cancel_snapshot:{project_code}')
+            _snap = _csnap.load_raw(project_code)    # Redis → 없으면 감사 기록
             if _snap:
-                _sv = (_snap.decode() if isinstance(_snap, bytes) else _snap).strip()
+                _sv = _snap.strip()
                 if _sv.startswith('{'):
                     _sd = _json_r.loads(_sv)
                     if 'total_1' in _sd:
@@ -3896,10 +3885,7 @@ def resume_project_api():
             }, meta={'user_email': user_email})
             updated_cells = 2  # AH/AM 2셀 예상값 (응답 호환용)
             # 스냅샷 정리 (복원 반영 후)
-            try:
-                _grc_r().redis.delete(f'project_cancel_snapshot:{project_code}')
-            except Exception:
-                pass
+            _csnap.delete(project_code)
 
             # 6. 감사 로그 기록 (동기 유지)
             _log_project_status_change(

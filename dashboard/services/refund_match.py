@@ -114,11 +114,11 @@ def _idx() -> Dict[str, int]:
     return main_field_to_index()
 
 
-def _row_payers(vals: list, u: int, v: int, w: int) -> Dict:
+def _row_payers(vals: list, u: int, v: int, w: int, I: Optional[Dict[str, int]] = None) -> Dict:
     """행 값으로 나눠 내는 공사 부담자 {단계: payer} — 아니면 {}."""
     try:
         from dashboard.services.payer_split import stage_payers
-        I = _idx()
+        I = I or _idx()
         rec = {f'{s} 부담자': (vals[I[f'{s} 부담자']] if I[f'{s} 부담자'] < len(vals) else '')
                for s in _STAGES}
         rec.update({'계약금': u, '중도금': v, '잔금': w})
@@ -135,6 +135,9 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
     후보 kind: 'overpay'(⑤ 충족) | 'reroute'. unpaid_before/after = 기록 전후 미수금.
     나눠 내는 공사(2026-10-20): ⑤를 칸(사람) 기준 — 그 칸 받은 돈 − 그 사람 부담액 = 출금액. 공사 전체로 보면
       한 사람이 더 내고 다른 사람이 덜 냈을 때 과입금이 안 보이고 '더 받은 돈 없음'으로 잘못 나온다.
+    행마다 부담자·메모 해석 결과는 row 사전에 담아 둔다(_payers·_pays) — 스캔 한 번에 출금 40건이면
+      같은 4천 행 메모를 40번 다시 해석해 25초씩 걸렸고, 같은 초에 도는 30초 입금 폴러가 매 10분 한 회차씩
+      밀렸다(2026-10-30).
     """
     from dashboard.services.fund_transfer import names_match
     from dashboard.services.payment_sync import _parse_notes
@@ -152,7 +155,9 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
         u, v, w, total2 = (_num(vals[I[f]]) for f in ('계약금', '중도금', '잔금', '총액 2'))
         paid = u + v + w
         col_kind = {}       # 나눠 내는 공사: {단계: (kind, reason)}
-        _payers = _row_payers(vals, u, v, w)
+        _payers = r.get('_payers')
+        if _payers is None:
+            _payers = r['_payers'] = _row_payers(vals, u, v, w, I)
         if _payers:
             for _s, _cv in zip(_STAGES, (u, v, w)):
                 _p = _payers.get(_s)
@@ -175,8 +180,10 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     continue
                 kind = 'reroute'
                 reason = f'받은 돈 {paid:,}원 / 총액 {total2:,}원 — 더 받은 돈 없음'
-        pays = _parse_notes((list(r.get('notes') or []) + ['', '', ''])[:3],
-                            stage_vals={'계약금': u, '중도금': v, '잔금': w}, split=bool(_payers))
+        pays = r.get('_pays')
+        if pays is None:
+            pays = r['_pays'] = _parse_notes((list(r.get('notes') or []) + ['', '', ''])[:3],
+                                             stage_vals={'계약금': u, '중도금': v, '잔금': w}, split=bool(_payers))
         for stage, col in zip(_STAGES, _cols):
             if _payers:
                 if stage not in col_kind:

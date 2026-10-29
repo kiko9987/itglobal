@@ -49,6 +49,10 @@ def _patch_common(monkeypatch, project, redis, captured):
     import dashboard.services.project_service as ps
     monkeypatch.setattr(ps, 'update_project_in_cache', lambda code, payload: True)
     monkeypatch.setattr(ps, 'invalidate_project_cache', lambda code: None)
+    # 스냅샷 감사 기록 — 운영 users.db 에 쓰지 않게 가짜 저장소
+    from dashboard.services import cancel_snapshot as cs
+    monkeypatch.setattr(cs, '_audit_save', lambda code, body, by: captured.setdefault('audit', {}).__setitem__(code, body))
+    monkeypatch.setattr(cs, '_from_audit', lambda code: captured.get('audit', {}).get(code))
 
 
 def _ranges(captured):
@@ -117,6 +121,62 @@ def test_uncancel_restores_total(monkeypatch):
     assert r.get('공사 현황!T100') == 3400000  # 총액 원복
     assert r.get('공사 현황!AB100') == ''       # 특이사항 해제
     assert 'project_cancel_snapshot:G9999-XX' not in redis.store
+
+
+def test_uncancel_restores_from_audit_when_redis_lost(monkeypatch):
+    """취소 뒤 Redis 스냅샷이 사라져도(flush) 감사 기록으로 확정일·수금 확인·총액 복원 (2026-10-30)."""
+    redis = _Redis()
+    captured = {}
+    proj = {'프로젝트 코드': 'G9999-XX', '수금 관련 특이사항': '', '공사 확정': '2026-09-01',
+            '수금 확인': True, '총액 1': 3400000}
+    _patch_common(monkeypatch, proj, redis, captured)
+    assert psa.perform_cancel('G9999-XX', 'SD', reason='고객 변심')['ok']
+    assert 'G9999-XX' in captured['audit']
+    redis.store.clear()                                  # Redis 유실
+
+    cancelled = dict(proj, **{'수금 관련 특이사항': '공사 취소 (사유: 고객 변심)', '공사 확정': '',
+                               '수금 확인': False, '총액 1': 0})
+    monkeypatch.setattr(psa, '_load_project', lambda code: dict(cancelled))
+    captured['updates'] = []
+    assert psa.perform_uncancel('G9999-XX', 'SD')['ok']
+    r = _ranges(captured)
+    assert r.get('공사 현황!S100') == '2026-09-01'
+    assert r.get('공사 현황!AD100') == 'TRUE'
+    assert r.get('공사 현황!T100') == 3400000
+
+
+def test_audit_fallback_ignores_snapshot_before_last_resume(monkeypatch, tmp_path):
+    """감사 기록 조회 SQL — 마지막 재개보다 앞선(지난 취소의) 스냅샷은 쓰지 않음."""
+    import sqlite3
+    from contextlib import contextmanager
+    from dashboard.services import cancel_snapshot as cs
+    db = tmp_path / 'a.db'
+    con = sqlite3.connect(db)
+    con.execute('CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, '
+                'project_code TEXT, new_value TEXT)')
+    con.commit()
+
+    class _DB:
+        @contextmanager
+        def _get_connection(self):
+            c = sqlite3.connect(db)
+            try:
+                yield c
+            finally:
+                c.close()
+    import dashboard.utils.user_database as udb
+    monkeypatch.setattr(udb, 'get_user_database', lambda: _DB())
+
+    def add(action, val=None, code='G1-XX'):
+        con.execute('INSERT INTO audit_logs (action, project_code, new_value) VALUES (?,?,?)', (action, code, val))
+        con.commit()
+    add(cs.ACTION, '{"total_1": 1}')
+    add('RESUME_PROJECT')
+    assert cs._from_audit('G1-XX') is None              # 지난 취소분 — 이미 재개됨
+    add(cs.ACTION, '{"total_1": 2}')
+    add(cs.ACTION, '{"total_1": 9}', code='G2-XX')
+    assert cs._from_audit('G1-XX') == '{"total_1": 2}'
+    con.close()
 
 
 def test_cancel_no_reason_plain_spec(monkeypatch):

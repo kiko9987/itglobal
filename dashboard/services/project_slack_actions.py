@@ -99,31 +99,14 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
     if not row_number:
         return {'ok': False, 'reason': 'row_not_found'}
 
-    # 되돌리기 시 원본 복원용 Redis 스냅샷. 공사 확정일 + 수금 확인 + 총액 1 보존
-    # (취소가 세 컬럼을 덮어쓰기 때문). 저장 형태: JSON.
-    import json as _json
-    confirmed_date_original = str(project.get('공사 확정', '') or '').strip()
-    total_1_original = project.get('총액 1', '')
-    payment_raw = project.get('수금 확인')
-    payment_original = (
-        payment_raw is True
-        or (isinstance(payment_raw, str) and payment_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1'))
-        or payment_raw == 1
-    )
-    try:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        rc.set(
-            f'project_cancel_snapshot:{code}',
-            _json.dumps({
-                'confirmed_date': confirmed_date_original,
-                'payment_confirmed': payment_original,
-                'total_1': total_1_original,
-            }, ensure_ascii=False),
-            ex=60 * 60 * 24 * 365,  # 1년
-        )
-    except Exception as exc:
-        logger.warning(f'[SLACK/취소] 스냅샷 저장 실패 ({code}): {exc}')
+    # 되돌리기 시 원본 복원용 스냅샷. 공사 확정일 + 수금 확인 + 총액 1 보존
+    # (취소가 세 컬럼을 덮어쓰기 때문). Redis + 감사 기록(cancel_snapshot).
+    from dashboard.services import cancel_snapshot
+    cancel_snapshot.save(code, {
+        'confirmed_date': str(project.get('공사 확정', '') or '').strip(),
+        'payment_confirmed': cancel_snapshot.payment_confirmed(project.get('수금 확인')),
+        'total_1': project.get('총액 1', ''),
+    }, by=f'slack:{by_display_name}')
 
     _reason = (reason or '').strip()
     _spec = f'공사 취소 (사유: {_reason})' if _reason else '공사 취소'
@@ -206,18 +189,12 @@ def apply_cancel_zero_total(code: str, by_display_name: str) -> Dict[str, Any]:
     # 스냅샷에 원본 총액 보강 (perform_cancel 이 저장했지만 방어적으로 없으면 채움)
     try:
         import json as _json
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        snap = rc.get(f'project_cancel_snapshot:{code}')
-        snap_d = {}
-        if snap:
-            sv = snap.decode() if isinstance(snap, bytes) else snap
-            if sv.strip().startswith('{'):
-                snap_d = _json.loads(sv)
+        from dashboard.services import cancel_snapshot
+        sv = cancel_snapshot.load_raw(code) or ''
+        snap_d = _json.loads(sv) if sv.strip().startswith('{') else {}
         if 'total_1' not in snap_d:
             snap_d['total_1'] = cur
-            rc.set(f'project_cancel_snapshot:{code}',
-                   _json.dumps(snap_d, ensure_ascii=False), ex=60 * 60 * 24 * 365)
+            cancel_snapshot.save(code, snap_d, by=f'slack:{by_display_name}')
     except Exception as exc:
         logger.warning(f'[SLACK/취소매출0] 스냅샷 보강 실패 ({code}): {exc}')
 
@@ -263,12 +240,10 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     restore_payment = None  # None 이면 수금 확인 컬럼 미터치 (기존 값 유지)
     restore_total_1 = None  # None 이면 총액 1 미터치 (옛 스냅샷 등)
     try:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        snap = rc.get(f'project_cancel_snapshot:{code}')
+        from dashboard.services import cancel_snapshot
+        snap = cancel_snapshot.load_raw(code)
         if snap:
-            snap_val = snap.decode() if isinstance(snap, bytes) else snap
-            snap_val = snap_val.strip()
+            snap_val = snap.strip()
             if snap_val.startswith('{'):
                 # 새 JSON 형태
                 try:
@@ -306,11 +281,8 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     _queue_batch_write(sheet_id, updates, tag=f'slack_uncancel:{code}')
 
     # 스냅샷 정리 (복원 성공 시 삭제)
-    try:
-        from dashboard.utils.redis_client import get_redis_client
-        get_redis_client().redis.delete(f'project_cancel_snapshot:{code}')
-    except Exception:
-        pass
+    from dashboard.services import cancel_snapshot
+    cancel_snapshot.delete(code)
 
     try:
         from dashboard.services.project_service import (
