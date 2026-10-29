@@ -16,6 +16,42 @@ def test_amount_req_summary():
     assert s == '`R4181-JSH` 공사 취소 매출 0원 (2,420,000원 → 0원) · 요청 JSH 10.20 09:00'
 
 
+def test_collect_skips_already_applied(monkeypatch):
+    """PM 에 이미 반영된 요청(✅ 안 눌러 pending 이 남은 것)은 뺀다 (10-30 G4168·R4140)."""
+    import json
+    store = {
+        'project_amount_req:C1:1.0': {'code': 'R4140-YM', 'before': {'총액 1': '2000000'},
+                                      'updates': {'총액 1': '222000'}},      # 2,220,000 으로 반영됨
+        'project_amount_req:C1:2.0': {'code': 'R4068-TH', 'before': {'부가세': 'True'},
+                                      'updates': {'부가세': False}},          # 아직 그대로 → 남김
+        'project_cancel_money_req:C1:3.0': {'code': 'G4168-TH', 'amt_disp': '2,000,000원'},  # 0원 반영됨
+        'project_cancel_money_req:C1:4.0': {'code': 'R9999-AA', 'amt_disp': '1,000,000원'},  # 아직
+    }
+
+    class _R:
+        def scan_iter(self, match, count=0):
+            p = match.rstrip('*')
+            return [k for k in store if k.startswith(p)]
+
+        def get(self, k):
+            return json.dumps(store[k])
+
+    class _RC:
+        redis = _R()
+
+    monkeypatch.setattr('dashboard.utils.redis_client.get_redis_client', lambda: _RC())
+    monkeypatch.setattr(pr, '_client', lambda: None)
+    recs = [
+        {'프로젝트 코드': 'R4140-YM', '총액 1': 2220000.0, '부가세': True, '공사 확정': '2026-09-30'},
+        {'프로젝트 코드': 'R4068-TH', '총액 1': 3244500.0, '부가세': True, '공사 확정': '2026-09-02'},
+        {'프로젝트 코드': 'G4168-TH', '총액 1': 0.0, '부가세': True, '공사 확정': ''},
+        {'프로젝트 코드': 'R9999-AA', '총액 1': 1000000.0, '부가세': True, '공사 확정': ''},
+    ]
+    monkeypatch.setattr('dashboard.services.project_service.get_project_records', lambda *a, **k: recs)
+    got = [e['summary'].split('`')[1] for e in pr.collect_amount_requests()]
+    assert got == ['R4068-TH', 'R9999-AA']
+
+
 def test_remind_text_has_amount_section_and_new_header():
     t = pr.build_pin_remind_text({'amount_reqs': [{'summary': '`G1` 금액 수정', 'permalink': 'https://x'}]})
     assert '경영지원 오늘 할 일 1건' in t

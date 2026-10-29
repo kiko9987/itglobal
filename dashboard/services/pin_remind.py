@@ -511,6 +511,15 @@ def collect_amount_requests() -> List[dict]:
     except Exception:
         return []
     c = _client()
+    # 이미 반영된 요청은 뺀다 — PM 에서 고치고 ✅ 를 안 누르면 pending 이 60일 남는다
+    #   (10-30 미리보기: G4168 매출 0원·R4140 총액이 반영됐는데 떠 있었음)
+    try:
+        from dashboard.services.project_service import get_project_records
+        from dashboard.blueprints.slack_bot import _amount_request_applied
+        recs = {str(r.get('프로젝트 코드') or '').strip(): r for r in get_project_records()}
+    except Exception as exc:
+        logger.warning(f'[PIN] 금액 요청 반영 여부 확인 불가(전부 표시): {exc}')
+        recs, _amount_request_applied = {}, None
     out: List[dict] = []
     for pattern, kind in (('project_amount_req:*', 'amount'), ('project_cancel_money_req:*', 'cancel')):
         try:
@@ -529,6 +538,16 @@ def collect_amount_requests() -> List[dict]:
                 d = None
             if not d:
                 continue
+            proj = recs.get(str(d.get('code') or '').strip())
+            if proj is not None:
+                if kind == 'cancel':
+                    # 매출 0원 반영됐거나 재개(확정일 복원)됐으면 끝난 요청
+                    from dashboard.services.payer_split import _num
+                    if not _num(proj.get('총액 1')) or str(proj.get('공사 확정') or '').strip():
+                        continue
+                elif _amount_request_applied and _amount_request_applied(
+                        proj, d.get('before'), d.get('updates')):
+                    continue
             _, ch, ts = ks.split(':', 2)
             permalink = ''
             if c:
