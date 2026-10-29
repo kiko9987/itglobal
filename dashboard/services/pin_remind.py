@@ -1,4 +1,4 @@
-"""미처리 정산 핀 리마인드 — 매일 아침 9시 #영업_관리.
+"""경영지원 오늘 할 일 — 매일 10:00·15:30 경영지원(SB) 개인 DM (2026-10-30 전엔 #영업_관리 게시).
 
 경영지원(황샛별)이 입금내역·세금계산서를 올리며 "어떤 프로젝트 비용인지" 확인 요청.
 미처리 건은 고정(pin), 처리되면 고정 해제 → **고정된 것 = 미처리**. 매일 아침 요약 알림.
@@ -629,10 +629,32 @@ def build_pin_remind_text(data: dict) -> str:
     )
 
 
-def send_pin_remind() -> dict:
-    """미처리 정산 핀 리마인드 발송 — 스케줄러 진입점 (매일 10:00·15:30, sync_scheduler).
+def open_todo_dm():
+    """경영지원 할 일 받는 사람(승인자 명단 첫 줄 = SB) DM — (메인봇 client, DM 채널) 또는 (None, '').
 
-    주말·공휴일 skip (경영지원 근무일만). 고정 0건이면 발송 skip.
+    2026-10-30: #영업_관리에 올리면 한 사람의 할 일을 모두가 보게 돼 감시처럼 느껴진다(사용자) → 본인 DM.
+    계산서봇은 im:write 가 없어 DM 은 메인봇(SLACK_BOT_TOKEN)으로."""
+    from slack_sdk import WebClient
+    from dashboard.services.settlement_checkers import checker_ids
+    tok = os.getenv('SLACK_BOT_TOKEN', '').strip()
+    ids = checker_ids()
+    if not tok or not ids:
+        logger.warning('[PIN] 할 일 DM 불가 — SLACK_BOT_TOKEN 또는 승인자 명단 없음')
+        return None, ''
+    c = WebClient(token=tok)
+    try:
+        ch = ((c.conversations_open(users=ids[0]).get('channel') or {}) or {}).get('id', '')
+    except Exception as exc:
+        logger.warning(f'[PIN] 할 일 DM 개설 실패 ({ids[0]}): {exc}')
+        return None, ''
+    return (c, ch) if ch else (None, '')
+
+
+def send_pin_remind() -> dict:
+    """경영지원 오늘 할 일 DM — 스케줄러 진입점 (매일 10:00·15:30, sync_scheduler).
+
+    #영업_관리 고정 메시지·#입금_관리 인입 등을 모아 경영지원(SB) 개인 DM 으로 (2026-10-30, 전엔 #영업_관리).
+    주말·공휴일 skip (경영지원 근무일만). 0건이면 발송 skip.
     """
     from datetime import date
     try:
@@ -682,8 +704,9 @@ def send_pin_remind() -> dict:
         logger.info('[PIN] 미처리 정산·입금 0건 — 발송 skip')
         return {'ok': True, 'total': 0, 'reason': None}
 
-    c = _client()
-    ch = _channel()
+    c, ch = open_todo_dm()
+    if not c or not ch:
+        return {'ok': False, 'total': data['total'], 'reason': 'dm_open_failed'}
     text = build_pin_remind_text(data)
     try:
         r = c.chat_postMessage(channel=ch, text=text,

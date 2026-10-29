@@ -1,4 +1,4 @@
-"""이카운트 매출전표 목록 — 오늘 이카운트에 넣을 매출전표를 #영업_관리에 올린다 (보고서 모드, 2026-10-30).
+"""이카운트 매출전표 목록 — 오늘 이카운트에 넣을 매출전표를 경영지원(SB) DM 으로 보낸다 (보고서 모드, 2026-10-30).
 
 경영지원(SB)은 공사가 확정되면 확정일에 매출전표 I 을 한 장, 금액·부가세가 바뀌면 바뀐 날 차액을
 한 장 넣는다. 사람이 기억해서 넣다 보니 부가세 여부만 바뀐 건의 차액이 빠졌다(G4152·G4147·R4163·
@@ -14,7 +14,6 @@ G4208, 10-29 대조). 그래서 시트와 '이카운트에 들어 있다고 보�
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -271,16 +270,6 @@ def mark_done_blocks(blocks: List[dict], key: str, who: str, now: datetime) -> L
     return out
 
 
-def _client():
-    from slack_sdk import WebClient
-    tok = os.getenv('SLACK_INVOICE_BOT_TOKEN', '').strip()
-    return WebClient(token=tok) if tok else None
-
-
-def _channel() -> str:
-    return os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
-
-
 def collect_items(force_refresh: bool = True) -> Optional[List[dict]]:
     """넣을 전표 목록. 기준선이 없으면 None."""
     from dashboard.services.project_service import get_project_records
@@ -308,14 +297,15 @@ def send_ecount_sales_list() -> dict:
             return {'ok': True, 'total': 0, 'reason': 'non_business_day'}
     except Exception:
         pass
-    c, ch = _client(), _channel()
-    if not c or not ch:
-        return {'ok': False, 'total': 0, 'reason': 'no_client'}
     items = collect_items()
     if items is None:
         return {'ok': False, 'total': 0, 'reason': 'no_baseline_or_sheet'}
     if not items:
         return {'ok': True, 'total': 0, 'reason': None}
+    from dashboard.services.pin_remind import open_todo_dm
+    c, ch = open_todo_dm()   # 경영지원(SB) 개인 DM — 채널에 올리지 않는다 (2026-10-30)
+    if not c or not ch:
+        return {'ok': False, 'total': len(items), 'reason': 'dm_open_failed'}
     try:
         r = c.chat_postMessage(channel=ch, text=f'이카운트 매출전표 — 넣을 것 {len(items)}건',
                                blocks=build_blocks(items), unfurl_links=False, unfurl_media=False)

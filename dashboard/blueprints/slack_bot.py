@@ -4090,6 +4090,18 @@ def _register_handlers(app):
     def _noop_file_shared_main(ack):
         ack()
 
+    @app.action("ecount_sales_done")
+    def handle_ecount_sales_done(ack, body, client):
+        """경영지원 DM 이카운트 매출전표 목록 [넣음] — 손으로 넣은 전표를 장부에 적는다 (2026-10-30).
+        DM 은 메인봇이 보내므로 버튼도 메인봇이 받는다."""
+        ack()
+        def _bg():
+            try:
+                _process_ecount_sales_done(client, body)
+            except Exception as exc:
+                logger.error(f"[ECOUNT] [넣음] 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     # ① 슬래시 명령: /상태 (사이트 헬스체크)
     @app.command("/상태")
     def handle_status(ack, command, respond):
@@ -5054,17 +5066,6 @@ def _register_invoice_handlers(app):
                 _process_invoice_complete(client, body)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] complete 실패: {exc}", exc_info=True)
-        threading.Thread(target=_bg, daemon=True).start()
-
-    @app.action("ecount_sales_done")
-    def handle_ecount_sales_done(ack, body, client):
-        """이카운트 매출전표 목록 [넣음] — 경영지원이 손으로 넣은 전표를 장부에 적는다 (2026-10-30)."""
-        ack()
-        def _bg():
-            try:
-                _process_ecount_sales_done(client, body)
-            except Exception as exc:
-                logger.error(f"[ECOUNT] [넣음] 처리 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
 

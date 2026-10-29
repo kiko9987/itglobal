@@ -57,3 +57,22 @@ def test_remind_text_has_amount_section_and_new_header():
     assert '경영지원 오늘 할 일 1건' in t
     assert '금액 반영 대기 — PM 반영 후 ✅ (1건)' in t
     assert '• `G1` 금액 수정  |  <https://x|바로가기>' in t
+
+
+def test_todo_goes_to_first_checker_dm(monkeypatch):
+    """할 일은 #영업_관리가 아니라 승인자 명단 첫 줄(SB) 개인 DM 으로 (2026-10-30)."""
+    opened = {}
+
+    class _C:
+        def __init__(self, token):
+            pass
+
+        def conversations_open(self, users):
+            opened['users'] = users
+            return {'channel': {'id': 'D123'}}
+
+    monkeypatch.setenv('SLACK_BOT_TOKEN', 'xoxb-test')
+    monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_ID', raising=False)
+    monkeypatch.setattr('slack_sdk.WebClient', _C)
+    c, ch = pr.open_todo_dm()
+    assert ch == 'D123' and opened['users'] == 'U0BHC2JV7U5'
