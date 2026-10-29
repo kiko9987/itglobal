@@ -52,11 +52,17 @@ def test_collect_skips_already_applied(monkeypatch):
     assert got == ['R4068-TH', 'R9999-AA']
 
 
-def test_remind_text_has_amount_section_and_new_header():
-    t = pr.build_pin_remind_text({'amount_reqs': [{'summary': '`G1` 금액 수정', 'permalink': 'https://x'}]})
-    assert '경영지원 오늘 할 일 1건' in t
-    assert '금액 반영 대기 — PM 반영 후 ✅ (1건)' in t
-    assert '• `G1` 금액 수정  |  <https://x|바로가기>' in t
+def test_channel_summary_unchanged_and_amount_goes_to_dm():
+    """#영업_관리 미처리 정산 요약은 예전 그대로, 금액 반영 대기는 SB DM 블록에만 (2026-10-30)."""
+    from dashboard.services import ecount_sales as ecs
+    reqs = [{'summary': '`G1` 금액 수정', 'permalink': 'https://x'}]
+    t = pr.build_pin_remind_text({'amount_reqs': reqs, 'invoices': [{'summary': '10/29 G 1,000원 A'}]})
+    assert ':pushpin: *미처리 정산·입금 1건 — 확인 후 처리(지정/댓글) 부탁드립니다*' in t
+    assert '금액 반영 대기' not in t
+    blocks = ecs.build_blocks([], reqs)
+    assert len(blocks) == 1
+    assert blocks[0]['text']['text'] == (':pencil2: *금액 반영 대기 — PM 에 반영한 뒤 요청 카드에 ✅ (1건)*\n'
+                                         '• `G1` 금액 수정  |  <https://x|바로가기>')
 
 
 def test_todo_goes_to_first_checker_dm(monkeypatch):

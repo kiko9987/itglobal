@@ -234,9 +234,25 @@ def item_text(e: dict) -> str:
     return '\n'.join(lines)
 
 
-def build_blocks(items: List[dict]) -> List[dict]:
-    shown = items[:MAX_ITEMS]
-    blocks: List[dict] = [
+def amount_req_text(amount_reqs: List[dict]) -> str:
+    """금액 수정·매출 0원 요청 중 아직 PM 에 반영 안 된 것 — DM 맨 위 (pin_remind.collect_amount_requests)."""
+    lines = [f':pencil2: *금액 반영 대기 — PM 에 반영한 뒤 요청 카드에 ✅ ({len(amount_reqs)}건)*']
+    for e in amount_reqs[:MAX_ITEMS]:
+        link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
+        lines.append(f'• {e["summary"]}{link}')
+    return '\n'.join(lines)[:2900]   # 섹션 글자 한도 3000
+
+
+def build_blocks(items: List[dict], amount_reqs: Optional[List[dict]] = None) -> List[dict]:
+    blocks: List[dict] = []
+    if amount_reqs:
+        blocks += [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': amount_req_text(amount_reqs)}}]
+        if items:
+            blocks.append({'type': 'divider'})
+    if not items:
+        return blocks
+    shown = items[:MAX_ITEMS - len(blocks)]
+    blocks += [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': (
             f':ledger: *이카운트 매출전표 — 넣을 것 {len(items)}건*\n'
             '매출전표 I 에 넣은 뒤 [넣음]을 눌러 주세요. 누른 건은 다음 알림에서 빠집니다.')}},
@@ -289,28 +305,36 @@ def collect_items(force_refresh: bool = True) -> Optional[List[dict]]:
     return items
 
 
-def send_ecount_sales_list() -> dict:
-    """스케줄러 진입점 (정산 핀 리마인드와 같은 10:00·15:30). 영업일만, 0건이면 안 보냄."""
+def send_todo_dm() -> dict:
+    """경영지원(SB) 개인 DM — 금액 반영 대기 + 이카운트 매출전표 목록 (2026-10-30).
+
+    스케줄러 진입점, 미처리 정산 요약(#영업_관리)과 같은 10:00·15:30. 한 사람의 할 일이라 채널이 아니라
+    본인 DM (채널에 올리면 감시처럼 느껴진다, 사용자). 영업일만, 둘 다 0건이면 안 보냄."""
     try:
         from dashboard.services.absent_remind import _is_business_day
         if not _is_business_day(date.today()):
             return {'ok': True, 'total': 0, 'reason': 'non_business_day'}
     except Exception:
         pass
-    items = collect_items()
-    if items is None:
-        return {'ok': False, 'total': 0, 'reason': 'no_baseline_or_sheet'}
-    if not items:
-        return {'ok': True, 'total': 0, 'reason': None}
-    from dashboard.services.pin_remind import open_todo_dm
-    c, ch = open_todo_dm()   # 경영지원(SB) 개인 DM — 채널에 올리지 않는다 (2026-10-30)
-    if not c or not ch:
-        return {'ok': False, 'total': len(items), 'reason': 'dm_open_failed'}
+    from dashboard.services.pin_remind import collect_amount_requests, open_todo_dm
     try:
-        r = c.chat_postMessage(channel=ch, text=f'이카운트 매출전표 — 넣을 것 {len(items)}건',
-                               blocks=build_blocks(items), unfurl_links=False, unfurl_media=False)
-        logger.info(f'[ECOUNT] 매출전표 목록 발송 {len(items)}건 ts={r.get("ts")}')
-        return {'ok': bool(r.get('ok')), 'total': len(items), 'ts': r.get('ts', '')}
+        amount_reqs = collect_amount_requests()
     except Exception as exc:
-        logger.error(f'[ECOUNT] 매출전표 목록 발송 실패: {exc}', exc_info=True)
-        return {'ok': False, 'total': len(items), 'reason': str(exc)}
+        logger.warning(f'[ECOUNT] 금액 반영 대기 조회 실패(무시): {exc}')
+        amount_reqs = []
+    items = collect_items() or []   # 기준선이 없거나 시트 조회 실패면 매출전표 목록만 빠짐
+    total = len(amount_reqs) + len(items)
+    if not total:
+        return {'ok': True, 'total': 0, 'reason': None}
+    c, ch = open_todo_dm()
+    if not c or not ch:
+        return {'ok': False, 'total': total, 'reason': 'dm_open_failed'}
+    try:
+        r = c.chat_postMessage(
+            channel=ch, text=f'경영지원 할 일 — 금액 반영 대기 {len(amount_reqs)}건, 이카운트 매출전표 {len(items)}건',
+            blocks=build_blocks(items, amount_reqs), unfurl_links=False, unfurl_media=False)
+        logger.info(f'[ECOUNT] 경영지원 DM 발송 (금액 {len(amount_reqs)}, 매출전표 {len(items)}) ts={r.get("ts")}')
+        return {'ok': bool(r.get('ok')), 'total': total, 'ts': r.get('ts', '')}
+    except Exception as exc:
+        logger.error(f'[ECOUNT] 경영지원 DM 발송 실패: {exc}', exc_info=True)
+        return {'ok': False, 'total': total, 'reason': str(exc)}

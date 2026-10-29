@@ -95,6 +95,16 @@ def test_blocks_and_done_mark():
     assert done[0] == blocks[0]
 
 
+def test_dm_blocks_amount_then_sales():
+    items = ecs.compute_pending([_rec('R4180-YM', 3100000, 3410000, confirmed='2026-10-14')], {})
+    blocks = ecs.build_blocks(items, [{'summary': '`R4068-TH` 부가세 있음→없음', 'permalink': ''}])
+    assert blocks[0]['text']['text'].startswith(':pencil2: *금액 반영 대기')
+    assert blocks[1] == {'type': 'divider'}
+    assert '이카운트 매출전표 — 넣을 것 1건' in blocks[2]['text']['text']
+    assert blocks[4]['accessory']['action_id'] == 'ecount_sales_done'
+    assert ecs.build_blocks([], []) == []
+
+
 def test_block_cap():
     recs = [_rec(f'G{i:04d}-AA', 1000000, 1100000) for i in range(ecs.MAX_ITEMS + 3)]
     blocks = ecs.build_blocks(ecs.compute_pending(recs, {}))

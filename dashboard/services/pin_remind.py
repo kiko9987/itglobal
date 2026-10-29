@@ -1,4 +1,4 @@
-"""경영지원 오늘 할 일 — 매일 10:00·15:30 경영지원(SB) 개인 DM (2026-10-30 전엔 #영업_관리 게시).
+"""미처리 정산 핀 리마인드 — 매일 아침 9시 #영업_관리.
 
 경영지원(황샛별)이 입금내역·세금계산서를 올리며 "어떤 프로젝트 비용인지" 확인 요청.
 미처리 건은 고정(pin), 처리되면 고정 해제 → **고정된 것 = 미처리**. 매일 아침 요약 알림.
@@ -567,9 +567,7 @@ def build_pin_remind_text(data: dict) -> str:
     others = data.get('others', [])
     intakes = data.get('intakes', [])
     moves = data.get('moves', [])
-    amount_reqs = data.get('amount_reqs', [])
-    total = (len(deposits) + len(invoices) + len(others) + len(intakes) + len(moves)
-             + len(amount_reqs))
+    total = len(deposits) + len(invoices) + len(others) + len(intakes) + len(moves)
 
     def _line(e: dict) -> str:
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
@@ -607,10 +605,6 @@ def build_pin_remind_text(data: dict) -> str:
         sections.append('\n'.join(
             [f':arrows_counterclockwise: *자금 이동 대기 — 법인 간 이체 필요 ({len(moves)}건)*']
             + [_move_line(m) for m in moves]))
-    if amount_reqs:
-        # 금액·부가세 수정, 취소 매출 0원 — PM 에 반영하고 카드에 ✅ (반영하면 이카운트 차액도 다음 목록에 뜸)
-        sections.append(_section(
-            f':pencil2: *금액 반영 대기 — PM 반영 후 ✅ ({len(amount_reqs)}건)*', amount_reqs))
     if deposits:
         sections.append(_section(f':moneybag: *입금내역 ({len(deposits)}건)*', deposits))
     if invoices:
@@ -621,7 +615,7 @@ def build_pin_remind_text(data: dict) -> str:
     body = f'\n{_BLANK}\n'.join(sections)   # 섹션 간 빈 줄 한 개
     return (
         f'{_BLANK}\n'
-        f':clipboard: *경영지원 오늘 할 일 {total}건 — 확인 후 처리(지정/댓글/✅) 부탁드립니다*\n'
+        f':pushpin: *미처리 정산·입금 {total}건 — 확인 후 처리(지정/댓글) 부탁드립니다*\n'
         f'{_SEP}\n'
         f'{body}\n'
         f'{_SEP}\n'
@@ -632,7 +626,8 @@ def build_pin_remind_text(data: dict) -> str:
 def open_todo_dm():
     """경영지원 할 일 받는 사람(승인자 명단 첫 줄 = SB) DM — (메인봇 client, DM 채널) 또는 (None, '').
 
-    2026-10-30: #영업_관리에 올리면 한 사람의 할 일을 모두가 보게 돼 감시처럼 느껴진다(사용자) → 본인 DM.
+    2026-10-30: 금액 반영 대기·이카운트 매출전표 목록은 한 사람의 할 일이라 채널이 아니라 본인 DM
+    (채널에 올리면 감시처럼 느껴진다, 사용자). 미처리 정산 요약은 예전처럼 #영업_관리.
     계산서봇은 im:write 가 없어 DM 은 메인봇(SLACK_BOT_TOKEN)으로."""
     from slack_sdk import WebClient
     from dashboard.services.settlement_checkers import checker_ids
@@ -651,10 +646,9 @@ def open_todo_dm():
 
 
 def send_pin_remind() -> dict:
-    """경영지원 오늘 할 일 DM — 스케줄러 진입점 (매일 10:00·15:30, sync_scheduler).
+    """미처리 정산 핀 리마인드 발송 — 스케줄러 진입점 (매일 10:00·15:30, sync_scheduler).
 
-    #영업_관리 고정 메시지·#입금_관리 인입 등을 모아 경영지원(SB) 개인 DM 으로 (2026-10-30, 전엔 #영업_관리).
-    주말·공휴일 skip (경영지원 근무일만). 0건이면 발송 skip.
+    주말·공휴일 skip (경영지원 근무일만). 고정 0건이면 발송 skip.
     """
     from datetime import date
     try:
@@ -692,21 +686,14 @@ def send_pin_remind() -> dict:
     except Exception as exc:
         logger.warning(f'[PIN] 자금 이동 대기 조회 실패(무시): {exc}')
         data['moves'] = []
-    try:
-        data['amount_reqs'] = collect_amount_requests()
-    except Exception as exc:
-        logger.warning(f'[PIN] 금액 반영 대기 조회 실패(무시): {exc}')
-        data['amount_reqs'] = []
     data['total'] = (len(data.get('deposits', [])) + len(data.get('invoices', []))
-                     + len(data.get('others', [])) + len(intakes) + len(data['moves'])
-                     + len(data['amount_reqs']))
+                     + len(data.get('others', [])) + len(intakes) + len(data['moves']))
     if data['total'] == 0:
         logger.info('[PIN] 미처리 정산·입금 0건 — 발송 skip')
         return {'ok': True, 'total': 0, 'reason': None}
 
-    c, ch = open_todo_dm()
-    if not c or not ch:
-        return {'ok': False, 'total': data['total'], 'reason': 'dm_open_failed'}
+    c = _client()
+    ch = _channel()
     text = build_pin_remind_text(data)
     try:
         r = c.chat_postMessage(channel=ch, text=text,

@@ -909,20 +909,20 @@ def _safe_absent_remind_daily():
 
 
 def _safe_pin_remind_daily():
-    """경영지원 오늘 할 일 DM (매일 10:00·15:30 — 2026-10-30 #영업_관리에서 SB 개인 DM 으로)."""
+    """미처리 정산 핀 리마인드 발송 (매일 10:00·15:30 #영업_관리)."""
     try:
         from dashboard.services.pin_remind import send_pin_remind
         result = send_pin_remind()
         logger.info(f'[SCHED] 정산 핀 리마인드 실행 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 정산 핀 리마인드 실패: {exc}', exc_info=True)
-    # 2026-10-30 이어서 이카운트 매출전표 목록 — 둘 다 경영지원(SB) 개인 DM (#영업_관리 아님). 이카운트엔 안 보냄
+    # 2026-10-30 이어서 경영지원(SB) 개인 DM — 금액 반영 대기 + 이카운트 매출전표 목록 (이카운트엔 안 보냄)
     try:
-        from dashboard.services.ecount_sales import send_ecount_sales_list
-        result = send_ecount_sales_list()
-        logger.info(f'[SCHED] 이카운트 매출전표 목록 결과: {result}')
+        from dashboard.services.ecount_sales import send_todo_dm
+        result = send_todo_dm()
+        logger.info(f'[SCHED] 경영지원 DM 결과: {result}')
     except Exception as exc:
-        logger.error(f'[SCHED] 이카운트 매출전표 목록 실패: {exc}', exc_info=True)
+        logger.error(f'[SCHED] 경영지원 DM 실패: {exc}', exc_info=True)
 
 
 def _safe_weekly_urgent_invoice_remind():
