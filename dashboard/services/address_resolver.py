@@ -353,10 +353,19 @@ def _post_normalize_display(addr: str) -> str:
         #   고객원문 '온수어르신복지회관' 이 또 붙어 중복. 인접 비교로는 못 잡음).
         #   숫자 포함(번지·동·호·층) 토큰은 제외, 5자 이상만 (짧은 우연 매칭 방지).
         _tn = re.sub(r'[\s·・]', '', t)
-        if len(_tn) >= 5 and not re.search(r'\d', t) and out:
+        # 숫자 든 단지명('평촌트리지아1단지아파트')도 한글 4자↑이고 동·호·층 유닛이 아니면 대상
+        #   (2026-10-29: 카카오 '평촌트리지아1단지 아파트' 뒤에 고객 원문이 또 붙던 중복)
+        _name_like = (not re.search(r'\d', t)
+                      or (len(re.findall(r'[가-힣]', t)) >= 4
+                          and not re.fullmatch(r'[A-Za-z]?\d+(?:-\d+)?[가-힣]{0,2}', t)))
+        if len(_tn) >= 5 and _name_like and out:
             _pn = re.sub(r'[\s·・]', '', ''.join(out))
             if _tn in _pn:
                 continue
+        # 앞에 이미 나온 같은 이름 토큰(한글 3자↑)의 반복 제거 ('송파학사 밀리토피아 송파학사')
+        if (out and len(t) >= 3 and re.fullmatch(r'[가-힣]+', t)
+                and t in out and not re.search(r'(?:로|길)$', t)):
+            continue
         out.append(t)
     # 끝 마침표·공백 잔재 제거 (2026-08-25 L-03769): 고객이 '2ㅡ9.' 처럼 끝에 붙인 마침표
     #   가 '… 2-9 .' 로 남던 것 정리.
@@ -681,11 +690,18 @@ _TAIL_SIGNAL = re.compile(
     # 단지·건물 안 공용 시설 (2026-10-29 L-04238: '별내대원칸타빌 헬스장'이 신호 없음으로
     #   tail 통째 유실 → 카카오 건물명 '대원 칸타빌'만 남음)
     r'|헬스장|피트니스|독서실|도서관|경로당|수영장|골프연습장|사우나'
+    # 단독 시설어·설비실 (2026-10-29 석 달치 점검: '마금길 151, 공장'·'보라매나산스위트
+    #   전기실'·'레츠스테이 호스텔'·'금호덴탈제약(주) 포장실'이 신호 없음으로 tail 째 유실)
+    r'|(?:공장|본관|별관)(?![가-힣])'
+    # 설비실·공간 (앞이 괄호여도 인정 — '금호덴탈제약(주) 포장실')
+    r'|전기실|기계실|방재실|관리실|회의실|전산실|서버실|휴게실|탕비실|포장실|호스텔'
     r'|[가-힣A-Za-z0-9]+\s*'
     r'(?:아파트|빌딩|타워|오피스텔|마을|클래스원|클래스|센터|'
     r'힐스테이트|자이|푸르지오|아이파크|래미안|롯데캐슬|이편한세상|위브|더샵|'
     r'센트럴파크|학교|학원|병원|교회|공장|창고|연구원|연수원|회관|마을회관|호텔|모텔|'
     r'대학교|대학|아이클럽|상가동|사무실|사무소|'
+    # 진료과 (2026-10-29 석 달치 점검: '밝은눈 안과'가 신호 없음으로 tail 째 유실)
+    r'안과|치과|피부과|의원|'
     # 휴양·숙박·복합시설 (lead_helpers의 _BUILDING과 동기화)
     r'리조트|콘도|펜션|게스트하우스|레지던스|플라자|프라자|쇼핑몰|백화점|아울렛|'
     r'마트|시장|타운|파크|가든|스퀘어|허브|컴플렉스|문화회관|체육관|'
@@ -720,6 +736,8 @@ _SHOP_NAME_SUFFIX = (
     # 설비실·공간 (2026-10-15 L-04263: '기계실'(성씨 '기'+2자)을 사람 이름으로 보고 삭제)
     '기계실', '전기실', '방재실', '관리실', '경비실', '사무실', '회의실', '전산실',
     '서버실', '창고', '주차장', '옥상', '지하', '강당', '휴게실', '탕비실', '교무실',
+    # 진료과 (2026-10-29 '밝은눈 안과'의 '안과'(성씨 '안'+1자)를 사람 이름으로 보고 삭제)
+    '안과', '치과', '내과', '외과', '피부과', '소아과',
 )
 
 
@@ -747,6 +765,11 @@ _TAIL_STOP_WORDS = [
     # 모호 명사 (의미 없이 뒤따라붙는 단어들) — "집/카페/식당"은 빌딩명에 흔히 들어가므로 제외
     '사무실', '매장', '점포', '회사', '입니다', '관심',
 ]
+# 한 단어 상호 보존에서 제외할 위치 설명어 (상호 아님)
+_TAIL_NOISE_WORDS = frozenset((
+    '근처', '인근', '부근', '주변', '일대', '앞', '옆', '뒤', '건너편', '맞은편',
+    '건물', '공실', '현장', '중고', '방문', '협의', '미정',
+))
 
 
 def _flatten_paren_tail(tail: str) -> str:
@@ -777,6 +800,11 @@ def _flatten_paren_tail(tail: str) -> str:
     """
     if not tail:
         return tail
+    # 괄호 안에 겹친 법인 표기 '(목내동, (주)에이스테크) 본관'은 (주)를 잠시 감춰 바깥
+    #   괄호만 벗김 (2026-10-29 L-04009: '에이스테크) 본관'으로 깨짐)
+    if re.search(r'\([^()]*\([주유사재]\)[^()]*\)', tail):
+        _hid = re.sub(r'\(([주유사재])\)', '\x01\\1\x02', tail)
+        return _flatten_paren_tail(_hid).replace('\x01', '(').replace('\x02', ')')
 
     m = re.search(r'\(([^)]*)\)', tail)
     if not m:
@@ -797,8 +825,9 @@ def _flatten_paren_tail(tail: str) -> str:
     #   (동 뒤 콤마) 는 미보호 → 공백 정리.
     _inner = re.sub(r'(?<=[\d호]),(?=\s*\d)', '\x00', m.group(1))
     parts = [p.strip() for p in _inner.split(',')]
+    # 'N가' 법정동('을지로6가'·'성수동2가')도 순수 지번 (2026-10-29)
     if parts and re.match(
-        r'^[가-힣]+(?:동|가|리)(?:\s+\d+(?:-\d+)?)?$', parts[0]
+        r'^[가-힣]+(?:\d+가|동|가|리)(?:\s+\d+(?:-\d+)?)?$', parts[0]
     ):
         parts = parts[1:]
     inner_flat = ' '.join(p for p in parts if p).strip()
@@ -857,6 +886,9 @@ def _extract_building_tail(text: str) -> str:
 
     first_line = ' '.join(line.strip() for line in lines if line.strip())
     first_line = re.sub(r'\s+', ' ', first_line)
+    # 번지 바로 뒤 괄호('383(디지털 엠파이어 B동, 908호)')도 구분자로 (2026-10-29 L-03090:
+    #   tail 을 못 읽어 'B동' 유실). 괄호 앞에 공백만 넣음 — 뒤 처리는 _flatten_paren_tail.
+    first_line = re.sub(r'(?<=\d)\((?=[가-힣A-Za-z])', ' (', first_line)
 
     candidates = []
     # 1. 도로명·길 + 번지 + 뒤
@@ -864,8 +896,9 @@ def _extract_building_tail(text: str) -> str:
     #    2단(공백): "봉은사로 26길 12 ..." (○○로 + 공백 + N길로 두 단으로 띄어쓴 형식)
     #    번길 합성: "부천로431번길 16 ..." (도로명 + 숫자 + 번길 한 단어)
     #    한글 2글자 이상 — 1글자 "번길" 같은 오인 차단
+    #    가나다길·안길: "보라매로5가길 24 …" (2026-10-29, 기존엔 'N가길'을 못 읽어 tail 유실)
     m = re.search(
-        r'[가-힣]{2,}\d*(?:로|길)(?:\s*\d+번?(?:로|길))?\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
+        r'[가-힣]{2,}\d*(?:로|길)(?:\s*\d+(?:번|[가나다라마바사아자차카타파하])?안?(?:로|길))?\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
@@ -912,6 +945,13 @@ def _extract_building_tail(text: str) -> str:
             if sw == '회사' and 0 <= p and tail[max(0, p - 2):p] in (
                     '주식', '유한', '합자', '합명'):
                 continue
+            # '사무실'은 복합어 안('관리사무실')이거나 끝에 단독으로 올 때('패트롤 사무실')는
+            #   방문 위치라 절단 안 함 (2026-10-29 석 달치 점검: '관리사무실'→'관리' 잘림).
+            #   뒤에 말이 더 이어지는 '사무실 이전 …' 류만 기존대로 절단.
+            if sw == '사무실' and 0 <= p and (
+                    (p > 0 and re.match(r'[가-힣]', tail[p - 1]))
+                    or not tail[p + 3:].strip()):
+                continue
             if 0 <= p < cut_pos:
                 # 앞에 여는 괄호·공백 있으면 그것도 함께 자르기
                 while p > 0 and tail[p-1] in '(（ ':
@@ -949,6 +989,14 @@ def _extract_building_tail(text: str) -> str:
         # 의미 있는 건물·층·호 신호 있는지 검증
         if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):
             # facility_prefix가 있으면 함께 부착 (예: "회사명 + 건물명")
+            return f"{tail} {facility_prefix}".strip() if facility_prefix else tail
+        # 신호 없는 한 단어 상호 (2026-10-29 '평택항로 294 EPS코리아'): 번지 바로 뒤 한 단어면
+        #   방문지 이름이라 보존. 위치 설명어('근처'·'공실' 등)는 제외.
+        if (tail and ' ' not in tail and 2 <= len(tail) <= 20
+                and re.search(r'[가-힣A-Za-z]', tail)
+                and not re.fullmatch(r'산?\d+(?:-\d+)*', tail)      # 지번('산17-16')
+                and not re.search(r'건물|주택|\(', tail)           # '단독건물(주택)' 설명
+                and tail not in _TAIL_NOISE_WORDS):
             return f"{tail} {facility_prefix}".strip() if facility_prefix else tail
 
     # 주소 뒤 시설명 없지만 멀티라인 첫줄 회사명/시설명만 있는 경우
@@ -1183,8 +1231,18 @@ def verify_address(
                     _t for _t in (base_lower[:_bm.end()] if _bm else '').split()
                     if re.search(r'(?:로|길)$', _t) or re.fullmatch(r'\d+(?:-\d+)?', _t)]
 
+                _base_bldg_ns = _base_bldg.replace(' ', '')
+
                 def _dup_word(_w):
                     _w = _roman_to_arabic(_w.lower())
+                    # 띄어쓰기·끝 '차'만 다른 같은 건물명 (2026-10-29 L-04014: 카카오
+                    #   '선릉역 롯데골드로즈2' + 고객 '선릉역롯데골드로즈II차' 중복)
+                    #   한글 뒤 영문 로마숫자(II·III·IV)도 아라비아로 맞춰 비교.
+                    _wn = re.sub(r'(?<=[가-힣])(iii|ii|iv|i|v)(?=차|$)',
+                                 lambda _m: {'i': '1', 'ii': '2', 'iii': '3', 'iv': '4',
+                                             'v': '5'}[_m.group(1)], _w)
+                    if len(_wn) >= 5 and re.sub(r'차$', '', _wn) in _base_bldg_ns:
+                        return True
                     return _w in _base_bldg or any(
                         _t == _w or (_t.endswith(_w) and _w[:1].isdigit())
                         for _t in _road_toks)
@@ -1260,7 +1318,8 @@ def verify_address(
         result = re.sub(r'(?<=[가-힣])(\d+(?:호|층|관))', r' \1', result)
         # 2-b. 층/호/관 다음 한글 (부가 설명·시설 tail) — "7층복도" → "7층 복도"
         result = re.sub(r'(\d+동)(?!주민|사무|행정|복지|자치)([가-힣])', r'\1 \2', result)
-        result = re.sub(r'(\d+(?:호|층|관|호실))([가-힣])', r'\1 \2', result)
+        # '5호선'(지하철 노선)은 호수 아님 → 분리 금지 (2026-10-29 '5호 선' 깨짐)
+        result = re.sub(r'(\d+(?:호(?!선)|층|관|호실))([가-힣])', r'\1 \2', result)
         # 2-c. 순수 지번 부기만 제거 — "(걸포동)", "(걸포동 172-1)"
         # 콤마 뒤에 부가정보가 있는 괄호는 보존:
         #   예 "(중계동, 건영아파트 유치원상가 1층 103호, 케이)" ← 층/호/상호 정보
@@ -2810,6 +2869,31 @@ def _unglue_si_before_road(s: Optional[str]) -> Optional[str]:
     return _SI_ROAD_GLUE_RE.sub(r'\1 ', s) if s else s
 
 
+# 맨 앞 단어가 지역명이 아닌데 도로명 앞에 띄어 쓴 경우 → 붙인 도로명 후보 (2026-10-29
+#   L-04070 '송도 문화로84번길 84'): 실제 도로는 '송도문화로84번길'인데 '송도'를 버리고
+#   '문화로84번길 84'로 찾아 충북 진천으로 감. 후보 생성 전용 — 채택은 resolve_address 가
+#   재귀 verify + 붙인 도로명이 결과에 있을 때만. 시/도·시 약칭·행정 접미 단어는 미대상.
+_WORD_ROAD_GLUE_RE = re.compile(r'^\s*([가-힣]{2,3})\s+([가-힣]{1,5}\d*(?:대로|로|길))(?=\s*\d)')
+_REGION_WORDS = frozenset((
+    '서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종', '경기', '강원',
+    '충북', '충남', '전북', '전남', '경북', '경남', '제주', '경기도', '강원도'))
+
+
+def _glue_word_to_road(s: Optional[str]) -> Optional[str]:
+    """맨 앞 비지역 단어를 바로 뒤 도로명에 붙인 후보 문자열 반환 (순수함수)."""
+    if not s:
+        return s
+    from dashboard.services.lead_helpers import _CITY_SHORT
+    m = _WORD_ROAD_GLUE_RE.match(s)
+    if not m:
+        return s
+    w = m.group(1)
+    if (w in _REGION_WORDS or w in _CITY_SHORT
+            or re.search(r'(?:시|군|구|동|읍|면|리|역)$', w)):
+        return s
+    return s[:m.start(1)] + w + m.group(2) + s[m.end():]
+
+
 # 옛 '군' → '시' 승격 지명 후보 (포천군→포천시·양주군→양주시 등, 2026-09-01 L-03863).
 #   행정 토큰 'XX군'(뒤 공백/끝)만 — 실제 채택은 resolve_address 가 재귀 verify 로 게이팅
 #   (아직 군인 가평군·양평군은 verify 실패로 원본 유지).
@@ -3021,6 +3105,18 @@ def resolve_address(
         _gun_res = resolve_address(_gun_text, _gun_regex, regex_level)
         if _gun_res[1] == 'verified':
             return _gun_res
+
+    # 맨 앞 비지역 단어 + 도로명 → 붙인 도로명 후보 (송도 문화로84번길 → 송도문화로84번길,
+    #   2026-10-29 L-04070). 붙인 도로명이 verified 결과에 그대로 있을 때만 채택(오분리 방지).
+    #   붙인 뒤엔 공백이 없어 재귀 내부에서 재발동 없음.
+    _glued = _glue_word_to_road(text)
+    if _glued != text:
+        _g_res = resolve_address(
+            _glued, _glue_word_to_road(regex_addr) if regex_addr else regex_addr, regex_level)
+        _g_road = _WORD_ROAD_GLUE_RE.match(text)
+        if (_g_res[1] == 'verified' and _g_road
+                and (_g_road.group(1) + _g_road.group(2)) in _g_res[0]):
+            return _g_res
 
     # 번지 누락 도로명 → 검증 생략, 원문 유지 + [주소 확인 필요] (2026-10-12 L-04214):
     #   '구로구 부일로15길 3층 pc방'처럼 도로명 바로 뒤가 층/호(번지 없음)면 카카오가

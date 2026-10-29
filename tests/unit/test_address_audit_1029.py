@@ -145,5 +145,89 @@ def test_poi_fallback_si_hint_skips_station_only(monkeypatch):
     assert ar._try_poi_fallback('오산시 세마역') is None
 
 
+# ── 석 달치 점검 결함 (2026-10-29 2차) ──
+
+@pytest.mark.parametrize('raw, expected', [
+    ('송도 문화로84번길 84, 1동 101호', '송도문화로84번길 84, 1동 101호'),
+    ('서울 문화로 84', '서울 문화로 84'),          # 시/도
+    ('김포 감암로 125', '김포 감암로 125'),        # 시 약칭
+    ('마포구 월드컵로 114', '마포구 월드컵로 114'),  # 행정 접미
+    ('강남역 테헤란로 152', '강남역 테헤란로 152'),  # 역 이름
+])
+def test_glue_word_to_road(raw, expected):
+    assert ar._glue_word_to_road(raw) == expected
+
+
+@pytest.mark.parametrize('text, expected', [
+    ('관악구 난곡로 55 관악산휴먼시아아파트 관리사무실', '관악산휴먼시아아파트 관리사무실'),
+    ('하이원길 500 스키하우스 2층 패트롤 사무실', '스키하우스 2층 패트롤 사무실'),
+    ('동작구 보라매로5가길 24 보라매나산스위트 전기실', '보라매나산스위트 전기실'),
+    ('서초구 강남대로 531 밝은눈 안과', '밝은눈 안과'),
+    ('포천 가산면 마금길 151, 공장', '공장'),
+    ('금천구 가산로 62 금호덴탈제약(주) 포장실', '금호덴탈제약(주) 포장실'),
+    ('평택 포승읍 평택항로 294 EPS코리아', 'EPS코리아'),
+    ('안양시 동안구 시민대로 383(디지털 엠파이어 B동, 908호)', '디지털 엠파이어 B동 908호'),
+    ('중구 을지로 287(을지로6가) 별관', '별관'),
+])
+def test_building_tail_rooms_and_names(text, expected):
+    # verify_address 와 같은 순서: tail 추출 → 괄호 정리
+    assert ar._flatten_paren_tail(ar._extract_building_tail(text)) == expected
+
+
+@pytest.mark.parametrize('text', [
+    '강남구 테헤란로 152 근처',
+    '강남구 테헤란로 152 공실',
+    '강남구 테헤란로 152 사무실 이전 예정',
+    '강남구 선릉로112길 13 단독건물(주택)',
+    '안성 대덕면 건지안골길 7 산17-16',
+])
+def test_building_tail_noise_dropped(text):
+    assert ar._extract_building_tail(text) == ''
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ('안양 동안구 귀인로98번길 12 평촌트리지아1단지 아파트 평촌트리지아1단지아파트',
+     '안양 동안구 귀인로98번길 12 평촌트리지아1단지 아파트'),
+    ('송파구 위례순환로 364 송파학사 밀리토피아 송파학사', '송파구 위례순환로 364 송파학사 밀리토피아'),
+    ('강남구 테헤란로 152 101동 1203호 101동', '강남구 테헤란로 152 101동 1203호 101동'),  # 유닛 반복은 유지
+])
+def test_repeated_name_removed(raw, expected):
+    assert ar._post_normalize_display(raw) == expected
+
+
+def test_line_number_not_split():
+    from dashboard.services.lead_helpers import extract_korean_address as E
+    r = E('경기도 남양주시 오남읍 양자리 661-3 1동 102호 중고 천장형 18평형 정도로 요청드립니다')
+    assert r and '661-3' in r[0] and '중고' not in r[0]
+    r2 = E('성남 분당구 판교로 393 봇들마을이지더원 단지내상가 2층')
+    assert r2 and '봇들마을이지더원' in r2[0]
+
+
+@pytest.mark.parametrize('tail, expected', [
+    ('(목내동, (주)에이스테크) 본관', '(주)에이스테크 본관'),
+    ('에스티팜 시화공장(주)', '에스티팜 시화공장(주)'),
+    ('(을지로6가)', ''),
+])
+def test_flatten_nested_corp_paren(tail, expected):
+    assert ar._flatten_paren_tail(tail) == expected
+
+
+def test_compose_dedup_roman_and_cha(kakao):
+    kakao['강남구 선릉로86길 31'] = _road_doc('서울 강남구 선릉로86길 31', bldg='선릉역 롯데골드로즈2')
+    r = ar.verify_address('강남구 선릉로86길 31 선릉역롯데골드로즈II차 관리사무실',
+                          '강남구 선릉로86길 31')
+    assert r[0] == '강남구 선릉로86길 31 선릉역 롯데골드로즈2 관리사무실'
+
+
+def test_homepage_unverified_form_address_kept(monkeypatch):
+    import dashboard.services.homepage_mail_sync as hm
+    monkeypatch.setattr(hm, 'resolve_address', lambda *a, **k: ('', ''))
+    lead = hm.to_lead({'address_block': '(10087)\n김포구래동카림에비뉴\n2층', 'inquiry': '견적 문의'})
+    assert lead['방문 주소'] == '김포구래동카림에비뉴 2층'
+    assert lead['_meta_address_level'] == 'raw'
+    blank = hm.to_lead({'address_block': '()', 'inquiry': '견적 문의'})
+    assert blank['방문 주소'] == '-'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

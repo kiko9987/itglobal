@@ -32,6 +32,7 @@ from dashboard.services.lead_helpers import (
     clean_multiline,
     extract_keywords_from_sources,
     normalize_inflow,
+    is_blank_address,
 )
 from dashboard.services.address_resolver import resolve_address
 from dashboard.utils.logging_config import get_logger
@@ -399,6 +400,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
     extract_level = ''
     _addr_raw = ''   # 원본 주소 (자동 정리 전) — 온라인 카드 원본/변환 2줄용 (2026-08-24 L-03754)
     address_block = (parsed.get('address_block') or '').strip()
+    _form_addr = ''  # 고객이 주소 칸에 적은 원문 (검증 실패 시 '-' 대신 이 값 저장)
     if address_block:
         # 3줄 블록 파싱 — 우편번호 제거 후 도로명 + 상세주소 조합
         lines = [ln.strip() for ln in address_block.split('\n') if ln.strip()]
@@ -408,6 +410,7 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         combined = ' '.join(lines).strip()
         if combined:
             _addr_raw = combined
+            _form_addr = combined
             extracted_address, extract_level = resolve_address(combined, combined, 'form')
     if not extracted_address and _inquiry_for_addr:
         # 구 폼 fallback — 문의 내용에서 주소 추출
@@ -418,6 +421,13 @@ def to_lead(parsed: Dict[str, Any]) -> Dict[str, Any]:
         extracted_address, extract_level = resolve_address(
             _inquiry_for_addr, regex_addr, regex_level
         )
+    # 둘 다 실패해도 고객이 주소 칸에 적은 원문은 버리지 않음 (2026-10-29): 번지 없이
+    #   '김포구래동카림에비뉴'·'파주 운정동 OO빌딩'처럼 엄격 주소 패턴이 없으면 resolver 가
+    #   빈 값을 줘 '-'로 저장되던 갭 → 원문 + raw(카드 [주소 확인 필요] 배지).
+    #   당근·전화·방문 모달은 이미 같은 방식(원문 유지 + 배지).
+    if not extracted_address and _form_addr and not is_blank_address(_form_addr):
+        extracted_address, extract_level = _form_addr, 'raw'
+        _addr_raw = _form_addr
 
     # 키워드: device + place + inquiry 에서 KEYWORD_VOCAB 매칭
     # K열(키워드) = 폼에서 선택한 device 값만 (옵션 B). vocab 매칭으로 정규화.
