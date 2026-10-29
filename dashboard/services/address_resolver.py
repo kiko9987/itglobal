@@ -2030,9 +2030,11 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             _idx = verified_addr.find(_spaced)
             _span_end = _idx + len(_spaced)
             _acc = _jc
+            # 영문 대소문자 무시(고객 'WEST' vs POI 'West', 2026-10-29 L-04404 — 흡수 실패로
+            #   'West오피스텔 WEST' 중복)
             for _m_tok in re.finditer(r'\s+(\S+)', verified_addr[_span_end:]):
                 _nxt = _acc + _m_tok.group(1)
-                if not _pn_ns.startswith(_nxt):
+                if not _pn_ns.lower().startswith(_nxt.lower()):
                     break
                 _acc = _nxt
                 _span_end += _m_tok.end()
