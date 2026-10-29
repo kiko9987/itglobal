@@ -659,10 +659,9 @@ class SecurityMiddleware:
 
     def _get_client_identifier(self) -> str:
         """클라이언트 식별자 생성"""
-        # IP 주소 기반 (프록시 환경에서는 X-Forwarded-For 고려)
-        ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if ip:
-            ip = ip.split(',')[0].strip()
+        # IP 주소 기반 — ProxyFix 가 Caddy 가 붙인 실제 접속 IP 를 remote_addr 로 넣어 줌. X-Forwarded-For
+        #   첫 값은 접속자가 마음대로 넣을 수 있어 횟수 제한을 우회할 수 있었음 (2026-10-29 점검)
+        ip = request.remote_addr or ''
 
         # 사용자 세션이 있으면 이메일 사용 (안전한 접근)
         if 'user' in session:

@@ -11,6 +11,7 @@ import EditState from '../utils/EditState.js';
 import TomSelect from 'tom-select';
 import 'tom-select/dist/css/tom-select.bootstrap5.css';
 import AmountCalculator from '../utils/AmountCalculator.js';
+import { escHtml } from '../utils/escapeHtml.js';
 import {
   renderItgfolderLink, bindItgfolderProtocolHandler as bindItgfolderProtocolHandlerShared,
 } from '../utils/itgfolder.js';
@@ -808,19 +809,19 @@ export default class ProjectRowAccordion {
           ${this.bizNameItemHtml(rowData)}
           <div class="compact-item">
             <small title="이 공사를 맡은 우리 쪽 사업자 (시트 '사업자' 칸) — 고객 상호는 사업자명">내부 사업자</small>
-            <div class="editable-value" data-field="사업자">${rowData['사업자'] || '-'}</div>
+            <div class="editable-value" data-field="사업자">${escHtml(rowData['사업자'] || '-')}</div>
           </div>
           <div class="compact-item">
             <small>발주처 담당자</small>
-            <div class="editable-value" data-field="발주처 담당자">${rowData['발주처 담당자'] || '-'}</div>
+            <div class="editable-value" data-field="발주처 담당자">${escHtml(rowData['발주처 담당자'] || '-')}</div>
           </div>
           <div class="compact-item">
             <small>도급구분</small>
-            <div class="editable-value" data-field="도급 구분">${rowData['도급 구분'] || '-'}</div>
+            <div class="editable-value" data-field="도급 구분">${escHtml(rowData['도급 구분'] || '-')}</div>
           </div>
           <div class="compact-item">
             <small>발주처 연락처</small>
-            <div class="editable-value" data-field="발주처 연락처">${rowData['발주처 연락처'] || '-'}</div>
+            <div class="editable-value" data-field="발주처 연락처">${escHtml(rowData['발주처 연락처'] || '-')}</div>
           </div>
           <div class="compact-item">
             <small>시공자</small>
@@ -828,7 +829,7 @@ export default class ProjectRowAccordion {
           </div>
           <div class="compact-item">
             <small>발주처 이메일</small>
-            <div class="editable-value" data-field="발주처 이메일">${rowData['발주처 이메일'] || '-'}</div>
+            <div class="editable-value" data-field="발주처 이메일">${escHtml(rowData['발주처 이메일'] || '-')}</div>
           </div>
         </div>
       </div>
@@ -854,7 +855,7 @@ export default class ProjectRowAccordion {
     if (!isSplit(rowData)) {
       return `<div class="compact-item">
             <small title="사업자등록증 상호 (계산서 기준)">사업자명</small>
-            <div class="editable-value" data-field="사업자명">${rowData['사업자명'] || '-'}</div>
+            <div class="editable-value" data-field="사업자명">${escHtml(rowData['사업자명'] || '-')}</div>
           </div>`;
     }
     const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -881,7 +882,7 @@ export default class ProjectRowAccordion {
         <div class="card-grid">
           <div class="compact-item">
             <small>공사구분</small>
-            <div class="editable-value" data-field="공사 구분">${rowData['공사 구분'] || '-'}</div>
+            <div class="editable-value" data-field="공사 구분">${escHtml(rowData['공사 구분'] || '-')}</div>
           </div>
           <div class="compact-item">
             <small>공사확정</small>
@@ -889,7 +890,7 @@ export default class ProjectRowAccordion {
           </div>
           <div class="compact-item">
             <small>기계분류</small>
-            <div class="editable-value" data-field="기계 분류">${rowData['기계 분류'] || '-'}</div>
+            <div class="editable-value" data-field="기계 분류">${escHtml(rowData['기계 분류'] || '-')}</div>
           </div>
           <div class="compact-item">
             <small>공사시작</small>
@@ -897,7 +898,7 @@ export default class ProjectRowAccordion {
           </div>
           <div class="compact-item">
             <small>브랜드</small>
-            <div class="editable-value" data-field="브랜드">${rowData['브랜드'] || '-'}</div>
+            <div class="editable-value" data-field="브랜드">${escHtml(rowData['브랜드'] || '-')}</div>
           </div>
           <div class="compact-item">
             <small>공사종료</small>
@@ -1563,8 +1564,8 @@ export default class ProjectRowAccordion {
               <i class="fas fa-sticky-note me-2 text-success"></i>
               수금 특이사항
             </span>
-            <div class="editable-value" data-field="수금 관련 특이사항" data-original-value="${notes}">
-              ${notes || '특이사항이 없습니다.'}
+            <div class="editable-value" data-field="수금 관련 특이사항" data-original-value="${escHtml(notes)}">
+              ${notes ? escHtml(notes) : '특이사항이 없습니다.'}
             </div>
           </div>
         </div>

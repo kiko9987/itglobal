@@ -84,7 +84,7 @@ def call_click():
     if rec is None:
         return _cors(jsonify({'ok': False})), 400
 
-    ip = (request.headers.get('X-Forwarded-For') or request.remote_addr or '').split(',')[0].strip()
+    ip = request.remote_addr or ''   # ProxyFix 가 실제 접속 IP 로 맞춰 줌 — X-Forwarded-For 첫 값은 위조 가능 (2026-10-29)
     who = hashlib.sha256(f"{ip}|{request.headers.get('User-Agent', '')}".encode()).hexdigest()[:16]
     now = time.time()
     try:

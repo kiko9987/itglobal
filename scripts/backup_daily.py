@@ -206,5 +206,17 @@ def run_all() -> dict:
     return result
 
 
+def failed_items(result: dict) -> list:
+    """꼭 남아야 하는 백업(사용자 DB·Redis·비밀값) 중 'OK' 가 아닌 항목 — 하나라도 있으면 실패로 끝냄.
+
+    예전엔 Redis 백업이 'skip'·'docker cp 실패'여도 종료 코드 0 이라 '[BACKUP] 완료'로만 남고 알림이
+    없었음 (2026-10-29 점검). 로그 정리(log_cleanup)는 없어도 되는 일이라 제외."""
+    return [f'{k}: {v}' for k, v in result.items()
+            if k in ('users_db', 'redis', 'secrets') and not str(v).startswith('OK')]
+
+
 if __name__ == '__main__':
-    sys.exit(0 if run_all() else 1)
+    _bad = failed_items(run_all())
+    if _bad:
+        print('[BACKUP] 일부 실패:\n  ' + '\n  '.join(_bad), file=sys.stderr)
+    sys.exit(1 if _bad else 0)

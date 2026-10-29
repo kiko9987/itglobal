@@ -278,7 +278,9 @@ def create_lead(lead_data: Dict[str, Any]) -> Dict[str, Any]:
         normalized['리드 No'] = new_lead_no
 
         # 헤더 순서에 맞춰 행 데이터 구성
-        new_row = [normalized.get(col, '') for col in LEAD_COLUMN_ORDER]
+        from dashboard.services.lead_helpers import SHEET_FREE_TEXT_FIELDS, sheet_safe_text
+        new_row = [sheet_safe_text(normalized.get(col, '')) if col in SHEET_FREE_TEXT_FIELDS
+                   else normalized.get(col, '') for col in LEAD_COLUMN_ORDER]
 
         # 리드 탭 끝에 추가 — 예전 manager.append_row(시트, 탭이름, 행)는 인자 순서가 달라(append_row(시트, 값, 범위))
         #   '공사 현황' 탭에 쓰려다 실패했음 (2026-10-28 5차, 부르는 화면이 없어 드러나지 않았음)
@@ -367,6 +369,9 @@ def update_lead(lead_no: str, update_data: Dict[str, Any]) -> Dict[str, Any]:
                 # 공백 섞인 번호 정리 (2026-10-26 ETC-587764) — 번호만인 유효 번호만 바꿈
                 from dashboard.services.lead_helpers import tidy_phone_for_sheet
                 value = tidy_phone_for_sheet(value)
+            from dashboard.services.lead_helpers import SHEET_FREE_TEXT_FIELDS, sheet_safe_text
+            if canonical in SHEET_FREE_TEXT_FIELDS:
+                value = sheet_safe_text(value)   # 수식으로 실행 안 되게 (2026-10-29)
             cell_range = f"{col}{sheet_row_number}"
             updates.append((cell_range, value))
 

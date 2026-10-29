@@ -7195,6 +7195,9 @@ def slack_normalize_visit_dates():
     ?dry_run=1 (기본) / ?dry_run=0 실제 실행
     ?etc_only=1 → 기타 리드만 (기본 false, 전체 리드)
     """
+    _deny = _manual_trigger_denied()   # 관리자 로그인만 (2026-10-29 점검: 인증 없이 실행되던 관리용 주소)
+    if _deny:
+        return _deny
     try:
         dry_run = request.args.get('dry_run', '1') != '0'
         etc_only = request.args.get('etc_only', 'false').lower() == 'true'
@@ -7296,6 +7299,9 @@ def slack_migrate_etc_to_sheet():
     시나리오 D 전환 후 옛 Redis 저장분 (etc_visit:*) 처리용.
     ?dry_run=1 (기본, 카운트만) or ?dry_run=0 (실제 실행)
     """
+    _deny = _manual_trigger_denied()   # 관리자 로그인만 (2026-10-29 점검: 인증 없이 실행되던 관리용 주소)
+    if _deny:
+        return _deny
     try:
         dry_run = request.args.get('dry_run', '1') != '0'
         result = _migrate_etc_redis_to_sheet(dry_run=dry_run)
@@ -7399,6 +7405,9 @@ def slack_migrate_visit_buttons():
     ?dry_run=0 → 실제 실행
     ?days=30 (기본) → 최근 N일 카드만 스캔
     """
+    _deny = _manual_trigger_denied()   # 관리자 로그인만 (2026-10-29 점검: 인증 없이 실행되던 관리용 주소)
+    if _deny:
+        return _deny
     try:
         dry_run = request.args.get('dry_run', '1') != '0'
         try:

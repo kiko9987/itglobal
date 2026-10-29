@@ -560,6 +560,7 @@ def get_projects_list():
 
 
 @projects_bp.route('/api/inflow-options')
+@login_required   # 로그인 없이 시트를 읽던 주소 (2026-10-29 점검)
 def get_inflow_options():
     """시트 D열(유입 구분)의 데이터 유효성 검사 드롭다운 값을 반환.
 
@@ -630,6 +631,7 @@ def resolve_address_api():
 
 
 @projects_bp.route('/api/next-project-code')
+@login_required   # 로그인 없이 시트를 읽던 주소 (2026-10-29 점검)
 def get_next_project_code():
     """다음 프로젝트 코드 생성 API"""
     try:

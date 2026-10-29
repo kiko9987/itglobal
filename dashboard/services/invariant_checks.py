@@ -283,6 +283,40 @@ def check_overpay_lingering(ctx):
     return out
 
 
+def backup_stale(backup_root, now=None, max_hours: int = 26) -> list:
+    """일일 백업(03:15) 폴더별 가장 최근 파일이 max_hours 넘게 오래됐으면 [(종류, 시간)] (없으면 None 시간).
+
+    03:15 에 서버가 꺼져 있으면 그날 백업은 조용히 건너뛰어짐(1분 유예) — 백업이 멈춰도 알 수 없었음
+    (2026-10-29 점검)."""
+    import time as _t
+    from pathlib import Path
+    now = now or _t.time()
+    out = []
+    for kind in ('redis', 'users_db', 'secrets'):
+        d = Path(backup_root) / kind
+        try:
+            newest = max((p.stat().st_mtime for p in d.iterdir()), default=None)
+        except OSError:
+            newest = None
+        if newest is None:
+            out.append((kind, None))
+        elif (now - newest) / 3600 > max_hours:
+            out.append((kind, int((now - newest) // 3600)))
+    return out
+
+
+def check_backup_fresh(ctx):
+    """일일 백업이 26시간 넘게 안 된 종류 — 백업 실패·건너뜀 감지."""
+    from pathlib import Path
+    root = ctx.get('backup_root') or (Path(__file__).resolve().parents[2] / 'backup')
+    out = []
+    for kind, hours in backup_stale(root, now=ctx.get('now_ts')):
+        when = '백업 파일 없음' if hours is None else f'마지막 백업 {hours}시간 전'
+        out.append(Violation('backup_stale', f'backup:{kind}:{hours if hours is None else hours // 24}', kind,
+                             f'{when} — 일일 백업(03:15)이 안 되고 있음, 서버 로그 [BACKUP] 확인'))
+    return out
+
+
 def check_split_payers(ctx):
     """나눠 내는 공사(○○ 부담자 칸) — 칸 형식 오류·부담액 합계≠총액2·부담자 없는 칸에 입금 (2026-10-19)."""
     from dashboard.services.payer_split import split_problems
@@ -309,6 +343,7 @@ INVARIANTS = [
     check_formula_rows,
     check_lead_inflow,
     check_overpay_lingering,
+    check_backup_fresh,
 ]
 
 _CHECK_LABEL = {
@@ -319,6 +354,7 @@ _CHECK_LABEL = {
     'formula_row': '수식 행 어긋남(다른 행을 계산)',
     'lead_inflow': '문의 유입 멈춤 의심',
     'overpay_lingering': '과입금 7일 넘게 남음',
+    'backup_stale': '일일 백업 멈춤',
 }
 
 

@@ -75,7 +75,8 @@ def google_callback():
 
         # 상태 검증
         state = request.args.get('state')
-        if state != session.get('oauth_state'):
+        # 둘 다 없을 때(None == None) 통과하던 빈틈 — 로그인 시작 없이 온 콜백은 거부 (2026-10-29 점검)
+        if not state or state != session.get('oauth_state'):
             logger.warning("OAuth state 불일치")
             return redirect(url_for('auth.login_page', message='oauth_error'))
 
@@ -110,7 +111,8 @@ def google_callback():
         if not user:
             return redirect(url_for('auth.login_page', message='login_failed'))
 
-        # 세션 생성 - 최소 정보만 저장 (보안)
+        # 세션 생성 - 최소 정보만 저장 (보안). 로그인 전 세션 값은 비우고 새로 시작(세션 고정 방지, 2026-10-29)
+        session.clear()
         session['user'] = {
             'email': user['email'],
             'name': user['name'],

@@ -766,6 +766,7 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
     lead_nos = []
     rows = []
     from dashboard.services.lead_helpers import tidy_phone_for_sheet as _tidy_ph
+    from dashboard.services.lead_helpers import SHEET_FREE_TEXT_FIELDS, sheet_safe_text
     for j, lead in enumerate(safe_leads):
         ln = f'L-{_nums[j]:05d}'
         lead['리드 No'] = ln
@@ -773,7 +774,9 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
             lead['고객 연락처'] = _tidy_ph(lead['고객 연락처'])  # 공백 섞인 번호 정리 (ETC-587764)
         lead_nos.append(ln)
         result_nos[safe_pos[j]] = ln
-        rows.append([lead.get(col, '') for col in LEAD_COLUMN_ORDER])
+        # 공개 입력 자유 글은 수식으로 실행 안 되게 (2026-10-29) — lead dict 는 카드용이라 그대로 둠
+        rows.append([sheet_safe_text(lead.get(col, '')) if col in SHEET_FREE_TEXT_FIELDS else lead.get(col, '')
+                     for col in LEAD_COLUMN_ORDER])
 
     # values.append() 사용 — 자동으로 grid 확장 + 다음 빈 행에 추가
     # range를 헤더 영역(A1:마지막열1)으로 한정 — 마지막 컬럼은 매핑에서 파생(레터 하드코딩 금지).

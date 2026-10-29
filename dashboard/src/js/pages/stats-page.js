@@ -1,6 +1,11 @@
 import logger from '../utils/logger.js';
 import { isStatsExcluded } from '../utils/staffDirectory.js';
 
+// 작년·올해 — 2025/2026 이 박혀 있어 2027년 1월에 2027 데이터가 안 보이고 '올해 월 평균'이 틀어지던 것
+//   (2026-10-29 점검). 화면 칸 이름(monthly2025Chart 등)은 '작년 칸·올해 칸'으로 그대로 씀.
+const CUR_YEAR = new Date().getFullYear();
+const PREV_YEAR = CUR_YEAR - 1;
+
 /**
  * Stats Page Manager
  * 매출 통계 페이지 관리 클래스
@@ -18,6 +23,8 @@ class StatsManager {
     }
 
     async init() {
+        document.querySelectorAll('[data-year="prev"]').forEach(el => { el.textContent = PREV_YEAR; });
+        document.querySelectorAll('[data-year="cur"]').forEach(el => { el.textContent = CUR_YEAR; });
         await this.loadStatsData();
     }
 
@@ -56,7 +63,7 @@ class StatsManager {
             const confirmDate = project['공사 확정'];
             if (confirmDate) {
                 const year = new Date(confirmDate).getFullYear();
-                return year === 2025;
+                return year === PREV_YEAR;
             }
             return false;
         }).length;
@@ -66,29 +73,29 @@ class StatsManager {
             const confirmDate = project['공사 확정'];
             if (confirmDate) {
                 const year = new Date(confirmDate).getFullYear();
-                return year === 2026;
+                return year === CUR_YEAR;
             }
             return false;
         }).length;
 
         // 총 프로젝트 표시
         document.getElementById('totalProjects').innerHTML =
-            `2025년 : ${projects2025Count}건 (1월~12월)<br>2026년 : ${projects2026Count}건 (1월~현재)`;
+            `${PREV_YEAR}년 : ${projects2025Count}건 (1월~12월)<br>${CUR_YEAR}년 : ${projects2026Count}건 (1월~현재)`;
 
         // 2025년 매출 계산
-        const revenue2025 = this.calculateYearlyRevenue(2025);
-        const revenue2026 = this.calculateYearlyRevenue(2026);
+        const revenue2025 = this.calculateYearlyRevenue(PREV_YEAR);
+        const revenue2026 = this.calculateYearlyRevenue(CUR_YEAR);
 
         // 총 매출 표시
         document.getElementById('totalRevenue').innerHTML =
-            `2025년 : ${this.formatCurrency(revenue2025)} (1월~12월)<br>2026년 : ${this.formatCurrency(revenue2026)} (1월~현재)`;
+            `${PREV_YEAR}년 : ${this.formatCurrency(revenue2025)} (1월~12월)<br>${CUR_YEAR}년 : ${this.formatCurrency(revenue2026)} (1월~현재)`;
 
         // 미수금 계산
-        const outstanding2025 = this.calculateOutstanding(2025);
-        const outstanding2026 = this.calculateOutstanding(2026);
+        const outstanding2025 = this.calculateOutstanding(PREV_YEAR);
+        const outstanding2026 = this.calculateOutstanding(CUR_YEAR);
 
         document.getElementById('outstandingAmount').innerHTML =
-            `2025년 : ${this.formatCurrency(outstanding2025)} (1월~12월)<br>2026년 : ${this.formatCurrency(outstanding2026)} (1월~현재)`;
+            `${PREV_YEAR}년 : ${this.formatCurrency(outstanding2025)} (1월~12월)<br>${CUR_YEAR}년 : ${this.formatCurrency(outstanding2026)} (1월~현재)`;
 
         // 월 평균 매출 계산
         const currentMonth = new Date().getMonth() + 1;
@@ -96,7 +103,7 @@ class StatsManager {
         const avg2026 = revenue2026 > 0 ? revenue2026 / currentMonth : 0;
 
         document.getElementById('avgMonthlyRevenue').innerHTML =
-            `2025년 : ${this.formatCurrency(avg2025)} (12개월)<br>2026년 : ${this.formatCurrency(avg2026)} (${currentMonth}개월)`;
+            `${PREV_YEAR}년 : ${this.formatCurrency(avg2025)} (12개월)<br>${CUR_YEAR}년 : ${this.formatCurrency(avg2026)} (${currentMonth}개월)`;
     }
 
     calculateYearlyRevenue(year) {
@@ -142,8 +149,8 @@ class StatsManager {
                 const year = new Date(confirmDate).getFullYear();
                 const manager = project['담당자'];
                 if (manager && !isStatsExcluded(manager)) {
-                    if (year === 2025) managers2025.add(manager);
-                    if (year === 2026) managers2026.add(manager);
+                    if (year === PREV_YEAR) managers2025.add(manager);
+                    if (year === CUR_YEAR) managers2026.add(manager);
                 }
             }
         });
@@ -179,7 +186,7 @@ class StatsManager {
 
     createMonthly2025Chart() {
         const ctx = document.getElementById('monthly2025Chart').getContext('2d');
-        const monthlyData = this.getMonthlyData(2025);
+        const monthlyData = this.getMonthlyData(PREV_YEAR);
         const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
 
         if (this.charts.monthly2025) this.charts.monthly2025.destroy();
@@ -201,7 +208,7 @@ class StatsManager {
 
     createMonthly2026Chart() {
         const ctx = document.getElementById('monthly2026Chart').getContext('2d');
-        const monthlyData = this.getMonthlyData(2026);
+        const monthlyData = this.getMonthlyData(CUR_YEAR);
         const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
 
         if (this.charts.monthly2026) this.charts.monthly2026.destroy();
@@ -223,7 +230,7 @@ class StatsManager {
 
     createPersonal2025Chart() {
         const ctx = document.getElementById('personal2025Chart').getContext('2d');
-        const managerRevenue = this.getManagerRevenue(2025);
+        const managerRevenue = this.getManagerRevenue(PREV_YEAR);
 
         const sortedManagers = Object.entries(managerRevenue)
             .sort(([, a], [, b]) => b - a);
@@ -251,7 +258,7 @@ class StatsManager {
 
     createPersonal2026Chart() {
         const ctx = document.getElementById('personal2026Chart').getContext('2d');
-        const managerRevenue = this.getManagerRevenue(2026);
+        const managerRevenue = this.getManagerRevenue(CUR_YEAR);
 
         const sortedManagers = Object.entries(managerRevenue)
             .sort(([, a], [, b]) => b - a);
@@ -279,7 +286,7 @@ class StatsManager {
 
     createCompany2025Chart() {
         const ctx = document.getElementById('company2025Chart').getContext('2d');
-        const { globalData, globalGroupData } = this.getCompanyMonthlyData(2025);
+        const { globalData, globalGroupData } = this.getCompanyMonthlyData(PREV_YEAR);
 
         if (this.charts.company2025) this.charts.company2025.destroy();
 
@@ -307,7 +314,7 @@ class StatsManager {
 
     createCompany2026Chart() {
         const ctx = document.getElementById('company2026Chart').getContext('2d');
-        const { globalData, globalGroupData } = this.getCompanyMonthlyData(2026);
+        const { globalData, globalGroupData } = this.getCompanyMonthlyData(CUR_YEAR);
 
         if (this.charts.company2026) this.charts.company2026.destroy();
 
@@ -342,7 +349,7 @@ class StatsManager {
         this.charts.companyCompare = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: ['2025년', '2026년'],
+                labels: [`${PREV_YEAR}년`, `${CUR_YEAR}년`],
                 datasets: [{
                     label: '글로벌',
                     data: [comparison.global2025 / 100000000, comparison.global2026 / 100000000],
@@ -363,8 +370,8 @@ class StatsManager {
 
     createTrendChart() {
         const ctx = document.getElementById('trendChart').getContext('2d');
-        const monthlyData2025 = this.getMonthlyData(2025);
-        const monthlyData2026 = this.getMonthlyData(2026);
+        const monthlyData2025 = this.getMonthlyData(PREV_YEAR);
+        const monthlyData2026 = this.getMonthlyData(CUR_YEAR);
 
         if (this.charts.trend) this.charts.trend.destroy();
 
@@ -373,14 +380,14 @@ class StatsManager {
             data: {
                 labels: ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'],
                 datasets: [{
-                    label: '2025년',
+                    label: `${PREV_YEAR}년`,
                     data: monthlyData2025.map(amount => amount / 100000000),
                     borderColor: '#FF6B35',
                     backgroundColor: 'rgba(255, 107, 53, 0.1)',
                     borderWidth: 2,
                     fill: false
                 }, {
-                    label: '2026년',
+                    label: `${CUR_YEAR}년`,
                     data: monthlyData2026.map(amount => amount / 100000000),
                     borderColor: '#4A90E2',
                     backgroundColor: 'rgba(74, 144, 226, 0.1)',
@@ -470,11 +477,11 @@ class StatsManager {
                 const amount = parseFloat(project['총액1'] || project['총액 1'] || 0);
 
                 if (company === '글로벌') {
-                    if (year === 2025) global2025 += amount;
-                    if (year === 2026) global2026 += amount;
+                    if (year === PREV_YEAR) global2025 += amount;
+                    if (year === CUR_YEAR) global2026 += amount;
                 } else if (company === '글로벌그룹') {
-                    if (year === 2025) globalGroup2025 += amount;
-                    if (year === 2026) globalGroup2026 += amount;
+                    if (year === PREV_YEAR) globalGroup2025 += amount;
+                    if (year === CUR_YEAR) globalGroup2026 += amount;
                 }
             }
         });

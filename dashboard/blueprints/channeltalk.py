@@ -375,9 +375,9 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
         f'{medium_icon} *새 문의 접수 알림 - {format_inflow_display(medium_label)}*',
         SEP,
         f'문의시간 : {ts_str}',
-        f'이름 / 상호 : {customer_name}',
+        f'이름 / 상호 : {_slack_esc(customer_name)}',
         f'연락처 : -',
-        f'문의 내용 : {first_message}',
+        f'문의 내용 : {_slack_esc(first_message)}',
         SEP,
     ])
     header_text = '\n'.join(lines)
@@ -448,9 +448,15 @@ def _register_chat_lead(user_chat: dict, user: dict, first_message: str,
         return ''
 
 
+def _slack_esc(text) -> str:
+    """고객 입력(이름·메시지)을 슬랙 mrkdwn 에 넣기 전 & < > 이스케이프 — '<!channel>' 전체 알림·
+    '<https://악성|확인>' 위장 링크를 막음 (2026-10-29 점검). 시트·스팸 검사엔 원문 그대로."""
+    return str(text or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 def _thread_reply_text(plain_text: str, customer_name: str, created_ms: int) -> str:
     ts_str = _format_ts(created_ms)
-    return f':bust_in_silhouette: *{customer_name}* _{ts_str}_\n{plain_text}'
+    return f':bust_in_silhouette: *{_slack_esc(customer_name)}* _{ts_str}_\n{_slack_esc(plain_text)}'
 
 
 def _thread_reply_text_manager(text: str, manager_name: str, created_ms: int) -> str:
@@ -962,7 +968,7 @@ def _handle_chat_closed(payload: dict) -> None:
     # 고객명 — thread 매핑이 어긋나 메인 채널로 흘러나갈 가능성 대비 식별자
     customer_name = (user.get('name') or user_chat.get('name') or '익명 고객').strip()
     text = (
-        f':white_check_mark: *상담 종료* (채널톡에서 처리됨) — {customer_name}'
+        f':white_check_mark: *상담 종료* (채널톡에서 처리됨) — {_slack_esc(customer_name)}'
     )
 
     resp = _slack_post('chat.postMessage', {

@@ -570,6 +570,14 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             import logging as _lg
             _lg.getLogger('engineio.server').addFilter(lambda r: 'Invalid session' not in r.getMessage())
 
+            # 로그인한 사람만 실시간 연결 — 공사 취소·재개·잠금 이벤트가 시트 행(금액·사업자·주소·연락처)과
+            #   직원 이메일을 모든 접속자에게 보내는데 접속 확인이 없어 누구나 받아볼 수 있었음 (2026-10-29 점검)
+            @socketio_instance.on('connect')
+            def _socket_connect_auth(auth=None):
+                from flask import session as _ss
+                if not (_ss.get('user') or {}).get('email'):
+                    return False
+
             # 전역 socketio 변수에 할당 (블루프린트에서 import 가능)
             global socketio
             socketio = socketio_instance

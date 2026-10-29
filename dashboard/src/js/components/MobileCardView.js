@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import { partnerDisplayName } from '../utils/partnerName.js';
+import { escHtml } from '../utils/escapeHtml.js';
 
 /**
  * MobileCardView 컴포넌트
@@ -505,15 +506,15 @@ export default class MobileCardView {
               <span class="info-label">
                 <i class="fas fa-handshake me-1"></i>거래처
               </span>
-              <span class="info-value text-truncate" title="거래처명 (없으면 사업자명)">${partnerDisplayName(data)}</span>
+              <span class="info-value text-truncate" title="거래처명 (없으면 사업자명)">${escHtml(partnerDisplayName(data))}</span>
             </div>
 
             <div class="info-row">
               <span class="info-label">
                 <i class="fas fa-map-marker-alt me-1"></i>현장
               </span>
-              <span class="info-value text-truncate" title="${data['현장 주소'] || '-'}">
-                ${data['현장 주소'] || '-'}
+              <span class="info-value text-truncate" title="${escHtml(data['현장 주소'] || '-')}">
+                ${escHtml(data['현장 주소'] || '-')}
               </span>
             </div>
 
@@ -521,8 +522,8 @@ export default class MobileCardView {
               <span class="info-label">
                 <i class="fas fa-tools me-1"></i>내용
               </span>
-              <span class="info-value text-truncate" title="${data['공사 내용'] || '-'}">
-                ${data['공사 내용'] || '-'}
+              <span class="info-value text-truncate" title="${escHtml(data['공사 내용'] || '-')}">
+                ${escHtml(data['공사 내용'] || '-')}
               </span>
             </div>
 

@@ -131,6 +131,20 @@ def is_valid_phone(raw) -> bool:
 _PHONE_ONLY_RE = re.compile(r'^[\d\s\-.()+]+$')
 
 
+# 공개 입력(홈페이지 폼·당근·채널톡 이름·문의)이 그대로 들어가는 자유 글 칸
+SHEET_FREE_TEXT_FIELDS = ('고객명', '문의 내용', '상담 내용', '방문 주소', '이메일', '키워드')
+
+
+def sheet_safe_text(value):
+    """시트에 USER_ENTERED 로 쓸 자유 글 — '=' '+' '@' 로 시작하면 앞에 ' 를 붙여 글자로 저장.
+
+    공개 폼의 이름·문의가 '=HYPERLINK(...)' 같은 수식으로 실행돼 시트에 위장 링크·값 오염이 생길 수
+    있었음 (2026-10-29 점검). ' 는 시트에 보이지 않음. '-'(빈 값 표시)는 그대로."""
+    if isinstance(value, str) and value[:1] in ('=', '+', '@'):
+        return "'" + value
+    return value
+
+
 def tidy_phone_for_sheet(raw):
     """시트에 쓸 연락처 정리 — 번호만 있는 유효 번호면 표준 표기(010-1234-5678)로, 아니면 그대로.
 
