@@ -303,6 +303,15 @@ def _post_normalize_display(addr: str) -> str:
     #   별도 처리. 소수점(1.5)은 뒤가 숫자라 미매치(가드).
     addr = re.sub(r'\s+[.．]\s+', ' ', addr)                    # ' . ' 구분자
     addr = re.sub(r'(?<=\d)[.．](?=\s*[가-힣])', ' ', addr)     # 번지.상세 (숫자 뒤 한글 앞)
+    # 같은 도로명+번지 반복 제거 (2026-10-29 L-04315): '호평동 344-2 1층 (천마산로 113)'
+    #   → 지번이 '천마산로 113'으로 바뀐 뒤 괄호 속 도로명이 tail 로 또 붙어
+    #   '천마산로 113 1층 천마산로 113'. 첫 도로명+번지 뒤의 같은 도로명+번지만 제거.
+    _m_rd = re.search(r'(?<!\S)([가-힣A-Za-z\d]+(?:로|길))\s*(\d+(?:-\d+)?)(?![\d-])', addr)
+    if _m_rd:
+        _rest = re.sub(
+            r'\s*(?<!\S)' + re.escape(_m_rd.group(1)) + r'\s*' + re.escape(_m_rd.group(2))
+            + r'(?![\d-])(?!\S)', '', addr[_m_rd.end():])
+        addr = addr[:_m_rd.end()] + _rest
     # 인접 유사 단어 dedup
     from difflib import SequenceMatcher
     tokens = addr.split()
@@ -530,7 +539,18 @@ def _search_poi(query: str) -> tuple:
     두 소스 결과 concat 반환 → _enrich_with_poi/_try_poi_fallback 의 매칭 루프가
     카카오 결과부터 순차 검증, 실패 시 네이버 결과로 자연 이동.
     """
-    return _kakao_search_poi(query) + _naver_search_local(query)
+    return tuple((_strip_corp_prefix(pn), road) for pn, road in
+                 _kakao_search_poi(query) + _naver_search_local(query))
+
+
+# 법인 형태 접두어 — POI 이름에 붙어 오면 떼어냄 (2026-10-29 L-04122: 네이버 POI
+#   '사회복지법인설원복지재단'이 고객 표기 '설원복지재단'을 대체해 주소가 길어짐).
+_CORP_PREFIX_RE = re.compile(r'^(?:사회복지법인|재단법인|사단법인|학교법인|의료법인|종교법인)\s*')
+
+
+def _strip_corp_prefix(name: str) -> str:
+    stripped = _CORP_PREFIX_RE.sub('', name or '')
+    return stripped if stripped.strip() else name
 
 
 # 행안부 도로명주소 검색 API (2026-08-14 L-03671) — 권위 소스.
@@ -1249,6 +1269,16 @@ def verify_address(
         doc = _kakao_search(cand_text)
         if not doc:
             return None
+        # 지번 부번 유실 방지 (2026-10-29 ETC-346b74): '신림동 463-88 서서울공조'처럼 지번
+        #   뒤에 상호가 붙으면 카카오가 부번을 버리고 본번 필지('신림동 463')를 돌려줌 →
+        #   다른 필지. 고객이 적은 본번은 같고 부번이 다르면 지번까지만 잘라 다시 조회,
+        #   그래도 다르면 이 후보는 버림.
+        _jm = re.search(r'[가-힣](?:동|리|가)\s*(?:산\s*)?(\d+)-(\d+)(?![\d-])', cand_text)
+        _ja = doc.get('address') or {}
+        if (_jm and _ja.get('main_address_no') == _jm.group(1)
+                and (_ja.get('sub_address_no') or '') != _jm.group(2)):
+            _cut = cand_text[:_jm.end()]
+            return _try_kakao(_cut) if _cut != cand_text else None
         # 행정구역 단위 매칭(도로명·번지 없음)은 확정 금지 — 뒤 후보로 넘어가야 정답 도달
         # 예: "서울 노원구 중계동"(동만) → address_type=REGION → 여기서 확정하면
         #     실제 도로명 "중계로12가길 23"을 놓치고 "노원구 중계동"만 남음
@@ -1302,6 +1332,9 @@ def verify_address(
             if (
                 building_name
                 and not _bldg_is_tenant
+                # 숫자뿐인 건물명('101')은 단지 안 한 동 번호 — 붙이면 고객이 적은 동과
+                #   섞여 '장항한강3로 80 101 105 13층'이 됨 (2026-10-29 L-04130)
+                and not re.fullmatch(r'\d+(?:동)?', building_name)
                 and building_name.lower() not in base.lower()
                 # 원본 tail 에 이미 같은 건물명이 있으면 append 안 함 — 안 그러면 카카오
                 #   건물명 + tail 의 건물명 이중 노출 ('서울랜드 후문 서울랜드 산타레스토랑',
