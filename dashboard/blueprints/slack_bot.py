@@ -75,6 +75,10 @@ _PAYMENT_SIGNING_SECRET = os.getenv('SLACK_PAYMENT_SIGNING_SECRET', '')
 _DOCVIEW_BOT_TOKEN = os.getenv('SLACK_DOCVIEW_BOT_TOKEN', '')
 _DOCVIEW_SIGNING_SECRET = os.getenv('SLACK_DOCVIEW_SIGNING_SECRET', '')
 
+# 전자결재 봇 (별도 토큰/secret, 2026-10-30) — 결재 카드·승인 버튼은 전부 이 봇 하나가 맡는다.
+_EAPPROVAL_BOT_TOKEN = os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '')
+_EAPPROVAL_SIGNING_SECRET = os.getenv('SLACK_EAPPROVAL_SIGNING_SECRET', '')
+
 _slack_app = None
 _slack_handler = None
 _project_slack_app = None
@@ -89,6 +93,8 @@ _payment_slack_app = None
 _payment_slack_handler = None
 _docview_slack_app = None
 _docview_slack_handler = None
+_eapproval_slack_app = None
+_eapproval_slack_handler = None
 
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
@@ -269,6 +275,35 @@ def _init_docview_slack_app():
         return True
     except Exception as exc:
         logger.error(f"[SLACK/문서변환봇] 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _init_eapproval_slack_app():
+    """전자결재 봇 — 별도 Bolt App. 결재 카드·승인/반려/이체 완료·새 요청 모달 (blueprints/slack_eapproval.py)."""
+    global _eapproval_slack_app, _eapproval_slack_handler
+
+    if not _BOT_ENABLED:
+        return False
+    if not _EAPPROVAL_BOT_TOKEN or not _EAPPROVAL_SIGNING_SECRET:
+        logger.info("[SLACK/전자결재] SLACK_EAPPROVAL_BOT_TOKEN/SIGNING_SECRET 미설정 — 비활성화")
+        return False
+    try:
+        from slack_bolt import App
+        from slack_bolt.adapter.flask import SlackRequestHandler
+        from dashboard.blueprints.slack_eapproval import register_eapproval_handlers
+
+        _eapproval_slack_app = App(
+            token=_EAPPROVAL_BOT_TOKEN,
+            signing_secret=_EAPPROVAL_SIGNING_SECRET,
+            process_before_response=True,
+        )
+        _eapproval_slack_handler = SlackRequestHandler(_eapproval_slack_app)
+        register_eapproval_handlers(_eapproval_slack_app)
+        _verify_bot_token(_eapproval_slack_app.client, '전자결재봇')
+        logger.info("[SLACK/전자결재] 초기화 완료 ✅")
+        return True
+    except Exception as exc:
+        logger.error(f"[SLACK/전자결재] 초기화 실패: {exc}", exc_info=True)
         return False
 
 
@@ -3708,6 +3743,12 @@ def _format_assignment_result(result: dict, committed: bool) -> dict:
 
 def _register_project_handlers(app):
     """공사 현황 알림 봇 핸들러 — /공사확정 + submit_project"""
+    # 공사확정 카드 [💸 자금집행 요청] (2026-10-30) — 모달·제출은 전자결재 모듈 공용 코드
+    try:
+        from dashboard.blueprints.slack_eapproval import register_project_bot_handlers
+        register_project_bot_handlers(app)
+    except Exception as exc:
+        logger.error(f"[SLACK/전자결재] 공사봇 핸들러 등록 실패: {exc}", exc_info=True)
 
     @app.event("file_shared")  # no-op — message.file_share 로 실질 처리 (2026-07-22)
     def _noop_file_shared_project(ack):
@@ -4923,6 +4964,203 @@ def _maybe_auto_pin_settlement(client, channel: str, msg: dict) -> None:
         if 'already_pinned' in str(exc):
             return
         logger.warning(f'[SLACK/정산핀] pins.add 실패 (ts={ts}): {exc}')
+    _maybe_post_pinv_prompt(client, channel, ts, text)
+
+
+def _pinv_enabled() -> bool:
+    """매입 계산서 [📍 현장 지정] 켜짐 여부 — 계산서봇 앱에 Options Load URL 설정 후 켠다."""
+    return os.getenv('PURCHASE_INVOICE_ASSIGN_ENABLED', 'false').strip().lower() == 'true'
+
+
+def _maybe_post_pinv_prompt(client, channel: str, ts: str, text: str) -> None:
+    """#영업_관리 매입 계산서 확인 요청 글이면 스레드에 [📍 현장 지정] 버튼 (2026-10-30).
+
+    호출부(_maybe_auto_pin_settlement)가 글당 1회 Redis nx 가드를 이미 통과한 뒤라 중복 없음.
+    입금 문자(계좌번호)는 대상 아님.
+    """
+    if not _pinv_enabled():
+        return
+    if channel != os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip():
+        return
+    from dashboard.services.pin_remind import is_invoice_request, is_deposit
+    if not is_invoice_request(text) or is_deposit(text):
+        return
+    from dashboard.services import purchase_invoice_assign as pinv
+    parsed = pinv.parse_invoice_post(text)
+    if not parsed:
+        return
+    try:
+        client.chat_postMessage(
+            channel=channel, thread_ts=ts,
+            text='어느 현장 건인지 골라 주세요.',
+            blocks=pinv.prompt_blocks(channel, ts, parsed))
+        logger.info(f'[SLACK/현장지정] 버튼 게시: ts={ts} | {pinv.post_summary(parsed)}')
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 버튼 게시 실패 (ts={ts}): {exc}')
+
+
+def _pinv_project_rec(code: str):
+    """프로젝트 코드 → 공사현황 레코드(없으면 None). 프로젝트0·공통비는 None."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    if not code or code in pinv.SPECIAL_LABELS:
+        return None
+    try:
+        from dashboard.services.project_service import get_project_records
+        for r in get_project_records() or []:
+            if str(r.get('프로젝트 코드') or '').strip() == code:
+                return r
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 프로젝트 조회 실패 ({code}): {exc}')
+    return None
+
+
+def _open_pinv_modal(client, body) -> None:
+    """[📍 현장 지정]/[✏️ 다시 지정] → placeholder 모달 먼저(3초 trigger 만료 방지) → 내용 채움."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    v = json.loads(body['actions'][0]['value'])
+    meta = {'ch': v['ch'], 'ts': v['ts'], 'click_ts': body['message']['ts'], **{
+        k: v.get(k) for k in ('d', 'g', 'a', 'p')}}
+    resp = client.views_open(trigger_id=body['trigger_id'], view={
+        'type': 'modal', 'callback_id': pinv.CALLBACK_SUBMIT,
+        'title': {'type': 'plain_text', 'text': '현장 지정'},
+        'close': {'type': 'plain_text', 'text': '취소'},
+        'private_metadata': json.dumps(meta),
+        'blocks': [{'type': 'section', 'text': {
+            'type': 'mrkdwn', 'text': ':hourglass_flowing_sand: 불러오는 중...'}}],
+    })
+    view_id = resp['view']['id']
+    client.views_update(view_id=view_id, view=_pinv_modal_for(meta, transfer=False))
+
+
+def _pinv_project_option(code: str):
+    from dashboard.services import purchase_invoice_assign as pinv
+    if not code:
+        return None
+    if code in pinv.SPECIAL_LABELS:
+        label = pinv.SPECIAL_LABELS[code][:75]
+    else:
+        rec = _pinv_project_rec(code) or {}
+        label = _intake_option_label(code, str(rec.get('사업자명') or ''), str(rec.get('현장 주소') or ''))
+    return {'text': {'type': 'plain_text', 'text': label}, 'value': code}
+
+
+def _pinv_modal_for(meta: dict, transfer: bool) -> dict:
+    """현장 지정 모달 전체 — 기존 지정·이미 올린 자금집행·먼저 올린 같은 건 후보를 반영.
+
+    meta 를 고친다(먼저 올린 자금집행 후보가 있으면 link_aid)."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    from dashboard.services import e_approval as ea
+    parsed = pinv.parsed_from_value(meta)
+    current = approval = candidate = payee = None
+    try:
+        current = pinv.get_assignment(meta['ch'], meta['ts'])
+        approval = ea.find_by_origin(meta['ch'], meta['ts'])
+        if approval and approval['status'] in (ea.REJECTED, ea.CANCELLED):
+            approval = None  # 반려·취소됐으면 다시 올릴 수 있게
+        if not approval:
+            candidate = ea.find_unlinked_match(parsed['grn'], parsed['amount'], parsed['partner'])
+        if transfer:
+            payee = ea.lookup_payee(parsed['partner'])
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 기존 기록 조회 실패: {exc}')
+    meta.pop('link_aid', None)
+    base = current
+    if candidate:
+        meta['link_aid'] = candidate['id']
+        if not current:  # 먼저 올린 자금집행의 현장·분류로 미리 채움
+            base = {'project_code': candidate['project_code'], 'cost_category': candidate['cost_category'],
+                    'memo': ''}
+    init_opt = _pinv_project_option((base or {}).get('project_code', ''))
+    return pinv.modal_view(parsed, meta, base, init_opt, transfer=transfer, payee=payee,
+                           approval=approval, candidate=candidate)
+
+
+def _validate_pinv_submit(view) -> dict:
+    """제출 직후 동기 검사 — 「이체 필요」면 이체 칸·전자결재 봇 설정 확인. {block_id: 문구}"""
+    from dashboard.services import purchase_invoice_assign as pinv
+    from dashboard.services import e_approval as ea
+    vals = view['state']['values']
+    if not pinv.transfer_requested(vals) or 'payee_name' not in vals:
+        return {}
+
+    def _t(bid):
+        return ((vals.get(bid) or {}).get(bid) or {}).get('value') or ''
+    errs = ea.validate_transfer(_t('payee_name'), _t('bank'), _t('account'))
+    if not errs:
+        from dashboard.blueprints.slack_eapproval import is_configured
+        if not is_configured():
+            errs['account'] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
+    return errs
+
+
+def _process_pinv_submit(client, body, view) -> None:
+    """현장 지정 제출 → 장부 저장 → 스레드 답글(처음)·수정(다시 지정) → 버튼 정리 → 고정 해제."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    meta = json.loads(view.get('private_metadata') or '{}')
+    ch, ts, click_ts = meta['ch'], meta['ts'], meta.get('click_ts')
+    vals = view['state']['values']
+    code = ((vals['project'][pinv.ACTION_PROJECT].get('selected_option') or {}).get('value') or '').strip()
+    cost = ((vals['cost']['cost'].get('selected_option') or {}).get('value') or '').strip()
+    memo = (vals['memo']['memo'].get('value') or '').strip()
+    uid = (body.get('user') or {}).get('id', '')
+    name = _resolve_intake_manager_name(uid) or uid
+    parsed = pinv.parsed_from_value(meta)
+
+    row = pinv.save_assignment(ch, ts, parsed, code, cost, memo, uid, name)
+    line = pinv.project_display(code, _pinv_project_rec(code))
+
+    # 자금집행 — ①먼저 올린 같은 건이 있으면 이 계산서를 연결 ②「이체 필요」면 새 결재
+    from dashboard.services import e_approval as ea
+    extra = ''
+    if meta.get('link_aid'):
+        ea.link_origin(int(meta['link_aid']), ch, ts)
+        linked = ea.get(int(meta['link_aid']))
+        if linked:
+            extra = f"💸 {ea.title(linked)} ({linked.get('requester_name')})에 연결 — {ea.STATUS_LABELS[linked['status']][1]}"
+    elif pinv.transfer_requested(vals) and 'payee_name' in vals:
+        def _t(bid):
+            return (((vals.get(bid) or {}).get(bid) or {}).get('value') or '').strip()
+        ev = ((vals.get('evidence') or {}).get('evidence') or {}).get('selected_option') or {}
+        urg = ((vals.get('urgency') or {}).get('urgency') or {}).get('selected_option') or {}
+        from dashboard.blueprints.slack_eapproval import start_from_invoice
+        try:
+            ap = start_from_invoice(uid, name, ch, ts, parsed, code, cost, memo, ev.get('value') or '전자계산서',
+                                    _t('payee_name'), _t('bank'), _t('account'), urg.get('value') or '일반')
+            extra = f"💸 {ea.title(ap)} 결재 올림 — {ea.STATUS_LABELS[ap['status']][1]}"
+        except Exception as exc:
+            logger.error(f'[SLACK/현장지정] 자금집행 결재 시작 실패: {exc}', exc_info=True,
+                         extra={'force_alert': True})
+            extra = ('⚠️ 현장은 지정됐지만 자금집행 결재는 올라가지 않았어요. '
+                     '[✏️ 다시 지정]에서 「이체 필요」를 다시 체크해 주세요.')
+
+    blocks = pinv.result_blocks(row, line, ch, ts, extra)
+    text = pinv.result_text(row, line, extra)
+    if row.get('reply_ts'):
+        client.chat_update(channel=ch, ts=row['reply_ts'], text=text, blocks=blocks)
+    else:
+        r = client.chat_postMessage(channel=ch, thread_ts=ts, text=text, blocks=blocks)
+        pinv.set_reply_ts(row['id'], r['ts'])
+        if click_ts:
+            try:
+                client.chat_update(channel=ch, ts=click_ts, text='현장 지정 완료',
+                                   blocks=pinv.prompt_done_blocks())
+            except Exception as exc:
+                logger.warning(f'[SLACK/현장지정] 버튼 메시지 정리 실패: {exc}')
+    try:
+        client.pins_remove(channel=ch, timestamp=ts)
+    except Exception as exc:
+        if 'no_pin' not in str(exc):
+            logger.warning(f'[SLACK/현장지정] 고정 해제 실패 (ts={ts}): {exc}')
+    try:
+        from dashboard.utils.user_database import get_audit_repository
+        get_audit_repository().log_action(
+            user_email=f'slack:{name}', action='PURCHASE_INVOICE_ASSIGN',
+            details=f'매입 계산서 현장 지정: {pinv.post_summary(parsed)} → {code} · {pinv.cost_label(cost)}',
+            project_code=code if code not in pinv.SPECIAL_LABELS else None,
+            field_name='매입계산서', old_value=None, new_value=f'{code}|{cost}', ip_address=None)
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 감사 로그 실패: {exc}')
+    logger.info(f'[SLACK/현장지정] {pinv.post_summary(parsed)} → {code} · {cost} ({name})')
 
 
 def _register_invoice_handlers(app):
@@ -5070,6 +5308,80 @@ def _register_invoice_handlers(app):
                 if 'no_pin' in str(exc):
                     return  # 고정 안 돼있던 메시지 — 무해
                 logger.warning(f'[SLACK/정산핀] pins.remove 실패 (ts={ts}): {exc}')
+        threading.Thread(target=_bg, daemon=True).start()
+
+    # ── 매입 계산서 현장 지정 (전자결재 1단계, 2026-10-30) ─────────────────
+    @app.action("pinv_assign_open")
+    def handle_pinv_assign_open(ack, body, client):
+        """[📍 현장 지정] / [✏️ 다시 지정] — 매니저 누구나."""
+        ack()
+
+        def _bg():
+            try:
+                _open_pinv_modal(client, body)
+            except Exception as exc:
+                _notify_modal_open_failed(client, body)
+                logger.error(f'[SLACK/현장지정] 모달 열기 실패: {exc}', exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.options("pinv_project")
+    def handle_pinv_project_options(ack, body):
+        """external_select — 타이핑=검색 / 빈 클릭=내 담당 현장 + 프로젝트0·공통비."""
+        try:
+            from dashboard.services import purchase_invoice_assign as pinv
+            from dashboard.services.project_service import get_project_records
+            query = (body.get('value') or '').strip()
+            mgr = None if query else _resolve_intake_manager_name((body.get('user') or {}).get('id', ''))
+            ack(options=pinv.build_project_options(
+                get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label))
+        except Exception as exc:
+            logger.error(f'[SLACK/현장지정] 프로젝트 목록 실패: {exc}', exc_info=True)
+            try:
+                ack(options=[])
+            except Exception:
+                pass
+
+    @app.action("pinv_project")
+    def handle_pinv_project_select(ack):
+        ack()  # 선택만으로는 할 일 없음 (제출 때 읽음)
+
+    @app.action("pinv_transfer_toggle")
+    def handle_pinv_transfer_toggle(ack, body, client):
+        """「이체 필요」 체크 → 증빙·이체 칸 펼침/접기 (입력한 값은 block_id 가 같아 유지된다)."""
+        ack()
+        try:
+            from dashboard.services import purchase_invoice_assign as pinv
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            on = pinv.transfer_requested(view['state']['values'])
+            client.views_update(view_id=view['id'], hash=view.get('hash'),
+                                view=_pinv_modal_for(meta, transfer=on))
+        except Exception as exc:
+            logger.warning(f'[SLACK/현장지정] 이체 칸 펼치기 실패: {exc}')
+
+    @app.view("submit_pinv_assign")
+    def handle_pinv_assign_submit(ack, body, view, client):
+        errs = _validate_pinv_submit(view)
+        if errs:
+            ack(response_action='errors', errors=errs)
+            return
+        ack()
+
+        def _bg():
+            try:
+                _process_pinv_submit(client, body, view)
+            except Exception as exc:
+                logger.error(f'[SLACK/현장지정] 제출 처리 실패: {exc}', exc_info=True,
+                             extra={'force_alert': True})
+                try:
+                    uid = (body.get('user') or {}).get('id', '')
+                    meta = json.loads(view.get('private_metadata') or '{}')
+                    if uid and meta.get('ch'):
+                        client.chat_postEphemeral(
+                            channel=meta['ch'], user=uid, thread_ts=meta.get('ts'),
+                            text=':warning: 현장 지정이 저장되지 않았어요. 잠시 뒤 다시 눌러 주세요.')
+                except Exception:
+                    pass
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.action("invoice_complete")
@@ -7146,6 +7458,23 @@ def slack_docview_events():
         return jsonify({"ok": True, "dedup": True}), 200
 
     return _docview_slack_handler.handle(request)
+
+
+@slack_bp.route("/eapproval-events", methods=["POST"])
+def slack_eapproval_events():
+    """슬랙 → 전자결재 봇 전용 endpoint (결재 버튼·모달·/자금집행·목록 불러오기)"""
+    # 앱 생성 때 슬랙이 주소를 검증(url_verification)하는 시점엔 아직 토큰이 없다 — docview 와 같은 처리.
+    if _eapproval_slack_handler is None:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict) and body.get('type') == 'url_verification':
+            return jsonify({"challenge": str(body.get('challenge', ''))}), 200
+        if not _init_eapproval_slack_app():
+            return jsonify({"error": "E-approval Slack bot not configured"}), 503
+
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
+
+    return _eapproval_slack_handler.handle(request)
 
 
 @slack_bp.route("/list-assignee", methods=["POST"])
@@ -17642,6 +17971,7 @@ _init_visit_slack_app()
 _init_invoice_slack_app()
 _init_payment_slack_app()
 _init_docview_slack_app()
+_init_eapproval_slack_app()
 # 공사봇·A/S봇도 부팅 때 — 첫 요청 때 초기화하면 재시작 직후 첫 버튼(공사 취소 등)의 trigger_id(3초)가
 # 초기화 중에 만료돼 창이 안 열림 (2026-10-28 13:19 expired_trigger_id)
 _init_project_slack_app()

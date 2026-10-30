@@ -1,0 +1,40 @@
+# 전자결재 봇 슬랙 앱 manifest (2026-10-30)
+# api.slack.com/apps → Create New App → From an app manifest → 워크스페이스 선택 → 아래를 붙여넣기 → Create → Install.
+# 설치 후 .env 에:
+#   SLACK_EAPPROVAL_BOT_TOKEN=xoxb-...        (OAuth & Permissions 의 Bot User OAuth Token)
+#   SLACK_EAPPROVAL_SIGNING_SECRET=...        (Basic Information 의 Signing Secret)
+#   SLACK_EAPPROVAL_CHANNEL=C0CDJUXRQGL       (#전자_결재)
+# → 서버 재시작 → #전자_결재 에서 `/invite @eapproval_bot` (비공개 채널이라 초대해야 글을 올릴 수 있다).
+display_information:
+  name: 전자결재
+  description: 자금집행 요청·승인·이체 완료를 슬랙에서 처리합니다.
+  background_color: "#1f6f43"
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true
+  bot_user:
+    display_name: eapproval_bot   # 슬랙이 봇 표시 이름에 한글을 거부(앱 이름 name 은 한글 OK)
+    always_online: true
+  slash_commands:
+    - command: /자금집행
+      url: https://pm.itg-aircon.com/slack/eapproval-events
+      description: 자금집행(이체) 요청 창을 엽니다
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - im:write
+      - pins:read
+      - pins:write
+      - commands
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://pm.itg-aircon.com/slack/eapproval-events
+    message_menu_options_url: https://pm.itg-aircon.com/slack/eapproval-events
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

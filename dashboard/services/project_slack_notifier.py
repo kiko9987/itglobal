@@ -174,6 +174,19 @@ def _build_message(
     return "⠀\n" + '\n'.join(lines)
 
 
+def _eapproval_buttons(code: str) -> list:
+    """[💸 자금집행 요청] — 전자결재 봇이 설정돼 있을 때만 (2026-10-30)."""
+    try:
+        from dashboard.blueprints.slack_eapproval import is_configured
+        if not is_configured():
+            return []
+    except Exception:
+        return []
+    from dashboard.services.e_approval import A_NEW_FROM_PROJECT
+    return [{'type': 'button', 'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True},
+             'action_id': A_NEW_FROM_PROJECT, 'value': code}]
+
+
 def _build_invoice_button_value(data: dict, code: str) -> str:
     """[계산서 요청] 버튼 value — 모달 pre-fill용 프로젝트 정보 JSON."""
     # 총액 1은 숫자만 — float('9600000.0') → 소수점 이하 절삭 후 digits 추출
@@ -249,6 +262,7 @@ def _build_blocks(
                     'action_id': 'project_edit_open',
                     'value': code,
                 },
+                *_eapproval_buttons(code),
                 {
                     'type': 'button',
                     'text': {'type': 'plain_text', 'text': '❌ 공사 취소', 'emoji': True},
