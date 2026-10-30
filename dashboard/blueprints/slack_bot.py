@@ -1473,6 +1473,19 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
 
     d = _load_intake(intake_id)
     text = d.get("text") or ""
+    if not text:
+        # 확인·기록이 끝나 원문을 지운 입금(또는 보관 만료) — 갱신 전 화면의 옛 버튼을 누른 경우.
+        # 빈 원문으로 창을 그리면 슬랙이 '글자 0자'로 거부해 에러 알림만 남았음 (2026-10-30 11:19).
+        # 제출 쪽도 원문 없으면 무시하므로, 이체 버튼처럼 안내 창만 띄운다.
+        logger.info(f"[SLACK/수금봇] 수금 지정: 원문 없음(이미 처리) intake={intake_id}")
+        client.views_update(view_id=_view_id, view={
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "수금 지정"},
+            "close": {"type": "plain_text", "text": "닫기"},
+            "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                        "text": ":information_source: 이미 처리된 입금입니다."}}],
+        })
+        return
     # [재지정] — 이전 지정값(프로젝트+단계) 미리 채움. 최초 [지정]은 designation 없음 → 빈 모달.
     des = d.get("designation") or {}
     selected_project = des.get("project_option")
@@ -1534,8 +1547,10 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
     'installment' 칸 = 차수(계약금·중도금·잔금·일시불, 필수).
     """
     from dashboard.services.sms_intake import active_display
+    # 원문이 비면 슬랙이 창 전체를 거부함 — 창을 연 사이 다른 사람이 처리해 원문이 지워진 경우 (2026-10-30)
+    shown = active_display(text) or ":information_source: 입금 문자 원문이 없습니다 — 이미 처리된 입금일 수 있습니다."
     blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": active_display(text)}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": shown}},
         {"type": "divider"},
     ]
     project_el = {

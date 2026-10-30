@@ -1,6 +1,6 @@
 """매일 새벽 자동 백업.
 
-- instance/users.db (SQLite) → backup/users_db/{YYYYMMDD}.db
+- instance/users.db (SQLite, 정식 백업 API 스냅샷) → backup/users_db/{YYYYMMDD}.db
 - Redis 전체 데이터 dump → backup/redis/{YYYYMMDD}.rdb (또는 SAVE 후 rdb 복사)
 - 시크릿 파일 (.env, credentials.json, token.json) → backup/secrets/{YYYYMMDD}/*
 - 30일 이상된 로그 파일 (dashboard/logs/*.log*) 자동 삭제
@@ -76,13 +76,40 @@ def _prune(dir_path: Path, keep_days: int) -> int:
     return removed
 
 
+def sqlite_snapshot(src: Path, dest: Path) -> None:
+    """SQLite 정식 백업(online backup API)으로 한 시점 스냅샷 → dest (2026-10-30 복원 연습).
+
+    users.db 는 WAL 방식이라 최근 변경이 users.db-wal 에 머물 수 있는데, 예전 shutil.copy2 는 본 파일만
+    복사해 그 변경이 빠지거나 쓰기 도중이면 어긋난 파일이 될 수 있었다. 결과는 WAL 없이 파일 하나로 열리게
+    journal_mode=DELETE 로 바꾸고 무결성 확인 뒤에 제자리로 옮김(실패하면 옛 백업 그대로)."""
+    import sqlite3
+    tmp = dest.with_name(dest.name + '.tmp')
+    tmp.unlink(missing_ok=True)
+    s = sqlite3.connect(str(src), timeout=30)
+    d = sqlite3.connect(str(tmp))
+    try:
+        s.backup(d)
+        d.execute('PRAGMA journal_mode=DELETE')
+        ok = d.execute('PRAGMA integrity_check').fetchone()[0]
+    finally:
+        d.close()
+        s.close()
+    if ok != 'ok':
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(f'백업본 무결성 실패: {ok}')
+    os.replace(tmp, dest)
+
+
 def backup_users_db() -> str:
     if not USERS_DB_SRC.exists():
         return f'skip: {USERS_DB_SRC} 없음'
     dest_dir = BACKUP_ROOT / 'users_db'
     _ensure_dir(dest_dir)
     dest = dest_dir / f'{_timestamp()}.db'
-    shutil.copy2(USERS_DB_SRC, dest)
+    try:
+        sqlite_snapshot(USERS_DB_SRC, dest)
+    except Exception as exc:
+        return f'실패: {type(exc).__name__}: {exc}'
     pruned = _prune(dest_dir, RETENTION_DAYS)
     return f'OK: {dest.name} ({dest.stat().st_size // 1024} KB), 정리 {pruned}건'
 
