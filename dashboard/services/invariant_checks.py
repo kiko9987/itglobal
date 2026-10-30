@@ -314,7 +314,27 @@ def check_backup_fresh(ctx):
         when = '백업 파일 없음' if hours is None else f'마지막 백업 {hours}시간 전'
         out.append(Violation('backup_stale', f'backup:{kind}:{hours if hours is None else hours // 24}', kind,
                              f'{when} — 일일 백업(03:15)이 안 되고 있음, 서버 로그 [BACKUP] 확인'))
+    hours = offsite_stale_hours(root, now=ctx.get('now_ts'),
+                                enabled=ctx.get('offsite_enabled', bool(os.getenv('BACKUP_ENCRYPT_PASSWORD'))))
+    if hours is not False:
+        when = '올린 기록 없음' if hours is None else f'마지막 성공 {hours}시간 전'
+        out.append(Violation('backup_stale', f'backup:offsite:{hours if hours is None else hours // 24}', 'offsite',
+                             f'외부 백업(경영지원관리Ⅱ) {when} — 서버 로그 [BACKUP] offsite 줄 확인'))
     return out
+
+
+def offsite_stale_hours(backup_root, now=None, enabled=True, max_hours: int = 26):
+    """외부 백업(scripts/offsite_backup.py 가 남기는 offsite_last.json)이 max_hours 넘게 성공 못 했으면 시간
+    (기록 없으면 None), 괜찮거나 꺼져 있으면 False (2026-10-30)."""
+    from pathlib import Path
+    if not enabled:
+        return False
+    try:
+        at = float(json.loads((Path(backup_root) / 'offsite_last.json').read_text(encoding='utf-8'))['at'])
+    except Exception:
+        return None
+    age = ((now or time.time()) - at) / 3600
+    return int(age) if age > max_hours else False
 
 
 def check_sheet_write_failed(ctx):

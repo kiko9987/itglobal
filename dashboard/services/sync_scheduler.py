@@ -1044,7 +1044,7 @@ def _safe_warm_license_states():
 
 
 def _safe_daily_backup():
-    """매일 자동 백업 — users.db + Redis dump.rdb."""
+    """매일 자동 백업 — users.db + Redis dump.rdb + 비밀값, 그리고 잠가서 구글 공유 드라이브로 외부 복사."""
     try:
         import sys as _sys, subprocess as _sp
         from pathlib import Path as _P
@@ -1054,7 +1054,7 @@ def _safe_daily_backup():
             return
         result = _sp.run(
             [_sys.executable, '-X', 'utf8', str(script)],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True, timeout=600,   # 외부 백업 업로드·재시도 포함 (2026-10-30)
         )
         # result.stdout/stderr None 가능 (Windows 서비스 컨텍스트에서 capture 실패 케이스)
         _out = (result.stdout or '').strip()

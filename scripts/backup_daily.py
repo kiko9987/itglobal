@@ -5,6 +5,7 @@
 - 시크릿 파일 (.env, credentials.json, token.json) → backup/secrets/{YYYYMMDD}/*
 - 30일 이상된 로그 파일 (dashboard/logs/*.log*) 자동 삭제
 - 최근 30일치 백업 유지, 그 이전은 자동 삭제
+- 그날 백업을 암호로 잠가 구글 공유 드라이브(경영지원관리Ⅱ)에 복사 — offsite_backup.py
 
 APScheduler 로 매일 새벽 03:15 실행 (Flask 부팅 시 등록).
 수동 실행: python scripts/backup_daily.py
@@ -208,6 +209,17 @@ def cleanup_old_logs() -> str:
     return f'OK: {removed}개 파일 삭제 ({mb:.1f} MB 확보)'
 
 
+def backup_offsite() -> str:
+    """그날 백업을 잠가 구글 공유 드라이브(경영지원관리Ⅱ)에 올림 — scripts/offsite_backup.py (2026-10-30)."""
+    try:
+        if str(Path(__file__).resolve().parent) not in sys.path:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import offsite_backup
+        return offsite_backup.upload(BACKUP_ROOT)
+    except Exception as exc:
+        return f'실패: {type(exc).__name__}: {str(exc)[:300]}'
+
+
 def run_all() -> dict:
     print(f'[BACKUP] 시작 @ {datetime.now().isoformat(timespec="seconds")}')
     result = {
@@ -216,6 +228,9 @@ def run_all() -> dict:
         'secrets': backup_secrets(),
         'log_cleanup': cleanup_old_logs(),
     }
+    # 로컬 백업이 하나라도 실패하면 반쪽 묶음을 올리지 않음 (pack 도 파일 없으면 거부)
+    result['offsite'] = (backup_offsite() if not failed_items(result)
+                         else 'skip: 로컬 백업 실패로 건너뜀')
     for k, v in result.items():
         print(f'  {k}: {v}')
     return result
@@ -225,9 +240,11 @@ def failed_items(result: dict) -> list:
     """꼭 남아야 하는 백업(사용자 DB·Redis·비밀값) 중 'OK' 가 아닌 항목 — 하나라도 있으면 실패로 끝냄.
 
     예전엔 Redis 백업이 'skip'·'docker cp 실패'여도 종료 코드 0 이라 '[BACKUP] 완료'로만 남고 알림이
-    없었음 (2026-10-29 점검). 로그 정리(log_cleanup)는 없어도 되는 일이라 제외."""
+    없었음 (2026-10-29 점검). 로그 정리(log_cleanup)는 없어도 되는 일이라 제외.
+    외부 백업(offsite)은 실제 실패만 — 암호 미설정·로컬 실패로 건너뜀(skip)은 제외 (2026-10-30)."""
     return [f'{k}: {v}' for k, v in result.items()
-            if k in ('users_db', 'redis', 'secrets') and not str(v).startswith('OK')]
+            if (k in ('users_db', 'redis', 'secrets') and not str(v).startswith('OK'))
+            or (k == 'offsite' and str(v).startswith('실패'))]
 
 
 if __name__ == '__main__':
