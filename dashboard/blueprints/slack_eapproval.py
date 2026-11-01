@@ -502,6 +502,30 @@ def handle_supply_submit(ack, body, view) -> None:
     threading.Thread(target=_bg, daemon=True).start()
 
 
+def reset_select(client, body) -> None:
+    """메시지의 고르기 칸을 처음 상태('📋 결재 요청')로 되돌린다 (11-01).
+
+    슬랙은 고른 값을 칸에 남겨 두어 다시 고를 수 없게 보인다(같은 항목은 다시 골라도 이벤트가 안 옴).
+    그 고르기가 든 actions 블록의 block_id 만 새로 바꿔 메시지를 고치면 칸이 비워진다 — 나머지 블록은 받은 그대로."""
+    msg = body.get('message') or {}
+    ch = (body.get('channel') or {}).get('id') or (body.get('container') or {}).get('channel_id')
+    bid = (body.get('actions') or [{}])[0].get('block_id')
+    if not (msg.get('ts') and ch and bid and msg.get('blocks')):
+        return
+    import time
+    blocks = msg['blocks']
+    for b in blocks:
+        if b.get('block_id') == bid:
+            b['block_id'] = f'eap_sel_{int(time.time() * 1000)}'
+    kw = {'channel': ch, 'ts': msg['ts'], 'text': msg.get('text') or '', 'blocks': blocks}
+    if msg.get('attachments'):
+        kw['attachments'] = msg['attachments']
+    try:
+        client.chat_update(**kw)
+    except Exception as exc:
+        logger.warning(f'{_LOG} 고르기 칸 되돌리기 실패: {exc}')
+
+
 # ── 나머지 양식 (11-01: 계약서·보증보험·카드결제·법인서류·법인카드 지출결의·개인경비) ──
 def _loading_view(title: str) -> dict:
     return {'type': 'modal', 'title': {'type': 'plain_text', 'text': title[:24]},
@@ -813,6 +837,7 @@ def register_eapproval_handlers(app) -> None:
         form_key = (body['actions'][0].get('selected_option') or {}).get('value') or ''
         if ea.forms.get(form_key):
             _open_form_from(body, client, form_key)
+        threading.Thread(target=reset_select, args=(client, body), daemon=True).start()
 
     @app.action(ea.A_FORM_OPEN)
     def handle_form_open(ack, body, client):
@@ -886,6 +911,7 @@ def register_project_bot_handlers(app) -> None:
                 open_form_modal(client, body['trigger_id'], uid, form_key, project_code=code)
         except Exception as exc:
             logger.error(f'{_LOG} 공사 카드 결재 요청 창 실패 ({sel}): {exc}', exc_info=True)
+        threading.Thread(target=reset_select, args=(client, body), daemon=True).start()
 
 
 def post_menu() -> str:

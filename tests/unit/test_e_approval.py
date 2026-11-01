@@ -631,6 +631,20 @@ def test_form_views_are_valid_shape():
                 assert el['placeholder']['text']
 
 
+def test_reset_select_changes_only_that_block_id(se):
+    """고른 뒤 칸을 처음 상태로 — 그 actions 블록 block_id 만 바뀌고 나머지는 그대로(11-01)."""
+    blocks = [{'type': 'section', 'block_id': 's1', 'text': {'type': 'mrkdwn', 'text': '카드'}},
+              {'type': 'actions', 'block_id': 'a1', 'elements': [{'type': 'static_select', 'action_id': 'x'}]}]
+    body = {'message': {'ts': '9.9', 'text': '[공사 확정] G4239-YM', 'blocks': json.loads(json.dumps(blocks))},
+            'channel': {'id': 'CPROJ'}, 'actions': [{'block_id': 'a1'}]}
+    c = _Fake()
+    se.reset_select(c, body)
+    (kw,) = c.of('chat_update')
+    assert kw['channel'] == 'CPROJ' and kw['ts'] == '9.9' and kw['text'] == '[공사 확정] G4239-YM'
+    assert kw['blocks'][0] == blocks[0] and kw['blocks'][1]['block_id'] != 'a1'
+    assert kw['blocks'][1]['elements'] == blocks[1]['elements']
+
+
 def test_project_card_select_options():
     from dashboard.services.project_slack_notifier import _eapproval_buttons
     import dashboard.blueprints.slack_eapproval as se_mod
