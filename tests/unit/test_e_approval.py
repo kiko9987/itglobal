@@ -631,6 +631,12 @@ def test_form_views_are_valid_shape():
                 assert el['placeholder']['text']
 
 
+def test_contract_note_shorter_when_project_fixed():
+    menu = forms.form_view(forms.FORM_CONTRACT, {})['blocks'][0]['elements'][0]['text']
+    card = forms.form_view(forms.FORM_CONTRACT, {'project': 'G4239-YM'})['blocks'][0]['elements'][0]['text']
+    assert '현장을 고르면' in menu and card == '사업자등록증은 공사 카드 스레드에 있어야 해요.'
+
+
 def test_reset_select_changes_only_that_block_id(se):
     """고른 뒤 칸을 처음 상태로 — 그 actions 블록 block_id 만 바뀌고 나머지는 그대로(11-01)."""
     blocks = [{'type': 'section', 'block_id': 's1', 'text': {'type': 'mrkdwn', 'text': '카드'}},
