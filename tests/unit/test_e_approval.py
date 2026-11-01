@@ -175,7 +175,10 @@ def test_fixed_project_from_metadata(tmp_db):
 
 def test_partner_options_known_and_new(tmp_db):
     ea.remember_payee('(주)강원포장', '김강원', '신한', '110-511-825643')
-    vals = lambda q: [o['value'] for o in ea.partner_options(q)]   # noqa: E731
+    def vals(q):
+        r = ea.partner_options(q)
+        opts = r.get('options') or [o for g in r.get('option_groups', []) for o in g['options']]
+        return [o['value'] for o in opts]
     assert vals('') == ['(주)강원포장']
     assert vals('강원') == ['(주)강원포장', 'new:강원']           # (주) 빼고 비교, 아는 곳 먼저
     assert vals('강원포장') == ['(주)강원포장']                   # 같은 곳이면 '새 거래처' 안 띄움
@@ -719,3 +722,15 @@ def test_project_card_select_options():
         se_mod.is_configured = orig
     assert el['type'] == 'static_select' and el['action_id'] == ea.A_PROJECT_FORM_PICK
     assert [o['value'] for o in el['options']] == ['contract|G4049-JW', 'insurance|G4049-JW', 'cardpay|G4049-JW']
+
+
+def test_partner_options_grouped_and_sorted(tmp_db, monkeypatch):
+    """빈 클릭=최근 15곳 + 나머지 가나다순, 입력=그 글자로 시작하는 곳 먼저(11-01)."""
+    recent = [f'최근{i:02d}' for i in range(15)]
+    monkeypatch.setattr(ea, 'known_partners', lambda: recent + ['하나상사', '(주)가람', '나비엔'])
+    groups = ea.partner_options('')['option_groups']
+    assert [g['label']['text'] for g in groups] == ['최근 거래한 곳', '가나다순']
+    assert [o['value'] for o in groups[0]['options']] == recent
+    assert [o['value'] for o in groups[1]['options']] == ['(주)가람', '나비엔', '하나상사']
+    monkeypatch.setattr(ea, 'known_partners', lambda: ['서울나비', '나비엔하우징', '가나비'])
+    assert [o['value'] for o in ea.partner_options('나비')['options']] == ['나비엔하우징', '가나비', '서울나비', 'new:나비']
