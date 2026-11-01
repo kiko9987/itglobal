@@ -90,7 +90,7 @@ def render(row: dict, role: str = 'all'):
         link = _card_link(row)
         if link:
             blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': f'<{link}|결재 카드 보기>'}]})
-    return f'{ea.title(row)} — {ea.STATUS_LABELS[row["status"]][1]}', blocks
+    return f'{ea.title(row)} — {ea.status_label(row)[1]}', blocks
 
 
 def _card_link(row: dict) -> str:
@@ -220,23 +220,27 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     row = ea.get(aid)
     if not row:
         return '결재를 찾지 못했어요.'
+    w = ea.step2_word(row)
     if not ea.can_act(action, row, uid):
         return {
             'approve': '승인은 승인자만 할 수 있어요.',
             'reject': '반려는 승인자만 할 수 있어요.',
-            'transfer': '이체 완료는 경영지원 담당만 누를 수 있어요.',
+            'transfer': f'{w} 완료는 경영지원 담당만 누를 수 있어요.',
             'cancel': '요청 취소는 요청한 사람이나 승인자만 할 수 있어요.',
         }[action]
     name = _name(uid)
     new = ea.transition(aid, action, uid, name, reason)
     if not new:
-        return f"이미 처리된 결재예요 (지금: {ea.STATUS_LABELS[row['status']][1]})."
+        return f"이미 처리된 결재예요 (지금: {ea.status_label(ea.get(aid) or row)[1]})."
     client = eap_client()
     amt = f"{int(new.get('amount') or 0):,}원"
     t = ea.title(new)
     if action == 'approve':
         _thread_log(new, f'✅ {name} 승인')
         _dm_round(client, new)
+    elif action == 'transfer' and new.get('form') == ea.FORM_SUPPLY:
+        _thread_log(new, f'🛒 {name} 구매 완료 — {new.get("content")} {amt}', broadcast=True)
+        _notify(client, new.get('requester_id'), f'🛒 {t} 구매가 끝났어요. ({new.get("content")} {amt})')
     elif action == 'transfer':
         _thread_log(new, f'💸 {name} 이체 완료 — {new.get("partner")} {amt}', broadcast=True)
         _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
@@ -260,7 +264,8 @@ def _audit(row: dict, action: str, name: str, reason: str = '') -> None:
         from dashboard.utils.user_database import get_audit_repository
         get_audit_repository().log_action(
             user_email=f'slack:{name}', action=f'EAPPROVAL_{action.upper()}',
-            details=f"{ea.title(row)} {action} — {row.get('partner')} {int(row.get('amount') or 0):,}원"
+            details=f"{ea.title(row)} {action} — {row.get('partner') or row.get('content')} "
+                    f"{int(row.get('amount') or 0):,}원"
                     + (f' / {reason}' if reason else ''),
             project_code=row.get('project_code'), field_name='전자결재',
             old_value=None, new_value=row.get('status'), ip_address=None)
@@ -327,6 +332,36 @@ def handle_new_submit(ack, body, view) -> None:
             c = eap_client()
             if c:
                 _notify(c, uid, ':warning: 자금집행 요청이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+# ── 비품 신청 (11-01) ─────────────────────────────────────────────────
+def process_supply_submit(uid: str, f: dict) -> dict:
+    name = _name(uid)
+    row = ea.create(ea.FORM_SUPPLY, uid, name, f)
+    _audit(row, 'request', name)
+    return start(row)
+
+
+def handle_supply_submit(ack, body, view) -> None:
+    f = ea.read_supply_request(view)
+    errs = ea.complete_supply_request(f)
+    if not errs and not is_configured():
+        errs['item'] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
+    if errs:
+        ack(response_action='errors', errors=errs)
+        return
+    ack()
+    uid = (body.get('user') or {}).get('id', '')
+
+    def _bg():
+        try:
+            process_supply_submit(uid, f)
+        except Exception as exc:
+            logger.error(f'{_LOG} 비품 신청 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
+            c = eap_client()
+            if c:
+                _notify(c, uid, ':warning: 비품 신청이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
     threading.Thread(target=_bg, daemon=True).start()
 
 
@@ -455,6 +490,18 @@ def register_eapproval_handlers(app) -> None:
     def handle_new_submit_eap(ack, body, view):
         handle_new_submit(ack, body, view)
 
+    @app.action(ea.A_NEW_SUPPLY)
+    def handle_supply_open(ack, body, client):
+        ack()
+        try:
+            client.views_open(trigger_id=body['trigger_id'], view=ea.supply_request_view({'origin': 'menu'}))
+        except Exception as exc:
+            logger.error(f'{_LOG} 비품 신청 창 열기 실패: {exc}', exc_info=True)
+
+    @app.view(ea.CB_SUPPLY)
+    def handle_supply_submit_eap(ack, body, view):
+        handle_supply_submit(ack, body, view)
+
 
 def register_project_bot_handlers(app) -> None:
     """공사봇 — 공사확정 카드 [💸 자금집행 요청] (공사봇 카드라 공사봇이 모달을 열고 제출도 받는다)."""
@@ -484,3 +531,8 @@ def post_menu() -> str:
     except Exception:
         pass
     return r['ts']
+
+
+def update_menu(ts: str) -> None:
+    """이미 올린 메뉴 메시지를 지금 버튼 구성으로 고친다(새 양식 추가 때)."""
+    eap_client().chat_update(channel=ea.channel_id(), ts=ts, text='전자결재 요청', blocks=ea.menu_blocks())

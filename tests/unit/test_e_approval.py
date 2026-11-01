@@ -307,3 +307,79 @@ def test_handle_new_submit_validation_errors(se):
     se.handle_new_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}},
                          _new_view(partner='처음거래처'))
     assert acks[0]['response_action'] == 'errors' and 'account' in acks[0]['errors']
+
+
+# ── 비품 신청 (11-01) ───────────────────────────────────────────────
+def _supply_view(**over):
+    vals = {'item': 'A4 용지 박스', 'link': 'https://www.coupang.com/vp/products/1', 'qty': '2',
+            'unit_price': '25,000', 'amount': '', 'reason': '용지 소진', 'memo': ''}
+    vals.update(over)
+    return {'state': {'values': {k: {k: {'value': v}} for k, v in vals.items()}}, 'private_metadata': '{}'}
+
+
+def test_supply_request_fills_amount_and_stock_project(tmp_db):
+    f = ea.read_supply_request(_supply_view())
+    assert ea.complete_supply_request(f) == {}
+    assert f['amount'] == 50000 and f['project_code'] == '프로젝트0'
+    assert f['extra'] == {'link': 'https://www.coupang.com/vp/products/1', 'qty': 2, 'unit_price': 25000,
+                          'reason': '용지 소진'}
+    f2 = ea.read_supply_request(_supply_view(amount='53,000'))      # 배송비 포함 직접 입력
+    ea.complete_supply_request(f2)
+    assert f2['amount'] == 53000
+
+
+def test_supply_request_errors(tmp_db):
+    f = ea.read_supply_request(_supply_view(item='', link='쿠팡', qty='0', unit_price='', reason=''))
+    assert set(ea.complete_supply_request(f)) == {'item', 'link', 'qty', 'unit_price', 'reason'}
+
+
+def test_supply_card_and_buttons(tmp_db):
+    f = ea.read_supply_request(_supply_view())
+    ea.complete_supply_request(f)
+    row = ea.create(ea.FORM_SUPPLY, KIKO, '고광일', f)
+    assert ea.extra(row)['qty'] == 2 and ea.status_label(row) == ('🔵', '구매 대기')
+    t = ea.card_text(row, ea.steps(row['id']), '프로젝트0 · 회사 재고')
+    assert f'비품 신청 #{row["id"]}' in t and '품명: A4 용지 박스 × 2개 (단가 25,000원)' in t
+    assert '상품 보기' in t and '사유: 용지 소진' in t and '이체 계좌' not in t and '⏳ 구매' in t
+    btn = ea.buttons(row, 'executor')[0]
+    assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_TRANSFER
+    assert '구매하고 [구매 완료]' in ea.dm_intro(row, 'executor')
+
+
+def test_extra_column_added_to_existing_table(tmp_db):
+    with tmp_db._get_connection() as conn:          # 10-30 배포 때 만든(extra 없는) 표
+        conn.execute('CREATE TABLE approvals (id INTEGER PRIMARY KEY AUTOINCREMENT, form TEXT NOT NULL, '
+                     'status TEXT NOT NULL, requester_id TEXT, requester_name TEXT, project_code TEXT, '
+                     'cost_category TEXT, content TEXT, evidence TEXT, grn TEXT, partner TEXT, payee_name TEXT, '
+                     'bank TEXT, account TEXT, amount INTEGER NOT NULL DEFAULT 0, urgency TEXT, memo TEXT, '
+                     'origin_channel TEXT, origin_ts TEXT, card_channel TEXT, card_ts TEXT, '
+                     "dm_refs TEXT NOT NULL DEFAULT '[]', created_at TIMESTAMP, updated_at TIMESTAMP)")
+        conn.commit()
+    row = ea.create(ea.FORM_FUND, MGR, '박정우', FIELDS)
+    assert ea.extra(row) == {}
+
+
+def test_supply_flow_purchase_done(se):
+    f = ea.read_supply_request(_supply_view())
+    ea.complete_supply_request(f)
+    row = se.process_supply_submit(MGR, f)
+    assert row['status'] == ea.PENDING and row['project_code'] == '프로젝트0'
+    assert se.apply_action('approve', row['id'], KIKO) is None
+    assert se.apply_action('transfer', row['id'], MGR) == '구매 완료는 경영지원 담당만 누를 수 있어요.'
+    assert se.apply_action('transfer', row['id'], SB) is None
+    assert ea.get(row['id'])['status'] == ea.DONE
+    msgs = se._fake.of('chat_postMessage')
+    assert any('구매 완료' in kw.get('text', '') and kw.get('reply_broadcast') for kw in msgs)
+    assert any('구매가 끝났어요' in kw.get('text', '') and kw['channel'] == 'D-' + MGR for kw in msgs)
+    assert not se._inv.of('chat_postMessage')                     # 계산서 글 없음
+
+
+def test_handle_supply_submit_validation(se):
+    acks = []
+    se.handle_supply_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}}, _supply_view(link='없음'))
+    assert acks[0]['response_action'] == 'errors' and 'link' in acks[0]['errors']
+
+
+def test_menu_has_both_buttons():
+    ids = [e['action_id'] for e in ea.menu_blocks()[1]['elements']]
+    assert ids == [ea.A_NEW, ea.A_NEW_SUPPLY]

@@ -21,7 +21,9 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 FORM_FUND = 'fund'
-FORM_LABELS = {FORM_FUND: '자금집행'}
+FORM_SUPPLY = 'supply'   # 비품 신청(11-01) — 회사 재고(프로젝트0)로 사는 것. ② 는 이체 대신 구매.
+FORM_LABELS = {FORM_FUND: '자금집행', FORM_SUPPLY: '비품 신청'}
+_STEP2 = {FORM_FUND: '이체', FORM_SUPPLY: '구매'}   # ② 단계 이름(이체 완료 / 구매 완료)
 
 PENDING, APPROVED, DONE, REJECTED, CANCELLED = 'pending', 'approved', 'done', 'rejected', 'cancelled'
 OPEN_STATUSES = (PENDING, APPROVED)
@@ -41,7 +43,9 @@ A_APPROVE, A_REJECT, A_TRANSFER, A_CANCEL = 'eap_approve', 'eap_reject', 'eap_tr
 A_NEW = 'eap_new'                     # 채널 메뉴 [💸 자금집행 요청]
 A_NEW_FROM_PROJECT = 'eap_new_project'  # 공사확정 카드 [💸 자금집행 요청]
 A_PROJECT = 'eap_project'             # 새 요청 모달 프로젝트 external_select
+A_NEW_SUPPLY = 'eap_new_supply'       # 채널 메뉴 [🛒 비품 신청]
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
+CB_SUPPLY = 'eap_supply_submit'
 
 _DEFAULT_APPROVERS = ('U04UL2ZLJAX',)  # 고광일
 
@@ -139,6 +143,10 @@ def _ensure_tables(conn) -> None:
         return
     for ddl in _DDL:
         conn.execute(ddl)
+    # 11-01 비품 신청 — 양식별 추가 칸(상품 링크·수량·단가·사유)은 JSON 한 칸에
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(approvals)').fetchall()}
+    if 'extra' not in cols:
+        conn.execute("ALTER TABLE approvals ADD COLUMN extra TEXT NOT NULL DEFAULT '{}'")
     conn.commit()
     _table_ready = True
 
@@ -212,9 +220,10 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
     status = APPROVED if auto else PENDING
     now = _now()
     cols = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
-            'bank', 'account', 'amount', 'urgency', 'memo', 'origin_channel', 'origin_ts')
+            'bank', 'account', 'amount', 'urgency', 'memo', 'origin_channel', 'origin_ts', 'extra')
     vals = [fields.get(c) for c in cols]
     vals[cols.index('amount')] = int(fields.get('amount') or 0)
+    vals[cols.index('extra')] = json.dumps(fields.get('extra') or {}, ensure_ascii=False)
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
         cur = conn.execute(
@@ -294,6 +303,13 @@ def dm_refs(row: dict) -> List[dict]:
     return json.loads(row.get('dm_refs') or '[]')
 
 
+def extra(row: dict) -> dict:
+    try:
+        return json.loads(row.get('extra') or '{}')
+    except (TypeError, ValueError):
+        return {}
+
+
 # ── 거래처 계좌 기억 ─────────────────────────────────────────────────
 def lookup_payee(partner: str) -> Optional[dict]:
     key = partner_key(partner)
@@ -359,6 +375,21 @@ def title(row: dict) -> str:
     return f"{FORM_LABELS.get(row.get('form'), '결재')} #{row['id']}"
 
 
+def step2_word(row: dict) -> str:
+    """② 단계 이름 — 자금집행 '이체', 비품 신청 '구매'."""
+    return _STEP2.get(row.get('form'), _STEP2[FORM_FUND])
+
+
+def status_label(row: dict) -> tuple:
+    """(이모지, 이름) — ② 단계 이름이 양식마다 달라서(이체 대기 / 구매 대기)."""
+    st = row.get('status')
+    if st == APPROVED:
+        return '🔵', f'{step2_word(row)} 대기'
+    if st == DONE:
+        return '🟢', f'{step2_word(row)} 완료'
+    return STATUS_LABELS.get(st, ('', st))
+
+
 def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일') -> str:
     """'결재: ✅ 고광일 승인 10.30 14:20 → ⏳ 이체' 한 줄."""
     by = {s['step']: s for s in step_rows}
@@ -372,29 +403,40 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
         first = f"❌ {a['actor_name']} 반려 {_fmt_when(a['at'])}"
     else:
         first = f'⏳ {approver_name} 승인' if st == PENDING else f'⏸ {approver_name} 승인'
+    w = step2_word(row)
     t = by.get('transfer')
     if t:
-        second = f"✅ {t['actor_name']} 이체 {_fmt_when(t['at'])}"
+        second = f"✅ {t['actor_name']} {w} {_fmt_when(t['at'])}"
     elif st == APPROVED:
-        second = '⏳ 이체'
+        second = f'⏳ {w}'
     else:
-        second = '⏸ 이체'
+        second = f'⏸ {w}'
     return f'결재: {first} → {second}'
 
 
 def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount: int = 0) -> str:
-    emoji, label = STATUS_LABELS.get(row.get('status'), ('', row.get('status')))
-    from dashboard.services.purchase_invoice_assign import cost_label
+    emoji, label = status_label(row)
     lines = [f"{emoji} *{title(row)}* · {label}"
              + (' · 🚨 긴급' if row.get('urgency') == '긴급' else ''),
              f'*{project_line}*']
     content = (row.get('content') or '').strip()
-    lines.append(cost_label(row.get('cost_category')) + (f' — {content}' if content else ''))
-    lines.append(f"거래처: {row.get('partner') or '-'} ({row.get('grn') or '-'} · {row.get('evidence') or '-'})")
-    lines.append(f"이체 계좌: {row.get('bank') or '-'} {row.get('account') or '-'} ({row.get('payee_name') or '-'})")
-    lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
-    if quote_amount:
-        lines.append(f'고객 견적(VAT 별도): {int(quote_amount):,}원')
+    if row.get('form') == FORM_SUPPLY:
+        x = extra(row)
+        qty, unit = int(x.get('qty') or 0), int(x.get('unit_price') or 0)
+        lines.append(f'품명: {content or "-"}' + (f' × {qty}개 (단가 {unit:,}원)' if qty and unit else ''))
+        if x.get('link'):
+            lines.append(f"상품: <{x['link']}|상품 보기>")
+        lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
+        if x.get('reason'):
+            lines.append(f"사유: {x['reason']}")
+    else:
+        from dashboard.services.purchase_invoice_assign import cost_label
+        lines.append(cost_label(row.get('cost_category')) + (f' — {content}' if content else ''))
+        lines.append(f"거래처: {row.get('partner') or '-'} ({row.get('grn') or '-'} · {row.get('evidence') or '-'})")
+        lines.append(f"이체 계좌: {row.get('bank') or '-'} {row.get('account') or '-'} ({row.get('payee_name') or '-'})")
+        lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
+        if quote_amount:
+            lines.append(f'고객 견적(VAT 별도): {int(quote_amount):,}원')
     memo = (row.get('memo') or '').strip()
     if memo:
         lines.append(f'비고: {memo}')
@@ -432,7 +474,10 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
     out = []
     if st == PENDING and role in ('all', 'approver'):
         out += [_btn('승인', A_APPROVE, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
-    if st == APPROVED and role in ('all', 'executor'):
+    if st == APPROVED and role in ('all', 'executor') and row.get('form') == FORM_SUPPLY:
+        out.append(_btn('🛒 구매 완료', A_TRANSFER, aid, 'primary', _confirm(
+            '구매 완료', f"{row.get('content') or '비품'} ({amt})\n구매를 마쳤나요?", '구매 완료')))
+    elif st == APPROVED and role in ('all', 'executor'):
         out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
             '이체 완료', f"{row.get('bank')} {row.get('account')} ({row.get('payee_name')})\n{amt} 이체를 마쳤나요?",
             '이체 완료')))
@@ -450,8 +495,9 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
     if btns:
         blocks.append({'type': 'actions', 'elements': btns})
     if row.get('status') in OPEN_STATUSES and role == 'all':
-        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn',
-                       'text': '견적서·계산서·영수증은 이 카드 스레드에 올려 주세요.'}]})
+        hint = ('상품 캡처·견적은 이 카드 스레드에 올려 주세요.' if row.get('form') == FORM_SUPPLY
+                else '견적서·계산서·영수증은 이 카드 스레드에 올려 주세요.')
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': hint}]})
     return blocks
 
 
@@ -460,7 +506,8 @@ def dm_intro(row: dict, role: str) -> str:
     if role == 'approver':
         return f"{row.get('requester_name') or '-'}님이 {title(row)} 승인을 요청했어요."
     if role == 'executor':
-        return f'{title(row)} 승인이 끝났어요. 이체하고 [이체 완료]를 눌러 주세요.'
+        w = step2_word(row)
+        return f'{title(row)} 승인이 끝났어요. {w}하고 [{w} 완료]를 눌러 주세요.'
     return f'{title(row)} 요청을 올렸어요. 진행되면 이 메시지가 바뀝니다.'
 
 
@@ -468,11 +515,16 @@ def menu_blocks() -> List[dict]:
     """#전자_결재 맨 위에 고정해 둘 메뉴."""
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text':
-            '*전자결재 요청*\n현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요. '
-            '계산서 없이 먼저 보내야 하는 돈은 아래 버튼으로 요청하세요.'}},
-        {'type': 'actions', 'elements': [{
-            'type': 'button', 'action_id': A_NEW, 'style': 'primary',
-            'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True}}]},
+            '*전자결재 요청*\n'
+            '• 계산서 없이 먼저 보내야 하는 돈 → 💸 자금집행 요청\n'
+            '• 사무실 비품, 회사 재고로 살 물건 → 🛒 비품 신청\n'
+            '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}},
+        {'type': 'actions', 'elements': [
+            {'type': 'button', 'action_id': A_NEW, 'style': 'primary',
+             'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True}},
+            {'type': 'button', 'action_id': A_NEW_SUPPLY,
+             'text': {'type': 'plain_text', 'text': '🛒 비품 신청', 'emoji': True}},
+        ]},
     ]
 
 
@@ -597,4 +649,76 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
             errs['account'] = '처음 요청하는 거래처예요. 예금주·은행·계좌를 넣어 주세요.'
     if 'account' not in errs:
         errs.update(validate_transfer(f.get('payee_name'), f.get('bank'), f.get('account')))
+    return errs
+
+
+# ── 비품 신청 모달 (11-01) ────────────────────────────────────────────
+def supply_request_view(meta: dict) -> dict:
+    """비품 신청 — 플렉스 「비품 신청(프로젝트0)」 칸 그대로. 현장은 프로젝트0 고정."""
+    def _text(block_id, label, placeholder, optional=False, multiline=False, hint=''):
+        b = {'type': 'input', 'block_id': block_id, 'optional': optional,
+             'label': {'type': 'plain_text', 'text': label},
+             'element': {'type': 'plain_text_input', 'action_id': block_id, 'multiline': multiline}}
+        if placeholder:   # 빈 placeholder 는 슬랙이 창 자체를 거부한다
+            b['element']['placeholder'] = {'type': 'plain_text', 'text': placeholder}
+        if hint:
+            b['hint'] = {'type': 'plain_text', 'text': hint}
+        return b
+
+    qty = _text('qty', '수량', '예: 2')
+    qty['element']['initial_value'] = '1'
+    return {
+        'type': 'modal', 'callback_id': CB_SUPPLY,
+        'title': {'type': 'plain_text', 'text': '비품 신청'},
+        'submit': {'type': 'plain_text', 'text': '신청'},
+        'close': {'type': 'plain_text', 'text': '취소'},
+        'private_metadata': json.dumps(meta),
+        'blocks': [
+            {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '프로젝트0 · 회사 재고로 처리됩니다.'}]},
+            _text('item', '품명', '예: A4 용지 박스'),
+            _text('link', '상품 링크', '예: https://www.coupang.com/vp/products/…',
+                  hint='살 상품 페이지 주소를 붙여 넣어 주세요.'),
+            qty,
+            _text('unit_price', '단가 (VAT 포함, 원)', '예: 25000'),
+            _text('amount', '총 금액 (VAT 포함, 원)', '배송비가 있으면 더해서 입력', optional=True,
+                  hint='비우면 수량 × 단가로 계산합니다.'),
+            _text('reason', '사유', '예: 사무실 용지 소진', multiline=True),
+            _text('memo', '비고', '', optional=True, multiline=True),
+        ],
+    }
+
+
+def read_supply_request(view: dict) -> Dict:
+    """비품 신청 모달 값 → 필드(검사 전)."""
+    v = view['state']['values']
+
+    def _txt(bid):
+        return (((v.get(bid) or {}).get(bid) or {}).get('value') or '').strip()
+
+    return {
+        'content': _txt('item'), 'link': _txt('link'), 'qty': parse_amount(_txt('qty')),
+        'unit_price': parse_amount(_txt('unit_price')), 'amount': parse_amount(_txt('amount')),
+        'reason': _txt('reason'), 'memo': _txt('memo'),
+    }
+
+
+def complete_supply_request(f: Dict) -> Dict[str, str]:
+    """비품 신청 값 검사 + 총 금액 채움 + 장부 필드로 정리. 오류 {block_id: 문구}. f 를 고친다."""
+    from dashboard.services.purchase_invoice_assign import STOCK_CODE
+    errs = {}
+    if not f.get('content'):
+        errs['item'] = '품명을 넣어 주세요.'
+    if not re.match(r'https?://\S+', f.get('link') or ''):
+        errs['link'] = '상품 페이지 주소(http로 시작)를 넣어 주세요.'
+    if f.get('qty', 0) <= 0:
+        errs['qty'] = '수량을 숫자로 넣어 주세요.'
+    if f.get('unit_price', 0) <= 0:
+        errs['unit_price'] = '단가를 숫자로 넣어 주세요.'
+    if not f.get('reason'):
+        errs['reason'] = '사유를 적어 주세요.'
+    if not f.get('amount') and 'qty' not in errs and 'unit_price' not in errs:
+        f['amount'] = f['qty'] * f['unit_price']
+    f.update(project_code=STOCK_CODE, urgency='일반',
+             extra={'link': f.get('link'), 'qty': f.get('qty'), 'unit_price': f.get('unit_price'),
+                    'reason': f.get('reason')})
     return errs

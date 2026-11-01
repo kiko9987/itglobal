@@ -5,6 +5,7 @@ create_app() 을 부르지 않는다(스케줄러 이중 기동 방지) — 슬�
 
   .venv/Scripts/python.exe scripts/eapproval_post_menu.py           # 미리보기
   .venv/Scripts/python.exe scripts/eapproval_post_menu.py --apply   # 실제로 올림
+  .venv/Scripts/python.exe scripts/eapproval_post_menu.py --update 1793366788.175229   # 올린 메뉴 고치기(새 양식 추가 때)
 """
 import argparse
 import os
@@ -19,6 +20,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--apply', action='store_true')
+    ap.add_argument('--update', metavar='TS', help='이미 올린 메뉴 메시지 ts')
     args = ap.parse_args()
 
     from dashboard.services import e_approval as ea
@@ -27,6 +29,10 @@ def main():
     ch = ea.channel_id()
     print(f'채널: {ch or "(SLACK_EAPPROVAL_CHANNEL 없음)"} / 봇 설정: {se.is_configured()}')
     print(ea.menu_blocks()[0]['text']['text'])
+    if args.update:
+        se.update_menu(args.update)
+        print(f'메뉴를 고쳤습니다: ts={args.update}')
+        return
     if not args.apply:
         print('\n미리보기만 했습니다. 올리려면 --apply')
         return
