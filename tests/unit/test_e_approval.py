@@ -525,7 +525,9 @@ def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
 
 def test_cardpay_fee_and_validation():
     vals = {'project': 'R4120-YM', 'card_co': '신한', 'card_no': '1234-5678-9012-3456', 'expiry': '08/29',
-            'sales': '1,000,000', 'installment': '0'}
+            'sales': '1,000,000', 'installment': '3개월'}
+    inst = next(f for f in forms.get(forms.FORM_CARDPAY).fields if f.key == 'installment')
+    assert inst.kind == 'select' and inst.options[0] == '일시불' and inst.options[-1] == '12개월'
     assert forms.validate(forms.FORM_CARDPAY, vals) == {}
     assert forms.amount_of(forms.FORM_CARDPAY, vals) == 1030000
     assert forms.doc_title(forms.FORM_CARDPAY, vals, 'x') == 'R카드결제 요청'

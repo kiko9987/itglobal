@@ -24,6 +24,7 @@ A_FORM_PROJECT = 'eap_fproject'   # 양식 창 현장 external_select (고르면
 CB_FORM = 'eap_form_submit'
 
 CARD_COMPANIES = ['국민', '신한', '삼성', '현대', '롯데', '하나', '우리', '비씨', '농협', '씨티', '기타']
+INSTALLMENTS = ['일시불'] + [f'{n}개월' for n in range(2, 13)]   # 카드사 앱처럼(1개월 할부는 없음)
 GUARANTEE_TYPES = ['입찰보증', '계약보증', '선금보증', '하자보증', '지급보증', '공사이행보증']
 CORP_DOC_TYPES = ['인감증명서', '사용인감계', '법인등기사항전부증명서', '주주명부', '재무제표', '부가가치세증명원',
                   '국세완납증명서', '지방세완납증명서', '4대보험완납증명서', '4대보험가입자명부', '산업재해율확인서',
@@ -105,7 +106,7 @@ _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True
               F('card_no', '카드번호', placeholder='예: 1234-5678-9012-3456'),
               F('expiry', '유효기간 (MM/YY)', placeholder='예: 08/29'),
               F('sales', '원 매출 (VAT 포함, 원)', 'money'),
-              F('installment', '할부 개월', 'number', placeholder='일시불이면 0'),
+              F('installment', '할부', 'select', options=INSTALLMENTS),
               F('memo', '비고', 'multiline', required=False),
           ]))
 
