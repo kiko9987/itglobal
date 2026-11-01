@@ -46,6 +46,7 @@ A_PROJECT = 'eap_project'             # 새 요청 모달 프로젝트 external_
 A_NEW_SUPPLY = 'eap_new_supply'       # 채널 메뉴 [🛒 비품 신청]
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 CB_SUPPLY = 'eap_supply_submit'
+SC_FUND, SC_SUPPLY = 'eap_sc_fund', 'eap_sc_supply'   # 전역 바로가기(입력창 [/] 메뉴) — manifest 와 같게
 
 _DEFAULT_APPROVERS = ('U04UL2ZLJAX',)  # 고광일
 

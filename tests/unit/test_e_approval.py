@@ -397,6 +397,32 @@ def test_dm_is_notice_with_card_link_no_buttons(se):
     assert '이체 대기' in json.dumps(upd['blocks'], ensure_ascii=False)
 
 
+def test_shortcuts_registered_and_match_manifest():
+    """입력창 [/] 바로가기 — 핸들러 등록과 manifest callback_id 가 같아야 슬랙에서 열린다."""
+    import os
+    import yaml
+    from dashboard.blueprints import slack_eapproval as se
+
+    class _App:
+        def __init__(self):
+            self.shortcuts = []
+
+        def shortcut(self, cid):
+            self.shortcuts.append(cid)
+            return lambda f: f
+
+        def __getattr__(self, name):          # action/view/command/options — 데코레이터만 흉내
+            return lambda *a, **k: (lambda f: f)
+
+    app = _App()
+    se.register_eapproval_handlers(app)
+    assert set(app.shortcuts) == {ea.SC_FUND, ea.SC_SUPPLY}
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
+    with open(path, encoding='utf-8') as fh:
+        man = yaml.safe_load(fh)
+    assert {s['callback_id'] for s in man['features']['shortcuts']} == {ea.SC_FUND, ea.SC_SUPPLY}
+
+
 def test_menu_has_both_buttons():
     ids = [e['action_id'] for e in ea.menu_blocks()[1]['elements']]
     assert ids == [ea.A_NEW, ea.A_NEW_SUPPLY]
