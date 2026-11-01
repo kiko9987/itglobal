@@ -58,6 +58,13 @@ def test_options_empty_query_without_manager_only_specials():
     assert _vals(pinv.build_project_options(RECS, '', manager_name=None)) == [pinv.STOCK_CODE, pinv.COMMON_CODE]
 
 
+def test_options_specials_filter_for_new_fund_request():
+    """자금집행 새 요청은 공통비만 — 프로젝트0(회사 재고)은 비품 신청으로."""
+    only_common = (pinv.COMMON_CODE,)
+    assert _vals(pinv.build_project_options(RECS, '', manager_name=None, specials=only_common)) == [pinv.COMMON_CODE]
+    assert _vals(pinv.build_project_options(RECS, '재고', specials=only_common)) == []
+
+
 def test_options_search_matches_code_biz_addr_partner():
     assert _vals(pinv.build_project_options(RECS, '강원')) == ['R4120-YM', 'G4100-JW']  # 거래처명·상호
     assert _vals(pinv.build_project_options(RECS, '4049')) == ['G4049-JW']

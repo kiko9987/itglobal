@@ -438,7 +438,8 @@ def register_eapproval_handlers(app) -> None:
             query = (body.get('value') or '').strip()
             mgr = None if query else _name((body.get('user') or {}).get('id', ''))
             ack(options=pinv.build_project_options(
-                get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label))
+                get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label,
+                specials=(pinv.COMMON_CODE,)))
         except Exception as exc:
             logger.error(f'{_LOG} 프로젝트 목록 실패: {exc}', exc_info=True)
             try:
