@@ -594,10 +594,12 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
 
 def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amount: int = 0,
                 role: str = 'all') -> List[dict]:
+    # 11-01 다른 채널 카드처럼 위·아래, 내용과 버튼 사이에 한 줄씩 여백.
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn',
-                                           'text': card_text(row, step_rows, project_line, quote_amount)}}]
+                                           'text': '⠀\n' + card_text(row, step_rows, project_line, quote_amount)}}]
     btns = buttons(row, role)
     if btns:
+        blocks.append(_SPACER)
         blocks.append({'type': 'actions', 'elements': btns})
     if row.get('status') in OPEN_STATUSES and role == 'all':
         form = row.get('form')
@@ -610,7 +612,11 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
         else:
             hint = '견적서·계산서·영수증은 이 카드 스레드에 올려 주세요.'
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': hint}]})
+    blocks.append(_SPACER)
     return blocks
+
+
+_SPACER = {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]}
 
 
 def dm_intro(row: dict, role: str) -> str:

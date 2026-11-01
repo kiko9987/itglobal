@@ -227,7 +227,16 @@ def test_buttons_by_status_and_role(tmp_db):
     assert ids(row, 'executor') == [ea.A_TRANSFER]
     row = ea.transition(row['id'], 'transfer', SB, '황샛별')
     assert ids(row) == []
-    assert len(ea.card_blocks(row, ea.steps(row['id']), 'G4049-JW')) == 1  # 끝나면 버튼·안내 없음
+    done = ea.card_blocks(row, ea.steps(row['id']), 'G4049-JW')
+    assert [b['type'] for b in done] == ['section', 'context']  # 끝나면 버튼·안내 없이 아래 여백만
+    assert done[0]['text']['text'].startswith('⠀\n')
+
+
+def test_card_blocks_spacing(tmp_db):
+    row = ea.create(ea.FORM_FUND, MGR, '박정우', FIELDS)
+    types = [b['type'] for b in ea.card_blocks(row, ea.steps(row['id']), 'G4049-JW')]
+    # 위 여백(본문 첫 줄) · 본문 · 여백 · 버튼 · 안내 · 아래 여백
+    assert types == ['section', 'context', 'actions', 'context', 'context']
 
 
 def test_card_text(tmp_db):
