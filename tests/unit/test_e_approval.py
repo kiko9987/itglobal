@@ -343,7 +343,7 @@ def test_supply_card_and_buttons(tmp_db):
     assert '상품 보기' in t and '사유: 용지 소진' in t and '이체 계좌' not in t and '⏳ 구매' in t
     btn = ea.buttons(row, 'executor')[0]
     assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_TRANSFER
-    assert '구매하고 [구매 완료]' in ea.dm_intro(row, 'executor')
+    assert '구매하고 카드에서 [구매 완료]' in ea.dm_intro(row, 'executor')
 
 
 def test_extra_column_added_to_existing_table(tmp_db):
@@ -378,6 +378,21 @@ def test_handle_supply_submit_validation(se):
     acks = []
     se.handle_supply_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}}, _supply_view(link='없음'))
     assert acks[0]['response_action'] == 'errors' and 'link' in acks[0]['errors']
+
+
+def test_dm_is_notice_with_card_link_no_buttons(se):
+    """DM 은 알림+카드 링크만, 버튼은 채널 카드에만(11-01)."""
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    f = se._fake
+    card, dms = f.of('chat_postMessage')[0], f.of('chat_postMessage')[1:]
+    assert any(b['type'] == 'actions' for b in card['blocks'])                     # 카드엔 승인·반려
+    appr = next(kw for kw in dms if kw['channel'] == 'D-' + KIKO)
+    assert not any(b['type'] == 'actions' for b in appr['blocks'])
+    txt = json.dumps(appr['blocks'], ensure_ascii=False)
+    assert '승인을 요청했어요' in txt and 'https://x/p' in txt and '533,500원' in txt
+    se.apply_action('approve', row['id'], KIKO)
+    upd = [kw for kw in f.of('chat_update') if kw['channel'] == 'D-' + KIKO][-1]   # 처리 뒤 상태로 바뀜
+    assert '이체 대기' in json.dumps(upd['blocks'], ensure_ascii=False)
 
 
 def test_menu_has_both_buttons():
