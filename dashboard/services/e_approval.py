@@ -25,6 +25,14 @@ FORM_SUPPLY = 'supply'   # 비품 신청(11-01) — 회사 재고(프로젝트0)
 FORM_LABELS = {FORM_FUND: '자금집행', FORM_SUPPLY: '비품 신청'}
 _STEP2 = {FORM_FUND: '이체', FORM_SUPPLY: '구매'}   # ② 단계 이름(이체 완료 / 구매 완료)
 
+# 11-01 나머지 양식(계약서·보증보험·카드결제·법인서류·법인카드 지출결의=업무요청형, 개인경비=지출형)
+from dashboard.services import e_approval_forms as forms  # noqa: E402
+
+for _k, _f in forms.FORMS.items():
+    FORM_LABELS[_k] = _f.label
+    _STEP2[_k] = '처리' if _f.kind == 'task' else '이체'
+TASK_FORMS = forms.TASK_FORMS   # 업무요청형 — 승인 없이 바로 경영지원 처리 대기, ② = 처리 완료
+
 PENDING, APPROVED, DONE, REJECTED, CANCELLED = 'pending', 'approved', 'done', 'rejected', 'cancelled'
 OPEN_STATUSES = (PENDING, APPROVED)
 STATUS_LABELS = {
@@ -45,6 +53,9 @@ A_NEW = 'eap_new'                     # 채널 메뉴 [💸 자금집행 요청]
 A_NEW_FROM_PROJECT = 'eap_new_project'  # 공사확정 카드 [💸 자금집행 요청]
 A_PROJECT = 'eap_project'             # 새 요청 모달 프로젝트 external_select
 A_NEW_SUPPLY = 'eap_new_supply'       # 채널 메뉴 [🛒 비품 신청]
+A_FORM_PICK = 'eap_form_pick'         # 채널 메뉴 「다른 결재 요청」 고르기 → 양식 창
+A_FORM_OPEN = 'eap_form_open'         # 버튼 value=양식 key → 양식 창(법인카드 월 안내 등)
+A_PROJECT_FORM_PICK = 'eap_project_form_pick'   # 공사확정 카드 「📋 결재 요청」 고르기(공사봇)
 A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 external_select(현장 미지정 계산서 글)
 A_PARTNER = 'eap_partner'             # 자금집행 모달 「거래처」 external_select(아는 거래처 + 새 거래처)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
@@ -219,9 +230,10 @@ def link_origin(aid: int, channel: str, ts: str) -> None:
 
 
 def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> dict:
-    """결재 생성. 승인자가 직접 요청하면 ① 자동 통과(바로 이체 대기)."""
-    auto = requester_id in approver_ids()
-    status = APPROVED if auto else PENDING
+    """결재 생성. 승인자가 직접 요청하면 ① 자동 통과(바로 이체 대기). 업무요청형은 승인 없이 바로 처리 대기."""
+    task = form in TASK_FORMS
+    auto = (not task) and requester_id in approver_ids()
+    status = APPROVED if (auto or task) else PENDING
     now = _now()
     cols = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
             'bank', 'account', 'amount', 'urgency', 'memo', 'origin_channel', 'origin_ts', 'extra')
@@ -340,6 +352,36 @@ def remember_payee(partner: str, payee_name: str, bank: str, account: str) -> No
         conn.commit()
 
 
+def personal_memory(uid: str) -> dict:
+    """본인 기억 — 법인카드 번호·개인경비 받을 계좌 {'card','bank','account'}.
+
+    payee_accounts 에 partner_key='card:U…'/'staff:U…', partner='@card'/'@staff' 로 둔다(거래처 목록에선 뺌)."""
+    out = {}
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        for kind in ('card', 'staff'):
+            r = conn.execute('SELECT * FROM payee_accounts WHERE partner_key=?', (f'{kind}:{uid}',)).fetchone()
+            if r and kind == 'card':
+                out['card'] = r['account']
+            elif r:
+                out.update(bank=r['bank'], account=r['account'])
+    return out
+
+
+def remember_personal(kind: str, uid: str, name: str, bank: str = '', account: str = '') -> None:
+    if not (uid and account):
+        return
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        conn.execute(
+            '''INSERT INTO payee_accounts (partner_key, partner, payee_name, bank, account, last_used)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(partner_key) DO UPDATE SET payee_name=excluded.payee_name, bank=excluded.bank,
+                 account=excluded.account, last_used=excluded.last_used''',
+            (f'{kind}:{uid}', f'@{kind}', name, bank, account, _now()))
+        conn.commit()
+
+
 # ── 입력 검사 ─────────────────────────────────────────────────────────
 def parse_amount(s) -> int:
     """'533,500원' → 533500. 숫자가 없으면 0."""
@@ -406,7 +448,8 @@ def executor_label(name: str) -> str:
 
 
 def title(row: dict) -> str:
-    return f"{FORM_LABELS.get(row.get('form'), '결재')} #{row['id']}"
+    name = extra(row).get('title') or FORM_LABELS.get(row.get('form'), '결재')
+    return f"{name} #{row['id']}"
 
 
 def step2_word(row: dict) -> str:
@@ -428,6 +471,11 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
     """'결재: ✅ KiKO 승인 10.30 14:20 → ⏳ 이체' 한 줄 (이름 대신 이니셜, ② 는 '경영지원 (SB)')."""
     by = {s['step']: s for s in step_rows}
     st = row.get('status')
+    if row.get('form') in TASK_FORMS:   # 업무요청형 — 경영지원 처리 한 단계
+        t = by.get('transfer')
+        if t:
+            return f"결재: ✅ {executor_label(t['actor_name'])} 처리 {_fmt_when(t['at'])}"
+        return '결재: ⏳ 경영지원 처리' if st == APPROVED else '결재: ⏸ 경영지원 처리'
     a = by.get('approve')
     ap = initial(approver_name)
     if a and a['result'] == 'auto':
@@ -455,7 +503,9 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
              + (' · 🚨 긴급' if row.get('urgency') == '긴급' else ''),
              f'*{project_line}*']
     content = (row.get('content') or '').strip()
-    if row.get('form') == FORM_SUPPLY:
+    if row.get('form') in forms.FORMS:
+        lines += forms.card_lines(row['form'], extra(row).get('f') or {})
+    elif row.get('form') == FORM_SUPPLY:
         x = extra(row)
         qty, unit = int(x.get('qty') or 0), int(x.get('unit_price') or 0)
         lines.append(f'품명: {content or "-"}' + (f' × {qty}개 (단가 {unit:,}원)' if qty and unit else ''))
@@ -510,7 +560,17 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
     out = []
     if st == PENDING and role in ('all', 'approver'):
         out += [_btn('승인', A_APPROVE, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
-    if st == APPROVED and role in ('all', 'executor') and row.get('form') == FORM_SUPPLY:
+    form = row.get('form')
+    if st == APPROVED and role in ('all', 'executor') and form in TASK_FORMS:
+        out.append(_btn('✅ 처리 완료', A_TRANSFER, aid, 'primary', _confirm(
+            '처리 완료', f'{title(row)} 처리를 마쳤나요?', '처리 완료')))
+        out.append(_btn('반려', A_REJECT, aid, 'danger'))   # 내용이 모자라면 경영지원이 사유와 함께 돌려보냄
+    elif st == APPROVED and role in ('all', 'executor') and form == forms.FORM_EXPENSE:
+        f = extra(row).get('f') or {}
+        out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
+            '이체 완료', f"{f.get('bank')} {f.get('account')} ({row.get('requester_name')})\n{amt} 이체를 마쳤나요?",
+            '이체 완료')))
+    elif st == APPROVED and role in ('all', 'executor') and form == FORM_SUPPLY:
         out.append(_btn('🛒 구매 완료', A_TRANSFER, aid, 'primary', _confirm(
             '구매 완료', f"{row.get('content') or '비품'} ({amt})\n구매를 마쳤나요?", '구매 완료')))
     elif st == APPROVED and role in ('all', 'executor'):
@@ -531,8 +591,15 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
     if btns:
         blocks.append({'type': 'actions', 'elements': btns})
     if row.get('status') in OPEN_STATUSES and role == 'all':
-        hint = ('상품 캡처·견적은 이 카드 스레드에 올려 주세요.' if row.get('form') == FORM_SUPPLY
-                else '견적서·계산서·영수증은 이 카드 스레드에 올려 주세요.')
+        form = row.get('form')
+        if form == FORM_SUPPLY:
+            hint = '상품 캡처·견적은 이 카드 스레드에 올려 주세요.'
+        elif form in (forms.FORM_CARDEXP, forms.FORM_EXPENSE):
+            hint = '영수증은 이 카드 스레드에 올려 주세요.'
+        elif form in TASK_FORMS:
+            hint = '필요한 파일은 이 카드 스레드에 올려 주세요. 경영지원은 결과 파일을 스레드에 올리고 [처리 완료]를 눌러 주세요.'
+        else:
+            hint = '견적서·계산서·영수증은 이 카드 스레드에 올려 주세요.'
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': hint}]})
     return blocks
 
@@ -543,6 +610,9 @@ def dm_intro(row: dict, role: str) -> str:
     w = step2_word(row)
     if role == 'approver' and st == PENDING:
         return f"🔔 {initial(row.get('requester_name'))}님이 {title(row)} 승인을 요청했어요. 카드에서 [승인]이나 [반려]를 눌러 주세요."
+    if role == 'executor' and st == APPROVED and row.get('form') in TASK_FORMS:
+        return (f"🔔 {initial(row.get('requester_name'))}님이 {title(row)}을 올렸어요. "
+                '처리하고 카드에서 [처리 완료]를 눌러 주세요.')
     if role == 'executor' and st == APPROVED:
         return f'🔔 {title(row)} 승인이 끝났어요. {w}하고 카드에서 [{w} 완료]를 눌러 주세요.'
     if role == 'requester' and st in OPEN_STATUSES:
@@ -553,8 +623,16 @@ def dm_intro(row: dict, role: str) -> str:
 
 def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> List[dict]:
     """DM = 알림 + 한 줄 요약 + 카드 링크. 버튼은 채널 카드에만 둔다(누르는 곳 한 군데)."""
-    what = (row.get('content') if row.get('form') == FORM_SUPPLY else row.get('partner')) or '-'
-    summary = f"{project_line} · {what} · *{int(row.get('amount') or 0):,}원*"
+    form = row.get('form')
+    if form in forms.FORMS:
+        what = forms.summary(form, extra(row).get('f') or {})
+    else:
+        what = (row.get('content') if form == FORM_SUPPLY else row.get('partner')) or '-'
+    amt = int(row.get('amount') or 0)
+    summary = f"{project_line} · {what}" + (f' · *{amt:,}원*' if amt else '')
+    if form == forms.FORM_EXPENSE and role == 'executor':   # 개인 계좌는 카드엔 안 보이고 경영지원 DM 에만
+        f = extra(row).get('f') or {}
+        summary += f"\n이체 계좌: {f.get('bank') or '-'} {f.get('account') or '-'} ({row.get('requester_name') or '-'})"
     link = (f'<{card_link}|👉 결재 카드 열기>' if card_link
             else '#전자_결재 채널의 카드에서 처리해 주세요.')
     return [
@@ -571,12 +649,15 @@ def menu_blocks() -> List[dict]:
             '*전자결재 요청*\n'
             '• 계산서 없이 먼저 보내야 하는 돈 → 💸 자금집행 요청\n'
             '• 사무실 비품, 회사 재고로 살 물건 → 🛒 비품 신청\n'
+            '• 계약서·보증보험·카드결제·법인서류·개인경비·법인카드 지출결의 → 📋 다른 결재 요청\n'
             '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}},
         {'type': 'actions', 'elements': [
             {'type': 'button', 'action_id': A_NEW, 'style': 'primary',
              'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True}},
             {'type': 'button', 'action_id': A_NEW_SUPPLY,
              'text': {'type': 'plain_text', 'text': '🛒 비품 신청', 'emoji': True}},
+            {'type': 'static_select', 'action_id': A_FORM_PICK, 'options': forms.menu_options(),
+             'placeholder': {'type': 'plain_text', 'text': '📋 다른 결재 요청', 'emoji': True}},
         ]},
     ]
 
@@ -646,7 +727,8 @@ def known_partners() -> List[str]:
             names.append(n)
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
-        for r in conn.execute('SELECT partner FROM payee_accounts ORDER BY last_used DESC').fetchall():
+        for r in conn.execute("SELECT partner FROM payee_accounts WHERE partner NOT LIKE '@%' "
+                              'ORDER BY last_used DESC').fetchall():
             _add(r['partner'])
     try:
         from dashboard.services.purchase_invoice_assign import recent_partners
