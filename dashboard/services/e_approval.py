@@ -682,6 +682,19 @@ def _opts(pairs) -> List[dict]:
     return [{'text': {'type': 'plain_text', 'text': label}, 'value': v} for v, label in pairs]
 
 
+def grn_block(initial: str = '') -> dict:
+    """사업자 구분 — 어느 사업자 통장에서 돈이 나가는지 정하는 칸이라 필수(11-01)."""
+    opts = _opts(GRN_TYPES)
+    el = {'type': 'static_select', 'action_id': 'grn', 'options': opts,
+          'placeholder': {'type': 'plain_text', 'text': '글로벌 / 글로벌그룹 / 사업자 없음'}}
+    pick = next((o for o in opts if o['value'] == initial), None)
+    if pick:
+        el['initial_option'] = pick
+    return {'type': 'input', 'block_id': 'grn', 'label': {'type': 'plain_text', 'text': '사업자 구분'},
+            'hint': {'type': 'plain_text', 'text': '어느 사업자 통장에서 돈이 나가는지 골라 주세요.'},
+            'element': el}
+
+
 PAYEE_SAVED_NOTE = '💡 예전에 이 거래처로 보낸 계좌를 채웠어요. 계좌가 바뀌었을 수 있으니 한 번 더 확인해 주세요.'
 
 
@@ -871,13 +884,9 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
             {'type': 'input', 'block_id': 'amount', 'label': {'type': 'plain_text', 'text': '금액 (VAT 포함, 원)'},
              'element': {'type': 'plain_text_input', 'action_id': 'amount',
                          'placeholder': {'type': 'plain_text', 'text': '예: 277200'}}},
-            {'type': 'input', 'block_id': 'grn', 'optional': True,
-             'label': {'type': 'plain_text', 'text': '사업자 구분'},
-             'hint': {'type': 'plain_text', 'text': '비우면 공사코드(G/R)를 따릅니다. 공통비는 골라 주세요.'},
-             'element': {'type': 'static_select', 'action_id': 'grn',
-                         'options': _opts(GRN_TYPES),
-                         'placeholder': {'type': 'plain_text', 'text': '글로벌 / 글로벌그룹 / 사업자 없음'}}},
         ]
+    if not inv or not (inv.get('parsed') or {}).get('grn'):
+        blocks.append(grn_block(grn_from_code(fixed_project)))
     # 이체 계좌 — 거래처(또는 계산서)를 고르면 예전에 보낸 계좌를 창에 채워 보여 주고 확인 안내(11-01)
     payee = meta.get('payee')
     if payee:
@@ -927,7 +936,7 @@ def read_new_request(view: dict) -> Dict:
     inv = meta.get('inv')
     if inv:   # 계산서 글 값으로 — 그 글 스레드에도 결과가 남게 origin 연결
         p = inv['parsed']
-        f.update(partner=p.get('partner', ''), amount=int(p.get('amount') or 0), grn=p.get('grn', ''),
+        f.update(partner=p.get('partner', ''), amount=int(p.get('amount') or 0), grn=p.get('grn') or f['grn'],
                  origin_channel=inv['ch'], origin_ts=inv['ts'], _inv_parsed=p)
     return f
 
@@ -944,9 +953,7 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
     if f.get('amount', 0) <= 0:
         errs['amount'] = '금액을 숫자로 넣어 주세요.'
     if not f.get('grn'):
-        f['grn'] = grn_from_code(f.get('project_code', ''))
-        if not f['grn'] and 'project' not in errs:
-            errs['grn'] = '공통비는 사업자 구분을 골라 주세요.'
+        errs['grn'] = '어느 사업자 통장에서 나가는지 골라 주세요.'
     if not (f.get('payee_name') or f.get('bank') or f.get('account')):
         saved = lookup_payee(f.get('partner', ''))
         if saved:
