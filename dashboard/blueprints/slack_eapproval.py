@@ -229,24 +229,25 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     client = eap_client()
     amt = f"{int(new.get('amount') or 0):,}원"
     t = ea.title(new)
+    ini, ex = ea.initial(name), ea.executor_label(name)   # 화면엔 이니셜, ② 는 '경영지원 (SB)'
     if action == 'approve':
-        _thread_log(new, f'✅ {name} 승인')
+        _thread_log(new, f'✅ {ini} 승인')
         _dm_round(client, new)
     elif action == 'transfer' and new.get('form') == ea.FORM_SUPPLY:
-        _thread_log(new, f'🛒 {name} 구매 완료 — {new.get("content")} {amt}', broadcast=True)
+        _thread_log(new, f'🛒 {ex} 구매 완료 — {new.get("content")} {amt}', broadcast=True)
         _notify(client, new.get('requester_id'), f'🛒 {t} 구매가 끝났어요. ({new.get("content")} {amt})')
     elif action == 'transfer':
-        _thread_log(new, f'💸 {name} 이체 완료 — {new.get("partner")} {amt}', broadcast=True)
+        _thread_log(new, f'💸 {ex} 이체 완료 — {new.get("partner")} {amt}', broadcast=True)
         _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
-        _origin_log(new, f'💸 {t} 이체 완료 ({name})')
+        _origin_log(new, f'💸 {t} 이체 완료 ({ex})')
     elif action == 'reject':
-        _thread_log(new, f'❌ {name} 반려 — {reason}')
+        _thread_log(new, f'❌ {ini} 반려 — {reason}')
         _notify(client, new.get('requester_id'), f'❌ {t} 반려됐어요. 사유: {reason}')
-        _origin_log(new, f'❌ {t} 반려 ({name}) — {reason}')
+        _origin_log(new, f'❌ {t} 반려 ({ini}) — {reason}')
     elif action == 'cancel':
-        _thread_log(new, f'⚪ {name} 요청 취소')
+        _thread_log(new, f'⚪ {ini} 요청 취소')
         if uid != new.get('requester_id'):
-            _notify(client, new.get('requester_id'), f'⚪ {t} 요청이 취소됐어요 ({name}).')
+            _notify(client, new.get('requester_id'), f'⚪ {t} 요청이 취소됐어요 ({ini}).')
     refresh(ea.get(aid))
     _audit(new, action, name, reason)
     logger.info(f'{_LOG} {t} {action} ({name})')

@@ -373,7 +373,7 @@ def _transfer_blocks(transfer: bool, payee: Optional[Dict], approval: Optional[D
                  'text': f"💸 {ea.title(approval)} {label[0]} {label[1]} — 이체 요청은 이미 올라가 있어요."}]}]
     if candidate:
         return [{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': (
-            f"💡 {ea.title(candidate)} ({candidate.get('requester_name')} · {int(candidate.get('amount') or 0):,}원)"
+            f"💡 {ea.title(candidate)} ({ea.initial(candidate.get('requester_name'))} · {int(candidate.get('amount') or 0):,}원)"
             '과 같은 건으로 보여요. 지정하면 이 계산서를 그 결재에 연결합니다.')}]}]
     opt = {'text': {'type': 'plain_text', 'text': '이체 필요 — 자금집행 결재 올리기'}, 'value': 'yes'}
     toggle = {'type': 'checkboxes', 'action_id': ACTION_TRANSFER_TOGGLE, 'options': [opt]}
