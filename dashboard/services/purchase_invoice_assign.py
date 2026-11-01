@@ -281,11 +281,16 @@ def prompt_done_blocks() -> List[dict]:
         {'type': 'mrkdwn', 'text': '📍 현장 지정 완료 — 결과는 아래 답글에 있어요.'}]}]
 
 
+def _initial(name) -> str:
+    from dashboard.services.e_approval import initial
+    return initial(name)
+
+
 def result_text(row: Dict, project_line: str, extra: str = '') -> str:
     when = str(row.get('assigned_at') or '')[5:16].replace('-', '.')
     memo = (row.get('memo') or '').strip()
     lines = [f"✅ *{project_line}*",
-             f"{cost_label(row.get('cost_category'))} · 지정 {row.get('assigned_name') or '-'} {when}"]
+             f"{cost_label(row.get('cost_category'))} · 지정 {_initial(row.get('assigned_name'))} {when}"]
     if memo:
         lines.append(f'메모: {memo}')
     if json.loads(row.get('history') or '[]'):

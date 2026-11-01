@@ -44,6 +44,7 @@ A_NEW = 'eap_new'                     # 채널 메뉴 [💸 자금집행 요청]
 A_NEW_FROM_PROJECT = 'eap_new_project'  # 공사확정 카드 [💸 자금집행 요청]
 A_PROJECT = 'eap_project'             # 새 요청 모달 프로젝트 external_select
 A_NEW_SUPPLY = 'eap_new_supply'       # 채널 메뉴 [🛒 비품 신청]
+A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 external_select(현장 미지정 계산서 글)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 CB_SUPPLY = 'eap_supply_submit'
 SC_FUND, SC_SUPPLY = 'eap_sc_fund', 'eap_sc_supply'   # 전역 바로가기(입력창 [/] 메뉴) — manifest 와 같게
@@ -605,10 +606,49 @@ def transfer_input_blocks(prefill: Optional[dict] = None, urgency: str = '일반
     ]
 
 
+INVOICE_NONE = 'none'
+
+
+def invoice_option(inv: Optional[dict]) -> dict:
+    """계산서 고르기 선택지 — inv={'ch','ts','parsed'} / None=계산서 없음."""
+    if not inv:
+        return {'text': {'type': 'plain_text', 'text': '계산서 없음 (먼저 지급)'}, 'value': INVOICE_NONE}
+    from dashboard.services.purchase_invoice_assign import post_summary
+    p = inv['parsed']
+    value = json.dumps({'ch': inv['ch'], 'ts': inv['ts'], 'd': p.get('date_md', ''), 'g': p.get('grn', ''),
+                        'a': int(p.get('amount') or 0), 'p': (p.get('partner') or '')[:40]}, ensure_ascii=False)
+    return {'text': {'type': 'plain_text', 'text': post_summary(p)[:75]}, 'value': value}
+
+
+def invoice_from_value(value: str) -> Optional[dict]:
+    if not value or value == INVOICE_NONE:
+        return None
+    v = json.loads(value)
+    return {'ch': v['ch'], 'ts': v['ts'], 'parsed': {'date_md': v.get('d', ''), 'grn': v.get('g', ''),
+                                                    'amount': int(v.get('a') or 0), 'partner': v.get('p', '')}}
+
+
 def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_label: str = '') -> dict:
-    """계산서 없이 시작하는 자금집행 모달. fixed_project 면 현장 고르기 없이 고정(공사확정 카드에서)."""
+    """자금집행 모달(11-01: 메뉴·바로가기·공사 카드 어디서 열어도 같은 창).
+
+    맨 위 「계산서」에서 #영업_관리에 올라온 현장 미지정 계산서를 고르면 거래처·금액·G/R 은 그 글 값으로
+    정해지고(meta['inv']), 제출하면 그 글의 현장 지정까지 함께 끝난다. '계산서 없음'이면 직접 입력(선지급).
+    fixed_project 면 현장 고르기 없이 고정(공사확정 카드에서)."""
     from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
-    blocks: List[dict] = []
+    inv = meta.get('inv')
+    inv_el = {'type': 'external_select', 'action_id': A_INVOICE, 'min_query_length': 0,
+              'placeholder': {'type': 'plain_text', 'text': '#영업_관리에 올라온 계산서 고르기'}}
+    if inv:
+        inv_el['initial_option'] = invoice_option(inv)
+    elif meta.get('no_inv'):
+        inv_el['initial_option'] = invoice_option(None)
+    blocks: List[dict] = [{
+        'type': 'input', 'block_id': 'invoice', 'optional': True, 'dispatch_action': True,
+        'label': {'type': 'plain_text', 'text': '계산서'}, 'element': inv_el,
+        'hint': {'type': 'plain_text', 'text': '계산서가 아직 없으면 비워 두거나 「계산서 없음」을 고르세요.'}}]
+    if inv:
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                       '📄 거래처·금액은 계산서 글 그대로 올라가고, 그 글의 현장 지정도 함께 끝납니다.'}]})
     if fixed_project:
         blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{fixed_label or fixed_project}*'}})
     else:
@@ -624,21 +664,27 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
          'element': {'type': 'static_select', 'action_id': 'cost', 'options': _opts(COST_CATEGORIES),
                      'placeholder': {'type': 'plain_text', 'text': '원가 분류'}}},
-        {'type': 'input', 'block_id': 'content', 'label': {'type': 'plain_text', 'text': '내용'},
+        {'type': 'input', 'block_id': 'content', 'optional': bool(inv),
+         'label': {'type': 'plain_text', 'text': '내용'},
          'element': {'type': 'plain_text_input', 'action_id': 'content',
                      'placeholder': {'type': 'plain_text', 'text': '예: FCU 교체 부품 구매'}}},
-        {'type': 'input', 'block_id': 'partner', 'label': {'type': 'plain_text', 'text': '거래처(상호)'},
-         'element': {'type': 'plain_text_input', 'action_id': 'partner',
-                     'placeholder': {'type': 'plain_text', 'text': '예: 에스와이에이전시'}}},
-        {'type': 'input', 'block_id': 'amount', 'label': {'type': 'plain_text', 'text': '금액 (VAT 포함, 원)'},
-         'element': {'type': 'plain_text_input', 'action_id': 'amount',
-                     'placeholder': {'type': 'plain_text', 'text': '예: 277200'}}},
-        {'type': 'input', 'block_id': 'grn', 'optional': True,
-         'label': {'type': 'plain_text', 'text': '사업자 구분'},
-         'hint': {'type': 'plain_text', 'text': '비우면 공사코드(G/R)를 따릅니다. 공통비는 골라 주세요.'},
-         'element': {'type': 'static_select', 'action_id': 'grn',
-                     'options': _opts([('G', 'G'), ('R', 'R'), ('N', 'N')]),
-                     'placeholder': {'type': 'plain_text', 'text': 'G / R / N'}}},
+    ]
+    if not inv:   # 계산서를 고르면 거래처·금액·G/R 은 그 글 값 — 칸을 숨긴다
+        blocks += [
+            {'type': 'input', 'block_id': 'partner', 'label': {'type': 'plain_text', 'text': '거래처(상호)'},
+             'element': {'type': 'plain_text_input', 'action_id': 'partner',
+                         'placeholder': {'type': 'plain_text', 'text': '예: 에스와이에이전시'}}},
+            {'type': 'input', 'block_id': 'amount', 'label': {'type': 'plain_text', 'text': '금액 (VAT 포함, 원)'},
+             'element': {'type': 'plain_text_input', 'action_id': 'amount',
+                         'placeholder': {'type': 'plain_text', 'text': '예: 277200'}}},
+            {'type': 'input', 'block_id': 'grn', 'optional': True,
+             'label': {'type': 'plain_text', 'text': '사업자 구분'},
+             'hint': {'type': 'plain_text', 'text': '비우면 공사코드(G/R)를 따릅니다. 공통비는 골라 주세요.'},
+             'element': {'type': 'static_select', 'action_id': 'grn',
+                         'options': _opts([('G', 'G'), ('R', 'R'), ('N', 'N')]),
+                         'placeholder': {'type': 'plain_text', 'text': 'G / R / N'}}},
+        ]
+    blocks += [
         {'type': 'section', 'text': {'type': 'mrkdwn',
          'text': '*이체 계좌* — 예전에 같은 거래처로 요청한 적 있으면 비워 둬도 됩니다.'}},
     ]
@@ -670,13 +716,19 @@ def read_new_request(view: dict) -> Dict:
         return (((v.get(bid) or {}).get(bid) or {}).get('value') or '').strip()
 
     meta = json.loads(view.get('private_metadata') or '{}')
-    return {
+    f = {
         'project_code': meta.get('project') or _sel('project', A_PROJECT),
         'evidence': _sel('evidence'), 'cost_category': _sel('cost'), 'content': _txt('content'),
         'partner': _txt('partner'), 'amount': parse_amount(_txt('amount')), 'grn': _sel('grn'),
         'payee_name': _txt('payee_name'), 'bank': _txt('bank'), 'account': normalize_account(_txt('account')),
         'urgency': _sel('urgency') or '일반', 'memo': _txt('memo'),
     }
+    inv = meta.get('inv')
+    if inv:   # 계산서 글 값으로 — 그 글 스레드에도 결과가 남게 origin 연결
+        p = inv['parsed']
+        f.update(partner=p.get('partner', ''), amount=int(p.get('amount') or 0), grn=p.get('grn', ''),
+                 origin_channel=inv['ch'], origin_ts=inv['ts'], _inv_parsed=p)
+    return f
 
 
 def complete_new_request(f: Dict) -> Dict[str, str]:
@@ -684,6 +736,10 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
     errs = {}
     if not f.get('project_code'):
         errs['project'] = '현장을 골라 주세요.'
+    if f.get('origin_ts'):
+        dup = find_by_origin(f['origin_channel'], f['origin_ts'])
+        if dup and dup['status'] not in (REJECTED, CANCELLED):
+            errs['invoice'] = f'이 계산서로 올린 {title(dup)}이 이미 있어요.'
     if f.get('amount', 0) <= 0:
         errs['amount'] = '금액을 숫자로 넣어 주세요.'
     if not f.get('grn'):
