@@ -661,5 +661,4 @@ def test_project_card_select_options():
     finally:
         se_mod.is_configured = orig
     assert el['type'] == 'static_select' and el['action_id'] == ea.A_PROJECT_FORM_PICK
-    assert [o['value'] for o in el['options']] == ['fund|G4049-JW', 'contract|G4049-JW', 'insurance|G4049-JW',
-                                                   'cardpay|G4049-JW']
+    assert [o['value'] for o in el['options']] == ['contract|G4049-JW', 'insurance|G4049-JW', 'cardpay|G4049-JW']
