@@ -540,6 +540,16 @@ def _form_values(form_key: str, uid: str, project_code: str = '') -> dict:
     rec = _project_rec(project_code) if project_code else None
     memory = ea.personal_memory(uid) if form_key in (ea.forms.FORM_CARDEXP, ea.forms.FORM_EXPENSE) else {}
     vals = ea.forms.prefill(form, rec, memory)
+    # 이메일 — 공사현황 발주처 이메일이 비면 거래처 탭(사업자명) 이메일로
+    mail_key = {ea.forms.FORM_CONTRACT: 'contact', ea.forms.FORM_INSURANCE: 'email'}.get(form_key)
+    if rec and mail_key and not vals.get(mail_key):
+        try:
+            from dashboard.services.partner_status_sync import get_cached_partner_email
+            mail = get_cached_partner_email(str(rec.get('사업자명') or ''))
+            if mail:
+                vals[mail_key] = mail
+        except Exception:
+            pass
     if project_code:
         vals['project'] = project_code
         vals['_project_label'] = project_display(project_code, rec)
@@ -586,6 +596,45 @@ def contract_note(code: str) -> str:
             '계약서 파일을 카드 스레드에 올려 주세요.')
 
 
+def license_note(code: str) -> str:
+    """계약서 창 안내 — 사업자등록증 판정(세금계산서 요청과 같은 규칙: 공사 폴더 > 같은 사업자 재사용 > 거래처 탭)."""
+    if not code:
+        return ''
+    rec = _project_rec(code) or {}
+    biz = str(rec.get('사업자명') or '').strip()
+    if biz in ('', '-', 'None'):
+        return 'ℹ️ 공사현황에 사업자명이 없어요. 개인 고객이면 등록증 없이 진행하고, 사업자 고객이면 사업자명부터 넣어 주세요.'
+    try:
+        from dashboard.services.business_license_handler import get_license_state
+        st = get_license_state(code) or {}
+    except Exception as exc:
+        logger.warning(f'{_LOG} 등록증 상태 조회 실패 ({code}): {exc}')
+        return ''
+    link = f" · <{st['view_url']}|보기>" if st.get('view_url') else ''
+    if st.get('source') == 'own':
+        return f'✅ 사업자등록증 있음 ({biz}){link}'
+    if st.get('source') == 'reuse':
+        return f'✅ 같은 사업자({biz})의 사업자등록증이 있어요{link}'
+    if st.get('source') == 'partner':
+        try:
+            from dashboard.services.partner_status_sync import get_partner_info
+            bno = (get_partner_info(biz) or {}).get('bno') or ''
+        except Exception:
+            bno = ''
+        return f'✅ 거래처 탭에 등록된 거래처예요 ({biz}{" · " + bno if bno else ""}). 등록증 파일 없이 진행할 수 있어요.'
+    return f'⚠️ {biz}의 사업자등록증이 없어요. 공사 카드 스레드나 PM에서 올려 주세요.'
+
+
+def _form_notes(form_key: str, code: str) -> str:
+    if not code:
+        return ''
+    if form_key == ea.forms.FORM_INSURANCE:
+        return contract_note(code)
+    if form_key == ea.forms.FORM_CONTRACT:
+        return license_note(code)
+    return ''
+
+
 def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_code: str = '') -> None:
     """양식 창 — 불러오는 창을 먼저 열고(3초 trigger) 공사현황·기억 값을 채워 바꾼다."""
     form = ea.forms.get(form_key)
@@ -596,8 +645,9 @@ def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_co
         try:
             vals = _form_values(form_key, uid, project_code)
             meta = {'form': form_key, 'project': project_code, 'pv': 1}
-            if form_key == ea.forms.FORM_INSURANCE and project_code:
-                meta['extra_note'] = contract_note(project_code)
+            note = _form_notes(form_key, project_code)
+            if note:
+                meta['extra_note'] = note
             client.views_update(view_id=view_id, view=ea.forms.form_view(
                 form_key, meta, vals, project_label=vals.get('_project_label', '')))
         except Exception as exc:
@@ -685,23 +735,26 @@ def _register_form_handlers(app) -> None:
 
     @app.action(ea.forms.A_FORM_PROJECT)
     def handle_form_project_pick(ack, body, client):
-        """현장을 고르면 총액·인수자·연락처 등을 공사현황 값으로 채운다(그 칸 block_id 를 바꿔 새 값이 보이게)."""
+        """현장을 고르면 총액·인수자·연락처 등을 공사현황 값으로 채운다(그 칸 block_id 를 바꿔 새 값이 보이게).
+
+        등록증 조회(Drive)가 느릴 수 있어 응답 뒤 백그라운드에서."""
         ack()
-        try:
-            view = body['view']
-            meta = json.loads(view.get('private_metadata') or '{}')
-            code = (body['actions'][0].get('selected_option') or {}).get('value') or ''
-            uid = (body.get('user') or {}).get('id', '')
-            vals = _form_values(meta['form'], uid, code)
-            vals.update({k: v for k, v in ea.forms.read_form(view)[1].items()
-                         if v and k not in vals and k != 'project'})   # 펼쳐 둔 칸(보증 등) 유지
-            meta['pv'] = int(meta.get('pv') or 0) + 1
-            if meta['form'] == ea.forms.FORM_INSURANCE:
-                meta['extra_note'] = contract_note(code)
-            client.views_update(view_id=view['id'], hash=view.get('hash'),
-                                view=ea.forms.form_view(meta['form'], meta, vals))
-        except Exception as exc:
-            logger.error(f'{_LOG} 양식 현장 반영 실패: {exc}', exc_info=True)
+        view = body['view']
+        code = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+        uid = (body.get('user') or {}).get('id', '')
+
+        def _bg():
+            try:
+                meta = json.loads(view.get('private_metadata') or '{}')
+                vals = _form_values(meta['form'], uid, code)
+                vals.update({k: v for k, v in ea.forms.read_form(view)[1].items()
+                             if v and k not in vals and k != 'project'})   # 펼쳐 둔 칸(보증 등) 유지
+                meta['pv'] = int(meta.get('pv') or 0) + 1
+                meta['extra_note'] = _form_notes(meta['form'], code)
+                client.views_update(view_id=view['id'], view=ea.forms.form_view(meta['form'], meta, vals))
+            except Exception as exc:
+                logger.error(f'{_LOG} 양식 현장 반영 실패: {exc}', exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
 
     @app.action('guarantees')
     def handle_guarantees_pick(ack, body, client):

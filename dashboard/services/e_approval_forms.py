@@ -72,8 +72,9 @@ def _add(form: Form) -> None:
 
 
 _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card=True, amount_key='total',
-          note='현장을 고르면 총액·인수자·연락처가 공사현황 값으로 채워져요. 사업자등록증은 공사 카드 스레드에 있어야 해요.',
-          note_fixed='사업자등록증은 공사 카드 스레드에 있어야 해요.',
+          # 사업자등록증 확인은 현장이 정해지면 상태(공사 폴더·같은 사업자·거래처 탭)로 따로 보여 준다(extra_note)
+          note='현장을 고르면 총액·인수자·연락처가 공사현황 값으로 채워지고, 사업자등록증 확인 결과가 보여요.',
+          note_fixed='',
           fields=[
               F('project', '현장', 'project'),
               F('deposit', '계약금 (VAT 포함, 원)', 'money', required=False),
