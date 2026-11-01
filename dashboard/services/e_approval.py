@@ -198,6 +198,15 @@ def find_by_origin(channel: str, ts: str) -> Optional[dict]:
         return dict(r) if r else None
 
 
+def find_by_project(form: str, project_code: str) -> List[dict]:
+    """그 현장의 그 양식 결재(반려·취소 제외, 최근 순) — 보증보험 창에서 계약서 확인용."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        return [dict(r) for r in conn.execute(
+            'SELECT * FROM approvals WHERE form=? AND project_code=? AND status NOT IN (?,?) ORDER BY id DESC',
+            (form, project_code, REJECTED, CANCELLED)).fetchall()]
+
+
 def partner_key(name: str) -> str:
     """거래처 이름 비교용 — (주)·㈜·주식회사·공백·기호 제거, 소문자."""
     s = re.sub(r'\(주\)|㈜|주식회사|\(유\)|유한회사', '', name or '')

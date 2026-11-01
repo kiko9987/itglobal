@@ -26,6 +26,9 @@ CB_FORM = 'eap_form_submit'
 CARD_COMPANIES = ['국민', '신한', '삼성', '현대', '롯데', '하나', '우리', '비씨', '농협', '씨티', '기타']
 INSTALLMENTS = ['일시불'] + [f'{n}개월' for n in range(2, 13)]   # 카드사 앱처럼(1개월 할부는 없음)
 GUARANTEE_TYPES = ['입찰보증', '계약보증', '선금보증', '하자보증', '지급보증', '공사이행보증']
+# 계약서에 적어 두는 보증(11-01) — 보증보험 신청 종류와 같은 이름이라 그대로 맞춰 본다
+CONTRACT_GUARANTEES = ['계약보증', '선금보증', '하자보증']
+GUARANTEE_KEYS = {'계약보증': 'g_contract', '선금보증': 'g_advance', '하자보증': 'g_defect'}
 CORP_DOC_TYPES = ['인감증명서', '사용인감계', '법인등기사항전부증명서', '주주명부', '재무제표', '부가가치세증명원',
                   '국세완납증명서', '지방세완납증명서', '4대보험완납증명서', '4대보험가입자명부', '산업재해율확인서',
                   '중소기업확인서', '신용평가보고서', '고용보험완납증명서', '건설업등록증', '면허수첩', '기타']
@@ -43,6 +46,8 @@ class F:
     hint: str = ''
     auto: str = ''          # 현장을 고르면 채울 공사현황 칸(또는 특수값)
     card: bool = True       # 카드에 보일지
+    show_if: Optional[Tuple[str, str]] = None   # (칸 key, 값) — 그 칸에서 값을 골랐을 때만 보이는 칸
+    dispatch: bool = False  # 고르면 창을 다시 그림(show_if 칸 펼치기)
 
 
 @dataclass
@@ -83,8 +88,12 @@ _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card
               F('delivery', '납기 및 제품인도 기간', 'date', required=False),
               F('send', '계약서 발송 방법', 'select', options=['이메일', '카카오톡', '대면']),
               F('contact', '이메일 또는 전화번호', auto='발주처 이메일'),
-              F('memo', '비고', 'multiline', required=False,
-                hint='계약·선급·하자 보증보험이 필요하면 보증금율·기간을 적어 주세요.'),
+              F('guarantees', '보증보험', 'multiselect', required=False, options=CONTRACT_GUARANTEES, dispatch=True,
+                card=False, hint='계약서에 적힌 보증만 나중에 보증보험을 신청할 수 있어요. 고르면 보증금율·기간 칸이 생겨요.'),
+              *[f for g, k in GUARANTEE_KEYS.items() for f in (
+                  F(f'{k}_rate', f'{g} 보증금율 (%)', 'number', placeholder='예: 10', show_if=('guarantees', g), card=False),
+                  F(f'{k}_years', f'{g} 기간 (년)', 'number', placeholder='예: 2', show_if=('guarantees', g), card=False))],
+              F('memo', '비고', 'multiline', required=False),
           ]))
 
 _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card=True, amount_key='total',
@@ -272,7 +281,11 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
     note = form.note_fixed if (meta.get('project') and form.note_fixed is not None) else form.note
     if note:
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': note}]})
+    if meta.get('extra_note'):   # 보증보험: 이 현장 계약서에 적힌 보증 안내
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': meta['extra_note']}]})
     for f in form.fields:
+        if not is_shown(f, values):
+            continue
         if f.kind == 'project' and meta.get('project'):
             blocks.append({'type': 'section', 'text': {'type': 'mrkdwn',
                                                        'text': f'*현장* {project_label or meta["project"]}'}})
@@ -280,6 +293,8 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
         v = values.get(f.key, '')
         b = {'type': 'input', 'block_id': f.key + (sfx if f.auto and f.kind != 'project' else ''),
              'optional': not f.required, 'label': _plain(f.label), 'element': _element(form, f, v, today)}
+        if f.dispatch:
+            b['dispatch_action'] = True
         if f.kind == 'project':
             b['dispatch_action'] = True
             if v and values.get('_project_label'):
@@ -294,6 +309,26 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
         'private_metadata': json.dumps({**meta, 'form': form_key}),
         'blocks': blocks,
     }
+
+
+def is_shown(f: F, vals: Dict) -> bool:
+    if not f.show_if:
+        return True
+    key, want = f.show_if
+    got = vals.get(key) or []
+    return want in (got if isinstance(got, list) else [got])
+
+
+def guarantee_summary(vals: Dict) -> str:
+    """'하자보증 3% · 2년, 계약보증 10% · 1년' — 계약서에 적을 보증."""
+    out = []
+    for g in vals.get('guarantees') or []:
+        k = GUARANTEE_KEYS.get(g)
+        if not k:
+            continue
+        rate, years = str(vals.get(f'{k}_rate') or '').strip(), str(vals.get(f'{k}_years') or '').strip()
+        out.append(g + (f' {rate}%' if rate else '') + (f' · {years}년' if years else ''))
+    return ', '.join(out)
 
 
 def _state_value(values: dict, f: F):
@@ -334,8 +369,10 @@ def validate(form_key: str, vals: Dict) -> Dict[str, str]:
     form = FORMS[form_key]
     errs = {}
     for f in form.fields:
+        if not is_shown(f, vals):
+            continue
         v = vals.get(f.key)
-        if f.required and (not v or (isinstance(v, list) and not v)):
+        if (f.required or f.show_if) and (not v or (isinstance(v, list) and not v)):
             errs[f.key] = f'{f.label}을(를) 넣어 주세요.' if f.kind not in ('select', 'multiselect', 'project', 'date') \
                 else f'{f.label}을(를) 골라 주세요.'
             continue
@@ -410,6 +447,9 @@ def card_lines(form_key: str, vals: Dict) -> List[str]:
         s = _fmt(f, vals.get(f.key))
         if s:
             lines.append(f'{f.label.split(" (")[0]}: {s}')
+    if form_key == FORM_CONTRACT:
+        g = guarantee_summary(vals)
+        lines.insert(max(0, len(lines) - (1 if vals.get('memo') else 0)), f'보증보험: {g or "없음"}')
     if form_key == FORM_CARDPAY:
         sales = _parse_int(vals.get('sales'))
         fee = round(sales * 0.03)
