@@ -188,6 +188,7 @@ def sb(monkeypatch, tmp_db):
     from dashboard.services import e_approval as ea
     monkeypatch.setattr(ea, '_db', lambda: tmp_db)
     monkeypatch.setattr(ea, '_table_ready', False)
+    monkeypatch.setattr(ea, '_suffix_map', lambda: {'박정우': 'JW', '황샛별': 'SB'})
     monkeypatch.setenv('SLACK_INVOICE_CHANNEL_ID', 'CINV')
     monkeypatch.setattr(sb, '_resolve_intake_manager_name', lambda uid: '박정우')
     monkeypatch.setattr(sb, '_pinv_project_rec', lambda code: RECS[0] if code == 'G4049-JW' else None)

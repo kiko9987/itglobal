@@ -371,6 +371,36 @@ def _fmt_when(s: str) -> str:
     return str(s or '')[5:16].replace('-', '.')
 
 
+_INITIAL_EXTRA = {'고광일': 'KiKO'}   # 코드 접미사 표에 없는 사람
+_suffix_cache = {'at': 0.0, 'map': {}}
+
+
+def _suffix_map() -> Dict[str, str]:
+    """이름 → 이니셜(코드 접미사 표). 카드 한 장에 여러 번 부르므로 5분 캐시."""
+    import time
+    if time.time() - _suffix_cache['at'] > 300:
+        try:
+            from dashboard.services.staff_directory import suffix_map
+            _suffix_cache['map'] = suffix_map()
+        except Exception as exc:
+            logger.warning(f'[전자결재] 이니셜 표 조회 실패: {exc}')
+        _suffix_cache['at'] = time.time()
+    return _suffix_cache['map']
+
+
+def initial(name: str) -> str:
+    """카드·DM·기록에 쓰는 이니셜(11-01) — 강성환→SH, 고광일→KiKO. 표에 없으면 이름 그대로."""
+    name = (name or '').strip()
+    if not name:
+        return '-'
+    return _INITIAL_EXTRA.get(name) or _suffix_map().get(name) or name
+
+
+def executor_label(name: str) -> str:
+    """② 처리자 표시 — '경영지원 (SB)'. 대신 누른 사람이면 그 사람 이니셜."""
+    return f'경영지원 ({initial(name)})'
+
+
 def title(row: dict) -> str:
     return f"{FORM_LABELS.get(row.get('form'), '결재')} #{row['id']}"
 
@@ -391,22 +421,23 @@ def status_label(row: dict) -> tuple:
 
 
 def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일') -> str:
-    """'결재: ✅ 고광일 승인 10.30 14:20 → ⏳ 이체' 한 줄."""
+    """'결재: ✅ KiKO 승인 10.30 14:20 → ⏳ 이체' 한 줄 (이름 대신 이니셜, ② 는 '경영지원 (SB)')."""
     by = {s['step']: s for s in step_rows}
     st = row.get('status')
     a = by.get('approve')
+    ap = initial(approver_name)
     if a and a['result'] == 'auto':
         first = '✅ 승인 (요청자가 승인자)'
     elif a and a['result'] == 'approved':
-        first = f"✅ {a['actor_name']} 승인 {_fmt_when(a['at'])}"
+        first = f"✅ {initial(a['actor_name'])} 승인 {_fmt_when(a['at'])}"
     elif a and a['result'] == 'rejected':
-        first = f"❌ {a['actor_name']} 반려 {_fmt_when(a['at'])}"
+        first = f"❌ {initial(a['actor_name'])} 반려 {_fmt_when(a['at'])}"
     else:
-        first = f'⏳ {approver_name} 승인' if st == PENDING else f'⏸ {approver_name} 승인'
+        first = f'⏳ {ap} 승인' if st == PENDING else f'⏸ {ap} 승인'
     w = step2_word(row)
     t = by.get('transfer')
     if t:
-        second = f"✅ {t['actor_name']} {w} {_fmt_when(t['at'])}"
+        second = f"✅ {executor_label(t['actor_name'])} {w} {_fmt_when(t['at'])}"
     elif st == APPROVED:
         second = f'⏳ {w}'
     else:
@@ -440,13 +471,13 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     memo = (row.get('memo') or '').strip()
     if memo:
         lines.append(f'비고: {memo}')
-    lines.append(f"요청: {row.get('requester_name') or '-'} {_fmt_when(row.get('created_at'))}")
+    lines.append(f"요청: {initial(row.get('requester_name'))} {_fmt_when(row.get('created_at'))}")
     lines.append(step_line(row, step_rows))
     rej = next((s for s in reversed(step_rows) if s['result'] in ('rejected', 'cancelled')), None)
     if rej and rej.get('reason'):
         lines.append(f"{'반려' if rej['result'] == 'rejected' else '취소'} 사유: {rej['reason']}")
     elif rej:
-        lines.append(f"{rej['actor_name']} 취소 {_fmt_when(rej['at'])}")
+        lines.append(f"{initial(rej['actor_name'])} 취소 {_fmt_when(rej['at'])}")
     return '\n'.join(lines)
 
 
@@ -506,7 +537,7 @@ def dm_intro(row: dict, role: str) -> str:
     st = row.get('status')
     w = step2_word(row)
     if role == 'approver' and st == PENDING:
-        return f"🔔 {row.get('requester_name') or '-'}님이 {title(row)} 승인을 요청했어요. 카드에서 [승인]이나 [반려]를 눌러 주세요."
+        return f"🔔 {initial(row.get('requester_name'))}님이 {title(row)} 승인을 요청했어요. 카드에서 [승인]이나 [반려]를 눌러 주세요."
     if role == 'executor' and st == APPROVED:
         return f'🔔 {title(row)} 승인이 끝났어요. {w}하고 카드에서 [{w} 완료]를 눌러 주세요.'
     if role == 'requester' and st in OPEN_STATUSES:

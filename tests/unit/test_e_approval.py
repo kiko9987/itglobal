@@ -14,6 +14,7 @@ def tmp_db(tmp_path, monkeypatch):
     db = UserDatabase(db_path=str(tmp_path / 'users.db'))
     monkeypatch.setattr(ea, '_db', lambda: db)
     monkeypatch.setattr(ea, '_table_ready', False)
+    monkeypatch.setattr(ea, '_suffix_map', lambda: {'강성환': 'SH', '황샛별': 'SB', '박정우': 'JW', '박용구': 'YG'})
     for k in ('EAPPROVAL_APPROVER_IDS', 'EAPPROVAL_EXECUTOR_DM_IDS',
               'SLACK_SETTLEMENT_CHECKER_ID', 'SLACK_SETTLEMENT_CHECKER_EMAIL'):
         monkeypatch.delenv(k, raising=False)
@@ -62,7 +63,7 @@ def test_full_flow_and_double_click_guard(tmp_db):
     assert ea.transition(row['id'], 'transfer', JW, '박정우') is None          # 다른 사람이 또 눌러도 한 번
     assert ea.transition(row['id'], 'cancel', MGR, '박정우') is None           # 끝난 건 취소 불가
     line = ea.step_line(d, ea.steps(row['id']))
-    assert '고광일 승인' in line and '황샛별 이체' in line
+    assert 'KiKO 승인' in line and '경영지원 (SB) 이체' in line and '고광일' not in line
 
 
 def test_reject_and_cancel(tmp_db):

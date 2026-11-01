@@ -5116,7 +5116,7 @@ def _process_pinv_submit(client, body, view) -> None:
         ea.link_origin(int(meta['link_aid']), ch, ts)
         linked = ea.get(int(meta['link_aid']))
         if linked:
-            extra = f"💸 {ea.title(linked)} ({linked.get('requester_name')})에 연결 — {ea.STATUS_LABELS[linked['status']][1]}"
+            extra = f"💸 {ea.title(linked)} ({ea.initial(linked.get('requester_name'))})에 연결 — {ea.STATUS_LABELS[linked['status']][1]}"
     elif pinv.transfer_requested(vals) and 'payee_name' in vals:
         def _t(bid):
             return (((vals.get(bid) or {}).get(bid) or {}).get('value') or '').strip()
