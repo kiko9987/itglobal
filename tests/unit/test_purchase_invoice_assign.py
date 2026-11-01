@@ -7,6 +7,13 @@ from dashboard.services import purchase_invoice_assign as pinv
 from dashboard.services.pin_remind import is_invoice_request
 
 
+@pytest.fixture(autouse=True)
+def _initials(monkeypatch):
+    """이니셜 표는 고정값으로(실제 표는 Redis 를 읽어 테스트가 느려진다)."""
+    from dashboard.services import e_approval as ea
+    monkeypatch.setattr(ea, '_suffix_map', lambda: {'박정우': 'JW', '황샛별': 'SB', '강성환': 'SH'})
+
+
 # ── 글 해석 ─────────────────────────────────────────────────────────
 @pytest.mark.parametrize('text,expect', [
     ('10/29 G 533,500원 강원포장 회신 바랍니다.', ('10/29', 'G', 533500, '강원포장')),
@@ -133,7 +140,7 @@ def test_prompt_button_value_roundtrip():
 def test_result_text_and_reassign_button(tmp_db):
     row = pinv.save_assignment('C1', '111.1', PARSED, 'G4049-JW', '기타비:운반비', '1층 반입', 'U1', '박정우')
     txt = pinv.result_text(row, 'G4049-JW · 광명 양지로 21')
-    assert 'G4049-JW · 광명 양지로 21' in txt and '기타비 · 운반비' in txt and '박정우' in txt
+    assert 'G4049-JW · 광명 양지로 21' in txt and '기타비 · 운반비' in txt and '지정 JW' in txt
     assert '1층 반입' in txt and '다시 지정됨' not in txt
     row = pinv.save_assignment('C1', '111.1', PARSED, 'G4100-JW', '자재비', '', 'U2', '강성환')
     assert '다시 지정됨' in pinv.result_text(row, 'G4100-JW')
@@ -192,6 +199,21 @@ def sb(monkeypatch, tmp_db):
     monkeypatch.setenv('SLACK_INVOICE_CHANNEL_ID', 'CINV')
     monkeypatch.setattr(sb, '_resolve_intake_manager_name', lambda uid: '박정우')
     monkeypatch.setattr(sb, '_pinv_project_rec', lambda code: RECS[0] if code == 'G4049-JW' else None)
+
+    class _R:
+        def __init__(self):
+            self.d = {}
+
+        def get(self, k):
+            return self.d.get(k)
+
+        def set(self, k, v, ex=None):
+            self.d[k] = v
+
+    fake_redis = type('RC', (), {'redis': _R()})()
+    from dashboard.utils import redis_client
+    monkeypatch.setattr(redis_client, 'get_redis_client', lambda: fake_redis)
+    sb._fake_redis = fake_redis.redis
     return sb
 
 
@@ -215,6 +237,85 @@ def test_prompt_posted_only_for_invoice_post_in_sales_channel(sb, monkeypatch):
     (name, kw), = c.calls
     assert name == 'chat_postMessage' and kw['thread_ts'] == '111.1'
     assert json.loads(kw['blocks'][1]['elements'][0]['value'])['a'] == 533500
+    assert sb._fake_redis.get('pinv_prompt:CINV:111.1')            # 버튼 위치 기억(자금집행 창에서 지정 시 정리용)
+
+
+# ── 11-01 자금집행 창에서 계산서 고르기 ──────────────────────────────
+class _PinsClient(_FakeClient):
+    def __init__(self, items):
+        super().__init__()
+        self.items = items
+
+    def pins_list(self, **kw):
+        return {'items': [{'message': m} for m in self.items]}
+
+
+def test_open_invoice_posts_skips_assigned_deposit_and_requested(sb, monkeypatch):
+    from dashboard.blueprints import slack_eapproval as se
+    from dashboard.services import e_approval as ea
+    pins = [{'ts': '100.1', 'text': POST},
+            {'ts': '100.2', 'text': '10/30 R 99,000원 대성크레인 회신 바랍니다.'},
+            {'ts': '100.3', 'text': '입금 452***38801011 100,000원'},
+            {'ts': '100.4', 'text': '10/31 G 55,000원 사다리차 회신 바랍니다.'},
+            {'ts': '100.5', 'text': '계약서 진행 부탁드립니다'}]
+    monkeypatch.setattr(se, '_invoice_client', lambda: _PinsClient(pins))
+    pinv.save_assignment('CINV', '100.2', pinv.parse_invoice_post(pins[1]['text']), 'G4049-JW', '자재비', '',
+                         'U1', '박정우')
+    ea.create(ea.FORM_FUND, 'U1', '박정우', {'amount': 55000, 'origin_channel': 'CINV', 'origin_ts': '100.4'})
+    items = se.open_invoice_posts(force=True)
+    assert [i['ts'] for i in items] == ['100.1']
+    opts = se.invoice_options('')
+    assert opts[0]['value'] == ea.INVOICE_NONE and opts[1]['text']['text'] == '10/29 G 533,500원 강원포장'
+    assert se.invoice_options('크레인') == [ea.invoice_option(None)]
+
+
+def _inv_view(meta_inv, **vals):
+    from dashboard.services import e_approval as ea
+    base = {'evidence': '전자계산서', 'cost': '기타비:운반비', 'content': '', 'payee_name': '김강원',
+            'bank': '신한', 'account': '110-511-825643'}
+    base.update(vals)
+    sel = {'evidence', 'cost', 'urgency'}
+    v = {k: {k: ({'selected_option': {'value': x}} if k in sel else {'value': x})} for k, x in base.items()}
+    v['project'] = {ea.A_PROJECT: {'selected_option': {'value': 'G4049-JW'}}}
+    return {'private_metadata': json.dumps({'project': '', 'inv': meta_inv}), 'state': {'values': v}}
+
+
+def test_new_request_with_invoice_uses_post_values_and_blocks_duplicate(sb):
+    from dashboard.services import e_approval as ea
+    inv = {'ch': 'CINV', 'ts': '111.1', 'parsed': pinv.parse_invoice_post(POST)}
+    f = ea.read_new_request(_inv_view(inv))
+    assert ea.complete_new_request(f) == {}
+    assert (f['partner'], f['amount'], f['grn'], f['origin_ts']) == ('강원포장', 533500, 'G', '111.1')
+    ea.create(ea.FORM_FUND, 'U1', '박정우', f)
+    f2 = ea.read_new_request(_inv_view(inv))
+    assert 'invoice' in ea.complete_new_request(f2)                 # 같은 계산서로 두 번 못 올림
+    v = ea.new_request_view({'inv': inv})
+    ids = [b.get('block_id') for b in v['blocks']]
+    assert 'partner' not in ids and 'amount' not in ids and ids[0] == 'invoice'
+    assert v['blocks'][0]['element']['initial_option']['text']['text'] == '10/29 G 533,500원 강원포장'
+    assert 'partner' in [b.get('block_id') for b in ea.new_request_view({})['blocks']]
+
+
+def test_new_request_with_invoice_also_finishes_site_assignment(sb, monkeypatch):
+    from dashboard.blueprints import slack_eapproval as se
+    from dashboard.services import e_approval as ea
+    eap, inv_c = _FakeClient(), _FakeClient()
+    monkeypatch.setenv('SLACK_EAPPROVAL_CHANNEL', 'CEAP')
+    monkeypatch.setattr(se, 'eap_client', lambda: eap)
+    monkeypatch.setattr(se, '_invoice_client', lambda: inv_c)
+    monkeypatch.setattr(se, '_name', lambda uid: '박정우')
+    monkeypatch.setattr(se, '_project_rec', lambda code: None)
+    sb._fake_redis.set('pinv_prompt:CINV:111.1', '500.5')
+    inv = {'ch': 'CINV', 'ts': '111.1', 'parsed': pinv.parse_invoice_post(POST)}
+    f = ea.read_new_request(_inv_view(inv))
+    ea.complete_new_request(f)
+    row = se.process_new_submit('U1', f)
+    a = pinv.get_assignment('CINV', '111.1')
+    assert a['project_code'] == 'G4049-JW' and a['cost_category'] == '기타비:운반비'
+    posted = [kw for n, kw in inv_c.calls if n == 'chat_postMessage']
+    assert posted and posted[0]['thread_ts'] == '111.1' and ea.title(row) in posted[0]['text']
+    assert any(n == 'chat_update' and kw['ts'] == '500.5' for n, kw in inv_c.calls)   # 버튼 메시지 정리
+    assert any(n == 'pins_remove' and kw['timestamp'] == '111.1' for n, kw in inv_c.calls)
 
 
 def _submit_body(code='G4049-JW', cost='기타비:운반비', memo=None, click_ts='500.5'):

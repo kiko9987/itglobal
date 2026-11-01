@@ -290,7 +290,85 @@ def open_new_modal(client, trigger_id: str, uid: str, project_code: str = '', or
     """새 요청 모달. project_code 가 있으면 현장 고정(공사확정 카드)."""
     # trigger_id 는 3초 — 시트 조회 없이 바로 연다(현장 주소는 카드에 나온다).
     meta = {'project': project_code, 'origin': origin}
-    client.views_open(trigger_id=trigger_id, view=ea.new_request_view(meta, project_code or None, project_code))
+    client.views_open(trigger_id=trigger_id, view=_new_view(meta))
+
+
+def _new_view(meta: dict) -> dict:
+    code = meta.get('project') or ''
+    return ea.new_request_view(meta, code or None, code)
+
+
+# ── 「계산서」 고르기 — #영업_관리에 고정된(=처리 전) 매입 계산서 글 중 현장 미지정 ──
+_INV_CACHE = {'at': 0.0, 'items': []}
+
+
+def open_invoice_posts(force: bool = False) -> list:
+    """[{ch, ts, parsed}] 최신순. 고정 목록에서 계산서 양식이고, 현장 지정·진행 중 결재가 없는 글.
+
+    목록을 누를 때마다 부르므로 1분 캐시(제출 때는 중복 검사를 다시 한다)."""
+    import time
+    if not force and time.time() - _INV_CACHE['at'] < 60:
+        return _INV_CACHE['items']
+    from dashboard.services import pin_remind as pr
+    from dashboard.services import purchase_invoice_assign as pinv
+    c, ch = _invoice_client(), os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    items = []
+    if c and ch:
+        try:
+            for it in (c.pins_list(channel=ch).get('items') or []):
+                m = it.get('message') or {}
+                text = pr._msg_full_text(m)
+                if not m.get('ts') or not pr.is_invoice_request(text) or pr.is_deposit(text):
+                    continue
+                parsed = pinv.parse_invoice_post(text)
+                if not parsed or pinv.get_assignment(ch, m['ts']):
+                    continue
+                ap = ea.find_by_origin(ch, m['ts'])
+                if ap and ap['status'] not in (ea.REJECTED, ea.CANCELLED):
+                    continue
+                items.append({'ch': ch, 'ts': m['ts'], 'parsed': parsed})
+        except Exception as exc:
+            logger.warning(f'{_LOG} 계산서 글 목록 조회 실패: {exc}')
+    items.sort(key=lambda x: float(x['ts']), reverse=True)
+    _INV_CACHE.update(at=time.time(), items=items)
+    return items
+
+
+def invoice_options(query: str) -> list:
+    from dashboard.services.purchase_invoice_assign import post_summary
+    q = (query or '').strip().lower()
+    opts = [ea.invoice_option(i) for i in open_invoice_posts()
+            if not q or q in post_summary(i['parsed']).lower()]
+    return [ea.invoice_option(None)] + opts[:99]
+
+
+def _register_invoice_pick(app) -> None:
+    """「계산서」 목록·선택 — 모달을 연 봇(전자결재 봇·공사봇)마다 등록."""
+
+    @app.options(ea.A_INVOICE)
+    def handle_invoice_options(ack, body):
+        try:
+            ack(options=invoice_options(body.get('value') or ''))
+        except Exception as exc:
+            logger.error(f'{_LOG} 계산서 목록 실패: {exc}', exc_info=True)
+            try:
+                ack(options=[ea.invoice_option(None)])
+            except Exception:
+                pass
+
+    @app.action(ea.A_INVOICE)
+    def handle_invoice_pick(ack, body, client):
+        """계산서를 고르면 거래처·금액 칸을 숨기고 그 글 값으로(다른 칸에 넣은 값은 block_id 가 같아 유지)."""
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+            meta['inv'] = ea.invoice_from_value(sel)
+            meta['no_inv'] = sel == ea.INVOICE_NONE
+            client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
+        except Exception as exc:
+            logger.error(f'{_LOG} 계산서 선택 반영 실패: {exc}', exc_info=True)
 
 
 def validate_new_submit(view: dict):
@@ -307,7 +385,23 @@ def process_new_submit(uid: str, f: dict) -> dict:
     ea.remember_payee(f.get('partner', ''), f.get('payee_name'), f.get('bank'), f.get('account'))
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)
-    return start(row)
+    row = start(row)
+    if row.get('origin_ts'):   # 계산서를 골랐으면 그 글의 현장 지정까지(계산서 글 버튼과 같은 결과)
+        _INV_CACHE['at'] = 0.0
+        try:
+            from dashboard.blueprints.slack_bot import finish_pinv_assignment
+            c = _invoice_client()
+            if c:
+                parsed = f.get('_inv_parsed') or {'date_md': '', 'grn': row.get('grn'),
+                                                  'amount': row.get('amount'), 'partner': row.get('partner')}
+                finish_pinv_assignment(
+                    c, row['origin_channel'], row['origin_ts'], None, parsed, row.get('project_code') or '',
+                    row.get('cost_category') or '', row.get('content') or '', uid, name,
+                    extra=f"💸 {ea.title(row)} 결재 올림 — {ea.status_label(row)[1]}")
+        except Exception as exc:
+            logger.error(f'{_LOG} 계산서 글 현장 지정 실패 ({ea.title(row)}): {exc}', exc_info=True,
+                         extra={'force_alert': True})
+    return row
 
 
 def handle_new_submit(ack, body, view) -> None:
@@ -467,9 +561,12 @@ def register_eapproval_handlers(app) -> None:
             from dashboard.blueprints.slack_bot import _intake_option_label
             query = (body.get('value') or '').strip()
             mgr = None if query else _name((body.get('user') or {}).get('id', ''))
+            # 계산서 없이 먼저 보내는 돈은 공통비만(재고 구매는 비품 신청). 계산서를 골랐으면 재고 매입일 수 있어 프로젝트0도.
+            meta = json.loads(((body.get('view') or {}).get('private_metadata')) or '{}')
+            specials = None if meta.get('inv') else (pinv.COMMON_CODE,)
             ack(options=pinv.build_project_options(
                 get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label,
-                specials=(pinv.COMMON_CODE,)))
+                specials=specials))
         except Exception as exc:
             logger.error(f'{_LOG} 프로젝트 목록 실패: {exc}', exc_info=True)
             try:
@@ -484,6 +581,8 @@ def register_eapproval_handlers(app) -> None:
     @app.view(ea.CB_NEW)
     def handle_new_submit_eap(ack, body, view):
         handle_new_submit(ack, body, view)
+
+    _register_invoice_pick(app)
 
     @app.action(ea.A_NEW_SUPPLY)
     def handle_supply_open(ack, body, client):
@@ -531,6 +630,8 @@ def register_project_bot_handlers(app) -> None:
     @app.view(ea.CB_NEW)
     def handle_new_submit_project(ack, body, view):
         handle_new_submit(ack, body, view)
+
+    _register_invoice_pick(app)
 
 
 def post_menu() -> str:

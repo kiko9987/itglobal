@@ -4990,11 +4990,16 @@ def _maybe_post_pinv_prompt(client, channel: str, ts: str, text: str) -> None:
     if not parsed:
         return
     try:
-        client.chat_postMessage(
+        r = client.chat_postMessage(
             channel=channel, thread_ts=ts,
             text='어느 현장 건인지 골라 주세요.',
             blocks=pinv.prompt_blocks(channel, ts, parsed))
         logger.info(f'[SLACK/현장지정] 버튼 게시: ts={ts} | {pinv.post_summary(parsed)}')
+        try:   # 자금집행 창에서 이 계산서를 골라 지정하면 이 버튼 메시지도 정리하려고 위치를 기억
+            from dashboard.utils.redis_client import get_redis_client
+            get_redis_client().redis.set(_pinv_prompt_key(channel, ts), r['ts'], ex=180 * 86400)
+        except Exception as exc:
+            logger.debug(f'[SLACK/현장지정] 버튼 위치 기억 실패(무시): {exc}')
     except Exception as exc:
         logger.warning(f'[SLACK/현장지정] 버튼 게시 실패 (ts={ts}): {exc}')
 
@@ -5133,6 +5138,33 @@ def _process_pinv_submit(client, body, view) -> None:
             extra = ('⚠️ 현장은 지정됐지만 자금집행 결재는 올라가지 않았어요. '
                      '[✏️ 다시 지정]에서 「이체 필요」를 다시 체크해 주세요.')
 
+    _post_pinv_result(client, ch, ts, click_ts, parsed, row, line, code, cost, name, extra)
+
+
+def finish_pinv_assignment(client, ch: str, ts: str, click_ts, parsed: dict, code: str, cost: str,
+                           memo: str, uid: str, name: str, extra: str = '') -> None:
+    """현장 지정 저장 + 계산서 글 스레드 답글·버튼 정리·고정 해제 (11-01: 자금집행 창에서 계산서를 고른 경우 공용).
+
+    client 는 계산서봇(#영업_관리에 있는 봇)."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    row = pinv.save_assignment(ch, ts, parsed, code, cost, memo, uid, name)
+    line = pinv.project_display(code, _pinv_project_rec(code))
+    _post_pinv_result(client, ch, ts, click_ts, parsed, row, line, code, cost, name, extra)
+
+
+def _pinv_prompt_key(ch: str, ts: str) -> str:
+    return f'pinv_prompt:{ch}:{ts}'
+
+
+def _post_pinv_result(client, ch, ts, click_ts, parsed, row, line, code, cost, name, extra) -> None:
+    from dashboard.services import purchase_invoice_assign as pinv
+    if not click_ts:   # 버튼이 아니라 자금집행 창에서 왔으면 — 올려 둔 버튼 메시지 위치를 Redis 에서
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            v = get_redis_client().redis.get(_pinv_prompt_key(ch, ts))
+            click_ts = (v.decode() if isinstance(v, bytes) else v) or None
+        except Exception:
+            click_ts = None
     blocks = pinv.result_blocks(row, line, ch, ts, extra)
     text = pinv.result_text(row, line, extra)
     if row.get('reply_ts'):
