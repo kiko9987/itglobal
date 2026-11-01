@@ -631,6 +631,35 @@ def test_form_views_are_valid_shape():
                 assert el['placeholder']['text']
 
 
+def test_contract_guarantees_show_fields_validate_and_card(tmp_db):
+    """계약서 「보증보험」 고르면 그 보증의 보증금율·기간 칸이 생기고 필수가 된다(11-01)."""
+    ids0 = [b.get('block_id') for b in forms.form_view(forms.FORM_CONTRACT, {})['blocks']]
+    assert 'guarantees' in ids0 and not any(i and i.startswith('g_defect') for i in ids0)
+    v = forms.form_view(forms.FORM_CONTRACT, {}, {'guarantees': ['하자보증']})
+    ids = [b.get('block_id') for b in v['blocks']]
+    assert 'g_defect_rate' in ids and 'g_defect_years' in ids and 'g_contract_rate' not in ids
+    assert next(b for b in v['blocks'] if b.get('block_id') == 'guarantees')['dispatch_action'] is True
+    vals = {**CONTRACT, 'guarantees': ['하자보증', '계약보증'], 'g_defect_rate': '3', 'g_defect_years': '2'}
+    assert set(forms.validate(forms.FORM_CONTRACT, vals)) == {'g_contract_rate', 'g_contract_years'}
+    vals.update(g_contract_rate='10', g_contract_years='1')
+    assert forms.validate(forms.FORM_CONTRACT, vals) == {}
+    assert forms.guarantee_summary(vals) == '하자보증 3% · 2년, 계약보증 10% · 1년'
+    lines = forms.card_lines(forms.FORM_CONTRACT, vals)
+    assert '보증보험: 하자보증 3% · 2년, 계약보증 10% · 1년' in lines and not any('보증금율' in l for l in lines)
+
+
+def test_insurance_contract_note(se, monkeypatch):
+    monkeypatch.setattr(se, '_flex_contract_codes', lambda: {'R4100-YM'})
+    assert '계약서 작성 요청이 아직 없어요' in se.contract_note('G4237-MJ')
+    assert 'Flex로 올린 계약서' in se.contract_note('R4100-YM')
+    vals = {**CONTRACT, 'guarantees': ['하자보증'], 'g_defect_rate': '3', 'g_defect_years': '2'}
+    row = se.process_form_submit(MGR, forms.FORM_CONTRACT, vals)
+    note = se.contract_note('G4237-MJ')
+    assert ea.title(row) in note and '하자보증 3% · 2년' in note
+    v = forms.form_view(forms.FORM_INSURANCE, {'project': 'G4237-MJ', 'extra_note': note})
+    assert note in json.dumps(v['blocks'], ensure_ascii=False)
+
+
 def test_contract_note_shorter_when_project_fixed():
     menu = forms.form_view(forms.FORM_CONTRACT, {})['blocks'][0]['elements'][0]['text']
     card = forms.form_view(forms.FORM_CONTRACT, {'project': 'G4239-YM'})['blocks'][0]['elements'][0]['text']

@@ -546,6 +546,46 @@ def _form_values(form_key: str, uid: str, project_code: str = '') -> dict:
     return vals
 
 
+_FLEX_CONTRACT_CODES = None
+
+
+def _flex_contract_codes() -> set:
+    """Flex 1년치 내보내기에서 계약서 작성 요청이 끝난 공사코드 (보증보험 안내용, 한 번 읽고 기억)."""
+    global _FLEX_CONTRACT_CODES
+    if _FLEX_CONTRACT_CODES is None:
+        codes = set()
+        try:
+            import re as _re
+            root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            path = os.path.join(root, 'instance', 'flex_export', 'flex_workflow_export_20261101.json')
+            with open(path, encoding='utf-8') as fh:
+                for d in json.load(fh).get('docs', []):
+                    if '계약서' in d.get('t', '') and d.get('s') == 'DONE':
+                        codes.update(_re.findall(r'[GR]\d{4}-[A-Z]{2,3}', str((d.get('f') or {}).get('프로젝트 코드', ''))))
+        except Exception as exc:
+            logger.info(f'{_LOG} Flex 계약서 기록 없음(안내만 생략): {exc}')
+        _FLEX_CONTRACT_CODES = codes
+    return _FLEX_CONTRACT_CODES
+
+
+def contract_note(code: str) -> str:
+    """보증보험 창 안내 — 이 현장 계약서에 적힌 보증. 입찰보증은 계약 전이라 막지 않고 안내만."""
+    if not code:
+        return ''
+    rows = ea.find_by_project(ea.forms.FORM_CONTRACT, code)
+    if rows:
+        r = rows[0]
+        g = ea.forms.guarantee_summary(ea.extra(r).get('f') or {})
+        if g:
+            return f'📑 {ea.title(r)}에 적힌 보증: *{g}*'
+        return (f'⚠️ {ea.title(r)}에 보증보험이 적혀 있지 않아요. 입찰보증이 아니라면 계약서에 보증 내용이 '
+                '있어야 신청할 수 있어요.')
+    if code in _flex_contract_codes():
+        return '📑 Flex로 올린 계약서 작성 요청이 있어요. 계약서에 이 보증 내용이 있는지 확인해 주세요.'
+    return ('⚠️ 이 현장의 계약서 작성 요청이 아직 없어요. 입찰보증이 아니라면 계약서를 먼저 요청하거나 '
+            '계약서 파일을 카드 스레드에 올려 주세요.')
+
+
 def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_code: str = '') -> None:
     """양식 창 — 불러오는 창을 먼저 열고(3초 trigger) 공사현황·기억 값을 채워 바꾼다."""
     form = ea.forms.get(form_key)
@@ -556,6 +596,8 @@ def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_co
         try:
             vals = _form_values(form_key, uid, project_code)
             meta = {'form': form_key, 'project': project_code, 'pv': 1}
+            if form_key == ea.forms.FORM_INSURANCE and project_code:
+                meta['extra_note'] = contract_note(project_code)
             client.views_update(view_id=view_id, view=ea.forms.form_view(
                 form_key, meta, vals, project_label=vals.get('_project_label', '')))
         except Exception as exc:
@@ -651,11 +693,31 @@ def _register_form_handlers(app) -> None:
             code = (body['actions'][0].get('selected_option') or {}).get('value') or ''
             uid = (body.get('user') or {}).get('id', '')
             vals = _form_values(meta['form'], uid, code)
+            vals.update({k: v for k, v in ea.forms.read_form(view)[1].items()
+                         if v and k not in vals and k != 'project'})   # 펼쳐 둔 칸(보증 등) 유지
             meta['pv'] = int(meta.get('pv') or 0) + 1
+            if meta['form'] == ea.forms.FORM_INSURANCE:
+                meta['extra_note'] = contract_note(code)
             client.views_update(view_id=view['id'], hash=view.get('hash'),
                                 view=ea.forms.form_view(meta['form'], meta, vals))
         except Exception as exc:
             logger.error(f'{_LOG} 양식 현장 반영 실패: {exc}', exc_info=True)
+
+    @app.action('guarantees')
+    def handle_guarantees_pick(ack, body, client):
+        """계약서 「보증보험」 고르면 고른 보증마다 보증금율·기간 칸을 펼친다(넣은 값은 block_id 가 같아 유지)."""
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            vals = ea.forms.read_form(view)[1]
+            if vals.get('project') and not meta.get('project'):
+                from dashboard.services.purchase_invoice_assign import project_display
+                vals['_project_label'] = project_display(vals['project'], _project_rec(vals['project']))
+            client.views_update(view_id=view['id'], hash=view.get('hash'),
+                                view=ea.forms.form_view(meta['form'], meta, vals))
+        except Exception as exc:
+            logger.error(f'{_LOG} 보증보험 칸 펼치기 실패: {exc}', exc_info=True)
 
     @app.view(ea.forms.CB_FORM)
     def handle_form_submit_view(ack, body, view):
