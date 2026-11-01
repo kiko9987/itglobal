@@ -138,7 +138,7 @@ def _dm_round(client, row: dict) -> None:
 
 # ── 시작 ──────────────────────────────────────────────────────────────
 def start(row: dict) -> dict:
-    """새 결재 → 채널 카드 게시·고정 → 처리자 DM → 요청자 DM. 갱신된 row.
+    """새 결재 → 채널 카드 게시·고정 → 처리자 DM. 갱신된 row.
 
     카드를 못 올리면 결재를 '취소'로 닫고 예외를 다시 던진다(카드 없는 결재가 장부에 남지 않게)."""
     client = eap_client()
@@ -156,10 +156,8 @@ def start(row: dict) -> dict:
         logger.debug(f'{_LOG} 카드 고정 실패(무시): {exc}')
     row = ea.get(row['id'])
     _dm_round(client, row)
-    row = ea.get(row['id'])
-    req = row.get('requester_id')
-    if req and req not in {d['user'] for d in ea.dm_refs(row)}:
-        _send_dm(client, row['id'], req, 'requester')
+    # 신청자에게는 시작 DM 을 보내지 않는다(11-01) — 끝났을 때(완료·반려·남이 취소)만 알림.
+    # 진행 상황은 채널 카드에서 보고, 요청 취소도 카드에서 한다.
     logger.info(f'{_LOG} 시작: {ea.title(row)} {row.get("project_code")} {row.get("amount"):,}원 '
                 f'({row.get("requester_name")}, {row["status"]})')
     return ea.get(row['id'])

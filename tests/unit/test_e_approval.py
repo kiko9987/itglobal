@@ -249,7 +249,8 @@ def test_start_posts_card_pins_and_dms(se):
     assert card['channel'] == 'CEAP' and '광명 양지로 21' in card['blocks'][0]['text']['text']
     assert f.of('pins_add')[0]['channel'] == 'CEAP'
     refs = ea.dm_refs(row)
-    assert {(r['user'], r['role']) for r in refs} == {(KIKO, 'approver'), (MGR, 'requester')}
+    assert {(r['user'], r['role']) for r in refs} == {(KIKO, 'approver')}       # 신청자 시작 DM 없음
+    assert not [kw for kw in f.of('chat_postMessage') if kw['channel'] == 'D-' + MGR]
     assert row['card_ts'] == '1.0'
 
 
@@ -289,7 +290,7 @@ def test_reject_notifies_requester_and_origin(se):
 def test_approver_request_goes_straight_to_executor(se):
     row = se.process_new_submit(KIKO, dict(FIELDS))
     assert row['status'] == ea.APPROVED
-    assert {(r['user'], r['role']) for r in ea.dm_refs(row)} == {(SB, 'executor'), (KIKO, 'requester')}
+    assert {(r['user'], r['role']) for r in ea.dm_refs(row)} == {(SB, 'executor')}
 
 
 def test_card_post_failure_cancels(se, monkeypatch):
