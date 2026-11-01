@@ -138,7 +138,7 @@ def _new_view(**over):
         'content': {'content': {'value': '운반'}},
         'partner': {ea.A_PARTNER: {'selected_option': {'value': over.get('partner', '강원포장')}}},
         'amount': {'amount': {'value': over.get('amount', '150,000')}},
-        'grn': {'grn': {'selected_option': ({'value': over['grn']} if over.get('grn') else None)}},
+        'grn': {'grn': {'selected_option': ({'value': over.get('grn', 'G')} if over.get('grn', 'G') else None)}},
         'payee_name': {'payee_name': {'value': over.get('payee_name', '')}},
         'bank': {'bank': {'value': over.get('bank', '')}},
         'account': {'account': {'value': over.get('account', '')}},
@@ -160,14 +160,18 @@ def test_new_request_errors(tmp_db):
     f = ea.read_new_request(_new_view(partner='처음거래처', amount='abc'))
     errs = ea.complete_new_request(f)
     assert set(errs) == {'amount', 'account'}
-    f = ea.read_new_request(_new_view(project='프로젝트0', payee_name='a', bank='b', account='1234-5678'))
+    f = ea.read_new_request(_new_view(project='프로젝트0', grn='', payee_name='a', bank='b', account='1234-5678'))
     assert set(ea.complete_new_request(f)) == {'grn'}
+    f = ea.read_new_request(_new_view(grn='', payee_name='a', bank='b', account='1234-5678'))
+    assert set(ea.complete_new_request(f)) == {'grn'}   # G 공사여도 사업자 구분은 직접 골라야(11-01)
     f = ea.read_new_request(_new_view(project='프로젝트0', grn='N', payee_name='a', bank='b', account='1234-5678'))
     assert ea.complete_new_request(f) == {}
 
 
 def test_fixed_project_from_metadata(tmp_db):
-    v = _new_view(fixed='R4120-YM', payee_name='a', bank='b', account='1234-5678')
+    grn = next(b for b in ea.new_request_view({}, 'R4120-YM')['blocks'] if b.get('block_id') == 'grn')
+    assert grn['element']['initial_option']['value'] == 'R' and not grn.get('optional')
+    v = _new_view(fixed='R4120-YM', grn='R', payee_name='a', bank='b', account='1234-5678')
     del v['state']['values']['project']
     f = ea.read_new_request(v)
     assert f['project_code'] == 'R4120-YM' and ea.complete_new_request(f) == {} and f['grn'] == 'R'
@@ -734,3 +738,14 @@ def test_partner_options_grouped_and_sorted(tmp_db, monkeypatch):
     assert [o['value'] for o in groups[1]['options']] == ['(주)가람', '나비엔', '하나상사']
     monkeypatch.setattr(ea, 'known_partners', lambda: ['서울나비', '나비엔하우징', '가나비'])
     assert [o['value'] for o in ea.partner_options('나비')['options']] == ['나비엔하우징', '가나비', '서울나비', 'new:나비']
+
+
+def test_grn_required_hidden_only_when_invoice_has_it(tmp_db):
+    """사업자 구분은 필수 — 계산서 글에 G/R 이 있을 때만 칸을 숨긴다(11-01)."""
+    bids = lambda v: {b.get('block_id'): b for b in v['blocks']}   # noqa: E731
+    g = bids(ea.new_request_view({}))['grn']
+    assert not g.get('optional') and 'initial_option' not in g['element']
+    inv = {'ch': 'C1', 'ts': '1.0', 'parsed': {'grn': 'G', 'amount': 1000, 'partner': '강원포장'}}
+    assert 'grn' not in bids(ea.new_request_view({'inv': inv}))
+    inv['parsed']['grn'] = ''
+    assert 'grn' in bids(ea.new_request_view({'inv': inv}))
