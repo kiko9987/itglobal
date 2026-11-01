@@ -603,7 +603,8 @@ def license_note(code: str) -> str:
     rec = _project_rec(code) or {}
     biz = str(rec.get('사업자명') or '').strip()
     if biz in ('', '-', 'None'):
-        return 'ℹ️ 공사현황에 사업자명이 없어요. 개인 고객이면 등록증 없이 진행하고, 사업자 고객이면 사업자명부터 넣어 주세요.'
+        return ('ℹ️ 프로젝트에 사업자명이 없어요. 사업자 고객이면 사업자등록증을 첨부해 주세요. '
+                '개인 고객은 이름 · 주소 · 연락처 · 주민번호가 필요합니다.')
     try:
         from dashboard.services.business_license_handler import get_license_state
         st = get_license_state(code) or {}
