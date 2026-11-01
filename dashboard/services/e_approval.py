@@ -534,7 +534,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                      'placeholder': {'type': 'plain_text', 'text': '예: 277200'}}},
         {'type': 'input', 'block_id': 'grn', 'optional': True,
          'label': {'type': 'plain_text', 'text': '사업자 구분'},
-         'hint': {'type': 'plain_text', 'text': '비우면 공사코드(G/R)를 따릅니다. 프로젝트0·공통비는 골라 주세요.'},
+         'hint': {'type': 'plain_text', 'text': '비우면 공사코드(G/R)를 따릅니다. 공통비는 골라 주세요.'},
          'element': {'type': 'static_select', 'action_id': 'grn',
                      'options': _opts([('G', 'G'), ('R', 'R'), ('N', 'N')]),
                      'placeholder': {'type': 'plain_text', 'text': 'G / R / N'}}},
@@ -588,7 +588,7 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
     if not f.get('grn'):
         f['grn'] = grn_from_code(f.get('project_code', ''))
         if not f['grn'] and 'project' not in errs:
-            errs['grn'] = '프로젝트0·공통비는 사업자 구분을 골라 주세요.'
+            errs['grn'] = '공통비는 사업자 구분을 골라 주세요.'
     if not (f.get('payee_name') or f.get('bank') or f.get('account')):
         saved = lookup_payee(f.get('partner', ''))
         if saved:
