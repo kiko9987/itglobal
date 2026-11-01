@@ -662,8 +662,27 @@ def test_insurance_contract_note(se, monkeypatch):
 
 def test_contract_note_shorter_when_project_fixed():
     menu = forms.form_view(forms.FORM_CONTRACT, {})['blocks'][0]['elements'][0]['text']
-    card = forms.form_view(forms.FORM_CONTRACT, {'project': 'G4239-YM'})['blocks'][0]['elements'][0]['text']
-    assert '현장을 고르면' in menu and card == '사업자등록증은 공사 카드 스레드에 있어야 해요.'
+    assert '현장을 고르면' in menu
+    card = forms.form_view(forms.FORM_CONTRACT, {'project': 'G4239-YM', 'extra_note': '✅ 사업자등록증 있음'})
+    first = card['blocks'][0]
+    assert first['type'] == 'context' and first['elements'][0]['text'] == '✅ 사업자등록증 있음'   # 고정 문구 없음
+
+
+def test_license_note_follows_invoice_rules(se, monkeypatch):
+    """계약서 창 등록증 안내 = 세금계산서 요청과 같은 판정(공사 폴더 > 같은 사업자 > 거래처 탭)."""
+    import dashboard.services.business_license_handler as blh
+    import dashboard.services.partner_status_sync as pss
+    monkeypatch.setattr(se, '_project_rec', lambda code: {'사업자명': '주식회사 엠제이디앤엠'} if code != 'P-' else {'사업자명': '-'})
+    states = {'own': {'exists': True, 'source': 'own', 'view_url': 'https://d/f'},
+              'partner': {'exists': True, 'source': 'partner', 'view_url': None},
+              'none': {'exists': False, 'source': None, 'view_url': None}}
+    monkeypatch.setattr(pss, 'get_partner_info', lambda biz: {'bno': '123-45-67890'})
+    for k, want in (('own', '✅ 사업자등록증 있음'), ('partner', '거래처 탭에 등록된 거래처'), ('none', '⚠️')):
+        monkeypatch.setattr(blh, 'get_license_state', lambda code, k=k: states[k])
+        assert want in se.license_note('G4239-YM')
+    assert '123-45-67890' in (monkeypatch.setattr(blh, 'get_license_state', lambda c: states['partner'])
+                              or se.license_note('G4239-YM'))
+    assert '사업자명이 없어요' in se.license_note('P-')
 
 
 def test_reset_select_changes_only_that_block_id(se):
