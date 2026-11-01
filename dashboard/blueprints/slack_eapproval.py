@@ -497,6 +497,23 @@ def register_eapproval_handlers(app) -> None:
     def handle_supply_submit_eap(ack, body, view):
         handle_supply_submit(ack, body, view)
 
+    # 전역 바로가기 — 어느 채널·DM 에서든 입력창 [/] 메뉴로 연다(11-01)
+    @app.shortcut(ea.SC_FUND)
+    def handle_fund_shortcut(ack, body, client):
+        ack()
+        try:
+            open_new_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''), origin='shortcut')
+        except Exception as exc:
+            logger.error(f'{_LOG} 바로가기(자금집행) 실패: {exc}', exc_info=True)
+
+    @app.shortcut(ea.SC_SUPPLY)
+    def handle_supply_shortcut(ack, body, client):
+        ack()
+        try:
+            client.views_open(trigger_id=body['trigger_id'], view=ea.supply_request_view({'origin': 'shortcut'}))
+        except Exception as exc:
+            logger.error(f'{_LOG} 바로가기(비품 신청) 실패: {exc}', exc_info=True)
+
 
 def register_project_bot_handlers(app) -> None:
     """공사봇 — 공사확정 카드 [💸 자금집행 요청] (공사봇 카드라 공사봇이 모달을 열고 제출도 받는다)."""
