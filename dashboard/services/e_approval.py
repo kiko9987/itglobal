@@ -502,13 +502,30 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
 
 
 def dm_intro(row: dict, role: str) -> str:
-    """DM 맨 위 한 줄."""
-    if role == 'approver':
-        return f"{row.get('requester_name') or '-'}님이 {title(row)} 승인을 요청했어요."
-    if role == 'executor':
-        w = step2_word(row)
-        return f'{title(row)} 승인이 끝났어요. {w}하고 [{w} 완료]를 눌러 주세요.'
-    return f'{title(row)} 요청을 올렸어요. 진행되면 이 메시지가 바뀝니다.'
+    """DM 맨 위 한 줄 — 내 차례면 할 일, 아니면 지금 상태."""
+    st = row.get('status')
+    w = step2_word(row)
+    if role == 'approver' and st == PENDING:
+        return f"🔔 {row.get('requester_name') or '-'}님이 {title(row)} 승인을 요청했어요. 카드에서 [승인]이나 [반려]를 눌러 주세요."
+    if role == 'executor' and st == APPROVED:
+        return f'🔔 {title(row)} 승인이 끝났어요. {w}하고 카드에서 [{w} 완료]를 눌러 주세요.'
+    if role == 'requester' and st in OPEN_STATUSES:
+        return f'{title(row)} 요청을 올렸어요. 진행되면 이 메시지가 바뀝니다.'
+    emoji, label = status_label(row)
+    return f'{emoji} {title(row)} — {label}'
+
+
+def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> List[dict]:
+    """DM = 알림 + 한 줄 요약 + 카드 링크. 버튼은 채널 카드에만 둔다(누르는 곳 한 군데)."""
+    what = (row.get('content') if row.get('form') == FORM_SUPPLY else row.get('partner')) or '-'
+    summary = f"{project_line} · {what} · *{int(row.get('amount') or 0):,}원*"
+    link = (f'<{card_link}|👉 결재 카드 열기>' if card_link
+            else '#전자_결재 채널의 카드에서 처리해 주세요.')
+    return [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': dm_intro(row, role)}},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'{summary}\n{step_line(row, steps(row["id"]))}'}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]},
+    ]
 
 
 def menu_blocks() -> List[dict]:

@@ -80,17 +80,13 @@ def _project_line_and_quote(code: str):
 
 
 def render(row: dict, role: str = 'all'):
-    """(text, blocks) — role 에 맞는 버튼."""
-    st = ea.steps(row['id'])
+    """(text, blocks). 채널 카드(all)=내용+버튼 전부. DM=알림 한 줄+요약+카드 링크만(11-01) —
+    승인·반려·이체/구매 완료는 채널 카드 한 곳에서 누른다."""
+    head = f'{ea.title(row)} — {ea.status_label(row)[1]}'
     line, quote = _project_line_and_quote(row.get('project_code'))
-    text = ea.card_text(row, st, line, quote)
-    blocks = ea.card_blocks(row, st, line, quote, role)
-    if role != 'all':
-        blocks.insert(0, {'type': 'section', 'text': {'type': 'mrkdwn', 'text': ea.dm_intro(row, role)}})
-        link = _card_link(row)
-        if link:
-            blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': f'<{link}|결재 카드 보기>'}]})
-    return f'{ea.title(row)} — {ea.status_label(row)[1]}', blocks
+    if role == 'all':
+        return head, ea.card_blocks(row, ea.steps(row['id']), line, quote, role)
+    return head, ea.dm_blocks(row, role, line, _card_link(row))
 
 
 def _card_link(row: dict) -> str:
