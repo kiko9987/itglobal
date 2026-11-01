@@ -385,7 +385,7 @@ def _register_invoice_pick(app) -> None:
     @app.options(ea.A_PARTNER)
     def handle_partner_options(ack, body):
         try:
-            ack(options=ea.partner_options(body.get('value') or ''))
+            ack(**ea.partner_options(body.get('value') or ''))
         except Exception as exc:
             logger.error(f'{_LOG} 거래처 목록 실패: {exc}', exc_info=True)
             try:

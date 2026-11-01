@@ -754,17 +754,40 @@ def known_partners() -> List[str]:
     return names
 
 
-def partner_options(query: str) -> List[dict]:
-    """상호 검색 — 아는 거래처 중 맞는 것 + 입력한 글자 그대로 '새 거래처: …'."""
+PARTNER_RECENT_N = 15
+
+
+def _partner_opt(n: str) -> dict:
+    return {'text': {'type': 'plain_text', 'text': n[:75]}, 'value': n[:150]}
+
+
+def partner_options(query: str) -> dict:
+    """상호 검색 — ack(**결과) 로 넘긴다(11-01 정렬 통일).
+
+    빈 클릭: '최근 거래한 곳'(최근 순 15곳) + '가나다순'(나머지) 두 묶음.
+    입력: 이름이 그 글자로 시작하는 곳 먼저, 나머지는 가나다순. 같은 곳이 없으면 '새 거래처: …' 맨 아래.
+    """
     q = (query or '').strip()
     qk = partner_key(q)
-    hits = [n for n in known_partners() if not qk or qk in partner_key(n)]
-    opts = [{'text': {'type': 'plain_text', 'text': n[:75]}, 'value': n[:150]} for n in hits[:99]]
-    if q and not any(partner_key(n) == qk for n in hits):
+    names = known_partners()
+    if not qk:
+        recent = names[:PARTNER_RECENT_N]
+        rest = sorted(names[PARTNER_RECENT_N:], key=partner_key)
+        groups = [{'label': {'type': 'plain_text', 'text': '최근 거래한 곳'},
+                   'options': [_partner_opt(n) for n in recent]}]
+        if rest:
+            label = '가나다순' if len(rest) <= 100 else '가나다순 (더 찾으려면 상호를 입력하세요)'
+            groups.append({'label': {'type': 'plain_text', 'text': label},
+                           'options': [_partner_opt(n) for n in rest[:100]]})
+        return {'option_groups': groups} if recent else {'options': []}
+    hits = sorted((n for n in names if qk in partner_key(n)),
+                  key=lambda n: (not partner_key(n).startswith(qk), partner_key(n)))
+    opts = [_partner_opt(n) for n in hits[:99]]
+    if not any(partner_key(n) == qk for n in hits):
         # 아는 거래처가 걸리면 그게 먼저(실수로 새로 만들지 않게), '새 거래처'는 맨 아래
         opts.append({'text': {'type': 'plain_text', 'text': f'새 거래처: {q}'[:75]},
                      'value': (PARTNER_NEW + q)[:150]})
-    return opts
+    return {'options': opts}
 
 
 def partner_from_value(value: str) -> str:
@@ -844,7 +867,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                                       'value': meta['partner'][:150]}
         blocks += [
             {'type': 'input', 'block_id': 'partner', 'dispatch_action': True,
-             'label': {'type': 'plain_text', 'text': '거래처(상호)'}, 'element': p_el},
+             'label': {'type': 'plain_text', 'text': '거래처 (상호)'}, 'element': p_el},
             {'type': 'input', 'block_id': 'amount', 'label': {'type': 'plain_text', 'text': '금액 (VAT 포함, 원)'},
              'element': {'type': 'plain_text_input', 'action_id': 'amount',
                          'placeholder': {'type': 'plain_text', 'text': '예: 277200'}}},
