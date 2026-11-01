@@ -714,7 +714,8 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
     blocks: List[dict] = [{
         'type': 'input', 'block_id': 'invoice', 'optional': True, 'dispatch_action': True,
         'label': {'type': 'plain_text', 'text': '계산서'}, 'element': inv_el,
-        'hint': {'type': 'plain_text', 'text': '계산서가 아직 없으면 비워 두거나 「계산서 없음」을 고르세요.'}}]
+        'hint': {'type': 'plain_text', 'text': '계산서가 있으면 여기서 고르세요. 거래처·금액은 자동으로 채워집니다. '
+                                               '없으면 비워 두고 아래 거래처를 고르세요.'}}]
     if inv:
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                        '📄 거래처·금액은 계산서 글 그대로 올라가고, 그 글의 현장 지정도 함께 끝납니다.'}]})
