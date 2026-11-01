@@ -56,6 +56,7 @@ class Form:
     menu: bool = True
     project_card: bool = False   # 공사확정 카드 [📋 결재 요청]에 보일지
     note: str = ''          # 창 맨 위 안내
+    note_fixed: Optional[str] = None   # 현장이 고정돼 열릴 때(공사 카드) 안내 — None 이면 note 그대로
 
 
 FORMS: Dict[str, Form] = {}
@@ -67,6 +68,7 @@ def _add(form: Form) -> None:
 
 _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card=True, amount_key='total',
           note='현장을 고르면 총액·인수자·연락처가 공사현황 값으로 채워져요. 사업자등록증은 공사 카드 스레드에 있어야 해요.',
+          note_fixed='사업자등록증은 공사 카드 스레드에 있어야 해요.',
           fields=[
               F('project', '현장', 'project'),
               F('deposit', '계약금 (VAT 포함, 원)', 'money', required=False),
@@ -267,8 +269,9 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
     pv = int(meta.get('pv') or 0)
     sfx = f'_{pv}' if pv else ''
     blocks: List[dict] = []
-    if form.note:
-        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': form.note}]})
+    note = form.note_fixed if (meta.get('project') and form.note_fixed is not None) else form.note
+    if note:
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': note}]})
     for f in form.fields:
         if f.kind == 'project' and meta.get('project'):
             blocks.append({'type': 'section', 'text': {'type': 'mrkdwn',
