@@ -37,6 +37,7 @@ STATUS_LABELS = {
 
 EVIDENCE_TYPES = [('전자계산서', '전자계산서'), ('수기계산서', '수기계산서'), ('기타영수증', '기타영수증')]
 URGENCY_TYPES = [('일반', '일반'), ('긴급', '긴급')]
+GRN_TYPES = [('G', 'G (글로벌)'), ('R', 'R (글로벌그룹)'), ('N', 'N (사업자 없음)')]   # 값은 G/R/N 그대로
 
 # 슬랙 식별자
 A_APPROVE, A_REJECT, A_TRANSFER, A_CANCEL = 'eap_approve', 'eap_reject', 'eap_transfer', 'eap_cancel'
@@ -681,8 +682,8 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
              'label': {'type': 'plain_text', 'text': '사업자 구분'},
              'hint': {'type': 'plain_text', 'text': '비우면 공사코드(G/R)를 따릅니다. 공통비는 골라 주세요.'},
              'element': {'type': 'static_select', 'action_id': 'grn',
-                         'options': _opts([('G', 'G'), ('R', 'R'), ('N', 'N')]),
-                         'placeholder': {'type': 'plain_text', 'text': 'G / R / N'}}},
+                         'options': _opts(GRN_TYPES),
+                         'placeholder': {'type': 'plain_text', 'text': '글로벌 / 글로벌그룹 / 사업자 없음'}}},
         ]
     blocks += [
         {'type': 'section', 'text': {'type': 'mrkdwn',
