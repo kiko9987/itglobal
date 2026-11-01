@@ -175,16 +175,20 @@ def _build_message(
 
 
 def _eapproval_buttons(code: str) -> list:
-    """[💸 자금집행 요청] — 전자결재 봇이 설정돼 있을 때만 (2026-10-30)."""
+    """「📋 결재 요청」 — 전자결재 봇이 설정돼 있을 때만 (2026-10-30, 11-01 고르기로)."""
     try:
         from dashboard.blueprints.slack_eapproval import is_configured
         if not is_configured():
             return []
     except Exception:
         return []
-    from dashboard.services.e_approval import A_NEW_FROM_PROJECT
-    return [{'type': 'button', 'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True},
-             'action_id': A_NEW_FROM_PROJECT, 'value': code}]
+    # 11-01 버튼 하나 → 「📋 결재 요청」 고르기(자금집행·계약서·보증보험·카드결제). 선택지 value = '양식|공사코드'.
+    #   예전 카드의 [💸 자금집행 요청] 버튼(A_NEW_FROM_PROJECT)은 그대로 동작한다.
+    from dashboard.services import e_approval as ea
+    opts = [{'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True}, 'value': f'{ea.FORM_FUND}|{code}'}]
+    opts += [{**o, 'value': f"{o['value']}|{code}"} for o in ea.forms.project_card_options()]
+    return [{'type': 'static_select', 'action_id': ea.A_PROJECT_FORM_PICK, 'options': opts,
+             'placeholder': {'type': 'plain_text', 'text': '📋 결재 요청', 'emoji': True}}]
 
 
 def _build_invoice_button_value(data: dict, code: str) -> str:

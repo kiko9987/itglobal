@@ -74,6 +74,8 @@ def _project_rec(code: str) -> Optional[dict]:
 
 def _project_line_and_quote(code: str):
     from dashboard.services.purchase_invoice_assign import project_display
+    if not code:
+        return '현장 무관', 0
     rec = _project_rec(code)
     quote = ea.parse_amount((rec or {}).get('총액 1')) if rec else 0
     return project_display(code, rec), quote
@@ -233,6 +235,12 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     if action == 'approve':
         _thread_log(new, f'✅ {ini} 승인')
         _dm_round(client, new)
+    elif action == 'transfer' and new.get('form') in ea.TASK_FORMS:
+        _thread_log(new, f'✅ {ex} 처리 완료', broadcast=True)
+        _notify(client, new.get('requester_id'), f'✅ {t} 처리가 끝났어요.')
+    elif action == 'transfer' and new.get('form') == ea.forms.FORM_EXPENSE:
+        _thread_log(new, f'💸 {ex} 이체 완료 — 개인경비 {amt}', broadcast=True)
+        _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({amt})')
     elif action == 'transfer' and new.get('form') == ea.FORM_SUPPLY:
         _thread_log(new, f'🛒 {ex} 구매 완료 — {new.get("content")} {amt}', broadcast=True)
         _notify(client, new.get('requester_id'), f'🛒 {t} 구매가 끝났어요. ({new.get("content")} {amt})')
@@ -494,6 +502,173 @@ def handle_supply_submit(ack, body, view) -> None:
     threading.Thread(target=_bg, daemon=True).start()
 
 
+# ── 나머지 양식 (11-01: 계약서·보증보험·카드결제·법인서류·법인카드 지출결의·개인경비) ──
+def _loading_view(title: str) -> dict:
+    return {'type': 'modal', 'title': {'type': 'plain_text', 'text': title[:24]},
+            'close': {'type': 'plain_text', 'text': '취소'},
+            'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': ':hourglass_flowing_sand: 불러오는 중...'}}]}
+
+
+def _form_values(form_key: str, uid: str, project_code: str = '') -> dict:
+    """창에 미리 넣을 값 — 현장(공사현황)·본인 기억(법인카드 번호·개인경비 계좌)."""
+    from dashboard.services.purchase_invoice_assign import project_display
+    form = ea.forms.get(form_key)
+    rec = _project_rec(project_code) if project_code else None
+    memory = ea.personal_memory(uid) if form_key in (ea.forms.FORM_CARDEXP, ea.forms.FORM_EXPENSE) else {}
+    vals = ea.forms.prefill(form, rec, memory)
+    if project_code:
+        vals['project'] = project_code
+        vals['_project_label'] = project_display(project_code, rec)
+    return vals
+
+
+def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_code: str = '') -> None:
+    """양식 창 — 불러오는 창을 먼저 열고(3초 trigger) 공사현황·기억 값을 채워 바꾼다."""
+    form = ea.forms.get(form_key)
+    resp = client.views_open(trigger_id=trigger_id, view=_loading_view(form.label))
+    view_id = resp['view']['id']
+
+    def _bg():
+        try:
+            vals = _form_values(form_key, uid, project_code)
+            meta = {'form': form_key, 'project': project_code, 'pv': 1}
+            client.views_update(view_id=view_id, view=ea.forms.form_view(
+                form_key, meta, vals, project_label=vals.get('_project_label', '')))
+        except Exception as exc:
+            logger.error(f'{_LOG} 양식 창 채우기 실패 ({form_key}): {exc}', exc_info=True)
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def validate_form_submit(view: dict):
+    form_key, vals = ea.forms.read_form(view)
+    errs = ea.forms.validate(form_key, vals)
+    if not errs and not is_configured():
+        errs[ea.forms.get(form_key).fields[-1].key] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
+    values = view['state']['values']
+    return form_key, vals, {ea.field_block_id(values, k): m for k, m in errs.items()}
+
+
+def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
+    from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
+    name = _name(uid)
+    vals = {k: v for k, v in vals.items() if not k.startswith('_')}
+    fields = {
+        'project_code': vals.get('project') or None,
+        'amount': ea.forms.amount_of(form_key, vals),
+        'grn': ea.forms.grn_of(form_key, vals),
+        'content': ea.forms.summary(form_key, vals),
+        'urgency': '일반',
+        'extra': {'f': vals, 'title': ea.forms.doc_title(form_key, vals, name)},
+    }
+    if form_key == ea.forms.FORM_EXPENSE:
+        cost = {label: v for v, label in COST_CATEGORIES}.get(vals.get('cost'), vals.get('cost'))
+        acct = ea.normalize_account(vals.get('account'))
+        vals['account'] = acct
+        fields.update(cost_category=cost, payee_name=name, bank=vals.get('bank'), account=acct)
+        ea.remember_personal('staff', uid, name, vals.get('bank', ''), acct)
+    if form_key == ea.forms.FORM_CARDEXP:
+        ea.remember_personal('card', uid, name, '', vals.get('card_no', ''))
+    row = ea.create(form_key, uid, name, fields)
+    _audit(row, 'request', name)
+    return start(row)
+
+
+def handle_form_submit(ack, body, view) -> None:
+    """양식 창 제출 — 전자결재 봇·공사봇 공용."""
+    form_key, vals, errs = validate_form_submit(view)
+    if errs:
+        ack(response_action='errors', errors=errs)
+        return
+    ack()
+    uid = (body.get('user') or {}).get('id', '')
+
+    def _bg():
+        try:
+            process_form_submit(uid, form_key, vals)
+        except Exception as exc:
+            logger.error(f'{_LOG} {form_key} 요청 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
+            c = eap_client()
+            if c:
+                _notify(c, uid, f':warning: {ea.forms.get(form_key).label}이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def _register_form_handlers(app) -> None:
+    """양식 창의 현장 목록·현장 선택·제출 — 창을 연 봇(전자결재 봇·공사봇)마다."""
+
+    @app.options(ea.forms.A_FORM_PROJECT)
+    def handle_form_project_options(ack, body):
+        try:
+            from dashboard.services import purchase_invoice_assign as pinv
+            from dashboard.services.project_service import get_project_records
+            from dashboard.blueprints.slack_bot import _intake_option_label
+            meta = json.loads(((body.get('view') or {}).get('private_metadata')) or '{}')
+            query = (body.get('value') or '').strip()
+            mgr = None if query else _name((body.get('user') or {}).get('id', ''))
+            # 개인경비는 프로젝트0·공통비도, 법인서류는 공통비만, 나머지(계약서 등)는 실제 현장만
+            specials = {ea.forms.FORM_EXPENSE: None, ea.forms.FORM_CORPDOCS: (pinv.COMMON_CODE,)}.get(
+                meta.get('form'), ())
+            ack(options=pinv.build_project_options(get_project_records() or [], query, manager_name=mgr,
+                                                   label_fn=_intake_option_label, specials=specials))
+        except Exception as exc:
+            logger.error(f'{_LOG} 양식 현장 목록 실패: {exc}', exc_info=True)
+            try:
+                ack(options=[])
+            except Exception:
+                pass
+
+    @app.action(ea.forms.A_FORM_PROJECT)
+    def handle_form_project_pick(ack, body, client):
+        """현장을 고르면 총액·인수자·연락처 등을 공사현황 값으로 채운다(그 칸 block_id 를 바꿔 새 값이 보이게)."""
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            code = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+            uid = (body.get('user') or {}).get('id', '')
+            vals = _form_values(meta['form'], uid, code)
+            meta['pv'] = int(meta.get('pv') or 0) + 1
+            client.views_update(view_id=view['id'], hash=view.get('hash'),
+                                view=ea.forms.form_view(meta['form'], meta, vals))
+        except Exception as exc:
+            logger.error(f'{_LOG} 양식 현장 반영 실패: {exc}', exc_info=True)
+
+    @app.view(ea.forms.CB_FORM)
+    def handle_form_submit_view(ack, body, view):
+        handle_form_submit(ack, body, view)
+
+
+def post_cardexp_reminder(today=None) -> Optional[str]:
+    """매달 첫 영업일 — #전자_결재에 법인카드 지출결의서 안내 + [올리기] 버튼. 보낸 달은 다시 안 보냄. ts 반환."""
+    from datetime import date as _date
+    from dashboard.services.absent_remind import _is_business_day
+    d = today or _date.today()
+    first = _date(d.year, d.month, 1)
+    while not _is_business_day(first):
+        first = first.replace(day=first.day + 1)
+    if d != first or not is_configured():
+        return None
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        if not get_redis_client().redis.set(f'eap_cardexp_remind:{d:%Y-%m}', '1', nx=True, ex=40 * 86400):
+            return None
+    except Exception as exc:
+        logger.warning(f'{_LOG} 법인카드 안내 중복 확인 실패(보내지 않음): {exc}')
+        return None
+    prev = ea.forms.prev_month(d)[0]
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+            f'🧾 *{prev.month}월 법인카드 지출결의서*를 올려 주세요.\n'
+            '카드 번호와 사용 기간은 채워져 있어요. 올린 뒤 카드 스레드에 영수증을 붙여 주세요.'}},
+        {'type': 'actions', 'elements': [{
+            'type': 'button', 'action_id': ea.A_FORM_OPEN, 'value': ea.forms.FORM_CARDEXP, 'style': 'primary',
+            'text': {'type': 'plain_text', 'text': '🧾 지출결의서 올리기', 'emoji': True}}]},
+    ]
+    r = eap_client().chat_postMessage(channel=ea.channel_id(), text=f'{prev.month}월 법인카드 지출결의서', blocks=blocks)
+    logger.info(f'{_LOG} 법인카드 지출결의 안내 게시 ({prev:%Y-%m})')
+    return r.get('ts')
+
+
 def _ephemeral(client, body, text: str) -> None:
     uid = (body.get('user') or {}).get('id', '')
     ch = (body.get('channel') or {}).get('id', '')
@@ -623,6 +798,29 @@ def register_eapproval_handlers(app) -> None:
         handle_new_submit(ack, body, view)
 
     _register_invoice_pick(app)
+    _register_form_handlers(app)
+
+    def _open_form_from(body, client, form_key):
+        try:
+            open_form_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''), form_key)
+        except Exception as exc:
+            logger.error(f'{_LOG} 양식 창 열기 실패 ({form_key}): {exc}', exc_info=True)
+
+    @app.action(ea.A_FORM_PICK)
+    def handle_form_pick(ack, body, client):
+        """메뉴 「📋 다른 결재 요청」 — 고른 양식 창."""
+        ack()
+        form_key = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+        if ea.forms.get(form_key):
+            _open_form_from(body, client, form_key)
+
+    @app.action(ea.A_FORM_OPEN)
+    def handle_form_open(ack, body, client):
+        """버튼 value=양식 key (법인카드 월 안내 [지출결의서 올리기] 등)."""
+        ack()
+        form_key = body['actions'][0].get('value') or ''
+        if ea.forms.get(form_key):
+            _open_form_from(body, client, form_key)
 
     @app.action(ea.A_NEW_SUPPLY)
     def handle_supply_open(ack, body, client):
@@ -672,6 +870,22 @@ def register_project_bot_handlers(app) -> None:
         handle_new_submit(ack, body, view)
 
     _register_invoice_pick(app)
+    _register_form_handlers(app)
+
+    @app.action(ea.A_PROJECT_FORM_PICK)
+    def handle_project_form_pick(ack, body, client):
+        """공사확정 카드 「📋 결재 요청」 — 자금집행이면 자금집행 창, 나머지는 현장 고정 양식 창(11-01)."""
+        ack()
+        sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+        form_key, _, code = sel.partition('|')   # 선택지 value = '양식|공사코드'
+        uid = (body.get('user') or {}).get('id', '')
+        try:
+            if form_key == ea.FORM_FUND:
+                open_new_modal(client, body['trigger_id'], uid, project_code=code, origin='project_card')
+            elif ea.forms.get(form_key):
+                open_form_modal(client, body['trigger_id'], uid, form_key, project_code=code)
+        except Exception as exc:
+            logger.error(f'{_LOG} 공사 카드 결재 요청 창 실패 ({sel}): {exc}', exc_info=True)
 
 
 def post_menu() -> str:

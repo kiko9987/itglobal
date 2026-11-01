@@ -464,5 +464,180 @@ def test_shortcuts_registered_and_match_manifest():
 
 
 def test_menu_has_both_buttons():
-    ids = [e['action_id'] for e in ea.menu_blocks()[1]['elements']]
-    assert ids == [ea.A_NEW, ea.A_NEW_SUPPLY]
+    els = ea.menu_blocks()[1]['elements']
+    assert [e['action_id'] for e in els] == [ea.A_NEW, ea.A_NEW_SUPPLY, ea.A_FORM_PICK]
+    assert {o['value'] for o in els[2]['options']} == set(ea.forms.FORMS)
+
+
+# ── 나머지 양식 (11-01) ─────────────────────────────────────────────
+from dashboard.services import e_approval_forms as forms  # noqa: E402
+
+
+def _form_state(form_key, vals, meta=None, pv=1):
+    """form_view 가 만든 block_id 그대로 state 를 꾸민다."""
+    view = forms.form_view(form_key, {'pv': pv, **(meta or {})})
+    st = {}
+    for b in view['blocks']:
+        if b.get('type') != 'input':
+            continue
+        el, bid = b['element'], b['block_id']
+        keys = [f.key for f in forms.FORMS[form_key].fields]
+        key = bid if bid in keys else bid.rsplit('_', 1)[0]      # 'total_2' → 'total', 'deposit_date' 그대로
+        v = vals.get(key)
+        if el['type'] == 'external_select':
+            st[bid] = {el['action_id']: {'selected_option': {'value': v} if v else None}}
+        elif el['type'] == 'datepicker':
+            st[bid] = {el['action_id']: {'selected_date': v}}
+        elif el['type'] == 'static_select':
+            st[bid] = {el['action_id']: {'selected_option': {'value': v} if v else None}}
+        elif el['type'] == 'multi_static_select':
+            st[bid] = {el['action_id']: {'selected_options': [{'value': x} for x in (v or [])]}}
+        else:
+            st[bid] = {el['action_id']: {'value': v}}
+    return {'private_metadata': view['private_metadata'], 'state': {'values': st}}
+
+
+CONTRACT = {'project': 'G4237-MJ', 'total': '11440000', 'receiver': '윤명림', 'receiver_phone': '010-4312-1990',
+            'send': '대면', 'contact': '010-4312-1990', 'deposit': '5720000', 'deposit_date': '2026-10-30'}
+
+
+def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
+    rec = {'총액 2': '11440000.0', '발주처 담당자': '윤명림', '발주처 연락처': '010-4312-1990', '발주처 이메일': '-'}
+    pre = forms.prefill(forms.get(forms.FORM_CONTRACT), rec)
+    assert pre == {'total': '11440000', 'receiver': '윤명림', 'receiver_phone': '010-4312-1990'}   # '-' 는 비움
+    key, vals = forms.read_form(_form_state(forms.FORM_CONTRACT, CONTRACT))
+    assert key == forms.FORM_CONTRACT and vals['total'] == '11440000' and vals['deposit_date'] == '2026-10-30'
+    assert forms.validate(key, vals) == {}
+    assert set(forms.validate(key, {**vals, 'send': '', 'receiver': ''})) == {'send', 'receiver'}
+    row = ea.create(key, MGR, '강성환', {'project_code': 'G4237-MJ', 'amount': forms.amount_of(key, vals),
+                                       'grn': 'G', 'extra': {'f': vals, 'title': forms.doc_title(key, vals, '강성환')}})
+    assert row['status'] == ea.APPROVED and ea.title(row).startswith('G계약서 작성 요청 #')   # 승인 없이 바로 처리 대기
+    assert ea.status_label(row) == ('🔵', '처리 대기')
+    labels = [b['text']['text'] for b in ea.buttons(row, 'all')]
+    assert labels == ['✅ 처리 완료', '반려', '요청 취소']
+    t = ea.card_text(row, ea.steps(row['id']), 'G4237-MJ · 마포구 양화로 45')
+    assert '인수자명: 윤명림' in t and '총 금액: 11,440,000원' in t and '⏳ 경영지원 처리' in t
+    assert ea.can_act('reject', row, SB) and ea.can_act('transfer', row, SB) and not ea.can_act('transfer', row, MGR)
+    done = ea.transition(row['id'], 'transfer', SB, '황샛별')
+    assert ea.status_label(done) == ('🟢', '처리 완료')
+    assert '✅ 경영지원 (SB) 처리' in ea.step_line(done, ea.steps(row['id']))
+
+
+def test_cardpay_fee_and_validation():
+    vals = {'project': 'R4120-YM', 'card_co': '신한', 'card_no': '1234-5678-9012-3456', 'expiry': '08/29',
+            'sales': '1,000,000', 'installment': '0'}
+    assert forms.validate(forms.FORM_CARDPAY, vals) == {}
+    assert forms.amount_of(forms.FORM_CARDPAY, vals) == 1030000
+    assert forms.doc_title(forms.FORM_CARDPAY, vals, 'x') == 'R카드결제 요청'
+    assert any('결제 금액: 1,030,000원' in l for l in forms.card_lines(forms.FORM_CARDPAY, vals))
+    bad = forms.validate(forms.FORM_CARDPAY, {**vals, 'card_no': '1234', 'expiry': '2029-08'})
+    assert set(bad) == {'card_no', 'expiry'}
+
+
+def test_corpdocs_and_insurance_rules():
+    v = {'grn': 'G (글로벌)', 'docs': ['인감증명서', '기타'], 'reason': '입찰', 'due': '2026-11-10',
+         'receive': '등기', 'dest': '김포시 …'}
+    assert set(forms.validate(forms.FORM_CORPDOCS, v)) == {'other'}
+    assert forms.grn_of(forms.FORM_CORPDOCS, v) == 'G'
+    year = next(f for f in forms.get(forms.FORM_CORPDOCS).fields if f.key == 'year')
+    assert forms._field_options(forms.get(forms.FORM_CORPDOCS), year)[0] == f'{__import__("datetime").date.today().year}년'
+    ins = {'kind': '하자보증', 'project': 'G4178-MW', 'total': '9130000', 'rate': '3', 'start': '2026-10-28',
+           'years': '3', 'send': '이메일', 'email': ''}
+    assert set(forms.validate(forms.FORM_INSURANCE, ins)) == {'email'}
+
+
+def test_cardexp_prefill_title_and_memory(tmp_db):
+    from datetime import date
+    pre = forms.prefill(forms.get(forms.FORM_CARDEXP), None, {'card': '4518-1111-2222-3333'}, today=date(2026, 11, 2))
+    assert pre == {'card_no': '4518-1111-2222-3333', 'start': '2026-10-01', 'end': '2026-10-31'}
+    assert forms.doc_title(forms.FORM_CARDEXP, pre, '박민우') == '2026년 10월 법인카드지출결의서_박민우 매니저'
+    ea.remember_personal('card', MGR, '강성환', '', '4518-1111-2222-3333')
+    ea.remember_personal('staff', MGR, '강성환', '국민', '123-45-6789')
+    assert ea.personal_memory(MGR) == {'card': '4518-1111-2222-3333', 'bank': '국민', 'account': '123-45-6789'}
+    assert ea.known_partners() == []                                  # 본인 기억은 거래처 목록에 안 나옴
+
+
+def test_expense_spend_flow_hides_account_on_card(se):
+    vals = {'use_date': '2026-10-31', 'project': 'G4049-JW', 'cost': '기타비 · 운반비', 'amount': '35000',
+            'reason': '현장 주차비', 'bank': '국민', 'account': '123-45-6789'}
+    assert forms.validate(forms.FORM_EXPENSE, vals) == {}
+    row = se.process_form_submit(MGR, forms.FORM_EXPENSE, vals)
+    assert row['status'] == ea.PENDING and row['cost_category'] == '기타비:운반비' and row['amount'] == 35000
+    card = se._fake.of('chat_postMessage')[0]
+    txt = json.dumps(card['blocks'], ensure_ascii=False)
+    assert '123-45-6789' not in txt and '본인 계좌 (경영지원 DM에서 확인)' in txt
+    assert ea.personal_memory(MGR)['account'] == '123-45-6789'
+    assert se.apply_action('approve', row['id'], KIKO) is None
+    ex_dm = [kw for kw in se._fake.of('chat_postMessage') if kw['channel'] == 'D-' + SB][-1]
+    assert '123-45-6789' in json.dumps(ex_dm['blocks'], ensure_ascii=False)   # 경영지원 DM 에만 계좌
+    assert se.apply_action('transfer', row['id'], SB) is None
+    assert any('개인경비 35,000원' in kw.get('text', '') for kw in se._fake.of('chat_postMessage'))
+
+
+def test_task_form_submit_goes_straight_to_executor(se):
+    row = se.process_form_submit(MGR, forms.FORM_CONTRACT, dict(CONTRACT))
+    assert row['status'] == ea.APPROVED
+    assert {(r['user'], r['role']) for r in ea.dm_refs(row)} == {(SB, 'executor')}
+    dm = [kw for kw in se._fake.of('chat_postMessage') if kw['channel'] == 'D-' + SB][0]
+    assert '처리하고 카드에서 [처리 완료]' in json.dumps(dm['blocks'], ensure_ascii=False)
+    assert se.apply_action('transfer', row['id'], JW) is None
+    msgs = se._fake.of('chat_postMessage')
+    assert any('경영지원 (JW) 처리 완료' in kw.get('text', '') and kw.get('reply_broadcast') for kw in msgs)
+    assert any('처리가 끝났어요' in kw.get('text', '') and kw['channel'] == 'D-' + MGR for kw in msgs)
+
+
+def test_form_submit_errors_use_real_block_ids(se):
+    acks = []
+    view = _form_state(forms.FORM_CONTRACT, {**CONTRACT, 'total': ''}, pv=2)
+    se.handle_form_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}}, view)
+    assert acks[0]['response_action'] == 'errors' and 'total_2' in acks[0]['errors']
+
+
+def test_cardexp_reminder_first_business_day_once(se, monkeypatch):
+    from datetime import date
+
+    class _R:
+        def __init__(self):
+            self.d = {}
+
+        def set(self, k, v, nx=False, ex=None):
+            if nx and k in self.d:
+                return None
+            self.d[k] = v
+            return True
+    rc = type('RC', (), {'redis': _R()})()
+    from dashboard.utils import redis_client
+    monkeypatch.setattr(redis_client, 'get_redis_client', lambda: rc)
+    assert se.post_cardexp_reminder(date(2026, 12, 2)) is None        # 12/1(화)이 첫 영업일
+    assert se.post_cardexp_reminder(date(2026, 12, 1))                # 보냄
+    assert se.post_cardexp_reminder(date(2026, 12, 1)) is None        # 같은 달 두 번 안 보냄
+    post = se._fake.of('chat_postMessage')[-1]
+    assert '11월 법인카드 지출결의서' in post['blocks'][0]['text']['text']
+    assert post['blocks'][1]['elements'][0]['value'] == forms.FORM_CARDEXP
+
+
+def test_form_views_are_valid_shape():
+    for k in forms.FORMS:
+        v = forms.form_view(k, {'pv': 1})
+        ids = [b.get('block_id') for b in v['blocks'] if b.get('block_id')]
+        assert len(ids) == len(set(ids)) and len(v['blocks']) <= 100 and len(v['title']['text']) <= 24
+        for b in v['blocks']:
+            el = b.get('element') or {}
+            if el.get('type') in ('static_select', 'multi_static_select'):
+                assert 0 < len(el['options']) <= 100
+            if 'placeholder' in el:
+                assert el['placeholder']['text']
+
+
+def test_project_card_select_options():
+    from dashboard.services.project_slack_notifier import _eapproval_buttons
+    import dashboard.blueprints.slack_eapproval as se_mod
+    orig = se_mod.is_configured
+    se_mod.is_configured = lambda: True
+    try:
+        (el,) = _eapproval_buttons('G4049-JW')
+    finally:
+        se_mod.is_configured = orig
+    assert el['type'] == 'static_select' and el['action_id'] == ea.A_PROJECT_FORM_PICK
+    assert [o['value'] for o in el['options']] == ['fund|G4049-JW', 'contract|G4049-JW', 'insurance|G4049-JW',
+                                                   'cardpay|G4049-JW']
