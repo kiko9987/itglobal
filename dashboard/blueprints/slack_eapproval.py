@@ -274,13 +274,15 @@ def start_from_invoice(uid: str, name: str, origin_ch: str, origin_ts: str, pars
                        payee_name: str, bank: str, account: str, urgency: str) -> dict:
     """[📍 현장 지정]에서 「이체 필요」로 제출 → 결재 생성·시작."""
     account = ea.normalize_account(account)
-    ea.remember_payee(parsed.get('partner', ''), payee_name, bank, account)
-    row = ea.create(ea.FORM_FUND, uid, name, {
+    fields = {
         'project_code': project_code, 'cost_category': cost, 'content': memo, 'evidence': evidence,
         'grn': parsed.get('grn'), 'partner': parsed.get('partner'), 'payee_name': payee_name,
         'bank': bank, 'account': account, 'amount': parsed.get('amount'), 'urgency': urgency,
         'memo': '', 'origin_channel': origin_ch, 'origin_ts': origin_ts,
-    })
+    }
+    ea.mark_payee_saved(fields)   # 기억해 둔 계좌 그대로면 카드에 표시 — remember 전에 비교
+    ea.remember_payee(parsed.get('partner', ''), payee_name, bank, account)
+    row = ea.create(ea.FORM_FUND, uid, name, fields)
     _audit(row, 'request', name)
     return start(row)
 
@@ -366,9 +368,43 @@ def _register_invoice_pick(app) -> None:
             sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
             meta['inv'] = ea.invoice_from_value(sel)
             meta['no_inv'] = sel == ea.INVOICE_NONE
+            partner = (meta['inv'] or {}).get('parsed', {}).get('partner') or meta.get('partner', '')
+            _set_payee_prefill(meta, partner)
             client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
         except Exception as exc:
             logger.error(f'{_LOG} 계산서 선택 반영 실패: {exc}', exc_info=True)
+
+    @app.options(ea.A_PARTNER)
+    def handle_partner_options(ack, body):
+        try:
+            ack(options=ea.partner_options(body.get('value') or ''))
+        except Exception as exc:
+            logger.error(f'{_LOG} 거래처 목록 실패: {exc}', exc_info=True)
+            try:
+                ack(options=[])
+            except Exception:
+                pass
+
+    @app.action(ea.A_PARTNER)
+    def handle_partner_pick(ack, body, client):
+        """거래처를 고르면 예전에 보낸 계좌를 창에 채운다(확인 안내와 함께)."""
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+            meta['partner'] = ea.partner_from_value(sel)
+            _set_payee_prefill(meta, meta['partner'])
+            client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
+        except Exception as exc:
+            logger.error(f'{_LOG} 거래처 선택 반영 실패: {exc}', exc_info=True)
+
+
+def _set_payee_prefill(meta: dict, partner: str) -> None:
+    """거래처가 정해지면 기억한 계좌를 meta 에(없으면 비움). 칸 block_id 를 바꿔야 새 값이 보인다(pv+1)."""
+    saved = ea.lookup_payee(partner) if partner else None
+    meta['payee'] = ({k: saved[k] for k in ('payee_name', 'bank', 'account')} if saved else None)
+    meta['pv'] = int(meta.get('pv') or 0) + 1
 
 
 def validate_new_submit(view: dict):
@@ -376,7 +412,11 @@ def validate_new_submit(view: dict):
     f = ea.read_new_request(view)
     errs = ea.complete_new_request(f)
     if not errs and not is_configured():
-        errs['amount'] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
+        errs['content'] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
+    # 오류는 화면에 있는 block_id 로(계좌 칸은 다시 채우면 payee_name_2 처럼 바뀐다)
+    values = view['state']['values']
+    errs = {ea.field_block_id(values, k) if k in ('payee_name', 'bank', 'account') else k: m
+            for k, m in errs.items()}
     return f, errs
 
 

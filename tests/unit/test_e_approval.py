@@ -136,7 +136,7 @@ def _new_view(**over):
         'evidence': {'evidence': {'selected_option': {'value': '수기계산서'}}},
         'cost': {'cost': {'selected_option': {'value': '기타비:운반비'}}},
         'content': {'content': {'value': '운반'}},
-        'partner': {'partner': {'value': over.get('partner', '강원포장')}},
+        'partner': {ea.A_PARTNER: {'selected_option': {'value': over.get('partner', '강원포장')}}},
         'amount': {'amount': {'value': over.get('amount', '150,000')}},
         'grn': {'grn': {'selected_option': ({'value': over['grn']} if over.get('grn') else None)}},
         'payee_name': {'payee_name': {'value': over.get('payee_name', '')}},
@@ -171,6 +171,40 @@ def test_fixed_project_from_metadata(tmp_db):
     del v['state']['values']['project']
     f = ea.read_new_request(v)
     assert f['project_code'] == 'R4120-YM' and ea.complete_new_request(f) == {} and f['grn'] == 'R'
+
+
+def test_partner_options_known_and_new(tmp_db):
+    ea.remember_payee('(주)강원포장', '김강원', '신한', '110-511-825643')
+    vals = lambda q: [o['value'] for o in ea.partner_options(q)]   # noqa: E731
+    assert vals('') == ['(주)강원포장']
+    assert vals('강원') == ['(주)강원포장', 'new:강원']           # (주) 빼고 비교, 아는 곳 먼저
+    assert vals('강원포장') == ['(주)강원포장']                   # 같은 곳이면 '새 거래처' 안 띄움
+    assert vals('대성크레인') == ['new:대성크레인']               # 처음 보는 곳은 입력 그대로
+    assert ea.partner_from_value('new:대성크레인') == '대성크레인'
+
+
+def test_prefilled_account_shows_note_and_new_block_ids(tmp_db):
+    """거래처를 고르면 예전 계좌를 창에 채우고 '한 번 더 확인' 안내(11-01)."""
+    payee = {'payee_name': '김강원', 'bank': '신한', 'account': '110-511-825643'}
+    v = ea.new_request_view({'partner': '강원포장', 'payee': payee, 'pv': 2})
+    txt = json.dumps(v['blocks'], ensure_ascii=False)
+    assert ea.PAYEE_SAVED_NOTE in txt
+    acc = next(b for b in v['blocks'] if b.get('block_id') == 'account_2')
+    assert acc['element']['initial_value'] == '110-511-825643'
+    v2 = ea.new_request_view({'partner': '대성크레인', 'payee': None, 'pv': 3})
+    assert ea.PAYEE_SAVED_NOTE not in json.dumps(v2['blocks'], ensure_ascii=False)
+    assert '처음 보내는 거래처' in json.dumps(v2['blocks'], ensure_ascii=False)
+    # 접미사 붙은 칸도 읽고, 기억한 계좌 그대로면 카드에 표시
+    ea.remember_payee('강원포장', '김강원', '신한', '110-511-825643')
+    view = _new_view()
+    st = view['state']['values']
+    for k in ('payee_name', 'bank', 'account'):
+        st[f'{k}_2'] = {k: {'value': payee[k]}}
+        del st[k]
+    f = ea.read_new_request(view)
+    assert f['account'] == '110-511-825643' and ea.complete_new_request(f) == {}
+    row = ea.create(ea.FORM_FUND, MGR, '강성환', f)
+    assert '예전 계좌 자동 채움' in ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
 
 
 def test_new_request_view_fixed_hides_project_select():
@@ -309,6 +343,12 @@ def test_handle_new_submit_validation_errors(se):
     se.handle_new_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}},
                          _new_view(partner='처음거래처'))
     assert acks[0]['response_action'] == 'errors' and 'account' in acks[0]['errors']
+    view = _new_view(partner='처음거래처')                      # 계좌 칸이 account_1 로 바뀐 화면
+    st = view['state']['values']
+    st['account_1'] = st.pop('account')
+    acks.clear()
+    se.handle_new_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}}, view)
+    assert 'account_1' in acks[0]['errors'] and 'account' not in acks[0]['errors']
 
 
 # ── 비품 신청 (11-01) ───────────────────────────────────────────────

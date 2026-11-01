@@ -46,6 +46,7 @@ A_NEW_FROM_PROJECT = 'eap_new_project'  # 공사확정 카드 [💸 자금집행
 A_PROJECT = 'eap_project'             # 새 요청 모달 프로젝트 external_select
 A_NEW_SUPPLY = 'eap_new_supply'       # 채널 메뉴 [🛒 비품 신청]
 A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 external_select(현장 미지정 계산서 글)
+A_PARTNER = 'eap_partner'             # 자금집행 모달 「거래처」 external_select(아는 거래처 + 새 거래처)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 CB_SUPPLY = 'eap_supply_submit'
 SC_FUND, SC_SUPPLY = 'eap_sc_fund', 'eap_sc_supply'   # 전역 바로가기(입력창 [/] 메뉴) — manifest 와 같게
@@ -467,7 +468,8 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
         from dashboard.services.purchase_invoice_assign import cost_label
         lines.append(cost_label(row.get('cost_category')) + (f' — {content}' if content else ''))
         lines.append(f"거래처: {row.get('partner') or '-'} ({row.get('grn') or '-'} · {row.get('evidence') or '-'})")
-        lines.append(f"이체 계좌: {row.get('bank') or '-'} {row.get('account') or '-'} ({row.get('payee_name') or '-'})")
+        lines.append(f"이체 계좌: {row.get('bank') or '-'} {row.get('account') or '-'} ({row.get('payee_name') or '-'})"
+                     + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else ''))
         lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
         if quote_amount:
             lines.append(f'고객 견적(VAT 별도): {int(quote_amount):,}원')
@@ -584,8 +586,18 @@ def _opts(pairs) -> List[dict]:
     return [{'text': {'type': 'plain_text', 'text': label}, 'value': v} for v, label in pairs]
 
 
-def transfer_input_blocks(prefill: Optional[dict] = None, urgency: str = '일반') -> List[dict]:
-    """예금주·은행·계좌·집행 시기 입력 (새 요청 모달·현장 지정 모달 공용)."""
+PAYEE_SAVED_NOTE = '💡 예전에 이 거래처로 보낸 계좌를 채웠어요. 계좌가 바뀌었을 수 있으니 한 번 더 확인해 주세요.'
+
+
+def payee_saved_note() -> dict:
+    return {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': PAYEE_SAVED_NOTE}]}
+
+
+def transfer_input_blocks(prefill: Optional[dict] = None, urgency: str = '일반', sfx: str = '') -> List[dict]:
+    """예금주·은행·계좌·집행 시기 입력 (새 요청 모달·현장 지정 모달 공용).
+
+    sfx: 거래처를 바꿔 계좌를 다시 채울 때 block_id 를 바꾸려고(같은 block_id 면 슬랙이 예전 입력을 유지해
+    initial_value 가 안 먹는다). 읽을 때는 field_value() 로 접미사 무관하게."""
     p = prefill or {}
 
     def _text(block_id, label, placeholder, value=''):
@@ -593,7 +605,7 @@ def transfer_input_blocks(prefill: Optional[dict] = None, urgency: str = '일반
               'placeholder': {'type': 'plain_text', 'text': placeholder}}
         if value:
             el['initial_value'] = value
-        return {'type': 'input', 'block_id': block_id, 'label': {'type': 'plain_text', 'text': label},
+        return {'type': 'input', 'block_id': block_id + sfx, 'label': {'type': 'plain_text', 'text': label},
                 'element': el}
 
     urg_opts = _opts(URGENCY_TYPES)
@@ -605,6 +617,62 @@ def transfer_input_blocks(prefill: Optional[dict] = None, urgency: str = '일반
          'element': {'type': 'radio_buttons', 'action_id': 'urgency', 'options': urg_opts,
                      'initial_option': next(o for o in urg_opts if o['value'] == urgency)}},
     ]
+
+
+def field_block_id(values: dict, base: str) -> str:
+    """state 에 실제로 있는 block_id — base 그대로 또는 base_N(계좌 다시 채운 칸)."""
+    for k in values:
+        if k == base or (k.startswith(base + '_') and k[len(base) + 1:].isdigit()):
+            return k
+    return base
+
+
+def field_value(values: dict, base: str) -> str:
+    bid = field_block_id(values, base)
+    return (((values.get(bid) or {}).get(base) or {}).get('value') or '').strip()
+
+
+PARTNER_NEW = 'new:'
+
+
+def known_partners() -> List[str]:
+    """거래처 목록 — 실제로 이체한 곳(최근 순) + 샛별님 계산서 글에 나온 곳."""
+    names, seen = [], set()
+
+    def _add(n):
+        k = partner_key(n)
+        if k and k not in seen:
+            seen.add(k)
+            names.append(n)
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        for r in conn.execute('SELECT partner FROM payee_accounts ORDER BY last_used DESC').fetchall():
+            _add(r['partner'])
+    try:
+        from dashboard.services.purchase_invoice_assign import recent_partners
+        for n in recent_partners():
+            _add(n)
+    except Exception as exc:
+        logger.debug(f'[전자결재] 계산서 거래처 목록 실패(무시): {exc}')
+    return names
+
+
+def partner_options(query: str) -> List[dict]:
+    """상호 검색 — 아는 거래처 중 맞는 것 + 입력한 글자 그대로 '새 거래처: …'."""
+    q = (query or '').strip()
+    qk = partner_key(q)
+    hits = [n for n in known_partners() if not qk or qk in partner_key(n)]
+    opts = [{'text': {'type': 'plain_text', 'text': n[:75]}, 'value': n[:150]} for n in hits[:99]]
+    if q and not any(partner_key(n) == qk for n in hits):
+        # 아는 거래처가 걸리면 그게 먼저(실수로 새로 만들지 않게), '새 거래처'는 맨 아래
+        opts.append({'text': {'type': 'plain_text', 'text': f'새 거래처: {q}'[:75]},
+                     'value': (PARTNER_NEW + q)[:150]})
+    return opts
+
+
+def partner_from_value(value: str) -> str:
+    v = value or ''
+    return v[len(PARTNER_NEW):] if v.startswith(PARTNER_NEW) else v
 
 
 INVOICE_NONE = 'none'
@@ -671,10 +739,14 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                      'placeholder': {'type': 'plain_text', 'text': '예: FCU 교체 부품 구매'}}},
     ]
     if not inv:   # 계산서를 고르면 거래처·금액·G/R 은 그 글 값 — 칸을 숨긴다
+        p_el = {'type': 'external_select', 'action_id': A_PARTNER, 'min_query_length': 0,
+                'placeholder': {'type': 'plain_text', 'text': '상호 검색 (처음이면 이름을 입력해 고르기)'}}
+        if meta.get('partner'):
+            p_el['initial_option'] = {'text': {'type': 'plain_text', 'text': meta['partner'][:75]},
+                                      'value': meta['partner'][:150]}
         blocks += [
-            {'type': 'input', 'block_id': 'partner', 'label': {'type': 'plain_text', 'text': '거래처(상호)'},
-             'element': {'type': 'plain_text_input', 'action_id': 'partner',
-                         'placeholder': {'type': 'plain_text', 'text': '예: 에스와이에이전시'}}},
+            {'type': 'input', 'block_id': 'partner', 'dispatch_action': True,
+             'label': {'type': 'plain_text', 'text': '거래처(상호)'}, 'element': p_el},
             {'type': 'input', 'block_id': 'amount', 'label': {'type': 'plain_text', 'text': '금액 (VAT 포함, 원)'},
              'element': {'type': 'plain_text_input', 'action_id': 'amount',
                          'placeholder': {'type': 'plain_text', 'text': '예: 277200'}}},
@@ -685,14 +757,19 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                          'options': _opts(GRN_TYPES),
                          'placeholder': {'type': 'plain_text', 'text': '글로벌 / 글로벌그룹 / 사업자 없음'}}},
         ]
-    blocks += [
-        {'type': 'section', 'text': {'type': 'mrkdwn',
-         'text': '*이체 계좌* — 예전에 같은 거래처로 요청한 적 있으면 비워 둬도 됩니다.'}},
-    ]
-    tb = transfer_input_blocks()
-    for b in tb[:3]:
-        b['optional'] = True
-    blocks += tb
+    # 이체 계좌 — 거래처(또는 계산서)를 고르면 예전에 보낸 계좌를 창에 채워 보여 주고 확인 안내(11-01)
+    payee = meta.get('payee')
+    if payee:
+        head = '*이체 계좌*'
+    elif meta.get('partner') or inv:
+        head = '*이체 계좌* — 처음 보내는 거래처예요. 예금주·은행·계좌를 넣어 주세요.'
+    else:
+        head = '*이체 계좌* — 거래처를 고르면 예전에 보낸 계좌가 있을 때 채워집니다.'
+    blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': head}})
+    if payee:
+        blocks.append(payee_saved_note())
+    pv = int(meta.get('pv') or 0)
+    blocks += transfer_input_blocks(payee, sfx=f'_{pv}' if pv else '')
     blocks.append({'type': 'input', 'block_id': 'memo', 'optional': True,
                    'label': {'type': 'plain_text', 'text': '비고'},
                    'element': {'type': 'plain_text_input', 'action_id': 'memo', 'multiline': True}})
@@ -720,8 +797,10 @@ def read_new_request(view: dict) -> Dict:
     f = {
         'project_code': meta.get('project') or _sel('project', A_PROJECT),
         'evidence': _sel('evidence'), 'cost_category': _sel('cost'), 'content': _txt('content'),
-        'partner': _txt('partner'), 'amount': parse_amount(_txt('amount')), 'grn': _sel('grn'),
-        'payee_name': _txt('payee_name'), 'bank': _txt('bank'), 'account': normalize_account(_txt('account')),
+        'partner': partner_from_value(_sel('partner', A_PARTNER)) or meta.get('partner', ''),
+        'amount': parse_amount(_txt('amount')), 'grn': _sel('grn'),
+        'payee_name': field_value(v, 'payee_name'), 'bank': field_value(v, 'bank'),
+        'account': normalize_account(field_value(v, 'account')),
         'urgency': _sel('urgency') or '일반', 'memo': _txt('memo'),
     }
     inv = meta.get('inv')
@@ -755,7 +834,15 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
             errs['account'] = '처음 요청하는 거래처예요. 예금주·은행·계좌를 넣어 주세요.'
     if 'account' not in errs:
         errs.update(validate_transfer(f.get('payee_name'), f.get('bank'), f.get('account')))
+    mark_payee_saved(f)
     return errs
+
+
+def mark_payee_saved(f: Dict) -> None:
+    """기억해 둔 계좌와 같은 계좌로 보내면 카드에 표시(경영지원이 이체 전에 한 번 더 보게)."""
+    saved = lookup_payee(f.get('partner', ''))
+    if saved and normalize_account(saved.get('account')) == normalize_account(f.get('account')):
+        f['extra'] = {**(f.get('extra') or {}), 'payee_saved': True}
 
 
 # ── 비품 신청 모달 (11-01) ────────────────────────────────────────────
