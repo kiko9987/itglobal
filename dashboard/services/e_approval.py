@@ -822,7 +822,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         blocks.append({'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '현장'},
                        'element': {'type': 'external_select', 'action_id': A_PROJECT, 'min_query_length': 0,
                                    'placeholder': {'type': 'plain_text',
-                                                   'text': '코드·상호·주소로 검색 (비우면 내 담당 현장)'}}})
+                                                   'text': '코드·상호·주소로 검색 (누르면 내 담당 현장이 최근 순으로 나와요)'}}})
     ev_opts = _opts(EVIDENCE_TYPES)
     blocks += [
         {'type': 'input', 'block_id': 'evidence', 'label': {'type': 'plain_text', 'text': '증빙'},

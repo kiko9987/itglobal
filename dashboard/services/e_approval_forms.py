@@ -242,7 +242,7 @@ def _element(form: Form, f: F, value: str, today: Optional[date] = None) -> dict
     aid = f.key
     if f.kind == 'project':
         el = {'type': 'external_select', 'action_id': A_FORM_PROJECT, 'min_query_length': 0,
-              'placeholder': _plain('코드·상호·주소로 검색 (비우면 내 담당 현장)')}
+              'placeholder': _plain('코드·상호·주소로 검색 (누르면 내 담당 현장이 최근 순으로 나와요)')}
         if value:
             el['initial_option'] = {'text': _plain(value[:75]), 'value': value}
         return el

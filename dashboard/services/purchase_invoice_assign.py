@@ -344,7 +344,7 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
                  for v, label in COST_CATEGORIES]
     proj_el = {
         'type': 'external_select', 'action_id': ACTION_PROJECT, 'min_query_length': 0,
-        'placeholder': {'type': 'plain_text', 'text': '코드·상호·주소로 검색 (비우면 내 담당 현장)'},
+        'placeholder': {'type': 'plain_text', 'text': '코드·상호·주소로 검색 (누르면 내 담당 현장이 최근 순으로 나와요)'},
     }
     if initial_project_option:
         proj_el['initial_option'] = initial_project_option
