@@ -238,6 +238,15 @@ def save_assignment(channel: str, msg_ts: str, parsed: Dict, project_code: str,
         return dict(row)
 
 
+def recent_partners(limit: int = 300) -> List[str]:
+    """현장 지정된 계산서 글의 거래처(최근 순) — 자금집행 창 상호 검색 목록에 보탠다."""
+    with _db()._get_connection() as conn:
+        _ensure_table(conn)
+        return [r['partner'] for r in conn.execute(
+            'SELECT partner FROM purchase_invoice_assignments ORDER BY id DESC LIMIT ?', (limit,)).fetchall()
+            if r['partner']]
+
+
 def set_reply_ts(row_id: int, reply_ts: str) -> None:
     with _db()._get_connection() as conn:
         _ensure_table(conn)
@@ -390,5 +399,7 @@ def _transfer_blocks(transfer: bool, payee: Optional[Dict], approval: Optional[D
         blocks.append({'type': 'input', 'block_id': 'evidence', 'label': {'type': 'plain_text', 'text': '증빙'},
                        'element': {'type': 'static_select', 'action_id': 'evidence', 'options': ev,
                                    'initial_option': ev[0]}})
+        if payee:   # 예전에 보낸 계좌로 채웠으면 확인 안내(11-01)
+            blocks.append(ea.payee_saved_note())
         blocks += ea.transfer_input_blocks(payee)
     return blocks
