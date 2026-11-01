@@ -402,6 +402,11 @@ def test_supply_card_and_buttons(tmp_db):
     btn = ea.buttons(row, 'executor')[0]
     assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_TRANSFER
     assert '구매하고 카드에서 [구매 완료]' in ea.dm_intro(row, 'executor')
+    row = ea.create(ea.FORM_SUPPLY, KIKO, '고광일', {**f, 'memo': '배송 메시지에 직접 수령'})
+    t = ea.card_text(row, ea.steps(row['id']), '프로젝트0 · 회사 재고')
+    assert '구매 요청사항: 배송 메시지에 직접 수령' in t and '비고' not in t
+    blocks = {b['block_id']: b for b in ea.supply_request_view({})['blocks'] if b.get('block_id')}
+    assert not blocks['reason']['element']['multiline'] and blocks['memo']['label']['text'] == '구매 요청사항'
 
 
 def test_extra_column_added_to_existing_table(tmp_db):

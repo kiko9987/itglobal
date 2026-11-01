@@ -534,7 +534,7 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
             lines.append(f'고객 견적(VAT 별도): {int(quote_amount):,}원')
     memo = (row.get('memo') or '').strip()
     if memo:
-        lines.append(f'비고: {memo}')
+        lines.append(f"{'구매 요청사항' if row.get('form') == FORM_SUPPLY else '비고'}: {memo}")
     lines.append(f"요청: {initial(row.get('requester_name'))} {_fmt_when(row.get('created_at'))}")
     lines.append(step_line(row, step_rows))
     rej = next((s for s in reversed(step_rows) if s['result'] in ('rejected', 'cancelled')), None)
@@ -1003,8 +1003,9 @@ def supply_request_view(meta: dict) -> dict:
             _text('unit_price', '단가 (VAT 포함, 원)', '예: 25000'),
             _text('amount', '총 금액 (VAT 포함, 원)', '배송비가 있으면 더해서 입력', optional=True,
                   hint='비우면 수량 × 단가로 계산합니다.'),
-            _text('reason', '사유', '예: 사무실 용지 소진', multiline=True),
-            _text('memo', '비고', '', optional=True, multiline=True),
+            _text('reason', '사유', '예: 사무실 용지 소진'),
+            _text('memo', '구매 요청사항', '예: 배송지, 색상·크기, 쿠폰 코드, 장바구니 링크',
+                  optional=True, multiline=True),
         ],
     }
 
