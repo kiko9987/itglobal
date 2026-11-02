@@ -12272,16 +12272,41 @@ def _register_photo_reply_anchor(channel: str, thread_ts: str, reply_ts: str) ->
         return False
 
 
+def _online_fallback_initial(lead: dict) -> str:
+    """영업 담당자가 없어 온라인 상담자 이니셜로 만든 폴더의 그 이니셜 — 지금 영업 담당자가 따로 배정돼 있을 때만.
+    거래처류는 원래 온라인 상담자 기준이라 해당 없음. 두 사람이 같으면 '' (바꿀 것 없음)."""
+    def _c(v):
+        s = str(v or '').strip()
+        return '' if s in ('', '-', '미정') else s
+    if str(lead.get('플랫폼', '')).strip() in ('거래처', '기타', '소개'):
+        return ''
+    sales, online = _c(lead.get('영업 담당자')), _c(lead.get('온라인 상담자'))
+    if not (sales and online):
+        return ''
+    online_ini = _to_initial(online)
+    return online_ini if online_ini != _to_initial(sales) else ''
+
+
 def _maybe_fix_folder_initial(folder_id: str, current_name: str, lead: dict) -> str:
     """폴더명이 '(미정)'/'(미상)' 인데 담당자가 나중에 배정됐으면 담당자 이니셜로 1회 자동 교정.
     정상 이니셜은 절대 안 건드림(미정/미상 패턴일 때만). 성공 시 새 이름, 아니면 원래 이름 반환.
-    (2026-08-27: 방문 전 참고자료 업로드로 담당자 미상 상태에서 폴더가 만들어지는 케이스 자동 보정)"""
-    if not current_name or not re.search(r'\((?:미정|미상)\)', current_name):
+    (2026-08-27: 방문 전 참고자료 업로드로 담당자 미상 상태에서 폴더가 만들어지는 케이스 자동 보정)
+    2026-11-02: 영업 담당자 없이 온라인 상담자 이니셜로 만든 폴더도 영업 담당자 배정 후 교정
+      (L-04421: 메일 리드 사진을 KiKO 가 먼저 올려 '(KiKO)' 로 굳음). 맨 앞 괄호가 온라인 상담자 이니셜과
+      정확히 같을 때만 — 손으로 바꾼 다른 이니셜은 그대로."""
+    if not current_name:
         return current_name
     new_ini = _visit_folder_initial(lead)
     if not new_ini:
         return current_name  # 아직 담당자 없음 → 미정 유지
-    new_name = re.sub(r'\((?:미정|미상)\)', f'({new_ini})', current_name, count=1)
+    if re.search(r'\((?:미정|미상)\)', current_name):
+        new_name = re.sub(r'\((?:미정|미상)\)', f'({new_ini})', current_name, count=1)
+    else:
+        stale = _online_fallback_initial(lead)
+        m = re.match(r'^([^()]*)\(([^()]*)\)', current_name)
+        if not (stale and m and m.group(2) == stale):
+            return current_name
+        new_name = f'{m.group(1)}({new_ini})' + current_name[m.end():]
     if new_name == current_name:
         return current_name
     try:
