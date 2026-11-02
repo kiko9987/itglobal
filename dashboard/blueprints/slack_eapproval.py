@@ -821,6 +821,17 @@ def _ephemeral(client, body, text: str) -> None:
         _notify(client, uid, text)
 
 
+def post_my_requests(client, body, uid: str) -> None:
+    """[📂 내 요청] — 누른 사람에게만 보이는 진행 중·최근 끝난 요청 목록(11-03). 채널에 남지 않는다."""
+    try:
+        opened, closed = ea.my_requests(uid)
+        links = {r['id']: _card_link(r) for r in opened + closed}
+        _ephemeral(client, body, ea.my_requests_text(opened, closed, links))
+    except Exception as exc:
+        logger.error(f'{_LOG} 내 요청 목록 실패: {exc}', exc_info=True)
+        _ephemeral(client, body, ':warning: 내 요청을 불러오지 못했어요. 잠시 뒤 다시 눌러 주세요.')
+
+
 def _reject_view(aid: int, body: dict) -> dict:
     return {
         'type': 'modal', 'callback_id': ea.CB_REJECT,
@@ -959,6 +970,12 @@ def register_eapproval_handlers(app) -> None:
         form_key = body['actions'][0].get('value') or ''
         if ea.forms.get(form_key):
             _open_form_from(body, client, form_key)
+
+    @app.action(ea.A_MY_REQUESTS)
+    def handle_my_requests(ack, body, client):
+        ack()
+        uid = (body.get('user') or {}).get('id', '')
+        threading.Thread(target=post_my_requests, args=(client, body, uid), daemon=True).start()
 
     @app.action(ea.A_NEW_SUPPLY)
     def handle_supply_open(ack, body, client):

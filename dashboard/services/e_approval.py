@@ -15,8 +15,8 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,8 @@ A_NEW_FROM_PROJECT = 'eap_new_project'  # 공사확정 카드 [💸 자금집행
 A_PROJECT = 'eap_project'             # 새 요청 모달 프로젝트 external_select
 A_NEW_SUPPLY = 'eap_new_supply'       # 채널 메뉴 [🛒 비품 신청]
 A_FORM_PICK = 'eap_form_pick'         # 채널 메뉴 「다른 결재 요청」 고르기 → 양식 창
-A_FORM_OPEN = 'eap_form_open'         # 버튼 value=양식 key → 양식 창(법인카드 월 안내 등)
+A_MY_REQUESTS = 'eap_my_requests'     # 채널 메뉴 [📂 내 요청] → 본인에게만 보이는 진행 목록(11-03)
+A_FORM_OPEN = 'eap_form_open'       # 버튼 value=양식 key → 양식 창(법인카드 월 안내 등)
 A_PROJECT_FORM_PICK = 'eap_project_form_pick'   # 공사확정 카드 「📋 결재 요청」 고르기(공사봇)
 A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 external_select(현장 미지정 계산서 글)
 A_PARTNER = 'eap_partner'             # 자금집행 모달 「거래처」 external_select(아는 거래처 + 새 거래처)
@@ -638,15 +639,57 @@ def dm_intro(row: dict, role: str) -> str:
     return f'{emoji} {title(row)} — {label}'
 
 
+def what_of(row: dict) -> str:
+    """한 줄 요약의 '무엇' — 양식은 양식 요약, 비품은 품명, 자금집행은 거래처."""
+    form = row.get('form')
+    if form in forms.FORMS:
+        return forms.summary(form, extra(row).get('f') or {})
+    return (row.get('content') if form == FORM_SUPPLY else row.get('partner')) or '-'
+
+
+# ── 내 요청 (11-03) ───────────────────────────────────────────────────
+MY_RECENT_DAYS = 14
+
+
+def my_requests(uid: str, open_limit: int = 20, closed_limit: int = 5) -> Tuple[List[dict], List[dict]]:
+    """(진행 중, 최근 끝난 것) — 메뉴 [📂 내 요청]. 끝난 것은 최근 2주 안에서 몇 건만."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        q = 'SELECT * FROM approvals WHERE requester_id=? AND status {} ORDER BY id DESC LIMIT ?'
+        opened = [dict(r) for r in conn.execute(
+            q.format('IN (?,?)'), (uid, *OPEN_STATUSES, open_limit)).fetchall()]
+        since = (datetime.now() - timedelta(days=MY_RECENT_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+        closed = [dict(r) for r in conn.execute(
+            'SELECT * FROM approvals WHERE requester_id=? AND status NOT IN (?,?) AND updated_at>=? '
+            'ORDER BY updated_at DESC LIMIT ?', (uid, *OPEN_STATUSES, since, closed_limit)).fetchall()]
+    return opened, closed
+
+
+def my_request_line(row: dict, link: str = '') -> str:
+    emoji, label = status_label(row)
+    amt = int(row.get('amount') or 0)
+    s = f"{emoji} *{title(row)}* · {what_of(row)}" + (f' · {amt:,}원' if amt else '') + f' · {label}'
+    return s + (f'  <{link}|카드 보기>' if link else '')
+
+
+def my_requests_text(opened: List[dict], closed: List[dict], links: Dict[int, str]) -> str:
+    lines = ['*📂 내 요청*']
+    if opened:
+        lines.append(f'*진행 중 ({len(opened)}건)*')
+        lines += [f'• {my_request_line(r, links.get(r["id"], ""))}' for r in opened]
+    else:
+        lines.append('진행 중인 요청이 없어요.')
+    if closed:
+        lines.append(f'*최근 {MY_RECENT_DAYS}일 안에 끝난 요청*')
+        lines += [f'• {my_request_line(r, links.get(r["id"], ""))}' for r in closed]
+    return '\n'.join(lines)
+
+
 def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> List[dict]:
     """DM = 알림 + 한 줄 요약 + 카드 링크. 버튼은 채널 카드에만 둔다(누르는 곳 한 군데)."""
     form = row.get('form')
-    if form in forms.FORMS:
-        what = forms.summary(form, extra(row).get('f') or {})
-    else:
-        what = (row.get('content') if form == FORM_SUPPLY else row.get('partner')) or '-'
     amt = int(row.get('amount') or 0)
-    summary = f"{project_line} · {what}" + (f' · *{amt:,}원*' if amt else '')
+    summary = f"{project_line} · {what_of(row)}" + (f' · *{amt:,}원*' if amt else '')
     if form == forms.FORM_EXPENSE and role == 'executor':   # 개인 계좌는 카드엔 안 보이고 경영지원 DM 에만
         f = extra(row).get('f') or {}
         summary += f"\n이체 계좌: {f.get('bank') or '-'} {f.get('account') or '-'} ({row.get('requester_name') or '-'})"
@@ -664,9 +707,10 @@ def menu_blocks() -> List[dict]:
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text':
             '*전자결재 요청*\n'
-            '• 계산서 없이 먼저 보내야 하는 돈 → 💸 자금집행 요청\n'
-            '• 사무실 비품, 회사 재고로 살 물건 → 🛒 비품 신청\n'
+            '• 거래처에 돈을 보내는 건(자재·외주·현장 비용, 회사 재고 자재 포함) → 💸 자금집행 요청\n'
+            '• 경영지원이 대신 주문해 주는 사무용 비품 → 🛒 비품 신청\n'
             '• 계약서·보증보험·카드결제·법인서류·개인경비·법인카드 지출결의 → 📋 다른 결재 요청\n'
+            '• 내가 올린 요청이 어디까지 갔는지 → 📂 내 요청\n'
             '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}},
         {'type': 'actions', 'elements': [
             {'type': 'button', 'action_id': A_NEW, 'style': 'primary',
@@ -675,6 +719,8 @@ def menu_blocks() -> List[dict]:
              'text': {'type': 'plain_text', 'text': '🛒 비품 신청', 'emoji': True}},
             {'type': 'static_select', 'action_id': A_FORM_PICK, 'options': forms.menu_options(),
              'placeholder': {'type': 'plain_text', 'text': '📋 다른 결재 요청', 'emoji': True}},
+            {'type': 'button', 'action_id': A_MY_REQUESTS,
+             'text': {'type': 'plain_text', 'text': '📂 내 요청', 'emoji': True}},
         ]},
     ]
 
@@ -850,7 +896,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         'type': 'input', 'block_id': 'invoice', 'optional': True, 'dispatch_action': True,
         'label': {'type': 'plain_text', 'text': '계산서'}, 'element': inv_el,
         'hint': {'type': 'plain_text', 'text': '계산서 선택 시 거래처 · 금액 정보 자동 채움. '
-                                               '선입금이 필요한 경우 계산서 없음을 선택하세요.'}}]
+                                               '계산서가 없으면 비워 두세요(선입금).'}}]
     if inv:
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                        '📄 거래처·금액은 계산서 글 그대로 올라가고, 그 글의 현장 지정도 함께 끝납니다.'}]})

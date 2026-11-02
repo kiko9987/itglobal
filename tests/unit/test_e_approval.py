@@ -490,8 +490,27 @@ def test_shortcuts_registered_and_match_manifest():
 
 def test_menu_has_both_buttons():
     els = ea.menu_blocks()[1]['elements']
-    assert [e['action_id'] for e in els] == [ea.A_NEW, ea.A_NEW_SUPPLY, ea.A_FORM_PICK]
+    assert [e['action_id'] for e in els] == [ea.A_NEW, ea.A_NEW_SUPPLY, ea.A_FORM_PICK, ea.A_MY_REQUESTS]
     assert {o['value'] for o in els[2]['options']} == set(ea.forms.FORMS)
+    text = ea.menu_blocks()[0]['text']['text']
+    assert '회사 재고 자재 포함) → 💸 자금집행' in text and '사무용 비품 → 🛒 비품 신청' in text
+
+
+def test_my_requests_open_and_recent_closed(se):
+    """[📂 내 요청] — 내 것만, 진행 중 + 최근 끝난 것, 누른 사람에게만(11-03)."""
+    a = se.process_new_submit(MGR, dict(FIELDS))
+    b = se.process_new_submit(MGR, dict(FIELDS))
+    se.process_new_submit(JW, dict(FIELDS))                       # 남의 요청은 안 보임
+    se.apply_action('reject', b['id'], KIKO, '금액 확인')
+    opened, closed = ea.my_requests(MGR)
+    assert [r['id'] for r in opened] == [a['id']] and [r['id'] for r in closed] == [b['id']]
+    se.post_my_requests(se._fake, {'user': {'id': MGR}, 'channel': {'id': 'CEAP'}}, MGR)
+    eph = se._fake.of('chat_postEphemeral')[-1]
+    assert eph['user'] == MGR and eph['channel'] == 'CEAP'
+    t = eph['text']
+    assert f'자금집행 #{a["id"]}' in t and '승인 대기' in t and '진행 중 (1건)' in t
+    assert f'자금집행 #{b["id"]}' in t and '반려' in t and '<https://x/p|카드 보기>' in t
+    assert '진행 중인 요청이 없어요.' in ea.my_requests_text([], [], {})
 
 
 # ── 나머지 양식 (11-01) ─────────────────────────────────────────────
