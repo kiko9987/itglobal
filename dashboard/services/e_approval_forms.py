@@ -28,6 +28,7 @@ INSTALLMENTS = ['일시불'] + [f'{n}개월' for n in range(2, 13)]   # 카드�
 GUARANTEE_TYPES = ['입찰보증', '계약보증', '선금보증', '하자보증', '지급보증', '공사이행보증']
 # 계약서에 적어 두는 보증(11-01) — 보증보험 신청 종류와 같은 이름이라 그대로 맞춰 본다
 CONTRACT_GUARANTEES = ['계약보증', '선금보증', '하자보증']
+GRN_OPTIONS = ['G (글로벌)', 'R (글로벌그룹)', 'N (사업자 없음)']
 GUARANTEE_KEYS = {'계약보증': 'g_contract', '선금보증': 'g_advance', '하자보증': 'g_defect'}
 CORP_DOC_TYPES = ['인감증명서', '사용인감계', '법인등기사항전부증명서', '주주명부', '재무제표', '부가가치세증명원',
                   '국세완납증명서', '지방세완납증명서', '4대보험완납증명서', '4대보험가입자명부', '산업재해율확인서',
@@ -124,7 +125,7 @@ _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True
 
 _add(Form(FORM_CORPDOCS, '법인서류 요청', '🏢', 'task',
           fields=[
-              F('grn', '사업자 구분', 'select', options=['G (글로벌)', 'R (글로벌그룹)', 'N (사업자 없음)']),
+              F('grn', '사업자 구분', 'select', options=GRN_OPTIONS),
               F('project', '현장', 'project', required=False),
               F('docs', '서류 종류', 'multiselect', options=CORP_DOC_TYPES),
               F('year', '발행 연도', 'select', required=False, options=[]),   # 열 때 올해부터 채움
@@ -150,6 +151,8 @@ _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋', 'spend', amount_key='amou
           fields=[
               F('use_date', '사용일자', 'date'),
               F('project', '현장', 'project'),
+              F('grn', '사업자 구분', 'select', options=GRN_OPTIONS,
+                hint='어느 사업자 통장에서 돈이 나가는지 골라 주세요.'),
               F('cost', '원가 분류', 'select', options=[]),   # COST_CATEGORIES 로 채움
               F('amount', '청구 금액 (원)', 'money'),
               F('reason', '사유', 'multiline'),
