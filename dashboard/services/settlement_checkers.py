@@ -7,7 +7,9 @@
 2026-10-28: SB(황샛별) 후임 MY(이미영) 입사 → 10-29 인수인계 중 퇴사, 명단에서 뺌.
 2026-10-29: 경영지원 후임이 없어 SB 권한을 KiKO·JW·YG 에게도 똑같이 (사용자 지시).
   JW·YG 는 영업 겸 승인 — A/S 담당자 목록 같은 '영업이냐' 판단은 이 명단이 아니라 staff_directory 를 본다.
-SB 가 빠질 때 아래 목록에서 한 줄만 지우면 된다.
+2026-11-02: SB·KiKO 가 고친 금액은 '경영지원을 거친 변경'이라 금액·총액2 변경 알림을 보내지 않음(_OFFICE_EMAILS).
+  JW·YG 는 영업 겸 승인이라 자기 공사 금액을 고칠 수 있으니 계속 알림.
+SB 가 빠질 때 아래 두 목록에서 한 줄씩 지우면 된다.
 env 로 덮어쓰기: SLACK_SETTLEMENT_CHECKER_ID · SLACK_SETTLEMENT_CHECKER_EMAIL (쉼표로 여러 명, 같은 순서).
 """
 import os
@@ -18,6 +20,11 @@ _DEFAULT_CHECKERS = (
     ('U051ENK8AAY', 'jw@itg-aircon.com'),     # 박정우 (2026-10-29~)
     ('U050XNG5VBR', 'yg@itg-aircon.com'),     # 박용구 (2026-10-29~)
 )
+
+_OFFICE_EMAILS = frozenset({
+    'sb@itg-aircon.com',     # 황샛별 (퇴사 예정)
+    'kiko@itg-aircon.com',   # 고광일
+})
 
 
 def _env_list(name: str) -> list:
@@ -33,6 +40,11 @@ def checker_emails() -> set:
     """정산 승인자 이메일 들 (소문자)."""
     return {e.lower() for e in (_env_list('SLACK_SETTLEMENT_CHECKER_EMAIL')
                                 or [e for _, e in _DEFAULT_CHECKERS])}
+
+
+def is_office_editor(email: str) -> bool:
+    """경영지원 담당(SB·KiKO)의 편집인지 — 영업 겸 승인자(JW·YG)는 아님."""
+    return (email or '').strip().lower() in _OFFICE_EMAILS
 
 
 def checkers() -> list:

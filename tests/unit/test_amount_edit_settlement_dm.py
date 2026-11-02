@@ -49,13 +49,13 @@ def _amt_change():
 def test_amount_edit_by_admin_sends_dm(monkeypatch):
     _setup(monkeypatch)
     ok = psn.notify_amount_edit_to_settlement(
-        'G3805-YG', _amt_change(), editor_email='kiko@itg-aircon.com',
+        'G3805-YG', _amt_change(), editor_email='jsh@itg-aircon.com',
         latest_data={'사업자명': '닥터탁 성형외과의원'})
     assert ok is True
     assert _FakeWeb.opened == ['U_SB']
     assert len(_FakeWeb.posted) == 1
     body = _FakeWeb.posted[0]['text']
-    assert 'G3805-YG' in body and '총액 1' in body and 'KIKO' in body
+    assert 'G3805-YG' in body and '총액 1' in body and 'JSH' in body
 
 
 def test_settlement_own_edit_skipped(monkeypatch):
@@ -71,7 +71,7 @@ def test_non_amount_change_skipped(monkeypatch):
     ok = psn.notify_amount_edit_to_settlement(
         'G3805-YG',
         [{'field_name': '방문 주소', 'old_value': 'A', 'new_value': 'B'}],
-        editor_email='kiko@itg-aircon.com')
+        editor_email='jsh@itg-aircon.com')
     assert ok is False
     assert _FakeWeb.posted == []
 
@@ -81,7 +81,7 @@ def test_vat_change_triggers(monkeypatch):
     ok = psn.notify_amount_edit_to_settlement(
         'G3805-YG',
         [{'field_name': '부가세', 'old_value': False, 'new_value': True}],
-        editor_email='kiko@itg-aircon.com')
+        editor_email='jsh@itg-aircon.com')
     assert ok is True
     assert len(_FakeWeb.posted) == 1
 
@@ -106,17 +106,37 @@ def test_system_autorecord_skipped(monkeypatch):
 
 
 def test_all_checkers_get_dm_and_only_editor_skipped(monkeypatch):
-    """승인자 여러 명 — 전원에게 DM, 승인자 본인이 편집하면 그 사람 DM 만 빠짐 (10-29 JW·YG 승인자 추가)."""
+    """승인자 여러 명 — 전원에게 DM, 영업 겸 승인자가 편집하면 그 사람 DM 만 빠짐 (10-29 JW·YG 승인자 추가)."""
     _setup(monkeypatch)
     monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_ID', 'U_SB, U_JW')
     monkeypatch.setenv('SLACK_SETTLEMENT_CHECKER_EMAIL', 'sb@itg-aircon.com,jw@itg-aircon.com')
     assert psn.notify_amount_edit_to_settlement(
-        'G3805-YG', _amt_change(), editor_email='kiko@itg-aircon.com') is True
+        'G3805-YG', _amt_change(), editor_email='jsh@itg-aircon.com') is True
     assert _FakeWeb.opened == ['U_SB', 'U_JW'] and len(_FakeWeb.posted) == 2
     _FakeWeb.posted, _FakeWeb.opened = [], []
     assert psn.notify_amount_edit_to_settlement(
         'G3805-YG', _amt_change(), editor_email='JW@itg-aircon.com') is True
     assert _FakeWeb.opened == ['U_SB'] and len(_FakeWeb.posted) == 1
+
+
+def test_office_edit_sends_no_dm_to_anyone(monkeypatch):
+    """SB·KiKO 가 고치면 다른 승인자에게도 안 감 (11-02 G4242: SB 가 요청 반영 → 'KiKO 에게 거치지 않은 변경' 오발송)."""
+    _setup(monkeypatch)
+    monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_ID', raising=False)
+    monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_EMAIL', raising=False)
+    for who in ('sb@itg-aircon.com', 'kiko@itg-aircon.com', ' SB@itg-aircon.com '):
+        assert psn.notify_amount_edit_to_settlement('G4242-JSH', _amt_change(), editor_email=who) is False
+        assert psn.notify_total2_payer_change('G4242-JSH', 11000000, 10500000, {}, editor_email=who) is False
+    assert _FakeWeb.opened == [] and _FakeWeb.posted == []
+
+
+def test_sales_approver_edit_alerts_other_three(monkeypatch):
+    """JW·YG 가 고치면 본인만 빼고 SB·KiKO·나머지 한 명에게 — 자기 공사 금액을 고쳐도 알 수 있게."""
+    _setup(monkeypatch)
+    monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_ID', raising=False)
+    monkeypatch.delenv('SLACK_SETTLEMENT_CHECKER_EMAIL', raising=False)
+    assert psn.notify_amount_edit_to_settlement('G4242-JSH', _amt_change(), editor_email='jw@itg-aircon.com') is True
+    assert _FakeWeb.opened == ['U0BHC2JV7U5', 'U04UL2ZLJAX', 'U050XNG5VBR']
 
 
 def test_total2_change_skips_only_editor(monkeypatch):
@@ -150,6 +170,6 @@ def test_amount_unchanged_value_skipped(monkeypatch):
     ok = psn.notify_amount_edit_to_settlement(
         'G3805-YG',
         [{'field_name': '총액 1', 'old_value': 35500000, 'new_value': '35500000'}],
-        editor_email='kiko@itg-aircon.com')
+        editor_email='jsh@itg-aircon.com')
     assert ok is False
     assert _FakeWeb.posted == []

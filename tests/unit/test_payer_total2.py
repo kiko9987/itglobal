@@ -141,7 +141,11 @@ def test_notify_total2_change_dm_and_skip_self():
         assert '17,646,200원 → 17,046,200원' in text and "유미숙 6,000,000원을 '현금 · 부가세 없음'" in text
         fake.conversations_open.reset_mock()
         assert pn.notify_total2_payer_change('G4148-JW', 17646200, 17046200, _plan(True),
-                                             editor_email='sb@itg-aircon.com') is True       # 승인자 본인 편집
+                                             editor_email='yg@itg-aircon.com') is True       # 영업 겸 승인자 편집
         opened = [c.kwargs['users'] for c in fake.conversations_open.call_args_list]
-        assert opened and 'U0BHC2JV7U5' not in opened                                      # → 본인 DM 만 빠짐
+        assert opened and 'U050XNG5VBR' not in opened and 'U0BHC2JV7U5' in opened          # → 본인 DM 만 빠짐
+        fake.conversations_open.reset_mock()
+        assert pn.notify_total2_payer_change('G4148-JW', 17646200, 17046200, _plan(True),
+                                             editor_email='sb@itg-aircon.com') is False      # 경영지원 담당 → 알림 없음
+        assert not fake.conversations_open.called
         assert pn.notify_total2_payer_change('G4148-JW', 17046200, 17046200, _plan(True)) is False  # 그대로

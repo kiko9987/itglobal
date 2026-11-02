@@ -571,7 +571,7 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
 
     2026-09-14 신설. 금액 변경이 샛별 승인(#영업_관리 요청 ✅)을 우회하는 두 경로 모두 커버:
       ① PM 직접 편집 — `update_project` 호출부가 `editor_email`(세션 이메일) 전달.
-         경영지원 본인 편집이면 자기 알림 노이즈라 skip.
+         경영지원 담당(SB·KiKO) 편집이면 경영지원을 거친 변경이라 skip.
       ② 시트 직접수정 — 리컨사일러(project_reconcile)가 `editor_label='시트 직접수정'` 전달
          (편집자 식별 불가라 skip 없음; 총액1·부가세는 시트에서 드물게 바뀌어 노이즈 적음).
     이미 반영된 변경이므로 ✅승인이 아니라 FYI 알림.
@@ -588,8 +588,11 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     if editor_label and editor_label.startswith('시스템 자동기록'):
         return False
 
-    from dashboard.services.settlement_checkers import checkers
-    # 승인자 본인이 편집한 경우(요청 ✅ 반영 포함) 그 사람 DM 만 건너뜀 — 나머지 승인자는 알아야 함
+    from dashboard.services.settlement_checkers import checkers, is_office_editor
+    # 경영지원 담당(SB·KiKO)이 고친 건 경영지원을 거친 변경 → 알림 없음 (11-02 G4242: SB 가 요청을 반영했는데 나머지 승인자에게 감)
+    if is_office_editor(editor_email):
+        return False
+    # JW·YG 는 고친 본인 DM 만 건너뜀 — 나머지 승인자는 알아야 함
     #   (10-29 JW·YG 도 승인자가 되면서 '누구든 승인자면 전부 skip' 이면 영업이 자기 공사 금액을 바꿔도 아무도 모름)
     _me = (editor_email or '').strip().lower()
     _to = [cid for cid, em in checkers() if not (_me and em == _me)]
@@ -656,11 +659,13 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
     """나눠 내는 공사 부담자 설정으로 총액 2 가 바뀌면 경영지원(정산 승인자)에게 DM (2026-10-21).
 
     '현금 · 부가세 없음' 부담자 몫엔 부가세를 붙이지 않아 총액 2 가 시스템으로 바뀐다(매니저도 설정 가능 →
-    사용자 결정: 누구나 + 경영지원 알림). notify_amount_edit_to_settlement 와 같은 DM 경로·본인 편집 제외.
+    사용자 결정: 누구나 + 경영지원 알림). notify_amount_edit_to_settlement 와 같은 DM 경로·제외 규칙.
     """
     if not old_total2 or int(old_total2) == int(new_total2):
         return False
-    from dashboard.services.settlement_checkers import checkers
+    from dashboard.services.settlement_checkers import checkers, is_office_editor
+    if is_office_editor(editor_email):   # 경영지원 담당(SB·KiKO)이 설정한 건 알림 없음
+        return False
     _me = (editor_email or '').strip().lower()
     _to = [cid for cid, em in checkers() if not (_me and em == _me)]   # 편집한 승인자 본인만 빼고
     if not _to:
