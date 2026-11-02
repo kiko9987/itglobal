@@ -916,12 +916,9 @@ def register_eapproval_handlers(app) -> None:
             from dashboard.blueprints.slack_bot import _intake_option_label
             query = (body.get('value') or '').strip()
             mgr = None if query else _name((body.get('user') or {}).get('id', ''))
-            # 계산서 없이 먼저 보내는 돈은 공통비만(재고 구매는 비품 신청). 계산서를 골랐으면 재고 매입일 수 있어 프로젝트0도.
-            meta = json.loads(((body.get('view') or {}).get('private_metadata')) or '{}')
-            specials = None if meta.get('inv') else (pinv.COMMON_CODE,)
+            # 프로젝트0·공통비 둘 다(11-02) — 프로젝트0 자재 구매는 비품보다 자금집행이 더 많다
             ack(options=pinv.build_project_options(
-                get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label,
-                specials=specials))
+                get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label))
         except Exception as exc:
             logger.error(f'{_LOG} 프로젝트 목록 실패: {exc}', exc_info=True)
             try:

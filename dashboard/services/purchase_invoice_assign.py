@@ -118,8 +118,7 @@ def build_project_options(recs: List[dict], query: str, manager_name: Optional[s
     - 타이핑: 코드·사업자명·주소·거래처명에 들어 있으면 → 최근(코드 큰) 순.
     - 빈 클릭: 내 담당 프로젝트 최근 순(수금 여부 무관 — 부대비용은 공사 끝난 뒤에도 옴).
     - 프로젝트0·공통비는 빈 클릭이면 맨 위, 타이핑이면 맞을 때만.
-    - specials: 보여줄 특수 항목 코드(None=전부). 자금집행 새 요청은 공통비만 —
-      프로젝트0(회사 재고) 구매는 비품 신청으로 따로 받는다.
+    - specials: 보여줄 특수 항목 코드(None=전부). 법인서류 요청은 공통비만.
     """
     q = (query or '').strip().lower()
     label_fn = label_fn or (lambda c, b, a: f'{c} | {b} | {a}'[:75])
