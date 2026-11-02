@@ -50,13 +50,13 @@ def test_update_code_only_when_field_really_changed(maps):
 
 
 def test_active_sales_excludes_non_sales_and_inactive(monkeypatch):
-    monkeypatch.setattr(sd, 'suffix_map', lambda: {'박정우': 'JW', '황샛별': 'SB', '김지훈': 'JH', '아이티': 'IT'})
+    monkeypatch.setattr(sd, 'suffix_map', lambda: {'박정우': 'JW', '황샛별': 'SB', '퇴사자': 'XX', '아이티': 'IT'})
     monkeypatch.setattr(sd, 'non_sales_owners', lambda: ['황샛별', '아이티'])
     monkeypatch.setattr(sd, '_users', lambda: [
         {'name': '박정우', 'is_active': True}, {'name': '황샛별', 'is_active': True},
-        {'name': '김지훈', 'is_active': False, 'is_resigned': True}])
+        {'name': '퇴사자', 'is_active': False, 'is_resigned': True}])
     assert sd.active_sales_managers() == ['박정우']
-    assert sd.inactive_names() == ['김지훈']
+    assert sd.inactive_names() == ['퇴사자']
 
 
 def test_config_has_non_sales_and_legacy_suffix():
