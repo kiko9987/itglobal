@@ -1365,6 +1365,37 @@ def _payer_status_line(payer: Dict, received: int) -> str:
 
 
 _SPLIT_COMPLETE_KEY = 'payment_split_complete:{}'   # 나눠 내는 공사: 수금완료 카드가 된 칸(단계)
+_CARD_BASIS_KEY = 'payment_card_basis:{}'            # 카드 ts → 발송 당시 {미수금, 총액, 그 칸 금액}
+
+
+def _save_card_basis(rc, ts: str, unpaid: int, total_t: int, stage_val: int) -> None:
+    """카드 발송 당시 기준값 저장 — 재렌더 때 '당시 미수금'을 다시 계산하는 데 씀."""
+    import json
+    try:
+        rc.set(_CARD_BASIS_KEY.format(ts),
+               json.dumps({'unpaid': int(unpaid or 0), 'total_t': int(total_t or 0),
+                           'stage_val': int(stage_val or 0)}),
+               ex=PAYMENT_CARD_TS_TTL)
+    except Exception as exc:
+        logger.debug(f'[PAYMENT] 카드 기준값 저장 실패 (ts={ts}): {exc}')
+
+
+def _unpaid_as_of_card(ts: str, unpaid_now: int, total_now: int, stage_now: int) -> int:
+    """카드에 보일 미수금 = 그 카드가 올라온 당시 기준 (2026-11-03 사용자 — 308·309호 임차인 카드가 나중에 들어온
+    임대인 돈까지 반영돼 '미수금 0원'인데 수금완료가 아니라 이상해 보였음).
+
+    다른 칸 입금은 반영하지 않고, 총액(금액·부가세 수정)과 이 칸 금액 정정만 따라간다.
+    기준값이 없으면(이 기능 전 카드) 지금 미수금."""
+    import json
+    try:
+        raw = get_redis_client().redis.get(_CARD_BASIS_KEY.format(ts))
+        if not raw:
+            return int(unpaid_now or 0)
+        b = json.loads(raw)
+        return (int(b['unpaid']) + (int(total_now or 0) - int(b['total_t']))
+                - (int(stage_now or 0) - int(b['stage_val'])))
+    except Exception:
+        return int(unpaid_now or 0)
 
 
 def _split_complete_stage(project: str) -> str:
@@ -2005,6 +2036,8 @@ def _build_stage_card_text(stage: str, project: str, payments: List[Dict],
             project=project, address=c.get('address', ''), payments=payments,
             invoice_value=c.get('invoice', ''), total_t=c.get('total_t', 0),
             stage_sheet_vals=stage_vals, construction=c.get('construction', ''))
+    # 수금완료 판단은 지금 미수금, 카드에 보이는 미수금은 당시 기준(재렌더 경로가 넣어 줌, 2026-11-03)
+    c = {**c, 'unpaid': c.get('unpaid_shown', c.get('unpaid', 0))}
     if stage in ('계약금', '중도금', '잔금'):   # 계약금도 누적 이력 (분할 계약금 대응, 2026-08)
         # 그 단계 마지막이 반환이면 반환 카드로 다시 그림 — 반환 뒤엔 추적 카드가 '반환' 카드라,
         #   재렌더 때 '입금' 카드로 덮어쓰지 않게 (2026-10-16)
@@ -2054,6 +2087,8 @@ def _correct_payment_card(slack, channel: str, corr: Dict,
     if '통합' in old:
         return False  # 통합 카드 제외 (여러 프로젝트 — v1 미대상)
     stage_vals = {'계약금': corr['u'], '중도금': corr['v'], '잔금': corr['w']}
+    corr = {**corr, 'unpaid_shown': _unpaid_as_of_card(ts, corr.get('unpaid', 0), corr.get('total_t', 0),
+                                                       stage_vals.get(stage, 0))}
     try:
         new_text = _append_special_notes(
             _build_stage_card_text(stage, project, payments, corr, stage_vals), notes)
@@ -2134,6 +2169,8 @@ def _reprice_payment_card(slack, channel: str, rep: Dict,
                 or not p.get('date_md') or p.get('date_md') == '-'):
             return False
     stage_vals = {'계약금': rep['u'], '중도금': rep['v'], '잔금': rep['w']}
+    rep = {**rep, 'unpaid_shown': _unpaid_as_of_card(ts, rep.get('unpaid', 0), rep.get('total_t', 0),
+                                                     stage_vals.get(stage, 0))}
     try:
         new_text = _append_special_notes(
             _build_stage_card_text(stage, project, payments, rep, stage_vals), notes)
@@ -3265,6 +3302,11 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                                     ts,
                                     ex=PAYMENT_CARD_TS_TTL,
                                 )
+                                if not _is_unified:
+                                    # 미수금 칸(수식)은 입금 직후 늦게 바뀔 때가 있어 총액 2 − 입금 합으로 계산
+                                    _left = int(c['total_t'] or 0) - sum(int(x or 0) for x in stage_vals.values())
+                                    _save_card_basis(rc, ts, 0 if abs(_left) < 2 else _left, c['total_t'],
+                                                     stage_vals.get(stage, 0))
                                 # 2026-07-11 통합 카드였으면 그룹 전체 프로젝트에도 동일 ts 저장.
                                 #   각 지점 코드로 카드 조회하는 후속 처리 (편집 답글 등) 가
                                 #   같은 카드를 참조하도록 → 그룹 어느 코드든 lookup 시 매칭.

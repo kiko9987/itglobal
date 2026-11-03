@@ -74,6 +74,44 @@ def test_rerender_split_complete_only_on_remembered_column(monkeypatch):
     assert '*수금완료*' not in ps._build_stage_card_text('잔금', 'G4159-JW', _pays(), c, vals)
 
 
+# ── 카드 미수금 = 올라온 당시 기준 (2026-11-03 308·309호 임차인 카드 '미수금 0원') ──
+class _FakeRedis:
+    def __init__(self):
+        self.d = {}
+
+    def set(self, k, v, ex=None):
+        self.d[k] = v
+
+    def get(self, k):
+        return self.d.get(k)
+
+
+def _fake_rc(monkeypatch):
+    fr = _FakeRedis()
+    monkeypatch.setattr(ps, 'get_redis_client', lambda: type('C', (), {'redis': fr})())
+    return fr
+
+
+def test_unpaid_as_of_card_ignores_other_column_deposits(monkeypatch):
+    fr = _fake_rc(monkeypatch)
+    # 308호 임차인 잔금 카드: 발송 때 임대인 몫 1,210,000 남음
+    ps._save_card_basis(fr, '1.1', 1210000, 12092000, 6042000)
+    assert ps._unpaid_as_of_card('1.1', 0, 12092000, 6042000) == 1210000           # 나중에 임대인 완납 → 그대로
+    assert ps._unpaid_as_of_card('1.1', 0, 12031580, 6042000) == 1149580           # 총액 수정은 따라감
+    assert ps._unpaid_as_of_card('1.1', 0, 12092000, 6000000) == 1252000           # 이 칸 금액 정정도 따라감
+    assert ps._unpaid_as_of_card('없는카드', 777, 12092000, 6042000) == 777          # 옛 카드 = 지금 미수금
+
+
+def test_stage_card_shows_unpaid_as_of_card_but_done_uses_current(monkeypatch):
+    monkeypatch.setattr(ps, '_split_payers_for', lambda project: PAYERS)
+    monkeypatch.setattr(ps, '_split_complete_stage', lambda project: '계약금')
+    vals = {'계약금': 1802350, '중도금': 0, '잔금': 1472350}
+    c = {'unpaid': 0, 'unpaid_shown': 624470, 'address': '주소', 'invoice': '', 'total_t': 3274700, 'total_r': 0}
+    tenant = ps._build_stage_card_text('잔금', 'G4159-JW', _pays(), c, vals)
+    assert '미수금 : -624,470원' in tenant and '*수금완료*' not in tenant   # 덜 받음 = 음수 표기(07-16)
+    assert '*수금완료*' in ps._build_stage_card_text('계약금', 'G4159-JW', _pays(), c, vals)
+
+
 # ── 미발행 리마인드 ──
 def _row(**kw):
     r = {'프로젝트 코드': 'G4159-JW', '총액 2': 3274700, '미수금': 0, '사업자명': '-',
