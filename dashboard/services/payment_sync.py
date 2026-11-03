@@ -1363,7 +1363,7 @@ def _project_cache_row(project: str) -> Dict:
 
 
 def _inflow_line(project: str) -> List[str]:
-    """수금 카드 주소 아래 '유입 구분 : 온라인 (당근)' 줄 (2026-11-03 경영지원 요청). 공사 확정 카드와 같은 표기,
+    """수금 카드 첫 줄(주소 위) '유입 구분 : 온라인 (당근)' (2026-11-03 경영지원 요청). 공사 확정 카드와 같은 표기,
     거래처 유입이면 업체 이름도 '거래처 (메이드바이)' — 9월 이후 공사 절반이 거래처라 이름이 있어야 쓸모. 없으면 []."""
     try:
         from dashboard.services.lead_helpers import format_inflow_display
@@ -1496,8 +1496,8 @@ def _build_stage_message(
         '⠀',
         f"{emoji} *{stage} {header_action}* — :id: *{project}*",
         _SEP,
+        *_inflow_line(project),   # 유입 구분 — 공사 확정 카드처럼 구분선 바로 아래 첫 줄 (2026-11-03)
         f"주소 : {address or '-'}",
-        *_inflow_line(project),   # 유입 구분 (2026-11-03)
     ]
     if construction:
         lines.append(f"공사내용 : {construction}")
@@ -1667,8 +1667,8 @@ def _build_stage_with_history_message(
         '⠀',
         f"{_title} — :id: *{project}*",
         _SEP,
+        *_inflow_line(project),   # 유입 구분 — 공사 확정 카드처럼 구분선 바로 아래 첫 줄 (2026-11-03)
         f"주소 : {address or '-'}",
-        *_inflow_line(project),   # 유입 구분 (2026-11-03)
     ]
     if construction:
         lines.append(f"공사내용 : {construction}")
@@ -1760,8 +1760,8 @@ def _build_complete_message(
         '⠀',
         f":white_check_mark: *수금완료* — :id: *{project}*",
         _SEP,
+        *_inflow_line(project),   # 유입 구분 — 공사 확정 카드처럼 구분선 바로 아래 첫 줄 (2026-11-03)
         f"주소 : {address or '-'}",
-        *_inflow_line(project),   # 유입 구분 (2026-11-03)
     ]
     if construction:
         lines.append(f"공사내용 : {construction}")

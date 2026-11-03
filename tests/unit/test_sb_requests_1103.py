@@ -23,7 +23,7 @@ def test_inflow_line(monkeypatch):
         assert ps._inflow_line('G1-XX') == want
 
 
-def test_stage_card_has_inflow_under_address(monkeypatch):
+def test_stage_card_has_inflow_above_address(monkeypatch):
     monkeypatch.setattr(ps, '_project_cache_row', lambda project: _row('홈페이지'))
     pays = [{'stage': '잔금', 'date_md': '11/03', 'date_year': '2026', 'amount': 1000000,
              'partner': '홍길동', 'bank': '기업'}]
@@ -31,7 +31,8 @@ def test_stage_card_has_inflow_under_address(monkeypatch):
         stage='잔금', project='G1-XX', address='강남구 학동로 1', last_payment=pays[0], all_payments=pays,
         invoice_value='', total_r=0, total_t=1000000, unpaid=0,
         stage_sheet_vals={'계약금': 0, '중도금': 0, '잔금': 1000000})
-    assert '주소 : 강남구 학동로 1\n유입 구분 : 온라인 (홈페이지)' in txt
+    # 구분선 바로 아래 첫 줄 (공사 확정 카드와 같은 순서, 11-03 SB 테스트 후 결정)
+    assert f'{ps._SEP}\n유입 구분 : 온라인 (홈페이지)\n주소 : 강남구 학동로 1' in txt
 
 
 def test_resume_amount_line():
