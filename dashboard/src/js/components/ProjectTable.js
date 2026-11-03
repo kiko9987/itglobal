@@ -1656,7 +1656,7 @@ export default class ProjectTable {
     filterContainer.className = 'my-projects-filter';
 
     const label = document.createElement('label');
-    label.textContent = '취소된 공사 제외';
+    label.textContent = '취소된 공사 제외하기';
     label.setAttribute('for', 'hideCancelledProjects');
 
     const checkbox = document.createElement('input');
