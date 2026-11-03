@@ -1340,20 +1340,46 @@ def _split_payers_for(project: str) -> Dict[str, Dict]:
     폴러는 A:AD 만 읽어 부담자 칸(AL·AM·AN)이 없으므로 캐시로 본다. 받은 돈은 호출부가 시트 값으로 다시 넣는다.
     """
     try:
-        import pandas as pd
-        from dashboard.services.project_service import load_data
         from dashboard.services.payer_split import stage_payers
-        df = load_data()
-        if not isinstance(df, pd.DataFrame) or df.empty or '프로젝트 코드' not in df.columns:
-            return {}
-        sub = df[df['프로젝트 코드'].astype(str).str.strip() == str(project or '').strip()]
-        if sub.empty:
-            return {}
-        row = sub.iloc[0]
-        return stage_payers(row.where(pd.notna(row), None).to_dict())
+        row = _project_cache_row(project)
+        return stage_payers(row) if row else {}
     except Exception as exc:
         logger.debug(f'[PAYMENT] 부담자 조회 실패({project}): {exc}')
         return {}
+
+
+def _project_cache_row(project: str) -> Dict:
+    """프로젝트 캐시의 그 행(dict). 폴러는 A:AD 만 읽어 거래처명·부담자 칸이 없으니 카드 표기용으로 캐시를 본다."""
+    import pandas as pd
+    from dashboard.services.project_service import load_data
+    df = load_data()
+    if not isinstance(df, pd.DataFrame) or df.empty or '프로젝트 코드' not in df.columns:
+        return {}
+    sub = df[df['프로젝트 코드'].astype(str).str.strip() == str(project or '').strip()]
+    if sub.empty:
+        return {}
+    row = sub.iloc[0]
+    return row.where(pd.notna(row), None).to_dict()
+
+
+def _inflow_line(project: str) -> List[str]:
+    """수금 카드 주소 아래 '유입 구분 : 온라인 (당근)' 줄 (2026-11-03 경영지원 요청). 공사 확정 카드와 같은 표기,
+    거래처 유입이면 업체 이름도 '거래처 (메이드바이)' — 9월 이후 공사 절반이 거래처라 이름이 있어야 쓸모. 없으면 []."""
+    try:
+        from dashboard.services.lead_helpers import format_inflow_display
+        from dashboard.services.partner_names import is_partner_name
+        row = _project_cache_row(project)
+        inflow = str((row or {}).get('유입 구분') or '').strip()
+        disp = format_inflow_display(inflow)
+        if disp == '-':
+            return []
+        partner = str(row.get('거래처명') or '').strip()
+        if inflow == '거래처' and is_partner_name(partner):
+            disp = f'거래처 ({partner})'
+        return [f'유입 구분 : {disp}']
+    except Exception as exc:
+        logger.debug(f'[PAYMENT] 유입 구분 조회 실패({project}): {exc}')
+        return []
 
 
 def _payer_status_line(payer: Dict, received: int) -> str:
@@ -1471,6 +1497,7 @@ def _build_stage_message(
         f"{emoji} *{stage} {header_action}* — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
+        *_inflow_line(project),   # 유입 구분 (2026-11-03)
     ]
     if construction:
         lines.append(f"공사내용 : {construction}")
@@ -1641,6 +1668,7 @@ def _build_stage_with_history_message(
         f"{_title} — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
+        *_inflow_line(project),   # 유입 구분 (2026-11-03)
     ]
     if construction:
         lines.append(f"공사내용 : {construction}")
@@ -1733,6 +1761,7 @@ def _build_complete_message(
         f":white_check_mark: *수금완료* — :id: *{project}*",
         _SEP,
         f"주소 : {address or '-'}",
+        *_inflow_line(project),   # 유입 구분 (2026-11-03)
     ]
     if construction:
         lines.append(f"공사내용 : {construction}")

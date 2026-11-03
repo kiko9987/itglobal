@@ -3220,6 +3220,27 @@ export default class ProjectRowAccordion {
    * @returns {Promise<string|null>} 입력한 사유(trim), 닫기/빈값이면 null.
    */
   _promptCancelReason(projectCode) {
+    return this._promptReasonModal(projectCode, {
+      title: '공사 취소', icon: 'fa-ban', color: '#dc3545', submit: '취소 확정', label: '취소 사유',
+      notice: '취소는 <b>바로 반영</b>되며, <b>매출 0원 처리</b>는 경영지원 확인(✅) 후 완료됩니다.',
+      placeholder: '예: 고객 변심 / 타업체 진행 / 계약 해지',
+    });
+  }
+
+  /**
+   * 공사 재개 사유 입력 모달 (2026-11-03 경영지원 요청 — 슬랙 [취소 되돌리기]도 사유 창).
+   * @returns {Promise<string|null>}
+   */
+  _promptResumeReason(projectCode) {
+    return this._promptReasonModal(projectCode, {
+      title: '공사 재개', icon: 'fa-play', color: '#0d6efd', submit: '재개 확정', label: '재개 사유',
+      notice: '공사 취소가 풀리고 <b>금액이 취소 전으로</b> 돌아갑니다. 경영지원에는 #영업_관리 카드로 알립니다.',
+      placeholder: '예: 고객이 다시 진행 요청 / 잘못 취소함',
+    });
+  }
+
+  /** 취소·재개 공용 사유 입력 모달 (o: title·icon·color·submit·label·notice·placeholder). */
+  _promptReasonModal(projectCode, o) {
     return new Promise((resolve) => {
       let host = document.getElementById('cancelReasonModalHost');
       if (!host) {
@@ -3232,21 +3253,21 @@ export default class ProjectRowAccordion {
           <div class="modal-dialog modal-dialog-centered" style="max-width:520px;"><div class="modal-content">
             <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
               <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
-                <i class="fas fa-ban" style="color:#dc3545;"></i>공사 취소 — ${projectCode}</h5>
+                <i class="fas ${o.icon}" style="color:${o.color};"></i>${o.title} — ${projectCode}</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body" style="padding:1.25rem;">
               <div style="font-size:var(--font-size-sm); color:var(--gray-700); background:var(--gray-50); border:1px solid var(--gray-200); border-radius:6px; padding:0.6rem 0.8rem; margin-bottom:0.9rem;">
-                취소는 <b>바로 반영</b>되며, <b>매출 0원 처리</b>는 경영지원 확인(✅) 후 완료됩니다.
+                ${o.notice}
               </div>
-              <label class="form-label" style="font-weight:600;">취소 사유 <span style="color:#dc3545;">*</span></label>
+              <label class="form-label" style="font-weight:600;">${o.label} <span style="color:#dc3545;">*</span></label>
               <textarea id="cancelReasonInput" class="form-control" rows="3"
-                placeholder="예: 고객 변심 / 타업체 진행 / 계약 해지"></textarea>
+                placeholder="${o.placeholder}"></textarea>
               <div id="cancelReasonAlert" class="text-danger small mt-2"></div>
             </div>
             <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:0.85rem 1.25rem;">
               <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">닫기</button>
               <button type="button" class="btn as-btn-submit" id="cancelReasonSubmit"
-                style="background-color:#dc3545; border-color:#dc3545; color:#fff;">취소 확정</button>
+                style="background-color:${o.color}; border-color:${o.color}; color:#fff;">${o.submit}</button>
             </div>
           </div></div>
         </div>`;
@@ -3257,7 +3278,7 @@ export default class ProjectRowAccordion {
       } catch (_) {
         // Bootstrap 미로드 등 fallback — 기본 prompt
         host.innerHTML = '';
-        const v = (window.prompt('공사 취소 사유 (필수)') || '').trim();
+        const v = (window.prompt(`${o.label} (필수)`) || '').trim();
         resolve(v || null);
         return;
       }
@@ -3266,7 +3287,7 @@ export default class ProjectRowAccordion {
       submitBtn.addEventListener('click', () => {
         const v = (el.querySelector('#cancelReasonInput').value || '').trim();
         if (!v) {
-          el.querySelector('#cancelReasonAlert').textContent = '취소 사유를 입력해야 합니다.';
+          el.querySelector('#cancelReasonAlert').textContent = `${o.label}를 입력해야 합니다.`;
           return;
         }
         submitted = true;
@@ -3397,7 +3418,9 @@ export default class ProjectRowAccordion {
    * 공사 재개 처리 (취소 상태에서)
    */
   async resumeConstruction(projectCode) {
-    if (!confirm('공사를 재개하시겠습니까?')) {
+    // 2026-11-03: 확인 창 대신 재개 사유(필수) — #영업_관리 재개 카드·슬랙 스레드에 남음
+    const reason = await this._promptResumeReason(projectCode);
+    if (!reason) {
       return;
     }
 
@@ -3425,7 +3448,7 @@ export default class ProjectRowAccordion {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ projectCode }),
+          body: JSON.stringify({ projectCode, reason }),
           ..._to,
         }),
         _minShow,
@@ -5381,6 +5404,7 @@ export default class ProjectRowAccordion {
 
         // 헤더 필드 이벤트 바인딩 (프로젝트 코드 실시간 업데이트)
         this.bindHeaderFieldEvents(projectCode);
+        this.ensureInflowOptions(projectCode);   // 유입 구분 선택지 채우기 (비동기)
       }
 
       // 2. 각 카드를 편집 모드로 전환 (권한 없는 카드는 워터마크 표시)
@@ -6511,11 +6535,13 @@ export default class ProjectRowAccordion {
         const managerField = headerContainer.querySelector('[data-field="담당자"]');
         const addressField = headerContainer.querySelector('[data-field="현장 주소"]');
         const contentField = headerContainer.querySelector('[data-field="공사 내용"]');
+        const inflowField = headerContainer.querySelector('[data-field="유입 구분"]');
 
         const restoredData = {
           '담당자': managerField?.dataset.originalValue || this.currentProject['담당자'] || '',
           '현장 주소': addressField?.dataset.originalValue || this.currentProject['현장 주소'] || '',
-          '공사 내용': contentField?.dataset.originalValue || this.currentProject['공사 내용'] || ''
+          '공사 내용': contentField?.dataset.originalValue || this.currentProject['공사 내용'] || '',
+          '유입 구분': inflowField?.dataset.originalValue || this.currentProject['유입 구분'] || ''
         };
 
         // 원본 프로젝트 코드로 헤더 생성 (취소 시 원래 코드로 복원)
@@ -6939,6 +6965,9 @@ export default class ProjectRowAccordion {
     const manager = projectData['담당자'] || '';
     const address = projectData['현장 주소'] || '';
     const content = projectData['공사 내용'] || '';
+    // 유입 구분 (2026-11-03 경영지원 요청) — 기본정보 카드가 꽉 차서 요약줄 담당자 뒤에
+    const inflowRaw = String(projectData['유입 구분'] ?? '').trim();
+    const inflow = inflowRaw === '-' ? '' : inflowRaw;
 
     if (!isEditMode) {
       // 읽기 모드 - 빈 값일 때 안내 메시지 표시
@@ -6951,6 +6980,9 @@ export default class ProjectRowAccordion {
         </div>
         <div class="project-manager-info">
           <i class="fas fa-user me-2"></i>${manager || '담당자 미지정'}
+        </div>
+        <div class="project-inflow-info" title="유입 구분">
+          <i class="fas fa-sign-in-alt me-2"></i>${escHtml(inflow || '유입 구분 없음')}
         </div>
         <div class="project-address-info" title="${displayAddress}">
           <i class="fas fa-map-marker-alt me-2"></i>${displayAddress}
@@ -6976,6 +7008,12 @@ export default class ProjectRowAccordion {
             `).join('')}
           </select>
         </div>
+        <div class="project-inflow-info editable" title="유입 구분">
+          <i class="fas fa-sign-in-alt me-2"></i>
+          <select class="header-edit-select" data-field="유입 구분" data-original-value="${escHtml(inflowRaw)}">
+            ${this.inflowOptionsHtml(inflowRaw)}
+          </select>
+        </div>
         <div class="project-address-info editable wide-field">
           <i class="fas fa-map-marker-alt me-2"></i>
           <input type="text" class="header-edit-input"
@@ -6993,6 +7031,38 @@ export default class ProjectRowAccordion {
                  placeholder="공사 내용을 입력하세요">
         </div>
       `;
+    }
+  }
+
+  /**
+   * 유입 구분 선택지 — 시트 D열 드롭다운(/api/inflow-options, 한 번 받아 둠). 지금 값이 목록에 없으면
+   * (옛 '온라인' 등) 맨 위에 그대로 둬서 안 고친 채 저장해도 값이 안 바뀜.
+   */
+  inflowOptionsHtml(current) {
+    const cur = String(current ?? '').trim();
+    const list = [...(ProjectRowAccordion._inflowOptions || [])];
+    if (cur && cur !== '-' && !list.includes(cur)) list.unshift(cur);
+    const head = (!cur || cur === '-') ? `<option value="${escHtml(cur)}" selected>유입 구분 선택</option>` : '';
+    return head + list.map(v =>
+      `<option value="${escHtml(v)}" ${v === cur ? 'selected' : ''}>${escHtml(v)}</option>`).join('');
+  }
+
+  async ensureInflowOptions(projectCode) {
+    if (!ProjectRowAccordion._inflowOptions) {
+      try {
+        const res = await fetch('/api/inflow-options', { credentials: 'same-origin' });
+        const json = await res.json();
+        if (Array.isArray(json.options) && json.options.length) {
+          ProjectRowAccordion._inflowOptions = json.options.map(v => String(v).trim()).filter(Boolean);
+        }
+      } catch (e) {
+        logger.warn('[INFLOW] 유입 구분 목록 조회 실패:', e);
+      }
+    }
+    const sel = document.querySelector(`#header-${CSS.escape(projectCode)} select[data-field="유입 구분"]`);
+    if (sel && ProjectRowAccordion._inflowOptions) {
+      const keep = sel.value;
+      sel.innerHTML = this.inflowOptionsHtml(keep);
     }
   }
 

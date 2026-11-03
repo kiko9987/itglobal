@@ -238,6 +238,20 @@ tr.accordion-row:hover .row-details,
   flex: 0 1 auto;
 }
 
+/* 헤더 유입 구분 (2026-11-03) — 담당자처럼 짧은 값이라 줄어들지 않게 */
+.project-inflow-info {
+  font-size: 0.85rem;
+  color: #6c757d;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.project-inflow-info.editable {
+  flex: 0 1 auto;
+}
+
 .project-address-info {
   font-size: 0.85rem;
   color: #6c757d;

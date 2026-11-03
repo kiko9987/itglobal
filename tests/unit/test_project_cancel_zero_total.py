@@ -115,12 +115,15 @@ def test_uncancel_restores_total(monkeypatch):
             '공사 확정': '', '수금 확인': False, '총액 1': 0}
     _patch_common(monkeypatch, proj, redis, captured)
 
-    res = psa.perform_uncancel('G9999-XX', 'SD')
+    res = psa.perform_uncancel('G9999-XX', 'SD', reason='고객 재요청')
     assert res['ok'] is True
     r = _ranges(captured)
     assert r.get('공사 현황!T100') == 3400000  # 총액 원복
     assert r.get('공사 현황!AB100') == ''       # 특이사항 해제
     assert 'project_cancel_snapshot:G9999-XX' not in redis.store
+    # 재개 알림용 — 재개 뒤 값과 재개 전 총액을 돌려줌 (예전 {'ok': True} 만 → 알림 '사업자명 : -', 11-03)
+    assert res['project']['총액 1'] == 3400000 and res['project']['공사 확정'] == '2026-09-01'
+    assert res['before_total'] == 0
 
 
 def test_uncancel_restores_from_audit_when_redis_lost(monkeypatch):

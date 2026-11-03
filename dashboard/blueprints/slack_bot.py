@@ -4123,17 +4123,36 @@ def _register_project_handlers(app):
 
     @app.action("project_uncancel")
     def handle_project_uncancel(ack, body, client):
+        # 2026-11-03: 바로 되돌리던 것 → 재개 사유 입력 창(필수). 경량 창이라 ack 직후 바로 open.
+        ack()
+        try:
+            _open_project_uncancel_reason_modal(client, body)
+        except Exception as exc:
+            _notify_modal_open_failed(client, body)
+            logger.error(f"[SLACK/공사재개] 재개 사유 모달 open 실패: {exc}", exc_info=True)
+
+    @app.view("submit_project_uncancel_reason")
+    def handle_submit_project_uncancel_reason(ack, body, client, view):
+        values = view.get("state", {}).get("values", {})
+        try:
+            reason = ((values.get("reason", {}).get("value", {}) or {}).get("value", '') or '')
+        except Exception:
+            reason = ''
+        if not reason.strip():
+            ack(response_action="errors", errors={"reason": "재개 사유를 꼭 입력해 주세요."})
+            return
         ack()
         _run_bg_with_notify(
             client, body, '공사 취소 되돌리기',
-            lambda: _process_project_uncancel(client, body),
+            lambda: _process_project_uncancel(client, body, view, reason.strip()),
         )
 
     logger.info(
         "[SLACK/공사봇] 핸들러 등록 완료: /공사확정, submit_project, "
         "options(company_name), invoice_request_open, submit_invoice, invoice_complete, "
         "message.file_share(사업자등록증), "
-        "project_edit_open, submit_project_edit, project_cancel_confirm, project_uncancel"
+        "project_edit_open, submit_project_edit, project_cancel_confirm, project_uncancel, "
+        "submit_project_uncancel_reason"
     )
 
 
@@ -14895,13 +14914,8 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
                 {"type": "actions", "elements": [{
                     "type": "button",
                     "text": {"type": "plain_text", "text": "↩️ 취소 되돌리기", "emoji": True},
+                    # 확인 창 대신 재개 사유 입력 창이 뜬다 (2026-11-03)
                     "style": "primary", "value": code, "action_id": "project_uncancel",
-                    "confirm": {
-                        "title": {"type": "plain_text", "text": "취소 되돌리기"},
-                        "text": {"type": "plain_text", "text": f"{code} 공사 취소를 되돌리시겠습니까?"},
-                        "confirm": {"type": "plain_text", "text": "되돌리기"},
-                        "deny": {"type": "plain_text", "text": "닫기"},
-                    },
                 }]},
                 {"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]},
             ]
@@ -15286,12 +15300,16 @@ def _post_project_cancel_notice_card(
 
 def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: str = '-',
                                     *, channel: str = None, ts: str = None,
-                                    send_dm: bool = True) -> None:
+                                    notify: bool = True, reason: str = '',
+                                    before_total=None) -> None:
     """공사 취소 되돌리기 슬랙 반영 (슬랙 버튼·PM 사이트·리컨사일러 공용).
 
     ① 공사확정 원본 카드를 원상 복원(최신 데이터로 _build_blocks 재렌더)
-    ② 원본 카드 스레드에 되돌림 댓글
-    ③ 경영지원(샛별) DM — send_dm=True(기본). 리컨사일러 경로는 False 로 skip.
+    ② 원본 카드 스레드에 되돌림 댓글(+재개 사유)
+    ③ #영업_관리 '공사 재개' 카드 — notify=True(기본). 리컨사일러 경로(경영지원이 시트 직접 정리)는 False.
+       2026-11-03: 경영지원 4명 개인 DM(온라인 문의 봇, 정보가 비어 나감) → 취소 요청 카드처럼 채널 카드로.
+    ④ 아직 ✅ 전인 '매출 0원 반영 요청' 카드는 '재개로 요청 철회' 표시 (경로 무관).
+    before_total = 재개 전 총액 1 (금액 줄 '0원 → 원래 금액'용).
     channel/ts 미지정 시 project_card_msg:{code} 로 카드 조회(PM 경로).
     """
     code = (code or '').strip()
@@ -15338,42 +15356,146 @@ def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: st
         except Exception as exc:
             logger.error(f"[SLACK/공사재개] 카드 복원 실패 ({code}): {exc}", exc_info=True)
         try:
+            _cmt = f"↩️ 공사 취소 되돌림 — {initial} · {now}"
+            if (reason or '').strip():
+                _cmt += f"\n📝 사유 : {reason.strip()}"
             pclient.chat_postMessage(
-                channel=channel, thread_ts=ts,
-                text=f"↩️ 공사 취소 되돌림 — {initial} · {now}",
+                channel=channel, thread_ts=ts, text=_cmt,
                 unfurl_links=False, unfurl_media=False)
         except Exception as exc:
             logger.warning(f"[SLACK/공사재개] 되돌림 댓글 실패 ({code}): {exc}")
     else:
         logger.warning(f'[SLACK/공사재개] 카드 없음 — 복원·댓글 skip ({code})')
 
-    if send_dm:
+    if notify:
         try:
-            dm = _dm_client()
-            if dm:
-                biz = ((project or {}).get('사업자명') or '-').strip() or '-'
-                for _cid in _SETTLEMENT_CHECKER_IDS:
-                    dm.chat_postMessage(
-                        channel=_cid,
-                        text=(f"↩️ *[공사 취소 되돌림]*  `{code}`\n{_site_head_text(project or {})}\n👤 {initial} · {now}"),
-                        unfurl_links=False, unfurl_media=False)
+            _send_project_resume_card(code, project or {}, initial, reason, before_total)
         except Exception as exc:
-            logger.warning(f"[SLACK/공사재개] 샛별 DM 실패 ({code}): {exc}")
+            logger.warning(f"[SLACK/공사재개] #영업_관리 재개 카드 실패 ({code}): {exc}")
+    try:
+        _withdraw_cancel_money_requests(code, initial)
+    except Exception as exc:
+        logger.warning(f"[SLACK/공사재개] 매출 0원 요청 철회 표시 실패 ({code}): {exc}")
 
 
-def _process_project_uncancel(client, body) -> None:
-    """[↩️ 취소 되돌리기] → perform_uncancel → 카드 원복 + 되돌림 댓글 (공용)."""
+def _resume_amount_line(project: dict, before_total) -> str:
+    """재개 카드 금액 줄. 매출 0원 반영 뒤 재개면 '0원 → 원래 금액', ✅ 전에 재개면 금액 그대로."""
+    from dashboard.services.payer_split import _num
+    after = _num(project.get('총액 1'))
+    disp = _project_cancel_amount_disp(project)
+    if before_total is not None and _num(before_total) != after:
+        return f'💵 금액 : {_num(before_total):,}원  →  {disp} · 취소 전 금액으로 복원'
+    return f'💵 금액 : {disp} · 매출 0원 반영 전이라 그대로'
+
+
+def _send_project_resume_card(code: str, project: dict, initial: str, reason: str, before_total) -> None:
+    """#영업_관리 '공사 재개' 카드 (공사봇) — 취소 '매출 0원 반영 요청' 카드와 같은 채널·모양. 확인용(✅ 불필요)."""
+    proj_client = _project_client()
+    channel_id = os.getenv('SLACK_INVOICE_CHANNEL_ID', '').strip()
+    if proj_client is None or not channel_id:
+        logger.warning('[SLACK/공사재개] 공사봇/채널 미가용 — 재개 카드 발송 불가')
+        return
+    addr = (project.get('현장 주소') or '-').strip() or '-'
+    lines = [
+        f'↩️ *[공사 재개]*  `{code}`',
+        '--------------------------------------------',
+        *_site_head_lines(project),
+        f'📍 현장 주소 : {addr}',
+        _resume_amount_line(project, before_total),
+        f'📝 재개 사유 : {(reason or "").strip() or "-"}',
+        f'👤 재개 : {initial}  {datetime.now().strftime("%m.%d %H:%M")}',
+        '--------------------------------------------',
+    ]
+    text = '⠀\n' + '\n'.join(lines)
+    blocks = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn',
+            'text': '공사 취소가 풀렸습니다. 금액은 PM·시트에 이미 반영돼 있어 확인만 해 주세요.'}]},
+    ]
+    try:
+        proj_client.conversations_join(channel=channel_id)
+    except Exception:
+        pass
+    resp = proj_client.chat_postMessage(channel=channel_id, text=text, blocks=blocks, unfurl_links=False)
+    if resp.get('ok'):
+        logger.info(f'[SLACK/공사재개] #영업_관리 재개 카드 발송: {code} ts={resp.get("ts")}')
+    else:
+        logger.warning(f'[SLACK/공사재개] #영업_관리 재개 카드 실패 ({code}): {resp}')
+
+
+def _withdraw_cancel_money_requests(code: str, initial: str) -> None:
+    """재개된 공사의 ✅ 전 '매출 0원 반영 요청' 카드 → '재개로 요청 철회' + pending 삭제.
+    안 하면 요청 카드가 계속 요청 상태로 남는다(✅ 를 눌러야 '건너뜀' 안내가 나왔음)."""
+    from dashboard.utils.redis_client import get_redis_client
+    rc = get_redis_client().redis
+    proj = _project_client()
+    for k in list(rc.scan_iter(match='project_cancel_money_req:*', count=500)):
+        ks = k.decode() if isinstance(k, (bytes, bytearray)) else k
+        if ks.endswith(':proc'):
+            continue
+        raw = rc.get(k)
+        try:
+            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw) if raw else {}
+        except Exception:
+            continue
+        if _cur_code(data.get('code', '')) != code:
+            continue
+        _, ch, ts = ks.split(':', 2)
+        new_text = (data.get('card_text') or '').replace(
+            '💰 *[공사 취소 — 매출 0원 반영 요청]*', '↩️ *[공사 취소 — 재개되어 요청 철회]*')
+        new_text += f'\n:leftwards_arrow_with_hook: 재개 : {initial}  {datetime.now().strftime("%m.%d %H:%M")} · 매출 0원 처리 안 함'
+        if proj is not None and new_text.strip():
+            try:
+                proj.chat_update(channel=ch, ts=ts, text=new_text,
+                                 blocks=[{'type': 'section', 'text': {'type': 'mrkdwn', 'text': new_text}}])
+            except Exception as exc:
+                logger.warning(f'[SLACK/공사재개] 요청 카드 철회 표시 실패 (ts={ts}): {exc}')
+        rc.delete(k)
+        logger.info(f'[SLACK/공사재개] 매출 0원 요청 철회: {code} ts={ts}')
+
+
+def _open_project_uncancel_reason_modal(client, body) -> None:
+    """[↩️ 취소 되돌리기] → 재개 사유 입력 창 (2026-11-03 경영지원 요청). 제출 시 _process_project_uncancel."""
+    code = _cur_code(body["actions"][0].get("value"))
+    if not code:
+        return
+    metadata = json.dumps({"code": code, "channel": body["channel"]["id"],
+                           "message_ts": body["message"]["ts"]})
+    view = {
+        "type": "modal",
+        "callback_id": "submit_project_uncancel_reason",
+        "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "공사 재개"},
+        "submit": {"type": "plain_text", "text": "공사 재개"},
+        "close": {"type": "plain_text", "text": "닫기"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": (
+                f"제출하면 *{code}* 공사 취소가 풀리고 금액이 취소 전으로 돌아갑니다.\n"
+                "경영지원에는 #영업_관리 카드로 알립니다.")}},
+            {"type": "input", "block_id": "reason",
+             "label": {"type": "plain_text", "text": "재개 사유 (필수)"},
+             "hint": {"type": "plain_text", "text": "예: 고객이 다시 진행 요청 / 잘못 취소함"},
+             "element": {"type": "plain_text_input", "action_id": "value",
+                         "multiline": True, "min_length": 2, "max_length": 500}},
+        ],
+    }
+    client.views_open(trigger_id=body["trigger_id"], view=view)
+
+
+def _process_project_uncancel(client, body, view, reason: str) -> None:
+    """재개 사유 창 제출 → perform_uncancel → 카드 원복 + 되돌림 댓글 + #영업_관리 재개 카드 (공용)."""
     from dashboard.services.project_slack_actions import perform_uncancel
 
-    code = _cur_code(body["actions"][0].get("value"))
-    channel = body["channel"]["id"]
-    message_ts = body["message"]["ts"]
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    code = _cur_code(metadata.get("code"))
+    channel = metadata.get("channel", "")
+    message_ts = metadata.get("message_ts", "")
     user_id = body["user"]["id"]
     if not code:
         return
 
     display_name = _slack_user_to_korean_name(client, user_id) or user_id
-    result = perform_uncancel(code, display_name)
+    result = perform_uncancel(code, display_name, reason=reason)
 
     if not result.get('ok'):
         try:
@@ -15388,7 +15510,7 @@ def _process_project_uncancel(client, body) -> None:
     initial = _slack_user_to_initial(client, user_id) or '-'
     apply_project_uncancel_to_slack(
         code, result.get('project') or {}, initial,
-        channel=channel, ts=message_ts)
+        channel=channel, ts=message_ts, reason=reason, before_total=result.get('before_total'))
 
 
 def _is_license_required(code: str) -> bool:

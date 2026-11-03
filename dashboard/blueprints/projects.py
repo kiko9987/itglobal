@@ -3835,6 +3835,12 @@ def resume_project_api():
         if is_active:
             return response, status_code
 
+        # 재개 사유 필수 (2026-11-03 경영지원 요청 — 슬랙 [취소 되돌리기]도 사유 창)
+        _reason = (data.get('reason') or '').strip()
+        if not _reason:
+            return jsonify({'success': False,
+                            'error': '재개 사유를 입력해 주세요. (화면이 오래됐다면 새로고침 후 다시 시도)'}), 400
+
         # 2026-09-16: 취소 시 0으로 만든 매출(총액 1)을 스냅샷에서 복원.
         # 2026-10-28: 공사 확정일·수금 확인도 복원 (슬랙 재개와 같게 — 예전엔 확정일=오늘, 수금 확인 미복원)
         _restore_total_1 = None
@@ -3895,14 +3901,15 @@ def resume_project_api():
                 action='RESUME_PROJECT',
                 field_name='수금 관련 특이사항',
                 old_value=project.get('수금 관련 특이사항', '-'),
-                new_value=''
+                new_value=f'(재개 사유: {_reason})'
             )
 
             # 7. 업데이트된 프로젝트 데이터 구성 — 시트 재조회 대신 방금 write한 값을 로컬 반영
             # (2026-07-07): 취소 API와 동일한 이유. Google Sheets read consistency 지연 우회.
+            #   2026-11-03: 복원한 확정일·금액도 반영(예전엔 확정일=오늘, 금액 미반영 → 화면·재개 카드가 달랐음)
+            _before_total = project.get('총액 1')
             updated_project = dict(project)
-            updated_project['수금 관련 특이사항'] = ''
-            updated_project['공사 확정'] = datetime.now().strftime('%Y-%m-%d')
+            updated_project.update(_cache_payload)
             sanitized_project = sanitize_project_for_json(updated_project)
 
             # 8. SocketIO emit — 메인 스레드에서 (SIGSEGV 방지, 취소 API와 대칭)
@@ -3927,7 +3934,8 @@ def resume_project_api():
                 try:
                     from .slack_bot import apply_project_uncancel_to_slack
                     apply_project_uncancel_to_slack(
-                        project_code, updated_project, _resume_initial)
+                        project_code, updated_project, _resume_initial,
+                        reason=_reason, before_total=_before_total)
                 except Exception as exc:
                     logger.warning(f"[BG/SLACK] {project_code} 재개 슬랙 반영 오류: {exc}")
 

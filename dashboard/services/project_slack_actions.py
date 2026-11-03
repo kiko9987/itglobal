@@ -219,8 +219,12 @@ def apply_cancel_zero_total(code: str, by_display_name: str) -> Dict[str, Any]:
     return {'ok': True, 'project': project, 'before_total_1': cur_int}
 
 
-def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
-    """공사 취소 되돌리기 (관리 사이트 [공사 재개] 와 동일)."""
+def perform_uncancel(code: str, by_display_name: str, reason: str = '') -> Dict[str, Any]:
+    """공사 취소 되돌리기 (관리 사이트 [공사 재개] 와 동일).
+
+    반환 project = 재개 뒤 값(총액 1·공사 확정 복원 반영), before_total = 재개 전 총액 1.
+    예전엔 {'ok': True} 만 돌려줘 슬랙 재개 알림이 '사업자명 : -' 처럼 비어 나갔다(2026-10-30 R4181-JSH).
+    """
     project = _load_project(code)
     if not project:
         return {'ok': False, 'reason': 'not_found'}
@@ -306,7 +310,7 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     _audit_log(
         user_email=f'slack:{by_display_name}',
         action='RESUME_PROJECT',
-        details=f'프로젝트 공사 재개: {code}',
+        details=f'프로젝트 공사 재개: {code}' + (f' (사유: {reason.strip()})' if (reason or '').strip() else ''),
         project_code=code,
         field_name='수금 관련 특이사항',
         old_value='공사 취소',
@@ -318,7 +322,12 @@ def perform_uncancel(code: str, by_display_name: str) -> Dict[str, Any]:
     _queue_bg_color(sheet_id, sheet_name, row_number, 'normal', tag=f'slack_uncancel_bg:{code}')
 
     logger.info(f'[SLACK/재개] 완료: {code} by slack:{by_display_name}')
-    return {'ok': True}
+    after = dict(project, **{'수금 관련 특이사항': '', '공사 확정': restore_date})
+    if restore_payment is not None:
+        after['수금 확인'] = restore_payment
+    if restore_total_1 is not None:
+        after['총액 1'] = restore_total_1
+    return {'ok': True, 'project': after, 'before_total': project.get('총액 1')}
 
 
 # ─────────────────────────────────────────────────────────────
