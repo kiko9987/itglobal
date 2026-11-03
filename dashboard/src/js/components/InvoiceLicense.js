@@ -683,11 +683,22 @@ export default class InvoiceLicense {
         meth.addEventListener('change', () => {
           // 저장된 줄을 '현금 · 부가세 없음'으로 바꾸면(또는 되돌리면) 받을 돈은 그대로 두고 금액 칸만 맞춰 바꿈
           //   (G4148 임대인 600만: 5,454,545 → 6,000,000). 금액을 직접 고친 줄은 건드리지 않음.
+          //   단, 그러면 부담액 합계가 총액 1과 어긋나고 금액 칸을 그대로 두면 맞을 때는 부가세 별도 금액을 부가세 없이
+          //   받는 것 — 금액 칸 유지(G4151 308호 임차인 6,042,000: 2026-11-03 받을 돈 6,646,200이 남아 가짜 과입금).
           const og = Number(r.dataset.origGross);
           if (amt && og && num(amt.value) === autoSupply(r)) {
+            const cur = num(amt.value);
             const ns = supplyOf(og, meth.value === NOVAT);
-            amt.value = fmt(ns);
-            r.dataset.autoSupply = String(ns);
+            const rows = [...el.querySelectorAll('.pl-row')];
+            const others = rows.filter((x) => x !== r)
+              .reduce((a, x) => a + num((x.querySelector('[data-f="amount"]') || {}).value), 0);
+            const fits = (s) => total1 > 0 && Math.abs(others + s - total1) <= Math.max(1, rows.length);
+            if (ns !== cur && !fits(ns) && fits(cur)) {
+              r.dataset.autoSupply = '';   // 이제부터 직접 입력한 금액처럼 — 받을 돈 = 금액 칸 기준으로 계산
+            } else {
+              amt.value = fmt(ns);
+              r.dataset.autoSupply = String(ns);
+            }
           }
           refreshInfo(r);
           refreshSum(el);
