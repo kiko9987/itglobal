@@ -272,7 +272,10 @@ export default class ModernProjectFilters {
                          'data', 'manager', 'invoice', 'outstanding', 'myProjectsOnly', 'hideCancelled'];
       knownKeys.forEach(k => {
         const v = this.filters[k];
-        if (v && v !== '') {
+        if (k === 'hideCancelled') {
+          // 기본이 켜짐 — 끈 경우만 '0' 으로 남김
+          if (v === false) params.set(k, '0'); else params.delete(k);
+        } else if (v && v !== '') {
           params.set(k, BOOL_FILTER_KEYS.includes(k) ? (v ? '1' : '') : String(v));
         } else {
           params.delete(k);
@@ -342,7 +345,7 @@ export default class ModernProjectFilters {
       this.myProjectsOnlyCheckbox.checked = !!f.myProjectsOnly;
     }
     const hideCancelledCheckbox = document.getElementById('hideCancelledProjects');
-    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = !!f.hideCancelled;
+    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = f.hideCancelled !== false;
   }
 
   /**
@@ -672,9 +675,17 @@ export default class ModernProjectFilters {
     // '내 공사만 보기' 별도 필터는 없음 — 체크박스 change 핸들러에서 this.filters.manager를
     // 세팅해 위쪽 담당자 필터가 처리하도록 위임 (2026-07-07 변경).
 
-    // '취소된 공사 제외' 체크박스 (2026-11-03) — 취소 판정은 수금 관리 모드와 같은 기준
-    if (this.filters.hideCancelled) {
-      filteredData = filteredData.filter(item => !/공사\s*취소/.test(item['수금 관련 특이사항'] || ''));
+    // '취소된 공사 제외' 체크박스 (2026-11-03) — 기본 켜짐(끈 경우만 false).
+    //   취소 판정은 수금 관리 모드와 같은 기준. 코드로 검색하면 취소 건도 보임
+    //   (리드 화면 프로젝트 링크 ?search=코드, 취소 건을 코드로 찾는 경우 0건 방지)
+    //   A/S 관리 모드에선 안 거름 — 취소 공사에 걸린 A/S 요청이 숨지 않도록
+    const asModeOn = !!(window.__projectTableInstance && window.__projectTableInstance._asModeActive);
+    if (this.filters.hideCancelled !== false && !asModeOn) {
+      const term = (this.filters.search || '').trim().toLowerCase();
+      filteredData = filteredData.filter(item => {
+        if (!/공사\s*취소/.test(item['수금 관련 특이사항'] || '')) return true;
+        return !!term && String(item['프로젝트 코드'] || '').toLowerCase().includes(term);
+      });
     }
 
     // 미수금 필터
@@ -1235,7 +1246,7 @@ export default class ModernProjectFilters {
     if (this.outstandingFilter) this.outstandingFilter.value = '';
     if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
     const hideCancelledCheckbox = document.getElementById('hideCancelledProjects');
-    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = false;
+    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = true;  // 기본값(켜짐)으로
 
     // sessionStorage 삭제 (다음 F5 때 복원되지 않도록)
     try {
@@ -1281,7 +1292,7 @@ export default class ModernProjectFilters {
     if (this.outstandingFilter) this.outstandingFilter.value = '';
     if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
     const hideCancelledCheckbox = document.getElementById('hideCancelledProjects');
-    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = false;
+    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = true;  // 기본값(켜짐)으로
 
     // 저장된 표준 필터도 삭제 → A/S 모드에서 F5 해도 되살아나지 않음.
     try { sessionStorage.removeItem('itg_filters_v1'); } catch (_) { /* noop */ }
@@ -1375,7 +1386,7 @@ export default class ModernProjectFilters {
     if (receivablesOn) active.push('수금 관리');
     if (asOn) active.push('A/S 관리');
     if (this.filters.myProjectsOnly) active.push('내 공사');
-    if (this.filters.hideCancelled) active.push('취소 제외');
+    // '취소된 공사 제외'는 기본 상태라 활성 필터로 세지 않음
     if (this.searchInput && this.searchInput.value.trim()) active.push('검색');
     return active;
   }
@@ -1424,7 +1435,6 @@ export default class ModernProjectFilters {
       { element: this.managerFilter, key: 'manager' },
       { element: this.outstandingFilter, key: 'outstanding' },
       { element: this.myProjectsOnlyCheckbox, key: 'myProjectsOnly', isCheckbox: true },
-      { element: document.getElementById('hideCancelledProjects'), key: 'hideCancelled', isCheckbox: true },
       { element: this.searchInput, key: 'search', isInput: true }
     ];
 
