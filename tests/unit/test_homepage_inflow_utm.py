@@ -166,6 +166,18 @@ def test_install_form_with_cleaning_device_notifies_clean_channel():
     assert _wants_cleaning(lead)
 
 
+def test_text_only_lead_cleaning_words():
+    # L-04461: 당근 문의 "냉난방기 청소" → 문의유형 없는 리드도 세척으로 (2026-11-04)
+    for text in ('냉난방기 청소', '에어컨 세척', '[유입:당근/web_install/A]\n시스템에어컨 청소',
+                 '청소 견적 부탁드립니다', '천장형 4대 세척 원해요', '에어컨 청소해주세요'):
+        assert _is_clean_lead({'문의 내용': text}), text
+    for text in ('세척 방법 문의', '세척도 궁금', '천장형 설치 견적', '에어컨 청소기 설치',
+                 '설치 후 바닥 청소까지 해주시는지 궁금하고 실외기 위치도 상담 원합니다'):
+        assert not _is_clean_lead({'문의 내용': text}), text
+    # 홈페이지 설치 폼은 내용에 청소가 있어도 설치로 확정
+    assert not _is_clean_lead({'_meta_inquiry_type': '설치', '문의 내용': '냉난방기 청소'})
+
+
 def test_chatgpt_ad_ids_show_ad_name():
     from dashboard.services.lead_helpers import format_inflow_detail
     # 홈페이지 스니펫이 30자로 자른 ID 도 앞부분 일치로 찾음, 서버 재시작 전 원값(chatgpt_ads)도 동일

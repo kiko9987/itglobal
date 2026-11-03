@@ -1060,21 +1060,28 @@ def _is_clean_lead(lead: dict) -> bool:
     우선순위:
     - 홈페이지 폼 명시 `_meta_inquiry_type`: '세척'→True, '설치'→False(내용에 '세척'
       있어도 설치로 확정 — 설치 리드가 세척채널로 새는 것 방지).
-    - 마커/유형 없는 전화·수동 등록: 내용(_meta_inquiry/문의 내용/상담 내용)에서
-      `[세척]` 마커 또는 정밀 구문(세척 견적/문의/희망/요청) 감지. 그냥 '세척' 단어
-      하나로는 안 터뜨림(예 "세척 방법 문의"·"세척도 궁금"은 매칭 안 됨).
+    - 마커/유형 없는 당근·전화·수동 등록: 내용(_meta_inquiry/문의 내용/상담 내용)에서
+      `[세척]` 마커 또는 정밀 구문(세척·청소 + 견적/문의/희망/요청/부탁/해주…) 감지.
+      짧은 칸(30자 이하)이 '세척'/'청소'로 끝나면("냉난방기 청소") 그것도 세척.
+      그냥 단어 하나로는 안 터뜨림(예 "세척 방법 문의"·"세척도 궁금"은 매칭 안 됨).
+      '청소'는 L-04461(당근 "냉난방기 청소") 누락으로 추가(2026-11-04).
     """
     itype = (lead.get('_meta_inquiry_type') or '').strip()
     if itype == '세척':
         return True
     if itype == '설치':
         return False
-    content = ' '.join(
-        str(lead.get(k) or '') for k in ('_meta_inquiry', '문의 내용', '상담 내용')
-    )
+    fields = [str(lead.get(k) or '') for k in ('_meta_inquiry', '문의 내용', '상담 내용')]
+    content = ' '.join(fields)
     if '[세척]' in content:
         return True
-    return bool(re.search(r'세척\s*(견적|문의|희망|요청)', content))
+    if re.search(r'(세척|청소(?!기))\s*(견적|문의|희망|요청|부탁|원해|해\s*주|필요)', content):
+        return True
+    for f in fields:
+        body = re.sub(r'\[[^\]]*\]', '', f).strip()   # [유입:…] 같은 마커 제외
+        if body and len(body) <= 30 and re.search(r'(세척|청소)\s*[.!?~]*$', body):
+            return True
+    return False
 
 
 def _wants_cleaning(lead: dict) -> bool:
