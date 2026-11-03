@@ -26,6 +26,14 @@ features:
       type: global
       callback_id: eap_sc_supply
       description: 사무실 비품, 회사 재고로 살 물건을 신청합니다
+    - name: 다른 결재 요청   # 11-03 계약서·보증보험·카드결제·법인서류·개인경비·법인카드 지출결의
+      type: global
+      callback_id: eap_sc_forms
+      description: 계약서, 보증보험, 카드결제, 법인서류, 개인경비를 요청합니다
+    - name: 내 요청
+      type: global
+      callback_id: eap_sc_my
+      description: 내가 올린 결재가 어디까지 갔는지 봅니다
   slash_commands:
     - command: /자금집행
       url: https://pm.itg-aircon.com/slack/eapproval-events

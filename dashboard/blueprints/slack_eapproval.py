@@ -636,11 +636,16 @@ def _form_notes(form_key: str, code: str) -> str:
     return ''
 
 
-def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_code: str = '') -> None:
-    """양식 창 — 불러오는 창을 먼저 열고(3초 trigger) 공사현황·기억 값을 채워 바꾼다."""
+def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_code: str = '',
+                    view_id: str = '') -> None:
+    """양식 창 — 불러오는 창을 먼저 열고(3초 trigger) 공사현황·기억 값을 채워 바꾼다.
+
+    view_id 가 있으면 새 창 대신 그 창(바로가기 양식 고르기 창)을 바꾼다."""
     form = ea.forms.get(form_key)
-    resp = client.views_open(trigger_id=trigger_id, view=_loading_view(form.label))
-    view_id = resp['view']['id']
+    if view_id:
+        client.views_update(view_id=view_id, view=_loading_view(form.label))
+    else:
+        view_id = client.views_open(trigger_id=trigger_id, view=_loading_view(form.label))['view']['id']
 
     def _bg():
         try:
@@ -1005,6 +1010,33 @@ def register_eapproval_handlers(app) -> None:
             client.views_open(trigger_id=body['trigger_id'], view=ea.supply_request_view({'origin': 'shortcut'}))
         except Exception as exc:
             logger.error(f'{_LOG} 바로가기(비품 신청) 실패: {exc}', exc_info=True)
+
+    @app.shortcut(ea.SC_FORMS)
+    def handle_forms_shortcut(ack, body, client):
+        ack()
+        try:
+            client.views_open(trigger_id=body['trigger_id'], view=ea.form_picker_view())
+        except Exception as exc:
+            logger.error(f'{_LOG} 바로가기(다른 결재 요청) 실패: {exc}', exc_info=True)
+
+    @app.action(ea.A_SC_FORM_PICK)
+    def handle_sc_form_pick(ack, body, client):
+        ack()
+        form_key = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+        if not ea.forms.get(form_key):
+            return
+        try:
+            open_form_modal(client, '', (body.get('user') or {}).get('id', ''), form_key,
+                            view_id=(body.get('view') or {}).get('id', ''))
+        except Exception as exc:
+            logger.error(f'{_LOG} 바로가기 양식 창 실패 ({form_key}): {exc}', exc_info=True)
+
+    @app.shortcut(ea.SC_MY)
+    def handle_my_shortcut(ack, body, client):
+        """채널이 없는 곳에서도 눌리므로 목록은 봇 DM으로 간다(_ephemeral 이 채널 없으면 DM)."""
+        ack()
+        uid = (body.get('user') or {}).get('id', '')
+        threading.Thread(target=post_my_requests, args=(client, body, uid), daemon=True).start()
 
 
 def register_project_bot_handlers(app) -> None:

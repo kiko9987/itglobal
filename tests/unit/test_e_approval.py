@@ -481,11 +481,39 @@ def test_shortcuts_registered_and_match_manifest():
 
     app = _App()
     se.register_eapproval_handlers(app)
-    assert set(app.shortcuts) == {ea.SC_FUND, ea.SC_SUPPLY}
+    want = {ea.SC_FUND, ea.SC_SUPPLY, ea.SC_FORMS, ea.SC_MY}
+    assert set(app.shortcuts) == want
     path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
     with open(path, encoding='utf-8') as fh:
         man = yaml.safe_load(fh)
-    assert {s['callback_id'] for s in man['features']['shortcuts']} == {ea.SC_FUND, ea.SC_SUPPLY}
+    assert {s['callback_id'] for s in man['features']['shortcuts']} == want
+
+
+def test_form_picker_view_lists_menu_forms():
+    v = ea.form_picker_view()
+    sel = v['blocks'][1]['elements'][0]
+    assert sel['action_id'] == ea.A_SC_FORM_PICK
+    assert {o['value'] for o in sel['options']} == {o['value'] for o in ea.forms.menu_options()}
+    assert 'submit' not in v                      # 고르면 바로 양식 창으로 바뀐다
+
+
+def test_open_form_modal_updates_picker_view(monkeypatch):
+    """바로가기 양식 고르기 창은 새 창을 열지 않고 그 창을 바꾼다."""
+    from dashboard.blueprints import slack_eapproval as se
+    calls = []
+
+    class _C:
+        def views_open(self, **kw):
+            calls.append('open')
+            return {'view': {'id': 'V-new'}}
+
+        def views_update(self, **kw):
+            calls.append(('update', kw['view_id']))
+
+    monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True: type('T', (), {'start': lambda s: None})())
+    key = ea.forms.menu_options()[0]['value']
+    se.open_form_modal(_C(), '', 'U1', key, view_id='V-pick')
+    assert calls == [('update', 'V-pick')]
 
 
 def test_menu_has_both_buttons():
