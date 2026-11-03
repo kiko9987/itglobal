@@ -202,6 +202,25 @@ def _consult_latest(memo: str) -> str:
     return last or memo.strip()
 
 
+_CALLBACK_MEMO_MAX = 100
+
+
+def _callback_memo(memo: str) -> str:
+    """리마인드 팔로업 줄에 기울임(_…_)으로 붙일 상담 메모.
+
+    예전엔 40자에서 잘라 '다시 전화 준다함' 같은 뒷부분(연락할 이유)이 잘렸다(2026-11-03 L-04397·L-04399).
+    100자까지 두고, 넘으면 띄어쓰기에서 끊어 '…'. 메모 안의 _ * ~ ` 는 슬랙 서식을 깨므로 지운다
+    (L-04374 메모 끝 '_' 때문에 기울임이 안 되고 밑줄이 그대로 보였다). < > & 는 슬랙 규칙대로 바꾼다.
+    """
+    t = re.sub(r'[_*~`]', '', str(memo or ''))
+    t = re.sub(r'\s+', ' ', t).strip()
+    if len(t) > _CALLBACK_MEMO_MAX:
+        cut = t[:_CALLBACK_MEMO_MAX]
+        sp = cut.rfind(' ')
+        t = (cut[:sp] if sp >= _CALLBACK_MEMO_MAX // 2 else cut).rstrip(' ,./') + '…'
+    return t.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 def classify_consult_memo(memo: str) -> str:
     """유선 상담 메모 → 'A'|'B'|'C'|'D'|'E'. 콜백 신호 없으면 E(단순 종결).
     우선순위: 먼 미래(C) > 조건부(D) > 곧 재통화(A) > 그 외 팔로업(B)."""
@@ -351,8 +370,7 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
             # 재통화·팔로업: 접수일 + 상담 사유 요약(왜 다시 연락해야 하는지 컨텍스트).
             t = _hhmm(str(l.get('상담 시간', '')))
             _when = (f'{_md_weekday(_d)} {t}' if _d else t).strip() or '-'
-            memo = _consult_latest(str(l.get('상담 내용', '') or ''))
-            memo = re.sub(r'\s+', ' ', memo)[:40]
+            memo = _callback_memo(_consult_latest(str(l.get('상담 내용', '') or '')))
             _why = f' · _{memo}_' if memo else ''
             return f'• `{lno}` [{plat}] {name} · {_when}{_why}{link}'
         if mode in ('unassigned', 'quote'):
@@ -364,7 +382,11 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
             _esc = ' · :warning: *접수 후 아직 미배정*' if (mode == 'unassigned' and _realert) else ''
             return f'• `{lno}` [{plat}] {name} · {_when}{_esc}{link}'
         # 부재중 — 연락처 표기. 재알림이면 접수일 + 재시도 없음 강조.
-        _esc = f' · :warning: *{_md_weekday(_d)} 부재중 접수 후 재시도 없음*' if _realert else ''
+        #   첫 알림도 접수일은 적는다 — 전화번호만 있으면 다른 줄과 달리 아무 설명이 없어 보였다(2026-11-03 L-04440).
+        if _realert:
+            _esc = f' · :warning: *{_md_weekday(_d)} 부재중 접수 후 재시도 없음*'
+        else:
+            _esc = f' · {_md_weekday(_d)} 부재중 접수' if _d else ''
         return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{_esc}{link}'
 
     # 헤더 — 미완료·부재중이 최근 N영업일 창이라 '어제' 고정 대신 '최근' (각 라인에 접수일 표기).
