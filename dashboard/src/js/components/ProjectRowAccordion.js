@@ -12,6 +12,7 @@ import TomSelect from 'tom-select';
 import 'tom-select/dist/css/tom-select.bootstrap5.css';
 import AmountCalculator from '../utils/AmountCalculator.js';
 import { escHtml } from '../utils/escapeHtml.js';
+import { codeCopyButtonHtml, installCodeCopy } from '../utils/codeCopy.js';
 import {
   renderItgfolderLink, bindItgfolderProtocolHandler as bindItgfolderProtocolHandlerShared,
 } from '../utils/itgfolder.js';
@@ -65,6 +66,7 @@ export default class ProjectRowAccordion {
   static CARD_TYPES = ['basic', 'construction', 'financial', 'collection', 'profit'];
 
   constructor() {
+    installCodeCopy();   // 요약줄 코드 복사 아이콘 (목록 표와 공용, 한 번만 등록)
     this.accordionContainer = null;
     this.isOpen = false;
     this.currentProject = null;
@@ -6976,7 +6978,7 @@ export default class ProjectRowAccordion {
 
       return `
         <div class="project-code-badge">
-          <i class="fas fa-tag me-2"></i>${projectCode}
+          <i class="fas fa-tag me-2"></i>${projectCode}${codeCopyButtonHtml(projectCode)}
         </div>
         <div class="project-manager-info">
           <i class="fas fa-user me-2"></i>${manager || '담당자 미지정'}

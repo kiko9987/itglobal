@@ -17,6 +17,7 @@ import {
 } from '../utils/billStatus.js';
 import { payerLine, isSplit, stripPayerLine, bizDisplay } from '../utils/payerSplit.js';
 import { isPartnerName } from '../utils/partnerName.js';
+import { codeCopyButtonHtml, installCodeCopy } from '../utils/codeCopy.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -350,6 +351,7 @@ export default class ProjectTable {
     // 세금계산서 '발행' 아이콘 클릭 → 슬랙 계산서 카드 열기 (capture: 행 클릭/아코디언 토글보다 먼저)
     this._boundInvoiceLinkClick = this._handleInvoiceLinkClick.bind(this);
     document.addEventListener('click', this._boundInvoiceLinkClick, true);
+    installCodeCopy();   // 코드 칸 복사 아이콘 (capture: 행 펼침보다 먼저)
   }
 
   /** 세금계산서 발행 아이콘 클릭 위임 핸들러 */
@@ -635,11 +637,11 @@ export default class ProjectTable {
           data: '프로젝트 코드',
           type: 'project-code',
           defaultContent: '',
-          render: function(data) {
-            if (this.badgeSystem) {
-              return this.badgeSystem.createProjectBadge(data);
-            }
-            return data || '';
+          render: function(data, type) {
+            const badge = this.badgeSystem ? this.badgeSystem.createProjectBadge(data) : (data || '');
+            // 복사 아이콘은 화면 표시용에만 (정렬·검색 값은 그대로, 2026-11-03)
+            return type === 'display' && data
+              ? `<span class="code-with-copy">${badge}${codeCopyButtonHtml(data)}</span>` : badge;
           }.bind(this)
         },
         {

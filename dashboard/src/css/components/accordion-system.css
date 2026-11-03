@@ -209,6 +209,41 @@ tr.accordion-row:hover .row-details,
   flex-shrink: 0;
 }
 
+/* 프로젝트 코드 복사 아이콘 (2026-11-03) — 목록 표 코드 칸·요약줄 공용. 항상 흐리게 보이고 누르면 체크 */
+.code-with-copy {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.code-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: #adb5bd;
+  padding: 2px 3px;
+  margin-left: 4px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.code-copy-btn:hover {
+  color: #495057;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.code-copy-btn.copied {
+  color: #198754;
+}
+
+.accordion-shell.project-cancelled .code-copy-btn {
+  pointer-events: auto !important;
+  opacity: 1 !important;
+}
+
 /* 프로젝트 코드 변경 애니메이션 */
 .project-code-badge.code-changed {
   animation: codeChange 1s ease;
