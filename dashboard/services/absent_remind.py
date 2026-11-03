@@ -77,6 +77,9 @@ def _get_online_client():
     return WebClient(token=tok)
 
 
+_REMIND_MARK = '미처리 문의 ('   # 리마인드 카드 머리 ':bell: *최근 미처리 문의 (N건)…'
+
+
 def _find_card_permalink(client, channel: str, lead_no: str,
                          history_cache: Optional[List] = None) -> str:
     """lead_no 의 슬랙 카드 permalink 조회.
@@ -98,6 +101,10 @@ def _find_card_permalink(client, channel: str, lead_no: str,
         if history_cache is None:
             return ''
         for m in history_cache:
+            # 지난 리마인드 카드는 건너뜀 — 리드 번호가 여러 개 들어 있어, 최신순으로 훑으면 문의 카드보다 먼저
+            #   걸려 '확인하기'가 어제 리마인드로 갔다(2026-11-03 카카오톡·채널톡 L-04424·L-04425·L-04437).
+            if _REMIND_MARK in m.get('text', ''):
+                continue
             text = m.get('text', '') + str(m.get('blocks', ''))
             if lead_no in text and m.get('thread_ts', m['ts']) == m['ts']:
                 ch, ts = channel, m['ts']

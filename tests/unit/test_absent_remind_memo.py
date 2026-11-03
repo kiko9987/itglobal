@@ -25,6 +25,23 @@ def test_callback_memo_long_cut_at_space():
     assert ar._callback_memo('가' * 150) == '가' * 100 + '…'    # 띄어쓰기 없으면 글자 수로
 
 
+class _FakeClient:
+    def chat_getPermalink(self, channel, message_ts):
+        return {'permalink': f'https://x.slack.com/archives/{channel}/p{message_ts.replace(".", "")}'}
+
+
+def test_permalink_fallback_skips_previous_remind_card(monkeypatch):
+    import dashboard.utils.redis_client as rcm
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': type('R', (), {'get': lambda s, k: None})()})())
+    history = [   # 최신순 — 어제 리마인드가 문의 카드보다 먼저
+        {'ts': '3.0', 'text': ':bell: *최근 미처리 문의 (13건) — 오늘 다시 연락 부탁드립니다*\n• `L-04437` [카카오톡] 푸딩 899'},
+        {'ts': '2.0', 'text': '접수번호: `L-04437` :카카오톡: *새 문의 접수 알림 - 온라인 (카카오톡)*'},
+        {'ts': '2.5', 'thread_ts': '2.0', 'text': '`L-04437` 답글'},
+    ]
+    link = ar._find_card_permalink(_FakeClient(), 'C1', 'L-04437', history)
+    assert link.endswith('/p20')
+
+
 def _lead(d, status, memo=''):
     return {'리드 No': 'L-1', '상담 시간': d.strftime('%Y.%m.%d. 09:18'), '상태': status, '고객명': '권산옥',
             '플랫폼': '큐플레이스', '고객 연락처': '010-0000-0000', '상담 내용': memo}
