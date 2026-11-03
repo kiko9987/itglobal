@@ -110,6 +110,33 @@ def test_stage_card_shows_unpaid_as_of_card_but_done_uses_current(monkeypatch):
     tenant = ps._build_stage_card_text('잔금', 'G4159-JW', _pays(), c, vals)
     assert '미수금 : -624,470원' in tenant and '*수금완료*' not in tenant   # 덜 받음 = 음수 표기(07-16)
     assert '*수금완료*' in ps._build_stage_card_text('계약금', 'G4159-JW', _pays(), c, vals)
+    assert '미수금 : -624,470원 (임대인 몫)' in tenant          # 임차인은 완납 → 남은 건 임대인 몫
+
+
+# ── 미수금 줄 '누구 몫' (2026-11-03 G4151 임차인 '완납' 아래 '미수금 -1,210,000원') ──
+def test_split_unpaid_owner():
+    assert ps._split_unpaid_owner(PAYERS, '잔금', 0, 1210000) == '임대인 몫'
+    assert ps._split_unpaid_owner(PAYERS, '잔금', 294470, 294470) == '임차인 몫'
+    assert ps._split_unpaid_owner(PAYERS, '잔금', 294470, 1504470) == '임차인 294,470원 · 임대인 1,210,000원'
+    assert ps._split_unpaid_owner(PAYERS, '잔금', 0, 0) == ''                  # 미수금 없음
+    assert ps._split_unpaid_owner(PAYERS, '잔금', 0, -60420) == ''             # 과입금
+    assert ps._split_unpaid_owner(PAYERS, '잔금', 500000, 300000) == ''        # 나눠지지 않으면 안 붙임
+    assert ps._split_unpaid_owner(PAYERS, '잔금', 294470, 294471) == '임차인 몫'   # 끝전 1원
+
+
+def test_stage_card_owner_both_and_plain_untouched(monkeypatch):
+    monkeypatch.setattr(ps, '_split_payers_for', lambda project: PAYERS if project == 'G4159-JW' else {})
+    pays = _pays()
+    txt = ps._build_stage_with_history_message(
+        stage='잔금', project='G4159-JW', address='주소', last_payment=pays[1], all_payments=pays,
+        invoice_value='', total_r=0, total_t=3274700, unpaid=654940,
+        stage_sheet_vals={'계약금': 1441880, '중도금': 0, '잔금': 1177880})
+    assert '미수금 : -654,940원 (임차인 294,470원 · 임대인 360,470원)' in txt
+    plain = ps._build_stage_with_history_message(
+        stage='잔금', project='R1-XX', address='주소', last_payment=pays[1], all_payments=pays,
+        invoice_value='', total_r=0, total_t=3274700, unpaid=654940,
+        stage_sheet_vals={'계약금': 1441880, '중도금': 0, '잔금': 1177880})
+    assert '미수금 : -654,940원\n' in plain and '몫' not in plain
 
 
 # ── 미발행 리마인드 ──

@@ -1364,6 +1364,29 @@ def _payer_status_line(payer: Dict, received: int) -> str:
     return f"{payer['role']} {payer['name']} · 부담 {amt:,}원 · 받음 {int(received or 0):,}원 · {tail}"
 
 
+def _split_unpaid_owner(payers: Dict[str, Dict], stage: str, this_rem: int, unpaid: int) -> str:
+    """나눠 내는 공사 카드 미수금 줄 뒤에 붙일 '누구 몫' — '임대인 몫' / '임차인 294,470원 · 임대인 1,210,000원'.
+
+    미수금은 공사 전체 값이라, 임차인 카드에 '완납' 줄 바로 아래 '미수금 -1,210,000원'(실은 임대인 잔금)이
+    붙어 헷갈렸다(2026-11-03 G4151 사용자 지적). 다른 사람 몫 = 미수금 − 이 사람 남은 돈(카드 기준 미수금과
+    같은 기준). 덜 받은 게 없거나(0·과입금) 나눠지지 않으면(다른 몫이 음수) 붙이지 않는다.
+    """
+    if unpaid <= 0:
+        return ''
+    this_rem = max(int(this_rem or 0), 0)
+    other_rem = unpaid - this_rem
+    if other_rem < 0:
+        return ''
+    others = [p for s, p in payers.items() if s != stage]
+    other_label = '·'.join(p['role'] for p in others) or '다른 부담자'
+    me = payers.get(stage) or {}
+    if other_rem < 2:   # 부가세 끝전
+        return f"{me.get('role', '')} 몫".strip() if this_rem else ''
+    if this_rem < 2:
+        return f"{other_label} 몫"
+    return f"{me.get('role', '')} {this_rem:,}원 · {other_label} {other_rem:,}원"
+
+
 _SPLIT_COMPLETE_KEY = 'payment_split_complete:{}'   # 나눠 내는 공사: 수금완료 카드가 된 칸(단계)
 _CARD_BASIS_KEY = 'payment_card_basis:{}'            # 카드 ts → 발송 당시 {미수금, 총액, 그 칸 금액}
 
@@ -1604,8 +1627,9 @@ def _build_stage_with_history_message(
         date_label, amount_label, header_action = '반환일', '반환액', '반환'
 
     # 나눠 내는 공사(2026-10-20): 칸 = 사람 → 제목은 '{구분} {이름} 입금 · 차수 …', 이력은 그 사람 칸만
-    _payer = _split_payers_for(project).get(stage)
-    _act = '대체수금' if _is_sub else header_action
+    _payers = _split_payers_for(project)
+    _payer = _payers.get(stage)
+    _act ='대체수금' if _is_sub else header_action
     if _payer:
         _inst = last_payment.get('installment') or ''
         _title = (f"{emoji} *{_payer['role']} {_payer['name']} {_act}*"
@@ -1678,11 +1702,13 @@ def _build_stage_with_history_message(
         _cl = _collection_fee_line(pt, a)   # 추심이면 (실추심/수수료)
         if _cl:
             lines.append(f"  {_cl}")
+    _owner = ''
     if _payer:
         _got = int((stage_sheet_vals or {}).get(stage, _payer.get('received', 0)) or 0)
         lines.append(_payer_status_line(_payer, _got))
+        _owner = _split_unpaid_owner(_payers, stage, int(_payer.get('amount') or 0) - _got, unpaid)
     lines.append(_SEP)
-    lines.append(_unpaid_line(unpaid))
+    lines.append(_unpaid_line(unpaid) + (f" ({_owner})" if _owner else ''))
     lines.append(' ')
     # 오입력 경고 (B 코드혼동 + C 입금자 다른 프로젝트 일치) — 2026-07-29
     _warns = _payment_card_warnings(project, partner)
