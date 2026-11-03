@@ -287,6 +287,12 @@ tr.accordion-row:hover .row-details,
   flex: 0 1 auto;
 }
 
+/* 화살표+괄호 아이콘은 무게가 위로 쏠려 글자보다 1~1.5px 떠 보임(스크린샷 실측) → 1px 내림 */
+.project-inflow-info > i {
+  position: relative;
+  top: 1px;
+}
+
 .project-address-info {
   font-size: 0.85rem;
   color: #6c757d;
