@@ -12,6 +12,7 @@ Slack 봇 블루프린트 (ITG 관리 봇)
 import os
 import re
 import secrets
+import sys
 import time
 import textwrap
 import threading
@@ -7258,10 +7259,22 @@ def _reason_ko(reason) -> str:
     return '처리 중 오류가 발생했습니다'
 
 
+def _modal_closed_by_user(exc) -> bool:
+    """views.update 가 not_found = 채우려던 창이 이미 닫힘(또는 다시 눌러 새 창으로 바뀜). 오류 알림 denylist 와 같은 기준."""
+    s = str(exc or '')
+    return 'views.update' in s and "'error': 'not_found'" in s
+
+
 def _notify_modal_open_failed(client, body) -> None:
     """버튼·명령을 눌렀는데 창이 안 열렸을 때 누른 사람에게만 '다시 눌러 주세요' (2026-10-28 점검 —
     예전엔 로그만 남고 화면엔 아무 일도 없어 매니저가 눌린 줄도 몰랐음. 재시작 직후·응답 지연으로 trigger_id
-    3초가 지나는 경우 등). body = 버튼 body 또는 슬래시 command."""
+    3초가 지나는 경우 등). body = 버튼 body 또는 슬래시 command.
+
+    호출부는 모두 except 블록 안이라 지금 처리 중인 예외를 본다 — '불러오는 중' 창을 누른 사람이 직접 닫아
+    내용 채우기(views.update)가 not_found 면 안내하지 않는다(2026-11-03 재시작 직후 공사 수정 2건).
+    """
+    if _modal_closed_by_user(sys.exc_info()[1]):
+        return
     try:
         body = body or {}
         user = (body.get('user') or {}).get('id', '') if isinstance(body.get('user'), dict) else ''

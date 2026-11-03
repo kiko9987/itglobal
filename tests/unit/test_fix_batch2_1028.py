@@ -72,6 +72,26 @@ def test_modal_open_failed_notice_once_per_click():
     assert c.eph[-1]['user'] == 'U2'
 
 
+def test_modal_open_failed_no_notice_when_user_closed_window():
+    # '불러오는 중' 창을 직접 닫아 views.update 가 not_found → 안내 안 함 (2026-11-03)
+    from slack_sdk.errors import SlackApiError
+    from dashboard.blueprints.slack_bot import _notify_modal_open_failed
+    c = _C()
+    body = {'user': {'id': 'U1'}, 'channel': {'id': 'C1'}, 'trigger_id': 't-1103-closed'}
+    try:
+        raise SlackApiError('The request to the Slack API failed. (url: https://slack.com/api/views.update)',
+                            {'ok': False, 'error': 'not_found'})
+    except SlackApiError:
+        _notify_modal_open_failed(c, body)
+    assert c.eph == []
+    try:   # 다른 실패(trigger 만료)는 그대로 안내
+        raise SlackApiError('The request to the Slack API failed. (url: https://slack.com/api/views.open)',
+                            {'ok': False, 'error': 'expired_trigger_id'})
+    except SlackApiError:
+        _notify_modal_open_failed(c, dict(body, trigger_id='t-1103-expired'))
+    assert len(c.eph) == 1
+
+
 def test_as_tell_requester_uses_command_channel_then_dm():
     import json
     from dashboard.blueprints.slack_bot import _as_tell_requester
