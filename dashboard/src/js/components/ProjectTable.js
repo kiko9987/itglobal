@@ -1581,11 +1581,8 @@ export default class ProjectTable {
    * @param {HTMLElement} tableElement - 테이블 엘리먼트
    */
   addMyProjectsFilter(tableElement) {
-    // 기존 체크박스가 있으면 제거
-    const existingFilter = document.querySelector('.my-projects-filter');
-    if (existingFilter) {
-      existingFilter.remove();
-    }
+    // 기존 체크박스가 있으면 제거 ('취소된 공사 제외'도 같은 클래스)
+    document.querySelectorAll('.my-projects-filter').forEach(el => el.remove());
 
     // .dt-length 엘리먼트 찾기
     const lengthContainer = tableElement.closest('.table-wrapper').querySelector('.dt-length');
@@ -1643,10 +1640,45 @@ export default class ProjectTable {
 
     // lengthContainer에 추가
     lengthContainer.appendChild(filterContainer);
+    lengthContainer.appendChild(this.createHideCancelledFilter());
 
 
     // 수금 관리 모드 토글 추가
     this.addReceivablesToggleToLengthContainer(lengthContainer);
+  }
+
+  /**
+   * "취소된 공사 제외" 체크박스 — '내 프로젝트만 보기'와 같은 모양.
+   * 상태는 modernFilters.filters.hideCancelled (F5·URL 복원은 필터 쪽에서)
+   */
+  createHideCancelledFilter() {
+    const filterContainer = document.createElement('div');
+    filterContainer.className = 'my-projects-filter';
+
+    const label = document.createElement('label');
+    label.textContent = '취소된 공사 제외';
+    label.setAttribute('for', 'hideCancelledProjects');
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.id = 'hideCancelledProjects';
+    checkbox.title = '공사 취소된 프로젝트를 목록에서 숨김';
+    checkbox.checked = !!window.modernFilters?.filters?.hideCancelled;
+
+    checkbox.addEventListener('change', (e) => {
+      const mf = window.modernFilters;
+      if (!mf) return;
+      if (e.target.checked) {
+        mf.filters.hideCancelled = true;
+      } else {
+        delete mf.filters.hideCancelled;
+      }
+      mf.applyFilters(null, true);
+    });
+
+    filterContainer.appendChild(checkbox);
+    filterContainer.appendChild(label);
+    return filterContainer;
   }
 
   /**

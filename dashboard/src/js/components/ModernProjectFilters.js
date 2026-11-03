@@ -4,6 +4,10 @@ import AmountCalculator from '../utils/AmountCalculator.js';
 import { partnerDisplayName } from '../utils/partnerName.js';
 
 import logger from '../utils/logger.js';
+
+// 체크박스 필터 (URL 에 '1' 로 저장)
+const BOOL_FILTER_KEYS = ['myProjectsOnly', 'hideCancelled'];
+
 /**
  * Modern Project Filters 컴포넌트
  * 현대화된 프로젝트 목록 필터링 시스템
@@ -234,13 +238,13 @@ export default class ModernProjectFilters {
     try {
       const params = new URLSearchParams(window.location.search);
       const knownKeys = ['search', 'company', 'client', 'businessName', 'status',
-                         'data', 'manager', 'invoice', 'outstanding', 'myProjectsOnly'];
+                         'data', 'manager', 'invoice', 'outstanding', 'myProjectsOnly', 'hideCancelled'];
       const restored = {};
       let hasAny = false;
       knownKeys.forEach(k => {
         const v = params.get(k);
         if (v !== null && v !== '') {
-          restored[k] = k === 'myProjectsOnly' ? (v === '1' || v === 'true') : v;
+          restored[k] = BOOL_FILTER_KEYS.includes(k) ? (v === '1' || v === 'true') : v;
           hasAny = true;
         }
       });
@@ -265,11 +269,11 @@ export default class ModernProjectFilters {
     try {
       const params = new URLSearchParams(window.location.search);
       const knownKeys = ['search', 'company', 'client', 'businessName', 'status',
-                         'data', 'manager', 'invoice', 'outstanding', 'myProjectsOnly'];
+                         'data', 'manager', 'invoice', 'outstanding', 'myProjectsOnly', 'hideCancelled'];
       knownKeys.forEach(k => {
         const v = this.filters[k];
         if (v && v !== '') {
-          params.set(k, k === 'myProjectsOnly' ? (v ? '1' : '') : String(v));
+          params.set(k, BOOL_FILTER_KEYS.includes(k) ? (v ? '1' : '') : String(v));
         } else {
           params.delete(k);
         }
@@ -337,6 +341,8 @@ export default class ModernProjectFilters {
     if (this.myProjectsOnlyCheckbox && f.myProjectsOnly !== undefined) {
       this.myProjectsOnlyCheckbox.checked = !!f.myProjectsOnly;
     }
+    const hideCancelledCheckbox = document.getElementById('hideCancelledProjects');
+    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = !!f.hideCancelled;
   }
 
   /**
@@ -665,6 +671,11 @@ export default class ModernProjectFilters {
 
     // '내 공사만 보기' 별도 필터는 없음 — 체크박스 change 핸들러에서 this.filters.manager를
     // 세팅해 위쪽 담당자 필터가 처리하도록 위임 (2026-07-07 변경).
+
+    // '취소된 공사 제외' 체크박스 (2026-11-03) — 취소 판정은 수금 관리 모드와 같은 기준
+    if (this.filters.hideCancelled) {
+      filteredData = filteredData.filter(item => !/공사\s*취소/.test(item['수금 관련 특이사항'] || ''));
+    }
 
     // 미수금 필터
     if (this.filters.outstanding) {
@@ -1223,6 +1234,8 @@ export default class ModernProjectFilters {
     if (this.invoiceFilter) this.invoiceFilter.value = '';
     if (this.outstandingFilter) this.outstandingFilter.value = '';
     if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
+    const hideCancelledCheckbox = document.getElementById('hideCancelledProjects');
+    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = false;
 
     // sessionStorage 삭제 (다음 F5 때 복원되지 않도록)
     try {
@@ -1234,7 +1247,7 @@ export default class ModernProjectFilters {
     try {
       const params = new URLSearchParams(window.location.search);
       ['search', 'company', 'client', 'businessName', 'status', 'data',
-       'manager', 'outstanding', 'myProjectsOnly', 'receivables'].forEach(k => params.delete(k));
+       'manager', 'outstanding', 'myProjectsOnly', 'hideCancelled', 'receivables'].forEach(k => params.delete(k));
       const qs = params.toString();
       const newUrl = window.location.pathname + (qs ? '?' + qs : '') + window.location.hash;
       window.history.replaceState({}, '', newUrl);
@@ -1267,6 +1280,8 @@ export default class ModernProjectFilters {
     if (this.invoiceFilter) this.invoiceFilter.value = '';
     if (this.outstandingFilter) this.outstandingFilter.value = '';
     if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = false;
+    const hideCancelledCheckbox = document.getElementById('hideCancelledProjects');
+    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = false;
 
     // 저장된 표준 필터도 삭제 → A/S 모드에서 F5 해도 되살아나지 않음.
     try { sessionStorage.removeItem('itg_filters_v1'); } catch (_) { /* noop */ }
@@ -1360,6 +1375,7 @@ export default class ModernProjectFilters {
     if (receivablesOn) active.push('수금 관리');
     if (asOn) active.push('A/S 관리');
     if (this.filters.myProjectsOnly) active.push('내 공사');
+    if (this.filters.hideCancelled) active.push('취소 제외');
     if (this.searchInput && this.searchInput.value.trim()) active.push('검색');
     return active;
   }
@@ -1408,6 +1424,7 @@ export default class ModernProjectFilters {
       { element: this.managerFilter, key: 'manager' },
       { element: this.outstandingFilter, key: 'outstanding' },
       { element: this.myProjectsOnlyCheckbox, key: 'myProjectsOnly', isCheckbox: true },
+      { element: document.getElementById('hideCancelledProjects'), key: 'hideCancelled', isCheckbox: true },
       { element: this.searchInput, key: 'search', isInput: true }
     ];
 
