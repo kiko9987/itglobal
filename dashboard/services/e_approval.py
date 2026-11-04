@@ -61,9 +61,8 @@ A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 exte
 A_PARTNER = 'eap_partner'             # 자금집행 모달 「거래처」 external_select(아는 거래처 + 새 거래처)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 CB_SUPPLY = 'eap_supply_submit'
-SC_FUND, SC_SUPPLY = 'eap_sc_fund', 'eap_sc_supply'   # 전역 바로가기(입력창 [/] 메뉴) — manifest 와 같게
-SC_FORMS, SC_MY = 'eap_sc_forms', 'eap_sc_my'          # 바로가기 「다른 결재 요청」·「내 요청」(11-03)
-A_SC_FORM_PICK = 'eap_sc_form_pick'   # 바로가기 「다른 결재 요청」 창의 양식 고르기 → 같은 창이 양식으로 바뀜
+SC_HUB = 'eap_sc_hub'   # 전역 바로가기 「전자결재」 하나(입력창 [+]) → 메뉴와 같은 창 — manifest 와 같게(11-05)
+A_HUB_BACK = 'eap_hub_back'           # 바로가기 창 「내 요청」 목록 → [← 처음으로]
 
 _DEFAULT_APPROVERS = ('U04UL2ZLJAX',)  # 고광일
 
@@ -727,18 +726,34 @@ def menu_blocks() -> List[dict]:
     ]
 
 
-def form_picker_view() -> dict:
-    """바로가기 「📋 다른 결재 요청」 — 양식을 고르면 이 창이 그 양식으로 바뀐다(채널 메뉴와 같은 목록)."""
+def hub_view() -> dict:
+    """바로가기 「전자결재」 창 — 채널 고정 메뉴와 같은 블록. 고르면 이 창이 그 입력 창으로 바뀐다."""
     return {
         'type': 'modal',
-        'title': {'type': 'plain_text', 'text': '다른 결재 요청'},
+        'title': {'type': 'plain_text', 'text': '전자결재'},
         'close': {'type': 'plain_text', 'text': '닫기'},
-        'blocks': [
-            {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '올릴 양식을 골라 주세요.'}},
-            {'type': 'actions', 'elements': [
-                {'type': 'static_select', 'action_id': A_SC_FORM_PICK, 'options': forms.menu_options(),
-                 'placeholder': {'type': 'plain_text', 'text': '양식 고르기'}}]},
-        ],
+        'blocks': menu_blocks(),
+    }
+
+
+def my_requests_view(text: str) -> dict:
+    """바로가기 창 안에서 보는 「내 요청」 — section 글자 한도(3,000자) 안으로 줄 단위로 나눈다."""
+    chunks, cur = [], ''
+    for line in text.split('\n'):
+        if cur and len(cur) + len(line) + 1 > 2900:
+            chunks.append(cur)
+            cur = ''
+        cur = f'{cur}\n{line}' if cur else line
+    if cur:
+        chunks.append(cur)
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': c}} for c in chunks]
+    blocks.append({'type': 'actions', 'elements': [
+        {'type': 'button', 'action_id': A_HUB_BACK, 'text': {'type': 'plain_text', 'text': '← 처음으로'}}]})
+    return {
+        'type': 'modal',
+        'title': {'type': 'plain_text', 'text': '내 요청'},
+        'close': {'type': 'plain_text', 'text': '닫기'},
+        'blocks': blocks,
     }
 
 
