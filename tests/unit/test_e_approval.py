@@ -510,7 +510,7 @@ def test_hub_buttons_update_same_view(monkeypatch):
     """바로가기 창 안에서 누르면 새 창을 쌓지 않고 그 창을 바꾼다. 채널 메뉴 메시지면 새 창."""
     from dashboard.blueprints import slack_eapproval as se
     monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True, args=(): type('T', (), {'start': lambda s: None})())
-    in_view = {'container': {'type': 'view'}, 'view': {'id': 'V-hub'}}
+    in_view = {'container': {'type': 'view'}, 'view': {'id': 'V-hub', 'type': 'modal'}}
     in_msg = {'container': {'type': 'message'}, 'channel': {'id': 'C1'}}
     assert se._hub_view_id(in_view) == 'V-hub' and se._hub_view_id(in_msg) == ''
 
@@ -522,6 +522,24 @@ def test_hub_buttons_update_same_view(monkeypatch):
     c = _ViewClient()
     se.open_new_modal(c, 'T', 'U1', origin='menu')
     assert c.calls == [('open', None)]
+
+
+def test_home_tab_opens_new_modal_not_update(monkeypatch):
+    """홈 탭 버튼은 container=view 지만 모달이 아니라 홈을 바꾸면 안 된다 — 새 창으로."""
+    from dashboard.blueprints import slack_eapproval as se
+    home = {'container': {'type': 'view'}, 'view': {'id': 'V-home', 'type': 'home'}}
+    assert se._hub_view_id(home) == '' and se._from_home(home)
+    assert ea.home_view()['type'] == 'home' and ea.home_view()['blocks'] == ea.menu_blocks()
+
+    published = []
+
+    class _C:
+        def views_publish(self, **kw):
+            published.append(kw)
+
+    se.reset_home(_C(), {'user': {'id': 'U1'}})
+    acts = [b for b in published[0]['view']['blocks'] if b['type'] == 'actions'][0]
+    assert published[0]['user_id'] == 'U1' and acts['block_id'].startswith('eap_sel_')
 
 
 def test_my_requests_view_splits_long_text():

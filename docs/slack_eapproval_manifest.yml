@@ -11,7 +11,7 @@ display_information:
   background_color: "#1f6f43"
 features:
   app_home:
-    home_tab_enabled: false
+    home_tab_enabled: true    # 11-05 왼쪽 앱 목록 → 전자결재 → 홈 탭에 메뉴(app_home_opened 때 게시)
     messages_tab_enabled: true
     messages_tab_read_only_enabled: true
   bot_user:
@@ -36,6 +36,10 @@ oauth_config:
       - pins:write
       - commands
 settings:
+  event_subscriptions:
+    request_url: https://pm.itg-aircon.com/slack/eapproval-events
+    bot_events:
+      - app_home_opened
   interactivity:
     is_enabled: true
     request_url: https://pm.itg-aircon.com/slack/eapproval-events
