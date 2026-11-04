@@ -736,6 +736,11 @@ def hub_view() -> dict:
     }
 
 
+def home_view() -> dict:
+    """앱 홈 탭(왼쪽 앱 목록 → 전자결재) — 채널 고정 메뉴와 같은 버튼(11-05). `/` 를 몰라도 찾을 수 있게."""
+    return {'type': 'home', 'blocks': menu_blocks()}
+
+
 def my_requests_view(text: str) -> dict:
     """바로가기 창 안에서 보는 「내 요청」 — section 글자 한도(3,000자) 안으로 줄 단위로 나눈다."""
     chunks, cur = [], ''

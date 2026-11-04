@@ -506,6 +506,19 @@ def handle_supply_submit(ack, body, view) -> None:
     threading.Thread(target=_bg, daemon=True).start()
 
 
+def reset_home(client, body) -> None:
+    """홈 탭 고르기 칸 비우기 — 메뉴를 새 block_id 로 다시 게시(reset_select 의 홈 탭판)."""
+    import time
+    view = ea.home_view()
+    for b in view['blocks']:
+        if b['type'] == 'actions':
+            b['block_id'] = f'eap_sel_{int(time.time() * 1000)}'
+    try:
+        client.views_publish(user_id=(body.get('user') or {}).get('id', ''), view=view)
+    except Exception as exc:
+        logger.warning(f'{_LOG} 홈 탭 고르기 칸 비우기 실패: {exc}')
+
+
 def reset_select(client, body) -> None:
     """메시지의 고르기 칸을 처음 상태('📋 결재 요청')로 되돌린다 (11-01).
 
@@ -831,10 +844,15 @@ def _ephemeral(client, body, text: str) -> None:
 
 
 def _hub_view_id(body) -> str:
-    """버튼을 바로가기 「전자결재」 창 안에서 눌렀으면 그 창 id(채널 메뉴 메시지면 '')."""
-    if (body.get('container') or {}).get('type') == 'view':
-        return (body.get('view') or {}).get('id', '')
+    """버튼을 바로가기 「전자결재」 창(모달) 안에서 눌렀으면 그 창 id. 채널 메뉴 메시지·앱 홈 탭이면 ''(새 창)."""
+    view = body.get('view') or {}
+    if (body.get('container') or {}).get('type') == 'view' and view.get('type') == 'modal':
+        return view.get('id', '')
     return ''
+
+
+def _from_home(body) -> bool:
+    return (body.get('view') or {}).get('type') == 'home'
 
 
 def show_my_requests_in_view(client, view_id: str, uid: str) -> None:
@@ -995,7 +1013,9 @@ def register_eapproval_handlers(app) -> None:
         form_key = (body['actions'][0].get('selected_option') or {}).get('value') or ''
         if ea.forms.get(form_key):
             _open_form_from(body, client, form_key)
-        if not _hub_view_id(body):            # 채널 메뉴 메시지만 고른 값을 되돌린다(창은 이미 양식으로 바뀜)
+        if _from_home(body):                  # 홈 탭도 고른 값이 남아 같은 양식을 다시 못 고른다 → 새 block_id 로 다시 게시
+            threading.Thread(target=reset_home, args=(client, body), daemon=True).start()
+        elif not _hub_view_id(body):          # 채널 메뉴 메시지만 고른 값을 되돌린다(창은 이미 양식으로 바뀜)
             threading.Thread(target=reset_select, args=(client, body), daemon=True).start()
 
     @app.action(ea.A_FORM_OPEN)
@@ -1011,7 +1031,14 @@ def register_eapproval_handlers(app) -> None:
         ack()
         uid = (body.get('user') or {}).get('id', '')
         view_id = _hub_view_id(body)
-        if view_id:                            # 바로가기 창 — 목록을 그 창 안에 보여 준다
+        if not view_id and _from_home(body):   # 앱 홈 탭 — 창을 먼저 열고(3초 trigger) 목록으로 바꾼다
+            try:
+                view_id = client.views_open(trigger_id=body['trigger_id'],
+                                            view=_loading_view('내 요청'))['view']['id']
+            except Exception as exc:
+                logger.error(f'{_LOG} 내 요청 창 열기 실패: {exc}', exc_info=True)
+                return
+        if view_id:                            # 바로가기 창·홈 탭 — 목록을 창 안에 보여 준다
             threading.Thread(target=show_my_requests_in_view, args=(client, view_id, uid), daemon=True).start()
         else:
             threading.Thread(target=post_my_requests, args=(client, body, uid), daemon=True).start()
@@ -1049,6 +1076,16 @@ def register_eapproval_handlers(app) -> None:
             client.views_open(trigger_id=body['trigger_id'], view=ea.hub_view())
         except Exception as exc:
             logger.error(f'{_LOG} 바로가기(전자결재) 실패: {exc}', exc_info=True)
+
+    @app.event('app_home_opened')
+    def handle_home_opened(event, client):
+        """왼쪽 앱 목록 → 전자결재 → 홈 탭을 열 때마다 메뉴를 게시(새로 온 직원도 따로 할 일 없음)."""
+        if event.get('tab') != 'home':
+            return
+        try:
+            client.views_publish(user_id=event['user'], view=ea.home_view())
+        except Exception as exc:
+            logger.error(f'{_LOG} 홈 탭 게시 실패: {exc}', exc_info=True)
 
 
 def register_project_bot_handlers(app) -> None:
