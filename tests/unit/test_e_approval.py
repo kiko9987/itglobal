@@ -542,6 +542,40 @@ def test_home_tab_opens_new_modal_not_update(monkeypatch):
     assert published[0]['user_id'] == 'U1' and acts['block_id'].startswith('eap_sel_')
 
 
+def test_workflow_step_opens_hub_and_completes(monkeypatch):
+    """워크플로 단계 「전자결재 열기」 — 단계 토큰·pointer 로 메뉴 창을 열고 단계를 끝낸다. manifest 키도 같아야."""
+    import os
+    import yaml
+    from dashboard.blueprints import slack_eapproval as se
+    fns, opened, done = {}, [], []
+
+    class _App:
+        def function(self, cid):
+            return lambda f: fns.setdefault(cid, f)
+
+        def __getattr__(self, name):
+            return lambda *a, **k: (lambda f: f)
+
+    class _WC:
+        def __init__(self, token):
+            self.token = token
+
+        def views_open(self, **kw):
+            opened.append((self.token, kw['interactivity_pointer'], kw['view']['title']['text']))
+
+    import slack_sdk
+    monkeypatch.setattr(slack_sdk, 'WebClient', _WC)
+    se.register_eapproval_handlers(_App())
+    fns[ea.FN_OPEN_MENU](body={'event': {'bot_access_token': 'xwfp-1'}},
+                         inputs={'interactivity': {'interactivity_pointer': 'P1'}},
+                         complete=lambda outputs: done.append(outputs), fail=lambda error: done.append(error))
+    assert opened == [('xwfp-1', 'P1', '전자결재')] and done == [{}]
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
+    with open(path, encoding='utf-8') as fh:
+        man = yaml.safe_load(fh)
+    assert ea.FN_OPEN_MENU in man['functions']
+
+
 def test_my_requests_view_splits_long_text():
     text = '\n'.join(f'• 줄 {i} ' + '가' * 100 for i in range(80))
     v = ea.my_requests_view(text)

@@ -63,6 +63,7 @@ CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 CB_SUPPLY = 'eap_supply_submit'
 SC_HUB = 'eap_sc_hub'   # 전역 바로가기 「전자결재」 하나(입력창 [+]) → 메뉴와 같은 창 — manifest 와 같게(11-05)
 A_HUB_BACK = 'eap_hub_back'           # 바로가기 창 「내 요청」 목록 → [← 처음으로]
+FN_OPEN_MENU = 'eap_open_menu'        # 워크플로 사용자 지정 단계 「전자결재 열기」 → 메뉴 창 — manifest functions 와 같게(11-05)
 
 _DEFAULT_APPROVERS = ('U04UL2ZLJAX',)  # 고광일
 

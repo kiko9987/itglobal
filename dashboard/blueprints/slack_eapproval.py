@@ -1077,6 +1077,22 @@ def register_eapproval_handlers(app) -> None:
         except Exception as exc:
             logger.error(f'{_LOG} 바로가기(전자결재) 실패: {exc}', exc_info=True)
 
+    @app.function(ea.FN_OPEN_MENU)
+    def handle_open_menu_step(body, inputs, complete, fail):
+        """워크플로 단계 「전자결재 열기」 — #전자_결재 워크플로 버튼 → 메뉴 창(11-05).
+
+        창은 단계 전용 토큰으로 열고(interactivity_pointer 는 그 토큰에 묶임) 바로 단계를 끝낸다.
+        창 안 버튼은 봇 토큰으로 처리(attaching_function_token_enabled=False)라 단계가 끝나도 된다."""
+        from slack_sdk import WebClient
+        pointer = ((inputs or {}).get('interactivity') or {}).get('interactivity_pointer', '')
+        token = (body.get('event') or {}).get('bot_access_token', '')
+        try:
+            WebClient(token=token).views_open(interactivity_pointer=pointer, view=ea.hub_view())
+            complete(outputs={})
+        except Exception as exc:
+            logger.error(f'{_LOG} 워크플로 단계(전자결재 열기) 실패: {exc}', exc_info=True)
+            fail(error='전자결재 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
+
     @app.event('app_home_opened')
     def handle_home_opened(event, client):
         """왼쪽 앱 목록 → 전자결재 → 홈 탭을 열 때마다 메뉴를 게시(새로 온 직원도 따로 할 일 없음)."""
