@@ -15,7 +15,7 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: true
   bot_user:
-    display_name: eapproval_bot   # 슬랙이 봇 표시 이름에 한글을 거부(앱 이름 name 은 한글 OK)
+    display_name: eapprovalbot   # 슬랙이 봇 표시 이름에 한글을 거부(앱 이름 name 은 한글 OK)
     always_online: true
   shortcuts:   # 11-05 입력창 [+] 「전자결재」 하나 → 메뉴 창 — callback_id 는 e_approval.SC_HUB 와 같게
     - name: 전자결재
@@ -39,16 +39,13 @@ functions:   # 11-05 워크플로 사용자 지정 단계 — #전자_결재 워
   eap_open_menu:
     title: 전자결재 열기
     description: 자금집행, 비품 신청, 다른 결재 요청, 내 요청 메뉴 창을 엽니다
-    input_parameters:
-      properties:
-        interactivity:
-          type: slack#/types/interactivity
-          title: 버튼 누른 사람
-      required:
-        - interactivity
-    output_parameters:
-      properties: {}
-      required: []
+    input_parameters:       # 앱 manifest 는 properties/required 로 감싸지 않는다(감싸면 저장 오류, 11-05)
+      interactivity:
+        type: slack#/types/interactivity
+        title: 버튼 누른 사람
+        is_required: true
+        name: interactivity
+    output_parameters: {}
 settings:
   event_subscriptions:
     request_url: https://pm.itg-aircon.com/slack/eapproval-events
@@ -60,6 +57,6 @@ settings:
     is_enabled: true
     request_url: https://pm.itg-aircon.com/slack/eapproval-events
     message_menu_options_url: https://pm.itg-aircon.com/slack/eapproval-events
-  org_deploy_enabled: false
+  org_deploy_enabled: true   # functions(워크플로 단계)에 필요 — 워크스페이스 하나라 동작 차이 없음(11-05)
   socket_mode_enabled: false
   token_rotation_enabled: false
