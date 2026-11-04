@@ -49,6 +49,23 @@ def _get_sheet() -> Tuple[Any, str, str]:
     return GoogleSheetsManager(), sheet_id, sheet_name
 
 
+def _get_values(manager, sheet_id: str, rng: str, op: str) -> Dict[str, Any]:
+    """시트 읽기 — 공용 재시도(_execute_with_retry) 경유.
+
+    직접 .execute() 하면 밤새 끊긴 연결(SSLEOFError)에서 바로 실패해 PM A/S 목록이 비었음
+    (09-29·10-16·11-05 아침 첫 조회). 재시도 장치는 연결을 새로 만들고 다시 읽는다 (2026-11-05).
+    request 는 매 시도 새로 만든다 — reset_service() 뒤 새 service 를 쓰도록.
+    """
+    return manager._execute_with_retry(
+        lambda: manager.service.spreadsheets().values().get(
+            spreadsheetId=sheet_id,
+            range=rng,
+            valueRenderOption='FORMATTED_VALUE',
+        ),
+        f'[AS] {op}',
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # 발번 / 행 조회
 # ─────────────────────────────────────────────────────────────
@@ -56,11 +73,7 @@ def get_next_as_no() -> str:
     """시트 A열에서 최대 AS-XXXX 번호+1 반환. 초기값 AS-0001."""
     manager, sheet_id, sheet_name = _get_sheet()
     try:
-        resp = manager.service.spreadsheets().values().get(
-            spreadsheetId=sheet_id,
-            range=f'{sheet_name}!A:A',
-            valueRenderOption='FORMATTED_VALUE',
-        ).execute()
+        resp = _get_values(manager, sheet_id, f'{sheet_name}!A:A', 'A열 조회(발번)')
         values = resp.get('values', [])
     except Exception as exc:
         # 예전엔 'AS-0001'을 돌려줘 옛 번호와 겹쳤음(7/9 실제 2회) — 번호를 못 정하면 등록을 멈춘다 (2026-10-28 5차)
@@ -83,11 +96,7 @@ def find_row_by_as_no(as_no: str) -> Optional[int]:
     """A열에서 as_no 행 번호 조회 (1-based)."""
     manager, sheet_id, sheet_name = _get_sheet()
     try:
-        resp = manager.service.spreadsheets().values().get(
-            spreadsheetId=sheet_id,
-            range=f'{sheet_name}!A:A',
-            valueRenderOption='FORMATTED_VALUE',
-        ).execute()
+        resp = _get_values(manager, sheet_id, f'{sheet_name}!A:A', '행 번호 조회')
         values = resp.get('values', [])
         for i, row in enumerate(values, start=1):
             if row and str(row[0]).strip() == as_no:
@@ -104,11 +113,7 @@ def get_as_data(as_no: str) -> Optional[Dict[str, Any]]:
     if not row_num:
         return None
     try:
-        resp = manager.service.spreadsheets().values().get(
-            spreadsheetId=sheet_id,
-            range=f'{sheet_name}!A{row_num}:M{row_num}',
-            valueRenderOption='FORMATTED_VALUE',
-        ).execute()
+        resp = _get_values(manager, sheet_id, f'{sheet_name}!A{row_num}:M{row_num}', '데이터 조회')
         values = resp.get('values', [])
         if not values:
             return None
@@ -139,11 +144,7 @@ def list_as(status_filter: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     manager, sheet_id, sheet_name = _get_sheet()
     try:
-        resp = manager.service.spreadsheets().values().get(
-            spreadsheetId=sheet_id,
-            range=f'{sheet_name}!A2:M',
-            valueRenderOption='FORMATTED_VALUE',
-        ).execute()
+        resp = _get_values(manager, sheet_id, f'{sheet_name}!A2:M', '목록 조회')
         rows = resp.get('values', [])
     except Exception as exc:
         logger.error(f'[AS] 목록 조회 실패: {exc}', exc_info=True)
