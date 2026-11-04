@@ -17,23 +17,11 @@ features:
   bot_user:
     display_name: eapproval_bot   # 슬랙이 봇 표시 이름에 한글을 거부(앱 이름 name 은 한글 OK)
     always_online: true
-  shortcuts:   # 11-01 입력창 [/] 메뉴 — callback_id 는 e_approval.SC_FUND·SC_SUPPLY 와 같게
-    - name: 자금집행 요청
+  shortcuts:   # 11-05 입력창 [+] 「전자결재」 하나 → 메뉴 창 — callback_id 는 e_approval.SC_HUB 와 같게
+    - name: 전자결재
       type: global
-      callback_id: eap_sc_fund
-      description: 계산서 없이 먼저 보내야 하는 돈을 요청합니다
-    - name: 비품 신청
-      type: global
-      callback_id: eap_sc_supply
-      description: 사무실 비품, 회사 재고로 살 물건을 신청합니다
-    - name: 다른 결재 요청   # 11-03 계약서·보증보험·카드결제·법인서류·개인경비·법인카드 지출결의
-      type: global
-      callback_id: eap_sc_forms
-      description: 계약서, 보증보험, 카드결제, 법인서류, 개인경비를 요청합니다
-    - name: 내 요청
-      type: global
-      callback_id: eap_sc_my
-      description: 내가 올린 결재가 어디까지 갔는지 봅니다
+      callback_id: eap_sc_hub
+      description: 자금집행, 비품 신청, 다른 결재 요청, 내 요청을 엽니다
   slash_commands:
     - command: /자금집행
       url: https://pm.itg-aircon.com/slack/eapproval-events

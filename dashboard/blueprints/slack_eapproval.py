@@ -296,11 +296,15 @@ def start_from_invoice(uid: str, name: str, origin_ch: str, origin_ts: str, pars
 
 
 # ── 입구 ②③ 새 요청 모달 ─────────────────────────────────────────────
-def open_new_modal(client, trigger_id: str, uid: str, project_code: str = '', origin: str = '') -> None:
-    """새 요청 모달. project_code 가 있으면 현장 고정(공사확정 카드)."""
+def open_new_modal(client, trigger_id: str, uid: str, project_code: str = '', origin: str = '',
+                   view_id: str = '') -> None:
+    """새 요청 모달. project_code 가 있으면 현장 고정(공사확정 카드). view_id 면 그 창(바로가기 창)을 바꾼다."""
     # trigger_id 는 3초 — 시트 조회 없이 바로 연다(현장 주소는 카드에 나온다).
     meta = {'project': project_code, 'origin': origin}
-    client.views_open(trigger_id=trigger_id, view=_new_view(meta))
+    if view_id:
+        client.views_update(view_id=view_id, view=_new_view(meta))
+    else:
+        client.views_open(trigger_id=trigger_id, view=_new_view(meta))
 
 
 def _new_view(meta: dict) -> dict:
@@ -826,6 +830,28 @@ def _ephemeral(client, body, text: str) -> None:
         _notify(client, uid, text)
 
 
+def _hub_view_id(body) -> str:
+    """버튼을 바로가기 「전자결재」 창 안에서 눌렀으면 그 창 id(채널 메뉴 메시지면 '')."""
+    if (body.get('container') or {}).get('type') == 'view':
+        return (body.get('view') or {}).get('id', '')
+    return ''
+
+
+def show_my_requests_in_view(client, view_id: str, uid: str) -> None:
+    """바로가기 창의 [📂 내 요청] — DM 대신 그 창 안에 목록."""
+    try:
+        opened, closed = ea.my_requests(uid)
+        links = {r['id']: _card_link(r) for r in opened + closed}
+        text = ea.my_requests_text(opened, closed, links)
+    except Exception as exc:
+        logger.error(f'{_LOG} 내 요청 목록 실패: {exc}', exc_info=True)
+        text = ':warning: 내 요청을 불러오지 못했어요. 잠시 뒤 다시 눌러 주세요.'
+    try:
+        client.views_update(view_id=view_id, view=ea.my_requests_view(text))
+    except Exception as exc:
+        logger.error(f'{_LOG} 내 요청 창 바꾸기 실패: {exc}', exc_info=True)
+
+
 def post_my_requests(client, body, uid: str) -> None:
     """[📂 내 요청] — 누른 사람에게만 보이는 진행 중·최근 끝난 요청 목록(11-03). 채널에 남지 않는다."""
     try:
@@ -911,8 +937,10 @@ def register_eapproval_handlers(app) -> None:
     @app.action(ea.A_NEW)
     def handle_new_open(ack, body, client):
         ack()
+        view_id = _hub_view_id(body)
         try:
-            open_new_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''), origin='menu')
+            open_new_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''),
+                           origin='shortcut' if view_id else 'menu', view_id=view_id)
         except Exception as exc:
             logger.error(f'{_LOG} 새 요청 창 열기 실패: {exc}', exc_info=True)
 
@@ -955,7 +983,8 @@ def register_eapproval_handlers(app) -> None:
 
     def _open_form_from(body, client, form_key):
         try:
-            open_form_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''), form_key)
+            open_form_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''), form_key,
+                            view_id=_hub_view_id(body))
         except Exception as exc:
             logger.error(f'{_LOG} 양식 창 열기 실패 ({form_key}): {exc}', exc_info=True)
 
@@ -966,7 +995,8 @@ def register_eapproval_handlers(app) -> None:
         form_key = (body['actions'][0].get('selected_option') or {}).get('value') or ''
         if ea.forms.get(form_key):
             _open_form_from(body, client, form_key)
-        threading.Thread(target=reset_select, args=(client, body), daemon=True).start()
+        if not _hub_view_id(body):            # 채널 메뉴 메시지만 고른 값을 되돌린다(창은 이미 양식으로 바뀜)
+            threading.Thread(target=reset_select, args=(client, body), daemon=True).start()
 
     @app.action(ea.A_FORM_OPEN)
     def handle_form_open(ack, body, client):
@@ -980,13 +1010,29 @@ def register_eapproval_handlers(app) -> None:
     def handle_my_requests(ack, body, client):
         ack()
         uid = (body.get('user') or {}).get('id', '')
-        threading.Thread(target=post_my_requests, args=(client, body, uid), daemon=True).start()
+        view_id = _hub_view_id(body)
+        if view_id:                            # 바로가기 창 — 목록을 그 창 안에 보여 준다
+            threading.Thread(target=show_my_requests_in_view, args=(client, view_id, uid), daemon=True).start()
+        else:
+            threading.Thread(target=post_my_requests, args=(client, body, uid), daemon=True).start()
+
+    @app.action(ea.A_HUB_BACK)
+    def handle_hub_back(ack, body, client):
+        ack()
+        try:
+            client.views_update(view_id=_hub_view_id(body), view=ea.hub_view())
+        except Exception as exc:
+            logger.error(f'{_LOG} 바로가기 처음으로 실패: {exc}', exc_info=True)
 
     @app.action(ea.A_NEW_SUPPLY)
     def handle_supply_open(ack, body, client):
         ack()
+        view_id = _hub_view_id(body)
         try:
-            client.views_open(trigger_id=body['trigger_id'], view=ea.supply_request_view({'origin': 'menu'}))
+            if view_id:
+                client.views_update(view_id=view_id, view=ea.supply_request_view({'origin': 'shortcut'}))
+            else:
+                client.views_open(trigger_id=body['trigger_id'], view=ea.supply_request_view({'origin': 'menu'}))
         except Exception as exc:
             logger.error(f'{_LOG} 비품 신청 창 열기 실패: {exc}', exc_info=True)
 
@@ -994,49 +1040,15 @@ def register_eapproval_handlers(app) -> None:
     def handle_supply_submit_eap(ack, body, view):
         handle_supply_submit(ack, body, view)
 
-    # 전역 바로가기 — 어느 채널·DM 에서든 입력창 [/] 메뉴로 연다(11-01)
-    @app.shortcut(ea.SC_FUND)
-    def handle_fund_shortcut(ack, body, client):
+    # 전역 바로가기 「전자결재」 하나 — 어느 채널·DM 에서든 입력창 [+]로 메뉴 창을 연다(11-05).
+    # 창 안 버튼은 채널 메뉴와 같은 action_id 이고, 핸들러가 창이면 그 창을 바꾼다(_hub_view_id).
+    @app.shortcut(ea.SC_HUB)
+    def handle_hub_shortcut(ack, body, client):
         ack()
         try:
-            open_new_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''), origin='shortcut')
+            client.views_open(trigger_id=body['trigger_id'], view=ea.hub_view())
         except Exception as exc:
-            logger.error(f'{_LOG} 바로가기(자금집행) 실패: {exc}', exc_info=True)
-
-    @app.shortcut(ea.SC_SUPPLY)
-    def handle_supply_shortcut(ack, body, client):
-        ack()
-        try:
-            client.views_open(trigger_id=body['trigger_id'], view=ea.supply_request_view({'origin': 'shortcut'}))
-        except Exception as exc:
-            logger.error(f'{_LOG} 바로가기(비품 신청) 실패: {exc}', exc_info=True)
-
-    @app.shortcut(ea.SC_FORMS)
-    def handle_forms_shortcut(ack, body, client):
-        ack()
-        try:
-            client.views_open(trigger_id=body['trigger_id'], view=ea.form_picker_view())
-        except Exception as exc:
-            logger.error(f'{_LOG} 바로가기(다른 결재 요청) 실패: {exc}', exc_info=True)
-
-    @app.action(ea.A_SC_FORM_PICK)
-    def handle_sc_form_pick(ack, body, client):
-        ack()
-        form_key = (body['actions'][0].get('selected_option') or {}).get('value') or ''
-        if not ea.forms.get(form_key):
-            return
-        try:
-            open_form_modal(client, '', (body.get('user') or {}).get('id', ''), form_key,
-                            view_id=(body.get('view') or {}).get('id', ''))
-        except Exception as exc:
-            logger.error(f'{_LOG} 바로가기 양식 창 실패 ({form_key}): {exc}', exc_info=True)
-
-    @app.shortcut(ea.SC_MY)
-    def handle_my_shortcut(ack, body, client):
-        """채널이 없는 곳에서도 눌리므로 목록은 봇 DM으로 간다(_ephemeral 이 채널 없으면 DM)."""
-        ack()
-        uid = (body.get('user') or {}).get('id', '')
-        threading.Thread(target=post_my_requests, args=(client, body, uid), daemon=True).start()
+            logger.error(f'{_LOG} 바로가기(전자결재) 실패: {exc}', exc_info=True)
 
 
 def register_project_bot_handlers(app) -> None:
