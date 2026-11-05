@@ -88,7 +88,7 @@ def test_options_respect_limit_and_label_length():
 
 def test_project_display():
     assert pinv.project_display('G4049-JW', RECS[0]) == 'G4049-JW · 광명 양지로 21'
-    assert pinv.project_display(pinv.STOCK_CODE, None) == '프로젝트0 · 회사 재고'
+    assert pinv.project_display(pinv.STOCK_CODE, None) == '프로젝트 0 · 회사 재고'
     assert pinv.project_display('G9999-XX', None) == 'G9999-XX'
 
 
@@ -347,7 +347,7 @@ def test_submit_reassign_edits_same_reply(sb):
     sb._process_pinv_submit(c2, *_submit_body(code=pinv.STOCK_CODE, cost='자재비', click_ts='999.9'))
     assert c2.names() == ['chat_update', 'pins_remove']
     upd = c2.calls[0][1]
-    assert upd['ts'] == '999.9' and '프로젝트0 · 회사 재고' in upd['text'] and '다시 지정됨' in upd['text']
+    assert upd['ts'] == '999.9' and '프로젝트 0 · 회사 재고' in upd['text'] and '다시 지정됨' in upd['text']
 
 
 def test_open_modal_prefills_existing(sb):
