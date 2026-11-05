@@ -674,6 +674,24 @@ def test_stacked_view_cancel_keeps_step_and_submit_clears():
         se._complete_step = orig
 
 
+def test_bank_is_select_and_old_names_map():
+    """은행은 고르기 칸 — 예전 직접 입력값(29가지)은 항목으로 맞춰 미리 채우고, 애매하면 비운다(11-05)."""
+    nb = forms.normalize_bank
+    assert nb('국민') == nb('KB국민은행') == nb('국민은행') == 'KB국민은행'
+    assert nb('신한은핸') == '신한은행' and nb('IBK기업은행') == nb('기업') == 'IBK기업은행'
+    assert nb('농협은행') == nb('농협') == '농협' and nb('sc제일은행') == nb('한국스탠다드차타드은행 SC') == 'SC제일은행'
+    assert nb('새마을 금고') == '새마을금고' and nb('정보통신부우체국') == '우체국'
+    assert nb('신한은행(농협)') == '' and nb('') == '' and nb('모르는은행') == ''
+    el = next(b for b in ea.transfer_input_blocks({'bank': '국민'}) if b['block_id'] == 'bank')['element']
+    assert el['type'] == 'static_select' and el['initial_option']['value'] == 'KB국민은행'
+    el = next(b for b in ea.transfer_input_blocks({'bank': '신한은행(농협)'}) if b['block_id'] == 'bank')['element']
+    assert 'initial_option' not in el
+    vals = {'bank_3': {'bank': {'type': 'static_select', 'selected_option': {'value': '농협'}}}}
+    assert ea.field_value(vals, 'bank') == '농협'                        # 다시 채운 칸(bank_N)도
+    f = next(x for x in forms.get(forms.FORM_EXPENSE).fields if x.key == 'bank')
+    assert f.kind == 'select' and f.options == forms.BANKS
+
+
 def test_my_requests_view_splits_long_text():
     text = '\n'.join(f'• 줄 {i} ' + '가' * 100 for i in range(80))
     v = ea.my_requests_view(text)

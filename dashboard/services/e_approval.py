@@ -841,9 +841,16 @@ def transfer_input_blocks(prefill: Optional[dict] = None, urgency: str = '일반
                 'element': el}
 
     urg_opts = _opts(URGENCY_TYPES)
+    bank_opts = [{'text': {'type': 'plain_text', 'text': b}, 'value': b} for b in forms.BANKS]
+    bank_el = {'type': 'static_select', 'action_id': 'bank', 'options': bank_opts,
+               'placeholder': {'type': 'plain_text', 'text': '은행 고르기'}}
+    bank = forms.normalize_bank(p.get('bank', ''))   # 예전 직접 입력값('국민', '신한은핸' …) → 항목
+    if bank:
+        bank_el['initial_option'] = next(o for o in bank_opts if o['value'] == bank)
     return [
         _text('payee_name', '예금주', '예: 윤정민', p.get('payee_name', '')),
-        _text('bank', '은행', '예: 신한', p.get('bank', '')),
+        {'type': 'input', 'block_id': 'bank' + sfx, 'label': {'type': 'plain_text', 'text': '은행'},
+         'hint': {'type': 'plain_text', 'text': forms.BANK_HINT}, 'element': bank_el},
         _text('account', '계좌번호', '예: 110-511-825643', p.get('account', '')),
         {'type': 'input', 'block_id': 'urgency', 'label': {'type': 'plain_text', 'text': '집행 시기'},
          'element': {'type': 'radio_buttons', 'action_id': 'urgency', 'options': urg_opts,
@@ -861,7 +868,8 @@ def field_block_id(values: dict, base: str) -> str:
 
 def field_value(values: dict, base: str) -> str:
     bid = field_block_id(values, base)
-    return (((values.get(bid) or {}).get(base) or {}).get('value') or '').strip()
+    el = (values.get(bid) or {}).get(base) or {}
+    return (el.get('value') or (el.get('selected_option') or {}).get('value') or '').strip()   # 글 칸·고르기 칸
 
 
 PARTNER_NEW = 'new:'

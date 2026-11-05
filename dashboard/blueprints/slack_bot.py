@@ -5124,7 +5124,7 @@ def _validate_pinv_submit(view) -> dict:
         return {}
 
     def _t(bid):
-        return ((vals.get(bid) or {}).get(bid) or {}).get('value') or ''
+        return ea.field_value(vals, bid)   # 은행은 고르기 칸(11-05)
     errs = ea.validate_transfer(_t('payee_name'), _t('bank'), _t('account'))
     if not errs:
         from dashboard.blueprints.slack_eapproval import is_configured
@@ -5159,7 +5159,7 @@ def _process_pinv_submit(client, body, view) -> None:
             extra = f"💸 {ea.title(linked)} ({ea.initial(linked.get('requester_name'))})에 연결 — {ea.STATUS_LABELS[linked['status']][1]}"
     elif pinv.transfer_requested(vals) and 'payee_name' in vals:
         def _t(bid):
-            return (((vals.get(bid) or {}).get(bid) or {}).get('value') or '').strip()
+            return ea.field_value(vals, bid)   # 은행은 고르기 칸(11-05)
         ev = ((vals.get('evidence') or {}).get('evidence') or {}).get('selected_option') or {}
         urg = ((vals.get('urgency') or {}).get('urgency') or {}).get('selected_option') or {}
         from dashboard.blueprints.slack_eapproval import start_from_invoice
