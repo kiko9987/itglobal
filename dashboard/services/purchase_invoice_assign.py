@@ -33,6 +33,10 @@ SPECIAL_LABELS = {
     STOCK_CODE: '프로젝트 0 · 회사 재고 (현장 미정 자재)',
     COMMON_CODE: '공통비 · 현장 무관 (사무실 집기, 수선비 등)',
 }
+# 법인서류 요청 전용 — 서류는 돈이 아니라 '공통비'(비용 분류)가 맞지 않음. 특정 현장이 아니면 이것(11-05)
+NO_SITE_CODE = '현장 없음'
+NO_SITE_LABEL = '현장 없음 · 입찰·관공서 등 회사 제출용'
+_FORM_ONLY_LABELS = {NO_SITE_CODE: NO_SITE_LABEL}
 
 # ── 원가 분류 (공사현황 손익 4칸 + 기타비 세부) ─────────────────────
 COST_CATEGORIES = [
@@ -103,8 +107,9 @@ def _codenum(code: str) -> int:
 def _special_options(query: str, specials=None) -> List[dict]:
     q = (query or '').strip().lower()
     out = []
-    for code, label in SPECIAL_LABELS.items():
-        if specials is not None and code not in specials:
+    # specials=None 이면 자금집행용 둘(프로젝트0·공통비). 양식 전용(현장 없음)은 이름을 넣어 줄 때만
+    for code, label in {**SPECIAL_LABELS, **_FORM_ONLY_LABELS}.items():
+        if (code not in specials) if specials is not None else (code not in SPECIAL_LABELS):
             continue
         if not q or q in f'{code} {label}'.lower():
             out.append({'text': {'type': 'plain_text', 'text': label[:75]}, 'value': code})
@@ -149,6 +154,8 @@ def project_display(code: str, rec: Optional[dict]) -> str:
     """답글용 한 줄 — 'G4049-JW · 광명 양지로 21 …' / '프로젝트0 · 회사 재고'."""
     if code in SPECIAL_LABELS:
         return SPECIAL_LABELS[code].split(' (')[0]
+    if code == NO_SITE_CODE:
+        return NO_SITE_CODE
     addr = str((rec or {}).get('현장 주소') or '').strip()
     return f'{code} · {addr}' if addr else code
 

@@ -60,8 +60,8 @@ def _name(uid: str) -> str:
 
 # ── 프로젝트 표시 ────────────────────────────────────────────────────
 def _project_rec(code: str) -> Optional[dict]:
-    from dashboard.services.purchase_invoice_assign import SPECIAL_LABELS
-    if not code or code in SPECIAL_LABELS:
+    from dashboard.services.purchase_invoice_assign import NO_SITE_CODE, SPECIAL_LABELS
+    if not code or code in SPECIAL_LABELS or code == NO_SITE_CODE:
         return None
     try:
         from dashboard.services.project_service import get_project_records
@@ -747,8 +747,9 @@ def _register_form_handlers(app) -> None:
             meta = json.loads(((body.get('view') or {}).get('private_metadata')) or '{}')
             query = (body.get('value') or '').strip()
             mgr = None if query else _name((body.get('user') or {}).get('id', ''))
-            # 개인경비는 프로젝트0·공통비도, 법인서류는 공통비만, 나머지(계약서 등)는 실제 현장만
-            specials = {ea.forms.FORM_EXPENSE: None, ea.forms.FORM_CORPDOCS: (pinv.COMMON_CODE,)}.get(
+            # 개인경비는 프로젝트0·공통비도, 법인서류는 「현장 없음」(공통비는 비용 말이라 안 맞음, 11-05),
+            # 나머지(계약서 등)는 실제 현장만
+            specials = {ea.forms.FORM_EXPENSE: None, ea.forms.FORM_CORPDOCS: (pinv.NO_SITE_CODE,)}.get(
                 meta.get('form'), ())
             ack(options=pinv.build_project_options(get_project_records() or [], query, manager_name=mgr,
                                                    label_fn=_intake_option_label, specials=specials))
