@@ -1121,7 +1121,7 @@ def supply_request_view(meta: dict) -> dict:
             grn_block(),   # 프로젝트0 안내 줄은 뺐다(11-05) — 신청자가 알 필요 없음, 카드·기록엔 그대로 프로젝트0
             _text('item', '품명', '예: A4 용지 박스'),
             _text('link', '상품 링크', '예: https://www.coupang.com/vp/products/…',
-                  hint='살 상품 페이지 주소를 붙여 넣어 주세요.'),
+                  hint='구매할 상품 페이지 주소를 붙여 넣어 주세요.'),
             qty,
             _text('unit_price', '단가 (VAT 포함, 원)', '예: 25000'),
             _text('amount', '총 금액 (VAT 포함, 원)', '배송비가 있으면 더해서 입력', optional=True,
