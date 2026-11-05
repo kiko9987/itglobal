@@ -573,6 +573,8 @@ def _form_values(form_key: str, uid: str, project_code: str = '') -> dict:
     if project_code:
         vals['project'] = project_code
         vals['_project_label'] = project_display(project_code, rec)
+        if form_key == ea.forms.FORM_INSURANCE:
+            fill_insurance_from_contract(vals, project_code)
     return vals
 
 
@@ -614,6 +616,34 @@ def contract_note(code: str) -> str:
         return '📑 Flex로 올린 계약서 작성 요청이 있어요. 계약서에 이 보증 내용이 있는지 확인해 주세요.'
     return ('⚠️ 이 현장의 계약서 작성 요청이 아직 없어요. 입찰보증이 아니라면 계약서를 먼저 요청하거나 '
             '계약서 파일을 카드 스레드에 올려 주세요.')
+
+
+def contract_terms(code: str) -> dict:
+    """이 현장 계약서(전자결재)에 적은 보증 조건 {보증 종류: (보증금율, 기간)} — 보증보험 신청 칸 채우기용(11-05)."""
+    if not code:
+        return {}
+    rows = ea.find_by_project(ea.forms.FORM_CONTRACT, code)
+    f = (ea.extra(rows[0]).get('f') or {}) if rows else {}
+    out = {}
+    for g in f.get('guarantees') or []:
+        k = ea.forms.GUARANTEE_KEYS.get(g)
+        if k:
+            out[g] = (str(f.get(f'{k}_rate') or '').strip(), str(f.get(f'{k}_years') or '').strip())
+    return out
+
+
+def fill_insurance_from_contract(vals: dict, code: str, override: bool = False) -> None:
+    """보증보험 신청 — 계약서에 적은 보증금율·기간을 채운다. 종류를 안 골랐고 계약서 보증이 하나면 종류도.
+    override=True(보증 종류를 바꿔 고름)면 이미 채운 값도 그 종류 값으로 바꾼다."""
+    terms = contract_terms(code)
+    if not terms:
+        return
+    if not vals.get('kind') and len(terms) == 1:
+        vals['kind'] = next(iter(terms))
+    rate, years = terms.get(vals.get('kind') or '', ('', ''))
+    for key, v in (('rate', rate), ('years', years)):
+        if v and (override or not vals.get(key)):
+            vals[key] = v
 
 
 def license_note(code: str) -> str:
@@ -776,12 +806,37 @@ def _register_form_handlers(app) -> None:
                 vals = _form_values(meta['form'], uid, code)
                 vals.update({k: v for k, v in ea.forms.read_form(view)[1].items()
                              if v and k not in vals and k != 'project'})   # 펼쳐 둔 칸(보증 등) 유지
+                if meta['form'] == ea.forms.FORM_INSURANCE:   # 먼저 고른 보증 종류의 계약서 조건
+                    fill_insurance_from_contract(vals, code)
                 meta['pv'] = int(meta.get('pv') or 0) + 1
                 meta['extra_note'] = _form_notes(meta['form'], code)
                 client.views_update(view_id=view['id'], view=ea.forms.form_view(meta['form'], meta, vals))
             except Exception as exc:
                 logger.error(f'{_LOG} 양식 현장 반영 실패: {exc}', exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action('kind')
+    def handle_insurance_kind_pick(ack, body, client):
+        """보증보험 「보증 종류」를 고르면 이 현장 계약서에 적은 그 보증의 보증금율·기간을 채운다(11-05)."""
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            if meta.get('form') != ea.forms.FORM_INSURANCE:
+                return
+            vals = ea.forms.read_form(view)[1]
+            code = vals.get('project') or meta.get('project') or ''
+            before = (vals.get('rate'), vals.get('years'))
+            fill_insurance_from_contract(vals, code, override=True)
+            if (vals.get('rate'), vals.get('years')) == before:
+                return                           # 계약서 조건이 없으면 창을 다시 그리지 않음(입력 유지)
+            if code and not meta.get('project'):
+                from dashboard.services.purchase_invoice_assign import project_display
+                vals['_project_label'] = project_display(code, _project_rec(code))
+            meta['pv'] = int(meta.get('pv') or 0) + 1   # 채운 칸 block_id 를 바꿔 새 값이 보이게
+            client.views_update(view_id=view['id'], view=ea.forms.form_view(meta['form'], meta, vals))
+        except Exception as exc:
+            logger.error(f'{_LOG} 보증 종류 반영 실패: {exc}', exc_info=True)
 
     @app.action('guarantees')
     def handle_guarantees_pick(ack, body, client):
