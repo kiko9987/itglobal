@@ -401,7 +401,7 @@ def test_supply_card_and_buttons(tmp_db):
     ea.complete_supply_request(f)
     row = ea.create(ea.FORM_SUPPLY, KIKO, '고광일', f)
     assert ea.extra(row)['qty'] == 2 and ea.status_label(row) == ('🔵', '구매 대기')
-    t = ea.card_text(row, ea.steps(row['id']), '프로젝트0 · 회사 재고')
+    t = ea.card_text(row, ea.steps(row['id']), '프로젝트 0 · 회사 재고')
     assert f'비품 신청 #{row["id"]}' in t and '품명: A4 용지 박스 × 2개 (단가 25,000원)' in t
     assert '상품 보기' in t and '사유: 용지 소진' in t and '이체 계좌' not in t and '⏳ 구매' in t
     assert '사업자 구분' not in t and not row['grn']
@@ -409,7 +409,7 @@ def test_supply_card_and_buttons(tmp_db):
     assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_TRANSFER
     assert '구매하고 카드에서 [구매 완료]' in ea.dm_intro(row, 'executor')
     row = ea.create(ea.FORM_SUPPLY, KIKO, '고광일', {**f, 'memo': '배송 메시지에 직접 수령'})
-    t = ea.card_text(row, ea.steps(row['id']), '프로젝트0 · 회사 재고')
+    t = ea.card_text(row, ea.steps(row['id']), '프로젝트 0 · 회사 재고')
     assert '구매 요청사항: 배송 메시지에 직접 수령' in t and '비고' not in t
     blocks = {b['block_id']: b for b in ea.supply_request_view({})['blocks'] if b.get('block_id')}
     assert not blocks['reason']['element']['multiline'] and blocks['memo']['label']['text'] == '구매 요청사항'

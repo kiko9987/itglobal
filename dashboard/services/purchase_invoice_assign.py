@@ -30,7 +30,7 @@ CALLBACK_SUBMIT = 'submit_pinv_assign'  # 모달 제출
 STOCK_CODE = '프로젝트0'    # 회사 재고로 사거나 회사로 먼저 사서 나중에 현장에 내보내는 것
 COMMON_CODE = '공통비'      # 사무실 등 현장과 무관한 비용
 SPECIAL_LABELS = {
-    STOCK_CODE: '프로젝트0 | 회사 재고 (현장 미정 자재)',   # 현장 목록과 같은 ' | ' 구분(11-05)
+    STOCK_CODE: '프로젝트 0 | 회사 재고 (현장 미정 자재)',   # 현장 목록과 같은 ' | ' 구분(11-05)
     COMMON_CODE: '공통비 | 현장 무관 (사무실 집기, 수선비 등)',
 }
 
