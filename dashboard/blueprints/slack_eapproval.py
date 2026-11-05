@@ -831,23 +831,19 @@ def folder_docs(code: str, precheck: bool = False) -> list:
 
 
 def post_folder_docs(row: dict, docs: list) -> None:
-    """고른 공사 폴더 서류를 카드 스레드에 드라이브 링크로(파일은 복사하지 않음 — 원본 한 곳)."""
+    """고른 공사 폴더 서류를 카드 스레드에 — 탐색기로 여는 폴더 링크(itgfolder://, 공사확정 카드와 같은 방식)
+    하나 + 고른 파일 이름. 파일은 복사하지 않는다(원본 한 곳). itgfolder 는 폴더만 열 수 있어 파일별 링크는 없다."""
     if not docs:
         return
-    lines = []
-    for d in docs:
-        if d['id'] == ea.forms.LICENSE_DOC:
-            try:
-                from dashboard.services.business_license_handler import get_license_state
-                url = (get_license_state(row.get('project_code') or '') or {}).get('view_url')
-            except Exception:
-                url = None
-        else:
-            url = f"https://drive.google.com/file/d/{d['id']}/view"
-        if url:
-            lines.append(f"• <{url}|{d['name']}>")
-    if lines:
-        _thread_log(row, '📁 공사 폴더 서류\n' + '\n'.join(lines))
+    folder = ''
+    try:
+        from dashboard.services import business_license_handler as bl
+        folder = bl._project_folder_id_for(row.get('project_code') or '') or ''
+    except Exception as exc:
+        logger.warning(f'{_LOG} 공사 폴더 찾기 실패 ({row.get("project_code")}): {exc}')
+    head = f'📁 공사 폴더 서류 · <itgfolder://{folder}|탐색기에서 열기>' if folder else '📁 공사 폴더 서류'
+    names = [('사업자등록증 (사업자등록증 폴더)' if d['id'] == ea.forms.LICENSE_DOC else d['name']) for d in docs]
+    _thread_log(row, head + '\n' + '\n'.join(f'• {n}' for n in names))
 
 
 def post_contract_link(row: dict) -> None:

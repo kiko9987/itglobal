@@ -1219,10 +1219,16 @@ def test_folder_docs_block_carry_and_post(se):
     kept = forms.carry_folder_docs(view)
     assert [o['value'] for o in kept['element']['initial_options']] == ['P2']
     assert forms.read_folder_docs(view) == [{'id': 'P2', 'name': '최종 견적.pdf'}]
+    from dashboard.services import business_license_handler as bl
     row = se.process_new_submit(MGR, dict(FIELDS))
-    se.post_folder_docs(row, [{'id': 'P2', 'name': '최종 견적.pdf'}])
+    import pytest as _pt
+    with _pt.MonkeyPatch.context() as mp:
+        mp.setattr(bl, '_project_folder_id_for', lambda code, fresh=False: 'FOLDER123')
+        se.post_folder_docs(row, [{'id': 'lic', 'name': '사업자등록증'}, {'id': 'P2', 'name': '최종 견적.pdf'}])
     msg = se._fake.of('chat_postMessage')[-1]
-    assert msg['thread_ts'] == row['card_ts'] and 'https://drive.google.com/file/d/P2/view|최종 견적.pdf' in msg['text']
+    # 드라이브 웹 링크가 아니라 탐색기로 여는 폴더 링크(공사확정 카드와 같은 itgfolder://) + 파일 이름
+    assert msg['thread_ts'] == row['card_ts'] and '<itgfolder://FOLDER123|탐색기에서 열기>' in msg['text']
+    assert '• 최종 견적.pdf' in msg['text'] and 'drive.google.com' not in msg['text']
 
 
 def test_invoice_photo_copied_to_card(se, monkeypatch):
