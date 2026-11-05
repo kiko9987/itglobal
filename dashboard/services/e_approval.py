@@ -747,8 +747,8 @@ def hub_blocks() -> List[dict]:
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*돈이 나가는 요청*'}},
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-            '거래처 송금(자재·외주·현장 비용, 회사 재고 자재 포함)은 자금집행, '
-            '경영지원이 대신 주문해 주는 사무용 비품은 비품 신청'}]},
+            '• 자금집행: 거래처 송금(자재·외주·현장 비용, 회사 재고 자재 포함)\n'
+            '• 비품 신청: 경영지원이 대신 주문해 주는 사무용 비품'}]},
         {'type': 'actions', 'elements': [
             _menu_btn(A_NEW, '💸 자금집행 요청', primary=True),
             _menu_btn(A_NEW_SUPPLY, '🛒 비품 신청')]},
