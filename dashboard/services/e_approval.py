@@ -1118,7 +1118,7 @@ def supply_request_view(meta: dict) -> dict:
         'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
         'private_metadata': json.dumps(meta),
         'blocks': [
-            grn_block(),   # 프로젝트0 안내 줄은 뺐다(11-05) — 신청자가 알 필요 없음, 카드·기록엔 그대로 프로젝트0
+            # 프로젝트0 안내 줄·사업자 구분은 뺐다(11-05) — 회사 재고(프로젝트0)로 기록, 어느 통장인지는 경영지원 판단
             _text('item', '품명', '예: A4 용지 박스'),
             _text('link', '상품 링크', '예: https://www.coupang.com/vp/products/…',
                   hint='구매할 상품 페이지 주소를 붙여 넣어 주세요.'),
@@ -1140,9 +1140,7 @@ def read_supply_request(view: dict) -> Dict:
     def _txt(bid):
         return (((v.get(bid) or {}).get(bid) or {}).get('value') or '').strip()
 
-    grn = (((v.get('grn') or {}).get('grn') or {}).get('selected_option') or {}).get('value') or ''
     return {
-        'grn': grn,
         'content': _txt('item'), 'link': _txt('link'), 'qty': parse_amount(_txt('qty')),
         'unit_price': parse_amount(_txt('unit_price')), 'amount': parse_amount(_txt('amount')),
         'reason': _txt('reason'), 'memo': _txt('memo'),
@@ -1153,8 +1151,6 @@ def complete_supply_request(f: Dict) -> Dict[str, str]:
     """비품 신청 값 검사 + 총 금액 채움 + 장부 필드로 정리. 오류 {block_id: 문구}. f 를 고친다."""
     from dashboard.services.purchase_invoice_assign import STOCK_CODE
     errs = {}
-    if not f.get('grn'):
-        errs['grn'] = '어느 사업자 통장에서 나가는지 골라 주세요.'
     if not f.get('content'):
         errs['item'] = '품명을 넣어 주세요.'
     if not re.match(r'https?://\S+', f.get('link') or ''):
