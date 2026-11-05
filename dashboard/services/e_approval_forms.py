@@ -159,7 +159,7 @@ _add(Form(FORM_CORPDOCS, '법인서류 요청', '🏢', 'task',
               F('docs', '서류 종류', 'multiselect', options=CORP_DOC_TYPES),
               F('year', '발행 연도', 'select', required=False, options=[]),   # 열 때 올해부터 채움
               F('other', '기타 선택 시 서류 이름', required=False),
-              F('reason', '사유', 'multiline'),
+              F('reason', '사유', placeholder='예: 입찰 제출용'),   # 한 줄(11-05)
               F('cert_memo', '증명서 기재 내용', 'multiline', required=False),
               F('due', '제출 마감일', 'date'),
               F('receive', '수령 방법', 'select', options=['이메일', '등기']),
