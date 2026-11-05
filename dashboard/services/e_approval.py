@@ -715,7 +715,7 @@ def menu_blocks() -> List[dict]:
             '• 내가 올린 요청이 어디까지 갔는지 → 📂 내 요청\n'
             '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}},
         {'type': 'actions', 'elements': [
-            {'type': 'button', 'action_id': A_NEW, 'style': 'primary',
+            {'type': 'button', 'action_id': A_NEW,   # 초록(primary) 없이 다른 버튼과 같게(11-05)
              'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True}},
             {'type': 'button', 'action_id': A_NEW_SUPPLY,
              'text': {'type': 'plain_text', 'text': '🛒 비품 신청', 'emoji': True}},
@@ -732,12 +732,11 @@ def form_open_action_id(form_key: str) -> str:
     return f'{A_FORM_OPEN}_{form_key}'
 
 
-def _menu_btn(action_id: str, text: str, value: str = '', primary: bool = False) -> dict:
+def _menu_btn(action_id: str, text: str, value: str = '') -> dict:
+    """메뉴 버튼 — 모두 같은 모양(한 버튼만 초록이면 그것만 눌러야 하는 것처럼 보여 뺐다, 11-05)."""
     b = {'type': 'button', 'action_id': action_id, 'text': {'type': 'plain_text', 'text': text, 'emoji': True}}
     if value:
         b['value'] = value
-    if primary:
-        b['style'] = 'primary'
     return b
 
 
@@ -750,7 +749,7 @@ def hub_blocks() -> List[dict]:
             '• 자금집행: 거래처 대금 송금 (자재·외주·현장 비용, 회사 재고 자재 포함)\n'
             '• 비품 신청: 사무용 비품 구매 (경영지원 주문)'}]},
         {'type': 'actions', 'elements': [
-            _menu_btn(A_NEW, '💸 자금집행 요청', primary=True),
+            _menu_btn(A_NEW, '💸 자금집행 요청'),
             _menu_btn(A_NEW_SUPPLY, '🛒 비품 신청')]},
         {'type': 'divider'},
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*기타 결재*'}},
