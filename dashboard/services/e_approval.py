@@ -732,7 +732,7 @@ def hub_view() -> dict:
     return {
         'type': 'modal',
         'title': {'type': 'plain_text', 'text': '전자결재'},
-        'close': {'type': 'plain_text', 'text': '닫기'},
+        'close': {'type': 'plain_text', 'text': '닫기'}, 'notify_on_close': True,
         'blocks': menu_blocks(),
     }
 
@@ -758,7 +758,7 @@ def my_requests_view(text: str) -> dict:
     return {
         'type': 'modal',
         'title': {'type': 'plain_text', 'text': '내 요청'},
-        'close': {'type': 'plain_text', 'text': '닫기'},
+        'close': {'type': 'plain_text', 'text': '닫기'}, 'notify_on_close': True,
         'blocks': blocks,
     }
 
@@ -993,7 +993,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         'type': 'modal', 'callback_id': CB_NEW,
         'title': {'type': 'plain_text', 'text': '자금집행 요청'},
         'submit': {'type': 'plain_text', 'text': '요청'},
-        'close': {'type': 'plain_text', 'text': '취소'},
+        'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
         'private_metadata': json.dumps(meta),
         'blocks': blocks,
     }
@@ -1078,7 +1078,7 @@ def supply_request_view(meta: dict) -> dict:
         'type': 'modal', 'callback_id': CB_SUPPLY,
         'title': {'type': 'plain_text', 'text': '비품 신청'},
         'submit': {'type': 'plain_text', 'text': '신청'},
-        'close': {'type': 'plain_text', 'text': '취소'},
+        'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
         'private_metadata': json.dumps(meta),
         'blocks': [
             {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '프로젝트0 · 회사 재고로 처리됩니다.'}]},
