@@ -318,7 +318,8 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
     for f in form.fields:
         if not is_shown(f, values):
             continue
-        if f.section:
+        if f.section:   # 위 칸에 붙어 보여 빈 줄 하나 띄우고 구분선(카드 여백과 같은 '⠀' 빈 글자)
+            blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]})
             blocks.append({'type': 'divider'})
             if f.section != '-':
                 blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{f.section}*'}})
