@@ -490,8 +490,19 @@ def test_shortcuts_registered_and_match_manifest():
 
 def test_hub_view_is_menu_without_submit():
     v = ea.hub_view()
-    assert v['blocks'] == ea.menu_blocks()
-    assert 'submit' not in v                      # 고르면 이 창이 그 입력 창으로 바뀐다
+    assert v['blocks'] == ea.hub_blocks()
+    assert 'submit' not in v                      # 고르면 입력 창이 위에 쌓인다
+    # 고르기 칸 없이 양식마다 버튼 — action_id 는 블록 안에서 겹치지 않고, 메뉴 양식이 빠짐없이
+    acts = [e for b in v['blocks'] if b['type'] == 'actions' for e in b['elements']]
+    assert all(e['type'] == 'button' for e in acts)
+    ids = [e['action_id'] for e in acts]
+    assert len(ids) == len(set(ids))
+    assert {e['value'] for e in acts if e['action_id'].startswith(ea.A_FORM_OPEN)} == \
+        {o['value'] for o in ea.forms.menu_options()}
+    import re
+    pat = re.compile(rf'^{ea.A_FORM_OPEN}(_.+)?$')
+    assert all(pat.match(i) for i in ids if i.startswith(ea.A_FORM_OPEN)) and pat.match(ea.A_FORM_OPEN)
+    assert not pat.match(ea.A_FORM_PICK)
 
 
 class _ViewClient:
@@ -534,7 +545,7 @@ def test_home_tab_opens_new_modal_not_update(monkeypatch):
     from dashboard.blueprints import slack_eapproval as se
     home = {'container': {'type': 'view'}, 'view': {'id': 'V-home', 'type': 'home'}}
     assert se._hub_view_id(home) == '' and se._from_home(home)
-    assert ea.home_view()['type'] == 'home' and ea.home_view()['blocks'] == ea.menu_blocks()
+    assert ea.home_view()['type'] == 'home' and ea.home_view()['blocks'] == ea.hub_blocks()
 
     published = []
 

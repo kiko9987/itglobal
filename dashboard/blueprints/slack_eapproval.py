@@ -1065,9 +1065,9 @@ def register_eapproval_handlers(app) -> None:
         elif not _hub_view_id(body):          # 채널 메뉴 메시지만 고른 값을 되돌린다(창은 이미 양식으로 바뀜)
             threading.Thread(target=reset_select, args=(client, body), daemon=True).start()
 
-    @app.action(ea.A_FORM_OPEN)
+    @app.action(re.compile(rf'^{ea.A_FORM_OPEN}(_.+)?$'))
     def handle_form_open(ack, body, client):
-        """버튼 value=양식 key (법인카드 월 안내 [지출결의서 올리기] 등)."""
+        """버튼 value=양식 key (법인카드 월 안내 [지출결의서 올리기]·메뉴 창 양식 버튼 eap_form_open_<key>)."""
         ack()
         form_key = body['actions'][0].get('value') or ''
         if ea.forms.get(form_key):
