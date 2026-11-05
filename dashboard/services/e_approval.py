@@ -741,9 +741,29 @@ def _menu_btn(action_id: str, text: str, value: str = '', primary: bool = False)
     return b
 
 
-def hub_blocks() -> List[dict]:
+def leave_menu_visible(uid: str) -> bool:
+    """휴가 칸 — 플렉스에서 옮기는 날(LEAVE_ENABLED=true) 전까지는 시험하는 사람(LEAVE_PILOT_IDS, 기본 KiKO)만."""
+    if os.getenv('LEAVE_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
+        return True
+    return bool(uid) and uid in (_env_ids('LEAVE_PILOT_IDS') or _DEFAULT_APPROVERS)
+
+
+def _leave_blocks() -> List[dict]:
+    from dashboard.services import leave as lv
+    return [
+        {'type': 'divider'},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*휴가*'}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+            '연차·반차·병가·경조사 등. JW → YG 승인 후 #휴가_일정에 날짜만 올라가요.'}]},
+        {'type': 'actions', 'elements': [
+            _menu_btn(lv.A_NEW, '🌴 휴가 신청'), _menu_btn(lv.A_MINE, '📅 내 휴가')]},
+    ]
+
+
+def hub_blocks(uid: str = '') -> List[dict]:
     """창(워크플로·바로가기)·홈 탭용 메뉴 — 양식을 고르기 칸 대신 버튼으로 다 보여 준다(11-05).
-    채널 고정 메시지(menu_blocks)는 폭이 좁아 고르기 칸을 그대로 둔다."""
+    채널 고정 메시지(menu_blocks)는 폭이 좁아 고르기 칸을 그대로 둔다. uid 는 휴가 칸을 보일지 정할 때."""
+    leave = _leave_blocks() if leave_menu_visible(uid) else []
     return [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*지급·구매 요청*'}},
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
@@ -757,6 +777,7 @@ def hub_blocks() -> List[dict]:
         {'type': 'actions', 'elements': [
             _menu_btn(form_open_action_id(o['value']), o['text']['text'], value=o['value'])
             for o in forms.menu_options()]},
+        *leave,
         {'type': 'divider'},
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*결재 현황*'}},
         {'type': 'actions', 'elements': [_menu_btn(A_MY_REQUESTS, '📂 내 요청')]},
@@ -765,19 +786,19 @@ def hub_blocks() -> List[dict]:
     ]
 
 
-def hub_view() -> dict:
+def hub_view(uid: str = '') -> dict:
     """바로가기 「전자결재」·워크플로 버튼 창. 고르면 그 입력 창이 위에 쌓인다([취소] → 이 창)."""
     return {
         'type': 'modal',
         'title': {'type': 'plain_text', 'text': '전자결재'},
         'close': {'type': 'plain_text', 'text': '닫기'}, 'notify_on_close': True,
-        'blocks': hub_blocks(),
+        'blocks': hub_blocks(uid),
     }
 
 
-def home_view() -> dict:
+def home_view(uid: str = '') -> dict:
     """앱 홈 탭(왼쪽 앱 목록 → 전자결재) — 창과 같은 버튼 메뉴(11-05). `/` 를 몰라도 찾을 수 있게."""
-    return {'type': 'home', 'blocks': hub_blocks()}
+    return {'type': 'home', 'blocks': hub_blocks(uid)}
 
 
 def my_requests_view(text: str) -> dict:
