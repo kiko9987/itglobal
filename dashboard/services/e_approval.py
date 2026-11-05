@@ -34,10 +34,12 @@ for _k, _f in forms.FORMS.items():
 TASK_FORMS = forms.TASK_FORMS   # 업무요청형 — 승인 없이 바로 경영지원 처리 대기, ② = 처리 완료
 
 PENDING, APPROVED, DONE, REJECTED, CANCELLED = 'pending', 'approved', 'done', 'rejected', 'cancelled'
-OPEN_STATUSES = (PENDING, APPROVED)
+REVISE = 'revise'   # 11-05 수정 요청 — 승인자·경영지원이 돌려보냄 → 요청자가 같은 결재를 고쳐 다시 올림
+OPEN_STATUSES = (PENDING, APPROVED, REVISE)
 STATUS_LABELS = {
     PENDING: ('🟡', '승인 대기'),
     APPROVED: ('🔵', '이체 대기'),
+    REVISE: ('🟠', '수정 요청'),
     DONE: ('🟢', '이체 완료'),
     REJECTED: ('🔴', '반려'),
     CANCELLED: ('⚪', '요청 취소'),
@@ -60,6 +62,9 @@ A_PROJECT_FORM_PICK = 'eap_project_form_pick'   # 공사확정 카드 「📋 �
 A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 external_select(현장 미지정 계산서 글)
 A_PARTNER = 'eap_partner'             # 자금집행 모달 「거래처」 external_select(아는 거래처 + 새 거래처)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
+A_REVISE, CB_REVISE = 'eap_revise', 'eap_revise_submit'   # [✏️ 수정 요청] → 무엇을 고칠지 적는 창(11-05)
+A_EDIT = 'eap_edit'                                         # [✏️ 수정하기] → 원래 값이 채워진 양식 창
+ATTACH_BLOCK = 'attach'                                     # 창 「첨부 파일」 칸(file_input) — 카드 스레드로 옮겨 올림
 CB_SUPPLY = 'eap_supply_submit'
 SC_HUB = 'eap_sc_hub'   # 전역 바로가기 「전자결재」 하나(입력창 [+]) → 메뉴와 같은 창 — manifest 와 같게(11-05)
 A_HUB_BACK = 'eap_hub_back'           # 바로가기 창 「내 요청」 목록 → [← 처음으로]
@@ -275,6 +280,7 @@ _TRANSITIONS = {
     'reject': (OPEN_STATUSES, REJECTED, 'approve', 'rejected'),
     'transfer': ((APPROVED,), DONE, 'transfer', 'done'),
     'cancel': (OPEN_STATUSES, CANCELLED, 'cancel', 'cancelled'),
+    'revise': ((PENDING, APPROVED), REVISE, 'revise', 'revise'),
 }
 
 
@@ -288,7 +294,75 @@ def can_act(action: str, row: dict, user_id: str) -> bool:
         return user_id in executor_ids()
     if action == 'cancel':
         return user_id == row.get('requester_id') or user_id in approver_ids()
+    if action == 'revise':   # 수정 요청 = 승인자(KiKO) + 경영지원(SB·JW·YG) — 플렉스 댓글로 돌려보내던 사람들
+        return user_id in approver_ids() or user_id in executor_ids()
+    if action == 'edit':
+        return user_id == row.get('requester_id')
     return False
+
+
+# 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
+EDIT_COLUMNS = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
+                'bank', 'account', 'amount', 'urgency', 'memo')
+
+
+def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional[Tuple[dict, dict]]:
+    """수정 요청 → 요청자가 고쳐 다시 올림. 같은 결재의 칸을 바꾸고 처음 올릴 때와 같은 단계로 되돌린다
+    (업무요청형·승인자 본인 요청 = 처리 대기, 나머지 = 승인 대기). (새 row, 바뀐 칸 {칸: (전, 후)}) 또는 None."""
+    now = _now()
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        old = _row(conn, aid)
+        if not old or old['status'] != REVISE:
+            return None
+        task = old['form'] in TASK_FORMS
+        nxt = APPROVED if (task or old['requester_id'] in approver_ids()) else PENDING
+        sets, vals, changed = [], [], {}
+        for c in EDIT_COLUMNS:
+            if c not in fields:
+                continue
+            v = int(fields.get(c) or 0) if c == 'amount' else fields.get(c)
+            if (old.get(c) or None) != (v or None):
+                changed[c] = (old.get(c), v)
+            sets.append(f'{c}=?')
+            vals.append(v)
+        if 'extra' in fields:
+            new_x = {k: v for k, v in (fields.get('extra') or {}).items() if k != 'title'}   # 결재 이름은 처음 그대로
+            old_x = extra(old)
+            ex = {**old_x, **new_x}
+            # 바뀐 칸 — 양식 값(f) + 비품 칸(link·qty·unit_price·reason)
+            pairs = [(old_x.get('f') or {}, new_x.get('f') or {})] if 'f' in new_x else []
+            pairs.append(({k: v for k, v in old_x.items() if k not in ('f', 'title', 'payee_saved')},
+                          {k: v for k, v in new_x.items() if k not in ('f', 'payee_saved')}))
+            for a, b in pairs:
+                for k in b:
+                    if str(a.get(k) or '') != str(b.get(k) or '') and k not in changed:
+                        changed[k] = (a.get(k), b.get(k))
+            sets.append('extra=?')
+            vals.append(json.dumps(ex, ensure_ascii=False))
+        cur = conn.execute(f'UPDATE approvals SET {", ".join(sets + ["status=?", "updated_at=?"])} '
+                           f'WHERE id=? AND status=?', (*vals, nxt, now, aid, REVISE))
+        if cur.rowcount != 1:
+            conn.rollback()
+            return None
+        # 승인 기록은 새로 받는다 — 예전 승인·처리 줄은 지우지 않고 'resubmit' 줄 뒤로 밀린다(step_line 은 마지막 것)
+        conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, at) '
+                     'VALUES (?,?,?,?,?,?)', (aid, 'resubmit', actor_id, actor_name, 'resubmitted', now))
+        if nxt == APPROVED and not task:
+            conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
+                         'VALUES (?,?,?,?,?,?,?)', (aid, 'approve', actor_id, actor_name, 'auto', '요청자가 승인자', now))
+        conn.commit()
+        return _row(conn, aid), changed
+
+
+def last_revise(step_rows: List[dict]) -> Optional[dict]:
+    """가장 최근 수정 요청 줄(다시 올린 뒤면 None)."""
+    for s in reversed(step_rows):
+        if s['step'] == 'resubmit':
+            return None
+        if s['step'] == 'revise':
+            return s
+    return None
 
 
 def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: str = '') -> Optional[dict]:
@@ -480,8 +554,10 @@ def status_label(row: dict) -> tuple:
 
 
 def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일') -> str:
-    """'결재: ✅ KiKO 승인 10.30 14:20 → ⏳ 이체' 한 줄 (이름 대신 이니셜, ② 는 '경영지원 (SB)')."""
-    by = {s['step']: s for s in step_rows}
+    """'결재: ✅ KiKO 승인 10.30 14:20 → ⏳ 이체' 한 줄 (이름 대신 이니셜, ② 는 '경영지원 (SB)').
+    수정해 다시 올린 결재는 마지막으로 다시 올린 뒤의 승인·처리만 본다."""
+    last = max((i for i, s in enumerate(step_rows) if s['step'] == 'resubmit'), default=-1)
+    by = {s['step']: s for s in step_rows[last + 1:]}
     st = row.get('status')
     if row.get('form') in TASK_FORMS:   # 업무요청형 — 경영지원 처리 한 단계
         t = by.get('transfer')
@@ -542,6 +618,9 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
         lines.append(f"{'구매 요청사항' if row.get('form') == FORM_SUPPLY else '비고'}: {memo}")
     lines.append(f"요청: {initial(row.get('requester_name'))} {_fmt_when(row.get('created_at'))}")
     lines.append(step_line(row, step_rows))
+    rv = last_revise(step_rows) if row.get('status') == REVISE else None
+    if rv:
+        lines.append(f"✏️ 수정 요청 ({initial(rv['actor_name'])} {_fmt_when(rv['at'])}): {rv.get('reason') or '-'}")
     rej = next((s for s in reversed(step_rows) if s['result'] in ('rejected', 'cancelled')), None)
     if rej and rej.get('reason'):
         lines.append(f"{'반려' if rej['result'] == 'rejected' else '취소'} 사유: {rej['reason']}")
@@ -591,6 +670,10 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
             '이체 완료', f"{row.get('bank')} {row.get('account')} ({row.get('payee_name')})\n{amt} 이체를 마쳤나요?",
             '이체 완료')))
+    if st in (PENDING, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
+        out.append(_btn('✏️ 수정 요청', A_REVISE, aid))
+    if st == REVISE and role in ('all', 'requester'):
+        out.append(_btn('✏️ 수정하기', A_EDIT, aid, 'primary'))
     if st in OPEN_STATUSES and role in ('all', 'requester'):
         out.append(_btn('요청 취소', A_CANCEL, aid, None, _confirm(
             '요청 취소', f'{title(row)} 요청을 취소할까요?', '요청 취소')))
@@ -606,16 +689,16 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
     if btns:
         blocks.append(_SPACER)
         blocks.append({'type': 'actions', 'elements': btns})
-    if row.get('status') in OPEN_STATUSES and role == 'all':
+    if row.get('status') == REVISE and role == 'all':
+        hint = '요청자가 [✏️ 수정하기]로 고쳐 다시 올리면 이 카드가 바뀌어요. 간단한 확인은 스레드에 @이름으로 남겨 주세요.'
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': hint}]})
+    elif row.get('status') in OPEN_STATUSES and role == 'all':
         form = row.get('form')
-        if form == FORM_SUPPLY:
-            hint = '상품 캡처·견적은 이 카드 스레드에 올려 주세요.'
-        elif form in (forms.FORM_CARDEXP, forms.FORM_EXPENSE):
-            hint = '영수증은 이 카드 스레드에 올려 주세요.'
-        elif form in TASK_FORMS:
-            hint = '필요한 파일은 이 카드 스레드에 올려 주세요. 경영지원은 결과 파일을 스레드에 올리고 [처리 완료]를 눌러 주세요.'
+        if form in TASK_FORMS:
+            hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 경영지원은 결과 파일을 스레드에 올리고 '
+                    '[처리 완료]를 눌러 주세요.')
         else:
-            hint = '견적서·계산서·영수증은 이 카드 스레드에 올려 주세요.'
+            hint = '파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 고칠 게 있으면 [✏️ 수정 요청]으로 돌려보내 주세요.'
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': hint}]})
     blocks.append(_SPACER)
     return blocks
@@ -635,8 +718,12 @@ def dm_intro(row: dict, role: str) -> str:
                 '처리하고 카드에서 [처리 완료]를 눌러 주세요.')
     if role == 'executor' and st == APPROVED:
         return f'🔔 {title(row)} 승인이 끝났어요. {w}하고 카드에서 [{w} 완료]를 눌러 주세요.'
+    if role == 'requester' and st == REVISE:
+        rv = last_revise(steps(row['id'])) or {}
+        return (f"✏️ {initial(rv.get('actor_name'))}님이 {title(row)} 수정을 요청했어요.\n"
+                f"*{rv.get('reason') or '-'}*\n[✏️ 수정하기]를 누르면 올린 내용이 채워진 창이 열려요. 고쳐서 다시 올려 주세요.")
     if role == 'requester' and st in OPEN_STATUSES:
-        return f'{title(row)} 요청을 올렸어요. 진행되면 이 메시지가 바뀝니다.'
+        return f'{title(row)} 요청을 다시 올렸어요. 진행되면 이 메시지가 바뀝니다.'
     emoji, label = status_label(row)
     return f'{emoji} {title(row)} — {label}'
 
@@ -658,11 +745,12 @@ def my_requests(uid: str, open_limit: int = 20, closed_limit: int = 5) -> Tuple[
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
         q = 'SELECT * FROM approvals WHERE requester_id=? AND status {} ORDER BY id DESC LIMIT ?'
+        ph = ','.join('?' * len(OPEN_STATUSES))
         opened = [dict(r) for r in conn.execute(
-            q.format('IN (?,?)'), (uid, *OPEN_STATUSES, open_limit)).fetchall()]
+            q.format(f'IN ({ph})'), (uid, *OPEN_STATUSES, open_limit)).fetchall()]
         since = (datetime.now() - timedelta(days=MY_RECENT_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
         closed = [dict(r) for r in conn.execute(
-            'SELECT * FROM approvals WHERE requester_id=? AND status NOT IN (?,?) AND updated_at>=? '
+            f'SELECT * FROM approvals WHERE requester_id=? AND status NOT IN ({ph}) AND updated_at>=? '
             'ORDER BY updated_at DESC LIMIT ?', (uid, *OPEN_STATUSES, since, closed_limit)).fetchall()]
     return opened, closed
 
@@ -697,11 +785,14 @@ def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> L
         summary += f"\n이체 계좌: {f.get('bank') or '-'} {f.get('account') or '-'} ({row.get('requester_name') or '-'})"
     link = (f'<{card_link}|👉 결재 카드 열기>' if card_link
             else '#전자_결재 채널의 카드에서 처리해 주세요.')
-    return [
+    blocks = [
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': dm_intro(row, role)}},
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'{summary}\n{step_line(row, steps(row["id"]))}'}},
-        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]},
     ]
+    if role == 'requester' and row.get('status') == REVISE:   # 수정하기는 DM 에서도 바로(채널 카드까지 안 가도)
+        blocks.append({'type': 'actions', 'elements': [_btn('✏️ 수정하기', A_EDIT, row['id'], 'primary')]})
+    blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]})
+    return blocks
 
 
 def menu_blocks() -> List[dict]:
@@ -961,7 +1052,27 @@ def invoice_from_value(value: str) -> Optional[dict]:
                                                     'amount': int(v.get('a') or 0), 'partner': v.get('p', '')}}
 
 
-def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_label: str = '') -> dict:
+def _set_initial(blocks: List[dict], block_id: str, value, label: str = '') -> None:
+    """수정 창 — 그 칸에 올린 값을 처음 값으로(글 칸·고르기 칸·현장 검색 칸)."""
+    if value in (None, ''):
+        return
+    for b in blocks:
+        if b.get('block_id') != block_id:
+            continue
+        el = b['element']
+        if el['type'] == 'plain_text_input':
+            el['initial_value'] = str(value)
+        elif el['type'] == 'static_select':
+            opt = next((o for o in el['options'] if o['value'] == str(value)), None)
+            if opt:
+                el['initial_option'] = opt
+        elif el['type'] == 'external_select':
+            el['initial_option'] = {'text': {'type': 'plain_text', 'text': (label or str(value))[:75]},
+                                    'value': str(value)[:150]}
+
+
+def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_label: str = '',
+                     prefill: Optional[dict] = None) -> dict:
     """자금집행 모달(11-01: 메뉴·바로가기·공사 카드 어디서 열어도 같은 창).
 
     맨 위 「계산서」에서 #영업_관리에 올라온 현장 미지정 계산서를 고르면 거래처·금액·G/R 은 그 글 값으로
@@ -1027,17 +1138,27 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
     else:
         head = '*이체 계좌* — 거래처를 고르면 예전에 보낸 계좌가 있을 때 채워집니다.'
     blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': head}})
-    if payee:
+    if payee and not meta.get('edit'):   # 수정 창은 올렸던 계좌 그대로라 '예전 계좌' 안내를 안 띄운다
         blocks.append(payee_saved_note())
     pv = int(meta.get('pv') or 0)
-    blocks += transfer_input_blocks(payee, sfx=f'_{pv}' if pv else '')
+    p = prefill or {}
+    blocks += transfer_input_blocks(payee, urgency=p.get('urgency') or '일반', sfx=f'_{pv}' if pv else '')
     blocks.append({'type': 'input', 'block_id': 'memo', 'optional': True,
                    'label': {'type': 'plain_text', 'text': '비고'},
                    'element': {'type': 'plain_text_input', 'action_id': 'memo', 'multiline': True}})
+    blocks.append(forms.attach_block('세금계산서·견적서 등'))
+    if p:   # 수정 창(11-05) — 올린 값을 채운다(계산서·거래처·계좌는 meta 로 이미 채움)
+        _set_initial(blocks, 'project', p.get('project_code'), p.get('_project_label', ''))
+        for bid, key in (('evidence', 'evidence'), ('cost', 'cost_category'), ('content', 'content'),
+                         ('grn', 'grn'), ('memo', 'memo')):
+            _set_initial(blocks, bid, p.get(key))
+        if p.get('amount'):
+            _set_initial(blocks, 'amount', str(int(p['amount'])))
+    title, submit = forms.edit_texts(meta, '자금집행 요청', '요청')
     return {
         'type': 'modal', 'callback_id': CB_NEW,
-        'title': {'type': 'plain_text', 'text': '자금집행 요청'},
-        'submit': {'type': 'plain_text', 'text': '요청'},
+        'title': {'type': 'plain_text', 'text': title},
+        'submit': {'type': 'plain_text', 'text': submit},
         'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
         'private_metadata': json.dumps(meta),
         'blocks': blocks,
@@ -1069,6 +1190,9 @@ def read_new_request(view: dict) -> Dict:
         p = inv['parsed']
         f.update(partner=p.get('partner', ''), amount=int(p.get('amount') or 0), grn=p.get('grn') or f['grn'],
                  origin_channel=inv['ch'], origin_ts=inv['ts'], _inv_parsed=p)
+    if meta.get('edit'):
+        f['_edit'] = int(meta['edit'])
+    f['_files'] = forms.read_attachments(view)
     return f
 
 
@@ -1079,7 +1203,7 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
         errs['project'] = '현장을 골라 주세요.'
     if f.get('origin_ts'):
         dup = find_by_origin(f['origin_channel'], f['origin_ts'])
-        if dup and dup['status'] not in (REJECTED, CANCELLED):
+        if dup and dup['status'] not in (REJECTED, CANCELLED) and dup['id'] != f.get('_edit'):
             errs['invoice'] = f'이 계산서로 올린 {title(dup)}이 이미 있어요.'
     if f.get('amount', 0) <= 0:
         errs['amount'] = '금액을 숫자로 넣어 주세요.'
@@ -1105,8 +1229,8 @@ def mark_payee_saved(f: Dict) -> None:
 
 
 # ── 비품 신청 모달 (11-01) ────────────────────────────────────────────
-def supply_request_view(meta: dict) -> dict:
-    """비품 신청 — 플렉스 「비품 신청(프로젝트0)」 칸 그대로. 현장은 프로젝트0 고정."""
+def supply_request_view(meta: dict, prefill: Optional[dict] = None) -> dict:
+    """비품 신청 — 플렉스 「비품 신청(프로젝트0)」 칸 그대로. 현장은 프로젝트0 고정. prefill = 수정 창 값."""
     def _text(block_id, label, placeholder, optional=False, multiline=False, hint=''):
         b = {'type': 'input', 'block_id': block_id, 'optional': optional,
              'label': {'type': 'plain_text', 'text': label},
@@ -1119,26 +1243,41 @@ def supply_request_view(meta: dict) -> dict:
 
     qty = _text('qty', '수량', '예: 2')
     qty['element']['initial_value'] = '1'
+    title, submit = forms.edit_texts(meta, '비품 신청', '신청')
+    blocks = [
+        # 프로젝트0 안내 줄·사업자 구분은 뺐다(11-05) — 회사 재고(프로젝트0)로 기록, 어느 통장인지는 경영지원 판단
+        _text('item', '품명', '예: A4 용지 박스'),
+        _text('link', '상품 링크', '예: https://www.coupang.com/vp/products/…',
+              hint='구매할 상품 페이지 주소를 붙여 넣어 주세요.'),
+        qty,
+        _text('unit_price', '단가 (VAT 포함, 원)', '예: 25000'),
+        _text('amount', '총 금액 (VAT 포함, 원)', '배송비가 있으면 더해서 입력', optional=True,
+              hint='비우면 수량 × 단가로 계산합니다.'),
+        _text('reason', '사유', '예: 사무실 용지 소진'),
+        _text('memo', '구매 요청사항', '예: 배송지, 색상·크기, 쿠폰 코드, 장바구니 링크',
+              optional=True, multiline=True),
+        forms.attach_block('상품 캡처·견적서 등'),
+    ]
+    for bid, v in (prefill or {}).items():
+        _set_initial(blocks, bid, v)
     return {
         'type': 'modal', 'callback_id': CB_SUPPLY,
-        'title': {'type': 'plain_text', 'text': '비품 신청'},
-        'submit': {'type': 'plain_text', 'text': '신청'},
+        'title': {'type': 'plain_text', 'text': title},
+        'submit': {'type': 'plain_text', 'text': submit},
         'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
         'private_metadata': json.dumps(meta),
-        'blocks': [
-            # 프로젝트0 안내 줄·사업자 구분은 뺐다(11-05) — 회사 재고(프로젝트0)로 기록, 어느 통장인지는 경영지원 판단
-            _text('item', '품명', '예: A4 용지 박스'),
-            _text('link', '상품 링크', '예: https://www.coupang.com/vp/products/…',
-                  hint='구매할 상품 페이지 주소를 붙여 넣어 주세요.'),
-            qty,
-            _text('unit_price', '단가 (VAT 포함, 원)', '예: 25000'),
-            _text('amount', '총 금액 (VAT 포함, 원)', '배송비가 있으면 더해서 입력', optional=True,
-                  hint='비우면 수량 × 단가로 계산합니다.'),
-            _text('reason', '사유', '예: 사무실 용지 소진'),
-            _text('memo', '구매 요청사항', '예: 배송지, 색상·크기, 쿠폰 코드, 장바구니 링크',
-                  optional=True, multiline=True),
-        ],
+        'blocks': blocks,
     }
+
+
+def supply_prefill(row: dict) -> dict:
+    """비품 신청 수정 창 값 {block_id: 값}."""
+    x = extra(row)
+    qty, unit, amt = int(x.get('qty') or 0), int(x.get('unit_price') or 0), int(row.get('amount') or 0)
+    return {'item': row.get('content'), 'link': x.get('link'), 'qty': x.get('qty'),
+            'unit_price': x.get('unit_price'), 'reason': x.get('reason'), 'memo': row.get('memo'),
+            # 총 금액은 직접 넣었던 때(배송비 등)만 — 수량×단가로 계산된 값을 채우면 수량을 고쳐도 금액이 안 바뀐다
+            'amount': amt if amt and amt != qty * unit else None}
 
 
 def read_supply_request(view: dict) -> Dict:
@@ -1148,11 +1287,15 @@ def read_supply_request(view: dict) -> Dict:
     def _txt(bid):
         return (((v.get(bid) or {}).get(bid) or {}).get('value') or '').strip()
 
-    return {
+    meta = json.loads(view.get('private_metadata') or '{}')
+    f = {
         'content': _txt('item'), 'link': _txt('link'), 'qty': parse_amount(_txt('qty')),
         'unit_price': parse_amount(_txt('unit_price')), 'amount': parse_amount(_txt('amount')),
-        'reason': _txt('reason'), 'memo': _txt('memo'),
+        'reason': _txt('reason'), 'memo': _txt('memo'), '_files': forms.read_attachments(view),
     }
+    if meta.get('edit'):
+        f['_edit'] = int(meta['edit'])
+    return f
 
 
 def complete_supply_request(f: Dict) -> Dict[str, str]:

@@ -172,7 +172,7 @@ _add(Form(FORM_CORPDOCS, '법인서류 요청', '🏢', 'task',
           ]))
 
 _add(Form(FORM_CARDEXP, '법인카드 지출결의서', '🧾', 'task',
-          note='지난달 법인카드 사용분이에요. 영수증은 카드가 올라간 뒤 스레드에 올려 주세요.',
+          note='지난달 법인카드 사용분이에요. 영수증은 맨 아래 「첨부 파일」에 올려 주세요.',
           fields=[
               F('card_no', '카드번호', auto='@card', placeholder='예: 4518-****-****-1234'),
               F('start', '사용 시작일', 'date', auto='@prev_month_start'),
@@ -307,6 +307,38 @@ def _element(form: Form, f: F, value: str, today: Optional[date] = None) -> dict
     return el
 
 
+ATTACH_BLOCK = 'attach'
+_ATTACH_HINTS = {
+    FORM_CONTRACT: '견적서·도면 등',
+    FORM_INSURANCE: '계약서 사본 등',
+    FORM_CORPDOCS: '제출처 양식 등',
+    FORM_CARDEXP: '영수증',
+    FORM_EXPENSE: '영수증',
+}
+
+
+def attach_block(what: str = '세금계산서·견적서·영수증 등') -> dict:
+    """「첨부 파일」 칸(11-05) — 플렉스처럼 창에서 바로 올리고, 제출하면 결재 카드 스레드에 붙는다."""
+    return {'type': 'input', 'block_id': ATTACH_BLOCK, 'optional': True, 'label': _plain('첨부 파일'),
+            'element': {'type': 'file_input', 'action_id': ATTACH_BLOCK, 'max_files': 10},
+            'hint': _plain(f'{what}. 올리면 결재 카드 스레드에 붙어요.')}
+
+
+def read_attachments(view: dict) -> List[dict]:
+    """창에서 올린 파일 [{id, name, url}] — 카드 스레드로 옮겨 올릴 때 쓴다."""
+    el = (((view.get('state') or {}).get('values') or {}).get(ATTACH_BLOCK) or {}).get(ATTACH_BLOCK) or {}
+    return [{'id': f.get('id', ''), 'name': f.get('name') or f.get('title') or 'file',
+             'url': f.get('url_private_download') or f.get('url_private') or ''}
+            for f in (el.get('files') or []) if f.get('id')]
+
+
+def edit_texts(meta: dict, title: str, submit: str) -> Tuple[str, str]:
+    """수정 모드면 (제목 '… 수정', 버튼 '다시 올리기')."""
+    if meta.get('edit'):
+        return (title[:21] + ' 수정')[:24], '다시 올리기'
+    return title[:24], submit
+
+
 def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_label: str = '',
               today: Optional[date] = None) -> dict:
     """양식 창. meta: {'form', 'project'(고정이면), 'pv'(채운 횟수 — 바뀌면 칸 block_id 를 바꿔 새 값이 보이게)}."""
@@ -344,10 +376,12 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
         if f.hint:
             b['hint'] = _plain(f.hint)
         blocks.append(b)
+    blocks.append(attach_block(_ATTACH_HINTS.get(form_key, '견적서·관련 서류 등')))
+    title, submit = edit_texts(meta, form.label, '요청')
     return {
         'type': 'modal', 'callback_id': CB_FORM,
-        'title': _plain(form.label[:24]),
-        'submit': _plain('요청'), 'close': _plain('취소'), 'notify_on_close': True,
+        'title': _plain(title),
+        'submit': _plain(submit), 'close': _plain('취소'), 'notify_on_close': True,
         'private_metadata': json.dumps({**meta, 'form': form_key}),
         'blocks': blocks,
     }

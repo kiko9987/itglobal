@@ -225,12 +225,12 @@ def test_new_request_view_fixed_hides_project_select():
 def test_buttons_by_status_and_role(tmp_db):
     row = ea.create(ea.FORM_FUND, MGR, '박정우', FIELDS)
     ids = lambda r, role='all': [b['action_id'] for b in ea.buttons(r, role)]  # noqa: E731
-    assert ids(row) == [ea.A_APPROVE, ea.A_REJECT, ea.A_CANCEL]
+    assert ids(row) == [ea.A_APPROVE, ea.A_REJECT, ea.A_REVISE, ea.A_CANCEL]
     assert ids(row, 'approver') == [ea.A_APPROVE, ea.A_REJECT]
     assert ids(row, 'requester') == [ea.A_CANCEL]
     assert ids(row, 'executor') == []
     row = ea.transition(row['id'], 'approve', KIKO, '고광일')
-    assert ids(row) == [ea.A_TRANSFER, ea.A_CANCEL]
+    assert ids(row) == [ea.A_TRANSFER, ea.A_REVISE, ea.A_CANCEL]
     assert ids(row, 'executor') == [ea.A_TRANSFER]
     row = ea.transition(row['id'], 'transfer', SB, '황샛별')
     assert ids(row) == []
@@ -813,7 +813,7 @@ def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
     assert row['status'] == ea.APPROVED and ea.title(row).startswith('G계약서 작성 요청 #')   # 승인 없이 바로 처리 대기
     assert ea.status_label(row) == ('🔵', '처리 대기')
     labels = [b['text']['text'] for b in ea.buttons(row, 'all')]
-    assert labels == ['✅ 처리 완료', '반려', '요청 취소']
+    assert labels == ['✅ 처리 완료', '반려', '✏️ 수정 요청', '요청 취소']
     t = ea.card_text(row, ea.steps(row['id']), 'G4237-MJ · 마포구 양화로 45')
     assert '인수자명: 윤명림' in t and '총 금액: 11,440,000원' in t and '⏳ 경영지원 처리' in t
     assert ea.can_act('reject', row, SB) and ea.can_act('transfer', row, SB) and not ea.can_act('transfer', row, MGR)
@@ -1057,3 +1057,118 @@ def test_grn_required_hidden_only_when_invoice_has_it(tmp_db):
     assert 'grn' not in bids(ea.new_request_view({'inv': inv}))
     inv['parsed']['grn'] = ''
     assert 'grn' in bids(ea.new_request_view({'inv': inv}))
+
+
+# ── 수정 요청 → 수정하기 · 첨부 (11-05) ─────────────────────────────
+def _state_from_view(view: dict, override: dict = None) -> dict:
+    """창의 처음 값(initial_*)을 제출 state 로 — 사용자가 손대지 않고 일부만 고친 것처럼."""
+    st = {}
+    for b in view['blocks']:
+        if b.get('type') != 'input':
+            continue
+        el = b['element']
+        aid = el.get('action_id')
+        if 'initial_value' in el:
+            v = {'value': el['initial_value']}
+        elif 'initial_option' in el:
+            v = {'selected_option': el['initial_option']}
+        elif 'initial_options' in el:
+            v = {'selected_options': el['initial_options']}
+        elif 'initial_date' in el:
+            v = {'selected_date': el['initial_date']}
+        else:
+            v = {}
+        st[b['block_id']] = {aid: v}
+    for bid, v in (override or {}).items():
+        aid = next(iter(st[bid])) if bid in st else bid
+        st[bid] = {aid: v}
+    return {'state': {'values': st}, 'private_metadata': view['private_metadata']}
+
+
+def test_revise_then_edit_fund_same_card(se):
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    card_ts = row['card_ts']
+    assert se.apply_action('revise', row['id'], MGR, '계좌 확인') == '수정 요청은 승인자·경영지원만 할 수 있어요.'
+    assert se.apply_action('revise', row['id'], SB, '계좌번호가 계산서와 달라요') is None
+    row = ea.get(row['id'])
+    assert row['status'] == ea.REVISE and ea.status_label(row) == ('🟠', '수정 요청')
+    dm = [m for m in se._fake.of('chat_postMessage') if m['channel'] == 'D-' + MGR][-1]
+    assert ea.A_EDIT in json.dumps(dm['blocks']) and '계좌번호가 계산서와 달라요' in json.dumps(dm['blocks'], ensure_ascii=False)
+    assert not ea.can_act('edit', row, SB) and ea.can_act('edit', row, MGR)
+    text = ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
+    assert '✏️ 수정 요청 (SB' in text
+    # 수정 창 — 올린 값이 채워져 있다
+    v = se.edit_view(row)
+    assert v['title']['text'] == '자금집행 요청 수정' and v['submit']['text'] == '다시 올리기'
+    sub = _state_from_view(v, {'amount': {'value': '550000'}, 'account': {'value': '110-511-000000'}})
+    f, errs = se.validate_new_submit(sub)
+    assert errs == {} and f['_edit'] == row['id'] and f['content'] == 'FCU 부품' and f['project_code'] == 'G4049-JW'
+    new = se.process_new_submit(MGR, f)
+    assert new['id'] == row['id'] and new['card_ts'] == card_ts and new['status'] == ea.PENDING
+    assert new['amount'] == 550000 and new['account'] == '110-511-000000'
+    logs = [m['text'] for m in se._fake.of('chat_postMessage') if m.get('thread_ts') == card_ts]
+    assert any('수정해서 다시 올림' in t and '금액 533,500 → 550,000' in t for t in logs)
+    # 다시 올린 뒤엔 승인 기록이 새로 — 승인 대기로 보이고, 승인하면 이체 대기
+    assert '⏳ KiKO 승인' in ea.step_line(new, ea.steps(new['id']))
+    assert se.apply_action('approve', new['id'], KIKO) is None and ea.get(new['id'])['status'] == ea.APPROVED
+
+
+def test_revise_task_form_and_resubmit_back_to_processing(se):
+    from dashboard.services import e_approval_forms as forms
+    vals = {'grn': 'G (글로벌)', 'project': '', 'docs': ['인감증명서'], 'year': '', 'other': '',
+            'reason': '입찰 제출용', 'cert_memo': '', 'due': '2026-11-10', 'receive': '이메일', 'dest': 'a@b.c'}
+    row = se.process_form_submit(MGR, forms.FORM_CORPDOCS, dict(vals))
+    assert row['status'] == ea.APPROVED
+    assert se.apply_action('revise', row['id'], KIKO, '제출처를 적어 주세요') is None
+    v = se.edit_view(ea.get(row['id']))
+    assert v['title']['text'].endswith('수정') and 'attach' in [b.get('block_id') for b in v['blocks']]
+    sub = _state_from_view(v, {'reason': {'value': '조달청 입찰 제출용'}})
+    key, vals2, errs = se.validate_form_submit(sub)
+    assert errs == {} and vals2['_edit'] == row['id']
+    new = se.process_form_submit(MGR, key, vals2)
+    assert new['status'] == ea.APPROVED and ea.extra(new)['f']['reason'] == '조달청 입찰 제출용'
+    assert ea.title(new) == ea.title(row)   # 결재 이름은 처음 그대로
+
+
+def test_supply_edit_prefill(se):
+    f = {'content': 'A4 용지', 'link': 'https://x.y/1', 'qty': 2, 'unit_price': 25000, 'amount': 0,
+         'reason': '소진', 'memo': ''}
+    errs = ea.complete_supply_request(f)
+    assert errs == {}
+    row = se.process_supply_submit(MGR, f)
+    se.apply_action('revise', row['id'], SB, '수량 확인')
+    v = se.edit_view(ea.get(row['id']))
+    init = {b['block_id']: b['element'].get('initial_value') for b in v['blocks'] if b.get('type') == 'input'}
+    assert init['item'] == 'A4 용지' and init['qty'] == '2' and init['link'] == 'https://x.y/1'
+    f2 = ea.read_supply_request(_state_from_view(v, {'qty': {'value': '3'}}))
+    assert f2['_edit'] == row['id'] and ea.complete_supply_request(f2) == {}
+    new = se.process_supply_submit(MGR, f2)
+    assert new['amount'] == 75000 and ea.extra(new)['qty'] == 3
+
+
+def test_attach_block_everywhere_and_read():
+    from dashboard.services import e_approval_forms as forms
+    assert 'attach' in [b.get('block_id') for b in ea.new_request_view({})['blocks']]
+    assert 'attach' in [b.get('block_id') for b in ea.supply_request_view({})['blocks']]
+    for k in forms.FORMS:
+        assert forms.form_view(k, {'form': k})['blocks'][-1]['element']['type'] == 'file_input'
+    view = {'state': {'values': {'attach': {'attach': {'type': 'file_input', 'files': [
+        {'id': 'F1', 'name': '계산서.pdf', 'url_private_download': 'https://files/1'}]}}}}}
+    assert forms.read_attachments(view) == [{'id': 'F1', 'name': '계산서.pdf', 'url': 'https://files/1'}]
+
+
+def test_post_files_to_card_thread(se, monkeypatch):
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    monkeypatch.setattr(se, '_download', lambda url: b'PDF' if url.endswith('ok') else None)
+    n = se.post_files(row, [{'name': 'a.pdf', 'url': 'https://f/ok'}, {'name': 'b.pdf', 'url': 'https://f/x'}], '강성환')
+    up = se._fake.of('files_upload_v2')
+    assert n == 1 and up[0]['thread_ts'] == row['card_ts'] and up[0]['file_uploads'][0]['filename'] == 'a.pdf'
+    warn = [m['text'] for m in se._fake.of('chat_postMessage') if '옮기지 못했어요' in (m.get('text') or '')]
+    assert warn and 'b.pdf' in warn[0]
+
+
+def test_manifest_has_file_scopes():
+    import os
+    path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
+    text = open(path, encoding='utf-8').read()
+    assert '- files:read' in text and '- files:write' in text
