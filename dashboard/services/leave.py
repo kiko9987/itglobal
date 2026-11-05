@@ -658,6 +658,7 @@ def card_text(row: dict, step_rows: List[dict], role: str, left: Optional[float]
 
 A_APPROVE, A_REJECT, A_CANCEL = 'leave_approve', 'leave_reject', 'leave_cancel'
 A_NEW, A_MINE = 'leave_new', 'leave_mine'
+FN_OPEN_LEAVE = 'eap_open_leave'   # 워크플로 단계 「휴가 신청 열기」 — manifest functions 키와 같게
 CB_SUBMIT, CB_REJECT = 'leave_submit', 'leave_reject_submit'
 
 

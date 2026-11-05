@@ -229,6 +229,23 @@ def test_leave_view_fields(db):
                                 'reason': '진료'}
 
 
+def test_start_view_gating_and_manifest(db, monkeypatch):
+    from pathlib import Path
+    from dashboard.blueprints import slack_leave as sl
+    from dashboard.blueprints import slack_eapproval as se
+    monkeypatch.setattr(se, '_name', lambda uid: uid)               # 슬랙 이름 조회(네트워크) 안 함
+    monkeypatch.delenv('LEAVE_ENABLED', raising=False)
+    monkeypatch.delenv('LEAVE_PILOT_IDS', raising=False)
+    monkeypatch.delenv('EAPPROVAL_APPROVER_IDS', raising=False)
+    _seed()
+    assert '준비 중' in str(sl.start_view(MW))                   # 열기 전엔 플렉스로
+    monkeypatch.setenv('LEAVE_ENABLED', 'true')
+    assert sl.start_view(MW)['callback_id'] == lv.CB_SUBMIT
+    assert '명단에 아직 없어요' in str(sl.start_view('U-NOBODY'))
+    manifest = (Path(__file__).resolve().parents[2] / 'docs' / 'slack_eapproval_manifest.yml').read_text(encoding='utf-8')
+    assert f'  {lv.FN_OPEN_LEAVE}:' in manifest
+
+
 def test_hub_leave_section_pilot_only(monkeypatch):
     from dashboard.services import e_approval as ea
     monkeypatch.delenv('LEAVE_ENABLED', raising=False)
