@@ -30,6 +30,22 @@ def test_modal_doc_switch_blocks():
     assert 'doc' not in _ids(split)
 
 
+def test_cash_mode_stage_label_and_issued_warn():
+    """현금영수증을 고르면 발행 단계 이름·설명과 '이미 발행' 안내도 현금영수증·합계 기준으로(11-05)."""
+    cash = sb._build_invoice_modal_view('G1', '홍길동', '광명', '1,100,000', '', '{}', doc='cash')
+    stage = next(b for b in cash['blocks'] if b.get('block_id') == 'stages')
+    assert stage['label']['text'] == '현금영수증 발행 단계' and '이 현금영수증이' in stage['hint']['text']
+    tax = sb._build_invoice_modal_view('G1', 'a', 'b', '1', '', '{}')
+    assert next(b for b in tax['blocks'] if b.get('block_id') == 'stages')['label']['text'] == '계산서 발행 단계'
+    s = {'total2': 3300000, 'issued_gross': 1100000, 'issued_supply': 1000000, 'remaining_supply': 2000000,
+         'uncertain': False, 'active': [{}]}
+    assert '남은 공급가액 2,000,000원' in sb._fmt_issued_warn(s)
+    c = sb._fmt_issued_warn(s, doc='cash')
+    assert '남은 금액 2,200,000원(VAT 포함)이 현금영수증 발행 금액에 입력' in c and '공급가' not in c
+    done = dict(s, issued_gross=3300000, issued_supply=3000000, remaining_supply=0)
+    assert '수정발행' in sb._fmt_issued_warn(done) and '수정발행' not in sb._fmt_issued_warn(done, doc='cash')
+
+
 def test_cash_memo_line_parses_like_invoice():
     """시트 메모 줄은 계산서와 같은 '발행' 줄 — 괄호 안 표시만 달라 발행액 합산·사업자 이름이 그대로 읽힌다."""
     memo = ('2026-11-05 잔금 발행 1,100,000원 (VAT 포함 · 현금영수증) · 홍길동\n'
