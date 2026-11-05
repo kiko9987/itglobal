@@ -168,7 +168,7 @@ def slack(db, monkeypatch):
     from dashboard.blueprints import slack_leave as sl
     from dashboard.blueprints import slack_eapproval as se
     c = _FakeClient()
-    monkeypatch.setattr(se, 'eap_client', lambda: c)
+    monkeypatch.setattr(sl, 'leave_client', lambda: c)
     monkeypatch.setattr(se, '_name', lambda uid: {JW: '박정우', YG: '박용구', KIKO: '고광일', MW: '박민우'}.get(uid, uid))
     monkeypatch.delenv('LEAVE_ANNOUNCE_CHANNEL', raising=False)
     return sl, c
@@ -242,16 +242,34 @@ def test_start_view_gating_and_manifest(db, monkeypatch):
     monkeypatch.setenv('LEAVE_ENABLED', 'true')
     assert sl.start_view(MW)['callback_id'] == lv.CB_SUBMIT
     assert '명단에 아직 없어요' in str(sl.start_view('U-NOBODY'))
-    manifest = (Path(__file__).resolve().parents[2] / 'docs' / 'slack_eapproval_manifest.yml').read_text(encoding='utf-8')
-    assert f'  {lv.FN_OPEN_LEAVE}:' in manifest
-
-
-def test_hub_leave_section_pilot_only(monkeypatch):
+    docs = Path(__file__).resolve().parents[2] / 'docs'
+    manifest = (docs / 'slack_leave_manifest.yml').read_text(encoding='utf-8')
+    assert f'  {lv.FN_OPEN_LEAVE}:' in manifest and '/slack/leave-events' in manifest
+    # 휴가는 전자결재 봇과 따로 — 전자결재 메뉴·manifest 엔 휴가가 없다
     from dashboard.services import e_approval as ea
+    assert lv.A_NEW not in str(ea.hub_blocks()) and 'leave' not in (docs / 'slack_eapproval_manifest.yml').read_text(
+        encoding='utf-8')
+
+
+def test_home_tab_pilot_only(db, monkeypatch):
+    from dashboard.blueprints import slack_leave as sl
     monkeypatch.delenv('LEAVE_ENABLED', raising=False)
     monkeypatch.delenv('LEAVE_PILOT_IDS', raising=False)
-    monkeypatch.delenv('EAPPROVAL_APPROVER_IDS', raising=False)
-    assert lv.A_NEW not in str(ea.hub_blocks(MW))
-    assert lv.A_NEW in str(ea.hub_blocks(KIKO)) and lv.A_MINE in str(ea.home_view(KIKO))
+    _seed()
+    lv.upsert_staff('고광일', '2025-01-01', KIKO)
+    assert lv.A_NEW not in str(sl.home_view(MW)) and '박민우' in str(sl.home_view(MW))
+    assert lv.A_NEW in str(sl.home_view(KIKO)) and lv.A_MINE in str(sl.home_view(KIKO))
     monkeypatch.setenv('LEAVE_ENABLED', 'true')
-    assert lv.A_NEW in str(ea.hub_view(MW))
+    assert lv.A_NEW in str(sl.home_view(MW))
+
+
+def test_leave_app_handlers_registered():
+    """휴가 봇 Bolt 앱에 단계·버튼·창 핸들러가 다 붙는다(이름 충돌 없이)."""
+    from slack_bolt import App
+    from dashboard.blueprints import slack_leave as sl
+    app = App(token='xoxb-test', signing_secret='s', token_verification_enabled=False)
+    sl.register_leave_handlers(app)
+    names = str([l.ack_function for l in app._listeners])
+    for fn in ('handle_open_leave_step', 'handle_leave_submit', 'handle_leave_reject_open', 'handle_leave_mine',
+               'handle_leave_home', 'handle_leave_view_closed'):
+        assert fn in names
