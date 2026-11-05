@@ -134,6 +134,28 @@ def test_announce_text_hides_type_and_reason():
         '🌴 [빈승정] - 11월 9일 ~ 11월 11일 휴가입니다.'
 
 
+def test_grant_expiring_mid_leave_not_used(db):
+    """휴가 도중 소멸하는 연차로 뒷날을 채우지 않는다(11-05 점검 — 강정권 3/30~4/2 같은 경우)."""
+    lv.upsert_staff('강정권', '2026-04-01', 'U0BHH8UD99P')
+    lv.add_grant('강정권', 4, date(2026, 11, 5), date(2027, 3, 31), 'flex:강정권')
+    e = lv.validate('강정권', lv.ANNUAL, '', date(2027, 3, 30), date(2027, 4, 2))
+    assert '소멸해서 이 기간엔 0일만' in e['start']
+    assert lv.create('강정권', 'U0BHH8UD99P', 'U0BHH8UD99P', '강정권', lv.ANNUAL, '',
+                     date(2027, 3, 30), date(2027, 4, 2)) is None
+    assert lv.validate('강정권', lv.ANNUAL, '', date(2027, 3, 30), date(2027, 3, 31)) == {}
+
+
+def test_accrual_waits_for_cutover(db, monkeypatch):
+    """플렉스에서 옮기기 전(LEAVE_ENABLED 아님)엔 자동 발생·DM 을 하지 않는다(11-05 점검)."""
+    from dashboard.blueprints import slack_leave as sl
+    lv.upsert_staff('권진현', '2026-11-02', 'U0CETGE1480', accrue_from='2026-11-06')
+    monkeypatch.delenv('LEAVE_ENABLED', raising=False)
+    assert sl.run_accrual(date(2026, 12, 2)) == 0 and lv.grants('권진현') == []
+    monkeypatch.setenv('LEAVE_ENABLED', 'true')
+    monkeypatch.setattr(sl, 'leave_client', lambda: None)
+    assert sl.run_accrual(date(2026, 12, 2)) == 1
+
+
 def test_allocation_uses_soonest_expiring_first(db):
     lv.upsert_staff('강정권', '2026-04-01', 'U0BHH8UD99P', accrue_from='2026-11-06')
     lv.add_grant('강정권', 1, date(2026, 11, 1), date(2027, 3, 31), 'a')

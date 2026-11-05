@@ -5386,7 +5386,8 @@ def _register_invoice_handlers(app):
         def _bg():
             try:
                 # 사업자등록증만 올라왔으면 발행 완료로 바꾸지 않고 등록증으로 저장 (2026-10-22 G4159)
-                if _save_license_from_invoice_thread(client, channel, thread_ts, event, meta):
+                #   현금영수증 카드는 건너뛴다 — 등록증을 받는 흐름이 아니고 영수증 사진을 OCR 로 볼 이유도 없다(11-05 점검)
+                if meta.get('doc') != 'cash' and _save_license_from_invoice_thread(client, channel, thread_ts, event, meta):
                     return
                 done = _auto_complete_invoice_card(client, channel, thread_ts, event, meta)
                 # 첨부 완료 → 시트 해당 단계 계산서='발행' 자동기록 (⚠️ 미발행 자동 해소)
@@ -16462,10 +16463,14 @@ def _invoice_doc_block(doc: str) -> dict:
 def _cash_receipt_kind(no: str) -> str:
     """현금영수증 발급 번호 → '소득공제용'(휴대폰) / '지출증빙용'(사업자번호 10자리) / ''(모름)."""
     d = re.sub(r'\D', '', str(no or ''))
-    if len(d) == 10 and not d.startswith('01'):
-        return '지출증빙용'
     if d.startswith('01') and len(d) in (10, 11):
         return '소득공제용'
+    # 사업자번호 — 0 으로 시작하지 않고(02… 일반전화 거름) 검증 숫자가 맞아야(오타 거름, 11-05 점검)
+    if len(d) == 10 and d[0] != '0':
+        w = (1, 3, 7, 1, 3, 7, 1, 3, 5)
+        s = sum(int(d[i]) * w[i] for i in range(9)) + (int(d[8]) * 5) // 10
+        if (10 - s % 10) % 10 == int(d[9]):
+            return '지출증빙용'
     return ''
 
 
@@ -16753,8 +16758,12 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
         try:
             _iss_c = _project_issued_invoice(code) or {}
             _t2 = _iss_c.get('total2') or _project_total2(code)
-            if _t2:
+            if _t2 and _iss_c.get('uncertain'):
+                amt_input = f"{int(_t2):,}"   # 발행액을 다 확인 못 하면 잔여 대신 총액 2(경고 문구가 확인 요청), 11-05 점검
+            elif _t2:
                 amt_input = f"{max(0, int(_t2) - int(_iss_c.get('issued_gross') or 0)):,}"
+            else:
+                amt_input = ''   # 총액 2 를 못 구하면 세금계산서용 공급가가 VAT 포함 칸에 남지 않게 비운다
         except Exception as _exc:
             logger.debug(f'[SLACK/계산서] 현금영수증 금액 계산 실패 ({code}): {_exc}')
 
