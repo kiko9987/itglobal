@@ -602,6 +602,28 @@ def test_step_completes_on_close_and_successful_submit(monkeypatch):
     assert done == ['Fx1']
 
 
+def test_workflow_view_buttons_work_without_trigger_id(monkeypatch):
+    """워크플로로 연 창의 버튼 요청엔 trigger_id 가 없다(interactivity_pointer 만) — 창 바꾸기는 그래도 돼야."""
+    from dashboard.blueprints import slack_eapproval as se
+    monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True, args=(): type('T', (), {'start': lambda s: None})())
+    acts = {}
+
+    class _App:
+        def action(self, aid):
+            return lambda f: acts.setdefault(aid, f)
+
+        def __getattr__(self, name):
+            return lambda *a, **k: (lambda f: f)
+
+    se.register_eapproval_handlers(_App())
+    body = {'container': {'type': 'view'}, 'view': {'id': 'V-wf', 'type': 'modal'}, 'user': {'id': 'U1'},
+            'actions': [{'selected_option': {'value': ea.forms.menu_options()[0]['value']}}]}
+    c = _ViewClient()
+    acts[ea.A_NEW](ack=lambda: None, body=body, client=c)
+    acts[ea.A_FORM_PICK](ack=lambda: None, body=body, client=c)
+    assert c.calls[:2] == [('update', 'V-wf'), ('update', 'V-wf')]
+
+
 def test_my_requests_view_splits_long_text():
     text = '\n'.join(f'• 줄 {i} ' + '가' * 100 for i in range(80))
     v = ea.my_requests_view(text)
