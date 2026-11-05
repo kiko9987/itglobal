@@ -232,9 +232,26 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
         return '없는 신청이에요.'
     if not lv.can_act(action, row, uid):
         if action == 'cancel':
-            return '시작한 휴가는 경영지원만 취소할 수 있어요.' if row['status'] == lv.APPROVED else '이미 처리된 신청이에요.'
+            return '끝난 휴가는 경영지원만 취소할 수 있어요.' if row['status'] == lv.APPROVED else '이미 처리된 신청이에요.'
         return '지금 승인할 차례가 아니에요.' if row['status'] in lv.OPEN else '이미 처리된 신청이에요.'
     actor = _eap()._name(uid)
+    was = row['status']
+    if action == 'cancel' and lv.cancel_mode(row, uid) == 'rest':
+        new = lv.cut_rest(rid, uid, actor)
+        if not new:
+            return '이미 처리된 신청이에요.'
+        _refresh(client, new)
+        if new.get('announce_ts'):
+            try:
+                client.chat_update(channel=new['announce_ch'], ts=new['announce_ts'],
+                                   text=f"{lv.announce_text(new)} (남은 날 취소)")
+            except Exception as exc:
+                logger.warning(f'{_LOG} #휴가_일정 기간 줄임 표시 실패 (#{rid}): {exc}')
+        for u in lv.approver_ids():
+            if u != uid:
+                _notify(client, u, f"⚪ {new['name']} 님이 휴가를 오늘부터 취소했어요. 남은 기간: {lv.period_text(new)}")
+        logger.info(f'{_LOG} #{rid} cancel(rest) by {actor} → ~{new["end"]}')
+        return None
     new = lv.transition(rid, action, uid, actor, reason)
     if not new:
         return '이미 처리된 신청이에요.'
@@ -254,6 +271,10 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
         for u in _requester_ids(new):
             if u != uid:
                 _notify(client, u, f"⚪ {new['name']} 님 휴가가 취소됐어요 ({actor}): {lv.period_text(new)}")
+        if was == lv.APPROVED:   # 확정된 휴가가 취소되면 승인한 사람들도 알게(대기 중이면 카드가 회색으로 바뀌는 것으로 충분)
+            for u in lv.approver_ids():
+                if u != uid and u not in _requester_ids(new):
+                    _notify(client, u, f"⚪ {new['name']} 님 휴가가 취소됐어요 ({actor}): {lv.period_text(new)}")
     logger.info(f'{_LOG} #{rid} {action} by {actor} → {new["status"]}')
     return None
 

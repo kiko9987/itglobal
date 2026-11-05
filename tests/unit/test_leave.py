@@ -114,10 +114,53 @@ def test_cancel_rules(db):
     r = lv.transition(r['id'], 'approve', YG, '박용구')
     assert r['status'] == lv.APPROVED
     assert lv.can_act('cancel', r, MW, today=date(2026, 11, 8))
-    assert not lv.can_act('cancel', r, MW, today=date(2026, 11, 9))      # 당일·지난 휴가는 본인 취소 불가
+    assert lv.can_act('cancel', r, MW, today=date(2026, 11, 9))           # 당일도 본인 취소(출근함) — 11-05
+    assert lv.cancel_mode(r, MW, today=date(2026, 11, 9)) == 'all'
+    assert not lv.can_act('cancel', r, MW, today=date(2026, 11, 10))      # 끝난 휴가는 본인 취소 불가
     assert lv.can_act('cancel', r, KIKO, today=date(2026, 11, 20))        # 경영지원은 됨
     r = lv.transition(r['id'], 'cancel', MW, '박민우')
     assert r['status'] == lv.CANCELLED and lv.balance('박민우', date(2026, 11, 9)) == 3
+
+
+def test_self_cancel_in_progress_cuts_rest(db):
+    """쓰는 중인 휴가를 본인이 취소하면 오늘부터 남은 날만 취소 — 어제까지 쓴 날은 남는다(11-05)."""
+    _seed(left=5)
+    r = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 9), date(2026, 11, 13))   # 월~금 5일
+    r = lv.transition(r['id'], 'approve', JW, '박정우')
+    r = lv.transition(r['id'], 'approve', YG, '박용구')
+    assert lv.balance('박민우', date(2026, 11, 9)) == 0
+    wed = date(2026, 11, 11)
+    assert lv.can_act('cancel', r, MW, today=wed) and lv.cancel_mode(r, MW, today=wed) == 'rest'
+    assert lv.cancel_mode(r, KIKO, today=wed) == 'all'                    # 경영지원이 남의 휴가를 취소하면 전부
+    r = lv.cut_rest(r['id'], MW, '박민우', today=wed)
+    assert r['status'] == lv.APPROVED and r['end'] == '2026-11-10' and r['days'] == 2
+    assert lv.balance('박민우', date(2026, 11, 9)) == 3                  # 수~금 3일 돌아옴
+    assert lv.cut_rest(r['id'], MW, '박민우', today=wed) is None          # 두 번 눌러도 한 번만
+    assert '남은 날 취소' in lv.card_text(r, lv.steps(r['id']), 'requester', 3)
+
+
+def test_labor_day_is_holiday():
+    assert not lv.is_workday(date(2027, 5, 1)) and not lv.is_workday(date(2026, 5, 1))
+    assert lv.count_days(lv.ANNUAL, date(2026, 4, 30), date(2026, 5, 4)) == 2     # 목·금 5/1 빠짐·(토일)·월
+
+
+def test_event_and_sick_limits_are_yearly_totals(db):
+    """한도는 그 해 누적 — 나눠 신청해도 넘지 못하고, 해를 넘긴 병가는 해마다 나눠 센다(11-05)."""
+    _seed()
+    lv.create('박민우', MW, MW, '박민우', lv.EVENT, 'mourn2', date(2026, 11, 9), date(2026, 11, 10))   # 2일
+    e = lv.validate('박민우', lv.EVENT, 'mourn2', date(2026, 11, 16), date(2026, 11, 17))
+    assert '이미 신청한 2일' in e['end']
+    assert lv.validate('박민우', lv.EVENT, 'mourn2', date(2026, 11, 16), date(2026, 11, 16)) == {}
+    assert lv.validate('박민우', lv.EVENT, 'mourn1', date(2026, 11, 16), date(2026, 11, 17)) == {}   # 다른 종류는 따로
+    # 병가 2026-12-01~ 22일(12월 근무일) 신청 뒤, 12/29~1/8 은 올해 몫(29·30·31)만 2026 에 더해진다
+    lv.create('박민우', MW, MW, '박민우', lv.SICK, '', date(2026, 12, 1), date(2026, 12, 28))
+    assert lv.sick_used('박민우', 2026) == lv.count_days(lv.SICK, date(2026, 12, 1), date(2026, 12, 28))
+    assert lv.days_in_year(lv.SICK, date(2026, 12, 29), date(2027, 1, 8), 2027) == 5     # 1/1 신정 빠짐
+    assert lv.validate('박민우', lv.SICK, '', date(2026, 12, 29), date(2027, 1, 8)) == {}
+    lv.create('박민우', MW, MW, '박민우', lv.SICK, '', date(2026, 12, 29), date(2027, 1, 8))
+    assert lv.sick_used('박민우', 2027) == 5
+    e = lv.validate('박민우', lv.SICK, '', date(2027, 1, 11), date(2027, 2, 26))
+    assert '2027년에 이미 신청한 5일' in e['end']
 
 
 def test_manager_can_cancel_others_leave(db):
