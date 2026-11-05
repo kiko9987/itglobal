@@ -76,6 +76,7 @@ class F:
     show_if: Optional[Tuple[str, str]] = None   # (칸 key, 값) — 그 칸에서 값을 골랐을 때만 보이는 칸
     dispatch: bool = False  # 고르면 창을 다시 그림(show_if 칸 펼치기)
     section: str = ''       # 이 칸 앞에 구분선 + 묶음 제목(칸이 많은 양식, 11-05). '-' 면 구분선만
+    zero_ok: bool = False   # 금액 칸에 0 허용(카드결제 수수료 — 회사·고객 부담이면 0)
 
 
 @dataclass
@@ -141,13 +142,17 @@ _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card
           ]))
 
 _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True, amount_key='total',
-          note='고객 카드로 공사 대금을 결제하는 요청이에요. 수수료 3%를 더한 금액으로 결제합니다.',
+          # 수수료는 3% 고정이 아니다 — 플렉스 36건에 0%·1.5%·3%(회사·고객 부담 협의). 직접 넣고 합계 검수(11-05)
+          note='고객 카드로 공사 대금을 결제하는 요청이에요. 수수료는 보통 원 매출의 3%예요.',
           fields=[
               F('project', '현장', 'project'),
               F('card_co', '카드사', 'select', options=CARD_COMPANIES),
               F('card_no', '카드번호', placeholder='예: 1234-5678-9012-3456'),
               F('expiry', '유효기간 (MM/YY)', placeholder='예: 08/29'),
               F('sales', '원 매출 (VAT 포함, 원)', 'money'),
+              F('fee', '수수료 (VAT 포함, 원)', 'money', zero_ok=True, placeholder='예: 30000',
+                hint='보통 원 매출의 3%. 회사·고객이 부담해 없으면 0'),
+              F('total', '결제 요청 금액 (VAT 포함, 원)', 'money', hint='원 매출 + 수수료'),
               F('installment', '할부', 'select', options=INSTALLMENTS),
               F('memo', '비고', 'multiline', required=False),
           ]))
@@ -183,9 +188,9 @@ _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋', 'spend', amount_key='amou
               # 사업자 구분은 넣지 않는다 — 경영지원이 처리할 때 판단(플렉스도 없었음, 11-05)
               F('cost', '원가 분류', 'select', options=[]),   # COST_CATEGORIES 로 채움
               F('amount', '청구 금액 (원)', 'money'),
-              F('reason', '사유', placeholder='예: 현장 주차비'),   # 한 줄(11-05)
               F('bank', '은행', 'select', options=BANKS, auto='@my_bank', card=False, hint=BANK_HINT),
               F('account', '계좌번호', auto='@my_account', card=False, hint='계좌번호는 숫자와 하이픈으로'),
+              F('reason', '사유', placeholder='예: 현장 주차비'),   # 한 줄·맨 아래(11-05 경영지원 의견)
           ]))
 
 
@@ -413,10 +418,20 @@ def validate(form_key: str, vals: Dict) -> Dict[str, str]:
             errs[f.key] = f'{f.label}을(를) 넣어 주세요.' if f.kind not in ('select', 'multiselect', 'project', 'date') \
                 else f'{f.label}을(를) 골라 주세요.'
             continue
-        if v and f.kind == 'money' and _parse_int(v) <= 0:
+        if v and f.kind == 'money' and _parse_int(v) <= 0 \
+                and not (f.zero_ok and re.fullmatch(r'[\s0,]+', str(v))):
             errs[f.key] = '금액을 숫자로 넣어 주세요.'
         if v and f.kind == 'number' and not re.fullmatch(r'\d+(\.\d+)?', str(v).replace(',', '').strip()):
             errs[f.key] = '숫자로 넣어 주세요.'
+    # 합계 검수(11-05, 경영지원 의견) — 플렉스 계약서 156건 중 4건이 나눠 받는 금액 합 ≠ 총액이었다
+    if form_key == FORM_CONTRACT and 'total' not in errs:
+        parts = sum(_parse_int(vals.get(k)) for k in ('deposit', 'mid', 'balance'))
+        if parts and parts != _parse_int(vals.get('total')):
+            errs['total'] = f'계약금+중도금+잔금 합계({parts:,}원)와 총 금액이 달라요.'
+    if form_key == FORM_CARDPAY and not {'sales', 'fee', 'total'} & set(errs):
+        want = _parse_int(vals.get('sales')) + _parse_int(vals.get('fee'))
+        if want != _parse_int(vals.get('total')):
+            errs['total'] = f'원 매출+수수료({want:,}원)와 결제 요청 금액이 달라요.'
     if form_key == FORM_CARDPAY:
         if vals.get('card_no') and len(re.sub(r'\D', '', vals['card_no'])) < 14:
             errs['card_no'] = '카드번호를 숫자로 넣어 주세요.'
@@ -432,10 +447,7 @@ def validate(form_key: str, vals: Dict) -> Dict[str, str]:
 
 
 def amount_of(form_key: str, vals: Dict) -> int:
-    """금액 열 값 — 카드결제는 원 매출 + 수수료 3%."""
-    if form_key == FORM_CARDPAY:
-        sales = _parse_int(vals.get('sales'))
-        return sales + round(sales * 0.03)
+    """금액 열 값 — 양식의 amount_key 칸(카드결제는 결제 요청 금액 = 원 매출 + 수수료, 검수됨)."""
     form = FORMS[form_key]
     return _parse_int(vals.get(form.amount_key)) if form.amount_key else 0
 
@@ -487,10 +499,6 @@ def card_lines(form_key: str, vals: Dict) -> List[str]:
     if form_key == FORM_CONTRACT:
         g = guarantee_summary(vals)
         lines.insert(max(0, len(lines) - (1 if vals.get('memo') else 0)), f'보증보험: {g or "없음"}')
-    if form_key == FORM_CARDPAY:
-        sales = _parse_int(vals.get('sales'))
-        fee = round(sales * 0.03)
-        lines.append(f'수수료(3%): {fee:,}원 · *결제 금액: {sales + fee:,}원*')
     if form_key == FORM_EXPENSE:
         lines.append('이체 계좌: 본인 계좌 (경영지원 DM에서 확인)')
     return lines
