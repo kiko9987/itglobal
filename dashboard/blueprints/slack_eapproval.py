@@ -298,12 +298,14 @@ def start_from_invoice(uid: str, name: str, origin_ch: str, origin_ts: str, pars
 
 # ── 입구 ②③ 새 요청 모달 ─────────────────────────────────────────────
 def open_new_modal(client, trigger_id: str, uid: str, project_code: str = '', origin: str = '',
-                   view_id: str = '') -> None:
-    """새 요청 모달. project_code 가 있으면 현장 고정(공사확정 카드). view_id 면 그 창(바로가기 창)을 바꾼다."""
+                   push: Optional[dict] = None) -> None:
+    """새 요청 모달. project_code 가 있으면 현장 고정(공사확정 카드).
+
+    push(_push_kw) 가 있으면 메뉴 창 위에 쌓는다 — [취소]하면 메뉴로 돌아간다(11-05)."""
     # trigger_id 는 3초 — 시트 조회 없이 바로 연다(현장 주소는 카드에 나온다).
     meta = {'project': project_code, 'origin': origin}
-    if view_id:
-        client.views_update(view_id=view_id, view=_new_view(meta))
+    if push:
+        client.views_push(**push, view=_new_view(meta))
     else:
         client.views_open(trigger_id=trigger_id, view=_new_view(meta))
 
@@ -655,13 +657,13 @@ def _form_notes(form_key: str, code: str) -> str:
 
 
 def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_code: str = '',
-                    view_id: str = '') -> None:
+                    push: Optional[dict] = None) -> None:
     """양식 창 — 불러오는 창을 먼저 열고(3초 trigger) 공사현황·기억 값을 채워 바꾼다.
 
-    view_id 가 있으면 새 창 대신 그 창(바로가기 양식 고르기 창)을 바꾼다."""
+    push 가 있으면 메뉴 창 위에 쌓는다([취소] → 메뉴)."""
     form = ea.forms.get(form_key)
-    if view_id:
-        client.views_update(view_id=view_id, view=_loading_view(form.label))
+    if push:
+        view_id = client.views_push(**push, view=_loading_view(form.label))['view']['id']
     else:
         view_id = client.views_open(trigger_id=trigger_id, view=_loading_view(form.label))['view']['id']
 
@@ -869,9 +871,26 @@ def _complete_step(body) -> None:
     threading.Thread(target=_bg, daemon=True).start()
 
 
+def _push_kw(body) -> Optional[dict]:
+    """메뉴 창(모달) 안 버튼이면 그 위에 쌓을 views_push 인자. 워크플로 창 요청엔 trigger_id 대신 pointer 만 온다."""
+    if not _hub_view_id(body):
+        return None
+    if body.get('trigger_id'):
+        return {'trigger_id': body['trigger_id']}
+    pointer = (body.get('interactivity') or {}).get('interactivity_pointer')
+    return {'interactivity_pointer': pointer} if pointer else None
+
+
 def _ack_completing_step(ack, body):
-    """제출 ack 감싸기 — 오류 없이 닫히는 ack 면 워크플로 단계도 끝낸다(오류 ack 면 창이 남으니 그대로)."""
+    """제출 ack 감싸기 — 오류 없이 닫히는 ack 면
+
+    ① 메뉴 위에 쌓인 창이면 메뉴까지 한 번에 닫고(clear — 제출 뒤 메뉴로 돌아가지 않게)
+    ② 워크플로 단계도 끝낸다. 오류 ack 면 창이 남으니 그대로."""
+    stacked = bool((body.get('view') or {}).get('previous_view_id'))
+
     def wrapped(*args, **kwargs):
+        if not args and not kwargs and stacked:
+            kwargs = {'response_action': 'clear'}
         r = ack(*args, **kwargs)
         if kwargs.get('response_action') != 'errors':
             _complete_step(body)
@@ -983,10 +1002,10 @@ def register_eapproval_handlers(app) -> None:
     @app.action(ea.A_NEW)
     def handle_new_open(ack, body, client):
         ack()
-        view_id = _hub_view_id(body)
+        push = _push_kw(body)
         try:
             open_new_modal(client, body.get('trigger_id', ''), (body.get('user') or {}).get('id', ''),
-                           origin='shortcut' if view_id else 'menu', view_id=view_id)
+                           origin='shortcut' if push else 'menu', push=push)
         except Exception as exc:
             logger.error(f'{_LOG} 새 요청 창 열기 실패: {exc}', exc_info=True)
 
@@ -1030,7 +1049,7 @@ def register_eapproval_handlers(app) -> None:
     def _open_form_from(body, client, form_key):
         try:
             open_form_modal(client, body.get('trigger_id', ''), (body.get('user') or {}).get('id', ''), form_key,
-                            view_id=_hub_view_id(body))
+                            push=_push_kw(body))
         except Exception as exc:
             logger.error(f'{_LOG} 양식 창 열기 실패 ({form_key}): {exc}', exc_info=True)
 
@@ -1082,10 +1101,10 @@ def register_eapproval_handlers(app) -> None:
     @app.action(ea.A_NEW_SUPPLY)
     def handle_supply_open(ack, body, client):
         ack()
-        view_id = _hub_view_id(body)
+        push = _push_kw(body)
         try:
-            if view_id:
-                client.views_update(view_id=view_id, view=ea.supply_request_view({'origin': 'shortcut'}))
+            if push:                           # 메뉴 창 위에 쌓기 — [취소]하면 메뉴로
+                client.views_push(**push, view=ea.supply_request_view({'origin': 'shortcut'}))
             else:
                 client.views_open(trigger_id=body['trigger_id'], view=ea.supply_request_view({'origin': 'menu'}))
         except Exception as exc:
@@ -1123,9 +1142,13 @@ def register_eapproval_handlers(app) -> None:
 
     @app.view_closed(re.compile(r'.*'))
     def handle_view_closed(ack, body):
-        """전자결재 창 [닫기]·[취소] — 워크플로로 연 창이면 단계를 끝낸다(아니면 할 일 없음)."""
+        """전자결재 창 [닫기]·[취소] — 워크플로로 연 창이 전부 닫힐 때만 단계를 끝낸다.
+
+        메뉴 위에 쌓인 창의 [취소]는 메뉴로 돌아가는 것뿐이라(previous_view_id 있음·is_cleared 아님) 끝내면 안 된다
+        — 끝내면 남은 메뉴 창 버튼이 막힌다."""
         ack()
-        _complete_step(body)
+        if body.get('is_cleared') or not (body.get('view') or {}).get('previous_view_id'):
+            _complete_step(body)
 
     @app.event('app_home_opened')
     def handle_home_opened(event, client):

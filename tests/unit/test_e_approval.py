@@ -505,19 +505,24 @@ class _ViewClient:
     def views_update(self, **kw):
         self.calls.append(('update', kw['view_id']))
 
+    def views_push(self, **kw):
+        self.calls.append(('push', kw.get('trigger_id') or kw.get('interactivity_pointer')))
+        return {'view': {'id': 'V-pushed'}}
 
-def test_hub_buttons_update_same_view(monkeypatch):
-    """바로가기 창 안에서 누르면 새 창을 쌓지 않고 그 창을 바꾼다. 채널 메뉴 메시지면 새 창."""
+
+def test_hub_buttons_push_over_menu(monkeypatch):
+    """메뉴 창 안에서 누르면 그 위에 쌓는다([취소] → 메뉴로). 채널 메뉴 메시지면 새 창."""
     from dashboard.blueprints import slack_eapproval as se
     monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True, args=(): type('T', (), {'start': lambda s: None})())
-    in_view = {'container': {'type': 'view'}, 'view': {'id': 'V-hub', 'type': 'modal'}}
-    in_msg = {'container': {'type': 'message'}, 'channel': {'id': 'C1'}}
+    in_view = {'container': {'type': 'view'}, 'view': {'id': 'V-hub', 'type': 'modal'}, 'trigger_id': 'T1'}
+    in_msg = {'container': {'type': 'message'}, 'channel': {'id': 'C1'}, 'trigger_id': 'T2'}
     assert se._hub_view_id(in_view) == 'V-hub' and se._hub_view_id(in_msg) == ''
+    assert se._push_kw(in_view) == {'trigger_id': 'T1'} and se._push_kw(in_msg) is None
 
     c = _ViewClient()
-    se.open_new_modal(c, 'T', 'U1', origin='shortcut', view_id='V-hub')
-    se.open_form_modal(c, 'T', 'U1', ea.forms.menu_options()[0]['value'], view_id='V-hub')
-    assert c.calls == [('update', 'V-hub'), ('update', 'V-hub')]
+    se.open_new_modal(c, 'T', 'U1', origin='shortcut', push={'trigger_id': 'T1'})
+    se.open_form_modal(c, 'T', 'U1', ea.forms.menu_options()[0]['value'], push={'trigger_id': 'T1'})
+    assert c.calls == [('push', 'T1'), ('push', 'T1')]
 
     c = _ViewClient()
     se.open_new_modal(c, 'T', 'U1', origin='menu')
@@ -603,7 +608,7 @@ def test_step_completes_on_close_and_successful_submit(monkeypatch):
 
 
 def test_workflow_view_buttons_work_without_trigger_id(monkeypatch):
-    """워크플로로 연 창의 버튼 요청엔 trigger_id 가 없다(interactivity_pointer 만) — 창 바꾸기는 그래도 돼야."""
+    """워크플로로 연 창의 버튼 요청엔 trigger_id 가 없다(interactivity_pointer 만) — 그 pointer 로 쌓는다."""
     from dashboard.blueprints import slack_eapproval as se
     monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True, args=(): type('T', (), {'start': lambda s: None})())
     acts = {}
@@ -617,11 +622,43 @@ def test_workflow_view_buttons_work_without_trigger_id(monkeypatch):
 
     se.register_eapproval_handlers(_App())
     body = {'container': {'type': 'view'}, 'view': {'id': 'V-wf', 'type': 'modal'}, 'user': {'id': 'U1'},
+            'interactivity': {'interactivity_pointer': 'P9'},
             'actions': [{'selected_option': {'value': ea.forms.menu_options()[0]['value']}}]}
     c = _ViewClient()
     acts[ea.A_NEW](ack=lambda: None, body=body, client=c)
+    acts[ea.A_NEW_SUPPLY](ack=lambda: None, body=body, client=c)
     acts[ea.A_FORM_PICK](ack=lambda: None, body=body, client=c)
-    assert c.calls[:2] == [('update', 'V-wf'), ('update', 'V-wf')]
+    assert c.calls == [('push', 'P9')] * 3
+
+
+def test_stacked_view_cancel_keeps_step_and_submit_clears():
+    """쌓인 창 [취소] → 메뉴로(단계 유지). 전부 닫힘·맨 아래 창 닫힘이면 끝냄. 쌓인 창 제출은 clear."""
+    from dashboard.blueprints import slack_eapproval as se
+    done, acks = [], []
+    orig = se._complete_step
+    se._complete_step = lambda body: done.append(body.get('tag'))
+    try:
+        closed = {}
+
+        class _App:
+            def view_closed(self, cid):
+                return lambda f: closed.setdefault('h', f)
+
+            def __getattr__(self, name):
+                return lambda *a, **k: (lambda f: f)
+
+        se.register_eapproval_handlers(_App())
+        h = closed['h']
+        h(ack=lambda: None, body={'tag': 'back', 'view': {'previous_view_id': 'V-hub'}, 'is_cleared': False})
+        h(ack=lambda: None, body={'tag': 'x', 'view': {'previous_view_id': 'V-hub'}, 'is_cleared': True})
+        h(ack=lambda: None, body={'tag': 'root', 'view': {'previous_view_id': None}})
+        assert done == ['x', 'root']
+
+        se._ack_completing_step(lambda **k: acks.append(k), {'view': {'previous_view_id': 'V-hub'}})()
+        se._ack_completing_step(lambda **k: acks.append(k), {'view': {}})()
+        assert acks == [{'response_action': 'clear'}, {}]
+    finally:
+        se._complete_step = orig
 
 
 def test_my_requests_view_splits_long_text():
