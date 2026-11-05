@@ -2534,7 +2534,11 @@ def _intake_warnings(project_code, amount, preview, memo, records=None, stage=No
                     # 나눠 내는 공사는 잔금 칸 = 임차인 등 '부담자 칸'이라 다른 부담자 몫이 남는 게 정상
                     #   → 이 경고 생략 (2026-10-19 오남프라자).
                     left = int(unpaid) - amount - int(extra_paid or 0)
-                    if left > 1:
+                    # 카드 정산 순입금이 4% 이내로 모자라면 기록 때 수수료 보정(_card_settlement_target)이
+                    #   실결제로 채워 미수금 0 → 경고하지 않음 (2026-11-05 R4181-JSH 수수료 52,571원 오경고)
+                    _card_fee = (_is_card_settlement_memo(memo)
+                                 and left <= round((int(unpaid) - int(extra_paid or 0)) * 0.04))
+                    if left > 1 and not _card_fee:
                         warns.append({
                             'kind': 'short_final', 'field': 'stage',
                             'modal': (f"⚠️ 잔금으로 지정하면 입금 후에도 미수금 {left:,}원이 남습니다. "
@@ -2846,6 +2850,22 @@ def _split_y_summary_for(rec, invoice_memo) -> str:
     return split_y_summary(payer_bill_states(rec, _active_invoice_lines(invoice_memo or '')))
 
 
+def _is_card_settlement_memo(memo_text) -> bool:
+    """입금 문자 입금자가 카드 정산(ITG 가맹점 승인번호 확정 또는 카드사+승인번호 패턴)인지.
+
+    승인번호형 정규식(_CARD_PARTNER_RE)은 상호 오탐 위험이 있어 쓰지 않는다.
+    수수료 보정(_card_settlement_target)과 잔금 후 미수금 경고(_intake_warnings)가 같은 기준을 쓴다.
+    """
+    try:
+        from dashboard.services.payment_sync import _is_itg_card_deposit, _CARD_BRAND_RE
+        from dashboard.services.sms_intake import parse_preview
+        partner = ((parse_preview(memo_text or '') or {}).get('partner') or '').strip()
+        return bool(_is_itg_card_deposit(partner) or _CARD_BRAND_RE.search(partner))
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 카드 정산 판별 실패(무시): {exc}")
+        return False
+
+
 def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, deposit, memo_text,
                             snap=None, payer_amount=None):
     """카드 결제 자동 수수료 보정 — 이 단계 셀에 기록할 '목표값'을 돌려준다(아니면 None).
@@ -2862,12 +2882,7 @@ def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, de
       (다른 사람이 아직 덜 냈으면 공사 잔액이 커서 보정이 영영 안 걸리던 문제, 2026-10-20).
     """
     try:
-        from dashboard.services.payment_sync import _is_itg_card_deposit, _CARD_BRAND_RE
-        from dashboard.services.sms_intake import parse_preview
-        partner = ((parse_preview(memo_text or '') or {}).get('partner') or '').strip()
-        # ITG 가맹점 승인번호(확정) 또는 카드사+승인번호 패턴이면 카드 결제로 본다.
-        # 승인번호형 정규식(_CARD_PARTNER_RE)은 상호 오탐 위험이 있어 자동 보정엔 미사용.
-        if not (_is_itg_card_deposit(partner) or _CARD_BRAND_RE.search(partner)):
+        if not _is_card_settlement_memo(memo_text):
             return None
 
         def _num(c):

@@ -302,6 +302,29 @@ def test_final_overpay_is_overpay_not_short():
     assert _kinds(w) == ['overpay']
 
 
+# 2026-11-05 R4181-JSH: 카드 정산 순입금 3,573,029 / 미수금 3,625,600 — 수수료 보정이 채우므로 경고 X
+R4181_CARD = '하나,11/05, 04:43\n255******31304\n입금3,573,029원\n신한14322878'
+
+
+def test_card_settlement_fee_gap_no_short_final():
+    assert sb._intake_warnings('R4181-JSH', 3_573_029, {}, R4181_CARD,
+                               records=_rec('R4181-JSH', 3_625_600, 3_625_600), stage='잔금') == []
+
+
+def test_card_settlement_partial_payment_still_warns():
+    # 카드여도 4% 넘게 모자라면(부분 결제) 수수료 보정이 안 걸림 → 경고 유지
+    w = sb._intake_warnings('R4181-JSH', 3_000_000, {}, R4181_CARD.replace('3,573,029', '3,000,000'),
+                            records=_rec('R4181-JSH', 3_625_600, 3_625_600), stage='잔금')
+    assert _kinds(w) == ['short_final'] and w[0]['left'] == 625_600
+
+
+def test_bank_transfer_small_gap_still_warns():
+    # 일반 이체는 1.45% 모자라도 경고 (카드만 예외)
+    w = sb._intake_warnings('R4181-JSH', 3_573_029, {}, R_HANA,
+                            records=_rec('R4181-JSH', 3_625_600, 3_625_600), stage='잔금')
+    assert _kinds(w) == ['short_final'] and w[0]['left'] == 52_571
+
+
 def test_final_no_total_amount_no_warning():
     assert sb._intake_warnings('R4101-JSH', 100_000, {}, R_HANA,
                                records=_rec('R4101-JSH', 0, 0), stage='잔금') == []
