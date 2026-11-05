@@ -512,7 +512,7 @@ def handle_supply_submit(ack, body, view) -> None:
 def reset_home(client, body) -> None:
     """홈 탭 고르기 칸 비우기 — 메뉴를 새 block_id 로 다시 게시(reset_select 의 홈 탭판)."""
     import time
-    view = ea.home_view()
+    view = ea.home_view((body.get('user') or {}).get('id', ''))
     for b in view['blocks']:
         if b['type'] == 'actions':
             b['block_id'] = f'eap_sel_{int(time.time() * 1000)}'
@@ -1101,6 +1101,8 @@ def register_eapproval_handlers(app) -> None:
 
     _register_invoice_pick(app)
     _register_form_handlers(app)
+    from dashboard.blueprints.slack_leave import register_leave_handlers
+    register_leave_handlers(app)   # 휴가 신청(11-05) — 메뉴 [🌴 휴가 신청]·승인 DM
 
     def _open_form_from(body, client, form_key):
         try:
@@ -1150,7 +1152,8 @@ def register_eapproval_handlers(app) -> None:
     def handle_hub_back(ack, body, client):
         ack()
         try:
-            client.views_update(view_id=_hub_view_id(body), view=ea.hub_view())
+            client.views_update(view_id=_hub_view_id(body),
+                                view=ea.hub_view((body.get('user') or {}).get('id', '')))
         except Exception as exc:
             logger.error(f'{_LOG} 바로가기 처음으로 실패: {exc}', exc_info=True)
 
@@ -1176,7 +1179,8 @@ def register_eapproval_handlers(app) -> None:
     def handle_hub_shortcut(ack, body, client):
         ack()
         try:
-            client.views_open(trigger_id=body['trigger_id'], view=ea.hub_view())
+            client.views_open(trigger_id=body['trigger_id'],
+                              view=ea.hub_view((body.get('user') or {}).get('id', '')))
         except Exception as exc:
             logger.error(f'{_LOG} 바로가기(전자결재) 실패: {exc}', exc_info=True)
 
@@ -1189,8 +1193,9 @@ def register_eapproval_handlers(app) -> None:
         from slack_sdk import WebClient
         pointer = ((inputs or {}).get('interactivity') or {}).get('interactivity_pointer', '')
         token = (body.get('event') or {}).get('bot_access_token', '')
+        uid = (((inputs or {}).get('interactivity') or {}).get('interactor') or {}).get('id', '')
         try:
-            WebClient(token=token).views_open(interactivity_pointer=pointer, view=ea.hub_view())
+            WebClient(token=token).views_open(interactivity_pointer=pointer, view=ea.hub_view(uid))
             logger.info(f'{_LOG} 워크플로 단계(전자결재 열기) 창 열림')
         except Exception as exc:
             logger.error(f'{_LOG} 워크플로 단계(전자결재 열기) 실패: {exc}', exc_info=True)
@@ -1212,7 +1217,7 @@ def register_eapproval_handlers(app) -> None:
         if event.get('tab') != 'home':
             return
         try:
-            client.views_publish(user_id=event['user'], view=ea.home_view())
+            client.views_publish(user_id=event['user'], view=ea.home_view(event['user']))
         except Exception as exc:
             logger.error(f'{_LOG} 홈 탭 게시 실패: {exc}', exc_info=True)
 
