@@ -75,6 +75,7 @@ class F:
     card: bool = True       # 카드에 보일지
     show_if: Optional[Tuple[str, str]] = None   # (칸 key, 값) — 그 칸에서 값을 골랐을 때만 보이는 칸
     dispatch: bool = False  # 고르면 창을 다시 그림(show_if 칸 펼치기)
+    section: str = ''       # 이 칸 앞에 구분선 + 묶음 제목(칸이 많은 양식, 11-05). '-' 면 구분선만
 
 
 @dataclass
@@ -103,25 +104,27 @@ _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card
           note='현장을 고르면 총액·인수자·연락처가 공사현황 값으로 채워지고, 사업자등록증 확인 결과가 보여요.',
           note_fixed='',
           fields=[
+              # 칸이 많아 묶음마다 구분선·제목(11-05). 총 금액을 대금 묶음 맨 위로 — 총액 → 나눠 받는 금액 순
               F('project', '현장', 'project'),
+              F('total', '총 금액 (VAT 포함, 원)', 'money', auto='총액 2', section='💰 대금'),
               F('deposit', '계약금 (VAT 포함, 원)', 'money', required=False),
               F('deposit_date', '계약금 입금 일자', 'date', required=False),
               F('mid', '중도금 (VAT 포함, 원)', 'money', required=False),
               F('mid_date', '중도금 입금 일자', 'date', required=False),
               F('balance', '잔금 (VAT 포함, 원)', 'money', required=False),
               F('balance_date', '잔금 입금 일자', 'date', required=False),
-              F('total', '총 금액 (VAT 포함, 원)', 'money', auto='총액 2'),
-              F('receiver', '인수자명', auto='발주처 담당자'),
+              F('receiver', '인수자명', auto='발주처 담당자', section='📦 인수·납기'),
               F('receiver_phone', '인수자 연락처', auto='발주처 연락처'),
               F('delivery', '납기 및 제품인도 기간', 'date', required=False),
-              F('send', '계약서 발송 방법', 'select', options=['이메일', '카카오톡', '대면']),
+              F('send', '계약서 발송 방법', 'select', options=['이메일', '카카오톡', '대면'], section='✉️ 계약서 발송'),
               F('contact', '이메일 또는 전화번호', auto='발주처 이메일'),
               F('guarantees', '보증보험', 'multiselect', required=False, options=CONTRACT_GUARANTEES, dispatch=True,
-                card=False, hint='계약서에 적힌 보증만 나중에 보증보험을 신청할 수 있어요. 고르면 보증금율·기간 칸이 생겨요.'),
+                card=False, section='🛡️ 보증보험',
+                hint='계약서에 적힌 보증만 나중에 보증보험을 신청할 수 있어요. 고르면 보증금율·기간 칸이 생겨요.'),
               *[f for g, k in GUARANTEE_KEYS.items() for f in (
                   F(f'{k}_rate', f'{g} 보증금율 (%)', 'number', placeholder='예: 10', show_if=('guarantees', g), card=False),
                   F(f'{k}_years', f'{g} 기간 (년)', 'number', placeholder='예: 2', show_if=('guarantees', g), card=False))],
-              F('memo', '비고', 'multiline', required=False),
+              F('memo', '비고', 'multiline', required=False, section='-'),
           ]))
 
 _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card=True, amount_key='total',
@@ -315,6 +318,10 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
     for f in form.fields:
         if not is_shown(f, values):
             continue
+        if f.section:
+            blocks.append({'type': 'divider'})
+            if f.section != '-':
+                blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{f.section}*'}})
         if f.kind == 'project' and meta.get('project'):
             blocks.append({'type': 'section', 'text': {'type': 'mrkdwn',
                                                        'text': f'*현장* {project_label or meta["project"]}'}})

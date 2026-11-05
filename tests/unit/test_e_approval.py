@@ -692,6 +692,18 @@ def test_bank_is_select_and_old_names_map():
     assert f.kind == 'select' and f.options == forms.BANKS
 
 
+def test_contract_form_has_section_dividers():
+    """계약서 창은 칸이 많아 묶음마다 구분선·제목 — 대금·인수·발송·보증보험, 비고 앞은 구분선만(11-05)."""
+    blocks = forms.form_view(forms.FORM_CONTRACT, {'form': forms.FORM_CONTRACT})['blocks']
+    titles = [b['text']['text'] for b in blocks if b['type'] == 'section' and b['text']['text'].startswith('*')]
+    assert titles == ['*💰 대금*', '*📦 인수·납기*', '*✉️ 계약서 발송*', '*🛡️ 보증보험*']
+    assert sum(b['type'] == 'divider' for b in blocks) == 5
+    ids = [b.get('block_id') for b in blocks if b['type'] == 'input']
+    assert ids.index('total') < ids.index('deposit')                 # 총액 → 나눠 받는 금액 순
+    # 구분선이 있어도 읽기는 그대로(입력 칸만 읽음)
+    assert 'section' not in {f.kind for f in forms.get(forms.FORM_CONTRACT).fields}
+
+
 def test_my_requests_view_splits_long_text():
     text = '\n'.join(f'• 줄 {i} ' + '가' * 100 for i in range(80))
     v = ea.my_requests_view(text)
