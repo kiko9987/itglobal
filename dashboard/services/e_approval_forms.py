@@ -119,8 +119,8 @@ _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card
               F('delivery', '납기 및 제품인도 기간', 'date', required=False),
               F('send', '계약서 발송 방법', 'select', options=['이메일', '카카오톡', '대면'], section='✉️ 계약서 발송'),
               F('contact', '이메일 또는 전화번호', auto='발주처 이메일'),
-              F('guarantees', '보증보험', 'multiselect', required=False, options=CONTRACT_GUARANTEES, dispatch=True,
-                card=False, section='🛡️ 보증보험',
+              F('guarantees', '보증 종류', 'multiselect', required=False, options=CONTRACT_GUARANTEES, dispatch=True,
+                card=False, section='🛡️ 보증 조건 (계약서 기재)',
                 hint='계약서에 적힌 보증만 나중에 보증보험을 신청할 수 있어요. 고르면 보증금율·기간 칸이 생겨요.'),
               *[f for g, k in GUARANTEE_KEYS.items() for f in (
                   F(f'{k}_rate', f'{g} 보증금율 (%)', 'number', placeholder='예: 10', show_if=('guarantees', g), card=False),
@@ -130,12 +130,12 @@ _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card
 
 _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card=True, amount_key='total',
           fields=[
-              F('kind', '보증 종류', 'select', options=GUARANTEE_TYPES),
+              F('kind', '보증 종류', 'select', options=GUARANTEE_TYPES, dispatch=True),   # 고르면 계약서 조건 채움
               F('project', '현장', 'project'),
               F('total', '총 금액 (VAT 포함, 원)', 'money', auto='총액 2'),
-              F('rate', '보증금율 (%)', 'number', placeholder='예: 10'),
+              F('rate', '보증금율 (%)', 'number', placeholder='예: 10', auto='@contract'),   # 계약서 보증 조건(11-05)
               F('start', '보증 시작일', 'date'),
-              F('years', '보증 기간 (년)', 'number', placeholder='예: 2'),
+              F('years', '보증 기간 (년)', 'number', placeholder='예: 2', auto='@contract'),
               F('send', '전달 방법', 'select', options=['이메일', '담당자 직접 전달']),
               F('email', '이메일 주소', required=False, auto='발주처 이메일', hint='전달 방법이 이메일일 때'),
               F('memo', '비고', 'multiline', required=False),
@@ -498,7 +498,7 @@ def card_lines(form_key: str, vals: Dict) -> List[str]:
             lines.append(f'{f.label.split(" (")[0]}: {s}')
     if form_key == FORM_CONTRACT:
         g = guarantee_summary(vals)
-        lines.insert(max(0, len(lines) - (1 if vals.get('memo') else 0)), f'보증보험: {g or "없음"}')
+        lines.insert(max(0, len(lines) - (1 if vals.get('memo') else 0)), f'보증 조건: {g or "없음"}')
     if form_key == FORM_EXPENSE:
         lines.append('이체 계좌: 본인 계좌 (경영지원 DM에서 확인)')
     return lines

@@ -696,12 +696,42 @@ def test_contract_form_has_section_dividers():
     """계약서 창은 칸이 많아 묶음마다 구분선·제목 — 대금·인수·발송·보증보험, 비고 앞은 구분선만(11-05)."""
     blocks = forms.form_view(forms.FORM_CONTRACT, {'form': forms.FORM_CONTRACT})['blocks']
     titles = [b['text']['text'] for b in blocks if b['type'] == 'section' and b['text']['text'].startswith('*')]
-    assert titles == ['*💰 대금*', '*📦 인수·납기*', '*✉️ 계약서 발송*', '*🛡️ 보증보험*']
+    assert titles == ['*💰 대금*', '*📦 인수·납기*', '*✉️ 계약서 발송*', '*🛡️ 보증 조건 (계약서 기재)*']
     assert sum(b['type'] == 'divider' for b in blocks) == 5
     ids = [b.get('block_id') for b in blocks if b['type'] == 'input']
     assert ids.index('total') < ids.index('deposit')                 # 총액 → 나눠 받는 금액 순
     # 구분선이 있어도 읽기는 그대로(입력 칸만 읽음)
     assert 'section' not in {f.kind for f in forms.get(forms.FORM_CONTRACT).fields}
+
+
+def test_insurance_fills_rate_years_from_contract(monkeypatch):
+    """보증보험 신청 — 이 현장 계약서에 적은 보증금율·기간을 채운다. 계약서 보증이 하나면 종류도(11-05)."""
+    from dashboard.blueprints import slack_eapproval as se
+    terms = {'하자보증': ('3', '2'), '계약보증': ('10', '1')}
+    monkeypatch.setattr(se, 'contract_terms', lambda code: dict(terms) if code == 'G1' else {})
+    v = {'kind': '하자보증'}
+    se.fill_insurance_from_contract(v, 'G1')
+    assert v['rate'] == '3' and v['years'] == '2'
+    v = {'kind': '하자보증', 'rate': '5'}                       # 직접 넣은 값은 그대로
+    se.fill_insurance_from_contract(v, 'G1')
+    assert v['rate'] == '5' and v['years'] == '2'
+    v = {'kind': '계약보증', 'rate': '3', 'years': '2'}        # 종류를 바꿔 고르면 그 종류 값으로
+    se.fill_insurance_from_contract(v, 'G1', override=True)
+    assert (v['rate'], v['years']) == ('10', '1')
+    v = {}
+    se.fill_insurance_from_contract(v, 'G1')                     # 둘이면 종류는 고르게 둔다
+    assert v == {}
+    terms.pop('계약보증')
+    se.fill_insurance_from_contract(v, 'G1')                     # 하나면 종류까지
+    assert v == {'kind': '하자보증', 'rate': '3', 'years': '2'}
+    v = {'kind': '하자보증'}
+    se.fill_insurance_from_contract(v, 'X')                      # 계약서 없음 → 그대로
+    assert v == {'kind': '하자보증'}
+    ins = forms.get(forms.FORM_INSURANCE)
+    assert next(f for f in ins.fields if f.key == 'kind').dispatch
+    titles = [b['text']['text'] for b in forms.form_view(forms.FORM_CONTRACT, {})['blocks']
+              if b['type'] == 'section']
+    assert '*🛡️ 보증 조건 (계약서 기재)*' in titles
 
 
 def test_my_requests_view_splits_long_text():
@@ -939,7 +969,7 @@ def test_contract_guarantees_show_fields_validate_and_card(tmp_db):
     assert forms.validate(forms.FORM_CONTRACT, vals) == {}
     assert forms.guarantee_summary(vals) == '하자보증 3% · 2년, 계약보증 10% · 1년'
     lines = forms.card_lines(forms.FORM_CONTRACT, vals)
-    assert '보증보험: 하자보증 3% · 2년, 계약보증 10% · 1년' in lines and not any('보증금율' in l for l in lines)
+    assert '보증 조건: 하자보증 3% · 2년, 계약보증 10% · 1년' in lines and not any('보증금율' in l for l in lines)
 
 
 def test_insurance_contract_note(se, monkeypatch):
