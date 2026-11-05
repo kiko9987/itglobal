@@ -309,7 +309,7 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
     return {
         'type': 'modal', 'callback_id': CB_FORM,
         'title': _plain(form.label[:24]),
-        'submit': _plain('요청'), 'close': _plain('취소'),
+        'submit': _plain('요청'), 'close': _plain('취소'), 'notify_on_close': True,
         'private_metadata': json.dumps({**meta, 'form': form_key}),
         'blocks': blocks,
     }

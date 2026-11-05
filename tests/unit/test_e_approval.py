@@ -568,12 +568,38 @@ def test_workflow_step_opens_hub_and_completes(monkeypatch):
     se.register_eapproval_handlers(_App())
     fns[ea.FN_OPEN_MENU](body={'event': {'bot_access_token': 'xwfp-1'}},
                          inputs={'interactivity': {'interactivity_pointer': 'P1'}},
-                         complete=lambda outputs: done.append(outputs), fail=lambda error: done.append(error))
-    assert opened == [('xwfp-1', 'P1', '전자결재')] and done == [{}]
+                         fail=lambda error: done.append(error))
+    # 창을 연 직후엔 단계를 끝내지 않는다 — 끝내면 슬랙이 창 버튼을 막는다
+    assert opened == [('xwfp-1', 'P1', '전자결재')] and done == []
+    assert ea.hub_view().get('notify_on_close') is True
     path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
     with open(path, encoding='utf-8') as fh:
         man = yaml.safe_load(fh)
     assert ea.FN_OPEN_MENU in man['functions']
+
+
+def test_step_completes_on_close_and_successful_submit(monkeypatch):
+    """워크플로 창: 닫힘·오류 없는 제출이면 단계 끝냄, 오류 ack·일반 창이면 안 끝냄."""
+    from dashboard.blueprints import slack_eapproval as se
+    done = []
+    monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True, args=(): type('T', (), {'start': lambda s: target()})())
+
+    class _WC:
+        def __init__(self, token):
+            pass
+
+        def functions_completeSuccess(self, function_execution_id, outputs):
+            done.append(function_execution_id)
+
+    import slack_sdk
+    monkeypatch.setattr(slack_sdk, 'WebClient', _WC)
+    fbody = {'function_data': {'execution_id': 'Fx1'}, 'bot_access_token': 'xwfp-1'}
+    se._ack_completing_step(lambda **k: None, fbody)(response_action='errors', errors={'a': 'b'})
+    assert done == []
+    se._ack_completing_step(lambda **k: None, fbody)()
+    assert done == ['Fx1']
+    se._complete_step({'view': {'id': 'V'}})              # 채널 메뉴로 연 일반 창
+    assert done == ['Fx1']
 
 
 def test_my_requests_view_splits_long_text():

@@ -297,8 +297,6 @@ def _init_eapproval_slack_app():
             token=_EAPPROVAL_BOT_TOKEN,
             signing_secret=_EAPPROVAL_SIGNING_SECRET,
             process_before_response=True,
-            # 워크플로 단계로 연 창의 버튼도 봇 토큰으로 처리 — 단계 전용 토큰은 단계가 끝나면 무효(11-05)
-            attaching_function_token_enabled=False,
         )
         _eapproval_slack_handler = SlackRequestHandler(_eapproval_slack_app)
         register_eapproval_handlers(_eapproval_slack_app)

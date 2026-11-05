@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from typing import Optional
 
@@ -546,7 +547,7 @@ def reset_select(client, body) -> None:
 # ── 나머지 양식 (11-01: 계약서·보증보험·카드결제·법인서류·법인카드 지출결의·개인경비) ──
 def _loading_view(title: str) -> dict:
     return {'type': 'modal', 'title': {'type': 'plain_text', 'text': title[:24]},
-            'close': {'type': 'plain_text', 'text': '취소'},
+            'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
             'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': ':hourglass_flowing_sand: 불러오는 중...'}}]}
 
 
@@ -797,7 +798,7 @@ def _register_form_handlers(app) -> None:
 
     @app.view(ea.forms.CB_FORM)
     def handle_form_submit_view(ack, body, view):
-        handle_form_submit(ack, body, view)
+        handle_form_submit(_ack_completing_step(ack, body), body, view)
 
 
 def post_cardexp_reminder(today=None) -> Optional[str]:
@@ -849,6 +850,33 @@ def _hub_view_id(body) -> str:
     if (body.get('container') or {}).get('type') == 'view' and view.get('type') == 'modal':
         return view.get('id', '')
     return ''
+
+
+def _complete_step(body) -> None:
+    """워크플로 단계 「전자결재 열기」로 연 창이면 그 단계를 끝낸다(창 닫힘·제출 성공 때). 아니면 아무것도 안 함."""
+    exec_id = (body.get('function_data') or {}).get('execution_id')
+    token = body.get('bot_access_token')
+    if not (exec_id and token):
+        return
+
+    def _bg():
+        from slack_sdk import WebClient
+        try:
+            WebClient(token=token).functions_completeSuccess(function_execution_id=exec_id, outputs={})
+            logger.info(f'{_LOG} 워크플로 단계 끝냄 ({body.get("type")})')
+        except Exception as exc:
+            logger.warning(f'{_LOG} 워크플로 단계 끝내기 실패: {exc}')
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def _ack_completing_step(ack, body):
+    """제출 ack 감싸기 — 오류 없이 닫히는 ack 면 워크플로 단계도 끝낸다(오류 ack 면 창이 남으니 그대로)."""
+    def wrapped(*args, **kwargs):
+        r = ack(*args, **kwargs)
+        if kwargs.get('response_action') != 'errors':
+            _complete_step(body)
+        return r
+    return wrapped
 
 
 def _from_home(body) -> bool:
@@ -994,7 +1022,7 @@ def register_eapproval_handlers(app) -> None:
 
     @app.view(ea.CB_NEW)
     def handle_new_submit_eap(ack, body, view):
-        handle_new_submit(ack, body, view)
+        handle_new_submit(_ack_completing_step(ack, body), body, view)
 
     _register_invoice_pick(app)
     _register_form_handlers(app)
@@ -1065,7 +1093,7 @@ def register_eapproval_handlers(app) -> None:
 
     @app.view(ea.CB_SUPPLY)
     def handle_supply_submit_eap(ack, body, view):
-        handle_supply_submit(ack, body, view)
+        handle_supply_submit(_ack_completing_step(ack, body), body, view)
 
     # 전역 바로가기 「전자결재」 하나 — 어느 채널·DM 에서든 입력창 [+]로 메뉴 창을 연다(11-05).
     # 창 안 버튼은 채널 메뉴와 같은 action_id 이고, 핸들러가 창이면 그 창을 바꾼다(_hub_view_id).
@@ -1078,20 +1106,26 @@ def register_eapproval_handlers(app) -> None:
             logger.error(f'{_LOG} 바로가기(전자결재) 실패: {exc}', exc_info=True)
 
     @app.function(ea.FN_OPEN_MENU)
-    def handle_open_menu_step(body, inputs, complete, fail):
+    def handle_open_menu_step(body, inputs, fail):
         """워크플로 단계 「전자결재 열기」 — #전자_결재 워크플로 버튼 → 메뉴 창(11-05).
 
-        창은 단계 전용 토큰으로 열고(interactivity_pointer 는 그 토큰에 묶임) 바로 단계를 끝낸다.
-        창 안 버튼은 봇 토큰으로 처리(attaching_function_token_enabled=False)라 단계가 끝나도 된다."""
+        단계가 끝나면 슬랙이 그 창의 버튼을 막는다(⚠ 만 뜨고 무반응) → 여기서 끝내지 않고,
+        창을 닫거나(view_closed) 제출에 성공할 때(_ack_completing_step) 끝낸다."""
         from slack_sdk import WebClient
         pointer = ((inputs or {}).get('interactivity') or {}).get('interactivity_pointer', '')
         token = (body.get('event') or {}).get('bot_access_token', '')
         try:
             WebClient(token=token).views_open(interactivity_pointer=pointer, view=ea.hub_view())
-            complete(outputs={})
+            logger.info(f'{_LOG} 워크플로 단계(전자결재 열기) 창 열림')
         except Exception as exc:
             logger.error(f'{_LOG} 워크플로 단계(전자결재 열기) 실패: {exc}', exc_info=True)
             fail(error='전자결재 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
+
+    @app.view_closed(re.compile(r'.*'))
+    def handle_view_closed(ack, body):
+        """전자결재 창 [닫기]·[취소] — 워크플로로 연 창이면 단계를 끝낸다(아니면 할 일 없음)."""
+        ack()
+        _complete_step(body)
 
     @app.event('app_home_opened')
     def handle_home_opened(event, client):
