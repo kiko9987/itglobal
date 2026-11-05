@@ -236,6 +236,14 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     ini, ex = ea.initial(name), ea.executor_label(name)   # 화면엔 이니셜, ② 는 '경영지원 (SB)'
     if action == 'approve':
         _thread_log(new, f'✅ {ini} 승인')
+        if any(s['step'] == 'resubmit' for s in ea.steps(aid)):
+            # 수정해서 다시 올린 건 — 예전에 이체 DM 을 받은 경영지원은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
+            have = {(r['user'], r['role']) for r in ea.dm_refs(new)}
+            link = _card_link(new)
+            for u in ea.executor_dm_ids():
+                if (u, 'executor') in have:
+                    _notify(client, u, f'🔔 수정해서 다시 올라온 {t}이 승인됐어요. {w}해 주세요.'
+                            + (f' <{link}|카드 보기>' if link else ''))
         _dm_round(client, new)
     elif action == 'transfer' and new.get('form') in ea.TASK_FORMS:
         _thread_log(new, f'✅ {ex} 처리 완료', broadcast=True)
@@ -360,21 +368,37 @@ def post_invoice_files(row: dict) -> int:
 _FIELD_NAMES = {'project_code': '현장', 'cost_category': '원가 분류', 'content': '내용', 'evidence': '증빙',
                 'grn': '사업자 구분', 'partner': '거래처', 'payee_name': '예금주', 'bank': '은행',
                 'account': '계좌', 'amount': '금액', 'urgency': '집행 시기', 'memo': '비고',
-                'link': '상품 링크', 'qty': '수량', 'unit_price': '단가', 'reason': '사유'}
+                'link': '상품 링크', 'qty': '수량', 'unit_price': '단가', 'reason': '사유', 'title': '결재 이름'}
+# 양식 결재는 같은 변경이 장부 칸과 양식 칸(f)에 둘 다 잡힌다 — 장부 칸 쪽은 기록에서 뺀다(11-05 점검)
+_FORM_DUP_COLUMNS = ('project_code', 'amount', 'content', 'grn', 'cost_category', 'payee_name', 'bank', 'account')
+_SECRET_KEYS = ('bank', 'account')   # 개인경비 계좌 — 채널 기록엔 '바뀜'만(경영지원 DM 에만 보인다)
 
 
 def _changes_text(form: str, changed: dict) -> str:
     """'금액 50,000 → 55,000 · 계좌 …' — 스레드 기록용. 양식 칸은 양식 이름표로."""
     labels = dict(_FIELD_NAMES)
+    field_keys = set()
     if form in ea.forms.FORMS:
+        field_keys = {f.key for f in ea.forms.FORMS[form].fields}
         labels.update({f.key: f.label.split(' (')[0] for f in ea.forms.FORMS[form].fields})
     parts = []
     for k, (a, b) in changed.items():
-        if k in ('extra',) or k.startswith('_'):
+        # 장부 칸 중복은 양식에 같은 이름 칸이 없을 때만 뺀다(개인경비 amount·bank·account 는 양식 칸과 이름이 같다)
+        dup = form in ea.forms.FORMS and k in _FORM_DUP_COLUMNS and k not in field_keys
+        if k in ('extra', 'payee_saved') or k.startswith('_') or dup:
             continue
-        fmt = (lambda v: f'{int(v or 0):,}') if k in ('amount', 'qty', 'unit_price') else (lambda v: str(v or '-'))
+        if form == ea.forms.FORM_EXPENSE and k in _SECRET_KEYS:
+            parts.append(f'{labels.get(k, k)} 바뀜 (경영지원 DM 에서 확인)')
+            continue
+
+        def fmt(v):
+            if k in ('amount', 'qty', 'unit_price'):
+                return f'{int(v or 0):,}'
+            if isinstance(v, list):
+                return ', '.join(map(str, v)) or '-'
+            return str(v or '-')
         parts.append(f'{labels.get(k, k)} {fmt(a)} → {fmt(b)}')
-    return ' · '.join(parts[:8]) or '바뀐 칸 없음'
+    return ' · '.join(dict.fromkeys(parts[:8])) or '바뀐 칸 없음'
 
 
 def open_edit_modal(client, trigger_id: str, aid: int, uid: str) -> Optional[str]:
@@ -394,6 +418,15 @@ def open_edit_modal(client, trigger_id: str, aid: int, uid: str) -> Optional[str
             client.views_update(view_id=view_id, view=edit_view(row))
         except Exception as exc:
             logger.error(f'{_LOG} 수정 창 채우기 실패 ({ea.title(row)}): {exc}', exc_info=True)
+            try:   # '불러오는 중'에 갇히지 않게 안내로 바꾼다(11-05 점검)
+                client.views_update(view_id=view_id, view={
+                    'type': 'modal', 'title': {'type': 'plain_text', 'text': '수정'},
+                    'close': {'type': 'plain_text', 'text': '닫기'}, 'notify_on_close': True,
+                    'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                                ':warning: 수정 창을 불러오지 못했어요. 닫고 다시 눌러 주세요. '
+                                '계속 안 되면 카드 스레드에 고칠 내용을 남겨 주세요.'}}]})
+            except Exception:
+                pass
     threading.Thread(target=_bg, daemon=True).start()
     return None
 
@@ -411,7 +444,11 @@ def edit_view(row: dict) -> dict:
                            'parsed': {'date_md': '', 'grn': row.get('grn') or '', 'amount': int(row.get('amount') or 0),
                                       'partner': row.get('partner') or ''}}
         prefill = {k: row.get(k) for k in ea.EDIT_COLUMNS}
-        prefill['_project_label'] = project_display(code, _project_rec(code)) if code else ''
+        label = project_display(code, _project_rec(code)) if code else ''
+        prefill['_project_label'] = label
+        if row.get('origin_ts') and code:   # 계산서 글 현장 지정과 어긋나지 않게 현장도 고정(11-05 점검)
+            meta['project'] = code
+            return ea.new_request_view(meta, code, label, prefill=prefill)
         return ea.new_request_view(meta, prefill=prefill)
     if form == ea.FORM_SUPPLY:
         return ea.supply_request_view({'edit': aid}, ea.supply_prefill(row))
@@ -423,13 +460,14 @@ def edit_view(row: dict) -> dict:
                               project_label=vals.get('_project_label', ''))
 
 
-def process_edit(uid: str, aid: int, fields: dict, files: list) -> Optional[dict]:
+def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[list] = None) -> Optional[dict]:
     """고친 값으로 다시 올림 → 카드·DM 갱신, 스레드에 바뀐 칸, 승인자·경영지원에게 다시 알림."""
     name = _name(uid)
     fields = {k: v for k, v in fields.items() if not k.startswith('_') and k not in ('origin_channel', 'origin_ts')}
     res = ea.resubmit(aid, uid, name, fields)
     if not res:
-        _notify(eap_client(), uid, '⚠️ 이미 처리된 요청이라 고친 내용을 올리지 못했어요.')
+        _notify(eap_client(), uid, '⚠️ 이미 처리된 요청이라 고친 내용을 올리지 못했어요. '
+                                   '같이 올린 첨부 파일도 붙지 않았어요.')
         return None
     row, changed = res
     client = eap_client()
@@ -445,6 +483,7 @@ def process_edit(uid: str, aid: int, fields: dict, files: list) -> Optional[dict
         else:
             _send_dm(client, aid, u, role)
     _audit(row, 'resubmit', name, _changes_text(row['form'], changed))
+    post_folder_docs(row, docs or [])   # 수정 창에서 고른 공사 폴더 서류도(11-05 점검)
     _post_files_bg(row, files, name)
     logger.info(f'{_LOG} {ea.title(row)} 수정 후 다시 올림 ({name}): {changed}')
     return row
@@ -463,7 +502,7 @@ def _revise_view(aid: int) -> dict:
              f"{ea.title(row)} · {ea.initial(row.get('requester_name'))}님에게 돌려보내요. "
              '고쳐서 다시 올리면 같은 카드가 바뀌어요.'}]},
             {'type': 'input', 'block_id': 'reason', 'label': {'type': 'plain_text', 'text': '고칠 내용'},
-             'element': {'type': 'plain_text_input', 'action_id': 'reason', 'multiline': True,
+             'element': {'type': 'plain_text_input', 'action_id': 'reason', 'multiline': True, 'max_length': 500,
                          'placeholder': {'type': 'plain_text', 'text': '예: 계좌번호가 계산서와 달라요. 다시 확인해 주세요.'}}}],
     }
 
@@ -642,6 +681,8 @@ def process_new_submit(uid: str, f: dict) -> dict:
     name = _name(uid)
     ea.remember_payee(f.get('partner', ''), f.get('payee_name'), f.get('bank'), f.get('account'))
     if f.get('_edit'):   # [✏️ 수정하기] 로 고친 것 — 같은 결재·카드(계산서 글 현장 지정은 처음에 끝났다)
+        # '예전 계좌 자동 채움' 표시는 고친 계좌 기준으로 다시 — 다른 계좌로 고쳤는데 표시가 남지 않게(11-05 점검)
+        f['extra'] = {**(f.get('extra') or {}), 'payee_saved': bool((f.get('extra') or {}).get('payee_saved'))}
         return process_edit(uid, f['_edit'], f, f.get('_files') or [])
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)
@@ -801,7 +842,10 @@ _DOC_EXT = ('.pdf', '.png', '.jpg', '.jpeg')
 def _doc_rank(name: str) -> int:
     """0 = 확정·최종 견적서, 1 = 확정·최종(도면 등), 2 = 나머지. 같은 순위 안은 최근 고친 순."""
     if _FINAL_RE.search(name):
-        return 0 if _QUOTE_RE.search(name) or not re.search(r'도면|배치도', name) else 1
+        # 견적·내역서 글자가 있거나, 도면·사진이 아닌 PDF 면 확정 견적서로 본다('최종_현장사진.jpg' 는 아님, 11-05 점검)
+        if _QUOTE_RE.search(name) or (name.lower().endswith('.pdf') and not re.search(r'도면|배치도|사진', name)):
+            return 0
+        return 1
     return 2
 
 
@@ -1034,7 +1078,7 @@ def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
     if form_key == ea.forms.FORM_CARDEXP:
         ea.remember_personal('card', uid, name, '', vals.get('card_no', ''))
     if edit_aid:
-        return process_edit(uid, edit_aid, fields, files)
+        return process_edit(uid, edit_aid, fields, files, docs)
     row = ea.create(form_key, uid, name, fields)
     _audit(row, 'request', name)
     row = start(row)
@@ -1295,7 +1339,7 @@ def _reject_view(aid: int, body: dict) -> dict:
         'close': {'type': 'plain_text', 'text': '취소'},
         'private_metadata': json.dumps({'aid': aid}),
         'blocks': [{'type': 'input', 'block_id': 'reason', 'label': {'type': 'plain_text', 'text': '반려 사유'},
-                    'element': {'type': 'plain_text_input', 'action_id': 'reason', 'multiline': True,
+                    'element': {'type': 'plain_text_input', 'action_id': 'reason', 'multiline': True, 'max_length': 500,
                                 'placeholder': {'type': 'plain_text', 'text': '요청자에게 그대로 전달됩니다.'}}}],
     }
 

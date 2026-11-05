@@ -5,7 +5,9 @@ from dashboard.blueprints import slack_bot as sb
 def test_cash_receipt_kind():
     assert sb._cash_receipt_kind('010-1234-5678') == '소득공제용'
     assert sb._cash_receipt_kind('01012345678') == '소득공제용'
-    assert sb._cash_receipt_kind('123-45-67890') == '지출증빙용'
+    assert sb._cash_receipt_kind('124-81-00998') == '지출증빙용'      # 검증 숫자가 맞는 사업자번호
+    assert sb._cash_receipt_kind('123-45-67890') == ''                # 검증 숫자 틀림(오타) — 11-05 점검
+    assert sb._cash_receipt_kind('02-1234-5678') == ''                # 서울 일반전화 10자리
     assert sb._cash_receipt_kind('') == '' and sb._cash_receipt_kind('1234') == ''
 
 

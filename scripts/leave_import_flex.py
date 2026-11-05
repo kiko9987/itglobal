@@ -62,9 +62,19 @@ def main(apply: bool) -> None:
         if not apply:
             continue
         lv.upsert_staff(name, hire_s, uid, accrue_from=accrue_from, note='플렉스 이관')
-        if left <= 0:
-            continue
+        with lv._conn() as conn:
+            # 기준일까지 자동으로 생긴 월차·기념일 연차는 플렉스 잔여에 이미 들어 있다 — 안 쓴 줄은 지워 두 번 안 잡히게(11-05 점검)
+            gone = conn.execute(
+                "DELETE FROM leave_grants WHERE name=? AND (source LIKE 'monthly:%' OR source LIKE 'annual:%') "
+                'AND valid_from<=? AND id NOT IN (SELECT grant_id FROM leave_uses)', (name, AS_OF.isoformat())).rowcount
+            if gone:
+                print(f'      자동 발생 {gone}줄 지움(플렉스 잔여에 포함)')
+            used = conn.execute("SELECT COALESCE(SUM(u.days),0) FROM leave_uses u JOIN leave_grants g ON g.id=u.grant_id "
+                                'WHERE g.source=?', (f'flex:{name}',)).fetchone()[0]
+        if used and left < used:
+            print(f'      ⚠️ 슬랙으로 이미 {used:g}일 썼는데 플렉스 잔여가 {left}일 — 확인 필요(그대로 넣으면 음수)')
         if not lv.add_grant(name, left, AS_OF, until, f'flex:{name}', f'플렉스 잔여 ({AS_OF})'):
+            # 잔여 0 이 된 사람도 고친다(예전 값이 남으면 연차가 부풀려짐)
             with lv._conn() as conn:
                 conn.execute('UPDATE leave_grants SET days=?, valid_from=?, valid_to=?, note=? WHERE source=?',
                              (float(left), AS_OF.isoformat(), until.isoformat(), f'플렉스 잔여 ({AS_OF})',

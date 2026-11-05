@@ -317,22 +317,25 @@ def grants(name: str) -> List[dict]:
             'FROM leave_grants g WHERE g.name=? ORDER BY g.valid_to, g.id', (name,)).fetchall()]
 
 
-def balance(name: str, on: Optional[date] = None) -> float:
-    """그날 쓸 수 있는 연차 = 그날 살아 있는 부여 − 이미 잡힌 것(승인 대기 포함)."""
+def balance(name: str, on: Optional[date] = None, until: Optional[date] = None) -> float:
+    """그날 쓸 수 있는 연차 = 그날 살아 있는 부여 − 이미 잡힌 것(승인 대기 포함).
+    until 이면 그날까지 소멸하지 않는 부여만(휴가 도중 소멸하는 연차로 뒷날을 채우지 않게, 11-05 점검)."""
     on = on or date.today()
+    last = (until or on).isoformat()
     total = 0.0
     for g in grants(name):
-        if g['valid_from'] <= on.isoformat() <= g['valid_to']:
+        if g['valid_from'] <= on.isoformat() and last <= g['valid_to']:
             total += g['days'] - g['used']
     return round(total, 2)
 
 
-def _allocate(conn, rid: int, name: str, on: date, need: float) -> bool:
-    """신청 rid 에 연차를 떼어 준다 — 그날 살아 있는 부여 중 소멸이 빠른 것부터. 모자라면 False(아무것도 안 뗌)."""
+def _allocate(conn, rid: int, name: str, on: date, need: float, until: Optional[date] = None) -> bool:
+    """신청 rid 에 연차를 떼어 준다 — 첫날 살아 있고 마지막 날까지 소멸하지 않는 부여 중 소멸이 빠른 것부터.
+    모자라면 False(아무것도 안 뗌)."""
     rows = conn.execute(
         'SELECT g.id, g.days - COALESCE((SELECT SUM(u.days) FROM leave_uses u WHERE u.grant_id=g.id), 0) AS left '
         'FROM leave_grants g WHERE g.name=? AND g.valid_from<=? AND g.valid_to>=? ORDER BY g.valid_to, g.id',
-        (name, on.isoformat(), on.isoformat())).fetchall()
+        (name, on.isoformat(), (until or on).isoformat())).fetchall()
     plan, rest = [], need
     for r in rows:
         if rest <= 0:
@@ -462,10 +465,13 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
         errs['start'] = f"이미 신청한 휴가와 겹쳐요: {type_label(c['ltype'], c.get('sub') or '')} {period_text(c, False)}"
         return errs
     if deducts(ltype):
-        left = balance(name, start)
+        left = balance(name, start, end)
         if days > left + 1e-9:
-            errs['start'] = (f'{kdate(start)} 기준 남은 연차가 {fmt_days(left)}이라 {fmt_days(days)}를 쓸 수 없어요. '
-                             '연차가 더 있어야 한다면 경영지원에 문의해 주세요.')
+            whole = balance(name, start)
+            why = (f'{kdate(start)} 기준 남은 연차가 {fmt_days(whole)}이지만 그중 {fmt_days(round(whole - left, 2))}은 '
+                   f'{kdate(end)} 전에 소멸해서 이 기간엔 {fmt_days(left)}만 쓸 수 있어요. '
+                   if whole > left + 1e-9 else f'{kdate(start)} 기준 남은 연차가 {fmt_days(left)}이라 ')
+            errs['start'] = why + f'{fmt_days(days)}를 쓸 수 없어요. 연차가 더 있어야 한다면 경영지원에 문의해 주세요.'
     elif ltype == EVENT and sub in EVENT_SUBS and days > EVENT_SUBS[sub][1]:
         errs['end'] = f'{EVENT_SUBS[sub][0]}은 {EVENT_SUBS[sub][1]}일까지예요 (주말·공휴일 빼고 {fmt_days(days)}).'
     elif ltype == SICK:
@@ -500,7 +506,7 @@ def create(name: str, subject_slack_id: str, submitter_id: str, submitter_name: 
             (name, subject_slack_id or None, submitter_id, submitter_name, ltype, sub or None, start.isoformat(),
              end.isoformat(), days, reason or None, status, now, now))
         rid = cur.lastrowid
-        if deducts(ltype) and not _allocate(conn, rid, name, start, days):
+        if deducts(ltype) and not _allocate(conn, rid, name, start, days, end):
             conn.rollback()
             return None
         conn.execute('INSERT INTO leave_steps (request_id, step, actor_id, actor_name, result, at) '
@@ -660,9 +666,14 @@ FN_OPEN_LEAVE = 'leave_open'   # 휴가 봇 워크플로 단계 「휴가 신청
 _DEFAULT_PILOTS = ('U04UL2ZLJAX',)   # 고광일
 
 
+def enabled() -> bool:
+    """플렉스에서 옮긴 뒤(LEAVE_ENABLED=true) — 전원 신청·연차 자동 발생."""
+    return os.getenv('LEAVE_ENABLED', '').strip().lower() in ('1', 'true', 'yes')
+
+
 def is_open(uid: str) -> bool:
     """신청 받기 — 플렉스에서 옮기는 날(LEAVE_ENABLED=true) 전까지는 시험하는 사람(LEAVE_PILOT_IDS, 기본 KiKO)만."""
-    if os.getenv('LEAVE_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
+    if enabled():
         return True
     return bool(uid) and uid in (_env_ids('LEAVE_PILOT_IDS') or _DEFAULT_PILOTS)
 CB_SUBMIT, CB_REJECT = 'leave_submit', 'leave_reject_submit'
@@ -679,7 +690,7 @@ def _btn(text: str, action: str, rid: int, style: str = '', confirm: Optional[di
 
 def card_blocks(row: dict, step_rows: List[dict], role: str, left: Optional[float] = None) -> List[dict]:
     """role: approver(지금 승인할 사람) / requester / info."""
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': card_text(row, step_rows, role, left)}}]
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': card_text(row, step_rows, role, left)[:2900]}}]
     els = []
     if role == 'approver' and row['status'] in OPEN:
         els = [_btn('✅ 승인', A_APPROVE, row['id'], 'primary'), _btn('반려', A_REJECT, row['id'], 'danger')]

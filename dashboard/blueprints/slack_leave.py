@@ -92,7 +92,8 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
         blocks.append(_datepicker('lv_start', '시작일', vals.get('start', '')))
         blocks.append(_datepicker('lv_end', '마지막 날', vals.get('end', ''), optional=True,
                                   hint='하루만 쉬면 비워 두세요. 주말·공휴일은 일수에서 빠져요.'))
-    reason = {'type': 'plain_text_input', 'action_id': 'lv_reason', 'placeholder': _plain('예: 개인 사정')}
+    reason = {'type': 'plain_text_input', 'action_id': 'lv_reason', 'max_length': 200,
+              'placeholder': _plain('예: 개인 사정')}
     if vals.get('reason'):
         reason['initial_value'] = vals['reason']
     blocks.append({'type': 'input', 'block_id': 'lv_reason', 'optional': False, 'label': _plain('사유'),   # 필수(11-05)
@@ -401,7 +402,7 @@ def register_leave_handlers(app) -> None:
                 'submit': _plain('반려'), 'close': _plain('취소'),
                 'private_metadata': json.dumps({'rid': rid}),
                 'blocks': [{'type': 'input', 'block_id': 'reason', 'label': _plain('반려 사유'),
-                            'element': {'type': 'plain_text_input', 'action_id': 'reason', 'multiline': True,
+                            'element': {'type': 'plain_text_input', 'action_id': 'reason', 'multiline': True, 'max_length': 500,
                                         'placeholder': _plain('요청자에게 그대로 전달돼요.')}}]})
         except Exception as exc:
             logger.error(f'{_LOG} 반려 창 열기 실패: {exc}', exc_info=True)
@@ -471,7 +472,12 @@ def register_leave_handlers(app) -> None:
 
 
 def run_accrual(today: Optional[date] = None) -> int:
-    """매일 — 입사일 기준 새 연차를 넣고 본인에게 알린다. 넣은 줄 수."""
+    """매일 — 입사일 기준 새 연차를 넣고 본인에게 알린다. 넣은 줄 수.
+
+    LEAVE_ENABLED(플렉스에서 옮긴 날) 전에는 아무것도 안 한다 — 플렉스를 쓰는 동안 장부에 월차가 쌓이면
+    옮기는 날 플렉스 잔여와 겹쳐 두 번 잡히고, 직원에게 '연차가 생겼어요' DM 이 먼저 간다(11-05 점검)."""
+    if not lv.enabled():
+        return 0
     made = lv.accrue(today)
     if not made:
         return 0

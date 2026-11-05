@@ -447,7 +447,9 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('법인카드 지출결의 안내 매달 첫 영업일 09:00')
-        # 2026-11-05 휴가 — 입사일 기준 연차 자동 발생(입사 한 달마다·기념일). 명단이 비어 있으면 아무것도 안 함
+    # 2026-11-05 휴가 — 입사일 기준 연차 자동 발생(입사 한 달마다·기념일). 휴가 봇이 있을 때만,
+    #   실제로 넣는 건 LEAVE_ENABLED 뒤(run_accrual) — 플렉스를 쓰는 동안 장부·DM 이 따로 놀지 않게
+    if os.getenv('SLACK_LEAVE_BOT_TOKEN', '').strip():
         _scheduler.add_job(
             _safe_leave_accrual,
             'cron',
@@ -456,6 +458,7 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('연차 자동 발생 매일 07:30')
+    if os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '').strip() and os.getenv('SLACK_EAPPROVAL_CHANNEL', '').strip():
         # 2026-09-29 재활성 (사장님 승인): 경영지원(SB)이 수동으로 올리던 '수금완료 세금계산서
         #   미발행'을 자동화. 주간=① 수금완료·미발행(즉시 발행 대상, 짧고 급함),
         #   월간=① + ② 부분입금·미발행(계산서 마감 정리). 대상 0건이면 자동 skip.

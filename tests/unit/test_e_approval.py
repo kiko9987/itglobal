@@ -1131,7 +1131,7 @@ def test_revise_task_form_and_resubmit_back_to_processing(se):
     assert errs == {} and vals2['_edit'] == row['id']
     new = se.process_form_submit(MGR, key, vals2)
     assert new['status'] == ea.APPROVED and ea.extra(new)['f']['reason'] == '조달청 입찰 제출용'
-    assert ea.title(new) == ea.title(row)   # 결재 이름은 처음 그대로
+    assert ea.title(new) == ea.title(row)   # 현장·사업자가 그대로면 결재 이름도 그대로
 
 
 def test_supply_edit_prefill(se):
@@ -1249,6 +1249,50 @@ def test_invoice_photo_copied_to_card(se, monkeypatch):
     assert se.post_invoice_files(row) == 1
     up = se._fake.of('files_upload_v2')[-1]
     assert up['thread_ts'] == row['card_ts'] and up['initial_comment'].startswith('📄 계산서')
+
+
+def test_review_fixes_1105(se):
+    """11-05 점검 보완 — 계좌 가림·재승인 알림·계산서 고정·예전 계좌 표시·긴 카드·수정 중 후보."""
+    from dashboard.services import e_approval_forms as forms
+    # 개인경비 계좌는 바뀐 칸 기록에 값이 안 나온다
+    txt = se._changes_text(forms.FORM_EXPENSE, {'bank': ('신한은행', '국민은행'), 'account': ('110-1', '220-2'),
+                                                 'amount': (1000, 2000), 'project_code': ('G1', 'G2')})
+    assert '220-2' not in txt and '계좌번호 바뀜' in txt and '청구 금액 1000 → 2000' in txt.replace(',', '')
+    assert '현장 G1' not in txt                                   # 양식은 장부 칸 중복 기록 안 함
+    # 이체 DM 을 받은 경영지원 — 수정해서 다시 올라와 재승인되면 다시 알림
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    se.apply_action('approve', row['id'], KIKO)
+    se.apply_action('revise', row['id'], SB, '금액 확인')
+    se.process_new_submit(MGR, dict(se.validate_new_submit(_state_from_view(se.edit_view(ea.get(row['id']))))[0]))
+    n0 = len(se._fake.of('chat_postMessage'))
+    se.apply_action('approve', row['id'], KIKO)
+    notes = [m for m in se._fake.of('chat_postMessage')[n0:] if m['channel'] == 'D-' + SB]
+    assert notes and '다시 올라온' in notes[0]['text']
+    # 계산서로 올린 결재는 수정 창에서 계산서·현장을 바꿀 수 없다
+    inv = {'ch': 'C1', 'ts': '1.0', 'parsed': {'grn': 'G', 'amount': 1000, 'partner': '강원포장'}}
+    v = ea.new_request_view({'inv': inv, 'edit': 9}, 'G4049-JW', 'G4049-JW · 광명')
+    bids = [b.get('block_id') for b in v['blocks']]
+    assert 'invoice' not in bids and 'project' not in bids and '바꿀 수 없어요' in json.dumps(v, ensure_ascii=False)
+    # 긴 비고도 카드는 3,000자 안
+    long = ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS, memo='가' * 3500))
+    assert len(ea.card_blocks(long, ea.steps(long['id']), 'G4049-JW')[0]['text']['text']) <= 3000
+    # 수정 요청 중인 결재도 계산서 자동 연결 후보
+    r2 = ea.create(ea.FORM_FUND, KIKO, '고광일', dict(FIELDS, amount=777000))
+    ea.transition(r2['id'], 'revise', SB, '황샛별', 'x')
+    assert ea.find_unlinked_match('G', 777000, FIELDS['partner'])['id'] == r2['id']
+
+
+def test_edit_resets_payee_saved_mark(se):
+    ea.remember_payee(FIELDS['partner'], FIELDS['payee_name'], FIELDS['bank'], FIELDS['account'])
+    f = dict(FIELDS)
+    assert ea.complete_new_request(f) == {} and f['extra']['payee_saved']
+    row = se.process_new_submit(MGR, f)
+    se.apply_action('revise', row['id'], SB, '계좌 틀림')
+    f2, errs = se.validate_new_submit(_state_from_view(se.edit_view(ea.get(row['id'])),
+                                                       {'account': {'value': '333-333-333333'}}))
+    assert errs == {}
+    new = se.process_new_submit(MGR, f2)
+    assert new['account'] == '333-333-333333' and not ea.extra(new).get('payee_saved')
 
 
 def test_manifest_has_file_scopes():

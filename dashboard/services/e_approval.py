@@ -232,8 +232,9 @@ def find_unlinked_match(grn: str, amount: int, partner: str) -> Optional[dict]:
         _ensure_tables(conn)
         rows = conn.execute(
             '''SELECT * FROM approvals WHERE form=? AND origin_ts IS NULL AND amount=? AND grn=?
-               AND status IN (?,?,?) ORDER BY id DESC LIMIT 20''',
-            (FORM_FUND, int(amount), grn, PENDING, APPROVED, DONE)).fetchall()
+               AND status IN (?,?,?,?) ORDER BY id DESC LIMIT 20''',
+            # 수정 요청 중인 결재도 후보 — 빼면 같은 건으로 결재를 또 올려 두 번 이체할 수 있다(11-05)
+            (FORM_FUND, int(amount), grn, PENDING, APPROVED, REVISE, DONE)).fetchall()
     hits = [dict(r) for r in rows if partner_key(r['partner']) == key]
     return hits[0] if len(hits) == 1 else None
 
@@ -327,12 +328,12 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
             sets.append(f'{c}=?')
             vals.append(v)
         if 'extra' in fields:
-            new_x = {k: v for k, v in (fields.get('extra') or {}).items() if k != 'title'}   # 결재 이름은 처음 그대로
+            new_x = dict(fields.get('extra') or {})   # 결재 이름도 고친 값으로(G→R 현장·지출결의 달, 11-05 점검)
             old_x = extra(old)
             ex = {**old_x, **new_x}
             # 바뀐 칸 — 양식 값(f) + 비품 칸(link·qty·unit_price·reason)
             pairs = [(old_x.get('f') or {}, new_x.get('f') or {})] if 'f' in new_x else []
-            pairs.append(({k: v for k, v in old_x.items() if k not in ('f', 'title', 'payee_saved')},
+            pairs.append(({k: v for k, v in old_x.items() if k not in ('f', 'payee_saved')},
                           {k: v for k, v in new_x.items() if k not in ('f', 'payee_saved')}))
             for a, b in pairs:
                 for k in b:
@@ -683,8 +684,11 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
 def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amount: int = 0,
                 role: str = 'all') -> List[dict]:
     # 11-01 다른 채널 카드처럼 위·아래, 내용과 버튼 사이에 한 줄씩 여백.
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn',
-                                           'text': '⠀\n' + card_text(row, step_rows, project_line, quote_amount)}}]
+    # section 글자 한도 3,000자 — 넘으면 카드 게시·갱신이 통째로 실패한다(긴 비고·사유, 11-05 점검)
+    body = '⠀\n' + card_text(row, step_rows, project_line, quote_amount)
+    if len(body) > 2900:
+        body = body[:2880] + '\n…(길어서 줄였어요)'
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': body}}]
     btns = buttons(row, role)
     if btns:
         blocks.append(_SPACER)
@@ -1086,17 +1090,26 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         inv_el['initial_option'] = invoice_option(inv)
     elif meta.get('no_inv'):
         inv_el['initial_option'] = invoice_option(None)
-    blocks: List[dict] = [{
-        'type': 'input', 'block_id': 'invoice', 'optional': True, 'dispatch_action': True,
-        'label': {'type': 'plain_text', 'text': '계산서'}, 'element': inv_el,
-        'hint': {'type': 'plain_text', 'text': '계산서 선택 시 거래처 · 금액 정보 자동 채움. '
-                                               '계산서가 없으면 비워 두세요(선입금).'}}]
-    if inv:
+    edit = bool(meta.get('edit'))
+    if edit:
+        # 수정 창에서는 계산서 연결을 바꾸지 않는다 — 바꾸면 금액은 새 계산서, 연결·현장 지정은 예전 글로
+        # 어긋나고 새 계산서로 결재가 또 올라갈 수 있다(11-05 점검). 계산서가 다르면 취소하고 새로 올린다.
+        blocks: List[dict] = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': (
+            f"*계산서* {invoice_option(inv)['text']['text']} (바꿀 수 없어요)" if inv else
+            '*계산서* 없음 (선입금) — 계산서를 바꾸려면 이 요청을 취소하고 새로 올려 주세요.')}}]
+    else:
+        blocks = [{
+            'type': 'input', 'block_id': 'invoice', 'optional': True, 'dispatch_action': True,
+            'label': {'type': 'plain_text', 'text': '계산서'}, 'element': inv_el,
+            'hint': {'type': 'plain_text', 'text': '계산서 선택 시 거래처 · 금액 정보 자동 채움. '
+                                                   '계산서가 없으면 비워 두세요(선입금).'}}]
+    if inv and edit:
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                       '📄 거래처·금액·현장은 계산서 글에 지정된 그대로예요. 계산서 파일은 처음 올릴 때 카드 스레드에 붙었어요.'}]})
+    elif inv:
         files = meta.get('inv_files') or []
         link = f" <{meta['inv_link']}|계산서 글 보기>" if meta.get('inv_link') else ''
-        if meta.get('edit'):
-            photo = '📎 계산서 파일은 처음 올릴 때 결재 카드 스레드에 붙었어요.'
-        elif files:
+        if files:
             photo = f"📎 계산서 파일({', '.join(files)})은 요청하면 결재 카드 스레드에 자동으로 붙어요.{link}"
         else:
             photo = f'📎 계산서 글에 붙은 파일이 없어요. 계산서 파일이 있으면 아래 「첨부 파일」에 올려 주세요.{link}'
