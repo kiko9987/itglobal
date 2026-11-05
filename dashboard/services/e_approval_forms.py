@@ -29,6 +29,32 @@ GUARANTEE_TYPES = ['입찰보증', '계약보증', '선금보증', '하자보증
 # 계약서에 적어 두는 보증(11-01) — 보증보험 신청 종류와 같은 이름이라 그대로 맞춰 본다
 CONTRACT_GUARANTEES = ['계약보증', '선금보증', '하자보증']
 GRN_OPTIONS = ['G (글로벌)', 'R (글로벌그룹)', 'N (사업자 없음)']
+
+# 은행 — 직접 쓰면 '국민/국민은행/KB국민', '신한은핸' 처럼 29가지로 갈려(11-05 장부 확인) 고르기로.
+# 농협은 NH농협은행·지역농협을 매니저가 구분하기 어려워 하나로 두고 경영지원이 계좌번호로 판단(플렉스 때와 같음).
+BANKS = ['KB국민은행', '신한은행', '우리은행', '하나은행', 'IBK기업은행', '농협', '카카오뱅크', '토스뱅크',
+         '케이뱅크', '새마을금고', '신협', '수협', '우체국', 'SC제일은행', '한국씨티은행', 'iM뱅크(대구)',
+         '부산은행', '경남은행', '광주은행', '전북은행', '제주은행', 'KDB산업은행', '기타']
+BANK_HINT = '목록에 없으면 「기타」를 고르고 은행 이름을 비고·사유 칸에 적어 주세요.'
+_BANK_KEYS = [('국민', 'KB국민은행'), ('신한', '신한은행'), ('우리', '우리은행'), ('하나', '하나은행'),
+              ('기업', 'IBK기업은행'), ('ibk', 'IBK기업은행'), ('농협', '농협'), ('축협', '농협'), ('nh', '농협'),
+              ('카카오', '카카오뱅크'), ('토스', '토스뱅크'), ('케이뱅크', '케이뱅크'), ('k뱅크', '케이뱅크'),
+              ('새마을', '새마을금고'), ('신협', '신협'), ('수협', '수협'), ('우체국', '우체국'),
+              ('제일', 'SC제일은행'), ('스탠다드', 'SC제일은행'), ('sc', 'SC제일은행'), ('씨티', '한국씨티은행'),
+              ('citi', '한국씨티은행'), ('대구', 'iM뱅크(대구)'), ('im뱅크', 'iM뱅크(대구)'), ('부산', '부산은행'),
+              ('경남', '경남은행'), ('광주', '광주은행'), ('전북', '전북은행'), ('제주', '제주은행'),
+              ('산업', 'KDB산업은행'), ('kdb', 'KDB산업은행')]
+
+
+def normalize_bank(name: str) -> str:
+    """예전에 직접 쓴 은행 이름 → BANKS 값. 둘 이상에 걸리거나(예: '신한은행(농협)') 모르면 ''(다시 고르게)."""
+    s = re.sub(r'\s+', '', str(name or '')).lower()
+    if not s:
+        return ''
+    if name in BANKS:
+        return name
+    hits = {bank for key, bank in _BANK_KEYS if key in s}
+    return hits.pop() if len(hits) == 1 else ''
 GUARANTEE_KEYS = {'계약보증': 'g_contract', '선금보증': 'g_advance', '하자보증': 'g_defect'}
 CORP_DOC_TYPES = ['인감증명서', '사용인감계', '법인등기사항전부증명서', '주주명부', '재무제표', '부가가치세증명원',
                   '국세완납증명서', '지방세완납증명서', '4대보험완납증명서', '4대보험가입자명부', '산업재해율확인서',
@@ -155,7 +181,7 @@ _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋', 'spend', amount_key='amou
               F('cost', '원가 분류', 'select', options=[]),   # COST_CATEGORIES 로 채움
               F('amount', '청구 금액 (원)', 'money'),
               F('reason', '사유', 'multiline'),
-              F('bank', '은행', auto='@my_bank', card=False),
+              F('bank', '은행', 'select', options=BANKS, auto='@my_bank', card=False, hint=BANK_HINT),
               F('account', '계좌번호', auto='@my_account', card=False, hint='계좌번호는 숫자와 하이픈으로'),
           ]))
 
@@ -212,7 +238,7 @@ def prefill(form: Form, rec: Optional[dict], memory: Optional[dict] = None,
         elif f.auto == '@card':
             out[f.key] = mem.get('card', '')
         elif f.auto == '@my_bank':
-            out[f.key] = mem.get('bank', '')
+            out[f.key] = normalize_bank(mem.get('bank', ''))   # 예전 직접 입력값 → 고르기 항목
         elif f.auto == '@my_account':
             out[f.key] = mem.get('account', '')
         elif rec:
