@@ -133,7 +133,7 @@ _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card
               F('kind', '보증 종류', 'select', options=GUARANTEE_TYPES),
               F('project', '현장', 'project'),
               F('total', '총 금액 (VAT 포함, 원)', 'money', auto='총액 2'),
-              F('rate', '이행율 (%)', 'number', placeholder='예: 10'),
+              F('rate', '보증금율 (%)', 'number', placeholder='예: 10'),
               F('start', '보증 시작일', 'date'),
               F('years', '보증 기간 (년)', 'number', placeholder='예: 2'),
               F('send', '전달 방법', 'select', options=['이메일', '담당자 직접 전달']),
