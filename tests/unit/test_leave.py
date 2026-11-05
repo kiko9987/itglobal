@@ -64,7 +64,6 @@ def test_validate_balance_and_overlap(db):
     assert '겹쳐요' in lv.validate('박민우', lv.ANNUAL, '', date(2026, 11, 9), date(2026, 11, 9))['start']
     # 관리자 부여 휴가는 경영지원에게도 안 보인다(11-05)
     assert 'type' in lv.validate('박민우', 'reward', '', date(2026, 11, 9), date(2026, 11, 9))
-    assert 'type' in lv.validate('박민우', 'reward', '', date(2026, 11, 12), date(2026, 11, 12), for_manager=True)
 
 
 def test_event_and_sick_limits(db):
@@ -121,13 +120,10 @@ def test_cancel_rules(db):
     assert r['status'] == lv.CANCELLED and lv.balance('박민우', date(2026, 11, 9)) == 3
 
 
-def test_proxy_request_for_staff_without_slack(db):
-    lv.upsert_staff('권태숙', '2023-07-24', '', accrue_from='2026-11-06')
-    lv.add_grant('권태숙', 12, date(2026, 11, 5), date(2027, 7, 23), 'flex:권태숙')
-    r = lv.create('권태숙', '', KIKO, '고광일', lv.ANNUAL, '', date(2026, 11, 16), date(2026, 11, 16))
-    assert r['status'] == lv.WAIT_1 and r['submitter_id'] == KIKO
-    assert lv.can_act('cancel', r, KIKO)
-    assert '대신 신청: 고광일' in lv.card_text(r, lv.steps(r['id']), 'requester', 11)
+def test_manager_can_cancel_others_leave(db):
+    _seed(left=3)
+    r = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 16), date(2026, 11, 16))
+    assert lv.can_act('cancel', r, KIKO) and not lv.can_act('cancel', r, 'U-OTHER')
 
 
 def test_announce_text_hides_type_and_reason():
@@ -210,23 +206,21 @@ def test_cancel_after_announce_strikes_message(slack):
 def test_leave_view_fields(db):
     from dashboard.blueprints import slack_leave as sl
     _seed()
-    lv.upsert_staff('권태숙', '2023-07-24', '')
-    v = sl.leave_view({'name': '박민우', 'mgr': False})
+    v = sl.leave_view({'name': '박민우'})
     ids = [b.get('block_id') for b in v['blocks'] if b.get('block_id')]
-    assert ids == ['lv_type', 'lv_start', 'lv_end', 'lv_reason']
+    assert ids == ['lv_type', 'lv_start', 'lv_end', 'lv_reason']   # 대신 신청 칸 없음(11-05)
     assert v['blocks'][-1]['optional'] is False                      # 사유 필수(11-05)
     types = [o['value'] for o in v['blocks'][1]['element']['options']]
     assert 'reward' not in types and lv.HALF_AM in types
-    v = sl.leave_view({'name': '권태숙', 'mgr': True}, {'type': lv.EVENT})
+    v = sl.leave_view({'name': '박민우'}, {'type': lv.EVENT})
     ids = [b.get('block_id') for b in v['blocks'] if b.get('block_id')]
-    assert ids[:3] == ['lv_who', 'lv_type', 'lv_sub'] and 'reward' not in str(v['blocks'])
-    assert '권태숙 (슬랙 없음)' in str(v['blocks'][0])
+    assert ids[:2] == ['lv_type', 'lv_sub']
     v = sl.leave_view({'name': '박민우'}, {'type': lv.HALF_PM})
     assert [b.get('block_id') for b in v['blocks'] if b.get('block_id')] == ['lv_type', 'lv_start', 'lv_reason']
     st = {'state': {'values': {'lv_type': {'lv_type': {'selected_option': {'value': 'sick'}}},
                                'lv_start': {'lv_start': {'selected_date': '2026-11-09'}},
                                'lv_reason': {'lv_reason': {'value': ' 진료 '}}}}}
-    assert sl.read_view(st) == {'who': '', 'type': 'sick', 'sub': '', 'start': '2026-11-09', 'end': '',
+    assert sl.read_view(st) == {'type': 'sick', 'sub': '', 'start': '2026-11-09', 'end': '',
                                 'reason': '진료'}
 
 

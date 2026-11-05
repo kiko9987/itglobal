@@ -73,20 +73,16 @@ def _datepicker(block_id: str, label: str, initial: str = '', optional: bool = F
 
 
 def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
-    """meta: name(휴가 쓰는 사람)·mgr(경영지원 — 대신 신청·관리자 부여 휴가)·origin. vals: 고른 값(다시 그릴 때)."""
+    """meta: name(신청하는 본인). vals: 고른 값(다시 그릴 때). 휴가는 본인만 신청(대신 신청 없음, 11-05)."""
     vals = vals or {}
-    name, mgr = meta.get('name', ''), bool(meta.get('mgr'))
+    name = meta.get('name', '')
     ltype = vals.get('type') or lv.ANNUAL
     blocks = []
-    if mgr:
-        people = [(p['name'], p['name'] + ('' if p.get('slack_id') else ' (슬랙 없음)')) for p in lv.staff()]
-        blocks.append(_select('lv_who', '휴가 쓰는 사람', people, initial=name, dispatch=True,
-                              hint='다른 직원 대신 신청할 때만 바꿔 주세요.'))
     left = lv.balance(name) if name else 0
     blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                    f'*{name}* 님 오늘 기준 남은 연차: *{lv.fmt_days(left)}*'}]})
-    # 칸 id 는 lv_ 를 붙인다 — 같은 봇의 다른 양식 칸(kind·guarantees 등) 핸들러와 겹치지 않게
-    blocks.append(_select('lv_type', '휴가 종류', lv.type_options(mgr), initial=ltype, dispatch=True))
+    # 칸 id 는 lv_ 를 붙인다 — 다른 봇 양식 칸 이름과 헷갈리지 않게
+    blocks.append(_select('lv_type', '휴가 종류', lv.type_options(), initial=ltype, dispatch=True))
     if ltype == lv.EVENT:
         blocks.append(_select('lv_sub', '경조사 종류', [(k, f'{v[0]} ({v[1]}일)') for k, v in lv.EVENT_SUBS.items()],
                               initial=vals.get('sub', '')))
@@ -116,7 +112,7 @@ def read_view(view: dict) -> dict:
         el = (st.get(f'lv_{key}') or {}).get(f'lv_{key}') or {}
         return ((el.get('selected_option') or {}).get('value') or el.get('selected_date')
                 or (el.get('value') or '').strip() or '')
-    return {k: _v(k) for k in ('who', 'type', 'sub', 'start', 'end', 'reason')}
+    return {k: _v(k) for k in ('type', 'sub', 'start', 'end', 'reason')}
 
 
 def _errors(errs: dict) -> dict:
@@ -141,11 +137,7 @@ def start_view(uid: str) -> dict:
     if not lv.is_open(uid):
         return _not_open_view()
     me = lv.staff_by_slack(uid)
-    mgr = uid in lv.manager_ids()
-    if not me and mgr:
-        people = lv.staff()
-        me = people[0] if people else None
-    return leave_view({'name': me['name'], 'mgr': mgr}) if me else _not_listed_view(_eap()._name(uid))
+    return leave_view({'name': me['name']}) if me else _not_listed_view(_eap()._name(uid))
 
 
 def open_leave_modal(client, body) -> None:
@@ -160,7 +152,7 @@ def open_leave_modal(client, body) -> None:
 
 # ── DM ────────────────────────────────────────────────────────────────
 def _requester_ids(row: dict) -> list:
-    """요청자 카드 받을 사람 — 본인(슬랙 있으면) + 대신 신청한 경영지원."""
+    """요청자 카드 받을 사람 — 본인(신청한 사람과 같다)."""
     out = []
     for u in (row.get('slack_id'), row.get('submitter_id')):
         if u and u not in out:
@@ -311,13 +303,11 @@ def register_leave_handlers(app) -> None:
             logger.error(f'{_LOG} 신청 창 열기 실패: {exc}', exc_info=True)
 
     def _redraw(ack, body, client):
-        """사람·종류를 고르면 창을 다시 그린다(경조사 세부·반차 날짜 칸, 남은 연차)."""
+        """종류를 고르면 창을 다시 그린다(경조사 세부·반차 날짜 칸)."""
         ack()
         view = body.get('view') or {}
         meta = json.loads(view.get('private_metadata') or '{}')
         vals = read_view(view)
-        if meta.get('mgr') and vals.get('who'):
-            meta['name'] = vals['who']
         try:
             client.views_update(view_id=view['id'], hash=view.get('hash'), view=leave_view(meta, vals))
         except Exception as exc:
@@ -338,31 +328,28 @@ def register_leave_handlers(app) -> None:
             logger.error(f'{_LOG} 워크플로 단계(휴가 신청 열기) 실패: {exc}', exc_info=True)
             fail(error='휴가 신청 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
 
-    app.action('lv_who')(_redraw)
     app.action('lv_type')(_redraw)
 
     @app.view(lv.CB_SUBMIT)
     def handle_leave_submit(ack, body, view):
         uid = (body.get('user') or {}).get('id', '')
-        meta = json.loads(view.get('private_metadata') or '{}')
         vals = read_view(view)
-        mgr = uid in lv.manager_ids()
-        name = vals.get('who') if (mgr and vals.get('who')) else meta.get('name', '')
-        person = lv.staff_by_name(name) if name else None
-        if not person or (not mgr and person.get('slack_id') != uid):
+        person = lv.staff_by_slack(uid)       # 휴가는 본인만 — 누른 사람의 슬랙 계정으로 정한다
+        if not person:
             ack(response_action='errors', errors={'lv_type': '휴가 명단에서 찾지 못했어요. 경영지원에 문의해 주세요.'})
             return
+        name = person['name']
         if not vals.get('reason'):
             ack(response_action='errors', errors={'lv_reason': '사유를 적어 주세요.'})
             return
         ltype, sub = vals.get('type', ''), vals.get('sub', '')
         start = lv._d(vals.get('start'))
         end = start if ltype in lv.HALF_TYPES else (lv._d(vals.get('end')) or start)
-        errs = lv.validate(name, ltype, sub, start, end, for_manager=mgr)
+        errs = lv.validate(name, ltype, sub, start, end)
         if errs:
             ack(response_action='errors', errors=_errors(errs))
             return
-        row = lv.create(name, person.get('slack_id') or '', uid, se._name(uid), ltype, sub, start, end,
+        row = lv.create(name, uid, uid, name, ltype, sub, start, end,
                         vals.get('reason', ''))
         if not row:
             ack(response_action='errors', errors={'lv_start': '그 사이 남은 연차가 바뀌었어요. 다시 확인해 주세요.'})
