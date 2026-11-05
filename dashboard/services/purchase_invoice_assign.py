@@ -30,8 +30,8 @@ CALLBACK_SUBMIT = 'submit_pinv_assign'  # 모달 제출
 STOCK_CODE = '프로젝트0'    # 회사 재고로 사거나 회사로 먼저 사서 나중에 현장에 내보내는 것
 COMMON_CODE = '공통비'      # 사무실 등 현장과 무관한 비용
 SPECIAL_LABELS = {
-    STOCK_CODE: '프로젝트 0 | 회사 재고 (현장 미정 자재)',   # 현장 목록과 같은 ' | ' 구분(11-05)
-    COMMON_CODE: '공통비 | 현장 무관 (사무실 집기, 수선비 등)',
+    STOCK_CODE: '프로젝트 0 · 회사 재고 (현장 미정 자재)',
+    COMMON_CODE: '공통비 · 현장 무관 (사무실 집기, 수선비 등)',
 }
 
 # ── 원가 분류 (공사현황 손익 4칸 + 기타비 세부) ─────────────────────
@@ -147,8 +147,8 @@ def build_project_options(recs: List[dict], query: str, manager_name: Optional[s
 
 def project_display(code: str, rec: Optional[dict]) -> str:
     """답글용 한 줄 — 'G4049-JW · 광명 양지로 21 …' / '프로젝트0 · 회사 재고'."""
-    if code in SPECIAL_LABELS:   # 목록은 현장 목록과 같은 ' | ', 카드·답글 한 줄은 다른 현장처럼 ' · '
-        return SPECIAL_LABELS[code].split(' (')[0].replace(' | ', ' · ')
+    if code in SPECIAL_LABELS:
+        return SPECIAL_LABELS[code].split(' (')[0]
     addr = str((rec or {}).get('현장 주소') or '').strip()
     return f'{code} · {addr}' if addr else code
 
