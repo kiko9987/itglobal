@@ -985,7 +985,7 @@ def register_eapproval_handlers(app) -> None:
         ack()
         view_id = _hub_view_id(body)
         try:
-            open_new_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''),
+            open_new_modal(client, body.get('trigger_id', ''), (body.get('user') or {}).get('id', ''),
                            origin='shortcut' if view_id else 'menu', view_id=view_id)
         except Exception as exc:
             logger.error(f'{_LOG} 새 요청 창 열기 실패: {exc}', exc_info=True)
@@ -1029,7 +1029,7 @@ def register_eapproval_handlers(app) -> None:
 
     def _open_form_from(body, client, form_key):
         try:
-            open_form_modal(client, body['trigger_id'], (body.get('user') or {}).get('id', ''), form_key,
+            open_form_modal(client, body.get('trigger_id', ''), (body.get('user') or {}).get('id', ''), form_key,
                             view_id=_hub_view_id(body))
         except Exception as exc:
             logger.error(f'{_LOG} 양식 창 열기 실패 ({form_key}): {exc}', exc_info=True)
