@@ -180,7 +180,7 @@ _add(Form(FORM_CARDEXP, '법인카드 지출결의서', '🧾', 'task',
               F('memo', '비고', 'multiline', required=False),
           ]))
 
-_add(Form(FORM_EXPENSE, '개인경비 청구', '🙋', 'spend', amount_key='amount',
+_add(Form(FORM_EXPENSE, '개인경비 청구', '🙋‍♂️', 'spend', amount_key='amount',   # 캔버스 '본인 방문' 아이콘과 같게(11-05)
           note='본인 돈으로 먼저 쓴 비용을 돌려받는 요청이에요. 계좌는 카드에 보이지 않고 경영지원에게만 보여요.',
           fields=[
               F('use_date', '사용일자', 'date'),
