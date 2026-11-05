@@ -5,7 +5,7 @@ import AmountCalculator from '../utils/AmountCalculator.js';
 import FormValidator from '../utils/FormValidator.js';
 import ProjectCodeGenerator from '../utils/ProjectCodeGenerator.js';
 import { isNonSales } from '../utils/staffDirectory.js';
-import { initLeadProjectLoader, getLinkedLead, clearLinkedLead } from '../utils/leadProjectLoader.js';
+import { initLeadProjectLoader, getLinkedLead, clearLinkedLead, linkLead } from '../utils/leadProjectLoader.js';
 import {
   businessNamesForPartner, inflowGroup, isPartnerName, shortPartnerName, suggestPartnerForBiz,
   suggestPartnerFromPhone, suggestPartnerFromText, isSplitBizValue,
@@ -215,8 +215,23 @@ export default class ModernProjectModal {
         this.validateAddress();
         // 수동 입력 시 방문 등록과 동일한 주소 파싱 규칙(서버) 적용
         this.normalizeAddressViaServer();
+        this.scheduleLeadMatch(0);
       });
     }
+
+    // 리드 없이 연락처·주소를 넣으면 최근 방문 리드와 대조해 알림 (2026-11-06)
+    //   연락처는 번호가 다 들어갔을 때, 주소는 칸을 벗어날 때(위 blur). 유입 구분이 바뀌면 다시
+    //   (거래처면 연락처로는 안 맞춤)
+    const phoneInputForMatch = document.getElementById('modern-manager-phone');
+    if (phoneInputForMatch) {
+      phoneInputForMatch.addEventListener('input', () => {
+        const digits = (phoneInputForMatch.value || '').replace(/\D/g, '');
+        if (digits.length >= 10 || digits.length === 0) this.scheduleLeadMatch(400);
+      });
+      phoneInputForMatch.addEventListener('blur', () => this.scheduleLeadMatch(0));
+    }
+    const clientForMatch = document.getElementById('modern-client');
+    if (clientForMatch) clientForMatch.addEventListener('change', () => this.scheduleLeadMatch(0));
 
     // 유입 구분 ↔ 사업자명 잠금 연동
     // 거래처가 아니면 사업자명은 '-' 고정 + readonly (사업자등록증 미수령 전 상태)
@@ -554,6 +569,171 @@ export default class ModernProjectModal {
     if (clientSelForReset && !hasLinkedLead) clientSelForReset.value = '';
     // 사업자명 잠금(유입구분 연동)은 그대로 재적용
     this.syncBusinessNameLock();
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // 수동 입력 리드 대조 (2026-11-06)
+  // 방문한 현장인데 리드 없이 수동으로 등록하면 리드 번호가 안 이어져 나중에 찾기 어렵다.
+  // 연락처·주소를 넣는 순간 최근 방문 리드(/leads/api/match-for-project)를 찾아 주소 칸 아래에
+  // 알림 → [이 리드로 연결]이면 불러오기와 똑같이 연결, [다른 현장입니다]면 감사 로그에 남김.
+  // 알림이 떠 있는데 둘 다 안 누르고 등록하면 제출 때 한 번 더 묻는다.
+  // ─────────────────────────────────────────────────────────────
+
+  scheduleLeadMatch(delay = 0) {
+    clearTimeout(this._leadMatchTimer);
+    // 불러오기 연결은 연락처 칸 input 이벤트 뒤에 리드 번호를 넣으므로 항상 한 박자 늦게 판단
+    this._leadMatchTimer = setTimeout(() => { this.checkLeadMatch(); }, Math.max(delay, 50));
+  }
+
+  _leadMatchQuery() {
+    const leadNo = (document.getElementById('modern-lead-no')?.value || '').trim();
+    if (leadNo) return null;
+    const phone = (document.getElementById('modern-manager-phone')?.value || '').trim();
+    const address = (document.getElementById('modern-address-normalized')?.value
+      || document.getElementById('modern-address')?.value || '').trim();
+    const inflow = (document.getElementById('modern-client')?.value || '').trim();
+    if (phone.replace(/\D/g, '').length < 9 && !address) return null;
+    return { phone, address, inflow };
+  }
+
+  async checkLeadMatch() {
+    const q = this._leadMatchQuery();
+    if (!q) { this.renderLeadMatch([]); this._leadMatchKey = ''; return; }
+    const key = `${q.phone}|${q.address}|${q.inflow}`;
+    if (key === this._leadMatchKey) return this._leadMatchInflight;   // 같은 값 — 진행 중이면 그 결과를 기다림
+    this._leadMatchKey = key;
+    const seq = (this._leadMatchSeq = (this._leadMatchSeq || 0) + 1);
+    this._leadMatchInflight = this._fetchLeadMatch(q, seq);
+    return this._leadMatchInflight;
+  }
+
+  async _fetchLeadMatch(q, seq) {
+    try {
+      const params = new URLSearchParams(q);
+      const res = await fetch(`/leads/api/match-for-project?${params}`, { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (seq !== this._leadMatchSeq || !this._leadMatchQuery()) return;   // 그 사이 입력이 바뀌었거나 리드가 연결됨
+      const dismissed = this._leadMatchDismissed || new Set();
+      const leads = ((json.data && json.data.leads) || []).filter((l) => !dismissed.has(l.lead_no));
+      this.renderLeadMatch(leads);
+    } catch (err) {
+      logger.warn('[ModernProjectModal] 리드 대조 실패:', err);
+      this._leadMatchKey = '';   // 다음 입력 때 다시 시도
+    }
+  }
+
+  _leadMatchBox() {
+    let box = document.getElementById('modern-lead-match');
+    if (box) return box;
+    const anchor = document.getElementById('modern-address-normalized-note');
+    if (!anchor || !anchor.parentElement) return null;
+    box = document.createElement('div');
+    box.id = 'modern-lead-match';
+    box.className = 'd-none mt-3';
+    box.style.cssText = 'padding: 0.7rem 0.9rem; background-color: #fff8e1; border-left: 4px solid #ffc107; border-radius: 0.25rem; font-size: var(--font-size-sm); color: #5c4a00;';
+    anchor.parentElement.appendChild(box);
+    box.addEventListener('click', (e) => {
+      const linkBtn = e.target.closest('[data-lead-match-link]');
+      if (linkBtn) {
+        e.preventDefault();
+        this.linkMatchedLead(linkBtn.getAttribute('data-lead-match-link'));
+        return;
+      }
+      if (e.target.closest('[data-lead-match-dismiss]')) {
+        e.preventDefault();
+        this.dismissLeadMatch();
+      }
+    });
+    return box;
+  }
+
+  renderLeadMatch(leads) {
+    this._leadMatchPending = leads || [];
+    const box = this._leadMatchBox();
+    if (!box) return;
+    if (!this._leadMatchPending.length) {
+      box.classList.add('d-none');
+      box.innerHTML = '';
+      return;
+    }
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const md = (d) => { const m = /^\d{4}-(\d{2})-(\d{2})/.exec(d || ''); return m ? `${+m[1]}/${+m[2]}` : ''; };
+    const rows = this._leadMatchPending.map((l) => `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0; border-top: 1px dashed #f0d58a;">
+        <div style="min-width: 0;">
+          <strong>${esc(l.lead_no)}</strong> · ${esc(l.name || '이름 없음')} · ${esc(md(l.visit_date))} ${esc(l.status)}${l.manager ? ` (${esc(l.manager)})` : ''}
+          <div style="font-size: 0.78rem; color: #7a6a2a;">${esc(l.address || '-')} · ${esc(l.match)} 같음</div>
+        </div>
+        <button type="button" class="btn btn-sm btn-warning" data-lead-match-link="${esc(l.lead_no)}" style="white-space: nowrap; font-size: 0.78rem;">이 리드로 연결</button>
+      </div>`).join('');
+    box.innerHTML = `
+      <div style="font-weight: 600; margin-bottom: 0.2rem;">🔗 이미 방문한 현장일 수 있어요</div>
+      <div style="margin-bottom: 0.3rem;">같은 현장이면 리드로 연결해 주세요. 리드 번호가 함께 저장돼 나중에 찾기 쉽습니다.</div>
+      ${rows}
+      <div style="text-align: right; margin-top: 0.4rem;">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-lead-match-dismiss="1" style="font-size: 0.78rem;">다른 현장입니다</button>
+      </div>`;
+    box.classList.remove('d-none');
+  }
+
+  linkMatchedLead(leadNo) {
+    const lead = (this._leadMatchPending || []).find((l) => l.lead_no === leadNo);
+    if (!lead || !linkLead(lead)) return;   // 사업자·유입 구분이 안 맞으면 불러오기 쪽 경고가 뜸
+    // 연결됐으니 수동 입력 해제 → 불러오기로 채운 상태와 같게 (리드가 연결돼 있어 유입 구분 유지)
+    const manualCheck = document.getElementById('modern-manual-input');
+    if (manualCheck && manualCheck.checked) {
+      manualCheck.checked = false;
+      this.syncManualInputLock();
+    }
+    this.renderLeadMatch([]);
+    this._leadMatchKey = '';
+    document.getElementById('modern-lead-linked-info')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  dismissLeadMatch() {
+    const leads = this._leadMatchPending || [];
+    if (!leads.length) return;
+    const q = this._leadMatchQuery() || {};
+    this._leadMatchDismissed = this._leadMatchDismissed || new Set();
+    leads.forEach((l) => this._leadMatchDismissed.add(l.lead_no));
+    fetch('/api/leads/match-for-project/dismiss', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lead_nos: leads.map((l) => l.lead_no), phone: q.phone || '', address: q.address || '' }),
+    }).catch((err) => logger.warn('[ModernProjectModal] 대조 무시 기록 실패:', err));
+    this.renderLeadMatch([]);
+  }
+
+  /** 제출 직전 — 대조 알림을 그냥 두고 등록하면 한 번 더 확인. 등록을 멈추면 false */
+  async confirmLeadMatchBeforeSubmit() {
+    clearTimeout(this._leadMatchTimer);
+    // 방금 친 값도 반영 (같은 값이면 진행 중인 대조를 기다리거나 바로 끝남)
+    try { await this.checkLeadMatch(); } catch (_) { /* 대조 실패는 등록을 막지 않음 */ }
+    if (!this._leadMatchQuery()) return true;
+    const leads = this._leadMatchPending || [];
+    if (!leads.length) return true;
+    const names = leads.map((l) => l.lead_no).join(', ');
+    const ok = window.confirm(
+      `앞서 찾은 방문 리드(${names})와 연결하지 않고 등록할까요?\n\n`
+      + "같은 현장이면 '취소'를 누르고 주소 아래 알림에서 [이 리드로 연결]을 눌러 주세요.");
+    if (ok) {
+      this.dismissLeadMatch();
+      return true;
+    }
+    document.getElementById('modern-lead-match')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return false;
+  }
+
+  resetLeadMatch() {
+    clearTimeout(this._leadMatchTimer);
+    this._leadMatchSeq = (this._leadMatchSeq || 0) + 1;
+    this._leadMatchKey = '';
+    this._leadMatchInflight = null;
+    this._leadMatchDismissed = new Set();
+    this.renderLeadMatch([]);
   }
 
   /**
@@ -1766,6 +1946,11 @@ export default class ModernProjectModal {
         this._submitInProgress = false;  // 검증 실패도 클리어
         return;
       }
+      // 리드 없이 등록하는데 대조된 방문 리드를 그냥 두었으면 한 번 더 확인 (2026-11-06)
+      if (!(await this.confirmLeadMatchBeforeSubmit())) {
+        this._submitInProgress = false;
+        return;
+      }
     }
 
     // 1. 버튼을 "추가 중..." 상태로 변경
@@ -2129,6 +2314,7 @@ export default class ModernProjectModal {
     this.syncManualInputLock();
 
     // 리드 연결 UI 초기화
+    this.resetLeadMatch();
     const leadNo = document.getElementById('modern-lead-no');
     if (leadNo) leadNo.value = '';
     const leadLinked = document.getElementById('modern-lead-linked-info');

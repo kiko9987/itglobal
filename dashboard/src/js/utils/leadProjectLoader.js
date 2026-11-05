@@ -398,6 +398,14 @@ export function getLinkedLead() {
   return currentLead;
 }
 
+// 외부(모달)에서 리드를 골라 연결 — 수동 입력 중 대조 알림의 [이 리드로 연결] (2026-11-06).
+// 불러오기에서 고른 것과 똑같이 채움. 사업자와 유입 구분이 안 맞아 막히면 false.
+export function linkLead(lead) {
+  if (!moduleOpts || !lead) return false;
+  applyLead(lead, moduleOpts);
+  return currentLead === lead;
+}
+
 // 외부(모달)에서 연결된 현장을 해제할 때 사용 — 로드된 모든 필드+뱃지 초기화.
 // 사업자를 현장과 안 맞는 값으로 바꿨을 때 현장 연결 자체를 끊는 용도.
 export function clearLinkedLead() {

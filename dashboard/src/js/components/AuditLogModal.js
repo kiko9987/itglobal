@@ -407,6 +407,7 @@ export default class AuditLogModal {
       'DELETE_PROJECT': { text: '프로젝트 삭제', style: 'background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2;' },
       'CANCEL_PROJECT': { text: '공사 취소', style: 'background-color: #fff3e0; color: #f57c00; border: 1px solid #ffcc80;' },
       'RESUME_PROJECT': { text: '공사 재개', style: 'background-color: #e0f7fa; color: #00838f; border: 1px solid #b2ebf2;' },
+      'LEAD_MATCH_DISMISS': { text: '리드 대조 넘김', style: 'background-color: #fff8e1; color: #8d6e00; border: 1px solid #ffe082;' },
 
       // 인증 관련
       'LOGIN': { text: '로그인', style: 'background-color: #e0f2f1; color: #00796b; border: 1px solid #b2dfdb;' },

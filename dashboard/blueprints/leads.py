@@ -543,19 +543,7 @@ def api_search_leads_for_project():
             except Exception as exc:
                 logger.warning(f"[API] user_alias 조회 실패: {exc}")
 
-        # 이미 프로젝트에 등록된 lead_no 목록 (제외용).
-        # 2026-09-20 성능: get_project_records()(전체 dict 변환+날짜처리 ~277ms)는
-        #   무겁고 실제 필요한 건 'Lead No' 컬럼뿐 → 프로젝트 DataFrame에서 벡터 추출(~72ms).
-        #   방문 현장 불러오기 검색 응답 체감 개선.
-        registered_leads = set()
-        try:
-            from ..services.project_service import load_data as _load_project_df
-            _pdf = _load_project_df()
-            if _pdf is not None and 'Lead No' in _pdf.columns:
-                _ln = _pdf['Lead No'].astype(str).str.strip()
-                registered_leads = set(_ln[_ln.str.startswith('L-')].tolist())
-        except Exception as exc:
-            logger.warning(f"[API] 프로젝트 lead_no 조회 실패: {exc}")
+        registered_leads = _registered_lead_nos()
 
         # 리드 목록 필터 + 매칭
         all_leads = get_lead_records() or []
@@ -658,26 +646,7 @@ def api_search_leads_for_project():
             for m in matched[:limit]
         ]
 
-        # 방문 사진 폴더 ID — 시트 P열 우선, 없으면 Redis fallback
-        # (사진 업로드된 리드만 값 채워짐)
-        try:
-            from ..utils.redis_client import get_redis_client
-            rc = get_redis_client().redis
-        except Exception:
-            rc = None
-        for item in result:
-            folder_id = item.pop('folder_id_sheet', '') or ''
-            if not folder_id and rc is not None:
-                try:
-                    cached = rc.get(f"visit_folder:{item['lead_no']}")
-                    if cached:
-                        folder_id = cached.decode('utf-8') if isinstance(cached, bytes) else cached
-                except Exception:
-                    pass
-            if folder_id:
-                item['folder_id'] = folder_id
-                item['folder_link'] = f"https://drive.google.com/drive/folders/{folder_id}"
-
+        _attach_folder_links(result)
         return APIResponse.success(data={'leads': result, 'count': len(result)})
 
     except Exception as exc:
@@ -687,6 +656,103 @@ def api_search_leads_for_project():
             error_code=APIErrorCode.INTERNAL_ERROR,
             status_code=500
         )
+
+
+def _registered_lead_nos() -> set:
+    """이미 프로젝트에 등록된 lead_no (방문 현장 불러오기·수동 입력 대조에서 제외).
+
+    2026-09-20 성능: get_project_records()(전체 dict 변환+날짜처리 ~277ms)는
+      무겁고 실제 필요한 건 'Lead No' 컬럼뿐 → 프로젝트 DataFrame에서 벡터 추출(~72ms).
+    """
+    try:
+        from ..services.project_service import load_data as _load_project_df
+        _pdf = _load_project_df()
+        if _pdf is not None and 'Lead No' in _pdf.columns:
+            _ln = _pdf['Lead No'].astype(str).str.strip()
+            return set(_ln[_ln.str.startswith('L-')].tolist())
+    except Exception as exc:
+        logger.warning(f"[API] 프로젝트 lead_no 조회 실패: {exc}")
+    return set()
+
+
+def _attach_folder_links(items: list) -> None:
+    """방문 사진 폴더 ID — 시트 P열(folder_id_sheet) 우선, 없으면 Redis fallback.
+    (사진 업로드된 리드만 값 채워짐)"""
+    try:
+        from ..utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        rc = None
+    for item in items:
+        folder_id = item.pop('folder_id_sheet', '') or ''
+        if not folder_id and rc is not None:
+            try:
+                cached = rc.get(f"visit_folder:{item['lead_no']}")
+                if cached:
+                    folder_id = cached.decode('utf-8') if isinstance(cached, bytes) else cached
+            except Exception:
+                pass
+        if folder_id:
+            item['folder_id'] = folder_id
+            item['folder_link'] = f"https://drive.google.com/drive/folders/{folder_id}"
+
+
+@leads_bp.route('/api/match-for-project', methods=['GET'])
+@login_required
+def api_match_leads_for_project():
+    """새 프로젝트 수동 입력 중 연락처·주소와 맞는 최근 방문 리드 (2026-11-06).
+
+    Query: phone, address, inflow(입력한 유입 구분 — 거래처면 연락처로는 안 맞춤)
+    응답 leads 항목은 search-for-project 와 같은 모양 + match('연락처'·'주소'·'연락처·주소') + visit_date.
+    담당자 무관 — 다른 매니저가 방문한 리드도 알려 줌 (놓치는 건 방지가 목적).
+    """
+    from ..services.lead_project_match import match_visited_leads
+    try:
+        matched = match_visited_leads(
+            get_lead_records() or [], _registered_lead_nos(),
+            phone=request.args.get('phone', ''), address=request.args.get('address', ''),
+            inflow=request.args.get('inflow', ''))
+        result = [{
+            'lead_no': str(l.get('리드 No') or '').strip(),
+            'name': str(l.get('고객명') or '').strip(),
+            'phone': str(l.get('고객 연락처') or '').strip(),
+            'email': str(l.get('이메일') or '').strip(),
+            'address': str(l.get('방문 주소') or '').strip(),
+            'platform': str(l.get('플랫폼') or '').strip(),
+            'status': str(l.get('상태') or '').strip(),
+            'manager': str(l.get('영업 담당자') or '').strip(),
+            'match': l['_match'],
+            'visit_date': l['_visit_date'],
+            'folder_id_sheet': str(l.get('폴더 ID') or '').strip(),
+        } for l in matched]
+        _attach_folder_links(result)
+        return APIResponse.success(data={'leads': result, 'count': len(result)})
+    except Exception as exc:
+        logger.error(f"[API] 수동 입력 리드 대조 실패: {exc}", exc_info=True)
+        return APIResponse.error(message='리드 대조 중 오류가 발생했습니다',
+                                 error_code=APIErrorCode.INTERNAL_ERROR, status_code=500)
+
+
+@login_required
+def api_match_leads_dismiss():
+    """대조 알림에서 [다른 현장입니다] — 누가 어느 리드를 아니라고 했는지 감사 로그에 남김."""
+    data = request.get_json(silent=True) or {}
+    lead_nos = [str(x).strip() for x in (data.get('lead_nos') or []) if str(x).strip()][:10]
+    if not lead_nos:
+        return APIResponse.error(message='리드 번호가 없습니다',
+                                 error_code=APIErrorCode.MISSING_PARAMETER, status_code=400)
+    user_email = (session.get('user') or {}).get('email', 'unknown')
+    detail = (f"새 프로젝트 수동 입력 중 대조된 리드 {', '.join(lead_nos)}를 '다른 현장'으로 표시 "
+              f"(입력 연락처 {str(data.get('phone') or '')[:20]} · 주소 {str(data.get('address') or '')[:80]})")
+    logger.info(f"[LEAD_MATCH] {user_email}: {detail}")
+    try:
+        from ..utils.user_database import get_audit_repository
+        get_audit_repository().log_action(user_email=user_email, action='LEAD_MATCH_DISMISS',
+                                          details=detail, field_name='Lead No',
+                                          old_value=', '.join(lead_nos))
+    except Exception as exc:
+        logger.warning(f"[LEAD_MATCH] 감사 로그 실패: {exc}")
+    return APIResponse.success(data={'ok': True})
 
 
 @leads_bp.route('/api/<lead_no>/slack-links', methods=['GET'])
@@ -786,3 +852,4 @@ leads_api_bp = Blueprint('leads_api', __name__, url_prefix='/api/leads')
 leads_api_bp.add_url_rule('/create', view_func=api_create_lead, methods=['POST'])
 leads_api_bp.add_url_rule('/update/<lead_no>', view_func=api_update_lead, methods=['PUT'])
 leads_api_bp.add_url_rule('/status/<lead_no>', view_func=api_update_lead_status, methods=['PATCH'])
+leads_api_bp.add_url_rule('/match-for-project/dismiss', view_func=api_match_leads_dismiss, methods=['POST'])
