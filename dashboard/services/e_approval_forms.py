@@ -183,7 +183,7 @@ _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋', 'spend', amount_key='amou
               # 사업자 구분은 넣지 않는다 — 경영지원이 처리할 때 판단(플렉스도 없었음, 11-05)
               F('cost', '원가 분류', 'select', options=[]),   # COST_CATEGORIES 로 채움
               F('amount', '청구 금액 (원)', 'money'),
-              F('reason', '사유', 'multiline'),
+              F('reason', '사유', placeholder='예: 현장 주차비'),   # 한 줄(11-05)
               F('bank', '은행', 'select', options=BANKS, auto='@my_bank', card=False, hint=BANK_HINT),
               F('account', '계좌번호', auto='@my_account', card=False, hint='계좌번호는 숫자와 하이픈으로'),
           ]))

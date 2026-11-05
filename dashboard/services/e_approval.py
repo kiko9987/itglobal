@@ -745,19 +745,20 @@ def hub_blocks() -> List[dict]:
     """창(워크플로·바로가기)·홈 탭용 메뉴 — 양식을 고르기 칸 대신 버튼으로 다 보여 준다(11-05).
     채널 고정 메시지(menu_blocks)는 폭이 좁아 고르기 칸을 그대로 둔다."""
     return [
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*돈이 나가는 요청*'}},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*지급·구매 요청*'}},
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-            '• 자금집행: 거래처 송금(자재·외주·현장 비용, 회사 재고 자재 포함)\n'
-            '• 비품 신청: 경영지원이 대신 주문해 주는 사무용 비품'}]},
+            '• 자금집행: 거래처 대금 송금 (자재·외주·현장 비용, 회사 재고 자재 포함)\n'
+            '• 비품 신청: 사무용 비품 구매 (경영지원 주문)'}]},
         {'type': 'actions', 'elements': [
             _menu_btn(A_NEW, '💸 자금집행 요청', primary=True),
             _menu_btn(A_NEW_SUPPLY, '🛒 비품 신청')]},
         {'type': 'divider'},
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*다른 결재*'}},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*기타 결재*'}},
         {'type': 'actions', 'elements': [
             _menu_btn(form_open_action_id(o['value']), o['text']['text'], value=o['value'])
             for o in forms.menu_options()]},
         {'type': 'divider'},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*결재 현황*'}},
         {'type': 'actions', 'elements': [_menu_btn(A_MY_REQUESTS, '📂 내 요청')]},
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
             '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}]},
