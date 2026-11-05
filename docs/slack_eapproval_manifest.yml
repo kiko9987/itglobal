@@ -35,6 +35,8 @@ oauth_config:
       - pins:read
       - pins:write
       - commands
+      - files:read    # 11-05 창 「첨부 파일」에 올린 파일 받기
+      - files:write   # 11-05 그 파일을 결재 카드 스레드에 올리기
 functions:   # 11-05 워크플로 사용자 지정 단계 — #전자_결재 워크플로 버튼 → 메뉴 창. 키는 e_approval.FN_OPEN_MENU 와 같게
   eap_open_menu:
     title: 전자결재 열기

@@ -224,6 +224,7 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
             'reject': '반려는 승인자만 할 수 있어요.',
             'transfer': f'{w} 완료는 경영지원 담당만 누를 수 있어요.',
             'cancel': '요청 취소는 요청한 사람이나 승인자만 할 수 있어요.',
+            'revise': '수정 요청은 승인자·경영지원만 할 수 있어요.',
         }[action]
     name = _name(uid)
     new = ea.transition(aid, action, uid, name, reason)
@@ -257,6 +258,14 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
         _thread_log(new, f'⚪ {ini} 요청 취소')
         if uid != new.get('requester_id'):
             _notify(client, new.get('requester_id'), f'⚪ {t} 요청이 취소됐어요 ({ini}).')
+    elif action == 'revise':
+        _thread_log(new, f'✏️ {ini} 수정 요청 — {reason}')
+        _origin_log(new, f'✏️ {t} 수정 요청 ({ini}) — {reason}')
+        # 요청자 DM 에 [✏️ 수정하기] — 두 번째 수정 요청이면 예전 DM 은 refresh 가 다시 버튼을 띄운다
+        if (new.get('requester_id'), 'requester') not in {(r['user'], r['role']) for r in ea.dm_refs(new)}:
+            _send_dm(client, aid, new.get('requester_id'), 'requester')
+        else:
+            _notify(client, new.get('requester_id'), f'✏️ {t} 수정 요청이 왔어요: {reason}')
     refresh(ea.get(aid))
     _audit(new, action, name, reason)
     logger.info(f'{_LOG} {t} {action} ({name})')
@@ -275,6 +284,167 @@ def _audit(row: dict, action: str, name: str, reason: str = '') -> None:
             old_value=None, new_value=row.get('status'), ip_address=None)
     except Exception as exc:
         logger.warning(f'{_LOG} 감사 로그 실패: {exc}')
+
+
+# ── 첨부 파일 (11-05) — 창 「첨부 파일」에 올린 것을 결재 카드 스레드로 옮겨 올린다 ──
+def _download(url: str) -> Optional[bytes]:
+    """창에서 올린 파일 받기 — 창을 연 봇(전자결재·공사봇) 토큰 중 되는 것으로."""
+    import requests
+    for env in ('SLACK_EAPPROVAL_BOT_TOKEN', 'SLACK_PROJECT_BOT_TOKEN'):
+        tok = os.getenv(env, '').strip()
+        if not (tok and url):
+            continue
+        try:
+            r = requests.get(url, headers={'Authorization': f'Bearer {tok}'}, timeout=60)
+            # 권한이 없으면 슬랙이 200 + 로그인 HTML 을 준다 — 내용 형식으로 거른다
+            if r.ok and 'text/html' not in r.headers.get('Content-Type', ''):
+                return r.content
+        except Exception as exc:
+            logger.warning(f'{_LOG} 첨부 받기 실패 ({env}): {exc}')
+    return None
+
+
+def post_files(row: dict, files: list, who: str) -> int:
+    """첨부를 카드 스레드에 올린다. 올린 개수. 못 올린 게 있으면 스레드에 '직접 올려 달라' 안내."""
+    if not files or not (row.get('card_channel') and row.get('card_ts')):
+        return 0
+    uploads, failed = [], []
+    for f in files:
+        data = _download(f.get('url', ''))
+        if data:
+            uploads.append({'content': data, 'filename': f.get('name') or 'file', 'title': f.get('name') or 'file'})
+        else:
+            failed.append(f.get('name') or 'file')
+    if uploads:
+        try:
+            eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
+                                         file_uploads=uploads, initial_comment=f'📎 {ea.initial(who)} 첨부')
+        except Exception as exc:
+            logger.warning(f'{_LOG} 첨부 올리기 실패 ({ea.title(row)}): {exc}')
+            failed += [u['filename'] for u in uploads]
+            uploads = []
+    if failed:
+        _thread_log(row, f"⚠️ 첨부 {len(failed)}개를 옮기지 못했어요 ({', '.join(failed)}). 이 스레드에 직접 올려 주세요.")
+        _notify(eap_client(), row.get('requester_id'),
+                f"⚠️ {ea.title(row)} 첨부 {len(failed)}개를 카드에 붙이지 못했어요. 카드 스레드에 직접 올려 주세요.")
+    return len(uploads)
+
+
+def _post_files_bg(row: dict, files: list, who: str) -> None:
+    if files:
+        threading.Thread(target=post_files, args=(row, files, who), daemon=True).start()
+
+
+# ── 수정 요청 → 수정하기 (11-05) ─────────────────────────────────────
+_FIELD_NAMES = {'project_code': '현장', 'cost_category': '원가 분류', 'content': '내용', 'evidence': '증빙',
+                'grn': '사업자 구분', 'partner': '거래처', 'payee_name': '예금주', 'bank': '은행',
+                'account': '계좌', 'amount': '금액', 'urgency': '집행 시기', 'memo': '비고',
+                'link': '상품 링크', 'qty': '수량', 'unit_price': '단가', 'reason': '사유'}
+
+
+def _changes_text(form: str, changed: dict) -> str:
+    """'금액 50,000 → 55,000 · 계좌 …' — 스레드 기록용. 양식 칸은 양식 이름표로."""
+    labels = dict(_FIELD_NAMES)
+    if form in ea.forms.FORMS:
+        labels.update({f.key: f.label.split(' (')[0] for f in ea.forms.FORMS[form].fields})
+    parts = []
+    for k, (a, b) in changed.items():
+        if k in ('extra',) or k.startswith('_'):
+            continue
+        fmt = (lambda v: f'{int(v or 0):,}') if k in ('amount', 'qty', 'unit_price') else (lambda v: str(v or '-'))
+        parts.append(f'{labels.get(k, k)} {fmt(a)} → {fmt(b)}')
+    return ' · '.join(parts[:8]) or '바뀐 칸 없음'
+
+
+def open_edit_modal(client, trigger_id: str, aid: int, uid: str) -> Optional[str]:
+    """[✏️ 수정하기] — 올린 값이 채워진 같은 양식 창. 못 열면 사용자에게 보여 줄 문구."""
+    row = ea.get(aid)
+    if not row or row['status'] != ea.REVISE:
+        return '지금 고칠 수 있는 요청이 아니에요.'
+    if not ea.can_act('edit', row, uid):
+        return '요청한 사람만 고칠 수 있어요.'
+    if row['form'] not in (ea.FORM_FUND, ea.FORM_SUPPLY) and row['form'] not in ea.forms.FORMS:
+        return '이 요청은 고칠 수 없어요. 취소하고 다시 올려 주세요.'
+    # 현장 이름은 공사현황 조회라 3초(trigger)를 넘길 수 있다 — 불러오는 창을 먼저 열고 바꾼다
+    view_id = client.views_open(trigger_id=trigger_id, view=_loading_view('수정'))['view']['id']
+
+    def _bg():
+        try:
+            client.views_update(view_id=view_id, view=edit_view(row))
+        except Exception as exc:
+            logger.error(f'{_LOG} 수정 창 채우기 실패 ({ea.title(row)}): {exc}', exc_info=True)
+    threading.Thread(target=_bg, daemon=True).start()
+    return None
+
+
+def edit_view(row: dict) -> dict:
+    """수정 창 — 양식별로 올린 값을 채운 같은 창."""
+    from dashboard.services.purchase_invoice_assign import project_display
+    aid, form = row['id'], row['form']
+    code = row.get('project_code') or ''
+    if form == ea.FORM_FUND:
+        meta = {'edit': aid, 'origin': 'edit', 'partner': row.get('partner') or '',
+                'payee': {k: row.get(k) or '' for k in ('payee_name', 'bank', 'account')}}
+        if row.get('origin_ts'):   # 계산서 글로 올린 결재 — 거래처·금액은 그 계산서 값 그대로
+            meta['inv'] = {'ch': row['origin_channel'], 'ts': row['origin_ts'],
+                           'parsed': {'date_md': '', 'grn': row.get('grn') or '', 'amount': int(row.get('amount') or 0),
+                                      'partner': row.get('partner') or ''}}
+        prefill = {k: row.get(k) for k in ea.EDIT_COLUMNS}
+        prefill['_project_label'] = project_display(code, _project_rec(code)) if code else ''
+        return ea.new_request_view(meta, prefill=prefill)
+    if form == ea.FORM_SUPPLY:
+        return ea.supply_request_view({'edit': aid}, ea.supply_prefill(row))
+    vals = dict(ea.extra(row).get('f') or {})
+    if code:
+        vals['project'] = code
+        vals['_project_label'] = project_display(code, _project_rec(code))
+    return ea.forms.form_view(form, {'form': form, 'edit': aid, 'pv': 1}, vals,
+                              project_label=vals.get('_project_label', ''))
+
+
+def process_edit(uid: str, aid: int, fields: dict, files: list) -> Optional[dict]:
+    """고친 값으로 다시 올림 → 카드·DM 갱신, 스레드에 바뀐 칸, 승인자·경영지원에게 다시 알림."""
+    name = _name(uid)
+    fields = {k: v for k, v in fields.items() if not k.startswith('_') and k not in ('origin_channel', 'origin_ts')}
+    res = ea.resubmit(aid, uid, name, fields)
+    if not res:
+        _notify(eap_client(), uid, '⚠️ 이미 처리된 요청이라 고친 내용을 올리지 못했어요.')
+        return None
+    row, changed = res
+    client = eap_client()
+    _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}', broadcast=True)
+    refresh(row)
+    who = [(u, 'approver') for u in ea.approver_ids()] if row['status'] == ea.PENDING else \
+        [(u, 'executor') for u in ea.executor_dm_ids()]
+    have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
+    link = _card_link(row)
+    for u, role in who:
+        if (u, role) in have:   # 이미 받은 DM 은 refresh 로 고쳐졌다 — 다시 왔다는 알림만
+            _notify(client, u, f'✏️ {ea.title(row)} 수정돼서 다시 올라왔어요.' + (f' <{link}|카드 보기>' if link else ''))
+        else:
+            _send_dm(client, aid, u, role)
+    _audit(row, 'resubmit', name, _changes_text(row['form'], changed))
+    _post_files_bg(row, files, name)
+    logger.info(f'{_LOG} {ea.title(row)} 수정 후 다시 올림 ({name}): {changed}')
+    return row
+
+
+def _revise_view(aid: int) -> dict:
+    row = ea.get(aid) or {}
+    return {
+        'type': 'modal', 'callback_id': ea.CB_REVISE,
+        'title': {'type': 'plain_text', 'text': '수정 요청'},
+        'submit': {'type': 'plain_text', 'text': '돌려보내기'},
+        'close': {'type': 'plain_text', 'text': '취소'},
+        'private_metadata': json.dumps({'aid': aid}),
+        'blocks': [
+            {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+             f"{ea.title(row)} · {ea.initial(row.get('requester_name'))}님에게 돌려보내요. "
+             '고쳐서 다시 올리면 같은 카드가 바뀌어요.'}]},
+            {'type': 'input', 'block_id': 'reason', 'label': {'type': 'plain_text', 'text': '고칠 내용'},
+             'element': {'type': 'plain_text_input', 'action_id': 'reason', 'multiline': True,
+                         'placeholder': {'type': 'plain_text', 'text': '예: 계좌번호가 계산서와 달라요. 다시 확인해 주세요.'}}}],
+    }
 
 
 # ── 입구 ① 계산서 글 ─────────────────────────────────────────────────
@@ -438,9 +608,12 @@ def validate_new_submit(view: dict):
 def process_new_submit(uid: str, f: dict) -> dict:
     name = _name(uid)
     ea.remember_payee(f.get('partner', ''), f.get('payee_name'), f.get('bank'), f.get('account'))
+    if f.get('_edit'):   # [✏️ 수정하기] 로 고친 것 — 같은 결재·카드(계산서 글 현장 지정은 처음에 끝났다)
+        return process_edit(uid, f['_edit'], f, f.get('_files') or [])
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)
     row = start(row)
+    _post_files_bg(row, f.get('_files') or [], name)
     if row.get('origin_ts'):   # 계산서를 골랐으면 그 글의 현장 지정까지(계산서 글 버튼과 같은 결과)
         _INV_CACHE['at'] = 0.0
         try:
@@ -482,9 +655,13 @@ def handle_new_submit(ack, body, view) -> None:
 # ── 비품 신청 (11-01) ─────────────────────────────────────────────────
 def process_supply_submit(uid: str, f: dict) -> dict:
     name = _name(uid)
+    if f.get('_edit'):
+        return process_edit(uid, f['_edit'], f, f.get('_files') or [])
     row = ea.create(ea.FORM_SUPPLY, uid, name, f)
     _audit(row, 'request', name)
-    return start(row)
+    row = start(row)
+    _post_files_bg(row, f.get('_files') or [], name)
+    return row
 
 
 def handle_supply_submit(ack, body, view) -> None:
@@ -717,12 +894,17 @@ def validate_form_submit(view: dict):
     if not errs and not is_configured():
         errs[ea.forms.get(form_key).fields[-1].key] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
     values = view['state']['values']
+    meta = json.loads(view.get('private_metadata') or '{}')
+    vals['_files'] = ea.forms.read_attachments(view)   # '_' 칸은 장부에 안 들어간다(process_form_submit)
+    if meta.get('edit'):
+        vals['_edit'] = int(meta['edit'])
     return form_key, vals, {ea.field_block_id(values, k): m for k, m in errs.items()}
 
 
 def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
     from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
     name = _name(uid)
+    files, edit_aid = vals.get('_files') or [], vals.get('_edit')
     vals = {k: v for k, v in vals.items() if not k.startswith('_')}
     fields = {
         'project_code': vals.get('project') or None,
@@ -740,9 +922,13 @@ def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
         ea.remember_personal('staff', uid, name, vals.get('bank', ''), acct)
     if form_key == ea.forms.FORM_CARDEXP:
         ea.remember_personal('card', uid, name, '', vals.get('card_no', ''))
+    if edit_aid:
+        return process_edit(uid, edit_aid, fields, files)
     row = ea.create(form_key, uid, name, fields)
     _audit(row, 'request', name)
-    return start(row)
+    row = start(row)
+    _post_files_bg(row, files, name)
+    return row
 
 
 def handle_form_submit(ack, body, view) -> None:
@@ -1021,6 +1207,57 @@ def register_eapproval_handlers(app) -> None:
     app.action(ea.A_APPROVE)(_bg_action('approve'))
     app.action(ea.A_TRANSFER)(_bg_action('transfer'))
     app.action(ea.A_CANCEL)(_bg_action('cancel'))
+
+    @app.action(ea.A_REVISE)
+    def handle_revise_open(ack, body, client):
+        """[✏️ 수정 요청] — 고칠 내용을 적는 창(플렉스에서 댓글로 돌려보내던 것, 11-05)."""
+        ack()
+        aid = int(body['actions'][0]['value'])
+        row = ea.get(aid)
+        uid = (body.get('user') or {}).get('id', '')
+        if not row or not ea.can_act('revise', row, uid):
+            _ephemeral(client, body, '🔒 수정 요청은 승인자·경영지원만 할 수 있어요.')
+            return
+        if row['status'] not in (ea.PENDING, ea.APPROVED):
+            _ephemeral(client, body, f"🔒 지금은 수정 요청을 할 수 없어요 (지금: {ea.status_label(row)[1]}).")
+            return
+        try:
+            client.views_open(trigger_id=body['trigger_id'], view=_revise_view(aid))
+        except Exception as exc:
+            logger.error(f'{_LOG} 수정 요청 창 열기 실패: {exc}', exc_info=True)
+
+    @app.view(ea.CB_REVISE)
+    def handle_revise_submit(ack, body, view):
+        reason = ((view['state']['values'].get('reason') or {}).get('reason') or {}).get('value', '').strip()
+        if not reason:
+            ack(response_action='errors', errors={'reason': '무엇을 고쳐야 하는지 적어 주세요.'})
+            return
+        ack()
+        aid = json.loads(view.get('private_metadata') or '{}').get('aid')
+        uid = (body.get('user') or {}).get('id', '')
+
+        def _bg():
+            try:
+                msg = apply_action('revise', int(aid), uid, reason)
+                if msg:
+                    _notify(eap_client(), uid, f'🔒 {msg}')
+            except Exception as exc:
+                logger.error(f'{_LOG} 수정 요청 실패 (#{aid}): {exc}', exc_info=True, extra={'force_alert': True})
+        threading.Thread(target=_bg, daemon=True).start()
+
+    @app.action(ea.A_EDIT)
+    def handle_edit_open(ack, body, client):
+        """[✏️ 수정하기] — 요청자만. 올린 값이 채워진 같은 양식 창(trigger 3초라 바로 연다)."""
+        ack()
+        aid = int(body['actions'][0]['value'])
+        uid = (body.get('user') or {}).get('id', '')
+        try:
+            msg = open_edit_modal(client, body.get('trigger_id', ''), aid, uid)
+            if msg:
+                _ephemeral(client, body, f'🔒 {msg}')
+        except Exception as exc:
+            logger.error(f'{_LOG} 수정 창 열기 실패 (#{aid}): {exc}', exc_info=True)
+            _ephemeral(client, body, ':warning: 수정 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
 
     @app.action(ea.A_REJECT)
     def handle_reject_open(ack, body, client):
