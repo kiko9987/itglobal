@@ -288,9 +288,9 @@ def _audit(row: dict, action: str, name: str, reason: str = '') -> None:
 
 # ── 첨부 파일 (11-05) — 창 「첨부 파일」에 올린 것을 결재 카드 스레드로 옮겨 올린다 ──
 def _download(url: str) -> Optional[bytes]:
-    """창에서 올린 파일 받기 — 창을 연 봇(전자결재·공사봇) 토큰 중 되는 것으로."""
+    """슬랙 파일 받기 — 창을 연 봇(전자결재·공사봇)·계산서 글 봇 토큰 중 되는 것으로."""
     import requests
-    for env in ('SLACK_EAPPROVAL_BOT_TOKEN', 'SLACK_PROJECT_BOT_TOKEN'):
+    for env in ('SLACK_EAPPROVAL_BOT_TOKEN', 'SLACK_PROJECT_BOT_TOKEN', 'SLACK_INVOICE_BOT_TOKEN'):
         tok = os.getenv(env, '').strip()
         if not (tok and url):
             continue
@@ -304,7 +304,7 @@ def _download(url: str) -> Optional[bytes]:
     return None
 
 
-def post_files(row: dict, files: list, who: str) -> int:
+def post_files(row: dict, files: list, who: str, label: str = '') -> int:
     """첨부를 카드 스레드에 올린다. 올린 개수. 못 올린 게 있으면 스레드에 '직접 올려 달라' 안내."""
     if not files or not (row.get('card_channel') and row.get('card_ts')):
         return 0
@@ -318,7 +318,7 @@ def post_files(row: dict, files: list, who: str) -> int:
     if uploads:
         try:
             eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
-                                         file_uploads=uploads, initial_comment=f'📎 {ea.initial(who)} 첨부')
+                                         file_uploads=uploads, initial_comment=label or f'📎 {ea.initial(who)} 첨부')
         except Exception as exc:
             logger.warning(f'{_LOG} 첨부 올리기 실패 ({ea.title(row)}): {exc}')
             failed += [u['filename'] for u in uploads]
@@ -333,6 +333,27 @@ def post_files(row: dict, files: list, who: str) -> int:
 def _post_files_bg(row: dict, files: list, who: str) -> None:
     if files:
         threading.Thread(target=post_files, args=(row, files, who), daemon=True).start()
+
+
+def invoice_post_files(ch: str, ts: str) -> list:
+    """#영업_관리 계산서 글에 붙은 파일(계산서 사진) [{name, url}] — 계산서 봇으로 읽는다."""
+    c = _invoice_client()
+    if not (c and ch and ts):
+        return []
+    try:
+        msgs = c.conversations_history(channel=ch, latest=ts, inclusive=True, limit=1).get('messages') or []
+    except Exception as exc:
+        logger.warning(f'{_LOG} 계산서 글 읽기 실패 ({ch} {ts}): {exc}')
+        return []
+    m = next((x for x in msgs if x.get('ts') == ts), None) or {}
+    return [{'name': f.get('name') or 'invoice', 'url': f.get('url_private_download') or f.get('url_private') or ''}
+            for f in m.get('files') or [] if f.get('url_private') or f.get('url_private_download')]
+
+
+def post_invoice_files(row: dict) -> int:
+    """자금집행 — 고른 계산서 글의 사진을 카드 스레드에 그대로 붙인다(요청자가 따로 첨부 안 해도, 11-05)."""
+    files = invoice_post_files(row.get('origin_channel') or '', row.get('origin_ts') or '')
+    return post_files(row, files, '', label='📄 계산서 (#영업_관리 계산서 글에서)') if files else 0
 
 
 # ── 수정 요청 → 수정하기 (11-05) ─────────────────────────────────────
@@ -463,7 +484,9 @@ def start_from_invoice(uid: str, name: str, origin_ch: str, origin_ts: str, pars
     ea.remember_payee(parsed.get('partner', ''), payee_name, bank, account)
     row = ea.create(ea.FORM_FUND, uid, name, fields)
     _audit(row, 'request', name)
-    return start(row)
+    row = start(row)
+    threading.Thread(target=post_invoice_files, args=(row,), daemon=True).start()   # 계산서 사진 → 카드 스레드
+    return row
 
 
 # ── 입구 ②③ 새 요청 모달 ─────────────────────────────────────────────
@@ -613,6 +636,8 @@ def process_new_submit(uid: str, f: dict) -> dict:
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)
     row = start(row)
+    if row.get('origin_ts'):
+        threading.Thread(target=post_invoice_files, args=(row,), daemon=True).start()
     _post_files_bg(row, f.get('_files') or [], name)
     if row.get('origin_ts'):   # 계산서를 골랐으면 그 글의 현장 지정까지(계산서 글 버튼과 같은 결과)
         _INV_CACHE['at'] = 0.0
@@ -752,7 +777,86 @@ def _form_values(form_key: str, uid: str, project_code: str = '') -> dict:
         vals['_project_label'] = project_display(project_code, rec)
         if form_key == ea.forms.FORM_INSURANCE:
             fill_insurance_from_contract(vals, project_code)
+        if form_key in ea.forms.FOLDER_DOC_FORMS:
+            vals['_docs'] = folder_docs(project_code, precheck=(form_key == ea.forms.FORM_CONTRACT))
     return vals
+
+
+# ── 공사 폴더 서류 (11-05) — 「견적서 및 계약서 폴더」 파일을 창에서 골라 카드 스레드에 링크로 ──
+_FINAL_RE = re.compile(r'확정|최종')
+_QUOTE_RE = re.compile(r'견적|내역서')
+_DOC_EXT = ('.pdf', '.png', '.jpg', '.jpeg')
+
+
+def _doc_rank(name: str) -> int:
+    """0 = 확정·최종 견적서, 1 = 확정·최종(도면 등), 2 = 나머지. 같은 순위 안은 최근 고친 순."""
+    if _FINAL_RE.search(name):
+        return 0 if _QUOTE_RE.search(name) or not re.search(r'도면|배치도', name) else 1
+    return 2
+
+
+def folder_docs(code: str, precheck: bool = False) -> list:
+    """공사 폴더의 PDF·사진 [{id, name, note, checked}] — 확정·최종 붙은 것 먼저, 그다음 최근 고친 순.
+    precheck 면 확정·최종 붙은 첫 파일과 사업자등록증을 미리 고른다(계약서 작성 요청)."""
+    try:
+        from dashboard.services import business_license_handler as bl
+        fid = bl._project_folder_id_for(code)
+        if not fid:
+            return []
+        items = bl._get_drive().files().list(
+            q=f"'{fid}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'",
+            fields='files(id,name,modifiedTime)', pageSize=100, orderBy='modifiedTime desc',
+            supportsAllDrives=True, includeItemsFromAllDrives=True).execute().get('files', [])
+    except Exception as exc:
+        logger.warning(f'{_LOG} 공사 폴더 서류 조회 실패 ({code}): {exc}')
+        return []
+    files = [f for f in items if f['name'].lower().endswith(_DOC_EXT) and '사업자등록증' not in f['name']]
+    files.sort(key=lambda f: _doc_rank(f['name']))   # 안정 정렬 — 같은 순위 안은 최근 고친 순 그대로
+    docs = []
+    try:
+        from dashboard.services.business_license_handler import get_license_state
+        st = get_license_state(code) or {}
+        if st.get('view_url') and st.get('source') in ('own', 'reuse'):
+            docs.append({'id': ea.forms.LICENSE_DOC, 'name': '사업자등록증',
+                         'note': '이 공사 폴더' if st['source'] == 'own' else '같은 사업자 다른 공사 폴더',
+                         'checked': precheck})
+    except Exception as exc:
+        logger.warning(f'{_LOG} 등록증 상태 조회 실패 ({code}): {exc}')
+    picked = False
+    for f in files[:10 - len(docs)]:
+        pick = precheck and not picked and _doc_rank(f['name']) == 0   # 확정·최종 견적서 하나만 미리 고름
+        docs.append({'id': f['id'], 'name': f['name'], 'note': (f.get('modifiedTime') or '')[:10], 'checked': pick})
+        picked = picked or pick
+    return docs
+
+
+def post_folder_docs(row: dict, docs: list) -> None:
+    """고른 공사 폴더 서류를 카드 스레드에 드라이브 링크로(파일은 복사하지 않음 — 원본 한 곳)."""
+    if not docs:
+        return
+    lines = []
+    for d in docs:
+        if d['id'] == ea.forms.LICENSE_DOC:
+            try:
+                from dashboard.services.business_license_handler import get_license_state
+                url = (get_license_state(row.get('project_code') or '') or {}).get('view_url')
+            except Exception:
+                url = None
+        else:
+            url = f"https://drive.google.com/file/d/{d['id']}/view"
+        if url:
+            lines.append(f"• <{url}|{d['name']}>")
+    if lines:
+        _thread_log(row, '📁 공사 폴더 서류\n' + '\n'.join(lines))
+
+
+def post_contract_link(row: dict) -> None:
+    """보증보험 신청 — 그 현장 계약서 결재 카드 링크(경영지원이 완성한 계약서가 그 카드에 있다)."""
+    rows = ea.find_by_project(ea.forms.FORM_CONTRACT, row.get('project_code') or '') if row.get('project_code') else []
+    if rows:
+        link = _card_link(rows[0])
+        if link:
+            _thread_log(row, f'📑 이 현장 계약서: <{link}|{ea.title(rows[0])}>')
 
 
 _FLEX_CONTRACT_CODES = None
@@ -896,6 +1000,7 @@ def validate_form_submit(view: dict):
     values = view['state']['values']
     meta = json.loads(view.get('private_metadata') or '{}')
     vals['_files'] = ea.forms.read_attachments(view)   # '_' 칸은 장부에 안 들어간다(process_form_submit)
+    vals['_folder_docs'] = ea.forms.read_folder_docs(view)
     if meta.get('edit'):
         vals['_edit'] = int(meta['edit'])
     return form_key, vals, {ea.field_block_id(values, k): m for k, m in errs.items()}
@@ -904,7 +1009,7 @@ def validate_form_submit(view: dict):
 def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
     from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
     name = _name(uid)
-    files, edit_aid = vals.get('_files') or [], vals.get('_edit')
+    files, edit_aid, docs = vals.get('_files') or [], vals.get('_edit'), vals.get('_folder_docs') or []
     vals = {k: v for k, v in vals.items() if not k.startswith('_')}
     fields = {
         'project_code': vals.get('project') or None,
@@ -927,6 +1032,9 @@ def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
     row = ea.create(form_key, uid, name, fields)
     _audit(row, 'request', name)
     row = start(row)
+    if form_key == ea.forms.FORM_INSURANCE:
+        post_contract_link(row)
+    post_folder_docs(row, docs)
     _post_files_bg(row, files, name)
     return row
 
@@ -992,6 +1100,7 @@ def _register_form_handlers(app) -> None:
                 vals = _form_values(meta['form'], uid, code)
                 vals.update({k: v for k, v in ea.forms.read_form(view)[1].items()
                              if v and k not in vals and k != 'project'})   # 펼쳐 둔 칸(보증 등) 유지
+                # 공사 폴더 서류는 새 현장 것으로(_form_values 가 채움)
                 if meta['form'] == ea.forms.FORM_INSURANCE:   # 먼저 고른 보증 종류의 계약서 조건
                     fill_insurance_from_contract(vals, code)
                 meta['pv'] = int(meta.get('pv') or 0) + 1
@@ -1011,6 +1120,7 @@ def _register_form_handlers(app) -> None:
             if meta.get('form') != ea.forms.FORM_INSURANCE:
                 return
             vals = ea.forms.read_form(view)[1]
+            vals['_docs_block'] = ea.forms.carry_folder_docs(view)   # 고른 공사 폴더 서류 그대로
             code = vals.get('project') or meta.get('project') or ''
             before = (vals.get('rate'), vals.get('years'))
             fill_insurance_from_contract(vals, code, override=True)
@@ -1032,6 +1142,7 @@ def _register_form_handlers(app) -> None:
             view = body['view']
             meta = json.loads(view.get('private_metadata') or '{}')
             vals = ea.forms.read_form(view)[1]
+            vals['_docs_block'] = ea.forms.carry_folder_docs(view)   # 고른 공사 폴더 서류 그대로
             if vals.get('project') and not meta.get('project'):
                 from dashboard.services.purchase_invoice_assign import project_display
                 vals['_project_label'] = project_display(vals['project'], _project_rec(vals['project']))
