@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
-"""슬랙 휴가 신청 (2026-11-05) — 전자결재 봇. 장부·규칙은 services/leave.py.
+"""슬랙 휴가 신청 (2026-11-05) — 휴가 봇(전자결재와 따로, SLACK_LEAVE_*). 장부·규칙은 services/leave.py.
 
-흐름: 메뉴 [🌴 휴가 신청] → 신청 창 → 요청자 DM 카드 + JW DM [승인/반려] → JW 승인이면 YG DM →
+입구: #휴가_일정 워크플로 버튼(단계 leave_open → 신청 창 바로) · 봇 홈 탭 [🌴 휴가 신청] [📅 내 휴가].
+흐름: 신청 창 → 요청자 DM 카드 + JW DM [승인/반려] → JW 승인이면 YG DM →
 YG 승인이면 요청자에게 알리고 #휴가_일정에 '누가 언제 휴가/반차'만 올린다. 채널에는 신청 카드를 올리지 않는다.
+창·워크플로 단계 처리 도우미(_push_kw·_ack_completing_step 등)는 전자결재 것을 그대로 쓴다(봇과 무관한 함수).
 """
 import json
 import logging
+import os
+import re
 import threading
-from datetime import date, datetime
+from datetime import date
 from typing import Optional
 
 from dashboard.services import leave as lv
@@ -21,8 +25,17 @@ def _eap():
     return se
 
 
+def leave_client():
+    """휴가 봇 WebClient (없으면 None)."""
+    tok = os.getenv('SLACK_LEAVE_BOT_TOKEN', '').strip()
+    if not tok:
+        return None
+    from slack_sdk import WebClient
+    return WebClient(token=tok)
+
+
 def _client():
-    return _eap().eap_client()
+    return leave_client()
 
 
 # ── 신청 창 ──────────────────────────────────────────────────────────
@@ -125,8 +138,7 @@ def _not_open_view() -> dict:
 
 def start_view(uid: str) -> dict:
     """누른 사람에게 맞는 첫 창 — 열기 전(LEAVE_ENABLED 전 시험자 아님)·명단에 없음·신청 창."""
-    from dashboard.services import e_approval as ea
-    if not ea.leave_menu_visible(uid):
+    if not lv.is_open(uid):
         return _not_open_view()
     me = lv.staff_by_slack(uid)
     mgr = uid in lv.manager_ids()
@@ -255,13 +267,28 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
 
 # ── 내 휴가 ──────────────────────────────────────────────────────────
 def mine_view(text: str) -> dict:
-    from dashboard.services import e_approval as ea
     return {
         'type': 'modal', 'title': _plain('내 휴가'), 'close': _plain('닫기'), 'notify_on_close': True,
-        'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text[:2900]}},
-                   {'type': 'actions', 'elements': [
-                       {'type': 'button', 'action_id': ea.A_HUB_BACK, 'text': _plain('← 처음으로')}]}],
+        'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text[:2900]}}],
     }
+
+
+def home_view(uid: str) -> dict:
+    """봇 홈 탭(왼쪽 앱 목록 → 휴가) — 남은 연차와 버튼 두 개."""
+    me = lv.staff_by_slack(uid)
+    head = (f'*{me["name"]}* 님 오늘 기준 남은 연차: *{lv.fmt_days(lv.balance(me["name"]))}*' if me
+            else '휴가 명단에 아직 없어요. 경영지원에 문의해 주세요.')
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': head}}]
+    if lv.is_open(uid):
+        blocks.append({'type': 'actions', 'elements': [
+            {'type': 'button', 'action_id': lv.A_NEW, 'style': 'primary', 'text': _plain('🌴 휴가 신청')},
+            {'type': 'button', 'action_id': lv.A_MINE, 'text': _plain('📅 내 휴가')}]})
+    else:
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                       '슬랙 휴가 신청은 준비 중이에요. 지금은 플렉스에서 신청해 주세요.'}]})
+    blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                   'JW → YG 승인 후 #휴가_일정에 날짜만 올라가요. 종류·사유는 승인자만 봐요.'}]})
+    return {'type': 'home', 'blocks': blocks}
 
 
 def _mine_text(uid: str) -> str:
@@ -435,6 +462,22 @@ def register_leave_handlers(app) -> None:
             else:
                 se._ephemeral(client, body, text)
         threading.Thread(target=_bg, daemon=True).start()
+
+    @app.view_closed(re.compile(r'.*'))
+    def handle_leave_view_closed(ack, body):
+        """워크플로로 연 신청 창을 닫으면 그 단계를 끝낸다(안 끝내면 버튼이 막힌 채로 남음)."""
+        ack()
+        if body.get('is_cleared') or not (body.get('view') or {}).get('previous_view_id'):
+            se._complete_step(body)
+
+    @app.event('app_home_opened')
+    def handle_leave_home(event, client):
+        if event.get('tab') != 'home':
+            return
+        try:
+            client.views_publish(user_id=event['user'], view=home_view(event['user']))
+        except Exception as exc:
+            logger.error(f'{_LOG} 홈 탭 게시 실패: {exc}', exc_info=True)
 
 
 def run_accrual(today: Optional[date] = None) -> int:

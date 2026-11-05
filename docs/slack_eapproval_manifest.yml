@@ -46,16 +46,6 @@ functions:   # 11-05 워크플로 사용자 지정 단계 — #전자_결재 워
         is_required: true
         name: interactivity
     output_parameters: {}
-  eap_open_leave:   # 11-05 #휴가_일정 워크플로 버튼 → 휴가 신청 창 바로. 키는 leave.FN_OPEN_LEAVE 와 같게
-    title: 휴가 신청 열기
-    description: 휴가 신청 창을 바로 엽니다
-    input_parameters:
-      interactivity:
-        type: slack#/types/interactivity
-        title: 버튼 누른 사람
-        is_required: true
-        name: interactivity
-    output_parameters: {}
 settings:
   event_subscriptions:
     request_url: https://pm.itg-aircon.com/slack/eapproval-events

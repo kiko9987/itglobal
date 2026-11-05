@@ -79,6 +79,9 @@ _DOCVIEW_SIGNING_SECRET = os.getenv('SLACK_DOCVIEW_SIGNING_SECRET', '')
 # 전자결재 봇 (별도 토큰/secret, 2026-10-30) — 결재 카드·승인 버튼은 전부 이 봇 하나가 맡는다.
 _EAPPROVAL_BOT_TOKEN = os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '')
 _EAPPROVAL_SIGNING_SECRET = os.getenv('SLACK_EAPPROVAL_SIGNING_SECRET', '')
+# 휴가 봇 (별도 토큰/secret, 2026-11-05) — 휴가 신청·JW→YG 승인 DM·#휴가_일정 알림 (blueprints/slack_leave.py)
+_LEAVE_BOT_TOKEN = os.getenv('SLACK_LEAVE_BOT_TOKEN', '')
+_LEAVE_SIGNING_SECRET = os.getenv('SLACK_LEAVE_SIGNING_SECRET', '')
 
 _slack_app = None
 _slack_handler = None
@@ -96,6 +99,8 @@ _docview_slack_app = None
 _docview_slack_handler = None
 _eapproval_slack_app = None
 _eapproval_slack_handler = None
+_leave_slack_app = None
+_leave_slack_handler = None
 
 def _init_slack_app():
     """slack_bolt App 지연 초기화 (환경변수 누락 시 안전하게 비활성화)"""
@@ -305,6 +310,35 @@ def _init_eapproval_slack_app():
         return True
     except Exception as exc:
         logger.error(f"[SLACK/전자결재] 초기화 실패: {exc}", exc_info=True)
+        return False
+
+
+def _init_leave_slack_app():
+    """휴가 봇 — 별도 Bolt App. 휴가 신청 창·승인 DM·홈 탭·워크플로 단계 (blueprints/slack_leave.py)."""
+    global _leave_slack_app, _leave_slack_handler
+
+    if not _BOT_ENABLED:
+        return False
+    if not _LEAVE_BOT_TOKEN or not _LEAVE_SIGNING_SECRET:
+        logger.info("[SLACK/휴가] SLACK_LEAVE_BOT_TOKEN/SIGNING_SECRET 미설정 — 비활성화")
+        return False
+    try:
+        from slack_bolt import App
+        from slack_bolt.adapter.flask import SlackRequestHandler
+        from dashboard.blueprints.slack_leave import register_leave_handlers
+
+        _leave_slack_app = App(
+            token=_LEAVE_BOT_TOKEN,
+            signing_secret=_LEAVE_SIGNING_SECRET,
+            process_before_response=True,
+        )
+        _leave_slack_handler = SlackRequestHandler(_leave_slack_app)
+        register_leave_handlers(_leave_slack_app)
+        _verify_bot_token(_leave_slack_app.client, '휴가봇')
+        logger.info("[SLACK/휴가] 초기화 완료 ✅")
+        return True
+    except Exception as exc:
+        logger.error(f"[SLACK/휴가] 초기화 실패: {exc}", exc_info=True)
         return False
 
 
@@ -7586,6 +7620,22 @@ def slack_eapproval_events():
         return jsonify({"ok": True, "dedup": True}), 200
 
     return _eapproval_slack_handler.handle(request)
+
+
+@slack_bp.route("/leave-events", methods=["POST"])
+def slack_leave_events():
+    """슬랙 → 휴가 봇 전용 endpoint (신청 창·승인 버튼·홈 탭·워크플로 단계)"""
+    if _leave_slack_handler is None:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict) and body.get('type') == 'url_verification':
+            return jsonify({"challenge": str(body.get('challenge', ''))}), 200
+        if not _init_leave_slack_app():
+            return jsonify({"error": "Leave Slack bot not configured"}), 503
+
+    if _is_slack_retry_duplicate():
+        return jsonify({"ok": True, "dedup": True}), 200
+
+    return _leave_slack_handler.handle(request)
 
 
 @slack_bp.route("/list-assignee", methods=["POST"])
@@ -18313,6 +18363,7 @@ _init_invoice_slack_app()
 _init_payment_slack_app()
 _init_docview_slack_app()
 _init_eapproval_slack_app()
+_init_leave_slack_app()
 # 공사봇·A/S봇도 부팅 때 — 첫 요청 때 초기화하면 재시작 직후 첫 버튼(공사 취소 등)의 trigger_id(3초)가
 # 초기화 중에 만료돼 창이 안 열림 (2026-10-28 13:19 expired_trigger_id)
 _init_project_slack_app()

@@ -6,6 +6,7 @@
     관리자가 부여하는 휴가(배우자 출산·보상 등)는 플렉스 직원 화면처럼 아무에게도 안 보인다(경영지원 포함).
   - 단위는 종일·반차만(반반차·시간 없음).
   - 승인: 요청자 → JW → YG. JW 가 신청하면 YG 만, YG 가 신청하면 바로 확정.
+  - 전자결재와 따로 '휴가' 봇(slack_leave). 입구 = #휴가_일정 워크플로 버튼·봇 홈 탭.
   - 신청 카드는 채널에 올리지 않고 DM 으로만. 확정되면 #휴가_일정에 '누가 언제 휴가/반차'만(종류·사유 없음).
   - 슬랙이 없는 직원(미화·시공)은 경영지원이 대신 신청한다.
   - 연차는 지금 입사일 기준. 2027-01-01 회계연도 기준으로 바꾼다(정산표는 따로 — FISCAL_FROM).
@@ -658,7 +659,15 @@ def card_text(row: dict, step_rows: List[dict], role: str, left: Optional[float]
 
 A_APPROVE, A_REJECT, A_CANCEL = 'leave_approve', 'leave_reject', 'leave_cancel'
 A_NEW, A_MINE = 'leave_new', 'leave_mine'
-FN_OPEN_LEAVE = 'eap_open_leave'   # 워크플로 단계 「휴가 신청 열기」 — manifest functions 키와 같게
+FN_OPEN_LEAVE = 'leave_open'   # 휴가 봇 워크플로 단계 「휴가 신청 열기」 — docs/slack_leave_manifest.yml 키와 같게
+_DEFAULT_PILOTS = ('U04UL2ZLJAX',)   # 고광일
+
+
+def is_open(uid: str) -> bool:
+    """신청 받기 — 플렉스에서 옮기는 날(LEAVE_ENABLED=true) 전까지는 시험하는 사람(LEAVE_PILOT_IDS, 기본 KiKO)만."""
+    if os.getenv('LEAVE_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
+        return True
+    return bool(uid) and uid in (_env_ids('LEAVE_PILOT_IDS') or _DEFAULT_PILOTS)
 CB_SUBMIT, CB_REJECT = 'leave_submit', 'leave_reject_submit'
 
 

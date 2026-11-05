@@ -1,0 +1,48 @@
+# 휴가 봇 슬랙 앱 manifest (2026-11-05) — 전자결재와 따로. 코드: blueprints/slack_leave.py, services/leave.py
+# api.slack.com/apps → Create New App → From an app manifest → 워크스페이스 선택 → 아래를 붙여넣기 → Create → Install.
+# 설치 후 .env 에:
+#   SLACK_LEAVE_BOT_TOKEN=xoxb-...        (OAuth & Permissions 의 Bot User OAuth Token)
+#   SLACK_LEAVE_SIGNING_SECRET=...        (Basic Information 의 Signing Secret)
+# → 서버 재시작 → #휴가_일정 워크플로(채널 버튼 → 단계 「휴가 신청 열기」).
+display_information:
+  name: 휴가
+  description: 휴가 신청·승인과 휴가 일정 알림을 슬랙에서 처리합니다.
+  background_color: "#2e7d32"
+features:
+  app_home:
+    home_tab_enabled: true    # 왼쪽 앱 목록 → 휴가 → 남은 연차·[휴가 신청]·[내 휴가]
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true
+  bot_user:
+    display_name: leavebot   # 슬랙이 봇 표시 이름에 한글을 거부(앱 이름 name 은 한글 OK)
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - chat:write.public   # #휴가_일정에 초대 없이도 알림을 올릴 수 있게
+      - im:write
+functions:   # 워크플로 사용자 지정 단계 — 키는 leave.FN_OPEN_LEAVE 와 같게
+  leave_open:
+    title: 휴가 신청 열기
+    description: 휴가 신청 창을 바로 엽니다
+    input_parameters:       # properties/required 로 감싸지 않는다(감싸면 저장 오류)
+      interactivity:
+        type: slack#/types/interactivity
+        title: 버튼 누른 사람
+        is_required: true
+        name: interactivity
+    output_parameters: {}
+settings:
+  event_subscriptions:
+    request_url: https://pm.itg-aircon.com/slack/leave-events
+    bot_events:
+      - app_home_opened
+      - function_executed
+  function_runtime: remote
+  interactivity:
+    is_enabled: true
+    request_url: https://pm.itg-aircon.com/slack/leave-events
+  org_deploy_enabled: true   # functions(워크플로 단계)에 필요
+  socket_mode_enabled: false
+  token_rotation_enabled: false
