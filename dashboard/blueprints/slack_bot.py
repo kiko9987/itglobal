@@ -15574,14 +15574,16 @@ def _invoice_dedup_key(code, stages='', doc='tax') -> str:
     return f'invoice_request_dedup:{code}{tail}'
 
 
-def _build_invoice_stage_block(code):
-    """계산서 발행 단계 단일 선택 드롭다운. 기본값 없음 — 요청자가 직접 선택(placeholder)."""
+def _build_invoice_stage_block(code, doc='tax'):
+    """계산서 발행 단계 단일 선택 드롭다운. 기본값 없음 — 요청자가 직접 선택(placeholder).
+    doc='cash' 면 이름·설명을 현금영수증으로(11-05)."""
     opts = [{"text": {"type": "plain_text", "text": s}, "value": s} for s in _BILL_STAGES]
+    name = '현금영수증' if doc == 'cash' else '계산서'
     return {
         "type": "input", "block_id": "stages",
-        "label": {"type": "plain_text", "text": "계산서 발행 단계"},
+        "label": {"type": "plain_text", "text": f"{name} 발행 단계"},
         "hint": {"type": "plain_text",
-                 "text": "이 계산서가 귀속될 단계. 요청 금액이 총액과 같으면 나머지 단계는 자동 '-' 처리됩니다."},
+                 "text": f"이 {name}이 귀속될 단계. 요청 금액이 총액과 같으면 나머지 단계는 자동 '-' 처리됩니다."},
         "element": {
             "type": "static_select", "action_id": "value",
             "placeholder": {"type": "plain_text", "text": "단계 선택"},
@@ -16196,21 +16198,27 @@ def _split_issued_summary(rec, payers, active, norm_tok, total1, total2, vat_sep
     }
 
 
-def _fmt_issued_warn(summary) -> str:
+def _fmt_issued_warn(summary, doc='tax') -> str:
     """_project_issued_invoice 결과 → 모달 안내 문구 (슬랙 mrkdwn, PM 은 평문 변환해 공용).
 
     2026-10-01 사용자 확정 문구: 요청자에겐 합계만(단계 분해·'선발행' 같은 수금 용어 X) —
     개별 계산서는 아래 '기존 발행 계산서' 목록에 나옴. 전액 발행이면 '추가로 발행할 금액 없음'.
     볼드(*) 미사용: 슬랙 mrkdwn 은 '원*을'처럼 * 양옆이 한글이면 리터럴 * 로 표시됨.
+    doc='cash'(11-05): 현금영수증은 합계로 채우니 '남은 금액(VAT 포함)' = 총액 2 − 발행 합계, 수정발행 목록 없음.
     """
     total2 = summary.get('total2') or 0
     has_vat = summary['issued_gross'] != summary['issued_supply']
     vat = '(VAT 포함)' if has_vat else ''
+    cash = doc == 'cash'
     if summary['issued_supply'] > 0 and not summary['uncertain']:
-        if summary['remaining_supply'] <= 0:
+        left_gross = max(0, total2 - int(summary.get('issued_gross') or 0))
+        if summary['remaining_supply'] <= 0 or (cash and left_gross <= 0):
             txt = (f":white_check_mark: 총액 {total2:,}원{vat} 전액 발행됨 — 추가로 발행할 금액이 없습니다.")
-            if summary.get('active'):
+            if summary.get('active') and not cash:
                 txt += "\n수정발행이 필요할 때만 아래 기존 발행 계산서를 선택하세요."
+        elif cash:
+            txt = (f":clipboard: 발행됨 {summary['issued_gross']:,}원 / 총액 {total2:,}원 (VAT 포함)\n"
+                   f"→ 남은 금액 {left_gross:,}원(VAT 포함)이 현금영수증 발행 금액에 입력되었습니다. 확인 후 조정하세요.")
         else:
             left = '남은 공급가액' if has_vat else '남은 금액'
             txt = (f":clipboard: 발행됨 {summary['issued_gross']:,}원 / 총액 {total2:,}원"
@@ -16340,7 +16348,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
         # 현금영수증 — 금액은 합계(VAT 포함) 그대로, 이메일 대신 발급 번호. 수정발행(대체) 칸은 없음
         blocks += [
             _text_input("amt", "현금영수증 발행 금액 (VAT 포함)", amt),
-            _build_invoice_stage_block(code),
+            _build_invoice_stage_block(code, doc='cash'),
             {**_text_input("crno", "발급 번호", "", placeholder="예: 010-1234-5678 또는 123-45-67890"),
              "hint": {"type": "plain_text",
                       "text": "휴대폰 번호면 소득공제용, 사업자번호 10자리면 지출증빙용으로 발행합니다."}},
@@ -16527,7 +16535,7 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
     try:
         _iss = _project_issued_invoice(code)
         if _iss and (_iss.get('issued_supply', 0) > 0 or _iss.get('uncertain')):
-            issued_warn = _fmt_issued_warn(_iss)
+            issued_warn = _fmt_issued_warn(_iss, doc=doc)
             # 금액 전부 확인된 경우만 잔여 프리필. 미상 있으면 부정확한 잔여 대신 총액 유지(경고만).
             if _iss.get('issued_supply', 0) > 0 and not _iss.get('uncertain'):
                 amt_input = f"{_iss['remaining_supply']:,}"
