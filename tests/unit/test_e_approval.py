@@ -766,7 +766,8 @@ def _form_state(form_key, vals, meta=None, pv=1):
 
 
 CONTRACT = {'project': 'G4237-MJ', 'total': '11440000', 'receiver': '윤명림', 'receiver_phone': '010-4312-1990',
-            'send': '대면', 'contact': '010-4312-1990', 'deposit': '5720000', 'deposit_date': '2026-10-30'}
+            'send': '대면', 'contact': '010-4312-1990', 'deposit': '5720000', 'deposit_date': '2026-10-30',
+            'balance': '5720000'}
 
 
 def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
@@ -793,15 +794,38 @@ def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
 
 def test_cardpay_fee_and_validation():
     vals = {'project': 'R4120-YM', 'card_co': '신한', 'card_no': '1234-5678-9012-3456', 'expiry': '08/29',
-            'sales': '1,000,000', 'installment': '3개월'}
+            'sales': '1,000,000', 'fee': '30,000', 'total': '1,030,000', 'installment': '3개월'}
     inst = next(f for f in forms.get(forms.FORM_CARDPAY).fields if f.key == 'installment')
     assert inst.kind == 'select' and inst.options[0] == '일시불' and inst.options[-1] == '12개월'
     assert forms.validate(forms.FORM_CARDPAY, vals) == {}
     assert forms.amount_of(forms.FORM_CARDPAY, vals) == 1030000
     assert forms.doc_title(forms.FORM_CARDPAY, vals, 'x') == 'R카드결제 요청'
-    assert any('결제 금액: 1,030,000원' in l for l in forms.card_lines(forms.FORM_CARDPAY, vals))
+    assert any('결제 요청 금액: 1,030,000원' in l for l in forms.card_lines(forms.FORM_CARDPAY, vals))
     bad = forms.validate(forms.FORM_CARDPAY, {**vals, 'card_no': '1234', 'expiry': '2029-08'})
     assert set(bad) == {'card_no', 'expiry'}
+    # 수수료는 3% 고정 아님 — 0(회사·고객 부담)·1.5% 도 되고, 합계는 검수(11-05)
+    assert forms.validate(forms.FORM_CARDPAY, {**vals, 'fee': '0', 'total': '1,000,000'}) == {}
+    assert forms.validate(forms.FORM_CARDPAY, {**vals, 'fee': '15000', 'total': '1015000'}) == {}
+    assert set(forms.validate(forms.FORM_CARDPAY, {**vals, 'total': '1,000,000'})) == {'total'}
+    assert set(forms.validate(forms.FORM_CARDPAY, {**vals, 'fee': ''})) == {'fee'}
+
+
+def test_contract_parts_must_add_up():
+    """계약금+중도금+잔금 합 = 총 금액 검수 — 나눠 받는 금액을 안 넣었으면 검사 안 함(11-05)."""
+    base = {'project': 'G4049-JW', 'total': '10,000,000', 'receiver': 'a', 'receiver_phone': '010',
+            'send': '이메일', 'contact': 'a@b'}
+    assert forms.validate(forms.FORM_CONTRACT, base) == {}
+    ok = {**base, 'deposit': '3,000,000', 'balance': '7,000,000'}
+    assert forms.validate(forms.FORM_CONTRACT, ok) == {}
+    bad = forms.validate(forms.FORM_CONTRACT, {**ok, 'balance': '6,000,000'})
+    assert set(bad) == {'total'} and '9,000,000원' in bad['total']
+
+
+def test_expense_reason_last_and_fine_category():
+    keys = [f.key for f in forms.get(forms.FORM_EXPENSE).fields]
+    assert keys[-1] == 'reason'
+    from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
+    assert ('기타비:과태료', '기타비 · 과태료') in COST_CATEGORIES
 
 
 def test_corpdocs_and_insurance_rules():
