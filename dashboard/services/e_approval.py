@@ -1118,8 +1118,7 @@ def supply_request_view(meta: dict) -> dict:
         'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
         'private_metadata': json.dumps(meta),
         'blocks': [
-            {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '프로젝트0 · 회사 재고로 처리됩니다.'}]},
-            grn_block(),
+            grn_block(),   # 프로젝트0 안내 줄은 뺐다(11-05) — 신청자가 알 필요 없음, 카드·기록엔 그대로 프로젝트0
             _text('item', '품명', '예: A4 용지 박스'),
             _text('link', '상품 링크', '예: https://www.coupang.com/vp/products/…',
                   hint='살 상품 페이지 주소를 붙여 넣어 주세요.'),
