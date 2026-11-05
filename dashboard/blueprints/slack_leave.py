@@ -117,15 +117,28 @@ def _not_listed_view(name: str) -> dict:
                         f':warning: {name or "이 계정"} 님은 휴가 명단에 아직 없어요. 경영지원에 문의해 주세요.'}}]}
 
 
-def open_leave_modal(client, body) -> None:
-    se = _eap()
-    uid = (body.get('user') or {}).get('id', '')
+def _not_open_view() -> dict:
+    return {'type': 'modal', 'title': _plain('휴가 신청'), 'close': _plain('닫기'), 'notify_on_close': True,
+            'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                        '🌴 슬랙 휴가 신청은 준비 중이에요. 지금은 플렉스에서 신청해 주세요.'}}]}
+
+
+def start_view(uid: str) -> dict:
+    """누른 사람에게 맞는 첫 창 — 열기 전(LEAVE_ENABLED 전 시험자 아님)·명단에 없음·신청 창."""
+    from dashboard.services import e_approval as ea
+    if not ea.leave_menu_visible(uid):
+        return _not_open_view()
     me = lv.staff_by_slack(uid)
     mgr = uid in lv.manager_ids()
     if not me and mgr:
         people = lv.staff()
         me = people[0] if people else None
-    view = leave_view({'name': me['name'], 'mgr': mgr}) if me else _not_listed_view(se._name(uid))
+    return leave_view({'name': me['name'], 'mgr': mgr}) if me else _not_listed_view(_eap()._name(uid))
+
+
+def open_leave_modal(client, body) -> None:
+    se = _eap()
+    view = start_view((body.get('user') or {}).get('id', ''))
     push = se._push_kw(body)
     if push:
         client.views_push(**push, view=view)
@@ -282,6 +295,21 @@ def register_leave_handlers(app) -> None:
             client.views_update(view_id=view['id'], hash=view.get('hash'), view=leave_view(meta, vals))
         except Exception as exc:
             logger.warning(f'{_LOG} 창 다시 그리기 실패: {exc}')
+
+    @app.function(lv.FN_OPEN_LEAVE)
+    def handle_open_leave_step(body, inputs, fail):
+        """워크플로 단계 「휴가 신청 열기」 — #휴가_일정 [휴가 신청] 버튼 → 신청 창 바로(11-05).
+        메뉴 단계와 같이 여기서 끝내지 않는다 — 창을 닫거나(view_closed) 제출에 성공할 때 끝낸다."""
+        from slack_sdk import WebClient
+        inter = (inputs or {}).get('interactivity') or {}
+        uid = (inter.get('interactor') or {}).get('id', '')
+        token = (body.get('event') or {}).get('bot_access_token', '')
+        try:
+            WebClient(token=token).views_open(interactivity_pointer=inter.get('interactivity_pointer', ''),
+                                              view=start_view(uid))
+        except Exception as exc:
+            logger.error(f'{_LOG} 워크플로 단계(휴가 신청 열기) 실패: {exc}', exc_info=True)
+            fail(error='휴가 신청 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
 
     app.action('lv_who')(_redraw)
     app.action('lv_type')(_redraw)
