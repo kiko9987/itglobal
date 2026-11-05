@@ -3,7 +3,7 @@
 
 결정(KiKO 11-05):
   - 종류는 플렉스 그대로. 신청 창 = 연차·반차(오전/오후)·병가·군소집훈련·경조사(세부를 고르면 일수 한도).
-    관리자가 부여하는 휴가(배우자 출산·보상 등)는 경영지원이 신청할 때만 보인다.
+    관리자가 부여하는 휴가(배우자 출산·보상 등)는 플렉스 직원 화면처럼 아무에게도 안 보인다(경영지원 포함).
   - 단위는 종일·반차만(반반차·시간 없음).
   - 승인: 요청자 → JW → YG. JW 가 신청하면 YG 만, YG 가 신청하면 바로 확정.
   - 신청 카드는 채널에 올리지 않고 DM 으로만. 확정되면 #휴가_일정에 '누가 언제 휴가/반차'만(종류·사유 없음).
@@ -94,8 +94,10 @@ def needs_proof(ltype: str) -> bool:
     return TYPES.get(ltype, ('', False, False))[2]
 
 
-def type_options(for_manager: bool) -> List[Tuple[str, str]]:
-    return [(k, v[0]) for k, v in TYPES.items() if for_manager or not v[3]]
+def type_options(for_manager: bool = False) -> List[Tuple[str, str]]:
+    """신청 창 종류 — 관리자 부여 휴가(배우자 출산·보상·보건·산전후·난임·유산사산)는 경영지원에게도 안 보인다
+    (11-05 KiKO: 플렉스 직원 화면과 같게). 표(TYPES)엔 남겨 두어 나중에 다시 켤 수 있게."""
+    return [(k, v[0]) for k, v in TYPES.items() if not v[3]]
 
 
 # ── 날짜 ──────────────────────────────────────────────────────────────
@@ -433,7 +435,7 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
              for_manager: bool = False) -> Dict[str, str]:
     """창 칸 이름 → 오류 문구."""
     errs: Dict[str, str] = {}
-    if ltype not in TYPES or (TYPES[ltype][3] and not for_manager):
+    if ltype not in dict(type_options(for_manager)):
         errs['type'] = '휴가 종류를 골라 주세요.'
         return errs
     if ltype == EVENT and sub not in EVENT_SUBS:

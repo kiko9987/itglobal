@@ -62,9 +62,9 @@ def test_validate_balance_and_overlap(db):
     assert r['status'] == lv.WAIT_1 and lv.balance('박민우', date(2026, 11, 9)) == 1.0
     assert lv.validate('박민우', lv.HALF_PM, '', date(2026, 11, 9), None) == {}            # 오전+오후는 됨
     assert '겹쳐요' in lv.validate('박민우', lv.ANNUAL, '', date(2026, 11, 9), date(2026, 11, 9))['start']
-    # 관리자 부여 휴가는 경영지원만
+    # 관리자 부여 휴가는 경영지원에게도 안 보인다(11-05)
     assert 'type' in lv.validate('박민우', 'reward', '', date(2026, 11, 9), date(2026, 11, 9))
-    assert lv.validate('박민우', 'reward', '', date(2026, 11, 12), date(2026, 11, 12), for_manager=True) == {}
+    assert 'type' in lv.validate('박민우', 'reward', '', date(2026, 11, 12), date(2026, 11, 12), for_manager=True)
 
 
 def test_event_and_sick_limits(db):
@@ -218,7 +218,7 @@ def test_leave_view_fields(db):
     assert 'reward' not in types and lv.HALF_AM in types
     v = sl.leave_view({'name': '권태숙', 'mgr': True}, {'type': lv.EVENT})
     ids = [b.get('block_id') for b in v['blocks'] if b.get('block_id')]
-    assert ids[:3] == ['lv_who', 'lv_type', 'lv_sub'] and 'reward' in str(v['blocks'])
+    assert ids[:3] == ['lv_who', 'lv_type', 'lv_sub'] and 'reward' not in str(v['blocks'])
     assert '권태숙 (슬랙 없음)' in str(v['blocks'][0])
     v = sl.leave_view({'name': '박민우'}, {'type': lv.HALF_PM})
     assert [b.get('block_id') for b in v['blocks'] if b.get('block_id')] == ['lv_type', 'lv_start', 'lv_reason']
