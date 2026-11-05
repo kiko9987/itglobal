@@ -391,7 +391,9 @@ def test_supply_request_fills_amount_and_stock_project(tmp_db):
 
 def test_supply_request_errors(tmp_db):
     f = ea.read_supply_request(_supply_view(item='', link='쿠팡', qty='0', unit_price='', reason='', grn=''))
-    assert set(ea.complete_supply_request(f)) == {'grn', 'item', 'link', 'qty', 'unit_price', 'reason'}
+    assert set(ea.complete_supply_request(f)) == {'item', 'link', 'qty', 'unit_price', 'reason'}
+    # 사업자 구분 칸 없음 — 어느 통장인지는 경영지원 판단(11-05)
+    assert 'grn' not in {b.get('block_id') for b in ea.supply_request_view({})['blocks']}
 
 
 def test_supply_card_and_buttons(tmp_db):
@@ -402,7 +404,7 @@ def test_supply_card_and_buttons(tmp_db):
     t = ea.card_text(row, ea.steps(row['id']), '프로젝트0 · 회사 재고')
     assert f'비품 신청 #{row["id"]}' in t and '품명: A4 용지 박스 × 2개 (단가 25,000원)' in t
     assert '상품 보기' in t and '사유: 용지 소진' in t and '이체 계좌' not in t and '⏳ 구매' in t
-    assert '사업자 구분: G (글로벌)' in t and row['grn'] == 'G'
+    assert '사업자 구분' not in t and not row['grn']
     btn = ea.buttons(row, 'executor')[0]
     assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_TRANSFER
     assert '구매하고 카드에서 [구매 완료]' in ea.dm_intro(row, 'executor')
@@ -798,12 +800,11 @@ def test_cardexp_prefill_title_and_memory(tmp_db):
 def test_expense_spend_flow_hides_account_on_card(se):
     vals = {'use_date': '2026-10-31', 'project': 'G4049-JW', 'cost': '기타비 · 운반비', 'amount': '35000',
             'reason': '현장 주차비', 'bank': '국민', 'account': '123-45-6789'}
-    assert set(forms.validate(forms.FORM_EXPENSE, vals)) == {'grn'}   # 사업자 구분 필수(11-02)
-    vals['grn'] = 'R (글로벌그룹)'                                     # G 현장이어도 고른 값으로
+    # 사업자 구분 칸 없음 — 경영지원이 판단(11-05, 플렉스도 없었음)
+    assert 'grn' not in {f.key for f in forms.get(forms.FORM_EXPENSE).fields}
     assert forms.validate(forms.FORM_EXPENSE, vals) == {}
     row = se.process_form_submit(MGR, forms.FORM_EXPENSE, vals)
     assert row['status'] == ea.PENDING and row['cost_category'] == '기타비:운반비' and row['amount'] == 35000
-    assert row['grn'] == 'R'
     card = se._fake.of('chat_postMessage')[0]
     txt = json.dumps(card['blocks'], ensure_ascii=False)
     assert '123-45-6789' not in txt and '본인 계좌 (경영지원 DM에서 확인)' in txt

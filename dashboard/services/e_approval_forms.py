@@ -151,8 +151,7 @@ _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋', 'spend', amount_key='amou
           fields=[
               F('use_date', '사용일자', 'date'),
               F('project', '현장', 'project'),
-              F('grn', '사업자 구분', 'select', options=GRN_OPTIONS,
-                hint='어느 사업자 통장에서 돈이 나가는지 골라 주세요.'),
+              # 사업자 구분은 넣지 않는다 — 경영지원이 처리할 때 판단(플렉스도 없었음, 11-05)
               F('cost', '원가 분류', 'select', options=[]),   # COST_CATEGORIES 로 채움
               F('amount', '청구 금액 (원)', 'money'),
               F('reason', '사유', 'multiline'),
