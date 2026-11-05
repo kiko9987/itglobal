@@ -105,6 +105,8 @@ def type_options() -> List[Tuple[str, str]]:
 def is_workday(d: date) -> bool:
     if d.weekday() >= 5:
         return False
+    if (d.month, d.day) == (5, 1):   # 노동절 — 회사 휴무(11-05 KiKO). holidays.KR 엔 없음
+        return False
     try:
         import holidays
         return d not in holidays.KR(years=d.year)
@@ -419,13 +421,24 @@ def steps(rid: int) -> List[dict]:
             'SELECT * FROM leave_steps WHERE request_id=? ORDER BY id', (rid,)).fetchall()]
 
 
-def sick_used(name: str, year: int, exclude_id: int = 0) -> float:
+def days_in_year(ltype: str, start: date, end: date, year: int) -> float:
+    """기간 중 그 해에 걸친 날만 센 일수 — 12/29~1/3 병가는 두 해에 나눠 잡는다."""
+    s, e = max(start, date(year, 1, 1)), min(end, date(year, 12, 31))
+    return count_days(ltype, s, e) if s <= e else 0.0
+
+
+def used_in_year(name: str, ltype: str, year: int, sub: str = '', exclude_id: int = 0) -> float:
+    """그 해 누적 사용(대기 중 포함) — 병가 30일·경조사 종류별 한도를 신청 여러 건 합으로 본다."""
+    q = (f'SELECT ltype, start, "end" FROM leave_requests WHERE name=? AND ltype=? AND COALESCE(sub,"")=? '
+         f'AND status IN ({",".join("?" * len(HOLDING))}) AND id<>? AND start<=? AND "end">=?')
     with _conn() as conn:
-        r = conn.execute(
-            f'SELECT COALESCE(SUM(days), 0) FROM leave_requests WHERE name=? AND ltype=? AND substr(start,1,4)=? '
-            f'AND status IN ({",".join("?" * len(HOLDING))}) AND id<>?',
-            (name, SICK, str(year), *HOLDING, exclude_id)).fetchone()
-        return float(r[0] or 0)
+        rows = conn.execute(q, (name, ltype, sub or '', *HOLDING, exclude_id,
+                                f'{year}-12-31', f'{year}-01-01')).fetchall()
+    return sum(days_in_year(r['ltype'], _d(r['start']), _d(r['end']), year) for r in rows)
+
+
+def sick_used(name: str, year: int, exclude_id: int = 0) -> float:
+    return used_in_year(name, SICK, year, exclude_id=exclude_id)
 
 
 def overlaps(name: str, start: date, end: date) -> List[dict]:
@@ -472,12 +485,18 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
                    f'{kdate(end)} 전에 소멸해서 이 기간엔 {fmt_days(left)}만 쓸 수 있어요. '
                    if whole > left + 1e-9 else f'{kdate(start)} 기준 남은 연차가 {fmt_days(left)}이라 ')
             errs['start'] = why + f'{fmt_days(days)}를 쓸 수 없어요. 연차가 더 있어야 한다면 경영지원에 문의해 주세요.'
-    elif ltype == EVENT and sub in EVENT_SUBS and days > EVENT_SUBS[sub][1]:
-        errs['end'] = f'{EVENT_SUBS[sub][0]}은 {EVENT_SUBS[sub][1]}일까지예요 (주말·공휴일 빼고 {fmt_days(days)}).'
-    elif ltype == SICK:
-        used = sick_used(name, start.year)
-        if used + days > SICK_DAYS_PER_YEAR:
-            errs['end'] = f'병가는 한 해 {SICK_DAYS_PER_YEAR}일까지예요 (올해 쓴 병가 {fmt_days(used)}).'
+    elif ltype in (EVENT, SICK):
+        # 한도는 신청 건마다가 아니라 그 해 누적(11-05 KiKO) — 나눠 신청해도, 해를 넘겨도 해마다 합으로
+        if ltype == EVENT and sub not in EVENT_SUBS:
+            return errs
+        label, cap = (EVENT_SUBS[sub] if ltype == EVENT else ('병가', SICK_DAYS_PER_YEAR))
+        for y in range(start.year, end.year + 1):
+            here = days_in_year(ltype, start, end, y)
+            used = used_in_year(name, ltype, y, sub if ltype == EVENT else '')
+            if here and used + here > cap:
+                errs['end'] = (f'{label}은 한 해 {cap}일까지예요 ({y}년에 이미 신청한 {fmt_days(used)}'
+                               f' + 이번 {fmt_days(here)}). 더 필요하면 경영지원에 문의해 주세요.')
+                break
     return errs
 
 
@@ -532,14 +551,52 @@ def can_act(action: str, row: dict, uid: str, today: Optional[date] = None) -> b
     if action in ('approve', 'reject'):
         return bool(uid) and uid == current_approver(row)
     if action == 'cancel':
+        mine = uid in (row.get('slack_id'), row.get('submitter_id'))
+        if mine and row['status'] == APPROVED and _d(row['end']) >= today:
+            # 본인: 끝나기 전까지(쓰는 중이면 오늘부터 남은 날만 취소 — cancel_mode). 끝난 휴가는 경영지원
+            return True
         if uid in manager_ids():
             return row['status'] in HOLDING
-        mine = uid in (row.get('slack_id'), row.get('submitter_id'))
-        if row['status'] in OPEN:
-            return mine
-        # 확정된 휴가는 시작 전까지만 본인이 취소(지난 휴가는 경영지원)
-        return mine and row['status'] == APPROVED and _d(row['start']) > today
+        return mine and row['status'] in OPEN
     return False
+
+
+def cancel_mode(row: dict, uid: str, today: Optional[date] = None) -> str:
+    """'rest' = 쓰는 중인 휴가를 본인이 취소 → 어제까지만 남기고 오늘부터 취소. 나머지는 'all'."""
+    today = today or date.today()
+    mine = uid in (row.get('slack_id'), row.get('submitter_id'))
+    if mine and row['status'] == APPROVED and _d(row['start']) < today <= _d(row['end']) \
+            and count_days(row['ltype'], _d(row['start']), today - timedelta(days=1)) > 0:
+        return 'rest'
+    return 'all'
+
+
+def cut_rest(rid: int, uid: str, actor_name: str, today: Optional[date] = None) -> Optional[dict]:
+    """쓰는 중인 휴가의 오늘부터 남은 날 취소 — 기간을 어제까지로 줄이고 연차를 다시 뗀다(남은 날 몫은 돌아옴)."""
+    today = today or date.today()
+    now = _now()
+    with _conn() as conn:
+        row = _row(conn, rid)
+        if not row or cancel_mode(row, uid, today) != 'rest':
+            return None
+        new_end = today - timedelta(days=1)
+        start = _d(row['start'])
+        days = count_days(row['ltype'], start, new_end)
+        cur = conn.execute('UPDATE leave_requests SET "end"=?, days=?, updated_at=? WHERE id=? AND status=? '
+                           'AND "end"=?', (new_end.isoformat(), days, now, rid, APPROVED, row['end']))
+        if cur.rowcount != 1:
+            conn.rollback()
+            return None
+        conn.execute('DELETE FROM leave_uses WHERE request_id=?', (rid,))
+        if deducts(row['ltype']) and not _allocate(conn, rid, row['name'], start, days, new_end):
+            conn.rollback()
+            return None
+        conn.execute('INSERT INTO leave_steps (request_id, step, actor_id, actor_name, result, reason, at) '
+                     'VALUES (?,?,?,?,?,?,?)',
+                     (rid, 'cancel', uid, actor_name, 'shortened',
+                      f"{kdate(today)}부터 취소 (원래 {kdate(_d(row['end']))}까지)", now))
+        conn.commit()
+        return _row(conn, rid)
 
 
 def transition(rid: int, action: str, uid: str, actor_name: str, reason: str = '') -> Optional[dict]:
@@ -657,6 +714,8 @@ def card_text(row: dict, step_rows: List[dict], role: str, left: Optional[float]
     for s in step_rows:
         if s['result'] == 'rejected' and s.get('reason'):
             lines.append(f"❌ 반려 사유 ({s.get('actor_name') or ''}): {s['reason']}")
+        elif s['result'] == 'shortened':
+            lines.append(f"⚪ 남은 날 취소 ({s.get('actor_name') or ''}): {s.get('reason') or ''}")
     return '\n'.join(lines)
 
 
@@ -695,10 +754,13 @@ def card_blocks(row: dict, step_rows: List[dict], role: str, left: Optional[floa
     if role == 'approver' and row['status'] in OPEN:
         els = [_btn('✅ 승인', A_APPROVE, row['id'], 'primary'), _btn('반려', A_REJECT, row['id'], 'danger')]
     elif role == 'requester' and row['status'] in HOLDING and \
-            (row['status'] in OPEN or _d(row['start']) > date.today()):
-        els = [_btn('신청 취소', A_CANCEL, row['id'], confirm={
-            'title': {'type': 'plain_text', 'text': '휴가 신청 취소'},
-            'text': {'type': 'plain_text', 'text': '이 휴가 신청을 취소할까요? 쓴 연차는 돌아와요.'},
+            (row['status'] in OPEN or _d(row['end']) >= date.today()):
+        rest = cancel_mode(row, row.get('slack_id') or row.get('submitter_id') or '') == 'rest'
+        els = [_btn('남은 날 취소' if rest else '신청 취소', A_CANCEL, row['id'], confirm={
+            'title': {'type': 'plain_text', 'text': '휴가 취소'},
+            'text': {'type': 'plain_text', 'text': (
+                '오늘부터 남은 휴가를 취소할까요? 어제까지 쓴 날은 그대로 남고, 나머지 연차는 돌아와요.' if rest
+                else '이 휴가를 취소할까요? 쓴 연차는 돌아와요.')},
             'confirm': {'type': 'plain_text', 'text': '취소하기'},
             'deny': {'type': 'plain_text', 'text': '그대로 두기'}})]
     if els:
