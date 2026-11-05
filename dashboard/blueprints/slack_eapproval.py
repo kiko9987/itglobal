@@ -576,6 +576,16 @@ def _register_invoice_pick(app) -> None:
             sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
             meta['inv'] = ea.invoice_from_value(sel)
             meta['no_inv'] = sel == ea.INVOICE_NONE
+            meta.pop('inv_link', None)
+            meta.pop('inv_files', None)
+            if meta['inv']:   # 창에 '계산서 사진은 자동으로 붙어요' + 글 링크(첨부 칸은 미리 채울 수 없다, 11-05)
+                inv = meta['inv']
+                meta['inv_files'] = [f['name'] for f in invoice_post_files(inv['ch'], inv['ts'])][:3]
+                try:
+                    meta['inv_link'] = _invoice_client().chat_getPermalink(
+                        channel=inv['ch'], message_ts=inv['ts']).get('permalink', '')
+                except Exception as exc:
+                    logger.debug(f'{_LOG} 계산서 글 링크 실패(무시): {exc}')
             partner = (meta['inv'] or {}).get('parsed', {}).get('partner') or meta.get('partner', '')
             _set_payee_prefill(meta, partner)
             client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
