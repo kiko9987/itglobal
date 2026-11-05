@@ -332,6 +332,50 @@ def read_attachments(view: dict) -> List[dict]:
             for f in (el.get('files') or []) if f.get('id')]
 
 
+FOLDER_DOCS_BLOCK = 'folder_docs'
+FOLDER_DOC_FORMS = (FORM_CONTRACT, FORM_INSURANCE, FORM_CARDPAY)   # 공사 폴더 서류를 불러오는 양식(11-05)
+LICENSE_DOC = 'lic'                                                # 사업자등록증 고르기 값(제출 때 링크를 찾는다)
+
+
+def folder_docs_block(docs: List[dict]) -> Optional[dict]:
+    """「공사 폴더 서류」 — 견적서 및 계약서 폴더의 파일을 골라 카드 스레드에 링크로 붙인다(11-05).
+    docs: [{id, name, note, checked}] (최대 10, 슬랙 고르기 한도)."""
+    if not docs:
+        return None
+    opts = [{'text': _plain(d['name'][:75]), 'value': d['id'][:150],
+             **({'description': _plain(d['note'][:75])} if d.get('note') else {})} for d in docs[:10]]
+    el = {'type': 'checkboxes', 'action_id': FOLDER_DOCS_BLOCK, 'options': opts}
+    init = [o for o, d in zip(opts, docs) if d.get('checked')]
+    if init:
+        el['initial_options'] = init
+    return {'type': 'input', 'block_id': FOLDER_DOCS_BLOCK, 'optional': True, 'label': _plain('공사 폴더 서류'),
+            'element': el, 'hint': _plain('고른 파일은 결재 카드 스레드에 드라이브 링크로 붙어요. '
+                                          '확정·최종 견적서와 사업자등록증은 미리 골라 두었어요.')}
+
+
+def carry_folder_docs(view: dict) -> Optional[dict]:
+    """창을 다시 그릴 때(보증 종류·보증 고르기) 서류 칸을 지금 고른 그대로 옮긴다."""
+    blk = next((b for b in view.get('blocks') or [] if b.get('block_id') == FOLDER_DOCS_BLOCK), None)
+    if not blk:
+        return None
+    blk = json.loads(json.dumps(blk))
+    st = (((view.get('state') or {}).get('values') or {}).get(FOLDER_DOCS_BLOCK) or {}).get(FOLDER_DOCS_BLOCK)
+    if st is not None:
+        picked = {o.get('value') for o in st.get('selected_options') or []}
+        sel = [o for o in blk['element']['options'] if o['value'] in picked]
+        blk['element'].pop('initial_options', None)
+        if sel:
+            blk['element']['initial_options'] = sel
+    return blk
+
+
+def read_folder_docs(view: dict) -> List[dict]:
+    """고른 공사 폴더 서류 [{id, name}]."""
+    el = (((view.get('state') or {}).get('values') or {}).get(FOLDER_DOCS_BLOCK) or {}).get(FOLDER_DOCS_BLOCK) or {}
+    return [{'id': o.get('value', ''), 'name': ((o.get('text') or {}).get('text') or '')}
+            for o in el.get('selected_options') or []]
+
+
 def edit_texts(meta: dict, title: str, submit: str) -> Tuple[str, str]:
     """수정 모드면 (제목 '… 수정', 버튼 '다시 올리기')."""
     if meta.get('edit'):
@@ -376,6 +420,9 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
         if f.hint:
             b['hint'] = _plain(f.hint)
         blocks.append(b)
+    docs_blk = values.get('_docs_block') or folder_docs_block(values.get('_docs') or [])
+    if docs_blk:
+        blocks.append(docs_blk)
     blocks.append(attach_block(_ATTACH_HINTS.get(form_key, '견적서·관련 서류 등')))
     title, submit = edit_texts(meta, form.label, '요청')
     return {

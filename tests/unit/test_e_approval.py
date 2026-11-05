@@ -14,6 +14,10 @@ def tmp_db(tmp_path, monkeypatch):
     db = UserDatabase(db_path=str(tmp_path / 'users.db'))
     monkeypatch.setattr(ea, '_db', lambda: db)
     monkeypatch.setattr(ea, '_table_ready', False)
+    # 계산서 현장 지정 장부도 임시 DB로 — 안 그러면 작업 폴더 instance/users.db 에 시험 줄이 남는다(11-05)
+    from dashboard.services import purchase_invoice_assign as pinv
+    monkeypatch.setattr(pinv, '_db', lambda: db)
+    monkeypatch.setattr(pinv, '_table_ready', False)
     monkeypatch.setattr(ea, '_suffix_map', lambda: {'강성환': 'SH', '황샛별': 'SB', '박정우': 'JW', '박용구': 'YG'})
     for k in ('EAPPROVAL_APPROVER_IDS', 'EAPPROVAL_EXECUTOR_DM_IDS',
               'SLACK_SETTLEMENT_CHECKER_ID', 'SLACK_SETTLEMENT_CHECKER_EMAIL'):
@@ -1165,6 +1169,71 @@ def test_post_files_to_card_thread(se, monkeypatch):
     assert n == 1 and up[0]['thread_ts'] == row['card_ts'] and up[0]['file_uploads'][0]['filename'] == 'a.pdf'
     warn = [m['text'] for m in se._fake.of('chat_postMessage') if '옮기지 못했어요' in (m.get('text') or '')]
     assert warn and 'b.pdf' in warn[0]
+
+
+class _FakeDrive:
+    def __init__(self, files):
+        self._files = files
+
+    def files(self):
+        return self
+
+    def list(self, **kw):
+        self.kw = kw
+        return self
+
+    def execute(self):
+        return {'files': self._files}
+
+
+def test_folder_docs_final_first_and_license(se, monkeypatch):
+    from dashboard.services import business_license_handler as bl
+    files = [  # 드라이브는 최근 고친 순으로 준다
+        {'id': 'D1', 'name': '-최종- 에어컨 도면 26.11.04.pdf', 'modifiedTime': '2026-11-05T00:00:00Z'},
+        {'id': 'X1', 'name': '(MJ) 송파 26.10.30.xlsx', 'modifiedTime': '2026-10-30T01:00:00Z'},
+        {'id': 'P3', 'name': '(MJ) 송파 26.10.30.pdf', 'modifiedTime': '2026-10-30T00:00:00Z'},
+        {'id': 'P2', 'name': '(MJ) 송파 26.10.29 -최종 견적-.pdf', 'modifiedTime': '2026-10-29T00:00:00Z'},
+        {'id': 'P1', 'name': '-공사확정- 송파 26.10.27.pdf', 'modifiedTime': '2026-10-27T00:00:00Z'},
+        {'id': 'L1', 'name': '사업자등록증.pdf', 'modifiedTime': '2026-10-01T00:00:00Z'},
+    ]
+    monkeypatch.setattr(bl, '_project_folder_id_for', lambda code, fresh=False: 'FOLDER')
+    monkeypatch.setattr(bl, '_get_drive', lambda: _FakeDrive(files))
+    monkeypatch.setattr(bl, 'get_license_state', lambda code, use_cache=True: {'view_url': 'https://d/lic', 'source': 'own'})
+    docs = se.folder_docs('G4049-JW', precheck=True)
+    # 등록증 · 확정/최종 견적 · 확정/최종 도면 · 나머지 (엑셀·등록증 파일 제외). G4257-MW 처럼 최종 도면이 더 최근이어도
+    assert [d['id'] for d in docs] == ['lic', 'P2', 'P1', 'D1', 'P3']
+    assert [d['checked'] for d in docs] == [True, True, False, False, False]   # 확정·최종 견적서 하나만 미리 고름
+    assert [d['checked'] for d in se.folder_docs('G4049-JW')] == [False] * 5
+
+
+def test_folder_docs_block_carry_and_post(se):
+    from dashboard.services import e_approval_forms as forms
+    docs = [{'id': 'lic', 'name': '사업자등록증', 'note': '이 공사 폴더', 'checked': True},
+            {'id': 'P2', 'name': '최종 견적.pdf', 'note': '2026-10-29', 'checked': False}]
+    v = forms.form_view(forms.FORM_CONTRACT, {'form': forms.FORM_CONTRACT}, {'_docs': docs})
+    blk = next(b for b in v['blocks'] if b.get('block_id') == 'folder_docs')
+    assert [o['value'] for o in blk['element']['initial_options']] == ['lic']
+    # 보증 고르기로 다시 그려도 지금 고른 것(P2 로 바꿈) 그대로
+    view = {'blocks': v['blocks'], 'state': {'values': {'folder_docs': {'folder_docs': {
+        'selected_options': [blk['element']['options'][1]]}}}}}
+    kept = forms.carry_folder_docs(view)
+    assert [o['value'] for o in kept['element']['initial_options']] == ['P2']
+    assert forms.read_folder_docs(view) == [{'id': 'P2', 'name': '최종 견적.pdf'}]
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    se.post_folder_docs(row, [{'id': 'P2', 'name': '최종 견적.pdf'}])
+    msg = se._fake.of('chat_postMessage')[-1]
+    assert msg['thread_ts'] == row['card_ts'] and 'https://drive.google.com/file/d/P2/view|최종 견적.pdf' in msg['text']
+
+
+def test_invoice_photo_copied_to_card(se, monkeypatch):
+    # 계산서 글 현장 지정(Redis)까지는 안 가게 결재만 만들어 시작
+    row = se.start(ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS, origin_channel='CINV', origin_ts='9.0')))
+    se._inv.conversations_history = lambda **kw: {'messages': [
+        {'ts': '9.0', 'files': [{'name': 'image.png', 'url_private_download': 'https://f/inv'}]}]}
+    monkeypatch.setattr(se, '_download', lambda url: b'IMG')
+    assert se.post_invoice_files(row) == 1
+    up = se._fake.of('files_upload_v2')[-1]
+    assert up['thread_ts'] == row['card_ts'] and up['initial_comment'].startswith('📄 계산서')
 
 
 def test_manifest_has_file_scopes():
