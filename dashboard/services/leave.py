@@ -8,7 +8,7 @@
   - 승인: 요청자 → JW → YG. JW 가 신청하면 YG 만, YG 가 신청하면 바로 확정.
   - 전자결재와 따로 '휴가' 봇(slack_leave). 입구 = #휴가_일정 워크플로 버튼·봇 홈 탭.
   - 신청 카드는 채널에 올리지 않고 DM 으로만. 확정되면 #휴가_일정에 '누가 언제 휴가/반차'만(종류·사유 없음).
-  - 슬랙이 없는 직원(미화·시공)은 경영지원이 대신 신청한다.
+  - 휴가는 무조건 본인이 신청(대신 신청 없음). 슬랙 가입 전인 직원은 그동안 플렉스로.
   - 연차는 지금 입사일 기준. 2027-01-01 회계연도 기준으로 바꾼다(정산표는 따로 — FISCAL_FROM).
 
 장부: 연차는 '부여(grant)' 줄마다 쓸 수 있는 기간이 있고, 신청은 그 휴가 첫날에 살아 있는 부여에서
@@ -39,7 +39,7 @@ def approver_ids() -> tuple:
 
 
 def manager_ids() -> tuple:
-    """경영지원 — 다른 직원 대신 신청·관리자 부여 휴가·확정 뒤 취소. 정산 승인 명단과 같다."""
+    """경영지원 — 이미 시작한 휴가도 취소할 수 있는 사람. 정산 승인 명단과 같다."""
     from dashboard.services.settlement_checkers import checker_ids
     return checker_ids()
 
@@ -95,7 +95,7 @@ def needs_proof(ltype: str) -> bool:
     return TYPES.get(ltype, ('', False, False))[2]
 
 
-def type_options(for_manager: bool = False) -> List[Tuple[str, str]]:
+def type_options() -> List[Tuple[str, str]]:
     """신청 창 종류 — 관리자 부여 휴가(배우자 출산·보상·보건·산전후·난임·유산사산)는 경영지원에게도 안 보인다
     (11-05 KiKO: 플렉스 직원 화면과 같게). 표(TYPES)엔 남겨 두어 나중에 다시 켤 수 있게."""
     return [(k, v[0]) for k, v in TYPES.items() if not v[3]]
@@ -432,11 +432,10 @@ def overlaps(name: str, start: date, end: date) -> List[dict]:
             f'AND start<=? AND "end">=?', (name, *HOLDING, end.isoformat(), start.isoformat())).fetchall()]
 
 
-def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Optional[date],
-             for_manager: bool = False) -> Dict[str, str]:
+def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Optional[date]) -> Dict[str, str]:
     """창 칸 이름 → 오류 문구."""
     errs: Dict[str, str] = {}
-    if ltype not in dict(type_options(for_manager)):
+    if ltype not in dict(type_options()):
         errs['type'] = '휴가 종류를 골라 주세요.'
         return errs
     if ltype == EVENT and sub not in EVENT_SUBS:
@@ -644,8 +643,6 @@ def card_text(row: dict, step_rows: List[dict], role: str, left: Optional[float]
              f"• 날짜: {period_text(row)}  ({fmt_days(row['days'])})"]
     if row.get('reason'):
         lines.append(f"• 사유: {row['reason']}")
-    if row.get('submitter_name') and row.get('submitter_name') != row['name']:
-        lines.append(f"• 대신 신청: {row['submitter_name']}")
     if deducts(row['ltype']) and left is not None:
         lines.append(f'• 남은 연차: {fmt_days(left)}' + (' (이 신청 반영)' if row['status'] in HOLDING else ''))
     lines.append(f'• 승인: {step_line(row, step_rows)}')
