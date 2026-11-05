@@ -727,19 +727,56 @@ def menu_blocks() -> List[dict]:
     ]
 
 
+def form_open_action_id(form_key: str) -> str:
+    """양식 버튼 action_id — 한 actions 블록 안에서 겹치면 안 돼 양식 key 를 붙인다(핸들러는 앞부분으로 받는다)."""
+    return f'{A_FORM_OPEN}_{form_key}'
+
+
+def _menu_btn(action_id: str, text: str, value: str = '', primary: bool = False) -> dict:
+    b = {'type': 'button', 'action_id': action_id, 'text': {'type': 'plain_text', 'text': text, 'emoji': True}}
+    if value:
+        b['value'] = value
+    if primary:
+        b['style'] = 'primary'
+    return b
+
+
+def hub_blocks() -> List[dict]:
+    """창(워크플로·바로가기)·홈 탭용 메뉴 — 양식을 고르기 칸 대신 버튼으로 다 보여 준다(11-05).
+    채널 고정 메시지(menu_blocks)는 폭이 좁아 고르기 칸을 그대로 둔다."""
+    return [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*돈이 나가는 요청*'}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+            '거래처 송금(자재·외주·현장 비용, 회사 재고 자재 포함)은 자금집행, '
+            '경영지원이 대신 주문해 주는 사무용 비품은 비품 신청'}]},
+        {'type': 'actions', 'elements': [
+            _menu_btn(A_NEW, '💸 자금집행 요청', primary=True),
+            _menu_btn(A_NEW_SUPPLY, '🛒 비품 신청')]},
+        {'type': 'divider'},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*다른 결재*'}},
+        {'type': 'actions', 'elements': [
+            _menu_btn(form_open_action_id(o['value']), o['text']['text'], value=o['value'])
+            for o in forms.menu_options()]},
+        {'type': 'divider'},
+        {'type': 'actions', 'elements': [_menu_btn(A_MY_REQUESTS, '📂 내 요청')]},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+            '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}]},
+    ]
+
+
 def hub_view() -> dict:
-    """바로가기 「전자결재」 창 — 채널 고정 메뉴와 같은 블록. 고르면 이 창이 그 입력 창으로 바뀐다."""
+    """바로가기 「전자결재」·워크플로 버튼 창. 고르면 그 입력 창이 위에 쌓인다([취소] → 이 창)."""
     return {
         'type': 'modal',
         'title': {'type': 'plain_text', 'text': '전자결재'},
         'close': {'type': 'plain_text', 'text': '닫기'}, 'notify_on_close': True,
-        'blocks': menu_blocks(),
+        'blocks': hub_blocks(),
     }
 
 
 def home_view() -> dict:
-    """앱 홈 탭(왼쪽 앱 목록 → 전자결재) — 채널 고정 메뉴와 같은 버튼(11-05). `/` 를 몰라도 찾을 수 있게."""
-    return {'type': 'home', 'blocks': menu_blocks()}
+    """앱 홈 탭(왼쪽 앱 목록 → 전자결재) — 창과 같은 버튼 메뉴(11-05). `/` 를 몰라도 찾을 수 있게."""
+    return {'type': 'home', 'blocks': hub_blocks()}
 
 
 def my_requests_view(text: str) -> dict:
