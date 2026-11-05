@@ -3829,6 +3829,10 @@ def _register_project_handlers(app):
                 "end_date": f"공사 종료일({end_date})은 시작일({start_date})보다 이후여야 합니다.",
             })
             return
+        _amt_err = _project_amount_input_error(_v(state, "amount"))
+        if _amt_err:
+            ack(response_action="errors", errors={"amount": _amt_err})
+            return
         # 거래처 유입은 일을 맡긴 업체(거래처명)가 있어야 함 — 고객이 돈을 내도 거래처는 인테리어 (2026-10-22)
         if (_v(state, "source") or '') == '거래처' and not (_v(state, "partner_name") or '').strip():
             ack(response_action="errors", errors={
@@ -4162,6 +4166,10 @@ def _register_project_handlers(app):
             ack(response_action="errors", errors={
                 "end_date": f"공사 종료일({end_date})은 시작일({start_date})보다 이후여야 합니다.",
             })
+            return
+        _amt_err = _project_amount_input_error(_v(values, "amount"))
+        if _amt_err:
+            ack(response_action="errors", errors={"amount": _amt_err})
             return
         ack()
         _run_bg_with_notify(
@@ -7200,6 +7208,29 @@ def _open_project_modal(client, trigger_id: str, channel: str, user_id: str):
         ],
     }
     client.views_open(trigger_id=trigger_id, view=view)
+
+
+_PROJECT_AMOUNT_MAX = 1_000_000_000   # 지금까지 최대 공사 2억(11-05 기준 4,251건) — 10억 넘으면 입력 실수
+_AMOUNT_COMMA_RE = re.compile(r'^\d{1,3}(,\d{3})+$')
+
+
+def _project_amount_input_error(raw) -> str:
+    """공사 금액 칸 입력 검사 — 문제 있으면 모달 오류 문구, 없으면 ''.
+
+    예전엔 숫자만 뽑아 읽어, 미리 채워진 기존 금액 뒤에 새 금액을 이어 쓴 '4,000,0003,700,000'이
+    40조 원 요청으로 나갔다 (2026-11-05 G4258-MW). 쉼표 자리가 틀리거나 숫자·쉼표·'원' 외 글자가
+    섞였거나(예: '370만' → 370원으로 읽힘) 10억 원을 넘으면 막는다. 빈 칸은 각 창의 기존 처리대로.
+    """
+    s = re.sub(r'\s+', '', str(raw or ''))
+    if s.endswith('원'):
+        s = s[:-1]
+    if not s:
+        return ''
+    if not (s.isdigit() or _AMOUNT_COMMA_RE.match(s)):
+        return '금액 형식이 맞지 않습니다. 기존 금액을 지우고 새 금액만 숫자로 입력해 주세요. (예: 3,700,000)'
+    if int(s.replace(',', '')) > _PROJECT_AMOUNT_MAX:
+        return '10억 원이 넘는 금액입니다. 기존 금액 뒤에 이어 쓰지 않았는지 확인해 주세요.'
+    return ''
 
 
 def _process_project_submission(client, body, view):
