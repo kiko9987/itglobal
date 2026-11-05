@@ -3833,6 +3833,24 @@ def _register_project_handlers(app):
                 logger.error(f"[SLACK/계산서] 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    @app.action("invoice_doc_pick")
+    def handle_invoice_doc_pick(ack, body, client):
+        """계산서 요청 창 「발행 종류」 세금계산서 ↔ 현금영수증 → 그 종류 칸으로 다시 그림 (2026-11-05)."""
+        ack()
+
+        def _bg():
+            try:
+                view = body.get("view") or {}
+                meta = json.loads(view.get("private_metadata") or "{}")
+                doc = (((body.get("actions") or [{}])[0].get("selected_option")) or {}).get("value") or 'tax'
+                if doc == (meta.get("doc") or 'tax'):
+                    return
+                _build_and_update_invoice_modal(client, view.get("id"), _cur_code(meta.get("code", "-")) or '-',
+                                                '', '', '', '', doc=doc)
+            except Exception as exc:
+                logger.error(f"[SLACK/계산서] 발행 종류 재렌더 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     @app.action("invoice_payer_pick")
     def handle_invoice_payer_pick(ack, body, client):
         """나눠 내는 공사 계산서 창 — '누구 계산서인가요' 선택 → 그 사람 기준으로 다시 채움 (2026-10-20)."""
@@ -3857,6 +3875,17 @@ def _register_project_handlers(app):
         # 검증 실패 시 매니저에게 chat.postEphemeral (DM fallback) 로 반려 안내.
         # 금액 사전 점검(2026-10-15)만 ack 전 — 캐시 조회라 빠르고, 하드 타임아웃(1.5초) 초과 시
         #   무경고 통과. 같은 금액·VAT 로 다시 누르면 통과(확인).
+        # 현금영수증: 발급 번호(휴대폰·사업자번호) 확인 (2026-11-05)
+        try:
+            _doc = json.loads(view.get("private_metadata") or "{}").get("doc") or 'tax'
+        except Exception:
+            _doc = 'tax'
+        if _doc == 'cash':
+            _crno = str((_invoice_view_values(view).get('crno') or {}).get('value') or '')
+            if not _cash_receipt_kind(_crno):
+                ack(response_action="errors", errors={_invoice_block_id(view, "crno"):
+                    "휴대폰 번호(010…) 또는 사업자번호 10자리를 넣어 주세요."})
+                return
         _warn = _invoice_submit_amount_check(view)
         if _warn:
             ack(response_action="errors",
@@ -5289,9 +5318,12 @@ def _register_invoice_handlers(app):
                     _mark_invoice_issued_in_sheet(
                         meta.get('code'), meta.get('stages'), meta.get('amt'),
                         vat_val=meta.get('vat', 'sep'), biz=meta.get('biz', ''),
-                        card_key=f'{channel}:{thread_ts}', replace=meta.get('replace') or [])
+                        card_key=f'{channel}:{thread_ts}', replace=meta.get('replace') or [],
+                        doc=meta.get('doc') or 'tax')
                     # 발행한 계산서 읽기 — 같은 법인 발행이면 자금 이동 요청 정리, 공급받는자는 거래처 탭에
-                    _learn_from_issued_invoice(client, event, meta)
+                    #   (현금영수증은 세금계산서 OCR 대상이 아님)
+                    if meta.get('doc') != 'cash':
+                        _learn_from_issued_invoice(client, event, meta)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -15482,12 +15514,14 @@ def _invoice_block_id(view, base: str) -> str:
     return base
 
 
-def _invoice_dedup_key(code, stages='') -> str:
-    """계산서 요청 90초 중복 방지 키 — 나눠 내는 공사는 사람(칸)마다 따로(임대인·임차인 연달아 요청 허용)."""
+def _invoice_dedup_key(code, stages='', doc='tax') -> str:
+    """계산서 요청 90초 중복 방지 키 — 나눠 내는 공사는 사람(칸)마다 따로(임대인·임차인 연달아 요청 허용).
+    현금영수증은 세금계산서와 따로(2026-11-05)."""
     st = str(stages or '').split(',')[-1].strip()
+    tail = ':cash' if doc == 'cash' else ''
     if st and _intake_split_payers(code):
-        return f'invoice_request_dedup:{code}:{st}'
-    return f'invoice_request_dedup:{code}'
+        return f'invoice_request_dedup:{code}:{st}{tail}'
+    return f'invoice_request_dedup:{code}{tail}'
 
 
 def _build_invoice_stage_block(code):
@@ -15507,7 +15541,7 @@ def _build_invoice_stage_block(code):
 
 
 def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep', biz='',
-                                  card_key='', replace=None):
+                                  card_key='', replace=None, doc='tax'):
     """계산서 첨부 완료 → 선택 단계 '계산서' 열='발행' 기록 + Y요약 재계산.
 
     입금 SMS 흐름의 _commit_intake_to_sheet 대칭. update_cell_value(values.update)라
@@ -15670,6 +15704,12 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                         _sup = int(round(inv_amt))
                     if _sup > 0:
                         _core = f"{_core} ({_sup:,}원 VAT 별도)"
+                    # 현금영수증(2026-11-05) — 계산서와 똑같이 '발행'으로 기록하고 표시는 금액 괄호 안에만.
+                    #   괄호는 VAT·공급가로 시작해야 _INV_LINE_RE·billStatus.js INV_LINE 이 금액 줄로 읽는다
+                    #   ('(현금영수증)'처럼 따로 두면 줄을 못 읽어 발행액 합산이 빠짐).
+                    if doc == 'cash':
+                        _core = (_core[:-1] + ' · 현금영수증)') if _core.endswith(')') \
+                            else f"{_core} (VAT 포함 · 현금영수증)"
                 _biz = str(biz or '').strip()
                 if _biz and _biz != '-':
                     _core = f"{_core} · {_biz}"
@@ -16142,9 +16182,32 @@ def _invoice_active_option_text(it) -> str:
     return t if len(t) <= 75 else t[:74] + '…'
 
 
+_INVOICE_DOC_OPTS = [('tax', '세금계산서'), ('cash', '현금영수증')]
+
+
+def _invoice_doc_block(doc: str) -> dict:
+    """계산서 요청 창 맨 위 「발행 종류」 — 고르면 창을 그 종류 칸으로 다시 그림(2026-11-05).
+    계산서를 받기 어려운 고객이 현금영수증으로 바꿔 달라는 경우가 있어서."""
+    opts = [{"text": {"type": "plain_text", "text": t}, "value": v} for v, t in _INVOICE_DOC_OPTS]
+    return {"type": "input", "block_id": "doc", "dispatch_action": True,
+            "label": {"type": "plain_text", "text": "발행 종류"},
+            "element": {"type": "static_select", "action_id": "invoice_doc_pick", "options": opts,
+                        "initial_option": next(o for o in opts if o["value"] == (doc or 'tax'))}}
+
+
+def _cash_receipt_kind(no: str) -> str:
+    """현금영수증 발급 번호 → '소득공제용'(휴대폰) / '지출증빙용'(사업자번호 10자리) / ''(모름)."""
+    d = re.sub(r'\D', '', str(no or ''))
+    if len(d) == 10 and not d.startswith('01'):
+        return '지출증빙용'
+    if d.startswith('01') and len(d) in (10, 11):
+        return '소득공제용'
+    return ''
+
+
 def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_warn='', issued_warn='',
                               total_amt=None, active_invoices=None, payer_opts=None, payer_stage=None,
-                              total_label='공사 금액 (시트 원본)') -> dict:
+                              total_label='공사 금액 (시트 원본)', doc='tax') -> dict:
     """세금계산서 요청 모달 view dict. open / 백그라운드 update 공용 (2026-07-28).
 
     partner_warn: 폐업/휴업 경고 문구. 있으면 헤더 바로 아래 section 으로 표시.
@@ -16163,7 +16226,10 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     if total_amt is None:
         total_amt = amt
     split = payer_opts is not None
+    cash = (doc == 'cash') and not split    # 나눠 내는 공사 창은 세금계산서만
     sfx = _PAYER_BLOCK_SFX.get(payer_stage or '', '') if split else ''
+    if cash:
+        sfx = '__x'   # 종류를 바꿔 다시 그릴 때 입력칸을 새로 만들어 금액(합계)·칸 값이 바뀌게
 
     def _text_input(block_id, label, value, multiline=False, optional=False, placeholder=''):
         block_id = f"{block_id}{sfx}"
@@ -16182,10 +16248,13 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
             blk["optional"] = True
         return blk
 
+    doc_name = '현금영수증' if cash else '세금계산서'
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn",
-            "text": f"프로젝트 `{code}` 세금계산서 발행 요청"}},
+            "text": f"프로젝트 `{code}` {doc_name} 발행 요청"}},
     ]
+    if not split:
+        blocks.append(_invoice_doc_block('cash' if cash else 'tax'))
     if partner_warn:
         # 헤더 바로 아래 폐업/휴업 경고 (요청 전 인지)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": partner_warn}})
@@ -16209,7 +16278,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
                 "blocks": blocks,
             }
     blocks += [
-        _text_input("biz", "사업자명", biz),
+        _text_input("biz", "이름 또는 상호" if cash else "사업자명", biz),
         _text_input("addr", "현장 주소", addr),
         {"type": "section", "text": {"type": "mrkdwn",
             "text": f"*{total_label}*\n{total_amt} 원"}},
@@ -16217,6 +16286,24 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
     if issued_warn:
         # 이미 발행된 계산서 안내 — 발행 금액 입력 바로 위 (요청 전 인지)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": issued_warn}})
+    if cash:
+        # 현금영수증 — 금액은 합계(VAT 포함) 그대로, 이메일 대신 발급 번호. 수정발행(대체) 칸은 없음
+        blocks += [
+            _text_input("amt", "현금영수증 발행 금액 (VAT 포함)", amt),
+            _build_invoice_stage_block(code),
+            {**_text_input("crno", "발급 번호", "", placeholder="예: 010-1234-5678 또는 123-45-67890"),
+             "hint": {"type": "plain_text",
+                      "text": "휴대폰 번호면 소득공제용, 사업자번호 10자리면 지출증빙용으로 발행합니다."}},
+            _text_input("memo", "추가 요청사항", "", multiline=True, optional=True),
+        ]
+        return {
+            "type": "modal", "callback_id": "submit_invoice",
+            "private_metadata": metadata,
+            "title": {"type": "plain_text", "text": "현금영수증 발행 요청"},
+            "submit": {"type": "plain_text", "text": "요청 발송"},
+            "close": {"type": "plain_text", "text": "취소"},
+            "blocks": blocks,
+        }
     if active_invoices:
         # 수정발행 = 기존 계산서를 대체 (2026-10-01). 체크한 장은 첨부 완료 시 메모에 '취소' 줄로
         #   남아 현재 계산서에서 빠짐. 비워두면 추가 발행(분할 포함)으로 합산.
@@ -16336,7 +16423,7 @@ def _build_split_invoice_modal(client, view_id, code, payers, biz, addr, total_a
 
 
 def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt, p_email,
-                                    payer_stage=None) -> None:
+                                    payer_stage=None, doc='tax') -> None:
     """placeholder 모달 → 프로젝트 최신값 + 이미발행 잔여로 채워 views_update (2026-09-28).
 
     placeholder-first 로 전환한 이유: 슬랙 input 은 open 시점에 값이 차 있으면 이후
@@ -16397,15 +16484,24 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
         active = ((_iss or {}).get('active') or [])[:10]
     except Exception as _exc:
         logger.debug(f'[SLACK/계산서] 이미발행 계산 실패 ({code}): {_exc}')
+    if doc == 'cash':
+        # 현금영수증은 합계(VAT 포함)로 발행 — 총액 2 에서 이미 발행한 합계를 뺀 금액
+        try:
+            _iss_c = _project_issued_invoice(code) or {}
+            _t2 = _iss_c.get('total2') or _project_total2(code)
+            if _t2:
+                amt_input = f"{max(0, int(_t2) - int(_iss_c.get('issued_gross') or 0)):,}"
+        except Exception as _exc:
+            logger.debug(f'[SLACK/계산서] 현금영수증 금액 계산 실패 ({code}): {_exc}')
 
     partner_warn = _partner_status_warn(biz)
     # 수정발행 대체 후보 스냅샷 — 제출 시 체크박스 인덱스로 복원 (사업자명 60자 컷: metadata 3000자 제한)
-    metadata = json.dumps({"code": code, "active": [
+    metadata = json.dumps({"code": code, "doc": doc, "active": [
         [it['date'], it['stage'], int(round(it['amt'])), (it['biz'] or '')[:60]] for it in active]},
         ensure_ascii=False)
     view = _build_invoice_modal_view(code, biz, addr, amt_input, email, metadata,
                                      partner_warn=partner_warn, issued_warn=issued_warn,
-                                     total_amt=total_amt, active_invoices=active)
+                                     total_amt=total_amt, active_invoices=active, doc=doc)
     try:
         client.views_update(view_id=view_id, view=view)
         logger.info(
@@ -16414,6 +16510,17 @@ def _build_and_update_invoice_modal(client, view_id, code, p_biz, p_addr, p_amt,
         )
     except Exception as exc:
         logger.warning(f'[SLACK/계산서] 모달 views_update 실패 ({code}): {exc}')
+
+
+def _project_total2(code) -> int:
+    """공사현황 총액 2(VAT 포함) — 현금영수증 금액 미리 채우기용. 없으면 0."""
+    try:
+        from dashboard.services.project_service import get_project_records
+        rec = next((r for r in (get_project_records() or [])
+                    if str(r.get('프로젝트 코드') or '').strip() == code), None)
+        return int(round(_bill_to_num((rec or {}).get('총액 2')))) if rec else 0
+    except Exception:
+        return 0
 
 
 def _open_invoice_modal(client, body) -> None:
@@ -16501,7 +16608,8 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         metadata = json.loads(view.get("private_metadata") or "{}")
         code = _cur_code(metadata.get("code", ""))
     except Exception:
-        code = ''
+        metadata, code = {}, ''
+    doc = metadata.get('doc') or 'tax'
 
     user_id = body.get('user', {}).get('id', '')
     # 2026-07-24: 세금계산서 요청은 #계산서_관리 채널로 분리. 공사수정·취소는 #영업_관리 유지.
@@ -16528,7 +16636,7 @@ def _process_invoice_submit_bg(client, body, view) -> None:
         try:
             from dashboard.utils.redis_client import get_redis_client as _get_rc_id
             _vst = (((_invoice_view_values(view).get('stages') or {}).get('selected_option')) or {}).get('value') or ''
-            if _get_rc_id().redis.get(_invoice_dedup_key(code, _vst)):
+            if _get_rc_id().redis.get(_invoice_dedup_key(code, _vst, doc)):
                 logger.info(
                     f'[SLACK/계산서] 코드 중복 재제출 skip (code={code}) — 90초 내 이미 발송')
                 try:
@@ -16575,9 +16683,10 @@ def _process_invoice_submit_bg(client, body, view) -> None:
                 return True
 
         with ThreadPoolExecutor(max_workers=2) as ex:
-            fut_lic = ex.submit(_check_license)
+            # 현금영수증은 사업자등록증이 필요 없다(개인 고객이 대부분, 2026-11-05)
+            fut_lic = ex.submit(_check_license) if doc != 'cash' else None
             fut_vat = ex.submit(_check_vat_filled)
-            lic_ok = fut_lic.result()
+            lic_ok = fut_lic.result() if fut_lic else True
             vat_ok = fut_vat.result()
 
         if not lic_ok:
@@ -16616,6 +16725,8 @@ def _invoice_submit_amount_check(view, timeout=1.5) -> str:
         values = _invoice_view_values(view)
         amt = ''.join(ch for ch in str((values.get('amt') or {}).get('value') or '') if ch.isdigit())
         vat = ((values.get('vat') or {}).get('selected_option') or {}).get('value') or 'sep'
+        if meta.get('doc') == 'cash':
+            vat = 'incl'   # 현금영수증 금액은 합계(VAT 포함)
         has_rep = bool((values.get('replace') or {}).get('selected_options') or [])
         stage = ((values.get('stages') or {}).get('selected_option') or {}).get('value') or None
         code = _cur_code(meta.get("code", "-")) or '-'
@@ -16678,6 +16789,12 @@ def _process_invoice_submission(client, body, view) -> None:
     # VAT radio_buttons state — 2026-07-16 라디오 필드 재도입 (매니저 오클릭 방지)
     _vat_state = (values.get('vat') or {}).get('selected_option') or {}
     vat_val = _vat_state.get('value', 'sep') or 'sep'
+    doc = metadata.get('doc') or 'tax'
+    crno = ''
+    if doc == 'cash':   # 현금영수증 — 합계 금액·발급 번호, 이메일 없음 (2026-11-05)
+        vat_val = 'incl'
+        email = '-'
+        crno = _get('crno').strip()
 
     # 계산서 발행 단계 단일 선택(누적) — 첨부 완료 시 시트 '발행' 자동기록용 (2026-09-07)
     _stage_state = (values.get('stages') or {}).get('selected_option') or {}
@@ -16699,7 +16816,7 @@ def _process_invoice_submission(client, body, view) -> None:
     post_invoice_request(
         code=code, biz=biz, addr=addr, amt_digits=amt_digits, vat_val=vat_val,
         email=email, memo=memo, requester_initial=initial, stages=stages,
-        dedup_check=False, fallback_client=client, replace=replace,
+        dedup_check=False, fallback_client=client, replace=replace, doc=doc, crno=crno,
     )
 
 
@@ -16799,7 +16916,7 @@ def _split_payer_license(code, biz):
 
 def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                          requester_initial='-', *, stages='', dedup_check=True,
-                         fallback_client=None, replace=None) -> dict:
+                         fallback_client=None, replace=None, doc='tax', crno='') -> dict:
     """세금계산서 발행 요청 카드를 #계산서_관리 채널에 발송 (슬랙·PM 공용 코어, 2026-09-01).
 
     슬랙 모달(_process_invoice_submission)·PM 엔드포인트(invoice_mgmt) 양쪽에서 호출.
@@ -16815,6 +16932,9 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             계산서_메모에 '취소' 줄 기록.
     Returns: {'ok': bool, 'reason': str, 'ts'?, 'channel'?, 'thread_url'?}
     """
+    cash = doc == 'cash'   # 현금영수증(2026-11-05) — 카드 문구·발급 번호, 등록증 첨부 없음, 시트는 '발행' 그대로
+    if cash:
+        replace, vat_val, email = [], 'incl', '-'
     replace = [r for r in (replace or [])
                if isinstance(r, dict) and r.get('stage') in _BILL_STAGES and _bill_to_num(r.get('amt')) > 0]
     # 단계 정규화 — 계약금/중도금/잔금만 허용, 순서 고정
@@ -16839,7 +16959,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     if dedup_check and code and code != '-':
         try:
             from dashboard.utils.redis_client import get_redis_client as _get_rc_id
-            if _get_rc_id().redis.get(_invoice_dedup_key(code, stages)):
+            if _get_rc_id().redis.get(_invoice_dedup_key(code, stages, doc)):
                 logger.info(f'[SLACK/계산서] 코드 중복 요청 skip (code={code}) — 90초 내 이미 발송')
                 return {'ok': False, 'reason': 'dedup'}
         except Exception as exc:
@@ -16858,18 +16978,29 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     initial = requester_initial or '-'
 
     # 카드 본문
+    doc_name = '현금영수증' if cash else '세금계산서'
     lines = [
-        f"🔔 *[세금계산서 발행 요청]*  `{code}`",
+        f"🔔 *[{doc_name} 발행 요청]*  `{code}`",
     ]
-    if partner_warn:
+    if partner_warn and not cash:
         lines.append(partner_warn)
-    lines += [
-        "--------------------------------------------",
-        f"🏢 사업자명 : {biz}",
-        f"📍 현장 주소 : {addr}",
-        f"💲 금액 : {amt_display}",
-        f"✉️ 이메일 : {email}",
-    ]
+    if cash:
+        _kind = _cash_receipt_kind(crno)
+        lines += [
+            "--------------------------------------------",
+            f"🧾 이름·상호 : {biz}",
+            f"📍 현장 주소 : {addr}",
+            f"💲 금액 : {amt_display}",
+            f"🔢 발급 번호 : {crno or '-'}" + (f" ({_kind})" if _kind else ''),
+        ]
+    else:
+        lines += [
+            "--------------------------------------------",
+            f"🏢 사업자명 : {biz}",
+            f"📍 현장 주소 : {addr}",
+            f"💲 금액 : {amt_display}",
+            f"✉️ 이메일 : {email}",
+        ]
     if stages_csv:
         lines.append(f"📑 발행 단계 : {stages_list[-1]}")
     for _r in replace:
@@ -16883,10 +17014,11 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     # 카드 발송 — 발행 완료 버튼은 제거 (2026-07-13 UX 개선).
     # 매니저가 스레드에 이미지/PDF 첨부하면 handle_thread_message 가 자동으로
     # 카드 헤더·첨부 상태를 완료 표시로 update. 버튼이 매니저에게 "이미 완료?" 오해를 줌.
+    _hint = ("💡 발행한 현금영수증을 이 스레드에 올리면 완료로 바뀝니다" if cash else
+             "💡 수정발행 필요 시 [세금계산서 요청] 재클릭 · 이메일만 변경 시 스레드 댓글로 새 이메일 남기기")
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        {"type": "context", "elements": [{"type": "mrkdwn",
-            "text": "💡 수정발행 필요 시 [세금계산서 요청] 재클릭 · 이메일만 변경 시 스레드 댓글로 새 이메일 남기기"}]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _hint}]},
     ]
 
     # 카드 발송은 세금계산서 관리 알림 봇 (invoice_bot) 으로. 없으면 fallback_client.
@@ -16921,7 +17053,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     if code and code != '-':
         try:
             from dashboard.utils.redis_client import get_redis_client as _get_rc_ds
-            _get_rc_ds().redis.set(_invoice_dedup_key(code, stages), ts or '1', ex=90)
+            _get_rc_ds().redis.set(_invoice_dedup_key(code, stages, doc), ts or '1', ex=90)
         except Exception:
             pass
 
@@ -16951,7 +17083,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             json.dumps({
                 'code': code, 'biz': biz, 'amt': amt_digits, 'vat': vat_val,
                 'email': email, 'thread_url': thread_url, 'orig_text': text,
-                'stages': stages_csv, 'replace': replace,
+                'stages': stages_csv, 'replace': replace, 'doc': doc, 'crno': crno,
             }, ensure_ascii=False),
         )
     except Exception as red_exc:
@@ -16979,7 +17111,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f'📎 세금계산서 : ⬜ 미첨부 <{thread_url}|(첨부하기)>',
+                "text": f'📎 {doc_name} : ⬜ 미첨부 <{thread_url}|(첨부하기)>',
             },
         }
         new_blocks = [info_block, attach_link_block, padding_block]
@@ -17072,8 +17204,9 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
         except Exception as notify_exc:
             logger.warning(f"[SLACK/계산서] 실패 안내 reply 발송 실패 ({code}): {notify_exc}")
 
-    threading.Thread(target=_attach_license_to_thread, daemon=True).start()
-    threading.Thread(target=_fill_payer_from_invoice, args=(code, stages, biz, email), daemon=True).start()
+    if not cash:   # 현금영수증은 등록증·부담자 사업자 정보가 필요 없다
+        threading.Thread(target=_attach_license_to_thread, daemon=True).start()
+        threading.Thread(target=_fill_payer_from_invoice, args=(code, stages, biz, email), daemon=True).start()
     return {'ok': True, 'reason': 'posted', 'ts': ts, 'channel': channel_id, 'thread_url': thread_url}
 
 
@@ -17379,10 +17512,11 @@ def _auto_complete_invoice_card(
     orig_text = meta.get('orig_text', '') or ''
     thread_url = meta.get('thread_url', '') or ''
 
-    # 헤더 : 🔔 요청 → ✅ 완료
+    # 헤더 : 🔔 요청 → ✅ 완료 (현금영수증 카드도, 2026-11-05)
+    doc_name = '현금영수증' if meta.get('doc') == 'cash' else '세금계산서'
     updated_text = orig_text.replace(
-        '🔔 *[세금계산서 발행 요청]*',
-        '✅ *[세금계산서 발행 완료]*',
+        f'🔔 *[{doc_name} 발행 요청]*',
+        f'✅ *[{doc_name} 발행 완료]*',
         1,
     )
     # 완료 처리 라인 추가 (마지막 구분선 앞)
@@ -17396,9 +17530,9 @@ def _auto_complete_invoice_card(
 
     # 첨부 상태 : ⬜ 미첨부 → ✅ 첨부됨 / (첨부하기) → (확인하기)
     if thread_url:
-        attach_text = f'📎 세금계산서 : ✅ 첨부됨 <{thread_url}|(확인하기)>'
+        attach_text = f'📎 {doc_name} : ✅ 첨부됨 <{thread_url}|(확인하기)>'
     else:
-        attach_text = f'📎 세금계산서 : ✅ 첨부됨'
+        attach_text = f'📎 {doc_name} : ✅ 첨부됨'
     attach_block = {'type': 'section', 'text': {'type': 'mrkdwn', 'text': attach_text}}
 
     new_blocks = [
@@ -17428,7 +17562,7 @@ def _auto_complete_invoice_card(
                 new_blocks.append({
                     'type': 'image',
                     'image_url': _image_url,
-                    'alt_text': '세금계산서 미리보기',
+                    'alt_text': f'{doc_name} 미리보기',
                 })
         except Exception as _prev_exc:
             logger.warning(f"[SLACK/계산서] 미리보기 image block 추가 실패 (계속 진행): {_prev_exc}")
@@ -17440,7 +17574,7 @@ def _auto_complete_invoice_card(
     try:
         client.chat_update(
             channel=channel, ts=message_ts,
-            text=(f"✅ 세금계산서 발행 완료 · {meta.get('code','')} · "
+            text=(f"✅ {doc_name} 발행 완료 · {meta.get('code','')} · "
                   f"{meta.get('biz','')}"),
             blocks=new_blocks,
         )
