@@ -1092,8 +1092,16 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         'hint': {'type': 'plain_text', 'text': '계산서 선택 시 거래처 · 금액 정보 자동 채움. '
                                                '계산서가 없으면 비워 두세요(선입금).'}}]
     if inv:
+        files = meta.get('inv_files') or []
+        link = f" <{meta['inv_link']}|계산서 글 보기>" if meta.get('inv_link') else ''
+        if meta.get('edit'):
+            photo = '📎 계산서 파일은 처음 올릴 때 결재 카드 스레드에 붙었어요.'
+        elif files:
+            photo = f"📎 계산서 파일({', '.join(files)})은 요청하면 결재 카드 스레드에 자동으로 붙어요.{link}"
+        else:
+            photo = f'📎 계산서 글에 붙은 파일이 없어요. 계산서 파일이 있으면 아래 「첨부 파일」에 올려 주세요.{link}'
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-                       '📄 거래처·금액은 계산서 글 그대로 올라가고, 그 글의 현장 지정도 함께 끝납니다.'}]})
+                       '📄 거래처·금액은 계산서 글 그대로 올라가고, 그 글의 현장 지정도 함께 끝납니다.\n' + photo}]})
     if fixed_project:
         blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{fixed_label or fixed_project}*'}})
     else:

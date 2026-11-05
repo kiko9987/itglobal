@@ -1231,6 +1231,15 @@ def test_folder_docs_block_carry_and_post(se):
     assert '• 최종 견적.pdf' in msg['text'] and 'drive.google.com' not in msg['text']
 
 
+def test_invoice_pick_shows_photo_note():
+    inv = {'ch': 'C1', 'ts': '1.0', 'parsed': {'grn': 'G', 'amount': 1000, 'partner': '강원포장'}}
+    txt = lambda v: json.dumps(v['blocks'], ensure_ascii=False)  # noqa: E731
+    v = ea.new_request_view({'inv': inv, 'inv_files': ['image.png'], 'inv_link': 'https://s/p'})
+    assert '계산서 파일(image.png)은 요청하면 결재 카드 스레드에 자동으로 붙어요' in txt(v) and 'https://s/p' in txt(v)
+    assert '붙은 파일이 없어요' in txt(ea.new_request_view({'inv': inv}))
+    assert '처음 올릴 때' in txt(ea.new_request_view({'inv': inv, 'edit': 3}))
+
+
 def test_invoice_photo_copied_to_card(se, monkeypatch):
     # 계산서 글 현장 지정(Redis)까지는 안 가게 결재만 만들어 시작
     row = se.start(ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS, origin_channel='CINV', origin_ts='9.0')))
