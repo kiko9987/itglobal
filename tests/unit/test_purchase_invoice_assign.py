@@ -72,6 +72,16 @@ def test_options_specials_filter_for_new_fund_request():
     assert _vals(pinv.build_project_options(RECS, '재고', specials=only_common)) == []
 
 
+def test_no_site_option_only_for_corpdocs():
+    """법인서류 요청은 「현장 없음」(공통비 아님) — 자금집행 등 기본 목록엔 안 나온다(11-05)."""
+    only = (pinv.NO_SITE_CODE,)
+    opts = pinv.build_project_options(RECS, '', manager_name=None, specials=only)
+    assert _vals(opts) == [pinv.NO_SITE_CODE] and opts[0]['text']['text'] == pinv.NO_SITE_LABEL
+    assert _vals(pinv.build_project_options(RECS, '입찰', specials=only)) == [pinv.NO_SITE_CODE]
+    assert pinv.NO_SITE_CODE not in _vals(pinv.build_project_options(RECS, '', manager_name=None))
+    assert pinv.project_display(pinv.NO_SITE_CODE, None) == '현장 없음'
+
+
 def test_options_search_matches_code_biz_addr_partner():
     assert _vals(pinv.build_project_options(RECS, '강원')) == ['R4120-YM', 'G4100-JW']  # 거래처명·상호
     assert _vals(pinv.build_project_options(RECS, '4049')) == ['G4049-JW']
