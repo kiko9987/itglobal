@@ -81,7 +81,7 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
     if mgr:
         people = [(p['name'], p['name'] + ('' if p.get('slack_id') else ' (슬랙 없음)')) for p in lv.staff()]
         blocks.append(_select('lv_who', '휴가 쓰는 사람', people, initial=name, dispatch=True,
-                              hint='경영지원은 슬랙이 없는 직원 대신 신청할 수 있어요.'))
+                              hint='다른 직원 대신 신청할 때만 바꿔 주세요.'))
     left = lv.balance(name) if name else 0
     blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                    f'*{name}* 님 오늘 기준 남은 연차: *{lv.fmt_days(left)}*'}]})
@@ -99,7 +99,7 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
     reason = {'type': 'plain_text_input', 'action_id': 'lv_reason', 'placeholder': _plain('예: 개인 사정')}
     if vals.get('reason'):
         reason['initial_value'] = vals['reason']
-    blocks.append({'type': 'input', 'block_id': 'lv_reason', 'optional': True, 'label': _plain('사유'),
+    blocks.append({'type': 'input', 'block_id': 'lv_reason', 'optional': False, 'label': _plain('사유'),   # 필수(11-05)
                    'element': reason, 'hint': _plain('승인자(JW·YG)에게만 보여요. #휴가_일정에는 날짜만 올라가요.')})
     return {
         'type': 'modal', 'callback_id': lv.CB_SUBMIT,
@@ -351,6 +351,9 @@ def register_leave_handlers(app) -> None:
         person = lv.staff_by_name(name) if name else None
         if not person or (not mgr and person.get('slack_id') != uid):
             ack(response_action='errors', errors={'lv_type': '휴가 명단에서 찾지 못했어요. 경영지원에 문의해 주세요.'})
+            return
+        if not vals.get('reason'):
+            ack(response_action='errors', errors={'lv_reason': '사유를 적어 주세요.'})
             return
         ltype, sub = vals.get('type', ''), vals.get('sub', '')
         start = lv._d(vals.get('start'))

@@ -214,6 +214,7 @@ def test_leave_view_fields(db):
     v = sl.leave_view({'name': '박민우', 'mgr': False})
     ids = [b.get('block_id') for b in v['blocks'] if b.get('block_id')]
     assert ids == ['lv_type', 'lv_start', 'lv_end', 'lv_reason']
+    assert v['blocks'][-1]['optional'] is False                      # 사유 필수(11-05)
     types = [o['value'] for o in v['blocks'][1]['element']['options']]
     assert 'reward' not in types and lv.HALF_AM in types
     v = sl.leave_view({'name': '권태숙', 'mgr': True}, {'type': lv.EVENT})
