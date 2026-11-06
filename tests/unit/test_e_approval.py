@@ -258,8 +258,16 @@ def test_card_text(tmp_db):
     row = ea.create(ea.FORM_FUND, MGR, '박정우', dict(FIELDS, urgency='긴급'))
     t = ea.card_text(row, ea.steps(row['id']), 'G4049-JW · 광명 양지로 21', 6500000)
     assert f'자금집행 #{row["id"]}' in t and '승인 대기' in t and '긴급' in t
-    assert '금액: *533,500원*' in t and '공사 총액(VAT 별도): 6,500,000원' in t
-    assert '신한 110-511-825643 · 예금주 김강원' in t and '기타비 · 운반비 — FCU 부품' in t
+    # 온라인 리드 카드 모양(11-06) — 둘째 줄에 얼마·어디로, 구분선, '*항목* : 값'
+    lines = t.split('\n')
+    assert lines[1] == '>*533,500원* → *(주)강원포장* (글로벌 통장)' and lines[2] == '>' + ea.CARD_SEP
+    assert '>*공사 총액* : 6,500,000원 (VAT 별도)' in lines and '>*분류* : 기타비 · 운반비' in lines
+    assert '>*계좌* : 신한 110-511-825643 · 예금주 김강원' in lines and '>*내용* : FCU 부품' in lines
+    assert all(ln.startswith('>') for ln in lines)
+    done = ea.transition(row['id'], 'approve', KIKO, '고광일')
+    done = ea.transition(done['id'], 'transfer', SB, '황샛별')
+    d = ea.card_text(done, ea.steps(done['id']), 'G4049-JW · 광명 양지로 21', 6500000).split('\n')
+    assert len(d) == 3 and '이체 완료 — *533,500원*' in d[0] and '긴급' not in d[0]   # 끝나면 세 줄로 접는다
 
 
 # ── 슬랙 흐름 (가짜 클라이언트) ─────────────────────────────────────
@@ -410,15 +418,15 @@ def test_supply_card_and_buttons(tmp_db):
     row = ea.create(ea.FORM_SUPPLY, KIKO, '고광일', f)
     assert ea.extra(row)['qty'] == 2 and ea.status_label(row) == ('🔵', '구매 대기')
     t = ea.card_text(row, ea.steps(row['id']), '프로젝트 0 · 회사 재고')
-    assert f'비품 신청 #{row["id"]}' in t and '품명: A4 용지 박스 × 2개 (단가 25,000원)' in t
-    assert '상품 보기' in t and '사유: 용지 소진' in t and '이체 계좌' not in t and '⏳ 구매' in t
+    assert f'비품 신청 #{row["id"]}' in t and 'A4 용지 박스 × 2개' in t and '*단가* : 25,000원 × 2개' in t
+    assert '상품 보기' in t and '*사유* : 용지 소진' in t and '계좌' not in t and '⏳ 구매' in t
     assert '사업자 구분' not in t and not row['grn']
     btn = ea.buttons(row, 'executor')[0]
     assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_TRANSFER
     assert '구매하고 카드에서 [구매 완료]' in ea.dm_intro(row, 'executor')
     row = ea.create(ea.FORM_SUPPLY, KIKO, '고광일', {**f, 'memo': '배송 메시지에 직접 수령'})
     t = ea.card_text(row, ea.steps(row['id']), '프로젝트 0 · 회사 재고')
-    assert '구매 요청사항: 배송 메시지에 직접 수령' in t and '비고' not in t
+    assert '*구매 요청사항* : 배송 메시지에 직접 수령' in t and '비고' not in t
     blocks = {b['block_id']: b for b in ea.supply_request_view({})['blocks'] if b.get('block_id')}
     assert not blocks['reason']['element']['multiline'] and blocks['memo']['label']['text'] == '구매 요청사항'
 
@@ -905,7 +913,7 @@ def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
     labels = [b['text']['text'] for b in ea.buttons(row, 'all')]
     assert labels == ['✅ 처리 완료', '반려', '✏️ 수정 요청', '요청 취소']
     t = ea.card_text(row, ea.steps(row['id']), 'G4237-MJ · 마포구 양화로 45')
-    assert '인수자명: 윤명림' in t and '총 금액: 11,440,000원' in t and '⏳ 경영지원 처리' in t
+    assert '*인수자명* : 윤명림' in t and '*총 금액* : 11,440,000원' in t and '⏳ 경영지원 처리' in t
     assert ea.can_act('reject', row, SB) and ea.can_act('transfer', row, SB) and not ea.can_act('transfer', row, MGR)
     done = ea.transition(row['id'], 'transfer', SB, '황샛별')
     assert ea.status_label(done) == ('🟢', '처리 완료')
