@@ -217,6 +217,10 @@ export default class ModernProjectModal {
         this.normalizeAddressViaServer();
         this.scheduleLeadMatch(0);
       });
+      // 연결 해제로 주소가 비면 변환 주소 칸도 비움 (불러온 주소 표시가 남지 않게)
+      addressInput.addEventListener('input', () => {
+        if (!(addressInput.value || '').trim()) this.showLoadedAddressAsSaved();
+      });
     }
 
     // 리드 없이 연락처·주소를 넣으면 최근 방문 리드와 대조해 알림 (2026-11-06)
@@ -354,6 +358,7 @@ export default class ModernProjectModal {
       // 온라인 유입이고 사업자명이 아직 없으면 '사업자등록증 미수령' 자동 체크
       // (상업/의료시설 사업자 고객이 기본 — 개인 고객이면 매니저가 해제). 2026-09-20 B.
       onLinked: (lead) => {
+        this.showLoadedAddressAsSaved();
         // 거래처 현장이면 고객명으로 거래처명 채우기 (기존 거래처명과 맞을 때만)
         this.fillPartnerFromLead(lead);
         const clientEl = document.getElementById('modern-client');
@@ -1569,6 +1574,25 @@ export default class ModernProjectModal {
       }
     } catch (err) {
       logger.warn('[ModernProjectModal] 주소 정규화 예외:', err);
+    }
+  }
+
+  /**
+   * 불러온 리드 주소를 '변환 주소' 칸에도 표시 (2026-11-06).
+   * 리드 주소는 방문 등록 때 이미 변환돼 그대로 저장하는데(resolveSaveAddress), '저장되는 값' 칸이
+   * 비어 있으면 변환이 안 된 것처럼 보였다. 주소가 비면(연결 해제) 칸도 비운다.
+   */
+  showLoadedAddressAsSaved() {
+    const el = document.getElementById('modern-address');
+    const out = document.getElementById('modern-address-normalized');
+    const note = document.getElementById('modern-address-normalized-note');
+    if (!el || !out) return;
+    const v = (el.value || '').trim();
+    out.value = v;
+    this._normAddr = v ? { raw: v, saved: v } : null;
+    if (note) {
+      note.className = v ? 'form-text text-muted' : 'form-text text-muted d-none';
+      note.textContent = v ? '불러온 현장 주소 그대로 저장 (방문 등록 때 이미 변환됨)' : '';
     }
   }
 
