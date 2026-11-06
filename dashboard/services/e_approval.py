@@ -88,13 +88,37 @@ def executor_ids() -> tuple:
     return checker_ids()
 
 
-def executor_dm_ids() -> tuple:
-    """이체 요청 DM 받을 사람 — 기본은 명단 첫 줄(대표 경영지원). 나머지는 카드에서 대신 누를 수 있다."""
+_DEFAULT_N_EXECUTORS = ('U050XNG5VBR', 'U051ENK8AAY')   # 박용구(YG)·박정우(JW) — N통장 관리
+_N_LABELS = {'U050XNG5VBR': 'YG', 'U051ENK8AAY': 'JW'}
+
+
+def is_n_account(row: Optional[dict]) -> bool:
+    """N통장에서 나가는 지출(자금집행·비품). 개인경비는 사업자 구분이 없어 경영지원이 판단."""
+    return bool(row) and row.get('form') in (FORM_FUND, FORM_SUPPLY) and str(row.get('grn') or '')[:1].upper() == 'N'
+
+
+def n_executor_ids() -> tuple:
+    return _env_ids('EAPPROVAL_N_EXECUTOR_IDS') or _DEFAULT_N_EXECUTORS
+
+
+def executor_dm_ids(row: Optional[dict] = None) -> tuple:
+    """이체 요청 DM 받을 사람. 글로벌·글로벌그룹(G·R) 통장 = 경영지원(명단 첫 줄, SB),
+    N통장 = YG·JW(11-06 KiKO). 다른 사람도 카드에서 대신 누를 수 있다.
+    EAPPROVAL_EXECUTOR_DM_IDS 가 있으면(시험 모드) 통장과 관계없이 그 사람에게만."""
     ids = _env_ids('EAPPROVAL_EXECUTOR_DM_IDS')
     if ids:
         return ids
-    ex = executor_ids()
-    return ex[:1]
+    if is_n_account(row):
+        return n_executor_ids()
+    return executor_ids()[:1]
+
+
+def notice_ids(row: Optional[dict]) -> tuple:
+    """이체 요청은 안 받지만 알아야 하는 사람 — N통장 건이면 경영지원(SB)에게 'YG·JW 에게 요청됐다' 알림만."""
+    if _env_ids('EAPPROVAL_EXECUTOR_DM_IDS') or not is_n_account(row):
+        return ()
+    gr = executor_ids()[:1]
+    return tuple(u for u in gr if u not in n_executor_ids())
 
 
 def channel_id() -> str:
@@ -759,6 +783,9 @@ def dm_intro(row: dict, role: str) -> str:
                 '처리하고 카드에서 [처리 완료]를 눌러 주세요.')
     if role == 'executor' and st == APPROVED:
         return f'🔔 {title(row)} 승인이 끝났어요. {w}하고 카드에서 [{w} 완료]를 눌러 주세요.'
+    if role == 'notice' and st == APPROVED:   # N통장 — 경영지원(SB)은 알림만(11-06)
+        names = '·'.join(_N_LABELS.get(u, 'N통장 담당') for u in n_executor_ids())
+        return f'ℹ️ {title(row)}은 N통장 건이라 {names}님에게 {w} 요청이 갔어요. (알림만 — 처리는 안 하셔도 돼요)'
     if role == 'requester' and st == REVISE:
         rv = last_revise(steps(row['id'])) or {}
         return (f"✏️ {initial(rv.get('actor_name'))}님이 {title(row)} 수정을 요청했어요.\n"

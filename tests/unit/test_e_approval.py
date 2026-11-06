@@ -792,6 +792,24 @@ def test_invoice_read_from_screen_when_meta_missing():
     assert f['origin_ts'] == '111.1' and f['amount'] == 533500 and not f.get('_bad')
 
 
+def test_n_account_goes_to_yg_jw_and_sb_gets_notice(tmp_db, monkeypatch):
+    """G·R 통장 = SB, N통장 = YG·JW 에게 이체 요청 + SB 에게 알림만(11-06 KiKO)."""
+    monkeypatch.delenv('EAPPROVAL_EXECUTOR_DM_IDS', raising=False)
+    from dashboard.services.settlement_checkers import checker_ids
+    sb = checker_ids()[0]
+    g = ea.create(ea.FORM_FUND, MGR, '박정우', dict(FIELDS))
+    n = ea.create(ea.FORM_FUND, MGR, '박정우', dict(FIELDS, grn='N'))
+    assert ea.executor_dm_ids(g) == (sb,) and ea.notice_ids(g) == ()
+    assert ea.executor_dm_ids(n) == (YG, JW) and ea.notice_ids(n) == (sb,)
+    n = ea.transition(n['id'], 'approve', KIKO, '고광일')
+    assert 'N통장 건이라 YG·JW님에게 이체 요청' in ea.dm_intro(n, 'notice')
+    exp = ea.create(forms.FORM_EXPENSE, MGR, '박정우', {'project_code': 'G1', 'amount': 1000, 'grn': 'N'})
+    assert ea.executor_dm_ids(exp) == (sb,)            # 개인경비는 사업자 구분 없이 경영지원
+    assert ea.executor_dm_ids() == (sb,)               # 증명서 등 결재 없는 곳
+    monkeypatch.setenv('EAPPROVAL_EXECUTOR_DM_IDS', KIKO)   # 시험 모드면 통장과 관계없이 그 사람만
+    assert ea.executor_dm_ids(n) == (KIKO,) and ea.notice_ids(n) == ()
+
+
 def test_corpdocs_pickup_needs_no_address():
     base = {'grn': 'G (글로벌)', 'docs': ['인감증명서'], 'reason': '입찰'}
     assert forms.validate(forms.FORM_CORPDOCS, dict(base, receive='직접 수령')) == {}
