@@ -371,7 +371,7 @@ class SecurityMiddleware:
 
         # 1.9. 세콤매니저(근태) REST 전송 우회 — 같은 PC의 세콤 프로그램, 세션 없음.
         #      secom_inbound 라우트가 '127.0.0.1 + 프록시 머리말 없음'만 받는다(바깥은 403).
-        if request.path.startswith('/secom/') or request.path == '/secom':
+        if request.path.startswith(('/secom/', '/v1/secom/')) or request.path == '/secom':
             return None
 
         # 2. CSRF/인증 검사 (상태 변경 요청)
@@ -460,7 +460,7 @@ class SecurityMiddleware:
             return True
 
         # 세콤매니저 전송도 예외 — 처음 켜면 지난 기록을 한꺼번에 보낼 수 있다(같은 PC만 받음).
-        if request.path.startswith('/secom'):
+        if request.path.startswith(('/secom', '/v1/secom/')):
             return True
 
         # 인증된 세션 (로그인 성공한 매니저) 은 rate limit 예외 (2026-07-22):
