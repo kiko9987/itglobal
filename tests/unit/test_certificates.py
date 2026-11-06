@@ -49,11 +49,13 @@ def test_flow_issue_once_and_cards(db):
     row = ct.create('UREQ', '박민우', VALS)
     assert row['status'] == ct.PENDING and row['copies'] == 1
     h = ct.card_blocks(row, 'handler')
-    assert [e['action_id'] for e in h[-1]['elements']] == [ct.A_ISSUE, ct.A_REJECT]
-    assert [e['action_id'] for e in ct.card_blocks(row, 'requester')[-1]['elements']] == [ct.A_CANCEL]
+    def act(bl):
+        return next(b for b in bl if b['type'] == 'actions')
+    assert [e['action_id'] for e in act(h)['elements']] == [ct.A_ISSUE, ct.A_REJECT]
+    assert [e['action_id'] for e in act(ct.card_blocks(row, 'requester'))['elements']] == [ct.A_CANCEL]
     assert '○○은행' in ct.card_text(row) and '부' not in ct.card_text(row).split('받는 방법')[1].split('\n')[0]
     done = ct.finish(row['id'], ct.ISSUED, '황샛별', '', ['재직증명서.pdf'])
-    assert done['status'] == ct.ISSUED and len(ct.card_blocks(done, 'handler')) == 1   # 버튼 사라짐
+    assert done['status'] == ct.ISSUED and not any(b['type'] == 'actions' for b in ct.card_blocks(done, 'handler'))
     assert ct.finish(row['id'], ct.REJECTED, '황샛별', 'x') is None                     # 두 번 처리 안 됨
     assert '발급 완료' in ct.card_text(done)
     assert ct.mine('UREQ')[0]['id'] == row['id']

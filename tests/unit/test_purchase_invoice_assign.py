@@ -140,7 +140,8 @@ def test_assignments_are_per_message(tmp_db):
 # ── 슬랙 블록 ───────────────────────────────────────────────────────
 def test_prompt_button_value_roundtrip():
     blocks = pinv.prompt_blocks('C1', '111.1', PARSED)
-    btn = blocks[1]['elements'][0]
+    btn = next(b for b in blocks if b['type'] == 'actions')['elements'][0]
+    assert blocks[-1]['elements'][0]['text'] == '⠀'          # 다른 카드와 같은 아래 여백(11-06)
     assert btn['action_id'] == pinv.ACTION_OPEN
     v = json.loads(btn['value'])
     assert (v['ch'], v['ts']) == ('C1', '111.1')
@@ -154,7 +155,7 @@ def test_result_text_and_reassign_button(tmp_db):
     assert '1층 반입' in txt and '다시 지정됨' not in txt
     row = pinv.save_assignment('C1', '111.1', PARSED, 'G4100-JW', '자재비', '', 'U2', '강성환')
     assert '다시 지정됨' in pinv.result_text(row, 'G4100-JW')
-    btn = pinv.result_blocks(row, 'G4100-JW', 'C1', '111.1')[1]['elements'][0]
+    btn = next(b for b in pinv.result_blocks(row, 'G4100-JW', 'C1', '111.1') if b['type'] == 'actions')['elements'][0]
     assert btn['action_id'] == pinv.ACTION_OPEN
     assert pinv.parsed_from_value(json.loads(btn['value'])) == PARSED
 
@@ -246,7 +247,7 @@ def test_prompt_posted_only_for_invoice_post_in_sales_channel(sb, monkeypatch):
     sb._maybe_post_pinv_prompt(c, 'CINV', '111.1', POST)
     (name, kw), = c.calls
     assert name == 'chat_postMessage' and kw['thread_ts'] == '111.1'
-    assert json.loads(kw['blocks'][1]['elements'][0]['value'])['a'] == 533500
+    assert json.loads(next(b for b in kw['blocks'] if b['type'] == 'actions')['elements'][0]['value'])['a'] == 533500
     assert sb._fake_redis.get('pinv_prompt:CINV:111.1')            # 버튼 위치 기억(자금집행 창에서 지정 시 정리용)
 
 

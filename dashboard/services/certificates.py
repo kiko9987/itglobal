@@ -263,11 +263,11 @@ def _btn(text: str, action: str, rid: int, style: str = '') -> dict:
 
 def card_blocks(row: dict, role: str) -> List[dict]:
     """role: handler(경영지원) / requester."""
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': card_text(row)[:2900]}}]
+    from dashboard.services.e_approval import spaced
+    els = None
     if row['status'] == PENDING:
         if role == 'handler':
             els = [_btn('📎 발급 완료', A_ISSUE, row['id'], 'primary'), _btn('반려', A_REJECT, row['id'])]
         else:
             els = [_btn('신청 취소', A_CANCEL, row['id'])]
-        blocks.append({'type': 'actions', 'block_id': f"cert_{row['id']}", 'elements': els})
-    return blocks
+    return spaced(card_text(row)[:2900], els)
