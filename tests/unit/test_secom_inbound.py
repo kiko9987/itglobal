@@ -23,6 +23,17 @@ def test_local_request_is_captured(tmp_path):
     assert rec['path'] == 'v1/secom/manager/alarm' and json.loads(rec['body']) == body
 
 
+def test_v1_path_without_secom_prefix(tmp_path):
+    """세콤은 URL 칸의 경로(/secom)를 떼고 /v1/secom/... 으로 보낸다(11-06 실측)."""
+    c = _app(tmp_path).test_client()
+    r = c.post('/v1/secom/manager/verify', data='x', environ_base={'REMOTE_ADDR': '127.0.0.1'})
+    assert r.status_code == 200
+    files = os.listdir(tmp_path / 'secom')
+    rec = json.loads(open(tmp_path / 'secom' / files[0], encoding='utf-8').read().splitlines()[0])
+    assert rec['path'] == 'v1/secom/manager/verify'
+    assert c.post('/v1/secom/manager/verify', environ_base={'REMOTE_ADDR': '8.8.8.8'}).status_code == 403
+
+
 def test_root_path_and_get(tmp_path):
     c = _app(tmp_path).test_client()
     assert c.get('/secom', environ_base={'REMOTE_ADDR': '127.0.0.1'}).status_code in (200, 308)

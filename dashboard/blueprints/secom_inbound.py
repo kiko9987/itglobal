@@ -23,7 +23,10 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-secom_bp = Blueprint('secom_inbound', __name__, url_prefix='/secom')
+# 세콤은 URL 칸의 경로를 떼고 호스트 뒤에 바로 v1/secom/... 을 붙인다(11-06 실측: /v1/secom/manager/verify)
+# → /secom/... 과 /v1/secom/... 둘 다 받는다.
+secom_bp = Blueprint('secom_inbound', __name__)
+PREFIXES = ('/secom', '/v1/secom')
 
 _LOOPBACK = ('127.0.0.1', '::1', 'localhost')
 _PROXY_HEADERS = ('X-Forwarded-For', 'X-Forwarded-Host', 'X-Real-IP', 'Via', 'Forwarded')
@@ -56,9 +59,15 @@ def _capture(sub: str) -> None:
         f.write(json.dumps(rec, ensure_ascii=False) + '\n')
 
 
-@secom_bp.route('/', defaults={'sub': ''}, methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
-@secom_bp.route('/<path:sub>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+
+
+@secom_bp.route('/secom/', defaults={'sub': ''}, methods=_METHODS)
+@secom_bp.route('/secom/<path:sub>', methods=_METHODS)
+@secom_bp.route('/v1/secom/<path:sub>', methods=_METHODS)
 def secom_any(sub: str):
+    if request.path.startswith('/v1/secom/'):
+        sub = 'v1/secom/' + sub
     if not is_local_request():
         logger.warning(f'[SECOM] 바깥 요청 거부 (ip={request.remote_addr}, path=/{sub})')
         return jsonify({'error': 'forbidden'}), 403
