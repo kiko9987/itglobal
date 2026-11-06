@@ -58,9 +58,14 @@ function onMouseOver(e) {
 }
 
 // 누른 뒤 '복사됨' 말풍선 — 툴팁 글자를 바꾸면 표·펼친 화면마다 다르게 보여 따로 띄운다
+//   아이콘을 체크로 바꾸면 마우스가 새로 들어온 것처럼 툴팁이 다시 떠 말풍선과 겹쳐서(표), 말풍선이 있는 동안 툴팁을 끔
 function flashBubble(btn, text, ok) {
   const tip = hoverTip(btn);
-  if (tip) tip.hide();
+  if (tip) {
+    tip.disable();
+    tip.hide();
+    setTimeout(() => tip.enable(), 1200);
+  }
   const r = btn.getBoundingClientRect();
   const b = document.createElement('div');
   b.className = ok ? 'code-copy-bubble' : 'code-copy-bubble fail';
