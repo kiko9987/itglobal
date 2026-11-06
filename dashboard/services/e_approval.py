@@ -1210,7 +1210,10 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                                       'value': meta['partner'][:150]}
         blocks += [
             {'type': 'input', 'block_id': 'partner', 'dispatch_action': True,
-             'label': {'type': 'plain_text', 'text': '거래처 (상호)'}, 'element': p_el},
+             'label': {'type': 'plain_text', 'text': '거래처 (상호)'}, 'element': p_el,
+             # 고르기 칸이라 직접 못 쓰는 줄 알았다(11-06 KiKO) — 처음 거래처 넣는 법을 칸 아래에
+             'hint': {'type': 'plain_text', 'text':
+                      '처음 거래하는 곳이면 상호를 끝까지 입력한 뒤, 목록 맨 아래 「새 거래처: ○○」를 고르세요.'}},
             {'type': 'input', 'block_id': 'amount', 'label': {'type': 'plain_text', 'text': '금액 (VAT 포함, 원)'},
              'element': {'type': 'plain_text_input', 'action_id': 'amount',
                          'placeholder': {'type': 'plain_text', 'text': '예: 277200'}}},
