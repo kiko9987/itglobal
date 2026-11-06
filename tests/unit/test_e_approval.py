@@ -259,7 +259,7 @@ def test_card_text(tmp_db):
     t = ea.card_text(row, ea.steps(row['id']), 'G4049-JW · 광명 양지로 21', 6500000)
     assert f'자금집행 #{row["id"]}' in t and '승인 대기' in t and '긴급' in t
     assert '금액: *533,500원*' in t and '공사 총액(VAT 별도): 6,500,000원' in t
-    assert '신한 110-511-825643 (김강원)' in t and '기타비 · 운반비 — FCU 부품' in t
+    assert '신한 110-511-825643 · 예금주 김강원' in t and '기타비 · 운반비 — FCU 부품' in t
 
 
 # ── 슬랙 흐름 (가짜 클라이언트) ─────────────────────────────────────
