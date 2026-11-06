@@ -228,6 +228,31 @@ tr.accordion-row:hover .row-details,
   cursor: pointer;
   border-radius: 4px;
   vertical-align: middle;
+  /* 글자 사이에 놓이면 2px 정도 처져 보여 올림 — 표 코드 칸(가운데 정렬 묶음)과 높이를 맞춤 (2026-11-06) */
+  position: relative;
+  top: -2px;
+}
+
+.code-with-copy .code-copy-btn {
+  top: 0;
+}
+
+.code-copy-bubble {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: #212529;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2000;
+}
+
+.code-copy-bubble.fail {
+  background: #dc3545;
 }
 
 .code-copy-btn:hover {
