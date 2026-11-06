@@ -4881,6 +4881,23 @@ _SETTLE_DONE_REACTIONS = {'white_check_mark'}  # ✅ 만
 from dashboard.services.settlement_checkers import checker_ids as _settlement_checker_ids
 _SETTLEMENT_CHECKER_IDS = _settlement_checker_ids()
 
+
+def _settle_check_unpins(msg: Optional[dict], user: str) -> bool:
+    """체커의 ✅가 이 정산 글의 고정을 풀어도 되는지.
+
+    매입 계산서 회신 요청('11/06 G 79,200원 강원포장 회신 바랍니다.')은 매니저가 ✅로 "내 거래처"라고
+    답한다. 체커인 매니저(JW 등)의 ✅까지 처리 완료로 보면 경영지원 처리 전에 고정이 풀림
+    (2026-11-06 강원포장, JW ✅ 40초 뒤 해제). 회신 요청 글은 올린 사람(경영지원)의 ✅만 완료.
+    글을 못 읽었으면(None) 예전처럼 푼다.
+    """
+    if not msg:
+        return True
+    from dashboard.services.pin_remind import is_invoice_request, is_deposit, _msg_full_text
+    text = _msg_full_text(msg)
+    if is_invoice_request(text) and not is_deposit(text):
+        return bool(user) and user == msg.get('user')
+    return True
+
 # ── 공사 금액/부가세 수정 요청 (경영지원 ✅ 반영) ────────────────────────────
 # 금액·부가세는 즉시 반영 대신 #영업_관리 요청 카드 발송 → 황샛별 ✅ 시 시스템이 반영.
 # (PM 어드민의 '금액 변경은 어드민만' 사상. 오직 황샛별 ✅ 에서만 금액 확정.)
@@ -5469,7 +5486,17 @@ def _register_invoice_handlers(app):
                 # 1-2) 공사 취소 매출0 반영 요청 카드면 → 총액0 반영 + 요청자 DM (2026-09-16)
                 if _maybe_apply_cancel_money_request(client, channel, ts, user):
                     return
-                # 2) 정산 핀 자동 해제
+                # 2) 정산 핀 자동 해제 — 매입 계산서 회신 요청은 올린 사람의 ✅만 (2026-11-06)
+                _msg = None
+                try:
+                    _h = client.conversations_history(channel=channel, latest=ts, inclusive=True, limit=1)
+                    _m = (_h.get('messages') or [None])[0]
+                    _msg = _m if _m and _m.get('ts') == ts else None
+                except Exception as _hexc:
+                    logger.debug(f'[SLACK/정산핀] 글 조회 실패 — 예전처럼 해제 (ts={ts}): {_hexc}')
+                if not _settle_check_unpins(_msg, user):
+                    logger.info(f'[SLACK/정산핀] 회신 요청 글에 올린 사람 아닌 ✅ — 고정 유지: ts={ts} user={user}')
+                    return
                 client.pins_remove(channel=channel, timestamp=ts)
                 logger.info(f'[SLACK/정산핀] 체크 리액션 → 자동 고정 해제: ts={ts}')
             except Exception as exc:
