@@ -250,16 +250,16 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
                             + (f' <{link}|카드 보기>' if link else ''))
         _dm_round(client, new)
     elif action == 'transfer' and new.get('form') in ea.TASK_FORMS:
-        _thread_log(new, f'✅ {ex} 처리 완료', broadcast=True)
+        _thread_log(new, f'✅ {ex} 처리 완료')
         _notify(client, new.get('requester_id'), f'✅ {t} 처리가 끝났어요.')
     elif action == 'transfer' and new.get('form') == ea.forms.FORM_EXPENSE:
-        _thread_log(new, f'💸 {ex} 이체 완료 — 개인경비 {amt}', broadcast=True)
+        _thread_log(new, f'💸 {ex} 이체 완료 — 개인경비 {amt}')
         _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({amt})')
     elif action == 'transfer' and new.get('form') == ea.FORM_SUPPLY:
-        _thread_log(new, f'🛒 {ex} 구매 완료 — {new.get("content")} {amt}', broadcast=True)
+        _thread_log(new, f'🛒 {ex} 구매 완료 — {new.get("content")} {amt}')
         _notify(client, new.get('requester_id'), f'🛒 {t} 구매가 끝났어요. ({new.get("content")} {amt})')
     elif action == 'transfer':
-        _thread_log(new, f'💸 {ex} 이체 완료 — {new.get("partner")} {amt}', broadcast=True)
+        _thread_log(new, f'💸 {ex} 이체 완료 — {new.get("partner")} {amt}')
         _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
         _origin_log(new, f'💸 {t} 이체 완료 ({ex})')
     elif action == 'reject':
@@ -475,7 +475,7 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
         return None
     row, changed = res
     client = eap_client()
-    _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}', broadcast=True)
+    _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}')
     refresh(row)
     who = [(u, 'approver') for u in ea.approver_ids()] if row['status'] == ea.PENDING else \
         [(u, 'executor') for u in ea.executor_dm_ids(row)]

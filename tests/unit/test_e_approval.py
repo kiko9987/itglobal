@@ -327,7 +327,7 @@ def test_approve_then_transfer_flow(se):
     row = ea.get(row['id'])
     assert row['status'] == ea.DONE
     f = se._fake
-    assert any(kw.get('reply_broadcast') for kw in f.of('chat_postMessage'))        # 이체 완료는 채널에도
+    assert not any(kw.get('reply_broadcast') for kw in f.of('chat_postMessage'))    # 스레드에만(11-06 KiKO — 채널엔 안 올림)
     assert f.of('pins_remove')[-1]['timestamp'] == row['card_ts']
     updated = {kw['ts'] for kw in f.of('chat_update')}
     assert row['card_ts'] in updated and all(r['ts'] in updated for r in ea.dm_refs(row))
@@ -446,7 +446,7 @@ def test_supply_flow_purchase_done(se):
     assert se.apply_action('transfer', row['id'], SB) is None
     assert ea.get(row['id'])['status'] == ea.DONE
     msgs = se._fake.of('chat_postMessage')
-    assert any('구매 완료' in kw.get('text', '') and kw.get('reply_broadcast') for kw in msgs)
+    assert any('구매 완료' in kw.get('text', '') and not kw.get('reply_broadcast') for kw in msgs)
     assert any('구매가 끝났어요' in kw.get('text', '') and kw['channel'] == 'D-' + MGR for kw in msgs)
     assert not se._inv.of('chat_postMessage')                     # 계산서 글 없음
 
@@ -998,7 +998,7 @@ def test_task_form_submit_goes_straight_to_executor(se):
     assert '처리하고 카드에서 [처리 완료]' in json.dumps(dm['blocks'], ensure_ascii=False)
     assert se.apply_action('transfer', row['id'], JW) is None
     msgs = se._fake.of('chat_postMessage')
-    assert any('경영지원 (JW) 처리 완료' in kw.get('text', '') and kw.get('reply_broadcast') for kw in msgs)
+    assert any('경영지원 (JW) 처리 완료' in kw.get('text', '') and not kw.get('reply_broadcast') for kw in msgs)
     assert any('처리가 끝났어요' in kw.get('text', '') and kw['channel'] == 'D-' + MGR for kw in msgs)
 
 
