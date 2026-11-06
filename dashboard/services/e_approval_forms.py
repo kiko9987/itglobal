@@ -526,6 +526,11 @@ def validate(form_key: str, vals: Dict) -> Dict[str, str]:
             errs['expiry'] = 'MM/YY 로 넣어 주세요. 예: 08/29'
     if form_key == FORM_EXPENSE and vals.get('account') and len(re.sub(r'\D', '', vals['account'])) < 8:
         errs['account'] = '계좌번호를 숫자로 넣어 주세요.'
+    if form_key == FORM_EXPENSE and vals.get('cost') and 'project' not in errs:   # 공통비 분류는 공통비 현장에만(11-06)
+        from dashboard.services.purchase_invoice_assign import COST_CATEGORIES, cost_project_error
+        e = cost_project_error({lb: v for v, lb in COST_CATEGORIES}.get(vals['cost'], vals['cost']), vals.get('project') or '')
+        if e:
+            errs['cost'] = e
     if form_key == FORM_INSURANCE and vals.get('send') == '이메일' and not vals.get('email'):
         errs['email'] = '이메일로 받으려면 주소를 넣어 주세요.'
     if form_key == FORM_CORPDOCS and '기타' in (vals.get('docs') or []) and not vals.get('other'):

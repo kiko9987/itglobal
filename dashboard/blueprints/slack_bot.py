@@ -5198,6 +5198,11 @@ def _validate_pinv_submit(view) -> dict:
     from dashboard.services import purchase_invoice_assign as pinv
     from dashboard.services import e_approval as ea
     vals = view['state']['values']
+    _code = (((vals.get('project') or {}).get(pinv.ACTION_PROJECT) or {}).get('selected_option') or {}).get('value') or ''
+    _cost = (((vals.get('cost') or {}).get('cost') or {}).get('selected_option') or {}).get('value') or ''
+    _ce = pinv.cost_project_error(_cost, _code)
+    if _ce:   # 공통비 분류는 공통비 현장에만(11-06)
+        return {'cost': _ce}
     if not pinv.transfer_requested(vals) or 'payee_name' not in vals:
         return {}
 

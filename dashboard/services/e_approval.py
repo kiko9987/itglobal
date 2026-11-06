@@ -1298,6 +1298,11 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
     errs = {}
     if not f.get('project_code'):
         errs['project'] = '현장을 골라 주세요.'
+    else:
+        from dashboard.services.purchase_invoice_assign import cost_project_error
+        e = cost_project_error(f.get('cost_category'), f['project_code'])
+        if e:
+            errs['cost'] = e
     if f.get('origin_ts'):
         dup = find_by_origin(f['origin_channel'], f['origin_ts'])
         if dup and dup['status'] not in (REJECTED, CANCELLED) and dup['id'] != f.get('_edit'):

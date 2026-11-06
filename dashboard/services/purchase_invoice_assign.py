@@ -51,8 +51,19 @@ COST_CATEGORIES = [
     ('제품대', '제품대'),
     ('도급비', '도급비'),
     ('반환:환불', '반환·환불 (원가 아님)'),   # 11-01 과입금 계약금 반환 등 — 플렉스 1년 22건·5,673만
+    # 공통비(현장 무관) 전용 — 사무실 집기 등은 공사 원가 분류가 맞지 않았다(11-06 KiKO, 신규 입사자 책상·의자·모니터)
+    ('공통비:집기비품', '공통비 · 사무 집기·비품'),
+    ('공통비:수선', '공통비 · 사무실 수선'),
+    ('공통비:운영', '공통비 · 기타 운영비'),
 ]
 _COST_LABEL = dict(COST_CATEGORIES)
+
+
+def cost_project_error(cost: str, project_code: str) -> str:
+    """공통비 분류는 현장이 「공통비」일 때만 — 공사 현장 원가에 사무실 비용이 섞이지 않게."""
+    if (cost or '').startswith('공통비:') and project_code != COMMON_CODE:
+        return '공통비 분류는 현장을 「공통비」로 골랐을 때만 써요.'
+    return ''
 
 
 def cost_label(value: str) -> str:

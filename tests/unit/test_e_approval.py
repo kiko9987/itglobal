@@ -810,6 +810,22 @@ def test_n_account_goes_to_yg_jw_and_sb_gets_notice(tmp_db, monkeypatch):
     assert ea.executor_dm_ids(n) == (KIKO,) and ea.notice_ids(n) == ()
 
 
+def test_common_cost_categories_only_for_common_site(tmp_db):
+    """공통비 전용 분류(사무 집기 등) — 현장이 「공통비」일 때만(11-06)."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    assert pinv.cost_label('공통비:집기비품') == '공통비 · 사무 집기·비품'
+    assert pinv.cost_project_error('공통비:집기비품', '공통비') == ''
+    assert pinv.cost_project_error('공통비:집기비품', 'G4049-JW')
+    assert pinv.cost_project_error('기타비:운반비', '공통비') == ''          # 공통비에 다른 분류는 허용
+    ok = dict(FIELDS, project_code='공통비', cost_category='공통비:집기비품')
+    assert 'cost' not in ea.complete_new_request(ok)
+    assert 'cost' in ea.complete_new_request(dict(FIELDS, cost_category='공통비:집기비품'))
+    errs = forms.validate(forms.FORM_EXPENSE, {'use_date': '2026-11-06', 'project': 'G4049-JW',
+                                               'cost': '공통비 · 사무 집기·비품', 'amount': '10000',
+                                               'bank': 'KB국민은행', 'account': '12345678901', 'reason': 'x'})
+    assert 'cost' in errs
+
+
 def test_corpdocs_pickup_needs_no_address():
     base = {'grn': 'G (글로벌)', 'docs': ['인감증명서'], 'reason': '입찰'}
     assert forms.validate(forms.FORM_CORPDOCS, dict(base, receive='직접 수령')) == {}
