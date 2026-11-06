@@ -729,7 +729,10 @@ def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List
         hdr += [f'처리자 : {who}', f"처리 시간 : {_fmt_when(last['at'])}"]
         if last['result'] in ('rejected', 'cancelled') and last.get('reason'):
             hdr.append(f"{'반려' if last['result'] == 'rejected' else '취소'} 사유 : {last['reason']}")
-    plain = '\n'.join(body).replace('*', '').replace('```', "'''")
+    # 굵은 글씨 표시만 지운다 — '*'를 다 지우면 법인카드 '4518-****-****-1234'가 '4518---1234'로 깨졌다(11-06 시뮬)
+    lines = [re.sub(r'^\*([^*\n]+)\* : ', r'\1 : ', ln) for ln in body]
+    lines = [re.sub(r'(?<![*\w])\*([^*\s][^*\n]*?)\*(?![*\w])', r'\1', ln) for ln in lines]
+    plain = '\n'.join(lines).replace('```', "'''")
     plain = re.sub(r'<(https?://[^|>]+)\|([^>]+)>', r'\2 (\1)', plain)   # 코드 박스 안에선 링크 모양이 안 바뀐다
     return '\n'.join(hdr) + f'\n```\n{plain}\n```'
 
