@@ -458,6 +458,22 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('연차 자동 발생 매일 07:30')
+    # 2026-11-06 시공팀 출퇴근 — 세콤 ERP 내보내기(매시 5분 C:\S1) 파일을 10분마다 장부로.
+    #   누락 묻기(매일 08:30 본인 DM)·월말 정산(매달 1일 09:10 경영지원 DM)은 ATTENDANCE_ENABLED 뒤에만
+    _scheduler.add_job(
+        _safe_attendance_ingest,
+        'interval', minutes=10,
+        id='attendance_ingest',
+        replace_existing=True,
+    )
+    jobs.append('세콤 출퇴근 파일 읽기 10분마다')
+    if os.getenv('SLACK_LEAVE_BOT_TOKEN', '').strip() and \
+            os.getenv('ATTENDANCE_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
+        _scheduler.add_job(_safe_attendance_ask, 'cron', hour=8, minute=30,
+                           id='attendance_ask_missing', replace_existing=True)
+        _scheduler.add_job(_safe_attendance_monthly, 'cron', day=1, hour=9, minute=10,
+                           id='attendance_monthly', replace_existing=True)
+        jobs.append('시공팀 출퇴근 누락 묻기 매일 08:30 · 월말 정산 매달 1일 09:10')
     if os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '').strip() and os.getenv('SLACK_EAPPROVAL_CHANNEL', '').strip():
         # 2026-09-29 재활성 (사장님 승인): 경영지원(SB)이 수동으로 올리던 '수금완료 세금계산서
         #   미발행'을 자동화. 주간=① 수금완료·미발행(즉시 발행 대상, 짧고 급함),
@@ -970,6 +986,37 @@ def _safe_leave_accrual():
             logger.info(f'[SCHED] 연차 자동 발생 {n}줄')
     except Exception as exc:
         logger.error(f'[SCHED] 연차 자동 발생 실패: {exc}', exc_info=True)
+
+
+def _safe_attendance_ingest():
+    """세콤 출퇴근 파일 → 장부 (10분마다, 새 줄만)."""
+    try:
+        from dashboard.services.attendance import ingest_dir
+        n = ingest_dir()
+        if n:
+            logger.info(f'[SCHED] 세콤 출퇴근 {n}줄 새로 읽음')
+    except Exception as exc:
+        logger.error(f'[SCHED] 세콤 출퇴근 읽기 실패: {exc}', exc_info=True)
+
+
+def _safe_attendance_ask():
+    """시공팀 출퇴근 누락 묻기 (매일 08:30) — 세콤이 덜 찍힌 날 본인 DM."""
+    try:
+        from dashboard.blueprints.slack_attendance import run_ask_missing
+        n = run_ask_missing()
+        if n:
+            logger.info(f'[SCHED] 출퇴근 누락 묻기 {n}명')
+    except Exception as exc:
+        logger.error(f'[SCHED] 출퇴근 누락 묻기 실패: {exc}', exc_info=True)
+
+
+def _safe_attendance_monthly():
+    """시공팀 조출·연장 월말 정산 (매달 1일 09:10) — 경영지원 DM."""
+    try:
+        from dashboard.blueprints.slack_attendance import run_monthly
+        run_monthly()
+    except Exception as exc:
+        logger.error(f'[SCHED] 출퇴근 월말 정산 실패: {exc}', exc_info=True, extra={'force_alert': True})
 
 
 def _safe_weekly_urgent_invoice_remind():
