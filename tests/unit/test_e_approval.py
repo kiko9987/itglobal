@@ -74,7 +74,7 @@ def test_reject_and_cancel(tmp_db):
     r1 = ea.create(ea.FORM_FUND, MGR, '박정우', FIELDS)
     rej = ea.transition(r1['id'], 'reject', KIKO, '고광일', '금액 확인 필요')
     assert rej['status'] == ea.REJECTED
-    assert '반려 사유: 금액 확인 필요' in ea.card_text(rej, ea.steps(r1['id']), 'G4049-JW')
+    assert '반려 사유 : 금액 확인 필요' in ea.card_text(rej, ea.steps(r1['id']), 'G4049-JW')
     r2 = ea.create(ea.FORM_FUND, MGR, '박정우', FIELDS)
     ea.transition(r2['id'], 'approve', KIKO, '고광일')
     assert ea.transition(r2['id'], 'cancel', MGR, '박정우')['status'] == ea.CANCELLED
@@ -266,8 +266,11 @@ def test_card_text(tmp_db):
     assert all(ln.startswith('>') for ln in lines)
     done = ea.transition(row['id'], 'approve', KIKO, '고광일')
     done = ea.transition(done['id'], 'transfer', SB, '황샛별')
-    d = ea.card_text(done, ea.steps(done['id']), 'G4049-JW · 광명 양지로 21', 6500000).split('\n')
-    assert len(d) == 3 and '이체 완료 — *533,500원*' in d[0] and '긴급' not in d[0]   # 끝나면 세 줄로 접는다
+    d = ea.card_text(done, ea.steps(done['id']), 'G4049-JW · 광명 양지로 21', 6500000)
+    # 끝나면 온라인 리드 '상담 완료'처럼 — 처리 결과 줄 + 원래 내용은 회색 코드 박스(11-06 KiKO)
+    assert d.startswith(f'🟢 *자금집행 #{row["id"]} · 이체 완료*\n처리자 : 경영지원 (SB)\n처리 시간 :')
+    assert d.count('```') == 2 and '533,500원 → (주)강원포장' in d and '*' not in d.split('```')[1]
+    assert '긴급' not in d
 
 
 # ── 슬랙 흐름 (가짜 클라이언트) ─────────────────────────────────────
