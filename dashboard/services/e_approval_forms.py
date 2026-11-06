@@ -147,7 +147,8 @@ _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True
           fields=[
               F('project', '현장', 'project'),
               F('card_co', '카드사', 'select', options=CARD_COMPANIES),
-              F('card_no', '카드번호', placeholder='예: 1234-5678-9012-3456'),
+              # 카드번호는 가리지 않는다(10-30 사용자 결정: 사내 전용). 플렉스 때 CVC·비밀번호를 지워 달라던 일이 있어 안내만(11-06)
+              F('card_no', '카드번호', placeholder='예: 1234-5678-9012-3456', hint='CVC·비밀번호는 적지 마세요.'),
               F('expiry', '유효기간 (MM/YY)', placeholder='예: 08/29'),
               F('sales', '원 매출 (VAT 포함, 원)', 'money'),
               F('fee', '수수료 (VAT 포함, 원)', 'money', zero_ok=True, placeholder='예: 30000',
@@ -166,9 +167,10 @@ _add(Form(FORM_CORPDOCS, '법인서류 요청', '🏢', 'task',
               F('other', '기타 선택 시 서류 이름', required=False),
               F('reason', '사유', placeholder='예: 입찰 제출용'),   # 한 줄(11-05)
               F('cert_memo', '증명서 기재 내용', 'multiline', required=False),
-              F('due', '제출 마감일', 'date'),
-              F('receive', '수령 방법', 'select', options=['이메일', '등기']),
-              F('dest', '이메일 또는 등기 주소'),
+              # 플렉스 17건 중 마감일 적은 건 2건·주소 없는 건 4건(직접 받음) — 마감일 선택, 직접 수령 추가(11-06 검수)
+              F('due', '제출 마감일', 'date', required=False),
+              F('receive', '수령 방법', 'select', options=['이메일', '등기', '직접 수령']),
+              F('dest', '이메일 또는 등기 주소', required=False, hint='이메일·등기일 때만'),
           ]))
 
 _add(Form(FORM_CARDEXP, '법인카드 지출결의서', '🧾', 'task',
@@ -299,11 +301,12 @@ def _element(form: Form, f: F, value: str, today: Optional[date] = None) -> dict
             else:
                 el['initial_options'] = picked
         return el
-    el = {'type': 'plain_text_input', 'action_id': aid, 'multiline': f.kind == 'multiline'}
+    el = {'type': 'plain_text_input', 'action_id': aid, 'multiline': f.kind == 'multiline',
+          'max_length': 1000 if f.kind == 'multiline' else 300}   # 길면 카드가 잘려 결재 줄이 안 보였다(11-06 검수)
     if f.placeholder:
         el['placeholder'] = _plain(f.placeholder)
     if value:
-        el['initial_value'] = str(value)
+        el['initial_value'] = str(value)[:el['max_length']]   # 한도보다 길면 슬랙이 창을 거부한다
     return el
 
 
@@ -429,7 +432,8 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
         'type': 'modal', 'callback_id': CB_FORM,
         'title': _plain(title),
         'submit': _plain(submit), 'close': _plain('취소'), 'notify_on_close': True,
-        'private_metadata': json.dumps({**meta, 'form': form_key}),
+        # 한글을 \uXXXX(6글자)로 바꾸지 않게 — 사업자등록증·계약서 안내(extra_note)가 길면 3,000자 한도를 넘겨 창이 안 열렸다(11-06 검수)
+        'private_metadata': json.dumps({**meta, 'form': form_key}, ensure_ascii=False),
         'blocks': blocks,
     }
 
@@ -502,6 +506,8 @@ def validate(form_key: str, vals: Dict) -> Dict[str, str]:
         if v and f.kind == 'money' and _parse_int(v) <= 0 \
                 and not (f.zero_ok and re.fullmatch(r'[\s0,]+', str(v))):
             errs[f.key] = '금액을 숫자로 넣어 주세요.'
+        elif v and f.kind == 'money' and re.search(r'[^\d,\s원]', str(v)):   # '35만원' → 35원 막기(11-06 검수)
+            errs[f.key] = '숫자로만 넣어 주세요. 예: 350000 (「35만」처럼 쓰면 35원이 돼요)'
         if v and f.kind == 'number' and not re.fullmatch(r'\d+(\.\d+)?', str(v).replace(',', '').strip()):
             errs[f.key] = '숫자로 넣어 주세요.'
     # 합계 검수(11-05, 경영지원 의견) — 플렉스 계약서 156건 중 4건이 나눠 받는 금액 합 ≠ 총액이었다
@@ -524,6 +530,8 @@ def validate(form_key: str, vals: Dict) -> Dict[str, str]:
         errs['email'] = '이메일로 받으려면 주소를 넣어 주세요.'
     if form_key == FORM_CORPDOCS and '기타' in (vals.get('docs') or []) and not vals.get('other'):
         errs['other'] = '기타를 골랐으면 서류 이름을 적어 주세요.'
+    if form_key == FORM_CORPDOCS and vals.get('receive') in ('이메일', '등기') and not vals.get('dest'):
+        errs['dest'] = f"{vals['receive']}로 받으려면 {'이메일 주소' if vals['receive'] == '이메일' else '주소'}를 넣어 주세요."
     return errs
 
 

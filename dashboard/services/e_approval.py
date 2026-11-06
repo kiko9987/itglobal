@@ -294,12 +294,23 @@ def can_act(action: str, row: dict, user_id: str) -> bool:
     if action == 'transfer':
         return user_id in executor_ids()
     if action == 'cancel':
-        return user_id == row.get('requester_id') or user_id in approver_ids()
+        if user_id in approver_ids():
+            return True
+        return user_id == row.get('requester_id') and requester_can_cancel(row)
     if action == 'revise':   # 수정 요청 = 승인자(KiKO) + 경영지원(SB·JW·YG) — 플렉스 댓글로 돌려보내던 사람들
         return user_id in approver_ids() or user_id in executor_ids()
     if action == 'edit':
         return user_id == row.get('requester_id')
     return False
+
+
+def requester_can_cancel(row: dict) -> bool:
+    """요청자 취소 — 승인 뒤(이체·구매 대기)엔 경영지원이 이미 은행에서 보내는 중일 수 있어 막는다(11-06 검수).
+    그때는 경영지원에게 [반려]를 부탁한다. 업무요청형은 승인 단계가 없어 처리 대기 중에도 취소 가능."""
+    st = row.get('status')
+    if st in (PENDING, REVISE):
+        return True
+    return st == APPROVED and row.get('form') in TASK_FORMS
 
 
 # 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
@@ -476,6 +487,19 @@ def parse_amount(s) -> int:
     return int(digits) if digits else 0
 
 
+AMOUNT_HELP = '숫자로만 넣어 주세요. 예: 350000 (「35만」처럼 쓰면 35원이 돼요)'
+
+
+def bad_amount(s) -> bool:
+    """숫자·쉼표·공백·'원' 말고 다른 글자가 있으면 True — '35만원'이 35원으로 들어가던 것(11-06 검수)."""
+    return bool(re.search(r'[^\d,\s원]', str(s or '')))
+
+
+def amount_errors(raws: Dict[str, str]) -> Dict[str, str]:
+    """{block_id: 입력 그대로} → {block_id: 오류}."""
+    return {k: AMOUNT_HELP for k, v in raws.items() if bad_amount(v)}
+
+
 def normalize_account(s: str) -> str:
     """계좌번호 — 숫자와 하이픈만."""
     return re.sub(r'[^\d\-]', '', (s or '').strip())
@@ -613,7 +637,8 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
                      + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else ''))
         lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
         if quote_amount:
-            lines.append(f'고객 견적(VAT 별도): {int(quote_amount):,}원')
+            # 공사현황 「총액 1」 = 공사 전체 금액 — '고객 견적'이라 쓰면 항목 견적으로 오해(11-06 검수)
+            lines.append(f'공사 총액(VAT 별도): {int(quote_amount):,}원')
     memo = (row.get('memo') or '').strip()
     if memo:
         lines.append(f"{'구매 요청사항' if row.get('form') == FORM_SUPPLY else '비고'}: {memo}")
@@ -641,6 +666,8 @@ def _btn(text: str, action: str, aid: int, style: Optional[str] = None, confirm:
 
 
 def _confirm(title_: str, text: str, ok: str) -> dict:
+    if len(text) > 300:   # 슬랙 확인 창 글자 한도 — 넘으면 카드 갱신이 통째로 실패(11-06 검수)
+        text = text[:297] + '…'
     return {'title': {'type': 'plain_text', 'text': title_},
             'text': {'type': 'plain_text', 'text': text},
             'confirm': {'type': 'plain_text', 'text': ok},
@@ -660,9 +687,9 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
             '처리 완료', f'{title(row)} 처리를 마쳤나요?', '처리 완료')))
         out.append(_btn('반려', A_REJECT, aid, 'danger'))   # 내용이 모자라면 경영지원이 사유와 함께 돌려보냄
     elif st == APPROVED and role in ('all', 'executor') and form == forms.FORM_EXPENSE:
-        f = extra(row).get('f') or {}
+        # 확인 창은 채널 카드에 실려 누구나 열 수 있다 — 개인 계좌는 빼고(경영지원 DM 에만, 11-06 검수)
         out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
-            '이체 완료', f"{f.get('bank')} {f.get('account')} ({row.get('requester_name')})\n{amt} 이체를 마쳤나요?",
+            '이체 완료', f"{row.get('requester_name')} 개인경비 {amt}\n본인 계좌(경영지원 DM)로 이체를 마쳤나요?",
             '이체 완료')))
     elif st == APPROVED and role in ('all', 'executor') and form == FORM_SUPPLY:
         out.append(_btn('🛒 구매 완료', A_TRANSFER, aid, 'primary', _confirm(
@@ -675,7 +702,7 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('✏️ 수정 요청', A_REVISE, aid))
     if st == REVISE and role in ('all', 'requester'):
         out.append(_btn('✏️ 수정하기', A_EDIT, aid, 'primary'))
-    if st in OPEN_STATUSES and role in ('all', 'requester'):
+    if st in OPEN_STATUSES and role in ('all', 'requester') and requester_can_cancel(row):
         out.append(_btn('요청 취소', A_CANCEL, aid, None, _confirm(
             '요청 취소', f'{title(row)} 요청을 취소할까요?', '요청 취소')))
     return out
@@ -941,10 +968,10 @@ def transfer_input_blocks(prefill: Optional[dict] = None, urgency: str = '일반
     p = prefill or {}
 
     def _text(block_id, label, placeholder, value=''):
-        el = {'type': 'plain_text_input', 'action_id': block_id,
+        el = {'type': 'plain_text_input', 'action_id': block_id, 'max_length': 100,
               'placeholder': {'type': 'plain_text', 'text': placeholder}}
         if value:
-            el['initial_value'] = value
+            el['initial_value'] = str(value)[:100]
         return {'type': 'input', 'block_id': block_id + sfx, 'label': {'type': 'plain_text', 'text': label},
                 'element': el}
 
@@ -1078,7 +1105,7 @@ def _set_initial(blocks: List[dict], block_id: str, value, label: str = '') -> N
             continue
         el = b['element']
         if el['type'] == 'plain_text_input':
-            el['initial_value'] = str(value)
+            el['initial_value'] = str(value)[:el.get('max_length') or 3000]   # 한도보다 길면 슬랙이 창을 거부한다
         elif el['type'] == 'static_select':
             opt = next((o for o in el['options'] if o['value'] == str(value)), None)
             if opt:
@@ -1145,7 +1172,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                      'placeholder': {'type': 'plain_text', 'text': '원가 분류'}}},
         {'type': 'input', 'block_id': 'content', 'optional': bool(inv),
          'label': {'type': 'plain_text', 'text': '내용'},
-         'element': {'type': 'plain_text_input', 'action_id': 'content',
+         'element': {'type': 'plain_text_input', 'action_id': 'content', 'max_length': 300,
                      'placeholder': {'type': 'plain_text', 'text': '예: FCU 교체 부품 구매'}}},
     ]
     if not inv:   # 계산서를 고르면 거래처·금액·G/R 은 그 글 값 — 칸을 숨긴다
@@ -1179,7 +1206,8 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
     blocks += transfer_input_blocks(payee, urgency=p.get('urgency') or '일반', sfx=f'_{pv}' if pv else '')
     blocks.append({'type': 'input', 'block_id': 'memo', 'optional': True,
                    'label': {'type': 'plain_text', 'text': '비고'},
-                   'element': {'type': 'plain_text_input', 'action_id': 'memo', 'multiline': True}})
+                   'element': {'type': 'plain_text_input', 'action_id': 'memo', 'multiline': True,
+                               'max_length': 1000}})   # 길면 카드가 잘려 결재 줄이 안 보였다(11-06 검수)
     blocks.append(forms.attach_block('세금계산서·견적서 등'))
     if p:   # 수정 창(11-05) — 올린 값을 채운다(계산서·거래처·계좌는 meta 로 이미 채움)
         _set_initial(blocks, 'project', p.get('project_code'), p.get('_project_label', ''))
@@ -1194,7 +1222,8 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         'title': {'type': 'plain_text', 'text': title},
         'submit': {'type': 'plain_text', 'text': submit},
         'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
-        'private_metadata': json.dumps(meta),
+        # 한글 그대로(\uXXXX 면 6배) — 계산서 파일 이름·거래처·계좌 이름이 길면 3,000자 한도(11-06 검수)
+        'private_metadata': json.dumps(meta, ensure_ascii=False),
         'blocks': blocks,
     }
 
@@ -1220,6 +1249,11 @@ def read_new_request(view: dict) -> Dict:
         'urgency': _sel('urgency') or '일반', 'memo': _txt('memo'),
     }
     inv = meta.get('inv')
+    if not inv and not meta.get('edit'):
+        # 고른 뒤 창 갱신이 실패하면 meta 엔 없지만 화면엔 고른 계산서가 보인다 — 화면 값으로(11-06 검수)
+        sel = _sel('invoice', A_INVOICE)
+        if sel and sel != INVOICE_NONE:
+            inv = invoice_from_value(sel)
     if inv:   # 계산서 글 값으로 — 그 글 스레드에도 결과가 남게 origin 연결
         p = inv['parsed']
         f.update(partner=p.get('partner', ''), amount=int(p.get('amount') or 0), grn=p.get('grn') or f['grn'],
@@ -1227,6 +1261,8 @@ def read_new_request(view: dict) -> Dict:
     if meta.get('edit'):
         f['_edit'] = int(meta['edit'])
     f['_files'] = forms.read_attachments(view)
+    if not inv:
+        f['_bad'] = amount_errors({'amount': _txt('amount')})
     return f
 
 
@@ -1239,8 +1275,15 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
         dup = find_by_origin(f['origin_channel'], f['origin_ts'])
         if dup and dup['status'] not in (REJECTED, CANCELLED) and dup['id'] != f.get('_edit'):
             errs['invoice'] = f'이 계산서로 올린 {title(dup)}이 이미 있어요.'
+        else:
+            # 계산서 없이 먼저 올린(선입금) 같은 건 — G/R·금액·거래처가 같으면 두 번 이체될 수 있다(11-06 검수)
+            m = find_unlinked_match(f.get('grn') or '', int(f.get('amount') or 0), f.get('partner') or '')
+            if m and m['id'] != f.get('_edit'):
+                errs['invoice'] = (f"{initial(m.get('requester_name'))}님이 먼저 올린 {title(m)}"
+                                   f"({int(m.get('amount') or 0):,}원)과 같은 건이에요. 새로 올리지 않아도 돼요.")
     if f.get('amount', 0) <= 0:
         errs['amount'] = '금액을 숫자로 넣어 주세요.'
+    errs.update(f.pop('_bad', None) or {})
     if not f.get('grn'):
         errs['grn'] = '어느 사업자 통장에서 나가는지 골라 주세요.'
     if not (f.get('payee_name') or f.get('bank') or f.get('account')):
@@ -1266,9 +1309,12 @@ def mark_payee_saved(f: Dict) -> None:
 def supply_request_view(meta: dict, prefill: Optional[dict] = None) -> dict:
     """비품 신청 — 플렉스 「비품 신청(프로젝트0)」 칸 그대로. 현장은 프로젝트0 고정. prefill = 수정 창 값."""
     def _text(block_id, label, placeholder, optional=False, multiline=False, hint=''):
+        # 길이 제한(11-06 검수) — 품명이 길면 [구매 완료] 확인 창(300자)이 깨져 카드가 멈췄다. 상품 주소는 길 수 있어 넉넉히
+        mx = 2000 if block_id == 'link' else (1000 if multiline else 200)
         b = {'type': 'input', 'block_id': block_id, 'optional': optional,
              'label': {'type': 'plain_text', 'text': label},
-             'element': {'type': 'plain_text_input', 'action_id': block_id, 'multiline': multiline}}
+             'element': {'type': 'plain_text_input', 'action_id': block_id, 'multiline': multiline,
+                         'max_length': mx}}
         if placeholder:   # 빈 placeholder 는 슬랙이 창 자체를 거부한다
             b['element']['placeholder'] = {'type': 'plain_text', 'text': placeholder}
         if hint:
@@ -1299,7 +1345,8 @@ def supply_request_view(meta: dict, prefill: Optional[dict] = None) -> dict:
         'title': {'type': 'plain_text', 'text': title},
         'submit': {'type': 'plain_text', 'text': submit},
         'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
-        'private_metadata': json.dumps(meta),
+        # 한글 그대로(\uXXXX 면 6배) — 계산서 파일 이름·거래처·계좌 이름이 길면 3,000자 한도(11-06 검수)
+        'private_metadata': json.dumps(meta, ensure_ascii=False),
         'blocks': blocks,
     }
 
@@ -1326,6 +1373,7 @@ def read_supply_request(view: dict) -> Dict:
         'content': _txt('item'), 'link': _txt('link'), 'qty': parse_amount(_txt('qty')),
         'unit_price': parse_amount(_txt('unit_price')), 'amount': parse_amount(_txt('amount')),
         'reason': _txt('reason'), 'memo': _txt('memo'), '_files': forms.read_attachments(view),
+        '_bad': amount_errors({k: _txt(k) for k in ('qty', 'unit_price', 'amount')}),
     }
     if meta.get('edit'):
         f['_edit'] = int(meta['edit'])
@@ -1346,6 +1394,7 @@ def complete_supply_request(f: Dict) -> Dict[str, str]:
         errs['unit_price'] = '단가를 숫자로 넣어 주세요.'
     if not f.get('reason'):
         errs['reason'] = '사유를 적어 주세요.'
+    errs.update(f.pop('_bad', None) or {})
     if not f.get('amount') and 'qty' not in errs and 'unit_price' not in errs:
         f['amount'] = f['qty'] * f['unit_price']
     f.update(project_code=STOCK_CODE, urgency='일반',

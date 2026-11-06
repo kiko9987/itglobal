@@ -5160,6 +5160,20 @@ def _validate_pinv_submit(view) -> dict:
         from dashboard.blueprints.slack_eapproval import is_configured
         if not is_configured():
             errs['account'] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
+    if not errs:
+        # 창을 연 뒤 다른 사람이 같은 계산서·같은 건으로 결재를 올렸으면 막는다(11-06 검수 — 두 번 이체 방지)
+        try:
+            meta = json.loads(view.get('private_metadata') or '{}')
+            parsed = pinv.parsed_from_value(meta)
+            ap = ea.find_by_origin(meta.get('ch', ''), meta.get('ts', ''))
+            if not (ap and ap['status'] not in (ea.REJECTED, ea.CANCELLED)):
+                ap = ea.find_unlinked_match(parsed.get('grn') or '', int(parsed.get('amount') or 0),
+                                            parsed.get('partner') or '')
+            if ap:
+                errs['account'] = (f"{ea.title(ap)}({ea.initial(ap.get('requester_name'))})이 이미 올라와 있어요. "
+                                   '「이체 필요」 체크를 풀고 지정만 해 주세요.')
+        except Exception as exc:
+            logger.warning(f'[SLACK/현장지정] 중복 결재 확인 실패: {exc}')
     return errs
 
 
