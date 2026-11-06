@@ -153,7 +153,11 @@ def register_cert_handlers(app) -> None:
 
         def _bg():
             client = se.eap_client()
-            msg = issue(client, int(rid), uid, files, note)
+            try:
+                msg = issue(client, int(rid), uid, files, note)
+            except Exception as exc:
+                logger.error(f'{_LOG} 발급 처리 실패 (#{rid}): {exc}', exc_info=True, extra={'force_alert': True})
+                msg = '발급 처리 중 오류가 났어요. 다시 [📎 발급 완료]를 눌러 주세요.'
             if msg:
                 se._notify(client, uid, f'⚠️ {msg}')
         threading.Thread(target=_bg, daemon=True).start()

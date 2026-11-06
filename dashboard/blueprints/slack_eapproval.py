@@ -111,7 +111,10 @@ def _send_dm(client, aid: int, uid: str, role: str) -> None:
         r = client.chat_postMessage(channel=ch, text=text, blocks=blocks)
         ea.add_dm_ref(aid, ch, r['ts'], role, uid)
     except Exception as exc:
-        logger.warning(f'{_LOG} DM 실패 ({ea.title(row)} → {uid}, {role}): {exc}')
+        # 승인·이체 담당 DM 이 안 가면 아무도 모른 채 결재가 멈춘다(퇴사 계정 등) — 관리자 알림(11-06 검수)
+        log = logger.error if role in ('approver', 'executor') else logger.warning
+        log(f'{_LOG} DM 실패 ({ea.title(row)} → {uid}, {role}): {exc}',
+            extra={'force_alert': True} if role in ('approver', 'executor') else None)
 
 
 def _notify(client, uid: str, text: str) -> None:
@@ -574,6 +577,10 @@ def open_invoice_posts(force: bool = False) -> list:
                     continue
                 ap = ea.find_by_origin(ch, m['ts'])
                 if ap and ap['status'] not in (ea.REJECTED, ea.CANCELLED):
+                    continue
+                # 계산서 없이 먼저 올린 같은 건이 있으면 목록에서 뺀다 — [📍 현장 지정]이 그 결재에 연결한다(11-06)
+                if ea.find_unlinked_match(parsed.get('grn') or '', int(parsed.get('amount') or 0),
+                                          parsed.get('partner') or ''):
                     continue
                 items.append({'ch': ch, 'ts': m['ts'], 'parsed': parsed})
         except Exception as exc:
@@ -1039,6 +1046,14 @@ def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_co
                 form_key, meta, vals, project_label=vals.get('_project_label', '')))
         except Exception as exc:
             logger.error(f'{_LOG} 양식 창 채우기 실패 ({form_key}): {exc}', exc_info=True)
+            try:   # '불러오는 중'에 멈춰 있지 않게(11-06 검수 — 수정 창과 같게)
+                client.views_update(view_id=view_id, view={
+                    'type': 'modal', 'title': {'type': 'plain_text', 'text': form.label[:24]},
+                    'close': {'type': 'plain_text', 'text': '닫기'}, 'notify_on_close': True,
+                    'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                                ':warning: 창을 불러오지 못했어요. 닫고 다시 눌러 주세요.'}}]})
+            except Exception:
+                pass
     threading.Thread(target=_bg, daemon=True).start()
 
 

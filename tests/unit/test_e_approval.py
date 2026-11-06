@@ -234,8 +234,12 @@ def test_buttons_by_status_and_role(tmp_db):
     assert ids(row, 'requester') == [ea.A_CANCEL]
     assert ids(row, 'executor') == []
     row = ea.transition(row['id'], 'approve', KIKO, '고광일')
-    assert ids(row) == [ea.A_TRANSFER, ea.A_REVISE, ea.A_CANCEL]
+    # 승인 뒤(이체 대기)엔 요청자 취소 없음 — 경영지원이 은행에서 보내는 중일 수 있다(11-06 검수). 반려로
+    assert ids(row) == [ea.A_TRANSFER, ea.A_REVISE]
     assert ids(row, 'executor') == [ea.A_TRANSFER]
+    assert not ea.can_act('cancel', row, MGR) and ea.can_act('cancel', row, KIKO)
+    task = ea.create(ea.forms.FORM_CORPDOCS, MGR, '박정우', {'project_code': '', 'amount': 0})
+    assert task['status'] == ea.APPROVED and ea.can_act('cancel', task, MGR)   # 업무요청형은 처리 전까지 취소
     row = ea.transition(row['id'], 'transfer', SB, '황샛별')
     assert ids(row) == []
     done = ea.card_blocks(row, ea.steps(row['id']), 'G4049-JW')
@@ -254,7 +258,7 @@ def test_card_text(tmp_db):
     row = ea.create(ea.FORM_FUND, MGR, '박정우', dict(FIELDS, urgency='긴급'))
     t = ea.card_text(row, ea.steps(row['id']), 'G4049-JW · 광명 양지로 21', 6500000)
     assert f'자금집행 #{row["id"]}' in t and '승인 대기' in t and '긴급' in t
-    assert '금액: *533,500원*' in t and '고객 견적(VAT 별도): 6,500,000원' in t
+    assert '금액: *533,500원*' in t and '공사 총액(VAT 별도): 6,500,000원' in t
     assert '신한 110-511-825643 (김강원)' in t and '기타비 · 운반비 — FCU 부품' in t
 
 
@@ -744,6 +748,54 @@ def test_my_requests_view_splits_long_text():
     secs = [b for b in v['blocks'] if b['type'] == 'section']
     assert len(secs) > 1 and all(len(b['text']['text']) <= 3000 for b in secs)
     assert v['blocks'][-1]['elements'][0]['action_id'] == ea.A_HUB_BACK
+
+
+def test_invoice_pick_blocks_duplicate_of_prepaid_request(tmp_db):
+    """계산서 없이 먼저 올린 같은 건(G·금액·거래처)이 있으면 계산서를 골라 또 올리지 못한다(두 번 이체 방지, 11-06)."""
+    first = ea.create(ea.FORM_FUND, MGR, '박정우', dict(FIELDS))
+    f = dict(FIELDS, origin_channel='CINV', origin_ts='111.1')
+    errs = ea.complete_new_request(f)
+    assert '같은 건' in errs.get('invoice', '')
+    f2 = dict(FIELDS, origin_channel='CINV', origin_ts='111.1', _edit=first['id'])   # 자기 자신 수정은 통과
+    assert 'invoice' not in ea.complete_new_request(f2)
+
+
+def test_amount_with_man_unit_rejected(tmp_db):
+    """'35만원'이 35원으로 들어가던 것 — 숫자·쉼표·원만(11-06)."""
+    assert ea.bad_amount('35만원') and ea.bad_amount('1.5') and not ea.bad_amount('350,000원')
+    assert 'amount' in ea.complete_new_request(dict(FIELDS, _bad=ea.amount_errors({'amount': '35만원'})))
+    errs = forms.validate(forms.FORM_CONTRACT, {'project': 'G1', 'total': '1,000만', 'receiver': 'a',
+                                                'receiver_phone': '1', 'send': '이메일', 'contact': 'a@b.c'})
+    assert '35만' in errs.get('total', '')
+
+
+def test_expense_transfer_confirm_hides_account(tmp_db):
+    """[💸 이체 완료] 확인 창은 채널 카드에 실려 누구나 열 수 있다 — 개인 계좌 빼기(11-06)."""
+    row = ea.create(forms.FORM_EXPENSE, MGR, '박정우', {
+        'project_code': 'G1', 'amount': 50000,
+        'extra': {'f': {'bank': '국민', 'account': '123-45-6789', 'amount': '50000'}}})
+    row = ea.transition(row['id'], 'approve', KIKO, '고광일')
+    btn = next(b for b in ea.buttons(row) if b['action_id'] == ea.A_TRANSFER)
+    assert '123-45-6789' not in json.dumps(btn, ensure_ascii=False) and '50,000원' in btn['confirm']['text']['text']
+
+
+def test_confirm_text_capped_at_300():
+    assert len(ea._confirm('t', 'x' * 400, 'ok')['text']['text']) == 298
+
+
+def test_invoice_read_from_screen_when_meta_missing():
+    """계산서를 고른 뒤 창 갱신이 실패해도 화면에 보이는 계산서로 올린다(11-06)."""
+    opt = ea.invoice_option({'ch': 'CINV', 'ts': '111.1', 'parsed': {'grn': 'G', 'amount': 533500, 'partner': '강원포장'}})
+    view = {'private_metadata': json.dumps({}), 'state': {'values': {
+        'invoice': {ea.A_INVOICE: {'selected_option': opt}}, 'amount': {'amount': {'value': '1'}}}}}
+    f = ea.read_new_request(view)
+    assert f['origin_ts'] == '111.1' and f['amount'] == 533500 and not f.get('_bad')
+
+
+def test_corpdocs_pickup_needs_no_address():
+    base = {'grn': 'G (글로벌)', 'docs': ['인감증명서'], 'reason': '입찰'}
+    assert forms.validate(forms.FORM_CORPDOCS, dict(base, receive='직접 수령')) == {}
+    assert 'dest' in forms.validate(forms.FORM_CORPDOCS, dict(base, receive='등기'))
 
 
 def test_menu_has_both_buttons():
