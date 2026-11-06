@@ -6987,7 +6987,7 @@ export default class ProjectRowAccordion {
           <i class="fas fa-sign-in-alt me-2"></i>${escHtml(inflow || '유입 구분 없음')}
         </div>
         <div class="project-address-info" title="${displayAddress}">
-          <i class="fas fa-map-marker-alt me-2"></i>${displayAddress}
+          <i class="fas fa-map-marker-alt me-2"></i>${displayAddress}${codeCopyButtonHtml(address, '주소 복사')}
         </div>
         <div class="project-content-info" title="${displayContent}">
           <i class="fas fa-tools me-2"></i>${displayContent}

@@ -694,9 +694,10 @@ export default class ProjectTable {
           name: 'address',
           data: '현장 주소',
           defaultContent: '',
-          render: function(data) {
+          render: function(data, type) {
             if (data && data.trim() !== '') {
-              return data;
+              // 복사 아이콘은 화면 표시용에만 — 코드 칸과 같은 방식 (2026-11-06 직원 의견)
+              return type === 'display' ? `${data}${codeCopyButtonHtml(data, '주소 복사')}` : data;
             } else {
               return '<i class="fas fa-exclamation-circle text-danger me-2" title="데이터가 비어 있습니다. 현장 주소를 입력해주세요."></i><span class="text-muted">주소 정보 없음</span>';
             }
