@@ -657,7 +657,8 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
         from dashboard.services.purchase_invoice_assign import cost_label
         lines.append(cost_label(row.get('cost_category')) + (f' — {content}' if content else ''))
         lines.append(f"거래처: {row.get('partner') or '-'} ({row.get('grn') or '-'} · {row.get('evidence') or '-'})")
-        lines.append(f"이체 계좌: {row.get('bank') or '-'} {row.get('account') or '-'} ({row.get('payee_name') or '-'})"
+        # 예금주가 '(주)컴퓨존'이면 괄호가 겹쳐 '((주)컴퓨존)' — 예금주는 · 뒤로(11-06)
+        lines.append(f"이체 계좌: {row.get('bank') or '-'} {row.get('account') or '-'} · 예금주 {row.get('payee_name') or '-'}"
                      + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else ''))
         lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
         if quote_amount:
@@ -720,7 +721,7 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
             '구매 완료', f"{row.get('content') or '비품'} ({amt})\n구매를 마쳤나요?", '구매 완료')))
     elif st == APPROVED and role in ('all', 'executor'):
         out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
-            '이체 완료', f"{row.get('bank')} {row.get('account')} ({row.get('payee_name')})\n{amt} 이체를 마쳤나요?",
+            '이체 완료', f"{row.get('bank')} {row.get('account')} · 예금주 {row.get('payee_name')}\n{amt} 이체를 마쳤나요?",
             '이체 완료')))
     if st in (PENDING, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
         out.append(_btn('✏️ 수정 요청', A_REVISE, aid))
