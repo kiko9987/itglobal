@@ -634,50 +634,94 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
     return f'결재: {first} → {second}'
 
 
+CARD_SEP = '--------------------------------------------'   # 온라인 리드 카드와 같은 구분선(11-06 KiKO)
+GRN_NAMES = {'G': '글로벌 통장', 'R': '글로벌그룹 통장', 'N': 'N통장'}
+_KV = re.compile(r'^([^:<>*\n]{1,16}): (.*)$', re.S)
+
+
+def _kv(line: str) -> str:
+    """'거래처: 컴퓨존' → '*거래처* : 컴퓨존' (온라인 리드 카드 모양). 항목 이름이 없는 줄은 그대로."""
+    m = _KV.match(line)
+    return f'*{m.group(1).strip()}* : {m.group(2)}' if m else line
+
+
+def _key_line(row: dict) -> str:
+    """카드 둘째 줄 — 무엇이, 얼마가, 어디로(이체 담당이 제일 먼저 볼 것)."""
+    form = row.get('form')
+    amt = int(row.get('amount') or 0)
+    money = f'*{amt:,}원*' if amt else ''
+    if form == FORM_FUND:
+        grn = GRN_NAMES.get(str(row.get('grn') or '')[:1].upper(), row.get('grn') or '-')
+        return f"{money} → *{row.get('partner') or '-'}* ({grn})"
+    if form == FORM_SUPPLY:
+        qty = int(extra(row).get('qty') or 0)
+        return f"{money} · {row.get('content') or '-'}" + (f' × {qty}개' if qty else '')
+    if form == forms.FORM_EXPENSE:
+        return f"{money} → {row.get('requester_name') or '-'} 본인 계좌 (경영지원 DM에서 확인)"
+    what = forms.summary(form, extra(row).get('f') or {}) if form in forms.FORMS else (row.get('content') or '')
+    return ' · '.join(x for x in (money, what) if x) or '-'
+
+
+def _short_cost(row: dict) -> str:
+    from dashboard.services.purchase_invoice_assign import cost_label
+    c = row.get('cost_category')
+    return cost_label(c).replace('공통비 · ', '') if c else ''
+
+
 def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount: int = 0) -> str:
+    """온라인 리드 카드 모양(11-06 KiKO) — 머리 · 무엇이/얼마/어디로 · 구분선 · 세부 · 구분선 · 요청·결재.
+    끝난 결재(완료·반려·취소)는 세 줄로 접는다 — 채널에서 진행 중인 건이 눈에 띄게."""
     emoji, label = status_label(row)
-    lines = [f"{emoji} *{title(row)}* · {label}"
-             + (' · 🚨 긴급' if row.get('urgency') == '긴급' else ''),
-             f'*{project_line}*']
+    st = row.get('status')
     content = (row.get('content') or '').strip()
+    step = step_line(row, step_rows).replace('결재: ', '', 1)
+    rej = next((s for s in reversed(step_rows) if s['result'] in ('rejected', 'cancelled')), None)
+    if st in (DONE, REJECTED, CANCELLED):
+        what = ' · '.join(x for x in (project_line, _short_cost(row), content if row.get('form') == FORM_FUND else '')
+                          if x)
+        out = [f"{emoji} *{title(row)}* · {label} — {_key_line(row)}", what, step]
+        if rej and rej.get('reason'):
+            out.append(f"{'반려' if rej['result'] == 'rejected' else '취소'} 사유: {rej['reason']}")
+        elif rej:
+            out.append(f"{initial(rej['actor_name'])} 취소 {_fmt_when(rej['at'])}")
+        return '\n'.join(f'>{ln}' for ln in out)
+    head = [f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' else ''),
+            _key_line(row), CARD_SEP, f'현장: {project_line}']
+    lines = []
     if row.get('form') in forms.FORMS:
         lines += forms.card_lines(row['form'], extra(row).get('f') or {})
     elif row.get('form') == FORM_SUPPLY:
         x = extra(row)
         qty, unit = int(x.get('qty') or 0), int(x.get('unit_price') or 0)
-        lines.append(f'품명: {content or "-"}' + (f' × {qty}개 (단가 {unit:,}원)' if qty and unit else ''))
+        if qty and unit:
+            lines.append(f'단가: {unit:,}원 × {qty}개 (VAT 포함)')
         if x.get('link'):
             lines.append(f"상품: <{x['link']}|상품 보기>")
-        lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
-        if row.get('grn'):
-            lines.append(f"사업자 구분: {dict(GRN_TYPES).get(row['grn'], row['grn'])}")
         if x.get('reason'):
             lines.append(f"사유: {x['reason']}")
     else:
-        from dashboard.services.purchase_invoice_assign import cost_label
-        lines.append(cost_label(row.get('cost_category')) + (f' — {content}' if content else ''))
-        lines.append(f"거래처: {row.get('partner') or '-'} ({row.get('grn') or '-'} · {row.get('evidence') or '-'})")
+        cost = _short_cost(row)
+        if cost:
+            lines.append(f'분류: {cost}')
+        if content:
+            lines.append(f'내용: {content}')
         # 예금주가 '(주)컴퓨존'이면 괄호가 겹쳐 '((주)컴퓨존)' — 예금주는 · 뒤로(11-06)
-        lines.append(f"이체 계좌: {row.get('bank') or '-'} {row.get('account') or '-'} · 예금주 {row.get('payee_name') or '-'}"
+        lines.append(f"계좌: {row.get('bank') or '-'} {row.get('account') or '-'} · 예금주 {row.get('payee_name') or '-'}"
                      + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else ''))
-        lines.append(f"금액: *{int(row.get('amount') or 0):,}원* (VAT 포함)")
+        lines.append(f"증빙: {row.get('evidence') or '-'} (VAT 포함 금액)")
         if quote_amount:
             # 공사현황 「총액 1」 = 공사 전체 금액 — '고객 견적'이라 쓰면 항목 견적으로 오해(11-06 검수)
-            lines.append(f'공사 총액(VAT 별도): {int(quote_amount):,}원')
+            lines.append(f'공사 총액: {int(quote_amount):,}원 (VAT 별도)')
     memo = (row.get('memo') or '').strip()
     if memo:
         lines.append(f"{'구매 요청사항' if row.get('form') == FORM_SUPPLY else '비고'}: {memo}")
-    lines.append(f"요청: {initial(row.get('requester_name'))} {_fmt_when(row.get('created_at'))}")
-    lines.append(step_line(row, step_rows))
-    rv = last_revise(step_rows) if row.get('status') == REVISE else None
+    foot = [CARD_SEP, f"요청: {initial(row.get('requester_name'))} {_fmt_when(row.get('created_at'))}",
+            f'결재: {step}']
+    rv = last_revise(step_rows) if st == REVISE else None
     if rv:
-        lines.append(f"✏️ 수정 요청 ({initial(rv['actor_name'])} {_fmt_when(rv['at'])}): {rv.get('reason') or '-'}")
-    rej = next((s for s in reversed(step_rows) if s['result'] in ('rejected', 'cancelled')), None)
-    if rej and rej.get('reason'):
-        lines.append(f"{'반려' if rej['result'] == 'rejected' else '취소'} 사유: {rej['reason']}")
-    elif rej:
-        lines.append(f"{initial(rej['actor_name'])} 취소 {_fmt_when(rej['at'])}")
-    return '\n'.join(lines)
+        foot.append(f"✏️ 수정 요청 ({initial(rv['actor_name'])} {_fmt_when(rv['at'])}): {rv.get('reason') or '-'}")
+    body = head[:3] + [_kv(ln) for ln in head[3:] + lines + foot]
+    return '\n'.join(f'>{ln}' for ln in '\n'.join(body).split('\n'))
 
 
 def _btn(text: str, action: str, aid: int, style: Optional[str] = None, confirm: Optional[dict] = None) -> dict:
