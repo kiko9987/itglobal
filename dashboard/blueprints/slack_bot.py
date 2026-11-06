@@ -4618,8 +4618,13 @@ def _register_handlers(app):
         # (같은 고객 재상담은 pre-fill 그대로라 안 걸림 → 정상 흐름 무마찰)
         try:
             _meta = json.loads(view.get("private_metadata") or "{}")
-            if _meta.get("lead_no") and not _meta.get("_identity_confirmed"):
+            if _meta.get("lead_no"):
                 _old = _find_lead_by_no(_meta["lead_no"]) or {}
+                _block = _consult_block_reason(_old, _meta["lead_no"], status)
+                if _block:
+                    ack(response_action="errors", errors={"status": _block})
+                    return
+            if _meta.get("lead_no") and not _meta.get("_identity_confirmed"):
                 _idc = _consult_identity_changed(
                     _old, _v(state, "name"), _v(state, "contact"))
                 if _old and _idc.get("changed"):
@@ -9472,6 +9477,9 @@ def _open_consult_modal(client, body, from_slash: bool = False):
     if sheet_visit_date_raw.startswith("'"):
         sheet_visit_date_raw = sheet_visit_date_raw[1:]
     sheet_visit_date = sheet_visit_date_raw if re.fullmatch(r'\d{4}-\d{2}-\d{2}', sheet_visit_date_raw) else ''
+    # 지난 방문일은 비움 — 방문을 마친 리드를 다시 예약할 때 옛 날짜가 그대로 들어가지 않게 (2026-11-06)
+    if sheet_visit_date and sheet_visit_date < date.today().isoformat():
+        sheet_visit_date = ''
     prefilled = {
         'visit_type': default_visit_type,
         'status': sheet_status if sheet_status else '유선 상담',
@@ -9731,6 +9739,28 @@ def _consult_identity_changed(old_lead: dict, new_name: str, new_contact: str) -
         'name': (str(old_lead.get('고객명') or ''), str(new_name or '')) if name_diff else None,
         'contact': (str(old_lead.get('고객 연락처') or ''), str(new_contact or '')) if contact_diff else None,
     }
+
+
+def _consult_block_reason(lead: dict, lead_no: str, new_status: str, today: Optional[date] = None) -> str:
+    """재상담 제출을 막아야 하는 이유 (없으면 '').
+
+    2026-11-06: 방문을 마친 리드도 리드 채널 카드 [재상담]으로 다시 방문 예약을 잡게 하면서
+      ① 공사 확정 리드 — 상태가 다른 값으로 덮이면 공사·리드 연결이 흐트러짐 → 새 문의로.
+      ② 아직 방문 전인 리드에 '방문 예약' — 방문 카드가 한 장 더 생김 → 방문 카드 [정보 수정]으로.
+    방문일이 지났거나 완료 표시가 있으면 다시 예약할 수 있다.
+    """
+    lead = lead or {}
+    st = str(lead.get('상태') or '').strip()
+    if st == '공사 확정':
+        return '공사가 확정된 리드라 재상담으로 바꿀 수 없습니다. 추가 방문은 새 문의로 등록해 주세요.'
+    if new_status == '방문 예약' and st in ('방문 예약', '방문 대기'):
+        from dashboard.services.visit_assignment_sync import _parse_visit_date_end
+        end = _parse_visit_date_end(lead.get('방문 예정일'))
+        if end and end >= (today or date.today()) \
+                and not _visit_is_completed(lead_no, str(lead.get('상담 내용') or '')):
+            return (f'아직 방문 전인 일정({end.month}/{end.day})이 있습니다. '
+                    '#방문_일정 카드의 [✏️ 정보 수정]에서 날짜를 바꿔 주세요.')
+    return ''
 
 
 def _build_consult_identity_confirm_view(metadata: dict, state: dict, idc: dict) -> dict:
@@ -10257,10 +10287,12 @@ def _process_consult_submission(client, body, view):
                     {"type": "section", "text": {"type": "mrkdwn", "text": new_text}},
                 ]
                 # 재상담 버튼 — 회색 카드에서도 재편집 진입점 유지 (2026-07-17 사용자 요청).
-                # 방문 예약은 별도 방문 카드에 [정보 수정] 있어 여기 재상담 버튼 불필요.
                 # 2026-07-20: button_consult (통합 상담 모달) 로 스위칭 — 상담 유형
                 # 드롭다운(유선/방문/견적/드랍/부재중) + 이전 상담 이력 미리보기 포함.
-                if status != '방문 예약' and lead_no:
+                # 2026-11-06: 방문 예약도 붙임 — 방문을 마치면 방문 카드 버튼이 사라져, 한참 뒤
+                #   다시 방문해 달라는 고객을 잡을 곳이 없었음. 방문 전 중복 예약은
+                #   _consult_block_reason 이 막고 방문 카드 [정보 수정]으로 안내.
+                if lead_no:
                     new_blocks.append({
                         'type': 'actions',
                         'elements': [{
