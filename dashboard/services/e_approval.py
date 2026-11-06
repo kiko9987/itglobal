@@ -675,17 +675,8 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     st = row.get('status')
     content = (row.get('content') or '').strip()
     step = step_line(row, step_rows).replace('결재: ', '', 1)
-    rej = next((s for s in reversed(step_rows) if s['result'] in ('rejected', 'cancelled')), None)
-    if st in (DONE, REJECTED, CANCELLED):
-        what = ' · '.join(x for x in (project_line, _short_cost(row), content if row.get('form') == FORM_FUND else '')
-                          if x)
-        out = [f"{emoji} *{title(row)}* · {label} — {_key_line(row)}", what, step]
-        if rej and rej.get('reason'):
-            out.append(f"{'반려' if rej['result'] == 'rejected' else '취소'} 사유: {rej['reason']}")
-        elif rej:
-            out.append(f"{initial(rej['actor_name'])} 취소 {_fmt_when(rej['at'])}")
-        return '\n'.join(f'>{ln}' for ln in out)
-    head = [f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' else ''),
+    closed = st in (DONE, REJECTED, CANCELLED)
+    head = [f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' and not closed else ''),
             _key_line(row), CARD_SEP, f'현장: {project_line}']
     lines = []
     if row.get('form') in forms.FORMS:
@@ -721,7 +712,26 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     if rv:
         foot.append(f"✏️ 수정 요청 ({initial(rv['actor_name'])} {_fmt_when(rv['at'])}): {rv.get('reason') or '-'}")
     body = head[:3] + [_kv(ln) for ln in head[3:] + lines + foot]
+    if closed:
+        return _greyed(row, step_rows, emoji, label, body)
     return '\n'.join(f'>{ln}' for ln in '\n'.join(body).split('\n'))
+
+
+def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List[str]) -> str:
+    """끝난 결재 — 온라인 리드 '상담 완료' 카드처럼(11-06 KiKO): 처리 결과 몇 줄 + 원래 내용은 회색 코드 박스."""
+    last = next((s for s in reversed(step_rows) if s['step'] in ('transfer', 'approve', 'cancel')
+                 and s['result'] in ('done', 'rejected', 'cancelled')), None)
+    who = ''
+    if last:
+        who = executor_label(last['actor_name']) if last['step'] == 'transfer' else initial(last['actor_name'])
+    hdr = [f"{emoji} *{title(row)} · {label}*"]
+    if last:
+        hdr += [f'처리자 : {who}', f"처리 시간 : {_fmt_when(last['at'])}"]
+        if last['result'] in ('rejected', 'cancelled') and last.get('reason'):
+            hdr.append(f"{'반려' if last['result'] == 'rejected' else '취소'} 사유 : {last['reason']}")
+    plain = '\n'.join(body).replace('*', '').replace('```', "'''")
+    plain = re.sub(r'<(https?://[^|>]+)\|([^>]+)>', r'\2 (\1)', plain)   # 코드 박스 안에선 링크 모양이 안 바뀐다
+    return '\n'.join(hdr) + f'\n```\n{plain}\n```'
 
 
 def _btn(text: str, action: str, aid: int, style: Optional[str] = None, confirm: Optional[dict] = None) -> dict:
