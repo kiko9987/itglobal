@@ -711,6 +711,16 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
 _SPACER = {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '⠀'}]}
 
 
+def spaced(text: str, elements: Optional[List[dict]] = None, notes: Optional[List[dict]] = None) -> List[dict]:
+    """다른 채널 카드와 같은 여백(11-06) — 위 빈 줄 · 본문 · 빈 줄 · 버튼 · (안내) · 아래 빈 줄."""
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': '⠀\n' + text}}]
+    if elements:
+        blocks += [_SPACER, {'type': 'actions', 'elements': elements}]
+    blocks += notes or []
+    blocks.append(_SPACER)
+    return blocks
+
+
 def dm_intro(row: dict, role: str) -> str:
     """DM 맨 위 한 줄 — 내 차례면 할 일, 아니면 지금 상태."""
     st = row.get('status')
@@ -789,14 +799,10 @@ def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> L
         summary += f"\n이체 계좌: {f.get('bank') or '-'} {f.get('account') or '-'} ({row.get('requester_name') or '-'})"
     link = (f'<{card_link}|👉 결재 카드 열기>' if card_link
             else '#전자_결재 채널의 카드에서 처리해 주세요.')
-    blocks = [
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': dm_intro(row, role)}},
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'{summary}\n{step_line(row, steps(row["id"]))}'}},
-    ]
-    if role == 'requester' and row.get('status') == REVISE:   # 수정하기는 DM 에서도 바로(채널 카드까지 안 가도)
-        blocks.append({'type': 'actions', 'elements': [_btn('✏️ 수정하기', A_EDIT, row['id'], 'primary')]})
-    blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]})
-    return blocks
+    text = f'{dm_intro(row, role)}\n\n{summary}\n{step_line(row, steps(row["id"]))}'
+    # 수정하기는 DM 에서도 바로(채널 카드까지 안 가도)
+    els = [_btn('✏️ 수정하기', A_EDIT, row['id'], 'primary')] if role == 'requester' and row.get('status') == REVISE else None
+    return spaced(text[:2900], els, [{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]}])
 
 
 def menu_blocks() -> List[dict]:

@@ -1224,14 +1224,11 @@ def post_cardexp_reminder(today=None) -> Optional[str]:
         logger.warning(f'{_LOG} 법인카드 안내 중복 확인 실패(보내지 않음): {exc}')
         return None
     prev = ea.forms.prev_month(d)[0]
-    blocks = [
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text':
-            f'🧾 *{prev.month}월 법인카드 지출결의서*를 올려 주세요.\n'
-            '카드 번호와 사용 기간은 채워져 있어요. 올린 뒤 카드 스레드에 영수증을 붙여 주세요.'}},
-        {'type': 'actions', 'elements': [{
-            'type': 'button', 'action_id': ea.A_FORM_OPEN, 'value': ea.forms.FORM_CARDEXP, 'style': 'primary',
-            'text': {'type': 'plain_text', 'text': '🧾 지출결의서 올리기', 'emoji': True}}]},
-    ]
+    blocks = ea.spaced(
+        f'🧾 *{prev.month}월 법인카드 지출결의서*를 올려 주세요.\n'
+        '카드 번호와 사용 기간은 채워져 있어요. 영수증은 창 맨 아래 「첨부 파일」에 올려 주세요.',
+        [{'type': 'button', 'action_id': ea.A_FORM_OPEN, 'value': ea.forms.FORM_CARDEXP, 'style': 'primary',
+          'text': {'type': 'plain_text', 'text': '🧾 지출결의서 올리기', 'emoji': True}}])
     r = eap_client().chat_postMessage(channel=ea.channel_id(), text=f'{prev.month}월 법인카드 지출결의서', blocks=blocks)
     logger.info(f'{_LOG} 법인카드 지출결의 안내 게시 ({prev:%Y-%m})')
     return r.get('ts')

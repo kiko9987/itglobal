@@ -943,7 +943,8 @@ def test_cardexp_reminder_first_business_day_once(se, monkeypatch):
     assert se.post_cardexp_reminder(date(2026, 12, 1)) is None        # 같은 달 두 번 안 보냄
     post = se._fake.of('chat_postMessage')[-1]
     assert '11월 법인카드 지출결의서' in post['blocks'][0]['text']['text']
-    assert post['blocks'][1]['elements'][0]['value'] == forms.FORM_CARDEXP
+    assert next(b for b in post['blocks'] if b['type'] == 'actions')['elements'][0]['value'] == forms.FORM_CARDEXP
+    assert post['blocks'][-1]['elements'][0]['text'] == '⠀'          # 다른 카드와 같은 아래 여백(11-06)
 
 
 def test_form_views_are_valid_shape():

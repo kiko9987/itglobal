@@ -282,15 +282,12 @@ def parsed_from_row(row: Dict) -> Dict:
 
 def prompt_blocks(channel: str, msg_ts: str, parsed: Dict) -> List[dict]:
     """계산서 글 스레드에 다는 버튼 메시지."""
+    from dashboard.services.e_approval import spaced
     value = button_value(channel, msg_ts, parsed)
-    return [
-        {'type': 'section', 'text': {'type': 'mrkdwn',
-                                     'text': '어느 현장 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.'}},
-        {'type': 'actions', 'elements': [{
-            'type': 'button', 'action_id': ACTION_OPEN, 'style': 'primary', 'value': value,
-            'text': {'type': 'plain_text', 'text': '📍 현장 지정', 'emoji': True},
-        }]},
-    ]
+    return spaced('어느 현장 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
+        'type': 'button', 'action_id': ACTION_OPEN, 'style': 'primary', 'value': value,
+        'text': {'type': 'plain_text', 'text': '📍 현장 지정', 'emoji': True},
+    }])
 
 
 def prompt_done_blocks() -> List[dict]:
@@ -319,14 +316,12 @@ def result_text(row: Dict, project_line: str, extra: str = '') -> str:
 
 
 def result_blocks(row: Dict, project_line: str, channel: str, msg_ts: str, extra: str = '') -> List[dict]:
+    from dashboard.services.e_approval import spaced
     value = button_value(channel, msg_ts, parsed_from_row(row))
-    return [
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': result_text(row, project_line, extra)}},
-        {'type': 'actions', 'elements': [{
-            'type': 'button', 'action_id': ACTION_OPEN, 'value': value,
-            'text': {'type': 'plain_text', 'text': '✏️ 다시 지정', 'emoji': True},
-        }]},
-    ]
+    return spaced(result_text(row, project_line, extra), [{
+        'type': 'button', 'action_id': ACTION_OPEN, 'value': value,
+        'text': {'type': 'plain_text', 'text': '✏️ 다시 지정', 'emoji': True},
+    }])
 
 
 ACTION_TRANSFER_TOGGLE = 'pinv_transfer_toggle'   # 「이체 필요」 체크 → 이체 칸 펼침
