@@ -369,6 +369,11 @@ class SecurityMiddleware:
         if request.path.startswith('/track/'):
             return None
 
+        # 1.9. 세콤매니저(근태) REST 전송 우회 — 같은 PC의 세콤 프로그램, 세션 없음.
+        #      secom_inbound 라우트가 '127.0.0.1 + 프록시 머리말 없음'만 받는다(바깥은 403).
+        if request.path.startswith('/secom/') or request.path == '/secom':
+            return None
+
         # 2. CSRF/인증 검사 (상태 변경 요청)
         if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
             if request.path.startswith('/api/') or request.path.startswith('/admin/api/'):
@@ -452,6 +457,10 @@ class SecurityMiddleware:
         # SMS 인입 webhook 도 rate limit 예외 — 폰 포워딩은 기기 토큰으로 자체 인증,
         # 입금 몰릴 때 다건 연속 인입이 익명 제한(1000/시간)에 걸려 유실되면 안 됨.
         if request.path.startswith('/sms/'):
+            return True
+
+        # 세콤매니저 전송도 예외 — 처음 켜면 지난 기록을 한꺼번에 보낼 수 있다(같은 PC만 받음).
+        if request.path.startswith('/secom'):
             return True
 
         # 인증된 세션 (로그인 성공한 매니저) 은 rate limit 예외 (2026-07-22):
