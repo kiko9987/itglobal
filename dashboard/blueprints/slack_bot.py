@@ -334,6 +334,8 @@ def _init_leave_slack_app():
         )
         _leave_slack_handler = SlackRequestHandler(_leave_slack_app)
         register_leave_handlers(_leave_slack_app)
+        from dashboard.blueprints.slack_attendance import register_attendance_handlers
+        register_attendance_handlers(_leave_slack_app)   # 시공팀 현장 출퇴근 보고·승인 (2026-11-06)
         _verify_bot_token(_leave_slack_app.client, '휴가봇')
         logger.info("[SLACK/휴가] 초기화 완료 ✅")
         return True
