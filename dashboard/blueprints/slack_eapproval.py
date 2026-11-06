@@ -134,7 +134,8 @@ def _dm_round(client, row: dict) -> None:
     if row['status'] == ea.PENDING:
         targets = [(u, 'approver') for u in ea.approver_ids()]
     elif row['status'] == ea.APPROVED:
-        targets = [(u, 'executor') for u in ea.executor_dm_ids()]
+        targets = [(u, 'executor') for u in ea.executor_dm_ids(row)]
+        targets += [(u, 'notice') for u in ea.notice_ids(row)]   # N통장 → SB 에게 알림만(11-06)
     else:
         targets = []
     for uid, role in targets:
@@ -243,7 +244,7 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
             # 수정해서 다시 올린 건 — 예전에 이체 DM 을 받은 경영지원은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
             have = {(r['user'], r['role']) for r in ea.dm_refs(new)}
             link = _card_link(new)
-            for u in ea.executor_dm_ids():
+            for u in ea.executor_dm_ids(new):
                 if (u, 'executor') in have:
                     _notify(client, u, f'🔔 수정해서 다시 올라온 {t}이 승인됐어요. {w}해 주세요.'
                             + (f' <{link}|카드 보기>' if link else ''))
@@ -477,7 +478,7 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
     _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}', broadcast=True)
     refresh(row)
     who = [(u, 'approver') for u in ea.approver_ids()] if row['status'] == ea.PENDING else \
-        [(u, 'executor') for u in ea.executor_dm_ids()]
+        [(u, 'executor') for u in ea.executor_dm_ids(row)]
     have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
     link = _card_link(row)
     for u, role in who:
