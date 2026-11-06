@@ -748,7 +748,7 @@ def test_my_requests_view_splits_long_text():
 
 def test_menu_has_both_buttons():
     els = ea.menu_blocks()[1]['elements']
-    assert [e['action_id'] for e in els] == [ea.A_NEW, ea.A_NEW_SUPPLY, ea.A_FORM_PICK, ea.A_MY_REQUESTS]
+    assert [e['action_id'] for e in els] == [ea.A_NEW, ea.A_NEW_SUPPLY, ea.A_FORM_PICK, 'cert_open', ea.A_MY_REQUESTS]
     assert {o['value'] for o in els[2]['options']} == set(ea.forms.FORMS)
     text = ea.menu_blocks()[0]['text']['text']
     assert '회사 재고 자재 포함) → 💸 자금집행' in text and '사무용 비품 → 🛒 비품 신청' in text

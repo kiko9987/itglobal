@@ -807,6 +807,7 @@ def menu_blocks() -> List[dict]:
             '• 거래처에 돈을 보내는 건(자재·외주·현장 비용, 회사 재고 자재 포함) → 💸 자금집행 요청\n'
             '• 경영지원이 대신 주문해 주는 사무용 비품 → 🛒 비품 신청\n'
             '• 계약서·보증보험·카드결제·법인서류·개인경비·법인카드 지출결의 → 📋 다른 결재 요청\n'
+            '• 재직·경력증명서 → 📜 증명서 신청 (본인과 경영지원만 봐요)\n'
             '• 내가 올린 요청이 어디까지 갔는지 → 📂 내 요청\n'
             '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}},
         {'type': 'actions', 'elements': [
@@ -816,6 +817,8 @@ def menu_blocks() -> List[dict]:
              'text': {'type': 'plain_text', 'text': '🛒 비품 신청', 'emoji': True}},
             {'type': 'static_select', 'action_id': A_FORM_PICK, 'options': forms.menu_options(),
              'placeholder': {'type': 'plain_text', 'text': '📋 다른 결재 요청', 'emoji': True}},
+            {'type': 'button', 'action_id': 'cert_open',
+             'text': {'type': 'plain_text', 'text': '📜 증명서 신청', 'emoji': True}},
             {'type': 'button', 'action_id': A_MY_REQUESTS,
              'text': {'type': 'plain_text', 'text': '📂 내 요청', 'emoji': True}},
         ]},
@@ -851,6 +854,10 @@ def hub_blocks() -> List[dict]:
         {'type': 'actions', 'elements': [
             _menu_btn(form_open_action_id(o['value']), o['text']['text'], value=o['value'])
             for o in forms.menu_options()]},
+        {'type': 'divider'},
+        # 증명서(11-06) — 플렉스 「문서·증명서」 대체. 신청자·경영지원 DM 만(채널 카드 없음). 휴직·사직은 메뉴에 두지 않는다
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*인사*'}},
+        {'type': 'actions', 'elements': [_menu_btn('cert_open', '📜 증명서 신청 (재직·경력)')]},
         {'type': 'divider'},
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*결재 현황*'}},
         {'type': 'actions', 'elements': [_menu_btn(A_MY_REQUESTS, '📂 내 요청')]},

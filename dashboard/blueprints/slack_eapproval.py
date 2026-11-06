@@ -1499,6 +1499,8 @@ def register_eapproval_handlers(app) -> None:
 
     _register_invoice_pick(app)
     _register_form_handlers(app)
+    from dashboard.blueprints.slack_cert import register_cert_handlers
+    register_cert_handlers(app)   # 증명서 신청(11-06) — DM 만
 
     def _open_form_from(body, client, form_key):
         try:
