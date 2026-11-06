@@ -837,6 +837,21 @@ def test_common_cost_categories_only_for_common_site(tmp_db):
     assert 'cost' in errs
 
 
+def test_form_cards_simulation_fixes():
+    """11-06 양식별 카드 시뮬레이션에서 찾은 것 — 보증 단위·계약서 둘째 줄·법인카드 가린 번호·개인경비 중복."""
+    ins = forms.card_lines(forms.FORM_INSURANCE, {'kind': '계약보증', 'rate': '10', 'years': '1'})
+    assert '보증금율: 10%' in ins and '보증 기간: 1년' in ins
+    assert forms.summary(forms.FORM_CONTRACT, {'deposit': '3432000', 'balance': '8008000'}) == \
+        '계약금 3,432,000원 · 잔금 8,008,000원'
+    assert not any('본인 계좌' in ln for ln in forms.card_lines(forms.FORM_EXPENSE, {'amount': '15000'}))
+    row = {'id': 9, 'form': forms.FORM_CARDEXP, 'status': ea.DONE, 'amount': 0, 'requester_name': '박민우',
+           'created_at': '2026-11-06 10:00:00',
+           'extra': json.dumps({'f': {'card_no': '4518-****-****-1234', 'start': '2026-10-01', 'end': '2026-10-31'}})}
+    t = ea.card_text(row, [{'step': 'transfer', 'result': 'done', 'actor_name': '황샛별',
+                            'at': '2026-11-06 14:00:00', 'reason': None}], '현장 무관')
+    assert '카드번호 : 4518-****-****-1234' in t
+
+
 def test_corpdocs_pickup_needs_no_address():
     base = {'grn': 'G (글로벌)', 'docs': ['인감증명서'], 'reason': '입찰'}
     assert forms.validate(forms.FORM_CORPDOCS, dict(base, receive='직접 수령')) == {}

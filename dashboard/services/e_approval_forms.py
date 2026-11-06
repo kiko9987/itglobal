@@ -577,6 +577,9 @@ def _fmt(f: F, v) -> str:
         return str(v).replace('-', '.')
     if f.kind == 'select' and f.key == 'grn':
         return str(v)
+    if f.kind == 'number' and v not in (None, ''):   # '보증금율 (%)'·'보증 기간 (년)' — 카드엔 이름표 괄호가 빠져 단위도 빠졌다(11-06)
+        unit = re.search(r'\((%|년)\)', f.label)
+        return f'{v}{unit.group(1)}' if unit else str(v)
     return str(v or '')
 
 
@@ -593,9 +596,7 @@ def card_lines(form_key: str, vals: Dict) -> List[str]:
     if form_key == FORM_CONTRACT:
         g = guarantee_summary(vals)
         lines.insert(max(0, len(lines) - (1 if vals.get('memo') else 0)), f'보증 조건: {g or "없음"}')
-    if form_key == FORM_EXPENSE:
-        lines.append('이체 계좌: 본인 계좌 (경영지원 DM에서 확인)')
-    return lines
+    return lines   # 개인경비 '본인 계좌(경영지원 DM)'는 카드 둘째 줄에 있다(11-06 — 두 번 나오던 것)
 
 
 def summary(form_key: str, vals: Dict) -> str:
@@ -610,4 +611,8 @@ def summary(form_key: str, vals: Dict) -> str:
         return f"{vals.get('start', '')[:7]} 사용분"
     if form_key == FORM_EXPENSE:
         return (vals.get('reason') or '개인경비')[:40]
+    if form_key == FORM_CONTRACT:   # 나눠 받는 금액 — '계약서 작성 요청'을 또 쓰던 것(11-06 시뮬)
+        parts = [f"{nm} {_parse_int(vals.get(k)):,}원" for k, nm in
+                 (('deposit', '계약금'), ('mid', '중도금'), ('balance', '잔금')) if _parse_int(vals.get(k))]
+        return ' · '.join(parts) or (f"인수자 {vals['receiver']}" if vals.get('receiver') else FORMS[form_key].label)
     return FORMS[form_key].label

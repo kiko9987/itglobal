@@ -236,22 +236,25 @@ def summary_line(row: dict) -> str:
 
 
 def card_text(row: dict) -> str:
+    """결재 카드와 같은 틀(11-06) — 머리 · 무엇 · 구분선 · '*항목* : 값' · 구분선 · 처리."""
+    from dashboard.services.e_approval import CARD_SEP
     emoji, label = STATUS.get(row['status'], ('', row['status']))
-    lines = [f"📜 *증명서 신청 — {row['requester_name']}*  {emoji} {label}",
-             f"• 종류: {row['ctype']}",
-             f"• 용도: {row['purpose']}" + (f" ({row['dest']})" if row.get('dest') else ''),
-             f"• 주민등록번호: {row['ssn']}",
-             f"• 받는 방법: {row['receive']}" + (f" · {row['copies']}부" if (row.get('receive') or '').startswith('직인') else '')]
+    rows = [('용도', f"{row['purpose']}" + (f" ({row['dest']})" if row.get('dest') else '')),
+            ('주민등록번호', row['ssn']),
+            ('받는 방법', f"{row['receive']}" + (f" · {row['copies']}부" if (row.get('receive') or '').startswith('직인') else ''))]
     if row.get('need_by'):
         d = date.fromisoformat(row['need_by'])
-        lines.append(f"• 필요한 날: {d.month}월 {d.day}일")
+        rows.append(('필요한 날', f'{d.month}월 {d.day}일'))
     if row.get('memo'):
-        lines.append(f"• 메모: {row['memo']}")
+        rows.append(('메모', row['memo']))
+    lines = [f"{emoji} *증명서 신청* · {label}", f"*{row['ctype']}* · {row['requester_name']}", CARD_SEP]
+    lines += [f'*{k}* : {v}' for k, v in rows]
     if row['status'] == ISSUED:
-        lines.append(f"✅ 발급 완료 ({row.get('handled_by') or ''})" + (f": {row['handled_note']}" if row.get('handled_note') else ''))
+        lines += [CARD_SEP, f"✅ 발급 완료 ({row.get('handled_by') or ''})"
+                  + (f": {row['handled_note']}" if row.get('handled_note') else '')]
     elif row['status'] == REJECTED:
-        lines.append(f"❌ 반려 사유 ({row.get('handled_by') or ''}): {row.get('handled_note') or ''}")
-    return '\n'.join(lines)
+        lines += [CARD_SEP, f"❌ 반려 사유 ({row.get('handled_by') or ''}): {row.get('handled_note') or ''}"]
+    return '\n'.join(f'>{ln}' for ln in '\n'.join(lines).split('\n'))
 
 
 def _btn(text: str, action: str, rid: int, style: str = '') -> dict:
