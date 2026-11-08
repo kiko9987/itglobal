@@ -14,16 +14,19 @@
   .cr-card .v { font-size: 1.15rem; font-weight: 700; }
   .cr-sec { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
   .cr-sec h6 { font-weight: 700; margin: 0 0 8px; }
-  .cr-tbl { width: 100%; font-size: .8rem; border-collapse: collapse; }
-  .cr-tbl th, .cr-tbl td { padding: 5px 4px; border-bottom: 1px solid #f1f3f5; white-space: nowrap; }
-  .cr-tbl th { background: #f8f9fa; font-weight: 600; position: sticky; top: 0; white-space: normal; word-break: keep-all; }
-  .cr-tbl td.n, .cr-tbl th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  /* 칸 넓이는 colgroup 비율로 고정 → 화면 넓이만큼 고르게 늘어나고 담당자가 달라도 칸이 같음.
+     너무 좁은 화면에선 min-width 아래로 줄지 않고 가로 스크롤 */
+  .cr-tbl { width: 100%; min-width: 1700px; table-layout: fixed; font-size: .8rem; border-collapse: collapse; }
+  .cr-tbl th, .cr-tbl td { padding: 5px 8px; border-bottom: 1px solid #f1f3f5; text-align: center;
+                           white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
+  .cr-tbl th { background: #f8f9fa; font-weight: 600; }
+  .cr-tbl td.n, .cr-tbl th.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .cr-tbl td.lbl { text-align: left; }
+  .cr-tbl td.nw { white-space: nowrap; }
   .cr-tbl tr.sub td { background: #f8f9fa; font-weight: 700; }
   .cr-tbl tr.tot td { background: #e7f5ff; font-weight: 700; }
-  .cr-tbl td.wrap { white-space: normal; min-width: 80px; }
-  .cr-tbl td.wrap.memo { min-width: 130px; }
   .cr-tbl tr.grand td { background: #d0ebff; font-weight: 700; border-top: 2px solid #a5d8ff; }
-  .cr-tbl td.cr-owner { cursor: pointer; user-select: none; font-weight: 700; font-size: .95rem;
+  .cr-tbl td.cr-owner { text-align: left; cursor: pointer; user-select: none; font-weight: 700; font-size: .95rem;
                         padding: 10px 6px 6px; border-top: 2px solid #dee2e6; background: #fff; }
   .cr-owner .cnt { color: #868e96; font-weight: 400; font-size: .85rem; margin-left: 6px; }
   .cr-tbl tbody.cr-hide { visibility: collapse; }
@@ -65,9 +68,14 @@
   const DETAIL = ['프로젝트 코드', '사업자', '유입 구분', '사업자명', '현장 주소', '총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '수금 날짜',
                   '계산서', '도급 구분', '시공자', '제품대', '도급비', '자재비', '기타비', '순익', '마진율',
                   '수금 관련 특이사항'];
-  // 긴 글자 칸은 줄바꿈 → 표가 화면 넓이 안에 들어오게
-  const WRAP = { '사업자명': 'wrap', '현장 주소': 'wrap memo', '시공자': 'wrap', '계산서': 'wrap', '수금 관련 특이사항': 'wrap memo' };
+  // 칸 넓이 비율(1920px 화면 기준 px 쯤). 글자·날짜는 가운데, 숫자는 오른쪽 정렬
+  const COLW = { '프로젝트 코드': 76, '사업자': 68, '유입 구분': 68, '사업자명': 110, '현장 주소': 160,
+                 '총액 1': 82, '총액 2': 82, '계약금': 78, '중도금': 78, '잔금': 82, '미수금': 70, '수금 날짜': 90,
+                 '계산서': 96, '도급 구분': 58, '시공자': 90, '제품대': 78, '도급비': 78, '자재비': 70, '기타비': 70,
+                 '순익': 82, '마진율': 52, '수금 관련 특이사항': 150 };
   const MONEY = new Set(['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익']);
+  const NUM = c => MONEY.has(c) || c === '마진율';
+  const NOWRAP = new Set(['프로젝트 코드', '수금 날짜']);  // 코드·날짜는 중간에서 끊기지 않게
 
   function el(tag, attrs, text) {
     const e = document.createElement(tag);
@@ -106,7 +114,7 @@
     const LEAD = DETAIL.findIndex(c => MONEY.has(c));
     const sumRow = (label, s, cls) => {
       const r = tr(DETAIL.slice(LEAD).map(c => MONEY.has(c) ? [won(s[c]), 'n'] : ['']), cls);
-      r.insertBefore(el('td', { colspan: LEAD }, label), r.firstChild);
+      r.insertBefore(el('td', { colspan: LEAD, class: 'lbl' }, label), r.firstChild);
       return r;
     };
     // 담당자 전부를 한 표에 담아 칸 넓이를 세로로 맞춤. 접힌 목록은 visibility:collapse 라
@@ -114,8 +122,11 @@
     const sec = el('div', { class: 'cr-sec' });
     const box = sec.appendChild(el('div', { class: 'cr-scroll' }));
     const t = box.appendChild(el('table', { class: 'cr-tbl' }));
+    const cg = t.appendChild(el('colgroup'));
+    const totalW = DETAIL.reduce((a, c) => a + COLW[c], 0);
+    DETAIL.forEach(c => cg.appendChild(el('col', { style: `width:${(COLW[c] / totalW * 100).toFixed(3)}%` })));
     const hr = t.appendChild(el('thead')).appendChild(el('tr'));
-    DETAIL.forEach(c => hr.appendChild(el('th', MONEY.has(c) ? { class: 'n' } : {}, c)));
+    DETAIL.forEach(c => hr.appendChild(el('th', NUM(c) ? { class: 'n' } : {}, c)));
     d.groups.forEach(g => {
       const head = t.appendChild(el('tbody'));
       const ht = head.appendChild(el('tr')).appendChild(el('td', { colspan: DETAIL.length, class: 'cr-owner' }));
@@ -124,7 +135,7 @@
       const body = t.appendChild(el('tbody', { class: 'cr-hide' }));
       g.groups.forEach(s => {
         s.rows.forEach(r => body.appendChild(tr(DETAIL.map(c =>
-          MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], WRAP[c] || '']))));
+          MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], NUM(c) ? 'n' : (NOWRAP.has(c) ? 'nw' : '')]))));
         body.appendChild(sumRow(`${s['사업자']} 소계 · ${s.sum['건수']}건`, s.sum, 'sub'));
       });
       body.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
