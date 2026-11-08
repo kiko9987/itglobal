@@ -135,7 +135,7 @@
       const body = t.appendChild(el('tbody', { class: 'cr-hide' }));
       g.groups.forEach(s => {
         s.rows.forEach(r => body.appendChild(tr(DETAIL.map(c =>
-          MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], NUM(c) ? 'n' : (NOWRAP.has(c) ? 'nw' : '')]))));
+          MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], NUM(c) ? 'n' : (NOWRAP.has(c) ? 'nw' : (c === '현장 주소' ? 'lbl' : ''))]))));
         body.appendChild(sumRow(`${s['사업자']} 소계 · ${s.sum['건수']}건`, s.sum, 'sub'));
       });
       body.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
