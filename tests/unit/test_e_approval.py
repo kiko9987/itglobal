@@ -1335,13 +1335,51 @@ def test_folder_docs_block_carry_and_post(se):
     from dashboard.services import business_license_handler as bl
     row = se.process_new_submit(MGR, dict(FIELDS))
     import pytest as _pt
+    picked = [{'id': 'lic', 'name': '사업자등록증'}, {'id': 'P2', 'name': '최종 견적.pdf'}]
     with _pt.MonkeyPatch.context() as mp:
         mp.setattr(bl, '_project_folder_id_for', lambda code, fresh=False: 'FOLDER123')
-        se.post_folder_docs(row, [{'id': 'lic', 'name': '사업자등록증'}, {'id': 'P2', 'name': '최종 견적.pdf'}])
+        mp.setattr(bl, 'get_license_state', lambda code, **k: {'view_url': 'https://drive.google.com/file/d/LIC9/view'})
+        got = []
+
+        def fake_file(code, d):
+            got.append(d['id'])
+            return None if d['id'] == 'lic' else {'content': b'PDF', 'filename': d['name'], 'title': d['name']}
+        mp.setattr(se, '_folder_doc_file', fake_file)
+        se.post_folder_docs(row, picked)
+    up = se._fake.of('files_upload_v2')[-1]
+    # 실제 파일을 카드 스레드에(11-09) + 맨 위 글은 탐색기로 여는 폴더 링크, 못 받은 건 이름만
+    assert up['thread_ts'] == row['card_ts'] and [f['filename'] for f in up['file_uploads']] == ['최종 견적.pdf']
+    assert '<itgfolder://FOLDER123|탐색기에서 열기>' in up['initial_comment']
+    assert '사업자등록증 — 못 붙였어요' in up['initial_comment'] and got == ['lic', 'P2']
+    # 하나도 못 받으면 예전처럼 폴더 링크 + 이름
+    with _pt.MonkeyPatch.context() as mp:
+        mp.setattr(bl, '_project_folder_id_for', lambda code, fresh=False: 'FOLDER123')
+        mp.setattr(se, '_folder_doc_file', lambda code, d: None)
+        se.post_folder_docs(row, picked[1:])
     msg = se._fake.of('chat_postMessage')[-1]
-    # 드라이브 웹 링크가 아니라 탐색기로 여는 폴더 링크(공사확정 카드와 같은 itgfolder://) + 파일 이름
-    assert msg['thread_ts'] == row['card_ts'] and '<itgfolder://FOLDER123|탐색기에서 열기>' in msg['text']
-    assert '• 최종 견적.pdf' in msg['text'] and 'drive.google.com' not in msg['text']
+    assert '<itgfolder://FOLDER123|탐색기에서 열기>' in msg['text'] and '• 최종 견적.pdf' in msg['text']
+
+
+def test_folder_doc_file_reads_drive(monkeypatch):
+    from dashboard.blueprints import slack_eapproval as se2
+    from dashboard.services import business_license_handler as bl
+
+    class _Req:
+        def __init__(self, v): self.v = v
+        def execute(self): return self.v
+
+    class _Files:
+        def get(self, fileId, **k):
+            return _Req({'name': f'{fileId}.pdf', 'size': '10' if fileId != 'BIG' else str(60 * 1024 * 1024)})
+
+    class _Drive:
+        def files(self): return _Files()
+    monkeypatch.setattr(bl, '_get_drive', lambda: _Drive())
+    monkeypatch.setattr(bl, '_download_drive_file', lambda drive, fid: b'X' + fid.encode())
+    monkeypatch.setattr(bl, 'get_license_state', lambda code, **k: {'view_url': 'https://drive.google.com/file/d/LIC9/view'})
+    assert se2._folder_doc_file('G1', {'id': 'lic', 'name': '사업자등록증'})['content'] == b'XLIC9'
+    assert se2._folder_doc_file('G1', {'id': 'P2', 'name': 'x'})['filename'] == 'P2.pdf'
+    assert se2._folder_doc_file('G1', {'id': 'BIG', 'name': 'big'}) is None   # 50MB 넘으면 이름만
 
 
 def test_invoice_pick_shows_photo_note():

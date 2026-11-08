@@ -352,7 +352,7 @@ def folder_docs_block(docs: List[dict]) -> Optional[dict]:
     if init:
         el['initial_options'] = init
     return {'type': 'input', 'block_id': FOLDER_DOCS_BLOCK, 'optional': True, 'label': _plain('공사 폴더 서류'),
-            'element': el, 'hint': _plain('고른 파일 이름과 탐색기로 여는 공사 폴더 링크가 결재 카드 스레드에 붙어요.'
+            'element': el, 'hint': _plain('고른 파일이 결재 카드 스레드에 그대로 붙어요. 공사 폴더 링크도 같이 붙어요.'
                                           + (' 확정·최종 견적서와 사업자등록증은 미리 골라 두었어요.' if init else ''))}
 
 
