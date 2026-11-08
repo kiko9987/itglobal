@@ -487,7 +487,7 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
         else:
             _send_dm(client, aid, u, role)
     _audit(row, 'resubmit', name, _changes_text(row['form'], changed))
-    post_folder_docs(row, docs or [])   # 수정 창에서 고른 공사 폴더 서류도(11-05 점검)
+    _post_folder_docs_bg(row, docs or [])   # 수정 창에서 고른 공사 폴더 서류도(11-05 점검)
     _post_files_bg(row, files, name)
     logger.info(f'{_LOG} {ea.title(row)} 수정 후 다시 올림 ({name}): {changed}')
     return row
@@ -892,20 +892,65 @@ def folder_docs(code: str, precheck: bool = False) -> list:
     return docs
 
 
+_DOC_MAX_BYTES = 50 * 1024 * 1024   # 이보다 큰 파일은 붙이지 않고 이름만(폴더에서 열기)
+
+
+def _folder_doc_file(code: str, d: dict) -> Optional[dict]:
+    """고른 공사 폴더 서류 하나를 드라이브에서 받아 {'content','filename','title'}. 못 받으면 None."""
+    import re as _re
+    from dashboard.services import business_license_handler as bl
+    fid = d.get('id') or ''
+    if fid == ea.forms.LICENSE_DOC:   # 사업자등록증은 등록증 상태의 열람 링크에서 파일 ID 를 꺼낸다
+        m = _re.search(r'/d/([^/]+)', (bl.get_license_state(code) or {}).get('view_url') or '')
+        fid = m.group(1) if m else ''
+    if not fid:
+        return None
+    drive = bl._get_drive()
+    meta = drive.files().get(fileId=fid, fields='name,size', supportsAllDrives=True).execute()
+    if int(meta.get('size') or 0) > _DOC_MAX_BYTES:
+        return None
+    name = meta.get('name') or d.get('name') or 'file'
+    return {'content': bl._download_drive_file(drive, fid), 'filename': name, 'title': name}
+
+
 def post_folder_docs(row: dict, docs: list) -> None:
-    """고른 공사 폴더 서류를 카드 스레드에 — 탐색기로 여는 폴더 링크(itgfolder://, 공사확정 카드와 같은 방식)
-    하나 + 고른 파일 이름. 파일은 복사하지 않는다(원본 한 곳). itgfolder 는 폴더만 열 수 있어 파일별 링크는 없다."""
+    """고른 공사 폴더 서류를 카드 스레드에 실제 파일로 붙인다(11-09 — 휴대폰에서도 바로 열리게).
+    맨 위 글은 탐색기로 여는 폴더 링크(itgfolder://, 공사확정 카드와 같은 방식). 못 받은 파일은 이름만 남긴다."""
     if not docs:
         return
+    code = row.get('project_code') or ''
     folder = ''
     try:
         from dashboard.services import business_license_handler as bl
-        folder = bl._project_folder_id_for(row.get('project_code') or '') or ''
+        folder = bl._project_folder_id_for(code) or ''
     except Exception as exc:
-        logger.warning(f'{_LOG} 공사 폴더 찾기 실패 ({row.get("project_code")}): {exc}')
+        logger.warning(f'{_LOG} 공사 폴더 찾기 실패 ({code}): {exc}')
     head = f'📁 공사 폴더 서류 · <itgfolder://{folder}|탐색기에서 열기>' if folder else '📁 공사 폴더 서류'
-    names = [('사업자등록증 (사업자등록증 폴더)' if d['id'] == ea.forms.LICENSE_DOC else d['name']) for d in docs]
-    _thread_log(row, head + '\n' + '\n'.join(f'• {n}' for n in names))
+    uploads, failed = [], []
+    for d in docs:
+        label = '사업자등록증' if d['id'] == ea.forms.LICENSE_DOC else d['name']
+        try:
+            f = _folder_doc_file(code, d)
+        except Exception as exc:
+            logger.warning(f'{_LOG} 공사 폴더 서류 받기 실패 ({code} {label}): {exc}')
+            f = None
+        (uploads.append(f) if f else failed.append(label))
+    note = ('\n' + '\n'.join(f'• {n} — 못 붙였어요. 폴더에서 열어 주세요.' for n in failed)) if failed else ''
+    if uploads and row.get('card_channel') and row.get('card_ts'):
+        try:
+            eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
+                                         file_uploads=uploads, initial_comment=head + note)
+            return
+        except Exception as exc:
+            logger.warning(f'{_LOG} 공사 폴더 서류 올리기 실패 ({ea.title(row)}): {exc}')
+            failed = [u['filename'] for u in uploads] + failed
+    # 하나도 못 붙였으면 예전처럼 폴더 링크 + 파일 이름
+    _thread_log(row, head + '\n' + '\n'.join(f'• {n}' for n in failed))
+
+
+def _post_folder_docs_bg(row: dict, docs: list) -> None:
+    if docs:   # 드라이브에서 받느라 몇 초 걸릴 수 있어 창 제출을 붙잡지 않게
+        threading.Thread(target=post_folder_docs, args=(row, docs), daemon=True).start()
 
 
 def post_contract_link(row: dict) -> None:
@@ -1100,7 +1145,7 @@ def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
     row = start(row)
     if form_key == ea.forms.FORM_INSURANCE:
         post_contract_link(row)
-    post_folder_docs(row, docs)
+    _post_folder_docs_bg(row, docs)
     _post_files_bg(row, files, name)
     return row
 
