@@ -45,13 +45,10 @@
     <a class="btn btn-sm btn-success" id="crDownload" href="#">
       <i class="fas fa-file-excel me-1"></i>엑셀 내려받기</a>
   </div>
-  <div class="cr-note">수금 확인이 체크되고 수금 날짜가 기간 안에 있는 공사입니다. 엑셀에는 전체 칸이 담기고, '담당자별 합계' 시트가 함께 들어갑니다.</div>
+  <div class="cr-note">수금 확인이 체크되고 수금 날짜가 기간 안에 있는 공사입니다. 담당자 이름을 누르면 사업자별 목록과 소계가 펼쳐집니다. 엑셀에는 전체 칸과 '담당자별 합계' 시트가 들어갑니다.</div>
 
   <div class="cr-cards mt-3" id="crCards"></div>
-  <div class="cr-sec">
-    <h6>담당자 · 사업자별 합계</h6>
-    <div class="cr-scroll"><table class="cr-tbl" id="crSummary"></table></div>
-  </div>
+  <div class="mb-2"><button class="btn btn-sm btn-outline-secondary" id="crToggleAll">모두 펼치기</button></div>
   <div id="crDetail"></div>
 </div>
 {% endblock %}
@@ -64,7 +61,8 @@
   const SUMS = [['총액 1', '총액 1'], ['총액 2', '총액 2(부가세 포함)'], ['미수금', '미수금'], ['제품대', '제품대'],
                 ['도급비', '도급비'], ['자재비', '자재비'], ['기타비', '기타비'], ['순익', '순익']];
   const DETAIL = ['프로젝트 코드', '사업자', '유입 구분', '사업자명', '총액 1', '총액 2', '미수금', '수금 날짜',
-                  '계산서', '도급 구분', '시공자', '순익', '마진율', '수금 관련 특이사항'];
+                  '계산서', '도급 구분', '시공자', '제품대', '도급비', '자재비', '기타비', '순익', '마진율',
+                  '수금 관련 특이사항'];
   const MONEY = new Set(['총액 1', '총액 2', '계약금', '중도금', '잔금', '미수금', '제품대', '도급비', '자재비', '기타비', '순익']);
 
   function el(tag, attrs, text) {
@@ -92,29 +90,16 @@
       cards.appendChild(c);
     });
 
-    const sum = document.getElementById('crSummary');
-    sum.innerHTML = '';
-    const head = el('tr');
-    ['담당자', '사업자', '건수'].concat(SUMS.map(s => s[1])).forEach((h, i) =>
-      head.appendChild(el('th', i >= 2 ? { class: 'n' } : {}, h)));
-    sum.appendChild(head);
-    d.groups.forEach(g => {
-      g.groups.forEach(s => sum.appendChild(tr([[g['담당자']], [s['사업자']], [s.sum['건수'], 'n']]
-        .concat(SUMS.map(([f]) => [won(s.sum[f]), 'n'])))));
-      if (g.groups.length > 1) {
-        sum.appendChild(tr([[`${g['담당자']} 소계`], [''], [g.sum['건수'], 'n']]
-          .concat(SUMS.map(([f]) => [won(g.sum[f]), 'n'])), 'sub'));
-      }
-    });
-    sum.appendChild(tr([['전체 합계'], [''], [d.total['건수'], 'n']]
-      .concat(SUMS.map(([f]) => [won(d.total[f]), 'n'])), 'tot'));
-
     const det = document.getElementById('crDetail');
     det.innerHTML = '';
+    toggles.length = 0;
     if (!d.rows.length) {
       det.appendChild(el('div', { class: 'cr-empty' }, '이 기간에 수금 완료된 공사가 없습니다.'));
       return;
     }
+    // 합계 줄: 첫 칸에 이름, 금액 칸에 합계, 나머지는 빈칸
+    const sumRow = (label, s, cls) => tr(DETAIL.map((c, i) =>
+      i === 0 ? [label] : (MONEY.has(c) ? [won(s[c]), 'n'] : [''])), cls);
     d.groups.forEach(g => {
       const sec = el('div', { class: 'cr-sec' });
       const h = el('h6', { class: 'cr-owner' }, `▸ ${g['담당자']}`);
@@ -124,19 +109,43 @@
       const hr = el('tr');
       DETAIL.forEach(c => hr.appendChild(el('th', MONEY.has(c) ? { class: 'n' } : {}, c)));
       t.appendChild(hr);
-      g.groups.forEach(s => s.rows.forEach(r => t.appendChild(tr(DETAIL.map(c =>
-        MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], c === '수금 관련 특이사항' ? 'wrap' : ''])))));
+      g.groups.forEach(s => {
+        s.rows.forEach(r => t.appendChild(tr(DETAIL.map(c =>
+          MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], c === '수금 관련 특이사항' ? 'wrap' : '']))));
+        t.appendChild(sumRow(`${s['사업자']} 소계 · ${s.sum['건수']}건`, s.sum, 'sub'));
+      });
+      if (g.groups.length > 1) t.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
       box.appendChild(t);
-      h.addEventListener('click', () => {
-        const open = box.style.display === 'none';
+      const setOpen = open => {
         box.style.display = open ? '' : 'none';
         h.firstChild.textContent = `${open ? '▾' : '▸'} ${g['담당자']}`;
-      });
+      };
+      h.addEventListener('click', () => setOpen(box.style.display === 'none'));
+      toggles.push(setOpen);
       sec.appendChild(h);
       sec.appendChild(box);
       det.appendChild(sec);
     });
+    const tot = el('div', { class: 'cr-sec' });
+    tot.appendChild(el('h6', {}, '전체 합계'));
+    const tt = el('table', { class: 'cr-tbl' });
+    const th = el('tr');
+    ['건수'].concat(SUMS.map(s => s[1])).forEach(x => th.appendChild(el('th', { class: 'n' }, x)));
+    tt.appendChild(th);
+    tt.appendChild(tr([[`${d.total['건수']}건`, 'n']].concat(SUMS.map(([f]) => [won(d.total[f]), 'n'])), 'tot'));
+    tot.appendChild(el('div', { class: 'cr-scroll' })).appendChild(tt);
+    det.appendChild(tot);
+    allOpen = false;
+    document.getElementById('crToggleAll').textContent = '모두 펼치기';
   }
+
+  const toggles = [];
+  let allOpen = false;
+  document.getElementById('crToggleAll').addEventListener('click', e => {
+    allOpen = !allOpen;
+    toggles.forEach(f => f(allOpen));
+    e.currentTarget.textContent = allOpen ? '모두 접기' : '모두 펼치기';
+  });
 
   async function load(refresh) {
     const det = document.getElementById('crDetail');
