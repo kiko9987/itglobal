@@ -15,15 +15,18 @@
   .cr-sec { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
   .cr-sec h6 { font-weight: 700; margin: 0 0 8px; }
   .cr-tbl { width: 100%; font-size: .8rem; border-collapse: collapse; }
-  .cr-tbl th, .cr-tbl td { padding: 5px 6px; border-bottom: 1px solid #f1f3f5; white-space: nowrap; }
+  .cr-tbl th, .cr-tbl td { padding: 5px 4px; border-bottom: 1px solid #f1f3f5; white-space: nowrap; }
   .cr-tbl th { background: #f8f9fa; font-weight: 600; position: sticky; top: 0; white-space: normal; word-break: keep-all; }
   .cr-tbl td.n, .cr-tbl th.n { text-align: right; font-variant-numeric: tabular-nums; }
   .cr-tbl tr.sub td { background: #f8f9fa; font-weight: 700; }
   .cr-tbl tr.tot td { background: #e7f5ff; font-weight: 700; }
-  .cr-tbl td.wrap { white-space: normal; min-width: 90px; }
-  .cr-tbl td.wrap.memo { min-width: 140px; }
-  .cr-owner { cursor: pointer; user-select: none; }
+  .cr-tbl td.wrap { white-space: normal; min-width: 80px; }
+  .cr-tbl td.wrap.memo { min-width: 130px; }
+  .cr-tbl tr.grand td { background: #d0ebff; font-weight: 700; border-top: 2px solid #a5d8ff; }
+  .cr-tbl td.cr-owner { cursor: pointer; user-select: none; font-weight: 700; font-size: .95rem;
+                        padding: 10px 6px 6px; border-top: 2px solid #dee2e6; background: #fff; }
   .cr-owner .cnt { color: #868e96; font-weight: 400; font-size: .85rem; margin-left: 6px; }
+  .cr-tbl tbody.cr-hide { visibility: collapse; }
   .cr-scroll { overflow-x: auto; }
   .cr-empty { color: #868e96; padding: 30px; text-align: center; }
   .cr-note { color: #868e96; font-size: .8rem; margin-top: 4px; }
@@ -59,8 +62,6 @@
 (function () {
   const sel = document.getElementById('crPeriod');
   const won = n => (Number(n) || 0).toLocaleString('ko-KR');
-  const SUMS = [['총액 1', '총액 1'], ['총액 2', '총액 2(부가세 포함)'], ['미수금', '미수금'], ['제품대', '제품대'],
-                ['도급비', '도급비'], ['자재비', '자재비'], ['기타비', '기타비'], ['순익', '순익']];
   const DETAIL = ['프로젝트 코드', '사업자', '유입 구분', '사업자명', '총액 1', '총액 2', '미수금', '수금 날짜',
                   '계산서', '도급 구분', '시공자', '제품대', '도급비', '자재비', '기타비', '순익', '마진율',
                   '수금 관련 특이사항'];
@@ -108,41 +109,34 @@
       r.insertBefore(el('td', { colspan: LEAD }, label), r.firstChild);
       return r;
     };
+    // 담당자 전부를 한 표에 담아 칸 넓이를 세로로 맞춤. 접힌 목록은 visibility:collapse 라
+    // 보이지 않아도 칸 넓이 계산엔 들어가서, 펼치고 접어도 칸이 움직이지 않음.
+    const sec = el('div', { class: 'cr-sec' });
+    const box = sec.appendChild(el('div', { class: 'cr-scroll' }));
+    const t = box.appendChild(el('table', { class: 'cr-tbl' }));
+    const hr = t.appendChild(el('thead')).appendChild(el('tr'));
+    DETAIL.forEach(c => hr.appendChild(el('th', MONEY.has(c) ? { class: 'n' } : {}, c)));
     d.groups.forEach(g => {
-      const sec = el('div', { class: 'cr-sec' });
-      const h = el('h6', { class: 'cr-owner' }, `▸ ${g['담당자']}`);
-      h.appendChild(el('span', { class: 'cnt' }, `${g.sum['건수']}건 · 총액 2 ${won(g.sum['총액 2'])}원 · 순익 ${won(g.sum['순익'])}원`));
-      const box = el('div', { class: 'cr-scroll', style: 'display:none' });
-      const t = el('table', { class: 'cr-tbl' });
-      const hr = el('tr');
-      DETAIL.forEach(c => hr.appendChild(el('th', MONEY.has(c) ? { class: 'n' } : {}, c)));
-      t.appendChild(hr);
+      const head = t.appendChild(el('tbody'));
+      const ht = head.appendChild(el('tr')).appendChild(el('td', { colspan: DETAIL.length, class: 'cr-owner' }));
+      const name = ht.appendChild(el('span', {}, `▸ ${g['담당자']}`));
+      ht.appendChild(el('span', { class: 'cnt' }, `${g.sum['건수']}건 · 총액 2 ${won(g.sum['총액 2'])}원 · 순익 ${won(g.sum['순익'])}원`));
+      const body = t.appendChild(el('tbody', { class: 'cr-hide' }));
       g.groups.forEach(s => {
-        s.rows.forEach(r => t.appendChild(tr(DETAIL.map(c =>
+        s.rows.forEach(r => body.appendChild(tr(DETAIL.map(c =>
           MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], WRAP[c] || '']))));
-        t.appendChild(sumRow(`${s['사업자']} 소계 · ${s.sum['건수']}건`, s.sum, 'sub'));
+        body.appendChild(sumRow(`${s['사업자']} 소계 · ${s.sum['건수']}건`, s.sum, 'sub'));
       });
-      t.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
-      box.appendChild(t);
+      body.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
       const setOpen = open => {
-        box.style.display = open ? '' : 'none';
-        h.firstChild.textContent = `${open ? '▾' : '▸'} ${g['담당자']}`;
+        body.classList.toggle('cr-hide', !open);
+        name.textContent = `${open ? '▾' : '▸'} ${g['담당자']}`;
       };
-      h.addEventListener('click', () => setOpen(box.style.display === 'none'));
+      ht.addEventListener('click', () => setOpen(body.classList.contains('cr-hide')));
       toggles.push(setOpen);
-      sec.appendChild(h);
-      sec.appendChild(box);
-      det.appendChild(sec);
     });
-    const tot = el('div', { class: 'cr-sec' });
-    tot.appendChild(el('h6', {}, '전체 합계'));
-    const tt = el('table', { class: 'cr-tbl' });
-    const th = el('tr');
-    ['건수'].concat(SUMS.map(s => s[1])).forEach(x => th.appendChild(el('th', { class: 'n' }, x)));
-    tt.appendChild(th);
-    tt.appendChild(tr([[`${d.total['건수']}건`, 'n']].concat(SUMS.map(([f]) => [won(d.total[f]), 'n'])), 'tot'));
-    tot.appendChild(el('div', { class: 'cr-scroll' })).appendChild(tt);
-    det.appendChild(tot);
+    t.appendChild(el('tbody')).appendChild(sumRow(`전체 합계 · ${d.total['건수']}건`, d.total, 'grand'));
+    det.appendChild(sec);
     allOpen = false;
     document.getElementById('crToggleAll').textContent = '모두 펼치기';
   }
