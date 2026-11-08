@@ -1,0 +1,121 @@
+<script>
+(function () {
+  var fired = false;
+  function check() {
+    if (fired) return;
+    var modals = document.querySelectorAll('[id^="input_form_complete_modal_"]');
+    for (var i = 0; i < modals.length; i++) {
+      if (getComputedStyle(modals[i]).display !== 'none') {
+        fired = true;
+        try { window.karrotPixel && window.karrotPixel.track('Lead'); } catch (e) {}
+        try { kakaoPixel('711262848861713369').participation('Consulting'); } catch (e) {}
+        try { window.oaiq && window.oaiq('measure', 'lead_created', { type: 'customer_action' }); } catch (e) {}
+        return;
+      }
+    }
+  }
+  new MutationObserver(check).observe(document.body, {
+    attributes: true, childList: true, subtree: true,
+    attributeFilter: ['style', 'class']
+  });
+})();
+
+
+(function () {
+  try {
+    var q = new URLSearchParams(location.search);
+    function part(v) { return (v || '').replace(/[\/|\r\n]/g, '').trim().slice(0, 30); }
+
+    // gclid — 기계 토큰: 자르기/문자제거 금지(개행만 정리)
+    var gclid = (q.get('gclid') || '').replace(/[\r\n\t]/g, '').trim();
+
+    // 유입경로 — 사람이 읽는 라벨
+    var inflow = '';
+    if (q.get('utm_source') || q.get('utm_campaign') || q.get('utm_content')) {
+      inflow = [q.get('utm_source'), q.get('utm_campaign'), q.get('utm_content')].map(part).join('/');
+    } else if (q.get('n_media') || q.get('n_keyword') || q.get('n_query')) {
+      inflow = ['naver', q.get('n_keyword'), q.get('n_query'), q.get('n_ad')].map(part).join('/');
+    } else if (gclid) {
+      inflow = ['google', q.get('utm_term')].map(part).join('/');
+    }
+    inflow = inflow.replace(/\/+$/, '');
+
+    if (inflow) { try { sessionStorage.setItem('itg_inflow_v1', inflow); } catch (e) {} }
+    else { try { inflow = sessionStorage.getItem('itg_inflow_v1') || ''; } catch (e) {} }
+    if (gclid) { try { sessionStorage.setItem('itg_gclid_v1', gclid); } catch (e) {} }
+    else { try { gclid = sessionStorage.getItem('itg_gclid_v1') || ''; } catch (e) {} }
+
+    // gclid 90일 보관 — 새 광고 클릭(주소에 gclid)이면 덮어쓰고, 없으면 90일 안의 마지막 값을 씀
+    var GCLID_KEY = 'itg_gclid_90d', GCLID_TTL = 90 * 24 * 60 * 60 * 1000;
+    try {
+      if (q.get('gclid') && gclid) {
+        localStorage.setItem(GCLID_KEY, JSON.stringify({ v: gclid, t: Date.now() }));
+      } else if (!gclid) {
+        var kept = JSON.parse(localStorage.getItem(GCLID_KEY) || 'null');
+        if (kept && kept.v && Date.now() - kept.t < GCLID_TTL) gclid = String(kept.v);
+        else if (kept) localStorage.removeItem(GCLID_KEY);
+      }
+    } catch (e) {}
+
+    // 첫 유입 도메인(광고 파라미터 없는 자연검색·직접 방문 구분용) — 우리 사이트 내 이동은 무시
+    var ref = '';
+    try {
+      ref = sessionStorage.getItem('itg_ref_v1');
+      if (ref === null) {
+        var rh = document.referrer ? new URL(document.referrer).hostname : '';
+        ref = (rh && rh.indexOf('itg-aircon.com') === -1) ? rh : '';
+        sessionStorage.setItem('itg_ref_v1', ref);
+      }
+    } catch (e) { ref = ref || ''; }
+
+    // 광고 표시 없으면 폼엔 이전 사이트 도메인(없으면 direct) — 일반 검색·블로그·직접 방문 구분
+    var formInflow = inflow || (ref ? 'ref/' + part(ref) : 'direct');
+    var FIELDS = [{ label: '유입경로', val: formInflow }, { label: 'gclid', val: gclid }];
+
+    function apply() {
+      var labels = document.querySelectorAll('.form-group > label.control-label');
+      for (var i = 0; i < labels.length; i++) {
+        var txt = (labels[i].textContent || '').trim();
+        for (var f = 0; f < FIELDS.length; f++) {
+          if (txt !== FIELDS[f].label) continue;
+          var group = labels[i].parentNode;
+          group.style.display = 'none';
+          var val = FIELDS[f].val, input = group.querySelector('input[type="text"], textarea');
+          if (input && val && input.value !== val) {
+            input.value = val;
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+        }
+      }
+    }
+    apply();
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply);
+    window.addEventListener('load', apply);
+    document.addEventListener('click', apply, true);
+    document.addEventListener('submit', apply, true);
+
+    // 전화·카카오 버튼 클릭 측정 — 전화 연결·카카오 창 열림은 그대로, 기록만 비동기 전송
+    document.addEventListener('click', function (ev) {
+      try {
+        var a = ev.target && ev.target.closest
+          ? ev.target.closest('a[href^="tel:"], a[href*="pf.kakao.com"]') : null;
+        if (!a) return;
+        var isKakao = (a.getAttribute('href') || '').indexOf('pf.kakao.com') !== -1;
+        var body = JSON.stringify({
+          inflow: inflow, gclid: gclid, ref: ref,
+          page: location.pathname,
+          // 버튼 위치 식별용 고유 클래스(itg-hero-btn, btn_6… 등) 하나만
+          btn: ((a.className || '').toString().match(/(?:^|\s)(itg-[\w-]+|btn_\d[\w]*)/) || [, ''])[1],
+          mobile: /Mobi|Android|iPhone/i.test(navigator.userAgent)
+        });
+        var url = 'https://pm.itg-aircon.com/track/' + (isKakao ? 'kakao-click' : 'call-click');
+        if (!(navigator.sendBeacon && navigator.sendBeacon(url, body))) {
+          fetch(url, { method: 'POST', body: body, mode: 'no-cors', keepalive: true });
+        }
+      } catch (e) {}
+    }, true);
+  } catch (e) {}
+})();
+
+</script>

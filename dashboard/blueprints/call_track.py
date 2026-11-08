@@ -107,6 +107,106 @@ def call_click():
     return _cors(jsonify({'ok': True}))
 
 
+# ─────────────────────────────────────────────────────────────
+# 홈페이지 카카오 상담 버튼 클릭 (2026-11-08 L-04501 계기)
+# ─────────────────────────────────────────────────────────────
+# 카카오톡 문의는 채널톡을 거쳐 오는데, 카카오는 고객이 어디서 왔는지(페이지·광고)를 넘겨주지 않는다.
+# 그래서 홈페이지 카카오 버튼(pf.kakao.com 링크)을 누른 순간 유입경로를 따로 남기고, 몇 분 안에 들어온
+# 새 카카오 문의와 시각으로 짝짓는다(channeltalk._kakao_inflow). 전화 클릭과 섞이지 않게 저장소를 나눔.
+KAKAO_CLICK_INDEX = 'kakao_click:index'
+KAKAO_MATCH_BEFORE = 15 * 60   # 버튼 누르고 첫 메시지까지 — 카카오 앱 열림·채널 추가·입력 시간
+KAKAO_MATCH_AFTER = 2 * 60     # 서버·채널톡 시각 차이 여유
+
+
+@call_track_bp.route('/kakao-click', methods=['POST', 'OPTIONS'])
+def kakao_click():
+    if request.method == 'OPTIONS':
+        return _cors(jsonify({}))
+    origin = request.headers.get('Origin', '')
+    if origin and origin not in _ALLOWED_ORIGINS:
+        return _cors(jsonify({'ok': False})), 403
+    rec = parse_click_payload(request.get_data(cache=False))
+    if rec is None:
+        return _cors(jsonify({'ok': False})), 400
+
+    ip = request.remote_addr or ''
+    who = hashlib.sha256(f"{ip}|{request.headers.get('User-Agent', '')}".encode()).hexdigest()[:16]
+    now = time.time()
+    try:
+        r = get_redis_client().redis
+        if not r.set(f'kakao_click:dedup:{who}', '1', nx=True, ex=_DEDUP_TTL):
+            return _cors(jsonify({'ok': True, 'dup': True}))
+        cid = uuid.uuid4().hex[:12]
+        rec['ts'] = str(int(now))
+        key = f'kakao_click:{cid}'
+        pipe = r.pipeline()
+        pipe.hset(key, mapping=rec)
+        pipe.expire(key, _RECORD_TTL)
+        pipe.zadd(KAKAO_CLICK_INDEX, {cid: now})
+        pipe.zremrangebyscore(KAKAO_CLICK_INDEX, 0, now - _RECORD_TTL)
+        pipe.execute()
+        logger.info(f"카카오 버튼 클릭 기록: inflow={rec['inflow'] or '-'} ref={rec['ref'] or '-'} page={rec['page']}")
+    except Exception as exc:
+        logger.warning(f"카카오 버튼 클릭 기록 실패: {exc}")
+        return _cors(jsonify({'ok': False})), 503
+    return _cors(jsonify({'ok': True}))
+
+
+def kakao_click_marker(rec: dict) -> str:
+    """클릭 기록 → [유입:…] 마커 본문. 홈페이지 폼의 숨은 '유입경로' 칸과 같은 규칙
+    (광고 표시 → 그대로, 없으면 이전 사이트 ref/<도메인>, 그것도 없으면 direct)."""
+    from dashboard.services.lead_helpers import normalize_inflow
+    inflow = normalize_inflow(rec.get('inflow') or '')
+    if inflow:
+        return inflow
+    ref = re.sub(r'[/|\s]', '', str(rec.get('ref') or ''))[:30]
+    return normalize_inflow(f'ref/{ref}') if ref else 'direct'
+
+
+def claim_kakao_click(at_ts: float, claimer: str) -> dict:
+    """새 카카오 문의 시각(at_ts) 앞뒤의 홈페이지 카카오 버튼 기록을 찾아 하나를 차지한다.
+
+    반환 {'status': 'match'|'none'|'ambiguous', 'marker': str, 'cid': str, 'n': int}
+      - match: 아직 다른 문의가 안 가져간 기록이 있고, 여러 건이어도 유입이 모두 같을 때 → 가장 최근 것
+      - ambiguous: 유입이 서로 다른 기록이 겹침 → 정하지 않음(틀린 유입을 붙이느니 비움)
+      - none: 기록 없음 = 홈페이지 버튼을 거치지 않은 문의(카카오톡 검색·채널 추가 등)
+    """
+    out = {'status': 'none', 'marker': '', 'cid': '', 'n': 0}
+    try:
+        r = get_redis_client().redis
+        cands = []
+        for cid in r.zrangebyscore(KAKAO_CLICK_INDEX, at_ts - KAKAO_MATCH_BEFORE, at_ts + KAKAO_MATCH_AFTER):
+            cid = cid.decode() if isinstance(cid, bytes) else cid
+            h = {(k.decode() if isinstance(k, bytes) else k): (v.decode() if isinstance(v, bytes) else v)
+                 for k, v in (r.hgetall(f'kakao_click:{cid}') or {}).items()}
+            if h and not h.get('claim'):
+                cands.append((float(h.get('ts') or 0), cid, h))
+        out['n'] = len(cands)
+        if not cands:
+            return out
+        markers = {kakao_click_marker(h) for _, _, h in cands}
+        if len(markers) > 1:
+            out['status'] = 'ambiguous'
+            return out
+        for _, cid, h in sorted(cands, key=lambda x: x[0], reverse=True):
+            if r.hsetnx(f'kakao_click:{cid}', 'claim', claimer):
+                out.update(status='match', marker=kakao_click_marker(h), cid=cid)
+                return out
+    except Exception as exc:
+        logger.warning(f'카카오 버튼 기록 짝짓기 실패: {exc}')
+    return out
+
+
+def tag_kakao_click(cid: str, lead_no: str) -> None:
+    """짝지은 클릭 기록에 리드 번호를 남김 (나중에 버튼 → 문의 → 계약 분석용)."""
+    if not cid or not lead_no:
+        return
+    try:
+        get_redis_client().redis.hset(f'kakao_click:{cid}', 'lead', lead_no)
+    except Exception as exc:
+        logger.debug(f'카카오 버튼 기록 리드 표시 실패: {exc}')
+
+
 def load_call_clicks(since_ts: float, until_ts: float) -> list[dict]:
     """기간 내 전화 클릭 레코드 (리포트용, 읽기 전용)."""
     r = get_redis_client().redis

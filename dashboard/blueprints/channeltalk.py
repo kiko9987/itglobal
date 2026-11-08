@@ -339,8 +339,43 @@ def _attach_chat_open_button(channel: str, thread_ts: str, original_text: str,
         logger.warning(f'[ChannelTalk] 채팅 열기 버튼 추가 실패: {exc}')
 
 
+def _kakao_inflow(user_chat: dict, created_ms: int) -> dict:
+    """새 카카오톡 문의 → 홈페이지 카카오 버튼 클릭 기록과 시각으로 짝지음 (2026-11-08 L-04501 계기).
+
+    카카오는 고객이 어디서 채널을 찾았는지 넘겨주지 않아, 홈페이지 버튼을 누른 순간의 유입경로를
+    따로 남겨 두고(call_track /track/kakao-click) 여기서 맞춘다. 카카오톡이 아니면 빈 dict.
+    """
+    medium = (user_chat.get('mediumProfile') or {}).get('mediumName', '')
+    if medium != 'appKakao':
+        return {}
+    try:
+        from dashboard.blueprints.call_track import claim_kakao_click
+        at = (created_ms / 1000.0) if created_ms else time.time()
+        return claim_kakao_click(at, f"chat:{user_chat.get('id') or created_ms}")
+    except Exception as exc:
+        logger.warning(f'[ChannelTalk] 카카오 유입 짝짓기 실패: {exc}')
+        return {}
+
+
+def _kakao_inflow_lines(kakao: Optional[dict]) -> list:
+    """카드 본문에 넣을 유입 줄 (문의시간 아래)."""
+    st = (kakao or {}).get('status')
+    if st == 'match':
+        from dashboard.services.lead_helpers import format_inflow_detail
+        lines = ['유입 경로 : 홈페이지 카카오 버튼']
+        detail = format_inflow_detail(kakao.get('marker') or '')
+        if detail:
+            lines.append(f'{detail[0]} : {_slack_esc(detail[1])}')
+        return lines
+    if st == 'ambiguous':
+        return [f"유입 경로 : 확인 불가 (같은 시간대 홈페이지 카카오 버튼 기록 {kakao.get('n', 0)}건)"]
+    if st == 'none':
+        return ['유입 경로 : 홈페이지 카카오 버튼 기록 없음 (카카오톡 검색·채널 추가 등)']
+    return []
+
+
 def _new_chat_card(user_chat: dict, user: dict, first_message: str,
-                   created_ms: int, lead_no: str = '') -> dict:
+                   created_ms: int, lead_no: str = '', kakao: Optional[dict] = None) -> dict:
     """새 채팅 시작 시 표시할 카드 — 다른 인입 카드(당근/홈페이지)와 동일 양식.
 
     양식:
@@ -367,14 +402,22 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
     if first_message and len(first_message) > 2400:
         first_message = first_message[:2400] + '\n…(내용이 길어 일부만 표시 — 채널톡 thread 참조)'
 
-    from dashboard.services.lead_helpers import format_inflow_display
+    from dashboard.services.lead_helpers import format_inflow_display, format_inflow_source
+    inflow_label = format_inflow_display(medium_label)
+    if (kakao or {}).get('status') == 'match':
+        # 홈페이지 카드와 같은 표기: '온라인 (카카오톡 · 네이버)'
+        src = format_inflow_source(kakao.get('marker') or '')
+        if src:
+            inflow_label = (f'{inflow_label[:-1]} · {src})' if inflow_label.endswith(')')
+                            else f'{inflow_label} · {src}')
     lines = ['⠀']
     if lead_no:
         lines.append(f'접수번호: `{lead_no}`')
     lines.extend([
-        f'{medium_icon} *새 문의 접수 알림 - {format_inflow_display(medium_label)}*',
+        f'{medium_icon} *새 문의 접수 알림 - {inflow_label}*',
         SEP,
         f'문의시간 : {ts_str}',
+        *_kakao_inflow_lines(kakao),
         f'이름 / 상호 : {_slack_esc(customer_name)}',
         f'연락처 : -',
         f'문의 내용 : {_slack_esc(first_message)}',
@@ -389,8 +432,11 @@ def _new_chat_card(user_chat: dict, user: dict, first_message: str,
 
 
 def _register_chat_lead(user_chat: dict, user: dict, first_message: str,
-                        created_ms: int) -> str:
+                        created_ms: int, inflow_marker: str = '') -> str:
     """새 채팅 인입을 메인 시트에 1건 lead로 등록 (통계용).
+
+    inflow_marker: 홈페이지 카카오 버튼과 짝지어진 유입(예 '네이버/…') → 문의 내용 첫 줄
+      [유입:…] 마커로 영속화(홈페이지 폼 리드와 같은 방식, 카드·집계가 같은 함수로 읽음).
 
     Returns: lead_no (실패 시 빈 문자열)
     """
@@ -418,6 +464,8 @@ def _register_chat_lead(user_chat: dict, user: dict, first_message: str,
             inquiry = inquiry[:500] + '...'
         if not inquiry:
             inquiry = '-'
+        if inflow_marker:
+            inquiry = f'[유입:{inflow_marker}]\n{inquiry}'
 
         lead = {
             '리드 No': '',
@@ -599,10 +647,14 @@ def _register_pending_lead_if_any(chat_id: str) -> str:
             fake_user_chat, fake_user,
             pending.get('first_message', ''),
             pending.get('created_ms', 0),
+            inflow_marker=pending.get('inflow_marker', ''),
         )
         if lead_no_new:
             rc.delete(pending_key)
             _save_chat_lead_no(chat_id, lead_no_new)
+            if pending.get('kakao_click_id'):
+                from dashboard.blueprints.call_track import tag_kakao_click
+                tag_kakao_click(pending['kakao_click_id'], lead_no_new)
             logger.info(
                 f'[ChannelTalk] 매니저 응답 → lead 등록 (chat_id={chat_id}, lead_no={lead_no_new})'
             )
@@ -772,18 +824,29 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
         # 후속 메시지가 오면 같은 대화가 두 리드로 쪼개지는 사고 방지.
         # (예: L-03170, L-03171 새싹 399 케이스)
         existing_lead_no = _get_chat_lead_no(chat_id)
+        kakao = {}
         if existing_lead_no:
             lead_no = existing_lead_no
             logger.info(
                 f'[ChannelTalk] thread_ts 유실 감지 — 기존 lead {existing_lead_no}로 카드 재발송 '
                 f'(chat_id={chat_id}). 새 lead 등록 skip.'
             )
-        elif not is_spam_suspect:
+        else:
+            # 카카오톡 새 문의 — 홈페이지 카카오 버튼 기록과 짝지어 유입 경로 (2026-11-08)
+            kakao = _kakao_inflow({**user_chat, 'id': chat_id}, created_ms)
+            if kakao:
+                logger.info(f"[ChannelTalk] 카카오 유입 짝짓기: {kakao.get('status')} "
+                            f"marker={kakao.get('marker') or '-'} 후보={kakao.get('n', 0)} (chat_id={chat_id})")
+        if not existing_lead_no and not is_spam_suspect:
             # 일반 채팅 — 즉시 시트 등록 → lead_no 부여
             try:
-                lead_no = _register_chat_lead(user_chat, user, display_text, created_ms) or ''
+                lead_no = _register_chat_lead(user_chat, user, display_text, created_ms,
+                                              inflow_marker=kakao.get('marker', '')) or ''
                 if lead_no:
                     _save_chat_lead_no(chat_id, lead_no)
+                    if kakao.get('cid'):
+                        from dashboard.blueprints.call_track import tag_kakao_click
+                        tag_kakao_click(kakao['cid'], lead_no)
             except Exception as exc:
                 logger.warning(f'[ChannelTalk] 즉시 lead 등록 실패: {exc}')
 
@@ -801,6 +864,8 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
                         'first_message': display_text,
                         'created_ms': created_ms,
                         'is_spam_suspect': is_spam_suspect,
+                        'inflow_marker': kakao.get('marker', ''),
+                        'kakao_click_id': kakao.get('cid', ''),
                     }, ensure_ascii=False),
                     ex=60 * 60 * 24 * 30,  # 30일 — 채팅 응답 늦어도 보존
                 )
@@ -808,7 +873,7 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
                 logger.warning(f'[ChannelTalk] pending lead 저장 실패: {exc}')
 
         # 새 채팅 카드 발송 (thread root, lead_no 없음)
-        card = _new_chat_card(user_chat, user, display_text, created_ms, lead_no=lead_no)
+        card = _new_chat_card(user_chat, user, display_text, created_ms, lead_no=lead_no, kakao=kakao)
         # 스팸 의심 시 카드 텍스트 머리에 표시
         card_text = card['text']
         if is_spam_suspect:

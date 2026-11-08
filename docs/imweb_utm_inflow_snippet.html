@@ -28,6 +28,14 @@
   전화 버튼 클릭 측정: 페이지의 모든 tel: 링크(플로팅 전화상담·히어로·하단 등) 클릭 시
   유입경로·gclid·첫 유입 도메인·페이지·버튼 종류·모바일 여부를 서버로 비콘 전송
   (POST https://pm.itg-aircon.com/track/call-click → Redis, 개인정보 없음). 전화 연결은 막지 않음.
+
+  카카오 상담 버튼 클릭 측정 (2026-11-08 추가): pf.kakao.com 링크 클릭 시 같은 값을
+  POST https://pm.itg-aircon.com/track/kakao-click 로 보냄. 카카오는 고객이 어디서 왔는지 넘겨주지 않아,
+  서버가 몇 분 안에 채널톡으로 들어온 새 카카오톡 문의와 시각으로 짝지어 리드에 [유입:…] 를 붙임.
+  카카오 창 열림은 막지 않음.
+
+  ⚠️ 아임웹 실제 바디 코드 칸에는 이 스크립트 앞에 광고 픽셀(당근·카카오·ChatGPT 문의 완료 전환) 블록이
+  같이 들어 있음. 아임웹에 붙여 넣을 땐 전체본 docs/imweb_body_code_paste.html 을 통째로 쓴다.
 -->
 <script>
 (function () {
@@ -104,11 +112,13 @@
     document.addEventListener('click', apply, true);
     document.addEventListener('submit', apply, true);
 
-    // 전화 버튼 클릭 측정 — 전화 연결 동작은 그대로, 기록만 비동기 전송
+    // 전화·카카오 버튼 클릭 측정 — 전화 연결·카카오 창 열림은 그대로, 기록만 비동기 전송
     document.addEventListener('click', function (ev) {
       try {
-        var a = ev.target && ev.target.closest ? ev.target.closest('a[href^="tel:"]') : null;
+        var a = ev.target && ev.target.closest
+          ? ev.target.closest('a[href^="tel:"], a[href*="pf.kakao.com"]') : null;
         if (!a) return;
+        var isKakao = (a.getAttribute('href') || '').indexOf('pf.kakao.com') !== -1;
         var body = JSON.stringify({
           inflow: inflow, gclid: gclid, ref: ref,
           page: location.pathname,
@@ -116,7 +126,7 @@
           btn: ((a.className || '').toString().match(/(?:^|\s)(itg-[\w-]+|btn_\d[\w]*)/) || [, ''])[1],
           mobile: /Mobi|Android|iPhone/i.test(navigator.userAgent)
         });
-        var url = 'https://pm.itg-aircon.com/track/call-click';
+        var url = 'https://pm.itg-aircon.com/track/' + (isKakao ? 'kakao-click' : 'call-click');
         if (!(navigator.sendBeacon && navigator.sendBeacon(url, body))) {
           fetch(url, { method: 'POST', body: body, mode: 'no-cors', keepalive: true });
         }
