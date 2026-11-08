@@ -114,7 +114,7 @@
           MONEY.has(c) ? [won(r[c]), 'n'] : [r[c], c === '수금 관련 특이사항' ? 'wrap' : '']))));
         t.appendChild(sumRow(`${s['사업자']} 소계 · ${s.sum['건수']}건`, s.sum, 'sub'));
       });
-      if (g.groups.length > 1) t.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
+      t.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
       box.appendChild(t);
       const setOpen = open => {
         box.style.display = open ? '' : 'none';
