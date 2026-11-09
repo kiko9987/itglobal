@@ -8,6 +8,12 @@ from dashboard.services import e_approval as ea
 KIKO, SB, JW, YG, MGR = 'U04UL2ZLJAX', 'U0BHC2JV7U5', 'U051ENK8AAY', 'U050XNG5VBR', 'UMGR'
 
 
+@pytest.fixture(autouse=True)
+def _no_final_by_default(monkeypatch):
+    """예전 2단계 결재선 테스트는 최종 승인(11-09) 없이 — 최종 승인은 test_final_* 에서 켠다."""
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'false')
+
+
 def test_parse_amount_sheet_float():
     # 시트 '총액 1' 이 420000.0 으로 오면 숫자만 남겨 4200000(10배)이 되던 것(11-09 R4251-TH)
     assert ea.parse_amount(420000.0) == 420000
@@ -317,7 +323,7 @@ def se(tmp_db, monkeypatch):
     monkeypatch.setenv('SLACK_EAPPROVAL_BOT_TOKEN', 'xoxb-test')
     monkeypatch.setattr(se, 'eap_client', lambda: fake)
     monkeypatch.setattr(se, '_invoice_client', lambda: inv)
-    names = {KIKO: '고광일', SB: '황샛별', JW: '박정우', MGR: '강성환'}
+    names = {KIKO: '고광일', SB: '황샛별', JW: '박정우', YG: '박용구', MGR: '강성환'}
     monkeypatch.setattr(se, '_name', lambda uid: names.get(uid, uid))
     monkeypatch.setattr(se, '_project_rec', lambda code: {'현장 주소': '광명 양지로 21', '총액 1': '6,500,000'}
                         if code == 'G4049-JW' else None)
@@ -355,6 +361,55 @@ def test_approve_then_transfer_flow(se):
     assert f.of('pins_remove')[-1]['timestamp'] == row['card_ts']
     updated = {kw['ts'] for kw in f.of('chat_update')}
     assert row['card_ts'] in updated and all(r['ts'] in updated for r in ea.dm_refs(row))
+
+
+def test_final_flow_kiko_then_jw_or_yg(se, monkeypatch):
+    # 11-09 결재선: 요청 → ① KiKO 승인 → ② JW·YG 중 한 명 최종 승인 → ③ 경영지원 이체
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    assert se.apply_action('approve', row['id'], KIKO) is None
+    row = ea.get(row['id'])
+    assert row['status'] == ea.FINAL
+    refs = {(r['user'], r['role']) for r in ea.dm_refs(row)}
+    assert {(JW, 'final'), (YG, 'final')} <= refs and (SB, 'executor') not in refs   # 아직 이체 DM 없음
+    assert se.apply_action('transfer', row['id'], SB).startswith('이미 처리된 결재')     # 최종 승인 전 이체 불가
+    assert se.apply_action('final', row['id'], SB).startswith('최종 승인은 JW·YG만')
+    line = ea.step_line(row, ea.steps(row['id']))
+    assert '경영지원 (KiKO) 승인' in line and '⏳ JW·YG 최종 승인' in line and '⏸ 이체' in line
+    btns = [b['action_id'] for b in ea.buttons(row)]
+    assert ea.A_FINAL in btns and ea.A_REJECT in btns and ea.A_REVISE in btns and ea.A_CANCEL in btns
+    assert se.apply_action('final', row['id'], YG) is None
+    row = ea.get(row['id'])
+    assert row['status'] == ea.APPROVED and (SB, 'executor') in {(r['user'], r['role']) for r in ea.dm_refs(row)}
+    assert se.apply_action('final', row['id'], JW).startswith('이미 처리된 결재')        # 한 명만
+    assert '✅ YG 최종 승인' in ea.step_line(row, ea.steps(row['id']))
+    assert any('✅ YG 최종 승인' in kw.get('text', '') for kw in se._fake.of('chat_postMessage'))
+    assert se.apply_action('transfer', row['id'], SB) is None and ea.get(row['id'])['status'] == ea.DONE
+
+
+def test_final_reject_and_self_requests(se, monkeypatch):
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    se.apply_action('approve', row['id'], KIKO)
+    assert se.apply_action('reject', row['id'], JW, '이유가 없어요') is None
+    row = ea.get(row['id'])
+    assert row['status'] == ea.REJECTED and '❌ JW 반려' in ea.step_line(row, ea.steps(row['id']))
+    assert '처리자 : JW' in ea.card_text(row, ea.steps(row['id']), 'x')
+    # KiKO 본인 요청 → ① 자동, 최종 승인 대기
+    k = ea.create(ea.FORM_FUND, KIKO, '고광일', dict(FIELDS))
+    assert k['status'] == ea.FINAL
+    # JW 본인 요청 → ① KiKO 승인 뒤 최종 승인은 자동(본인이 이유를 앎)
+    j = ea.create(ea.FORM_FUND, JW, '박정우', dict(FIELDS))
+    assert j['status'] == ea.PENDING
+    j = ea.transition(j['id'], 'approve', KIKO, '고광일')
+    assert j['status'] == ea.APPROVED and '최종 승인 (요청자 본인)' in ea.step_line(j, ea.steps(j['id']))
+    # 업무요청형은 그대로(승인 없이 처리 대기)
+    from dashboard.services import e_approval_forms as forms
+    assert not ea.needs_final(forms.FORM_CONTRACT) and ea.needs_final(forms.FORM_EXPENSE)
+    # 최종 승인 대기 중엔 요청자도 취소 가능
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    se.apply_action('approve', m['id'], KIKO)
+    assert ea.requester_can_cancel(ea.get(m['id'])) and se.apply_action('cancel', m['id'], MGR) is None
 
 
 def test_reject_notifies_requester_and_origin(se):
