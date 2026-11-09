@@ -8,7 +8,7 @@
   .cr-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
   .cr-bar select { min-width: 230px; }
   .cr-range { display: flex; gap: 6px; align-items: center; }
-  .cr-range input { width: 140px; }
+  .cr-range input { width: 140px; cursor: pointer; }
   .cr-hint { color: #e8590c; font-size: .82rem; }
   .cr-notes { margin-top: 10px; padding: 8px 12px; background: #fff9db; border: 1px solid #ffe066;
               border-radius: 8px; font-size: .85rem; color: #5c3c00; }
@@ -113,6 +113,10 @@
   }
   inS.addEventListener('input', syncSave);
   inE.addEventListener('input', syncSave);
+  // 달력 아이콘뿐 아니라 칸 아무 데나 눌러도 달력이 열리게 (새 프로젝트 등록 창과 같음)
+  [inS, inE].forEach(inp => inp.addEventListener('click', () => {
+    try { if (!inp.disabled) inp.showPicker(); } catch (e) {}
+  }));
   async function postRange(body) {
     const res = await fetch('/api/settlement/collected/range', {
       method: 'POST', credentials: 'same-origin',
