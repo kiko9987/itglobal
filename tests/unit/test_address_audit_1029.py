@@ -165,7 +165,6 @@ def test_glue_word_to_road(raw, expected):
     ('서초구 강남대로 531 밝은눈 안과', '밝은눈 안과'),
     ('포천 가산면 마금길 151, 공장', '공장'),
     ('금천구 가산로 62 금호덴탈제약(주) 포장실', '금호덴탈제약(주) 포장실'),
-    ('평택 포승읍 평택항로 294 EPS코리아', 'EPS코리아'),
     ('안양시 동안구 시민대로 383(디지털 엠파이어 B동, 908호)', '디지털 엠파이어 B동 908호'),
     ('중구 을지로 287(을지로6가) 별관', '별관'),
 ])
@@ -217,6 +216,67 @@ def test_compose_dedup_roman_and_cha(kakao):
     r = ar.verify_address('강남구 선릉로86길 31 선릉역롯데골드로즈II차 관리사무실',
                           '강남구 선릉로86길 31')
     assert r[0] == '강남구 선릉로86길 31 선릉역 롯데골드로즈2 관리사무실'
+
+
+@pytest.mark.parametrize('addr, text, expected', [
+    # 빠졌으면 원문 단어 그대로 붙임
+    ('평택 포승읍 평택항로 294', '평택 포승읍 평택항로 294 EPS코리아', '평택 포승읍 평택항로 294 EPS코리아'),
+    # 이미 있거나 정식명에 포함 → 안 붙임
+    ('남양주 진관로387번길 47 더좋은공조시스템', '남양주 진관로387번길 47 더좋은공조시스템',
+     '남양주 진관로387번길 47 더좋은공조시스템'),
+    ('안양 일직로94번길 25 호리바코리아(주)신사옥', '안양 일직로94번길 25 호리바코리아',
+     '안양 일직로94번길 25 호리바코리아(주)신사옥'),
+    # 표기만 다른 같은 이름 → 안 붙임
+    ('인천 서운산업로 30 케이&케이베이스볼아카데미', '인천 서운산업로 30 K&K베이스볼아카데미',
+     '인천 서운산업로 30 케이&케이베이스볼아카데미'),
+    # 지번·설명·절단어·사람 이름 → 안 붙임
+    ('안성 건지안골길 7', '안성 건지안골길 7 산17-16', '안성 건지안골길 7'),
+    ('강남구 선릉로112길 13', '강남구 선릉로112길 13 단독건물(주택)', '강남구 선릉로112길 13'),
+    ('강남구 테헤란로 152', '강남구 테헤란로 152 근처', '강남구 테헤란로 152'),
+    ('강남구 테헤란로 152', '강남구 테헤란로 152 천장형시스템', '강남구 테헤란로 152'),
+    ('강남구 테헤란로 152', '강남구 테헤란로 152 김철수', '강남구 테헤란로 152'),
+])
+def test_append_missing_bare_name(addr, text, expected):
+    assert ar._append_missing_bare_name(addr, text) == expected
+
+
+def test_single_word_cut_by_stopword_not_tail():
+    # '시스템' 절단어에 잘린 조각이 tail 로 들어가면 안 됨 (ETC-9c2ec6)
+    assert ar._extract_building_tail('남양주 진관로387번길 47 더좋은공조시스템') == ''
+    # 건물 신호 없는 이름이 tail 이 되어 카카오 건물명을 막으면 안 됨 (L-04237)
+    assert ar._extract_building_tail('보석로 32 자이더테라스상가') == ''
+
+
+def test_kakao_tenant_list_building_name_skipped(kakao):
+    kakao['검단구 봉수대로 1242'] = _road_doc(
+        '인천 검단구 봉수대로 1242', bldg='(주)백석개발 인천지점, (주)백석물류')
+    r = ar.verify_address('검단구 봉수대로 1242, 2층 백석물류', '검단구 봉수대로 1242')
+    assert r[0] == '인천 검단구 봉수대로 1242 2층 백석물류'
+
+
+@pytest.mark.parametrize('name, expected', [
+    ('디에트르송도시그니처뷰아파트 경로당', True),     # L-04506
+    ('래미안아파트 작은도서관', True),
+    ('디에트르송도시그니처뷰아파트', False),
+])
+def test_poi_apartment_facility(name, expected):
+    assert ar._poi_has_facility(name) is expected
+
+
+@pytest.mark.parametrize('raw, expected', [
+    ('인천타워대로 393 상가 305동A-110호', '인천타워대로 393 상가 305동 A-110호'),
+    ('인천타워대로 393 B동 1층 101호', '인천타워대로 393 B동 1층 101호'),   # 영문 동은 그대로
+])
+def test_dong_latin_room_spacing(raw, expected):
+    assert ar._post_normalize_display(raw) == expected
+
+
+def test_kakao_complex_list_building_name_kept(kakao):
+    # 법인 표기 없는 쉼표 나열은 단지명 — 유지
+    kakao['안양 동안구 흥안대로223번길 47'] = _road_doc(
+        '경기 안양시 동안구 흥안대로223번길 47', bldg='샘마을대우,한양아파트')
+    r = ar.verify_address('안양 동안구 흥안대로223번길 47 관리사무소', '안양 동안구 흥안대로223번길 47')
+    assert '샘마을대우' in r[0]
 
 
 def test_homepage_unverified_form_address_kept(monkeypatch):

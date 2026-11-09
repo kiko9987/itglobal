@@ -293,6 +293,9 @@ def _post_normalize_display(addr: str) -> str:
     #   'N동주민센터' 등 행정동 접미는 분리 금지(base 규칙과 동일). 이미 공백이면 무변.
     addr = re.sub(r'(?<=[가-힣])(\d+동)(?!주민|사무|행정|복지|자치)', r' \1', addr)
     addr = re.sub(r'(?<=[가-힣])(\d+(?:호|층|관|호실))', r' \1', addr)
+    # 동 번호 뒤 영문 호수 붙임 분리 (2026-11-09 L-04506 '305동A-110호' → '305동 A-110호').
+    #   'B동'·'A동'(영문 동)은 앞이 숫자가 아니라 미대상.
+    addr = re.sub(r'(?<=\d동)(?=[A-Za-z]-?\d+호)', ' ', addr)
     # ' 산 (숫자)' → ' 산(숫자)'
     addr = re.sub(r' 산 (\d)', r' 산\1', addr)
     # 끝 말끝(문장 종결) 제거 (2026-09-15 L-04024): 고객이 '…폭스라이브 입니다'처럼 말끝을
@@ -990,17 +993,43 @@ def _extract_building_tail(text: str) -> str:
         if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):
             # facility_prefix가 있으면 함께 부착 (예: "회사명 + 건물명")
             return f"{tail} {facility_prefix}".strip() if facility_prefix else tail
-        # 신호 없는 한 단어 상호 (2026-10-29 '평택항로 294 EPS코리아'): 번지 바로 뒤 한 단어면
-        #   방문지 이름이라 보존. 위치 설명어('근처'·'공실' 등)는 제외.
-        if (tail and ' ' not in tail and 2 <= len(tail) <= 20
-                and re.search(r'[가-힣A-Za-z]', tail)
-                and not re.fullmatch(r'산?\d+(?:-\d+)*', tail)      # 지번('산17-16')
-                and not re.search(r'건물|주택|\(', tail)           # '단독건물(주택)' 설명
-                and tail not in _TAIL_NOISE_WORDS):
-            return f"{tail} {facility_prefix}".strip() if facility_prefix else tail
 
     # 주소 뒤 시설명 없지만 멀티라인 첫줄 회사명/시설명만 있는 경우
     return facility_prefix
+
+
+def _append_missing_bare_name(addr: str, text: str) -> str:
+    """번지 바로 뒤 한 단어 상호가 변환 결과에 없으면 맨 뒤에 붙임 (2026-11-02).
+
+    '평택항로 294 EPS코리아'처럼 건물 신호도 POI 도 없으면 이름이 통째로 빠짐. tail 로
+    넣으면 절단어에 잘린 조각이 붙고('더좋은공조시스템'→'더좋은공조', ETC-9c2ec6) 카카오
+    건물명·POI 정식명까지 막으므로('청라파크자이더테라스2단지' 유실, L-04237), 다른 처리가
+    끝난 뒤 정말 빠졌을 때만 원문 단어 그대로 붙인다.
+    """
+    first = re.sub(r'\s+', ' ', (text or '').strip().split('\n', 1)[0])
+    m = (re.search(r'[가-힣]{2,}\d*(?:로|길)(?:\s*\d+(?:번|[가나다라마바사아자차카타파하])?안?(?:로|길))?'
+                   r'\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]\s*(\S+)$', first)
+         or re.search(r'[가-힣]+(?:동(?:\s*\d+가)?|\d+가)\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]\s*(\S+)$', first))
+    if not m:
+        return addr
+    word = m.group(1).rstrip('.,')
+    if (not 2 <= len(word) <= 20
+            or not re.search(r'[가-힣A-Za-z]', word)
+            or re.fullmatch(r'산?\d+(?:-\d+)*', word)           # 지번('산17-16')
+            or re.search(r'건물|주택|\(', word)                 # '단독건물(주택)' 설명
+            or word in _TAIL_NOISE_WORDS
+            or any(sw in word for sw in _TAIL_STOP_WORDS)
+            or not _strip_personal_name(f'_ {word}').endswith(word)):  # 사람 이름
+        return addr
+    _w = word.lower()
+    _ns = re.sub(r'\s', '', addr or '').lower()
+    if _w in _ns:
+        return addr
+    # 표기만 다른 같은 이름(POI 'K&K'↔'케이&케이')이 이미 있으면 안 붙임
+    from difflib import SequenceMatcher
+    if any(SequenceMatcher(None, _w, _t.lower()).ratio() >= 0.6 for _t in (addr or '').split()):
+        return addr
+    return f'{addr} {word}'
 
 
 def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
@@ -1397,6 +1426,12 @@ def verify_address(
                 _KAKAO_BLDG_TENANT_RE.search(building_name)
                 and (building_tail or '').strip()
             )
+            # 입주 회사를 나열한 등록명('(주)백석개발 인천지점, (주)백석물류')은 건물명이 아님 —
+            #   고객 상호와 겹쳐 '… (주)백석물류 2층 백석물류'가 됨 (2026-11-02 L-04446).
+            #   쉼표 나열이라도 단지명('샘마을대우,한양아파트'·'김포공항, 롯데몰, 스카이시티')은
+            #   정상 건물명이라 유지 — 법인 표기가 있는 나열만 건너뜀.
+            if ',' in building_name and re.search(r'\(주\)|㈜|주식회사', building_name):
+                _bldg_is_tenant = True
             if (
                 building_name
                 and not _bldg_is_tenant
@@ -1995,6 +2030,9 @@ _POI_FACILITY_SUBSTR = (
     # 2026-07-30 근본 수정: 카카오 POI 가 시설 POI 를 먼저 반환하면 junk 부착됨.
     #   'ATM'(현금인출기)·'옥외'(앞_옥외 등 옥외 주차/공간).
     'atm', '옥외',
+    # 아파트 단지 공용시설 (2026-11-09 L-04506: '디에트르송도시그니처뷰아파트 경로당'이
+    #   고객 상가 주소의 건물명으로 들어감)
+    '경로당', '노인정', '작은도서관', '독서실', '피트니스', '커뮤니티', '놀이터', '주민공동',
 )
 # 접미로만 판정하는 시설어 — substr 로 넣으면 오탐(글로비스⊃로비)이라 endswith 로.
 #   '사무동로비'·'중앙로비' 등 로비/홀 부속공간 (2026-08-14 ETC-1765ea 사무동로비 오삽입).
@@ -3135,6 +3173,7 @@ def resolve_address(
         addr = _strip_redundant_legal_dong(addr)
         addr = _strip_redundant_jibun(addr)  # 도로명+지번 중복 시 구 지번 제거 (L-03627)
         addr = _enrich_building_by_road(addr)  # 민숭 주소에 건물명 부착 (L-03633)
+        addr = _append_missing_bare_name(addr, text)  # 빠진 한 단어 상호 (EPS코리아)
         # tail 부착 후 후처리 (인접 유사 단어 dedup 등, 2026-07-22 ETC-b626fb)
         addr = _post_normalize_display(addr)
         addr = _mark_planned(addr)  # 'X예정지/X예정' → 'X (예정)' (L-03600)
