@@ -632,7 +632,7 @@ def _commit_locked() -> Dict:
             _sheet_leads = _fetch_visit_leads()
         except Exception:
             _sheet_leads = None
-        list_ok, list_fail = _update_slack_list_managers(
+        list_ok, list_fail, list_missing = _update_slack_list_managers(
             assignments, phone_map, sheet_leads=_sheet_leads,
         )
 
@@ -656,6 +656,7 @@ def _commit_locked() -> Dict:
             'failed_count': len(failed),
             'list_updated': list_ok,
             'list_failed': list_fail,
+            'list_missing': list_missing,
             'dm': dm_result,
             'online_duty': online_duty,
             'off_duty': off_duty,
@@ -1034,11 +1035,14 @@ def _email_from_initial(initial: str, initial_to_name: Dict[str, str]) -> str:
 
 def _update_slack_list_managers(assignments: List[Dict],
                                   phone_map: Dict[str, List[Dict]],
-                                  sheet_leads: Optional[List[Dict]] = None) -> Tuple[int, int]:
-    """Slack List 담당자 컬럼 update. (성공, 실패) 반환.
+                                  sheet_leads: Optional[List[Dict]] = None) -> Tuple[int, int, List[Dict]]:
+    """Slack List 담당자 컬럼 update. (성공, 실패, 옵션 없는 담당자 [{lead_no, names}]) 반환.
 
     2026-07-20: 주소 fallback 추가. phone 없는 캔버스2 라인은 assignment 의 address 로
     시트 lead 주소를 substring 매칭. (인투익스·관악구자활센터·산들해 등 phone '-' 대응)
+    2026-11-09: List 담당자 칸이 바뀌면 슬랙 쪽 연결이 시트 '영업 담당자'를 List 값으로
+    덮어쓴다 → 옵션 없는 사람을 빼고 넣으면 시트에서도 지워짐(11-02 권진현·11-09 김민욱).
+    옵션 없는 사람이 섞인 리드는 List 를 건드리지 않고 돌려줘서 확정 결과·관리자 DM 에 띄운다.
     """
     import json as _json
     import urllib.request
@@ -1047,17 +1051,17 @@ def _update_slack_list_managers(assignments: List[Dict],
     token = os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
     if not list_id or not token:
         logger.warning('[ASSIGN/LIST] SLACK_VISIT_LIST_ID or token 미설정 — skip')
-        return 0, 0
+        return 0, 0, []
 
     client = _get_visit_client()
     if not client:
-        return 0, 0
+        return 0, 0, []
 
     # 옵션 매핑 실시간 조회 (10분 캐시)
     opt_map = _get_list_manager_option_map(list_id)
     if not opt_map:
         logger.warning('[ASSIGN/LIST] 옵션 매핑 조회 실패 — skip')
-        return 0, 0
+        return 0, 0, []
 
     # List 항목 조회 → lead_no → row_id 매핑
     try:
@@ -1066,7 +1070,7 @@ def _update_slack_list_managers(assignments: List[Dict],
         items = r.data.get('items', []) if hasattr(r, 'data') else r.get('items', [])
     except Exception as exc:
         logger.warning(f'[ASSIGN/LIST] items 조회 실패: {exc}')
-        return 0, 0
+        return 0, 0, []
 
     lead_to_row: Dict[str, str] = {}
     for it in items:
@@ -1105,14 +1109,28 @@ def _update_slack_list_managers(assignments: List[Dict],
         for i in (p.get('assign') or []):
             entry['inis'].add(i)
 
+    # 방금 옵션을 넣었는데 10분 캐시에 없을 수 있음 → 누락이 보이면 한 번 새로 읽음
+    if any(i not in opt_map for e in merged.values() for i in e['inis']):
+        _fresh = _load_list_manager_option_map(list_id)
+        if _fresh:
+            import time as _time
+            opt_map = _fresh
+            _LIST_OPT_CACHE['map'] = _fresh
+            _LIST_OPT_CACHE['ts'] = _time.time()
+    initial_to_name, _ = _load_initial_maps()
+
     ok = 0
     fail = 0
+    missing_out: List[Dict] = []
     for lno, entry in merged.items():
-        missing = [i for i in entry['inis'] if i not in opt_map]
+        missing = sorted(i for i in entry['inis'] if i not in opt_map)
         if missing:
             logger.warning(
-                f'[ASSIGN/LIST] {lno}: 옵션 매핑 누락 {missing} — 해당만 skip'
+                f'[ASSIGN/LIST] {lno}: 옵션 매핑 누락 {missing} — List 그대로 둠(시트 담당자 보존)'
             )
+            missing_out.append({'lead_no': lno,
+                                'names': [initial_to_name.get(i, i) for i in missing]})
+            continue
         opts = [opt_map[i] for i in entry['inis'] if i in opt_map]
         if not opts:
             continue
@@ -1138,7 +1156,7 @@ def _update_slack_list_managers(assignments: List[Dict],
         except Exception as exc:
             fail += 1
             logger.warning(f'[ASSIGN/LIST] {lno} 예외: {exc}')
-    return ok, fail
+    return ok, fail, missing_out
 
 
 def _send_dms_for_next_visit(assignments: List[Dict],

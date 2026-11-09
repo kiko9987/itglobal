@@ -173,7 +173,8 @@ def audit_after_commit(commit_result: Optional[Dict]) -> Dict:
     """일정확정 직후 점검 — 카드↔캔버스1, 캔버스1↔캔버스2(대상일), 캔버스2 매칭 실패 줄."""
     from dashboard.services import visit_assignment_sync as vas
     from dashboard.services.visit_canvas_sync import _fetch_visit_leads
-    out = {'cards': [], 'c2_missing': [], 'c2_unmatched': [], 'target': None}
+    out = {'cards': [], 'c2_missing': [], 'c2_unmatched': [], 'target': None,
+           'list_missing': list((commit_result or {}).get('list_missing') or [])}
     out['cards'] = check_cards_vs_canvas1()
     dr = vas.dry_run()
     if not dr.get('ok'):
@@ -213,9 +214,16 @@ def format_daily(items: List[Dict], now: Optional[datetime] = None) -> str:
 
 def format_commit_audit(au: Dict) -> str:
     """일정확정 결과 화면·DM 에 붙일 '확인 필요' 문단. 확인할 게 없으면 빈 문자열."""
-    if not (au.get('cards') or au.get('c2_missing') or au.get('c2_unmatched')):
+    if not (au.get('cards') or au.get('c2_missing') or au.get('c2_unmatched') or au.get('list_missing')):
         return ''
     lines = [':warning: *확인 필요*']
+    if au.get('list_missing'):
+        _names = sorted({n for x in au['list_missing'] for n in x.get('names', [])})
+        lines.append(f"*슬랙 List 담당자 칸에 {'·'.join(_names)} 선택지가 없어요* "
+                     "— 아래 방문은 List 담당자를 바꾸지 않았어요(시트·DM은 정상). "
+                     "List 담당자 칸에 선택지를 추가한 뒤 일정확정을 다시 해 주세요")
+        for x in au['list_missing']:
+            lines.append(f"• `{x['lead_no']}` — {'·'.join(x.get('names', []))}")
     if au.get('cards'):
         lines.append(f"*캔버스1에 없는 방문 카드 {len(au['cards'])}건*")
         lines += [_card_line(x) for x in au['cards']]

@@ -111,6 +111,57 @@ def test_format_commit_audit_sections():
     assert '리드를 못 찾은 줄 1건' in txt and '010- 4327-1111' in txt
 
 
+def test_format_commit_audit_list_missing():
+    txt = va.format_commit_audit({
+        'cards': [], 'c2_missing': [], 'c2_unmatched': [],
+        'list_missing': [{'lead_no': 'L-04514', 'names': ['김민욱']},
+                         {'lead_no': 'L-04508', 'names': ['김민욱']}],
+    })
+    assert '김민욱 선택지가 없어요' in txt and 'L-04514' in txt and 'L-04508' in txt
+
+
+def test_list_update_skips_lead_with_missing_option(monkeypatch):
+    """옵션 없는 사람이 섞인 리드는 List 를 안 건드림 — 슬랙 쪽 연결이 시트 담당자를 List 값으로 덮어써서 (11-09)."""
+    import dashboard.services.visit_assignment_sync as vas
+
+    class _Resp:
+        data = {'items': [
+            {'id': 'Rec1', 'fields': [{'column_id': vas._LIST_COL_LEAD, 'text': 'L-1'}]},
+            {'id': 'Rec2', 'fields': [{'column_id': vas._LIST_COL_LEAD, 'text': 'L-2'}]},
+        ]}
+
+    class _Client:
+        def api_call(self, *a, **k):
+            return _Resp()
+
+    sent = []
+
+    class _UResp:
+        def __init__(self, body): sent.append(body)
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b'{"ok": true}'
+
+    import json as _json
+    import urllib.request
+    monkeypatch.setenv('SLACK_VISIT_LIST_ID', 'F1')
+    monkeypatch.setenv('SLACK_VISIT_BOT_TOKEN', 'x')
+    monkeypatch.setattr(vas, '_get_visit_client', lambda: _Client())
+    monkeypatch.setattr(vas, '_get_list_manager_option_map', lambda lid: {'YG': 'O1', 'LSH': 'O2'})
+    monkeypatch.setattr(vas, '_load_list_manager_option_map', lambda lid: {'YG': 'O1', 'LSH': 'O2'})
+    monkeypatch.setattr(vas, '_load_initial_maps', lambda: ({'YG': '박용구', 'LSH': '이상효', 'KMW': '김민욱'}, {}))
+    monkeypatch.setattr(vas, '_load_addr_candidates', lambda: [])
+    monkeypatch.setattr(vas, '_resolve_lead_for_assignment',
+                        lambda p, pm, ac: {'리드 No': p['lead']})
+    monkeypatch.setattr(urllib.request, 'urlopen',
+                        lambda req, timeout=10: _UResp(_json.loads(req.data.decode())))
+    ok, fail, missing = vas._update_slack_list_managers(
+        [{'lead': 'L-1', 'assign': ['YG', 'LSH', 'KMW']}, {'lead': 'L-2', 'assign': ['YG']}], {}, sheet_leads=[{}])
+    assert (ok, fail) == (1, 0)
+    assert missing == [{'lead_no': 'L-1', 'names': ['김민욱']}]
+    assert [b['cells'][0]['row_id'] for b in sent] == ['Rec2']
+
+
 # ── 오후 4시 작업 ────────────────────────────────────────────────────────────
 
 def test_daily_skips_non_business_day(monkeypatch):
