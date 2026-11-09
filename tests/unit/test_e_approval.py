@@ -346,7 +346,7 @@ def test_start_posts_card_pins_and_dms(se):
 def test_approve_then_transfer_flow(se):
     row = se.process_new_submit(MGR, dict(FIELDS))
     assert se.apply_action('transfer', row['id'], SB).startswith('이미 처리된 결재')  # 승인 전 이체 불가
-    assert se.apply_action('approve', row['id'], SB) == '승인은 승인자만 할 수 있어요.'
+    assert se.apply_action('approve', row['id'], SB) == '승인은 KiKO·JW·YG만 할 수 있어요.'
     assert se.apply_action('approve', row['id'], KIKO) is None
     row = ea.get(row['id'])
     assert row['status'] == ea.APPROVED
@@ -410,6 +410,40 @@ def test_final_reject_and_self_requests(se, monkeypatch):
     m = se.process_new_submit(MGR, dict(FIELDS))
     se.apply_action('approve', m['id'], KIKO)
     assert ea.requester_can_cancel(ea.get(m['id'])) and se.apply_action('cancel', m['id'], MGR) is None
+
+
+def test_first_step_kiko_or_jw_yg(se, monkeypatch):
+    # 11-09 KiKO 휴가일 수 있어 ① 은 KiKO·JW·YG 누구나. JW·YG 가 누르면 최종 승인까지 한 번에
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    assert {(r['user'], r['role']) for r in ea.dm_refs(row)} == {(KIKO, 'approver'), (JW, 'final'), (YG, 'final')}
+    assert ea.A_APPROVE in [b['action_id'] for b in ea.buttons(row, 'final')]
+    assert '⏳ KiKO·JW·YG 승인' in ea.step_line(row, ea.steps(row['id']))
+    assert 'KiKO·JW·YG 중 한 분' in ea.dm_intro(row, 'final')
+    assert se.apply_action('approve', row['id'], JW) is None
+    row = ea.get(row['id'])
+    assert row['status'] == ea.APPROVED and (SB, 'executor') in {(r['user'], r['role']) for r in ea.dm_refs(row)}
+    line = ea.step_line(row, ea.steps(row['id']))
+    assert '✅ JW 승인' in line and '(최종 승인 겸)' in line and '경영지원 (JW)' not in line
+    assert any('✅ JW 승인 (최종 승인 겸)' in kw.get('text', '') for kw in se._fake.of('chat_postMessage'))
+    # KiKO 가 ① → JW·YG 는 새 DM 대신 처음 DM 스레드에 알림(DM 한 통만)
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    assert se.apply_action('approve', m['id'], KIKO) is None
+    m = ea.get(m['id'])
+    assert m['status'] == ea.FINAL and sum(r['user'] == JW for r in ea.dm_refs(m)) == 1
+    finals = [r for r in ea.dm_refs(m) if r['role'] == 'final']
+    assert ea.A_FINAL in [b['action_id'] for b in ea.buttons(m, 'final')]
+    pings = [kw for kw in se._fake.of('chat_postMessage') if '최종 승인 차례' in kw.get('text', '')]
+    assert {kw.get('thread_ts') for kw in pings} == {r['ts'] for r in finals}
+    # JW 본인 요청 — JW 는 ① 못 누름, YG·KiKO 는 가능(DM 도 JW 빼고)
+    j = se.process_new_submit(JW, dict(FIELDS))
+    assert JW not in {r['user'] for r in ea.dm_refs(j)}
+    assert se.apply_action('approve', j['id'], JW) == '본인이 올린 결재는 본인이 승인할 수 없어요.'
+    assert se.apply_action('approve', j['id'], YG) is None and ea.get(j['id'])['status'] == ea.APPROVED
+    # ① 단계 반려도 JW·YG 가능
+    r = se.process_new_submit(MGR, dict(FIELDS))
+    assert se.apply_action('reject', r['id'], YG, '이유 없음') is None
+    assert '❌ YG 반려' in ea.step_line(ea.get(r['id']), ea.steps(r['id']))
 
 
 def test_reject_notifies_requester_and_origin(se):
