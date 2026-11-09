@@ -698,8 +698,9 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     step = step_line(row, step_rows).replace('결재: ', '', 1)
     closed = st in (DONE, REJECTED, CANCELLED)
     tag = _tag_line(row)
-    top = [f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' and not closed else ''),
-           _key_line(row)] + ([tag] if tag else []) + [CARD_SEP]
+    gap = [] if closed else ['']   # 진행 중 카드는 금액·통장 묶음 위아래 빈 줄 — 먼저 눈에 띄게(11-09 KiKO 예시 D)
+    top = ([f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' and not closed else '')]
+           + gap + [_key_line(row)] + ([tag] if tag else []) + gap + [CARD_SEP])
     head = top + [f'현장: {project_line}']
     lines = []
     if row.get('form') in forms.FORMS:

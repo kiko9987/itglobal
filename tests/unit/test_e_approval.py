@@ -270,8 +270,9 @@ def test_card_text(tmp_db):
     # 온라인 리드 카드 모양(11-06) — 둘째 줄에 얼마·어디로, 구분선, '*항목* : 값'
     lines = t.split('\n')
     # 셋째 줄 = 사업자(통장)·프로젝트 코드 굵게(11-09 SB)
-    assert lines[1] == '>💰 *533,500원* → *(주)강원포장*'
-    assert lines[2] == '>🏦 *G · 글로벌 통장*   📍 *G4049-JW*' and lines[3] == '>' + ea.CARD_SEP
+    # 금액·통장 묶음 위아래 빈 줄(11-09 예시 D)
+    assert lines[1] == '>' and lines[2] == '>💰 *533,500원* → *(주)강원포장*'
+    assert lines[3] == '>🏦 *G · 글로벌 통장*   📍 *G4049-JW*' and lines[4] == '>' and lines[5] == '>' + ea.CARD_SEP
     assert '>*공사 총액* : 6,500,000원 (VAT 별도)' in lines and '>*분류* : 기타비 · 운반비' in lines
     assert '>*계좌* : 신한 110-511-825643 · 예금주 김강원' in lines and '>*내용* : FCU 부품' in lines
     assert all(ln.startswith('>') for ln in lines)
