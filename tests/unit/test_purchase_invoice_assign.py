@@ -315,7 +315,7 @@ def test_open_invoice_posts_skips_assigned_deposit_and_requested(sb, monkeypatch
 
 def _inv_view(meta_inv, **vals):
     from dashboard.services import e_approval as ea
-    base = {'evidence': '전자계산서', 'cost': '기타비:운반비', 'content': '', 'payee_name': '김강원',
+    base = {'evidence': '전자계산서', 'cost': '기타비:운반비', 'content': '포장재 운반', 'payee_name': '김강원',
             'bank': '신한', 'account': '110-511-825643'}
     base.update(vals)
     sel = {'evidence', 'cost', 'urgency'}
@@ -328,6 +328,8 @@ def test_new_request_with_invoice_uses_post_values_and_blocks_duplicate(sb):
     from dashboard.services import e_approval as ea
     inv = {'ch': 'CINV', 'ts': '111.1', 'parsed': pinv.parse_invoice_post(POST)}
     f = ea.read_new_request(_inv_view(inv))
+    # 계산서를 골라도 내용은 필수(11-09) — 최종 승인이 이유를 보고 판단
+    assert 'content' in ea.complete_new_request(ea.read_new_request(_inv_view(inv, content='')))
     assert ea.complete_new_request(f) == {}
     assert (f['partner'], f['amount'], f['grn'], f['origin_ts']) == ('강원포장', 533500, 'G', '111.1')
     ea.create(ea.FORM_FUND, 'U1', '박정우', f)

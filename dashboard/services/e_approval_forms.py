@@ -125,7 +125,7 @@ _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card
               *[f for g, k in GUARANTEE_KEYS.items() for f in (
                   F(f'{k}_rate', f'{g} 보증금율 (%)', 'number', placeholder='예: 10', show_if=('guarantees', g), card=False),
                   F(f'{k}_years', f'{g} 기간 (년)', 'number', placeholder='예: 2', show_if=('guarantees', g), card=False))],
-              F('memo', '비고', 'multiline', required=False, section='-'),
+              F('memo', '비고 (특이사항)', 'multiline', required=False, section='-'),
           ]))
 
 _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card=True, amount_key='total',
@@ -138,7 +138,7 @@ _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card
               F('years', '보증 기간 (년)', 'number', placeholder='예: 2', auto='@contract'),
               F('send', '전달 방법', 'select', options=['이메일', '담당자 직접 전달']),
               F('email', '이메일 주소', required=False, auto='발주처 이메일', hint='전달 방법이 이메일일 때'),
-              F('memo', '비고', 'multiline', required=False),
+              F('memo', '비고 (특이사항)', 'multiline', required=False),
           ]))
 
 _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True, amount_key='total',
@@ -155,7 +155,7 @@ _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True
                 hint='보통 원 매출의 3%. 회사·고객이 부담해 없으면 0'),
               F('total', '결제 요청 금액 (VAT 포함, 원)', 'money', hint='원 매출 + 수수료'),
               F('installment', '할부', 'select', options=INSTALLMENTS),
-              F('memo', '비고', 'multiline', required=False),
+              F('memo', '비고 (특이사항)', 'multiline', required=False),
           ]))
 
 _add(Form(FORM_CORPDOCS, '법인서류 요청', '🏢', 'task',
@@ -179,7 +179,7 @@ _add(Form(FORM_CARDEXP, '법인카드 지출결의서', '🧾', 'task',
               F('card_no', '카드번호', auto='@card', placeholder='예: 4518-****-****-1234'),
               F('start', '사용 시작일', 'date', auto='@prev_month_start'),
               F('end', '사용 종료일', 'date', auto='@prev_month_end'),
-              F('memo', '비고', 'multiline', required=False),
+              F('memo', '비고 (특이사항)', 'multiline', required=False),
           ]))
 
 _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋‍♂️', 'spend', amount_key='amount',   # 캔버스 '본인 방문' 아이콘과 같게(11-05)
@@ -212,7 +212,7 @@ _add(Form(FORM_WASTE, '폐기물 처리', '♻️', 'task', project_card=True, a
               F('amount', '받은 금액 (원)', 'money', placeholder='예: 318000', card=False),   # 카드 둘째 줄에 있음
               F('receive', '받은 방법', 'select', options=['통장 입금', '현금 수령']),
               F('buyer', '고철상', required=False, placeholder='예: ○○자원'),
-              F('memo', '비고', 'multiline', required=False),
+              F('memo', '비고 (특이사항)', 'multiline', required=False),
           ]))
 
 
