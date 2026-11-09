@@ -110,3 +110,72 @@ def test_recent_periods():
     ps = cr.recent_periods(today=date(2026, 11, 26), n=3)
     assert [p['value'] for p in ps] == ['2026-12', '2026-11', '2026-10']
     assert ps[0]['label'] == '26년 12월 (11/26~12/25)'
+
+
+# ── 달별 기간 바꾸기 (2026-11-09 SB 요청: 명절 긴 달은 기준일이 바뀜) ──
+def test_resolve_range_default_and_saved():
+    assert cr.resolve_range(2026, 10) == (date(2026, 9, 26), date(2026, 10, 25), False)
+    saved = {'2026-10': '2026-09-24|2026-10-23'}
+    assert cr.resolve_range(2026, 10, saved) == (date(2026, 9, 24), date(2026, 10, 23), True)
+    # 다음 달은 바꾼 끝날 다음 날부터 (빠지는 날 없게), 앞 달 끝은 그대로라 앞 달과는 겹침 → 안내
+    assert cr.resolve_range(2026, 11, saved) == (date(2026, 10, 24), date(2026, 11, 25), False)
+    assert cr.range_notes(2026, 11, saved) == []
+    assert any('겹칩니다' in n for n in cr.range_notes(2026, 10, saved))   # 9월(8/26~9/25)과 9/24~9/25
+    # 깨진 값은 무시
+    assert cr.resolve_range(2026, 10, {'2026-10': 'x'})[2] is False
+
+
+def test_range_notes_gap_with_next_month():
+    saved = {'2026-10': '2026-09-26|2026-10-23', '2026-11': '2026-10-26|2026-11-25'}
+    notes = cr.range_notes(2026, 10, saved)
+    assert len(notes) == 1 and '10/24~10/25' in notes[0] and '들어가지 않습니다' in notes[0]
+
+
+def test_collect_uses_saved_range_and_label():
+    recs = [_r('G1-AA', '박정우', '글로벌', '2026-10-24'), _r('G2-AA', '박정우', '글로벌', '2026-09-25')]
+    saved = {'2026-10': '2026-09-24|2026-10-23'}
+    rep = cr.collect(recs, 2026, 10, saved)
+    assert [r['프로젝트 코드'] for r in rep['rows']] == ['G2-AA']
+    assert rep['custom'] and rep['label'] == '26년 10월 (9/24~10/23) · 기간 바꿈'
+    assert (rep['default_start'], rep['default_end']) == ('2026-09-26', '2026-10-25')
+    rep11 = cr.collect(recs, 2026, 11, saved)
+    assert [r['프로젝트 코드'] for r in rep11['rows']] == ['G1-AA'] and not rep11['custom']
+    assert cr.xlsx_filename(rep) == '수금완료_26년10월(09.24-10.23).xlsx'
+
+
+def test_check_range():
+    assert cr.check_range(date(2026, 10, 2), date(2026, 10, 1))
+    assert cr.check_range(date(2026, 8, 1), date(2026, 10, 25))
+    assert cr.check_range(date(2026, 9, 24), date(2026, 10, 23)) is None
+
+
+def test_range_api_save_and_reset(monkeypatch):
+    from flask import Flask
+    from dashboard import auth
+    from dashboard.blueprints import collected_report as bp
+
+    class FakeRedis(dict):
+        def hgetall(self, k): return dict(self)
+        def hset(self, k, f, v): self[f] = v
+        def hdel(self, k, f): self.pop(f, None)
+
+    fake = FakeRedis()
+    monkeypatch.setattr(auth, '_validate_session', lambda *a, **k: None)
+    monkeypatch.setattr(bp, '_redis', lambda: fake)
+    monkeypatch.setattr(bp, '_records', lambda refresh: [_r('G1-YG', '박용구', '글로벌', '2026-10-24')])
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(bp.collected_report_bp)
+    c = app.test_client()
+    url = '/api/settlement/collected/range'
+    assert c.post(url, json={'period': '2026-10', 'start': '2026-09-24', 'end': '2026-10-23'}).get_json()['success']
+    assert fake == {'2026-10': '2026-09-24|2026-10-23'}
+    j = c.get('/api/settlement/collected?period=2026-11').get_json()
+    assert j['data']['start'] == '2026-10-24' and j['data']['total']['건수'] == 1
+    # 틀린 기간은 거절, 기본과 같으면 저장 안 함, reset 은 지움
+    r = c.post(url, json={'period': '2026-10', 'start': '2026-10-24', 'end': '2026-10-23'})
+    assert r.status_code == 400 and not r.get_json()['success']
+    assert c.post(url, json={'period': '2026-13', 'start': '2026-10-01', 'end': '2026-10-02'}).status_code == 400
+    assert c.post(url, json={'period': '2026-10', 'reset': True}).get_json()['success'] and fake == {}
+    c.post(url, json={'period': '2026-10', 'start': '2026-09-26', 'end': '2026-10-25'})
+    assert fake == {}

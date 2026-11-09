@@ -7,7 +7,11 @@
   .cr-wrap { padding: 12px 16px 60px; }
   .cr-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
   .cr-bar select { min-width: 230px; }
-  .cr-range { color: #495057; font-size: .9rem; }
+  .cr-range { display: flex; gap: 6px; align-items: center; }
+  .cr-range input { width: 140px; }
+  .cr-hint { color: #e8590c; font-size: .82rem; }
+  .cr-notes { margin-top: 10px; padding: 8px 12px; background: #fff9db; border: 1px solid #ffe066;
+              border-radius: 8px; font-size: .85rem; color: #5c3c00; }
   .cr-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
   .cr-card { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 10px 16px; min-width: 150px; }
   .cr-card .k { font-size: .8rem; color: #868e96; }
@@ -37,7 +41,7 @@
 {% endblock %}
 
 {% block page_title %}월별 수금 완료{% endblock %}
-{% block page_subtitle %}정산용 · 전월 26일 ~ 당월 25일{% endblock %}
+{% block page_subtitle %}정산용 · 기본 전월 26일 ~ 당월 25일 (달마다 바꿀 수 있음){% endblock %}
 
 {% block content %}
 <div class="cr-wrap">
@@ -46,13 +50,23 @@
     <select id="crPeriod" class="form-select form-select-sm w-auto">
       {% for p in periods %}<option value="{{ p.value }}">{{ p.label }}</option>{% endfor %}
     </select>
-    <span class="cr-range" id="crRange"></span>
+    <span class="cr-range">
+      <label for="crStart" class="fw-bold mb-0 ms-2">기간</label>
+      <input type="date" id="crStart" class="form-control form-control-sm">
+      <span>~</span>
+      <input type="date" id="crEnd" class="form-control form-control-sm">
+      <button class="btn btn-sm btn-primary d-none" id="crSaveRange">이 기간으로 저장</button>
+      <button class="btn btn-sm btn-outline-secondary d-none" id="crResetRange">기본(26~25일)으로</button>
+    </span>
+    <span class="cr-hint" id="crHint"></span>
     <button class="btn btn-sm btn-outline-secondary" id="crRefresh" title="시트에서 새로 읽기">
       <i class="fas fa-sync-alt me-1"></i>새로고침</button>
     <a class="btn btn-sm btn-success" id="crDownload" href="#">
       <i class="fas fa-file-excel me-1"></i>엑셀 내려받기</a>
   </div>
-  <div class="cr-note">수금 확인이 체크되고 수금 날짜가 기간 안에 있는 공사입니다. 담당자 이름을 누르면 사업자별 목록과 소계가 펼쳐집니다. 엑셀에는 전체 칸과 '담당자별 합계' 시트가 들어갑니다.</div>
+  <div class="cr-note">수금 확인이 체크되고 수금 날짜가 기간 안에 있는 공사입니다. 담당자 이름을 누르면 사업자별 목록과 소계가 펼쳐집니다. 엑셀에는 전체 칸과 '담당자별 합계' 시트가 들어갑니다.<br>
+    명절 등으로 기준일이 바뀐 달은 기간을 고치고 [이 기간으로 저장]을 누르세요. 다음에도 그 기간으로 열리고, 다음 달은 바꾼 끝날 다음 날부터 시작합니다.</div>
+  <div class="cr-notes d-none" id="crNotes"></div>
 
   <div class="cr-cards mt-3" id="crCards"></div>
   <div class="mb-2"><button class="btn btn-sm btn-outline-secondary" id="crToggleAll">모두 펼치기</button></div>
@@ -89,8 +103,56 @@
     return r;
   }
 
+  // 기간: 지금 적용된 값과 다르게 고치면 [이 기간으로 저장]이 나타남
+  const inS = document.getElementById('crStart'), inE = document.getElementById('crEnd');
+  const btnSave = document.getElementById('crSaveRange'), btnReset = document.getElementById('crResetRange');
+  let cur = null;
+  const md = s => { const [, m, d] = s.split('-'); return `${+m}/${+d}`; };
+  function syncSave() {
+    btnSave.classList.toggle('d-none', !cur || (inS.value === cur.start && inE.value === cur.end));
+  }
+  inS.addEventListener('input', syncSave);
+  inE.addEventListener('input', syncSave);
+  async function postRange(body) {
+    const res = await fetch('/api/settlement/collected/range', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let j = {};
+    try { j = await res.json(); } catch (e) {}
+    if (!res.ok || !j.success) throw new Error(j.error || `저장 실패 (${res.status})`);
+  }
+  btnSave.addEventListener('click', async () => {
+    if (!inS.value || !inE.value) { alert('시작일과 끝날을 모두 넣어 주세요.'); return; }
+    btnSave.disabled = true;
+    try {
+      await postRange({ period: sel.value, start: inS.value, end: inE.value });
+      await load(false);
+    } catch (e) { alert(e.message); }
+    btnSave.disabled = false;
+  });
+  btnReset.addEventListener('click', async () => {
+    if (!confirm(`${sel.options[sel.selectedIndex].text.split(' (')[0]} 기간을 기본(전월 26일 ~ 당월 25일)으로 되돌릴까요?`)) return;
+    try {
+      await postRange({ period: sel.value, reset: true });
+      await load(false);
+    } catch (e) { alert(e.message); }
+  });
+
   function render(d) {
-    document.getElementById('crRange').textContent = `${d.start} ~ ${d.end}`;
+    cur = d;
+    inS.value = d.start;
+    inE.value = d.end;
+    syncSave();
+    btnReset.classList.toggle('d-none', !d.custom);
+    const opt = sel.options[sel.selectedIndex];
+    if (opt && d.label) opt.text = d.label;
+    document.getElementById('crHint').textContent = d.custom
+      ? `기본(${md(d.default_start)}~${md(d.default_end)})에서 바꾼 기간입니다.`
+      : (d.start !== d.default_start ? `앞 달을 바꾼 끝날에 맞춰 ${md(d.start)}부터 시작합니다.` : '');
+    const notes = document.getElementById('crNotes');
+    notes.textContent = (d.notes || []).map(n => `⚠ ${n}`).join('\n');
+    notes.style.whiteSpace = 'pre-line';
+    notes.classList.toggle('d-none', !(d.notes || []).length);
     document.getElementById('crDownload').href = `/api/settlement/collected.xlsx?period=${sel.value}`;
     const cards = document.getElementById('crCards');
     cards.innerHTML = '';
