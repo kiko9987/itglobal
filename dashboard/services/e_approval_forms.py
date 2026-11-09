@@ -196,6 +196,26 @@ _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋‍♂️', 'spend', amount_
           ]))
 
 
+# 폐기물 처리(11-09 SB) — 철거한 실외기·배관 등을 고철로 넘기고 받은 돈(잡수익). #영업_관리에 '고철잡수익 /
+# 코드 / 265KG * 1,200원 = 318,000원' 처럼 글로 올리던 것. 경영지원이 잡수익으로 넣고 [처리 완료].
+FORM_WASTE = 'waste'
+_add(Form(FORM_WASTE, '폐기물 처리', '♻️', 'task', project_card=True, amount_key='amount',
+          note='철거한 실외기·배관 등을 고철로 넘기고 받은 돈을 알려 주세요. 경영지원이 잡수익으로 넣어요.',
+          fields=[
+              F('project', '현장', 'project'),
+              F('date', '처리 일자', 'date', auto='@today'),
+              F('items', '품목·수량', 'multiline', required=False,
+                placeholder='예: 실외기 410kg (2대), 실내기 204kg (12대)'),
+              F('weight', '무게 (kg)', 'number', placeholder='예: 265', card=False),
+              F('unit', '단가 (원/kg)', 'money', required=False, placeholder='예: 1200', card=False,
+                hint='kg당 값 없이 한 번에 받았으면 비워 두세요.'),
+              F('amount', '받은 금액 (원)', 'money', placeholder='예: 318000', card=False),   # 카드 둘째 줄에 있음
+              F('receive', '받은 방법', 'select', options=['통장 입금', '현금 수령']),
+              F('buyer', '고철상', required=False, placeholder='예: ○○자원'),
+              F('memo', '비고', 'multiline', required=False),
+          ]))
+
+
 TASK_FORMS = tuple(k for k, f in FORMS.items() if f.kind == 'task')
 SPEND_FORMS = tuple(k for k, f in FORMS.items() if f.kind == 'spend')
 
@@ -245,6 +265,8 @@ def prefill(form: Form, rec: Optional[dict], memory: Optional[dict] = None,
             out[f.key] = start.isoformat()
         elif f.auto == '@prev_month_end':
             out[f.key] = end.isoformat()
+        elif f.auto == '@today':
+            out[f.key] = (today or date.today()).isoformat()
         elif f.auto == '@card':
             out[f.key] = mem.get('card', '')
         elif f.auto == '@my_bank':
@@ -317,6 +339,7 @@ _ATTACH_HINTS = {
     FORM_CORPDOCS: '제출처 양식 등',
     FORM_CARDEXP: '영수증',
     FORM_EXPENSE: '영수증',
+    'waste': '계량표·고철 사진 등',
 }
 
 
@@ -531,6 +554,10 @@ def validate(form_key: str, vals: Dict) -> Dict[str, str]:
         e = cost_project_error({lb: v for v, lb in COST_CATEGORIES}.get(vals['cost'], vals['cost']), vals.get('project') or '')
         if e:
             errs['cost'] = e
+    if form_key == FORM_WASTE and vals.get('unit') and not {'weight', 'unit', 'amount'} & set(errs):
+        want = round(float(str(vals.get('weight')).replace(',', '')) * _parse_int(vals.get('unit')))
+        if abs(want - _parse_int(vals.get('amount'))) > 1:
+            errs['amount'] = f'무게×단가({want:,}원)와 받은 금액이 달라요.'
     if form_key == FORM_INSURANCE and vals.get('send') == '이메일' and not vals.get('email'):
         errs['email'] = '이메일로 받으려면 주소를 넣어 주세요.'
     if form_key == FORM_CORPDOCS and '기타' in (vals.get('docs') or []) and not vals.get('other'):
@@ -578,7 +605,7 @@ def _fmt(f: F, v) -> str:
     if f.kind == 'select' and f.key == 'grn':
         return str(v)
     if f.kind == 'number' and v not in (None, ''):   # '보증금율 (%)'·'보증 기간 (년)' — 카드엔 이름표 괄호가 빠져 단위도 빠졌다(11-06)
-        unit = re.search(r'\((%|년)\)', f.label)
+        unit = re.search(r'\((%|년|kg)\)', f.label)
         return f'{v}{unit.group(1)}' if unit else str(v)
     return str(v or '')
 
@@ -611,6 +638,9 @@ def summary(form_key: str, vals: Dict) -> str:
         return f"{vals.get('start', '')[:7]} 사용분"
     if form_key == FORM_EXPENSE:
         return (vals.get('reason') or '개인경비')[:40]
+    if form_key == FORM_WASTE:   # '고철 265kg × 1,200원' — 예전 #영업_관리 글 모양
+        w, u = str(vals.get('weight') or '').strip(), _parse_int(vals.get('unit'))
+        return '고철' + (f' {w}kg' if w else '') + (f' × {u:,}원' if u else '')
     if form_key == FORM_CONTRACT:   # 나눠 받는 금액 — '계약서 작성 요청'을 또 쓰던 것(11-06 시뮬)
         parts = [f"{nm} {_parse_int(vals.get(k)):,}원" for k, nm in
                  (('deposit', '계약금'), ('mid', '중도금'), ('balance', '잔금')) if _parse_int(vals.get(k))]

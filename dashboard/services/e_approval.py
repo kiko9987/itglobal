@@ -642,6 +642,7 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
 
 CARD_SEP = '--------------------------------------------'   # 온라인 리드 카드와 같은 구분선(11-06 KiKO)
 GRN_NAMES = {'G': '글로벌 통장', 'R': '글로벌그룹 통장', 'N': 'N통장'}
+GRN_BIZ = {'G': '글로벌', 'R': '글로벌그룹', 'N': '사업자 없음'}
 _KV = re.compile(r'^([^:<>*\n]{1,16}): (.*)$', re.S)
 
 
@@ -655,10 +656,9 @@ def _key_line(row: dict) -> str:
     """카드 둘째 줄 — 무엇이, 얼마가, 어디로(이체 담당이 제일 먼저 볼 것)."""
     form = row.get('form')
     amt = int(row.get('amount') or 0)
-    money = f'*{amt:,}원*' if amt else ''
-    if form == FORM_FUND:
-        grn = GRN_NAMES.get(str(row.get('grn') or '')[:1].upper(), row.get('grn') or '-')
-        return f"{money} → *{row.get('partner') or '-'}* ({grn})"
+    money = f'💰 *{amt:,}원*' if amt else ''
+    if form == FORM_FUND:   # 통장은 셋째 줄(_tag_line)로 — 금액·거래처만 크게(11-09 SB)
+        return f"{money} → *{row.get('partner') or '-'}*"
     if form == FORM_SUPPLY:
         qty = int(extra(row).get('qty') or 0)
         return f"{money} · {row.get('content') or '-'}" + (f' × {qty}개' if qty else '')
@@ -666,6 +666,21 @@ def _key_line(row: dict) -> str:
         return f"{money} → {row.get('requester_name') or '-'} 본인 계좌 (경영지원 DM에서 확인)"
     what = forms.summary(form, extra(row).get('f') or {}) if form in forms.FORMS else (row.get('content') or '')
     return ' · '.join(x for x in (money, what) if x) or '-'
+
+
+def _tag_line(row: dict) -> str:
+    """카드 셋째 줄 — 사업자(통장)·프로젝트 코드를 굵게(11-09 SB: 이체할 때 이 둘을 계속 찾아 봐야 했다).
+    둘 다 없으면 ''."""
+    from dashboard.services.purchase_invoice_assign import NO_SITE_CODE
+    g = str(row.get('grn') or '')[:1].upper()
+    parts = []
+    if g in GRN_NAMES:   # 자금집행은 돈이 나가는 통장, 나머지 양식은 사업자 이름
+        name = GRN_NAMES[g] if row.get('form') == FORM_FUND else GRN_BIZ[g]
+        parts.append(f'🏦 *{g} · {name}*')
+    code = (row.get('project_code') or '').strip()
+    if code and code != NO_SITE_CODE:
+        parts.append(f'📍 *{code}*')
+    return '   '.join(parts)
 
 
 def _short_cost(row: dict) -> str:
@@ -682,8 +697,10 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     content = (row.get('content') or '').strip()
     step = step_line(row, step_rows).replace('결재: ', '', 1)
     closed = st in (DONE, REJECTED, CANCELLED)
-    head = [f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' and not closed else ''),
-            _key_line(row), CARD_SEP, f'현장: {project_line}']
+    tag = _tag_line(row)
+    top = [f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' and not closed else ''),
+           _key_line(row)] + ([tag] if tag else []) + [CARD_SEP]
+    head = top + [f'현장: {project_line}']
     lines = []
     if row.get('form') in forms.FORMS:
         lines += forms.card_lines(row['form'], extra(row).get('f') or {})
@@ -717,7 +734,7 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     rv = last_revise(step_rows) if st == REVISE else None
     if rv:
         foot.append(f"✏️ {executor_label(rv['actor_name'])} 수정 요청 {_fmt_when(rv['at'])} — {rv.get('reason') or '-'}")
-    body = head[:3] + [_kv(ln) for ln in head[3:] + lines + foot]
+    body = top + [_kv(ln) for ln in head[len(top):] + lines + foot]
     if closed:
         return _greyed(row, step_rows, emoji, label, body)
     return '\n'.join(f'>{ln}' for ln in '\n'.join(body).split('\n'))
@@ -731,7 +748,8 @@ def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List
     if last:
         mine = last['result'] == 'cancelled' and last.get('actor_name') == row.get('requester_name')
         who = initial(last['actor_name']) if mine else executor_label(last['actor_name'])   # 요청자 본인 취소만 이니셜
-    hdr = [f"{emoji} *{title(row)} · {label}*"]
+    # 긴급이었던 건은 끝난 뒤에도 표시(11-09 SB)
+    hdr = [f"{emoji} *{title(row)} · {label}*" + (' · 🚨 긴급' if row.get('urgency') == '긴급' else '')]
     if last:
         hdr += [f'처리자 : {who}', f"처리 시간 : {_fmt_when(last['at'])}"]
         if last['result'] in ('rejected', 'cancelled') and last.get('reason'):

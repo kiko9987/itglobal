@@ -269,7 +269,9 @@ def test_card_text(tmp_db):
     assert f'자금집행 #{row["id"]}' in t and '승인 대기' in t and '긴급' in t
     # 온라인 리드 카드 모양(11-06) — 둘째 줄에 얼마·어디로, 구분선, '*항목* : 값'
     lines = t.split('\n')
-    assert lines[1] == '>*533,500원* → *(주)강원포장* (글로벌 통장)' and lines[2] == '>' + ea.CARD_SEP
+    # 셋째 줄 = 사업자(통장)·프로젝트 코드 굵게(11-09 SB)
+    assert lines[1] == '>💰 *533,500원* → *(주)강원포장*'
+    assert lines[2] == '>🏦 *G · 글로벌 통장*   📍 *G4049-JW*' and lines[3] == '>' + ea.CARD_SEP
     assert '>*공사 총액* : 6,500,000원 (VAT 별도)' in lines and '>*분류* : 기타비 · 운반비' in lines
     assert '>*계좌* : 신한 110-511-825643 · 예금주 김강원' in lines and '>*내용* : FCU 부품' in lines
     assert all(ln.startswith('>') for ln in lines)
@@ -277,9 +279,10 @@ def test_card_text(tmp_db):
     done = ea.transition(done['id'], 'transfer', SB, '황샛별')
     d = ea.card_text(done, ea.steps(done['id']), 'G4049-JW · 광명 양지로 21', 6500000)
     # 끝나면 온라인 리드 '상담 완료'처럼 — 처리 결과 줄 + 원래 내용은 회색 코드 박스(11-06 KiKO)
-    assert d.startswith(f'🟢 *자금집행 #{row["id"]} · 이체 완료*\n처리자 : 경영지원 (SB)\n처리 시간 :')
+    # 긴급이었던 건은 끝난 뒤에도 표시(11-09 SB)
+    assert d.startswith(f'🟢 *자금집행 #{row["id"]} · 이체 완료* · 🚨 긴급\n처리자 : 경영지원 (SB)\n처리 시간 :')
     assert d.count('```') == 2 and '533,500원 → (주)강원포장' in d and '*' not in d.split('```')[1]
-    assert '긴급' not in d
+    assert 'G · 글로벌 통장' in d.split('```')[1]
 
 
 # ── 슬랙 흐름 (가짜 클라이언트) ─────────────────────────────────────
@@ -1159,7 +1162,24 @@ def test_project_card_select_options():
     finally:
         se_mod.is_configured = orig
     assert el['type'] == 'static_select' and el['action_id'] == ea.A_PROJECT_FORM_PICK
-    assert [o['value'] for o in el['options']] == ['contract|G4049-JW', 'insurance|G4049-JW', 'cardpay|G4049-JW']
+    assert [o['value'] for o in el['options']] == ['contract|G4049-JW', 'insurance|G4049-JW', 'cardpay|G4049-JW',
+                                                   'waste|G4049-JW']
+
+
+def test_waste_form():
+    from dashboard.services import e_approval_forms as forms
+    W = forms.FORM_WASTE
+    assert W in forms.TASK_FORMS and forms.prefill(forms.FORMS[W], None)['date']   # 처리 일자 = 오늘
+    ok = {'project': 'G4246-TH', 'date': '2026-11-09', 'weight': '265', 'unit': '1200', 'amount': '318000',
+          'receive': '통장 입금'}
+    assert forms.validate(W, ok) == {}
+    assert '318,000원' in forms.validate(W, dict(ok, amount='300000'))['amount']   # 무게×단가와 다름
+    assert forms.validate(W, dict(ok, unit='', amount='150000')) == {}             # 한 번에 받은 건 단가 없이
+    assert forms.summary(W, ok) == '고철 265kg × 1,200원' and forms.amount_of(W, ok) == 318000
+    row = {'id': 7, 'form': W, 'status': ea.APPROVED, 'amount': 318000, 'grn': 'G', 'project_code': 'G4246-TH',
+           'requester_name': '강태호', 'created_at': '2026-11-09 10:00:00', 'extra': json.dumps({'f': ok})}
+    t = ea.card_text(row, [], 'G4246-TH · 현장')
+    assert '💰 *318,000원* · 고철 265kg × 1,200원' in t and '📍 *G4246-TH*' in t and '*받은 방법* : 통장 입금' in t
 
 
 def test_partner_options_grouped_and_sorted(tmp_db, monkeypatch):
