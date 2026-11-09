@@ -17414,7 +17414,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             f"🏢 사업자명 : {biz}",
             f"📍 현장 주소 : {addr}",
             f"💲 금액 : {amt_display}",
-            *([f"      ↳ 요청은 {vat_converted[0]:,}원(VAT 포함) — 공급가로 딱 나누어떨어져 VAT 별도로 바꿈"]
+            *([f"      ↳ 원 요청 금액: {vat_converted[0]:,}원(VAT 포함) → VAT 별도로 전환"]
               if vat_converted else []),
             f"✉️ 이메일 : {email}",
         ]
