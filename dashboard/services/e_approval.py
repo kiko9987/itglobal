@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import threading
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -268,6 +269,27 @@ def link_origin(aid: int, channel: str, ts: str) -> None:
         _ensure_tables(conn)
         conn.execute('UPDATE approvals SET origin_channel=?, origin_ts=?, updated_at=? WHERE id=? AND origin_ts IS NULL',
                      (channel, ts, _now(), aid))
+        conn.commit()
+
+
+_EXTRA_LOCK = threading.Lock()
+
+
+def add_extra_files(aid: int, files: List[dict]) -> None:
+    """창에서 올린 첨부 [{name, url}] 를 extra['files'] 에 쌓는다 — 이체 완료 때 수기계산서 드라이브 저장용(11-09).
+    첨부·계산서 사진을 올리는 스레드가 동시에 돌 수 있어 잠금."""
+    if not files:
+        return
+    with _EXTRA_LOCK, _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = conn.execute('SELECT extra FROM approvals WHERE id=?', (aid,)).fetchone()
+        if not r:
+            return
+        x = json.loads((r[0] if not hasattr(r, 'keys') else r['extra']) or '{}')
+        have = {f.get('url') for f in x.get('files') or []}
+        x['files'] = (x.get('files') or []) + [{'name': f.get('name') or 'file', 'url': f.get('url') or ''}
+                                               for f in files if f.get('url') and f.get('url') not in have]
+        conn.execute('UPDATE approvals SET extra=? WHERE id=?', (json.dumps(x, ensure_ascii=False), aid))
         conn.commit()
 
 

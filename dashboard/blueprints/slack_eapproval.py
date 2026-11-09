@@ -19,9 +19,10 @@ import logging
 import os
 import re
 import threading
-from typing import Optional
+from typing import List, Optional
 
 from dashboard.services import e_approval as ea
+from dashboard.services import handwritten_invoice as hw
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +265,8 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
         _thread_log(new, f'💸 {ex} 이체 완료 — {new.get("partner")} {amt}')
         _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
         _origin_log(new, f'💸 {t} 이체 완료 ({ex})')
+        if (new.get('evidence') or '') == hw.EVIDENCE:
+            threading.Thread(target=save_handwritten, args=(new,), daemon=True).start()
     elif action == 'reject':
         _thread_log(new, f'❌ {who} 반려 — {reason}')
         _notify(client, new.get('requester_id'), f'❌ {t} 반려됐어요. 사유: {reason}')
@@ -322,13 +325,18 @@ def post_files(row: dict, files: list, who: str, label: str = '') -> int:
     """첨부를 카드 스레드에 올린다. 올린 개수. 못 올린 게 있으면 스레드에 '직접 올려 달라' 안내."""
     if not files or not (row.get('card_channel') and row.get('card_ts')):
         return 0
-    uploads, failed = [], []
+    uploads, failed, ok_refs = [], [], []
     for f in files:
         data = _download(f.get('url', ''))
         if data:
             uploads.append({'content': data, 'filename': f.get('name') or 'file', 'title': f.get('name') or 'file'})
+            ok_refs.append(f)
         else:
             failed.append(f.get('name') or 'file')
+    try:   # 이체 완료 때 수기계산서를 드라이브에 넣으려고 원본 위치를 기억(11-09)
+        ea.add_extra_files(row['id'], ok_refs)
+    except Exception as exc:
+        logger.warning(f'{_LOG} 첨부 위치 기억 실패 ({ea.title(row)}): {exc}')
     if uploads:
         try:
             eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
@@ -342,6 +350,38 @@ def post_files(row: dict, files: list, who: str, label: str = '') -> int:
         _notify(eap_client(), row.get('requester_id'),
                 f"⚠️ {ea.title(row)} 첨부 {len(failed)}개를 카드에 붙이지 못했어요. 카드 스레드에 직접 올려 주세요.")
     return len(uploads)
+
+
+def save_handwritten(row: dict) -> List[str]:
+    """수기계산서 자금집행 이체 완료 → 계산서 사진을 ★운반비 수기세금계산서\\{연도}년 에(기존 이름 규칙).
+    사진 = 창에서 올린 첨부 + #영업_관리 계산서 글 사진. 결과는 카드 스레드에 한 줄."""
+    try:
+        refs = list(ea.extra(row).get('files') or [])
+        seen = {f.get('url') for f in refs}
+        refs += [f for f in invoice_post_files(row.get('origin_channel') or '', row.get('origin_ts') or '')
+                 if f.get('url') not in seen]
+        files = []
+        for f in refs:
+            data = _download(f.get('url', ''))
+            if data:
+                files.append({'name': f.get('name') or 'file', 'content': data})
+        md = ''
+        if row.get('origin_ts'):
+            from dashboard.services import purchase_invoice_assign as pinv
+            md = (pinv.get_assignment(row['origin_channel'], row['origin_ts']) or {}).get('date_md') or ''
+        d = hw.invoice_date(md, hw.base_date_of(row))
+        saved = hw.save(row.get('grn') or '', d, row.get('partner') or '', files)
+    except Exception as exc:
+        logger.error(f'{_LOG} 수기계산서 드라이브 저장 실패 ({ea.title(row)}): {exc}', exc_info=True,
+                     extra={'force_alert': True})
+        _thread_log(row, '⚠️ 수기계산서를 드라이브에 넣지 못했어요. ★운반비 수기세금계산서 폴더에 직접 넣어 주세요.')
+        return []
+    if saved:
+        _thread_log(row, f"🗂 수기계산서 드라이브 저장 — ★운반비 수기세금계산서 › {d.year}년 › {', '.join(saved)}\n"
+                         '엑셀 장부(수기세금계산서.xlsx)는 직접 적어 주세요.')
+    elif (row.get('grn') or '')[:1].upper() in ('G', 'R'):
+        _thread_log(row, '⚠️ 수기계산서 사진을 찾지 못해 드라이브에 넣지 못했어요. 이 스레드에 사진을 올리고 폴더에 직접 넣어 주세요.')
+    return saved
 
 
 def _post_files_bg(row: dict, files: list, who: str) -> None:
