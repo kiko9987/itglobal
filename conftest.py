@@ -21,6 +21,37 @@ os.environ['FLASK_ENV'] = 'testing'
 os.environ['REDIS_DB'] = os.environ.get('REDIS_TEST_DB', '15')
 # 테스트 중 외부 발신 차단 (에러 슬랙 알림 등)
 os.environ.setdefault('ERROR_SLACK_ALERTS_ENABLED', '0')
+
+
+# Redis 접속 정보만 .env 에서 — 2026-10-29 Redis 에 비밀번호를 건 뒤로 테스트(.env 안 읽음)가 비밀번호
+#   없이 붙어 'Authentication required' 로 깨지고 연결 재시도에 60초씩 묶였음(2026-11-09 발견).
+#   주소·포트·비밀번호 세 값만 읽음(슬랙 토큰 등 다른 값은 안 읽어 테스트가 밖으로 못 나감). DB 는 위 15 고정.
+#   워크트리엔 .env 가 없어 본 저장소(git 공용 폴더의 부모)의 .env 를 찾음.
+def _load_redis_conn_env():
+    keys = ('REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD')
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = [os.path.join(here, '.env')]
+    try:
+        import subprocess
+        common = subprocess.run(['git', 'rev-parse', '--git-common-dir'], cwd=here,
+                                capture_output=True, text=True, timeout=5).stdout.strip()
+        if common:
+            cands.append(os.path.join(os.path.dirname(os.path.abspath(os.path.join(here, common))), '.env'))
+    except Exception:
+        pass
+    for path in cands:
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding='utf-8') as fh:
+            for line in fh:
+                k, sep, v = line.strip().partition('=')
+                k = k.strip()
+                if sep and k in keys and not os.environ.get(k):
+                    os.environ[k] = v.split(' #')[0].strip().strip('"').strip("'")
+        return
+
+
+_load_redis_conn_env()
 # 테스트 로그는 임시 폴더로 — 운영 로그(dashboard/logs)에 가짜 발송·장애 기록이 섞여
 #   진단을 오도하던 문제 방지 (2026-09-15·10-06: 테스트 기록을 실제 race/Redis 순단으로 오판).
 import tempfile as _tempfile
