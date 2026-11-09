@@ -80,6 +80,19 @@ _POST_RE = re.compile(
 _TAIL_RE = re.compile(r'\s*(?:회신|확인)\s*(?:바랍니다|부탁드립니다|부탁드려요|요청드립니다|해\s*주세요)?\.?\s*$')
 
 
+_CODE_IN_POST_RE = re.compile(r'(?<![A-Za-z0-9])([GRNP]\d{3,5}-[A-Za-z]{1,4})(?![A-Za-z0-9])', re.I)
+
+
+def split_code(partner: str) -> tuple:
+    """'서울크레인 G4160-JW' → ('서울크레인', 'G4160-JW'). 글에 공사 코드를 같이 쓰면 거래처 이름에 섞여
+    들어갔다(11-09 #6). 코드가 없으면 (그대로, '')."""
+    m = _CODE_IN_POST_RE.search(partner or '')
+    if not m:
+        return (partner or ''), ''
+    rest = (partner[:m.start()] + ' ' + partner[m.end():])
+    return re.sub(r'\s{2,}', ' ', rest).strip(' ·,/-'), m.group(1).upper()
+
+
 def parse_invoice_post(text: str) -> Optional[Dict]:
     """첫 줄에서 날짜·G/R/N·금액·거래처를 읽는다. 양식이 아니면 None.
 
@@ -96,12 +109,16 @@ def parse_invoice_post(text: str) -> Optional[Dict]:
         amount = int(amount_s.replace(',', ''))
     except ValueError:
         return None
-    return {
+    partner, code = split_code(rest)
+    out = {
         'date_md': f'{int(month):02d}/{int(day):02d}',
         'grn': grn.upper(),
         'amount': amount,
-        'partner': rest[:60],
+        'partner': partner[:60],
     }
+    if code:   # 글에 적힌 공사 코드 — 현장 지정 창에서 미리 고르고, 다르게 고르면 알림(11-09)
+        out['code'] = code
+    return out
 
 
 def post_summary(parsed: Dict) -> str:
@@ -277,14 +294,22 @@ def set_reply_ts(row_id: int, reply_ts: str) -> None:
 # ── 슬랙 블록 ─────────────────────────────────────────────────────────
 def button_value(channel: str, msg_ts: str, parsed: Dict) -> str:
     """버튼 value — 원 글 위치 + 읽은 값(계산서봇은 원 글을 다시 읽지 않아도 되게)."""
-    return json.dumps({'ch': channel, 'ts': msg_ts, 'd': parsed.get('date_md', ''),
-                       'g': parsed.get('grn', ''), 'a': int(parsed.get('amount') or 0),
-                       'p': parsed.get('partner', '')}, ensure_ascii=False)
+    d = {'ch': channel, 'ts': msg_ts, 'd': parsed.get('date_md', ''),
+         'g': parsed.get('grn', ''), 'a': int(parsed.get('amount') or 0),
+         'p': parsed.get('partner', '')}
+    if parsed.get('code'):
+        d['c'] = parsed['code']
+    return json.dumps(d, ensure_ascii=False)
 
 
 def parsed_from_value(v: Dict) -> Dict:
-    return {'date_md': v.get('d', ''), 'grn': v.get('g', ''),
-            'amount': int(v.get('a') or 0), 'partner': v.get('p', '')}
+    # 예전 버튼은 'c' 가 없고 거래처에 코드가 섞여 있다 — 여기서 떼어 낸다
+    partner, code = split_code(v.get('p', ''))
+    out = {'date_md': v.get('d', ''), 'grn': v.get('g', ''),
+           'amount': int(v.get('a') or 0), 'partner': partner}
+    if v.get('c') or code:
+        out['code'] = v.get('c') or code
+    return out
 
 
 def parsed_from_row(row: Dict) -> Dict:
@@ -382,6 +407,9 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
         'private_metadata': json.dumps(meta),
         'blocks': [
             {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{post_summary(parsed)}*'}},
+            *([{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                f"📝 계산서 글에 적힌 현장: *{parsed['code']}* — 다른 현장을 고르면 한 번 더 확인해요."}]}]
+              if parsed.get('code') else []),
             {'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '현장'},
              'element': proj_el},
             {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
