@@ -45,6 +45,9 @@ def _patch(monkeypatch):
     import dashboard.blueprints.slack_helpers as sh
     monkeypatch.setattr(sh, 'safe_slack_call', lambda fn, **kw: fn(**kw))
     monkeypatch.setattr(ps, '_fetch_row_notes', lambda sid, sn, row: list(_NOTES))
+    # 카드 표기용 프로젝트 캐시(거래처명·부담자)는 Redis 테스트 DB 에 다른 테스트가 남긴 값이 몇 분 남아
+    #   카드 줄이 달라질 수 있음 → 빈 행으로 고정 (2026-11-09 전체 실행에서만 간헐 실패)
+    monkeypatch.setattr(ps, '_project_cache_row', lambda project: {})
 
 
 def test_clean_correction_updates_and_snapshots():
