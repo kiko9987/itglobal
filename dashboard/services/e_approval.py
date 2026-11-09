@@ -889,6 +889,12 @@ def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List
         hdr += [f'처리자 : {who}', f"처리 시간 : {_fmt_when(last['at'])}"]
         if last['result'] in ('rejected', 'cancelled') and last.get('reason'):
             hdr.append(f"{'반려' if last['result'] == 'rejected' else '취소'} 사유 : {last['reason']}")
+    # 박스 첫 줄 제목은 위 굵은 제목과 겹친다(11-10 KiKO) — 제목과 그 밑 빈 줄은 빼고 금액 줄부터
+    body = list(body)
+    if body and title(row) in body[0]:
+        body.pop(0)
+    while body and not body[0].strip(' ⠀'):
+        body.pop(0)
     # 굵은 글씨 표시만 지운다 — '*'를 다 지우면 법인카드 '4518-****-****-1234'가 '4518---1234'로 깨졌다(11-06 시뮬)
     lines = [re.sub(r'^\*([^*\n]+)\* : ', r'\1 : ', ln) for ln in body]
     lines = [re.sub(r'(?<![*\w])\*([^*\s][^*\n]*?)\*(?![*\w])', r'\1', ln) for ln in lines]
