@@ -614,13 +614,13 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
             return f"결재: ✅ {executor_label(t['actor_name'])} 처리 {_fmt_when(t['at'])}"
         return '결재: ⏳ 경영지원 처리' if st == APPROVED else '결재: ⏸ 경영지원 처리'
     a = by.get('approve')
-    ap = initial(approver_name)
+    ap = executor_label(approver_name)   # ① 도 '경영지원 (KiKO)' — ② '경영지원 (SB)'와 같은 모양(11-09 KiKO)
     if a and a['result'] == 'auto':
         first = '✅ 승인 (요청자가 승인자)'
     elif a and a['result'] == 'approved':
-        first = f"✅ {initial(a['actor_name'])} 승인 {_fmt_when(a['at'])}"
+        first = f"✅ {executor_label(a['actor_name'])} 승인 {_fmt_when(a['at'])}"
     elif a and a['result'] == 'rejected':
-        first = f"❌ {initial(a['actor_name'])} 반려 {_fmt_when(a['at'])}"
+        first = f"❌ {executor_label(a['actor_name'])} 반려 {_fmt_when(a['at'])}"
     else:
         first = f'⏳ {ap} 승인' if st == PENDING else f'⏸ {ap} 승인'
     w = step2_word(row)
@@ -710,7 +710,7 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
             f'결재: {step}']
     rv = last_revise(step_rows) if st == REVISE else None
     if rv:
-        foot.append(f"✏️ 수정 요청 ({initial(rv['actor_name'])} {_fmt_when(rv['at'])}): {rv.get('reason') or '-'}")
+        foot.append(f"✏️ {executor_label(rv['actor_name'])} 수정 요청 {_fmt_when(rv['at'])} — {rv.get('reason') or '-'}")
     body = head[:3] + [_kv(ln) for ln in head[3:] + lines + foot]
     if closed:
         return _greyed(row, step_rows, emoji, label, body)
@@ -723,7 +723,8 @@ def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List
                  and s['result'] in ('done', 'rejected', 'cancelled')), None)
     who = ''
     if last:
-        who = executor_label(last['actor_name']) if last['step'] == 'transfer' else initial(last['actor_name'])
+        mine = last['result'] == 'cancelled' and last.get('actor_name') == row.get('requester_name')
+        who = initial(last['actor_name']) if mine else executor_label(last['actor_name'])   # 요청자 본인 취소만 이니셜
     hdr = [f"{emoji} *{title(row)} · {label}*"]
     if last:
         hdr += [f'처리자 : {who}', f"처리 시간 : {_fmt_when(last['at'])}"]
