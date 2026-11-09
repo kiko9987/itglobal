@@ -238,8 +238,10 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     amt = f"{int(new.get('amount') or 0):,}원"
     t = ea.title(new)
     ini, ex = ea.initial(name), ea.executor_label(name)   # 화면엔 이니셜, ② 는 '경영지원 (SB)'
+    # 승인·반려·수정 요청·취소도 경영지원 명단이 누르면 '경영지원 (KiKO)'로 — 이체 완료 줄과 같은 모양(11-09 KiKO)
+    who = ex if (uid in ea.approver_ids() or uid in ea.executor_ids()) else ini
     if action == 'approve':
-        _thread_log(new, f'✅ {ini} 승인')
+        _thread_log(new, f'✅ {who} 승인')
         if any(s['step'] == 'resubmit' for s in ea.steps(aid)):
             # 수정해서 다시 올린 건 — 예전에 이체 DM 을 받은 경영지원은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
             have = {(r['user'], r['role']) for r in ea.dm_refs(new)}
@@ -263,16 +265,16 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
         _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
         _origin_log(new, f'💸 {t} 이체 완료 ({ex})')
     elif action == 'reject':
-        _thread_log(new, f'❌ {ini} 반려 — {reason}')
+        _thread_log(new, f'❌ {who} 반려 — {reason}')
         _notify(client, new.get('requester_id'), f'❌ {t} 반려됐어요. 사유: {reason}')
-        _origin_log(new, f'❌ {t} 반려 ({ini}) — {reason}')
+        _origin_log(new, f'❌ {t} 반려 ({who}) — {reason}')
     elif action == 'cancel':
-        _thread_log(new, f'⚪ {ini} 요청 취소')
+        _thread_log(new, f'⚪ {ini if uid == new.get("requester_id") else who} 요청 취소')
         if uid != new.get('requester_id'):
             _notify(client, new.get('requester_id'), f'⚪ {t} 요청이 취소됐어요 ({ini}).')
     elif action == 'revise':
-        _thread_log(new, f'✏️ {ini} 수정 요청 — {reason}')
-        _origin_log(new, f'✏️ {t} 수정 요청 ({ini}) — {reason}')
+        _thread_log(new, f'✏️ {who} 수정 요청 — {reason}')
+        _origin_log(new, f'✏️ {t} 수정 요청 ({who}) — {reason}')
         # 요청자 DM 에 [✏️ 수정하기] — 두 번째 수정 요청이면 예전 DM 은 refresh 가 다시 버튼을 띄운다
         if (new.get('requester_id'), 'requester') not in {(r['user'], r['role']) for r in ea.dm_refs(new)}:
             _send_dm(client, aid, new.get('requester_id'), 'requester')

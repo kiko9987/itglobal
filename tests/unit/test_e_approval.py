@@ -67,7 +67,7 @@ def test_full_flow_and_double_click_guard(tmp_db):
     assert ea.transition(row['id'], 'transfer', JW, '박정우') is None          # 다른 사람이 또 눌러도 한 번
     assert ea.transition(row['id'], 'cancel', MGR, '박정우') is None           # 끝난 건 취소 불가
     line = ea.step_line(d, ea.steps(row['id']))
-    assert 'KiKO 승인' in line and '경영지원 (SB) 이체' in line and '고광일' not in line
+    assert '경영지원 (KiKO) 승인' in line and '경영지원 (SB) 이체' in line and '고광일' not in line
 
 
 def test_reject_and_cancel(tmp_db):
@@ -1213,7 +1213,7 @@ def test_revise_then_edit_fund_same_card(se):
     assert ea.A_EDIT in json.dumps(dm['blocks']) and '계좌번호가 계산서와 달라요' in json.dumps(dm['blocks'], ensure_ascii=False)
     assert not ea.can_act('edit', row, SB) and ea.can_act('edit', row, MGR)
     text = ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
-    assert '✏️ 수정 요청 (SB' in text
+    assert '✏️ 경영지원 (SB) 수정 요청' in text
     # 수정 창 — 올린 값이 채워져 있다
     v = se.edit_view(row)
     assert v['title']['text'] == '자금집행 요청 수정' and v['submit']['text'] == '다시 올리기'
@@ -1226,7 +1226,7 @@ def test_revise_then_edit_fund_same_card(se):
     logs = [m['text'] for m in se._fake.of('chat_postMessage') if m.get('thread_ts') == card_ts]
     assert any('수정해서 다시 올림' in t and '금액 533,500 → 550,000' in t for t in logs)
     # 다시 올린 뒤엔 승인 기록이 새로 — 승인 대기로 보이고, 승인하면 이체 대기
-    assert '⏳ KiKO 승인' in ea.step_line(new, ea.steps(new['id']))
+    assert '⏳ 경영지원 (KiKO) 승인' in ea.step_line(new, ea.steps(new['id']))
     assert se.apply_action('approve', new['id'], KIKO) is None and ea.get(new['id'])['status'] == ea.APPROVED
 
 
