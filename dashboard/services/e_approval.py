@@ -133,6 +133,13 @@ def after_first(form: str, requester_id: str, actor_id: str = '') -> Tuple[str, 
     return FINAL, False
 
 
+def self_approves(form: str, requester_id: str) -> bool:
+    """요청자 본인 승인으로 ① 을 건너뛰는지 — KiKO, 그리고 JW·YG(본인 요청은 바로 최종 승인, 11-09 KiKO)."""
+    if form in TASK_FORMS:
+        return False
+    return requester_id in approver_ids() or (needs_final(form) and requester_id in final_approver_ids())
+
+
 def first_names() -> str:
     """① 승인할 수 있는 사람 — KiKO + JW·YG(KiKO 휴가일 수 있어 11-09)."""
     return '·'.join(['KiKO'] * bool(approver_ids()) + [_N_LABELS.get(u, '최종 승인자') for u in final_approver_ids()
@@ -333,7 +340,7 @@ def add_extra_files(aid: int, files: List[dict]) -> None:
 def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> dict:
     """결재 생성. 승인자가 직접 요청하면 ① 자동 통과(바로 이체 대기). 업무요청형은 승인 없이 바로 처리 대기."""
     task = form in TASK_FORMS
-    auto = (not task) and requester_id in approver_ids()
+    auto = self_approves(form, requester_id)
     auto_final = False
     if task:
         status = APPROVED
@@ -431,7 +438,7 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         if not old or old['status'] != REVISE:
             return None
         task = old['form'] in TASK_FORMS
-        self_ok = (not task) and old['requester_id'] in approver_ids()
+        self_ok = self_approves(old['form'], old['requester_id'])
         auto_final = False
         if task:
             nxt = APPROVED
@@ -739,7 +746,9 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
         first = f'⏳ {ap} 승인' if st == PENDING else f'⏸ {ap} 승인'
     # 최종 승인(11-09) — 기능을 켜기 전에 이미 이체 대기·완료로 넘어간 결재는 이 칸 없이 예전 모양
     mid = ''
-    if f and f['result'] == 'auto' and a and f.get('actor_id') == a.get('actor_id') and a['result'] == 'approved':
+    if f and f['result'] == 'auto' and a and f.get('actor_id') == a.get('actor_id') and a['result'] == 'auto':
+        first = f"✅ 최종 승인 ({initial(f['actor_name'])} 본인 요청)"   # JW·YG 본인 요청 — ① 없이 바로(11-09)
+    elif f and f['result'] == 'auto' and a and f.get('actor_id') == a.get('actor_id') and a['result'] == 'approved':
         first += ' (최종 승인 겸)'   # JW·YG 가 ① 을 눌러 한 번에
     elif f and f['result'] == 'auto':
         mid = '✅ 최종 승인 (요청자 본인)'
