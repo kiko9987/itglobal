@@ -1,9 +1,10 @@
 """전자결재 엔진 (2026-10-30) — 플렉스 워크플로우 대체, 1차 양식 = 자금집행.
 
-결재선(지출형): 요청 → ① 승인(고광일) → ② 이체 완료(경영지원 명단) → 끝.
-  - 승인자가 직접 요청하면 ① 은 자동 통과.
+결재선(지출형): 요청 → ① 승인(고광일) → ② 최종 승인(JW·YG 중 한 명, 11-09) → ③ 이체 완료(경영지원 명단) → 끝.
+  - 승인자가 직접 요청하면 ① 은 자동 통과. JW·YG 본인 요청이면 ② 는 자동 통과.
   - 반려(사유 필수)·요청 취소(요청자·승인자)는 끝나기 전 언제든.
-상태: pending(승인 대기) → approved(이체 대기) → done(이체 완료)
+  - EAPPROVAL_FINAL_ENABLED=false 면 ② 없이 예전 2단계.
+상태: pending(승인 대기) → final(최종 승인 대기) → approved(이체 대기) → done(이체 완료)
       pending/approved → rejected(반려) / cancelled(취소)
 
 여기는 슬랙 I/O 없는 장부·상태 전환·카드 모양만. 슬랙 처리는 blueprints/slack_eapproval.py.
@@ -36,9 +37,12 @@ TASK_FORMS = forms.TASK_FORMS   # 업무요청형 — 승인 없이 바로 경�
 
 PENDING, APPROVED, DONE, REJECTED, CANCELLED = 'pending', 'approved', 'done', 'rejected', 'cancelled'
 REVISE = 'revise'   # 11-05 수정 요청 — 승인자·경영지원이 돌려보냄 → 요청자가 같은 결재를 고쳐 다시 올림
-OPEN_STATUSES = (PENDING, APPROVED, REVISE)
+# 11-09 최종 승인 — 지출형은 ① KiKO 승인 뒤 JW·YG 중 한 명이 이유를 보고 최종 승인해야 이체 대기로(이유 모르는 지출 방지)
+FINAL = 'final'
+OPEN_STATUSES = (PENDING, FINAL, APPROVED, REVISE)
 STATUS_LABELS = {
     PENDING: ('🟡', '승인 대기'),
+    FINAL: ('🟣', '최종 승인 대기'),
     APPROVED: ('🔵', '이체 대기'),
     REVISE: ('🟠', '수정 요청'),
     DONE: ('🟢', '이체 완료'),
@@ -52,6 +56,7 @@ GRN_TYPES = [('G', 'G (글로벌)'), ('R', 'R (글로벌그룹)'), ('N', 'N (사
 
 # 슬랙 식별자
 A_APPROVE, A_REJECT, A_TRANSFER, A_CANCEL = 'eap_approve', 'eap_reject', 'eap_transfer', 'eap_cancel'
+A_FINAL = 'eap_final'                 # [최종 승인] (JW·YG)
 A_NEW = 'eap_new'                     # 채널 메뉴 [💸 자금집행 요청]
 A_NEW_FROM_PROJECT = 'eap_new_project'  # 공사확정 카드 [💸 자금집행 요청]
 A_PROJECT = 'eap_project'             # 새 요청 모달 프로젝트 external_select
@@ -100,6 +105,31 @@ def is_n_account(row: Optional[dict]) -> bool:
 
 def n_executor_ids() -> tuple:
     return _env_ids('EAPPROVAL_N_EXECUTOR_IDS') or _DEFAULT_N_EXECUTORS
+
+
+_DEFAULT_FINAL = ('U051ENK8AAY', 'U050XNG5VBR')   # 박정우(JW)·박용구(YG) — 둘 중 한 명이 최종 승인(11-09)
+
+
+def final_approver_ids() -> tuple:
+    return _env_ids('EAPPROVAL_FINAL_APPROVER_IDS') or _DEFAULT_FINAL
+
+
+def final_names() -> str:
+    return '·'.join(_N_LABELS.get(u, '최종 승인자') for u in final_approver_ids())
+
+
+def needs_final(form: str) -> bool:
+    """최종 승인이 있는 양식 — 지출형(자금집행·비품·개인경비). EAPPROVAL_FINAL_ENABLED=false 면 끔."""
+    return form not in TASK_FORMS and os.getenv('EAPPROVAL_FINAL_ENABLED', 'true').strip().lower() != 'false'
+
+
+def after_first(form: str, requester_id: str) -> Tuple[str, bool]:
+    """① 승인 다음 상태와 최종 승인 자동 통과 여부 — JW·YG 본인 요청이면 최종 승인은 자동(본인이 이유를 안다)."""
+    if not needs_final(form):
+        return APPROVED, False
+    if requester_id in final_approver_ids():
+        return APPROVED, True
+    return FINAL, False
 
 
 def executor_dm_ids(row: Optional[dict] = None) -> tuple:
@@ -257,9 +287,9 @@ def find_unlinked_match(grn: str, amount: int, partner: str) -> Optional[dict]:
         _ensure_tables(conn)
         rows = conn.execute(
             '''SELECT * FROM approvals WHERE form=? AND origin_ts IS NULL AND amount=? AND grn=?
-               AND status IN (?,?,?,?) ORDER BY id DESC LIMIT 20''',
+               AND status IN (?,?,?,?,?) ORDER BY id DESC LIMIT 20''',
             # 수정 요청 중인 결재도 후보 — 빼면 같은 건으로 결재를 또 올려 두 번 이체할 수 있다(11-05)
-            (FORM_FUND, int(amount), grn, PENDING, APPROVED, REVISE, DONE)).fetchall()
+            (FORM_FUND, int(amount), grn, PENDING, FINAL, APPROVED, REVISE, DONE)).fetchall()
     hits = [dict(r) for r in rows if partner_key(r['partner']) == key]
     return hits[0] if len(hits) == 1 else None
 
@@ -297,7 +327,13 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
     """결재 생성. 승인자가 직접 요청하면 ① 자동 통과(바로 이체 대기). 업무요청형은 승인 없이 바로 처리 대기."""
     task = form in TASK_FORMS
     auto = (not task) and requester_id in approver_ids()
-    status = APPROVED if (auto or task) else PENDING
+    auto_final = False
+    if task:
+        status = APPROVED
+    elif auto:
+        status, auto_final = after_first(form, requester_id)
+    else:
+        status = PENDING
     now = _now()
     cols = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
             'bank', 'account', 'amount', 'urgency', 'memo', 'origin_channel', 'origin_ts', 'extra')
@@ -317,34 +353,47 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
             conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
                          'VALUES (?,?,?,?,?,?,?)',
                          (aid, 'approve', requester_id, requester_name, 'auto', '요청자가 승인자', now))
+        if auto_final:
+            _auto_final_step(conn, aid, requester_id, requester_name, now)
         conn.commit()
         return _row(conn, aid)
 
 
+def _auto_final_step(conn, aid: int, actor_id: str, actor_name: str, now: str) -> None:
+    conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
+                 'VALUES (?,?,?,?,?,?,?)', (aid, 'final', actor_id, actor_name, 'auto', '요청자가 최종 승인자', now))
+
+
 _TRANSITIONS = {
-    # 동작: (허용 이전 상태, 다음 상태, 단계 이름, 결과)
+    # 동작: (허용 이전 상태, 다음 상태, 단계 이름, 결과) — approve 의 다음 상태는 after_first 로 정한다
     'approve': ((PENDING,), APPROVED, 'approve', 'approved'),
+    'final': ((FINAL,), APPROVED, 'final', 'approved'),
     'reject': (OPEN_STATUSES, REJECTED, 'approve', 'rejected'),
     'transfer': ((APPROVED,), DONE, 'transfer', 'done'),
     'cancel': (OPEN_STATUSES, CANCELLED, 'cancel', 'cancelled'),
-    'revise': ((PENDING, APPROVED), REVISE, 'revise', 'revise'),
+    'revise': ((PENDING, FINAL, APPROVED), REVISE, 'revise', 'revise'),
 }
 
 
 def can_act(action: str, row: dict, user_id: str) -> bool:
-    """권한 — 승인·반려=승인자(이체 대기 중 반려는 이체 담당도), 이체=이체 담당, 취소=요청자·승인자."""
+    """권한 — 승인=KiKO, 최종 승인=JW·YG, 반려=승인자(최종 승인 대기 중엔 JW·YG, 이체 대기 중엔 이체 담당도),
+    이체=이체 담당, 취소=요청자·승인자."""
     if action == 'approve':
         return user_id in approver_ids()
+    if action == 'final':
+        return user_id in final_approver_ids()
     if action == 'reject':
-        return user_id in approver_ids() or (row.get('status') == APPROVED and user_id in executor_ids())
+        st = row.get('status')
+        return (user_id in approver_ids() or (st == FINAL and user_id in final_approver_ids())
+                or (st == APPROVED and user_id in executor_ids()))
     if action == 'transfer':
         return user_id in executor_ids()
     if action == 'cancel':
         if user_id in approver_ids():
             return True
         return user_id == row.get('requester_id') and requester_can_cancel(row)
-    if action == 'revise':   # 수정 요청 = 승인자(KiKO) + 경영지원(SB·JW·YG) — 플렉스 댓글로 돌려보내던 사람들
-        return user_id in approver_ids() or user_id in executor_ids()
+    if action == 'revise':   # 수정 요청 = 승인자(KiKO) + 경영지원(SB·JW·YG) + 최종 승인자 — 플렉스 댓글로 돌려보내던 사람들
+        return user_id in approver_ids() or user_id in executor_ids() or user_id in final_approver_ids()
     if action == 'edit':
         return user_id == row.get('requester_id')
     return False
@@ -354,7 +403,7 @@ def requester_can_cancel(row: dict) -> bool:
     """요청자 취소 — 승인 뒤(이체·구매 대기)엔 경영지원이 이미 은행에서 보내는 중일 수 있어 막는다(11-06 검수).
     그때는 경영지원에게 [반려]를 부탁한다. 업무요청형은 승인 단계가 없어 처리 대기 중에도 취소 가능."""
     st = row.get('status')
-    if st in (PENDING, REVISE):
+    if st in (PENDING, FINAL, REVISE):   # 최종 승인 전까진 아직 돈이 안 나간다
         return True
     return st == APPROVED and row.get('form') in TASK_FORMS
 
@@ -374,7 +423,14 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         if not old or old['status'] != REVISE:
             return None
         task = old['form'] in TASK_FORMS
-        nxt = APPROVED if (task or old['requester_id'] in approver_ids()) else PENDING
+        self_ok = (not task) and old['requester_id'] in approver_ids()
+        auto_final = False
+        if task:
+            nxt = APPROVED
+        elif self_ok:
+            nxt, auto_final = after_first(old['form'], old['requester_id'])
+        else:
+            nxt = PENDING
         sets, vals, changed = [], [], {}
         for c in EDIT_COLUMNS:
             if c not in fields:
@@ -406,9 +462,11 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         # 승인 기록은 새로 받는다 — 예전 승인·처리 줄은 지우지 않고 'resubmit' 줄 뒤로 밀린다(step_line 은 마지막 것)
         conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, at) '
                      'VALUES (?,?,?,?,?,?)', (aid, 'resubmit', actor_id, actor_name, 'resubmitted', now))
-        if nxt == APPROVED and not task:
+        if self_ok:
             conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
                          'VALUES (?,?,?,?,?,?,?)', (aid, 'approve', actor_id, actor_name, 'auto', '요청자가 승인자', now))
+        if auto_final:
+            _auto_final_step(conn, aid, actor_id, actor_name, now)
         conn.commit()
         return _row(conn, aid), changed
 
@@ -429,6 +487,16 @@ def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: st
     now = _now()
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
+        auto_final = False
+        if action == 'approve':   # ① 다음 — 지출형은 최종 승인 대기(JW·YG 본인 요청이면 자동 통과)
+            old = _row(conn, aid)
+            if not old:
+                return None
+            nxt, auto_final = after_first(old['form'], old['requester_id'])
+        elif action == 'reject':   # 최종 승인 대기 중 반려는 '최종 승인' 칸에 남긴다(① 승인 기록은 그대로)
+            old = _row(conn, aid)
+            if old and old['status'] == FINAL:
+                step = 'final'
         cur = conn.execute(
             f'UPDATE approvals SET status=?, updated_at=? WHERE id=? AND status IN ({",".join("?" * len(allowed))})',
             (nxt, now, aid, *allowed))
@@ -437,6 +505,9 @@ def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: st
             return None
         conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
                      'VALUES (?,?,?,?,?,?,?)', (aid, step, actor_id, actor_name, result, reason or None, now))
+        if auto_final:
+            old = _row(conn, aid)
+            _auto_final_step(conn, aid, old['requester_id'], old['requester_name'], now)
         conn.commit()
         return _row(conn, aid)
 
@@ -651,6 +722,19 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
         first = f"❌ {executor_label(a['actor_name'])} 반려 {_fmt_when(a['at'])}"
     else:
         first = f'⏳ {ap} 승인' if st == PENDING else f'⏸ {ap} 승인'
+    # 최종 승인(11-09) — 기능을 켜기 전에 이미 이체 대기·완료로 넘어간 결재는 이 칸 없이 예전 모양
+    f = by.get('final')
+    mid = ''
+    if f and f['result'] == 'auto':
+        mid = '✅ 최종 승인 (요청자 본인)'
+    elif f and f['result'] == 'approved':
+        mid = f"✅ {initial(f['actor_name'])} 최종 승인 {_fmt_when(f['at'])}"
+    elif f and f['result'] == 'rejected':
+        mid = f"❌ {initial(f['actor_name'])} 반려 {_fmt_when(f['at'])}"
+    elif needs_final(row.get('form')) and st in (PENDING, FINAL, REVISE, REJECTED, CANCELLED):
+        mid = f'⏳ {final_names()} 최종 승인' if st == FINAL else f'⏸ {final_names()} 최종 승인'
+    if mid:
+        first = f'{first} → {mid}'
     w = step2_word(row)
     t = by.get('transfer')
     if t:
@@ -765,11 +849,13 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
 
 def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List[str]) -> str:
     """끝난 결재 — 온라인 리드 '상담 완료' 카드처럼(11-06 KiKO): 처리 결과 몇 줄 + 원래 내용은 회색 코드 박스."""
-    last = next((s for s in reversed(step_rows) if s['step'] in ('transfer', 'approve', 'cancel')
+    last = next((s for s in reversed(step_rows) if s['step'] in ('transfer', 'approve', 'final', 'cancel')
                  and s['result'] in ('done', 'rejected', 'cancelled')), None)
     who = ''
     if last:
-        mine = last['result'] == 'cancelled' and last.get('actor_name') == row.get('requester_name')
+        # 요청자 본인 취소·최종 승인자(JW·YG) 반려는 이니셜만
+        mine = (last['result'] == 'cancelled' and last.get('actor_name') == row.get('requester_name')) \
+            or last['step'] == 'final'
         who = initial(last['actor_name']) if mine else executor_label(last['actor_name'])   # 요청자 본인 취소만 이니셜
     # 긴급이었던 건은 끝난 뒤에도 표시(11-09 SB)
     hdr = [f"{emoji} *{title(row)} · {label}*" + (' · 🚨 긴급' if row.get('urgency') == '긴급' else ''),
@@ -812,6 +898,8 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
     out = []
     if st == PENDING and role in ('all', 'approver'):
         out += [_btn('승인', A_APPROVE, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
+    if st == FINAL and role in ('all', 'final'):
+        out += [_btn('최종 승인', A_FINAL, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
     form = row.get('form')
     if st == APPROVED and role in ('all', 'executor') and form in TASK_FORMS:
         out.append(_btn('✅ 처리 완료', A_TRANSFER, aid, 'primary', _confirm(
@@ -829,7 +917,7 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
             '이체 완료', f"{row.get('bank')} {row.get('account')} · 예금주 {row.get('payee_name')}\n{amt} 이체를 마쳤나요?",
             '이체 완료')))
-    if st in (PENDING, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
+    if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
         out.append(_btn('✏️ 수정 요청', A_REVISE, aid))
     if st == REVISE and role in ('all', 'requester'):
         out.append(_btn('✏️ 수정하기', A_EDIT, aid, 'primary'))
@@ -885,6 +973,9 @@ def dm_intro(row: dict, role: str) -> str:
     w = step2_word(row)
     if role == 'approver' and st == PENDING:
         return f"🔔 {initial(row.get('requester_name'))}님이 {title(row)} 승인을 요청했어요. 카드에서 [승인]이나 [반려]를 눌러 주세요."
+    if role == 'final' and st == FINAL:
+        return (f"🔔 {initial(row.get('requester_name'))}님이 올린 {title(row)} — 승인이 끝나 최종 승인 차례예요. "
+                f"내용·이유를 확인하고 카드에서 [최종 승인]이나 [반려]를 눌러 주세요. ({final_names()} 중 한 분만 누르면 돼요)")
     if role == 'executor' and st == APPROVED and row.get('form') in TASK_FORMS:
         return (f"🔔 {initial(row.get('requester_name'))}님이 {title(row)}을 올렸어요. "
                 '처리하고 카드에서 [처리 완료]를 눌러 주세요.')

@@ -113,9 +113,10 @@ def _send_dm(client, aid: int, uid: str, role: str) -> None:
         ea.add_dm_ref(aid, ch, r['ts'], role, uid)
     except Exception as exc:
         # 승인·이체 담당 DM 이 안 가면 아무도 모른 채 결재가 멈춘다(퇴사 계정 등) — 관리자 알림(11-06 검수)
-        log = logger.error if role in ('approver', 'executor') else logger.warning
+        must = role in ('approver', 'final', 'executor')
+        log = logger.error if must else logger.warning
         log(f'{_LOG} DM 실패 ({ea.title(row)} → {uid}, {role}): {exc}',
-            extra={'force_alert': True} if role in ('approver', 'executor') else None)
+            extra={'force_alert': True} if must else None)
 
 
 def _notify(client, uid: str, text: str) -> None:
@@ -129,16 +130,22 @@ def _notify(client, uid: str, text: str) -> None:
         logger.warning(f'{_LOG} 알림 DM 실패 ({uid}): {exc}')
 
 
+def _targets(row: dict) -> list:
+    """지금 상태에서 처리할 사람 [(uid, 역할)]."""
+    if row['status'] == ea.PENDING:
+        return [(u, 'approver') for u in ea.approver_ids()]
+    if row['status'] == ea.FINAL:   # 최종 승인 — JW·YG 둘 다 받고 한 명만 누르면 된다(11-09)
+        return [(u, 'final') for u in ea.final_approver_ids()]
+    if row['status'] == ea.APPROVED:
+        return ([(u, 'executor') for u in ea.executor_dm_ids(row)]
+                + [(u, 'notice') for u in ea.notice_ids(row)])   # N통장 → SB 에게 알림만(11-06)
+    return []
+
+
 def _dm_round(client, row: dict) -> None:
     """지금 상태에서 처리할 사람에게 DM. 같은 사람이 이미 그 역할 DM 을 받았으면 건너뜀."""
     have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
-    if row['status'] == ea.PENDING:
-        targets = [(u, 'approver') for u in ea.approver_ids()]
-    elif row['status'] == ea.APPROVED:
-        targets = [(u, 'executor') for u in ea.executor_dm_ids(row)]
-        targets += [(u, 'notice') for u in ea.notice_ids(row)]   # N통장 → SB 에게 알림만(11-06)
-    else:
-        targets = []
+    targets = _targets(row)
     for uid, role in targets:
         if (uid, role) not in have:
             _send_dm(client, row['id'], uid, role)
@@ -226,6 +233,7 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     if not ea.can_act(action, row, uid):
         return {
             'approve': '승인은 승인자만 할 수 있어요.',
+            'final': f'최종 승인은 {ea.final_names()}만 할 수 있어요.',
             'reject': '반려는 승인자만 할 수 있어요.',
             'transfer': f'{w} 완료는 경영지원 담당만 누를 수 있어요.',
             'cancel': '요청 취소는 요청한 사람이나 승인자만 할 수 있어요.',
@@ -241,15 +249,18 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     ini, ex = ea.initial(name), ea.executor_label(name)   # 화면엔 이니셜, ② 는 '경영지원 (SB)'
     # 승인·반려·수정 요청·취소도 경영지원 명단이 누르면 '경영지원 (KiKO)'로 — 이체 완료 줄과 같은 모양(11-09 KiKO)
     who = ex if (uid in ea.approver_ids() or uid in ea.executor_ids()) else ini
-    if action == 'approve':
-        _thread_log(new, f'✅ {who} 승인')
+    if row.get('status') == ea.FINAL and uid in ea.final_approver_ids():   # 최종 승인 단계(JW·YG)는 이니셜만
+        who = ini
+    if action in ('approve', 'final'):
+        _thread_log(new, f'✅ {who} 승인' if action == 'approve' else f'✅ {ini} 최종 승인')
         if any(s['step'] == 'resubmit' for s in ea.steps(aid)):
-            # 수정해서 다시 올린 건 — 예전에 이체 DM 을 받은 경영지원은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
+            # 수정해서 다시 올린 건 — 예전에 같은 역할 DM 을 받은 사람은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
             have = {(r['user'], r['role']) for r in ea.dm_refs(new)}
             link = _card_link(new)
-            for u in ea.executor_dm_ids(new):
-                if (u, 'executor') in have:
-                    _notify(client, u, f'🔔 수정해서 다시 올라온 {t}이 승인됐어요. {w}해 주세요.'
+            todo = f'{w}해 주세요.' if new['status'] == ea.APPROVED else '최종 승인해 주세요.'
+            for u, role in _targets(new):
+                if (u, role) in have and role != 'notice':
+                    _notify(client, u, f'🔔 수정해서 다시 올라온 {t}이 승인됐어요. {todo}'
                             + (f' <{link}|카드 보기>' if link else ''))
         _dm_round(client, new)
     elif action == 'transfer' and new.get('form') in ea.TASK_FORMS:
@@ -519,8 +530,7 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
     client = eap_client()
     _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}')
     refresh(row)
-    who = [(u, 'approver') for u in ea.approver_ids()] if row['status'] == ea.PENDING else \
-        [(u, 'executor') for u in ea.executor_dm_ids(row)]
+    who = [x for x in _targets(row) if x[1] != 'notice']
     have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
     link = _card_link(row)
     for u, role in who:
@@ -1466,6 +1476,7 @@ def register_eapproval_handlers(app) -> None:
         return handler
 
     app.action(ea.A_APPROVE)(_bg_action('approve'))
+    app.action(ea.A_FINAL)(_bg_action('final'))
     app.action(ea.A_TRANSFER)(_bg_action('transfer'))
     app.action(ea.A_CANCEL)(_bg_action('cancel'))
 
@@ -1479,7 +1490,7 @@ def register_eapproval_handlers(app) -> None:
         if not row or not ea.can_act('revise', row, uid):
             _ephemeral(client, body, '🔒 수정 요청은 승인자·경영지원만 할 수 있어요.')
             return
-        if row['status'] not in (ea.PENDING, ea.APPROVED):
+        if row['status'] not in (ea.PENDING, ea.FINAL, ea.APPROVED):
             _ephemeral(client, body, f"🔒 지금은 수정 요청을 할 수 없어요 (지금: {ea.status_label(row)[1]}).")
             return
         try:
