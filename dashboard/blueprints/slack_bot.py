@@ -16331,6 +16331,20 @@ def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False, stage=
     total1, total2 = _bill_to_num(rec.get('총액 1')), _bill_to_num(rec.get('총액 2'))
     if total2 <= 0:
         return ''
+    # ③ 공급가를 'VAT 포함'으로(2026-11-09 SB 요청): 창에 미리 채워진 공급가(공사 금액·남은 공급가)를 그대로 두고
+    #   VAT 만 '포함'으로 바꾸면 부가세만큼 덜 발행됨(G3955-MS 250,000원). 부가세 있는 공사만.
+    if not sep and total1 > 0 and total2 > total1 + 1:
+        _supplies = {int(round(total1))}
+        try:
+            _left = (_project_issued_invoice(code, stage=stage) if stage else _project_issued_invoice(code)) or {}
+            if _left.get('remaining_supply'):
+                _supplies.add(int(_left['remaining_supply']))
+        except Exception:
+            pass
+        if amt in _supplies:
+            return (f"⚠️ {amt:,}원은 공급가(부가세 빼고)로 보입니다. 'VAT 포함'으로 보내면 "
+                    f"공급가 {round(amt / 1.1):,}원 + 부가세로 나뉘어 부가세만큼 덜 발행됩니다. "
+                    f"공급가라면 'VAT 별도'로 바꾸세요.")
     # 공급가 → 발행액. 총액 비율로 환산하되, '현금 · 부가세 없음' 몫이 있는 나눠 내는 공사는 총액 2 가 줄어
     #   비율이 틀어지므로 부가세 10% 그대로(2026-10-21 G4148)
     try:
@@ -16709,7 +16723,7 @@ def _build_invoice_modal_view(code, biz, addr, amt, email, metadata, partner_war
                         # 경고를 옵션 라벨에 인라인으로 (슬랙 모달은 텍스트 색상 미지원 → ⚠️ 이모지)
                         "text": {
                             "type": "plain_text",
-                            "text": "VAT 포함 (⚠️ 공급가액이 정수로 떨어지지 않을 때만 체크)",
+                            "text": "VAT 포함 (고객이 부가세 포함 금액으로 낸·낼 돈 그대로 발행할 때)",
                             "emoji": True,
                         },
                         "value": "incl",
@@ -17296,6 +17310,19 @@ def _split_payer_license(code, biz):
         return None
 
 
+def _vat_incl_to_supply(amt_digits, vat_val):
+    """'VAT 포함' 금액이 1.1로 딱 나누어떨어지면 (합계, 공급가), 아니면 None (2026-11-09)."""
+    if (vat_val or 'sep') != 'incl':
+        return None
+    try:
+        gross = int(''.join(ch for ch in str(amt_digits or '') if ch.isdigit()) or 0)
+    except (TypeError, ValueError):
+        return None
+    if gross <= 0 or (gross * 10) % 11:
+        return None
+    return gross, gross * 10 // 11
+
+
 def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                          requester_initial='-', *, stages='', dedup_check=True,
                          fallback_client=None, replace=None, doc='tax', crno='') -> dict:
@@ -17336,6 +17363,12 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     memo = (memo or '').strip()
     vat_val = vat_val or 'sep'
     amt_digits = ''.join(ch for ch in str(amt_digits or '') if ch.isdigit())
+    # 'VAT 포함'인데 1.1로 딱 나누어떨어지면 공급가 + 'VAT 별도'로 바꿔 올림 (2026-11-09 SB 요청 — 포함 요청
+    #   22건 중 7건이 이 경우). 포함 옵션은 공급가가 원 단위로 안 떨어질 때(고객이 부가세 포함 둥근 금액으로
+    #   낸 돈)만 필요. 경영지원은 늘 보던 모양으로 받고, 원래 입력은 카드에 한 줄 남김.
+    vat_converted = _vat_incl_to_supply(amt_digits, vat_val) if not cash else None
+    if vat_converted:
+        amt_digits, vat_val = str(vat_converted[1]), 'sep'
 
     # 코드 중복 방어 (진입 게이트) — PM/슬랙 교차 재요청도 90초 내 skip.
     if dedup_check and code and code != '-':
@@ -17381,6 +17414,8 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
             f"🏢 사업자명 : {biz}",
             f"📍 현장 주소 : {addr}",
             f"💲 금액 : {amt_display}",
+            *([f"      ↳ 요청은 {vat_converted[0]:,}원(VAT 포함) — 공급가로 딱 나누어떨어져 VAT 별도로 바꿈"]
+              if vat_converted else []),
             f"✉️ 이메일 : {email}",
         ]
     if stages_csv:
