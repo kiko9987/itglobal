@@ -624,9 +624,10 @@ def notify_info_edit_to_settlement(code: str, field_changes: list,
         f = c['field_name']
         lines.append(f'- {f}: {_info_val(c.get("old_value"))} → {_info_val(c.get("new_value"))}')
     lines.append('')
-    lines.append('_이미 반영된 변경입니다(승인 필요 없음). 이카운트에도 고쳐 주세요._')
+    lines.append('_이미 반영된 변경입니다(승인 필요 없음). 이카운트에도 반영해주세요._')
     permalink = _project_card_permalink(code)
     if permalink:
+        lines.append('')  # 카드 링크는 한 줄 띄움 (2026-11-09 사용자 요청)
         lines.append(f'<{permalink}|공사 확정 카드 보기>')
     text = '\n'.join(lines)
 

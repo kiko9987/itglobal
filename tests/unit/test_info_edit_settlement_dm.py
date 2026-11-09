@@ -49,7 +49,17 @@ def test_address_change_by_manager_goes_to_sb_only(monkeypatch):
     assert _FakeWeb.opened == [SB]          # 승인자 전원이 아니라 SB 만
     body = _FakeWeb.posted[0]['text']
     assert '공사 정보 변경 알림' in body and '파주 A동 1 → 파주 B동 2' in body
-    assert 'TH (PM 직접 편집)' in body and '이카운트' in body
+    assert 'TH (PM 직접 편집)' in body and '이카운트에도 반영해주세요.' in body
+
+
+def test_card_link_has_blank_line_before(monkeypatch):
+    _setup(monkeypatch)
+    monkeypatch.setattr(psn, '_project_card_permalink', lambda code: 'https://slack/p1')
+    psn.notify_info_edit_to_settlement(
+        'R1-TH', [{'field_name': '현장 주소', 'old_value': 'A', 'new_value': 'B'}],
+        editor_email='th@itg-aircon.com')
+    body = _FakeWeb.posted[0]['text']
+    assert body.endswith('반영해주세요._\n\n<https://slack/p1|공사 확정 카드 보기>')
 
 
 def test_kiko_edit_still_notifies_sb(monkeypatch):
