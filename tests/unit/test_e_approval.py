@@ -1167,6 +1167,15 @@ def test_project_card_select_options():
                                                    'waste|G4049-JW']
 
 
+def test_hub_groups_all_forms_max6():
+    # 한 묶음에 6개를 넘으면 슬랙이 [더 보기]로 접는다(11-09) — 양식은 빠짐없이 한 번씩
+    from dashboard.services import e_approval_forms as forms
+    acts = [b for b in ea.hub_blocks() if b['type'] == 'actions']
+    assert all(len(a['elements']) <= 6 for a in acts)
+    vals = [e.get('value') for a in acts for e in a['elements'] if e.get('value')]
+    assert sorted(vals) == sorted(k for k, f in forms.FORMS.items() if f.menu)
+
+
 def test_waste_form():
     from dashboard.services import e_approval_forms as forms
     W = forms.FORM_WASTE
