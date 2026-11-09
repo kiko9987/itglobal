@@ -281,7 +281,7 @@ def test_card_text(tmp_db):
     d = ea.card_text(done, ea.steps(done['id']), 'G4049-JW · 광명 양지로 21', 6500000)
     # 끝나면 온라인 리드 '상담 완료'처럼 — 처리 결과 줄 + 원래 내용은 회색 코드 박스(11-06 KiKO)
     # 긴급이었던 건은 끝난 뒤에도 표시(11-09 SB)
-    assert d.startswith(f'🟢 *자금집행 #{row["id"]} · 이체 완료* · 🚨 긴급\n처리자 : 경영지원 (SB)\n처리 시간 :')
+    assert d.startswith(f'🟢 *자금집행 #{row["id"]} · 이체 완료* · 🚨 긴급\n⠀\n처리자 : 경영지원 (SB)\n처리 시간 :')
     assert d.count('```') == 2 and '533,500원 → (주)강원포장' in d and '*' not in d.split('```')[1]
     assert 'G · 글로벌 통장' in d.split('```')[1]
 

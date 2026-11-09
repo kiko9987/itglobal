@@ -698,7 +698,7 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     step = step_line(row, step_rows).replace('결재: ', '', 1)
     closed = st in (DONE, REJECTED, CANCELLED)
     tag = _tag_line(row)
-    gap = [] if closed else ['']   # 진행 중 카드는 금액·통장 묶음 위아래 빈 줄 — 먼저 눈에 띄게(11-09 KiKO 예시 D)
+    gap = ['']   # 금액·통장 묶음 위아래 빈 줄 — 먼저 눈에 띄게(11-09 KiKO 예시 D, 끝난 카드 박스 안도 같게)
     top = ([f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' and not closed else '')]
            + gap + [_key_line(row)] + ([tag] if tag else []) + gap + [CARD_SEP])
     head = top + [f'현장: {project_line}']
@@ -750,7 +750,8 @@ def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List
         mine = last['result'] == 'cancelled' and last.get('actor_name') == row.get('requester_name')
         who = initial(last['actor_name']) if mine else executor_label(last['actor_name'])   # 요청자 본인 취소만 이니셜
     # 긴급이었던 건은 끝난 뒤에도 표시(11-09 SB)
-    hdr = [f"{emoji} *{title(row)} · {label}*" + (' · 🚨 긴급' if row.get('urgency') == '긴급' else '')]
+    hdr = [f"{emoji} *{title(row)} · {label}*" + (' · 🚨 긴급' if row.get('urgency') == '긴급' else ''),
+           '⠀']   # 제목 밑 한 줄 띄움(11-09 KiKO) — 빈 줄은 슬랙이 지워 '⠀' 빈 글자
     if last:
         hdr += [f'처리자 : {who}', f"처리 시간 : {_fmt_when(last['at'])}"]
         if last['result'] in ('rejected', 'cancelled') and last.get('reason'):
