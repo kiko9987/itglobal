@@ -563,6 +563,94 @@ def _dm_site_lines(data) -> list:
     return ([f'거래처명 : {partner}'] if partner else []) + ([f'사업자명 : {biz}'] if biz and biz != '-' else [])
 
 
+def _project_card_permalink(code: str) -> str:
+    """공사 확정 카드 permalink (없으면 '')."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        mapping = get_redis_client().redis.get(f'project_card_msg:{code}')
+        if mapping:
+            m = mapping if isinstance(mapping, str) else mapping.decode()
+            ch, ts = m.split('|', 1)
+            return _thread_permalink(ch, ts) or ''
+    except Exception:
+        pass
+    return ''
+
+
+_INFO_ALERT_FIELDS = ('현장 주소', '유입 구분')  # 이카운트에 같이 넣는 값 (2026-11-09 SB 요청)
+
+
+def _info_val(v) -> str:
+    """비교·표시용 — 공백 정리, 빈값·'-' 는 '-'."""
+    s = ' '.join(str(v if v is not None else '').split())
+    return s if s and s != '-' else '-'
+
+
+def notify_info_edit_to_settlement(code: str, field_changes: list,
+                                   editor_email: str = '',
+                                   editor_label: str = '',
+                                   latest_data: dict = None) -> bool:
+    """공사 현장 주소·유입 구분이 바뀌면 경영지원(SB)에게 알림 DM — 승인 없이 알림만 (2026-11-09).
+
+    SB 가 이카운트에 두 값을 같이 넣고 있어 원본이 바뀌면 ERP 도 고쳐야 함. 금액(요청→승인)과 달리
+    이미 반영된 변경을 알리기만 한다. 금액 알림과 다르게 KiKO 편집도 보냄(ERP 는 SB 가 고치므로).
+    빈 칸을 처음 채운 것도 보냄(이카운트에 빈 값으로 들어갔을 수 있음). SB 본인 편집·시스템 자동기록은 뺌.
+    경로: PM 직접 편집(projects.py PUT) · 시트 직접수정(리컨사일러) — 슬랙 수정 창엔 두 칸이 없음.
+    """
+    changes = [
+        c for c in (field_changes or [])
+        if c.get('field_name') in _INFO_ALERT_FIELDS
+        and _info_val(c.get('old_value')) != _info_val(c.get('new_value'))
+    ]
+    if not changes:
+        return False
+    if editor_label and editor_label.startswith('시스템 자동기록'):
+        return False
+    from dashboard.services.settlement_checkers import info_notice_ids
+    _to = info_notice_ids(editor_email)
+    if not _to:
+        return False
+    token = os.getenv('SLACK_BOT_TOKEN', '').strip()  # DM 은 im:write 있는 메인봇
+    if not token:
+        return False
+
+    lines = [f':information_source: *[공사 정보 변경 알림]*  `{code}`']
+    lines.extend(_dm_site_lines(latest_data))
+    if editor_label:
+        lines.append(f'변경 경로 : {editor_label}')
+    elif editor_email:
+        lines.append(f'변경자 : {editor_email.split("@")[0].upper()} (PM 직접 편집)')
+    for c in changes:
+        f = c['field_name']
+        lines.append(f'- {f}: {_info_val(c.get("old_value"))} → {_info_val(c.get("new_value"))}')
+    lines.append('')
+    lines.append('_이미 반영된 변경입니다(승인 필요 없음). 이카운트에도 고쳐 주세요._')
+    permalink = _project_card_permalink(code)
+    if permalink:
+        lines.append(f'<{permalink}|공사 확정 카드 보기>')
+    text = '\n'.join(lines)
+
+    try:
+        from slack_sdk import WebClient
+        dm = WebClient(token=token)
+        sent = 0
+        for uid in _to:
+            im = dm.conversations_open(users=uid)
+            dm_ch = ((im.get('channel') or {}) or {}).get('id')
+            if not dm_ch:
+                logger.warning(f'[PROJECT/SLACK/정보DM] IM 개설 실패 ({code}, {uid})')
+                continue
+            dm.chat_postMessage(channel=dm_ch, text=text, unfurl_links=False)
+            sent += 1
+        if sent:
+            logger.info(f'[PROJECT/SLACK/정보DM] 경영지원 알림 발송: {code} '
+                        f'({", ".join(c["field_name"] for c in changes)})')
+        return bool(sent)
+    except Exception as exc:
+        logger.warning(f'[PROJECT/SLACK/정보DM] 경영지원 DM 실패 ({code}): {exc}')
+        return False
+
+
 def notify_amount_edit_to_settlement(code: str, field_changes: list,
                                      editor_email: str = '',
                                      editor_label: str = '',
@@ -603,17 +691,7 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     if not token:
         return False
 
-    # 공사 확정 카드 permalink (있으면 첨부)
-    permalink = ''
-    try:
-        from dashboard.utils.redis_client import get_redis_client
-        mapping = get_redis_client().redis.get(f'project_card_msg:{code}')
-        if mapping:
-            m = mapping if isinstance(mapping, str) else mapping.decode()
-            ch, ts = m.split('|', 1)
-            permalink = _thread_permalink(ch, ts) or ''
-    except Exception:
-        permalink = ''
+    permalink = _project_card_permalink(code)
 
     lines = [f':rotating_light: *[공사 금액 변경 알림]*  `{code}`']
     lines.extend(_dm_site_lines(latest_data))   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)

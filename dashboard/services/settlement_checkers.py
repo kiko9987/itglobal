@@ -26,6 +26,12 @@ _OFFICE_EMAILS = frozenset({
     'kiko@itg-aircon.com',   # 고광일
 })
 
+# 공사 현장 주소·유입 구분 변경 알림(승인 없이 알림만) 받는 사람 — 2026-11-09 SB 요청.
+#   이카운트에 두 값을 같이 넣고 있어 원본이 바뀌면 ERP 도 고쳐야 함. SB 가 빠지면 이 줄을 바꾼다.
+_INFO_NOTICE_EMAILS = frozenset({
+    'sb@itg-aircon.com',     # 황샛별
+})
+
 
 def _env_list(name: str) -> list:
     return [x.strip() for x in os.getenv(name, '').split(',') if x.strip()]
@@ -45,6 +51,12 @@ def checker_emails() -> set:
 def is_office_editor(email: str) -> bool:
     """경영지원 담당(SB·KiKO)의 편집인지 — 영업 겸 승인자(JW·YG)는 아님."""
     return (email or '').strip().lower() in _OFFICE_EMAILS
+
+
+def info_notice_ids(exclude_email: str = '') -> list:
+    """주소·유입 구분 변경 알림 받을 슬랙 ID — 고친 본인은 뺌."""
+    me = (exclude_email or '').strip().lower()
+    return [cid for cid, em in checkers() if em in _INFO_NOTICE_EMAILS and em != me]
 
 
 def checkers() -> list:
