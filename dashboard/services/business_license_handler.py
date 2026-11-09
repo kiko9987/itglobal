@@ -1276,35 +1276,8 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
     if ocr_result:
         business_name = (ocr_result.get('name') or '')
         if business_name:
-            try:
-                biz_update_status, biz_update_existing = _maybe_update_business_name(code, business_name)
-            except Exception as exc:
-                logger.warning(f'[LICENSE/OCR] 사업자명 자동 반영 실패: {exc}')
-                biz_update_status = 'error'
-            # OCR 사업자명이 시트에 새로 저장됐으면 원본 공사 확정 카드도 재렌더 (2026-08-10).
-            # 위 배지 refresh(saved 블록)는 OCR 저장 전에 실행돼 사업자명='-' 상태로 카드가
-            # 그려짐 → 저장 후 한 번 더 갱신해 사업자명을 카드에 반영. 시트 실제값 기준
-            # (force_refresh) 으로 latest_data 주입해 캐시 지연 회피.
-            if biz_update_status == 'saved':
-                try:
-                    from dashboard.services.project_service import get_project_records
-                    from dashboard.services.project_slack_notifier import (
-                        refresh_project_card_license as _refresh_card,
-                    )
-                    _recs = get_project_records(force_refresh=True) or []
-                    _proj = next(
-                        (r for r in _recs
-                         if (r.get('프로젝트 코드') or '').strip() == code), None
-                    )
-                    if _proj:
-                        _refresh_card(
-                            code, latest_data=_proj,
-                            fallback_channel=channel, fallback_message_ts=thread_ts,
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        f'[LICENSE/OCR] 사업자명 반영 후 카드 갱신 실패 ({code}): {exc}'
-                    )
+            biz_update_status, biz_update_existing = _apply_ocr_business_name(
+                code, business_name, channel, thread_ts)
 
     return {
         'code': code, 'saved': saved, 'skipped': skipped,
@@ -1318,6 +1291,44 @@ def handle_thread_file_share(event: dict, slack_bot_token: str) -> Optional[dict
         'is_card': is_card,
         'ambiguous': ambiguous_any,
     }
+
+
+def _apply_ocr_business_name(code: str, business_name: str, channel, thread_ts) -> tuple:
+    """등록증 OCR 상호를 시트 사업자명에 반영(비어 있을 때만)하고, 새로 저장됐으면 카드도 다시 그림.
+
+    스레드 첨부 저장과 '폴더 등록 후 다시 저장'(retry_pending_license) 두 경로가 함께 쓴다.
+    다시 저장 경로엔 이 단계가 빠져 폴더를 나중에 넣은 공사는 사업자명이 '-'로 남았음
+    (2026-11-09 R4251-TH 계기). 반환: (status, existing) — _maybe_update_business_name 과 같음.
+    """
+    try:
+        status, existing = _maybe_update_business_name(code, business_name)
+    except Exception as exc:
+        logger.warning(f'[LICENSE/OCR] 사업자명 자동 반영 실패: {exc}')
+        return 'error', ''
+    # OCR 사업자명이 시트에 새로 저장됐으면 원본 공사 확정 카드도 재렌더 (2026-08-10).
+    # 앞선 배지 refresh 는 OCR 저장 전에 실행돼 사업자명='-' 상태로 카드가 그려짐 →
+    # 저장 후 한 번 더 갱신. 시트 실제값 기준(force_refresh)으로 latest_data 주입해 캐시 지연 회피.
+    if status == 'saved':
+        try:
+            from dashboard.services.project_service import get_project_records
+            from dashboard.services.project_slack_notifier import (
+                refresh_project_card_license as _refresh_card,
+            )
+            _recs = get_project_records(force_refresh=True) or []
+            _proj = next(
+                (r for r in _recs
+                 if (r.get('프로젝트 코드') or '').strip() == code), None
+            )
+            if _proj:
+                _refresh_card(
+                    code, latest_data=_proj,
+                    fallback_channel=channel, fallback_message_ts=thread_ts,
+                )
+        except Exception as exc:
+            logger.warning(
+                f'[LICENSE/OCR] 사업자명 반영 후 카드 갱신 실패 ({code}): {exc}'
+            )
+    return status, existing
 
 
 def retry_pending_license(code: str, folder_hint: str = '') -> dict:
@@ -1367,6 +1378,7 @@ def retry_pending_license(code: str, folder_hint: str = '') -> dict:
     thread_ts = pend.get('thread_ts')
     files = pend.get('files') or []
     saved = []
+    business_name = ''  # 첫 저장분 등록증 OCR 상호 → 사업자명 자동 반영 (2026-11-09)
     for f in files:
         name = f.get('name') or ''
         url = f.get('url') or ''
@@ -1375,9 +1387,19 @@ def retry_pending_license(code: str, folder_hint: str = '') -> dict:
             continue
         try:
             content = _download_slack_file(url, token)
-            r = save_business_license(code, content, name, mime, parent_override=parent)
+            # pending 은 첫 첨부 때 등록증으로 판별된 것만 들어옴 → 판별은 다시 안 하고 상호만 읽음
+            ocr_name = ''
+            try:
+                from dashboard.services.business_license_ocr import analyze_business_license
+                ocr_name = (analyze_business_license(content) or {}).get('name') or ''
+            except Exception as exc:
+                logger.warning(f'[LICENSE/재시도] OCR 예외 ({code}, {name}): {exc}')
+            r = save_business_license(code, content, name, mime, parent_override=parent,
+                                      ocr_biz=ocr_name)
             if r.get('ok'):
                 saved.append(r['file_name'])
+                if ocr_name and not business_name:
+                    business_name = ocr_name
             else:
                 logger.warning(f'[LICENSE/재시도] 저장 실패 ({code}, {name}): {r.get("reason")}')
         except Exception as exc:
@@ -1393,6 +1415,29 @@ def retry_pending_license(code: str, folder_hint: str = '') -> dict:
         refresh_project_card_license(code, fallback_channel=channel, fallback_message_ts=thread_ts)
     except Exception as exc:
         logger.warning(f'[LICENSE/재시도] 배지 갱신 실패 ({code}): {exc}')
+    # 사업자명 자동 반영 — 스레드 첨부 저장 경로와 같은 규칙(비어 있을 때만, 다르면 안내)
+    biz_lines = []
+    if business_name:
+        status, existing = _apply_ocr_business_name(code, business_name, channel, thread_ts)
+        result['biz_update_status'] = status
+        payer_label = ''
+        try:
+            payer_label = split_payer_label(code, business_name)
+        except Exception:
+            pass
+        if status == 'saved':
+            biz_lines.append(f':memo: OCR 자동 등록 — 사업자명: *{business_name}* (시트에 저장됨)')
+        elif payer_label:
+            biz_lines.append(f':memo: 나눠 내는 공사 — *{payer_label}* 부담자의 등록증으로 확인했습니다.')
+        elif status == 'mismatch':
+            biz_lines.append(
+                f':memo: 등록증 상호와 시트 사업자명이 달라요. 어느 쪽이 맞는지 확인해 주세요.\n'
+                f'  • 시트 사업자명: *{existing}*\n'
+                f'  • 등록증 상호: *{business_name}*')
+        elif status == 'error':
+            biz_lines.append(
+                f':memo: OCR 결과 — 사업자명 추정: *{business_name}*  '
+                f'_(자동 저장 실패 — 관리 페이지에서 확인 후 수동 입력하세요)_')
     # '저장 완료' 스레드 댓글
     if token and channel and thread_ts:
         try:
@@ -1400,7 +1445,8 @@ def retry_pending_license(code: str, folder_hint: str = '') -> dict:
             WebClient(token=token).chat_postMessage(
                 channel=channel, thread_ts=thread_ts,
                 text=(':white_check_mark: 폴더 경로 등록 확인 — 사업자등록증 자동 저장 완료\n'
-                      + '\n'.join(f'  • {fn}' for fn in saved)),
+                      + '\n'.join(f'  • {fn}' for fn in saved)
+                      + ''.join('\n' + ln for ln in biz_lines)),
                 unfurl_links=False,
             )
         except Exception as exc:
