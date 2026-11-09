@@ -951,7 +951,7 @@ def menu_blocks() -> List[dict]:
             '*전자결재 요청*\n'
             '• 거래처에 돈을 보내는 건(자재·외주·현장 비용, 회사 재고 자재 포함) → 💸 자금집행 요청\n'
             '• 경영지원이 대신 주문해 주는 사무용 비품 → 🛒 비품 신청\n'
-            '• 계약서·보증보험·카드결제·법인서류·개인경비·법인카드 지출결의 → 📋 다른 결재 요청\n'
+            '• 계약서·보증보험·카드결제·폐기물 처리·법인서류·개인경비·법인카드 지출결의 → 📋 다른 결재 요청\n'
             '• 재직·경력증명서 → 📜 증명서 신청 (본인과 경영지원만 봐요)\n'
             '• 내가 올린 요청이 어디까지 갔는지 → 📂 내 요청\n'
             '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}},
@@ -983,22 +983,36 @@ def _menu_btn(action_id: str, text: str, value: str = '') -> dict:
     return b
 
 
+def _form_btns(*keys: str) -> List[dict]:
+    out = []
+    for k in keys:
+        f = forms.get(k)
+        if f and f.menu:
+            out.append(_menu_btn(form_open_action_id(k), f'{f.emoji} {f.label}', value=k))
+    return out
+
+
 def hub_blocks() -> List[dict]:
     """창(워크플로·바로가기)·홈 탭용 메뉴 — 양식을 고르기 칸 대신 버튼으로 다 보여 준다(11-05).
     채널 고정 메시지(menu_blocks)는 폭이 좁아 고르기 칸을 그대로 둔다. 휴가는 별도 휴가 봇(slack_leave)."""
     return [
+        # 한 묶음에 버튼이 6개를 넘으면 슬랙이 [더 보기]로 접는다 — 양식이 7개가 돼 세 묶음으로 나눔(11-09 KiKO)
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*지급·구매 요청*'}},
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
             '• 자금집행: 거래처 대금 송금 (자재·외주·현장 비용, 회사 재고 자재 포함)\n'
-            '• 비품 신청: 사무용 비품 구매 (경영지원 주문)'}]},
+            '• 비품 신청: 사무용 비품 구매 (경영지원 주문)\n'
+            '• 개인경비: 본인 돈으로 먼저 쓴 비용 돌려받기'}]},
         {'type': 'actions', 'elements': [
             _menu_btn(A_NEW, '💸 자금집행 요청'),
-            _menu_btn(A_NEW_SUPPLY, '🛒 비품 신청')]},
+            _menu_btn(A_NEW_SUPPLY, '🛒 비품 신청'),
+            *_form_btns(forms.FORM_EXPENSE)]},
         {'type': 'divider'},
-        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*기타 결재*'}},
-        {'type': 'actions', 'elements': [
-            _menu_btn(form_open_action_id(o['value']), o['text']['text'], value=o['value'])
-            for o in forms.menu_options()]},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*공사 관련*'}},
+        {'type': 'actions', 'elements': _form_btns(forms.FORM_CONTRACT, forms.FORM_INSURANCE, forms.FORM_CARDPAY,
+                                                   forms.FORM_WASTE)},
+        {'type': 'divider'},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*회사 서류·정산*'}},
+        {'type': 'actions', 'elements': _form_btns(forms.FORM_CORPDOCS, forms.FORM_CARDEXP)},
         {'type': 'divider'},
         # 증명서(11-06) — 플렉스 「문서·증명서」 대체. 신청자·경영지원 DM 만(채널 카드 없음). 휴직·사직은 메뉴에 두지 않는다
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*인사*'}},
