@@ -16342,7 +16342,7 @@ def _invoice_amount_warning(code, amt_digits, vat_val, has_replace=False, stage=
         except Exception:
             pass
         if amt in _supplies:
-            return (f"⚠️ {amt:,}원은 공급가(부가세 빼고)로 보입니다. 'VAT 포함'으로 보내면 "
+            return (f"⚠️ {amt:,}원은 공급가(부가세 제외)로 보입니다. 'VAT 포함'으로 보내면 "
                     f"공급가 {round(amt / 1.1):,}원 + 부가세로 나뉘어 부가세만큼 덜 발행됩니다. "
                     f"공급가라면 'VAT 별도'로 바꾸세요.")
     # 공급가 → 발행액. 총액 비율로 환산하되, '현금 · 부가세 없음' 몫이 있는 나눠 내는 공사는 총액 2 가 줄어
